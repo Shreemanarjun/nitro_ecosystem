@@ -63,25 +63,41 @@ class KotlinGenerator {
 
     for (final func in spec.functions) {
       final retType = _toKotlinType(func.returnType.name);
-      final params = func.params
-          .map((p) => '${p.name}: ${_toKotlinType(p.type.name)}')
-          .join(', ');
-      s.writeln('    @JvmStatic external fun ${func.dartName}_jni($params): $retType');
+      final paramsDecl = func.params.map((p) => '${p.name}: ${_toKotlinType(p.type.name)}').join(', ');
+      final callParams = func.params.map((p) => p.name).join(', ');
+      
+      s.writeln('    @JvmStatic fun ${func.dartName}_call($paramsDecl): $retType {');
+      if (func.isAsync) {
+        s.writeln('        return kotlinx.coroutines.runBlocking {');
+        s.writeln('            implementation?.${func.dartName}($callParams) ?: ${_ktDefaultValue(func.returnType.name)}');
+        s.writeln('        }');
+      } else {
+        s.writeln('        return implementation?.${func.dartName}($callParams) ?: ${_ktDefaultValue(func.returnType.name)}');
+      }
+      s.writeln('    }');
     }
 
     for (final prop in spec.properties) {
       final kt = _toKotlinType(prop.type.name);
       if (prop.hasGetter) {
-        s.writeln('    @JvmStatic external fun ${prop.getSymbol}_jni(): $kt');
+        s.writeln('    @JvmStatic fun ${prop.getSymbol}_call(): $kt {');
+        s.writeln('        return implementation?.${prop.dartName} ?: ${_ktDefaultValue(prop.type.name)}');
+        s.writeln('    }');
       }
       if (prop.hasSetter) {
-        s.writeln('    @JvmStatic external fun ${prop.setSymbol}_jni(value: $kt): Unit');
+        s.writeln('    @JvmStatic fun ${prop.setSymbol}_call(value: $kt) {');
+        s.writeln('        implementation?.${prop.dartName} = value');
+        s.writeln('    }');
       }
     }
 
     for (final stream in spec.streams) {
-      s.writeln('    @JvmStatic external fun ${stream.registerSymbol}_jni(dartPort: Long): Unit');
-      s.writeln('    @JvmStatic external fun ${stream.releaseSymbol}_jni(): Unit');
+      s.writeln('    @JvmStatic fun ${stream.registerSymbol}_call(dartPort: Long) {');
+      s.writeln('        // TODO: collect Flow and send to SendPort via C');
+      s.writeln('    }');
+      s.writeln('    @JvmStatic fun ${stream.releaseSymbol}_call() {');
+      s.writeln('        // TODO: cancel Job');
+      s.writeln('    }');
     }
 
     s.writeln('}');
@@ -97,6 +113,16 @@ class KotlinGenerator {
       case 'void': return 'Unit';
       case 'Uint8List': return 'ByteArray';
       default: return 'Any?';
+    }
+  }
+
+  static String _ktDefaultValue(String t) {
+    switch (t.replaceFirst('?', '')) {
+      case 'int': return '0L';
+      case 'double': return '0.0';
+      case 'bool': return 'false';
+      case 'String': return '""';
+      default: return 'null';
     }
   }
 }

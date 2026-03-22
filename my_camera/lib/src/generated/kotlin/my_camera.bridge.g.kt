@@ -21,6 +21,12 @@ object MyCameraJniBridge {
         implementation = impl
     }
 
-    @JvmStatic external fun add_jni(a: Double, b: Double): Double
-    @JvmStatic external fun getGreeting_jni(name: String): String
+    @JvmStatic fun add_call(a: Double, b: Double): Double {
+        return implementation?.add(a, b) ?: 0.0
+    }
+    @JvmStatic fun getGreeting_call(name: String): String {
+        return kotlinx.coroutines.runBlocking {
+            implementation?.getGreeting(name) ?: ""
+        }
+    }
 }
