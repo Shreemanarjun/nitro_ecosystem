@@ -27,6 +27,8 @@ String boldGreen(String t) =>
     _s(t, const TextStyle(color: Colors.green, fontWeight: FontWeight.bold));
 String boldRed(String t) =>
     _s(t, const TextStyle(color: Colors.red, fontWeight: FontWeight.bold));
+String blue(String t) => _s(t, const TextStyle(color: Colors.blue));
+String magenta(String t) => _s(t, const TextStyle(color: Colors.magenta));
 
 // ── Process streaming ─────────────────────────────────────────────────────────
 

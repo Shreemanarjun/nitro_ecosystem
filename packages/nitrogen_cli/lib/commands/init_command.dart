@@ -3,6 +3,13 @@ import 'package:args/command_runner.dart';
 import 'package:nocterm/nocterm.dart';
 import 'package:path/path.dart' as p;
 
+// ── Result holder (survives runApp) ──────────────────────────────────────────
+
+class _InitResult {
+  bool success = false;
+  String? errorMessage;
+}
+
 // ── Progress model ────────────────────────────────────────────────────────────
 
 enum _StepState { pending, running, done, failed }
@@ -76,9 +83,10 @@ class _StepRow extends StatelessComponent {
 }
 
 class _InitApp extends StatefulComponent {
-  const _InitApp({required this.pluginName, required this.org});
+  const _InitApp({required this.pluginName, required this.org, required this.result});
   final String pluginName;
   final String org;
+  final _InitResult result;
 
   @override
   State<_InitApp> createState() => _InitAppState();
@@ -141,7 +149,6 @@ class _InitAppState extends State<_InitApp> {
     if (createResult.exitCode != 0) {
       await _setFailed(0, 'flutter create failed: ${createResult.stderr}');
       setState(() => _finished = true);
-      await Future<void>.delayed(const Duration(seconds: 2), () => shutdownApp(1));
       return;
     }
     await _setDone(0, detail: 'Created $pluginName/');
@@ -171,63 +178,78 @@ class _InitAppState extends State<_InitApp> {
     _writeBridgeSpec(pluginName, className);
     await _setDone(5, detail: 'lib/src/$pluginName.native.dart');
 
+    component.result.success = true;
     setState(() => _finished = true);
-    await Future<void>.delayed(const Duration(milliseconds: 300), () => shutdownApp(0));
   }
 
   @override
   Component build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.all(1),
-      child: Column(
-        children: [
-          // Header
-          Container(
-            decoration: BoxDecoration(border: BoxBorder.all(color: Colors.cyan)),
-            child: Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 2),
-              child: Text(
-                ' nitrogen init — ${component.pluginName} ',
-                style: const TextStyle(color: Colors.cyan, fontWeight: FontWeight.bold),
+    return Focusable(
+      focused: _finished,
+      onKeyEvent: (_) {
+        shutdownApp(_failed ? 1 : 0);
+        return true;
+      },
+      child: Padding(
+        padding: const EdgeInsets.all(1),
+        child: Column(
+          children: [
+            // Header
+            Container(
+              decoration: BoxDecoration(border: BoxBorder.all(color: Colors.cyan)),
+              child: Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 2),
+                child: Text(
+                  ' nitrogen init — ${component.pluginName} ',
+                  style: const TextStyle(color: Colors.cyan, fontWeight: FontWeight.bold),
+                ),
               ),
             ),
-          ),
-          const Padding(padding: EdgeInsets.only(bottom: 1), child: Text('')),
+            const Padding(padding: EdgeInsets.only(bottom: 1), child: Text('')),
 
-          // Steps
-          Container(
-            decoration: BoxDecoration(border: BoxBorder.all(color: Colors.brightBlack)),
-            child: Padding(
-              padding: const EdgeInsets.all(1),
-              child: Column(children: _steps.map(_StepRow.new).toList()),
+            // Steps
+            Container(
+              decoration: BoxDecoration(border: BoxBorder.all(color: Colors.brightBlack)),
+              child: Padding(
+                padding: const EdgeInsets.all(1),
+                child: Column(children: _steps.map(_StepRow.new).toList()),
+              ),
             ),
-          ),
 
-          // Footer
-          if (_finished)
-            Padding(
-              padding: const EdgeInsets.only(top: 1),
-              child: _failed
-                  ? Text('✘ Scaffolding failed: ${_errorMessage ?? ""}',
-                      style: const TextStyle(
-                          color: Colors.red, fontWeight: FontWeight.bold))
-                  : Column(
-                      children: [
-                        const Text('✨ Done! Next steps:',
-                            style: TextStyle(
-                                color: Colors.green, fontWeight: FontWeight.bold)),
-                        Text(
-                          '  1. Edit lib/src/${component.pluginName}.native.dart\n'
-                          '  2. Run: nitrogen generate\n'
-                          '  3. Run: nitrogen link\n'
-                          '  4. Implement Hybrid${_toClassName(component.pluginName)}Spec in Kotlin & Swift\n'
-                          '  5. Run: nitrogen doctor',
-                          style: const TextStyle(color: Colors.gray),
-                        ),
-                      ],
-                    ),
-            ),
-        ],
+            // Footer
+            if (_finished)
+              Padding(
+                padding: const EdgeInsets.only(top: 1),
+                child: _failed
+                    ? Text('✘ Scaffolding failed: ${_errorMessage ?? ""}',
+                        style: const TextStyle(
+                            color: Colors.red, fontWeight: FontWeight.bold))
+                    : Column(
+                        children: [
+                          const Text('✨ Done! Next steps:',
+                              style: TextStyle(
+                                  color: Colors.green, fontWeight: FontWeight.bold)),
+                          Text(
+                            '  1. Edit lib/src/${component.pluginName}.native.dart\n'
+                            '  2. Run: nitrogen generate\n'
+                            '  3. Run: nitrogen link\n'
+                            '  4. Implement Hybrid${_toClassName(component.pluginName)}Spec in Kotlin & Swift\n'
+                            '  5. Run: nitrogen doctor',
+                            style: const TextStyle(color: Colors.gray),
+                          ),
+                        ],
+                      ),
+              ),
+            if (_finished)
+              const Padding(
+                padding: EdgeInsets.only(top: 1),
+                child: Text(
+                  'Press any key to exit',
+                  style: TextStyle(color: Colors.gray, fontWeight: FontWeight.dim),
+                ),
+              ),
+          ],
+        ),
       ),
     );
   }
@@ -499,6 +521,16 @@ class InitCommand extends Command {
       exit(1);
     }
 
-    await runApp(_InitApp(pluginName: pluginName, org: org));
+    final result = _InitResult();
+    await runApp(_InitApp(pluginName: pluginName, org: org, result: result));
+
+    if (result.success) {
+      stdout.writeln('');
+      stdout.writeln('  \x1B[1;32m✨ ${pluginName} created\x1B[0m  — cd $pluginName && nitrogen generate');
+      stdout.writeln('');
+    } else if (result.errorMessage != null) {
+      stderr.writeln('  \x1B[1;31m✘  ${result.errorMessage}\x1B[0m');
+      exit(1);
+    }
   }
 }

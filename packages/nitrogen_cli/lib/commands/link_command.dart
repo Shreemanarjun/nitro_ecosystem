@@ -75,11 +75,18 @@ class _StepRow extends StatelessComponent {
   }
 }
 
+// ── Result holder ─────────────────────────────────────────────────────────────
+
+class _LinkResult {
+  bool success = false;
+}
+
 // ── nocterm Link component ────────────────────────────────────────────────────
 
 class _LinkApp extends StatefulComponent {
-  const _LinkApp({required this.pluginName});
+  const _LinkApp({required this.pluginName, required this.result});
   final String pluginName;
+  final _LinkResult result;
 
   @override
   State<_LinkApp> createState() => _LinkAppState();
@@ -164,52 +171,66 @@ class _LinkAppState extends State<_LinkApp> {
       'Implement generated Hybrid*Spec interfaces in Kotlin/Swift',
     ]);
 
+    component.result.success = !_failed;
     setState(() => _finished = true);
-    await Future<void>.delayed(const Duration(milliseconds: 300),
-        () => shutdownApp(_failed ? 1 : 0));
   }
 
   @override
   Component build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.all(1),
-      child: Column(
-        children: [
-          Container(
-            decoration: BoxDecoration(border: BoxBorder.all(color: Colors.cyan)),
-            child: Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 2),
-              child: Text(
-                ' nitrogen link — ${component.pluginName} ',
-                style: const TextStyle(color: Colors.cyan, fontWeight: FontWeight.bold),
+    return Focusable(
+      focused: _finished,
+      onKeyEvent: (_) {
+        shutdownApp(_failed ? 1 : 0);
+        return true;
+      },
+      child: Padding(
+        padding: const EdgeInsets.all(1),
+        child: Column(
+          children: [
+            Container(
+              decoration: BoxDecoration(border: BoxBorder.all(color: Colors.cyan)),
+              child: Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 2),
+                child: Text(
+                  ' nitrogen link — ${component.pluginName} ',
+                  style: const TextStyle(color: Colors.cyan, fontWeight: FontWeight.bold),
+                ),
               ),
             ),
-          ),
-          const Padding(padding: EdgeInsets.only(bottom: 1), child: Text('')),
-          Container(
-            decoration: BoxDecoration(border: BoxBorder.all(color: Colors.brightBlack)),
-            child: Padding(
-              padding: const EdgeInsets.all(1),
-              child: Column(children: _steps.map(_StepRow.new).toList()),
+            const Padding(padding: EdgeInsets.only(bottom: 1), child: Text('')),
+            Container(
+              decoration: BoxDecoration(border: BoxBorder.all(color: Colors.brightBlack)),
+              child: Padding(
+                padding: const EdgeInsets.all(1),
+                child: Column(children: _steps.map(_StepRow.new).toList()),
+              ),
             ),
-          ),
-          if (_finished && !_failed)
-            Padding(
-              padding: const EdgeInsets.only(top: 1),
-              child: Column(
-                children: [
-                  const Text('✨ Linked! Next steps:',
-                      style: TextStyle(color: Colors.green, fontWeight: FontWeight.bold)),
-                  ..._nextSteps.asMap().entries.map(
-                        (e) => Text(
-                          '  ${e.key + 1}. ${e.value}',
-                          style: const TextStyle(color: Colors.gray),
+            if (_finished && !_failed)
+              Padding(
+                padding: const EdgeInsets.only(top: 1),
+                child: Column(
+                  children: [
+                    const Text('✨ Linked! Next steps:',
+                        style: TextStyle(color: Colors.green, fontWeight: FontWeight.bold)),
+                    ..._nextSteps.asMap().entries.map(
+                          (e) => Text(
+                            '  ${e.key + 1}. ${e.value}',
+                            style: const TextStyle(color: Colors.gray),
+                          ),
                         ),
-                      ),
-                ],
+                  ],
+                ),
               ),
-            ),
-        ],
+            if (_finished)
+              const Padding(
+                padding: EdgeInsets.only(top: 1),
+                child: Text(
+                  'Press any key to exit',
+                  style: TextStyle(color: Colors.gray, fontWeight: FontWeight.dim),
+                ),
+              ),
+          ],
+        ),
       ),
     );
   }
@@ -439,7 +460,14 @@ class LinkCommand extends Command {
       exit(1);
     }
     final pluginName = _getPluginName(pubspecFile);
-    await runApp(_LinkApp(pluginName: pluginName));
+    final result = _LinkResult();
+    await runApp(_LinkApp(pluginName: pluginName, result: result));
+
+    if (result.success) {
+      stdout.writeln('');
+      stdout.writeln('  \x1B[1;32m✨ $pluginName linked\x1B[0m  — run: flutter pub get && nitrogen generate');
+      stdout.writeln('');
+    }
   }
 
   String _getPluginName(File pubspec) {

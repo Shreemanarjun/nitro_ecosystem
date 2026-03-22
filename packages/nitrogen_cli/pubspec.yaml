@@ -1,6 +1,6 @@
 name: nitrogen_cli
 description: "CLI for Nitrogen Modules. Scaffold new Flutter FFI plugins and generate native bridge code."
-version: 0.1.0
+version: 0.1.4
 
 environment:
   sdk: ^3.4.0

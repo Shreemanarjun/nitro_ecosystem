@@ -133,64 +133,71 @@ class _DoctorApp extends StatefulComponent {
 
 class _DoctorAppState extends State<_DoctorApp> {
   @override
-  void initState() {
-    super.initState();
-    // Allow first frame to render before exiting
-    Future<void>.delayed(const Duration(milliseconds: 80), () {
-      shutdownApp(component.errors > 0 ? 1 : 0);
-    });
-  }
-
-  @override
   Component build(BuildContext context) {
     final bool healthy = component.errors == 0 && component.warnings == 0;
 
-    return Padding(
-      padding: const EdgeInsets.all(1),
-      child: Column(
-        children: [
-          // ── Header ──────────────────────────────────────────────────────
-          Container(
-            decoration: BoxDecoration(
-              border: BoxBorder.all(color: Colors.cyan),
-            ),
-            child: Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 2, vertical: 0),
-              child: Text(
-                ' nitrogen doctor — ${component.pluginName} ',
-                style: const TextStyle(
-                  color: Colors.cyan,
-                  fontWeight: FontWeight.bold,
+    return Focusable(
+      focused: true,
+      onKeyEvent: (_) {
+        shutdownApp(component.errors > 0 ? 1 : 0);
+        return true;
+      },
+      child: Padding(
+        padding: const EdgeInsets.all(1),
+        child: Column(
+          children: [
+            // ── Header ────────────────────────────────────────────────────
+            Container(
+              decoration: BoxDecoration(
+                border: BoxBorder.all(color: Colors.cyan),
+              ),
+              child: Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 2, vertical: 0),
+                child: Text(
+                  ' nitrogen doctor — ${component.pluginName} ',
+                  style: const TextStyle(
+                    color: Colors.cyan,
+                    fontWeight: FontWeight.bold,
+                  ),
                 ),
               ),
             ),
-          ),
-          const Padding(padding: EdgeInsets.only(bottom: 1), child: Text('')),
+            const Padding(padding: EdgeInsets.only(bottom: 1), child: Text('')),
 
-          // ── Sections ────────────────────────────────────────────────────
-          ...component.sections.map(_SectionBox.new),
+            // ── Sections ──────────────────────────────────────────────────
+            ...component.sections.map(_SectionBox.new),
 
-          // ── Summary ─────────────────────────────────────────────────────
-          Padding(
-            padding: const EdgeInsets.only(top: 1),
-            child: Text(
-              healthy
-                  ? '✨ All checks passed.'
-                  : component.errors > 0
-                      ? '✘  ${component.errors} error(s)'
-                          '${component.warnings > 0 ? ', ${component.warnings} warning(s)' : ''}.'
-                      : '⚠  ${component.warnings} warning(s).',
-              style: TextStyle(
-                fontWeight: FontWeight.bold,
-                color: healthy
-                    ? Colors.green
+            // ── Summary ───────────────────────────────────────────────────
+            Padding(
+              padding: const EdgeInsets.only(top: 1),
+              child: Text(
+                healthy
+                    ? '✨ All checks passed.'
                     : component.errors > 0
-                        ? Colors.red
-                        : Colors.yellow,
+                        ? '✘  ${component.errors} error(s)'
+                            '${component.warnings > 0 ? ', ${component.warnings} warning(s)' : ''}.'
+                        : '⚠  ${component.warnings} warning(s).',
+                style: TextStyle(
+                  fontWeight: FontWeight.bold,
+                  color: healthy
+                      ? Colors.green
+                      : component.errors > 0
+                          ? Colors.red
+                          : Colors.yellow,
+                ),
               ),
             ),
-          ),
-        ],
+
+            // ── Dismiss hint ──────────────────────────────────────────────
+            const Padding(
+              padding: EdgeInsets.only(top: 1),
+              child: Text(
+                'Press any key to exit',
+                style: TextStyle(color: Colors.gray, fontWeight: FontWeight.dim),
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -497,6 +504,17 @@ class DoctorCommand extends Command {
       errors: errors,
       warnings: warnings,
     ));
+
+    // Print persistent one-liner after TUI exits
+    if (errors == 0 && warnings == 0) {
+      stdout.writeln('  \x1B[1;32m✨ $pluginName — all checks passed\x1B[0m');
+    } else if (errors > 0) {
+      stdout.writeln('  \x1B[1;31m✘  $pluginName — $errors error(s)'
+          '${warnings > 0 ? ", $warnings warning(s)" : ""}\x1B[0m');
+    } else {
+      stdout.writeln('  \x1B[1;33m⚠  $pluginName — $warnings warning(s)\x1B[0m');
+    }
+    stdout.writeln('');
 
     exit(errors > 0 ? 1 : 0);
   }
