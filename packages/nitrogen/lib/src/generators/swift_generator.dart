@@ -94,11 +94,12 @@ class SwiftGenerator {
     }
 
     for (final stream in spec.streams) {
-      s.writeln('    // Stream: ${stream.dartName} — register sends items to Dart via SendPort');
+      final cType = _toSwiftCType(stream.itemType.name);
+      s.writeln('    // Stream: ${stream.dartName} — register with C callback');
       s.writeln('    private static var _${stream.dartName}Cancellable: AnyCancellable?');
-      s.writeln('    @objc public static func _register_${stream.dartName}_stream(_ dartPort: Int64) {');
+      s.writeln('    @objc public static func _register_${stream.dartName}_stream(_ dartPort: Int64, _ emitCb: @escaping @convention(c) (Int64, $cType) -> Void) {');
       s.writeln('        _${stream.dartName}Cancellable = impl?.${stream.dartName}.sink { item in');
-      s.writeln('            _emit_${stream.dartName}_to_dart(dartPort, item)');
+      s.writeln('            emitCb(dartPort, item)');
       s.writeln('        }');
       s.writeln('    }');
       s.writeln('    @objc public static func _release_${stream.dartName}_stream() {');
@@ -108,13 +109,6 @@ class SwiftGenerator {
     }
 
     s.writeln('}');
-    s.writeln();
-    s.writeln('// C-bridge declaration to jump back to C++ shim');
-    for (final stream in spec.streams) {
-      final swiftType = _toSwiftType(stream.itemType.name);
-      s.writeln('@_silgen_name("_emit_${stream.dartName}_to_dart")');
-      s.writeln('public func _emit_${stream.dartName}_to_dart(_ dartPort: Int64, _ item: $swiftType)');
-    }
     return s.toString();
   }
 
@@ -126,6 +120,18 @@ class SwiftGenerator {
       case 'String': return 'String';
       case 'void': return 'Void';
       case 'Uint8List': return 'Data';
+      default: return 'Any?';
+    }
+  }
+
+  static String _toSwiftCType(String t) {
+    switch (t.replaceFirst('?', '')) {
+      case 'int': return 'Int64';
+      case 'double': return 'Double';
+      case 'bool': return 'Bool';
+      case 'String': return 'UnsafeMutablePointer<Int8>?';
+      case 'void': return 'Void';
+      case 'Uint8List': return 'UnsafeMutablePointer<UInt8>?';
       default: return 'Any?';
     }
   }
