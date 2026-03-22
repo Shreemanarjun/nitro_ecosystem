@@ -190,7 +190,8 @@ StreamBuilder<SensorReading>(
 )
 ```
 
-Always cancel your subscription when the widget is disposed:
+Always cancel your subscription when the widget is disposed (this also stops the
+native emitter and frees the `ReceivePort`):
 
 ```dart
 StreamSubscription<SensorReading>? _sub;
@@ -293,6 +294,11 @@ sensor.readings.listen((reading) {
 ```
 
 The plugin documentation will note which fields are zero-copy.
+
+> **Hot restart note:** Nitrogen attaches a `Finalizer` to every stream so that
+> if `cancel()` is never called (e.g. app is hot-restarted mid-listen), the
+> native emitter is still stopped automatically. See
+> [docs/lifecycle.md](lifecycle.md) for the full explanation.
 
 ---
 

@@ -64,7 +64,10 @@ nitro_ecosystem/
 │   └── nitrogen_cli/     CLI tool  (nitrogen init / generate / link / doctor)
 ├── my_camera/            Reference plugin — zero-copy camera frames at 30fps
 └── docs/
-    └── getting-started.md   Step-by-step guide for plugin authors
+    ├── getting-started.md   Step-by-step guide for plugin authors
+    ├── consuming.md         How app developers use a Nitrogen plugin
+    ├── publishing.md        How to release a plugin to pub.dev
+    └── lifecycle.md         NativeFinalizer, NativeCallable, hot restart safety
 ```
 
 ---
@@ -76,6 +79,7 @@ nitro_ecosystem/
 | [Getting started](docs/getting-started.md) | Plugin author — build a plugin from scratch |
 | [Consuming a plugin](docs/consuming.md) | App developer — add and use a Nitrogen plugin |
 | [Publishing to pub.dev](docs/publishing.md) | Plugin author — release and version your plugin |
+| [Lifecycle and resource management](docs/lifecycle.md) | Plugin author — NativeFinalizer, NativeCallable.listener, hot restart safety |
 
 ---
 
