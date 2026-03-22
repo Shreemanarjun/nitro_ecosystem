@@ -1,0 +1,103 @@
+# Nitrogen — Zero-overhead FFI Plugins for Flutter
+
+Write one `.native.dart` spec file. Get type-safe Kotlin, Swift, C++, and Dart FFI — all generated.
+
+No method channels. No JSON serialization. No copies.
+
+---
+
+## Quick demo
+
+```dart
+// lib/src/math.native.dart  ← you write this (32 lines)
+@NitroModule(ios: NativeImpl.swift, android: NativeImpl.kotlin)
+abstract class Math extends HybridObject {
+  static final Math instance = _MathImpl(NitroRuntime.loadLib('math'));
+
+  double add(double a, double b);
+
+  @nitroAsync
+  Future<String> processExpression(String expr);
+
+  @NitroStream(backpressure: Backpressure.dropLatest)
+  Stream<SensorReading> get readings;
+}
+```
+
+```sh
+nitrogen generate
+```
+
+```
+✓  lib/src/math.g.dart                    Dart FFI implementation
+✓  lib/src/generated/kotlin/math.bridge.g.kt    Kotlin JNI bridge + interface
+✓  lib/src/generated/swift/math.bridge.g.swift  Swift @_cdecl bridge + protocol
+✓  lib/src/generated/cpp/math.bridge.g.h        C header
+✓  lib/src/generated/cpp/math.bridge.g.cpp      C++ JNI + Apple bridge
+✓  lib/src/generated/cmake/math.CMakeLists.g.txt CMake fragment
+```
+
+You fill in `MathImpl.kt` and `MathImpl.swift`. App calls `Math.instance.add(1, 2)`. Done.
+
+---
+
+## Why Nitrogen?
+
+| | Method Channel | FFI (manual) | Nitrogen |
+|---|---|---|---|
+| Overhead per call | ~0.3 ms | ~0 ms | ~0 ms |
+| Type safety | stringly-typed | manual | generated, strict |
+| Async support | yes | manual isolates | generated |
+| Streams | slow | manual SendPort | zero-copy |
+| Zero-copy buffers | no | manual | via `@HybridStruct` |
+| Code to write | lots | enormous | one spec file |
+
+---
+
+## Repository layout
+
+```
+nitro_ecosystem/
+├── packages/
+│   ├── nitro/            Runtime — base classes, annotations, FFI helpers
+│   ├── nitrogen/         build_runner code generator
+│   └── nitrogen_cli/     CLI tool  (nitrogen init / generate / link / doctor)
+├── my_camera/            Reference plugin — zero-copy camera frames at 30fps
+└── docs/
+    └── getting-started.md   Step-by-step guide for plugin authors
+```
+
+---
+
+## Getting started
+
+See **[docs/getting-started.md](docs/getting-started.md)** for a complete walkthrough — from `nitrogen init` to a running plugin on both platforms.
+
+---
+
+## Package overview
+
+| Package | Role | Add to |
+|---|---|---|
+| [`nitro`](packages/nitro/README.md) | Runtime dependency | plugin `dependencies:` |
+| [`nitrogen`](packages/nitrogen/README.md) | build_runner generator | plugin `dev_dependencies:` |
+| [`nitrogen_cli`](packages/nitrogen_cli/README.md) | CLI (`generate`, `init`, `link`, `doctor`) | `dart pub global activate` |
+
+---
+
+## Reference plugin
+
+[`my_camera`](my_camera/README.md) is a production-quality plugin that demonstrates every Nitrogen feature:
+
+- Synchronous FFI call (`add`)
+- Async native call (`getGreeting`)
+- Zero-copy struct stream (`frames` at 30fps)
+- `@HybridStruct` with `DirectByteBuffer` / `UnsafeMutablePointer` zero-copy fields
+
+Use it as a template or read its source when you need a working example.
+
+---
+
+## License
+
+MIT

@@ -70,6 +70,83 @@ Ensures the native build files (CMake, Podspec) are correctly linked to Nitrogen
 nitrogen link
 ```
 
+**What it wires:**
+- Adds `include(...)` for each generated `.CMakeLists.g.txt` into `src/CMakeLists.txt`
+- Adds `System.loadLibrary("...")` to the Android `Plugin.kt`
+- Adds `HEADER_SEARCH_PATHS` pointing to `lib/src/generated/cpp/` in the iOS `.podspec`
+
+### `nitrogen doctor`
+
+Checks that all generated files are present and up to date, and that the build system is correctly wired. Safe to run at any time — read-only, no files are changed.
+
+```sh
+# From your plugin root:
+nitrogen doctor
+```
+
+**What it checks (per `*.native.dart` spec):**
+
+| Check | Pass | Fail |
+|---|---|---|
+| Generated `.g.dart` exists | ✔ | `MISSING` → run `nitrogen generate` |
+| Generated `.bridge.g.kt` exists | ✔ | `MISSING` → run `nitrogen generate` |
+| Generated `.bridge.g.swift` exists | ✔ | `MISSING` → run `nitrogen generate` |
+| Generated `.bridge.g.h` exists | ✔ | `MISSING` → run `nitrogen generate` |
+| Generated `.bridge.g.cpp` exists | ✔ | `MISSING` → run `nitrogen generate` |
+| Generated `.CMakeLists.g.txt` exists | ✔ | `MISSING` → run `nitrogen generate` |
+| No generated file is older than its spec | ✔ | `STALE` → run `nitrogen generate` |
+| `add_library(lib)` in `src/CMakeLists.txt` | ✔ | `MISSING` → run `nitrogen link` |
+| `System.loadLibrary("lib")` in `Plugin.kt` | ✔ | `MISSING` → run `nitrogen link` |
+| `HEADER_SEARCH_PATHS` in `.podspec` | ✔ | `MISSING` → run `nitrogen link` |
+
+**Example output (healthy plugin):**
+
+```
+Checking my_sensor...
+  ✔  lib/src/my_sensor.g.dart
+  ✔  lib/src/generated/kotlin/my_sensor.bridge.g.kt
+  ✔  lib/src/generated/swift/my_sensor.bridge.g.swift
+  ✔  lib/src/generated/cpp/my_sensor.bridge.g.h
+  ✔  lib/src/generated/cpp/my_sensor.bridge.g.cpp
+  ✔  lib/src/generated/cmake/my_sensor.CMakeLists.g.txt
+
+Checking CMakeLists.txt...
+  ✔  add_library(my_sensor) in src/CMakeLists.txt
+
+Checking android Plugin.kt...
+  ✔  System.loadLibrary("my_sensor") in Plugin.kt
+
+Checking iOS podspec...
+  ✔  HEADER_SEARCH_PATHS in my_sensor.podspec
+
+my_sensor is healthy — all checks passed.
+```
+
+**Example output (with issues):**
+
+```
+Checking my_sensor...
+  ✘  MISSING  lib/src/my_sensor.g.dart
+       → run: nitrogen generate
+  ✘  STALE   lib/src/generated/kotlin/my_sensor.bridge.g.kt
+       → spec is newer than generated file — run build_runner
+
+1 error(s) found.
+```
+
+**Exit codes:** `0` = all checks pass, `1` = one or more errors (suitable for CI).
+
+**Recommended CI usage:**
+
+```yaml
+# .github/workflows/build.yml
+- name: Check Nitrogen health
+  run: |
+    dart pub global activate --source path packages/nitrogen_cli
+    cd my_sensor
+    nitrogen doctor
+```
+
 ---
 
 ## Complex Specification Example
@@ -126,5 +203,6 @@ abstract class ComplexModule extends HybridObject {
 
 ## Related packages
 
-- **[nitro](file:///Users/shreemanarjunsahu/personal/flutter_package/nitro_ecosystem/packages/nitro)** — Runtime (base classes, annotations, helpers)
-- **[nitrogen](file:///Users/shreemanarjunsahu/personal/flutter_package/nitro_ecosystem/packages/nitrogen)** — build_runner code generator
+- **[nitro](../nitro/README.md)** — Runtime (base classes, annotations, helpers)
+- **[nitrogen](../nitrogen/README.md)** — build_runner code generator
+- **[Getting started guide](../../docs/getting-started.md)** — step-by-step walkthrough for plugin authors
