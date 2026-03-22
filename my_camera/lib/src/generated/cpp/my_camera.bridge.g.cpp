@@ -65,6 +65,26 @@ const char* my_camera_get_greeting(const char* name) {
     return result;
 }
 
+void my_camera_register_frames_stream(int64_t dartPort) {
+    JNIEnv* env = GetEnv();
+    if (env == nullptr) return;
+    jmethodID methodId = env->GetStaticMethodID(g_bridgeClass, "my_camera_register_frames_stream_call", "(J)V");
+    if (methodId != nullptr) env->CallStaticVoidMethod(g_bridgeClass, methodId, dartPort);
+}
+
+void my_camera_release_frames_stream(int64_t dartPort) {
+    JNIEnv* env = GetEnv();
+    if (env == nullptr) return;
+    jmethodID methodId = env->GetStaticMethodID(g_bridgeClass, "my_camera_release_frames_stream_call", "(J)V");
+    if (methodId != nullptr) env->CallStaticVoidMethod(g_bridgeClass, methodId, dartPort);
+}
+
+JNIEXPORT void JNICALL Java_nitro_mycamera_module_MyCameraJniBridge_00024emit_frames(JNIEnv* env, jobject thiz, jlong dartPort, jobject item) {
+    Dart_CObject obj;
+    obj.type = Dart_CObject_kNull;
+    Dart_PostCObject_DL(dartPort, &obj);
+}
+
 } // extern "C"
 #elif __APPLE__
 // --- iOS Swift C-Bridge Proxy Implementation ---
@@ -79,6 +99,22 @@ double my_camera_add(double a, double b) {
 extern const char* _call_getGreeting(const char* name);
 const char* my_camera_get_greeting(const char* name) {
     return _call_getGreeting(name);
+}
+
+// Called by Swift via @_cdecl to drop stream items into Dart Isolate
+void _emit_frames_to_dart(int64_t dartPort, void* item) {
+    Dart_CObject obj;
+    obj.type = Dart_CObject_kNull;
+    Dart_PostCObject_DL(dartPort, &obj);
+}
+
+extern void _register_frames_stream(int64_t dartPort, void (*emitCb)(int64_t, void*));
+void my_camera_register_frames_stream(int64_t dartPort) {
+    _register_frames_stream(dartPort, _emit_frames_to_dart);
+}
+extern void _release_frames_stream(int64_t dartPort);
+void my_camera_release_frames_stream(int64_t dartPort) {
+    _release_frames_stream(dartPort);
 }
 
 } // extern "C"

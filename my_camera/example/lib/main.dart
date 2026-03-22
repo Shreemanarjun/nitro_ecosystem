@@ -46,6 +46,32 @@ class _MyAppState extends State<MyApp> {
               Text('Sync Result: 10 + 20 = $_result'),
               const SizedBox(height: 16),
               Text('Async Result: $_greeting'),
+              const SizedBox(height: 32),
+              const Text('Stream Yields:', style: TextStyle(fontWeight: FontWeight.bold)),
+              StreamBuilder<CameraFrame>(
+                stream: MyCamera.instance.frames,
+                builder: (context, snapshot) {
+                  if (snapshot.hasError) return Text('Error: ${snapshot.error}');
+                  if (!snapshot.hasData) return const CircularProgressIndicator();
+                  final f = snapshot.data!;
+                  return Column(
+                    children: [
+                      Text(
+                        '${f.width} × ${f.height}  stride=${f.stride}',
+                        style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
+                      ),
+                      Text(
+                        'ts=${(f.timestampNs / 1e9).toStringAsFixed(3)} s',
+                        style: const TextStyle(fontSize: 14, color: Colors.grey),
+                      ),
+                      Text(
+                        '${(f.stride * f.height / 1024).toStringAsFixed(1)} KB  (zero-copy)',
+                        style: const TextStyle(fontSize: 14, color: Colors.blueAccent),
+                      ),
+                    ],
+                  );
+                },
+              ),
             ],
           ),
         ),

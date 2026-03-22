@@ -4,6 +4,10 @@ package nitro.mycamera_module
 import androidx.annotation.Keep
 import kotlinx.coroutines.flow.Flow
 
+// --- Structs ---
+@Keep
+data class CameraFrame(val data: java.nio.ByteBuffer, val width: Long, val height: Long, val stride: Long, val timestampNs: Long)
+
 /**
  * Contract for the [MyCamera] module.
  * Implement this in your Kotlin source code.
@@ -11,6 +15,7 @@ import kotlinx.coroutines.flow.Flow
 interface HybridMyCameraSpec {
     fun add(a: Double, b: Double): Double
     suspend fun getGreeting(name: String): String
+    val frames: Flow<Any?>
 }
 
 @Keep
@@ -31,4 +36,17 @@ object MyCameraJniBridge {
     }
     private val _streamJobs = mutableMapOf<Long, kotlinx.coroutines.Job>()
 
+    @JvmStatic external fun emit_frames(dartPort: Long, item: Any?): Unit
+
+    @JvmStatic fun my_camera_register_frames_stream_call(dartPort: Long) {
+        val flow = implementation?.frames ?: return
+        _streamJobs[dartPort] = kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.Default).launch {
+            flow.collect { item -> 
+                emit_frames(dartPort, item)
+            }
+        }
+    }
+    @JvmStatic fun my_camera_release_frames_stream_call(dartPort: Long) {
+        _streamJobs.remove(dartPort)?.cancel()
+    }
 }

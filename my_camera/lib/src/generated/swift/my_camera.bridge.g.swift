@@ -2,6 +2,15 @@
 import Foundation
 import Combine
 
+// --- Structs ---
+public struct CameraFrame {
+  public var data: UnsafeMutablePointer<UInt8>?
+  public var width: Int64
+  public var height: Int64
+  public var stride: Int64
+  public var timestampNs: Int64
+}
+
 /**
  * Protocol for the MyCamera module.
  * Conform to this in your Swift source code.
@@ -9,6 +18,7 @@ import Combine
 public protocol HybridMyCameraProtocol: AnyObject {
     func add(a: Double, b: Double) -> Double
     func getGreeting(name: String) async throws -> String
+    var frames: AnyPublisher<Any?, Never> { get }
 }
 
 @objc
@@ -25,5 +35,16 @@ public class MyCameraRegistry: NSObject {
     }
     @objc public static func _call_getGreeting(_ name: String) -> String {
         return impl?.getGreeting(name: name) ?? ""
+    }
+    // Stream: frames — register with C callback
+    private static var _framesCancellables = [Int64: AnyCancellable]()
+    @objc public static func _register_frames_stream(_ dartPort: Int64, _ emitCb: @escaping @convention(c) (Int64, Any?) -> Void) {
+        _framesCancellables[dartPort] = impl?.frames.sink { item in
+            emitCb(dartPort, item)
+        }
+    }
+    @objc public static func _release_frames_stream(_ dartPort: Int64) {
+        _framesCancellables[dartPort]?.cancel()
+        _framesCancellables.removeValue(forKey: dartPort)
     }
 }

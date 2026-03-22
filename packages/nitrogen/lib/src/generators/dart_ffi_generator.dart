@@ -99,11 +99,21 @@ class DartFfiGenerator {
     for (final stream in spec.streams) {
       final cap = _cap(stream.dartName);
       final itemType = stream.itemType.name;
+      // Is the item type a known primitive, or a @HybridStruct?
+      final isStruct = spec.structs.any((st) => st.name == itemType);
+      final unpackExpr = isStruct
+          // Struct: rawPtr is the native pointer address (int).
+          // Cast to Pointer<_XxxFfi>, ref it, then lift to Dart.
+          ? '(rawPtr) => Pointer<_${itemType}Ffi>.fromAddress(rawPtr).ref.toDart()'
+          // Primitive types: int/double/bool — openStream delivers the raw value
+          // as int (bit-pattern); runtime coercion handled inside openStream impl.
+          : '(rawPtr) => rawPtr as $itemType';
+
       s.writeln('  @override');
       s.writeln('  Stream<$itemType> get ${stream.dartName} {');
       s.writeln('    return NitroRuntime.openStream<$itemType>(');
       s.writeln('      register: (port) => _register${cap}Ptr(port),');
-      s.writeln("      unpack: (raw) => raw as $itemType,");
+      s.writeln('      unpack: $unpackExpr,');
       s.writeln('      release: (port) => _release${cap}Ptr(port),');
       s.writeln('      backpressure: Backpressure.${stream.backpressure.name},');
       s.writeln('    );');

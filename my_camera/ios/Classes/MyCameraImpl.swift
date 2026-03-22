@@ -1,5 +1,6 @@
 import Flutter
 import UIKit
+import Combine
 
 // 1. Conform to our Generated Nitrogen Protocol!
 public class MyCameraImpl: NSObject, HybridMyCameraProtocol {
@@ -13,7 +14,30 @@ public class MyCameraImpl: NSObject, HybridMyCameraProtocol {
     public func getGreeting(name: String) async throws -> String {
         // Simulate some async native work (e.g. warming up a camera)
         try await Task.sleep(nanoseconds: 1_000_000_000)
-        return "Hello \$name, from Swift-land!"
+        return "Hello \(name), from Swift-land!"
+    }
+    
+    // Combine Publisher for zero-overhead background event streaming
+    private let framesSubject = PassthroughSubject<CameraFrame, Never>()
+    public var frames: AnyPublisher<CameraFrame, Never> {
+        return framesSubject.eraseToAnyPublisher()
+    }
+    
+    override init() {
+        super.init()
+        let width: Int64 = 1280
+        let height: Int64 = 720
+        let bytesPerPixel: Int64 = 4  // BGRA
+        let stride = width * bytesPerPixel
+        let byteCount = Int(stride * height)
+        let hardwareBuffer = UnsafeMutablePointer<UInt8>.allocate(capacity: byteCount)
+
+        Timer.scheduledTimer(withTimeInterval: 1.0 / 30.0, repeats: true) { [weak self] _ in
+            let tsNs = Int64(Date().timeIntervalSince1970 * 1_000_000_000)
+            let frame = CameraFrame(data: hardwareBuffer, width: width, height: height,
+                                    stride: stride, timestampNs: tsNs)
+            self?.framesSubject.send(frame)
+        }
     }
 }
 

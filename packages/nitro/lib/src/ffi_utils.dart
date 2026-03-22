@@ -32,3 +32,37 @@ extension NitroPointerExtension on Pointer<Utf8> {
     return str;
   }
 }
+
+/// A wrapper for memory owned by the Native Side that is mapped directly into
+/// a Dart Uint8List without copying (zero-copy buffer).
+/// The memory is automatically released by a Finalizer when this object is GC'd.
+class ZeroCopyBuffer {
+  final Pointer<Uint8> ptr;
+  final int length;
+  final void Function() _nativeRelease;
+  bool _released = false;
+
+  ZeroCopyBuffer(this.ptr, this.length, this._nativeRelease) {
+    if (ptr != nullptr) {
+      _finalizer.attach(this, _nativeRelease, detach: this);
+    }
+  }
+
+  /// The zero-copy backed memory map
+  Uint8List get bytes {
+    if (_released) throw StateError('ZeroCopyBuffer already released');
+    return ptr.asTypedList(length);
+  }
+
+  /// Explicitly releases the hardware buffer memory before Garbage Collection
+  void release() {
+    if (!_released) {
+      _released = true;
+      _finalizer.detach(this);
+      _nativeRelease();
+    }
+  }
+
+  static final Finalizer<void Function()> _finalizer =
+      Finalizer((nativeRelease) => nativeRelease());
+}
