@@ -257,8 +257,8 @@ class CppBridgeGenerator {
       s.writeln('}');
       s.writeln('');
 
-      final jniPkg = _jniPackagePrefix(spec.lib);
-      s.writeln('JNIEXPORT void JNICALL Java_${jniPkg}_${spec.dartClassName}JniBridge_emit_1${stream.dartName}(JNIEnv* env, jobject thiz, jlong dartPort, ${_jniSigTypeC(stream.itemType.name)} item) {');
+      final jniEmit = _jniMethodName(spec.lib, spec.dartClassName, 'emit_${stream.dartName}');
+      s.writeln('JNIEXPORT void JNICALL $jniEmit(JNIEnv* env, jobject thiz, jlong dartPort, ${_jniSigTypeC(stream.itemType.name)} item) {');
       s.writeln('    Dart_CObject obj;');
       if (stream.itemType.name == 'double') {
         s.writeln('    obj.type = Dart_CObject_kDouble;');
@@ -282,8 +282,8 @@ class CppBridgeGenerator {
       s.writeln('');
     }
 
-    final jniInitPkg = _jniPackagePrefix(spec.lib);
-    s.writeln('JNIEXPORT void JNICALL Java_${jniInitPkg}_${spec.dartClassName}JniBridge_initialize(JNIEnv* env, jobject thiz, jclass bridgeClass) {');
+    final jniInit = _jniMethodName(spec.lib, spec.dartClassName, 'initialize');
+    s.writeln('JNIEXPORT void JNICALL $jniInit(JNIEnv* env, jobject thiz, jclass bridgeClass) {');
     s.writeln('    if (g_bridgeClass == nullptr) {');
     s.writeln('        g_bridgeClass = (jclass)env->NewGlobalRef(bridgeClass);');
     s.writeln('    }');
@@ -455,15 +455,27 @@ class CppBridgeGenerator {
     }
   }
 
-  /// Returns the JNI package prefix for the bridge class.
-  /// JNI mangling rules: '.' separators → '_', identifier underscores → '_1'.
+  /// Escapes a single JNI identifier component: replaces '_' with '_1'.
+  /// JNI spec §2.4: each '.' separator becomes '_', and each '_' within
+  /// an identifier becomes '_1'. This function handles the latter.
+  static String _jniMangle(String s) => s.replaceAll('_', '_1');
+
+  /// Builds a fully-qualified JNI C function name from logical components.
+  ///
   /// Kotlin package: "nitro.{lib}_module"
-  /// Example: lib='my_camera' → 'nitro_my_1camera_1module'
-  ///          lib='verification' → 'nitro_verification_1module'
-  static String _jniPackagePrefix(String lib) {
-    // Mangle only the second package component (the lib_module part); 'nitro' has no underscores.
-    final libMod = '${lib.replaceAll('-', '_')}_module'.replaceAll('_', '_1');
-    return 'nitro_$libMod';
+  /// Examples:
+  ///   lib='my_camera', class='MyCamera', method='emit_frames'
+  ///     → 'Java_nitro_my_1camera_1module_MyCameraJniBridge_emit_1frames'
+  ///   lib='sensor_hub', class='SensorHub', method='emit_sensor_data'
+  ///     → 'Java_nitro_sensor_1hub_1module_SensorHubJniBridge_emit_1sensor_1data'
+  static String _jniMethodName(String lib, String className, String methodName) {
+    return [
+      'Java',
+      _jniMangle('nitro'),                               // 'nitro' (no underscores)
+      _jniMangle('${lib.replaceAll('-', '_')}_module'),  // e.g. 'my_1camera_1module'
+      _jniMangle('${className}JniBridge'),               // usually CamelCase — no underscores
+      _jniMangle(methodName),                            // e.g. 'emit_1frames'
+    ].join('_');
   }
 
   static String _jniSig(List<BridgeParam> params, String returnType, BridgeSpec spec) {

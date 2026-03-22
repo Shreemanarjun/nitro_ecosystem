@@ -26,10 +26,12 @@ class CppHeaderGenerator {
     if (spec.functions.isNotEmpty) {
       s.writeln('// Methods');
       for (final func in spec.functions) {
-        final ret = _typeToC(func.returnType.name);
-        final params = func.params
-            .map((p) => '${_typeToC(p.type.name)} ${p.name}')
-            .join(', ');
+        final isEnumRet = spec.enums.any((en) => en.name == func.returnType.name.replaceFirst('?', ''));
+        final ret = isEnumRet ? 'int64_t' : _typeToC(func.returnType.name);
+        final params = func.params.map((p) {
+          final isStructParam = spec.structs.any((st) => st.name == p.type.name.replaceFirst('?', ''));
+          return '${isStructParam ? 'void*' : _typeToC(p.type.name)} ${p.name}';
+        }).join(', ');
         final paramStr = params.isEmpty ? 'void' : params;
         s.writeln('$ret ${func.cSymbol}($paramStr);');
       }
@@ -40,7 +42,8 @@ class CppHeaderGenerator {
     if (spec.properties.isNotEmpty) {
       s.writeln('// Properties');
       for (final prop in spec.properties) {
-        final cType = _typeToC(prop.type.name);
+        final isEnumProp = spec.enums.any((en) => en.name == prop.type.name.replaceFirst('?', ''));
+        final cType = isEnumProp ? 'int64_t' : _typeToC(prop.type.name);
         if (prop.hasGetter) {
           s.writeln('$cType ${prop.getSymbol}(void);');
         }

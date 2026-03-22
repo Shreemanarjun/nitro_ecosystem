@@ -344,10 +344,14 @@ Foo.native.dart
 | `String`            | `const char*`   | `String`         | `String`        |
 | `Uint8List`         | `uint8_t*`+len  | `ByteArray`      | `Data`          |
 | `void`              | `void`          | `Unit`           | `Void`          |
-| `@HybridStruct` T   | `const T*`      | data class `T`   | `struct T`      |
-| `@HybridEnum` E     | `int32_t`       | `enum class E`   | `enum E: Int32` |
+| `@HybridStruct` T   | `void*`         | data class `T`   | `struct T`      |
+| `@HybridEnum` E     | `int64_t`       | `enum class E` (Long nativeValue) | `enum E: Int64` |
 | `Future<T>`         | callback-based  | `suspend fun`    | `async func`    |
 | `Stream<T>`         | SendPort reg.   | `Flow<T>`        | `AsyncStream<T>`|
+
+> **Note on enums:** The bridge layer uses `int64_t`/`Long` (not `int32_t`) so that JNI
+> `CallStaticLongMethod` can be used uniformly. Each Kotlin enum exposes `.nativeValue: Long`
+> and a `fromNative(Long)` companion function. Dart FFI uses `Int64` for all enum types.
 
 ---
 
@@ -668,17 +672,81 @@ docs/
 
 ---
 
+## Current status (as of 2026-03-23)
+
+| Phase | Status | Notes |
+|-------|--------|-------|
+| Runtime + annotations (`nitro` package) | ✅ Done | `NitroModule`, `HybridStruct`, `HybridEnum`, `NitroStream`, `NitroAsync`, `Backpressure` |
+| `SpecExtractor` + `BridgeSpec` AST | ✅ Done | Extracts functions, properties, streams, structs, enums |
+| `DartFfiGenerator` | ✅ Done | Dart FFI impl class, stream support, enum/struct return types |
+| `KotlinGenerator` | ✅ Done | Interface + JniBridge, enum `.nativeValue`, Flow streams |
+| `SwiftGenerator` | ✅ Done | @_cdecl bridge, protocol, struct/enum support |
+| `CppBridgeGenerator` | ✅ Done | JNI + iOS branches, struct pack/unpack, enum returns |
+| `CppHeaderGenerator` | ✅ Done | Fixed enum/struct return types (int64_t vs void*) |
+| `CMakeGenerator` | ✅ Done | Per-module CMakeLists fragment |
+| `nitrogen link` CLI | ✅ Done | Discovers all `*.native.dart` modules, wires CMake + Kotlin + Podspec |
+| JNI name mangling | ✅ Done | Proper `_jniMangle` + `_jniMethodName` per-component utility |
+| Example plugin (`my_camera`) | ✅ Done | 3 modules, streams, structs, enums, builds on Android |
+| Generator unit tests | ✅ Done | 35 tests covering all generator outputs (no dart:mirrors) |
+| `SpecValidator` | 🔲 TODO | Validate spec before generation, emit actionable errors |
+| `nitrogen doctor` CLI | 🔲 TODO | Check if generated files are stale, validate wiring |
+| Golden-file snapshot tests | 🔲 TODO | Regression-proof the full generated output |
+| iOS end-to-end | 🔲 TODO | Swift path tested only at generator level |
+
+---
+
+## DX improvement roadmap
+
+### Done
+- **Multi-module linking** (`nitrogen link`): auto-discovers all `.native.dart` specs, updates CMakeLists.txt, Plugin.kt, and Podspec in one command.
+- **Proper JNI mangling** (`_jniMangle` + `_jniMethodName`): escapes underscores in every component (package, class, method). Stream names like `sensor_data` → `emit_1sensor_1data`, not the broken `emit_1sensor_data`.
+- **Header/impl type consistency** (`CppHeaderGenerator`): enum-returning functions now declare `int64_t` in the `.h` to match the `.cpp`, eliminating "conflicting types" compiler errors.
+
+### Planned
+
+#### `SpecValidator` (high priority)
+Fail early with a clear error before generating anything:
+```
+ERROR  Camera.native.dart:12 — getStatus() returns DeviceStatus but DeviceStatus is not
+       annotated @HybridEnum. Add @HybridEnum() to the enum declaration.
+
+WARNING  Camera.native.dart:20 — Large struct CameraFrame returned synchronously.
+         Consider annotating captureFrame() with @NitroAsync.
+```
+
+#### `nitrogen doctor` command
+```
+$ dart run nitrogen_cli doctor
+Checking my_camera...
+  ✅  my_camera.bridge.g.cpp  — up to date
+  ✅  my_camera.bridge.g.kt   — up to date
+  ✅  my_camera.bridge.g.h    — up to date
+  ❌  my_camera.bridge.g.cpp  — STALE (spec changed 2 commits ago). Run build_runner.
+
+Checking complex...
+  ✅  All generated files up to date
+
+Checking verification...
+  ✅  All generated files up to date
+
+CMakeLists.txt ............... ✅
+android/.../Plugin.kt ........ ✅
+ios/my_camera.podspec ........ ✅
+```
+
+---
+
 ## Delivery order
 
 | Week   | Milestone                                                        |
 |--------|------------------------------------------------------------------|
-| 1–2    | `flutter_hybrid_objects`: annotations, base class, runtime skeleton |
-| 3–4    | `flutter_hybrid_gen`: SpecExtractor, BridgeSpec AST, validator   |
-| 5–6    | `flutter_hybrid_gen`: DartFfiGenerator + KotlinGenerator (Math working on Android) |
-| 7–8    | `flutter_hybrid_gen`: SwiftGenerator + CppHeaderGenerator + CMakeGenerator (iOS working) |
-| 9–10   | Example camera plugin: frames stream + async capture end-to-end  |
-| 11     | `flutter_hybrid_cli`: init, generate, doctor commands            |
-| 12     | Polish: snapshot tests, golden files, pub.dev publishing prep    |
+| 1–2    | Runtime + annotations — ✅ done                                  |
+| 3–4    | SpecExtractor, BridgeSpec AST — ✅ done                          |
+| 5–6    | All generators working on Android — ✅ done                      |
+| 7–8    | iOS Swift generator + CMake — ✅ done                            |
+| 9–10   | Example plugin (`my_camera`) + `nitrogen link` CLI — ✅ done     |
+| 11     | SpecValidator + `nitrogen doctor` command                        |
+| 12     | Golden-file snapshot tests, iOS end-to-end, pub.dev prep         |
 
 ---
 

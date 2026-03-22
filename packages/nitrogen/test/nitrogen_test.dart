@@ -267,6 +267,37 @@ void main() {
       expect(out, contains('nitro_sensor_1hub_1module'));
     });
 
+    test('stream with underscored dartName gets all underscores mangled', () {
+      // dartName='sensor_data' → emit method → 'emit_sensor_data'
+      // JNI mangle: 'emit_1sensor_1data' (NOT 'emit_1sensor_data')
+      final spec = BridgeSpec(
+        dartClassName: 'Hub',
+        lib: 'my_hub',
+        namespace: 'my_hub_module',
+        iosImpl: NativeImpl.swift,
+        androidImpl: NativeImpl.kotlin,
+        sourceUri: 'my_hub.native.dart',
+        structs: [
+          BridgeStruct(name: 'Payload', packed: false, fields: [
+            BridgeField(name: 'size', type: BridgeType(name: 'int')),
+          ]),
+        ],
+        streams: [
+          BridgeStream(
+            dartName: 'sensor_data',
+            registerSymbol: 'my_hub_register_sensor_data_stream',
+            releaseSymbol: 'my_hub_release_sensor_data_stream',
+            itemType: BridgeType(name: 'Payload'),
+            backpressure: Backpressure.dropLatest,
+          ),
+        ],
+      );
+      final out = CppBridgeGenerator.generate(spec);
+      // All underscores in every component must be mangled
+      expect(out, contains('Java_nitro_my_1hub_1module_HubJniBridge_emit_1sensor_1data'));
+      expect(out, isNot(contains('emit_1sensor_data(')));
+    });
+
     test('double function calls CallStaticDoubleMethod', () {
       final out = CppBridgeGenerator.generate(_simpleSpec());
       expect(out, contains('CallStaticDoubleMethod'));
