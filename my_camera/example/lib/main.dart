@@ -58,10 +58,12 @@ class _MyAppState extends State<MyApp> {
               StreamBuilder<CameraFrame>(
                 stream: MyCamera.instance.frames,
                 builder: (context, snapshot) {
-                  if (snapshot.hasError)
+                  if (snapshot.hasError) {
                     return Text('Error: ${snapshot.error}');
-                  if (!snapshot.hasData)
+                  }
+                  if (!snapshot.hasData) {
                     return const CircularProgressIndicator();
+                  }
                   final f = snapshot.data!;
                   return Column(
                     children: [

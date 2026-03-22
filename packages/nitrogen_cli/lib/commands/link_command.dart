@@ -92,7 +92,7 @@ class LinkCommand extends Command {
 
     // Ensure NITRO_NATIVE variable is defined
     if (!content.contains('NITRO_NATIVE')) {
-      content = '${nitroNativeVar}\n\n$content';
+      content = '$nitroNativeVar\n\n$content';
       modified = true;
     }
 

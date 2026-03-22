@@ -1,6 +1,4 @@
 import 'dart:typed_data';
-import 'dart:ffi';
-import 'package:ffi/ffi.dart';
 import 'package:nitro/nitro.dart';
 
 part 'complex.g.dart';
@@ -38,14 +36,14 @@ abstract class ComplexModule extends HybridObject {
 
   // ─── Primitive Methods ───────────────────────────────────────────────────────
   int calculate(int seed, double factor, bool enabled);
-  
+
   @nitroAsync
   Future<String> fetchMetadata(String url);
 
   // ─── Struct & Enum Methods ───────────────────────────────────────────────────
   DeviceStatus getStatus();
   void updateSensors(SensorData data);
-  
+
   @nitroAsync
   Future<Packet> generatePacket(int type);
 

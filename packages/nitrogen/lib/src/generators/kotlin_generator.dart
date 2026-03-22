@@ -168,13 +168,4 @@ class KotlinGenerator {
     return 'Any?';
   }
 
-  static String _ktDefaultValue(String t) {
-    switch (t.replaceFirst('?', '')) {
-      case 'int': return '0L';
-      case 'double': return '0.0';
-      case 'bool': return 'false';
-      case 'String': return '""';
-      default: return 'null';
-    }
-  }
 }

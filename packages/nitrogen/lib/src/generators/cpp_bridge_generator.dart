@@ -173,7 +173,7 @@ class CppBridgeGenerator {
         final stName = func.returnType.name;
         s.writeln('    jobject jobj = env->CallStaticObjectMethod(g_bridgeClass, methodId$bridgeArgs);');
         s.writeln('    if (jobj == nullptr) return nullptr;');
-        s.writeln('    ${stName}* result = (${stName}*)malloc(sizeof(${stName}));');
+        s.writeln('    $stName* result = ($stName*)malloc(sizeof($stName));');
         s.writeln('    *result = pack_${stName}_from_jni(env, jobj);');
         s.writeln('    env->DeleteLocalRef(jobj);');
         s.writeln('    return result;');
@@ -199,7 +199,7 @@ class CppBridgeGenerator {
         if (prop.type.name == 'double') {
           s.writeln('    return env->CallStaticDoubleMethod(g_bridgeClass, methodId);');
         } else if (prop.type.name == 'int' || isEnum) {
-          s.writeln('    return (${cType})env->CallStaticLongMethod(g_bridgeClass, methodId);');
+          s.writeln('    return ($cType)env->CallStaticLongMethod(g_bridgeClass, methodId);');
         } else if (prop.type.name == 'bool') {
           s.writeln('    return env->CallStaticBooleanMethod(g_bridgeClass, methodId);');
         } else if (prop.type.name == 'String') {
