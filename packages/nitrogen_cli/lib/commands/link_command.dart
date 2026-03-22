@@ -1,63 +1,232 @@
 import 'dart:io';
 import 'package:args/command_runner.dart';
+import 'package:nocterm/nocterm.dart';
 import 'package:path/path.dart' as p;
 
-class LinkCommand extends Command {
-  @override
-  final String name = 'link';
+// ── Progress model (shared Step/StepRow pattern) ──────────────────────────────
+
+enum _StepState { pending, running, done, failed, skipped }
+
+class _Step {
+  final String label;
+  _StepState state;
+  String? detail;
+
+  _Step(this.label) : state = _StepState.pending;
+}
+
+class _StepRow extends StatelessComponent {
+  const _StepRow(this.step);
+  final _Step step;
 
   @override
-  final String description =
-      'Wires all Nitrogen-generated native bridges into the plugin build system '
-      '(CMake, Podspec, Kotlin plugin class). Scans every *.native.dart in lib/ '
-      'and ensures each module\'s .so / dylib is built and loaded automatically.';
-
-  @override
-  void run() {
-    final pubspecFile = File('pubspec.yaml');
-    if (!pubspecFile.existsSync()) {
-      stderr.writeln(
-          '❌ No pubspec.yaml found. Run this from the root of a Flutter plugin.');
-      exit(1);
+  Component build(BuildContext context) {
+    final String icon;
+    final Color color;
+    switch (step.state) {
+      case _StepState.pending:
+        icon = '○';
+        color = Colors.gray;
+      case _StepState.running:
+        icon = '◉';
+        color = Colors.cyan;
+      case _StepState.done:
+        icon = '✔';
+        color = Colors.green;
+      case _StepState.failed:
+        icon = '✘';
+        color = Colors.red;
+      case _StepState.skipped:
+        icon = '–';
+        color = Colors.gray;
     }
 
-    final pluginName = _getPluginName(pubspecFile);
-    stdout.writeln('🔗 Linking $pluginName...');
+    return Padding(
+      padding: const EdgeInsets.only(left: 2),
+      child: Column(
+        children: [
+          Row(
+            children: [
+              Text(icon, style: TextStyle(color: color, fontWeight: FontWeight.bold)),
+              const Text(' '),
+              Expanded(
+                child: Text(
+                  step.label,
+                  style: TextStyle(
+                    color: step.state == _StepState.running ? Colors.cyan : null,
+                    fontWeight:
+                        step.state == _StepState.running ? FontWeight.bold : null,
+                  ),
+                ),
+              ),
+            ],
+          ),
+          if (step.detail != null)
+            Padding(
+              padding: const EdgeInsets.only(left: 4),
+              child: Text(
+                step.detail!,
+                style: const TextStyle(color: Colors.gray, fontWeight: FontWeight.dim),
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+}
 
-    final moduleLibs = _discoverModuleLibs(pluginName);
-    stdout.writeln('   Found ${moduleLibs.length} module(s): ${moduleLibs.join(', ')}');
+// ── nocterm Link component ────────────────────────────────────────────────────
 
-    _linkCMake(pluginName, moduleLibs);
-    _linkPodspec(pluginName, moduleLibs);
-    _linkKotlinPlugin(pluginName, moduleLibs);
-    _linkClangd(pluginName);
+class _LinkApp extends StatefulComponent {
+  const _LinkApp({required this.pluginName});
+  final String pluginName;
 
-    stdout.writeln('\n✨ $pluginName linked successfully!');
-    stdout.writeln('');
-    stdout.writeln('Next steps:');
-    stdout.writeln('  • Run: dart run build_runner build --delete-conflicting-outputs');
-    stdout.writeln('  • Implement the generated Hybrid*Spec interfaces in Kotlin/Swift');
+  @override
+  State<_LinkApp> createState() => _LinkAppState();
+}
+
+class _LinkAppState extends State<_LinkApp> {
+  late final List<_Step> _steps = [
+    _Step('Discovering modules'),
+    _Step('Updating src/CMakeLists.txt'),
+    _Step('Updating iOS podspec'),
+    _Step('Updating Kotlin Plugin.kt'),
+    _Step('Updating .clangd'),
+  ];
+
+  bool _finished = false;
+  bool _failed = false;
+  final List<String> _nextSteps = [];
+
+  @override
+  void initState() {
+    super.initState();
+    Future<void>.delayed(Duration.zero, _run);
   }
 
-  // ── Discovery ────────────────────────────────────────────────────────────────
+  Future<void> _setRunning(int i) async {
+    setState(() => _steps[i].state = _StepState.running);
+  }
 
-  /// Scans lib/ for *.native.dart files and extracts the lib name for each spec.
-  /// Falls back to the file stem when no `lib:` annotation is present.
+  Future<void> _setDone(int i, {String? detail}) async {
+    setState(() {
+      _steps[i].state = _StepState.done;
+      _steps[i].detail = detail;
+    });
+  }
+
+  Future<void> _setSkipped(int i, {String? detail}) async {
+    setState(() {
+      _steps[i].state = _StepState.skipped;
+      _steps[i].detail = detail;
+    });
+  }
+
+  Future<void> _run() async {
+    final pluginName = component.pluginName;
+
+    // Step 0 — discover modules
+    await _setRunning(0);
+    final moduleLibs = _discoverModuleLibs(pluginName);
+    await _setDone(0, detail: '${moduleLibs.length} module(s): ${moduleLibs.join(', ')}');
+
+    // Step 1 — CMake
+    await _setRunning(1);
+    _linkCMake(pluginName, moduleLibs);
+    await _setDone(1);
+
+    // Step 2 — Podspec
+    await _setRunning(2);
+    if (Directory('ios').existsSync()) {
+      _linkPodspec(pluginName, moduleLibs);
+      await _setDone(2);
+    } else {
+      await _setSkipped(2, detail: 'ios/ not present');
+    }
+
+    // Step 3 — Kotlin Plugin
+    await _setRunning(3);
+    if (Directory('android').existsSync()) {
+      _linkKotlinPlugin(pluginName, moduleLibs);
+      await _setDone(3);
+    } else {
+      await _setSkipped(3, detail: 'android/ not present');
+    }
+
+    // Step 4 — .clangd
+    await _setRunning(4);
+    _linkClangd(pluginName);
+    await _setDone(4);
+
+    _nextSteps.addAll([
+      'flutter pub get',
+      'flutter pub run build_runner build --delete-conflicting-outputs',
+      'Implement generated Hybrid*Spec interfaces in Kotlin/Swift',
+    ]);
+
+    setState(() => _finished = true);
+    await Future<void>.delayed(const Duration(milliseconds: 300),
+        () => shutdownApp(_failed ? 1 : 0));
+  }
+
+  @override
+  Component build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.all(1),
+      child: Column(
+        children: [
+          Container(
+            decoration: BoxDecoration(border: BoxBorder.all(color: Colors.cyan)),
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 2),
+              child: Text(
+                ' nitrogen link — ${component.pluginName} ',
+                style: const TextStyle(color: Colors.cyan, fontWeight: FontWeight.bold),
+              ),
+            ),
+          ),
+          const Padding(padding: EdgeInsets.only(bottom: 1), child: Text('')),
+          Container(
+            decoration: BoxDecoration(border: BoxBorder.all(color: Colors.brightBlack)),
+            child: Padding(
+              padding: const EdgeInsets.all(1),
+              child: Column(children: _steps.map(_StepRow.new).toList()),
+            ),
+          ),
+          if (_finished && !_failed)
+            Padding(
+              padding: const EdgeInsets.only(top: 1),
+              child: Column(
+                children: [
+                  const Text('✨ Linked! Next steps:',
+                      style: TextStyle(color: Colors.green, fontWeight: FontWeight.bold)),
+                  ..._nextSteps.asMap().entries.map(
+                        (e) => Text(
+                          '  ${e.key + 1}. ${e.value}',
+                          style: const TextStyle(color: Colors.gray),
+                        ),
+                      ),
+                ],
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+
+  // ── Link logic (same as original LinkCommand, inlined) ────────────────────
+
   List<String> _discoverModuleLibs(String pluginName) {
     final libDir = Directory('lib');
     if (!libDir.existsSync()) return [pluginName];
-
     final specs = libDir
         .listSync(recursive: true)
         .whereType<File>()
         .where((f) => f.path.endsWith('.native.dart'))
         .toList();
-
     if (specs.isEmpty) return [pluginName];
-
     final libs = <String>[];
     for (final spec in specs) {
-      // Strip the full ".native.dart" double-extension, not just ".dart"
       final stem = p.basename(spec.path).replaceAll(RegExp(r'\.native\.dart$'), '');
       final libName = _extractLibName(spec) ?? stem.replaceAll('-', '_');
       if (!libs.contains(libName)) libs.add(libName);
@@ -65,15 +234,13 @@ class LinkCommand extends Command {
     return libs.isEmpty ? [pluginName] : libs;
   }
 
-  /// Extracts `lib: 'name'` from a *.native.dart spec file, returns null if absent.
   String? _extractLibName(File specFile) {
     final content = specFile.readAsStringSync();
-    final match = RegExp(r'''@NitroModule\s*\([^)]*lib\s*:\s*['"]([^'"]+)['"]''')
-        .firstMatch(content);
+    final match =
+        RegExp(r'''@NitroModule\s*\([^)]*lib\s*:\s*['"]([^'"]+)['"]''')
+            .firstMatch(content);
     return match?.group(1);
   }
-
-  // ── CMake ─────────────────────────────────────────────────────────────────────
 
   void _linkCMake(String pluginName, List<String> moduleLibs) {
     final cmakeFile = File(p.join('src', 'CMakeLists.txt'));
@@ -81,22 +248,17 @@ class LinkCommand extends Command {
       _generateCMake(pluginName, moduleLibs);
       return;
     }
-
     var content = cmakeFile.readAsStringSync();
     bool modified = false;
-
-    final nitroNativePath =
-        '"\${CMAKE_CURRENT_SOURCE_DIR}/../../packages/nitro/src/native"';
-    final nitroNativeVar =
+    const nitroNativeVar =
         'set(NITRO_NATIVE "\${CMAKE_CURRENT_SOURCE_DIR}/../../packages/nitro/src/native")';
+    const nitroNativePath =
+        '"\${CMAKE_CURRENT_SOURCE_DIR}/../../packages/nitro/src/native"';
 
-    // Ensure NITRO_NATIVE variable is defined
     if (!content.contains('NITRO_NATIVE')) {
       content = '$nitroNativeVar\n\n$content';
       modified = true;
     }
-
-    // Add include path if missing
     if (!content.contains('packages/nitro/src/native')) {
       content = content.replaceFirst(
         'target_include_directories($pluginName PRIVATE',
@@ -104,8 +266,6 @@ class LinkCommand extends Command {
       );
       modified = true;
     }
-
-    // Ensure dart_api_dl.c is compiled for the main library
     final dartApiDl = '"\${NITRO_NATIVE}/dart_api_dl.c"';
     if (!content.contains('dart_api_dl.c')) {
       content = content.replaceFirst(
@@ -114,65 +274,46 @@ class LinkCommand extends Command {
       );
       modified = true;
     }
-
-    // Add missing module library targets
     for (final lib in moduleLibs) {
-      if (lib == pluginName) continue; // main lib already exists
+      if (lib == pluginName) continue;
       if (!content.contains('add_library($lib ')) {
         content += _cmakeModuleTarget(lib);
         modified = true;
-        stdout.writeln('  ✅ Added CMake target for lib $lib');
       }
     }
-
-    if (modified) {
-      cmakeFile.writeAsStringSync(content);
-      stdout.writeln('  ✅ Updated src/CMakeLists.txt');
-    } else {
-      stdout.writeln('  ✔  src/CMakeLists.txt already up to date');
-    }
+    if (modified) cmakeFile.writeAsStringSync(content);
   }
 
-  /// Generates a complete CMakeLists.txt when none exists.
   void _generateCMake(String pluginName, List<String> moduleLibs) {
     Directory('src').createSync(recursive: true);
-    final cmakeFile = File(p.join('src', 'CMakeLists.txt'));
-    final sb = StringBuffer();
-    sb.writeln('cmake_minimum_required(VERSION 3.10)');
-    sb.writeln('project(${pluginName}_library VERSION 0.0.1 LANGUAGES C CXX)');
-    sb.writeln();
-    sb.writeln('set(NITRO_NATIVE "\${CMAKE_CURRENT_SOURCE_DIR}/../../packages/nitro/src/native")');
-    sb.writeln();
-    sb.writeln('# ── $pluginName (main plugin entry point) ─────────────────────────');
-    sb.writeln('add_library($pluginName SHARED');
-    sb.writeln('  "$pluginName.cpp"');
-    sb.writeln('  "\${NITRO_NATIVE}/dart_api_dl.c"');
-    sb.writeln(')');
-    sb.writeln('target_include_directories($pluginName PRIVATE');
-    sb.writeln('  "\${CMAKE_CURRENT_SOURCE_DIR}"');
-    sb.writeln('  "\${CMAKE_CURRENT_SOURCE_DIR}/../lib/src/generated/cpp"');
-    sb.writeln('  "\${NITRO_NATIVE}"');
-    sb.writeln(')');
-    sb.writeln('set_target_properties($pluginName PROPERTIES OUTPUT_NAME "$pluginName")');
-    sb.writeln('target_compile_definitions($pluginName PUBLIC DART_SHARED_LIB)');
-    sb.writeln('if(ANDROID)');
-    sb.writeln('  target_link_libraries($pluginName PRIVATE android log)');
-    sb.writeln('  target_link_options($pluginName PRIVATE "-Wl,-z,max-page-size=16384")');
-    sb.writeln('endif()');
-
+    final sb = StringBuffer()
+      ..writeln('cmake_minimum_required(VERSION 3.10)')
+      ..writeln('project(${pluginName}_library VERSION 0.0.1 LANGUAGES C CXX)')
+      ..writeln()
+      ..writeln('set(NITRO_NATIVE "\${CMAKE_CURRENT_SOURCE_DIR}/../../packages/nitro/src/native")')
+      ..writeln()
+      ..writeln('add_library($pluginName SHARED')
+      ..writeln('  "$pluginName.cpp"')
+      ..writeln('  "\${NITRO_NATIVE}/dart_api_dl.c"')
+      ..writeln(')')
+      ..writeln('target_include_directories($pluginName PRIVATE')
+      ..writeln('  "\${CMAKE_CURRENT_SOURCE_DIR}"')
+      ..writeln('  "\${CMAKE_CURRENT_SOURCE_DIR}/../lib/src/generated/cpp"')
+      ..writeln('  "\${NITRO_NATIVE}"')
+      ..writeln(')')
+      ..writeln('target_compile_definitions($pluginName PUBLIC DART_SHARED_LIB)')
+      ..writeln('if(ANDROID)')
+      ..writeln('  target_link_libraries($pluginName PRIVATE android log)')
+      ..writeln('  target_link_options($pluginName PRIVATE "-Wl,-z,max-page-size=16384")')
+      ..writeln('endif()');
     for (final lib in moduleLibs) {
-      if (lib == pluginName) continue;
-      sb.write(_cmakeModuleTarget(lib));
+      if (lib != pluginName) sb.write(_cmakeModuleTarget(lib));
     }
-
-    cmakeFile.writeAsStringSync(sb.toString());
-    stdout.writeln('  ✅ Generated src/CMakeLists.txt');
+    File(p.join('src', 'CMakeLists.txt')).writeAsStringSync(sb.toString());
   }
 
-  String _cmakeModuleTarget(String lib) {
-    return '''
+  String _cmakeModuleTarget(String lib) => '''
 
-# ── $lib module ───────────────────────────────────────────────────────────────
 add_library($lib SHARED
   "\${CMAKE_CURRENT_SOURCE_DIR}/../lib/src/generated/cpp/$lib.bridge.g.cpp"
   "\${NITRO_NATIVE}/dart_api_dl.c"
@@ -188,15 +329,10 @@ if(ANDROID)
   target_link_options($lib PRIVATE "-Wl,-z,max-page-size=16384")
 endif()
 ''';
-  }
-
-  // ── Podspec (iOS) ─────────────────────────────────────────────────────────────
 
   void _linkPodspec(String pluginName, List<String> moduleLibs) {
-    final podspecPath = p.join('ios', '$pluginName.podspec');
-    final podspecFile = File(podspecPath);
+    final podspecFile = File(p.join('ios', '$pluginName.podspec'));
     if (!podspecFile.existsSync()) return;
-
     var content = podspecFile.readAsStringSync();
     bool modified = false;
 
@@ -210,62 +346,44 @@ endif()
           RegExp(r"s\.platform = :ios, '.+?'"), "s.platform = :ios, '13.0'");
       modified = true;
     }
-
     const searchPathEntry =
         "'HEADER_SEARCH_PATHS' => '\$(inherited) \"\${PODS_TARGET_SRCROOT}/../../../packages/nitro/src/native\"'";
     if (!content.contains('HEADER_SEARCH_PATHS')) {
       content = content.replaceFirst(
-          's.pod_target_xcconfig = {',
-          's.pod_target_xcconfig = {\n    $searchPathEntry,');
+        's.pod_target_xcconfig = {',
+        's.pod_target_xcconfig = {\n    $searchPathEntry,',
+      );
       modified = true;
     }
+    if (modified) podspecFile.writeAsStringSync(content);
 
-    if (modified) {
-      podspecFile.writeAsStringSync(content);
-      stdout.writeln('  ✅ Updated ios/$pluginName.podspec');
-    } else {
-      stdout.writeln('  ✔  ios/$pluginName.podspec already up to date');
-    }
-
-    // Ensure dart_api_dl forwarder exists for iOS
-    final iosClassesDir = Directory(p.join('ios', 'Classes'));
-    final dartApiDlForwarder =
-        File(p.join(iosClassesDir.path, 'dart_api_dl.cpp'));
-    if (!dartApiDlForwarder.existsSync()) {
-      dartApiDlForwarder.createSync(recursive: true);
-      dartApiDlForwarder.writeAsStringSync(
+    final dartApiDl = File(p.join('ios', 'Classes', 'dart_api_dl.cpp'));
+    if (!dartApiDl.existsSync()) {
+      dartApiDl.createSync(recursive: true);
+      dartApiDl.writeAsStringSync(
           '// Forwarder for Nitro/FFI Dart DL API\n'
           '#include "../../../packages/nitro/src/native/dart_api_dl.c"\n');
-      stdout.writeln('  ✅ Created ios/Classes/dart_api_dl.cpp');
     }
   }
-
-  // ── Kotlin plugin class ───────────────────────────────────────────────────────
 
   void _linkKotlinPlugin(String pluginName, List<String> moduleLibs) {
     final kotlinDir = Directory(p.join('android', 'src', 'main', 'kotlin'));
     if (!kotlinDir.existsSync()) return;
-
     final pluginFiles = kotlinDir
         .listSync(recursive: true)
         .whereType<File>()
         .where((f) => f.path.endsWith('Plugin.kt'))
         .toList();
-
     if (pluginFiles.isEmpty) return;
 
     final pluginFile = pluginFiles.first;
     var content = pluginFile.readAsStringSync();
     bool modified = false;
 
-    // Check which libraries are already loaded
-    final missingLibs = moduleLibs
-        .where((lib) => !content.contains('System.loadLibrary("$lib")'))
-        .toList();
-
+    final missingLibs =
+        moduleLibs.where((l) => !content.contains('System.loadLibrary("$l")')).toList();
     if (missingLibs.isNotEmpty) {
       if (!content.contains('System.loadLibrary')) {
-        // No companion object yet — inject one
         final className = p.basenameWithoutExtension(pluginFile.path);
         final loadLines =
             moduleLibs.map((l) => '      System.loadLibrary("$l")').join('\n');
@@ -279,43 +397,50 @@ endif()
           '  }\n',
         );
       } else {
-        // companion object exists — append missing loadLibrary calls inside init {}
         for (final lib in missingLibs) {
           content = content.replaceFirst(
             'System.loadLibrary("$pluginName")',
-            'System.loadLibrary("$pluginName")\n            System.loadLibrary("$lib")',
+            'System.loadLibrary("$pluginName")\n      System.loadLibrary("$lib")',
           );
         }
       }
       modified = true;
-      stdout.writeln('  ✅ Added System.loadLibrary for: ${missingLibs.join(', ')}');
-    } else {
-      stdout.writeln('  ✔  All libraries already loaded in Plugin.kt');
     }
-
     if (modified) pluginFile.writeAsStringSync(content);
   }
 
-  // ── Clangd IDE support ───────────────────────────────────────────────────────
-
   void _linkClangd(String pluginName) {
-    final clangdFile = File('.clangd');
-    final content = '''CompileFlags:
+    File('.clangd').writeAsStringSync('''CompileFlags:
   Add:
     - -I\${PWD}/src
     - -I\${PWD}/lib/src/generated/cpp
     - -I\${PWD}/../packages/nitro/src/native
-''';
-    if (!clangdFile.existsSync() ||
-        clangdFile.readAsStringSync() != content) {
-      clangdFile.writeAsStringSync(content);
-      stdout.writeln('  ✅ Updated .clangd for IDE header discovery');
-    } else {
-      stdout.writeln('  ✔  .clangd already up to date');
-    }
+''');
   }
+}
 
-  // ── Helpers ───────────────────────────────────────────────────────────────────
+// ── LinkCommand ───────────────────────────────────────────────────────────────
+
+class LinkCommand extends Command {
+  @override
+  final String name = 'link';
+
+  @override
+  final String description =
+      'Wires all Nitrogen-generated native bridges into the build system '
+      '(CMake, Podspec, Kotlin plugin class).';
+
+  @override
+  Future<void> run() async {
+    final pubspecFile = File('pubspec.yaml');
+    if (!pubspecFile.existsSync()) {
+      stderr.writeln(
+          '❌ No pubspec.yaml found. Run this from the root of a Flutter plugin.');
+      exit(1);
+    }
+    final pluginName = _getPluginName(pubspecFile);
+    await runApp(_LinkApp(pluginName: pluginName));
+  }
 
   String _getPluginName(File pubspec) {
     for (final line in pubspec.readAsLinesSync()) {

@@ -1,7 +1,202 @@
 import 'dart:io';
 import 'package:args/command_runner.dart';
+import 'package:nocterm/nocterm.dart';
 import 'package:path/path.dart' as p;
-import '../ui.dart';
+
+// ── Data model ────────────────────────────────────────────────────────────────
+
+enum _Status { ok, warn, error, info }
+
+class _Check {
+  final _Status status;
+  final String label;
+  final String? hint;
+  const _Check(this.status, this.label, {this.hint});
+}
+
+class _Section {
+  final String title;
+  final List<_Check> checks;
+  const _Section(this.title, this.checks);
+}
+
+// ── nocterm Components ────────────────────────────────────────────────────────
+
+class _CheckRow extends StatelessComponent {
+  const _CheckRow(this.check);
+  final _Check check;
+
+  @override
+  Component build(BuildContext context) {
+    final Color iconColor;
+    final String icon;
+    switch (check.status) {
+      case _Status.ok:
+        icon = '✔';
+        iconColor = Colors.green;
+      case _Status.warn:
+        icon = '⚠';
+        iconColor = Colors.yellow;
+      case _Status.error:
+        icon = '✘';
+        iconColor = Colors.red;
+      case _Status.info:
+        icon = 'ℹ';
+        iconColor = Colors.blue;
+    }
+
+    return Padding(
+      padding: const EdgeInsets.only(left: 2, bottom: 0),
+      child: Column(
+        children: [
+          Row(
+            children: [
+              Text(icon, style: TextStyle(color: iconColor, fontWeight: FontWeight.bold)),
+              const Text(' '),
+              Expanded(
+                child: Text(
+                  check.label,
+                  style: TextStyle(
+                    color: check.status == _Status.error
+                        ? Colors.red
+                        : check.status == _Status.warn
+                            ? Colors.yellow
+                            : null,
+                  ),
+                ),
+              ),
+            ],
+          ),
+          if (check.hint != null)
+            Padding(
+              padding: const EdgeInsets.only(left: 4),
+              child: Text(
+                '→ ${check.hint}',
+                style: const TextStyle(color: Colors.gray, fontWeight: FontWeight.dim),
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+}
+
+class _SectionBox extends StatelessComponent {
+  const _SectionBox(this.section);
+  final _Section section;
+
+  @override
+  Component build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 0),
+      child: Container(
+        decoration: BoxDecoration(
+          border: BoxBorder.all(color: Colors.brightBlack),
+        ),
+        child: Padding(
+          padding: const EdgeInsets.all(1),
+          child: Column(
+            children: [
+              Text(
+                section.title,
+                style: const TextStyle(
+                  color: Colors.cyan,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+              const Divider(),
+              ...section.checks.map(_CheckRow.new),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _DoctorApp extends StatefulComponent {
+  const _DoctorApp({
+    required this.pluginName,
+    required this.sections,
+    required this.errors,
+    required this.warnings,
+  });
+
+  final String pluginName;
+  final List<_Section> sections;
+  final int errors;
+  final int warnings;
+
+  @override
+  State<_DoctorApp> createState() => _DoctorAppState();
+}
+
+class _DoctorAppState extends State<_DoctorApp> {
+  @override
+  void initState() {
+    super.initState();
+    // Allow first frame to render before exiting
+    Future<void>.delayed(const Duration(milliseconds: 80), () {
+      shutdownApp(component.errors > 0 ? 1 : 0);
+    });
+  }
+
+  @override
+  Component build(BuildContext context) {
+    final bool healthy = component.errors == 0 && component.warnings == 0;
+
+    return Padding(
+      padding: const EdgeInsets.all(1),
+      child: Column(
+        children: [
+          // ── Header ──────────────────────────────────────────────────────
+          Container(
+            decoration: BoxDecoration(
+              border: BoxBorder.all(color: Colors.cyan),
+            ),
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 2, vertical: 0),
+              child: Text(
+                ' nitrogen doctor — ${component.pluginName} ',
+                style: const TextStyle(
+                  color: Colors.cyan,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+            ),
+          ),
+          const Padding(padding: EdgeInsets.only(bottom: 1), child: Text('')),
+
+          // ── Sections ────────────────────────────────────────────────────
+          ...component.sections.map(_SectionBox.new),
+
+          // ── Summary ─────────────────────────────────────────────────────
+          Padding(
+            padding: const EdgeInsets.only(top: 1),
+            child: Text(
+              healthy
+                  ? '✨ All checks passed.'
+                  : component.errors > 0
+                      ? '✘  ${component.errors} error(s)'
+                          '${component.warnings > 0 ? ', ${component.warnings} warning(s)' : ''}.'
+                      : '⚠  ${component.warnings} warning(s).',
+              style: TextStyle(
+                fontWeight: FontWeight.bold,
+                color: healthy
+                    ? Colors.green
+                    : component.errors > 0
+                        ? Colors.red
+                        : Colors.yellow,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+// ── DoctorCommand ─────────────────────────────────────────────────────────────
 
 class DoctorCommand extends Command {
   @override
@@ -12,7 +207,6 @@ class DoctorCommand extends Command {
       'Checks that a Nitrogen plugin is production-ready: generated files, '
       'build system wiring (CMake, Kotlin, Swift), pubspec, and native configs.';
 
-  // Generated file extensions produced for each *.native.dart spec
   static const _generatedSuffixes = [
     '.g.dart',
     '.bridge.g.kt',
@@ -31,196 +225,177 @@ class DoctorCommand extends Command {
   };
 
   @override
-  void run() {
+  Future<void> run() async {
     final pubspecFile = File('pubspec.yaml');
     if (!pubspecFile.existsSync()) {
-      printError('No pubspec.yaml found.',
-          hint: 'Run nitrogen doctor from the root of a Flutter plugin.');
+      stderr.writeln('No pubspec.yaml found. Run from the root of a Flutter plugin.');
       exit(1);
     }
 
     final pluginName = _pluginName(pubspecFile);
-    printBanner('nitrogen doctor — $pluginName');
-
     final specs = _findSpecs();
-    if (specs.isEmpty) {
-      printWarn('No *.native.dart specs found under lib/.',
-          hint: 'Create lib/src/$pluginName.native.dart and run nitrogen generate.');
-    }
-
+    final sections = <_Section>[];
     int errors = 0;
     int warnings = 0;
 
-    void err(String label, {String? hint}) {
-      printError(label, hint: hint);
+    void err(_Section s, String label, {String? hint}) {
+      s.checks.add(_Check(_Status.error, label, hint: hint));
       errors++;
     }
 
-    void warn(String label, {String? hint}) {
-      printWarn(label, hint: hint);
+    void warn(_Section s, String label, {String? hint}) {
+      s.checks.add(_Check(_Status.warn, label, hint: hint));
       warnings++;
     }
 
-    // ── 1. pubspec.yaml ─────────────────────────────────────────────────────
-    printSection('pubspec.yaml');
-    final pubspecContent = pubspecFile.readAsStringSync();
-
-    if (pubspecContent.contains('nitro:')) {
-      printOk('nitro dependency present');
-    } else {
-      err('nitro dependency missing',
-          hint: 'Add: nitro: { path: ../packages/nitro }  (or pub.dev version)');
+    void ok(_Section s, String label) {
+      s.checks.add(_Check(_Status.ok, label));
     }
 
-    if (pubspecContent.contains('build_runner:')) {
-      printOk('build_runner dev dependency present');
+    void info(_Section s, String label) {
+      s.checks.add(_Check(_Status.info, label));
+    }
+
+    // ── pubspec.yaml ───────────────────────────────────────────────────────
+    final pubSec = _Section('pubspec.yaml', []);
+    sections.add(pubSec);
+    final pubspec = pubspecFile.readAsStringSync();
+
+    if (pubspec.contains('nitro:')) {
+      ok(pubSec, 'nitro dependency present');
     } else {
-      err('build_runner dev dependency missing',
+      err(pubSec, 'nitro dependency missing',
+          hint: 'Add: nitro: { path: ../packages/nitro }');
+    }
+
+    if (pubspec.contains('build_runner:')) {
+      ok(pubSec, 'build_runner dev dependency present');
+    } else {
+      err(pubSec, 'build_runner dev dependency missing',
           hint: 'Add to dev_dependencies: build_runner: ^2.4.0');
     }
 
-    if (pubspecContent.contains('nitrogen:')) {
-      printOk('nitrogen dev dependency present');
+    if (pubspec.contains('nitrogen:')) {
+      ok(pubSec, 'nitrogen dev dependency present');
     } else {
-      err('nitrogen dev dependency missing',
+      err(pubSec, 'nitrogen dev dependency missing',
           hint: 'Add to dev_dependencies: nitrogen: { path: ../packages/nitrogen }');
     }
 
-    final hasAndroidPluginClass =
-        RegExp(r'android:\s*\n(?:\s+\S[^\n]*\n)*\s+pluginClass:')
-            .hasMatch(pubspecContent);
-    if (hasAndroidPluginClass) {
-      printOk('android pluginClass defined in pubspec');
+    if (RegExp(r'android:\s*\n(?:\s+\S[^\n]*\n)*\s+pluginClass:').hasMatch(pubspec)) {
+      ok(pubSec, 'android pluginClass defined');
     } else {
-      err('android pluginClass missing in pubspec flutter.plugin.platforms',
-          hint: 'Run: nitrogen init or add pluginClass/package under flutter.plugin.platforms.android');
+      err(pubSec, 'android pluginClass missing',
+          hint: 'Add pluginClass under flutter.plugin.platforms.android');
     }
 
-    final hasAndroidPackage =
-        RegExp(r'android:\s*\n(?:\s+\S[^\n]*\n)*\s+package:').hasMatch(pubspecContent);
-    if (hasAndroidPackage) {
-      printOk('android package defined in pubspec');
+    if (RegExp(r'android:\s*\n(?:\s+\S[^\n]*\n)*\s+package:').hasMatch(pubspec)) {
+      ok(pubSec, 'android package defined');
     } else {
-      err('android package missing in pubspec flutter.plugin.platforms',
-          hint: 'Add: package: <org>.<pluginName> under flutter.plugin.platforms.android');
+      err(pubSec, 'android package missing',
+          hint: 'Add package under flutter.plugin.platforms.android');
     }
 
-    final hasIosPluginClass =
-        RegExp(r'ios:\s*\n(?:\s+\S[^\n]*\n)*\s+pluginClass:').hasMatch(pubspecContent);
-    if (hasIosPluginClass) {
-      printOk('ios pluginClass defined in pubspec');
+    if (RegExp(r'ios:\s*\n(?:\s+\S[^\n]*\n)*\s+pluginClass:').hasMatch(pubspec)) {
+      ok(pubSec, 'ios pluginClass defined');
     } else {
-      err('ios pluginClass missing in pubspec flutter.plugin.platforms',
-          hint: 'Add: pluginClass: Swift${_toClassName(pluginName)}Plugin under flutter.plugin.platforms.ios');
+      err(pubSec, 'ios pluginClass missing',
+          hint: 'Add pluginClass under flutter.plugin.platforms.ios');
     }
 
-    // ── 2. Generated files ──────────────────────────────────────────────────
-    printSection('Generated files');
-    for (final spec in specs) {
-      final stem =
-          p.basename(spec.path).replaceAll(RegExp(r'\.native\.dart$'), '');
-      final specMtime = spec.lastModifiedSync();
-      stdout.writeln('    ${dim(stem + ".native.dart")}');
-
-      for (final suffix in _generatedSuffixes) {
-        final genPath = _generatedPath(spec.path, stem, suffix);
-        final genFile = File(genPath);
-        final relPath = p.relative(genPath);
-
-        if (!genFile.existsSync()) {
-          err('MISSING  $relPath',
-              hint: 'Run: nitrogen generate');
-        } else if (specMtime.isAfter(genFile.lastModifiedSync())) {
-          warn('STALE    $relPath',
-              hint: 'Spec is newer than output — run: nitrogen generate');
-        } else {
-          printOk(relPath);
+    // ── Generated files ────────────────────────────────────────────────────
+    if (specs.isNotEmpty) {
+      final genSec = _Section('Generated Files', []);
+      sections.add(genSec);
+      for (final spec in specs) {
+        final stem = p.basename(spec.path).replaceAll(RegExp(r'\.native\.dart$'), '');
+        final specMtime = spec.lastModifiedSync();
+        for (final suffix in _generatedSuffixes) {
+          final genPath = _generatedPath(spec.path, stem, suffix);
+          final genFile = File(genPath);
+          final relPath = p.relative(genPath);
+          if (!genFile.existsSync()) {
+            err(genSec, 'MISSING  $relPath', hint: 'Run: nitrogen generate');
+          } else if (specMtime.isAfter(genFile.lastModifiedSync())) {
+            warn(genSec, 'STALE    $relPath', hint: 'Run: nitrogen generate');
+          } else {
+            ok(genSec, relPath);
+          }
         }
       }
+    } else {
+      final genSec = _Section('Generated Files', []);
+      sections.add(genSec);
+      warn(genSec, 'No *.native.dart specs found under lib/',
+          hint: 'Create lib/src/<name>.native.dart');
     }
 
-    // ── 3. src/CMakeLists.txt ───────────────────────────────────────────────
-    printSection('CMakeLists.txt');
+    // ── CMakeLists.txt ─────────────────────────────────────────────────────
+    final cmakeSec = _Section('CMakeLists.txt', []);
+    sections.add(cmakeSec);
     final cmakeFile = File(p.join('src', 'CMakeLists.txt'));
     if (!cmakeFile.existsSync()) {
-      err('src/CMakeLists.txt not found',
-          hint: 'Run: nitrogen link');
+      err(cmakeSec, 'src/CMakeLists.txt not found', hint: 'Run: nitrogen link');
     } else {
       final cmake = cmakeFile.readAsStringSync();
-
       if (cmake.contains('NITRO_NATIVE')) {
-        printOk('NITRO_NATIVE variable defined (correct dart_api_dl.c path)');
+        ok(cmakeSec, 'NITRO_NATIVE variable defined');
       } else {
-        warn('NITRO_NATIVE variable missing — dart_api_dl.c path may be wrong',
-            hint: 'Run: nitrogen link  or add: set(NITRO_NATIVE "\${CMAKE_CURRENT_SOURCE_DIR}/../../packages/nitro/src/native")');
+        warn(cmakeSec, 'NITRO_NATIVE variable missing (incorrect dart_api_dl.c path)',
+            hint: 'Run: nitrogen link');
       }
-
       if (cmake.contains('dart_api_dl.c')) {
-        printOk('dart_api_dl.c included');
+        ok(cmakeSec, 'dart_api_dl.c included');
       } else {
-        err('dart_api_dl.c not included in CMakeLists.txt',
-            hint: 'Add: "\${NITRO_NATIVE}/dart_api_dl.c" to add_library(...)');
+        err(cmakeSec, 'dart_api_dl.c not included', hint: 'Run: nitrogen link');
       }
-
       for (final spec in specs) {
-        final stem =
-            p.basename(spec.path).replaceAll(RegExp(r'\.native\.dart$'), '');
+        final stem = p.basename(spec.path).replaceAll(RegExp(r'\.native\.dart$'), '');
         final lib = _extractLibName(spec) ?? stem.replaceAll('-', '_');
         if (cmake.contains('add_library($lib ')) {
-          printOk('add_library($lib) target present');
+          ok(cmakeSec, 'add_library($lib) target present');
         } else {
-          err('add_library($lib ...) missing in src/CMakeLists.txt',
-              hint: 'Run: nitrogen link');
+          err(cmakeSec, 'add_library($lib) missing', hint: 'Run: nitrogen link');
         }
       }
     }
 
-    // ── 4. Android ──────────────────────────────────────────────────────────
-    printSection('Android');
-    final androidDir = Directory('android');
-    if (!androidDir.existsSync()) {
-      printInfo('android/ directory not found — skipping Android checks');
+    // ── Android ────────────────────────────────────────────────────────────
+    final androidSec = _Section('Android', []);
+    sections.add(androidSec);
+    if (!Directory('android').existsSync()) {
+      info(androidSec, 'android/ directory not present — skipped');
     } else {
-      // build.gradle
-      final buildGradle = File(p.join('android', 'build.gradle'));
-      if (!buildGradle.existsSync()) {
-        err('android/build.gradle not found');
+      final gradle = File(p.join('android', 'build.gradle'));
+      if (!gradle.existsSync()) {
+        err(androidSec, 'android/build.gradle not found');
       } else {
-        final gradle = buildGradle.readAsStringSync();
-
-        if (gradle.contains('"kotlin-android"') ||
-            gradle.contains("'kotlin-android'")) {
-          printOk('kotlin-android plugin applied in build.gradle');
+        final g = gradle.readAsStringSync();
+        if (g.contains('"kotlin-android"') || g.contains("'kotlin-android'")) {
+          ok(androidSec, 'kotlin-android plugin applied');
         } else {
-          err('kotlin-android plugin missing in android/build.gradle',
+          err(androidSec, 'kotlin-android plugin missing',
               hint: 'Add: apply plugin: "kotlin-android"');
         }
-
-        if (gradle.contains('kotlinOptions')) {
-          printOk('kotlinOptions block present in build.gradle');
+        if (g.contains('kotlinOptions')) {
+          ok(androidSec, 'kotlinOptions block present');
         } else {
-          err('kotlinOptions block missing in android/build.gradle',
+          err(androidSec, 'kotlinOptions block missing',
               hint: 'Add: kotlinOptions { jvmTarget = "17" }');
         }
-
-        if (gradle.contains('generated/kotlin')) {
-          printOk('generated/kotlin sourceSets entry present');
+        if (g.contains('generated/kotlin')) {
+          ok(androidSec, 'generated/kotlin sourceSets entry present');
         } else {
-          err('sourceSets entry for generated/kotlin missing in android/build.gradle',
-              hint: 'Add: sourceSets { main { kotlin.srcDirs += ".../lib/src/generated/kotlin" } }');
+          err(androidSec, 'sourceSets entry for generated/kotlin missing');
         }
-
-        if (gradle.contains('kotlinx-coroutines')) {
-          printOk('kotlinx-coroutines dependency present');
+        if (g.contains('kotlinx-coroutines')) {
+          ok(androidSec, 'kotlinx-coroutines dependency present');
         } else {
-          err('kotlinx-coroutines missing in android/build.gradle dependencies',
-              hint: 'Add: implementation "org.jetbrains.kotlinx:kotlinx-coroutines-android:1.7.3"');
+          err(androidSec, 'kotlinx-coroutines missing in dependencies');
         }
       }
 
-      // Plugin.kt
-      final kotlinDir =
-          Directory(p.join('android', 'src', 'main', 'kotlin'));
+      final kotlinDir = Directory(p.join('android', 'src', 'main', 'kotlin'));
       final pluginFiles = kotlinDir.existsSync()
           ? kotlinDir
               .listSync(recursive: true)
@@ -228,122 +403,105 @@ class DoctorCommand extends Command {
               .where((f) => f.path.endsWith('Plugin.kt'))
               .toList()
           : <File>[];
-
       if (pluginFiles.isEmpty) {
-        err('No Plugin.kt found under android/src/main/kotlin/',
-            hint: 'Run: nitrogen init  or create ${_toClassName(pluginName)}Plugin.kt');
+        err(androidSec, 'No Plugin.kt found', hint: 'Run: nitrogen init');
       } else {
         final kt = pluginFiles.first.readAsStringSync();
-        final relPath = p.relative(pluginFiles.first.path);
-
         for (final spec in specs) {
-          final stem =
-              p.basename(spec.path).replaceAll(RegExp(r'\.native\.dart$'), '');
+          final stem = p.basename(spec.path).replaceAll(RegExp(r'\.native\.dart$'), '');
           final lib = _extractLibName(spec) ?? stem.replaceAll('-', '_');
           if (kt.contains('System.loadLibrary("$lib")')) {
-            printOk('System.loadLibrary("$lib") in $relPath');
+            ok(androidSec, 'System.loadLibrary("$lib") in Plugin.kt');
           } else {
-            err('System.loadLibrary("$lib") missing in $relPath',
+            err(androidSec, 'System.loadLibrary("$lib") missing',
                 hint: 'Run: nitrogen link');
           }
         }
-
         if (kt.contains('JniBridge.register(')) {
-          printOk('JniBridge.register(...) call present in Plugin.kt');
+          ok(androidSec, 'JniBridge.register(...) call present');
         } else {
-          warn('JniBridge.register(...) call not found in Plugin.kt',
-              hint:
-                  'Add: ${_toClassName(pluginName)}JniBridge.register(${_toClassName(pluginName)}Impl(binding.applicationContext)) in onAttachedToEngine');
+          warn(androidSec, 'JniBridge.register(...) not found in Plugin.kt',
+              hint: 'Add register call in onAttachedToEngine');
         }
       }
     }
 
-    // ── 5. iOS ──────────────────────────────────────────────────────────────
-    printSection('iOS');
-    final iosDir = Directory('ios');
-    if (!iosDir.existsSync()) {
-      printInfo('ios/ directory not found — skipping iOS checks');
+    // ── iOS ────────────────────────────────────────────────────────────────
+    final iosSec = _Section('iOS', []);
+    sections.add(iosSec);
+    if (!Directory('ios').existsSync()) {
+      info(iosSec, 'ios/ directory not present — skipped');
     } else {
-      // Podspec
-      final podspecFiles = iosDir
+      final podFiles = Directory('ios')
           .listSync()
           .whereType<File>()
           .where((f) => f.path.endsWith('.podspec'))
           .toList();
-
-      if (podspecFiles.isEmpty) {
-        err('No .podspec found in ios/',
-            hint: 'Run: nitrogen init');
+      if (podFiles.isEmpty) {
+        err(iosSec, 'No .podspec found in ios/', hint: 'Run: nitrogen init');
       } else {
-        final pod = podspecFiles.first.readAsStringSync();
-        final podName = p.basename(podspecFiles.first.path);
-
+        final pod = podFiles.first.readAsStringSync();
+        final podName = p.basename(podFiles.first.path);
         if (pod.contains('HEADER_SEARCH_PATHS')) {
-          printOk('HEADER_SEARCH_PATHS in $podName');
+          ok(iosSec, 'HEADER_SEARCH_PATHS in $podName');
         } else {
-          err('HEADER_SEARCH_PATHS missing in $podName',
+          err(iosSec, 'HEADER_SEARCH_PATHS missing in $podName',
               hint: 'Run: nitrogen link');
         }
-
         if (pod.contains('c++17')) {
-          printOk('CLANG_CXX_LANGUAGE_STANDARD = c++17 in $podName');
+          ok(iosSec, 'CLANG_CXX_LANGUAGE_STANDARD = c++17');
         } else {
-          warn('CLANG_CXX_LANGUAGE_STANDARD not set to c++17 in $podName',
-              hint: "Add: 'CLANG_CXX_LANGUAGE_STANDARD' => 'c++17' in pod_target_xcconfig");
+          warn(iosSec, 'CLANG_CXX_LANGUAGE_STANDARD not set to c++17',
+              hint: "Set: 'CLANG_CXX_LANGUAGE_STANDARD' => 'c++17' in pod_target_xcconfig");
         }
-
-        if (pod.contains("s.swift_version = '5.9'") ||
-            pod.contains("s.swift_version = '6")) {
-          printOk("swift_version ≥ 5.9 in $podName");
+        if (pod.contains("swift_version = '5.9'") || pod.contains("swift_version = '6")) {
+          ok(iosSec, 'swift_version ≥ 5.9');
         } else {
-          warn("swift_version may be too old in $podName",
+          warn(iosSec, 'swift_version may be too old',
               hint: "Set: s.swift_version = '5.9'");
         }
       }
 
-      // Swift plugin class
       final classesDir = Directory(p.join('ios', 'Classes'));
-      final swiftPluginFiles = classesDir.existsSync()
+      final swiftFiles = classesDir.existsSync()
           ? classesDir
               .listSync()
               .whereType<File>()
               .where((f) => f.path.endsWith('Plugin.swift'))
               .toList()
           : <File>[];
-
-      if (swiftPluginFiles.isEmpty) {
-        err('No *Plugin.swift found in ios/Classes/',
-            hint: 'Run: nitrogen init  or create Swift${_toClassName(pluginName)}Plugin.swift');
+      if (swiftFiles.isEmpty) {
+        err(iosSec, 'No *Plugin.swift in ios/Classes/', hint: 'Run: nitrogen init');
       } else {
-        final swiftContent = swiftPluginFiles.first.readAsStringSync();
-        final swiftName = p.basename(swiftPluginFiles.first.path);
-
-        if (swiftContent.contains('Registry.register(')) {
-          printOk('Registry.register(...) call present in $swiftName');
+        final swift = swiftFiles.first.readAsStringSync();
+        if (swift.contains('Registry.register(')) {
+          ok(iosSec, 'Registry.register(...) in ${p.basename(swiftFiles.first.path)}');
         } else {
-          warn('Registry.register(...) call not found in $swiftName',
-              hint:
-                  'Add: ${_toClassName(pluginName)}Registry.register(${_toClassName(pluginName)}Impl()) in register(with:)');
+          warn(iosSec, 'Registry.register(...) not found in Swift plugin',
+              hint: 'Add register call in register(with:)');
         }
       }
 
-      // dart_api_dl forwarder
-      final dartApiDl =
-          File(p.join('ios', 'Classes', 'dart_api_dl.cpp'));
+      final dartApiDl = File(p.join('ios', 'Classes', 'dart_api_dl.cpp'));
       if (dartApiDl.existsSync()) {
-        printOk('ios/Classes/dart_api_dl.cpp present');
+        ok(iosSec, 'ios/Classes/dart_api_dl.cpp present');
       } else {
-        err('ios/Classes/dart_api_dl.cpp missing',
-            hint: 'Run: nitrogen link');
+        err(iosSec, 'ios/Classes/dart_api_dl.cpp missing', hint: 'Run: nitrogen link');
       }
     }
 
-    // ── Summary ──────────────────────────────────────────────────────────────
-    printSummary(errors: errors, warnings: warnings, subject: pluginName);
-    if (errors > 0) exit(1);
+    // ── Render with nocterm ────────────────────────────────────────────────
+    await runApp(_DoctorApp(
+      pluginName: pluginName,
+      sections: sections,
+      errors: errors,
+      warnings: warnings,
+    ));
+
+    exit(errors > 0 ? 1 : 0);
   }
 
-  // ── Helpers ──────────────────────────────────────────────────────────────
+  // ── Helpers ───────────────────────────────────────────────────────────────
 
   List<File> _findSpecs() {
     final libDir = Directory('lib');
@@ -358,8 +516,7 @@ class DoctorCommand extends Command {
   String _generatedPath(String specPath, String stem, String suffix) {
     final specDir = p.dirname(specPath);
     if (suffix == '.g.dart') return p.join(specDir, '$stem$suffix');
-    final subdir = _generatedSubdir[suffix]!;
-    return p.join(specDir, 'generated', subdir, '$stem$suffix');
+    return p.join(specDir, 'generated', _generatedSubdir[suffix]!, '$stem$suffix');
   }
 
   String? _extractLibName(File specFile) {
@@ -376,9 +533,4 @@ class DoctorCommand extends Command {
     }
     return 'unknown';
   }
-
-  String _toClassName(String pluginName) => pluginName
-      .split('_')
-      .map((w) => w.isEmpty ? '' : w[0].toUpperCase() + w.substring(1))
-      .join('');
 }

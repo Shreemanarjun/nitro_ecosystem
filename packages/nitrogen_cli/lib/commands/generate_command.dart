@@ -8,44 +8,50 @@ class GenerateCommand extends Command {
 
   @override
   final String description =
-      'Runs the Nitrogen code generator (build_runner) and streams output in real time.';
+      'Runs the Nitrogen code generator (build_runner) with live output.';
 
   @override
   Future<void> run() async {
-    printBanner('nitrogen generate');
-
-    // Ensure pubspec is present
+    // Generate streams build_runner output directly to the terminal — we keep
+    // this as plain stdout so the verbose output (file paths, errors) persists
+    // in the scrollback buffer. We use the shared ANSI helpers for the
+    // header/footer only.
     if (!File('pubspec.yaml').existsSync()) {
-      printError('No pubspec.yaml found.',
-          hint: 'Run nitrogen generate from the root of a Flutter plugin.');
+      stderr.writeln(red('❌ No pubspec.yaml found.'));
       exit(1);
     }
 
-    printSection('Running flutter pub get');
+    stdout.writeln('');
+    stdout.writeln(boldCyan('  ╔══════════════════════════╗'));
+    stdout.writeln(boldCyan('  ║  nitrogen generate       ║'));
+    stdout.writeln(boldCyan('  ╚══════════════════════════╝'));
+    stdout.writeln('');
+
+    // ── pub get ─────────────────────────────────────────────────────────────
+    stdout.writeln(cyan('  › flutter pub get …'));
     var exitCode = await runStreaming('flutter', ['pub', 'get']);
     if (exitCode != 0) {
-      printError('flutter pub get failed (exit $exitCode)');
+      stderr.writeln(red('  ✘  flutter pub get failed (exit $exitCode)'));
       exit(exitCode);
     }
+    stdout.writeln('');
 
-    printSection('Running build_runner build');
+    // ── build_runner ─────────────────────────────────────────────────────────
+    stdout.writeln(cyan('  › build_runner build …'));
+    stdout.writeln('');
     exitCode = await runStreaming('flutter', [
-      'pub',
-      'run',
-      'build_runner',
-      'build',
-      '--delete-conflicting-outputs',
+      'pub', 'run', 'build_runner', 'build', '--delete-conflicting-outputs',
     ]);
 
+    stdout.writeln('');
     if (exitCode != 0) {
-      printError('build_runner failed (exit $exitCode)',
-          hint: 'Check the output above for details.');
+      stderr.writeln(boldRed('  ✘  build_runner failed (exit $exitCode)'));
+      stderr.writeln(gray('     Check the output above for details.'));
       exit(exitCode);
     }
 
-    stdout.writeln('');
-    stdout.writeln(bold(green('  ✨ Generation complete!')));
-    stdout.writeln(dim('     Run nitrogen link to wire generated bridges into the build system.'));
+    stdout.writeln(boldGreen('  ✨ Generation complete!'));
+    stdout.writeln(gray('     Run nitrogen link to wire bridges into the build system.'));
     stdout.writeln('');
   }
 }

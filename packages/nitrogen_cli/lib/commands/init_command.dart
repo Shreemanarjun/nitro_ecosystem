@@ -1,98 +1,247 @@
 import 'dart:io';
 import 'package:args/command_runner.dart';
+import 'package:nocterm/nocterm.dart';
 import 'package:path/path.dart' as p;
-import '../ui.dart';
 
-class InitCommand extends Command {
+// ── Progress model ────────────────────────────────────────────────────────────
+
+enum _StepState { pending, running, done, failed }
+
+class _Step {
+  final String label;
+  _StepState state;
+  String? detail;
+
+  _Step(this.label) : state = _StepState.pending;
+}
+
+// ── nocterm Progress component ────────────────────────────────────────────────
+
+class _StepRow extends StatelessComponent {
+  const _StepRow(this.step);
+  final _Step step;
+
   @override
-  final String name = 'init';
+  Component build(BuildContext context) {
+    final String icon;
+    final Color color;
+    switch (step.state) {
+      case _StepState.pending:
+        icon = '○';
+        color = Colors.gray;
+      case _StepState.running:
+        icon = '◉';
+        color = Colors.cyan;
+      case _StepState.done:
+        icon = '✔';
+        color = Colors.green;
+      case _StepState.failed:
+        icon = '✘';
+        color = Colors.red;
+    }
+
+    return Padding(
+      padding: const EdgeInsets.only(left: 2, bottom: 0),
+      child: Column(
+        children: [
+          Row(
+            children: [
+              Text(icon, style: TextStyle(color: color, fontWeight: FontWeight.bold)),
+              const Text(' '),
+              Expanded(
+                child: Text(
+                  step.label,
+                  style: TextStyle(
+                    color: step.state == _StepState.running ? Colors.cyan : null,
+                    fontWeight: step.state == _StepState.running
+                        ? FontWeight.bold
+                        : null,
+                  ),
+                ),
+              ),
+            ],
+          ),
+          if (step.detail != null)
+            Padding(
+              padding: const EdgeInsets.only(left: 4),
+              child: Text(
+                step.detail!,
+                style: const TextStyle(color: Colors.gray, fontWeight: FontWeight.dim),
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+}
+
+class _InitApp extends StatefulComponent {
+  const _InitApp({required this.pluginName, required this.org});
+  final String pluginName;
+  final String org;
 
   @override
-  final String description =
-      'Scaffolds a new Nitrogen FFI plugin project with optimized native configs.';
+  State<_InitApp> createState() => _InitAppState();
+}
 
-  InitCommand() {
-    argParser.addOption('org',
-        defaultsTo: 'com.example',
-        help: 'The organization (e.g., com.mycompany) for the plugin.');
+class _InitAppState extends State<_InitApp> {
+  late final List<_Step> _steps = [
+    _Step('Running flutter create'),
+    _Step('Setting up src/ directory'),
+    _Step('Configuring iOS'),
+    _Step('Configuring Android'),
+    _Step('Updating pubspec.yaml'),
+    _Step('Writing bridge spec'),
+  ];
+
+  bool _finished = false;
+  bool _failed = false;
+  String? _errorMessage;
+
+  @override
+  void initState() {
+    super.initState();
+    Future<void>.delayed(Duration.zero, _run);
   }
 
-  @override
-  void run() async {
-    if (argResults!.rest.isEmpty) {
-      stderr.writeln('❌ Please provide a plugin name: nitrogen init <plugin_name>');
-      exit(1);
-    }
+  Future<void> _setRunning(int i) async {
+    setState(() => _steps[i].state = _StepState.running);
+  }
 
-    final pluginName = argResults!.rest.first;
-    final org = argResults!['org'] as String;
-    final dir = Directory(pluginName);
+  Future<void> _setDone(int i, {String? detail}) async {
+    setState(() {
+      _steps[i].state = _StepState.done;
+      _steps[i].detail = detail;
+    });
+  }
 
-    if (dir.existsSync()) {
-      stderr.writeln('❌ Directory $pluginName already exists.');
-      exit(1);
-    }
+  Future<void> _setFailed(int i, String msg) async {
+    setState(() {
+      _steps[i].state = _StepState.failed;
+      _steps[i].detail = msg;
+      _failed = true;
+      _errorMessage = msg;
+    });
+  }
 
-    printBanner('nitrogen init — $pluginName');
-    printSection('Scaffolding Flutter plugin');
-    stdout.writeln('');
-    final createResult = Process.runSync('flutter', [
+  Future<void> _run() async {
+    final pluginName = component.pluginName;
+    final org = component.org;
+    final className = _toClassName(pluginName);
+
+    // Step 0 — flutter create
+    await _setRunning(0);
+    final createResult = await Process.run('flutter', [
       'create',
       '--template=plugin_ffi',
       '--platforms=android,ios',
       '--org=$org',
       pluginName,
     ]);
-
     if (createResult.exitCode != 0) {
-      stderr.writeln(createResult.stderr);
-      exit(createResult.exitCode);
+      await _setFailed(0, 'flutter create failed: ${createResult.stderr}');
+      setState(() => _finished = true);
+      await Future<void>.delayed(const Duration(seconds: 2), () => shutdownApp(1));
+      return;
     }
+    await _setDone(0, detail: 'Created $pluginName/');
 
-    final className = _toClassName(pluginName);
-
-    printSection('Native src/ directory');
+    // Step 1 — src/
+    await _setRunning(1);
     _setupSrc(pluginName);
-    printOk('src/CMakeLists.txt and $pluginName.cpp created');
+    await _setDone(1, detail: 'src/CMakeLists.txt created');
 
-    printSection('iOS — podspec + Swift plugin');
+    // Step 2 — iOS
+    await _setRunning(2);
     _configureIos(pluginName, className);
+    await _setDone(2, detail: 'podspec + Swift${className}Plugin.swift');
 
-    printSection('Android — build.gradle + Plugin.kt');
+    // Step 3 — Android
+    await _setRunning(3);
     _configureAndroid(pluginName, className, org);
+    await _setDone(3, detail: 'build.gradle + ${className}Plugin.kt');
 
-    printSection('pubspec.yaml');
+    // Step 4 — pubspec
+    await _setRunning(4);
     _updatePubspec(pluginName, className, org);
-    printOk('nitro, build_runner, nitrogen, pluginClass entries added');
+    await _setDone(4, detail: 'nitro, pluginClass entries added');
 
-    printSection('Dart bridge spec');
+    // Step 5 — bridge spec
+    await _setRunning(5);
     _writeBridgeSpec(pluginName, className);
-    printOk('lib/src/$pluginName.native.dart created');
+    await _setDone(5, detail: 'lib/src/$pluginName.native.dart');
 
-    stdout.writeln('');
-    stdout.writeln(bold(green('  ✨ $pluginName is ready!')));
-    stdout.writeln('');
-    stdout.writeln(dim('  Next steps:'));
-    stdout.writeln(dim('    1. Edit lib/src/$pluginName.native.dart — define your API'));
-    stdout.writeln(dim('    2. Run: nitrogen generate'));
-    stdout.writeln(dim('    3. Run: nitrogen link'));
-    stdout.writeln(dim('    4. Implement Hybrid${className}Spec in Kotlin & Swift'));
-    stdout.writeln(dim('    5. Run: nitrogen doctor  — verify everything is wired up'));
-    stdout.writeln('');
+    setState(() => _finished = true);
+    await Future<void>.delayed(const Duration(milliseconds: 300), () => shutdownApp(0));
   }
 
-  // ── src/ ──────────────────────────────────────────────────────────────────
+  @override
+  Component build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.all(1),
+      child: Column(
+        children: [
+          // Header
+          Container(
+            decoration: BoxDecoration(border: BoxBorder.all(color: Colors.cyan)),
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 2),
+              child: Text(
+                ' nitrogen init — ${component.pluginName} ',
+                style: const TextStyle(color: Colors.cyan, fontWeight: FontWeight.bold),
+              ),
+            ),
+          ),
+          const Padding(padding: EdgeInsets.only(bottom: 1), child: Text('')),
+
+          // Steps
+          Container(
+            decoration: BoxDecoration(border: BoxBorder.all(color: Colors.brightBlack)),
+            child: Padding(
+              padding: const EdgeInsets.all(1),
+              child: Column(children: _steps.map(_StepRow.new).toList()),
+            ),
+          ),
+
+          // Footer
+          if (_finished)
+            Padding(
+              padding: const EdgeInsets.only(top: 1),
+              child: _failed
+                  ? Text('✘ Scaffolding failed: ${_errorMessage ?? ""}',
+                      style: const TextStyle(
+                          color: Colors.red, fontWeight: FontWeight.bold))
+                  : Column(
+                      children: [
+                        const Text('✨ Done! Next steps:',
+                            style: TextStyle(
+                                color: Colors.green, fontWeight: FontWeight.bold)),
+                        Text(
+                          '  1. Edit lib/src/${component.pluginName}.native.dart\n'
+                          '  2. Run: nitrogen generate\n'
+                          '  3. Run: nitrogen link\n'
+                          '  4. Implement Hybrid${_toClassName(component.pluginName)}Spec in Kotlin & Swift\n'
+                          '  5. Run: nitrogen doctor',
+                          style: const TextStyle(color: Colors.gray),
+                        ),
+                      ],
+                    ),
+            ),
+        ],
+      ),
+    );
+  }
+
+  // ── Setup helpers (same logic as before) ─────────────────────────────────
 
   void _setupSrc(String pluginName) {
     final srcDir = Directory(p.join(pluginName, 'src'));
     if (!srcDir.existsSync()) srcDir.createSync(recursive: true);
 
-    // Main C++ entry point
     File(p.join(srcDir.path, '$pluginName.cpp')).writeAsStringSync('''
 #include <stdint.h>
 #include <stdbool.h>
 
-// Generated Nitrogen bridge (header + impl included together for the main target)
 #include "../lib/src/generated/cpp/$pluginName.bridge.g.h"
 #include "../lib/src/generated/cpp/$pluginName.bridge.g.cpp"
 
@@ -101,8 +250,6 @@ extern "C" {
 }
 ''');
 
-    // src/CMakeLists.txt — uses NITRO_NATIVE variable so the path is correct
-    // regardless of where the src/ directory is relative to the workspace root.
     File(p.join(srcDir.path, 'CMakeLists.txt')).writeAsStringSync('''
 cmake_minimum_required(VERSION 3.10)
 project(${pluginName}_library VERSION 0.0.1 LANGUAGES C CXX)
@@ -130,31 +277,24 @@ endif()
 ''');
   }
 
-  // ── iOS ───────────────────────────────────────────────────────────────────
-
   void _configureIos(String pluginName, String className) {
     final classesDir = Directory(p.join(pluginName, 'ios', 'Classes'));
     if (!classesDir.existsSync()) classesDir.createSync(recursive: true);
 
-    // Remove old .c stub generated by flutter create
     final oldC = File(p.join(classesDir.path, '$pluginName.c'));
     if (oldC.existsSync()) oldC.deleteSync();
 
-    // Remove any auto-generated Swift plugin so ours is the only one
     for (final f in classesDir.listSync().whereType<File>()) {
       if (f.path.endsWith('Plugin.swift')) f.deleteSync();
     }
 
-    // C++ forwarder (iOS CocoaPods compiles everything in ios/Classes/)
     File(p.join(classesDir.path, '$pluginName.cpp'))
         .writeAsStringSync('#include "../../src/$pluginName.cpp"\n');
 
-    // dart_api_dl forwarder
     File(p.join(classesDir.path, 'dart_api_dl.cpp')).writeAsStringSync(
         '// Forwarder — compiled by CocoaPods so Dart DL API is available in the dylib.\n'
         '#include "../../../packages/nitro/src/native/dart_api_dl.c"\n');
 
-    // Swift plugin class — registers the native impl with Nitrogen's registry
     File(p.join(classesDir.path, 'Swift${className}Plugin.swift'))
         .writeAsStringSync('''import Flutter
 import UIKit
@@ -166,18 +306,13 @@ public class Swift${className}Plugin: NSObject, FlutterPlugin {
 }
 ''');
 
-    // Podspec
     final podspecFile = File(p.join(pluginName, 'ios', '$pluginName.podspec'));
     if (podspecFile.existsSync()) {
       var content = podspecFile.readAsStringSync();
-
       content = content.replaceFirst(
           RegExp(r"s\.platform = :ios, '[\d.]+'"), "s.platform = :ios, '13.0'");
       content = content.replaceFirst(
           RegExp(r"s\.swift_version = '[\d.]+'"), "s.swift_version = '5.9'");
-
-      // Replace pod_target_xcconfig wholesale to avoid duplicate-key issues
-      // when init + link are both run.
       const xcconfig = '''s.pod_target_xcconfig = {
     'CLANG_CXX_LANGUAGE_STANDARD' => 'c++17',
     'CLANG_CXX_LIBRARY' => 'libc++',
@@ -185,37 +320,22 @@ public class Swift${className}Plugin: NSObject, FlutterPlugin {
   }''';
       content = content.replaceFirst(
           RegExp(r's\.pod_target_xcconfig\s*=\s*\{[^}]*\}'), xcconfig);
-
       podspecFile.writeAsStringSync(content);
-      stdout.writeln('  ✅ Updated ios/$pluginName.podspec');
     }
   }
 
-  // ── Android ───────────────────────────────────────────────────────────────
-
   void _configureAndroid(String pluginName, String className, String org) {
-    // Overwrite build.gradle with full Kotlin + coroutines + generated sourceSets
     File(p.join(pluginName, 'android', 'build.gradle')).writeAsStringSync('''
-// The Android Gradle Plugin builds the native code with the Android NDK.
-
 group = "$org.$pluginName"
 version = "1.0"
 
 buildscript {
-    repositories {
-        google()
-        mavenCentral()
-    }
-    dependencies {
-        classpath("com.android.tools.build:gradle:8.11.1")
-    }
+    repositories { google(); mavenCentral() }
+    dependencies { classpath("com.android.tools.build:gradle:8.11.1") }
 }
 
 rootProject.allprojects {
-    repositories {
-        google()
-        mavenCentral()
-    }
+    repositories { google(); mavenCentral() }
 }
 
 apply plugin: "com.android.library"
@@ -227,9 +347,7 @@ android {
     ndkVersion = android.ndkVersion
 
     externalNativeBuild {
-        cmake {
-            path = "../src/CMakeLists.txt"
-        }
+        cmake { path = "../src/CMakeLists.txt" }
     }
 
     compileOptions {
@@ -237,17 +355,12 @@ android {
         targetCompatibility = JavaVersion.VERSION_17
     }
 
-    kotlinOptions {
-        jvmTarget = "17"
-    }
+    kotlinOptions { jvmTarget = "17" }
 
-    defaultConfig {
-        minSdk = 24
-    }
+    defaultConfig { minSdk = 24 }
 
     sourceSets {
         main {
-            // Include Nitrogen-generated Kotlin bridge files automatically
             kotlin.srcDirs += "\${project.projectDir}/../lib/src/generated/kotlin"
             java.srcDirs += "\${project.projectDir}/../lib/src/generated/kotlin"
         }
@@ -259,10 +372,7 @@ dependencies {
     implementation "org.jetbrains.kotlinx:kotlinx-coroutines-core:1.7.3"
 }
 ''');
-    stdout.writeln('  ✅ Wrote android/build.gradle with Kotlin + coroutines');
 
-    // Create Plugin.kt — registers the native impl with the JNI bridge.
-    // The Impl class (${className}Impl.kt) is left for the developer to fill in.
     final moduleName = '${pluginName}_module';
     final orgPath = org.replaceAll('.', p.separator);
     final kotlinDir = Directory(
@@ -278,9 +388,7 @@ import nitro.${moduleName}.${className}JniBridge
 class ${className}Plugin : FlutterPlugin {
 
     companion object {
-        init {
-            System.loadLibrary("$pluginName")
-        }
+        init { System.loadLibrary("$pluginName") }
     }
 
     override fun onAttachedToEngine(binding: FlutterPlugin.FlutterPluginBinding) {
@@ -292,30 +400,22 @@ class ${className}Plugin : FlutterPlugin {
     override fun onDetachedFromEngine(binding: FlutterPlugin.FlutterPluginBinding) {}
 }
 ''');
-    stdout.writeln('  ✅ Created android/.../kotlin/${className}Plugin.kt');
   }
-
-  // ── pubspec.yaml ──────────────────────────────────────────────────────────
 
   void _updatePubspec(String pluginName, String className, String org) {
     final pubspecFile = File(p.join(pluginName, 'pubspec.yaml'));
     var pubspec = pubspecFile.readAsStringSync();
 
-    // Add nitro runtime dependency
     pubspec = pubspec.replaceFirst(
         'dependencies:\n  flutter:\n    sdk: flutter',
         'dependencies:\n  flutter:\n    sdk: flutter\n  nitro: { path: ../packages/nitro }');
 
-    // Add build tooling dev-dependencies (match any flutter_lints version)
     pubspec = pubspec.replaceFirst(
         RegExp(r'  flutter_lints: \^\S+'),
         '  flutter_lints: ^6.0.0\n'
         '  build_runner: ^2.4.0\n'
         '  nitrogen: { path: ../packages/nitrogen }');
 
-    // Replace the plain ffiPlugin-only block that flutter create emits with a
-    // full block that includes pluginClass + package so Flutter can register
-    // the plugin class at startup (needed to call NitroBatteryRegistry.register).
     pubspec = pubspec.replaceFirst(
         RegExp(
             r'    platforms:\s*\n'
@@ -335,14 +435,10 @@ class ${className}Plugin : FlutterPlugin {
     pubspecFile.writeAsStringSync(pubspec);
   }
 
-  // ── Bridge spec ───────────────────────────────────────────────────────────
-
   void _writeBridgeSpec(String pluginName, String className) {
     final libSrcDir = Directory(p.join(pluginName, 'lib', 'src'));
     libSrcDir.createSync(recursive: true);
 
-    // Note: _${className}Impl() is Dart string interpolation — produces e.g.
-    // _NitroBatteryImpl() in the written file.
     File(p.join(libSrcDir.path, '$pluginName.native.dart'))
         .writeAsStringSync('''import 'package:nitro/nitro.dart';
 
@@ -363,12 +459,46 @@ abstract class $className extends HybridObject {
         .writeAsStringSync("export 'src/$pluginName.native.dart';\n");
   }
 
-  // ── Helpers ───────────────────────────────────────────────────────────────
-
   String _toClassName(String pluginName) {
     return pluginName
         .split('_')
         .map((w) => w.isEmpty ? '' : w[0].toUpperCase() + w.substring(1))
         .join('');
+  }
+}
+
+// ── InitCommand ───────────────────────────────────────────────────────────────
+
+class InitCommand extends Command {
+  @override
+  final String name = 'init';
+
+  @override
+  final String description =
+      'Scaffolds a new Nitrogen FFI plugin with full native wiring '
+      '(build.gradle, Plugin.kt, Swift plugin, podspec, pubspec).';
+
+  InitCommand() {
+    argParser.addOption('org',
+        defaultsTo: 'com.example',
+        help: 'The organization (e.g., com.mycompany) for the plugin.');
+  }
+
+  @override
+  Future<void> run() async {
+    if (argResults!.rest.isEmpty) {
+      stderr.writeln('❌ Please provide a plugin name: nitrogen init <plugin_name>');
+      exit(1);
+    }
+
+    final pluginName = argResults!.rest.first;
+    final org = argResults!['org'] as String;
+
+    if (Directory(pluginName).existsSync()) {
+      stderr.writeln('❌ Directory $pluginName already exists.');
+      exit(1);
+    }
+
+    await runApp(_InitApp(pluginName: pluginName, org: org));
   }
 }
