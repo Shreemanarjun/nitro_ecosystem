@@ -3,6 +3,7 @@
 
 import 'package:nitro/nitro.dart';
 import 'package:nitrogen/src/bridge_spec.dart';
+import 'package:nitrogen/src/spec_validator.dart';
 import 'package:nitrogen/src/generators/cpp_bridge_generator.dart';
 import 'package:nitrogen/src/generators/dart_ffi_generator.dart';
 import 'package:nitrogen/src/generators/kotlin_generator.dart';
@@ -367,6 +368,157 @@ void main() {
       final out = CppBridgeGenerator.generate(_structStreamSpec());
       expect(out, contains('_register_frames_stream(dart_port'));
       expect(out, contains('_release_frames_stream(dart_port)'));
+    });
+  });
+
+  // ── SpecValidator ─────────────────────────────────────────────────────────
+
+  group('SpecValidator', () {
+    test('valid simple spec produces no issues', () {
+      expect(SpecValidator.validate(_simpleSpec()), isEmpty);
+    });
+
+    test('valid enum spec produces no issues', () {
+      expect(SpecValidator.validate(_enumSpec()), isEmpty);
+    });
+
+    test('valid struct stream spec produces no issues', () {
+      expect(SpecValidator.validate(_structStreamSpec()), isEmpty);
+    });
+
+    test('unknown return type emits UNKNOWN_RETURN_TYPE error', () {
+      final spec = BridgeSpec(
+        dartClassName: 'Foo', lib: 'foo', namespace: 'foo',
+        iosImpl: NativeImpl.swift, androidImpl: NativeImpl.kotlin,
+        sourceUri: 'foo.native.dart',
+        functions: [
+          BridgeFunction(
+            dartName: 'bar', cSymbol: 'foo_bar', isAsync: false,
+            returnType: BridgeType(name: 'MyUnknownType'), params: [],
+          ),
+        ],
+      );
+      final issues = SpecValidator.validate(spec);
+      expect(issues.any((i) => i.code == 'UNKNOWN_RETURN_TYPE' && i.isError), isTrue);
+    });
+
+    test('unknown parameter type emits UNKNOWN_PARAM_TYPE error', () {
+      final spec = BridgeSpec(
+        dartClassName: 'Foo', lib: 'foo', namespace: 'foo',
+        iosImpl: NativeImpl.swift, androidImpl: NativeImpl.kotlin,
+        sourceUri: 'foo.native.dart',
+        functions: [
+          BridgeFunction(
+            dartName: 'bar', cSymbol: 'foo_bar', isAsync: false,
+            returnType: BridgeType(name: 'void'),
+            params: [BridgeParam(name: 'x', type: BridgeType(name: 'UnknownStruct'))],
+          ),
+        ],
+      );
+      final issues = SpecValidator.validate(spec);
+      expect(issues.any((i) => i.code == 'UNKNOWN_PARAM_TYPE' && i.isError), isTrue);
+    });
+
+    test('known @HybridEnum in return produces no error', () {
+      expect(SpecValidator.validate(_enumSpec()).where((i) => i.isError), isEmpty);
+    });
+
+    test('known @HybridStruct in stream produces no error', () {
+      expect(SpecValidator.validate(_structStreamSpec()).where((i) => i.isError), isEmpty);
+    });
+
+    test('duplicate C symbols emit DUPLICATE_SYMBOL error', () {
+      final spec = BridgeSpec(
+        dartClassName: 'Foo', lib: 'foo', namespace: 'foo',
+        iosImpl: NativeImpl.swift, androidImpl: NativeImpl.kotlin,
+        sourceUri: 'foo.native.dart',
+        functions: [
+          BridgeFunction(dartName: 'a', cSymbol: 'foo_bar', isAsync: false,
+              returnType: BridgeType(name: 'void'), params: []),
+          BridgeFunction(dartName: 'b', cSymbol: 'foo_bar', isAsync: false,
+              returnType: BridgeType(name: 'void'), params: []),
+        ],
+      );
+      final issues = SpecValidator.validate(spec);
+      expect(issues.any((i) => i.code == 'DUPLICATE_SYMBOL' && i.isError), isTrue);
+    });
+
+    test('sync struct return emits SYNC_STRUCT_RETURN warning (not error)', () {
+      final spec = BridgeSpec(
+        dartClassName: 'Foo', lib: 'foo', namespace: 'foo',
+        iosImpl: NativeImpl.swift, androidImpl: NativeImpl.kotlin,
+        sourceUri: 'foo.native.dart',
+        structs: [BridgeStruct(name: 'Result', packed: false, fields: [
+          BridgeField(name: 'value', type: BridgeType(name: 'double')),
+        ])],
+        functions: [
+          BridgeFunction(dartName: 'get', cSymbol: 'foo_get', isAsync: false,
+              returnType: BridgeType(name: 'Result'), params: []),
+        ],
+      );
+      final issues = SpecValidator.validate(spec);
+      final w = issues.where((i) => i.code == 'SYNC_STRUCT_RETURN').toList();
+      expect(w, hasLength(1));
+      expect(w.first.isError, isFalse);
+    });
+
+    test('zero_copy on non-Uint8List field emits INVALID_ZERO_COPY error', () {
+      final spec = BridgeSpec(
+        dartClassName: 'Foo', lib: 'foo', namespace: 'foo',
+        iosImpl: NativeImpl.swift, androidImpl: NativeImpl.kotlin,
+        sourceUri: 'foo.native.dart',
+        structs: [BridgeStruct(name: 'Bad', packed: false, fields: [
+          BridgeField(name: 'count', type: BridgeType(name: 'int'), zeroCopy: true),
+        ])],
+      );
+      final issues = SpecValidator.validate(spec);
+      expect(issues.any((i) => i.code == 'INVALID_ZERO_COPY' && i.isError), isTrue);
+    });
+
+    test('unknown stream item type emits UNKNOWN_STREAM_ITEM_TYPE error', () {
+      final spec = BridgeSpec(
+        dartClassName: 'Foo', lib: 'foo', namespace: 'foo',
+        iosImpl: NativeImpl.swift, androidImpl: NativeImpl.kotlin,
+        sourceUri: 'foo.native.dart',
+        streams: [BridgeStream(
+          dartName: 'events',
+          registerSymbol: 'foo_register_events_stream',
+          releaseSymbol: 'foo_release_events_stream',
+          itemType: BridgeType(name: 'SomeComplexClass'),
+          backpressure: Backpressure.dropLatest,
+        )],
+      );
+      final issues = SpecValidator.validate(spec);
+      expect(issues.any((i) => i.code == 'UNKNOWN_STREAM_ITEM_TYPE' && i.isError), isTrue);
+    });
+
+    test('invalid struct field type (List<int>) emits INVALID_STRUCT_FIELD_TYPE error', () {
+      final spec = BridgeSpec(
+        dartClassName: 'Foo', lib: 'foo', namespace: 'foo',
+        iosImpl: NativeImpl.swift, androidImpl: NativeImpl.kotlin,
+        sourceUri: 'foo.native.dart',
+        structs: [BridgeStruct(name: 'Wrapper', packed: false, fields: [
+          BridgeField(name: 'items', type: BridgeType(name: 'List<int>')),
+        ])],
+      );
+      final issues = SpecValidator.validate(spec);
+      expect(issues.any((i) => i.code == 'INVALID_STRUCT_FIELD_TYPE' && i.isError), isTrue);
+    });
+
+    test('error issues carry actionable hints', () {
+      final spec = BridgeSpec(
+        dartClassName: 'Foo', lib: 'foo', namespace: 'foo',
+        iosImpl: NativeImpl.swift, androidImpl: NativeImpl.kotlin,
+        sourceUri: 'foo.native.dart',
+        functions: [
+          BridgeFunction(dartName: 'bar', cSymbol: 'foo_bar', isAsync: false,
+              returnType: BridgeType(name: 'MissingType'), params: []),
+        ],
+      );
+      final errors = SpecValidator.validate(spec).where((i) => i.isError).toList();
+      expect(errors, isNotEmpty);
+      expect(errors.first.hint, isNotNull);
+      expect(errors.first.hint, isNotEmpty);
     });
   });
 }
