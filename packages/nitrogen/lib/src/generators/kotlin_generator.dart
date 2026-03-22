@@ -1,4 +1,6 @@
 import '../bridge_spec.dart';
+import 'struct_generator.dart';
+import 'enum_generator.dart';
 
 class KotlinGenerator {
   static String generate(BridgeSpec spec) {
@@ -9,6 +11,15 @@ class KotlinGenerator {
     s.writeln('import androidx.annotation.Keep');
     s.writeln();
 
+    // Enums
+    final kotlinEnums = EnumGenerator.generateKotlin(spec);
+    if (kotlinEnums.isNotEmpty) s.write(kotlinEnums);
+
+    // Structs
+    final kotlinStructs = StructGenerator.generateKotlin(spec);
+    if (kotlinStructs.isNotEmpty) s.write(kotlinStructs);
+
+    // Interface
     s.writeln('/**');
     s.writeln(' * Contract for the [${spec.dartClassName}] module.');
     s.writeln(' * Implement this in your Kotlin source code.');
@@ -16,12 +27,16 @@ class KotlinGenerator {
     s.writeln('interface Hybrid${spec.dartClassName}Spec {');
     for (final func in spec.functions) {
       final retType = _toKotlinType(func.returnType);
-      final params = func.params.map((p) => '${p.name}: ${_toKotlinType(p.type)}').join(', ');
-      s.writeln('    fun ${func.dartName}($params): $retType');
+      final params = func.params
+          .map((p) => '${p.name}: ${_toKotlinType(p.type)}')
+          .join(', ');
+      final suspend = func.isAsync ? 'suspend ' : '';
+      s.writeln('    ${suspend}fun ${func.dartName}($params): $retType');
     }
     s.writeln('}');
     s.writeln();
 
+    // JNI bridge
     s.writeln('@Keep');
     s.writeln('object ${spec.dartClassName}JniBridge {');
     s.writeln('    private var implementation: Hybrid${spec.dartClassName}Spec? = null');
@@ -30,25 +45,27 @@ class KotlinGenerator {
     s.writeln('        implementation = impl');
     s.writeln('    }');
     s.writeln();
-    
     for (final func in spec.functions) {
       final retType = _toKotlinType(func.returnType);
-      final params = func.params.map((p) => '${p.name}: ${_toKotlinType(p.type)}').join(', ');
+      final params = func.params
+          .map((p) => '${p.name}: ${_toKotlinType(p.type)}')
+          .join(', ');
       s.writeln('    @JvmStatic');
       s.writeln('    external fun ${func.dartName}_jni($params): $retType');
     }
     s.writeln('}');
-    
+
     return s.toString();
   }
 
   static String _toKotlinType(BridgeType type) {
-    switch (type.name.toLowerCase()) {
+    switch (type.name.replaceFirst('?', '')) {
       case 'int': return 'Long';
       case 'double': return 'Double';
       case 'bool': return 'Boolean';
-      case 'string': return 'String';
+      case 'String': return 'String';
       case 'void': return 'Unit';
+      case 'Uint8List': return 'ByteArray';
       default: return 'Any?';
     }
   }

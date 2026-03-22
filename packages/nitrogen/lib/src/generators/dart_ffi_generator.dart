@@ -1,4 +1,6 @@
 import '../bridge_spec.dart';
+import 'struct_generator.dart';
+import 'enum_generator.dart';
 
 class DartFfiGenerator {
   static String generate(BridgeSpec spec) {
@@ -7,6 +9,15 @@ class DartFfiGenerator {
     s.writeln("part of '${spec.sourceUri.split('/').last}';");
     s.writeln();
 
+    // Enum FFI extensions (class bodies are in .native.dart already)
+    final enumBlock = EnumGenerator.generateDartExtensions(spec);
+    if (enumBlock.isNotEmpty) s.write(enumBlock);
+
+    // Struct FFI extensions (class bodies are in .native.dart already)
+    final structBlock = StructGenerator.generateDartExtensions(spec);
+    if (structBlock.isNotEmpty) s.write(structBlock);
+
+    // Impl class
     s.writeln('class _${spec.dartClassName}Impl extends ${spec.dartClassName} {');
     s.writeln('  final DynamicLibrary _dylib;');
     s.writeln();
@@ -14,7 +25,7 @@ class DartFfiGenerator {
     for (final func in spec.functions) {
       final nativeType = _toNativeType(func);
       final dartType = _toDartType(func);
-      s.writeln('  late final $dartType _${func.dartName}Ptr = _dylib.lookupFunction<$nativeType, $dartType>(\'${func.cSymbol}\');');
+      s.writeln("  late final $dartType _${func.dartName}Ptr = _dylib.lookupFunction<$nativeType, $dartType>('${func.cSymbol}');");
     }
     s.writeln();
 
@@ -22,16 +33,31 @@ class DartFfiGenerator {
     s.writeln();
 
     for (final func in spec.functions) {
-      final returnType = func.isAsync ? 'Future<${func.returnType.name}>' : func.returnType.name;
+      final returnType =
+          func.isAsync ? 'Future<${func.returnType.name}>' : func.returnType.name;
       final asyncModifier = func.isAsync ? 'async ' : '';
-      
+
       s.writeln('  @override');
       s.writeln('  $returnType ${func.dartName}(${func.params.map((p) => '${p.type.name} ${p.name}').join(', ')}) $asyncModifier{');
-      
+
+      final callArgs = func.params.map((p) {
+        if (p.type.name == 'Uint8List' || p.type.name == 'Uint8List?') {
+          return '${p.name}.toPointer(arena)';
+        }
+        return p.name;
+      }).join(', ');
+
+      final hasBuffer = func.params.any(
+          (p) => p.type.name == 'Uint8List' || p.type.name == 'Uint8List?');
+
       if (!func.isAsync) {
-        s.writeln('    return withArena((arena) {');
-        s.writeln('      return _${func.dartName}Ptr(${func.params.map((p) => p.name).join(', ')});');
-        s.writeln('    });');
+        if (hasBuffer) {
+          s.writeln('    return withArena((arena) {');
+          s.writeln('      return _${func.dartName}Ptr($callArgs);');
+          s.writeln('    });');
+        } else {
+          s.writeln('    return _${func.dartName}Ptr($callArgs);');
+        }
       } else {
         s.writeln('    return NitroRuntime.callAsync(_${func.dartName}Ptr, [${func.params.map((p) => p.name).join(', ')}]);');
       }
@@ -50,19 +76,31 @@ class DartFfiGenerator {
   }
 
   static String _toDartType(BridgeFunction func) {
-    // For Dart FFI, we use the Dart-compatible types (usually same as native types but with Pointer/int/double)
-    final ret = func.returnType.name;
-    final params = func.params.map((p) => p.type.name).join(', ');
+    final ret = _typeToDartFFI(func.returnType.name);
+    final params = func.params.map((p) => _typeToDartFFI(p.type.name)).join(', ');
     return '$ret Function($params)';
   }
 
-  static String _typeToFFI(String dartType) {
-    switch (dartType.toLowerCase()) {
+  static String _typeToFFI(String t) {
+    switch (t.replaceFirst('?', '')) {
       case 'int': return 'Int64';
       case 'double': return 'Double';
       case 'bool': return 'Int8';
-      case 'string': return 'Pointer<Utf8>';
+      case 'String': return 'Pointer<Utf8>';
+      case 'Uint8List': return 'Pointer<Uint8>';
       case 'void': return 'Void';
+      default: return 'Pointer<Void>';
+    }
+  }
+
+  static String _typeToDartFFI(String t) {
+    switch (t.replaceFirst('?', '')) {
+      case 'int': return 'int';
+      case 'double': return 'double';
+      case 'bool': return 'int';
+      case 'String': return 'Pointer<Utf8>';
+      case 'Uint8List': return 'Pointer<Uint8>';
+      case 'void': return 'void';
       default: return 'Pointer<Void>';
     }
   }

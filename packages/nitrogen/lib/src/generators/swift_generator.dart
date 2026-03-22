@@ -1,4 +1,6 @@
 import '../bridge_spec.dart';
+import 'struct_generator.dart';
+import 'enum_generator.dart';
 
 class SwiftGenerator {
   static String generate(BridgeSpec spec) {
@@ -7,19 +9,35 @@ class SwiftGenerator {
     s.writeln('import Foundation');
     s.writeln();
 
+    // Enums
+    final swiftEnums = EnumGenerator.generateSwift(spec);
+    if (swiftEnums.isNotEmpty) s.write(swiftEnums);
+
+    // Structs
+    final swiftStructs = StructGenerator.generateSwift(spec);
+    if (swiftStructs.isNotEmpty) s.write(swiftStructs);
+
+    // Protocol
     s.writeln('/**');
     s.writeln(' * Protocol for the ${spec.dartClassName} module.');
     s.writeln(' * Conform to this in your Swift source code.');
     s.writeln(' */');
     s.writeln('public protocol Hybrid${spec.dartClassName}Protocol: AnyObject {');
     for (final func in spec.functions) {
-      final retType = _toSwiftType(func.isAsync ? BridgeType(name: 'Future<${func.returnType.name}>') : func.returnType);
-      final params = func.params.map((p) => '${p.name}: ${_toSwiftType(p.type)}').join(', ');
-      s.writeln('    func ${func.dartName}($params) -> $retType');
+      final retType = _toSwiftType(func.returnType.name);
+      final params = func.params
+          .map((p) => '${p.name}: ${_toSwiftType(p.type.name)}')
+          .join(', ');
+      if (func.isAsync) {
+        s.writeln('    func ${func.dartName}($params) async throws -> $retType');
+      } else {
+        s.writeln('    func ${func.dartName}($params) -> $retType');
+      }
     }
     s.writeln('}');
     s.writeln();
 
+    // Registry
     s.writeln('@objc');
     s.writeln('public class ${spec.dartClassName}Registry: NSObject {');
     s.writeln('    private static var impl: Hybrid${spec.dartClassName}Protocol?');
@@ -27,23 +45,48 @@ class SwiftGenerator {
     s.writeln('    @objc public static func register(_ impl: Hybrid${spec.dartClassName}Protocol) {');
     s.writeln('        self.impl = impl');
     s.writeln('    }');
+    s.writeln();
+    s.writeln('    // Called by the C bridge shim (generated separately)');
+    for (final func in spec.functions) {
+      final retType = _toSwiftType(func.returnType.name);
+      final params = func.params
+          .map((p) => '_ ${p.name}: ${_toSwiftType(p.type.name)}')
+          .join(', ');
+      s.writeln('    @objc public static func _call_${func.dartName}($params) -> $retType {');
+      final callArgs = func.params.map((p) => '${p.name}: ${p.name}').join(', ');
+      if (func.returnType.name == 'void') {
+        s.writeln('        impl?.${func.dartName}($callArgs)');
+        // Return a placeholder for void
+        s.writeln('        return ${_defaultReturnValue(func.returnType.name)}');
+      } else {
+        s.writeln('        return impl?.${func.dartName}($callArgs) ?? ${_defaultReturnValue(func.returnType.name)}');
+      }
+      s.writeln('    }');
+    }
     s.writeln('}');
-    
+
     return s.toString();
   }
 
-  static String _toSwiftType(BridgeType type) {
-    if (type.name.startsWith('Future<')) {
-      final inner = type.name.substring(7, type.name.length - 1);
-      return 'Any' ; // In Swift we might use async funcs
-    }
-    switch (type.name.toLowerCase()) {
+  static String _toSwiftType(String dartType) {
+    switch (dartType.replaceFirst('?', '')) {
       case 'int': return 'Int64';
       case 'double': return 'Double';
       case 'bool': return 'Bool';
-      case 'string': return 'String';
+      case 'String': return 'String';
       case 'void': return 'Void';
+      case 'Uint8List': return 'Data';
       default: return 'Any?';
+    }
+  }
+
+  static String _defaultReturnValue(String dartType) {
+    switch (dartType.replaceFirst('?', '')) {
+      case 'int': return '0';
+      case 'double': return '0.0';
+      case 'bool': return 'false';
+      case 'String': return '""';
+      default: return '()';
     }
   }
 }

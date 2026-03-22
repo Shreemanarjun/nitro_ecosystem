@@ -12,46 +12,66 @@ Builder nitrogenBuilder(BuilderOptions options) {
 }
 
 class NitrogenBuilder implements Builder {
+  /// build_runner requires ALL outputs to be declared.
+  /// We use the pattern: input suffix → list of output suffixes.
+  /// The output suffix is appended to the trimmed stem of the input path.
+  ///
+  ///  Input:  lib/src/math.native.dart
+  ///  After trimming '.native.dart' stem → lib/src/math
+  ///  Output: lib/src/math.g.dart
+  ///          lib/src/generated/kotlin/math_bridge.g.kt  ← can't express with simple suffix
+  ///
+  /// build_runner DOES support the `|` prefix for package-absolute outputs.
+  /// But the cleanest approach for subdirs is to write them without declaring
+  /// them, which requires allowUnlistedOutputs in build.yaml.
+  /// We use that here for the native files and only declare the Dart output.
   @override
   final Map<String, List<String>> buildExtensions = {
-    '.native.dart': ['.g.dart', '_bridge.g.kt', '_bridge.g.swift', '_bridge.g.h', '_CMakeLists.g.txt']
+    '.native.dart': [
+      '.g.dart',                              // Dart FFI bindings (part of)
+      '.bridge.g.kt',                         // Kotlin interface + JNI bridge
+      '.bridge.g.swift',                      // Swift protocol + registry
+      '.bridge.g.h',                          // C/C++ header
+      '.CMakeLists.g.txt',                    // CMake fragment
+    ]
   };
 
   @override
   Future<void> build(BuildStep buildStep) async {
     final libraryElement = await buildStep.inputLibrary;
     final library = LibraryReader(libraryElement);
-    
+
     try {
       final spec = SpecExtractor.extract(library);
-      
-      // Dart
-      final dartOutput = DartFfiGenerator.generate(spec);
-      final dartId = buildStep.inputId.path.replaceFirst('.native.dart', '.g.dart');
-      await buildStep.writeAsString(AssetId(buildStep.inputId.package, dartId), dartOutput);
+      final pkg = buildStep.inputId.package;
 
-      // Kotlin
-      final kotlinOutput = KotlinGenerator.generate(spec);
-      final kotlinId = buildStep.inputId.path.replaceFirst('.native.dart', '_bridge.g.kt');
-      await buildStep.writeAsString(AssetId(buildStep.inputId.package, kotlinId), kotlinOutput);
+      // Helper: derive sibling output AssetId by replacing the input suffix.
+      AssetId sibling(String newSuffix) {
+        final path = buildStep.inputId.path.replaceFirst('.native.dart', newSuffix);
+        return AssetId(pkg, path);
+      }
 
-      // Swift
-      final swiftOutput = SwiftGenerator.generate(spec);
-      final swiftId = buildStep.inputId.path.replaceFirst('.native.dart', '_bridge.g.swift');
-      await buildStep.writeAsString(AssetId(buildStep.inputId.package, swiftId), swiftOutput);
+      // ── Dart (same directory, part of the library) ─────────────────────────
+      await buildStep.writeAsString(
+          sibling('.g.dart'), DartFfiGenerator.generate(spec));
 
-      // C Header
-      final cppOutput = CppHeaderGenerator.generate(spec);
-      final cppId = buildStep.inputId.path.replaceFirst('.native.dart', '_bridge.g.h');
-      await buildStep.writeAsString(AssetId(buildStep.inputId.package, cppId), cppOutput);
+      // ── Kotlin (sibling for now, user moves it to android/ in practice) ─────
+      await buildStep.writeAsString(
+          sibling('.bridge.g.kt'), KotlinGenerator.generate(spec));
 
-      // CMake
-      final cmakeOutput = CMakeGenerator.generate(spec);
-      final cmakeId = buildStep.inputId.path.replaceFirst('.native.dart', '_CMakeLists.g.txt');
-      await buildStep.writeAsString(AssetId(buildStep.inputId.package, cmakeId), cmakeOutput);
-      
-    } catch (e) {
-      log.warning('Could not process ${buildStep.inputId}: $e');
+      // ── Swift ───────────────────────────────────────────────────────────────
+      await buildStep.writeAsString(
+          sibling('.bridge.g.swift'), SwiftGenerator.generate(spec));
+
+      // ── C/C++ Header ────────────────────────────────────────────────────────
+      await buildStep.writeAsString(
+          sibling('.bridge.g.h'), CppHeaderGenerator.generate(spec));
+
+      // ── CMake ───────────────────────────────────────────────────────────────
+      await buildStep.writeAsString(
+          sibling('.CMakeLists.g.txt'), CMakeGenerator.generate(spec));
+    } catch (e, st) {
+      log.warning('nitrogen: Could not process ${buildStep.inputId}:\n$e\n$st');
     }
   }
 }

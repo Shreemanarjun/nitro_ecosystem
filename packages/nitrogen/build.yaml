@@ -5,10 +5,9 @@ builders:
     build_extensions:
       '.native.dart':
         - '.g.dart'
-        - '_bridge.g.kt'
-        - '_bridge.g.swift'
-        - '_bridge.g.h'
-        - '_CMakeLists.g.txt'
+        - '.bridge.g.kt'
+        - '.bridge.g.swift'
+        - '.bridge.g.h'
+        - '.CMakeLists.g.txt'
     auto_apply: dependents
     build_to: source
-    applies_builders: ['source_gen|combining_builder']
