@@ -26,16 +26,16 @@ class KotlinGenerator {
     s.writeln('interface Hybrid${spec.dartClassName}Spec {');
 
     for (final func in spec.functions) {
-      final retType = _toKotlinType(func.returnType.name);
+      final retType = _toKotlinType(spec, func.returnType.name);
       final params = func.params
-          .map((p) => '${p.name}: ${_toKotlinType(p.type.name)}')
+          .map((p) => '${p.name}: ${_toKotlinType(spec, p.type.name)}')
           .join(', ');
       final suspend = func.isAsync ? 'suspend ' : '';
       s.writeln('    ${suspend}fun ${func.dartName}($params): $retType');
     }
 
     for (final prop in spec.properties) {
-      final kt = _toKotlinType(prop.type.name);
+      final kt = _toKotlinType(spec, prop.type.name);
       if (prop.hasSetter) {
         s.writeln('    var ${prop.dartName}: $kt');
       } else {
@@ -44,7 +44,7 @@ class KotlinGenerator {
     }
 
     for (final stream in spec.streams) {
-      final itemType = _toKotlinType(stream.itemType.name);
+      final itemType = _toKotlinType(spec, stream.itemType.name);
       s.writeln('    val ${stream.dartName}: Flow<$itemType>');
     }
 
@@ -62,8 +62,8 @@ class KotlinGenerator {
     s.writeln();
 
     for (final func in spec.functions) {
-      final retType = _toKotlinType(func.returnType.name);
-      final paramsDecl = func.params.map((p) => '${p.name}: ${_toKotlinType(p.type.name)}').join(', ');
+      final retType = _toKotlinType(spec, func.returnType.name);
+      final paramsDecl = func.params.map((p) => '${p.name}: ${_toKotlinType(spec, p.type.name)}').join(', ');
       final callParams = func.params.map((p) => p.name).join(', ');
       
       s.writeln('    @JvmStatic fun ${func.dartName}_call($paramsDecl): $retType {');
@@ -78,7 +78,7 @@ class KotlinGenerator {
     }
 
     for (final prop in spec.properties) {
-      final kt = _toKotlinType(prop.type.name);
+      final kt = _toKotlinType(spec, prop.type.name);
       if (prop.hasGetter) {
         s.writeln('    @JvmStatic fun ${prop.getSymbol}_call(): $kt {');
         s.writeln('        return implementation?.${prop.dartName} ?: ${_ktDefaultValue(prop.type.name)}');
@@ -95,7 +95,7 @@ class KotlinGenerator {
     s.writeln();
 
     for (final stream in spec.streams) {
-      s.writeln('    @JvmStatic external fun emit_${stream.dartName}(dartPort: Long, item: ${_toKotlinType(stream.itemType.name)}): Unit');
+      s.writeln('    @JvmStatic external fun emit_${stream.dartName}(dartPort: Long, item: ${_toKotlinType(spec, stream.itemType.name)}): Unit');
       s.writeln('');
       s.writeln('    @JvmStatic fun ${stream.registerSymbol}_call(dartPort: Long) {');
       s.writeln('        val flow = implementation?.${stream.dartName} ?: return');
@@ -114,7 +114,7 @@ class KotlinGenerator {
     return s.toString();
   }
 
-  static String _toKotlinType(String t) {
+  static String _toKotlinType(BridgeSpec spec, String t) {
     switch (t.replaceFirst('?', '')) {
       case 'int': return 'Long';
       case 'double': return 'Double';
@@ -122,7 +122,11 @@ class KotlinGenerator {
       case 'String': return 'String';
       case 'void': return 'Unit';
       case 'Uint8List': return 'ByteArray';
-      default: return 'Any?';
+      default:
+        if (spec.structs.any((st) => st.name == t.replaceFirst('?', ''))) {
+          return t;
+        }
+        return 'Any?';
     }
   }
 

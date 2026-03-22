@@ -101,6 +101,8 @@ class CppBridgeGenerator {
     }
 
     for (final stream in spec.streams) {
+      final isStruct = spec.structs.any((st) => st.name == stream.itemType.name);
+
       s.writeln('void ${stream.registerSymbol}(int64_t dartPort) {');
       s.writeln('    JNIEnv* env = GetEnv();');
       s.writeln('    if (env == nullptr) return;');
@@ -115,7 +117,7 @@ class CppBridgeGenerator {
       s.writeln('    if (methodId != nullptr) env->CallStaticVoidMethod(g_bridgeClass, methodId, dartPort);');
       s.writeln('}');
       s.writeln('');
-      
+
       // Emit callback invoked natively by Kotlin to post to Dart Isolate port!
       s.writeln('JNIEXPORT void JNICALL Java_nitro_${spec.lib.replaceAll('-', '_')}_module_${spec.dartClassName}JniBridge_00024emit_${stream.dartName}(JNIEnv* env, jobject thiz, jlong dartPort, ${_jniSigTypeC(stream.itemType.name)} item) {');
       s.writeln('    Dart_CObject obj;');
@@ -128,6 +130,11 @@ class CppBridgeGenerator {
       } else if (stream.itemType.name == 'bool') {
         s.writeln('    obj.type = Dart_CObject_kBool;');
         s.writeln('    obj.value.as_bool = item;');
+      } else if (isStruct) {
+        s.writeln('    // Struct emission: for now we assume the native side passes the address if it\'s a struct stream.');
+        s.writeln('    // In a future version, we will generate JNI field-pulling code here.');
+        s.writeln('    obj.type = Dart_CObject_kInt64;');
+        s.writeln('    obj.value.as_int64 = (int64_t)item;');
       } else {
          s.writeln('    obj.type = Dart_CObject_kNull;');
       }
@@ -163,6 +170,7 @@ class CppBridgeGenerator {
     }
 
     for (final stream in spec.streams) {
+      final isStruct = spec.structs.any((st) => st.name == stream.itemType.name);
       final itemCType = _typeToC(stream.itemType.name);
       
       s.writeln('// Called by Swift via @_cdecl to drop stream items into Dart Isolate');
@@ -177,6 +185,9 @@ class CppBridgeGenerator {
       } else if (stream.itemType.name == 'bool') {
         s.writeln('    obj.type = Dart_CObject_kBool;');
         s.writeln('    obj.value.as_bool = item;');
+      } else if (isStruct) {
+        s.writeln('    obj.type = Dart_CObject_kInt64;');
+        s.writeln('    obj.value.as_int64 = (int64_t)item;');
       } else {
          s.writeln('    obj.type = Dart_CObject_kNull;');
       }
