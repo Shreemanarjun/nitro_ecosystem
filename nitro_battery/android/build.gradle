@@ -23,6 +23,7 @@ rootProject.allprojects {
 }
 
 apply plugin: "com.android.library"
+apply plugin: "kotlin-android"
 
 android {
     namespace = "com.example.nitro_battery"
@@ -57,7 +58,23 @@ android {
         targetCompatibility = JavaVersion.VERSION_17
     }
 
+    kotlinOptions {
+        jvmTarget = "17"
+    }
+
     defaultConfig {
         minSdk = 24
     }
+
+    sourceSets {
+        main {
+            kotlin.srcDirs += "${project.projectDir}/../lib/src/generated/kotlin"
+            java.srcDirs += "${project.projectDir}/../lib/src/generated/kotlin"
+        }
+    }
+}
+
+dependencies {
+    implementation "org.jetbrains.kotlinx:kotlinx-coroutines-android:1.7.3"
+    implementation "org.jetbrains.kotlinx:kotlinx-coroutines-core:1.7.3"
 }

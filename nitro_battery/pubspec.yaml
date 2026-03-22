@@ -40,8 +40,11 @@ flutter:
   plugin:
     platforms:
       android:
+        pluginClass: NitroBatteryPlugin
+        package: com.example.nitro_battery
         ffiPlugin: true
       ios:
+        pluginClass: SwiftNitroBatteryPlugin
         ffiPlugin: true
 
   # To add assets to your plugin package, add an assets section, like this:
