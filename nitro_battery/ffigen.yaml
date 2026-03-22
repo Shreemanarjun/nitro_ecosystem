@@ -1,0 +1,15 @@
+# Run with `dart run ffigen --config ffigen.yaml`.
+name: NitroBatteryBindings
+description: |
+  Bindings for `src/nitro_battery.h`.
+
+  Regenerate bindings with `dart run ffigen --config ffigen.yaml`.
+output: 'lib/nitro_battery_bindings_generated.dart'
+headers:
+  entry-points:
+    - 'src/nitro_battery.h'
+  include-directives:
+    - 'src/nitro_battery.h'
+comments:
+  style: any
+  length: full

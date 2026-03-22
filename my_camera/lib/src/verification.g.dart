@@ -12,19 +12,26 @@ class _VerificationModuleImpl extends VerificationModule {
   late final double Function(double, double) _multiplyPtr = _dylib.lookupFunction<Double Function(Double, Double), double Function(double, double)>('verification_module_multiply');
   late final Pointer<Utf8> Function(Pointer<Utf8>) _pingPtr = _dylib.lookupFunction<Pointer<Utf8> Function(Pointer<Utf8>), Pointer<Utf8> Function(Pointer<Utf8>)>('verification_module_ping');
   late final Pointer<Utf8> Function(Pointer<Utf8>) _pingAsyncPtr = _dylib.lookupFunction<Pointer<Utf8> Function(Pointer<Utf8>), Pointer<Utf8> Function(Pointer<Utf8>)>('verification_module_ping_async');
+  @override
+  void dispose() {
+    super.dispose(); // sets isDisposed = true, calls onDestroy()
+  }
 
   @override
   double multiply(double a, double b) {
+    checkDisposed();
     return _multiplyPtr(a, b);
   }
 
   @override
   String ping(String message) {
+    checkDisposed();
     return (withArena((arena) => _pingPtr(message.toNativeUtf8(allocator: arena)))).toDartStringWithFree();
   }
 
   @override
   Future<String> pingAsync(String message) async {
+    checkDisposed();
     return withArena((arena) async {
       final result = await NitroRuntime.callAsync(_pingAsyncPtr, [message.toNativeUtf8(allocator: arena)]);
       return (result as Pointer<Utf8>).toDartStringWithFree();

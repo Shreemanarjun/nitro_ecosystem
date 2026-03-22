@@ -51,7 +51,6 @@ class _MyCameraImpl extends MyCamera {
   late final Pointer<Utf8> Function(Pointer<Utf8>) _getGreetingPtr = _dylib.lookupFunction<Pointer<Utf8> Function(Pointer<Utf8>), Pointer<Utf8> Function(Pointer<Utf8>)>('my_camera_get_greeting');
   late final void Function(int) _registerFramesPtr = _dylib.lookupFunction<Void Function(Int64), void Function(int)>('my_camera_register_frames_stream');
   late final void Function(int) _releaseFramesPtr = _dylib.lookupFunction<Void Function(Int64), void Function(int)>('my_camera_release_frames_stream');
-
   @override
   void dispose() {
     super.dispose(); // sets isDisposed = true, calls onDestroy()
