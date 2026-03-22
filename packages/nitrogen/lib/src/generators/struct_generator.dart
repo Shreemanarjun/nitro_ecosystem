@@ -19,7 +19,7 @@ class StructGenerator {
       if (st.packed) {
         s.writeln('@Packed(1)');
       }
-      s.writeln('final class _${st.name}Ffi extends Struct {');
+      s.writeln('final class ${st.name}Ffi extends Struct {');
       for (final f in st.fields) {
          final ffiType = _dartTypeToFfi(f.type.name);
          final annotationType = _dartTypeToFfiAnnotation(f.type.name);
@@ -30,30 +30,44 @@ class StructGenerator {
       }
       s.writeln('}');
       s.writeln();
-      s.writeln('extension _${st.name}FfiExt on _${st.name}Ffi {');
+      s.writeln('extension ${st.name}FfiExt on ${st.name}Ffi {');
       s.writeln('  ${st.name} toDart() {');
       s.writeln('    return ${st.name}(');
       for (final f in st.fields) {
+        String value;
         if (f.type.name == 'Uint8List' && f.zeroCopy) {
-          // Find a sibling int field that represents the byte count
-          final lenField = st.fields
+           final lenField = st.fields
               .where((sf) => sf.type.name == 'int' &&
                   _kLengthFieldNames.contains(sf.name.toLowerCase()))
               .map((sf) => sf.name)
               .firstOrNull;
-          if (lenField != null) {
-            s.writeln('      ${f.name}.asTypedList($lenField), // zero-copy; lifetime = this struct');
-          } else {
-            // No explicit length field — emit a placeholder that the author must fix
-            s.writeln('      ${f.name}.asTypedList(0), // TODO: replace 0 with the real byte-length field');
-          }
+          value = '${f.name}.asTypedList(${lenField ?? '0'})';
         } else if (f.type.name == 'bool') {
-           s.writeln('      ${f.name} != 0,');
+          value = '${f.name} != 0';
         } else {
-           s.writeln('      ${f.name},');
+          value = f.name;
         }
+        s.writeln('      ${f.name}: $value,');
       }
       s.writeln('    );');
+      s.writeln('  }');
+      s.writeln('}');
+      s.writeln();
+      s.writeln('extension ${st.name}Ext on ${st.name} {');
+      s.writeln('  Pointer<${st.name}Ffi> toNative(Arena arena) {');
+      s.writeln('    final ptr = arena<${st.name}Ffi>();');
+      for (final f in st.fields) {
+        if (f.type.name == 'Uint8List' && f.zeroCopy) {
+          s.writeln('    ptr.ref.${f.name} = ${f.name}.toPointer(arena);');
+        } else if (f.type.name == 'bool') {
+          s.writeln('    ptr.ref.${f.name} = ${f.name} ? 1 : 0;');
+        } else if (f.type.name == 'String') {
+          s.writeln('    ptr.ref.${f.name} = ${f.name}.toNativeUtf8(allocator: arena);');
+        } else {
+          s.writeln('    ptr.ref.${f.name} = ${f.name};');
+        }
+      }
+      s.writeln('    return ptr;');
       s.writeln('  }');
       s.writeln('}');
       s.writeln();

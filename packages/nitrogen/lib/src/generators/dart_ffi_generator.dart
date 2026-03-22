@@ -27,20 +27,21 @@ class DartFfiGenerator {
 
     // ── Method pointers ─────────────────────────────────────────────────────
     for (final func in spec.functions) {
-      final nativeType = _toNativeType(func);
-      final dartType = _toDartType(func);
+      final nativeType = _toNativeType(func, spec);
+      final dartType = _toDartType(func, spec);
       s.writeln("  late final $dartType _${func.dartName}Ptr = _dylib.lookupFunction<$nativeType, $dartType>('${func.cSymbol}');");
     }
 
     // ── Property pointers ───────────────────────────────────────────────────
     for (final prop in spec.properties) {
-      final ffiType = _typeToFFI(prop.type.name);
-      final dartType = _typeToDartFFI(prop.type.name);
+      final ffiType = _typeToFFI(prop.type.name, spec);
+      final dartType = _typeToDartFFI(prop.type.name, spec);
+      final cap = _cap(prop.dartName);
       if (prop.hasGetter) {
-        s.writeln("  late final $dartType Function() _get${_cap(prop.dartName)}Ptr = _dylib.lookupFunction<$ffiType Function(), $dartType Function()>('${prop.getSymbol}');");
+        s.writeln("  late final $dartType Function() _get${cap}Ptr = _dylib.lookupFunction<$ffiType Function(), $dartType Function()>('${prop.getSymbol}');");
       }
       if (prop.hasSetter) {
-        s.writeln("  late final void Function($dartType) _set${_cap(prop.dartName)}Ptr = _dylib.lookupFunction<Void Function($ffiType), void Function($dartType)>('${prop.setSymbol}');");
+        s.writeln("  late final void Function($dartType) _set${cap}Ptr = _dylib.lookupFunction<Void Function($ffiType), void Function($dartType)>('${prop.setSymbol}');");
       }
     }
 
@@ -53,32 +54,48 @@ class DartFfiGenerator {
 
     s.writeln();
 
-    s.writeln();
-
     // ── Method implementations ───────────────────────────────────────────────
     for (final func in spec.functions) {
       final returnType =
           func.isAsync ? 'Future<${func.returnType.name}>' : func.returnType.name;
       final asyncMod = func.isAsync ? 'async ' : '';
+
+      final needsArena = func.params.any((p) => p.type.name.startsWith('Uint8List') || p.type.name == 'String' || spec.structs.any((st) => st.name == p.type.name));
+
       final callArgs = func.params.map((p) {
-        if (p.type.name.startsWith('Uint8List')) {
-          return '${p.name}.toPointer(arena)';
-        }
+        final t = p.type.name;
+        if (t.startsWith('Uint8List')) return '${p.name}.toPointer(arena)';
+        if (t == 'String') return '${p.name}.toNativeUtf8(allocator: arena)';
+        if (spec.structs.any((st) => st.name == t)) return '${p.name}.toNative(arena).cast<Void>()';
+        if (spec.enums.any((en) => en.name == t)) return '${p.name}.nativeValue';
+        if (t == 'bool') return '${p.name} ? 1 : 0';
         return p.name;
       }).join(', ');
-      final hasBuffer = func.params.any((p) => p.type.name.startsWith('Uint8List'));
 
       s.writeln('  @override');
       s.writeln('  $returnType ${func.dartName}(${_paramList(func.params)}) $asyncMod{');
-      if (!func.isAsync) {
-        if (hasBuffer) {
-          s.writeln('    return withArena((arena) => _${func.dartName}Ptr($callArgs));');
-        } else {
-          s.writeln('    return _${func.dartName}Ptr($callArgs);');
-        }
+
+      String callExpr;
+      if (needsArena) {
+        callExpr = 'withArena((arena) => _${func.dartName}Ptr($callArgs))';
       } else {
-        s.writeln('    return NitroRuntime.callAsync(_${func.dartName}Ptr, [${func.params.map((p) => p.name).join(', ')}]);');
+        callExpr = '_${func.dartName}Ptr($callArgs)';
       }
+
+      final rt = func.returnType.name;
+      if (func.isAsync) {
+        s.writeln('    return NitroRuntime.callAsync(_${func.dartName}Ptr, [${func.params.map((p) => p.name).join(', ')}]);');
+      } else if (spec.enums.any((en) => en.name == rt)) {
+        s.writeln('    return ($callExpr).to$rt();');
+      } else if (spec.structs.any((st) => st.name == rt)) {
+        s.writeln('    final res = $callExpr;');
+        s.writeln('    return Pointer<${rt}Ffi>.fromAddress(res.address).ref.toDart();');
+      } else if (rt == 'bool') {
+        s.writeln('    return $callExpr != 0;');
+      } else {
+        s.writeln('    return $callExpr;');
+      }
+
       s.writeln('  }');
       s.writeln();
     }
@@ -86,13 +103,43 @@ class DartFfiGenerator {
     // ── Property implementations ─────────────────────────────────────────────
     for (final prop in spec.properties) {
       final cap = _cap(prop.dartName);
+      final rt = prop.type.name;
+
       if (prop.hasGetter) {
         s.writeln('  @override');
-        s.writeln('  ${prop.type.name} get ${prop.dartName} => _get${cap}Ptr();');
+        String getExpr = '_get${cap}Ptr()';
+        if (spec.enums.any((en) => en.name == rt)) {
+          getExpr = '$getExpr.to$rt()';
+        } else if (rt == 'bool') {
+          getExpr = '$getExpr != 0';
+        }
+        s.writeln('  $rt get ${prop.dartName} => $getExpr;');
       }
+
       if (prop.hasSetter) {
         s.writeln('  @override');
-        s.writeln('  set ${prop.dartName}(${prop.type.name} value) => _set${cap}Ptr(value);');
+        final propNeedsArena = (rt == 'String' || rt.startsWith('Uint8List') || spec.structs.any((st) => st.name == rt));
+
+        if (propNeedsArena) {
+          String valExpr;
+          if (rt == 'String') {
+            valExpr = 'value.toNativeUtf8(allocator: arena)';
+          } else if (rt.startsWith('Uint8List')) {
+            valExpr = 'value.toPointer(arena)';
+          } else {
+            valExpr = 'value.toNative(arena).cast<Void>()';
+          }
+
+          s.writeln('  set ${prop.dartName}($rt value) => withArena((arena) => _set${cap}Ptr($valExpr));');
+        } else {
+          String valExpr = 'value';
+          if (spec.enums.any((en) => en.name == rt)) {
+            valExpr = 'value.nativeValue';
+          } else if (rt == 'bool') {
+            valExpr = 'value ? 1 : 0';
+          }
+          s.writeln('  set ${prop.dartName}($rt value) => _set${cap}Ptr($valExpr);');
+        }
       }
       s.writeln();
     }
@@ -101,14 +148,9 @@ class DartFfiGenerator {
     for (final stream in spec.streams) {
       final cap = _cap(stream.dartName);
       final itemType = stream.itemType.name;
-      // Is the item type a known primitive, or a @HybridStruct?
       final isStruct = spec.structs.any((st) => st.name == itemType);
       final unpackExpr = isStruct
-          // Struct: rawPtr is the native pointer address (int).
-          // Cast to Pointer<_XxxFfi>, ref it, then lift to Dart.
-          ? '(rawPtr) => Pointer<_${itemType}Ffi>.fromAddress(rawPtr).ref.toDart()'
-          // Primitive types: int/double/bool — openStream delivers the raw value
-          // as int (bit-pattern); runtime coercion handled inside openStream impl.
+          ? '(rawPtr) => Pointer<${itemType}Ffi>.fromAddress(rawPtr).ref.toDart()'
           : '(rawPtr) => rawPtr as $itemType';
 
       s.writeln('  @override');
@@ -127,47 +169,49 @@ class DartFfiGenerator {
     return s.toString();
   }
 
-  // ── Helpers ─────────────────────────────────────────────────────────────────
-
   static String _paramList(List<BridgeParam> params) =>
       params.map((p) => '${p.type.name} ${p.name}').join(', ');
 
   static String _cap(String name) =>
       name[0].toUpperCase() + name.substring(1);
 
-  static String _toNativeType(BridgeFunction func) {
-    final ret = _typeToFFI(func.returnType.name);
-    final params = func.params.map((p) => _typeToFFI(p.type.name)).join(', ');
+  static String _toNativeType(BridgeFunction func, BridgeSpec spec) {
+    final ret = _typeToFFI(func.returnType.name, spec);
+    final params = func.params.map((p) => _typeToFFI(p.type.name, spec)).join(', ');
     return '$ret Function($params)';
   }
 
-  static String _toDartType(BridgeFunction func) {
-    final ret = _typeToDartFFI(func.returnType.name);
-    final params = func.params.map((p) => _typeToDartFFI(p.type.name)).join(', ');
+  static String _toDartType(BridgeFunction func, BridgeSpec spec) {
+    final ret = _typeToDartFFI(func.returnType.name, spec);
+    final params = func.params.map((p) => _typeToDartFFI(p.type.name, spec)).join(', ');
     return '$ret Function($params)';
   }
 
-  static String _typeToFFI(String t) {
-    switch (t.replaceFirst('?', '')) {
+  static String _typeToFFI(String t, BridgeSpec spec) {
+    final name = t.replaceFirst('?', '');
+    switch (name) {
       case 'int': return 'Int64';
       case 'double': return 'Double';
       case 'bool': return 'Int8';
       case 'String': return 'Pointer<Utf8>';
       case 'Uint8List': return 'Pointer<Uint8>';
       case 'void': return 'Void';
-      default: return 'Pointer<Void>';
     }
+    if (spec.enums.any((en) => en.name == name)) return 'Int32';
+    return 'Pointer<Void>';
   }
 
-  static String _typeToDartFFI(String t) {
-    switch (t.replaceFirst('?', '')) {
+  static String _typeToDartFFI(String t, BridgeSpec spec) {
+    final name = t.replaceFirst('?', '');
+    switch (name) {
       case 'int': return 'int';
       case 'double': return 'double';
       case 'bool': return 'int';
       case 'String': return 'Pointer<Utf8>';
       case 'Uint8List': return 'Pointer<Uint8>';
       case 'void': return 'void';
-      default: return 'Pointer<Void>';
     }
+    if (spec.enums.any((en) => en.name == name)) return 'int';
+    return 'Pointer<Void>';
   }
 }

@@ -3,16 +3,15 @@ import '../bridge_spec.dart';
 class CppBridgeGenerator {
   static String generate(BridgeSpec spec) {
     final s = StringBuffer();
-    // --- Struct definitions ---
-    for (final st in spec.structs) {
-      s.writeln('typedef struct {');
-      for (final f in st.fields) {
-        final cType = _typeToC(f.type.name);
-        s.writeln('  $cType ${f.name}; ${_isZeroCopy(st, f.name) ? '/* zero-copy */' : ''}');
-      }
-      s.writeln('} ${st.name};');
-      s.writeln('');
-    }
+    final headerName = '${spec.lib.replaceAll('-', '_')}.bridge.g.h';
+
+    s.writeln('#include <stdint.h>');
+    s.writeln('#include <stdbool.h>');
+    s.writeln('#include <string.h>');
+    s.writeln('#include <stdlib.h>');
+    s.writeln('#include "dart_api_dl.h"');
+    s.writeln('#include "$headerName"');
+    s.writeln();
 
     s.writeln('extern "C" {');
     s.writeln('intptr_t InitDartApiDL(void* data) {');
@@ -25,8 +24,6 @@ class CppBridgeGenerator {
     s.writeln('#ifdef __ANDROID__');
     s.writeln('#include <jni.h>');
     s.writeln('#include <android/log.h>');
-    s.writeln('#include <string.h>');
-    s.writeln('#include <stdlib.h>');
     s.writeln('#define LOGE(...) __android_log_print(ANDROID_LOG_ERROR, "Nitrogen", __VA_ARGS__)');
     s.writeln();
     s.writeln('static JavaVM* g_jvm = nullptr;');
@@ -63,6 +60,7 @@ class CppBridgeGenerator {
     s.writeln();
     s.writeln('JNIEXPORT jint JNICALL JNI_OnLoad(JavaVM* vm, void* reserved) {');
     s.writeln('    g_jvm = vm;');
+    s.writeln('    __android_log_print(ANDROID_LOG_INFO, "Nitrogen", "JNI_OnLoad called for ${spec.lib}");');
     s.writeln('    JNIEnv* env = nullptr;');
     s.writeln('    if (vm->GetEnv(reinterpret_cast<void**>(&env), JNI_VERSION_1_6) != JNI_OK) {');
     s.writeln('        return -1;');
@@ -77,6 +75,7 @@ class CppBridgeGenerator {
     s.writeln('}');
     s.writeln();
     s.writeln('static JNIEnv* GetEnv() {');
+    s.writeln('    if (g_jvm == nullptr) return nullptr;');
     s.writeln('    JNIEnv* env = nullptr;');
     s.writeln('    int status = g_jvm->GetEnv(reinterpret_cast<void**>(&env), JNI_VERSION_1_6);');
     s.writeln('    if (status == JNI_EDETACHED) {');
@@ -133,18 +132,18 @@ class CppBridgeGenerator {
 
     for (final stream in spec.streams) {
       final isStruct = spec.structs.any((st) => st.name == stream.itemType.name);
-      s.writeln('void ${stream.registerSymbol}(int64_t dartPort) {');
+      s.writeln('void ${stream.registerSymbol}(int64_t dart_port) {');
       s.writeln('    JNIEnv* env = GetEnv();');
       s.writeln('    if (env == nullptr) return;');
       s.writeln('    jmethodID methodId = env->GetStaticMethodID(g_bridgeClass, "${stream.registerSymbol}_call", "(J)V");');
-      s.writeln('    if (methodId != nullptr) env->CallStaticVoidMethod(g_bridgeClass, methodId, dartPort);');
+      s.writeln('    if (methodId != nullptr) env->CallStaticVoidMethod(g_bridgeClass, methodId, dart_port);');
       s.writeln('}');
       s.writeln('');
-      s.writeln('void ${stream.releaseSymbol}(int64_t dartPort) {');
+      s.writeln('void ${stream.releaseSymbol}(int64_t dart_port) {');
       s.writeln('    JNIEnv* env = GetEnv();');
       s.writeln('    if (env == nullptr) return;');
       s.writeln('    jmethodID methodId = env->GetStaticMethodID(g_bridgeClass, "${stream.releaseSymbol}_call", "(J)V");');
-      s.writeln('    if (methodId != nullptr) env->CallStaticVoidMethod(g_bridgeClass, methodId, dartPort);');
+      s.writeln('    if (methodId != nullptr) env->CallStaticVoidMethod(g_bridgeClass, methodId, dart_port);');
       s.writeln('}');
       s.writeln('');
 
@@ -163,7 +162,7 @@ class CppBridgeGenerator {
         s.writeln('    ${stream.itemType.name}* st_ptr = (${stream.itemType.name}*)malloc(sizeof(${stream.itemType.name}));');
         s.writeln('    *st_ptr = pack_${stream.itemType.name}_from_jni(env, item);');
         s.writeln('    obj.type = Dart_CObject_kInt64;');
-        s.writeln('    obj.value.as_int64 = (int64_t)st_ptr;');
+        s.writeln('    obj.value.as_int64 = (intptr_t)st_ptr;');
       } else {
         s.writeln('    obj.type = Dart_CObject_kNull;');
       }
@@ -206,7 +205,7 @@ class CppBridgeGenerator {
         s.writeln('    obj.value.as_bool = item;');
       } else if (isStruct) {
         s.writeln('    obj.type = Dart_CObject_kInt64;');
-        s.writeln('    obj.value.as_int64 = (int64_t)item;');
+        s.writeln('    obj.value.as_int64 = (intptr_t)item;');
       } else {
         s.writeln('    obj.type = Dart_CObject_kNull;');
       }
@@ -214,12 +213,12 @@ class CppBridgeGenerator {
       s.writeln('}');
       s.writeln('');
       s.writeln('extern void _register_${stream.dartName}_stream(int64_t dartPort, void (*emitCb)(int64_t, $itemCType));');
-      s.writeln('void ${stream.registerSymbol}(int64_t dartPort) {');
-      s.writeln('    _register_${stream.dartName}_stream(dartPort, _emit_${stream.dartName}_to_dart);');
+      s.writeln('void ${stream.registerSymbol}(int64_t dart_port) {');
+      s.writeln('    _register_${stream.dartName}_stream(dart_port, _emit_${stream.dartName}_to_dart);');
       s.writeln('}');
-      s.writeln('extern void _release_${stream.dartName}_stream(int64_t dartPort);');
-      s.writeln('void ${stream.releaseSymbol}(int64_t dartPort) {');
-      s.writeln('    _release_${stream.dartName}_stream(dartPort);');
+      s.writeln('extern void _release_${stream.dartName}_stream(int64_t dart_port);');
+      s.writeln('void ${stream.releaseSymbol}(int64_t dart_port) {');
+      s.writeln('    _release_${stream.dartName}_stream(dart_port);');
       s.writeln('}');
       s.writeln('');
     }
@@ -290,7 +289,9 @@ class CppBridgeGenerator {
   static String _jniSig(List<BridgeParam> params, String returnType) {
     final sb = StringBuffer();
     sb.write('(');
-    for (final p in params) sb.write(_jniSigType(p.type.name));
+    for (final p in params) {
+      sb.write(_jniSigType(p.type.name));
+    }
     sb.write(')');
     sb.write(_jniSigType(returnType));
     return sb.toString();

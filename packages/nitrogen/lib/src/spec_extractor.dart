@@ -86,37 +86,41 @@ class SpecExtractor {
   // ─── Properties ──────────────────────────────────────────────────────────────
 
   static List<BridgeProperty> _extractProperties(ClassElement element, String ns) {
-    final results = <BridgeProperty>[];
+    // Group accessors by name
+    final map = <String, Map<String, dynamic>>{};
 
-    // Collect getter names that also have a setter (to avoid double-adding)
-    final setterNames = element.accessors
-        .where((a) => a.isSetter && a.isAbstract)
-        .map((a) => a.displayName.replaceFirst('=', ''))
-        .toSet();
-
-    for (final accessor in element.accessors) {
-      if (!accessor.isAbstract) continue;
-      if (!accessor.isGetter) continue;
-
-      final retType = accessor.returnType;
-
-      // Skip Stream<T> getters — handled as NitroStream
-      if (retType.isDartCoreFunction || _isStreamType(retType)) continue;
-
-      final name = accessor.displayName;
-      final typeName = retType.getDisplayString(withNullability: true);
-
-      results.add(BridgeProperty(
-        dartName: name,
-        type: BridgeType(name: typeName),
-        getSymbol: '${ns}_get_${_toSnakeCase(name)}',
-        setSymbol: setterNames.contains(name) ? '${ns}_set_${_toSnakeCase(name)}' : null,
-        hasGetter: true,
-        hasSetter: setterNames.contains(name),
-      ));
+    for (final ac in element.accessors) {
+      if (!ac.isAbstract) {
+        continue;
+      }
+      final name = ac.displayName.replaceFirst('=', '');
+      final entry = map.putIfAbsent(name, () => {'name': name, 'getter': false, 'setter': false});
+      
+      if (ac.isGetter) {
+        final type = ac.returnType;
+        if (type.isDartCoreFunction || _isStreamType(type)) continue;
+        entry['getter'] = true;
+        entry['type'] = type;
+      } else {
+        final type = ac.parameters.first.type;
+        if (type.isDartCoreFunction || _isStreamType(type)) continue;
+        entry['setter'] = true;
+        entry['type'] ??= type;
+      }
     }
 
-    return results;
+    return map.values.where((e) => e['type'] != null).map((e) {
+      final name = e['name'] as String;
+      final type = e['type'] as DartType;
+      return BridgeProperty(
+        dartName: name,
+        type: BridgeType(name: type.getDisplayString(withNullability: true)),
+        getSymbol: '${ns}_get_${_toSnakeCase(name)}',
+        setSymbol: '${ns}_set_${_toSnakeCase(name)}',
+        hasGetter: e['getter'] as bool,
+        hasSetter: e['setter'] as bool,
+      );
+    }).toList();
   }
 
   // ─── Streams ─────────────────────────────────────────────────────────────────
@@ -127,9 +131,13 @@ class SpecExtractor {
     final results = <BridgeStream>[];
 
     for (final accessor in element.accessors) {
-      if (!accessor.isAbstract || !accessor.isGetter) continue;
+      if (!accessor.isAbstract || !accessor.isGetter) {
+        continue;
+      }
       final retType = accessor.returnType;
-      if (!_isStreamType(retType)) continue;
+      if (!_isStreamType(retType)) {
+        continue;
+      }
 
       // Get item type T from Stream<T>
       final streamType = retType as InterfaceType;
@@ -174,7 +182,9 @@ class SpecExtractor {
 
     for (final ann in library.annotatedWith(checker)) {
       final cls = ann.element;
-      if (cls is! ClassElement) continue;
+      if (cls is! ClassElement) {
+        continue;
+      }
 
       final packed =
           ann.annotation.read('packed').literalValue as bool? ?? false;
@@ -207,7 +217,9 @@ class SpecExtractor {
 
     for (final ann in library.annotatedWith(checker)) {
       final cls = ann.element;
-      if (cls is! EnumElement) continue;
+      if (cls is! EnumElement) {
+        continue;
+      }
 
       final startValue =
           ann.annotation.read('startValue').literalValue as int? ?? 0;

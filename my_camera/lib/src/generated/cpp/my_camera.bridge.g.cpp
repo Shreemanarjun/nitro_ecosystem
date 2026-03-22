@@ -1,10 +1,9 @@
-typedef struct {
-  uint8_t* data; /* zero-copy */
-  int64_t width; 
-  int64_t height; 
-  int64_t stride; 
-  int64_t timestampNs; 
-} CameraFrame;
+#include <stdint.h>
+#include <stdbool.h>
+#include <string.h>
+#include <stdlib.h>
+#include "dart_api_dl.h"
+#include "my_camera.bridge.g.h"
 
 extern "C" {
 intptr_t InitDartApiDL(void* data) {
@@ -15,8 +14,6 @@ intptr_t InitDartApiDL(void* data) {
 #ifdef __ANDROID__
 #include <jni.h>
 #include <android/log.h>
-#include <string.h>
-#include <stdlib.h>
 #define LOGE(...) __android_log_print(ANDROID_LOG_ERROR, "Nitrogen", __VA_ARGS__)
 
 static JavaVM* g_jvm = nullptr;
@@ -43,6 +40,7 @@ extern "C" {
 
 JNIEXPORT jint JNICALL JNI_OnLoad(JavaVM* vm, void* reserved) {
     g_jvm = vm;
+    __android_log_print(ANDROID_LOG_INFO, "Nitrogen", "JNI_OnLoad called for my_camera");
     JNIEnv* env = nullptr;
     if (vm->GetEnv(reinterpret_cast<void**>(&env), JNI_VERSION_1_6) != JNI_OK) {
         return -1;
@@ -57,6 +55,7 @@ JNIEXPORT jint JNICALL JNI_OnLoad(JavaVM* vm, void* reserved) {
 }
 
 static JNIEnv* GetEnv() {
+    if (g_jvm == nullptr) return nullptr;
     JNIEnv* env = nullptr;
     int status = g_jvm->GetEnv(reinterpret_cast<void**>(&env), JNI_VERSION_1_6);
     if (status == JNI_EDETACHED) {
@@ -88,18 +87,18 @@ const char* my_camera_get_greeting(const char* name) {
     return result;
 }
 
-void my_camera_register_frames_stream(int64_t dartPort) {
+void my_camera_register_frames_stream(int64_t dart_port) {
     JNIEnv* env = GetEnv();
     if (env == nullptr) return;
     jmethodID methodId = env->GetStaticMethodID(g_bridgeClass, "my_camera_register_frames_stream_call", "(J)V");
-    if (methodId != nullptr) env->CallStaticVoidMethod(g_bridgeClass, methodId, dartPort);
+    if (methodId != nullptr) env->CallStaticVoidMethod(g_bridgeClass, methodId, dart_port);
 }
 
-void my_camera_release_frames_stream(int64_t dartPort) {
+void my_camera_release_frames_stream(int64_t dart_port) {
     JNIEnv* env = GetEnv();
     if (env == nullptr) return;
     jmethodID methodId = env->GetStaticMethodID(g_bridgeClass, "my_camera_release_frames_stream_call", "(J)V");
-    if (methodId != nullptr) env->CallStaticVoidMethod(g_bridgeClass, methodId, dartPort);
+    if (methodId != nullptr) env->CallStaticVoidMethod(g_bridgeClass, methodId, dart_port);
 }
 
 JNIEXPORT void JNICALL Java_nitro_my_camera_module_MyCameraJniBridge_00024emit_frames(JNIEnv* env, jobject thiz, jlong dartPort, jobject item) {
@@ -107,7 +106,7 @@ JNIEXPORT void JNICALL Java_nitro_my_camera_module_MyCameraJniBridge_00024emit_f
     CameraFrame* st_ptr = (CameraFrame*)malloc(sizeof(CameraFrame));
     *st_ptr = pack_CameraFrame_from_jni(env, item);
     obj.type = Dart_CObject_kInt64;
-    obj.value.as_int64 = (int64_t)st_ptr;
+    obj.value.as_int64 = (intptr_t)st_ptr;
     Dart_PostCObject_DL(dartPort, &obj);
 }
 
@@ -127,17 +126,17 @@ const char* my_camera_get_greeting(const char* name) {
 void _emit_frames_to_dart(int64_t dartPort, void* item) {
     Dart_CObject obj;
     obj.type = Dart_CObject_kInt64;
-    obj.value.as_int64 = (int64_t)item;
+    obj.value.as_int64 = (intptr_t)item;
     Dart_PostCObject_DL(dartPort, &obj);
 }
 
 extern void _register_frames_stream(int64_t dartPort, void (*emitCb)(int64_t, void*));
-void my_camera_register_frames_stream(int64_t dartPort) {
-    _register_frames_stream(dartPort, _emit_frames_to_dart);
+void my_camera_register_frames_stream(int64_t dart_port) {
+    _register_frames_stream(dart_port, _emit_frames_to_dart);
 }
-extern void _release_frames_stream(int64_t dartPort);
-void my_camera_release_frames_stream(int64_t dartPort) {
-    _release_frames_stream(dartPort);
+extern void _release_frames_stream(int64_t dart_port);
+void my_camera_release_frames_stream(int64_t dart_port) {
+    _release_frames_stream(dart_port);
 }
 
 } // extern "C"

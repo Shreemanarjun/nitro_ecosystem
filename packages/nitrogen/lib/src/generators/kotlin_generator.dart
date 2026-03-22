@@ -56,8 +56,11 @@ class KotlinGenerator {
     s.writeln('object ${spec.dartClassName}JniBridge {');
     s.writeln('    private var implementation: Hybrid${spec.dartClassName}Spec? = null');
     s.writeln();
+    s.writeln('    @JvmStatic external fun initialize(bridgeClass: Class<*>)');
+    s.writeln();
     s.writeln('    fun register(impl: Hybrid${spec.dartClassName}Spec) {');
     s.writeln('        implementation = impl');
+    s.writeln('        initialize(this::class.java)');
     s.writeln('    }');
     s.writeln();
 

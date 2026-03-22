@@ -11,7 +11,7 @@ class CameraFrame {
   final int stride;        // bytes per row — used as zero-copy byte length
   final int timestampNs;  // capture timestamp in nanoseconds
 
-  CameraFrame(this.data, this.width, this.height, this.stride, this.timestampNs);
+  const CameraFrame({required this.data, required this.width, required this.height, required this.stride, required this.timestampNs});
 }
 
 @NitroModule(ios: NativeImpl.swift, android: NativeImpl.kotlin)

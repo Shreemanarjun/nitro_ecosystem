@@ -33,6 +33,12 @@ class MyCameraImpl : HybridMyCameraSpec {
 }
 
 class MyCameraPlugin: FlutterPlugin {
+    companion object {
+        init {
+            System.loadLibrary("my_camera")
+        }
+    }
+
     override fun onAttachedToEngine(@NonNull flutterPluginBinding: FlutterPlugin.FlutterPluginBinding) {
         // Register our implementation over the JNI bridge inside Nitrogen!
         MyCameraJniBridge.register(MyCameraImpl())

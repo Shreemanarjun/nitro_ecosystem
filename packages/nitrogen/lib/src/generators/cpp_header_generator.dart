@@ -57,7 +57,7 @@ class CppHeaderGenerator {
       for (final stream in spec.streams) {
         s.writeln('// Stream<${stream.itemType.name}> ${stream.dartName}');
         s.writeln('void ${stream.registerSymbol}(int64_t dart_port);');
-        s.writeln('void ${stream.releaseSymbol}(void);');
+        s.writeln('void ${stream.releaseSymbol}(int64_t dart_port);');
       }
       s.writeln();
     }
