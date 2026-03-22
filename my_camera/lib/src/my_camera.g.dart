@@ -59,7 +59,10 @@ class _MyCameraImpl extends MyCamera {
 
   @override
   Future<String> getGreeting(String name) async {
-    return NitroRuntime.callAsync(_getGreetingPtr, [name]);
+    return withArena((arena) async {
+      final result = await NitroRuntime.callAsync(_getGreetingPtr, [name.toNativeUtf8(allocator: arena)]);
+      return (result as Pointer<Utf8>).toDartStringWithFree();
+    });
   }
 
   @override

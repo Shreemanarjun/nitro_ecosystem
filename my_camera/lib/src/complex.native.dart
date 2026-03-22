@@ -1,4 +1,6 @@
 import 'dart:typed_data';
+import 'dart:ffi';
+import 'package:ffi/ffi.dart';
 import 'package:nitro/nitro.dart';
 
 part 'complex.g.dart';

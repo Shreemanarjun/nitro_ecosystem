@@ -132,6 +132,8 @@ class CppBridgeGenerator {
 
     for (final stream in spec.streams) {
       final isStruct = spec.structs.any((st) => st.name == stream.itemType.name);
+      final jniPkg = "nitro_${spec.lib.replaceAll('-', '_')}_module".replaceAll('_', '_1');
+      
       s.writeln('void ${stream.registerSymbol}(int64_t dart_port) {');
       s.writeln('    JNIEnv* env = GetEnv();');
       s.writeln('    if (env == nullptr) return;');
@@ -147,7 +149,7 @@ class CppBridgeGenerator {
       s.writeln('}');
       s.writeln('');
 
-      s.writeln('JNIEXPORT void JNICALL Java_nitro_${spec.lib.replaceAll('-', '_')}_module_${spec.dartClassName}JniBridge_00024emit_${stream.dartName}(JNIEnv* env, jobject thiz, jlong dartPort, ${_jniSigTypeC(stream.itemType.name)} item) {');
+      s.writeln('JNIEXPORT void JNICALL Java_${jniPkg}_${spec.dartClassName}JniBridge_emit_1${stream.dartName}(JNIEnv* env, jobject thiz, jlong dartPort, ${_jniSigTypeC(stream.itemType.name)} item) {');
       s.writeln('    Dart_CObject obj;');
       if (stream.itemType.name == 'double') {
         s.writeln('    obj.type = Dart_CObject_kDouble;');
@@ -170,6 +172,14 @@ class CppBridgeGenerator {
       s.writeln('}');
       s.writeln('');
     }
+
+    final jniInitPkg = "nitro_${spec.lib.replaceAll('-', '_')}_module".replaceAll('_', '_1');
+    s.writeln('JNIEXPORT void JNICALL Java_${jniInitPkg}_${spec.dartClassName}JniBridge_initialize(JNIEnv* env, jobject thiz, jclass bridgeClass) {');
+    s.writeln('    if (g_bridgeClass == nullptr) {');
+    s.writeln('        g_bridgeClass = (jclass)env->NewGlobalRef(bridgeClass);');
+    s.writeln('    }');
+    s.writeln('}');
+    s.writeln();
 
     s.writeln('} // extern "C"');
     s.writeln('#elif __APPLE__');

@@ -3,7 +3,7 @@
 #include <string.h>
 #include <stdlib.h>
 #include "dart_api_dl.h"
-#include "complex_module.bridge.g.h"
+#include "complex.bridge.g.h"
 
 extern "C" {
 intptr_t InitDartApiDL(void* data) {
@@ -47,12 +47,12 @@ extern "C" {
 
 JNIEXPORT jint JNICALL JNI_OnLoad(JavaVM* vm, void* reserved) {
     g_jvm = vm;
-    __android_log_print(ANDROID_LOG_INFO, "Nitrogen", "JNI_OnLoad called for complex_module");
+    __android_log_print(ANDROID_LOG_INFO, "Nitrogen", "JNI_OnLoad called for complex");
     JNIEnv* env = nullptr;
     if (vm->GetEnv(reinterpret_cast<void**>(&env), JNI_VERSION_1_6) != JNI_OK) {
         return -1;
     }
-    jclass localClass = env->FindClass("nitro/complex_module_module/ComplexModuleJniBridge");
+    jclass localClass = env->FindClass("nitro/complex_module/ComplexModuleJniBridge");
     if (localClass != nullptr) {
         g_bridgeClass = (jclass)env->NewGlobalRef(localClass);
     } else {
@@ -132,7 +132,7 @@ void complex_module_release_sensor_stream_stream(int64_t dart_port) {
     if (methodId != nullptr) env->CallStaticVoidMethod(g_bridgeClass, methodId, dart_port);
 }
 
-JNIEXPORT void JNICALL Java_nitro_complex_module_module_ComplexModuleJniBridge_00024emit_sensorStream(JNIEnv* env, jobject thiz, jlong dartPort, jobject item) {
+JNIEXPORT void JNICALL Java_nitro_1complex_1module_ComplexModuleJniBridge_emit_1sensorStream(JNIEnv* env, jobject thiz, jlong dartPort, jobject item) {
     Dart_CObject obj;
     SensorData* st_ptr = (SensorData*)malloc(sizeof(SensorData));
     *st_ptr = pack_SensorData_from_jni(env, item);
@@ -155,13 +155,19 @@ void complex_module_release_data_stream_stream(int64_t dart_port) {
     if (methodId != nullptr) env->CallStaticVoidMethod(g_bridgeClass, methodId, dart_port);
 }
 
-JNIEXPORT void JNICALL Java_nitro_complex_module_module_ComplexModuleJniBridge_00024emit_dataStream(JNIEnv* env, jobject thiz, jlong dartPort, jobject item) {
+JNIEXPORT void JNICALL Java_nitro_1complex_1module_ComplexModuleJniBridge_emit_1dataStream(JNIEnv* env, jobject thiz, jlong dartPort, jobject item) {
     Dart_CObject obj;
     Packet* st_ptr = (Packet*)malloc(sizeof(Packet));
     *st_ptr = pack_Packet_from_jni(env, item);
     obj.type = Dart_CObject_kInt64;
     obj.value.as_int64 = (intptr_t)st_ptr;
     Dart_PostCObject_DL(dartPort, &obj);
+}
+
+JNIEXPORT void JNICALL Java_nitro_1complex_1module_ComplexModuleJniBridge_initialize(JNIEnv* env, jobject thiz, jclass bridgeClass) {
+    if (g_bridgeClass == nullptr) {
+        g_bridgeClass = (jclass)env->NewGlobalRef(bridgeClass);
+    }
 }
 
 } // extern "C"

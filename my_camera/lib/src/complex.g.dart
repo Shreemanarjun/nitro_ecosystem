@@ -74,7 +74,7 @@ extension PacketExt on Packet {
 class _ComplexModuleImpl extends ComplexModule {
   final DynamicLibrary _dylib;
 
-  _ComplexModuleImpl() : _dylib = NitroRuntime.loadLib('complex_module') {
+  _ComplexModuleImpl() : _dylib = NitroRuntime.loadLib('complex') {
     final initFunc = _dylib.lookupFunction<IntPtr Function(Pointer<Void>), int Function(Pointer<Void>)>('InitDartApiDL');
     initFunc(NativeApi.initializeApiDLData);
   }
@@ -98,7 +98,10 @@ class _ComplexModuleImpl extends ComplexModule {
 
   @override
   Future<String> fetchMetadata(String url) async {
-    return NitroRuntime.callAsync(_fetchMetadataPtr, [url]);
+    return withArena((arena) async {
+      final result = await NitroRuntime.callAsync(_fetchMetadataPtr, [url.toNativeUtf8(allocator: arena)]);
+      return (result as Pointer<Utf8>).toDartStringWithFree();
+    });
   }
 
   @override

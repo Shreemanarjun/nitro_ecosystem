@@ -84,7 +84,18 @@ class DartFfiGenerator {
 
       final rt = func.returnType.name;
       if (func.isAsync) {
-        s.writeln('    return NitroRuntime.callAsync(_${func.dartName}Ptr, [${func.params.map((p) => p.name).join(', ')}]);');
+        if (needsArena) {
+          s.writeln('    return withArena((arena) async {');
+          s.writeln('      final result = await NitroRuntime.callAsync(_${func.dartName}Ptr, [$callArgs]);');
+          if (rt == 'String') {
+            s.writeln('      return (result as Pointer<Utf8>).toDartStringWithFree();');
+          } else {
+            s.writeln('      return result;');
+          }
+          s.writeln('    });');
+        } else {
+          s.writeln('    return NitroRuntime.callAsync(_${func.dartName}Ptr, [${func.params.map((p) => p.name).join(', ')}]);');
+        }
       } else if (spec.enums.any((en) => en.name == rt)) {
         s.writeln('    return ($callExpr).to$rt();');
       } else if (spec.structs.any((st) => st.name == rt)) {
@@ -92,6 +103,8 @@ class DartFfiGenerator {
         s.writeln('    return Pointer<${rt}Ffi>.fromAddress(res.address).ref.toDart();');
       } else if (rt == 'bool') {
         s.writeln('    return $callExpr != 0;');
+      } else if (rt == 'String') {
+        s.writeln('    return ($callExpr).toDartStringWithFree();');
       } else {
         s.writeln('    return $callExpr;');
       }

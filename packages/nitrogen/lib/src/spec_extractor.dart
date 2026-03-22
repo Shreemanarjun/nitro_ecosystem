@@ -23,11 +23,13 @@ class SpecExtractor {
         : annotation.read('cSymbolPrefix').stringValue;
     final lib =
         annotation.read('lib').isNull ? null : annotation.read('lib').stringValue;
+    final sourceFile = library.element.source.uri.pathSegments.last.replaceFirst('.native.dart', '');
+    final libName = lib ?? sourceFile.replaceAll('-', '_');
     final ns = cSymbolPrefix ?? _toSnakeCase(element.name);
 
     return BridgeSpec(
       dartClassName: element.name,
-      lib: lib ?? _toSnakeCase(element.name),
+      lib: libName,
       namespace: ns,
       iosImpl: iosImpl,
       androidImpl: androidImpl,

@@ -3,6 +3,10 @@ package nitro.my_camera_module
 
 import androidx.annotation.Keep
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.runBlocking
 
 // --- Structs ---
 @Keep
@@ -22,16 +26,21 @@ interface HybridMyCameraSpec {
 object MyCameraJniBridge {
     private var implementation: HybridMyCameraSpec? = null
 
+    @JvmStatic external fun initialize(bridgeClass: Class<*>)
+
     fun register(impl: HybridMyCameraSpec) {
         implementation = impl
+        initialize(this::class.java)
     }
 
     @JvmStatic fun add_call(a: Double, b: Double): Double {
-        return implementation?.add(a, b) ?: 0.0
+        val impl = implementation ?: throw IllegalStateException("MyCamera not registered")
+        return impl.add(a, b)
     }
     @JvmStatic fun getGreeting_call(name: String): String {
-        return kotlinx.coroutines.runBlocking {
-            implementation?.getGreeting(name) ?: ""
+        val impl = implementation ?: throw IllegalStateException("MyCamera not registered")
+        return runBlocking {
+            impl.getGreeting(name)
         }
     }
     private val _streamJobs = mutableMapOf<Long, kotlinx.coroutines.Job>()
@@ -39,9 +48,9 @@ object MyCameraJniBridge {
     @JvmStatic external fun emit_frames(dartPort: Long, item: CameraFrame): Unit
 
     @JvmStatic fun my_camera_register_frames_stream_call(dartPort: Long) {
-        val flow = implementation?.frames ?: return
-        _streamJobs[dartPort] = kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.Default).launch {
-            flow.collect { item -> 
+        val impl = implementation ?: return
+        _streamJobs[dartPort] = CoroutineScope(Dispatchers.Default).launch {
+            impl.frames.collect { item -> 
                 emit_frames(dartPort, item)
             }
         }

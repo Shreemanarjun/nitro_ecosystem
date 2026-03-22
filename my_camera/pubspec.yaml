@@ -42,6 +42,8 @@ flutter:
     platforms:
       android:
         ffiPlugin: true
+        package: com.example.my_camera
+        pluginClass: MyCameraPlugin
       ios:
         ffiPlugin: true
 

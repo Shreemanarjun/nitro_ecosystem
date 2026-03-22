@@ -10,6 +10,10 @@ class KotlinGenerator {
     s.writeln();
     s.writeln('import androidx.annotation.Keep');
     s.writeln('import kotlinx.coroutines.flow.Flow');
+    s.writeln('import kotlinx.coroutines.launch');
+    s.writeln('import kotlinx.coroutines.CoroutineScope');
+    s.writeln('import kotlinx.coroutines.Dispatchers');
+    s.writeln('import kotlinx.coroutines.runBlocking');
     s.writeln();
 
     final kotlinEnums = EnumGenerator.generateKotlin(spec);
@@ -69,13 +73,20 @@ class KotlinGenerator {
       final paramsDecl = func.params.map((p) => '${p.name}: ${_toKotlinType(spec, p.type.name)}').join(', ');
       final callParams = func.params.map((p) => p.name).join(', ');
       
+      final isUnit = (retType == 'Unit');
+      
       s.writeln('    @JvmStatic fun ${func.dartName}_call($paramsDecl): $retType {');
+      s.writeln('        val impl = implementation ?: throw IllegalStateException("${spec.dartClassName} not registered")');
       if (func.isAsync) {
-        s.writeln('        return kotlinx.coroutines.runBlocking {');
-        s.writeln('            implementation?.${func.dartName}($callParams) ?: ${_ktDefaultValue(func.returnType.name)}');
+        s.writeln('        return runBlocking {');
+        s.writeln('            impl.${func.dartName}($callParams)');
         s.writeln('        }');
       } else {
-        s.writeln('        return implementation?.${func.dartName}($callParams) ?: ${_ktDefaultValue(func.returnType.name)}');
+        if (isUnit) {
+          s.writeln('        impl.${func.dartName}($callParams)');
+        } else {
+          s.writeln('        return impl.${func.dartName}($callParams)');
+        }
       }
       s.writeln('    }');
     }
@@ -84,12 +95,14 @@ class KotlinGenerator {
       final kt = _toKotlinType(spec, prop.type.name);
       if (prop.hasGetter) {
         s.writeln('    @JvmStatic fun ${prop.getSymbol}_call(): $kt {');
-        s.writeln('        return implementation?.${prop.dartName} ?: ${_ktDefaultValue(prop.type.name)}');
+        s.writeln('        val impl = implementation ?: throw IllegalStateException("${spec.dartClassName} not registered")');
+        s.writeln('        return impl.${prop.dartName}');
         s.writeln('    }');
       }
       if (prop.hasSetter) {
         s.writeln('    @JvmStatic fun ${prop.setSymbol}_call(value: $kt) {');
-        s.writeln('        implementation?.${prop.dartName} = value');
+        s.writeln('        val impl = implementation ?: throw IllegalStateException("${spec.dartClassName} not registered")');
+        s.writeln('        impl.${prop.dartName} = value');
         s.writeln('    }');
       }
     }
@@ -101,9 +114,9 @@ class KotlinGenerator {
       s.writeln('    @JvmStatic external fun emit_${stream.dartName}(dartPort: Long, item: ${_toKotlinType(spec, stream.itemType.name)}): Unit');
       s.writeln('');
       s.writeln('    @JvmStatic fun ${stream.registerSymbol}_call(dartPort: Long) {');
-      s.writeln('        val flow = implementation?.${stream.dartName} ?: return');
-      s.writeln('        _streamJobs[dartPort] = kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.Default).launch {');
-      s.writeln('            flow.collect { item -> ');
+      s.writeln('        val impl = implementation ?: return');
+      s.writeln('        _streamJobs[dartPort] = CoroutineScope(Dispatchers.Default).launch {');
+      s.writeln('            impl.${stream.dartName}.collect { item -> ');
       s.writeln('                emit_${stream.dartName}(dartPort, item)');
       s.writeln('            }');
       s.writeln('        }');
