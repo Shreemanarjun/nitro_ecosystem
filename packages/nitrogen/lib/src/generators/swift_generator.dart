@@ -72,9 +72,9 @@ class SwiftGenerator {
       s.writeln('    @objc public static func _call_${func.dartName}($params) -> $retType {');
       if (func.returnType.name == 'void') {
         s.writeln('        impl?.${func.dartName}($callArgs)');
-        s.writeln('        return ${_defaultValue(func.returnType.name)}');
+        s.writeln('        return ${_defaultValue(spec, func.returnType.name)}');
       } else {
-        s.writeln('        return impl?.${func.dartName}($callArgs) ?? ${_defaultValue(func.returnType.name)}');
+        s.writeln('        return impl?.${func.dartName}($callArgs) ?? ${_defaultValue(spec, func.returnType.name)}');
       }
       s.writeln('    }');
     }
@@ -83,7 +83,7 @@ class SwiftGenerator {
       final swiftType = _toSwiftType(spec, prop.type.name);
       if (prop.hasGetter) {
         s.writeln('    @objc public static func _get_${prop.dartName}() -> $swiftType {');
-        s.writeln('        return impl?.${prop.dartName} ?? ${_defaultValue(prop.type.name)}');
+        s.writeln('        return impl?.${prop.dartName} ?? ${_defaultValue(spec, prop.type.name)}');
         s.writeln('    }');
       }
       if (prop.hasSetter) {
@@ -113,7 +113,8 @@ class SwiftGenerator {
   }
 
   static String _toSwiftType(BridgeSpec spec, String t) {
-    switch (t.replaceFirst('?', '')) {
+    final name = t.replaceFirst('?', '');
+    switch (name) {
       case 'int': return 'Int64';
       case 'double': return 'Double';
       case 'bool': return 'Bool';
@@ -121,15 +122,15 @@ class SwiftGenerator {
       case 'void': return 'Void';
       case 'Uint8List': return 'Data';
       default:
-        if (spec.structs.any((st) => st.name == t.replaceFirst('?', ''))) {
-          return t;
-        }
+        if (spec.enums.any((en) => en.name == name)) return 'Int64';
+        if (spec.structs.any((st) => st.name == name)) return name;
         return 'Any?';
     }
   }
 
   static String _toSwiftCType(BridgeSpec spec, String t) {
-    switch (t.replaceFirst('?', '')) {
+    final name = t.replaceFirst('?', '');
+    switch (name) {
       case 'int': return 'Int64';
       case 'double': return 'Double';
       case 'bool': return 'Bool';
@@ -137,20 +138,22 @@ class SwiftGenerator {
       case 'void': return 'Void';
       case 'Uint8List': return 'UnsafeMutablePointer<UInt8>?';
       default:
-        if (spec.structs.any((st) => st.name == t.replaceFirst('?', ''))) {
-          return 'UnsafeMutableRawPointer?';
-        }
+        if (spec.enums.any((en) => en.name == name)) return 'Int64';
+        if (spec.structs.any((st) => st.name == name)) return 'UnsafeMutableRawPointer?';
         return 'Any?';
     }
   }
 
-  static String _defaultValue(String t) {
-    switch (t.replaceFirst('?', '')) {
+  static String _defaultValue(BridgeSpec spec, String t) {
+    final name = t.replaceFirst('?', '');
+    switch (name) {
       case 'int': return '0';
       case 'double': return '0.0';
       case 'bool': return 'false';
       case 'String': return '""';
-      default: return '()';
+      default:
+        if (spec.enums.any((en) => en.name == name)) return '0';
+        return '()';
     }
   }
 }

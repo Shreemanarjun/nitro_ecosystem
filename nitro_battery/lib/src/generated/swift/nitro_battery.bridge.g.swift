@@ -25,7 +25,7 @@ public struct BatteryInfo {
 public protocol HybridNitroBatteryProtocol: AnyObject {
     func getBatteryLevel() -> Int64
     func isCharging() -> Bool
-    func getChargingState() -> Any?
+    func getChargingState() -> Int64
     func getBatteryInfo() async throws -> BatteryInfo
     var lowPowerThreshold: Int64 { get set }
     var batteryLevelChanges: AnyPublisher<Int64, Never> { get }
@@ -46,8 +46,8 @@ public class NitroBatteryRegistry: NSObject {
     @objc public static func _call_isCharging() -> Bool {
         return impl?.isCharging() ?? false
     }
-    @objc public static func _call_getChargingState() -> Any? {
-        return impl?.getChargingState() ?? ()
+    @objc public static func _call_getChargingState() -> Int64 {
+        return impl?.getChargingState() ?? 0
     }
     @objc public static func _call_getBatteryInfo() -> BatteryInfo {
         return impl?.getBatteryInfo() ?? ()
