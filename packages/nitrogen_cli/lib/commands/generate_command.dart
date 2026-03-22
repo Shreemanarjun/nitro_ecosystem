@@ -1,34 +1,51 @@
 import 'dart:io';
 import 'package:args/command_runner.dart';
+import '../ui.dart';
 
 class GenerateCommand extends Command {
   @override
   final String name = 'generate';
-  
-  @override
-  final String description = 'Runs the nitrogen code generator (build_runner) for specs.';
 
   @override
-  void run() {
-    stdout.writeln('🚀 Starting Nitrogen generation pipeline...');
-    
-    // We run standard `flutter pub run build_runner build`
-    // Using flutter or dart wrapper interchangeably.
-    final result = Process.runSync(
-      'flutter',
-      ['pub', 'run', 'build_runner', 'build', '--delete-conflicting-outputs'],
-    );
-    
-    stdout.write(result.stdout);
-    if (result.stderr.toString().isNotEmpty) {
-      stderr.write(result.stderr);
+  final String description =
+      'Runs the Nitrogen code generator (build_runner) and streams output in real time.';
+
+  @override
+  Future<void> run() async {
+    printBanner('nitrogen generate');
+
+    // Ensure pubspec is present
+    if (!File('pubspec.yaml').existsSync()) {
+      printError('No pubspec.yaml found.',
+          hint: 'Run nitrogen generate from the root of a Flutter plugin.');
+      exit(1);
     }
-    
-    if (result.exitCode != 0) {
-      stderr.writeln('❌ Nitrogen generation failed.');
-      exit(result.exitCode);
+
+    printSection('Running flutter pub get');
+    var exitCode = await runStreaming('flutter', ['pub', 'get']);
+    if (exitCode != 0) {
+      printError('flutter pub get failed (exit $exitCode)');
+      exit(exitCode);
     }
-    
-    stdout.writeln('✅ Nitrogen generation complete!');
+
+    printSection('Running build_runner build');
+    exitCode = await runStreaming('flutter', [
+      'pub',
+      'run',
+      'build_runner',
+      'build',
+      '--delete-conflicting-outputs',
+    ]);
+
+    if (exitCode != 0) {
+      printError('build_runner failed (exit $exitCode)',
+          hint: 'Check the output above for details.');
+      exit(exitCode);
+    }
+
+    stdout.writeln('');
+    stdout.writeln(bold(green('  ✨ Generation complete!')));
+    stdout.writeln(dim('     Run nitrogen link to wire generated bridges into the build system.'));
+    stdout.writeln('');
   }
 }
