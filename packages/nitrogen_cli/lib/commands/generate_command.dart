@@ -15,8 +15,8 @@ class GenerateCommand extends Command {
     // We run standard `flutter pub run build_runner build`
     // Using flutter or dart wrapper interchangeably.
     final result = Process.runSync(
-      'dart',
-      ['run', 'build_runner', 'build', '--delete-conflicting-outputs'],
+      'flutter',
+      ['pub', 'run', 'build_runner', 'build', '--delete-conflicting-outputs'],
     );
     
     stdout.write(result.stdout);

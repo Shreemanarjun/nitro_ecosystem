@@ -81,7 +81,7 @@ import 'package:nitro/nitro.dart';
 
 part '${pluginName}.g.dart';
 
-@HybridObject(ios: NativeImpl.swift, android: NativeImpl.kotlin)
+@NitroModule(ios: NativeImpl.swift, android: NativeImpl.kotlin)
 abstract class $className extends HybridObject {
   static final $className instance = _${className}Impl(NitroRuntime.loadLib('$pluginName'));
 
@@ -115,6 +115,68 @@ project(${pluginName}_library VERSION 0.0.1 LANGUAGES C CXX)
 # Include the Nitrogen generated module bindings
 include(lib/src/generated/cmake/${pluginName}.CMakeLists.g.txt OPTIONAL)
 ''');
+
+    // Rewrite example main.dart
+    final exampleMainFile = File(p.join(pluginName, 'example', 'lib', 'main.dart'));
+    if (exampleMainFile.existsSync()) {
+      exampleMainFile.writeAsStringSync('''
+import 'package:flutter/material.dart';
+import 'package:$pluginName/$pluginName.dart';
+
+void main() {
+  runApp(const MyApp());
+}
+
+class MyApp extends StatefulWidget {
+  const MyApp({super.key});
+
+  @override
+  State<MyApp> createState() => _MyAppState();
+}
+
+class _MyAppState extends State<MyApp> {
+  double _result = 0;
+  String _greeting = 'Loading...';
+
+  @override
+  void initState() {
+    super.initState();
+    // Example synchronous call
+    try {
+      _result = $className.instance.add(10, 20);
+    } catch (e) {
+      print('Native implementation may not be loaded yet: \$e');
+    }
+
+    // Example asynchronous call
+    $className.instance.getGreeting('Flutter').then((val) {
+      if (mounted) setState(() => _greeting = val);
+    }).catchError((e) {
+      if (mounted) setState(() => _greeting = 'Error: \$e');
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return MaterialApp(
+      home: Scaffold(
+        appBar: AppBar(title: const Text('Nitrogen Plugin Example')),
+        body: Center(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text('Sync Result: 10 + 20 = \$_result'),
+              const SizedBox(height: 16),
+              Text('Async Result: \$_greeting'),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+''');
+    }
 
     stdout.writeln('✨ $pluginName has been scaffolded for Nitrogen!');
     stdout.writeln('Next steps:');
