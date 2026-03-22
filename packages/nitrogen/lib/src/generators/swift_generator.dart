@@ -98,8 +98,7 @@ class SwiftGenerator {
       s.writeln('    private static var _${stream.dartName}Cancellable: AnyCancellable?');
       s.writeln('    @objc public static func _register_${stream.dartName}_stream(_ dartPort: Int64) {');
       s.writeln('        _${stream.dartName}Cancellable = impl?.${stream.dartName}.sink { item in');
-      s.writeln('            // TODO: send item to dartPort via NativePort FFI');
-      s.writeln('            _ = item');
+      s.writeln('            _emit_${stream.dartName}_to_dart(dartPort, item)');
       s.writeln('        }');
       s.writeln('    }');
       s.writeln('    @objc public static func _release_${stream.dartName}_stream() {');
@@ -109,6 +108,13 @@ class SwiftGenerator {
     }
 
     s.writeln('}');
+    s.writeln();
+    s.writeln('// C-bridge declaration to jump back to C++ shim');
+    for (final stream in spec.streams) {
+      final swiftType = _toSwiftType(stream.itemType.name);
+      s.writeln('@_silgen_name("_emit_${stream.dartName}_to_dart")');
+      s.writeln('public func _emit_${stream.dartName}_to_dart(_ dartPort: Int64, _ item: $swiftType)');
+    }
     return s.toString();
   }
 

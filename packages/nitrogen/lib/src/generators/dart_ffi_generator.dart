@@ -43,11 +43,14 @@ class DartFfiGenerator {
     for (final stream in spec.streams) {
       final cap = _cap(stream.dartName);
       s.writeln("  late final void Function(int) _register${cap}Ptr = _dylib.lookupFunction<Void Function(Int64), void Function(int)>('${stream.registerSymbol}');");
-      s.writeln("  late final void Function() _release${cap}Ptr = _dylib.lookupFunction<Void Function(), void Function()>('${stream.releaseSymbol}');");
+      s.writeln("  late final void Function(int) _release${cap}Ptr = _dylib.lookupFunction<Void Function(Int64), void Function(int)>('${stream.releaseSymbol}');");
     }
 
     s.writeln();
-    s.writeln('  _${spec.dartClassName}Impl(this._dylib);');
+    s.writeln('  _${spec.dartClassName}Impl(this._dylib) {');
+    s.writeln("    final initFunc = _dylib.lookupFunction<IntPtr Function(Pointer<Void>), int Function(Pointer<Void>)>('InitDartApiDL');");
+    s.writeln('    initFunc(NativeApi.initializeApiDLData);');
+    s.writeln('  }');
     s.writeln();
 
     // ── Method implementations ───────────────────────────────────────────────
@@ -101,7 +104,7 @@ class DartFfiGenerator {
       s.writeln('    return NitroRuntime.openStream<$itemType>(');
       s.writeln('      register: (port) => _register${cap}Ptr(port),');
       s.writeln("      unpack: (raw) => raw as $itemType,");
-      s.writeln('      release: (_) => _release${cap}Ptr(),');
+      s.writeln('      release: (port) => _release${cap}Ptr(port),');
       s.writeln('      backpressure: Backpressure.${stream.backpressure.name},');
       s.writeln('    );');
       s.writeln('  }');

@@ -91,12 +91,22 @@ class KotlinGenerator {
       }
     }
 
+    s.writeln('    private val _streamJobs = mutableMapOf<Long, kotlinx.coroutines.Job>()');
+    s.writeln();
+
     for (final stream in spec.streams) {
+      s.writeln('    @JvmStatic external fun emit_${stream.dartName}(dartPort: Long, item: ${_toKotlinType(stream.itemType.name)}): Unit');
+      s.writeln('');
       s.writeln('    @JvmStatic fun ${stream.registerSymbol}_call(dartPort: Long) {');
-      s.writeln('        // TODO: collect Flow and send to SendPort via C');
+      s.writeln('        val flow = implementation?.${stream.dartName} ?: return');
+      s.writeln('        _streamJobs[dartPort] = kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.Default).launch {');
+      s.writeln('            flow.collect { item -> ');
+      s.writeln('                emit_${stream.dartName}(dartPort, item)');
+      s.writeln('            }');
+      s.writeln('        }');
       s.writeln('    }');
-      s.writeln('    @JvmStatic fun ${stream.releaseSymbol}_call() {');
-      s.writeln('        // TODO: cancel Job');
+      s.writeln('    @JvmStatic fun ${stream.releaseSymbol}_call(dartPort: Long) {');
+      s.writeln('        _streamJobs.remove(dartPort)?.cancel()');
       s.writeln('    }');
     }
 
