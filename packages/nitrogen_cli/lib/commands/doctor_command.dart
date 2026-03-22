@@ -132,72 +132,87 @@ class _DoctorApp extends StatefulComponent {
 }
 
 class _DoctorAppState extends State<_DoctorApp> {
+  final _scroll = ScrollController();
+
+  bool _handleKey(KeyboardEvent e) {
+    final k = e.logicalKey;
+    if (k == LogicalKey.arrowUp) { _scroll.scrollUp(); return true; }
+    if (k == LogicalKey.arrowDown) { _scroll.scrollDown(); return true; }
+    if (k == LogicalKey.pageUp) { _scroll.pageUp(); return true; }
+    if (k == LogicalKey.pageDown) { _scroll.pageDown(); return true; }
+    if (k == LogicalKey.home) { _scroll.scrollToStart(); return true; }
+    if (k == LogicalKey.end) { _scroll.scrollToEnd(); return true; }
+    shutdownApp(component.errors > 0 ? 1 : 0);
+    return true;
+  }
+
   @override
   Component build(BuildContext context) {
     final bool healthy = component.errors == 0 && component.warnings == 0;
 
+    final summary = Text(
+      healthy
+          ? '✨ All checks passed.'
+          : component.errors > 0
+              ? '✘  ${component.errors} error(s)'
+                  '${component.warnings > 0 ? ', ${component.warnings} warning(s)' : ''}.'
+              : '⚠  ${component.warnings} warning(s).',
+      style: TextStyle(
+        fontWeight: FontWeight.bold,
+        color: healthy
+            ? Colors.green
+            : component.errors > 0
+                ? Colors.red
+                : Colors.yellow,
+      ),
+    );
+
     return Focusable(
       focused: true,
-      onKeyEvent: (_) {
-        shutdownApp(component.errors > 0 ? 1 : 0);
-        return true;
-      },
-      child: Padding(
-        padding: const EdgeInsets.all(1),
-        child: Column(
-          children: [
-            // ── Header ────────────────────────────────────────────────────
-            Container(
-              decoration: BoxDecoration(
-                border: BoxBorder.all(color: Colors.cyan),
-              ),
+      onKeyEvent: _handleKey,
+      child: Column(
+        children: [
+          // ── Header (fixed) ────────────────────────────────────────────
+          Padding(
+            padding: const EdgeInsets.only(top: 1, left: 1, right: 1),
+            child: Container(
+              decoration: BoxDecoration(border: BoxBorder.all(color: Colors.cyan)),
               child: Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 2, vertical: 0),
+                padding: const EdgeInsets.symmetric(horizontal: 2),
                 child: Text(
                   ' nitrogen doctor — ${component.pluginName} ',
-                  style: const TextStyle(
-                    color: Colors.cyan,
-                    fontWeight: FontWeight.bold,
-                  ),
+                  style: const TextStyle(color: Colors.cyan, fontWeight: FontWeight.bold),
                 ),
               ),
             ),
-            const Padding(padding: EdgeInsets.only(bottom: 1), child: Text('')),
+          ),
+          const Padding(padding: EdgeInsets.only(bottom: 1), child: Text('')),
 
-            // ── Sections ──────────────────────────────────────────────────
-            ...component.sections.map(_SectionBox.new),
+          // ── Scrollable sections ───────────────────────────────────────
+          Expanded(
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 1),
+              child: ListView(
+                controller: _scroll,
+                children: component.sections.map(_SectionBox.new).toList(),
+              ),
+            ),
+          ),
 
-            // ── Summary ───────────────────────────────────────────────────
-            Padding(
-              padding: const EdgeInsets.only(top: 1),
-              child: Text(
-                healthy
-                    ? '✨ All checks passed.'
-                    : component.errors > 0
-                        ? '✘  ${component.errors} error(s)'
-                            '${component.warnings > 0 ? ', ${component.warnings} warning(s)' : ''}.'
-                        : '⚠  ${component.warnings} warning(s).',
-                style: TextStyle(
-                  fontWeight: FontWeight.bold,
-                  color: healthy
-                      ? Colors.green
-                      : component.errors > 0
-                          ? Colors.red
-                          : Colors.yellow,
+          // ── Footer (fixed) ────────────────────────────────────────────
+          Padding(
+            padding: const EdgeInsets.only(top: 1, bottom: 1, left: 1, right: 1),
+            child: Column(
+              children: [
+                summary,
+                const Text(
+                  '  ↑↓ scroll   PgUp/PgDn page   q/Enter exit',
+                  style: TextStyle(color: Colors.gray, fontWeight: FontWeight.dim),
                 ),
-              ),
+              ],
             ),
-
-            // ── Dismiss hint ──────────────────────────────────────────────
-            const Padding(
-              padding: EdgeInsets.only(top: 1),
-              child: Text(
-                'Press any key to exit',
-                style: TextStyle(color: Colors.gray, fontWeight: FontWeight.dim),
-              ),
-            ),
-          ],
-        ),
+          ),
+        ],
       ),
     );
   }

@@ -175,19 +175,23 @@ class _LinkAppState extends State<_LinkApp> {
     setState(() => _finished = true);
   }
 
+  bool _handleKey(KeyboardEvent e) {
+    if (!_finished) return false;
+    shutdownApp(_failed ? 1 : 0);
+    return true;
+  }
+
   @override
   Component build(BuildContext context) {
     return Focusable(
-      focused: _finished,
-      onKeyEvent: (_) {
-        shutdownApp(_failed ? 1 : 0);
-        return true;
-      },
-      child: Padding(
-        padding: const EdgeInsets.all(1),
-        child: Column(
-          children: [
-            Container(
+      focused: true,
+      onKeyEvent: _handleKey,
+      child: Column(
+        children: [
+          // ── Header (fixed) ──────────────────────────────────────────
+          Padding(
+            padding: const EdgeInsets.only(top: 1, left: 1, right: 1),
+            child: Container(
               decoration: BoxDecoration(border: BoxBorder.all(color: Colors.cyan)),
               child: Padding(
                 padding: const EdgeInsets.symmetric(horizontal: 2),
@@ -197,19 +201,32 @@ class _LinkAppState extends State<_LinkApp> {
                 ),
               ),
             ),
-            const Padding(padding: EdgeInsets.only(bottom: 1), child: Text('')),
-            Container(
-              decoration: BoxDecoration(border: BoxBorder.all(color: Colors.brightBlack)),
-              child: Padding(
-                padding: const EdgeInsets.all(1),
-                child: Column(children: _steps.map(_StepRow.new).toList()),
+          ),
+          const Padding(padding: EdgeInsets.only(bottom: 1), child: Text('')),
+
+          // ── Steps (scrollable) ──────────────────────────────────────
+          Expanded(
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 1),
+              child: Container(
+                decoration: BoxDecoration(border: BoxBorder.all(color: Colors.brightBlack)),
+                child: Padding(
+                  padding: const EdgeInsets.all(1),
+                  child: ListView(
+                    children: _steps.map(_StepRow.new).toList(),
+                  ),
+                ),
               ),
             ),
-            if (_finished && !_failed)
-              Padding(
-                padding: const EdgeInsets.only(top: 1),
-                child: Column(
-                  children: [
+          ),
+
+          // ── Footer (fixed) ──────────────────────────────────────────
+          if (_finished)
+            Padding(
+              padding: const EdgeInsets.only(top: 1, bottom: 1, left: 1, right: 1),
+              child: Column(
+                children: [
+                  if (!_failed) ...[
                     const Text('✨ Linked! Next steps:',
                         style: TextStyle(color: Colors.green, fontWeight: FontWeight.bold)),
                     ..._nextSteps.asMap().entries.map(
@@ -219,18 +236,14 @@ class _LinkAppState extends State<_LinkApp> {
                           ),
                         ),
                   ],
-                ),
+                  const Text(
+                    'Press any key to exit',
+                    style: TextStyle(color: Colors.gray, fontWeight: FontWeight.dim),
+                  ),
+                ],
               ),
-            if (_finished)
-              const Padding(
-                padding: EdgeInsets.only(top: 1),
-                child: Text(
-                  'Press any key to exit',
-                  style: TextStyle(color: Colors.gray, fontWeight: FontWeight.dim),
-                ),
-              ),
-          ],
-        ),
+            ),
+        ],
       ),
     );
   }

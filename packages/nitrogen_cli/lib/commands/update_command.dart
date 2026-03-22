@@ -178,19 +178,23 @@ Future<void> _run() async {
     setState(() => _finished = true);
   }
 
+  bool _handleKey(KeyboardEvent e) {
+    if (!_finished) return false;
+    shutdownApp(_failed ? 1 : 0);
+    return true;
+  }
+
   @override
   Component build(BuildContext context) {
     return Focusable(
-      focused: _finished,
-      onKeyEvent: (_) {
-        shutdownApp(_failed ? 1 : 0);
-        return true;
-      },
-      child: Padding(
-        padding: const EdgeInsets.all(1),
-        child: Column(
-          children: [
-            Container(
+      focused: true,
+      onKeyEvent: _handleKey,
+      child: Column(
+        children: [
+          // ── Header (fixed) ──────────────────────────────────────────
+          Padding(
+            padding: const EdgeInsets.only(top: 1, left: 1, right: 1),
+            child: Container(
               decoration: BoxDecoration(border: BoxBorder.all(color: Colors.cyan)),
               child: Padding(
                 padding: const EdgeInsets.symmetric(horizontal: 2),
@@ -200,37 +204,48 @@ Future<void> _run() async {
                 ),
               ),
             ),
-            const Padding(padding: EdgeInsets.only(bottom: 1), child: Text('')),
-            Container(
-              decoration: BoxDecoration(border: BoxBorder.all(color: Colors.brightBlack)),
-              child: Padding(
-                padding: const EdgeInsets.all(1),
-                child: Column(children: _steps.map(_StepRow.new).toList()),
-              ),
-            ),
-            if (_finished)
-              Padding(
-                padding: const EdgeInsets.only(top: 1),
-                child: _failed
-                    ? Text(
-                        '✘  ${component.result.errorMessage ?? "Update failed"}',
-                        style: const TextStyle(color: Colors.red, fontWeight: FontWeight.bold),
-                      )
-                    : const Text(
-                        '✨ nitrogen is up to date!',
-                        style: TextStyle(color: Colors.green, fontWeight: FontWeight.bold),
-                      ),
-              ),
-            if (_finished)
-              const Padding(
-                padding: EdgeInsets.only(top: 1),
-                child: Text(
-                  'Press any key to exit',
-                  style: TextStyle(color: Colors.gray, fontWeight: FontWeight.dim),
+          ),
+          const Padding(padding: EdgeInsets.only(bottom: 1), child: Text('')),
+
+          // ── Steps (scrollable) ──────────────────────────────────────
+          Expanded(
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 1),
+              child: Container(
+                decoration: BoxDecoration(border: BoxBorder.all(color: Colors.brightBlack)),
+                child: Padding(
+                  padding: const EdgeInsets.all(1),
+                  child: ListView(
+                    children: _steps.map(_StepRow.new).toList(),
+                  ),
                 ),
               ),
-          ],
-        ),
+            ),
+          ),
+
+          // ── Footer (fixed) ──────────────────────────────────────────
+          if (_finished)
+            Padding(
+              padding: const EdgeInsets.only(top: 1, bottom: 1, left: 1, right: 1),
+              child: Column(
+                children: [
+                  _failed
+                      ? Text(
+                          '✘  ${component.result.errorMessage ?? "Update failed"}',
+                          style: const TextStyle(color: Colors.red, fontWeight: FontWeight.bold),
+                        )
+                      : const Text(
+                          '✨ nitrogen is up to date!',
+                          style: TextStyle(color: Colors.green, fontWeight: FontWeight.bold),
+                        ),
+                  const Text(
+                    'Press any key to exit',
+                    style: TextStyle(color: Colors.gray, fontWeight: FontWeight.dim),
+                  ),
+                ],
+              ),
+            ),
+        ],
       ),
     );
   }
