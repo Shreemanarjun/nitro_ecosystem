@@ -15,7 +15,7 @@ data class CameraFrame(val data: java.nio.ByteBuffer, val width: Long, val heigh
 interface HybridMyCameraSpec {
     fun add(a: Double, b: Double): Double
     suspend fun getGreeting(name: String): String
-    val frames: Flow<Any?>
+    val frames: Flow<CameraFrame>
 }
 
 @Keep
@@ -36,7 +36,7 @@ object MyCameraJniBridge {
     }
     private val _streamJobs = mutableMapOf<Long, kotlinx.coroutines.Job>()
 
-    @JvmStatic external fun emit_frames(dartPort: Long, item: Any?): Unit
+    @JvmStatic external fun emit_frames(dartPort: Long, item: CameraFrame): Unit
 
     @JvmStatic fun my_camera_register_frames_stream_call(dartPort: Long) {
         val flow = implementation?.frames ?: return

@@ -19,6 +19,11 @@ class DartFfiGenerator {
     s.writeln('class _${spec.dartClassName}Impl extends ${spec.dartClassName} {');
     s.writeln('  final DynamicLibrary _dylib;');
     s.writeln();
+    s.writeln('  _${spec.dartClassName}Impl() : _dylib = NitroRuntime.loadLib(\'${spec.lib}\') {');
+    s.writeln("    final initFunc = _dylib.lookupFunction<IntPtr Function(Pointer<Void>), int Function(Pointer<Void>)>('InitDartApiDL');");
+    s.writeln('    initFunc(NativeApi.initializeApiDLData);');
+    s.writeln('  }');
+    s.writeln();
 
     // ── Method pointers ─────────────────────────────────────────────────────
     for (final func in spec.functions) {
@@ -47,10 +52,7 @@ class DartFfiGenerator {
     }
 
     s.writeln();
-    s.writeln('  _${spec.dartClassName}Impl(this._dylib) {');
-    s.writeln("    final initFunc = _dylib.lookupFunction<IntPtr Function(Pointer<Void>), int Function(Pointer<Void>)>('InitDartApiDL');");
-    s.writeln('    initFunc(NativeApi.initializeApiDLData);');
-    s.writeln('  }');
+
     s.writeln();
 
     // ── Method implementations ───────────────────────────────────────────────

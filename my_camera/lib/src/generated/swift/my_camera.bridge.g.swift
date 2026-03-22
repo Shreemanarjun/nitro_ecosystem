@@ -18,7 +18,7 @@ public struct CameraFrame {
 public protocol HybridMyCameraProtocol: AnyObject {
     func add(a: Double, b: Double) -> Double
     func getGreeting(name: String) async throws -> String
-    var frames: AnyPublisher<Any?, Never> { get }
+    var frames: AnyPublisher<CameraFrame, Never> { get }
 }
 
 @objc
@@ -38,7 +38,7 @@ public class MyCameraRegistry: NSObject {
     }
     // Stream: frames — register with C callback
     private static var _framesCancellables = [Int64: AnyCancellable]()
-    @objc public static func _register_frames_stream(_ dartPort: Int64, _ emitCb: @escaping @convention(c) (Int64, Any?) -> Void) {
+    @objc public static func _register_frames_stream(_ dartPort: Int64, _ emitCb: @escaping @convention(c) (Int64, UnsafeMutableRawPointer?) -> Void) {
         _framesCancellables[dartPort] = impl?.frames.sink { item in
             emitCb(dartPort, item)
         }

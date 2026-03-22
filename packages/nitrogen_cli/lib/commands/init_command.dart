@@ -7,7 +7,7 @@ class InitCommand extends Command {
   final String name = 'init';
   
   @override
-  final String description = 'Scaffolds a new Nitrogen FFI plugin project.';
+  final String description = 'Scaffolds a new Nitrogen FFI plugin project with optimized native configs.';
 
   InitCommand() {
     argParser.addOption('org',
@@ -45,45 +45,124 @@ class InitCommand extends Command {
       exit(createResult.exitCode);
     }
 
-    // ── Update Pubspec ───────────────────────────────────────────────────────
-    stdout.writeln('📝 Updating pubspec.yaml components...');
+    final className = _capitalize(pluginName);
+
+    // ── 1. Optimized Native Setup (src/) ────────────────────────────────────
+    stdout.writeln('🛠️ Optimizing native project structure...');
+    final srcDir = Directory(p.join(pluginName, 'src'));
+    if (!srcDir.existsSync()) srcDir.createSync(recursive: true);
+
+    // Create main C++ entry point
+    final cppEntry = File(p.join(srcDir.path, '$pluginName.cpp'));
+    cppEntry.writeAsStringSync('''
+#include <stdint.h>
+#include <stdbool.h>
+
+// The Generated Nitrogen bridge header
+#include "../lib/src/generated/cpp/$pluginName.bridge.g.h"
+
+// The Generated Nitrogen bridge source
+#include "../lib/src/generated/cpp/$pluginName.bridge.g.cpp"
+
+extern "C" {
+    // Add manual non-Nitrogen FFI functions here.
+}
+''');
+
+    // Create src/CMakeLists.txt
+    final srcCmake = File(p.join(srcDir.path, 'CMakeLists.txt'));
+    srcCmake.writeAsStringSync('''
+cmake_minimum_required(VERSION 3.10)
+project(${pluginName}_library VERSION 0.0.1 LANGUAGES C CXX)
+
+set(BRIDGE_CPP "\${CMAKE_CURRENT_SOURCE_DIR}/../lib/src/generated/cpp/$pluginName.bridge.g.cpp")
+set(BRIDGE_H   "\${CMAKE_CURRENT_SOURCE_DIR}/../lib/src/generated/cpp/$pluginName.bridge.g.h")
+
+add_library($pluginName SHARED "$pluginName.cpp")
+
+target_include_directories($pluginName PRIVATE
+  "\${CMAKE_CURRENT_SOURCE_DIR}"
+  "\${CMAKE_CURRENT_SOURCE_DIR}/../lib/src/generated/cpp"
+)
+
+target_compile_definitions($pluginName PUBLIC DART_SHARED_LIB)
+
+if(ANDROID)
+  target_link_libraries($pluginName PRIVATE android log)
+  target_link_options($pluginName PRIVATE "-Wl,-z,max-page-size=16384")
+endif()
+''');
+
+    // ── 2. iOS/macOS Configuration (podspec + Classes/cpp) ────────────────────
+    stdout.writeln('🍎 Configuring iOS podspec and forwarders...');
+    final iosClassesDir = Directory(p.join(pluginName, 'ios', 'Classes'));
+    if (!iosClassesDir.existsSync()) iosClassesDir.createSync(recursive: true);
+
+    // Remove the default .c file and replace with our .cpp forwarder
+    final oldCFile = File(p.join(iosClassesDir.path, '$pluginName.c'));
+    if (oldCFile.existsSync()) oldCFile.deleteSync();
+    
+    final iosCppForwarder = File(p.join(iosClassesDir.path, '$pluginName.cpp'));
+    iosCppForwarder.writeAsStringSync('#include "../../src/$pluginName.cpp"\n');
+
+    // Update podspec
+    final podspecFile = File(p.join(pluginName, 'ios', '$pluginName.podspec'));
+    if (podspecFile.existsSync()) {
+      var content = podspecFile.readAsStringSync();
+      content = content.replaceFirst(
+        RegExp(r"s\.platform = :ios, '(\d+\.\d+)'"),
+        "s.platform = :ios, '13.0'"
+      );
+      content = content.replaceFirst(
+        's.swift_version = \'5.0\'',
+        "s.swift_version = '5.9'"
+      );
+      // Add C++17 flags
+      if (!content.contains('CLANG_CXX_LANGUAGE_STANDARD')) {
+        content = content.replaceFirst(
+          's.pod_target_xcconfig = { ',
+          "s.pod_target_xcconfig = { \n    'CLANG_CXX_LANGUAGE_STANDARD' => 'c++17',\n    'CLANG_CXX_LIBRARY' => 'libc++',\n    "
+        );
+      }
+      podspecFile.writeAsStringSync(content);
+    }
+
+    // ── 3. Pubspec & Bridge spec initialization ──────────────────────────────
+    stdout.writeln('📝 Finalizing Pubspec and Bridge Spec...');
     final pubspecFile = File(p.join(pluginName, 'pubspec.yaml'));
     var pubspec = pubspecFile.readAsStringSync();
     
-    if (!pubspec.contains('nitro:')) {
+    // Set ffiPlugin: true for Android CMake integration
+    if (!pubspec.contains('ffiPlugin: true')) {
       pubspec = pubspec.replaceFirst(
+        '      pluginClass: ${className}Plugin',
+        "      pluginClass: ${className}Plugin\n      ffiPlugin: true"
+      );
+    }
+    
+    // Dependencies (Local paths for this monorepo, versioned for real usage)
+    pubspec = pubspec.replaceFirst(
         'dependencies:\n  flutter:\n    sdk: flutter',
-        "dependencies:\n  flutter:\n    sdk: flutter\n  nitro:\n    path: ../packages/nitro", 
-      );
-    }
-    
-    // Remove ffigen/ffi since Nitro handles FFI generation completely
-    pubspec = pubspec.replaceAll(RegExp(r'^\s*ffigen:.*$\n', multiLine: true), '');
-    pubspec = pubspec.replaceAll(RegExp(r'^\s*ffi:.*$\n', multiLine: true), '');
-    
-    if (!pubspec.contains('nitrogen:')) {
-      pubspec = pubspec.replaceFirst(
-        '  flutter_lints:',
-        "  build_runner: ^2.4.0\n  nitrogen:\n    path: ../packages/nitrogen\n  flutter_lints:",
-      );
-    }
+        "dependencies:\n  flutter:\n    sdk: flutter\n  nitro: { path: ../packages/nitro }"
+    );
+    pubspec = pubspec.replaceFirst(
+        '  flutter_lints: ^3.0.0',
+        "  flutter_lints: ^3.0.0\n  build_runner: ^2.4.0\n  nitrogen: { path: ../packages/nitrogen }"
+    );
     pubspecFile.writeAsStringSync(pubspec);
 
-    // ── Create spec file ──────────────────────────────────────────────────────
-    final libDir = Directory(p.join(pluginName, 'lib', 'src'));
-    libDir.createSync(recursive: true);
-    final specFile = File(p.join(libDir.path, '${pluginName}.native.dart'));
-
-    final className = _capitalize(pluginName);
-    
+    // Create the Nitrogen Bridge spec
+    final libSrcDir = Directory(p.join(pluginName, 'lib', 'src'));
+    libSrcDir.createSync(recursive: true);
+    final specFile = File(p.join(libSrcDir.path, '$pluginName.native.dart'));
     specFile.writeAsStringSync('''
 import 'package:nitro/nitro.dart';
 
-part '${pluginName}.g.dart';
+part '$pluginName.g.dart';
 
 @NitroModule(ios: NativeImpl.swift, android: NativeImpl.kotlin)
 abstract class $className extends HybridObject {
-  static final $className instance = _${className}Impl(NitroRuntime.loadLib('$pluginName'));
+  static final $className instance = _\${className}Impl();
 
   double add(double a, double b);
 
@@ -92,93 +171,11 @@ abstract class $className extends HybridObject {
 }
 ''');
 
-    // Remove Default main file and export ours
-    final mainLib = File(p.join(pluginName, 'lib', '${pluginName}.dart'));
-    mainLib.writeAsStringSync("export 'src/${pluginName}.native.dart';\n");
+    // Export spec
+    final mainLib = File(p.join(pluginName, 'lib', '$pluginName.dart'));
+    mainLib.writeAsStringSync("export 'src/$pluginName.native.dart';\n");
 
-    // Clear old FFI C code to avoid conflicts
-    final srcDir = Directory(p.join(pluginName, 'src'));
-    if (srcDir.existsSync()) {
-      for (var f in srcDir.listSync()) {
-        if (f.path.endsWith('.c') || f.path.endsWith('.cpp') || f.path.endsWith('.h')) {
-          f.deleteSync();
-        }
-      }
-    }
-
-    // Rewrite CMakeLists.txt to include Nitrogen
-    final cmakeFile = File(p.join(pluginName, 'CMakeLists.txt'));
-    cmakeFile.writeAsStringSync('''
-cmake_minimum_required(VERSION 3.10)
-project(${pluginName}_library VERSION 0.0.1 LANGUAGES C CXX)
-
-# Include the Nitrogen generated module bindings
-include(lib/src/generated/cmake/${pluginName}.CMakeLists.g.txt OPTIONAL)
-''');
-
-    // Rewrite example main.dart
-    final exampleMainFile = File(p.join(pluginName, 'example', 'lib', 'main.dart'));
-    if (exampleMainFile.existsSync()) {
-      exampleMainFile.writeAsStringSync('''
-import 'package:flutter/material.dart';
-import 'package:$pluginName/$pluginName.dart';
-
-void main() {
-  runApp(const MyApp());
-}
-
-class MyApp extends StatefulWidget {
-  const MyApp({super.key});
-
-  @override
-  State<MyApp> createState() => _MyAppState();
-}
-
-class _MyAppState extends State<MyApp> {
-  double _result = 0;
-  String _greeting = 'Loading...';
-
-  @override
-  void initState() {
-    super.initState();
-    // Example synchronous call
-    try {
-      _result = $className.instance.add(10, 20);
-    } catch (e) {
-      print('Native implementation may not be loaded yet: \$e');
-    }
-
-    // Example asynchronous call
-    $className.instance.getGreeting('Flutter').then((val) {
-      if (mounted) setState(() => _greeting = val);
-    }).catchError((e) {
-      if (mounted) setState(() => _greeting = 'Error: \$e');
-    });
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return MaterialApp(
-      home: Scaffold(
-        appBar: AppBar(title: const Text('Nitrogen Plugin Example')),
-        body: Center(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Text('Sync Result: 10 + 20 = \$_result'),
-              const SizedBox(height: 16),
-              Text('Async Result: \$_greeting'),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-}
-''');
-    }
-
-    stdout.writeln('✨ $pluginName has been scaffolded for Nitrogen!');
+    stdout.writeln('✨ $pluginName has been scaffolded for Nitrogen with Zero-Friction native builds!');
     stdout.writeln('Next steps:');
     stdout.writeln('  cd $pluginName');
     stdout.writeln('  nitrogen generate');

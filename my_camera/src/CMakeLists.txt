@@ -12,8 +12,7 @@ set(BRIDGE_CPP "${CMAKE_CURRENT_SOURCE_DIR}/../lib/src/generated/cpp/my_camera.b
 set(BRIDGE_H   "${CMAKE_CURRENT_SOURCE_DIR}/../lib/src/generated/cpp/my_camera.bridge.g.h")
 
 add_library(my_camera SHARED
-  "my_camera.c"          # InitDartApiDL entry point forwarder for CocoaPods
-  "${BRIDGE_CPP}"        # JNI/Swift C-bridge (generated)
+  "my_camera.cpp"
 )
 
 # Expose the generated header so bridge.g.cpp can find dart_api_dl.h

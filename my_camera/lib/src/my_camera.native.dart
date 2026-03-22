@@ -16,7 +16,7 @@ class CameraFrame {
 
 @NitroModule(ios: NativeImpl.swift, android: NativeImpl.kotlin)
 abstract class MyCamera extends HybridObject {
-  static final MyCamera instance = _MyCameraImpl(NitroRuntime.loadLib('my_camera'));
+  static final MyCamera instance = _MyCameraImpl();
 
   double add(double a, double b);
 
