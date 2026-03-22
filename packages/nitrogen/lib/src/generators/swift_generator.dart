@@ -96,15 +96,15 @@ class SwiftGenerator {
     for (final stream in spec.streams) {
       final cType = _toSwiftCType(stream.itemType.name);
       s.writeln('    // Stream: ${stream.dartName} — register with C callback');
-      s.writeln('    private static var _${stream.dartName}Cancellable: AnyCancellable?');
+      s.writeln('    private static var _${stream.dartName}Cancellables = [Int64: AnyCancellable]()');
       s.writeln('    @objc public static func _register_${stream.dartName}_stream(_ dartPort: Int64, _ emitCb: @escaping @convention(c) (Int64, $cType) -> Void) {');
-      s.writeln('        _${stream.dartName}Cancellable = impl?.${stream.dartName}.sink { item in');
+      s.writeln('        _${stream.dartName}Cancellables[dartPort] = impl?.${stream.dartName}.sink { item in');
       s.writeln('            emitCb(dartPort, item)');
       s.writeln('        }');
       s.writeln('    }');
-      s.writeln('    @objc public static func _release_${stream.dartName}_stream() {');
-      s.writeln('        _${stream.dartName}Cancellable?.cancel()');
-      s.writeln('        _${stream.dartName}Cancellable = nil');
+      s.writeln('    @objc public static func _release_${stream.dartName}_stream(_ dartPort: Int64) {');
+      s.writeln('        _${stream.dartName}Cancellables[dartPort]?.cancel()');
+      s.writeln('        _${stream.dartName}Cancellables.removeValue(forKey: dartPort)');
       s.writeln('    }');
     }
 

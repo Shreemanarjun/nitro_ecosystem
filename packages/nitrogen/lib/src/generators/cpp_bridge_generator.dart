@@ -108,11 +108,11 @@ class CppBridgeGenerator {
       s.writeln('    if (methodId != nullptr) env->CallStaticVoidMethod(g_bridgeClass, methodId, dartPort);');
       s.writeln('}');
       s.writeln('');
-      s.writeln('void ${stream.releaseSymbol}() {');
+      s.writeln('void ${stream.releaseSymbol}(int64_t dartPort) {');
       s.writeln('    JNIEnv* env = GetEnv();');
       s.writeln('    if (env == nullptr) return;');
-      s.writeln('    jmethodID methodId = env->GetStaticMethodID(g_bridgeClass, "${stream.releaseSymbol}_call", "()V");');
-      s.writeln('    if (methodId != nullptr) env->CallStaticVoidMethod(g_bridgeClass, methodId);');
+      s.writeln('    jmethodID methodId = env->GetStaticMethodID(g_bridgeClass, "${stream.releaseSymbol}_call", "(J)V");');
+      s.writeln('    if (methodId != nullptr) env->CallStaticVoidMethod(g_bridgeClass, methodId, dartPort);');
       s.writeln('}');
       s.writeln('');
       
@@ -187,9 +187,9 @@ class CppBridgeGenerator {
       s.writeln('void ${stream.registerSymbol}(int64_t dartPort) {');
       s.writeln('    _register_${stream.dartName}_stream(dartPort, _emit_${stream.dartName}_to_dart);');
       s.writeln('}');
-      s.writeln('extern void _release_${stream.dartName}_stream();');
-      s.writeln('void ${stream.releaseSymbol}() {');
-      s.writeln('    _release_${stream.dartName}_stream();');
+      s.writeln('extern void _release_${stream.dartName}_stream(int64_t dartPort);');
+      s.writeln('void ${stream.releaseSymbol}(int64_t dartPort) {');
+      s.writeln('    _release_${stream.dartName}_stream(dartPort);');
       s.writeln('}');
       s.writeln('');
     }
