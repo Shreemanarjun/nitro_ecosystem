@@ -6,6 +6,7 @@ import 'src/generators/cpp_header_generator.dart';
 import 'src/generators/kotlin_generator.dart';
 import 'src/generators/swift_generator.dart';
 import 'src/generators/cmake_generator.dart';
+import 'src/generators/cpp_bridge_generator.dart';
 
 Builder nitrogenBuilder(BuilderOptions options) {
   return NitrogenBuilder();
@@ -20,6 +21,7 @@ class NitrogenBuilder implements Builder {
       'lib/{{dir}}/generated/kotlin/{{file}}.bridge.g.kt',
       'lib/{{dir}}/generated/swift/{{file}}.bridge.g.swift',
       'lib/{{dir}}/generated/cpp/{{file}}.bridge.g.h',
+      'lib/{{dir}}/generated/cpp/{{file}}.bridge.g.cpp',
       'lib/{{dir}}/generated/cmake/{{file}}.CMakeLists.g.txt',
     ]
   };
@@ -45,6 +47,8 @@ class NitrogenBuilder implements Builder {
           await buildStep.writeAsString(outId, SwiftGenerator.generate(spec));
         } else if (outId.path.endsWith('.bridge.g.h')) {
           await buildStep.writeAsString(outId, CppHeaderGenerator.generate(spec));
+        } else if (outId.path.endsWith('.bridge.g.cpp')) {
+          await buildStep.writeAsString(outId, CppBridgeGenerator.generate(spec));
         } else if (outId.path.endsWith('.CMakeLists.g.txt')) {
           await buildStep.writeAsString(outId, CMakeGenerator.generate(spec));
         }
