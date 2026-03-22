@@ -53,12 +53,19 @@ class _MyCameraImpl extends MyCamera {
   late final void Function(int) _releaseFramesPtr = _dylib.lookupFunction<Void Function(Int64), void Function(int)>('my_camera_release_frames_stream');
 
   @override
+  void dispose() {
+    super.dispose(); // sets isDisposed = true, calls onDestroy()
+  }
+
+  @override
   double add(double a, double b) {
+    checkDisposed();
     return _addPtr(a, b);
   }
 
   @override
   Future<String> getGreeting(String name) async {
+    checkDisposed();
     return withArena((arena) async {
       final result = await NitroRuntime.callAsync(_getGreetingPtr, [name.toNativeUtf8(allocator: arena)]);
       return (result as Pointer<Utf8>).toDartStringWithFree();
@@ -67,6 +74,7 @@ class _MyCameraImpl extends MyCamera {
 
   @override
   Stream<CameraFrame> get frames {
+    checkDisposed();
     return NitroRuntime.openStream<CameraFrame>(
       register: (port) => _registerFramesPtr(port),
       unpack: (rawPtr) => Pointer<CameraFrameFfi>.fromAddress(rawPtr).ref.toDart(),

@@ -695,7 +695,7 @@ void main() {
 
     test('property bool getter converts != 0', () {
       final out = DartFfiGenerator.generate(_richSpec());
-      expect(out, contains('bool get enabled => _getEnabledPtr() != 0;'));
+      expect(out, contains('bool get enabled { checkDisposed(); return _getEnabledPtr() != 0; }'));
     });
 
     test('property enum getter calls toSensorMode()', () {
@@ -705,13 +705,36 @@ void main() {
 
     test('property bool setter converts value ? 1 : 0', () {
       final out = DartFfiGenerator.generate(_richSpec());
-      expect(out, contains('set enabled(bool value) => _setEnabledPtr(value ? 1 : 0);'));
+      expect(out, contains('set enabled(bool value) { checkDisposed(); _setEnabledPtr(value ? 1 : 0); }'));
     });
 
     test('property enum setter passes nativeValue', () {
       final out = DartFfiGenerator.generate(_richSpec());
       // pointer name = _set{Cap(dartName)}Ptr; dartName='mode' → _setModePtr
       expect(out, contains('_setModePtr(value.nativeValue)'));
+    });
+
+    test('dispose() override is emitted in generated impl', () {
+      final out = DartFfiGenerator.generate(_simpleSpec());
+      expect(out, contains('@override'));
+      expect(out, contains('void dispose() {'));
+      expect(out, contains('super.dispose();'));
+    });
+
+    test('methods have checkDisposed() guard', () {
+      final out = DartFfiGenerator.generate(_simpleSpec());
+      // add(double, double) should guard
+      expect(out, contains('checkDisposed();'));
+    });
+
+    test('stream getter has checkDisposed() guard', () {
+      final out = DartFfiGenerator.generate(_richSpec());
+      expect(out, contains('Stream<double> get ticks {\n    checkDisposed();'));
+    });
+
+    test('property getter has checkDisposed() in block body', () {
+      final out = DartFfiGenerator.generate(_richSpec());
+      expect(out, contains('{ checkDisposed();'));
     });
 
     test('primitive double stream uses direct rawPtr cast', () {

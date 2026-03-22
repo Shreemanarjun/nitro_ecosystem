@@ -269,6 +269,8 @@ event loop.
 
 | Situation | Pattern |
 |---|---|
+| Explicit teardown of a plugin object | `dispose()` — sets `isDisposed`, calls `onDestroy()` |
+| Custom native cleanup on teardown | Override `onDestroy()` in your impl class |
 | Native memory that must be freed when Dart object is GC'd | `NativeFinalizer` with a C release symbol |
 | Stream that may be abandoned without `cancel()` | `Finalizer` on `StreamController` (Nitrogen does this for you) |
 | Native code calls a Dart callback from a background thread | `NativeCallable.listener` (never `.isolateLocal`) |
@@ -277,10 +279,82 @@ event loop.
 
 ---
 
+---
+
+## Pattern 3 — dispose()
+
+Every `HybridObject` exposes a `dispose()` method. Calling it:
+
+1. Sets `isDisposed = true`
+2. Calls `onDestroy()` once (override this for custom cleanup)
+3. Makes every subsequent call to any method, property, or stream getter throw
+   a clear `StateError` immediately
+
+```dart
+class MySensorPage extends StatefulWidget { ... }
+
+class _MySensorPageState extends State<MySensorPage> {
+  StreamSubscription<SensorReading>? _sub;
+
+  @override
+  void initState() {
+    super.initState();
+    _sub = MySensor.instance.readings.listen(_onReading);
+  }
+
+  @override
+  void dispose() {
+    _sub?.cancel();               // 1. stop the stream (releases native emitter)
+    MySensor.instance.dispose();  // 2. mark the object as disposed
+    super.dispose();
+  }
+}
+```
+
+After step 2, any call like `MySensor.instance.getTemperature()` throws:
+
+```
+StateError: MySensor has been disposed — do not use after dispose().
+```
+
+This prevents stale-closure bugs where a callback fires after the widget is gone.
+
+### dispose() is safe to call multiple times
+
+The implementation is idempotent:
+
+```dart
+void dispose() {
+  if (_disposed) return;   // no-op on subsequent calls
+  _disposed = true;
+  onDestroy();
+}
+```
+
+### Override onDestroy() for custom cleanup
+
+Plugin authors override `onDestroy()`, not `dispose()`:
+
+```dart
+// In your implementation class (MySensorImpl.dart — author-written):
+@override
+void onDestroy() {
+  _pollingTimer?.cancel();
+  _nativeHandle.release();
+}
+```
+
+If the generated `_MySensorImpl` holds no extra resources, the generated
+`dispose()` override simply calls `super.dispose()` and is a no-op beyond
+setting the flag.
+
+---
+
 ## What Nitrogen does automatically
 
 | Mechanism | Where | What it prevents |
 |---|---|---|
+| `dispose()` + `checkDisposed()` | `HybridObject` + every generated method | Use-after-dispose calls produce a clear `StateError` |
 | `Finalizer` on `StreamController` | `NitroRuntime.openStream` | Dangling port reference when subscription is abandoned |
 | `Dart_PostCObject` return-value check | Generated C++ bridge | Native emitter keeps running after hot restart |
 | `NativeFinalizer` on `ZeroCopyBuffer` | `ffi_utils.dart` | Native buffer leaked when Dart buffer object is GC'd |

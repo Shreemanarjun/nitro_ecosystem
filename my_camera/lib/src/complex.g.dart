@@ -92,12 +92,19 @@ class _ComplexModuleImpl extends ComplexModule {
   late final void Function(int) _releaseDataStreamPtr = _dylib.lookupFunction<Void Function(Int64), void Function(int)>('complex_module_release_data_stream_stream');
 
   @override
+  void dispose() {
+    super.dispose(); // sets isDisposed = true, calls onDestroy()
+  }
+
+  @override
   int calculate(int seed, double factor, bool enabled) {
+    checkDisposed();
     return _calculatePtr(seed, factor, enabled ? 1 : 0);
   }
 
   @override
   Future<String> fetchMetadata(String url) async {
+    checkDisposed();
     return withArena((arena) async {
       final result = await NitroRuntime.callAsync(_fetchMetadataPtr, [url.toNativeUtf8(allocator: arena)]);
       return (result as Pointer<Utf8>).toDartStringWithFree();
@@ -106,28 +113,32 @@ class _ComplexModuleImpl extends ComplexModule {
 
   @override
   DeviceStatus getStatus() {
+    checkDisposed();
     return (_getStatusPtr()).toDeviceStatus();
   }
 
   @override
   void updateSensors(SensorData data) {
+    checkDisposed();
     return withArena((arena) => _updateSensorsPtr(data.toNative(arena).cast<Void>()));
   }
 
   @override
   Future<Packet> generatePacket(int type) async {
+    checkDisposed();
     final asyncResult = await NitroRuntime.callAsync(_generatePacketPtr, [type]);
     return Pointer<PacketFfi>.fromAddress((asyncResult as Pointer<Void>).address).ref.toDart();
   }
 
   @override
-  double get batteryLevel => _getBatteryLevelPtr();
+  double get batteryLevel { checkDisposed(); return _getBatteryLevelPtr(); }
 
   @override
-  set config(String value) => withArena((arena) => _setConfigPtr(value.toNativeUtf8(allocator: arena)));
+  set config(String value) { checkDisposed(); withArena((arena) => _setConfigPtr(value.toNativeUtf8(allocator: arena))); }
 
   @override
   Stream<SensorData> get sensorStream {
+    checkDisposed();
     return NitroRuntime.openStream<SensorData>(
       register: (port) => _registerSensorStreamPtr(port),
       unpack: (rawPtr) => Pointer<SensorDataFfi>.fromAddress(rawPtr).ref.toDart(),
@@ -138,6 +149,7 @@ class _ComplexModuleImpl extends ComplexModule {
 
   @override
   Stream<Packet> get dataStream {
+    checkDisposed();
     return NitroRuntime.openStream<Packet>(
       register: (port) => _registerDataStreamPtr(port),
       unpack: (rawPtr) => Pointer<PacketFfi>.fromAddress(rawPtr).ref.toDart(),

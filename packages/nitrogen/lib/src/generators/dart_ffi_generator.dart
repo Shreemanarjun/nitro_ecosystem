@@ -52,6 +52,11 @@ class DartFfiGenerator {
       s.writeln("  late final void Function(int) _release${cap}Ptr = _dylib.lookupFunction<Void Function(Int64), void Function(int)>('${stream.releaseSymbol}');");
     }
 
+    // ── dispose() override ───────────────────────────────────────────────────
+    s.writeln('  @override');
+    s.writeln('  void dispose() {');
+    s.writeln('    super.dispose(); // sets isDisposed = true, calls onDestroy()');
+    s.writeln('  }');
     s.writeln();
 
     // ── Method implementations ───────────────────────────────────────────────
@@ -74,6 +79,7 @@ class DartFfiGenerator {
 
       s.writeln('  @override');
       s.writeln('  $returnType ${func.dartName}(${_paramList(func.params)}) $asyncMod{');
+      s.writeln('    checkDisposed();');
 
       String callExpr;
       if (needsArena) {
@@ -139,7 +145,7 @@ class DartFfiGenerator {
         } else if (rt == 'bool') {
           getExpr = '$getExpr != 0';
         }
-        s.writeln('  $rt get ${prop.dartName} => $getExpr;');
+        s.writeln('  $rt get ${prop.dartName} { checkDisposed(); return $getExpr; }');
       }
 
       if (prop.hasSetter) {
@@ -156,7 +162,7 @@ class DartFfiGenerator {
             valExpr = 'value.toNative(arena).cast<Void>()';
           }
 
-          s.writeln('  set ${prop.dartName}($rt value) => withArena((arena) => _set${cap}Ptr($valExpr));');
+          s.writeln('  set ${prop.dartName}($rt value) { checkDisposed(); withArena((arena) => _set${cap}Ptr($valExpr)); }');
         } else {
           String valExpr = 'value';
           if (spec.enums.any((en) => en.name == rt)) {
@@ -164,7 +170,7 @@ class DartFfiGenerator {
           } else if (rt == 'bool') {
             valExpr = 'value ? 1 : 0';
           }
-          s.writeln('  set ${prop.dartName}($rt value) => _set${cap}Ptr($valExpr);');
+          s.writeln('  set ${prop.dartName}($rt value) { checkDisposed(); _set${cap}Ptr($valExpr); }');
         }
       }
       s.writeln();
@@ -181,6 +187,7 @@ class DartFfiGenerator {
 
       s.writeln('  @override');
       s.writeln('  Stream<$itemType> get ${stream.dartName} {');
+      s.writeln('    checkDisposed();');
       s.writeln('    return NitroRuntime.openStream<$itemType>(');
       s.writeln('      register: (port) => _register${cap}Ptr(port),');
       s.writeln('      unpack: $unpackExpr,');

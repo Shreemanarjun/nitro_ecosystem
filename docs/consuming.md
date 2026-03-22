@@ -388,8 +388,8 @@ class _SensorPageState extends State<SensorPage> {
 
   @override
   void dispose() {
-    _sub?.cancel();          // stop native emission
-    MySensor.instance.mode = SensorMode.idle;
+    _sub?.cancel();               // stop native stream emission
+    MySensor.instance.dispose();  // mark as disposed — any further calls throw StateError
     super.dispose();
   }
 
