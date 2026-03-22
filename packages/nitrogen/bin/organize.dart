@@ -27,6 +27,10 @@ void main(List<String> args) {
   var moved = 0;
   for (final entity in dir.listSync(recursive: true)) {
     if (entity is! File) continue;
+    // Skip files that are already inside a generated/<lang>/ folder
+    final relPath = entity.path.replaceFirst('$root/', '');
+    if (relPath.startsWith('generated/')) continue;
+
     for (final entry in rules.entries) {
       if (entity.path.endsWith(entry.key)) {
         final parentDir = entity.parent.path;

@@ -9,34 +9,49 @@ class KotlinGenerator {
     s.writeln('package nitro.${spec.lib.replaceAll('-', '_')}_module');
     s.writeln();
     s.writeln('import androidx.annotation.Keep');
+    s.writeln('import kotlinx.coroutines.flow.Flow');
     s.writeln();
 
-    // Enums
     final kotlinEnums = EnumGenerator.generateKotlin(spec);
     if (kotlinEnums.isNotEmpty) s.write(kotlinEnums);
 
-    // Structs
     final kotlinStructs = StructGenerator.generateKotlin(spec);
     if (kotlinStructs.isNotEmpty) s.write(kotlinStructs);
 
-    // Interface
+    // ── Interface ─────────────────────────────────────────────────────────
     s.writeln('/**');
     s.writeln(' * Contract for the [${spec.dartClassName}] module.');
     s.writeln(' * Implement this in your Kotlin source code.');
     s.writeln(' */');
     s.writeln('interface Hybrid${spec.dartClassName}Spec {');
+
     for (final func in spec.functions) {
-      final retType = _toKotlinType(func.returnType);
+      final retType = _toKotlinType(func.returnType.name);
       final params = func.params
-          .map((p) => '${p.name}: ${_toKotlinType(p.type)}')
+          .map((p) => '${p.name}: ${_toKotlinType(p.type.name)}')
           .join(', ');
       final suspend = func.isAsync ? 'suspend ' : '';
       s.writeln('    ${suspend}fun ${func.dartName}($params): $retType');
     }
+
+    for (final prop in spec.properties) {
+      final kt = _toKotlinType(prop.type.name);
+      if (prop.hasSetter) {
+        s.writeln('    var ${prop.dartName}: $kt');
+      } else {
+        s.writeln('    val ${prop.dartName}: $kt');
+      }
+    }
+
+    for (final stream in spec.streams) {
+      final itemType = _toKotlinType(stream.itemType.name);
+      s.writeln('    val ${stream.dartName}: Flow<$itemType>');
+    }
+
     s.writeln('}');
     s.writeln();
 
-    // JNI bridge
+    // ── JNI Bridge ────────────────────────────────────────────────────────
     s.writeln('@Keep');
     s.writeln('object ${spec.dartClassName}JniBridge {');
     s.writeln('    private var implementation: Hybrid${spec.dartClassName}Spec? = null');
@@ -45,21 +60,36 @@ class KotlinGenerator {
     s.writeln('        implementation = impl');
     s.writeln('    }');
     s.writeln();
-    for (final func in spec.functions) {
-      final retType = _toKotlinType(func.returnType);
-      final params = func.params
-          .map((p) => '${p.name}: ${_toKotlinType(p.type)}')
-          .join(', ');
-      s.writeln('    @JvmStatic');
-      s.writeln('    external fun ${func.dartName}_jni($params): $retType');
-    }
-    s.writeln('}');
 
+    for (final func in spec.functions) {
+      final retType = _toKotlinType(func.returnType.name);
+      final params = func.params
+          .map((p) => '${p.name}: ${_toKotlinType(p.type.name)}')
+          .join(', ');
+      s.writeln('    @JvmStatic external fun ${func.dartName}_jni($params): $retType');
+    }
+
+    for (final prop in spec.properties) {
+      final kt = _toKotlinType(prop.type.name);
+      if (prop.hasGetter) {
+        s.writeln('    @JvmStatic external fun ${prop.getSymbol}_jni(): $kt');
+      }
+      if (prop.hasSetter) {
+        s.writeln('    @JvmStatic external fun ${prop.setSymbol}_jni(value: $kt): Unit');
+      }
+    }
+
+    for (final stream in spec.streams) {
+      s.writeln('    @JvmStatic external fun ${stream.registerSymbol}_jni(dartPort: Long): Unit');
+      s.writeln('    @JvmStatic external fun ${stream.releaseSymbol}_jni(): Unit');
+    }
+
+    s.writeln('}');
     return s.toString();
   }
 
-  static String _toKotlinType(BridgeType type) {
-    switch (type.name.replaceFirst('?', '')) {
+  static String _toKotlinType(String t) {
+    switch (t.replaceFirst('?', '')) {
       case 'int': return 'Long';
       case 'double': return 'Double';
       case 'bool': return 'Boolean';

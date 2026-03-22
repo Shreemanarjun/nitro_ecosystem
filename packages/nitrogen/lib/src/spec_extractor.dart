@@ -23,19 +23,20 @@ class SpecExtractor {
         : annotation.read('cSymbolPrefix').stringValue;
     final lib =
         annotation.read('lib').isNull ? null : annotation.read('lib').stringValue;
+    final ns = cSymbolPrefix ?? _toSnakeCase(element.name);
 
     return BridgeSpec(
       dartClassName: element.name,
       lib: lib ?? element.name.toLowerCase(),
-      namespace: cSymbolPrefix ?? _toSnakeCase(element.name),
+      namespace: ns,
       iosImpl: iosImpl,
       androidImpl: androidImpl,
       sourceUri: library.element.source.uri.toString(),
-      functions: _extractFunctions(element),
+      functions: _extractFunctions(element, ns),
+      properties: _extractProperties(element, ns),
+      streams: _extractStreams(element, ns),
       structs: _extractStructs(library),
       enums: _extractEnums(library),
-      streams: [],
-      properties: [],
     );
   }
 
@@ -47,42 +48,122 @@ class SpecExtractor {
 
   // ─── Functions ───────────────────────────────────────────────────────────────
 
-  static List<BridgeFunction> _extractFunctions(ClassElement element) {
+  static List<BridgeFunction> _extractFunctions(ClassElement element, String ns) {
     final asyncChecker =
         TypeChecker.fromUrl('package:nitro/src/annotations.dart#NitroAsync');
     final zeroCopyChecker =
         TypeChecker.fromUrl('package:nitro/src/annotations.dart#ZeroCopy');
 
+    // Skip abstract getters annotated with @NitroStream or abstract getters/setters
     return element.methods.where((m) => m.isAbstract).map((m) {
       final isAsync = asyncChecker.hasAnnotationOf(m);
 
       DartType returnType = m.returnType;
       if (isAsync && returnType.isDartAsyncFuture) {
-        final interfaceType = returnType as InterfaceType;
-        if (interfaceType.typeArguments.isNotEmpty) {
-          returnType = interfaceType.typeArguments.first;
-        }
+        final it = returnType as InterfaceType;
+        if (it.typeArguments.isNotEmpty) returnType = it.typeArguments.first;
       }
 
       return BridgeFunction(
         dartName: m.name,
-        cSymbol: '${_toSnakeCase(element.name)}_${_toSnakeCase(m.name)}',
+        cSymbol: '${ns}_${_toSnakeCase(m.name)}',
         isAsync: isAsync,
         returnType: BridgeType(
           name: returnType.getDisplayString(withNullability: true),
           isFuture: isAsync,
         ),
         params: m.parameters.map((p) {
-          final isZeroCopy = zeroCopyChecker.hasAnnotationOf(p);
           return BridgeParam(
             name: p.name,
-            type: BridgeType(
-                name: p.type.getDisplayString(withNullability: true)),
-            zeroCopy: isZeroCopy,
+            type: BridgeType(name: p.type.getDisplayString(withNullability: true)),
+            zeroCopy: zeroCopyChecker.hasAnnotationOf(p),
           );
         }).toList(),
       );
     }).toList();
+  }
+
+  // ─── Properties ──────────────────────────────────────────────────────────────
+
+  static List<BridgeProperty> _extractProperties(ClassElement element, String ns) {
+    final results = <BridgeProperty>[];
+
+    // Collect getter names that also have a setter (to avoid double-adding)
+    final setterNames = element.accessors
+        .where((a) => a.isSetter && a.isAbstract)
+        .map((a) => a.displayName.replaceFirst('=', ''))
+        .toSet();
+
+    for (final accessor in element.accessors) {
+      if (!accessor.isAbstract) continue;
+      if (!accessor.isGetter) continue;
+
+      final retType = accessor.returnType;
+
+      // Skip Stream<T> getters — handled as NitroStream
+      if (retType.isDartCoreFunction || _isStreamType(retType)) continue;
+
+      final name = accessor.displayName;
+      final typeName = retType.getDisplayString(withNullability: true);
+
+      results.add(BridgeProperty(
+        dartName: name,
+        type: BridgeType(name: typeName),
+        getSymbol: '${ns}_get_${_toSnakeCase(name)}',
+        setSymbol: setterNames.contains(name) ? '${ns}_set_${_toSnakeCase(name)}' : null,
+        hasGetter: true,
+        hasSetter: setterNames.contains(name),
+      ));
+    }
+
+    return results;
+  }
+
+  // ─── Streams ─────────────────────────────────────────────────────────────────
+
+  static List<BridgeStream> _extractStreams(ClassElement element, String ns) {
+    final streamChecker =
+        TypeChecker.fromUrl('package:nitro/src/annotations.dart#NitroStream');
+    final results = <BridgeStream>[];
+
+    for (final accessor in element.accessors) {
+      if (!accessor.isAbstract || !accessor.isGetter) continue;
+      final retType = accessor.returnType;
+      if (!_isStreamType(retType)) continue;
+
+      // Get item type T from Stream<T>
+      final streamType = retType as InterfaceType;
+      final itemTypeName = streamType.typeArguments.isNotEmpty
+          ? streamType.typeArguments.first.getDisplayString(withNullability: true)
+          : 'dynamic';
+
+      // Read backpressure from @NitroStream annotation, default dropLatest
+      Backpressure backpressure = Backpressure.dropLatest;
+      final ann = streamChecker.firstAnnotationOf(accessor);
+      if (ann != null) {
+        final bpField = ann.getField('backpressure');
+        final bpIndex = bpField?.getField('index')?.toIntValue() ?? 0;
+        backpressure = Backpressure.values[bpIndex];
+      }
+
+      final name = accessor.displayName;
+      results.add(BridgeStream(
+        dartName: name,
+        registerSymbol: '${ns}_register_${_toSnakeCase(name)}_stream',
+        releaseSymbol: '${ns}_release_${_toSnakeCase(name)}_stream',
+        itemType: BridgeType(name: itemTypeName),
+        backpressure: backpressure,
+      ));
+    }
+
+    return results;
+  }
+
+  static bool _isStreamType(DartType type) {
+    if (type is InterfaceType) {
+      return type.element.name == 'Stream';
+    }
+    return false;
   }
 
   // ─── Structs ─────────────────────────────────────────────────────────────────

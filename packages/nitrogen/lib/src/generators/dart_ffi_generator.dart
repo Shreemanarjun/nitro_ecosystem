@@ -1,6 +1,6 @@
 import '../bridge_spec.dart';
-import 'struct_generator.dart';
 import 'enum_generator.dart';
+import 'struct_generator.dart';
 
 class DartFfiGenerator {
   static String generate(BridgeSpec spec) {
@@ -9,52 +9,65 @@ class DartFfiGenerator {
     s.writeln("part of '${spec.sourceUri.split('/').last}';");
     s.writeln();
 
-    // Enum FFI extensions (class bodies are in .native.dart already)
-    final enumBlock = EnumGenerator.generateDartExtensions(spec);
-    if (enumBlock.isNotEmpty) s.write(enumBlock);
+    // Enum & struct extensions (class bodies live in .native.dart)
+    final enumExt = EnumGenerator.generateDartExtensions(spec);
+    if (enumExt.isNotEmpty) s.write(enumExt);
+    final structExt = StructGenerator.generateDartExtensions(spec);
+    if (structExt.isNotEmpty) s.write(structExt);
 
-    // Struct FFI extensions (class bodies are in .native.dart already)
-    final structBlock = StructGenerator.generateDartExtensions(spec);
-    if (structBlock.isNotEmpty) s.write(structBlock);
-
-    // Impl class
+    // ── Impl class ──────────────────────────────────────────────────────────
     s.writeln('class _${spec.dartClassName}Impl extends ${spec.dartClassName} {');
     s.writeln('  final DynamicLibrary _dylib;');
     s.writeln();
 
+    // ── Method pointers ─────────────────────────────────────────────────────
     for (final func in spec.functions) {
       final nativeType = _toNativeType(func);
       final dartType = _toDartType(func);
       s.writeln("  late final $dartType _${func.dartName}Ptr = _dylib.lookupFunction<$nativeType, $dartType>('${func.cSymbol}');");
     }
-    s.writeln();
 
+    // ── Property pointers ───────────────────────────────────────────────────
+    for (final prop in spec.properties) {
+      final ffiType = _typeToFFI(prop.type.name);
+      final dartType = _typeToDartFFI(prop.type.name);
+      if (prop.hasGetter) {
+        s.writeln("  late final $dartType Function() _get${_cap(prop.dartName)}Ptr = _dylib.lookupFunction<$ffiType Function(), $dartType Function()>('${prop.getSymbol}');");
+      }
+      if (prop.hasSetter) {
+        s.writeln("  late final void Function($dartType) _set${_cap(prop.dartName)}Ptr = _dylib.lookupFunction<Void Function($ffiType), void Function($dartType)>('${prop.setSymbol}');");
+      }
+    }
+
+    // ── Stream register/release pointers ────────────────────────────────────
+    for (final stream in spec.streams) {
+      final cap = _cap(stream.dartName);
+      s.writeln("  late final void Function(int) _register${cap}Ptr = _dylib.lookupFunction<Void Function(Int64), void Function(int)>('${stream.registerSymbol}');");
+      s.writeln("  late final void Function() _release${cap}Ptr = _dylib.lookupFunction<Void Function(), void Function()>('${stream.releaseSymbol}');");
+    }
+
+    s.writeln();
     s.writeln('  _${spec.dartClassName}Impl(this._dylib);');
     s.writeln();
 
+    // ── Method implementations ───────────────────────────────────────────────
     for (final func in spec.functions) {
       final returnType =
           func.isAsync ? 'Future<${func.returnType.name}>' : func.returnType.name;
-      final asyncModifier = func.isAsync ? 'async ' : '';
-
-      s.writeln('  @override');
-      s.writeln('  $returnType ${func.dartName}(${func.params.map((p) => '${p.type.name} ${p.name}').join(', ')}) $asyncModifier{');
-
+      final asyncMod = func.isAsync ? 'async ' : '';
       final callArgs = func.params.map((p) {
-        if (p.type.name == 'Uint8List' || p.type.name == 'Uint8List?') {
+        if (p.type.name.startsWith('Uint8List')) {
           return '${p.name}.toPointer(arena)';
         }
         return p.name;
       }).join(', ');
+      final hasBuffer = func.params.any((p) => p.type.name.startsWith('Uint8List'));
 
-      final hasBuffer = func.params.any(
-          (p) => p.type.name == 'Uint8List' || p.type.name == 'Uint8List?');
-
+      s.writeln('  @override');
+      s.writeln('  $returnType ${func.dartName}(${_paramList(func.params)}) $asyncMod{');
       if (!func.isAsync) {
         if (hasBuffer) {
-          s.writeln('    return withArena((arena) {');
-          s.writeln('      return _${func.dartName}Ptr($callArgs);');
-          s.writeln('    });');
+          s.writeln('    return withArena((arena) => _${func.dartName}Ptr($callArgs));');
         } else {
           s.writeln('    return _${func.dartName}Ptr($callArgs);');
         }
@@ -65,9 +78,47 @@ class DartFfiGenerator {
       s.writeln();
     }
 
+    // ── Property implementations ─────────────────────────────────────────────
+    for (final prop in spec.properties) {
+      final cap = _cap(prop.dartName);
+      if (prop.hasGetter) {
+        s.writeln('  @override');
+        s.writeln('  ${prop.type.name} get ${prop.dartName} => _get${cap}Ptr();');
+      }
+      if (prop.hasSetter) {
+        s.writeln('  @override');
+        s.writeln('  set ${prop.dartName}(${prop.type.name} value) => _set${cap}Ptr(value);');
+      }
+      s.writeln();
+    }
+
+    // ── Stream implementations ───────────────────────────────────────────────
+    for (final stream in spec.streams) {
+      final cap = _cap(stream.dartName);
+      final itemType = stream.itemType.name;
+      s.writeln('  @override');
+      s.writeln('  Stream<$itemType> get ${stream.dartName} {');
+      s.writeln('    return NitroRuntime.openStream<$itemType>(');
+      s.writeln('      register: (port) => _register${cap}Ptr(port),');
+      s.writeln("      unpack: (raw) => raw as $itemType,");
+      s.writeln('      release: (_) => _release${cap}Ptr(),');
+      s.writeln('      backpressure: Backpressure.${stream.backpressure.name},');
+      s.writeln('    );');
+      s.writeln('  }');
+      s.writeln();
+    }
+
     s.writeln('}');
     return s.toString();
   }
+
+  // ── Helpers ─────────────────────────────────────────────────────────────────
+
+  static String _paramList(List<BridgeParam> params) =>
+      params.map((p) => '${p.type.name} ${p.name}').join(', ');
+
+  static String _cap(String name) =>
+      name[0].toUpperCase() + name.substring(1);
 
   static String _toNativeType(BridgeFunction func) {
     final ret = _typeToFFI(func.returnType.name);

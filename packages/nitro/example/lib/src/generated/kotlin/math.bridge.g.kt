@@ -2,6 +2,7 @@
 package nitro.math_module
 
 import androidx.annotation.Keep
+import kotlinx.coroutines.flow.Flow
 
 // --- Enums ---
 @Keep
@@ -27,6 +28,9 @@ interface HybridMathSpec {
     fun add(a: Double, b: Double): Double
     suspend fun multiply(a: Double, b: Double): Double
     fun processBuffer(data: ByteArray): Unit
+    val scaleFactor: Double
+    var precision: Long
+    val updates: Flow<Double>
 }
 
 @Keep
@@ -37,10 +41,12 @@ object MathJniBridge {
         implementation = impl
     }
 
-    @JvmStatic
-    external fun add_jni(a: Double, b: Double): Double
-    @JvmStatic
-    external fun multiply_jni(a: Double, b: Double): Double
-    @JvmStatic
-    external fun processBuffer_jni(data: ByteArray): Unit
+    @JvmStatic external fun add_jni(a: Double, b: Double): Double
+    @JvmStatic external fun multiply_jni(a: Double, b: Double): Double
+    @JvmStatic external fun processBuffer_jni(data: ByteArray): Unit
+    @JvmStatic external fun math_get_scale_factor_jni(): Double
+    @JvmStatic external fun math_get_precision_jni(): Long
+    @JvmStatic external fun math_set_precision_jni(value: Long): Unit
+    @JvmStatic external fun math_register_updates_stream_jni(dartPort: Long): Unit
+    @JvmStatic external fun math_release_updates_stream_jni(): Unit
 }

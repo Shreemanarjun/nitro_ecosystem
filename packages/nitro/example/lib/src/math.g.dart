@@ -27,6 +27,11 @@ class _MathImpl extends Math {
   late final double Function(double, double) _addPtr = _dylib.lookupFunction<Double Function(Double, Double), double Function(double, double)>('math_add');
   late final double Function(double, double) _multiplyPtr = _dylib.lookupFunction<Double Function(Double, Double), double Function(double, double)>('math_multiply');
   late final void Function(Pointer<Uint8>) _processBufferPtr = _dylib.lookupFunction<Void Function(Pointer<Uint8>), void Function(Pointer<Uint8>)>('math_process_buffer');
+  late final double Function() _getScaleFactorPtr = _dylib.lookupFunction<Double Function(), double Function()>('math_get_scale_factor');
+  late final int Function() _getPrecisionPtr = _dylib.lookupFunction<Int64 Function(), int Function()>('math_get_precision');
+  late final void Function(int) _setPrecisionPtr = _dylib.lookupFunction<Void Function(Int64), void Function(int)>('math_set_precision');
+  late final void Function(int) _registerUpdatesPtr = _dylib.lookupFunction<Void Function(Int64), void Function(int)>('math_register_updates_stream');
+  late final void Function() _releaseUpdatesPtr = _dylib.lookupFunction<Void Function(), void Function()>('math_release_updates_stream');
 
   _MathImpl(this._dylib);
 
@@ -42,9 +47,25 @@ class _MathImpl extends Math {
 
   @override
   void processBuffer(Uint8List data) {
-    return withArena((arena) {
-      return _processBufferPtr(data.toPointer(arena));
-    });
+    return withArena((arena) => _processBufferPtr(data.toPointer(arena)));
+  }
+
+  @override
+  double get scaleFactor => _getScaleFactorPtr();
+
+  @override
+  int get precision => _getPrecisionPtr();
+  @override
+  set precision(int value) => _setPrecisionPtr(value);
+
+  @override
+  Stream<double> get updates {
+    return NitroRuntime.openStream<double>(
+      register: (port) => _registerUpdatesPtr(port),
+      unpack: (raw) => raw as double,
+      release: (_) => _releaseUpdatesPtr(),
+      backpressure: Backpressure.dropLatest,
+    );
   }
 
 }

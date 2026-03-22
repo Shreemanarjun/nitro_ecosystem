@@ -3,11 +3,11 @@ builders:
     import: 'package:nitrogen/builder.dart'
     builder_factories: ['nitrogenBuilder']
     build_extensions:
-      '.native.dart':
-        - '.g.dart'
-        - '.bridge.g.kt'
-        - '.bridge.g.swift'
-        - '.bridge.g.h'
-        - '.CMakeLists.g.txt'
+      '{{dir}}/{{file}}.native.dart':
+        - '{{dir}}/{{file}}.g.dart'
+        - '{{dir}}/generated/kotlin/{{file}}.bridge.g.kt'
+        - '{{dir}}/generated/swift/{{file}}.bridge.g.swift'
+        - '{{dir}}/generated/cpp/{{file}}.bridge.g.h'
+        - '{{dir}}/generated/cmake/{{file}}.CMakeLists.g.txt'
     auto_apply: dependents
     build_to: source
