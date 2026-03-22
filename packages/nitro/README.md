@@ -1,92 +1,305 @@
-# nitro
+# nitro 🚀
 
-A new Flutter FFI plugin project.
+**Zero-overhead native bindings for Flutter.** `nitro` is the runtime layer of the Nitrogen SDK — it provides the base classes, annotations, and Dart-side runtime primitives that make type-safe, zero-copy FFI plugins possible on iOS and Android with zero method-channel overhead.
 
-## Getting Started
+> **This package is the runtime dependency.** Plugin authors add it to their `pubspec.yaml`. App developers pull it in transitively through any Nitrogen-powered plugin. The code generator lives in [`nitrogen`](https://pub.dev/packages/nitrogen) and the CLI in [`nitrogen_cli`](https://pub.dev/packages/nitrogen_cli).
 
-This project is a starting point for a Flutter
-[FFI plugin](https://flutter.dev/to/ffi-package),
-a specialized package that includes native code directly invoked with Dart FFI.
+---
 
-## Project structure
+## Why Nitro?
 
-This template uses the following structure:
+| | Method Channel | FFI (manual) | **Nitro** |
+|---|---|---|---|
+| Overhead per call | ~0.3 ms | ~0 ms | **~0 ms** |
+| Type safety | stringly-typed | manual | **generated, strict** |
+| Async support | ✅ | manual isolates | **✅ generated** |
+| Streams | ✅ slow | manual SendPort | **✅ zero-copy** |
+| Zero-copy buffers | ❌ | manual | **✅ via `@HybridStruct`** |
+| Code to write | lots | enormous | **3 files** |
 
-* `src`: Contains the native source code, and a CmakeFile.txt file for building
-  that source code into a dynamic library.
+---
 
-* `lib`: Contains the Dart code that defines the API of the plugin, and which
-  calls into the native code using `dart:ffi`.
+## Requirements
 
-* platform folders (`android`, `ios`, `windows`, etc.): Contains the build files
-  for building and bundling the native code library with the platform application.
+| Tool | Minimum version |
+|---|---|
+| Flutter SDK | 3.22.0+ |
+| Dart SDK | 3.3.0+ |
+| Android NDK | 26.1+ (r26b) |
+| Kotlin | 1.9.0+ |
+| iOS Deployment Target | 13.0+ |
+| Swift | 5.9+ (Xcode 15+) |
+| Xcode | 15.0+ |
 
-## Building and bundling native code
+---
 
-The `pubspec.yaml` specifies FFI plugins as follows:
+## Installation
 
-```yaml
-  plugin:
-    platforms:
-      some_platform:
-        ffiPlugin: true
-```
-
-This configuration invokes the native build for the various target platforms
-and bundles the binaries in Flutter applications using these FFI plugins.
-
-This can be combined with dartPluginClass, such as when FFI is used for the
-implementation of one platform in a federated plugin:
-
-```yaml
-  plugin:
-    implements: some_other_plugin
-    platforms:
-      some_platform:
-        dartPluginClass: SomeClass
-        ffiPlugin: true
-```
-
-A plugin can have both FFI and method channels:
+In your plugin's `pubspec.yaml`:
 
 ```yaml
-  plugin:
-    platforms:
-      some_platform:
-        pluginClass: SomeName
-        ffiPlugin: true
+dependencies:
+  nitro: ^0.1.0
 ```
 
-The native build systems that are invoked by FFI (and method channel) plugins are:
+Then run:
 
-* For Android: Gradle, which invokes the Android NDK for native builds.
-  * See the documentation in android/build.gradle.
-* For iOS and MacOS: Xcode, via CocoaPods.
-  * See the documentation in ios/nitro.podspec.
-  * See the documentation in macos/nitro.podspec.
-* For Linux and Windows: CMake.
-  * See the documentation in linux/CMakeLists.txt.
-  * See the documentation in windows/CMakeLists.txt.
+```sh
+flutter pub get
+```
 
-## Binding to native code
+---
 
-To use the native code, bindings in Dart are needed.
-To avoid writing these by hand, they are generated from the header file
-(`src/nitro.h`) by `package:ffigen`.
-Regenerate the bindings by running `dart run ffigen --config ffigen.yaml`.
+## Core concepts
 
-## Invoking native code
+### 1. `HybridObject` — the base class
 
-Very short-running native functions can be directly invoked from any isolate.
-For example, see `sum` in `lib/nitro.dart`.
+Every Nitrogen plugin's public API extends `HybridObject`. You never instantiate it directly; the code generator produces a `_XxxImpl` hidden class that does the real FFI work.
 
-Longer-running functions should be invoked on a helper isolate to avoid
-dropping frames in Flutter applications.
-For example, see `sumAsync` in `lib/nitro.dart`.
+```dart
+// lib/src/math.native.dart  ← the ONLY file you write
+import 'package:nitro/nitro.dart';
 
-## Flutter help
+part 'math.g.dart';  // ← generated
 
-For help getting started with Flutter, view our
-[online documentation](https://docs.flutter.dev), which offers tutorials,
-samples, guidance on mobile development, and a full API reference.
+@NitroModule(ios: NativeImpl.swift, android: NativeImpl.kotlin)
+abstract class Math extends HybridObject {
+  static final Math instance = _MathImpl(NitroRuntime.loadLib('math'));
 
+  // Synchronous FFI call — executes in < 1 µs
+  double add(double a, double b);
+
+  // Async — dispatched on a background isolate, returns to main isolate
+  @nitroAsync
+  Future<String> compute(String expression);
+}
+```
+
+### 2. Annotations
+
+| Annotation | Where | Effect |
+|---|---|---|
+| `@NitroModule(ios:, android:)` | class | Marks an abstract class as a Nitrogen module spec |
+| `@nitroAsync` | method | Generated code dispatches call to a background isolate |
+| `@NitroStream(backpressure:)` | getter | Streams native events to Dart via `Dart_PostCObject` |
+| `@HybridStruct(zeroCopy:)` | class | Turns a Dart class into a C-struct with optional zero-copy fields |
+| `@HybridEnum(startValue:)` | enum | Maps a Dart enum to a C `int32` enum |
+| `@zeroCopy` | parameter | Marks a `Uint8List` param as a raw native pointer (no copy) |
+
+### 3. `@HybridStruct` — zero-copy data
+
+When a native method returns a large buffer (e.g. camera frame), mark the class with `@HybridStruct` and list the `Uint8List` fields that should be zero-copy:
+
+```dart
+@HybridStruct(zeroCopy: ['data'])
+class CameraFrame {
+  final Uint8List data;    // ← mapped as Pointer<Uint8>, no copy
+  final int width;
+  final int height;
+  final int stride;        // bytes per row — auto-detected as byte-length
+  final int timestampNs;
+
+  CameraFrame(this.data, this.width, this.height, this.stride, this.timestampNs);
+}
+```
+
+The generator produces a `final class _CameraFrameFfi extends Struct` with correct `@Int64()` annotations, and a `toDart()` extension that calls `data.asTypedList(stride)` — **zero allocations, zero copies**.
+
+### 4. `@NitroStream` — native → Dart streaming
+
+```dart
+@NitroModule(ios: NativeImpl.swift, android: NativeImpl.kotlin)
+abstract class Camera extends HybridObject {
+  static final Camera instance = _CameraImpl(NitroRuntime.loadLib('camera'));
+
+  @NitroStream(backpressure: Backpressure.dropLatest)
+  Stream<CameraFrame> get frames;  // 30fps camera frames, zero-copy
+}
+```
+
+**Backpressure options:**
+
+| Value | Behaviour |
+|---|---|
+| `Backpressure.dropLatest` | Drop new item if Dart hasn't consumed yet — best for sensors/camera |
+| `Backpressure.block` | Block the native thread until Dart consumes |
+| `Backpressure.bufferDrop` | Ring buffer — oldest item dropped when full |
+
+---
+
+## Usage — app developer side
+
+Once a Nitrogen plugin is added as a dependency, the API is completely type-safe Dart:
+
+```dart
+import 'package:my_camera/my_camera.dart';
+
+// Sync call — instant
+final sum = Math.instance.add(3.14, 2.71);
+
+// Async call — runs on background isolate
+final result = await Math.instance.compute('sqrt(144)');
+print(result); // "12"
+
+// Stream — zero-copy frames at 30 fps
+MyCamera.instance.frames.listen((frame) {
+  // frame.data is a Uint8List backed by native hardware memory — NO copy
+  // frame.stride × frame.height = total bytes
+  print('${frame.width}×${frame.height}  ${frame.data.length} bytes');
+});
+```
+
+---
+
+## Usage — plugin author side
+
+You write **3 files only**:
+
+### 1. `lib/src/my_plugin.native.dart` (Dart spec)
+
+```dart
+import 'dart:typed_data';
+import 'package:nitro/nitro.dart';
+
+part 'my_plugin.g.dart';
+
+@HybridStruct(zeroCopy: ['data'])
+class ImageBuffer {
+  final Uint8List data;
+  final int stride;    // auto-detected as length source
+  final int width;
+  final int height;
+  ImageBuffer(this.data, this.stride, this.width, this.height);
+}
+
+@NitroModule(ios: NativeImpl.swift, android: NativeImpl.kotlin)
+abstract class MyPlugin extends HybridObject {
+  static final MyPlugin instance = _MyPluginImpl(NitroRuntime.loadLib('my_plugin'));
+
+  int add(int a, int b);
+
+  @nitroAsync
+  Future<String> processImage(String path);
+
+  @NitroStream(backpressure: Backpressure.dropLatest)
+  Stream<ImageBuffer> get frames;
+}
+```
+
+Then run the generator (from your plugin root):
+
+```sh
+dart pub global run nitrogen_cli:nitrogen generate
+```
+
+### 2. `android/.../MyPluginImpl.kt` (Kotlin implementation)
+
+```kotlin
+import nitro.myplugin_module.HybridMyPluginSpec
+import nitro.myplugin_module.MyPluginJniBridge
+import nitro.myplugin_module.ImageBuffer
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.flow
+import kotlinx.coroutines.delay
+
+class MyPluginImpl : HybridMyPluginSpec {
+    override fun add(a: Long, b: Long): Long = a + b
+
+    override suspend fun processImage(path: String): String {
+        delay(100) // simulate native work
+        return "Processed: $path"
+    }
+
+    override val frames: Flow<ImageBuffer> = flow {
+        val buf = java.nio.ByteBuffer.allocateDirect(1920 * 1080 * 4)
+        while (true) {
+            emit(ImageBuffer(buf, 1920L * 4L, 1920L, 1080L))
+            delay(33) // ~30fps
+        }
+    }
+}
+
+class MyPluginPlugin : FlutterPlugin {
+    override fun onAttachedToEngine(binding: FlutterPluginBinding) {
+        MyPluginJniBridge.register(MyPluginImpl())
+    }
+    override fun onDetachedFromEngine(binding: FlutterPluginBinding) {}
+}
+```
+
+### 3. `ios/Classes/MyPluginImpl.swift` (Swift implementation)
+
+```swift
+import Flutter
+import UIKit
+import Combine
+
+public class MyPluginImpl: NSObject, HybridMyPluginProtocol {
+    public func add(a: Int64, b: Int64) -> Int64 { a + b }
+
+    public func processImage(path: String) async throws -> String {
+        try await Task.sleep(nanoseconds: 100_000_000)
+        return "Processed: \(path)"
+    }
+
+    private let framesSubject = PassthroughSubject<ImageBuffer, Never>()
+    public var frames: AnyPublisher<ImageBuffer, Never> {
+        framesSubject.eraseToAnyPublisher()
+    }
+
+    override init() {
+        super.init()
+        let stride: Int64 = 1920 * 4
+        let buf = UnsafeMutablePointer<UInt8>.allocate(capacity: Int(stride * 1080))
+        Timer.scheduledTimer(withTimeInterval: 1.0 / 30.0, repeats: true) { [weak self] _ in
+            let frame = ImageBuffer(data: buf, stride: stride, width: 1920, height: 1080)
+            self?.framesSubject.send(frame)
+        }
+    }
+}
+
+public class MyPluginPlugin: NSObject, FlutterPlugin {
+    public static func register(with registrar: FlutterPluginRegistrar) {
+        MyPluginRegistry.register(MyPluginImpl())
+    }
+}
+```
+
+---
+
+## Type mapping reference
+
+| Dart type | C type | Kotlin type | Swift type |
+|---|---|---|---|
+| `int` | `int64_t` | `Long` | `Int64` |
+| `double` | `double` | `Double` | `Double` |
+| `bool` | `int8_t` | `Boolean` | `Bool` |
+| `String` | `const char*` | `String` | `String` |
+| `Uint8List` | `uint8_t*` | `ByteArray` | `Data` |
+| `Uint8List` + `zeroCopy` | `uint8_t*` | `java.nio.ByteBuffer` | `UnsafeMutablePointer<UInt8>?` |
+| `Future<T>` | N/A | `suspend fun` | `async throws` |
+| `Stream<T>` | SendPort reg. | `Flow<T>` | `AnyPublisher<T, Never>` |
+
+---
+
+## Repo structure
+
+```
+nitro_ecosystem/
+├── packages/
+│   ├── nitro/          ← this package (runtime: base classes, annotations, runtime)
+│   ├── nitrogen/       ← code generator (build_runner builder)
+│   └── nitrogen_cli/   ← CLI tool (nitrogen generate / init / doctor)
+└── my_camera/          ← example plugin built with Nitrogen
+    ├── lib/src/
+    │   ├── my_camera.native.dart   ← spec (author-written)
+    │   └── my_camera.g.dart        ← generated FFI impl
+    ├── android/                    ← Kotlin implementation
+    └── ios/                        ← Swift implementation
+```
+
+---
+
+## License
+
+MIT
