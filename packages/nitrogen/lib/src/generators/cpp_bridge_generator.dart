@@ -165,15 +165,6 @@ class CppBridgeGenerator {
     for (final stream in spec.streams) {
       final itemCType = _typeToC(stream.itemType.name);
       
-      s.writeln('extern void _register_${stream.dartName}_stream(int64_t dartPort);');
-      s.writeln('void ${stream.registerSymbol}(int64_t dartPort) {');
-      s.writeln('    _register_${stream.dartName}_stream(dartPort);');
-      s.writeln('}');
-      s.writeln('extern void _release_${stream.dartName}_stream();');
-      s.writeln('void ${stream.releaseSymbol}() {');
-      s.writeln('    _release_${stream.dartName}_stream();');
-      s.writeln('}');
-      s.writeln('');
       s.writeln('// Called by Swift via @_cdecl to drop stream items into Dart Isolate');
       s.writeln('void _emit_${stream.dartName}_to_dart(int64_t dartPort, $itemCType item) {');
       s.writeln('    Dart_CObject obj;');
@@ -190,6 +181,15 @@ class CppBridgeGenerator {
          s.writeln('    obj.type = Dart_CObject_kNull;');
       }
       s.writeln('    Dart_PostCObject_DL(dartPort, &obj);');
+      s.writeln('}');
+      s.writeln('');
+      s.writeln('extern void _register_${stream.dartName}_stream(int64_t dartPort, void (*emitCb)(int64_t, $itemCType));');
+      s.writeln('void ${stream.registerSymbol}(int64_t dartPort) {');
+      s.writeln('    _register_${stream.dartName}_stream(dartPort, _emit_${stream.dartName}_to_dart);');
+      s.writeln('}');
+      s.writeln('extern void _release_${stream.dartName}_stream();');
+      s.writeln('void ${stream.releaseSymbol}() {');
+      s.writeln('    _release_${stream.dartName}_stream();');
       s.writeln('}');
       s.writeln('');
     }
