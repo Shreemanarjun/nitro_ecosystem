@@ -29,4 +29,6 @@ object MyCameraJniBridge {
             implementation?.getGreeting(name) ?: ""
         }
     }
+    private val _streamJobs = mutableMapOf<Long, kotlinx.coroutines.Job>()
+
 }

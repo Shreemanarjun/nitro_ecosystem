@@ -27,3 +27,5 @@ public class MyCameraRegistry: NSObject {
         return impl?.getGreeting(name: name) ?? ""
     }
 }
+
+// C-bridge declaration to jump back to C++ shim

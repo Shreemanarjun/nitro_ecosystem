@@ -7,7 +7,10 @@ class _MyCameraImpl extends MyCamera {
   late final double Function(double, double) _addPtr = _dylib.lookupFunction<Double Function(Double, Double), double Function(double, double)>('my_camera_add');
   late final Pointer<Utf8> Function(Pointer<Utf8>) _getGreetingPtr = _dylib.lookupFunction<Pointer<Utf8> Function(Pointer<Utf8>), Pointer<Utf8> Function(Pointer<Utf8>)>('my_camera_get_greeting');
 
-  _MyCameraImpl(this._dylib);
+  _MyCameraImpl(this._dylib) {
+    final initFunc = _dylib.lookupFunction<IntPtr Function(Pointer<Void>), int Function(Pointer<Void>)>('InitDartApiDL');
+    initFunc(NativeApi.initializeApiDLData);
+  }
 
   @override
   double add(double a, double b) {
