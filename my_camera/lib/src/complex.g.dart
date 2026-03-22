@@ -81,7 +81,7 @@ class _ComplexModuleImpl extends ComplexModule {
 
   late final int Function(int, double, int) _calculatePtr = _dylib.lookupFunction<Int64 Function(Int64, Double, Int8), int Function(int, double, int)>('complex_module_calculate');
   late final Pointer<Utf8> Function(Pointer<Utf8>) _fetchMetadataPtr = _dylib.lookupFunction<Pointer<Utf8> Function(Pointer<Utf8>), Pointer<Utf8> Function(Pointer<Utf8>)>('complex_module_fetch_metadata');
-  late final int Function() _getStatusPtr = _dylib.lookupFunction<Int32 Function(), int Function()>('complex_module_get_status');
+  late final int Function() _getStatusPtr = _dylib.lookupFunction<Int64 Function(), int Function()>('complex_module_get_status');
   late final void Function(Pointer<Void>) _updateSensorsPtr = _dylib.lookupFunction<Void Function(Pointer<Void>), void Function(Pointer<Void>)>('complex_module_update_sensors');
   late final Pointer<Void> Function(int) _generatePacketPtr = _dylib.lookupFunction<Pointer<Void> Function(Int64), Pointer<Void> Function(int)>('complex_module_generate_packet');
   late final double Function() _getBatteryLevelPtr = _dylib.lookupFunction<Double Function(), double Function()>('complex_module_get_battery_level');
@@ -116,7 +116,8 @@ class _ComplexModuleImpl extends ComplexModule {
 
   @override
   Future<Packet> generatePacket(int type) async {
-    return NitroRuntime.callAsync(_generatePacketPtr, [type]);
+    final asyncResult = await NitroRuntime.callAsync(_generatePacketPtr, [type]);
+    return Pointer<PacketFfi>.fromAddress((asyncResult as Pointer<Void>).address).ref.toDart();
   }
 
   @override

@@ -35,7 +35,7 @@ data class Packet(val sequence: Long, val buffer: java.nio.ByteBuffer, val size:
 interface HybridComplexModuleSpec {
     fun calculate(seed: Long, factor: Double, enabled: Boolean): Long
     suspend fun fetchMetadata(url: String): String
-    fun getStatus(): Any?
+    fun getStatus(): DeviceStatus
     fun updateSensors(data: SensorData): Unit
     suspend fun generatePacket(type: Long): Packet
     val batteryLevel: Double
@@ -65,9 +65,9 @@ object ComplexModuleJniBridge {
             impl.fetchMetadata(url)
         }
     }
-    @JvmStatic fun getStatus_call(): Any? {
+    @JvmStatic fun getStatus_call(): Long {
         val impl = implementation ?: throw IllegalStateException("ComplexModule not registered")
-        return impl.getStatus()
+        return impl.getStatus().nativeValue
     }
     @JvmStatic fun updateSensors_call(data: SensorData): Unit {
         val impl = implementation ?: throw IllegalStateException("ComplexModule not registered")
@@ -94,7 +94,7 @@ object ComplexModuleJniBridge {
     @JvmStatic fun complex_module_register_sensor_stream_stream_call(dartPort: Long) {
         val impl = implementation ?: return
         _streamJobs[dartPort] = CoroutineScope(Dispatchers.Default).launch {
-            impl.sensorStream.collect { item -> 
+            impl.sensorStream.collect { item ->
                 emit_sensorStream(dartPort, item)
             }
         }
@@ -107,7 +107,7 @@ object ComplexModuleJniBridge {
     @JvmStatic fun complex_module_register_data_stream_stream_call(dartPort: Long) {
         val impl = implementation ?: return
         _streamJobs[dartPort] = CoroutineScope(Dispatchers.Default).launch {
-            impl.dataStream.collect { item -> 
+            impl.dataStream.collect { item ->
                 emit_dataStream(dartPort, item)
             }
         }

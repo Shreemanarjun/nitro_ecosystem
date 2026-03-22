@@ -84,17 +84,30 @@ class DartFfiGenerator {
 
       final rt = func.returnType.name;
       if (func.isAsync) {
+        final isStructReturn = spec.structs.any((st) => st.name == rt);
+        final isEnumReturn = spec.enums.any((en) => en.name == rt);
         if (needsArena) {
           s.writeln('    return withArena((arena) async {');
           s.writeln('      final result = await NitroRuntime.callAsync(_${func.dartName}Ptr, [$callArgs]);');
           if (rt == 'String') {
             s.writeln('      return (result as Pointer<Utf8>).toDartStringWithFree();');
+          } else if (isStructReturn) {
+            s.writeln('      return Pointer<${rt}Ffi>.fromAddress((result as Pointer<Void>).address).ref.toDart();');
+          } else if (isEnumReturn) {
+            s.writeln('      return (result as int).to$rt();');
           } else {
             s.writeln('      return result;');
           }
           s.writeln('    });');
         } else {
-          s.writeln('    return NitroRuntime.callAsync(_${func.dartName}Ptr, [${func.params.map((p) => p.name).join(', ')}]);');
+          if (isStructReturn) {
+            s.writeln('    final asyncResult = await NitroRuntime.callAsync(_${func.dartName}Ptr, [${func.params.map((p) => p.name).join(', ')}]);');
+            s.writeln('    return Pointer<${rt}Ffi>.fromAddress((asyncResult as Pointer<Void>).address).ref.toDart();');
+          } else if (isEnumReturn) {
+            s.writeln('    return ((await NitroRuntime.callAsync(_${func.dartName}Ptr, [${func.params.map((p) => p.name).join(', ')}])) as int).to$rt();');
+          } else {
+            s.writeln('    return NitroRuntime.callAsync(_${func.dartName}Ptr, [${func.params.map((p) => p.name).join(', ')}]);');
+          }
         }
       } else if (spec.enums.any((en) => en.name == rt)) {
         s.writeln('    return ($callExpr).to$rt();');
@@ -210,7 +223,7 @@ class DartFfiGenerator {
       case 'Uint8List': return 'Pointer<Uint8>';
       case 'void': return 'Void';
     }
-    if (spec.enums.any((en) => en.name == name)) return 'Int32';
+    if (spec.enums.any((en) => en.name == name)) return 'Int64';
     return 'Pointer<Void>';
   }
 

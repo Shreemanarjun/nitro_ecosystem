@@ -33,7 +33,7 @@ extern "C" {
 // Methods
 int64_t complex_module_calculate(int64_t seed, double factor, int8_t enabled);
 const char* complex_module_fetch_metadata(const char* url);
-void* complex_module_get_status(void);
+int64_t complex_module_get_status(void);
 void complex_module_update_sensors(void* data);
 void* complex_module_generate_packet(int64_t type);
 

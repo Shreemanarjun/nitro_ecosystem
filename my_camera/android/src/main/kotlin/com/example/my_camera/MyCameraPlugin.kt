@@ -48,11 +48,11 @@ class ComplexImpl : HybridComplexModuleSpec {
     }
     
     override fun getStatus(): DeviceStatus {
-        return DeviceStatus.CONNECTED
+        return DeviceStatus.IDLE
     }
-    
+
     override fun updateSensors(data: SensorData) {
-        println("Updating sensors with ${data.value}")
+        println("Updating sensors with ${data.temperature}")
     }
     
     override suspend fun generatePacket(type: Long): Packet {
@@ -71,6 +71,8 @@ class MyCameraPlugin: FlutterPlugin {
     companion object {
         init {
             System.loadLibrary("my_camera")
+            System.loadLibrary("verification")
+            System.loadLibrary("complex")
         }
     }
 
