@@ -40,29 +40,43 @@ class MyCameraImpl : HybridMyCameraSpec {
 }
 
 class ComplexImpl : HybridComplexModuleSpec {
-    override var batteryLevel: Double = 0.85
+    override val batteryLevel: Double = 0.85
     override var config: String = "{}"
-    
+
+    override fun calculate(seed: Long, factor: Double, enabled: Boolean): Long {
+        return if (enabled) (seed * factor).toLong() else seed
+    }
+
     override suspend fun fetchMetadata(url: String): String {
         return "Metadata for $url"
     }
-    
+
     override fun getStatus(): DeviceStatus {
         return DeviceStatus.IDLE
     }
 
     override fun updateSensors(data: SensorData) {
-        println("Updating sensors with ${data.temperature}")
+        println("Updating sensors: temp=${data.temperature} humidity=${data.humidity}")
     }
-    
+
     override suspend fun generatePacket(type: Long): Packet {
-        return Packet("Type $type", java.nio.ByteBuffer.allocateDirect(100))
+        val buf = java.nio.ByteBuffer.allocateDirect(100)
+        return Packet(sequence = type, buffer = buf, size = 100L)
     }
-    
-    override val dataStream: Flow<SensorData> = flow {
-        while(true) {
-            emit(SensorData(Math.random(), System.currentTimeMillis()))
+
+    override val sensorStream: Flow<SensorData> = flow {
+        while (true) {
+            emit(SensorData(temperature = Math.random() * 40, humidity = Math.random(), lastUpdate = System.currentTimeMillis()))
             delay(100)
+        }
+    }
+
+    override val dataStream: Flow<Packet> = flow {
+        var seq = 0L
+        while (true) {
+            val buf = java.nio.ByteBuffer.allocateDirect(64)
+            emit(Packet(sequence = seq++, buffer = buf, size = 64L))
+            delay(200)
         }
     }
 }

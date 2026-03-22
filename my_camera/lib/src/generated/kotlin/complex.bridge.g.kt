@@ -94,7 +94,7 @@ object ComplexModuleJniBridge {
     @JvmStatic fun complex_module_register_sensor_stream_stream_call(dartPort: Long) {
         val impl = implementation ?: return
         _streamJobs[dartPort] = CoroutineScope(Dispatchers.Default).launch {
-            impl.sensorStream.collect { item ->
+            impl.sensorStream.collect { item -> 
                 emit_sensorStream(dartPort, item)
             }
         }
@@ -107,7 +107,7 @@ object ComplexModuleJniBridge {
     @JvmStatic fun complex_module_register_data_stream_stream_call(dartPort: Long) {
         val impl = implementation ?: return
         _streamJobs[dartPort] = CoroutineScope(Dispatchers.Default).launch {
-            impl.dataStream.collect { item ->
+            impl.dataStream.collect { item -> 
                 emit_dataStream(dartPort, item)
             }
         }

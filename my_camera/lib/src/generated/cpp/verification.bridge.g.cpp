@@ -86,7 +86,7 @@ const char* verification_module_ping_async(const char* message) {
     return result;
 }
 
-JNIEXPORT void JNICALL Java_nitro_1verification_1module_VerificationModuleJniBridge_initialize(JNIEnv* env, jobject thiz, jclass bridgeClass) {
+JNIEXPORT void JNICALL Java_nitro_verification_1module_VerificationModuleJniBridge_initialize(JNIEnv* env, jobject thiz, jclass bridgeClass) {
     if (g_bridgeClass == nullptr) {
         g_bridgeClass = (jclass)env->NewGlobalRef(bridgeClass);
     }

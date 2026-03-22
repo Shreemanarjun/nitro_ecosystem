@@ -1,5 +1,5 @@
 CompileFlags:
   Add:
-    - -I/Users/shreemanarjunsahu/personal/flutter_package/nitro_ecosystem/packages/nitro/src/native
-    - -I/Users/shreemanarjunsahu/personal/flutter_package/nitro_ecosystem/my_camera/lib/src/generated/cpp
-    - -I/Users/shreemanarjunsahu/personal/flutter_package/nitro_ecosystem/my_camera/src
+    - -I${PWD}/src
+    - -I${PWD}/lib/src/generated/cpp
+    - -I${PWD}/../packages/nitro/src/native

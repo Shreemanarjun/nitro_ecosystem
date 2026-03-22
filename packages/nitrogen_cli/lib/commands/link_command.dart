@@ -57,8 +57,9 @@ class LinkCommand extends Command {
 
     final libs = <String>[];
     for (final spec in specs) {
-      final libName = _extractLibName(spec) ??
-          p.basenameWithoutExtension(spec.path).replaceAll('-', '_');
+      // Strip the full ".native.dart" double-extension, not just ".dart"
+      final stem = p.basename(spec.path).replaceAll(RegExp(r'\.native\.dart$'), '');
+      final libName = _extractLibName(spec) ?? stem.replaceAll('-', '_');
       if (!libs.contains(libName)) libs.add(libName);
     }
     return libs.isEmpty ? [pluginName] : libs;

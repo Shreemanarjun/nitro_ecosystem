@@ -47,6 +47,11 @@ static Packet pack_Packet_from_jni(JNIEnv* env, jobject obj) {
     result.size = env->GetLongField(obj, fid_size);
     return result;
 }
+static jobject unpack_Packet_to_jni(JNIEnv* env, const Packet* st) {
+    jclass cls = env->FindClass("nitro/complex_module/Packet");
+    jmethodID ctor = env->GetMethodID(cls, "<init>", "(JLjava/nio/ByteBuffer;J)V");
+    return env->NewObject(cls, ctor, (jlong)st->sequence, env->NewDirectByteBuffer((void*)st->buffer, st->size), (jlong)st->size);
+}
 
 extern "C" {
 
@@ -99,7 +104,6 @@ const char* complex_module_fetch_metadata(const char* url) {
     return result;
 }
 
-// getStatus returns enum nativeValue (Long) from Kotlin bridge
 int64_t complex_module_get_status(void) {
     JNIEnv* env = GetEnv();
     if (env == nullptr) return 0;
@@ -115,7 +119,6 @@ void complex_module_update_sensors(void* data) {
     if (methodId == nullptr) { LOGE("Method not found"); return; }
     jobject jobj_data = unpack_SensorData_to_jni(env, (const SensorData*)data);
     env->CallStaticVoidMethod(g_bridgeClass, methodId, jobj_data);
-    env->DeleteLocalRef(jobj_data);
 }
 
 void* complex_module_generate_packet(int64_t type) {
@@ -131,7 +134,6 @@ void* complex_module_generate_packet(int64_t type) {
     return result;
 }
 
-// Property: batteryLevel getter
 double complex_module_get_battery_level(void) {
     JNIEnv* env = GetEnv();
     if (env == nullptr) return 0.0;
@@ -140,7 +142,6 @@ double complex_module_get_battery_level(void) {
     return env->CallStaticDoubleMethod(g_bridgeClass, methodId);
 }
 
-// Property: config setter
 void complex_module_set_config(const char* value) {
     JNIEnv* env = GetEnv();
     if (env == nullptr) return;
@@ -165,7 +166,7 @@ void complex_module_release_sensor_stream_stream(int64_t dart_port) {
     if (methodId != nullptr) env->CallStaticVoidMethod(g_bridgeClass, methodId, dart_port);
 }
 
-JNIEXPORT void JNICALL Java_nitro_1complex_1module_ComplexModuleJniBridge_emit_1sensorStream(JNIEnv* env, jobject thiz, jlong dartPort, jobject item) {
+JNIEXPORT void JNICALL Java_nitro_complex_1module_ComplexModuleJniBridge_emit_1sensorStream(JNIEnv* env, jobject thiz, jlong dartPort, jobject item) {
     Dart_CObject obj;
     SensorData* st_ptr = (SensorData*)malloc(sizeof(SensorData));
     *st_ptr = pack_SensorData_from_jni(env, item);
@@ -188,7 +189,7 @@ void complex_module_release_data_stream_stream(int64_t dart_port) {
     if (methodId != nullptr) env->CallStaticVoidMethod(g_bridgeClass, methodId, dart_port);
 }
 
-JNIEXPORT void JNICALL Java_nitro_1complex_1module_ComplexModuleJniBridge_emit_1dataStream(JNIEnv* env, jobject thiz, jlong dartPort, jobject item) {
+JNIEXPORT void JNICALL Java_nitro_complex_1module_ComplexModuleJniBridge_emit_1dataStream(JNIEnv* env, jobject thiz, jlong dartPort, jobject item) {
     Dart_CObject obj;
     Packet* st_ptr = (Packet*)malloc(sizeof(Packet));
     *st_ptr = pack_Packet_from_jni(env, item);
@@ -197,7 +198,7 @@ JNIEXPORT void JNICALL Java_nitro_1complex_1module_ComplexModuleJniBridge_emit_1
     Dart_PostCObject_DL(dartPort, &obj);
 }
 
-JNIEXPORT void JNICALL Java_nitro_1complex_1module_ComplexModuleJniBridge_initialize(JNIEnv* env, jobject thiz, jclass bridgeClass) {
+JNIEXPORT void JNICALL Java_nitro_complex_1module_ComplexModuleJniBridge_initialize(JNIEnv* env, jobject thiz, jclass bridgeClass) {
     if (g_bridgeClass == nullptr) {
         g_bridgeClass = (jclass)env->NewGlobalRef(bridgeClass);
     }
