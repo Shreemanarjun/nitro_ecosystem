@@ -69,9 +69,13 @@ nitro_ecosystem/
 
 ---
 
-## Getting started
+## Documentation
 
-See **[docs/getting-started.md](docs/getting-started.md)** for a complete walkthrough — from `nitrogen init` to a running plugin on both platforms.
+| Guide | Audience |
+|---|---|
+| [Getting started](docs/getting-started.md) | Plugin author — build a plugin from scratch |
+| [Consuming a plugin](docs/consuming.md) | App developer — add and use a Nitrogen plugin |
+| [Publishing to pub.dev](docs/publishing.md) | Plugin author — release and version your plugin |
 
 ---
 

@@ -591,6 +591,8 @@ Fix the type in your spec, then regenerate.
 
 ## Next steps
 
+- **[Publishing to pub.dev](publishing.md)** — prepare your plugin for release, versioning, and the `dart pub publish` flow
+- **[Consuming a plugin](consuming.md)** — how app developers add your plugin and use its API
 - Read the **[`nitro` runtime docs](../packages/nitro/README.md)** for the full annotation reference
 - Read the **[`nitrogen` generator docs](../packages/nitrogen/README.md)** for spec validator rules and type mapping details
 - Study **[`my_camera`](../my_camera/README.md)** as a production-quality reference implementation
