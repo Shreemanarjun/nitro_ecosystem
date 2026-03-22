@@ -1,8 +1,5 @@
-/// Support for doing something awesome.
-///
-/// More dartdocs go here.
+/// Nitrogen modules code generator.
+/// This package provides the build_runner builders for Nitro modules.
 library;
 
-export 'src/nitrogen_base.dart';
-
-// TODO: Export any libraries intended for clients of this package.
+export 'builder.dart';

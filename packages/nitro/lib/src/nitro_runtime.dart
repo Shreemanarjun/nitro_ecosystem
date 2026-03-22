@@ -41,14 +41,35 @@ class NitroRuntime {
     });
   }
 
+  /// Opens a high-performance stream from a native event source.
+  /// Uses a ReceivePort for direct native-to-dart bit posting.
   static Stream<T> openStream<T>({
     required void Function(int dartPort) register,
-    required T Function(int rawPtr) unpack,
-    required void Function(int rawPtr) release,
+    required T Function(dynamic message) unpack,
+    required void Function(int dartPort) release,
     required Backpressure backpressure,
   }) {
-    final controller = StreamController<T>();
-    // TODO: Implement native callback registration via SendPort
+    final receivePort = ReceivePort();
+    final controller = StreamController<T>(
+      onListen: () {
+        register(receivePort.sendPort.nativePort);
+      },
+      onCancel: () {
+        release(receivePort.sendPort.nativePort);
+        receivePort.close();
+      },
+    );
+
+    receivePort.listen((dynamic message) {
+      if (controller.isClosed) return;
+      try {
+        final item = unpack(message);
+        controller.add(item);
+      } catch (e) {
+        controller.addError(e);
+      }
+    });
+
     return controller.stream;
   }
 

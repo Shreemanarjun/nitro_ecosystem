@@ -47,7 +47,7 @@ JNIEXPORT jint JNICALL JNI_OnLoad(JavaVM* vm, void* reserved) {
     if (vm->GetEnv(reinterpret_cast<void**>(&env), JNI_VERSION_1_6) != JNI_OK) {
         return -1;
     }
-    jclass localClass = env->FindClass("nitro/mycamera_module/MyCameraJniBridge");
+    jclass localClass = env->FindClass("nitro/my_camera_module/MyCameraJniBridge");
     if (localClass != nullptr) {
         g_bridgeClass = (jclass)env->NewGlobalRef(localClass);
     } else {
@@ -102,7 +102,7 @@ void my_camera_release_frames_stream(int64_t dartPort) {
     if (methodId != nullptr) env->CallStaticVoidMethod(g_bridgeClass, methodId, dartPort);
 }
 
-JNIEXPORT void JNICALL Java_nitro_mycamera_module_MyCameraJniBridge_00024emit_frames(JNIEnv* env, jobject thiz, jlong dartPort, jobject item) {
+JNIEXPORT void JNICALL Java_nitro_my_camera_module_MyCameraJniBridge_00024emit_frames(JNIEnv* env, jobject thiz, jlong dartPort, jobject item) {
     Dart_CObject obj;
     CameraFrame* st_ptr = (CameraFrame*)malloc(sizeof(CameraFrame));
     *st_ptr = pack_CameraFrame_from_jni(env, item);

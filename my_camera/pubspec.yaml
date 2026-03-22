@@ -1,8 +1,7 @@
 name: my_camera
 description: "A new Flutter FFI plugin project."
 version: 0.0.1
-homepage:
-
+publish_to: none
 environment:
   sdk: ^3.11.3
   flutter: '>=3.3.0'

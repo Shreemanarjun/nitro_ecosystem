@@ -2,15 +2,9 @@ import 'package:nitrogen/nitrogen.dart';
 import 'package:test/test.dart';
 
 void main() {
-  group('A group of tests', () {
-    final awesome = Awesome();
-
-    setUp(() {
-      // Additional setup goes here.
-    });
-
-    test('First Test', () {
-      expect(awesome.isAwesome, isTrue);
+  group('Nitrogen Generator Tests', () {
+    test('NitrogenBuilder exists', () {
+      expect(nitrogenBuilder, isNotNull);
     });
   });
 }

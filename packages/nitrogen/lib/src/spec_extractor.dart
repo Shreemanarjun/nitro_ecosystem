@@ -27,7 +27,7 @@ class SpecExtractor {
 
     return BridgeSpec(
       dartClassName: element.name,
-      lib: lib ?? element.name.toLowerCase(),
+      lib: lib ?? _toSnakeCase(element.name),
       namespace: ns,
       iosImpl: iosImpl,
       androidImpl: androidImpl,

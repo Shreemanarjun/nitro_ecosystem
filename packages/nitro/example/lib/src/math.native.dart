@@ -7,19 +7,12 @@ part 'math.g.dart';
 @HybridEnum(startValue: 1)
 enum Rounding { floor, ceil, round }
 
-// ── Hybrid struct ─────────────────────────────────────────────────────────────
-@HybridStruct(zeroCopy: ['payload'], packed: true)
-class Point {
-  final double x;
-  final double y;
-  final Uint8List payload;
-  const Point({required this.x, required this.y, required this.payload});
-}
+
 
 // ── Module spec ───────────────────────────────────────────────────────────────
 @NitroModule(ios: NativeImpl.swift, android: NativeImpl.kotlin)
 abstract class Math extends HybridObject {
-  static final Math instance = _MathImpl(NitroRuntime.loadLib('math'));
+  static final Math instance = _MathImpl();
 
   // ── Methods ──────────────────────────────────────────────────────────────────
   double add(double a, double b);

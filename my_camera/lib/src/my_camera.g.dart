@@ -30,7 +30,7 @@ extension _CameraFrameFfiExt on _CameraFrameFfi {
 class _MyCameraImpl extends MyCamera {
   final DynamicLibrary _dylib;
 
-  _MyCameraImpl() : _dylib = NitroRuntime.loadLib('mycamera') {
+  _MyCameraImpl() : _dylib = NitroRuntime.loadLib('my_camera') {
     final initFunc = _dylib.lookupFunction<IntPtr Function(Pointer<Void>), int Function(Pointer<Void>)>('InitDartApiDL');
     initFunc(NativeApi.initializeApiDLData);
   }

@@ -21,13 +21,13 @@ extension NitroUint8ListExtension on Uint8List {
 
 extension NitroStringExtension on String {
   Pointer<Utf8> toPointer(Arena arena) {
-    return this.toNativeUtf8(allocator: arena);
+    return toNativeUtf8(allocator: arena);
   }
 }
 
 extension NitroPointerExtension on Pointer<Utf8> {
   String toDartStringWithFree() {
-    final str = this.toDartString();
+    final str = toDartString();
     malloc.free(this);
     return str;
   }
