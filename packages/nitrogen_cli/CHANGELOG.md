@@ -1,3 +1,6 @@
+## 0.1.3
+- Implement String type conversion in the struct generator and add braces to the CLI's plugin name extraction.
+
 ## 0.1.2
 - Rename generator package folder to `nitro_generator`.
 - Update `doctor` and `init` commands with new path references.
