@@ -1,7 +1,25 @@
+import 'dart:convert';
 import 'dart:io';
 import 'package:args/command_runner.dart';
 import 'package:nocterm/nocterm.dart';
 import 'package:path/path.dart' as p;
+
+// ── pub.dev version resolver ──────────────────────────────────────────────────
+
+Future<String> _fetchPubVersion(String package) async {
+  final client = HttpClient();
+  try {
+    final request =
+        await client.getUrl(Uri.parse('https://pub.dev/api/packages/$package'));
+    request.headers.set('Accept', 'application/json');
+    final response = await request.close();
+    final body = await response.transform(utf8.decoder).join();
+    final json = jsonDecode(body) as Map<String, dynamic>;
+    return json['latest']['version'] as String;
+  } finally {
+    client.close();
+  }
+}
 
 // ── Result holder ──────────────────────────────────────────────────────────
 
@@ -190,10 +208,35 @@ class _InitViewState extends State<InitView> {
     _configureAndroid(pluginName, className, org);
     _setDone(4, detail: 'build.gradle + ${className}Plugin.kt');
 
-    // Step 5 — pubspec
+    // Step 5 — pubspec (fetch latest versions from pub.dev)
     _setRunning(5);
-    _updatePubspec(pluginName, className, org);
-    _setDone(5, detail: 'nitro, pluginClass entries added');
+    String? nitroVersion;
+    String? nitroGeneratorVersion;
+    bool usePubAdd = false;
+    try {
+      final versions = await Future.wait([
+        _fetchPubVersion('nitro'),
+        _fetchPubVersion('nitro_generator'),
+      ]);
+      nitroVersion = versions[0];
+      nitroGeneratorVersion = versions[1];
+    } catch (_) {
+      usePubAdd = true;
+    }
+    _updatePubspec(pluginName, className, org,
+        nitroVersion: nitroVersion,
+        nitroGeneratorVersion: nitroGeneratorVersion);
+    if (usePubAdd) {
+      await Process.run('flutter', ['pub', 'add', 'nitro'],
+          workingDirectory: pluginName);
+      await Process.run('flutter', ['pub', 'add', '--dev', 'nitro_generator'],
+          workingDirectory: pluginName);
+      _setDone(5, detail: 'nitro, nitro_generator added via flutter pub add');
+    } else {
+      _setDone(5,
+          detail:
+              'nitro $nitroVersion, nitro_generator $nitroGeneratorVersion added');
+    }
 
     // Step 6 — bridge spec
     _setRunning(6);
@@ -647,23 +690,38 @@ class ${className}Impl(private val context: Context) : Hybrid${className}Spec {
     }
   }
 
-  void _updatePubspec(String pluginName, String className, String org) {
+  void _updatePubspec(
+    String pluginName,
+    String className,
+    String org, {
+    String? nitroVersion,
+    String? nitroGeneratorVersion,
+  }) {
     final pubspecFile = File(p.join(pluginName, 'pubspec.yaml'));
     var pubspec = pubspecFile.readAsStringSync();
 
-    pubspec = pubspec.replaceFirst(
-        'dependencies:\n  flutter:\n    sdk: flutter',
-        'dependencies:\n  flutter:\n    sdk: flutter\n  nitro: ^0.1.0');
+    if (nitroVersion != null) {
+      pubspec = pubspec.replaceFirst(
+          'dependencies:\n  flutter:\n    sdk: flutter',
+          'dependencies:\n  flutter:\n    sdk: flutter\n  nitro: ^$nitroVersion');
+    }
 
     // Remove ffigen (plugin_ffi template includes it; Nitrogen uses nitro_generator instead).
     pubspec = pubspec.replaceFirst(RegExp(r'\n  ffi: \^\S+'), '');
     pubspec = pubspec.replaceFirst(RegExp(r'\n  ffigen: \^\S+'), '');
 
-    pubspec = pubspec.replaceFirst(
-        RegExp(r'  flutter_lints: \^\S+'),
-        '  flutter_lints: ^6.0.0\n'
-        '  build_runner: ^2.4.0\n'
-        '  nitro_generator: ^0.1.1');
+    if (nitroGeneratorVersion != null) {
+      pubspec = pubspec.replaceFirst(
+          RegExp(r'  flutter_lints: \^\S+'),
+          '  flutter_lints: ^6.0.0\n'
+          '  build_runner: ^2.4.0\n'
+          '  nitro_generator: ^$nitroGeneratorVersion');
+    } else {
+      pubspec = pubspec.replaceFirst(
+          RegExp(r'  flutter_lints: \^\S+'),
+          '  flutter_lints: ^6.0.0\n'
+          '  build_runner: ^2.4.0');
+    }
 
     pubspec = pubspec.replaceFirst(
         RegExp(r'    platforms:\s*\n'
