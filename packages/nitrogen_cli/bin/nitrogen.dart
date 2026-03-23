@@ -345,8 +345,8 @@ class _NitroDashboardState extends State<NitroDashboard> {
         }
         if (event.logicalKey == LogicalKey.arrowUp) {
           setState(() {
-            _selectedIndex =
-                (_selectedIndex - 1 + menuCommands.length) % menuCommands.length;
+            _selectedIndex = (_selectedIndex - 1 + menuCommands.length) %
+                menuCommands.length;
           });
           return true;
         }
@@ -531,8 +531,6 @@ class _NitroDashboardState extends State<NitroDashboard> {
     );
   }
 }
-
-
 
 class _CommandItem extends StatefulComponent {
   const _CommandItem({
@@ -798,6 +796,7 @@ class _ProcessViewState extends State<ProcessView> {
     );
   }
 }
+
 class _EditorOption extends StatelessComponent {
   const _EditorOption({
     required this.label,

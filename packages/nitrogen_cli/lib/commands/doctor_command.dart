@@ -594,8 +594,8 @@ class DoctorCommand extends Command {
     Directory.current = projectDir;
 
     if (projectDir.path != Directory.current.path) {
-      stdout.writeln(
-          '  \x1B[90m📂 Found project in: ${projectDir.path}\x1B[0m');
+      stdout
+          .writeln('  \x1B[90m📂 Found project in: ${projectDir.path}\x1B[0m');
     }
 
     final result = performChecks();
