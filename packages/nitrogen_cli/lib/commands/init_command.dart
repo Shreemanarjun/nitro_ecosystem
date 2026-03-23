@@ -111,12 +111,21 @@ class _InitViewState extends State<InitView> {
 
   bool _finished = false;
   bool _failed = false;
+  bool _needsConfirmation = false;
   String? _errorMessage;
 
   @override
   void initState() {
     super.initState();
-    Future<void>.delayed(Duration.zero, _run);
+    _checkExisting();
+  }
+
+  void _checkExisting() {
+    if (Directory(component.pluginName).existsSync()) {
+      setState(() => _needsConfirmation = true);
+    } else {
+      _run();
+    }
   }
 
   Future<void> _setRunning(int i) async {
@@ -140,6 +149,8 @@ class _InitViewState extends State<InitView> {
   }
 
   Future<void> _run() async {
+    setState(() => _needsConfirmation = false);
+    
     final pluginName = component.pluginName;
     final org = component.org;
     final className = _toClassName(pluginName);
@@ -190,6 +201,22 @@ class _InitViewState extends State<InitView> {
   }
 
   bool _handleKey(KeyboardEvent e) {
+    if (_needsConfirmation) {
+      if (e.logicalKey == LogicalKey.keyY) {
+        _run();
+        return true;
+      }
+      if (e.logicalKey == LogicalKey.keyN || e.logicalKey == LogicalKey.escape) {
+        if (component.onExit != null) {
+          component.onExit!();
+        } else {
+          shutdownApp(0);
+        }
+        return true;
+      }
+      return false;
+    }
+
     if (!_finished) return false;
     if (component.onExit != null) {
       component.onExit!();
@@ -220,45 +247,74 @@ class _InitViewState extends State<InitView> {
             ),
           ),
           const Padding(padding: EdgeInsets.only(bottom: 1), child: Text('')),
-          Expanded(
-            child: Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 1),
-              child: Container(
-                decoration: BoxDecoration(border: BoxBorder.all(color: Colors.brightBlack)),
-                child: Padding(
-                  padding: const EdgeInsets.all(1),
-                  child: ListView(
-                    children: _steps.map(InitStepRow.new).toList(),
+          
+          if (_needsConfirmation)
+            Expanded(
+              child: Center(
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                     Text(
+                      '⚠ Directory "${component.pluginName}" already exists.',
+                      style: const TextStyle(color: Colors.yellow, fontWeight: FontWeight.bold),
+                    ),
+                    const SizedBox(height: 1),
+                    const Text('Do you want to force initialize and overwrite existing files?'),
+                    const SizedBox(height: 1),
+                    const Row(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Text('[Y]', style: TextStyle(color: Colors.green, fontWeight: FontWeight.bold)),
+                        Text(' Yes, Force Initialize   '),
+                        Text('[N]', style: TextStyle(color: Colors.red, fontWeight: FontWeight.bold)),
+                        Text(' No, Cancel'),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+            )
+          else ...[
+            Expanded(
+              child: Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 1),
+                child: Container(
+                  decoration: BoxDecoration(border: BoxBorder.all(color: Colors.brightBlack)),
+                  child: Padding(
+                    padding: const EdgeInsets.all(1),
+                    child: ListView(
+                      children: _steps.map(InitStepRow.new).toList(),
+                    ),
                   ),
                 ),
               ),
             ),
-          ),
-          if (_finished)
-            Padding(
-              padding: const EdgeInsets.only(top: 1, bottom: 1, left: 1, right: 1),
-              child: _failed
-                  ? Text('✘ Scaffolding failed: ${_errorMessage ?? ""}',
-                      style: const TextStyle(color: Colors.red, fontWeight: FontWeight.bold))
-                  : Column(
-                      children: [
-                        const Text('✨ Done! Next steps:',
-                            style: TextStyle(color: Colors.green, fontWeight: FontWeight.bold)),
-                        Text(
-                          '  1. Edit lib/src/${component.pluginName}.native.dart\n'
-                          '  2. Run: nitrogen generate\n'
-                          '  3. Run: nitrogen link\n'
-                          '  4. Implement Hybrid${_toClassName(component.pluginName)}Spec in Kotlin & Swift\n'
-                          '  5. Run: nitrogen doctor',
-                          style: const TextStyle(color: Colors.gray),
-                        ),
-                        const Text(
-                          'Press any key to exit',
-                          style: TextStyle(color: Colors.gray, fontWeight: FontWeight.dim),
-                        ),
-                      ],
-                    ),
-            ),
+            if (_finished)
+              Padding(
+                padding: const EdgeInsets.only(top: 1, bottom: 1, left: 1, right: 1),
+                child: _failed
+                    ? Text('✘ Scaffolding failed: ${_errorMessage ?? ""}',
+                        style: const TextStyle(color: Colors.red, fontWeight: FontWeight.bold))
+                    : Column(
+                        children: [
+                          const Text('✨ Done! Next steps:',
+                              style: TextStyle(color: Colors.green, fontWeight: FontWeight.bold)),
+                          Text(
+                            '  1. Edit lib/src/${component.pluginName}.native.dart\n'
+                            '  2. Run: nitrogen generate\n'
+                            '  3. Run: nitrogen link\n'
+                            '  4. Implement Hybrid${_toClassName(component.pluginName)}Spec in Kotlin & Swift\n'
+                            '  5. Run: nitrogen doctor',
+                            style: const TextStyle(color: Colors.gray),
+                          ),
+                          const Text(
+                            'Press any key to exit',
+                            style: TextStyle(color: Colors.gray, fontWeight: FontWeight.dim),
+                          ),
+                        ],
+                      ),
+              ),
+          ],
         ],
       ),
     );
@@ -523,11 +579,6 @@ class InitCommand extends Command {
 
     final pluginName = argResults!.rest.first;
     final org = argResults!['org'] as String;
-
-    if (Directory(pluginName).existsSync()) {
-      stderr.writeln('❌ Directory $pluginName already exists.');
-      exit(1);
-    }
 
     final result = InitResult();
     await runApp(InitView(pluginName: pluginName, org: org, result: result));

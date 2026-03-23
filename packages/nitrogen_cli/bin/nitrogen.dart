@@ -11,7 +11,6 @@ import 'package:nitrogen_cli/commands/generate_command.dart';
 import 'package:nitrogen_cli/commands/link_command.dart';
 import 'package:nitrogen_cli/commands/doctor_command.dart';
 import 'package:nitrogen_cli/commands/update_command.dart';
-import 'package:nitrogen_cli/ui.dart';
 
 // ── Models ───────────────────────────────────────────────────────────────────
 
@@ -198,8 +197,9 @@ Future<void> _runTui() async {
 
 String _getPluginName(File pubspec) {
   for (final line in pubspec.readAsLinesSync()) {
-    if (line.startsWith('name: '))
+    if (line.startsWith('name: ')) {
       return line.replaceFirst('name: ', '').trim();
+    }
   }
   return 'unknown';
 }
@@ -279,7 +279,7 @@ class _NitroDashboardState extends State<NitroDashboard> {
 
 class _CommandItem extends StatelessComponent {
   const _CommandItem(
-      {required this.command, required this.selected, super.key});
+      {required this.command, required this.selected});
   final NitroCommand command;
   final bool selected;
 
