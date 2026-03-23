@@ -63,6 +63,7 @@ class ZeroCopyBuffer {
     }
   }
 
-  static final Finalizer<void Function()> _finalizer =
-      Finalizer((nativeRelease) => nativeRelease());
+  static final Finalizer<void Function()> _finalizer = Finalizer(
+    (nativeRelease) => nativeRelease(),
+  );
 }

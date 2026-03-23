@@ -31,7 +31,10 @@ class _MyAppState extends State<MyApp> {
     return MaterialApp(
       theme: ThemeData(useMaterial3: true, colorSchemeSeed: Colors.deepPurple),
       home: Scaffold(
-        appBar: AppBar(title: const Text('Nitro Modules Demo'), centerTitle: true),
+        appBar: AppBar(
+          title: const Text('Nitro Modules Demo'),
+          centerTitle: true,
+        ),
         body: Center(
           child: Padding(
             padding: const EdgeInsets.all(24.0),
@@ -56,7 +59,9 @@ class _MyAppState extends State<MyApp> {
                     return _ResultCard(
                       title: 'Asynchronous (@nitro_async)',
                       subtitle: 'await Math.instance.multiply(5.0, 4.0)',
-                      result: snapshot.hasData ? '${snapshot.data}' : 'Waiting...',
+                      result: snapshot.hasData
+                          ? '${snapshot.data}'
+                          : 'Waiting...',
                       isLoading: !snapshot.hasData,
                     );
                   },
@@ -92,12 +97,22 @@ class _ResultCard extends StatelessWidget {
         child: Column(
           children: [
             Text(title, style: const TextStyle(fontWeight: FontWeight.bold)),
-            Text(subtitle, style: const TextStyle(color: Colors.grey, fontSize: 12)),
+            Text(
+              subtitle,
+              style: const TextStyle(color: Colors.grey, fontSize: 12),
+            ),
             const Divider(),
             if (isLoading)
               const CircularProgressIndicator()
             else
-              Text(result, style: const TextStyle(fontSize: 24, color: Colors.deepPurple, fontWeight: FontWeight.bold)),
+              Text(
+                result,
+                style: const TextStyle(
+                  fontSize: 24,
+                  color: Colors.deepPurple,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
           ],
         ),
       ),

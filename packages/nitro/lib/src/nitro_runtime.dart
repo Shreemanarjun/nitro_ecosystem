@@ -22,7 +22,7 @@ class NitroRuntime {
     } else {
       lib = DynamicLibrary.open('lib$libName.so');
     }
-    
+
     _libCache[libName] = lib;
     return lib;
   }
@@ -104,8 +104,9 @@ class NitroRuntime {
 
   // Finalizer for StreamControllers abandoned without cancel().
   // Token is a void Function() closure — no strong ref back to the controller.
-  static final _streamFinalizer =
-      Finalizer<void Function()>((doRelease) => doRelease());
+  static final _streamFinalizer = Finalizer<void Function()>(
+    (doRelease) => doRelease(),
+  );
 
   static Future<void> init({int minIsolates = 1}) async {
     // Pre-warm isolate pool if needed
