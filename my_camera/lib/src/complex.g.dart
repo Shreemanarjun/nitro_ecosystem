@@ -91,6 +91,7 @@ class _ComplexModuleImpl extends ComplexModule {
   late final void Function(int) _registerDataStreamPtr = _dylib.lookupFunction<Void Function(Int64), void Function(int)>('complex_module_register_data_stream_stream');
   late final void Function(int) _releaseDataStreamPtr = _dylib.lookupFunction<Void Function(Int64), void Function(int)>('complex_module_release_data_stream_stream');
   @override
+  // ignore: unnecessary_overrides
   void dispose() {
     super.dispose(); // sets isDisposed = true, calls onDestroy()
   }

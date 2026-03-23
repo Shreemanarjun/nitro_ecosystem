@@ -70,6 +70,7 @@ class DartFfiGenerator {
 
     // ── dispose() override ───────────────────────────────────────────────────
     s.writeln('  @override');
+    s.writeln('  // ignore: unnecessary_overrides');
     s.writeln('  void dispose() {');
     s.writeln(
       '    super.dispose(); // sets isDisposed = true, calls onDestroy()',

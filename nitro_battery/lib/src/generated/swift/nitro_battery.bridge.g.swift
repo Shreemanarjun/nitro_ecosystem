@@ -59,7 +59,6 @@ public func _call_getChargingState() -> Int64 {
     return NitroBatteryRegistry.impl?.getChargingState() ?? 0
 }
 
-/// Returns a heap-allocated BatteryInfo pointer (Dart side frees via callAsync).
 @_cdecl("_call_getBatteryInfo")
 public func _call_getBatteryInfo() -> UnsafeMutableRawPointer? {
     guard let impl = NitroBatteryRegistry.impl else { return nil }

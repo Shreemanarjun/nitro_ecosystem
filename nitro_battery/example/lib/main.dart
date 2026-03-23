@@ -85,7 +85,7 @@ class _MyAppState extends State<MyApp> {
                       nitro_battery.NitroBattery.instance.batteryLevelChanges,
                   builder: (context, snapshot) {
                     final val = snapshot.data ?? batteryLevel;
-                    print(val);
+                    debugPrint(val.toString());
                     return Text(
                       'Live Level: $val%',
                       style: textStyle.copyWith(

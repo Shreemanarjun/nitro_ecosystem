@@ -659,6 +659,10 @@ class ${className}Impl(private val context: Context) : Hybrid${className}Spec {
         'dependencies:\n  flutter:\n    sdk: flutter',
         'dependencies:\n  flutter:\n    sdk: flutter\n  nitro: ^0.1.0');
 
+    // Remove ffigen (plugin_ffi template includes it; Nitrogen uses nitro_generator instead).
+    pubspec = pubspec.replaceFirst(RegExp(r'\n  ffi: \^\S+'), '');
+    pubspec = pubspec.replaceFirst(RegExp(r'\n  ffigen: \^\S+'), '');
+
     pubspec = pubspec.replaceFirst(
         RegExp(r'  flutter_lints: \^\S+'),
         '  flutter_lints: ^6.0.0\n'
@@ -907,11 +911,42 @@ class InitCommand extends Command {
 
   InitCommand() {
     argParser.addOption('org', defaultsTo: 'com.example');
+    argParser.addOption(
+      'name',
+      abbr: 'n',
+      help: 'Plugin name (skips interactive form; useful for scripts/CI).',
+    );
   }
 
   @override
   Future<void> run() async {
     final org = argResults!['org'] as String;
+    final nameArg = argResults!['name'] as String?;
+
+    // Non-interactive path: --name was supplied, run directly without TUI.
+    if (nameArg != null && nameArg.isNotEmpty) {
+      final pluginName = nameArg.trim();
+      if (!RegExp(r'^[a-z][a-z0-9_]*$').hasMatch(pluginName)) {
+        stderr.writeln(
+            '❌ Invalid plugin name "$pluginName". Use only lowercase letters, numbers, and underscores.');
+        exit(1);
+      }
+      final result = InitResult();
+      await runApp(InitView(
+        pluginName: pluginName,
+        org: org,
+        result: result,
+      ));
+      if (result.success) {
+        stdout.writeln(
+            '  \x1B[1;32m✨ $pluginName created\x1B[0m');
+      } else {
+        exit(1);
+      }
+      return;
+    }
+
+    // Interactive path: show the TUI name form.
     final result = InitResult();
     await runApp(NitrogenInitApp(result: result, initialOrg: org));
     if (result.success) {

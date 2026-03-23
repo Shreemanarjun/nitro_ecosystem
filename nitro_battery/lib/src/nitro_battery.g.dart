@@ -63,6 +63,7 @@ class _NitroBatteryImpl extends NitroBattery {
   late final void Function(int) _registerBatteryLevelChangesPtr = _dylib.lookupFunction<Void Function(Int64), void Function(int)>('nitro_battery_register_battery_level_changes_stream');
   late final void Function(int) _releaseBatteryLevelChangesPtr = _dylib.lookupFunction<Void Function(Int64), void Function(int)>('nitro_battery_release_battery_level_changes_stream');
   @override
+  // ignore: unnecessary_overrides
   void dispose() {
     super.dispose(); // sets isDisposed = true, calls onDestroy()
   }

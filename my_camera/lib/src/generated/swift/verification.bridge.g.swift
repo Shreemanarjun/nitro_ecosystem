@@ -12,22 +12,36 @@ public protocol HybridVerificationModuleProtocol: AnyObject {
     func pingAsync(message: String) async throws -> String
 }
 
-@objc
-public class VerificationModuleRegistry: NSObject {
-    private static var impl: HybridVerificationModuleProtocol?
+public class VerificationModuleRegistry {
+    public static var impl: HybridVerificationModuleProtocol?
 
-    @objc public static func register(_ impl: HybridVerificationModuleProtocol) {
-        self.impl = impl
-    }
-
-    // MARK: - C bridge stubs (called by the generated .c shim)
-    @objc public static func _call_multiply(_ a: Double, _ b: Double) -> Double {
-        return impl?.multiply(a: a, b: b) ?? 0.0
-    }
-    @objc public static func _call_ping(_ message: String) -> String {
-        return impl?.ping(message: message) ?? ""
-    }
-    @objc public static func _call_pingAsync(_ message: String) -> String {
-        return impl?.pingAsync(message: message) ?? ""
+    public static func register(_ impl: HybridVerificationModuleProtocol) {
+        VerificationModuleRegistry.impl = impl
     }
 }
+
+// MARK: - C bridge stubs — exported as C symbols called by the generated .cpp shim
+
+@_cdecl("_call_multiply")
+public func _call_multiply(_ a: Double, _ b: Double) -> Double {
+    return VerificationModuleRegistry.impl?.multiply(a: a, b: b) ?? 0.0
+}
+
+@_cdecl("_call_ping")
+public func _call_ping(_ message: String) -> String {
+    return VerificationModuleRegistry.impl?.ping(message: message) ?? ""
+}
+
+@_cdecl("_call_pingAsync")
+public func _call_pingAsync(_ message: String) -> String {
+    guard let impl = VerificationModuleRegistry.impl else { return "" }
+    let sema = DispatchSemaphore(value: 0)
+    var result: String? = nil
+    Task.detached {
+        result = try? await impl.pingAsync(message: message)
+        sema.signal()
+    }
+    sema.wait()
+    return result ?? ""
+}
+

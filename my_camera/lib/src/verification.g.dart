@@ -13,6 +13,7 @@ class _VerificationModuleImpl extends VerificationModule {
   late final Pointer<Utf8> Function(Pointer<Utf8>) _pingPtr = _dylib.lookupFunction<Pointer<Utf8> Function(Pointer<Utf8>), Pointer<Utf8> Function(Pointer<Utf8>)>('verification_module_ping');
   late final Pointer<Utf8> Function(Pointer<Utf8>) _pingAsyncPtr = _dylib.lookupFunction<Pointer<Utf8> Function(Pointer<Utf8>), Pointer<Utf8> Function(Pointer<Utf8>)>('verification_module_ping_async');
   @override
+  // ignore: unnecessary_overrides
   void dispose() {
     super.dispose(); // sets isDisposed = true, calls onDestroy()
   }

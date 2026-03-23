@@ -23,14 +23,14 @@ void main() {
     setUp(() => tmp = Directory.systemTemp.createTempSync('nitro_test_'));
     tearDown(() => tmp.deleteSync(recursive: true));
 
-    File _spec(String content) {
+    File spec(String content) {
       final f = File(p.join(tmp.path, 'spec.native.dart'));
       f.writeAsStringSync(content);
       return f;
     }
 
     test('extracts lib from double-quoted @NitroModule', () {
-      final f = _spec('''
+      final f = spec('''
 @NitroModule(ios: NativeImpl.swift, android: NativeImpl.kotlin, lib: "my_plugin")
 abstract class MyPlugin extends HybridObject {}
 ''');
@@ -38,33 +38,33 @@ abstract class MyPlugin extends HybridObject {}
     });
 
     test('extracts lib from single-quoted @NitroModule', () {
-      final f = _spec("@NitroModule(lib: 'my_plugin')");
+      final f = spec("@NitroModule(lib: 'my_plugin')");
       expect(extractLibNameFromSpec(f), equals('my_plugin'));
     });
 
     test('extracts lib when lib comes before other params', () {
-      final f = _spec(
+      final f = spec(
           "@NitroModule(lib: 'sensor_hub', ios: NativeImpl.swift)");
       expect(extractLibNameFromSpec(f), equals('sensor_hub'));
     });
 
     test('returns null when no lib param present', () {
-      final f = _spec('@NitroModule(ios: NativeImpl.swift, android: NativeImpl.kotlin)');
+      final f = spec('@NitroModule(ios: NativeImpl.swift, android: NativeImpl.kotlin)');
       expect(extractLibNameFromSpec(f), isNull);
     });
 
     test('returns null for empty file', () {
-      final f = _spec('');
+      final f = spec('');
       expect(extractLibNameFromSpec(f), isNull);
     });
 
     test('returns null for file with no @NitroModule annotation', () {
-      final f = _spec('abstract class Foo extends HybridObject {}');
+      final f = spec('abstract class Foo extends HybridObject {}');
       expect(extractLibNameFromSpec(f), isNull);
     });
 
     test('handles underscores in lib name', () {
-      final f = _spec('@NitroModule(lib: "nitro_battery_extra")');
+      final f = spec('@NitroModule(lib: "nitro_battery_extra")');
       expect(extractLibNameFromSpec(f), equals('nitro_battery_extra'));
     });
   });
@@ -77,7 +77,7 @@ abstract class MyPlugin extends HybridObject {}
     setUp(() => tmp = Directory.systemTemp.createTempSync('nitro_test_'));
     tearDown(() => tmp.deleteSync(recursive: true));
 
-    void _writeSpec(String relPath, String content) {
+    void writeSpec(String relPath, String content) {
       final f = File(p.join(tmp.path, relPath));
       f.parent.createSync(recursive: true);
       f.writeAsStringSync(content);
@@ -97,7 +97,7 @@ abstract class MyPlugin extends HybridObject {}
     });
 
     test('uses lib: param when present in spec', () {
-      _writeSpec('lib/src/my_plugin.native.dart',
+      writeSpec('lib/src/my_plugin.native.dart',
           '@NitroModule(lib: "my_plugin_lib")');
       _withDir(tmp, () {
         expect(discoverModuleLibs('my_plugin'), equals(['my_plugin_lib']));
@@ -105,7 +105,7 @@ abstract class MyPlugin extends HybridObject {}
     });
 
     test('falls back to stem when no lib: param', () {
-      _writeSpec('lib/src/my_plugin.native.dart',
+      writeSpec('lib/src/my_plugin.native.dart',
           '@NitroModule(ios: NativeImpl.swift)');
       _withDir(tmp, () {
         expect(discoverModuleLibs('my_plugin'), equals(['my_plugin']));
@@ -113,8 +113,8 @@ abstract class MyPlugin extends HybridObject {}
     });
 
     test('discovers multiple specs', () {
-      _writeSpec('lib/src/module_a.native.dart', '@NitroModule(lib: "mod_a")');
-      _writeSpec('lib/src/module_b.native.dart', '@NitroModule(lib: "mod_b")');
+      writeSpec('lib/src/module_a.native.dart', '@NitroModule(lib: "mod_a")');
+      writeSpec('lib/src/module_b.native.dart', '@NitroModule(lib: "mod_b")');
       _withDir(tmp, () {
         final libs = discoverModuleLibs('my_plugin');
         expect(libs, containsAll(['mod_a', 'mod_b']));
@@ -123,22 +123,22 @@ abstract class MyPlugin extends HybridObject {}
     });
 
     test('deduplicates identical lib names', () {
-      _writeSpec('lib/src/a.native.dart', '@NitroModule(lib: "shared")');
-      _writeSpec('lib/src/b.native.dart', '@NitroModule(lib: "shared")');
+      writeSpec('lib/src/a.native.dart', '@NitroModule(lib: "shared")');
+      writeSpec('lib/src/b.native.dart', '@NitroModule(lib: "shared")');
       _withDir(tmp, () {
         expect(discoverModuleLibs('my_plugin'), equals(['shared']));
       });
     });
 
     test('replaces hyphens with underscores in stem fallback', () {
-      _writeSpec('lib/src/my-module.native.dart', '// no annotation');
+      writeSpec('lib/src/my-module.native.dart', '// no annotation');
       _withDir(tmp, () {
         expect(discoverModuleLibs('my_plugin'), equals(['my_module']));
       });
     });
 
     test('discovers specs nested in subdirectories', () {
-      _writeSpec('lib/src/deep/nested/sensor.native.dart',
+      writeSpec('lib/src/deep/nested/sensor.native.dart',
           '@NitroModule(lib: "sensor")');
       _withDir(tmp, () {
         expect(discoverModuleLibs('my_plugin'), equals(['sensor']));

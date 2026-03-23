@@ -21,30 +21,50 @@ public protocol HybridMyCameraProtocol: AnyObject {
     var frames: AnyPublisher<CameraFrame, Never> { get }
 }
 
-@objc
-public class MyCameraRegistry: NSObject {
-    private static var impl: HybridMyCameraProtocol?
+public class MyCameraRegistry {
+    public static var impl: HybridMyCameraProtocol?
 
-    @objc public static func register(_ impl: HybridMyCameraProtocol) {
-        self.impl = impl
+    public static func register(_ impl: HybridMyCameraProtocol) {
+        MyCameraRegistry.impl = impl
     }
 
-    // MARK: - C bridge stubs (called by the generated .c shim)
-    @objc public static func _call_add(_ a: Double, _ b: Double) -> Double {
-        return impl?.add(a: a, b: b) ?? 0.0
+    // Stream: frames cancellables keyed by dartPort
+    public static var _framesCancellables = [Int64: AnyCancellable]()
+}
+
+// MARK: - C bridge stubs — exported as C symbols called by the generated .cpp shim
+
+@_cdecl("_call_add")
+public func _call_add(_ a: Double, _ b: Double) -> Double {
+    return MyCameraRegistry.impl?.add(a: a, b: b) ?? 0.0
+}
+
+@_cdecl("_call_getGreeting")
+public func _call_getGreeting(_ name: String) -> String {
+    guard let impl = MyCameraRegistry.impl else { return "" }
+    let sema = DispatchSemaphore(value: 0)
+    var result: String? = nil
+    Task.detached {
+        result = try? await impl.getGreeting(name: name)
+        sema.signal()
     }
-    @objc public static func _call_getGreeting(_ name: String) -> String {
-        return impl?.getGreeting(name: name) ?? ""
-    }
-    // Stream: frames — register with C callback
-    private static var _framesCancellables = [Int64: AnyCancellable]()
-    @objc public static func _register_frames_stream(_ dartPort: Int64, _ emitCb: @escaping @convention(c) (Int64, UnsafeMutableRawPointer?) -> Void) {
-        _framesCancellables[dartPort] = impl?.frames.sink { item in
+    sema.wait()
+    return result ?? ""
+}
+
+@_cdecl("_register_frames_stream")
+public func _register_frames_stream(
+    _ dartPort: Int64,
+    _ emitCb: @convention(c) (Int64, UnsafeMutableRawPointer?) -> Void
+) {
+    MyCameraRegistry._framesCancellables[dartPort] =
+        MyCameraRegistry.impl?.frames.sink { item in
             emitCb(dartPort, item)
         }
-    }
-    @objc public static func _release_frames_stream(_ dartPort: Int64) {
-        _framesCancellables[dartPort]?.cancel()
-        _framesCancellables.removeValue(forKey: dartPort)
-    }
+}
+
+@_cdecl("_release_frames_stream")
+public func _release_frames_stream(_ dartPort: Int64) {
+    MyCameraRegistry._framesCancellables[dartPort]?.cancel()
+    MyCameraRegistry._framesCancellables.removeValue(forKey: dartPort)
 }

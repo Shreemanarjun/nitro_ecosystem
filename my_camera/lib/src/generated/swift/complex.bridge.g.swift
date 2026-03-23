@@ -39,57 +39,105 @@ public protocol HybridComplexModuleProtocol: AnyObject {
     var dataStream: AnyPublisher<Packet, Never> { get }
 }
 
-@objc
-public class ComplexModuleRegistry: NSObject {
-    private static var impl: HybridComplexModuleProtocol?
+public class ComplexModuleRegistry {
+    public static var impl: HybridComplexModuleProtocol?
 
-    @objc public static func register(_ impl: HybridComplexModuleProtocol) {
-        self.impl = impl
+    public static func register(_ impl: HybridComplexModuleProtocol) {
+        ComplexModuleRegistry.impl = impl
     }
 
-    // MARK: - C bridge stubs (called by the generated .c shim)
-    @objc public static func _call_calculate(_ seed: Int64, _ factor: Double, _ enabled: Bool) -> Int64 {
-        return impl?.calculate(seed: seed, factor: factor, enabled: enabled) ?? 0
+    // Stream: sensorStream cancellables keyed by dartPort
+    public static var _sensorStreamCancellables = [Int64: AnyCancellable]()
+
+    // Stream: dataStream cancellables keyed by dartPort
+    public static var _dataStreamCancellables = [Int64: AnyCancellable]()
+}
+
+// MARK: - C bridge stubs — exported as C symbols called by the generated .cpp shim
+
+@_cdecl("_call_calculate")
+public func _call_calculate(_ seed: Int64, _ factor: Double, _ enabled: Bool) -> Int64 {
+    return ComplexModuleRegistry.impl?.calculate(seed: seed, factor: factor, enabled: enabled) ?? 0
+}
+
+@_cdecl("_call_fetchMetadata")
+public func _call_fetchMetadata(_ url: String) -> String {
+    guard let impl = ComplexModuleRegistry.impl else { return "" }
+    let sema = DispatchSemaphore(value: 0)
+    var result: String? = nil
+    Task.detached {
+        result = try? await impl.fetchMetadata(url: url)
+        sema.signal()
     }
-    @objc public static func _call_fetchMetadata(_ url: String) -> String {
-        return impl?.fetchMetadata(url: url) ?? ""
+    sema.wait()
+    return result ?? ""
+}
+
+@_cdecl("_call_getStatus")
+public func _call_getStatus() -> Int64 {
+    return ComplexModuleRegistry.impl?.getStatus() ?? 0
+}
+
+@_cdecl("_call_updateSensors")
+public func _call_updateSensors(_ data: SensorData) -> Void {
+    ComplexModuleRegistry.impl?.updateSensors(data: data)
+}
+
+@_cdecl("_call_generatePacket")
+public func _call_generatePacket(_ type: Int64) -> UnsafeMutableRawPointer? {
+    guard let impl = ComplexModuleRegistry.impl else { return nil }
+    let sema = DispatchSemaphore(value: 0)
+    var result: Packet? = nil
+    Task.detached {
+        result = try? await impl.generatePacket(type: type)
+        sema.signal()
     }
-    @objc public static func _call_getStatus() -> Int64 {
-        return impl?.getStatus() ?? 0
-    }
-    @objc public static func _call_updateSensors(_ data: SensorData) -> Void {
-        impl?.updateSensors(data: data)
-        return ()
-    }
-    @objc public static func _call_generatePacket(_ type: Int64) -> Packet {
-        return impl?.generatePacket(type: type) ?? ()
-    }
-    @objc public static func _get_batteryLevel() -> Double {
-        return impl?.batteryLevel ?? 0.0
-    }
-    @objc public static func _set_config(_ value: String) {
-        impl?.config = value
-    }
-    // Stream: sensorStream — register with C callback
-    private static var _sensorStreamCancellables = [Int64: AnyCancellable]()
-    @objc public static func _register_sensorStream_stream(_ dartPort: Int64, _ emitCb: @escaping @convention(c) (Int64, UnsafeMutableRawPointer?) -> Void) {
-        _sensorStreamCancellables[dartPort] = impl?.sensorStream.sink { item in
+    sema.wait()
+    guard let r = result else { return nil }
+    let ptr = UnsafeMutablePointer<Packet>.allocate(capacity: 1)
+    ptr.initialize(to: r)
+    return UnsafeMutableRawPointer(ptr)
+}
+
+@_cdecl("_call_get_batteryLevel")
+public func _call_get_batteryLevel() -> Double {
+    return ComplexModuleRegistry.impl?.batteryLevel ?? 0.0
+}
+
+@_cdecl("_call_set_config")
+public func _call_set_config(_ value: String) {
+    ComplexModuleRegistry.impl?.config = value
+}
+
+@_cdecl("_register_sensorStream_stream")
+public func _register_sensorStream_stream(
+    _ dartPort: Int64,
+    _ emitCb: @convention(c) (Int64, UnsafeMutableRawPointer?) -> Void
+) {
+    ComplexModuleRegistry._sensorStreamCancellables[dartPort] =
+        ComplexModuleRegistry.impl?.sensorStream.sink { item in
             emitCb(dartPort, item)
         }
-    }
-    @objc public static func _release_sensorStream_stream(_ dartPort: Int64) {
-        _sensorStreamCancellables[dartPort]?.cancel()
-        _sensorStreamCancellables.removeValue(forKey: dartPort)
-    }
-    // Stream: dataStream — register with C callback
-    private static var _dataStreamCancellables = [Int64: AnyCancellable]()
-    @objc public static func _register_dataStream_stream(_ dartPort: Int64, _ emitCb: @escaping @convention(c) (Int64, UnsafeMutableRawPointer?) -> Void) {
-        _dataStreamCancellables[dartPort] = impl?.dataStream.sink { item in
+}
+
+@_cdecl("_release_sensorStream_stream")
+public func _release_sensorStream_stream(_ dartPort: Int64) {
+    ComplexModuleRegistry._sensorStreamCancellables[dartPort]?.cancel()
+    ComplexModuleRegistry._sensorStreamCancellables.removeValue(forKey: dartPort)
+}
+@_cdecl("_register_dataStream_stream")
+public func _register_dataStream_stream(
+    _ dartPort: Int64,
+    _ emitCb: @convention(c) (Int64, UnsafeMutableRawPointer?) -> Void
+) {
+    ComplexModuleRegistry._dataStreamCancellables[dartPort] =
+        ComplexModuleRegistry.impl?.dataStream.sink { item in
             emitCb(dartPort, item)
         }
-    }
-    @objc public static func _release_dataStream_stream(_ dartPort: Int64) {
-        _dataStreamCancellables[dartPort]?.cancel()
-        _dataStreamCancellables.removeValue(forKey: dartPort)
-    }
+}
+
+@_cdecl("_release_dataStream_stream")
+public func _release_dataStream_stream(_ dartPort: Int64) {
+    ComplexModuleRegistry._dataStreamCancellables[dartPort]?.cancel()
+    ComplexModuleRegistry._dataStreamCancellables.removeValue(forKey: dartPort)
 }

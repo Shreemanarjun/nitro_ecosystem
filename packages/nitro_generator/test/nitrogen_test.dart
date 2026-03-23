@@ -956,8 +956,7 @@ void main() {
 
     test('dispose() override is emitted in generated impl', () {
       final out = DartFfiGenerator.generate(_simpleSpec());
-      expect(out, contains('@override'));
-      expect(out, contains('void dispose() {'));
+      expect(out, contains('@override\n  // ignore: unnecessary_overrides\n  void dispose() {'));
       expect(out, contains('super.dispose();'));
     });
 
