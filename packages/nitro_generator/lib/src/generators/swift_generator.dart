@@ -99,23 +99,25 @@ class SwiftGenerator {
           .map((p) => '_ ${p.name}: ${_toCDeclParamType(spec, p.type.name)}')
           .join(', ');
       // String params arrive as UnsafePointer<CChar>? — convert to Swift String.
-      final stringParams =
-          func.params.where((p) => p.type.name == 'String').toList();
+      final stringParams = func.params
+          .where((p) => p.type.name == 'String')
+          .toList();
       // Pass the converted local `nameStr` variable for String params.
       final callArgs = func.params
-          .map((p) =>
-              '${p.name}: ${p.type.name == 'String' ? '${p.name}Str' : p.name}')
+          .map(
+            (p) =>
+                '${p.name}: ${p.type.name == 'String' ? '${p.name}Str' : p.name}',
+          )
           .join(', ');
-      final isStruct =
-          spec.structs.any((st) => st.name == func.returnType.name);
+      final isStruct = spec.structs.any(
+        (st) => st.name == func.returnType.name,
+      );
       final isBool = func.returnType.name == 'bool';
       final isVoid = func.returnType.name == 'void';
       final isString = func.returnType.name == 'String';
 
       s.writeln('@_cdecl("_call_${func.dartName}")');
-      s.writeln(
-        'public func _call_${func.dartName}($params) -> $cRetType {',
-      );
+      s.writeln('public func _call_${func.dartName}($params) -> $cRetType {');
 
       // Emit UnsafePointer<CChar>? → Swift String conversions for each String param.
       for (final p in stringParams) {
@@ -229,12 +231,10 @@ class SwiftGenerator {
         final getRetType = isString
             ? 'UnsafeMutablePointer<CChar>?'
             : isBool
-                ? 'Int8'
-                : swiftType;
+            ? 'Int8'
+            : swiftType;
         s.writeln('@_cdecl("_call_get_${prop.dartName}")');
-        s.writeln(
-          'public func _call_get_${prop.dartName}() -> $getRetType {',
-        );
+        s.writeln('public func _call_get_${prop.dartName}() -> $getRetType {');
         if (isString) {
           s.writeln(
             '    return strdup(${spec.dartClassName}Registry.impl?.${prop.dartName} ?? "")',
@@ -251,8 +251,8 @@ class SwiftGenerator {
         final setParamType = isBool
             ? 'Int8'
             : isString
-                ? 'UnsafePointer<CChar>?'
-                : swiftType;
+            ? 'UnsafePointer<CChar>?'
+            : swiftType;
         s.writeln('@_cdecl("_call_set_${prop.dartName}")');
         s.writeln(
           'public func _call_set_${prop.dartName}(_ value: $setParamType) {',

@@ -56,7 +56,10 @@ class _VerificationPageState extends State<VerificationPage> {
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
-          Text('Multiply (5*7): $_multResult', style: const TextStyle(fontSize: 20)),
+          Text(
+            'Multiply (5*7): $_multResult',
+            style: const TextStyle(fontSize: 20),
+          ),
           const SizedBox(height: 20),
           Text('Ping: $_pingResult'),
           const SizedBox(height: 20),

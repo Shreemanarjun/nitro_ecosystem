@@ -50,18 +50,46 @@ class _NitroBatteryImpl extends NitroBattery {
   final DynamicLibrary _dylib;
 
   _NitroBatteryImpl() : _dylib = NitroRuntime.loadLib('nitro_battery') {
-    final initFunc = _dylib.lookupFunction<IntPtr Function(Pointer<Void>), int Function(Pointer<Void>)>('InitDartApiDL');
+    final initFunc = _dylib
+        .lookupFunction<
+          IntPtr Function(Pointer<Void>),
+          int Function(Pointer<Void>)
+        >('InitDartApiDL');
     initFunc(NativeApi.initializeApiDLData);
   }
 
-  late final int Function() _getBatteryLevelPtr = _dylib.lookupFunction<Int64 Function(), int Function()>('nitro_battery_get_battery_level');
-  late final int Function() _isChargingPtr = _dylib.lookupFunction<Int8 Function(), int Function()>('nitro_battery_is_charging');
-  late final int Function() _getChargingStatePtr = _dylib.lookupFunction<Int64 Function(), int Function()>('nitro_battery_get_charging_state');
-  late final Pointer<Void> Function() _getBatteryInfoPtr = _dylib.lookupFunction<Pointer<Void> Function(), Pointer<Void> Function()>('nitro_battery_get_battery_info');
-  late final int Function() _getLowPowerThresholdPtr = _dylib.lookupFunction<Int64 Function(), int Function()>('nitro_battery_get_low_power_threshold');
-  late final void Function(int) _setLowPowerThresholdPtr = _dylib.lookupFunction<Void Function(Int64), void Function(int)>('nitro_battery_set_low_power_threshold');
-  late final void Function(int) _registerBatteryLevelChangesPtr = _dylib.lookupFunction<Void Function(Int64), void Function(int)>('nitro_battery_register_battery_level_changes_stream');
-  late final void Function(int) _releaseBatteryLevelChangesPtr = _dylib.lookupFunction<Void Function(Int64), void Function(int)>('nitro_battery_release_battery_level_changes_stream');
+  late final int Function() _getBatteryLevelPtr = _dylib
+      .lookupFunction<Int64 Function(), int Function()>(
+        'nitro_battery_get_battery_level',
+      );
+  late final int Function() _isChargingPtr = _dylib
+      .lookupFunction<Int8 Function(), int Function()>(
+        'nitro_battery_is_charging',
+      );
+  late final int Function() _getChargingStatePtr = _dylib
+      .lookupFunction<Int64 Function(), int Function()>(
+        'nitro_battery_get_charging_state',
+      );
+  late final Pointer<Void> Function() _getBatteryInfoPtr = _dylib
+      .lookupFunction<Pointer<Void> Function(), Pointer<Void> Function()>(
+        'nitro_battery_get_battery_info',
+      );
+  late final int Function() _getLowPowerThresholdPtr = _dylib
+      .lookupFunction<Int64 Function(), int Function()>(
+        'nitro_battery_get_low_power_threshold',
+      );
+  late final void Function(int) _setLowPowerThresholdPtr = _dylib
+      .lookupFunction<Void Function(Int64), void Function(int)>(
+        'nitro_battery_set_low_power_threshold',
+      );
+  late final void Function(int) _registerBatteryLevelChangesPtr = _dylib
+      .lookupFunction<Void Function(Int64), void Function(int)>(
+        'nitro_battery_register_battery_level_changes_stream',
+      );
+  late final void Function(int) _releaseBatteryLevelChangesPtr = _dylib
+      .lookupFunction<Void Function(Int64), void Function(int)>(
+        'nitro_battery_release_battery_level_changes_stream',
+      );
   @override
   // ignore: unnecessary_overrides
   void dispose() {
@@ -90,13 +118,22 @@ class _NitroBatteryImpl extends NitroBattery {
   Future<BatteryInfo> getBatteryInfo() async {
     checkDisposed();
     final asyncResult = await NitroRuntime.callAsync(_getBatteryInfoPtr, []);
-    return Pointer<BatteryInfoFfi>.fromAddress((asyncResult as Pointer<Void>).address).ref.toDart();
+    return Pointer<BatteryInfoFfi>.fromAddress(
+      (asyncResult as Pointer<Void>).address,
+    ).ref.toDart();
   }
 
   @override
-  int get lowPowerThreshold { checkDisposed(); return _getLowPowerThresholdPtr(); }
+  int get lowPowerThreshold {
+    checkDisposed();
+    return _getLowPowerThresholdPtr();
+  }
+
   @override
-  set lowPowerThreshold(int value) { checkDisposed(); _setLowPowerThresholdPtr(value); }
+  set lowPowerThreshold(int value) {
+    checkDisposed();
+    _setLowPowerThresholdPtr(value);
+  }
 
   @override
   Stream<int> get batteryLevelChanges {
@@ -108,5 +145,4 @@ class _NitroBatteryImpl extends NitroBattery {
       backpressure: Backpressure.dropLatest,
     );
   }
-
 }

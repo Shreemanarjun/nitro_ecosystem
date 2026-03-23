@@ -9,10 +9,10 @@ enum ChargingState { unknown, charging, discharging, full }
 /// Detailed battery information snapshot.
 @HybridStruct()
 class BatteryInfo {
-  final int level;           // 0-100
-  final int chargingState;   // ChargingState.nativeValue
-  final double voltage;      // volts (e.g. 4.15)
-  final double temperature;  // celsius (e.g. 28.5)
+  final int level; // 0-100
+  final int chargingState; // ChargingState.nativeValue
+  final double voltage; // volts (e.g. 4.15)
+  final double temperature; // celsius (e.g. 28.5)
 
   const BatteryInfo({
     required this.level,

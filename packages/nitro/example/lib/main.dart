@@ -18,10 +18,7 @@ class MyApp extends StatelessWidget {
     return MaterialApp(
       title: 'Nitro Modules Demo',
       debugShowCheckedModeBanner: false,
-      theme: ThemeData(
-        useMaterial3: true,
-        colorSchemeSeed: Colors.deepPurple,
-      ),
+      theme: ThemeData(useMaterial3: true, colorSchemeSeed: Colors.deepPurple),
       home: const _DemoPage(),
     );
   }
@@ -83,17 +80,14 @@ class _DemoPageState extends State<_DemoPage> {
       _bufferResult = 'Sent ${buf.lengthInBytes} bytes ✓';
 
       // Stream
-      _updatesSub = math.updates.listen(
-        (value) {
-          if (mounted) {
-            setState(() {
-              if (_streamEvents.length >= 5) _streamEvents.removeAt(0);
-              _streamEvents.add(value.toStringAsFixed(4));
-            });
-          }
-        },
-        onError: (_) {},
-      );
+      _updatesSub = math.updates.listen((value) {
+        if (mounted) {
+          setState(() {
+            if (_streamEvents.length >= 5) _streamEvents.removeAt(0);
+            _streamEvents.add(value.toStringAsFixed(4));
+          });
+        }
+      }, onError: (_) {});
     } catch (e) {
       _initError = e.toString();
     }
@@ -128,14 +122,16 @@ class _DemoPageState extends State<_DemoPage> {
               children: [
                 const Icon(Icons.error_outline, size: 64, color: Colors.red),
                 const SizedBox(height: 16),
-                const Text('Failed to load native library',
-                    style: TextStyle(
-                        fontSize: 18, fontWeight: FontWeight.bold)),
+                const Text(
+                  'Failed to load native library',
+                  style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+                ),
                 const SizedBox(height: 8),
-                Text(_initError!,
-                    style: const TextStyle(
-                        color: Colors.grey, fontSize: 12),
-                    textAlign: TextAlign.center),
+                Text(
+                  _initError!,
+                  style: const TextStyle(color: Colors.grey, fontSize: 12),
+                  textAlign: TextAlign.center,
+                ),
               ],
             ),
           ),
@@ -159,20 +155,18 @@ class _DemoPageState extends State<_DemoPage> {
               const SizedBox(width: 8),
               Text(
                 'Nitro Modules',
-                style: Theme.of(context)
-                    .textTheme
-                    .headlineSmall
-                    ?.copyWith(fontWeight: FontWeight.bold),
+                style: Theme.of(context).textTheme.headlineSmall?.copyWith(
+                  fontWeight: FontWeight.bold,
+                ),
               ),
             ],
           ),
           const SizedBox(height: 4),
           Text(
             'One .native.dart spec → native FFI. No boilerplate.',
-            style: Theme.of(context)
-                .textTheme
-                .bodySmall
-                ?.copyWith(color: Colors.grey),
+            style: Theme.of(
+              context,
+            ).textTheme.bodySmall?.copyWith(color: Colors.grey),
             textAlign: TextAlign.center,
           ),
           const SizedBox(height: 24),
@@ -194,8 +188,8 @@ class _DemoPageState extends State<_DemoPage> {
               result: snapshot.hasData
                   ? '${snapshot.data}'
                   : snapshot.hasError
-                      ? 'Error'
-                      : null,
+                  ? 'Error'
+                  : null,
             ),
           ),
           const SizedBox(height: 12),
@@ -225,9 +219,10 @@ class _DemoPageState extends State<_DemoPage> {
                       Text(
                         _precisionResult,
                         style: const TextStyle(
-                            fontSize: 24,
-                            fontWeight: FontWeight.bold,
-                            color: Colors.deepPurple),
+                          fontSize: 24,
+                          fontWeight: FontWeight.bold,
+                          color: Colors.deepPurple,
+                        ),
                       ),
                       const Spacer(),
                       IconButton.filled(
@@ -274,8 +269,11 @@ class _DemoPageState extends State<_DemoPage> {
                   Wrap(
                     spacing: 8,
                     children: Rounding.values
-                        .map((r) =>
-                            Chip(label: Text('${r.name}  (${r.nativeValue})')))
+                        .map(
+                          (r) => Chip(
+                            label: Text('${r.name}  (${r.nativeValue})'),
+                          ),
+                        )
                         .toList(),
                   ),
                 ],
@@ -297,14 +295,21 @@ class _DemoPageState extends State<_DemoPage> {
                   ),
                   const SizedBox(height: 8),
                   _streamEvents.isEmpty
-                      ? const Text('Waiting for events…',
-                          style: TextStyle(color: Colors.grey))
+                      ? const Text(
+                          'Waiting for events…',
+                          style: TextStyle(color: Colors.grey),
+                        )
                       : Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: _streamEvents.reversed
-                              .map((e) => Text('→ $e',
+                              .map(
+                                (e) => Text(
+                                  '→ $e',
                                   style: const TextStyle(
-                                      fontFamily: 'monospace')))
+                                    fontFamily: 'monospace',
+                                  ),
+                                ),
+                              )
                               .toList(),
                         ),
                 ],
@@ -330,13 +335,19 @@ class _FeatureLabel extends StatelessWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text(label,
-            style: const TextStyle(
-                fontWeight: FontWeight.bold, fontSize: 13)),
+        Text(
+          label,
+          style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
+        ),
         const SizedBox(height: 2),
-        Text(code,
-            style: const TextStyle(
-                color: Colors.grey, fontSize: 11, fontFamily: 'monospace')),
+        Text(
+          code,
+          style: const TextStyle(
+            color: Colors.grey,
+            fontSize: 11,
+            fontFamily: 'monospace',
+          ),
+        ),
       ],
     );
   }
@@ -359,19 +370,23 @@ class _FeatureCard extends StatelessWidget {
         padding: const EdgeInsets.all(16),
         child: Row(
           children: [
-            Expanded(child: _FeatureLabel(label: label, code: code)),
+            Expanded(
+              child: _FeatureLabel(label: label, code: code),
+            ),
             const SizedBox(width: 12),
             result == null
                 ? const SizedBox(
                     width: 20,
                     height: 20,
-                    child: CircularProgressIndicator(strokeWidth: 2))
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  )
                 : Text(
                     result!,
                     style: const TextStyle(
-                        fontSize: 20,
-                        fontWeight: FontWeight.bold,
-                        color: Colors.deepPurple),
+                      fontSize: 20,
+                      fontWeight: FontWeight.bold,
+                      color: Colors.deepPurple,
+                    ),
                   ),
           ],
         ),

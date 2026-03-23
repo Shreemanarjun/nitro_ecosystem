@@ -243,7 +243,8 @@ class _InitViewState extends State<InitView> {
     _setRunning(6);
     _writeBridgeSpec(pluginName, className);
     _writeExampleMain(pluginName, className);
-    _setDone(6, detail: 'lib/src/$pluginName.native.dart + example/lib/main.dart');
+    _setDone(6,
+        detail: 'lib/src/$pluginName.native.dart + example/lib/main.dart');
 
     component.result.success = true;
     component.result.pluginName = pluginName;
@@ -798,8 +799,7 @@ abstract class $className extends HybridObject {
   /// Overwrites the flutter-create template's example/lib/main.dart with a
   /// Nitro-aware version that has error handling, async support, and dispose.
   void _writeExampleMain(String pluginName, String className) {
-    final exampleLibDir =
-        Directory(p.join(pluginName, 'example', 'lib'));
+    final exampleLibDir = Directory(p.join(pluginName, 'example', 'lib'));
     exampleLibDir.createSync(recursive: true);
 
     File(p.join(exampleLibDir.path, 'main.dart'))

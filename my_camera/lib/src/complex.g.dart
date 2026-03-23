@@ -75,21 +75,63 @@ class _ComplexModuleImpl extends ComplexModule {
   final DynamicLibrary _dylib;
 
   _ComplexModuleImpl() : _dylib = NitroRuntime.loadLib('complex') {
-    final initFunc = _dylib.lookupFunction<IntPtr Function(Pointer<Void>), int Function(Pointer<Void>)>('InitDartApiDL');
+    final initFunc = _dylib
+        .lookupFunction<
+          IntPtr Function(Pointer<Void>),
+          int Function(Pointer<Void>)
+        >('InitDartApiDL');
     initFunc(NativeApi.initializeApiDLData);
   }
 
-  late final int Function(int, double, int) _calculatePtr = _dylib.lookupFunction<Int64 Function(Int64, Double, Int8), int Function(int, double, int)>('complex_module_calculate');
-  late final Pointer<Utf8> Function(Pointer<Utf8>) _fetchMetadataPtr = _dylib.lookupFunction<Pointer<Utf8> Function(Pointer<Utf8>), Pointer<Utf8> Function(Pointer<Utf8>)>('complex_module_fetch_metadata');
-  late final int Function() _getStatusPtr = _dylib.lookupFunction<Int64 Function(), int Function()>('complex_module_get_status');
-  late final void Function(Pointer<Void>) _updateSensorsPtr = _dylib.lookupFunction<Void Function(Pointer<Void>), void Function(Pointer<Void>)>('complex_module_update_sensors');
-  late final Pointer<Void> Function(int) _generatePacketPtr = _dylib.lookupFunction<Pointer<Void> Function(Int64), Pointer<Void> Function(int)>('complex_module_generate_packet');
-  late final double Function() _getBatteryLevelPtr = _dylib.lookupFunction<Double Function(), double Function()>('complex_module_get_battery_level');
-  late final void Function(Pointer<Utf8>) _setConfigPtr = _dylib.lookupFunction<Void Function(Pointer<Utf8>), void Function(Pointer<Utf8>)>('complex_module_set_config');
-  late final void Function(int) _registerSensorStreamPtr = _dylib.lookupFunction<Void Function(Int64), void Function(int)>('complex_module_register_sensor_stream_stream');
-  late final void Function(int) _releaseSensorStreamPtr = _dylib.lookupFunction<Void Function(Int64), void Function(int)>('complex_module_release_sensor_stream_stream');
-  late final void Function(int) _registerDataStreamPtr = _dylib.lookupFunction<Void Function(Int64), void Function(int)>('complex_module_register_data_stream_stream');
-  late final void Function(int) _releaseDataStreamPtr = _dylib.lookupFunction<Void Function(Int64), void Function(int)>('complex_module_release_data_stream_stream');
+  late final int Function(int, double, int) _calculatePtr = _dylib
+      .lookupFunction<
+        Int64 Function(Int64, Double, Int8),
+        int Function(int, double, int)
+      >('complex_module_calculate');
+  late final Pointer<Utf8> Function(Pointer<Utf8>) _fetchMetadataPtr = _dylib
+      .lookupFunction<
+        Pointer<Utf8> Function(Pointer<Utf8>),
+        Pointer<Utf8> Function(Pointer<Utf8>)
+      >('complex_module_fetch_metadata');
+  late final int Function() _getStatusPtr = _dylib
+      .lookupFunction<Int64 Function(), int Function()>(
+        'complex_module_get_status',
+      );
+  late final void Function(Pointer<Void>) _updateSensorsPtr = _dylib
+      .lookupFunction<
+        Void Function(Pointer<Void>),
+        void Function(Pointer<Void>)
+      >('complex_module_update_sensors');
+  late final Pointer<Void> Function(int) _generatePacketPtr = _dylib
+      .lookupFunction<
+        Pointer<Void> Function(Int64),
+        Pointer<Void> Function(int)
+      >('complex_module_generate_packet');
+  late final double Function() _getBatteryLevelPtr = _dylib
+      .lookupFunction<Double Function(), double Function()>(
+        'complex_module_get_battery_level',
+      );
+  late final void Function(Pointer<Utf8>) _setConfigPtr = _dylib
+      .lookupFunction<
+        Void Function(Pointer<Utf8>),
+        void Function(Pointer<Utf8>)
+      >('complex_module_set_config');
+  late final void Function(int) _registerSensorStreamPtr = _dylib
+      .lookupFunction<Void Function(Int64), void Function(int)>(
+        'complex_module_register_sensor_stream_stream',
+      );
+  late final void Function(int) _releaseSensorStreamPtr = _dylib
+      .lookupFunction<Void Function(Int64), void Function(int)>(
+        'complex_module_release_sensor_stream_stream',
+      );
+  late final void Function(int) _registerDataStreamPtr = _dylib
+      .lookupFunction<Void Function(Int64), void Function(int)>(
+        'complex_module_register_data_stream_stream',
+      );
+  late final void Function(int) _releaseDataStreamPtr = _dylib
+      .lookupFunction<Void Function(Int64), void Function(int)>(
+        'complex_module_release_data_stream_stream',
+      );
   @override
   // ignore: unnecessary_overrides
   void dispose() {
@@ -106,7 +148,9 @@ class _ComplexModuleImpl extends ComplexModule {
   Future<String> fetchMetadata(String url) async {
     checkDisposed();
     return withArena((arena) async {
-      final result = await NitroRuntime.callAsync(_fetchMetadataPtr, [url.toNativeUtf8(allocator: arena)]);
+      final result = await NitroRuntime.callAsync(_fetchMetadataPtr, [
+        url.toNativeUtf8(allocator: arena),
+      ]);
       return (result as Pointer<Utf8>).toDartStringWithFree();
     });
   }
@@ -120,28 +164,41 @@ class _ComplexModuleImpl extends ComplexModule {
   @override
   void updateSensors(SensorData data) {
     checkDisposed();
-    return withArena((arena) => _updateSensorsPtr(data.toNative(arena).cast<Void>()));
+    return withArena(
+      (arena) => _updateSensorsPtr(data.toNative(arena).cast<Void>()),
+    );
   }
 
   @override
   Future<Packet> generatePacket(int type) async {
     checkDisposed();
-    final asyncResult = await NitroRuntime.callAsync(_generatePacketPtr, [type]);
-    return Pointer<PacketFfi>.fromAddress((asyncResult as Pointer<Void>).address).ref.toDart();
+    final asyncResult = await NitroRuntime.callAsync(_generatePacketPtr, [
+      type,
+    ]);
+    return Pointer<PacketFfi>.fromAddress(
+      (asyncResult as Pointer<Void>).address,
+    ).ref.toDart();
   }
 
   @override
-  double get batteryLevel { checkDisposed(); return _getBatteryLevelPtr(); }
+  double get batteryLevel {
+    checkDisposed();
+    return _getBatteryLevelPtr();
+  }
 
   @override
-  set config(String value) { checkDisposed(); withArena((arena) => _setConfigPtr(value.toNativeUtf8(allocator: arena))); }
+  set config(String value) {
+    checkDisposed();
+    withArena((arena) => _setConfigPtr(value.toNativeUtf8(allocator: arena)));
+  }
 
   @override
   Stream<SensorData> get sensorStream {
     checkDisposed();
     return NitroRuntime.openStream<SensorData>(
       register: (port) => _registerSensorStreamPtr(port),
-      unpack: (rawPtr) => Pointer<SensorDataFfi>.fromAddress(rawPtr).ref.toDart(),
+      unpack: (rawPtr) =>
+          Pointer<SensorDataFfi>.fromAddress(rawPtr).ref.toDart(),
       release: (port) => _releaseSensorStreamPtr(port),
       backpressure: Backpressure.dropLatest,
     );
@@ -157,5 +214,4 @@ class _ComplexModuleImpl extends ComplexModule {
       backpressure: Backpressure.bufferDrop,
     );
   }
-
 }

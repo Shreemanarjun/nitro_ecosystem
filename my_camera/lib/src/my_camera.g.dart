@@ -43,14 +43,32 @@ class _MyCameraImpl extends MyCamera {
   final DynamicLibrary _dylib;
 
   _MyCameraImpl() : _dylib = NitroRuntime.loadLib('my_camera') {
-    final initFunc = _dylib.lookupFunction<IntPtr Function(Pointer<Void>), int Function(Pointer<Void>)>('InitDartApiDL');
+    final initFunc = _dylib
+        .lookupFunction<
+          IntPtr Function(Pointer<Void>),
+          int Function(Pointer<Void>)
+        >('InitDartApiDL');
     initFunc(NativeApi.initializeApiDLData);
   }
 
-  late final double Function(double, double) _addPtr = _dylib.lookupFunction<Double Function(Double, Double), double Function(double, double)>('my_camera_add');
-  late final Pointer<Utf8> Function(Pointer<Utf8>) _getGreetingPtr = _dylib.lookupFunction<Pointer<Utf8> Function(Pointer<Utf8>), Pointer<Utf8> Function(Pointer<Utf8>)>('my_camera_get_greeting');
-  late final void Function(int) _registerFramesPtr = _dylib.lookupFunction<Void Function(Int64), void Function(int)>('my_camera_register_frames_stream');
-  late final void Function(int) _releaseFramesPtr = _dylib.lookupFunction<Void Function(Int64), void Function(int)>('my_camera_release_frames_stream');
+  late final double Function(double, double) _addPtr = _dylib
+      .lookupFunction<
+        Double Function(Double, Double),
+        double Function(double, double)
+      >('my_camera_add');
+  late final Pointer<Utf8> Function(Pointer<Utf8>) _getGreetingPtr = _dylib
+      .lookupFunction<
+        Pointer<Utf8> Function(Pointer<Utf8>),
+        Pointer<Utf8> Function(Pointer<Utf8>)
+      >('my_camera_get_greeting');
+  late final void Function(int) _registerFramesPtr = _dylib
+      .lookupFunction<Void Function(Int64), void Function(int)>(
+        'my_camera_register_frames_stream',
+      );
+  late final void Function(int) _releaseFramesPtr = _dylib
+      .lookupFunction<Void Function(Int64), void Function(int)>(
+        'my_camera_release_frames_stream',
+      );
   @override
   // ignore: unnecessary_overrides
   void dispose() {
@@ -67,7 +85,9 @@ class _MyCameraImpl extends MyCamera {
   Future<String> getGreeting(String name) async {
     checkDisposed();
     return withArena((arena) async {
-      final result = await NitroRuntime.callAsync(_getGreetingPtr, [name.toNativeUtf8(allocator: arena)]);
+      final result = await NitroRuntime.callAsync(_getGreetingPtr, [
+        name.toNativeUtf8(allocator: arena),
+      ]);
       return (result as Pointer<Utf8>).toDartStringWithFree();
     });
   }
@@ -77,10 +97,10 @@ class _MyCameraImpl extends MyCamera {
     checkDisposed();
     return NitroRuntime.openStream<CameraFrame>(
       register: (port) => _registerFramesPtr(port),
-      unpack: (rawPtr) => Pointer<CameraFrameFfi>.fromAddress(rawPtr).ref.toDart(),
+      unpack: (rawPtr) =>
+          Pointer<CameraFrameFfi>.fromAddress(rawPtr).ref.toDart(),
       release: (port) => _releaseFramesPtr(port),
       backpressure: Backpressure.dropLatest,
     );
   }
-
 }

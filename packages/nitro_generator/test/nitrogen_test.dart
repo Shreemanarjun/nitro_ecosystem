@@ -956,7 +956,12 @@ void main() {
 
     test('dispose() override is emitted in generated impl', () {
       final out = DartFfiGenerator.generate(_simpleSpec());
-      expect(out, contains('@override\n  // ignore: unnecessary_overrides\n  void dispose() {'));
+      expect(
+        out,
+        contains(
+          '@override\n  // ignore: unnecessary_overrides\n  void dispose() {',
+        ),
+      );
       expect(out, contains('super.dispose();'));
     });
 
@@ -1336,7 +1341,10 @@ void main() {
             name: 'Result',
             packed: false,
             fields: [
-              BridgeField(name: 'value', type: BridgeType(name: 'double')),
+              BridgeField(
+                name: 'value',
+                type: BridgeType(name: 'double'),
+              ),
             ],
           ),
         ],
@@ -1353,7 +1361,10 @@ void main() {
       final out = SwiftGenerator.generate(spec);
       expect(out, contains('@_cdecl("_call_getResult")'));
       expect(out, contains('-> UnsafeMutableRawPointer?'));
-      expect(out, contains('UnsafeMutablePointer<Result>.allocate(capacity: 1)'));
+      expect(
+        out,
+        contains('UnsafeMutablePointer<Result>.allocate(capacity: 1)'),
+      );
       expect(out, contains('ptr.initialize(to: result)'));
       expect(out, contains('return UnsafeMutableRawPointer(ptr)'));
     });
@@ -1412,24 +1423,23 @@ void main() {
       final out = SwiftGenerator.generate(_simpleSpec());
       expect(out, contains('_ name: UnsafePointer<CChar>?'));
       // Bare "String" must NOT appear as a @_cdecl param type
-      expect(
-        out,
-        isNot(contains('_ name: String')),
-      );
+      expect(out, isNot(contains('_ name: String')));
     });
 
-    test('async String return type is UnsafeMutablePointer<CChar>? not String',
-        () {
-      final out = SwiftGenerator.generate(_simpleSpec());
-      // getGreeting async -> String: return type must be C pointer
-      expect(out, contains('-> UnsafeMutablePointer<CChar>?'));
-      // Swift's fat String must NOT appear as @_cdecl return type
-      final cdeclLine = out
-          .split('\n')
-          .where((l) => l.contains('public func _call_getGreeting('))
-          .join();
-      expect(cdeclLine, isNot(contains('-> String')));
-    });
+    test(
+      'async String return type is UnsafeMutablePointer<CChar>? not String',
+      () {
+        final out = SwiftGenerator.generate(_simpleSpec());
+        // getGreeting async -> String: return type must be C pointer
+        expect(out, contains('-> UnsafeMutablePointer<CChar>?'));
+        // Swift's fat String must NOT appear as @_cdecl return type
+        final cdeclLine = out
+            .split('\n')
+            .where((l) => l.contains('public func _call_getGreeting('))
+            .join();
+        expect(cdeclLine, isNot(contains('-> String')));
+      },
+    );
 
     test('String param conversion emitted before call', () {
       final out = SwiftGenerator.generate(_simpleSpec());
@@ -1497,12 +1507,7 @@ void main() {
 
     test('String property setter converts with String(cString:)', () {
       final out = SwiftGenerator.generate(_enumSpec());
-      expect(
-        out,
-        contains(
-          'value.map { String(cString: \$0) } ?? ""',
-        ),
-      );
+      expect(out, contains('value.map { String(cString: \$0) } ?? ""'));
     });
 
     test('no @_cdecl function uses bare Swift String as param or return', () {
