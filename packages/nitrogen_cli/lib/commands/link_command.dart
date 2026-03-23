@@ -9,9 +9,8 @@ import 'package:path/path.dart' as p;
 /// Returns null when the annotation has no explicit `lib` parameter.
 String? extractLibNameFromSpec(File specFile) {
   final content = specFile.readAsStringSync();
-  final match =
-      RegExp(r'''@NitroModule\s*\([^)]*lib\s*:\s*['"]([^'"]+)['"]''')
-          .firstMatch(content);
+  final match = RegExp(r'''@NitroModule\s*\([^)]*lib\s*:\s*['"]([^'"]+)['"]''')
+      .firstMatch(content);
   return match?.group(1);
 }
 
@@ -415,7 +414,8 @@ endif()
         r'"${PODS_ROOT}/../.symlinks/plugins/nitro/src/native"';
     if (!content.contains('HEADER_SEARCH_PATHS')) {
       // Use triple-quote raw string so the embedded `"` chars don't end it.
-      const entry = r"""'HEADER_SEARCH_PATHS' => '$(inherited) "${PODS_ROOT}/../.symlinks/plugins/nitro/src/native"'""";
+      const entry =
+          r"""'HEADER_SEARCH_PATHS' => '$(inherited) "${PODS_ROOT}/../.symlinks/plugins/nitro/src/native"'""";
       content = content.replaceFirst(
         's.pod_target_xcconfig = {',
         's.pod_target_xcconfig = {\n    $entry,',
