@@ -30,7 +30,7 @@ public struct Packet {
 public protocol HybridComplexModuleProtocol: AnyObject {
     func calculate(seed: Int64, factor: Double, enabled: Bool) -> Int64
     func fetchMetadata(url: String) async throws -> String
-    func getStatus() -> Any?
+    func getStatus() -> Int64
     func updateSensors(data: SensorData) -> Void
     func generatePacket(type: Int64) async throws -> Packet
     var batteryLevel: Double { get }
@@ -54,8 +54,8 @@ public class ComplexModuleRegistry: NSObject {
     @objc public static func _call_fetchMetadata(_ url: String) -> String {
         return impl?.fetchMetadata(url: url) ?? ""
     }
-    @objc public static func _call_getStatus() -> Any? {
-        return impl?.getStatus() ?? ()
+    @objc public static func _call_getStatus() -> Int64 {
+        return impl?.getStatus() ?? 0
     }
     @objc public static func _call_updateSensors(_ data: SensorData) -> Void {
         impl?.updateSensors(data: data)
