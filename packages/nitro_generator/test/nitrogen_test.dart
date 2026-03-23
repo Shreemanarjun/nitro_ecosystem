@@ -1297,9 +1297,122 @@ void main() {
       expect(out, contains('class MyCameraRegistry'));
     });
 
-    test('_call_ stub emitted for each function', () {
+    test('_call_ stub uses @_cdecl attribute', () {
       final out = SwiftGenerator.generate(_simpleSpec());
-      expect(out, contains('@objc public static func _call_add('));
+      expect(out, contains('@_cdecl("_call_add")'));
+    });
+
+    test('_call_ stub is a top-level func (not static)', () {
+      final out = SwiftGenerator.generate(_simpleSpec());
+      expect(out, contains('public func _call_add('));
+      expect(out, isNot(contains('static func _call_add')));
+    });
+
+    test('registry class has no @objc or NSObject', () {
+      final out = SwiftGenerator.generate(_simpleSpec());
+      expect(out, isNot(contains('@objc')));
+      expect(out, isNot(contains('NSObject')));
+    });
+
+    test('bool return type uses Int8 in @_cdecl stub', () {
+      final out = SwiftGenerator.generate(_richSpec());
+      expect(out, contains('@_cdecl("_call_isReady")'));
+      expect(out, contains('public func _call_isReady('));
+      expect(out, contains('-> Int8'));
+      expect(out, contains('? 1 : 0'));
+    });
+
+    test('sync struct return type uses UnsafeMutableRawPointer?', () {
+      // _richSpec() has sync struct return: push() returns void but has struct param
+      // Use a spec with sync struct return explicitly
+      final spec = BridgeSpec(
+        dartClassName: 'Foo',
+        lib: 'foo',
+        namespace: 'foo',
+        iosImpl: NativeImpl.swift,
+        androidImpl: NativeImpl.kotlin,
+        sourceUri: 'foo.native.dart',
+        structs: [
+          BridgeStruct(
+            name: 'Result',
+            packed: false,
+            fields: [
+              BridgeField(name: 'value', type: BridgeType(name: 'double')),
+            ],
+          ),
+        ],
+        functions: [
+          BridgeFunction(
+            dartName: 'getResult',
+            cSymbol: 'foo_get_result',
+            isAsync: false,
+            returnType: BridgeType(name: 'Result'),
+            params: [],
+          ),
+        ],
+      );
+      final out = SwiftGenerator.generate(spec);
+      expect(out, contains('@_cdecl("_call_getResult")'));
+      expect(out, contains('-> UnsafeMutableRawPointer?'));
+      expect(out, contains('UnsafeMutablePointer<Result>.allocate(capacity: 1)'));
+      expect(out, contains('ptr.initialize(to: result)'));
+      expect(out, contains('return UnsafeMutableRawPointer(ptr)'));
+    });
+
+    test('async struct return uses DispatchSemaphore + Task.detached', () {
+      final out = SwiftGenerator.generate(_richSpec());
+      expect(out, contains('@_cdecl("_call_fetchReading")'));
+      expect(out, contains('DispatchSemaphore(value: 0)'));
+      expect(out, contains('Task.detached'));
+      expect(out, contains('sema.signal()'));
+      expect(out, contains('sema.wait()'));
+      expect(out, contains('-> UnsafeMutableRawPointer?'));
+    });
+
+    test('async void return uses DispatchSemaphore pattern', () {
+      final spec = BridgeSpec(
+        dartClassName: 'Foo',
+        lib: 'foo',
+        namespace: 'foo',
+        iosImpl: NativeImpl.swift,
+        androidImpl: NativeImpl.kotlin,
+        sourceUri: 'foo.native.dart',
+        functions: [
+          BridgeFunction(
+            dartName: 'doAsync',
+            cSymbol: 'foo_do_async',
+            isAsync: true,
+            returnType: BridgeType(name: 'void'),
+            params: [],
+          ),
+        ],
+      );
+      final out = SwiftGenerator.generate(spec);
+      expect(out, contains('@_cdecl("_call_doAsync")'));
+      expect(out, contains('DispatchSemaphore(value: 0)'));
+      expect(out, contains('Task.detached'));
+      expect(out, contains('sema.wait()'));
+    });
+
+    test('async non-struct non-void return uses result var + semaphore', () {
+      final out = SwiftGenerator.generate(_simpleSpec());
+      // getGreeting is async String
+      expect(out, contains('@_cdecl("_call_getGreeting")'));
+      expect(out, contains('DispatchSemaphore(value: 0)'));
+      expect(out, contains('var result: String? = nil'));
+      expect(out, contains('return result ??'));
+    });
+
+    test('registry stores stream cancellables', () {
+      final out = SwiftGenerator.generate(_richSpec());
+      expect(out, contains('_ticksCancellables'));
+      expect(out, contains('[Int64: AnyCancellable]()'));
+    });
+
+    test('@_cdecl stream register/release emitted', () {
+      final out = SwiftGenerator.generate(_richSpec());
+      expect(out, contains('@_cdecl("_register_ticks_stream")'));
+      expect(out, contains('@_cdecl("_release_ticks_stream")'));
     });
 
     test('Swift enum emitted as Int64', () {
