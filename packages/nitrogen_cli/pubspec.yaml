@@ -1,9 +1,18 @@
 name: nitrogen_cli
 description: "CLI for Nitrogen Modules. Scaffold new Flutter FFI plugins and generate native bridge code."
 version: 0.1.6
-homepage: https://github.com/Shreemanarjun/nitro_ecosystem
-repository: https://github.com/Shreemanarjun/nitro_ecosystem/tree/main/packages/nitrogen_cli
+homepage: https://www.shreeman.dev
+repository: https://github.com/Shreemanarjun/nitro_ecosystem
 issue_tracker: https://github.com/Shreemanarjun/nitro_ecosystem/issues
+documentation: https://nitro.shreeman.dev/
+funding:
+  - https://buymeacoffee.com/shreemanarjun
+topics:
+  - cli
+  - codegen
+  - ffi
+  - flutter
+  - native
 
 environment:
   sdk: ^3.4.0
