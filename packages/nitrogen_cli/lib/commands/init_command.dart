@@ -389,7 +389,8 @@ endif()
   }
 
   void _configureIos(String pluginName, String className) {
-    final classesDir = Directory(p.join(pluginName, 'ios', 'Classes'));
+    final iosDir = Directory(p.join(pluginName, 'ios'));
+    final classesDir = Directory(p.join(iosDir.path, 'Classes'));
     if (!classesDir.existsSync()) classesDir.createSync(recursive: true);
 
     final oldC = File(p.join(classesDir.path, '$pluginName.c'));
@@ -402,8 +403,11 @@ endif()
     File(p.join(classesDir.path, '$pluginName.cpp'))
         .writeAsStringSync('#include "../../src/$pluginName.cpp"\n');
 
-    File(p.join(classesDir.path, 'dart_api_dl.cpp')).writeAsStringSync(
-        '// Forwarder — compiled by CocoaPods so Dart DL API is available in the dylib.\n'
+    // Must be a .c file (not .cpp) so the compiler treats dart_api_dl content
+    // as C, not C++. C++ rejects the void*/function-pointer cast inside it.
+    File(p.join(classesDir.path, 'dart_api_dl.c')).writeAsStringSync(
+        '// Forwarder — compiled by CocoaPods/SPM so the Dart DL API is\n'
+        '// available in the dylib. Kept as .c so it compiles as C, not C++.\n'
         '#include "../../../packages/nitro/src/native/dart_api_dl.c"\n');
 
     File(p.join(classesDir.path, 'Swift${className}Plugin.swift'))
@@ -417,22 +421,113 @@ public class Swift${className}Plugin: NSObject, FlutterPlugin {
 }
 ''');
 
-    final podspecFile = File(p.join(pluginName, 'ios', '$pluginName.podspec'));
+    // Symlink so CocoaPods (Classes/**/*) picks up the generated Swift bridge
+    // without needing a path outside the pod root. The target file is created
+    // later by `nitrogen generate`; a dangling symlink here is intentional.
+    final symlinkPath =
+        p.join(classesDir.path, '$pluginName.bridge.g.swift');
+    final symlinkTarget =
+        '../../lib/src/generated/swift/$pluginName.bridge.g.swift';
+    final link = Link(symlinkPath);
+    if (link.existsSync()) link.deleteSync();
+    link.createSync(symlinkTarget);
+
+    final podspecFile = File(p.join(iosDir.path, '$pluginName.podspec'));
     if (podspecFile.existsSync()) {
       var content = podspecFile.readAsStringSync();
       content = content.replaceFirst(
           RegExp(r"s\.platform = :ios, '[\d.]+'"), "s.platform = :ios, '13.0'");
       content = content.replaceFirst(
           RegExp(r"s\.swift_version = '[\d.]+'"), "s.swift_version = '5.9'");
-      const xcconfig = '''s.pod_target_xcconfig = {
+      // HEADER_SEARCH_PATHS uses ${PODS_ROOT}/../.symlinks/plugins/nitro/src/native
+      // so it works whether `nitro` is a local path dep or from pub.dev.
+      const xcconfig = r"""s.pod_target_xcconfig = {
+    'DEFINES_MODULE' => 'YES',
     'CLANG_CXX_LANGUAGE_STANDARD' => 'c++17',
     'CLANG_CXX_LIBRARY' => 'libc++',
-    'HEADER_SEARCH_PATHS' => '\$(inherited) "\${PODS_TARGET_SRCROOT}/../../../packages/nitro/src/native"'
-  }''';
+    'HEADER_SEARCH_PATHS' => '$(inherited) "${PODS_ROOT}/../.symlinks/plugins/nitro/src/native"'
+  }""";
       content = content.replaceFirst(
           RegExp(r's\.pod_target_xcconfig\s*=\s*\{[^}]*\}'), xcconfig);
       podspecFile.writeAsStringSync(content);
     }
+
+    // Package.swift — enables SPM distribution alongside CocoaPods.
+    // Uses separate targets because SPM cannot mix Swift + C++ in one target.
+    _writeIosPackageSwift(iosDir.path, pluginName, className);
+  }
+
+  void _writeIosPackageSwift(
+      String iosPath, String pluginName, String className) {
+    // SPM Sources layout (separate dirs required for mixed Swift/C++ targets):
+    //   Sources/<ClassName>/     — Swift files (symlinks to Classes/*.swift)
+    //   Sources/<ClassName>Cpp/  — C/C++ files (symlinks to Classes/*.cpp/.c)
+    final swiftSrcDir =
+        Directory(p.join(iosPath, 'Sources', className));
+    final cppSrcDir =
+        Directory(p.join(iosPath, 'Sources', '${className}Cpp'));
+    swiftSrcDir.createSync(recursive: true);
+    cppSrcDir.createSync(recursive: true);
+
+    // Swift symlinks
+    for (final name in [
+      'Swift${className}Plugin.swift',
+      '${className}Impl.swift',
+      '$pluginName.bridge.g.swift',
+    ]) {
+      final lnk = Link(p.join(swiftSrcDir.path, name));
+      if (!lnk.existsSync()) {
+        lnk.createSync('../../Classes/$name');
+      }
+    }
+
+    // C/C++ symlinks
+    for (final name in ['$pluginName.cpp', 'dart_api_dl.c']) {
+      final lnk = Link(p.join(cppSrcDir.path, name));
+      if (!lnk.existsSync()) {
+        lnk.createSync('../../Classes/$name');
+      }
+    }
+    // Public headers dir — symlink to Classes/ so SPM can find .h files
+    final includeLink = Link(p.join(cppSrcDir.path, 'include'));
+    if (!includeLink.existsSync()) {
+      includeLink.createSync('../../Classes');
+    }
+
+    File(p.join(iosPath, 'Package.swift')).writeAsStringSync('''// swift-tools-version: 5.9
+import PackageDescription
+
+let package = Package(
+    name: "$pluginName",
+    platforms: [.iOS(.v13)],
+    products: [
+        .library(name: "$pluginName", targets: ["$pluginName"]),
+    ],
+    targets: [
+        // C/C++ bridge — SPM requires Swift and C++ in separate targets.
+        .target(
+            name: "${className}Cpp",
+            path: "Sources/${className}Cpp",
+            publicHeadersPath: "include",
+            cxxSettings: [
+                .headerSearchPath("include"),
+                .unsafeFlags([
+                    "-std=c++17",
+                    // nitro's dart_api_dl.h — resolved via Flutter's symlink
+                    // so this works for both local path and pub.dev references.
+                    "-I../../.symlinks/plugins/nitro/src/native",
+                ])
+            ]
+        ),
+        // Swift implementation + generated bridge.
+        .target(
+            name: "$pluginName",
+            dependencies: ["${className}Cpp"],
+            path: "Sources/$className"
+        ),
+    ]
+)
+''');
   }
 
   void _configureAndroid(String pluginName, String className, String org) {
@@ -494,7 +589,7 @@ dependencies {
 package $org.$pluginName
 
 import io.flutter.embedding.engine.plugins.FlutterPlugin
-import nitro.${moduleName}.${className}JniBridge
+import nitro.$moduleName.${className}JniBridge
 
 class ${className}Plugin : FlutterPlugin {
 
@@ -552,7 +647,7 @@ class ${className}Plugin : FlutterPlugin {
     File(p.join(libSrcDir.path, '$pluginName.native.dart'))
         .writeAsStringSync('''import 'package:nitro/nitro.dart';
 
-part '${pluginName}.g.dart';
+part '$pluginName.g.dart';
 
 @NitroModule(ios: NativeImpl.swift, android: NativeImpl.kotlin)
 abstract class $className extends HybridObject {

@@ -399,23 +399,136 @@ endif()
           RegExp(r"s\.platform = :ios, '.+?'"), "s.platform = :ios, '13.0'");
       modified = true;
     }
-    const searchPathEntry =
-        "'HEADER_SEARCH_PATHS' => '\$(inherited) \"\${PODS_TARGET_SRCROOT}/../../../packages/nitro/src/native\"'";
+
+    // Use ${PODS_ROOT}/../.symlinks/plugins/nitro/src/native so the path works
+    // whether `nitro` is a local path dependency or installed from pub.dev.
+    const correctSearchPath =
+        r'"${PODS_ROOT}/../.symlinks/plugins/nitro/src/native"';
     if (!content.contains('HEADER_SEARCH_PATHS')) {
+      // Use triple-quote raw string so the embedded `"` chars don't end it.
+      const entry = r"""'HEADER_SEARCH_PATHS' => '$(inherited) "${PODS_ROOT}/../.symlinks/plugins/nitro/src/native"'""";
       content = content.replaceFirst(
         's.pod_target_xcconfig = {',
-        's.pod_target_xcconfig = {\n    $searchPathEntry,',
+        's.pod_target_xcconfig = {\n    $entry,',
+      );
+      modified = true;
+    } else if (content.contains('PODS_TARGET_SRCROOT') &&
+        content.contains('HEADER_SEARCH_PATHS') &&
+        !content.contains(correctSearchPath)) {
+      // Migrate from the old (wrong) path to the correct one.
+      content = content.replaceFirst(
+        RegExp(
+            r'''\$\{PODS_TARGET_SRCROOT\}\/\.\.\/(\.\.\/)*packages\/nitro\/src\/native'''),
+        r'${PODS_ROOT}/../.symlinks/plugins/nitro/src/native',
       );
       modified = true;
     }
+
+    if (!content.contains("'DEFINES_MODULE' => 'YES'")) {
+      content = content.replaceFirst(
+        's.pod_target_xcconfig = {',
+        "s.pod_target_xcconfig = {\n    'DEFINES_MODULE' => 'YES',",
+      );
+      modified = true;
+    }
+
     if (modified) podspecFile.writeAsStringSync(content);
 
-    final dartApiDl = File(p.join('ios', 'Classes', 'dart_api_dl.cpp'));
-    if (!dartApiDl.existsSync()) {
-      dartApiDl.createSync(recursive: true);
-      dartApiDl.writeAsStringSync('// Forwarder for Nitro/FFI Dart DL API\n'
+    final classesDir = Directory(p.join('ios', 'Classes'));
+    classesDir.createSync(recursive: true);
+
+    // dart_api_dl MUST be a .c file so the compiler treats its contents as C,
+    // not C++. C++ rejects the void*/function-pointer cast inside dart_api_dl.c.
+    final dartApiDlCpp = File(p.join(classesDir.path, 'dart_api_dl.cpp'));
+    if (dartApiDlCpp.existsSync()) dartApiDlCpp.deleteSync();
+
+    final dartApiDlC = File(p.join(classesDir.path, 'dart_api_dl.c'));
+    if (!dartApiDlC.existsSync()) {
+      dartApiDlC.writeAsStringSync(
+          '// Forwarder — compiled by CocoaPods/SPM so the Dart DL API is\n'
+          '// available in the dylib. Kept as .c so it compiles as C, not C++.\n'
           '#include "../../../packages/nitro/src/native/dart_api_dl.c"\n');
     }
+
+    // Symlink so CocoaPods (Classes/**/*) picks up the generated Swift bridge
+    // without needing a path outside the pod root.
+    final symlinkPath = p.join(classesDir.path, '$pluginName.bridge.g.swift');
+    final symlinkTarget =
+        '../../lib/src/generated/swift/$pluginName.bridge.g.swift';
+    final link = Link(symlinkPath);
+    if (!link.existsSync()) {
+      link.createSync(symlinkTarget);
+    }
+
+    // Package.swift — ensure it exists (created by init; re-create if missing).
+    _ensureIosPackageSwift(pluginName);
+  }
+
+  void _ensureIosPackageSwift(String pluginName) {
+    final packageSwift = File(p.join('ios', 'Package.swift'));
+    if (packageSwift.existsSync()) return;
+
+    final className = pluginName
+        .split('_')
+        .map((w) => w.isEmpty ? '' : w[0].toUpperCase() + w.substring(1))
+        .join('');
+
+    final swiftSrcDir = Directory(p.join('ios', 'Sources', className));
+    final cppSrcDir = Directory(p.join('ios', 'Sources', '${className}Cpp'));
+    swiftSrcDir.createSync(recursive: true);
+    cppSrcDir.createSync(recursive: true);
+
+    for (final name in [
+      'Swift${className}Plugin.swift',
+      '${className}Impl.swift',
+      '$pluginName.bridge.g.swift',
+    ]) {
+      final lnk = Link(p.join(swiftSrcDir.path, name));
+      if (!lnk.existsSync()) lnk.createSync('../../Classes/$name');
+    }
+
+    for (final name in ['$pluginName.cpp', 'dart_api_dl.c']) {
+      final lnk = Link(p.join(cppSrcDir.path, name));
+      if (!lnk.existsSync()) lnk.createSync('../../Classes/$name');
+    }
+
+    final includeLink = Link(p.join(cppSrcDir.path, 'include'));
+    if (!includeLink.existsSync()) {
+      includeLink.createSync('../../Classes');
+    }
+
+    packageSwift.writeAsStringSync('''// swift-tools-version: 5.9
+import PackageDescription
+
+let package = Package(
+    name: "$pluginName",
+    platforms: [.iOS(.v13)],
+    products: [
+        .library(name: "$pluginName", targets: ["$pluginName"]),
+    ],
+    targets: [
+        // C/C++ bridge — SPM requires Swift and C++ in separate targets.
+        .target(
+            name: "${className}Cpp",
+            path: "Sources/${className}Cpp",
+            publicHeadersPath: "include",
+            cxxSettings: [
+                .headerSearchPath("include"),
+                .unsafeFlags([
+                    "-std=c++17",
+                    "-I../../.symlinks/plugins/nitro/src/native",
+                ])
+            ]
+        ),
+        // Swift implementation + generated bridge.
+        .target(
+            name: "$pluginName",
+            dependencies: ["${className}Cpp"],
+            path: "Sources/$className"
+        ),
+    ]
+)
+''');
   }
 
   void _linkKotlinPlugin(String pluginName, List<String> moduleLibs) {
