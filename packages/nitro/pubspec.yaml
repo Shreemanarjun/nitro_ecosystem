@@ -3,15 +3,17 @@ description: >
   High-performance Native Modules for Flutter (Nitro Modules equivalent).
   Runtime support for .native.dart spec generated bridges.
 version: 0.1.0
-homepage: https://github.com/Shreemanarjun/nitro_ecosystem
-repository: https://github.com/Shreemanarjun/nitro_ecosystem/tree/main/packages/nitro
+homepage: https://www.shreeman.dev
+repository: https://github.com/Shreemanarjun/nitro_ecosystem
 issue_tracker: https://github.com/Shreemanarjun/nitro_ecosystem/issues
-documentation: https://github.com/Shreemanarjun/nitro_ecosystem/tree/main/packages/nitro
+documentation: https://nitro.shreeman.dev/
+funding:
+  - https://buymeacoffee.com/shreemanarjun
 topics:
-  - native
   - ffi
+  - flutter
+  - native
   - bridge
-  - low-level
   - high-performance
 
 environment:

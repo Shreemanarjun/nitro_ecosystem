@@ -43,13 +43,13 @@ abstract class MyPlugin extends HybridObject {}
     });
 
     test('extracts lib when lib comes before other params', () {
-      final f = spec(
-          "@NitroModule(lib: 'sensor_hub', ios: NativeImpl.swift)");
+      final f = spec("@NitroModule(lib: 'sensor_hub', ios: NativeImpl.swift)");
       expect(extractLibNameFromSpec(f), equals('sensor_hub'));
     });
 
     test('returns null when no lib param present', () {
-      final f = spec('@NitroModule(ios: NativeImpl.swift, android: NativeImpl.kotlin)');
+      final f = spec(
+          '@NitroModule(ios: NativeImpl.swift, android: NativeImpl.kotlin)');
       expect(extractLibNameFromSpec(f), isNull);
     });
 
@@ -149,8 +149,7 @@ abstract class MyPlugin extends HybridObject {}
   // ── iOS podspec content ─────────────────────────────────────────────────────
 
   group('iOS podspec header search path', () {
-    const correctPath =
-        r'"${PODS_ROOT}/../.symlinks/plugins/nitro/src/native"';
+    const correctPath = r'"${PODS_ROOT}/../.symlinks/plugins/nitro/src/native"';
 
     test('correct path contains PODS_ROOT symlinks reference', () {
       expect(correctPath, contains(r'${PODS_ROOT}'));
@@ -214,8 +213,7 @@ public class ${className}Impl: NSObject, Hybrid${className}Protocol {
   // ── Kotlin impl starter template ────────────────────────────────────────────
 
   group('Kotlin impl starter template', () {
-    String kotlinImplTemplate(
-        String org, String pluginName, String className) {
+    String kotlinImplTemplate(String org, String pluginName, String className) {
       final moduleName = '${pluginName}_module';
       return '''
 package $org.$pluginName
