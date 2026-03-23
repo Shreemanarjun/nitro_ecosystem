@@ -1,3 +1,6 @@
+## 0.1.1
+- Update nitrogen to nitro_generator
+
 ## 0.1.0
 
 - Integrated interactive TUI dashboard using `nocterm`.
@@ -8,6 +11,4 @@
 - Added `nitrogen update` with `pub.dev` version checking.
 - Improved terminal UI with Centered layouts and progress rows.
 
-## 0.1.0
 
-- Initial version.
