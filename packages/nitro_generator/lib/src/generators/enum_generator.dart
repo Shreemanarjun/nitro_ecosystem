@@ -14,7 +14,9 @@ class EnumGenerator {
       s.writeln('}');
       s.writeln();
       s.writeln('extension ${e.name}FromNativeExt on int {');
-      s.writeln('  ${e.name} to${e.name}() => ${e.name}.values[this - ${e.startValue}];');
+      s.writeln(
+        '  ${e.name} to${e.name}() => ${e.name}.values[this - ${e.startValue}];',
+      );
       s.writeln('}');
       s.writeln();
     }
@@ -29,7 +31,9 @@ class EnumGenerator {
       s.writeln('typedef enum {');
       var val = e.startValue;
       for (final v in e.values) {
-        s.writeln('  ${e.name.toUpperCase()}_${_toScreamingSnake(v)} = ${val++},');
+        s.writeln(
+          '  ${e.name.toUpperCase()}_${_toScreamingSnake(v)} = ${val++},',
+        );
       }
       s.writeln('} ${e.name};');
       s.writeln();
@@ -51,7 +55,9 @@ class EnumGenerator {
       }
       s.writeln();
       s.writeln('  companion object {');
-      s.writeln('    fun fromNative(v: Long): ${e.name} = values().first { it.nativeValue == v }');
+      s.writeln(
+        '    fun fromNative(v: Long): ${e.name} = values().first { it.nativeValue == v }',
+      );
       s.writeln('  }');
       s.writeln('}');
       s.writeln();
@@ -77,7 +83,10 @@ class EnumGenerator {
 
   static String _toScreamingSnake(String camel) {
     return camel
-        .replaceAllMapped(RegExp(r'([a-z0-9])([A-Z])'), (m) => '${m[1]}_${m[2]}')
+        .replaceAllMapped(
+          RegExp(r'([a-z0-9])([A-Z])'),
+          (m) => '${m[1]}_${m[2]}',
+        )
         .toUpperCase();
   }
 }

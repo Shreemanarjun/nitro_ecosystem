@@ -24,7 +24,9 @@ class CppBridgeGenerator {
     s.writeln('#ifdef __ANDROID__');
     s.writeln('#include <jni.h>');
     s.writeln('#include <android/log.h>');
-    s.writeln('#define LOGE(...) __android_log_print(ANDROID_LOG_ERROR, "Nitrogen", __VA_ARGS__)');
+    s.writeln(
+      '#define LOGE(...) __android_log_print(ANDROID_LOG_ERROR, "Nitrogen", __VA_ARGS__)',
+    );
     s.writeln();
     s.writeln('static JavaVM* g_jvm = nullptr;');
     s.writeln('static jclass g_bridgeClass = nullptr;');
@@ -33,21 +35,35 @@ class CppBridgeGenerator {
     // JNI struct unpack helpers (C struct → Java object)
     for (final st in spec.structs) {
       // pack: Java object → C struct (used for stream emit and return values)
-      s.writeln('static ${st.name} pack_${st.name}_from_jni(JNIEnv* env, jobject obj) {');
+      s.writeln(
+        'static ${st.name} pack_${st.name}_from_jni(JNIEnv* env, jobject obj) {',
+      );
       s.writeln('    ${st.name} result;');
       s.writeln('    jclass cls = env->GetObjectClass(obj);');
       for (final f in st.fields) {
         final sig = _jniSigType(f.type.name);
         final getter = _jniGetter(f.type.name);
-        s.writeln('    jfieldID fid_${f.name} = env->GetFieldID(cls, "${f.name}", "$sig");');
+        s.writeln(
+          '    jfieldID fid_${f.name} = env->GetFieldID(cls, "${f.name}", "$sig");',
+        );
         if (_isZeroCopy(st, f.name)) {
-          s.writeln('    jobject buf_${f.name} = env->GetObjectField(obj, fid_${f.name});');
-          s.writeln('    result.${f.name} = (uint8_t*)env->GetDirectBufferAddress(buf_${f.name});');
+          s.writeln(
+            '    jobject buf_${f.name} = env->GetObjectField(obj, fid_${f.name});',
+          );
+          s.writeln(
+            '    result.${f.name} = (uint8_t*)env->GetDirectBufferAddress(buf_${f.name});',
+          );
         } else if (f.type.name == 'String') {
-          s.writeln('    jstring j_${f.name} = (jstring)env->GetObjectField(obj, fid_${f.name});');
-          s.writeln('    const char* str_${f.name} = env->GetStringUTFChars(j_${f.name}, 0);');
+          s.writeln(
+            '    jstring j_${f.name} = (jstring)env->GetObjectField(obj, fid_${f.name});',
+          );
+          s.writeln(
+            '    const char* str_${f.name} = env->GetStringUTFChars(j_${f.name}, 0);',
+          );
           s.writeln('    result.${f.name} = strdup(str_${f.name});');
-          s.writeln('    env->ReleaseStringUTFChars(j_${f.name}, str_${f.name});');
+          s.writeln(
+            '    env->ReleaseStringUTFChars(j_${f.name}, str_${f.name});',
+          );
         } else {
           s.writeln('    result.${f.name} = env->$getter(obj, fid_${f.name});');
         }
@@ -56,20 +72,28 @@ class CppBridgeGenerator {
       s.writeln('}');
 
       // unpack: C struct → Java object (used for passing struct params to Kotlin)
-      final jniClass = 'nitro/${spec.lib.replaceAll('-', '_')}_module/${st.name}';
-      final ctorSig = '(${st.fields.map((f) => _jniSigType(f.type.name)).join('')})V';
-      s.writeln('static jobject unpack_${st.name}_to_jni(JNIEnv* env, const ${st.name}* st) {');
+      final jniClass =
+          'nitro/${spec.lib.replaceAll('-', '_')}_module/${st.name}';
+      final ctorSig =
+          '(${st.fields.map((f) => _jniSigType(f.type.name)).join('')})V';
+      s.writeln(
+        'static jobject unpack_${st.name}_to_jni(JNIEnv* env, const ${st.name}* st) {',
+      );
       s.writeln('    jclass cls = env->FindClass("$jniClass");');
-      s.writeln('    jmethodID ctor = env->GetMethodID(cls, "<init>", "$ctorSig");');
-      final ctorArgs = st.fields.map((f) {
-        if (_isZeroCopy(st, f.name)) {
-          return 'env->NewDirectByteBuffer((void*)st->${f.name}, st->${_zeroCopyLenField(st, f.name)})';
-        } else if (f.type.name == 'String') {
-          return 'env->NewStringUTF(st->${f.name})';
-        } else {
-          return '(${_jniCast(f.type.name)})st->${f.name}';
-        }
-      }).join(', ');
+      s.writeln(
+        '    jmethodID ctor = env->GetMethodID(cls, "<init>", "$ctorSig");',
+      );
+      final ctorArgs = st.fields
+          .map((f) {
+            if (_isZeroCopy(st, f.name)) {
+              return 'env->NewDirectByteBuffer((void*)st->${f.name}, st->${_zeroCopyLenField(st, f.name)})';
+            } else if (f.type.name == 'String') {
+              return 'env->NewStringUTF(st->${f.name})';
+            } else {
+              return '(${_jniCast(f.type.name)})st->${f.name}';
+            }
+          })
+          .join(', ');
       s.writeln('    return env->NewObject(cls, ctor, $ctorArgs);');
       s.writeln('}');
     }
@@ -77,14 +101,22 @@ class CppBridgeGenerator {
 
     s.writeln('extern "C" {');
     s.writeln();
-    s.writeln('JNIEXPORT jint JNICALL JNI_OnLoad(JavaVM* vm, void* reserved) {');
+    s.writeln(
+      'JNIEXPORT jint JNICALL JNI_OnLoad(JavaVM* vm, void* reserved) {',
+    );
     s.writeln('    g_jvm = vm;');
-    s.writeln('    __android_log_print(ANDROID_LOG_INFO, "Nitrogen", "JNI_OnLoad called for ${spec.lib}");');
+    s.writeln(
+      '    __android_log_print(ANDROID_LOG_INFO, "Nitrogen", "JNI_OnLoad called for ${spec.lib}");',
+    );
     s.writeln('    JNIEnv* env = nullptr;');
-    s.writeln('    if (vm->GetEnv(reinterpret_cast<void**>(&env), JNI_VERSION_1_6) != JNI_OK) {');
+    s.writeln(
+      '    if (vm->GetEnv(reinterpret_cast<void**>(&env), JNI_VERSION_1_6) != JNI_OK) {',
+    );
     s.writeln('        return -1;');
     s.writeln('    }');
-    s.writeln('    jclass localClass = env->FindClass("nitro/${spec.lib.replaceAll('-', '_')}_module/${spec.dartClassName}JniBridge");');
+    s.writeln(
+      '    jclass localClass = env->FindClass("nitro/${spec.lib.replaceAll('-', '_')}_module/${spec.dartClassName}JniBridge");',
+    );
     s.writeln('    if (localClass != nullptr) {');
     s.writeln('        g_bridgeClass = (jclass)env->NewGlobalRef(localClass);');
     s.writeln('    } else {');
@@ -96,7 +128,9 @@ class CppBridgeGenerator {
     s.writeln('static JNIEnv* GetEnv() {');
     s.writeln('    if (g_jvm == nullptr) return nullptr;');
     s.writeln('    JNIEnv* env = nullptr;');
-    s.writeln('    int status = g_jvm->GetEnv(reinterpret_cast<void**>(&env), JNI_VERSION_1_6);');
+    s.writeln(
+      '    int status = g_jvm->GetEnv(reinterpret_cast<void**>(&env), JNI_VERSION_1_6);',
+    );
     s.writeln('    if (status == JNI_EDETACHED) {');
     s.writeln('        g_jvm->AttachCurrentThread(&env, nullptr);');
     s.writeln('    }');
@@ -107,26 +141,40 @@ class CppBridgeGenerator {
     // ── Functions ─────────────────────────────────────────────────────────────
     for (final func in spec.functions) {
       final isEnum = spec.enums.any((en) => en.name == func.returnType.name);
-      final isStruct = spec.structs.any((st) => st.name == func.returnType.name);
+      final isStruct = spec.structs.any(
+        (st) => st.name == func.returnType.name,
+      );
       // For enum returns: bridge returns Long (nativeValue); C returns int64_t
       // For struct returns: bridge returns jobject; C packs to C struct via malloc
       final cReturnType = isEnum ? 'int64_t' : _typeToC(func.returnType.name);
-      final paramsDecl = func.params.map((p) => '${_paramTypeToC(p.type.name, spec)} ${p.name}').join(', ');
+      final paramsDecl = func.params
+          .map((p) => '${_paramTypeToC(p.type.name, spec)} ${p.name}')
+          .join(', ');
       // JNI signature: enum return is "J" (Long), struct is "Ljava/lang/Object;"
       final jniSig = _jniSig(func.params, func.returnType.name, spec);
 
-      s.writeln('$cReturnType ${func.cSymbol}(${paramsDecl.isEmpty ? 'void' : paramsDecl}) {');
+      s.writeln(
+        '$cReturnType ${func.cSymbol}(${paramsDecl.isEmpty ? 'void' : paramsDecl}) {',
+      );
       s.writeln('    JNIEnv* env = GetEnv();');
       if (func.returnType.name == 'void') {
         s.writeln('    if (env == nullptr) return;');
       } else {
-        s.writeln('    if (env == nullptr) return ${_defaultValue(cReturnType)};');
+        s.writeln(
+          '    if (env == nullptr) return ${_defaultValue(cReturnType)};',
+        );
       }
-      s.writeln('    jmethodID methodId = env->GetStaticMethodID(g_bridgeClass, "${func.dartName}_call", "$jniSig");');
+      s.writeln(
+        '    jmethodID methodId = env->GetStaticMethodID(g_bridgeClass, "${func.dartName}_call", "$jniSig");',
+      );
       if (func.returnType.name == 'void') {
-        s.writeln('    if (methodId == nullptr) { LOGE("Method not found"); return; }');
+        s.writeln(
+          '    if (methodId == nullptr) { LOGE("Method not found"); return; }',
+        );
       } else {
-        s.writeln('    if (methodId == nullptr) { LOGE("Method not found"); return ${_defaultValue(cReturnType)}; }');
+        s.writeln(
+          '    if (methodId == nullptr) { LOGE("Method not found"); return ${_defaultValue(cReturnType)}; }',
+        );
       }
 
       // Build call args (converting C types to JNI types)
@@ -137,7 +185,9 @@ class CppBridgeGenerator {
           s.writeln('    jstring j_${p.name} = env->NewStringUTF(${p.name});');
           callArgsList.add('j_${p.name}');
         } else if (spec.structs.any((st) => st.name == pt)) {
-          s.writeln('    jobject jobj_${p.name} = unpack_${pt}_to_jni(env, (const $pt*)${p.name});');
+          s.writeln(
+            '    jobject jobj_${p.name} = unpack_${pt}_to_jni(env, (const $pt*)${p.name});',
+          );
           callArgsList.add('jobj_${p.name}');
         } else {
           callArgsList.add(p.name);
@@ -148,30 +198,48 @@ class CppBridgeGenerator {
       final bridgeArgs = callArgs.isEmpty ? '' : ', $callArgs';
 
       if (func.returnType.name == 'void') {
-        s.writeln('    env->CallStaticVoidMethod(g_bridgeClass, methodId$bridgeArgs);');
+        s.writeln(
+          '    env->CallStaticVoidMethod(g_bridgeClass, methodId$bridgeArgs);',
+        );
       } else if (func.returnType.name == 'double') {
-        s.writeln('    return env->CallStaticDoubleMethod(g_bridgeClass, methodId$bridgeArgs);');
+        s.writeln(
+          '    return env->CallStaticDoubleMethod(g_bridgeClass, methodId$bridgeArgs);',
+        );
       } else if (func.returnType.name == 'int') {
-        s.writeln('    return env->CallStaticLongMethod(g_bridgeClass, methodId$bridgeArgs);');
+        s.writeln(
+          '    return env->CallStaticLongMethod(g_bridgeClass, methodId$bridgeArgs);',
+        );
       } else if (func.returnType.name == 'bool') {
-        s.writeln('    return env->CallStaticBooleanMethod(g_bridgeClass, methodId$bridgeArgs);');
+        s.writeln(
+          '    return env->CallStaticBooleanMethod(g_bridgeClass, methodId$bridgeArgs);',
+        );
       } else if (func.returnType.name == 'String') {
-        s.writeln('    jstring jstr = (jstring)env->CallStaticObjectMethod(g_bridgeClass, methodId$bridgeArgs);');
-        s.writeln('    const char* nativeStr = env->GetStringUTFChars(jstr, 0);');
+        s.writeln(
+          '    jstring jstr = (jstring)env->CallStaticObjectMethod(g_bridgeClass, methodId$bridgeArgs);',
+        );
+        s.writeln(
+          '    const char* nativeStr = env->GetStringUTFChars(jstr, 0);',
+        );
         s.writeln('    char* result = strdup(nativeStr);');
         s.writeln('    env->ReleaseStringUTFChars(jstr, nativeStr);');
         for (final p in func.params) {
-          if (p.type.name == 'String') s.writeln('    env->DeleteLocalRef(j_${p.name});');
+          if (p.type.name == 'String') {
+            s.writeln('    env->DeleteLocalRef(j_${p.name});');
+          }
         }
         s.writeln('    env->DeleteLocalRef(jstr);');
         s.writeln('    return result;');
       } else if (isEnum) {
         // Bridge returns Long (nativeValue)
-        s.writeln('    return (int64_t)env->CallStaticLongMethod(g_bridgeClass, methodId$bridgeArgs);');
+        s.writeln(
+          '    return (int64_t)env->CallStaticLongMethod(g_bridgeClass, methodId$bridgeArgs);',
+        );
       } else if (isStruct) {
         // Bridge returns the Kotlin data class; pack it to C struct via malloc
         final stName = func.returnType.name;
-        s.writeln('    jobject jobj = env->CallStaticObjectMethod(g_bridgeClass, methodId$bridgeArgs);');
+        s.writeln(
+          '    jobject jobj = env->CallStaticObjectMethod(g_bridgeClass, methodId$bridgeArgs);',
+        );
         s.writeln('    if (jobj == nullptr) return nullptr;');
         s.writeln('    $stName* result = ($stName*)malloc(sizeof($stName));');
         s.writeln('    *result = pack_${stName}_from_jni(env, jobj);');
@@ -194,17 +262,31 @@ class CppBridgeGenerator {
         s.writeln('$cType ${prop.getSymbol}(void) {');
         s.writeln('    JNIEnv* env = GetEnv();');
         s.writeln('    if (env == nullptr) return ${_defaultValue(cType)};');
-        s.writeln('    jmethodID methodId = env->GetStaticMethodID(g_bridgeClass, "${prop.getSymbol}_call", "()$jniRetSig");');
-        s.writeln('    if (methodId == nullptr) { LOGE("Method not found"); return ${_defaultValue(cType)}; }');
+        s.writeln(
+          '    jmethodID methodId = env->GetStaticMethodID(g_bridgeClass, "${prop.getSymbol}_call", "()$jniRetSig");',
+        );
+        s.writeln(
+          '    if (methodId == nullptr) { LOGE("Method not found"); return ${_defaultValue(cType)}; }',
+        );
         if (prop.type.name == 'double') {
-          s.writeln('    return env->CallStaticDoubleMethod(g_bridgeClass, methodId);');
+          s.writeln(
+            '    return env->CallStaticDoubleMethod(g_bridgeClass, methodId);',
+          );
         } else if (prop.type.name == 'int' || isEnum) {
-          s.writeln('    return ($cType)env->CallStaticLongMethod(g_bridgeClass, methodId);');
+          s.writeln(
+            '    return ($cType)env->CallStaticLongMethod(g_bridgeClass, methodId);',
+          );
         } else if (prop.type.name == 'bool') {
-          s.writeln('    return env->CallStaticBooleanMethod(g_bridgeClass, methodId);');
+          s.writeln(
+            '    return env->CallStaticBooleanMethod(g_bridgeClass, methodId);',
+          );
         } else if (prop.type.name == 'String') {
-          s.writeln('    jstring jstr = (jstring)env->CallStaticObjectMethod(g_bridgeClass, methodId);');
-          s.writeln('    const char* nativeStr = env->GetStringUTFChars(jstr, 0);');
+          s.writeln(
+            '    jstring jstr = (jstring)env->CallStaticObjectMethod(g_bridgeClass, methodId);',
+          );
+          s.writeln(
+            '    const char* nativeStr = env->GetStringUTFChars(jstr, 0);',
+          );
           s.writeln('    char* result = strdup(nativeStr);');
           s.writeln('    env->ReleaseStringUTFChars(jstr, nativeStr);');
           s.writeln('    env->DeleteLocalRef(jstr);');
@@ -222,14 +304,22 @@ class CppBridgeGenerator {
         s.writeln('void ${prop.setSymbol}($paramCType value) {');
         s.writeln('    JNIEnv* env = GetEnv();');
         s.writeln('    if (env == nullptr) return;');
-        s.writeln('    jmethodID methodId = env->GetStaticMethodID(g_bridgeClass, "${prop.setSymbol}_call", "($jniParamSig)V");');
-        s.writeln('    if (methodId == nullptr) { LOGE("Method not found"); return; }');
+        s.writeln(
+          '    jmethodID methodId = env->GetStaticMethodID(g_bridgeClass, "${prop.setSymbol}_call", "($jniParamSig)V");',
+        );
+        s.writeln(
+          '    if (methodId == nullptr) { LOGE("Method not found"); return; }',
+        );
         if (prop.type.name == 'String') {
           s.writeln('    jstring jval = env->NewStringUTF(value);');
-          s.writeln('    env->CallStaticVoidMethod(g_bridgeClass, methodId, jval);');
+          s.writeln(
+            '    env->CallStaticVoidMethod(g_bridgeClass, methodId, jval);',
+          );
           s.writeln('    env->DeleteLocalRef(jval);');
         } else {
-          s.writeln('    env->CallStaticVoidMethod(g_bridgeClass, methodId, value);');
+          s.writeln(
+            '    env->CallStaticVoidMethod(g_bridgeClass, methodId, value);',
+          );
         }
         s.writeln('}');
         s.writeln('');
@@ -238,27 +328,43 @@ class CppBridgeGenerator {
 
     // ── Streams ───────────────────────────────────────────────────────────────
     for (final stream in spec.streams) {
-      final isStruct = spec.structs.any((st) => st.name == stream.itemType.name);
+      final isStruct = spec.structs.any(
+        (st) => st.name == stream.itemType.name,
+      );
       // JNI name: "nitro" + "_" + "{lib}_module" (with internal _ → _1)
       // e.g. nitro.my_camera_module → nitro_my_1camera_1module (NOT nitro_1my_1camera_1module)
 
       s.writeln('void ${stream.registerSymbol}(int64_t dart_port) {');
       s.writeln('    JNIEnv* env = GetEnv();');
       s.writeln('    if (env == nullptr) return;');
-      s.writeln('    jmethodID methodId = env->GetStaticMethodID(g_bridgeClass, "${stream.registerSymbol}_call", "(J)V");');
-      s.writeln('    if (methodId != nullptr) env->CallStaticVoidMethod(g_bridgeClass, methodId, dart_port);');
+      s.writeln(
+        '    jmethodID methodId = env->GetStaticMethodID(g_bridgeClass, "${stream.registerSymbol}_call", "(J)V");',
+      );
+      s.writeln(
+        '    if (methodId != nullptr) env->CallStaticVoidMethod(g_bridgeClass, methodId, dart_port);',
+      );
       s.writeln('}');
       s.writeln('');
       s.writeln('void ${stream.releaseSymbol}(int64_t dart_port) {');
       s.writeln('    JNIEnv* env = GetEnv();');
       s.writeln('    if (env == nullptr) return;');
-      s.writeln('    jmethodID methodId = env->GetStaticMethodID(g_bridgeClass, "${stream.releaseSymbol}_call", "(J)V");');
-      s.writeln('    if (methodId != nullptr) env->CallStaticVoidMethod(g_bridgeClass, methodId, dart_port);');
+      s.writeln(
+        '    jmethodID methodId = env->GetStaticMethodID(g_bridgeClass, "${stream.releaseSymbol}_call", "(J)V");',
+      );
+      s.writeln(
+        '    if (methodId != nullptr) env->CallStaticVoidMethod(g_bridgeClass, methodId, dart_port);',
+      );
       s.writeln('}');
       s.writeln('');
 
-      final jniEmit = _jniMethodName(spec.lib, spec.dartClassName, 'emit_${stream.dartName}');
-      s.writeln('JNIEXPORT void JNICALL $jniEmit(JNIEnv* env, jobject thiz, jlong dartPort, ${_jniSigTypeC(stream.itemType.name)} item) {');
+      final jniEmit = _jniMethodName(
+        spec.lib,
+        spec.dartClassName,
+        'emit_${stream.dartName}',
+      );
+      s.writeln(
+        'JNIEXPORT void JNICALL $jniEmit(JNIEnv* env, jobject thiz, jlong dartPort, ${_jniSigTypeC(stream.itemType.name)} item) {',
+      );
       s.writeln('    Dart_CObject obj;');
       if (stream.itemType.name == 'double') {
         s.writeln('    obj.type = Dart_CObject_kDouble;');
@@ -270,8 +376,12 @@ class CppBridgeGenerator {
         s.writeln('    obj.type = Dart_CObject_kBool;');
         s.writeln('    obj.value.as_bool = item;');
       } else if (isStruct) {
-        s.writeln('    ${stream.itemType.name}* st_ptr = (${stream.itemType.name}*)malloc(sizeof(${stream.itemType.name}));');
-        s.writeln('    *st_ptr = pack_${stream.itemType.name}_from_jni(env, item);');
+        s.writeln(
+          '    ${stream.itemType.name}* st_ptr = (${stream.itemType.name}*)malloc(sizeof(${stream.itemType.name}));',
+        );
+        s.writeln(
+          '    *st_ptr = pack_${stream.itemType.name}_from_jni(env, item);',
+        );
         s.writeln('    obj.type = Dart_CObject_kInt64;');
         s.writeln('    obj.value.as_int64 = (intptr_t)st_ptr;');
       } else {
@@ -283,9 +393,13 @@ class CppBridgeGenerator {
     }
 
     final jniInit = _jniMethodName(spec.lib, spec.dartClassName, 'initialize');
-    s.writeln('JNIEXPORT void JNICALL $jniInit(JNIEnv* env, jobject thiz, jclass bridgeClass) {');
+    s.writeln(
+      'JNIEXPORT void JNICALL $jniInit(JNIEnv* env, jobject thiz, jclass bridgeClass) {',
+    );
     s.writeln('    if (g_bridgeClass == nullptr) {');
-    s.writeln('        g_bridgeClass = (jclass)env->NewGlobalRef(bridgeClass);');
+    s.writeln(
+      '        g_bridgeClass = (jclass)env->NewGlobalRef(bridgeClass);',
+    );
     s.writeln('    }');
     s.writeln('}');
     s.writeln();
@@ -298,10 +412,16 @@ class CppBridgeGenerator {
     for (final func in spec.functions) {
       final isEnum = spec.enums.any((en) => en.name == func.returnType.name);
       final cReturnType = isEnum ? 'int64_t' : _typeToC(func.returnType.name);
-      final params = func.params.map((p) => '${_paramTypeToC(p.type.name, spec)} ${p.name}').join(', ');
+      final params = func.params
+          .map((p) => '${_paramTypeToC(p.type.name, spec)} ${p.name}')
+          .join(', ');
       final callParams = func.params.map((p) => p.name).join(', ');
-      s.writeln('extern $cReturnType _call_${func.dartName}(${params.isEmpty ? 'void' : params});');
-      s.writeln('$cReturnType ${func.cSymbol}(${params.isEmpty ? 'void' : params}) {');
+      s.writeln(
+        'extern $cReturnType _call_${func.dartName}(${params.isEmpty ? 'void' : params});',
+      );
+      s.writeln(
+        '$cReturnType ${func.cSymbol}(${params.isEmpty ? 'void' : params}) {',
+      );
       if (func.returnType.name != 'void') {
         s.writeln('    return _call_${func.dartName}($callParams);');
       } else {
@@ -332,9 +452,13 @@ class CppBridgeGenerator {
     }
 
     for (final stream in spec.streams) {
-      final isStruct = spec.structs.any((st) => st.name == stream.itemType.name);
+      final isStruct = spec.structs.any(
+        (st) => st.name == stream.itemType.name,
+      );
       final itemCType = isStruct ? 'void*' : _typeToC(stream.itemType.name);
-      s.writeln('void _emit_${stream.dartName}_to_dart(int64_t dartPort, $itemCType item) {');
+      s.writeln(
+        'void _emit_${stream.dartName}_to_dart(int64_t dartPort, $itemCType item) {',
+      );
       s.writeln('    Dart_CObject obj;');
       if (stream.itemType.name == 'double') {
         s.writeln('    obj.type = Dart_CObject_kDouble;');
@@ -354,11 +478,17 @@ class CppBridgeGenerator {
       s.writeln('    Dart_PostCObject_DL(dartPort, &obj);');
       s.writeln('}');
       s.writeln('');
-      s.writeln('extern void _register_${stream.dartName}_stream(int64_t dartPort, void (*emitCb)(int64_t, $itemCType));');
+      s.writeln(
+        'extern void _register_${stream.dartName}_stream(int64_t dartPort, void (*emitCb)(int64_t, $itemCType));',
+      );
       s.writeln('void ${stream.registerSymbol}(int64_t dart_port) {');
-      s.writeln('    _register_${stream.dartName}_stream(dart_port, _emit_${stream.dartName}_to_dart);');
+      s.writeln(
+        '    _register_${stream.dartName}_stream(dart_port, _emit_${stream.dartName}_to_dart);',
+      );
       s.writeln('}');
-      s.writeln('extern void _release_${stream.dartName}_stream(int64_t dart_port);');
+      s.writeln(
+        'extern void _release_${stream.dartName}_stream(int64_t dart_port);',
+      );
       s.writeln('void ${stream.releaseSymbol}(int64_t dart_port) {');
       s.writeln('    _release_${stream.dartName}_stream(dart_port);');
       s.writeln('}');
@@ -371,13 +501,20 @@ class CppBridgeGenerator {
 
   static String _typeToC(String dartType) {
     switch (dartType.replaceFirst('?', '')) {
-      case 'int': return 'int64_t';
-      case 'double': return 'double';
-      case 'bool': return 'int8_t';
-      case 'String': return 'const char*';
-      case 'Uint8List': return 'uint8_t*';
-      case 'void': return 'void';
-      default: return 'void*';
+      case 'int':
+        return 'int64_t';
+      case 'double':
+        return 'double';
+      case 'bool':
+        return 'int8_t';
+      case 'String':
+        return 'const char*';
+      case 'Uint8List':
+        return 'uint8_t*';
+      case 'void':
+        return 'void';
+      default:
+        return 'void*';
     }
   }
 
@@ -405,53 +542,80 @@ class CppBridgeGenerator {
 
   static String _jniGetter(String t) {
     switch (t.replaceFirst('?', '')) {
-      case 'int': return 'GetLongField';
-      case 'double': return 'GetDoubleField';
-      case 'bool': return 'GetBooleanField';
-      default: return 'GetObjectField';
+      case 'int':
+        return 'GetLongField';
+      case 'double':
+        return 'GetDoubleField';
+      case 'bool':
+        return 'GetBooleanField';
+      default:
+        return 'GetObjectField';
     }
   }
 
   static String _defaultValue(String cType) {
     switch (cType) {
-      case 'int64_t': return '0';
-      case 'double': return '0.0';
-      case 'int8_t': return 'false';
-      case 'const char*': return '""';
-      default: return 'nullptr';
+      case 'int64_t':
+        return '0';
+      case 'double':
+        return '0.0';
+      case 'int8_t':
+        return 'false';
+      case 'const char*':
+        return '""';
+      default:
+        return 'nullptr';
     }
   }
 
   static String _jniSigType(String t) {
     switch (t.replaceFirst('?', '')) {
-      case 'int': return 'J';
-      case 'double': return 'D';
-      case 'bool': return 'Z';
-      case 'String': return 'Ljava/lang/String;';
-      case 'void': return 'V';
-      case 'Uint8List': return 'Ljava/nio/ByteBuffer;';
-      default: return 'Ljava/lang/Object;';
+      case 'int':
+        return 'J';
+      case 'double':
+        return 'D';
+      case 'bool':
+        return 'Z';
+      case 'String':
+        return 'Ljava/lang/String;';
+      case 'void':
+        return 'V';
+      case 'Uint8List':
+        return 'Ljava/nio/ByteBuffer;';
+      default:
+        return 'Ljava/lang/Object;';
     }
   }
 
   static String _jniSigTypeC(String t) {
     switch (t.replaceFirst('?', '')) {
-      case 'int': return 'jlong';
-      case 'double': return 'jdouble';
-      case 'bool': return 'jboolean';
-      case 'String': return 'jstring';
-      case 'void': return 'void';
-      case 'Uint8List': return 'jobject';
-      default: return 'jobject';
+      case 'int':
+        return 'jlong';
+      case 'double':
+        return 'jdouble';
+      case 'bool':
+        return 'jboolean';
+      case 'String':
+        return 'jstring';
+      case 'void':
+        return 'void';
+      case 'Uint8List':
+        return 'jobject';
+      default:
+        return 'jobject';
     }
   }
 
   static String _jniCast(String t) {
     switch (t.replaceFirst('?', '')) {
-      case 'int': return 'jlong';
-      case 'double': return 'jdouble';
-      case 'bool': return 'jboolean';
-      default: return 'jobject';
+      case 'int':
+        return 'jlong';
+      case 'double':
+        return 'jdouble';
+      case 'bool':
+        return 'jboolean';
+      default:
+        return 'jobject';
     }
   }
 
@@ -468,23 +632,34 @@ class CppBridgeGenerator {
   ///     → 'Java_nitro_my_1camera_1module_MyCameraJniBridge_emit_1frames'
   ///   lib='sensor_hub', class='SensorHub', method='emit_sensor_data'
   ///     → 'Java_nitro_sensor_1hub_1module_SensorHubJniBridge_emit_1sensor_1data'
-  static String _jniMethodName(String lib, String className, String methodName) {
+  static String _jniMethodName(
+    String lib,
+    String className,
+    String methodName,
+  ) {
     return [
       'Java',
-      _jniMangle('nitro'),                               // 'nitro' (no underscores)
-      _jniMangle('${lib.replaceAll('-', '_')}_module'),  // e.g. 'my_1camera_1module'
-      _jniMangle('${className}JniBridge'),               // usually CamelCase — no underscores
-      _jniMangle(methodName),                            // e.g. 'emit_1frames'
+      _jniMangle('nitro'), // 'nitro' (no underscores)
+      _jniMangle(
+        '${lib.replaceAll('-', '_')}_module',
+      ), // e.g. 'my_1camera_1module'
+      _jniMangle('${className}JniBridge'), // usually CamelCase — no underscores
+      _jniMangle(methodName), // e.g. 'emit_1frames'
     ].join('_');
   }
 
-  static String _jniSig(List<BridgeParam> params, String returnType, BridgeSpec spec) {
+  static String _jniSig(
+    List<BridgeParam> params,
+    String returnType,
+    BridgeSpec spec,
+  ) {
     final sb = StringBuffer();
     sb.write('(');
     for (final p in params) {
       if (spec.structs.any((st) => st.name == p.type.name)) {
         // Struct params are passed as the Kotlin data class object
-        final jniClass = 'nitro/${spec.lib.replaceAll('-', '_')}_module/${p.type.name}';
+        final jniClass =
+            'nitro/${spec.lib.replaceAll('-', '_')}_module/${p.type.name}';
         sb.write('L${jniClass.replaceAll('/', '/')};');
       } else {
         sb.write(_jniSigType(p.type.name));
@@ -495,7 +670,8 @@ class CppBridgeGenerator {
     if (spec.enums.any((en) => en.name == returnType)) {
       sb.write('J');
     } else if (spec.structs.any((st) => st.name == returnType)) {
-      final jniClass = 'nitro/${spec.lib.replaceAll('-', '_')}_module/$returnType';
+      final jniClass =
+          'nitro/${spec.lib.replaceAll('-', '_')}_module/$returnType';
       sb.write('L${jniClass.replaceAll('/', '/')};');
     } else {
       sb.write(_jniSigType(returnType));

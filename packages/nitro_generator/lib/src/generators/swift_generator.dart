@@ -21,7 +21,9 @@ class SwiftGenerator {
     s.writeln(' * Protocol for the ${spec.dartClassName} module.');
     s.writeln(' * Conform to this in your Swift source code.');
     s.writeln(' */');
-    s.writeln('public protocol Hybrid${spec.dartClassName}Protocol: AnyObject {');
+    s.writeln(
+      'public protocol Hybrid${spec.dartClassName}Protocol: AnyObject {',
+    );
 
     for (final func in spec.functions) {
       final retType = _toSwiftType(spec, func.returnType.name);
@@ -29,7 +31,9 @@ class SwiftGenerator {
           .map((p) => '${p.name}: ${_toSwiftType(spec, p.type.name)}')
           .join(', ');
       if (func.isAsync) {
-        s.writeln('    func ${func.dartName}($params) async throws -> $retType');
+        s.writeln(
+          '    func ${func.dartName}($params) async throws -> $retType',
+        );
       } else {
         s.writeln('    func ${func.dartName}($params) -> $retType');
       }
@@ -46,7 +50,9 @@ class SwiftGenerator {
 
     for (final stream in spec.streams) {
       final itemType = _toSwiftType(spec, stream.itemType.name);
-      s.writeln('    var ${stream.dartName}: AnyPublisher<$itemType, Never> { get }');
+      s.writeln(
+        '    var ${stream.dartName}: AnyPublisher<$itemType, Never> { get }',
+      );
     }
 
     s.writeln('}');
@@ -55,26 +61,40 @@ class SwiftGenerator {
     // ── Registry + C-bridge call stubs ────────────────────────────────────
     s.writeln('@objc');
     s.writeln('public class ${spec.dartClassName}Registry: NSObject {');
-    s.writeln('    private static var impl: Hybrid${spec.dartClassName}Protocol?');
+    s.writeln(
+      '    private static var impl: Hybrid${spec.dartClassName}Protocol?',
+    );
     s.writeln();
-    s.writeln('    @objc public static func register(_ impl: Hybrid${spec.dartClassName}Protocol) {');
+    s.writeln(
+      '    @objc public static func register(_ impl: Hybrid${spec.dartClassName}Protocol) {',
+    );
     s.writeln('        self.impl = impl');
     s.writeln('    }');
     s.writeln();
-    s.writeln('    // MARK: - C bridge stubs (called by the generated .c shim)');
+    s.writeln(
+      '    // MARK: - C bridge stubs (called by the generated .c shim)',
+    );
 
     for (final func in spec.functions) {
       final retType = _toSwiftType(spec, func.returnType.name);
       final params = func.params
           .map((p) => '_ ${p.name}: ${_toSwiftType(spec, p.type.name)}')
           .join(', ');
-      final callArgs = func.params.map((p) => '${p.name}: ${p.name}').join(', ');
-      s.writeln('    @objc public static func _call_${func.dartName}($params) -> $retType {');
+      final callArgs = func.params
+          .map((p) => '${p.name}: ${p.name}')
+          .join(', ');
+      s.writeln(
+        '    @objc public static func _call_${func.dartName}($params) -> $retType {',
+      );
       if (func.returnType.name == 'void') {
         s.writeln('        impl?.${func.dartName}($callArgs)');
-        s.writeln('        return ${_defaultValue(spec, func.returnType.name)}');
+        s.writeln(
+          '        return ${_defaultValue(spec, func.returnType.name)}',
+        );
       } else {
-        s.writeln('        return impl?.${func.dartName}($callArgs) ?? ${_defaultValue(spec, func.returnType.name)}');
+        s.writeln(
+          '        return impl?.${func.dartName}($callArgs) ?? ${_defaultValue(spec, func.returnType.name)}',
+        );
       }
       s.writeln('    }');
     }
@@ -82,12 +102,18 @@ class SwiftGenerator {
     for (final prop in spec.properties) {
       final swiftType = _toSwiftType(spec, prop.type.name);
       if (prop.hasGetter) {
-        s.writeln('    @objc public static func _get_${prop.dartName}() -> $swiftType {');
-        s.writeln('        return impl?.${prop.dartName} ?? ${_defaultValue(spec, prop.type.name)}');
+        s.writeln(
+          '    @objc public static func _get_${prop.dartName}() -> $swiftType {',
+        );
+        s.writeln(
+          '        return impl?.${prop.dartName} ?? ${_defaultValue(spec, prop.type.name)}',
+        );
         s.writeln('    }');
       }
       if (prop.hasSetter) {
-        s.writeln('    @objc public static func _set_${prop.dartName}(_ value: $swiftType) {');
+        s.writeln(
+          '    @objc public static func _set_${prop.dartName}(_ value: $swiftType) {',
+        );
         s.writeln('        impl?.${prop.dartName} = value');
         s.writeln('    }');
       }
@@ -96,15 +122,25 @@ class SwiftGenerator {
     for (final stream in spec.streams) {
       final cType = _toSwiftCType(spec, stream.itemType.name);
       s.writeln('    // Stream: ${stream.dartName} — register with C callback');
-      s.writeln('    private static var _${stream.dartName}Cancellables = [Int64: AnyCancellable]()');
-      s.writeln('    @objc public static func _register_${stream.dartName}_stream(_ dartPort: Int64, _ emitCb: @escaping @convention(c) (Int64, $cType) -> Void) {');
-      s.writeln('        _${stream.dartName}Cancellables[dartPort] = impl?.${stream.dartName}.sink { item in');
+      s.writeln(
+        '    private static var _${stream.dartName}Cancellables = [Int64: AnyCancellable]()',
+      );
+      s.writeln(
+        '    @objc public static func _register_${stream.dartName}_stream(_ dartPort: Int64, _ emitCb: @escaping @convention(c) (Int64, $cType) -> Void) {',
+      );
+      s.writeln(
+        '        _${stream.dartName}Cancellables[dartPort] = impl?.${stream.dartName}.sink { item in',
+      );
       s.writeln('            emitCb(dartPort, item)');
       s.writeln('        }');
       s.writeln('    }');
-      s.writeln('    @objc public static func _release_${stream.dartName}_stream(_ dartPort: Int64) {');
+      s.writeln(
+        '    @objc public static func _release_${stream.dartName}_stream(_ dartPort: Int64) {',
+      );
       s.writeln('        _${stream.dartName}Cancellables[dartPort]?.cancel()');
-      s.writeln('        _${stream.dartName}Cancellables.removeValue(forKey: dartPort)');
+      s.writeln(
+        '        _${stream.dartName}Cancellables.removeValue(forKey: dartPort)',
+      );
       s.writeln('    }');
     }
 
@@ -115,12 +151,18 @@ class SwiftGenerator {
   static String _toSwiftType(BridgeSpec spec, String t) {
     final name = t.replaceFirst('?', '');
     switch (name) {
-      case 'int': return 'Int64';
-      case 'double': return 'Double';
-      case 'bool': return 'Bool';
-      case 'String': return 'String';
-      case 'void': return 'Void';
-      case 'Uint8List': return 'Data';
+      case 'int':
+        return 'Int64';
+      case 'double':
+        return 'Double';
+      case 'bool':
+        return 'Bool';
+      case 'String':
+        return 'String';
+      case 'void':
+        return 'Void';
+      case 'Uint8List':
+        return 'Data';
       default:
         if (spec.enums.any((en) => en.name == name)) return 'Int64';
         if (spec.structs.any((st) => st.name == name)) return name;
@@ -131,15 +173,23 @@ class SwiftGenerator {
   static String _toSwiftCType(BridgeSpec spec, String t) {
     final name = t.replaceFirst('?', '');
     switch (name) {
-      case 'int': return 'Int64';
-      case 'double': return 'Double';
-      case 'bool': return 'Bool';
-      case 'String': return 'UnsafeMutablePointer<Int8>?';
-      case 'void': return 'Void';
-      case 'Uint8List': return 'UnsafeMutablePointer<UInt8>?';
+      case 'int':
+        return 'Int64';
+      case 'double':
+        return 'Double';
+      case 'bool':
+        return 'Bool';
+      case 'String':
+        return 'UnsafeMutablePointer<Int8>?';
+      case 'void':
+        return 'Void';
+      case 'Uint8List':
+        return 'UnsafeMutablePointer<UInt8>?';
       default:
         if (spec.enums.any((en) => en.name == name)) return 'Int64';
-        if (spec.structs.any((st) => st.name == name)) return 'UnsafeMutableRawPointer?';
+        if (spec.structs.any((st) => st.name == name)) {
+          return 'UnsafeMutableRawPointer?';
+        }
         return 'Any?';
     }
   }
@@ -147,10 +197,14 @@ class SwiftGenerator {
   static String _defaultValue(BridgeSpec spec, String t) {
     final name = t.replaceFirst('?', '');
     switch (name) {
-      case 'int': return '0';
-      case 'double': return '0.0';
-      case 'bool': return 'false';
-      case 'String': return '""';
+      case 'int':
+        return '0';
+      case 'double':
+        return '0.0';
+      case 'bool':
+        return 'false';
+      case 'String':
+        return '""';
       default:
         if (spec.enums.any((en) => en.name == name)) return '0';
         return '()';

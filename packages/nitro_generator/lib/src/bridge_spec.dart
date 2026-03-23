@@ -60,11 +60,7 @@ class BridgeField {
   final BridgeType type;
   final bool zeroCopy;
 
-  BridgeField({
-    required this.name,
-    required this.type,
-    this.zeroCopy = false,
-  });
+  BridgeField({required this.name, required this.type, this.zeroCopy = false});
 }
 
 class BridgeEnum {
@@ -100,11 +96,7 @@ class BridgeParam {
   final BridgeType type;
   final bool zeroCopy;
 
-  BridgeParam({
-    required this.name,
-    required this.type,
-    this.zeroCopy = false,
-  });
+  BridgeParam({required this.name, required this.type, this.zeroCopy = false});
 }
 
 class BridgeStream {

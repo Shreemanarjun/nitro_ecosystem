@@ -61,7 +61,9 @@ class KotlinGenerator {
     // ── JNI Bridge ────────────────────────────────────────────────────────
     s.writeln('@Keep');
     s.writeln('object ${spec.dartClassName}JniBridge {');
-    s.writeln('    private var implementation: Hybrid${spec.dartClassName}Spec? = null');
+    s.writeln(
+      '    private var implementation: Hybrid${spec.dartClassName}Spec? = null',
+    );
     s.writeln();
     s.writeln('    @JvmStatic external fun initialize(bridgeClass: Class<*>)');
     s.writeln();
@@ -73,7 +75,9 @@ class KotlinGenerator {
 
     for (final func in spec.functions) {
       final retType = _toKotlinType(spec, func.returnType.name);
-      final paramsDecl = func.params.map((p) => '${p.name}: ${_toKotlinType(spec, p.type.name)}').join(', ');
+      final paramsDecl = func.params
+          .map((p) => '${p.name}: ${_toKotlinType(spec, p.type.name)}')
+          .join(', ');
       final callParams = func.params.map((p) => p.name).join(', ');
 
       final isUnit = (retType == 'Unit');
@@ -82,11 +86,17 @@ class KotlinGenerator {
       // enums → Long (nativeValue), everything else → actual type
       final bridgeRetType = isEnum ? 'Long' : retType;
 
-      s.writeln('    @JvmStatic fun ${func.dartName}_call($paramsDecl): $bridgeRetType {');
-      s.writeln('        val impl = implementation ?: throw IllegalStateException("${spec.dartClassName} not registered")');
+      s.writeln(
+        '    @JvmStatic fun ${func.dartName}_call($paramsDecl): $bridgeRetType {',
+      );
+      s.writeln(
+        '        val impl = implementation ?: throw IllegalStateException("${spec.dartClassName} not registered")',
+      );
       if (func.isAsync) {
         if (isEnum) {
-          s.writeln('        return runBlocking { impl.${func.dartName}($callParams) }.nativeValue');
+          s.writeln(
+            '        return runBlocking { impl.${func.dartName}($callParams) }.nativeValue',
+          );
         } else {
           s.writeln('        return runBlocking {');
           s.writeln('            impl.${func.dartName}($callParams)');
@@ -96,7 +106,9 @@ class KotlinGenerator {
         if (isUnit) {
           s.writeln('        impl.${func.dartName}($callParams)');
         } else if (isEnum) {
-          s.writeln('        return impl.${func.dartName}($callParams).nativeValue');
+          s.writeln(
+            '        return impl.${func.dartName}($callParams).nativeValue',
+          );
         } else {
           s.writeln('        return impl.${func.dartName}($callParams)');
         }
@@ -110,7 +122,9 @@ class KotlinGenerator {
       final bridgeKt = isEnum ? 'Long' : kt;
       if (prop.hasGetter) {
         s.writeln('    @JvmStatic fun ${prop.getSymbol}_call(): $bridgeKt {');
-        s.writeln('        val impl = implementation ?: throw IllegalStateException("${spec.dartClassName} not registered")');
+        s.writeln(
+          '        val impl = implementation ?: throw IllegalStateException("${spec.dartClassName} not registered")',
+        );
         if (isEnum) {
           s.writeln('        return impl.${prop.dartName}.nativeValue');
         } else {
@@ -119,10 +133,16 @@ class KotlinGenerator {
         s.writeln('    }');
       }
       if (prop.hasSetter) {
-        s.writeln('    @JvmStatic fun ${prop.setSymbol}_call(value: $bridgeKt) {');
-        s.writeln('        val impl = implementation ?: throw IllegalStateException("${spec.dartClassName} not registered")');
+        s.writeln(
+          '    @JvmStatic fun ${prop.setSymbol}_call(value: $bridgeKt) {',
+        );
+        s.writeln(
+          '        val impl = implementation ?: throw IllegalStateException("${spec.dartClassName} not registered")',
+        );
         if (isEnum) {
-          s.writeln('        impl.${prop.dartName} = ${prop.type.name}.fromNative(value)');
+          s.writeln(
+            '        impl.${prop.dartName} = ${prop.type.name}.fromNative(value)',
+          );
         } else {
           s.writeln('        impl.${prop.dartName} = value');
         }
@@ -130,21 +150,31 @@ class KotlinGenerator {
       }
     }
 
-    s.writeln('    private val _streamJobs = mutableMapOf<Long, kotlinx.coroutines.Job>()');
+    s.writeln(
+      '    private val _streamJobs = mutableMapOf<Long, kotlinx.coroutines.Job>()',
+    );
     s.writeln();
 
     for (final stream in spec.streams) {
-      s.writeln('    @JvmStatic external fun emit_${stream.dartName}(dartPort: Long, item: ${_toKotlinType(spec, stream.itemType.name)}): Unit');
+      s.writeln(
+        '    @JvmStatic external fun emit_${stream.dartName}(dartPort: Long, item: ${_toKotlinType(spec, stream.itemType.name)}): Unit',
+      );
       s.writeln('');
-      s.writeln('    @JvmStatic fun ${stream.registerSymbol}_call(dartPort: Long) {');
+      s.writeln(
+        '    @JvmStatic fun ${stream.registerSymbol}_call(dartPort: Long) {',
+      );
       s.writeln('        val impl = implementation ?: return');
-      s.writeln('        _streamJobs[dartPort] = CoroutineScope(Dispatchers.Default).launch {');
+      s.writeln(
+        '        _streamJobs[dartPort] = CoroutineScope(Dispatchers.Default).launch {',
+      );
       s.writeln('            impl.${stream.dartName}.collect { item -> ');
       s.writeln('                emit_${stream.dartName}(dartPort, item)');
       s.writeln('            }');
       s.writeln('        }');
       s.writeln('    }');
-      s.writeln('    @JvmStatic fun ${stream.releaseSymbol}_call(dartPort: Long) {');
+      s.writeln(
+        '    @JvmStatic fun ${stream.releaseSymbol}_call(dartPort: Long) {',
+      );
       s.writeln('        _streamJobs.remove(dartPort)?.cancel()');
       s.writeln('    }');
     }
@@ -156,16 +186,21 @@ class KotlinGenerator {
   static String _toKotlinType(BridgeSpec spec, String t) {
     final name = t.replaceFirst('?', '');
     switch (name) {
-      case 'int': return 'Long';
-      case 'double': return 'Double';
-      case 'bool': return 'Boolean';
-      case 'String': return 'String';
-      case 'void': return 'Unit';
-      case 'Uint8List': return 'ByteArray';
+      case 'int':
+        return 'Long';
+      case 'double':
+        return 'Double';
+      case 'bool':
+        return 'Boolean';
+      case 'String':
+        return 'String';
+      case 'void':
+        return 'Unit';
+      case 'Uint8List':
+        return 'ByteArray';
     }
     if (spec.enums.any((en) => en.name == name)) return name;
     if (spec.structs.any((st) => st.name == name)) return name;
     return 'Any?';
   }
-
 }

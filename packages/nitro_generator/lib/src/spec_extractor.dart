@@ -9,7 +9,9 @@ class SpecExtractor {
   static BridgeSpec extract(LibraryReader library) {
     final modules = library.annotatedWith(TypeChecker.fromRuntime(NitroModule));
     if (modules.isEmpty) {
-      throw InvalidGenerationSourceError('No @NitroModule annotated classes found.');
+      throw InvalidGenerationSourceError(
+        'No @NitroModule annotated classes found.',
+      );
     }
 
     final module = modules.first;
@@ -21,9 +23,11 @@ class SpecExtractor {
     final cSymbolPrefix = annotation.read('cSymbolPrefix').isNull
         ? null
         : annotation.read('cSymbolPrefix').stringValue;
-    final lib =
-        annotation.read('lib').isNull ? null : annotation.read('lib').stringValue;
-    final sourceFile = library.element.source.uri.pathSegments.last.replaceFirst('.native.dart', '');
+    final lib = annotation.read('lib').isNull
+        ? null
+        : annotation.read('lib').stringValue;
+    final sourceFile = library.element.source.uri.pathSegments.last
+        .replaceFirst('.native.dart', '');
     final libName = lib ?? sourceFile.replaceAll('-', '_');
     final ns = cSymbolPrefix ?? _toSnakeCase(element.name);
 
@@ -50,11 +54,16 @@ class SpecExtractor {
 
   // ─── Functions ───────────────────────────────────────────────────────────────
 
-  static List<BridgeFunction> _extractFunctions(ClassElement element, String ns) {
-    final asyncChecker =
-        TypeChecker.fromUrl('package:nitro/src/annotations.dart#NitroAsync');
-    final zeroCopyChecker =
-        TypeChecker.fromUrl('package:nitro/src/annotations.dart#ZeroCopy');
+  static List<BridgeFunction> _extractFunctions(
+    ClassElement element,
+    String ns,
+  ) {
+    final asyncChecker = TypeChecker.fromUrl(
+      'package:nitro/src/annotations.dart#NitroAsync',
+    );
+    final zeroCopyChecker = TypeChecker.fromUrl(
+      'package:nitro/src/annotations.dart#ZeroCopy',
+    );
 
     // Skip abstract getters annotated with @NitroStream or abstract getters/setters
     return element.methods.where((m) => m.isAbstract).map((m) {
@@ -77,7 +86,9 @@ class SpecExtractor {
         params: m.parameters.map((p) {
           return BridgeParam(
             name: p.name,
-            type: BridgeType(name: p.type.getDisplayString(withNullability: true)),
+            type: BridgeType(
+              name: p.type.getDisplayString(withNullability: true),
+            ),
             zeroCopy: zeroCopyChecker.hasAnnotationOf(p),
           );
         }).toList(),
@@ -87,7 +98,10 @@ class SpecExtractor {
 
   // ─── Properties ──────────────────────────────────────────────────────────────
 
-  static List<BridgeProperty> _extractProperties(ClassElement element, String ns) {
+  static List<BridgeProperty> _extractProperties(
+    ClassElement element,
+    String ns,
+  ) {
     // Group accessors by name
     final map = <String, Map<String, dynamic>>{};
 
@@ -96,8 +110,11 @@ class SpecExtractor {
         continue;
       }
       final name = ac.displayName.replaceFirst('=', '');
-      final entry = map.putIfAbsent(name, () => {'name': name, 'getter': false, 'setter': false});
-      
+      final entry = map.putIfAbsent(
+        name,
+        () => {'name': name, 'getter': false, 'setter': false},
+      );
+
       if (ac.isGetter) {
         final type = ac.returnType;
         if (type.isDartCoreFunction || _isStreamType(type)) continue;
@@ -128,8 +145,9 @@ class SpecExtractor {
   // ─── Streams ─────────────────────────────────────────────────────────────────
 
   static List<BridgeStream> _extractStreams(ClassElement element, String ns) {
-    final streamChecker =
-        TypeChecker.fromUrl('package:nitro/src/annotations.dart#NitroStream');
+    final streamChecker = TypeChecker.fromUrl(
+      'package:nitro/src/annotations.dart#NitroStream',
+    );
     final results = <BridgeStream>[];
 
     for (final accessor in element.accessors) {
@@ -144,7 +162,9 @@ class SpecExtractor {
       // Get item type T from Stream<T>
       final streamType = retType as InterfaceType;
       final itemTypeName = streamType.typeArguments.isNotEmpty
-          ? streamType.typeArguments.first.getDisplayString(withNullability: true)
+          ? streamType.typeArguments.first.getDisplayString(
+              withNullability: true,
+            )
           : 'dynamic';
 
       // Read backpressure from @NitroStream annotation, default dropLatest
@@ -157,13 +177,15 @@ class SpecExtractor {
       }
 
       final name = accessor.displayName;
-      results.add(BridgeStream(
-        dartName: name,
-        registerSymbol: '${ns}_register_${_toSnakeCase(name)}_stream',
-        releaseSymbol: '${ns}_release_${_toSnakeCase(name)}_stream',
-        itemType: BridgeType(name: itemTypeName),
-        backpressure: backpressure,
-      ));
+      results.add(
+        BridgeStream(
+          dartName: name,
+          registerSymbol: '${ns}_register_${_toSnakeCase(name)}_stream',
+          releaseSymbol: '${ns}_release_${_toSnakeCase(name)}_stream',
+          itemType: BridgeType(name: itemTypeName),
+          backpressure: backpressure,
+        ),
+      );
     }
 
     return results;
@@ -198,12 +220,15 @@ class SpecExtractor {
 
       final fields = cls.fields
           .where((f) => !f.isStatic && !f.isSynthetic)
-          .map((f) => BridgeField(
-                name: f.name,
-                type: BridgeType(
-                    name: f.type.getDisplayString(withNullability: true)),
-                zeroCopy: zeroCopyFields.contains(f.name),
-              ))
+          .map(
+            (f) => BridgeField(
+              name: f.name,
+              type: BridgeType(
+                name: f.type.getDisplayString(withNullability: true),
+              ),
+              zeroCopy: zeroCopyFields.contains(f.name),
+            ),
+          )
           .toList();
 
       results.add(BridgeStruct(name: cls.name, packed: packed, fields: fields));
@@ -226,14 +251,16 @@ class SpecExtractor {
       final startValue =
           ann.annotation.read('startValue').literalValue as int? ?? 0;
 
-      results.add(BridgeEnum(
-        name: cls.name,
-        startValue: startValue,
-        values: cls.fields
-            .where((f) => f.isEnumConstant)
-            .map((f) => f.name)
-            .toList(),
-      ));
+      results.add(
+        BridgeEnum(
+          name: cls.name,
+          startValue: startValue,
+          values: cls.fields
+              .where((f) => f.isEnumConstant)
+              .map((f) => f.name)
+              .toList(),
+        ),
+      );
     }
     return results;
   }
@@ -241,7 +268,9 @@ class SpecExtractor {
   static String _toSnakeCase(String text) {
     return text
         .replaceAllMapped(
-            RegExp('([a-z0-9])([A-Z])'), (m) => '${m.group(1)}_${m.group(2)}')
+          RegExp('([a-z0-9])([A-Z])'),
+          (m) => '${m.group(1)}_${m.group(2)}',
+        )
         .toLowerCase();
   }
 }

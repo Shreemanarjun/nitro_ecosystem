@@ -17,229 +17,289 @@ import 'package:test/test.dart';
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
 BridgeSpec _simpleSpec() => BridgeSpec(
-      dartClassName: 'MyCamera',
-      lib: 'my_camera',
-      namespace: 'my_camera_module',
-      iosImpl: NativeImpl.swift,
-      androidImpl: NativeImpl.kotlin,
-      sourceUri: 'my_camera.native.dart',
-      functions: [
-        BridgeFunction(
-          dartName: 'add',
-          cSymbol: 'my_camera_add',
-          isAsync: false,
-          returnType: BridgeType(name: 'double'),
-          params: [
-            BridgeParam(name: 'a', type: BridgeType(name: 'double')),
-            BridgeParam(name: 'b', type: BridgeType(name: 'double')),
-          ],
+  dartClassName: 'MyCamera',
+  lib: 'my_camera',
+  namespace: 'my_camera_module',
+  iosImpl: NativeImpl.swift,
+  androidImpl: NativeImpl.kotlin,
+  sourceUri: 'my_camera.native.dart',
+  functions: [
+    BridgeFunction(
+      dartName: 'add',
+      cSymbol: 'my_camera_add',
+      isAsync: false,
+      returnType: BridgeType(name: 'double'),
+      params: [
+        BridgeParam(
+          name: 'a',
+          type: BridgeType(name: 'double'),
         ),
-        BridgeFunction(
-          dartName: 'getGreeting',
-          cSymbol: 'my_camera_get_greeting',
-          isAsync: true,
-          returnType: BridgeType(name: 'String'),
-          params: [
-            BridgeParam(name: 'name', type: BridgeType(name: 'String')),
-          ],
+        BridgeParam(
+          name: 'b',
+          type: BridgeType(name: 'double'),
         ),
       ],
-    );
+    ),
+    BridgeFunction(
+      dartName: 'getGreeting',
+      cSymbol: 'my_camera_get_greeting',
+      isAsync: true,
+      returnType: BridgeType(name: 'String'),
+      params: [
+        BridgeParam(
+          name: 'name',
+          type: BridgeType(name: 'String'),
+        ),
+      ],
+    ),
+  ],
+);
 
 BridgeSpec _enumSpec() => BridgeSpec(
-      dartClassName: 'ComplexModule',
-      lib: 'complex',
-      namespace: 'complex_module',
-      iosImpl: NativeImpl.swift,
-      androidImpl: NativeImpl.kotlin,
-      sourceUri: 'complex.native.dart',
-      enums: [
-        BridgeEnum(name: 'DeviceStatus', startValue: 0, values: ['idle', 'running', 'error']),
-      ],
-      functions: [
-        BridgeFunction(
-          dartName: 'getStatus',
-          cSymbol: 'complex_module_get_status',
-          isAsync: false,
-          returnType: BridgeType(name: 'DeviceStatus'),
-          params: [],
-        ),
-      ],
-      properties: [
-        BridgeProperty(
-          dartName: 'batteryLevel',
-          type: BridgeType(name: 'double'),
-          getSymbol: 'complex_module_get_battery_level',
-          hasGetter: true,
-          hasSetter: false,
-        ),
-        BridgeProperty(
-          dartName: 'config',
-          type: BridgeType(name: 'String'),
-          getSymbol: 'complex_module_get_config',
-          setSymbol: 'complex_module_set_config',
-          hasGetter: true,
-          hasSetter: true,
-        ),
-      ],
-    );
+  dartClassName: 'ComplexModule',
+  lib: 'complex',
+  namespace: 'complex_module',
+  iosImpl: NativeImpl.swift,
+  androidImpl: NativeImpl.kotlin,
+  sourceUri: 'complex.native.dart',
+  enums: [
+    BridgeEnum(
+      name: 'DeviceStatus',
+      startValue: 0,
+      values: ['idle', 'running', 'error'],
+    ),
+  ],
+  functions: [
+    BridgeFunction(
+      dartName: 'getStatus',
+      cSymbol: 'complex_module_get_status',
+      isAsync: false,
+      returnType: BridgeType(name: 'DeviceStatus'),
+      params: [],
+    ),
+  ],
+  properties: [
+    BridgeProperty(
+      dartName: 'batteryLevel',
+      type: BridgeType(name: 'double'),
+      getSymbol: 'complex_module_get_battery_level',
+      hasGetter: true,
+      hasSetter: false,
+    ),
+    BridgeProperty(
+      dartName: 'config',
+      type: BridgeType(name: 'String'),
+      getSymbol: 'complex_module_get_config',
+      setSymbol: 'complex_module_set_config',
+      hasGetter: true,
+      hasSetter: true,
+    ),
+  ],
+);
 
 BridgeSpec _structStreamSpec() => BridgeSpec(
-      dartClassName: 'MyCamera',
-      lib: 'my_camera',
-      namespace: 'my_camera_module',
-      iosImpl: NativeImpl.swift,
-      androidImpl: NativeImpl.kotlin,
-      sourceUri: 'my_camera.native.dart',
-      structs: [
-        BridgeStruct(
-          name: 'CameraFrame',
-          packed: false,
-          fields: [
-            BridgeField(name: 'data', type: BridgeType(name: 'Uint8List'), zeroCopy: true),
-            BridgeField(name: 'width', type: BridgeType(name: 'int')),
-            BridgeField(name: 'height', type: BridgeType(name: 'int')),
-            BridgeField(name: 'stride', type: BridgeType(name: 'int')),
-            BridgeField(name: 'timestampNs', type: BridgeType(name: 'int')),
-          ],
+  dartClassName: 'MyCamera',
+  lib: 'my_camera',
+  namespace: 'my_camera_module',
+  iosImpl: NativeImpl.swift,
+  androidImpl: NativeImpl.kotlin,
+  sourceUri: 'my_camera.native.dart',
+  structs: [
+    BridgeStruct(
+      name: 'CameraFrame',
+      packed: false,
+      fields: [
+        BridgeField(
+          name: 'data',
+          type: BridgeType(name: 'Uint8List'),
+          zeroCopy: true,
+        ),
+        BridgeField(
+          name: 'width',
+          type: BridgeType(name: 'int'),
+        ),
+        BridgeField(
+          name: 'height',
+          type: BridgeType(name: 'int'),
+        ),
+        BridgeField(
+          name: 'stride',
+          type: BridgeType(name: 'int'),
+        ),
+        BridgeField(
+          name: 'timestampNs',
+          type: BridgeType(name: 'int'),
         ),
       ],
-      streams: [
-        BridgeStream(
-          dartName: 'frames',
-          registerSymbol: 'my_camera_register_frames_stream',
-          releaseSymbol: 'my_camera_release_frames_stream',
-          itemType: BridgeType(name: 'CameraFrame'),
-          backpressure: Backpressure.dropLatest,
-        ),
-      ],
-    );
+    ),
+  ],
+  streams: [
+    BridgeStream(
+      dartName: 'frames',
+      registerSymbol: 'my_camera_register_frames_stream',
+      releaseSymbol: 'my_camera_release_frames_stream',
+      itemType: BridgeType(name: 'CameraFrame'),
+      backpressure: Backpressure.dropLatest,
+    ),
+  ],
+);
 
 BridgeSpec _underscoreLibSpec() => BridgeSpec(
-      dartClassName: 'SensorHub',
-      lib: 'sensor_hub',
-      namespace: 'sensor_hub_module',
-      iosImpl: NativeImpl.swift,
-      androidImpl: NativeImpl.kotlin,
-      sourceUri: 'sensor_hub.native.dart',
-    );
+  dartClassName: 'SensorHub',
+  lib: 'sensor_hub',
+  namespace: 'sensor_hub_module',
+  iosImpl: NativeImpl.swift,
+  androidImpl: NativeImpl.kotlin,
+  sourceUri: 'sensor_hub.native.dart',
+);
 
 // Spec with bools, strings, int, async enum, struct param, property setter
 BridgeSpec _richSpec() => BridgeSpec(
-      dartClassName: 'Sensor',
-      lib: 'sensor',
-      namespace: 'sensor',
-      iosImpl: NativeImpl.swift,
-      androidImpl: NativeImpl.kotlin,
-      sourceUri: 'sensor.native.dart',
-      enums: [
-        BridgeEnum(name: 'SensorMode', startValue: 0, values: ['off', 'low', 'high']),
-      ],
-      structs: [
-        BridgeStruct(name: 'Reading', packed: false, fields: [
-          BridgeField(name: 'value', type: BridgeType(name: 'double')),
-          BridgeField(name: 'valid', type: BridgeType(name: 'bool')),
-        ]),
-      ],
-      functions: [
-        BridgeFunction(
-          dartName: 'isReady',
-          cSymbol: 'sensor_is_ready',
-          isAsync: false,
-          returnType: BridgeType(name: 'bool'),
-          params: [BridgeParam(name: 'strict', type: BridgeType(name: 'bool'))],
+  dartClassName: 'Sensor',
+  lib: 'sensor',
+  namespace: 'sensor',
+  iosImpl: NativeImpl.swift,
+  androidImpl: NativeImpl.kotlin,
+  sourceUri: 'sensor.native.dart',
+  enums: [
+    BridgeEnum(
+      name: 'SensorMode',
+      startValue: 0,
+      values: ['off', 'low', 'high'],
+    ),
+  ],
+  structs: [
+    BridgeStruct(
+      name: 'Reading',
+      packed: false,
+      fields: [
+        BridgeField(
+          name: 'value',
+          type: BridgeType(name: 'double'),
         ),
-        BridgeFunction(
-          dartName: 'count',
-          cSymbol: 'sensor_count',
-          isAsync: false,
-          returnType: BridgeType(name: 'int'),
-          params: [],
-        ),
-        BridgeFunction(
-          dartName: 'label',
-          cSymbol: 'sensor_label',
-          isAsync: false,
-          returnType: BridgeType(name: 'String'),
-          params: [BridgeParam(name: 'id', type: BridgeType(name: 'String'))],
-        ),
-        BridgeFunction(
-          dartName: 'getMode',
-          cSymbol: 'sensor_get_mode',
-          isAsync: false,
-          returnType: BridgeType(name: 'SensorMode'),
-          params: [],
-        ),
-        BridgeFunction(
-          dartName: 'fetchReading',
-          cSymbol: 'sensor_fetch_reading',
-          isAsync: true,
-          returnType: BridgeType(name: 'Reading'),
-          params: [],
-        ),
-        BridgeFunction(
-          dartName: 'push',
-          cSymbol: 'sensor_push',
-          isAsync: false,
-          returnType: BridgeType(name: 'void'),
-          params: [BridgeParam(name: 'r', type: BridgeType(name: 'Reading'))],
-        ),
-      ],
-      properties: [
-        BridgeProperty(
-          dartName: 'enabled',
+        BridgeField(
+          name: 'valid',
           type: BridgeType(name: 'bool'),
-          getSymbol: 'sensor_get_enabled',
-          setSymbol: 'sensor_set_enabled',
-          hasGetter: true,
-          hasSetter: true,
-        ),
-        BridgeProperty(
-          dartName: 'mode',
-          type: BridgeType(name: 'SensorMode'),
-          getSymbol: 'sensor_get_mode_prop',
-          setSymbol: 'sensor_set_mode_prop',
-          hasGetter: true,
-          hasSetter: true,
         ),
       ],
-      streams: [
-        BridgeStream(
-          dartName: 'ticks',
-          registerSymbol: 'sensor_register_ticks_stream',
-          releaseSymbol: 'sensor_release_ticks_stream',
-          itemType: BridgeType(name: 'double'),
-          backpressure: Backpressure.dropLatest,
-        ),
-        BridgeStream(
-          dartName: 'counts',
-          registerSymbol: 'sensor_register_counts_stream',
-          releaseSymbol: 'sensor_release_counts_stream',
-          itemType: BridgeType(name: 'int'),
-          backpressure: Backpressure.dropLatest,
+    ),
+  ],
+  functions: [
+    BridgeFunction(
+      dartName: 'isReady',
+      cSymbol: 'sensor_is_ready',
+      isAsync: false,
+      returnType: BridgeType(name: 'bool'),
+      params: [
+        BridgeParam(
+          name: 'strict',
+          type: BridgeType(name: 'bool'),
         ),
       ],
-    );
+    ),
+    BridgeFunction(
+      dartName: 'count',
+      cSymbol: 'sensor_count',
+      isAsync: false,
+      returnType: BridgeType(name: 'int'),
+      params: [],
+    ),
+    BridgeFunction(
+      dartName: 'label',
+      cSymbol: 'sensor_label',
+      isAsync: false,
+      returnType: BridgeType(name: 'String'),
+      params: [
+        BridgeParam(
+          name: 'id',
+          type: BridgeType(name: 'String'),
+        ),
+      ],
+    ),
+    BridgeFunction(
+      dartName: 'getMode',
+      cSymbol: 'sensor_get_mode',
+      isAsync: false,
+      returnType: BridgeType(name: 'SensorMode'),
+      params: [],
+    ),
+    BridgeFunction(
+      dartName: 'fetchReading',
+      cSymbol: 'sensor_fetch_reading',
+      isAsync: true,
+      returnType: BridgeType(name: 'Reading'),
+      params: [],
+    ),
+    BridgeFunction(
+      dartName: 'push',
+      cSymbol: 'sensor_push',
+      isAsync: false,
+      returnType: BridgeType(name: 'void'),
+      params: [
+        BridgeParam(
+          name: 'r',
+          type: BridgeType(name: 'Reading'),
+        ),
+      ],
+    ),
+  ],
+  properties: [
+    BridgeProperty(
+      dartName: 'enabled',
+      type: BridgeType(name: 'bool'),
+      getSymbol: 'sensor_get_enabled',
+      setSymbol: 'sensor_set_enabled',
+      hasGetter: true,
+      hasSetter: true,
+    ),
+    BridgeProperty(
+      dartName: 'mode',
+      type: BridgeType(name: 'SensorMode'),
+      getSymbol: 'sensor_get_mode_prop',
+      setSymbol: 'sensor_set_mode_prop',
+      hasGetter: true,
+      hasSetter: true,
+    ),
+  ],
+  streams: [
+    BridgeStream(
+      dartName: 'ticks',
+      registerSymbol: 'sensor_register_ticks_stream',
+      releaseSymbol: 'sensor_release_ticks_stream',
+      itemType: BridgeType(name: 'double'),
+      backpressure: Backpressure.dropLatest,
+    ),
+    BridgeStream(
+      dartName: 'counts',
+      registerSymbol: 'sensor_register_counts_stream',
+      releaseSymbol: 'sensor_release_counts_stream',
+      itemType: BridgeType(name: 'int'),
+      backpressure: Backpressure.dropLatest,
+    ),
+  ],
+);
 
 // Async enum return (no arena needed)
 BridgeSpec _asyncEnumSpec() => BridgeSpec(
-      dartClassName: 'Device',
-      lib: 'device',
-      namespace: 'device',
-      iosImpl: NativeImpl.swift,
-      androidImpl: NativeImpl.kotlin,
-      sourceUri: 'device.native.dart',
-      enums: [BridgeEnum(name: 'State', startValue: 0, values: ['idle', 'running'])],
-      functions: [
-        BridgeFunction(
-          dartName: 'fetchState',
-          cSymbol: 'device_fetch_state',
-          isAsync: true,
-          returnType: BridgeType(name: 'State'),
-          params: [],
-        ),
-      ],
-    );
+  dartClassName: 'Device',
+  lib: 'device',
+  namespace: 'device',
+  iosImpl: NativeImpl.swift,
+  androidImpl: NativeImpl.kotlin,
+  sourceUri: 'device.native.dart',
+  enums: [
+    BridgeEnum(name: 'State', startValue: 0, values: ['idle', 'running']),
+  ],
+  functions: [
+    BridgeFunction(
+      dartName: 'fetchState',
+      cSymbol: 'device_fetch_state',
+      isAsync: true,
+      returnType: BridgeType(name: 'State'),
+      params: [],
+    ),
+  ],
+);
 
 // ── DartFfiGenerator ─────────────────────────────────────────────────────────
 
@@ -262,7 +322,12 @@ void main() {
 
     test('sync double function uses lookupFunction', () {
       final out = DartFfiGenerator.generate(_simpleSpec());
-      expect(out, contains("lookupFunction<Double Function(Double, Double), double Function(double, double)>('my_camera_add')"));
+      expect(
+        out,
+        contains(
+          "lookupFunction<Double Function(Double, Double), double Function(double, double)>('my_camera_add')",
+        ),
+      );
     });
 
     test('async String function returns NitroRuntime.callAsync', () {
@@ -273,7 +338,12 @@ void main() {
     test('enum return type uses Int64 FFI type', () {
       final out = DartFfiGenerator.generate(_enumSpec());
       expect(out, contains('Int64 Function()'));
-      expect(out, contains("lookupFunction<Int64 Function(), int Function()>('complex_module_get_status')"));
+      expect(
+        out,
+        contains(
+          "lookupFunction<Int64 Function(), int Function()>('complex_module_get_status')",
+        ),
+      );
     });
 
     test('enum return calls toDeviceStatus()', () {
@@ -283,15 +353,31 @@ void main() {
 
     test('stream register/release pointers emitted', () {
       final out = DartFfiGenerator.generate(_structStreamSpec());
-      expect(out, contains("lookupFunction<Void Function(Int64), void Function(int)>('my_camera_register_frames_stream')"));
-      expect(out, contains("lookupFunction<Void Function(Int64), void Function(int)>('my_camera_release_frames_stream')"));
+      expect(
+        out,
+        contains(
+          "lookupFunction<Void Function(Int64), void Function(int)>('my_camera_register_frames_stream')",
+        ),
+      );
+      expect(
+        out,
+        contains(
+          "lookupFunction<Void Function(Int64), void Function(int)>('my_camera_release_frames_stream')",
+        ),
+      );
     });
 
-    test('struct stream uses NitroRuntime.openStream with fromAddress unpack', () {
-      final out = DartFfiGenerator.generate(_structStreamSpec());
-      expect(out, contains('NitroRuntime.openStream<CameraFrame>'));
-      expect(out, contains('Pointer<CameraFrameFfi>.fromAddress(rawPtr).ref.toDart()'));
-    });
+    test(
+      'struct stream uses NitroRuntime.openStream with fromAddress unpack',
+      () {
+        final out = DartFfiGenerator.generate(_structStreamSpec());
+        expect(out, contains('NitroRuntime.openStream<CameraFrame>'));
+        expect(
+          out,
+          contains('Pointer<CameraFrameFfi>.fromAddress(rawPtr).ref.toDart()'),
+        );
+      },
+    );
   });
 
   // ── KotlinGenerator ─────────────────────────────────────────────────────────
@@ -341,7 +427,10 @@ void main() {
 
     test('stream register_call emitted', () {
       final out = KotlinGenerator.generate(_structStreamSpec());
-      expect(out, contains('fun my_camera_register_frames_stream_call(dartPort: Long)'));
+      expect(
+        out,
+        contains('fun my_camera_register_frames_stream_call(dartPort: Long)'),
+      );
     });
 
     test('property val for read-only', () {
@@ -401,9 +490,16 @@ void main() {
         androidImpl: NativeImpl.kotlin,
         sourceUri: 'my_hub.native.dart',
         structs: [
-          BridgeStruct(name: 'Payload', packed: false, fields: [
-            BridgeField(name: 'size', type: BridgeType(name: 'int')),
-          ]),
+          BridgeStruct(
+            name: 'Payload',
+            packed: false,
+            fields: [
+              BridgeField(
+                name: 'size',
+                type: BridgeType(name: 'int'),
+              ),
+            ],
+          ),
         ],
         streams: [
           BridgeStream(
@@ -417,7 +513,10 @@ void main() {
       );
       final out = CppBridgeGenerator.generate(spec);
       // All underscores in every component must be mangled
-      expect(out, contains('Java_nitro_my_1hub_1module_HubJniBridge_emit_1sensor_1data'));
+      expect(
+        out,
+        contains('Java_nitro_my_1hub_1module_HubJniBridge_emit_1sensor_1data'),
+      );
       expect(out, isNot(contains('emit_1sensor_data(')));
     });
 
@@ -449,7 +548,12 @@ void main() {
       // The void function body must use bare `return;`, not `return nullptr;`
       // (note: `return nullptr;` may appear in boilerplate like GetEnv())
       expect(out, contains('if (env == nullptr) return;\n'));
-      expect(out, contains('if (methodId == nullptr) { LOGE("Method not found"); return; }'));
+      expect(
+        out,
+        contains(
+          'if (methodId == nullptr) { LOGE("Method not found"); return; }',
+        ),
+      );
     });
 
     test('enum return uses int64_t and CallStaticLongMethod', () {
@@ -466,18 +570,31 @@ void main() {
 
     test('property setter emitted', () {
       final out = CppBridgeGenerator.generate(_enumSpec());
-      expect(out, contains('void complex_module_set_config(const char* value)'));
+      expect(
+        out,
+        contains('void complex_module_set_config(const char* value)'),
+      );
     });
 
     test('struct stream emit uses malloc', () {
       final out = CppBridgeGenerator.generate(_structStreamSpec());
-      expect(out, contains('CameraFrame* st_ptr = (CameraFrame*)malloc(sizeof(CameraFrame))'));
+      expect(
+        out,
+        contains(
+          'CameraFrame* st_ptr = (CameraFrame*)malloc(sizeof(CameraFrame))',
+        ),
+      );
       expect(out, contains('pack_CameraFrame_from_jni'));
     });
 
     test('struct stream emit JNI function name uses correct mangling', () {
       final out = CppBridgeGenerator.generate(_structStreamSpec());
-      expect(out, contains('Java_nitro_my_1camera_1module_MyCameraJniBridge_emit_1frames'));
+      expect(
+        out,
+        contains(
+          'Java_nitro_my_1camera_1module_MyCameraJniBridge_emit_1frames',
+        ),
+      );
     });
 
     test('iOS section emits extern _call functions', () {
@@ -510,72 +627,133 @@ void main() {
 
     test('unknown return type emits UNKNOWN_RETURN_TYPE error', () {
       final spec = BridgeSpec(
-        dartClassName: 'Foo', lib: 'foo', namespace: 'foo',
-        iosImpl: NativeImpl.swift, androidImpl: NativeImpl.kotlin,
+        dartClassName: 'Foo',
+        lib: 'foo',
+        namespace: 'foo',
+        iosImpl: NativeImpl.swift,
+        androidImpl: NativeImpl.kotlin,
         sourceUri: 'foo.native.dart',
         functions: [
           BridgeFunction(
-            dartName: 'bar', cSymbol: 'foo_bar', isAsync: false,
-            returnType: BridgeType(name: 'MyUnknownType'), params: [],
+            dartName: 'bar',
+            cSymbol: 'foo_bar',
+            isAsync: false,
+            returnType: BridgeType(name: 'MyUnknownType'),
+            params: [],
           ),
         ],
       );
       final issues = SpecValidator.validate(spec);
-      expect(issues.any((i) => i.code == 'UNKNOWN_RETURN_TYPE' && i.isError), isTrue);
+      expect(
+        issues.any((i) => i.code == 'UNKNOWN_RETURN_TYPE' && i.isError),
+        isTrue,
+      );
     });
 
     test('unknown parameter type emits UNKNOWN_PARAM_TYPE error', () {
       final spec = BridgeSpec(
-        dartClassName: 'Foo', lib: 'foo', namespace: 'foo',
-        iosImpl: NativeImpl.swift, androidImpl: NativeImpl.kotlin,
+        dartClassName: 'Foo',
+        lib: 'foo',
+        namespace: 'foo',
+        iosImpl: NativeImpl.swift,
+        androidImpl: NativeImpl.kotlin,
         sourceUri: 'foo.native.dart',
         functions: [
           BridgeFunction(
-            dartName: 'bar', cSymbol: 'foo_bar', isAsync: false,
+            dartName: 'bar',
+            cSymbol: 'foo_bar',
+            isAsync: false,
             returnType: BridgeType(name: 'void'),
-            params: [BridgeParam(name: 'x', type: BridgeType(name: 'UnknownStruct'))],
+            params: [
+              BridgeParam(
+                name: 'x',
+                type: BridgeType(name: 'UnknownStruct'),
+              ),
+            ],
           ),
         ],
       );
       final issues = SpecValidator.validate(spec);
-      expect(issues.any((i) => i.code == 'UNKNOWN_PARAM_TYPE' && i.isError), isTrue);
+      expect(
+        issues.any((i) => i.code == 'UNKNOWN_PARAM_TYPE' && i.isError),
+        isTrue,
+      );
     });
 
     test('known @HybridEnum in return produces no error', () {
-      expect(SpecValidator.validate(_enumSpec()).where((i) => i.isError), isEmpty);
+      expect(
+        SpecValidator.validate(_enumSpec()).where((i) => i.isError),
+        isEmpty,
+      );
     });
 
     test('known @HybridStruct in stream produces no error', () {
-      expect(SpecValidator.validate(_structStreamSpec()).where((i) => i.isError), isEmpty);
+      expect(
+        SpecValidator.validate(_structStreamSpec()).where((i) => i.isError),
+        isEmpty,
+      );
     });
 
     test('duplicate C symbols emit DUPLICATE_SYMBOL error', () {
       final spec = BridgeSpec(
-        dartClassName: 'Foo', lib: 'foo', namespace: 'foo',
-        iosImpl: NativeImpl.swift, androidImpl: NativeImpl.kotlin,
+        dartClassName: 'Foo',
+        lib: 'foo',
+        namespace: 'foo',
+        iosImpl: NativeImpl.swift,
+        androidImpl: NativeImpl.kotlin,
         sourceUri: 'foo.native.dart',
         functions: [
-          BridgeFunction(dartName: 'a', cSymbol: 'foo_bar', isAsync: false,
-              returnType: BridgeType(name: 'void'), params: []),
-          BridgeFunction(dartName: 'b', cSymbol: 'foo_bar', isAsync: false,
-              returnType: BridgeType(name: 'void'), params: []),
+          BridgeFunction(
+            dartName: 'a',
+            cSymbol: 'foo_bar',
+            isAsync: false,
+            returnType: BridgeType(name: 'void'),
+            params: [],
+          ),
+          BridgeFunction(
+            dartName: 'b',
+            cSymbol: 'foo_bar',
+            isAsync: false,
+            returnType: BridgeType(name: 'void'),
+            params: [],
+          ),
         ],
       );
       final issues = SpecValidator.validate(spec);
-      expect(issues.any((i) => i.code == 'DUPLICATE_SYMBOL' && i.isError), isTrue);
+      expect(
+        issues.any((i) => i.code == 'DUPLICATE_SYMBOL' && i.isError),
+        isTrue,
+      );
     });
 
     test('sync struct return emits SYNC_STRUCT_RETURN warning (not error)', () {
       final spec = BridgeSpec(
-        dartClassName: 'Foo', lib: 'foo', namespace: 'foo',
-        iosImpl: NativeImpl.swift, androidImpl: NativeImpl.kotlin,
+        dartClassName: 'Foo',
+        lib: 'foo',
+        namespace: 'foo',
+        iosImpl: NativeImpl.swift,
+        androidImpl: NativeImpl.kotlin,
         sourceUri: 'foo.native.dart',
-        structs: [BridgeStruct(name: 'Result', packed: false, fields: [
-          BridgeField(name: 'value', type: BridgeType(name: 'double')),
-        ])],
+        structs: [
+          BridgeStruct(
+            name: 'Result',
+            packed: false,
+            fields: [
+              BridgeField(
+                name: 'value',
+                type: BridgeType(name: 'double'),
+              ),
+            ],
+          ),
+        ],
         functions: [
-          BridgeFunction(dartName: 'get', cSymbol: 'foo_get', isAsync: false,
-              returnType: BridgeType(name: 'Result'), params: []),
+          BridgeFunction(
+            dartName: 'get',
+            cSymbol: 'foo_get',
+            isAsync: false,
+            returnType: BridgeType(name: 'Result'),
+            params: [],
+          ),
         ],
       );
       final issues = SpecValidator.validate(spec);
@@ -586,58 +764,110 @@ void main() {
 
     test('zero_copy on non-Uint8List field emits INVALID_ZERO_COPY error', () {
       final spec = BridgeSpec(
-        dartClassName: 'Foo', lib: 'foo', namespace: 'foo',
-        iosImpl: NativeImpl.swift, androidImpl: NativeImpl.kotlin,
+        dartClassName: 'Foo',
+        lib: 'foo',
+        namespace: 'foo',
+        iosImpl: NativeImpl.swift,
+        androidImpl: NativeImpl.kotlin,
         sourceUri: 'foo.native.dart',
-        structs: [BridgeStruct(name: 'Bad', packed: false, fields: [
-          BridgeField(name: 'count', type: BridgeType(name: 'int'), zeroCopy: true),
-        ])],
+        structs: [
+          BridgeStruct(
+            name: 'Bad',
+            packed: false,
+            fields: [
+              BridgeField(
+                name: 'count',
+                type: BridgeType(name: 'int'),
+                zeroCopy: true,
+              ),
+            ],
+          ),
+        ],
       );
       final issues = SpecValidator.validate(spec);
-      expect(issues.any((i) => i.code == 'INVALID_ZERO_COPY' && i.isError), isTrue);
+      expect(
+        issues.any((i) => i.code == 'INVALID_ZERO_COPY' && i.isError),
+        isTrue,
+      );
     });
 
     test('unknown stream item type emits UNKNOWN_STREAM_ITEM_TYPE error', () {
       final spec = BridgeSpec(
-        dartClassName: 'Foo', lib: 'foo', namespace: 'foo',
-        iosImpl: NativeImpl.swift, androidImpl: NativeImpl.kotlin,
+        dartClassName: 'Foo',
+        lib: 'foo',
+        namespace: 'foo',
+        iosImpl: NativeImpl.swift,
+        androidImpl: NativeImpl.kotlin,
         sourceUri: 'foo.native.dart',
-        streams: [BridgeStream(
-          dartName: 'events',
-          registerSymbol: 'foo_register_events_stream',
-          releaseSymbol: 'foo_release_events_stream',
-          itemType: BridgeType(name: 'SomeComplexClass'),
-          backpressure: Backpressure.dropLatest,
-        )],
+        streams: [
+          BridgeStream(
+            dartName: 'events',
+            registerSymbol: 'foo_register_events_stream',
+            releaseSymbol: 'foo_release_events_stream',
+            itemType: BridgeType(name: 'SomeComplexClass'),
+            backpressure: Backpressure.dropLatest,
+          ),
+        ],
       );
       final issues = SpecValidator.validate(spec);
-      expect(issues.any((i) => i.code == 'UNKNOWN_STREAM_ITEM_TYPE' && i.isError), isTrue);
+      expect(
+        issues.any((i) => i.code == 'UNKNOWN_STREAM_ITEM_TYPE' && i.isError),
+        isTrue,
+      );
     });
 
-    test('invalid struct field type (List<int>) emits INVALID_STRUCT_FIELD_TYPE error', () {
-      final spec = BridgeSpec(
-        dartClassName: 'Foo', lib: 'foo', namespace: 'foo',
-        iosImpl: NativeImpl.swift, androidImpl: NativeImpl.kotlin,
-        sourceUri: 'foo.native.dart',
-        structs: [BridgeStruct(name: 'Wrapper', packed: false, fields: [
-          BridgeField(name: 'items', type: BridgeType(name: 'List<int>')),
-        ])],
-      );
-      final issues = SpecValidator.validate(spec);
-      expect(issues.any((i) => i.code == 'INVALID_STRUCT_FIELD_TYPE' && i.isError), isTrue);
-    });
+    test(
+      'invalid struct field type (List<int>) emits INVALID_STRUCT_FIELD_TYPE error',
+      () {
+        final spec = BridgeSpec(
+          dartClassName: 'Foo',
+          lib: 'foo',
+          namespace: 'foo',
+          iosImpl: NativeImpl.swift,
+          androidImpl: NativeImpl.kotlin,
+          sourceUri: 'foo.native.dart',
+          structs: [
+            BridgeStruct(
+              name: 'Wrapper',
+              packed: false,
+              fields: [
+                BridgeField(
+                  name: 'items',
+                  type: BridgeType(name: 'List<int>'),
+                ),
+              ],
+            ),
+          ],
+        );
+        final issues = SpecValidator.validate(spec);
+        expect(
+          issues.any((i) => i.code == 'INVALID_STRUCT_FIELD_TYPE' && i.isError),
+          isTrue,
+        );
+      },
+    );
 
     test('error issues carry actionable hints', () {
       final spec = BridgeSpec(
-        dartClassName: 'Foo', lib: 'foo', namespace: 'foo',
-        iosImpl: NativeImpl.swift, androidImpl: NativeImpl.kotlin,
+        dartClassName: 'Foo',
+        lib: 'foo',
+        namespace: 'foo',
+        iosImpl: NativeImpl.swift,
+        androidImpl: NativeImpl.kotlin,
         sourceUri: 'foo.native.dart',
         functions: [
-          BridgeFunction(dartName: 'bar', cSymbol: 'foo_bar', isAsync: false,
-              returnType: BridgeType(name: 'MissingType'), params: []),
+          BridgeFunction(
+            dartName: 'bar',
+            cSymbol: 'foo_bar',
+            isAsync: false,
+            returnType: BridgeType(name: 'MissingType'),
+            params: [],
+          ),
         ],
       );
-      final errors = SpecValidator.validate(spec).where((i) => i.isError).toList();
+      final errors = SpecValidator.validate(
+        spec,
+      ).where((i) => i.isError).toList();
       expect(errors, isNotEmpty);
       expect(errors.first.hint, isNotNull);
       expect(errors.first.hint, isNotEmpty);
@@ -695,7 +925,12 @@ void main() {
 
     test('property bool getter converts != 0', () {
       final out = DartFfiGenerator.generate(_richSpec());
-      expect(out, contains('bool get enabled { checkDisposed(); return _getEnabledPtr() != 0; }'));
+      expect(
+        out,
+        contains(
+          'bool get enabled { checkDisposed(); return _getEnabledPtr() != 0; }',
+        ),
+      );
     });
 
     test('property enum getter calls toSensorMode()', () {
@@ -705,7 +940,12 @@ void main() {
 
     test('property bool setter converts value ? 1 : 0', () {
       final out = DartFfiGenerator.generate(_richSpec());
-      expect(out, contains('set enabled(bool value) { checkDisposed(); _setEnabledPtr(value ? 1 : 0); }'));
+      expect(
+        out,
+        contains(
+          'set enabled(bool value) { checkDisposed(); _setEnabledPtr(value ? 1 : 0); }',
+        ),
+      );
     });
 
     test('property enum setter passes nativeValue', () {
@@ -796,7 +1036,10 @@ void main() {
 
     test('stream external emit fun emitted', () {
       final out = KotlinGenerator.generate(_richSpec());
-      expect(out, contains('external fun emit_ticks(dartPort: Long, item: Double)'));
+      expect(
+        out,
+        contains('external fun emit_ticks(dartPort: Long, item: Double)'),
+      );
     });
 
     test('stream jobs map declared', () {
@@ -904,16 +1147,28 @@ void main() {
       expect(out, contains('void* r'));
     });
 
-    test('non-enum property getter keeps its native type (double stays double)', () {
-      final out = CppHeaderGenerator.generate(_enumSpec());
-      expect(out, contains('double complex_module_get_battery_level(void);'));
-      expect(out, isNot(contains('int64_t complex_module_get_battery_level')));
-    });
+    test(
+      'non-enum property getter keeps its native type (double stays double)',
+      () {
+        final out = CppHeaderGenerator.generate(_enumSpec());
+        expect(out, contains('double complex_module_get_battery_level(void);'));
+        expect(
+          out,
+          isNot(contains('int64_t complex_module_get_battery_level')),
+        );
+      },
+    );
 
     test('stream register and release declared', () {
       final out = CppHeaderGenerator.generate(_structStreamSpec());
-      expect(out, contains('void my_camera_register_frames_stream(int64_t dart_port);'));
-      expect(out, contains('void my_camera_release_frames_stream(int64_t dart_port);'));
+      expect(
+        out,
+        contains('void my_camera_register_frames_stream(int64_t dart_port);'),
+      );
+      expect(
+        out,
+        contains('void my_camera_release_frames_stream(int64_t dart_port);'),
+      );
     });
 
     test('C enum typedef emitted', () {
@@ -930,12 +1185,24 @@ void main() {
 
     test('packed struct uses pragma pack', () {
       final spec = BridgeSpec(
-        dartClassName: 'Foo', lib: 'foo', namespace: 'foo',
-        iosImpl: NativeImpl.swift, androidImpl: NativeImpl.kotlin,
+        dartClassName: 'Foo',
+        lib: 'foo',
+        namespace: 'foo',
+        iosImpl: NativeImpl.swift,
+        androidImpl: NativeImpl.kotlin,
         sourceUri: 'foo.native.dart',
-        structs: [BridgeStruct(name: 'Tight', packed: true, fields: [
-          BridgeField(name: 'x', type: BridgeType(name: 'int')),
-        ])],
+        structs: [
+          BridgeStruct(
+            name: 'Tight',
+            packed: true,
+            fields: [
+              BridgeField(
+                name: 'x',
+                type: BridgeType(name: 'int'),
+              ),
+            ],
+          ),
+        ],
       );
       final out = CppHeaderGenerator.generate(spec);
       expect(out, contains('#pragma pack(push, 1)'));
@@ -944,8 +1211,11 @@ void main() {
 
     test('spec with no functions emits no Methods section', () {
       final spec = BridgeSpec(
-        dartClassName: 'Foo', lib: 'foo', namespace: 'foo',
-        iosImpl: NativeImpl.swift, androidImpl: NativeImpl.kotlin,
+        dartClassName: 'Foo',
+        lib: 'foo',
+        namespace: 'foo',
+        iosImpl: NativeImpl.swift,
+        androidImpl: NativeImpl.kotlin,
         sourceUri: 'foo.native.dart',
       );
       final out = CppHeaderGenerator.generate(spec);
@@ -1064,10 +1334,15 @@ void main() {
 
     test('startValue offset applied in Dart nativeValue', () {
       final spec = BridgeSpec(
-        dartClassName: 'X', lib: 'x', namespace: 'x',
-        iosImpl: NativeImpl.swift, androidImpl: NativeImpl.kotlin,
+        dartClassName: 'X',
+        lib: 'x',
+        namespace: 'x',
+        iosImpl: NativeImpl.swift,
+        androidImpl: NativeImpl.kotlin,
         sourceUri: 'x.native.dart',
-        enums: [BridgeEnum(name: 'Priority', startValue: 10, values: ['low', 'high'])],
+        enums: [
+          BridgeEnum(name: 'Priority', startValue: 10, values: ['low', 'high']),
+        ],
       );
       final out = EnumGenerator.generateDartExtensions(spec);
       expect(out, contains('index + 10'));
@@ -1083,10 +1358,19 @@ void main() {
 
     test('C enum camelCase value converted to SCREAMING_SNAKE', () {
       final spec = BridgeSpec(
-        dartClassName: 'X', lib: 'x', namespace: 'x',
-        iosImpl: NativeImpl.swift, androidImpl: NativeImpl.kotlin,
+        dartClassName: 'X',
+        lib: 'x',
+        namespace: 'x',
+        iosImpl: NativeImpl.swift,
+        androidImpl: NativeImpl.kotlin,
         sourceUri: 'x.native.dart',
-        enums: [BridgeEnum(name: 'AudioState', startValue: 0, values: ['isPlaying', 'isStopped'])],
+        enums: [
+          BridgeEnum(
+            name: 'AudioState',
+            startValue: 0,
+            values: ['isPlaying', 'isStopped'],
+          ),
+        ],
       );
       final out = EnumGenerator.generateCEnums(spec);
       expect(out, contains('AUDIOSTATE_IS_PLAYING = 0,'));
@@ -1140,12 +1424,24 @@ void main() {
 
     test('packed struct emits @Packed(1)', () {
       final spec = BridgeSpec(
-        dartClassName: 'X', lib: 'x', namespace: 'x',
-        iosImpl: NativeImpl.swift, androidImpl: NativeImpl.kotlin,
+        dartClassName: 'X',
+        lib: 'x',
+        namespace: 'x',
+        iosImpl: NativeImpl.swift,
+        androidImpl: NativeImpl.kotlin,
         sourceUri: 'x.native.dart',
-        structs: [BridgeStruct(name: 'Tight', packed: true, fields: [
-          BridgeField(name: 'val', type: BridgeType(name: 'int')),
-        ])],
+        structs: [
+          BridgeStruct(
+            name: 'Tight',
+            packed: true,
+            fields: [
+              BridgeField(
+                name: 'val',
+                type: BridgeType(name: 'int'),
+              ),
+            ],
+          ),
+        ],
       );
       final out = StructGenerator.generateDartExtensions(spec);
       expect(out, contains('@Packed(1)'));
@@ -1153,7 +1449,7 @@ void main() {
 
     test('Dart FFI Struct has @Int64 annotation on int field', () {
       final out = StructGenerator.generateDartExtensions(_richSpec());
-      expect(out, contains('@Double()'));  // double field
+      expect(out, contains('@Double()')); // double field
     });
 
     test('Dart FFI Struct has @Int8 annotation on bool field', () {
@@ -1209,12 +1505,24 @@ void main() {
 
     test('packed C struct has pragma pack', () {
       final spec = BridgeSpec(
-        dartClassName: 'X', lib: 'x', namespace: 'x',
-        iosImpl: NativeImpl.swift, androidImpl: NativeImpl.kotlin,
+        dartClassName: 'X',
+        lib: 'x',
+        namespace: 'x',
+        iosImpl: NativeImpl.swift,
+        androidImpl: NativeImpl.kotlin,
         sourceUri: 'x.native.dart',
-        structs: [BridgeStruct(name: 'Dense', packed: true, fields: [
-          BridgeField(name: 'n', type: BridgeType(name: 'int')),
-        ])],
+        structs: [
+          BridgeStruct(
+            name: 'Dense',
+            packed: true,
+            fields: [
+              BridgeField(
+                name: 'n',
+                type: BridgeType(name: 'int'),
+              ),
+            ],
+          ),
+        ],
       );
       final out = StructGenerator.generateCStructs(spec);
       expect(out, contains('#pragma pack(push, 1)'));
@@ -1256,8 +1564,11 @@ void main() {
   group('SpecValidator (edge cases)', () {
     test('empty spec (no functions/streams/properties) is valid', () {
       final spec = BridgeSpec(
-        dartClassName: 'Noop', lib: 'noop', namespace: 'noop',
-        iosImpl: NativeImpl.swift, androidImpl: NativeImpl.kotlin,
+        dartClassName: 'Noop',
+        lib: 'noop',
+        namespace: 'noop',
+        iosImpl: NativeImpl.swift,
+        androidImpl: NativeImpl.kotlin,
         sourceUri: 'noop.native.dart',
       );
       expect(SpecValidator.validate(spec), isEmpty);
@@ -1265,12 +1576,20 @@ void main() {
 
     test('nullable String? return type is valid', () {
       final spec = BridgeSpec(
-        dartClassName: 'Foo', lib: 'foo', namespace: 'foo',
-        iosImpl: NativeImpl.swift, androidImpl: NativeImpl.kotlin,
+        dartClassName: 'Foo',
+        lib: 'foo',
+        namespace: 'foo',
+        iosImpl: NativeImpl.swift,
+        androidImpl: NativeImpl.kotlin,
         sourceUri: 'foo.native.dart',
         functions: [
-          BridgeFunction(dartName: 'get', cSymbol: 'foo_get', isAsync: false,
-              returnType: BridgeType(name: 'String?'), params: []),
+          BridgeFunction(
+            dartName: 'get',
+            cSymbol: 'foo_get',
+            isAsync: false,
+            returnType: BridgeType(name: 'String?'),
+            params: [],
+          ),
         ],
       );
       expect(SpecValidator.validate(spec).where((i) => i.isError), isEmpty);
@@ -1278,13 +1597,25 @@ void main() {
 
     test('nullable int? parameter is valid', () {
       final spec = BridgeSpec(
-        dartClassName: 'Foo', lib: 'foo', namespace: 'foo',
-        iosImpl: NativeImpl.swift, androidImpl: NativeImpl.kotlin,
+        dartClassName: 'Foo',
+        lib: 'foo',
+        namespace: 'foo',
+        iosImpl: NativeImpl.swift,
+        androidImpl: NativeImpl.kotlin,
         sourceUri: 'foo.native.dart',
         functions: [
-          BridgeFunction(dartName: 'set', cSymbol: 'foo_set', isAsync: false,
-              returnType: BridgeType(name: 'void'),
-              params: [BridgeParam(name: 'x', type: BridgeType(name: 'int?'))]),
+          BridgeFunction(
+            dartName: 'set',
+            cSymbol: 'foo_set',
+            isAsync: false,
+            returnType: BridgeType(name: 'void'),
+            params: [
+              BridgeParam(
+                name: 'x',
+                type: BridgeType(name: 'int?'),
+              ),
+            ],
+          ),
         ],
       );
       expect(SpecValidator.validate(spec).where((i) => i.isError), isEmpty);
@@ -1292,13 +1623,25 @@ void main() {
 
     test('Uint8List parameter is valid', () {
       final spec = BridgeSpec(
-        dartClassName: 'Foo', lib: 'foo', namespace: 'foo',
-        iosImpl: NativeImpl.swift, androidImpl: NativeImpl.kotlin,
+        dartClassName: 'Foo',
+        lib: 'foo',
+        namespace: 'foo',
+        iosImpl: NativeImpl.swift,
+        androidImpl: NativeImpl.kotlin,
         sourceUri: 'foo.native.dart',
         functions: [
-          BridgeFunction(dartName: 'write', cSymbol: 'foo_write', isAsync: false,
-              returnType: BridgeType(name: 'void'),
-              params: [BridgeParam(name: 'data', type: BridgeType(name: 'Uint8List'))]),
+          BridgeFunction(
+            dartName: 'write',
+            cSymbol: 'foo_write',
+            isAsync: false,
+            returnType: BridgeType(name: 'void'),
+            params: [
+              BridgeParam(
+                name: 'data',
+                type: BridgeType(name: 'Uint8List'),
+              ),
+            ],
+          ),
         ],
       );
       expect(SpecValidator.validate(spec).where((i) => i.isError), isEmpty);
@@ -1307,42 +1650,73 @@ void main() {
     test('primitive stream item types are valid', () {
       for (final t in ['double', 'int', 'bool', 'String']) {
         final spec = BridgeSpec(
-          dartClassName: 'Foo', lib: 'foo', namespace: 'foo',
-          iosImpl: NativeImpl.swift, androidImpl: NativeImpl.kotlin,
+          dartClassName: 'Foo',
+          lib: 'foo',
+          namespace: 'foo',
+          iosImpl: NativeImpl.swift,
+          androidImpl: NativeImpl.kotlin,
           sourceUri: 'foo.native.dart',
-          streams: [BridgeStream(
-            dartName: 'values',
-            registerSymbol: 'foo_register_values_stream',
-            releaseSymbol: 'foo_release_values_stream',
-            itemType: BridgeType(name: t),
-            backpressure: Backpressure.dropLatest,
-          )],
+          streams: [
+            BridgeStream(
+              dartName: 'values',
+              registerSymbol: 'foo_register_values_stream',
+              releaseSymbol: 'foo_release_values_stream',
+              itemType: BridgeType(name: t),
+              backpressure: Backpressure.dropLatest,
+            ),
+          ],
         );
-        expect(SpecValidator.validate(spec).where((i) => i.isError), isEmpty,
-            reason: 'Stream<$t> should be valid');
+        expect(
+          SpecValidator.validate(spec).where((i) => i.isError),
+          isEmpty,
+          reason: 'Stream<$t> should be valid',
+        );
       }
     });
 
     test('struct-typed stream item is valid when struct is in spec', () {
-      expect(SpecValidator.validate(_structStreamSpec()).where((i) => i.isError), isEmpty);
+      expect(
+        SpecValidator.validate(_structStreamSpec()).where((i) => i.isError),
+        isEmpty,
+      );
     });
 
     test('enum-typed return is valid when enum is in spec', () {
-      expect(SpecValidator.validate(_enumSpec()).where((i) => i.isError), isEmpty);
+      expect(
+        SpecValidator.validate(_enumSpec()).where((i) => i.isError),
+        isEmpty,
+      );
     });
 
     test('struct field referencing another struct in spec is valid', () {
       final spec = BridgeSpec(
-        dartClassName: 'Foo', lib: 'foo', namespace: 'foo',
-        iosImpl: NativeImpl.swift, androidImpl: NativeImpl.kotlin,
+        dartClassName: 'Foo',
+        lib: 'foo',
+        namespace: 'foo',
+        iosImpl: NativeImpl.swift,
+        androidImpl: NativeImpl.kotlin,
         sourceUri: 'foo.native.dart',
         structs: [
-          BridgeStruct(name: 'Inner', packed: false, fields: [
-            BridgeField(name: 'x', type: BridgeType(name: 'double')),
-          ]),
-          BridgeStruct(name: 'Outer', packed: false, fields: [
-            BridgeField(name: 'inner', type: BridgeType(name: 'Inner')),
-          ]),
+          BridgeStruct(
+            name: 'Inner',
+            packed: false,
+            fields: [
+              BridgeField(
+                name: 'x',
+                type: BridgeType(name: 'double'),
+              ),
+            ],
+          ),
+          BridgeStruct(
+            name: 'Outer',
+            packed: false,
+            fields: [
+              BridgeField(
+                name: 'inner',
+                type: BridgeType(name: 'Inner'),
+              ),
+            ],
+          ),
         ],
       );
       expect(SpecValidator.validate(spec).where((i) => i.isError), isEmpty);
@@ -1350,36 +1724,53 @@ void main() {
 
     test('async void return is valid', () {
       final spec = BridgeSpec(
-        dartClassName: 'Foo', lib: 'foo', namespace: 'foo',
-        iosImpl: NativeImpl.swift, androidImpl: NativeImpl.kotlin,
+        dartClassName: 'Foo',
+        lib: 'foo',
+        namespace: 'foo',
+        iosImpl: NativeImpl.swift,
+        androidImpl: NativeImpl.kotlin,
         sourceUri: 'foo.native.dart',
         functions: [
-          BridgeFunction(dartName: 'fire', cSymbol: 'foo_fire', isAsync: true,
-              returnType: BridgeType(name: 'void'), params: []),
+          BridgeFunction(
+            dartName: 'fire',
+            cSymbol: 'foo_fire',
+            isAsync: true,
+            returnType: BridgeType(name: 'void'),
+            params: [],
+          ),
         ],
       );
       expect(SpecValidator.validate(spec).where((i) => i.isError), isEmpty);
     });
 
-    test('multiple valid specs validated independently produce no cross-contamination', () {
-      final issues1 = SpecValidator.validate(_simpleSpec());
-      final issues2 = SpecValidator.validate(_enumSpec());
-      final issues3 = SpecValidator.validate(_structStreamSpec());
-      expect(issues1.where((i) => i.isError), isEmpty);
-      expect(issues2.where((i) => i.isError), isEmpty);
-      expect(issues3.where((i) => i.isError), isEmpty);
-    });
+    test(
+      'multiple valid specs validated independently produce no cross-contamination',
+      () {
+        final issues1 = SpecValidator.validate(_simpleSpec());
+        final issues2 = SpecValidator.validate(_enumSpec());
+        final issues3 = SpecValidator.validate(_structStreamSpec());
+        expect(issues1.where((i) => i.isError), isEmpty);
+        expect(issues2.where((i) => i.isError), isEmpty);
+        expect(issues3.where((i) => i.isError), isEmpty);
+      },
+    );
 
     test('spec with property-only (no functions) is valid', () {
       final spec = BridgeSpec(
-        dartClassName: 'Cfg', lib: 'cfg', namespace: 'cfg',
-        iosImpl: NativeImpl.swift, androidImpl: NativeImpl.kotlin,
+        dartClassName: 'Cfg',
+        lib: 'cfg',
+        namespace: 'cfg',
+        iosImpl: NativeImpl.swift,
+        androidImpl: NativeImpl.kotlin,
         sourceUri: 'cfg.native.dart',
         properties: [
           BridgeProperty(
-            dartName: 'timeout', type: BridgeType(name: 'int'),
-            getSymbol: 'cfg_get_timeout', setSymbol: 'cfg_set_timeout',
-            hasGetter: true, hasSetter: true,
+            dartName: 'timeout',
+            type: BridgeType(name: 'int'),
+            getSymbol: 'cfg_get_timeout',
+            setSymbol: 'cfg_set_timeout',
+            hasGetter: true,
+            hasSetter: true,
           ),
         ],
       );

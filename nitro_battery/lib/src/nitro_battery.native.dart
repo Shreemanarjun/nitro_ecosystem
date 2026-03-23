@@ -1,5 +1,3 @@
-import 'dart:ffi';
-import 'package:ffi/ffi.dart';
 import 'package:nitro/nitro.dart';
 
 part 'nitro_battery.g.dart';

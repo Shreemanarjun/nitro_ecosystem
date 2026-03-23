@@ -2,7 +2,12 @@ import '../bridge_spec.dart';
 
 /// Field names that are treated as the byte-length of a zero-copy Uint8List sibling.
 const _kLengthFieldNames = {
-  'length', 'size', 'stride', 'bytelength', 'bytelen', 'len',
+  'length',
+  'size',
+  'stride',
+  'bytelength',
+  'bytelen',
+  'len',
 };
 
 /// Generates Dart extension helpers for HybridStructs.
@@ -21,12 +26,12 @@ class StructGenerator {
       }
       s.writeln('final class ${st.name}Ffi extends Struct {');
       for (final f in st.fields) {
-         final ffiType = _dartTypeToFfi(f.type.name);
-         final annotationType = _dartTypeToFfiAnnotation(f.type.name);
-         if (annotationType.isNotEmpty) {
-           s.writeln('  @$annotationType()');
-         }
-         s.writeln('  external $ffiType ${f.name};');
+        final ffiType = _dartTypeToFfi(f.type.name);
+        final annotationType = _dartTypeToFfiAnnotation(f.type.name);
+        if (annotationType.isNotEmpty) {
+          s.writeln('  @$annotationType()');
+        }
+        s.writeln('  external $ffiType ${f.name};');
       }
       s.writeln('}');
       s.writeln();
@@ -36,9 +41,12 @@ class StructGenerator {
       for (final f in st.fields) {
         String value;
         if (f.type.name == 'Uint8List' && f.zeroCopy) {
-           final lenField = st.fields
-              .where((sf) => sf.type.name == 'int' &&
-                  _kLengthFieldNames.contains(sf.name.toLowerCase()))
+          final lenField = st.fields
+              .where(
+                (sf) =>
+                    sf.type.name == 'int' &&
+                    _kLengthFieldNames.contains(sf.name.toLowerCase()),
+              )
               .map((sf) => sf.name)
               .firstOrNull;
           value = '${f.name}.asTypedList(${lenField ?? '0'})';
@@ -62,7 +70,9 @@ class StructGenerator {
         } else if (f.type.name == 'bool') {
           s.writeln('    ptr.ref.${f.name} = ${f.name} ? 1 : 0;');
         } else if (f.type.name == 'String') {
-          s.writeln('    ptr.ref.${f.name} = ${f.name}.toNativeUtf8(allocator: arena);');
+          s.writeln(
+            '    ptr.ref.${f.name} = ${f.name}.toNativeUtf8(allocator: arena);',
+          );
         } else {
           s.writeln('    ptr.ref.${f.name} = ${f.name};');
         }
@@ -102,7 +112,10 @@ class StructGenerator {
     for (final st in spec.structs) {
       s.writeln('@Keep');
       final params = st.fields
-          .map((f) => 'val ${f.name}: ${_dartTypeToKotlin(f.type.name, f.zeroCopy)}')
+          .map(
+            (f) =>
+                'val ${f.name}: ${_dartTypeToKotlin(f.type.name, f.zeroCopy)}',
+          )
           .join(', ');
       s.writeln('data class ${st.name}($params)');
       s.writeln();
@@ -129,34 +142,52 @@ class StructGenerator {
 
   static String _dartTypeToCType(String t) {
     switch (t.replaceFirst('?', '')) {
-      case 'int': return 'int64_t';
-      case 'double': return 'double';
-      case 'bool': return 'int8_t';
-      case 'String': return 'const char*';
-      case 'Uint8List': return 'uint8_t*';
-      default: return 'void*';
+      case 'int':
+        return 'int64_t';
+      case 'double':
+        return 'double';
+      case 'bool':
+        return 'int8_t';
+      case 'String':
+        return 'const char*';
+      case 'Uint8List':
+        return 'uint8_t*';
+      default:
+        return 'void*';
     }
   }
 
   static String _dartTypeToKotlin(String t, [bool isZeroCopy = false]) {
     switch (t.replaceFirst('?', '')) {
-      case 'int': return 'Long';
-      case 'double': return 'Double';
-      case 'bool': return 'Boolean';
-      case 'String': return 'String';
-      case 'Uint8List': return isZeroCopy ? 'java.nio.ByteBuffer' : 'ByteArray';
-      default: return 'Any?';
+      case 'int':
+        return 'Long';
+      case 'double':
+        return 'Double';
+      case 'bool':
+        return 'Boolean';
+      case 'String':
+        return 'String';
+      case 'Uint8List':
+        return isZeroCopy ? 'java.nio.ByteBuffer' : 'ByteArray';
+      default:
+        return 'Any?';
     }
   }
 
   static String _dartTypeToSwift(String t, [bool isZeroCopy = false]) {
     switch (t.replaceFirst('?', '')) {
-      case 'int': return 'Int64';
-      case 'double': return 'Double';
-      case 'bool': return 'Bool';
-      case 'String': return 'String';
-      case 'Uint8List': return isZeroCopy ? 'UnsafeMutablePointer<UInt8>?' : 'Data';
-      default: return 'Any?';
+      case 'int':
+        return 'Int64';
+      case 'double':
+        return 'Double';
+      case 'bool':
+        return 'Bool';
+      case 'String':
+        return 'String';
+      case 'Uint8List':
+        return isZeroCopy ? 'UnsafeMutablePointer<UInt8>?' : 'Data';
+      default:
+        return 'Any?';
     }
   }
 
@@ -164,12 +195,18 @@ class StructGenerator {
   /// dart:ffi rules: int fields → `int`, double fields → `double`, pointers stay.
   static String _dartTypeToFfi(String t) {
     switch (t.replaceFirst('?', '')) {
-      case 'int':       return 'int';
-      case 'double':    return 'double';
-      case 'bool':      return 'int';           // stored as Int8 in C; use int in Dart
-      case 'String':    return 'Pointer<Utf8>';
-      case 'Uint8List': return 'Pointer<Uint8>';
-      default:          return 'Pointer<Void>';
+      case 'int':
+        return 'int';
+      case 'double':
+        return 'double';
+      case 'bool':
+        return 'int'; // stored as Int8 in C; use int in Dart
+      case 'String':
+        return 'Pointer<Utf8>';
+      case 'Uint8List':
+        return 'Pointer<Uint8>';
+      default:
+        return 'Pointer<Void>';
     }
   }
 
@@ -177,10 +214,14 @@ class StructGenerator {
   /// Pointer fields need no annotation; returns '' for them.
   static String _dartTypeToFfiAnnotation(String t) {
     switch (t.replaceFirst('?', '')) {
-      case 'int':    return 'Int64';
-      case 'double': return 'Double';
-      case 'bool':   return 'Int8';
-      default:       return '';   // Pointer<X> — no size annotation needed
+      case 'int':
+        return 'Int64';
+      case 'double':
+        return 'Double';
+      case 'bool':
+        return 'Int8';
+      default:
+        return ''; // Pointer<X> — no size annotation needed
     }
   }
 }
