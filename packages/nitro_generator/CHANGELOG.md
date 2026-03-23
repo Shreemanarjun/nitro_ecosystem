@@ -1,3 +1,7 @@
+## 0.1.1
+
+- Renamed package from `nitrogen` to `nitro_generator` to avoid a naming conflict on `pub.dev`.
+
 ## 0.1.0
 
 - Initial release of Nitro code generator.

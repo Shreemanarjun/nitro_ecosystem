@@ -327,12 +327,12 @@ class DoctorCommand extends Command {
           hint: 'Add to dev_dependencies: build_runner: ^2.4.0');
     }
 
-    if (pubspec.contains('nitrogen:')) {
-      ok(pubSec, 'nitrogen dev dependency present');
+    if (pubspec.contains('nitro_generator:')) {
+      ok(pubSec, 'nitro_generator dev dependency present');
     } else {
-      err(pubSec, 'nitrogen dev dependency missing',
+      err(pubSec, 'nitro_generator dev dependency missing',
           hint:
-              'Add to dev_dependencies: nitrogen: { path: ../packages/nitrogen }');
+              'Add to dev_dependencies: nitro_generator: { path: ../packages/nitro_generator }');
     }
 
     if (RegExp(r'android:\s*\n(?:\s+\S[^\n]*\n)*\s+pluginClass:')

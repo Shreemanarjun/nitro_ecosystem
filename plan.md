@@ -44,8 +44,8 @@ App developer calls `Math.instance.add(1, 2)`. Done.
 | Bridge              | JSI + C++                       | dart:ffi + JNI + C++            |
 | Zero-copy frames    | JSI ArrayBuffer                 | AHardwareBuffer / CVPixelBuffer |
 | Streams             | NitroEventEmitter               | `Stream<T>` via SendPort        |
-| Code generation     | nitrogen CLI                    | build_runner + optional CLI     |
-| Runtime package     | react-native-nitro-modules      | flutter_hybrid_objects          |
+| Code generation     | nitrogen CLI (nitrogen_cli)     | nitro_generator CLI            |
+| Runtime package     | react-native-nitro-modules      | nitro                           |
 
 ---
 
@@ -54,9 +54,9 @@ App developer calls `Math.instance.add(1, 2)`. Done.
 ```
 flutter_hybrid_objects/
 ├── packages/
-│   ├── flutter_hybrid_objects/      # 1. Runtime + annotations  (pub.dev)
-│   ├── flutter_hybrid_gen/          # 2. build_runner generator (pub.dev, dev dep)
-│   └── flutter_hybrid_cli/          # 3. Optional CLI            (pub global)
+│   ├── nitro/                       # 1. Runtime + annotations  (pub.dev)
+│   ├── nitro_generator/             # 2. nitro_generator builder (pub.dev, dev dep)
+│   └── nitrogen_cli/                # 3. nitrogen CLI tool       (pub global)
 ├── example/
 │   ├── lib/src/camera.native.dart   # The spec — only file author writes
 │   ├── lib/src/generated/           # Generated Dart
@@ -68,7 +68,7 @@ flutter_hybrid_objects/
 
 ---
 
-## Phase 1 — `flutter_hybrid_objects` (runtime + annotations)
+## Phase 1 — `nitro` (runtime + annotations)
 
 Every plugin adds this as a regular dependency. Zero codegen required to consume — only to build.
 
@@ -231,7 +231,7 @@ class ZeroCopyBuffer {
 ### 1.5 pubspec.yaml
 
 ```yaml
-name: flutter_hybrid_objects
+name: nitro
 description: >
   Runtime and annotations for flutter_hybrid_objects.
   Write a .native.dart spec, get Kotlin + Swift + C++ + FFI generated.
@@ -258,7 +258,7 @@ flutter:
 
 ---
 
-## Phase 2 — `flutter_hybrid_gen` (build_runner generator)
+## Phase 2 — `nitro_generator` (build_runner generator)
 
 `dev_dependency` only. Never ships in app builds.
 
@@ -485,8 +485,8 @@ Generated files are committed to VCS so app developers without `build_runner` ca
 ### 2.9 pubspec.yaml
 
 ```yaml
-name: flutter_hybrid_gen
-description: build_runner code generator for flutter_hybrid_objects.
+name: nitro_generator
+description: build_runner code generator for nitro.
 version: 0.1.0
 
 environment:
@@ -498,8 +498,8 @@ dependencies:
   source_gen:  ^1.5.0
   dart_style:  ^2.3.0
   path:        ^1.9.0
-  flutter_hybrid_objects:
-    path: ../flutter_hybrid_objects
+  nitro:
+    path: ../nitro
 
 dev_dependencies:
   build_runner: ^2.4.0
@@ -509,7 +509,7 @@ dev_dependencies:
 
 ---
 
-## Phase 3 — `flutter_hybrid_cli` (optional CLI)
+## Phase 3 — `nitrogen_cli` (The CLI)
 
 `dart pub global activate flutter_hybrid_cli`
 
@@ -518,7 +518,7 @@ Identical generator output to `build_runner` but without needing it in `pubspec.
 ### 3.1 Commands
 
 ```
-flutter_hybrid generate
+nitrogen generate
     Runs all generators on every *.native.dart in the project.
 
 flutter_hybrid init <PluginName>
@@ -554,11 +554,11 @@ environment:
 dependencies:
   args:  ^2.5.0
   path:  ^1.9.0
-  flutter_hybrid_gen:
-    path: ../flutter_hybrid_gen
+  nitro_generator:
+    path: ../nitrogen
 
 executables:
-  flutter_hybrid: flutter_hybrid
+  nitrogen: nitrogen
 ```
 
 ---
@@ -689,7 +689,7 @@ docs/
 | Example plugin (`my_camera`) | ✅ Done | 3 modules, streams, structs, enums, builds on Android |
 | Generator unit tests | ✅ Done | 35 tests covering all generator outputs (no dart:mirrors) |
 | `SpecValidator` | 🔲 TODO | Validate spec before generation, emit actionable errors |
-| `nitrogen doctor` CLI | 🔲 TODO | Check if generated files are stale, validate wiring |
+| `nitrogen doctor` CLI | ✅ Done | Check if generated files are stale, validate wiring |
 | Golden-file snapshot tests | 🔲 TODO | Regression-proof the full generated output |
 | iOS end-to-end | 🔲 TODO | Swift path tested only at generator level |
 

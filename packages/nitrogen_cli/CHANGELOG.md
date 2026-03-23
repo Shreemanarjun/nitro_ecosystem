@@ -1,14 +1,10 @@
+## 0.1.2
+- Rename generator package folder to `nitro_generator`.
+- Update `doctor` and `init` commands with new path references.
+
 ## 0.1.1
-- Update nitrogen to nitro_generator
+- Update `nitrogen` package reference to `nitro_generator`.
 
 ## 0.1.0
-
-- Integrated interactive TUI dashboard using `nocterm`.
-- Added `nitrogen init` for scaffolding new Nitrogen FFI plugins.
-- Added `nitrogen generate` with live progress streaming.
-- Added `nitrogen link` for automated native build system wiring (CMake, Podspec, Kotlin).
-- Added `nitrogen doctor` for production readiness checks.
-- Added `nitrogen update` with `pub.dev` version checking.
-- Improved terminal UI with Centered layouts and progress rows.
-
-
+- Initial release with `nocterm` dashboard.
+- Integrated `nitrogen init`, `generate`, `link`, `doctor`, and `update`.

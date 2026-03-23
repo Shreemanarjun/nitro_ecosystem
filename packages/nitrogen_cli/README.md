@@ -55,7 +55,7 @@ nitrogen init my_camera
 - `ios/Classes/my_camera.cpp` forwarder.
 - Pre-configured `ios/my_camera.podspec` (Swift 5.9, iOS 13.0, C++17).
 - Starter `lib/src/my_camera.native.dart` spec.
-- `pubspec.yaml` pre-wired with `nitro` and `nitrogen`.
+- `pubspec.yaml` pre-wired with `nitro` and `nitro_generator`.
 
 ### `nitrogen generate`
 
