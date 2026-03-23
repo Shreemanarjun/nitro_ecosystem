@@ -388,6 +388,97 @@ void main() {
     });
   });
 
+  // ── example/lib/main.dart template ────────────────────────────────────────
+
+  group('example/lib/main.dart template', () {
+    // Mirror of the content produced by _writeExampleMain for testing.
+    String exampleMainTemplate(String pluginName, String className) =>
+        '''import 'dart:async';
+
+import 'package:flutter/material.dart';
+import 'package:$pluginName/$pluginName.dart' as plugin;
+
+void main() {
+  WidgetsFlutterBinding.ensureInitialized();
+  runApp(const MyApp());
+}
+
+class MyApp extends StatelessWidget {
+  const MyApp({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    return MaterialApp(
+      title: '$className Demo',
+      debugShowCheckedModeBanner: false,
+      theme: ThemeData(useMaterial3: true, colorSchemeSeed: Colors.deepPurple),
+      home: const _DemoPage(),
+    );
+  }
+}
+''';
+
+    test('imports flutter/material.dart', () {
+      final out = exampleMainTemplate('my_plugin', 'MyPlugin');
+      expect(out, contains("import 'package:flutter/material.dart'"));
+    });
+
+    test('imports the plugin package with alias', () {
+      final out = exampleMainTemplate('my_plugin', 'MyPlugin');
+      expect(
+        out,
+        contains("import 'package:my_plugin/my_plugin.dart' as plugin"),
+      );
+    });
+
+    test('calls WidgetsFlutterBinding.ensureInitialized()', () {
+      final out = exampleMainTemplate('my_plugin', 'MyPlugin');
+      expect(out, contains('WidgetsFlutterBinding.ensureInitialized()'));
+    });
+
+    test('MyApp is a StatelessWidget', () {
+      final out = exampleMainTemplate('my_plugin', 'MyPlugin');
+      expect(out, contains('class MyApp extends StatelessWidget'));
+    });
+
+    test('MaterialApp has correct title', () {
+      final out = exampleMainTemplate('my_plugin', 'MyPlugin');
+      expect(out, contains("title: 'MyPlugin Demo'"));
+    });
+
+    test('uses useMaterial3: true', () {
+      final out = exampleMainTemplate('my_plugin', 'MyPlugin');
+      expect(out, contains('useMaterial3: true'));
+    });
+
+    test('does not use deprecated MaterialApp inside build', () {
+      // MyApp.build() should return MaterialApp directly (not nested)
+      final out = exampleMainTemplate('my_plugin', 'MyPlugin');
+      expect(out, contains('return MaterialApp('));
+      // Must NOT have a StatefulWidget wrapping MaterialApp
+      expect(out, isNot(contains('StatefulWidget MyApp')));
+    });
+
+    test('template has no invalid EdgeInsets syntax', () {
+      final out = exampleMainTemplate('my_plugin', 'MyPlugin');
+      // Regression: old broken template had "const .all(10)" without type
+      expect(out, isNot(contains('const .all(')));
+      expect(out, isNot(contains('TextAlign.center;')));
+    });
+
+    test('plugin name substituted correctly in import', () {
+      final out = exampleMainTemplate('nitro_camera', 'NitroCamera');
+      expect(out, contains("'package:nitro_camera/nitro_camera.dart'"));
+      expect(out, isNot(contains('pluginName')));
+      expect(out, isNot(contains('className')));
+    });
+
+    test('class name substituted in MaterialApp title', () {
+      final out = exampleMainTemplate('nitro_camera', 'NitroCamera');
+      expect(out, contains("'NitroCamera Demo'"));
+    });
+  });
+
   // ── NitrogenInitApp ────────────────────────────────────────────────────────
 
   group('NitrogenInitApp', () {

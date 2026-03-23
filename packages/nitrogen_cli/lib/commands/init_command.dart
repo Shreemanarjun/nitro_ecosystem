@@ -239,10 +239,11 @@ class _InitViewState extends State<InitView> {
               'nitro $nitroVersion, nitro_generator $nitroGeneratorVersion added');
     }
 
-    // Step 6 — bridge spec
+    // Step 6 — bridge spec + example main.dart
     _setRunning(6);
     _writeBridgeSpec(pluginName, className);
-    _setDone(6, detail: 'lib/src/$pluginName.native.dart');
+    _writeExampleMain(pluginName, className);
+    _setDone(6, detail: 'lib/src/$pluginName.native.dart + example/lib/main.dart');
 
     component.result.success = true;
     component.result.pluginName = pluginName;
@@ -792,6 +793,201 @@ abstract class $className extends HybridObject {
 
     File(p.join(pluginName, 'lib', '$pluginName.dart'))
         .writeAsStringSync("export 'src/$pluginName.native.dart';\n");
+  }
+
+  /// Overwrites the flutter-create template's example/lib/main.dart with a
+  /// Nitro-aware version that has error handling, async support, and dispose.
+  void _writeExampleMain(String pluginName, String className) {
+    final exampleLibDir =
+        Directory(p.join(pluginName, 'example', 'lib'));
+    exampleLibDir.createSync(recursive: true);
+
+    File(p.join(exampleLibDir.path, 'main.dart'))
+        .writeAsStringSync('''import 'dart:async';
+
+import 'package:flutter/material.dart';
+import 'package:$pluginName/$pluginName.dart' as plugin;
+
+void main() {
+  WidgetsFlutterBinding.ensureInitialized();
+  runApp(const MyApp());
+}
+
+class MyApp extends StatelessWidget {
+  const MyApp({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    return MaterialApp(
+      title: '$className Demo',
+      debugShowCheckedModeBanner: false,
+      theme: ThemeData(useMaterial3: true, colorSchemeSeed: Colors.deepPurple),
+      home: const _DemoPage(),
+    );
+  }
+}
+
+class _DemoPage extends StatefulWidget {
+  const _DemoPage();
+  @override
+  State<_DemoPage> createState() => _DemoPageState();
+}
+
+class _DemoPageState extends State<_DemoPage> {
+  String _addResult = '—';
+  Future<String>? _greetingFuture;
+  String? _initError;
+
+  @override
+  void initState() {
+    super.initState();
+    _init();
+  }
+
+  void _init() {
+    try {
+      _addResult = '\${plugin.$className.instance.add(1.0, 2.0)}';
+      _greetingFuture = plugin.$className.instance.getGreeting('World');
+    } catch (e) {
+      setState(() => _initError = e.toString());
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (_initError != null) {
+      return Scaffold(
+        appBar: AppBar(title: const Text('$className Demo')),
+        body: Center(
+          child: Padding(
+            padding: const EdgeInsets.all(24),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const Icon(Icons.error_outline, size: 64, color: Colors.red),
+                const SizedBox(height: 16),
+                const Text('Failed to load native library',
+                    style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+                const SizedBox(height: 8),
+                Text(_initError!,
+                    style: const TextStyle(color: Colors.grey, fontSize: 12),
+                    textAlign: TextAlign.center),
+              ],
+            ),
+          ),
+        ),
+      );
+    }
+
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text('$className Demo'),
+        centerTitle: true,
+      ),
+      body: ListView(
+        padding: const EdgeInsets.all(16),
+        children: [
+          Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              const Icon(Icons.bolt, size: 36, color: Colors.amber),
+              const SizedBox(width: 8),
+              Text(
+                '$className',
+                style: Theme.of(context)
+                    .textTheme
+                    .headlineSmall
+                    ?.copyWith(fontWeight: FontWeight.bold),
+              ),
+            ],
+          ),
+          const SizedBox(height: 4),
+          Text(
+            'Nitro FFI module — edit lib/src/$pluginName.native.dart to add methods.',
+            style: Theme.of(context)
+                .textTheme
+                .bodySmall
+                ?.copyWith(color: Colors.grey),
+            textAlign: TextAlign.center,
+          ),
+          const SizedBox(height: 24),
+          _FeatureCard(
+            label: 'Sync method',
+            code: '$className.instance.add(1.0, 2.0)',
+            result: _addResult,
+          ),
+          const SizedBox(height: 12),
+          FutureBuilder<String>(
+            future: _greetingFuture,
+            builder: (context, snapshot) => _FeatureCard(
+              label: 'Async method  (@nitroAsync)',
+              code: 'await $className.instance.getGreeting("World")',
+              result: snapshot.hasData
+                  ? snapshot.data!
+                  : snapshot.hasError
+                      ? 'Error: \${snapshot.error}'
+                      : null,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _FeatureCard extends StatelessWidget {
+  const _FeatureCard({
+    required this.label,
+    required this.code,
+    required this.result,
+  });
+  final String label;
+  final String code;
+  final String? result; // null = loading
+
+  @override
+  Widget build(BuildContext context) {
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Row(
+          children: [
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(label,
+                      style: const TextStyle(
+                          fontWeight: FontWeight.bold, fontSize: 13)),
+                  const SizedBox(height: 2),
+                  Text(code,
+                      style: const TextStyle(
+                          color: Colors.grey,
+                          fontSize: 11,
+                          fontFamily: 'monospace')),
+                ],
+              ),
+            ),
+            const SizedBox(width: 12),
+            result == null
+                ? const SizedBox(
+                    width: 20,
+                    height: 20,
+                    child: CircularProgressIndicator(strokeWidth: 2))
+                : Text(
+                    result!,
+                    style: const TextStyle(
+                        fontSize: 20,
+                        fontWeight: FontWeight.bold,
+                        color: Colors.deepPurple),
+                  ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+''');
   }
 }
 
