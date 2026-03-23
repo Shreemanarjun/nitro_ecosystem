@@ -1,7 +1,7 @@
 builders:
-  nitrogen:
-    import: 'package:nitrogen/builder.dart'
-    builder_factories: ['nitrogenBuilder']
+  nitro_generator:
+    import: 'package:nitro_generator/builder.dart'
+    builder_factories: ['nitroGeneratorBuilder']
     build_extensions:
       '^lib/{{dir}}/{{file}}.native.dart':
         - 'lib/{{dir}}/{{file}}.g.dart'

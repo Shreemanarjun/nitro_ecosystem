@@ -523,7 +523,7 @@ class ${className}Plugin : FlutterPlugin {
         RegExp(r'  flutter_lints: \^\S+'),
         '  flutter_lints: ^6.0.0\n'
         '  build_runner: ^2.4.0\n'
-        '  nitrogen: { path: ../packages/nitrogen }');
+        '  nitro_generator: { path: ../packages/nitrogen }');
 
     pubspec = pubspec.replaceFirst(
         RegExp(r'    platforms:\s*\n'

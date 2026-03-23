@@ -1,5 +1,5 @@
 #!/usr/bin/env dart
-// Run with: dart run nitrogen:organize [path-to-lib]
+// Run with: dart run nitro_generator:organize [path-to-lib]
 //
 // Moves generated native bridge files into per-language sub-folders:
 //   lib/src/math.bridge.g.kt   → lib/src/generated/kotlin/math.bridge.g.kt
@@ -45,5 +45,5 @@ void main(List<String> args) {
       }
     }
   }
-  stdout.writeln('\nnitrogen organize: moved $moved file(s).');
+  stdout.writeln('\nnitro_generator organize: moved $moved file(s).');
 }

@@ -2,16 +2,16 @@
 // Each generator is a pure BridgeSpec → String function and can be tested directly.
 
 import 'package:nitro/nitro.dart';
-import 'package:nitrogen/src/bridge_spec.dart';
-import 'package:nitrogen/src/spec_validator.dart';
-import 'package:nitrogen/src/generators/cmake_generator.dart';
-import 'package:nitrogen/src/generators/cpp_bridge_generator.dart';
-import 'package:nitrogen/src/generators/cpp_header_generator.dart';
-import 'package:nitrogen/src/generators/dart_ffi_generator.dart';
-import 'package:nitrogen/src/generators/enum_generator.dart';
-import 'package:nitrogen/src/generators/kotlin_generator.dart';
-import 'package:nitrogen/src/generators/struct_generator.dart';
-import 'package:nitrogen/src/generators/swift_generator.dart';
+import 'package:nitro_generator/src/bridge_spec.dart';
+import 'package:nitro_generator/src/spec_validator.dart';
+import 'package:nitro_generator/src/generators/cmake_generator.dart';
+import 'package:nitro_generator/src/generators/cpp_bridge_generator.dart';
+import 'package:nitro_generator/src/generators/cpp_header_generator.dart';
+import 'package:nitro_generator/src/generators/dart_ffi_generator.dart';
+import 'package:nitro_generator/src/generators/enum_generator.dart';
+import 'package:nitro_generator/src/generators/kotlin_generator.dart';
+import 'package:nitro_generator/src/generators/struct_generator.dart';
+import 'package:nitro_generator/src/generators/swift_generator.dart';
 import 'package:test/test.dart';
 
 // ── Helpers ──────────────────────────────────────────────────────────────────

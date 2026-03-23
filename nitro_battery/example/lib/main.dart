@@ -15,51 +15,74 @@ class MyApp extends StatefulWidget {
 }
 
 class _MyAppState extends State<MyApp> {
-  late int sumResult;
-  late Future<int> sumAsyncResult;
+  late int batteryLevel;
+  late Future<nitro_battery.BatteryInfo> batteryInfoFuture;
 
   @override
   void initState() {
     super.initState();
-    sumResult = nitro_battery.NitroBattery.instance.getBatteryLevel();
+    // Sync call
+    batteryLevel = nitro_battery.NitroBattery.instance.getBatteryLevel();
+    // Start async call
+    batteryInfoFuture = nitro_battery.NitroBattery.instance.getBatteryInfo();
   }
 
   @override
   Widget build(BuildContext context) {
-    const textStyle = TextStyle(fontSize: 25);
+    const textStyle = TextStyle(fontSize: 20);
     const spacerSmall = SizedBox(height: 10);
+    
     return MaterialApp(
       home: Scaffold(
-        appBar: AppBar(title: const Text('Native Packages')),
+        appBar: AppBar(title: const Text('Nitro Battery Example')),
         body: SingleChildScrollView(
           child: Container(
-            padding: const .all(10),
+            padding: const EdgeInsets.all(20),
             child: Column(
               children: [
                 const Text(
-                  'This calls a native function through FFI that is shipped as source in the package. '
-                  'The native code is built as part of the Flutter Runner build.',
+                  'This calls native code through Nitro Modules FFI. '
+                  'The native code is built alongside your app.',
                   style: textStyle,
-                  textAlign: .center,
+                  textAlign: TextAlign.center,
                 ),
+                spacerSmall,
+                const Divider(),
                 spacerSmall,
                 Text(
-                  'sum(1, 2) = $sumResult',
-                  style: textStyle,
-                  textAlign: .center,
+                  'Battery Level (Sync): $batteryLevel%',
+                  style: textStyle.copyWith(fontWeight: FontWeight.bold),
+                  textAlign: TextAlign.center,
                 ),
                 spacerSmall,
-                FutureBuilder<int>(
-                  future: sumAsyncResult,
-                  builder: (BuildContext context, AsyncSnapshot<int> value) {
-                    final displayValue = (value.hasData)
-                        ? value.data
-                        : 'loading';
-                    return Text(
-                      'await sumAsync(3, 4) = $displayValue',
-                      style: textStyle,
-                      textAlign: .center,
+                FutureBuilder<nitro_battery.BatteryInfo>(
+                  future: batteryInfoFuture,
+                  builder: (context, snapshot) {
+                    if (snapshot.connectionState == ConnectionState.waiting) {
+                      return const CircularProgressIndicator();
+                    }
+                    if (snapshot.hasError) {
+                      return Text('Error: ${snapshot.error}');
+                    }
+                    final info = snapshot.data!;
+                    return Column(
+                      children: [
+                        Text('Voltage: ${info.voltage}V', style: textStyle),
+                        Text('Temperature: ${info.temperature}°C', style: textStyle),
+                      ],
                     );
+                  },
+                ),
+                spacerSmall,
+                const Divider(),
+                spacerSmall,
+                const Text('Real-time updates:', style: textStyle),
+                StreamBuilder<int>(
+                  stream: nitro_battery.NitroBattery.instance.batteryLevelChanges,
+                  builder: (context, snapshot) {
+                    final val = snapshot.data ?? batteryLevel;
+                    return Text('Live Level: $val%', 
+                      style: textStyle.copyWith(color: Colors.green, fontWeight: FontWeight.bold));
                   },
                 ),
               ],

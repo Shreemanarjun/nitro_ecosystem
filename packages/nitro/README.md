@@ -2,7 +2,7 @@
 
 **Zero-overhead native bindings for Flutter.** `nitro` is the runtime layer of the Nitrogen SDK — it provides the base classes, annotations, and Dart-side runtime primitives that make type-safe, zero-copy FFI plugins possible on iOS and Android with zero method-channel overhead.
 
-> **This package is the runtime dependency.** Plugin authors add it to their `pubspec.yaml`. App developers pull it in transitively through any Nitrogen-powered plugin. The code generator lives in [`nitrogen`](https://pub.dev/packages/nitrogen) and the CLI in [`nitrogen_cli`](https://pub.dev/packages/nitrogen_cli).
+> **This package is the runtime dependency.** Plugin authors add it to their `pubspec.yaml`. App developers pull it in transitively through any Nitrogen-powered plugin. The code generator lives in [`nitro_generator`](https://pub.dev/packages/nitro_generator) and the CLI in [`nitrogen_cli`](https://pub.dev/packages/nitrogen_cli).
 
 ---
 
@@ -288,7 +288,7 @@ public class MyPluginPlugin: NSObject, FlutterPlugin {
 nitro_ecosystem/
 ├── packages/
 │   ├── nitro/          ← this package (runtime: base classes, annotations, runtime)
-│   ├── nitrogen/       ← code generator (build_runner builder)
+│   ├── nitro_generator/ ← code generator (build_runner builder)
 │   └── nitrogen_cli/   ← CLI tool (nitrogen generate / init / doctor)
 └── my_camera/          ← example plugin built with Nitrogen
     ├── lib/src/

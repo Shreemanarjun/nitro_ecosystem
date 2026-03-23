@@ -219,5 +219,5 @@ abstract class ComplexModule extends HybridObject {
 ## Related packages
 
 - **[nitro](../nitro/README.md)** — Runtime (base classes, annotations, helpers)
-- **[nitrogen](../nitrogen/README.md)** — build_runner code generator
+- **[nitro_generator](../nitrogen/README.md)** — build_runner code generator
 - **[Getting started guide](../../docs/getting-started.md)** — step-by-step walkthrough for plugin authors

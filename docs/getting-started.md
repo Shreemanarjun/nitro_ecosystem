@@ -68,7 +68,7 @@ This creates a `my_sensor/` directory with the following structure:
 
 ```
 my_sensor/
-├── pubspec.yaml                              pre-wired with nitro + nitrogen
+├── pubspec.yaml                              pre-wired with nitro + nitro_generator
 ├── lib/
 │   ├── my_sensor.dart                        barrel export
 │   └── src/
@@ -566,6 +566,14 @@ nitrogen doctor   # shows which files are stale
 nitrogen generate # regenerates all
 ```
 
+### `pubspec.yaml` example
+
+```yaml
+dev_dependencies:
+  nitro_generator: ^0.1.0       # code generator
+  build_runner: ^2.4.0
+```
+
 ### `conflicting types` C compiler error
 
 This means the `.h` and `.cpp` disagree on a return type. Regenerate — this was fixed in Nitrogen 0.2+:
@@ -594,6 +602,6 @@ Fix the type in your spec, then regenerate.
 - **[Publishing to pub.dev](publishing.md)** — prepare your plugin for release, versioning, and the `dart pub publish` flow
 - **[Consuming a plugin](consuming.md)** — how app developers add your plugin and use its API
 - Read the **[`nitro` runtime docs](../packages/nitro/README.md)** for the full annotation reference
-- Read the **[`nitrogen` generator docs](../packages/nitrogen/README.md)** for spec validator rules and type mapping details
+- Read the **[`nitro_generator` generator docs](../packages/nitrogen/README.md)** for spec validator rules and type mapping details
 - Study **[`my_camera`](../my_camera/README.md)** as a production-quality reference implementation
 - Run `nitrogen doctor` in CI to catch regressions early

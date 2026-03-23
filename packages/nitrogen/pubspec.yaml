@@ -1,4 +1,4 @@
-name: nitrogen
+name: nitro_generator
 description: >
   Code generator for Nitro Modules (Nitrogen).
   Converts *.native.dart specs to Dart FFI, Kotlin, Swift, and C++ bindings.

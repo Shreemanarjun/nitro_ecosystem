@@ -18,7 +18,7 @@ dev_dependencies:
     sdk: flutter
   flutter_lints: ^6.0.0
   build_runner: ^2.4.0
-  nitrogen: { path: ../packages/nitrogen }
+  nitro_generator: { path: ../packages/nitrogen }
 
 # For information on the generic Dart part of this file, see the
 # following page: https://dart.dev/tools/pub/pubspec

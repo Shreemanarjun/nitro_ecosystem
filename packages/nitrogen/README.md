@@ -1,6 +1,6 @@
-# nitrogen 🔬
+# nitro_generator 🔬
 
-**Code generator for Nitrogen plugins.** `nitrogen` is a `build_runner` builder that reads your `*.native.dart` spec file and generates type-safe Dart FFI bindings, Kotlin JNI bridges, Swift `@_cdecl` bridges, and C headers — all in one pass.
+**Code generator for Nitrogen plugins.** `nitro_generator` is a `build_runner` builder that reads your `*.native.dart` spec file and generates type-safe Dart FFI bindings, Kotlin JNI bridges, Swift `@_cdecl` bridges, and C headers — all in one pass.
 
 ---
 
@@ -22,7 +22,7 @@ dependencies:
   nitro: ^0.1.0          # runtime annotations
 
 dev_dependencies:
-  nitrogen: ^0.1.0       # code generator
+  nitro_generator: ^0.1.0       # code generator
   build_runner: ^2.4.0
 ```
 
@@ -35,7 +35,7 @@ dev_dependencies:
 ```
 my_plugin.native.dart
         │
-        ▼ nitrogen (build_runner / CLI)
+        ▼ nitro_generator (build_runner / CLI)
         │
         ├── my_plugin.g.dart          Dart FFI impl class
         ├── my_plugin.bridge.g.kt     Kotlin JNI bridge + spec interface

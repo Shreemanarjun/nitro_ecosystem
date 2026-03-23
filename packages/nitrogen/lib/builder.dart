@@ -9,11 +9,11 @@ import 'src/generators/swift_generator.dart';
 import 'src/generators/cmake_generator.dart';
 import 'src/generators/cpp_bridge_generator.dart';
 
-Builder nitrogenBuilder(BuilderOptions options) {
-  return NitrogenBuilder();
+Builder nitroGeneratorBuilder(BuilderOptions options) {
+  return NitroGeneratorBuilder();
 }
 
-class NitrogenBuilder implements Builder {
+class NitroGeneratorBuilder implements Builder {
   // The correct format to use capture groups in code is:
   @override
   Map<String, List<String>> get buildExtensions => {
