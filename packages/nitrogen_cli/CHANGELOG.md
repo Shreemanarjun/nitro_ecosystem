@@ -1,3 +1,23 @@
+## 0.1.9
+
+- **TUI Visual Overhaul (Neon Premium Theme)**:
+  - New pulsing header logo (cycles between ⚡ Cyan and 🔥 Magenta).
+  - Added "by Shreeman Arjun" author attribution to the dashboard.
+  - Improved readability with high-contrast color palettes for menus and logs.
+- **Mouse & Interactive Features**:
+  - Full mouse support: Hover over menu items to highlight them.
+  - Click anywhere on a command row to execute it instantly.
+  - Clickable footer links for Documentation, Shreeman.dev, and Marc Rousavy.
+- **Context-Aware Dashboard**:
+  - **Project Bar**: Displays the name and version of the currently active Nitrogen project in the header.
+  - **Status Bar**: Added a fixed bottom bar showing Dart version and current Git branch.
+- **Enhanced Process Feedback**:
+  - Added a pulsing "✨ SUCCESS ✨" animation and green color shift when a generation or initialization completes successfully.
+- **Usability Fixes**:
+  - Added an explicit **Exit** command to the TUI menu for easy quitting.
+  - Standardized menu alignment (labels and descriptions now align vertically in the center).
+  - Automatic TUI versioning: the dashboard always displays the actual package version from `pubspec.yaml`.
+
 ## 0.1.8
 
 - `nitrogen link`: fix Android/iOS build failure where `dart_api_dl.c` and `dart_api_dl.h` were not found when `nitro` is installed from pub.dev (e.g. via puro's pub cache) rather than a local monorepo path.

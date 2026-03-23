@@ -2,6 +2,10 @@
 
 **CLI tool for Nitrogen plugins.** Scaffold, generate, and link Nitrogen FFI plugins from the command line.
 
+![Nitrogen Dashboard](https://zmozkivkhopoeutpnnum.supabase.co/storage/v1/object/public/images/nitro_cli.png)
+
+⚡ **For Nitro docs visit: [nitro.shreeman.dev](https://nitro.shreeman.dev/)**
+
 ---
 
 ## Installation
@@ -24,11 +28,7 @@ export PATH="$PATH:$HOME/.pub-cache/bin"
 
 ---
 
-## Interactive TUI Dashboard
-
 If you run `nitrogen` without any arguments, it launches a beautiful interactive Text-based User Interface (TUI) dashboard.
-
-![Nitrogen Dashboard](https://raw.githubusercontent.com/Shreemanarjun/nitro_ecosystem/main/packages/nitrogen_cli/doc/dashboard_screenshot.png)
 
 From the dashboard, you can:
 - **Initialize**: Scaffold new projects with step-by-step confirmation.

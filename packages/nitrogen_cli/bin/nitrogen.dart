@@ -44,6 +44,12 @@ enum NitroCommand {
     'Self-update the Nitrogen CLI.',
     '/update',
     'Fetches the latest version of nitrogen from pub.dev.',
+  ),
+  exit(
+    'Exit',
+    'Close the Nitrogen CLI.',
+    '/exit',
+    'Quits the interactive dashboard session.',
   );
 
   const NitroCommand(this.label, this.description, this.path, this.longInfo);
@@ -291,9 +297,12 @@ class _NitroDashboardState extends State<NitroDashboard> {
           return true;
         }
         if (event.logicalKey == LogicalKey.enter) {
-          context
-              .unrouterAs<NitroRoute>()
-              .go(CommandRoute(NitroCommand.values[_selectedIndex]));
+          final command = NitroCommand.values[_selectedIndex];
+          if (command == NitroCommand.exit) {
+            exit(0);
+          } else {
+            context.unrouterAs<NitroRoute>().go(CommandRoute(command));
+          }
           return true;
         }
         return false;
@@ -346,9 +355,16 @@ class _NitroDashboardState extends State<NitroDashboard> {
                             selected: i == _selectedIndex,
                             onSelected: () =>
                                 setState(() => _selectedIndex = i),
-                            onTap: () => context
-                                .unrouterAs<NitroRoute>()
-                                .go(CommandRoute(NitroCommand.values[i])),
+                            onTap: () {
+                              final cmd = NitroCommand.values[i];
+                              if (cmd == NitroCommand.exit) {
+                                exit(0);
+                              } else {
+                                context
+                                    .unrouterAs<NitroRoute>()
+                                    .go(CommandRoute(cmd));
+                              }
+                            },
                           ),
                       ],
                     ),
