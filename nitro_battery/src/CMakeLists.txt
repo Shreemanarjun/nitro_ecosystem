@@ -6,7 +6,7 @@ set(GENERATED_CPP "${CMAKE_CURRENT_SOURCE_DIR}/../lib/src/generated/cpp")
 
 add_library(nitro_battery SHARED
   "nitro_battery.cpp"
-  "${NITRO_NATIVE}/dart_api_dl.c"
+  "dart_api_dl.c"
 )
 
 target_include_directories(nitro_battery PRIVATE
