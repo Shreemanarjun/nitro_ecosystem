@@ -331,15 +331,24 @@ class _NitroDashboardState extends State<NitroDashboard> {
                           color: Colors.brightBlack,
                           fontWeight: FontWeight.dim)),
                   const SizedBox(height: 1),
-                  for (var i = 0; i < NitroCommand.values.length; i++)
-                    _CommandItem(
-                      command: NitroCommand.values[i],
-                      selected: i == _selectedIndex,
-                      onSelected: () => setState(() => _selectedIndex = i),
-                      onTap: () => context
-                          .unrouterAs<NitroRoute>()
-                          .go(CommandRoute(NitroCommand.values[i])),
+                  // Centered block for aligned commands
+                  SizedBox(
+                    width: 60, // Fixed width for consistent alignment
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        for (var i = 0; i < NitroCommand.values.length; i++)
+                          _CommandItem(
+                            command: NitroCommand.values[i],
+                            selected: i == _selectedIndex,
+                            onSelected: () => setState(() => _selectedIndex = i),
+                            onTap: () => context
+                                .unrouterAs<NitroRoute>()
+                                .go(CommandRoute(NitroCommand.values[i])),
+                          ),
+                      ],
                     ),
+                  ),
                   const SizedBox(height: 1),
                   const Text('Use arrows and Enter to navigate • Ctrl+C to exit',
                       style: TextStyle(
@@ -506,21 +515,21 @@ class _CommandItemState extends State<_CommandItem> {
               color: _isHovering ? Colors.brightBlack : null,
             ),
             child: Row(
-              mainAxisAlignment: MainAxisAlignment.center,
+              mainAxisAlignment: MainAxisAlignment.start,
               children: [
                 Text(active ? '❯ ' : '  ',
                     style: TextStyle(
                         color: active ? Colors.magenta : Colors.white,
                         fontWeight: FontWeight.bold)),
                 SizedBox(
-                  width: 15,
+                  width: 12, // Slightly smaller label width for tighter fit
                   child: Text(component.command.label,
                       style: TextStyle(
                           color: active ? Colors.magenta : Colors.white,
                           fontWeight:
                               active ? FontWeight.bold : FontWeight.normal)),
                 ),
-                const SizedBox(width: 2),
+                const SizedBox(width: 1),
                 Text(component.command.description,
                     style: const TextStyle(color: Colors.gray)),
               ],
