@@ -10,7 +10,7 @@ environment:
 dependencies:
   flutter:
     sdk: flutter
-  nitro: { path: ../packages/nitro }
+  nitro: ^0.1.0
   plugin_platform_interface: ^2.0.2
 
 dev_dependencies:
@@ -18,7 +18,7 @@ dev_dependencies:
     sdk: flutter
   flutter_lints: ^6.0.0
   build_runner: ^2.4.0
-  nitro_generator: { path: ../packages/nitro_generator }
+  nitro_generator: ^0.1.1
 
 # For information on the generic Dart part of this file, see the
 # following page: https://dart.dev/tools/pub/pubspec

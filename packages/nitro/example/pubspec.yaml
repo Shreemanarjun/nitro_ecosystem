@@ -53,8 +53,8 @@ dev_dependencies:
   # package. See that file for information about deactivating specific lint
   # rules and activating additional ones.
   flutter_lints: ^6.0.0
-  nitrogen:
-    path: ../../nitrogen
+  nitro_generator:
+    path: ../../nitro_generator
   build_runner: ^2.4.8
 
 # For information on the generic Dart part of this file, see the

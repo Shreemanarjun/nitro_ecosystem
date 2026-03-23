@@ -517,13 +517,13 @@ class ${className}Plugin : FlutterPlugin {
 
     pubspec = pubspec.replaceFirst(
         'dependencies:\n  flutter:\n    sdk: flutter',
-        'dependencies:\n  flutter:\n    sdk: flutter\n  nitro: { path: ../packages/nitro }');
+        'dependencies:\n  flutter:\n    sdk: flutter\n  nitro: ^0.1.0');
 
     pubspec = pubspec.replaceFirst(
         RegExp(r'  flutter_lints: \^\S+'),
         '  flutter_lints: ^6.0.0\n'
         '  build_runner: ^2.4.0\n'
-        '  nitro_generator: { path: ../packages/nitro_generator }');
+        '  nitro_generator: ^0.1.1');
 
     pubspec = pubspec.replaceFirst(
         RegExp(r'    platforms:\s*\n'
