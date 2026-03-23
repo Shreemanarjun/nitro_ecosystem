@@ -2,6 +2,7 @@ import 'dart:io';
 import 'package:args/command_runner.dart';
 import 'package:nocterm/nocterm.dart';
 import 'package:path/path.dart' as p;
+import 'package:nitrogen_cli/version.dart';
 
 // ── Data model ────────────────────────────────────────────────────────────────
 
@@ -211,7 +212,7 @@ class _DoctorViewState extends State<DoctorView> {
               child: Padding(
                 padding: const EdgeInsets.symmetric(horizontal: 2),
                 child: Text(
-                  ' nitrogen doctor — ${component.pluginName} ',
+                  ' nitrogen doctor v$activeVersion — ${component.pluginName} ',
                   style: const TextStyle(
                       color: Colors.cyan, fontWeight: FontWeight.bold),
                 ),

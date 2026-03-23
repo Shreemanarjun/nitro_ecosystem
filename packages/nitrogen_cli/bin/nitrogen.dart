@@ -10,6 +10,7 @@ import 'package:nitrogen_cli/commands/generate_command.dart';
 import 'package:nitrogen_cli/commands/link_command.dart';
 import 'package:nitrogen_cli/commands/doctor_command.dart';
 import 'package:nitrogen_cli/commands/update_command.dart';
+import 'package:nitrogen_cli/version.dart';
 
 // ── Models ───────────────────────────────────────────────────────────────────
 
@@ -79,6 +80,11 @@ void main(List<String> args) async {
     return;
   }
 
+  if (args.length == 1 && (args[0] == '--version' || args[0] == '-v')) {
+    stdout.writeln('nitrogen version: $activeVersion');
+    return;
+  }
+
   final runner = CommandRunner('nitrogen', 'Nitrogen FFI toolkit')
     ..addCommand(InitCommand())
     ..addCommand(GenerateCommand())
@@ -142,9 +148,8 @@ Future<void> _runTui() async {
             path: '/link',
             parse: (_) => const CommandRoute(NitroCommand.link),
             builder: (context, _) {
-              final pubspec = File('pubspec.yaml');
-              final name =
-                  pubspec.existsSync() ? _getPluginName(pubspec) : 'unknown';
+              final info = _getProjectInfo();
+              final name = info?.name ?? 'unknown';
               return LinkView(
                 pluginName: name,
                 result: LinkResult(),
@@ -189,16 +194,49 @@ Future<void> _runTui() async {
   );
 }
 
-String _getPluginName(File pubspec) {
-  for (final line in pubspec.readAsLinesSync()) {
-    if (line.startsWith('name: ')) {
-      return line.replaceFirst('name: ', '').trim();
+class ProjectInfo {
+  final String name;
+  final String version;
+  const ProjectInfo(this.name, this.version);
+}
+
+ProjectInfo? _getProjectInfo() {
+  try {
+    final pubspec = File('pubspec.yaml');
+    if (pubspec.existsSync()) {
+      String name = 'unknown';
+      String version = 'unknown';
+      for (final line in pubspec.readAsLinesSync()) {
+        if (line.startsWith('name: ')) name = line.replaceFirst('name: ', '').trim();
+        if (line.startsWith('version: ')) version = line.replaceFirst('version: ', '').trim();
+      }
+      return ProjectInfo(name, version);
     }
-  }
-  return 'unknown';
+  } catch (_) {}
+  return null;
+}
+
+Future<String> _getGitBranch() async {
+  try {
+    final result = await Process.run('git', ['branch', '--show-current']);
+    if (result.exitCode == 0) return result.stdout.toString().trim();
+  } catch (_) {}
+  return 'no git';
 }
 
 // ── Dashboard Component ──────────────────────────────────────────────────────
+
+// ── Utility ──────────────────────────────────────────────────────────────────
+
+void _launchUrl(String url) {
+  if (Platform.isMacOS) {
+    Process.run('open', [url]);
+  } else if (Platform.isLinux) {
+    Process.run('xdg-open', [url]);
+  } else if (Platform.isWindows) {
+    Process.run('powershell', ['Start-Process', '"$url"']);
+  }
+}
 
 class NitroDashboard extends StatefulComponent {
   const NitroDashboard({super.key});
@@ -209,6 +247,30 @@ class NitroDashboard extends StatefulComponent {
 
 class _NitroDashboardState extends State<NitroDashboard> {
   int _selectedIndex = 0;
+  bool _pulse = false;
+  Timer? _timer;
+  ProjectInfo? _project;
+  String _branch = 'loading...';
+  final String _dartVersion = Platform.version.split(' ').first;
+
+  @override
+  void initState() {
+    super.initState();
+    _project = _getProjectInfo();
+    _getGitBranch().then((b) {
+      if (mounted) setState(() => _branch = b);
+    });
+    // Subtle pulse animation for the header
+    _timer = Timer.periodic(const Duration(milliseconds: 800), (t) {
+      if (mounted) setState(() => _pulse = !_pulse);
+    });
+  }
+
+  @override
+  void dispose() {
+    _timer?.cancel();
+    super.dispose();
+  }
 
   @override
   Component build(BuildContext context) {
@@ -234,58 +296,237 @@ class _NitroDashboardState extends State<NitroDashboard> {
         }
         return false;
       },
-      child: Center(
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            const Text('⚡ Nitrogen CLI',
-                style:
-                    TextStyle(fontWeight: FontWeight.bold, color: Colors.cyan)),
-            const Text('The high-performance FFI toolkit for Flutter',
-                style:
-                    TextStyle(color: Colors.gray, fontWeight: FontWeight.dim)),
-            const SizedBox(height: 1),
-            for (var i = 0; i < NitroCommand.values.length; i++)
-              _CommandItem(
-                command: NitroCommand.values[i],
-                selected: i == _selectedIndex,
+      child: Column(
+        children: [
+          // ── Header/Top Bar ──────────────────────────────────────────────
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 2, vertical: 0),
+            decoration: const BoxDecoration(
+              border: BoxBorder(bottom: BorderSide(color: Colors.brightBlack)),
+            ),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Text(
+                    '${_pulse ? '⚡' : '🔥'} Nitrogen CLI v$activeVersion by Shreeman Arjun',
+                    style: TextStyle(
+                        fontWeight: FontWeight.bold,
+                        color: _pulse ? Colors.magenta : Colors.cyan)),
+                if (_project != null)
+                  Text('Active Project: ${_project!.name} (v${_project!.version})',
+                      style: const TextStyle(
+                          color: Colors.white, fontWeight: FontWeight.bold)),
+              ],
+            ),
+          ),
+
+          // ── Centered Navigation ──────────────────────────────────────────
+          Expanded(
+            child: Center(
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  const Text('The high-performance FFI toolkit for Flutter',
+                      style: TextStyle(
+                          color: Colors.brightBlack,
+                          fontWeight: FontWeight.dim)),
+                  const SizedBox(height: 1),
+                  for (var i = 0; i < NitroCommand.values.length; i++)
+                    _CommandItem(
+                      command: NitroCommand.values[i],
+                      selected: i == _selectedIndex,
+                      onSelected: () => setState(() => _selectedIndex = i),
+                      onTap: () => context
+                          .unrouterAs<NitroRoute>()
+                          .go(CommandRoute(NitroCommand.values[i])),
+                    ),
+                  const SizedBox(height: 1),
+                  const Text('Use arrows and Enter to navigate • Ctrl+C to exit',
+                      style: TextStyle(
+                          color: Colors.brightBlack,
+                          fontWeight: FontWeight.dim)),
+                  const SizedBox(height: 1),
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      HoverButton(
+                        label: 'Docs: nitro.shreeman.dev',
+                        onTap: () => _launchUrl('https://nitro.shreeman.dev/'),
+                        color: Colors.blue,
+                      ),
+                      const Text(' • ',
+                          style: TextStyle(color: Colors.brightBlack)),
+                      HoverButton(
+                        label: 'Other plugins: shreeman.dev',
+                        onTap: () => _launchUrl('https://www.shreeman.dev'),
+                        color: Colors.blue,
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 1),
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      const Text('Inspired by ',
+                          style: TextStyle(
+                              color: Colors.brightBlack,
+                              fontWeight: FontWeight.dim)),
+                      HoverButton(
+                        label: 'Marc Rousavy (@mrousavy)',
+                        onTap: () => _launchUrl('https://x.com/mrousavy'),
+                        color: Colors.yellow,
+                      ),
+                      const Text(' — Creator of ',
+                          style: TextStyle(
+                              color: Colors.brightBlack,
+                              fontWeight: FontWeight.dim)),
+                      const Text('VisionCamera',
+                          style: TextStyle(
+                              color: Colors.white,
+                              fontWeight: FontWeight.bold)),
+                      const Text(' & ',
+                          style: TextStyle(
+                              color: Colors.brightBlack,
+                              fontWeight: FontWeight.dim)),
+                      const Text('Nitro Modules',
+                          style: TextStyle(
+                              color: Colors.white,
+                              fontWeight: FontWeight.bold)),
+                    ],
+                  ),
+                ],
               ),
-            const SizedBox(height: 1),
-            const Text('Use arrows and Enter to navigate • Ctrl+C to exit',
-                style:
-                    TextStyle(color: Colors.gray, fontWeight: FontWeight.dim)),
-          ],
+            ),
+          ),
+
+          // ── Fixed Bottom Status Bar ──────────────────────────────────────────
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 2, vertical: 0),
+            decoration: const BoxDecoration(
+              border: BoxBorder(top: BorderSide(color: Colors.brightBlack)),
+            ),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Text('Dart: $_dartVersion',
+                    style: const TextStyle(color: Colors.gray)),
+                Text('Branch: $_branch',
+                    style: const TextStyle(color: Colors.magenta)),
+                const Text('Nitro Modules • Ready',
+                    style: TextStyle(color: Colors.cyan)),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class HoverButton extends StatefulComponent {
+  const HoverButton({
+    required this.label,
+    required this.onTap,
+    this.color = Colors.cyan,
+  });
+
+  final String label;
+  final VoidCallback onTap;
+  final Color color;
+
+  @override
+  State<HoverButton> createState() => _HoverButtonState();
+}
+
+class _HoverButtonState extends State<HoverButton> {
+  bool _isHovering = false;
+
+  @override
+  Component build(BuildContext context) {
+    return GestureDetector(
+      onTap: component.onTap,
+      child: MouseRegion(
+        onEnter: (_) => setState(() => _isHovering = true),
+        onExit: (_) => setState(() => _isHovering = false),
+        child: Container(
+          decoration: BoxDecoration(
+            color: _isHovering ? Colors.brightBlack : null,
+          ),
+          child: Text(
+            component.label,
+            style: TextStyle(
+              color: _isHovering ? Colors.magenta : component.color,
+              fontWeight: _isHovering ? FontWeight.bold : FontWeight.bold,
+            ),
+          ),
         ),
       ),
     );
   }
 }
 
-class _CommandItem extends StatelessComponent {
-  const _CommandItem({required this.command, required this.selected});
+class _CommandItem extends StatefulComponent {
+  const _CommandItem({
+    required this.command,
+    required this.selected,
+    required this.onSelected,
+    required this.onTap,
+  });
+
   final NitroCommand command;
   final bool selected;
+  final VoidCallback onSelected;
+  final VoidCallback onTap;
+
+  @override
+  State<_CommandItem> createState() => _CommandItemState();
+}
+
+class _CommandItemState extends State<_CommandItem> {
+  bool _isHovering = false;
 
   @override
   Component build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 2),
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          Text(selected ? '▶ ' : '  ',
-              style: const TextStyle(color: Colors.cyan)),
-          SizedBox(
-            width: 15,
-            child: Text(command.label,
-                style: TextStyle(
-                    color: selected ? Colors.cyan : Colors.white,
-                    fontWeight:
-                        selected ? FontWeight.bold : FontWeight.normal)),
+    // Combine hover and keyboard "selected" states for the background color
+    final bool active = component.selected || _isHovering;
+
+    return GestureDetector(
+      onTap: component.onTap,
+      child: MouseRegion(
+        onEnter: (_) {
+          setState(() => _isHovering = true);
+          component.onSelected();
+        },
+        onExit: (_) => setState(() => _isHovering = false),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 2),
+          child: Container(
+            decoration: BoxDecoration(
+              // Add a subtle background highlight for better hover feedback
+              color: _isHovering ? Colors.brightBlack : null,
+            ),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Text(active ? '❯ ' : '  ',
+                    style: TextStyle(
+                        color: active ? Colors.magenta : Colors.white,
+                        fontWeight: FontWeight.bold)),
+                SizedBox(
+                  width: 15,
+                  child: Text(component.command.label,
+                      style: TextStyle(
+                          color: active ? Colors.magenta : Colors.white,
+                          fontWeight:
+                              active ? FontWeight.bold : FontWeight.normal)),
+                ),
+                const SizedBox(width: 2),
+                Text(component.command.description,
+                    style: const TextStyle(color: Colors.gray)),
+              ],
+            ),
           ),
-          const SizedBox(width: 2),
-          Text(command.description, style: const TextStyle(color: Colors.gray)),
-        ],
+        ),
       ),
     );
   }
@@ -315,11 +556,19 @@ class _ProcessViewState extends State<ProcessView> {
   bool _running = false;
   bool _done = false;
   int? _exitCode;
+  bool _successPulse = false;
+  Timer? _pulseTimer;
 
   @override
   void initState() {
     super.initState();
     Future.delayed(Duration.zero, _start);
+  }
+
+  @override
+  void dispose() {
+    _pulseTimer?.cancel();
+    super.dispose();
   }
 
   void _start() async {
@@ -363,6 +612,11 @@ class _ProcessViewState extends State<ProcessView> {
         _done = true;
         _exitCode = code;
         _logs.add('[Info] Process exited with code $code');
+        if (code == 0) {
+          _pulseTimer = Timer.periodic(const Duration(milliseconds: 300), (t) {
+            if (mounted) setState(() => _successPulse = !_successPulse);
+          });
+        }
       });
     } catch (e) {
       if (!mounted) return;
@@ -391,17 +645,28 @@ class _ProcessViewState extends State<ProcessView> {
           Padding(
             padding: const EdgeInsets.only(top: 1, left: 1, right: 1),
             child: Container(
-              decoration:
-                  BoxDecoration(border: BoxBorder.all(color: Colors.cyan)),
+              decoration: BoxDecoration(
+                  border: BoxBorder.all(
+                      color: _successPulse ? Colors.green : Colors.cyan)),
               child: Padding(
                 padding: const EdgeInsets.symmetric(horizontal: 2),
                 child: Text(' ${component.title} ',
-                    style: const TextStyle(
-                        color: Colors.cyan, fontWeight: FontWeight.bold)),
+                    style: TextStyle(
+                        color: _successPulse ? Colors.green : Colors.magenta,
+                        fontWeight: FontWeight.bold)),
               ),
             ),
           ),
           const SizedBox(height: 1),
+          if (_successPulse)
+            Container(
+              padding: const EdgeInsets.all(1),
+              child: const Text(
+                '  ✨ SUCCESS  ✨  ',
+                style:
+                    TextStyle(color: Colors.green, fontWeight: FontWeight.bold),
+              ),
+            ),
           Expanded(
             child: Padding(
               padding: const EdgeInsets.symmetric(horizontal: 1),
@@ -413,8 +678,8 @@ class _ProcessViewState extends State<ProcessView> {
                   child: ListView(
                     controller: _scroll,
                     children: _logs
-                        .map((l) =>
-                            Text(l, style: const TextStyle(color: Colors.gray)))
+                        .map((l) => Text(l,
+                            style: const TextStyle(color: Colors.white)))
                         .toList(),
                   ),
                 ),
