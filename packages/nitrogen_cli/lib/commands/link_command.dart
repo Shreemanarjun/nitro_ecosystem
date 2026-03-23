@@ -39,8 +39,8 @@ String resolveNitroNativePath(String pluginDir) {
     } catch (_) {}
   }
   // Fallback: monorepo layout.
-  return p.normalize(
-      p.absolute(p.join(pluginDir, '..', 'packages', 'nitro', 'src', 'native')));
+  return p.normalize(p
+      .absolute(p.join(pluginDir, '..', 'packages', 'nitro', 'src', 'native')));
 }
 
 /// Returns `true` when [cmakeNitroNative] (which may contain
@@ -362,8 +362,7 @@ class _LinkViewState extends State<LinkView> {
   List<String> _discoverModuleLibs(String pluginName) =>
       discoverModuleLibs(pluginName);
 
-  String _resolveNitroNativePath() =>
-      resolveNitroNativePath(p.absolute('.'));
+  String _resolveNitroNativePath() => resolveNitroNativePath(p.absolute('.'));
 
   bool _cmakeNitroNativeExists(String cmakeNitroNative) =>
       nitroNativePathExists(cmakeNitroNative, p.absolute('src'));
@@ -401,22 +400,21 @@ class _LinkViewState extends State<LinkView> {
     } else {
       desiredNitroValue = nitroNativePath.replaceAll(r'\', '/');
     }
-    final nitroNativeSetLine =
-        'set(NITRO_NATIVE "$desiredNitroValue")';
+    final nitroNativeSetLine = 'set(NITRO_NATIVE "$desiredNitroValue")';
 
     if (!content.contains('NITRO_NATIVE')) {
       content = '$nitroNativeSetLine\n\n$content';
       modified = true;
     } else {
       // Update stale value if the current cmake path no longer resolves.
-      final staleMatch = RegExp(r'set\(NITRO_NATIVE\s+"([^"]+)"\)')
-          .firstMatch(content);
+      final staleMatch =
+          RegExp(r'set\(NITRO_NATIVE\s+"([^"]+)"\)').firstMatch(content);
       if (staleMatch != null) {
         final currentVal = staleMatch.group(1)!;
         if (!_cmakeNitroNativeExists(currentVal) &&
             currentVal != desiredNitroValue) {
-          content = content.replaceFirst(
-              staleMatch.group(0)!, nitroNativeSetLine);
+          content =
+              content.replaceFirst(staleMatch.group(0)!, nitroNativeSetLine);
           modified = true;
         }
       }

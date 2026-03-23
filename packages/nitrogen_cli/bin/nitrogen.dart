@@ -207,8 +207,10 @@ ProjectInfo? _getProjectInfo() {
       String name = 'unknown';
       String version = 'unknown';
       for (final line in pubspec.readAsLinesSync()) {
-        if (line.startsWith('name: ')) name = line.replaceFirst('name: ', '').trim();
-        if (line.startsWith('version: ')) version = line.replaceFirst('version: ', '').trim();
+        if (line.startsWith('name: '))
+          name = line.replaceFirst('name: ', '').trim();
+        if (line.startsWith('version: '))
+          version = line.replaceFirst('version: ', '').trim();
       }
       return ProjectInfo(name, version);
     }
@@ -313,7 +315,8 @@ class _NitroDashboardState extends State<NitroDashboard> {
                         fontWeight: FontWeight.bold,
                         color: _pulse ? Colors.magenta : Colors.cyan)),
                 if (_project != null)
-                  Text('Active Project: ${_project!.name} (v${_project!.version})',
+                  Text(
+                      'Active Project: ${_project!.name} (v${_project!.version})',
                       style: const TextStyle(
                           color: Colors.white, fontWeight: FontWeight.bold)),
               ],
@@ -341,7 +344,8 @@ class _NitroDashboardState extends State<NitroDashboard> {
                           _CommandItem(
                             command: NitroCommand.values[i],
                             selected: i == _selectedIndex,
-                            onSelected: () => setState(() => _selectedIndex = i),
+                            onSelected: () =>
+                                setState(() => _selectedIndex = i),
                             onTap: () => context
                                 .unrouterAs<NitroRoute>()
                                 .go(CommandRoute(NitroCommand.values[i])),
@@ -350,7 +354,8 @@ class _NitroDashboardState extends State<NitroDashboard> {
                     ),
                   ),
                   const SizedBox(height: 1),
-                  const Text('Use arrows and Enter to navigate • Ctrl+C to exit',
+                  const Text(
+                      'Use arrows and Enter to navigate • Ctrl+C to exit',
                       style: TextStyle(
                           color: Colors.brightBlack,
                           fontWeight: FontWeight.dim)),

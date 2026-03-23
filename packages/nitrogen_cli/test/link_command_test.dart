@@ -227,8 +227,8 @@ abstract class MyPlugin extends HybridObject {}
     });
 
     test('returns false when dart_api_dl.h is absent', () {
-      final result = nitroNativePathExists(
-          p.join(tmp.path, 'nonexistent'), tmp.path);
+      final result =
+          nitroNativePathExists(p.join(tmp.path, 'nonexistent'), tmp.path);
       expect(result, isFalse);
     });
 
@@ -249,8 +249,10 @@ abstract class MyPlugin extends HybridObject {}
     test('includes the dart_api_dl.c file from the given path', () {
       const nativePath = '/some/pub/cache/nitro/src/native';
       final content = dartApiDlForwarderContent(nativePath);
-      expect(content,
-          contains('#include "/some/pub/cache/nitro/src/native/dart_api_dl.c"'));
+      expect(
+          content,
+          contains(
+              '#include "/some/pub/cache/nitro/src/native/dart_api_dl.c"'));
     });
 
     test('contains do-not-edit comment', () {
