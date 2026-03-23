@@ -1,0 +1,1 @@
+../../Classes/nitro_battery.bridge.g.swift

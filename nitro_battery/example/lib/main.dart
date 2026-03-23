@@ -31,7 +31,7 @@ class _MyAppState extends State<MyApp> {
   Widget build(BuildContext context) {
     const textStyle = TextStyle(fontSize: 20);
     const spacerSmall = SizedBox(height: 10);
-    
+
     return MaterialApp(
       home: Scaffold(
         appBar: AppBar(title: const Text('Nitro Battery Example')),
@@ -68,7 +68,10 @@ class _MyAppState extends State<MyApp> {
                     return Column(
                       children: [
                         Text('Voltage: ${info.voltage}V', style: textStyle),
-                        Text('Temperature: ${info.temperature}°C', style: textStyle),
+                        Text(
+                          'Temperature: ${info.temperature}°C',
+                          style: textStyle,
+                        ),
                       ],
                     );
                   },
@@ -78,11 +81,18 @@ class _MyAppState extends State<MyApp> {
                 spacerSmall,
                 const Text('Real-time updates:', style: textStyle),
                 StreamBuilder<int>(
-                  stream: nitro_battery.NitroBattery.instance.batteryLevelChanges,
+                  stream:
+                      nitro_battery.NitroBattery.instance.batteryLevelChanges,
                   builder: (context, snapshot) {
                     final val = snapshot.data ?? batteryLevel;
-                    return Text('Live Level: $val%', 
-                      style: textStyle.copyWith(color: Colors.green, fontWeight: FontWeight.bold));
+                    print(val);
+                    return Text(
+                      'Live Level: $val%',
+                      style: textStyle.copyWith(
+                        color: Colors.green,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    );
                   },
                 ),
               ],

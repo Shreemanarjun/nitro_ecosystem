@@ -1,0 +1,28 @@
+PODS:
+  - Flutter (1.0.0)
+  - nitro (0.0.1):
+    - Flutter
+  - nitro_battery (0.0.1):
+    - Flutter
+
+DEPENDENCIES:
+  - Flutter (from `Flutter`)
+  - nitro (from `.symlinks/plugins/nitro/ios`)
+  - nitro_battery (from `.symlinks/plugins/nitro_battery/ios`)
+
+EXTERNAL SOURCES:
+  Flutter:
+    :path: Flutter
+  nitro:
+    :path: ".symlinks/plugins/nitro/ios"
+  nitro_battery:
+    :path: ".symlinks/plugins/nitro_battery/ios"
+
+SPEC CHECKSUMS:
+  Flutter: cabc95a1d2626b1b06e7179b784ebcf0c0cde467
+  nitro: 3f399f826dcec7d59928ac53bfa3d6a4234bfb5a
+  nitro_battery: dc353ae2c5e59b74a2893a7fa4aaef281a58b059
+
+PODFILE CHECKSUM: 3c63482e143d1b91d2d2560aee9fb04ecc74ac7e
+
+COCOAPODS: 1.16.2

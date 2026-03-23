@@ -58,94 +58,215 @@ class SwiftGenerator {
     s.writeln('}');
     s.writeln();
 
-    // ── Registry + C-bridge call stubs ────────────────────────────────────
-    s.writeln('@objc');
-    s.writeln('public class ${spec.dartClassName}Registry: NSObject {');
+    // ── Registry — pure Swift, no @objc / NSObject needed ─────────────────
+    s.writeln('public class ${spec.dartClassName}Registry {');
     s.writeln(
-      '    private static var impl: Hybrid${spec.dartClassName}Protocol?',
+      '    public static var impl: Hybrid${spec.dartClassName}Protocol?',
     );
     s.writeln();
     s.writeln(
-      '    @objc public static func register(_ impl: Hybrid${spec.dartClassName}Protocol) {',
+      '    public static func register(_ impl: Hybrid${spec.dartClassName}Protocol) {',
     );
-    s.writeln('        self.impl = impl');
+    s.writeln('        ${spec.dartClassName}Registry.impl = impl');
     s.writeln('    }');
+
+    for (final stream in spec.streams) {
+      s.writeln();
+      s.writeln(
+        '    // Stream: ${stream.dartName} cancellables keyed by dartPort',
+      );
+      s.writeln(
+        '    public static var _${stream.dartName}Cancellables = [Int64: AnyCancellable]()',
+      );
+    }
+
+    s.writeln('}');
     s.writeln();
+
+    // ── @_cdecl C bridge stubs ─────────────────────────────────────────────
+    // These are exported as plain C symbols and called by the generated .cpp
+    // shim via `extern "C"` declarations. @objc is NOT used because Swift
+    // structs and Swift-only protocols cannot cross the ObjC boundary.
     s.writeln(
-      '    // MARK: - C bridge stubs (called by the generated .c shim)',
+      '// MARK: - C bridge stubs — exported as C symbols called by the generated .cpp shim',
     );
+    s.writeln();
 
     for (final func in spec.functions) {
-      final retType = _toSwiftType(spec, func.returnType.name);
+      final cRetType = _toCDeclReturnType(spec, func);
       final params = func.params
           .map((p) => '_ ${p.name}: ${_toSwiftType(spec, p.type.name)}')
           .join(', ');
-      final callArgs = func.params
-          .map((p) => '${p.name}: ${p.name}')
-          .join(', ');
+      final callArgs =
+          func.params.map((p) => '${p.name}: ${p.name}').join(', ');
+      final isStruct =
+          spec.structs.any((st) => st.name == func.returnType.name);
+      final isBool = func.returnType.name == 'bool';
+      final isVoid = func.returnType.name == 'void';
+
+      s.writeln('@_cdecl("_call_${func.dartName}")');
       s.writeln(
-        '    @objc public static func _call_${func.dartName}($params) -> $retType {',
+        'public func _call_${func.dartName}($params) -> $cRetType {',
       );
-      if (func.returnType.name == 'void') {
-        s.writeln('        impl?.${func.dartName}($callArgs)');
+
+      if (func.isAsync) {
+        // Async: block the calling thread with a semaphore until the Task
+        // completes. Safe here because callAsync() on the Dart side always
+        // invokes this on a background isolate thread.
+        if (isStruct) {
+          s.writeln(
+            '    guard let impl = ${spec.dartClassName}Registry.impl else { return nil }',
+          );
+          s.writeln('    let sema = DispatchSemaphore(value: 0)');
+          s.writeln('    var result: ${func.returnType.name}? = nil');
+          s.writeln('    Task.detached {');
+          s.writeln(
+            '        result = try? await impl.${func.dartName}($callArgs)',
+          );
+          s.writeln('        sema.signal()');
+          s.writeln('    }');
+          s.writeln('    sema.wait()');
+          s.writeln('    guard let r = result else { return nil }');
+          s.writeln(
+            '    let ptr = UnsafeMutablePointer<${func.returnType.name}>.allocate(capacity: 1)',
+          );
+          s.writeln('    ptr.initialize(to: r)');
+          s.writeln('    return UnsafeMutableRawPointer(ptr)');
+        } else if (isVoid) {
+          s.writeln(
+            '    guard let impl = ${spec.dartClassName}Registry.impl else { return }',
+          );
+          s.writeln('    let sema = DispatchSemaphore(value: 0)');
+          s.writeln('    Task.detached {');
+          s.writeln('        try? await impl.${func.dartName}($callArgs)');
+          s.writeln('        sema.signal()');
+          s.writeln('    }');
+          s.writeln('    sema.wait()');
+        } else {
+          final swiftRetType = _toSwiftType(spec, func.returnType.name);
+          final defaultVal = _defaultCDeclValue(spec, func.returnType.name);
+          s.writeln(
+            '    guard let impl = ${spec.dartClassName}Registry.impl else { return $defaultVal }',
+          );
+          s.writeln('    let sema = DispatchSemaphore(value: 0)');
+          s.writeln('    var result: $swiftRetType? = nil');
+          s.writeln('    Task.detached {');
+          s.writeln(
+            '        result = try? await impl.${func.dartName}($callArgs)',
+          );
+          s.writeln('        sema.signal()');
+          s.writeln('    }');
+          s.writeln('    sema.wait()');
+          s.writeln('    return result ?? $defaultVal');
+        }
+      } else if (isVoid) {
         s.writeln(
-          '        return ${_defaultValue(spec, func.returnType.name)}',
+          '    ${spec.dartClassName}Registry.impl?.${func.dartName}($callArgs)',
         );
-      } else {
+      } else if (isBool) {
         s.writeln(
-          '        return impl?.${func.dartName}($callArgs) ?? ${_defaultValue(spec, func.returnType.name)}',
+          '    return (${spec.dartClassName}Registry.impl?.${func.dartName}($callArgs) ?? false) ? 1 : 0',
+        );
+      } else if (isStruct) {
+        s.writeln(
+          '    guard let result = ${spec.dartClassName}Registry.impl?.${func.dartName}($callArgs) else { return nil }',
+        );
+        s.writeln(
+          '    let ptr = UnsafeMutablePointer<${func.returnType.name}>.allocate(capacity: 1)',
+        );
+        s.writeln('    ptr.initialize(to: result)');
+        s.writeln('    return UnsafeMutableRawPointer(ptr)');
+      } else {
+        final defaultVal = _defaultCDeclValue(spec, func.returnType.name);
+        s.writeln(
+          '    return ${spec.dartClassName}Registry.impl?.${func.dartName}($callArgs) ?? $defaultVal',
         );
       }
-      s.writeln('    }');
+
+      s.writeln('}');
+      s.writeln();
     }
 
     for (final prop in spec.properties) {
       final swiftType = _toSwiftType(spec, prop.type.name);
+      final isBool = prop.type.name == 'bool';
       if (prop.hasGetter) {
+        s.writeln('@_cdecl("_call_get_${prop.dartName}")');
         s.writeln(
-          '    @objc public static func _get_${prop.dartName}() -> $swiftType {',
+          'public func _call_get_${prop.dartName}() -> $swiftType {',
         );
         s.writeln(
-          '        return impl?.${prop.dartName} ?? ${_defaultValue(spec, prop.type.name)}',
+          '    return ${spec.dartClassName}Registry.impl?.${prop.dartName} ?? ${_defaultCDeclValue(spec, prop.type.name)}',
         );
-        s.writeln('    }');
+        s.writeln('}');
+        s.writeln();
       }
       if (prop.hasSetter) {
+        final setParamType = isBool ? 'Int8' : swiftType;
+        s.writeln('@_cdecl("_call_set_${prop.dartName}")');
         s.writeln(
-          '    @objc public static func _set_${prop.dartName}(_ value: $swiftType) {',
+          'public func _call_set_${prop.dartName}(_ value: $setParamType) {',
         );
-        s.writeln('        impl?.${prop.dartName} = value');
-        s.writeln('    }');
+        if (isBool) {
+          s.writeln(
+            '    ${spec.dartClassName}Registry.impl?.${prop.dartName} = value != 0',
+          );
+        } else {
+          s.writeln(
+            '    ${spec.dartClassName}Registry.impl?.${prop.dartName} = value',
+          );
+        }
+        s.writeln('}');
+        s.writeln();
       }
     }
 
     for (final stream in spec.streams) {
       final cType = _toSwiftCType(spec, stream.itemType.name);
-      s.writeln('    // Stream: ${stream.dartName} — register with C callback');
+      s.writeln('@_cdecl("_register_${stream.dartName}_stream")');
+      s.writeln('public func _register_${stream.dartName}_stream(');
+      s.writeln('    _ dartPort: Int64,');
+      s.writeln('    _ emitCb: @convention(c) (Int64, $cType) -> Void');
+      s.writeln(') {');
       s.writeln(
-        '    private static var _${stream.dartName}Cancellables = [Int64: AnyCancellable]()',
+        '    ${spec.dartClassName}Registry._${stream.dartName}Cancellables[dartPort] =',
       );
       s.writeln(
-        '    @objc public static func _register_${stream.dartName}_stream(_ dartPort: Int64, _ emitCb: @escaping @convention(c) (Int64, $cType) -> Void) {',
-      );
-      s.writeln(
-        '        _${stream.dartName}Cancellables[dartPort] = impl?.${stream.dartName}.sink { item in',
+        '        ${spec.dartClassName}Registry.impl?.${stream.dartName}.sink { item in',
       );
       s.writeln('            emitCb(dartPort, item)');
       s.writeln('        }');
-      s.writeln('    }');
+      s.writeln('}');
+      s.writeln();
+      s.writeln('@_cdecl("_release_${stream.dartName}_stream")');
       s.writeln(
-        '    @objc public static func _release_${stream.dartName}_stream(_ dartPort: Int64) {',
+        'public func _release_${stream.dartName}_stream(_ dartPort: Int64) {',
       );
-      s.writeln('        _${stream.dartName}Cancellables[dartPort]?.cancel()');
       s.writeln(
-        '        _${stream.dartName}Cancellables.removeValue(forKey: dartPort)',
+        '    ${spec.dartClassName}Registry._${stream.dartName}Cancellables[dartPort]?.cancel()',
       );
-      s.writeln('    }');
+      s.writeln(
+        '    ${spec.dartClassName}Registry._${stream.dartName}Cancellables.removeValue(forKey: dartPort)',
+      );
+      s.writeln('}');
     }
 
-    s.writeln('}');
     return s.toString();
+  }
+
+  /// Return type for a `@_cdecl` function.
+  /// - `bool` → `Int8` (matches C's `int8_t`)
+  /// - struct (sync or async) → `UnsafeMutableRawPointer?` (matches C's `void*`)
+  /// - async void → `Void`
+  /// - everything else → same as `_toSwiftType`
+  static String _toCDeclReturnType(BridgeSpec spec, BridgeFunction func) {
+    final name = func.returnType.name.replaceFirst('?', '');
+    if (name == 'void') return 'Void';
+    if (name == 'bool') return 'Int8';
+    if (spec.structs.any((st) => st.name == name)) {
+      return 'UnsafeMutableRawPointer?';
+    }
+    return _toSwiftType(spec, name);
   }
 
   static String _toSwiftType(BridgeSpec spec, String t) {
@@ -178,7 +299,7 @@ class SwiftGenerator {
       case 'double':
         return 'Double';
       case 'bool':
-        return 'Bool';
+        return 'Int8';
       case 'String':
         return 'UnsafeMutablePointer<Int8>?';
       case 'void':
@@ -194,7 +315,7 @@ class SwiftGenerator {
     }
   }
 
-  static String _defaultValue(BridgeSpec spec, String t) {
+  static String _defaultCDeclValue(BridgeSpec spec, String t) {
     final name = t.replaceFirst('?', '');
     switch (name) {
       case 'int':
@@ -202,11 +323,12 @@ class SwiftGenerator {
       case 'double':
         return '0.0';
       case 'bool':
-        return 'false';
+        return '0';
       case 'String':
         return '""';
       default:
         if (spec.enums.any((en) => en.name == name)) return '0';
+        if (spec.structs.any((st) => st.name == name)) return 'nil';
         return '()';
     }
   }

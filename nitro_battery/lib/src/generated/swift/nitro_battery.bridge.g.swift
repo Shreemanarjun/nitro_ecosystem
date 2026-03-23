@@ -31,42 +31,74 @@ public protocol HybridNitroBatteryProtocol: AnyObject {
     var batteryLevelChanges: AnyPublisher<Int64, Never> { get }
 }
 
-@objc
-public class NitroBatteryRegistry: NSObject {
-    private static var impl: HybridNitroBatteryProtocol?
+public class NitroBatteryRegistry {
+    public static var impl: HybridNitroBatteryProtocol?
 
-    @objc public static func register(_ impl: HybridNitroBatteryProtocol) {
-        self.impl = impl
+    public static func register(_ impl: HybridNitroBatteryProtocol) {
+        NitroBatteryRegistry.impl = impl
     }
 
-    // MARK: - C bridge stubs (called by the generated .c shim)
-    @objc public static func _call_getBatteryLevel() -> Int64 {
-        return impl?.getBatteryLevel() ?? 0
+    // Stream: batteryLevelChanges cancellables keyed by dartPort
+    public static var _batteryLevelChangesCancellables = [Int64: AnyCancellable]()
+}
+
+// MARK: - C bridge stubs — exported as C symbols called by the generated .cpp shim
+
+@_cdecl("_call_getBatteryLevel")
+public func _call_getBatteryLevel() -> Int64 {
+    return NitroBatteryRegistry.impl?.getBatteryLevel() ?? 0
+}
+
+@_cdecl("_call_isCharging")
+public func _call_isCharging() -> Int8 {
+    return (NitroBatteryRegistry.impl?.isCharging() ?? false) ? 1 : 0
+}
+
+@_cdecl("_call_getChargingState")
+public func _call_getChargingState() -> Int64 {
+    return NitroBatteryRegistry.impl?.getChargingState() ?? 0
+}
+
+/// Returns a heap-allocated BatteryInfo pointer (Dart side frees via callAsync).
+@_cdecl("_call_getBatteryInfo")
+public func _call_getBatteryInfo() -> UnsafeMutableRawPointer? {
+    guard let impl = NitroBatteryRegistry.impl else { return nil }
+    let sema = DispatchSemaphore(value: 0)
+    var result: BatteryInfo? = nil
+    Task.detached {
+        result = try? await impl.getBatteryInfo()
+        sema.signal()
     }
-    @objc public static func _call_isCharging() -> Bool {
-        return impl?.isCharging() ?? false
-    }
-    @objc public static func _call_getChargingState() -> Int64 {
-        return impl?.getChargingState() ?? 0
-    }
-    @objc public static func _call_getBatteryInfo() -> BatteryInfo {
-        return impl?.getBatteryInfo() ?? ()
-    }
-    @objc public static func _get_lowPowerThreshold() -> Int64 {
-        return impl?.lowPowerThreshold ?? 0
-    }
-    @objc public static func _set_lowPowerThreshold(_ value: Int64) {
-        impl?.lowPowerThreshold = value
-    }
-    // Stream: batteryLevelChanges — register with C callback
-    private static var _batteryLevelChangesCancellables = [Int64: AnyCancellable]()
-    @objc public static func _register_batteryLevelChanges_stream(_ dartPort: Int64, _ emitCb: @escaping @convention(c) (Int64, Int64) -> Void) {
-        _batteryLevelChangesCancellables[dartPort] = impl?.batteryLevelChanges.sink { item in
+    sema.wait()
+    guard let r = result else { return nil }
+    let ptr = UnsafeMutablePointer<BatteryInfo>.allocate(capacity: 1)
+    ptr.initialize(to: r)
+    return UnsafeMutableRawPointer(ptr)
+}
+
+@_cdecl("_call_get_lowPowerThreshold")
+public func _call_get_lowPowerThreshold() -> Int64 {
+    return NitroBatteryRegistry.impl?.lowPowerThreshold ?? 0
+}
+
+@_cdecl("_call_set_lowPowerThreshold")
+public func _call_set_lowPowerThreshold(_ value: Int64) {
+    NitroBatteryRegistry.impl?.lowPowerThreshold = value
+}
+
+@_cdecl("_register_batteryLevelChanges_stream")
+public func _register_batteryLevelChanges_stream(
+    _ dartPort: Int64,
+    _ emitCb: @convention(c) (Int64, Int64) -> Void
+) {
+    NitroBatteryRegistry._batteryLevelChangesCancellables[dartPort] =
+        NitroBatteryRegistry.impl?.batteryLevelChanges.sink { item in
             emitCb(dartPort, item)
         }
-    }
-    @objc public static func _release_batteryLevelChanges_stream(_ dartPort: Int64) {
-        _batteryLevelChangesCancellables[dartPort]?.cancel()
-        _batteryLevelChangesCancellables.removeValue(forKey: dartPort)
-    }
+}
+
+@_cdecl("_release_batteryLevelChanges_stream")
+public func _release_batteryLevelChanges_stream(_ dartPort: Int64) {
+    NitroBatteryRegistry._batteryLevelChangesCancellables[dartPort]?.cancel()
+    NitroBatteryRegistry._batteryLevelChangesCancellables.removeValue(forKey: dartPort)
 }
