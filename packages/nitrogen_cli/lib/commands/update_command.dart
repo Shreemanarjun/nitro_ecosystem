@@ -47,15 +47,19 @@ class UpdateStepRow extends StatelessComponent {
         children: [
           Row(
             children: [
-              Text(icon, style: TextStyle(color: color, fontWeight: FontWeight.bold)),
+              Text(icon,
+                  style: TextStyle(color: color, fontWeight: FontWeight.bold)),
               const Text(' '),
               Expanded(
                 child: Text(
                   step.label,
                   style: TextStyle(
-                    color: step.state == UpdateStepState.running ? Colors.cyan : null,
-                    fontWeight:
-                        step.state == UpdateStepState.running ? FontWeight.bold : null,
+                    color: step.state == UpdateStepState.running
+                        ? Colors.cyan
+                        : null,
+                    fontWeight: step.state == UpdateStepState.running
+                        ? FontWeight.bold
+                        : null,
                   ),
                 ),
               ),
@@ -66,7 +70,8 @@ class UpdateStepRow extends StatelessComponent {
               padding: const EdgeInsets.only(left: 4),
               child: Text(
                 step.detail!,
-                style: const TextStyle(color: Colors.gray, fontWeight: FontWeight.dim),
+                style: const TextStyle(
+                    color: Colors.gray, fontWeight: FontWeight.dim),
               ),
             ),
         ],
@@ -117,7 +122,8 @@ class _UpdateViewState extends State<UpdateView> {
     Future<void>.delayed(Duration.zero, _run);
   }
 
-  void _setRunning(int i) => setState(() => _steps[i].state = UpdateStepState.running);
+  void _setRunning(int i) =>
+      setState(() => _steps[i].state = UpdateStepState.running);
   void _setDone(int i, {String? detail}) => setState(() {
         _steps[i].state = UpdateStepState.done;
         _steps[i].detail = detail;
@@ -134,24 +140,27 @@ class _UpdateViewState extends State<UpdateView> {
     final listResult = await Process.run('dart', ['pub', 'global', 'list']);
     final listOut = listResult.stdout as String;
     final lines = listOut.split('\n');
-    final nitroLine = lines.firstWhere((l) => l.contains('nitrogen_cli'), orElse: () => '');
-    
+    final nitroLine =
+        lines.firstWhere((l) => l.contains('nitrogen_cli'), orElse: () => '');
+
     if (nitroLine.contains('at path')) {
-       _isPathActivated = true;
-       _repoRoot = nitroLine.split('"')[1];
-       _setDone(0, detail: 'Path activated: $_repoRoot');
+      _isPathActivated = true;
+      _repoRoot = nitroLine.split('"')[1];
+      _setDone(0, detail: 'Path activated: $_repoRoot');
     } else {
-       _isPathActivated = false;
-        final versionMatch = RegExp(r'nitrogen_cli (\d+\.\d+\.\d+)').firstMatch(nitroLine);
-       _currentVersion = versionMatch?.group(1) ?? 'unknown';
-       _setDone(0, detail: 'Hosted: v$_currentVersion');
+      _isPathActivated = false;
+      final versionMatch =
+          RegExp(r'nitrogen_cli (\d+\.\d+\.\d+)').firstMatch(nitroLine);
+      _currentVersion = versionMatch?.group(1) ?? 'unknown';
+      _setDone(0, detail: 'Hosted: v$_currentVersion');
     }
 
     // Step 1 — Check pub.dev
     _setRunning(1);
     try {
       final client = HttpClient();
-      final request = await client.getUrl(Uri.parse('https://pub.dev/api/packages/nitrogen_cli'));
+      final request = await client
+          .getUrl(Uri.parse('https://pub.dev/api/packages/nitrogen_cli'));
       final response = await request.close();
       if (response.statusCode == 200) {
         final body = await response.transform(utf8.decoder).join();
@@ -169,7 +178,8 @@ class _UpdateViewState extends State<UpdateView> {
     _setRunning(2);
     if (_isPathActivated && _repoRoot != null) {
       // Git pull if path activated
-      final pullResult = await Process.run('git', ['pull', '--ff-only'], workingDirectory: _repoRoot);
+      final pullResult = await Process.run('git', ['pull', '--ff-only'],
+          workingDirectory: _repoRoot);
       if (pullResult.exitCode == 0) {
         _setDone(2, detail: 'Git pulled in $_repoRoot');
       } else {
@@ -177,9 +187,11 @@ class _UpdateViewState extends State<UpdateView> {
       }
     } else {
       // Global activate if hosted
-      final activateResult = await Process.run('dart', ['pub', 'global', 'activate', 'nitrogen_cli']);
+      final activateResult = await Process.run(
+          'dart', ['pub', 'global', 'activate', 'nitrogen_cli']);
       if (activateResult.exitCode == 0) {
-        _setDone(2, detail: 'Activated v${_latestVersion ?? "latest"} from pub.dev');
+        _setDone(2,
+            detail: 'Activated v${_latestVersion ?? "latest"} from pub.dev');
       } else {
         _setFailed(2, 'Activation failed: ${activateResult.stderr}');
       }
@@ -209,10 +221,13 @@ class _UpdateViewState extends State<UpdateView> {
           Padding(
             padding: const EdgeInsets.only(top: 1, left: 1, right: 1),
             child: Container(
-              decoration: BoxDecoration(border: BoxBorder.all(color: Colors.cyan)),
+              decoration:
+                  BoxDecoration(border: BoxBorder.all(color: Colors.cyan)),
               child: Padding(
                 padding: const EdgeInsets.symmetric(horizontal: 2),
-                child: const Text(' nitrogen update ', style: TextStyle(color: Colors.cyan, fontWeight: FontWeight.bold)),
+                child: const Text(' nitrogen update ',
+                    style: TextStyle(
+                        color: Colors.cyan, fontWeight: FontWeight.bold)),
               ),
             ),
           ),
@@ -221,7 +236,8 @@ class _UpdateViewState extends State<UpdateView> {
             child: Padding(
               padding: const EdgeInsets.symmetric(horizontal: 1),
               child: Container(
-                decoration: BoxDecoration(border: BoxBorder.all(color: Colors.brightBlack)),
+                decoration: BoxDecoration(
+                    border: BoxBorder.all(color: Colors.brightBlack)),
                 child: Padding(
                   padding: const EdgeInsets.all(1),
                   child: ListView(
@@ -237,9 +253,16 @@ class _UpdateViewState extends State<UpdateView> {
               child: Column(
                 children: [
                   _failed
-                      ? const Text('✘ Update failed', style: TextStyle(color: Colors.red, fontWeight: FontWeight.bold))
-                      : const Text('✨ nitrogen is up to date!', style: TextStyle(color: Colors.green, fontWeight: FontWeight.bold)),
-                  const Text('Press any key to exit', style: TextStyle(color: Colors.gray, fontWeight: FontWeight.dim)),
+                      ? const Text('✘ Update failed',
+                          style: TextStyle(
+                              color: Colors.red, fontWeight: FontWeight.bold))
+                      : const Text('✨ nitrogen is up to date!',
+                          style: TextStyle(
+                              color: Colors.green,
+                              fontWeight: FontWeight.bold)),
+                  const Text('Press any key to exit',
+                      style: TextStyle(
+                          color: Colors.gray, fontWeight: FontWeight.dim)),
                 ],
               ),
             ),
@@ -256,7 +279,8 @@ class UpdateCommand extends Command {
   final String name = 'update';
 
   @override
-  final String description = 'Checks for updates and refreshes the Nitrogen CLI.';
+  final String description =
+      'Checks for updates and refreshes the Nitrogen CLI.';
 
   @override
   Future<void> run() async {

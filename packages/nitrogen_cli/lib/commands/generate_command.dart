@@ -37,7 +37,11 @@ class GenerateCommand extends Command {
     stdout.writeln(cyan('  › build_runner build …'));
     stdout.writeln('');
     exitCode = await runStreaming('flutter', [
-      'pub', 'run', 'build_runner', 'build', '--delete-conflicting-outputs',
+      'pub',
+      'run',
+      'build_runner',
+      'build',
+      '--delete-conflicting-outputs',
     ]);
 
     stdout.writeln('');
@@ -48,7 +52,8 @@ class GenerateCommand extends Command {
     }
 
     stdout.writeln(boldGreen('  ✨ Generation complete!'));
-    stdout.writeln(gray('     Run nitrogen link to wire bridges into the build system.'));
+    stdout.writeln(
+        gray('     Run nitrogen link to wire bridges into the build system.'));
     stdout.writeln('');
     return 0;
   }

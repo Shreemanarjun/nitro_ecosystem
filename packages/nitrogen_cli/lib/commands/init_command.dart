@@ -56,13 +56,16 @@ class InitStepRow extends StatelessComponent {
         children: [
           Row(
             children: [
-              Text(icon, style: TextStyle(color: color, fontWeight: FontWeight.bold)),
+              Text(icon,
+                  style: TextStyle(color: color, fontWeight: FontWeight.bold)),
               const Text(' '),
               Expanded(
                 child: Text(
                   step.label,
                   style: TextStyle(
-                    color: step.state == InitStepState.running ? Colors.cyan : null,
+                    color: step.state == InitStepState.running
+                        ? Colors.cyan
+                        : null,
                     fontWeight: step.state == InitStepState.running
                         ? FontWeight.bold
                         : null,
@@ -76,7 +79,8 @@ class InitStepRow extends StatelessComponent {
               padding: const EdgeInsets.only(left: 4),
               child: Text(
                 step.detail!,
-                style: const TextStyle(color: Colors.gray, fontWeight: FontWeight.dim),
+                style: const TextStyle(
+                    color: Colors.gray, fontWeight: FontWeight.dim),
               ),
             ),
         ],
@@ -124,7 +128,8 @@ class _InitViewState extends State<InitView> {
     Future.delayed(Duration.zero, _run);
   }
 
-  void _setRunning(int i) => setState(() => _steps[i].state = InitStepState.running);
+  void _setRunning(int i) =>
+      setState(() => _steps[i].state = InitStepState.running);
   void _setDone(int i, {String? detail}) => setState(() {
         _steps[i].state = InitStepState.done;
         _steps[i].detail = detail;
@@ -204,7 +209,8 @@ class _InitViewState extends State<InitView> {
         _run(force: true);
         return true;
       }
-      if (e.logicalKey == LogicalKey.keyN || e.logicalKey == LogicalKey.escape) {
+      if (e.logicalKey == LogicalKey.keyN ||
+          e.logicalKey == LogicalKey.escape) {
         if (component.onExit != null) {
           component.onExit!();
         } else {
@@ -234,37 +240,46 @@ class _InitViewState extends State<InitView> {
           Padding(
             padding: const EdgeInsets.only(top: 1, left: 1, right: 1),
             child: Container(
-              decoration: BoxDecoration(border: BoxBorder.all(color: Colors.cyan)),
+              decoration:
+                  BoxDecoration(border: BoxBorder.all(color: Colors.cyan)),
               child: Padding(
                 padding: const EdgeInsets.symmetric(horizontal: 2),
                 child: Text(
                   ' nitrogen init — ${component.pluginName} ',
-                  style: const TextStyle(color: Colors.cyan, fontWeight: FontWeight.bold),
+                  style: const TextStyle(
+                      color: Colors.cyan, fontWeight: FontWeight.bold),
                 ),
               ),
             ),
           ),
           const SizedBox(height: 1),
-          
           if (_needsConfirmation)
             Expanded(
               child: Center(
                 child: Column(
                   mainAxisAlignment: MainAxisAlignment.center,
                   children: [
-                     Text(
+                    Text(
                       '⚠ Directory "${component.pluginName}" already exists.',
-                      style: const TextStyle(color: Colors.yellow, fontWeight: FontWeight.bold),
+                      style: const TextStyle(
+                          color: Colors.yellow, fontWeight: FontWeight.bold),
                     ),
                     const SizedBox(height: 1),
-                    const Text('Force initialize and overwrite existing files?'),
+                    const Text(
+                        'Force initialize and overwrite existing files?'),
                     const SizedBox(height: 1),
                     const Row(
                       mainAxisAlignment: MainAxisAlignment.center,
                       children: [
-                        Text('[Y]', style: TextStyle(color: Colors.green, fontWeight: FontWeight.bold)),
+                        Text('[Y]',
+                            style: TextStyle(
+                                color: Colors.green,
+                                fontWeight: FontWeight.bold)),
                         Text(' Yes, Overwrite   '),
-                        Text('[N]', style: TextStyle(color: Colors.red, fontWeight: FontWeight.bold)),
+                        Text('[N]',
+                            style: TextStyle(
+                                color: Colors.red,
+                                fontWeight: FontWeight.bold)),
                         Text(' No, Cancel'),
                       ],
                     ),
@@ -277,7 +292,8 @@ class _InitViewState extends State<InitView> {
               child: Padding(
                 padding: const EdgeInsets.symmetric(horizontal: 1),
                 child: Container(
-                  decoration: BoxDecoration(border: BoxBorder.all(color: Colors.brightBlack)),
+                  decoration: BoxDecoration(
+                      border: BoxBorder.all(color: Colors.brightBlack)),
                   child: Padding(
                     padding: const EdgeInsets.all(1),
                     child: ListView(
@@ -292,11 +308,14 @@ class _InitViewState extends State<InitView> {
                 padding: const EdgeInsets.all(1),
                 child: _failed
                     ? Text('✘ Scaffolding failed: ${_errorMessage ?? ""}',
-                        style: const TextStyle(color: Colors.red, fontWeight: FontWeight.bold))
+                        style: const TextStyle(
+                            color: Colors.red, fontWeight: FontWeight.bold))
                     : Column(
                         children: [
                           const Text('✨ Done! Next steps:',
-                              style: TextStyle(color: Colors.green, fontWeight: FontWeight.bold)),
+                              style: TextStyle(
+                                  color: Colors.green,
+                                  fontWeight: FontWeight.bold)),
                           Text(
                             '  1. Edit lib/src/${component.pluginName}.native.dart\n'
                             '  2. Run: nitrogen generate\n'
@@ -305,7 +324,10 @@ class _InitViewState extends State<InitView> {
                             textAlign: TextAlign.center,
                             style: const TextStyle(color: Colors.gray),
                           ),
-                          const Text('Press any key to exit', style: TextStyle(color: Colors.gray, fontWeight: FontWeight.dim)),
+                          const Text('Press any key to exit',
+                              style: TextStyle(
+                                  color: Colors.gray,
+                                  fontWeight: FontWeight.dim)),
                         ],
                       ),
               ),
@@ -462,8 +484,8 @@ dependencies {
 
     final moduleName = '${pluginName}_module';
     final orgPath = org.replaceAll('.', p.separator);
-    final kotlinDir = Directory(
-        p.join(pluginName, 'android', 'src', 'main', 'kotlin', orgPath, pluginName));
+    final kotlinDir = Directory(p.join(
+        pluginName, 'android', 'src', 'main', 'kotlin', orgPath, pluginName));
     if (!kotlinDir.existsSync()) kotlinDir.createSync(recursive: true);
 
     File(p.join(kotlinDir.path, '${className}Plugin.kt')).writeAsStringSync('''
@@ -504,8 +526,7 @@ class ${className}Plugin : FlutterPlugin {
         '  nitrogen: { path: ../packages/nitrogen }');
 
     pubspec = pubspec.replaceFirst(
-        RegExp(
-            r'    platforms:\s*\n'
+        RegExp(r'    platforms:\s*\n'
             r'      android:\s*\n'
             r'        ffiPlugin: true\s*\n'
             r'      ios:\s*\n'

@@ -24,6 +24,21 @@ export PATH="$PATH:$HOME/.pub-cache/bin"
 
 ---
 
+## Interactive TUI Dashboard
+
+If you run `nitrogen` without any arguments, it launches a beautiful interactive Text-based User Interface (TUI) dashboard.
+
+![Nitrogen Dashboard](https://raw.githubusercontent.com/Shreemanarjun/nitro_ecosystem/main/packages/nitrogen_cli/doc/dashboard_screenshot.png)
+
+From the dashboard, you can:
+- **Initialize**: Scaffold new projects with step-by-step confirmation.
+- **Generate**: Run the code generator and see live, scrollable output.
+- **Link**: Wire bridges with immediate visual feedback.
+- **Doctor**: Run production-ready checks and see a detailed health report.
+- **Update**: Check for new versions on `pub.dev` and self-update the CLI.
+
+---
+
 ## Commands
 
 ### `nitrogen init <PluginName>`

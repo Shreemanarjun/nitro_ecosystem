@@ -51,7 +51,9 @@ class CheckRow extends StatelessComponent {
         children: [
           Row(
             children: [
-              Text(icon, style: TextStyle(color: iconColor, fontWeight: FontWeight.bold)),
+              Text(icon,
+                  style:
+                      TextStyle(color: iconColor, fontWeight: FontWeight.bold)),
               const Text(' '),
               Expanded(
                 child: Text(
@@ -72,7 +74,8 @@ class CheckRow extends StatelessComponent {
               padding: const EdgeInsets.only(left: 4),
               child: Text(
                 '→ ${check.hint}',
-                style: const TextStyle(color: Colors.gray, fontWeight: FontWeight.dim),
+                style: const TextStyle(
+                    color: Colors.gray, fontWeight: FontWeight.dim),
               ),
             ),
         ],
@@ -140,18 +143,36 @@ class _DoctorViewState extends State<DoctorView> {
 
   bool _handleKey(KeyboardEvent e) {
     final k = e.logicalKey;
-    if (k == LogicalKey.arrowUp) { _scroll.scrollUp(); return true; }
-    if (k == LogicalKey.arrowDown) { _scroll.scrollDown(); return true; }
-    if (k == LogicalKey.pageUp) { _scroll.pageUp(); return true; }
-    if (k == LogicalKey.pageDown) { _scroll.pageDown(); return true; }
-    if (k == LogicalKey.home) { _scroll.scrollToStart(); return true; }
-    if (k == LogicalKey.end) { _scroll.scrollToEnd(); return true; }
-    
+    if (k == LogicalKey.arrowUp) {
+      _scroll.scrollUp();
+      return true;
+    }
+    if (k == LogicalKey.arrowDown) {
+      _scroll.scrollDown();
+      return true;
+    }
+    if (k == LogicalKey.pageUp) {
+      _scroll.pageUp();
+      return true;
+    }
+    if (k == LogicalKey.pageDown) {
+      _scroll.pageDown();
+      return true;
+    }
+    if (k == LogicalKey.home) {
+      _scroll.scrollToStart();
+      return true;
+    }
+    if (k == LogicalKey.end) {
+      _scroll.scrollToEnd();
+      return true;
+    }
+
     if (component.onExit != null) {
       component.onExit!();
       return true;
     }
-    
+
     shutdownApp(component.errors > 0 ? 1 : 0);
     return true;
   }
@@ -185,12 +206,14 @@ class _DoctorViewState extends State<DoctorView> {
           Padding(
             padding: const EdgeInsets.only(top: 1, left: 1, right: 1),
             child: Container(
-              decoration: BoxDecoration(border: BoxBorder.all(color: Colors.cyan)),
+              decoration:
+                  BoxDecoration(border: BoxBorder.all(color: Colors.cyan)),
               child: Padding(
                 padding: const EdgeInsets.symmetric(horizontal: 2),
                 child: Text(
                   ' nitrogen doctor — ${component.pluginName} ',
-                  style: const TextStyle(color: Colors.cyan, fontWeight: FontWeight.bold),
+                  style: const TextStyle(
+                      color: Colors.cyan, fontWeight: FontWeight.bold),
                 ),
               ),
             ),
@@ -206,13 +229,15 @@ class _DoctorViewState extends State<DoctorView> {
             ),
           ),
           Padding(
-            padding: const EdgeInsets.only(top: 1, bottom: 1, left: 1, right: 1),
+            padding:
+                const EdgeInsets.only(top: 1, bottom: 1, left: 1, right: 1),
             child: Column(
               children: [
                 summary,
                 const Text(
                   '  ↑↓ scroll   PgUp/PgDn page   ESC/Enter/q exit',
-                  style: TextStyle(color: Colors.gray, fontWeight: FontWeight.dim),
+                  style:
+                      TextStyle(color: Colors.gray, fontWeight: FontWeight.dim),
                 ),
               ],
             ),
@@ -255,7 +280,8 @@ class DoctorCommand extends Command {
   DoctorViewResult performChecks() {
     final pubspecFile = File('pubspec.yaml');
     if (!pubspecFile.existsSync()) {
-      throw StateError('No pubspec.yaml found. Run from the root of a Flutter plugin.');
+      throw StateError(
+          'No pubspec.yaml found. Run from the root of a Flutter plugin.');
     }
 
     final pluginName = _pluginName(pubspecFile);
@@ -305,24 +331,28 @@ class DoctorCommand extends Command {
       ok(pubSec, 'nitrogen dev dependency present');
     } else {
       err(pubSec, 'nitrogen dev dependency missing',
-          hint: 'Add to dev_dependencies: nitrogen: { path: ../packages/nitrogen }');
+          hint:
+              'Add to dev_dependencies: nitrogen: { path: ../packages/nitrogen }');
     }
 
-    if (RegExp(r'android:\s*\n(?:\s+\S[^\n]*\n)*\s+pluginClass:').hasMatch(pubspec)) {
+    if (RegExp(r'android:\s*\n(?:\s+\S[^\n]*\n)*\s+pluginClass:')
+        .hasMatch(pubspec)) {
       ok(pubSec, 'android pluginClass defined');
     } else {
       err(pubSec, 'android pluginClass missing',
           hint: 'Add pluginClass under flutter.plugin.platforms.android');
     }
 
-    if (RegExp(r'android:\s*\n(?:\s+\S[^\n]*\n)*\s+package:').hasMatch(pubspec)) {
+    if (RegExp(r'android:\s*\n(?:\s+\S[^\n]*\n)*\s+package:')
+        .hasMatch(pubspec)) {
       ok(pubSec, 'android package defined');
     } else {
       err(pubSec, 'android package missing',
           hint: 'Add package under flutter.plugin.platforms.android');
     }
 
-    if (RegExp(r'ios:\s*\n(?:\s+\S[^\n]*\n)*\s+pluginClass:').hasMatch(pubspec)) {
+    if (RegExp(r'ios:\s*\n(?:\s+\S[^\n]*\n)*\s+pluginClass:')
+        .hasMatch(pubspec)) {
       ok(pubSec, 'ios pluginClass defined');
     } else {
       err(pubSec, 'ios pluginClass missing',
@@ -334,7 +364,8 @@ class DoctorCommand extends Command {
       final genSec = DoctorSection('Generated Files', []);
       sections.add(genSec);
       for (final spec in specs) {
-        final stem = p.basename(spec.path).replaceAll(RegExp(r'\.native\.dart$'), '');
+        final stem =
+            p.basename(spec.path).replaceAll(RegExp(r'\.native\.dart$'), '');
         final specMtime = spec.lastModifiedSync();
         for (final suffix in _generatedSuffixes) {
           final genPath = _generatedPath(spec.path, stem, suffix);
@@ -367,7 +398,8 @@ class DoctorCommand extends Command {
       if (cmake.contains('NITRO_NATIVE')) {
         ok(cmakeSec, 'NITRO_NATIVE variable defined');
       } else {
-        warn(cmakeSec, 'NITRO_NATIVE variable missing (incorrect dart_api_dl.c path)',
+        warn(cmakeSec,
+            'NITRO_NATIVE variable missing (incorrect dart_api_dl.c path)',
             hint: 'Run: nitrogen link');
       }
       if (cmake.contains('dart_api_dl.c')) {
@@ -376,12 +408,14 @@ class DoctorCommand extends Command {
         err(cmakeSec, 'dart_api_dl.c not included', hint: 'Run: nitrogen link');
       }
       for (final spec in specs) {
-        final stem = p.basename(spec.path).replaceAll(RegExp(r'\.native\.dart$'), '');
+        final stem =
+            p.basename(spec.path).replaceAll(RegExp(r'\.native\.dart$'), '');
         final lib = _extractLibName(spec) ?? stem.replaceAll('-', '_');
         if (cmake.contains('add_library($lib ')) {
           ok(cmakeSec, 'add_library($lib) target present');
         } else {
-          err(cmakeSec, 'add_library($lib) missing', hint: 'Run: nitrogen link');
+          err(cmakeSec, 'add_library($lib) missing',
+              hint: 'Run: nitrogen link');
         }
       }
     }
@@ -434,7 +468,8 @@ class DoctorCommand extends Command {
       } else {
         final kt = pluginFiles.first.readAsStringSync();
         for (final spec in specs) {
-          final stem = p.basename(spec.path).replaceAll(RegExp(r'\.native\.dart$'), '');
+          final stem =
+              p.basename(spec.path).replaceAll(RegExp(r'\.native\.dart$'), '');
           final lib = _extractLibName(spec) ?? stem.replaceAll('-', '_');
           if (kt.contains('System.loadLibrary("$lib")')) {
             ok(androidSec, 'System.loadLibrary("$lib") in Plugin.kt');
@@ -478,9 +513,11 @@ class DoctorCommand extends Command {
           ok(iosSec, 'CLANG_CXX_LANGUAGE_STANDARD = c++17');
         } else {
           warn(iosSec, 'CLANG_CXX_LANGUAGE_STANDARD not set to c++17',
-              hint: "Set: 'CLANG_CXX_LANGUAGE_STANDARD' => 'c++17' in pod_target_xcconfig");
+              hint:
+                  "Set: 'CLANG_CXX_LANGUAGE_STANDARD' => 'c++17' in pod_target_xcconfig");
         }
-        if (pod.contains("swift_version = '5.9'") || pod.contains("swift_version = '6")) {
+        if (pod.contains("swift_version = '5.9'") ||
+            pod.contains("swift_version = '6")) {
           ok(iosSec, 'swift_version ≥ 5.9');
         } else {
           warn(iosSec, 'swift_version may be too old',
@@ -497,11 +534,13 @@ class DoctorCommand extends Command {
               .toList()
           : <File>[];
       if (swiftFiles.isEmpty) {
-        err(iosSec, 'No *Plugin.swift in ios/Classes/', hint: 'Run: nitrogen init');
+        err(iosSec, 'No *Plugin.swift in ios/Classes/',
+            hint: 'Run: nitrogen init');
       } else {
         final swift = swiftFiles.first.readAsStringSync();
         if (swift.contains('Registry.register(')) {
-          ok(iosSec, 'Registry.register(...) in ${p.basename(swiftFiles.first.path)}');
+          ok(iosSec,
+              'Registry.register(...) in ${p.basename(swiftFiles.first.path)}');
         } else {
           warn(iosSec, 'Registry.register(...) not found in Swift plugin',
               hint: 'Add register call in register(with:)');
@@ -512,7 +551,8 @@ class DoctorCommand extends Command {
       if (dartApiDl.existsSync()) {
         ok(iosSec, 'ios/Classes/dart_api_dl.cpp present');
       } else {
-        err(iosSec, 'ios/Classes/dart_api_dl.cpp missing', hint: 'Run: nitrogen link');
+        err(iosSec, 'ios/Classes/dart_api_dl.cpp missing',
+            hint: 'Run: nitrogen link');
       }
     }
 
@@ -537,12 +577,15 @@ class DoctorCommand extends Command {
 
     // Print persistent one-liner after TUI exits
     if (result.errors == 0 && result.warnings == 0) {
-      stdout.writeln('  \x1B[1;32m✨ ${result.pluginName} — all checks passed\x1B[0m');
+      stdout.writeln(
+          '  \x1B[1;32m✨ ${result.pluginName} — all checks passed\x1B[0m');
     } else if (result.errors > 0) {
-      stdout.writeln('  \x1B[1;31m✘  ${result.pluginName} — ${result.errors} error(s)'
+      stdout.writeln(
+          '  \x1B[1;31m✘  ${result.pluginName} — ${result.errors} error(s)'
           '${result.warnings > 0 ? ", ${result.warnings}" : ""}\x1B[0m');
     } else {
-      stdout.writeln('  \x1B[1;33m⚠  ${result.pluginName} — ${result.warnings} warning(s)\x1B[0m');
+      stdout.writeln(
+          '  \x1B[1;33m⚠  ${result.pluginName} — ${result.warnings} warning(s)\x1B[0m');
     }
     stdout.writeln('');
 
@@ -564,7 +607,8 @@ class DoctorCommand extends Command {
   String _generatedPath(String specPath, String stem, String suffix) {
     final specDir = p.dirname(specPath);
     if (suffix == '.g.dart') return p.join(specDir, '$stem$suffix');
-    return p.join(specDir, 'generated', _generatedSubdir[suffix]!, '$stem$suffix');
+    return p.join(
+        specDir, 'generated', _generatedSubdir[suffix]!, '$stem$suffix');
   }
 
   String? _extractLibName(File specFile) {
@@ -577,7 +621,8 @@ class DoctorCommand extends Command {
 
   String _pluginName(File pubspec) {
     for (final line in pubspec.readAsLinesSync()) {
-      if (line.startsWith('name: ')) return line.replaceFirst('name: ', '').trim();
+      if (line.startsWith('name: '))
+        return line.replaceFirst('name: ', '').trim();
     }
     return 'unknown';
   }

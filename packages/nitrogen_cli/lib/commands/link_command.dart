@@ -47,15 +47,19 @@ class LinkStepRow extends StatelessComponent {
         children: [
           Row(
             children: [
-              Text(icon, style: TextStyle(color: color, fontWeight: FontWeight.bold)),
+              Text(icon,
+                  style: TextStyle(color: color, fontWeight: FontWeight.bold)),
               const Text(' '),
               Expanded(
                 child: Text(
                   step.label,
                   style: TextStyle(
-                    color: step.state == LinkStepState.running ? Colors.cyan : null,
-                    fontWeight:
-                        step.state == LinkStepState.running ? FontWeight.bold : null,
+                    color: step.state == LinkStepState.running
+                        ? Colors.cyan
+                        : null,
+                    fontWeight: step.state == LinkStepState.running
+                        ? FontWeight.bold
+                        : null,
                   ),
                 ),
               ),
@@ -66,7 +70,8 @@ class LinkStepRow extends StatelessComponent {
               padding: const EdgeInsets.only(left: 4),
               child: Text(
                 step.detail!,
-                style: const TextStyle(color: Colors.gray, fontWeight: FontWeight.dim),
+                style: const TextStyle(
+                    color: Colors.gray, fontWeight: FontWeight.dim),
               ),
             ),
         ],
@@ -141,7 +146,8 @@ class _LinkViewState extends State<LinkView> {
     // Step 0 — discover modules
     await _setRunning(0);
     final moduleLibs = _discoverModuleLibs(pluginName);
-    await _setDone(0, detail: '${moduleLibs.length} module(s): ${moduleLibs.join(', ')}');
+    await _setDone(0,
+        detail: '${moduleLibs.length} module(s): ${moduleLibs.join(', ')}');
 
     // Step 1 — CMake
     await _setRunning(1);
@@ -201,12 +207,14 @@ class _LinkViewState extends State<LinkView> {
           Padding(
             padding: const EdgeInsets.only(top: 1, left: 1, right: 1),
             child: Container(
-              decoration: BoxDecoration(border: BoxBorder.all(color: Colors.cyan)),
+              decoration:
+                  BoxDecoration(border: BoxBorder.all(color: Colors.cyan)),
               child: Padding(
                 padding: const EdgeInsets.symmetric(horizontal: 2),
                 child: Text(
                   ' nitrogen link — ${component.pluginName} ',
-                  style: const TextStyle(color: Colors.cyan, fontWeight: FontWeight.bold),
+                  style: const TextStyle(
+                      color: Colors.cyan, fontWeight: FontWeight.bold),
                 ),
               ),
             ),
@@ -216,7 +224,8 @@ class _LinkViewState extends State<LinkView> {
             child: Padding(
               padding: const EdgeInsets.symmetric(horizontal: 1),
               child: Container(
-                decoration: BoxDecoration(border: BoxBorder.all(color: Colors.brightBlack)),
+                decoration: BoxDecoration(
+                    border: BoxBorder.all(color: Colors.brightBlack)),
                 child: Padding(
                   padding: const EdgeInsets.all(1),
                   child: ListView(
@@ -228,12 +237,14 @@ class _LinkViewState extends State<LinkView> {
           ),
           if (_finished)
             Padding(
-              padding: const EdgeInsets.only(top: 1, bottom: 1, left: 1, right: 1),
+              padding:
+                  const EdgeInsets.only(top: 1, bottom: 1, left: 1, right: 1),
               child: Column(
                 children: [
                   if (!_failed) ...[
                     const Text('✨ Linked! Next steps:',
-                        style: TextStyle(color: Colors.green, fontWeight: FontWeight.bold)),
+                        style: TextStyle(
+                            color: Colors.green, fontWeight: FontWeight.bold)),
                     ..._nextSteps.asMap().entries.map(
                           (e) => Text(
                             '  ${e.key + 1}. ${e.value}',
@@ -243,7 +254,8 @@ class _LinkViewState extends State<LinkView> {
                   ],
                   const Text(
                     'Press any key to exit',
-                    style: TextStyle(color: Colors.gray, fontWeight: FontWeight.dim),
+                    style: TextStyle(
+                        color: Colors.gray, fontWeight: FontWeight.dim),
                   ),
                 ],
               ),
@@ -264,7 +276,8 @@ class _LinkViewState extends State<LinkView> {
     if (specs.isEmpty) return [pluginName];
     final libs = <String>[];
     for (final spec in specs) {
-      final stem = p.basename(spec.path).replaceAll(RegExp(r'\.native\.dart$'), '');
+      final stem =
+          p.basename(spec.path).replaceAll(RegExp(r'\.native\.dart$'), '');
       final libName = _extractLibName(spec) ?? stem.replaceAll('-', '_');
       if (!libs.contains(libName)) libs.add(libName);
     }
@@ -327,7 +340,8 @@ class _LinkViewState extends State<LinkView> {
       ..writeln('cmake_minimum_required(VERSION 3.10)')
       ..writeln('project(${pluginName}_library VERSION 0.0.1 LANGUAGES C CXX)')
       ..writeln()
-      ..writeln('set(NITRO_NATIVE "\${CMAKE_CURRENT_SOURCE_DIR}/../../packages/nitro/src/native")')
+      ..writeln(
+          'set(NITRO_NATIVE "\${CMAKE_CURRENT_SOURCE_DIR}/../../packages/nitro/src/native")')
       ..writeln()
       ..writeln('add_library($pluginName SHARED')
       ..writeln('  "$pluginName.cpp"')
@@ -338,10 +352,12 @@ class _LinkViewState extends State<LinkView> {
       ..writeln('  "\${CMAKE_CURRENT_SOURCE_DIR}/../lib/src/generated/cpp"')
       ..writeln('  "\${NITRO_NATIVE}"')
       ..writeln(')')
-      ..writeln('target_compile_definitions($pluginName PUBLIC DART_SHARED_LIB)')
+      ..writeln(
+          'target_compile_definitions($pluginName PUBLIC DART_SHARED_LIB)')
       ..writeln('if(ANDROID)')
       ..writeln('  target_link_libraries($pluginName PRIVATE android log)')
-      ..writeln('  target_link_options($pluginName PRIVATE "-Wl,-z,max-page-size=16384")')
+      ..writeln(
+          '  target_link_options($pluginName PRIVATE "-Wl,-z,max-page-size=16384")')
       ..writeln('endif()');
     for (final lib in moduleLibs) {
       if (lib != pluginName) sb.write(_cmakeModuleTarget(lib));
@@ -397,8 +413,7 @@ endif()
     final dartApiDl = File(p.join('ios', 'Classes', 'dart_api_dl.cpp'));
     if (!dartApiDl.existsSync()) {
       dartApiDl.createSync(recursive: true);
-      dartApiDl.writeAsStringSync(
-          '// Forwarder for Nitro/FFI Dart DL API\n'
+      dartApiDl.writeAsStringSync('// Forwarder for Nitro/FFI Dart DL API\n'
           '#include "../../../packages/nitro/src/native/dart_api_dl.c"\n');
     }
   }
@@ -417,8 +432,9 @@ endif()
     var content = pluginFile.readAsStringSync();
     bool modified = false;
 
-    final missingLibs =
-        moduleLibs.where((l) => !content.contains('System.loadLibrary("$l")')).toList();
+    final missingLibs = moduleLibs
+        .where((l) => !content.contains('System.loadLibrary("$l")'))
+        .toList();
     if (missingLibs.isNotEmpty) {
       if (!content.contains('System.loadLibrary')) {
         final className = p.basenameWithoutExtension(pluginFile.path);
@@ -427,11 +443,11 @@ endif()
         content = content.replaceFirst(
           'class $className: FlutterPlugin {',
           'class $className: FlutterPlugin {\n'
-          '  companion object {\n'
-          '    init {\n'
-          '$loadLines\n'
-          '    }\n'
-          '  }\n',
+              '  companion object {\n'
+              '    init {\n'
+              '$loadLines\n'
+              '    }\n'
+              '  }\n',
         );
       } else {
         for (final lib in missingLibs) {
@@ -481,14 +497,16 @@ class LinkCommand extends Command {
 
     if (result.success) {
       stdout.writeln('');
-      stdout.writeln('  \x1B[1;32m✨ $pluginName linked\x1B[0m  — run: flutter pub get && nitrogen generate');
+      stdout.writeln(
+          '  \x1B[1;32m✨ $pluginName linked\x1B[0m  — run: flutter pub get && nitrogen generate');
       stdout.writeln('');
     }
   }
 
   String _getPluginName(File pubspec) {
     for (final line in pubspec.readAsLinesSync()) {
-      if (line.startsWith('name: ')) return line.replaceFirst('name: ', '').trim();
+      if (line.startsWith('name: '))
+        return line.replaceFirst('name: ', '').trim();
     }
     return 'unknown';
   }

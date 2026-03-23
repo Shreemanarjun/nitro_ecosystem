@@ -264,8 +264,7 @@ class _NitroDashboardState extends State<NitroDashboard> {
 }
 
 class _CommandItem extends StatelessComponent {
-  const _CommandItem(
-      {required this.command, required this.selected});
+  const _CommandItem({required this.command, required this.selected});
   final NitroCommand command;
   final bool selected;
 
