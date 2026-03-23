@@ -52,6 +52,8 @@ class StructGenerator {
           value = '${f.name}.asTypedList(${lenField ?? '0'})';
         } else if (f.type.name == 'bool') {
           value = '${f.name} != 0';
+        } else if (f.type.name == 'String') {
+          value = '${f.name}.toDartString()';
         } else {
           value = f.name;
         }

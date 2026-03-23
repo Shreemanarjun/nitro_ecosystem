@@ -505,8 +505,9 @@ class LinkCommand extends Command {
 
   String _getPluginName(File pubspec) {
     for (final line in pubspec.readAsLinesSync()) {
-      if (line.startsWith('name: '))
+      if (line.startsWith('name: ')) {
         return line.replaceFirst('name: ', '').trim();
+      }
     }
     return 'unknown';
   }
