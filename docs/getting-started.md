@@ -79,15 +79,19 @@ my_sensor/
 │       ├── MySensorPlugin.kt                 Flutter plugin registrar
 │       └── MySensorImpl.kt                   ← EDIT THIS (native implementation)
 ├── ios/
-│   ├── my_sensor.podspec                     pre-configured, Swift 5.9, iOS 13
+│   ├── my_sensor.podspec                     pre-configured: Swift 5.9, iOS 13, C++17
+│   ├── Package.swift                         Swift Package Manager support
 │   └── Classes/
 │       ├── SwiftMySensorPlugin.swift         Swift plugin registrar
-│       └── MySensorImpl.swift                ← EDIT THIS (native implementation)
+│       ├── MySensorImpl.swift                ← EDIT THIS (native implementation)
+│       ├── my_sensor.bridge.g.swift          symlink → generated bridge (after generate)
+│       ├── my_sensor.cpp                     C++ forwarder
+│       └── dart_api_dl.c                     Dart DL API (compiled as C)
 └── src/
     └── CMakeLists.txt                        Android NDK build file
 ```
 
-**You only ever edit three files:** the spec, the Kotlin impl, and the Swift impl.
+**You only ever edit three files:** the spec, the Kotlin impl, and the Swift impl. Everything else is generated or wired automatically.
 
 ---
 
@@ -164,7 +168,7 @@ abstract class MySensor extends HybridObject {
 | `Uint8List` | `uint8_t*` | `ByteArray` | `Data` |
 | `Future<T>` | — | `suspend fun` | `async throws` |
 | `Stream<T>` | SendPort registration | `Flow<T>` | `AnyPublisher<T, Never>` |
-| `@HybridEnum` | `int64_t` | `Long` (via `.nativeValue`) | `Int32` |
+| `@HybridEnum` | `int64_t` | `Long` (via `.nativeValue`) | `Int64` |
 | `@HybridStruct` | `YourStruct*` | data class | struct |
 
 Nullable variants (`String?`, `int?`) are also accepted.
@@ -305,12 +309,12 @@ ndk.dir=/Users/you/Library/Android/sdk/ndk/26.1.10909125
 
 ## Step 6 — Implement the Swift side (iOS)
 
-Open `ios/Classes/MySensorImpl.swift`.
+Open `ios/Classes/MySensorImpl.swift` (created automatically by `nitrogen init` as a starter).
 
 The generated `my_sensor.bridge.g.swift` contains the `HybridMySensorProtocol` you must implement:
 
 ```swift
-import Flutter
+import Foundation
 import Combine
 
 public class MySensorImpl: NSObject, HybridMySensorProtocol {
@@ -372,7 +376,7 @@ public class SwiftMySensorPlugin: NSObject, FlutterPlugin {
 
 ### iOS build requirements
 
-`ios/my_sensor.podspec` (already configured by `nitrogen init`):
+`ios/my_sensor.podspec` is pre-configured by `nitrogen init` and `nitrogen link`:
 
 ```ruby
 Pod::Spec.new do |s|
@@ -380,19 +384,48 @@ Pod::Spec.new do |s|
   s.version          = '0.0.1'
   s.platform         = :ios, '13.0'
   s.swift_version    = '5.9'
-  s.source_files     = 'Classes/**/*', '../lib/src/generated/cpp/*.{h,cpp}'
+  s.source_files     = 'Classes/**/*'
   s.pod_target_xcconfig = {
+    'DEFINES_MODULE'               => 'YES',
     'CLANG_CXX_LANGUAGE_STANDARD' => 'c++17',
-    'HEADER_SEARCH_PATHS' => '"${PODS_TARGET_SRCROOT}/../lib/src/generated/cpp"'
+    'CLANG_CXX_LIBRARY'           => 'libc++',
+    'HEADER_SEARCH_PATHS'         => '$(inherited) "${PODS_ROOT}/../.symlinks/plugins/nitro/src/native"'
   }
 end
 ```
+
+> **Why `PODS_ROOT/../.symlinks/...`?** This path resolves correctly whether `nitro` is a local path dependency or installed from pub.dev. CocoaPods creates `.symlinks/plugins/<name>/` automatically for all plugin dependencies.
 
 `ios/Podfile` (in your example or consumer app):
 
 ```ruby
 platform :ios, '13.0'
 ```
+
+#### Swift Package Manager (alternative to CocoaPods)
+
+`nitrogen init` also creates `ios/Package.swift` for SPM distribution:
+
+```swift
+// swift-tools-version: 5.9
+let package = Package(
+    name: "my_sensor",
+    platforms: [.iOS(.v13)],
+    products: [.library(name: "my_sensor", targets: ["my_sensor"])],
+    targets: [
+        // C/C++ bridge — SPM requires Swift and C++ in separate targets
+        .target(name: "MySensorCpp", path: "Sources/MySensorCpp",
+            publicHeadersPath: "include",
+            cxxSettings: [.unsafeFlags(["-std=c++17",
+                "-I../../.symlinks/plugins/nitro/src/native"])]),
+        // Swift implementation + generated bridge
+        .target(name: "my_sensor", dependencies: ["MySensorCpp"],
+            path: "Sources/MySensor"),
+    ]
+)
+```
+
+The `Sources/` directories contain symlinks back into `Classes/` — one file, two build systems.
 
 ---
 
@@ -556,8 +589,14 @@ The generator will emit a `// TODO:` comment anywhere it cannot infer the correc
 
 ### `dlopen failed` / symbol not found on iOS
 
-- Verify `HEADER_SEARCH_PATHS` is in the podspec — run `nitrogen link`
-- Verify all `.cpp` files in `lib/src/generated/cpp/` are listed in `s.source_files`
+- Run `nitrogen link` — it fixes `HEADER_SEARCH_PATHS`, adds `DEFINES_MODULE`, creates the `dart_api_dl.c` file, and creates the bridge symlink
+- Verify `ios/Classes/<plugin>.bridge.g.swift` is a symlink pointing to `../../lib/src/generated/swift/<plugin>.bridge.g.swift`
+- Verify `ios/Classes/dart_api_dl.c` exists (not `.cpp`) — C++ rejects the `void*`/function-pointer cast inside it
+- If you see `HybridXxxProtocol not found in scope` — the symlink is dangling; run `nitrogen generate` first to create the generated Swift file, then rebuild
+
+### `Method cannot be marked @objc because the type of the parameter cannot be represented in Objective-C`
+
+This is from an old generated bridge. Regenerate with `nitrogen generate` — the new bridge uses `@_cdecl` top-level functions instead of `@objc` static methods.
 
 ### Generated files are stale
 

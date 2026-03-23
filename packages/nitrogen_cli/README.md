@@ -51,11 +51,22 @@ nitrogen init my_camera
 ```
 
 **What it creates:**
-- Optimized `src/CMakeLists.txt` for Android.
-- `ios/Classes/my_camera.cpp` forwarder.
-- Pre-configured `ios/my_camera.podspec` (Swift 5.9, iOS 13.0, C++17).
-- Starter `lib/src/my_camera.native.dart` spec.
-- `pubspec.yaml` pre-wired with `nitro` and `nitro_generator`.
+
+| File | Description |
+|---|---|
+| `lib/src/my_camera.native.dart` | Starter spec — define your API here |
+| `ios/Classes/MyCameraImpl.swift` | Starter Swift implementation — edit this |
+| `ios/Classes/SwiftMyCameraPlugin.swift` | Flutter plugin registrar (auto-registers the impl) |
+| `ios/Classes/my_camera.bridge.g.swift` | Symlink → generated Swift bridge (created by `generate`) |
+| `ios/Classes/dart_api_dl.c` | Dart DL API forwarder (compiled as C, not C++) |
+| `ios/my_camera.podspec` | Pre-configured: Swift 5.9, iOS 13.0, C++17, correct `HEADER_SEARCH_PATHS` |
+| `ios/Package.swift` | Swift Package Manager support alongside CocoaPods |
+| `android/.../MyCameraImpl.kt` | Starter Kotlin implementation — edit this |
+| `android/.../MyCameraPlugin.kt` | Flutter plugin registrar |
+| `src/CMakeLists.txt` | Android NDK build file |
+| `pubspec.yaml` | Pre-wired with `nitro` and `nitro_generator` |
+
+**You only edit three things:** the spec, the Kotlin impl, and the Swift impl. Everything else is generated or scaffolded once.
 
 ### `nitrogen generate`
 
@@ -88,7 +99,11 @@ nitrogen link
 **What it wires:**
 - Adds `include(...)` for each generated `.CMakeLists.g.txt` into `src/CMakeLists.txt`
 - Adds `System.loadLibrary("...")` to the Android `Plugin.kt`
-- Adds `HEADER_SEARCH_PATHS` pointing to `lib/src/generated/cpp/` in the iOS `.podspec`
+- Sets `HEADER_SEARCH_PATHS` in the iOS `.podspec` to `${PODS_ROOT}/../.symlinks/plugins/nitro/src/native` (works for both local path and pub.dev installs)
+- Adds `DEFINES_MODULE => YES` to the podspec so the generated Swift bridge is visible
+- Creates `ios/Classes/dart_api_dl.c` if missing (must be `.c`, not `.cpp`)
+- Creates `ios/Classes/<Plugin>.bridge.g.swift` symlink if missing
+- Creates `ios/Package.swift` for Swift Package Manager support if missing
 
 ### `nitrogen doctor`
 

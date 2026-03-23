@@ -9,10 +9,10 @@ No method channels. No JSON serialization. No copies.
 ## Quick demo
 
 ```dart
-// lib/src/math.native.dart  ← you write this (32 lines)
+// lib/src/math.native.dart  ← you write this
 @NitroModule(ios: NativeImpl.swift, android: NativeImpl.kotlin)
 abstract class Math extends HybridObject {
-  static final Math instance = _MathImpl(NitroRuntime.loadLib('math'));
+  static final Math instance = _MathImpl();
 
   double add(double a, double b);
 
@@ -60,8 +60,9 @@ You fill in `MathImpl.kt` and `MathImpl.swift`. App calls `Math.instance.add(1, 
 nitro_ecosystem/
 ├── packages/
 │   ├── nitro/            Runtime — base classes, annotations, FFI helpers
-│   ├── nitrogen/         build_runner code generator
+│   ├── nitro_generator/  build_runner code generator
 │   └── nitrogen_cli/     CLI tool  (nitrogen init / generate / link / doctor)
+├── nitro_battery/        Reference plugin — battery info, async structs, streams
 ├── my_camera/            Reference plugin — zero-copy camera frames at 30fps
 └── docs/
     ├── getting-started.md   Step-by-step guide for plugin authors
@@ -88,7 +89,7 @@ nitro_ecosystem/
 | Package | Role | Add to |
 |---|---|---|
 | [`nitro`](packages/nitro/README.md) | Runtime dependency | plugin `dependencies:` |
-| [`nitrogen`](packages/nitrogen/README.md) | build_runner generator | plugin `dev_dependencies:` |
+| [`nitro_generator`](packages/nitro_generator/README.md) | build_runner generator | plugin `dev_dependencies:` |
 | [`nitrogen_cli`](packages/nitrogen_cli/README.md) | CLI (`generate`, `init`, `link`, `doctor`) | `dart pub global activate` |
 
 ---

@@ -3,6 +3,39 @@ import 'package:args/command_runner.dart';
 import 'package:nocterm/nocterm.dart';
 import 'package:path/path.dart' as p;
 
+// ── Package-level helpers (also used in tests) ─────────────────────────────
+
+/// Extracts the `lib:` value from a `@NitroModule(...)` annotation in [specFile].
+/// Returns null when the annotation has no explicit `lib` parameter.
+String? extractLibNameFromSpec(File specFile) {
+  final content = specFile.readAsStringSync();
+  final match =
+      RegExp(r'''@NitroModule\s*\([^)]*lib\s*:\s*['"]([^'"]+)['"]''')
+          .firstMatch(content);
+  return match?.group(1);
+}
+
+/// Discovers all module lib names by scanning `lib/` for `*.native.dart` files.
+/// Falls back to [pluginName] when no specs are found.
+List<String> discoverModuleLibs(String pluginName) {
+  final libDir = Directory('lib');
+  if (!libDir.existsSync()) return [pluginName];
+  final specs = libDir
+      .listSync(recursive: true)
+      .whereType<File>()
+      .where((f) => f.path.endsWith('.native.dart'))
+      .toList();
+  if (specs.isEmpty) return [pluginName];
+  final libs = <String>[];
+  for (final spec in specs) {
+    final stem =
+        p.basename(spec.path).replaceAll(RegExp(r'\.native\.dart$'), '');
+    final libName = extractLibNameFromSpec(spec) ?? stem.replaceAll('-', '_');
+    if (!libs.contains(libName)) libs.add(libName);
+  }
+  return libs.isEmpty ? [pluginName] : libs;
+}
+
 // ── Progress model ──────────────────────────────
 
 enum LinkStepState { pending, running, done, failed, skipped }
@@ -265,32 +298,8 @@ class _LinkViewState extends State<LinkView> {
     );
   }
 
-  List<String> _discoverModuleLibs(String pluginName) {
-    final libDir = Directory('lib');
-    if (!libDir.existsSync()) return [pluginName];
-    final specs = libDir
-        .listSync(recursive: true)
-        .whereType<File>()
-        .where((f) => f.path.endsWith('.native.dart'))
-        .toList();
-    if (specs.isEmpty) return [pluginName];
-    final libs = <String>[];
-    for (final spec in specs) {
-      final stem =
-          p.basename(spec.path).replaceAll(RegExp(r'\.native\.dart$'), '');
-      final libName = _extractLibName(spec) ?? stem.replaceAll('-', '_');
-      if (!libs.contains(libName)) libs.add(libName);
-    }
-    return libs.isEmpty ? [pluginName] : libs;
-  }
-
-  String? _extractLibName(File specFile) {
-    final content = specFile.readAsStringSync();
-    final match =
-        RegExp(r'''@NitroModule\s*\([^)]*lib\s*:\s*['"]([^'"]+)['"]''')
-            .firstMatch(content);
-    return match?.group(1);
-  }
+  List<String> _discoverModuleLibs(String pluginName) =>
+      discoverModuleLibs(pluginName);
 
   void _linkCMake(String pluginName, List<String> moduleLibs) {
     final cmakeFile = File(p.join('src', 'CMakeLists.txt'));
