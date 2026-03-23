@@ -605,8 +605,8 @@ class _PluginNameFormState extends State<PluginNameForm> {
       return;
     }
     if (!RegExp(r'^[a-z][a-z0-9_]*$').hasMatch(name)) {
-      setState(
-          () => _error = 'Use only lowercase letters, numbers, and underscores');
+      setState(() =>
+          _error = 'Use only lowercase letters, numbers, and underscores');
       return;
     }
     component.onSubmit(name, org);
@@ -655,8 +655,7 @@ class _PluginNameFormState extends State<PluginNameForm> {
                 ),
               ),
               const SizedBox(height: 1),
-              const Text('Plugin name:',
-                  style: TextStyle(color: Colors.white)),
+              const Text('Plugin name:', style: TextStyle(color: Colors.white)),
               Row(
                 children: [
                   const Text('› ',
@@ -778,8 +777,7 @@ class InitCommand extends Command {
     final result = InitResult();
     await runApp(NitrogenInitApp(result: result, initialOrg: org));
     if (result.success) {
-      stdout.writeln(
-          '  \x1B[1;32m✨ ${result.pluginName ?? ''} created\x1B[0m');
+      stdout.writeln('  \x1B[1;32m✨ ${result.pluginName ?? ''} created\x1B[0m');
     } else {
       exit(1);
     }
