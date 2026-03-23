@@ -8,6 +8,7 @@ import 'package:path/path.dart' as p;
 class InitResult {
   bool success = false;
   String? errorMessage;
+  String? pluginName;
 }
 
 // ── Progress model ────────────────────────────────────────────────────────────
@@ -200,6 +201,7 @@ class _InitViewState extends State<InitView> {
     _setDone(6, detail: 'lib/src/$pluginName.native.dart');
 
     component.result.success = true;
+    component.result.pluginName = pluginName;
     setState(() => _finished = true);
   }
 
@@ -568,6 +570,182 @@ abstract class $className extends HybridObject {
   }
 }
 
+// ── PluginNameForm ────────────────────────────────────────────────────────────
+
+class PluginNameForm extends StatefulComponent {
+  const PluginNameForm({required this.onSubmit, super.key});
+  final void Function(String pluginName, String org) onSubmit;
+
+  @override
+  State<PluginNameForm> createState() => _PluginNameFormState();
+}
+
+class _PluginNameFormState extends State<PluginNameForm> {
+  final _nameController = TextEditingController();
+  final _orgController = TextEditingController(text: 'com.example');
+  bool _nameHasFocus = true;
+  String? _error;
+
+  @override
+  void dispose() {
+    _nameController.dispose();
+    _orgController.dispose();
+    super.dispose();
+  }
+
+  void _submit() {
+    final name = _nameController.text.trim();
+    final org = _orgController.text.trim().isEmpty
+        ? 'com.example'
+        : _orgController.text.trim();
+
+    if (name.isEmpty) {
+      setState(() => _error = 'Plugin name is required');
+      return;
+    }
+    if (!RegExp(r'^[a-z][a-z0-9_]*$').hasMatch(name)) {
+      setState(
+          () => _error = 'Use only lowercase letters, numbers, and underscores');
+      return;
+    }
+    component.onSubmit(name, org);
+  }
+
+  bool _handleKey(KeyboardEvent e) {
+    if (e.logicalKey == LogicalKey.tab) {
+      setState(() {
+        _nameHasFocus = !_nameHasFocus;
+        _error = null;
+      });
+      return true;
+    }
+    return false;
+  }
+
+  @override
+  Component build(BuildContext context) {
+    return Focusable(
+      focused: true,
+      onKeyEvent: _handleKey,
+      child: Center(
+        child: SizedBox(
+          width: 52,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Padding(
+                padding: const EdgeInsets.only(bottom: 1),
+                child: Container(
+                  decoration:
+                      BoxDecoration(border: BoxBorder.all(color: Colors.cyan)),
+                  child: const Padding(
+                    padding: EdgeInsets.symmetric(horizontal: 2),
+                    child: Text(
+                      ' nitrogen init ',
+                      style: TextStyle(
+                          color: Colors.cyan, fontWeight: FontWeight.bold),
+                    ),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 1),
+              const Text('Plugin name:',
+                  style: TextStyle(color: Colors.white)),
+              Row(
+                children: [
+                  const Text('› ',
+                      style: TextStyle(
+                          color: Colors.cyan, fontWeight: FontWeight.bold)),
+                  SizedBox(
+                    width: 44,
+                    child: TextField(
+                      controller: _nameController,
+                      focused: _nameHasFocus,
+                      placeholder: 'my_plugin',
+                      onSubmitted: (_) => setState(() {
+                        _nameHasFocus = false;
+                        _error = null;
+                      }),
+                      style: const TextStyle(color: Colors.white),
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 1),
+              const Text('Organisation (--org):',
+                  style: TextStyle(color: Colors.white)),
+              Row(
+                children: [
+                  const Text('› ',
+                      style: TextStyle(
+                          color: Colors.cyan, fontWeight: FontWeight.bold)),
+                  SizedBox(
+                    width: 44,
+                    child: TextField(
+                      controller: _orgController,
+                      focused: !_nameHasFocus,
+                      placeholder: 'com.example',
+                      onSubmitted: (_) => _submit(),
+                      style: const TextStyle(color: Colors.white),
+                    ),
+                  ),
+                ],
+              ),
+              if (_error != null) ...[
+                const SizedBox(height: 1),
+                Text(
+                  '⚠ $_error',
+                  style: const TextStyle(color: Colors.red),
+                ),
+              ],
+              const SizedBox(height: 1),
+              const Text(
+                '[Tab] switch field   [Enter] confirm',
+                style:
+                    TextStyle(color: Colors.gray, fontWeight: FontWeight.dim),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+// ── _NitrogenInitApp ──────────────────────────────────────────────────────────
+
+class _NitrogenInitApp extends StatefulComponent {
+  const _NitrogenInitApp({required this.result, this.initialOrg});
+  final InitResult result;
+  final String? initialOrg;
+
+  @override
+  State<_NitrogenInitApp> createState() => _NitrogenInitAppState();
+}
+
+class _NitrogenInitAppState extends State<_NitrogenInitApp> {
+  String? _pluginName;
+  String? _org;
+
+  @override
+  Component build(BuildContext context) {
+    if (_pluginName != null) {
+      return InitView(
+        pluginName: _pluginName!,
+        org: _org ?? component.initialOrg ?? 'com.example',
+        result: component.result,
+      );
+    }
+    return PluginNameForm(
+      onSubmit: (name, org) => setState(() {
+        _pluginName = name;
+        _org = org;
+      }),
+    );
+  }
+}
+
 // ── InitCommand ───────────────────────────────────────────────────────────────
 
 class InitCommand extends Command {
@@ -583,16 +761,12 @@ class InitCommand extends Command {
 
   @override
   Future<void> run() async {
-    if (argResults!.rest.isEmpty) {
-      stderr.writeln('❌ Please provide a plugin name');
-      exit(1);
-    }
-    final pluginName = argResults!.rest.first;
     final org = argResults!['org'] as String;
     final result = InitResult();
-    await runApp(InitView(pluginName: pluginName, org: org, result: result));
+    await runApp(_NitrogenInitApp(result: result, initialOrg: org));
     if (result.success) {
-      stdout.writeln('  \x1B[1;32m✨ ${pluginName} created\x1B[0m');
+      stdout.writeln(
+          '  \x1B[1;32m✨ ${result.pluginName ?? ''} created\x1B[0m');
     } else {
       exit(1);
     }
