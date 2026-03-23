@@ -4,6 +4,7 @@ import 'package:args/command_runner.dart';
 import 'package:nocterm/nocterm.dart';
 import 'package:path/path.dart' as p;
 import '../ui.dart';
+import 'link_command.dart' show resolveNitroNativePath, dartApiDlForwarderContent;
 
 // ── pub.dev version resolver ──────────────────────────────────────────────────
 
@@ -234,10 +235,20 @@ class _InitViewState extends State<InitView> {
           workingDirectory: pluginName);
       _setDone(5, detail: 'nitro, nitro_generator added via flutter pub add');
     } else {
+      // pubspec was updated without running pub add — run pub get so
+      // .dart_tool/package_config.json is created before path resolution.
+      await Process.run('flutter', ['pub', 'get'],
+          workingDirectory: pluginName);
       _setDone(5,
           detail:
               'nitro $nitroVersion, nitro_generator $nitroGeneratorVersion added');
     }
+
+    // Resolve the actual installed nitro path from package_config.json and
+    // overwrite src/dart_api_dl.c + the NITRO_NATIVE variable in
+    // src/CMakeLists.txt so they point to the correct pub-cache location
+    // instead of the monorepo placeholder written in Step 2.
+    _resolveSrcPaths(pluginName);
 
     // Step 6 — bridge spec + example main.dart
     _setRunning(6);
@@ -406,6 +417,29 @@ class _InitViewState extends State<InitView> {
         .split('_')
         .map((w) => w.isEmpty ? '' : w[0].toUpperCase() + w.substring(1))
         .join('');
+  }
+
+  /// Resolves the installed `nitro` package path from `.dart_tool/package_config.json`
+  /// inside [pluginName]/ and overwrites:
+  ///   - `src/dart_api_dl.c` — forwarder to the real pub-cache `.c` file
+  ///   - `src/CMakeLists.txt` — absolute NITRO_NATIVE variable
+  void _resolveSrcPaths(String pluginName) {
+    final pluginAbsPath = p.join(Directory.current.path, pluginName);
+    final nitroNativePath = resolveNitroNativePath(pluginAbsPath);
+
+    // Overwrite src/dart_api_dl.c with the resolved absolute include path.
+    File(p.join(pluginName, 'src', 'dart_api_dl.c'))
+        .writeAsStringSync(dartApiDlForwarderContent(nitroNativePath));
+
+    // Replace the NITRO_NATIVE cmake variable with the resolved absolute path.
+    final cmakeFile = File(p.join(pluginName, 'src', 'CMakeLists.txt'));
+    if (cmakeFile.existsSync()) {
+      final updated = cmakeFile.readAsStringSync().replaceFirst(
+            RegExp(r'set\(NITRO_NATIVE "[^"]*"\)'),
+            'set(NITRO_NATIVE "$nitroNativePath")',
+          );
+      cmakeFile.writeAsStringSync(updated);
+    }
   }
 
   void _setupSrc(String pluginName) {
