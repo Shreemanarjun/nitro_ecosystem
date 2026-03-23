@@ -237,10 +237,18 @@ packages:
     dependency: "direct main"
     description:
       name: nocterm
-      sha256: "7569e6368b41a84c9c594c292d1b51c996dad95d55207083618b2c7af24112d0"
+      sha256: b9ca23f14ade98e3bb2ee8296546b7caeb29d8025139d093f79f19cc5f5e03d3
       url: "https://pub.dev"
     source: hosted
-    version: "0.6.0"
+    version: "0.5.1"
+  nocterm_unrouter:
+    dependency: "direct main"
+    description:
+      name: nocterm_unrouter
+      sha256: "26f6ec75912f983225e00f8ba836d43e62bf963b3c4e67601fafb061f4bdd18c"
+      url: "https://pub.dev"
+    source: hosted
+    version: "0.1.0"
   node_preamble:
     dependency: transitive
     description:
@@ -305,6 +313,14 @@ packages:
       url: "https://pub.dev"
     source: hosted
     version: "3.2.2"
+  roux:
+    dependency: transitive
+    description:
+      name: roux
+      sha256: "64c2816ba94a6dfcdc8843ef4373b739da61cbadf470491ad122f7d95c773387"
+      url: "https://pub.dev"
+    source: hosted
+    version: "0.1.1"
   shelf:
     dependency: transitive
     description:
@@ -433,6 +449,22 @@ packages:
       url: "https://pub.dev"
     source: hosted
     version: "1.4.0"
+  unrouter:
+    dependency: transitive
+    description:
+      name: unrouter
+      sha256: b83e37d474a814d88e015104b1e54084b6bd6a8a4a8f2242f1f368dbcadaa4fa
+      url: "https://pub.dev"
+    source: hosted
+    version: "0.10.0"
+  unstory:
+    dependency: transitive
+    description:
+      name: unstory
+      sha256: "259e7145c79667f07d6472a2dc6b244bd1c647c1f0545f5447f965ba2b0f1c70"
+      url: "https://pub.dev"
+    source: hosted
+    version: "0.1.1"
   vm_service:
     dependency: transitive
     description:
@@ -506,4 +538,4 @@ packages:
     source: hosted
     version: "0.0.6"
 sdks:
-  dart: ">=3.9.0 <4.0.0"
+  dart: ">=3.10.3 <4.0.0"

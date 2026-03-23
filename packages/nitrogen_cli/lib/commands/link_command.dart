@@ -3,40 +3,40 @@ import 'package:args/command_runner.dart';
 import 'package:nocterm/nocterm.dart';
 import 'package:path/path.dart' as p;
 
-// ── Progress model (shared Step/StepRow pattern) ──────────────────────────────
+// ── Progress model ──────────────────────────────
 
-enum _StepState { pending, running, done, failed, skipped }
+enum LinkStepState { pending, running, done, failed, skipped }
 
-class _Step {
+class LinkStep {
   final String label;
-  _StepState state;
+  LinkStepState state;
   String? detail;
 
-  _Step(this.label) : state = _StepState.pending;
+  LinkStep(this.label) : state = LinkStepState.pending;
 }
 
-class _StepRow extends StatelessComponent {
-  const _StepRow(this.step);
-  final _Step step;
+class LinkStepRow extends StatelessComponent {
+  const LinkStepRow(this.step, {super.key});
+  final LinkStep step;
 
   @override
   Component build(BuildContext context) {
     final String icon;
     final Color color;
     switch (step.state) {
-      case _StepState.pending:
+      case LinkStepState.pending:
         icon = '○';
         color = Colors.gray;
-      case _StepState.running:
+      case LinkStepState.running:
         icon = '◉';
         color = Colors.cyan;
-      case _StepState.done:
+      case LinkStepState.done:
         icon = '✔';
         color = Colors.green;
-      case _StepState.failed:
+      case LinkStepState.failed:
         icon = '✘';
         color = Colors.red;
-      case _StepState.skipped:
+      case LinkStepState.skipped:
         icon = '–';
         color = Colors.gray;
     }
@@ -53,9 +53,9 @@ class _StepRow extends StatelessComponent {
                 child: Text(
                   step.label,
                   style: TextStyle(
-                    color: step.state == _StepState.running ? Colors.cyan : null,
+                    color: step.state == LinkStepState.running ? Colors.cyan : null,
                     fontWeight:
-                        step.state == _StepState.running ? FontWeight.bold : null,
+                        step.state == LinkStepState.running ? FontWeight.bold : null,
                   ),
                 ),
               ),
@@ -77,28 +77,34 @@ class _StepRow extends StatelessComponent {
 
 // ── Result holder ─────────────────────────────────────────────────────────────
 
-class _LinkResult {
+class LinkResult {
   bool success = false;
 }
 
 // ── nocterm Link component ────────────────────────────────────────────────────
 
-class _LinkApp extends StatefulComponent {
-  const _LinkApp({required this.pluginName, required this.result});
+class LinkView extends StatefulComponent {
+  const LinkView({
+    required this.pluginName,
+    required this.result,
+    this.onExit,
+    super.key,
+  });
   final String pluginName;
-  final _LinkResult result;
+  final LinkResult result;
+  final VoidCallback? onExit;
 
   @override
-  State<_LinkApp> createState() => _LinkAppState();
+  State<LinkView> createState() => _LinkViewState();
 }
 
-class _LinkAppState extends State<_LinkApp> {
-  late final List<_Step> _steps = [
-    _Step('Discovering modules'),
-    _Step('Updating src/CMakeLists.txt'),
-    _Step('Updating iOS podspec'),
-    _Step('Updating Kotlin Plugin.kt'),
-    _Step('Updating .clangd'),
+class _LinkViewState extends State<LinkView> {
+  late final List<LinkStep> _steps = [
+    LinkStep('Discovering modules'),
+    LinkStep('Updating src/CMakeLists.txt'),
+    LinkStep('Updating iOS podspec'),
+    LinkStep('Updating Kotlin Plugin.kt'),
+    LinkStep('Updating .clangd'),
   ];
 
   bool _finished = false;
@@ -112,19 +118,19 @@ class _LinkAppState extends State<_LinkApp> {
   }
 
   Future<void> _setRunning(int i) async {
-    setState(() => _steps[i].state = _StepState.running);
+    setState(() => _steps[i].state = LinkStepState.running);
   }
 
   Future<void> _setDone(int i, {String? detail}) async {
     setState(() {
-      _steps[i].state = _StepState.done;
+      _steps[i].state = LinkStepState.done;
       _steps[i].detail = detail;
     });
   }
 
   Future<void> _setSkipped(int i, {String? detail}) async {
     setState(() {
-      _steps[i].state = _StepState.skipped;
+      _steps[i].state = LinkStepState.skipped;
       _steps[i].detail = detail;
     });
   }
@@ -177,6 +183,10 @@ class _LinkAppState extends State<_LinkApp> {
 
   bool _handleKey(KeyboardEvent e) {
     if (!_finished) return false;
+    if (component.onExit != null) {
+      component.onExit!();
+      return true;
+    }
     shutdownApp(_failed ? 1 : 0);
     return true;
   }
@@ -188,7 +198,6 @@ class _LinkAppState extends State<_LinkApp> {
       onKeyEvent: _handleKey,
       child: Column(
         children: [
-          // ── Header (fixed) ──────────────────────────────────────────
           Padding(
             padding: const EdgeInsets.only(top: 1, left: 1, right: 1),
             child: Container(
@@ -203,8 +212,6 @@ class _LinkAppState extends State<_LinkApp> {
             ),
           ),
           const Padding(padding: EdgeInsets.only(bottom: 1), child: Text('')),
-
-          // ── Steps (scrollable) ──────────────────────────────────────
           Expanded(
             child: Padding(
               padding: const EdgeInsets.symmetric(horizontal: 1),
@@ -213,14 +220,12 @@ class _LinkAppState extends State<_LinkApp> {
                 child: Padding(
                   padding: const EdgeInsets.all(1),
                   child: ListView(
-                    children: _steps.map(_StepRow.new).toList(),
+                    children: _steps.map(LinkStepRow.new).toList(),
                   ),
                 ),
               ),
             ),
           ),
-
-          // ── Footer (fixed) ──────────────────────────────────────────
           if (_finished)
             Padding(
               padding: const EdgeInsets.only(top: 1, bottom: 1, left: 1, right: 1),
@@ -247,8 +252,6 @@ class _LinkAppState extends State<_LinkApp> {
       ),
     );
   }
-
-  // ── Link logic (same as original LinkCommand, inlined) ────────────────────
 
   List<String> _discoverModuleLibs(String pluginName) {
     final libDir = Directory('lib');
@@ -473,8 +476,8 @@ class LinkCommand extends Command {
       exit(1);
     }
     final pluginName = _getPluginName(pubspecFile);
-    final result = _LinkResult();
-    await runApp(_LinkApp(pluginName: pluginName, result: result));
+    final result = LinkResult();
+    await runApp(LinkView(pluginName: pluginName, result: result));
 
     if (result.success) {
       stdout.writeln('');

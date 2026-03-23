@@ -5,6 +5,8 @@
 library nitrogen_cli.ui;
 
 import 'dart:io';
+import 'dart:async';
+import 'dart:convert';
 import 'package:nocterm/nocterm.dart';
 
 // ── Styled text helpers ──────────────────────────────────────────────────────
@@ -36,11 +38,37 @@ String magenta(String t) => _s(t, const TextStyle(color: Colors.magenta));
 /// Returns the exit code.
 Future<int> runStreaming(String executable, List<String> args,
     {String? workingDirectory}) async {
-  final process = await Process.start(executable, args,
-      workingDirectory: workingDirectory);
+  final process =
+      await Process.start(executable, args, workingDirectory: workingDirectory);
   await Future.wait([
     process.stdout.pipe(stdout),
     process.stderr.pipe(stderr),
   ]);
   return process.exitCode;
+}
+
+/// Runs [executable] and returns a stream of its interleaved stdout/stderr.
+Stream<String> streamProcess(String executable, List<String> args,
+    {String? workingDirectory}) async* {
+  final process =
+      await Process.start(executable, args, workingDirectory: workingDirectory);
+
+  yield* _interleave(
+    process.stdout.transform(utf8.decoder).transform(const LineSplitter()),
+    process.stderr.transform(utf8.decoder).transform(const LineSplitter()),
+  );
+}
+
+Stream<String> _interleave(Stream<String> a, Stream<String> b) {
+  final controller = StreamController<String>();
+  int active = 2;
+  void handle(String s) => controller.add(s);
+  void done() {
+    active--;
+    if (active == 0) controller.close();
+  }
+
+  a.listen(handle, onDone: done, onError: controller.addError);
+  b.listen(handle, onDone: done, onError: controller.addError);
+  return controller.stream;
 }

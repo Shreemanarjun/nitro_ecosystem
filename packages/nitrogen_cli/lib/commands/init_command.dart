@@ -3,46 +3,46 @@ import 'package:args/command_runner.dart';
 import 'package:nocterm/nocterm.dart';
 import 'package:path/path.dart' as p;
 
-// ── Result holder (survives runApp) ──────────────────────────────────────────
+// ── Result holder ──────────────────────────────────────────────────────────
 
-class _InitResult {
+class InitResult {
   bool success = false;
   String? errorMessage;
 }
 
 // ── Progress model ────────────────────────────────────────────────────────────
 
-enum _StepState { pending, running, done, failed }
+enum InitStepState { pending, running, done, failed }
 
-class _Step {
+class InitStep {
   final String label;
-  _StepState state;
+  InitStepState state;
   String? detail;
 
-  _Step(this.label) : state = _StepState.pending;
+  InitStep(this.label) : state = InitStepState.pending;
 }
 
 // ── nocterm Progress component ────────────────────────────────────────────────
 
-class _StepRow extends StatelessComponent {
-  const _StepRow(this.step);
-  final _Step step;
+class InitStepRow extends StatelessComponent {
+  const InitStepRow(this.step, {super.key});
+  final InitStep step;
 
   @override
   Component build(BuildContext context) {
     final String icon;
     final Color color;
     switch (step.state) {
-      case _StepState.pending:
+      case InitStepState.pending:
         icon = '○';
         color = Colors.gray;
-      case _StepState.running:
+      case InitStepState.running:
         icon = '◉';
         color = Colors.cyan;
-      case _StepState.done:
+      case InitStepState.done:
         icon = '✔';
         color = Colors.green;
-      case _StepState.failed:
+      case InitStepState.failed:
         icon = '✘';
         color = Colors.red;
     }
@@ -59,8 +59,8 @@ class _StepRow extends StatelessComponent {
                 child: Text(
                   step.label,
                   style: TextStyle(
-                    color: step.state == _StepState.running ? Colors.cyan : null,
-                    fontWeight: step.state == _StepState.running
+                    color: step.state == InitStepState.running ? Colors.cyan : null,
+                    fontWeight: step.state == InitStepState.running
                         ? FontWeight.bold
                         : null,
                   ),
@@ -82,24 +82,31 @@ class _StepRow extends StatelessComponent {
   }
 }
 
-class _InitApp extends StatefulComponent {
-  const _InitApp({required this.pluginName, required this.org, required this.result});
+class InitView extends StatefulComponent {
+  const InitView({
+    required this.pluginName,
+    required this.org,
+    required this.result,
+    this.onExit,
+    super.key,
+  });
   final String pluginName;
   final String org;
-  final _InitResult result;
+  final InitResult result;
+  final VoidCallback? onExit;
 
   @override
-  State<_InitApp> createState() => _InitAppState();
+  State<InitView> createState() => _InitViewState();
 }
 
-class _InitAppState extends State<_InitApp> {
-  late final List<_Step> _steps = [
-    _Step('Running flutter create'),
-    _Step('Setting up src/ directory'),
-    _Step('Configuring iOS'),
-    _Step('Configuring Android'),
-    _Step('Updating pubspec.yaml'),
-    _Step('Writing bridge spec'),
+class _InitViewState extends State<InitView> {
+  late final List<InitStep> _steps = [
+    InitStep('Running flutter create'),
+    InitStep('Setting up src/ directory'),
+    InitStep('Configuring iOS'),
+    InitStep('Configuring Android'),
+    InitStep('Updating pubspec.yaml'),
+    InitStep('Writing bridge spec'),
   ];
 
   bool _finished = false;
@@ -113,19 +120,19 @@ class _InitAppState extends State<_InitApp> {
   }
 
   Future<void> _setRunning(int i) async {
-    setState(() => _steps[i].state = _StepState.running);
+    setState(() => _steps[i].state = InitStepState.running);
   }
 
   Future<void> _setDone(int i, {String? detail}) async {
     setState(() {
-      _steps[i].state = _StepState.done;
+      _steps[i].state = InitStepState.done;
       _steps[i].detail = detail;
     });
   }
 
   Future<void> _setFailed(int i, String msg) async {
     setState(() {
-      _steps[i].state = _StepState.failed;
+      _steps[i].state = InitStepState.failed;
       _steps[i].detail = msg;
       _failed = true;
       _errorMessage = msg;
@@ -184,6 +191,10 @@ class _InitAppState extends State<_InitApp> {
 
   bool _handleKey(KeyboardEvent e) {
     if (!_finished) return false;
+    if (component.onExit != null) {
+      component.onExit!();
+      return true;
+    }
     shutdownApp(_failed ? 1 : 0);
     return true;
   }
@@ -195,7 +206,6 @@ class _InitAppState extends State<_InitApp> {
       onKeyEvent: _handleKey,
       child: Column(
         children: [
-          // ── Header (fixed) ──────────────────────────────────────────
           Padding(
             padding: const EdgeInsets.only(top: 1, left: 1, right: 1),
             child: Container(
@@ -210,8 +220,6 @@ class _InitAppState extends State<_InitApp> {
             ),
           ),
           const Padding(padding: EdgeInsets.only(bottom: 1), child: Text('')),
-
-          // ── Steps (scrollable) ──────────────────────────────────────
           Expanded(
             child: Padding(
               padding: const EdgeInsets.symmetric(horizontal: 1),
@@ -220,14 +228,12 @@ class _InitAppState extends State<_InitApp> {
                 child: Padding(
                   padding: const EdgeInsets.all(1),
                   child: ListView(
-                    children: _steps.map(_StepRow.new).toList(),
+                    children: _steps.map(InitStepRow.new).toList(),
                   ),
                 ),
               ),
             ),
           ),
-
-          // ── Footer (fixed) ──────────────────────────────────────────
           if (_finished)
             Padding(
               padding: const EdgeInsets.only(top: 1, bottom: 1, left: 1, right: 1),
@@ -258,7 +264,12 @@ class _InitAppState extends State<_InitApp> {
     );
   }
 
-  // ── Setup helpers (same logic as before) ─────────────────────────────────
+  String _toClassName(String pluginName) {
+    return pluginName
+        .split('_')
+        .map((w) => w.isEmpty ? '' : w[0].toUpperCase() + w.substring(1))
+        .join('');
+  }
 
   void _setupSrc(String pluginName) {
     final srcDir = Directory(p.join(pluginName, 'src'));
@@ -484,13 +495,6 @@ abstract class $className extends HybridObject {
     File(p.join(pluginName, 'lib', '$pluginName.dart'))
         .writeAsStringSync("export 'src/$pluginName.native.dart';\n");
   }
-
-  String _toClassName(String pluginName) {
-    return pluginName
-        .split('_')
-        .map((w) => w.isEmpty ? '' : w[0].toUpperCase() + w.substring(1))
-        .join('');
-  }
 }
 
 // ── InitCommand ───────────────────────────────────────────────────────────────
@@ -525,8 +529,8 @@ class InitCommand extends Command {
       exit(1);
     }
 
-    final result = _InitResult();
-    await runApp(_InitApp(pluginName: pluginName, org: org, result: result));
+    final result = InitResult();
+    await runApp(InitView(pluginName: pluginName, org: org, result: result));
 
     if (result.success) {
       stdout.writeln('');

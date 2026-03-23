@@ -5,42 +5,42 @@ import 'package:path/path.dart' as p;
 
 // ── Data model ────────────────────────────────────────────────────────────────
 
-enum _Status { ok, warn, error, info }
+enum DoctorStatus { ok, warn, error, info }
 
-class _Check {
-  final _Status status;
+class DoctorCheck {
+  final DoctorStatus status;
   final String label;
   final String? hint;
-  const _Check(this.status, this.label, {this.hint});
+  const DoctorCheck(this.status, this.label, {this.hint});
 }
 
-class _Section {
+class DoctorSection {
   final String title;
-  final List<_Check> checks;
-  const _Section(this.title, this.checks);
+  final List<DoctorCheck> checks;
+  const DoctorSection(this.title, this.checks);
 }
 
 // ── nocterm Components ────────────────────────────────────────────────────────
 
-class _CheckRow extends StatelessComponent {
-  const _CheckRow(this.check);
-  final _Check check;
+class CheckRow extends StatelessComponent {
+  const CheckRow(this.check, {super.key});
+  final DoctorCheck check;
 
   @override
   Component build(BuildContext context) {
     final Color iconColor;
     final String icon;
     switch (check.status) {
-      case _Status.ok:
+      case DoctorStatus.ok:
         icon = '✔';
         iconColor = Colors.green;
-      case _Status.warn:
+      case DoctorStatus.warn:
         icon = '⚠';
         iconColor = Colors.yellow;
-      case _Status.error:
+      case DoctorStatus.error:
         icon = '✘';
         iconColor = Colors.red;
-      case _Status.info:
+      case DoctorStatus.info:
         icon = 'ℹ';
         iconColor = Colors.blue;
     }
@@ -57,9 +57,9 @@ class _CheckRow extends StatelessComponent {
                 child: Text(
                   check.label,
                   style: TextStyle(
-                    color: check.status == _Status.error
+                    color: check.status == DoctorStatus.error
                         ? Colors.red
-                        : check.status == _Status.warn
+                        : check.status == DoctorStatus.warn
                             ? Colors.yellow
                             : null,
                   ),
@@ -81,9 +81,9 @@ class _CheckRow extends StatelessComponent {
   }
 }
 
-class _SectionBox extends StatelessComponent {
-  const _SectionBox(this.section);
-  final _Section section;
+class SectionBox extends StatelessComponent {
+  const SectionBox(this.section, {super.key});
+  final DoctorSection section;
 
   @override
   Component build(BuildContext context) {
@@ -105,7 +105,7 @@ class _SectionBox extends StatelessComponent {
                 ),
               ),
               const Divider(),
-              ...section.checks.map(_CheckRow.new),
+              ...section.checks.map(CheckRow.new),
             ],
           ),
         ),
@@ -114,24 +114,28 @@ class _SectionBox extends StatelessComponent {
   }
 }
 
-class _DoctorApp extends StatefulComponent {
-  const _DoctorApp({
+/// The core Doctor UI component.
+class DoctorView extends StatefulComponent {
+  const DoctorView({
     required this.pluginName,
     required this.sections,
     required this.errors,
     required this.warnings,
+    this.onExit,
+    super.key,
   });
 
   final String pluginName;
-  final List<_Section> sections;
+  final List<DoctorSection> sections;
   final int errors;
   final int warnings;
+  final VoidCallback? onExit;
 
   @override
-  State<_DoctorApp> createState() => _DoctorAppState();
+  State<DoctorView> createState() => _DoctorViewState();
 }
 
-class _DoctorAppState extends State<_DoctorApp> {
+class _DoctorViewState extends State<DoctorView> {
   final _scroll = ScrollController();
 
   bool _handleKey(KeyboardEvent e) {
@@ -142,6 +146,12 @@ class _DoctorAppState extends State<_DoctorApp> {
     if (k == LogicalKey.pageDown) { _scroll.pageDown(); return true; }
     if (k == LogicalKey.home) { _scroll.scrollToStart(); return true; }
     if (k == LogicalKey.end) { _scroll.scrollToEnd(); return true; }
+    
+    if (component.onExit != null) {
+      component.onExit!();
+      return true;
+    }
+    
     shutdownApp(component.errors > 0 ? 1 : 0);
     return true;
   }
@@ -172,7 +182,6 @@ class _DoctorAppState extends State<_DoctorApp> {
       onKeyEvent: _handleKey,
       child: Column(
         children: [
-          // ── Header (fixed) ────────────────────────────────────────────
           Padding(
             padding: const EdgeInsets.only(top: 1, left: 1, right: 1),
             child: Container(
@@ -187,26 +196,22 @@ class _DoctorAppState extends State<_DoctorApp> {
             ),
           ),
           const Padding(padding: EdgeInsets.only(bottom: 1), child: Text('')),
-
-          // ── Scrollable sections ───────────────────────────────────────
           Expanded(
             child: Padding(
               padding: const EdgeInsets.symmetric(horizontal: 1),
               child: ListView(
                 controller: _scroll,
-                children: component.sections.map(_SectionBox.new).toList(),
+                children: component.sections.map(SectionBox.new).toList(),
               ),
             ),
           ),
-
-          // ── Footer (fixed) ────────────────────────────────────────────
           Padding(
             padding: const EdgeInsets.only(top: 1, bottom: 1, left: 1, right: 1),
             child: Column(
               children: [
                 summary,
                 const Text(
-                  '  ↑↓ scroll   PgUp/PgDn page   q/Enter exit',
+                  '  ↑↓ scroll   PgUp/PgDn page   ESC/Enter/q exit',
                   style: TextStyle(color: Colors.gray, fontWeight: FontWeight.dim),
                 ),
               ],
@@ -246,40 +251,39 @@ class DoctorCommand extends Command {
     '.CMakeLists.g.txt': 'cmake',
   };
 
-  @override
-  Future<void> run() async {
+  /// Runs the doctor check logic without launching the UI.
+  DoctorViewResult performChecks() {
     final pubspecFile = File('pubspec.yaml');
     if (!pubspecFile.existsSync()) {
-      stderr.writeln('No pubspec.yaml found. Run from the root of a Flutter plugin.');
-      exit(1);
+      throw StateError('No pubspec.yaml found. Run from the root of a Flutter plugin.');
     }
 
     final pluginName = _pluginName(pubspecFile);
     final specs = _findSpecs();
-    final sections = <_Section>[];
+    final sections = <DoctorSection>[];
     int errors = 0;
     int warnings = 0;
 
-    void err(_Section s, String label, {String? hint}) {
-      s.checks.add(_Check(_Status.error, label, hint: hint));
+    void err(DoctorSection s, String label, {String? hint}) {
+      s.checks.add(DoctorCheck(DoctorStatus.error, label, hint: hint));
       errors++;
     }
 
-    void warn(_Section s, String label, {String? hint}) {
-      s.checks.add(_Check(_Status.warn, label, hint: hint));
+    void warn(DoctorSection s, String label, {String? hint}) {
+      s.checks.add(DoctorCheck(DoctorStatus.warn, label, hint: hint));
       warnings++;
     }
 
-    void ok(_Section s, String label) {
-      s.checks.add(_Check(_Status.ok, label));
+    void ok(DoctorSection s, String label) {
+      s.checks.add(DoctorCheck(DoctorStatus.ok, label));
     }
 
-    void info(_Section s, String label) {
-      s.checks.add(_Check(_Status.info, label));
+    void info(DoctorSection s, String label) {
+      s.checks.add(DoctorCheck(DoctorStatus.info, label));
     }
 
     // ── pubspec.yaml ───────────────────────────────────────────────────────
-    final pubSec = _Section('pubspec.yaml', []);
+    final pubSec = DoctorSection('pubspec.yaml', []);
     sections.add(pubSec);
     final pubspec = pubspecFile.readAsStringSync();
 
@@ -327,7 +331,7 @@ class DoctorCommand extends Command {
 
     // ── Generated files ────────────────────────────────────────────────────
     if (specs.isNotEmpty) {
-      final genSec = _Section('Generated Files', []);
+      final genSec = DoctorSection('Generated Files', []);
       sections.add(genSec);
       for (final spec in specs) {
         final stem = p.basename(spec.path).replaceAll(RegExp(r'\.native\.dart$'), '');
@@ -346,14 +350,14 @@ class DoctorCommand extends Command {
         }
       }
     } else {
-      final genSec = _Section('Generated Files', []);
+      final genSec = DoctorSection('Generated Files', []);
       sections.add(genSec);
       warn(genSec, 'No *.native.dart specs found under lib/',
           hint: 'Create lib/src/<name>.native.dart');
     }
 
     // ── CMakeLists.txt ─────────────────────────────────────────────────────
-    final cmakeSec = _Section('CMakeLists.txt', []);
+    final cmakeSec = DoctorSection('CMakeLists.txt', []);
     sections.add(cmakeSec);
     final cmakeFile = File(p.join('src', 'CMakeLists.txt'));
     if (!cmakeFile.existsSync()) {
@@ -383,7 +387,7 @@ class DoctorCommand extends Command {
     }
 
     // ── Android ────────────────────────────────────────────────────────────
-    final androidSec = _Section('Android', []);
+    final androidSec = DoctorSection('Android', []);
     sections.add(androidSec);
     if (!Directory('android').existsSync()) {
       info(androidSec, 'android/ directory not present — skipped');
@@ -449,7 +453,7 @@ class DoctorCommand extends Command {
     }
 
     // ── iOS ────────────────────────────────────────────────────────────────
-    final iosSec = _Section('iOS', []);
+    final iosSec = DoctorSection('iOS', []);
     sections.add(iosSec);
     if (!Directory('ios').existsSync()) {
       info(iosSec, 'ios/ directory not present — skipped');
@@ -512,26 +516,37 @@ class DoctorCommand extends Command {
       }
     }
 
-    // ── Render with nocterm ────────────────────────────────────────────────
-    await runApp(_DoctorApp(
+    return DoctorViewResult(
       pluginName: pluginName,
       sections: sections,
       errors: errors,
       warnings: warnings,
+    );
+  }
+
+  @override
+  Future<void> run() async {
+    final result = performChecks();
+
+    await runApp(DoctorView(
+      pluginName: result.pluginName,
+      sections: result.sections,
+      errors: result.errors,
+      warnings: result.warnings,
     ));
 
     // Print persistent one-liner after TUI exits
-    if (errors == 0 && warnings == 0) {
-      stdout.writeln('  \x1B[1;32m✨ $pluginName — all checks passed\x1B[0m');
-    } else if (errors > 0) {
-      stdout.writeln('  \x1B[1;31m✘  $pluginName — $errors error(s)'
-          '${warnings > 0 ? ", $warnings warning(s)" : ""}\x1B[0m');
+    if (result.errors == 0 && result.warnings == 0) {
+      stdout.writeln('  \x1B[1;32m✨ ${result.pluginName} — all checks passed\x1B[0m');
+    } else if (result.errors > 0) {
+      stdout.writeln('  \x1B[1;31m✘  ${result.pluginName} — ${result.errors} error(s)'
+          '${result.warnings > 0 ? ", ${result.warnings}" : ""}\x1B[0m');
     } else {
-      stdout.writeln('  \x1B[1;33m⚠  $pluginName — $warnings warning(s)\x1B[0m');
+      stdout.writeln('  \x1B[1;33m⚠  ${result.pluginName} — ${result.warnings} warning(s)\x1B[0m');
     }
     stdout.writeln('');
 
-    exit(errors > 0 ? 1 : 0);
+    exit(result.errors > 0 ? 1 : 0);
   }
 
   // ── Helpers ───────────────────────────────────────────────────────────────
@@ -566,4 +581,17 @@ class DoctorCommand extends Command {
     }
     return 'unknown';
   }
+}
+
+class DoctorViewResult {
+  final String pluginName;
+  final List<DoctorSection> sections;
+  final int errors;
+  final int warnings;
+  const DoctorViewResult({
+    required this.pluginName,
+    required this.sections,
+    required this.errors,
+    required this.warnings,
+  });
 }

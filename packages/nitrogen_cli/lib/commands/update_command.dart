@@ -5,38 +5,38 @@ import 'package:path/path.dart' as p;
 
 // ── Step model ────────────────────────────────────────────────────────────────
 
-enum _StepState { pending, running, done, failed, skipped }
+enum UpdateStepState { pending, running, done, failed, skipped }
 
-class _Step {
+class UpdateStep {
   final String label;
-  _StepState state;
+  UpdateStepState state;
   String? detail;
 
-  _Step(this.label) : state = _StepState.pending;
+  UpdateStep(this.label) : state = UpdateStepState.pending;
 }
 
-class _StepRow extends StatelessComponent {
-  const _StepRow(this.step);
-  final _Step step;
+class UpdateStepRow extends StatelessComponent {
+  const UpdateStepRow(this.step, {super.key});
+  final UpdateStep step;
 
   @override
   Component build(BuildContext context) {
     final String icon;
     final Color color;
     switch (step.state) {
-      case _StepState.pending:
+      case UpdateStepState.pending:
         icon = '○';
         color = Colors.gray;
-      case _StepState.running:
+      case UpdateStepState.running:
         icon = '◉';
         color = Colors.cyan;
-      case _StepState.done:
+      case UpdateStepState.done:
         icon = '✔';
         color = Colors.green;
-      case _StepState.failed:
+      case UpdateStepState.failed:
         icon = '✘';
         color = Colors.red;
-      case _StepState.skipped:
+      case UpdateStepState.skipped:
         icon = '–';
         color = Colors.gray;
     }
@@ -53,9 +53,9 @@ class _StepRow extends StatelessComponent {
                 child: Text(
                   step.label,
                   style: TextStyle(
-                    color: step.state == _StepState.running ? Colors.cyan : null,
+                    color: step.state == UpdateStepState.running ? Colors.cyan : null,
                     fontWeight:
-                        step.state == _StepState.running ? FontWeight.bold : null,
+                        step.state == UpdateStepState.running ? FontWeight.bold : null,
                   ),
                 ),
               ),
@@ -77,7 +77,7 @@ class _StepRow extends StatelessComponent {
 
 // ── Result holder ─────────────────────────────────────────────────────────────
 
-class _UpdateResult {
+class UpdateResult {
   bool success = false;
   String? errorMessage;
   String? pullSummary;
@@ -85,20 +85,26 @@ class _UpdateResult {
 
 // ── nocterm Update component ──────────────────────────────────────────────────
 
-class _UpdateApp extends StatefulComponent {
-  const _UpdateApp({required this.repoRoot, required this.result});
+class UpdateView extends StatefulComponent {
+  const UpdateView({
+    required this.repoRoot,
+    required this.result,
+    this.onExit,
+    super.key,
+  });
   final String repoRoot;
-  final _UpdateResult result;
+  final UpdateResult result;
+  final VoidCallback? onExit;
 
   @override
-  State<_UpdateApp> createState() => _UpdateAppState();
+  State<UpdateView> createState() => _UpdateViewState();
 }
 
-class _UpdateAppState extends State<_UpdateApp> {
-  late final List<_Step> _steps = [
-    _Step('Checking current version'),
-    _Step('Pulling latest changes'),
-    _Step('Updating dependencies'),
+class _UpdateViewState extends State<UpdateView> {
+  late final List<UpdateStep> _steps = [
+    UpdateStep('Checking current version'),
+    UpdateStep('Pulling latest changes'),
+    UpdateStep('Updating dependencies'),
   ];
 
   bool _finished = false;
@@ -110,17 +116,18 @@ class _UpdateAppState extends State<_UpdateApp> {
     Future<void>.delayed(Duration.zero, _run);
   }
 
-  void _setRunning(int i) => setState(() => _steps[i].state = _StepState.running);
+  void _setRunning(int i) => setState(() => _steps[i].state = UpdateStepState.running);
   void _setDone(int i, {String? detail}) => setState(() {
-        _steps[i].state = _StepState.done;
+        _steps[i].state = UpdateStepState.done;
         _steps[i].detail = detail;
       });
   void _setFailed(int i, String msg) => setState(() {
-        _steps[i].state = _StepState.failed;
+        _steps[i].state = UpdateStepState.failed;
         _steps[i].detail = msg;
         _failed = true;
       });
-Future<void> _run() async {
+
+  Future<void> _run() async {
     final repoRoot = component.repoRoot;
     final pkgDir = p.join(repoRoot, 'packages', 'nitrogen_cli');
 
@@ -180,6 +187,10 @@ Future<void> _run() async {
 
   bool _handleKey(KeyboardEvent e) {
     if (!_finished) return false;
+    if (component.onExit != null) {
+      component.onExit!();
+      return true;
+    }
     shutdownApp(_failed ? 1 : 0);
     return true;
   }
@@ -191,7 +202,6 @@ Future<void> _run() async {
       onKeyEvent: _handleKey,
       child: Column(
         children: [
-          // ── Header (fixed) ──────────────────────────────────────────
           Padding(
             padding: const EdgeInsets.only(top: 1, left: 1, right: 1),
             child: Container(
@@ -206,8 +216,6 @@ Future<void> _run() async {
             ),
           ),
           const Padding(padding: EdgeInsets.only(bottom: 1), child: Text('')),
-
-          // ── Steps (scrollable) ──────────────────────────────────────
           Expanded(
             child: Padding(
               padding: const EdgeInsets.symmetric(horizontal: 1),
@@ -216,14 +224,12 @@ Future<void> _run() async {
                 child: Padding(
                   padding: const EdgeInsets.all(1),
                   child: ListView(
-                    children: _steps.map(_StepRow.new).toList(),
+                    children: _steps.map(UpdateStepRow.new).toList(),
                   ),
                 ),
               ),
             ),
           ),
-
-          // ── Footer (fixed) ──────────────────────────────────────────
           if (_finished)
             Padding(
               padding: const EdgeInsets.only(top: 1, bottom: 1, left: 1, right: 1),
@@ -264,16 +270,16 @@ class UpdateCommand extends Command {
 
   @override
   Future<void> run() async {
-    // Walk up from this script to find the git repo root.
-    final scriptDir = p.dirname(Platform.script.toFilePath());
+    final scriptPath = Platform.script.toFilePath();
+    final scriptDir = p.dirname(scriptPath);
     String? repoRoot = _findGitRoot(scriptDir);
     if (repoRoot == null) {
       stderr.writeln('Could not find git repository root from $scriptDir');
       exit(1);
     }
 
-    final result = _UpdateResult();
-    await runApp(_UpdateApp(repoRoot: repoRoot, result: result));
+    final result = UpdateResult();
+    await runApp(UpdateView(repoRoot: repoRoot, result: result));
 
     if (result.success) {
       stdout.writeln('');
