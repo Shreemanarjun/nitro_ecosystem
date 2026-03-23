@@ -112,9 +112,7 @@ Future<void> _runTui() async {
           route<CommandRoute>(
             path: '/init',
             parse: (_) => const CommandRoute(NitroCommand.init),
-            builder: (context, _) => InitView(
-              pluginName: 'my_nitro_plugin',
-              org: 'com.example',
+            builder: (context, _) => NitrogenInitApp(
               result: InitResult(),
               onExit: () =>
                   context.unrouterAs<NitroRoute>().go(const RootRoute()),

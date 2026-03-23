@@ -573,8 +573,9 @@ abstract class $className extends HybridObject {
 // ── PluginNameForm ────────────────────────────────────────────────────────────
 
 class PluginNameForm extends StatefulComponent {
-  const PluginNameForm({required this.onSubmit, super.key});
+  const PluginNameForm({required this.onSubmit, this.onExit, super.key});
   final void Function(String pluginName, String org) onSubmit;
+  final VoidCallback? onExit;
 
   @override
   State<PluginNameForm> createState() => _PluginNameFormState();
@@ -612,6 +613,10 @@ class _PluginNameFormState extends State<PluginNameForm> {
   }
 
   bool _handleKey(KeyboardEvent e) {
+    if (e.logicalKey == LogicalKey.escape) {
+      component.onExit?.call();
+      return true;
+    }
     if (e.logicalKey == LogicalKey.tab) {
       setState(() {
         _nameHasFocus = !_nameHasFocus;
@@ -713,18 +718,24 @@ class _PluginNameFormState extends State<PluginNameForm> {
   }
 }
 
-// ── _NitrogenInitApp ──────────────────────────────────────────────────────────
+// ── NitrogenInitApp ───────────────────────────────────────────────────────────
 
-class _NitrogenInitApp extends StatefulComponent {
-  const _NitrogenInitApp({required this.result, this.initialOrg});
+class NitrogenInitApp extends StatefulComponent {
+  const NitrogenInitApp({
+    required this.result,
+    this.initialOrg,
+    this.onExit,
+    super.key,
+  });
   final InitResult result;
   final String? initialOrg;
+  final VoidCallback? onExit;
 
   @override
-  State<_NitrogenInitApp> createState() => _NitrogenInitAppState();
+  State<NitrogenInitApp> createState() => _NitrogenInitAppState();
 }
 
-class _NitrogenInitAppState extends State<_NitrogenInitApp> {
+class _NitrogenInitAppState extends State<NitrogenInitApp> {
   String? _pluginName;
   String? _org;
 
@@ -735,6 +746,7 @@ class _NitrogenInitAppState extends State<_NitrogenInitApp> {
         pluginName: _pluginName!,
         org: _org ?? component.initialOrg ?? 'com.example',
         result: component.result,
+        onExit: component.onExit,
       );
     }
     return PluginNameForm(
@@ -742,6 +754,7 @@ class _NitrogenInitAppState extends State<_NitrogenInitApp> {
         _pluginName = name;
         _org = org;
       }),
+      onExit: component.onExit,
     );
   }
 }
@@ -763,7 +776,7 @@ class InitCommand extends Command {
   Future<void> run() async {
     final org = argResults!['org'] as String;
     final result = InitResult();
-    await runApp(_NitrogenInitApp(result: result, initialOrg: org));
+    await runApp(NitrogenInitApp(result: result, initialOrg: org));
     if (result.success) {
       stdout.writeln(
           '  \x1B[1;32m✨ ${result.pluginName ?? ''} created\x1B[0m');

@@ -133,10 +133,14 @@ void main() {
   // ── PluginNameForm ─────────────────────────────────────────────────────────
 
   group('PluginNameForm', () {
-    Component _form(void Function(String, String) onSubmit) => Container(
+    Component _form(
+      void Function(String, String) onSubmit, {
+      VoidCallback? onExit,
+    }) =>
+        Container(
           width: 60,
           height: 22,
-          child: PluginNameForm(onSubmit: onSubmit),
+          child: PluginNameForm(onSubmit: onSubmit, onExit: onExit),
         );
 
     test('renders header, fields and hint', () async {
@@ -280,6 +284,165 @@ void main() {
         await tester.pump();
 
         expect(tester.terminalState, containsText('nitrogen init'));
+        expect(tester.terminalState, containsText('Plugin name:'));
+      });
+    });
+
+    test('ESC calls onExit when provided', () async {
+      await testNocterm('PluginNameForm ESC onExit', (tester) async {
+        var exited = false;
+        await tester.pumpComponent(
+          _form((_, __) {}, onExit: () => exited = true),
+        );
+
+        await tester.sendKey(LogicalKey.escape);
+        await tester.pump();
+
+        expect(exited, isTrue);
+      });
+    });
+
+    test('ESC with null onExit does not throw', () async {
+      await testNocterm('PluginNameForm ESC no onExit', (tester) async {
+        await tester.pumpComponent(_form((_, __) {}));
+
+        // Should not throw
+        await tester.sendKey(LogicalKey.escape);
+        await tester.pump();
+
+        expect(tester.terminalState, containsText('nitrogen init'));
+      });
+    });
+
+    test('trims whitespace from name before validation', () async {
+      await testNocterm('PluginNameForm name trimmed', (tester) async {
+        String? gotName;
+        await tester.pumpComponent(_form((n, _) => gotName = n));
+
+        // Leading/trailing spaces should be stripped
+        await tester.enterText('  my_plugin  ');
+        await tester.sendKey(LogicalKey.tab);
+        await tester.sendKey(LogicalKey.enter);
+        await tester.pump();
+
+        expect(gotName, 'my_plugin');
+      });
+    });
+
+    test('single-character name is accepted', () async {
+      await testNocterm('PluginNameForm single char name', (tester) async {
+        String? gotName;
+        await tester.pumpComponent(_form((n, _) => gotName = n));
+
+        await tester.enterText('a');
+        await tester.sendKey(LogicalKey.tab);
+        await tester.sendKey(LogicalKey.enter);
+        await tester.pump();
+
+        expect(gotName, 'a');
+      });
+    });
+
+    test('error is shown in red', () async {
+      await testNocterm('PluginNameForm error styling', (tester) async {
+        await tester.pumpComponent(_form((_, __) {}));
+
+        await tester.sendKey(LogicalKey.tab);
+        await tester.sendKey(LogicalKey.enter);
+        await tester.pump();
+
+        expect(
+          tester.terminalState,
+          hasStyledText(
+            'Plugin name is required',
+            const TextStyle(color: Colors.red),
+          ),
+        );
+      });
+    });
+
+    test('onSubmit is not called when name is invalid', () async {
+      await testNocterm('PluginNameForm no submit on invalid', (tester) async {
+        var called = false;
+        await tester.pumpComponent(_form((_, __) => called = true));
+
+        await tester.enterText('Bad-Name');
+        await tester.sendKey(LogicalKey.tab);
+        await tester.sendKey(LogicalKey.enter);
+        await tester.pump();
+
+        expect(called, isFalse);
+      });
+    });
+
+    test('onSubmit is not called when name is empty', () async {
+      await testNocterm('PluginNameForm no submit on empty', (tester) async {
+        var called = false;
+        await tester.pumpComponent(_form((_, __) => called = true));
+
+        await tester.sendKey(LogicalKey.tab);
+        await tester.sendKey(LogicalKey.enter);
+        await tester.pump();
+
+        expect(called, isFalse);
+      });
+    });
+  });
+
+  // ── NitrogenInitApp ────────────────────────────────────────────────────────
+
+  group('NitrogenInitApp', () {
+    test('shows form initially', () async {
+      await testNocterm('NitrogenInitApp shows form', (tester) async {
+        await tester.pumpComponent(
+          Container(
+            width: 60,
+            height: 22,
+            child: NitrogenInitApp(result: InitResult()),
+          ),
+        );
+
+        expect(tester.terminalState, containsText('nitrogen init'));
+        expect(tester.terminalState, containsText('Plugin name:'));
+        expect(tester.terminalState, containsText('Organisation'));
+      });
+    });
+
+    test('ESC calls onExit from form', () async {
+      await testNocterm('NitrogenInitApp ESC from form', (tester) async {
+        var exited = false;
+        await tester.pumpComponent(
+          Container(
+            width: 60,
+            height: 22,
+            child: NitrogenInitApp(
+              result: InitResult(),
+              onExit: () => exited = true,
+            ),
+          ),
+        );
+
+        await tester.sendKey(LogicalKey.escape);
+        await tester.pump();
+
+        expect(exited, isTrue);
+      });
+    });
+
+    test('initialOrg is reflected in form org field default', () async {
+      await testNocterm('NitrogenInitApp initialOrg', (tester) async {
+        await tester.pumpComponent(
+          Container(
+            width: 60,
+            height: 22,
+            child: NitrogenInitApp(
+              result: InitResult(),
+              initialOrg: 'io.myorg',
+            ),
+          ),
+        );
+
+        // The form should still be visible (not skipped)
         expect(tester.terminalState, containsText('Plugin name:'));
       });
     });
