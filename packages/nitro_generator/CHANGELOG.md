@@ -1,3 +1,11 @@
+## 0.1.3
+
+- **Swift generator: fixed `@_cdecl` String type crash (`EXC_BAD_ACCESS`)** — `String` parameters now use `UnsafePointer<CChar>?` (C `const char*`) and return values use `UnsafeMutablePointer<CChar>?` (malloc'd `char*`), with `String(cString:)` conversion at the boundary and `strdup()` for returns so Dart's `toDartStringWithFree()` / `free()` pairs correctly. Fixes an immediate crash on any method that takes or returns a `String`.
+- Swift generator: async `String`-returning methods use `DispatchSemaphore` + `Task.detached` with a `strdup(result)` return, matching the synchronous C ABI required by `@_cdecl`.
+- Swift generator: `String` property getters return `strdup`-allocated C strings; setters accept `UnsafePointer<CChar>?` and convert with `String(cString:)`.
+- Swift generator: default fallback value for `String` returns changed from `""` to `strdup("")` to maintain consistent allocator pairing.
+- Updated README: fixed the `@_cdecl("_call_processFile")` example to show the correct C pointer types instead of the old (crashing) `String` param/return pattern; added link to new `docs/swift-type-mapping.md`.
+
 ## 0.1.2
 
 - Swift generator: replaced `@objc public static func _call_*` pattern with top-level `@_cdecl("_call_*") public func` stubs. Swift structs and Swift-only protocols cannot cross the Objective-C boundary; `@_cdecl` exports plain C symbols that the generated C++ shim can call with `extern "C"`.

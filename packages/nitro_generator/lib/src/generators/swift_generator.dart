@@ -94,25 +94,39 @@ class SwiftGenerator {
 
     for (final func in spec.functions) {
       final cRetType = _toCDeclReturnType(spec, func);
+      // @_cdecl params must use C-ABI-compatible types.
       final params = func.params
-          .map((p) => '_ ${p.name}: ${_toSwiftType(spec, p.type.name)}')
+          .map((p) => '_ ${p.name}: ${_toCDeclParamType(spec, p.type.name)}')
           .join(', ');
-      final callArgs =
-          func.params.map((p) => '${p.name}: ${p.name}').join(', ');
+      // String params arrive as UnsafePointer<CChar>? — convert to Swift String.
+      final stringParams =
+          func.params.where((p) => p.type.name == 'String').toList();
+      // Pass the converted local `nameStr` variable for String params.
+      final callArgs = func.params
+          .map((p) =>
+              '${p.name}: ${p.type.name == 'String' ? '${p.name}Str' : p.name}')
+          .join(', ');
       final isStruct =
           spec.structs.any((st) => st.name == func.returnType.name);
       final isBool = func.returnType.name == 'bool';
       final isVoid = func.returnType.name == 'void';
+      final isString = func.returnType.name == 'String';
 
       s.writeln('@_cdecl("_call_${func.dartName}")');
       s.writeln(
         'public func _call_${func.dartName}($params) -> $cRetType {',
       );
 
+      // Emit UnsafePointer<CChar>? → Swift String conversions for each String param.
+      for (final p in stringParams) {
+        s.writeln(
+          '    let ${p.name}Str = ${p.name}.map { String(cString: \$0) } ?? ""',
+        );
+      }
+
       if (func.isAsync) {
         // Async: block the calling thread with a semaphore until the Task
-        // completes. Safe here because callAsync() on the Dart side always
-        // invokes this on a background isolate thread.
+        // completes. Safe because callAsync() always runs on a background isolate.
         if (isStruct) {
           s.writeln(
             '    guard let impl = ${spec.dartClassName}Registry.impl else { return nil }',
@@ -142,6 +156,21 @@ class SwiftGenerator {
           s.writeln('        sema.signal()');
           s.writeln('    }');
           s.writeln('    sema.wait()');
+        } else if (isString) {
+          // String result must be malloc'd (strdup) so Dart's free() works.
+          s.writeln(
+            '    guard let impl = ${spec.dartClassName}Registry.impl else { return strdup("") }',
+          );
+          s.writeln('    let sema = DispatchSemaphore(value: 0)');
+          s.writeln('    var result = ""');
+          s.writeln('    Task.detached {');
+          s.writeln(
+            '        result = (try? await impl.${func.dartName}($callArgs)) ?? ""',
+          );
+          s.writeln('        sema.signal()');
+          s.writeln('    }');
+          s.writeln('    sema.wait()');
+          s.writeln('    return strdup(result)');
         } else {
           final swiftRetType = _toSwiftType(spec, func.returnType.name);
           final defaultVal = _defaultCDeclValue(spec, func.returnType.name);
@@ -176,6 +205,11 @@ class SwiftGenerator {
         );
         s.writeln('    ptr.initialize(to: result)');
         s.writeln('    return UnsafeMutableRawPointer(ptr)');
+      } else if (isString) {
+        // String result must be malloc'd (strdup) so Dart's free() works.
+        s.writeln(
+          '    return strdup(${spec.dartClassName}Registry.impl?.${func.dartName}($callArgs) ?? "")',
+        );
       } else {
         final defaultVal = _defaultCDeclValue(spec, func.returnType.name);
         s.writeln(
@@ -190,19 +224,35 @@ class SwiftGenerator {
     for (final prop in spec.properties) {
       final swiftType = _toSwiftType(spec, prop.type.name);
       final isBool = prop.type.name == 'bool';
+      final isString = prop.type.name == 'String';
       if (prop.hasGetter) {
+        final getRetType = isString
+            ? 'UnsafeMutablePointer<CChar>?'
+            : isBool
+                ? 'Int8'
+                : swiftType;
         s.writeln('@_cdecl("_call_get_${prop.dartName}")');
         s.writeln(
-          'public func _call_get_${prop.dartName}() -> $swiftType {',
+          'public func _call_get_${prop.dartName}() -> $getRetType {',
         );
-        s.writeln(
-          '    return ${spec.dartClassName}Registry.impl?.${prop.dartName} ?? ${_defaultCDeclValue(spec, prop.type.name)}',
-        );
+        if (isString) {
+          s.writeln(
+            '    return strdup(${spec.dartClassName}Registry.impl?.${prop.dartName} ?? "")',
+          );
+        } else {
+          s.writeln(
+            '    return ${spec.dartClassName}Registry.impl?.${prop.dartName} ?? ${_defaultCDeclValue(spec, prop.type.name)}',
+          );
+        }
         s.writeln('}');
         s.writeln();
       }
       if (prop.hasSetter) {
-        final setParamType = isBool ? 'Int8' : swiftType;
+        final setParamType = isBool
+            ? 'Int8'
+            : isString
+                ? 'UnsafePointer<CChar>?'
+                : swiftType;
         s.writeln('@_cdecl("_call_set_${prop.dartName}")');
         s.writeln(
           'public func _call_set_${prop.dartName}(_ value: $setParamType) {',
@@ -210,6 +260,10 @@ class SwiftGenerator {
         if (isBool) {
           s.writeln(
             '    ${spec.dartClassName}Registry.impl?.${prop.dartName} = value != 0',
+          );
+        } else if (isString) {
+          s.writeln(
+            '    ${spec.dartClassName}Registry.impl?.${prop.dartName} = value.map { String(cString: \$0) } ?? ""',
           );
         } else {
           s.writeln(
@@ -254,18 +308,31 @@ class SwiftGenerator {
     return s.toString();
   }
 
-  /// Return type for a `@_cdecl` function.
-  /// - `bool` → `Int8` (matches C's `int8_t`)
-  /// - struct (sync or async) → `UnsafeMutableRawPointer?` (matches C's `void*`)
-  /// - async void → `Void`
-  /// - everything else → same as `_toSwiftType`
+  /// Return type for a `@_cdecl` function — must be a C-ABI-compatible type.
+  /// - `void`   → `Void`
+  /// - `bool`   → `Int8`
+  /// - `String` → `UnsafeMutablePointer<CChar>?`  (malloc'd; Dart calls free())
+  /// - struct   → `UnsafeMutableRawPointer?`       (heap-allocated Swift struct)
+  /// - others   → same as `_toSwiftType`
   static String _toCDeclReturnType(BridgeSpec spec, BridgeFunction func) {
     final name = func.returnType.name.replaceFirst('?', '');
     if (name == 'void') return 'Void';
     if (name == 'bool') return 'Int8';
+    if (name == 'String') return 'UnsafeMutablePointer<CChar>?';
     if (spec.structs.any((st) => st.name == name)) {
       return 'UnsafeMutableRawPointer?';
     }
+    return _toSwiftType(spec, name);
+  }
+
+  /// Parameter type for a `@_cdecl` function — must be a C-ABI-compatible type.
+  /// - `String` → `UnsafePointer<CChar>?`  (C `const char*`)
+  /// - `bool`   → `Int8`
+  /// - others   → same as `_toSwiftType`
+  static String _toCDeclParamType(BridgeSpec spec, String typeName) {
+    final name = typeName.replaceFirst('?', '');
+    if (name == 'String') return 'UnsafePointer<CChar>?';
+    if (name == 'bool') return 'Int8';
     return _toSwiftType(spec, name);
   }
 
@@ -325,7 +392,7 @@ class SwiftGenerator {
       case 'bool':
         return '0';
       case 'String':
-        return '""';
+        return 'strdup("")';
       default:
         if (spec.enums.any((en) => en.name == name)) return '0';
         if (spec.structs.any((st) => st.name == name)) return 'nil';

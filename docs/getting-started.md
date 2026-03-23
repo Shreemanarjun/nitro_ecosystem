@@ -159,7 +159,7 @@ abstract class MySensor extends HybridObject {
 
 ### Supported types
 
-| Dart | C | Kotlin | Swift |
+| Dart | C | Kotlin | Swift (protocol / `*Impl.swift`) |
 |---|---|---|---|
 | `int` | `int64_t` | `Long` | `Int64` |
 | `double` | `double` | `Double` | `Double` |
@@ -172,6 +172,18 @@ abstract class MySensor extends HybridObject {
 | `@HybridStruct` | `YourStruct*` | data class | struct |
 
 Nullable variants (`String?`, `int?`) are also accepted.
+
+> **iOS / Swift — `@_cdecl` bridge types are different from protocol types.**
+> The Swift column above is what you use in `*Impl.swift`. The generated `@_cdecl`
+> functions that connect C++ to your protocol use C-ABI-compatible types instead:
+>
+> | Spec type | `@_cdecl` param | `@_cdecl` return |
+> |---|---|---|
+> | `String` | `UnsafePointer<CChar>?` | `UnsafeMutablePointer<CChar>?` (malloc'd) |
+> | `Bool` | `Int8` | `Int8` |
+>
+> This is handled entirely by the generator — you never write these types yourself.
+> Full details: **[docs/swift-type-mapping.md](swift-type-mapping.md)**
 
 ---
 
@@ -311,7 +323,12 @@ ndk.dir=/Users/you/Library/Android/sdk/ndk/26.1.10909125
 
 Open `ios/Classes/MySensorImpl.swift` (created automatically by `nitrogen init` as a starter).
 
-The generated `my_sensor.bridge.g.swift` contains the `HybridMySensorProtocol` you must implement:
+The generated `my_sensor.bridge.g.swift` contains the `HybridMySensorProtocol` you must implement.
+
+> **Important:** Always use **native Swift types** in your `*Impl.swift` — `String`, `Bool`, `Double`,
+> etc. The generated `@_cdecl` bridge converts those to/from C-compatible types automatically.
+> Using `UnsafePointer<CChar>?` or `Int8` in your implementation is **wrong** and unnecessary.
+> See [docs/swift-type-mapping.md](swift-type-mapping.md) for the full story.
 
 ```swift
 import Foundation
@@ -593,6 +610,24 @@ The generator will emit a `// TODO:` comment anywhere it cannot infer the correc
 - Verify `ios/Classes/<plugin>.bridge.g.swift` is a symlink pointing to `../../lib/src/generated/swift/<plugin>.bridge.g.swift`
 - Verify `ios/Classes/dart_api_dl.c` exists (not `.cpp`) — C++ rejects the `void*`/function-pointer cast inside it
 - If you see `HybridXxxProtocol not found in scope` — the symlink is dangling; run `nitrogen generate` first to create the generated Swift file, then rebuild
+
+### `EXC_BAD_ACCESS` on first iOS call that involves a `String`
+
+**Cause:** The `@_cdecl` bridge was generated (or manually written) with `String` as a
+parameter or return type. `String` is a 24-byte Swift fat struct; C passes an 8-byte
+pointer. Swift reads garbage memory → instant crash.
+
+**Fix:**
+
+```sh
+nitrogen generate   # regenerates bridge.g.swift with correct UnsafePointer<CChar>? types
+pod install         # re-installs with the new generated file
+```
+
+If you see this in a manually edited `bridge.g.swift`, look for any `@_cdecl` function
+that uses `String` — replace with `UnsafePointer<CChar>?` (parameter) or
+`UnsafeMutablePointer<CChar>?` + `strdup()` (return). See
+[docs/swift-type-mapping.md](swift-type-mapping.md) for exact patterns.
 
 ### `Method cannot be marked @objc because the type of the parameter cannot be represented in Objective-C`
 

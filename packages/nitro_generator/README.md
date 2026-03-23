@@ -186,6 +186,7 @@ public struct VideoFrame {
 
 public protocol HybridMyPluginProtocol: AnyObject {
   func add(a: Int64, b: Int64) -> Int64
+  // Protocol uses native Swift types — String, Bool, etc.
   func processFile(path: String, quality: Int64) async throws -> String
   var frames: AnyPublisher<VideoFrame, Never> { get }
   var zoom: Double { get set }
@@ -197,23 +198,40 @@ public class MyPluginRegistry {
   public static func register(_ impl: HybridMyPluginProtocol) { ... }
 }
 
-// C-bridge stubs — exported as C symbols, called by the generated .cpp shim
+// C-bridge stubs — exported as C symbols, called by the generated .cpp shim.
+// ⚠️  @_cdecl functions must use C-ABI-compatible types, NOT native Swift types:
+//   String param  →  UnsafePointer<CChar>?          (C: const char*)
+//   String return →  UnsafeMutablePointer<CChar>?    (C: char*, malloc'd via strdup)
+//   Bool param    →  Int8                            (C: int8_t)
+// See docs/swift-type-mapping.md for the full table.
 @_cdecl("_call_add")
 public func _call_add(_ a: Int64, _ b: Int64) -> Int64 {
   return MyPluginRegistry.impl?.add(a: a, b: b) ?? 0
 }
 
-// Async functions use DispatchSemaphore + Task.detached to bridge async → sync C ABI
+// Async: DispatchSemaphore + Task.detached bridges Swift async → synchronous C ABI.
+// String params/returns use C pointer types; conversion happens at the boundary.
 @_cdecl("_call_processFile")
-public func _call_processFile(_ path: String, _ quality: Int64) -> String {
-  guard let impl = MyPluginRegistry.impl else { return "" }
+public func _call_processFile(
+    _ path: UnsafePointer<CChar>?,  // const char* from C
+    _ quality: Int64
+) -> UnsafeMutablePointer<CChar>? { // char* returned to C — Dart calls free()
+  let pathStr = path.map { String(cString: $0) } ?? ""
+  guard let impl = MyPluginRegistry.impl else { return strdup("") }
   let sema = DispatchSemaphore(value: 0)
-  var result: String? = nil
-  Task.detached { result = try? await impl.processFile(path: path, quality: quality); sema.signal() }
+  var result = ""
+  Task.detached {
+    result = (try? await impl.processFile(path: pathStr, quality: quality)) ?? ""
+    sema.signal()
+  }
   sema.wait()
-  return result ?? ""
+  return strdup(result)  // malloc-allocated — paired with Dart's toDartStringWithFree()
 }
 ```
+
+> **Key point:** Your `*Impl.swift` always uses clean Swift types (`String`, `Bool`, etc.).
+> The C-type conversion is entirely within the generated bridge — you never see it.
+> See [docs/swift-type-mapping.md](../../docs/swift-type-mapping.md) for the complete reference.
 
 ---
 

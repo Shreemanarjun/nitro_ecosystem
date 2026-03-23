@@ -1393,13 +1393,134 @@ void main() {
       expect(out, contains('sema.wait()'));
     });
 
-    test('async non-struct non-void return uses result var + semaphore', () {
+    test('async String return uses strdup + empty string fallback', () {
       final out = SwiftGenerator.generate(_simpleSpec());
       // getGreeting is async String
       expect(out, contains('@_cdecl("_call_getGreeting")'));
       expect(out, contains('DispatchSemaphore(value: 0)'));
-      expect(out, contains('var result: String? = nil'));
-      expect(out, contains('return result ??'));
+      // New correct pattern: var result = "" (not String? = nil)
+      expect(out, contains('var result = ""'));
+      expect(out, contains('return strdup(result)'));
+      // Guard when impl is nil must return strdup(""), not nil
+      expect(out, contains('return strdup("")'));
+    });
+
+    // ── String C-ABI type correctness ─────────────────────────────────────────
+
+    test('String param in @_cdecl uses UnsafePointer<CChar>? not String', () {
+      // _simpleSpec().getGreeting has param name: String
+      final out = SwiftGenerator.generate(_simpleSpec());
+      expect(out, contains('_ name: UnsafePointer<CChar>?'));
+      // Bare "String" must NOT appear as a @_cdecl param type
+      expect(
+        out,
+        isNot(contains('_ name: String')),
+      );
+    });
+
+    test('async String return type is UnsafeMutablePointer<CChar>? not String',
+        () {
+      final out = SwiftGenerator.generate(_simpleSpec());
+      // getGreeting async -> String: return type must be C pointer
+      expect(out, contains('-> UnsafeMutablePointer<CChar>?'));
+      // Swift's fat String must NOT appear as @_cdecl return type
+      final cdeclLine = out
+          .split('\n')
+          .where((l) => l.contains('public func _call_getGreeting('))
+          .join();
+      expect(cdeclLine, isNot(contains('-> String')));
+    });
+
+    test('String param conversion emitted before call', () {
+      final out = SwiftGenerator.generate(_simpleSpec());
+      // Conversion: UnsafePointer<CChar>? -> Swift String
+      expect(
+        out,
+        contains('let nameStr = name.map { String(cString: \$0) } ?? ""'),
+      );
+      // callArgs must use converted local var, not the raw pointer
+      expect(out, contains('name: nameStr'));
+    });
+
+    test('sync String return uses strdup', () {
+      // _richSpec().label() is sync String param + String return
+      final out = SwiftGenerator.generate(_richSpec());
+      expect(out, contains('@_cdecl("_call_label")'));
+      expect(out, contains('return strdup('));
+    });
+
+    test('sync String return does not directly return Swift String', () {
+      final out = SwiftGenerator.generate(_richSpec());
+      // Ensure the sync label stub doesn't "return impl?.label(...)" bare
+      final labelLines = out
+          .split('\n')
+          .skipWhile((l) => !l.contains('@_cdecl("_call_label")'))
+          .take(10)
+          .join('\n');
+      expect(labelLines, contains('strdup('));
+      expect(labelLines, isNot(contains('return SensorRegistry.impl?.label')));
+    });
+
+    test('String property getter returns UnsafeMutablePointer<CChar>?', () {
+      // _enumSpec().config is a String read-write property
+      final out = SwiftGenerator.generate(_enumSpec());
+      expect(out, contains('@_cdecl("_call_get_config")'));
+      expect(
+        out,
+        contains(
+          'public func _call_get_config() -> UnsafeMutablePointer<CChar>?',
+        ),
+      );
+    });
+
+    test('String property getter uses strdup', () {
+      final out = SwiftGenerator.generate(_enumSpec());
+      // Must use strdup to malloc-allocate the returned C string
+      final getLines = out
+          .split('\n')
+          .skipWhile((l) => !l.contains('@_cdecl("_call_get_config")'))
+          .take(5)
+          .join('\n');
+      expect(getLines, contains('strdup('));
+    });
+
+    test('String property setter param is UnsafePointer<CChar>?', () {
+      final out = SwiftGenerator.generate(_enumSpec());
+      expect(out, contains('@_cdecl("_call_set_config")'));
+      expect(
+        out,
+        contains(
+          'public func _call_set_config(_ value: UnsafePointer<CChar>?)',
+        ),
+      );
+    });
+
+    test('String property setter converts with String(cString:)', () {
+      final out = SwiftGenerator.generate(_enumSpec());
+      expect(
+        out,
+        contains(
+          'value.map { String(cString: \$0) } ?? ""',
+        ),
+      );
+    });
+
+    test('no @_cdecl function uses bare Swift String as param or return', () {
+      // Regression: ensure the generator never emits String as a @_cdecl type
+      final out = SwiftGenerator.generate(_simpleSpec());
+      final cdeclFuncLines = <String>[];
+      var inCdecl = false;
+      for (final line in out.split('\n')) {
+        if (line.contains('@_cdecl(')) inCdecl = true;
+        if (inCdecl) {
+          cdeclFuncLines.add(line);
+          if (line.contains(')') && line.contains('->')) inCdecl = false;
+        }
+      }
+      final sig = cdeclFuncLines.join(' ');
+      // @_cdecl param signature must not contain bare ": String" or "-> String"
+      expect(sig, isNot(matches(r':\s+String[,\)]')));
+      expect(sig, isNot(contains('-> String')));
     });
 
     test('registry stores stream cancellables', () {
