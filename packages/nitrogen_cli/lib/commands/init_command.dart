@@ -6,6 +6,18 @@ import 'package:path/path.dart' as p;
 import '../ui.dart';
 import 'link_command.dart' show resolveNitroNativePath, dartApiDlForwarderContent;
 
+// ── CMakeLists.txt updater ────────────────────────────────────────────────────
+
+/// Replaces the `set(NITRO_NATIVE "...")` line in [content] with [newPath].
+/// Returns the updated content. If no such line exists, returns [content] unchanged.
+/// Idempotent — running twice produces the same result, no duplicates.
+String updateCMakeNitroNative(String content, String newPath) {
+  return content.replaceFirst(
+    RegExp(r'set\(NITRO_NATIVE "[^"]*"\)'),
+    'set(NITRO_NATIVE "$newPath")',
+  );
+}
+
 // ── pub.dev version resolver ──────────────────────────────────────────────────
 
 Future<String> _fetchPubVersion(String package) async {
@@ -434,11 +446,9 @@ class _InitViewState extends State<InitView> {
     // Replace the NITRO_NATIVE cmake variable with the resolved absolute path.
     final cmakeFile = File(p.join(pluginName, 'src', 'CMakeLists.txt'));
     if (cmakeFile.existsSync()) {
-      final updated = cmakeFile.readAsStringSync().replaceFirst(
-            RegExp(r'set\(NITRO_NATIVE "[^"]*"\)'),
-            'set(NITRO_NATIVE "$nitroNativePath")',
-          );
-      cmakeFile.writeAsStringSync(updated);
+      cmakeFile.writeAsStringSync(
+        updateCMakeNitroNative(cmakeFile.readAsStringSync(), nitroNativePath),
+      );
     }
   }
 
