@@ -547,11 +547,11 @@ class DoctorCommand extends Command {
         }
       }
 
-      final dartApiDl = File(p.join('ios', 'Classes', 'dart_api_dl.cpp'));
+      final dartApiDl = File(p.join('ios', 'Classes', 'dart_api_dl.c'));
       if (dartApiDl.existsSync()) {
-        ok(iosSec, 'ios/Classes/dart_api_dl.cpp present');
+        ok(iosSec, 'ios/Classes/dart_api_dl.c present');
       } else {
-        err(iosSec, 'ios/Classes/dart_api_dl.cpp missing',
+        err(iosSec, 'ios/Classes/dart_api_dl.c missing',
             hint: 'Run: nitrogen link');
       }
     }
