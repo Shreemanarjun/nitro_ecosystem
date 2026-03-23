@@ -9,6 +9,78 @@ import 'dart:async';
 import 'dart:convert';
 import 'package:nocterm/nocterm.dart';
 
+// ── Shared discovery ─────────────────────────────────────────────────────────
+
+/// Searches for a Nitro project root. Checks the current directory first,
+/// then direct subdirectories. Returns the Directory if a pubspec.yaml
+/// containing 'nitro' is found.
+Directory? findNitroProjectRoot() {
+  // 1. Check current directory
+  if (_isNitroRoot(Directory.current)) return Directory.current;
+
+  // 2. Check direct subdirectories (common in monorepos or after init)
+  try {
+    for (final entity in Directory.current.listSync()) {
+      if (entity is Directory && _isNitroRoot(entity)) {
+        return entity;
+      }
+    }
+  } catch (_) {}
+
+  return null;
+}
+
+bool _isNitroRoot(Directory dir) {
+  final pubspec = File('${dir.path}/pubspec.yaml');
+  if (!pubspec.existsSync()) return false;
+  final content = pubspec.readAsStringSync();
+  return content.contains('nitro:') || content.contains('nitro_generator:');
+}
+
+// ── nocterm UI Components ──────────────────────────────────────────────────
+
+class HoverButton extends StatefulComponent {
+  const HoverButton({
+    required this.label,
+    required this.onTap,
+    this.color = Colors.cyan,
+  });
+
+  final String label;
+  final VoidCallback onTap;
+  final Color color;
+
+  @override
+  State<HoverButton> createState() => _HoverButtonState();
+}
+
+class _HoverButtonState extends State<HoverButton> {
+  bool _isHovering = false;
+
+  @override
+  Component build(BuildContext context) {
+    return GestureDetector(
+      onTap: component.onTap,
+      child: MouseRegion(
+        onEnter: (_) => setState(() => _isHovering = true),
+        onExit: (_) => setState(() => _isHovering = false),
+        child: Container(
+          decoration: BoxDecoration(
+            color: _isHovering ? Colors.brightBlack : null,
+          ),
+          child: Text(
+            component.label,
+            style: TextStyle(
+              color: _isHovering ? Colors.magenta : component.color,
+              fontWeight: FontWeight.bold,
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
 // ── Styled text helpers ──────────────────────────────────────────────────────
 
 String _s(String t, TextStyle style) {

@@ -3,6 +3,7 @@ import 'dart:io';
 import 'package:args/command_runner.dart';
 import 'package:nocterm/nocterm.dart';
 import 'package:path/path.dart' as p;
+import '../ui.dart';
 
 // ── Package-level helpers (also used in tests) ─────────────────────────────
 
@@ -346,10 +347,24 @@ class _LinkViewState extends State<LinkView> {
                           ),
                         ),
                   ],
-                  const Text(
-                    'Press any key to exit',
-                    style: TextStyle(
-                        color: Colors.gray, fontWeight: FontWeight.dim),
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      if (component.onExit != null) ...[
+                        HoverButton(
+                          label: '‹ Back',
+                          onTap: component.onExit!,
+                          color: Colors.cyan,
+                        ),
+                        const Text('  •  ',
+                            style: TextStyle(color: Colors.brightBlack)),
+                      ],
+                      const Text(
+                        'Press any key to exit',
+                        style: TextStyle(
+                            color: Colors.gray, fontWeight: FontWeight.dim),
+                      ),
+                    ],
                   ),
                 ],
               ),
@@ -741,13 +756,24 @@ class LinkCommand extends Command {
 
   @override
   Future<void> run() async {
-    final pubspecFile = File('pubspec.yaml');
-    if (!pubspecFile.existsSync()) {
+    final projectDir = findNitroProjectRoot();
+    if (projectDir == null) {
       stderr.writeln(
-          '❌ No pubspec.yaml found. Run this from the root of a Flutter plugin.');
+          '❌ No Nitro project found in . or its subdirectories (must have nitro dependency in pubspec.yaml).');
       exit(1);
     }
+
+    final pubspecFile = File(p.join(projectDir.path, 'pubspec.yaml'));
     final pluginName = _getPluginName(pubspecFile);
+
+    // Change working directory so that LinkView logic (File('ios'), etc) works correctly.
+    Directory.current = projectDir;
+
+    if (projectDir.path != Directory.current.path) {
+      stdout.writeln(
+          '  \x1B[90m📂 Found project in: ${projectDir.path}\x1B[0m');
+    }
+
     final result = LinkResult();
     await runApp(LinkView(pluginName: pluginName, result: result));
 

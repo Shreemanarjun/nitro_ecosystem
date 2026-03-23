@@ -1,3 +1,15 @@
+## 0.1.10
+
+- **Editor Quick Links**: Instantly open your active Nitro project in VS Code or Antigravity via clickable links in the dashboard header or the `nitrogen open` command.
+- **Smart Project Discovery**:
+  - `generate`, `link`, and `doctor` commands now automatically search for a Nitro project in the current directory and its direct subdirectories. This allows running Nitrogen commands from a parent folder (e.g., right after `init`) without needing to manually `cd`.
+  - Dashboard now reflects the active project found in subdirectories.
+- **Improved Navigation**: Added visible `‹ Back` buttons to all menu views (Init, Doctor, Link, and Generate) for easier dashboard navigation.
+- **UI Stability Fix**:
+  - Fixed flickering and layout jumps in the "✨ SUCCESS ✨" pulse animation during generation and initialization.
+  - The success status now maintains a stable height, preventing the log view from shifting.
+- **TUI Menu Refinement**: Rearranged core commands with **Exit** consistently at the bottom and editor options moved to a cleaner header position.
+
 ## 0.1.9
 
 - **TUI Visual Overhaul (Neon Premium Theme)**:

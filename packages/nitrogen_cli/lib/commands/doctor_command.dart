@@ -3,6 +3,7 @@ import 'package:args/command_runner.dart';
 import 'package:nocterm/nocterm.dart';
 import 'package:path/path.dart' as p;
 import 'package:nitrogen_cli/version.dart';
+import '../ui.dart';
 
 // ── Data model ────────────────────────────────────────────────────────────────
 
@@ -235,10 +236,25 @@ class _DoctorViewState extends State<DoctorView> {
             child: Column(
               children: [
                 summary,
-                const Text(
-                  '  ↑↓ scroll   PgUp/PgDn page   ESC/Enter/q exit',
-                  style:
-                      TextStyle(color: Colors.gray, fontWeight: FontWeight.dim),
+                const SizedBox(height: 1),
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    if (component.onExit != null) ...[
+                      HoverButton(
+                        label: '‹ Back',
+                        onTap: component.onExit!,
+                        color: Colors.cyan,
+                      ),
+                      const Text('  •  ',
+                          style: TextStyle(color: Colors.brightBlack)),
+                    ],
+                    const Text(
+                      '↑↓ scroll   PgUp/PgDn   ESC exit',
+                      style: TextStyle(
+                          color: Colors.gray, fontWeight: FontWeight.dim),
+                    ),
+                  ],
                 ),
               ],
             ),
@@ -567,6 +583,21 @@ class DoctorCommand extends Command {
 
   @override
   Future<void> run() async {
+    final projectDir = findNitroProjectRoot();
+    if (projectDir == null) {
+      stderr.writeln(
+          '❌ No Nitro project found in . or its subdirectories (must have nitro dependency in pubspec.yaml).');
+      exit(1);
+    }
+
+    // Change working directory so that doctor checks (File('ios'), etc) work correctly.
+    Directory.current = projectDir;
+
+    if (projectDir.path != Directory.current.path) {
+      stdout.writeln(
+          '  \x1B[90m📂 Found project in: ${projectDir.path}\x1B[0m');
+    }
+
     final result = performChecks();
 
     await runApp(DoctorView(

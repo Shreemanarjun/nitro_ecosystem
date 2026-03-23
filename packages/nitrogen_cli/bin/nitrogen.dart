@@ -10,7 +10,9 @@ import 'package:nitrogen_cli/commands/generate_command.dart';
 import 'package:nitrogen_cli/commands/link_command.dart';
 import 'package:nitrogen_cli/commands/doctor_command.dart';
 import 'package:nitrogen_cli/commands/update_command.dart';
+import 'package:nitrogen_cli/commands/open_command.dart';
 import 'package:nitrogen_cli/version.dart';
+import 'package:nitrogen_cli/ui.dart';
 
 // ── Models ───────────────────────────────────────────────────────────────────
 
@@ -44,6 +46,18 @@ enum NitroCommand {
     'Self-update the Nitrogen CLI.',
     '/update',
     'Fetches the latest version of nitrogen from pub.dev.',
+  ),
+  openCode(
+    'Open in VS Code',
+    'Open project in VS Code.',
+    '/',
+    'Launches standard VS Code for development.',
+  ),
+  openAntigravity(
+    'Open in Antigravity',
+    'Open project in Antigravity.',
+    '/',
+    'Launches the Antigravity editor for AI-first development.',
   ),
   exit(
     'Exit',
@@ -96,7 +110,8 @@ void main(List<String> args) async {
     ..addCommand(GenerateCommand())
     ..addCommand(LinkCommand())
     ..addCommand(DoctorCommand())
-    ..addCommand(UpdateCommand());
+    ..addCommand(UpdateCommand())
+    ..addCommand(OpenCommand());
 
   try {
     await runner.run(args);
@@ -182,17 +197,21 @@ Future<void> _runTui() async {
           route<CommandRoute>(
             path: '/generate',
             parse: (_) => const CommandRoute(NitroCommand.generate),
-            builder: (context, _) => const ProcessView(
-              title: 'Nitrogen Generate',
-              executable: 'flutter',
-              args: [
-                'pub',
-                'run',
-                'build_runner',
-                'build',
-                '--delete-conflicting-outputs'
-              ],
-            ),
+            builder: (context, _) {
+              final info = _getProjectInfo();
+              return ProcessView(
+                title: 'Nitrogen Generate',
+                executable: 'flutter',
+                workingDirectory: info?.directory.path,
+                args: const [
+                  'pub',
+                  'run',
+                  'build_runner',
+                  'build',
+                  '--delete-conflicting-outputs'
+                ],
+              );
+            },
           ),
         ],
       ),
@@ -203,25 +222,48 @@ Future<void> _runTui() async {
 class ProjectInfo {
   final String name;
   final String version;
-  const ProjectInfo(this.name, this.version);
+  final Directory directory;
+  const ProjectInfo(this.name, this.version, this.directory);
 }
 
 ProjectInfo? _getProjectInfo() {
   try {
-    final pubspec = File('pubspec.yaml');
-    if (pubspec.existsSync()) {
-      String name = 'unknown';
-      String version = 'unknown';
-      for (final line in pubspec.readAsLinesSync()) {
-        if (line.startsWith('name: '))
-          name = line.replaceFirst('name: ', '').trim();
-        if (line.startsWith('version: '))
-          version = line.replaceFirst('version: ', '').trim();
+    // 1. Check current directory
+    final rootInfo = _parsePubspec(Directory.current);
+    if (rootInfo != null) return rootInfo;
+
+    // 2. Check direct subdirectories (common for monorepos or just-after-init)
+    for (final entity in Directory.current.listSync()) {
+      if (entity is Directory) {
+        final info = _parsePubspec(entity);
+        if (info != null) return info;
       }
-      return ProjectInfo(name, version);
     }
   } catch (_) {}
   return null;
+}
+
+ProjectInfo? _parsePubspec(Directory dir) {
+  final pubspecFile = File('${dir.path}/pubspec.yaml');
+  if (!pubspecFile.existsSync()) return null;
+
+  final content = pubspecFile.readAsStringSync();
+  // Ensure it's a Nitro project (has dependency or generator)
+  if (!content.contains('nitro:') && !content.contains('nitro_generator:')) {
+    return null;
+  }
+
+  String name = 'unknown';
+  String version = 'unknown';
+  for (final line in content.split('\n')) {
+    if (line.trim().startsWith('name: ')) {
+      name = line.replaceFirst('name: ', '').trim();
+    }
+    if (line.trim().startsWith('version: ')) {
+      version = line.replaceFirst('version: ', '').trim();
+    }
+  }
+  return ProjectInfo(name, version, dir);
 }
 
 Future<String> _getGitBranch() async {
@@ -280,24 +322,36 @@ class _NitroDashboardState extends State<NitroDashboard> {
     super.dispose();
   }
 
+  Future<void> _openEditor(String editor) async {
+    if (_project == null) return;
+    await openInEditor(editor, _project!.directory.path);
+  }
+
   @override
   Component build(BuildContext context) {
+    final menuCommands = NitroCommand.values
+        .where((c) =>
+            c != NitroCommand.openCode && c != NitroCommand.openAntigravity)
+        .toList();
+
     return Focusable(
       focused: true,
       onKeyEvent: (event) {
         if (event.logicalKey == LogicalKey.arrowDown) {
-          setState(() => _selectedIndex =
-              (_selectedIndex + 1) % NitroCommand.values.length);
+          setState(() {
+            _selectedIndex = (_selectedIndex + 1) % menuCommands.length;
+          });
           return true;
         }
         if (event.logicalKey == LogicalKey.arrowUp) {
-          setState(() => _selectedIndex =
-              (_selectedIndex - 1 + NitroCommand.values.length) %
-                  NitroCommand.values.length);
+          setState(() {
+            _selectedIndex =
+                (_selectedIndex - 1 + menuCommands.length) % menuCommands.length;
+          });
           return true;
         }
         if (event.logicalKey == LogicalKey.enter) {
-          final command = NitroCommand.values[_selectedIndex];
+          final command = menuCommands[_selectedIndex];
           if (command == NitroCommand.exit) {
             exit(0);
           } else {
@@ -324,10 +378,35 @@ class _NitroDashboardState extends State<NitroDashboard> {
                         fontWeight: FontWeight.bold,
                         color: _pulse ? Colors.magenta : Colors.cyan)),
                 if (_project != null)
-                  Text(
-                      'Active Project: ${_project!.name} (v${_project!.version})',
-                      style: const TextStyle(
-                          color: Colors.white, fontWeight: FontWeight.bold)),
+                  Padding(
+                    padding: const EdgeInsets.only(right: 1),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Text(
+                          'Active: ${_project!.name} (v${_project!.version})',
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                        const Text(' • ',
+                            style: TextStyle(color: Colors.brightBlack)),
+                        _EditorOption(
+                          label: 'Code',
+                          color: Colors.blue,
+                          onTap: () => _openEditor('code'),
+                        ),
+                        const Text(' • ',
+                            style: TextStyle(color: Colors.brightBlack)),
+                        _EditorOption(
+                          label: 'Antigravity',
+                          color: Colors.magenta,
+                          onTap: () => _openEditor('antigravity'),
+                        ),
+                      ],
+                    ),
+                  ),
               ],
             ),
           ),
@@ -349,14 +428,14 @@ class _NitroDashboardState extends State<NitroDashboard> {
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        for (var i = 0; i < NitroCommand.values.length; i++)
+                        for (var i = 0; i < menuCommands.length; i++)
                           _CommandItem(
-                            command: NitroCommand.values[i],
+                            command: menuCommands[i],
                             selected: i == _selectedIndex,
                             onSelected: () =>
                                 setState(() => _selectedIndex = i),
                             onTap: () {
-                              final cmd = NitroCommand.values[i];
+                              final cmd = menuCommands[i];
                               if (cmd == NitroCommand.exit) {
                                 exit(0);
                               } else {
@@ -453,47 +532,7 @@ class _NitroDashboardState extends State<NitroDashboard> {
   }
 }
 
-class HoverButton extends StatefulComponent {
-  const HoverButton({
-    required this.label,
-    required this.onTap,
-    this.color = Colors.cyan,
-  });
 
-  final String label;
-  final VoidCallback onTap;
-  final Color color;
-
-  @override
-  State<HoverButton> createState() => _HoverButtonState();
-}
-
-class _HoverButtonState extends State<HoverButton> {
-  bool _isHovering = false;
-
-  @override
-  Component build(BuildContext context) {
-    return GestureDetector(
-      onTap: component.onTap,
-      child: MouseRegion(
-        onEnter: (_) => setState(() => _isHovering = true),
-        onExit: (_) => setState(() => _isHovering = false),
-        child: Container(
-          decoration: BoxDecoration(
-            color: _isHovering ? Colors.brightBlack : null,
-          ),
-          child: Text(
-            component.label,
-            style: TextStyle(
-              color: _isHovering ? Colors.magenta : component.color,
-              fontWeight: _isHovering ? FontWeight.bold : FontWeight.bold,
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-}
 
 class _CommandItem extends StatefulComponent {
   const _CommandItem({
@@ -569,12 +608,14 @@ class ProcessView extends StatefulComponent {
     required this.title,
     required this.executable,
     required this.args,
+    this.workingDirectory,
     super.key,
   });
 
   final String title;
   final String executable;
   final List<String> args;
+  final String? workingDirectory;
 
   @override
   State<ProcessView> createState() => _ProcessViewState();
@@ -609,7 +650,11 @@ class _ProcessViewState extends State<ProcessView> {
     });
 
     try {
-      final process = await Process.start(component.executable, component.args);
+      final process = await Process.start(
+        component.executable,
+        component.args,
+        workingDirectory: component.workingDirectory,
+      );
 
       // Handle stdout
       process.stdout
@@ -688,13 +733,16 @@ class _ProcessViewState extends State<ProcessView> {
             ),
           ),
           const SizedBox(height: 1),
-          if (_successPulse)
+          // Keep the success layout stable even when pulsing to avoid flickering/jumps
+          if (_done && _exitCode == 0)
             Container(
               padding: const EdgeInsets.all(1),
-              child: const Text(
+              child: Text(
                 '  ✨ SUCCESS  ✨  ',
-                style:
-                    TextStyle(color: Colors.green, fontWeight: FontWeight.bold),
+                style: TextStyle(
+                  color: _successPulse ? Colors.green : Colors.black,
+                  fontWeight: FontWeight.bold,
+                ),
               ),
             ),
           Expanded(
@@ -732,7 +780,14 @@ class _ProcessViewState extends State<ProcessView> {
                         fontWeight: FontWeight.bold),
                   ),
                 const SizedBox(width: 2),
-                const Text('[ Press ESC to return ]',
+                HoverButton(
+                  label: '‹ Back',
+                  onTap: () =>
+                      context.unrouterAs<NitroRoute>().go(const RootRoute()),
+                  color: Colors.cyan,
+                ),
+                const SizedBox(width: 2),
+                const Text('[ ESC ]',
                     style: TextStyle(
                         color: Colors.gray, fontWeight: FontWeight.dim)),
               ],
@@ -740,6 +795,26 @@ class _ProcessViewState extends State<ProcessView> {
           ),
         ],
       ),
+    );
+  }
+}
+class _EditorOption extends StatelessComponent {
+  const _EditorOption({
+    required this.label,
+    required this.onTap,
+    this.color = Colors.blue,
+  });
+
+  final String label;
+  final VoidCallback onTap;
+  final Color color;
+
+  @override
+  Component build(BuildContext context) {
+    return HoverButton(
+      label: label,
+      onTap: onTap,
+      color: color,
     );
   }
 }

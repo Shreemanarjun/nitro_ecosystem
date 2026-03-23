@@ -3,6 +3,7 @@ import 'dart:io';
 import 'package:args/command_runner.dart';
 import 'package:nocterm/nocterm.dart';
 import 'package:path/path.dart' as p;
+import '../ui.dart';
 
 // ── pub.dev version resolver ──────────────────────────────────────────────────
 
@@ -369,10 +370,26 @@ class _InitViewState extends State<InitView> {
                             textAlign: TextAlign.center,
                             style: const TextStyle(color: Colors.gray),
                           ),
-                          const Text('Press any key to exit',
-                              style: TextStyle(
-                                  color: Colors.gray,
-                                  fontWeight: FontWeight.dim)),
+                          const SizedBox(height: 1),
+                          Row(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              if (component.onExit != null) ...[
+                                HoverButton(
+                                  label: '‹ Back',
+                                  onTap: component.onExit!,
+                                  color: Colors.cyan,
+                                ),
+                                const Text('  •  ',
+                                    style:
+                                        TextStyle(color: Colors.brightBlack)),
+                              ],
+                              const Text('Press any key to exit',
+                                  style: TextStyle(
+                                      color: Colors.gray,
+                                      fontWeight: FontWeight.dim)),
+                            ],
+                          ),
                         ],
                       ),
               ),

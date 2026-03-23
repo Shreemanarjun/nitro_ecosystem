@@ -13,9 +13,16 @@ class GenerateCommand extends Command {
   /// Executes the generation logic and returns the exit code.
   /// Does NOT call exit().
   Future<int> execute() async {
-    if (!File('pubspec.yaml').existsSync()) {
-      stderr.writeln(red('❌ No pubspec.yaml found.'));
+    final projectDir = findNitroProjectRoot();
+    if (projectDir == null) {
+      stderr.writeln(red(
+          '❌ No Nitro project found in . or its subdirectories (must have nitro dependency in pubspec.yaml).'));
       return 1;
+    }
+
+    // If we're not in the project root, let the user know we've found it
+    if (projectDir.path != Directory.current.path) {
+      stdout.writeln(gray('  📂 Found project in: ${projectDir.path}'));
     }
 
     stdout.writeln('');
@@ -26,7 +33,8 @@ class GenerateCommand extends Command {
 
     // ── pub get ─────────────────────────────────────────────────────────────
     stdout.writeln(cyan('  › flutter pub get …'));
-    var exitCode = await runStreaming('flutter', ['pub', 'get']);
+    var exitCode = await runStreaming('flutter', ['pub', 'get'],
+        workingDirectory: projectDir.path);
     if (exitCode != 0) {
       stderr.writeln(red('  ✘  flutter pub get failed (exit $exitCode)'));
       return exitCode;
@@ -36,13 +44,17 @@ class GenerateCommand extends Command {
     // ── build_runner ─────────────────────────────────────────────────────────
     stdout.writeln(cyan('  › build_runner build …'));
     stdout.writeln('');
-    exitCode = await runStreaming('flutter', [
-      'pub',
-      'run',
-      'build_runner',
-      'build',
-      '--delete-conflicting-outputs',
-    ]);
+    exitCode = await runStreaming(
+      'flutter',
+      [
+        'pub',
+        'run',
+        'build_runner',
+        'build',
+        '--delete-conflicting-outputs',
+      ],
+      workingDirectory: projectDir.path,
+    );
 
     stdout.writeln('');
     if (exitCode != 0) {
