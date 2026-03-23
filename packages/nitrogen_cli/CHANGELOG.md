@@ -1,4 +1,4 @@
-## 0.1.6
+## 0.1.0
 
 - Integrated interactive TUI dashboard using `nocterm`.
 - Added `nitrogen init` for scaffolding new Nitrogen FFI plugins.
