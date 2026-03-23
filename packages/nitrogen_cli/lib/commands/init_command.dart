@@ -12,7 +12,7 @@ class InitResult {
 
 // ── Progress model ────────────────────────────────────────────────────────────
 
-enum InitStepState { pending, running, done, failed }
+enum InitStepState { pending, running, done, failed, skipped }
 
 class InitStep {
   final String label;
@@ -45,6 +45,9 @@ class InitStepRow extends StatelessComponent {
       case InitStepState.failed:
         icon = '✘';
         color = Colors.red;
+      case InitStepState.skipped:
+        icon = '–';
+        color = Colors.gray;
     }
 
     return Padding(
@@ -101,6 +104,7 @@ class InitView extends StatefulComponent {
 
 class _InitViewState extends State<InitView> {
   late final List<InitStep> _steps = [
+    InitStep('Checking environment and target'),
     InitStep('Running flutter create'),
     InitStep('Setting up src/ directory'),
     InitStep('Configuring iOS'),
@@ -117,46 +121,40 @@ class _InitViewState extends State<InitView> {
   @override
   void initState() {
     super.initState();
-    _checkExisting();
+    Future.delayed(Duration.zero, _run);
   }
 
-  void _checkExisting() {
-    if (Directory(component.pluginName).existsSync()) {
-      setState(() => _needsConfirmation = true);
-    } else {
-      _run();
-    }
-  }
+  void _setRunning(int i) => setState(() => _steps[i].state = InitStepState.running);
+  void _setDone(int i, {String? detail}) => setState(() {
+        _steps[i].state = InitStepState.done;
+        _steps[i].detail = detail;
+      });
+  void _setFailed(int i, String msg) => setState(() {
+        _steps[i].state = InitStepState.failed;
+        _steps[i].detail = msg;
+        _failed = true;
+        _errorMessage = msg;
+      });
 
-  Future<void> _setRunning(int i) async {
-    setState(() => _steps[i].state = InitStepState.running);
-  }
-
-  Future<void> _setDone(int i, {String? detail}) async {
-    setState(() {
-      _steps[i].state = InitStepState.done;
-      _steps[i].detail = detail;
-    });
-  }
-
-  Future<void> _setFailed(int i, String msg) async {
-    setState(() {
-      _steps[i].state = InitStepState.failed;
-      _steps[i].detail = msg;
-      _failed = true;
-      _errorMessage = msg;
-    });
-  }
-
-  Future<void> _run() async {
+  Future<void> _run({bool force = false}) async {
     setState(() => _needsConfirmation = false);
-    
     final pluginName = component.pluginName;
+
+    // Step 0 — Check existing
+    _setRunning(0);
+    final dir = Directory(pluginName);
+    if (!force && dir.existsSync()) {
+      _setDone(0, detail: 'Target directory already exists');
+      setState(() => _needsConfirmation = true);
+      return;
+    }
+    _setDone(0, detail: 'Target area ready');
+
     final org = component.org;
     final className = _toClassName(pluginName);
 
-    // Step 0 — flutter create
-    await _setRunning(0);
+    // Step 1 — flutter create
+    _setRunning(1);
     final createResult = await Process.run('flutter', [
       'create',
       '--template=plugin_ffi',
@@ -165,36 +163,36 @@ class _InitViewState extends State<InitView> {
       pluginName,
     ]);
     if (createResult.exitCode != 0) {
-      await _setFailed(0, 'flutter create failed: ${createResult.stderr}');
+      _setFailed(1, 'flutter create failed: ${createResult.stderr}');
       setState(() => _finished = true);
       return;
     }
-    await _setDone(0, detail: 'Created $pluginName/');
+    _setDone(1, detail: 'Created $pluginName/');
 
-    // Step 1 — src/
-    await _setRunning(1);
+    // Step 2 — src/
+    _setRunning(2);
     _setupSrc(pluginName);
-    await _setDone(1, detail: 'src/CMakeLists.txt created');
+    _setDone(2, detail: 'src/CMakeLists.txt created');
 
-    // Step 2 — iOS
-    await _setRunning(2);
+    // Step 3 — iOS
+    _setRunning(3);
     _configureIos(pluginName, className);
-    await _setDone(2, detail: 'podspec + Swift${className}Plugin.swift');
+    _setDone(3, detail: 'podspec + Swift${className}Plugin.swift');
 
-    // Step 3 — Android
-    await _setRunning(3);
+    // Step 4 — Android
+    _setRunning(4);
     _configureAndroid(pluginName, className, org);
-    await _setDone(3, detail: 'build.gradle + ${className}Plugin.kt');
+    _setDone(4, detail: 'build.gradle + ${className}Plugin.kt');
 
-    // Step 4 — pubspec
-    await _setRunning(4);
+    // Step 5 — pubspec
+    _setRunning(5);
     _updatePubspec(pluginName, className, org);
-    await _setDone(4, detail: 'nitro, pluginClass entries added');
+    _setDone(5, detail: 'nitro, pluginClass entries added');
 
-    // Step 5 — bridge spec
-    await _setRunning(5);
+    // Step 6 — bridge spec
+    _setRunning(6);
     _writeBridgeSpec(pluginName, className);
-    await _setDone(5, detail: 'lib/src/$pluginName.native.dart');
+    _setDone(6, detail: 'lib/src/$pluginName.native.dart');
 
     component.result.success = true;
     setState(() => _finished = true);
@@ -203,7 +201,7 @@ class _InitViewState extends State<InitView> {
   bool _handleKey(KeyboardEvent e) {
     if (_needsConfirmation) {
       if (e.logicalKey == LogicalKey.keyY) {
-        _run();
+        _run(force: true);
         return true;
       }
       if (e.logicalKey == LogicalKey.keyN || e.logicalKey == LogicalKey.escape) {
@@ -246,7 +244,7 @@ class _InitViewState extends State<InitView> {
               ),
             ),
           ),
-          const Padding(padding: EdgeInsets.only(bottom: 1), child: Text('')),
+          const SizedBox(height: 1),
           
           if (_needsConfirmation)
             Expanded(
@@ -259,13 +257,13 @@ class _InitViewState extends State<InitView> {
                       style: const TextStyle(color: Colors.yellow, fontWeight: FontWeight.bold),
                     ),
                     const SizedBox(height: 1),
-                    const Text('Do you want to force initialize and overwrite existing files?'),
+                    const Text('Force initialize and overwrite existing files?'),
                     const SizedBox(height: 1),
                     const Row(
                       mainAxisAlignment: MainAxisAlignment.center,
                       children: [
                         Text('[Y]', style: TextStyle(color: Colors.green, fontWeight: FontWeight.bold)),
-                        Text(' Yes, Force Initialize   '),
+                        Text(' Yes, Overwrite   '),
                         Text('[N]', style: TextStyle(color: Colors.red, fontWeight: FontWeight.bold)),
                         Text(' No, Cancel'),
                       ],
@@ -291,7 +289,7 @@ class _InitViewState extends State<InitView> {
             ),
             if (_finished)
               Padding(
-                padding: const EdgeInsets.only(top: 1, bottom: 1, left: 1, right: 1),
+                padding: const EdgeInsets.all(1),
                 child: _failed
                     ? Text('✘ Scaffolding failed: ${_errorMessage ?? ""}',
                         style: const TextStyle(color: Colors.red, fontWeight: FontWeight.bold))
@@ -303,14 +301,11 @@ class _InitViewState extends State<InitView> {
                             '  1. Edit lib/src/${component.pluginName}.native.dart\n'
                             '  2. Run: nitrogen generate\n'
                             '  3. Run: nitrogen link\n'
-                            '  4. Implement Hybrid${_toClassName(component.pluginName)}Spec in Kotlin & Swift\n'
-                            '  5. Run: nitrogen doctor',
+                            '  4. Implement Hybrid${_toClassName(component.pluginName)}Spec in Kotlin & Swift',
+                            textAlign: TextAlign.center,
                             style: const TextStyle(color: Colors.gray),
                           ),
-                          const Text(
-                            'Press any key to exit',
-                            style: TextStyle(color: Colors.gray, fontWeight: FontWeight.dim),
-                          ),
+                          const Text('Press any key to exit', style: TextStyle(color: Colors.gray, fontWeight: FontWeight.dim)),
                         ],
                       ),
               ),
@@ -339,7 +334,6 @@ class _InitViewState extends State<InitView> {
 #include "../lib/src/generated/cpp/$pluginName.bridge.g.cpp"
 
 extern "C" {
-    // Add manual non-Nitrogen FFI functions here.
 }
 ''');
 
@@ -560,35 +554,25 @@ class InitCommand extends Command {
   final String name = 'init';
 
   @override
-  final String description =
-      'Scaffolds a new Nitrogen FFI plugin with full native wiring '
-      '(build.gradle, Plugin.kt, Swift plugin, podspec, pubspec).';
+  final String description = 'Scaffolds a new Nitrogen FFI plugin.';
 
   InitCommand() {
-    argParser.addOption('org',
-        defaultsTo: 'com.example',
-        help: 'The organization (e.g., com.mycompany) for the plugin.');
+    argParser.addOption('org', defaultsTo: 'com.example');
   }
 
   @override
   Future<void> run() async {
     if (argResults!.rest.isEmpty) {
-      stderr.writeln('❌ Please provide a plugin name: nitrogen init <plugin_name>');
+      stderr.writeln('❌ Please provide a plugin name');
       exit(1);
     }
-
     final pluginName = argResults!.rest.first;
     final org = argResults!['org'] as String;
-
     final result = InitResult();
     await runApp(InitView(pluginName: pluginName, org: org, result: result));
-
     if (result.success) {
-      stdout.writeln('');
-      stdout.writeln('  \x1B[1;32m✨ ${pluginName} created\x1B[0m  — cd $pluginName && nitrogen generate');
-      stdout.writeln('');
-    } else if (result.errorMessage != null) {
-      stderr.writeln('  \x1B[1;31m✘  ${result.errorMessage}\x1B[0m');
+      stdout.writeln('  \x1B[1;32m✨ ${pluginName} created\x1B[0m');
+    } else {
       exit(1);
     }
   }

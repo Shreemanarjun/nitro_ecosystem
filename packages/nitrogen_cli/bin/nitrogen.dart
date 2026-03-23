@@ -4,7 +4,6 @@ import 'dart:async';
 import 'package:args/command_runner.dart';
 import 'package:nocterm/nocterm.dart';
 import 'package:nocterm_unrouter/nocterm_unrouter.dart';
-import 'package:path/path.dart' as p;
 
 import 'package:nitrogen_cli/commands/init_command.dart';
 import 'package:nitrogen_cli/commands/generate_command.dart';
@@ -114,7 +113,7 @@ Future<void> _runTui() async {
             path: '/init',
             parse: (_) => const CommandRoute(NitroCommand.init),
             builder: (context, _) => InitView(
-              pluginName: 'my_nitro_plugin', // TODO: Add input modal
+              pluginName: 'my_nitro_plugin',
               org: 'com.example',
               result: InitResult(),
               onExit: () =>
@@ -162,10 +161,7 @@ Future<void> _runTui() async {
             path: '/update',
             parse: (_) => const CommandRoute(NitroCommand.update),
             builder: (context, _) {
-              final scriptPath = Platform.script.toFilePath();
-              final repoRoot = _findGitRoot(p.dirname(scriptPath)) ?? '.';
               return UpdateView(
-                repoRoot: repoRoot,
                 result: UpdateResult(),
                 onExit: () =>
                     context.unrouterAs<NitroRoute>().go(const RootRoute()),
@@ -202,16 +198,6 @@ String _getPluginName(File pubspec) {
     }
   }
   return 'unknown';
-}
-
-String? _findGitRoot(String startDir) {
-  var dir = Directory(startDir);
-  while (true) {
-    if (Directory(p.join(dir.path, '.git')).existsSync()) return dir.path;
-    final parent = dir.parent;
-    if (parent.path == dir.path) return null;
-    dir = parent;
-  }
 }
 
 // ── Dashboard Component ──────────────────────────────────────────────────────

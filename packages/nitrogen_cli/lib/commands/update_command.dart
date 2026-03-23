@@ -1,7 +1,7 @@
 import 'dart:io';
+import 'dart:convert';
 import 'package:args/command_runner.dart';
 import 'package:nocterm/nocterm.dart';
-import 'package:path/path.dart' as p;
 
 // ── Step model ────────────────────────────────────────────────────────────────
 
@@ -80,19 +80,16 @@ class UpdateStepRow extends StatelessComponent {
 class UpdateResult {
   bool success = false;
   String? errorMessage;
-  String? pullSummary;
 }
 
 // ── nocterm Update component ──────────────────────────────────────────────────
 
 class UpdateView extends StatefulComponent {
   const UpdateView({
-    required this.repoRoot,
     required this.result,
     this.onExit,
     super.key,
   });
-  final String repoRoot;
   final UpdateResult result;
   final VoidCallback? onExit;
 
@@ -102,13 +99,17 @@ class UpdateView extends StatefulComponent {
 
 class _UpdateViewState extends State<UpdateView> {
   late final List<UpdateStep> _steps = [
-    UpdateStep('Checking current version'),
-    UpdateStep('Pulling latest changes'),
-    UpdateStep('Updating dependencies'),
+    UpdateStep('Checking current activation'),
+    UpdateStep('Checking pub.dev for updates'),
+    UpdateStep('Syncing local / Pulling from pub.dev'),
   ];
 
   bool _finished = false;
   bool _failed = false;
+  String? _currentVersion;
+  String? _latestVersion;
+  bool _isPathActivated = false;
+  String? _repoRoot;
 
   @override
   void initState() {
@@ -128,60 +129,63 @@ class _UpdateViewState extends State<UpdateView> {
       });
 
   Future<void> _run() async {
-    final repoRoot = component.repoRoot;
-    final pkgDir = p.join(repoRoot, 'packages', 'nitrogen_cli');
-
-    // Step 0 — current commit
+    // Step 0 — Check activation
     _setRunning(0);
-    final logResult = await Process.run(
-      'git', ['log', '--oneline', '-1'],
-      workingDirectory: repoRoot,
-    );
-    final currentCommit = (logResult.stdout as String).trim();
-    _setDone(0, detail: currentCommit.isEmpty ? 'unknown' : currentCommit);
-
-    // Step 1 — git pull
-    _setRunning(1);
-    final pullResult = await Process.run(
-      'git', ['pull', '--ff-only'],
-      workingDirectory: repoRoot,
-    );
-    if (pullResult.exitCode != 0) {
-      _setFailed(1, (pullResult.stderr as String).trim().split('\n').first);
-      _fail('git pull failed');
-      return;
-    }
-    final pullOut = (pullResult.stdout as String).trim();
-    if (pullOut.contains('Already up to date')) {
-      _setDone(1, detail: 'Already up to date');
-      component.result.pullSummary = 'Already up to date';
+    final listResult = await Process.run('dart', ['pub', 'global', 'list']);
+    final listOut = listResult.stdout as String;
+    final lines = listOut.split('\n');
+    final nitroLine = lines.firstWhere((l) => l.contains('nitrogen_cli'), orElse: () => '');
+    
+    if (nitroLine.contains('at path')) {
+       _isPathActivated = true;
+       _repoRoot = nitroLine.split('"')[1];
+       _setDone(0, detail: 'Path activated: $_repoRoot');
     } else {
-      final lines = pullOut.split('\n');
-      final summary = lines.lastWhere((l) => l.trim().isNotEmpty,
-          orElse: () => pullOut);
-      _setDone(1, detail: summary);
-      component.result.pullSummary = summary;
+       _isPathActivated = false;
+        final versionMatch = RegExp(r'nitrogen_cli (\d+\.\d+\.\d+)').firstMatch(nitroLine);
+       _currentVersion = versionMatch?.group(1) ?? 'unknown';
+       _setDone(0, detail: 'Hosted: v$_currentVersion');
     }
 
-    // Step 2 — dart pub get
+    // Step 1 — Check pub.dev
+    _setRunning(1);
+    try {
+      final client = HttpClient();
+      final request = await client.getUrl(Uri.parse('https://pub.dev/api/packages/nitrogen_cli'));
+      final response = await request.close();
+      if (response.statusCode == 200) {
+        final body = await response.transform(utf8.decoder).join();
+        final json = jsonDecode(body);
+        _latestVersion = json['latest']['version'];
+        _setDone(1, detail: 'Latest: v$_latestVersion');
+      } else {
+        _setDone(1, detail: 'Skipped: pub.dev unreachable');
+      }
+    } catch (e) {
+      _setDone(1, detail: 'Skipped: $e');
+    }
+
+    // Step 2 — Update
     _setRunning(2);
-    final pubResult = await Process.run(
-      'dart', ['pub', 'get'],
-      workingDirectory: pkgDir,
-    );
-    if (pubResult.exitCode != 0) {
-      _setFailed(2, (pubResult.stderr as String).trim().split('\n').first);
-      _fail('dart pub get failed');
-      return;
+    if (_isPathActivated && _repoRoot != null) {
+      // Git pull if path activated
+      final pullResult = await Process.run('git', ['pull', '--ff-only'], workingDirectory: _repoRoot);
+      if (pullResult.exitCode == 0) {
+        _setDone(2, detail: 'Git pulled in $_repoRoot');
+      } else {
+        _setFailed(2, 'Git pull failed: ${pullResult.stderr}');
+      }
+    } else {
+      // Global activate if hosted
+      final activateResult = await Process.run('dart', ['pub', 'global', 'activate', 'nitrogen_cli']);
+      if (activateResult.exitCode == 0) {
+        _setDone(2, detail: 'Activated v${_latestVersion ?? "latest"} from pub.dev');
+      } else {
+        _setFailed(2, 'Activation failed: ${activateResult.stderr}');
+      }
     }
-    _setDone(2, detail: 'Dependencies resolved');
 
-    component.result.success = true;
-    setState(() => _finished = true);
-  }
-
-  void _fail(String msg) {
-    component.result.errorMessage = msg;
+    component.result.success = !_failed;
     setState(() => _finished = true);
   }
 
@@ -208,10 +212,7 @@ class _UpdateViewState extends State<UpdateView> {
               decoration: BoxDecoration(border: BoxBorder.all(color: Colors.cyan)),
               child: Padding(
                 padding: const EdgeInsets.symmetric(horizontal: 2),
-                child: Text(
-                  ' nitrogen update ',
-                  style: const TextStyle(color: Colors.cyan, fontWeight: FontWeight.bold),
-                ),
+                child: const Text(' nitrogen update ', style: TextStyle(color: Colors.cyan, fontWeight: FontWeight.bold)),
               ),
             ),
           ),
@@ -232,22 +233,13 @@ class _UpdateViewState extends State<UpdateView> {
           ),
           if (_finished)
             Padding(
-              padding: const EdgeInsets.only(top: 1, bottom: 1, left: 1, right: 1),
+              padding: const EdgeInsets.all(1),
               child: Column(
                 children: [
                   _failed
-                      ? Text(
-                          '✘  ${component.result.errorMessage ?? "Update failed"}',
-                          style: const TextStyle(color: Colors.red, fontWeight: FontWeight.bold),
-                        )
-                      : const Text(
-                          '✨ nitrogen is up to date!',
-                          style: TextStyle(color: Colors.green, fontWeight: FontWeight.bold),
-                        ),
-                  const Text(
-                    'Press any key to exit',
-                    style: TextStyle(color: Colors.gray, fontWeight: FontWeight.dim),
-                  ),
+                      ? const Text('✘ Update failed', style: TextStyle(color: Colors.red, fontWeight: FontWeight.bold))
+                      : const Text('✨ nitrogen is up to date!', style: TextStyle(color: Colors.green, fontWeight: FontWeight.bold)),
+                  const Text('Press any key to exit', style: TextStyle(color: Colors.gray, fontWeight: FontWeight.dim)),
                 ],
               ),
             ),
@@ -264,41 +256,17 @@ class UpdateCommand extends Command {
   final String name = 'update';
 
   @override
-  final String description =
-      'Self-updates the nitrogen CLI by pulling the latest git changes '
-      'and refreshing dependencies.';
+  final String description = 'Checks for updates and refreshes the Nitrogen CLI.';
 
   @override
   Future<void> run() async {
-    final scriptPath = Platform.script.toFilePath();
-    final scriptDir = p.dirname(scriptPath);
-    String? repoRoot = _findGitRoot(scriptDir);
-    if (repoRoot == null) {
-      stderr.writeln('Could not find git repository root from $scriptDir');
-      exit(1);
-    }
-
     final result = UpdateResult();
-    await runApp(UpdateView(repoRoot: repoRoot, result: result));
-
+    await runApp(UpdateView(result: result));
     if (result.success) {
-      stdout.writeln('');
-      stdout.writeln('  \x1B[1;32m✨ nitrogen updated\x1B[0m'
-          '${result.pullSummary != null && result.pullSummary != "Already up to date" ? " — ${result.pullSummary}" : ""}');
-      stdout.writeln('');
+      stdout.writeln('  \x1B[1;32m✨ nitrogen updated\x1B[0m');
     } else {
-      stderr.writeln('  \x1B[1;31m✘  Update failed: ${result.errorMessage ?? ""}\x1B[0m');
+      stderr.writeln('  \x1B[1;31m✘  Update failed\x1B[0m');
       exit(1);
-    }
-  }
-
-  String? _findGitRoot(String startDir) {
-    var dir = Directory(startDir);
-    while (true) {
-      if (Directory(p.join(dir.path, '.git')).existsSync()) return dir.path;
-      final parent = dir.parent;
-      if (parent.path == dir.path) return null;
-      dir = parent;
     }
   }
 }
