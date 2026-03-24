@@ -130,8 +130,7 @@ class ZeroCopyBuffer extends _ZeroCopyBufferBase {
   final Pointer<Uint8> ptr;
   final int length;
 
-  ZeroCopyBuffer(this.ptr, this.length, void Function() nativeRelease)
-      : super(nativeRelease) {
+  ZeroCopyBuffer(this.ptr, this.length, void Function() nativeRelease) : super(nativeRelease) {
     if (ptr != nullptr) {
       _finalizer.attach(this, nativeRelease, detach: this);
     }
@@ -146,8 +145,7 @@ class ZeroCopyBuffer extends _ZeroCopyBufferBase {
   @override
   void _releaseFinalizerToken() => _finalizer.detach(this);
 
-  static final Finalizer<void Function()> _finalizer =
-      Finalizer((r) => r());
+  static final Finalizer<void Function()> _finalizer = Finalizer((r) => r());
 }
 
 /// Zero-copy buffer backed by `int8_t*` — maps to [Int8List].
@@ -155,8 +153,7 @@ class ZeroCopyInt8Buffer extends _ZeroCopyBufferBase {
   final Pointer<Int8> ptr;
   final int length;
 
-  ZeroCopyInt8Buffer(this.ptr, this.length, void Function() nativeRelease)
-      : super(nativeRelease) {
+  ZeroCopyInt8Buffer(this.ptr, this.length, void Function() nativeRelease) : super(nativeRelease) {
     if (ptr != nullptr) _finalizer.attach(this, nativeRelease, detach: this);
   }
 
@@ -175,8 +172,7 @@ class ZeroCopyInt16Buffer extends _ZeroCopyBufferBase {
   final Pointer<Int16> ptr;
   final int length;
 
-  ZeroCopyInt16Buffer(this.ptr, this.length, void Function() nativeRelease)
-      : super(nativeRelease) {
+  ZeroCopyInt16Buffer(this.ptr, this.length, void Function() nativeRelease) : super(nativeRelease) {
     if (ptr != nullptr) _finalizer.attach(this, nativeRelease, detach: this);
   }
 
@@ -195,8 +191,7 @@ class ZeroCopyUint16Buffer extends _ZeroCopyBufferBase {
   final Pointer<Uint16> ptr;
   final int length;
 
-  ZeroCopyUint16Buffer(this.ptr, this.length, void Function() nativeRelease)
-      : super(nativeRelease) {
+  ZeroCopyUint16Buffer(this.ptr, this.length, void Function() nativeRelease) : super(nativeRelease) {
     if (ptr != nullptr) _finalizer.attach(this, nativeRelease, detach: this);
   }
 
@@ -215,8 +210,7 @@ class ZeroCopyInt32Buffer extends _ZeroCopyBufferBase {
   final Pointer<Int32> ptr;
   final int length;
 
-  ZeroCopyInt32Buffer(this.ptr, this.length, void Function() nativeRelease)
-      : super(nativeRelease) {
+  ZeroCopyInt32Buffer(this.ptr, this.length, void Function() nativeRelease) : super(nativeRelease) {
     if (ptr != nullptr) _finalizer.attach(this, nativeRelease, detach: this);
   }
 
@@ -235,8 +229,7 @@ class ZeroCopyUint32Buffer extends _ZeroCopyBufferBase {
   final Pointer<Uint32> ptr;
   final int length;
 
-  ZeroCopyUint32Buffer(this.ptr, this.length, void Function() nativeRelease)
-      : super(nativeRelease) {
+  ZeroCopyUint32Buffer(this.ptr, this.length, void Function() nativeRelease) : super(nativeRelease) {
     if (ptr != nullptr) _finalizer.attach(this, nativeRelease, detach: this);
   }
 
@@ -257,8 +250,7 @@ class ZeroCopyFloat32Buffer extends _ZeroCopyBufferBase {
   final Pointer<Float> ptr;
   final int length;
 
-  ZeroCopyFloat32Buffer(this.ptr, this.length, void Function() nativeRelease)
-      : super(nativeRelease) {
+  ZeroCopyFloat32Buffer(this.ptr, this.length, void Function() nativeRelease) : super(nativeRelease) {
     if (ptr != nullptr) _finalizer.attach(this, nativeRelease, detach: this);
   }
 
@@ -278,8 +270,7 @@ class ZeroCopyFloat64Buffer extends _ZeroCopyBufferBase {
   final Pointer<Double> ptr;
   final int length;
 
-  ZeroCopyFloat64Buffer(this.ptr, this.length, void Function() nativeRelease)
-      : super(nativeRelease) {
+  ZeroCopyFloat64Buffer(this.ptr, this.length, void Function() nativeRelease) : super(nativeRelease) {
     if (ptr != nullptr) _finalizer.attach(this, nativeRelease, detach: this);
   }
 
@@ -298,8 +289,7 @@ class ZeroCopyInt64Buffer extends _ZeroCopyBufferBase {
   final Pointer<Int64> ptr;
   final int length;
 
-  ZeroCopyInt64Buffer(this.ptr, this.length, void Function() nativeRelease)
-      : super(nativeRelease) {
+  ZeroCopyInt64Buffer(this.ptr, this.length, void Function() nativeRelease) : super(nativeRelease) {
     if (ptr != nullptr) _finalizer.attach(this, nativeRelease, detach: this);
   }
 

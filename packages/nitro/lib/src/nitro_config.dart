@@ -50,8 +50,7 @@ class NitroConfig {
   NitroLogLevel logLevel = NitroLogLevel.error;
 
   /// Resolved effective log level — respects [debugMode] override.
-  NitroLogLevel get effectiveLogLevel =>
-      debugMode ? NitroLogLevel.verbose : logLevel;
+  NitroLogLevel get effectiveLogLevel => debugMode ? NitroLogLevel.verbose : logLevel;
 
   // ── Log handler ───────────────────────────────────────────────────────────
 
@@ -62,8 +61,7 @@ class NitroConfig {
   ///
   /// The default implementation prints to `stdout` when [logLevel] is not
   /// [NitroLogLevel.none].
-  void Function(NitroLogLevel level, String tag, String message,
-      [Object? error, StackTrace? stack]) logHandler = _defaultLog;
+  void Function(NitroLogLevel level, String tag, String message, [Object? error, StackTrace? stack]) logHandler = _defaultLog;
 
   // ── Isolate pool ──────────────────────────────────────────────────────────
 

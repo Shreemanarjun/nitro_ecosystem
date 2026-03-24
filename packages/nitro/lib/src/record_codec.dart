@@ -81,8 +81,7 @@ class RecordWriter {
     List<T> items,
     void Function(RecordWriter w, T item) writeItem,
     Allocator alloc,
-  ) =>
-      encodeList(items, writeItem, alloc);
+  ) => encodeList(items, writeItem, alloc);
 }
 
 /// Streaming binary reader for @HybridRecord types.
@@ -168,6 +167,5 @@ class RecordReader {
   static List<T> decodePrimitiveList<T>(
     Pointer<Uint8> ptr,
     T Function(RecordReader r) readItem,
-  ) =>
-      decodeList(ptr, readItem);
+  ) => decodeList(ptr, readItem);
 }

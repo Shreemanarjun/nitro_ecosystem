@@ -65,21 +65,23 @@ class NitroRuntime {
 
   /// Checks if the last native call in [dylib] resulted in an error.
   /// If so, throws a [HybridException] and clears the error state.
-  static void checkError(DynamicLibrary dylib, {String getErrorName = 'NitroGetError', String clearErrorName = 'NitroClearError'}) {
+  static void checkError(
+    DynamicLibrary dylib, {
+    String getErrorName = 'NitroGetError',
+    String clearErrorName = 'NitroClearError',
+  }) {
     try {
-      final getErr = dylib.lookupFunction<Pointer<NitroErrorFfi> Function(),
-          Pointer<NitroErrorFfi> Function()>(getErrorName);
-      final clearErr = dylib.lookupFunction<Void Function(), void Function()>(
-          clearErrorName);
+      final getErr = dylib.lookupFunction<Pointer<NitroErrorFfi> Function(), Pointer<NitroErrorFfi> Function()>(
+        getErrorName,
+      );
+      final clearErr = dylib.lookupFunction<Void Function(), void Function()>(clearErrorName);
 
       final errPtr = getErr();
       if (errPtr.ref.hasError != 0) {
         final name = errPtr.ref.name.toDartString();
         final message = errPtr.ref.message.toDartString();
         final code = errPtr.ref.code != nullptr ? errPtr.ref.code.toDartString() : null;
-        final stack = errPtr.ref.stackTrace != nullptr
-            ? errPtr.ref.stackTrace.toDartString()
-            : null;
+        final stack = errPtr.ref.stackTrace != nullptr ? errPtr.ref.stackTrace.toDartString() : null;
 
         // Clear for next call
         clearErr();
@@ -129,10 +131,7 @@ class NitroRuntime {
     final poolSize = cfg.isolatePoolSize;
     final effective = cfg.effectiveLogLevel;
     // Only pay for timing when there's somewhere to send the result.
-    final sw = effective != NitroLogLevel.none &&
-            (effective == NitroLogLevel.verbose || cfg.slowCallThresholdUs > 0)
-        ? (Stopwatch()..start())
-        : null;
+    final sw = effective != NitroLogLevel.none && (effective == NitroLogLevel.verbose || cfg.slowCallThresholdUs > 0) ? (Stopwatch()..start()) : null;
 
     final T result;
     if (poolSize <= 0 || !_poolReady) {

@@ -11,4 +11,4 @@ linter:
     prefer_const_literals_to_create_immutables: true
 formatter:
   trailing_commas: preserve
-  page_width: 180
+  page_width: 220
