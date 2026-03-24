@@ -26,7 +26,7 @@ double verification_module_multiply(double a, double b);
 const char* verification_module_ping(const char* message);
 const char* verification_module_ping_async(const char* message);
 void verification_module_throw_error(const char* message);
-void* verification_module_process_floats(float* inputs);
+void* verification_module_process_floats(float* inputs, int64_t inputs_length);
 
 #ifdef __cplusplus
 }

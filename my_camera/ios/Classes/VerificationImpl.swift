@@ -16,13 +16,7 @@ public class VerificationModuleImpl: NSObject, HybridVerificationModuleProtocol 
     }
 
     public func throwError(message: String) {
-        // In Swift, throwing NSException or just causing an issue.
-        // Swift errors are caught if they are 'throws', but here it's not.
-        // Wait, my generator supports throws for async.
-        // For sync, we catch NSException or can use NitroSetError manually.
-        fatalError(message) // Note: this will crash! But it tests that Native crashes propagate if they are not caught.
-        // Actually, let's use a non-crashing way if possible or just test it.
-        // Actually, my bridge for iOS can catch NSException.
+        NSException.raise(.genericException, format: "%@", arguments: getVaList([message]))
     }
 
     public func processFloats(inputs: [Float]) -> FloatBuffer {

@@ -100,23 +100,25 @@ class DartFfiGenerator {
       );
 
       final callArgs = func.params
-          .map((p) {
+          .expand((p) {
             final t = p.type.name;
             if (p.type.isRecord) {
-              return _encodeRecordParam(p.type, p.name, 'arena');
+              return [_encodeRecordParam(p.type, p.name, 'arena')];
             }
-            if (p.type.isTypedData) return '${p.name}.toPointer(arena)';
+            if (p.type.isTypedData) {
+              return ['${p.name}.toPointer(arena)', '${p.name}.length'];
+            }
             if (t == 'String') {
-              return '${p.name}.toNativeUtf8(allocator: arena)';
+              return ['${p.name}.toNativeUtf8(allocator: arena)'];
             }
             if (spec.structs.any((st) => st.name == t)) {
-              return '${p.name}.toNative(arena).cast<Void>()';
+              return ['${p.name}.toNative(arena).cast<Void>()'];
             }
             if (spec.enums.any((en) => en.name == t)) {
-              return '${p.name}.nativeValue';
+              return ['${p.name}.nativeValue'];
             }
-            if (t == 'bool') return '${p.name} ? 1 : 0';
-            return p.name;
+            if (t == 'bool') return ['${p.name} ? 1 : 0'];
+            return [p.name];
           })
           .join(', ');
 
@@ -350,7 +352,10 @@ class DartFfiGenerator {
   static String _toNativeType(BridgeFunction func, BridgeSpec spec) {
     final ret = _typeToFFI(func.returnType, spec);
     final params = func.params
-        .map((p) => _typeToFFI(p.type, spec))
+        .expand((p) {
+          if (p.type.isTypedData) return [_typeToFFI(p.type, spec), 'Int64'];
+          return [_typeToFFI(p.type, spec)];
+        })
         .join(', ');
     return '$ret Function($params)';
   }
@@ -358,7 +363,10 @@ class DartFfiGenerator {
   static String _toDartType(BridgeFunction func, BridgeSpec spec) {
     final ret = _typeToDartFFI(func.returnType, spec);
     final params = func.params
-        .map((p) => _typeToDartFFI(p.type, spec))
+        .expand((p) {
+          if (p.type.isTypedData) return [_typeToDartFFI(p.type, spec), 'int'];
+          return [_typeToDartFFI(p.type, spec)];
+        })
         .join(', ');
     return '$ret Function($params)';
   }

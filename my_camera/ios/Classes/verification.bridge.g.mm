@@ -163,7 +163,7 @@ void verification_module_throw_error(const char* message) {
     if (env->ExceptionCheck()) { nitro_report_jni_exception(env, env->ExceptionOccurred()); env->ExceptionClear(); }
 }
 
-void* verification_module_process_floats(float* inputs) {
+void* verification_module_process_floats(float* inputs, int64_t inputs_length) {
     JNIEnv* env = GetEnv();
     if (env == nullptr) return nullptr;
     jmethodID methodId = env->GetStaticMethodID(g_bridgeClass, "processFloats_call", "(Ljava/lang/Object;)Lnitro/verification_module/FloatBuffer;");
@@ -247,18 +247,18 @@ void verification_module_throw_error(const char* message) {
 #endif
 }
 
-extern void* _call_processFloats(float* inputs);
-void* verification_module_process_floats(float* inputs) {
+extern void* _call_processFloats(float* inputs, int64_t inputs_length);
+void* verification_module_process_floats(float* inputs, int64_t inputs_length) {
     verification_clear_error();
 #ifdef __OBJC__
     @try {
-        return _call_processFloats(inputs);
+        return _call_processFloats(inputs, inputs_length);
     } @catch (NSException* e) {
         nitro_report_error([e.name UTF8String], [e.reason UTF8String], nullptr, nullptr);
         return nullptr;
     }
 #else
-    return _call_processFloats(inputs);
+    return _call_processFloats(inputs, inputs_length);
 #endif
 }
 

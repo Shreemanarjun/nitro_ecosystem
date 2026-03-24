@@ -40,14 +40,15 @@ class CppHeaderGenerator {
           (en) => en.name == func.returnType.name.replaceFirst('?', ''),
         );
         final ret = isEnumRet ? 'int64_t' : _typeToC(func.returnType.name);
-        final params = func.params
-            .map((p) {
-              final isStructParam = spec.structs.any(
-                (st) => st.name == p.type.name.replaceFirst('?', ''),
-              );
-              return '${isStructParam ? 'void*' : _typeToC(p.type.name)} ${p.name}';
-            })
-            .join(', ');
+        final paramParts = <String>[];
+        for (final p in func.params) {
+          final isStructParam = spec.structs.any(
+            (st) => st.name == p.type.name.replaceFirst('?', ''),
+          );
+          paramParts.add('${isStructParam ? 'void*' : _typeToC(p.type.name)} ${p.name}');
+          if (p.type.isTypedData) paramParts.add('int64_t ${p.name}_length');
+        }
+        final params = paramParts.join(', ');
         final paramStr = params.isEmpty ? 'void' : params;
         s.writeln('$ret ${func.cSymbol}($paramStr);');
       }

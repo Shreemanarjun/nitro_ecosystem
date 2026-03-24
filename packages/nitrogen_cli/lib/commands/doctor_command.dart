@@ -574,6 +574,46 @@ class DoctorCommand extends Command {
         err(iosSec, 'ios/Classes/dart_api_dl.c missing',
             hint: 'Run: nitrogen link');
       }
+
+      final nitroH = File(p.join('ios', 'Classes', 'nitro.h'));
+      if (nitroH.existsSync()) {
+        ok(iosSec, 'ios/Classes/nitro.h present');
+      } else {
+        err(iosSec, 'ios/Classes/nitro.h missing',
+            hint: 'Run: nitrogen link');
+      }
+
+      // Bridge files must use .mm (Objective-C++) not .cpp (pure C++).
+      // .cpp files cause __OBJC__ to be undefined, making @try/@catch dead
+      // code — NSException from Swift propagates uncaught and crashes the app.
+      final staleCppBridges = classesDir.existsSync()
+          ? classesDir
+              .listSync()
+              .whereType<File>()
+              .where((f) => f.path.endsWith('.bridge.g.cpp'))
+              .toList()
+          : <File>[];
+      if (staleCppBridges.isNotEmpty) {
+        for (final f in staleCppBridges) {
+          err(iosSec,
+              'Stale .cpp bridge: ${p.basename(f.path)} (must be .mm)',
+              hint: 'Run: nitrogen link (auto-renames .bridge.g.cpp → .bridge.g.mm)');
+        }
+      }
+
+      final mmBridges = classesDir.existsSync()
+          ? classesDir
+              .listSync()
+              .whereType<File>()
+              .where((f) => f.path.endsWith('.bridge.g.mm'))
+              .toList()
+          : <File>[];
+      if (mmBridges.isNotEmpty) {
+        ok(iosSec, '${mmBridges.length} .bridge.g.mm file(s) in ios/Classes/');
+      } else if (specs.isNotEmpty) {
+        warn(iosSec, 'No .bridge.g.mm files in ios/Classes/',
+            hint: 'Run: nitrogen link');
+      }
     }
 
     return DoctorViewResult(

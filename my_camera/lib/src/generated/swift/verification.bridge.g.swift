@@ -63,8 +63,9 @@ public func _call_throwError(_ message: UnsafePointer<CChar>?) -> Void {
 }
 
 @_cdecl("_call_processFloats")
-public func _call_processFloats(_ inputs: [Float]) -> UnsafeMutableRawPointer? {
-    guard let result = VerificationModuleRegistry.impl?.processFloats(inputs: inputs) else { return nil }
+public func _call_processFloats(_ inputs: UnsafeMutablePointer<Float>?, _ inputs_length: Int64) -> UnsafeMutableRawPointer? {
+    let inputsArr = inputs.map { Array(UnsafeBufferPointer(start: $0, count: Int(inputs_length))) } ?? []
+    guard let result = VerificationModuleRegistry.impl?.processFloats(inputs: inputsArr) else { return nil }
     let ptr = UnsafeMutablePointer<FloatBuffer>.allocate(capacity: 1)
     ptr.initialize(to: result)
     return UnsafeMutableRawPointer(ptr)

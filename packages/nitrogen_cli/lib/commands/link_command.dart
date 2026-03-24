@@ -645,6 +645,11 @@ endif()
 
     // Copy ALL generated bridge files so CocoaPods (Classes/**/*) picks them up.
     // Symlinks pointing outside the pod root (ios/) often fail in Xcode/CocoaPods builds.
+    //
+    // Bridge C++ files are renamed .cpp → .mm so Xcode compiles them as
+    // Objective-C++. This ensures __OBJC__ is defined, enabling the
+    // @try/@catch (NSException*) blocks that propagate native errors to Dart.
+    // Old .bridge.g.cpp files are deleted on each run to avoid stale objects.
     final generatedDir = Directory(p.join('lib', 'src', 'generated'));
     if (generatedDir.existsSync()) {
       for (final platform in ['swift', 'cpp']) {
@@ -652,11 +657,22 @@ endif()
         if (!platformDir.existsSync()) continue;
         for (final file in platformDir.listSync().whereType<File>()) {
           final fileName = p.basename(file.path);
-          if (fileName.contains('.bridge.g.')) {
-            final targetPath = p.join(classesDir.path, fileName);
-            file.copySync(targetPath);
-            print('  - Copied $fileName to ios/Classes/');
+          if (!fileName.contains('.bridge.g.')) continue;
+
+          // .bridge.g.cpp → .bridge.g.mm so Xcode compiles as Objective-C++.
+          final targetName = fileName.endsWith('.bridge.g.cpp')
+              ? fileName.replaceFirst('.bridge.g.cpp', '.bridge.g.mm')
+              : fileName;
+          final targetPath = p.join(classesDir.path, targetName);
+
+          // Remove stale .bridge.g.cpp if we're now writing .bridge.g.mm.
+          if (targetName != fileName) {
+            final stale = File(p.join(classesDir.path, fileName));
+            if (stale.existsSync()) stale.deleteSync();
           }
+
+          file.copySync(targetPath);
+          print('  - Copied $fileName → $targetName in ios/Classes/');
         }
       }
     }

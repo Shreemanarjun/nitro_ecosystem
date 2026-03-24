@@ -188,9 +188,12 @@ class CppBridgeGenerator {
       // For enum returns: bridge returns Long (nativeValue); C returns int64_t
       // For struct returns: bridge returns jobject; C packs to C struct via malloc
       final cReturnType = isEnum ? 'int64_t' : _typeToC(func.returnType.name);
-      final paramsDecl = func.params
-          .map((p) => '${_paramTypeToC(p.type.name, spec)} ${p.name}')
-          .join(', ');
+      final paramsDeclParts = <String>[];
+      for (final p in func.params) {
+        paramsDeclParts.add('${_paramTypeToC(p.type.name, spec)} ${p.name}');
+        if (p.type.isTypedData) paramsDeclParts.add('int64_t ${p.name}_length');
+      }
+      final paramsDecl = paramsDeclParts.join(', ');
       // JNI signature: enum return is "J" (Long), struct is "Ljava/lang/Object;"
       final jniSig = _jniSig(func.params, func.returnType.name, spec);
 
@@ -465,10 +468,18 @@ class CppBridgeGenerator {
     for (final func in spec.functions) {
       final isEnum = spec.enums.any((en) => en.name == func.returnType.name);
       final cReturnType = isEnum ? 'int64_t' : _typeToC(func.returnType.name);
-      final params = func.params
-          .map((p) => '${_paramTypeToC(p.type.name, spec)} ${p.name}')
-          .join(', ');
-      final callParams = func.params.map((p) => p.name).join(', ');
+      final paramParts = <String>[];
+      final callParamParts = <String>[];
+      for (final p in func.params) {
+        paramParts.add('${_paramTypeToC(p.type.name, spec)} ${p.name}');
+        callParamParts.add(p.name);
+        if (p.type.isTypedData) {
+          paramParts.add('int64_t ${p.name}_length');
+          callParamParts.add('${p.name}_length');
+        }
+      }
+      final params = paramParts.join(', ');
+      final callParams = callParamParts.join(', ');
       s.writeln(
         'extern $cReturnType _call_${func.dartName}(${params.isEmpty ? 'void' : params});',
       );

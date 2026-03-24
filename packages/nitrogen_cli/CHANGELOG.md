@@ -1,3 +1,11 @@
+## 0.1.15
+
+- **Fix: iOS bridge files renamed `.bridge.g.cpp` → `.bridge.g.mm`** — `nitrogen link` now copies bridge files to `ios/Classes/` with a `.mm` extension so Xcode compiles them as Objective-C++. Without this, `__OBJC__` is never defined in pure C++ compilation units, making the `#ifdef __OBJC__ @try/@catch (NSException*)` blocks dead code — native Swift exceptions (e.g. `NSException.raise`) propagate uncaught through the C++ stack and crash the app instead of being caught and re-thrown as Dart errors. Any stale `.bridge.g.cpp` files in `ios/Classes/` are deleted on each `nitrogen link` run.
+- **Fix: `NSException.raise` in generated Swift bridge** — `VerificationImpl.throwError` (and equivalents) now raises a catchable `NSException` instead of calling `fatalError`, which is unrecoverable and bypasses the C++ exception barrier entirely.
+- **Fix: typed-list (`Float32List` etc.) parameter bridging** — generator now emits a companion `int64_t <name>_length` parameter at every layer (C header, C bridge, Dart FFI type, Dart FFI call args, Swift `@_cdecl` signature, Swift body). The Swift `@_cdecl` function receives `UnsafeMutablePointer<Float>?` (C-ABI compatible) instead of `[Float]` (a Swift struct, not ABI-safe), and reconstructs the array via `UnsafeBufferPointer`. Previously passing a `Float32List` caused immediate memory corruption and crash.
+- **`nitrogen doctor`: 3 new iOS checks** — `ios/Classes/nitro.h present`, stale `*.bridge.g.cpp` files detected (error with hint), and `.bridge.g.mm` file count verified (warn if missing after `nitrogen link`).
+- **Tests** — added `test/doctor_command_test.dart` (10 tests) and `packages/nitro_generator/test/typed_list_bridge_test.dart` (32+ tests) covering all new generator behaviours and doctor checks.
+
 ## 0.1.14
 
 - **Fix: lint — `link_command.dart`** — made private field `_failed` in `_LinkViewState` `final` (it is only initialised and never reassigned).

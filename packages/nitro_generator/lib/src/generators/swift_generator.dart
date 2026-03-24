@@ -100,17 +100,29 @@ class SwiftGenerator {
     for (final func in spec.functions) {
       final cRetType = _toCDeclReturnType(spec, func);
       // @_cdecl params must use C-ABI-compatible types.
+      // Typed list params get an extra `_ <name>_length: Int64` param.
       final params = func.params
-          .map((p) => '_ ${p.name}: ${_toCDeclParamType(spec, p.type.name)}')
+          .expand((p) {
+            final t = _toCDeclParamType(spec, p.type.name);
+            if (p.type.isTypedData) {
+              return ['_ ${p.name}: $t', '_ ${p.name}_length: Int64'];
+            }
+            return ['_ ${p.name}: $t'];
+          })
           .join(', ');
       // String params arrive as UnsafePointer<CChar>? — convert to Swift String.
       final stringParams = func.params
           .where((p) => p.type.name == 'String')
           .toList();
-      // Pass the converted local `nameStr` variable for String params.
+      // Typed list params arrive as raw C pointer + length — convert to Swift Array.
+      final typedListParams = func.params
+          .where((p) => p.type.isTypedData)
+          .toList();
+      // Pass the converted local variables for String/typed-list params.
       final callArgs = func.params.map((p) {
         if (p.type.name == 'String') return '${p.name}: ${p.name}Str';
         if (p.type.name == 'bool') return '${p.name}: ${p.name} != 0';
+        if (p.type.isTypedData) return '${p.name}: ${p.name}Arr';
         if (spec.structs.any((st) => st.name == p.type.name.replaceFirst('?', ''))) {
           final structName = p.type.name.replaceFirst('?', '');
           return '${p.name}: ${p.name}!.assumingMemoryBound(to: $structName.self).pointee';
@@ -138,6 +150,13 @@ class SwiftGenerator {
       for (final p in stringParams) {
         s.writeln(
           '    let ${p.name}Str = ${p.name}.map { String(cString: \$0) } ?? ""',
+        );
+      }
+      // Emit UnsafeMutablePointer<T>? + length → Swift Array for each typed-list param.
+      for (final p in typedListParams) {
+        final elem = _typedListElemType(p.type.name);
+        s.writeln(
+          '    let ${p.name}Arr = ${p.name}.map { Array(UnsafeBufferPointer(start: \$0, count: Int(${p.name}_length))) } ?? []',
         );
       }
 
@@ -441,9 +460,10 @@ class SwiftGenerator {
   }
 
   /// Parameter type for a `@_cdecl` function — must be a C-ABI-compatible type.
-  /// - `String` → `UnsafePointer<CChar>?`  (C `const char*`)
-  /// - `bool`   → `Int8`
-  /// - others   → same as `_toSwiftType`
+  /// - `String`     → `UnsafePointer<CChar>?`  (C `const char*`)
+  /// - `bool`       → `Int8`
+  /// - typed lists  → `UnsafeMutablePointer<T>?`  (raw C pointer; length passed separately)
+  /// - others       → same as `_toSwiftType`
   static String _toCDeclParamType(BridgeSpec spec, String typeName) {
     final name = typeName.replaceFirst('?', '');
     if (name == 'String') return 'UnsafePointer<CChar>?';
@@ -456,7 +476,28 @@ class SwiftGenerator {
     if (spec.structs.any((st) => st.name == name)) {
       return 'UnsafeRawPointer?';
     }
+    // Typed lists: use C-compatible pointer; length is passed as a separate Int64 param.
+    if (BridgeType(name: name).isTypedData) {
+      return _toSwiftCType(spec, name, isZeroCopy: true);
+    }
     return _toSwiftType(spec, name);
+  }
+
+  /// Returns the Swift element type for a typed list (e.g. `Float` for `Float32List`).
+  static String _typedListElemType(String dartType) {
+    switch (dartType.replaceFirst('?', '')) {
+      case 'Uint8List':  return 'UInt8';
+      case 'Int8List':   return 'Int8';
+      case 'Int16List':  return 'Int16';
+      case 'Uint16List': return 'UInt16';
+      case 'Int32List':  return 'Int32';
+      case 'Uint32List': return 'UInt32';
+      case 'Float32List': return 'Float';
+      case 'Float64List': return 'Double';
+      case 'Int64List':
+      case 'Uint64List': return 'Int64';
+      default: return 'UInt8';
+    }
   }
 
   static String _toSwiftType(BridgeSpec spec, String t) {
