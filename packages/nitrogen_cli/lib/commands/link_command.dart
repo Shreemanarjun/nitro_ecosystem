@@ -207,7 +207,7 @@ class _LinkViewState extends State<LinkView> {
   ];
 
   bool _finished = false;
-  bool _failed = false;
+  final bool _failed = false;
   final List<String> _nextSteps = [];
 
   @override
