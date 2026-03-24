@@ -1,3 +1,11 @@
+## 0.2.0
+
+- **New: High-Performance Binary Codec Integration** — All generated bridges now default to the compact binary protocol for `@HybridRecord` types, matching the updates in `package:nitro` 0.2.0.
+- **Improved: `nitrogen doctor` Reliability** — Fixed a runtime exception ("Unsupported operation: Cannot add to an unmodifiable list") when running checks on `pubspec.yaml`, generated files, and build system wiring.
+- **Improved: `nitrogen generate` Stability** — Updated the generator backbone to remove unreferenced helper methods and redundant type lookups in Swift bridges.
+- **Improved: Linter Integration** — Updated analysis options to prefer wider page widths (220) and cleaner formatting for generated code across all packages.
+- **Dependency Sync**: Synchronized core ecosystem versions to 0.2.0 across `nitro`, `nitro_generator`, and `nitrogen_cli`.
+
 ## 0.1.13
 
 - **Full Zero-Copy TypedData Support**:
