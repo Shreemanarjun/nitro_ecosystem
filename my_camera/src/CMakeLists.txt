@@ -6,7 +6,7 @@ set(NITRO_NATIVE "${CMAKE_CURRENT_SOURCE_DIR}/../../packages/nitro/src/native")
 # ── my_camera module ─────────────────────────────────────────────────────────
 add_library(my_camera SHARED
   "my_camera.cpp"
-  "${NITRO_NATIVE}/dart_api_dl.c"
+  "dart_api_dl.c"
 )
 
 target_include_directories(my_camera PRIVATE
@@ -26,7 +26,7 @@ endif()
 # ── verification module ───────────────────────────────────────────────────────
 add_library(verification SHARED
   "${CMAKE_CURRENT_SOURCE_DIR}/../lib/src/generated/cpp/verification.bridge.g.cpp"
-  "${NITRO_NATIVE}/dart_api_dl.c"
+  "dart_api_dl.c"
 )
 
 target_include_directories(verification PRIVATE
@@ -45,7 +45,7 @@ endif()
 # ── complex module ────────────────────────────────────────────────────────────
 add_library(complex SHARED
   "${CMAKE_CURRENT_SOURCE_DIR}/../lib/src/generated/cpp/complex.bridge.g.cpp"
-  "${NITRO_NATIVE}/dart_api_dl.c"
+  "dart_api_dl.c"
 )
 
 target_include_directories(complex PRIVATE

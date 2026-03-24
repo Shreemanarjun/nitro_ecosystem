@@ -13,6 +13,7 @@ class BridgeSpec {
   final List<BridgeFunction> functions;
   final List<BridgeStream> streams;
   final List<BridgeProperty> properties;
+  final List<BridgeRecordType> recordTypes;
 
   BridgeSpec({
     required this.dartClassName,
@@ -26,6 +27,7 @@ class BridgeSpec {
     this.functions = const [],
     this.streams = const [],
     this.properties = const [],
+    this.recordTypes = const [],
   });
 }
 
@@ -35,11 +37,32 @@ class BridgeType {
   final bool isFuture;
   final bool isStream;
 
+  /// True when this type requires UTF-8 JSON bridging.
+  /// Covers: `@HybridRecord` classes, `List<T>` (primitives or `@HybridRecord`),
+  /// and `Map<String, T>`.
+  final bool isRecord;
+
+  /// Non-null when [isRecord] is true AND the Dart type is `List<T>`.
+  /// Holds the item type name T (e.g. 'CameraDevice', 'String', 'int').
+  /// Use [recordListItemIsPrimitive] to distinguish primitive vs. record items.
+  final String? recordListItemType;
+
+  /// True when [recordListItemType] is a Dart primitive (int, double, bool,
+  /// String) rather than a @HybridRecord class.
+  final bool recordListItemIsPrimitive;
+
+  /// True when the type is `Map<String, V>` — bridges as a JSON object string.
+  final bool isMap;
+
   BridgeType({
     required this.name,
     this.isNullable = false,
     this.isFuture = false,
     this.isStream = false,
+    this.isRecord = false,
+    this.recordListItemType,
+    this.recordListItemIsPrimitive = false,
+    this.isMap = false,
   });
 }
 
@@ -131,4 +154,45 @@ class BridgeProperty {
     this.hasGetter = true,
     this.hasSetter = false,
   });
+}
+
+// ── @HybridRecord support ─────────────────────────────────────────────────────
+
+/// Describes how a field of a @HybridRecord class maps to/from JSON.
+enum RecordFieldKind {
+  primitive,        // int, double, bool, String (and nullable variants)
+  recordObject,     // another @HybridRecord type
+  listPrimitive,    // List<primitive>
+  listRecordObject, // List<@HybridRecord type>
+}
+
+class BridgeRecordField {
+  final String name;
+
+  /// Full Dart type string, e.g. "String?", "`List<Resolution>`", "int".
+  final String dartType;
+
+  final RecordFieldKind kind;
+
+  /// For listPrimitive / listRecordObject: the T in `List<T>`.
+  final String? itemTypeName;
+
+  final bool isNullable;
+
+  BridgeRecordField({
+    required this.name,
+    required this.dartType,
+    required this.kind,
+    this.itemTypeName,
+    this.isNullable = false,
+  });
+}
+
+/// Metadata for a @HybridRecord annotated class, used to generate
+/// fromJson / toJson extensions in the .g.dart part file.
+class BridgeRecordType {
+  final String name;
+  final List<BridgeRecordField> fields;
+
+  BridgeRecordType({required this.name, required this.fields});
 }

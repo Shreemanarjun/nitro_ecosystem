@@ -1,0 +1,1 @@
+../../Classes/SwiftMyCameraPlugin.swift

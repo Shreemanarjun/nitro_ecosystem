@@ -19,6 +19,7 @@ extern "C" {
 // Methods
 double my_camera_add(double a, double b);
 const char* my_camera_get_greeting(const char* name);
+void* my_camera_get_available_devices(void);
 
 // Streams
 // Stream<CameraFrame> frames

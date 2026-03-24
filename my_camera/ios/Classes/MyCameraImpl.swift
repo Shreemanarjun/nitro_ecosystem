@@ -16,6 +16,13 @@ public class MyCameraImpl: NSObject, HybridMyCameraProtocol {
         try await Task.sleep(nanoseconds: 1_000_000_000)
         return "Hello \(name), from Swift-land!"
     }
+
+    public func getAvailableDevices() async throws -> [CameraDevice] {
+        return [
+            CameraDevice(id: "ios-back", name: "Apple iSight Back", resolutions: [Resolution(width: 1920, height: 1080)], isFrontFacing: false),
+            CameraDevice(id: "ios-front", name: "FaceTime HD", resolutions: [Resolution(width: 1280, height: 720)], isFrontFacing: true)
+        ]
+    }
     
     // Combine Publisher for zero-overhead background event streaming
     private let framesSubject = PassthroughSubject<CameraFrame, Never>()
@@ -38,14 +45,5 @@ public class MyCameraImpl: NSObject, HybridMyCameraProtocol {
                                     stride: stride, timestampNs: tsNs)
             self?.framesSubject.send(frame)
         }
-    }
-}
-
-// 2. Map this implementation exactly when the FlutterPlugin creates
-public class SwiftMyCameraPlugin: NSObject, FlutterPlugin {
-    public static func register(with registrar: FlutterPluginRegistrar) {
-        // We do NOT use MethodChannels here. We directly register our Implementation 
-        // class inside the Generated Nitrogen registry singleton.
-        MyCameraRegistry.register(MyCameraImpl())
     }
 }

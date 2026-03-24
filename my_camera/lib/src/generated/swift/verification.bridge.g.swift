@@ -28,20 +28,22 @@ public func _call_multiply(_ a: Double, _ b: Double) -> Double {
 }
 
 @_cdecl("_call_ping")
-public func _call_ping(_ message: String) -> String {
-    return VerificationModuleRegistry.impl?.ping(message: message) ?? ""
+public func _call_ping(_ message: UnsafePointer<CChar>?) -> UnsafeMutablePointer<CChar>? {
+    let messageStr = message.map { String(cString: $0) } ?? ""
+    return strdup(VerificationModuleRegistry.impl?.ping(message: messageStr) ?? "")
 }
 
 @_cdecl("_call_pingAsync")
-public func _call_pingAsync(_ message: String) -> String {
-    guard let impl = VerificationModuleRegistry.impl else { return "" }
+public func _call_pingAsync(_ message: UnsafePointer<CChar>?) -> UnsafeMutablePointer<CChar>? {
+    let messageStr = message.map { String(cString: $0) } ?? ""
+    guard let impl = VerificationModuleRegistry.impl else { return strdup("") }
     let sema = DispatchSemaphore(value: 0)
-    var result: String? = nil
+    var result = ""
     Task.detached {
-        result = try? await impl.pingAsync(message: message)
+        result = (try? await impl.pingAsync(message: messageStr)) ?? ""
         sema.signal()
     }
     sema.wait()
-    return result ?? ""
+    return strdup(result)
 }
 

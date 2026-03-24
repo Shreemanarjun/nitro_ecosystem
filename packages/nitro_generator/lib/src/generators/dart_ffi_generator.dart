@@ -1,6 +1,7 @@
 import '../bridge_spec.dart';
 import 'enum_generator.dart';
 import 'struct_generator.dart';
+import 'record_generator.dart';
 
 class DartFfiGenerator {
   static String generate(BridgeSpec spec) {
@@ -14,6 +15,10 @@ class DartFfiGenerator {
     if (enumExt.isNotEmpty) s.write(enumExt);
     final structExt = StructGenerator.generateDartExtensions(spec);
     if (structExt.isNotEmpty) s.write(structExt);
+
+    // @HybridRecord fromJson / toJson extensions
+    final recordExt = RecordGenerator.generateDartExtensions(spec);
+    if (recordExt.isNotEmpty) s.write(recordExt);
 
     // ── Impl class ──────────────────────────────────────────────────────────
     s.writeln(
@@ -42,8 +47,8 @@ class DartFfiGenerator {
 
     // ── Property pointers ───────────────────────────────────────────────────
     for (final prop in spec.properties) {
-      final ffiType = _typeToFFI(prop.type.name, spec);
-      final dartType = _typeToDartFFI(prop.type.name, spec);
+      final ffiType = _typeToFFI(prop.type, spec);
+      final dartType = _typeToDartFFI(prop.type, spec);
       final cap = _cap(prop.dartName);
       if (prop.hasGetter) {
         s.writeln(
@@ -89,12 +94,16 @@ class DartFfiGenerator {
         (p) =>
             p.type.name.startsWith('Uint8List') ||
             p.type.name == 'String' ||
+            p.type.isRecord ||
             spec.structs.any((st) => st.name == p.type.name),
       );
 
       final callArgs = func.params
           .map((p) {
             final t = p.type.name;
+            if (p.type.isRecord) {
+              return _encodeRecordParam(p.type, p.name, 'arena');
+            }
             if (t.startsWith('Uint8List')) return '${p.name}.toPointer(arena)';
             if (t == 'String') {
               return '${p.name}.toNativeUtf8(allocator: arena)';
@@ -116,6 +125,10 @@ class DartFfiGenerator {
       );
       s.writeln('    checkDisposed();');
 
+      final rt = func.returnType.name;
+      final isRecordReturn = func.returnType.isRecord;
+      final recordListItem = func.returnType.recordListItemType;
+
       String callExpr;
       if (needsArena) {
         callExpr = 'withArena((arena) => _${func.dartName}Ptr($callArgs))';
@@ -123,16 +136,20 @@ class DartFfiGenerator {
         callExpr = '_${func.dartName}Ptr($callArgs)';
       }
 
-      final rt = func.returnType.name;
       if (func.isAsync) {
         final isStructReturn = spec.structs.any((st) => st.name == rt);
         final isEnumReturn = spec.enums.any((en) => en.name == rt);
+
         if (needsArena) {
           s.writeln('    return withArena((arena) async {');
           s.writeln(
             '      final result = await NitroRuntime.callAsync(_${func.dartName}Ptr, [$callArgs]);',
           );
-          if (rt == 'String') {
+          if (isRecordReturn) {
+            s.writeln(
+              '      return ${_decodeRecordExpr(func.returnType, 'result')};',
+            );
+          } else if (rt == 'String') {
             s.writeln(
               '      return (result as Pointer<Utf8>).toDartStringWithFree();',
             );
@@ -147,7 +164,16 @@ class DartFfiGenerator {
           }
           s.writeln('    });');
         } else {
-          if (isStructReturn) {
+          // No arena — but @HybridRecord return still needs await + decode.
+          if (isRecordReturn) {
+            final params = func.params.map((p) => p.name).join(', ');
+            s.writeln(
+              '    final _rawResult = await NitroRuntime.callAsync(_${func.dartName}Ptr, [$params]);',
+            );
+            s.writeln(
+              '    return ${_decodeRecordExpr(func.returnType, '_rawResult')};',
+            );
+          } else if (isStructReturn) {
             s.writeln(
               '    final asyncResult = await NitroRuntime.callAsync(_${func.dartName}Ptr, [${func.params.map((p) => p.name).join(', ')}]);',
             );
@@ -164,19 +190,26 @@ class DartFfiGenerator {
             );
           }
         }
-      } else if (spec.enums.any((en) => en.name == rt)) {
-        s.writeln('    return ($callExpr).to$rt();');
-      } else if (spec.structs.any((st) => st.name == rt)) {
-        s.writeln('    final res = $callExpr;');
-        s.writeln(
-          '    return Pointer<${rt}Ffi>.fromAddress(res.address).ref.toDart();',
-        );
-      } else if (rt == 'bool') {
-        s.writeln('    return $callExpr != 0;');
-      } else if (rt == 'String') {
-        s.writeln('    return ($callExpr).toDartStringWithFree();');
       } else {
-        s.writeln('    return $callExpr;');
+        // Synchronous
+        if (isRecordReturn) {
+          s.writeln(
+            '    return ${_decodeRecordExpr(func.returnType, '$callExpr')};',
+          );
+        } else if (spec.enums.any((en) => en.name == rt)) {
+          s.writeln('    return ($callExpr).to$rt();');
+        } else if (spec.structs.any((st) => st.name == rt)) {
+          s.writeln('    final res = $callExpr;');
+          s.writeln(
+            '    return Pointer<${rt}Ffi>.fromAddress(res.address).ref.toDart();',
+          );
+        } else if (rt == 'bool') {
+          s.writeln('    return $callExpr != 0;');
+        } else if (rt == 'String') {
+          s.writeln('    return ($callExpr).toDartStringWithFree();');
+        } else {
+          s.writeln('    return $callExpr;');
+        }
       }
 
       s.writeln('  }');
@@ -187,50 +220,69 @@ class DartFfiGenerator {
     for (final prop in spec.properties) {
       final cap = _cap(prop.dartName);
       final rt = prop.type.name;
+      final isRecordProp = prop.type.isRecord;
+      final recordListItem = prop.type.recordListItemType;
 
       if (prop.hasGetter) {
         s.writeln('  @override');
-        String getExpr = '_get${cap}Ptr()';
-        if (spec.enums.any((en) => en.name == rt)) {
-          getExpr = '$getExpr.to$rt()';
-        } else if (rt == 'bool') {
-          getExpr = '$getExpr != 0';
+        if (isRecordProp) {
+          s.writeln('  $rt get ${prop.dartName} {');
+          s.writeln('    checkDisposed();');
+          s.writeln(
+            '    return ${_decodeRecordExpr(prop.type, '_get${cap}Ptr()')};',
+          );
+          s.writeln('  }');
+        } else {
+          String getExpr = '_get${cap}Ptr()';
+          if (spec.enums.any((en) => en.name == rt)) {
+            getExpr = '$getExpr.to$rt()';
+          } else if (rt == 'bool') {
+            getExpr = '$getExpr != 0';
+          }
+          s.writeln(
+            '  $rt get ${prop.dartName} { checkDisposed(); return $getExpr; }',
+          );
         }
-        s.writeln(
-          '  $rt get ${prop.dartName} { checkDisposed(); return $getExpr; }',
-        );
       }
 
       if (prop.hasSetter) {
         s.writeln('  @override');
-        final propNeedsArena =
-            (rt == 'String' ||
-            rt.startsWith('Uint8List') ||
-            spec.structs.any((st) => st.name == rt));
-
-        if (propNeedsArena) {
-          String valExpr;
-          if (rt == 'String') {
-            valExpr = 'value.toNativeUtf8(allocator: arena)';
-          } else if (rt.startsWith('Uint8List')) {
-            valExpr = 'value.toPointer(arena)';
-          } else {
-            valExpr = 'value.toNative(arena).cast<Void>()';
-          }
-
+        if (isRecordProp) {
+          s.writeln('  set ${prop.dartName}($rt value) {');
+          s.writeln('    checkDisposed();');
           s.writeln(
-            '  set ${prop.dartName}($rt value) { checkDisposed(); withArena((arena) => _set${cap}Ptr($valExpr)); }',
+            "    withArena((arena) => _set${cap}Ptr(${_encodeRecordParam(prop.type, 'value', 'arena')}));",
           );
+          s.writeln('  }');
         } else {
-          String valExpr = 'value';
-          if (spec.enums.any((en) => en.name == rt)) {
-            valExpr = 'value.nativeValue';
-          } else if (rt == 'bool') {
-            valExpr = 'value ? 1 : 0';
+          final propNeedsArena =
+              rt == 'String' ||
+              rt.startsWith('Uint8List') ||
+              spec.structs.any((st) => st.name == rt);
+
+          if (propNeedsArena) {
+            String valExpr;
+            if (rt == 'String') {
+              valExpr = 'value.toNativeUtf8(allocator: arena)';
+            } else if (rt.startsWith('Uint8List')) {
+              valExpr = 'value.toPointer(arena)';
+            } else {
+              valExpr = 'value.toNative(arena).cast<Void>()';
+            }
+            s.writeln(
+              '  set ${prop.dartName}($rt value) { checkDisposed(); withArena((arena) => _set${cap}Ptr($valExpr)); }',
+            );
+          } else {
+            String valExpr = 'value';
+            if (spec.enums.any((en) => en.name == rt)) {
+              valExpr = 'value.nativeValue';
+            } else if (rt == 'bool') {
+              valExpr = 'value ? 1 : 0';
+            }
+            s.writeln(
+              '  set ${prop.dartName}($rt value) { checkDisposed(); _set${cap}Ptr($valExpr); }',
+            );
           }
-          s.writeln(
-            '  set ${prop.dartName}($rt value) { checkDisposed(); _set${cap}Ptr($valExpr); }',
-          );
         }
       }
       s.writeln();
@@ -240,10 +292,20 @@ class DartFfiGenerator {
     for (final stream in spec.streams) {
       final cap = _cap(stream.dartName);
       final itemType = stream.itemType.name;
+      final isRecord = stream.itemType.isRecord;
+      final recordListItem = stream.itemType.recordListItemType;
       final isStruct = spec.structs.any((st) => st.name == itemType);
-      final unpackExpr = isStruct
-          ? '(rawPtr) => Pointer<${itemType}Ffi>.fromAddress(rawPtr).ref.toDart()'
-          : '(rawPtr) => rawPtr as $itemType';
+
+      final String unpackExpr;
+      if (isRecord) {
+        final decodeExpr = _decodeRecordExpr(stream.itemType, 'rawPtr');
+        unpackExpr = '(rawPtr) => $decodeExpr';
+      } else if (isStruct) {
+        unpackExpr =
+            '(rawPtr) => Pointer<${itemType}Ffi>.fromAddress(rawPtr).ref.toDart()';
+      } else {
+        unpackExpr = '(rawPtr) => rawPtr as $itemType';
+      }
 
       s.writeln('  @override');
       s.writeln('  Stream<$itemType> get ${stream.dartName} {');
@@ -270,23 +332,27 @@ class DartFfiGenerator {
   static String _cap(String name) => name[0].toUpperCase() + name.substring(1);
 
   static String _toNativeType(BridgeFunction func, BridgeSpec spec) {
-    final ret = _typeToFFI(func.returnType.name, spec);
+    final ret = _typeToFFI(func.returnType, spec);
     final params = func.params
-        .map((p) => _typeToFFI(p.type.name, spec))
+        .map((p) => _typeToFFI(p.type, spec))
         .join(', ');
     return '$ret Function($params)';
   }
 
   static String _toDartType(BridgeFunction func, BridgeSpec spec) {
-    final ret = _typeToDartFFI(func.returnType.name, spec);
+    final ret = _typeToDartFFI(func.returnType, spec);
     final params = func.params
-        .map((p) => _typeToDartFFI(p.type.name, spec))
+        .map((p) => _typeToDartFFI(p.type, spec))
         .join(', ');
     return '$ret Function($params)';
   }
 
-  static String _typeToFFI(String t, BridgeSpec spec) {
-    final name = t.replaceFirst('?', '');
+  static String _typeToFFI(BridgeType bt, BridgeSpec spec) {
+    if (bt.isRecord) {
+      // Map<String,T> still uses JSON (UTF-8 text); all others use binary.
+      return bt.isMap ? 'Pointer<Utf8>' : 'Pointer<Uint8>';
+    }
+    final name = bt.name.replaceFirst('?', '');
     switch (name) {
       case 'int':
         return 'Int64';
@@ -305,8 +371,11 @@ class DartFfiGenerator {
     return 'Pointer<Void>';
   }
 
-  static String _typeToDartFFI(String t, BridgeSpec spec) {
-    final name = t.replaceFirst('?', '');
+  static String _typeToDartFFI(BridgeType bt, BridgeSpec spec) {
+    if (bt.isRecord) {
+      return bt.isMap ? 'Pointer<Utf8>' : 'Pointer<Uint8>';
+    }
+    final name = bt.name.replaceFirst('?', '');
     switch (name) {
       case 'int':
         return 'int';
@@ -323,5 +392,81 @@ class DartFfiGenerator {
     }
     if (spec.enums.any((en) => en.name == name)) return 'int';
     return 'Pointer<Void>';
+  }
+
+  /// Generates a Dart expression that decodes [ptrVar] (a pointer) into the
+  /// Dart value matching [type]:
+  /// - `Map<String, T>`        → JSON path: `jsonDecode(Pointer<Utf8>...)`
+  /// - `List<@HybridRecord T>` → `RecordReader.decodeList(...fromReader)`
+  /// - `List<primitive>`       → `RecordReader.decodePrimitiveList(...readXxx)`
+  /// - `@HybridRecord`         → `TRecordExt.fromNative(Pointer<Uint8>)`
+  static String _decodeRecordExpr(BridgeType type, String ptrVar) {
+    // Map<String,T> still uses the JSON text path.
+    if (type.isMap) {
+      return 'jsonDecode(($ptrVar as Pointer<Utf8>).toDartStringWithFree()) as Map<String, dynamic>';
+    }
+    final item = type.recordListItemType;
+    if (item != null) {
+      if (type.recordListItemIsPrimitive) {
+        final readCall = _primitiveReaderCall(item);
+        return 'RecordReader.decodePrimitiveList($ptrVar as Pointer<Uint8>, (r) => r.$readCall())';
+      }
+      return 'RecordReader.decodeList($ptrVar as Pointer<Uint8>, (r) => ${item}RecordExt.fromReader(r))';
+    }
+    final rt = type.name;
+    return '${rt}RecordExt.fromNative($ptrVar as Pointer<Uint8>)';
+  }
+
+  /// Maps a primitive type name to the matching [RecordReader] method.
+  static String _primitiveReaderCall(String item) {
+    switch (item) {
+      case 'int':
+        return 'readInt';
+      case 'double':
+        return 'readDouble';
+      case 'bool':
+        return 'readBool';
+      default:
+        return 'readString';
+    }
+  }
+
+  /// Maps a primitive type name to the matching [RecordWriter] method.
+  static String _primitiveWriterCall(String item) {
+    switch (item) {
+      case 'int':
+        return 'writeInt';
+      case 'double':
+        return 'writeDouble';
+      case 'bool':
+        return 'writeBool';
+      default:
+        return 'writeString';
+    }
+  }
+
+  /// Generates a Dart expression that encodes [varName] to a native binary
+  /// pointer for crossing the C FFI boundary:
+  /// - `Map<String, T>`        → JSON text path: `jsonEncode(...).toNativeUtf8`
+  /// - `List<@HybridRecord T>` → `RecordWriter.encodeList(...writeFields)`
+  /// - `List<primitive>`       → `RecordWriter.encodePrimitiveList(...writeXxx)`
+  /// - `@HybridRecord`         → `varName.toNative(allocator)`
+  static String _encodeRecordParam(
+    BridgeType type,
+    String varName,
+    String allocator,
+  ) {
+    if (type.isMap) {
+      return 'jsonEncode($varName).toNativeUtf8(allocator: $allocator)';
+    }
+    final item = type.recordListItemType;
+    if (item != null) {
+      if (type.recordListItemIsPrimitive) {
+        final writeCall = _primitiveWriterCall(item);
+        return 'RecordWriter.encodePrimitiveList($varName, (w, e) => w.$writeCall(e), $allocator)';
+      }
+      return 'RecordWriter.encodeList($varName, (w, e) => e.writeFields(w), $allocator)';
+    }
+    return '$varName.toNative($allocator)';
   }
 }

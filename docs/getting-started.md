@@ -149,41 +149,159 @@ abstract class MySensor extends HybridObject {
 
 ### Annotation reference
 
-| Annotation | Where | Meaning |
+| Annotation | Where | Purpose |
 |---|---|---|
 | `@NitroModule(ios:, android:)` | class | Marks this as a Nitrogen module spec |
-| `@HybridStruct(zeroCopy: [...])` | class | Generates a C struct; listed fields become zero-copy pointers |
-| `@HybridEnum(startValue:)` | enum | Maps to a C `int64` enum with a `nativeValue` getter |
+| `@HybridStruct(zeroCopy: [...])` | class | Flat C-memory struct; listed `Uint8List` fields become zero-copy pointers |
+| `@HybridEnum(startValue:)` | enum | Integer-backed C enum with a `nativeValue` getter |
+| `@HybridRecord` | class | Rich JSON-bridged record: nested objects, `List<T>`, nullable fields |
 | `@nitroAsync` | method | Dispatches call to background isolate; method must return `Future<T>` |
 | `@NitroStream(backpressure:)` | getter | Native push stream; getter must return `Stream<T>` |
+| `@ZeroCopy` | `Uint8List` param | Pass buffer as raw pointer without copying |
+
+### `@HybridStruct` vs `@HybridRecord` — which one?
+
+| | `@HybridStruct` | `@HybridRecord` |
+|---|---|---|
+| Field types | Primitives, `String`, `Uint8List`, other structs | Any: nested objects, `List<T>`, nullable |
+| Bridge | `struct*` pointer (~0 µs) | UTF-8 JSON string (~1–5 µs) |
+| Zero-copy buffers | Yes (`zeroCopy: ['field']`) | No |
+| Use for | Camera frames, sensor readings at high Hz | Device lists, config, one-off complex data |
+
+**Use `@HybridStruct`** for data that flows at high frequency (stream items, realtime sensors).
+**Use `@HybridRecord`** for data fetched occasionally that has nesting or `List<T>` fields.
 
 ### Supported types
 
-| Dart | C | Kotlin | Swift (protocol / `*Impl.swift`) |
+| Dart type | C bridge | Kotlin | Swift (`*Impl.swift`) |
 |---|---|---|---|
 | `int` | `int64_t` | `Long` | `Int64` |
 | `double` | `double` | `Double` | `Double` |
 | `bool` | `int8_t` | `Boolean` | `Bool` |
 | `String` | `const char*` | `String` | `String` |
 | `Uint8List` | `uint8_t*` | `ByteArray` | `Data` |
+| `int?`, `double?`, `bool?`, `String?` | same + nullable semantics | same + `?` | same + `?` |
 | `Future<T>` | — | `suspend fun` | `async throws` |
 | `Stream<T>` | SendPort registration | `Flow<T>` | `AnyPublisher<T, Never>` |
-| `@HybridEnum` | `int64_t` | `Long` (via `.nativeValue`) | `Int64` |
-| `@HybridStruct` | `YourStruct*` | data class | struct |
+| `@HybridEnum` | `int64_t` | `Long` (via `.nativeValue`) | `Int64` rawValue |
+| `@HybridStruct` | `YourStruct*` | `@Keep data class` | `public struct` |
+| `@HybridRecord` | `const char*` (JSON) | `String` (JSON) | `String` (JSON) |
+| `List<@HybridRecord T>` | `const char*` (JSON array) | `String` (JSON) | `String` (JSON) |
 
-Nullable variants (`String?`, `int?`) are also accepted.
-
-> **iOS / Swift — `@_cdecl` bridge types are different from protocol types.**
+> **iOS / Swift — `@_cdecl` bridge types differ from protocol types.**
 > The Swift column above is what you use in `*Impl.swift`. The generated `@_cdecl`
-> functions that connect C++ to your protocol use C-ABI-compatible types instead:
+> functions use C-ABI types instead:
 >
 > | Spec type | `@_cdecl` param | `@_cdecl` return |
 > |---|---|---|
-> | `String` | `UnsafePointer<CChar>?` | `UnsafeMutablePointer<CChar>?` (malloc'd) |
+> | `String` / `@HybridRecord` | `UnsafePointer<CChar>?` | `UnsafeMutablePointer<CChar>?` (malloc'd) |
 > | `Bool` | `Int8` | `Int8` |
 >
-> This is handled entirely by the generator — you never write these types yourself.
+> This is handled entirely by the generator.
 > Full details: **[docs/swift-type-mapping.md](swift-type-mapping.md)**
+
+---
+
+## Using `@HybridRecord` for complex data
+
+`@HybridRecord` lets you return rich, nested types without any manual JSON handling.
+The generator creates `fromJson`/`toJson` in `.g.dart` and transparently wraps the
+bridge call in `jsonEncode`/`jsonDecode`.
+
+### Dart spec
+
+```dart
+@HybridRecord
+class Resolution {
+  final int width;
+  final int height;
+  const Resolution({required this.width, required this.height});
+}
+
+@HybridRecord
+class CameraDevice {
+  final String id;
+  final String name;
+  final List<Resolution> resolutions; // nested list works fine
+  final bool isFrontFacing;
+  final double? focalLength;          // nullable fields work too
+  const CameraDevice({...});
+}
+
+@NitroModule(ios: NativeImpl.swift, android: NativeImpl.kotlin)
+abstract class MyCamera extends HybridObject {
+  @nitroAsync
+  Future<List<CameraDevice>> getAvailableDevices();
+
+  @nitroAsync
+  Future<CameraDevice> getDefaultDevice();
+}
+```
+
+### What the generator produces
+
+The `.g.dart` part file gets:
+- `ResolutionRecordExt` — `static fromJson` + `toJson`
+- `CameraDeviceRecordExt` — same, with nested `List<Resolution>` handled automatically
+- `getAvailableDevices()` bridges as `Pointer<Utf8>` (JSON string), decodes on return
+
+### Kotlin implementation
+
+```kotlin
+override suspend fun getAvailableDevices(): String {
+    // Return a JSON string — Dart side decodes automatically
+    val devices = listOf(
+        mapOf(
+            "id" to "front_0",
+            "name" to "Front Camera",
+            "resolutions" to listOf(
+                mapOf("width" to 1920, "height" to 1080),
+                mapOf("width" to 1280, "height" to 720)
+            ),
+            "isFrontFacing" to true,
+            "focalLength" to null
+        )
+    )
+    return JSONArray(devices).toString()
+}
+```
+
+### Swift implementation
+
+```swift
+public func getAvailableDevices() async throws -> String {
+    let devices: [[String: Any]] = [
+        [
+            "id": "front_0",
+            "name": "Front Camera",
+            "resolutions": [
+                ["width": 1920, "height": 1080],
+                ["width": 1280, "height": 720],
+            ],
+            "isFrontFacing": true,
+            "focalLength": NSNull()
+        ]
+    ]
+    let data = try JSONSerialization.data(withJSONObject: devices)
+    return String(data: data, encoding: .utf8) ?? "[]"
+}
+```
+
+> **Why return `String` in Kotlin/Swift?**
+> At the FFI boundary, `@HybridRecord` always bridges as a UTF-8 JSON string (`const char*`).
+> The generated bridge protocol/interface uses `String` (or `suspend fun` returning `String`)
+> to match. Dart's generated `fromJson` / `toJson` handle the encoding automatically.
+
+### Performance notes
+
+| Operation | Cost | Notes |
+|---|---|---|
+| JSON encode (native → bridge) | ~1–10 µs | Amortised by `@nitroAsync` background dispatch |
+| UTF-8 copy (bridge → Dart) | ~0.1 µs | Single `toDartStringWithFree` call |
+| `jsonDecode` (Dart) | ~1–5 µs | Dart's built-in C-implemented decoder |
+| `fromJson` (Dart) | ~1 µs | Generated, no reflection |
+
+Total overhead for 10 devices: **< 20 µs**. For realtime/hot-path data, use `@HybridStruct` + `@NitroStream` instead.
 
 ---
 
@@ -663,8 +781,9 @@ Nitrogen validates your spec before generating. Example errors:
 ```
 nitrogen: lib/src/my_sensor.native.dart
   [ERROR] UNKNOWN_RETURN_TYPE: Method 'getData' returns 'Blob' which is not a known type.
-          Hint: Supported types: int, double, bool, String, Uint8List, Future<T>, Stream<T>,
-          or a @HybridStruct/@HybridEnum declared in this spec.
+          Hint: If "Blob" is a struct, annotate it with @HybridStruct.
+                If it is an enum, annotate it with @HybridEnum.
+                If it is a complex/nested type (lists, nested objects), annotate it with @HybridRecord.
 ```
 
 Fix the type in your spec, then regenerate.

@@ -8,6 +8,8 @@ import kotlinx.coroutines.flow.flow
 import nitro.my_camera_module.HybridMyCameraSpec
 import nitro.my_camera_module.MyCameraJniBridge
 import nitro.my_camera_module.CameraFrame
+import nitro.my_camera_module.CameraDevice
+import nitro.my_camera_module.Resolution
 import nitro.complex_module.HybridComplexModuleSpec
 import nitro.complex_module.ComplexModuleJniBridge
 import nitro.complex_module.DeviceStatus
@@ -23,6 +25,13 @@ class MyCameraImpl : HybridMyCameraSpec {
     override suspend fun getGreeting(name: String): String {
         delay(1000)
         return "Hello $name, from Kotlin Coroutines!"
+    }
+
+    override suspend fun getAvailableDevices(): List<CameraDevice> {
+        return listOf(
+            CameraDevice("cam-001", "Ultra Wide Back Camera", listOf(Resolution(3840, 2160), Resolution(1920, 1080)), false),
+            CameraDevice("cam-002", "Selfie Camera", listOf(Resolution(1280, 720)), true)
+        )
     }
 
     override val frames: Flow<CameraFrame> = flow {

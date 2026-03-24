@@ -275,6 +275,7 @@ class _LinkViewState extends State<LinkView> {
     _nextSteps.addAll([
       'flutter pub get',
       'flutter pub run build_runner build --delete-conflicting-outputs',
+      'cd example/ios && pod install  (or: nitrogen generate)',
       'Implement generated Hybrid*Spec interfaces in Kotlin/Swift',
     ]);
 

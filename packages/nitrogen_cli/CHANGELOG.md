@@ -1,3 +1,10 @@
+## 0.1.13
+
+- **`nitrogen generate`: automatic `pod install`** — after `build_runner` succeeds and generated Swift bridges are synced to `ios/Classes/`, the CLI now finds all `Podfile` locations (`ios/`, `example/ios/`, and any `*/ios/`) and runs `pod install` in each. This ensures the Xcode Pods project is always up-to-date after generation — no more stale module errors (`Use of undeclared identifier '…Plugin'`).
+- **`nitrogen generate`: sync Swift bridges to `ios/Classes/`** — every `*.bridge.g.swift` generated under `lib/**/generated/swift/` is automatically copied to `ios/Classes/` so CocoaPods always picks up the freshly generated bridge without manual file management.
+- **`nitrogen doctor`: iOS FFI plugin check fixed** — the `ios pluginClass` check no longer errors for pure FFI plugins. If `ffiPlugin: true` is present under `ios:` without a `pluginClass`, the check passes with an informational message. An error is only emitted when neither `pluginClass` nor `ffiPlugin: true` is set.
+- **`nitrogen link`: next-steps hint updated** — the post-link next-steps now include `cd example/ios && pod install` as a reminder.
+
 ## 0.1.12
 - Fix static version in `lib/version.dart`
 - `nitrogen init`: `src/dart_api_dl.c` and `src/CMakeLists.txt` now resolve the correct pub-cache `nitro` path at scaffold time instead of writing a monorepo placeholder. After pubspec dependencies are installed, `nitrogen init` reads `.dart_tool/package_config.json` (using the same `resolveNitroNativePath` logic as `nitrogen link`) and overwrites both files with the absolute path — so the generated plugin builds immediately without needing a separate `nitrogen link` run.

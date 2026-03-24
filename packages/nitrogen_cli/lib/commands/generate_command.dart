@@ -1,5 +1,6 @@
 import 'dart:io';
 import 'package:args/command_runner.dart';
+import 'package:path/path.dart' as p;
 import '../ui.dart';
 
 class GenerateCommand extends Command {
@@ -63,6 +64,24 @@ class GenerateCommand extends Command {
       return exitCode;
     }
 
+    // ── Sync generated Swift bridges to ios/Classes/ ─────────────────────────
+    _syncSwiftToIosClasses(projectDir.path);
+
+    // ── pod install ──────────────────────────────────────────────────────────
+    final podfileDirs = _findPodfileDirs(projectDir.path);
+    for (final dir in podfileDirs) {
+      stdout.writeln(cyan('  › pod install (${p.relative(dir, from: projectDir.path)}) …'));
+      final podExitCode = await runStreaming(
+        'pod',
+        ['install'],
+        workingDirectory: dir,
+      );
+      if (podExitCode != 0) {
+        stderr.writeln(red('  ⚠  pod install failed in $dir (exit $podExitCode) — continuing'));
+      }
+    }
+
+    stdout.writeln('');
     stdout.writeln(boldGreen('  ✨ Generation complete!'));
     stdout.writeln(
         gray('     Run nitrogen link to wire bridges into the build system.'));
@@ -74,5 +93,47 @@ class GenerateCommand extends Command {
   Future<void> run() async {
     final exitCode = await execute();
     if (exitCode != 0) exit(exitCode);
+  }
+
+  /// Copies every *.bridge.g.swift from lib/**/generated/swift/ into
+  /// ios/Classes/ so CocoaPods always picks up the freshly generated bridges.
+  void _syncSwiftToIosClasses(String projectRoot) {
+    final iosClasses = Directory(p.join(projectRoot, 'ios', 'Classes'));
+    if (!iosClasses.existsSync()) return;
+
+    final libDir = Directory(p.join(projectRoot, 'lib'));
+    if (!libDir.existsSync()) return;
+
+    final bridgeFiles = libDir
+        .listSync(recursive: true)
+        .whereType<File>()
+        .where((f) => f.path.endsWith('.bridge.g.swift'));
+
+    for (final src in bridgeFiles) {
+      final dest = File(p.join(iosClasses.path, p.basename(src.path)));
+      src.copySync(dest.path);
+    }
+  }
+
+  /// Returns directories containing a Podfile, searching common locations:
+  /// <root>/ios/, <root>/example/ios/, and any direct child */ios/.
+  List<String> _findPodfileDirs(String projectRoot) {
+    final candidates = [
+      p.join(projectRoot, 'ios'),
+      p.join(projectRoot, 'example', 'ios'),
+    ];
+
+    // Also check any direct subdirectory that has an ios/ with a Podfile.
+    try {
+      for (final entity in Directory(projectRoot).listSync()) {
+        if (entity is Directory) {
+          candidates.add(p.join(entity.path, 'ios'));
+        }
+      }
+    } catch (_) {}
+
+    return candidates
+        .where((dir) => File(p.join(dir, 'Podfile')).existsSync())
+        .toList();
   }
 }

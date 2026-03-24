@@ -49,7 +49,13 @@ class SpecValidator {
     final issues = <ValidationIssue>[];
     final enumNames = spec.enums.map((e) => e.name).toSet();
     final structNames = spec.structs.map((s) => s.name).toSet();
-    final knownTypes = {..._knownPrimitives, ...enumNames, ...structNames};
+    final recordNames = spec.recordTypes.map((r) => r.name).toSet();
+    final knownTypes = {
+      ..._knownPrimitives,
+      ...enumNames,
+      ...structNames,
+      ...recordNames,
+    };
 
     // ── Functions ──────────────────────────────────────────────────────────
     final seenSymbols = <String>{};
@@ -70,6 +76,7 @@ class SpecValidator {
       // Return type
       final retName = func.returnType.name.replaceFirst('?', '');
       if (retName != 'void' &&
+          !func.returnType.isRecord && // @HybridRecord types bridge as String
           !knownTypes.contains(retName) &&
           !knownTypes.contains(func.returnType.name)) {
         issues.add(
@@ -80,7 +87,8 @@ class SpecValidator {
                 '${spec.dartClassName}.${func.dartName}() — unknown return type "$retName".',
             hint:
                 'If "$retName" is a struct, annotate it with @HybridStruct. '
-                'If it is an enum, annotate it with @HybridEnum.',
+                'If it is an enum, annotate it with @HybridEnum. '
+                'If it is a complex/nested type (lists, nested objects), annotate it with @HybridRecord.',
           ),
         );
       }
@@ -94,7 +102,21 @@ class SpecValidator {
             message:
                 '${spec.dartClassName}.${func.dartName}() returns struct "$retName" synchronously.',
             hint:
-                'Add @NitroAsync to dispatch on a background isolate and avoid blocking the UI thread.',
+                'Add @nitroAsync to dispatch on a background isolate and avoid blocking the UI thread.',
+          ),
+        );
+      }
+
+      // Warn: @HybridRecord returned synchronously (JSON decode is non-trivial)
+      if (!func.isAsync && func.returnType.isRecord) {
+        issues.add(
+          ValidationIssue(
+            severity: ValidationSeverity.warning,
+            code: 'SYNC_RECORD_RETURN',
+            message:
+                '${spec.dartClassName}.${func.dartName}() returns a @HybridRecord type synchronously.',
+            hint:
+                'Add @nitroAsync to dispatch on a background isolate; JSON serialization blocks the calling thread.',
           ),
         );
       }
@@ -102,7 +124,8 @@ class SpecValidator {
       // Parameter types
       for (final param in func.params) {
         final pName = param.type.name.replaceFirst('?', '');
-        if (!knownTypes.contains(pName) &&
+        if (!param.type.isRecord && // @HybridRecord params bridge as String
+            !knownTypes.contains(pName) &&
             !knownTypes.contains(param.type.name)) {
           issues.add(
             ValidationIssue(
@@ -112,7 +135,8 @@ class SpecValidator {
                   '${spec.dartClassName}.${func.dartName}() — parameter "${param.name}" has unknown type "$pName".',
               hint:
                   'If "$pName" is a struct, annotate it with @HybridStruct. '
-                  'If it is an enum, annotate it with @HybridEnum.',
+                  'If it is an enum, annotate it with @HybridEnum. '
+                  'If it is a complex/nested type, annotate it with @HybridRecord.',
             ),
           );
         }
@@ -122,7 +146,9 @@ class SpecValidator {
     // ── Properties ─────────────────────────────────────────────────────────
     for (final prop in spec.properties) {
       final pName = prop.type.name.replaceFirst('?', '');
-      if (!knownTypes.contains(pName) && !knownTypes.contains(prop.type.name)) {
+      if (!prop.type.isRecord &&
+          !knownTypes.contains(pName) &&
+          !knownTypes.contains(prop.type.name)) {
         issues.add(
           ValidationIssue(
             severity: ValidationSeverity.error,
@@ -131,7 +157,8 @@ class SpecValidator {
                 '${spec.dartClassName}.${prop.dartName} — unknown property type "$pName".',
             hint:
                 'If "$pName" is a struct, annotate it with @HybridStruct. '
-                'If it is an enum, annotate it with @HybridEnum.',
+                'If it is an enum, annotate it with @HybridEnum. '
+                'If it is a complex/nested type, annotate it with @HybridRecord.',
           ),
         );
       }
@@ -140,7 +167,8 @@ class SpecValidator {
     // ── Streams ────────────────────────────────────────────────────────────
     for (final stream in spec.streams) {
       final iName = stream.itemType.name.replaceFirst('?', '');
-      if (!knownTypes.contains(iName) &&
+      if (!stream.itemType.isRecord &&
+          !knownTypes.contains(iName) &&
           !knownTypes.contains(stream.itemType.name)) {
         issues.add(
           ValidationIssue(
@@ -149,8 +177,8 @@ class SpecValidator {
             message:
                 '${spec.dartClassName}.${stream.dartName} — unknown stream item type "$iName".',
             hint:
-                'Stream item types must be primitives, String, Uint8List, or a @HybridStruct. '
-                'Wrap complex types in a @HybridStruct.',
+                'Stream item types must be primitives, String, Uint8List, a @HybridStruct, or a @HybridRecord. '
+                'Wrap complex types in a @HybridRecord.',
           ),
         );
       }
@@ -182,7 +210,8 @@ class SpecValidator {
               message:
                   '${st.name}.${field.name} — struct field type "$fName" is not supported.',
               hint:
-                  'Struct fields must be int, double, bool, String, Uint8List, or another @HybridStruct.',
+                  'Struct fields must be int, double, bool, String, Uint8List, or another @HybridStruct. '
+                  'For complex/nested fields, use @HybridRecord instead of @HybridStruct.',
             ),
           );
         }

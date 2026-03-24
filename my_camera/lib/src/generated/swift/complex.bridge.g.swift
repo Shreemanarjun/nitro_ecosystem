@@ -56,21 +56,22 @@ public class ComplexModuleRegistry {
 // MARK: - C bridge stubs — exported as C symbols called by the generated .cpp shim
 
 @_cdecl("_call_calculate")
-public func _call_calculate(_ seed: Int64, _ factor: Double, _ enabled: Bool) -> Int64 {
+public func _call_calculate(_ seed: Int64, _ factor: Double, _ enabled: Int8) -> Int64 {
     return ComplexModuleRegistry.impl?.calculate(seed: seed, factor: factor, enabled: enabled) ?? 0
 }
 
 @_cdecl("_call_fetchMetadata")
-public func _call_fetchMetadata(_ url: String) -> String {
-    guard let impl = ComplexModuleRegistry.impl else { return "" }
+public func _call_fetchMetadata(_ url: UnsafePointer<CChar>?) -> UnsafeMutablePointer<CChar>? {
+    let urlStr = url.map { String(cString: $0) } ?? ""
+    guard let impl = ComplexModuleRegistry.impl else { return strdup("") }
     let sema = DispatchSemaphore(value: 0)
-    var result: String? = nil
+    var result = ""
     Task.detached {
-        result = try? await impl.fetchMetadata(url: url)
+        result = (try? await impl.fetchMetadata(url: urlStr)) ?? ""
         sema.signal()
     }
     sema.wait()
-    return result ?? ""
+    return strdup(result)
 }
 
 @_cdecl("_call_getStatus")
@@ -105,8 +106,8 @@ public func _call_get_batteryLevel() -> Double {
 }
 
 @_cdecl("_call_set_config")
-public func _call_set_config(_ value: String) {
-    ComplexModuleRegistry.impl?.config = value
+public func _call_set_config(_ value: UnsafePointer<CChar>?) {
+    ComplexModuleRegistry.impl?.config = value.map { String(cString: $0) } ?? ""
 }
 
 @_cdecl("_register_sensorStream_stream")
@@ -116,7 +117,9 @@ public func _register_sensorStream_stream(
 ) {
     ComplexModuleRegistry._sensorStreamCancellables[dartPort] =
         ComplexModuleRegistry.impl?.sensorStream.sink { item in
-            emitCb(dartPort, item)
+            let ptr = UnsafeMutablePointer<SensorData>.allocate(capacity: 1)
+            ptr.initialize(to: item)
+            emitCb(dartPort, UnsafeMutableRawPointer(ptr))
         }
 }
 
@@ -132,7 +135,9 @@ public func _register_dataStream_stream(
 ) {
     ComplexModuleRegistry._dataStreamCancellables[dartPort] =
         ComplexModuleRegistry.impl?.dataStream.sink { item in
-            emitCb(dartPort, item)
+            let ptr = UnsafeMutablePointer<Packet>.allocate(capacity: 1)
+            ptr.initialize(to: item)
+            emitCb(dartPort, UnsafeMutableRawPointer(ptr))
         }
 }
 

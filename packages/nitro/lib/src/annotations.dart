@@ -60,3 +60,28 @@ enum Backpressure {
   block, // block native thread until Dart consumes
   bufferDrop, // ring buffer; oldest item dropped when full
 }
+
+/// Marks a Dart class as a rich, JSON-serialized record type for use as
+/// method parameters, return types, or stream items in a @NitroModule.
+///
+/// Unlike @HybridStruct (flat C-memory layout), @HybridRecord classes:
+/// - Support nested objects, [List]s, and nullable fields
+/// - Are bridged as a UTF-8 JSON string — one allocation per call
+/// - Get `fromJson` / `toJson` auto-generated in the `.g.dart` part file
+///
+/// **Use @HybridStruct** for hot-path data (frames, sensor readings).
+/// **Use @HybridRecord** for infrequent, complex data (device lists, config).
+///
+/// ```dart
+/// @HybridRecord
+/// class CameraDevice {
+///   final String id;
+///   final List<Resolution> resolutions;
+///   const CameraDevice({required this.id, required this.resolutions});
+/// }
+/// ```
+class HybridRecord {
+  const HybridRecord();
+}
+
+const hybridRecord = HybridRecord();

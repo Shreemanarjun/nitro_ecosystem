@@ -92,6 +92,14 @@ const char* my_camera_get_greeting(const char* name) {
     return result;
 }
 
+void* my_camera_get_available_devices(void) {
+    JNIEnv* env = GetEnv();
+    if (env == nullptr) return nullptr;
+    jmethodID methodId = env->GetStaticMethodID(g_bridgeClass, "getAvailableDevices_call", "()Ljava/lang/Object;");
+    if (methodId == nullptr) { LOGE("Method not found"); return nullptr; }
+    return nullptr;
+}
+
 void my_camera_register_frames_stream(int64_t dart_port) {
     JNIEnv* env = GetEnv();
     if (env == nullptr) return;
@@ -132,6 +140,11 @@ double my_camera_add(double a, double b) {
 extern const char* _call_getGreeting(const char* name);
 const char* my_camera_get_greeting(const char* name) {
     return _call_getGreeting(name);
+}
+
+extern void* _call_getAvailableDevices(void);
+void* my_camera_get_available_devices(void) {
+    return _call_getAvailableDevices();
 }
 
 void _emit_frames_to_dart(int64_t dartPort, void* item) {

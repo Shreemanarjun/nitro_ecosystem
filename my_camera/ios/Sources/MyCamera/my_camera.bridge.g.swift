@@ -1,0 +1,1 @@
+../../Classes/my_camera.bridge.g.swift

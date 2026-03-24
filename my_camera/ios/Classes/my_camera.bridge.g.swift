@@ -1,0 +1,1 @@
+../../lib/src/generated/swift/my_camera.bridge.g.swift

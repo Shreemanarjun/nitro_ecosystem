@@ -371,6 +371,9 @@ class DoctorCommand extends Command {
     if (RegExp(r'ios:\s*\n(?:\s+\S[^\n]*\n)*\s+pluginClass:')
         .hasMatch(pubspec)) {
       ok(pubSec, 'ios pluginClass defined');
+    } else if (RegExp(r'ios:\s*\n(?:\s+\S[^\n]*\n)*\s+ffiPlugin:\s*true')
+        .hasMatch(pubspec)) {
+      ok(pubSec, 'ios ffiPlugin: true (pluginClass optional for FFI plugins)');
     } else {
       err(pubSec, 'ios pluginClass missing',
           hint: 'Add pluginClass under flutter.plugin.platforms.ios');

@@ -1,0 +1,28 @@
+PODS:
+  - Flutter (1.0.0)
+  - my_camera (0.0.1):
+    - Flutter
+  - nitro (0.0.1):
+    - Flutter
+
+DEPENDENCIES:
+  - Flutter (from `Flutter`)
+  - my_camera (from `.symlinks/plugins/my_camera/ios`)
+  - nitro (from `.symlinks/plugins/nitro/ios`)
+
+EXTERNAL SOURCES:
+  Flutter:
+    :path: Flutter
+  my_camera:
+    :path: ".symlinks/plugins/my_camera/ios"
+  nitro:
+    :path: ".symlinks/plugins/nitro/ios"
+
+SPEC CHECKSUMS:
+  Flutter: cabc95a1d2626b1b06e7179b784ebcf0c0cde467
+  my_camera: 5604cddc1e6a5de446a635aa7eb04f2cd109edc8
+  nitro: 3f399f826dcec7d59928ac53bfa3d6a4234bfb5a
+
+PODFILE CHECKSUM: 3c63482e143d1b91d2d2560aee9fb04ecc74ac7e
+
+COCOAPODS: 1.16.2

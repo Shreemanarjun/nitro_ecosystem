@@ -10,6 +10,7 @@ import 'package:nitro_generator/src/generators/cpp_header_generator.dart';
 import 'package:nitro_generator/src/generators/dart_ffi_generator.dart';
 import 'package:nitro_generator/src/generators/enum_generator.dart';
 import 'package:nitro_generator/src/generators/kotlin_generator.dart';
+import 'package:nitro_generator/src/generators/record_generator.dart';
 import 'package:nitro_generator/src/generators/struct_generator.dart';
 import 'package:nitro_generator/src/generators/swift_generator.dart';
 import 'package:test/test.dart';
@@ -296,6 +297,118 @@ BridgeSpec _asyncEnumSpec() => BridgeSpec(
       cSymbol: 'device_fetch_state',
       isAsync: true,
       returnType: BridgeType(name: 'State'),
+      params: [],
+    ),
+  ],
+);
+
+// ── @HybridRecord helpers ─────────────────────────────────────────────────────
+
+/// Spec with a single @HybridRecord type (flat primitives/strings only).
+/// Contains an async return and a sync record param.
+BridgeSpec _singleRecordSpec() => BridgeSpec(
+  dartClassName: 'CameraModule',
+  lib: 'camera_module',
+  namespace: 'camera_module',
+  iosImpl: NativeImpl.swift,
+  androidImpl: NativeImpl.kotlin,
+  sourceUri: 'camera_module.native.dart',
+  recordTypes: [
+    BridgeRecordType(
+      name: 'CameraDevice',
+      fields: [
+        BridgeRecordField(
+          name: 'id',
+          dartType: 'String',
+          kind: RecordFieldKind.primitive,
+        ),
+        BridgeRecordField(
+          name: 'name',
+          dartType: 'String',
+          kind: RecordFieldKind.primitive,
+        ),
+        BridgeRecordField(
+          name: 'isFrontFacing',
+          dartType: 'bool',
+          kind: RecordFieldKind.primitive,
+        ),
+      ],
+    ),
+  ],
+  functions: [
+    BridgeFunction(
+      dartName: 'getDevice',
+      cSymbol: 'camera_module_get_device',
+      isAsync: true,
+      returnType: BridgeType(name: 'CameraDevice', isRecord: true),
+      params: [],
+    ),
+    BridgeFunction(
+      dartName: 'setDevice',
+      cSymbol: 'camera_module_set_device',
+      isAsync: false,
+      returnType: BridgeType(name: 'void'),
+      params: [
+        BridgeParam(
+          name: 'device',
+          type: BridgeType(name: 'CameraDevice', isRecord: true),
+        ),
+      ],
+    ),
+  ],
+);
+
+/// Spec with nested @HybridRecord types and a List<@HybridRecord> return.
+BridgeSpec _recordListSpec() => BridgeSpec(
+  dartClassName: 'CameraModule',
+  lib: 'camera_module',
+  namespace: 'camera_module',
+  iosImpl: NativeImpl.swift,
+  androidImpl: NativeImpl.kotlin,
+  sourceUri: 'camera_module.native.dart',
+  recordTypes: [
+    BridgeRecordType(
+      name: 'Resolution',
+      fields: [
+        BridgeRecordField(
+          name: 'width',
+          dartType: 'int',
+          kind: RecordFieldKind.primitive,
+        ),
+        BridgeRecordField(
+          name: 'height',
+          dartType: 'int',
+          kind: RecordFieldKind.primitive,
+        ),
+      ],
+    ),
+    BridgeRecordType(
+      name: 'CameraDevice',
+      fields: [
+        BridgeRecordField(
+          name: 'id',
+          dartType: 'String',
+          kind: RecordFieldKind.primitive,
+        ),
+        BridgeRecordField(
+          name: 'resolutions',
+          dartType: 'List<Resolution>',
+          kind: RecordFieldKind.listRecordObject,
+          itemTypeName: 'Resolution',
+        ),
+      ],
+    ),
+  ],
+  functions: [
+    BridgeFunction(
+      dartName: 'getAvailableDevices',
+      cSymbol: 'camera_module_get_available_devices',
+      isAsync: true,
+      returnType: BridgeType(
+        name: 'List<CameraDevice>',
+        isRecord: true,
+        recordListItemType: 'CameraDevice',
+      ),
       params: [],
     ),
   ],
@@ -1993,6 +2106,178 @@ void main() {
       },
     );
 
+    test('@HybridRecord return type produces no errors', () {
+      expect(
+        SpecValidator.validate(_singleRecordSpec()).where((i) => i.isError),
+        isEmpty,
+      );
+    });
+
+    test('List<@HybridRecord> return type produces no errors', () {
+      expect(
+        SpecValidator.validate(_recordListSpec()).where((i) => i.isError),
+        isEmpty,
+      );
+    });
+
+    test(
+      'sync @HybridRecord return emits SYNC_RECORD_RETURN warning (not error)',
+      () {
+        final spec = BridgeSpec(
+          dartClassName: 'Foo',
+          lib: 'foo',
+          namespace: 'foo',
+          iosImpl: NativeImpl.swift,
+          androidImpl: NativeImpl.kotlin,
+          sourceUri: 'foo.native.dart',
+          recordTypes: [
+            BridgeRecordType(
+              name: 'Config',
+              fields: [
+                BridgeRecordField(
+                  name: 'key',
+                  dartType: 'String',
+                  kind: RecordFieldKind.primitive,
+                ),
+              ],
+            ),
+          ],
+          functions: [
+            BridgeFunction(
+              dartName: 'getConfig',
+              cSymbol: 'foo_get_config',
+              isAsync: false,
+              returnType: BridgeType(name: 'Config', isRecord: true),
+              params: [],
+            ),
+          ],
+        );
+        final issues = SpecValidator.validate(spec);
+        final w = issues.where((i) => i.code == 'SYNC_RECORD_RETURN').toList();
+        expect(w, hasLength(1));
+        expect(w.first.isError, isFalse);
+      },
+    );
+
+    test('@HybridRecord as stream item type produces no errors', () {
+      final spec = BridgeSpec(
+        dartClassName: 'Foo',
+        lib: 'foo',
+        namespace: 'foo',
+        iosImpl: NativeImpl.swift,
+        androidImpl: NativeImpl.kotlin,
+        sourceUri: 'foo.native.dart',
+        recordTypes: [
+          BridgeRecordType(
+            name: 'Event',
+            fields: [
+              BridgeRecordField(
+                name: 'type',
+                dartType: 'String',
+                kind: RecordFieldKind.primitive,
+              ),
+            ],
+          ),
+        ],
+        streams: [
+          BridgeStream(
+            dartName: 'events',
+            registerSymbol: 'foo_register_events_stream',
+            releaseSymbol: 'foo_release_events_stream',
+            itemType: BridgeType(name: 'Event', isRecord: true),
+            backpressure: Backpressure.dropLatest,
+          ),
+        ],
+      );
+      expect(SpecValidator.validate(spec).where((i) => i.isError), isEmpty);
+    });
+
+    test('@HybridRecord as property type produces no errors', () {
+      final spec = BridgeSpec(
+        dartClassName: 'Foo',
+        lib: 'foo',
+        namespace: 'foo',
+        iosImpl: NativeImpl.swift,
+        androidImpl: NativeImpl.kotlin,
+        sourceUri: 'foo.native.dart',
+        recordTypes: [
+          BridgeRecordType(
+            name: 'Config',
+            fields: [
+              BridgeRecordField(
+                name: 'k',
+                dartType: 'String',
+                kind: RecordFieldKind.primitive,
+              ),
+            ],
+          ),
+        ],
+        properties: [
+          BridgeProperty(
+            dartName: 'config',
+            type: BridgeType(name: 'Config', isRecord: true),
+            getSymbol: 'foo_get_config',
+            setSymbol: 'foo_set_config',
+            hasGetter: true,
+            hasSetter: true,
+          ),
+        ],
+      );
+      expect(SpecValidator.validate(spec).where((i) => i.isError), isEmpty);
+    });
+
+    test('unannotated complex return type still emits UNKNOWN_RETURN_TYPE', () {
+      // isRecord: false — should be flagged even if name looks complex
+      final spec = BridgeSpec(
+        dartClassName: 'Foo',
+        lib: 'foo',
+        namespace: 'foo',
+        iosImpl: NativeImpl.swift,
+        androidImpl: NativeImpl.kotlin,
+        sourceUri: 'foo.native.dart',
+        functions: [
+          BridgeFunction(
+            dartName: 'get',
+            cSymbol: 'foo_get',
+            isAsync: true,
+            returnType: BridgeType(name: 'List<SomeClass>'),
+            params: [],
+          ),
+        ],
+      );
+      expect(
+        SpecValidator.validate(spec).any(
+          (i) => i.code == 'UNKNOWN_RETURN_TYPE' && i.isError,
+        ),
+        isTrue,
+      );
+    });
+
+    test('UNKNOWN_RETURN_TYPE hint now mentions @HybridRecord', () {
+      final spec = BridgeSpec(
+        dartClassName: 'Foo',
+        lib: 'foo',
+        namespace: 'foo',
+        iosImpl: NativeImpl.swift,
+        androidImpl: NativeImpl.kotlin,
+        sourceUri: 'foo.native.dart',
+        functions: [
+          BridgeFunction(
+            dartName: 'get',
+            cSymbol: 'foo_get',
+            isAsync: true,
+            returnType: BridgeType(name: 'SomeClass'),
+            params: [],
+          ),
+        ],
+      );
+      final errors = SpecValidator.validate(spec)
+          .where((i) => i.isError && i.code == 'UNKNOWN_RETURN_TYPE')
+          .toList();
+      expect(errors, hasLength(1));
+      expect(errors.first.hint, contains('@HybridRecord'));
+    });
+
     test('spec with property-only (no functions) is valid', () {
       final spec = BridgeSpec(
         dartClassName: 'Cfg',
@@ -2014,5 +2299,869 @@ void main() {
       );
       expect(SpecValidator.validate(spec), isEmpty);
     });
+  });
+
+  // ── RecordGenerator ───────────────────────────────────────────────────────
+
+  group('RecordGenerator', () {
+    test('emits extension for each @HybridRecord type', () {
+      final out = RecordGenerator.generateDartExtensions(_singleRecordSpec());
+      expect(out, contains('extension CameraDeviceRecordExt on CameraDevice'));
+    });
+
+    test('emits static fromNative factory', () {
+      final out = RecordGenerator.generateDartExtensions(_singleRecordSpec());
+      expect(out, contains('static CameraDevice fromNative(Pointer<Uint8> ptr)'));
+    });
+
+    test('emits static fromReader inner decoder', () {
+      final out = RecordGenerator.generateDartExtensions(_singleRecordSpec());
+      expect(out, contains('static CameraDevice fromReader(RecordReader r)'));
+    });
+
+    test('emits writeFields method', () {
+      final out = RecordGenerator.generateDartExtensions(_singleRecordSpec());
+      expect(out, contains('void writeFields(RecordWriter w)'));
+    });
+
+    test('emits toNative method', () {
+      final out = RecordGenerator.generateDartExtensions(_singleRecordSpec());
+      expect(out, contains('Pointer<Uint8> toNative(Allocator alloc)'));
+    });
+
+    test('primitive String field reads via r.readString() in fromReader', () {
+      final out = RecordGenerator.generateDartExtensions(_singleRecordSpec());
+      expect(out, contains('r.readString()'));
+    });
+
+    test('primitive bool field reads via r.readBool() in fromReader', () {
+      final out = RecordGenerator.generateDartExtensions(_singleRecordSpec());
+      expect(out, contains('r.readBool()'));
+    });
+
+    test('primitive String field writes via w.writeString in writeFields', () {
+      final out = RecordGenerator.generateDartExtensions(_singleRecordSpec());
+      expect(out, contains('w.writeString(id)'));
+    });
+
+    test('primitive double reads via r.readDouble() in fromReader', () {
+      final spec = BridgeSpec(
+        dartClassName: 'Foo',
+        lib: 'foo',
+        namespace: 'foo',
+        iosImpl: NativeImpl.swift,
+        androidImpl: NativeImpl.kotlin,
+        sourceUri: 'foo.native.dart',
+        recordTypes: [
+          BridgeRecordType(
+            name: 'Measurement',
+            fields: [
+              BridgeRecordField(
+                name: 'value',
+                dartType: 'double',
+                kind: RecordFieldKind.primitive,
+              ),
+            ],
+          ),
+        ],
+      );
+      final out = RecordGenerator.generateDartExtensions(spec);
+      expect(out, contains('r.readDouble()'));
+      expect(out, contains('w.writeDouble(value)'));
+    });
+
+    test('nullable double writes null tag and reads conditionally', () {
+      final spec = BridgeSpec(
+        dartClassName: 'Foo',
+        lib: 'foo',
+        namespace: 'foo',
+        iosImpl: NativeImpl.swift,
+        androidImpl: NativeImpl.kotlin,
+        sourceUri: 'foo.native.dart',
+        recordTypes: [
+          BridgeRecordType(
+            name: 'Measurement',
+            fields: [
+              BridgeRecordField(
+                name: 'value',
+                dartType: 'double?',
+                kind: RecordFieldKind.primitive,
+                isNullable: true,
+              ),
+            ],
+          ),
+        ],
+      );
+      final out = RecordGenerator.generateDartExtensions(spec);
+      expect(out, contains('r.readNullTag()'));
+      expect(out, contains('r.readDouble()'));
+      expect(out, contains('w.writeNullTag(value == null)'));
+    });
+
+    test('nested @HybridRecord field calls TypeRecordExt.fromReader', () {
+      final spec = BridgeSpec(
+        dartClassName: 'Foo',
+        lib: 'foo',
+        namespace: 'foo',
+        iosImpl: NativeImpl.swift,
+        androidImpl: NativeImpl.kotlin,
+        sourceUri: 'foo.native.dart',
+        recordTypes: [
+          BridgeRecordType(
+            name: 'Inner',
+            fields: [
+              BridgeRecordField(
+                name: 'x',
+                dartType: 'int',
+                kind: RecordFieldKind.primitive,
+              ),
+            ],
+          ),
+          BridgeRecordType(
+            name: 'Outer',
+            fields: [
+              BridgeRecordField(
+                name: 'inner',
+                dartType: 'Inner',
+                kind: RecordFieldKind.recordObject,
+              ),
+            ],
+          ),
+        ],
+      );
+      final out = RecordGenerator.generateDartExtensions(spec);
+      expect(out, contains('InnerRecordExt.fromReader(r)'));
+      expect(out, contains('inner.writeFields(w)'));
+    });
+
+    test('nullable nested record uses readNullTag guard in fromReader', () {
+      final spec = BridgeSpec(
+        dartClassName: 'Foo',
+        lib: 'foo',
+        namespace: 'foo',
+        iosImpl: NativeImpl.swift,
+        androidImpl: NativeImpl.kotlin,
+        sourceUri: 'foo.native.dart',
+        recordTypes: [
+          BridgeRecordType(
+            name: 'Inner',
+            fields: [
+              BridgeRecordField(
+                name: 'x',
+                dartType: 'int',
+                kind: RecordFieldKind.primitive,
+              ),
+            ],
+          ),
+          BridgeRecordType(
+            name: 'Outer',
+            fields: [
+              BridgeRecordField(
+                name: 'inner',
+                dartType: 'Inner?',
+                kind: RecordFieldKind.recordObject,
+                isNullable: true,
+              ),
+            ],
+          ),
+        ],
+      );
+      final out = RecordGenerator.generateDartExtensions(spec);
+      expect(out, contains('r.readNullTag()'));
+      expect(out, contains('InnerRecordExt.fromReader(r)'));
+      expect(out, contains('w.writeNullTag(inner == null)'));
+    });
+
+    test('List<@HybridRecord> field uses List.generate + fromReader', () {
+      final out = RecordGenerator.generateDartExtensions(_recordListSpec());
+      expect(
+        out,
+        contains(
+          'List.generate(r.readInt32(), (_) => ResolutionRecordExt.fromReader(r))',
+        ),
+      );
+    });
+
+    test('List<@HybridRecord> field uses for loop + writeFields in writeFields', () {
+      final out = RecordGenerator.generateDartExtensions(_recordListSpec());
+      expect(out, contains('for (final e in resolutions) e.writeFields(w)'));
+    });
+
+    test('List<primitive String> field uses List.generate + readString', () {
+      final spec = BridgeSpec(
+        dartClassName: 'Foo',
+        lib: 'foo',
+        namespace: 'foo',
+        iosImpl: NativeImpl.swift,
+        androidImpl: NativeImpl.kotlin,
+        sourceUri: 'foo.native.dart',
+        recordTypes: [
+          BridgeRecordType(
+            name: 'Config',
+            fields: [
+              BridgeRecordField(
+                name: 'modes',
+                dartType: 'List<String>',
+                kind: RecordFieldKind.listPrimitive,
+                itemTypeName: 'String',
+              ),
+            ],
+          ),
+        ],
+      );
+      final out = RecordGenerator.generateDartExtensions(spec);
+      expect(
+        out,
+        contains('List.generate(r.readInt32(), (_) => r.readString())'),
+      );
+      expect(out, contains('for (final e in modes) w.writeString(e)'));
+    });
+
+    test('List<double> field uses List.generate + readDouble', () {
+      final spec = BridgeSpec(
+        dartClassName: 'Foo',
+        lib: 'foo',
+        namespace: 'foo',
+        iosImpl: NativeImpl.swift,
+        androidImpl: NativeImpl.kotlin,
+        sourceUri: 'foo.native.dart',
+        recordTypes: [
+          BridgeRecordType(
+            name: 'Curve',
+            fields: [
+              BridgeRecordField(
+                name: 'points',
+                dartType: 'List<double>',
+                kind: RecordFieldKind.listPrimitive,
+                itemTypeName: 'double',
+              ),
+            ],
+          ),
+        ],
+      );
+      final out = RecordGenerator.generateDartExtensions(spec);
+      expect(
+        out,
+        contains('List.generate(r.readInt32(), (_) => r.readDouble())'),
+      );
+      expect(out, contains('for (final e in points) w.writeDouble(e)'));
+    });
+
+    test('multiple @HybridRecord types each get their own extension', () {
+      final out = RecordGenerator.generateDartExtensions(_recordListSpec());
+      expect(out, contains('extension ResolutionRecordExt on Resolution'));
+      expect(out, contains('extension CameraDeviceRecordExt on CameraDevice'));
+    });
+
+    test('empty spec (no recordTypes) returns empty string', () {
+      expect(
+        RecordGenerator.generateDartExtensions(_simpleSpec()),
+        isEmpty,
+      );
+    });
+  });
+
+  // ── DartFfiGenerator (@HybridRecord) ──────────────────────────────────────
+
+  group('DartFfiGenerator (@HybridRecord)', () {
+    test('async single record return uses Pointer<Uint8> FFI lookup type', () {
+      final out = DartFfiGenerator.generate(_singleRecordSpec());
+      expect(
+        out,
+        contains(
+          "lookupFunction<Pointer<Uint8> Function(), Pointer<Uint8> Function()>"
+          "('camera_module_get_device')",
+        ),
+      );
+    });
+
+    test('record param uses Pointer<Uint8> in FFI lookup', () {
+      final out = DartFfiGenerator.generate(_singleRecordSpec());
+      expect(
+        out,
+        contains(
+          "lookupFunction<Void Function(Pointer<Uint8>), void Function(Pointer<Uint8>)>"
+          "('camera_module_set_device')",
+        ),
+      );
+    });
+
+    test('async single record return decodes via fromNative', () {
+      final out = DartFfiGenerator.generate(_singleRecordSpec());
+      expect(out, contains('CameraDeviceRecordExt.fromNative'));
+      // binary path — must NOT use JSON decode
+      expect(out, isNot(contains('jsonDecode')));
+      expect(out, isNot(contains('toDartStringWithFree')));
+    });
+
+    test('async single record return does not produce Map<String, dynamic>', () {
+      final out = DartFfiGenerator.generate(_singleRecordSpec());
+      expect(out, isNot(contains('as Map<String, dynamic>')));
+    });
+
+    test('async List<record> return uses RecordReader.decodeList + fromReader', () {
+      final out = DartFfiGenerator.generate(_recordListSpec());
+      expect(out, contains('RecordReader.decodeList'));
+      expect(out, contains('CameraDeviceRecordExt.fromReader'));
+    });
+
+    test('record param uses .toNative(arena)', () {
+      final out = DartFfiGenerator.generate(_singleRecordSpec());
+      expect(out, contains('device.toNative(arena)'));
+      // Must NOT use JSON path
+      expect(out, isNot(contains('jsonEncode(device')));
+    });
+
+    test('record param forces withArena even when no other arena params', () {
+      final out = DartFfiGenerator.generate(_singleRecordSpec());
+      // setDevice has only a record param — must still enter withArena
+      final lines = out.split('\n');
+      final idx = lines.indexWhere((l) => l.contains('void setDevice('));
+      final body = lines.skip(idx).take(12).join('\n');
+      expect(body, contains('withArena'));
+    });
+
+    test('binary extensions are included in .g.dart output', () {
+      final out = DartFfiGenerator.generate(_singleRecordSpec());
+      expect(out, contains('@HybridRecord binary extensions'));
+      expect(out, contains('extension CameraDeviceRecordExt'));
+    });
+
+    test('record property getter decodes via fromNative', () {
+      final spec = BridgeSpec(
+        dartClassName: 'Foo',
+        lib: 'foo',
+        namespace: 'foo',
+        iosImpl: NativeImpl.swift,
+        androidImpl: NativeImpl.kotlin,
+        sourceUri: 'foo.native.dart',
+        recordTypes: [
+          BridgeRecordType(
+            name: 'Config',
+            fields: [
+              BridgeRecordField(
+                name: 'key',
+                dartType: 'String',
+                kind: RecordFieldKind.primitive,
+              ),
+            ],
+          ),
+        ],
+        properties: [
+          BridgeProperty(
+            dartName: 'config',
+            type: BridgeType(name: 'Config', isRecord: true),
+            getSymbol: 'foo_get_config',
+            hasGetter: true,
+            hasSetter: false,
+          ),
+        ],
+      );
+      final out = DartFfiGenerator.generate(spec);
+      expect(out, contains('ConfigRecordExt.fromNative'));
+      expect(out, isNot(contains('toDartStringWithFree')));
+    });
+
+    test('record property setter encodes via .toNative(arena)', () {
+      final spec = BridgeSpec(
+        dartClassName: 'Foo',
+        lib: 'foo',
+        namespace: 'foo',
+        iosImpl: NativeImpl.swift,
+        androidImpl: NativeImpl.kotlin,
+        sourceUri: 'foo.native.dart',
+        recordTypes: [
+          BridgeRecordType(
+            name: 'Config',
+            fields: [
+              BridgeRecordField(
+                name: 'key',
+                dartType: 'String',
+                kind: RecordFieldKind.primitive,
+              ),
+            ],
+          ),
+        ],
+        properties: [
+          BridgeProperty(
+            dartName: 'config',
+            type: BridgeType(name: 'Config', isRecord: true),
+            setSymbol: 'foo_set_config',
+            hasGetter: false,
+            hasSetter: true,
+          ),
+        ],
+      );
+      final out = DartFfiGenerator.generate(spec);
+      expect(out, contains('value.toNative(arena)'));
+      expect(out, isNot(contains('jsonEncode(value')));
+    });
+
+    test('record stream item unpack decodes via fromNative', () {
+      final spec = BridgeSpec(
+        dartClassName: 'Foo',
+        lib: 'foo',
+        namespace: 'foo',
+        iosImpl: NativeImpl.swift,
+        androidImpl: NativeImpl.kotlin,
+        sourceUri: 'foo.native.dart',
+        recordTypes: [
+          BridgeRecordType(
+            name: 'Event',
+            fields: [
+              BridgeRecordField(
+                name: 'type',
+                dartType: 'String',
+                kind: RecordFieldKind.primitive,
+              ),
+            ],
+          ),
+        ],
+        streams: [
+          BridgeStream(
+            dartName: 'events',
+            registerSymbol: 'foo_register_events_stream',
+            releaseSymbol: 'foo_release_events_stream',
+            itemType: BridgeType(name: 'Event', isRecord: true),
+            backpressure: Backpressure.dropLatest,
+          ),
+        ],
+      );
+      final out = DartFfiGenerator.generate(spec);
+      expect(out, contains('EventRecordExt.fromNative'));
+      expect(out, isNot(contains('toDartStringWithFree')));
+      expect(out, isNot(contains('jsonDecode')));
+    });
+
+    test('List<record> stream item unpack uses RecordReader.decodeList', () {
+      final spec = BridgeSpec(
+        dartClassName: 'Foo',
+        lib: 'foo',
+        namespace: 'foo',
+        iosImpl: NativeImpl.swift,
+        androidImpl: NativeImpl.kotlin,
+        sourceUri: 'foo.native.dart',
+        recordTypes: [
+          BridgeRecordType(
+            name: 'Item',
+            fields: [
+              BridgeRecordField(
+                name: 'id',
+                dartType: 'int',
+                kind: RecordFieldKind.primitive,
+              ),
+            ],
+          ),
+        ],
+        streams: [
+          BridgeStream(
+            dartName: 'batch',
+            registerSymbol: 'foo_register_batch_stream',
+            releaseSymbol: 'foo_release_batch_stream',
+            itemType: BridgeType(
+              name: 'List<Item>',
+              isRecord: true,
+              recordListItemType: 'Item',
+            ),
+            backpressure: Backpressure.dropLatest,
+          ),
+        ],
+      );
+      final out = DartFfiGenerator.generate(spec);
+      expect(out, contains('RecordReader.decodeList'));
+      expect(out, contains('ItemRecordExt.fromReader'));
+    });
+
+    // ── List<primitive> bridge ────────────────────────────────────────────────
+
+    test('List<String> return decodes via RecordReader.decodePrimitiveList + readString', () {
+      final spec = BridgeSpec(
+        dartClassName: 'Foo',
+        lib: 'foo',
+        namespace: 'foo',
+        iosImpl: NativeImpl.swift,
+        androidImpl: NativeImpl.kotlin,
+        sourceUri: 'foo.native.dart',
+        functions: [
+          BridgeFunction(
+            dartName: 'getTags',
+            cSymbol: 'foo_get_tags',
+            isAsync: true,
+            returnType: BridgeType(
+              name: 'List<String>',
+              isRecord: true,
+              recordListItemType: 'String',
+              recordListItemIsPrimitive: true,
+            ),
+            params: [],
+          ),
+        ],
+      );
+      final out = DartFfiGenerator.generate(spec);
+      expect(out, contains('RecordReader.decodePrimitiveList'));
+      expect(out, contains('readString'));
+      expect(out, isNot(contains('StringRecordExt')));
+    });
+
+    test('List<int> return decodes via RecordReader.decodePrimitiveList + readInt', () {
+      final spec = BridgeSpec(
+        dartClassName: 'Foo',
+        lib: 'foo',
+        namespace: 'foo',
+        iosImpl: NativeImpl.swift,
+        androidImpl: NativeImpl.kotlin,
+        sourceUri: 'foo.native.dart',
+        functions: [
+          BridgeFunction(
+            dartName: 'getCounts',
+            cSymbol: 'foo_get_counts',
+            isAsync: true,
+            returnType: BridgeType(
+              name: 'List<int>',
+              isRecord: true,
+              recordListItemType: 'int',
+              recordListItemIsPrimitive: true,
+            ),
+            params: [],
+          ),
+        ],
+      );
+      final out = DartFfiGenerator.generate(spec);
+      expect(out, contains('RecordReader.decodePrimitiveList'));
+      expect(out, contains('readInt'));
+    });
+
+    test('List<double> return uses RecordReader.decodePrimitiveList + readDouble', () {
+      final spec = BridgeSpec(
+        dartClassName: 'Foo',
+        lib: 'foo',
+        namespace: 'foo',
+        iosImpl: NativeImpl.swift,
+        androidImpl: NativeImpl.kotlin,
+        sourceUri: 'foo.native.dart',
+        functions: [
+          BridgeFunction(
+            dartName: 'getScores',
+            cSymbol: 'foo_get_scores',
+            isAsync: true,
+            returnType: BridgeType(
+              name: 'List<double>',
+              isRecord: true,
+              recordListItemType: 'double',
+              recordListItemIsPrimitive: true,
+            ),
+            params: [],
+          ),
+        ],
+      );
+      final out = DartFfiGenerator.generate(spec);
+      expect(out, contains('RecordReader.decodePrimitiveList'));
+      expect(out, contains('readDouble'));
+    });
+
+    test('List<String> param uses RecordWriter.encodePrimitiveList (no jsonEncode)', () {
+      final spec = BridgeSpec(
+        dartClassName: 'Foo',
+        lib: 'foo',
+        namespace: 'foo',
+        iosImpl: NativeImpl.swift,
+        androidImpl: NativeImpl.kotlin,
+        sourceUri: 'foo.native.dart',
+        functions: [
+          BridgeFunction(
+            dartName: 'setTags',
+            cSymbol: 'foo_set_tags',
+            isAsync: false,
+            returnType: BridgeType(name: 'void'),
+            params: [
+              BridgeParam(
+                name: 'tags',
+                type: BridgeType(
+                  name: 'List<String>',
+                  isRecord: true,
+                  recordListItemType: 'String',
+                  recordListItemIsPrimitive: true,
+                ),
+              ),
+            ],
+          ),
+        ],
+      );
+      final out = DartFfiGenerator.generate(spec);
+      expect(out, contains('RecordWriter.encodePrimitiveList(tags'));
+      expect(out, contains('writeString'));
+      expect(out, isNot(contains('jsonEncode(tags)')));
+    });
+
+    test('List<String> property setter uses RecordWriter.encodePrimitiveList', () {
+      final spec = BridgeSpec(
+        dartClassName: 'Foo',
+        lib: 'foo',
+        namespace: 'foo',
+        iosImpl: NativeImpl.swift,
+        androidImpl: NativeImpl.kotlin,
+        sourceUri: 'foo.native.dart',
+        properties: [
+          BridgeProperty(
+            dartName: 'tags',
+            type: BridgeType(
+              name: 'List<String>',
+              isRecord: true,
+              recordListItemType: 'String',
+              recordListItemIsPrimitive: true,
+            ),
+            setSymbol: 'foo_set_tags',
+            hasGetter: false,
+            hasSetter: true,
+          ),
+        ],
+      );
+      final out = DartFfiGenerator.generate(spec);
+      expect(out, contains('RecordWriter.encodePrimitiveList(value'));
+      expect(out, contains('writeString'));
+      expect(out, isNot(contains('jsonEncode(value)')));
+    });
+
+    test('List<int> stream item decodes via RecordReader.decodePrimitiveList + readInt', () {
+      final spec = BridgeSpec(
+        dartClassName: 'Foo',
+        lib: 'foo',
+        namespace: 'foo',
+        iosImpl: NativeImpl.swift,
+        androidImpl: NativeImpl.kotlin,
+        sourceUri: 'foo.native.dart',
+        streams: [
+          BridgeStream(
+            dartName: 'counts',
+            registerSymbol: 'foo_register_counts_stream',
+            releaseSymbol: 'foo_release_counts_stream',
+            itemType: BridgeType(
+              name: 'List<int>',
+              isRecord: true,
+              recordListItemType: 'int',
+              recordListItemIsPrimitive: true,
+            ),
+            backpressure: Backpressure.dropLatest,
+          ),
+        ],
+      );
+      final out = DartFfiGenerator.generate(spec);
+      expect(out, contains('RecordReader.decodePrimitiveList'));
+      expect(out, contains('readInt'));
+      expect(out, isNot(contains('RecordExt')));
+    });
+
+    // ── Map<String, T> bridge (still JSON — dynamic value type) ──────────────
+
+    test('Map<String, dynamic> return decodes via jsonDecode as Map<String, dynamic>', () {
+      final spec = BridgeSpec(
+        dartClassName: 'Foo',
+        lib: 'foo',
+        namespace: 'foo',
+        iosImpl: NativeImpl.swift,
+        androidImpl: NativeImpl.kotlin,
+        sourceUri: 'foo.native.dart',
+        functions: [
+          BridgeFunction(
+            dartName: 'getMetadata',
+            cSymbol: 'foo_get_metadata',
+            isAsync: true,
+            returnType: BridgeType(
+              name: 'Map<String, dynamic>',
+              isRecord: true,
+              isMap: true,
+            ),
+            params: [],
+          ),
+        ],
+      );
+      final out = DartFfiGenerator.generate(spec);
+      expect(out, contains('jsonDecode'));
+      expect(out, contains('as Map<String, dynamic>'));
+      expect(out, contains('Pointer<Utf8>'));
+      // Must NOT call RecordExt
+      expect(out, isNot(contains('RecordExt')));
+    });
+
+    test('Map<String, dynamic> param encodes via jsonEncode(param) with toNativeUtf8', () {
+      final spec = BridgeSpec(
+        dartClassName: 'Foo',
+        lib: 'foo',
+        namespace: 'foo',
+        iosImpl: NativeImpl.swift,
+        androidImpl: NativeImpl.kotlin,
+        sourceUri: 'foo.native.dart',
+        functions: [
+          BridgeFunction(
+            dartName: 'setMetadata',
+            cSymbol: 'foo_set_metadata',
+            isAsync: false,
+            returnType: BridgeType(name: 'void'),
+            params: [
+              BridgeParam(
+                name: 'meta',
+                type: BridgeType(
+                  name: 'Map<String, dynamic>',
+                  isRecord: true,
+                  isMap: true,
+                ),
+              ),
+            ],
+          ),
+        ],
+      );
+      final out = DartFfiGenerator.generate(spec);
+      expect(out, contains('jsonEncode(meta)'));
+      expect(out, contains('toNativeUtf8'));
+      expect(out, isNot(contains('meta.toJson()')));
+    });
+
+    test('Map<String, dynamic> property setter uses jsonEncode(value) directly', () {
+      final spec = BridgeSpec(
+        dartClassName: 'Foo',
+        lib: 'foo',
+        namespace: 'foo',
+        iosImpl: NativeImpl.swift,
+        androidImpl: NativeImpl.kotlin,
+        sourceUri: 'foo.native.dart',
+        properties: [
+          BridgeProperty(
+            dartName: 'metadata',
+            type: BridgeType(
+              name: 'Map<String, dynamic>',
+              isRecord: true,
+              isMap: true,
+            ),
+            setSymbol: 'foo_set_metadata',
+            hasGetter: false,
+            hasSetter: true,
+          ),
+        ],
+      );
+      final out = DartFfiGenerator.generate(spec);
+      expect(out, contains('jsonEncode(value)'));
+      expect(out, contains('toNativeUtf8'));
+      expect(out, isNot(contains('value.toJson()')));
+    });
+
+    test('Map<String, dynamic> stream item decodes as Map<String, dynamic>', () {
+      final spec = BridgeSpec(
+        dartClassName: 'Foo',
+        lib: 'foo',
+        namespace: 'foo',
+        iosImpl: NativeImpl.swift,
+        androidImpl: NativeImpl.kotlin,
+        sourceUri: 'foo.native.dart',
+        streams: [
+          BridgeStream(
+            dartName: 'updates',
+            registerSymbol: 'foo_register_updates_stream',
+            releaseSymbol: 'foo_release_updates_stream',
+            itemType: BridgeType(
+              name: 'Map<String, dynamic>',
+              isRecord: true,
+              isMap: true,
+            ),
+            backpressure: Backpressure.dropLatest,
+          ),
+        ],
+      );
+      final out = DartFfiGenerator.generate(spec);
+      expect(out, contains('jsonDecode'));
+      expect(out, contains('as Map<String, dynamic>'));
+      expect(out, isNot(contains('RecordExt')));
+    });
+
+    test('Map<String, dynamic> property getter decodes as Map<String, dynamic>', () {
+      final spec = BridgeSpec(
+        dartClassName: 'Foo',
+        lib: 'foo',
+        namespace: 'foo',
+        iosImpl: NativeImpl.swift,
+        androidImpl: NativeImpl.kotlin,
+        sourceUri: 'foo.native.dart',
+        properties: [
+          BridgeProperty(
+            dartName: 'metadata',
+            type: BridgeType(
+              name: 'Map<String, dynamic>',
+              isRecord: true,
+              isMap: true,
+            ),
+            getSymbol: 'foo_get_metadata',
+            hasGetter: true,
+            hasSetter: false,
+          ),
+        ],
+      );
+      final out = DartFfiGenerator.generate(spec);
+      expect(out, contains('jsonDecode'));
+      expect(out, contains('as Map<String, dynamic>'));
+      expect(out, isNot(contains('RecordExt')));
+    });
+
+    test(
+      '@HybridRecord and @HybridStruct coexist in same spec without collision',
+      () {
+        final spec = BridgeSpec(
+          dartClassName: 'Hybrid',
+          lib: 'hybrid',
+          namespace: 'hybrid',
+          iosImpl: NativeImpl.swift,
+          androidImpl: NativeImpl.kotlin,
+          sourceUri: 'hybrid.native.dart',
+          structs: [
+            BridgeStruct(
+              name: 'Frame',
+              packed: false,
+              fields: [
+                BridgeField(
+                  name: 'width',
+                  type: BridgeType(name: 'int'),
+                ),
+              ],
+            ),
+          ],
+          recordTypes: [
+            BridgeRecordType(
+              name: 'Config',
+              fields: [
+                BridgeRecordField(
+                  name: 'key',
+                  dartType: 'String',
+                  kind: RecordFieldKind.primitive,
+                ),
+              ],
+            ),
+          ],
+          functions: [
+            BridgeFunction(
+              dartName: 'getConfig',
+              cSymbol: 'hybrid_get_config',
+              isAsync: true,
+              returnType: BridgeType(name: 'Config', isRecord: true),
+              params: [],
+            ),
+            BridgeFunction(
+              dartName: 'processFrame',
+              cSymbol: 'hybrid_process_frame',
+              isAsync: true,
+              returnType: BridgeType(name: 'Frame'),
+              params: [],
+            ),
+          ],
+        );
+        final out = DartFfiGenerator.generate(spec);
+        // Both record and struct extensions present
+        expect(out, contains('extension ConfigRecordExt'));
+        expect(out, contains('final class FrameFfi'));
+        // Record method uses binary decode
+        expect(out, contains('ConfigRecordExt.fromNative'));
+        // Struct method uses fromAddress
+        expect(out, contains('Pointer<FrameFfi>.fromAddress'));
+        // No errors from spec validator either
+        expect(SpecValidator.validate(spec).where((i) => i.isError), isEmpty);
+      },
+    );
   });
 }

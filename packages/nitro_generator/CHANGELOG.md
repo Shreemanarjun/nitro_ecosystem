@@ -1,3 +1,21 @@
+## 0.2.1
+
+- **Fix: Swift stream emit for `@HybridStruct` items** — the generated `_register_*_stream` `@_cdecl` stub now heap-allocates the struct item and passes `UnsafeMutableRawPointer` to the emit callback instead of passing the Swift struct value directly. Previously this caused a Swift compiler error: `Cannot convert value of type 'T' to expected argument type 'UnsafeMutableRawPointer'` for any stream whose item type is a `@HybridStruct`.
+
+## 0.2.0
+
+- **New: `@HybridRecord` binary bridge** — generated extensions now use a compact binary protocol (`uint8_t*` / `Pointer<Uint8>`) instead of UTF-8 JSON strings (`Pointer<Utf8>`).
+  - **Breaking:** generated extension methods renamed — `fromJson` → `fromNative` + `fromReader`, `toJson` → `writeFields` + `toNative`. Re-run `nitrogen generate` to update all generated `.g.dart` files.
+  - `fromNative(Pointer<Uint8>)` — top-level decoder (with 4-byte length prefix).
+  - `fromReader(RecordReader)` — inner decoder for use inside list elements.
+  - `writeFields(RecordWriter)` — writes fields into an in-progress writer.
+  - `toNative(Allocator)` — top-level encoder; seals the buffer and copies to native heap.
+  - FFI lookup type changed from `Pointer<Utf8>` to `Pointer<Uint8>` for all `@HybridRecord` types (except `Map<String, T>` which retains the JSON path).
+- **New: `List<primitive>` bridge** — `List<int>`, `List<double>`, `List<bool>`, `List<String>` now cross the FFI boundary as binary `uint8_t*` via `RecordWriter.encodePrimitiveList` / `RecordReader.decodePrimitiveList`.
+- **New: `Map<String, T>` bridge** — `Map<String, dynamic>` and `Map<String, V>` are supported as a bridge type using the UTF-8 JSON text path (dynamic value type precludes binary encoding).
+- **`SpecValidator`** — validator accepts `List<primitive>` and `Map<String, T>` return/param/property/stream types without emitting `UNKNOWN_*` errors; emits `SYNC_RECORD_RETURN` warning for synchronous `@HybridRecord` returns.
+- 226 passing tests.
+
 ## 0.1.3
 
 - **Swift generator: fixed `@_cdecl` String type crash (`EXC_BAD_ACCESS`)** — `String` parameters now use `UnsafePointer<CChar>?` (C `const char*`) and return values use `UnsafeMutablePointer<CChar>?` (malloc'd `char*`), with `String(cString:)` conversion at the boundary and `strdup()` for returns so Dart's `toDartStringWithFree()` / `free()` pairs correctly. Fixes an immediate crash on any method that takes or returns a `String`.

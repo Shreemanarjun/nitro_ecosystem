@@ -19,6 +19,7 @@ data class CameraFrame(val data: java.nio.ByteBuffer, val width: Long, val heigh
 interface HybridMyCameraSpec {
     fun add(a: Double, b: Double): Double
     suspend fun getGreeting(name: String): String
+    suspend fun getAvailableDevices(): Any?
     val frames: Flow<CameraFrame>
 }
 
@@ -41,6 +42,12 @@ object MyCameraJniBridge {
         val impl = implementation ?: throw IllegalStateException("MyCamera not registered")
         return runBlocking {
             impl.getGreeting(name)
+        }
+    }
+    @JvmStatic fun getAvailableDevices_call(): Any? {
+        val impl = implementation ?: throw IllegalStateException("MyCamera not registered")
+        return runBlocking {
+            impl.getAvailableDevices()
         }
     }
     private val _streamJobs = mutableMapOf<Long, kotlinx.coroutines.Job>()

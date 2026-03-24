@@ -9,7 +9,7 @@ environment:
 dependencies:
   flutter:
     sdk: flutter
-  nitro: 0.1.0
+  nitro: { path: ../packages/nitro }
   plugin_platform_interface: ^2.0.2
 
 dev_dependencies:
@@ -44,6 +44,7 @@ flutter:
         pluginClass: MyCameraPlugin
       ios:
         ffiPlugin: true
+        pluginClass: SwiftMyCameraPlugin
 
   # To add assets to your plugin package, add an assets section, like this:
   # assets:
