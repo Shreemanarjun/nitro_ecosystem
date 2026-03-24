@@ -19,9 +19,9 @@ environment:
 
 dependencies:
   args: ^2.5.0
-  nocterm: ^0.5.1
-  nocterm_unrouter: ^0.1.0
+  nocterm: ^0.6.0
   path: ^1.9.0
+  unrouter: ^0.13.0
 
 dev_dependencies:
   lints: ^4.0.0
