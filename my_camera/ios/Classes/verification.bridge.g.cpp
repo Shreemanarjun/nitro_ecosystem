@@ -6,7 +6,7 @@
 #include "verification.bridge.g.h"
 
 extern "C" {
-intptr_t InitDartApiDL(void* data) {
+intptr_t verification_init_dart_api_dl(void* data) {
     return Dart_InitializeApiDL(data);
 }
 }
@@ -107,7 +107,7 @@ double verification_module_multiply(double a, double b) {
     jmethodID methodId = env->GetStaticMethodID(g_bridgeClass, "multiply_call", "(DD)D");
     if (methodId == nullptr) { LOGE("Method not found"); return 0.0; }
 
-    NitroClearError();
+    verification_clear_error();
     double res = env->CallStaticDoubleMethod(g_bridgeClass, methodId, a, b);
     if (env->ExceptionCheck()) { nitro_report_jni_exception(env, env->ExceptionOccurred()); env->ExceptionClear(); return 0.0; }
     return res;
@@ -119,7 +119,7 @@ const char* verification_module_ping(const char* message) {
     jmethodID methodId = env->GetStaticMethodID(g_bridgeClass, "ping_call", "(Ljava/lang/String;)Ljava/lang/String;");
     if (methodId == nullptr) { LOGE("Method not found"); return ""; }
 
-    NitroClearError();
+    verification_clear_error();
     jstring j_message = env->NewStringUTF(message);
     jstring jstr = (jstring)env->CallStaticObjectMethod(g_bridgeClass, methodId, j_message);
     if (env->ExceptionCheck()) { nitro_report_jni_exception(env, env->ExceptionOccurred()); env->ExceptionClear(); return nullptr; }
@@ -138,7 +138,7 @@ const char* verification_module_ping_async(const char* message) {
     jmethodID methodId = env->GetStaticMethodID(g_bridgeClass, "pingAsync_call", "(Ljava/lang/String;)Ljava/lang/String;");
     if (methodId == nullptr) { LOGE("Method not found"); return ""; }
 
-    NitroClearError();
+    verification_clear_error();
     jstring j_message = env->NewStringUTF(message);
     jstring jstr = (jstring)env->CallStaticObjectMethod(g_bridgeClass, methodId, j_message);
     if (env->ExceptionCheck()) { nitro_report_jni_exception(env, env->ExceptionOccurred()); env->ExceptionClear(); return nullptr; }
@@ -157,7 +157,7 @@ void verification_module_throw_error(const char* message) {
     jmethodID methodId = env->GetStaticMethodID(g_bridgeClass, "throwError_call", "(Ljava/lang/String;)V");
     if (methodId == nullptr) { LOGE("Method not found"); return; }
 
-    NitroClearError();
+    verification_clear_error();
     jstring j_message = env->NewStringUTF(message);
     env->CallStaticVoidMethod(g_bridgeClass, methodId, j_message);
     if (env->ExceptionCheck()) { nitro_report_jni_exception(env, env->ExceptionOccurred()); env->ExceptionClear(); }
@@ -169,7 +169,7 @@ void* verification_module_process_floats(float* inputs) {
     jmethodID methodId = env->GetStaticMethodID(g_bridgeClass, "processFloats_call", "(Ljava/lang/Object;)Lnitro/verification_module/FloatBuffer;");
     if (methodId == nullptr) { LOGE("Method not found"); return nullptr; }
 
-    NitroClearError();
+    verification_clear_error();
     jobject jobj = env->CallStaticObjectMethod(g_bridgeClass, methodId, inputs);
     if (env->ExceptionCheck()) { nitro_report_jni_exception(env, env->ExceptionOccurred()); env->ExceptionClear(); return nullptr; }
     if (jobj == nullptr) return nullptr;
@@ -190,7 +190,7 @@ JNIEXPORT void JNICALL Java_nitro_verification_1module_VerificationModuleJniBrid
 extern "C" {
 extern double _call_multiply(double a, double b);
 double verification_module_multiply(double a, double b) {
-    NitroClearError();
+    verification_clear_error();
 #ifdef __OBJC__
     @try {
         return _call_multiply(a, b);
@@ -205,7 +205,7 @@ double verification_module_multiply(double a, double b) {
 
 extern const char* _call_ping(const char* message);
 const char* verification_module_ping(const char* message) {
-    NitroClearError();
+    verification_clear_error();
 #ifdef __OBJC__
     @try {
         return _call_ping(message);
@@ -220,7 +220,7 @@ const char* verification_module_ping(const char* message) {
 
 extern const char* _call_pingAsync(const char* message);
 const char* verification_module_ping_async(const char* message) {
-    NitroClearError();
+    verification_clear_error();
 #ifdef __OBJC__
     @try {
         return _call_pingAsync(message);
@@ -235,7 +235,7 @@ const char* verification_module_ping_async(const char* message) {
 
 extern void _call_throwError(const char* message);
 void verification_module_throw_error(const char* message) {
-    NitroClearError();
+    verification_clear_error();
 #ifdef __OBJC__
     @try {
         _call_throwError(message);
@@ -249,7 +249,7 @@ void verification_module_throw_error(const char* message) {
 
 extern void* _call_processFloats(float* inputs);
 void* verification_module_process_floats(float* inputs) {
-    NitroClearError();
+    verification_clear_error();
 #ifdef __OBJC__
     @try {
         return _call_processFloats(inputs);

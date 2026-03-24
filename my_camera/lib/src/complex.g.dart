@@ -75,7 +75,7 @@ class _ComplexModuleImpl extends ComplexModule {
   final DynamicLibrary _dylib;
 
   _ComplexModuleImpl() : _dylib = NitroRuntime.loadLib('complex') {
-    final initFunc = _dylib.lookupFunction<IntPtr Function(Pointer<Void>), int Function(Pointer<Void>)>('InitDartApiDL');
+    final initFunc = _dylib.lookupFunction<IntPtr Function(Pointer<Void>), int Function(Pointer<Void>)>('complex_init_dart_api_dl');
     initFunc(NativeApi.initializeApiDLData);
   }
 

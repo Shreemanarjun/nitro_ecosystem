@@ -31,7 +31,7 @@ class DartFfiGenerator {
       '  _${spec.dartClassName}Impl() : _dylib = NitroRuntime.loadLib(\'${spec.lib}\') {',
     );
     s.writeln(
-      "    final initFunc = _dylib.lookupFunction<IntPtr Function(Pointer<Void>), int Function(Pointer<Void>)>('InitDartApiDL');",
+      "    final initFunc = _dylib.lookupFunction<IntPtr Function(Pointer<Void>), int Function(Pointer<Void>)>('${libStem}_init_dart_api_dl');",
     );
     s.writeln('    initFunc(NativeApi.initializeApiDLData);');
     s.writeln('  }');

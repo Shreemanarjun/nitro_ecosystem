@@ -13,13 +13,13 @@ class CppBridgeGenerator {
     s.writeln('#include "$headerName"');
     s.writeln();
 
+    final libStem = spec.lib.replaceAll('-', '_');
     s.writeln('extern "C" {');
-    s.writeln('intptr_t InitDartApiDL(void* data) {');
+    s.writeln('intptr_t ${libStem}_init_dart_api_dl(void* data) {');
     s.writeln('    return Dart_InitializeApiDL(data);');
     s.writeln('}');
     s.writeln('}');
 
-    final libStem = spec.lib.replaceAll('-', '_');
     s.writeln('static thread_local NitroError g_nitro_error = { 0, nullptr, nullptr, nullptr, nullptr };');
     s.writeln();
     s.writeln('extern "C" {');
@@ -214,7 +214,7 @@ class CppBridgeGenerator {
         s.writeln('    if (methodId == nullptr) { LOGE("Method not found"); return ${_defaultValue(cReturnType)}; }');
       }
       s.writeln();
-      s.writeln('    NitroClearError();');
+      s.writeln('    ${libStem}_clear_error();');
 
       // Build call args (converting C types to JNI types)
       final callArgsList = <String>[];
@@ -475,7 +475,7 @@ class CppBridgeGenerator {
       s.writeln(
         '$cReturnType ${func.cSymbol}(${params.isEmpty ? 'void' : params}) {',
       );
-      s.writeln('    NitroClearError();');
+      s.writeln('    ${libStem}_clear_error();');
       s.writeln('#ifdef __OBJC__');
       s.writeln('    @try {');
       if (func.returnType.name != 'void') {

@@ -6,7 +6,7 @@
 #include "my_camera.bridge.g.h"
 
 extern "C" {
-intptr_t InitDartApiDL(void* data) {
+intptr_t my_camera_init_dart_api_dl(void* data) {
     return Dart_InitializeApiDL(data);
 }
 }
@@ -114,7 +114,7 @@ double my_camera_add(double a, double b) {
     jmethodID methodId = env->GetStaticMethodID(g_bridgeClass, "add_call", "(DD)D");
     if (methodId == nullptr) { LOGE("Method not found"); return 0.0; }
 
-    NitroClearError();
+    my_camera_clear_error();
     double res = env->CallStaticDoubleMethod(g_bridgeClass, methodId, a, b);
     if (env->ExceptionCheck()) { nitro_report_jni_exception(env, env->ExceptionOccurred()); env->ExceptionClear(); return 0.0; }
     return res;
@@ -126,7 +126,7 @@ const char* my_camera_get_greeting(const char* name) {
     jmethodID methodId = env->GetStaticMethodID(g_bridgeClass, "getGreeting_call", "(Ljava/lang/String;)Ljava/lang/String;");
     if (methodId == nullptr) { LOGE("Method not found"); return ""; }
 
-    NitroClearError();
+    my_camera_clear_error();
     jstring j_name = env->NewStringUTF(name);
     jstring jstr = (jstring)env->CallStaticObjectMethod(g_bridgeClass, methodId, j_name);
     if (env->ExceptionCheck()) { nitro_report_jni_exception(env, env->ExceptionOccurred()); env->ExceptionClear(); return nullptr; }
@@ -145,7 +145,7 @@ void* my_camera_get_available_devices(void) {
     jmethodID methodId = env->GetStaticMethodID(g_bridgeClass, "getAvailableDevices_call", "()Ljava/lang/Object;");
     if (methodId == nullptr) { LOGE("Method not found"); return nullptr; }
 
-    NitroClearError();
+    my_camera_clear_error();
     return nullptr;
 }
 
@@ -206,7 +206,7 @@ JNIEXPORT void JNICALL Java_nitro_my_1camera_1module_MyCameraJniBridge_initializ
 extern "C" {
 extern double _call_add(double a, double b);
 double my_camera_add(double a, double b) {
-    NitroClearError();
+    my_camera_clear_error();
 #ifdef __OBJC__
     @try {
         return _call_add(a, b);
@@ -221,7 +221,7 @@ double my_camera_add(double a, double b) {
 
 extern const char* _call_getGreeting(const char* name);
 const char* my_camera_get_greeting(const char* name) {
-    NitroClearError();
+    my_camera_clear_error();
 #ifdef __OBJC__
     @try {
         return _call_getGreeting(name);
@@ -236,7 +236,7 @@ const char* my_camera_get_greeting(const char* name) {
 
 extern void* _call_getAvailableDevices(void);
 void* my_camera_get_available_devices(void) {
-    NitroClearError();
+    my_camera_clear_error();
 #ifdef __OBJC__
     @try {
         return _call_getAvailableDevices();

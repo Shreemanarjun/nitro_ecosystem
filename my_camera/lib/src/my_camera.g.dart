@@ -94,7 +94,7 @@ class _MyCameraImpl extends MyCamera {
   final DynamicLibrary _dylib;
 
   _MyCameraImpl() : _dylib = NitroRuntime.loadLib('my_camera') {
-    final initFunc = _dylib.lookupFunction<IntPtr Function(Pointer<Void>), int Function(Pointer<Void>)>('InitDartApiDL');
+    final initFunc = _dylib.lookupFunction<IntPtr Function(Pointer<Void>), int Function(Pointer<Void>)>('my_camera_init_dart_api_dl');
     initFunc(NativeApi.initializeApiDLData);
   }
 

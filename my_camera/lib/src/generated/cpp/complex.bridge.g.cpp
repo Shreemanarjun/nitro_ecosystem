@@ -6,7 +6,7 @@
 #include "complex.bridge.g.h"
 
 extern "C" {
-intptr_t InitDartApiDL(void* data) {
+intptr_t complex_init_dart_api_dl(void* data) {
     return Dart_InitializeApiDL(data);
 }
 }
@@ -126,7 +126,7 @@ int64_t complex_module_calculate(int64_t seed, double factor, int8_t enabled) {
     jmethodID methodId = env->GetStaticMethodID(g_bridgeClass, "calculate_call", "(JDZ)J");
     if (methodId == nullptr) { LOGE("Method not found"); return 0; }
 
-    NitroClearError();
+    complex_clear_error();
     int64_t res = env->CallStaticLongMethod(g_bridgeClass, methodId, seed, factor, enabled);
     if (env->ExceptionCheck()) { nitro_report_jni_exception(env, env->ExceptionOccurred()); env->ExceptionClear(); return 0; }
     return res;
@@ -138,7 +138,7 @@ const char* complex_module_fetch_metadata(const char* url) {
     jmethodID methodId = env->GetStaticMethodID(g_bridgeClass, "fetchMetadata_call", "(Ljava/lang/String;)Ljava/lang/String;");
     if (methodId == nullptr) { LOGE("Method not found"); return ""; }
 
-    NitroClearError();
+    complex_clear_error();
     jstring j_url = env->NewStringUTF(url);
     jstring jstr = (jstring)env->CallStaticObjectMethod(g_bridgeClass, methodId, j_url);
     if (env->ExceptionCheck()) { nitro_report_jni_exception(env, env->ExceptionOccurred()); env->ExceptionClear(); return nullptr; }
@@ -157,7 +157,7 @@ int64_t complex_module_get_status(void) {
     jmethodID methodId = env->GetStaticMethodID(g_bridgeClass, "getStatus_call", "()J");
     if (methodId == nullptr) { LOGE("Method not found"); return 0; }
 
-    NitroClearError();
+    complex_clear_error();
     int64_t res = env->CallStaticLongMethod(g_bridgeClass, methodId);
     if (env->ExceptionCheck()) { nitro_report_jni_exception(env, env->ExceptionOccurred()); env->ExceptionClear(); return 0; }
     return res;
@@ -169,7 +169,7 @@ void complex_module_update_sensors(void* data) {
     jmethodID methodId = env->GetStaticMethodID(g_bridgeClass, "updateSensors_call", "(Lnitro/complex_module/SensorData;)V");
     if (methodId == nullptr) { LOGE("Method not found"); return; }
 
-    NitroClearError();
+    complex_clear_error();
     jobject jobj_data = unpack_SensorData_to_jni(env, (const SensorData*)data);
     env->CallStaticVoidMethod(g_bridgeClass, methodId, jobj_data);
     if (env->ExceptionCheck()) { nitro_report_jni_exception(env, env->ExceptionOccurred()); env->ExceptionClear(); }
@@ -181,7 +181,7 @@ void* complex_module_generate_packet(int64_t type) {
     jmethodID methodId = env->GetStaticMethodID(g_bridgeClass, "generatePacket_call", "(J)Lnitro/complex_module/Packet;");
     if (methodId == nullptr) { LOGE("Method not found"); return nullptr; }
 
-    NitroClearError();
+    complex_clear_error();
     jobject jobj = env->CallStaticObjectMethod(g_bridgeClass, methodId, type);
     if (env->ExceptionCheck()) { nitro_report_jni_exception(env, env->ExceptionOccurred()); env->ExceptionClear(); return nullptr; }
     if (jobj == nullptr) return nullptr;
@@ -266,7 +266,7 @@ JNIEXPORT void JNICALL Java_nitro_complex_1module_ComplexModuleJniBridge_initial
 extern "C" {
 extern int64_t _call_calculate(int64_t seed, double factor, int8_t enabled);
 int64_t complex_module_calculate(int64_t seed, double factor, int8_t enabled) {
-    NitroClearError();
+    complex_clear_error();
 #ifdef __OBJC__
     @try {
         return _call_calculate(seed, factor, enabled);
@@ -281,7 +281,7 @@ int64_t complex_module_calculate(int64_t seed, double factor, int8_t enabled) {
 
 extern const char* _call_fetchMetadata(const char* url);
 const char* complex_module_fetch_metadata(const char* url) {
-    NitroClearError();
+    complex_clear_error();
 #ifdef __OBJC__
     @try {
         return _call_fetchMetadata(url);
@@ -296,7 +296,7 @@ const char* complex_module_fetch_metadata(const char* url) {
 
 extern int64_t _call_getStatus(void);
 int64_t complex_module_get_status(void) {
-    NitroClearError();
+    complex_clear_error();
 #ifdef __OBJC__
     @try {
         return _call_getStatus();
@@ -311,7 +311,7 @@ int64_t complex_module_get_status(void) {
 
 extern void _call_updateSensors(void* data);
 void complex_module_update_sensors(void* data) {
-    NitroClearError();
+    complex_clear_error();
 #ifdef __OBJC__
     @try {
         _call_updateSensors(data);
@@ -325,7 +325,7 @@ void complex_module_update_sensors(void* data) {
 
 extern void* _call_generatePacket(int64_t type);
 void* complex_module_generate_packet(int64_t type) {
-    NitroClearError();
+    complex_clear_error();
 #ifdef __OBJC__
     @try {
         return _call_generatePacket(type);
