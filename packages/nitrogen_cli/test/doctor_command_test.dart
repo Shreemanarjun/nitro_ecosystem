@@ -68,9 +68,7 @@ dependencies {
   implementation "org.jetbrains.kotlinx:kotlinx-coroutines-core:1.7.0"
 }
 ''');
-  final ktDir = Directory(
-      p.join(androidDir.path, 'src', 'main', 'kotlin', 'com', 'example'))
-    ..createSync(recursive: true);
+  final ktDir = Directory(p.join(androidDir.path, 'src', 'main', 'kotlin', 'com', 'example'))..createSync(recursive: true);
   File(p.join(ktDir.path, 'MyPlugin.kt')).writeAsStringSync('''
 class MyPlugin {
   fun onAttachedToEngine() {
@@ -81,8 +79,7 @@ class MyPlugin {
 ''');
 
   if (withIos) {
-    final classesDir = Directory(p.join(root.path, 'ios', 'Classes'))
-      ..createSync(recursive: true);
+    final classesDir = Directory(p.join(root.path, 'ios', 'Classes'))..createSync(recursive: true);
 
     // podspec
     File(p.join(root.path, 'ios', 'my_plugin.podspec')).writeAsStringSync('''
@@ -98,12 +95,10 @@ end
 ''');
 
     // Plugin.swift
-    File(p.join(classesDir.path, 'MyPlugin.swift'))
-        .writeAsStringSync('MyRegistry.register(impl)');
+    File(p.join(classesDir.path, 'MyPlugin.swift')).writeAsStringSync('MyRegistry.register(impl)');
 
     if (withDartApiDl) {
-      File(p.join(classesDir.path, 'dart_api_dl.c'))
-          .writeAsStringSync('// stub');
+      File(p.join(classesDir.path, 'dart_api_dl.c')).writeAsStringSync('// stub');
     }
 
     if (withNitroH) {
@@ -122,8 +117,7 @@ end
   return root;
 }
 
-DoctorViewResult _run(Directory root) =>
-    _withDir(root, () => DoctorCommand().performChecks());
+DoctorViewResult _run(Directory root) => _withDir(root, () => DoctorCommand().performChecks());
 
 void main() {
   late Directory tmp;
@@ -139,8 +133,7 @@ void main() {
       final result = _run(tmp);
       final iosSection = result.sections.firstWhere((s) => s.title == 'iOS');
       expect(
-        iosSection.checks.any((c) =>
-            c.status == DoctorStatus.ok && c.label.contains('nitro.h present')),
+        iosSection.checks.any((c) => c.status == DoctorStatus.ok && c.label.contains('nitro.h present')),
         isTrue,
       );
     });
@@ -149,9 +142,7 @@ void main() {
       tmp = _scaffold(withNitroH: false);
       final result = _run(tmp);
       final iosSection = result.sections.firstWhere((s) => s.title == 'iOS');
-      final check = iosSection.checks.firstWhere(
-          (c) => c.label.contains('nitro.h missing'),
-          orElse: () => throw TestFailure('no nitro.h check found'));
+      final check = iosSection.checks.firstWhere((c) => c.label.contains('nitro.h missing'), orElse: () => throw TestFailure('no nitro.h check found'));
       expect(check.status, equals(DoctorStatus.error));
       expect(check.hint, contains('nitrogen link'));
       expect(result.errors, greaterThan(0));
@@ -171,16 +162,10 @@ void main() {
       final result = _run(tmp);
       final iosSection = result.sections.firstWhere((s) => s.title == 'iOS');
 
-      final staleChecks = iosSection.checks
-          .where((c) =>
-              c.status == DoctorStatus.error &&
-              c.label.contains('Stale .cpp bridge'))
-          .toList();
+      final staleChecks = iosSection.checks.where((c) => c.status == DoctorStatus.error && c.label.contains('Stale .cpp bridge')).toList();
       expect(staleChecks, hasLength(2));
-      expect(staleChecks.any((c) => c.label.contains('my_plugin.bridge.g.cpp')),
-          isTrue);
-      expect(staleChecks.any((c) => c.label.contains('extra.bridge.g.cpp')),
-          isTrue);
+      expect(staleChecks.any((c) => c.label.contains('my_plugin.bridge.g.cpp')), isTrue);
+      expect(staleChecks.any((c) => c.label.contains('extra.bridge.g.cpp')), isTrue);
       expect(staleChecks.first.hint, contains('bridge.g.mm'));
       expect(result.errors, greaterThan(0));
     });
@@ -190,9 +175,7 @@ void main() {
       final result = _run(tmp);
       final iosSection = result.sections.firstWhere((s) => s.title == 'iOS');
       expect(
-        iosSection.checks.any((c) =>
-            c.status == DoctorStatus.error &&
-            c.label.contains('Stale .cpp bridge')),
+        iosSection.checks.any((c) => c.status == DoctorStatus.error && c.label.contains('Stale .cpp bridge')),
         isFalse,
       );
     });
@@ -201,8 +184,7 @@ void main() {
       tmp = _scaffold(cppBridges: ['foo.bridge.g.cpp']);
       final result = _run(tmp);
       final iosSection = result.sections.firstWhere((s) => s.title == 'iOS');
-      final check = iosSection.checks
-          .firstWhere((c) => c.label.contains('Stale .cpp bridge'));
+      final check = iosSection.checks.firstWhere((c) => c.label.contains('Stale .cpp bridge'));
       expect(check.hint, contains('nitrogen link'));
       expect(check.hint, contains('bridge.g.mm'));
     });
@@ -216,8 +198,7 @@ void main() {
       final result = _run(tmp);
       final iosSection = result.sections.firstWhere((s) => s.title == 'iOS');
       expect(
-        iosSection.checks.any((c) =>
-            c.status == DoctorStatus.ok && c.label.contains('.bridge.g.mm')),
+        iosSection.checks.any((c) => c.status == DoctorStatus.ok && c.label.contains('.bridge.g.mm')),
         isTrue,
       );
     });
@@ -230,8 +211,7 @@ void main() {
       ]);
       final result = _run(tmp);
       final iosSection = result.sections.firstWhere((s) => s.title == 'iOS');
-      final check = iosSection.checks.firstWhere((c) =>
-          c.status == DoctorStatus.ok && c.label.contains('.bridge.g.mm'));
+      final check = iosSection.checks.firstWhere((c) => c.status == DoctorStatus.ok && c.label.contains('.bridge.g.mm'));
       expect(check.label, contains('3'));
     });
 
@@ -239,16 +219,12 @@ void main() {
       // Create a spec so the "specs.isNotEmpty" condition is met.
       tmp = _scaffold(mmBridges: []);
       // Write a .native.dart spec so the warning fires.
-      final specDir = Directory(p.join(tmp.path, 'lib', 'src'))
-        ..createSync(recursive: true);
-      File(p.join(specDir.path, 'my_plugin.native.dart'))
-          .writeAsStringSync('@NitroModule(lib: "my_plugin")');
+      final specDir = Directory(p.join(tmp.path, 'lib', 'src'))..createSync(recursive: true);
+      File(p.join(specDir.path, 'my_plugin.native.dart')).writeAsStringSync('@NitroModule(lib: "my_plugin")');
 
       final result = _run(tmp);
       final iosSection = result.sections.firstWhere((s) => s.title == 'iOS');
-      final check = iosSection.checks.firstWhere(
-          (c) => c.label.contains('No .bridge.g.mm'),
-          orElse: () => throw TestFailure('no .bridge.g.mm warning found'));
+      final check = iosSection.checks.firstWhere((c) => c.label.contains('No .bridge.g.mm'), orElse: () => throw TestFailure('no .bridge.g.mm warning found'));
       expect(check.status, equals(DoctorStatus.warn));
       expect(check.hint, contains('nitrogen link'));
     });
@@ -280,21 +256,17 @@ void main() {
 
       // No stale-cpp errors
       expect(
-        iosSection.checks.any((c) =>
-            c.status == DoctorStatus.error &&
-            c.label.contains('Stale .cpp bridge')),
+        iosSection.checks.any((c) => c.status == DoctorStatus.error && c.label.contains('Stale .cpp bridge')),
         isFalse,
       );
       // nitro.h ok
       expect(
-        iosSection.checks.any(
-            (c) => c.status == DoctorStatus.ok && c.label.contains('nitro.h')),
+        iosSection.checks.any((c) => c.status == DoctorStatus.ok && c.label.contains('nitro.h')),
         isTrue,
       );
       // .mm ok
       expect(
-        iosSection.checks.any((c) =>
-            c.status == DoctorStatus.ok && c.label.contains('.bridge.g.mm')),
+        iosSection.checks.any((c) => c.status == DoctorStatus.ok && c.label.contains('.bridge.g.mm')),
         isTrue,
       );
     });

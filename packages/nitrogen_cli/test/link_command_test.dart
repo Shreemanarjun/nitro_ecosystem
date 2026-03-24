@@ -1,8 +1,7 @@
 import 'dart:io';
 import 'package:path/path.dart' as p;
 import 'package:nitrogen_cli/commands/link_command.dart';
-import 'package:nitrogen_cli/commands/init_command.dart'
-    show updateCMakeNitroNative;
+import 'package:nitrogen_cli/commands/init_command.dart' show updateCMakeNitroNative;
 import 'package:test/test.dart';
 
 // Helpers — run a block with the working directory temporarily changed.
@@ -50,8 +49,7 @@ abstract class MyPlugin extends HybridObject {}
     });
 
     test('returns null when no lib param present', () {
-      final f = spec(
-          '@NitroModule(ios: NativeImpl.swift, android: NativeImpl.kotlin)');
+      final f = spec('@NitroModule(ios: NativeImpl.swift, android: NativeImpl.kotlin)');
       expect(extractLibNameFromSpec(f), isNull);
     });
 
@@ -99,16 +97,14 @@ abstract class MyPlugin extends HybridObject {}
     });
 
     test('uses lib: param when present in spec', () {
-      writeSpec('lib/src/my_plugin.native.dart',
-          '@NitroModule(lib: "my_plugin_lib")');
+      writeSpec('lib/src/my_plugin.native.dart', '@NitroModule(lib: "my_plugin_lib")');
       _withDir(tmp, () {
         expect(discoverModuleLibs('my_plugin'), equals(['my_plugin_lib']));
       });
     });
 
     test('falls back to stem when no lib: param', () {
-      writeSpec('lib/src/my_plugin.native.dart',
-          '@NitroModule(ios: NativeImpl.swift)');
+      writeSpec('lib/src/my_plugin.native.dart', '@NitroModule(ios: NativeImpl.swift)');
       _withDir(tmp, () {
         expect(discoverModuleLibs('my_plugin'), equals(['my_plugin']));
       });
@@ -140,8 +136,7 @@ abstract class MyPlugin extends HybridObject {}
     });
 
     test('discovers specs nested in subdirectories', () {
-      writeSpec('lib/src/deep/nested/sensor.native.dart',
-          '@NitroModule(lib: "sensor")');
+      writeSpec('lib/src/deep/nested/sensor.native.dart', '@NitroModule(lib: "sensor")');
       _withDir(tmp, () {
         expect(discoverModuleLibs('my_plugin'), equals(['sensor']));
       });
@@ -229,8 +224,7 @@ abstract class MyPlugin extends HybridObject {}
     });
 
     test('returns false when dart_api_dl.h is absent', () {
-      final result =
-          nitroNativePathExists(p.join(tmp.path, 'nonexistent'), tmp.path);
+      final result = nitroNativePathExists(p.join(tmp.path, 'nonexistent'), tmp.path);
       expect(result, isFalse);
     });
 
@@ -251,10 +245,7 @@ abstract class MyPlugin extends HybridObject {}
     test('includes the dart_api_dl.c file from the given path', () {
       const nativePath = '/some/pub/cache/nitro/src/native';
       final content = dartApiDlForwarderContent(nativePath);
-      expect(
-          content,
-          contains(
-              '#include "/some/pub/cache/nitro/src/native/dart_api_dl.c"'));
+      expect(content, contains('#include "/some/pub/cache/nitro/src/native/dart_api_dl.c"'));
     });
 
     test('contains do-not-edit comment', () {
@@ -289,8 +280,7 @@ abstract class MyPlugin extends HybridObject {}
     });
 
     test('old PODS_TARGET_SRCROOT path is different from correct path', () {
-      const oldPath =
-          r'${PODS_TARGET_SRCROOT}/../../../packages/nitro/src/native';
+      const oldPath = r'${PODS_TARGET_SRCROOT}/../../../packages/nitro/src/native';
       expect(oldPath, isNot(equals(correctPath)));
       expect(oldPath, contains('PODS_TARGET_SRCROOT'));
     });
@@ -503,17 +493,14 @@ endif()
       expect(out, contains(r'${CMAKE_CURRENT_SOURCE_DIR}'));
     });
 
-    test('placeholder NITRO_NATIVE line matches updateCMakeNitroNative regex',
-        () {
+    test('placeholder NITRO_NATIVE line matches updateCMakeNitroNative regex', () {
       // The placeholder must be replaceable by updateCMakeNitroNative.
       final placeholder = cmakePlaceholder('my_plugin');
       const resolved = '/some/pub/cache/nitro/src/native';
       final updated = updateCMakeNitroNative(placeholder, resolved);
-      expect(updated,
-          contains('set(NITRO_NATIVE "/some/pub/cache/nitro/src/native")'));
+      expect(updated, contains('set(NITRO_NATIVE "/some/pub/cache/nitro/src/native")'));
       // Only the NITRO_NATIVE set() line should no longer use CMAKE_CURRENT_SOURCE_DIR
-      final nitroLine =
-          updated.split('\n').firstWhere((l) => l.contains('set(NITRO_NATIVE'));
+      final nitroLine = updated.split('\n').firstWhere((l) => l.contains('set(NITRO_NATIVE'));
       expect(nitroLine, isNot(contains(r'${CMAKE_CURRENT_SOURCE_DIR}')));
     });
 
@@ -553,8 +540,7 @@ endif()
       expect(includeCount, equals(1));
     });
 
-    test('placeholder include path is different from resolved pub-cache path',
-        () {
+    test('placeholder include path is different from resolved pub-cache path', () {
       // After resolution, the include path becomes absolute — verify they differ.
       const resolved = '/some/pub/cache/nitro/src/native';
       final forwarder = dartApiDlForwarderContent(resolved);
@@ -566,8 +552,7 @@ endif()
   // ── updateCMakeNitroNative ─────────────────────────────────────────────────
 
   group('updateCMakeNitroNative', () {
-    const monorepoLine =
-        r'set(NITRO_NATIVE "${CMAKE_CURRENT_SOURCE_DIR}/../../packages/nitro/src/native")';
+    const monorepoLine = r'set(NITRO_NATIVE "${CMAKE_CURRENT_SOURCE_DIR}/../../packages/nitro/src/native")';
     const resolved = '/Users/dev/.puro/pub/cache/nitro-0.1.0/src/native';
     const resolvedLine = 'set(NITRO_NATIVE "$resolved")';
 
@@ -600,8 +585,7 @@ add_library(my_plugin SHARED
       expect(updated, contains('"dart_api_dl.c"'));
     });
 
-    test('is idempotent — applying twice gives same result, no duplication',
-        () {
+    test('is idempotent — applying twice gives same result, no duplication', () {
       final once = updateCMakeNitroNative(cmake(monorepoLine), resolved);
       final twice = updateCMakeNitroNative(once, resolved);
       expect(twice, equals(once));
@@ -631,16 +615,13 @@ add_library(my_plugin SHARED
       final updated = updateCMakeNitroNative(cmake(monorepoLine), resolved);
       expect(
         updated,
-        contains(
-            r'set(GENERATED_CPP "${CMAKE_CURRENT_SOURCE_DIR}/../lib/src/generated/cpp")'),
+        contains(r'set(GENERATED_CPP "${CMAKE_CURRENT_SOURCE_DIR}/../lib/src/generated/cpp")'),
       );
     });
 
-    test('result contains no CMAKE_CURRENT_SOURCE_DIR in NITRO_NATIVE line',
-        () {
+    test('result contains no CMAKE_CURRENT_SOURCE_DIR in NITRO_NATIVE line', () {
       final updated = updateCMakeNitroNative(cmake(monorepoLine), resolved);
-      final nitroLine =
-          updated.split('\n').firstWhere((l) => l.contains('set(NITRO_NATIVE'));
+      final nitroLine = updated.split('\n').firstWhere((l) => l.contains('set(NITRO_NATIVE'));
       expect(nitroLine, isNot(contains(r'${CMAKE_CURRENT_SOURCE_DIR}')));
       expect(nitroLine, contains(resolved));
     });
@@ -651,8 +632,7 @@ add_library(my_plugin SHARED
   group('dartApiDlForwarderContent idempotency', () {
     test('writing the same path twice produces identical content', () {
       const path = '/pub/cache/nitro/src/native';
-      expect(dartApiDlForwarderContent(path),
-          equals(dartApiDlForwarderContent(path)));
+      expect(dartApiDlForwarderContent(path), equals(dartApiDlForwarderContent(path)));
     });
 
     test('content has exactly one #include line', () {

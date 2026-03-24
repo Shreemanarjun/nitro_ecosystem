@@ -236,8 +236,7 @@ void main() {
       });
     });
 
-    test('calls onSubmit with name containing numbers and underscores',
-        () async {
+    test('calls onSubmit with name containing numbers and underscores', () async {
       await testNocterm('PluginNameForm alphanumeric name', (tester) async {
         String? gotName;
 
@@ -392,8 +391,7 @@ void main() {
 
   group('example/lib/main.dart template', () {
     // Mirror of the content produced by _writeExampleMain for testing.
-    String exampleMainTemplate(String pluginName, String className) =>
-        '''import 'dart:async';
+    String exampleMainTemplate(String pluginName, String className) => '''import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:$pluginName/$pluginName.dart' as plugin;

@@ -23,8 +23,7 @@ class OpenCommand extends Command {
   Future<void> run() async {
     final projectDir = findNitroProjectRoot();
     if (projectDir == null) {
-      stderr
-          .writeln(red('❌ No Nitro project found in . or its subdirectories.'));
+      stderr.writeln(red('❌ No Nitro project found in . or its subdirectories.'));
       exit(1);
     }
 
@@ -48,11 +47,9 @@ Future<void> openInEditor(String editor, String path) async {
     stdout.writeln(gray('  🚀 Opening in $editor...'));
     final result = await Process.run(command, [path]);
     if (result.exitCode != 0) {
-      stderr
-          .writeln(red('  ✘ Failed to open $editor (exit ${result.exitCode})'));
+      stderr.writeln(red('  ✘ Failed to open $editor (exit ${result.exitCode})'));
       if (editor == 'code') {
-        stderr
-            .writeln(gray('    Make sure the "code" command is in your PATH.'));
+        stderr.writeln(gray('    Make sure the "code" command is in your PATH.'));
       }
     }
   } catch (e) {

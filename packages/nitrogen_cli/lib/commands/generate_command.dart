@@ -8,16 +8,14 @@ class GenerateCommand extends Command {
   final String name = 'generate';
 
   @override
-  final String description =
-      'Runs the Nitrogen code generator (build_runner) with live output.';
+  final String description = 'Runs the Nitrogen code generator (build_runner) with live output.';
 
   /// Executes the generation logic and returns the exit code.
   /// Does NOT call exit().
   Future<int> execute() async {
     final projectDir = findNitroProjectRoot();
     if (projectDir == null) {
-      stderr.writeln(red(
-          '❌ No Nitro project found in . or its subdirectories (must have nitro dependency in pubspec.yaml).'));
+      stderr.writeln(red('❌ No Nitro project found in . or its subdirectories (must have nitro dependency in pubspec.yaml).'));
       return 1;
     }
 
@@ -34,8 +32,7 @@ class GenerateCommand extends Command {
 
     // ── pub get ─────────────────────────────────────────────────────────────
     stdout.writeln(cyan('  › flutter pub get …'));
-    var exitCode = await runStreaming('flutter', ['pub', 'get'],
-        workingDirectory: projectDir.path);
+    var exitCode = await runStreaming('flutter', ['pub', 'get'], workingDirectory: projectDir.path);
     if (exitCode != 0) {
       stderr.writeln(red('  ✘  flutter pub get failed (exit $exitCode)'));
       return exitCode;
@@ -70,23 +67,20 @@ class GenerateCommand extends Command {
     // ── pod install ──────────────────────────────────────────────────────────
     final podfileDirs = _findPodfileDirs(projectDir.path);
     for (final dir in podfileDirs) {
-      stdout.writeln(cyan(
-          '  › pod install (${p.relative(dir, from: projectDir.path)}) …'));
+      stdout.writeln(cyan('  › pod install (${p.relative(dir, from: projectDir.path)}) …'));
       final podExitCode = await runStreaming(
         'pod',
         ['install'],
         workingDirectory: dir,
       );
       if (podExitCode != 0) {
-        stderr.writeln(red(
-            '  ⚠  pod install failed in $dir (exit $podExitCode) — continuing'));
+        stderr.writeln(red('  ⚠  pod install failed in $dir (exit $podExitCode) — continuing'));
       }
     }
 
     stdout.writeln('');
     stdout.writeln(boldGreen('  ✨ Generation complete!'));
-    stdout.writeln(
-        gray('     Run nitrogen link to wire bridges into the build system.'));
+    stdout.writeln(gray('     Run nitrogen link to wire bridges into the build system.'));
     stdout.writeln('');
     return 0;
   }
@@ -106,10 +100,7 @@ class GenerateCommand extends Command {
     final libDir = Directory(p.join(projectRoot, 'lib'));
     if (!libDir.existsSync()) return;
 
-    final bridgeFiles = libDir
-        .listSync(recursive: true)
-        .whereType<File>()
-        .where((f) => f.path.endsWith('.bridge.g.swift'));
+    final bridgeFiles = libDir.listSync(recursive: true).whereType<File>().where((f) => f.path.endsWith('.bridge.g.swift'));
 
     for (final src in bridgeFiles) {
       final dest = File(p.join(iosClasses.path, p.basename(src.path)));
@@ -134,8 +125,6 @@ class GenerateCommand extends Command {
       }
     } catch (_) {}
 
-    return candidates
-        .where((dir) => File(p.join(dir, 'Podfile')).existsSync())
-        .toList();
+    return candidates.where((dir) => File(p.join(dir, 'Podfile')).existsSync()).toList();
   }
 }

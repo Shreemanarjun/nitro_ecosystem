@@ -154,7 +154,6 @@ class SwiftGenerator {
       }
       // Emit UnsafeMutablePointer<T>? + length → Swift Array for each typed-list param.
       for (final p in typedListParams) {
-        final elem = _typedListElemType(p.type.name);
         s.writeln(
           '    let ${p.name}Arr = ${p.name}.map { Array(UnsafeBufferPointer(start: \$0, count: Int(${p.name}_length))) } ?? []',
         );
@@ -483,22 +482,6 @@ class SwiftGenerator {
     return _toSwiftType(spec, name);
   }
 
-  /// Returns the Swift element type for a typed list (e.g. `Float` for `Float32List`).
-  static String _typedListElemType(String dartType) {
-    switch (dartType.replaceFirst('?', '')) {
-      case 'Uint8List':  return 'UInt8';
-      case 'Int8List':   return 'Int8';
-      case 'Int16List':  return 'Int16';
-      case 'Uint16List': return 'UInt16';
-      case 'Int32List':  return 'Int32';
-      case 'Uint32List': return 'UInt32';
-      case 'Float32List': return 'Float';
-      case 'Float64List': return 'Double';
-      case 'Int64List':
-      case 'Uint64List': return 'Int64';
-      default: return 'UInt8';
-    }
-  }
 
   static String _toSwiftType(BridgeSpec spec, String t) {
     final name = t.replaceFirst('?', '');

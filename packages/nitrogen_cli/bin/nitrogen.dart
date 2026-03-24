@@ -141,8 +141,7 @@ Future<void> _runTui() async {
             parse: (_) => const CommandRoute(NitroCommand.init),
             builder: (context, _) => NitrogenInitApp(
               result: InitResult(),
-              onExit: () =>
-                  context.unrouterAs<NitroRoute>().go(const RootRoute()),
+              onExit: () => context.unrouterAs<NitroRoute>().go(const RootRoute()),
             ),
           ),
 
@@ -158,8 +157,7 @@ Future<void> _runTui() async {
                 sections: result.sections,
                 errors: result.errors,
                 warnings: result.warnings,
-                onExit: () =>
-                    context.unrouterAs<NitroRoute>().go(const RootRoute()),
+                onExit: () => context.unrouterAs<NitroRoute>().go(const RootRoute()),
               );
             },
           ),
@@ -174,8 +172,7 @@ Future<void> _runTui() async {
               return LinkView(
                 pluginName: name,
                 result: LinkResult(),
-                onExit: () =>
-                    context.unrouterAs<NitroRoute>().go(const RootRoute()),
+                onExit: () => context.unrouterAs<NitroRoute>().go(const RootRoute()),
               );
             },
           ),
@@ -187,8 +184,7 @@ Future<void> _runTui() async {
             builder: (context, _) {
               return UpdateView(
                 result: UpdateResult(),
-                onExit: () =>
-                    context.unrouterAs<NitroRoute>().go(const RootRoute()),
+                onExit: () => context.unrouterAs<NitroRoute>().go(const RootRoute()),
               );
             },
           ),
@@ -203,13 +199,7 @@ Future<void> _runTui() async {
                 title: 'Nitrogen Generate',
                 executable: 'flutter',
                 workingDirectory: info?.directory.path,
-                args: const [
-                  'pub',
-                  'run',
-                  'build_runner',
-                  'build',
-                  '--delete-conflicting-outputs'
-                ],
+                args: const ['pub', 'run', 'build_runner', 'build', '--delete-conflicting-outputs'],
               );
             },
           ),
@@ -329,10 +319,7 @@ class _NitroDashboardState extends State<NitroDashboard> {
 
   @override
   Component build(BuildContext context) {
-    final menuCommands = NitroCommand.values
-        .where((c) =>
-            c != NitroCommand.openCode && c != NitroCommand.openAntigravity)
-        .toList();
+    final menuCommands = NitroCommand.values.where((c) => c != NitroCommand.openCode && c != NitroCommand.openAntigravity).toList();
 
     return Focusable(
       focused: true,
@@ -345,8 +332,7 @@ class _NitroDashboardState extends State<NitroDashboard> {
         }
         if (event.logicalKey == LogicalKey.arrowUp) {
           setState(() {
-            _selectedIndex = (_selectedIndex - 1 + menuCommands.length) %
-                menuCommands.length;
+            _selectedIndex = (_selectedIndex - 1 + menuCommands.length) % menuCommands.length;
           });
           return true;
         }
@@ -372,11 +358,8 @@ class _NitroDashboardState extends State<NitroDashboard> {
             child: Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
-                Text(
-                    '${_pulse ? '⚡' : '🔥'} Nitrogen CLI v$activeVersion by Shreeman Arjun',
-                    style: TextStyle(
-                        fontWeight: FontWeight.bold,
-                        color: _pulse ? Colors.magenta : Colors.cyan)),
+                Text('${_pulse ? '⚡' : '🔥'} Nitrogen CLI v$activeVersion by Shreeman Arjun',
+                    style: TextStyle(fontWeight: FontWeight.bold, color: _pulse ? Colors.magenta : Colors.cyan)),
                 if (_project != null)
                   Padding(
                     padding: const EdgeInsets.only(right: 1),
@@ -390,15 +373,13 @@ class _NitroDashboardState extends State<NitroDashboard> {
                             fontWeight: FontWeight.bold,
                           ),
                         ),
-                        const Text(' • ',
-                            style: TextStyle(color: Colors.brightBlack)),
+                        const Text(' • ', style: TextStyle(color: Colors.brightBlack)),
                         _EditorOption(
                           label: 'Code',
                           color: Colors.blue,
                           onTap: () => _openEditor('code'),
                         ),
-                        const Text(' • ',
-                            style: TextStyle(color: Colors.brightBlack)),
+                        const Text(' • ', style: TextStyle(color: Colors.brightBlack)),
                         _EditorOption(
                           label: 'Antigravity',
                           color: Colors.magenta,
@@ -417,10 +398,7 @@ class _NitroDashboardState extends State<NitroDashboard> {
               child: Column(
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [
-                  const Text('The high-performance FFI toolkit for Flutter',
-                      style: TextStyle(
-                          color: Colors.brightBlack,
-                          fontWeight: FontWeight.dim)),
+                  const Text('The high-performance FFI toolkit for Flutter', style: TextStyle(color: Colors.brightBlack, fontWeight: FontWeight.dim)),
                   const SizedBox(height: 1),
                   // Centered block for aligned commands
                   SizedBox(
@@ -432,16 +410,13 @@ class _NitroDashboardState extends State<NitroDashboard> {
                           _CommandItem(
                             command: menuCommands[i],
                             selected: i == _selectedIndex,
-                            onSelected: () =>
-                                setState(() => _selectedIndex = i),
+                            onSelected: () => setState(() => _selectedIndex = i),
                             onTap: () {
                               final cmd = menuCommands[i];
                               if (cmd == NitroCommand.exit) {
                                 exit(0);
                               } else {
-                                context
-                                    .unrouterAs<NitroRoute>()
-                                    .go(CommandRoute(cmd));
+                                context.unrouterAs<NitroRoute>().go(CommandRoute(cmd));
                               }
                             },
                           ),
@@ -449,11 +424,7 @@ class _NitroDashboardState extends State<NitroDashboard> {
                     ),
                   ),
                   const SizedBox(height: 1),
-                  const Text(
-                      'Use arrows and Enter to navigate • Ctrl+C to exit',
-                      style: TextStyle(
-                          color: Colors.brightBlack,
-                          fontWeight: FontWeight.dim)),
+                  const Text('Use arrows and Enter to navigate • Ctrl+C to exit', style: TextStyle(color: Colors.brightBlack, fontWeight: FontWeight.dim)),
                   const SizedBox(height: 1),
                   Row(
                     mainAxisAlignment: MainAxisAlignment.center,
@@ -463,8 +434,7 @@ class _NitroDashboardState extends State<NitroDashboard> {
                         onTap: () => _launchUrl('https://nitro.shreeman.dev/'),
                         color: Colors.blue,
                       ),
-                      const Text(' • ',
-                          style: TextStyle(color: Colors.brightBlack)),
+                      const Text(' • ', style: TextStyle(color: Colors.brightBlack)),
                       HoverButton(
                         label: 'Other plugins: shreeman.dev',
                         onTap: () => _launchUrl('https://www.shreeman.dev'),
@@ -476,31 +446,16 @@ class _NitroDashboardState extends State<NitroDashboard> {
                   Row(
                     mainAxisAlignment: MainAxisAlignment.center,
                     children: [
-                      const Text('Inspired by ',
-                          style: TextStyle(
-                              color: Colors.brightBlack,
-                              fontWeight: FontWeight.dim)),
+                      const Text('Inspired by ', style: TextStyle(color: Colors.brightBlack, fontWeight: FontWeight.dim)),
                       HoverButton(
                         label: 'Marc Rousavy (@mrousavy)',
                         onTap: () => _launchUrl('https://x.com/mrousavy'),
                         color: Colors.yellow,
                       ),
-                      const Text(' — Creator of ',
-                          style: TextStyle(
-                              color: Colors.brightBlack,
-                              fontWeight: FontWeight.dim)),
-                      const Text('VisionCamera',
-                          style: TextStyle(
-                              color: Colors.white,
-                              fontWeight: FontWeight.bold)),
-                      const Text(' & ',
-                          style: TextStyle(
-                              color: Colors.brightBlack,
-                              fontWeight: FontWeight.dim)),
-                      const Text('Nitro Modules',
-                          style: TextStyle(
-                              color: Colors.white,
-                              fontWeight: FontWeight.bold)),
+                      const Text(' — Creator of ', style: TextStyle(color: Colors.brightBlack, fontWeight: FontWeight.dim)),
+                      const Text('VisionCamera', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+                      const Text(' & ', style: TextStyle(color: Colors.brightBlack, fontWeight: FontWeight.dim)),
+                      const Text('Nitro Modules', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
                     ],
                   ),
                 ],
@@ -517,12 +472,9 @@ class _NitroDashboardState extends State<NitroDashboard> {
             child: Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
-                Text('Dart: $_dartVersion',
-                    style: const TextStyle(color: Colors.gray)),
-                Text('Branch: $_branch',
-                    style: const TextStyle(color: Colors.magenta)),
-                const Text('Nitro Modules • Ready',
-                    style: TextStyle(color: Colors.cyan)),
+                Text('Dart: $_dartVersion', style: const TextStyle(color: Colors.gray)),
+                Text('Branch: $_branch', style: const TextStyle(color: Colors.magenta)),
+                const Text('Nitro Modules • Ready', style: TextStyle(color: Colors.cyan)),
               ],
             ),
           ),
@@ -575,21 +527,13 @@ class _CommandItemState extends State<_CommandItem> {
             child: Row(
               mainAxisAlignment: MainAxisAlignment.start,
               children: [
-                Text(active ? '❯ ' : '  ',
-                    style: TextStyle(
-                        color: active ? Colors.magenta : Colors.white,
-                        fontWeight: FontWeight.bold)),
+                Text(active ? '❯ ' : '  ', style: TextStyle(color: active ? Colors.magenta : Colors.white, fontWeight: FontWeight.bold)),
                 SizedBox(
                   width: 12, // Slightly smaller label width for tighter fit
-                  child: Text(component.command.label,
-                      style: TextStyle(
-                          color: active ? Colors.magenta : Colors.white,
-                          fontWeight:
-                              active ? FontWeight.bold : FontWeight.normal)),
+                  child: Text(component.command.label, style: TextStyle(color: active ? Colors.magenta : Colors.white, fontWeight: active ? FontWeight.bold : FontWeight.normal)),
                 ),
                 const SizedBox(width: 1),
-                Text(component.command.description,
-                    style: const TextStyle(color: Colors.gray)),
+                Text(component.command.description, style: const TextStyle(color: Colors.gray)),
               ],
             ),
           ),
@@ -643,8 +587,7 @@ class _ProcessViewState extends State<ProcessView> {
   void _start() async {
     setState(() {
       _running = true;
-      _logs.add(
-          '[Info] Starting ${component.executable} ${component.args.join(' ')}...');
+      _logs.add('[Info] Starting ${component.executable} ${component.args.join(' ')}...');
     });
 
     try {
@@ -655,10 +598,7 @@ class _ProcessViewState extends State<ProcessView> {
       );
 
       // Handle stdout
-      process.stdout
-          .transform(const Utf8Decoder())
-          .transform(const LineSplitter())
-          .listen((line) {
+      process.stdout.transform(const Utf8Decoder()).transform(const LineSplitter()).listen((line) {
         if (!mounted) return;
         setState(() {
           _logs.add(line);
@@ -667,10 +607,7 @@ class _ProcessViewState extends State<ProcessView> {
       });
 
       // Handle stderr
-      process.stderr
-          .transform(const Utf8Decoder())
-          .transform(const LineSplitter())
-          .listen((line) {
+      process.stderr.transform(const Utf8Decoder()).transform(const LineSplitter()).listen((line) {
         if (!mounted) return;
         setState(() {
           _logs.add('[Error] $line');
@@ -706,8 +643,7 @@ class _ProcessViewState extends State<ProcessView> {
     return Focusable(
       focused: true,
       onKeyEvent: (event) {
-        if (event.logicalKey == LogicalKey.escape ||
-            event.logicalKey == LogicalKey.arrowLeft) {
+        if (event.logicalKey == LogicalKey.escape || event.logicalKey == LogicalKey.arrowLeft) {
           context.unrouterAs<NitroRoute>().go(const RootRoute());
           return true;
         }
@@ -718,15 +654,10 @@ class _ProcessViewState extends State<ProcessView> {
           Padding(
             padding: const EdgeInsets.only(top: 1, left: 1, right: 1),
             child: Container(
-              decoration: BoxDecoration(
-                  border: BoxBorder.all(
-                      color: _successPulse ? Colors.green : Colors.cyan)),
+              decoration: BoxDecoration(border: BoxBorder.all(color: _successPulse ? Colors.green : Colors.cyan)),
               child: Padding(
                 padding: const EdgeInsets.symmetric(horizontal: 2),
-                child: Text(' ${component.title} ',
-                    style: TextStyle(
-                        color: _successPulse ? Colors.green : Colors.magenta,
-                        fontWeight: FontWeight.bold)),
+                child: Text(' ${component.title} ', style: TextStyle(color: _successPulse ? Colors.green : Colors.magenta, fontWeight: FontWeight.bold)),
               ),
             ),
           ),
@@ -747,16 +678,12 @@ class _ProcessViewState extends State<ProcessView> {
             child: Padding(
               padding: const EdgeInsets.symmetric(horizontal: 1),
               child: Container(
-                decoration: BoxDecoration(
-                    border: BoxBorder.all(color: Colors.brightBlack)),
+                decoration: BoxDecoration(border: BoxBorder.all(color: Colors.brightBlack)),
                 child: Padding(
                   padding: const EdgeInsets.all(1),
                   child: ListView(
                     controller: _scroll,
-                    children: _logs
-                        .map((l) => Text(l,
-                            style: const TextStyle(color: Colors.white)))
-                        .toList(),
+                    children: _logs.map((l) => Text(l, style: const TextStyle(color: Colors.white))).toList(),
                   ),
                 ),
               ),
@@ -767,27 +694,20 @@ class _ProcessViewState extends State<ProcessView> {
             child: Row(
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
-                if (_running)
-                  const Text('⚙ Running...',
-                      style: TextStyle(color: Colors.yellow)),
+                if (_running) const Text('⚙ Running...', style: TextStyle(color: Colors.yellow)),
                 if (_done)
                   Text(
                     _exitCode == 0 ? '✔ Success' : '✘ Failed (Code $_exitCode)',
-                    style: TextStyle(
-                        color: _exitCode == 0 ? Colors.green : Colors.red,
-                        fontWeight: FontWeight.bold),
+                    style: TextStyle(color: _exitCode == 0 ? Colors.green : Colors.red, fontWeight: FontWeight.bold),
                   ),
                 const SizedBox(width: 2),
                 HoverButton(
                   label: '‹ Back',
-                  onTap: () =>
-                      context.unrouterAs<NitroRoute>().go(const RootRoute()),
+                  onTap: () => context.unrouterAs<NitroRoute>().go(const RootRoute()),
                   color: Colors.cyan,
                 ),
                 const SizedBox(width: 2),
-                const Text('[ ESC ]',
-                    style: TextStyle(
-                        color: Colors.gray, fontWeight: FontWeight.dim)),
+                const Text('[ ESC ]', style: TextStyle(color: Colors.gray, fontWeight: FontWeight.dim)),
               ],
             ),
           ),

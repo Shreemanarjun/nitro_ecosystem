@@ -95,12 +95,9 @@ String yellow(String t) => _s(t, const TextStyle(color: Colors.yellow));
 String red(String t) => _s(t, const TextStyle(color: Colors.red));
 String cyan(String t) => _s(t, const TextStyle(color: Colors.cyan));
 String gray(String t) => _s(t, const TextStyle(color: Colors.gray));
-String boldCyan(String t) =>
-    _s(t, const TextStyle(color: Colors.cyan, fontWeight: FontWeight.bold));
-String boldGreen(String t) =>
-    _s(t, const TextStyle(color: Colors.green, fontWeight: FontWeight.bold));
-String boldRed(String t) =>
-    _s(t, const TextStyle(color: Colors.red, fontWeight: FontWeight.bold));
+String boldCyan(String t) => _s(t, const TextStyle(color: Colors.cyan, fontWeight: FontWeight.bold));
+String boldGreen(String t) => _s(t, const TextStyle(color: Colors.green, fontWeight: FontWeight.bold));
+String boldRed(String t) => _s(t, const TextStyle(color: Colors.red, fontWeight: FontWeight.bold));
 String blue(String t) => _s(t, const TextStyle(color: Colors.blue));
 String magenta(String t) => _s(t, const TextStyle(color: Colors.magenta));
 
@@ -108,10 +105,8 @@ String magenta(String t) => _s(t, const TextStyle(color: Colors.magenta));
 
 /// Runs [executable] and streams its stdout/stderr to the terminal in real time.
 /// Returns the exit code.
-Future<int> runStreaming(String executable, List<String> args,
-    {String? workingDirectory}) async {
-  final process =
-      await Process.start(executable, args, workingDirectory: workingDirectory);
+Future<int> runStreaming(String executable, List<String> args, {String? workingDirectory}) async {
+  final process = await Process.start(executable, args, workingDirectory: workingDirectory);
   await Future.wait([
     process.stdout.pipe(stdout),
     process.stderr.pipe(stderr),
@@ -120,10 +115,8 @@ Future<int> runStreaming(String executable, List<String> args,
 }
 
 /// Runs [executable] and returns a stream of its interleaved stdout/stderr.
-Stream<String> streamProcess(String executable, List<String> args,
-    {String? workingDirectory}) async* {
-  final process =
-      await Process.start(executable, args, workingDirectory: workingDirectory);
+Stream<String> streamProcess(String executable, List<String> args, {String? workingDirectory}) async* {
+  final process = await Process.start(executable, args, workingDirectory: workingDirectory);
 
   yield* _interleave(
     process.stdout.transform(utf8.decoder).transform(const LineSplitter()),

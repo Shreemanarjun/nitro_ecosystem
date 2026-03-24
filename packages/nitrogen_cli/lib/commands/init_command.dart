@@ -4,8 +4,7 @@ import 'package:args/command_runner.dart';
 import 'package:nocterm/nocterm.dart';
 import 'package:path/path.dart' as p;
 import '../ui.dart';
-import 'link_command.dart'
-    show resolveNitroNativePath, dartApiDlForwarderContent;
+import 'link_command.dart' show resolveNitroNativePath, dartApiDlForwarderContent;
 
 // ── CMakeLists.txt updater ────────────────────────────────────────────────────
 
@@ -24,8 +23,7 @@ String updateCMakeNitroNative(String content, String newPath) {
 Future<String> _fetchPubVersion(String package) async {
   final client = HttpClient();
   try {
-    final request =
-        await client.getUrl(Uri.parse('https://pub.dev/api/packages/$package'));
+    final request = await client.getUrl(Uri.parse('https://pub.dev/api/packages/$package'));
     request.headers.set('Accept', 'application/json');
     final response = await request.close();
     final body = await response.transform(utf8.decoder).join();
@@ -90,19 +88,14 @@ class InitStepRow extends StatelessComponent {
         children: [
           Row(
             children: [
-              Text(icon,
-                  style: TextStyle(color: color, fontWeight: FontWeight.bold)),
+              Text(icon, style: TextStyle(color: color, fontWeight: FontWeight.bold)),
               const Text(' '),
               Expanded(
                 child: Text(
                   step.label,
                   style: TextStyle(
-                    color: step.state == InitStepState.running
-                        ? Colors.cyan
-                        : null,
-                    fontWeight: step.state == InitStepState.running
-                        ? FontWeight.bold
-                        : null,
+                    color: step.state == InitStepState.running ? Colors.cyan : null,
+                    fontWeight: step.state == InitStepState.running ? FontWeight.bold : null,
                   ),
                 ),
               ),
@@ -113,8 +106,7 @@ class InitStepRow extends StatelessComponent {
               padding: const EdgeInsets.only(left: 4),
               child: Text(
                 step.detail!,
-                style: const TextStyle(
-                    color: Colors.gray, fontWeight: FontWeight.dim),
+                style: const TextStyle(color: Colors.gray, fontWeight: FontWeight.dim),
               ),
             ),
         ],
@@ -162,8 +154,7 @@ class _InitViewState extends State<InitView> {
     Future.delayed(Duration.zero, _run);
   }
 
-  void _setRunning(int i) =>
-      setState(() => _steps[i].state = InitStepState.running);
+  void _setRunning(int i) => setState(() => _steps[i].state = InitStepState.running);
   void _setDone(int i, {String? detail}) => setState(() {
         _steps[i].state = InitStepState.done;
         _steps[i].detail = detail;
@@ -238,23 +229,16 @@ class _InitViewState extends State<InitView> {
     } catch (_) {
       usePubAdd = true;
     }
-    _updatePubspec(pluginName, className, org,
-        nitroVersion: nitroVersion,
-        nitroGeneratorVersion: nitroGeneratorVersion);
+    _updatePubspec(pluginName, className, org, nitroVersion: nitroVersion, nitroGeneratorVersion: nitroGeneratorVersion);
     if (usePubAdd) {
-      await Process.run('flutter', ['pub', 'add', 'nitro'],
-          workingDirectory: pluginName);
-      await Process.run('flutter', ['pub', 'add', '--dev', 'nitro_generator'],
-          workingDirectory: pluginName);
+      await Process.run('flutter', ['pub', 'add', 'nitro'], workingDirectory: pluginName);
+      await Process.run('flutter', ['pub', 'add', '--dev', 'nitro_generator'], workingDirectory: pluginName);
       _setDone(5, detail: 'nitro, nitro_generator added via flutter pub add');
     } else {
       // pubspec was updated without running pub add — run pub get so
       // .dart_tool/package_config.json is created before path resolution.
-      await Process.run('flutter', ['pub', 'get'],
-          workingDirectory: pluginName);
-      _setDone(5,
-          detail:
-              'nitro $nitroVersion, nitro_generator $nitroGeneratorVersion added');
+      await Process.run('flutter', ['pub', 'get'], workingDirectory: pluginName);
+      _setDone(5, detail: 'nitro $nitroVersion, nitro_generator $nitroGeneratorVersion added');
     }
 
     // Resolve the actual installed nitro path from package_config.json and
@@ -267,8 +251,7 @@ class _InitViewState extends State<InitView> {
     _setRunning(6);
     _writeBridgeSpec(pluginName, className);
     _writeExampleMain(pluginName, className);
-    _setDone(6,
-        detail: 'lib/src/$pluginName.native.dart + example/lib/main.dart');
+    _setDone(6, detail: 'lib/src/$pluginName.native.dart + example/lib/main.dart');
 
     component.result.success = true;
     component.result.pluginName = pluginName;
@@ -281,8 +264,7 @@ class _InitViewState extends State<InitView> {
         _run(force: true);
         return true;
       }
-      if (e.logicalKey == LogicalKey.keyN ||
-          e.logicalKey == LogicalKey.escape) {
+      if (e.logicalKey == LogicalKey.keyN || e.logicalKey == LogicalKey.escape) {
         if (component.onExit != null) {
           component.onExit!();
         } else {
@@ -312,14 +294,12 @@ class _InitViewState extends State<InitView> {
           Padding(
             padding: const EdgeInsets.only(top: 1, left: 1, right: 1),
             child: Container(
-              decoration:
-                  BoxDecoration(border: BoxBorder.all(color: Colors.cyan)),
+              decoration: BoxDecoration(border: BoxBorder.all(color: Colors.cyan)),
               child: Padding(
                 padding: const EdgeInsets.symmetric(horizontal: 2),
                 child: Text(
                   ' nitrogen init — ${component.pluginName} ',
-                  style: const TextStyle(
-                      color: Colors.cyan, fontWeight: FontWeight.bold),
+                  style: const TextStyle(color: Colors.cyan, fontWeight: FontWeight.bold),
                 ),
               ),
             ),
@@ -333,25 +313,17 @@ class _InitViewState extends State<InitView> {
                   children: [
                     Text(
                       '⚠ Directory "${component.pluginName}" already exists.',
-                      style: const TextStyle(
-                          color: Colors.yellow, fontWeight: FontWeight.bold),
+                      style: const TextStyle(color: Colors.yellow, fontWeight: FontWeight.bold),
                     ),
                     const SizedBox(height: 1),
-                    const Text(
-                        'Force initialize and overwrite existing files?'),
+                    const Text('Force initialize and overwrite existing files?'),
                     const SizedBox(height: 1),
                     const Row(
                       mainAxisAlignment: MainAxisAlignment.center,
                       children: [
-                        Text('[Y]',
-                            style: TextStyle(
-                                color: Colors.green,
-                                fontWeight: FontWeight.bold)),
+                        Text('[Y]', style: TextStyle(color: Colors.green, fontWeight: FontWeight.bold)),
                         Text(' Yes, Overwrite   '),
-                        Text('[N]',
-                            style: TextStyle(
-                                color: Colors.red,
-                                fontWeight: FontWeight.bold)),
+                        Text('[N]', style: TextStyle(color: Colors.red, fontWeight: FontWeight.bold)),
                         Text(' No, Cancel'),
                       ],
                     ),
@@ -364,8 +336,7 @@ class _InitViewState extends State<InitView> {
               child: Padding(
                 padding: const EdgeInsets.symmetric(horizontal: 1),
                 child: Container(
-                  decoration: BoxDecoration(
-                      border: BoxBorder.all(color: Colors.brightBlack)),
+                  decoration: BoxDecoration(border: BoxBorder.all(color: Colors.brightBlack)),
                   child: Padding(
                     padding: const EdgeInsets.all(1),
                     child: ListView(
@@ -379,15 +350,10 @@ class _InitViewState extends State<InitView> {
               Padding(
                 padding: const EdgeInsets.all(1),
                 child: _failed
-                    ? Text('✘ Scaffolding failed: ${_errorMessage ?? ""}',
-                        style: const TextStyle(
-                            color: Colors.red, fontWeight: FontWeight.bold))
+                    ? Text('✘ Scaffolding failed: ${_errorMessage ?? ""}', style: const TextStyle(color: Colors.red, fontWeight: FontWeight.bold))
                     : Column(
                         children: [
-                          const Text('✨ Done! Next steps:',
-                              style: TextStyle(
-                                  color: Colors.green,
-                                  fontWeight: FontWeight.bold)),
+                          const Text('✨ Done! Next steps:', style: TextStyle(color: Colors.green, fontWeight: FontWeight.bold)),
                           Text(
                             '  1. Edit lib/src/${component.pluginName}.native.dart\n'
                             '  2. Run: nitrogen generate\n'
@@ -406,14 +372,9 @@ class _InitViewState extends State<InitView> {
                                   onTap: component.onExit!,
                                   color: Colors.cyan,
                                 ),
-                                const Text('  •  ',
-                                    style:
-                                        TextStyle(color: Colors.brightBlack)),
+                                const Text('  •  ', style: TextStyle(color: Colors.brightBlack)),
                               ],
-                              const Text('Press any key to exit',
-                                  style: TextStyle(
-                                      color: Colors.gray,
-                                      fontWeight: FontWeight.dim)),
+                              const Text('Press any key to exit', style: TextStyle(color: Colors.gray, fontWeight: FontWeight.dim)),
                             ],
                           ),
                         ],
@@ -426,10 +387,7 @@ class _InitViewState extends State<InitView> {
   }
 
   String _toClassName(String pluginName) {
-    return pluginName
-        .split('_')
-        .map((w) => w.isEmpty ? '' : w[0].toUpperCase() + w.substring(1))
-        .join('');
+    return pluginName.split('_').map((w) => w.isEmpty ? '' : w[0].toUpperCase() + w.substring(1)).join('');
   }
 
   /// Resolves the installed `nitro` package path from `.dart_tool/package_config.json`
@@ -441,8 +399,7 @@ class _InitViewState extends State<InitView> {
     final nitroNativePath = resolveNitroNativePath(pluginAbsPath);
 
     // Overwrite src/dart_api_dl.c with the resolved absolute include path.
-    File(p.join(pluginName, 'src', 'dart_api_dl.c'))
-        .writeAsStringSync(dartApiDlForwarderContent(nitroNativePath));
+    File(p.join(pluginName, 'src', 'dart_api_dl.c')).writeAsStringSync(dartApiDlForwarderContent(nitroNativePath));
 
     // Replace the NITRO_NATIVE cmake variable with the resolved absolute path.
     final cmakeFile = File(p.join(pluginName, 'src', 'CMakeLists.txt'));
@@ -517,20 +474,17 @@ endif()
       if (f.path.endsWith('Plugin.swift')) f.deleteSync();
     }
 
-    File(p.join(classesDir.path, '$pluginName.cpp'))
-        .writeAsStringSync('#include "../../src/$pluginName.cpp"\n');
+    File(p.join(classesDir.path, '$pluginName.cpp')).writeAsStringSync('#include "../../src/$pluginName.cpp"\n');
 
     // Must be a .c file (not .cpp) so the compiler treats dart_api_dl content
     // as C, not C++. C++ rejects the void*/function-pointer cast inside it.
     // Forwards through ../../src/dart_api_dl.c (created by `nitrogen link`)
     // so both Android CMake and iOS CocoaPods/SPM share one resolved path.
-    File(p.join(classesDir.path, 'dart_api_dl.c')).writeAsStringSync(
-        '// Forwarder — compiled by CocoaPods/SPM so the Dart DL API is\n'
+    File(p.join(classesDir.path, 'dart_api_dl.c')).writeAsStringSync('// Forwarder — compiled by CocoaPods/SPM so the Dart DL API is\n'
         '// available in the dylib. Kept as .c so it compiles as C, not C++.\n'
         '#include "../../src/dart_api_dl.c"\n');
 
-    File(p.join(classesDir.path, 'Swift${className}Plugin.swift'))
-        .writeAsStringSync('''import Flutter
+    File(p.join(classesDir.path, 'Swift${className}Plugin.swift')).writeAsStringSync('''import Flutter
 import UIKit
 
 public class Swift${className}Plugin: NSObject, FlutterPlugin {
@@ -565,8 +519,7 @@ public class ${className}Impl: NSObject, Hybrid${className}Protocol {
     // without needing a path outside the pod root. The target file is created
     // later by `nitrogen generate`; a dangling symlink here is intentional.
     final symlinkPath = p.join(classesDir.path, '$pluginName.bridge.g.swift');
-    final symlinkTarget =
-        '../../lib/src/generated/swift/$pluginName.bridge.g.swift';
+    final symlinkTarget = '../../lib/src/generated/swift/$pluginName.bridge.g.swift';
     final link = Link(symlinkPath);
     if (link.existsSync()) link.deleteSync();
     link.createSync(symlinkTarget);
@@ -574,10 +527,8 @@ public class ${className}Impl: NSObject, Hybrid${className}Protocol {
     final podspecFile = File(p.join(iosDir.path, '$pluginName.podspec'));
     if (podspecFile.existsSync()) {
       var content = podspecFile.readAsStringSync();
-      content = content.replaceFirst(
-          RegExp(r"s\.platform = :ios, '[\d.]+'"), "s.platform = :ios, '13.0'");
-      content = content.replaceFirst(
-          RegExp(r"s\.swift_version = '[\d.]+'"), "s.swift_version = '5.9'");
+      content = content.replaceFirst(RegExp(r"s\.platform = :ios, '[\d.]+'"), "s.platform = :ios, '13.0'");
+      content = content.replaceFirst(RegExp(r"s\.swift_version = '[\d.]+'"), "s.swift_version = '5.9'");
       // HEADER_SEARCH_PATHS uses ${PODS_ROOT}/../.symlinks/plugins/nitro/src/native
       // so it works whether `nitro` is a local path dep or from pub.dev.
       const xcconfig = r"""s.pod_target_xcconfig = {
@@ -586,8 +537,7 @@ public class ${className}Impl: NSObject, Hybrid${className}Protocol {
     'CLANG_CXX_LIBRARY' => 'libc++',
     'HEADER_SEARCH_PATHS' => '$(inherited) "${PODS_ROOT}/../.symlinks/plugins/nitro/src/native"'
   }""";
-      content = content.replaceFirst(
-          RegExp(r's\.pod_target_xcconfig\s*=\s*\{[^}]*\}'), xcconfig);
+      content = content.replaceFirst(RegExp(r's\.pod_target_xcconfig\s*=\s*\{[^}]*\}'), xcconfig);
       podspecFile.writeAsStringSync(content);
     }
 
@@ -596,8 +546,7 @@ public class ${className}Impl: NSObject, Hybrid${className}Protocol {
     _writeIosPackageSwift(iosDir.path, pluginName, className);
   }
 
-  void _writeIosPackageSwift(
-      String iosPath, String pluginName, String className) {
+  void _writeIosPackageSwift(String iosPath, String pluginName, String className) {
     // SPM Sources layout (separate dirs required for mixed Swift/C++ targets):
     //   Sources/<ClassName>/     — Swift files (symlinks to Classes/*.swift)
     //   Sources/<ClassName>Cpp/  — C/C++ files (symlinks to Classes/*.cpp/.c)
@@ -631,8 +580,7 @@ public class ${className}Impl: NSObject, Hybrid${className}Protocol {
       includeLink.createSync('../../Classes');
     }
 
-    File(p.join(iosPath, 'Package.swift'))
-        .writeAsStringSync('''// swift-tools-version: 5.9
+    File(p.join(iosPath, 'Package.swift')).writeAsStringSync('''// swift-tools-version: 5.9
 import PackageDescription
 
 let package = Package(
@@ -719,8 +667,7 @@ dependencies {
 
     final moduleName = '${pluginName}_module';
     final orgPath = org.replaceAll('.', p.separator);
-    final kotlinDir = Directory(p.join(
-        pluginName, 'android', 'src', 'main', 'kotlin', orgPath, pluginName));
+    final kotlinDir = Directory(p.join(pluginName, 'android', 'src', 'main', 'kotlin', orgPath, pluginName));
     if (!kotlinDir.existsSync()) kotlinDir.createSync(recursive: true);
 
     File(p.join(kotlinDir.path, '${className}Plugin.kt')).writeAsStringSync('''
@@ -777,9 +724,7 @@ class ${className}Impl(private val context: Context) : Hybrid${className}Spec {
     var pubspec = pubspecFile.readAsStringSync();
 
     if (nitroVersion != null) {
-      pubspec = pubspec.replaceFirst(
-          'dependencies:\n  flutter:\n    sdk: flutter',
-          'dependencies:\n  flutter:\n    sdk: flutter\n  nitro: ^$nitroVersion');
+      pubspec = pubspec.replaceFirst('dependencies:\n  flutter:\n    sdk: flutter', 'dependencies:\n  flutter:\n    sdk: flutter\n  nitro: ^$nitroVersion');
     }
 
     // Remove ffigen (plugin_ffi template includes it; Nitrogen uses nitro_generator instead).
@@ -821,8 +766,7 @@ class ${className}Impl(private val context: Context) : Hybrid${className}Spec {
     final libSrcDir = Directory(p.join(pluginName, 'lib', 'src'));
     libSrcDir.createSync(recursive: true);
 
-    File(p.join(libSrcDir.path, '$pluginName.native.dart'))
-        .writeAsStringSync('''import 'package:nitro/nitro.dart';
+    File(p.join(libSrcDir.path, '$pluginName.native.dart')).writeAsStringSync('''import 'package:nitro/nitro.dart';
 
 part '$pluginName.g.dart';
 
@@ -837,8 +781,7 @@ abstract class $className extends HybridObject {
 }
 ''');
 
-    File(p.join(pluginName, 'lib', '$pluginName.dart'))
-        .writeAsStringSync("export 'src/$pluginName.native.dart';\n");
+    File(p.join(pluginName, 'lib', '$pluginName.dart')).writeAsStringSync("export 'src/$pluginName.native.dart';\n");
   }
 
   /// Overwrites the flutter-create template's example/lib/main.dart with a
@@ -847,8 +790,7 @@ abstract class $className extends HybridObject {
     final exampleLibDir = Directory(p.join(pluginName, 'example', 'lib'));
     exampleLibDir.createSync(recursive: true);
 
-    File(p.join(exampleLibDir.path, 'main.dart'))
-        .writeAsStringSync('''import 'dart:async';
+    File(p.join(exampleLibDir.path, 'main.dart')).writeAsStringSync('''import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:$pluginName/$pluginName.dart' as plugin;
@@ -1062,17 +1004,14 @@ class _PluginNameFormState extends State<PluginNameForm> {
 
   void _submit() {
     final name = _nameController.text.trim();
-    final org = _orgController.text.trim().isEmpty
-        ? 'com.example'
-        : _orgController.text.trim();
+    final org = _orgController.text.trim().isEmpty ? 'com.example' : _orgController.text.trim();
 
     if (name.isEmpty) {
       setState(() => _error = 'Plugin name is required');
       return;
     }
     if (!RegExp(r'^[a-z][a-z0-9_]*$').hasMatch(name)) {
-      setState(() =>
-          _error = 'Use only lowercase letters, numbers, and underscores');
+      setState(() => _error = 'Use only lowercase letters, numbers, and underscores');
       return;
     }
     component.onSubmit(name, org);
@@ -1108,14 +1047,12 @@ class _PluginNameFormState extends State<PluginNameForm> {
               Padding(
                 padding: const EdgeInsets.only(bottom: 1),
                 child: Container(
-                  decoration:
-                      BoxDecoration(border: BoxBorder.all(color: Colors.cyan)),
+                  decoration: BoxDecoration(border: BoxBorder.all(color: Colors.cyan)),
                   child: const Padding(
                     padding: EdgeInsets.symmetric(horizontal: 2),
                     child: Text(
                       ' nitrogen init ',
-                      style: TextStyle(
-                          color: Colors.cyan, fontWeight: FontWeight.bold),
+                      style: TextStyle(color: Colors.cyan, fontWeight: FontWeight.bold),
                     ),
                   ),
                 ),
@@ -1124,9 +1061,7 @@ class _PluginNameFormState extends State<PluginNameForm> {
               const Text('Plugin name:', style: TextStyle(color: Colors.white)),
               Row(
                 children: [
-                  const Text('› ',
-                      style: TextStyle(
-                          color: Colors.cyan, fontWeight: FontWeight.bold)),
+                  const Text('› ', style: TextStyle(color: Colors.cyan, fontWeight: FontWeight.bold)),
                   SizedBox(
                     width: 44,
                     child: TextField(
@@ -1143,13 +1078,10 @@ class _PluginNameFormState extends State<PluginNameForm> {
                 ],
               ),
               const SizedBox(height: 1),
-              const Text('Organisation (--org):',
-                  style: TextStyle(color: Colors.white)),
+              const Text('Organisation (--org):', style: TextStyle(color: Colors.white)),
               Row(
                 children: [
-                  const Text('› ',
-                      style: TextStyle(
-                          color: Colors.cyan, fontWeight: FontWeight.bold)),
+                  const Text('› ', style: TextStyle(color: Colors.cyan, fontWeight: FontWeight.bold)),
                   SizedBox(
                     width: 44,
                     child: TextField(
@@ -1172,8 +1104,7 @@ class _PluginNameFormState extends State<PluginNameForm> {
               const SizedBox(height: 1),
               const Text(
                 '[Tab] switch field   [Enter] confirm',
-                style:
-                    TextStyle(color: Colors.gray, fontWeight: FontWeight.dim),
+                style: TextStyle(color: Colors.gray, fontWeight: FontWeight.dim),
               ),
             ],
           ),
@@ -1251,8 +1182,7 @@ class InitCommand extends Command {
     if (nameArg != null && nameArg.isNotEmpty) {
       final pluginName = nameArg.trim();
       if (!RegExp(r'^[a-z][a-z0-9_]*$').hasMatch(pluginName)) {
-        stderr.writeln(
-            '❌ Invalid plugin name "$pluginName". Use only lowercase letters, numbers, and underscores.');
+        stderr.writeln('❌ Invalid plugin name "$pluginName". Use only lowercase letters, numbers, and underscores.');
         exit(1);
       }
       final result = InitResult();

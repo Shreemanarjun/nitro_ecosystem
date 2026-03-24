@@ -305,7 +305,7 @@ void main() {
   // ── 7. Enum as struct field — CppBridgeGenerator (JNI pack/unpack) ────────
 
   group('CppBridgeGenerator — enum field in JNI struct helpers', () {
-    BridgeSpec _specWithEnumStructField() => _emptySpec(
+    BridgeSpec specWithEnumStructField() => _emptySpec(
           lib: 'test_lib',
           enums: [_enum('Status', ['ok', 'error'])],
           structs: [
@@ -317,28 +317,28 @@ void main() {
         );
 
     test('pack helper reads enum field as GetLongField', () {
-      final cpp = CppBridgeGenerator.generate(_specWithEnumStructField());
+      final cpp = CppBridgeGenerator.generate(specWithEnumStructField());
       expect(cpp, contains('GetLongField(obj, fid_status)'));
     });
 
     test('pack helper casts enum field to C enum type via int32_t', () {
-      final cpp = CppBridgeGenerator.generate(_specWithEnumStructField());
+      final cpp = CppBridgeGenerator.generate(specWithEnumStructField());
       expect(cpp, contains('(Status)(int32_t)'));
     });
 
     test('unpack helper passes enum field as (jlong)(int32_t)', () {
-      final cpp = CppBridgeGenerator.generate(_specWithEnumStructField());
+      final cpp = CppBridgeGenerator.generate(specWithEnumStructField());
       expect(cpp, contains('(jlong)(int32_t)st->status'));
     });
 
     test('JNI constructor signature uses J for enum field', () {
-      final cpp = CppBridgeGenerator.generate(_specWithEnumStructField());
+      final cpp = CppBridgeGenerator.generate(specWithEnumStructField());
       // signature should be "(JJ)V" — enum (J) + int (J)
       expect(cpp, contains('"(JJ)V"'));
     });
 
     test('JNI field descriptor uses J for enum field', () {
-      final cpp = CppBridgeGenerator.generate(_specWithEnumStructField());
+      final cpp = CppBridgeGenerator.generate(specWithEnumStructField());
       expect(cpp, contains('"status", "J"'));
     });
   });
