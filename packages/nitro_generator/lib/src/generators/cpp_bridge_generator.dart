@@ -74,6 +74,7 @@ class CppBridgeGenerator {
     s.writeln();
 
     // JNI struct unpack helpers (C struct → Java object)
+    final enumNames = spec.enums.map((e) => e.name).toSet();
     for (final st in spec.structs) {
       // pack: Java object → C struct (used for stream emit and return values)
       s.writeln(
@@ -82,8 +83,10 @@ class CppBridgeGenerator {
       s.writeln('    ${st.name} result;');
       s.writeln('    jclass cls = env->GetObjectClass(obj);');
       for (final f in st.fields) {
-        final sig = _jniSigType(f.type.name);
-        final getter = _jniGetter(f.type.name);
+        final isEnumField =
+            enumNames.contains(f.type.name.replaceFirst('?', ''));
+        final sig = isEnumField ? 'J' : _jniSigType(f.type.name);
+        final getter = isEnumField ? 'GetLongField' : _jniGetter(f.type.name);
         s.writeln(
           '    jfieldID fid_${f.name} = env->GetFieldID(cls, "${f.name}", "$sig");',
         );
@@ -105,6 +108,11 @@ class CppBridgeGenerator {
           s.writeln(
             '    env->ReleaseStringUTFChars(j_${f.name}, str_${f.name});',
           );
+        } else if (isEnumField) {
+          final enumType = f.type.name.replaceFirst('?', '');
+          s.writeln(
+            '    result.${f.name} = ($enumType)(int32_t)env->$getter(obj, fid_${f.name});',
+          );
         } else {
           s.writeln('    result.${f.name} = env->$getter(obj, fid_${f.name});');
         }
@@ -115,8 +123,10 @@ class CppBridgeGenerator {
       // unpack: C struct → Java object (used for passing struct params to Kotlin)
       final jniClass =
           'nitro/${spec.lib.replaceAll('-', '_')}_module/${st.name}';
-      final ctorSig =
-          '(${st.fields.map((f) => _jniSigType(f.type.name)).join('')})V';
+      final ctorSig = '(${st.fields.map((f) {
+        final isEnum = enumNames.contains(f.type.name.replaceFirst('?', ''));
+        return isEnum ? 'J' : _jniSigType(f.type.name);
+      }).join('')})V';
       s.writeln(
         'static jobject unpack_${st.name}_to_jni(JNIEnv* env, const ${st.name}* st) {',
       );
@@ -126,10 +136,14 @@ class CppBridgeGenerator {
       );
       final ctorArgs = st.fields
           .map((f) {
+            final isEnum =
+                enumNames.contains(f.type.name.replaceFirst('?', ''));
             if (_isZeroCopy(st, f.name)) {
               return 'env->NewDirectByteBuffer((void*)st->${f.name}, st->${_zeroCopyLenField(st, f.name)})';
             } else if (f.type.name == 'String') {
               return 'env->NewStringUTF(st->${f.name})';
+            } else if (isEnum) {
+              return '(jlong)(int32_t)st->${f.name}';
             } else {
               return '(${_jniCast(f.type.name)})st->${f.name}';
             }
