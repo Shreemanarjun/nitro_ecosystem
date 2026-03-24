@@ -70,14 +70,16 @@ class GenerateCommand extends Command {
     // ── pod install ──────────────────────────────────────────────────────────
     final podfileDirs = _findPodfileDirs(projectDir.path);
     for (final dir in podfileDirs) {
-      stdout.writeln(cyan('  › pod install (${p.relative(dir, from: projectDir.path)}) …'));
+      stdout.writeln(cyan(
+          '  › pod install (${p.relative(dir, from: projectDir.path)}) …'));
       final podExitCode = await runStreaming(
         'pod',
         ['install'],
         workingDirectory: dir,
       );
       if (podExitCode != 0) {
-        stderr.writeln(red('  ⚠  pod install failed in $dir (exit $podExitCode) — continuing'));
+        stderr.writeln(red(
+            '  ⚠  pod install failed in $dir (exit $podExitCode) — continuing'));
       }
     }
 

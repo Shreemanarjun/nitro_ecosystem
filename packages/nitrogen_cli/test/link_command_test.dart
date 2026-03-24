@@ -239,7 +239,7 @@ abstract class MyPlugin extends HybridObject {}
       nativeDir.createSync(recursive: true);
       File(p.join(nativeDir.path, 'dart_api_dl.h')).writeAsStringSync('');
       // Use a cmake value that resolves to nativeDir without any .. traversal.
-      final cmakeValue = r'${CMAKE_CURRENT_SOURCE_DIR}/native';
+      const cmakeValue = r'${CMAKE_CURRENT_SOURCE_DIR}/native';
       final result = nitroNativePathExists(cmakeValue, tmp.path);
       expect(result, isTrue);
     });

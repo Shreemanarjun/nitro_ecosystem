@@ -7,7 +7,7 @@ import 'bridge_spec.dart';
 
 class SpecExtractor {
   static BridgeSpec extract(LibraryReader library) {
-    final modules = library.annotatedWith(TypeChecker.fromRuntime(NitroModule));
+    final modules = library.annotatedWith(const TypeChecker.fromRuntime(NitroModule));
     if (modules.isEmpty) {
       throw InvalidGenerationSourceError(
         'No @NitroModule annotated classes found.',
@@ -61,7 +61,7 @@ class SpecExtractor {
   // ─── @HybridRecord ────────────────────────────────────────────────────────
 
   static List<BridgeRecordType> _extractRecordTypes(LibraryReader library) {
-    final checker = TypeChecker.fromRuntime(HybridRecord);
+    const checker = TypeChecker.fromRuntime(HybridRecord);
 
     // First pass: collect all @HybridRecord class names for nested detection.
     final recordTypeNames = <String>{};
@@ -201,10 +201,10 @@ class SpecExtractor {
     String ns,
     Set<String> recordTypeNames,
   ) {
-    final asyncChecker = TypeChecker.fromUrl(
+    const asyncChecker = TypeChecker.fromUrl(
       'package:nitro/src/annotations.dart#NitroAsync',
     );
-    final zeroCopyChecker = TypeChecker.fromUrl(
+    const zeroCopyChecker = TypeChecker.fromUrl(
       'package:nitro/src/annotations.dart#ZeroCopy',
     );
 
@@ -292,7 +292,7 @@ class SpecExtractor {
     String ns,
     Set<String> recordTypeNames,
   ) {
-    final streamChecker = TypeChecker.fromUrl(
+    const streamChecker = TypeChecker.fromUrl(
       'package:nitro/src/annotations.dart#NitroStream',
     );
     final results = <BridgeStream>[];
@@ -350,7 +350,7 @@ class SpecExtractor {
   // ─── Structs ─────────────────────────────────────────────────────────────────
 
   static List<BridgeStruct> _extractStructs(LibraryReader library) {
-    final checker = TypeChecker.fromRuntime(HybridStruct);
+    const checker = TypeChecker.fromRuntime(HybridStruct);
     final results = <BridgeStruct>[];
 
     for (final ann in library.annotatedWith(checker)) {
@@ -388,7 +388,7 @@ class SpecExtractor {
   // ─── Enums ───────────────────────────────────────────────────────────────────
 
   static List<BridgeEnum> _extractEnums(LibraryReader library) {
-    final checker = TypeChecker.fromRuntime(HybridEnum);
+    const checker = TypeChecker.fromRuntime(HybridEnum);
     final results = <BridgeEnum>[];
 
     for (final ann in library.annotatedWith(checker)) {

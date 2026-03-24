@@ -81,8 +81,8 @@ class MyPlugin {
 ''');
 
   if (withIos) {
-    final classesDir =
-        Directory(p.join(root.path, 'ios', 'Classes'))..createSync(recursive: true);
+    final classesDir = Directory(p.join(root.path, 'ios', 'Classes'))
+      ..createSync(recursive: true);
 
     // podspec
     File(p.join(root.path, 'ios', 'my_plugin.podspec')).writeAsStringSync('''
@@ -137,12 +137,10 @@ void main() {
     test('ok when nitro.h is present in ios/Classes/', () {
       tmp = _scaffold(withNitroH: true);
       final result = _run(tmp);
-      final iosSection =
-          result.sections.firstWhere((s) => s.title == 'iOS');
+      final iosSection = result.sections.firstWhere((s) => s.title == 'iOS');
       expect(
         iosSection.checks.any((c) =>
-            c.status == DoctorStatus.ok &&
-            c.label.contains('nitro.h present')),
+            c.status == DoctorStatus.ok && c.label.contains('nitro.h present')),
         isTrue,
       );
     });
@@ -150,8 +148,7 @@ void main() {
     test('error when nitro.h is absent from ios/Classes/', () {
       tmp = _scaffold(withNitroH: false);
       final result = _run(tmp);
-      final iosSection =
-          result.sections.firstWhere((s) => s.title == 'iOS');
+      final iosSection = result.sections.firstWhere((s) => s.title == 'iOS');
       final check = iosSection.checks.firstWhere(
           (c) => c.label.contains('nitro.h missing'),
           orElse: () => throw TestFailure('no nitro.h check found'));
@@ -172,8 +169,7 @@ void main() {
         ],
       );
       final result = _run(tmp);
-      final iosSection =
-          result.sections.firstWhere((s) => s.title == 'iOS');
+      final iosSection = result.sections.firstWhere((s) => s.title == 'iOS');
 
       final staleChecks = iosSection.checks
           .where((c) =>
@@ -192,8 +188,7 @@ void main() {
     test('no stale-cpp error when only .mm bridges are present', () {
       tmp = _scaffold(mmBridges: ['my_plugin.bridge.g.mm']);
       final result = _run(tmp);
-      final iosSection =
-          result.sections.firstWhere((s) => s.title == 'iOS');
+      final iosSection = result.sections.firstWhere((s) => s.title == 'iOS');
       expect(
         iosSection.checks.any((c) =>
             c.status == DoctorStatus.error &&
@@ -205,10 +200,9 @@ void main() {
     test('hint points to nitrogen link for auto-rename', () {
       tmp = _scaffold(cppBridges: ['foo.bridge.g.cpp']);
       final result = _run(tmp);
-      final iosSection =
-          result.sections.firstWhere((s) => s.title == 'iOS');
-      final check = iosSection.checks.firstWhere(
-          (c) => c.label.contains('Stale .cpp bridge'));
+      final iosSection = result.sections.firstWhere((s) => s.title == 'iOS');
+      final check = iosSection.checks
+          .firstWhere((c) => c.label.contains('Stale .cpp bridge'));
       expect(check.hint, contains('nitrogen link'));
       expect(check.hint, contains('bridge.g.mm'));
     });
@@ -220,12 +214,10 @@ void main() {
     test('ok when at least one .bridge.g.mm is present', () {
       tmp = _scaffold(mmBridges: ['my_plugin.bridge.g.mm']);
       final result = _run(tmp);
-      final iosSection =
-          result.sections.firstWhere((s) => s.title == 'iOS');
+      final iosSection = result.sections.firstWhere((s) => s.title == 'iOS');
       expect(
         iosSection.checks.any((c) =>
-            c.status == DoctorStatus.ok &&
-            c.label.contains('.bridge.g.mm')),
+            c.status == DoctorStatus.ok && c.label.contains('.bridge.g.mm')),
         isTrue,
       );
     });
@@ -237,10 +229,9 @@ void main() {
         'c.bridge.g.mm',
       ]);
       final result = _run(tmp);
-      final iosSection =
-          result.sections.firstWhere((s) => s.title == 'iOS');
-      final check = iosSection.checks.firstWhere(
-          (c) => c.status == DoctorStatus.ok && c.label.contains('.bridge.g.mm'));
+      final iosSection = result.sections.firstWhere((s) => s.title == 'iOS');
+      final check = iosSection.checks.firstWhere((c) =>
+          c.status == DoctorStatus.ok && c.label.contains('.bridge.g.mm'));
       expect(check.label, contains('3'));
     });
 
@@ -254,8 +245,7 @@ void main() {
           .writeAsStringSync('@NitroModule(lib: "my_plugin")');
 
       final result = _run(tmp);
-      final iosSection =
-          result.sections.firstWhere((s) => s.title == 'iOS');
+      final iosSection = result.sections.firstWhere((s) => s.title == 'iOS');
       final check = iosSection.checks.firstWhere(
           (c) => c.label.contains('No .bridge.g.mm'),
           orElse: () => throw TestFailure('no .bridge.g.mm warning found'));
@@ -267,8 +257,7 @@ void main() {
       tmp = _scaffold(mmBridges: []);
       // No .native.dart spec written → specs list is empty.
       final result = _run(tmp);
-      final iosSection =
-          result.sections.firstWhere((s) => s.title == 'iOS');
+      final iosSection = result.sections.firstWhere((s) => s.title == 'iOS');
       expect(
         iosSection.checks.any((c) => c.label.contains('No .bridge.g.mm')),
         isFalse,
@@ -287,8 +276,7 @@ void main() {
         cppBridges: [],
       );
       final result = _run(tmp);
-      final iosSection =
-          result.sections.firstWhere((s) => s.title == 'iOS');
+      final iosSection = result.sections.firstWhere((s) => s.title == 'iOS');
 
       // No stale-cpp errors
       expect(
@@ -299,8 +287,8 @@ void main() {
       );
       // nitro.h ok
       expect(
-        iosSection.checks.any((c) =>
-            c.status == DoctorStatus.ok && c.label.contains('nitro.h')),
+        iosSection.checks.any(
+            (c) => c.status == DoctorStatus.ok && c.label.contains('nitro.h')),
         isTrue,
       );
       // .mm ok

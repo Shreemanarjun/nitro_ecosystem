@@ -223,9 +223,9 @@ class _UpdateViewState extends State<UpdateView> {
             child: Container(
               decoration:
                   BoxDecoration(border: BoxBorder.all(color: Colors.cyan)),
-              child: Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 2),
-                child: const Text(' nitrogen update ',
+              child: const Padding(
+                padding: EdgeInsets.symmetric(horizontal: 2),
+                child: Text(' nitrogen update ',
                     style: TextStyle(
                         color: Colors.cyan, fontWeight: FontWeight.bold)),
               ),

@@ -656,8 +656,8 @@ class _ProcessViewState extends State<ProcessView> {
 
       // Handle stdout
       process.stdout
-          .transform(Utf8Decoder())
-          .transform(LineSplitter())
+          .transform(const Utf8Decoder())
+          .transform(const LineSplitter())
           .listen((line) {
         if (!mounted) return;
         setState(() {
@@ -668,8 +668,8 @@ class _ProcessViewState extends State<ProcessView> {
 
       // Handle stderr
       process.stderr
-          .transform(Utf8Decoder())
-          .transform(LineSplitter())
+          .transform(const Utf8Decoder())
+          .transform(const LineSplitter())
           .listen((line) {
         if (!mounted) return;
         setState(() {
