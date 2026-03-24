@@ -37,11 +37,29 @@ class SpecValidator {
     'String',
     'void',
     'Uint8List',
+    'Int8List',
+    'Int16List',
+    'Int32List',
+    'Uint16List',
+    'Uint32List',
+    'Float32List',
+    'Float64List',
+    'Int64List',
+    'Uint64List',
     'int?',
     'double?',
     'bool?',
     'String?',
     'Uint8List?',
+    'Int8List?',
+    'Int16List?',
+    'Int32List?',
+    'Uint16List?',
+    'Uint32List?',
+    'Float32List?',
+    'Float64List?',
+    'Int64List?',
+    'Uint64List?',
   };
 
   /// Runs all validation rules on [spec] and returns the list of issues.
@@ -89,6 +107,20 @@ class SpecValidator {
                 'If "$retName" is a struct, annotate it with @HybridStruct. '
                 'If it is an enum, annotate it with @HybridEnum. '
                 'If it is a complex/nested type (lists, nested objects), annotate it with @HybridRecord.',
+          ),
+        );
+      }
+
+      // Prohibit naked TypedData return
+      if (func.returnType.isTypedData) {
+        issues.add(
+          ValidationIssue(
+            severity: ValidationSeverity.error,
+            code: 'INVALID_RETURN_TYPE',
+            message:
+                '${spec.dartClassName}.${func.dartName}() — naked TypedData return type "${func.returnType.name}" is not supported.',
+            hint:
+                'Wrap TypedData in a @HybridStruct with a sibling length field and mark it as @ZeroCopy.',
           ),
         );
       }
@@ -162,6 +194,19 @@ class SpecValidator {
           ),
         );
       }
+
+      if (prop.type.isTypedData) {
+        issues.add(
+          ValidationIssue(
+            severity: ValidationSeverity.error,
+            code: 'INVALID_PROPERTY_TYPE',
+            message:
+                '${spec.dartClassName}.${prop.dartName} — naked TypedData property type "${prop.type.name}" is not supported.',
+            hint:
+                'Wrap TypedData in a @HybridStruct with a sibling length field and mark it as @ZeroCopy.',
+          ),
+        );
+      }
     }
 
     // ── Streams ────────────────────────────────────────────────────────────
@@ -200,8 +245,6 @@ class SpecValidator {
     for (final st in spec.structs) {
       for (final field in st.fields) {
         final fName = field.type.name.replaceFirst('?', '');
-        // Struct fields may only be primitives, String, Uint8List, or other structs.
-        // Enums as struct fields are not supported in the current bridge.
         if (!_knownPrimitives.contains(fName) && !structNames.contains(fName)) {
           issues.add(
             ValidationIssue(
@@ -216,14 +259,13 @@ class SpecValidator {
           );
         }
 
-        // Zero-copy only valid on Uint8List
-        if (field.zeroCopy && fName != 'Uint8List') {
+        if (field.zeroCopy && !field.type.isTypedData) {
           issues.add(
             ValidationIssue(
               severity: ValidationSeverity.error,
               code: 'INVALID_ZERO_COPY',
               message:
-                  '${st.name}.${field.name} — @zero_copy is only valid on Uint8List fields (got "$fName").',
+                  '${st.name}.${field.name} — @zero_copy is only valid on TypedData fields like Uint8List or Float32List (got "$fName").',
             ),
           );
         }

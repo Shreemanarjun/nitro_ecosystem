@@ -54,6 +54,17 @@ class BridgeType {
   /// True when the type is `Map<String, V>` — bridges as a JSON object string.
   final bool isMap;
 
+  /// True when the type is a Dart TypedData (Uint8List, Float32List, etc.)
+  bool get isTypedData =>
+      name.startsWith('Uint8List') ||
+      name.startsWith('Int8List') ||
+      name.startsWith('Int16List') ||
+      name.startsWith('Int32List') ||
+      name.startsWith('Uint16List') ||
+      name.startsWith('Uint32List') ||
+      name.startsWith('Float32List') ||
+      name.startsWith('Float64List');
+
   BridgeType({
     required this.name,
     this.isNullable = false,

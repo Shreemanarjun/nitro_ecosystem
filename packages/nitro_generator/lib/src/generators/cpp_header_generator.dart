@@ -9,6 +9,15 @@ class CppHeaderGenerator {
     s.writeln();
     s.writeln('#include <stdint.h>');
     s.writeln('#include <stdbool.h>');
+    s.writeln('#include <stdlib.h>');
+    s.writeln();
+    s.writeln('typedef struct {');
+    s.writeln('  int8_t hasError;');
+    s.writeln('  const char* name;');
+    s.writeln('  const char* message;');
+    s.writeln('  const char* code;');
+    s.writeln('  const char* stackTrace;');
+    s.writeln('} NitroError;');
     s.writeln();
 
     final cEnums = EnumGenerator.generateCEnums(spec);
@@ -17,9 +26,12 @@ class CppHeaderGenerator {
     final cStructs = StructGenerator.generateCStructs(spec);
     if (cStructs.isNotEmpty) s.write(cStructs);
 
-    s.writeln('#ifdef __cplusplus');
     s.writeln('extern "C" {');
     s.writeln('#endif');
+    s.writeln();
+    s.writeln('NitroError* NitroGetError(void);');
+    s.writeln('void NitroClearError(void);');
+    s.writeln();
     s.writeln();
 
     // ── Methods ─────────────────────────────────────────────────────────────
@@ -92,6 +104,24 @@ class CppHeaderGenerator {
         return 'const char*';
       case 'Uint8List':
         return 'uint8_t*';
+      case 'Int8List':
+        return 'int8_t*';
+      case 'Int16List':
+        return 'int16_t*';
+      case 'Int32List':
+        return 'int32_t*';
+      case 'Uint16List':
+        return 'uint16_t*';
+      case 'Uint32List':
+        return 'uint32_t*';
+      case 'Float32List':
+        return 'float*';
+      case 'Float64List':
+        return 'double*';
+      case 'Int64List':
+        return 'int64_t*';
+      case 'Uint64List':
+        return 'uint64_t*';
       case 'void':
         return 'void';
       default:

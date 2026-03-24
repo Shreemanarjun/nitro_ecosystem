@@ -92,7 +92,7 @@ class DartFfiGenerator {
 
       final needsArena = func.params.any(
         (p) =>
-            p.type.name.startsWith('Uint8List') ||
+            p.type.isTypedData ||
             p.type.name == 'String' ||
             p.type.isRecord ||
             spec.structs.any((st) => st.name == p.type.name),
@@ -104,7 +104,7 @@ class DartFfiGenerator {
             if (p.type.isRecord) {
               return _encodeRecordParam(p.type, p.name, 'arena');
             }
-            if (t.startsWith('Uint8List')) return '${p.name}.toPointer(arena)';
+            if (p.type.isTypedData) return '${p.name}.toPointer(arena)';
             if (t == 'String') {
               return '${p.name}.toNativeUtf8(allocator: arena)';
             }
@@ -130,9 +130,13 @@ class DartFfiGenerator {
 
       String callExpr;
       if (needsArena) {
-        callExpr = 'withArena((arena) => _${func.dartName}Ptr($callArgs))';
+        callExpr = 'withArena((arena) { final res = _${func.dartName}Ptr($callArgs); NitroRuntime.checkError(_dylib); return res; })';
       } else {
-        callExpr = '_${func.dartName}Ptr($callArgs)';
+        if (func.returnType.name == 'void') {
+          callExpr = '() { _${func.dartName}Ptr($callArgs); NitroRuntime.checkError(_dylib); }()';
+        } else {
+          callExpr = '() { final res = _${func.dartName}Ptr($callArgs); NitroRuntime.checkError(_dylib); return res; }()';
+        }
       }
 
       if (func.isAsync) {
@@ -144,6 +148,7 @@ class DartFfiGenerator {
           s.writeln(
             '      final result = await NitroRuntime.callAsync(_${func.dartName}Ptr, [$callArgs]);',
           );
+          s.writeln('      NitroRuntime.checkError(_dylib);');
           if (isRecordReturn) {
             s.writeln(
               '      return ${_decodeRecordExpr(func.returnType, 'result')};',
@@ -169,6 +174,7 @@ class DartFfiGenerator {
             s.writeln(
               '    final rawResult = await NitroRuntime.callAsync(_${func.dartName}Ptr, [$params]);',
             );
+            s.writeln('    NitroRuntime.checkError(_dylib);');
             s.writeln(
               '    return ${_decodeRecordExpr(func.returnType, 'rawResult')};',
             );
@@ -176,17 +182,22 @@ class DartFfiGenerator {
             s.writeln(
               '    final asyncResult = await NitroRuntime.callAsync(_${func.dartName}Ptr, [${func.params.map((p) => p.name).join(', ')}]);',
             );
+            s.writeln('    NitroRuntime.checkError(_dylib);');
             s.writeln(
               '    return Pointer<${rt}Ffi>.fromAddress((asyncResult as Pointer<Void>).address).ref.toDart();',
             );
           } else if (isEnumReturn) {
             s.writeln(
-              '    return ((await NitroRuntime.callAsync(_${func.dartName}Ptr, [${func.params.map((p) => p.name).join(', ')}])) as int).to$rt();',
+              '    final res = (await NitroRuntime.callAsync(_${func.dartName}Ptr, [${func.params.map((p) => p.name).join(', ')}])) as int;',
             );
+            s.writeln('    NitroRuntime.checkError(_dylib);');
+            s.writeln('    return res.to$rt();');
           } else {
             s.writeln(
-              '    return NitroRuntime.callAsync(_${func.dartName}Ptr, [${func.params.map((p) => p.name).join(', ')}]);',
+              '    final res = await NitroRuntime.callAsync(_${func.dartName}Ptr, [${func.params.map((p) => p.name).join(', ')}]);',
             );
+            s.writeln('    NitroRuntime.checkError(_dylib);');
+            s.writeln('    return res as $rt;');
           }
         }
       } else {
@@ -231,15 +242,22 @@ class DartFfiGenerator {
           );
           s.writeln('  }');
         } else {
-          String getExpr = '_get${cap}Ptr()';
+          s.writeln('  $rt get ${prop.dartName} {');
+          s.writeln('    checkDisposed();');
+          s.writeln('    final res = _get${cap}Ptr();');
+          s.writeln('    NitroRuntime.checkError(_dylib);');
           if (spec.enums.any((en) => en.name == rt)) {
-            getExpr = '$getExpr.to$rt()';
+            s.writeln('    return res.to$rt();');
           } else if (rt == 'bool') {
-            getExpr = '$getExpr != 0';
+            s.writeln('    return res != 0;');
+          } else if (prop.type.isTypedData) {
+            // This is valid if it's in a struct, but here it's a top-level property.
+            // Nitrogen currently only supports zero-copy TypedData inside structs with a length field.
+            s.writeln('    return res; // ERROR: Naked TypedData return not yet supported');
+          } else {
+            s.writeln('    return res;');
           }
-          s.writeln(
-            '  $rt get ${prop.dartName} { checkDisposed(); return $getExpr; }',
-          );
+          s.writeln('  }');
         }
       }
 
@@ -255,20 +273,20 @@ class DartFfiGenerator {
         } else {
           final propNeedsArena =
               rt == 'String' ||
-              rt.startsWith('Uint8List') ||
+              prop.type.isTypedData ||
               spec.structs.any((st) => st.name == rt);
 
           if (propNeedsArena) {
             String valExpr;
             if (rt == 'String') {
               valExpr = 'value.toNativeUtf8(allocator: arena)';
-            } else if (rt.startsWith('Uint8List')) {
+            } else if (prop.type.isTypedData) {
               valExpr = 'value.toPointer(arena)';
             } else {
               valExpr = 'value.toNative(arena).cast<Void>()';
             }
             s.writeln(
-              '  set ${prop.dartName}($rt value) { checkDisposed(); withArena((arena) => _set${cap}Ptr($valExpr)); }',
+              '  set ${prop.dartName}($rt value) { checkDisposed(); withArena((arena) { _set${cap}Ptr($valExpr); NitroRuntime.checkError(_dylib); }); }',
             );
           } else {
             String valExpr = 'value';
@@ -278,7 +296,7 @@ class DartFfiGenerator {
               valExpr = 'value ? 1 : 0';
             }
             s.writeln(
-              '  set ${prop.dartName}($rt value) { checkDisposed(); _set${cap}Ptr($valExpr); }',
+              '  set ${prop.dartName}($rt value) { checkDisposed(); _set${cap}Ptr($valExpr); NitroRuntime.checkError(_dylib); }',
             );
           }
         }
@@ -361,6 +379,24 @@ class DartFfiGenerator {
         return 'Pointer<Utf8>';
       case 'Uint8List':
         return 'Pointer<Uint8>';
+      case 'Int8List':
+        return 'Pointer<Int8>';
+      case 'Int16List':
+        return 'Pointer<Int16>';
+      case 'Int32List':
+        return 'Pointer<Int32>';
+      case 'Uint16List':
+        return 'Pointer<Uint16>';
+      case 'Uint32List':
+        return 'Pointer<Uint32>';
+      case 'Float32List':
+        return 'Pointer<Float>';
+      case 'Float64List':
+        return 'Pointer<Double>';
+      case 'Int64List':
+        return 'Pointer<Int64>';
+      case 'Uint64List':
+        return 'Pointer<Uint64>';
       case 'void':
         return 'Void';
     }
@@ -384,6 +420,24 @@ class DartFfiGenerator {
         return 'Pointer<Utf8>';
       case 'Uint8List':
         return 'Pointer<Uint8>';
+      case 'Int8List':
+        return 'Pointer<Int8>';
+      case 'Int16List':
+        return 'Pointer<Int16>';
+      case 'Int32List':
+        return 'Pointer<Int32>';
+      case 'Uint16List':
+        return 'Pointer<Uint16>';
+      case 'Uint32List':
+        return 'Pointer<Uint32>';
+      case 'Float32List':
+        return 'Pointer<Float>';
+      case 'Float64List':
+        return 'Pointer<Double>';
+      case 'Int64List':
+        return 'Pointer<Int64>';
+      case 'Uint64List':
+        return 'Pointer<Uint64>';
       case 'void':
         return 'void';
     }

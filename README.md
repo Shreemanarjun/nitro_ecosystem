@@ -114,7 +114,7 @@ Native side receives a `ByteArray` (Kotlin) or `Data` (Swift) and reads fields i
 | `@HybridRecord` | Rich binary-serialized record (nested objects, `List<T>`) | `uint8_t*` binary |
 | `@nitroAsync` | Method dispatched on background isolate | `NitroRuntime.callAsync` |
 | `@NitroStream` | Native push stream via `Dart_PostCObject` | SendPort / `openStream` |
-| `@ZeroCopy` | `Uint8List` passed as raw pointer (no copy) | `uint8_t*` |
+| `@ZeroCopy` | `TypedData` passed as raw pointer (no copy) | `uint8_t*`, `float*`, etc. |
 
 ### Choosing between `@HybridStruct` and `@HybridRecord`
 
@@ -136,7 +136,7 @@ Native side receives a `ByteArray` (Kotlin) or `Data` (Swift) and reads fields i
 | `double` | `double` | `Double` | `Double` |
 | `bool` | `int8_t` | `Boolean` | `Bool` |
 | `String` | `const char*` (malloc'd) | `String` | `String` |
-| `Uint8List` | `uint8_t*` | `ByteArray` | `Data` |
+| `Uint8List`, `Float32List`, `Int32List`, ... | `T*` (raw pointer) | `ByteArray`, `FloatArray`, ... | `Data`, `[Float]`, ... |
 | `int?`, `double?`, `bool?`, `String?` | same + null tag | same + null tag | same + null tag |
 | `@HybridEnum` | `int64_t` | `Long` + `.nativeValue` | `Int64` rawValue |
 | `@HybridStruct` | `YourStruct*` | `@Keep data class` | `public struct` |
@@ -149,9 +149,50 @@ Native side receives a `ByteArray` (Kotlin) or `Data` (Swift) and reads fields i
 
 > **Native side for `@HybridRecord`:** receive/return a `ByteArray` / `Data`. Read and write
 > fields in declaration order using sequential reads/writes. `fromNative` / `writeFields` are
+> fields in declaration order using sequential reads/writes. `fromNative` / `writeFields` are
 > auto-generated on the Dart side — no manual parsing needed.
 
 ---
+
+## Exception Handling
+
+Nitrogen provides idiomatic error propagation from native code (Kotlin/Swift/C++) back to Dart.
+
+- **Android**: Any unhandled Java exception in your `HybridObject` implementation is automatically caught by the JNI bridge and re-thrown as a `HybridException` in Dart.
+- **iOS**: Swift errors and `NSException` instances are caught by the `@_cdecl` bridge and propagated to Dart.
+- **C++**: Throwing `std::runtime_error` or using `NitroSetError` from the static C shim allows you to send custom error messages and codes.
+
+```dart
+try {
+  await myModule.doWork();
+} on HybridException catch (e) {
+  print('Native error: ${e.message}'); // "Java.lang.RuntimeException: Device not found"
+}
+```
+
+---
+
+## Zero-Copy & TypedData
+
+Nitrogen supports zero-copy memory sharing for all Dart `TypedData` types when used within a `@HybridStruct`.
+
+| Dart Type | C pointer | Kotlin | Swift |
+|---|---|---|---|
+| `Uint8List` | `uint8_t*` | `ByteArray` | `Data` |
+| `Int32List` | `int32_t*` | `IntArray` | `[Int32]` |
+| `Float32List` | `float*` | `FloatArray` | `[Float]` |
+| `Float64List` | `double*` | `DoubleArray` | `[Double]` |
+
+To use zero-copy, the `TypedData` field must be part of a `@HybridStruct` and specified in the `zeroCopy` list of the annotation.
+
+```dart
+@HybridStruct(zeroCopy: ['buffer'])
+class AudioBuffer {
+  final Float32List buffer;
+  final int samples;
+  const AudioBuffer({required this.buffer, required this.samples});
+}
+```
 
 ## Repository layout
 

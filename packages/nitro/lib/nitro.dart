@@ -3,6 +3,7 @@ export 'src/hybrid_object_base.dart';
 export 'src/nitro_config.dart';
 export 'src/isolate_pool.dart';
 export 'src/nitro_runtime.dart';
+export 'src/hybrid_exception.dart';
 export 'src/ffi_utils.dart';
 export 'src/record_codec.dart';
 

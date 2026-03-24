@@ -8,6 +8,10 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.runBlocking
 
+// --- Structs ---
+@Keep
+data class FloatBuffer(val data: java.nio.ByteBuffer, val length: Long)
+
 /**
  * Contract for the [VerificationModule] module.
  * Implement this in your Kotlin source code.
@@ -16,6 +20,8 @@ interface HybridVerificationModuleSpec {
     fun multiply(a: Double, b: Double): Double
     fun ping(message: String): String
     suspend fun pingAsync(message: String): String
+    fun throwError(message: String): Unit
+    fun processFloats(inputs: Any?): FloatBuffer
 }
 
 @Keep
@@ -42,6 +48,14 @@ object VerificationModuleJniBridge {
         return runBlocking {
             impl.pingAsync(message)
         }
+    }
+    @JvmStatic fun throwError_call(message: String): Unit {
+        val impl = implementation ?: throw IllegalStateException("VerificationModule not registered")
+        impl.throwError(message)
+    }
+    @JvmStatic fun processFloats_call(inputs: Any?): FloatBuffer {
+        val impl = implementation ?: throw IllegalStateException("VerificationModule not registered")
+        return impl.processFloats(inputs)
     }
     private val _streamJobs = mutableMapOf<Long, kotlinx.coroutines.Job>()
 

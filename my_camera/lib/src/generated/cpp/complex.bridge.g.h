@@ -2,6 +2,15 @@
 
 #include <stdint.h>
 #include <stdbool.h>
+#include <stdlib.h>
+
+typedef struct {
+  int8_t hasError;
+  const char* name;
+  const char* message;
+  const char* code;
+  const char* stackTrace;
+} NitroError;
 
 // --- Enums ---
 typedef enum {
@@ -26,9 +35,12 @@ typedef struct {
   int64_t size; 
 } Packet;
 
-#ifdef __cplusplus
 extern "C" {
 #endif
+
+NitroError* NitroGetError(void);
+void NitroClearError(void);
+
 
 // Methods
 int64_t complex_module_calculate(int64_t seed, double factor, int8_t enabled);

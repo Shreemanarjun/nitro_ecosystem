@@ -114,7 +114,7 @@ class _MyCameraImpl extends MyCamera {
   @override
   double add(double a, double b) {
     checkDisposed();
-    return _addPtr(a, b);
+    return () { final res = _addPtr(a, b); NitroRuntime.checkError(_dylib); return res; }();
   }
 
   @override
@@ -122,6 +122,7 @@ class _MyCameraImpl extends MyCamera {
     checkDisposed();
     return withArena((arena) async {
       final result = await NitroRuntime.callAsync(_getGreetingPtr, [name.toNativeUtf8(allocator: arena)]);
+      NitroRuntime.checkError(_dylib);
       return (result as Pointer<Utf8>).toDartStringWithFree();
     });
   }
@@ -130,6 +131,7 @@ class _MyCameraImpl extends MyCamera {
   Future<List<CameraDevice>> getAvailableDevices() async {
     checkDisposed();
     final rawResult = await NitroRuntime.callAsync(_getAvailableDevicesPtr, []);
+    NitroRuntime.checkError(_dylib);
     return RecordReader.decodeList(rawResult as Pointer<Uint8>, (r) => CameraDeviceRecordExt.fromReader(r));
   }
 

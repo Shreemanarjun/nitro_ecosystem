@@ -10,6 +10,27 @@ intptr_t InitDartApiDL(void* data) {
     return Dart_InitializeApiDL(data);
 }
 }
+static thread_local NitroError g_nitro_error = { 0, nullptr, nullptr, nullptr, nullptr };
+
+extern "C" {
+NitroError* NitroGetError() { return &g_nitro_error; }
+void NitroClearError() {
+    g_nitro_error.hasError = 0;
+    if (g_nitro_error.name) { free((void*)g_nitro_error.name); g_nitro_error.name = nullptr; }
+    if (g_nitro_error.message) { free((void*)g_nitro_error.message); g_nitro_error.message = nullptr; }
+    if (g_nitro_error.code) { free((void*)g_nitro_error.code); g_nitro_error.code = nullptr; }
+    if (g_nitro_error.stackTrace) { free((void*)g_nitro_error.stackTrace); g_nitro_error.stackTrace = nullptr; }
+}
+
+static void nitro_report_error(const char* name, const char* message, const char* code, const char* stack) {
+    NitroClearError();
+    g_nitro_error.hasError = 1;
+    g_nitro_error.name = name ? strdup(name) : strdup("NativeException");
+    g_nitro_error.message = message ? strdup(message) : strdup("An unknown native exception occurred.");
+    g_nitro_error.code = code ? strdup(code) : nullptr;
+    g_nitro_error.stackTrace = stack ? strdup(stack) : nullptr;
+}
+}
 
 #ifdef __ANDROID__
 #include <jni.h>
@@ -18,6 +39,24 @@ intptr_t InitDartApiDL(void* data) {
 
 static JavaVM* g_jvm = nullptr;
 static jclass g_bridgeClass = nullptr;
+
+static void nitro_report_jni_exception(JNIEnv* env, jthrowable ex) {
+    jclass ex_class = env->GetObjectClass(ex);
+    jclass cls_class = env->FindClass("java/lang/Class");
+    jmethodID get_name = env->GetMethodID(cls_class, "getName", "()Ljava/lang/String;");
+    jstring j_name = (jstring)env->CallObjectMethod(ex_class, get_name);
+    const char* name = env->GetStringUTFChars(j_name, 0);
+
+    jmethodID get_msg = env->GetMethodID(env->FindClass("java/lang/Throwable"), "getMessage", "()Ljava/lang/String;");
+    jstring j_msg = (jstring)env->CallObjectMethod(ex, get_msg);
+    const char* msg = (j_msg != nullptr) ? env->GetStringUTFChars(j_msg, 0) : "No message provided";
+
+    nitro_report_error(name, msg, nullptr, nullptr);
+
+    env->ReleaseStringUTFChars(j_name, name);
+    if (j_msg) env->ReleaseStringUTFChars(j_msg, msg);
+    env->DeleteLocalRef(ex);
+}
 
 static SensorData pack_SensorData_from_jni(JNIEnv* env, jobject obj) {
     SensorData result;
@@ -86,7 +125,11 @@ int64_t complex_module_calculate(int64_t seed, double factor, int8_t enabled) {
     if (env == nullptr) return 0;
     jmethodID methodId = env->GetStaticMethodID(g_bridgeClass, "calculate_call", "(JDZ)J");
     if (methodId == nullptr) { LOGE("Method not found"); return 0; }
-    return env->CallStaticLongMethod(g_bridgeClass, methodId, seed, factor, enabled);
+
+    NitroClearError();
+    int64_t res = env->CallStaticLongMethod(g_bridgeClass, methodId, seed, factor, enabled);
+    if (env->ExceptionCheck()) { nitro_report_jni_exception(env, env->ExceptionOccurred()); env->ExceptionClear(); return 0; }
+    return res;
 }
 
 const char* complex_module_fetch_metadata(const char* url) {
@@ -94,8 +137,12 @@ const char* complex_module_fetch_metadata(const char* url) {
     if (env == nullptr) return "";
     jmethodID methodId = env->GetStaticMethodID(g_bridgeClass, "fetchMetadata_call", "(Ljava/lang/String;)Ljava/lang/String;");
     if (methodId == nullptr) { LOGE("Method not found"); return ""; }
+
+    NitroClearError();
     jstring j_url = env->NewStringUTF(url);
     jstring jstr = (jstring)env->CallStaticObjectMethod(g_bridgeClass, methodId, j_url);
+    if (env->ExceptionCheck()) { nitro_report_jni_exception(env, env->ExceptionOccurred()); env->ExceptionClear(); return nullptr; }
+    if (jstr == nullptr) return nullptr;
     const char* nativeStr = env->GetStringUTFChars(jstr, 0);
     char* result = strdup(nativeStr);
     env->ReleaseStringUTFChars(jstr, nativeStr);
@@ -109,16 +156,23 @@ int64_t complex_module_get_status(void) {
     if (env == nullptr) return 0;
     jmethodID methodId = env->GetStaticMethodID(g_bridgeClass, "getStatus_call", "()J");
     if (methodId == nullptr) { LOGE("Method not found"); return 0; }
-    return (int64_t)env->CallStaticLongMethod(g_bridgeClass, methodId);
+
+    NitroClearError();
+    int64_t res = env->CallStaticLongMethod(g_bridgeClass, methodId);
+    if (env->ExceptionCheck()) { nitro_report_jni_exception(env, env->ExceptionOccurred()); env->ExceptionClear(); return 0; }
+    return res;
 }
 
 void complex_module_update_sensors(void* data) {
     JNIEnv* env = GetEnv();
     if (env == nullptr) return;
     jmethodID methodId = env->GetStaticMethodID(g_bridgeClass, "updateSensors_call", "(Lnitro/complex_module/SensorData;)V");
-    if (methodId == nullptr) { LOGE("Method not found"); return; }
+    if (methodId == nullptr) { LOGE("Method not found"); return nullptr; }
+
+    NitroClearError();
     jobject jobj_data = unpack_SensorData_to_jni(env, (const SensorData*)data);
     env->CallStaticVoidMethod(g_bridgeClass, methodId, jobj_data);
+    if (env->ExceptionCheck()) { nitro_report_jni_exception(env, env->ExceptionOccurred()); env->ExceptionClear(); }
 }
 
 void* complex_module_generate_packet(int64_t type) {
@@ -126,7 +180,10 @@ void* complex_module_generate_packet(int64_t type) {
     if (env == nullptr) return nullptr;
     jmethodID methodId = env->GetStaticMethodID(g_bridgeClass, "generatePacket_call", "(J)Lnitro/complex_module/Packet;");
     if (methodId == nullptr) { LOGE("Method not found"); return nullptr; }
+
+    NitroClearError();
     jobject jobj = env->CallStaticObjectMethod(g_bridgeClass, methodId, type);
+    if (env->ExceptionCheck()) { nitro_report_jni_exception(env, env->ExceptionOccurred()); env->ExceptionClear(); return nullptr; }
     if (jobj == nullptr) return nullptr;
     Packet* result = (Packet*)malloc(sizeof(Packet));
     *result = pack_Packet_from_jni(env, jobj);
@@ -209,27 +266,56 @@ JNIEXPORT void JNICALL Java_nitro_complex_1module_ComplexModuleJniBridge_initial
 extern "C" {
 extern int64_t _call_calculate(int64_t seed, double factor, int8_t enabled);
 int64_t complex_module_calculate(int64_t seed, double factor, int8_t enabled) {
-    return _call_calculate(seed, factor, enabled);
+    NitroClearError();
+    @try {
+        return _call_calculate(seed, factor, enabled);
+    } @catch (NSException* e) {
+        nitro_report_error([e.name UTF8String], [e.reason UTF8String], nullptr, nullptr);
+        return 0;
+    }
 }
 
 extern const char* _call_fetchMetadata(const char* url);
 const char* complex_module_fetch_metadata(const char* url) {
-    return _call_fetchMetadata(url);
+    NitroClearError();
+    @try {
+        return _call_fetchMetadata(url);
+    } @catch (NSException* e) {
+        nitro_report_error([e.name UTF8String], [e.reason UTF8String], nullptr, nullptr);
+        return "";
+    }
 }
 
 extern int64_t _call_getStatus(void);
 int64_t complex_module_get_status(void) {
-    return _call_getStatus();
+    NitroClearError();
+    @try {
+        return _call_getStatus();
+    } @catch (NSException* e) {
+        nitro_report_error([e.name UTF8String], [e.reason UTF8String], nullptr, nullptr);
+        return 0;
+    }
 }
 
 extern void _call_updateSensors(void* data);
 void complex_module_update_sensors(void* data) {
-    _call_updateSensors(data);
+    NitroClearError();
+    @try {
+        _call_updateSensors(data);
+    } @catch (NSException* e) {
+        nitro_report_error([e.name UTF8String], [e.reason UTF8String], nullptr, nullptr);
+    }
 }
 
 extern void* _call_generatePacket(int64_t type);
 void* complex_module_generate_packet(int64_t type) {
-    return _call_generatePacket(type);
+    NitroClearError();
+    @try {
+        return _call_generatePacket(type);
+    } @catch (NSException* e) {
+        nitro_report_error([e.name UTF8String], [e.reason UTF8String], nullptr, nullptr);
+        return nullptr;
+    }
 }
 
 extern double _call_get_batteryLevel(void);

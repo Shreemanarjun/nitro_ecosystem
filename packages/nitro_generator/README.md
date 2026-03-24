@@ -65,7 +65,7 @@ part 'my_plugin.g.dart';  // generated output
 // ── Optional: zero-copy data struct ──────────────────────────────────────────
 @HybridStruct(zeroCopy: ['data'])
 class VideoFrame {
-  final Uint8List data;   // zero-copy — no malloc, no memcpy
+  final Float32List data; // zero-copy — no malloc, no memcpy
   final int stride;       // bytes per row (auto-detected as byte length)
   final int width;
   final int height;
@@ -255,7 +255,8 @@ The generator validates your spec before generating and will exit with helpful e
 
 | Level | Rule |
 |---|---|
-| ERROR | `@HybridStruct` field type is not `int`/`double`/`bool`/`String`/`Uint8List` |
+| ERROR | `@HybridStruct` field type is not a primitive, `String`, or `TypedData` |
+| ERROR | Naked `TypedData` (e.g. `Float32List`) returned directly from method |
 | ERROR | `@nitroAsync` method does not return `Future<T>` |
 | ERROR | `@NitroStream` getter does not return `Stream<T>` |
 | ERROR | Class does not extend `HybridObject` |

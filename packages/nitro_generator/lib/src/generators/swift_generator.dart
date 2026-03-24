@@ -425,7 +425,21 @@ class SwiftGenerator {
       case 'void':
         return 'Void';
       case 'Uint8List':
+      case 'Int8List':
         return 'Data';
+      case 'Int16List':
+      case 'Uint16List':
+        return '[Int16]';
+      case 'Int32List':
+      case 'Uint32List':
+        return '[Int32]';
+      case 'Float32List':
+        return '[Float]';
+      case 'Float64List':
+        return '[Double]';
+      case 'Int64List':
+      case 'Uint64List':
+        return '[Int64]';
       default:
         if (spec.enums.any((en) => en.name == name)) return 'Int64';
         if (spec.structs.any((st) => st.name == name)) return name;
@@ -453,6 +467,23 @@ class SwiftGenerator {
         return 'Void';
       case 'Uint8List':
         return 'UnsafeMutablePointer<UInt8>?';
+      case 'Int8List':
+        return 'UnsafeMutablePointer<Int8>?';
+      case 'Int16List':
+        return 'UnsafeMutablePointer<Int16>?';
+      case 'Uint16List':
+        return 'UnsafeMutablePointer<UInt16>?';
+      case 'Int32List':
+        return 'UnsafeMutablePointer<Int32>?';
+      case 'Uint32List':
+        return 'UnsafeMutablePointer<UInt32>?';
+      case 'Float32List':
+        return 'UnsafeMutablePointer<Float>?';
+      case 'Float64List':
+        return 'UnsafeMutablePointer<Double>?';
+      case 'Int64List':
+      case 'Uint64List':
+        return 'UnsafeMutablePointer<Int64>?';
       default:
         if (spec.enums.any((en) => en.name == name)) return 'Int64';
         if (spec.structs.any((st) => st.name == name)) {

@@ -10,10 +10,64 @@ T withArena<T>(T Function(Arena arena) action) {
 }
 
 extension NitroUint8ListExtension on Uint8List {
-  /// Allocates a native buffer and copies this list's content.
-  /// If you need true zero-copy, you should use NativePointer.
   Pointer<Uint8> toPointer(Arena arena) {
     final ptr = arena<Uint8>(length);
+    ptr.asTypedList(length).setAll(0, this);
+    return ptr;
+  }
+}
+
+extension NitroInt8ListExtension on Int8List {
+  Pointer<Int8> toPointer(Arena arena) {
+    final ptr = arena<Int8>(length);
+    ptr.asTypedList(length).setAll(0, this);
+    return ptr;
+  }
+}
+
+extension NitroInt16ListExtension on Int16List {
+  Pointer<Int16> toPointer(Arena arena) {
+    final ptr = arena<Int16>(length);
+    ptr.asTypedList(length).setAll(0, this);
+    return ptr;
+  }
+}
+
+extension NitroInt32ListExtension on Int32List {
+  Pointer<Int32> toPointer(Arena arena) {
+    final ptr = arena<Int32>(length);
+    ptr.asTypedList(length).setAll(0, this);
+    return ptr;
+  }
+}
+
+extension NitroUint16ListExtension on Uint16List {
+  Pointer<Uint16> toPointer(Arena arena) {
+    final ptr = arena<Uint16>(length);
+    ptr.asTypedList(length).setAll(0, this);
+    return ptr;
+  }
+}
+
+extension NitroUint32ListExtension on Uint32List {
+  Pointer<Uint32> toPointer(Arena arena) {
+    final ptr = arena<Uint32>(length);
+    ptr.asTypedList(length).setAll(0, this);
+    return ptr;
+  }
+}
+
+extension NitroFloat32ListExtension on Float32List {
+  Pointer<Float> toPointer(Arena arena) {
+    final ptr = arena<Float>(length);
+    ptr.asTypedList(length).setAll(0, this);
+    return ptr;
+  }
+}
+
+extension NitroFloat64ListExtension on Float64List {
+  Pointer<Double> toPointer(Arena arena) {
+    final ptr = arena<Double>(length);
     ptr.asTypedList(length).setAll(0, this);
     return ptr;
   }

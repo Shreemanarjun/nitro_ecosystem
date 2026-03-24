@@ -10,6 +10,27 @@ intptr_t InitDartApiDL(void* data) {
     return Dart_InitializeApiDL(data);
 }
 }
+static thread_local NitroError g_nitro_error = { 0, nullptr, nullptr, nullptr, nullptr };
+
+extern "C" {
+NitroError* NitroGetError() { return &g_nitro_error; }
+void NitroClearError() {
+    g_nitro_error.hasError = 0;
+    if (g_nitro_error.name) { free((void*)g_nitro_error.name); g_nitro_error.name = nullptr; }
+    if (g_nitro_error.message) { free((void*)g_nitro_error.message); g_nitro_error.message = nullptr; }
+    if (g_nitro_error.code) { free((void*)g_nitro_error.code); g_nitro_error.code = nullptr; }
+    if (g_nitro_error.stackTrace) { free((void*)g_nitro_error.stackTrace); g_nitro_error.stackTrace = nullptr; }
+}
+
+static void nitro_report_error(const char* name, const char* message, const char* code, const char* stack) {
+    NitroClearError();
+    g_nitro_error.hasError = 1;
+    g_nitro_error.name = name ? strdup(name) : strdup("NativeException");
+    g_nitro_error.message = message ? strdup(message) : strdup("An unknown native exception occurred.");
+    g_nitro_error.code = code ? strdup(code) : nullptr;
+    g_nitro_error.stackTrace = stack ? strdup(stack) : nullptr;
+}
+}
 
 #ifdef __ANDROID__
 #include <jni.h>
@@ -18,6 +39,24 @@ intptr_t InitDartApiDL(void* data) {
 
 static JavaVM* g_jvm = nullptr;
 static jclass g_bridgeClass = nullptr;
+
+static void nitro_report_jni_exception(JNIEnv* env, jthrowable ex) {
+    jclass ex_class = env->GetObjectClass(ex);
+    jclass cls_class = env->FindClass("java/lang/Class");
+    jmethodID get_name = env->GetMethodID(cls_class, "getName", "()Ljava/lang/String;");
+    jstring j_name = (jstring)env->CallObjectMethod(ex_class, get_name);
+    const char* name = env->GetStringUTFChars(j_name, 0);
+
+    jmethodID get_msg = env->GetMethodID(env->FindClass("java/lang/Throwable"), "getMessage", "()Ljava/lang/String;");
+    jstring j_msg = (jstring)env->CallObjectMethod(ex, get_msg);
+    const char* msg = (j_msg != nullptr) ? env->GetStringUTFChars(j_msg, 0) : "No message provided";
+
+    nitro_report_error(name, msg, nullptr, nullptr);
+
+    env->ReleaseStringUTFChars(j_name, name);
+    if (j_msg) env->ReleaseStringUTFChars(j_msg, msg);
+    env->DeleteLocalRef(ex);
+}
 
 static CameraFrame pack_CameraFrame_from_jni(JNIEnv* env, jobject obj) {
     CameraFrame result;
@@ -74,7 +113,11 @@ double my_camera_add(double a, double b) {
     if (env == nullptr) return 0.0;
     jmethodID methodId = env->GetStaticMethodID(g_bridgeClass, "add_call", "(DD)D");
     if (methodId == nullptr) { LOGE("Method not found"); return 0.0; }
-    return env->CallStaticDoubleMethod(g_bridgeClass, methodId, a, b);
+
+    NitroClearError();
+    double res = env->CallStaticDoubleMethod(g_bridgeClass, methodId, a, b);
+    if (env->ExceptionCheck()) { nitro_report_jni_exception(env, env->ExceptionOccurred()); env->ExceptionClear(); return 0.0; }
+    return res;
 }
 
 const char* my_camera_get_greeting(const char* name) {
@@ -82,8 +125,12 @@ const char* my_camera_get_greeting(const char* name) {
     if (env == nullptr) return "";
     jmethodID methodId = env->GetStaticMethodID(g_bridgeClass, "getGreeting_call", "(Ljava/lang/String;)Ljava/lang/String;");
     if (methodId == nullptr) { LOGE("Method not found"); return ""; }
+
+    NitroClearError();
     jstring j_name = env->NewStringUTF(name);
     jstring jstr = (jstring)env->CallStaticObjectMethod(g_bridgeClass, methodId, j_name);
+    if (env->ExceptionCheck()) { nitro_report_jni_exception(env, env->ExceptionOccurred()); env->ExceptionClear(); return nullptr; }
+    if (jstr == nullptr) return nullptr;
     const char* nativeStr = env->GetStringUTFChars(jstr, 0);
     char* result = strdup(nativeStr);
     env->ReleaseStringUTFChars(jstr, nativeStr);
@@ -97,6 +144,8 @@ void* my_camera_get_available_devices(void) {
     if (env == nullptr) return nullptr;
     jmethodID methodId = env->GetStaticMethodID(g_bridgeClass, "getAvailableDevices_call", "()Ljava/lang/Object;");
     if (methodId == nullptr) { LOGE("Method not found"); return nullptr; }
+
+    NitroClearError();
     return nullptr;
 }
 
@@ -157,17 +206,35 @@ JNIEXPORT void JNICALL Java_nitro_my_1camera_1module_MyCameraJniBridge_initializ
 extern "C" {
 extern double _call_add(double a, double b);
 double my_camera_add(double a, double b) {
-    return _call_add(a, b);
+    NitroClearError();
+    @try {
+        return _call_add(a, b);
+    } @catch (NSException* e) {
+        nitro_report_error([e.name UTF8String], [e.reason UTF8String], nullptr, nullptr);
+        return 0.0;
+    }
 }
 
 extern const char* _call_getGreeting(const char* name);
 const char* my_camera_get_greeting(const char* name) {
-    return _call_getGreeting(name);
+    NitroClearError();
+    @try {
+        return _call_getGreeting(name);
+    } @catch (NSException* e) {
+        nitro_report_error([e.name UTF8String], [e.reason UTF8String], nullptr, nullptr);
+        return "";
+    }
 }
 
 extern void* _call_getAvailableDevices(void);
 void* my_camera_get_available_devices(void) {
-    return _call_getAvailableDevices();
+    NitroClearError();
+    @try {
+        return _call_getAvailableDevices();
+    } @catch (NSException* e) {
+        nitro_report_error([e.name UTF8String], [e.reason UTF8String], nullptr, nullptr);
+        return nullptr;
+    }
 }
 
 void _emit_frames_to_dart(int64_t dartPort, void* item) {

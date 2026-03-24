@@ -129,6 +129,9 @@ class SpecExtractor {
 
   static const _primitiveNames = {
     'int', 'double', 'bool', 'String',
+    'Uint8List', 'Int8List', 'Int16List', 'Int32List',
+    'Uint16List', 'Uint32List', 'Float32List', 'Float64List',
+    'Int64List', 'Uint64List',
   };
 
   /// Converts a [DartType] to a [BridgeType], marking JSON-bridged types:

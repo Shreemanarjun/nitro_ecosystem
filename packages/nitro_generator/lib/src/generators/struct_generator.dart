@@ -40,7 +40,7 @@ class StructGenerator {
       s.writeln('    return ${st.name}(');
       for (final f in st.fields) {
         String value;
-        if (f.type.name == 'Uint8List' && f.zeroCopy) {
+        if (f.type.isTypedData && f.zeroCopy) {
           final lenField = st.fields
               .where(
                 (sf) =>
@@ -67,7 +67,7 @@ class StructGenerator {
       s.writeln('  Pointer<${st.name}Ffi> toNative(Arena arena) {');
       s.writeln('    final ptr = arena<${st.name}Ffi>();');
       for (final f in st.fields) {
-        if (f.type.name == 'Uint8List' && f.zeroCopy) {
+        if (f.type.isTypedData && f.zeroCopy) {
           s.writeln('    ptr.ref.${f.name} = ${f.name}.toPointer(arena);');
         } else if (f.type.name == 'bool') {
           s.writeln('    ptr.ref.${f.name} = ${f.name} ? 1 : 0;');
@@ -154,6 +154,24 @@ class StructGenerator {
         return 'const char*';
       case 'Uint8List':
         return 'uint8_t*';
+      case 'Int8List':
+        return 'int8_t*';
+      case 'Int16List':
+        return 'int16_t*';
+      case 'Int32List':
+        return 'int32_t*';
+      case 'Uint16List':
+        return 'uint16_t*';
+      case 'Uint32List':
+        return 'uint32_t*';
+      case 'Float32List':
+        return 'float*';
+      case 'Float64List':
+        return 'double*';
+      case 'Int64List':
+        return 'int64_t*';
+      case 'Uint64List':
+        return 'uint64_t*';
       default:
         return 'void*';
     }
@@ -171,6 +189,24 @@ class StructGenerator {
         return 'String';
       case 'Uint8List':
         return isZeroCopy ? 'java.nio.ByteBuffer' : 'ByteArray';
+      case 'Int8List':
+        return isZeroCopy ? 'java.nio.ByteBuffer' : 'ByteArray';
+      case 'Int16List':
+        return isZeroCopy ? 'java.nio.ByteBuffer' : 'ShortArray';
+      case 'Int32List':
+        return isZeroCopy ? 'java.nio.ByteBuffer' : 'IntArray';
+      case 'Uint16List':
+        return isZeroCopy ? 'java.nio.ByteBuffer' : 'ShortArray';
+      case 'Uint32List':
+        return isZeroCopy ? 'java.nio.ByteBuffer' : 'IntArray';
+      case 'Float32List':
+        return isZeroCopy ? 'java.nio.ByteBuffer' : 'FloatArray';
+      case 'Float64List':
+        return isZeroCopy ? 'java.nio.ByteBuffer' : 'DoubleArray';
+      case 'Int64List':
+        return isZeroCopy ? 'java.nio.ByteBuffer' : 'LongArray';
+      case 'Uint64List':
+        return isZeroCopy ? 'java.nio.ByteBuffer' : 'LongArray';
       default:
         return 'Any?';
     }
@@ -188,6 +224,24 @@ class StructGenerator {
         return 'String';
       case 'Uint8List':
         return isZeroCopy ? 'UnsafeMutablePointer<UInt8>?' : 'Data';
+      case 'Int8List':
+        return isZeroCopy ? 'UnsafeMutablePointer<Int8>?' : 'Data';
+      case 'Int16List':
+        return isZeroCopy ? 'UnsafeMutablePointer<Int16>?' : 'Data';
+      case 'Int32List':
+        return isZeroCopy ? 'UnsafeMutablePointer<Int32>?' : 'Data';
+      case 'Uint16List':
+        return isZeroCopy ? 'UnsafeMutablePointer<UInt16>?' : 'Data';
+      case 'Uint32List':
+        return isZeroCopy ? 'UnsafeMutablePointer<UInt32>?' : 'Data';
+      case 'Float32List':
+        return isZeroCopy ? 'UnsafeMutablePointer<Float>?' : 'Data';
+      case 'Float64List':
+        return isZeroCopy ? 'UnsafeMutablePointer<Double>?' : 'Data';
+      case 'Int64List':
+        return isZeroCopy ? 'UnsafeMutablePointer<Int64>?' : 'Data';
+      case 'Uint64List':
+        return isZeroCopy ? 'UnsafeMutablePointer<UInt64>?' : 'Data';
       default:
         return 'Any?';
     }
@@ -207,6 +261,24 @@ class StructGenerator {
         return 'Pointer<Utf8>';
       case 'Uint8List':
         return 'Pointer<Uint8>';
+      case 'Int8List':
+        return 'Pointer<Int8>';
+      case 'Int16List':
+        return 'Pointer<Int16>';
+      case 'Int32List':
+        return 'Pointer<Int32>';
+      case 'Uint16List':
+        return 'Pointer<Uint16>';
+      case 'Uint32List':
+        return 'Pointer<Uint32>';
+      case 'Float32List':
+        return 'Pointer<Float>';
+      case 'Float64List':
+        return 'Pointer<Double>';
+      case 'Int64List':
+        return 'Pointer<Int64>';
+      case 'Uint64List':
+        return 'Pointer<Uint64>';
       default:
         return 'Pointer<Void>';
     }

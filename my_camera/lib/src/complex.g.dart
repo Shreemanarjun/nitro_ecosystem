@@ -99,7 +99,7 @@ class _ComplexModuleImpl extends ComplexModule {
   @override
   int calculate(int seed, double factor, bool enabled) {
     checkDisposed();
-    return _calculatePtr(seed, factor, enabled ? 1 : 0);
+    return () { final res = _calculatePtr(seed, factor, enabled ? 1 : 0); NitroRuntime.checkError(_dylib); return res; }();
   }
 
   @override
@@ -107,6 +107,7 @@ class _ComplexModuleImpl extends ComplexModule {
     checkDisposed();
     return withArena((arena) async {
       final result = await NitroRuntime.callAsync(_fetchMetadataPtr, [url.toNativeUtf8(allocator: arena)]);
+      NitroRuntime.checkError(_dylib);
       return (result as Pointer<Utf8>).toDartStringWithFree();
     });
   }
@@ -114,27 +115,33 @@ class _ComplexModuleImpl extends ComplexModule {
   @override
   DeviceStatus getStatus() {
     checkDisposed();
-    return (_getStatusPtr()).toDeviceStatus();
+    return (() { final res = _getStatusPtr(); NitroRuntime.checkError(_dylib); return res; }()).toDeviceStatus();
   }
 
   @override
   void updateSensors(SensorData data) {
     checkDisposed();
-    return withArena((arena) => _updateSensorsPtr(data.toNative(arena).cast<Void>()));
+    return withArena((arena) { final res = _updateSensorsPtr(data.toNative(arena).cast<Void>()); NitroRuntime.checkError(_dylib); return res; });
   }
 
   @override
   Future<Packet> generatePacket(int type) async {
     checkDisposed();
     final asyncResult = await NitroRuntime.callAsync(_generatePacketPtr, [type]);
+    NitroRuntime.checkError(_dylib);
     return Pointer<PacketFfi>.fromAddress((asyncResult as Pointer<Void>).address).ref.toDart();
   }
 
   @override
-  double get batteryLevel { checkDisposed(); return _getBatteryLevelPtr(); }
+  double get batteryLevel {
+    checkDisposed();
+    final res = _getBatteryLevelPtr();
+    NitroRuntime.checkError(_dylib);
+    return res;
+  }
 
   @override
-  set config(String value) { checkDisposed(); withArena((arena) => _setConfigPtr(value.toNativeUtf8(allocator: arena))); }
+  set config(String value) { checkDisposed(); withArena((arena) { _setConfigPtr(value.toNativeUtf8(allocator: arena)); NitroRuntime.checkError(_dylib); }); }
 
   @override
   Stream<SensorData> get sensorStream {

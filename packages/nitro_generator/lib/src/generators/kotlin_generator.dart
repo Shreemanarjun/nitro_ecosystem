@@ -201,7 +201,21 @@ class KotlinGenerator {
       case 'void':
         return 'Unit';
       case 'Uint8List':
+      case 'Int8List':
         return 'ByteArray';
+      case 'Int16List':
+      case 'Uint16List':
+        return 'ShortArray';
+      case 'Int32List':
+      case 'Uint32List':
+        return 'IntArray';
+      case 'Float32List':
+        return 'FloatArray';
+      case 'Float64List':
+        return 'DoubleArray';
+      case 'Int64List':
+      case 'Uint64List':
+        return 'LongArray';
     }
     if (spec.enums.any((en) => en.name == name)) return name;
     if (spec.structs.any((st) => st.name == name)) return name;

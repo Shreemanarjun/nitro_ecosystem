@@ -2,6 +2,15 @@
 
 #include <stdint.h>
 #include <stdbool.h>
+#include <stdlib.h>
+
+typedef struct {
+  int8_t hasError;
+  const char* name;
+  const char* message;
+  const char* code;
+  const char* stackTrace;
+} NitroError;
 
 // --- Structs ---
 typedef struct {
@@ -12,9 +21,12 @@ typedef struct {
   int64_t timestampNs; 
 } CameraFrame;
 
-#ifdef __cplusplus
 extern "C" {
 #endif
+
+NitroError* NitroGetError(void);
+void NitroClearError(void);
+
 
 // Methods
 double my_camera_add(double a, double b);

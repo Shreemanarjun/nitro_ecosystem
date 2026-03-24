@@ -18,6 +18,29 @@ class CppBridgeGenerator {
     s.writeln('    return Dart_InitializeApiDL(data);');
     s.writeln('}');
     s.writeln('}');
+
+    s.writeln('static thread_local NitroError g_nitro_error = { 0, nullptr, nullptr, nullptr, nullptr };');
+    s.writeln();
+
+    s.writeln('extern "C" {');
+    s.writeln('NitroError* NitroGetError() { return &g_nitro_error; }');
+    s.writeln('void NitroClearError() {');
+    s.writeln('    g_nitro_error.hasError = 0;');
+    s.writeln('    if (g_nitro_error.name) { free((void*)g_nitro_error.name); g_nitro_error.name = nullptr; }');
+    s.writeln('    if (g_nitro_error.message) { free((void*)g_nitro_error.message); g_nitro_error.message = nullptr; }');
+    s.writeln('    if (g_nitro_error.code) { free((void*)g_nitro_error.code); g_nitro_error.code = nullptr; }');
+    s.writeln('    if (g_nitro_error.stackTrace) { free((void*)g_nitro_error.stackTrace); g_nitro_error.stackTrace = nullptr; }');
+    s.writeln('}');
+    s.writeln();
+    s.writeln('static void nitro_report_error(const char* name, const char* message, const char* code, const char* stack) {');
+    s.writeln('    NitroClearError();');
+    s.writeln('    g_nitro_error.hasError = 1;');
+    s.writeln('    g_nitro_error.name = name ? strdup(name) : strdup("NativeException");');
+    s.writeln('    g_nitro_error.message = message ? strdup(message) : strdup("An unknown native exception occurred.");');
+    s.writeln('    g_nitro_error.code = code ? strdup(code) : nullptr;');
+    s.writeln('    g_nitro_error.stackTrace = stack ? strdup(stack) : nullptr;');
+    s.writeln('}');
+    s.writeln('}');
     s.writeln('');
 
     // Preprocessor branch for Android JNI vs iOS Swift
@@ -30,6 +53,24 @@ class CppBridgeGenerator {
     s.writeln();
     s.writeln('static JavaVM* g_jvm = nullptr;');
     s.writeln('static jclass g_bridgeClass = nullptr;');
+    s.writeln();
+    s.writeln('static void nitro_report_jni_exception(JNIEnv* env, jthrowable ex) {');
+    s.writeln('    jclass ex_class = env->GetObjectClass(ex);');
+    s.writeln('    jclass cls_class = env->FindClass("java/lang/Class");');
+    s.writeln('    jmethodID get_name = env->GetMethodID(cls_class, "getName", "()Ljava/lang/String;");');
+    s.writeln('    jstring j_name = (jstring)env->CallObjectMethod(ex_class, get_name);');
+    s.writeln('    const char* name = env->GetStringUTFChars(j_name, 0);');
+    s.writeln();
+    s.writeln('    jmethodID get_msg = env->GetMethodID(env->FindClass("java/lang/Throwable"), "getMessage", "()Ljava/lang/String;");');
+    s.writeln('    jstring j_msg = (jstring)env->CallObjectMethod(ex, get_msg);');
+    s.writeln('    const char* msg = (j_msg != nullptr) ? env->GetStringUTFChars(j_msg, 0) : "No message provided";');
+    s.writeln();
+    s.writeln('    nitro_report_error(name, msg, nullptr, nullptr);');
+    s.writeln();
+    s.writeln('    env->ReleaseStringUTFChars(j_name, name);');
+    s.writeln('    if (j_msg) env->ReleaseStringUTFChars(j_msg, msg);');
+    s.writeln('    env->DeleteLocalRef(ex);');
+    s.writeln('}');
     s.writeln();
 
     // JNI struct unpack helpers (C struct → Java object)
@@ -167,15 +208,9 @@ class CppBridgeGenerator {
       s.writeln(
         '    jmethodID methodId = env->GetStaticMethodID(g_bridgeClass, "${func.dartName}_call", "$jniSig");',
       );
-      if (func.returnType.name == 'void') {
-        s.writeln(
-          '    if (methodId == nullptr) { LOGE("Method not found"); return; }',
-        );
-      } else {
-        s.writeln(
-          '    if (methodId == nullptr) { LOGE("Method not found"); return ${_defaultValue(cReturnType)}; }',
-        );
-      }
+      s.writeln('    if (methodId == nullptr) { LOGE("Method not found"); return ${_defaultValue(cReturnType)}; }');
+      s.writeln();
+      s.writeln('    NitroClearError();');
 
       // Build call args (converting C types to JNI types)
       final callArgsList = <String>[];
@@ -203,20 +238,28 @@ class CppBridgeGenerator {
         );
       } else if (func.returnType.name == 'double') {
         s.writeln(
-          '    return env->CallStaticDoubleMethod(g_bridgeClass, methodId$bridgeArgs);',
+          '    double res = env->CallStaticDoubleMethod(g_bridgeClass, methodId$bridgeArgs);',
         );
+        s.writeln('    if (env->ExceptionCheck()) { nitro_report_jni_exception(env, env->ExceptionOccurred()); env->ExceptionClear(); return 0.0; }');
+        s.writeln('    return res;');
       } else if (func.returnType.name == 'int') {
         s.writeln(
-          '    return env->CallStaticLongMethod(g_bridgeClass, methodId$bridgeArgs);',
+          '    int64_t res = env->CallStaticLongMethod(g_bridgeClass, methodId$bridgeArgs);',
         );
+        s.writeln('    if (env->ExceptionCheck()) { nitro_report_jni_exception(env, env->ExceptionOccurred()); env->ExceptionClear(); return 0; }');
+        s.writeln('    return res;');
       } else if (func.returnType.name == 'bool') {
         s.writeln(
-          '    return env->CallStaticBooleanMethod(g_bridgeClass, methodId$bridgeArgs);',
+          '    bool res = env->CallStaticBooleanMethod(g_bridgeClass, methodId$bridgeArgs);',
         );
+        s.writeln('    if (env->ExceptionCheck()) { nitro_report_jni_exception(env, env->ExceptionOccurred()); env->ExceptionClear(); return false; }');
+        s.writeln('    return res;');
       } else if (func.returnType.name == 'String') {
         s.writeln(
           '    jstring jstr = (jstring)env->CallStaticObjectMethod(g_bridgeClass, methodId$bridgeArgs);',
         );
+        s.writeln('    if (env->ExceptionCheck()) { nitro_report_jni_exception(env, env->ExceptionOccurred()); env->ExceptionClear(); return nullptr; }');
+        s.writeln('    if (jstr == nullptr) return nullptr;');
         s.writeln(
           '    const char* nativeStr = env->GetStringUTFChars(jstr, 0);',
         );
@@ -232,14 +275,17 @@ class CppBridgeGenerator {
       } else if (isEnum) {
         // Bridge returns Long (nativeValue)
         s.writeln(
-          '    return (int64_t)env->CallStaticLongMethod(g_bridgeClass, methodId$bridgeArgs);',
+          '    int64_t res = env->CallStaticLongMethod(g_bridgeClass, methodId$bridgeArgs);',
         );
+        s.writeln('    if (env->ExceptionCheck()) { nitro_report_jni_exception(env, env->ExceptionOccurred()); env->ExceptionClear(); return 0; }');
+        s.writeln('    return res;');
       } else if (isStruct) {
         // Bridge returns the Kotlin data class; pack it to C struct via malloc
         final stName = func.returnType.name;
         s.writeln(
           '    jobject jobj = env->CallStaticObjectMethod(g_bridgeClass, methodId$bridgeArgs);',
         );
+        s.writeln('    if (env->ExceptionCheck()) { nitro_report_jni_exception(env, env->ExceptionOccurred()); env->ExceptionClear(); return nullptr; }');
         s.writeln('    if (jobj == nullptr) return nullptr;');
         s.writeln('    $stName* result = ($stName*)malloc(sizeof($stName));');
         s.writeln('    *result = pack_${stName}_from_jni(env, jobj);');
@@ -247,6 +293,9 @@ class CppBridgeGenerator {
         s.writeln('    return result;');
       } else {
         s.writeln('    return ${_defaultValue(cReturnType)};');
+      }
+      if (func.returnType.name == 'void') {
+        s.writeln('    if (env->ExceptionCheck()) { nitro_report_jni_exception(env, env->ExceptionOccurred()); env->ExceptionClear(); }');
       }
       s.writeln('}');
       s.writeln('');
@@ -422,11 +471,19 @@ class CppBridgeGenerator {
       s.writeln(
         '$cReturnType ${func.cSymbol}(${params.isEmpty ? 'void' : params}) {',
       );
+      s.writeln('    NitroClearError();');
+      s.writeln('    @try {');
       if (func.returnType.name != 'void') {
-        s.writeln('    return _call_${func.dartName}($callParams);');
+        s.writeln('        return _call_${func.dartName}($callParams);');
       } else {
-        s.writeln('    _call_${func.dartName}($callParams);');
+        s.writeln('        _call_${func.dartName}($callParams);');
       }
+      s.writeln('    } @catch (NSException* e) {');
+      s.writeln('        nitro_report_error([e.name UTF8String], [e.reason UTF8String], nullptr, nullptr);');
+      if (func.returnType.name != 'void') {
+        s.writeln('        return ${_defaultValue(cReturnType)};');
+      }
+      s.writeln('    }');
       s.writeln('}');
       s.writeln('');
     }
@@ -511,12 +568,30 @@ class CppBridgeGenerator {
         return 'const char*';
       case 'Uint8List':
         return 'uint8_t*';
+      case 'Int8List':
+        return 'int8_t*';
+      case 'Int16List':
+        return 'int16_t*';
+      case 'Int32List':
+        return 'int32_t*';
+      case 'Uint16List':
+        return 'uint16_t*';
+      case 'Uint32List':
+        return 'uint32_t*';
+      case 'Float32List':
+        return 'float*';
+      case 'Float64List':
+        return 'double*';
+      case 'Int64List':
+        return 'int64_t*';
+      case 'Uint64List':
+        return 'uint64_t*';
       case 'void':
         return 'void';
       default:
         return 'void*';
     }
-  }
+}
 
   /// Like _typeToC but for function parameters (struct params pass as void*)
   static String _paramTypeToC(String dartType, BridgeSpec spec) {

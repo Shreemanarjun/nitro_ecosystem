@@ -2,6 +2,12 @@
 import Foundation
 import Combine
 
+// --- Structs ---
+public struct FloatBuffer {
+  public var data: UnsafeMutablePointer<Float>?
+  public var length: Int64
+}
+
 /**
  * Protocol for the VerificationModule module.
  * Conform to this in your Swift source code.
@@ -10,6 +16,8 @@ public protocol HybridVerificationModuleProtocol: AnyObject {
     func multiply(a: Double, b: Double) -> Double
     func ping(message: String) -> String
     func pingAsync(message: String) async throws -> String
+    func throwError(message: String) -> Void
+    func processFloats(inputs: Any?) -> FloatBuffer
 }
 
 public class VerificationModuleRegistry {
@@ -45,5 +53,19 @@ public func _call_pingAsync(_ message: UnsafePointer<CChar>?) -> UnsafeMutablePo
     }
     sema.wait()
     return strdup(result)
+}
+
+@_cdecl("_call_throwError")
+public func _call_throwError(_ message: UnsafePointer<CChar>?) -> Void {
+    let messageStr = message.map { String(cString: $0) } ?? ""
+    VerificationModuleRegistry.impl?.throwError(message: messageStr)
+}
+
+@_cdecl("_call_processFloats")
+public func _call_processFloats(_ inputs: Any?) -> UnsafeMutableRawPointer? {
+    guard let result = VerificationModuleRegistry.impl?.processFloats(inputs: inputs) else { return nil }
+    let ptr = UnsafeMutablePointer<FloatBuffer>.allocate(capacity: 1)
+    ptr.initialize(to: result)
+    return UnsafeMutableRawPointer(ptr)
 }
 
