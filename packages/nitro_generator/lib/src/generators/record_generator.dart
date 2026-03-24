@@ -268,11 +268,16 @@ class RecordGenerator {
   static String _kotlinBase(String dartType) {
     final base = dartType.replaceFirst('?', '');
     switch (base) {
-      case 'int': return 'Long';
-      case 'double': return 'Double';
-      case 'bool': return 'Boolean';
-      case 'String': return 'String';
-      default: return 'Long';
+      case 'int':
+        return 'Long';
+      case 'double':
+        return 'Double';
+      case 'bool':
+        return 'Boolean';
+      case 'String':
+        return 'String';
+      default:
+        return 'Long';
     }
   }
 
@@ -301,12 +306,16 @@ class RecordGenerator {
 
   static String _kotlinPrimRead(String base) {
     switch (base) {
-      case 'int': return 'buf.long';
-      case 'double': return 'buf.double';
-      case 'bool': return '(buf.get().toInt() != 0)';
+      case 'int':
+        return 'buf.long';
+      case 'double':
+        return 'buf.double';
+      case 'bool':
+        return '(buf.get().toInt() != 0)';
       case 'String':
         return '{ val len = buf.int; val b = ByteArray(len); buf.get(b); b.toString(Charsets.UTF_8) }()';
-      default: return 'buf.long';
+      default:
+        return 'buf.long';
     }
   }
 
@@ -343,11 +352,16 @@ class RecordGenerator {
 
   static String _kotlinWriteCall(String base, String expr) {
     switch (base) {
-      case 'int': return 'writeInt($expr.toLong())';
-      case 'double': return 'writeDouble($expr)';
-      case 'bool': return 'writeBool($expr)';
-      case 'String': return 'writeString($expr)';
-      default: return 'writeInt($expr.toLong())';
+      case 'int':
+        return 'writeInt($expr.toLong())';
+      case 'double':
+        return 'writeDouble($expr)';
+      case 'bool':
+        return 'writeBool($expr)';
+      case 'String':
+        return 'writeString($expr)';
+      default:
+        return 'writeInt($expr.toLong())';
     }
   }
 
@@ -367,7 +381,7 @@ class RecordGenerator {
         s.writeln('  public var ${f.name}: ${_swiftType(f)}$opt');
       }
       s.writeln();
-      
+
       final params = rt.fields.map((f) => '${f.name}: ${_swiftType(f)}${f.isNullable ? '?' : ''}').join(', ');
       s.writeln('  public init($params) {');
       for (final f in rt.fields) {
@@ -426,21 +440,31 @@ class RecordGenerator {
   static String _swiftBase(String dartType) {
     final base = dartType.replaceFirst('?', '');
     switch (base) {
-      case 'int': return 'Int64';
-      case 'double': return 'Double';
-      case 'bool': return 'Bool';
-      case 'String': return 'String';
-      default: return 'Int64';
+      case 'int':
+        return 'Int64';
+      case 'double':
+        return 'Double';
+      case 'bool':
+        return 'Bool';
+      case 'String':
+        return 'String';
+      default:
+        return 'Int64';
     }
   }
 
   static String _swiftReadCall(String base) {
     switch (base) {
-      case 'int': return 'r.readInt()';
-      case 'double': return 'r.readDouble()';
-      case 'bool': return 'r.readBool()';
-      case 'String': return 'r.readString()';
-      default: return 'r.readInt()';
+      case 'int':
+        return 'r.readInt()';
+      case 'double':
+        return 'r.readDouble()';
+      case 'bool':
+        return 'r.readBool()';
+      case 'String':
+        return 'r.readString()';
+      default:
+        return 'r.readInt()';
     }
   }
 
@@ -496,11 +520,16 @@ class RecordGenerator {
 
   static String _swiftWriterCall(String base, String expr) {
     switch (base) {
-      case 'int': return 'writeInt($expr)';
-      case 'double': return 'writeDouble($expr)';
-      case 'bool': return 'writeBool($expr)';
-      case 'String': return 'writeString($expr)';
-      default: return 'writeInt($expr)';
+      case 'int':
+        return 'writeInt($expr)';
+      case 'double':
+        return 'writeDouble($expr)';
+      case 'bool':
+        return 'writeBool($expr)';
+      case 'String':
+        return 'writeString($expr)';
+      default:
+        return 'writeInt($expr)';
     }
   }
 
@@ -600,5 +629,4 @@ public class NitroRecordReader {
     }
 }
 ''';
-
 }

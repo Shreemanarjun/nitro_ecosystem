@@ -84,8 +84,7 @@ class SpecValidator {
           ValidationIssue(
             severity: ValidationSeverity.error,
             code: 'DUPLICATE_SYMBOL',
-            message:
-                '${spec.dartClassName}: duplicate C symbol "${func.cSymbol}".',
+            message: '${spec.dartClassName}: duplicate C symbol "${func.cSymbol}".',
             hint: 'Two functions map to the same C symbol. Rename one of them.',
           ),
         );
@@ -101,8 +100,7 @@ class SpecValidator {
           ValidationIssue(
             severity: ValidationSeverity.error,
             code: 'UNKNOWN_RETURN_TYPE',
-            message:
-                '${spec.dartClassName}.${func.dartName}() — unknown return type "$retName".',
+            message: '${spec.dartClassName}.${func.dartName}() — unknown return type "$retName".',
             hint:
                 'If "$retName" is a struct, annotate it with @HybridStruct. '
                 'If it is an enum, annotate it with @HybridEnum. '
@@ -117,10 +115,8 @@ class SpecValidator {
           ValidationIssue(
             severity: ValidationSeverity.error,
             code: 'INVALID_RETURN_TYPE',
-            message:
-                '${spec.dartClassName}.${func.dartName}() — naked TypedData return type "${func.returnType.name}" is not supported.',
-            hint:
-                'Wrap TypedData in a @HybridStruct with a sibling length field and mark it as @ZeroCopy.',
+            message: '${spec.dartClassName}.${func.dartName}() — naked TypedData return type "${func.returnType.name}" is not supported.',
+            hint: 'Wrap TypedData in a @HybridStruct with a sibling length field and mark it as @ZeroCopy.',
           ),
         );
       }
@@ -131,10 +127,8 @@ class SpecValidator {
           ValidationIssue(
             severity: ValidationSeverity.warning,
             code: 'SYNC_STRUCT_RETURN',
-            message:
-                '${spec.dartClassName}.${func.dartName}() returns struct "$retName" synchronously.',
-            hint:
-                'Add @nitroAsync to dispatch on a background isolate and avoid blocking the UI thread.',
+            message: '${spec.dartClassName}.${func.dartName}() returns struct "$retName" synchronously.',
+            hint: 'Add @nitroAsync to dispatch on a background isolate and avoid blocking the UI thread.',
           ),
         );
       }
@@ -145,10 +139,8 @@ class SpecValidator {
           ValidationIssue(
             severity: ValidationSeverity.warning,
             code: 'SYNC_RECORD_RETURN',
-            message:
-                '${spec.dartClassName}.${func.dartName}() returns a @HybridRecord type synchronously.',
-            hint:
-                'Add @nitroAsync to dispatch on a background isolate; JSON serialization blocks the calling thread.',
+            message: '${spec.dartClassName}.${func.dartName}() returns a @HybridRecord type synchronously.',
+            hint: 'Add @nitroAsync to dispatch on a background isolate; JSON serialization blocks the calling thread.',
           ),
         );
       }
@@ -163,8 +155,7 @@ class SpecValidator {
             ValidationIssue(
               severity: ValidationSeverity.error,
               code: 'UNKNOWN_PARAM_TYPE',
-              message:
-                  '${spec.dartClassName}.${func.dartName}() — parameter "${param.name}" has unknown type "$pName".',
+              message: '${spec.dartClassName}.${func.dartName}() — parameter "${param.name}" has unknown type "$pName".',
               hint:
                   'If "$pName" is a struct, annotate it with @HybridStruct. '
                   'If it is an enum, annotate it with @HybridEnum. '
@@ -178,15 +169,12 @@ class SpecValidator {
     // ── Properties ─────────────────────────────────────────────────────────
     for (final prop in spec.properties) {
       final pName = prop.type.name.replaceFirst('?', '');
-      if (!prop.type.isRecord &&
-          !knownTypes.contains(pName) &&
-          !knownTypes.contains(prop.type.name)) {
+      if (!prop.type.isRecord && !knownTypes.contains(pName) && !knownTypes.contains(prop.type.name)) {
         issues.add(
           ValidationIssue(
             severity: ValidationSeverity.error,
             code: 'UNKNOWN_PROPERTY_TYPE',
-            message:
-                '${spec.dartClassName}.${prop.dartName} — unknown property type "$pName".',
+            message: '${spec.dartClassName}.${prop.dartName} — unknown property type "$pName".',
             hint:
                 'If "$pName" is a struct, annotate it with @HybridStruct. '
                 'If it is an enum, annotate it with @HybridEnum. '
@@ -200,10 +188,8 @@ class SpecValidator {
           ValidationIssue(
             severity: ValidationSeverity.error,
             code: 'INVALID_PROPERTY_TYPE',
-            message:
-                '${spec.dartClassName}.${prop.dartName} — naked TypedData property type "${prop.type.name}" is not supported.',
-            hint:
-                'Wrap TypedData in a @HybridStruct with a sibling length field and mark it as @ZeroCopy.',
+            message: '${spec.dartClassName}.${prop.dartName} — naked TypedData property type "${prop.type.name}" is not supported.',
+            hint: 'Wrap TypedData in a @HybridStruct with a sibling length field and mark it as @ZeroCopy.',
           ),
         );
       }
@@ -212,15 +198,12 @@ class SpecValidator {
     // ── Streams ────────────────────────────────────────────────────────────
     for (final stream in spec.streams) {
       final iName = stream.itemType.name.replaceFirst('?', '');
-      if (!stream.itemType.isRecord &&
-          !knownTypes.contains(iName) &&
-          !knownTypes.contains(stream.itemType.name)) {
+      if (!stream.itemType.isRecord && !knownTypes.contains(iName) && !knownTypes.contains(stream.itemType.name)) {
         issues.add(
           ValidationIssue(
             severity: ValidationSeverity.error,
             code: 'UNKNOWN_STREAM_ITEM_TYPE',
-            message:
-                '${spec.dartClassName}.${stream.dartName} — unknown stream item type "$iName".',
+            message: '${spec.dartClassName}.${stream.dartName} — unknown stream item type "$iName".',
             hint:
                 'Stream item types must be primitives, String, Uint8List, a @HybridStruct, or a @HybridRecord. '
                 'Wrap complex types in a @HybridRecord.',
@@ -234,8 +217,7 @@ class SpecValidator {
           ValidationIssue(
             severity: ValidationSeverity.error,
             code: 'DUPLICATE_SYMBOL',
-            message:
-                '${spec.dartClassName}: duplicate C symbol "${stream.registerSymbol}".',
+            message: '${spec.dartClassName}: duplicate C symbol "${stream.registerSymbol}".',
           ),
         );
       }
@@ -245,15 +227,12 @@ class SpecValidator {
     for (final st in spec.structs) {
       for (final field in st.fields) {
         final fName = field.type.name.replaceFirst('?', '');
-        if (!_knownPrimitives.contains(fName) &&
-            !structNames.contains(fName) &&
-            !enumNames.contains(fName)) {
+        if (!_knownPrimitives.contains(fName) && !structNames.contains(fName) && !enumNames.contains(fName)) {
           issues.add(
             ValidationIssue(
               severity: ValidationSeverity.error,
               code: 'INVALID_STRUCT_FIELD_TYPE',
-              message:
-                  '${st.name}.${field.name} — struct field type "$fName" is not supported.',
+              message: '${st.name}.${field.name} — struct field type "$fName" is not supported.',
               hint:
                   'Struct fields must be int, double, bool, String, TypedData, '
                   'a @HybridEnum, or another @HybridStruct. '
@@ -267,8 +246,7 @@ class SpecValidator {
             ValidationIssue(
               severity: ValidationSeverity.error,
               code: 'INVALID_ZERO_COPY',
-              message:
-                  '${st.name}.${field.name} — @zero_copy is only valid on TypedData fields like Uint8List or Float32List (got "$fName").',
+              message: '${st.name}.${field.name} — @zero_copy is only valid on TypedData fields like Uint8List or Float32List (got "$fName").',
             ),
           );
         }
@@ -289,10 +267,7 @@ class SpecValidator {
     // Build adjacency: structName → names of other structs referenced by fields.
     final adj = <String, List<String>>{};
     for (final st in spec.structs) {
-      adj[st.name] = st.fields
-          .map((f) => f.type.name.replaceFirst('?', ''))
-          .where((t) => spec.structs.any((s) => s.name == t))
-          .toList();
+      adj[st.name] = st.fields.map((f) => f.type.name.replaceFirst('?', '')).where((t) => spec.structs.any((s) => s.name == t)).toList();
     }
 
     // 0 = unvisited, 1 = in DFS stack, 2 = fully processed.

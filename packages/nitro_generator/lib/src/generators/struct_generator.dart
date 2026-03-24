@@ -45,9 +45,7 @@ class StructGenerator {
         if (f.type.isTypedData) {
           final lenField = st.fields
               .where(
-                (sf) =>
-                    sf.type.name == 'int' &&
-                    _kLengthFieldNames.contains(sf.name.toLowerCase()),
+                (sf) => sf.type.name == 'int' && _kLengthFieldNames.contains(sf.name.toLowerCase()),
               )
               .map((sf) => sf.name)
               .firstOrNull;
@@ -124,8 +122,7 @@ class StructGenerator {
       s.writeln('@Keep');
       final params = st.fields
           .map(
-            (f) =>
-                'val ${f.name}: ${_dartTypeToKotlin(f.type.name, f.zeroCopy, enumNames)}',
+            (f) => 'val ${f.name}: ${_dartTypeToKotlin(f.type.name, f.zeroCopy, enumNames)}',
           )
           .join(', ');
       s.writeln('data class ${st.name}($params)');
@@ -189,8 +186,7 @@ class StructGenerator {
     }
   }
 
-  static String _dartTypeToKotlin(String t,
-      [bool isZeroCopy = false, Set<String> enumNames = const {}]) {
+  static String _dartTypeToKotlin(String t, [bool isZeroCopy = false, Set<String> enumNames = const {}]) {
     final base = t.replaceFirst('?', '');
     // Enum fields are stored as Long in Kotlin data classes (matches JNI Long
     // bridging used for enum function params/returns).
@@ -229,8 +225,7 @@ class StructGenerator {
     }
   }
 
-  static String _dartTypeToSwift(String t,
-      [bool isZeroCopy = false, Set<String> enumNames = const {}]) {
+  static String _dartTypeToSwift(String t, [bool isZeroCopy = false, Set<String> enumNames = const {}]) {
     final base = t.replaceFirst('?', '');
     if (enumNames.contains(base)) return base;
     switch (base) {
@@ -304,8 +299,7 @@ class StructGenerator {
 
   /// Returns the @XxxSize() annotation class name for scalar numeric fields.
   /// Pointer fields need no annotation; returns '' for them.
-  static String _dartTypeToFfiAnnotation(String t,
-      [Set<String> enumNames = const {}]) {
+  static String _dartTypeToFfiAnnotation(String t, [Set<String> enumNames = const {}]) {
     final base = t.replaceFirst('?', '');
     if (enumNames.contains(base)) return 'Int32'; // C enum is int32-sized
     switch (base) {

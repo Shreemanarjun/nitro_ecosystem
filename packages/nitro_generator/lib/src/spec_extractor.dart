@@ -20,14 +20,9 @@ class SpecExtractor {
 
     final iosImpl = _getNativeImpl(annotation.read('ios').objectValue);
     final androidImpl = _getNativeImpl(annotation.read('android').objectValue);
-    final cSymbolPrefix = annotation.read('cSymbolPrefix').isNull
-        ? null
-        : annotation.read('cSymbolPrefix').stringValue;
-    final lib = annotation.read('lib').isNull
-        ? null
-        : annotation.read('lib').stringValue;
-    final sourceFile = library.element.source.uri.pathSegments.last
-        .replaceFirst('.native.dart', '');
+    final cSymbolPrefix = annotation.read('cSymbolPrefix').isNull ? null : annotation.read('cSymbolPrefix').stringValue;
+    final lib = annotation.read('lib').isNull ? null : annotation.read('lib').stringValue;
+    final sourceFile = library.element.source.uri.pathSegments.last.replaceFirst('.native.dart', '');
     final libName = lib ?? sourceFile.replaceAll('-', '_');
     final ns = cSymbolPrefix ?? _toSnakeCase(element.name);
 
@@ -53,8 +48,7 @@ class SpecExtractor {
   }
 
   static NativeImpl _getNativeImpl(DartObject object) {
-    final index =
-        object.getField('index')?.toIntValue() ?? NativeImpl.cpp.index;
+    final index = object.getField('index')?.toIntValue() ?? NativeImpl.cpp.index;
     return NativeImpl.values[index];
   }
 
@@ -77,22 +71,19 @@ class SpecExtractor {
       final cls = ann.element;
       if (cls is! ClassElement) continue;
 
-      final fields = cls.fields
-          .where((f) => !f.isStatic && !f.isSynthetic)
-          .map((f) {
-            final displayType = f.type.getDisplayString(withNullability: true);
-            final isNullable = displayType.endsWith('?');
-            final kind = _recordFieldKind(f.type, recordTypeNames);
-            final itemTypeName = _listItemTypeName(f.type);
-            return BridgeRecordField(
-              name: f.name,
-              dartType: displayType,
-              kind: kind,
-              itemTypeName: itemTypeName,
-              isNullable: isNullable,
-            );
-          })
-          .toList();
+      final fields = cls.fields.where((f) => !f.isStatic && !f.isSynthetic).map((f) {
+        final displayType = f.type.getDisplayString(withNullability: true);
+        final isNullable = displayType.endsWith('?');
+        final kind = _recordFieldKind(f.type, recordTypeNames);
+        final itemTypeName = _listItemTypeName(f.type);
+        return BridgeRecordField(
+          name: f.name,
+          dartType: displayType,
+          kind: kind,
+          itemTypeName: itemTypeName,
+          isNullable: isNullable,
+        );
+      }).toList();
 
       results.add(BridgeRecordType(name: cls.name, fields: fields));
     }
@@ -105,11 +96,8 @@ class SpecExtractor {
   ) {
     if (type is InterfaceType) {
       if (type.element.name == 'List' && type.typeArguments.isNotEmpty) {
-        final itemName =
-            type.typeArguments.first.getDisplayString(withNullability: false);
-        return recordTypeNames.contains(itemName)
-            ? RecordFieldKind.listRecordObject
-            : RecordFieldKind.listPrimitive;
+        final itemName = type.typeArguments.first.getDisplayString(withNullability: false);
+        return recordTypeNames.contains(itemName) ? RecordFieldKind.listRecordObject : RecordFieldKind.listPrimitive;
       }
       if (recordTypeNames.contains(type.element.name)) {
         return RecordFieldKind.recordObject;
@@ -119,19 +107,27 @@ class SpecExtractor {
   }
 
   static String? _listItemTypeName(DartType type) {
-    if (type is InterfaceType &&
-        type.element.name == 'List' &&
-        type.typeArguments.isNotEmpty) {
+    if (type is InterfaceType && type.element.name == 'List' && type.typeArguments.isNotEmpty) {
       return type.typeArguments.first.getDisplayString(withNullability: false);
     }
     return null;
   }
 
   static const _primitiveNames = {
-    'int', 'double', 'bool', 'String',
-    'Uint8List', 'Int8List', 'Int16List', 'Int32List',
-    'Uint16List', 'Uint32List', 'Float32List', 'Float64List',
-    'Int64List', 'Uint64List',
+    'int',
+    'double',
+    'bool',
+    'String',
+    'Uint8List',
+    'Int8List',
+    'Int16List',
+    'Int32List',
+    'Uint16List',
+    'Uint32List',
+    'Float32List',
+    'Float64List',
+    'Int64List',
+    'Uint64List',
   };
 
   /// Converts a [DartType] to a [BridgeType], marking JSON-bridged types:
@@ -173,10 +169,7 @@ class SpecExtractor {
       }
 
       // Map<String, T> — JSON object bridge
-      if (elName == 'Map' &&
-          type.typeArguments.length == 2 &&
-          type.typeArguments.first.getDisplayString(withNullability: false) ==
-              'String') {
+      if (elName == 'Map' && type.typeArguments.length == 2 && type.typeArguments.first.getDisplayString(withNullability: false) == 'String') {
         return BridgeType(
           name: displayName,
           isRecord: true,
@@ -308,9 +301,7 @@ class SpecExtractor {
 
       // Get item type T from Stream<T>
       final streamType = retType as InterfaceType;
-      final itemDartType = streamType.typeArguments.isNotEmpty
-          ? streamType.typeArguments.first
-          : null;
+      final itemDartType = streamType.typeArguments.isNotEmpty ? streamType.typeArguments.first : null;
 
       // Read backpressure from @NitroStream annotation, default dropLatest
       Backpressure backpressure = Backpressure.dropLatest;
@@ -322,9 +313,7 @@ class SpecExtractor {
       }
 
       final name = accessor.displayName;
-      final bridgeItemType = itemDartType != null
-          ? _makeBridgeType(itemDartType, recordTypeNames)
-          : BridgeType(name: 'dynamic');
+      final bridgeItemType = itemDartType != null ? _makeBridgeType(itemDartType, recordTypeNames) : BridgeType(name: 'dynamic');
 
       results.add(
         BridgeStream(
@@ -359,13 +348,8 @@ class SpecExtractor {
         continue;
       }
 
-      final packed =
-          ann.annotation.read('packed').literalValue as bool? ?? false;
-      final zeroCopyFields = ann.annotation
-          .read('zeroCopy')
-          .listValue
-          .map((v) => v.toStringValue() ?? '')
-          .toSet();
+      final packed = ann.annotation.read('packed').literalValue as bool? ?? false;
+      final zeroCopyFields = ann.annotation.read('zeroCopy').listValue.map((v) => v.toStringValue() ?? '').toSet();
 
       final fields = cls.fields
           .where((f) => !f.isStatic && !f.isSynthetic)
@@ -397,17 +381,13 @@ class SpecExtractor {
         continue;
       }
 
-      final startValue =
-          ann.annotation.read('startValue').literalValue as int? ?? 0;
+      final startValue = ann.annotation.read('startValue').literalValue as int? ?? 0;
 
       results.add(
         BridgeEnum(
           name: cls.name,
           startValue: startValue,
-          values: cls.fields
-              .where((f) => f.isEnumConstant)
-              .map((f) => f.name)
-              .toList(),
+          values: cls.fields.where((f) => f.isEnumConstant).map((f) => f.name).toList(),
         ),
       );
     }

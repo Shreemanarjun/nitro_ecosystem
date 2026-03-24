@@ -86,17 +86,11 @@ class DartFfiGenerator {
 
     // ── Method implementations ───────────────────────────────────────────────
     for (final func in spec.functions) {
-      final returnType = func.isAsync
-          ? 'Future<${func.returnType.name}>'
-          : func.returnType.name;
+      final returnType = func.isAsync ? 'Future<${func.returnType.name}>' : func.returnType.name;
       final asyncMod = func.isAsync ? 'async ' : '';
 
       final needsArena = func.params.any(
-        (p) =>
-            p.type.isTypedData ||
-            p.type.name == 'String' ||
-            p.type.isRecord ||
-            spec.structs.any((st) => st.name == p.type.name),
+        (p) => p.type.isTypedData || p.type.name == 'String' || p.type.isRecord || spec.structs.any((st) => st.name == p.type.name),
       );
 
       final callArgs = func.params
@@ -274,10 +268,7 @@ class DartFfiGenerator {
           );
           s.writeln('  }');
         } else {
-          final propNeedsArena =
-              rt == 'String' ||
-              prop.type.isTypedData ||
-              spec.structs.any((st) => st.name == rt);
+          final propNeedsArena = rt == 'String' || prop.type.isTypedData || spec.structs.any((st) => st.name == rt);
 
           if (propNeedsArena) {
             String valExpr;
@@ -319,8 +310,7 @@ class DartFfiGenerator {
         final decodeExpr = _decodeRecordExpr(stream.itemType, 'rawPtr');
         unpackExpr = '(rawPtr) => $decodeExpr';
       } else if (isStruct) {
-        unpackExpr =
-            '(rawPtr) => Pointer<${itemType}Ffi>.fromAddress(rawPtr).ref.toDart()';
+        unpackExpr = '(rawPtr) => Pointer<${itemType}Ffi>.fromAddress(rawPtr).ref.toDart()';
       } else {
         unpackExpr = '(rawPtr) => rawPtr as $itemType';
       }
@@ -344,8 +334,7 @@ class DartFfiGenerator {
     return s.toString();
   }
 
-  static String _paramList(List<BridgeParam> params) =>
-      params.map((p) => '${p.type.name} ${p.name}').join(', ');
+  static String _paramList(List<BridgeParam> params) => params.map((p) => '${p.type.name} ${p.name}').join(', ');
 
   static String _cap(String name) => name[0].toUpperCase() + name.substring(1);
 

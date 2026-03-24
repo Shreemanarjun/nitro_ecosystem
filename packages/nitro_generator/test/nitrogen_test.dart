@@ -1832,10 +1832,7 @@ void main() {
         // getGreeting async -> String: return type must be C pointer
         expect(out, contains('-> UnsafeMutablePointer<CChar>?'));
         // Swift's fat String must NOT appear as @_cdecl return type
-        final cdeclLine = out
-            .split('\n')
-            .where((l) => l.contains('public func _call_getGreeting('))
-            .join();
+        final cdeclLine = out.split('\n').where((l) => l.contains('public func _call_getGreeting(')).join();
         expect(cdeclLine, isNot(contains('-> String')));
       },
     );
@@ -1861,11 +1858,7 @@ void main() {
     test('sync String return does not directly return Swift String', () {
       final out = SwiftGenerator.generate(_richSpec());
       // Ensure the sync label stub doesn't "return impl?.label(...)" bare
-      final labelLines = out
-          .split('\n')
-          .skipWhile((l) => !l.contains('@_cdecl("_call_label")'))
-          .take(10)
-          .join('\n');
+      final labelLines = out.split('\n').skipWhile((l) => !l.contains('@_cdecl("_call_label")')).take(10).join('\n');
       expect(labelLines, contains('strdup('));
       expect(labelLines, isNot(contains('return SensorRegistry.impl?.label')));
     });
@@ -1885,11 +1878,7 @@ void main() {
     test('String property getter uses strdup', () {
       final out = SwiftGenerator.generate(_enumSpec());
       // Must use strdup to malloc-allocate the returned C string
-      final getLines = out
-          .split('\n')
-          .skipWhile((l) => !l.contains('@_cdecl("_call_get_config")'))
-          .take(5)
-          .join('\n');
+      final getLines = out.split('\n').skipWhile((l) => !l.contains('@_cdecl("_call_get_config")')).take(5).join('\n');
       expect(getLines, contains('strdup('));
     });
 
@@ -2557,9 +2546,7 @@ void main() {
           ),
         ],
       );
-      final errors = SpecValidator.validate(spec)
-          .where((i) => i.isError && i.code == 'UNKNOWN_RETURN_TYPE')
-          .toList();
+      final errors = SpecValidator.validate(spec).where((i) => i.isError && i.code == 'UNKNOWN_RETURN_TYPE').toList();
       expect(errors, hasLength(1));
       expect(errors.first.hint, contains('@HybridRecord'));
     });
@@ -3468,7 +3455,9 @@ void main() {
             params: [],
           ),
         ],
-        enums: [BridgeEnum(name: 'MyEnum', values: ['idle', 'busy'], startValue: 0)],
+        enums: [
+          BridgeEnum(name: 'MyEnum', values: ['idle', 'busy'], startValue: 0),
+        ],
         sourceUri: 't.native.dart',
       );
       final out = SwiftGenerator.generate(spec);
@@ -3493,7 +3482,9 @@ void main() {
             hasSetter: true,
           ),
         ],
-        enums: [BridgeEnum(name: 'MyEnum', values: ['idle', 'busy'], startValue: 0)],
+        enums: [
+          BridgeEnum(name: 'MyEnum', values: ['idle', 'busy'], startValue: 0),
+        ],
         sourceUri: 't.native.dart',
       );
       final out = SwiftGenerator.generate(spec);
@@ -3512,7 +3503,10 @@ void main() {
             name: 'MyStruct',
             packed: false,
             fields: [
-              BridgeField(name: 'data', type: BridgeType(name: 'Float32List')),
+              BridgeField(
+                name: 'data',
+                type: BridgeType(name: 'Float32List'),
+              ),
             ],
           ),
         ],
@@ -3529,7 +3523,16 @@ void main() {
         iosImpl: NativeImpl.swift,
         androidImpl: NativeImpl.kotlin,
         structs: [
-           BridgeStruct(name: 'S', fields: [BridgeField(name: 'f', type: BridgeType(name: 'int'))], packed: false),
+          BridgeStruct(
+            name: 'S',
+            fields: [
+              BridgeField(
+                name: 'f',
+                type: BridgeType(name: 'int'),
+              ),
+            ],
+            packed: false,
+          ),
         ],
         functions: [
           BridgeFunction(
@@ -3537,7 +3540,12 @@ void main() {
             cSymbol: 't_do_task',
             isAsync: false,
             returnType: BridgeType(name: 'void'),
-            params: [BridgeParam(name: 's', type: BridgeType(name: 'S'))],
+            params: [
+              BridgeParam(
+                name: 's',
+                type: BridgeType(name: 'S'),
+              ),
+            ],
           ),
         ],
         sourceUri: 't.native.dart',
@@ -3560,7 +3568,12 @@ void main() {
             cSymbol: 't_toggle',
             isAsync: false,
             returnType: BridgeType(name: 'void'),
-            params: [BridgeParam(name: 'on', type: BridgeType(name: 'bool'))],
+            params: [
+              BridgeParam(
+                name: 'on',
+                type: BridgeType(name: 'bool'),
+              ),
+            ],
           ),
         ],
         sourceUri: 't.native.dart',
@@ -3577,7 +3590,16 @@ void main() {
         iosImpl: NativeImpl.swift,
         androidImpl: NativeImpl.kotlin,
         structs: [
-           BridgeStruct(name: 'S', fields: [BridgeField(name: 'f', type: BridgeType(name: 'int'))], packed: false),
+          BridgeStruct(
+            name: 'S',
+            fields: [
+              BridgeField(
+                name: 'f',
+                type: BridgeType(name: 'int'),
+              ),
+            ],
+            packed: false,
+          ),
         ],
         functions: [
           BridgeFunction(
@@ -3585,7 +3607,12 @@ void main() {
             cSymbol: 't_get_optional',
             isAsync: false,
             returnType: BridgeType(name: 'String?'),
-            params: [BridgeParam(name: 'input', type: BridgeType(name: 'int?'))],
+            params: [
+              BridgeParam(
+                name: 'input',
+                type: BridgeType(name: 'int?'),
+              ),
+            ],
           ),
           BridgeFunction(
             dartName: 'processList',
@@ -3617,7 +3644,12 @@ void main() {
             cSymbol: 't_calc',
             isAsync: true,
             returnType: BridgeType(name: 'int'),
-            params: [BridgeParam(name: 'seed', type: BridgeType(name: 'int'))],
+            params: [
+              BridgeParam(
+                name: 'seed',
+                type: BridgeType(name: 'int'),
+              ),
+            ],
           ),
           BridgeFunction(
             dartName: 'doVoid',
@@ -3645,7 +3677,9 @@ void main() {
         namespace: 't',
         iosImpl: NativeImpl.swift,
         androidImpl: NativeImpl.kotlin,
-        enums: [BridgeEnum(name: 'E', values: ['a', 'b'], startValue: 0)],
+        enums: [
+          BridgeEnum(name: 'E', values: ['a', 'b'], startValue: 0),
+        ],
         functions: [
           BridgeFunction(
             dartName: 'getE',

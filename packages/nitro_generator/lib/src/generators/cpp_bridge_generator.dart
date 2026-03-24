@@ -83,15 +83,10 @@ class CppBridgeGenerator {
       s.writeln('    ${st.name} result;');
       s.writeln('    jclass cls = env->GetObjectClass(obj);');
       for (final f in st.fields) {
-        final isEnumField =
-            enumNames.contains(f.type.name.replaceFirst('?', ''));
+        final isEnumField = enumNames.contains(f.type.name.replaceFirst('?', ''));
         final isZeroCopyField = _isZeroCopy(st, f.name);
         // Zero-copy TypedData fields always bridge as java.nio.ByteBuffer.
-        final sig = isEnumField
-            ? 'J'
-            : (isZeroCopyField
-                ? 'Ljava/nio/ByteBuffer;'
-                : _jniSigType(f.type.name));
+        final sig = isEnumField ? 'J' : (isZeroCopyField ? 'Ljava/nio/ByteBuffer;' : _jniSigType(f.type.name));
         final getter = isEnumField ? 'GetLongField' : _jniGetter(f.type.name);
         s.writeln(
           '    jfieldID fid_${f.name} = env->GetFieldID(cls, "${f.name}", "$sig");',
@@ -130,15 +125,15 @@ class CppBridgeGenerator {
       s.writeln('}');
 
       // unpack: C struct → Java object (used for passing struct params to Kotlin)
-      final jniClass =
-          'nitro/${spec.lib.replaceAll('-', '_')}_module/${st.name}';
+      final jniClass = 'nitro/${spec.lib.replaceAll('-', '_')}_module/${st.name}';
       // Zero-copy TypedData fields are java.nio.ByteBuffer in Kotlin.
-      final ctorSig = '(${st.fields.map((f) {
-        final isEnum = enumNames.contains(f.type.name.replaceFirst('?', ''));
-        if (isEnum) return 'J';
-        if (_isZeroCopy(st, f.name)) return 'Ljava/nio/ByteBuffer;';
-        return _jniSigType(f.type.name);
-      }).join('')})V';
+      final ctorSig =
+          '(${st.fields.map((f) {
+            final isEnum = enumNames.contains(f.type.name.replaceFirst('?', ''));
+            if (isEnum) return 'J';
+            if (_isZeroCopy(st, f.name)) return 'Ljava/nio/ByteBuffer;';
+            return _jniSigType(f.type.name);
+          }).join('')})V';
       s.writeln(
         'static jobject unpack_${st.name}_to_jni(JNIEnv* env, const ${st.name}* st) {',
       );
@@ -148,8 +143,7 @@ class CppBridgeGenerator {
       );
       final ctorArgs = st.fields
           .map((f) {
-            final isEnum =
-                enumNames.contains(f.type.name.replaceFirst('?', ''));
+            final isEnum = enumNames.contains(f.type.name.replaceFirst('?', ''));
             if (_isZeroCopy(st, f.name)) {
               final lenField = _zeroCopyLenField(st, f.name);
               final elemSize = _zeroCopyElementSizeExpr(f.type.name);
@@ -643,7 +637,7 @@ class CppBridgeGenerator {
       default:
         return 'void*';
     }
-}
+  }
 
   /// Like _typeToC but for function parameters (struct params pass as void*)
   static String _paramTypeToC(String dartType, BridgeSpec spec) {
@@ -753,17 +747,28 @@ class CppBridgeGenerator {
   /// the implicit `void* → typed pointer` conversion warning in C++.
   static String _zeroCopyCElementCast(String dartType) {
     switch (dartType.replaceFirst('?', '')) {
-      case 'Uint8List':  return 'uint8_t*';
-      case 'Int8List':   return 'int8_t*';
-      case 'Int16List':  return 'int16_t*';
-      case 'Uint16List': return 'uint16_t*';
-      case 'Int32List':  return 'int32_t*';
-      case 'Uint32List': return 'uint32_t*';
-      case 'Float32List': return 'float*';
-      case 'Float64List': return 'double*';
-      case 'Int64List':  return 'int64_t*';
-      case 'Uint64List': return 'uint64_t*';
-      default:           return 'uint8_t*';
+      case 'Uint8List':
+        return 'uint8_t*';
+      case 'Int8List':
+        return 'int8_t*';
+      case 'Int16List':
+        return 'int16_t*';
+      case 'Uint16List':
+        return 'uint16_t*';
+      case 'Int32List':
+        return 'int32_t*';
+      case 'Uint32List':
+        return 'uint32_t*';
+      case 'Float32List':
+        return 'float*';
+      case 'Float64List':
+        return 'double*';
+      case 'Int64List':
+        return 'int64_t*';
+      case 'Uint64List':
+        return 'uint64_t*';
+      default:
+        return 'uint8_t*';
     }
   }
 
@@ -834,8 +839,7 @@ class CppBridgeGenerator {
     for (final p in params) {
       if (spec.structs.any((st) => st.name == p.type.name)) {
         // Struct params are passed as the Kotlin data class object
-        final jniClass =
-            'nitro/${spec.lib.replaceAll('-', '_')}_module/${p.type.name}';
+        final jniClass = 'nitro/${spec.lib.replaceAll('-', '_')}_module/${p.type.name}';
         sb.write('L${jniClass.replaceAll('/', '/')};');
       } else {
         sb.write(_jniSigType(p.type.name));
@@ -846,8 +850,7 @@ class CppBridgeGenerator {
     if (spec.enums.any((en) => en.name == returnType)) {
       sb.write('J');
     } else if (spec.structs.any((st) => st.name == returnType)) {
-      final jniClass =
-          'nitro/${spec.lib.replaceAll('-', '_')}_module/$returnType';
+      final jniClass = 'nitro/${spec.lib.replaceAll('-', '_')}_module/$returnType';
       sb.write('L${jniClass.replaceAll('/', '/')};');
     } else {
       sb.write(_jniSigType(returnType));

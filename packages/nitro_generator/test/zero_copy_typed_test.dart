@@ -45,7 +45,10 @@ BridgeSpec _zeroCopySpec(String typedDataType) {
             type: BridgeType(name: typedDataType),
             zeroCopy: true,
           ),
-          BridgeField(name: 'length', type: BridgeType(name: 'int')),
+          BridgeField(
+            name: 'length',
+            type: BridgeType(name: 'int'),
+          ),
         ],
       ),
     ],
@@ -65,16 +68,16 @@ BridgeSpec _zeroCopySpec(String typedDataType) {
 
 /// Maps each TypedData type to its expected C element cast and sizeof suffix.
 const _typeMatrix = <String, (String cast, String sizeExpr)>{
-  'Uint8List':   ('uint8_t*',  ''),
-  'Int8List':    ('int8_t*',   ''),
-  'Int16List':   ('int16_t*',  ' * sizeof(int16_t)'),
-  'Uint16List':  ('uint16_t*', ' * sizeof(int16_t)'),
-  'Int32List':   ('int32_t*',  ' * sizeof(int32_t)'),
-  'Uint32List':  ('uint32_t*', ' * sizeof(int32_t)'),
-  'Float32List': ('float*',    ' * sizeof(float)'),
-  'Float64List': ('double*',   ' * sizeof(double)'),
-  'Int64List':   ('int64_t*',  ' * sizeof(int64_t)'),
-  'Uint64List':  ('uint64_t*', ' * sizeof(int64_t)'),
+  'Uint8List': ('uint8_t*', ''),
+  'Int8List': ('int8_t*', ''),
+  'Int16List': ('int16_t*', ' * sizeof(int16_t)'),
+  'Uint16List': ('uint16_t*', ' * sizeof(int16_t)'),
+  'Int32List': ('int32_t*', ' * sizeof(int32_t)'),
+  'Uint32List': ('uint32_t*', ' * sizeof(int32_t)'),
+  'Float32List': ('float*', ' * sizeof(float)'),
+  'Float64List': ('double*', ' * sizeof(double)'),
+  'Int64List': ('int64_t*', ' * sizeof(int64_t)'),
+  'Uint64List': ('uint64_t*', ' * sizeof(int64_t)'),
 };
 
 void main() {
@@ -85,15 +88,13 @@ void main() {
       test('$type field uses "Ljava/nio/ByteBuffer;" descriptor', () {
         final cpp = CppBridgeGenerator.generate(_zeroCopySpec(type));
         // The field lookup must use the ByteBuffer descriptor.
-        expect(cpp, contains('"data", "Ljava/nio/ByteBuffer;"'),
-            reason: '$type zero-copy field must use ByteBuffer JNI descriptor');
+        expect(cpp, contains('"data", "Ljava/nio/ByteBuffer;"'), reason: '$type zero-copy field must use ByteBuffer JNI descriptor');
       });
 
       test('$type field does NOT use "Ljava/lang/Object;" descriptor', () {
         final cpp = CppBridgeGenerator.generate(_zeroCopySpec(type));
         // Regression: old code used Object as the descriptor for all typed data.
-        expect(cpp, isNot(contains('"data", "Ljava/lang/Object;"')),
-            reason: '$type must not fall back to Object descriptor');
+        expect(cpp, isNot(contains('"data", "Ljava/lang/Object;"')), reason: '$type must not fall back to Object descriptor');
       });
     }
   });
@@ -107,14 +108,12 @@ void main() {
 
       test('$type uses GetDirectBufferAddress (not GetObjectField direct assign)', () {
         final cpp = CppBridgeGenerator.generate(_zeroCopySpec(type));
-        expect(cpp, contains('env->GetDirectBufferAddress(buf_data)'),
-            reason: '$type must call GetDirectBufferAddress to extract pointer');
+        expect(cpp, contains('env->GetDirectBufferAddress(buf_data)'), reason: '$type must call GetDirectBufferAddress to extract pointer');
       });
 
       test('$type casts GetDirectBufferAddress result to $cast', () {
         final cpp = CppBridgeGenerator.generate(_zeroCopySpec(type));
-        expect(cpp, contains('($cast)env->GetDirectBufferAddress(buf_data)'),
-            reason: '$type must cast void* to $cast for correct struct assignment');
+        expect(cpp, contains('($cast)env->GetDirectBufferAddress(buf_data)'), reason: '$type must cast void* to $cast for correct struct assignment');
       });
     }
   });
@@ -126,10 +125,8 @@ void main() {
       test('$type ctor signature uses "Ljava/nio/ByteBuffer;" not Object', () {
         final cpp = CppBridgeGenerator.generate(_zeroCopySpec(type));
         // The ctor signature for (ByteBuffer, long) should be "(Ljava/nio/ByteBuffer;J)V"
-        expect(cpp, contains('"(Ljava/nio/ByteBuffer;J)V"'),
-            reason: '$type unpack ctor must accept ByteBuffer + long');
-        expect(cpp, isNot(contains('"(Ljava/lang/Object;J)V"')),
-            reason: '$type must not use Object in ctor signature');
+        expect(cpp, contains('"(Ljava/nio/ByteBuffer;J)V"'), reason: '$type unpack ctor must accept ByteBuffer + long');
+        expect(cpp, isNot(contains('"(Ljava/lang/Object;J)V"')), reason: '$type must not use Object in ctor signature');
       });
     }
   });
@@ -144,8 +141,7 @@ void main() {
 
       test('$type uses NewDirectByteBuffer (not raw pointer cast)', () {
         final cpp = CppBridgeGenerator.generate(_zeroCopySpec(type));
-        expect(cpp, contains('env->NewDirectByteBuffer((void*)st->data,'),
-            reason: '$type must use NewDirectByteBuffer for zero-copy unpack');
+        expect(cpp, contains('env->NewDirectByteBuffer((void*)st->data,'), reason: '$type must use NewDirectByteBuffer for zero-copy unpack');
       });
 
       test('$type passes correct byte count: $expectedByteCount', () {
@@ -177,8 +173,14 @@ void main() {
             packed: false,
             fields: [
               // zeroCopy is false by default
-              BridgeField(name: 'data', type: BridgeType(name: 'Float32List')),
-              BridgeField(name: 'length', type: BridgeType(name: 'int')),
+              BridgeField(
+                name: 'data',
+                type: BridgeType(name: 'Float32List'),
+              ),
+              BridgeField(
+                name: 'length',
+                type: BridgeType(name: 'int'),
+              ),
             ],
           ),
         ],
@@ -225,12 +227,12 @@ void main() {
     final multiByteTypes = {
       'Float32List': 'sizeof(float)',
       'Float64List': 'sizeof(double)',
-      'Int32List':   'sizeof(int32_t)',
-      'Uint32List':  'sizeof(int32_t)',
-      'Int16List':   'sizeof(int16_t)',
-      'Uint16List':  'sizeof(int16_t)',
-      'Int64List':   'sizeof(int64_t)',
-      'Uint64List':  'sizeof(int64_t)',
+      'Int32List': 'sizeof(int32_t)',
+      'Uint32List': 'sizeof(int32_t)',
+      'Int16List': 'sizeof(int16_t)',
+      'Uint16List': 'sizeof(int16_t)',
+      'Int64List': 'sizeof(int64_t)',
+      'Uint64List': 'sizeof(int64_t)',
     };
 
     for (final entry in multiByteTypes.entries) {
@@ -239,8 +241,7 @@ void main() {
 
       test('$type byte count includes * $sizeofExpr', () {
         final cpp = CppBridgeGenerator.generate(_zeroCopySpec(type));
-        expect(cpp, contains('st->length * $sizeofExpr'),
-            reason: '$type is multi-byte — byte count must include $sizeofExpr');
+        expect(cpp, contains('st->length * $sizeofExpr'), reason: '$type is multi-byte — byte count must include $sizeofExpr');
       });
     }
   });
@@ -266,9 +267,18 @@ void main() {
                 type: BridgeType(name: 'Uint8List'),
                 zeroCopy: true,
               ),
-              BridgeField(name: 'width', type: BridgeType(name: 'int')),
-              BridgeField(name: 'height', type: BridgeType(name: 'int')),
-              BridgeField(name: 'stride', type: BridgeType(name: 'int')),
+              BridgeField(
+                name: 'width',
+                type: BridgeType(name: 'int'),
+              ),
+              BridgeField(
+                name: 'height',
+                type: BridgeType(name: 'int'),
+              ),
+              BridgeField(
+                name: 'stride',
+                type: BridgeType(name: 'int'),
+              ),
             ],
           ),
         ],
@@ -284,14 +294,12 @@ void main() {
       );
       final cpp = CppBridgeGenerator.generate(specWithStride);
       // When stride is present, it should be used as the byte count (not length).
-      expect(cpp, contains('env->NewDirectByteBuffer((void*)st->pixels, st->stride)'),
-          reason: 'stride should be preferred as the byte-length field');
+      expect(cpp, contains('env->NewDirectByteBuffer((void*)st->pixels, st->stride)'), reason: 'stride should be preferred as the byte-length field');
     });
 
     test('falls back to length when stride and size are absent', () {
       final cpp = CppBridgeGenerator.generate(_zeroCopySpec('Float32List'));
-      expect(cpp, contains('st->length * sizeof(float)'),
-          reason: 'length field used as element count when stride/size absent');
+      expect(cpp, contains('st->length * sizeof(float)'), reason: 'length field used as element count when stride/size absent');
     });
   });
 }

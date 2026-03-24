@@ -38,8 +38,15 @@ BridgeSpec _floatSpec() {
         name: 'FloatBuffer',
         packed: false,
         fields: [
-          BridgeField(name: 'data', type: BridgeType(name: 'Float32List'), zeroCopy: true),
-          BridgeField(name: 'length', type: BridgeType(name: 'int')),
+          BridgeField(
+            name: 'data',
+            type: BridgeType(name: 'Float32List'),
+            zeroCopy: true,
+          ),
+          BridgeField(
+            name: 'length',
+            type: BridgeType(name: 'int'),
+          ),
         ],
       ),
     ],
@@ -50,7 +57,10 @@ BridgeSpec _floatSpec() {
         isAsync: false,
         returnType: BridgeType(name: 'FloatBuffer'),
         params: [
-          BridgeParam(name: 'inputs', type: BridgeType(name: 'Float32List')),
+          BridgeParam(
+            name: 'inputs',
+            type: BridgeType(name: 'Float32List'),
+          ),
         ],
       ),
     ],
@@ -73,7 +83,10 @@ BridgeSpec _multiTypedListSpec() {
         isAsync: false,
         returnType: BridgeType(name: 'void'),
         params: [
-          BridgeParam(name: 'data', type: BridgeType(name: 'Uint8List')),
+          BridgeParam(
+            name: 'data',
+            type: BridgeType(name: 'Uint8List'),
+          ),
         ],
       ),
       BridgeFunction(
@@ -82,7 +95,10 @@ BridgeSpec _multiTypedListSpec() {
         isAsync: false,
         returnType: BridgeType(name: 'void'),
         params: [
-          BridgeParam(name: 'samples', type: BridgeType(name: 'Float64List')),
+          BridgeParam(
+            name: 'samples',
+            type: BridgeType(name: 'Float64List'),
+          ),
         ],
       ),
       BridgeFunction(
@@ -91,7 +107,10 @@ BridgeSpec _multiTypedListSpec() {
         isAsync: false,
         returnType: BridgeType(name: 'void'),
         params: [
-          BridgeParam(name: 'values', type: BridgeType(name: 'Int32List')),
+          BridgeParam(
+            name: 'values',
+            type: BridgeType(name: 'Int32List'),
+          ),
         ],
       ),
     ],
@@ -114,9 +133,18 @@ BridgeSpec _mixedParamSpec() {
         isAsync: false,
         returnType: BridgeType(name: 'double'),
         params: [
-          BridgeParam(name: 'label', type: BridgeType(name: 'String')),
-          BridgeParam(name: 'data', type: BridgeType(name: 'Float32List')),
-          BridgeParam(name: 'scale', type: BridgeType(name: 'double')),
+          BridgeParam(
+            name: 'label',
+            type: BridgeType(name: 'String'),
+          ),
+          BridgeParam(
+            name: 'data',
+            type: BridgeType(name: 'Float32List'),
+          ),
+          BridgeParam(
+            name: 'scale',
+            type: BridgeType(name: 'double'),
+          ),
         ],
       ),
     ],
@@ -347,7 +375,9 @@ void main() {
     test('protocol call uses the converted Arr variable, not the raw pointer', () {
       final out = SwiftGenerator.generate(_floatSpec());
       expect(out, contains('inputs: inputsArr'));
-      expect(out, isNot(contains('inputs: inputs)')),
+      expect(
+        out,
+        isNot(contains('inputs: inputs)')),
         reason: 'passing raw UnsafeMutablePointer<Float>? to [Float] param would crash',
       );
     });
@@ -443,7 +473,8 @@ void main() {
       expect(
         out,
         contains('#ifdef __OBJC__'),
-        reason: 'iOS bridge must guard the @try/@catch with __OBJC__ so it '
+        reason:
+            'iOS bridge must guard the @try/@catch with __OBJC__ so it '
             'compiles correctly when the file is renamed to .mm',
       );
       expect(out, contains('@try {'));
@@ -481,7 +512,10 @@ void main() {
             isAsync: false,
             returnType: BridgeType(name: 'void'),
             params: [
-              BridgeParam(name: 'message', type: BridgeType(name: 'String')),
+              BridgeParam(
+                name: 'message',
+                type: BridgeType(name: 'String'),
+              ),
             ],
           ),
         ],
@@ -532,8 +566,7 @@ void main() {
       final appleSection = out.substring(out.indexOf('#elif __APPLE__'));
       final tryCount = '@try {'.allMatches(appleSection).length;
       final catchCount = '@catch (NSException* e) {'.allMatches(appleSection).length;
-      expect(tryCount, equals(3),
-          reason: '_multiTypedListSpec has 3 functions');
+      expect(tryCount, equals(3), reason: '_multiTypedListSpec has 3 functions');
       expect(catchCount, equals(3));
       expect(tryCount, equals(catchCount));
     });

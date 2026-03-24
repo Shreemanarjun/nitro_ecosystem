@@ -20,7 +20,6 @@ class SwiftGenerator {
     final swiftRecords = RecordGenerator.generateSwift(spec);
     if (swiftRecords.isNotEmpty) s.write(swiftRecords);
 
-
     // ── Protocol ──────────────────────────────────────────────────────────
     s.writeln('/**');
     s.writeln(' * Protocol for the ${spec.dartClassName} module.');
@@ -32,9 +31,7 @@ class SwiftGenerator {
 
     for (final func in spec.functions) {
       final retType = _toSwiftType(spec, func.returnType.name);
-      final params = func.params
-          .map((p) => '${p.name}: ${_toSwiftType(spec, p.type.name)}')
-          .join(', ');
+      final params = func.params.map((p) => '${p.name}: ${_toSwiftType(spec, p.type.name)}').join(', ');
       if (func.isAsync) {
         s.writeln(
           '    func ${func.dartName}($params) async throws -> $retType',
@@ -111,24 +108,22 @@ class SwiftGenerator {
           })
           .join(', ');
       // String params arrive as UnsafePointer<CChar>? — convert to Swift String.
-      final stringParams = func.params
-          .where((p) => p.type.name == 'String')
-          .toList();
+      final stringParams = func.params.where((p) => p.type.name == 'String').toList();
       // Typed list params arrive as raw C pointer + length — convert to Swift Array.
-      final typedListParams = func.params
-          .where((p) => p.type.isTypedData)
-          .toList();
+      final typedListParams = func.params.where((p) => p.type.isTypedData).toList();
       // Pass the converted local variables for String/typed-list params.
-      final callArgs = func.params.map((p) {
-        if (p.type.name == 'String') return '${p.name}: ${p.name}Str';
-        if (p.type.name == 'bool') return '${p.name}: ${p.name} != 0';
-        if (p.type.isTypedData) return '${p.name}: ${p.name}Arr';
-        if (spec.structs.any((st) => st.name == p.type.name.replaceFirst('?', ''))) {
-          final structName = p.type.name.replaceFirst('?', '');
-          return '${p.name}: ${p.name}!.assumingMemoryBound(to: $structName.self).pointee';
-        }
-        return '${p.name}: ${p.name}';
-      }).join(', ');
+      final callArgs = func.params
+          .map((p) {
+            if (p.type.name == 'String') return '${p.name}: ${p.name}Str';
+            if (p.type.name == 'bool') return '${p.name}: ${p.name} != 0';
+            if (p.type.isTypedData) return '${p.name}: ${p.name}Arr';
+            if (spec.structs.any((st) => st.name == p.type.name.replaceFirst('?', ''))) {
+              final structName = p.type.name.replaceFirst('?', '');
+              return '${p.name}: ${p.name}!.assumingMemoryBound(to: $structName.self).pointee';
+            }
+            return '${p.name}: ${p.name}';
+          })
+          .join(', ');
       final isStruct = spec.structs.any(
         (st) => st.name == func.returnType.name,
       );
@@ -226,19 +221,19 @@ class SwiftGenerator {
           s.writeln('    }');
           s.writeln('    sema.wait()');
           s.writeln('    guard let r = result else { return nil }');
-          
+
           final itemType = func.returnType.name.substring(5, func.returnType.name.length - 1);
           final isPrim = ['int', 'double', 'bool', 'String'].contains(itemType.replaceAll('?', ''));
           if (isPrim) {
-              final base = itemType.replaceAll('?', '');
-              String writeCall = 'writeInt(e)';
-              if (base == 'int') writeCall = 'writeInt(e)';
-              if (base == 'double') writeCall = 'writeDouble(e)';
-              if (base == 'bool') writeCall = 'writeBool(e)';
-              if (base == 'String') writeCall = 'writeString(e)';
-              s.writeln('    return NitroRecordWriter.encodeList(r) { w, e in w.$writeCall }');
+            final base = itemType.replaceAll('?', '');
+            String writeCall = 'writeInt(e)';
+            if (base == 'int') writeCall = 'writeInt(e)';
+            if (base == 'double') writeCall = 'writeDouble(e)';
+            if (base == 'bool') writeCall = 'writeBool(e)';
+            if (base == 'String') writeCall = 'writeString(e)';
+            s.writeln('    return NitroRecordWriter.encodeList(r) { w, e in w.$writeCall }');
           } else {
-              s.writeln('    return NitroRecordWriter.encodeList(r) { w, e in e.writeFields(w) }');
+            s.writeln('    return NitroRecordWriter.encodeList(r) { w, e in e.writeFields(w) }');
           }
         } else {
           final swiftRetType = _toSwiftType(spec, func.returnType.name);
@@ -256,9 +251,9 @@ class SwiftGenerator {
           s.writeln('    }');
           s.writeln('    sema.wait()');
           if (isEnumRet) {
-             s.writeln('    return result?.rawValue ?? $defaultVal');
+            s.writeln('    return result?.rawValue ?? $defaultVal');
           } else {
-             s.writeln('    return result ?? $defaultVal');
+            s.writeln('    return result ?? $defaultVal');
           }
         }
       } else if (isVoid) {
@@ -290,15 +285,15 @@ class SwiftGenerator {
         final itemType = func.returnType.name.substring(5, func.returnType.name.length - 1);
         final isPrim = ['int', 'double', 'bool', 'String'].contains(itemType.replaceAll('?', ''));
         if (isPrim) {
-            final base = itemType.replaceAll('?', '');
-            String writeCall = 'writeInt(e)';
-            if (base == 'int') writeCall = 'writeInt(e)';
-            if (base == 'double') writeCall = 'writeDouble(e)';
-            if (base == 'bool') writeCall = 'writeBool(e)';
-            if (base == 'String') writeCall = 'writeString(e)';
-            s.writeln('    return NitroRecordWriter.encodeList(r) { w, e in w.$writeCall }');
+          final base = itemType.replaceAll('?', '');
+          String writeCall = 'writeInt(e)';
+          if (base == 'int') writeCall = 'writeInt(e)';
+          if (base == 'double') writeCall = 'writeDouble(e)';
+          if (base == 'bool') writeCall = 'writeBool(e)';
+          if (base == 'String') writeCall = 'writeString(e)';
+          s.writeln('    return NitroRecordWriter.encodeList(r) { w, e in w.$writeCall }');
         } else {
-            s.writeln('    return NitroRecordWriter.encodeList(r) { w, e in e.writeFields(w) }');
+          s.writeln('    return NitroRecordWriter.encodeList(r) { w, e in e.writeFields(w) }');
         }
       } else {
         final defaultVal = _defaultCDeclValue(spec, func.returnType.name);
@@ -481,7 +476,6 @@ class SwiftGenerator {
     }
     return _toSwiftType(spec, name);
   }
-
 
   static String _toSwiftType(BridgeSpec spec, String t) {
     final name = t.replaceFirst('?', '');

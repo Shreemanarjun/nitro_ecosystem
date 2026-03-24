@@ -173,9 +173,9 @@ class BridgeProperty {
 
 /// Describes how a field of a @HybridRecord class maps to/from JSON.
 enum RecordFieldKind {
-  primitive,        // int, double, bool, String (and nullable variants)
-  recordObject,     // another @HybridRecord type
-  listPrimitive,    // List<primitive>
+  primitive, // int, double, bool, String (and nullable variants)
+  recordObject, // another @HybridRecord type
+  listPrimitive, // List<primitive>
   listRecordObject, // List<@HybridRecord type>
 }
 

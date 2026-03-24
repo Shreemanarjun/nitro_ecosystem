@@ -35,9 +35,7 @@ class KotlinGenerator {
 
     for (final func in spec.functions) {
       final retType = _toKotlinType(spec, func.returnType.name);
-      final params = func.params
-          .map((p) => '${p.name}: ${_toKotlinType(spec, p.type.name)}')
-          .join(', ');
+      final params = func.params.map((p) => '${p.name}: ${_toKotlinType(spec, p.type.name)}').join(', ');
       final suspend = func.isAsync ? 'suspend ' : '';
       // Use the actual return type (enum/struct class) in the interface
       s.writeln('    ${suspend}fun ${func.dartName}($params): $retType');
@@ -79,9 +77,7 @@ class KotlinGenerator {
 
     for (final func in spec.functions) {
       final retType = _toKotlinType(spec, func.returnType.name);
-      final paramsDecl = func.params
-          .map((p) => '${p.name}: ${_toKotlinType(spec, p.type.name)}')
-          .join(', ');
+      final paramsDecl = func.params.map((p) => '${p.name}: ${_toKotlinType(spec, p.type.name)}').join(', ');
       final callParams = func.params.map((p) => p.name).join(', ');
 
       final isUnit = (retType == 'Unit');
