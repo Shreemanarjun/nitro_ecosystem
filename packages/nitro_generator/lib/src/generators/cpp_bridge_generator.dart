@@ -85,17 +85,26 @@ class CppBridgeGenerator {
       for (final f in st.fields) {
         final isEnumField =
             enumNames.contains(f.type.name.replaceFirst('?', ''));
-        final sig = isEnumField ? 'J' : _jniSigType(f.type.name);
+        final isZeroCopyField = _isZeroCopy(st, f.name);
+        // Zero-copy TypedData fields always bridge as java.nio.ByteBuffer.
+        final sig = isEnumField
+            ? 'J'
+            : (isZeroCopyField
+                ? 'Ljava/nio/ByteBuffer;'
+                : _jniSigType(f.type.name));
         final getter = isEnumField ? 'GetLongField' : _jniGetter(f.type.name);
         s.writeln(
           '    jfieldID fid_${f.name} = env->GetFieldID(cls, "${f.name}", "$sig");',
         );
-        if (_isZeroCopy(st, f.name)) {
+        if (isZeroCopyField) {
+          // GetDirectBufferAddress returns void*; cast to the actual element
+          // pointer type so the assignment to the C struct field is valid.
+          final elemCast = _zeroCopyCElementCast(f.type.name);
           s.writeln(
             '    jobject buf_${f.name} = env->GetObjectField(obj, fid_${f.name});',
           );
           s.writeln(
-            '    result.${f.name} = (uint8_t*)env->GetDirectBufferAddress(buf_${f.name});',
+            '    result.${f.name} = ($elemCast)env->GetDirectBufferAddress(buf_${f.name});',
           );
         } else if (f.type.name == 'String') {
           s.writeln(
@@ -123,9 +132,12 @@ class CppBridgeGenerator {
       // unpack: C struct → Java object (used for passing struct params to Kotlin)
       final jniClass =
           'nitro/${spec.lib.replaceAll('-', '_')}_module/${st.name}';
+      // Zero-copy TypedData fields are java.nio.ByteBuffer in Kotlin.
       final ctorSig = '(${st.fields.map((f) {
         final isEnum = enumNames.contains(f.type.name.replaceFirst('?', ''));
-        return isEnum ? 'J' : _jniSigType(f.type.name);
+        if (isEnum) return 'J';
+        if (_isZeroCopy(st, f.name)) return 'Ljava/nio/ByteBuffer;';
+        return _jniSigType(f.type.name);
       }).join('')})V';
       s.writeln(
         'static jobject unpack_${st.name}_to_jni(JNIEnv* env, const ${st.name}* st) {',
@@ -139,7 +151,10 @@ class CppBridgeGenerator {
             final isEnum =
                 enumNames.contains(f.type.name.replaceFirst('?', ''));
             if (_isZeroCopy(st, f.name)) {
-              return 'env->NewDirectByteBuffer((void*)st->${f.name}, st->${_zeroCopyLenField(st, f.name)})';
+              final lenField = _zeroCopyLenField(st, f.name);
+              final elemSize = _zeroCopyElementSizeExpr(f.type.name);
+              // NewDirectByteBuffer takes a BYTE count, not element count.
+              return 'env->NewDirectByteBuffer((void*)st->${f.name}, st->$lenField$elemSize)';
             } else if (f.type.name == 'String') {
               return 'env->NewStringUTF(st->${f.name})';
             } else if (isEnum) {
@@ -728,6 +743,55 @@ class CppBridgeGenerator {
         return 'jboolean';
       default:
         return 'jobject';
+    }
+  }
+
+  /// Returns the C cast type for a zero-copy TypedData struct field.
+  ///
+  /// `GetDirectBufferAddress` returns `void*`. The struct field type is the
+  /// element pointer (e.g. `float*` for Float32List).  An explicit cast avoids
+  /// the implicit `void* → typed pointer` conversion warning in C++.
+  static String _zeroCopyCElementCast(String dartType) {
+    switch (dartType.replaceFirst('?', '')) {
+      case 'Uint8List':  return 'uint8_t*';
+      case 'Int8List':   return 'int8_t*';
+      case 'Int16List':  return 'int16_t*';
+      case 'Uint16List': return 'uint16_t*';
+      case 'Int32List':  return 'int32_t*';
+      case 'Uint32List': return 'uint32_t*';
+      case 'Float32List': return 'float*';
+      case 'Float64List': return 'double*';
+      case 'Int64List':  return 'int64_t*';
+      case 'Uint64List': return 'uint64_t*';
+      default:           return 'uint8_t*';
+    }
+  }
+
+  /// Returns a C expression suffix to multiply the element count by element
+  /// byte-size when calling `NewDirectByteBuffer` (which expects byte count).
+  ///
+  /// Returns `''` for byte-sized elements (no-op multiply) or
+  /// ` * N` for multi-byte elements (e.g. ` * sizeof(float)`).
+  static String _zeroCopyElementSizeExpr(String dartType) {
+    switch (dartType.replaceFirst('?', '')) {
+      case 'Uint8List':
+      case 'Int8List':
+        return ''; // 1 byte — no multiplication needed
+      case 'Int16List':
+      case 'Uint16List':
+        return ' * sizeof(int16_t)';
+      case 'Int32List':
+      case 'Uint32List':
+        return ' * sizeof(int32_t)';
+      case 'Float32List':
+        return ' * sizeof(float)';
+      case 'Float64List':
+        return ' * sizeof(double)';
+      case 'Int64List':
+      case 'Uint64List':
+        return ' * sizeof(int64_t)';
+      default:
+        return '';
     }
   }
 

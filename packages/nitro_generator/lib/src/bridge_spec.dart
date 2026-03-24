@@ -63,7 +63,9 @@ class BridgeType {
       name.startsWith('Uint16List') ||
       name.startsWith('Uint32List') ||
       name.startsWith('Float32List') ||
-      name.startsWith('Float64List');
+      name.startsWith('Float64List') ||
+      name.startsWith('Int64List') ||
+      name.startsWith('Uint64List');
 
   BridgeType({
     required this.name,
