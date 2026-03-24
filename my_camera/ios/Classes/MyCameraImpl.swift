@@ -30,6 +30,11 @@ public class MyCameraImpl: NSObject, HybridMyCameraProtocol {
         return framesSubject.eraseToAnyPublisher()
     }
     
+    private let coloredFramesSubject = PassthroughSubject<CameraFrame, Never>()
+    public var coloredFrames: AnyPublisher<CameraFrame, Never> {
+        return coloredFramesSubject.eraseToAnyPublisher()
+    }
+    
     override init() {
         super.init()
         let width: Int64 = 1280
@@ -44,6 +49,32 @@ public class MyCameraImpl: NSObject, HybridMyCameraProtocol {
             let frame = CameraFrame(data: hardwareBuffer, width: width, height: height,
                                     stride: stride, timestampNs: tsNs)
             self?.framesSubject.send(frame)
+        }
+
+        // Colored frames stream
+        let cWidth: Int64 = 640
+        let cHeight: Int64 = 480
+        let cStride = cWidth * 4
+        let cBuffer = UnsafeMutablePointer<UInt8>.allocate(capacity: Int(cStride * cHeight))
+        var frameCount: Int = 0
+
+        Timer.scheduledTimer(withTimeInterval: 1.0 / 30.0, repeats: true) { [weak self] _ in
+            let r = UInt8((frameCount * 2) % 256)
+            let g = UInt8((frameCount * 5) % 256)
+            let b = UInt8((frameCount * 10) % 256)
+            
+            for i in 0..<(Int(cWidth * cHeight)) {
+                cBuffer[i*4] = b     // B
+                cBuffer[i*4+1] = g   // G
+                cBuffer[i*4+2] = r   // R
+                cBuffer[i*4+3] = 255 // A
+            }
+
+            let tsNs = Int64(Date().timeIntervalSince1970 * 1_000_000_000)
+            let frame = CameraFrame(data: cBuffer, width: cWidth, height: cHeight,
+                                    stride: cStride, timestampNs: tsNs)
+            self?.coloredFramesSubject.send(frame)
+            frameCount += 1
         }
     }
 }

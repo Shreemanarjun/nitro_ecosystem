@@ -62,4 +62,7 @@ abstract class MyCamera extends HybridObject {
 
   @NitroStream(backpressure: Backpressure.dropLatest)
   Stream<CameraFrame> get frames;
+
+  @NitroStream(backpressure: Backpressure.dropLatest)
+  Stream<CameraFrame> get coloredFrames;
 }

@@ -103,6 +103,8 @@ class _MyCameraImpl extends MyCamera {
   late final Pointer<Uint8> Function() _getAvailableDevicesPtr = _dylib.lookupFunction<Pointer<Uint8> Function(), Pointer<Uint8> Function()>('my_camera_get_available_devices');
   late final void Function(int) _registerFramesPtr = _dylib.lookupFunction<Void Function(Int64), void Function(int)>('my_camera_register_frames_stream');
   late final void Function(int) _releaseFramesPtr = _dylib.lookupFunction<Void Function(Int64), void Function(int)>('my_camera_release_frames_stream');
+  late final void Function(int) _registerColoredFramesPtr = _dylib.lookupFunction<Void Function(Int64), void Function(int)>('my_camera_register_colored_frames_stream');
+  late final void Function(int) _releaseColoredFramesPtr = _dylib.lookupFunction<Void Function(Int64), void Function(int)>('my_camera_release_colored_frames_stream');
   @override
   // ignore: unnecessary_overrides
   void dispose() {
@@ -138,6 +140,17 @@ class _MyCameraImpl extends MyCamera {
       register: (port) => _registerFramesPtr(port),
       unpack: (rawPtr) => Pointer<CameraFrameFfi>.fromAddress(rawPtr).ref.toDart(),
       release: (port) => _releaseFramesPtr(port),
+      backpressure: Backpressure.dropLatest,
+    );
+  }
+
+  @override
+  Stream<CameraFrame> get coloredFrames {
+    checkDisposed();
+    return NitroRuntime.openStream<CameraFrame>(
+      register: (port) => _registerColoredFramesPtr(port),
+      unpack: (rawPtr) => Pointer<CameraFrameFfi>.fromAddress(rawPtr).ref.toDart(),
+      release: (port) => _releaseColoredFramesPtr(port),
       backpressure: Backpressure.dropLatest,
     );
   }

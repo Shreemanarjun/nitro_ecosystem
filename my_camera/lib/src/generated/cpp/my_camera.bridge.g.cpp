@@ -123,6 +123,29 @@ JNIEXPORT void JNICALL Java_nitro_my_1camera_1module_MyCameraJniBridge_emit_1fra
     Dart_PostCObject_DL(dartPort, &obj);
 }
 
+void my_camera_register_colored_frames_stream(int64_t dart_port) {
+    JNIEnv* env = GetEnv();
+    if (env == nullptr) return;
+    jmethodID methodId = env->GetStaticMethodID(g_bridgeClass, "my_camera_register_colored_frames_stream_call", "(J)V");
+    if (methodId != nullptr) env->CallStaticVoidMethod(g_bridgeClass, methodId, dart_port);
+}
+
+void my_camera_release_colored_frames_stream(int64_t dart_port) {
+    JNIEnv* env = GetEnv();
+    if (env == nullptr) return;
+    jmethodID methodId = env->GetStaticMethodID(g_bridgeClass, "my_camera_release_colored_frames_stream_call", "(J)V");
+    if (methodId != nullptr) env->CallStaticVoidMethod(g_bridgeClass, methodId, dart_port);
+}
+
+JNIEXPORT void JNICALL Java_nitro_my_1camera_1module_MyCameraJniBridge_emit_1coloredFrames(JNIEnv* env, jobject thiz, jlong dartPort, jobject item) {
+    Dart_CObject obj;
+    CameraFrame* st_ptr = (CameraFrame*)malloc(sizeof(CameraFrame));
+    *st_ptr = pack_CameraFrame_from_jni(env, item);
+    obj.type = Dart_CObject_kInt64;
+    obj.value.as_int64 = (intptr_t)st_ptr;
+    Dart_PostCObject_DL(dartPort, &obj);
+}
+
 JNIEXPORT void JNICALL Java_nitro_my_1camera_1module_MyCameraJniBridge_initialize(JNIEnv* env, jobject thiz, jclass bridgeClass) {
     if (g_bridgeClass == nullptr) {
         g_bridgeClass = (jclass)env->NewGlobalRef(bridgeClass);
@@ -161,6 +184,22 @@ void my_camera_register_frames_stream(int64_t dart_port) {
 extern void _release_frames_stream(int64_t dart_port);
 void my_camera_release_frames_stream(int64_t dart_port) {
     _release_frames_stream(dart_port);
+}
+
+void _emit_coloredFrames_to_dart(int64_t dartPort, void* item) {
+    Dart_CObject obj;
+    obj.type = Dart_CObject_kInt64;
+    obj.value.as_int64 = (intptr_t)item;
+    Dart_PostCObject_DL(dartPort, &obj);
+}
+
+extern void _register_coloredFrames_stream(int64_t dartPort, void (*emitCb)(int64_t, void*));
+void my_camera_register_colored_frames_stream(int64_t dart_port) {
+    _register_coloredFrames_stream(dart_port, _emit_coloredFrames_to_dart);
+}
+extern void _release_coloredFrames_stream(int64_t dart_port);
+void my_camera_release_colored_frames_stream(int64_t dart_port) {
+    _release_coloredFrames_stream(dart_port);
 }
 
 } // extern "C"

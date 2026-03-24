@@ -21,6 +21,7 @@ interface HybridMyCameraSpec {
     suspend fun getGreeting(name: String): String
     suspend fun getAvailableDevices(): Any?
     val frames: Flow<CameraFrame>
+    val coloredFrames: Flow<CameraFrame>
 }
 
 @Keep
@@ -63,6 +64,19 @@ object MyCameraJniBridge {
         }
     }
     @JvmStatic fun my_camera_release_frames_stream_call(dartPort: Long) {
+        _streamJobs.remove(dartPort)?.cancel()
+    }
+    @JvmStatic external fun emit_coloredFrames(dartPort: Long, item: CameraFrame): Unit
+
+    @JvmStatic fun my_camera_register_colored_frames_stream_call(dartPort: Long) {
+        val impl = implementation ?: return
+        _streamJobs[dartPort] = CoroutineScope(Dispatchers.Default).launch {
+            impl.coloredFrames.collect { item -> 
+                emit_coloredFrames(dartPort, item)
+            }
+        }
+    }
+    @JvmStatic fun my_camera_release_colored_frames_stream_call(dartPort: Long) {
         _streamJobs.remove(dartPort)?.cancel()
     }
 }

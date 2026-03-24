@@ -190,6 +190,7 @@ public protocol HybridMyCameraProtocol: AnyObject {
     func getGreeting(name: String) async throws -> String
     func getAvailableDevices() async throws -> [CameraDevice]
     var frames: AnyPublisher<CameraFrame, Never> { get }
+    var coloredFrames: AnyPublisher<CameraFrame, Never> { get }
 }
 
 public class MyCameraRegistry {
@@ -201,6 +202,9 @@ public class MyCameraRegistry {
 
     // Stream: frames cancellables keyed by dartPort
     public static var _framesCancellables = [Int64: AnyCancellable]()
+
+    // Stream: coloredFrames cancellables keyed by dartPort
+    public static var _coloredFramesCancellables = [Int64: AnyCancellable]()
 }
 
 // MARK: - C bridge stubs — exported as C symbols called by the generated .cpp shim
@@ -255,4 +259,22 @@ public func _register_frames_stream(
 public func _release_frames_stream(_ dartPort: Int64) {
     MyCameraRegistry._framesCancellables[dartPort]?.cancel()
     MyCameraRegistry._framesCancellables.removeValue(forKey: dartPort)
+}
+@_cdecl("_register_coloredFrames_stream")
+public func _register_coloredFrames_stream(
+    _ dartPort: Int64,
+    _ emitCb: @convention(c) (Int64, UnsafeMutableRawPointer?) -> Void
+) {
+    MyCameraRegistry._coloredFramesCancellables[dartPort] =
+        MyCameraRegistry.impl?.coloredFrames.sink { item in
+            let ptr = UnsafeMutablePointer<CameraFrame>.allocate(capacity: 1)
+            ptr.initialize(to: item)
+            emitCb(dartPort, UnsafeMutableRawPointer(ptr))
+        }
+}
+
+@_cdecl("_release_coloredFrames_stream")
+public func _release_coloredFrames_stream(_ dartPort: Int64) {
+    MyCameraRegistry._coloredFramesCancellables[dartPort]?.cancel()
+    MyCameraRegistry._coloredFramesCancellables.removeValue(forKey: dartPort)
 }

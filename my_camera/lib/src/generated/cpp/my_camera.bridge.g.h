@@ -25,6 +25,9 @@ void* my_camera_get_available_devices(void);
 // Stream<CameraFrame> frames
 void my_camera_register_frames_stream(int64_t dart_port);
 void my_camera_release_frames_stream(int64_t dart_port);
+// Stream<CameraFrame> coloredFrames
+void my_camera_register_colored_frames_stream(int64_t dart_port);
+void my_camera_release_colored_frames_stream(int64_t dart_port);
 
 #ifdef __cplusplus
 }

@@ -46,6 +46,34 @@ class MyCameraImpl : HybridMyCameraSpec {
             delay(33)
         }
     }
+
+    override val coloredFrames: Flow<CameraFrame> = flow {
+        val width = 640L
+        val height = 480L
+        val bytesPerPixel = 4L
+        val stride = width * bytesPerPixel
+        val buffer = java.nio.ByteBuffer.allocateDirect((stride * height).toInt())
+        var frameCount = 0
+        while (true) {
+            val r = ((frameCount * 2) % 256).toByte()
+            val g = ((frameCount * 5) % 256).toByte()
+            val b = ((frameCount * 10) % 256).toByte()
+            val a = 255.toByte()
+
+            buffer.rewind()
+            for (i in 0 until (width * height).toInt()) {
+                buffer.put(r)
+                buffer.put(g)
+                buffer.put(b)
+                buffer.put(a)
+            }
+            
+            val tsNs = System.nanoTime()
+            emit(CameraFrame(buffer, width, height, stride, tsNs))
+            frameCount++
+            delay(33)
+        }
+    }
 }
 
 class ComplexImpl : HybridComplexModuleSpec {

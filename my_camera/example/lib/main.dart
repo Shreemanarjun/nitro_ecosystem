@@ -110,6 +110,51 @@ class _MyAppState extends State<MyApp> {
                   },
                 ),
               ),
+              const SizedBox(height: 24),
+              _buildSectionTitle('Colored Zero-Copy Stream'),
+              _buildCard(
+                child: StreamBuilder<CameraFrame>(
+                  stream: MyCamera.instance.coloredFrames,
+                  builder: (context, snapshot) {
+                    if (snapshot.hasError) return Text('Stream Error: ${snapshot.error}');
+                    if (!snapshot.hasData) return const Text('Waiting for colored frames...');
+                    final f = snapshot.data!;
+                    
+                    // Note: Native side fills this buffer with changing colors.
+                    // We can peek at the first pixel to show the current color.
+                    // Android: RGBA, iOS: BGRA
+                    final r = f.data[0];
+                    final g = f.data[1];
+                    final b = f.data[2];
+                    
+                    return Column(
+                      children: [
+                        Text('${f.width} × ${f.height}', style: const TextStyle(fontSize: 24, fontWeight: FontWeight.bold)),
+                        Text('Stride: ${f.stride} B'),
+                        const SizedBox(height: 12),
+                        Container(
+                          height: 80,
+                          width: double.infinity,
+                          decoration: BoxDecoration(
+                            // Just a visual representation of the "colored" aspect
+                            color: Color.fromARGB(255, r, g, b),
+                            borderRadius: BorderRadius.circular(12),
+                            boxShadow: [
+                              BoxShadow(color: Color.fromARGB(155, r, g, b), blurRadius: 15, spreadRadius: 2),
+                            ],
+                          ),
+                          child: const Center(
+                            child: Text(
+                              'ZERO-COPY BUFFER',
+                              style: TextStyle(fontWeight: FontWeight.w900, letterSpacing: 4, color: Colors.white, shadows: [Shadow(color: Colors.black, blurRadius: 4)]),
+                            ),
+                          ),
+                        ),
+                      ],
+                    );
+                  },
+                ),
+              ),
               const SizedBox(height: 40),
               const Center(
                 child: Text(
