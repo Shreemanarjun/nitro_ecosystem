@@ -1,3 +1,8 @@
+## 0.1.14
+
+- **Fix: lint — `link_command.dart`** — made private field `_failed` in `_LinkViewState` `final` (it is only initialised and never reassigned).
+- **Fix: lint — `link_command_test.dart`** — removed unused local variable `count` from the `placeholder contains only one NITRO_NATIVE line` test.
+
 ## 0.1.13
 
 - **`nitrogen generate`: automatic `pod install`** — after `build_runner` succeeds and generated Swift bridges are synced to `ios/Classes/`, the CLI now finds all `Podfile` locations (`ios/`, `example/ios/`, and any `*/ios/`) and runs `pod install` in each. This ensures the Xcode Pods project is always up-to-date after generation — no more stale module errors (`Use of undeclared identifier '…Plugin'`).

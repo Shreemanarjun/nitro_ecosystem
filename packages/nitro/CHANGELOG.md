@@ -1,3 +1,7 @@
+## 0.2.1
+
+- **Fix: lint — renamed local variable `_released` to `released`** in `NitroRuntime.openStream` — local variables must not start with an underscore (convention reserved for private class members).
+
 ## 0.2.0
 
 - **New: `RecordWriter` and `RecordReader` binary codec** — compact little-endian binary protocol for `@HybridRecord` types. Eliminates JSON text serialization in favour of sequential field reads/writes over a raw `uint8_t*` buffer.

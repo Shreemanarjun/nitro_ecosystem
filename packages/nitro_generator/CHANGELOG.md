@@ -1,3 +1,16 @@
+## 0.2.2
+
+- **Fix: `@HybridRecord` types not emitted in Kotlin bridge** — `RecordGenerator.generateKotlin()` is now implemented and called from `KotlinGenerator.generate()`. Previously, `@HybridRecord`-annotated classes (e.g. `CameraDevice`, `Resolution`) were missing from the generated `.bridge.g.kt` file, causing `Unresolved reference` compilation errors in Android builds.
+  - Generates `@Keep data class` for every `@HybridRecord` type with the correct Kotlin field types (`Long`, `Double`, `Boolean`, `String`, `List<T>`).
+  - Each class gets a companion `decode(ByteArray): T` method and an `encode(): ByteArray` method, using a little-endian `ByteBuffer` matching the Dart/Swift wire format.
+- **Fix: `_toKotlinType` now resolves `@HybridRecord` class names** — previously returned `Any?` for any record type, causing the generated interface and `_call` methods to use the wrong type. Now returns the real class name.
+- **Fix: lint — generated Dart code** — `dart_ffi_generator.dart` now emits:
+  - `rawResult` instead of `_rawResult` (local variables must not start with underscore).
+  - Braced for-loop bodies `{ stmt; }` instead of bare `stmt` in `record_generator.dart`.
+- **Fix: lint — `dart_ffi_generator.dart`** — removed three unused `recordListItem` local variable declarations and fixed unnecessary string interpolation `'$callExpr'` → `callExpr`.
+- **New: 28 regression tests** for `@HybridRecord` Kotlin bridge emission, covering data class declaration, field type mapping, `companion decode`, `encode`, list field handling, `_toKotlinType` resolution, interface/JniBridge integration, and non-record spec regression.
+- 254 passing tests.
+
 ## 0.2.1
 
 - **Fix: Swift stream emit for `@HybridStruct` items** — the generated `_register_*_stream` `@_cdecl` stub now heap-allocates the struct item and passes `UnsafeMutableRawPointer` to the emit callback instead of passing the Swift struct value directly. Previously this caused a Swift compiler error: `Cannot convert value of type 'T' to expected argument type 'UnsafeMutableRawPointer'` for any stream whose item type is a `@HybridStruct`.
