@@ -1,6 +1,7 @@
 import '../bridge_spec.dart';
 import 'struct_generator.dart';
 import 'enum_generator.dart';
+import 'record_generator.dart';
 
 class KotlinGenerator {
   static String generate(BridgeSpec spec) {
@@ -21,6 +22,9 @@ class KotlinGenerator {
 
     final kotlinStructs = StructGenerator.generateKotlin(spec);
     if (kotlinStructs.isNotEmpty) s.write(kotlinStructs);
+
+    final kotlinRecords = RecordGenerator.generateKotlin(spec);
+    if (kotlinRecords.isNotEmpty) s.write(kotlinRecords);
 
     // ── Interface ─────────────────────────────────────────────────────────
     s.writeln('/**');
@@ -201,6 +205,7 @@ class KotlinGenerator {
     }
     if (spec.enums.any((en) => en.name == name)) return name;
     if (spec.structs.any((st) => st.name == name)) return name;
+    if (spec.recordTypes.any((rt) => rt.name == name)) return name;
     return 'Any?';
   }
 }

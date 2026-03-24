@@ -557,6 +557,192 @@ void main() {
     });
   });
 
+  // ── @HybridRecord — Kotlin bridge emission ──────────────────────────────────
+  //
+  // Regression suite for the bug where @HybridRecord-annotated types were NOT
+  // emitted into the Kotlin bridge file (only structs and enums were emitted).
+  // Every test below would have FAILED before RecordGenerator.generateKotlin()
+  // was implemented and called from KotlinGenerator.generate().
+
+  group('@HybridRecord Kotlin bridge', () {
+    // ── data class declaration ────────────────────────────────────────────────
+
+    test('emits @Keep data class for each @HybridRecord type', () {
+      final out = KotlinGenerator.generate(_singleRecordSpec());
+      expect(out, contains('data class CameraDevice('));
+    });
+
+    test('data class is annotated with @androidx.annotation.Keep', () {
+      final out = KotlinGenerator.generate(_singleRecordSpec());
+      expect(out, contains('@androidx.annotation.Keep\ndata class CameraDevice('));
+    });
+
+    test('String field maps to Kotlin String', () {
+      final out = KotlinGenerator.generate(_singleRecordSpec());
+      expect(out, contains('val id: String'));
+      expect(out, contains('val name: String'));
+    });
+
+    test('bool field maps to Kotlin Boolean', () {
+      final out = KotlinGenerator.generate(_singleRecordSpec());
+      expect(out, contains('val isFrontFacing: Boolean'));
+    });
+
+    test('int field maps to Kotlin Long', () {
+      final out = KotlinGenerator.generate(_recordListSpec());
+      expect(out, contains('val width: Long'));
+      expect(out, contains('val height: Long'));
+    });
+
+    test('List<@HybridRecord> field maps to Kotlin List<RecordType>', () {
+      final out = KotlinGenerator.generate(_recordListSpec());
+      expect(out, contains('val resolutions: List<Resolution>'));
+    });
+
+    // ── companion object / decode ─────────────────────────────────────────────
+
+    test('data class has a companion object with decode()', () {
+      final out = KotlinGenerator.generate(_singleRecordSpec());
+      expect(out, contains('companion object {'));
+      expect(out, contains('fun decode(bytes: ByteArray): CameraDevice'));
+    });
+
+    test('decode skips 4-byte length prefix', () {
+      final out = KotlinGenerator.generate(_singleRecordSpec());
+      expect(out, contains('buf.position(4)'));
+    });
+
+    test('decode reads String fields with ByteBuffer', () {
+      final out = KotlinGenerator.generate(_singleRecordSpec());
+      // The string decode idiom uses buf.int + buf.get(b) + toString(Charsets.UTF_8)
+      expect(out, contains('Charsets.UTF_8'));
+    });
+
+    test('decode reads bool field as byte comparison', () {
+      final out = KotlinGenerator.generate(_singleRecordSpec());
+      expect(out, contains('buf.get().toInt() != 0'));
+    });
+
+    test('decode returns the constructed data class', () {
+      final out = KotlinGenerator.generate(_singleRecordSpec());
+      expect(out, contains('return CameraDevice('));
+    });
+
+    // ── encode ────────────────────────────────────────────────────────────────
+
+    test('data class has an encode() method returning ByteArray', () {
+      final out = KotlinGenerator.generate(_singleRecordSpec());
+      expect(out, contains('fun encode(): ByteArray'));
+    });
+
+    test('encode writes strings via writeString local helper', () {
+      final out = KotlinGenerator.generate(_singleRecordSpec());
+      expect(out, contains('writeString(id)'));
+      expect(out, contains('writeString(name)'));
+    });
+
+    test('encode writes bool via writeBool local helper', () {
+      final out = KotlinGenerator.generate(_singleRecordSpec());
+      expect(out, contains('writeBool(isFrontFacing)'));
+    });
+
+    test('encode prepends 4-byte little-endian length prefix', () {
+      final out = KotlinGenerator.generate(_singleRecordSpec());
+      expect(out, contains('lenBuf.putInt(payload.size)'));
+      expect(out, contains('return lenBuf.array() + payload'));
+    });
+
+    test('encode writes list size then each element for List<@HybridRecord>', () {
+      final out = KotlinGenerator.generate(_recordListSpec());
+      expect(out, contains('writeInt32(resolutions.size)'));
+      expect(out, contains('resolutions.forEach { out.write(it.encode()) }'));
+    });
+
+    // ── multiple record types — ordering & completeness ───────────────────────
+
+    test('all record types are emitted (Resolution AND CameraDevice)', () {
+      final out = KotlinGenerator.generate(_recordListSpec());
+      expect(out, contains('data class Resolution('));
+      expect(out, contains('data class CameraDevice('));
+    });
+
+    test('Resolution appears before CameraDevice in output (spec ordering)', () {
+      final out = KotlinGenerator.generate(_recordListSpec());
+      final resPos = out.indexOf('data class Resolution(');
+      final devPos = out.indexOf('data class CameraDevice(');
+      expect(resPos, lessThan(devPos));
+    });
+
+    test('record section header comment is emitted', () {
+      final out = KotlinGenerator.generate(_singleRecordSpec());
+      expect(out, contains('@HybridRecord Kotlin data classes'));
+    });
+
+    // ── _toKotlinType resolution ──────────────────────────────────────────────
+
+    test('record type name resolves correctly in interface (not Any?)', () {
+      // The interface should use the real class name, not Any?
+      final out = KotlinGenerator.generate(_singleRecordSpec());
+      expect(out, isNot(contains('fun setDevice(device: Any?)')));
+      expect(out, contains('fun setDevice(device: CameraDevice)'));
+    });
+
+    test('record return type in interface is the real class name (not Any?)', () {
+      final out = KotlinGenerator.generate(_singleRecordSpec());
+      expect(out, isNot(contains('fun getDevice(): Any?')));
+      // getDevice is async so suspend keyword is present
+      expect(out, contains('suspend fun getDevice(): CameraDevice'));
+    });
+
+    // ── JniBridge integration ─────────────────────────────────────────────────
+
+    test('JniBridge _call for record param uses the real class name', () {
+      final out = KotlinGenerator.generate(_singleRecordSpec());
+      expect(out, contains('fun setDevice_call(device: CameraDevice)'));
+    });
+
+    test('JniBridge _call for record return uses the real class name', () {
+      final out = KotlinGenerator.generate(_singleRecordSpec());
+      expect(out, contains('fun getDevice_call(): CameraDevice'));
+    });
+
+    // ── RecordGenerator.generateKotlin standalone ─────────────────────────────
+
+    test('RecordGenerator.generateKotlin returns empty string when no records', () {
+      final out = RecordGenerator.generateKotlin(_simpleSpec());
+      expect(out, isEmpty);
+    });
+
+    test('RecordGenerator.generateKotlin returns non-empty for record spec', () {
+      final out = RecordGenerator.generateKotlin(_singleRecordSpec());
+      expect(out, isNotEmpty);
+    });
+
+    test('RecordGenerator.generateKotlin output contains correct class name', () {
+      final out = RecordGenerator.generateKotlin(_singleRecordSpec());
+      expect(out, contains('CameraDevice'));
+    });
+
+    // ── No regression on non-record specs ────────────────────────────────────
+
+    test('simple spec (no records) still produces valid Kotlin bridge', () {
+      final out = KotlinGenerator.generate(_simpleSpec());
+      expect(out, contains('interface HybridMyCameraSpec'));
+      expect(out, contains('object MyCameraJniBridge'));
+      // Must NOT contain Any? for record types since there are none
+      expect(out, isNot(contains('// --- @HybridRecord')));
+    });
+
+    test('struct spec (no records) still emits struct data class, not record', () {
+      final out = KotlinGenerator.generate(_structStreamSpec());
+      expect(out, contains('data class CameraFrame('));
+      // Struct section header
+      expect(out, contains('// --- Structs ---'));
+      // Record section header must NOT appear (no record types in this spec)
+      expect(out, isNot(contains('@HybridRecord Kotlin data classes')));
+    });
+  });
+
   // ── CppBridgeGenerator ───────────────────────────────────────────────────────
 
   group('CppBridgeGenerator', () {
@@ -2484,7 +2670,7 @@ void main() {
 
     test('List<@HybridRecord> field uses for loop + writeFields in writeFields', () {
       final out = RecordGenerator.generateDartExtensions(_recordListSpec());
-      expect(out, contains('for (final e in resolutions) e.writeFields(w)'));
+      expect(out, contains('for (final e in resolutions) { e.writeFields(w); }'));
     });
 
     test('List<primitive String> field uses List.generate + readString', () {
@@ -2514,7 +2700,7 @@ void main() {
         out,
         contains('List.generate(r.readInt32(), (_) => r.readString())'),
       );
-      expect(out, contains('for (final e in modes) w.writeString(e)'));
+      expect(out, contains('for (final e in modes) { w.writeString(e); }'));
     });
 
     test('List<double> field uses List.generate + readDouble', () {
@@ -2544,7 +2730,7 @@ void main() {
         out,
         contains('List.generate(r.readInt32(), (_) => r.readDouble())'),
       );
-      expect(out, contains('for (final e in points) w.writeDouble(e)'));
+      expect(out, contains('for (final e in points) { w.writeDouble(e); }'));
     });
 
     test('multiple @HybridRecord types each get their own extension', () {

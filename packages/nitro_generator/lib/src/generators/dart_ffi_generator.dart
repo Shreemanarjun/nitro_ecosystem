@@ -127,7 +127,6 @@ class DartFfiGenerator {
 
       final rt = func.returnType.name;
       final isRecordReturn = func.returnType.isRecord;
-      final recordListItem = func.returnType.recordListItemType;
 
       String callExpr;
       if (needsArena) {
@@ -168,10 +167,10 @@ class DartFfiGenerator {
           if (isRecordReturn) {
             final params = func.params.map((p) => p.name).join(', ');
             s.writeln(
-              '    final _rawResult = await NitroRuntime.callAsync(_${func.dartName}Ptr, [$params]);',
+              '    final rawResult = await NitroRuntime.callAsync(_${func.dartName}Ptr, [$params]);',
             );
             s.writeln(
-              '    return ${_decodeRecordExpr(func.returnType, '_rawResult')};',
+              '    return ${_decodeRecordExpr(func.returnType, 'rawResult')};',
             );
           } else if (isStructReturn) {
             s.writeln(
@@ -194,7 +193,7 @@ class DartFfiGenerator {
         // Synchronous
         if (isRecordReturn) {
           s.writeln(
-            '    return ${_decodeRecordExpr(func.returnType, '$callExpr')};',
+            '    return ${_decodeRecordExpr(func.returnType, callExpr)};',
           );
         } else if (spec.enums.any((en) => en.name == rt)) {
           s.writeln('    return ($callExpr).to$rt();');
@@ -221,7 +220,6 @@ class DartFfiGenerator {
       final cap = _cap(prop.dartName);
       final rt = prop.type.name;
       final isRecordProp = prop.type.isRecord;
-      final recordListItem = prop.type.recordListItemType;
 
       if (prop.hasGetter) {
         s.writeln('  @override');
@@ -293,7 +291,6 @@ class DartFfiGenerator {
       final cap = _cap(stream.dartName);
       final itemType = stream.itemType.name;
       final isRecord = stream.itemType.isRecord;
-      final recordListItem = stream.itemType.recordListItemType;
       final isStruct = spec.structs.any((st) => st.name == itemType);
 
       final String unpackExpr;

@@ -519,7 +519,6 @@ endif()
 
     test('placeholder contains only one NITRO_NATIVE line', () {
       final out = cmakePlaceholder('my_plugin');
-      final count = 'NITRO_NATIVE'.allMatches(out).length;
       // Appears in set() line AND in target_include_directories — but only one set()
       final setCount = RegExp(r'set\(NITRO_NATIVE').allMatches(out).length;
       expect(setCount, equals(1));

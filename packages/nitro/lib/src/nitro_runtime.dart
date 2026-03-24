@@ -70,12 +70,12 @@ class NitroRuntime {
   }) {
     final receivePort = ReceivePort();
     final nativePort = receivePort.sendPort.nativePort;
-    var _released = false;
+    var released = false;
 
     // Idempotent release — safe to call from either onCancel or the finalizer.
     void doRelease() {
-      if (_released) return;
-      _released = true;
+      if (released) return;
+      released = true;
       release(nativePort);
       receivePort.close();
     }

@@ -79,7 +79,7 @@ extension CameraDeviceRecordExt on CameraDevice {
     w.writeString(id);
     w.writeString(name);
     w.writeInt32(resolutions.length);
-    for (final e in resolutions) e.writeFields(w);
+    for (final e in resolutions) { e.writeFields(w); }
     w.writeBool(isFrontFacing);
   }
 
@@ -129,8 +129,8 @@ class _MyCameraImpl extends MyCamera {
   @override
   Future<List<CameraDevice>> getAvailableDevices() async {
     checkDisposed();
-    final _rawResult = await NitroRuntime.callAsync(_getAvailableDevicesPtr, []);
-    return RecordReader.decodeList(_rawResult as Pointer<Uint8>, (r) => CameraDeviceRecordExt.fromReader(r));
+    final rawResult = await NitroRuntime.callAsync(_getAvailableDevicesPtr, []);
+    return RecordReader.decodeList(rawResult as Pointer<Uint8>, (r) => CameraDeviceRecordExt.fromReader(r));
   }
 
   @override
