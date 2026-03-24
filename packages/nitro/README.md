@@ -83,8 +83,8 @@ abstract class Math extends HybridObject {
 | `@nitroAsync` | method | Generated code dispatches call to a background isolate |
 | `@NitroStream(backpressure:)` | getter | Streams native events to Dart via `Dart_PostCObject` |
 | `@HybridStruct(zeroCopy:)` | class | Turns a Dart class into a C-struct with optional zero-copy fields |
-| `@HybridEnum(startValue:)` | enum | Maps a Dart enum to a C `int32` enum |
-| `@ZeroCopy` | parameter | Marks a `TypedData` param as a raw native pointer (no copy) |
+| `@HybridEnum(startValue:)` | enum | Maps a Dart enum to a C `int32_t` enum |
+| `@ZeroCopy` | parameter | Marks any `TypedData` param as a raw native pointer (no copy) |
 
 When a native method returns a large buffer (e.g. camera frame or audio samples), mark the class with `@HybridStruct` and list the `TypedData` fields that should be zero-copy:
 
@@ -273,7 +273,7 @@ public class MyPluginPlugin: NSObject, FlutterPlugin {
 | `double` | `double` | `Double` | `Double` |
 | `bool` | `int8_t` | `Boolean` | `Bool` |
 | `String` | `const char*` | `String` | `String` |
-| `Uint8List`, `Float32List`, ... | `T*` | `ByteArray`, `FloatArray`, ... | `Data`, `[Float]`, ... |
+| `Uint8List`, `Float32List`, ... | `T*` + `int64_t len` | `ByteArray`, `FloatArray`, ... | `Data`, `[Float]`, ... |
 | `TypedData` + `zeroCopy` | `T*` | `java.nio.ByteBuffer` | `UnsafeMutablePointer<T>?` |
 | `Future<T>` | N/A | `suspend fun` | `async throws` |
 | `Stream<T>` | SendPort reg. | `Flow<T>` | `AnyPublisher<T, Never>` |

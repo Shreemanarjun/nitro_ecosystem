@@ -11,8 +11,8 @@ two layers prevents the most common iOS crashes.
 Dart (dart:ffi)
       │  Pointer<Utf8>, Int64, Double, …
       ▼
-C++ bridge  (.bridge.g.cpp — #ifdef __APPLE__)
-      │  extern "C"  const char*, int64_t, double, …
+C++ bridge  (.bridge.g.mm — #ifdef __APPLE__)
+      │  extern "C"  const char*, int32_t, double, …
       ▼
 @_cdecl Swift function  (generated in .bridge.g.swift)
       │  UnsafePointer<CChar>?, Int64, Double, …  ← C-ABI types
@@ -34,8 +34,8 @@ natural Swift types used in your protocol implementation.
 | `int` | `int64_t` | `Int64` | `Int64` | `Int64` |
 | `bool` | `int8_t` | `Int8` | `Int8` | `Bool` |
 | `String` | `const char*` | `UnsafePointer<CChar>?` | `UnsafeMutablePointer<CChar>?` | `String` |
-| `Uint8List` | `uint8_t*` | `UnsafeMutablePointer<UInt8>?` | `UnsafeMutablePointer<UInt8>?` | `Data` |
-| `@HybridEnum` | `int64_t` | `Int64` | `Int64` | `Int64` |
+| `TypedData` | `T*` + `int64_t` | `UnsafeMutablePointer<T>?` | *(not a return type)* | `Data` or `[T]` |
+| `@HybridEnum` | `int32_t` | `Int32` | `Int32` | `Enum.rawValue` |
 | `@HybridStruct` | `void*` | *(not a param type)* | `UnsafeMutableRawPointer?` | struct value |
 | `void` | `void` | *(no param)* | `Void` | `Void` |
 
@@ -128,8 +128,36 @@ public func _call_get_enabled() -> Int8 {
     return (MyRegistry.impl?.enabled ?? false) ? 1 : 0
 }
 ```
-
 Your protocol implementation always uses `Bool` — the Int8 conversion is invisible.
+
+---
+
+## Typed Lists (`Float32List`, `Int32List`, etc.)
+
+Typed lists are bridged as a pair of a raw C pointer and an explicit `int64_t` length parameter.
+The Swift `@_cdecl` function receives the pointer and length, then reconstructs an
+`UnsafeBufferPointer` to create a native Swift array or `Data` object.
+
+| Dart type | C bridge params | `@_cdecl` Swift params | protocol / impl Swift |
+|---|---|---|---|
+| `Uint8List` | `uint8_t*, int64_t` | `UnsafeMutablePointer<UInt8>?, Int64` | `Data` |
+| `Float32List` | `float*, int64_t` | `UnsafeMutablePointer<Float>?, Int64` | `[Float]` |
+| `Int32List` | `int32_t*, int64_t` | `UnsafeMutablePointer<Int32>?, Int64` | `[Int32]` |
+
+```swift
+// @_cdecl layer — receives pointer and length
+@_cdecl("_call_processWeights")
+public func _call_processWeights(_ ptr: UnsafeMutablePointer<Float>?, _ len: Int64) {
+    guard let ptr = ptr else { return }
+    // Reconstruct buffer without copying
+    let buffer = UnsafeBufferPointer(start: ptr, count: Int(len))
+    let weights = Array(buffer)
+    MyRegistry.impl?.processWeights(weights)
+}
+```
+
+This ensures ABI safety. Swift's `[Float]` is a fat struct that cannot be passed directly
+from C; passing just the pointer would lose the length information.
 
 ---
 

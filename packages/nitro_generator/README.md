@@ -40,6 +40,7 @@ my_plugin.native.dart
         ├── my_plugin.g.dart          Dart FFI impl class
         ├── my_plugin.bridge.g.kt     Kotlin JNI bridge + spec interface
         ├── my_plugin.bridge.g.swift  Swift @_cdecl bridge + protocol
+        ├── my_plugin.bridge.g.mm     C++ JNI (Android) + Apple bridge (iOS)
         └── my_plugin.bridge.g.h      C header (extern "C" declarations)
 ```
 
@@ -261,6 +262,8 @@ The generator validates your spec before generating and will exit with helpful e
 | ERROR | `@NitroStream` getter does not return `Stream<T>` |
 | ERROR | Class does not extend `HybridObject` |
 | ERROR | `zeroCopy` field name in `@HybridStruct` does not match any declared field |
+| ERROR | Cyclic `@HybridStruct` dependency (cycle detected during gen) |
+| ERROR | `@HybridEnum` used in struct has mismatched underlying type |
 | WARNING | Large `@HybridStruct` returned synchronously — consider `@nitroAsync` |
 | WARNING | High-frequency stream with `String` item type — prefer `Uint8List` |
 

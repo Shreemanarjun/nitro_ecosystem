@@ -108,8 +108,8 @@ part 'my_sensor.g.dart';  // generated — do not create manually
 // Optional: zero-copy data struct
 @HybridStruct(zeroCopy: ['payload'])
 class SensorReading {
-  final Uint8List payload;   // zero-copy — points into native memory
-  final int length;          // byte count — auto-detected as length source
+  final Float32List weights; // zero-copy — all TypedData types supported
+  final int length;          // element count — auto-detected as length source
   final double temperature;
   final double humidity;
   final int timestampNs;
@@ -157,7 +157,7 @@ abstract class MySensor extends HybridObject {
 | `@HybridRecord` | class | Rich JSON-bridged record: nested objects, `List<T>`, nullable fields |
 | `@nitroAsync` | method | Dispatches call to background isolate; method must return `Future<T>` |
 | `@NitroStream(backpressure:)` | getter | Native push stream; getter must return `Stream<T>` |
-| `@ZeroCopy` | `Uint8List` param | Pass buffer as raw pointer without copying |
+| `@ZeroCopy` | `TypedData` param | Pass any typed list (Uint8List, Float32List, etc.) as raw pointer without copying |
 
 ### `@HybridStruct` vs `@HybridRecord` — which one?
 
@@ -166,6 +166,7 @@ abstract class MySensor extends HybridObject {
 | Field types | Primitives, `String`, `Uint8List`, other structs | Any: nested objects, `List<T>`, nullable |
 | Bridge | `struct*` pointer (~0 µs) | UTF-8 JSON string (~1–5 µs) |
 | Zero-copy buffers | Yes (`zeroCopy: ['field']`) | No |
+| Enum support | Yes (`@HybridEnum`) | No |
 | Use for | Camera frames, sensor readings at high Hz | Device lists, config, one-off complex data |
 
 **Use `@HybridStruct`** for data that flows at high frequency (stream items, realtime sensors).
@@ -179,11 +180,11 @@ abstract class MySensor extends HybridObject {
 | `double` | `double` | `Double` | `Double` |
 | `bool` | `int8_t` | `Boolean` | `Bool` |
 | `String` | `const char*` | `String` | `String` |
-| `Uint8List` | `uint8_t*` | `ByteArray` | `Data` |
+| `Uint8List`, `Int32List`, `Float32List`, etc. | `T*` + length | `ByteArray`, `IntArray`, `FloatArray`, … | `Data` or `[T]` |
 | `int?`, `double?`, `bool?`, `String?` | same + nullable semantics | same + `?` | same + `?` |
 | `Future<T>` | — | `suspend fun` | `async throws` |
 | `Stream<T>` | SendPort registration | `Flow<T>` | `AnyPublisher<T, Never>` |
-| `@HybridEnum` | `int64_t` | `Long` (via `.nativeValue`) | `Int64` rawValue |
+| `@HybridEnum` | `int32_t` | `Long` (via `.nativeValue`) | `Int32` rawValue |
 | `@HybridStruct` | `YourStruct*` | `@Keep data class` | `public struct` |
 | `@HybridRecord` | `const char*` (JSON) | `String` (JSON) | `String` (JSON) |
 | `List<@HybridRecord T>` | `const char*` (JSON array) | `String` (JSON) | `String` (JSON) |
@@ -196,9 +197,30 @@ abstract class MySensor extends HybridObject {
 > |---|---|---|
 > | `String` / `@HybridRecord` | `UnsafePointer<CChar>?` | `UnsafeMutablePointer<CChar>?` (malloc'd) |
 > | `Bool` | `Int8` | `Int8` |
+> | `@HybridEnum` | `Int32` | `Int32` |
 >
 > This is handled entirely by the generator.
 > Full details: **[docs/swift-type-mapping.md](swift-type-mapping.md)**
+
+### Zero-copy Buffer Helpers
+
+When handling raw native memory directly from C/Swift/Kotlin, the `nitro` package provides
+`ZeroCopyBuffer` helpers for all `TypedData` types. Each uses a `Finalizer` to ensure
+the native memory is released when the Dart object is GC'd.
+
+| Helper Class | Native Type | Dart View |
+|---|---|---|
+| `ZeroCopyBuffer` | `uint8_t*` | `Uint8List` |
+| `ZeroCopyFloat32Buffer` | `float*` | `Float32List` |
+| `ZeroCopyInt64Buffer` | `int64_t*` | `Int64List` |
+| *(and others)* | *(Int8, Int16, Uint16, etc)* | *(matching lists)* |
+
+```dart
+// Explicit release (optional, otherwise handled by GC)
+final buffer = ZeroCopyFloat32Buffer(ptr, length, () => free(ptr));
+final weights = buffer.floats; // zero-copy view
+buffer.release();
+```
 
 ---
 
@@ -321,7 +343,7 @@ lib/src/my_sensor.g.dart                              Dart FFI implementation
 lib/src/generated/kotlin/my_sensor.bridge.g.kt        Kotlin JNI bridge + HybridMySensorSpec interface
 lib/src/generated/swift/my_sensor.bridge.g.swift      Swift @_cdecl bridge + HybridMySensorProtocol
 lib/src/generated/cpp/my_sensor.bridge.g.h            C header (extern "C" declarations)
-lib/src/generated/cpp/my_sensor.bridge.g.cpp          C++ JNI impl (Android) + Apple bridge (iOS)
+lib/src/generated/cpp/my_sensor.bridge.g.mm           C++ JNI impl (Android) + Apple bridge (iOS)
 lib/src/generated/cmake/my_sensor.CMakeLists.g.txt    CMake fragment for Android
 ```
 
@@ -603,7 +625,7 @@ Checking my_sensor...
   ✔  lib/src/generated/kotlin/my_sensor.bridge.g.kt
   ✔  lib/src/generated/swift/my_sensor.bridge.g.swift
   ✔  lib/src/generated/cpp/my_sensor.bridge.g.h
-  ✔  lib/src/generated/cpp/my_sensor.bridge.g.cpp
+  ✔  lib/src/generated/cpp/my_sensor.bridge.g.mm
   ✔  lib/src/generated/cmake/my_sensor.CMakeLists.g.txt
 
 Checking CMakeLists.txt...

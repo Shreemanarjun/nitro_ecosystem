@@ -1,34 +1,19 @@
-## 0.1.16
-
-- **Fix: zero-copy `@HybridStruct` JNI bridging for all TypedData types** — three JNI bugs fixed in `pack_from_jni` / `unpack_to_jni` helpers for struct fields marked `@zeroCopy`:
-  1. Wrong JNI field descriptor: used `"Ljava/lang/Object;"` for all typed-data fields; now correctly uses `"Ljava/nio/ByteBuffer;"`.
-  2. Wrong C element cast: `GetDirectBufferAddress` (returns `void*`) was assigned without a cast; now emits the correct element pointer cast (`float*`, `int32_t*`, `double*`, etc.) per TypedData type.
-  3. Wrong byte count in `NewDirectByteBuffer`: passed element count instead of byte count; now multiplies by `sizeof(T)` for multi-byte element types (e.g. `st->length * sizeof(float)` for Float32List); 1-byte types (Uint8List, Int8List) need no multiplication.
-- **New: `ZeroCopyFloat32Buffer` and all typed zero-copy buffer classes** — `ffi_utils.dart` now exports `ZeroCopyInt8Buffer`, `ZeroCopyInt16Buffer`, `ZeroCopyUint16Buffer`, `ZeroCopyInt32Buffer`, `ZeroCopyUint32Buffer`, `ZeroCopyFloat32Buffer`, `ZeroCopyFloat64Buffer`, and `ZeroCopyInt64Buffer`, each with a `Finalizer`-based GC hook. Previously only `ZeroCopyBuffer` (Uint8List) existed.
-- **Fix: `BridgeType.isTypedData` now covers `Int64List` and `Uint64List`** — these two types were missing from the `isTypedData` getter, causing them to fall through to the wrong code paths in all generators.
-- **`SpecValidator`: cyclic `@HybridStruct` dependency detection** — DFS cycle detection now reports `CYCLIC_STRUCT` errors with the full cycle path and a hint to break the cycle using `@HybridRecord` (heap-allocated, JSON-bridged). Cycles are deduplicated so the same cycle is reported only once.
-- **`SpecValidator` + all generators: `@HybridEnum` usable as `@HybridStruct` field type** — enum fields are now valid in structs; in C they map to `int32_t`, in Dart FFI to `@Int32() int`, in Kotlin to `Long`, and in Swift to the enum type name. Conversion uses existing `.nativeValue` / `.toEnumName()` extensions.
-- **Tests** — added `nitro_generator/test/zero_copy_typed_test.dart` (83 tests) covering all 10 TypedData types for JNI descriptor correctness, element casts, byte counts, the `sizeof` suffix, and the length-field heuristic; and `nitro_generator/test/spec_validator_expansion_test.dart` (26 tests) covering cyclic struct detection and enum-as-struct-field across all generators.
-
-## 0.1.15
-
-- **Fix: iOS bridge files renamed `.bridge.g.cpp` → `.bridge.g.mm`** — `nitrogen link` now copies bridge files to `ios/Classes/` with a `.mm` extension so Xcode compiles them as Objective-C++. Without this, `__OBJC__` is never defined in pure C++ compilation units, making the `#ifdef __OBJC__ @try/@catch (NSException*)` blocks dead code — native Swift exceptions (e.g. `NSException.raise`) propagate uncaught through the C++ stack and crash the app instead of being caught and re-thrown as Dart errors. Any stale `.bridge.g.cpp` files in `ios/Classes/` are deleted on each `nitrogen link` run.
-- **Fix: `NSException.raise` in generated Swift bridge** — `VerificationImpl.throwError` (and equivalents) now raises a catchable `NSException` instead of calling `fatalError`, which is unrecoverable and bypasses the C++ exception barrier entirely.
-- **Fix: typed-list (`Float32List` etc.) parameter bridging** — generator now emits a companion `int64_t <name>_length` parameter at every layer (C header, C bridge, Dart FFI type, Dart FFI call args, Swift `@_cdecl` signature, Swift body). The Swift `@_cdecl` function receives `UnsafeMutablePointer<Float>?` (C-ABI compatible) instead of `[Float]` (a Swift struct, not ABI-safe), and reconstructs the array via `UnsafeBufferPointer`. Previously passing a `Float32List` caused immediate memory corruption and crash.
-- **`nitrogen doctor`: 3 new iOS checks** — `ios/Classes/nitro.h present`, stale `*.bridge.g.cpp` files detected (error with hint), and `.bridge.g.mm` file count verified (warn if missing after `nitrogen link`).
-- **Tests** — added `test/doctor_command_test.dart` (10 tests) and `packages/nitro_generator/test/typed_list_bridge_test.dart` (32+ tests) covering all new generator behaviours and doctor checks.
-
-## 0.1.14
-
-- **Fix: lint — `link_command.dart`** — made private field `_failed` in `_LinkViewState` `final` (it is only initialised and never reassigned).
-- **Fix: lint — `link_command_test.dart`** — removed unused local variable `count` from the `placeholder contains only one NITRO_NATIVE line` test.
-
 ## 0.1.13
 
-- **`nitrogen generate`: automatic `pod install`** — after `build_runner` succeeds and generated Swift bridges are synced to `ios/Classes/`, the CLI now finds all `Podfile` locations (`ios/`, `example/ios/`, and any `*/ios/`) and runs `pod install` in each. This ensures the Xcode Pods project is always up-to-date after generation — no more stale module errors (`Use of undeclared identifier '…Plugin'`).
-- **`nitrogen generate`: sync Swift bridges to `ios/Classes/`** — every `*.bridge.g.swift` generated under `lib/**/generated/swift/` is automatically copied to `ios/Classes/` so CocoaPods always picks up the freshly generated bridge without manual file management.
-- **`nitrogen doctor`: iOS FFI plugin check fixed** — the `ios pluginClass` check no longer errors for pure FFI plugins. If `ffiPlugin: true` is present under `ios:` without a `pluginClass`, the check passes with an informational message. An error is only emitted when neither `pluginClass` nor `ffiPlugin: true` is set.
-- **`nitrogen link`: next-steps hint updated** — the post-link next-steps now include `cd example/ios && pod install` as a reminder.
+- **Full Zero-Copy TypedData Support**:
+  - Fixed JNI bridging for `@HybridStruct` (descriptors, casts, and byte counts).
+  - Added `ZeroCopyBuffer` variants for ALL TypedData types with GC finalizers.
+  - `Int64List` and `Uint64List` are now correctly handled in all generators.
+- **iOS & Swift Safety**:
+  - Renamed bridge files to `.bridge.g.mm` to enable Objective-C++ exception handling.
+  - Fixed memory corruption when passing typed lists (`Float32List`, etc.) by using ABI-safe pointers and companion length parameters.
+  - Replaced `fatalError` with catchable `NSException.raise` for bridge validation errors.
+- **CLI Workflow & Tooling**:
+  - `nitrogen generate` now automatically syncs Swift bridges to `ios/Classes/` and runs `pod install`.
+  - Added new `nitrogen doctor` checks for iOS project health and FFI plugin configuration.
+  - Stale bridge files are now automatically cleaned up during `link`.
+- **Generator Enhancements**: Added cyclic dependency detection in structs and support for `@HybridEnum` as struct fields.
+- **Testing & Quality**: Added 150+ new tests covering zero-copy TypedData, cyclic dependencies, and bridge safety. Fixed minor TUI lints and improved CLI feedback.
 
 ## 0.1.12
 - Fix static version in `lib/version.dart`
