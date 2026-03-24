@@ -3,15 +3,46 @@ import 'dart:ffi';
 import 'dart:io';
 import 'dart:isolate';
 import 'annotations.dart';
+import 'isolate_pool.dart';
+import 'nitro_config.dart';
+
+export 'nitro_config.dart';
+
+// ── Internal logger helper ────────────────────────────────────────────────────
+
+void _log(
+  NitroLogLevel level,
+  String tag,
+  String message, [
+  Object? error,
+  StackTrace? stack,
+]) {
+  final cfg = NitroConfig.instance;
+  final effective = cfg.effectiveLogLevel;
+  if (effective == NitroLogLevel.none) return;
+
+  final levelRank = NitroLogLevel.values.indexOf(level);
+  final effectiveRank = NitroLogLevel.values.indexOf(effective);
+  if (levelRank > effectiveRank) return;
+
+  cfg.logHandler(level, tag, message, error, stack);
+}
+
+// ── NitroRuntime ──────────────────────────────────────────────────────────────
 
 /// The runtime is called only by generated code.
-/// Plugin authors and app developers never call it directly.
+/// Plugin authors and app developers interact with [NitroConfig] instead.
 class NitroRuntime {
   static final Map<String, DynamicLibrary> _libCache = {};
+  static IsolatePool? _pool;
+  static bool _poolReady = false;
+
+  // ── Library loading ──────────────────────────────────────────────────────
 
   static DynamicLibrary loadLib(String libName) {
     if (_libCache.containsKey(libName)) return _libCache[libName]!;
 
+    _log(NitroLogLevel.verbose, 'loadLib', 'Loading native lib: $libName');
     late DynamicLibrary lib;
     if (Platform.isIOS || Platform.isMacOS) {
       lib = DynamicLibrary.process();
@@ -24,22 +55,76 @@ class NitroRuntime {
     }
 
     _libCache[libName] = lib;
+    _log(NitroLogLevel.verbose, 'loadLib', 'Loaded: $libName');
     return lib;
   }
 
+  // ── Synchronous call ─────────────────────────────────────────────────────
+
   /// Calls a native function synchronously.
   static T callSync<T>(Function fn, List<Object?> args) {
+    if (NitroConfig.instance.effectiveLogLevel == NitroLogLevel.verbose) {
+      final sw = Stopwatch()..start();
+      final result = Function.apply(fn, args) as T;
+      sw.stop();
+      _log(
+        NitroLogLevel.verbose,
+        'callSync',
+        'call completed in ${sw.elapsedMicroseconds} µs',
+      );
+      return result;
+    }
     return Function.apply(fn, args) as T;
   }
 
+  // ── Async call via isolate pool ──────────────────────────────────────────
+
   /// Calls a native function on a background isolate.
+  ///
+  /// When [NitroConfig.instance.isolatePoolSize] is `0`, falls back to
+  /// spawning a fresh [Isolate] per call (legacy behaviour).
+  /// Otherwise dispatches to the pre-warmed [IsolatePool].
   static Future<T> callAsync<T>(Function fn, List<Object?> args) async {
-    // Isolate.run is available in Dart 2.19+ and is very efficient.
-    // Native function pointers (from lookupFunction) are sendable.
-    return Isolate.run(() {
-      return Function.apply(fn, args) as T;
-    });
+    final cfg = NitroConfig.instance;
+    final poolSize = cfg.isolatePoolSize;
+    final effective = cfg.effectiveLogLevel;
+    // Only pay for timing when there's somewhere to send the result.
+    final sw = effective != NitroLogLevel.none &&
+            (effective == NitroLogLevel.verbose || cfg.slowCallThresholdUs > 0)
+        ? (Stopwatch()..start())
+        : null;
+
+    final T result;
+    if (poolSize <= 0 || !_poolReady) {
+      // Legacy: spawn a fresh isolate per call.
+      _log(NitroLogLevel.verbose, 'callAsync', 'dispatching via Isolate.run');
+      result = await Isolate.run(() => Function.apply(fn, args) as T);
+    } else {
+      _log(
+        NitroLogLevel.verbose,
+        'callAsync',
+        'dispatching via pool (size=$poolSize)',
+      );
+      result = await _pool!.dispatch<T>(fn, args);
+    }
+
+    if (sw != null) {
+      sw.stop();
+      final us = sw.elapsedMicroseconds;
+      _log(NitroLogLevel.verbose, 'callAsync', 'completed in $us µs');
+      if (cfg.slowCallThresholdUs > 0 && us > cfg.slowCallThresholdUs) {
+        _log(
+          NitroLogLevel.warning,
+          'callAsync',
+          'slow call detected: $us µs > threshold ${cfg.slowCallThresholdUs} µs',
+        );
+      }
+    }
+
+    return result;
   }
+
+  // ── Stream ───────────────────────────────────────────────────────────────
 
   /// Opens a high-performance stream from a native event source.
   /// Uses a [ReceivePort] for direct native-to-Dart posting (Dart_PostCObject).
@@ -67,35 +152,67 @@ class NitroRuntime {
     required T Function(dynamic message) unpack,
     required void Function(int dartPort) release,
     required Backpressure backpressure,
+
+    /// Optional tag used in log messages to identify this stream.
+    /// Defaults to `'Stream<$T>'`.
+    String? debugLabel,
   }) {
+    final label = debugLabel ?? 'Stream<$T>';
     final receivePort = ReceivePort();
     final nativePort = receivePort.sendPort.nativePort;
     var released = false;
+    var eventCount = 0;
+
+    _log(NitroLogLevel.verbose, label, 'opening (port=$nativePort)');
 
     // Idempotent release — safe to call from either onCancel or the finalizer.
     void doRelease() {
       if (released) return;
       released = true;
+      _log(
+        NitroLogLevel.verbose,
+        label,
+        'releasing (port=$nativePort, events=$eventCount)',
+      );
       release(nativePort);
       receivePort.close();
     }
 
     final controller = StreamController<T>(
-      onListen: () => register(nativePort),
+      onListen: () {
+        _log(NitroLogLevel.verbose, label, 'listener attached — registering');
+        register(nativePort);
+      },
       onCancel: doRelease,
     );
 
-    // Safety net: if the StreamController is GC'd without cancel() being called
-    // (abandoned subscription, hot-restart mid-listen), doRelease still fires
-    // so the native emitter stops and the ReceivePort is freed.
+    // Safety net: if the StreamController is GC'd without cancel() being
+    // called (abandoned subscription, hot-restart mid-listen), doRelease still
+    // fires so the native emitter stops and the ReceivePort is freed.
     _streamFinalizer.attach(controller, doRelease, detach: controller);
 
     receivePort.listen((dynamic message) {
       if (controller.isClosed) return;
       try {
-        controller.add(unpack(message));
-      } catch (e) {
-        controller.addError(e);
+        final item = unpack(message);
+        eventCount++;
+        _log(
+          NitroLogLevel.verbose,
+          label,
+          'event #$eventCount unpacked',
+        );
+        controller.add(item);
+      } catch (e, st) {
+        // Log at error level regardless of debugMode so unpack failures
+        // are never silently swallowed.
+        _log(
+          NitroLogLevel.error,
+          label,
+          'unpack failed on event #${eventCount + 1} — forwarding error to stream',
+          e,
+          st,
+        );
+        controller.addError(e, st);
       }
     });
 
@@ -108,11 +225,50 @@ class NitroRuntime {
     (doRelease) => doRelease(),
   );
 
-  static Future<void> init({int minIsolates = 1}) async {
-    // Pre-warm isolate pool if needed
+  // ── Lifecycle ────────────────────────────────────────────────────────────
+
+  /// Initialises the runtime.  Call once in `main()` before using any plugin.
+  ///
+  /// ```dart
+  /// await NitroRuntime.init();
+  /// // or with pool pre-warming:
+  /// NitroConfig.instance.isolatePoolSize = 4;
+  /// await NitroRuntime.init();
+  /// ```
+  static Future<void> init({int? isolatePoolSize}) async {
+    final cfg = NitroConfig.instance;
+    if (isolatePoolSize != null) cfg.isolatePoolSize = isolatePoolSize;
+
+    final poolSize = cfg.isolatePoolSize;
+    if (poolSize > 0) {
+      _log(
+        NitroLogLevel.verbose,
+        'init',
+        'spawning isolate pool (size=$poolSize)…',
+      );
+      _pool = await IsolatePool.create(poolSize);
+      _poolReady = true;
+      _log(NitroLogLevel.verbose, 'init', 'pool ready');
+    } else {
+      _log(
+        NitroLogLevel.verbose,
+        'init',
+        'pool disabled (isolatePoolSize=0) — using Isolate.run per call',
+      );
+    }
   }
 
+  /// Tears down the runtime.  Disposes the isolate pool and clears the lib
+  /// cache.  After calling this, [init] must be called again before using
+  /// any plugin.
   static Future<void> dispose() async {
+    if (_poolReady) {
+      _log(NitroLogLevel.verbose, 'dispose', 'shutting down isolate pool');
+      _pool?.dispose();
+      _pool = null;
+      _poolReady = false;
+    }
     _libCache.clear();
+    _log(NitroLogLevel.verbose, 'dispose', 'done');
   }
 }

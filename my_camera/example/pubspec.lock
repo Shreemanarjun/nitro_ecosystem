@@ -145,14 +145,14 @@ packages:
       path: ".."
       relative: true
     source: path
-    version: "0.0.1"
+    version: "0.0.2"
   nitro:
-    dependency: transitive
+    dependency: "direct main"
     description:
       path: "../../packages/nitro"
       relative: true
     source: path
-    version: "0.2.0"
+    version: "0.2.2"
   path:
     dependency: transitive
     description:
