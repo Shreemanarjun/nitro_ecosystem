@@ -4,7 +4,7 @@ import Combine
 
 // --- Structs ---
 public struct FloatBuffer {
-  public var data: [Float]
+  public var data: UnsafeMutablePointer<Float>?
   public var length: Int64
 }
 

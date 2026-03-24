@@ -20,9 +20,15 @@ public class VerificationModuleImpl: NSObject, HybridVerificationModuleProtocol 
     }
 
     public func processFloats(inputs: [Float]) -> FloatBuffer {
-        let result = inputs.map { $0 * 2.0 }
-        // We need to pass the count.
-        // Since my bridge will toNative() this FloatBuffer.
-        return FloatBuffer(data: result, length: Int64(result.count))
+        let count = inputs.count
+        // Allocate a C-owned float* buffer and copy the doubled values in.
+        // The caller (Dart side, via ZeroCopyFloat32Buffer) reads this pointer
+        // zero-copy via asTypedList(); memory is owned by this buffer until
+        // the FloatBuffer struct is freed by the C bridge.
+        let ptr = UnsafeMutablePointer<Float>.allocate(capacity: max(count, 1))
+        for (i, v) in inputs.enumerated() {
+            ptr[i] = v * 2.0
+        }
+        return FloatBuffer(data: ptr, length: Int64(count))
     }
 }

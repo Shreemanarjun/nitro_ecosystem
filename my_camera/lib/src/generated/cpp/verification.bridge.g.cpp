@@ -61,16 +61,17 @@ static void nitro_report_jni_exception(JNIEnv* env, jthrowable ex) {
 static FloatBuffer pack_FloatBuffer_from_jni(JNIEnv* env, jobject obj) {
     FloatBuffer result;
     jclass cls = env->GetObjectClass(obj);
-    jfieldID fid_data = env->GetFieldID(cls, "data", "Ljava/lang/Object;");
-    result.data = env->GetObjectField(obj, fid_data);
+    jfieldID fid_data = env->GetFieldID(cls, "data", "Ljava/nio/ByteBuffer;");
+    jobject buf_data = env->GetObjectField(obj, fid_data);
+    result.data = (float*)env->GetDirectBufferAddress(buf_data);
     jfieldID fid_length = env->GetFieldID(cls, "length", "J");
     result.length = env->GetLongField(obj, fid_length);
     return result;
 }
 static jobject unpack_FloatBuffer_to_jni(JNIEnv* env, const FloatBuffer* st) {
     jclass cls = env->FindClass("nitro/verification_module/FloatBuffer");
-    jmethodID ctor = env->GetMethodID(cls, "<init>", "(Ljava/lang/Object;J)V");
-    return env->NewObject(cls, ctor, (jobject)st->data, (jlong)st->length);
+    jmethodID ctor = env->GetMethodID(cls, "<init>", "(Ljava/nio/ByteBuffer;J)V");
+    return env->NewObject(cls, ctor, env->NewDirectByteBuffer((void*)st->data, st->length * sizeof(float)), (jlong)st->length);
 }
 
 extern "C" {

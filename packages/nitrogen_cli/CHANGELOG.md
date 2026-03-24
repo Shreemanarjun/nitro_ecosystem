@@ -1,3 +1,15 @@
+## 0.1.16
+
+- **Fix: zero-copy `@HybridStruct` JNI bridging for all TypedData types** — three JNI bugs fixed in `pack_from_jni` / `unpack_to_jni` helpers for struct fields marked `@zeroCopy`:
+  1. Wrong JNI field descriptor: used `"Ljava/lang/Object;"` for all typed-data fields; now correctly uses `"Ljava/nio/ByteBuffer;"`.
+  2. Wrong C element cast: `GetDirectBufferAddress` (returns `void*`) was assigned without a cast; now emits the correct element pointer cast (`float*`, `int32_t*`, `double*`, etc.) per TypedData type.
+  3. Wrong byte count in `NewDirectByteBuffer`: passed element count instead of byte count; now multiplies by `sizeof(T)` for multi-byte element types (e.g. `st->length * sizeof(float)` for Float32List); 1-byte types (Uint8List, Int8List) need no multiplication.
+- **New: `ZeroCopyFloat32Buffer` and all typed zero-copy buffer classes** — `ffi_utils.dart` now exports `ZeroCopyInt8Buffer`, `ZeroCopyInt16Buffer`, `ZeroCopyUint16Buffer`, `ZeroCopyInt32Buffer`, `ZeroCopyUint32Buffer`, `ZeroCopyFloat32Buffer`, `ZeroCopyFloat64Buffer`, and `ZeroCopyInt64Buffer`, each with a `Finalizer`-based GC hook. Previously only `ZeroCopyBuffer` (Uint8List) existed.
+- **Fix: `BridgeType.isTypedData` now covers `Int64List` and `Uint64List`** — these two types were missing from the `isTypedData` getter, causing them to fall through to the wrong code paths in all generators.
+- **`SpecValidator`: cyclic `@HybridStruct` dependency detection** — DFS cycle detection now reports `CYCLIC_STRUCT` errors with the full cycle path and a hint to break the cycle using `@HybridRecord` (heap-allocated, JSON-bridged). Cycles are deduplicated so the same cycle is reported only once.
+- **`SpecValidator` + all generators: `@HybridEnum` usable as `@HybridStruct` field type** — enum fields are now valid in structs; in C they map to `int32_t`, in Dart FFI to `@Int32() int`, in Kotlin to `Long`, and in Swift to the enum type name. Conversion uses existing `.nativeValue` / `.toEnumName()` extensions.
+- **Tests** — added `nitro_generator/test/zero_copy_typed_test.dart` (83 tests) covering all 10 TypedData types for JNI descriptor correctness, element casts, byte counts, the `sizeof` suffix, and the length-field heuristic; and `nitro_generator/test/spec_validator_expansion_test.dart` (26 tests) covering cyclic struct detection and enum-as-struct-field across all generators.
+
 ## 0.1.15
 
 - **Fix: iOS bridge files renamed `.bridge.g.cpp` → `.bridge.g.mm`** — `nitrogen link` now copies bridge files to `ios/Classes/` with a `.mm` extension so Xcode compiles them as Objective-C++. Without this, `__OBJC__` is never defined in pure C++ compilation units, making the `#ifdef __OBJC__ @try/@catch (NSException*)` blocks dead code — native Swift exceptions (e.g. `NSException.raise`) propagate uncaught through the C++ stack and crash the app instead of being caught and re-thrown as Dart errors. Any stale `.bridge.g.cpp` files in `ios/Classes/` are deleted on each `nitrogen link` run.

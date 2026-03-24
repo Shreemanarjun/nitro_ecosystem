@@ -10,7 +10,7 @@ import kotlinx.coroutines.runBlocking
 
 // --- Structs ---
 @Keep
-data class FloatBuffer(val data: FloatArray, val length: Long)
+data class FloatBuffer(val data: java.nio.ByteBuffer, val length: Long)
 
 /**
  * Contract for the [VerificationModule] module.

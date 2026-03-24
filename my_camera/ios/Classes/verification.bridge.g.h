@@ -8,7 +8,7 @@
 
 // --- Structs ---
 typedef struct {
-  float* data; 
+  float* data; /* zero-copy */
   int64_t length; 
 } FloatBuffer;
 

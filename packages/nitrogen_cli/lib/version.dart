@@ -3,7 +3,7 @@ import 'dart:io';
 /// The hardcoded baseline version.
 /// In a true "automatic" setup, this could be updated by a build script,
 /// but here we use it as a fallback if pubspec detection fails.
-const String nitrogenVersion = '0.1.15';
+const String nitrogenVersion = '0.1.16';
 
 /// Dynamically resolves the version of nitrogen from its own pubspec.yaml.
 /// This works even when globally activated by looking near the script file.
