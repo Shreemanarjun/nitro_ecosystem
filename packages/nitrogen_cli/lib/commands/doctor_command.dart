@@ -316,7 +316,7 @@ class DoctorCommand extends Command {
     }
 
     // ── pubspec.yaml ───────────────────────────────────────────────────────
-    const pubSec = DoctorSection('pubspec.yaml', []);
+    final pubSec = DoctorSection('pubspec.yaml', []);
     sections.add(pubSec);
     final pubspec = pubspecFile.readAsStringSync();
 
@@ -360,7 +360,7 @@ class DoctorCommand extends Command {
 
     // ── Generated files ────────────────────────────────────────────────────
     if (specs.isNotEmpty) {
-      const genSec = DoctorSection('Generated Files', []);
+      final genSec = DoctorSection('Generated Files', []);
       sections.add(genSec);
       for (final spec in specs) {
         final stem = p.basename(spec.path).replaceAll(RegExp(r'\.native\.dart$'), '');
@@ -379,13 +379,13 @@ class DoctorCommand extends Command {
         }
       }
     } else {
-      const genSec = DoctorSection('Generated Files', []);
+      final genSec = DoctorSection('Generated Files', []);
       sections.add(genSec);
       warn(genSec, 'No *.native.dart specs found under lib/', hint: 'Create lib/src/<name>.native.dart');
     }
 
     // ── CMakeLists.txt ─────────────────────────────────────────────────────
-    const cmakeSec = DoctorSection('CMakeLists.txt', []);
+    final cmakeSec = DoctorSection('CMakeLists.txt', []);
     sections.add(cmakeSec);
     final cmakeFile = File(p.join('src', 'CMakeLists.txt'));
     if (!cmakeFile.existsSync()) {
@@ -414,7 +414,7 @@ class DoctorCommand extends Command {
     }
 
     // ── Android ────────────────────────────────────────────────────────────
-    const androidSec = DoctorSection('Android', []);
+    final androidSec = DoctorSection('Android', []);
     sections.add(androidSec);
     if (!Directory('android').existsSync()) {
       info(androidSec, 'android/ directory not present — skipped');
@@ -470,7 +470,7 @@ class DoctorCommand extends Command {
     }
 
     // ── iOS ────────────────────────────────────────────────────────────────
-    const iosSec = DoctorSection('iOS', []);
+    final iosSec = DoctorSection('iOS', []);
     sections.add(iosSec);
     if (!Directory('ios').existsSync()) {
       info(iosSec, 'ios/ directory not present — skipped');
