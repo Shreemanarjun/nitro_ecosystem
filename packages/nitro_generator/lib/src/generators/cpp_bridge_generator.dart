@@ -19,12 +19,12 @@ class CppBridgeGenerator {
     s.writeln('}');
     s.writeln('}');
 
+    final libStem = spec.lib.replaceAll('-', '_');
     s.writeln('static thread_local NitroError g_nitro_error = { 0, nullptr, nullptr, nullptr, nullptr };');
     s.writeln();
-
     s.writeln('extern "C" {');
-    s.writeln('NitroError* NitroGetError() { return &g_nitro_error; }');
-    s.writeln('void NitroClearError() {');
+    s.writeln('NitroError* ${libStem}_get_error() { return &g_nitro_error; }');
+    s.writeln('void ${libStem}_clear_error() {');
     s.writeln('    g_nitro_error.hasError = 0;');
     s.writeln('    if (g_nitro_error.name) { free((void*)g_nitro_error.name); g_nitro_error.name = nullptr; }');
     s.writeln('    if (g_nitro_error.message) { free((void*)g_nitro_error.message); g_nitro_error.message = nullptr; }');
@@ -33,7 +33,7 @@ class CppBridgeGenerator {
     s.writeln('}');
     s.writeln();
     s.writeln('static void nitro_report_error(const char* name, const char* message, const char* code, const char* stack) {');
-    s.writeln('    NitroClearError();');
+    s.writeln('    ${libStem}_clear_error();');
     s.writeln('    g_nitro_error.hasError = 1;');
     s.writeln('    g_nitro_error.name = name ? strdup(name) : strdup("NativeException");');
     s.writeln('    g_nitro_error.message = message ? strdup(message) : strdup("An unknown native exception occurred.");');
@@ -208,7 +208,11 @@ class CppBridgeGenerator {
       s.writeln(
         '    jmethodID methodId = env->GetStaticMethodID(g_bridgeClass, "${func.dartName}_call", "$jniSig");',
       );
-      s.writeln('    if (methodId == nullptr) { LOGE("Method not found"); return ${_defaultValue(cReturnType)}; }');
+      if (func.returnType.name == 'void') {
+        s.writeln('    if (methodId == nullptr) { LOGE("Method not found"); return; }');
+      } else {
+        s.writeln('    if (methodId == nullptr) { LOGE("Method not found"); return ${_defaultValue(cReturnType)}; }');
+      }
       s.writeln();
       s.writeln('    NitroClearError();');
 
@@ -472,6 +476,7 @@ class CppBridgeGenerator {
         '$cReturnType ${func.cSymbol}(${params.isEmpty ? 'void' : params}) {',
       );
       s.writeln('    NitroClearError();');
+      s.writeln('#ifdef __OBJC__');
       s.writeln('    @try {');
       if (func.returnType.name != 'void') {
         s.writeln('        return _call_${func.dartName}($callParams);');
@@ -484,6 +489,13 @@ class CppBridgeGenerator {
         s.writeln('        return ${_defaultValue(cReturnType)};');
       }
       s.writeln('    }');
+      s.writeln('#else');
+      if (func.returnType.name != 'void') {
+        s.writeln('    return _call_${func.dartName}($callParams);');
+      } else {
+        s.writeln('    _call_${func.dartName}($callParams);');
+      }
+      s.writeln('#endif');
       s.writeln('}');
       s.writeln('');
     }

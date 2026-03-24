@@ -65,12 +65,12 @@ class NitroRuntime {
 
   /// Checks if the last native call in [dylib] resulted in an error.
   /// If so, throws a [HybridException] and clears the error state.
-  static void checkError(DynamicLibrary dylib) {
+  static void checkError(DynamicLibrary dylib, {String getErrorName = 'NitroGetError', String clearErrorName = 'NitroClearError'}) {
     try {
       final getErr = dylib.lookupFunction<Pointer<NitroErrorFfi> Function(),
-          Pointer<NitroErrorFfi> Function()>('NitroGetError');
+          Pointer<NitroErrorFfi> Function()>(getErrorName);
       final clearErr = dylib.lookupFunction<Void Function(), void Function()>(
-          'NitroClearError');
+          clearErrorName);
 
       final errPtr = getErr();
       if (errPtr.ref.hasError != 0) {

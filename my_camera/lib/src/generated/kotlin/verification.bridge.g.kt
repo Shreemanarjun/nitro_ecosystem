@@ -10,7 +10,7 @@ import kotlinx.coroutines.runBlocking
 
 // --- Structs ---
 @Keep
-data class FloatBuffer(val data: java.nio.ByteBuffer, val length: Long)
+data class FloatBuffer(val data: FloatArray, val length: Long)
 
 /**
  * Contract for the [VerificationModule] module.
@@ -21,7 +21,7 @@ interface HybridVerificationModuleSpec {
     fun ping(message: String): String
     suspend fun pingAsync(message: String): String
     fun throwError(message: String): Unit
-    fun processFloats(inputs: Any?): FloatBuffer
+    fun processFloats(inputs: FloatArray): FloatBuffer
 }
 
 @Keep
@@ -53,7 +53,7 @@ object VerificationModuleJniBridge {
         val impl = implementation ?: throw IllegalStateException("VerificationModule not registered")
         impl.throwError(message)
     }
-    @JvmStatic fun processFloats_call(inputs: Any?): FloatBuffer {
+    @JvmStatic fun processFloats_call(inputs: FloatArray): FloatBuffer {
         val impl = implementation ?: throw IllegalStateException("VerificationModule not registered")
         return impl.processFloats(inputs)
     }

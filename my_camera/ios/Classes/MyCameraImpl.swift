@@ -3,7 +3,7 @@ import UIKit
 import Combine
 
 // 1. Conform to our Generated Nitrogen Protocol!
-public class MyCameraImpl: NSObject, HybridMyCameraProtocol {
+public class MyCameraModuleImpl: NSObject, HybridMyCameraProtocol {
     
     // Synchronous execution handler
     public func add(a: Double, b: Double) -> Double {

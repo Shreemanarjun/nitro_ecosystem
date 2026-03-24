@@ -211,7 +211,8 @@ public class MyCameraRegistry {
 
 @_cdecl("_call_add")
 public func _call_add(_ a: Double, _ b: Double) -> Double {
-    return MyCameraRegistry.impl?.add(a: a, b: b) ?? 0.0
+    guard let impl = MyCameraRegistry.impl else { return 0.0 }
+    return impl.add(a: a, b: b)
 }
 
 @_cdecl("_call_getGreeting")

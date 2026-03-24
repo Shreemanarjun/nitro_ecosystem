@@ -1,0 +1,1 @@
+../../lib/src/generated/swift/verification.bridge.g.swift

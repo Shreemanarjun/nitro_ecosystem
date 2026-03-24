@@ -21,6 +21,7 @@ class DartFfiGenerator {
     if (recordExt.isNotEmpty) s.write(recordExt);
 
     // ── Impl class ──────────────────────────────────────────────────────────
+    final libStem = spec.lib.replaceAll('-', '_');
     s.writeln(
       'class _${spec.dartClassName}Impl extends ${spec.dartClassName} {',
     );
@@ -130,12 +131,12 @@ class DartFfiGenerator {
 
       String callExpr;
       if (needsArena) {
-        callExpr = 'withArena((arena) { final res = _${func.dartName}Ptr($callArgs); NitroRuntime.checkError(_dylib); return res; })';
+        callExpr = 'withArena((arena) { final res = _${func.dartName}Ptr($callArgs); NitroRuntime.checkError(_dylib, getErrorName: \'${libStem}_get_error\', clearErrorName: \'${libStem}_clear_error\'); return res; })';
       } else {
         if (func.returnType.name == 'void') {
-          callExpr = '() { _${func.dartName}Ptr($callArgs); NitroRuntime.checkError(_dylib); }()';
+          callExpr = '() { _${func.dartName}Ptr($callArgs); NitroRuntime.checkError(_dylib, getErrorName: \'${libStem}_get_error\', clearErrorName: \'${libStem}_clear_error\'); }()';
         } else {
-          callExpr = '() { final res = _${func.dartName}Ptr($callArgs); NitroRuntime.checkError(_dylib); return res; }()';
+          callExpr = '() { final res = _${func.dartName}Ptr($callArgs); NitroRuntime.checkError(_dylib, getErrorName: \'${libStem}_get_error\', clearErrorName: \'${libStem}_clear_error\'); return res; }()';
         }
       }
 
@@ -148,7 +149,7 @@ class DartFfiGenerator {
           s.writeln(
             '      final result = await NitroRuntime.callAsync(_${func.dartName}Ptr, [$callArgs]);',
           );
-          s.writeln('      NitroRuntime.checkError(_dylib);');
+          s.writeln('      NitroRuntime.checkError(_dylib, getErrorName: \'${libStem}_get_error\', clearErrorName: \'${libStem}_clear_error\');');
           if (isRecordReturn) {
             s.writeln(
               '      return ${_decodeRecordExpr(func.returnType, 'result')};',
@@ -174,7 +175,7 @@ class DartFfiGenerator {
             s.writeln(
               '    final rawResult = await NitroRuntime.callAsync(_${func.dartName}Ptr, [$params]);',
             );
-            s.writeln('    NitroRuntime.checkError(_dylib);');
+            s.writeln('    NitroRuntime.checkError(_dylib, getErrorName: \'${libStem}_get_error\', clearErrorName: \'${libStem}_clear_error\');');
             s.writeln(
               '    return ${_decodeRecordExpr(func.returnType, 'rawResult')};',
             );
@@ -182,7 +183,7 @@ class DartFfiGenerator {
             s.writeln(
               '    final asyncResult = await NitroRuntime.callAsync(_${func.dartName}Ptr, [${func.params.map((p) => p.name).join(', ')}]);',
             );
-            s.writeln('    NitroRuntime.checkError(_dylib);');
+            s.writeln('    NitroRuntime.checkError(_dylib, getErrorName: \'${libStem}_get_error\', clearErrorName: \'${libStem}_clear_error\');');
             s.writeln(
               '    return Pointer<${rt}Ffi>.fromAddress((asyncResult as Pointer<Void>).address).ref.toDart();',
             );
@@ -190,13 +191,13 @@ class DartFfiGenerator {
             s.writeln(
               '    final res = (await NitroRuntime.callAsync(_${func.dartName}Ptr, [${func.params.map((p) => p.name).join(', ')}])) as int;',
             );
-            s.writeln('    NitroRuntime.checkError(_dylib);');
+            s.writeln('    NitroRuntime.checkError(_dylib, getErrorName: \'${libStem}_get_error\', clearErrorName: \'${libStem}_clear_error\');');
             s.writeln('    return res.to$rt();');
           } else {
             s.writeln(
               '    final res = await NitroRuntime.callAsync(_${func.dartName}Ptr, [${func.params.map((p) => p.name).join(', ')}]);',
             );
-            s.writeln('    NitroRuntime.checkError(_dylib);');
+            s.writeln('    NitroRuntime.checkError(_dylib, getErrorName: \'${libStem}_get_error\', clearErrorName: \'${libStem}_clear_error\');');
             s.writeln('    return res as $rt;');
           }
         }
@@ -245,7 +246,7 @@ class DartFfiGenerator {
           s.writeln('  $rt get ${prop.dartName} {');
           s.writeln('    checkDisposed();');
           s.writeln('    final res = _get${cap}Ptr();');
-          s.writeln('    NitroRuntime.checkError(_dylib);');
+          s.writeln('    NitroRuntime.checkError(_dylib, getErrorName: \'${libStem}_get_error\', clearErrorName: \'${libStem}_clear_error\');');
           if (spec.enums.any((en) => en.name == rt)) {
             s.writeln('    return res.to$rt();');
           } else if (rt == 'bool') {
@@ -286,7 +287,7 @@ class DartFfiGenerator {
               valExpr = 'value.toNative(arena).cast<Void>()';
             }
             s.writeln(
-              '  set ${prop.dartName}($rt value) { checkDisposed(); withArena((arena) { _set${cap}Ptr($valExpr); NitroRuntime.checkError(_dylib); }); }',
+              '  set ${prop.dartName}($rt value) { checkDisposed(); withArena((arena) { _set${cap}Ptr($valExpr); NitroRuntime.checkError(_dylib, getErrorName: \'${libStem}_get_error\', clearErrorName: \'${libStem}_clear_error\'); }); }',
             );
           } else {
             String valExpr = 'value';
@@ -296,7 +297,7 @@ class DartFfiGenerator {
               valExpr = 'value ? 1 : 0';
             }
             s.writeln(
-              '  set ${prop.dartName}($rt value) { checkDisposed(); _set${cap}Ptr($valExpr); NitroRuntime.checkError(_dylib); }',
+              '  set ${prop.dartName}($rt value) { checkDisposed(); _set${cap}Ptr($valExpr); NitroRuntime.checkError(_dylib, getErrorName: \'${libStem}_get_error\', clearErrorName: \'${libStem}_clear_error\'); }',
             );
           }
         }

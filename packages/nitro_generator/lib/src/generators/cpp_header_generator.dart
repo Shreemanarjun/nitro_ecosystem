@@ -10,14 +10,8 @@ class CppHeaderGenerator {
     s.writeln('#include <stdint.h>');
     s.writeln('#include <stdbool.h>');
     s.writeln('#include <stdlib.h>');
+    s.writeln('#include "nitro.h"');
     s.writeln();
-    s.writeln('typedef struct {');
-    s.writeln('  int8_t hasError;');
-    s.writeln('  const char* name;');
-    s.writeln('  const char* message;');
-    s.writeln('  const char* code;');
-    s.writeln('  const char* stackTrace;');
-    s.writeln('} NitroError;');
     s.writeln();
 
     final cEnums = EnumGenerator.generateCEnums(spec);
@@ -26,11 +20,15 @@ class CppHeaderGenerator {
     final cStructs = StructGenerator.generateCStructs(spec);
     if (cStructs.isNotEmpty) s.write(cStructs);
 
+    s.writeln('#ifdef __cplusplus');
     s.writeln('extern "C" {');
     s.writeln('#endif');
     s.writeln();
-    s.writeln('NitroError* NitroGetError(void);');
-    s.writeln('void NitroClearError(void);');
+
+    final libStem = spec.lib.replaceAll('-', '_');
+    s.writeln('NitroError* ${libStem}_get_error(void);');
+    s.writeln('void ${libStem}_clear_error(void);');
+    s.writeln();
     s.writeln();
     s.writeln();
 

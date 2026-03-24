@@ -3,7 +3,7 @@ import 'package:nitro/nitro.dart';
 
 part 'verification.g.dart';
 
-@HybridStruct(zeroCopy: ['data'])
+@HybridStruct()
 class FloatBuffer {
   final Float32List data;
   final int length;

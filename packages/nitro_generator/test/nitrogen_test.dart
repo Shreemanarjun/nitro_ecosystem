@@ -1178,7 +1178,12 @@ void main() {
   group('DartFfiGenerator (edge cases)', () {
     test('bool return converts via != 0', () {
       final out = DartFfiGenerator.generate(_richSpec());
-      expect(out, contains('return _isReadyPtr(strict ? 1 : 0) != 0;'));
+      expect(
+        out,
+        contains(
+          'return () { final res = _isReadyPtr(strict ? 1 : 0); NitroRuntime.checkError(_dylib); return res; }() != 0;',
+        ),
+      );
     });
 
     test('bool param passes value ? 1 : 0', () {
@@ -1188,7 +1193,12 @@ void main() {
 
     test('int return is passed through directly', () {
       final out = DartFfiGenerator.generate(_richSpec());
-      expect(out, contains('return _countPtr();'));
+      expect(
+        out,
+        contains(
+          'return () { final res = _countPtr(); NitroRuntime.checkError(_dylib); return res; }();',
+        ),
+      );
     });
 
     test('String return calls toDartStringWithFree', () {
@@ -1227,7 +1237,12 @@ void main() {
       expect(
         out,
         contains(
-          'bool get enabled { checkDisposed(); return _getEnabledPtr() != 0; }',
+          'bool get enabled {\n'
+          '    checkDisposed();\n'
+          '    final res = _getEnabledPtr();\n'
+          '    NitroRuntime.checkError(_dylib);\n'
+          '    return res != 0;\n'
+          '  }',
         ),
       );
     });
@@ -1242,7 +1257,7 @@ void main() {
       expect(
         out,
         contains(
-          'set enabled(bool value) { checkDisposed(); _setEnabledPtr(value ? 1 : 0); }',
+          'set enabled(bool value) { checkDisposed(); _setEnabledPtr(value ? 1 : 0); NitroRuntime.checkError(_dylib); }',
         ),
       );
     });
@@ -1277,7 +1292,7 @@ void main() {
 
     test('property getter has checkDisposed() in block body', () {
       final out = DartFfiGenerator.generate(_richSpec());
-      expect(out, contains('{ checkDisposed();'));
+      expect(out, contains('{\n    checkDisposed();'));
     });
 
     test('primitive double stream uses direct rawPtr cast', () {
@@ -1354,6 +1369,71 @@ void main() {
   // ── CppBridgeGenerator — additional edge cases ────────────────────────────
 
   group('CppBridgeGenerator (edge cases)', () {
+    test('iOS functions wrap @try in #ifdef __OBJC__', () {
+      final out = CppBridgeGenerator.generate(_simpleSpec());
+      // Find the iOS section
+      final applePart = out.split('#elif __APPLE__')[1];
+      expect(applePart, contains('#ifdef __OBJC__'));
+      expect(applePart, contains('@try {'));
+      expect(applePart, contains('#else'));
+      expect(applePart, contains('return _call_add(a, b);')); // Fallback
+      expect(applePart, contains('#endif'));
+    });
+
+    test('iOS void functions wrap @try and return correctly', () {
+      final spec = BridgeSpec(
+        dartClassName: 'T',
+        lib: 't',
+        namespace: 't',
+        iosImpl: NativeImpl.swift,
+        androidImpl: NativeImpl.kotlin,
+        sourceUri: 't.native.dart',
+        functions: [
+          BridgeFunction(
+            dartName: 'doVoid',
+            cSymbol: 't_do_void',
+            isAsync: false,
+            returnType: BridgeType(name: 'void'),
+            params: [],
+          ),
+        ],
+      );
+      final out = CppBridgeGenerator.generate(spec);
+      final applePart = out.split('#elif __APPLE__')[1];
+      expect(applePart, contains('void t_do_void(void) {'));
+      expect(applePart, contains('_call_doVoid();')); // Plain call in #else
+      expect(applePart, isNot(contains('return _call_doVoid();')));
+    });
+
+    test('Android void functions correctly return;', () {
+      final spec = BridgeSpec(
+        dartClassName: 'T',
+        lib: 't',
+        namespace: 't',
+        iosImpl: NativeImpl.swift,
+        androidImpl: NativeImpl.kotlin,
+        sourceUri: 't.native.dart',
+        functions: [
+          BridgeFunction(
+            dartName: 'doVoid',
+            cSymbol: 't_do_void',
+            isAsync: false,
+            returnType: BridgeType(name: 'void'),
+            params: [],
+          ),
+        ],
+      );
+      final out = CppBridgeGenerator.generate(spec);
+      // Check the error fallback for void in the unique function
+      expect(out, contains('void t_do_void(void) {'));
+      expect(out, contains('if (methodId == nullptr) { LOGE("Method not found"); return; }'));
+      // Ensure we don't have return nullptr; for void (but we might for GetEnv, so we look for it specifically near doVoid)
+      final afterVoid = out.split('void t_do_void(void) {')[1];
+      // The function body for void should not have return nullptr; before it ends.
+      // A safe way is to check the first few lines of the body.
+      expect(afterVoid.substring(0, 500), isNot(contains('return nullptr;')));
+    });
+
     test('String return uses strdup and DeleteLocalRef', () {
       final out = CppBridgeGenerator.generate(_richSpec());
       expect(out, contains('strdup(nativeStr)'));
@@ -1421,6 +1501,26 @@ void main() {
     test('emits #pragma once', () {
       final out = CppHeaderGenerator.generate(_simpleSpec());
       expect(out, startsWith('#pragma once'));
+    });
+
+    test('CppHeaderGenerator emits balanced #ifdef __cplusplus', () {
+      final out = CppHeaderGenerator.generate(_simpleSpec());
+      // Should have two #ifdef __cplusplus and matching ends/closers
+      expect(RegExp('#ifdef __cplusplus').allMatches(out).length, 2);
+      expect(RegExp('extern "C" {').allMatches(out).length, 1);
+      expect(RegExp('#endif').allMatches(out).length, 2);
+    });
+
+    test('CppHeaderGenerator has NO stray #endif before opening #if', () {
+      final out = CppHeaderGenerator.generate(_simpleSpec());
+      final lines = out.split('\n');
+      bool hasOpeningIf = false;
+      for (final line in lines) {
+        if (line.contains('#ifdef __cplusplus')) hasOpeningIf = true;
+        if (line.contains('#endif') && !hasOpeningIf) {
+          fail('Found #endif before #ifdef __cplusplus: $line');
+        }
+      }
     });
 
     test('emits extern C block', () {
@@ -3349,5 +3449,233 @@ void main() {
         expect(SpecValidator.validate(spec).where((i) => i.isError), isEmpty);
       },
     );
+  });
+
+  group('Swift/DX Regression Tests', () {
+    test('SwiftGenerator protocol uses Enum name for return type', () {
+      final spec = BridgeSpec(
+        dartClassName: 'T',
+        lib: 't',
+        namespace: 't',
+        iosImpl: NativeImpl.swift,
+        androidImpl: NativeImpl.kotlin,
+        functions: [
+          BridgeFunction(
+            dartName: 'getStatus',
+            cSymbol: 't_get_status',
+            isAsync: false,
+            returnType: BridgeType(name: 'MyEnum'),
+            params: [],
+          ),
+        ],
+        enums: [BridgeEnum(name: 'MyEnum', values: ['idle', 'busy'], startValue: 0)],
+        sourceUri: 't.native.dart',
+      );
+      final out = SwiftGenerator.generate(spec);
+      expect(out, contains('func getStatus() -> MyEnum'));
+      expect(out, contains('return impl.getStatus().rawValue'));
+    });
+
+    test('SwiftGenerator property setter handles Enum rawValue', () {
+      final spec = BridgeSpec(
+        dartClassName: 'T',
+        lib: 't',
+        namespace: 't',
+        iosImpl: NativeImpl.swift,
+        androidImpl: NativeImpl.kotlin,
+        properties: [
+          BridgeProperty(
+            dartName: 'status',
+            getSymbol: 't_get_status',
+            setSymbol: 't_set_status',
+            type: BridgeType(name: 'MyEnum'),
+            hasGetter: true,
+            hasSetter: true,
+          ),
+        ],
+        enums: [BridgeEnum(name: 'MyEnum', values: ['idle', 'busy'], startValue: 0)],
+        sourceUri: 't.native.dart',
+      );
+      final out = SwiftGenerator.generate(spec);
+      expect(out, contains('if let actualValue = MyEnum(rawValue: value)'));
+    });
+
+    test('StructGenerator Swift uses [Float] for Float32List non-zero-copy', () {
+      final spec = BridgeSpec(
+        dartClassName: 'T',
+        lib: 't',
+        namespace: 't',
+        iosImpl: NativeImpl.swift,
+        androidImpl: NativeImpl.kotlin,
+        structs: [
+          BridgeStruct(
+            name: 'MyStruct',
+            packed: false,
+            fields: [
+              BridgeField(name: 'data', type: BridgeType(name: 'Float32List')),
+            ],
+          ),
+        ],
+        sourceUri: 't.native.dart',
+      );
+      final out = StructGenerator.generateSwift(spec);
+      expect(out, contains('public var data: [Float]'));
+    });
+    test('SwiftGenerator @_cdecl uses UnsafePointer for struct parameters', () {
+      final spec = BridgeSpec(
+        dartClassName: 'T',
+        lib: 't',
+        namespace: 't',
+        iosImpl: NativeImpl.swift,
+        androidImpl: NativeImpl.kotlin,
+        structs: [
+           BridgeStruct(name: 'S', fields: [BridgeField(name: 'f', type: BridgeType(name: 'int'))], packed: false),
+        ],
+        functions: [
+          BridgeFunction(
+            dartName: 'doTask',
+            cSymbol: 't_do_task',
+            isAsync: false,
+            returnType: BridgeType(name: 'void'),
+            params: [BridgeParam(name: 's', type: BridgeType(name: 'S'))],
+          ),
+        ],
+        sourceUri: 't.native.dart',
+      );
+      final out = SwiftGenerator.generate(spec);
+      expect(out, contains('public func _call_doTask(_ s: UnsafeRawPointer?) -> Void {'));
+      expect(out, contains('.doTask(s: s!.assumingMemoryBound(to: S.self).pointee)'));
+    });
+
+    test('SwiftGenerator @_cdecl uses != 0 for Bool parameters', () {
+      final spec = BridgeSpec(
+        dartClassName: 'T',
+        lib: 't',
+        namespace: 't',
+        iosImpl: NativeImpl.swift,
+        androidImpl: NativeImpl.kotlin,
+        functions: [
+          BridgeFunction(
+            dartName: 'toggle',
+            cSymbol: 't_toggle',
+            isAsync: false,
+            returnType: BridgeType(name: 'void'),
+            params: [BridgeParam(name: 'on', type: BridgeType(name: 'bool'))],
+          ),
+        ],
+        sourceUri: 't.native.dart',
+      );
+      final out = SwiftGenerator.generate(spec);
+      expect(out, contains('.toggle(on: on != 0)'));
+    });
+
+    test('SwiftGenerator handles optional types and List of structs', () {
+      final spec = BridgeSpec(
+        dartClassName: 'T',
+        lib: 't',
+        namespace: 't',
+        iosImpl: NativeImpl.swift,
+        androidImpl: NativeImpl.kotlin,
+        structs: [
+           BridgeStruct(name: 'S', fields: [BridgeField(name: 'f', type: BridgeType(name: 'int'))], packed: false),
+        ],
+        functions: [
+          BridgeFunction(
+            dartName: 'getOptional',
+            cSymbol: 't_get_optional',
+            isAsync: false,
+            returnType: BridgeType(name: 'String?'),
+            params: [BridgeParam(name: 'input', type: BridgeType(name: 'int?'))],
+          ),
+          BridgeFunction(
+            dartName: 'processList',
+            cSymbol: 't_process_list',
+            isAsync: false,
+            returnType: BridgeType(name: 'List<S>'),
+            params: [],
+          ),
+        ],
+        sourceUri: 't.native.dart',
+      );
+      final out = SwiftGenerator.generate(spec);
+      expect(out, contains('func getOptional(input: Int64?) -> String?'));
+      expect(out, contains('func processList() -> [S]'));
+      // Bridge for List<S> uses NitroRecordWriter
+      expect(out, contains('return NitroRecordWriter.encodeList(r) { w, e in e.writeFields(w) }'));
+    });
+
+    test('KotlinGenerator generates correct Spec interface', () {
+      final spec = BridgeSpec(
+        dartClassName: 'T',
+        lib: 't',
+        namespace: 't',
+        iosImpl: NativeImpl.swift,
+        androidImpl: NativeImpl.kotlin,
+        functions: [
+          BridgeFunction(
+            dartName: 'calculate',
+            cSymbol: 't_calc',
+            isAsync: true,
+            returnType: BridgeType(name: 'int'),
+            params: [BridgeParam(name: 'seed', type: BridgeType(name: 'int'))],
+          ),
+          BridgeFunction(
+            dartName: 'doVoid',
+            cSymbol: 't_void',
+            isAsync: false,
+            returnType: BridgeType(name: 'void'),
+            params: [],
+          ),
+        ],
+        sourceUri: 't.native.dart',
+      );
+      final out = KotlinGenerator.generate(spec);
+      expect(out, contains('interface HybridTSpec {'));
+      expect(out, contains('suspend fun calculate(seed: Long): Long'));
+      expect(out, contains('fun doVoid(): Unit'));
+      expect(out, contains('object TJniBridge {'));
+      expect(out, contains('@JvmStatic fun calculate_call(seed: Long): Long'));
+      expect(out, contains('return runBlocking {'));
+    });
+
+    test('KotlinGenerator handles Enums in JniBridge', () {
+      final spec = BridgeSpec(
+        dartClassName: 'T',
+        lib: 't',
+        namespace: 't',
+        iosImpl: NativeImpl.swift,
+        androidImpl: NativeImpl.kotlin,
+        enums: [BridgeEnum(name: 'E', values: ['a', 'b'], startValue: 0)],
+        functions: [
+          BridgeFunction(
+            dartName: 'getE',
+            cSymbol: 't_get_e',
+            isAsync: false,
+            returnType: BridgeType(name: 'E'),
+            params: [],
+          ),
+        ],
+        properties: [
+          BridgeProperty(
+            dartName: 'propE',
+            getSymbol: 't_get_prop_e',
+            setSymbol: 't_set_prop_e',
+            type: BridgeType(name: 'E'),
+            hasGetter: true,
+            hasSetter: true,
+          ),
+        ],
+        sourceUri: 't.native.dart',
+      );
+      final out = KotlinGenerator.generate(spec);
+      // Interface uses Enum type
+      expect(out, contains('fun getE(): E'));
+      expect(out, contains('var propE: E'));
+      // JniBridge uses Long for JNI compatibility
+      expect(out, contains('fun getE_call(): Long'));
+      expect(out, contains('return impl.getE().nativeValue'));
+      expect(out, contains('fun t_set_prop_e_call(value: Long)'));
+      expect(out, contains('impl.propE = E.fromNative(value)'));
+    });
   });
 }

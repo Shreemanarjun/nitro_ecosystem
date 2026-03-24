@@ -76,7 +76,7 @@ class MyCameraImpl : HybridMyCameraSpec {
     }
 }
 
-class ComplexImpl : HybridComplexModuleSpec {
+class ComplexModuleImpl : HybridComplexModuleSpec {
     override val batteryLevel: Double = 0.85
     override var config: String = "{}"
 
@@ -129,8 +129,8 @@ class MyCameraPlugin: FlutterPlugin {
 
     override fun onAttachedToEngine(@NonNull flutterPluginBinding: FlutterPlugin.FlutterPluginBinding) {
         MyCameraJniBridge.register(MyCameraImpl())
-        ComplexModuleJniBridge.register(ComplexImpl())
-        VerificationModuleJniBridge.register(VerificationImpl())
+        ComplexModuleJniBridge.register(ComplexModuleImpl())
+        VerificationModuleJniBridge.register(VerificationModuleImpl())
     }
 
     override fun onDetachedFromEngine(@NonNull binding: FlutterPlugin.FlutterPluginBinding) {

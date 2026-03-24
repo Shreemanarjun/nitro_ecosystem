@@ -30,7 +30,7 @@ public struct Packet {
 public protocol HybridComplexModuleProtocol: AnyObject {
     func calculate(seed: Int64, factor: Double, enabled: Bool) -> Int64
     func fetchMetadata(url: String) async throws -> String
-    func getStatus() -> Int64
+    func getStatus() -> DeviceStatus
     func updateSensors(data: SensorData) -> Void
     func generatePacket(type: Int64) async throws -> Packet
     var batteryLevel: Double { get }
@@ -57,7 +57,8 @@ public class ComplexModuleRegistry {
 
 @_cdecl("_call_calculate")
 public func _call_calculate(_ seed: Int64, _ factor: Double, _ enabled: Int8) -> Int64 {
-    return ComplexModuleRegistry.impl?.calculate(seed: seed, factor: factor, enabled: enabled) ?? 0
+    guard let impl = ComplexModuleRegistry.impl else { return 0 }
+    return impl.calculate(seed: seed, factor: factor, enabled: enabled != 0)
 }
 
 @_cdecl("_call_fetchMetadata")
@@ -76,12 +77,13 @@ public func _call_fetchMetadata(_ url: UnsafePointer<CChar>?) -> UnsafeMutablePo
 
 @_cdecl("_call_getStatus")
 public func _call_getStatus() -> Int64 {
-    return ComplexModuleRegistry.impl?.getStatus() ?? 0
+    guard let impl = ComplexModuleRegistry.impl else { return 0 }
+    return impl.getStatus().rawValue
 }
 
 @_cdecl("_call_updateSensors")
-public func _call_updateSensors(_ data: SensorData) -> Void {
-    ComplexModuleRegistry.impl?.updateSensors(data: data)
+public func _call_updateSensors(_ data: UnsafeRawPointer?) -> Void {
+    ComplexModuleRegistry.impl?.updateSensors(data: data!.assumingMemoryBound(to: SensorData.self).pointee)
 }
 
 @_cdecl("_call_generatePacket")

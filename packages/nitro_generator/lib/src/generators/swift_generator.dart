@@ -108,12 +108,15 @@ class SwiftGenerator {
           .where((p) => p.type.name == 'String')
           .toList();
       // Pass the converted local `nameStr` variable for String params.
-      final callArgs = func.params
-          .map(
-            (p) =>
-                '${p.name}: ${p.type.name == 'String' ? '${p.name}Str' : p.name}',
-          )
-          .join(', ');
+      final callArgs = func.params.map((p) {
+        if (p.type.name == 'String') return '${p.name}: ${p.name}Str';
+        if (p.type.name == 'bool') return '${p.name}: ${p.name} != 0';
+        if (spec.structs.any((st) => st.name == p.type.name.replaceFirst('?', ''))) {
+          final structName = p.type.name.replaceFirst('?', '');
+          return '${p.name}: ${p.name}!.assumingMemoryBound(to: $structName.self).pointee';
+        }
+        return '${p.name}: ${p.name}';
+      }).join(', ');
       final isStruct = spec.structs.any(
         (st) => st.name == func.returnType.name,
       );
@@ -124,6 +127,9 @@ class SwiftGenerator {
       final isBool = func.returnType.name == 'bool';
       final isVoid = func.returnType.name == 'void';
       final isString = func.returnType.name == 'String';
+      final isEnumRet = spec.enums.any(
+        (en) => en.name == func.returnType.name.replaceFirst('?', ''),
+      );
 
       s.writeln('@_cdecl("_call_${func.dartName}")');
       s.writeln('public func _call_${func.dartName}($params) -> $cRetType {');
@@ -231,7 +237,11 @@ class SwiftGenerator {
           s.writeln('        sema.signal()');
           s.writeln('    }');
           s.writeln('    sema.wait()');
-          s.writeln('    return result ?? $defaultVal');
+          if (isEnumRet) {
+             s.writeln('    return result?.rawValue ?? $defaultVal');
+          } else {
+             s.writeln('    return result ?? $defaultVal');
+          }
         }
       } else if (isVoid) {
         s.writeln(
@@ -274,9 +284,15 @@ class SwiftGenerator {
         }
       } else {
         final defaultVal = _defaultCDeclValue(spec, func.returnType.name);
+
         s.writeln(
-          '    return ${spec.dartClassName}Registry.impl?.${func.dartName}($callArgs) ?? $defaultVal',
+          '    guard let impl = ${spec.dartClassName}Registry.impl else { return $defaultVal }',
         );
+        if (isEnumRet) {
+          s.writeln('    return impl.${func.dartName}($callArgs).rawValue');
+        } else {
+          s.writeln('    return impl.${func.dartName}($callArgs)');
+        }
       }
 
       s.writeln('}');
@@ -288,16 +304,23 @@ class SwiftGenerator {
       final isBool = prop.type.name == 'bool';
       final isString = prop.type.name == 'String';
       if (prop.hasGetter) {
+        final isEnumProp = spec.enums.any((en) => en.name == prop.type.name.replaceFirst('?', ''));
         final getRetType = isString
             ? 'UnsafeMutablePointer<CChar>?'
             : isBool
             ? 'Int8'
+            : isEnumProp
+            ? 'Int64'
             : swiftType;
         s.writeln('@_cdecl("_call_get_${prop.dartName}")');
         s.writeln('public func _call_get_${prop.dartName}() -> $getRetType {');
         if (isString) {
           s.writeln(
             '    return strdup(${spec.dartClassName}Registry.impl?.${prop.dartName} ?? "")',
+          );
+        } else if (isEnumProp) {
+          s.writeln(
+            '    return ${spec.dartClassName}Registry.impl?.${prop.dartName}.rawValue ?? ${_defaultCDeclValue(spec, prop.type.name)}',
           );
         } else {
           s.writeln(
@@ -308,10 +331,16 @@ class SwiftGenerator {
         s.writeln();
       }
       if (prop.hasSetter) {
+        final isEnumProp = spec.enums.any((en) => en.name == prop.type.name.replaceFirst('?', ''));
+        final isStructProp = spec.structs.any((st) => st.name == prop.type.name.replaceFirst('?', ''));
         final setParamType = isBool
             ? 'Int8'
             : isString
             ? 'UnsafePointer<CChar>?'
+            : isEnumProp
+            ? 'Int64'
+            : isStructProp
+            ? 'UnsafeRawPointer?'
             : swiftType;
         s.writeln('@_cdecl("_call_set_${prop.dartName}")');
         s.writeln(
@@ -325,6 +354,18 @@ class SwiftGenerator {
           s.writeln(
             '    ${spec.dartClassName}Registry.impl?.${prop.dartName} = value.map { String(cString: \$0) } ?? ""',
           );
+        } else if (isEnumProp) {
+          s.writeln(
+            '    if let actualValue = ${prop.type.name.replaceFirst('?', '')}(rawValue: value) {',
+          );
+          s.writeln('        ${spec.dartClassName}Registry.impl?.${prop.dartName} = actualValue');
+          s.writeln('    }');
+        } else if (isStructProp) {
+          s.writeln(
+            '    if let v = value {',
+          );
+          s.writeln('        ${spec.dartClassName}Registry.impl?.${prop.dartName} = v.assumingMemoryBound(to: ${prop.type.name}.self).pointee');
+          s.writeln('    }');
         } else {
           s.writeln(
             '    ${spec.dartClassName}Registry.impl?.${prop.dartName} = value',
@@ -394,6 +435,8 @@ class SwiftGenerator {
     if (spec.recordTypes.any((rt) => rt.name == name) || name.startsWith('List<')) {
       return 'UnsafeMutablePointer<UInt8>?';
     }
+    final isEnumRet = spec.enums.any((en) => en.name == name);
+    if (isEnumRet) return 'Int64';
     return _toSwiftType(spec, name);
   }
 
@@ -408,51 +451,74 @@ class SwiftGenerator {
     if (spec.recordTypes.any((rt) => rt.name == name) || name.startsWith('List<')) {
       return 'UnsafeMutablePointer<UInt8>?';
     }
+    final isEnum = spec.enums.any((en) => en.name == name);
+    if (isEnum) return 'Int64';
+    if (spec.structs.any((st) => st.name == name)) {
+      return 'UnsafeRawPointer?';
+    }
     return _toSwiftType(spec, name);
   }
 
   static String _toSwiftType(BridgeSpec spec, String t) {
     final name = t.replaceFirst('?', '');
+    final isOptional = t.endsWith('?');
+    String baseType;
     switch (name) {
       case 'int':
-        return 'Int64';
+        baseType = 'Int64';
+        break;
       case 'double':
-        return 'Double';
+        baseType = 'Double';
+        break;
       case 'bool':
-        return 'Bool';
+        baseType = 'Bool';
+        break;
       case 'String':
-        return 'String';
+        baseType = 'String';
+        break;
       case 'void':
-        return 'Void';
+        baseType = 'Void';
+        break;
       case 'Uint8List':
       case 'Int8List':
-        return 'Data';
+        baseType = 'Data';
+        break;
       case 'Int16List':
       case 'Uint16List':
-        return '[Int16]';
+        baseType = '[Int16]';
+        break;
       case 'Int32List':
       case 'Uint32List':
-        return '[Int32]';
+        baseType = '[Int32]';
+        break;
       case 'Float32List':
-        return '[Float]';
+        baseType = '[Float]';
+        break;
       case 'Float64List':
-        return '[Double]';
+        baseType = '[Double]';
+        break;
       case 'Int64List':
       case 'Uint64List':
-        return '[Int64]';
+        baseType = '[Int64]';
+        break;
       default:
-        if (spec.enums.any((en) => en.name == name)) return 'Int64';
-        if (spec.structs.any((st) => st.name == name)) return name;
-        if (spec.recordTypes.any((rt) => rt.name == name)) return name;
-        if (name.startsWith('List<')) {
+        if (spec.enums.any((en) => en.name == name)) {
+          baseType = name;
+        } else if (spec.structs.any((st) => st.name == name)) {
+          baseType = name;
+        } else if (spec.recordTypes.any((rt) => rt.name == name)) {
+          baseType = name;
+        } else if (name.startsWith('List<')) {
           final itemType = name.substring(5, name.length - 1);
-          return '[${_toSwiftType(spec, itemType)}]';
+          baseType = '[${_toSwiftType(spec, itemType)}]';
+        } else {
+          baseType = 'Any';
         }
-        return 'Any?';
     }
+    return isOptional ? '$baseType?' : baseType;
   }
 
-  static String _toSwiftCType(BridgeSpec spec, String t) {
+  static String _toSwiftCType(BridgeSpec spec, String t, {bool isZeroCopy = false}) {
     final name = t.replaceFirst('?', '');
     switch (name) {
       case 'int':
@@ -478,12 +544,12 @@ class SwiftGenerator {
       case 'Uint32List':
         return 'UnsafeMutablePointer<UInt32>?';
       case 'Float32List':
-        return 'UnsafeMutablePointer<Float>?';
+        return isZeroCopy ? 'UnsafeMutablePointer<Float>?' : '[Float]';
       case 'Float64List':
-        return 'UnsafeMutablePointer<Double>?';
+        return isZeroCopy ? 'UnsafeMutablePointer<Double>?' : '[Double]';
       case 'Int64List':
       case 'Uint64List':
-        return 'UnsafeMutablePointer<Int64>?';
+        return isZeroCopy ? 'UnsafeMutablePointer<Int64>?' : '[Int64]';
       default:
         if (spec.enums.any((en) => en.name == name)) return 'Int64';
         if (spec.structs.any((st) => st.name == name)) {

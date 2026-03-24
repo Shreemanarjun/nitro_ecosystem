@@ -76,26 +76,39 @@ String? extractLibNameFromSpec(File specFile) {
   return match?.group(1);
 }
 
-/// Discovers all module lib names by scanning `lib/` for `*.native.dart` files.
-/// Falls back to [pluginName] when no specs are found.
-List<String> discoverModuleLibs(String pluginName) {
+/// Discovers all modules by scanning `lib/` for `*.native.dart` files.
+/// Returns a list of maps with 'lib' and 'module' keys.
+List<Map<String, String>> discoverModules(String pluginName) {
   final libDir = Directory('lib');
-  if (!libDir.existsSync()) return [pluginName];
+  if (!libDir.existsSync()) return [];
   final specs = libDir
       .listSync(recursive: true)
       .whereType<File>()
       .where((f) => f.path.endsWith('.native.dart'))
       .toList();
-  if (specs.isEmpty) return [pluginName];
-  final libs = <String>[];
+  if (specs.isEmpty) return [];
+  
+  final modules = <Map<String, String>>[];
   for (final spec in specs) {
-    final stem =
-        p.basename(spec.path).replaceAll(RegExp(r'\.native\.dart$'), '');
+    final content = spec.readAsStringSync();
+    final stem = p.basename(spec.path).replaceAll(RegExp(r'\.native\.dart$'), '');
+    
     final libName = extractLibNameFromSpec(spec) ?? stem.replaceAll('-', '_');
-    if (!libs.contains(libName)) libs.add(libName);
+    
+    // Extract module name (e.g. 'MyCamera' from 'abstract class MyCamera')
+    final moduleMatch = RegExp(r'abstract class (\w+) extends HybridObject').firstMatch(content);
+    final moduleName = moduleMatch?.group(1) ?? stem.split('_').map((w) => w[0].toUpperCase() + w.substring(1)).join('');
+    
+    if (!modules.any((m) => m['module'] == moduleName)) {
+      modules.add({'lib': libName, 'module': moduleName});
+    }
   }
-  return libs.isEmpty ? [pluginName] : libs;
+  return modules;
 }
+
+/// Deprecated: Use [discoverModules] instead.
+List<String> discoverModuleLibs(String pluginName) =>
+    discoverModules(pluginName).map((m) => m['lib']!).toList();
 
 // ── Progress model ──────────────────────────────
 
@@ -202,6 +215,7 @@ class _LinkViewState extends State<LinkView> {
     LinkStep('Discovering modules'),
     LinkStep('Updating src/CMakeLists.txt'),
     LinkStep('Updating iOS podspec'),
+    LinkStep('Updating Swift Plugin.swift'),
     LinkStep('Updating Kotlin Plugin.kt'),
     LinkStep('Updating .clangd'),
   ];
@@ -246,31 +260,40 @@ class _LinkViewState extends State<LinkView> {
     // Step 1 — CMake
     await _setRunning(1);
     final nitroNativePath = _resolveNitroNativePath();
-    _linkCMake(pluginName, moduleLibs, nitroNativePath);
+    _linkCMake(pluginName, moduleLibs.map((m) => m['lib']!).toList(), nitroNativePath);
     await _setDone(1);
 
     // Step 2 — Podspec
     await _setRunning(2);
     if (Directory('ios').existsSync()) {
-      _linkPodspec(pluginName, moduleLibs);
+      _linkPodspec(pluginName, moduleLibs.map((m) => m['lib']!).toList());
       await _setDone(2);
     } else {
       await _setSkipped(2, detail: 'ios/ not present');
     }
 
-    // Step 3 — Kotlin Plugin
+    // Step 3 — Swift Plugin
     await _setRunning(3);
-    if (Directory('android').existsSync()) {
-      _linkKotlinPlugin(pluginName, moduleLibs);
+    if (Directory('ios').existsSync()) {
+      _linkSwiftPlugin(pluginName, moduleLibs);
       await _setDone(3);
     } else {
-      await _setSkipped(3, detail: 'android/ not present');
+      await _setSkipped(3, detail: 'ios/ not present');
     }
 
-    // Step 4 — .clangd
+    // Step 4 — Kotlin Plugin
     await _setRunning(4);
+    if (Directory('android').existsSync()) {
+      _linkKotlinPlugin(pluginName, moduleLibs);
+      await _setDone(4);
+    } else {
+      await _setSkipped(4, detail: 'android/ not present');
+    }
+
+    // Step 5 — .clangd
+    await _setRunning(5);
     _linkClangd(pluginName);
-    await _setDone(4);
+    await _setDone(5);
 
     _nextSteps.addAll([
       'flutter pub get',
@@ -375,8 +398,8 @@ class _LinkViewState extends State<LinkView> {
     );
   }
 
-  List<String> _discoverModuleLibs(String pluginName) =>
-      discoverModuleLibs(pluginName);
+  List<Map<String, String>> _discoverModuleLibs(String pluginName) =>
+      discoverModules(pluginName);
 
   String _resolveNitroNativePath() => resolveNitroNativePath(p.absolute('.'));
 
@@ -609,18 +632,81 @@ endif()
       dartApiDlC.writeAsStringSync(forwarderContent);
     }
 
-    // Symlink so CocoaPods (Classes/**/*) picks up the generated Swift bridge
-    // without needing a path outside the pod root.
-    final symlinkPath = p.join(classesDir.path, '$pluginName.bridge.g.swift');
-    final symlinkTarget =
-        '../../lib/src/generated/swift/$pluginName.bridge.g.swift';
-    final link = Link(symlinkPath);
-    if (!link.existsSync()) {
-      link.createSync(symlinkTarget);
+    // Copy ALL generated bridge files so CocoaPods (Classes/**/*) picks them up.
+    // Symlinks pointing outside the pod root (ios/) often fail in Xcode/CocoaPods builds.
+    final generatedDir = Directory(p.join('lib', 'src', 'generated'));
+    if (generatedDir.existsSync()) {
+      for (final platform in ['swift', 'cpp']) {
+        final platformDir = Directory(p.join(generatedDir.path, platform));
+        if (!platformDir.existsSync()) continue;
+        for (final file in platformDir.listSync().whereType<File>()) {
+          final fileName = p.basename(file.path);
+          if (fileName.contains('.bridge.g.')) {
+            final targetPath = p.join(classesDir.path, fileName);
+            file.copySync(targetPath);
+            print('  - Copied $fileName to ios/Classes/');
+          }
+        }
+      }
+    }
+
+    // Ensure the main plugin .cpp forwarder exists (for Xcode and CMake).
+    final mainCpp = File(p.join(classesDir.path, '$pluginName.cpp'));
+    final mainCppContent = '#include "${pluginName}.bridge.g.cpp"\n';
+    if (!mainCpp.existsSync() || mainCpp.readAsStringSync().contains('../../src')) {
+      mainCpp.writeAsStringSync(mainCppContent);
     }
 
     // Package.swift — ensure it exists (created by init; re-create if missing).
     _ensureIosPackageSwift(pluginName);
+  }
+
+  void _linkSwiftPlugin(String pluginName, List<Map<String, String>> modules) {
+    final iosDir = Directory('ios');
+    if (!iosDir.existsSync()) return;
+    final pluginFiles = iosDir
+        .listSync(recursive: true)
+        .whereType<File>()
+        .where((f) => f.path.endsWith('Plugin.swift'))
+        .toList();
+    if (pluginFiles.isEmpty) return;
+
+    final pluginFile = pluginFiles.first;
+    var content = pluginFile.readAsStringSync();
+    bool modified = false;
+
+    for (final module in modules) {
+      final name = module['module']!;
+      final registry = '${name}Registry';
+      // Standardize on ModuleImpl for implementation names
+      final implName = name.endsWith('Module') ? '${name}Impl' : '${name}ModuleImpl';
+      final registration = '$registry.register($implName())';
+      
+      // Look for any registration of THIS registry
+      if (!content.contains('$registry.register')) {
+        // Find the place to insert — ideally at the end of the registry block
+        final registryBlockMatch = RegExp(r'\w+Registry\.register\(.*?\)\)').allMatches(content);
+        if (registryBlockMatch.isNotEmpty) {
+          final lastMatch = registryBlockMatch.last;
+          content = content.replaceFirst(
+            lastMatch.group(0)!,
+            '${lastMatch.group(0)!}\n        $registration',
+          );
+          modified = true;
+        } else {
+          final funcMatch = RegExp(r'public static func register\(with registrar: FlutterPluginRegistrar\) \{').firstMatch(content);
+          if (funcMatch != null) {
+            content = content.replaceFirst(
+              funcMatch.group(0)!,
+              '${funcMatch.group(0)!}\n        $registration',
+            );
+            modified = true;
+          }
+        }
+      }
+    }
+
+    if (modified) pluginFile.writeAsStringSync(content);
   }
 
   void _ensureIosPackageSwift(String pluginName) {
@@ -637,13 +723,25 @@ endif()
     swiftSrcDir.createSync(recursive: true);
     cppSrcDir.createSync(recursive: true);
 
-    for (final name in [
+    final genericFiles = [
       'Swift${className}Plugin.swift',
       '${className}Impl.swift',
-      '$pluginName.bridge.g.swift',
-    ]) {
+    ];
+    for (final name in genericFiles) {
       final lnk = Link(p.join(swiftSrcDir.path, name));
       if (!lnk.existsSync()) lnk.createSync('../../Classes/$name');
+    }
+
+    // Bridge files
+    final classesDir = Directory(p.join('ios', 'Classes'));
+    if (classesDir.existsSync()) {
+      for (final file in classesDir.listSync().whereType<Link>()) {
+        final fileName = p.basename(file.path);
+        if (fileName.endsWith('.bridge.g.swift')) {
+          final lnk = Link(p.join(swiftSrcDir.path, fileName));
+          if (!lnk.existsSync()) lnk.createSync('../../Classes/$fileName');
+        }
+      }
     }
 
     for (final name in ['$pluginName.cpp', 'dart_api_dl.c']) {
@@ -690,7 +788,7 @@ let package = Package(
 ''');
   }
 
-  void _linkKotlinPlugin(String pluginName, List<String> moduleLibs) {
+  void _linkKotlinPlugin(String pluginName, List<Map<String, String>> modules) {
     final kotlinDir = Directory(p.join('android', 'src', 'main', 'kotlin'));
     if (!kotlinDir.existsSync()) return;
     final pluginFiles = kotlinDir
@@ -704,6 +802,9 @@ let package = Package(
     var content = pluginFile.readAsStringSync();
     bool modified = false;
 
+    final moduleLibs = modules.map((m) => m['lib']!).toList();
+
+    // ── System.loadLibrary ───────────────────────────────────────────────
     final missingLibs = moduleLibs
         .where((l) => !content.contains('System.loadLibrary("$l")'))
         .toList();
@@ -731,6 +832,36 @@ let package = Package(
       }
       modified = true;
     }
+
+    // ── Bridge Registrations ─────────────────────────────────────────────
+    for (final module in modules) {
+      final name = module['module']!;
+      final bridge = '${name}JniBridge';
+      final implName = name.endsWith('Module') ? '${name}Impl' : '${name}Impl';
+      final registration = '$bridge.register($implName())';
+      
+      if (!content.contains('$bridge.register')) {
+        final bridgeBlockMatch = RegExp(r'\w+JniBridge\.register\(.*?\)\)').allMatches(content);
+        if (bridgeBlockMatch.isNotEmpty) {
+          final lastMatch = bridgeBlockMatch.last;
+          content = content.replaceFirst(
+            lastMatch.group(0)!,
+            '${lastMatch.group(0)!}\n        $registration',
+          );
+          modified = true;
+        } else {
+          final funcMatch = RegExp(r'override fun onAttachedToEngine\(.*?\) \{').firstMatch(content);
+          if (funcMatch != null) {
+            content = content.replaceFirst(
+              funcMatch.group(0)!,
+              '${funcMatch.group(0)!}\n        $registration',
+            );
+            modified = true;
+          }
+        }
+      }
+    }
+
     if (modified) pluginFile.writeAsStringSync(content);
   }
 

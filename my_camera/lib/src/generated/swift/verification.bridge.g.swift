@@ -4,7 +4,7 @@ import Combine
 
 // --- Structs ---
 public struct FloatBuffer {
-  public var data: UnsafeMutablePointer<Float>?
+  public var data: [Float]
   public var length: Int64
 }
 
@@ -17,7 +17,7 @@ public protocol HybridVerificationModuleProtocol: AnyObject {
     func ping(message: String) -> String
     func pingAsync(message: String) async throws -> String
     func throwError(message: String) -> Void
-    func processFloats(inputs: Any?) -> FloatBuffer
+    func processFloats(inputs: [Float]) -> FloatBuffer
 }
 
 public class VerificationModuleRegistry {
@@ -32,7 +32,8 @@ public class VerificationModuleRegistry {
 
 @_cdecl("_call_multiply")
 public func _call_multiply(_ a: Double, _ b: Double) -> Double {
-    return VerificationModuleRegistry.impl?.multiply(a: a, b: b) ?? 0.0
+    guard let impl = VerificationModuleRegistry.impl else { return 0.0 }
+    return impl.multiply(a: a, b: b)
 }
 
 @_cdecl("_call_ping")
@@ -62,7 +63,7 @@ public func _call_throwError(_ message: UnsafePointer<CChar>?) -> Void {
 }
 
 @_cdecl("_call_processFloats")
-public func _call_processFloats(_ inputs: Any?) -> UnsafeMutableRawPointer? {
+public func _call_processFloats(_ inputs: [Float]) -> UnsafeMutableRawPointer? {
     guard let result = VerificationModuleRegistry.impl?.processFloats(inputs: inputs) else { return nil }
     let ptr = UnsafeMutablePointer<FloatBuffer>.allocate(capacity: 1)
     ptr.initialize(to: result)

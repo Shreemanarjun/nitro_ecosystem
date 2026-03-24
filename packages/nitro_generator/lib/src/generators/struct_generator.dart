@@ -40,7 +40,7 @@ class StructGenerator {
       s.writeln('    return ${st.name}(');
       for (final f in st.fields) {
         String value;
-        if (f.type.isTypedData && f.zeroCopy) {
+        if (f.type.isTypedData) {
           final lenField = st.fields
               .where(
                 (sf) =>
@@ -67,7 +67,7 @@ class StructGenerator {
       s.writeln('  Pointer<${st.name}Ffi> toNative(Arena arena) {');
       s.writeln('    final ptr = arena<${st.name}Ffi>();');
       for (final f in st.fields) {
-        if (f.type.isTypedData && f.zeroCopy) {
+        if (f.type.isTypedData) {
           s.writeln('    ptr.ref.${f.name} = ${f.name}.toPointer(arena);');
         } else if (f.type.name == 'bool') {
           s.writeln('    ptr.ref.${f.name} = ${f.name} ? 1 : 0;');
@@ -223,25 +223,21 @@ class StructGenerator {
       case 'String':
         return 'String';
       case 'Uint8List':
-        return isZeroCopy ? 'UnsafeMutablePointer<UInt8>?' : 'Data';
       case 'Int8List':
-        return isZeroCopy ? 'UnsafeMutablePointer<Int8>?' : 'Data';
+        return isZeroCopy ? 'UnsafeMutablePointer<UInt8>?' : 'Data';
       case 'Int16List':
-        return isZeroCopy ? 'UnsafeMutablePointer<Int16>?' : 'Data';
-      case 'Int32List':
-        return isZeroCopy ? 'UnsafeMutablePointer<Int32>?' : 'Data';
       case 'Uint16List':
-        return isZeroCopy ? 'UnsafeMutablePointer<UInt16>?' : 'Data';
+        return isZeroCopy ? 'UnsafeMutablePointer<Int16>?' : '[Int16]';
+      case 'Int32List':
       case 'Uint32List':
-        return isZeroCopy ? 'UnsafeMutablePointer<UInt32>?' : 'Data';
+        return isZeroCopy ? 'UnsafeMutablePointer<Int32>?' : '[Int32]';
       case 'Float32List':
-        return isZeroCopy ? 'UnsafeMutablePointer<Float>?' : 'Data';
+        return isZeroCopy ? 'UnsafeMutablePointer<Float>?' : '[Float]';
       case 'Float64List':
-        return isZeroCopy ? 'UnsafeMutablePointer<Double>?' : 'Data';
+        return isZeroCopy ? 'UnsafeMutablePointer<Double>?' : '[Double]';
       case 'Int64List':
-        return isZeroCopy ? 'UnsafeMutablePointer<Int64>?' : 'Data';
       case 'Uint64List':
-        return isZeroCopy ? 'UnsafeMutablePointer<UInt64>?' : 'Data';
+        return isZeroCopy ? 'UnsafeMutablePointer<Int64>?' : '[Int64]';
       default:
         return 'Any?';
     }

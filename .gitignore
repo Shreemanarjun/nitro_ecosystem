@@ -1,2 +1,3 @@
 packages/nitrogen/build/*
 packages/nitro_generator/.DS_Store
+my_camera/lib/src/verification.g.dart
