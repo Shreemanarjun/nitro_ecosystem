@@ -74,9 +74,9 @@ String? extractLibNameFromSpec(File specFile) {
 /// Returns a list of maps with 'lib' and 'module' keys.
 List<Map<String, String>> discoverModules(String pluginName) {
   final libDir = Directory('lib');
-  if (!libDir.existsSync()) return [];
+  if (!libDir.existsSync()) return [{'lib': pluginName, 'module': pluginName}];
   final specs = libDir.listSync(recursive: true).whereType<File>().where((f) => f.path.endsWith('.native.dart')).toList();
-  if (specs.isEmpty) return [];
+  if (specs.isEmpty) return [{'lib': pluginName, 'module': pluginName}];
 
   final modules = <Map<String, String>>[];
   for (final spec in specs) {
@@ -97,7 +97,7 @@ List<Map<String, String>> discoverModules(String pluginName) {
 }
 
 /// Deprecated: Use [discoverModules] instead.
-List<String> discoverModuleLibs(String pluginName) => discoverModules(pluginName).map((m) => m['lib']!).toList();
+List<String> discoverModuleLibs(String pluginName) => discoverModules(pluginName).map((m) => m['lib']!).toSet().toList();
 
 // ── Progress model ──────────────────────────────
 
