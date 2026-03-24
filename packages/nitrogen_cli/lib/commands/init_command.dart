@@ -4,7 +4,8 @@ import 'package:args/command_runner.dart';
 import 'package:nocterm/nocterm.dart';
 import 'package:path/path.dart' as p;
 import '../ui.dart';
-import 'link_command.dart' show resolveNitroNativePath, dartApiDlForwarderContent;
+import 'link_command.dart'
+    show resolveNitroNativePath, dartApiDlForwarderContent;
 
 // ── CMakeLists.txt updater ────────────────────────────────────────────────────
 
