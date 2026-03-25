@@ -18,6 +18,7 @@
 import 'package:nitro/nitro.dart' show NativeImpl, Backpressure;
 import 'package:nitro_generator/src/bridge_spec.dart';
 import 'package:nitro_generator/src/generators/cpp_bridge_generator.dart';
+import 'package:nitro_generator/src/generators/dart_ffi_generator.dart';
 import 'package:nitro_generator/src/generators/kotlin_generator.dart';
 import 'package:nitro_generator/src/generators/record_generator.dart';
 import 'package:test/test.dart';
@@ -842,6 +843,349 @@ void main() {
       expect(kt, contains('fun getColorC(): ColorC'));
       expect(kt, contains('fun getVec3(scale: Vec2): Vec3'));
       expect(kt, isNot(contains('Any?')));
+    });
+  });
+
+  // ── Fix 8: Arena lifetime for async+arena functions ────────────────────────
+
+  // Spec: async struct return (no arena params).
+  BridgeSpec asyncStructNoArenaSpec() => BridgeSpec(
+    dartClassName: 'StructAsyncMod',
+    lib: 'struct_async_mod',
+    namespace: 'struct_async_mod',
+    iosImpl: NativeImpl.swift,
+    androidImpl: NativeImpl.kotlin,
+    sourceUri: 'struct_async.native.dart',
+    structs: [
+      BridgeStruct(
+        name: 'Point',
+        packed: false,
+        fields: [
+          BridgeField(name: 'x', type: BridgeType(name: 'double')),
+          BridgeField(name: 'y', type: BridgeType(name: 'double')),
+        ],
+      ),
+    ],
+    functions: [
+      BridgeFunction(
+        dartName: 'getPointAsync',
+        cSymbol: 'struct_async_mod_get_point_async',
+        isAsync: true,
+        returnType: BridgeType(name: 'Point'),
+        params: [],
+      ),
+    ],
+  );
+
+  // Spec: async record return (no arena params).
+  BridgeSpec asyncRecordNoArenaSpec() => BridgeSpec(
+    dartClassName: 'RecordAsyncMod',
+    lib: 'record_async_mod',
+    namespace: 'record_async_mod',
+    iosImpl: NativeImpl.swift,
+    androidImpl: NativeImpl.kotlin,
+    sourceUri: 'record_async.native.dart',
+    recordTypes: [
+      BridgeRecordType(
+        name: 'Item',
+        fields: [BridgeRecordField(name: 'value', dartType: 'double', kind: RecordFieldKind.primitive)],
+      ),
+    ],
+    functions: [
+      BridgeFunction(
+        dartName: 'getItemAsync',
+        cSymbol: 'record_async_mod_get_item_async',
+        isAsync: true,
+        returnType: BridgeType(name: 'Item', isRecord: true),
+        params: [],
+      ),
+    ],
+  );
+
+  // Spec: async function with a String param → needsArena = true.
+  BridgeSpec asyncArenaStringSpec() => BridgeSpec(
+    dartClassName: 'SearchMod',
+    lib: 'search_mod',
+    namespace: 'search_mod',
+    iosImpl: NativeImpl.swift,
+    androidImpl: NativeImpl.kotlin,
+    sourceUri: 'search.native.dart',
+    functions: [
+      BridgeFunction(
+        dartName: 'findItem',
+        cSymbol: 'search_mod_find_item',
+        isAsync: true,
+        returnType: BridgeType(name: 'String'),
+        params: [BridgeParam(name: 'query', type: BridgeType(name: 'String'))],
+      ),
+    ],
+  );
+
+  // Spec: async function with a String param returning a record.
+  BridgeSpec asyncArenaRecordSpec() => BridgeSpec(
+    dartClassName: 'LookupMod',
+    lib: 'lookup_mod',
+    namespace: 'lookup_mod',
+    iosImpl: NativeImpl.swift,
+    androidImpl: NativeImpl.kotlin,
+    sourceUri: 'lookup.native.dart',
+    recordTypes: [
+      BridgeRecordType(
+        name: 'Result',
+        fields: [BridgeRecordField(name: 'value', dartType: 'String', kind: RecordFieldKind.primitive)],
+      ),
+    ],
+    functions: [
+      BridgeFunction(
+        dartName: 'lookup',
+        cSymbol: 'lookup_mod_lookup',
+        isAsync: true,
+        returnType: BridgeType(name: 'Result', isRecord: true),
+        params: [BridgeParam(name: 'key', type: BridgeType(name: 'String'))],
+      ),
+    ],
+  );
+
+  group('DartFfiGenerator — Fix 8: arena lifetime for async+arena functions', () {
+    test('async+arena does NOT use withArena (use-after-free risk)', () {
+      final out = DartFfiGenerator.generate(asyncArenaStringSpec());
+      // Find only the findItem function body
+      final start = out.indexOf('Future<String> findItem(');
+      final end = out.indexOf('\n  }', start) + 4;
+      final body = out.substring(start, end);
+      expect(body, isNot(contains('withArena')),
+          reason: 'withArena frees arena when Future is returned, not when it completes');
+    });
+
+    test('async+arena uses Arena() directly', () {
+      final out = DartFfiGenerator.generate(asyncArenaStringSpec());
+      final start = out.indexOf('Future<String> findItem(');
+      final end = out.indexOf('\n  }', start) + 4;
+      final body = out.substring(start, end);
+      expect(body, contains('final arena = Arena();'));
+    });
+
+    test('async+arena has try/finally wrapping the await', () {
+      final out = DartFfiGenerator.generate(asyncArenaStringSpec());
+      final start = out.indexOf('Future<String> findItem(');
+      final end = out.indexOf('\n  }', start) + 4;
+      final body = out.substring(start, end);
+      expect(body, contains('try {'));
+      expect(body, contains('} finally {'));
+      expect(body, contains('arena.releaseAll();'));
+    });
+
+    test('arena.releaseAll() is in finally, after the await', () {
+      final out = DartFfiGenerator.generate(asyncArenaStringSpec());
+      final awaitIdx = out.indexOf('await NitroRuntime.callAsync');
+      final releaseIdx = out.indexOf('arena.releaseAll()');
+      expect(awaitIdx, greaterThan(0));
+      expect(releaseIdx, greaterThan(awaitIdx),
+          reason: 'arena must be freed after the await, not before');
+    });
+
+    test('async+arena arena args are still passed to callAsync', () {
+      final out = DartFfiGenerator.generate(asyncArenaStringSpec());
+      // String param should still be arena-allocated and passed to callAsync
+      expect(out, contains('toNativeUtf8(allocator: arena)'));
+    });
+
+    test('async+arena record return still frees rawPtr after decode', () {
+      final out = DartFfiGenerator.generate(asyncArenaRecordSpec());
+      expect(out, contains('malloc.free(rawPtr)'));
+      // malloc.free must appear before arena.releaseAll()
+      final freeIdx = out.indexOf('malloc.free(rawPtr)');
+      final releaseIdx = out.indexOf('arena.releaseAll()');
+      expect(freeIdx, lessThan(releaseIdx),
+          reason: 'result buffer freed inside try, before finally releases arena');
+    });
+
+    test('sync+arena function still uses withArena (no regression)', () {
+      // A sync function with a String param must still use withArena
+      final spec = BridgeSpec(
+        dartClassName: 'SyncMod',
+        lib: 'sync_mod',
+        namespace: 'sync_mod',
+        iosImpl: NativeImpl.swift,
+        androidImpl: NativeImpl.kotlin,
+        sourceUri: 'sync.native.dart',
+        functions: [
+          BridgeFunction(
+            dartName: 'doWork',
+            cSymbol: 'sync_mod_do_work',
+            isAsync: false,
+            returnType: BridgeType(name: 'void'),
+            params: [BridgeParam(name: 'tag', type: BridgeType(name: 'String'))],
+          ),
+        ],
+      );
+      final out = DartFfiGenerator.generate(spec);
+      final start = out.indexOf('void doWork(');
+      final end = out.indexOf('\n  }', start) + 4;
+      final body = out.substring(start, end);
+      expect(body, contains('withArena'));
+    });
+  });
+
+  // ── Fix 9: Typed callAsync<T> — no raw pointer casts ─────────────────────
+
+  group('DartFfiGenerator — Fix 9: typed callAsync<T> removes raw casts', () {
+    test('async record return (no arena) uses callAsync<Pointer<Uint8>>', () {
+      final out = DartFfiGenerator.generate(asyncRecordNoArenaSpec());
+      expect(out, contains('callAsync<Pointer<Uint8>>'));
+    });
+
+    test('async record return (no arena) has no untyped pointer cast', () {
+      final out = DartFfiGenerator.generate(asyncRecordNoArenaSpec());
+      expect(out, isNot(contains('result as Pointer<Uint8>')));
+      expect(out, isNot(contains('rawResult as Pointer<Uint8>')));
+    });
+
+    test('async record return (arena) uses callAsync<Pointer<Uint8>>', () {
+      final out = DartFfiGenerator.generate(asyncArenaRecordSpec());
+      expect(out, contains('callAsync<Pointer<Uint8>>'));
+    });
+
+    test('async struct return (no arena) uses callAsync<Pointer<Void>>', () {
+      final out = DartFfiGenerator.generate(asyncStructNoArenaSpec());
+      expect(out, contains('callAsync<Pointer<Void>>'));
+    });
+
+    test('async struct return (no arena) has no "asyncResult as Pointer<Void>" cast', () {
+      final out = DartFfiGenerator.generate(asyncStructNoArenaSpec());
+      expect(out, isNot(contains('asyncResult as Pointer<Void>')));
+      expect(out, isNot(contains('result as Pointer<Void>')));
+    });
+
+    test('async enum return uses callAsync<int>', () {
+      final out = DartFfiGenerator.generate(_specWithEnum());
+      expect(out, contains('callAsync<int>'));
+    });
+
+    test('async enum return has no untyped int cast', () {
+      final out = DartFfiGenerator.generate(_specWithEnum());
+      // Old: (await callAsync(...)) as int — new: callAsync<int>(...)
+      expect(out, isNot(contains(') as int')));
+    });
+
+    test('async double return uses callAsync<double>', () {
+      final spec = BridgeSpec(
+        dartClassName: 'MathMod',
+        lib: 'math_mod',
+        namespace: 'math_mod',
+        iosImpl: NativeImpl.swift,
+        androidImpl: NativeImpl.kotlin,
+        sourceUri: 'math.native.dart',
+        functions: [
+          BridgeFunction(
+            dartName: 'computeAsync',
+            cSymbol: 'math_mod_compute_async',
+            isAsync: true,
+            returnType: BridgeType(name: 'double'),
+            params: [],
+          ),
+        ],
+      );
+      final out = DartFfiGenerator.generate(spec);
+      expect(out, contains('callAsync<double>'));
+      expect(out, isNot(contains('res as double')));
+    });
+
+    test('async int return uses callAsync<int>', () {
+      final spec = BridgeSpec(
+        dartClassName: 'CountMod',
+        lib: 'count_mod',
+        namespace: 'count_mod',
+        iosImpl: NativeImpl.swift,
+        androidImpl: NativeImpl.kotlin,
+        sourceUri: 'count.native.dart',
+        functions: [
+          BridgeFunction(
+            dartName: 'countAsync',
+            cSymbol: 'count_mod_count_async',
+            isAsync: true,
+            returnType: BridgeType(name: 'int'),
+            params: [],
+          ),
+        ],
+      );
+      final out = DartFfiGenerator.generate(spec);
+      expect(out, contains('callAsync<int>'));
+      expect(out, isNot(contains('res as int')));
+    });
+
+    test('async+arena String return uses callAsync<Pointer<Utf8>>', () {
+      final out = DartFfiGenerator.generate(asyncArenaStringSpec());
+      expect(out, contains('callAsync<Pointer<Utf8>>'));
+    });
+  });
+
+  // ── Fix 10: TypedData null guard in pack_from_jni ─────────────────────────
+
+  BridgeSpec typedDataStructSpec() => BridgeSpec(
+    dartClassName: 'BufferMod',
+    lib: 'buffer_mod',
+    namespace: 'buffer_mod',
+    iosImpl: NativeImpl.swift,
+    androidImpl: NativeImpl.kotlin,
+    sourceUri: 'buffer.native.dart',
+    structs: [
+      BridgeStruct(
+        name: 'Frame',
+        packed: false,
+        fields: [
+          BridgeField(name: 'pixels', type: BridgeType(name: 'Uint8List'), zeroCopy: true),
+          BridgeField(name: 'pixelsLength', type: BridgeType(name: 'int')),
+          BridgeField(name: 'width', type: BridgeType(name: 'int')),
+        ],
+      ),
+    ],
+    functions: [
+      BridgeFunction(
+        dartName: 'getFrame',
+        cSymbol: 'buffer_mod_get_frame',
+        isAsync: false,
+        returnType: BridgeType(name: 'Frame'),
+        params: [],
+      ),
+    ],
+  );
+
+  group('CppBridgeGenerator — Fix 10: TypedData null guard in pack_from_jni', () {
+    test('null guard emitted for zero-copy ByteBuffer field', () {
+      final cpp = CppBridgeGenerator.generate(typedDataStructSpec());
+      expect(cpp, contains('if (buf_pixels == nullptr)'));
+    });
+
+    test('null guard throws NullPointerException via ThrowNew', () {
+      final cpp = CppBridgeGenerator.generate(typedDataStructSpec());
+      expect(cpp, contains('env->FindClass("java/lang/NullPointerException")'));
+      expect(cpp, contains('env->ThrowNew(npe,'));
+    });
+
+    test('null guard error message names the struct and field', () {
+      final cpp = CppBridgeGenerator.generate(typedDataStructSpec());
+      expect(cpp, contains('"Frame.pixels: TypedData ByteBuffer is null"'));
+    });
+
+    test('null guard returns early before GetDirectBufferAddress', () {
+      final cpp = CppBridgeGenerator.generate(typedDataStructSpec());
+      final nullCheckIdx = cpp.indexOf('if (buf_pixels == nullptr)');
+      final bufAddrIdx = cpp.indexOf('GetDirectBufferAddress(buf_pixels)');
+      expect(nullCheckIdx, greaterThan(0));
+      expect(bufAddrIdx, greaterThan(nullCheckIdx),
+          reason: 'null check must precede GetDirectBufferAddress call');
+    });
+
+    test('GetDirectBufferAddress still emitted after null guard', () {
+      final cpp = CppBridgeGenerator.generate(typedDataStructSpec());
+      expect(cpp, contains('GetDirectBufferAddress(buf_pixels)'));
+    });
+
+    test('non-TypedData fields have no null guard', () {
+      final cpp = CppBridgeGenerator.generate(typedDataStructSpec());
+      // width is an int field, not zero-copy — no null guard for it
+      expect(cpp, isNot(contains('if (buf_width == nullptr)')));
     });
   });
 }

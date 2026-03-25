@@ -121,19 +121,21 @@ class _MyCameraImpl extends MyCamera {
   @override
   Future<String> getGreeting(String name) async {
     checkDisposed();
-    return withArena((arena) async {
-      final result = await NitroRuntime.callAsync(_getGreetingPtr, [name.toNativeUtf8(allocator: arena)]);
+    final arena = Arena();
+    try {
+      final rawPtr = await NitroRuntime.callAsync<Pointer<Utf8>>(_getGreetingPtr, [name.toNativeUtf8(allocator: arena)]);
       NitroRuntime.checkError(_dylib, getErrorName: 'my_camera_get_error', clearErrorName: 'my_camera_clear_error');
-      return (result as Pointer<Utf8>).toDartStringWithFree();
-    });
+      return rawPtr.toDartStringWithFree();
+    } finally {
+      arena.releaseAll();
+    }
   }
 
   @override
   Future<List<CameraDevice>> getAvailableDevices() async {
     checkDisposed();
-    final rawResult = await NitroRuntime.callAsync(_getAvailableDevicesPtr, []);
+    final rawPtr = await NitroRuntime.callAsync<Pointer<Uint8>>(_getAvailableDevicesPtr, []);
     NitroRuntime.checkError(_dylib, getErrorName: 'my_camera_get_error', clearErrorName: 'my_camera_clear_error');
-    final rawPtr = rawResult as Pointer<Uint8>;
     final decoded = RecordReader.decodeList(rawPtr, (r) => CameraDeviceRecordExt.fromReader(r));
     malloc.free(rawPtr);
     return decoded;

@@ -140,66 +140,94 @@ class DartFfiGenerator {
       if (func.isAsync) {
         final isStructReturn = spec.structs.any((st) => st.name == rt);
         final isEnumReturn = spec.enums.any((en) => en.name == rt);
+        final plainCallArgs = func.params.map((p) => p.name).join(', ');
+        // Dart return type for callAsync<T> — removes untyped 'result as Pointer<..>'
+        // casts at every call site and makes generated code self-documenting.
+        final callAsyncType = isRecordReturn
+            ? 'Pointer<Uint8>'
+            : rt == 'String'
+                ? 'Pointer<Utf8>'
+                : isStructReturn
+                    ? 'Pointer<Void>'
+                    : isEnumReturn
+                        ? 'int'
+                        : _typeToDartFFI(func.returnType, spec);
 
         if (needsArena) {
-          s.writeln('    return withArena((arena) async {');
-          s.writeln(
-            '      final result = await NitroRuntime.callAsync(_${func.dartName}Ptr, [$callArgs]);',
-          );
-          s.writeln('      NitroRuntime.checkError(_dylib, getErrorName: \'${libStem}_get_error\', clearErrorName: \'${libStem}_clear_error\');');
+          // Arena must outlive the await — use Arena() directly with try/finally.
+          // withArena((arena) async { ... }) frees the arena when the callback
+          // returns its Future, before the Future completes, causing a
+          // use-after-free on any arena-allocated args (strings, struct ptrs).
+          s.writeln('    final arena = Arena();');
+          s.writeln('    try {');
           if (isRecordReturn) {
-            s.writeln('      final rawPtr = result as Pointer<Uint8>;');
+            s.writeln('      final rawPtr = await NitroRuntime.callAsync<Pointer<Uint8>>(_${func.dartName}Ptr, [$callArgs]);');
+            s.writeln('      NitroRuntime.checkError(_dylib, getErrorName: \'${libStem}_get_error\', clearErrorName: \'${libStem}_clear_error\');');
             s.writeln('      final decoded = ${_decodeRecordExpr(func.returnType, 'rawPtr')};');
             s.writeln('      malloc.free(rawPtr);');
             s.writeln('      return decoded;');
           } else if (rt == 'String') {
-            s.writeln(
-              '      return (result as Pointer<Utf8>).toDartStringWithFree();',
-            );
+            s.writeln('      final rawPtr = await NitroRuntime.callAsync<Pointer<Utf8>>(_${func.dartName}Ptr, [$callArgs]);');
+            s.writeln('      NitroRuntime.checkError(_dylib, getErrorName: \'${libStem}_get_error\', clearErrorName: \'${libStem}_clear_error\');');
+            s.writeln('      return rawPtr.toDartStringWithFree();');
           } else if (isStructReturn) {
-            s.writeln('      final structPtr = Pointer<${rt}Ffi>.fromAddress((result as Pointer<Void>).address);');
+            s.writeln('      final rawPtr = await NitroRuntime.callAsync<Pointer<Void>>(_${func.dartName}Ptr, [$callArgs]);');
+            s.writeln('      NitroRuntime.checkError(_dylib, getErrorName: \'${libStem}_get_error\', clearErrorName: \'${libStem}_clear_error\');');
+            s.writeln('      final structPtr = Pointer<${rt}Ffi>.fromAddress(rawPtr.address);');
             s.writeln('      final decoded = structPtr.ref.toDart();');
             s.writeln('      malloc.free(structPtr);');
             s.writeln('      return decoded;');
           } else if (isEnumReturn) {
-            s.writeln('      return (result as int).to$rt();');
+            s.writeln('      final res = await NitroRuntime.callAsync<int>(_${func.dartName}Ptr, [$callArgs]);');
+            s.writeln('      NitroRuntime.checkError(_dylib, getErrorName: \'${libStem}_get_error\', clearErrorName: \'${libStem}_clear_error\');');
+            s.writeln('      return res.to$rt();');
           } else {
-            s.writeln('      return result;');
+            s.writeln('      final res = await NitroRuntime.callAsync<$callAsyncType>(_${func.dartName}Ptr, [$callArgs]);');
+            s.writeln('      NitroRuntime.checkError(_dylib, getErrorName: \'${libStem}_get_error\', clearErrorName: \'${libStem}_clear_error\');');
+            if (rt == 'bool') {
+              s.writeln('      return res != 0;');
+            } else {
+              s.writeln('      return res;');
+            }
           }
-          s.writeln('    });');
+          s.writeln('    } finally {');
+          s.writeln('      arena.releaseAll();');
+          s.writeln('    }');
         } else {
-          // No arena — but @HybridRecord return still needs await + decode.
+          // No arena — but @HybridRecord / struct / enum returns still need decode.
           if (isRecordReturn) {
-            final params = func.params.map((p) => p.name).join(', ');
             s.writeln(
-              '    final rawResult = await NitroRuntime.callAsync(_${func.dartName}Ptr, [$params]);',
+              '    final rawPtr = await NitroRuntime.callAsync<Pointer<Uint8>>(_${func.dartName}Ptr, [$plainCallArgs]);',
             );
             s.writeln('    NitroRuntime.checkError(_dylib, getErrorName: \'${libStem}_get_error\', clearErrorName: \'${libStem}_clear_error\');');
-            s.writeln('    final rawPtr = rawResult as Pointer<Uint8>;');
             s.writeln('    final decoded = ${_decodeRecordExpr(func.returnType, 'rawPtr')};');
             s.writeln('    malloc.free(rawPtr);');
             s.writeln('    return decoded;');
           } else if (isStructReturn) {
             s.writeln(
-              '    final asyncResult = await NitroRuntime.callAsync(_${func.dartName}Ptr, [${func.params.map((p) => p.name).join(', ')}]);',
+              '    final rawPtr = await NitroRuntime.callAsync<Pointer<Void>>(_${func.dartName}Ptr, [$plainCallArgs]);',
             );
             s.writeln('    NitroRuntime.checkError(_dylib, getErrorName: \'${libStem}_get_error\', clearErrorName: \'${libStem}_clear_error\');');
-            s.writeln('    final structPtr = Pointer<${rt}Ffi>.fromAddress((asyncResult as Pointer<Void>).address);');
+            s.writeln('    final structPtr = Pointer<${rt}Ffi>.fromAddress(rawPtr.address);');
             s.writeln('    final decodedStruct = structPtr.ref.toDart();');
             s.writeln('    malloc.free(structPtr);');
             s.writeln('    return decodedStruct;');
           } else if (isEnumReturn) {
             s.writeln(
-              '    final res = (await NitroRuntime.callAsync(_${func.dartName}Ptr, [${func.params.map((p) => p.name).join(', ')}])) as int;',
+              '    final res = await NitroRuntime.callAsync<int>(_${func.dartName}Ptr, [$plainCallArgs]);',
             );
             s.writeln('    NitroRuntime.checkError(_dylib, getErrorName: \'${libStem}_get_error\', clearErrorName: \'${libStem}_clear_error\');');
             s.writeln('    return res.to$rt();');
           } else {
             s.writeln(
-              '    final res = await NitroRuntime.callAsync(_${func.dartName}Ptr, [${func.params.map((p) => p.name).join(', ')}]);',
+              '    final res = await NitroRuntime.callAsync<$callAsyncType>(_${func.dartName}Ptr, [$plainCallArgs]);',
             );
             s.writeln('    NitroRuntime.checkError(_dylib, getErrorName: \'${libStem}_get_error\', clearErrorName: \'${libStem}_clear_error\');');
-            s.writeln('    return res as $rt;');
+            if (rt == 'bool') {
+              s.writeln('    return res != 0;');
+            } else {
+              s.writeln('    return res;');
+            }
           }
         }
       } else {

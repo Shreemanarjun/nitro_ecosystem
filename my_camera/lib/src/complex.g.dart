@@ -106,11 +106,14 @@ class _ComplexModuleImpl extends ComplexModule {
   @override
   Future<String> fetchMetadata(String url) async {
     checkDisposed();
-    return withArena((arena) async {
-      final result = await NitroRuntime.callAsync(_fetchMetadataPtr, [url.toNativeUtf8(allocator: arena)]);
+    final arena = Arena();
+    try {
+      final rawPtr = await NitroRuntime.callAsync<Pointer<Utf8>>(_fetchMetadataPtr, [url.toNativeUtf8(allocator: arena)]);
       NitroRuntime.checkError(_dylib, getErrorName: 'complex_get_error', clearErrorName: 'complex_clear_error');
-      return (result as Pointer<Utf8>).toDartStringWithFree();
-    });
+      return rawPtr.toDartStringWithFree();
+    } finally {
+      arena.releaseAll();
+    }
   }
 
   @override
@@ -128,9 +131,9 @@ class _ComplexModuleImpl extends ComplexModule {
   @override
   Future<Packet> generatePacket(int type) async {
     checkDisposed();
-    final asyncResult = await NitroRuntime.callAsync(_generatePacketPtr, [type]);
+    final rawPtr = await NitroRuntime.callAsync<Pointer<Void>>(_generatePacketPtr, [type]);
     NitroRuntime.checkError(_dylib, getErrorName: 'complex_get_error', clearErrorName: 'complex_clear_error');
-    final structPtr = Pointer<PacketFfi>.fromAddress((asyncResult as Pointer<Void>).address);
+    final structPtr = Pointer<PacketFfi>.fromAddress(rawPtr.address);
     final decodedStruct = structPtr.ref.toDart();
     malloc.free(structPtr);
     return decodedStruct;

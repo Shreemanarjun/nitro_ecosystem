@@ -90,6 +90,11 @@ static void nitro_report_jni_exception(JNIEnv* env, jthrowable ex) {
 static FloatBuffer pack_FloatBuffer_from_jni(JNIEnv* env, jobject obj) {
     FloatBuffer result;
     jobject buf_data = env->GetObjectField(obj, g_fid_FloatBuffer_data);
+    if (buf_data == nullptr) {
+        jclass npe = env->FindClass("java/lang/NullPointerException");
+        if (npe) env->ThrowNew(npe, "FloatBuffer.data: TypedData ByteBuffer is null");
+        return result;
+    }
     result.data = (float*)env->GetDirectBufferAddress(buf_data);
     result.length = env->GetLongField(obj, g_fid_FloatBuffer_length);
     return result;

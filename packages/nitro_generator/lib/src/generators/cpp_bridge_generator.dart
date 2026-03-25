@@ -132,6 +132,13 @@ class CppBridgeGenerator {
           s.writeln(
             '    jobject buf_${f.name} = env->GetObjectField(obj, g_fid_${st.name}_${f.name});',
           );
+          // Null guard: GetDirectBufferAddress(null) returns null — assign it
+          // to the struct field unchecked causes a silent null-deref on use.
+          s.writeln('    if (buf_${f.name} == nullptr) {');
+          s.writeln('        jclass npe = env->FindClass("java/lang/NullPointerException");');
+          s.writeln('        if (npe) env->ThrowNew(npe, "${st.name}.${f.name}: TypedData ByteBuffer is null");');
+          s.writeln('        return result;');
+          s.writeln('    }');
           s.writeln(
             '    result.${f.name} = ($elemCast)env->GetDirectBufferAddress(buf_${f.name});',
           );
@@ -302,8 +309,6 @@ class CppBridgeGenerator {
         if (p.type.isTypedData) paramsDeclParts.add('int64_t ${p.name}_length');
       }
       final paramsDecl = paramsDeclParts.join(', ');
-      // JNI signature: enum return is "J" (Long), struct is class ref, record is "[B" (byte array)
-      final jniSig = _jniSig(func.params, func.returnType, enumNames, structNames, libPkg);
 
       s.writeln(
         '$cReturnType ${func.cSymbol}(${paramsDecl.isEmpty ? 'void' : paramsDecl}) {',

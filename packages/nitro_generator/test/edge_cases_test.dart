@@ -685,9 +685,10 @@ void main() {
       expect(freeIdx, lessThan(returnIdx), reason: 'must free before returning');
     });
 
-    test('async no-arena record return extracts Pointer<Uint8> before decoding', () {
+    test('async no-arena record return uses typed callAsync<Pointer<Uint8>>', () {
       final out = DartFfiGenerator.generate(_singleRecordSpec());
-      expect(out, contains('final rawPtr = rawResult as Pointer<Uint8>'));
+      expect(out, contains('callAsync<Pointer<Uint8>>'));
+      expect(out, contains('final rawPtr = await NitroRuntime.callAsync<Pointer<Uint8>>'));
     });
 
     test('sync record return casts call result to Pointer<Uint8>', () {

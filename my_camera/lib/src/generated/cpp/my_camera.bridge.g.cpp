@@ -95,6 +95,11 @@ static void nitro_report_jni_exception(JNIEnv* env, jthrowable ex) {
 static CameraFrame pack_CameraFrame_from_jni(JNIEnv* env, jobject obj) {
     CameraFrame result;
     jobject buf_data = env->GetObjectField(obj, g_fid_CameraFrame_data);
+    if (buf_data == nullptr) {
+        jclass npe = env->FindClass("java/lang/NullPointerException");
+        if (npe) env->ThrowNew(npe, "CameraFrame.data: TypedData ByteBuffer is null");
+        return result;
+    }
     result.data = (uint8_t*)env->GetDirectBufferAddress(buf_data);
     result.width = env->GetLongField(obj, g_fid_CameraFrame_width);
     result.height = env->GetLongField(obj, g_fid_CameraFrame_height);

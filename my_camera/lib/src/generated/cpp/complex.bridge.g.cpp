@@ -113,6 +113,11 @@ static Packet pack_Packet_from_jni(JNIEnv* env, jobject obj) {
     Packet result;
     result.sequence = env->GetLongField(obj, g_fid_Packet_sequence);
     jobject buf_buffer = env->GetObjectField(obj, g_fid_Packet_buffer);
+    if (buf_buffer == nullptr) {
+        jclass npe = env->FindClass("java/lang/NullPointerException");
+        if (npe) env->ThrowNew(npe, "Packet.buffer: TypedData ByteBuffer is null");
+        return result;
+    }
     result.buffer = (uint8_t*)env->GetDirectBufferAddress(buf_buffer);
     result.size = env->GetLongField(obj, g_fid_Packet_size);
     return result;
