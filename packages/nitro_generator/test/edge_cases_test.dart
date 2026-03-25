@@ -1153,6 +1153,33 @@ void main() {
       expect(kt, isNot(contains('_streamJobs.remove(dartPort)')));
     });
   });
+
+  // ── 9. Issue 18 — spec-path attribution in generated files ────────────────
+
+  group('Generators — "Generated from:" attribution', () {
+    test('DartFfiGenerator emits Generated from: header', () {
+      final out = DartFfiGenerator.generate(_syncRecordSpec());
+      expect(out, contains('// Generated from: camera_module.native.dart'));
+    });
+
+    test('KotlinGenerator emits Generated from: header', () {
+      final out = KotlinGenerator.generate(_syncRecordSpec());
+      expect(out, contains('// Generated from: camera_module.native.dart'));
+    });
+
+    test('CppBridgeGenerator emits Generated from: header', () {
+      final out = CppBridgeGenerator.generate(_syncRecordSpec());
+      expect(out, contains('// Generated from: camera_module.native.dart'));
+    });
+
+    test('Generated from: line appears before functional code', () {
+      // Attribution must be near the top — within the first 200 chars.
+      final out = DartFfiGenerator.generate(_syncRecordSpec());
+      final idx = out.indexOf('// Generated from:');
+      expect(idx, lessThan(200),
+          reason: 'attribution comment must appear at the top of the file');
+    });
+  });
 }
 
 // ── Helper used in test reason strings only ───────────────────────────────────

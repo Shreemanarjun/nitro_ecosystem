@@ -1500,7 +1500,7 @@ void main() {
   group('CppHeaderGenerator', () {
     test('emits #pragma once', () {
       final out = CppHeaderGenerator.generate(_simpleSpec());
-      expect(out, startsWith('#pragma once'));
+      expect(out, contains('#pragma once'));
     });
 
     test('CppHeaderGenerator emits balanced #ifdef __cplusplus', () {

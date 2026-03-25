@@ -32,6 +32,7 @@ abstract class HybridObject {
 
   /// Throws [StateError] if [dispose] has already been called.
   /// Called automatically at the start of every generated method and getter.
+  @pragma('vm:prefer-inline')
   void checkDisposed() {
     if (_disposed) {
       throw StateError(
