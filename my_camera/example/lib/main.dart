@@ -76,11 +76,14 @@ class _HomePageState extends State<_HomePage> {
       debugPrint('[my_camera] add failed: $e');
     }
 
-    MyCamera.instance.getGreeting('Nitro 0.2.2').then((val) {
-      if (mounted) setState(() => _greeting = val);
-    }).catchError((Object e) {
-      if (mounted) setState(() => _greeting = 'Error: $e');
-    });
+    MyCamera.instance
+        .getGreeting('Nitro 0.2.2')
+        .then((val) {
+          if (mounted) setState(() => _greeting = val);
+        })
+        .catchError((Object e) {
+          if (mounted) setState(() => _greeting = 'Error: $e');
+        });
 
     try {
       final devices = await MyCamera.instance.getAvailableDevices();
@@ -119,7 +122,9 @@ class _HomePageState extends State<_HomePage> {
             tooltip: 'Nitro Debug Settings',
             icon: Icon(
               Icons.tune,
-              color: NitroConfig.instance.logLevel != NitroLogLevel.none ? Colors.amberAccent : Colors.grey,
+              color: NitroConfig.instance.logLevel != NitroLogLevel.none
+                  ? Colors.amberAccent
+                  : Colors.grey,
             ),
             onPressed: () => setState(() => _debugPanelOpen = !_debugPanelOpen),
           ),
@@ -136,36 +141,135 @@ class _HomePageState extends State<_HomePage> {
               AnimatedSize(
                 duration: const Duration(milliseconds: 250),
                 curve: Curves.easeInOut,
-                child: _debugPanelOpen ? _buildDebugPanel() : const SizedBox.shrink(),
+                child: _debugPanelOpen
+                    ? _buildDebugPanel()
+                    : const SizedBox.shrink(),
               ),
 
               _sectionTitle('Basic Bridges'),
-              _card(Column(children: [
-                _infoRow('Sync Add (10 + 20)', '$_result'),
-                const Divider(),
-                _infoRow('Async Greeting', _greeting),
-              ])),
+              _card(
+                Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    _infoRow('Sync Add (10 + 20)', '$_result'),
+                    const Divider(),
+                    Row(
+                      children: [
+                        const Text(
+                          'Async Greeting',
+                          style: TextStyle(color: Colors.grey, fontSize: 13),
+                        ),
+                        const Spacer(),
+                        if (_greeting == 'Refreshing...' ||
+                            _greeting == 'Loading...')
+                          const SizedBox(
+                            width: 12,
+                            height: 12,
+                            child: CircularProgressIndicator(strokeWidth: 2),
+                          ),
+                      ],
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      _greeting,
+                      style: const TextStyle(
+                        fontWeight: FontWeight.bold,
+                        fontSize: 17,
+                        color: Colors.amberAccent,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
               const SizedBox(height: 20),
 
               _sectionTitle('Binary Bridge (@HybridRecord)'),
               if (_isLoadingDevices)
                 const Center(child: CircularProgressIndicator())
               else if (_devices.isEmpty)
-                _card(const Text('No devices found.', style: TextStyle(color: Colors.grey)))
+                _card(
+                  const Text(
+                    'No devices found.',
+                    style: TextStyle(color: Colors.grey),
+                  ),
+                )
               else
                 ..._devices.map(_deviceCard),
               const SizedBox(height: 20),
 
-              _sectionTitle('Live Zero-Copy Stream (frames)'),
-              _card(StreamBuilder<CameraFrame>(
-                key: ValueKey('frames_$_refreshCount'),
-                stream: MyCamera.instance.frames,
-                builder: (ctx, snap) {
-                  if (snap.hasError) return _streamError(snap.error!);
-                  if (!snap.hasData) return _waiting('frames');
-                  return _frameInfo(snap.data!);
-                },
-              )),
+              _sectionTitle('Live Zero-Copy Streams'),
+              Row(
+                children: [
+                  Expanded(
+                    child: _card(
+                      Column(
+                        children: [
+                          const Text(
+                            'GRAYSCALE',
+                            style: TextStyle(
+                              color: Colors.grey,
+                              fontSize: 10,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                          const SizedBox(height: 8),
+                          StreamBuilder<CameraFrame>(
+                            key: ValueKey('frames_$_refreshCount'),
+                            stream: MyCamera.instance.frames,
+                            builder: (ctx, snap) {
+                              if (snap.hasError)
+                                return _streamError(snap.error!);
+                              if (!snap.hasData) return _waiting('frames');
+                              return _frameInfo(snap.data!);
+                            },
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: StreamBuilder<CameraFrame>(
+                      key: ValueKey('colored_frames_$_refreshCount'),
+                      stream: MyCamera.instance.coloredFrames,
+                      builder: (ctx, snap) {
+                        final frame = snap.data;
+                        final color = (frame != null && frame.data.length >= 4)
+                            ? Color.fromARGB(
+                                255,
+                                frame.data[2], // R (Swift sent R)
+                                frame.data[1], // G (Swift sent G)
+                                frame.data[0], // B (Swift sent B)
+                              ).withOpacity(0.2)
+                            : null;
+
+                        return _card(
+                          color: color,
+                          Column(
+                            children: [
+                              const Text(
+                                'COLORED',
+                                style: TextStyle(
+                                  color: Colors.amberAccent,
+                                  fontSize: 10,
+                                  fontWeight: FontWeight.bold,
+                                ),
+                              ),
+                              const SizedBox(height: 8),
+                              if (snap.hasError)
+                                _streamError(snap.error!)
+                              else if (frame == null)
+                                _waiting('coloredFrames')
+                              else
+                                _frameInfo(frame),
+                            ],
+                          ),
+                        );
+                      },
+                    ),
+                  ),
+                ],
+              ),
               const SizedBox(height: 20),
 
               _sectionTitle('Native Verification (Errors & Zero-Copy)'),
@@ -198,27 +302,40 @@ class _HomePageState extends State<_HomePage> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Row(children: [
-            const Icon(Icons.tune, color: Colors.amberAccent, size: 18),
-            const SizedBox(width: 8),
-            const Text('NitroConfig', style: TextStyle(fontWeight: FontWeight.bold, color: Colors.amberAccent)),
-            const Spacer(),
-            Switch(
-              value: NitroConfig.instance.logLevel != NitroLogLevel.none,
-              onChanged: (on) {
-                if (on) {
-                  NitroConfig.instance.enable();
-                } else {
-                  NitroConfig.instance.disable();
-                }
-                setState(() {});
-              },
-            ),
-          ]),
+          Row(
+            children: [
+              const Icon(Icons.tune, color: Colors.amberAccent, size: 18),
+              const SizedBox(width: 8),
+              const Text(
+                'NitroConfig',
+                style: TextStyle(
+                  fontWeight: FontWeight.bold,
+                  color: Colors.amberAccent,
+                ),
+              ),
+              const Spacer(),
+              Switch(
+                value: NitroConfig.instance.logLevel != NitroLogLevel.none,
+                onChanged: (on) {
+                  if (on) {
+                    NitroConfig.instance.enable();
+                  } else {
+                    NitroConfig.instance.disable();
+                  }
+                  setState(() {});
+                },
+              ),
+            ],
+          ),
           const Divider(),
-          const Text('Log level', style: TextStyle(color: Colors.grey, fontSize: 12)),
+          Text(
+            'Worker Isolate Pool Size: $_poolSize',
+            style: const TextStyle(color: Colors.grey, fontSize: 12),
+          ),
           Slider(
-            min: 0, max: 8, divisions: 8,
+            min: 0,
+            max: 8,
+            divisions: 8,
             value: _poolSize.toDouble(),
             onChanged: (v) => _applyPoolSize(v.round()),
           ),
@@ -228,37 +345,62 @@ class _HomePageState extends State<_HomePage> {
   }
 
   Widget _sectionTitle(String t) => Padding(
-        padding: const EdgeInsets.only(bottom: 10),
-        child: Text(t, style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Colors.deepPurpleAccent)),
-      );
+    padding: const EdgeInsets.only(bottom: 10),
+    child: Text(
+      t,
+      style: const TextStyle(
+        fontSize: 16,
+        fontWeight: FontWeight.bold,
+        color: Colors.deepPurpleAccent,
+      ),
+    ),
+  );
 
-  Widget _card(Widget child) => Card(
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
-        child: Padding(padding: const EdgeInsets.all(14), child: child),
-      );
+  Widget _card(Widget child, {Color? color}) => Card(
+    clipBehavior: Clip.antiAlias,
+    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+    child: AnimatedContainer(
+      duration: const Duration(milliseconds: 300),
+      curve: Curves.easeOut,
+      color: color,
+      padding: const EdgeInsets.all(14),
+      child: child,
+    ),
+  );
 
   Widget _infoRow(String label, String value) => Row(
-        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-        children: [
-          Text(label, style: const TextStyle(color: Colors.grey)),
-          Text(value, style: const TextStyle(fontWeight: FontWeight.bold)),
-        ],
-      );
+    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+    children: [
+      Text(label, style: const TextStyle(color: Colors.grey)),
+      Text(value, style: const TextStyle(fontWeight: FontWeight.bold)),
+    ],
+  );
 
-  Widget _frameInfo(CameraFrame f) => Column(children: [
-        Text('${f.width} × ${f.height}', style: const TextStyle(fontSize: 22, fontWeight: FontWeight.bold)),
-        Text('Stride: ${f.stride} B'),
-      ]);
+  Widget _frameInfo(CameraFrame f) => Column(
+    mainAxisSize: MainAxisSize.min,
+    children: [
+      Text(
+        '${f.width} × ${f.height}',
+        style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+      ),
+      Text(
+        '${(f.data.lengthInBytes / 1024 / 1024).toStringAsFixed(2)} MB • ${f.stride} B',
+        style: const TextStyle(color: Colors.grey, fontSize: 11),
+      ),
+    ],
+  );
 
-  Widget _streamError(Object err) => Text('Error: $err', style: const TextStyle(color: Colors.redAccent));
+  Widget _streamError(Object err) =>
+      Text('Error: $err', style: const TextStyle(color: Colors.redAccent));
 
-  Widget _waiting(String label) => Text('Waiting for $label…', style: const TextStyle(color: Colors.grey));
+  Widget _waiting(String label) =>
+      Text('Waiting for $label…', style: const TextStyle(color: Colors.grey));
 
   Widget _deviceCard(CameraDevice d) => ListTile(
-        leading: Icon(d.isFrontFacing ? Icons.camera_front : Icons.camera_rear),
-        title: Text(d.name),
-        subtitle: Text('id: ${d.id}'),
-      );
+    leading: Icon(d.isFrontFacing ? Icons.camera_front : Icons.camera_rear),
+    title: Text(d.name),
+    subtitle: Text('id: ${d.id}'),
+  );
 }
 
 class _VerificationTestPanel extends StatefulWidget {
@@ -296,12 +438,18 @@ class _VerificationTestPanelState extends State<_VerificationTestPanel> {
         ListTile(
           title: const Text('Typed Error'),
           subtitle: Text(_errorMsg),
-          trailing: ElevatedButton(onPressed: _testError, child: const Text('Test')),
+          trailing: ElevatedButton(
+            onPressed: _testError,
+            child: const Text('Test'),
+          ),
         ),
         ListTile(
           title: const Text('Float32 Zero-Copy'),
           subtitle: Text(_floatResult),
-          trailing: ElevatedButton(onPressed: _testFloats, child: const Text('Test')),
+          trailing: ElevatedButton(
+            onPressed: _testFloats,
+            child: const Text('Test'),
+          ),
         ),
       ],
     );
