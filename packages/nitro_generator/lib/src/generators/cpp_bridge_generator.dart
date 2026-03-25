@@ -264,6 +264,7 @@ class CppBridgeGenerator {
 
       // Build call args (converting C types to JNI types)
       final callArgsList = <String>[];
+      final jniTypedArrayParams = <String>[];
       for (final p in func.params) {
         final pt = p.type.name;
         if (pt == 'String') {
@@ -279,6 +280,13 @@ class CppBridgeGenerator {
           final elemSize = _zeroCopyElementSizeExpr(pt);
           s.writeln('    jobject j_${p.name} = env->NewDirectByteBuffer(${p.name}, ${p.name}_length$elemSize);');
           callArgsList.add('j_${p.name}');
+        } else if (!p.zeroCopy && p.type.isTypedData) {
+          // Non-zero-copy: copy data into a JNI typed array
+          final ops = _typedDataJniOps(pt);
+          s.writeln('    ${ops[0]} j_${p.name} = env->${ops[1]}((jsize)${p.name}_length);');
+          s.writeln('    env->${ops[2]}(j_${p.name}, 0, (jsize)${p.name}_length, (const ${ops[3]}*)${p.name});');
+          callArgsList.add('j_${p.name}');
+          jniTypedArrayParams.add(p.name);
         } else {
           callArgsList.add(p.name);
         }
@@ -291,28 +299,43 @@ class CppBridgeGenerator {
         s.writeln(
           '    env->CallStaticVoidMethod(g_bridgeClass, methodId$bridgeArgs);',
         );
+        for (final n in jniTypedArrayParams) {
+          s.writeln('    env->DeleteLocalRef(j_$n);');
+        }
       } else if (func.returnType.name == 'double') {
         s.writeln(
           '    double res = env->CallStaticDoubleMethod(g_bridgeClass, methodId$bridgeArgs);',
         );
+        for (final n in jniTypedArrayParams) {
+          s.writeln('    env->DeleteLocalRef(j_$n);');
+        }
         s.writeln('    if (env->ExceptionCheck()) { nitro_report_jni_exception(env, env->ExceptionOccurred()); env->ExceptionClear(); return 0.0; }');
         s.writeln('    return res;');
       } else if (func.returnType.name == 'int') {
         s.writeln(
           '    int64_t res = env->CallStaticLongMethod(g_bridgeClass, methodId$bridgeArgs);',
         );
+        for (final n in jniTypedArrayParams) {
+          s.writeln('    env->DeleteLocalRef(j_$n);');
+        }
         s.writeln('    if (env->ExceptionCheck()) { nitro_report_jni_exception(env, env->ExceptionOccurred()); env->ExceptionClear(); return 0; }');
         s.writeln('    return res;');
       } else if (func.returnType.name == 'bool') {
         s.writeln(
           '    bool res = env->CallStaticBooleanMethod(g_bridgeClass, methodId$bridgeArgs);',
         );
+        for (final n in jniTypedArrayParams) {
+          s.writeln('    env->DeleteLocalRef(j_$n);');
+        }
         s.writeln('    if (env->ExceptionCheck()) { nitro_report_jni_exception(env, env->ExceptionOccurred()); env->ExceptionClear(); return false; }');
         s.writeln('    return res;');
       } else if (func.returnType.name == 'String') {
         s.writeln(
           '    jstring jstr = (jstring)env->CallStaticObjectMethod(g_bridgeClass, methodId$bridgeArgs);',
         );
+        for (final n in jniTypedArrayParams) {
+          s.writeln('    env->DeleteLocalRef(j_$n);');
+        }
         s.writeln('    if (env->ExceptionCheck()) { nitro_report_jni_exception(env, env->ExceptionOccurred()); env->ExceptionClear(); return nullptr; }');
         s.writeln('    if (jstr == nullptr) return nullptr;');
         s.writeln(
@@ -332,6 +355,9 @@ class CppBridgeGenerator {
         s.writeln(
           '    int64_t res = env->CallStaticLongMethod(g_bridgeClass, methodId$bridgeArgs);',
         );
+        for (final n in jniTypedArrayParams) {
+          s.writeln('    env->DeleteLocalRef(j_$n);');
+        }
         s.writeln('    if (env->ExceptionCheck()) { nitro_report_jni_exception(env, env->ExceptionOccurred()); env->ExceptionClear(); return 0; }');
         s.writeln('    return res;');
       } else if (isStruct) {
@@ -340,6 +366,9 @@ class CppBridgeGenerator {
         s.writeln(
           '    jobject jobj = env->CallStaticObjectMethod(g_bridgeClass, methodId$bridgeArgs);',
         );
+        for (final n in jniTypedArrayParams) {
+          s.writeln('    env->DeleteLocalRef(j_$n);');
+        }
         s.writeln('    if (env->ExceptionCheck()) { nitro_report_jni_exception(env, env->ExceptionOccurred()); env->ExceptionClear(); return nullptr; }');
         s.writeln('    if (jobj == nullptr) return nullptr;');
         s.writeln('    $stName* result = ($stName*)malloc(sizeof($stName));');
@@ -350,6 +379,9 @@ class CppBridgeGenerator {
         // Bridge returns ByteArray (serialized @HybridRecord / List<@HybridRecord>)
         // Copy bytes to malloc'd buffer and return as void* for Dart RecordReader
         s.writeln('    jbyteArray jarr = (jbyteArray)env->CallStaticObjectMethod(g_bridgeClass, methodId$bridgeArgs);');
+        for (final n in jniTypedArrayParams) {
+          s.writeln('    env->DeleteLocalRef(j_$n);');
+        }
         s.writeln('    if (env->ExceptionCheck()) { nitro_report_jni_exception(env, env->ExceptionOccurred()); env->ExceptionClear(); return nullptr; }');
         s.writeln('    if (jarr == nullptr) return nullptr;');
         s.writeln('    jsize len = env->GetArrayLength(jarr);');
@@ -358,6 +390,9 @@ class CppBridgeGenerator {
         s.writeln('    env->DeleteLocalRef(jarr);');
         s.writeln('    return result;');
       } else {
+        for (final n in jniTypedArrayParams) {
+          s.writeln('    env->DeleteLocalRef(j_$n);');
+        }
         s.writeln('    return ${_defaultValue(cReturnType)};');
       }
       if (func.returnType.name == 'void') {
@@ -879,6 +914,30 @@ class CppBridgeGenerator {
       _jniMangle('${className}JniBridge'), // usually CamelCase — no underscores
       _jniMangle(methodName), // e.g. 'emit_1frames'
     ].join('_');
+  }
+
+  /// Returns [jniArrayType, newFn, setRegionFn, elemCast] for a non-zero-copy TypedData param.
+  static List<String> _typedDataJniOps(String dartType) {
+    switch (dartType) {
+      case 'Uint8List':
+      case 'Int8List':
+        return ['jbyteArray', 'NewByteArray', 'SetByteArrayRegion', 'jbyte'];
+      case 'Int16List':
+      case 'Uint16List':
+        return ['jshortArray', 'NewShortArray', 'SetShortArrayRegion', 'jshort'];
+      case 'Int32List':
+      case 'Uint32List':
+        return ['jintArray', 'NewIntArray', 'SetIntArrayRegion', 'jint'];
+      case 'Float32List':
+        return ['jfloatArray', 'NewFloatArray', 'SetFloatArrayRegion', 'jfloat'];
+      case 'Float64List':
+        return ['jdoubleArray', 'NewDoubleArray', 'SetDoubleArrayRegion', 'jdouble'];
+      case 'Int64List':
+      case 'Uint64List':
+        return ['jlongArray', 'NewLongArray', 'SetLongArrayRegion', 'jlong'];
+      default:
+        return ['jbyteArray', 'NewByteArray', 'SetByteArrayRegion', 'jbyte'];
+    }
   }
 
   static String _jniSig(

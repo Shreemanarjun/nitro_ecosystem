@@ -814,7 +814,7 @@ void main() {
 
   group('CppBridgeGenerator — non-zero-copy TypedData JNI field descriptors', () {
     // Helper: build a spec with a single non-zero-copy struct field.
-    BridgeSpec _specWithField(String typeName) => BridgeSpec(
+    BridgeSpec specWithField(String typeName) => BridgeSpec(
       dartClassName: 'Mod',
       lib: 'mod',
       namespace: 'mod',
@@ -859,7 +859,7 @@ void main() {
       final typeName = entry.key;
       final expectedSig = entry.value;
       test('$typeName (non-zero-copy) maps to JNI descriptor "$expectedSig"', () {
-        final cpp = CppBridgeGenerator.generate(_specWithField(typeName));
+        final cpp = CppBridgeGenerator.generate(specWithField(typeName));
         expect(
           cpp,
           contains('"data", "$expectedSig"'),
@@ -871,6 +871,167 @@ void main() {
         expect(cpp, isNot(contains('"data", "Ljava/nio/ByteBuffer;"')));
       });
     }
+  });
+
+  // ── 6. CppBridgeGenerator — non-zero-copy TypedData JNI call arguments ────
+  //
+  // Regression coverage for the JNI call-argument bug: when a function
+  // parameter is a non-zero-copy TypedData, the old code passed the raw C
+  // pointer (float*, uint8_t*, …) as a JNI call argument. JNI interprets that
+  // value as a jarray object reference → crash or silent wrong-method-call.
+  //
+  // After the fix, the generator must:
+  //   (a) allocate a JNI typed array (NewFloatArray / NewIntArray / …)
+  //   (b) copy data into it (SetFloatArrayRegion / …)
+  //   (c) pass j_<param> to the Call, not the raw pointer
+  //   (d) release the local ref with DeleteLocalRef after the call
+
+  group('CppBridgeGenerator — non-zero-copy TypedData param: JNI array creation', () {
+    // Helper: spec with one non-zero-copy TypedData function parameter.
+    BridgeSpec specWithParam(String typeName) => BridgeSpec(
+      dartClassName: 'Dsp',
+      lib: 'dsp',
+      namespace: 'dsp',
+      iosImpl: NativeImpl.swift,
+      androidImpl: NativeImpl.kotlin,
+      sourceUri: 'dsp.native.dart',
+      functions: [
+        BridgeFunction(
+          dartName: 'process',
+          cSymbol: 'dsp_process',
+          isAsync: false,
+          returnType: BridgeType(name: 'void'),
+          params: [
+            BridgeParam(name: 'inputs', type: BridgeType(name: typeName)),
+          ],
+        ),
+      ],
+    );
+
+    // (a) correct New*Array call emitted
+    final newArrayFns = {
+      'Float32List': 'NewFloatArray',
+      'Float64List': 'NewDoubleArray',
+      'Int32List': 'NewIntArray',
+      'Uint32List': 'NewIntArray',
+      'Int16List': 'NewShortArray',
+      'Uint16List': 'NewShortArray',
+      'Uint8List': 'NewByteArray',
+      'Int8List': 'NewByteArray',
+      'Int64List': 'NewLongArray',
+      'Uint64List': 'NewLongArray',
+    };
+
+    for (final entry in newArrayFns.entries) {
+      final type = entry.key;
+      final newFn = entry.value;
+      test('$type param: emits env->$newFn(…) to allocate JNI array', () {
+        final cpp = CppBridgeGenerator.generate(specWithParam(type));
+        expect(cpp, contains('env->$newFn((jsize)inputs_length)'), reason: '$type non-zero-copy param must allocate JNI array via $newFn');
+      });
+    }
+
+    // (b) correct Set*ArrayRegion call emitted
+    final setRegionFns = {
+      'Float32List': 'SetFloatArrayRegion',
+      'Float64List': 'SetDoubleArrayRegion',
+      'Int32List': 'SetIntArrayRegion',
+      'Uint32List': 'SetIntArrayRegion',
+      'Int16List': 'SetShortArrayRegion',
+      'Uint16List': 'SetShortArrayRegion',
+      'Uint8List': 'SetByteArrayRegion',
+      'Int8List': 'SetByteArrayRegion',
+      'Int64List': 'SetLongArrayRegion',
+      'Uint64List': 'SetLongArrayRegion',
+    };
+
+    for (final entry in setRegionFns.entries) {
+      final type = entry.key;
+      final setFn = entry.value;
+      test('$type param: emits env->$setFn(…) to copy data', () {
+        final cpp = CppBridgeGenerator.generate(specWithParam(type));
+        expect(cpp, contains('env->$setFn(j_inputs, 0, (jsize)inputs_length,'), reason: '$type non-zero-copy param must copy data via $setFn');
+      });
+    }
+  });
+
+  group('CppBridgeGenerator — non-zero-copy TypedData param: JNI call uses j_<param>', () {
+    BridgeSpec specWithParam(String typeName) => BridgeSpec(
+      dartClassName: 'Dsp',
+      lib: 'dsp',
+      namespace: 'dsp',
+      iosImpl: NativeImpl.swift,
+      androidImpl: NativeImpl.kotlin,
+      sourceUri: 'dsp.native.dart',
+      functions: [
+        BridgeFunction(
+          dartName: 'process',
+          cSymbol: 'dsp_process',
+          isAsync: false,
+          returnType: BridgeType(name: 'void'),
+          params: [
+            BridgeParam(name: 'inputs', type: BridgeType(name: typeName)),
+          ],
+        ),
+      ],
+    );
+
+    for (final type in ['Float32List', 'Float64List', 'Int32List', 'Uint8List', 'Int64List']) {
+      test('$type param: CallStaticVoidMethod passes j_inputs (not raw pointer)', () {
+        final cpp = CppBridgeGenerator.generate(specWithParam(type));
+        // The JNI call must pass j_inputs (the jarray), not the raw C pointer.
+        expect(cpp, contains('CallStaticVoidMethod(g_bridgeClass, methodId, j_inputs)'), reason: '$type must pass j_inputs to JNI call, not raw C pointer');
+        // Regression guard: raw pointer must NOT be passed directly.
+        expect(cpp, isNot(contains('CallStaticVoidMethod(g_bridgeClass, methodId, inputs)')), reason: '$type raw pointer must not be passed as JNI arg');
+      });
+    }
+  });
+
+  group('CppBridgeGenerator — non-zero-copy TypedData param: DeleteLocalRef cleanup', () {
+    BridgeSpec specWithParam(String typeName, {String returnType = 'void'}) => BridgeSpec(
+      dartClassName: 'Dsp',
+      lib: 'dsp',
+      namespace: 'dsp',
+      iosImpl: NativeImpl.swift,
+      androidImpl: NativeImpl.kotlin,
+      sourceUri: 'dsp.native.dart',
+      functions: [
+        BridgeFunction(
+          dartName: 'process',
+          cSymbol: 'dsp_process',
+          isAsync: false,
+          returnType: BridgeType(name: returnType),
+          params: [
+            BridgeParam(name: 'inputs', type: BridgeType(name: typeName)),
+          ],
+        ),
+      ],
+    );
+
+    test('void return: DeleteLocalRef(j_inputs) emitted after call', () {
+      final cpp = CppBridgeGenerator.generate(specWithParam('Float32List'));
+      expect(cpp, contains('env->DeleteLocalRef(j_inputs)'), reason: 'JNI array local ref must be deleted after the void call');
+    });
+
+    test('double return: DeleteLocalRef(j_inputs) emitted after call', () {
+      final cpp = CppBridgeGenerator.generate(specWithParam('Float32List', returnType: 'double'));
+      expect(cpp, contains('env->DeleteLocalRef(j_inputs)'), reason: 'JNI array local ref must be deleted after double return call');
+    });
+
+    test('int return: DeleteLocalRef(j_inputs) emitted after call', () {
+      final cpp = CppBridgeGenerator.generate(specWithParam('Int32List', returnType: 'int'));
+      expect(cpp, contains('env->DeleteLocalRef(j_inputs)'), reason: 'JNI array local ref must be deleted after int return call');
+    });
+
+    test('bool return: DeleteLocalRef(j_inputs) emitted after call', () {
+      final cpp = CppBridgeGenerator.generate(specWithParam('Uint8List', returnType: 'bool'));
+      expect(cpp, contains('env->DeleteLocalRef(j_inputs)'), reason: 'JNI array local ref must be deleted after bool return call');
+    });
+
+    test('String return: DeleteLocalRef(j_inputs) emitted after call', () {
+      final cpp = CppBridgeGenerator.generate(specWithParam('Float64List', returnType: 'String'));
+      expect(cpp, contains('env->DeleteLocalRef(j_inputs)'), reason: 'JNI array local ref must be deleted after String return call');
+    });
   });
 }
 
