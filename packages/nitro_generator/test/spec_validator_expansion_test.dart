@@ -331,7 +331,7 @@ void main() {
 
     test('pack helper reads enum field as GetLongField', () {
       final cpp = CppBridgeGenerator.generate(specWithEnumStructField());
-      expect(cpp, contains('GetLongField(obj, fid_status)'));
+      expect(cpp, contains('GetLongField(obj, g_fid_Request_status)'));
     });
 
     test('pack helper casts enum field to C enum type via int32_t', () {

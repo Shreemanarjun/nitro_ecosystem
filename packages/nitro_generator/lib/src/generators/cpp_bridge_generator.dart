@@ -56,6 +56,28 @@ class CppBridgeGenerator {
     s.writeln('static JavaVM* g_jvm = nullptr;');
     s.writeln('static jclass g_bridgeClass = nullptr;');
     s.writeln();
+    s.writeln('// ── Cached JNI IDs (initialized once in JNI_OnLoad, safe to use from any thread) ──');
+    s.writeln('static jmethodID g_exc_getName = nullptr;');
+    s.writeln('static jmethodID g_exc_getMessage = nullptr;');
+    for (final func in spec.functions) {
+      s.writeln('static jmethodID g_mid_${func.dartName}_call = nullptr;');
+    }
+    for (final prop in spec.properties) {
+      if (prop.hasGetter) s.writeln('static jmethodID g_mid_${prop.getSymbol}_call = nullptr;');
+      if (prop.hasSetter) s.writeln('static jmethodID g_mid_${prop.setSymbol}_call = nullptr;');
+    }
+    for (final stream in spec.streams) {
+      s.writeln('static jmethodID g_mid_${stream.registerSymbol}_call = nullptr;');
+      s.writeln('static jmethodID g_mid_${stream.releaseSymbol}_call = nullptr;');
+    }
+    for (final st in spec.structs) {
+      s.writeln('static jclass g_cls_${st.name} = nullptr;');
+      s.writeln('static jmethodID g_ctor_${st.name} = nullptr;');
+      for (final f in st.fields) {
+        s.writeln('static jfieldID g_fid_${st.name}_${f.name} = nullptr;');
+      }
+    }
+    s.writeln();
     s.writeln('// RAII guard: auto-detaches a thread from the JVM when it exits.');
     s.writeln('// One instance is stored in thread-local storage; its destructor fires');
     s.writeln('// when the thread terminates, ensuring no JVM thread descriptor leaks.');
@@ -75,13 +97,10 @@ class CppBridgeGenerator {
     s.writeln('    // an exception is still pending.');
     s.writeln('    env->ExceptionClear();');
     s.writeln('    jclass ex_class = env->GetObjectClass(ex);');
-    s.writeln('    jclass cls_class = env->FindClass("java/lang/Class");');
-    s.writeln('    jmethodID get_name = env->GetMethodID(cls_class, "getName", "()Ljava/lang/String;");');
-    s.writeln('    jstring j_name = (jstring)env->CallObjectMethod(ex_class, get_name);');
+    s.writeln('    jstring j_name = (jstring)env->CallObjectMethod(ex_class, g_exc_getName);');
     s.writeln('    const char* name = (j_name != nullptr) ? env->GetStringUTFChars(j_name, 0) : "JavaException";');
     s.writeln();
-    s.writeln('    jmethodID get_msg = env->GetMethodID(env->FindClass("java/lang/Throwable"), "getMessage", "()Ljava/lang/String;");');
-    s.writeln('    jstring j_msg = (jstring)env->CallObjectMethod(ex, get_msg);');
+    s.writeln('    jstring j_msg = (jstring)env->CallObjectMethod(ex, g_exc_getMessage);');
     s.writeln('    const char* msg = (j_msg != nullptr) ? env->GetStringUTFChars(j_msg, 0) : "No message provided";');
     s.writeln();
     s.writeln('    nitro_report_error(name, msg, nullptr, nullptr);');
@@ -100,29 +119,21 @@ class CppBridgeGenerator {
         'static ${st.name} pack_${st.name}_from_jni(JNIEnv* env, jobject obj) {',
       );
       s.writeln('    ${st.name} result;');
-      s.writeln('    jclass cls = env->GetObjectClass(obj);');
       for (final f in st.fields) {
         final isEnumField = enumNames.contains(f.type.name.replaceFirst('?', ''));
         final isZeroCopyField = _isZeroCopy(st, f.name);
-        // Zero-copy TypedData fields always bridge as java.nio.ByteBuffer.
-        final sig = isEnumField ? 'J' : (isZeroCopyField ? 'Ljava/nio/ByteBuffer;' : _jniSigType(f.type.name));
         final getter = isEnumField ? 'GetLongField' : _jniGetter(f.type.name);
-        s.writeln(
-          '    jfieldID fid_${f.name} = env->GetFieldID(cls, "${f.name}", "$sig");',
-        );
         if (isZeroCopyField) {
-          // GetDirectBufferAddress returns void*; cast to the actual element
-          // pointer type so the assignment to the C struct field is valid.
           final elemCast = _zeroCopyCElementCast(f.type.name);
           s.writeln(
-            '    jobject buf_${f.name} = env->GetObjectField(obj, fid_${f.name});',
+            '    jobject buf_${f.name} = env->GetObjectField(obj, g_fid_${st.name}_${f.name});',
           );
           s.writeln(
             '    result.${f.name} = ($elemCast)env->GetDirectBufferAddress(buf_${f.name});',
           );
         } else if (f.type.name == 'String') {
           s.writeln(
-            '    jstring j_${f.name} = (jstring)env->GetObjectField(obj, fid_${f.name});',
+            '    jstring j_${f.name} = (jstring)env->GetObjectField(obj, g_fid_${st.name}_${f.name});',
           );
           s.writeln(
             '    const char* str_${f.name} = env->GetStringUTFChars(j_${f.name}, 0);',
@@ -134,10 +145,10 @@ class CppBridgeGenerator {
         } else if (isEnumField) {
           final enumType = f.type.name.replaceFirst('?', '');
           s.writeln(
-            '    result.${f.name} = ($enumType)(int32_t)env->$getter(obj, fid_${f.name});',
+            '    result.${f.name} = ($enumType)(int32_t)env->$getter(obj, g_fid_${st.name}_${f.name});',
           );
         } else {
-          s.writeln('    result.${f.name} = env->$getter(obj, fid_${f.name});');
+          s.writeln('    result.${f.name} = env->$getter(obj, g_fid_${st.name}_${f.name});');
         }
       }
       s.writeln('    return result;');
@@ -156,10 +167,6 @@ class CppBridgeGenerator {
       s.writeln(
         'static jobject unpack_${st.name}_to_jni(JNIEnv* env, const ${st.name}* st) {',
       );
-      s.writeln('    jclass cls = env->FindClass("$jniClass");');
-      s.writeln(
-        '    jmethodID ctor = env->GetMethodID(cls, "<init>", "$ctorSig");',
-      );
       final ctorArgs = st.fields
           .map((f) {
             final isEnum = enumNames.contains(f.type.name.replaceFirst('?', ''));
@@ -177,7 +184,7 @@ class CppBridgeGenerator {
             }
           })
           .join(', ');
-      s.writeln('    return env->NewObject(cls, ctor, $ctorArgs);');
+      s.writeln('    return env->NewObject(g_cls_${st.name}, g_ctor_${st.name}, $ctorArgs);');
       s.writeln('}');
     }
     s.writeln();
@@ -202,9 +209,72 @@ class CppBridgeGenerator {
     );
     s.writeln('    if (localClass != nullptr) {');
     s.writeln('        g_bridgeClass = (jclass)env->NewGlobalRef(localClass);');
+    s.writeln('        env->DeleteLocalRef(localClass);');
     s.writeln('    } else {');
     s.writeln('        LOGE("Failed to find JniBridge class");');
     s.writeln('    }');
+    s.writeln();
+    s.writeln('    // Cache exception introspection method IDs');
+    s.writeln('    {');
+    s.writeln('        jclass cls_class = env->FindClass("java/lang/Class");');
+    s.writeln('        if (cls_class) { g_exc_getName = env->GetMethodID(cls_class, "getName", "()Ljava/lang/String;"); env->DeleteLocalRef(cls_class); }');
+    s.writeln('        jclass throwable_class = env->FindClass("java/lang/Throwable");');
+    s.writeln('        if (throwable_class) { g_exc_getMessage = env->GetMethodID(throwable_class, "getMessage", "()Ljava/lang/String;"); env->DeleteLocalRef(throwable_class); }');
+    s.writeln('    }');
+    s.writeln();
+    if (spec.functions.isNotEmpty || spec.properties.isNotEmpty || spec.streams.isNotEmpty) {
+      s.writeln('    // Cache bridge method IDs');
+      s.writeln('    if (g_bridgeClass != nullptr) {');
+      for (final func in spec.functions) {
+        final jniSig = _jniSig(func.params, func.returnType, spec);
+        s.writeln('        g_mid_${func.dartName}_call = env->GetStaticMethodID(g_bridgeClass, "${func.dartName}_call", "$jniSig");');
+      }
+      for (final prop in spec.properties) {
+        final isEnum = spec.enums.any((en) => en.name == prop.type.name);
+        if (prop.hasGetter) {
+          final jniRetSig = isEnum ? 'J' : _jniSigType(prop.type.name);
+          s.writeln('        g_mid_${prop.getSymbol}_call = env->GetStaticMethodID(g_bridgeClass, "${prop.getSymbol}_call", "()$jniRetSig");');
+        }
+        if (prop.hasSetter) {
+          final jniParamSig = isEnum ? 'J' : _jniSigType(prop.type.name);
+          s.writeln('        g_mid_${prop.setSymbol}_call = env->GetStaticMethodID(g_bridgeClass, "${prop.setSymbol}_call", "($jniParamSig)V");');
+        }
+      }
+      for (final stream in spec.streams) {
+        s.writeln('        g_mid_${stream.registerSymbol}_call = env->GetStaticMethodID(g_bridgeClass, "${stream.registerSymbol}_call", "(J)V");');
+        s.writeln('        g_mid_${stream.releaseSymbol}_call = env->GetStaticMethodID(g_bridgeClass, "${stream.releaseSymbol}_call", "(J)V");');
+      }
+      s.writeln('    }');
+      s.writeln();
+    }
+    if (spec.structs.isNotEmpty) {
+      s.writeln('    // Cache struct class + ctor + field IDs');
+      for (final st in spec.structs) {
+        final jniClass = 'nitro/${spec.lib.replaceAll('-', '_')}_module/${st.name}';
+        final enumNames2 = spec.enums.map((e) => e.name).toSet();
+        final ctorSig = '(${st.fields.map((f) {
+          final isEnum = enumNames2.contains(f.type.name.replaceFirst('?', ''));
+          if (isEnum) return 'J';
+          if (_isZeroCopy(st, f.name)) return 'Ljava/nio/ByteBuffer;';
+          return _jniSigType(f.type.name);
+        }).join('')})V';
+        s.writeln('    {');
+        s.writeln('        jclass local_cls_${st.name} = env->FindClass("$jniClass");');
+        s.writeln('        if (local_cls_${st.name} != nullptr) {');
+        s.writeln('            g_cls_${st.name} = (jclass)env->NewGlobalRef(local_cls_${st.name});');
+        s.writeln('            env->DeleteLocalRef(local_cls_${st.name});');
+        s.writeln('            g_ctor_${st.name} = env->GetMethodID(g_cls_${st.name}, "<init>", "$ctorSig");');
+        for (final f in st.fields) {
+          final isEnum = enumNames2.contains(f.type.name.replaceFirst('?', ''));
+          final isZeroCopy = _isZeroCopy(st, f.name);
+          final sig = isEnum ? 'J' : (isZeroCopy ? 'Ljava/nio/ByteBuffer;' : _jniSigType(f.type.name));
+          s.writeln('            g_fid_${st.name}_${f.name} = env->GetFieldID(g_cls_${st.name}, "${f.name}", "$sig");');
+        }
+        s.writeln('        }');
+        s.writeln('    }');
+      }
+      s.writeln();
+    }
     s.writeln('    return JNI_VERSION_1_6;');
     s.writeln('}');
     s.writeln();
@@ -253,9 +323,7 @@ class CppBridgeGenerator {
           '    if (env == nullptr) return ${_defaultValue(cReturnType)};',
         );
       }
-      s.writeln(
-        '    jmethodID methodId = env->GetStaticMethodID(g_bridgeClass, "${func.dartName}_call", "$jniSig");',
-      );
+      s.writeln('    jmethodID methodId = g_mid_${func.dartName}_call;');
       if (func.returnType.name == 'void') {
         s.writeln('    if (methodId == nullptr) { LOGE("Method not found"); return; }');
       } else {
@@ -410,13 +478,10 @@ class CppBridgeGenerator {
       final cType = isEnum ? 'int64_t' : _typeToC(prop.type.name);
 
       if (prop.hasGetter) {
-        final jniRetSig = isEnum ? 'J' : _jniSigType(prop.type.name);
         s.writeln('$cType ${prop.getSymbol}(void) {');
         s.writeln('    JNIEnv* env = GetEnv();');
         s.writeln('    if (env == nullptr) return ${_defaultValue(cType)};');
-        s.writeln(
-          '    jmethodID methodId = env->GetStaticMethodID(g_bridgeClass, "${prop.getSymbol}_call", "()$jniRetSig");',
-        );
+        s.writeln('    jmethodID methodId = g_mid_${prop.getSymbol}_call;');
         s.writeln(
           '    if (methodId == nullptr) { LOGE("Method not found"); return ${_defaultValue(cType)}; }',
         );
@@ -452,13 +517,10 @@ class CppBridgeGenerator {
 
       if (prop.hasSetter) {
         final paramCType = isEnum ? 'int64_t' : _typeToC(prop.type.name);
-        final jniParamSig = isEnum ? 'J' : _jniSigType(prop.type.name);
         s.writeln('void ${prop.setSymbol}($paramCType value) {');
         s.writeln('    JNIEnv* env = GetEnv();');
         s.writeln('    if (env == nullptr) return;');
-        s.writeln(
-          '    jmethodID methodId = env->GetStaticMethodID(g_bridgeClass, "${prop.setSymbol}_call", "($jniParamSig)V");',
-        );
+        s.writeln('    jmethodID methodId = g_mid_${prop.setSymbol}_call;');
         s.writeln(
           '    if (methodId == nullptr) { LOGE("Method not found"); return; }',
         );
@@ -489,9 +551,7 @@ class CppBridgeGenerator {
       s.writeln('void ${stream.registerSymbol}(int64_t dart_port) {');
       s.writeln('    JNIEnv* env = GetEnv();');
       s.writeln('    if (env == nullptr) return;');
-      s.writeln(
-        '    jmethodID methodId = env->GetStaticMethodID(g_bridgeClass, "${stream.registerSymbol}_call", "(J)V");',
-      );
+      s.writeln('    jmethodID methodId = g_mid_${stream.registerSymbol}_call;');
       s.writeln(
         '    if (methodId != nullptr) env->CallStaticVoidMethod(g_bridgeClass, methodId, dart_port);',
       );
@@ -500,9 +560,7 @@ class CppBridgeGenerator {
       s.writeln('void ${stream.releaseSymbol}(int64_t dart_port) {');
       s.writeln('    JNIEnv* env = GetEnv();');
       s.writeln('    if (env == nullptr) return;');
-      s.writeln(
-        '    jmethodID methodId = env->GetStaticMethodID(g_bridgeClass, "${stream.releaseSymbol}_call", "(J)V");',
-      );
+      s.writeln('    jmethodID methodId = g_mid_${stream.releaseSymbol}_call;');
       s.writeln(
         '    if (methodId != nullptr) env->CallStaticVoidMethod(g_bridgeClass, methodId, dart_port);',
       );

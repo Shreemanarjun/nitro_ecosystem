@@ -67,6 +67,7 @@ class KotlinGenerator {
     s.writeln(
       '    private var implementation: Hybrid${spec.dartClassName}Spec? = null',
     );
+    s.writeln('    private val _asyncExecutor = java.util.concurrent.Executors.newCachedThreadPool()');
     s.writeln();
     s.writeln('    @JvmStatic external fun initialize(bridgeClass: Class<*>)');
     s.writeln();
@@ -100,7 +101,7 @@ class KotlinGenerator {
       if (isRecord) {
         // Fetch the result, then serialize to ByteArray for JNI
         if (func.isAsync) {
-          s.writeln('        val result = runBlocking { impl.${func.dartName}($callParams) }');
+          s.writeln('        val result = _asyncExecutor.submit(java.util.concurrent.Callable { runBlocking { impl.${func.dartName}($callParams) } }).get()');
         } else {
           s.writeln('        val result = impl.${func.dartName}($callParams)');
         }
@@ -123,12 +124,12 @@ class KotlinGenerator {
       } else if (func.isAsync) {
         if (isEnum) {
           s.writeln(
-            '        return runBlocking { impl.${func.dartName}($callParams) }.nativeValue',
+            '        return _asyncExecutor.submit(java.util.concurrent.Callable { runBlocking { impl.${func.dartName}($callParams) } }).get().nativeValue',
           );
         } else {
-          s.writeln('        return runBlocking {');
-          s.writeln('            impl.${func.dartName}($callParams)');
-          s.writeln('        }');
+          s.writeln('        return _asyncExecutor.submit(java.util.concurrent.Callable {');
+          s.writeln('            runBlocking { impl.${func.dartName}($callParams) }');
+          s.writeln('        }).get()');
         }
       } else {
         if (isUnit) {

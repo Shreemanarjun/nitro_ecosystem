@@ -3667,7 +3667,8 @@ void main() {
       expect(out, contains('fun doVoid(): Unit'));
       expect(out, contains('object TJniBridge {'));
       expect(out, contains('@JvmStatic fun calculate_call(seed: Long): Long'));
-      expect(out, contains('return runBlocking {'));
+      // Async calls now delegate to _asyncExecutor to avoid blocking Dart isolate threads
+      expect(out, contains('_asyncExecutor.submit(java.util.concurrent.Callable {'));
     });
 
     test('KotlinGenerator handles Enums in JniBridge', () {
