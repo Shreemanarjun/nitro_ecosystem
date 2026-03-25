@@ -1,90 +1,109 @@
-# Nitrogen — v0.3.0 Roadmap & Improvement Plan
 
-> Transitioning from "Proof of Concept" to "Production Grade" Flutter FFI.
-> This document outlines the prioritized enhancements for the `nitro` runtime, `nitro_generator`, and `nitrogen_cli`.
+ ---
+  Performance
 
----
+  🔴 High impact
 
-## 🚀 Vision
-Nitrogen should be the fastest, safest, and most ergonomic way to bridge Flutter to Native. Version 0.3.0 focuses on **Developer Experience (DX)**, **Runtime Observability**, and **Production Stability**.
+  1.
+ - [x] JNI IDs fetched on every call (no caching)   FindClass,
+       GetMethodID, GetFieldID, and GetObjectClass are called inside
+       every generated function. These traverse the classloader chain
+       and are expensive. All IDs should be cached in    static
+       jclass/static jmethodID/static jfieldID globals, populated once
+       in JNI_OnLoad or lazily on first call with a null-check guard.
 
----
+ x2.
 
-## 🛠️ Phase 7 — Developer Experience (DX) & Tooling
-*Focus: Reducing "Trial and Error" for plugin authors.*
+ - [x] runBlocking serializes async Android calls   Each callAsync
+       blocks one Dart isolate-pool thread while the Kotlin coroutine
+       runs. With a default pool of 2–4 threads, concurrent async calls
+       queue. A   CompletableFuture/ReceivePort-based handoff where the
+       Kotlin coroutine posts the result back via
+       Dart_PostInteger/Dart_PostCObject would keep threads free.
 
-### 7.1 `SpecValidator` (High Priority)
-Implement a robust validation layer in `nitro_generator` to fail-fast with actionable error messages.
-- [ ] **Cyclic Struct Detection**: Prevent infinite recursion in `@HybridStruct`.
-- [ ] **Enum Support Enhancement**: Allow `@HybridEnum` to be used as fields in `@HybridStruct`.
-- [ ] **Method Signature Validation**: Ensure async methods return `Future<T>` and streams return `Stream<T>`.
-- [ ] **Symbol Collision Check**: Verify that unique C symbols are generated for all methods and properties.
+  3.
 
-### 7.2 `nitrogen_cli` Enhancements
-- [ ] **`nitrogen watch`**: A high-performance file watcher optimized for `.native.dart` files.
-- [ ] **`nitrogen create`**: Scaffold a full plugin template with working "Hello World" native code for Android & iOS.
-- [ ] **Expanded `doctor` checks**: 
-    - Check Android NDK / CMake installation.
-    - Validate iOS Podfile / Swift version compatibility.
-    - Verify `NativeFinalizer` usage patterns in generated code.
+ - [x] nitro_report_jni_exception re-fetches method IDs on every
+       exception   GetMethodID(cls_class, "getName", ...) and
+       GetMethodID(FindClass("java/lang/Throwable"), "getMessage", ...)
+       run every time an exception is reported. These should be cached
+       globals   set once at init time.
 
----
+  🟡 Moderate impact
 
-## ⚡ Phase 8 — Runtime Observability & Performance
-*Focus: Understanding what the bridge is doing.*
+  4. FindClass("...") inside unpack_*_to_jni on every struct pass
+  Every call to unpack_SomeStruct_to_jni does env->FindClass(...) + env->GetMethodID(cls, "<init>", ...). Should cache the jclass and jmethodID as statics.
 
-### 8.1 Isolate Pool Sizing & Management
-- [ ] **Dynamic Sizing**: Automatically scale the isolate pool based on `Platform.numberOfProcessors`.
-- [ ] **Observability APIs**: Add `NitroRuntime.stats` to track:
-    - Task latency (avg/min/max).
-    - Queue depth and active workers.
-    - Bridge call throughput (calls/sec).
+  5. Non-zero-copy TypedData always malloc+copies
+  NewFloatArray + SetFloatArrayRegion allocates and copies on every call. If the Dart side owns the buffer for the duration of the call, a NewDirectByteBuffer path (zero-copy) should
+  be offered for params too, not just fields.
 
-### 8.2 Production Stability
-- [ ] **Typed Error Propagation**: Implement `HybridException` to bridge native stack traces and error codes to Dart.
-- [ ] **Custom Log Handlers**: Allow developers to redirect Nitro logs (errors/warnings) to their own logging framework (e.g., Sentry, Firebase Crashlytics).
-- [ ] **Zero-Copy expansion**: Support `Float32List`, `Int32List`, and other `TypedData` types for zero-copy transfers.
+  6. NitroRuntime.checkError does a native lookup on every return
+  Even when no error occurred, _get_error / _clear_error are called after every function. A sentinel return value (e.g. hasError flag baked into the return struct) would skip the
+  round-trip in the common case.
 
----
+  7. Generator's inner loops call spec.structs.any(...) / spec.enums.any(...) O(n×m) times
+  Inside loops over params/fields, each type lookup is a linear scan of the struct/enum list. Pre-building Set<String> name tables once at the top of generate() would make each lookup
+  O(1).
 
-## 📱 Phase 9 — Platform Support & Testing
-*Focus: Reaching 100% parity and reliability.*
+  🟢 Minor
 
-### 9.1 iOS End-to-End
-- [ ] **Full Integration Suite**: Implement a suite of tests running on physical iOS devices.
-- [ ] **Swift Async/Await parity**: Ensure all `@nitroAsync` methods map perfectly to Swift `async/throws`.
-- [ ] **Bitcode & Module support**: Validate the generated Swift bridges for App Store submission requirements.
+ - [x] _streamJobs map is not thread-safe   Kotlin's mutableMapOf is not thread-safe. Concurrent register/release calls from different
+       coroutines (e.g. two streams firing at the same time) can corrupt
+       the map. Should be   java.util.concurrent.ConcurrentHashMap.
 
-### 9.2 Golden-File Snapshot Testing
-- [ ] **Regression Guard**: Add unit tests that compare the full generated output (`.g.dart`, `.bridge.g.kt`, etc.) against "Golden" snapshots for a wide variety of spec files.
+ - [x] ByteArrayOutputStream always freshly allocated per encode
+       RecordWriter creates a new stream for every encode call. For
+       small records this allocation dominates. Pre-sizing or pool-based
+       reuse would help hot-path serialisation.
 
----
+  ---
+  Developer Experience
 
-## 📋 Current Implementation Status (Updated 2026-03-25)
+  🔴 High impact
 
-| Component | Status | Recent Updates |
-|---|---|---|
-| **Runtime (`nitro`)** | 🟡 **Stable** | Added `IsolatePool` support and configurable logging. |
-| **Generator (`nitro_generator`)** | 🟡 **Stable** | Basic support for Structs, Enums, and Records. |
-| **CLI (`nitrogen_cli`)** | 🟡 **Active** | `link`, `doctor`, and `generate` are functional. |
-| **Reference Plugin (`my_camera`)** | ✅ **Done** | Full end-to-end example with Refresh and Streams. |
-| **Testing (Unit)** | 🟢 **Good** | 35+ generator snapshot tests. |
-| **Testing (Integration)** | 🟡 **Partial** | Android tested; iOS end-to-end pending final validation. |
+  10. Silent fallthrough in _jniSigType for unknown types
+  An unrecognised Dart type silently maps to Ljava/lang/Object;, producing a method that always returns null at runtime with no error at gen-time. Should throw a descriptive StateError
+   naming the type and the field/param.
 
----
+  11. LOGE("Method not found") carries no context
+  When GetStaticMethodID returns null, the log just says "Method not found". The generated log line should include the method name and JNI signature so the bug is diagnosable without
+  attaching a debugger.
 
-## 🗓️ Delivery Roadmap (Q2 2026)
+  12. No stale-generation detection
+  If generator version is bumped but generated files are not re-run, the mismatch is silent. Emitting a // nitro_generator: 0.2.1 comment in every output file lets a validator or lint
+  rule detect drift.
 
-| Week | Target | Milestone |
-|---|---|---|
-| 1-2 | **DX Focus** | Complete `SpecValidator` + `nitrogen watch`. |
-| 3-4 | **Stability Focus** | `HybridException` + Custom Log Handlers. |
-| 5-6 | **Parity Focus** | iOS E2E Validation + Golden Testing. |
-| 7-8 | **v0.3.0 Beta** | Public beta testing for Nitrogen Ecosystem. |
+  13. withArena wraps async call body — potential use-after-free
+  For async functions with arena params, the arena closes when the outer withArena callback returns, but the inner await NitroRuntime.callAsync(...) hasn't completed yet. Any
+  arena-allocated memory (strings, struct pointers) captured by the native call may already be freed by the time the call executes. The arena lifetime needs to extend to cover the
+  await.
 
----
+  🟡 Moderate impact
 
-## 🔧 Maintenance & Non-Goals
-- **Non-Goal**: Web support (Wasm-FFI is a separate track).
-- **Non-Goal**: Direct C++ implementation as primary logic (stick to Swift/Kotlin for DX).
-- **Maintenance**: Update all packages to `Dart 3.7+` and `Flutter 3.29+` compatibility.
+  14. Coroutine imports emitted unconditionally in Kotlin
+  import kotlinx.coroutines.* and runBlocking are always emitted even when the spec has no async functions or streams. Conditional import emission reduces compile scope and avoids
+  unused-import warnings.
+
+  15. No null-safety for TypedData fields in pack/unpack
+  If a Kotlin ByteBuffer field is null, GetDirectBufferAddress returns null. The C++ side assigns the null pointer to the struct field with no check, causing a silent null-deref later.
+   Generated code should emit a null guard and call nitro_report_error.
+
+  16. No zero-copy support for TypedData return values
+  @zeroCopy works for struct fields and (as of 0.2.0) parameters, but a function that returns a TypedData still has to copy via GetByteArrayRegion. The @zeroCopy annotation should be
+  extensible to return types.
+
+  17. callAsync forces a raw Pointer cast on the Dart side
+  NitroRuntime.callAsync returns dynamic; every call site casts result as Pointer<Uint8>. A typed callAsync<T> + structured result envelope would remove the cast and make the generated
+   code self-documenting.
+
+  🟢 Minor / Polish
+
+  18. Generated files have no spec-path attribution
+  If you have 10 modules it's not obvious which .native.dart produced a given .bridge.g.cpp. Adding // Generated from: camera_module.native.dart at the top aids navigation.
+
+  19. checkDisposed() called on every method
+  Minor per-call overhead. A @pragma('vm:prefer-inline') annotation and an assert variant for debug builds could make this zero-cost in release.
+
+  20. spec_extractor.dart makes multiple AST passes
+  Annotations, streams, properties, and functions are extracted in separate loops over the same element list. A single-pass visitor would be faster for large specs. 

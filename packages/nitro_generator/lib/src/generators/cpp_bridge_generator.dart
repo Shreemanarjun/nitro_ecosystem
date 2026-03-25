@@ -16,6 +16,11 @@ class CppBridgeGenerator {
     s.writeln();
 
     final libStem = spec.lib.replaceAll('-', '_');
+    final libPkg = 'nitro/${libStem}_module';
+    // Pre-build O(1) lookup sets — avoids O(n×m) .any() scans inside the
+    // generation loops (functions × enums, params × structs, etc.).
+    final enumNames = spec.enums.map((e) => e.name).toSet();
+    final structNames = spec.structs.map((s) => s.name).toSet();
     s.writeln('extern "C" {');
     s.writeln('intptr_t ${libStem}_init_dart_api_dl(void* data) {');
     s.writeln('    return Dart_InitializeApiDL(data);');
@@ -112,7 +117,6 @@ class CppBridgeGenerator {
     s.writeln();
 
     // JNI struct unpack helpers (C struct → Java object)
-    final enumNames = spec.enums.map((e) => e.name).toSet();
     for (final st in spec.structs) {
       // pack: Java object → C struct (used for stream emit and return values)
       s.writeln(
@@ -217,11 +221,11 @@ class CppBridgeGenerator {
       s.writeln('    // Cache bridge method IDs');
       s.writeln('    if (g_bridgeClass != nullptr) {');
       for (final func in spec.functions) {
-        final jniSig = _jniSig(func.params, func.returnType, spec);
+        final jniSig = _jniSig(func.params, func.returnType, enumNames, structNames, libPkg);
         s.writeln('        g_mid_${func.dartName}_call = env->GetStaticMethodID(g_bridgeClass, "${func.dartName}_call", "$jniSig");');
       }
       for (final prop in spec.properties) {
-        final isEnum = spec.enums.any((en) => en.name == prop.type.name);
+        final isEnum = enumNames.contains(prop.type.name);
         if (prop.hasGetter) {
           final jniRetSig = isEnum ? 'J' : _jniSigType(prop.type.name);
           s.writeln('        g_mid_${prop.getSymbol}_call = env->GetStaticMethodID(g_bridgeClass, "${prop.getSymbol}_call", "()$jniRetSig");');
@@ -242,9 +246,9 @@ class CppBridgeGenerator {
       s.writeln('    // Cache struct class + ctor + field IDs');
       for (final st in spec.structs) {
         final jniClass = 'nitro/${spec.lib.replaceAll('-', '_')}_module/${st.name}';
-        final enumNames2 = spec.enums.map((e) => e.name).toSet();
+
         final ctorSig = '(${st.fields.map((f) {
-          final isEnum = enumNames2.contains(f.type.name.replaceFirst('?', ''));
+          final isEnum = enumNames.contains(f.type.name.replaceFirst('?', ''));
           if (isEnum) return 'J';
           if (_isZeroCopy(st, f.name)) return 'Ljava/nio/ByteBuffer;';
           return _jniSigType(f.type.name);
@@ -256,7 +260,7 @@ class CppBridgeGenerator {
         s.writeln('            env->DeleteLocalRef(local_cls_${st.name});');
         s.writeln('            g_ctor_${st.name} = env->GetMethodID(g_cls_${st.name}, "<init>", "$ctorSig");');
         for (final f in st.fields) {
-          final isEnum = enumNames2.contains(f.type.name.replaceFirst('?', ''));
+          final isEnum = enumNames.contains(f.type.name.replaceFirst('?', ''));
           final isZeroCopy = _isZeroCopy(st, f.name);
           final sig = isEnum ? 'J' : (isZeroCopy ? 'Ljava/nio/ByteBuffer;' : _jniSigType(f.type.name));
           s.writeln('            g_fid_${st.name}_${f.name} = env->GetFieldID(g_cls_${st.name}, "${f.name}", "$sig");');
@@ -285,10 +289,8 @@ class CppBridgeGenerator {
 
     // ── Functions ─────────────────────────────────────────────────────────────
     for (final func in spec.functions) {
-      final isEnum = spec.enums.any((en) => en.name == func.returnType.name);
-      final isStruct = spec.structs.any(
-        (st) => st.name == func.returnType.name,
-      );
+      final isEnum = enumNames.contains(func.returnType.name);
+      final isStruct = structNames.contains(func.returnType.name);
       final isRecord = func.returnType.isRecord && !func.returnType.isMap;
       // For enum returns: bridge returns Long (nativeValue); C returns int64_t
       // For struct returns: bridge returns jobject; C packs to C struct via malloc
@@ -296,12 +298,12 @@ class CppBridgeGenerator {
       final cReturnType = isEnum ? 'int64_t' : _typeToC(func.returnType.name);
       final paramsDeclParts = <String>[];
       for (final p in func.params) {
-        paramsDeclParts.add('${_paramTypeToC(p.type.name, spec)} ${p.name}');
+        paramsDeclParts.add('${_paramTypeToC(p.type.name, structNames)} ${p.name}');
         if (p.type.isTypedData) paramsDeclParts.add('int64_t ${p.name}_length');
       }
       final paramsDecl = paramsDeclParts.join(', ');
       // JNI signature: enum return is "J" (Long), struct is class ref, record is "[B" (byte array)
-      final jniSig = _jniSig(func.params, func.returnType, spec);
+      final jniSig = _jniSig(func.params, func.returnType, enumNames, structNames, libPkg);
 
       s.writeln(
         '$cReturnType ${func.cSymbol}(${paramsDecl.isEmpty ? 'void' : paramsDecl}) {',
@@ -331,7 +333,7 @@ class CppBridgeGenerator {
         if (pt == 'String') {
           s.writeln('    jstring j_${p.name} = env->NewStringUTF(${p.name});');
           callArgsList.add('j_${p.name}');
-        } else if (spec.structs.any((st) => st.name == pt)) {
+        } else if (structNames.contains(pt)) {
           s.writeln(
             '    jobject jobj_${p.name} = unpack_${pt}_to_jni(env, (const $pt*)${p.name});',
           );
@@ -465,7 +467,7 @@ class CppBridgeGenerator {
 
     // ── Properties ────────────────────────────────────────────────────────────
     for (final prop in spec.properties) {
-      final isEnum = spec.enums.any((en) => en.name == prop.type.name);
+      final isEnum = enumNames.contains(prop.type.name);
       final cType = isEnum ? 'int64_t' : _typeToC(prop.type.name);
 
       if (prop.hasGetter) {
@@ -533,9 +535,7 @@ class CppBridgeGenerator {
 
     // ── Streams ───────────────────────────────────────────────────────────────
     for (final stream in spec.streams) {
-      final isStruct = spec.structs.any(
-        (st) => st.name == stream.itemType.name,
-      );
+      final isStruct = structNames.contains(stream.itemType.name);
       // JNI name: "nitro" + "_" + "{lib}_module" (with internal _ → _1)
       // e.g. nitro.my_camera_module → nitro_my_1camera_1module (NOT nitro_1my_1camera_1module)
 
@@ -611,12 +611,12 @@ class CppBridgeGenerator {
     s.writeln('#elif __APPLE__');
     s.writeln('extern "C" {');
     for (final func in spec.functions) {
-      final isEnum = spec.enums.any((en) => en.name == func.returnType.name);
+      final isEnum = enumNames.contains(func.returnType.name);
       final cReturnType = isEnum ? 'int64_t' : _typeToC(func.returnType.name);
       final paramParts = <String>[];
       final callParamParts = <String>[];
       for (final p in func.params) {
-        paramParts.add('${_paramTypeToC(p.type.name, spec)} ${p.name}');
+        paramParts.add('${_paramTypeToC(p.type.name, structNames)} ${p.name}');
         callParamParts.add(p.name);
         if (p.type.isTypedData) {
           paramParts.add('int64_t ${p.name}_length');
@@ -657,7 +657,7 @@ class CppBridgeGenerator {
     }
 
     for (final prop in spec.properties) {
-      final isEnum = spec.enums.any((en) => en.name == prop.type.name);
+      final isEnum = enumNames.contains(prop.type.name);
       final cType = isEnum ? 'int64_t' : _typeToC(prop.type.name);
       if (prop.hasGetter) {
         s.writeln('extern $cType _call_get_${prop.dartName}(void);');
@@ -677,9 +677,7 @@ class CppBridgeGenerator {
     }
 
     for (final stream in spec.streams) {
-      final isStruct = spec.structs.any(
-        (st) => st.name == stream.itemType.name,
-      );
+      final isStruct = structNames.contains(stream.itemType.name);
       final itemCType = isStruct ? 'void*' : _typeToC(stream.itemType.name);
       s.writeln(
         'void _emit_${stream.dartName}_to_dart(int64_t dartPort, $itemCType item) {',
@@ -762,8 +760,8 @@ class CppBridgeGenerator {
   }
 
   /// Like _typeToC but for function parameters (struct params pass as void*)
-  static String _paramTypeToC(String dartType, BridgeSpec spec) {
-    if (spec.structs.any((st) => st.name == dartType.replaceFirst('?', ''))) {
+  static String _paramTypeToC(String dartType, Set<String> structNames) {
+    if (structNames.contains(dartType.replaceFirst('?', ''))) {
       return 'void*';
     }
     return _typeToC(dartType);
@@ -994,15 +992,16 @@ class CppBridgeGenerator {
   static String _jniSig(
     List<BridgeParam> params,
     BridgeType returnType,
-    BridgeSpec spec,
+    Set<String> enumNames,
+    Set<String> structNames,
+    String libPkg,
   ) {
     final sb = StringBuffer();
     sb.write('(');
     for (final p in params) {
-      if (spec.structs.any((st) => st.name == p.type.name)) {
+      if (structNames.contains(p.type.name)) {
         // Struct params are passed as the Kotlin data class object
-        final jniClass = 'nitro/${spec.lib.replaceAll('-', '_')}_module/${p.type.name}';
-        sb.write('L${jniClass.replaceAll('/', '/')};');
+        sb.write('L$libPkg/${p.type.name};');
       } else if (p.zeroCopy && p.type.isTypedData) {
         // Zero-copy TypedData params bridge as java.nio.ByteBuffer (direct buffer)
         sb.write('Ljava/nio/ByteBuffer;');
@@ -1012,11 +1011,10 @@ class CppBridgeGenerator {
     }
     sb.write(')');
     // Enum return type: bridge returns Long
-    if (spec.enums.any((en) => en.name == returnType.name)) {
+    if (enumNames.contains(returnType.name)) {
       sb.write('J');
-    } else if (spec.structs.any((st) => st.name == returnType.name)) {
-      final jniClass = 'nitro/${spec.lib.replaceAll('-', '_')}_module/${returnType.name}';
-      sb.write('L${jniClass.replaceAll('/', '/')};');
+    } else if (structNames.contains(returnType.name)) {
+      sb.write('L$libPkg/${returnType.name};');
     } else if (returnType.isRecord && !returnType.isMap) {
       // @HybridRecord / List<@HybridRecord>: bridge returns ByteArray ("[B")
       sb.write('[B');

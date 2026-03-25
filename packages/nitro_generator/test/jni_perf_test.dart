@@ -690,4 +690,158 @@ void main() {
       expect(cpp, contains('env->DeleteLocalRef(localClass)'));
     });
   });
+
+  // ── Issue 7: O(1) type-lookup sets in KotlinGenerator ────────────────────
+
+  group('KotlinGenerator — Issue 7: O(1) type lookups via pre-built Sets', () {
+    test('enum type resolves to enum name in interface (not Any?)', () {
+      final kt = KotlinGenerator.generate(_specWithEnum());
+      // Interface should use the enum class name, not Any?
+      expect(kt, contains('fun getColor(): Color'));
+      expect(kt, isNot(contains('fun getColor(): Any?')));
+    });
+
+    test('struct type resolves to struct name in interface (not Any?)', () {
+      final kt = KotlinGenerator.generate(_specWithStructs());
+      expect(kt, contains('fun getPoint(): Point'));
+      expect(kt, isNot(contains('fun getPoint(): Any?')));
+    });
+
+    test('record type resolves to record name in interface (not Any?)', () {
+      final kt = KotlinGenerator.generate(_specWithRecords());
+      expect(kt, contains('fun getReading(): SensorReading'));
+      expect(kt, isNot(contains('fun getReading(): Any?')));
+    });
+
+    test('enum property type resolves correctly', () {
+      final spec = BridgeSpec(
+        dartClassName: 'EnumPropMod',
+        lib: 'enum_prop_mod',
+        namespace: 'enum_prop_mod',
+        iosImpl: NativeImpl.swift,
+        androidImpl: NativeImpl.kotlin,
+        sourceUri: 'ep.native.dart',
+        enums: [BridgeEnum(name: 'Status', startValue: 0, values: ['active', 'idle'])],
+        properties: [
+          BridgeProperty(
+            dartName: 'status',
+            getSymbol: 'enum_prop_mod_get_status',
+            setSymbol: 'enum_prop_mod_set_status',
+            type: BridgeType(name: 'Status'),
+            hasGetter: true,
+            hasSetter: true,
+          ),
+        ],
+      );
+      final kt = KotlinGenerator.generate(spec);
+      // Interface: strong type
+      expect(kt, contains('var status: Status'));
+      // Bridge getter: Long (primitive bridge type for JNI)
+      expect(kt, contains('fun enum_prop_mod_get_status_call(): Long'));
+      // Bridge setter: Long
+      expect(kt, contains('fun enum_prop_mod_set_status_call(value: Long)'));
+    });
+
+    test('stream item type resolves correctly for enum stream', () {
+      final spec = BridgeSpec(
+        dartClassName: 'EnumStreamMod',
+        lib: 'enum_stream_mod',
+        namespace: 'enum_stream_mod',
+        iosImpl: NativeImpl.swift,
+        androidImpl: NativeImpl.kotlin,
+        sourceUri: 'es.native.dart',
+        enums: [BridgeEnum(name: 'Event', startValue: 0, values: ['start', 'stop'])],
+        streams: [
+          BridgeStream(
+            dartName: 'events',
+            registerSymbol: 'enum_stream_mod_register_events',
+            releaseSymbol: 'enum_stream_mod_release_events',
+            itemType: BridgeType(name: 'Event'),
+            backpressure: Backpressure.dropLatest,
+          ),
+        ],
+      );
+      final kt = KotlinGenerator.generate(spec);
+      expect(kt, contains('val events: Flow<Event>'));
+      expect(kt, contains('emit_events(dartPort: Long, item: Event)'));
+    });
+
+    test('unknown type falls back to Any? without exception', () {
+      final spec = BridgeSpec(
+        dartClassName: 'UnknownMod',
+        lib: 'unknown_mod',
+        namespace: 'unknown_mod',
+        iosImpl: NativeImpl.swift,
+        androidImpl: NativeImpl.kotlin,
+        sourceUri: 'u.native.dart',
+        functions: [
+          BridgeFunction(
+            dartName: 'doThing',
+            cSymbol: 'unknown_mod_do_thing',
+            isAsync: false,
+            returnType: BridgeType(name: 'UnregisteredType'),
+            params: [],
+          ),
+        ],
+      );
+      final kt = KotlinGenerator.generate(spec);
+      expect(kt, contains('fun doThing(): Any?'));
+    });
+
+    test('spec with many enums and structs produces correct types for all', () {
+      final spec = BridgeSpec(
+        dartClassName: 'BigMod',
+        lib: 'big_mod',
+        namespace: 'big_mod',
+        iosImpl: NativeImpl.swift,
+        androidImpl: NativeImpl.kotlin,
+        sourceUri: 'big.native.dart',
+        enums: [
+          BridgeEnum(name: 'ColorA', startValue: 0, values: ['r', 'g', 'b']),
+          BridgeEnum(name: 'ColorB', startValue: 0, values: ['x', 'y', 'z']),
+          BridgeEnum(name: 'ColorC', startValue: 0, values: ['p', 'q']),
+        ],
+        structs: [
+          BridgeStruct(name: 'Vec2', packed: false, fields: [
+            BridgeField(name: 'x', type: BridgeType(name: 'double')),
+            BridgeField(name: 'y', type: BridgeType(name: 'double')),
+          ]),
+          BridgeStruct(name: 'Vec3', packed: false, fields: [
+            BridgeField(name: 'x', type: BridgeType(name: 'double')),
+            BridgeField(name: 'y', type: BridgeType(name: 'double')),
+            BridgeField(name: 'z', type: BridgeType(name: 'double')),
+          ]),
+        ],
+        functions: [
+          BridgeFunction(
+            dartName: 'getColorA',
+            cSymbol: 'big_mod_get_color_a',
+            isAsync: false,
+            returnType: BridgeType(name: 'ColorA'),
+            params: [],
+          ),
+          BridgeFunction(
+            dartName: 'getColorC',
+            cSymbol: 'big_mod_get_color_c',
+            isAsync: false,
+            returnType: BridgeType(name: 'ColorC'),
+            params: [],
+          ),
+          BridgeFunction(
+            dartName: 'getVec3',
+            cSymbol: 'big_mod_get_vec3',
+            isAsync: false,
+            returnType: BridgeType(name: 'Vec3'),
+            params: [BridgeParam(name: 'scale', type: BridgeType(name: 'Vec2'))],
+          ),
+        ],
+      );
+      final kt = KotlinGenerator.generate(spec);
+      // All types should resolve to their class names, never Any?
+      expect(kt, contains('fun getColorA(): ColorA'));
+      expect(kt, contains('fun getColorC(): ColorC'));
+      expect(kt, contains('fun getVec3(scale: Vec2): Vec3'));
+      expect(kt, isNot(contains('Any?')));
+    });
+  });
 }
