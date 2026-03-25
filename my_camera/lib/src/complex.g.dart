@@ -129,7 +129,10 @@ class _ComplexModuleImpl extends ComplexModule {
     checkDisposed();
     final asyncResult = await NitroRuntime.callAsync(_generatePacketPtr, [type]);
     NitroRuntime.checkError(_dylib, getErrorName: 'complex_get_error', clearErrorName: 'complex_clear_error');
-    return Pointer<PacketFfi>.fromAddress((asyncResult as Pointer<Void>).address).ref.toDart();
+    final structPtr = Pointer<PacketFfi>.fromAddress((asyncResult as Pointer<Void>).address);
+    final decodedStruct = structPtr.ref.toDart();
+    malloc.free(structPtr);
+    return decodedStruct;
   }
 
   @override

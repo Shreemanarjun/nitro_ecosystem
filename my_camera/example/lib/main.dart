@@ -217,8 +217,9 @@ class _HomePageState extends State<_HomePage> {
                             key: ValueKey('frames_$_refreshCount'),
                             stream: MyCamera.instance.frames,
                             builder: (ctx, snap) {
-                              if (snap.hasError)
+                              if (snap.hasError) {
                                 return _streamError(snap.error!);
+                              }
                               if (!snap.hasData) return _waiting('frames');
                               return _frameInfo(snap.data!);
                             },

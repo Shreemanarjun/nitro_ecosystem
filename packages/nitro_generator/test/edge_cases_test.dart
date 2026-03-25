@@ -22,12 +22,12 @@
 //        • _defaultValue for const char* returns nullptr (not "")
 //
 //   4. DartFfiGenerator — malloc.free after record / struct decode
-//        • sync record return: malloc.free(_rawPtr)
-//        • async no-arena record return: malloc.free(_rawPtr)
-//        • async with-arena record return: malloc.free(_rawPtr)
-//        • async no-arena struct return: malloc.free(_structPtr)
-//        • async with-arena struct return: malloc.free(_structPtr)
-//        • sync struct return: malloc.free(_structPtr)
+//        • sync record return: malloc.free(rawPtr)
+//        • async no-arena record return: malloc.free(rawPtr)
+//        • async with-arena record return: malloc.free(rawPtr)
+//        • async no-arena struct return: malloc.free(structPtr)
+//        • async with-arena struct return: malloc.free(structPtr)
+//        • sync struct return: malloc.free(structPtr)
 //
 //   5. KotlinGenerator — List<@HybridRecord> _call bridge
 //        • _call return type is ByteArray (not List<X> or Any?)
@@ -654,40 +654,40 @@ void main() {
   // ── 4. DartFfiGenerator — malloc.free after decode ────────────────────────
 
   group('DartFfiGenerator — malloc.free for record returns', () {
-    test('sync record return calls malloc.free(_rawPtr) after decode', () {
+    test('sync record return calls malloc.free(rawPtr) after decode', () {
       final out = DartFfiGenerator.generate(_syncRecordSpec());
       expect(
         out,
-        contains('malloc.free(_rawPtr)'),
+        contains('malloc.free(rawPtr)'),
         reason: 'the C-malloc\'d buffer must be freed after Dart decodes it',
       );
     });
 
-    test('async no-arena record return calls malloc.free(_rawPtr)', () {
+    test('async no-arena record return calls malloc.free(rawPtr)', () {
       // _singleRecordSpec().getDevice has no arena params → no-arena async path
       final out = DartFfiGenerator.generate(_singleRecordSpec());
-      expect(out, contains('malloc.free(_rawPtr)'));
+      expect(out, contains('malloc.free(rawPtr)'));
     });
 
-    test('async with-arena record return calls malloc.free(_rawPtr)', () {
+    test('async with-arena record return calls malloc.free(rawPtr)', () {
       // _arenaRecordSpec().findDevice has a String param → withArena async path
       final out = DartFfiGenerator.generate(_arenaRecordSpec());
-      expect(out, contains('malloc.free(_rawPtr)'));
+      expect(out, contains('malloc.free(rawPtr)'));
     });
 
     test('sync record return frees before returning decoded value', () {
       final out = DartFfiGenerator.generate(_syncRecordSpec());
-      // Verify order: malloc.free(_rawPtr) appears before return _decoded
-      final freeIdx = out.indexOf('malloc.free(_rawPtr)');
-      final returnIdx = out.indexOf('return _decoded');
-      expect(freeIdx, greaterThanOrEqualTo(0), reason: 'malloc.free(_rawPtr) must be present');
-      expect(returnIdx, greaterThanOrEqualTo(0), reason: 'return _decoded must be present');
+      // Verify order: malloc.free(rawPtr) appears before return decoded
+      final freeIdx = out.indexOf('malloc.free(rawPtr)');
+      final returnIdx = out.indexOf('return decoded');
+      expect(freeIdx, greaterThanOrEqualTo(0), reason: 'malloc.free(rawPtr) must be present');
+      expect(returnIdx, greaterThanOrEqualTo(0), reason: 'return decoded must be present');
       expect(freeIdx, lessThan(returnIdx), reason: 'must free before returning');
     });
 
     test('async no-arena record return extracts Pointer<Uint8> before decoding', () {
       final out = DartFfiGenerator.generate(_singleRecordSpec());
-      expect(out, contains('final _rawPtr = rawResult as Pointer<Uint8>'));
+      expect(out, contains('final rawPtr = rawResult as Pointer<Uint8>'));
     });
 
     test('sync record return casts call result to Pointer<Uint8>', () {
@@ -697,32 +697,32 @@ void main() {
   });
 
   group('DartFfiGenerator — malloc.free for struct returns', () {
-    test('async no-arena struct return calls malloc.free(_structPtr)', () {
+    test('async no-arena struct return calls malloc.free(structPtr)', () {
       final out = DartFfiGenerator.generate(_asyncStructSpec());
       expect(
         out,
-        contains('malloc.free(_structPtr)'),
+        contains('malloc.free(structPtr)'),
         reason: 'C malloc-allocated struct must be freed after Dart toDart() call',
       );
     });
 
-    test('async with-arena struct return calls malloc.free(_structPtr)', () {
+    test('async with-arena struct return calls malloc.free(structPtr)', () {
       final out = DartFfiGenerator.generate(_arenaStructSpec());
-      expect(out, contains('malloc.free(_structPtr)'));
+      expect(out, contains('malloc.free(structPtr)'));
     });
 
-    test('sync struct return calls malloc.free(_structPtr)', () {
+    test('sync struct return calls malloc.free(structPtr)', () {
       final out = DartFfiGenerator.generate(_syncStructSpec());
-      expect(out, contains('malloc.free(_structPtr)'));
+      expect(out, contains('malloc.free(structPtr)'));
     });
 
     test('async no-arena struct return calls toDart() then frees', () {
       final out = DartFfiGenerator.generate(_asyncStructSpec());
       // Both must appear and toDart() must precede the free
       final toDartIdx = out.indexOf('toDart()');
-      final freeIdx = out.indexOf('malloc.free(_structPtr)');
+      final freeIdx = out.indexOf('malloc.free(structPtr)');
       expect(toDartIdx, greaterThanOrEqualTo(0), reason: 'toDart() must be present');
-      expect(freeIdx, greaterThanOrEqualTo(0), reason: 'malloc.free(_structPtr) must be present');
+      expect(freeIdx, greaterThanOrEqualTo(0), reason: 'malloc.free(structPtr) must be present');
       expect(toDartIdx, lessThan(freeIdx), reason: 'decode before free');
     });
 

@@ -147,19 +147,19 @@ class DartFfiGenerator {
           );
           s.writeln('      NitroRuntime.checkError(_dylib, getErrorName: \'${libStem}_get_error\', clearErrorName: \'${libStem}_clear_error\');');
           if (isRecordReturn) {
-            s.writeln('      final _rawPtr = result as Pointer<Uint8>;');
-            s.writeln('      final _decoded = ${_decodeRecordExpr(func.returnType, '_rawPtr')};');
-            s.writeln('      malloc.free(_rawPtr);');
-            s.writeln('      return _decoded;');
+            s.writeln('      final rawPtr = result as Pointer<Uint8>;');
+            s.writeln('      final decoded = ${_decodeRecordExpr(func.returnType, 'rawPtr')};');
+            s.writeln('      malloc.free(rawPtr);');
+            s.writeln('      return decoded;');
           } else if (rt == 'String') {
             s.writeln(
               '      return (result as Pointer<Utf8>).toDartStringWithFree();',
             );
           } else if (isStructReturn) {
-            s.writeln('      final _structPtr = Pointer<${rt}Ffi>.fromAddress((result as Pointer<Void>).address);');
-            s.writeln('      final _decoded = _structPtr.ref.toDart();');
-            s.writeln('      malloc.free(_structPtr);');
-            s.writeln('      return _decoded;');
+            s.writeln('      final structPtr = Pointer<${rt}Ffi>.fromAddress((result as Pointer<Void>).address);');
+            s.writeln('      final decoded = structPtr.ref.toDart();');
+            s.writeln('      malloc.free(structPtr);');
+            s.writeln('      return decoded;');
           } else if (isEnumReturn) {
             s.writeln('      return (result as int).to$rt();');
           } else {
@@ -174,19 +174,19 @@ class DartFfiGenerator {
               '    final rawResult = await NitroRuntime.callAsync(_${func.dartName}Ptr, [$params]);',
             );
             s.writeln('    NitroRuntime.checkError(_dylib, getErrorName: \'${libStem}_get_error\', clearErrorName: \'${libStem}_clear_error\');');
-            s.writeln('    final _rawPtr = rawResult as Pointer<Uint8>;');
-            s.writeln('    final _decoded = ${_decodeRecordExpr(func.returnType, '_rawPtr')};');
-            s.writeln('    malloc.free(_rawPtr);');
-            s.writeln('    return _decoded;');
+            s.writeln('    final rawPtr = rawResult as Pointer<Uint8>;');
+            s.writeln('    final decoded = ${_decodeRecordExpr(func.returnType, 'rawPtr')};');
+            s.writeln('    malloc.free(rawPtr);');
+            s.writeln('    return decoded;');
           } else if (isStructReturn) {
             s.writeln(
               '    final asyncResult = await NitroRuntime.callAsync(_${func.dartName}Ptr, [${func.params.map((p) => p.name).join(', ')}]);',
             );
             s.writeln('    NitroRuntime.checkError(_dylib, getErrorName: \'${libStem}_get_error\', clearErrorName: \'${libStem}_clear_error\');');
-            s.writeln('    final _structPtr = Pointer<${rt}Ffi>.fromAddress((asyncResult as Pointer<Void>).address);');
-            s.writeln('    final _decodedStruct = _structPtr.ref.toDart();');
-            s.writeln('    malloc.free(_structPtr);');
-            s.writeln('    return _decodedStruct;');
+            s.writeln('    final structPtr = Pointer<${rt}Ffi>.fromAddress((asyncResult as Pointer<Void>).address);');
+            s.writeln('    final decodedStruct = structPtr.ref.toDart();');
+            s.writeln('    malloc.free(structPtr);');
+            s.writeln('    return decodedStruct;');
           } else if (isEnumReturn) {
             s.writeln(
               '    final res = (await NitroRuntime.callAsync(_${func.dartName}Ptr, [${func.params.map((p) => p.name).join(', ')}])) as int;',
@@ -204,17 +204,17 @@ class DartFfiGenerator {
       } else {
         // Synchronous
         if (isRecordReturn) {
-          s.writeln('    final _rawPtr = $callExpr as Pointer<Uint8>;');
-          s.writeln('    final _decoded = ${_decodeRecordExpr(func.returnType, '_rawPtr')};');
-          s.writeln('    malloc.free(_rawPtr);');
-          s.writeln('    return _decoded;');
+          s.writeln('    final rawPtr = $callExpr as Pointer<Uint8>;');
+          s.writeln('    final decoded = ${_decodeRecordExpr(func.returnType, 'rawPtr')};');
+          s.writeln('    malloc.free(rawPtr);');
+          s.writeln('    return decoded;');
         } else if (spec.enums.any((en) => en.name == rt)) {
           s.writeln('    return ($callExpr).to$rt();');
         } else if (spec.structs.any((st) => st.name == rt)) {
-          s.writeln('    final _structPtr = Pointer<${rt}Ffi>.fromAddress(($callExpr).address);');
-          s.writeln('    final _decoded = _structPtr.ref.toDart();');
-          s.writeln('    malloc.free(_structPtr);');
-          s.writeln('    return _decoded;');
+          s.writeln('    final structPtr = Pointer<${rt}Ffi>.fromAddress(($callExpr).address);');
+          s.writeln('    final decoded = structPtr.ref.toDart();');
+          s.writeln('    malloc.free(structPtr);');
+          s.writeln('    return decoded;');
         } else if (rt == 'bool') {
           s.writeln('    return $callExpr != 0;');
         } else if (rt == 'String') {

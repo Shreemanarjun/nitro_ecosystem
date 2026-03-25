@@ -17,12 +17,15 @@ data class CameraFrame(val data: java.nio.ByteBuffer, val width: Long, val heigh
 @androidx.annotation.Keep
 data class Resolution(val width: Long, val height: Long) {
     companion object {
-        @JvmStatic fun decode(bytes: ByteArray): Resolution {
-            val buf = java.nio.ByteBuffer.wrap(bytes).order(java.nio.ByteOrder.LITTLE_ENDIAN)
-            buf.position(4) // skip 4-byte length prefix
+        @JvmStatic fun decodeFrom(buf: java.nio.ByteBuffer): Resolution {
             val width = buf.long
             val height = buf.long
             return Resolution(width, height)
+        }
+        @JvmStatic fun decode(bytes: ByteArray): Resolution {
+            val buf = java.nio.ByteBuffer.wrap(bytes).order(java.nio.ByteOrder.LITTLE_ENDIAN)
+            buf.position(4) // skip 4-byte length prefix
+            return decodeFrom(buf)
         }
     }
 
@@ -50,14 +53,17 @@ data class Resolution(val width: Long, val height: Long) {
 @androidx.annotation.Keep
 data class CameraDevice(val id: String, val name: String, val resolutions: List<Resolution>, val isFrontFacing: Boolean) {
     companion object {
+        @JvmStatic fun decodeFrom(buf: java.nio.ByteBuffer): CameraDevice {
+            val id = { val len = buf.int; val b = ByteArray(len); buf.get(b); b.toString(Charsets.UTF_8) }()
+            val name = { val len = buf.int; val b = ByteArray(len); buf.get(b); b.toString(Charsets.UTF_8) }()
+            val resolutions = (0 until buf.int).map { Resolution.decodeFrom(buf) }
+            val isFrontFacing = (buf.get().toInt() != 0)
+            return CameraDevice(id, name, resolutions, isFrontFacing)
+        }
         @JvmStatic fun decode(bytes: ByteArray): CameraDevice {
             val buf = java.nio.ByteBuffer.wrap(bytes).order(java.nio.ByteOrder.LITTLE_ENDIAN)
             buf.position(4) // skip 4-byte length prefix
-            val id = { val len = buf.int; val b = ByteArray(len); buf.get(b); b.toString(Charsets.UTF_8) }()
-            val name = { val len = buf.int; val b = ByteArray(len); buf.get(b); b.toString(Charsets.UTF_8) }()
-            val resolutions = (0 until buf.int).map { Resolution.decode(bytes) /* TODO */ }
-            val isFrontFacing = (buf.get().toInt() != 0)
-            return CameraDevice(id, name, resolutions, isFrontFacing)
+            return decodeFrom(buf)
         }
     }
 

@@ -40,6 +40,19 @@ static void nitro_report_error(const char* name, const char* message, const char
 static JavaVM* g_jvm = nullptr;
 static jclass g_bridgeClass = nullptr;
 
+// RAII guard: auto-detaches a thread from the JVM when it exits.
+// One instance is stored in thread-local storage; its destructor fires
+// when the thread terminates, ensuring no JVM thread descriptor leaks.
+struct NitroJniThreadGuard {
+    bool attached = false;
+    ~NitroJniThreadGuard() {
+        if (attached && g_jvm != nullptr) {
+            g_jvm->DetachCurrentThread();
+        }
+    }
+};
+static thread_local NitroJniThreadGuard g_thread_guard;
+
 static void nitro_report_jni_exception(JNIEnv* env, jthrowable ex) {
     // MUST clear the pending exception before making any further JNI calls.
     // JNI aborts if any JNI function (e.g. GetObjectClass) is called while
@@ -102,6 +115,7 @@ static JNIEnv* GetEnv() {
     int status = g_jvm->GetEnv(reinterpret_cast<void**>(&env), JNI_VERSION_1_6);
     if (status == JNI_EDETACHED) {
         g_jvm->AttachCurrentThread(&env, nullptr);
+        g_thread_guard.attached = true; // will DetachCurrentThread on thread exit
     }
     return env;
 }
@@ -120,9 +134,9 @@ double verification_module_multiply(double a, double b) {
 
 const char* verification_module_ping(const char* message) {
     JNIEnv* env = GetEnv();
-    if (env == nullptr) return "";
+    if (env == nullptr) return nullptr;
     jmethodID methodId = env->GetStaticMethodID(g_bridgeClass, "ping_call", "(Ljava/lang/String;)Ljava/lang/String;");
-    if (methodId == nullptr) { LOGE("Method not found"); return ""; }
+    if (methodId == nullptr) { LOGE("Method not found"); return nullptr; }
 
     verification_clear_error();
     jstring j_message = env->NewStringUTF(message);
@@ -139,9 +153,9 @@ const char* verification_module_ping(const char* message) {
 
 const char* verification_module_ping_async(const char* message) {
     JNIEnv* env = GetEnv();
-    if (env == nullptr) return "";
+    if (env == nullptr) return nullptr;
     jmethodID methodId = env->GetStaticMethodID(g_bridgeClass, "pingAsync_call", "(Ljava/lang/String;)Ljava/lang/String;");
-    if (methodId == nullptr) { LOGE("Method not found"); return ""; }
+    if (methodId == nullptr) { LOGE("Method not found"); return nullptr; }
 
     verification_clear_error();
     jstring j_message = env->NewStringUTF(message);
@@ -217,7 +231,7 @@ const char* verification_module_ping(const char* message) {
         return _call_ping(message);
     } @catch (NSException* e) {
         nitro_report_error([e.name UTF8String], [e.reason UTF8String], nullptr, nullptr);
-        return "";
+        return nullptr;
     }
 #else
     return _call_ping(message);
@@ -232,7 +246,7 @@ const char* verification_module_ping_async(const char* message) {
         return _call_pingAsync(message);
     } @catch (NSException* e) {
         nitro_report_error([e.name UTF8String], [e.reason UTF8String], nullptr, nullptr);
-        return "";
+        return nullptr;
     }
 #else
     return _call_pingAsync(message);
