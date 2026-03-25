@@ -146,7 +146,7 @@ int64_t complex_module_calculate(int64_t seed, double factor, int8_t enabled) {
 
     complex_clear_error();
     int64_t res = env->CallStaticLongMethod(g_bridgeClass, methodId, seed, factor, enabled);
-    if (env->ExceptionCheck()) { nitro_report_jni_exception(env, env->ExceptionOccurred()); env->ExceptionClear(); return 0; }
+    if (env->ExceptionCheck()) { nitro_report_jni_exception(env, env->ExceptionOccurred()); return 0; }
     return res;
 }
 
@@ -159,7 +159,7 @@ const char* complex_module_fetch_metadata(const char* url) {
     complex_clear_error();
     jstring j_url = env->NewStringUTF(url);
     jstring jstr = (jstring)env->CallStaticObjectMethod(g_bridgeClass, methodId, j_url);
-    if (env->ExceptionCheck()) { nitro_report_jni_exception(env, env->ExceptionOccurred()); env->ExceptionClear(); return nullptr; }
+    if (env->ExceptionCheck()) { nitro_report_jni_exception(env, env->ExceptionOccurred()); return nullptr; }
     if (jstr == nullptr) return nullptr;
     const char* nativeStr = env->GetStringUTFChars(jstr, 0);
     char* result = strdup(nativeStr);
@@ -177,7 +177,7 @@ int64_t complex_module_get_status(void) {
 
     complex_clear_error();
     int64_t res = env->CallStaticLongMethod(g_bridgeClass, methodId);
-    if (env->ExceptionCheck()) { nitro_report_jni_exception(env, env->ExceptionOccurred()); env->ExceptionClear(); return 0; }
+    if (env->ExceptionCheck()) { nitro_report_jni_exception(env, env->ExceptionOccurred()); return 0; }
     return res;
 }
 
@@ -190,7 +190,7 @@ void complex_module_update_sensors(void* data) {
     complex_clear_error();
     jobject jobj_data = unpack_SensorData_to_jni(env, (const SensorData*)data);
     env->CallStaticVoidMethod(g_bridgeClass, methodId, jobj_data);
-    if (env->ExceptionCheck()) { nitro_report_jni_exception(env, env->ExceptionOccurred()); env->ExceptionClear(); }
+    if (env->ExceptionCheck()) { nitro_report_jni_exception(env, env->ExceptionOccurred()); }
 }
 
 void* complex_module_generate_packet(int64_t type) {
@@ -201,7 +201,7 @@ void* complex_module_generate_packet(int64_t type) {
 
     complex_clear_error();
     jobject jobj = env->CallStaticObjectMethod(g_bridgeClass, methodId, type);
-    if (env->ExceptionCheck()) { nitro_report_jni_exception(env, env->ExceptionOccurred()); env->ExceptionClear(); return nullptr; }
+    if (env->ExceptionCheck()) { nitro_report_jni_exception(env, env->ExceptionOccurred()); return nullptr; }
     if (jobj == nullptr) return nullptr;
     Packet* result = (Packet*)malloc(sizeof(Packet));
     *result = pack_Packet_from_jni(env, jobj);

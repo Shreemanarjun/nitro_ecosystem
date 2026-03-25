@@ -138,32 +138,32 @@ object MyCameraJniBridge {
         lenBuf.putInt(payload.size)
         return lenBuf.array() + payload
     }
-    private val _streamJobs = mutableMapOf<Long, kotlinx.coroutines.Job>()
+    private val _streamJobs = mutableMapOf<Pair<String, Long>, kotlinx.coroutines.Job>()
 
     @JvmStatic external fun emit_frames(dartPort: Long, item: CameraFrame): Unit
 
     @JvmStatic fun my_camera_register_frames_stream_call(dartPort: Long) {
         val impl = implementation ?: return
-        _streamJobs[dartPort] = CoroutineScope(Dispatchers.Default).launch {
+        _streamJobs[Pair("frames", dartPort)] = CoroutineScope(Dispatchers.Default).launch {
             impl.frames.collect { item -> 
                 emit_frames(dartPort, item)
             }
         }
     }
     @JvmStatic fun my_camera_release_frames_stream_call(dartPort: Long) {
-        _streamJobs.remove(dartPort)?.cancel()
+        _streamJobs.remove(Pair("frames", dartPort))?.cancel()
     }
     @JvmStatic external fun emit_coloredFrames(dartPort: Long, item: CameraFrame): Unit
 
     @JvmStatic fun my_camera_register_colored_frames_stream_call(dartPort: Long) {
         val impl = implementation ?: return
-        _streamJobs[dartPort] = CoroutineScope(Dispatchers.Default).launch {
+        _streamJobs[Pair("coloredFrames", dartPort)] = CoroutineScope(Dispatchers.Default).launch {
             impl.coloredFrames.collect { item -> 
                 emit_coloredFrames(dartPort, item)
             }
         }
     }
     @JvmStatic fun my_camera_release_colored_frames_stream_call(dartPort: Long) {
-        _streamJobs.remove(dartPort)?.cancel()
+        _streamJobs.remove(Pair("coloredFrames", dartPort))?.cancel()
     }
 }

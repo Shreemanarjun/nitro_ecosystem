@@ -87,32 +87,32 @@ object ComplexModuleJniBridge {
         val impl = implementation ?: throw IllegalStateException("ComplexModule not registered")
         impl.config = value
     }
-    private val _streamJobs = mutableMapOf<Long, kotlinx.coroutines.Job>()
+    private val _streamJobs = mutableMapOf<Pair<String, Long>, kotlinx.coroutines.Job>()
 
     @JvmStatic external fun emit_sensorStream(dartPort: Long, item: SensorData): Unit
 
     @JvmStatic fun complex_module_register_sensor_stream_stream_call(dartPort: Long) {
         val impl = implementation ?: return
-        _streamJobs[dartPort] = CoroutineScope(Dispatchers.Default).launch {
+        _streamJobs[Pair("sensorStream", dartPort)] = CoroutineScope(Dispatchers.Default).launch {
             impl.sensorStream.collect { item -> 
                 emit_sensorStream(dartPort, item)
             }
         }
     }
     @JvmStatic fun complex_module_release_sensor_stream_stream_call(dartPort: Long) {
-        _streamJobs.remove(dartPort)?.cancel()
+        _streamJobs.remove(Pair("sensorStream", dartPort))?.cancel()
     }
     @JvmStatic external fun emit_dataStream(dartPort: Long, item: Packet): Unit
 
     @JvmStatic fun complex_module_register_data_stream_stream_call(dartPort: Long) {
         val impl = implementation ?: return
-        _streamJobs[dartPort] = CoroutineScope(Dispatchers.Default).launch {
+        _streamJobs[Pair("dataStream", dartPort)] = CoroutineScope(Dispatchers.Default).launch {
             impl.dataStream.collect { item -> 
                 emit_dataStream(dartPort, item)
             }
         }
     }
     @JvmStatic fun complex_module_release_data_stream_stream_call(dartPort: Long) {
-        _streamJobs.remove(dartPort)?.cancel()
+        _streamJobs.remove(Pair("dataStream", dartPort))?.cancel()
     }
 }

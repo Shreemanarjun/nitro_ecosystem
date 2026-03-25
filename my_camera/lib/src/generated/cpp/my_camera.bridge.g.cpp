@@ -134,7 +134,7 @@ double my_camera_add(double a, double b) {
 
     my_camera_clear_error();
     double res = env->CallStaticDoubleMethod(g_bridgeClass, methodId, a, b);
-    if (env->ExceptionCheck()) { nitro_report_jni_exception(env, env->ExceptionOccurred()); env->ExceptionClear(); return 0.0; }
+    if (env->ExceptionCheck()) { nitro_report_jni_exception(env, env->ExceptionOccurred()); return 0.0; }
     return res;
 }
 
@@ -147,7 +147,7 @@ const char* my_camera_get_greeting(const char* name) {
     my_camera_clear_error();
     jstring j_name = env->NewStringUTF(name);
     jstring jstr = (jstring)env->CallStaticObjectMethod(g_bridgeClass, methodId, j_name);
-    if (env->ExceptionCheck()) { nitro_report_jni_exception(env, env->ExceptionOccurred()); env->ExceptionClear(); return nullptr; }
+    if (env->ExceptionCheck()) { nitro_report_jni_exception(env, env->ExceptionOccurred()); return nullptr; }
     if (jstr == nullptr) return nullptr;
     const char* nativeStr = env->GetStringUTFChars(jstr, 0);
     char* result = strdup(nativeStr);
@@ -165,7 +165,7 @@ void* my_camera_get_available_devices(void) {
 
     my_camera_clear_error();
     jbyteArray jarr = (jbyteArray)env->CallStaticObjectMethod(g_bridgeClass, methodId);
-    if (env->ExceptionCheck()) { nitro_report_jni_exception(env, env->ExceptionOccurred()); env->ExceptionClear(); return nullptr; }
+    if (env->ExceptionCheck()) { nitro_report_jni_exception(env, env->ExceptionOccurred()); return nullptr; }
     if (jarr == nullptr) return nullptr;
     jsize len = env->GetArrayLength(jarr);
     uint8_t* result = (uint8_t*)malloc(len);

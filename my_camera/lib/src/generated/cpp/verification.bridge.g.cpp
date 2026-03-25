@@ -128,7 +128,7 @@ double verification_module_multiply(double a, double b) {
 
     verification_clear_error();
     double res = env->CallStaticDoubleMethod(g_bridgeClass, methodId, a, b);
-    if (env->ExceptionCheck()) { nitro_report_jni_exception(env, env->ExceptionOccurred()); env->ExceptionClear(); return 0.0; }
+    if (env->ExceptionCheck()) { nitro_report_jni_exception(env, env->ExceptionOccurred()); return 0.0; }
     return res;
 }
 
@@ -141,7 +141,7 @@ const char* verification_module_ping(const char* message) {
     verification_clear_error();
     jstring j_message = env->NewStringUTF(message);
     jstring jstr = (jstring)env->CallStaticObjectMethod(g_bridgeClass, methodId, j_message);
-    if (env->ExceptionCheck()) { nitro_report_jni_exception(env, env->ExceptionOccurred()); env->ExceptionClear(); return nullptr; }
+    if (env->ExceptionCheck()) { nitro_report_jni_exception(env, env->ExceptionOccurred()); return nullptr; }
     if (jstr == nullptr) return nullptr;
     const char* nativeStr = env->GetStringUTFChars(jstr, 0);
     char* result = strdup(nativeStr);
@@ -160,7 +160,7 @@ const char* verification_module_ping_async(const char* message) {
     verification_clear_error();
     jstring j_message = env->NewStringUTF(message);
     jstring jstr = (jstring)env->CallStaticObjectMethod(g_bridgeClass, methodId, j_message);
-    if (env->ExceptionCheck()) { nitro_report_jni_exception(env, env->ExceptionOccurred()); env->ExceptionClear(); return nullptr; }
+    if (env->ExceptionCheck()) { nitro_report_jni_exception(env, env->ExceptionOccurred()); return nullptr; }
     if (jstr == nullptr) return nullptr;
     const char* nativeStr = env->GetStringUTFChars(jstr, 0);
     char* result = strdup(nativeStr);
@@ -179,7 +179,7 @@ void verification_module_throw_error(const char* message) {
     verification_clear_error();
     jstring j_message = env->NewStringUTF(message);
     env->CallStaticVoidMethod(g_bridgeClass, methodId, j_message);
-    if (env->ExceptionCheck()) { nitro_report_jni_exception(env, env->ExceptionOccurred()); env->ExceptionClear(); }
+    if (env->ExceptionCheck()) { nitro_report_jni_exception(env, env->ExceptionOccurred()); }
 }
 
 void* verification_module_process_floats(float* inputs, int64_t inputs_length) {
@@ -191,7 +191,7 @@ void* verification_module_process_floats(float* inputs, int64_t inputs_length) {
     verification_clear_error();
     jobject j_inputs = env->NewDirectByteBuffer(inputs, inputs_length * sizeof(float));
     jobject jobj = env->CallStaticObjectMethod(g_bridgeClass, methodId, j_inputs);
-    if (env->ExceptionCheck()) { nitro_report_jni_exception(env, env->ExceptionOccurred()); env->ExceptionClear(); return nullptr; }
+    if (env->ExceptionCheck()) { nitro_report_jni_exception(env, env->ExceptionOccurred()); return nullptr; }
     if (jobj == nullptr) return nullptr;
     FloatBuffer* result = (FloatBuffer*)malloc(sizeof(FloatBuffer));
     *result = pack_FloatBuffer_from_jni(env, jobj);

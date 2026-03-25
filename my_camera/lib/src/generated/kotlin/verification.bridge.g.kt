@@ -57,6 +57,6 @@ object VerificationModuleJniBridge {
         val impl = implementation ?: throw IllegalStateException("VerificationModule not registered")
         return impl.processFloats(inputs)
     }
-    private val _streamJobs = mutableMapOf<Long, kotlinx.coroutines.Job>()
+    private val _streamJobs = mutableMapOf<Pair<String, Long>, kotlinx.coroutines.Job>()
 
 }
