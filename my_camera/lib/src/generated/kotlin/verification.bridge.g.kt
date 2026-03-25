@@ -21,7 +21,7 @@ interface HybridVerificationModuleSpec {
     fun ping(message: String): String
     suspend fun pingAsync(message: String): String
     fun throwError(message: String): Unit
-    fun processFloats(inputs: FloatArray): FloatBuffer
+    fun processFloats(inputs: java.nio.ByteBuffer): FloatBuffer
 }
 
 @Keep
@@ -53,7 +53,7 @@ object VerificationModuleJniBridge {
         val impl = implementation ?: throw IllegalStateException("VerificationModule not registered")
         impl.throwError(message)
     }
-    @JvmStatic fun processFloats_call(inputs: FloatArray): FloatBuffer {
+    @JvmStatic fun processFloats_call(inputs: java.nio.ByteBuffer): FloatBuffer {
         val impl = implementation ?: throw IllegalStateException("VerificationModule not registered")
         return impl.processFloats(inputs)
     }

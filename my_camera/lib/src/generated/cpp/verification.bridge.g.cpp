@@ -167,11 +167,12 @@ void verification_module_throw_error(const char* message) {
 void* verification_module_process_floats(float* inputs, int64_t inputs_length) {
     JNIEnv* env = GetEnv();
     if (env == nullptr) return nullptr;
-    jmethodID methodId = env->GetStaticMethodID(g_bridgeClass, "processFloats_call", "(Ljava/lang/Object;)Lnitro/verification_module/FloatBuffer;");
+    jmethodID methodId = env->GetStaticMethodID(g_bridgeClass, "processFloats_call", "(Ljava/nio/ByteBuffer;)Lnitro/verification_module/FloatBuffer;");
     if (methodId == nullptr) { LOGE("Method not found"); return nullptr; }
 
     verification_clear_error();
-    jobject jobj = env->CallStaticObjectMethod(g_bridgeClass, methodId, inputs);
+    jobject j_inputs = env->NewDirectByteBuffer(inputs, inputs_length * sizeof(float));
+    jobject jobj = env->CallStaticObjectMethod(g_bridgeClass, methodId, j_inputs);
     if (env->ExceptionCheck()) { nitro_report_jni_exception(env, env->ExceptionOccurred()); env->ExceptionClear(); return nullptr; }
     if (jobj == nullptr) return nullptr;
     FloatBuffer* result = (FloatBuffer*)malloc(sizeof(FloatBuffer));

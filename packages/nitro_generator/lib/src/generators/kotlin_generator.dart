@@ -35,7 +35,7 @@ class KotlinGenerator {
 
     for (final func in spec.functions) {
       final retType = _toKotlinType(spec, func.returnType.name);
-      final params = func.params.map((p) => '${p.name}: ${_toKotlinType(spec, p.type.name)}').join(', ');
+      final params = func.params.map((p) => '${p.name}: ${_toKotlinParamType(spec, p)}').join(', ');
       final suspend = func.isAsync ? 'suspend ' : '';
       // Use the actual return type (enum/struct class) in the interface
       s.writeln('    ${suspend}fun ${func.dartName}($params): $retType');
@@ -77,7 +77,7 @@ class KotlinGenerator {
 
     for (final func in spec.functions) {
       final retType = _toKotlinType(spec, func.returnType.name);
-      final paramsDecl = func.params.map((p) => '${p.name}: ${_toKotlinType(spec, p.type.name)}').join(', ');
+      final paramsDecl = func.params.map((p) => '${p.name}: ${_toKotlinParamType(spec, p)}').join(', ');
       final callParams = func.params.map((p) => p.name).join(', ');
 
       final isUnit = (retType == 'Unit');
@@ -181,6 +181,13 @@ class KotlinGenerator {
 
     s.writeln('}');
     return s.toString();
+  }
+
+  /// Returns the Kotlin type for a function parameter, respecting @ZeroCopy().
+  /// Zero-copy TypedData params use java.nio.ByteBuffer (direct buffer, no copy).
+  static String _toKotlinParamType(BridgeSpec spec, BridgeParam p) {
+    if (p.zeroCopy && p.type.isTypedData) return 'java.nio.ByteBuffer';
+    return _toKotlinType(spec, p.type.name);
   }
 
   static String _toKotlinType(BridgeSpec spec, String t) {

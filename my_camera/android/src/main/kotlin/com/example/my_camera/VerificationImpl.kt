@@ -21,10 +21,13 @@ class VerificationModuleImpl : HybridVerificationModuleSpec {
         throw RuntimeException(message)
     }
 
-    override fun processFloats(inputs: FloatArray): nitro.verification_module.FloatBuffer {
-        val result = FloatArray(inputs.size) { inputs[it] * 2f }
-        val outBuf = java.nio.ByteBuffer.allocateDirect(result.size * 4).order(java.nio.ByteOrder.nativeOrder())
+    override fun processFloats(inputs: java.nio.ByteBuffer): nitro.verification_module.FloatBuffer {
+        inputs.order(java.nio.ByteOrder.nativeOrder())
+        val floatBuf = inputs.asFloatBuffer()
+        val size = floatBuf.remaining()
+        val result = FloatArray(size) { floatBuf.get(it) * 2f }
+        val outBuf = java.nio.ByteBuffer.allocateDirect(size * 4).order(java.nio.ByteOrder.nativeOrder())
         outBuf.asFloatBuffer().put(result)
-        return nitro.verification_module.FloatBuffer(outBuf, result.size.toLong())
+        return nitro.verification_module.FloatBuffer(outBuf, size.toLong())
     }
 }

@@ -254,6 +254,11 @@ class CppBridgeGenerator {
             '    jobject jobj_${p.name} = unpack_${pt}_to_jni(env, (const $pt*)${p.name});',
           );
           callArgsList.add('jobj_${p.name}');
+        } else if (p.zeroCopy && p.type.isTypedData) {
+          // Zero-copy: wrap native pointer in a DirectByteBuffer (no data copy)
+          final elemSize = _zeroCopyElementSizeExpr(pt);
+          s.writeln('    jobject j_${p.name} = env->NewDirectByteBuffer(${p.name}, ${p.name}_length$elemSize);');
+          callArgsList.add('j_${p.name}');
         } else {
           callArgsList.add(p.name);
         }
@@ -841,6 +846,9 @@ class CppBridgeGenerator {
         // Struct params are passed as the Kotlin data class object
         final jniClass = 'nitro/${spec.lib.replaceAll('-', '_')}_module/${p.type.name}';
         sb.write('L${jniClass.replaceAll('/', '/')};');
+      } else if (p.zeroCopy && p.type.isTypedData) {
+        // Zero-copy TypedData params bridge as java.nio.ByteBuffer (direct buffer)
+        sb.write('Ljava/nio/ByteBuffer;');
       } else {
         sb.write(_jniSigType(p.type.name));
       }
