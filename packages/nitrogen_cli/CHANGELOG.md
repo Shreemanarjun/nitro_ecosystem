@@ -1,6 +1,8 @@
 ## 0.2.0
 
 - **New: High-Performance Binary Codec Integration** — All generated bridges now default to the compact binary protocol for `@HybridRecord` types, matching the updates in `package:nitro` 0.2.0.
+- **Improved: JNI Performance** — All `FindClass`, `GetStaticMethodID`, `GetFieldID`, and `GetMethodID` calls are now cached as static globals and initialized once in `JNI_OnLoad`, eliminating per-call classloader traversal. Exception introspection method IDs (`getName`, `getMessage`) are also cached.
+- **Improved: Android Async Throughput** — Kotlin bridge async methods now delegate to a `newCachedThreadPool` executor instead of calling `runBlocking` directly, moving blocking work off Dart isolate threads.
 - **Improved: `nitrogen doctor` Reliability** — Fixed a runtime exception ("Unsupported operation: Cannot add to an unmodifiable list") when running checks on `pubspec.yaml`, generated files, and build system wiring.
 - **Improved: `nitrogen generate` Stability** — Updated the generator backbone to remove unreferenced helper methods and redundant type lookups in Swift bridges.
 - **Improved: Linter Integration** — Updated analysis options to prefer wider page widths (220) and cleaner formatting for generated code across all packages.

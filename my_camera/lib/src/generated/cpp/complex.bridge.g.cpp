@@ -42,6 +42,31 @@ static void nitro_report_error(const char* name, const char* message, const char
 static JavaVM* g_jvm = nullptr;
 static jclass g_bridgeClass = nullptr;
 
+// ── Cached JNI IDs (initialized once in JNI_OnLoad, safe to use from any thread) ──
+static jmethodID g_exc_getName = nullptr;
+static jmethodID g_exc_getMessage = nullptr;
+static jmethodID g_mid_calculate_call = nullptr;
+static jmethodID g_mid_fetchMetadata_call = nullptr;
+static jmethodID g_mid_getStatus_call = nullptr;
+static jmethodID g_mid_updateSensors_call = nullptr;
+static jmethodID g_mid_generatePacket_call = nullptr;
+static jmethodID g_mid_complex_module_get_battery_level_call = nullptr;
+static jmethodID g_mid_complex_module_set_config_call = nullptr;
+static jmethodID g_mid_complex_module_register_sensor_stream_stream_call = nullptr;
+static jmethodID g_mid_complex_module_release_sensor_stream_stream_call = nullptr;
+static jmethodID g_mid_complex_module_register_data_stream_stream_call = nullptr;
+static jmethodID g_mid_complex_module_release_data_stream_stream_call = nullptr;
+static jclass g_cls_SensorData = nullptr;
+static jmethodID g_ctor_SensorData = nullptr;
+static jfieldID g_fid_SensorData_temperature = nullptr;
+static jfieldID g_fid_SensorData_humidity = nullptr;
+static jfieldID g_fid_SensorData_lastUpdate = nullptr;
+static jclass g_cls_Packet = nullptr;
+static jmethodID g_ctor_Packet = nullptr;
+static jfieldID g_fid_Packet_sequence = nullptr;
+static jfieldID g_fid_Packet_buffer = nullptr;
+static jfieldID g_fid_Packet_size = nullptr;
+
 // RAII guard: auto-detaches a thread from the JVM when it exits.
 // One instance is stored in thread-local storage; its destructor fires
 // when the thread terminates, ensuring no JVM thread descriptor leaks.
@@ -61,13 +86,10 @@ static void nitro_report_jni_exception(JNIEnv* env, jthrowable ex) {
     // an exception is still pending.
     env->ExceptionClear();
     jclass ex_class = env->GetObjectClass(ex);
-    jclass cls_class = env->FindClass("java/lang/Class");
-    jmethodID get_name = env->GetMethodID(cls_class, "getName", "()Ljava/lang/String;");
-    jstring j_name = (jstring)env->CallObjectMethod(ex_class, get_name);
+    jstring j_name = (jstring)env->CallObjectMethod(ex_class, g_exc_getName);
     const char* name = (j_name != nullptr) ? env->GetStringUTFChars(j_name, 0) : "JavaException";
 
-    jmethodID get_msg = env->GetMethodID(env->FindClass("java/lang/Throwable"), "getMessage", "()Ljava/lang/String;");
-    jstring j_msg = (jstring)env->CallObjectMethod(ex, get_msg);
+    jstring j_msg = (jstring)env->CallObjectMethod(ex, g_exc_getMessage);
     const char* msg = (j_msg != nullptr) ? env->GetStringUTFChars(j_msg, 0) : "No message provided";
 
     nitro_report_error(name, msg, nullptr, nullptr);
@@ -79,36 +101,24 @@ static void nitro_report_jni_exception(JNIEnv* env, jthrowable ex) {
 
 static SensorData pack_SensorData_from_jni(JNIEnv* env, jobject obj) {
     SensorData result;
-    jclass cls = env->GetObjectClass(obj);
-    jfieldID fid_temperature = env->GetFieldID(cls, "temperature", "D");
-    result.temperature = env->GetDoubleField(obj, fid_temperature);
-    jfieldID fid_humidity = env->GetFieldID(cls, "humidity", "D");
-    result.humidity = env->GetDoubleField(obj, fid_humidity);
-    jfieldID fid_lastUpdate = env->GetFieldID(cls, "lastUpdate", "J");
-    result.lastUpdate = env->GetLongField(obj, fid_lastUpdate);
+    result.temperature = env->GetDoubleField(obj, g_fid_SensorData_temperature);
+    result.humidity = env->GetDoubleField(obj, g_fid_SensorData_humidity);
+    result.lastUpdate = env->GetLongField(obj, g_fid_SensorData_lastUpdate);
     return result;
 }
 static jobject unpack_SensorData_to_jni(JNIEnv* env, const SensorData* st) {
-    jclass cls = env->FindClass("nitro/complex_module/SensorData");
-    jmethodID ctor = env->GetMethodID(cls, "<init>", "(DDJ)V");
-    return env->NewObject(cls, ctor, (jdouble)st->temperature, (jdouble)st->humidity, (jlong)st->lastUpdate);
+    return env->NewObject(g_cls_SensorData, g_ctor_SensorData, (jdouble)st->temperature, (jdouble)st->humidity, (jlong)st->lastUpdate);
 }
 static Packet pack_Packet_from_jni(JNIEnv* env, jobject obj) {
     Packet result;
-    jclass cls = env->GetObjectClass(obj);
-    jfieldID fid_sequence = env->GetFieldID(cls, "sequence", "J");
-    result.sequence = env->GetLongField(obj, fid_sequence);
-    jfieldID fid_buffer = env->GetFieldID(cls, "buffer", "Ljava/nio/ByteBuffer;");
-    jobject buf_buffer = env->GetObjectField(obj, fid_buffer);
+    result.sequence = env->GetLongField(obj, g_fid_Packet_sequence);
+    jobject buf_buffer = env->GetObjectField(obj, g_fid_Packet_buffer);
     result.buffer = (uint8_t*)env->GetDirectBufferAddress(buf_buffer);
-    jfieldID fid_size = env->GetFieldID(cls, "size", "J");
-    result.size = env->GetLongField(obj, fid_size);
+    result.size = env->GetLongField(obj, g_fid_Packet_size);
     return result;
 }
 static jobject unpack_Packet_to_jni(JNIEnv* env, const Packet* st) {
-    jclass cls = env->FindClass("nitro/complex_module/Packet");
-    jmethodID ctor = env->GetMethodID(cls, "<init>", "(JLjava/nio/ByteBuffer;J)V");
-    return env->NewObject(cls, ctor, (jlong)st->sequence, env->NewDirectByteBuffer((void*)st->buffer, st->size), (jlong)st->size);
+    return env->NewObject(g_cls_Packet, g_ctor_Packet, (jlong)st->sequence, env->NewDirectByteBuffer((void*)st->buffer, st->size), (jlong)st->size);
 }
 
 extern "C" {
@@ -123,9 +133,58 @@ JNIEXPORT jint JNICALL JNI_OnLoad(JavaVM* vm, void* reserved) {
     jclass localClass = env->FindClass("nitro/complex_module/ComplexModuleJniBridge");
     if (localClass != nullptr) {
         g_bridgeClass = (jclass)env->NewGlobalRef(localClass);
+        env->DeleteLocalRef(localClass);
     } else {
         LOGE("Failed to find JniBridge class");
     }
+
+    // Cache exception introspection method IDs
+    {
+        jclass cls_class = env->FindClass("java/lang/Class");
+        if (cls_class) { g_exc_getName = env->GetMethodID(cls_class, "getName", "()Ljava/lang/String;"); env->DeleteLocalRef(cls_class); }
+        jclass throwable_class = env->FindClass("java/lang/Throwable");
+        if (throwable_class) { g_exc_getMessage = env->GetMethodID(throwable_class, "getMessage", "()Ljava/lang/String;"); env->DeleteLocalRef(throwable_class); }
+    }
+
+    // Cache bridge method IDs
+    if (g_bridgeClass != nullptr) {
+        g_mid_calculate_call = env->GetStaticMethodID(g_bridgeClass, "calculate_call", "(JDZ)J");
+        g_mid_fetchMetadata_call = env->GetStaticMethodID(g_bridgeClass, "fetchMetadata_call", "(Ljava/lang/String;)Ljava/lang/String;");
+        g_mid_getStatus_call = env->GetStaticMethodID(g_bridgeClass, "getStatus_call", "()J");
+        g_mid_updateSensors_call = env->GetStaticMethodID(g_bridgeClass, "updateSensors_call", "(Lnitro/complex_module/SensorData;)V");
+        g_mid_generatePacket_call = env->GetStaticMethodID(g_bridgeClass, "generatePacket_call", "(J)Lnitro/complex_module/Packet;");
+        g_mid_complex_module_get_battery_level_call = env->GetStaticMethodID(g_bridgeClass, "complex_module_get_battery_level_call", "()D");
+        g_mid_complex_module_set_config_call = env->GetStaticMethodID(g_bridgeClass, "complex_module_set_config_call", "(Ljava/lang/String;)V");
+        g_mid_complex_module_register_sensor_stream_stream_call = env->GetStaticMethodID(g_bridgeClass, "complex_module_register_sensor_stream_stream_call", "(J)V");
+        g_mid_complex_module_release_sensor_stream_stream_call = env->GetStaticMethodID(g_bridgeClass, "complex_module_release_sensor_stream_stream_call", "(J)V");
+        g_mid_complex_module_register_data_stream_stream_call = env->GetStaticMethodID(g_bridgeClass, "complex_module_register_data_stream_stream_call", "(J)V");
+        g_mid_complex_module_release_data_stream_stream_call = env->GetStaticMethodID(g_bridgeClass, "complex_module_release_data_stream_stream_call", "(J)V");
+    }
+
+    // Cache struct class + ctor + field IDs
+    {
+        jclass local_cls_SensorData = env->FindClass("nitro/complex_module/SensorData");
+        if (local_cls_SensorData != nullptr) {
+            g_cls_SensorData = (jclass)env->NewGlobalRef(local_cls_SensorData);
+            env->DeleteLocalRef(local_cls_SensorData);
+            g_ctor_SensorData = env->GetMethodID(g_cls_SensorData, "<init>", "(DDJ)V");
+            g_fid_SensorData_temperature = env->GetFieldID(g_cls_SensorData, "temperature", "D");
+            g_fid_SensorData_humidity = env->GetFieldID(g_cls_SensorData, "humidity", "D");
+            g_fid_SensorData_lastUpdate = env->GetFieldID(g_cls_SensorData, "lastUpdate", "J");
+        }
+    }
+    {
+        jclass local_cls_Packet = env->FindClass("nitro/complex_module/Packet");
+        if (local_cls_Packet != nullptr) {
+            g_cls_Packet = (jclass)env->NewGlobalRef(local_cls_Packet);
+            env->DeleteLocalRef(local_cls_Packet);
+            g_ctor_Packet = env->GetMethodID(g_cls_Packet, "<init>", "(JLjava/nio/ByteBuffer;J)V");
+            g_fid_Packet_sequence = env->GetFieldID(g_cls_Packet, "sequence", "J");
+            g_fid_Packet_buffer = env->GetFieldID(g_cls_Packet, "buffer", "Ljava/nio/ByteBuffer;");
+            g_fid_Packet_size = env->GetFieldID(g_cls_Packet, "size", "J");
+        }
+    }
+
     return JNI_VERSION_1_6;
 }
 
@@ -143,7 +202,7 @@ static JNIEnv* GetEnv() {
 int64_t complex_module_calculate(int64_t seed, double factor, int8_t enabled) {
     JNIEnv* env = GetEnv();
     if (env == nullptr) return 0;
-    jmethodID methodId = env->GetStaticMethodID(g_bridgeClass, "calculate_call", "(JDZ)J");
+    jmethodID methodId = g_mid_calculate_call;
     if (methodId == nullptr) { LOGE("Method not found"); return 0; }
 
     complex_clear_error();
@@ -155,7 +214,7 @@ int64_t complex_module_calculate(int64_t seed, double factor, int8_t enabled) {
 const char* complex_module_fetch_metadata(const char* url) {
     JNIEnv* env = GetEnv();
     if (env == nullptr) return nullptr;
-    jmethodID methodId = env->GetStaticMethodID(g_bridgeClass, "fetchMetadata_call", "(Ljava/lang/String;)Ljava/lang/String;");
+    jmethodID methodId = g_mid_fetchMetadata_call;
     if (methodId == nullptr) { LOGE("Method not found"); return nullptr; }
 
     complex_clear_error();
@@ -174,7 +233,7 @@ const char* complex_module_fetch_metadata(const char* url) {
 int64_t complex_module_get_status(void) {
     JNIEnv* env = GetEnv();
     if (env == nullptr) return 0;
-    jmethodID methodId = env->GetStaticMethodID(g_bridgeClass, "getStatus_call", "()J");
+    jmethodID methodId = g_mid_getStatus_call;
     if (methodId == nullptr) { LOGE("Method not found"); return 0; }
 
     complex_clear_error();
@@ -186,7 +245,7 @@ int64_t complex_module_get_status(void) {
 void complex_module_update_sensors(void* data) {
     JNIEnv* env = GetEnv();
     if (env == nullptr) return;
-    jmethodID methodId = env->GetStaticMethodID(g_bridgeClass, "updateSensors_call", "(Lnitro/complex_module/SensorData;)V");
+    jmethodID methodId = g_mid_updateSensors_call;
     if (methodId == nullptr) { LOGE("Method not found"); return; }
 
     complex_clear_error();
@@ -198,7 +257,7 @@ void complex_module_update_sensors(void* data) {
 void* complex_module_generate_packet(int64_t type) {
     JNIEnv* env = GetEnv();
     if (env == nullptr) return nullptr;
-    jmethodID methodId = env->GetStaticMethodID(g_bridgeClass, "generatePacket_call", "(J)Lnitro/complex_module/Packet;");
+    jmethodID methodId = g_mid_generatePacket_call;
     if (methodId == nullptr) { LOGE("Method not found"); return nullptr; }
 
     complex_clear_error();
@@ -214,7 +273,7 @@ void* complex_module_generate_packet(int64_t type) {
 double complex_module_get_battery_level(void) {
     JNIEnv* env = GetEnv();
     if (env == nullptr) return 0.0;
-    jmethodID methodId = env->GetStaticMethodID(g_bridgeClass, "complex_module_get_battery_level_call", "()D");
+    jmethodID methodId = g_mid_complex_module_get_battery_level_call;
     if (methodId == nullptr) { LOGE("Method not found"); return 0.0; }
     return env->CallStaticDoubleMethod(g_bridgeClass, methodId);
 }
@@ -222,7 +281,7 @@ double complex_module_get_battery_level(void) {
 void complex_module_set_config(const char* value) {
     JNIEnv* env = GetEnv();
     if (env == nullptr) return;
-    jmethodID methodId = env->GetStaticMethodID(g_bridgeClass, "complex_module_set_config_call", "(Ljava/lang/String;)V");
+    jmethodID methodId = g_mid_complex_module_set_config_call;
     if (methodId == nullptr) { LOGE("Method not found"); return; }
     jstring jval = env->NewStringUTF(value);
     env->CallStaticVoidMethod(g_bridgeClass, methodId, jval);
@@ -232,14 +291,14 @@ void complex_module_set_config(const char* value) {
 void complex_module_register_sensor_stream_stream(int64_t dart_port) {
     JNIEnv* env = GetEnv();
     if (env == nullptr) return;
-    jmethodID methodId = env->GetStaticMethodID(g_bridgeClass, "complex_module_register_sensor_stream_stream_call", "(J)V");
+    jmethodID methodId = g_mid_complex_module_register_sensor_stream_stream_call;
     if (methodId != nullptr) env->CallStaticVoidMethod(g_bridgeClass, methodId, dart_port);
 }
 
 void complex_module_release_sensor_stream_stream(int64_t dart_port) {
     JNIEnv* env = GetEnv();
     if (env == nullptr) return;
-    jmethodID methodId = env->GetStaticMethodID(g_bridgeClass, "complex_module_release_sensor_stream_stream_call", "(J)V");
+    jmethodID methodId = g_mid_complex_module_release_sensor_stream_stream_call;
     if (methodId != nullptr) env->CallStaticVoidMethod(g_bridgeClass, methodId, dart_port);
 }
 
@@ -255,14 +314,14 @@ JNIEXPORT void JNICALL Java_nitro_complex_1module_ComplexModuleJniBridge_emit_1s
 void complex_module_register_data_stream_stream(int64_t dart_port) {
     JNIEnv* env = GetEnv();
     if (env == nullptr) return;
-    jmethodID methodId = env->GetStaticMethodID(g_bridgeClass, "complex_module_register_data_stream_stream_call", "(J)V");
+    jmethodID methodId = g_mid_complex_module_register_data_stream_stream_call;
     if (methodId != nullptr) env->CallStaticVoidMethod(g_bridgeClass, methodId, dart_port);
 }
 
 void complex_module_release_data_stream_stream(int64_t dart_port) {
     JNIEnv* env = GetEnv();
     if (env == nullptr) return;
-    jmethodID methodId = env->GetStaticMethodID(g_bridgeClass, "complex_module_release_data_stream_stream_call", "(J)V");
+    jmethodID methodId = g_mid_complex_module_release_data_stream_stream_call;
     if (methodId != nullptr) env->CallStaticVoidMethod(g_bridgeClass, methodId, dart_port);
 }
 

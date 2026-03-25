@@ -245,8 +245,9 @@ class RecordGenerator {
       s.writeln();
 
       // --- encode to ByteArray (with 4-byte length prefix) ---
+      final capacity = recordBytesHint(rt);
       s.writeln('    fun encode(): ByteArray {');
-      s.writeln('        val out = java.io.ByteArrayOutputStream()');
+      s.writeln('        val out = java.io.ByteArrayOutputStream($capacity)');
       s.writeln('        val buf = java.nio.ByteBuffer.allocate(8).order(java.nio.ByteOrder.LITTLE_ENDIAN)');
       s.writeln('        writeFieldsTo(out, buf)');
       s.writeln('        val payload = out.toByteArray()');
@@ -373,6 +374,41 @@ class RecordGenerator {
       default:
         return 'writeInt($expr.toLong())';
     }
+  }
+
+  /// Returns a static byte-size estimate for one serialized instance of [rt].
+  /// Used to pre-size [ByteArrayOutputStream] in [encode] and list paths,
+  /// avoiding the default 32-byte initial buffer and subsequent grow copies.
+  ///
+  /// Estimates per field kind:
+  ///   int/double   → 8 bytes (+ 1 nullable tag)
+  ///   bool         → 1 byte  (+ 1 nullable tag)
+  ///   String       → 4 (len) + 32 (avg content) = 36 (+ 1 nullable tag)
+  ///   nested record → 32 rough estimate (+ 1 nullable tag)
+  ///   list         → 4 (count) + 8 * 4 avg items = 36
+  static int recordBytesHint(BridgeRecordType rt) {
+    var total = 0;
+    for (final f in rt.fields) {
+      final nullableTag = f.isNullable ? 1 : 0;
+      switch (f.kind) {
+        case RecordFieldKind.primitive:
+          final base = f.dartType.replaceFirst('?', '');
+          switch (base) {
+            case 'bool':
+              total += nullableTag + 1;
+            case 'String':
+              total += nullableTag + 36;
+            default: // int, double
+              total += nullableTag + 8;
+          }
+        case RecordFieldKind.recordObject:
+          total += nullableTag + 32;
+        case RecordFieldKind.listPrimitive:
+        case RecordFieldKind.listRecordObject:
+          total += 36; // 4-byte count + ~4 items * 8 bytes avg
+      }
+    }
+    return total > 0 ? total : 32;
   }
 
   // ── Native generators ───────────────────────────────────────────────────

@@ -48,6 +48,7 @@ interface HybridComplexModuleSpec {
 @Keep
 object ComplexModuleJniBridge {
     private var implementation: HybridComplexModuleSpec? = null
+    private val _asyncExecutor = java.util.concurrent.Executors.newCachedThreadPool()
 
     @JvmStatic external fun initialize(bridgeClass: Class<*>)
 
@@ -62,9 +63,9 @@ object ComplexModuleJniBridge {
     }
     @JvmStatic fun fetchMetadata_call(url: String): String {
         val impl = implementation ?: throw IllegalStateException("ComplexModule not registered")
-        return runBlocking {
-            impl.fetchMetadata(url)
-        }
+        return _asyncExecutor.submit(java.util.concurrent.Callable {
+            runBlocking { impl.fetchMetadata(url) }
+        }).get()
     }
     @JvmStatic fun getStatus_call(): Long {
         val impl = implementation ?: throw IllegalStateException("ComplexModule not registered")
@@ -76,9 +77,9 @@ object ComplexModuleJniBridge {
     }
     @JvmStatic fun generatePacket_call(type: Long): Packet {
         val impl = implementation ?: throw IllegalStateException("ComplexModule not registered")
-        return runBlocking {
-            impl.generatePacket(type)
-        }
+        return _asyncExecutor.submit(java.util.concurrent.Callable {
+            runBlocking { impl.generatePacket(type) }
+        }).get()
     }
     @JvmStatic fun complex_module_get_battery_level_call(): Double {
         val impl = implementation ?: throw IllegalStateException("ComplexModule not registered")
@@ -88,7 +89,7 @@ object ComplexModuleJniBridge {
         val impl = implementation ?: throw IllegalStateException("ComplexModule not registered")
         impl.config = value
     }
-    private val _streamJobs = mutableMapOf<Pair<String, Long>, kotlinx.coroutines.Job>()
+    private val _streamJobs = java.util.concurrent.ConcurrentHashMap<Pair<String, Long>, kotlinx.coroutines.Job>()
 
     @JvmStatic external fun emit_sensorStream(dartPort: Long, item: SensorData): Unit
 

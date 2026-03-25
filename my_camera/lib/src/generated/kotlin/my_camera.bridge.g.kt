@@ -41,7 +41,7 @@ data class Resolution(val width: Long, val height: Long) {
     }
 
     fun encode(): ByteArray {
-        val out = java.io.ByteArrayOutputStream()
+        val out = java.io.ByteArrayOutputStream(16)
         val buf = java.nio.ByteBuffer.allocate(8).order(java.nio.ByteOrder.LITTLE_ENDIAN)
         writeFieldsTo(out, buf)
         val payload = out.toByteArray()
@@ -82,7 +82,7 @@ data class CameraDevice(val id: String, val name: String, val resolutions: List<
     }
 
     fun encode(): ByteArray {
-        val out = java.io.ByteArrayOutputStream()
+        val out = java.io.ByteArrayOutputStream(109)
         val buf = java.nio.ByteBuffer.allocate(8).order(java.nio.ByteOrder.LITTLE_ENDIAN)
         writeFieldsTo(out, buf)
         val payload = out.toByteArray()
@@ -107,6 +107,7 @@ interface HybridMyCameraSpec {
 @Keep
 object MyCameraJniBridge {
     private var implementation: HybridMyCameraSpec? = null
+    private val _asyncExecutor = java.util.concurrent.Executors.newCachedThreadPool()
 
     @JvmStatic external fun initialize(bridgeClass: Class<*>)
 
@@ -121,14 +122,14 @@ object MyCameraJniBridge {
     }
     @JvmStatic fun getGreeting_call(name: String): String {
         val impl = implementation ?: throw IllegalStateException("MyCamera not registered")
-        return runBlocking {
-            impl.getGreeting(name)
-        }
+        return _asyncExecutor.submit(java.util.concurrent.Callable {
+            runBlocking { impl.getGreeting(name) }
+        }).get()
     }
     @JvmStatic fun getAvailableDevices_call(): ByteArray {
         val impl = implementation ?: throw IllegalStateException("MyCamera not registered")
-        val result = runBlocking { impl.getAvailableDevices() }
-        val out = java.io.ByteArrayOutputStream()
+        val result = _asyncExecutor.submit(java.util.concurrent.Callable { runBlocking { impl.getAvailableDevices() } }).get()
+        val out = java.io.ByteArrayOutputStream(result.size * 109 + 8)
         val buf = java.nio.ByteBuffer.allocate(8).order(java.nio.ByteOrder.LITTLE_ENDIAN)
         val countBuf = java.nio.ByteBuffer.allocate(4).order(java.nio.ByteOrder.LITTLE_ENDIAN)
         countBuf.putInt(result.size)
@@ -139,7 +140,7 @@ object MyCameraJniBridge {
         lenBuf.putInt(payload.size)
         return lenBuf.array() + payload
     }
-    private val _streamJobs = mutableMapOf<Pair<String, Long>, kotlinx.coroutines.Job>()
+    private val _streamJobs = java.util.concurrent.ConcurrentHashMap<Pair<String, Long>, kotlinx.coroutines.Job>()
 
     @JvmStatic external fun emit_frames(dartPort: Long, item: CameraFrame): Unit
 

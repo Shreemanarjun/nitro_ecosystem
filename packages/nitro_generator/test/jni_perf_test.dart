@@ -19,6 +19,7 @@ import 'package:nitro/nitro.dart' show NativeImpl, Backpressure;
 import 'package:nitro_generator/src/bridge_spec.dart';
 import 'package:nitro_generator/src/generators/cpp_bridge_generator.dart';
 import 'package:nitro_generator/src/generators/kotlin_generator.dart';
+import 'package:nitro_generator/src/generators/record_generator.dart';
 import 'package:test/test.dart';
 
 // ── Shared spec builders ─────────────────────────────────────────────────────
@@ -119,6 +120,85 @@ BridgeSpec _specWithStreams() {
         releaseSymbol: 'stream_mod_release_temperature',
         itemType: BridgeType(name: 'double'),
         backpressure: Backpressure.dropLatest,
+      ),
+      BridgeStream(
+        dartName: 'pressure',
+        registerSymbol: 'stream_mod_register_pressure',
+        releaseSymbol: 'stream_mod_release_pressure',
+        itemType: BridgeType(name: 'double'),
+        backpressure: Backpressure.dropLatest,
+      ),
+    ],
+  );
+}
+
+BridgeSpec _specWithRecords() {
+  return BridgeSpec(
+    dartClassName: 'RecordMod',
+    lib: 'record_mod',
+    namespace: 'record_mod',
+    iosImpl: NativeImpl.swift,
+    androidImpl: NativeImpl.kotlin,
+    sourceUri: 'record.native.dart',
+    recordTypes: [
+      BridgeRecordType(
+        name: 'SensorReading',
+        fields: [
+          BridgeRecordField(name: 'value', dartType: 'double', kind: RecordFieldKind.primitive),
+          BridgeRecordField(name: 'timestamp', dartType: 'int', kind: RecordFieldKind.primitive),
+          BridgeRecordField(name: 'label', dartType: 'String', kind: RecordFieldKind.primitive),
+        ],
+      ),
+    ],
+    functions: [
+      BridgeFunction(
+        dartName: 'getReading',
+        cSymbol: 'record_mod_get_reading',
+        isAsync: false,
+        returnType: BridgeType(name: 'SensorReading', isRecord: true),
+        params: [],
+      ),
+      BridgeFunction(
+        dartName: 'getReadings',
+        cSymbol: 'record_mod_get_readings',
+        isAsync: false,
+        returnType: BridgeType(
+          name: 'List<SensorReading>',
+          isRecord: true,
+          recordListItemType: 'SensorReading',
+          recordListItemIsPrimitive: false,
+        ),
+        params: [],
+      ),
+    ],
+  );
+}
+
+BridgeSpec _specWithNumericRecord() {
+  return BridgeSpec(
+    dartClassName: 'NumericMod',
+    lib: 'numeric_mod',
+    namespace: 'numeric_mod',
+    iosImpl: NativeImpl.swift,
+    androidImpl: NativeImpl.kotlin,
+    sourceUri: 'numeric.native.dart',
+    recordTypes: [
+      BridgeRecordType(
+        name: 'Vec3',
+        fields: [
+          BridgeRecordField(name: 'x', dartType: 'double', kind: RecordFieldKind.primitive),
+          BridgeRecordField(name: 'y', dartType: 'double', kind: RecordFieldKind.primitive),
+          BridgeRecordField(name: 'z', dartType: 'double', kind: RecordFieldKind.primitive),
+        ],
+      ),
+    ],
+    functions: [
+      BridgeFunction(
+        dartName: 'getVec',
+        cSymbol: 'numeric_mod_get_vec',
+        isAsync: false,
+        returnType: BridgeType(name: 'Vec3', isRecord: true),
+        params: [],
       ),
     ],
   );
@@ -431,6 +511,153 @@ void main() {
       // The old pattern was: return runBlocking {\n            impl.fetchData()
       // It must not appear; instead it should be wrapped in _asyncExecutor.submit
       expect(kotlin, isNot(matches(r'return runBlocking \{\s+impl\.fetchData')));
+    });
+  });
+
+  // ── Fix 4: _streamJobs thread safety ─────────────────────────────────────────
+
+  group('KotlinGenerator — Fix 4: _streamJobs thread safety', () {
+    test('_streamJobs uses ConcurrentHashMap (not mutableMapOf)', () {
+      final kotlin = KotlinGenerator.generate(_specWithStreams());
+      expect(
+        kotlin,
+        contains('java.util.concurrent.ConcurrentHashMap<Pair<String, Long>, kotlinx.coroutines.Job>()'),
+      );
+    });
+
+    test('_streamJobs does NOT use mutableMapOf', () {
+      final kotlin = KotlinGenerator.generate(_specWithStreams());
+      expect(kotlin, isNot(contains('mutableMapOf<Pair<String, Long>')));
+    });
+
+    test('_streamJobs is still Pair<String, Long> keyed (not just Long)', () {
+      final kotlin = KotlinGenerator.generate(_specWithStreams());
+      expect(kotlin, contains('ConcurrentHashMap<Pair<String, Long>'));
+      expect(kotlin, isNot(contains('ConcurrentHashMap<Long')));
+    });
+
+    test('register and release still use Pair(streamName, dartPort) key', () {
+      final kotlin = KotlinGenerator.generate(_specWithStreams());
+      expect(kotlin, contains('_streamJobs[Pair("temperature", dartPort)]'));
+      expect(kotlin, contains('_streamJobs.remove(Pair("temperature", dartPort))'));
+    });
+  });
+
+  // ── Fix 5: ByteArrayOutputStream pre-sizing ───────────────────────────────────
+
+  group('RecordGenerator — Fix 5: encode() uses pre-sized ByteArrayOutputStream', () {
+    test('encode() has a non-zero initial capacity for numeric record', () {
+      final kotlin = RecordGenerator.generateKotlin(_specWithNumericRecord());
+      // Vec3: 3 × double = 3 × 8 = 24 bytes
+      expect(kotlin, contains('java.io.ByteArrayOutputStream(24)'));
+    });
+
+    test('encode() has correct capacity for mixed record (double + int + String)', () {
+      final kotlin = RecordGenerator.generateKotlin(_specWithRecords());
+      // SensorReading: double(8) + int(8) + String(36) = 52
+      expect(kotlin, contains('java.io.ByteArrayOutputStream(52)'));
+    });
+
+    test('encode() does NOT use bare ByteArrayOutputStream() with no capacity', () {
+      final kotlin = RecordGenerator.generateKotlin(_specWithRecords());
+      expect(kotlin, isNot(contains('java.io.ByteArrayOutputStream()')));
+    });
+
+    test('recordBytesHint returns 8 per double field', () {
+      final rt = BridgeRecordType(
+        name: 'OneDouble',
+        fields: [BridgeRecordField(name: 'v', dartType: 'double', kind: RecordFieldKind.primitive)],
+      );
+      expect(RecordGenerator.recordBytesHint(rt), equals(8));
+    });
+
+    test('recordBytesHint returns 8 per int field', () {
+      final rt = BridgeRecordType(
+        name: 'OneInt',
+        fields: [BridgeRecordField(name: 'n', dartType: 'int', kind: RecordFieldKind.primitive)],
+      );
+      expect(RecordGenerator.recordBytesHint(rt), equals(8));
+    });
+
+    test('recordBytesHint returns 1 per bool field', () {
+      final rt = BridgeRecordType(
+        name: 'OneBool',
+        fields: [BridgeRecordField(name: 'b', dartType: 'bool', kind: RecordFieldKind.primitive)],
+      );
+      expect(RecordGenerator.recordBytesHint(rt), equals(1));
+    });
+
+    test('recordBytesHint returns 36 per String field (4-byte len + 32 avg content)', () {
+      final rt = BridgeRecordType(
+        name: 'OneString',
+        fields: [BridgeRecordField(name: 's', dartType: 'String', kind: RecordFieldKind.primitive)],
+      );
+      expect(RecordGenerator.recordBytesHint(rt), equals(36));
+    });
+
+    test('recordBytesHint adds 1 for nullable tag on nullable fields', () {
+      final rt = BridgeRecordType(
+        name: 'NullableDouble',
+        fields: [BridgeRecordField(name: 'v', dartType: 'double?', kind: RecordFieldKind.primitive, isNullable: true)],
+      );
+      // 1 (null tag) + 8 (double) = 9
+      expect(RecordGenerator.recordBytesHint(rt), equals(9));
+    });
+
+    test('recordBytesHint returns at least 32 for empty record (fallback)', () {
+      final rt = BridgeRecordType(name: 'Empty', fields: []);
+      expect(RecordGenerator.recordBytesHint(rt), greaterThanOrEqualTo(32));
+    });
+  });
+
+  group('KotlinGenerator — Fix 5: list-record path uses pre-sized ByteArrayOutputStream', () {
+    test('list _call uses result.size * perItemHint + 8 as initial capacity', () {
+      final kotlin = KotlinGenerator.generate(_specWithRecords());
+      // SensorReading hint = 52; list path: result.size * 52 + 8
+      expect(kotlin, contains('java.io.ByteArrayOutputStream(result.size * 52 + 8)'));
+    });
+
+    test('list _call does NOT use bare ByteArrayOutputStream() with no capacity', () {
+      final kotlin = KotlinGenerator.generate(_specWithRecords());
+      expect(kotlin, isNot(contains('java.io.ByteArrayOutputStream()')));
+    });
+
+    test('numeric list _call pre-sizes based on record field types', () {
+      // Vec3: 3 doubles = 24 bytes; list: result.size * 24 + 8
+      final spec = BridgeSpec(
+        dartClassName: 'VecMod',
+        lib: 'vec_mod',
+        namespace: 'vec_mod',
+        iosImpl: NativeImpl.swift,
+        androidImpl: NativeImpl.kotlin,
+        sourceUri: 'vec.native.dart',
+        recordTypes: [
+          BridgeRecordType(
+            name: 'Vec3',
+            fields: [
+              BridgeRecordField(name: 'x', dartType: 'double', kind: RecordFieldKind.primitive),
+              BridgeRecordField(name: 'y', dartType: 'double', kind: RecordFieldKind.primitive),
+              BridgeRecordField(name: 'z', dartType: 'double', kind: RecordFieldKind.primitive),
+            ],
+          ),
+        ],
+        functions: [
+          BridgeFunction(
+            dartName: 'getVecs',
+            cSymbol: 'vec_mod_get_vecs',
+            isAsync: false,
+            returnType: BridgeType(
+              name: 'List<Vec3>',
+              isRecord: true,
+              recordListItemType: 'Vec3',
+              recordListItemIsPrimitive: false,
+            ),
+            params: [],
+          ),
+        ],
+      );
+      final kotlin = KotlinGenerator.generate(spec);
+      expect(kotlin, contains('java.io.ByteArrayOutputStream(result.size * 24 + 8)'));
     });
   });
 

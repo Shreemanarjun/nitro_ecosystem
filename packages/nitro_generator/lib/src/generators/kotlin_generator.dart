@@ -107,7 +107,10 @@ class KotlinGenerator {
         }
         if (isListRecord) {
           // Serialize List<@HybridRecord> → ByteArray (wire: [4-byte payload len][4-byte count][item fields...])
-          s.writeln('        val out = java.io.ByteArrayOutputStream()');
+          final itemTypeName = func.returnType.recordListItemType!;
+          final itemRt = spec.recordTypes.where((rt) => rt.name == itemTypeName).firstOrNull;
+          final perItemHint = itemRt != null ? RecordGenerator.recordBytesHint(itemRt) : 64;
+          s.writeln('        val out = java.io.ByteArrayOutputStream(result.size * $perItemHint + 8)');
           s.writeln('        val buf = java.nio.ByteBuffer.allocate(8).order(java.nio.ByteOrder.LITTLE_ENDIAN)');
           s.writeln('        val countBuf = java.nio.ByteBuffer.allocate(4).order(java.nio.ByteOrder.LITTLE_ENDIAN)');
           s.writeln('        countBuf.putInt(result.size)');
@@ -180,7 +183,7 @@ class KotlinGenerator {
     }
 
     s.writeln(
-      '    private val _streamJobs = mutableMapOf<Pair<String, Long>, kotlinx.coroutines.Job>()',
+      '    private val _streamJobs = java.util.concurrent.ConcurrentHashMap<Pair<String, Long>, kotlinx.coroutines.Job>()',
     );
     s.writeln();
 

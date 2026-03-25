@@ -28,6 +28,7 @@ interface HybridVerificationModuleSpec {
 @Keep
 object VerificationModuleJniBridge {
     private var implementation: HybridVerificationModuleSpec? = null
+    private val _asyncExecutor = java.util.concurrent.Executors.newCachedThreadPool()
 
     @JvmStatic external fun initialize(bridgeClass: Class<*>)
 
@@ -46,9 +47,9 @@ object VerificationModuleJniBridge {
     }
     @JvmStatic fun pingAsync_call(message: String): String {
         val impl = implementation ?: throw IllegalStateException("VerificationModule not registered")
-        return runBlocking {
-            impl.pingAsync(message)
-        }
+        return _asyncExecutor.submit(java.util.concurrent.Callable {
+            runBlocking { impl.pingAsync(message) }
+        }).get()
     }
     @JvmStatic fun throwError_call(message: String): Unit {
         val impl = implementation ?: throw IllegalStateException("VerificationModule not registered")
@@ -58,6 +59,6 @@ object VerificationModuleJniBridge {
         val impl = implementation ?: throw IllegalStateException("VerificationModule not registered")
         return impl.processFloats(inputs)
     }
-    private val _streamJobs = mutableMapOf<Pair<String, Long>, kotlinx.coroutines.Job>()
+    private val _streamJobs = java.util.concurrent.ConcurrentHashMap<Pair<String, Long>, kotlinx.coroutines.Job>()
 
 }

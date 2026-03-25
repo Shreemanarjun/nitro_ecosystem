@@ -155,15 +155,6 @@ class CppBridgeGenerator {
       s.writeln('}');
 
       // unpack: C struct → Java object (used for passing struct params to Kotlin)
-      final jniClass = 'nitro/${spec.lib.replaceAll('-', '_')}_module/${st.name}';
-      // Zero-copy TypedData fields are java.nio.ByteBuffer in Kotlin.
-      final ctorSig =
-          '(${st.fields.map((f) {
-            final isEnum = enumNames.contains(f.type.name.replaceFirst('?', ''));
-            if (isEnum) return 'J';
-            if (_isZeroCopy(st, f.name)) return 'Ljava/nio/ByteBuffer;';
-            return _jniSigType(f.type.name);
-          }).join('')})V';
       s.writeln(
         'static jobject unpack_${st.name}_to_jni(JNIEnv* env, const ${st.name}* st) {',
       );

@@ -778,9 +778,10 @@ void main() {
       expect(out, contains('return lenBuf.array() + payload'));
     });
 
-    test('_call uses ByteArrayOutputStream for list serialisation', () {
+    test('_call uses pre-sized ByteArrayOutputStream for list serialisation', () {
       final out = KotlinGenerator.generate(_recordListSpec());
-      expect(out, contains('val out = java.io.ByteArrayOutputStream()'));
+      // Must use a pre-sized stream; exact size depends on record fields
+      expect(out, contains('val out = java.io.ByteArrayOutputStream(result.size *'));
     });
 
     test('interface return type is List<CameraDevice> (not ByteArray)', () {
@@ -1119,10 +1120,10 @@ void main() {
       functions: [],
     );
 
-    test('_streamJobs map uses Pair<String, Long> as key type', () {
+    test('_streamJobs map uses ConcurrentHashMap with Pair<String, Long> key', () {
       final kt = KotlinGenerator.generate(twoStreamSpec());
-      expect(kt, contains('mutableMapOf<Pair<String, Long>, kotlinx.coroutines.Job>()'),
-          reason: 'composite key prevents port collision between streams');
+      expect(kt, contains('java.util.concurrent.ConcurrentHashMap<Pair<String, Long>, kotlinx.coroutines.Job>()'),
+          reason: 'ConcurrentHashMap prevents data races on concurrent register/release calls');
       expect(kt, isNot(contains('mutableMapOf<Long, kotlinx.coroutines.Job>()')));
     });
 
