@@ -34,10 +34,10 @@ class KotlinGenerator {
     s.writeln('interface Hybrid${spec.dartClassName}Spec {');
 
     for (final func in spec.functions) {
-      final retType = _toKotlinType(spec, func.returnType.name);
+      final retType = _toKotlinRetType(spec, func.returnType);
       final params = func.params.map((p) => '${p.name}: ${_toKotlinParamType(spec, p)}').join(', ');
       final suspend = func.isAsync ? 'suspend ' : '';
-      // Use the actual return type (enum/struct class) in the interface
+      // Use the actual return type (enum/struct/record class) in the interface
       s.writeln('    ${suspend}fun ${func.dartName}($params): $retType');
     }
     // Note: interface uses strong types; JniBridge _call methods may use primitive
@@ -76,15 +76,19 @@ class KotlinGenerator {
     s.writeln();
 
     for (final func in spec.functions) {
-      final retType = _toKotlinType(spec, func.returnType.name);
+      final retType = _toKotlinRetType(spec, func.returnType);
       final paramsDecl = func.params.map((p) => '${p.name}: ${_toKotlinParamType(spec, p)}').join(', ');
       final callParams = func.params.map((p) => p.name).join(', ');
 
       final isUnit = (retType == 'Unit');
       final isEnum = spec.enums.any((en) => en.name == func.returnType.name);
+      final isRecord = func.returnType.isRecord && !func.returnType.isMap;
+      final isListRecord = isRecord &&
+          func.returnType.recordListItemType != null &&
+          !func.returnType.recordListItemIsPrimitive;
       // JniBridge _call methods expose primitive bridge types to JNI:
-      // enums → Long (nativeValue), everything else → actual type
-      final bridgeRetType = isEnum ? 'Long' : retType;
+      // enums → Long (nativeValue), records → ByteArray (serialized binary), everything else → actual type
+      final bridgeRetType = isEnum ? 'Long' : isRecord ? 'ByteArray' : retType;
 
       s.writeln(
         '    @JvmStatic fun ${func.dartName}_call($paramsDecl): $bridgeRetType {',
@@ -92,7 +96,30 @@ class KotlinGenerator {
       s.writeln(
         '        val impl = implementation ?: throw IllegalStateException("${spec.dartClassName} not registered")',
       );
-      if (func.isAsync) {
+      if (isRecord) {
+        // Fetch the result, then serialize to ByteArray for JNI
+        if (func.isAsync) {
+          s.writeln('        val result = runBlocking { impl.${func.dartName}($callParams) }');
+        } else {
+          s.writeln('        val result = impl.${func.dartName}($callParams)');
+        }
+        if (isListRecord) {
+          // Serialize List<@HybridRecord> → ByteArray (wire: [4-byte payload len][4-byte count][item fields...])
+          s.writeln('        val out = java.io.ByteArrayOutputStream()');
+          s.writeln('        val buf = java.nio.ByteBuffer.allocate(8).order(java.nio.ByteOrder.LITTLE_ENDIAN)');
+          s.writeln('        val countBuf = java.nio.ByteBuffer.allocate(4).order(java.nio.ByteOrder.LITTLE_ENDIAN)');
+          s.writeln('        countBuf.putInt(result.size)');
+          s.writeln('        out.write(countBuf.array())');
+          s.writeln('        result.forEach { it.writeFieldsTo(out, buf) }');
+          s.writeln('        val payload = out.toByteArray()');
+          s.writeln('        val lenBuf = java.nio.ByteBuffer.allocate(4).order(java.nio.ByteOrder.LITTLE_ENDIAN)');
+          s.writeln('        lenBuf.putInt(payload.size)');
+          s.writeln('        return lenBuf.array() + payload');
+        } else {
+          // Single @HybridRecord — encode() wraps with 4-byte length prefix
+          s.writeln('        return result.encode()');
+        }
+      } else if (func.isAsync) {
         if (isEnum) {
           s.writeln(
             '        return runBlocking { impl.${func.dartName}($callParams) }.nativeValue',
@@ -181,6 +208,24 @@ class KotlinGenerator {
 
     s.writeln('}');
     return s.toString();
+  }
+
+  /// Returns the Kotlin return type for a function, handling @HybridRecord types.
+  /// - `List<@HybridRecord T>` → `List<T>`
+  /// - `List<primitive T>` → `List<KotlinType>`
+  /// - `@HybridRecord T` → `T`
+  /// - everything else → delegated to [_toKotlinType]
+  static String _toKotlinRetType(BridgeSpec spec, BridgeType t) {
+    if (t.isRecord && !t.isMap) {
+      if (t.recordListItemType != null && !t.recordListItemIsPrimitive) {
+        return 'List<${t.recordListItemType}>';
+      } else if (t.recordListItemType != null && t.recordListItemIsPrimitive) {
+        return 'List<${_toKotlinType(spec, t.recordListItemType!)}>';
+      }
+      // Direct @HybridRecord — use the class name
+      return t.name;
+    }
+    return _toKotlinType(spec, t.name);
   }
 
   /// Returns the Kotlin type for a function parameter, respecting @ZeroCopy().

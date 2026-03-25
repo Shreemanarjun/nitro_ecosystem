@@ -55,11 +55,15 @@ class CppBridgeGenerator {
     s.writeln('static jclass g_bridgeClass = nullptr;');
     s.writeln();
     s.writeln('static void nitro_report_jni_exception(JNIEnv* env, jthrowable ex) {');
+    s.writeln('    // MUST clear the pending exception before making any further JNI calls.');
+    s.writeln('    // JNI aborts if any JNI function (e.g. GetObjectClass) is called while');
+    s.writeln('    // an exception is still pending.');
+    s.writeln('    env->ExceptionClear();');
     s.writeln('    jclass ex_class = env->GetObjectClass(ex);');
     s.writeln('    jclass cls_class = env->FindClass("java/lang/Class");');
     s.writeln('    jmethodID get_name = env->GetMethodID(cls_class, "getName", "()Ljava/lang/String;");');
     s.writeln('    jstring j_name = (jstring)env->CallObjectMethod(ex_class, get_name);');
-    s.writeln('    const char* name = env->GetStringUTFChars(j_name, 0);');
+    s.writeln('    const char* name = (j_name != nullptr) ? env->GetStringUTFChars(j_name, 0) : "JavaException";');
     s.writeln();
     s.writeln('    jmethodID get_msg = env->GetMethodID(env->FindClass("java/lang/Throwable"), "getMessage", "()Ljava/lang/String;");');
     s.writeln('    jstring j_msg = (jstring)env->CallObjectMethod(ex, get_msg);');
@@ -67,7 +71,7 @@ class CppBridgeGenerator {
     s.writeln();
     s.writeln('    nitro_report_error(name, msg, nullptr, nullptr);');
     s.writeln();
-    s.writeln('    env->ReleaseStringUTFChars(j_name, name);');
+    s.writeln('    if (j_name) env->ReleaseStringUTFChars(j_name, name);');
     s.writeln('    if (j_msg) env->ReleaseStringUTFChars(j_msg, msg);');
     s.writeln('    env->DeleteLocalRef(ex);');
     s.writeln('}');
@@ -208,8 +212,10 @@ class CppBridgeGenerator {
       final isStruct = spec.structs.any(
         (st) => st.name == func.returnType.name,
       );
+      final isRecord = func.returnType.isRecord && !func.returnType.isMap;
       // For enum returns: bridge returns Long (nativeValue); C returns int64_t
       // For struct returns: bridge returns jobject; C packs to C struct via malloc
+      // For record returns: bridge returns ByteArray; C copies bytes to malloc'd buffer
       final cReturnType = isEnum ? 'int64_t' : _typeToC(func.returnType.name);
       final paramsDeclParts = <String>[];
       for (final p in func.params) {
@@ -217,8 +223,8 @@ class CppBridgeGenerator {
         if (p.type.isTypedData) paramsDeclParts.add('int64_t ${p.name}_length');
       }
       final paramsDecl = paramsDeclParts.join(', ');
-      // JNI signature: enum return is "J" (Long), struct is "Ljava/lang/Object;"
-      final jniSig = _jniSig(func.params, func.returnType.name, spec);
+      // JNI signature: enum return is "J" (Long), struct is class ref, record is "[B" (byte array)
+      final jniSig = _jniSig(func.params, func.returnType, spec);
 
       s.writeln(
         '$cReturnType ${func.cSymbol}(${paramsDecl.isEmpty ? 'void' : paramsDecl}) {',
@@ -325,6 +331,17 @@ class CppBridgeGenerator {
         s.writeln('    $stName* result = ($stName*)malloc(sizeof($stName));');
         s.writeln('    *result = pack_${stName}_from_jni(env, jobj);');
         s.writeln('    env->DeleteLocalRef(jobj);');
+        s.writeln('    return result;');
+      } else if (isRecord) {
+        // Bridge returns ByteArray (serialized @HybridRecord / List<@HybridRecord>)
+        // Copy bytes to malloc'd buffer and return as void* for Dart RecordReader
+        s.writeln('    jbyteArray jarr = (jbyteArray)env->CallStaticObjectMethod(g_bridgeClass, methodId$bridgeArgs);');
+        s.writeln('    if (env->ExceptionCheck()) { nitro_report_jni_exception(env, env->ExceptionOccurred()); env->ExceptionClear(); return nullptr; }');
+        s.writeln('    if (jarr == nullptr) return nullptr;');
+        s.writeln('    jsize len = env->GetArrayLength(jarr);');
+        s.writeln('    uint8_t* result = (uint8_t*)malloc(len);');
+        s.writeln('    env->GetByteArrayRegion(jarr, 0, len, (jbyte*)result);');
+        s.writeln('    env->DeleteLocalRef(jarr);');
         s.writeln('    return result;');
       } else {
         s.writeln('    return ${_defaultValue(cReturnType)};');
@@ -836,7 +853,7 @@ class CppBridgeGenerator {
 
   static String _jniSig(
     List<BridgeParam> params,
-    String returnType,
+    BridgeType returnType,
     BridgeSpec spec,
   ) {
     final sb = StringBuffer();
@@ -855,13 +872,16 @@ class CppBridgeGenerator {
     }
     sb.write(')');
     // Enum return type: bridge returns Long
-    if (spec.enums.any((en) => en.name == returnType)) {
+    if (spec.enums.any((en) => en.name == returnType.name)) {
       sb.write('J');
-    } else if (spec.structs.any((st) => st.name == returnType)) {
-      final jniClass = 'nitro/${spec.lib.replaceAll('-', '_')}_module/$returnType';
+    } else if (spec.structs.any((st) => st.name == returnType.name)) {
+      final jniClass = 'nitro/${spec.lib.replaceAll('-', '_')}_module/${returnType.name}';
       sb.write('L${jniClass.replaceAll('/', '/')};');
+    } else if (returnType.isRecord && !returnType.isMap) {
+      // @HybridRecord / List<@HybridRecord>: bridge returns ByteArray ("[B")
+      sb.write('[B');
     } else {
-      sb.write(_jniSigType(returnType));
+      sb.write(_jniSigType(returnType.name));
     }
     return sb.toString();
   }

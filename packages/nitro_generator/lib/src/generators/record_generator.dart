@@ -227,10 +227,8 @@ class RecordGenerator {
       s.writeln('    }');
       s.writeln();
 
-      // --- encode to ByteArray ---
-      s.writeln('    fun encode(): ByteArray {');
-      s.writeln('        val out = java.io.ByteArrayOutputStream()');
-      s.writeln('        val buf = java.nio.ByteBuffer.allocate(8).order(java.nio.ByteOrder.LITTLE_ENDIAN)');
+      // --- writeFieldsTo: writes fields without length prefix (for use inside lists) ---
+      s.writeln('    fun writeFieldsTo(out: java.io.ByteArrayOutputStream, buf: java.nio.ByteBuffer) {');
       s.writeln('        fun writeInt(v: Long) { buf.clear(); buf.putLong(v); out.write(buf.array()) }');
       s.writeln('        fun writeInt32(v: Int) { buf.clear(); buf.putInt(v); out.write(buf.array(), 0, 4) }');
       s.writeln('        fun writeDouble(v: Double) { buf.clear(); buf.putDouble(v); out.write(buf.array()) }');
@@ -239,6 +237,14 @@ class RecordGenerator {
       for (final f in rt.fields) {
         _kotlinWriteStmt(s, f);
       }
+      s.writeln('    }');
+      s.writeln();
+
+      // --- encode to ByteArray (with 4-byte length prefix) ---
+      s.writeln('    fun encode(): ByteArray {');
+      s.writeln('        val out = java.io.ByteArrayOutputStream()');
+      s.writeln('        val buf = java.nio.ByteBuffer.allocate(8).order(java.nio.ByteOrder.LITTLE_ENDIAN)');
+      s.writeln('        writeFieldsTo(out, buf)');
       s.writeln('        val payload = out.toByteArray()');
       s.writeln('        val lenBuf = java.nio.ByteBuffer.allocate(4).order(java.nio.ByteOrder.LITTLE_ENDIAN)');
       s.writeln('        lenBuf.putInt(payload.size)');
@@ -333,9 +339,9 @@ class RecordGenerator {
       case RecordFieldKind.recordObject:
         if (f.isNullable) {
           s.writeln('        out.write(if (${f.name} == null) 0 else 1)');
-          s.writeln('        ${f.name}?.let { out.write(it.encode()) }');
+          s.writeln('        ${f.name}?.writeFieldsTo(out, buf)');
         } else {
-          s.writeln('        out.write(${f.name}.encode())');
+          s.writeln('        ${f.name}.writeFieldsTo(out, buf)');
         }
         break;
       case RecordFieldKind.listPrimitive:
@@ -345,7 +351,7 @@ class RecordGenerator {
         break;
       case RecordFieldKind.listRecordObject:
         s.writeln('        writeInt32(${f.name}.size)');
-        s.writeln('        ${f.name}.forEach { out.write(it.encode()) }');
+        s.writeln('        ${f.name}.forEach { it.writeFieldsTo(out, buf) }');
         break;
     }
   }

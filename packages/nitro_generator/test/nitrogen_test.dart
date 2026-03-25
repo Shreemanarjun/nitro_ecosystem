@@ -655,7 +655,7 @@ void main() {
     test('encode writes list size then each element for List<@HybridRecord>', () {
       final out = KotlinGenerator.generate(_recordListSpec());
       expect(out, contains('writeInt32(resolutions.size)'));
-      expect(out, contains('resolutions.forEach { out.write(it.encode()) }'));
+      expect(out, contains('resolutions.forEach { it.writeFieldsTo(out, buf) }'));
     });
 
     // ── multiple record types — ordering & completeness ───────────────────────
@@ -701,9 +701,9 @@ void main() {
       expect(out, contains('fun setDevice_call(device: CameraDevice)'));
     });
 
-    test('JniBridge _call for record return uses the real class name', () {
+    test('JniBridge _call for record return uses ByteArray (serialized binary)', () {
       final out = KotlinGenerator.generate(_singleRecordSpec());
-      expect(out, contains('fun getDevice_call(): CameraDevice'));
+      expect(out, contains('fun getDevice_call(): ByteArray'));
     });
 
     // ── RecordGenerator.generateKotlin standalone ─────────────────────────────

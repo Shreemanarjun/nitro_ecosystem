@@ -26,9 +26,7 @@ data class Resolution(val width: Long, val height: Long) {
         }
     }
 
-    fun encode(): ByteArray {
-        val out = java.io.ByteArrayOutputStream()
-        val buf = java.nio.ByteBuffer.allocate(8).order(java.nio.ByteOrder.LITTLE_ENDIAN)
+    fun writeFieldsTo(out: java.io.ByteArrayOutputStream, buf: java.nio.ByteBuffer) {
         fun writeInt(v: Long) { buf.clear(); buf.putLong(v); out.write(buf.array()) }
         fun writeInt32(v: Int) { buf.clear(); buf.putInt(v); out.write(buf.array(), 0, 4) }
         fun writeDouble(v: Double) { buf.clear(); buf.putDouble(v); out.write(buf.array()) }
@@ -36,6 +34,12 @@ data class Resolution(val width: Long, val height: Long) {
         fun writeString(v: String) { val b = v.toByteArray(Charsets.UTF_8); writeInt32(b.size); out.write(b) }
         writeInt(width.toLong())
         writeInt(height.toLong())
+    }
+
+    fun encode(): ByteArray {
+        val out = java.io.ByteArrayOutputStream()
+        val buf = java.nio.ByteBuffer.allocate(8).order(java.nio.ByteOrder.LITTLE_ENDIAN)
+        writeFieldsTo(out, buf)
         val payload = out.toByteArray()
         val lenBuf = java.nio.ByteBuffer.allocate(4).order(java.nio.ByteOrder.LITTLE_ENDIAN)
         lenBuf.putInt(payload.size)
@@ -57,9 +61,7 @@ data class CameraDevice(val id: String, val name: String, val resolutions: List<
         }
     }
 
-    fun encode(): ByteArray {
-        val out = java.io.ByteArrayOutputStream()
-        val buf = java.nio.ByteBuffer.allocate(8).order(java.nio.ByteOrder.LITTLE_ENDIAN)
+    fun writeFieldsTo(out: java.io.ByteArrayOutputStream, buf: java.nio.ByteBuffer) {
         fun writeInt(v: Long) { buf.clear(); buf.putLong(v); out.write(buf.array()) }
         fun writeInt32(v: Int) { buf.clear(); buf.putInt(v); out.write(buf.array(), 0, 4) }
         fun writeDouble(v: Double) { buf.clear(); buf.putDouble(v); out.write(buf.array()) }
@@ -68,8 +70,14 @@ data class CameraDevice(val id: String, val name: String, val resolutions: List<
         writeString(id)
         writeString(name)
         writeInt32(resolutions.size)
-        resolutions.forEach { out.write(it.encode()) }
+        resolutions.forEach { it.writeFieldsTo(out, buf) }
         writeBool(isFrontFacing)
+    }
+
+    fun encode(): ByteArray {
+        val out = java.io.ByteArrayOutputStream()
+        val buf = java.nio.ByteBuffer.allocate(8).order(java.nio.ByteOrder.LITTLE_ENDIAN)
+        writeFieldsTo(out, buf)
         val payload = out.toByteArray()
         val lenBuf = java.nio.ByteBuffer.allocate(4).order(java.nio.ByteOrder.LITTLE_ENDIAN)
         lenBuf.putInt(payload.size)
@@ -84,7 +92,7 @@ data class CameraDevice(val id: String, val name: String, val resolutions: List<
 interface HybridMyCameraSpec {
     fun add(a: Double, b: Double): Double
     suspend fun getGreeting(name: String): String
-    suspend fun getAvailableDevices(): Any?
+    suspend fun getAvailableDevices(): List<CameraDevice>
     val frames: Flow<CameraFrame>
     val coloredFrames: Flow<CameraFrame>
 }
@@ -110,11 +118,19 @@ object MyCameraJniBridge {
             impl.getGreeting(name)
         }
     }
-    @JvmStatic fun getAvailableDevices_call(): Any? {
+    @JvmStatic fun getAvailableDevices_call(): ByteArray {
         val impl = implementation ?: throw IllegalStateException("MyCamera not registered")
-        return runBlocking {
-            impl.getAvailableDevices()
-        }
+        val result = runBlocking { impl.getAvailableDevices() }
+        val out = java.io.ByteArrayOutputStream()
+        val buf = java.nio.ByteBuffer.allocate(8).order(java.nio.ByteOrder.LITTLE_ENDIAN)
+        val countBuf = java.nio.ByteBuffer.allocate(4).order(java.nio.ByteOrder.LITTLE_ENDIAN)
+        countBuf.putInt(result.size)
+        out.write(countBuf.array())
+        result.forEach { it.writeFieldsTo(out, buf) }
+        val payload = out.toByteArray()
+        val lenBuf = java.nio.ByteBuffer.allocate(4).order(java.nio.ByteOrder.LITTLE_ENDIAN)
+        lenBuf.putInt(payload.size)
+        return lenBuf.array() + payload
     }
     private val _streamJobs = mutableMapOf<Long, kotlinx.coroutines.Job>()
 

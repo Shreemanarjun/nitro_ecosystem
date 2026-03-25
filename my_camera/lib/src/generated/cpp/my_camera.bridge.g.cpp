@@ -41,11 +41,15 @@ static JavaVM* g_jvm = nullptr;
 static jclass g_bridgeClass = nullptr;
 
 static void nitro_report_jni_exception(JNIEnv* env, jthrowable ex) {
+    // MUST clear the pending exception before making any further JNI calls.
+    // JNI aborts if any JNI function (e.g. GetObjectClass) is called while
+    // an exception is still pending.
+    env->ExceptionClear();
     jclass ex_class = env->GetObjectClass(ex);
     jclass cls_class = env->FindClass("java/lang/Class");
     jmethodID get_name = env->GetMethodID(cls_class, "getName", "()Ljava/lang/String;");
     jstring j_name = (jstring)env->CallObjectMethod(ex_class, get_name);
-    const char* name = env->GetStringUTFChars(j_name, 0);
+    const char* name = (j_name != nullptr) ? env->GetStringUTFChars(j_name, 0) : "JavaException";
 
     jmethodID get_msg = env->GetMethodID(env->FindClass("java/lang/Throwable"), "getMessage", "()Ljava/lang/String;");
     jstring j_msg = (jstring)env->CallObjectMethod(ex, get_msg);
@@ -53,7 +57,7 @@ static void nitro_report_jni_exception(JNIEnv* env, jthrowable ex) {
 
     nitro_report_error(name, msg, nullptr, nullptr);
 
-    env->ReleaseStringUTFChars(j_name, name);
+    if (j_name) env->ReleaseStringUTFChars(j_name, name);
     if (j_msg) env->ReleaseStringUTFChars(j_msg, msg);
     env->DeleteLocalRef(ex);
 }
@@ -142,11 +146,18 @@ const char* my_camera_get_greeting(const char* name) {
 void* my_camera_get_available_devices(void) {
     JNIEnv* env = GetEnv();
     if (env == nullptr) return nullptr;
-    jmethodID methodId = env->GetStaticMethodID(g_bridgeClass, "getAvailableDevices_call", "()Ljava/lang/Object;");
+    jmethodID methodId = env->GetStaticMethodID(g_bridgeClass, "getAvailableDevices_call", "()[B");
     if (methodId == nullptr) { LOGE("Method not found"); return nullptr; }
 
     my_camera_clear_error();
-    return nullptr;
+    jbyteArray jarr = (jbyteArray)env->CallStaticObjectMethod(g_bridgeClass, methodId);
+    if (env->ExceptionCheck()) { nitro_report_jni_exception(env, env->ExceptionOccurred()); env->ExceptionClear(); return nullptr; }
+    if (jarr == nullptr) return nullptr;
+    jsize len = env->GetArrayLength(jarr);
+    uint8_t* result = (uint8_t*)malloc(len);
+    env->GetByteArrayRegion(jarr, 0, len, (jbyte*)result);
+    env->DeleteLocalRef(jarr);
+    return result;
 }
 
 void my_camera_register_frames_stream(int64_t dart_port) {

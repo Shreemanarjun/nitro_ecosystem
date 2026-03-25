@@ -99,6 +99,7 @@ class RecordReader {
   /// Reads the 4-byte length prefix and creates a view over the payload
   /// without copying any bytes.
   factory RecordReader.fromNative(Pointer<Uint8> ptr) {
+    if (ptr.address == 0) throw StateError('RecordReader.fromNative: null pointer');
     final len = ByteData.view(ptr.asTypedList(4).buffer).getInt32(
       0,
       Endian.little,

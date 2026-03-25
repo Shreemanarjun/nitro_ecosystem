@@ -41,11 +41,15 @@ static JavaVM* g_jvm = nullptr;
 static jclass g_bridgeClass = nullptr;
 
 static void nitro_report_jni_exception(JNIEnv* env, jthrowable ex) {
+    // MUST clear the pending exception before making any further JNI calls.
+    // JNI aborts if any JNI function (e.g. GetObjectClass) is called while
+    // an exception is still pending.
+    env->ExceptionClear();
     jclass ex_class = env->GetObjectClass(ex);
     jclass cls_class = env->FindClass("java/lang/Class");
     jmethodID get_name = env->GetMethodID(cls_class, "getName", "()Ljava/lang/String;");
     jstring j_name = (jstring)env->CallObjectMethod(ex_class, get_name);
-    const char* name = env->GetStringUTFChars(j_name, 0);
+    const char* name = (j_name != nullptr) ? env->GetStringUTFChars(j_name, 0) : "JavaException";
 
     jmethodID get_msg = env->GetMethodID(env->FindClass("java/lang/Throwable"), "getMessage", "()Ljava/lang/String;");
     jstring j_msg = (jstring)env->CallObjectMethod(ex, get_msg);
@@ -53,7 +57,7 @@ static void nitro_report_jni_exception(JNIEnv* env, jthrowable ex) {
 
     nitro_report_error(name, msg, nullptr, nullptr);
 
-    env->ReleaseStringUTFChars(j_name, name);
+    if (j_name) env->ReleaseStringUTFChars(j_name, name);
     if (j_msg) env->ReleaseStringUTFChars(j_msg, msg);
     env->DeleteLocalRef(ex);
 }
