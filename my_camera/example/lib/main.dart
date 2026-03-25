@@ -241,7 +241,7 @@ class _HomePageState extends State<_HomePage> {
                                 frame.data[2], // R (Swift sent R)
                                 frame.data[1], // G (Swift sent G)
                                 frame.data[0], // B (Swift sent B)
-                              ).withOpacity(0.2)
+                              ).withValues(alpha: 0.2)
                             : null;
 
                         return _card(

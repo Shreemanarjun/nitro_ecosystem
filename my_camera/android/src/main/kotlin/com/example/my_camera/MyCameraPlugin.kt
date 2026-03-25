@@ -23,7 +23,6 @@ class MyCameraImpl : HybridMyCameraSpec {
     }
 
     override suspend fun getGreeting(name: String): String {
-        delay(1000)
         return "Hello $name, from Kotlin Coroutines!"
     }
 
@@ -67,7 +66,7 @@ class MyCameraImpl : HybridMyCameraSpec {
                 buffer.put(b)
                 buffer.put(a)
             }
-            
+
             val tsNs = System.nanoTime()
             emit(CameraFrame(buffer, width, height, stride, tsNs))
             frameCount++
