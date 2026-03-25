@@ -463,12 +463,12 @@ class DartFfiGenerator {
     if (item != null) {
       if (type.recordListItemIsPrimitive) {
         final readCall = _primitiveReaderCall(item);
-        return 'RecordReader.decodePrimitiveList($ptrVar as Pointer<Uint8>, (r) => r.$readCall())';
+        return 'RecordReader.decodePrimitiveList($ptrVar, (r) => r.$readCall())';
       }
-      return 'RecordReader.decodeList($ptrVar as Pointer<Uint8>, (r) => ${item}RecordExt.fromReader(r))';
+      return 'RecordReader.decodeList($ptrVar, (r) => ${item}RecordExt.fromReader(r))';
     }
     final rt = type.name;
-    return '${rt}RecordExt.fromNative($ptrVar as Pointer<Uint8>)';
+    return '${rt}RecordExt.fromNative($ptrVar)';
   }
 
   /// Maps a primitive type name to the matching [RecordReader] method.

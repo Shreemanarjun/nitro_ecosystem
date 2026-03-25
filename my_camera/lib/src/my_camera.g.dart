@@ -133,7 +133,7 @@ class _MyCameraImpl extends MyCamera {
     final rawResult = await NitroRuntime.callAsync(_getAvailableDevicesPtr, []);
     NitroRuntime.checkError(_dylib, getErrorName: 'my_camera_get_error', clearErrorName: 'my_camera_clear_error');
     final rawPtr = rawResult as Pointer<Uint8>;
-    final decoded = RecordReader.decodeList(rawPtr as Pointer<Uint8>, (r) => CameraDeviceRecordExt.fromReader(r));
+    final decoded = RecordReader.decodeList(rawPtr, (r) => CameraDeviceRecordExt.fromReader(r));
     malloc.free(rawPtr);
     return decoded;
   }
