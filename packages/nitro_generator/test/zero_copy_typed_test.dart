@@ -158,7 +158,7 @@ void main() {
   // ── 5. Non-zero-copy TypedData still uses Object descriptor ───────────────
 
   group('CppBridgeGenerator — non-zero-copy TypedData keeps Object descriptor', () {
-    test('Float32List without zeroCopy uses Ljava/lang/Object; descriptor', () {
+    test('Float32List without zeroCopy uses [F descriptor', () {
       // A Float32List field that is NOT marked zeroCopy should NOT become ByteBuffer.
       final spec = BridgeSpec(
         dartClassName: 'TestMod',
@@ -195,8 +195,8 @@ void main() {
         ],
       );
       final cpp = CppBridgeGenerator.generate(spec);
-      // Non-zero-copy Float32List should keep the default Object sig
-      expect(cpp, contains('"data", "Ljava/lang/Object;"'));
+      // Non-zero-copy Float32List maps to Kotlin FloatArray, JNI sig [F
+      expect(cpp, contains('"data", "[F"'));
       expect(cpp, isNot(contains('GetDirectBufferAddress')));
     });
   });

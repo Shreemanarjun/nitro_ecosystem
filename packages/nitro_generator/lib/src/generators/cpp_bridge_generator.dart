@@ -54,6 +54,19 @@ class CppBridgeGenerator {
     s.writeln('static JavaVM* g_jvm = nullptr;');
     s.writeln('static jclass g_bridgeClass = nullptr;');
     s.writeln();
+    s.writeln('// RAII guard: auto-detaches a thread from the JVM when it exits.');
+    s.writeln('// One instance is stored in thread-local storage; its destructor fires');
+    s.writeln('// when the thread terminates, ensuring no JVM thread descriptor leaks.');
+    s.writeln('struct NitroJniThreadGuard {');
+    s.writeln('    bool attached = false;');
+    s.writeln('    ~NitroJniThreadGuard() {');
+    s.writeln('        if (attached && g_jvm != nullptr) {');
+    s.writeln('            g_jvm->DetachCurrentThread();');
+    s.writeln('        }');
+    s.writeln('    }');
+    s.writeln('};');
+    s.writeln('static thread_local NitroJniThreadGuard g_thread_guard;');
+    s.writeln();
     s.writeln('static void nitro_report_jni_exception(JNIEnv* env, jthrowable ex) {');
     s.writeln('    // MUST clear the pending exception before making any further JNI calls.');
     s.writeln('    // JNI aborts if any JNI function (e.g. GetObjectClass) is called while');
@@ -201,6 +214,7 @@ class CppBridgeGenerator {
     );
     s.writeln('    if (status == JNI_EDETACHED) {');
     s.writeln('        g_jvm->AttachCurrentThread(&env, nullptr);');
+    s.writeln('        g_thread_guard.attached = true; // will DetachCurrentThread on thread exit');
     s.writeln('    }');
     s.writeln('    return env;');
     s.writeln('}');
@@ -705,7 +719,7 @@ class CppBridgeGenerator {
       case 'int8_t':
         return 'false';
       case 'const char*':
-        return '""';
+        return 'nullptr';
       default:
         return 'nullptr';
     }
@@ -723,8 +737,24 @@ class CppBridgeGenerator {
         return 'Ljava/lang/String;';
       case 'void':
         return 'V';
+      // Non-@ZeroCopy TypedData → Kotlin array types
+      // (@ZeroCopy variants are intercepted in _jniSig before this is called)
       case 'Uint8List':
-        return 'Ljava/nio/ByteBuffer;';
+      case 'Int8List':
+        return '[B'; // ByteArray
+      case 'Int16List':
+      case 'Uint16List':
+        return '[S'; // ShortArray
+      case 'Int32List':
+      case 'Uint32List':
+        return '[I'; // IntArray
+      case 'Float32List':
+        return '[F'; // FloatArray
+      case 'Float64List':
+        return '[D'; // DoubleArray
+      case 'Int64List':
+      case 'Uint64List':
+        return '[J'; // LongArray
       default:
         return 'Ljava/lang/Object;';
     }

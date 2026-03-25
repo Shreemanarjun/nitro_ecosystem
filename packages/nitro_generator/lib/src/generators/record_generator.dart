@@ -213,16 +213,20 @@ class RecordGenerator {
       s.writeln('@androidx.annotation.Keep');
       s.writeln('data class ${rt.name}($fields) {');
 
-      // --- companion: decode from ByteArray ---
+      // --- companion: decodeFrom(buf) reads fields from a shared ByteBuffer cursor ---
+      //                decode(bytes) wraps a standalone ByteArray (strips 4-byte prefix)
       s.writeln('    companion object {');
-      s.writeln('        @JvmStatic fun decode(bytes: ByteArray): ${rt.name} {');
-      s.writeln('            val buf = java.nio.ByteBuffer.wrap(bytes).order(java.nio.ByteOrder.LITTLE_ENDIAN)');
-      s.writeln('            buf.position(4) // skip 4-byte length prefix');
+      s.writeln('        @JvmStatic fun decodeFrom(buf: java.nio.ByteBuffer): ${rt.name} {');
       for (final f in rt.fields) {
         s.writeln('            val ${f.name} = ${_kotlinReadExpr(f)}');
       }
       final ctorArgs = rt.fields.map((f) => f.name).join(', ');
       s.writeln('            return ${rt.name}($ctorArgs)');
+      s.writeln('        }');
+      s.writeln('        @JvmStatic fun decode(bytes: ByteArray): ${rt.name} {');
+      s.writeln('            val buf = java.nio.ByteBuffer.wrap(bytes).order(java.nio.ByteOrder.LITTLE_ENDIAN)');
+      s.writeln('            buf.position(4) // skip 4-byte length prefix');
+      s.writeln('            return decodeFrom(buf)');
       s.writeln('        }');
       s.writeln('    }');
       s.writeln();
@@ -298,15 +302,15 @@ class RecordGenerator {
       case RecordFieldKind.recordObject:
         final base = f.dartType.replaceFirst('?', '');
         if (f.isNullable) {
-          return '(if (buf.get().toInt() == 0) null else $base.decode(bytes)) /* TODO: pass sub-slice */';
+          return '(if (buf.get().toInt() == 0) null else $base.decodeFrom(buf))';
         }
-        return '$base.decode(bytes) /* TODO: pass sub-slice */';
+        return '$base.decodeFrom(buf)';
       case RecordFieldKind.listPrimitive:
         final item = f.itemTypeName ?? 'int';
         return '(0 until buf.int).map { ${_kotlinPrimRead(item)} }';
       case RecordFieldKind.listRecordObject:
         final item = f.itemTypeName!;
-        return '(0 until buf.int).map { $item.decode(bytes) /* TODO */ }';
+        return '(0 until buf.int).map { $item.decodeFrom(buf) }';
     }
   }
 
