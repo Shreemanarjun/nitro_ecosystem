@@ -145,15 +145,14 @@ packages:
       path: ".."
       relative: true
     source: path
-    version: "0.0.1"
+    version: "0.2.0"
   nitro:
     dependency: transitive
     description:
-      name: nitro
-      sha256: "310fb212df249ba70e2c276451e191f12c387b6797bde3f67eed0adbba1bebda"
-      url: "https://pub.dev"
-    source: hosted
-    version: "0.1.0"
+      path: "../../packages/nitro"
+      relative: true
+    source: path
+    version: "0.2.0"
   path:
     dependency: transitive
     description:
