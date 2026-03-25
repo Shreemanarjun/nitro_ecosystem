@@ -309,7 +309,7 @@ class CppBridgeGenerator {
         for (final n in jniTypedArrayParams) {
           s.writeln('    env->DeleteLocalRef(j_$n);');
         }
-        s.writeln('    if (env->ExceptionCheck()) { nitro_report_jni_exception(env, env->ExceptionOccurred()); env->ExceptionClear(); return 0.0; }');
+        s.writeln('    if (env->ExceptionCheck()) { nitro_report_jni_exception(env, env->ExceptionOccurred()); return 0.0; }');
         s.writeln('    return res;');
       } else if (func.returnType.name == 'int') {
         s.writeln(
@@ -318,7 +318,7 @@ class CppBridgeGenerator {
         for (final n in jniTypedArrayParams) {
           s.writeln('    env->DeleteLocalRef(j_$n);');
         }
-        s.writeln('    if (env->ExceptionCheck()) { nitro_report_jni_exception(env, env->ExceptionOccurred()); env->ExceptionClear(); return 0; }');
+        s.writeln('    if (env->ExceptionCheck()) { nitro_report_jni_exception(env, env->ExceptionOccurred()); return 0; }');
         s.writeln('    return res;');
       } else if (func.returnType.name == 'bool') {
         s.writeln(
@@ -327,7 +327,7 @@ class CppBridgeGenerator {
         for (final n in jniTypedArrayParams) {
           s.writeln('    env->DeleteLocalRef(j_$n);');
         }
-        s.writeln('    if (env->ExceptionCheck()) { nitro_report_jni_exception(env, env->ExceptionOccurred()); env->ExceptionClear(); return false; }');
+        s.writeln('    if (env->ExceptionCheck()) { nitro_report_jni_exception(env, env->ExceptionOccurred()); return false; }');
         s.writeln('    return res;');
       } else if (func.returnType.name == 'String') {
         s.writeln(
@@ -336,7 +336,7 @@ class CppBridgeGenerator {
         for (final n in jniTypedArrayParams) {
           s.writeln('    env->DeleteLocalRef(j_$n);');
         }
-        s.writeln('    if (env->ExceptionCheck()) { nitro_report_jni_exception(env, env->ExceptionOccurred()); env->ExceptionClear(); return nullptr; }');
+        s.writeln('    if (env->ExceptionCheck()) { nitro_report_jni_exception(env, env->ExceptionOccurred()); return nullptr; }');
         s.writeln('    if (jstr == nullptr) return nullptr;');
         s.writeln(
           '    const char* nativeStr = env->GetStringUTFChars(jstr, 0);',
@@ -358,7 +358,7 @@ class CppBridgeGenerator {
         for (final n in jniTypedArrayParams) {
           s.writeln('    env->DeleteLocalRef(j_$n);');
         }
-        s.writeln('    if (env->ExceptionCheck()) { nitro_report_jni_exception(env, env->ExceptionOccurred()); env->ExceptionClear(); return 0; }');
+        s.writeln('    if (env->ExceptionCheck()) { nitro_report_jni_exception(env, env->ExceptionOccurred()); return 0; }');
         s.writeln('    return res;');
       } else if (isStruct) {
         // Bridge returns the Kotlin data class; pack it to C struct via malloc
@@ -369,7 +369,7 @@ class CppBridgeGenerator {
         for (final n in jniTypedArrayParams) {
           s.writeln('    env->DeleteLocalRef(j_$n);');
         }
-        s.writeln('    if (env->ExceptionCheck()) { nitro_report_jni_exception(env, env->ExceptionOccurred()); env->ExceptionClear(); return nullptr; }');
+        s.writeln('    if (env->ExceptionCheck()) { nitro_report_jni_exception(env, env->ExceptionOccurred()); return nullptr; }');
         s.writeln('    if (jobj == nullptr) return nullptr;');
         s.writeln('    $stName* result = ($stName*)malloc(sizeof($stName));');
         s.writeln('    *result = pack_${stName}_from_jni(env, jobj);');
@@ -382,7 +382,7 @@ class CppBridgeGenerator {
         for (final n in jniTypedArrayParams) {
           s.writeln('    env->DeleteLocalRef(j_$n);');
         }
-        s.writeln('    if (env->ExceptionCheck()) { nitro_report_jni_exception(env, env->ExceptionOccurred()); env->ExceptionClear(); return nullptr; }');
+        s.writeln('    if (env->ExceptionCheck()) { nitro_report_jni_exception(env, env->ExceptionOccurred()); return nullptr; }');
         s.writeln('    if (jarr == nullptr) return nullptr;');
         s.writeln('    jsize len = env->GetArrayLength(jarr);');
         s.writeln('    uint8_t* result = (uint8_t*)malloc(len);');
@@ -396,7 +396,7 @@ class CppBridgeGenerator {
         s.writeln('    return ${_defaultValue(cReturnType)};');
       }
       if (func.returnType.name == 'void') {
-        s.writeln('    if (env->ExceptionCheck()) { nitro_report_jni_exception(env, env->ExceptionOccurred()); env->ExceptionClear(); }');
+        s.writeln('    if (env->ExceptionCheck()) { nitro_report_jni_exception(env, env->ExceptionOccurred()); }');
       }
       s.writeln('}');
       s.writeln('');

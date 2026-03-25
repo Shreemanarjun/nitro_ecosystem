@@ -1033,6 +1033,126 @@ void main() {
       expect(cpp, contains('env->DeleteLocalRef(j_inputs)'), reason: 'JNI array local ref must be deleted after String return call');
     });
   });
+
+  // ── 7. CppBridgeGenerator — no redundant ExceptionClear at call sites ──────
+  //
+  // nitro_report_jni_exception already calls ExceptionClear() internally.
+  // The call-site pattern must NOT duplicate the call.
+
+  group('CppBridgeGenerator — ExceptionCheck call sites: no redundant ExceptionClear', () {
+    test('no call site emits ExceptionClear after nitro_report_jni_exception', () {
+      final cpp = CppBridgeGenerator.generate(_syncRecordSpec());
+      expect(
+        cpp,
+        isNot(contains('nitro_report_jni_exception(env, env->ExceptionOccurred()); env->ExceptionClear()')),
+        reason: 'ExceptionClear() is already called inside nitro_report_jni_exception — no need to repeat it',
+      );
+    });
+
+    test('nitro_report_jni_exception helper itself still calls ExceptionClear internally', () {
+      final cpp = CppBridgeGenerator.generate(_syncRecordSpec());
+      final helperIdx = cpp.indexOf('nitro_report_jni_exception');
+      expect(helperIdx, greaterThan(-1));
+      final helperBody = cpp.substring(helperIdx, helperIdx + 400);
+      expect(helperBody, contains('env->ExceptionClear()'),
+          reason: 'ExceptionClear must remain inside the helper body');
+    });
+
+    test('double-return call site: ExceptionCheck pattern has no trailing ExceptionClear', () {
+      final spec = BridgeSpec(
+        dartClassName: 'Calc',
+        lib: 'calc',
+        namespace: 'calc',
+        iosImpl: NativeImpl.swift,
+        androidImpl: NativeImpl.kotlin,
+        sourceUri: 'calc.native.dart',
+        functions: [
+          BridgeFunction(
+            dartName: 'add',
+            cSymbol: 'calc_add',
+            isAsync: false,
+            returnType: BridgeType(name: 'double'),
+            params: [],
+          ),
+        ],
+      );
+      final cpp = CppBridgeGenerator.generate(spec);
+      expect(
+        cpp,
+        isNot(contains('nitro_report_jni_exception(env, env->ExceptionOccurred()); env->ExceptionClear(); return')),
+      );
+      // The ExceptionCheck + report + return pattern must still be present.
+      expect(cpp, contains('nitro_report_jni_exception(env, env->ExceptionOccurred()); return 0.0;'));
+    });
+  });
+
+  // ── 8. KotlinGenerator — _streamJobs composite key ────────────────────────
+  //
+  // Using dartPort alone as the map key means two simultaneous subscriptions
+  // on different streams that happen to receive the same port value would
+  // overwrite each other's job.  The fix uses Pair(streamName, dartPort).
+
+  group('KotlinGenerator — _streamJobs uses Pair(streamName, dartPort) composite key', () {
+    BridgeSpec twoStreamSpec() => BridgeSpec(
+      dartClassName: 'Camera',
+      lib: 'camera',
+      namespace: 'camera',
+      iosImpl: NativeImpl.swift,
+      androidImpl: NativeImpl.kotlin,
+      sourceUri: 'camera.native.dart',
+      streams: [
+        BridgeStream(
+          dartName: 'frames',
+          registerSymbol: 'camera_frames_register',
+          releaseSymbol: 'camera_frames_release',
+          itemType: BridgeType(name: 'double'),
+          backpressure: Backpressure.dropLatest,
+        ),
+        BridgeStream(
+          dartName: 'coloredFrames',
+          registerSymbol: 'camera_colored_frames_register',
+          releaseSymbol: 'camera_colored_frames_release',
+          itemType: BridgeType(name: 'double'),
+          backpressure: Backpressure.dropLatest,
+        ),
+      ],
+      functions: [],
+    );
+
+    test('_streamJobs map uses Pair<String, Long> as key type', () {
+      final kt = KotlinGenerator.generate(twoStreamSpec());
+      expect(kt, contains('mutableMapOf<Pair<String, Long>, kotlinx.coroutines.Job>()'),
+          reason: 'composite key prevents port collision between streams');
+      expect(kt, isNot(contains('mutableMapOf<Long, kotlinx.coroutines.Job>()')));
+    });
+
+    test('frames register uses Pair("frames", dartPort) as map key', () {
+      final kt = KotlinGenerator.generate(twoStreamSpec());
+      expect(kt, contains('_streamJobs[Pair("frames", dartPort)]'));
+    });
+
+    test('coloredFrames register uses Pair("coloredFrames", dartPort) as map key', () {
+      final kt = KotlinGenerator.generate(twoStreamSpec());
+      expect(kt, contains('_streamJobs[Pair("coloredFrames", dartPort)]'));
+    });
+
+    test('frames release uses Pair("frames", dartPort) in remove()', () {
+      final kt = KotlinGenerator.generate(twoStreamSpec());
+      expect(kt, contains('_streamJobs.remove(Pair("frames", dartPort))'));
+    });
+
+    test('coloredFrames release uses Pair("coloredFrames", dartPort) in remove()', () {
+      final kt = KotlinGenerator.generate(twoStreamSpec());
+      expect(kt, contains('_streamJobs.remove(Pair("coloredFrames", dartPort))'));
+    });
+
+    test('plain dartPort is not used directly as _streamJobs key', () {
+      final kt = KotlinGenerator.generate(twoStreamSpec());
+      expect(kt, isNot(contains('_streamJobs[dartPort]')),
+          reason: 'bare port key must be replaced by composite Pair key');
+      expect(kt, isNot(contains('_streamJobs.remove(dartPort)')));
+    });
+  });
 }
 
 // ── Helper used in test reason strings only ───────────────────────────────────

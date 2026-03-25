@@ -178,7 +178,7 @@ class KotlinGenerator {
     }
 
     s.writeln(
-      '    private val _streamJobs = mutableMapOf<Long, kotlinx.coroutines.Job>()',
+      '    private val _streamJobs = mutableMapOf<Pair<String, Long>, kotlinx.coroutines.Job>()',
     );
     s.writeln();
 
@@ -192,7 +192,7 @@ class KotlinGenerator {
       );
       s.writeln('        val impl = implementation ?: return');
       s.writeln(
-        '        _streamJobs[dartPort] = CoroutineScope(Dispatchers.Default).launch {',
+        '        _streamJobs[Pair("${stream.dartName}", dartPort)] = CoroutineScope(Dispatchers.Default).launch {',
       );
       s.writeln('            impl.${stream.dartName}.collect { item -> ');
       s.writeln('                emit_${stream.dartName}(dartPort, item)');
@@ -202,7 +202,7 @@ class KotlinGenerator {
       s.writeln(
         '    @JvmStatic fun ${stream.releaseSymbol}_call(dartPort: Long) {',
       );
-      s.writeln('        _streamJobs.remove(dartPort)?.cancel()');
+      s.writeln('        _streamJobs.remove(Pair("${stream.dartName}", dartPort))?.cancel()');
       s.writeln('    }');
     }
 
