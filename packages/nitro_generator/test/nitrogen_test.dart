@@ -748,7 +748,7 @@ void main() {
   group('CppBridgeGenerator', () {
     test('emits InitDartApiDL', () {
       final out = CppBridgeGenerator.generate(_simpleSpec());
-      expect(out, contains('intptr_t InitDartApiDL(void* data)'));
+      expect(out, contains('intptr_t my_camera_init_dart_api_dl(void* data)'));
       expect(out, contains('Dart_InitializeApiDL(data)'));
     });
 
@@ -1181,7 +1181,7 @@ void main() {
       expect(
         out,
         contains(
-          'return () { final res = _isReadyPtr(strict ? 1 : 0); NitroRuntime.checkError(_dylib); return res; }() != 0;',
+          "return () { final res = _isReadyPtr(strict ? 1 : 0); NitroRuntime.checkError(_dylib, getErrorName: 'sensor_get_error', clearErrorName: 'sensor_clear_error'); return res; }() != 0;",
         ),
       );
     });
@@ -1196,7 +1196,7 @@ void main() {
       expect(
         out,
         contains(
-          'return () { final res = _countPtr(); NitroRuntime.checkError(_dylib); return res; }();',
+          "return () { final res = _countPtr(); NitroRuntime.checkError(_dylib, getErrorName: 'sensor_get_error', clearErrorName: 'sensor_clear_error'); return res; }();",
         ),
       );
     });
@@ -1240,7 +1240,7 @@ void main() {
           'bool get enabled {\n'
           '    checkDisposed();\n'
           '    final res = _getEnabledPtr();\n'
-          '    NitroRuntime.checkError(_dylib);\n'
+          "    NitroRuntime.checkError(_dylib, getErrorName: 'sensor_get_error', clearErrorName: 'sensor_clear_error');\n"
           '    return res != 0;\n'
           '  }',
         ),
@@ -1257,7 +1257,7 @@ void main() {
       expect(
         out,
         contains(
-          'set enabled(bool value) { checkDisposed(); _setEnabledPtr(value ? 1 : 0); NitroRuntime.checkError(_dylib); }',
+          "set enabled(bool value) { checkDisposed(); _setEnabledPtr(value ? 1 : 0); NitroRuntime.checkError(_dylib, getErrorName: 'sensor_get_error', clearErrorName: 'sensor_clear_error'); }",
         ),
       );
     });
