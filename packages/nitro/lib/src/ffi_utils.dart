@@ -3,9 +3,6 @@ import 'dart:typed_data';
 import 'package:ffi/ffi.dart';
 
 T withArena<T>(T Function(Arena arena) action) {
-  using(action);
-  // wait, the 'using' from package:ffi handles arena lifecycle.
-  // Actually, 'withArena' is a common helper.
   return using(action);
 }
 
@@ -81,6 +78,7 @@ extension NitroStringExtension on String {
 
 extension NitroPointerExtension on Pointer<Utf8> {
   String toDartStringWithFree() {
+    if (address == 0) return '';
     final str = toDartString();
     malloc.free(this);
     return str;
