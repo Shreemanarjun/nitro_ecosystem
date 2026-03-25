@@ -19,6 +19,9 @@ dev_dependencies:
   nitro_generator: { path: ../packages/nitro_generator }
   flutter_lints: ^6.0.0
 
+dependency_overrides:
+  nitro: { path: ../packages/nitro }
+
 # For information on the generic Dart part of this file, see the
 # following page: https://dart.dev/tools/pub/pubspec
 
