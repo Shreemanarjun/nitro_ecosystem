@@ -93,3 +93,11 @@ The following results were captured on a **OnePlus 11**, calculating the mean av
 
 ## Conclusion
 Nitro provides **sub-microsecond stability** and extreme high-throughput by eliminating memory copies and serialization overhead. On a modern device like the **OnePlus 11**, Nitro delivers performance that is over **11x faster** than standard MethodChannels.
+
+## 🚀 Roadmap: Path to Raw FFI Parity
+Currently, Nitro operates via a **High-Level Bridge** that maps Dart types to **Kotlin (Android)** and **Swift (iOS/macOS)**. While this provides a superior developer experience and remains ~12x faster than MethodChannels, it still carries minor bridge overhead (~7µs vs ~1µs).
+
+- **Current Architecture**: Dart ↔️ Nitro Bridge ↔️ Kotlin/Swift
+- **Future Architecture**: Dart ↔️ Nitro Bridge ↔️ **Direct C/C++**
+
+The next phase of Nitro development will introduce **Direct C Support**, allowing Nitro modules to call into C/C++ logic with zero intermediate overhead, bringing Nitro performance to near 1:1 parity with **Raw FFI** while retaining full type-safety and automatic binding generation.
