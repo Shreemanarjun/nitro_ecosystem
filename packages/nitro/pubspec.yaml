@@ -19,6 +19,7 @@ topics:
 environment:
   sdk: ^3.11.3
   flutter: '>=3.3.0'
+resolution: workspace
 
 dependencies:
   flutter:

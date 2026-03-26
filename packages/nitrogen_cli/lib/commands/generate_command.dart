@@ -109,7 +109,7 @@ class GenerateCommand extends Command {
   }
 
   /// Returns directories containing a Podfile, searching common locations:
-  /// <root>/ios/, <root>/example/ios/, and any direct child */ios/.
+  /// `<root>/ios/`, `<root>/example/ios/`, and any direct child `*/ios/`.
   List<String> _findPodfileDirs(String projectRoot) {
     final candidates = [
       p.join(projectRoot, 'ios'),

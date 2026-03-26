@@ -1,9 +1,35 @@
-packages/nitrogen/build/*
-packages/nitro_generator/.DS_Store
-my_camera/lib/src/verification.g.dart
+# General
+.DS_Store
+*.log
+*.swp
+*.class
+*.pyc
 
-# Exclude generated test caches
-**/build/test_cache/
+# IDEs
+.idea/
+.vscode/ (though many people track tasks.json)
+*.iml
+*.iws
+*.ipr
+
+# Root Dart Tool (Workspace resolution)
+.dart_tool/
+.packages
+
+# Monorepo recursive ignore (all subpackages)
+**/.dart_tool/
+**/.packages
+**/.flutter-plugins
+**/.flutter-plugins-dependencies
+**/.pub-cache/
+**/build/
+**/coverage/
+
+# Individual packages shouldn't track pubspec.lock in a monorepo
+# But keep the root pubspec.lock for workspace stability
+**/pubspec.lock
+!/pubspec.lock
+
+# Test artifacts
 packages/nitro_generator/test_output.txt
-packages/nitro_generator/.flutter-plugins-dependencies
-packages/nitro_generator/.flutter-plugins-dependencies
+**/build/test_cache/

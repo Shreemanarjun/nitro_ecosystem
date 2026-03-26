@@ -144,7 +144,7 @@ void main() {
 
     test('renders header, fields and hint', () async {
       await testNocterm('PluginNameForm initial', (tester) async {
-        await tester.pumpComponent(form((_, __) {}));
+        await tester.pumpComponent(form((_, _) {}));
 
         expect(tester.terminalState, containsText('nitrogen init'));
         expect(tester.terminalState, containsText('Plugin name:'));
@@ -156,14 +156,14 @@ void main() {
 
     test('shows placeholder for plugin name field', () async {
       await testNocterm('PluginNameForm placeholders', (tester) async {
-        await tester.pumpComponent(form((_, __) {}));
+        await tester.pumpComponent(form((_, _) {}));
         expect(tester.terminalState, containsText('my_plugin'));
       });
     });
 
     test('shows error when name is empty on submit', () async {
       await testNocterm('PluginNameForm empty name error', (tester) async {
-        await tester.pumpComponent(form((_, __) {}));
+        await tester.pumpComponent(form((_, _) {}));
 
         // Tab moves focus to org field, Enter submits with empty name
         await tester.sendKey(LogicalKey.tab);
@@ -179,7 +179,7 @@ void main() {
 
     test('shows error for name starting with a digit', () async {
       await testNocterm('PluginNameForm digit-start name', (tester) async {
-        await tester.pumpComponent(form((_, __) {}));
+        await tester.pumpComponent(form((_, _) {}));
 
         await tester.enterText('1plugin');
         await tester.sendKey(LogicalKey.tab);
@@ -192,7 +192,7 @@ void main() {
 
     test('shows error for name with uppercase letters', () async {
       await testNocterm('PluginNameForm uppercase name', (tester) async {
-        await tester.pumpComponent(form((_, __) {}));
+        await tester.pumpComponent(form((_, _) {}));
 
         await tester.enterText('MyPlugin');
         await tester.sendKey(LogicalKey.tab);
@@ -205,7 +205,7 @@ void main() {
 
     test('shows error for name with hyphens', () async {
       await testNocterm('PluginNameForm hyphen name', (tester) async {
-        await tester.pumpComponent(form((_, __) {}));
+        await tester.pumpComponent(form((_, _) {}));
 
         await tester.enterText('my-plugin');
         await tester.sendKey(LogicalKey.tab);
@@ -253,7 +253,7 @@ void main() {
 
     test('Tab clears error and switches field focus', () async {
       await testNocterm('PluginNameForm Tab clears error', (tester) async {
-        await tester.pumpComponent(form((_, __) {}));
+        await tester.pumpComponent(form((_, _) {}));
 
         // Trigger an error by submitting empty
         await tester.sendKey(LogicalKey.tab);
@@ -276,7 +276,7 @@ void main() {
 
     test('form remains visible after Tab', () async {
       await testNocterm('PluginNameForm stable after Tab', (tester) async {
-        await tester.pumpComponent(form((_, __) {}));
+        await tester.pumpComponent(form((_, _) {}));
 
         await tester.sendKey(LogicalKey.tab);
         await tester.pump();
@@ -290,7 +290,7 @@ void main() {
       await testNocterm('PluginNameForm ESC onExit', (tester) async {
         var exited = false;
         await tester.pumpComponent(
-          form((_, __) {}, onExit: () => exited = true),
+          form((_, _) {}, onExit: () => exited = true),
         );
 
         await tester.sendKey(LogicalKey.escape);
@@ -302,7 +302,7 @@ void main() {
 
     test('ESC with null onExit does not throw', () async {
       await testNocterm('PluginNameForm ESC no onExit', (tester) async {
-        await tester.pumpComponent(form((_, __) {}));
+        await tester.pumpComponent(form((_, _) {}));
 
         // Should not throw
         await tester.sendKey(LogicalKey.escape);
@@ -343,7 +343,7 @@ void main() {
 
     test('error is shown in red', () async {
       await testNocterm('PluginNameForm error styling', (tester) async {
-        await tester.pumpComponent(form((_, __) {}));
+        await tester.pumpComponent(form((_, _) {}));
 
         await tester.sendKey(LogicalKey.tab);
         await tester.sendKey(LogicalKey.enter);
@@ -362,7 +362,7 @@ void main() {
     test('onSubmit is not called when name is invalid', () async {
       await testNocterm('PluginNameForm no submit on invalid', (tester) async {
         var called = false;
-        await tester.pumpComponent(form((_, __) => called = true));
+        await tester.pumpComponent(form((_, _) => called = true));
 
         await tester.enterText('Bad-Name');
         await tester.sendKey(LogicalKey.tab);
@@ -376,7 +376,7 @@ void main() {
     test('onSubmit is not called when name is empty', () async {
       await testNocterm('PluginNameForm no submit on empty', (tester) async {
         var called = false;
-        await tester.pumpComponent(form((_, __) => called = true));
+        await tester.pumpComponent(form((_, _) => called = true));
 
         await tester.sendKey(LogicalKey.tab);
         await tester.sendKey(LogicalKey.enter);

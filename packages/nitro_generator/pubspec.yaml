@@ -18,9 +18,10 @@ topics:
 
 environment:
   sdk: ^3.11.3
+resolution: workspace
 
 dependencies:
-  analyzer: '>=6.4.0 <8.0.0'
+  analyzer: 6.4.1
   build: ^2.4.1
   source_gen: ^1.5.0
   dart_style: ^2.3.2

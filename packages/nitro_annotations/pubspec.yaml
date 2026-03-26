@@ -8,3 +8,4 @@ repository: https://github.com/Shreemanarjun/nitro_ecosystem
 
 environment:
   sdk: ^3.11.3
+resolution: workspace

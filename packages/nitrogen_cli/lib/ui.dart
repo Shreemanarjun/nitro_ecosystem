@@ -2,7 +2,7 @@
 ///
 /// These helpers write directly to stdout (plain terminal output, not a TUI
 /// runApp session), so the output persists in the scrollback buffer.
-library nitrogen_cli.ui;
+library;
 
 import 'dart:io';
 import 'dart:async';
