@@ -130,6 +130,7 @@ class MyCameraPlugin: FlutterPlugin {
         MyCameraJniBridge.register(MyCameraImpl())
         ComplexModuleJniBridge.register(ComplexModuleImpl())
         VerificationModuleJniBridge.register(VerificationModuleImpl())
+        NitroCameraJniBridge.register(NitroCameraImpl())
     }
 
     override fun onDetachedFromEngine(@NonNull binding: FlutterPlugin.FlutterPluginBinding) {

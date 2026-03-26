@@ -1,0 +1,15 @@
+# Run with `dart run ffigen --config ffigen.yaml`.
+name: BenchmarkBindings
+description: |
+  Bindings for `src/benchmark.h`.
+
+  Regenerate bindings with `dart run ffigen --config ffigen.yaml`.
+output: 'lib/benchmark_bindings_generated.dart'
+headers:
+  entry-points:
+    - 'src/benchmark.h'
+  include-directives:
+    - 'src/benchmark.h'
+comments:
+  style: any
+  length: full

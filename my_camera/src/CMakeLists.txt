@@ -60,3 +60,18 @@ if(ANDROID)
   target_link_libraries(complex PRIVATE android log)
   target_link_options(complex PRIVATE "-Wl,-z,max-page-size=16384")
 endif()
+
+add_library(nitro_camera SHARED
+  "${CMAKE_CURRENT_SOURCE_DIR}/../lib/src/generated/cpp/nitro_camera.bridge.g.cpp"
+  "dart_api_dl.c"
+)
+target_include_directories(nitro_camera PRIVATE
+  "${CMAKE_CURRENT_SOURCE_DIR}/../lib/src/generated/cpp"
+  "${NITRO_NATIVE}"
+)
+set_target_properties(nitro_camera PROPERTIES OUTPUT_NAME "nitro_camera")
+target_compile_definitions(nitro_camera PUBLIC DART_SHARED_LIB)
+if(ANDROID)
+  target_link_libraries(nitro_camera PRIVATE android log)
+  target_link_options(nitro_camera PRIVATE "-Wl,-z,max-page-size=16384")
+endif()

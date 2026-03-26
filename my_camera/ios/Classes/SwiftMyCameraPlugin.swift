@@ -5,5 +5,6 @@ public class SwiftMyCameraPlugin: NSObject, FlutterPlugin {
         MyCameraRegistry.register(MyCameraModuleImpl())
         ComplexModuleRegistry.register(ComplexModuleImpl())
         VerificationModuleRegistry.register(VerificationModuleImpl())
+        NitroCameraRegistry.register(NitroCameraModuleImpl())
     }
 }
