@@ -67,7 +67,7 @@ for PKG in "${PACKAGES[@]}"; do
     cd "$ROOT_DIR/$PKG"
     
     # Run publish command
-    if dart pub publish $PUBLISH_CMD_FLAGS; then
+    if flutter pub publish $PUBLISH_CMD_FLAGS; then
         echo -e "\n${GREEN}✅ Success for $PKG_NAME${NC}"
     else
         echo -e "\n${RED}❌ Failed for $PKG_NAME${NC}"
