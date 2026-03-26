@@ -1,3 +1,8 @@
+## 0.2.3
+
+- **Improved: Native Visibility Visibility**: Updated `nitro.h` to include `NITRO_EXPORT` macros by default, ensuring all native symbols are correctly exported for FFI across iOS, Android, macOS, and Windows.
+- **Improved: Dependency Sync**: Synchronized the Nitro ecosystem to version 0.2.3.
+
 ## 0.2.2
 
 - **Improved: annotation compatibility** — verified full compatibility with Nitrogen 0.2.2's stable annotation resolution system, ensuring re-exported `@NitroModule`, `@HybridStruct`, and `@HybridEnum` annotations are correctly identified by the code generator.

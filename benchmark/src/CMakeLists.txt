@@ -5,6 +5,7 @@ set(NITRO_NATIVE "/Users/shreemanarjunsahu/.puro/shared/pub_cache/hosted/pub.dev
 set(GENERATED_CPP "${CMAKE_CURRENT_SOURCE_DIR}/../lib/src/generated/cpp")
 
 add_library(benchmark SHARED
+  "${CMAKE_CURRENT_SOURCE_DIR}/../lib/src/generated/cpp/benchmark.bridge.g.cpp"
   "benchmark.cpp"
   "benchmark.c"
   "dart_api_dl.c"

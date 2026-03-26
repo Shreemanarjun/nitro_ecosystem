@@ -1,3 +1,7 @@
+# 0.2.3
+
+- **Dependency Sync**: Synchronized the Nitro ecosystem to version 0.2.3.
+
 # 0.2.2
 
 - Standardized annotation class metadata for Nitrogen 0.2.2's stable code generation.

@@ -1,6 +1,7 @@
 import 'dart:io';
 import 'package:args/command_runner.dart';
 import 'package:path/path.dart' as p;
+import 'link_command.dart' show cleanRedundantIncludes, createSharedHeaders, resolveNitroNativePath;
 import '../ui.dart';
 
 class GenerateCommand extends Command {
@@ -62,6 +63,8 @@ class GenerateCommand extends Command {
     }
 
     // ── Sync generated Swift bridges to ios/Classes/ ─────────────────────────
+    final nitroNativePath = resolveNitroNativePath(projectDir.path);
+    createSharedHeaders(nitroNativePath, baseDir: projectDir.path);
     _syncSwiftToIosClasses(projectDir.path);
 
     // ── pod install ──────────────────────────────────────────────────────────
@@ -105,6 +108,14 @@ class GenerateCommand extends Command {
     for (final src in bridgeFiles) {
       final dest = File(p.join(iosClasses.path, p.basename(src.path)));
       src.copySync(dest.path);
+    }
+
+    // Also heal any redundant includes in the main src/ folder
+    final srcDir = Directory(p.join(projectRoot, 'src'));
+    if (srcDir.existsSync()) {
+      for (final f in srcDir.listSync().whereType<File>().where((f) => f.path.endsWith('.cpp') || f.path.endsWith('.c'))) {
+        cleanRedundantIncludes(f);
+      }
     }
   }
 

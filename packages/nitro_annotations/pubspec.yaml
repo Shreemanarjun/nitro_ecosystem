@@ -2,7 +2,7 @@ name: nitro_annotations
 description: >
   Annotations package for Nitro Modules (Nitrogen).
   Provides the @NitroModule, @HybridRecord, and other annotations used by the nitro_generator.
-version: 0.2.2
+version: 0.2.3
 homepage: https://www.shreeman.dev
 repository: https://github.com/Shreemanarjun/nitro_ecosystem
 

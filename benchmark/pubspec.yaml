@@ -11,7 +11,8 @@ dependencies:
   fl_chart: ^1.2.0
   flutter:
     sdk: flutter
-  nitro: ^0.2.2
+  nitro:
+    path: ../packages/nitro
   plugin_platform_interface: ^2.0.2
 
 dev_dependencies:
@@ -19,7 +20,8 @@ dev_dependencies:
     sdk: flutter
   flutter_lints: ^6.0.0
   build_runner: ^2.4.0
-  nitro_generator: ^0.2.2
+  nitro_generator:
+    path: ../packages/nitro_generator
 
 # For information on the generic Dart part of this file, see the
 # following page: https://dart.dev/tools/pub/pubspec

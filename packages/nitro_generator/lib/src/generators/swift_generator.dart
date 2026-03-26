@@ -148,11 +148,14 @@ class SwiftGenerator {
           '    let ${p.name}Str = ${p.name}.map { String(cString: \$0) } ?? ""',
         );
       }
-      // Emit UnsafeMutablePointer<T>? + length → Swift Array for each typed-list param.
+      // Emit UnsafeMutablePointer<T>? + length -> Data/Array for each typed-list param.
       for (final p in typedListParams) {
-        s.writeln(
-          '    let ${p.name}Arr = ${p.name}.map { Array(UnsafeBufferPointer(start: \$0, count: Int(${p.name}_length))) } ?? []',
-        );
+        final isData = p.type.name.startsWith('Uint8List') || p.type.name.startsWith('Int8List');
+        if (isData) {
+          s.writeln('    let ${p.name}Arr = ${p.name}.map { Data(UnsafeBufferPointer(start: \$0, count: Int(${p.name}_length))) } ?? Data()');
+        } else {
+          s.writeln('    let ${p.name}Arr = ${p.name}.map { Array(UnsafeBufferPointer(start: \$0, count: Int(${p.name}_length))) } ?? []');
+        }
       }
 
       if (func.isAsync) {

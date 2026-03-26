@@ -1,0 +1,28 @@
+PODS:
+  - benchmark (0.0.1):
+    - Flutter
+  - Flutter (1.0.0)
+  - nitro (0.0.1):
+    - Flutter
+
+DEPENDENCIES:
+  - benchmark (from `.symlinks/plugins/benchmark/ios`)
+  - Flutter (from `Flutter`)
+  - nitro (from `.symlinks/plugins/nitro/ios`)
+
+EXTERNAL SOURCES:
+  benchmark:
+    :path: ".symlinks/plugins/benchmark/ios"
+  Flutter:
+    :path: Flutter
+  nitro:
+    :path: ".symlinks/plugins/nitro/ios"
+
+SPEC CHECKSUMS:
+  benchmark: 0417ba54c13756e5c98bbd0ce8628ee59b41dab8
+  Flutter: cabc95a1d2626b1b06e7179b784ebcf0c0cde467
+  nitro: 3f399f826dcec7d59928ac53bfa3d6a4234bfb5a
+
+PODFILE CHECKSUM: 3c63482e143d1b91d2d2560aee9fb04ecc74ac7e
+
+COCOAPODS: 1.16.2

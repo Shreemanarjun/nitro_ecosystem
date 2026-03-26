@@ -121,5 +121,23 @@ target_include_directories(my_plugin PRIVATE "\${CMAKE_CURRENT_SOURCE_DIR}")
       expect(content, contains('add_library(other_lib SHARED'));
       expect(content, contains('dart_api_dl.c'));
     });
+
+    test('cleanRedundantIncludes removes bridge imports', () {
+      final file = File(p.join(tmp.path, 'plugin.cpp'));
+      file.writeAsStringSync('''
+#include <stdint.h>
+#include "my_plugin.bridge.g.h"
+#include "my_plugin.bridge.g.cpp"
+
+void foo() {}
+''');
+
+      cleanRedundantIncludes(file);
+
+      final content = file.readAsStringSync();
+      expect(content, contains('#include "my_plugin.bridge.g.h"'));
+      expect(content, isNot(contains('#include "my_plugin.bridge.g.cpp"')));
+      expect(content, contains('void foo() {}'));
+    });
   });
 }

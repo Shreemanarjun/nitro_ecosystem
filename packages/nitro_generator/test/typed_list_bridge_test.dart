@@ -389,12 +389,12 @@ void main() {
       expect(out, isNot(contains('_ data: [UInt8]')));
     });
 
-    test('Uint8List bridge body converts via UnsafeBufferPointer<UInt8>', () {
+    test('Uint8List bridge body converts via UnsafeBufferPointer<Uint8>', () {
       final out = SwiftGenerator.generate(_multiTypedListSpec());
       expect(
         out,
         contains(
-          'let dataArr = data.map { Array(UnsafeBufferPointer(start: \$0, count: Int(data_length))) } ?? []',
+          'let dataArr = data.map { Data(UnsafeBufferPointer(start: \$0, count: Int(data_length))) } ?? Data()',
         ),
       );
     });

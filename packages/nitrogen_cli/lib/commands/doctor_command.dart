@@ -478,6 +478,16 @@ class DoctorCommand extends Command {
       err(cmakeSec, 'src/CMakeLists.txt not found', hint: 'Run: nitrogen link');
     } else {
       final cmake = cmakeFile.readAsStringSync();
+      // Check for redundant includes in nearby C++ files
+      final srcDir = Directory(p.join(root.path, 'src'));
+      final cppFiles = srcDir.listSync().whereType<File>().where((f) => f.path.endsWith('.cpp') || f.path.endsWith('.c')).toList();
+      for (final f in cppFiles) {
+        final c = f.readAsStringSync();
+        if (c.contains('.bridge.g.cpp') || c.contains('.bridge.g.c')) {
+          err(cmakeSec, 'Redundant bridge include in ${p.basename(f.path)}', hint: 'Remove #include "...bridge.g.cpp" from your source file');
+        }
+      }
+
       if (cmake.contains('NITRO_NATIVE')) {
         ok(cmakeSec, 'NITRO_NATIVE variable defined');
       } else {
@@ -582,6 +592,13 @@ class DoctorCommand extends Command {
         } else {
           warn(iosSec, 'swift_version may be too old', hint: "Set: s.swift_version = '5.9'");
         }
+
+        // Check for complete HEADER_SEARCH_PATHS
+        if (pod.contains('lib/src/generated/cpp') && pod.contains('src/native')) {
+          ok(iosSec, 'Comprehensive HEADER_SEARCH_PATHS in podspec');
+        } else {
+          warn(iosSec, 'Incomplete HEADER_SEARCH_PATHS in podspec', hint: 'Run: nitrogen link');
+        }
       }
 
       final classesDir = Directory(p.join(iosDir.path, 'Classes'));
@@ -609,6 +626,15 @@ class DoctorCommand extends Command {
         ok(iosSec, 'ios/Classes/nitro.h present');
       } else {
         err(iosSec, 'ios/Classes/nitro.h missing', hint: 'Run: nitrogen link');
+      }
+
+      if (nitroH.existsSync()) {
+        final content = nitroH.readAsStringSync();
+        if (content.contains('NITRO_EXPORT')) {
+          ok(iosSec, 'nitro.h contains NITRO_EXPORT visibility macro');
+        } else {
+          err(iosSec, 'nitro.h missing NITRO_EXPORT visibility macro', hint: 'Run: nitrogen link');
+        }
       }
 
       // Bridge files must use .mm (Objective-C++) not .cpp (pure C++).

@@ -1,3 +1,18 @@
+## 0.2.3
+
+- **Automated Native Healing**: Commands now proactively fix common native build errors.
+  - `nitrogen link` and `nitrogen generate` automatically scan your C++ source files and strip redundant `#include "*.bridge.g.cpp"` directives that previously caused duplicate symbol errors in Xcode.
+  - Added a dedicated `cleanRedundantIncludes` utility to the CLI core for robust source cleanup.
+- **Native Visibility Synchronization**:
+  - The CLI now maintains a canonical `nitro.h` with `NITRO_EXPORT` visibility macros for cross-platform FFI compatibility.
+  - `nitrogen link`, `nitrogen generate`, and `nitrogen init` all strictly enforce that your project's `nitro.h` is up to date, automatically repairing it if it's outdated or corrupted.
+- **Enhanced `nitrogen doctor` Diagnostics**:
+  - New check for redundant bridge includes in `src/`.
+  - New check for `NITRO_EXPORT` visibility macros in `nitro.h`.
+  - Improved `HEADER_SEARCH_PATHS` validation in iOS podspecs to ensure all generated code is discoverable.
+- **Improved Code Generation**: Fixed an issue in `nitro_generator` where large `Uint8List` buffers were incorrectly passed as `Array<UInt8>` instead of `Data` in some Swift bridge signatures.
+- **Dependency Sync**: Synchronized the Nitro ecosystem to version 0.2.3.
+
 ## 0.2.2
 
 - Standardized on Nitrogen 0.2.2 ecosystem versions.

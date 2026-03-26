@@ -4,7 +4,7 @@ import 'package:args/command_runner.dart';
 import 'package:nocterm/nocterm.dart';
 import 'package:path/path.dart' as p;
 import '../ui.dart';
-import 'link_command.dart' show resolveNitroNativePath, dartApiDlForwarderContent;
+import 'link_command.dart' show resolveNitroNativePath, dartApiDlForwarderContent, createSharedHeaders;
 
 // ── CMakeLists.txt updater ────────────────────────────────────────────────────
 
@@ -423,6 +423,9 @@ class _InitViewState extends State<InitView> {
     // Overwrite src/dart_api_dl.c with the resolved absolute include path.
     File(p.join(pluginName, 'src', 'dart_api_dl.c')).writeAsStringSync(dartApiDlForwarderContent(nitroNativePath));
 
+    // Copy nitro.h to src and ios/Classes
+    createSharedHeaders(nitroNativePath, baseDir: pluginName);
+
     // Replace the NITRO_NATIVE cmake variable with the resolved absolute path.
     final cmakeFile = File(p.join(pluginName, 'src', 'CMakeLists.txt'));
     if (cmakeFile.existsSync()) {
@@ -439,9 +442,9 @@ class _InitViewState extends State<InitView> {
     File(p.join(srcDir.path, '$pluginName.cpp')).writeAsStringSync('''
 #include <stdint.h>
 #include <stdbool.h>
+#include "nitro.h"
 
 #include "../lib/src/generated/cpp/$pluginName.bridge.g.h"
-#include "../lib/src/generated/cpp/$pluginName.bridge.g.cpp"
 
 extern "C" {
 }
@@ -466,6 +469,7 @@ set(GENERATED_CPP "\${CMAKE_CURRENT_SOURCE_DIR}/../lib/src/generated/cpp")
 
 add_library($pluginName SHARED
   "$pluginName.cpp"
+  "\${CMAKE_CURRENT_SOURCE_DIR}/../lib/src/generated/cpp/$pluginName.bridge.g.cpp"
   "dart_api_dl.c"
 )
 

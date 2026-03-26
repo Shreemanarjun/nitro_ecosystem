@@ -1,3 +1,9 @@
+## 0.2.3
+
+- **Fix: Array<UInt8> to Data mismatch in Swift** — Updated the Swift generator to correctly bridge `Uint8List` parameters as `Data` when matching native Swift signatures, ensuring type-safe binary data transfer without manual casts.
+- **Improved: Header Generator** — The generated C++ bridge headers now automatically include `nitro.h`.
+- **Improved: Dependency Sync**: Synchronized the Nitro ecosystem to version 0.2.3.
+
 ## 0.2.2
 
 - **Fix: stable annotation resolution** — updated `SpecExtractor` to use `TypeChecker.fromRuntime` for all Nitro annotations, ensuring they are correctly identified when re-exported through the `nitro` runtime package. This resolves "No @NitroModule annotated classes found" and "UNKNOWN_RETURN_TYPE" errors for enums/structs in complex specifications.

@@ -27,7 +27,7 @@ A new Flutter FFI plugin project.
     'DEFINES_MODULE' => 'YES',
     'CLANG_CXX_LANGUAGE_STANDARD' => 'c++17',
     'CLANG_CXX_LIBRARY' => 'libc++',
-    'HEADER_SEARCH_PATHS' => '$(inherited) "${PODS_ROOT}/../.symlinks/plugins/nitro/src/native"'
+    'HEADER_SEARCH_PATHS' => '$(inherited) "${PODS_ROOT}/../.symlinks/plugins/nitro/src/native" "${PODS_TARGET_SRCROOT}/../src" "${PODS_TARGET_SRCROOT}/../lib/src/generated/cpp"'
   }
   s.swift_version = '5.9'
 end

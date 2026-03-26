@@ -312,14 +312,58 @@ class _LinkViewState extends State<LinkView> {
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
+const String nitroHContent = r'''#pragma once
+
+#include <stdint.h>
+#include <stdbool.h>
+
+#if _WIN32
+#define NITRO_EXPORT __declspec(dllexport)
+#else
+#define NITRO_EXPORT __attribute__((visibility("default"))) __attribute__((used))
+#endif
+
+#ifdef __cplusplus
+extern "C" {
+#endif
+
+typedef struct {
+  int8_t hasError;
+  const char* name;
+  const char* message;
+  const char* code;
+  const char* stackTrace;
+} NitroError;
+
+#ifdef __cplusplus
+}
+#endif
+''';
+
 void createSharedHeaders(String nitroNativePath, {String baseDir = '.'}) {
   Directory(p.join(baseDir, 'src')).createSync(recursive: true);
-  final src = File(p.join(nitroNativePath, 'nitro.h'));
-  if (src.existsSync()) {
-    src.copySync(p.join(baseDir, 'src', 'nitro.h'));
-    if (Directory(p.join(baseDir, 'ios', 'Classes')).existsSync()) {
-      src.copySync(p.join(baseDir, 'ios', 'Classes', 'nitro.h'));
+  final srcFile = File(p.join(nitroNativePath, 'nitro.h'));
+
+  // If the source nitro.h is missing the required macros, update it first.
+  if (srcFile.existsSync()) {
+    final current = srcFile.readAsStringSync();
+    if (!current.contains('NITRO_EXPORT')) {
+      srcFile.writeAsStringSync(nitroHContent);
     }
+  } else {
+    // If it doesn't exist in the nitro package at all, create it.
+    try {
+      srcFile.createSync(recursive: true);
+      srcFile.writeAsStringSync(nitroHContent);
+    } catch (_) {
+      // Might not have write access to pub-cache; that's fine, we'll write to the local project.
+    }
+  }
+
+  // Always write the correct content to the local project directories.
+  File(p.join(baseDir, 'src', 'nitro.h')).writeAsStringSync(nitroHContent);
+  if (Directory(p.join(baseDir, 'ios', 'Classes')).existsSync()) {
+    File(p.join(baseDir, 'ios', 'Classes', 'nitro.h')).writeAsStringSync(nitroHContent);
   }
   File(p.join(baseDir, 'src', 'dart_api_dl.c')).writeAsStringSync(dartApiDlForwarderContent(nitroNativePath));
 }
@@ -354,6 +398,11 @@ void linkCMake(String pluginName, List<String> moduleLibs, String nitroNativePat
     content = content.replaceFirst('add_library($pluginName SHARED', 'add_library($pluginName SHARED\n  "dart_api_dl.c"');
     modified = true;
   }
+  final bridgeRel = '../lib/src/generated/cpp/$pluginName.bridge.g.cpp';
+  if (!content.contains(bridgeRel)) {
+    content = content.replaceFirst('add_library($pluginName SHARED', 'add_library($pluginName SHARED\n  "\${CMAKE_CURRENT_SOURCE_DIR}/$bridgeRel"');
+    modified = true;
+  }
   for (final lib in moduleLibs) {
     if (lib != pluginName && !content.contains('add_library($lib ')) {
       content += _cmakeModuleTarget(lib);
@@ -375,6 +424,7 @@ void generateCMake(String pluginName, List<String> moduleLibs, String nitroNativ
     ..writeln()
     ..writeln('add_library($pluginName SHARED')
     ..writeln('  "$pluginName.cpp"')
+    ..writeln('  "\${CMAKE_CURRENT_SOURCE_DIR}/../lib/src/generated/cpp/$pluginName.bridge.g.cpp"')
     ..writeln('  "dart_api_dl.c"')
     ..writeln(')')
     ..writeln('target_include_directories($pluginName PRIVATE')
@@ -410,9 +460,24 @@ void linkPodspec(String pluginName, List<String> moduleLibs, {String baseDir = '
     modified = true;
   }
   if (!content.contains('HEADER_SEARCH_PATHS')) {
-    content = content.replaceFirst(
-        's.pod_target_xcconfig = {', "s.pod_target_xcconfig = {\n    'HEADER_SEARCH_PATHS' => '\$(inherited) \"\${PODS_ROOT}/../.symlinks/plugins/nitro/src/native\"',");
+    content = content.replaceFirst('s.pod_target_xcconfig = {', "s.pod_target_xcconfig = {\n    'HEADER_SEARCH_PATHS' => '\$(inherited) \"\${PODS_ROOT}/../.symlinks/plugins/nitro/src/native\" \"\${PODS_TARGET_SRCROOT}/../src\" \"\${PODS_TARGET_SRCROOT}/../lib/src/generated/cpp\"',");
     modified = true;
+  } else {
+    // If it exists, ensure it has the src/ and generated/cpp/ paths.
+    if (!content.contains('PODS_TARGET_SRCROOT}/../src') || !content.contains('lib/src/generated/cpp')) {
+      final match = RegExp(r"'HEADER_SEARCH_PATHS'\s*=>\s*'([^']+)'").firstMatch(content);
+      if (match != null) {
+        var paths = match.group(1)!;
+        if (!paths.contains('PODS_TARGET_SRCROOT}/../src')) {
+          paths += ' "\${PODS_TARGET_SRCROOT}/../src"';
+        }
+        if (!paths.contains('lib/src/generated/cpp')) {
+          paths += ' "\${PODS_TARGET_SRCROOT}/../lib/src/generated/cpp"';
+        }
+        content = content.replaceFirst(match.group(0)!, "'HEADER_SEARCH_PATHS' => '$paths'");
+        modified = true;
+      }
+    }
   }
   if (!content.contains("'DEFINES_MODULE' => 'YES'")) {
     content = content.replaceFirst('s.pod_target_xcconfig = {', "s.pod_target_xcconfig = {\n    'DEFINES_MODULE' => 'YES',");
@@ -424,8 +489,31 @@ void linkPodspec(String pluginName, List<String> moduleLibs, {String baseDir = '
   final classesDir = Directory(p.join(baseDir, 'ios', 'Classes'))..createSync(recursive: true);
   File(p.join(classesDir.path, 'dart_api_dl.c')).writeAsStringSync('#include "../../src/dart_api_dl.c"\n');
   syncBridgeFiles(baseDir);
-  File(p.join(classesDir.path, '$pluginName.cpp')).writeAsStringSync('// Generated by nitrogen link — do not edit.\n');
+
+  // Link the main project source files.
+  final cppInSrc = File(p.join(baseDir, 'src', '$pluginName.cpp'));
+  if (cppInSrc.existsSync()) {
+    cleanRedundantIncludes(cppInSrc);
+    File(p.join(classesDir.path, '$pluginName.cpp'))
+        .writeAsStringSync('// Generated by nitrogen link — do not edit.\n#include "../../src/$pluginName.cpp"\n');
+  }
+  final cInSrc = File(p.join(baseDir, 'src', '$pluginName.c'));
+  if (cInSrc.existsSync()) {
+    cleanRedundantIncludes(cInSrc);
+    File(p.join(classesDir.path, '$pluginName.c')).writeAsStringSync('#include "../../src/$pluginName.c"\n');
+  }
+
   ensureIosPackageSwift(pluginName, baseDir: baseDir);
+}
+
+void cleanRedundantIncludes(File file) {
+  if (!file.existsSync()) return;
+  var content = file.readAsStringSync();
+  final regex = RegExp('#include\\s+["\'].*?\\.bridge\\.g\\.(cpp|c|mm)["\']', multiLine: true);
+  if (regex.hasMatch(content)) {
+    content = content.replaceAll(regex, '');
+    file.writeAsStringSync(content);
+  }
 }
 
 void linkSwiftPlugin(String pluginName, List<Map<String, String>> modules, {String baseDir = '.'}) {

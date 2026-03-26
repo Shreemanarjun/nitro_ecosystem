@@ -28,8 +28,8 @@ class CppHeaderGenerator {
     s.writeln();
 
     final libStem = spec.lib.replaceAll('-', '_');
-    s.writeln('NitroError* ${libStem}_get_error(void);');
-    s.writeln('void ${libStem}_clear_error(void);');
+    s.writeln('NITRO_EXPORT NitroError* ${libStem}_get_error(void);');
+    s.writeln('NITRO_EXPORT void ${libStem}_clear_error(void);');
     s.writeln();
     s.writeln();
     s.writeln();
@@ -52,7 +52,7 @@ class CppHeaderGenerator {
         }
         final params = paramParts.join(', ');
         final paramStr = params.isEmpty ? 'void' : params;
-        s.writeln('$ret ${func.cSymbol}($paramStr);');
+        s.writeln('NITRO_EXPORT $ret ${func.cSymbol}($paramStr);');
       }
       s.writeln();
     }
@@ -66,10 +66,10 @@ class CppHeaderGenerator {
         );
         final cType = isEnumProp ? 'int64_t' : _typeToC(prop.type.name);
         if (prop.hasGetter) {
-          s.writeln('$cType ${prop.getSymbol}(void);');
+          s.writeln('NITRO_EXPORT $cType ${prop.getSymbol}(void);');
         }
         if (prop.hasSetter) {
-          s.writeln('void ${prop.setSymbol}($cType value);');
+          s.writeln('NITRO_EXPORT void ${prop.setSymbol}($cType value);');
         }
       }
       s.writeln();
@@ -80,8 +80,8 @@ class CppHeaderGenerator {
       s.writeln('// Streams');
       for (final stream in spec.streams) {
         s.writeln('// Stream<${stream.itemType.name}> ${stream.dartName}');
-        s.writeln('void ${stream.registerSymbol}(int64_t dart_port);');
-        s.writeln('void ${stream.releaseSymbol}(int64_t dart_port);');
+        s.writeln('NITRO_EXPORT void ${stream.registerSymbol}(int64_t dart_port);');
+        s.writeln('NITRO_EXPORT void ${stream.releaseSymbol}(int64_t dart_port);');
       }
       s.writeln();
     }
