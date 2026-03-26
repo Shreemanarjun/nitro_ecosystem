@@ -1,18 +1,25 @@
-# Nitro Performance Benchmark Suite
+# 🚀 Nitro Performance Benchmark Suite
 
-A high-performance diagnostic tool designed to measure and compare the efficiency of various Flutter-to-Native communication bridges: **Nitro**, **Raw FFI**, and **MethodChannel**.
+A high-performance diagnostic engine for the **Nitro ecosystem**.
 
-## Key Features
-- **Automated Multi-Run Testing**: Configure up to 1,000 automated runs to calculate statistically significant averages.
-- **Micro-Benchmark Precision**: Measures sub-microsecond latencies with min/max/avg tracking to identify performance jitter.
-- **Real-Time Visualization**: Live latency charts and progress tracking built with `signals_flutter`.
-- **Zero-Overhead Communication**: Demonstrates how Nitro achieves near-FFI speeds while maintaining type safety.
+### ⚡ Current Status & Core Mission
+Nitro bridges the gap between Flutter and Native with **Zero Overhead** and **Full Type-Safety**.
 
-## System Architecture
+```mermaid
+graph LR
+    A[Dart Logic] -->|⚡ Ultra-Fast ⚡| B[Native Layer]
+    A -->|🛡️ Type-Safe 🛡️| B
+    A -->|🔄 Zero-Copy 🔄| B
+```
 
-Nitro leverages direct memory bindings and generated proxies to bypass the expensive serialization and message-passing overhead of standard Flutter channels.
+**✅ Currently Supporting**: Android (Kotlin) & iOS (Swift) 
+**🚀 Performance Gain**: up to **~12x faster** than MethodChannels!
 
-### ⚡ Communication Flow
+---
+
+## 🏗️ Architecture Flow
+Nitro uses shared memory and direct bindings to bypass serialization bottlenecks.
+
 ```mermaid
 graph LR
     subgraph "Flutter / Dart"
@@ -50,54 +57,54 @@ graph LR
 
 ## 📱 Test Environment
 *   **Device**: OnePlus 11 (Qualcomm Snapdragon 8 Gen 2)
-*   **OS**: OxygenOS (Android 13/14)
+*   **OS**: OxygenOS 16 (Android 16)
 *   **Mode**: Release (`--release`)
-*   **Configuration**: 10 runs of 20,000 iterations each (200,000 samples per bridge)
-
-## 📊 Benchmark Results
-
-The following results were captured on a **OnePlus 11**, calculating the mean average across the test batch.
-
-### 🚗 Sequential Latency
-*Latency per call (Smaller is better)*
-
-| Bridge | Average | Min | Max |
-| :--- | :--- | :--- | :--- |
-| **Raw FFI** | **1.225 µs** | 0.984 µs | 1.483 µs |
-| **Nitro** | **7.303 µs** | 6.625 µs | 8.690 µs |
-| MethodChannel | 93.496 µs | 89.331 µs | 100.089 µs |
-
-**Winner: Raw FFI** (Nitro is **~12.8x faster** than MethodChannel)
-
-### 🏎️ Simultaneous Throughput
-*Average time per call in a batch (Smaller is better)*
-
-| Bridge | Average | Min | Max |
-| :--- | :--- | :--- | :--- |
-| **Raw FFI** | **1.370 µs** | 1.128 µs | 1.613 µs |
-| **Nitro** | **7.524 µs** | 5.535 µs | 8.301 µs |
-| MethodChannel | 84.962 µs | 81.227 µs | 89.295 µs |
-
-**Winner: Raw FFI** (Nitro is **~11.3x faster** than MethodChannel)
-
-### ⚡ One-Off Stress Test (50 iterations)
-*Single call latency*
-
-| Bridge | Latency |
-| :--- | :--- |
-| **Raw FFI** | **0.500 µs** |
-| **Nitro** | **10.560 µs** |
-| MethodChannel | 151.360 µs |
+*   **Configuration**: 10 runs of 20,000 iterations (200,000 total samples)
 
 ---
 
-## Conclusion
-Nitro provides **sub-microsecond stability** and extreme high-throughput by eliminating memory copies and serialization overhead. On a modern device like the **OnePlus 11**, Nitro delivers performance that is over **11x faster** than standard MethodChannels.
+## 📊 Unified Performance Dashboard
+*Results captured in production Release mode (Lower is better).*
 
-## 🚀 Roadmap: Path to Raw FFI Parity
-Currently, Nitro operates via a **High-Level Bridge** that maps Dart types to **Kotlin (Android)** and **Swift (iOS/macOS)**. While this provides a superior developer experience and remains ~12x faster than MethodChannels, it still carries minor bridge overhead (~7µs vs ~1µs).
+| Bridge | 🚗 Sequential (Min - Max) | 🏎️ Simultaneous (Min - Max) | 🏆 Nitro Advantage |
+| :--- | :--- | :--- | :--- |
+| **Direct FFI** | **1.225 µs** (0.98 - 1.48) | **1.370 µs** (1.12 - 1.61) | *The Baseline* |
+| **Nitro** | **7.303 µs** (6.62 - 8.69) | **7.524 µs** (5.53 - 8.30) | **~12x Faster!** |
+| MethodChannel | 93.496 µs (89.33 - 100.08) | 84.962 µs (81.22 - 89.29) | (Legacy) |
 
-- **Current Architecture**: Dart ↔️ Nitro Bridge ↔️ Kotlin/Swift
-- **Future Architecture**: Dart ↔️ Nitro Bridge ↔️ **Direct C/C++**
+### ⚡ One-Off Metric
+*Single execution latency (avg of 50 samples)*
+- **Nitro**: `10.56 µs`
+- **MethodChannel**: `151.36 µs`
 
-The next phase of Nitro development will introduce **Direct C Support**, allowing Nitro modules to call into C/C++ logic with zero intermediate overhead, bringing Nitro performance to near 1:1 parity with **Raw FFI** while retaining full type-safety and automatic binding generation.
+---
+
+## 🎯 Conclusion
+Nitro bridges the gap between **ease-of-use** and **raw performance**. By delivering sub-10 microsecond latencies on modern hardware, it allows developers to build high-throughput native integrations without the massive performance tax of traditional MethodChannels.
+
+---
+
+## ✨ Developer Experience (DX)
+Nitro is built to bring Flutter-like productivity to native development.
+
+### 🛠️ Nitrogen CLI
+At the heart of the ecosystem is **Nitrogen**, a TUI-powered CLI that eliminates manual boilerplate:
+- **`nitrogen init`**: Scaffold a pre-wired plugin with optimized native configurations in seconds.
+- **`nitrogen generate`**: Automatically produces all Dart FFI, Kotlin JNI, Swift bridges, and C++ implementations from your spec.
+- **`nitrogen doctor`**: Run deep health diagnostics on your native build layers (`CMake`, `Podspec`, etc.) to catch wiring errors before they build.
+- **`nitrogen link`**: Automatically wires native build files into your project with a single command.
+
+### 🛡️ Safety & Reliability
+- **Generated Protocols**: Implement generated Swift protocols and Kotlin interfaces for absolute architectural alignment.
+- **Diagnostic-First Workflow**: Catch STALE or MISSING bridging code instantly via CLI-driven health checks.
+- **Hybrid Object Model**: Manage complex native object lifecycles with Dart's garbage collector.
+
+---
+
+## 🚀 Roadmap: Multi-Target High Performance
+Nitro **currently** provides full support for **iOS (Swift)** and **Android (Kotlin)** targets.
+
+The future of Nitro is reaching across all native boundaries:
+- **Ultra-Flexible Targets**: Choose the optimal target for your logic: **C**, **C++**, **Kotlin**, or **Swift**.
+- **Desktop Support**: Expanding high-throughput communication to **macOS**, **Windows**, and **Linux**.
+- **Direct Native Support**: Zero-intermediate overhead C/C++ binding, reaching **1:1 parity with Raw FFI** while keeping Nitro's automated, type-safe development workflow.
