@@ -4,325 +4,155 @@
 #include <stdbool.h>
 #include <string.h>
 #include <stdlib.h>
+#include "nitro.h"
 #include "dart_api_dl.h"
 #include "verification.bridge.g.h"
 
-extern "C" {
-intptr_t verification_init_dart_api_dl(void* data) {
-    return Dart_InitializeApiDL(data);
-}
-}
-static thread_local NitroError g_nitro_error = { 0, nullptr, nullptr, nullptr, nullptr };
+#ifndef NITRO_VERIFICATION_LIB_INIT_DEFINED
+#define NITRO_VERIFICATION_LIB_INIT_DEFINED
+
+static thread_local NitroError g_nitro_error_verification = { 0, nullptr, nullptr, nullptr, nullptr };
 
 extern "C" {
-NitroError* verification_get_error() { return &g_nitro_error; }
-void verification_clear_error() {
-    g_nitro_error.hasError = 0;
-    if (g_nitro_error.name) { free((void*)g_nitro_error.name); g_nitro_error.name = nullptr; }
-    if (g_nitro_error.message) { free((void*)g_nitro_error.message); g_nitro_error.message = nullptr; }
-    if (g_nitro_error.code) { free((void*)g_nitro_error.code); g_nitro_error.code = nullptr; }
-    if (g_nitro_error.stackTrace) { free((void*)g_nitro_error.stackTrace); g_nitro_error.stackTrace = nullptr; }
+intptr_t verification_init_dart_api_dl(void* data) { return Dart_InitializeApiDL(data); }
+NitroError* verification_get_error(void) { return &g_nitro_error_verification; }
+void verification_clear_error(void) {
+    auto& e = g_nitro_error_verification;
+    e.hasError = 0;
+    if (e.name)       { free((void*)e.name);       e.name = nullptr; }
+    if (e.message)    { free((void*)e.message);    e.message = nullptr; }
+    if (e.code)       { free((void*)e.code);       e.code = nullptr; }
+    if (e.stackTrace) { free((void*)e.stackTrace); e.stackTrace = nullptr; }
 }
+} // extern "C" (lib-level)
 
-static void nitro_report_error(const char* name, const char* message, const char* code, const char* stack) {
+static void nitro_report_error_verification(const char* name, const char* message, const char* code, const char* stack) {
     verification_clear_error();
-    g_nitro_error.hasError = 1;
-    g_nitro_error.name = name ? strdup(name) : strdup("NativeException");
-    g_nitro_error.message = message ? strdup(message) : strdup("An unknown native exception occurred.");
-    g_nitro_error.code = code ? strdup(code) : nullptr;
-    g_nitro_error.stackTrace = stack ? strdup(stack) : nullptr;
-}
+    auto& e = g_nitro_error_verification;
+    e.hasError = 1;
+    e.name       = name    ? strdup(name)    : strdup("NativeException");
+    e.message    = message ? strdup(message) : strdup("An unknown native exception occurred.");
+    e.code       = code  ? strdup(code)  : nullptr;
+    e.stackTrace = stack ? strdup(stack) : nullptr;
 }
 
 #ifdef __ANDROID__
 #include <jni.h>
 #include <android/log.h>
 #define LOGE(...) __android_log_print(ANDROID_LOG_ERROR, "Nitrogen", __VA_ARGS__)
-
-static JavaVM* g_jvm = nullptr;
-static jclass g_bridgeClass = nullptr;
-
-// ── Cached JNI IDs (initialized once in JNI_OnLoad, safe to use from any thread) ──
-static jmethodID g_exc_getName = nullptr;
-static jmethodID g_exc_getMessage = nullptr;
-static jmethodID g_mid_multiply_call = nullptr;
-static jmethodID g_mid_ping_call = nullptr;
-static jmethodID g_mid_pingAsync_call = nullptr;
-static jmethodID g_mid_throwError_call = nullptr;
-static jmethodID g_mid_processFloats_call = nullptr;
-static jclass g_cls_FloatBuffer = nullptr;
-static jmethodID g_ctor_FloatBuffer = nullptr;
-static jfieldID g_fid_FloatBuffer_data = nullptr;
-static jfieldID g_fid_FloatBuffer_length = nullptr;
-
-// RAII guard: auto-detaches a thread from the JVM when it exits.
-// One instance is stored in thread-local storage; its destructor fires
-// when the thread terminates, ensuring no JVM thread descriptor leaks.
-struct NitroJniThreadGuard {
+static JavaVM* g_jvm_verification = nullptr;
+struct NitroJniThreadGuard_verification {
     bool attached = false;
-    ~NitroJniThreadGuard() {
-        if (attached && g_jvm != nullptr) {
-            g_jvm->DetachCurrentThread();
-        }
+    ~NitroJniThreadGuard_verification() {
+        if (attached && g_jvm_verification) g_jvm_verification->DetachCurrentThread();
     }
 };
-static thread_local NitroJniThreadGuard g_thread_guard;
-
-static void nitro_report_jni_exception(JNIEnv* env, jthrowable ex) {
-    // MUST clear the pending exception before making any further JNI calls.
-    // JNI aborts if any JNI function (e.g. GetObjectClass) is called while
-    // an exception is still pending.
-    env->ExceptionClear();
-    jclass ex_class = env->GetObjectClass(ex);
-    jstring j_name = (jstring)env->CallObjectMethod(ex_class, g_exc_getName);
-    const char* name = (j_name != nullptr) ? env->GetStringUTFChars(j_name, 0) : "JavaException";
-
-    jstring j_msg = (jstring)env->CallObjectMethod(ex, g_exc_getMessage);
-    const char* msg = (j_msg != nullptr) ? env->GetStringUTFChars(j_msg, 0) : "No message provided";
-
-    nitro_report_error(name, msg, nullptr, nullptr);
-
-    if (j_name) env->ReleaseStringUTFChars(j_name, name);
-    if (j_msg) env->ReleaseStringUTFChars(j_msg, msg);
-    env->DeleteLocalRef(ex);
-}
-
-static FloatBuffer pack_FloatBuffer_from_jni(JNIEnv* env, jobject obj) {
-    FloatBuffer result;
-    jobject buf_data = env->GetObjectField(obj, g_fid_FloatBuffer_data);
-    if (buf_data == nullptr) {
-        jclass npe = env->FindClass("java/lang/NullPointerException");
-        if (npe) env->ThrowNew(npe, "FloatBuffer.data: TypedData ByteBuffer is null");
-        return result;
-    }
-    result.data = (float*)env->GetDirectBufferAddress(buf_data);
-    result.length = env->GetLongField(obj, g_fid_FloatBuffer_length);
-    return result;
-}
-static jobject unpack_FloatBuffer_to_jni(JNIEnv* env, const FloatBuffer* st) {
-    return env->NewObject(g_cls_FloatBuffer, g_ctor_FloatBuffer, env->NewDirectByteBuffer((void*)st->data, st->length * sizeof(float)), (jlong)st->length);
-}
-
-extern "C" {
-
-JNIEXPORT jint JNICALL JNI_OnLoad(JavaVM* vm, void* reserved) {
-    g_jvm = vm;
-    __android_log_print(ANDROID_LOG_INFO, "Nitrogen", "JNI_OnLoad called for verification");
+static thread_local NitroJniThreadGuard_verification g_thread_guard_verification;
+static JNIEnv* verification_GetEnv() {
+    if (!g_jvm_verification) return nullptr;
     JNIEnv* env = nullptr;
-    if (vm->GetEnv(reinterpret_cast<void**>(&env), JNI_VERSION_1_6) != JNI_OK) {
-        return -1;
-    }
-    jclass localClass = env->FindClass("nitro/verification_module/VerificationModuleJniBridge");
-    if (localClass != nullptr) {
-        g_bridgeClass = (jclass)env->NewGlobalRef(localClass);
-        env->DeleteLocalRef(localClass);
-    } else {
-        LOGE("Failed to find JniBridge class");
-    }
-
-    // Cache exception introspection method IDs
-    {
-        jclass cls_class = env->FindClass("java/lang/Class");
-        if (cls_class) { g_exc_getName = env->GetMethodID(cls_class, "getName", "()Ljava/lang/String;"); env->DeleteLocalRef(cls_class); }
-        jclass throwable_class = env->FindClass("java/lang/Throwable");
-        if (throwable_class) { g_exc_getMessage = env->GetMethodID(throwable_class, "getMessage", "()Ljava/lang/String;"); env->DeleteLocalRef(throwable_class); }
-    }
-
-    // Cache bridge method IDs
-    if (g_bridgeClass != nullptr) {
-        g_mid_multiply_call = env->GetStaticMethodID(g_bridgeClass, "multiply_call", "(DD)D");
-        g_mid_ping_call = env->GetStaticMethodID(g_bridgeClass, "ping_call", "(Ljava/lang/String;)Ljava/lang/String;");
-        g_mid_pingAsync_call = env->GetStaticMethodID(g_bridgeClass, "pingAsync_call", "(Ljava/lang/String;)Ljava/lang/String;");
-        g_mid_throwError_call = env->GetStaticMethodID(g_bridgeClass, "throwError_call", "(Ljava/lang/String;)V");
-        g_mid_processFloats_call = env->GetStaticMethodID(g_bridgeClass, "processFloats_call", "(Ljava/nio/ByteBuffer;)Lnitro/verification_module/FloatBuffer;");
-    }
-
-    // Cache struct class + ctor + field IDs
-    {
-        jclass local_cls_FloatBuffer = env->FindClass("nitro/verification_module/FloatBuffer");
-        if (local_cls_FloatBuffer != nullptr) {
-            g_cls_FloatBuffer = (jclass)env->NewGlobalRef(local_cls_FloatBuffer);
-            env->DeleteLocalRef(local_cls_FloatBuffer);
-            g_ctor_FloatBuffer = env->GetMethodID(g_cls_FloatBuffer, "<init>", "(Ljava/nio/ByteBuffer;J)V");
-            g_fid_FloatBuffer_data = env->GetFieldID(g_cls_FloatBuffer, "data", "Ljava/nio/ByteBuffer;");
-            g_fid_FloatBuffer_length = env->GetFieldID(g_cls_FloatBuffer, "length", "J");
-        }
-    }
-
-    return JNI_VERSION_1_6;
-}
-
-static JNIEnv* GetEnv() {
-    if (g_jvm == nullptr) return nullptr;
-    JNIEnv* env = nullptr;
-    int status = g_jvm->GetEnv(reinterpret_cast<void**>(&env), JNI_VERSION_1_6);
-    if (status == JNI_EDETACHED) {
-        g_jvm->AttachCurrentThread(&env, nullptr);
-        g_thread_guard.attached = true; // will DetachCurrentThread on thread exit
+    if (g_jvm_verification->GetEnv(reinterpret_cast<void**>(&env), JNI_VERSION_1_6) == JNI_EDETACHED) {
+        g_jvm_verification->AttachCurrentThread(&env, nullptr);
+        g_thread_guard_verification.attached = true;
     }
     return env;
 }
+extern "C" {
+JNIEXPORT jint JNICALL JNI_OnLoad(JavaVM* vm, void* reserved) {
+    g_jvm_verification = vm;
+    return JNI_VERSION_1_6;
+}
+} // extern "C" (JNI_OnLoad)
+#endif // __ANDROID__
+#endif // NITRO_VERIFICATION_LIB_INIT_DEFINED
 
+#ifdef __ANDROID__
+static jclass g_verification_bridge_class = nullptr;
+static jmethodID g_verification_multiply_mid = nullptr;
+static jmethodID g_verification_ping_mid = nullptr;
+static jmethodID g_verification_pingAsync_mid = nullptr;
+static jmethodID g_verification_throwError_mid = nullptr;
+static jmethodID g_verification_processFloats_mid = nullptr;
+
+extern "C" JNIEXPORT void JNICALL Java_nitro_verification_1module_VerificationModuleJniBridge_initialize(JNIEnv* env, jclass clazz, jclass bridgeClass) {
+    if (g_verification_bridge_class) return;
+    g_verification_bridge_class = (jclass)env->NewGlobalRef(bridgeClass);
+    g_verification_multiply_mid = env->GetStaticMethodID(g_verification_bridge_class, "multiply_call", "(DD)D");
+    g_verification_ping_mid = env->GetStaticMethodID(g_verification_bridge_class, "ping_call", "(Ljava/lang/String;)Ljava/lang/String;");
+    g_verification_pingAsync_mid = env->GetStaticMethodID(g_verification_bridge_class, "pingAsync_call", "(Ljava/lang/String;)Ljava/lang/String;");
+    g_verification_throwError_mid = env->GetStaticMethodID(g_verification_bridge_class, "throwError_call", "(Ljava/lang/String;)V");
+    g_verification_processFloats_mid = env->GetStaticMethodID(g_verification_bridge_class, "processFloats_call", "(Ljava/lang/Object;)Ljava/lang/Object;");
+}
+#endif // __ANDROID__
+
+#ifdef __ANDROID__
+extern "C" {
 double verification_module_multiply(double a, double b) {
-    JNIEnv* env = GetEnv();
-    if (env == nullptr) return 0.0;
-    jmethodID methodId = g_mid_multiply_call;
-    if (methodId == nullptr) { LOGE("Method not found"); return 0.0; }
-
     verification_clear_error();
-    double res = env->CallStaticDoubleMethod(g_bridgeClass, methodId, a, b);
-    if (env->ExceptionCheck()) { nitro_report_jni_exception(env, env->ExceptionOccurred()); return 0.0; }
-    return res;
+    JNIEnv* env = verification_GetEnv();
+    if (!env || !g_verification_multiply_mid) return 0.0;
+    return env->CallStaticDoubleMethod(g_verification_bridge_class, g_verification_multiply_mid, a, b);
 }
 
 const char* verification_module_ping(const char* message) {
-    JNIEnv* env = GetEnv();
-    if (env == nullptr) return nullptr;
-    jmethodID methodId = g_mid_ping_call;
-    if (methodId == nullptr) { LOGE("Method not found"); return nullptr; }
-
     verification_clear_error();
-    jstring j_message = env->NewStringUTF(message);
-    jstring jstr = (jstring)env->CallStaticObjectMethod(g_bridgeClass, methodId, j_message);
-    if (env->ExceptionCheck()) { nitro_report_jni_exception(env, env->ExceptionOccurred()); return nullptr; }
-    if (jstr == nullptr) return nullptr;
-    const char* nativeStr = env->GetStringUTFChars(jstr, 0);
-    char* result = strdup(nativeStr);
-    env->ReleaseStringUTFChars(jstr, nativeStr);
-    env->DeleteLocalRef(j_message);
-    env->DeleteLocalRef(jstr);
-    return result;
+    JNIEnv* env = verification_GetEnv();
+    if (!env || !g_verification_ping_mid) return nullptr;
+    return (const char*)env->GetStringUTFChars((jstring)env->CallStaticObjectMethod(g_verification_bridge_class, g_verification_ping_mid, message), nullptr);
 }
 
 const char* verification_module_ping_async(const char* message) {
-    JNIEnv* env = GetEnv();
-    if (env == nullptr) return nullptr;
-    jmethodID methodId = g_mid_pingAsync_call;
-    if (methodId == nullptr) { LOGE("Method not found"); return nullptr; }
-
     verification_clear_error();
-    jstring j_message = env->NewStringUTF(message);
-    jstring jstr = (jstring)env->CallStaticObjectMethod(g_bridgeClass, methodId, j_message);
-    if (env->ExceptionCheck()) { nitro_report_jni_exception(env, env->ExceptionOccurred()); return nullptr; }
-    if (jstr == nullptr) return nullptr;
-    const char* nativeStr = env->GetStringUTFChars(jstr, 0);
-    char* result = strdup(nativeStr);
-    env->ReleaseStringUTFChars(jstr, nativeStr);
-    env->DeleteLocalRef(j_message);
-    env->DeleteLocalRef(jstr);
-    return result;
+    JNIEnv* env = verification_GetEnv();
+    if (!env || !g_verification_pingAsync_mid) return nullptr;
+    return (const char*)env->GetStringUTFChars((jstring)env->CallStaticObjectMethod(g_verification_bridge_class, g_verification_pingAsync_mid, message), nullptr);
 }
 
 void verification_module_throw_error(const char* message) {
-    JNIEnv* env = GetEnv();
-    if (env == nullptr) return;
-    jmethodID methodId = g_mid_throwError_call;
-    if (methodId == nullptr) { LOGE("Method not found"); return; }
-
     verification_clear_error();
-    jstring j_message = env->NewStringUTF(message);
-    env->CallStaticVoidMethod(g_bridgeClass, methodId, j_message);
-    if (env->ExceptionCheck()) { nitro_report_jni_exception(env, env->ExceptionOccurred()); }
+    JNIEnv* env = verification_GetEnv();
+    if (!env || !g_verification_throwError_mid) return ;
+    env->CallStaticVoidMethod(g_verification_bridge_class, g_verification_throwError_mid, message);
 }
 
 void* verification_module_process_floats(float* inputs, int64_t inputs_length) {
-    JNIEnv* env = GetEnv();
-    if (env == nullptr) return nullptr;
-    jmethodID methodId = g_mid_processFloats_call;
-    if (methodId == nullptr) { LOGE("Method not found"); return nullptr; }
-
     verification_clear_error();
-    jobject j_inputs = env->NewDirectByteBuffer(inputs, inputs_length * sizeof(float));
-    jobject jobj = env->CallStaticObjectMethod(g_bridgeClass, methodId, j_inputs);
-    if (env->ExceptionCheck()) { nitro_report_jni_exception(env, env->ExceptionOccurred()); return nullptr; }
-    if (jobj == nullptr) return nullptr;
-    FloatBuffer* result = (FloatBuffer*)malloc(sizeof(FloatBuffer));
-    *result = pack_FloatBuffer_from_jni(env, jobj);
-    env->DeleteLocalRef(jobj);
-    return result;
-}
-
-JNIEXPORT void JNICALL Java_nitro_verification_1module_VerificationModuleJniBridge_initialize(JNIEnv* env, jobject thiz, jclass bridgeClass) {
-    if (g_bridgeClass == nullptr) {
-        g_bridgeClass = (jclass)env->NewGlobalRef(bridgeClass);
-    }
+    JNIEnv* env = verification_GetEnv();
+    if (!env || !g_verification_processFloats_mid) return nullptr;
+    return env->CallStaticObjectMethod(g_verification_bridge_class, g_verification_processFloats_mid, inputs);
 }
 
 } // extern "C"
-#elif __APPLE__
+#elif defined(__APPLE__)
 extern "C" {
-extern double _call_multiply(double a, double b);
 double verification_module_multiply(double a, double b) {
     verification_clear_error();
-#ifdef __OBJC__
-    @try {
-        return _call_multiply(a, b);
-    } @catch (NSException* e) {
-        nitro_report_error([e.name UTF8String], [e.reason UTF8String], nullptr, nullptr);
-        return 0.0;
-    }
-#else
-    return _call_multiply(a, b);
-#endif
+    extern "C" double NitroSwift_verification_module_multiply(double a, double b);
+    return NitroSwift_verification_module_multiply(a, b);
 }
 
-extern const char* _call_ping(const char* message);
 const char* verification_module_ping(const char* message) {
     verification_clear_error();
-#ifdef __OBJC__
-    @try {
-        return _call_ping(message);
-    } @catch (NSException* e) {
-        nitro_report_error([e.name UTF8String], [e.reason UTF8String], nullptr, nullptr);
-        return nullptr;
-    }
-#else
-    return _call_ping(message);
-#endif
+    extern "C" const char* NitroSwift_verification_module_ping(const char* message);
+    return NitroSwift_verification_module_ping(message);
 }
 
-extern const char* _call_pingAsync(const char* message);
 const char* verification_module_ping_async(const char* message) {
     verification_clear_error();
-#ifdef __OBJC__
-    @try {
-        return _call_pingAsync(message);
-    } @catch (NSException* e) {
-        nitro_report_error([e.name UTF8String], [e.reason UTF8String], nullptr, nullptr);
-        return nullptr;
-    }
-#else
-    return _call_pingAsync(message);
-#endif
+    extern "C" const char* NitroSwift_verification_module_ping_async(const char* message);
+    return NitroSwift_verification_module_ping_async(message);
 }
 
-extern void _call_throwError(const char* message);
 void verification_module_throw_error(const char* message) {
     verification_clear_error();
-#ifdef __OBJC__
-    @try {
-        _call_throwError(message);
-    } @catch (NSException* e) {
-        nitro_report_error([e.name UTF8String], [e.reason UTF8String], nullptr, nullptr);
-    }
-#else
-    _call_throwError(message);
-#endif
+    extern "C" void NitroSwift_verification_module_throw_error(const char* message);
+    NitroSwift_verification_module_throw_error(message);
 }
 
-extern void* _call_processFloats(float* inputs, int64_t inputs_length);
 void* verification_module_process_floats(float* inputs, int64_t inputs_length) {
     verification_clear_error();
-#ifdef __OBJC__
-    @try {
-        return _call_processFloats(inputs, inputs_length);
-    } @catch (NSException* e) {
-        nitro_report_error([e.name UTF8String], [e.reason UTF8String], nullptr, nullptr);
-        return nullptr;
-    }
-#else
-    return _call_processFloats(inputs, inputs_length);
-#endif
+    extern "C" void* NitroSwift_verification_module_process_floats(float* inputs, int64_t inputs_length);
+    return NitroSwift_verification_module_process_floats(inputs);
 }
 
 } // extern "C"

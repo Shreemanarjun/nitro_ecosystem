@@ -8,10 +8,10 @@ extern "C" {
 
 typedef struct {
   int8_t hasError;
-  const char* name;
-  const char* message;
-  const char* code;
-  const char* stackTrace;
+  const char *name;
+  const char *message;
+  const char *code;
+  const char *stackTrace;
 } NitroError;
 
 #ifdef __cplusplus

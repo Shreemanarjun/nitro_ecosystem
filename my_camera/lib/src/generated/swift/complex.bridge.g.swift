@@ -56,14 +56,14 @@ public class ComplexModuleRegistry {
 
 // MARK: - C bridge stubs — exported as C symbols called by the generated .cpp shim
 
-@_cdecl("_call_calculate")
-public func _call_calculate(_ seed: Int64, _ factor: Double, _ enabled: Int8) -> Int64 {
+@_cdecl("NitroSwift_complex_module_calculate")
+public func NitroSwift_complex_module_calculate(_ seed: Int64, _ factor: Double, _ enabled: Int8) -> Int64 {
     guard let impl = ComplexModuleRegistry.impl else { return 0 }
     return impl.calculate(seed: seed, factor: factor, enabled: enabled != 0)
 }
 
-@_cdecl("_call_fetchMetadata")
-public func _call_fetchMetadata(_ url: UnsafePointer<CChar>?) -> UnsafeMutablePointer<CChar>? {
+@_cdecl("NitroSwift_complex_module_fetch_metadata")
+public func NitroSwift_complex_module_fetch_metadata(_ url: UnsafePointer<CChar>?) -> UnsafeMutablePointer<CChar>? {
     let urlStr = url.map { String(cString: $0) } ?? ""
     guard let impl = ComplexModuleRegistry.impl else { return strdup("") }
     let sema = DispatchSemaphore(value: 0)
@@ -76,19 +76,19 @@ public func _call_fetchMetadata(_ url: UnsafePointer<CChar>?) -> UnsafeMutablePo
     return strdup(result)
 }
 
-@_cdecl("_call_getStatus")
-public func _call_getStatus() -> Int64 {
+@_cdecl("NitroSwift_complex_module_get_status")
+public func NitroSwift_complex_module_get_status() -> Int64 {
     guard let impl = ComplexModuleRegistry.impl else { return 0 }
     return impl.getStatus().rawValue
 }
 
-@_cdecl("_call_updateSensors")
-public func _call_updateSensors(_ data: UnsafeRawPointer?) -> Void {
+@_cdecl("NitroSwift_complex_module_update_sensors")
+public func NitroSwift_complex_module_update_sensors(_ data: UnsafeRawPointer?) -> Void {
     ComplexModuleRegistry.impl?.updateSensors(data: data!.assumingMemoryBound(to: SensorData.self).pointee)
 }
 
-@_cdecl("_call_generatePacket")
-public func _call_generatePacket(_ type: Int64) -> UnsafeMutableRawPointer? {
+@_cdecl("NitroSwift_complex_module_generate_packet")
+public func NitroSwift_complex_module_generate_packet(_ type: Int64) -> UnsafeMutableRawPointer? {
     guard let impl = ComplexModuleRegistry.impl else { return nil }
     let sema = DispatchSemaphore(value: 0)
     var result: Packet? = nil
@@ -103,13 +103,13 @@ public func _call_generatePacket(_ type: Int64) -> UnsafeMutableRawPointer? {
     return UnsafeMutableRawPointer(ptr)
 }
 
-@_cdecl("_call_get_batteryLevel")
-public func _call_get_batteryLevel() -> Double {
+@_cdecl("NitroSwift_complex_module_get_battery_level")
+public func NitroSwift_complex_module_get_battery_level() -> Double {
     return ComplexModuleRegistry.impl?.batteryLevel ?? 0.0
 }
 
-@_cdecl("_call_set_config")
-public func _call_set_config(_ value: UnsafePointer<CChar>?) {
+@_cdecl("NitroSwift_complex_module_set_config")
+public func NitroSwift_complex_module_set_config(_ value: UnsafePointer<CChar>?) {
     ComplexModuleRegistry.impl?.config = value.map { String(cString: $0) } ?? ""
 }
 

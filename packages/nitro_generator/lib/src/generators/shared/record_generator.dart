@@ -1,4 +1,4 @@
-import '../bridge_spec.dart';
+import '../../bridge_spec.dart';
 
 /// Generates binary encode/decode extension methods for every @HybridRecord
 /// type declared in the spec.  The output is written into the `.g.dart` part

@@ -210,14 +210,14 @@ public class MyCameraRegistry {
 
 // MARK: - C bridge stubs — exported as C symbols called by the generated .cpp shim
 
-@_cdecl("_call_add")
-public func _call_add(_ a: Double, _ b: Double) -> Double {
+@_cdecl("NitroSwift_my_camera_add")
+public func NitroSwift_my_camera_add(_ a: Double, _ b: Double) -> Double {
     guard let impl = MyCameraRegistry.impl else { return 0.0 }
     return impl.add(a: a, b: b)
 }
 
-@_cdecl("_call_getGreeting")
-public func _call_getGreeting(_ name: UnsafePointer<CChar>?) -> UnsafeMutablePointer<CChar>? {
+@_cdecl("NitroSwift_my_camera_get_greeting")
+public func NitroSwift_my_camera_get_greeting(_ name: UnsafePointer<CChar>?) -> UnsafeMutablePointer<CChar>? {
     let nameStr = name.map { String(cString: $0) } ?? ""
     guard let impl = MyCameraRegistry.impl else { return strdup("") }
     let sema = DispatchSemaphore(value: 0)
@@ -230,8 +230,8 @@ public func _call_getGreeting(_ name: UnsafePointer<CChar>?) -> UnsafeMutablePoi
     return strdup(result)
 }
 
-@_cdecl("_call_getAvailableDevices")
-public func _call_getAvailableDevices() -> UnsafeMutablePointer<UInt8>? {
+@_cdecl("NitroSwift_my_camera_get_available_devices")
+public func NitroSwift_my_camera_get_available_devices() -> UnsafeMutablePointer<UInt8>? {
     guard let impl = MyCameraRegistry.impl else { return nil }
     let sema = DispatchSemaphore(value: 0)
     var result: [CameraDevice]? = nil

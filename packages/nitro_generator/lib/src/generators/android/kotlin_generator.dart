@@ -1,7 +1,7 @@
-import '../bridge_spec.dart';
-import 'struct_generator.dart';
-import 'enum_generator.dart';
-import 'record_generator.dart';
+import '../../bridge_spec.dart';
+import '../shared/struct_generator.dart';
+import '../shared/enum_generator.dart';
+import '../shared/record_generator.dart';
 
 class KotlinGenerator {
   static String generate(BridgeSpec spec) {

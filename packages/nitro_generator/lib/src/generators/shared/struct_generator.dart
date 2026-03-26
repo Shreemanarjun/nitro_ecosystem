@@ -1,4 +1,4 @@
-import '../bridge_spec.dart';
+import '../../bridge_spec.dart';
 
 /// Field names that are treated as the byte-length of a zero-copy Uint8List sibling.
 const _kLengthFieldNames = {

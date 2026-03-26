@@ -4,1047 +4,515 @@
 #include <stdbool.h>
 #include <string.h>
 #include <stdlib.h>
+#include "nitro.h"
 #include "dart_api_dl.h"
 #include "nitro_camera.bridge.g.h"
 
-extern "C" {
-intptr_t nitro_camera_init_dart_api_dl(void* data) {
-    return Dart_InitializeApiDL(data);
-}
-}
-static thread_local NitroError g_nitro_error = { 0, nullptr, nullptr, nullptr, nullptr };
+#ifndef NITRO_NITRO_CAMERA_LIB_INIT_DEFINED
+#define NITRO_NITRO_CAMERA_LIB_INIT_DEFINED
+
+static thread_local NitroError g_nitro_error_nitro_camera = { 0, nullptr, nullptr, nullptr, nullptr };
 
 extern "C" {
-NitroError* nitro_camera_get_error() { return &g_nitro_error; }
-void nitro_camera_clear_error() {
-    g_nitro_error.hasError = 0;
-    if (g_nitro_error.name) { free((void*)g_nitro_error.name); g_nitro_error.name = nullptr; }
-    if (g_nitro_error.message) { free((void*)g_nitro_error.message); g_nitro_error.message = nullptr; }
-    if (g_nitro_error.code) { free((void*)g_nitro_error.code); g_nitro_error.code = nullptr; }
-    if (g_nitro_error.stackTrace) { free((void*)g_nitro_error.stackTrace); g_nitro_error.stackTrace = nullptr; }
+intptr_t nitro_camera_init_dart_api_dl(void* data) { return Dart_InitializeApiDL(data); }
+NitroError* nitro_camera_get_error(void) { return &g_nitro_error_nitro_camera; }
+void nitro_camera_clear_error(void) {
+    auto& e = g_nitro_error_nitro_camera;
+    e.hasError = 0;
+    if (e.name)       { free((void*)e.name);       e.name = nullptr; }
+    if (e.message)    { free((void*)e.message);    e.message = nullptr; }
+    if (e.code)       { free((void*)e.code);       e.code = nullptr; }
+    if (e.stackTrace) { free((void*)e.stackTrace); e.stackTrace = nullptr; }
 }
+} // extern "C" (lib-level)
 
-static void nitro_report_error(const char* name, const char* message, const char* code, const char* stack) {
+static void nitro_report_error_nitro_camera(const char* name, const char* message, const char* code, const char* stack) {
     nitro_camera_clear_error();
-    g_nitro_error.hasError = 1;
-    g_nitro_error.name = name ? strdup(name) : strdup("NativeException");
-    g_nitro_error.message = message ? strdup(message) : strdup("An unknown native exception occurred.");
-    g_nitro_error.code = code ? strdup(code) : nullptr;
-    g_nitro_error.stackTrace = stack ? strdup(stack) : nullptr;
-}
+    auto& e = g_nitro_error_nitro_camera;
+    e.hasError = 1;
+    e.name       = name    ? strdup(name)    : strdup("NativeException");
+    e.message    = message ? strdup(message) : strdup("An unknown native exception occurred.");
+    e.code       = code  ? strdup(code)  : nullptr;
+    e.stackTrace = stack ? strdup(stack) : nullptr;
 }
 
 #ifdef __ANDROID__
 #include <jni.h>
 #include <android/log.h>
 #define LOGE(...) __android_log_print(ANDROID_LOG_ERROR, "Nitrogen", __VA_ARGS__)
-
-static JavaVM* g_jvm = nullptr;
-static jclass g_bridgeClass = nullptr;
-
-// ── Cached JNI IDs (initialized once in JNI_OnLoad, safe to use from any thread) ──
-static jmethodID g_exc_getName = nullptr;
-static jmethodID g_exc_getMessage = nullptr;
-static jmethodID g_mid_requestCameraPermission_call = nullptr;
-static jmethodID g_mid_getCameraPermissionStatus_call = nullptr;
-static jmethodID g_mid_requestMicrophonePermission_call = nullptr;
-static jmethodID g_mid_getMicrophonePermissionStatus_call = nullptr;
-static jmethodID g_mid_getAvailableCameraDevicesJson_call = nullptr;
-static jmethodID g_mid_getDeviceCount_call = nullptr;
-static jmethodID g_mid_getDevice_call = nullptr;
-static jmethodID g_mid_openCamera_call = nullptr;
-static jmethodID g_mid_closeCamera_call = nullptr;
-static jmethodID g_mid_startPreview_call = nullptr;
-static jmethodID g_mid_stopPreview_call = nullptr;
-static jmethodID g_mid_setZoom_call = nullptr;
-static jmethodID g_mid_setFocusPoint_call = nullptr;
-static jmethodID g_mid_setAutoFocus_call = nullptr;
-static jmethodID g_mid_setExposure_call = nullptr;
-static jmethodID g_mid_setFlash_call = nullptr;
-static jmethodID g_mid_setTorch_call = nullptr;
-static jmethodID g_mid_setWhiteBalance_call = nullptr;
-static jmethodID g_mid_setHdr_call = nullptr;
-static jmethodID g_mid_takePhoto_call = nullptr;
-static jmethodID g_mid_startVideoRecording_call = nullptr;
-static jmethodID g_mid_stopVideoRecording_call = nullptr;
-static jmethodID g_mid_pauseRecording_call = nullptr;
-static jmethodID g_mid_resumeRecording_call = nullptr;
-static jmethodID g_mid_cancelRecording_call = nullptr;
-static jmethodID g_mid_enableFrameProcessing_call = nullptr;
-static jmethodID g_mid_setFrameFormat_call = nullptr;
-static jmethodID g_mid_setFilterShader_call = nullptr;
-static jmethodID g_mid_updateOverlay_call = nullptr;
-static jmethodID g_mid_nitro_camera_register_frame_stream_stream_call = nullptr;
-static jmethodID g_mid_nitro_camera_release_frame_stream_stream_call = nullptr;
-static jclass g_cls_CameraFrame = nullptr;
-static jmethodID g_ctor_CameraFrame = nullptr;
-static jfieldID g_fid_CameraFrame_pixels = nullptr;
-static jfieldID g_fid_CameraFrame_size = nullptr;
-static jfieldID g_fid_CameraFrame_width = nullptr;
-static jfieldID g_fid_CameraFrame_height = nullptr;
-static jfieldID g_fid_CameraFrame_timestamp = nullptr;
-static jfieldID g_fid_CameraFrame_orientation = nullptr;
-static jfieldID g_fid_CameraFrame_textureId = nullptr;
-
-// RAII guard: auto-detaches a thread from the JVM when it exits.
-// One instance is stored in thread-local storage; its destructor fires
-// when the thread terminates, ensuring no JVM thread descriptor leaks.
-struct NitroJniThreadGuard {
+static JavaVM* g_jvm_nitro_camera = nullptr;
+struct NitroJniThreadGuard_nitro_camera {
     bool attached = false;
-    ~NitroJniThreadGuard() {
-        if (attached && g_jvm != nullptr) {
-            g_jvm->DetachCurrentThread();
-        }
+    ~NitroJniThreadGuard_nitro_camera() {
+        if (attached && g_jvm_nitro_camera) g_jvm_nitro_camera->DetachCurrentThread();
     }
 };
-static thread_local NitroJniThreadGuard g_thread_guard;
-
-static void nitro_report_jni_exception(JNIEnv* env, jthrowable ex) {
-    // MUST clear the pending exception before making any further JNI calls.
-    // JNI aborts if any JNI function (e.g. GetObjectClass) is called while
-    // an exception is still pending.
-    env->ExceptionClear();
-    jclass ex_class = env->GetObjectClass(ex);
-    jstring j_name = (jstring)env->CallObjectMethod(ex_class, g_exc_getName);
-    const char* name = (j_name != nullptr) ? env->GetStringUTFChars(j_name, 0) : "JavaException";
-
-    jstring j_msg = (jstring)env->CallObjectMethod(ex, g_exc_getMessage);
-    const char* msg = (j_msg != nullptr) ? env->GetStringUTFChars(j_msg, 0) : "No message provided";
-
-    nitro_report_error(name, msg, nullptr, nullptr);
-
-    if (j_name) env->ReleaseStringUTFChars(j_name, name);
-    if (j_msg) env->ReleaseStringUTFChars(j_msg, msg);
-    env->DeleteLocalRef(ex);
-}
-
-static CameraFrame pack_CameraFrame_from_jni(JNIEnv* env, jobject obj) {
-    CameraFrame result;
-    jobject buf_pixels = env->GetObjectField(obj, g_fid_CameraFrame_pixels);
-    if (buf_pixels == nullptr) {
-        jclass npe = env->FindClass("java/lang/NullPointerException");
-        if (npe) env->ThrowNew(npe, "CameraFrame.pixels: TypedData ByteBuffer is null");
-        return result;
-    }
-    result.pixels = (uint8_t*)env->GetDirectBufferAddress(buf_pixels);
-    result.size = env->GetLongField(obj, g_fid_CameraFrame_size);
-    result.width = env->GetLongField(obj, g_fid_CameraFrame_width);
-    result.height = env->GetLongField(obj, g_fid_CameraFrame_height);
-    result.timestamp = env->GetLongField(obj, g_fid_CameraFrame_timestamp);
-    result.orientation = env->GetLongField(obj, g_fid_CameraFrame_orientation);
-    result.textureId = env->GetLongField(obj, g_fid_CameraFrame_textureId);
-    return result;
-}
-static jobject unpack_CameraFrame_to_jni(JNIEnv* env, const CameraFrame* st) {
-    return env->NewObject(g_cls_CameraFrame, g_ctor_CameraFrame, env->NewDirectByteBuffer((void*)st->pixels, st->size), (jlong)st->size, (jlong)st->width, (jlong)st->height, (jlong)st->timestamp, (jlong)st->orientation, (jlong)st->textureId);
-}
-
-extern "C" {
-
-JNIEXPORT jint JNICALL JNI_OnLoad(JavaVM* vm, void* reserved) {
-    g_jvm = vm;
-    __android_log_print(ANDROID_LOG_INFO, "Nitrogen", "JNI_OnLoad called for nitro_camera");
+static thread_local NitroJniThreadGuard_nitro_camera g_thread_guard_nitro_camera;
+static JNIEnv* nitro_camera_GetEnv() {
+    if (!g_jvm_nitro_camera) return nullptr;
     JNIEnv* env = nullptr;
-    if (vm->GetEnv(reinterpret_cast<void**>(&env), JNI_VERSION_1_6) != JNI_OK) {
-        return -1;
-    }
-    jclass localClass = env->FindClass("nitro/nitro_camera_module/NitroCameraJniBridge");
-    if (localClass != nullptr) {
-        g_bridgeClass = (jclass)env->NewGlobalRef(localClass);
-        env->DeleteLocalRef(localClass);
-    } else {
-        LOGE("Failed to find JniBridge class");
-    }
-
-    // Cache exception introspection method IDs
-    {
-        jclass cls_class = env->FindClass("java/lang/Class");
-        if (cls_class) { g_exc_getName = env->GetMethodID(cls_class, "getName", "()Ljava/lang/String;"); env->DeleteLocalRef(cls_class); }
-        jclass throwable_class = env->FindClass("java/lang/Throwable");
-        if (throwable_class) { g_exc_getMessage = env->GetMethodID(throwable_class, "getMessage", "()Ljava/lang/String;"); env->DeleteLocalRef(throwable_class); }
-    }
-
-    // Cache bridge method IDs
-    if (g_bridgeClass != nullptr) {
-        g_mid_requestCameraPermission_call = env->GetStaticMethodID(g_bridgeClass, "requestCameraPermission_call", "()J");
-        g_mid_getCameraPermissionStatus_call = env->GetStaticMethodID(g_bridgeClass, "getCameraPermissionStatus_call", "()J");
-        g_mid_requestMicrophonePermission_call = env->GetStaticMethodID(g_bridgeClass, "requestMicrophonePermission_call", "()J");
-        g_mid_getMicrophonePermissionStatus_call = env->GetStaticMethodID(g_bridgeClass, "getMicrophonePermissionStatus_call", "()J");
-        g_mid_getAvailableCameraDevicesJson_call = env->GetStaticMethodID(g_bridgeClass, "getAvailableCameraDevicesJson_call", "()Ljava/lang/String;");
-        g_mid_getDeviceCount_call = env->GetStaticMethodID(g_bridgeClass, "getDeviceCount_call", "()J");
-        g_mid_getDevice_call = env->GetStaticMethodID(g_bridgeClass, "getDevice_call", "(J)[B");
-        g_mid_openCamera_call = env->GetStaticMethodID(g_bridgeClass, "openCamera_call", "(Ljava/lang/String;JJJJ)J");
-        g_mid_closeCamera_call = env->GetStaticMethodID(g_bridgeClass, "closeCamera_call", "(J)V");
-        g_mid_startPreview_call = env->GetStaticMethodID(g_bridgeClass, "startPreview_call", "(J)V");
-        g_mid_stopPreview_call = env->GetStaticMethodID(g_bridgeClass, "stopPreview_call", "(J)V");
-        g_mid_setZoom_call = env->GetStaticMethodID(g_bridgeClass, "setZoom_call", "(JD)V");
-        g_mid_setFocusPoint_call = env->GetStaticMethodID(g_bridgeClass, "setFocusPoint_call", "(JDD)V");
-        g_mid_setAutoFocus_call = env->GetStaticMethodID(g_bridgeClass, "setAutoFocus_call", "(JJ)V");
-        g_mid_setExposure_call = env->GetStaticMethodID(g_bridgeClass, "setExposure_call", "(JD)V");
-        g_mid_setFlash_call = env->GetStaticMethodID(g_bridgeClass, "setFlash_call", "(JJ)V");
-        g_mid_setTorch_call = env->GetStaticMethodID(g_bridgeClass, "setTorch_call", "(JJ)V");
-        g_mid_setWhiteBalance_call = env->GetStaticMethodID(g_bridgeClass, "setWhiteBalance_call", "(JJ)V");
-        g_mid_setHdr_call = env->GetStaticMethodID(g_bridgeClass, "setHdr_call", "(JJ)V");
-        g_mid_takePhoto_call = env->GetStaticMethodID(g_bridgeClass, "takePhoto_call", "(J)[B");
-        g_mid_startVideoRecording_call = env->GetStaticMethodID(g_bridgeClass, "startVideoRecording_call", "(JLjava/lang/String;)V");
-        g_mid_stopVideoRecording_call = env->GetStaticMethodID(g_bridgeClass, "stopVideoRecording_call", "(J)[B");
-        g_mid_pauseRecording_call = env->GetStaticMethodID(g_bridgeClass, "pauseRecording_call", "(J)V");
-        g_mid_resumeRecording_call = env->GetStaticMethodID(g_bridgeClass, "resumeRecording_call", "(J)V");
-        g_mid_cancelRecording_call = env->GetStaticMethodID(g_bridgeClass, "cancelRecording_call", "(J)V");
-        g_mid_enableFrameProcessing_call = env->GetStaticMethodID(g_bridgeClass, "enableFrameProcessing_call", "(JJ)V");
-        g_mid_setFrameFormat_call = env->GetStaticMethodID(g_bridgeClass, "setFrameFormat_call", "(JJ)V");
-        g_mid_setFilterShader_call = env->GetStaticMethodID(g_bridgeClass, "setFilterShader_call", "(JLjava/lang/String;)V");
-        g_mid_updateOverlay_call = env->GetStaticMethodID(g_bridgeClass, "updateOverlay_call", "(JLjava/lang/String;)V");
-        g_mid_nitro_camera_register_frame_stream_stream_call = env->GetStaticMethodID(g_bridgeClass, "nitro_camera_register_frame_stream_stream_call", "(J)V");
-        g_mid_nitro_camera_release_frame_stream_stream_call = env->GetStaticMethodID(g_bridgeClass, "nitro_camera_release_frame_stream_stream_call", "(J)V");
-    }
-
-    // Cache struct class + ctor + field IDs
-    {
-        jclass local_cls_CameraFrame = env->FindClass("nitro/nitro_camera_module/CameraFrame");
-        if (local_cls_CameraFrame != nullptr) {
-            g_cls_CameraFrame = (jclass)env->NewGlobalRef(local_cls_CameraFrame);
-            env->DeleteLocalRef(local_cls_CameraFrame);
-            g_ctor_CameraFrame = env->GetMethodID(g_cls_CameraFrame, "<init>", "(Ljava/nio/ByteBuffer;JJJJJJ)V");
-            g_fid_CameraFrame_pixels = env->GetFieldID(g_cls_CameraFrame, "pixels", "Ljava/nio/ByteBuffer;");
-            g_fid_CameraFrame_size = env->GetFieldID(g_cls_CameraFrame, "size", "J");
-            g_fid_CameraFrame_width = env->GetFieldID(g_cls_CameraFrame, "width", "J");
-            g_fid_CameraFrame_height = env->GetFieldID(g_cls_CameraFrame, "height", "J");
-            g_fid_CameraFrame_timestamp = env->GetFieldID(g_cls_CameraFrame, "timestamp", "J");
-            g_fid_CameraFrame_orientation = env->GetFieldID(g_cls_CameraFrame, "orientation", "J");
-            g_fid_CameraFrame_textureId = env->GetFieldID(g_cls_CameraFrame, "textureId", "J");
-        }
-    }
-
-    return JNI_VERSION_1_6;
-}
-
-static JNIEnv* GetEnv() {
-    if (g_jvm == nullptr) return nullptr;
-    JNIEnv* env = nullptr;
-    int status = g_jvm->GetEnv(reinterpret_cast<void**>(&env), JNI_VERSION_1_6);
-    if (status == JNI_EDETACHED) {
-        g_jvm->AttachCurrentThread(&env, nullptr);
-        g_thread_guard.attached = true; // will DetachCurrentThread on thread exit
+    if (g_jvm_nitro_camera->GetEnv(reinterpret_cast<void**>(&env), JNI_VERSION_1_6) == JNI_EDETACHED) {
+        g_jvm_nitro_camera->AttachCurrentThread(&env, nullptr);
+        g_thread_guard_nitro_camera.attached = true;
     }
     return env;
 }
+extern "C" {
+JNIEXPORT jint JNICALL JNI_OnLoad(JavaVM* vm, void* reserved) {
+    g_jvm_nitro_camera = vm;
+    return JNI_VERSION_1_6;
+}
+} // extern "C" (JNI_OnLoad)
+#endif // __ANDROID__
+#endif // NITRO_NITRO_CAMERA_LIB_INIT_DEFINED
 
+#ifdef __ANDROID__
+static jclass g_nitro_camera_bridge_class = nullptr;
+static jmethodID g_nitro_camera_requestCameraPermission_mid = nullptr;
+static jmethodID g_nitro_camera_getCameraPermissionStatus_mid = nullptr;
+static jmethodID g_nitro_camera_requestMicrophonePermission_mid = nullptr;
+static jmethodID g_nitro_camera_getMicrophonePermissionStatus_mid = nullptr;
+static jmethodID g_nitro_camera_getAvailableCameraDevicesJson_mid = nullptr;
+static jmethodID g_nitro_camera_getDeviceCount_mid = nullptr;
+static jmethodID g_nitro_camera_getDevice_mid = nullptr;
+static jmethodID g_nitro_camera_openCamera_mid = nullptr;
+static jmethodID g_nitro_camera_closeCamera_mid = nullptr;
+static jmethodID g_nitro_camera_startPreview_mid = nullptr;
+static jmethodID g_nitro_camera_stopPreview_mid = nullptr;
+static jmethodID g_nitro_camera_setZoom_mid = nullptr;
+static jmethodID g_nitro_camera_setFocusPoint_mid = nullptr;
+static jmethodID g_nitro_camera_setAutoFocus_mid = nullptr;
+static jmethodID g_nitro_camera_setExposure_mid = nullptr;
+static jmethodID g_nitro_camera_setFlash_mid = nullptr;
+static jmethodID g_nitro_camera_setTorch_mid = nullptr;
+static jmethodID g_nitro_camera_setWhiteBalance_mid = nullptr;
+static jmethodID g_nitro_camera_setHdr_mid = nullptr;
+static jmethodID g_nitro_camera_takePhoto_mid = nullptr;
+static jmethodID g_nitro_camera_startVideoRecording_mid = nullptr;
+static jmethodID g_nitro_camera_stopVideoRecording_mid = nullptr;
+static jmethodID g_nitro_camera_pauseRecording_mid = nullptr;
+static jmethodID g_nitro_camera_resumeRecording_mid = nullptr;
+static jmethodID g_nitro_camera_cancelRecording_mid = nullptr;
+static jmethodID g_nitro_camera_enableFrameProcessing_mid = nullptr;
+static jmethodID g_nitro_camera_setFrameFormat_mid = nullptr;
+static jmethodID g_nitro_camera_setFilterShader_mid = nullptr;
+static jmethodID g_nitro_camera_updateOverlay_mid = nullptr;
+
+extern "C" JNIEXPORT void JNICALL Java_nitro_nitro_1camera_1module_NitroCameraJniBridge_initialize(JNIEnv* env, jclass clazz, jclass bridgeClass) {
+    if (g_nitro_camera_bridge_class) return;
+    g_nitro_camera_bridge_class = (jclass)env->NewGlobalRef(bridgeClass);
+    g_nitro_camera_requestCameraPermission_mid = env->GetStaticMethodID(g_nitro_camera_bridge_class, "requestCameraPermission_call", "()J");
+    g_nitro_camera_getCameraPermissionStatus_mid = env->GetStaticMethodID(g_nitro_camera_bridge_class, "getCameraPermissionStatus_call", "()J");
+    g_nitro_camera_requestMicrophonePermission_mid = env->GetStaticMethodID(g_nitro_camera_bridge_class, "requestMicrophonePermission_call", "()J");
+    g_nitro_camera_getMicrophonePermissionStatus_mid = env->GetStaticMethodID(g_nitro_camera_bridge_class, "getMicrophonePermissionStatus_call", "()J");
+    g_nitro_camera_getAvailableCameraDevicesJson_mid = env->GetStaticMethodID(g_nitro_camera_bridge_class, "getAvailableCameraDevicesJson_call", "()Ljava/lang/String;");
+    g_nitro_camera_getDeviceCount_mid = env->GetStaticMethodID(g_nitro_camera_bridge_class, "getDeviceCount_call", "()J");
+    g_nitro_camera_getDevice_mid = env->GetStaticMethodID(g_nitro_camera_bridge_class, "getDevice_call", "(J)[B");
+    g_nitro_camera_openCamera_mid = env->GetStaticMethodID(g_nitro_camera_bridge_class, "openCamera_call", "(Ljava/lang/String;JJJJ)J");
+    g_nitro_camera_closeCamera_mid = env->GetStaticMethodID(g_nitro_camera_bridge_class, "closeCamera_call", "(J)V");
+    g_nitro_camera_startPreview_mid = env->GetStaticMethodID(g_nitro_camera_bridge_class, "startPreview_call", "(J)V");
+    g_nitro_camera_stopPreview_mid = env->GetStaticMethodID(g_nitro_camera_bridge_class, "stopPreview_call", "(J)V");
+    g_nitro_camera_setZoom_mid = env->GetStaticMethodID(g_nitro_camera_bridge_class, "setZoom_call", "(JD)V");
+    g_nitro_camera_setFocusPoint_mid = env->GetStaticMethodID(g_nitro_camera_bridge_class, "setFocusPoint_call", "(JDD)V");
+    g_nitro_camera_setAutoFocus_mid = env->GetStaticMethodID(g_nitro_camera_bridge_class, "setAutoFocus_call", "(JJ)V");
+    g_nitro_camera_setExposure_mid = env->GetStaticMethodID(g_nitro_camera_bridge_class, "setExposure_call", "(JD)V");
+    g_nitro_camera_setFlash_mid = env->GetStaticMethodID(g_nitro_camera_bridge_class, "setFlash_call", "(JJ)V");
+    g_nitro_camera_setTorch_mid = env->GetStaticMethodID(g_nitro_camera_bridge_class, "setTorch_call", "(JJ)V");
+    g_nitro_camera_setWhiteBalance_mid = env->GetStaticMethodID(g_nitro_camera_bridge_class, "setWhiteBalance_call", "(JJ)V");
+    g_nitro_camera_setHdr_mid = env->GetStaticMethodID(g_nitro_camera_bridge_class, "setHdr_call", "(JJ)V");
+    g_nitro_camera_takePhoto_mid = env->GetStaticMethodID(g_nitro_camera_bridge_class, "takePhoto_call", "(J)[B");
+    g_nitro_camera_startVideoRecording_mid = env->GetStaticMethodID(g_nitro_camera_bridge_class, "startVideoRecording_call", "(JLjava/lang/String;)V");
+    g_nitro_camera_stopVideoRecording_mid = env->GetStaticMethodID(g_nitro_camera_bridge_class, "stopVideoRecording_call", "(J)[B");
+    g_nitro_camera_pauseRecording_mid = env->GetStaticMethodID(g_nitro_camera_bridge_class, "pauseRecording_call", "(J)V");
+    g_nitro_camera_resumeRecording_mid = env->GetStaticMethodID(g_nitro_camera_bridge_class, "resumeRecording_call", "(J)V");
+    g_nitro_camera_cancelRecording_mid = env->GetStaticMethodID(g_nitro_camera_bridge_class, "cancelRecording_call", "(J)V");
+    g_nitro_camera_enableFrameProcessing_mid = env->GetStaticMethodID(g_nitro_camera_bridge_class, "enableFrameProcessing_call", "(JJ)V");
+    g_nitro_camera_setFrameFormat_mid = env->GetStaticMethodID(g_nitro_camera_bridge_class, "setFrameFormat_call", "(JJ)V");
+    g_nitro_camera_setFilterShader_mid = env->GetStaticMethodID(g_nitro_camera_bridge_class, "setFilterShader_call", "(JLjava/lang/String;)V");
+    g_nitro_camera_updateOverlay_mid = env->GetStaticMethodID(g_nitro_camera_bridge_class, "updateOverlay_call", "(JLjava/lang/String;)V");
+}
+#endif // __ANDROID__
+
+#ifdef __ANDROID__
+extern "C" {
 int64_t nitro_camera_request_camera_permission(void) {
-    JNIEnv* env = GetEnv();
-    if (env == nullptr) return 0;
-    jmethodID methodId = g_mid_requestCameraPermission_call;
-    if (methodId == nullptr) { LOGE("Method not found"); return 0; }
-
     nitro_camera_clear_error();
-    int64_t res = env->CallStaticLongMethod(g_bridgeClass, methodId);
-    if (env->ExceptionCheck()) { nitro_report_jni_exception(env, env->ExceptionOccurred()); return 0; }
-    return res;
+    JNIEnv* env = nitro_camera_GetEnv();
+    if (!env || !g_nitro_camera_requestCameraPermission_mid) return 0;
+    return env->CallStaticLongMethod(g_nitro_camera_bridge_class, g_nitro_camera_requestCameraPermission_mid);
 }
 
 int64_t nitro_camera_get_camera_permission_status(void) {
-    JNIEnv* env = GetEnv();
-    if (env == nullptr) return 0;
-    jmethodID methodId = g_mid_getCameraPermissionStatus_call;
-    if (methodId == nullptr) { LOGE("Method not found"); return 0; }
-
     nitro_camera_clear_error();
-    int64_t res = env->CallStaticLongMethod(g_bridgeClass, methodId);
-    if (env->ExceptionCheck()) { nitro_report_jni_exception(env, env->ExceptionOccurred()); return 0; }
-    return res;
+    JNIEnv* env = nitro_camera_GetEnv();
+    if (!env || !g_nitro_camera_getCameraPermissionStatus_mid) return 0;
+    return env->CallStaticLongMethod(g_nitro_camera_bridge_class, g_nitro_camera_getCameraPermissionStatus_mid);
 }
 
 int64_t nitro_camera_request_microphone_permission(void) {
-    JNIEnv* env = GetEnv();
-    if (env == nullptr) return 0;
-    jmethodID methodId = g_mid_requestMicrophonePermission_call;
-    if (methodId == nullptr) { LOGE("Method not found"); return 0; }
-
     nitro_camera_clear_error();
-    int64_t res = env->CallStaticLongMethod(g_bridgeClass, methodId);
-    if (env->ExceptionCheck()) { nitro_report_jni_exception(env, env->ExceptionOccurred()); return 0; }
-    return res;
+    JNIEnv* env = nitro_camera_GetEnv();
+    if (!env || !g_nitro_camera_requestMicrophonePermission_mid) return 0;
+    return env->CallStaticLongMethod(g_nitro_camera_bridge_class, g_nitro_camera_requestMicrophonePermission_mid);
 }
 
 int64_t nitro_camera_get_microphone_permission_status(void) {
-    JNIEnv* env = GetEnv();
-    if (env == nullptr) return 0;
-    jmethodID methodId = g_mid_getMicrophonePermissionStatus_call;
-    if (methodId == nullptr) { LOGE("Method not found"); return 0; }
-
     nitro_camera_clear_error();
-    int64_t res = env->CallStaticLongMethod(g_bridgeClass, methodId);
-    if (env->ExceptionCheck()) { nitro_report_jni_exception(env, env->ExceptionOccurred()); return 0; }
-    return res;
+    JNIEnv* env = nitro_camera_GetEnv();
+    if (!env || !g_nitro_camera_getMicrophonePermissionStatus_mid) return 0;
+    return env->CallStaticLongMethod(g_nitro_camera_bridge_class, g_nitro_camera_getMicrophonePermissionStatus_mid);
 }
 
 const char* nitro_camera_get_available_camera_devices_json(void) {
-    JNIEnv* env = GetEnv();
-    if (env == nullptr) return nullptr;
-    jmethodID methodId = g_mid_getAvailableCameraDevicesJson_call;
-    if (methodId == nullptr) { LOGE("Method not found"); return nullptr; }
-
     nitro_camera_clear_error();
-    jstring jstr = (jstring)env->CallStaticObjectMethod(g_bridgeClass, methodId);
-    if (env->ExceptionCheck()) { nitro_report_jni_exception(env, env->ExceptionOccurred()); return nullptr; }
-    if (jstr == nullptr) return nullptr;
-    const char* nativeStr = env->GetStringUTFChars(jstr, 0);
-    char* result = strdup(nativeStr);
-    env->ReleaseStringUTFChars(jstr, nativeStr);
-    env->DeleteLocalRef(jstr);
-    return result;
+    JNIEnv* env = nitro_camera_GetEnv();
+    if (!env || !g_nitro_camera_getAvailableCameraDevicesJson_mid) return nullptr;
+    return (const char*)env->GetStringUTFChars((jstring)env->CallStaticObjectMethod(g_nitro_camera_bridge_class, g_nitro_camera_getAvailableCameraDevicesJson_mid), nullptr);
 }
 
 int64_t nitro_camera_get_device_count(void) {
-    JNIEnv* env = GetEnv();
-    if (env == nullptr) return 0;
-    jmethodID methodId = g_mid_getDeviceCount_call;
-    if (methodId == nullptr) { LOGE("Method not found"); return 0; }
-
     nitro_camera_clear_error();
-    int64_t res = env->CallStaticLongMethod(g_bridgeClass, methodId);
-    if (env->ExceptionCheck()) { nitro_report_jni_exception(env, env->ExceptionOccurred()); return 0; }
-    return res;
+    JNIEnv* env = nitro_camera_GetEnv();
+    if (!env || !g_nitro_camera_getDeviceCount_mid) return 0;
+    return env->CallStaticLongMethod(g_nitro_camera_bridge_class, g_nitro_camera_getDeviceCount_mid);
 }
 
 void* nitro_camera_get_device(int64_t index) {
-    JNIEnv* env = GetEnv();
-    if (env == nullptr) return nullptr;
-    jmethodID methodId = g_mid_getDevice_call;
-    if (methodId == nullptr) { LOGE("Method not found"); return nullptr; }
-
     nitro_camera_clear_error();
-    jbyteArray jarr = (jbyteArray)env->CallStaticObjectMethod(g_bridgeClass, methodId, index);
-    if (env->ExceptionCheck()) { nitro_report_jni_exception(env, env->ExceptionOccurred()); return nullptr; }
-    if (jarr == nullptr) return nullptr;
-    jsize len = env->GetArrayLength(jarr);
-    uint8_t* result = (uint8_t*)malloc(len);
-    env->GetByteArrayRegion(jarr, 0, len, (jbyte*)result);
-    env->DeleteLocalRef(jarr);
-    return result;
+    JNIEnv* env = nitro_camera_GetEnv();
+    if (!env || !g_nitro_camera_getDevice_mid) return nullptr;
+    return (void*)env->CallStaticObjectMethod(g_nitro_camera_bridge_class, g_nitro_camera_getDevice_mid, index);
 }
 
 int64_t nitro_camera_open_camera(const char* deviceId, int64_t width, int64_t height, int64_t fps, int64_t enableAudio) {
-    JNIEnv* env = GetEnv();
-    if (env == nullptr) return 0;
-    jmethodID methodId = g_mid_openCamera_call;
-    if (methodId == nullptr) { LOGE("Method not found"); return 0; }
-
     nitro_camera_clear_error();
-    jstring j_deviceId = env->NewStringUTF(deviceId);
-    int64_t res = env->CallStaticLongMethod(g_bridgeClass, methodId, j_deviceId, width, height, fps, enableAudio);
-    if (env->ExceptionCheck()) { nitro_report_jni_exception(env, env->ExceptionOccurred()); return 0; }
-    return res;
+    JNIEnv* env = nitro_camera_GetEnv();
+    if (!env || !g_nitro_camera_openCamera_mid) return 0;
+    return env->CallStaticLongMethod(g_nitro_camera_bridge_class, g_nitro_camera_openCamera_mid, deviceId, width, height, fps, enableAudio);
 }
 
 void nitro_camera_close_camera(int64_t textureId) {
-    JNIEnv* env = GetEnv();
-    if (env == nullptr) return;
-    jmethodID methodId = g_mid_closeCamera_call;
-    if (methodId == nullptr) { LOGE("Method not found"); return; }
-
     nitro_camera_clear_error();
-    env->CallStaticVoidMethod(g_bridgeClass, methodId, textureId);
-    if (env->ExceptionCheck()) { nitro_report_jni_exception(env, env->ExceptionOccurred()); }
+    JNIEnv* env = nitro_camera_GetEnv();
+    if (!env || !g_nitro_camera_closeCamera_mid) return ;
+    env->CallStaticVoidMethod(g_nitro_camera_bridge_class, g_nitro_camera_closeCamera_mid, textureId);
 }
 
 void nitro_camera_start_preview(int64_t textureId) {
-    JNIEnv* env = GetEnv();
-    if (env == nullptr) return;
-    jmethodID methodId = g_mid_startPreview_call;
-    if (methodId == nullptr) { LOGE("Method not found"); return; }
-
     nitro_camera_clear_error();
-    env->CallStaticVoidMethod(g_bridgeClass, methodId, textureId);
-    if (env->ExceptionCheck()) { nitro_report_jni_exception(env, env->ExceptionOccurred()); }
+    JNIEnv* env = nitro_camera_GetEnv();
+    if (!env || !g_nitro_camera_startPreview_mid) return ;
+    env->CallStaticVoidMethod(g_nitro_camera_bridge_class, g_nitro_camera_startPreview_mid, textureId);
 }
 
 void nitro_camera_stop_preview(int64_t textureId) {
-    JNIEnv* env = GetEnv();
-    if (env == nullptr) return;
-    jmethodID methodId = g_mid_stopPreview_call;
-    if (methodId == nullptr) { LOGE("Method not found"); return; }
-
     nitro_camera_clear_error();
-    env->CallStaticVoidMethod(g_bridgeClass, methodId, textureId);
-    if (env->ExceptionCheck()) { nitro_report_jni_exception(env, env->ExceptionOccurred()); }
+    JNIEnv* env = nitro_camera_GetEnv();
+    if (!env || !g_nitro_camera_stopPreview_mid) return ;
+    env->CallStaticVoidMethod(g_nitro_camera_bridge_class, g_nitro_camera_stopPreview_mid, textureId);
 }
 
 void nitro_camera_set_zoom(int64_t textureId, double zoom) {
-    JNIEnv* env = GetEnv();
-    if (env == nullptr) return;
-    jmethodID methodId = g_mid_setZoom_call;
-    if (methodId == nullptr) { LOGE("Method not found"); return; }
-
     nitro_camera_clear_error();
-    env->CallStaticVoidMethod(g_bridgeClass, methodId, textureId, zoom);
-    if (env->ExceptionCheck()) { nitro_report_jni_exception(env, env->ExceptionOccurred()); }
+    JNIEnv* env = nitro_camera_GetEnv();
+    if (!env || !g_nitro_camera_setZoom_mid) return ;
+    env->CallStaticVoidMethod(g_nitro_camera_bridge_class, g_nitro_camera_setZoom_mid, textureId, zoom);
 }
 
 void nitro_camera_set_focus_point(int64_t textureId, double x, double y) {
-    JNIEnv* env = GetEnv();
-    if (env == nullptr) return;
-    jmethodID methodId = g_mid_setFocusPoint_call;
-    if (methodId == nullptr) { LOGE("Method not found"); return; }
-
     nitro_camera_clear_error();
-    env->CallStaticVoidMethod(g_bridgeClass, methodId, textureId, x, y);
-    if (env->ExceptionCheck()) { nitro_report_jni_exception(env, env->ExceptionOccurred()); }
+    JNIEnv* env = nitro_camera_GetEnv();
+    if (!env || !g_nitro_camera_setFocusPoint_mid) return ;
+    env->CallStaticVoidMethod(g_nitro_camera_bridge_class, g_nitro_camera_setFocusPoint_mid, textureId, x, y);
 }
 
 void nitro_camera_set_auto_focus(int64_t textureId, int64_t mode) {
-    JNIEnv* env = GetEnv();
-    if (env == nullptr) return;
-    jmethodID methodId = g_mid_setAutoFocus_call;
-    if (methodId == nullptr) { LOGE("Method not found"); return; }
-
     nitro_camera_clear_error();
-    env->CallStaticVoidMethod(g_bridgeClass, methodId, textureId, mode);
-    if (env->ExceptionCheck()) { nitro_report_jni_exception(env, env->ExceptionOccurred()); }
+    JNIEnv* env = nitro_camera_GetEnv();
+    if (!env || !g_nitro_camera_setAutoFocus_mid) return ;
+    env->CallStaticVoidMethod(g_nitro_camera_bridge_class, g_nitro_camera_setAutoFocus_mid, textureId, mode);
 }
 
 void nitro_camera_set_exposure(int64_t textureId, double value) {
-    JNIEnv* env = GetEnv();
-    if (env == nullptr) return;
-    jmethodID methodId = g_mid_setExposure_call;
-    if (methodId == nullptr) { LOGE("Method not found"); return; }
-
     nitro_camera_clear_error();
-    env->CallStaticVoidMethod(g_bridgeClass, methodId, textureId, value);
-    if (env->ExceptionCheck()) { nitro_report_jni_exception(env, env->ExceptionOccurred()); }
+    JNIEnv* env = nitro_camera_GetEnv();
+    if (!env || !g_nitro_camera_setExposure_mid) return ;
+    env->CallStaticVoidMethod(g_nitro_camera_bridge_class, g_nitro_camera_setExposure_mid, textureId, value);
 }
 
 void nitro_camera_set_flash(int64_t textureId, int64_t mode) {
-    JNIEnv* env = GetEnv();
-    if (env == nullptr) return;
-    jmethodID methodId = g_mid_setFlash_call;
-    if (methodId == nullptr) { LOGE("Method not found"); return; }
-
     nitro_camera_clear_error();
-    env->CallStaticVoidMethod(g_bridgeClass, methodId, textureId, mode);
-    if (env->ExceptionCheck()) { nitro_report_jni_exception(env, env->ExceptionOccurred()); }
+    JNIEnv* env = nitro_camera_GetEnv();
+    if (!env || !g_nitro_camera_setFlash_mid) return ;
+    env->CallStaticVoidMethod(g_nitro_camera_bridge_class, g_nitro_camera_setFlash_mid, textureId, mode);
 }
 
 void nitro_camera_set_torch(int64_t textureId, int64_t enabled) {
-    JNIEnv* env = GetEnv();
-    if (env == nullptr) return;
-    jmethodID methodId = g_mid_setTorch_call;
-    if (methodId == nullptr) { LOGE("Method not found"); return; }
-
     nitro_camera_clear_error();
-    env->CallStaticVoidMethod(g_bridgeClass, methodId, textureId, enabled);
-    if (env->ExceptionCheck()) { nitro_report_jni_exception(env, env->ExceptionOccurred()); }
+    JNIEnv* env = nitro_camera_GetEnv();
+    if (!env || !g_nitro_camera_setTorch_mid) return ;
+    env->CallStaticVoidMethod(g_nitro_camera_bridge_class, g_nitro_camera_setTorch_mid, textureId, enabled);
 }
 
 void nitro_camera_set_white_balance(int64_t textureId, int64_t temperature) {
-    JNIEnv* env = GetEnv();
-    if (env == nullptr) return;
-    jmethodID methodId = g_mid_setWhiteBalance_call;
-    if (methodId == nullptr) { LOGE("Method not found"); return; }
-
     nitro_camera_clear_error();
-    env->CallStaticVoidMethod(g_bridgeClass, methodId, textureId, temperature);
-    if (env->ExceptionCheck()) { nitro_report_jni_exception(env, env->ExceptionOccurred()); }
+    JNIEnv* env = nitro_camera_GetEnv();
+    if (!env || !g_nitro_camera_setWhiteBalance_mid) return ;
+    env->CallStaticVoidMethod(g_nitro_camera_bridge_class, g_nitro_camera_setWhiteBalance_mid, textureId, temperature);
 }
 
 void nitro_camera_set_hdr(int64_t textureId, int64_t enabled) {
-    JNIEnv* env = GetEnv();
-    if (env == nullptr) return;
-    jmethodID methodId = g_mid_setHdr_call;
-    if (methodId == nullptr) { LOGE("Method not found"); return; }
-
     nitro_camera_clear_error();
-    env->CallStaticVoidMethod(g_bridgeClass, methodId, textureId, enabled);
-    if (env->ExceptionCheck()) { nitro_report_jni_exception(env, env->ExceptionOccurred()); }
+    JNIEnv* env = nitro_camera_GetEnv();
+    if (!env || !g_nitro_camera_setHdr_mid) return ;
+    env->CallStaticVoidMethod(g_nitro_camera_bridge_class, g_nitro_camera_setHdr_mid, textureId, enabled);
 }
 
 void* nitro_camera_take_photo(int64_t textureId) {
-    JNIEnv* env = GetEnv();
-    if (env == nullptr) return nullptr;
-    jmethodID methodId = g_mid_takePhoto_call;
-    if (methodId == nullptr) { LOGE("Method not found"); return nullptr; }
-
     nitro_camera_clear_error();
-    jbyteArray jarr = (jbyteArray)env->CallStaticObjectMethod(g_bridgeClass, methodId, textureId);
-    if (env->ExceptionCheck()) { nitro_report_jni_exception(env, env->ExceptionOccurred()); return nullptr; }
-    if (jarr == nullptr) return nullptr;
-    jsize len = env->GetArrayLength(jarr);
-    uint8_t* result = (uint8_t*)malloc(len);
-    env->GetByteArrayRegion(jarr, 0, len, (jbyte*)result);
-    env->DeleteLocalRef(jarr);
-    return result;
+    JNIEnv* env = nitro_camera_GetEnv();
+    if (!env || !g_nitro_camera_takePhoto_mid) return nullptr;
+    return (void*)env->CallStaticObjectMethod(g_nitro_camera_bridge_class, g_nitro_camera_takePhoto_mid, textureId);
 }
 
 void nitro_camera_start_video_recording(int64_t textureId, const char* outputPath) {
-    JNIEnv* env = GetEnv();
-    if (env == nullptr) return;
-    jmethodID methodId = g_mid_startVideoRecording_call;
-    if (methodId == nullptr) { LOGE("Method not found"); return; }
-
     nitro_camera_clear_error();
-    jstring j_outputPath = env->NewStringUTF(outputPath);
-    env->CallStaticVoidMethod(g_bridgeClass, methodId, textureId, j_outputPath);
-    if (env->ExceptionCheck()) { nitro_report_jni_exception(env, env->ExceptionOccurred()); }
+    JNIEnv* env = nitro_camera_GetEnv();
+    if (!env || !g_nitro_camera_startVideoRecording_mid) return ;
+    env->CallStaticVoidMethod(g_nitro_camera_bridge_class, g_nitro_camera_startVideoRecording_mid, textureId, outputPath);
 }
 
 void* nitro_camera_stop_video_recording(int64_t textureId) {
-    JNIEnv* env = GetEnv();
-    if (env == nullptr) return nullptr;
-    jmethodID methodId = g_mid_stopVideoRecording_call;
-    if (methodId == nullptr) { LOGE("Method not found"); return nullptr; }
-
     nitro_camera_clear_error();
-    jbyteArray jarr = (jbyteArray)env->CallStaticObjectMethod(g_bridgeClass, methodId, textureId);
-    if (env->ExceptionCheck()) { nitro_report_jni_exception(env, env->ExceptionOccurred()); return nullptr; }
-    if (jarr == nullptr) return nullptr;
-    jsize len = env->GetArrayLength(jarr);
-    uint8_t* result = (uint8_t*)malloc(len);
-    env->GetByteArrayRegion(jarr, 0, len, (jbyte*)result);
-    env->DeleteLocalRef(jarr);
-    return result;
+    JNIEnv* env = nitro_camera_GetEnv();
+    if (!env || !g_nitro_camera_stopVideoRecording_mid) return nullptr;
+    return (void*)env->CallStaticObjectMethod(g_nitro_camera_bridge_class, g_nitro_camera_stopVideoRecording_mid, textureId);
 }
 
 void nitro_camera_pause_recording(int64_t textureId) {
-    JNIEnv* env = GetEnv();
-    if (env == nullptr) return;
-    jmethodID methodId = g_mid_pauseRecording_call;
-    if (methodId == nullptr) { LOGE("Method not found"); return; }
-
     nitro_camera_clear_error();
-    env->CallStaticVoidMethod(g_bridgeClass, methodId, textureId);
-    if (env->ExceptionCheck()) { nitro_report_jni_exception(env, env->ExceptionOccurred()); }
+    JNIEnv* env = nitro_camera_GetEnv();
+    if (!env || !g_nitro_camera_pauseRecording_mid) return ;
+    env->CallStaticVoidMethod(g_nitro_camera_bridge_class, g_nitro_camera_pauseRecording_mid, textureId);
 }
 
 void nitro_camera_resume_recording(int64_t textureId) {
-    JNIEnv* env = GetEnv();
-    if (env == nullptr) return;
-    jmethodID methodId = g_mid_resumeRecording_call;
-    if (methodId == nullptr) { LOGE("Method not found"); return; }
-
     nitro_camera_clear_error();
-    env->CallStaticVoidMethod(g_bridgeClass, methodId, textureId);
-    if (env->ExceptionCheck()) { nitro_report_jni_exception(env, env->ExceptionOccurred()); }
+    JNIEnv* env = nitro_camera_GetEnv();
+    if (!env || !g_nitro_camera_resumeRecording_mid) return ;
+    env->CallStaticVoidMethod(g_nitro_camera_bridge_class, g_nitro_camera_resumeRecording_mid, textureId);
 }
 
 void nitro_camera_cancel_recording(int64_t textureId) {
-    JNIEnv* env = GetEnv();
-    if (env == nullptr) return;
-    jmethodID methodId = g_mid_cancelRecording_call;
-    if (methodId == nullptr) { LOGE("Method not found"); return; }
-
     nitro_camera_clear_error();
-    env->CallStaticVoidMethod(g_bridgeClass, methodId, textureId);
-    if (env->ExceptionCheck()) { nitro_report_jni_exception(env, env->ExceptionOccurred()); }
+    JNIEnv* env = nitro_camera_GetEnv();
+    if (!env || !g_nitro_camera_cancelRecording_mid) return ;
+    env->CallStaticVoidMethod(g_nitro_camera_bridge_class, g_nitro_camera_cancelRecording_mid, textureId);
 }
 
 void nitro_camera_enable_frame_processing(int64_t textureId, int64_t enabled) {
-    JNIEnv* env = GetEnv();
-    if (env == nullptr) return;
-    jmethodID methodId = g_mid_enableFrameProcessing_call;
-    if (methodId == nullptr) { LOGE("Method not found"); return; }
-
     nitro_camera_clear_error();
-    env->CallStaticVoidMethod(g_bridgeClass, methodId, textureId, enabled);
-    if (env->ExceptionCheck()) { nitro_report_jni_exception(env, env->ExceptionOccurred()); }
+    JNIEnv* env = nitro_camera_GetEnv();
+    if (!env || !g_nitro_camera_enableFrameProcessing_mid) return ;
+    env->CallStaticVoidMethod(g_nitro_camera_bridge_class, g_nitro_camera_enableFrameProcessing_mid, textureId, enabled);
 }
 
 void nitro_camera_set_frame_format(int64_t textureId, int64_t format) {
-    JNIEnv* env = GetEnv();
-    if (env == nullptr) return;
-    jmethodID methodId = g_mid_setFrameFormat_call;
-    if (methodId == nullptr) { LOGE("Method not found"); return; }
-
     nitro_camera_clear_error();
-    env->CallStaticVoidMethod(g_bridgeClass, methodId, textureId, format);
-    if (env->ExceptionCheck()) { nitro_report_jni_exception(env, env->ExceptionOccurred()); }
+    JNIEnv* env = nitro_camera_GetEnv();
+    if (!env || !g_nitro_camera_setFrameFormat_mid) return ;
+    env->CallStaticVoidMethod(g_nitro_camera_bridge_class, g_nitro_camera_setFrameFormat_mid, textureId, format);
 }
 
 void nitro_camera_set_filter_shader(int64_t textureId, const char* shaderSource) {
-    JNIEnv* env = GetEnv();
-    if (env == nullptr) return;
-    jmethodID methodId = g_mid_setFilterShader_call;
-    if (methodId == nullptr) { LOGE("Method not found"); return; }
-
     nitro_camera_clear_error();
-    jstring j_shaderSource = env->NewStringUTF(shaderSource);
-    env->CallStaticVoidMethod(g_bridgeClass, methodId, textureId, j_shaderSource);
-    if (env->ExceptionCheck()) { nitro_report_jni_exception(env, env->ExceptionOccurred()); }
+    JNIEnv* env = nitro_camera_GetEnv();
+    if (!env || !g_nitro_camera_setFilterShader_mid) return ;
+    env->CallStaticVoidMethod(g_nitro_camera_bridge_class, g_nitro_camera_setFilterShader_mid, textureId, shaderSource);
 }
 
 void nitro_camera_update_overlay(int64_t textureId, const char* overlayData) {
-    JNIEnv* env = GetEnv();
-    if (env == nullptr) return;
-    jmethodID methodId = g_mid_updateOverlay_call;
-    if (methodId == nullptr) { LOGE("Method not found"); return; }
-
     nitro_camera_clear_error();
-    jstring j_overlayData = env->NewStringUTF(overlayData);
-    env->CallStaticVoidMethod(g_bridgeClass, methodId, textureId, j_overlayData);
-    if (env->ExceptionCheck()) { nitro_report_jni_exception(env, env->ExceptionOccurred()); }
-}
-
-void nitro_camera_register_frame_stream_stream(int64_t dart_port) {
-    JNIEnv* env = GetEnv();
-    if (env == nullptr) return;
-    jmethodID methodId = g_mid_nitro_camera_register_frame_stream_stream_call;
-    if (methodId != nullptr) env->CallStaticVoidMethod(g_bridgeClass, methodId, dart_port);
-}
-
-void nitro_camera_release_frame_stream_stream(int64_t dart_port) {
-    JNIEnv* env = GetEnv();
-    if (env == nullptr) return;
-    jmethodID methodId = g_mid_nitro_camera_release_frame_stream_stream_call;
-    if (methodId != nullptr) env->CallStaticVoidMethod(g_bridgeClass, methodId, dart_port);
-}
-
-JNIEXPORT void JNICALL Java_nitro_nitro_1camera_1module_NitroCameraJniBridge_emit_1frameStream(JNIEnv* env, jobject thiz, jlong dartPort, jobject item) {
-    Dart_CObject obj;
-    CameraFrame* st_ptr = (CameraFrame*)malloc(sizeof(CameraFrame));
-    *st_ptr = pack_CameraFrame_from_jni(env, item);
-    obj.type = Dart_CObject_kInt64;
-    obj.value.as_int64 = (intptr_t)st_ptr;
-    Dart_PostCObject_DL(dartPort, &obj);
-}
-
-JNIEXPORT void JNICALL Java_nitro_nitro_1camera_1module_NitroCameraJniBridge_initialize(JNIEnv* env, jobject thiz, jclass bridgeClass) {
-    if (g_bridgeClass == nullptr) {
-        g_bridgeClass = (jclass)env->NewGlobalRef(bridgeClass);
-    }
+    JNIEnv* env = nitro_camera_GetEnv();
+    if (!env || !g_nitro_camera_updateOverlay_mid) return ;
+    env->CallStaticVoidMethod(g_nitro_camera_bridge_class, g_nitro_camera_updateOverlay_mid, textureId, overlayData);
 }
 
 } // extern "C"
-#elif __APPLE__
+#elif defined(__APPLE__)
 extern "C" {
-extern int64_t _call_requestCameraPermission(void);
 int64_t nitro_camera_request_camera_permission(void) {
     nitro_camera_clear_error();
-#ifdef __OBJC__
-    @try {
-        return _call_requestCameraPermission();
-    } @catch (NSException* e) {
-        nitro_report_error([e.name UTF8String], [e.reason UTF8String], nullptr, nullptr);
-        return 0;
-    }
-#else
-    return _call_requestCameraPermission();
-#endif
+    extern "C" int64_t NitroSwift_nitro_camera_request_camera_permission();
+    return NitroSwift_nitro_camera_request_camera_permission();
 }
 
-extern int64_t _call_getCameraPermissionStatus(void);
 int64_t nitro_camera_get_camera_permission_status(void) {
     nitro_camera_clear_error();
-#ifdef __OBJC__
-    @try {
-        return _call_getCameraPermissionStatus();
-    } @catch (NSException* e) {
-        nitro_report_error([e.name UTF8String], [e.reason UTF8String], nullptr, nullptr);
-        return 0;
-    }
-#else
-    return _call_getCameraPermissionStatus();
-#endif
+    extern "C" int64_t NitroSwift_nitro_camera_get_camera_permission_status();
+    return NitroSwift_nitro_camera_get_camera_permission_status();
 }
 
-extern int64_t _call_requestMicrophonePermission(void);
 int64_t nitro_camera_request_microphone_permission(void) {
     nitro_camera_clear_error();
-#ifdef __OBJC__
-    @try {
-        return _call_requestMicrophonePermission();
-    } @catch (NSException* e) {
-        nitro_report_error([e.name UTF8String], [e.reason UTF8String], nullptr, nullptr);
-        return 0;
-    }
-#else
-    return _call_requestMicrophonePermission();
-#endif
+    extern "C" int64_t NitroSwift_nitro_camera_request_microphone_permission();
+    return NitroSwift_nitro_camera_request_microphone_permission();
 }
 
-extern int64_t _call_getMicrophonePermissionStatus(void);
 int64_t nitro_camera_get_microphone_permission_status(void) {
     nitro_camera_clear_error();
-#ifdef __OBJC__
-    @try {
-        return _call_getMicrophonePermissionStatus();
-    } @catch (NSException* e) {
-        nitro_report_error([e.name UTF8String], [e.reason UTF8String], nullptr, nullptr);
-        return 0;
-    }
-#else
-    return _call_getMicrophonePermissionStatus();
-#endif
+    extern "C" int64_t NitroSwift_nitro_camera_get_microphone_permission_status();
+    return NitroSwift_nitro_camera_get_microphone_permission_status();
 }
 
-extern const char* _call_getAvailableCameraDevicesJson(void);
 const char* nitro_camera_get_available_camera_devices_json(void) {
     nitro_camera_clear_error();
-#ifdef __OBJC__
-    @try {
-        return _call_getAvailableCameraDevicesJson();
-    } @catch (NSException* e) {
-        nitro_report_error([e.name UTF8String], [e.reason UTF8String], nullptr, nullptr);
-        return nullptr;
-    }
-#else
-    return _call_getAvailableCameraDevicesJson();
-#endif
+    extern "C" const char* NitroSwift_nitro_camera_get_available_camera_devices_json();
+    return NitroSwift_nitro_camera_get_available_camera_devices_json();
 }
 
-extern int64_t _call_getDeviceCount(void);
 int64_t nitro_camera_get_device_count(void) {
     nitro_camera_clear_error();
-#ifdef __OBJC__
-    @try {
-        return _call_getDeviceCount();
-    } @catch (NSException* e) {
-        nitro_report_error([e.name UTF8String], [e.reason UTF8String], nullptr, nullptr);
-        return 0;
-    }
-#else
-    return _call_getDeviceCount();
-#endif
+    extern "C" int64_t NitroSwift_nitro_camera_get_device_count();
+    return NitroSwift_nitro_camera_get_device_count();
 }
 
-extern void* _call_getDevice(int64_t index);
 void* nitro_camera_get_device(int64_t index) {
     nitro_camera_clear_error();
-#ifdef __OBJC__
-    @try {
-        return _call_getDevice(index);
-    } @catch (NSException* e) {
-        nitro_report_error([e.name UTF8String], [e.reason UTF8String], nullptr, nullptr);
-        return nullptr;
-    }
-#else
-    return _call_getDevice(index);
-#endif
+    extern "C" void* NitroSwift_nitro_camera_get_device(int64_t index);
+    return NitroSwift_nitro_camera_get_device(index);
 }
 
-extern int64_t _call_openCamera(const char* deviceId, int64_t width, int64_t height, int64_t fps, int64_t enableAudio);
 int64_t nitro_camera_open_camera(const char* deviceId, int64_t width, int64_t height, int64_t fps, int64_t enableAudio) {
     nitro_camera_clear_error();
-#ifdef __OBJC__
-    @try {
-        return _call_openCamera(deviceId, width, height, fps, enableAudio);
-    } @catch (NSException* e) {
-        nitro_report_error([e.name UTF8String], [e.reason UTF8String], nullptr, nullptr);
-        return 0;
-    }
-#else
-    return _call_openCamera(deviceId, width, height, fps, enableAudio);
-#endif
+    extern "C" int64_t NitroSwift_nitro_camera_open_camera(const char* deviceId, int64_t width, int64_t height, int64_t fps, int64_t enableAudio);
+    return NitroSwift_nitro_camera_open_camera(deviceId, width, height, fps, enableAudio);
 }
 
-extern void _call_closeCamera(int64_t textureId);
 void nitro_camera_close_camera(int64_t textureId) {
     nitro_camera_clear_error();
-#ifdef __OBJC__
-    @try {
-        _call_closeCamera(textureId);
-    } @catch (NSException* e) {
-        nitro_report_error([e.name UTF8String], [e.reason UTF8String], nullptr, nullptr);
-    }
-#else
-    _call_closeCamera(textureId);
-#endif
+    extern "C" void NitroSwift_nitro_camera_close_camera(int64_t textureId);
+    NitroSwift_nitro_camera_close_camera(textureId);
 }
 
-extern void _call_startPreview(int64_t textureId);
 void nitro_camera_start_preview(int64_t textureId) {
     nitro_camera_clear_error();
-#ifdef __OBJC__
-    @try {
-        _call_startPreview(textureId);
-    } @catch (NSException* e) {
-        nitro_report_error([e.name UTF8String], [e.reason UTF8String], nullptr, nullptr);
-    }
-#else
-    _call_startPreview(textureId);
-#endif
+    extern "C" void NitroSwift_nitro_camera_start_preview(int64_t textureId);
+    NitroSwift_nitro_camera_start_preview(textureId);
 }
 
-extern void _call_stopPreview(int64_t textureId);
 void nitro_camera_stop_preview(int64_t textureId) {
     nitro_camera_clear_error();
-#ifdef __OBJC__
-    @try {
-        _call_stopPreview(textureId);
-    } @catch (NSException* e) {
-        nitro_report_error([e.name UTF8String], [e.reason UTF8String], nullptr, nullptr);
-    }
-#else
-    _call_stopPreview(textureId);
-#endif
+    extern "C" void NitroSwift_nitro_camera_stop_preview(int64_t textureId);
+    NitroSwift_nitro_camera_stop_preview(textureId);
 }
 
-extern void _call_setZoom(int64_t textureId, double zoom);
 void nitro_camera_set_zoom(int64_t textureId, double zoom) {
     nitro_camera_clear_error();
-#ifdef __OBJC__
-    @try {
-        _call_setZoom(textureId, zoom);
-    } @catch (NSException* e) {
-        nitro_report_error([e.name UTF8String], [e.reason UTF8String], nullptr, nullptr);
-    }
-#else
-    _call_setZoom(textureId, zoom);
-#endif
+    extern "C" void NitroSwift_nitro_camera_set_zoom(int64_t textureId, double zoom);
+    NitroSwift_nitro_camera_set_zoom(textureId, zoom);
 }
 
-extern void _call_setFocusPoint(int64_t textureId, double x, double y);
 void nitro_camera_set_focus_point(int64_t textureId, double x, double y) {
     nitro_camera_clear_error();
-#ifdef __OBJC__
-    @try {
-        _call_setFocusPoint(textureId, x, y);
-    } @catch (NSException* e) {
-        nitro_report_error([e.name UTF8String], [e.reason UTF8String], nullptr, nullptr);
-    }
-#else
-    _call_setFocusPoint(textureId, x, y);
-#endif
+    extern "C" void NitroSwift_nitro_camera_set_focus_point(int64_t textureId, double x, double y);
+    NitroSwift_nitro_camera_set_focus_point(textureId, x, y);
 }
 
-extern void _call_setAutoFocus(int64_t textureId, int64_t mode);
 void nitro_camera_set_auto_focus(int64_t textureId, int64_t mode) {
     nitro_camera_clear_error();
-#ifdef __OBJC__
-    @try {
-        _call_setAutoFocus(textureId, mode);
-    } @catch (NSException* e) {
-        nitro_report_error([e.name UTF8String], [e.reason UTF8String], nullptr, nullptr);
-    }
-#else
-    _call_setAutoFocus(textureId, mode);
-#endif
+    extern "C" void NitroSwift_nitro_camera_set_auto_focus(int64_t textureId, int64_t mode);
+    NitroSwift_nitro_camera_set_auto_focus(textureId, mode);
 }
 
-extern void _call_setExposure(int64_t textureId, double value);
 void nitro_camera_set_exposure(int64_t textureId, double value) {
     nitro_camera_clear_error();
-#ifdef __OBJC__
-    @try {
-        _call_setExposure(textureId, value);
-    } @catch (NSException* e) {
-        nitro_report_error([e.name UTF8String], [e.reason UTF8String], nullptr, nullptr);
-    }
-#else
-    _call_setExposure(textureId, value);
-#endif
+    extern "C" void NitroSwift_nitro_camera_set_exposure(int64_t textureId, double value);
+    NitroSwift_nitro_camera_set_exposure(textureId, value);
 }
 
-extern void _call_setFlash(int64_t textureId, int64_t mode);
 void nitro_camera_set_flash(int64_t textureId, int64_t mode) {
     nitro_camera_clear_error();
-#ifdef __OBJC__
-    @try {
-        _call_setFlash(textureId, mode);
-    } @catch (NSException* e) {
-        nitro_report_error([e.name UTF8String], [e.reason UTF8String], nullptr, nullptr);
-    }
-#else
-    _call_setFlash(textureId, mode);
-#endif
+    extern "C" void NitroSwift_nitro_camera_set_flash(int64_t textureId, int64_t mode);
+    NitroSwift_nitro_camera_set_flash(textureId, mode);
 }
 
-extern void _call_setTorch(int64_t textureId, int64_t enabled);
 void nitro_camera_set_torch(int64_t textureId, int64_t enabled) {
     nitro_camera_clear_error();
-#ifdef __OBJC__
-    @try {
-        _call_setTorch(textureId, enabled);
-    } @catch (NSException* e) {
-        nitro_report_error([e.name UTF8String], [e.reason UTF8String], nullptr, nullptr);
-    }
-#else
-    _call_setTorch(textureId, enabled);
-#endif
+    extern "C" void NitroSwift_nitro_camera_set_torch(int64_t textureId, int64_t enabled);
+    NitroSwift_nitro_camera_set_torch(textureId, enabled);
 }
 
-extern void _call_setWhiteBalance(int64_t textureId, int64_t temperature);
 void nitro_camera_set_white_balance(int64_t textureId, int64_t temperature) {
     nitro_camera_clear_error();
-#ifdef __OBJC__
-    @try {
-        _call_setWhiteBalance(textureId, temperature);
-    } @catch (NSException* e) {
-        nitro_report_error([e.name UTF8String], [e.reason UTF8String], nullptr, nullptr);
-    }
-#else
-    _call_setWhiteBalance(textureId, temperature);
-#endif
+    extern "C" void NitroSwift_nitro_camera_set_white_balance(int64_t textureId, int64_t temperature);
+    NitroSwift_nitro_camera_set_white_balance(textureId, temperature);
 }
 
-extern void _call_setHdr(int64_t textureId, int64_t enabled);
 void nitro_camera_set_hdr(int64_t textureId, int64_t enabled) {
     nitro_camera_clear_error();
-#ifdef __OBJC__
-    @try {
-        _call_setHdr(textureId, enabled);
-    } @catch (NSException* e) {
-        nitro_report_error([e.name UTF8String], [e.reason UTF8String], nullptr, nullptr);
-    }
-#else
-    _call_setHdr(textureId, enabled);
-#endif
+    extern "C" void NitroSwift_nitro_camera_set_hdr(int64_t textureId, int64_t enabled);
+    NitroSwift_nitro_camera_set_hdr(textureId, enabled);
 }
 
-extern void* _call_takePhoto(int64_t textureId);
 void* nitro_camera_take_photo(int64_t textureId) {
     nitro_camera_clear_error();
-#ifdef __OBJC__
-    @try {
-        return _call_takePhoto(textureId);
-    } @catch (NSException* e) {
-        nitro_report_error([e.name UTF8String], [e.reason UTF8String], nullptr, nullptr);
-        return nullptr;
-    }
-#else
-    return _call_takePhoto(textureId);
-#endif
+    extern "C" void* NitroSwift_nitro_camera_take_photo(int64_t textureId);
+    return NitroSwift_nitro_camera_take_photo(textureId);
 }
 
-extern void _call_startVideoRecording(int64_t textureId, const char* outputPath);
 void nitro_camera_start_video_recording(int64_t textureId, const char* outputPath) {
     nitro_camera_clear_error();
-#ifdef __OBJC__
-    @try {
-        _call_startVideoRecording(textureId, outputPath);
-    } @catch (NSException* e) {
-        nitro_report_error([e.name UTF8String], [e.reason UTF8String], nullptr, nullptr);
-    }
-#else
-    _call_startVideoRecording(textureId, outputPath);
-#endif
+    extern "C" void NitroSwift_nitro_camera_start_video_recording(int64_t textureId, const char* outputPath);
+    NitroSwift_nitro_camera_start_video_recording(textureId, outputPath);
 }
 
-extern void* _call_stopVideoRecording(int64_t textureId);
 void* nitro_camera_stop_video_recording(int64_t textureId) {
     nitro_camera_clear_error();
-#ifdef __OBJC__
-    @try {
-        return _call_stopVideoRecording(textureId);
-    } @catch (NSException* e) {
-        nitro_report_error([e.name UTF8String], [e.reason UTF8String], nullptr, nullptr);
-        return nullptr;
-    }
-#else
-    return _call_stopVideoRecording(textureId);
-#endif
+    extern "C" void* NitroSwift_nitro_camera_stop_video_recording(int64_t textureId);
+    return NitroSwift_nitro_camera_stop_video_recording(textureId);
 }
 
-extern void _call_pauseRecording(int64_t textureId);
 void nitro_camera_pause_recording(int64_t textureId) {
     nitro_camera_clear_error();
-#ifdef __OBJC__
-    @try {
-        _call_pauseRecording(textureId);
-    } @catch (NSException* e) {
-        nitro_report_error([e.name UTF8String], [e.reason UTF8String], nullptr, nullptr);
-    }
-#else
-    _call_pauseRecording(textureId);
-#endif
+    extern "C" void NitroSwift_nitro_camera_pause_recording(int64_t textureId);
+    NitroSwift_nitro_camera_pause_recording(textureId);
 }
 
-extern void _call_resumeRecording(int64_t textureId);
 void nitro_camera_resume_recording(int64_t textureId) {
     nitro_camera_clear_error();
-#ifdef __OBJC__
-    @try {
-        _call_resumeRecording(textureId);
-    } @catch (NSException* e) {
-        nitro_report_error([e.name UTF8String], [e.reason UTF8String], nullptr, nullptr);
-    }
-#else
-    _call_resumeRecording(textureId);
-#endif
+    extern "C" void NitroSwift_nitro_camera_resume_recording(int64_t textureId);
+    NitroSwift_nitro_camera_resume_recording(textureId);
 }
 
-extern void _call_cancelRecording(int64_t textureId);
 void nitro_camera_cancel_recording(int64_t textureId) {
     nitro_camera_clear_error();
-#ifdef __OBJC__
-    @try {
-        _call_cancelRecording(textureId);
-    } @catch (NSException* e) {
-        nitro_report_error([e.name UTF8String], [e.reason UTF8String], nullptr, nullptr);
-    }
-#else
-    _call_cancelRecording(textureId);
-#endif
+    extern "C" void NitroSwift_nitro_camera_cancel_recording(int64_t textureId);
+    NitroSwift_nitro_camera_cancel_recording(textureId);
 }
 
-extern void _call_enableFrameProcessing(int64_t textureId, int64_t enabled);
 void nitro_camera_enable_frame_processing(int64_t textureId, int64_t enabled) {
     nitro_camera_clear_error();
-#ifdef __OBJC__
-    @try {
-        _call_enableFrameProcessing(textureId, enabled);
-    } @catch (NSException* e) {
-        nitro_report_error([e.name UTF8String], [e.reason UTF8String], nullptr, nullptr);
-    }
-#else
-    _call_enableFrameProcessing(textureId, enabled);
-#endif
+    extern "C" void NitroSwift_nitro_camera_enable_frame_processing(int64_t textureId, int64_t enabled);
+    NitroSwift_nitro_camera_enable_frame_processing(textureId, enabled);
 }
 
-extern void _call_setFrameFormat(int64_t textureId, int64_t format);
 void nitro_camera_set_frame_format(int64_t textureId, int64_t format) {
     nitro_camera_clear_error();
-#ifdef __OBJC__
-    @try {
-        _call_setFrameFormat(textureId, format);
-    } @catch (NSException* e) {
-        nitro_report_error([e.name UTF8String], [e.reason UTF8String], nullptr, nullptr);
-    }
-#else
-    _call_setFrameFormat(textureId, format);
-#endif
+    extern "C" void NitroSwift_nitro_camera_set_frame_format(int64_t textureId, int64_t format);
+    NitroSwift_nitro_camera_set_frame_format(textureId, format);
 }
 
-extern void _call_setFilterShader(int64_t textureId, const char* shaderSource);
 void nitro_camera_set_filter_shader(int64_t textureId, const char* shaderSource) {
     nitro_camera_clear_error();
-#ifdef __OBJC__
-    @try {
-        _call_setFilterShader(textureId, shaderSource);
-    } @catch (NSException* e) {
-        nitro_report_error([e.name UTF8String], [e.reason UTF8String], nullptr, nullptr);
-    }
-#else
-    _call_setFilterShader(textureId, shaderSource);
-#endif
+    extern "C" void NitroSwift_nitro_camera_set_filter_shader(int64_t textureId, const char* shaderSource);
+    NitroSwift_nitro_camera_set_filter_shader(textureId, shaderSource);
 }
 
-extern void _call_updateOverlay(int64_t textureId, const char* overlayData);
 void nitro_camera_update_overlay(int64_t textureId, const char* overlayData) {
     nitro_camera_clear_error();
-#ifdef __OBJC__
-    @try {
-        _call_updateOverlay(textureId, overlayData);
-    } @catch (NSException* e) {
-        nitro_report_error([e.name UTF8String], [e.reason UTF8String], nullptr, nullptr);
-    }
-#else
-    _call_updateOverlay(textureId, overlayData);
-#endif
-}
-
-void _emit_frameStream_to_dart(int64_t dartPort, void* item) {
-    Dart_CObject obj;
-    obj.type = Dart_CObject_kInt64;
-    obj.value.as_int64 = (intptr_t)item;
-    Dart_PostCObject_DL(dartPort, &obj);
-}
-
-extern void _register_frameStream_stream(int64_t dartPort, void (*emitCb)(int64_t, void*));
-void nitro_camera_register_frame_stream_stream(int64_t dart_port) {
-    _register_frameStream_stream(dart_port, _emit_frameStream_to_dart);
-}
-extern void _release_frameStream_stream(int64_t dart_port);
-void nitro_camera_release_frame_stream_stream(int64_t dart_port) {
-    _release_frameStream_stream(dart_port);
+    extern "C" void NitroSwift_nitro_camera_update_overlay(int64_t textureId, const char* overlayData);
+    NitroSwift_nitro_camera_update_overlay(textureId, overlayData);
 }
 
 } // extern "C"

@@ -1,7 +1,7 @@
-import '../bridge_spec.dart';
-import 'enum_generator.dart';
-import 'struct_generator.dart';
-import 'record_generator.dart';
+import '../../bridge_spec.dart';
+import '../shared/enum_generator.dart';
+import '../shared/struct_generator.dart';
+import '../shared/record_generator.dart';
 
 class DartFfiGenerator {
   static String generate(BridgeSpec spec) {

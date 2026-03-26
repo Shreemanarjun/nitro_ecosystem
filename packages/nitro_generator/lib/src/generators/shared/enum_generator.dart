@@ -1,4 +1,4 @@
-import '../bridge_spec.dart';
+import '../../bridge_spec.dart';
 
 /// EnumGenerator: only emits FFI conversion extensions in Dart (not re-declaring enums).
 class EnumGenerator {

@@ -31,20 +31,20 @@ public class VerificationModuleRegistry {
 
 // MARK: - C bridge stubs — exported as C symbols called by the generated .cpp shim
 
-@_cdecl("_call_multiply")
-public func _call_multiply(_ a: Double, _ b: Double) -> Double {
+@_cdecl("NitroSwift_verification_module_multiply")
+public func NitroSwift_verification_module_multiply(_ a: Double, _ b: Double) -> Double {
     guard let impl = VerificationModuleRegistry.impl else { return 0.0 }
     return impl.multiply(a: a, b: b)
 }
 
-@_cdecl("_call_ping")
-public func _call_ping(_ message: UnsafePointer<CChar>?) -> UnsafeMutablePointer<CChar>? {
+@_cdecl("NitroSwift_verification_module_ping")
+public func NitroSwift_verification_module_ping(_ message: UnsafePointer<CChar>?) -> UnsafeMutablePointer<CChar>? {
     let messageStr = message.map { String(cString: $0) } ?? ""
     return strdup(VerificationModuleRegistry.impl?.ping(message: messageStr) ?? "")
 }
 
-@_cdecl("_call_pingAsync")
-public func _call_pingAsync(_ message: UnsafePointer<CChar>?) -> UnsafeMutablePointer<CChar>? {
+@_cdecl("NitroSwift_verification_module_ping_async")
+public func NitroSwift_verification_module_ping_async(_ message: UnsafePointer<CChar>?) -> UnsafeMutablePointer<CChar>? {
     let messageStr = message.map { String(cString: $0) } ?? ""
     guard let impl = VerificationModuleRegistry.impl else { return strdup("") }
     let sema = DispatchSemaphore(value: 0)
@@ -57,14 +57,14 @@ public func _call_pingAsync(_ message: UnsafePointer<CChar>?) -> UnsafeMutablePo
     return strdup(result)
 }
 
-@_cdecl("_call_throwError")
-public func _call_throwError(_ message: UnsafePointer<CChar>?) -> Void {
+@_cdecl("NitroSwift_verification_module_throw_error")
+public func NitroSwift_verification_module_throw_error(_ message: UnsafePointer<CChar>?) -> Void {
     let messageStr = message.map { String(cString: $0) } ?? ""
     VerificationModuleRegistry.impl?.throwError(message: messageStr)
 }
 
-@_cdecl("_call_processFloats")
-public func _call_processFloats(_ inputs: UnsafeMutablePointer<Float>?, _ inputs_length: Int64) -> UnsafeMutableRawPointer? {
+@_cdecl("NitroSwift_verification_module_process_floats")
+public func NitroSwift_verification_module_process_floats(_ inputs: UnsafeMutablePointer<Float>?, _ inputs_length: Int64) -> UnsafeMutableRawPointer? {
     let inputsArr = inputs.map { Array(UnsafeBufferPointer(start: $0, count: Int(inputs_length))) } ?? []
     guard let result = VerificationModuleRegistry.impl?.processFloats(inputs: inputsArr) else { return nil }
     let ptr = UnsafeMutablePointer<FloatBuffer>.allocate(capacity: 1)

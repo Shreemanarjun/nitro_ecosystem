@@ -3,16 +3,16 @@
 
 import 'package:nitro_annotations/nitro_annotations.dart';
 import 'package:nitro_generator/src/bridge_spec.dart';
+import 'package:nitro_generator/src/generators/android/kotlin_generator.dart';
+import 'package:nitro_generator/src/generators/build/cmake_generator.dart';
+import 'package:nitro_generator/src/generators/cpp/cpp_bridge_generator.dart';
+import 'package:nitro_generator/src/generators/cpp/cpp_header_generator.dart';
+import 'package:nitro_generator/src/generators/dart/dart_ffi_generator.dart';
+import 'package:nitro_generator/src/generators/ios/swift_generator.dart';
+import 'package:nitro_generator/src/generators/shared/enum_generator.dart';
+import 'package:nitro_generator/src/generators/shared/record_generator.dart';
+import 'package:nitro_generator/src/generators/shared/struct_generator.dart';
 import 'package:nitro_generator/src/spec_validator.dart';
-import 'package:nitro_generator/src/generators/cmake_generator.dart';
-import 'package:nitro_generator/src/generators/cpp_bridge_generator.dart';
-import 'package:nitro_generator/src/generators/cpp_header_generator.dart';
-import 'package:nitro_generator/src/generators/dart_ffi_generator.dart';
-import 'package:nitro_generator/src/generators/enum_generator.dart';
-import 'package:nitro_generator/src/generators/kotlin_generator.dart';
-import 'package:nitro_generator/src/generators/record_generator.dart';
-import 'package:nitro_generator/src/generators/struct_generator.dart';
-import 'package:nitro_generator/src/generators/swift_generator.dart';
 import 'package:test/test.dart';
 
 // ── Helpers ──────────────────────────────────────────────────────────────────

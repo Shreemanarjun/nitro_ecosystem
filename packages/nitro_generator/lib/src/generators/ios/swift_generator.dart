@@ -1,7 +1,7 @@
-import '../bridge_spec.dart';
-import 'struct_generator.dart';
-import 'enum_generator.dart';
-import 'record_generator.dart';
+import '../../bridge_spec.dart';
+import '../shared/struct_generator.dart';
+import '../shared/enum_generator.dart';
+import '../shared/record_generator.dart';
 
 class SwiftGenerator {
   static String generate(BridgeSpec spec) {
@@ -139,8 +139,8 @@ class SwiftGenerator {
         (en) => en.name == func.returnType.name.replaceFirst('?', ''),
       );
 
-      s.writeln('@_cdecl("_call_${func.dartName}")');
-      s.writeln('public func _call_${func.dartName}($params) -> $cRetType {');
+      s.writeln('@_cdecl("NitroSwift_${func.cSymbol}")');
+      s.writeln('public func NitroSwift_${func.cSymbol}($params) -> $cRetType {');
 
       // Emit UnsafePointer<CChar>? → Swift String conversions for each String param.
       for (final p in stringParams) {
@@ -326,8 +326,8 @@ class SwiftGenerator {
             : isEnumProp
             ? 'Int64'
             : swiftType;
-        s.writeln('@_cdecl("_call_get_${prop.dartName}")');
-        s.writeln('public func _call_get_${prop.dartName}() -> $getRetType {');
+        s.writeln('@_cdecl("NitroSwift_${prop.getSymbol}")');
+        s.writeln('public func NitroSwift_${prop.getSymbol}() -> $getRetType {');
         if (isString) {
           s.writeln(
             '    return strdup(${spec.dartClassName}Registry.impl?.${prop.dartName} ?? "")',
@@ -356,9 +356,9 @@ class SwiftGenerator {
             : isStructProp
             ? 'UnsafeRawPointer?'
             : swiftType;
-        s.writeln('@_cdecl("_call_set_${prop.dartName}")');
+        s.writeln('@_cdecl("NitroSwift_${prop.setSymbol}")');
         s.writeln(
-          'public func _call_set_${prop.dartName}(_ value: $setParamType) {',
+          'public func NitroSwift_${prop.setSymbol}(_ value: $setParamType) {',
         );
         if (isBool) {
           s.writeln(

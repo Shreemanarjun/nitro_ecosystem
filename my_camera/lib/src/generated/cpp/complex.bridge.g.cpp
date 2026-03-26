@@ -4,464 +4,185 @@
 #include <stdbool.h>
 #include <string.h>
 #include <stdlib.h>
+#include "nitro.h"
 #include "dart_api_dl.h"
 #include "complex.bridge.g.h"
 
-extern "C" {
-intptr_t complex_init_dart_api_dl(void* data) {
-    return Dart_InitializeApiDL(data);
-}
-}
-static thread_local NitroError g_nitro_error = { 0, nullptr, nullptr, nullptr, nullptr };
+#ifndef NITRO_COMPLEX_LIB_INIT_DEFINED
+#define NITRO_COMPLEX_LIB_INIT_DEFINED
+
+static thread_local NitroError g_nitro_error_complex = { 0, nullptr, nullptr, nullptr, nullptr };
 
 extern "C" {
-NitroError* complex_get_error() { return &g_nitro_error; }
-void complex_clear_error() {
-    g_nitro_error.hasError = 0;
-    if (g_nitro_error.name) { free((void*)g_nitro_error.name); g_nitro_error.name = nullptr; }
-    if (g_nitro_error.message) { free((void*)g_nitro_error.message); g_nitro_error.message = nullptr; }
-    if (g_nitro_error.code) { free((void*)g_nitro_error.code); g_nitro_error.code = nullptr; }
-    if (g_nitro_error.stackTrace) { free((void*)g_nitro_error.stackTrace); g_nitro_error.stackTrace = nullptr; }
+intptr_t complex_init_dart_api_dl(void* data) { return Dart_InitializeApiDL(data); }
+NitroError* complex_get_error(void) { return &g_nitro_error_complex; }
+void complex_clear_error(void) {
+    auto& e = g_nitro_error_complex;
+    e.hasError = 0;
+    if (e.name)       { free((void*)e.name);       e.name = nullptr; }
+    if (e.message)    { free((void*)e.message);    e.message = nullptr; }
+    if (e.code)       { free((void*)e.code);       e.code = nullptr; }
+    if (e.stackTrace) { free((void*)e.stackTrace); e.stackTrace = nullptr; }
 }
+} // extern "C" (lib-level)
 
-static void nitro_report_error(const char* name, const char* message, const char* code, const char* stack) {
+static void nitro_report_error_complex(const char* name, const char* message, const char* code, const char* stack) {
     complex_clear_error();
-    g_nitro_error.hasError = 1;
-    g_nitro_error.name = name ? strdup(name) : strdup("NativeException");
-    g_nitro_error.message = message ? strdup(message) : strdup("An unknown native exception occurred.");
-    g_nitro_error.code = code ? strdup(code) : nullptr;
-    g_nitro_error.stackTrace = stack ? strdup(stack) : nullptr;
-}
+    auto& e = g_nitro_error_complex;
+    e.hasError = 1;
+    e.name       = name    ? strdup(name)    : strdup("NativeException");
+    e.message    = message ? strdup(message) : strdup("An unknown native exception occurred.");
+    e.code       = code  ? strdup(code)  : nullptr;
+    e.stackTrace = stack ? strdup(stack) : nullptr;
 }
 
 #ifdef __ANDROID__
 #include <jni.h>
 #include <android/log.h>
 #define LOGE(...) __android_log_print(ANDROID_LOG_ERROR, "Nitrogen", __VA_ARGS__)
-
-static JavaVM* g_jvm = nullptr;
-static jclass g_bridgeClass = nullptr;
-
-// ── Cached JNI IDs (initialized once in JNI_OnLoad, safe to use from any thread) ──
-static jmethodID g_exc_getName = nullptr;
-static jmethodID g_exc_getMessage = nullptr;
-static jmethodID g_mid_calculate_call = nullptr;
-static jmethodID g_mid_fetchMetadata_call = nullptr;
-static jmethodID g_mid_getStatus_call = nullptr;
-static jmethodID g_mid_updateSensors_call = nullptr;
-static jmethodID g_mid_generatePacket_call = nullptr;
-static jmethodID g_mid_complex_module_get_battery_level_call = nullptr;
-static jmethodID g_mid_complex_module_set_config_call = nullptr;
-static jmethodID g_mid_complex_module_register_sensor_stream_stream_call = nullptr;
-static jmethodID g_mid_complex_module_release_sensor_stream_stream_call = nullptr;
-static jmethodID g_mid_complex_module_register_data_stream_stream_call = nullptr;
-static jmethodID g_mid_complex_module_release_data_stream_stream_call = nullptr;
-static jclass g_cls_SensorData = nullptr;
-static jmethodID g_ctor_SensorData = nullptr;
-static jfieldID g_fid_SensorData_temperature = nullptr;
-static jfieldID g_fid_SensorData_humidity = nullptr;
-static jfieldID g_fid_SensorData_lastUpdate = nullptr;
-static jclass g_cls_Packet = nullptr;
-static jmethodID g_ctor_Packet = nullptr;
-static jfieldID g_fid_Packet_sequence = nullptr;
-static jfieldID g_fid_Packet_buffer = nullptr;
-static jfieldID g_fid_Packet_size = nullptr;
-
-// RAII guard: auto-detaches a thread from the JVM when it exits.
-// One instance is stored in thread-local storage; its destructor fires
-// when the thread terminates, ensuring no JVM thread descriptor leaks.
-struct NitroJniThreadGuard {
+static JavaVM* g_jvm_complex = nullptr;
+struct NitroJniThreadGuard_complex {
     bool attached = false;
-    ~NitroJniThreadGuard() {
-        if (attached && g_jvm != nullptr) {
-            g_jvm->DetachCurrentThread();
-        }
+    ~NitroJniThreadGuard_complex() {
+        if (attached && g_jvm_complex) g_jvm_complex->DetachCurrentThread();
     }
 };
-static thread_local NitroJniThreadGuard g_thread_guard;
-
-static void nitro_report_jni_exception(JNIEnv* env, jthrowable ex) {
-    // MUST clear the pending exception before making any further JNI calls.
-    // JNI aborts if any JNI function (e.g. GetObjectClass) is called while
-    // an exception is still pending.
-    env->ExceptionClear();
-    jclass ex_class = env->GetObjectClass(ex);
-    jstring j_name = (jstring)env->CallObjectMethod(ex_class, g_exc_getName);
-    const char* name = (j_name != nullptr) ? env->GetStringUTFChars(j_name, 0) : "JavaException";
-
-    jstring j_msg = (jstring)env->CallObjectMethod(ex, g_exc_getMessage);
-    const char* msg = (j_msg != nullptr) ? env->GetStringUTFChars(j_msg, 0) : "No message provided";
-
-    nitro_report_error(name, msg, nullptr, nullptr);
-
-    if (j_name) env->ReleaseStringUTFChars(j_name, name);
-    if (j_msg) env->ReleaseStringUTFChars(j_msg, msg);
-    env->DeleteLocalRef(ex);
-}
-
-static SensorData pack_SensorData_from_jni(JNIEnv* env, jobject obj) {
-    SensorData result;
-    result.temperature = env->GetDoubleField(obj, g_fid_SensorData_temperature);
-    result.humidity = env->GetDoubleField(obj, g_fid_SensorData_humidity);
-    result.lastUpdate = env->GetLongField(obj, g_fid_SensorData_lastUpdate);
-    return result;
-}
-static jobject unpack_SensorData_to_jni(JNIEnv* env, const SensorData* st) {
-    return env->NewObject(g_cls_SensorData, g_ctor_SensorData, (jdouble)st->temperature, (jdouble)st->humidity, (jlong)st->lastUpdate);
-}
-static Packet pack_Packet_from_jni(JNIEnv* env, jobject obj) {
-    Packet result;
-    result.sequence = env->GetLongField(obj, g_fid_Packet_sequence);
-    jobject buf_buffer = env->GetObjectField(obj, g_fid_Packet_buffer);
-    if (buf_buffer == nullptr) {
-        jclass npe = env->FindClass("java/lang/NullPointerException");
-        if (npe) env->ThrowNew(npe, "Packet.buffer: TypedData ByteBuffer is null");
-        return result;
-    }
-    result.buffer = (uint8_t*)env->GetDirectBufferAddress(buf_buffer);
-    result.size = env->GetLongField(obj, g_fid_Packet_size);
-    return result;
-}
-static jobject unpack_Packet_to_jni(JNIEnv* env, const Packet* st) {
-    return env->NewObject(g_cls_Packet, g_ctor_Packet, (jlong)st->sequence, env->NewDirectByteBuffer((void*)st->buffer, st->size), (jlong)st->size);
-}
-
-extern "C" {
-
-JNIEXPORT jint JNICALL JNI_OnLoad(JavaVM* vm, void* reserved) {
-    g_jvm = vm;
-    __android_log_print(ANDROID_LOG_INFO, "Nitrogen", "JNI_OnLoad called for complex");
+static thread_local NitroJniThreadGuard_complex g_thread_guard_complex;
+static JNIEnv* complex_GetEnv() {
+    if (!g_jvm_complex) return nullptr;
     JNIEnv* env = nullptr;
-    if (vm->GetEnv(reinterpret_cast<void**>(&env), JNI_VERSION_1_6) != JNI_OK) {
-        return -1;
-    }
-    jclass localClass = env->FindClass("nitro/complex_module/ComplexModuleJniBridge");
-    if (localClass != nullptr) {
-        g_bridgeClass = (jclass)env->NewGlobalRef(localClass);
-        env->DeleteLocalRef(localClass);
-    } else {
-        LOGE("Failed to find JniBridge class");
-    }
-
-    // Cache exception introspection method IDs
-    {
-        jclass cls_class = env->FindClass("java/lang/Class");
-        if (cls_class) { g_exc_getName = env->GetMethodID(cls_class, "getName", "()Ljava/lang/String;"); env->DeleteLocalRef(cls_class); }
-        jclass throwable_class = env->FindClass("java/lang/Throwable");
-        if (throwable_class) { g_exc_getMessage = env->GetMethodID(throwable_class, "getMessage", "()Ljava/lang/String;"); env->DeleteLocalRef(throwable_class); }
-    }
-
-    // Cache bridge method IDs
-    if (g_bridgeClass != nullptr) {
-        g_mid_calculate_call = env->GetStaticMethodID(g_bridgeClass, "calculate_call", "(JDZ)J");
-        g_mid_fetchMetadata_call = env->GetStaticMethodID(g_bridgeClass, "fetchMetadata_call", "(Ljava/lang/String;)Ljava/lang/String;");
-        g_mid_getStatus_call = env->GetStaticMethodID(g_bridgeClass, "getStatus_call", "()J");
-        g_mid_updateSensors_call = env->GetStaticMethodID(g_bridgeClass, "updateSensors_call", "(Lnitro/complex_module/SensorData;)V");
-        g_mid_generatePacket_call = env->GetStaticMethodID(g_bridgeClass, "generatePacket_call", "(J)Lnitro/complex_module/Packet;");
-        g_mid_complex_module_get_battery_level_call = env->GetStaticMethodID(g_bridgeClass, "complex_module_get_battery_level_call", "()D");
-        g_mid_complex_module_set_config_call = env->GetStaticMethodID(g_bridgeClass, "complex_module_set_config_call", "(Ljava/lang/String;)V");
-        g_mid_complex_module_register_sensor_stream_stream_call = env->GetStaticMethodID(g_bridgeClass, "complex_module_register_sensor_stream_stream_call", "(J)V");
-        g_mid_complex_module_release_sensor_stream_stream_call = env->GetStaticMethodID(g_bridgeClass, "complex_module_release_sensor_stream_stream_call", "(J)V");
-        g_mid_complex_module_register_data_stream_stream_call = env->GetStaticMethodID(g_bridgeClass, "complex_module_register_data_stream_stream_call", "(J)V");
-        g_mid_complex_module_release_data_stream_stream_call = env->GetStaticMethodID(g_bridgeClass, "complex_module_release_data_stream_stream_call", "(J)V");
-    }
-
-    // Cache struct class + ctor + field IDs
-    {
-        jclass local_cls_SensorData = env->FindClass("nitro/complex_module/SensorData");
-        if (local_cls_SensorData != nullptr) {
-            g_cls_SensorData = (jclass)env->NewGlobalRef(local_cls_SensorData);
-            env->DeleteLocalRef(local_cls_SensorData);
-            g_ctor_SensorData = env->GetMethodID(g_cls_SensorData, "<init>", "(DDJ)V");
-            g_fid_SensorData_temperature = env->GetFieldID(g_cls_SensorData, "temperature", "D");
-            g_fid_SensorData_humidity = env->GetFieldID(g_cls_SensorData, "humidity", "D");
-            g_fid_SensorData_lastUpdate = env->GetFieldID(g_cls_SensorData, "lastUpdate", "J");
-        }
-    }
-    {
-        jclass local_cls_Packet = env->FindClass("nitro/complex_module/Packet");
-        if (local_cls_Packet != nullptr) {
-            g_cls_Packet = (jclass)env->NewGlobalRef(local_cls_Packet);
-            env->DeleteLocalRef(local_cls_Packet);
-            g_ctor_Packet = env->GetMethodID(g_cls_Packet, "<init>", "(JLjava/nio/ByteBuffer;J)V");
-            g_fid_Packet_sequence = env->GetFieldID(g_cls_Packet, "sequence", "J");
-            g_fid_Packet_buffer = env->GetFieldID(g_cls_Packet, "buffer", "Ljava/nio/ByteBuffer;");
-            g_fid_Packet_size = env->GetFieldID(g_cls_Packet, "size", "J");
-        }
-    }
-
-    return JNI_VERSION_1_6;
-}
-
-static JNIEnv* GetEnv() {
-    if (g_jvm == nullptr) return nullptr;
-    JNIEnv* env = nullptr;
-    int status = g_jvm->GetEnv(reinterpret_cast<void**>(&env), JNI_VERSION_1_6);
-    if (status == JNI_EDETACHED) {
-        g_jvm->AttachCurrentThread(&env, nullptr);
-        g_thread_guard.attached = true; // will DetachCurrentThread on thread exit
+    if (g_jvm_complex->GetEnv(reinterpret_cast<void**>(&env), JNI_VERSION_1_6) == JNI_EDETACHED) {
+        g_jvm_complex->AttachCurrentThread(&env, nullptr);
+        g_thread_guard_complex.attached = true;
     }
     return env;
 }
+extern "C" {
+JNIEXPORT jint JNICALL JNI_OnLoad(JavaVM* vm, void* reserved) {
+    g_jvm_complex = vm;
+    return JNI_VERSION_1_6;
+}
+} // extern "C" (JNI_OnLoad)
+#endif // __ANDROID__
+#endif // NITRO_COMPLEX_LIB_INIT_DEFINED
 
+#ifdef __ANDROID__
+static jclass g_complex_bridge_class = nullptr;
+static jmethodID g_complex_calculate_mid = nullptr;
+static jmethodID g_complex_fetchMetadata_mid = nullptr;
+static jmethodID g_complex_getStatus_mid = nullptr;
+static jmethodID g_complex_updateSensors_mid = nullptr;
+static jmethodID g_complex_generatePacket_mid = nullptr;
+static jmethodID g_complex_get_batteryLevel_mid = nullptr;
+static jmethodID g_complex_set_config_mid = nullptr;
+
+extern "C" JNIEXPORT void JNICALL Java_nitro_complex_1module_ComplexModuleJniBridge_initialize(JNIEnv* env, jclass clazz, jclass bridgeClass) {
+    if (g_complex_bridge_class) return;
+    g_complex_bridge_class = (jclass)env->NewGlobalRef(bridgeClass);
+    g_complex_calculate_mid = env->GetStaticMethodID(g_complex_bridge_class, "calculate_call", "(JDZ)J");
+    g_complex_fetchMetadata_mid = env->GetStaticMethodID(g_complex_bridge_class, "fetchMetadata_call", "(Ljava/lang/String;)Ljava/lang/String;");
+    g_complex_getStatus_mid = env->GetStaticMethodID(g_complex_bridge_class, "getStatus_call", "()J");
+    g_complex_updateSensors_mid = env->GetStaticMethodID(g_complex_bridge_class, "updateSensors_call", "(Ljava/lang/Object;)V");
+    g_complex_generatePacket_mid = env->GetStaticMethodID(g_complex_bridge_class, "generatePacket_call", "(J)Ljava/lang/Object;");
+    g_complex_get_batteryLevel_mid = env->GetStaticMethodID(g_complex_bridge_class, "complex_module_get_battery_level_call", "()D");
+    g_complex_set_config_mid = env->GetStaticMethodID(g_complex_bridge_class, "complex_module_set_config_call", "(Ljava/lang/String;)V");
+}
+#endif // __ANDROID__
+
+#ifdef __ANDROID__
+extern "C" {
 int64_t complex_module_calculate(int64_t seed, double factor, int8_t enabled) {
-    JNIEnv* env = GetEnv();
-    if (env == nullptr) return 0;
-    jmethodID methodId = g_mid_calculate_call;
-    if (methodId == nullptr) { LOGE("Method not found"); return 0; }
-
     complex_clear_error();
-    int64_t res = env->CallStaticLongMethod(g_bridgeClass, methodId, seed, factor, enabled);
-    if (env->ExceptionCheck()) { nitro_report_jni_exception(env, env->ExceptionOccurred()); return 0; }
-    return res;
+    JNIEnv* env = complex_GetEnv();
+    if (!env || !g_complex_calculate_mid) return 0;
+    return env->CallStaticLongMethod(g_complex_bridge_class, g_complex_calculate_mid, seed, factor, enabled);
 }
 
 const char* complex_module_fetch_metadata(const char* url) {
-    JNIEnv* env = GetEnv();
-    if (env == nullptr) return nullptr;
-    jmethodID methodId = g_mid_fetchMetadata_call;
-    if (methodId == nullptr) { LOGE("Method not found"); return nullptr; }
-
     complex_clear_error();
-    jstring j_url = env->NewStringUTF(url);
-    jstring jstr = (jstring)env->CallStaticObjectMethod(g_bridgeClass, methodId, j_url);
-    if (env->ExceptionCheck()) { nitro_report_jni_exception(env, env->ExceptionOccurred()); return nullptr; }
-    if (jstr == nullptr) return nullptr;
-    const char* nativeStr = env->GetStringUTFChars(jstr, 0);
-    char* result = strdup(nativeStr);
-    env->ReleaseStringUTFChars(jstr, nativeStr);
-    env->DeleteLocalRef(j_url);
-    env->DeleteLocalRef(jstr);
-    return result;
+    JNIEnv* env = complex_GetEnv();
+    if (!env || !g_complex_fetchMetadata_mid) return nullptr;
+    return (const char*)env->GetStringUTFChars((jstring)env->CallStaticObjectMethod(g_complex_bridge_class, g_complex_fetchMetadata_mid, url), nullptr);
 }
 
 int64_t complex_module_get_status(void) {
-    JNIEnv* env = GetEnv();
-    if (env == nullptr) return 0;
-    jmethodID methodId = g_mid_getStatus_call;
-    if (methodId == nullptr) { LOGE("Method not found"); return 0; }
-
     complex_clear_error();
-    int64_t res = env->CallStaticLongMethod(g_bridgeClass, methodId);
-    if (env->ExceptionCheck()) { nitro_report_jni_exception(env, env->ExceptionOccurred()); return 0; }
-    return res;
+    JNIEnv* env = complex_GetEnv();
+    if (!env || !g_complex_getStatus_mid) return 0;
+    return (int64_t)env->CallStaticLongMethod(g_complex_bridge_class, g_complex_getStatus_mid);
 }
 
 void complex_module_update_sensors(void* data) {
-    JNIEnv* env = GetEnv();
-    if (env == nullptr) return;
-    jmethodID methodId = g_mid_updateSensors_call;
-    if (methodId == nullptr) { LOGE("Method not found"); return; }
-
     complex_clear_error();
-    jobject jobj_data = unpack_SensorData_to_jni(env, (const SensorData*)data);
-    env->CallStaticVoidMethod(g_bridgeClass, methodId, jobj_data);
-    if (env->ExceptionCheck()) { nitro_report_jni_exception(env, env->ExceptionOccurred()); }
+    JNIEnv* env = complex_GetEnv();
+    if (!env || !g_complex_updateSensors_mid) return ;
+    env->CallStaticVoidMethod(g_complex_bridge_class, g_complex_updateSensors_mid, data);
 }
 
 void* complex_module_generate_packet(int64_t type) {
-    JNIEnv* env = GetEnv();
-    if (env == nullptr) return nullptr;
-    jmethodID methodId = g_mid_generatePacket_call;
-    if (methodId == nullptr) { LOGE("Method not found"); return nullptr; }
-
     complex_clear_error();
-    jobject jobj = env->CallStaticObjectMethod(g_bridgeClass, methodId, type);
-    if (env->ExceptionCheck()) { nitro_report_jni_exception(env, env->ExceptionOccurred()); return nullptr; }
-    if (jobj == nullptr) return nullptr;
-    Packet* result = (Packet*)malloc(sizeof(Packet));
-    *result = pack_Packet_from_jni(env, jobj);
-    env->DeleteLocalRef(jobj);
-    return result;
+    JNIEnv* env = complex_GetEnv();
+    if (!env || !g_complex_generatePacket_mid) return nullptr;
+    return env->CallStaticObjectMethod(g_complex_bridge_class, g_complex_generatePacket_mid, type);
 }
 
 double complex_module_get_battery_level(void) {
-    JNIEnv* env = GetEnv();
-    if (env == nullptr) return 0.0;
-    jmethodID methodId = g_mid_complex_module_get_battery_level_call;
-    if (methodId == nullptr) { LOGE("Method not found"); return 0.0; }
-    return env->CallStaticDoubleMethod(g_bridgeClass, methodId);
+    complex_clear_error();
+    JNIEnv* env = complex_GetEnv();
+    if (!env || !g_complex_get_batteryLevel_mid) return 0.0;
+    return env->CallStaticDoubleMethod(g_complex_bridge_class, g_complex_get_batteryLevel_mid);
 }
 
 void complex_module_set_config(const char* value) {
-    JNIEnv* env = GetEnv();
-    if (env == nullptr) return;
-    jmethodID methodId = g_mid_complex_module_set_config_call;
-    if (methodId == nullptr) { LOGE("Method not found"); return; }
-    jstring jval = env->NewStringUTF(value);
-    env->CallStaticVoidMethod(g_bridgeClass, methodId, jval);
-    env->DeleteLocalRef(jval);
-}
-
-void complex_module_register_sensor_stream_stream(int64_t dart_port) {
-    JNIEnv* env = GetEnv();
-    if (env == nullptr) return;
-    jmethodID methodId = g_mid_complex_module_register_sensor_stream_stream_call;
-    if (methodId != nullptr) env->CallStaticVoidMethod(g_bridgeClass, methodId, dart_port);
-}
-
-void complex_module_release_sensor_stream_stream(int64_t dart_port) {
-    JNIEnv* env = GetEnv();
-    if (env == nullptr) return;
-    jmethodID methodId = g_mid_complex_module_release_sensor_stream_stream_call;
-    if (methodId != nullptr) env->CallStaticVoidMethod(g_bridgeClass, methodId, dart_port);
-}
-
-JNIEXPORT void JNICALL Java_nitro_complex_1module_ComplexModuleJniBridge_emit_1sensorStream(JNIEnv* env, jobject thiz, jlong dartPort, jobject item) {
-    Dart_CObject obj;
-    SensorData* st_ptr = (SensorData*)malloc(sizeof(SensorData));
-    *st_ptr = pack_SensorData_from_jni(env, item);
-    obj.type = Dart_CObject_kInt64;
-    obj.value.as_int64 = (intptr_t)st_ptr;
-    Dart_PostCObject_DL(dartPort, &obj);
-}
-
-void complex_module_register_data_stream_stream(int64_t dart_port) {
-    JNIEnv* env = GetEnv();
-    if (env == nullptr) return;
-    jmethodID methodId = g_mid_complex_module_register_data_stream_stream_call;
-    if (methodId != nullptr) env->CallStaticVoidMethod(g_bridgeClass, methodId, dart_port);
-}
-
-void complex_module_release_data_stream_stream(int64_t dart_port) {
-    JNIEnv* env = GetEnv();
-    if (env == nullptr) return;
-    jmethodID methodId = g_mid_complex_module_release_data_stream_stream_call;
-    if (methodId != nullptr) env->CallStaticVoidMethod(g_bridgeClass, methodId, dart_port);
-}
-
-JNIEXPORT void JNICALL Java_nitro_complex_1module_ComplexModuleJniBridge_emit_1dataStream(JNIEnv* env, jobject thiz, jlong dartPort, jobject item) {
-    Dart_CObject obj;
-    Packet* st_ptr = (Packet*)malloc(sizeof(Packet));
-    *st_ptr = pack_Packet_from_jni(env, item);
-    obj.type = Dart_CObject_kInt64;
-    obj.value.as_int64 = (intptr_t)st_ptr;
-    Dart_PostCObject_DL(dartPort, &obj);
-}
-
-JNIEXPORT void JNICALL Java_nitro_complex_1module_ComplexModuleJniBridge_initialize(JNIEnv* env, jobject thiz, jclass bridgeClass) {
-    if (g_bridgeClass == nullptr) {
-        g_bridgeClass = (jclass)env->NewGlobalRef(bridgeClass);
-    }
+    complex_clear_error();
+    JNIEnv* env = complex_GetEnv();
+    if (!env || !g_complex_set_config_mid) return;
+    env->CallStaticVoidMethod(g_complex_bridge_class, g_complex_set_config_mid, value);
 }
 
 } // extern "C"
-#elif __APPLE__
+#elif defined(__APPLE__)
 extern "C" {
-extern int64_t _call_calculate(int64_t seed, double factor, int8_t enabled);
 int64_t complex_module_calculate(int64_t seed, double factor, int8_t enabled) {
     complex_clear_error();
-#ifdef __OBJC__
-    @try {
-        return _call_calculate(seed, factor, enabled);
-    } @catch (NSException* e) {
-        nitro_report_error([e.name UTF8String], [e.reason UTF8String], nullptr, nullptr);
-        return 0;
-    }
-#else
-    return _call_calculate(seed, factor, enabled);
-#endif
+    extern "C" int64_t NitroSwift_complex_module_calculate(int64_t seed, double factor, int8_t enabled);
+    return NitroSwift_complex_module_calculate(seed, factor, enabled);
 }
 
-extern const char* _call_fetchMetadata(const char* url);
 const char* complex_module_fetch_metadata(const char* url) {
     complex_clear_error();
-#ifdef __OBJC__
-    @try {
-        return _call_fetchMetadata(url);
-    } @catch (NSException* e) {
-        nitro_report_error([e.name UTF8String], [e.reason UTF8String], nullptr, nullptr);
-        return nullptr;
-    }
-#else
-    return _call_fetchMetadata(url);
-#endif
+    extern "C" const char* NitroSwift_complex_module_fetch_metadata(const char* url);
+    return NitroSwift_complex_module_fetch_metadata(url);
 }
 
-extern int64_t _call_getStatus(void);
 int64_t complex_module_get_status(void) {
     complex_clear_error();
-#ifdef __OBJC__
-    @try {
-        return _call_getStatus();
-    } @catch (NSException* e) {
-        nitro_report_error([e.name UTF8String], [e.reason UTF8String], nullptr, nullptr);
-        return 0;
-    }
-#else
-    return _call_getStatus();
-#endif
+    extern "C" int64_t NitroSwift_complex_module_get_status();
+    return NitroSwift_complex_module_get_status();
 }
 
-extern void _call_updateSensors(void* data);
 void complex_module_update_sensors(void* data) {
     complex_clear_error();
-#ifdef __OBJC__
-    @try {
-        _call_updateSensors(data);
-    } @catch (NSException* e) {
-        nitro_report_error([e.name UTF8String], [e.reason UTF8String], nullptr, nullptr);
-    }
-#else
-    _call_updateSensors(data);
-#endif
+    extern "C" void NitroSwift_complex_module_update_sensors(void* data);
+    NitroSwift_complex_module_update_sensors(data);
 }
 
-extern void* _call_generatePacket(int64_t type);
 void* complex_module_generate_packet(int64_t type) {
     complex_clear_error();
-#ifdef __OBJC__
-    @try {
-        return _call_generatePacket(type);
-    } @catch (NSException* e) {
-        nitro_report_error([e.name UTF8String], [e.reason UTF8String], nullptr, nullptr);
-        return nullptr;
-    }
-#else
-    return _call_generatePacket(type);
-#endif
+    extern "C" void* NitroSwift_complex_module_generate_packet(int64_t type);
+    return NitroSwift_complex_module_generate_packet(type);
 }
 
-extern double _call_get_batteryLevel(void);
 double complex_module_get_battery_level(void) {
-    return _call_get_batteryLevel();
+    complex_clear_error();
+    extern "C" double NitroSwift_complex_module_get_battery_level(void);
+    return NitroSwift_complex_module_get_battery_level();
 }
 
-extern void _call_set_config(const char* value);
 void complex_module_set_config(const char* value) {
-    _call_set_config(value);
-}
-
-void _emit_sensorStream_to_dart(int64_t dartPort, void* item) {
-    Dart_CObject obj;
-    obj.type = Dart_CObject_kInt64;
-    obj.value.as_int64 = (intptr_t)item;
-    Dart_PostCObject_DL(dartPort, &obj);
-}
-
-extern void _register_sensorStream_stream(int64_t dartPort, void (*emitCb)(int64_t, void*));
-void complex_module_register_sensor_stream_stream(int64_t dart_port) {
-    _register_sensorStream_stream(dart_port, _emit_sensorStream_to_dart);
-}
-extern void _release_sensorStream_stream(int64_t dart_port);
-void complex_module_release_sensor_stream_stream(int64_t dart_port) {
-    _release_sensorStream_stream(dart_port);
-}
-
-void _emit_dataStream_to_dart(int64_t dartPort, void* item) {
-    Dart_CObject obj;
-    obj.type = Dart_CObject_kInt64;
-    obj.value.as_int64 = (intptr_t)item;
-    Dart_PostCObject_DL(dartPort, &obj);
-}
-
-extern void _register_dataStream_stream(int64_t dartPort, void (*emitCb)(int64_t, void*));
-void complex_module_register_data_stream_stream(int64_t dart_port) {
-    _register_dataStream_stream(dart_port, _emit_dataStream_to_dart);
-}
-extern void _release_dataStream_stream(int64_t dart_port);
-void complex_module_release_data_stream_stream(int64_t dart_port) {
-    _release_dataStream_stream(dart_port);
+    complex_clear_error();
+    extern "C" void NitroSwift_complex_module_set_config(const char*);
+    NitroSwift_complex_module_set_config(value);
 }
 
 } // extern "C"
