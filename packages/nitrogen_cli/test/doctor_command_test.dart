@@ -112,6 +112,24 @@ void main() {
   // ── nitro.h ─────────────────────────────────────────────────────────────────
 
   group('iOS — nitro.h', () {
+    test('generates the System Toolchain section', () {
+      final root = _scaffold();
+      final doctor = DoctorCommand();
+      final result = doctor.performChecks(root: root);
+
+      final sysSec = result.sections.where((s) => s.title == 'System Toolchain').firstOrNull;
+      expect(sysSec, isNotNull);
+      // It should have several toolchain checks: clang++, Xcode (on Mac), NDK, Java
+      expect(sysSec!.checks, isNotEmpty);
+      
+      final names = sysSec.checks.map((c) => c.label.toLowerCase()).toList();
+      expect(names.any((n) => n.contains('clang++')), isTrue);
+      if (Platform.isMacOS) {
+        expect(names.any((n) => n.contains('xcode')), isTrue);
+      }
+      expect(names.any((n) => n.contains('java')), isTrue);
+    });
+
     test('ok when nitro.h is present in ios/Classes/', () {
       final tmp = _scaffold(withNitroH: true);
       addTearDown(() => tmp.deleteSync(recursive: true));
@@ -263,6 +281,18 @@ void main() {
         iosSection.checks.any((c) => c.status == DoctorStatus.ok && c.label.contains('.bridge.g.mm')),
         isTrue,
       );
+    });
+  });
+
+  // ── Project Discovery ────────────────────────────────────────────────────────
+
+  group('Project Discovery', () {
+    test('returns error message when pubspec.yaml is missing', () {
+      final tmp = Directory.systemTemp.createTempSync('nitro_doctor_empty_');
+      addTearDown(() => tmp.deleteSync(recursive: true));
+      final result = _run(tmp);
+      expect(result.errorMessage, contains('No pubspec.yaml found'));
+      expect(result.sections, isEmpty);
     });
   });
 }

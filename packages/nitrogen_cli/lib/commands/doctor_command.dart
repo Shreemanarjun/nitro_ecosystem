@@ -123,6 +123,7 @@ class DoctorView extends StatefulComponent {
     required this.sections,
     required this.errors,
     required this.warnings,
+    this.errorMessage,
     this.onExit,
     super.key,
   });
@@ -131,6 +132,7 @@ class DoctorView extends StatefulComponent {
   final List<DoctorSection> sections;
   final int errors;
   final int warnings;
+  final String? errorMessage;
   final VoidCallback? onExit;
 
   @override
@@ -167,32 +169,36 @@ class _DoctorViewState extends State<DoctorView> {
       return true;
     }
 
-    if (component.onExit != null) {
+    if (k == LogicalKey.escape && component.onExit != null) {
       component.onExit!();
+      return true;
+    } else if (k == LogicalKey.escape) {
+      shutdownApp(component.errors > 0 ? 1 : 0);
       return true;
     }
 
-    shutdownApp(component.errors > 0 ? 1 : 0);
-    return true;
+    return false; // Key not handled
   }
 
   @override
   Component build(BuildContext context) {
-    final bool healthy = component.errors == 0 && component.warnings == 0;
+    final bool healthy = component.errors == 0 && component.warnings == 0 && component.errorMessage == null;
 
     final summary = Text(
-      healthy
-          ? '✨ All checks passed.'
-          : component.errors > 0
-              ? '✘  ${component.errors} error(s)'
-                  '${component.warnings > 0 ? ', ${component.warnings} warning(s)' : ''}.'
-              : '⚠  ${component.warnings} warning(s).',
+      component.errorMessage != null
+          ? '✘  Project discovery failed.'
+          : healthy
+              ? '✨ All checks passed.'
+              : component.errors > 0
+                  ? '✘  ${component.errors} error(s)'
+                      '${component.warnings > 0 ? ', ${component.warnings} warning(s)' : ''}.'
+                  : '⚠  ${component.warnings} warning(s).',
       style: TextStyle(
         fontWeight: FontWeight.bold,
-        color: healthy
-            ? Colors.green
-            : component.errors > 0
-                ? Colors.red
+        color: component.errorMessage != null || component.errors > 0
+            ? Colors.red
+            : healthy
+                ? Colors.green
                 : Colors.yellow,
       ),
     );
@@ -219,10 +225,32 @@ class _DoctorViewState extends State<DoctorView> {
           Expanded(
             child: Padding(
               padding: const EdgeInsets.symmetric(horizontal: 1),
-              child: ListView(
-                controller: _scroll,
-                children: component.sections.map(SectionBox.new).toList(),
-              ),
+              child: component.errorMessage != null
+                  ? Center(
+                      child: Column(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 2, vertical: 1),
+                            decoration: BoxDecoration(
+                              border: BoxBorder.all(color: Colors.red),
+                            ),
+                            child: const Text(' ✘  ERROR ', style: TextStyle(color: Colors.red, fontWeight: FontWeight.bold)),
+                          ),
+                          const SizedBox(height: 1),
+                          Text(component.errorMessage!, style: const TextStyle(color: Colors.white)),
+                          const SizedBox(height: 1),
+                          Text(
+                            'Hint: Make sure you are in a Flutter plugin project root.',
+                            style: TextStyle(color: Colors.gray, fontWeight: FontWeight.dim),
+                          ),
+                        ],
+                      ),
+                    )
+                  : ListView(
+                      controller: _scroll,
+                      children: component.sections.map(SectionBox.new).toList(),
+                    ),
             ),
           ),
           Padding(
@@ -242,8 +270,8 @@ class _DoctorViewState extends State<DoctorView> {
                       ),
                       const Text('  •  ', style: TextStyle(color: Colors.brightBlack)),
                     ],
-                    const Text(
-                      '↑↓ scroll   PgUp/PgDn   ESC exit',
+                    Text(
+                      '↑↓ scroll   PgUp/PgDn   ${component.onExit != null ? 'ESC back' : 'ESC exit'}',
                       style: TextStyle(color: Colors.gray, fontWeight: FontWeight.dim),
                     ),
                   ],
@@ -289,7 +317,13 @@ class DoctorCommand extends Command {
     root ??= Directory.current;
     final pubspecFile = File(p.join(root.path, 'pubspec.yaml'));
     if (!pubspecFile.existsSync()) {
-      throw StateError('No pubspec.yaml found. Run from the root of a Flutter plugin.');
+      return DoctorViewResult(
+        pluginName: 'unknown',
+        sections: [],
+        errors: 0,
+        warnings: 0,
+        errorMessage: 'No pubspec.yaml found. Run from the root of a Flutter plugin.',
+      );
     }
 
     final pluginName = _pluginName(pubspecFile);
@@ -316,7 +350,60 @@ class DoctorCommand extends Command {
       s.checks.add(DoctorCheck(DoctorStatus.info, label));
     }
 
-    // ── pubspec.yaml ───────────────────────────────────────────────────────
+    // ── System Toolchain ────────────────────────────────────────────────────────
+    final sysSec = DoctorSection('System Toolchain');
+    sections.add(sysSec);
+
+    // 1. C++ Compiler
+    try {
+      final clangResult = Process.runSync('clang++', ['--version']);
+      if (clangResult.exitCode == 0) {
+        ok(sysSec, 'clang++ found: ${clangResult.stdout.toString().split('\n').first}');
+      } else {
+        warn(sysSec, 'clang++ not found', hint: 'Install build-essential or Xcode Command Line Tools');
+      }
+    } catch (_) {
+      warn(sysSec, 'clang++ not found', hint: 'Install build-essential or Xcode Command Line Tools');
+    }
+
+    // 2. Xcode (on Mac)
+    if (Platform.isMacOS) {
+      try {
+        final xcodeResult = Process.runSync('xcode-select', ['-p']);
+        if (xcodeResult.exitCode == 0) {
+          ok(sysSec, 'Xcode at ${xcodeResult.stdout.toString().trim()}');
+        } else {
+          err(sysSec, 'Xcode not found', hint: 'Run: xcode-select --install');
+        }
+      } catch (_) {
+        err(sysSec, 'Xcode select failed', hint: 'Run: xcode-select --install');
+      }
+    }
+
+    // 3. Android NDK
+    final ndkPath = Platform.environment['ANDROID_NDK_HOME'] ?? Platform.environment['NDK_HOME'];
+    if (ndkPath != null && Directory(ndkPath).existsSync()) {
+      ok(sysSec, 'Android NDK: ${p.basename(ndkPath)}');
+    } else {
+      // Check local.properties if in an android project, though we are in a plugin...
+      // Usually users set ANDROID_NDK_HOME globally.
+      warn(sysSec, 'ANDROID_NDK_HOME not set', hint: 'Set ANDROID_NDK_HOME in your environment');
+    }
+
+    // 4. Java
+    try {
+      final javaResult = Process.runSync('java', ['-version']);
+      // java -version writes to stderr
+      final javaOut = javaResult.stderr.toString();
+      if (javaOut.contains('version')) {
+        ok(sysSec, 'Java: ${javaOut.split('\n').first}');
+      } else {
+        warn(sysSec, 'Java not found', hint: 'Install JDK 17+');
+      }
+    } catch (_) {
+      warn(sysSec, 'Java not found', hint: 'Install JDK 17+');
+    }
+
     final pubSec = DoctorSection('pubspec.yaml');
     sections.add(pubSec);
     final pubspec = pubspecFile.readAsStringSync();
@@ -445,8 +532,8 @@ class DoctorCommand extends Command {
         }
       }
 
-        final ktDir = Directory(p.join(androidDir.path, 'src', 'main', 'kotlin'));
-        final pluginFiles = ktDir.existsSync() ? ktDir.listSync(recursive: true).whereType<File>().where((f) => f.path.endsWith('Plugin.kt')).toList() : <File>[];
+      final ktDir = Directory(p.join(androidDir.path, 'src', 'main', 'kotlin'));
+      final pluginFiles = ktDir.existsSync() ? ktDir.listSync(recursive: true).whereType<File>().where((f) => f.path.endsWith('Plugin.kt')).toList() : <File>[];
       if (pluginFiles.isEmpty) {
         err(androidSec, 'No Plugin.kt found', hint: 'Run: nitrogen init');
       } else {
@@ -497,27 +584,27 @@ class DoctorCommand extends Command {
         }
       }
 
-        final classesDir = Directory(p.join(iosDir.path, 'Classes'));
-        final swiftFiles = classesDir.existsSync() ? classesDir.listSync().whereType<File>().where((f) => f.path.endsWith('Plugin.swift')).toList() : <File>[];
+      final classesDir = Directory(p.join(iosDir.path, 'Classes'));
+      final swiftFiles = classesDir.existsSync() ? classesDir.listSync().whereType<File>().where((f) => f.path.endsWith('Plugin.swift')).toList() : <File>[];
       if (swiftFiles.isEmpty) {
         err(iosSec, 'No *Plugin.swift in ios/Classes/', hint: 'Run: nitrogen init');
       } else {
         final swift = swiftFiles.first.readAsStringSync();
-        if (swift.contains('Registry.register(')) {
-          ok(iosSec, 'Registry.register(...) in ${p.basename(swiftFiles.first.path)}');
+        if (swift.contains('Registry.register(') || swift.contains('.register(')) {
+          ok(iosSec, 'Plugin.swift has Registry.register(...)');
         } else {
-          warn(iosSec, 'Registry.register(...) not found in Swift plugin', hint: 'Add register call in register(with:)');
+          warn(iosSec, 'Registry.register(...) not found in Plugin.swift', hint: 'Add: NitroModules.Registry.register(...) in register(with:)');
         }
       }
 
-        final dartApiDl = File(p.join(iosDir.path, 'Classes', 'dart_api_dl.c'));
+      final dartApiDl = File(p.join(iosDir.path, 'Classes', 'dart_api_dl.c'));
       if (dartApiDl.existsSync()) {
         ok(iosSec, 'ios/Classes/dart_api_dl.c present');
       } else {
         err(iosSec, 'ios/Classes/dart_api_dl.c missing', hint: 'Run: nitrogen link');
       }
 
-        final nitroH = File(p.join(iosDir.path, 'Classes', 'nitro.h'));
+      final nitroH = File(p.join(iosDir.path, 'Classes', 'nitro.h'));
       if (nitroH.existsSync()) {
         ok(iosSec, 'ios/Classes/nitro.h present');
       } else {
@@ -624,10 +711,12 @@ class DoctorViewResult {
   final List<DoctorSection> sections;
   final int errors;
   final int warnings;
+  final String? errorMessage;
   DoctorViewResult({
     required this.pluginName,
     required this.sections,
     required this.errors,
     required this.warnings,
+    this.errorMessage,
   });
 }

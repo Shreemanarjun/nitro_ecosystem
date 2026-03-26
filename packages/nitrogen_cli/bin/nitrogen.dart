@@ -77,6 +77,7 @@ Future<void> _runTui() async {
                 sections: result.sections,
                 errors: result.errors,
                 warnings: result.warnings,
+                errorMessage: result.errorMessage,
                 onExit: () => context.unrouterAs<NitroRoute>().go(const RootRoute()),
               );
             },

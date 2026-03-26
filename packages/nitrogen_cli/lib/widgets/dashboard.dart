@@ -20,20 +20,31 @@ class _NitroDashboardState extends State<NitroDashboard> {
   int _selectedIndex = 0;
   bool _pulse = false;
   Timer? _timer;
-  ProjectInfo? _project;
+  List<ProjectInfo> _projects = [];
+  int _selectedProjectIndex = 0;
   String _branch = 'loading...';
   final String _dartVersion = Platform.version.split(' ').first;
+
+  ProjectInfo? get _project => _projects.isNotEmpty ? _projects[_selectedProjectIndex] : null;
 
   @override
   void initState() {
     super.initState();
-    _project = getProjectInfo();
-    getGitBranch().then((b) {
-      if (mounted) setState(() => _branch = b);
-    });
+    _projects = getAllProjects();
+    if (_project != null) {
+      Directory.current = _project!.directory;
+    }
+    _updateBranch();
     // Subtle pulse animation for the header
     _timer = Timer.periodic(const Duration(milliseconds: 800), (t) {
       if (mounted) setState(() => _pulse = !_pulse);
+    });
+  }
+
+  void _updateBranch() {
+    if (_project == null) return;
+    getGitBranch(_project!.directory.path).then((b) {
+      if (mounted) setState(() => _branch = b);
     });
   }
 
@@ -76,6 +87,20 @@ class _NitroDashboardState extends State<NitroDashboard> {
           }
           return true;
         }
+        if (event.logicalKey == LogicalKey.escape) {
+          shutdownApp(0);
+          return true;
+        }
+        if (event.logicalKey == LogicalKey.tab && _projects.length > 1) {
+          setState(() {
+            _selectedProjectIndex = (_selectedProjectIndex + 1) % _projects.length;
+            if (_project != null) {
+              Directory.current = _project!.directory;
+            }
+            _updateBranch();
+          });
+          return true;
+        }
         return false;
       },
       child: Column(
@@ -97,6 +122,8 @@ class _NitroDashboardState extends State<NitroDashboard> {
                     child: Row(
                       mainAxisSize: MainAxisSize.min,
                       children: [
+                        if (_projects.length > 1)
+                          const Text(' [Tab] ', style: TextStyle(color: Colors.gray, fontWeight: FontWeight.dim)),
                         Text(
                           'Active: ${_project!.name} (v${_project!.version})',
                           style: const TextStyle(
@@ -104,6 +131,8 @@ class _NitroDashboardState extends State<NitroDashboard> {
                             fontWeight: FontWeight.bold,
                           ),
                         ),
+                        if (_projects.length > 1)
+                          Text(' (${_selectedProjectIndex + 1}/${_projects.length})', style: const TextStyle(color: Colors.gray)),
                         const Text(' • ', style: TextStyle(color: Colors.brightBlack)),
                         _EditorOption(
                           label: 'Code',
@@ -204,6 +233,7 @@ class _NitroDashboardState extends State<NitroDashboard> {
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
                 Text('Dart: $_dartVersion', style: const TextStyle(color: Colors.gray)),
+                const Text('ESC exit', style: TextStyle(color: Colors.gray, fontWeight: FontWeight.dim)),
                 Text('Branch: $_branch', style: const TextStyle(color: Colors.magenta)),
                 const Text('Nitro Modules • Ready', style: TextStyle(color: Colors.cyan)),
               ],

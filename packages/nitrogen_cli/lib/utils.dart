@@ -1,21 +1,39 @@
 import 'dart:io';
 import 'models.dart';
 
-ProjectInfo? getProjectInfo() {
+List<ProjectInfo> getAllProjects() {
+  final List<ProjectInfo> projects = [];
   try {
     // 1. Check current directory
     final rootInfo = parsePubspec(Directory.current);
-    if (rootInfo != null) return rootInfo;
+    if (rootInfo != null) projects.add(rootInfo);
 
-    // 2. Check direct subdirectories (common for monorepos or just-after-init)
+    // 2. Check subdirectories (up to 2 levels for monorepos)
     for (final entity in Directory.current.listSync()) {
       if (entity is Directory) {
         final info = parsePubspec(entity);
-        if (info != null) return info;
+        if (info != null) {
+          projects.add(info);
+        } else {
+          // Check one level deeper (e.g. packages/my_package)
+          try {
+            for (final sub in entity.listSync()) {
+              if (sub is Directory) {
+                final subInfo = parsePubspec(sub);
+                if (subInfo != null) projects.add(subInfo);
+              }
+            }
+          } catch (_) {}
+        }
       }
     }
   } catch (_) {}
-  return null;
+  return projects;
+}
+
+ProjectInfo? getProjectInfo() {
+  final all = getAllProjects();
+  return all.isEmpty ? null : all.first;
 }
 
 ProjectInfo? parsePubspec(Directory dir) {
@@ -41,9 +59,9 @@ ProjectInfo? parsePubspec(Directory dir) {
   return ProjectInfo(name, version, dir);
 }
 
-Future<String> getGitBranch() async {
+Future<String> getGitBranch([String? workingDirectory]) async {
   try {
-    final result = await Process.run('git', ['branch', '--show-current']);
+    final result = await Process.run('git', ['branch', '--show-current'], workingDirectory: workingDirectory);
     if (result.exitCode == 0) return result.stdout.toString().trim();
   } catch (_) {}
   return 'no git';

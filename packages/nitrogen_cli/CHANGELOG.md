@@ -1,14 +1,17 @@
 ## 0.2.1
-- **Improved: JNI Performance** — All `FindClass`, `GetStaticMethodID`, `GetFieldID`, and `GetMethodID` calls are now cached as static globals and initialized once in `JNI_OnLoad`, eliminating per-call classloader traversal. Exception introspection method IDs (`getName`, `getMessage`) are also cached.
-- **Improved: Android Async Throughput** — Kotlin bridge async methods now delegate to a `newCachedThreadPool` executor instead of calling `runBlocking` directly, moving blocking work off Dart isolate threads.
-- **Improved: Generator O(1) Type Lookups** — `KotlinGenerator` and `CppBridgeGenerator` now pre-build `Set<String>` name tables for enums, structs, and records once per `generate()` call, reducing per-type lookup from O(n) linear scans to O(1) hash lookups. Also fixes a thread-safety issue where `_streamJobs` used a non-thread-safe `mutableMapOf` instead of `ConcurrentHashMap`.
-- **Fixed: Arena Use-After-Free in Async FFI Bridges** — Async functions with arena-allocated params (Strings, struct pointers) previously wrapped the `await` inside `withArena(... async { })`, which freed the arena as soon as the Future was returned — before the native call completed. Generated code now uses `Arena()` directly with `try/finally` so the arena lives until after the `await`.
-- **Fixed: Typed `callAsync<T>` Removes Raw Pointer Casts** — Every async call site previously called untyped `NitroRuntime.callAsync(...)` and then cast the `dynamic` result (`result as Pointer<Uint8>`, `asyncResult as Pointer<Void>`, etc.). The generated Dart now uses the typed form `callAsync<T>(...)`, which removes all unsafe `as` casts and makes the generated code self-documenting.
-- **Fixed: Null Safety for TypedData ByteBuffer in JNI Pack** — `pack_*_from_jni` helpers now emit a null guard for zero-copy `ByteBuffer` fields before calling `GetDirectBufferAddress`. If the Kotlin side passes a null buffer, a `NullPointerException` is thrown via `env->ThrowNew` rather than silently assigning a null pointer to the struct field.
-- **Fixed: `nitrogen doctor` Unmodifiable List Error** — Resolved a runtime exception ("Unsupported operation: Cannot add to an unmodifiable list") by ensuring diagnostic check lists are always instantiated as growable.
-- **Improved: TUI Mouse Interactivity** — Added mouse-clickable "Confirm" and "Back" buttons to the `nitrogen init` plugin name form and added a "Back" button to the `nitrogen update` view for consistent dashboard navigation.
-- **Improved: Test Coverage** — Added a comprehensive test suite for CLI command registration, module discovery, and path resolution. Refactored `DoctorCommand` for better testability by allowing custom root directory injection.
-- **UX Refinement**: Standardized exit prompts and TUI layout across all commands.
+- **New: Multi-Project Monorepo Support** — The CLI now automatically detects multiple Nitrogen modules in subdirectories. Use the **[Tab]** key in the Dashboard to cycle through discovered projects; working directories are synchronized automatically.
+- **Improved: Enhanced `nitrogen doctor`** — Added a "System Toolchain" section that verifies `clang++`, Xcode (macOS), Android NDK, and Java/JDK versions. Improved Swift registration checks and podspec validation.
+- **Improved: TUI Navigation & Error Handling** — Standardized "ESC back" and "ESC exit" navigation logic across all views. Implemented a centered, high-visibility error UI for all command failures (e.g., missing `pubspec.yaml`, network/process errors).
+- **Improved: JNI Performance** — All `FindClass`, `GetStaticMethodID`, `GetFieldID`, and `GetMethodID` calls are now cached as static globals and initialized once in `JNI_OnLoad`, eliminating per-call classloader traversal.
+- **Improved: Android Async Throughput** — Kotlin bridge async methods now delegate to a `newCachedThreadPool` executor instead of calling `runBlocking` directly.
+- **Improved: Generator O(1) Type Lookups** — `KotlinGenerator` and `CppBridgeGenerator` now pre-build type name tables once per generation, reducing lookup complexity from O(n) to O(1).
+- **Improved: Process Feedback** — `ProcessView` now uses visual cues (red borders) and explicit status text when a long-running process fails.
+- **Fixed: Arena Use-After-Free in Async FFI Bridges** — Generated code now uses `Arena()` directly with `try/finally` to ensure the arena lives until after the async native call completes.
+- **Fixed: Typed `callAsync<T>` Removes Raw Pointer Casts** — Generated Dart now uses the typed form `callAsync<T>(...)`, eliminating unsafe `as` casts.
+- **Fixed: Null Safety for JNI Pack** — Added null guards for zero-copy `ByteBuffer` fields in `pack_*_from_jni` helpers.
+- **Fixed: `nitrogen doctor` Unmodifiable List Error** — Resolved a runtime exception by ensuring diagnostic lists are growable.
+- **Fixed: `nitrogen exit` command** — Properly terminates the application from the menu.
+- **Improved: Test Coverage** — Added a comprehensive test suite for CLI command registration, module discovery, and path resolution.
 
 
 ## 0.2.0

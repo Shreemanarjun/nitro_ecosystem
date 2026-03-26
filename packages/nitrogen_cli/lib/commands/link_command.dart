@@ -204,7 +204,8 @@ class _LinkViewState extends State<LinkView> {
   ];
 
   bool _finished = false;
-  final bool _failed = false;
+  bool _failed = false;
+  String? _errorMessage;
   final List<String> _nextSteps = [];
 
   @override
@@ -234,68 +235,77 @@ class _LinkViewState extends State<LinkView> {
   Future<void> _run() async {
     final pluginName = component.pluginName;
 
-    // Step 0 — discover modules
-    await _setRunning(0);
-    final moduleLibs = _discoverModuleLibs(pluginName);
-    await _setDone(0, detail: '${moduleLibs.length} module(s): ${moduleLibs.join(', ')}');
+    try {
+      // Step 0 — discover modules
+      await _setRunning(0);
+      final moduleLibs = _discoverModuleLibs(pluginName);
+      await _setDone(0, detail: '${moduleLibs.length} module(s): ${moduleLibs.join(', ')}');
 
-    // Step 1 — CMake
-    await _setRunning(1);
-    final nitroNativePath = _resolveNitroNativePath();
-    _linkCMake(pluginName, moduleLibs.map((m) => m['lib']!).toList(), nitroNativePath);
-    await _setDone(1);
+      // Step 1 — CMake
+      await _setRunning(1);
+      final nitroNativePath = _resolveNitroNativePath();
+      _linkCMake(pluginName, moduleLibs.map((m) => m['lib']!).toList(), nitroNativePath);
+      await _setDone(1);
 
-    // Step 2 — Podspec
-    await _setRunning(2);
-    if (Directory('ios').existsSync()) {
-      _linkPodspec(pluginName, moduleLibs.map((m) => m['lib']!).toList());
-      await _setDone(2);
-    } else {
-      await _setSkipped(2, detail: 'ios/ not present');
+      // Step 2 — Podspec
+      await _setRunning(2);
+      if (Directory('ios').existsSync()) {
+        _linkPodspec(pluginName, moduleLibs.map((m) => m['lib']!).toList());
+        await _setDone(2);
+      } else {
+        await _setSkipped(2, detail: 'ios/ not present');
+      }
+
+      // Step 3 — Swift Plugin
+      await _setRunning(3);
+      if (Directory('ios').existsSync()) {
+        _linkSwiftPlugin(pluginName, moduleLibs);
+        await _setDone(3);
+      } else {
+        await _setSkipped(3, detail: 'ios/ not present');
+      }
+
+      // Step 4 — Kotlin Plugin
+      await _setRunning(4);
+      if (Directory('android').existsSync()) {
+        _linkKotlinPlugin(pluginName, moduleLibs);
+        await _setDone(4);
+      } else {
+        await _setSkipped(4, detail: 'android/ not present');
+      }
+
+      // Step 5 — .clangd
+      await _setRunning(5);
+      _linkClangd(pluginName);
+      await _setDone(5);
+
+      _nextSteps.addAll([
+        'flutter pub get',
+        'flutter pub run build_runner build --delete-conflicting-outputs',
+        'cd example/ios && pod install  (or: nitrogen generate)',
+        'Implement generated Hybrid*Spec interfaces in Kotlin/Swift',
+      ]);
+    } catch (e) {
+      setState(() {
+        _failed = true;
+        _errorMessage = e.toString();
+      });
     }
-
-    // Step 3 — Swift Plugin
-    await _setRunning(3);
-    if (Directory('ios').existsSync()) {
-      _linkSwiftPlugin(pluginName, moduleLibs);
-      await _setDone(3);
-    } else {
-      await _setSkipped(3, detail: 'ios/ not present');
-    }
-
-    // Step 4 — Kotlin Plugin
-    await _setRunning(4);
-    if (Directory('android').existsSync()) {
-      _linkKotlinPlugin(pluginName, moduleLibs);
-      await _setDone(4);
-    } else {
-      await _setSkipped(4, detail: 'android/ not present');
-    }
-
-    // Step 5 — .clangd
-    await _setRunning(5);
-    _linkClangd(pluginName);
-    await _setDone(5);
-
-    _nextSteps.addAll([
-      'flutter pub get',
-      'flutter pub run build_runner build --delete-conflicting-outputs',
-      'cd example/ios && pod install  (or: nitrogen generate)',
-      'Implement generated Hybrid*Spec interfaces in Kotlin/Swift',
-    ]);
 
     component.result.success = !_failed;
     setState(() => _finished = true);
   }
 
   bool _handleKey(KeyboardEvent e) {
-    if (!_finished) return false;
-    if (component.onExit != null) {
-      component.onExit!();
+    if (e.logicalKey == LogicalKey.escape) {
+      if (component.onExit != null) {
+        component.onExit!();
+        return true;
+      }
+      shutdownApp(_failed ? 1 : 0);
       return true;
     }
-    shutdownApp(_failed ? 1 : 0);
-    return true;
+    return false;
   }
 
   @override
@@ -322,15 +332,33 @@ class _LinkViewState extends State<LinkView> {
           Expanded(
             child: Padding(
               padding: const EdgeInsets.symmetric(horizontal: 1),
-              child: Container(
-                decoration: BoxDecoration(border: BoxBorder.all(color: Colors.brightBlack)),
-                child: Padding(
-                  padding: const EdgeInsets.all(1),
-                  child: ListView(
-                    children: _steps.map(LinkStepRow.new).toList(),
-                  ),
-                ),
-              ),
+              child: _errorMessage != null
+                  ? Center(
+                      child: Column(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 2, vertical: 1),
+                            decoration: BoxDecoration(border: BoxBorder.all(color: Colors.red)),
+                            child: const Text(' ✘  ERROR ', style: TextStyle(color: Colors.red, fontWeight: FontWeight.bold)),
+                          ),
+                          const SizedBox(height: 1),
+                          Text(_errorMessage!, style: const TextStyle(color: Colors.white)),
+                          const SizedBox(height: 1),
+                          const Text('Hint: Verify your project structure and file permissions.',
+                              style: TextStyle(color: Colors.gray, fontWeight: FontWeight.dim)),
+                        ],
+                      ),
+                    )
+                  : Container(
+                      decoration: BoxDecoration(border: BoxBorder.all(color: Colors.brightBlack)),
+                      child: Padding(
+                        padding: const EdgeInsets.all(1),
+                        child: ListView(
+                          children: _steps.map(LinkStepRow.new).toList(),
+                        ),
+                      ),
+                    ),
             ),
           ),
           if (_finished)
@@ -358,9 +386,9 @@ class _LinkViewState extends State<LinkView> {
                         ),
                         const Text('  •  ', style: TextStyle(color: Colors.brightBlack)),
                       ],
-                      const Text(
-                        'Press any key to exit',
-                        style: TextStyle(color: Colors.gray, fontWeight: FontWeight.dim),
+                      Text(
+                        component.onExit != null ? 'ESC back' : 'ESC exit',
+                        style: const TextStyle(color: Colors.gray, fontWeight: FontWeight.dim),
                       ),
                     ],
                   ),

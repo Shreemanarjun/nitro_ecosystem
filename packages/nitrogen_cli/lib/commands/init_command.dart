@@ -164,6 +164,7 @@ class _InitViewState extends State<InitView> {
         _steps[i].detail = msg;
         _failed = true;
         _errorMessage = msg;
+        _finished = true;
       });
 
   Future<void> _run({bool force = false}) async {
@@ -264,7 +265,7 @@ class _InitViewState extends State<InitView> {
         _run(force: true);
         return true;
       }
-      if (e.logicalKey == LogicalKey.keyN || e.logicalKey == LogicalKey.escape) {
+      if (e.logicalKey == LogicalKey.keyN) {
         if (component.onExit != null) {
           component.onExit!();
         } else {
@@ -275,13 +276,17 @@ class _InitViewState extends State<InitView> {
       return false;
     }
 
-    if (!_finished) return false;
-    if (component.onExit != null) {
-      component.onExit!();
+    if (e.logicalKey == LogicalKey.escape) {
+      if (component.onExit != null) {
+        component.onExit!();
+        return true;
+      }
+      shutdownApp(_failed ? 1 : 0);
       return true;
     }
-    shutdownApp(_failed ? 1 : 0);
-    return true;
+
+    if (!_finished) return false;
+    return false; // Do not exit on arbitrary key press if finished.
   }
 
   @override
@@ -331,19 +336,37 @@ class _InitViewState extends State<InitView> {
                 ),
               ),
             )
-          else ...[
+  else ...[
             Expanded(
               child: Padding(
                 padding: const EdgeInsets.symmetric(horizontal: 1),
-                child: Container(
-                  decoration: BoxDecoration(border: BoxBorder.all(color: Colors.brightBlack)),
-                  child: Padding(
-                    padding: const EdgeInsets.all(1),
-                    child: ListView(
-                      children: _steps.map(InitStepRow.new).toList(),
-                    ),
-                  ),
-                ),
+                child: _errorMessage != null && _finished
+                    ? Center(
+                        child: Column(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 2, vertical: 1),
+                              decoration: BoxDecoration(border: BoxBorder.all(color: Colors.red)),
+                              child: const Text(' ✘  ERROR ', style: TextStyle(color: Colors.red, fontWeight: FontWeight.bold)),
+                            ),
+                            const SizedBox(height: 1),
+                            Text(_errorMessage!, style: const TextStyle(color: Colors.white)),
+                            const SizedBox(height: 1),
+                            const Text('Hint: Verify your Flutter/Dart installation and directory permissions.',
+                                style: TextStyle(color: Colors.gray, fontWeight: FontWeight.dim)),
+                          ],
+                        ),
+                      )
+                    : Container(
+                        decoration: BoxDecoration(border: BoxBorder.all(color: Colors.brightBlack)),
+                        child: Padding(
+                          padding: const EdgeInsets.all(1),
+                          child: ListView(
+                            children: _steps.map(InitStepRow.new).toList(),
+                          ),
+                        ),
+                      ),
               ),
             ),
             if (_finished)
@@ -374,7 +397,7 @@ class _InitViewState extends State<InitView> {
                                 ),
                                 const Text('  •  ', style: TextStyle(color: Colors.brightBlack)),
                               ],
-                              const Text('Press any key to exit', style: TextStyle(color: Colors.gray, fontWeight: FontWeight.dim)),
+                              Text(component.onExit != null ? 'ESC back' : 'ESC exit', style: const TextStyle(color: Colors.gray, fontWeight: FontWeight.dim)),
                             ],
                           ),
                         ],

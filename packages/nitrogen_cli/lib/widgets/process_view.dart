@@ -139,7 +139,7 @@ class _ProcessViewState extends State<ProcessView> {
             child: Padding(
               padding: const EdgeInsets.symmetric(horizontal: 1),
               child: Container(
-                decoration: BoxDecoration(border: BoxBorder.all(color: Colors.brightBlack)),
+                decoration: BoxDecoration(border: BoxBorder.all(color: (_done && _exitCode != 0 && _exitCode != null) ? Colors.red : Colors.brightBlack)),
                 child: Padding(
                   padding: const EdgeInsets.all(1),
                   child: ListView(
@@ -168,7 +168,7 @@ class _ProcessViewState extends State<ProcessView> {
                   color: Colors.cyan,
                 ),
                 const SizedBox(width: 2),
-                const Text('[ ESC ]', style: TextStyle(color: Colors.gray, fontWeight: FontWeight.dim)),
+                const Text('ESC back', style: TextStyle(color: Colors.gray, fontWeight: FontWeight.dim)),
               ],
             ),
           ),
