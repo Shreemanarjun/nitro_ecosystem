@@ -1,3 +1,8 @@
+## 0.2.1
+
+- **New: `NitroCamera` Hybrid Module** — added a comprehensive camera specification (`nitro_camera.native.dart`) covering device enumeration, permissions, capture controls (zoom, focus, flash, HDR, white-balance), zero-copy frame streaming, and high-performance video recording.
+- **Improved: Dependency Management** — added `nitro_annotations` path override in `pubspec.yaml` to ensure consistent annotation resolution in the monorepo.
+
 ## 0.2.0
 
 - **New: HybridRecord Support** — Migrated internal camera metrics and frame metadata to the new `@HybridRecord` system using the high-performance binary codec.

@@ -1,6 +1,6 @@
 name: my_camera
 description: "A new Flutter FFI plugin project."
-version: 0.2.0
+version: 0.2.1
 publish_to: none
 environment:
   sdk: ^3.11.3
@@ -21,6 +21,7 @@ dev_dependencies:
 
 dependency_overrides:
   nitro: { path: ../packages/nitro }
+  nitro_annotations: { path: ../packages/nitro_annotations }
 
 # For information on the generic Dart part of this file, see the
 # following page: https://dart.dev/tools/pub/pubspec

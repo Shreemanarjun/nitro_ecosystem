@@ -1180,6 +1180,32 @@ void main() {
       final out = DartFfiGenerator.generate(asyncArenaStringSpec());
       expect(out, contains('callAsync<Pointer<Utf8>>'));
     });
+
+    test('async no-arena String return calls toDartStringWithFree()', () {
+      // Regression: no-arena async String was emitting "return res" where res
+      // is Pointer<Utf8>, causing a type error (Pointer<Utf8> vs Future<String>).
+      final spec = BridgeSpec(
+        dartClassName: 'JsonMod',
+        lib: 'json_mod',
+        namespace: 'json_mod',
+        iosImpl: NativeImpl.swift,
+        androidImpl: NativeImpl.kotlin,
+        sourceUri: 'json.native.dart',
+        functions: [
+          BridgeFunction(
+            dartName: 'getJson',
+            cSymbol: 'json_mod_get_json',
+            isAsync: true,
+            returnType: BridgeType(name: 'String'),
+            params: [],
+          ),
+        ],
+      );
+      final out = DartFfiGenerator.generate(spec);
+      expect(out, contains('callAsync<Pointer<Utf8>>'));
+      expect(out, contains('.toDartStringWithFree()'));
+      expect(out, isNot(contains('return res;')), reason: 'returning Pointer<Utf8> as String would be a type error');
+    });
   });
 
   // ── Fix 10: TypedData null guard in pack_from_jni ─────────────────────────

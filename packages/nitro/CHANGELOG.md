@@ -1,3 +1,8 @@
+## 0.2.2
+
+- **Improved: annotation compatibility** — verified full compatibility with Nitrogen 0.2.2's stable annotation resolution system, ensuring re-exported `@NitroModule`, `@HybridStruct`, and `@HybridEnum` annotations are correctly identified by the code generator.
+- Added explicit `void` support in return types for all `HybridObject` methods.
+
 ## 0.2.1
 
 - Moved all annotations to the separate `nitro_annotations` package to improve generator platform compatibility.

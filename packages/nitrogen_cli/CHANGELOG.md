@@ -1,3 +1,7 @@
+## 0.2.2
+
+- Standardized on Nitrogen 0.2.2 ecosystem versions.
+
 ## 0.2.1
 - **New Watch Mode**: Added the `nitrogen watch` command to handle continuous code generation. This feature includes an automatic **iOS Bridge Sync** that copies and renames generated C++/Swift bridges to `ios/Classes` on every successful build. This ensures that your iOS project always has the latest generated bridge files without manual intervention.
 - **Better TUI Experience**: Overhauled the Nitro Dashboard with a new multi-project sidebar, improved focus management (using **[Tab]**), and consistent ESC-based navigation.

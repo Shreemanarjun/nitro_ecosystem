@@ -109,6 +109,7 @@ class SpecExtractor {
     'double',
     'bool',
     'String',
+    'void',
     'Uint8List',
     'Int8List',
     'Int16List',
@@ -185,12 +186,8 @@ class SpecExtractor {
     String ns,
     Set<String> recordTypeNames,
   ) {
-    const asyncChecker = TypeChecker.fromUrl(
-      'package:nitro_annotations/nitro_annotations.dart#NitroAsync',
-    );
-    const zeroCopyChecker = TypeChecker.fromUrl(
-      'package:nitro_annotations/nitro_annotations.dart#ZeroCopy',
-    );
+    const asyncChecker = TypeChecker.fromRuntime(NitroAsync);
+    const zeroCopyChecker = TypeChecker.fromRuntime(ZeroCopy);
 
     // Skip abstract getters annotated with @NitroStream or abstract getters/setters
     return element.methods.where((m) => m.isAbstract).map((m) {
@@ -229,9 +226,7 @@ class SpecExtractor {
     String ns,
     Set<String> recordTypeNames,
   ) {
-    const streamChecker = TypeChecker.fromUrl(
-      'package:nitro_annotations/nitro_annotations.dart#NitroStream',
-    );
+    const streamChecker = TypeChecker.fromRuntime(NitroStream);
 
     // Accumulate properties grouped by accessor name.
     final propMap = <String, Map<String, dynamic>>{};

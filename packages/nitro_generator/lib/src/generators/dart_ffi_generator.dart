@@ -225,6 +225,8 @@ class DartFfiGenerator {
             s.writeln('    NitroRuntime.checkError(_dylib, getErrorName: \'${libStem}_get_error\', clearErrorName: \'${libStem}_clear_error\');');
             if (rt == 'bool') {
               s.writeln('    return res != 0;');
+            } else if (rt == 'String') {
+              s.writeln('    return res.toDartStringWithFree();');
             } else {
               s.writeln('    return res;');
             }
