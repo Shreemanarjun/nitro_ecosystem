@@ -56,15 +56,17 @@ String? extractLibNameFromSpec(File specFile) {
 
 List<Map<String, String>> discoverModules(String pluginName, {String baseDir = '.'}) {
   final libDir = Directory(p.join(baseDir, 'lib'));
-  if (!libDir.existsSync())
+  if (!libDir.existsSync()) {
     return [
       {'lib': pluginName, 'module': pluginName}
     ];
+  }
   final specs = libDir.listSync(recursive: true).whereType<File>().where((f) => f.path.endsWith('.native.dart')).toList();
-  if (specs.isEmpty)
+  if (specs.isEmpty) {
     return [
       {'lib': pluginName, 'module': pluginName}
     ];
+  }
 
   final modules = <Map<String, String>>[];
   for (final spec in specs) {

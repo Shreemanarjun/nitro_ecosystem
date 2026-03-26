@@ -86,8 +86,9 @@ class _StressViewState extends State<StressView> {
               if (mounted && _concurrencyRunning) setState(() {});
             })
             .catchError((_) {
-              if (mounted && _concurrencyRunning)
+              if (mounted && _concurrencyRunning) {
                 setState(() => _concurrencyFailed++);
+              }
             });
       });
     }
