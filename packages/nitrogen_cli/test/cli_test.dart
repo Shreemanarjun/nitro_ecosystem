@@ -6,6 +6,7 @@ import 'package:nitrogen_cli/commands/link_command.dart';
 import 'package:nitrogen_cli/commands/doctor_command.dart';
 import 'package:nitrogen_cli/commands/update_command.dart';
 import 'package:nitrogen_cli/commands/open_command.dart';
+import 'package:nitrogen_cli/commands/watch_command.dart';
 
 void main() {
   group('Nitrogen CLI Command Setup', () {
@@ -18,7 +19,8 @@ void main() {
         ..addCommand(LinkCommand())
         ..addCommand(DoctorCommand())
         ..addCommand(UpdateCommand())
-        ..addCommand(OpenCommand());
+        ..addCommand(OpenCommand())
+        ..addCommand(WatchCommand());
     });
 
     test('all commands are registered', () {
@@ -28,6 +30,7 @@ void main() {
       expect(runner.commands.containsKey('doctor'), isTrue);
       expect(runner.commands.containsKey('update'), isTrue);
       expect(runner.commands.containsKey('open'), isTrue);
+      expect(runner.commands.containsKey('watch'), isTrue);
     });
 
     test('commands have descriptions', () {

@@ -1,6 +1,9 @@
 ## 0.2.1
-- **New: Multi-Project Monorepo Support** — The CLI now automatically detects multiple Nitrogen modules in subdirectories. Use the **[Tab]** key in the Dashboard to cycle through discovered projects; working directories are synchronized automatically.
-- **Improved: Enhanced `nitrogen doctor`** — Added a "System Toolchain" section that verifies `clang++`, Xcode (macOS), Android NDK, and Java/JDK versions. Improved Swift registration checks and podspec validation.
+- **New Watch Mode**: Added the `nitrogen watch` command to handle continuous code generation. This feature includes an automatic **iOS Bridge Sync** that copies and renames generated C++/Swift bridges to `ios/Classes` on every successful build. This ensures that your iOS project always has the latest generated bridge files without manual intervention.
+- **Better TUI Experience**: Overhauled the Nitro Dashboard with a new multi-project sidebar, improved focus management (using **[Tab]**), and consistent ESC-based navigation.
+- **New: Multi-Project Discovery**: Automatically detects and switches between multiple Nitrogen modules in a monorepo.
+- **Improved: Enhanced Doctor**: Expanded `nitrogen doctor` to verify system compiler toolchains (Clang, Xcode, NDK, Java) and validate plugin registration.
+- **Performance**: Optimized Android and JNI bridge performance with static caching and persistent thread pools.
 - **Improved: TUI Navigation & Error Handling** — Standardized "ESC back" and "ESC exit" navigation logic across all views. Implemented a centered, high-visibility error UI for all command failures (e.g., missing `pubspec.yaml`, network/process errors).
 - **Improved: JNI Performance** — All `FindClass`, `GetStaticMethodID`, `GetFieldID`, and `GetMethodID` calls are now cached as static globals and initialized once in `JNI_OnLoad`, eliminating per-call classloader traversal.
 - **Improved: Android Async Throughput** — Kotlin bridge async methods now delegate to a `newCachedThreadPool` executor instead of calling `runBlocking` directly.
@@ -11,7 +14,10 @@
 - **Fixed: Null Safety for JNI Pack** — Added null guards for zero-copy `ByteBuffer` fields in `pack_*_from_jni` helpers.
 - **Fixed: `nitrogen doctor` Unmodifiable List Error** — Resolved a runtime exception by ensuring diagnostic lists are growable.
 - **Fixed: `nitrogen exit` command** — Properly terminates the application from the menu.
-- **Improved: Test Coverage** — Added a comprehensive test suite for CLI command registration, module discovery, and path resolution.
+- **Refactored Link Logic**: Decoupled core linking logic (CMake, Podspec, Swift/Kotlin plugins, `.clangd`) from the TUI-specific `LinkView`. All linking tasks are now top-level, testable functions that support a `baseDir` parameter for programmatic execution in monorepos or test environments.
+- **Improved: iOS Podspec Wiring**: Updated `linkPodspec` to automatically enforce **Swift 5.9** and **iOS 13.0** as minimums, ensuring compatibility with the latest Nitrogen generated code.
+- **Fixed: PathNotFoundException in Tests**: Updated `getAllProjects` to accept an optional `baseDir`, eliminating reliance on the process-global `Directory.current` and fixing parallel test execution failures.
+- **Improved Test Coverage**: Added a comprehensive test suite for CLI command registration, module discovery, and path resolution.
 
 
 ## 0.2.0

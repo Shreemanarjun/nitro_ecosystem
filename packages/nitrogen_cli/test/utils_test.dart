@@ -67,23 +67,39 @@ dependencies:
       File(p.join(p3.path, 'pubspec.yaml')).writeAsStringSync('name: normal\ndependencies:\n  flutter: any');
       File(p.join(a1.path, 'pubspec.yaml')).writeAsStringSync('name: my_app\ndependencies:\n  nitro: any');
 
-      // Change directory to temp to simulate running CLI from root
-      final prevDir = Directory.current;
-      Directory.current = temp;
+      final projects = getAllProjects(baseDir: temp);
+      // Should find nitro_one, nitro_two, my_app
+      expect(projects.length, equals(3));
       
-      try {
-        final projects = getAllProjects();
-        // Should find nitro_one, nitro_two, my_app
-        expect(projects.length, equals(3));
-        
-        final names = projects.map((p) => p.name).toSet();
-        expect(names.contains('nitro_one'), isTrue);
-        expect(names.contains('nitro_two'), isTrue);
-        expect(names.contains('my_app'), isTrue);
-        expect(names.contains('normal'), isFalse);
-      } finally {
-        Directory.current = prevDir;
-      }
+      final names = projects.map((p) => p.name).toSet();
+      expect(names.contains('nitro_one'), isTrue);
+      expect(names.contains('nitro_two'), isTrue);
+      expect(names.contains('my_app'), isTrue);
+      expect(names.contains('normal'), isFalse);
+    });
+
+    test('syncBridgeFiles correctly copies and renames bridge files to ios/Classes', () async {
+      // Setup mock file structure in temp dir
+      final iosClasses = Directory(p.join(temp.path, 'ios', 'Classes'))..createSync(recursive: true);
+      final generatedSwift = Directory(p.join(temp.path, 'lib', 'src', 'generated', 'swift'))..createSync(recursive: true);
+      final generatedCpp = Directory(p.join(temp.path, 'lib', 'src', 'generated', 'cpp'))..createSync(recursive: true);
+
+      // Create dummy bridge files
+      File(p.join(generatedSwift.path, 'my.bridge.g.swift')).writeAsStringSync('swift code');
+      File(p.join(generatedCpp.path, 'my.bridge.g.h')).writeAsStringSync('header code');
+      File(p.join(generatedCpp.path, 'my.bridge.g.cpp')).writeAsStringSync('cpp code');
+
+      // Run sync utility
+      syncBridgeFiles(temp.path);
+
+      // Verify they now exist in ios/Classes
+      expect(File(p.join(iosClasses.path, 'my.bridge.g.swift')).existsSync(), isTrue);
+      expect(File(p.join(iosClasses.path, 'my.bridge.g.h')).existsSync(), isTrue);
+      // .cpp should be renamed to .mm for Objective-C++ support on iOS
+      expect(File(p.join(iosClasses.path, 'my.bridge.g.mm')).existsSync(), isTrue);
+      expect(File(p.join(iosClasses.path, 'my.bridge.g.mm')).readAsStringSync(), equals('cpp code'));
+      // The original .cpp should NOT be in ios/Classes (it was renamed/copied)
+      expect(File(p.join(iosClasses.path, 'my.bridge.g.cpp')).existsSync(), isFalse);
     });
   });
 }

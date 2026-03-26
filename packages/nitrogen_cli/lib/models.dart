@@ -13,6 +13,12 @@ enum NitroCommand {
     '/generate',
     'Parses your Dart interfaces and generates the native marshalling code.',
   ),
+  watch(
+    'Watch',
+    'Run the Nitro generator in watch mode.',
+    '/watch',
+    'Automatically regenerates bridges whenever you save your Dart files.',
+  ),
   link(
     'Link',
     'Wire native bridges into the build system.',

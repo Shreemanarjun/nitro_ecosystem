@@ -6,9 +6,10 @@ import 'package:nocterm_unrouter/nocterm_unrouter.dart';
 import 'package:nitrogen_cli/commands/init_command.dart';
 import 'package:nitrogen_cli/commands/generate_command.dart';
 import 'package:nitrogen_cli/commands/link_command.dart';
-import 'package:nitrogen_cli/commands/doctor_command.dart';
+ import 'package:nitrogen_cli/commands/doctor_command.dart';
 import 'package:nitrogen_cli/commands/update_command.dart';
 import 'package:nitrogen_cli/commands/open_command.dart';
+import 'package:nitrogen_cli/commands/watch_command.dart';
 import 'package:nitrogen_cli/version.dart';
 import 'package:nitrogen_cli/models.dart';
 import 'package:nitrogen_cli/routes.dart';
@@ -33,7 +34,8 @@ void main(List<String> args) async {
     ..addCommand(LinkCommand())
     ..addCommand(DoctorCommand())
     ..addCommand(UpdateCommand())
-    ..addCommand(OpenCommand());
+    ..addCommand(OpenCommand())
+    ..addCommand(WatchCommand());
 
   try {
     await runner.run(args);
@@ -121,6 +123,20 @@ Future<void> _runTui() async {
                 executable: 'flutter',
                 workingDirectory: info?.directory.path,
                 args: const ['pub', 'run', 'build_runner', 'build', '--delete-conflicting-outputs'],
+              );
+            },
+          ),
+          // WATCH (Streaming View)
+          route<CommandRoute>(
+            path: '/watch',
+            parse: (_) => const CommandRoute(NitroCommand.watch),
+            builder: (context, _) {
+              final info = getProjectInfo();
+              return ProcessView(
+                title: 'Nitrogen Watch',
+                executable: 'flutter',
+                workingDirectory: info?.directory.path,
+                args: const ['pub', 'run', 'build_runner', 'watch', '--delete-conflicting-outputs'],
               );
             },
           ),

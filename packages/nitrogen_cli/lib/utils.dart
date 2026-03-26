@@ -1,15 +1,17 @@
 import 'dart:io';
+import 'package:path/path.dart' as p;
 import 'models.dart';
 
-List<ProjectInfo> getAllProjects() {
+List<ProjectInfo> getAllProjects({Directory? baseDir}) {
   final List<ProjectInfo> projects = [];
+  final root = baseDir ?? Directory.current;
   try {
     // 1. Check current directory
-    final rootInfo = parsePubspec(Directory.current);
+    final rootInfo = parsePubspec(root);
     if (rootInfo != null) projects.add(rootInfo);
 
     // 2. Check subdirectories (up to 2 levels for monorepos)
-    for (final entity in Directory.current.listSync()) {
+    for (final entity in root.listSync()) {
       if (entity is Directory) {
         final info = parsePubspec(entity);
         if (info != null) {
@@ -74,5 +76,41 @@ void launchUrl(String url) {
     Process.run('xdg-open', [url]);
   } else if (Platform.isWindows) {
     Process.run('powershell', ['Start-Process', '"$url"']);
+  }
+}
+
+/// Synchronizes generated bridge files from lib/src/generated to native project roots (ios/Classes).
+/// This is needed for iOS development as CocoaPods normally uses copies instead of symlinks.
+void syncBridgeFiles(String workingDirectory) {
+  final classesDir = Directory(p.join(workingDirectory, 'ios', 'Classes'));
+  if (!classesDir.existsSync()) return;
+
+  final generatedDir = Directory(p.join(workingDirectory, 'lib', 'src', 'generated'));
+  if (!generatedDir.existsSync()) return;
+
+  // Sync Swift bridges
+  final swiftSource = Directory(p.join(generatedDir.path, 'swift'));
+  if (swiftSource.existsSync()) {
+    for (final file in swiftSource.listSync().whereType<File>()) {
+      final name = p.basename(file.path);
+      if (name.endsWith('.bridge.g.swift')) {
+        file.copySync(p.join(classesDir.path, name));
+      }
+    }
+  }
+
+  // Sync C++/Obj-C++ bridges
+  final cppSource = Directory(p.join(generatedDir.path, 'cpp'));
+  if (cppSource.existsSync()) {
+    for (final file in cppSource.listSync().whereType<File>()) {
+      final name = p.basename(file.path);
+      if (name.endsWith('.bridge.g.h') || name.endsWith('.bridge.g.cpp')) {
+        // .bridge.g.cpp -> .bridge.g.mm for iOS Objective-C++ support
+        final targetName = name.endsWith('.bridge.g.cpp')
+            ? name.replaceFirst('.bridge.g.cpp', '.bridge.g.mm')
+            : name;
+        file.copySync(p.join(classesDir.path, targetName));
+      }
+    }
   }
 }

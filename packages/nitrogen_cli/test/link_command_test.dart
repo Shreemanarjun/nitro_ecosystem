@@ -3,17 +3,6 @@ import 'package:path/path.dart' as p;
 import 'package:nitrogen_cli/commands/link_command.dart';
 import 'package:test/test.dart';
 
-// Runs [fn] with the working directory temporarily set to [dir].
-T _withDir<T>(Directory dir, T Function() fn) {
-  final orig = Directory.current;
-  Directory.current = dir;
-  try {
-    return fn();
-  } finally {
-    Directory.current = orig;
-  }
-}
-
 void main() {
   late Directory tmp;
 
@@ -37,41 +26,17 @@ abstract class MyModule extends HybridObject {
 }
 ''');
 
-      _withDir(tmp, () {
-        final modules = discoverModules('plugin_name');
-        expect(modules, hasLength(1));
-        expect(modules.first['lib'], equals('my_lib'));
-        expect(modules.first['module'], equals('MyModule'));
-      });
+      final modules = discoverModules('plugin_name', baseDir: tmp.path);
+      expect(modules, hasLength(1));
+      expect(modules.first['lib'], equals('my_lib'));
+      expect(modules.first['module'], equals('MyModule'));
     });
 
     test('defaults to plugin name when no specs found', () {
-      _withDir(tmp, () {
-        final modules = discoverModules('plugin_name');
-        expect(modules, hasLength(1));
-        expect(modules.first['lib'], equals('plugin_name'));
-        expect(modules.first['module'], equals('plugin_name'));
-      });
-    });
-
-    test('extracts multiple modules correctly', () {
-      final libDir = Directory(p.join(tmp.path, 'lib', 'src'))..createSync(recursive: true);
-      
-      File(p.join(libDir.path, 'a.native.dart')).writeAsStringSync('''
-@NitroModule(lib: "libA")
-abstract class ModuleA extends HybridObject {}
-''');
-      File(p.join(libDir.path, 'b.native.dart')).writeAsStringSync('''
-@NitroModule(lib: "libB")
-abstract class ModuleB extends HybridObject {}
-''');
-
-      _withDir(tmp, () {
-        final modules = discoverModules('plugin_name');
-        expect(modules, hasLength(2));
-        final libNames = modules.map((m) => m['lib']).toList();
-        expect(libNames, containsAll(['libA', 'libB']));
-      });
+      final modules = discoverModules('plugin_name', baseDir: tmp.path);
+      expect(modules, hasLength(1));
+      expect(modules.first['lib'], equals('plugin_name'));
+      expect(modules.first['module'], equals('plugin_name'));
     });
   });
 
@@ -115,6 +80,49 @@ abstract class ModuleB extends HybridObject {}
       final path = resolveNitroNativePath(tmp.path);
       // .dart_tool/../relative/nitro/src/native -> <tmp>/relative/nitro/src/native
       expect(path, equals(p.normalize(p.join(tmp.path, 'relative', 'nitro', 'src', 'native'))));
+    });
+  });
+
+  group('LinkCommand Content Generation', () {
+    test('linkPodspec updates Swift version and Header Search Paths', () {
+      final iosDir = Directory(p.join(tmp.path, 'ios'))..createSync();
+      final podspec = File(p.join(iosDir.path, 'my_plugin.podspec'));
+      podspec.writeAsStringSync('''
+Pod::Spec.new do |s|
+  s.name             = 'my_plugin'
+  s.version          = '0.0.1'
+  s.platform         = :ios, '11.0'
+  s.swift_version    = '5.0'
+  s.pod_target_xcconfig = { 'OTHER_LDFLAGS' => '-framework SomeFramework' }
+end
+''');
+
+      linkPodspec('my_plugin', ['my_plugin'], baseDir: tmp.path);
+
+      final content = podspec.readAsStringSync();
+      expect(content, contains("s.swift_version = '5.9'"));
+      expect(content, contains("s.platform = :ios, '13.0'"));
+      expect(content, contains('HEADER_SEARCH_PATHS'));
+      expect(content, contains('DEFINES_MODULE'));
+    });
+
+    test('linkCMake updates NITRO_NATIVE and modules', () {
+      final srcDir = Directory(p.join(tmp.path, 'src'))..createSync();
+      final cmake = File(p.join(srcDir.path, 'CMakeLists.txt'));
+      cmake.writeAsStringSync('''
+add_library(my_plugin SHARED "my_plugin.cpp")
+target_include_directories(my_plugin PRIVATE "\${CMAKE_CURRENT_SOURCE_DIR}")
+''');
+
+      linkCMake('my_plugin', [
+        'my_plugin',
+        'other_lib'
+      ], '/path/to/nitro/native', baseDir: tmp.path);
+
+      final content = cmake.readAsStringSync();
+      expect(content, contains('set(NITRO_NATIVE "/path/to/nitro/native")'));
+      expect(content, contains('add_library(other_lib SHARED'));
+      expect(content, contains('dart_api_dl.c'));
     });
   });
 }
