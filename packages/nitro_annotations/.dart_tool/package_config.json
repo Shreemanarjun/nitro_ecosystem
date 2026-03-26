@@ -10,5 +10,7 @@
   ],
   "generator": "pub",
   "generatorVersion": "3.11.3",
+  "flutterRoot": "file:///Users/shreemanarjunsahu/.puro/envs/stable/flutter",
+  "flutterVersion": "3.41.5",
   "pubCache": "file:///Users/shreemanarjunsahu/.puro/shared/pub_cache"
 }
