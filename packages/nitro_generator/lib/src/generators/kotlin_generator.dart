@@ -89,12 +89,14 @@ class KotlinGenerator {
       final isUnit = (retType == 'Unit');
       final isEnum = enumNames.contains(func.returnType.name);
       final isRecord = func.returnType.isRecord && !func.returnType.isMap;
-      final isListRecord = isRecord &&
-          func.returnType.recordListItemType != null &&
-          !func.returnType.recordListItemIsPrimitive;
+      final isListRecord = isRecord && func.returnType.recordListItemType != null && !func.returnType.recordListItemIsPrimitive;
       // JniBridge _call methods expose primitive bridge types to JNI:
       // enums → Long (nativeValue), records → ByteArray (serialized binary), everything else → actual type
-      final bridgeRetType = isEnum ? 'Long' : isRecord ? 'ByteArray' : retType;
+      final bridgeRetType = isEnum
+          ? 'Long'
+          : isRecord
+          ? 'ByteArray'
+          : retType;
 
       s.writeln(
         '    @JvmStatic fun ${func.dartName}_call($paramsDecl): $bridgeRetType {',

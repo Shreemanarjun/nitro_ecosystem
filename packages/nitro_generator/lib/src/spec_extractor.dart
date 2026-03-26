@@ -59,11 +59,7 @@ class SpecExtractor {
     const checker = TypeChecker.fromRuntime(HybridRecord);
 
     // Single pass: collect annotated ClassElements, then reuse the list.
-    final classes = library
-        .annotatedWith(checker)
-        .where((ann) => ann.element is ClassElement)
-        .map((ann) => ann.element as ClassElement)
-        .toList();
+    final classes = library.annotatedWith(checker).where((ann) => ann.element is ClassElement).map((ann) => ann.element as ClassElement).toList();
 
     final recordTypeNames = classes.map((c) => c.name).toSet();
 
@@ -228,8 +224,7 @@ class SpecExtractor {
 
   // ─── Properties + Streams (single pass over element.accessors) ──────────────
 
-  static ({List<BridgeProperty> properties, List<BridgeStream> streams})
-      _extractPropertiesAndStreams(
+  static ({List<BridgeProperty> properties, List<BridgeStream> streams}) _extractPropertiesAndStreams(
     ClassElement element,
     String ns,
     Set<String> recordTypeNames,
@@ -259,13 +254,15 @@ class SpecExtractor {
         }
 
         final name = ac.displayName;
-        streams.add(BridgeStream(
-          dartName: name,
-          registerSymbol: '${ns}_register_${_toSnakeCase(name)}_stream',
-          releaseSymbol: '${ns}_release_${_toSnakeCase(name)}_stream',
-          itemType: itemDartType != null ? _makeBridgeType(itemDartType, recordTypeNames) : BridgeType(name: 'dynamic'),
-          backpressure: backpressure,
-        ));
+        streams.add(
+          BridgeStream(
+            dartName: name,
+            registerSymbol: '${ns}_register_${_toSnakeCase(name)}_stream',
+            releaseSymbol: '${ns}_release_${_toSnakeCase(name)}_stream',
+            itemType: itemDartType != null ? _makeBridgeType(itemDartType, recordTypeNames) : BridgeType(name: 'dynamic'),
+            backpressure: backpressure,
+          ),
+        );
         continue;
       }
 

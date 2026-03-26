@@ -336,7 +336,7 @@ class _InitViewState extends State<InitView> {
                 ),
               ),
             )
-  else ...[
+          else ...[
             Expanded(
               child: Padding(
                 padding: const EdgeInsets.symmetric(horizontal: 1),
@@ -353,8 +353,7 @@ class _InitViewState extends State<InitView> {
                             const SizedBox(height: 1),
                             Text(_errorMessage!, style: const TextStyle(color: Colors.white)),
                             const SizedBox(height: 1),
-                            const Text('Hint: Verify your Flutter/Dart installation and directory permissions.',
-                                style: TextStyle(color: Colors.gray, fontWeight: FontWeight.dim)),
+                            const Text('Hint: Verify your Flutter/Dart installation and directory permissions.', style: TextStyle(color: Colors.gray, fontWeight: FontWeight.dim)),
                           ],
                         ),
                       )

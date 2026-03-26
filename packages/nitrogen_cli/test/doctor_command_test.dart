@@ -121,7 +121,7 @@ void main() {
       expect(sysSec, isNotNull);
       // It should have several toolchain checks: clang++, Xcode (on Mac), NDK, Java
       expect(sysSec!.checks, isNotEmpty);
-      
+
       final names = sysSec.checks.map((c) => c.label.toLowerCase()).toList();
       expect(names.any((n) => n.contains('clang++')), isTrue);
       if (Platform.isMacOS) {

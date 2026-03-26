@@ -160,7 +160,10 @@ class _VerificationPanelState extends State<_VerificationPanel> {
         ),
         ListTile(
           contentPadding: EdgeInsets.zero,
-          title: const Text('Float32 Zero-Copy', style: TextStyle(fontSize: 14)),
+          title: const Text(
+            'Float32 Zero-Copy',
+            style: TextStyle(fontSize: 14),
+          ),
           subtitle: Text(_floatResult, style: const TextStyle(fontSize: 11)),
           trailing: ElevatedButton(
             onPressed: _testFloats,

@@ -23,7 +23,7 @@ version: 1.2.3
 dependencies:
   nitro: ^0.1.0
 ''');
-      
+
       final info = parsePubspec(temp);
       expect(info, isNotNull);
       expect(info!.name, equals('my_plugin'));
@@ -39,7 +39,7 @@ dependencies:
   flutter:
     sdk: flutter
 ''');
-      
+
       final info = parsePubspec(temp);
       expect(info, isNull);
     });
@@ -53,7 +53,7 @@ dependencies:
       //    normal/    (not nitro)
       //  apps/
       //    my_app/    (nitro)
-      
+
       final packagesDir = await Directory(p.join(temp.path, 'packages')).create();
       final p1 = await Directory(p.join(packagesDir.path, 'nitro_one')).create();
       final p2 = await Directory(p.join(packagesDir.path, 'nitro_two')).create();
@@ -70,7 +70,7 @@ dependencies:
       final projects = getAllProjects(baseDir: temp);
       // Should find nitro_one, nitro_two, my_app
       expect(projects.length, equals(3));
-      
+
       final names = projects.map((p) => p.name).toSet();
       expect(names.contains('nitro_one'), isTrue);
       expect(names.contains('nitro_two'), isTrue);

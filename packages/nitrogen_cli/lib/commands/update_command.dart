@@ -268,8 +268,7 @@ class _UpdateViewState extends State<UpdateView> {
                           const SizedBox(height: 1),
                           Text(_errorMessage!, style: const TextStyle(color: Colors.white)),
                           const SizedBox(height: 1),
-                          const Text('Hint: Verify your internet connection or pub.dev reachability.',
-                              style: TextStyle(color: Colors.gray, fontWeight: FontWeight.dim)),
+                          const Text('Hint: Verify your internet connection or pub.dev reachability.', style: TextStyle(color: Colors.gray, fontWeight: FontWeight.dim)),
                         ],
                       ),
                     )

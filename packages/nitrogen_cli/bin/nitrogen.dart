@@ -6,7 +6,7 @@ import 'package:nocterm_unrouter/nocterm_unrouter.dart';
 import 'package:nitrogen_cli/commands/init_command.dart';
 import 'package:nitrogen_cli/commands/generate_command.dart';
 import 'package:nitrogen_cli/commands/link_command.dart';
- import 'package:nitrogen_cli/commands/doctor_command.dart';
+import 'package:nitrogen_cli/commands/doctor_command.dart';
 import 'package:nitrogen_cli/commands/update_command.dart';
 import 'package:nitrogen_cli/commands/open_command.dart';
 import 'package:nitrogen_cli/commands/watch_command.dart';

@@ -17,7 +17,7 @@ void main() {
   group('LinkCommand Module Discovery', () {
     test('discovers modules from *.native.dart files', () {
       final libDir = Directory(p.join(tmp.path, 'lib', 'src'))..createSync(recursive: true);
-      
+
       File(p.join(libDir.path, 'my_module.native.dart')).writeAsStringSync('''
 import 'package:nitro/nitro.dart';
 
@@ -114,10 +114,7 @@ add_library(my_plugin SHARED "my_plugin.cpp")
 target_include_directories(my_plugin PRIVATE "\${CMAKE_CURRENT_SOURCE_DIR}")
 ''');
 
-      linkCMake('my_plugin', [
-        'my_plugin',
-        'other_lib'
-      ], '/path/to/nitro/native', baseDir: tmp.path);
+      linkCMake('my_plugin', ['my_plugin', 'other_lib'], '/path/to/nitro/native', baseDir: tmp.path);
 
       final content = cmake.readAsStringSync();
       expect(content, contains('set(NITRO_NATIVE "/path/to/nitro/native")'));

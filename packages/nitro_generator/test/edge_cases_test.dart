@@ -233,8 +233,14 @@ BridgeSpec _asyncStructSpec() => BridgeSpec(
       name: 'Reading',
       packed: false,
       fields: [
-        BridgeField(name: 'value', type: BridgeType(name: 'double')),
-        BridgeField(name: 'valid', type: BridgeType(name: 'bool')),
+        BridgeField(
+          name: 'value',
+          type: BridgeType(name: 'double'),
+        ),
+        BridgeField(
+          name: 'valid',
+          type: BridgeType(name: 'bool'),
+        ),
       ],
     ),
   ],
@@ -262,7 +268,10 @@ BridgeSpec _arenaStructSpec() => BridgeSpec(
       name: 'Reading',
       packed: false,
       fields: [
-        BridgeField(name: 'value', type: BridgeType(name: 'double')),
+        BridgeField(
+          name: 'value',
+          type: BridgeType(name: 'double'),
+        ),
       ],
     ),
   ],
@@ -273,7 +282,10 @@ BridgeSpec _arenaStructSpec() => BridgeSpec(
       isAsync: true,
       returnType: BridgeType(name: 'Reading'),
       params: [
-        BridgeParam(name: 'name', type: BridgeType(name: 'String')),
+        BridgeParam(
+          name: 'name',
+          type: BridgeType(name: 'String'),
+        ),
       ],
     ),
   ],
@@ -292,7 +304,10 @@ BridgeSpec _syncStructSpec() => BridgeSpec(
       name: 'Reading',
       packed: false,
       fields: [
-        BridgeField(name: 'value', type: BridgeType(name: 'double')),
+        BridgeField(
+          name: 'value',
+          type: BridgeType(name: 'double'),
+        ),
       ],
     ),
   ],
@@ -828,8 +843,14 @@ void main() {
           name: 'Buf',
           packed: false,
           fields: [
-            BridgeField(name: 'data', type: BridgeType(name: typeName)),
-            BridgeField(name: 'length', type: BridgeType(name: 'int')),
+            BridgeField(
+              name: 'data',
+              type: BridgeType(name: typeName),
+            ),
+            BridgeField(
+              name: 'length',
+              type: BridgeType(name: 'int'),
+            ),
           ],
         ),
       ],
@@ -904,7 +925,10 @@ void main() {
           isAsync: false,
           returnType: BridgeType(name: 'void'),
           params: [
-            BridgeParam(name: 'inputs', type: BridgeType(name: typeName)),
+            BridgeParam(
+              name: 'inputs',
+              type: BridgeType(name: typeName),
+            ),
           ],
         ),
       ],
@@ -972,7 +996,10 @@ void main() {
           isAsync: false,
           returnType: BridgeType(name: 'void'),
           params: [
-            BridgeParam(name: 'inputs', type: BridgeType(name: typeName)),
+            BridgeParam(
+              name: 'inputs',
+              type: BridgeType(name: typeName),
+            ),
           ],
         ),
       ],
@@ -1004,7 +1031,10 @@ void main() {
           isAsync: false,
           returnType: BridgeType(name: returnType),
           params: [
-            BridgeParam(name: 'inputs', type: BridgeType(name: typeName)),
+            BridgeParam(
+              name: 'inputs',
+              type: BridgeType(name: typeName),
+            ),
           ],
         ),
       ],
@@ -1056,8 +1086,7 @@ void main() {
       final helperIdx = cpp.indexOf('nitro_report_jni_exception');
       expect(helperIdx, greaterThan(-1));
       final helperBody = cpp.substring(helperIdx, helperIdx + 400);
-      expect(helperBody, contains('env->ExceptionClear()'),
-          reason: 'ExceptionClear must remain inside the helper body');
+      expect(helperBody, contains('env->ExceptionClear()'), reason: 'ExceptionClear must remain inside the helper body');
     });
 
     test('double-return call site: ExceptionCheck pattern has no trailing ExceptionClear', () {
@@ -1123,8 +1152,7 @@ void main() {
 
     test('_streamJobs map uses ConcurrentHashMap with Pair<String, Long> key', () {
       final kt = KotlinGenerator.generate(twoStreamSpec());
-      expect(kt, contains('java.util.concurrent.ConcurrentHashMap<Pair<String, Long>, kotlinx.coroutines.Job>()'),
-          reason: 'ConcurrentHashMap prevents data races on concurrent register/release calls');
+      expect(kt, contains('java.util.concurrent.ConcurrentHashMap<Pair<String, Long>, kotlinx.coroutines.Job>()'), reason: 'ConcurrentHashMap prevents data races on concurrent register/release calls');
       expect(kt, isNot(contains('mutableMapOf<Long, kotlinx.coroutines.Job>()')));
     });
 
@@ -1150,8 +1178,7 @@ void main() {
 
     test('plain dartPort is not used directly as _streamJobs key', () {
       final kt = KotlinGenerator.generate(twoStreamSpec());
-      expect(kt, isNot(contains('_streamJobs[dartPort]')),
-          reason: 'bare port key must be replaced by composite Pair key');
+      expect(kt, isNot(contains('_streamJobs[dartPort]')), reason: 'bare port key must be replaced by composite Pair key');
       expect(kt, isNot(contains('_streamJobs.remove(dartPort)')));
     });
   });
@@ -1178,8 +1205,7 @@ void main() {
       // Attribution must be near the top — within the first 200 chars.
       final out = DartFfiGenerator.generate(_syncRecordSpec());
       final idx = out.indexOf('// Generated from:');
-      expect(idx, lessThan(200),
-          reason: 'attribution comment must appear at the top of the file');
+      expect(idx, lessThan(200), reason: 'attribution comment must appear at the top of the file');
     });
   });
 }

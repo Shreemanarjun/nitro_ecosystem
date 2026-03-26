@@ -106,9 +106,7 @@ void syncBridgeFiles(String workingDirectory) {
       final name = p.basename(file.path);
       if (name.endsWith('.bridge.g.h') || name.endsWith('.bridge.g.cpp')) {
         // .bridge.g.cpp -> .bridge.g.mm for iOS Objective-C++ support
-        final targetName = name.endsWith('.bridge.g.cpp')
-            ? name.replaceFirst('.bridge.g.cpp', '.bridge.g.mm')
-            : name;
+        final targetName = name.endsWith('.bridge.g.cpp') ? name.replaceFirst('.bridge.g.cpp', '.bridge.g.mm') : name;
         file.copySync(p.join(classesDir.path, targetName));
       }
     }

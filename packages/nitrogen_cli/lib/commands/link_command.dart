@@ -56,9 +56,15 @@ String? extractLibNameFromSpec(File specFile) {
 
 List<Map<String, String>> discoverModules(String pluginName, {String baseDir = '.'}) {
   final libDir = Directory(p.join(baseDir, 'lib'));
-  if (!libDir.existsSync()) return [{'lib': pluginName, 'module': pluginName}];
+  if (!libDir.existsSync())
+    return [
+      {'lib': pluginName, 'module': pluginName}
+    ];
   final specs = libDir.listSync(recursive: true).whereType<File>().where((f) => f.path.endsWith('.native.dart')).toList();
-  if (specs.isEmpty) return [{'lib': pluginName, 'module': pluginName}];
+  if (specs.isEmpty)
+    return [
+      {'lib': pluginName, 'module': pluginName}
+    ];
 
   final modules = <Map<String, String>>[];
   for (final spec in specs) {
@@ -95,11 +101,21 @@ class LinkStepRow extends StatelessComponent {
     final String icon;
     final Color color;
     switch (step.state) {
-      case LinkStepState.pending: icon = '○'; color = Colors.gray;
-      case LinkStepState.running: icon = '◉'; color = Colors.cyan;
-      case LinkStepState.done: icon = '✔'; color = Colors.green;
-      case LinkStepState.failed: icon = '✘'; color = Colors.red;
-      case LinkStepState.skipped: icon = '–'; color = Colors.gray;
+      case LinkStepState.pending:
+        icon = '○';
+        color = Colors.gray;
+      case LinkStepState.running:
+        icon = '◉';
+        color = Colors.cyan;
+      case LinkStepState.done:
+        icon = '✔';
+        color = Colors.green;
+      case LinkStepState.failed:
+        icon = '✘';
+        color = Colors.red;
+      case LinkStepState.skipped:
+        icon = '–';
+        color = Colors.gray;
     }
     return Padding(
       padding: const EdgeInsets.only(left: 2),
@@ -109,7 +125,9 @@ class LinkStepRow extends StatelessComponent {
             children: [
               Text(icon, style: TextStyle(color: color, fontWeight: FontWeight.bold)),
               const Text(' '),
-              Expanded(child: Text(step.label, style: TextStyle(color: step.state == LinkStepState.running ? Colors.cyan : null, fontWeight: step.state == LinkStepState.running ? FontWeight.bold : null))),
+              Expanded(
+                  child: Text(step.label,
+                      style: TextStyle(color: step.state == LinkStepState.running ? Colors.cyan : null, fontWeight: step.state == LinkStepState.running ? FontWeight.bold : null))),
             ],
           ),
           if (step.detail != null)
@@ -155,9 +173,23 @@ class _LinkViewState extends State<LinkView> {
     Future<void>.delayed(Duration.zero, _run);
   }
 
-  Future<void> _setRunning(int i) async { setState(() => _steps[i].state = LinkStepState.running); }
-  Future<void> _setDone(int i, {String? detail}) async { setState(() { _steps[i].state = LinkStepState.done; _steps[i].detail = detail; }); }
-  Future<void> _setSkipped(int i, {String? detail}) async { setState(() { _steps[i].state = LinkStepState.skipped; _steps[i].detail = detail; }); }
+  Future<void> _setRunning(int i) async {
+    setState(() => _steps[i].state = LinkStepState.running);
+  }
+
+  Future<void> _setDone(int i, {String? detail}) async {
+    setState(() {
+      _steps[i].state = LinkStepState.done;
+      _steps[i].detail = detail;
+    });
+  }
+
+  Future<void> _setSkipped(int i, {String? detail}) async {
+    setState(() {
+      _steps[i].state = LinkStepState.skipped;
+      _steps[i].detail = detail;
+    });
+  }
 
   Future<void> _run() async {
     final pluginName = component.pluginName;
@@ -175,26 +207,37 @@ class _LinkViewState extends State<LinkView> {
       if (Directory(p.join(Directory.current.path, 'ios')).existsSync()) {
         linkPodspec(pluginName, modules.map((m) => m['lib']!).toList(), baseDir: Directory.current.path);
         await _setDone(2);
-      } else { await _setSkipped(2, detail: 'ios/ not present'); }
+      } else {
+        await _setSkipped(2, detail: 'ios/ not present');
+      }
 
       await _setRunning(3);
       if (Directory(p.join(Directory.current.path, 'ios')).existsSync()) {
         linkSwiftPlugin(pluginName, modules, baseDir: Directory.current.path);
         await _setDone(3);
-      } else { await _setSkipped(3, detail: 'ios/ not present'); }
+      } else {
+        await _setSkipped(3, detail: 'ios/ not present');
+      }
 
       await _setRunning(4);
       if (Directory(p.join(Directory.current.path, 'android')).existsSync()) {
         linkKotlinPlugin(pluginName, modules, baseDir: Directory.current.path);
         await _setDone(4);
-      } else { await _setSkipped(4, detail: 'android/ not present'); }
+      } else {
+        await _setSkipped(4, detail: 'android/ not present');
+      }
 
       await _setRunning(5);
       linkClangd(pluginName, baseDir: Directory.current.path);
       await _setDone(5);
 
       _nextSteps.addAll(['flutter pub get', 'flutter pub run build_runner build --delete-conflicting-outputs', 'nitrogen generate', 'Implement Specs in Kotlin/Swift']);
-    } catch (e) { setState(() { _failed = true; _errorMessage = e.toString(); }); }
+    } catch (e) {
+      setState(() {
+        _failed = true;
+        _errorMessage = e.toString();
+      });
+    }
     component.result.success = !_failed;
     setState(() => _finished = true);
   }
@@ -205,8 +248,12 @@ class _LinkViewState extends State<LinkView> {
       focused: true,
       onKeyEvent: (e) {
         if (e.logicalKey == LogicalKey.escape) {
-          if (component.onExit != null) { component.onExit!(); return true; }
-          shutdownApp(_failed ? 1 : 0); return true;
+          if (component.onExit != null) {
+            component.onExit!();
+            return true;
+          }
+          shutdownApp(_failed ? 1 : 0);
+          return true;
         }
         return false;
       },
@@ -216,7 +263,9 @@ class _LinkViewState extends State<LinkView> {
             padding: const EdgeInsets.only(top: 1, left: 1, right: 1),
             child: Container(
               decoration: BoxDecoration(border: BoxBorder.all(color: Colors.cyan)),
-              child: Padding(padding: const EdgeInsets.symmetric(horizontal: 2), child: Text(' nitrogen link — ${component.pluginName} ', style: const TextStyle(color: Colors.cyan, fontWeight: FontWeight.bold))),
+              child: Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 2),
+                  child: Text(' nitrogen link — ${component.pluginName} ', style: const TextStyle(color: Colors.cyan, fontWeight: FontWeight.bold))),
             ),
           ),
           const SizedBox(height: 1),
@@ -224,8 +273,12 @@ class _LinkViewState extends State<LinkView> {
             child: Padding(
               padding: const EdgeInsets.symmetric(horizontal: 1),
               child: _errorMessage != null
-                  ? Center(child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [
-                      Container(padding: const EdgeInsets.symmetric(horizontal: 2, vertical: 1), decoration: BoxDecoration(border: BoxBorder.all(color: Colors.red)), child: const Text(' ✘ ERROR ', style: TextStyle(color: Colors.red, fontWeight: FontWeight.bold))),
+                  ? Center(
+                      child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [
+                      Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 2, vertical: 1),
+                          decoration: BoxDecoration(border: BoxBorder.all(color: Colors.red)),
+                          child: const Text(' ✘ ERROR ', style: TextStyle(color: Colors.red, fontWeight: FontWeight.bold))),
                       const SizedBox(height: 1),
                       Text(_errorMessage!),
                     ]))
@@ -241,7 +294,10 @@ class _LinkViewState extends State<LinkView> {
                   ..._nextSteps.asMap().entries.map((e) => Text('  ${e.key + 1}. ${e.value}', style: const TextStyle(color: Colors.gray))),
                 ],
                 Row(mainAxisAlignment: MainAxisAlignment.center, children: [
-                  if (component.onExit != null) ...[ HoverButton(label: '‹ Back', onTap: component.onExit!, color: Colors.cyan), const Text('  •  ', style: TextStyle(color: Colors.brightBlack)) ],
+                  if (component.onExit != null) ...[
+                    HoverButton(label: '‹ Back', onTap: component.onExit!, color: Colors.cyan),
+                    const Text('  •  ', style: TextStyle(color: Colors.brightBlack))
+                  ],
                   Text(component.onExit != null ? 'ESC back' : 'ESC exit', style: const TextStyle(color: Colors.gray, fontWeight: FontWeight.dim)),
                 ]),
               ]),
@@ -259,7 +315,9 @@ void createSharedHeaders(String nitroNativePath, {String baseDir = '.'}) {
   final src = File(p.join(nitroNativePath, 'nitro.h'));
   if (src.existsSync()) {
     src.copySync(p.join(baseDir, 'src', 'nitro.h'));
-    if (Directory(p.join(baseDir, 'ios', 'Classes')).existsSync()) { src.copySync(p.join(baseDir, 'ios', 'Classes', 'nitro.h')); }
+    if (Directory(p.join(baseDir, 'ios', 'Classes')).existsSync()) {
+      src.copySync(p.join(baseDir, 'ios', 'Classes', 'nitro.h'));
+    }
   }
   File(p.join(baseDir, 'src', 'dart_api_dl.c')).writeAsStringSync(dartApiDlForwarderContent(nitroNativePath));
 }
@@ -267,39 +325,74 @@ void createSharedHeaders(String nitroNativePath, {String baseDir = '.'}) {
 void linkCMake(String pluginName, List<String> moduleLibs, String nitroNativePath, {String baseDir = '.'}) {
   createSharedHeaders(nitroNativePath, baseDir: baseDir);
   final cmakeFile = File(p.join(baseDir, 'src', 'CMakeLists.txt'));
-  if (!cmakeFile.existsSync()) { generateCMake(pluginName, moduleLibs, nitroNativePath, baseDir: baseDir); return; }
+  if (!cmakeFile.existsSync()) {
+    generateCMake(pluginName, moduleLibs, nitroNativePath, baseDir: baseDir);
+    return;
+  }
   var content = cmakeFile.readAsStringSync();
   bool modified = false;
   const defaultCmakeNitro = r'${CMAKE_CURRENT_SOURCE_DIR}/../../packages/nitro/src/native';
   final desiredNitroValue = nitroNativePathExists(defaultCmakeNitro, p.join(baseDir, 'src')) ? defaultCmakeNitro : nitroNativePath.replaceAll(r'\', '/');
   final nitroNativeSetLine = 'set(NITRO_NATIVE "$desiredNitroValue")';
-  if (!content.contains('NITRO_NATIVE')) { content = '$nitroNativeSetLine\n\n$content'; modified = true; }
-  else {
+  if (!content.contains('NITRO_NATIVE')) {
+    content = '$nitroNativeSetLine\n\n$content';
+    modified = true;
+  } else {
     final staleMatch = RegExp(r'set\(NITRO_NATIVE\s+"([^"]+)"\)').firstMatch(content);
     if (staleMatch != null && !nitroNativePathExists(staleMatch.group(1)!, p.join(baseDir, 'src')) && staleMatch.group(1) != desiredNitroValue) {
-      content = content.replaceFirst(staleMatch.group(0)!, nitroNativeSetLine); modified = true;
+      content = content.replaceFirst(staleMatch.group(0)!, nitroNativeSetLine);
+      modified = true;
     }
   }
   if (!content.contains(r'${NITRO_NATIVE}')) {
-    content = content.replaceFirst('target_include_directories($pluginName PRIVATE', 'target_include_directories($pluginName PRIVATE\n  "\${NITRO_NATIVE}"'); modified = true;
+    content = content.replaceFirst('target_include_directories($pluginName PRIVATE', 'target_include_directories($pluginName PRIVATE\n  "\${NITRO_NATIVE}"');
+    modified = true;
   }
   if (!content.contains('dart_api_dl.c')) {
-    content = content.replaceFirst('add_library($pluginName SHARED', 'add_library($pluginName SHARED\n  "dart_api_dl.c"'); modified = true;
+    content = content.replaceFirst('add_library($pluginName SHARED', 'add_library($pluginName SHARED\n  "dart_api_dl.c"');
+    modified = true;
   }
   for (final lib in moduleLibs) {
-    if (lib != pluginName && !content.contains('add_library($lib ')) { content += _cmakeModuleTarget(lib); modified = true; }
+    if (lib != pluginName && !content.contains('add_library($lib ')) {
+      content += _cmakeModuleTarget(lib);
+      modified = true;
+    }
   }
   if (modified) cmakeFile.writeAsStringSync(content);
 }
 
 void generateCMake(String pluginName, List<String> moduleLibs, String nitroNativePath, {String baseDir = '.'}) {
-  final nitroValue = nitroNativePathExists(r'${CMAKE_CURRENT_SOURCE_DIR}/../../packages/nitro/src/native', p.join(baseDir, 'src')) ? r'${CMAKE_CURRENT_SOURCE_DIR}/../../packages/nitro/src/native' : nitroNativePath.replaceAll(r'\', '/');
-  final sb = StringBuffer()..writeln('cmake_minimum_required(VERSION 3.10)')..writeln('project(${pluginName}_library VERSION 0.0.1 LANGUAGES C CXX)')..writeln()..writeln('set(NITRO_NATIVE "$nitroValue")')..writeln()..writeln('add_library($pluginName SHARED')..writeln('  "$pluginName.cpp"')..writeln('  "dart_api_dl.c"')..writeln(')')..writeln('target_include_directories($pluginName PRIVATE')..writeln('  "\${CMAKE_CURRENT_SOURCE_DIR}"')..writeln('  "\${CMAKE_CURRENT_SOURCE_DIR}/../lib/src/generated/cpp"')..writeln('  "\${NITRO_NATIVE}"')..writeln(')')..writeln('target_compile_definitions($pluginName PUBLIC DART_SHARED_LIB)')..writeln('if(ANDROID)')..writeln('  target_link_libraries($pluginName PRIVATE android log)')..writeln('  target_link_options($pluginName PRIVATE "-Wl,-z,max-page-size=16384")')..writeln('endif()');
-  for (final lib in moduleLibs) { if (lib != pluginName) sb.write(_cmakeModuleTarget(lib)); }
+  final nitroValue = nitroNativePathExists(r'${CMAKE_CURRENT_SOURCE_DIR}/../../packages/nitro/src/native', p.join(baseDir, 'src'))
+      ? r'${CMAKE_CURRENT_SOURCE_DIR}/../../packages/nitro/src/native'
+      : nitroNativePath.replaceAll(r'\', '/');
+  final sb = StringBuffer()
+    ..writeln('cmake_minimum_required(VERSION 3.10)')
+    ..writeln('project(${pluginName}_library VERSION 0.0.1 LANGUAGES C CXX)')
+    ..writeln()
+    ..writeln('set(NITRO_NATIVE "$nitroValue")')
+    ..writeln()
+    ..writeln('add_library($pluginName SHARED')
+    ..writeln('  "$pluginName.cpp"')
+    ..writeln('  "dart_api_dl.c"')
+    ..writeln(')')
+    ..writeln('target_include_directories($pluginName PRIVATE')
+    ..writeln('  "\${CMAKE_CURRENT_SOURCE_DIR}"')
+    ..writeln('  "\${CMAKE_CURRENT_SOURCE_DIR}/../lib/src/generated/cpp"')
+    ..writeln('  "\${NITRO_NATIVE}"')
+    ..writeln(')')
+    ..writeln('target_compile_definitions($pluginName PUBLIC DART_SHARED_LIB)')
+    ..writeln('if(ANDROID)')
+    ..writeln('  target_link_libraries($pluginName PRIVATE android log)')
+    ..writeln('  target_link_options($pluginName PRIVATE "-Wl,-z,max-page-size=16384")')
+    ..writeln('endif()');
+  for (final lib in moduleLibs) {
+    if (lib != pluginName) sb.write(_cmakeModuleTarget(lib));
+  }
   File(p.join(baseDir, 'src', 'CMakeLists.txt')).writeAsStringSync(sb.toString());
 }
 
-String _cmakeModuleTarget(String lib) => '\nadd_library($lib SHARED\n  "\${CMAKE_CURRENT_SOURCE_DIR}/../lib/src/generated/cpp/$lib.bridge.g.cpp"\n  "dart_api_dl.c"\n)\ntarget_include_directories($lib PRIVATE\n  "\${CMAKE_CURRENT_SOURCE_DIR}/../lib/src/generated/cpp"\n  "\${NITRO_NATIVE}"\n)\nset_target_properties($lib PROPERTIES OUTPUT_NAME "$lib")\ntarget_compile_definitions($lib PUBLIC DART_SHARED_LIB)\nif(ANDROID)\n  target_link_libraries($lib PRIVATE android log)\n  target_link_options($lib PRIVATE "-Wl,-z,max-page-size=16384")\nendif()\n';
+String _cmakeModuleTarget(String lib) =>
+    '\nadd_library($lib SHARED\n  "\${CMAKE_CURRENT_SOURCE_DIR}/../lib/src/generated/cpp/$lib.bridge.g.cpp"\n  "dart_api_dl.c"\n)\ntarget_include_directories($lib PRIVATE\n  "\${CMAKE_CURRENT_SOURCE_DIR}/../lib/src/generated/cpp"\n  "\${NITRO_NATIVE}"\n)\nset_target_properties($lib PROPERTIES OUTPUT_NAME "$lib")\ntarget_compile_definitions($lib PUBLIC DART_SHARED_LIB)\nif(ANDROID)\n  target_link_libraries($lib PRIVATE android log)\n  target_link_options($lib PRIVATE "-Wl,-z,max-page-size=16384")\nendif()\n';
 
 void linkPodspec(String pluginName, List<String> moduleLibs, {String baseDir = '.'}) {
   final podspecFile = File(p.join(baseDir, 'ios', '$pluginName.podspec'));
@@ -314,8 +407,15 @@ void linkPodspec(String pluginName, List<String> moduleLibs, {String baseDir = '
     content = content.replaceFirst(RegExp(r"s\.platform\s*=\s*:ios,\s*'.+?'"), "s.platform = :ios, '13.0'");
     modified = true;
   }
-  if (!content.contains('HEADER_SEARCH_PATHS')) { content = content.replaceFirst('s.pod_target_xcconfig = {', "s.pod_target_xcconfig = {\n    'HEADER_SEARCH_PATHS' => '\$(inherited) \"\${PODS_ROOT}/../.symlinks/plugins/nitro/src/native\"',"); modified = true; }
-  if (!content.contains("'DEFINES_MODULE' => 'YES'")) { content = content.replaceFirst('s.pod_target_xcconfig = {', "s.pod_target_xcconfig = {\n    'DEFINES_MODULE' => 'YES',"); modified = true; }
+  if (!content.contains('HEADER_SEARCH_PATHS')) {
+    content = content.replaceFirst(
+        's.pod_target_xcconfig = {', "s.pod_target_xcconfig = {\n    'HEADER_SEARCH_PATHS' => '\$(inherited) \"\${PODS_ROOT}/../.symlinks/plugins/nitro/src/native\"',");
+    modified = true;
+  }
+  if (!content.contains("'DEFINES_MODULE' => 'YES'")) {
+    content = content.replaceFirst('s.pod_target_xcconfig = {', "s.pod_target_xcconfig = {\n    'DEFINES_MODULE' => 'YES',");
+    modified = true;
+  }
   if (modified) podspecFile.writeAsStringSync(content);
   final nitroNativePath = resolveNitroNativePath(baseDir);
   createSharedHeaders(nitroNativePath, baseDir: baseDir);
@@ -340,8 +440,14 @@ void linkSwiftPlugin(String pluginName, List<Map<String, String>> modules, {Stri
     final impl = name.endsWith('Module') ? '${name}Impl' : '${name}ModuleImpl';
     if (!content.contains('$reg.register')) {
       final match = RegExp(r'\w+Registry\.register\(.*?\)\)').allMatches(content);
-      if (match.isNotEmpty) { content = content.replaceFirst(match.last.group(0)!, '${match.last.group(0)!}\n        $reg.register($impl())'); modified = true; }
-      else { content = content.replaceFirst('public static func register(with registrar: FlutterPluginRegistrar) {', 'public static func register(with registrar: FlutterPluginRegistrar) {\n        $reg.register($impl())'); modified = true; }
+      if (match.isNotEmpty) {
+        content = content.replaceFirst(match.last.group(0)!, '${match.last.group(0)!}\n        $reg.register($impl())');
+        modified = true;
+      } else {
+        content = content.replaceFirst('public static func register(with registrar: FlutterPluginRegistrar) {',
+            'public static func register(with registrar: FlutterPluginRegistrar) {\n        $reg.register($impl())');
+        modified = true;
+      }
     }
   }
   if (modified) pluginFile.writeAsStringSync(content);
@@ -353,7 +459,8 @@ void ensureIosPackageSwift(String pluginName, {String baseDir = '.'}) {
   final className = pluginName.split('_').map((w) => w.isEmpty ? '' : w[0].toUpperCase() + w.substring(1)).join('');
   Directory(p.join(baseDir, 'ios', 'Sources', className)).createSync(recursive: true);
   Directory(p.join(baseDir, 'ios', 'Sources', '${className}Cpp')).createSync(recursive: true);
-  packageSwift.writeAsStringSync('// swift-tools-version: 5.9\nimport PackageDescription\nlet package = Package(name: "$pluginName", platforms: [.iOS(.v13)], products: [.library(name: "$pluginName", targets: ["$pluginName"])], targets: [.target(name: "${className}Cpp", path: "Sources/${className}Cpp", publicHeadersPath: "include", cxxSettings: [.headerSearchPath("include"), .unsafeFlags(["-std=c++17", "-I../../.symlinks/plugins/nitro/src/native"])]), .target(name: "$pluginName", dependencies: ["${className}Cpp"], path: "Sources/$className")])');
+  packageSwift.writeAsStringSync(
+      '// swift-tools-version: 5.9\nimport PackageDescription\nlet package = Package(name: "$pluginName", platforms: [.iOS(.v13)], products: [.library(name: "$pluginName", targets: ["$pluginName"])], targets: [.target(name: "${className}Cpp", path: "Sources/${className}Cpp", publicHeadersPath: "include", cxxSettings: [.headerSearchPath("include"), .unsafeFlags(["-std=c++17", "-I../../.symlinks/plugins/nitro/src/native"])]), .target(name: "$pluginName", dependencies: ["${className}Cpp"], path: "Sources/$className")])');
 }
 
 void linkKotlinPlugin(String pluginName, List<Map<String, String>> modules, {String baseDir = '.'}) {
@@ -370,29 +477,49 @@ void linkKotlinPlugin(String pluginName, List<Map<String, String>> modules, {Str
     final impl = name.endsWith('Module') ? '${name}Impl' : '${name}Impl';
     if (!content.contains('$reg.register')) {
       final match = RegExp(r'\w+JniBridge\.register\(.*?\)\)').allMatches(content);
-      if (match.isNotEmpty) { content = content.replaceFirst(match.last.group(0)!, '${match.last.group(0)!}\n        $reg.register($impl())'); modified = true; }
-      else { content = content.replaceFirst('override fun onAttachedToEngine(binding: FlutterPlugin.FlutterPluginBinding) {', 'override fun onAttachedToEngine(binding: FlutterPlugin.FlutterPluginBinding) {\n        $reg.register($impl())'); modified = true; }
+      if (match.isNotEmpty) {
+        content = content.replaceFirst(match.last.group(0)!, '${match.last.group(0)!}\n        $reg.register($impl())');
+        modified = true;
+      } else {
+        content = content.replaceFirst('override fun onAttachedToEngine(binding: FlutterPlugin.FlutterPluginBinding) {',
+            'override fun onAttachedToEngine(binding: FlutterPlugin.FlutterPluginBinding) {\n        $reg.register($impl())');
+        modified = true;
+      }
     }
   }
   if (modified) pluginFile.writeAsStringSync(content);
 }
 
 void linkClangd(String pluginName, {String baseDir = '.'}) {
-  File(p.join(baseDir, '.clangd')).writeAsStringSync('CompileFlags:\n  Add:\n    - -I\${PWD}/src\n    - -I\${PWD}/lib/src/generated/cpp\n    - -I\${PWD}/../packages/nitro/src/native\n');
+  File(p.join(baseDir, '.clangd'))
+      .writeAsStringSync('CompileFlags:\n  Add:\n    - -I\${PWD}/src\n    - -I\${PWD}/lib/src/generated/cpp\n    - -I\${PWD}/../packages/nitro/src/native\n');
 }
 
 class LinkCommand extends Command {
-  @override final String name = 'link';
-  @override final String description = 'Wires all Nitrogen-generated native bridges into the build system.';
-  @override Future<void> run() async {
+  @override
+  final String name = 'link';
+  @override
+  final String description = 'Wires all Nitrogen-generated native bridges into the build system.';
+  @override
+  Future<void> run() async {
     final projectDir = findNitroProjectRoot();
-    if (projectDir == null) { stderr.writeln('❌ No Nitro project found.'); exit(1); }
+    if (projectDir == null) {
+      stderr.writeln('❌ No Nitro project found.');
+      exit(1);
+    }
     final pubspec = File(p.join(projectDir.path, 'pubspec.yaml'));
     String pluginName = 'unknown';
-    for (final line in pubspec.readAsLinesSync()) { if (line.startsWith('name: ')) { pluginName = line.replaceFirst('name: ', '').trim(); break; } }
+    for (final line in pubspec.readAsLinesSync()) {
+      if (line.startsWith('name: ')) {
+        pluginName = line.replaceFirst('name: ', '').trim();
+        break;
+      }
+    }
     Directory.current = projectDir;
     final result = LinkResult();
     await runApp(LinkView(pluginName: pluginName, result: result));
-    if (result.success) { stdout.writeln('\n  \x1B[1;32m✨ $pluginName linked\x1B[0m'); }
+    if (result.success) {
+      stdout.writeln('\n  \x1B[1;32m✨ $pluginName linked\x1B[0m');
+    }
   }
 }

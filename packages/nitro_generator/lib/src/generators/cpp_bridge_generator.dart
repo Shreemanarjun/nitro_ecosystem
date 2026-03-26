@@ -254,12 +254,13 @@ class CppBridgeGenerator {
       for (final st in spec.structs) {
         final jniClass = 'nitro/${spec.lib.replaceAll('-', '_')}_module/${st.name}';
 
-        final ctorSig = '(${st.fields.map((f) {
-          final isEnum = enumNames.contains(f.type.name.replaceFirst('?', ''));
-          if (isEnum) return 'J';
-          if (_isZeroCopy(st, f.name)) return 'Ljava/nio/ByteBuffer;';
-          return _jniSigType(f.type.name);
-        }).join('')})V';
+        final ctorSig =
+            '(${st.fields.map((f) {
+              final isEnum = enumNames.contains(f.type.name.replaceFirst('?', ''));
+              if (isEnum) return 'J';
+              if (_isZeroCopy(st, f.name)) return 'Ljava/nio/ByteBuffer;';
+              return _jniSigType(f.type.name);
+            }).join('')})V';
         s.writeln('    {');
         s.writeln('        jclass local_cls_${st.name} = env->FindClass("$jniClass");');
         s.writeln('        if (local_cls_${st.name} != nullptr) {');

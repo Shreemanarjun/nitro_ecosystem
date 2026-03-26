@@ -146,12 +146,12 @@ class DartFfiGenerator {
         final callAsyncType = isRecordReturn
             ? 'Pointer<Uint8>'
             : rt == 'String'
-                ? 'Pointer<Utf8>'
-                : isStructReturn
-                    ? 'Pointer<Void>'
-                    : isEnumReturn
-                        ? 'int'
-                        : _typeToDartFFI(func.returnType, spec);
+            ? 'Pointer<Utf8>'
+            : isStructReturn
+            ? 'Pointer<Void>'
+            : isEnumReturn
+            ? 'int'
+            : _typeToDartFFI(func.returnType, spec);
 
         if (needsArena) {
           // Arena must outlive the await — use Arena() directly with try/finally.

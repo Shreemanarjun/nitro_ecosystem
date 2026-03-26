@@ -115,10 +115,12 @@ class _BasicViewState extends State<BasicView> {
 
           const SectionTitle('Binary Bridge (@HybridRecord)'),
           if (_isLoadingDevices)
-            const Center(child: Padding(
-              padding: EdgeInsets.all(20.0),
-              child: CircularProgressIndicator(),
-            ))
+            const Center(
+              child: Padding(
+                padding: EdgeInsets.all(20.0),
+                child: CircularProgressIndicator(),
+              ),
+            )
           else if (_devices.isEmpty)
             const InfoCard(
               child: Text(

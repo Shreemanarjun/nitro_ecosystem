@@ -45,11 +45,14 @@ class _StressViewState extends State<StressView> {
     const count = 50;
 
     final futures = List.generate(count, (i) {
-      return MyCamera.instance.getGreeting('Burst #$i').then((_) {
-        if (mounted) setState(() => _burstCompleted++);
-      }).catchError((_) {
-        if (mounted) setState(() => _burstFailed++);
-      });
+      return MyCamera.instance
+          .getGreeting('Burst #$i')
+          .then((_) {
+            if (mounted) setState(() => _burstCompleted++);
+          })
+          .catchError((_) {
+            if (mounted) setState(() => _burstFailed++);
+          });
     });
 
     await Future.wait(futures);
@@ -77,11 +80,15 @@ class _StressViewState extends State<StressView> {
       _concurrencyTimer = Timer.periodic(const Duration(milliseconds: 50), (t) {
         if (!_concurrencyRunning) return;
         _concurrencyTotal++;
-        MyCamera.instance.getAvailableDevices().then((_) {
-          if (mounted && _concurrencyRunning) setState(() {});
-        }).catchError((_) {
-          if (mounted && _concurrencyRunning) setState(() => _concurrencyFailed++);
-        });
+        MyCamera.instance
+            .getAvailableDevices()
+            .then((_) {
+              if (mounted && _concurrencyRunning) setState(() {});
+            })
+            .catchError((_) {
+              if (mounted && _concurrencyRunning)
+                setState(() => _concurrencyFailed++);
+            });
       });
     }
   }
@@ -131,7 +138,8 @@ class _StressViewState extends State<StressView> {
                 _StressItem(
                   icon: Icons.bolt,
                   title: 'Async Burst (50 calls)',
-                  subtitle: '$_burstCompleted success, $_burstFailed failed in $_burstDuration',
+                  subtitle:
+                      '$_burstCompleted success, $_burstFailed failed in $_burstDuration',
                   onPressed: _runBurstTest,
                   running: _burstRunning,
                 ),
@@ -139,7 +147,8 @@ class _StressViewState extends State<StressView> {
                 _StressItem(
                   icon: Icons.repeat,
                   title: 'Continuous Concurrency',
-                  subtitle: '$_concurrencyTotal calls fired, $_concurrencyFailed failed',
+                  subtitle:
+                      '$_concurrencyTotal calls fired, $_concurrencyFailed failed',
                   onPressed: _toggleConcurrencyTest,
                   running: _concurrencyRunning,
                   toggle: true,
@@ -183,8 +192,14 @@ class _StressItem extends StatelessWidget {
     return ListTile(
       contentPadding: EdgeInsets.zero,
       leading: Icon(icon, color: running ? Colors.amberAccent : Colors.grey),
-      title: Text(title, style: const TextStyle(fontSize: 14, fontWeight: FontWeight.bold)),
-      subtitle: Text(subtitle, style: const TextStyle(fontSize: 11, color: Colors.grey)),
+      title: Text(
+        title,
+        style: const TextStyle(fontSize: 14, fontWeight: FontWeight.bold),
+      ),
+      subtitle: Text(
+        subtitle,
+        style: const TextStyle(fontSize: 11, color: Colors.grey),
+      ),
       trailing: ElevatedButton(
         style: ElevatedButton.styleFrom(
           visualDensity: VisualDensity.compact,

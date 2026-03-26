@@ -32,10 +32,10 @@ void main() {
 
     test('renders sidebar when multiple projects are found', () async {
       scaffoldMonorepo();
-      
+
       final prevDir = Directory.current;
       Directory.current = temp;
-      
+
       try {
         await testNocterm('Dashboard sidebar', (tester) async {
           await tester.pumpComponent(
@@ -57,10 +57,10 @@ void main() {
 
     test('switching projects via arrows updates header', () async {
       scaffoldMonorepo();
-      
+
       final prevDir = Directory.current;
       Directory.current = temp;
-      
+
       try {
         await testNocterm('Dashboard switch via arrows', (tester) async {
           await tester.pumpComponent(
@@ -70,16 +70,16 @@ void main() {
           expect(tester.terminalState, containsText('Active: one'));
 
           // Switch focus to sidebar (Tab or Left)
-          await tester.sendKey(LogicalKey.arrowLeft); 
+          await tester.sendKey(LogicalKey.arrowLeft);
           await tester.pump();
-          
+
           // Down to second project
           await tester.sendKey(LogicalKey.arrowDown);
           await tester.pump();
-          
+
           // Sidebar 'two' should be selected (chevron)
           expect(tester.terminalState, containsText('❯ two'));
-          
+
           // Header should update
           expect(tester.terminalState, containsText('Active: two'));
         });
@@ -90,10 +90,10 @@ void main() {
 
     test('tab cycles focus between Projects and Menu', () async {
       scaffoldMonorepo();
-      
+
       final prevDir = Directory.current;
       Directory.current = temp;
-      
+
       try {
         await testNocterm('Dashboard Tab focus', (tester) async {
           await tester.pumpComponent(
@@ -107,7 +107,7 @@ void main() {
           // Tab to Sidebar
           await tester.sendKey(LogicalKey.tab);
           await tester.pump();
-          
+
           // Sidebar project 'one' should have chevron
           // Menu command 'Initialize' should now have simple space or dot
           expect(tester.terminalState, containsText('❯ one'));
@@ -116,7 +116,7 @@ void main() {
           // Tab back to Menu
           await tester.sendKey(LogicalKey.tab);
           await tester.pump();
-          
+
           expect(tester.terminalState, containsText('❯ Initialize'));
         });
       } finally {

@@ -45,7 +45,7 @@ void main() {
       final doctor = runner.commands['doctor'] as DoctorCommand;
       expect(doctor.name, equals('doctor'));
     });
-    
+
     test('init command has correct options', () {
       final init = runner.commands['init'] as InitCommand;
       expect(init.argParser.options.containsKey('name'), isTrue);

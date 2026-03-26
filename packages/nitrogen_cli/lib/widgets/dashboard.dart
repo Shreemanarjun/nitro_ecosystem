@@ -67,7 +67,6 @@ class _NitroDashboardState extends State<NitroDashboard> {
     _updateBranch();
   }
 
-
   @override
   void dispose() {
     _timer?.cancel();
@@ -158,8 +157,7 @@ class _NitroDashboardState extends State<NitroDashboard> {
                     child: Row(
                       mainAxisSize: MainAxisSize.min,
                       children: [
-                        if (_projects.length > 1)
-                          const Text(' [Tab] ', style: TextStyle(color: Colors.gray, fontWeight: FontWeight.dim)),
+                        if (_projects.length > 1) const Text(' [Tab] ', style: TextStyle(color: Colors.gray, fontWeight: FontWeight.dim)),
                         Text(
                           'Active: ${_project!.name} (v${_project!.version})',
                           style: const TextStyle(
@@ -167,8 +165,7 @@ class _NitroDashboardState extends State<NitroDashboard> {
                             fontWeight: FontWeight.bold,
                           ),
                         ),
-                        if (_projects.length > 1)
-                          Text(' (${_selectedProjectIndex + 1}/${_projects.length})', style: const TextStyle(color: Colors.gray)),
+                        if (_projects.length > 1) Text(' (${_selectedProjectIndex + 1}/${_projects.length})', style: const TextStyle(color: Colors.gray)),
                         const Text(' • ', style: TextStyle(color: Colors.brightBlack)),
                         _EditorOption(
                           label: 'Code',
@@ -271,8 +268,7 @@ class _NitroDashboardState extends State<NitroDashboard> {
                           ),
                         ),
                         const SizedBox(height: 1),
-                        Text('Arrows to navigate • Tab to switch areas',
-                            style: TextStyle(color: _focusMenu ? Colors.cyan : Colors.gray, fontWeight: FontWeight.dim)),
+                        Text('Arrows to navigate • Tab to switch areas', style: TextStyle(color: _focusMenu ? Colors.cyan : Colors.gray, fontWeight: FontWeight.dim)),
                         const SizedBox(height: 1),
                         Row(
                           mainAxisAlignment: MainAxisAlignment.center,
@@ -362,7 +358,7 @@ class _ProjectItemState extends State<_ProjectItem> {
             child: Row(
               children: [
                 Text(reallyFocused ? '❯ ' : (component.selected ? '• ' : '  '),
-                     style: TextStyle(color: reallyFocused ? Colors.cyan : (component.selected ? Colors.white : Colors.gray))),
+                    style: TextStyle(color: reallyFocused ? Colors.cyan : (component.selected ? Colors.white : Colors.gray))),
                 Expanded(
                   child: Text(
                     component.project.name,
@@ -430,7 +426,8 @@ class _CommandItemState extends State<_CommandItem> {
                 Text(reallyFocused ? '❯ ' : '  ', style: TextStyle(color: reallyFocused ? Colors.magenta : Colors.white, fontWeight: FontWeight.bold)),
                 SizedBox(
                   width: 12, // Slightly smaller label width for tighter fit
-                  child: Text(component.command.label, style: TextStyle(color: reallyFocused ? Colors.magenta : Colors.white, fontWeight: reallyFocused ? FontWeight.bold : FontWeight.normal)),
+                  child: Text(component.command.label,
+                      style: TextStyle(color: reallyFocused ? Colors.magenta : Colors.white, fontWeight: reallyFocused ? FontWeight.bold : FontWeight.normal)),
                 ),
                 const SizedBox(width: 1),
                 Text(component.command.description, style: const TextStyle(color: Colors.gray)),

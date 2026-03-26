@@ -9,7 +9,7 @@ import 'widgets/debug_panel.dart';
 /// Configure the Nitro runtime BEFORE any plugin is accessed.
 Future<void> _configureNitro() async {
   NitroConfig.instance.enable(slowCallThresholdMs: 16);
-  await NitroRuntime.init(isolatePoolSize: 6);
+  await NitroRuntime.init(isolatePoolSize: 1);
 }
 
 void main() async {
@@ -81,7 +81,8 @@ class _HomePageState extends State<_HomePage> {
                     ? Colors.amberAccent
                     : Colors.grey,
               ),
-              onPressed: () => setState(() => _debugPanelOpen = !_debugPanelOpen),
+              onPressed: () =>
+                  setState(() => _debugPanelOpen = !_debugPanelOpen),
             ),
           ],
           bottom: const TabBar(

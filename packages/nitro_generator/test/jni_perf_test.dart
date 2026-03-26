@@ -40,8 +40,14 @@ BridgeSpec _specWithFunctions() {
         isAsync: false,
         returnType: BridgeType(name: 'double'),
         params: [
-          BridgeParam(name: 'a', type: BridgeType(name: 'double')),
-          BridgeParam(name: 'b', type: BridgeType(name: 'double')),
+          BridgeParam(
+            name: 'a',
+            type: BridgeType(name: 'double'),
+          ),
+          BridgeParam(
+            name: 'b',
+            type: BridgeType(name: 'double'),
+          ),
         ],
       ),
       BridgeFunction(
@@ -89,8 +95,14 @@ BridgeSpec _specWithStructs() {
         name: 'Point',
         packed: false,
         fields: [
-          BridgeField(name: 'x', type: BridgeType(name: 'double')),
-          BridgeField(name: 'y', type: BridgeType(name: 'double')),
+          BridgeField(
+            name: 'x',
+            type: BridgeType(name: 'double'),
+          ),
+          BridgeField(
+            name: 'y',
+            type: BridgeType(name: 'double'),
+          ),
         ],
       ),
     ],
@@ -722,7 +734,9 @@ void main() {
         iosImpl: NativeImpl.swift,
         androidImpl: NativeImpl.kotlin,
         sourceUri: 'ep.native.dart',
-        enums: [BridgeEnum(name: 'Status', startValue: 0, values: ['active', 'idle'])],
+        enums: [
+          BridgeEnum(name: 'Status', startValue: 0, values: ['active', 'idle']),
+        ],
         properties: [
           BridgeProperty(
             dartName: 'status',
@@ -751,7 +765,9 @@ void main() {
         iosImpl: NativeImpl.swift,
         androidImpl: NativeImpl.kotlin,
         sourceUri: 'es.native.dart',
-        enums: [BridgeEnum(name: 'Event', startValue: 0, values: ['start', 'stop'])],
+        enums: [
+          BridgeEnum(name: 'Event', startValue: 0, values: ['start', 'stop']),
+        ],
         streams: [
           BridgeStream(
             dartName: 'events',
@@ -803,15 +819,38 @@ void main() {
           BridgeEnum(name: 'ColorC', startValue: 0, values: ['p', 'q']),
         ],
         structs: [
-          BridgeStruct(name: 'Vec2', packed: false, fields: [
-            BridgeField(name: 'x', type: BridgeType(name: 'double')),
-            BridgeField(name: 'y', type: BridgeType(name: 'double')),
-          ]),
-          BridgeStruct(name: 'Vec3', packed: false, fields: [
-            BridgeField(name: 'x', type: BridgeType(name: 'double')),
-            BridgeField(name: 'y', type: BridgeType(name: 'double')),
-            BridgeField(name: 'z', type: BridgeType(name: 'double')),
-          ]),
+          BridgeStruct(
+            name: 'Vec2',
+            packed: false,
+            fields: [
+              BridgeField(
+                name: 'x',
+                type: BridgeType(name: 'double'),
+              ),
+              BridgeField(
+                name: 'y',
+                type: BridgeType(name: 'double'),
+              ),
+            ],
+          ),
+          BridgeStruct(
+            name: 'Vec3',
+            packed: false,
+            fields: [
+              BridgeField(
+                name: 'x',
+                type: BridgeType(name: 'double'),
+              ),
+              BridgeField(
+                name: 'y',
+                type: BridgeType(name: 'double'),
+              ),
+              BridgeField(
+                name: 'z',
+                type: BridgeType(name: 'double'),
+              ),
+            ],
+          ),
         ],
         functions: [
           BridgeFunction(
@@ -833,7 +872,12 @@ void main() {
             cSymbol: 'big_mod_get_vec3',
             isAsync: false,
             returnType: BridgeType(name: 'Vec3'),
-            params: [BridgeParam(name: 'scale', type: BridgeType(name: 'Vec2'))],
+            params: [
+              BridgeParam(
+                name: 'scale',
+                type: BridgeType(name: 'Vec2'),
+              ),
+            ],
           ),
         ],
       );
@@ -861,8 +905,14 @@ void main() {
         name: 'Point',
         packed: false,
         fields: [
-          BridgeField(name: 'x', type: BridgeType(name: 'double')),
-          BridgeField(name: 'y', type: BridgeType(name: 'double')),
+          BridgeField(
+            name: 'x',
+            type: BridgeType(name: 'double'),
+          ),
+          BridgeField(
+            name: 'y',
+            type: BridgeType(name: 'double'),
+          ),
         ],
       ),
     ],
@@ -916,7 +966,12 @@ void main() {
         cSymbol: 'search_mod_find_item',
         isAsync: true,
         returnType: BridgeType(name: 'String'),
-        params: [BridgeParam(name: 'query', type: BridgeType(name: 'String'))],
+        params: [
+          BridgeParam(
+            name: 'query',
+            type: BridgeType(name: 'String'),
+          ),
+        ],
       ),
     ],
   );
@@ -941,7 +996,12 @@ void main() {
         cSymbol: 'lookup_mod_lookup',
         isAsync: true,
         returnType: BridgeType(name: 'Result', isRecord: true),
-        params: [BridgeParam(name: 'key', type: BridgeType(name: 'String'))],
+        params: [
+          BridgeParam(
+            name: 'key',
+            type: BridgeType(name: 'String'),
+          ),
+        ],
       ),
     ],
   );
@@ -953,8 +1013,7 @@ void main() {
       final start = out.indexOf('Future<String> findItem(');
       final end = out.indexOf('\n  }', start) + 4;
       final body = out.substring(start, end);
-      expect(body, isNot(contains('withArena')),
-          reason: 'withArena frees arena when Future is returned, not when it completes');
+      expect(body, isNot(contains('withArena')), reason: 'withArena frees arena when Future is returned, not when it completes');
     });
 
     test('async+arena uses Arena() directly', () {
@@ -980,8 +1039,7 @@ void main() {
       final awaitIdx = out.indexOf('await NitroRuntime.callAsync');
       final releaseIdx = out.indexOf('arena.releaseAll()');
       expect(awaitIdx, greaterThan(0));
-      expect(releaseIdx, greaterThan(awaitIdx),
-          reason: 'arena must be freed after the await, not before');
+      expect(releaseIdx, greaterThan(awaitIdx), reason: 'arena must be freed after the await, not before');
     });
 
     test('async+arena arena args are still passed to callAsync', () {
@@ -996,8 +1054,7 @@ void main() {
       // malloc.free must appear before arena.releaseAll()
       final freeIdx = out.indexOf('malloc.free(rawPtr)');
       final releaseIdx = out.indexOf('arena.releaseAll()');
-      expect(freeIdx, lessThan(releaseIdx),
-          reason: 'result buffer freed inside try, before finally releases arena');
+      expect(freeIdx, lessThan(releaseIdx), reason: 'result buffer freed inside try, before finally releases arena');
     });
 
     test('sync+arena function still uses withArena (no regression)', () {
@@ -1015,7 +1072,12 @@ void main() {
             cSymbol: 'sync_mod_do_work',
             isAsync: false,
             returnType: BridgeType(name: 'void'),
-            params: [BridgeParam(name: 'tag', type: BridgeType(name: 'String'))],
+            params: [
+              BridgeParam(
+                name: 'tag',
+                type: BridgeType(name: 'String'),
+              ),
+            ],
           ),
         ],
       );
@@ -1134,9 +1196,19 @@ void main() {
         name: 'Frame',
         packed: false,
         fields: [
-          BridgeField(name: 'pixels', type: BridgeType(name: 'Uint8List'), zeroCopy: true),
-          BridgeField(name: 'pixelsLength', type: BridgeType(name: 'int')),
-          BridgeField(name: 'width', type: BridgeType(name: 'int')),
+          BridgeField(
+            name: 'pixels',
+            type: BridgeType(name: 'Uint8List'),
+            zeroCopy: true,
+          ),
+          BridgeField(
+            name: 'pixelsLength',
+            type: BridgeType(name: 'int'),
+          ),
+          BridgeField(
+            name: 'width',
+            type: BridgeType(name: 'int'),
+          ),
         ],
       ),
     ],
@@ -1173,8 +1245,7 @@ void main() {
       final nullCheckIdx = cpp.indexOf('if (buf_pixels == nullptr)');
       final bufAddrIdx = cpp.indexOf('GetDirectBufferAddress(buf_pixels)');
       expect(nullCheckIdx, greaterThan(0));
-      expect(bufAddrIdx, greaterThan(nullCheckIdx),
-          reason: 'null check must precede GetDirectBufferAddress call');
+      expect(bufAddrIdx, greaterThan(nullCheckIdx), reason: 'null check must precede GetDirectBufferAddress call');
     });
 
     test('GetDirectBufferAddress still emitted after null guard', () {
