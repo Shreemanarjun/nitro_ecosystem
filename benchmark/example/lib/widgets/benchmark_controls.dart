@@ -29,7 +29,9 @@ class BenchmarkControls extends StatelessWidget {
             end: Alignment.bottomRight,
             colors: [
               Theme.of(context).colorScheme.surface,
-              Theme.of(context).colorScheme.surfaceContainerHighest.withAlpha(100),
+              Theme.of(
+                context,
+              ).colorScheme.surfaceContainerHighest.withAlpha(100),
             ],
           ),
         ),

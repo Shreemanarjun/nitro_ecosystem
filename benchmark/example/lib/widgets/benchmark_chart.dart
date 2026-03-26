@@ -49,7 +49,9 @@ class BenchmarkChart extends StatelessWidget {
           child: Container(
             padding: const EdgeInsets.only(right: 16, top: 12, bottom: 0),
             decoration: BoxDecoration(
-              color: Theme.of(context).colorScheme.surfaceContainerHighest.withAlpha(50),
+              color: Theme.of(
+                context,
+              ).colorScheme.surfaceContainerHighest.withAlpha(50),
               borderRadius: BorderRadius.circular(20),
               border: Border.all(
                 color: Theme.of(context).colorScheme.outline.withAlpha(50),
