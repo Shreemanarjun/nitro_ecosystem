@@ -15,20 +15,20 @@ Nitro leverages direct memory bindings and generated proxies to bypass the expen
 ### ⚡ Communication Flow
 ```mermaid
 graph LR
-    subgraph Flutter / Dart
+    subgraph "Flutter / Dart"
     D[Dart Logic]
     end
 
-    subgraph Nitro Bridge
+    subgraph "Nitro Bridge"
     GNP[Generated Native Proxy]
     NT[Nitro Runtime]
     end
 
-    subgraph Native (C++/Swift/Kotlin)
+    subgraph "Native (C++/Swift/Kotlin)"
     NC[Native Code]
     end
 
-    subgraph Legacy MethodChannel
+    subgraph "Legacy MethodChannel"
     MC[MethodChannel]
     SER[Binary Serialization]
     DES[Binary Deserialization]
