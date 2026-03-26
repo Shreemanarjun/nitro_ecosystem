@@ -29,12 +29,31 @@ for arg in "$@"; do
   esac
 done
 
+set -e # Exit immediately on error
+
+ROOT_DIR=$(pwd)
+
+# --- Pre-flight Checks / Dry Run ---
 if [ -z "$DRY_RUN" ]; then
+    echo -e "${CYAN}🔍 Running pre-flight dry-run for all packages...${NC}"
+    for PKG in "${PACKAGES[@]}"; do
+        PKG_NAME=$(basename "$PKG")
+        echo -e "   Checking $PKG_NAME..."
+        cd "$ROOT_DIR/$PKG"
+        # Silent dry run
+        if ! flutter pub publish --dry-run >/dev/null 2>&1; then
+            echo -e "${RED}❌ Pre-flight dry-run failed for $PKG_NAME!${NC}"
+            echo -e "   Run './publish.sh --dry-run' to see details."
+            exit 1
+        fi
+    done
+    echo -e "${GREEN}✅ Pre-flight checks passed!${NC}\n"
+
     if [ -z "$FORCE_FLAG" ]; then
         echo -e "${RED}⚠️  WARNING: You are about to publish to pub.dev!${NC}"
-        read -p "Are you sure you want to continue? (y/N): " -n 1 -r
+        read -p "Are you sure you want to continue? (Y/n): " -n 1 -r
         echo
-        if [[ ! $REPLY =~ ^[Yy]$ ]]; then
+        if [[ $REPLY =~ ^[Nn]$ ]]; then
             echo -e "${CYAN}Publishing cancelled.${NC}"
             exit 1
         fi
@@ -47,11 +66,7 @@ else
     PUBLISH_CMD_FLAGS="--dry-run"
 fi
 
-set -e # Exit immediately on error
-
-ROOT_DIR=$(pwd)
-
-echo -e "${CYAN}🚀 Starting publication process for Nitro Ecosystem...${NC}\n"
+echo -e "${CYAN}🚀 Executing publication cycle...${NC}\n"
 
 for PKG in "${PACKAGES[@]}"; do
     PKG_NAME=$(basename "$PKG")
