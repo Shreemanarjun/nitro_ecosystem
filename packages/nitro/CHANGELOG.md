@@ -1,4 +1,10 @@
-## 0.2.0
+## 0.2.1
+
+- Moved all annotations to the separate `nitro_annotations` package to improve generator platform compatibility.
+- Re-exported `nitro_annotations` for backward compatibility.
+- Added explicit support for `macos`, `windows`, and `linux` to the plugin configuration to resolve `pub.dev` platform detection warnings.
+
+# 0.2.0
 
 - **New: Binary `RecordWriter` and `RecordReader` Codec** — Compact little-endian protocol for `@HybridRecord` types, replacing JSON text serialization with direct binary field access over raw `uint8_t*` buffers.
   - Wire format: `int64` (8B), `float64` (8B), `bool` (1B), `String` (4-byte length + UTF-8), nullable (1-byte tag), and `list` (4-byte count).

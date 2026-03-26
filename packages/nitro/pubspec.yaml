@@ -25,6 +25,7 @@ dependencies:
     sdk: flutter
   ffi: ^2.1.3
   plugin_platform_interface: ^2.0.2
+  nitro_annotations: { path: ../nitro_annotations }
 
 dev_dependencies:
   flutter_test:
@@ -55,6 +56,12 @@ flutter:
       android:
         ffiPlugin: true
       ios:
+        ffiPlugin: true
+      macos:
+        ffiPlugin: true
+      windows:
+        ffiPlugin: true
+      linux:
         ffiPlugin: true
 
   # To add assets to your plugin package, add an assets section, like this:

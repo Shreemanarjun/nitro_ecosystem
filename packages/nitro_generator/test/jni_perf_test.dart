@@ -15,7 +15,7 @@
 //     called FindClass("java/lang/Class") and FindClass("java/lang/Throwable") on
 //     every exception. Now g_exc_getName and g_exc_getMessage are cached globals.
 
-import 'package:nitro/nitro.dart' show NativeImpl, Backpressure;
+import 'package:nitro_annotations/nitro_annotations.dart' show NativeImpl, Backpressure;
 import 'package:nitro_generator/src/bridge_spec.dart';
 import 'package:nitro_generator/src/generators/cpp_bridge_generator.dart';
 import 'package:nitro_generator/src/generators/dart_ffi_generator.dart';

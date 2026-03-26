@@ -2,7 +2,7 @@ import 'package:analyzer/dart/element/element.dart';
 import 'package:analyzer/dart/constant/value.dart';
 import 'package:analyzer/dart/element/type.dart';
 import 'package:source_gen/source_gen.dart';
-import 'package:nitro/nitro.dart';
+import 'package:nitro_annotations/nitro_annotations.dart';
 import 'bridge_spec.dart';
 
 class SpecExtractor {
@@ -186,10 +186,10 @@ class SpecExtractor {
     Set<String> recordTypeNames,
   ) {
     const asyncChecker = TypeChecker.fromUrl(
-      'package:nitro/src/annotations.dart#NitroAsync',
+      'package:nitro_annotations/nitro_annotations.dart#NitroAsync',
     );
     const zeroCopyChecker = TypeChecker.fromUrl(
-      'package:nitro/src/annotations.dart#ZeroCopy',
+      'package:nitro_annotations/nitro_annotations.dart#ZeroCopy',
     );
 
     // Skip abstract getters annotated with @NitroStream or abstract getters/setters
@@ -230,7 +230,7 @@ class SpecExtractor {
     Set<String> recordTypeNames,
   ) {
     const streamChecker = TypeChecker.fromUrl(
-      'package:nitro/src/annotations.dart#NitroStream',
+      'package:nitro_annotations/nitro_annotations.dart#NitroStream',
     );
 
     // Accumulate properties grouped by accessor name.

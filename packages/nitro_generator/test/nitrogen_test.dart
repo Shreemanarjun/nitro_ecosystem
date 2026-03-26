@@ -1,7 +1,7 @@
 // Tests for Nitrogen generators — no source_gen / dart:mirrors dependencies.
 // Each generator is a pure BridgeSpec → String function and can be tested directly.
 
-import 'package:nitro/nitro.dart';
+import 'package:nitro_annotations/nitro_annotations.dart';
 import 'package:nitro_generator/src/bridge_spec.dart';
 import 'package:nitro_generator/src/spec_validator.dart';
 import 'package:nitro_generator/src/generators/cmake_generator.dart';

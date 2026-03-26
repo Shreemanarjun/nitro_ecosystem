@@ -16,7 +16,7 @@
 //     instead of byte count.  E.g. for Float32List with 10 floats the byte
 //     count is 10 * sizeof(float) = 40, not 10.
 
-import 'package:nitro/nitro.dart';
+import 'package:nitro_annotations/nitro_annotations.dart';
 import 'package:nitro_generator/src/bridge_spec.dart';
 import 'package:nitro_generator/src/generators/cpp_bridge_generator.dart';
 import 'package:test/test.dart';

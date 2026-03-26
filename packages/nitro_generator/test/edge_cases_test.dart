@@ -34,7 +34,7 @@
 //        • serialization uses countBuf, ByteArrayOutputStream, writeFieldsTo
 //        • 4-byte length prefix via lenBuf prepended to payload
 
-import 'package:nitro/nitro.dart';
+import 'package:nitro_annotations/nitro_annotations.dart';
 import 'package:nitro_generator/src/bridge_spec.dart';
 import 'package:nitro_generator/src/generators/cpp_bridge_generator.dart';
 import 'package:nitro_generator/src/generators/dart_ffi_generator.dart';

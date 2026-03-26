@@ -14,7 +14,7 @@
 //      Fixed by renaming .bridge.g.cpp → .bridge.g.mm in ios/Classes/ so
 //      Xcode compiles them as Objective-C++, enabling __OBJC__.
 
-import 'package:nitro/nitro.dart';
+import 'package:nitro_annotations/nitro_annotations.dart';
 import 'package:nitro_generator/src/bridge_spec.dart';
 import 'package:nitro_generator/src/generators/cpp_bridge_generator.dart';
 import 'package:nitro_generator/src/generators/cpp_header_generator.dart';

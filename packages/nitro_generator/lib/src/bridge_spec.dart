@@ -1,4 +1,4 @@
-import 'package:nitro/nitro.dart';
+import 'package:nitro_annotations/nitro_annotations.dart';
 
 class BridgeSpec {
   final String dartClassName;

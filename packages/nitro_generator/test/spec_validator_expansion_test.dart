@@ -1,7 +1,7 @@
 // Tests for SpecValidator expansion:
 //   1. Cyclic @HybridStruct dependency detection
 //   2. Enum-as-field support in @HybridStruct (validator + generators)
-import 'package:nitro/nitro.dart';
+import 'package:nitro_annotations/nitro_annotations.dart';
 import 'package:nitro_generator/src/bridge_spec.dart';
 import 'package:nitro_generator/src/spec_validator.dart';
 import 'package:nitro_generator/src/generators/struct_generator.dart';
