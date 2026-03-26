@@ -102,9 +102,9 @@ At the heart of the ecosystem is **Nitrogen**, a TUI-powered CLI that eliminates
 ---
 
 ## 🚀 Roadmap: Multi-Target High Performance
-Nitro **currently** provides full support for **iOS (Swift)** and **Android (Kotlin)** targets.
+Nitro **currently** provides full support for **iOS (Swift)** and **Android (Kotlin)** targets. This architectural choice prioritizes a **Superior Developer Experience (DX)**, allowing you to use high-level platform APIs directly. While this remains **~12x faster** than MethodChannels, it carries minor bridge overhead (~7µs vs ~1µs for Raw FFI).
 
-The future of Nitro is reaching across all native boundaries:
-- **Ultra-Flexible Targets**: Choose the optimal target for your logic: **C**, **C++**, **Kotlin**, or **Swift**.
+The future of Nitro is reaching absolute performance parity without sacrificing DX:
+- **Ultra-Flexible Targets**: Choose the optimal language for your module: **C**, **C++**, **Kotlin**, or **Swift**.
 - **Desktop Support**: Expanding high-throughput communication to **macOS**, **Windows**, and **Linux**.
-- **Direct Native Support**: Zero-intermediate overhead C/C++ binding, reaching **1:1 parity with Raw FFI** while keeping Nitro's automated, type-safe development workflow.
+- **💥 Direct Native Performance**: **Nitro will soon generate direct C/C++ interfaces, allowing you to share the exact same low-level logic with Raw FFI-like performance (~1µs) while strictly maintaining Nitro's automated, type-safe development workflow.**
