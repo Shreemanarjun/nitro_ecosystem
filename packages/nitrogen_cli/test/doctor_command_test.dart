@@ -3,17 +3,6 @@ import 'package:path/path.dart' as p;
 import 'package:nitrogen_cli/commands/doctor_command.dart';
 import 'package:test/test.dart';
 
-// Runs [fn] with the working directory temporarily set to [dir].
-T _withDir<T>(Directory dir, T Function() fn) {
-  final orig = Directory.current;
-  Directory.current = dir;
-  try {
-    return fn();
-  } finally {
-    Directory.current = orig;
-  }
-}
-
 // ── Minimal valid plugin scaffold ─────────────────────────────────────────────
 
 /// Writes the minimum files needed to make DoctorCommand.performChecks()
@@ -117,19 +106,15 @@ end
   return root;
 }
 
-DoctorViewResult _run(Directory root) => _withDir(root, () => DoctorCommand().performChecks());
+DoctorViewResult _run(Directory root) => DoctorCommand().performChecks(root: root);
 
 void main() {
-  late Directory tmp;
-  tearDown(() {
-    if (tmp.existsSync()) tmp.deleteSync(recursive: true);
-  });
-
   // ── nitro.h ─────────────────────────────────────────────────────────────────
 
   group('iOS — nitro.h', () {
     test('ok when nitro.h is present in ios/Classes/', () {
-      tmp = _scaffold(withNitroH: true);
+      final tmp = _scaffold(withNitroH: true);
+      addTearDown(() => tmp.deleteSync(recursive: true));
       final result = _run(tmp);
       final iosSection = result.sections.firstWhere((s) => s.title == 'iOS');
       expect(
@@ -139,7 +124,8 @@ void main() {
     });
 
     test('error when nitro.h is absent from ios/Classes/', () {
-      tmp = _scaffold(withNitroH: false);
+      final tmp = _scaffold(withNitroH: false);
+      addTearDown(() => tmp.deleteSync(recursive: true));
       final result = _run(tmp);
       final iosSection = result.sections.firstWhere((s) => s.title == 'iOS');
       final check = iosSection.checks.firstWhere((c) => c.label.contains('nitro.h missing'), orElse: () => throw TestFailure('no nitro.h check found'));
@@ -153,12 +139,13 @@ void main() {
 
   group('iOS — stale .bridge.g.cpp', () {
     test('error for each stale .bridge.g.cpp file found in ios/Classes/', () {
-      tmp = _scaffold(
+      final tmp = _scaffold(
         cppBridges: [
           'my_plugin.bridge.g.cpp',
           'extra.bridge.g.cpp',
         ],
       );
+      addTearDown(() => tmp.deleteSync(recursive: true));
       final result = _run(tmp);
       final iosSection = result.sections.firstWhere((s) => s.title == 'iOS');
 
@@ -171,7 +158,8 @@ void main() {
     });
 
     test('no stale-cpp error when only .mm bridges are present', () {
-      tmp = _scaffold(mmBridges: ['my_plugin.bridge.g.mm']);
+      final tmp = _scaffold(mmBridges: ['my_plugin.bridge.g.mm']);
+      addTearDown(() => tmp.deleteSync(recursive: true));
       final result = _run(tmp);
       final iosSection = result.sections.firstWhere((s) => s.title == 'iOS');
       expect(
@@ -181,7 +169,8 @@ void main() {
     });
 
     test('hint points to nitrogen link for auto-rename', () {
-      tmp = _scaffold(cppBridges: ['foo.bridge.g.cpp']);
+      final tmp = _scaffold(cppBridges: ['foo.bridge.g.cpp']);
+      addTearDown(() => tmp.deleteSync(recursive: true));
       final result = _run(tmp);
       final iosSection = result.sections.firstWhere((s) => s.title == 'iOS');
       final check = iosSection.checks.firstWhere((c) => c.label.contains('Stale .cpp bridge'));
@@ -194,7 +183,8 @@ void main() {
 
   group('iOS — .bridge.g.mm presence', () {
     test('ok when at least one .bridge.g.mm is present', () {
-      tmp = _scaffold(mmBridges: ['my_plugin.bridge.g.mm']);
+      final tmp = _scaffold(mmBridges: ['my_plugin.bridge.g.mm']);
+      addTearDown(() => tmp.deleteSync(recursive: true));
       final result = _run(tmp);
       final iosSection = result.sections.firstWhere((s) => s.title == 'iOS');
       expect(
@@ -204,11 +194,12 @@ void main() {
     });
 
     test('ok label includes count of .mm bridge files', () {
-      tmp = _scaffold(mmBridges: [
+      final tmp = _scaffold(mmBridges: [
         'a.bridge.g.mm',
         'b.bridge.g.mm',
         'c.bridge.g.mm',
       ]);
+      addTearDown(() => tmp.deleteSync(recursive: true));
       final result = _run(tmp);
       final iosSection = result.sections.firstWhere((s) => s.title == 'iOS');
       final check = iosSection.checks.firstWhere((c) => c.status == DoctorStatus.ok && c.label.contains('.bridge.g.mm'));
@@ -217,7 +208,8 @@ void main() {
 
     test('warning when no .bridge.g.mm files and ios/ exists', () {
       // Create a spec so the "specs.isNotEmpty" condition is met.
-      tmp = _scaffold(mmBridges: []);
+      final tmp = _scaffold(mmBridges: []);
+      addTearDown(() => tmp.deleteSync(recursive: true));
       // Write a .native.dart spec so the warning fires.
       final specDir = Directory(p.join(tmp.path, 'lib', 'src'))..createSync(recursive: true);
       File(p.join(specDir.path, 'my_plugin.native.dart')).writeAsStringSync('@NitroModule(lib: "my_plugin")');
@@ -230,7 +222,8 @@ void main() {
     });
 
     test('no .mm warning when no specs exist (nothing to link yet)', () {
-      tmp = _scaffold(mmBridges: []);
+      final tmp = _scaffold(mmBridges: []);
+      addTearDown(() => tmp.deleteSync(recursive: true));
       // No .native.dart spec written → specs list is empty.
       final result = _run(tmp);
       final iosSection = result.sections.firstWhere((s) => s.title == 'iOS');
@@ -245,12 +238,13 @@ void main() {
 
   group('iOS — fully linked plugin', () {
     test('all iOS bridge checks pass for a well-linked plugin', () {
-      tmp = _scaffold(
+      final tmp = _scaffold(
         withNitroH: true,
         withDartApiDl: true,
         mmBridges: ['my_plugin.bridge.g.mm'],
         cppBridges: [],
       );
+      addTearDown(() => tmp.deleteSync(recursive: true));
       final result = _run(tmp);
       final iosSection = result.sections.firstWhere((s) => s.title == 'iOS');
 

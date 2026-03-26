@@ -2,6 +2,7 @@ import 'dart:io';
 import 'dart:convert';
 import 'package:args/command_runner.dart';
 import 'package:nocterm/nocterm.dart';
+import '../ui.dart';
 
 // ── Step model ────────────────────────────────────────────────────────────────
 
@@ -232,13 +233,30 @@ class _UpdateViewState extends State<UpdateView> {
           ),
           if (_finished)
             Padding(
-              padding: const EdgeInsets.all(1),
+              padding: const EdgeInsets.only(top: 1, bottom: 1, left: 1, right: 1),
               child: Column(
                 children: [
                   _failed
                       ? const Text('✘ Update failed', style: TextStyle(color: Colors.red, fontWeight: FontWeight.bold))
                       : const Text('✨ nitrogen is up to date!', style: TextStyle(color: Colors.green, fontWeight: FontWeight.bold)),
-                  const Text('Press any key to exit', style: TextStyle(color: Colors.gray, fontWeight: FontWeight.dim)),
+                  const SizedBox(height: 1),
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      if (component.onExit != null) ...[
+                        HoverButton(
+                          label: '‹ Back',
+                          onTap: component.onExit!,
+                          color: Colors.cyan,
+                        ),
+                        const Text('  •  ', style: TextStyle(color: Colors.brightBlack)),
+                      ],
+                      const Text(
+                        'Press any key to exit',
+                        style: TextStyle(color: Colors.gray, fontWeight: FontWeight.dim),
+                      ),
+                    ],
+                  ),
                 ],
               ),
             ),

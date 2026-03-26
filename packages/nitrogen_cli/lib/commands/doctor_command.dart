@@ -13,13 +13,13 @@ class DoctorCheck {
   final DoctorStatus status;
   final String label;
   final String? hint;
-  const DoctorCheck(this.status, this.label, {this.hint});
+  DoctorCheck(this.status, this.label, {this.hint});
 }
 
 class DoctorSection {
   final String title;
   final List<DoctorCheck> checks;
-  const DoctorSection(this.title, this.checks);
+  DoctorSection(this.title, [List<DoctorCheck>? checks]) : checks = (checks ?? <DoctorCheck>[]).toList();
 }
 
 // ── nocterm Components ────────────────────────────────────────────────────────
@@ -285,14 +285,15 @@ class DoctorCommand extends Command {
   };
 
   /// Runs the doctor check logic without launching the UI.
-  DoctorViewResult performChecks() {
-    final pubspecFile = File('pubspec.yaml');
+  DoctorViewResult performChecks({Directory? root}) {
+    root ??= Directory.current;
+    final pubspecFile = File(p.join(root.path, 'pubspec.yaml'));
     if (!pubspecFile.existsSync()) {
       throw StateError('No pubspec.yaml found. Run from the root of a Flutter plugin.');
     }
 
     final pluginName = _pluginName(pubspecFile);
-    final specs = _findSpecs();
+    final specs = _findSpecs(root: root);
     final sections = <DoctorSection>[];
     int errors = 0;
     int warnings = 0;
@@ -316,7 +317,7 @@ class DoctorCommand extends Command {
     }
 
     // ── pubspec.yaml ───────────────────────────────────────────────────────
-    final pubSec = DoctorSection('pubspec.yaml', []);
+    final pubSec = DoctorSection('pubspec.yaml');
     sections.add(pubSec);
     final pubspec = pubspecFile.readAsStringSync();
 
@@ -358,9 +359,8 @@ class DoctorCommand extends Command {
       err(pubSec, 'ios pluginClass missing', hint: 'Add pluginClass under flutter.plugin.platforms.ios');
     }
 
-    // ── Generated files ────────────────────────────────────────────────────
     if (specs.isNotEmpty) {
-      final genSec = DoctorSection('Generated Files', []);
+      final genSec = DoctorSection('Generated Files');
       sections.add(genSec);
       for (final spec in specs) {
         final stem = p.basename(spec.path).replaceAll(RegExp(r'\.native\.dart$'), '');
@@ -379,15 +379,14 @@ class DoctorCommand extends Command {
         }
       }
     } else {
-      final genSec = DoctorSection('Generated Files', []);
+      final genSec = DoctorSection('Generated Files');
       sections.add(genSec);
       warn(genSec, 'No *.native.dart specs found under lib/', hint: 'Create lib/src/<name>.native.dart');
     }
 
-    // ── CMakeLists.txt ─────────────────────────────────────────────────────
-    final cmakeSec = DoctorSection('CMakeLists.txt', []);
+    final cmakeSec = DoctorSection('CMakeLists.txt');
     sections.add(cmakeSec);
-    final cmakeFile = File(p.join('src', 'CMakeLists.txt'));
+    final cmakeFile = File(p.join(root.path, 'src', 'CMakeLists.txt'));
     if (!cmakeFile.existsSync()) {
       err(cmakeSec, 'src/CMakeLists.txt not found', hint: 'Run: nitrogen link');
     } else {
@@ -413,13 +412,13 @@ class DoctorCommand extends Command {
       }
     }
 
-    // ── Android ────────────────────────────────────────────────────────────
-    final androidSec = DoctorSection('Android', []);
+    final androidSec = DoctorSection('Android');
     sections.add(androidSec);
-    if (!Directory('android').existsSync()) {
+    final androidDir = Directory(p.join(root.path, 'android'));
+    if (!androidDir.existsSync()) {
       info(androidSec, 'android/ directory not present — skipped');
     } else {
-      final gradle = File(p.join('android', 'build.gradle'));
+      final gradle = File(p.join(androidDir.path, 'build.gradle'));
       if (!gradle.existsSync()) {
         err(androidSec, 'android/build.gradle not found');
       } else {
@@ -446,8 +445,8 @@ class DoctorCommand extends Command {
         }
       }
 
-      final kotlinDir = Directory(p.join('android', 'src', 'main', 'kotlin'));
-      final pluginFiles = kotlinDir.existsSync() ? kotlinDir.listSync(recursive: true).whereType<File>().where((f) => f.path.endsWith('Plugin.kt')).toList() : <File>[];
+        final ktDir = Directory(p.join(androidDir.path, 'src', 'main', 'kotlin'));
+        final pluginFiles = ktDir.existsSync() ? ktDir.listSync(recursive: true).whereType<File>().where((f) => f.path.endsWith('Plugin.kt')).toList() : <File>[];
       if (pluginFiles.isEmpty) {
         err(androidSec, 'No Plugin.kt found', hint: 'Run: nitrogen init');
       } else {
@@ -469,13 +468,13 @@ class DoctorCommand extends Command {
       }
     }
 
-    // ── iOS ────────────────────────────────────────────────────────────────
-    final iosSec = DoctorSection('iOS', []);
+    final iosSec = DoctorSection('iOS');
     sections.add(iosSec);
-    if (!Directory('ios').existsSync()) {
+    final iosDir = Directory(p.join(root.path, 'ios'));
+    if (!iosDir.existsSync()) {
       info(iosSec, 'ios/ directory not present — skipped');
     } else {
-      final podFiles = Directory('ios').listSync().whereType<File>().where((f) => f.path.endsWith('.podspec')).toList();
+      final podFiles = iosDir.listSync().whereType<File>().where((f) => f.path.endsWith('.podspec')).toList();
       if (podFiles.isEmpty) {
         err(iosSec, 'No .podspec found in ios/', hint: 'Run: nitrogen init');
       } else {
@@ -498,8 +497,8 @@ class DoctorCommand extends Command {
         }
       }
 
-      final classesDir = Directory(p.join('ios', 'Classes'));
-      final swiftFiles = classesDir.existsSync() ? classesDir.listSync().whereType<File>().where((f) => f.path.endsWith('Plugin.swift')).toList() : <File>[];
+        final classesDir = Directory(p.join(iosDir.path, 'Classes'));
+        final swiftFiles = classesDir.existsSync() ? classesDir.listSync().whereType<File>().where((f) => f.path.endsWith('Plugin.swift')).toList() : <File>[];
       if (swiftFiles.isEmpty) {
         err(iosSec, 'No *Plugin.swift in ios/Classes/', hint: 'Run: nitrogen init');
       } else {
@@ -511,14 +510,14 @@ class DoctorCommand extends Command {
         }
       }
 
-      final dartApiDl = File(p.join('ios', 'Classes', 'dart_api_dl.c'));
+        final dartApiDl = File(p.join(iosDir.path, 'Classes', 'dart_api_dl.c'));
       if (dartApiDl.existsSync()) {
         ok(iosSec, 'ios/Classes/dart_api_dl.c present');
       } else {
         err(iosSec, 'ios/Classes/dart_api_dl.c missing', hint: 'Run: nitrogen link');
       }
 
-      final nitroH = File(p.join('ios', 'Classes', 'nitro.h'));
+        final nitroH = File(p.join(iosDir.path, 'Classes', 'nitro.h'));
       if (nitroH.existsSync()) {
         ok(iosSec, 'ios/Classes/nitro.h present');
       } else {
@@ -591,8 +590,9 @@ class DoctorCommand extends Command {
 
   // ── Helpers ───────────────────────────────────────────────────────────────
 
-  List<File> _findSpecs() {
-    final libDir = Directory('lib');
+  List<File> _findSpecs({Directory? root}) {
+    root ??= Directory.current;
+    final libDir = Directory(p.join(root.path, 'lib'));
     if (!libDir.existsSync()) return [];
     return libDir.listSync(recursive: true).whereType<File>().where((f) => f.path.endsWith('.native.dart')).toList();
   }
@@ -624,7 +624,7 @@ class DoctorViewResult {
   final List<DoctorSection> sections;
   final int errors;
   final int warnings;
-  const DoctorViewResult({
+  DoctorViewResult({
     required this.pluginName,
     required this.sections,
     required this.errors,

@@ -5,6 +5,10 @@
 - **Fixed: Arena Use-After-Free in Async FFI Bridges** — Async functions with arena-allocated params (Strings, struct pointers) previously wrapped the `await` inside `withArena(... async { })`, which freed the arena as soon as the Future was returned — before the native call completed. Generated code now uses `Arena()` directly with `try/finally` so the arena lives until after the `await`.
 - **Fixed: Typed `callAsync<T>` Removes Raw Pointer Casts** — Every async call site previously called untyped `NitroRuntime.callAsync(...)` and then cast the `dynamic` result (`result as Pointer<Uint8>`, `asyncResult as Pointer<Void>`, etc.). The generated Dart now uses the typed form `callAsync<T>(...)`, which removes all unsafe `as` casts and makes the generated code self-documenting.
 - **Fixed: Null Safety for TypedData ByteBuffer in JNI Pack** — `pack_*_from_jni` helpers now emit a null guard for zero-copy `ByteBuffer` fields before calling `GetDirectBufferAddress`. If the Kotlin side passes a null buffer, a `NullPointerException` is thrown via `env->ThrowNew` rather than silently assigning a null pointer to the struct field.
+- **Fixed: `nitrogen doctor` Unmodifiable List Error** — Resolved a runtime exception ("Unsupported operation: Cannot add to an unmodifiable list") by ensuring diagnostic check lists are always instantiated as growable.
+- **Improved: TUI Mouse Interactivity** — Added mouse-clickable "Confirm" and "Back" buttons to the `nitrogen init` plugin name form and added a "Back" button to the `nitrogen update` view for consistent dashboard navigation.
+- **Improved: Test Coverage** — Added a comprehensive test suite for CLI command registration, module discovery, and path resolution. Refactored `DoctorCommand` for better testability by allowing custom root directory injection.
+- **UX Refinement**: Standardized exit prompts and TUI layout across all commands.
 
 
 ## 0.2.0

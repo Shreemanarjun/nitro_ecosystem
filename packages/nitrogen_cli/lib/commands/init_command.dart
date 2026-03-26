@@ -1102,8 +1102,26 @@ class _PluginNameFormState extends State<PluginNameForm> {
                 ),
               ],
               const SizedBox(height: 1),
+              Row(
+                children: [
+                  HoverButton(
+                    label: '✔ Confirm',
+                    onTap: _submit,
+                    color: Colors.green,
+                  ),
+                  const Text('  ', style: TextStyle(color: Colors.brightBlack)),
+                  if (component.onExit != null) ...[
+                    HoverButton(
+                      label: '‹ Back',
+                      onTap: component.onExit!,
+                      color: Colors.cyan,
+                    ),
+                  ],
+                ],
+              ),
+              const SizedBox(height: 1),
               const Text(
-                '[Tab] switch field   [Enter] confirm',
+                '[Tab] switch field   [Enter] confirm   [ESC] back',
                 style: TextStyle(color: Colors.gray, fontWeight: FontWeight.dim),
               ),
             ],
