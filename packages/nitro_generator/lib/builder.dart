@@ -8,13 +8,14 @@ import 'src/generators/kotlin_generator.dart';
 import 'src/generators/swift_generator.dart';
 import 'src/generators/cmake_generator.dart';
 import 'src/generators/cpp_bridge_generator.dart';
+import 'src/generators/cpp_interface_generator.dart';
+import 'src/generators/cpp_mock_generator.dart';
 
 Builder nitroGeneratorBuilder(BuilderOptions options) {
   return NitroGeneratorBuilder();
 }
 
 class NitroGeneratorBuilder implements Builder {
-  // The correct format to use capture groups in code is:
   @override
   Map<String, List<String>> get buildExtensions => {
     '^lib/{{dir}}/{{file}}.native.dart': [
@@ -24,6 +25,10 @@ class NitroGeneratorBuilder implements Builder {
       'lib/{{dir}}/generated/cpp/{{file}}.bridge.g.h',
       'lib/{{dir}}/generated/cpp/{{file}}.bridge.g.cpp',
       'lib/{{dir}}/generated/cmake/{{file}}.CMakeLists.g.txt',
+      // NativeImpl.cpp — direct C++ implementation support
+      'lib/{{dir}}/generated/cpp/{{file}}.native.g.h',
+      'lib/{{dir}}/generated/cpp/test/{{file}}.mock.g.h',
+      'lib/{{dir}}/generated/cpp/test/{{file}}.test.g.cpp',
     ],
   };
 
@@ -63,17 +68,18 @@ class NitroGeneratorBuilder implements Builder {
         } else if (outId.path.endsWith('.bridge.g.swift')) {
           await buildStep.writeAsString(outId, SwiftGenerator.generate(spec));
         } else if (outId.path.endsWith('.bridge.g.h')) {
-          await buildStep.writeAsString(
-            outId,
-            CppHeaderGenerator.generate(spec),
-          );
+          await buildStep.writeAsString(outId, CppHeaderGenerator.generate(spec));
         } else if (outId.path.endsWith('.bridge.g.cpp')) {
-          await buildStep.writeAsString(
-            outId,
-            CppBridgeGenerator.generate(spec),
-          );
+          await buildStep.writeAsString(outId, CppBridgeGenerator.generate(spec));
         } else if (outId.path.endsWith('.CMakeLists.g.txt')) {
           await buildStep.writeAsString(outId, CMakeGenerator.generate(spec));
+        // ── NativeImpl.cpp outputs ─────────────────────────────────────
+        } else if (outId.path.endsWith('.native.g.h')) {
+          await buildStep.writeAsString(outId, CppInterfaceGenerator.generate(spec));
+        } else if (outId.path.endsWith('.mock.g.h')) {
+          await buildStep.writeAsString(outId, CppMockGenerator.generateMockHeader(spec));
+        } else if (outId.path.endsWith('.test.g.cpp')) {
+          await buildStep.writeAsString(outId, CppMockGenerator.generateTestStarter(spec));
         }
       }
     } catch (e, st) {

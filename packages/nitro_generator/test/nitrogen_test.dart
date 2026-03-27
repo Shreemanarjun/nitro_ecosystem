@@ -7,6 +7,8 @@ import 'package:nitro_generator/src/spec_validator.dart';
 import 'package:nitro_generator/src/generators/cmake_generator.dart';
 import 'package:nitro_generator/src/generators/cpp_bridge_generator.dart';
 import 'package:nitro_generator/src/generators/cpp_header_generator.dart';
+import 'package:nitro_generator/src/generators/cpp_interface_generator.dart';
+import 'package:nitro_generator/src/generators/cpp_mock_generator.dart';
 import 'package:nitro_generator/src/generators/dart_ffi_generator.dart';
 import 'package:nitro_generator/src/generators/enum_generator.dart';
 import 'package:nitro_generator/src/generators/kotlin_generator.dart';
@@ -410,6 +412,85 @@ BridgeSpec _recordListSpec() => BridgeSpec(
         recordListItemType: 'CameraDevice',
       ),
       params: [],
+    ),
+  ],
+);
+
+// ── NativeImpl.cpp spec helpers ───────────────────────────────────────────────
+
+BridgeSpec _cppSpec() => BridgeSpec(
+  dartClassName: 'Math',
+  lib: 'math',
+  namespace: 'math_module',
+  iosImpl: NativeImpl.cpp,
+  androidImpl: NativeImpl.cpp,
+  sourceUri: 'math.native.dart',
+  functions: [
+    BridgeFunction(
+      dartName: 'add',
+      cSymbol: 'math_add',
+      isAsync: false,
+      returnType: BridgeType(name: 'double'),
+      params: [
+        BridgeParam(name: 'a', type: BridgeType(name: 'double')),
+        BridgeParam(name: 'b', type: BridgeType(name: 'double')),
+      ],
+    ),
+    BridgeFunction(
+      dartName: 'greet',
+      cSymbol: 'math_greet',
+      isAsync: false,
+      returnType: BridgeType(name: 'String'),
+      params: [BridgeParam(name: 'name', type: BridgeType(name: 'String'))],
+    ),
+  ],
+  properties: [
+    BridgeProperty(
+      dartName: 'precision',
+      type: BridgeType(name: 'int'),
+      getSymbol: 'math_get_precision',
+      setSymbol: 'math_set_precision',
+      hasGetter: true,
+      hasSetter: true,
+    ),
+  ],
+);
+
+BridgeSpec _cppEnumSpec() => BridgeSpec(
+  dartClassName: 'Sensor',
+  lib: 'sensor',
+  namespace: 'sensor_module',
+  iosImpl: NativeImpl.cpp,
+  androidImpl: NativeImpl.cpp,
+  sourceUri: 'sensor.native.dart',
+  enums: [
+    BridgeEnum(name: 'SensorMode', startValue: 1, values: ['idle', 'active', 'error']),
+  ],
+  functions: [
+    BridgeFunction(
+      dartName: 'getMode',
+      cSymbol: 'sensor_get_mode',
+      isAsync: false,
+      returnType: BridgeType(name: 'SensorMode'),
+      params: [],
+    ),
+  ],
+);
+
+BridgeSpec _cppStreamSpec() => BridgeSpec(
+  dartClassName: 'Lidar',
+  lib: 'lidar',
+  namespace: 'lidar_module',
+  iosImpl: NativeImpl.cpp,
+  androidImpl: NativeImpl.cpp,
+  sourceUri: 'lidar.native.dart',
+  streams: [
+    BridgeStream(
+      dartName: 'points',
+      registerSymbol: 'lidar_register_points_stream',
+      releaseSymbol: 'lidar_release_points_stream',
+      itemType: BridgeType(name: 'double'),
+      backpressure: Backpressure.dropLatest,
     ),
   ],
 );
@@ -3711,6 +3792,905 @@ void main() {
       expect(out, contains('return impl.getE().nativeValue'));
       expect(out, contains('fun t_set_prop_e_call(value: Long)'));
       expect(out, contains('impl.propE = E.fromNative(value)'));
+    });
+  });
+
+  // ── NativeImpl.cpp — direct C++ implementation ────────────────────────────
+
+  group('BridgeSpec.isCppImpl', () {
+    test('true when both platforms are cpp', () {
+      expect(_cppSpec().isCppImpl, isTrue);
+    });
+
+    test('false when only one platform is cpp', () {
+      final spec = BridgeSpec(
+        dartClassName: 'X',
+        lib: 'x',
+        namespace: 'x',
+        iosImpl: NativeImpl.cpp,
+        androidImpl: NativeImpl.kotlin,
+        sourceUri: 'x.native.dart',
+      );
+      expect(spec.isCppImpl, isFalse);
+    });
+
+    test('false for swift/kotlin module', () {
+      expect(_simpleSpec().isCppImpl, isFalse);
+    });
+  });
+
+  group('CppInterfaceGenerator', () {
+    test('generates abstract class with pure-virtual methods', () {
+      final out = CppInterfaceGenerator.generate(_cppSpec());
+      expect(out, contains('class HybridMath'));
+      expect(out, contains('virtual double add(double a, double b) = 0;'));
+      expect(out, contains('virtual std::string greet(const std::string& name) = 0;'));
+    });
+
+    test('generates property getters/setters', () {
+      final out = CppInterfaceGenerator.generate(_cppSpec());
+      expect(out, contains('virtual int64_t get_precision() const = 0;'));
+      expect(out, contains('virtual void set_precision(int64_t value) = 0;'));
+    });
+
+    test('generates registration API', () {
+      final out = CppInterfaceGenerator.generate(_cppSpec());
+      expect(out, contains('void math_register_impl(HybridMath* impl);'));
+      expect(out, contains('HybridMath* math_get_impl(void);'));
+    });
+
+    test('generates emit helper for streams', () {
+      final out = CppInterfaceGenerator.generate(_cppStreamSpec());
+      expect(out, contains('void emit_points(double item);'));
+    });
+
+    test('enum param/return uses C type name', () {
+      final out = CppInterfaceGenerator.generate(_cppEnumSpec());
+      expect(out, contains('virtual SensorMode getMode() = 0;'));
+    });
+
+    test('returns not-applicable comment for non-cpp spec', () {
+      final out = CppInterfaceGenerator.generate(_simpleSpec());
+      expect(out, contains('Not applicable'));
+      expect(out, isNot(contains('class Hybrid')));
+    });
+
+    test('includes NitroCppBuffer struct', () {
+      final out = CppInterfaceGenerator.generate(_cppSpec());
+      expect(out, contains('struct NitroCppBuffer'));
+    });
+  });
+
+  group('CppBridgeGenerator (cpp direct path)', () {
+    test('does not contain JNI_OnLoad for cpp module', () {
+      final out = CppBridgeGenerator.generate(_cppSpec());
+      expect(out, isNot(contains('JNI_OnLoad')));
+    });
+
+    test('does not contain __ANDROID__ preprocessor branch', () {
+      final out = CppBridgeGenerator.generate(_cppSpec());
+      expect(out, isNot(contains('#ifdef __ANDROID__')));
+    });
+
+    test('does not contain __APPLE__ Swift forwarding', () {
+      final out = CppBridgeGenerator.generate(_cppSpec());
+      expect(out, isNot(contains('#elif __APPLE__')));
+    });
+
+    test('includes native.g.h header', () {
+      final out = CppBridgeGenerator.generate(_cppSpec());
+      expect(out, contains('"math.native.g.h"'));
+    });
+
+    test('generates register_impl and get_impl', () {
+      final out = CppBridgeGenerator.generate(_cppSpec());
+      expect(out, contains('math_register_impl'));
+      expect(out, contains('math_get_impl'));
+    });
+
+    test('method calls g_impl virtual method', () {
+      final out = CppBridgeGenerator.generate(_cppSpec());
+      expect(out, contains('g_impl->add('));
+    });
+
+    test('string return uses strdup(result.c_str())', () {
+      final out = CppBridgeGenerator.generate(_cppSpec());
+      expect(out, contains('strdup(_res.c_str())'));
+    });
+
+    test('property getter calls get_precision', () {
+      final out = CppBridgeGenerator.generate(_cppSpec());
+      expect(out, contains('g_impl->get_precision()'));
+    });
+
+    test('property setter calls set_precision', () {
+      final out = CppBridgeGenerator.generate(_cppSpec());
+      expect(out, contains('g_impl->set_precision('));
+    });
+
+    test('enum return cast to int64_t', () {
+      final out = CppBridgeGenerator.generate(_cppEnumSpec());
+      expect(out, contains('static_cast<int64_t>(g_impl->getMode('));
+    });
+
+    test('NotInitialized guard present', () {
+      final out = CppBridgeGenerator.generate(_cppSpec());
+      expect(out, contains('NotInitialized'));
+    });
+
+    test('stream register/release store port', () {
+      final out = CppBridgeGenerator.generate(_cppStreamSpec());
+      expect(out, contains('lidar_register_points_stream'));
+      expect(out, contains('lidar_release_points_stream'));
+      expect(out, contains('g_port_points'));
+    });
+
+    test('emit helper posts to Dart port', () {
+      final out = CppBridgeGenerator.generate(_cppStreamSpec());
+      expect(out, contains('Dart_PostCObject_DL'));
+      expect(out, contains('emit_points'));
+    });
+
+    test('JNI path still generated for kotlin/swift spec', () {
+      final out = CppBridgeGenerator.generate(_simpleSpec());
+      expect(out, contains('JNI_OnLoad'));
+      expect(out, contains('#elif __APPLE__'));
+    });
+  });
+
+  group('CppMockGenerator', () {
+    test('generates Mock class extending HybridMath', () {
+      final out = CppMockGenerator.generateMockHeader(_cppSpec());
+      expect(out, contains('class MockMath : public HybridMath'));
+    });
+
+    test('MOCK_METHOD for each function', () {
+      final out = CppMockGenerator.generateMockHeader(_cppSpec());
+      expect(out, contains('MOCK_METHOD(double, add, (double a, double b), (override))'));
+      expect(out, contains('MOCK_METHOD(std::string, greet, (const std::string& name), (override))'));
+    });
+
+    test('MOCK_METHOD for property getter uses const override', () {
+      final out = CppMockGenerator.generateMockHeader(_cppSpec());
+      expect(out, contains('MOCK_METHOD(int64_t, get_precision, (), (const, override))'));
+    });
+
+    test('MOCK_METHOD for property setter', () {
+      final out = CppMockGenerator.generateMockHeader(_cppSpec());
+      expect(out, contains('MOCK_METHOD(void, set_precision, (int64_t), (override))'));
+    });
+
+    test('includes native.g.h', () {
+      final out = CppMockGenerator.generateMockHeader(_cppSpec());
+      expect(out, contains('"math.native.g.h"'));
+    });
+
+    test('returns not-applicable for non-cpp spec', () {
+      final out = CppMockGenerator.generateMockHeader(_simpleSpec());
+      expect(out, contains('Not applicable'));
+    });
+
+    test('test starter has smoke test', () {
+      final out = CppMockGenerator.generateTestStarter(_cppSpec());
+      expect(out, contains('TEST(MathTest, SmokeTest)'));
+      expect(out, contains('math_register_impl(&mock)'));
+      expect(out, contains('math_register_impl(nullptr)'));
+    });
+
+    test('test starter has main()', () {
+      final out = CppMockGenerator.generateTestStarter(_cppSpec());
+      expect(out, contains('RUN_ALL_TESTS()'));
+    });
+
+    test('test starter includes mock header', () {
+      final out = CppMockGenerator.generateTestStarter(_cppSpec());
+      expect(out, contains('"math.mock.g.h"'));
+    });
+
+    test('test starter returns not-applicable for non-cpp spec', () {
+      final out = CppMockGenerator.generateTestStarter(_simpleSpec());
+      expect(out, contains('Not applicable'));
+    });
+  });
+
+  // ── CppInterfaceGenerator — edge cases ───────────────────────────────────────
+
+  group('CppInterfaceGenerator — edge cases', () {
+    test('TypedData param expands to pointer + size_t length', () {
+      final spec = BridgeSpec(
+        dartClassName: 'Buffers',
+        lib: 'buffers',
+        namespace: 'buf',
+        iosImpl: NativeImpl.cpp,
+        androidImpl: NativeImpl.cpp,
+        sourceUri: 'buffers.native.dart',
+        functions: [
+          BridgeFunction(
+            dartName: 'process',
+            cSymbol: 'buffers_process',
+            isAsync: false,
+            returnType: BridgeType(name: 'void'),
+            params: [BridgeParam(name: 'data', type: BridgeType(name: 'Uint8List'))],
+          ),
+        ],
+      );
+      final out = CppInterfaceGenerator.generate(spec);
+      expect(out, contains('const uint8_t* data'));
+      expect(out, contains('size_t data_length'));
+    });
+
+    test('all TypedData types map to correct C++ pointer types', () {
+      final typedDataCases = {
+        'Uint8List': 'const uint8_t*',
+        'Int8List': 'const int8_t*',
+        'Int16List': 'const int16_t*',
+        'Uint16List': 'const uint16_t*',
+        'Int32List': 'const int32_t*',
+        'Uint32List': 'const uint32_t*',
+        'Float32List': 'const float*',
+        'Float64List': 'const double*',
+        'Int64List': 'const int64_t*',
+        'Uint64List': 'const uint64_t*',
+      };
+      for (final entry in typedDataCases.entries) {
+        final spec = BridgeSpec(
+          dartClassName: 'Buf',
+          lib: 'buf',
+          namespace: 'buf',
+          iosImpl: NativeImpl.cpp,
+          androidImpl: NativeImpl.cpp,
+          sourceUri: 'buf.native.dart',
+          functions: [
+            BridgeFunction(
+              dartName: 'upload',
+              cSymbol: 'buf_upload',
+              isAsync: false,
+              returnType: BridgeType(name: 'void'),
+              params: [BridgeParam(name: 'buf', type: BridgeType(name: entry.key))],
+            ),
+          ],
+        );
+        final out = CppInterfaceGenerator.generate(spec);
+        expect(out, contains(entry.value), reason: '${entry.key} should map to ${entry.value}');
+        expect(out, contains('size_t buf_length'), reason: '${entry.key} should expand to pointer + length');
+      }
+    });
+
+    test('struct param uses const T& reference', () {
+      final spec = BridgeSpec(
+        dartClassName: 'Sensor',
+        lib: 'sensor',
+        namespace: 'sensor',
+        iosImpl: NativeImpl.cpp,
+        androidImpl: NativeImpl.cpp,
+        sourceUri: 'sensor.native.dart',
+        structs: [BridgeStruct(name: 'SensorData', packed: true, fields: [])],
+        functions: [
+          BridgeFunction(
+            dartName: 'update',
+            cSymbol: 'sensor_update',
+            isAsync: false,
+            returnType: BridgeType(name: 'void'),
+            params: [BridgeParam(name: 'data', type: BridgeType(name: 'SensorData'))],
+          ),
+        ],
+      );
+      final out = CppInterfaceGenerator.generate(spec);
+      expect(out, contains('const SensorData& data'));
+    });
+
+    test('struct return type is by-value', () {
+      final spec = BridgeSpec(
+        dartClassName: 'Factory',
+        lib: 'factory',
+        namespace: 'factory',
+        iosImpl: NativeImpl.cpp,
+        androidImpl: NativeImpl.cpp,
+        sourceUri: 'factory.native.dart',
+        structs: [BridgeStruct(name: 'Point', packed: false, fields: [])],
+        functions: [
+          BridgeFunction(
+            dartName: 'makePoint',
+            cSymbol: 'factory_make_point',
+            isAsync: false,
+            returnType: BridgeType(name: 'Point'),
+            params: [],
+          ),
+        ],
+      );
+      final out = CppInterfaceGenerator.generate(spec);
+      expect(out, contains('virtual Point makePoint() = 0;'));
+    });
+
+    test('record param and return use NitroCppBuffer', () {
+      final spec = BridgeSpec(
+        dartClassName: 'Records',
+        lib: 'records',
+        namespace: 'records',
+        iosImpl: NativeImpl.cpp,
+        androidImpl: NativeImpl.cpp,
+        sourceUri: 'records.native.dart',
+        recordTypes: [
+          BridgeRecordType(name: 'Config', fields: []),
+        ],
+        functions: [
+          BridgeFunction(
+            dartName: 'configure',
+            cSymbol: 'records_configure',
+            isAsync: false,
+            returnType: BridgeType(name: 'Config'),
+            params: [BridgeParam(name: 'cfg', type: BridgeType(name: 'Config'))],
+          ),
+        ],
+      );
+      final out = CppInterfaceGenerator.generate(spec);
+      expect(out, contains('virtual NitroCppBuffer configure(NitroCppBuffer cfg) = 0;'));
+    });
+
+    test('void method with no params generates correctly', () {
+      final spec = BridgeSpec(
+        dartClassName: 'Logger',
+        lib: 'logger',
+        namespace: 'logger',
+        iosImpl: NativeImpl.cpp,
+        androidImpl: NativeImpl.cpp,
+        sourceUri: 'logger.native.dart',
+        functions: [
+          BridgeFunction(
+            dartName: 'reset',
+            cSymbol: 'logger_reset',
+            isAsync: false,
+            returnType: BridgeType(name: 'void'),
+            params: [],
+          ),
+        ],
+      );
+      final out = CppInterfaceGenerator.generate(spec);
+      expect(out, contains('virtual void reset() = 0;'));
+    });
+
+    test('header guard is derived from lib name in uppercase', () {
+      final out = CppInterfaceGenerator.generate(_cppSpec());
+      expect(out, contains('#ifndef MATH_NATIVE_G_H'));
+      expect(out, contains('#define MATH_NATIVE_G_H'));
+      expect(out, contains('#endif // MATH_NATIVE_G_H'));
+    });
+
+    test('lib name with dashes normalised to underscores in header guard', () {
+      final spec = BridgeSpec(
+        dartClassName: 'MyPlugin',
+        lib: 'my-plugin',
+        namespace: 'my_plugin',
+        iosImpl: NativeImpl.cpp,
+        androidImpl: NativeImpl.cpp,
+        sourceUri: 'my_plugin.native.dart',
+        functions: [],
+      );
+      final out = CppInterfaceGenerator.generate(spec);
+      expect(out, contains('#ifndef MY_PLUGIN_NATIVE_G_H'));
+      expect(out, contains('void my_plugin_register_impl(HybridMyPlugin* impl);'));
+    });
+
+    test('registration API wrapped in extern C guard', () {
+      final out = CppInterfaceGenerator.generate(_cppSpec());
+      expect(out, contains('#ifdef __cplusplus\nextern "C" {'));
+    });
+
+    test('protected default constructor present', () {
+      final out = CppInterfaceGenerator.generate(_cppSpec());
+      expect(out, contains('protected:'));
+      expect(out, contains('HybridMath() = default;'));
+    });
+
+    test('virtual destructor present', () {
+      final out = CppInterfaceGenerator.generate(_cppSpec());
+      expect(out, contains('virtual ~HybridMath() = default;'));
+    });
+
+    test('spec with only properties (no methods) generates correctly', () {
+      final spec = BridgeSpec(
+        dartClassName: 'Config',
+        lib: 'config',
+        namespace: 'config',
+        iosImpl: NativeImpl.cpp,
+        androidImpl: NativeImpl.cpp,
+        sourceUri: 'config.native.dart',
+        properties: [
+          BridgeProperty(
+            dartName: 'volume',
+            type: BridgeType(name: 'double'),
+            getSymbol: 'config_get_volume',
+            setSymbol: 'config_set_volume',
+            hasGetter: true,
+            hasSetter: true,
+          ),
+        ],
+      );
+      final out = CppInterfaceGenerator.generate(spec);
+      expect(out, contains('virtual double get_volume() const = 0;'));
+      expect(out, contains('virtual void set_volume(double value) = 0;'));
+      expect(out, isNot(contains('// ── Methods')));
+    });
+
+    test('getter-only property has no setter', () {
+      final spec = BridgeSpec(
+        dartClassName: 'Counter',
+        lib: 'counter',
+        namespace: 'counter',
+        iosImpl: NativeImpl.cpp,
+        androidImpl: NativeImpl.cpp,
+        sourceUri: 'counter.native.dart',
+        properties: [
+          BridgeProperty(
+            dartName: 'count',
+            type: BridgeType(name: 'int'),
+            getSymbol: 'counter_get_count',
+            hasGetter: true,
+            hasSetter: false,
+          ),
+        ],
+      );
+      final out = CppInterfaceGenerator.generate(spec);
+      expect(out, contains('virtual int64_t get_count() const = 0;'));
+      expect(out, isNot(contains('set_count')));
+    });
+
+    test('multiple streams each get their own emit helper', () {
+      final spec = BridgeSpec(
+        dartClassName: 'Multi',
+        lib: 'multi',
+        namespace: 'multi',
+        iosImpl: NativeImpl.cpp,
+        androidImpl: NativeImpl.cpp,
+        sourceUri: 'multi.native.dart',
+        streams: [
+          BridgeStream(
+            dartName: 'data',
+            registerSymbol: 'multi_register_data_stream',
+            releaseSymbol: 'multi_release_data_stream',
+            itemType: BridgeType(name: 'double'),
+            backpressure: Backpressure.dropLatest,
+          ),
+          BridgeStream(
+            dartName: 'events',
+            registerSymbol: 'multi_register_events_stream',
+            releaseSymbol: 'multi_release_events_stream',
+            itemType: BridgeType(name: 'int'),
+            backpressure: Backpressure.dropLatest,
+          ),
+        ],
+      );
+      final out = CppInterfaceGenerator.generate(spec);
+      expect(out, contains('void emit_data(double item);'));
+      expect(out, contains('void emit_events(int64_t item);'));
+    });
+  });
+
+  // ── CppBridgeGenerator — direct path edge cases ──────────────────────────────
+
+  group('CppBridgeGenerator (cpp direct path) — edge cases', () {
+    test('bool return type has correct default (false)', () {
+      final spec = BridgeSpec(
+        dartClassName: 'Flags',
+        lib: 'flags',
+        namespace: 'flags',
+        iosImpl: NativeImpl.cpp,
+        androidImpl: NativeImpl.cpp,
+        sourceUri: 'flags.native.dart',
+        functions: [
+          BridgeFunction(
+            dartName: 'isReady',
+            cSymbol: 'flags_is_ready',
+            isAsync: false,
+            returnType: BridgeType(name: 'bool'),
+            params: [],
+          ),
+        ],
+      );
+      final out = CppBridgeGenerator.generate(spec);
+      // NotInitialized guard returns false for bool
+      expect(out, contains('flags_is_ready'));
+      expect(out, contains('return false'));
+    });
+
+    test('int return type has correct default (0)', () {
+      final spec = BridgeSpec(
+        dartClassName: 'Counter',
+        lib: 'counter',
+        namespace: 'counter',
+        iosImpl: NativeImpl.cpp,
+        androidImpl: NativeImpl.cpp,
+        sourceUri: 'counter.native.dart',
+        functions: [
+          BridgeFunction(
+            dartName: 'value',
+            cSymbol: 'counter_value',
+            isAsync: false,
+            returnType: BridgeType(name: 'int'),
+            params: [],
+          ),
+        ],
+      );
+      final out = CppBridgeGenerator.generate(spec);
+      expect(out, contains('return 0'));
+    });
+
+    test('void method guard uses bare return (no value)', () {
+      final spec = BridgeSpec(
+        dartClassName: 'Logger',
+        lib: 'logger',
+        namespace: 'logger',
+        iosImpl: NativeImpl.cpp,
+        androidImpl: NativeImpl.cpp,
+        sourceUri: 'logger.native.dart',
+        functions: [
+          BridgeFunction(
+            dartName: 'flush',
+            cSymbol: 'logger_flush',
+            isAsync: false,
+            returnType: BridgeType(name: 'void'),
+            params: [],
+          ),
+        ],
+      );
+      final out = CppBridgeGenerator.generate(spec);
+      expect(out, contains('g_impl->flush()'));
+      // void function uses bare return; not return <value>;
+      expect(out, contains('return; }'));
+      expect(out, isNot(contains('return false')));
+      expect(out, isNot(contains('return 0')));
+      expect(out, isNot(contains('return nullptr')));
+    });
+
+    test('String param is converted to std::string at call site', () {
+      final out = CppBridgeGenerator.generate(_cppSpec());
+      // greet takes a const char* name → converts to std::string
+      expect(out, contains('std::string'));
+    });
+
+    test('exception handler catches std::exception and reports error', () {
+      final out = CppBridgeGenerator.generate(_cppSpec());
+      expect(out, contains('catch (const std::exception& e)'));
+      expect(out, contains('nitro_report_error'));
+    });
+
+    test('lib name with dashes uses underscores in function names', () {
+      final spec = BridgeSpec(
+        dartClassName: 'MyMod',
+        lib: 'my-mod',
+        namespace: 'my_mod',
+        iosImpl: NativeImpl.cpp,
+        androidImpl: NativeImpl.cpp,
+        sourceUri: 'my_mod.native.dart',
+        functions: [
+          BridgeFunction(
+            dartName: 'ping',
+            cSymbol: 'my_mod_ping',
+            isAsync: false,
+            returnType: BridgeType(name: 'void'),
+            params: [],
+          ),
+        ],
+      );
+      final out = CppBridgeGenerator.generate(spec);
+      expect(out, contains('my_mod_register_impl'));
+      expect(out, contains('my_mod_get_impl'));
+      expect(out, isNot(contains('my-mod')));
+    });
+
+    test('Dart API DL init function generated', () {
+      final out = CppBridgeGenerator.generate(_cppSpec());
+      expect(out, contains('math_init_dart_api_dl'));
+      expect(out, contains('Dart_InitializeApiDL'));
+    });
+
+    test('thread-local error state functions generated', () {
+      final out = CppBridgeGenerator.generate(_cppSpec());
+      expect(out, contains('math_get_error'));
+      expect(out, contains('math_clear_error'));
+      expect(out, contains('thread_local'));
+    });
+
+    test('TypedData parameter passes pointer and length', () {
+      final spec = BridgeSpec(
+        dartClassName: 'Buffers',
+        lib: 'buffers',
+        namespace: 'buffers',
+        iosImpl: NativeImpl.cpp,
+        androidImpl: NativeImpl.cpp,
+        sourceUri: 'buffers.native.dart',
+        functions: [
+          BridgeFunction(
+            dartName: 'process',
+            cSymbol: 'buffers_process',
+            isAsync: false,
+            returnType: BridgeType(name: 'void'),
+            params: [BridgeParam(name: 'data', type: BridgeType(name: 'Uint8List'))],
+          ),
+        ],
+      );
+      final out = CppBridgeGenerator.generate(spec);
+      // C bridge uses non-const pointer (uint8_t*, not const uint8_t*)
+      expect(out, contains('uint8_t* data'));
+      // companion length parameter
+      expect(out, contains('int64_t data_length'));
+      // passed through to virtual method
+      expect(out, contains('g_impl->process(data'));
+    });
+
+    test('multiple streams each get register/release/port', () {
+      final spec = BridgeSpec(
+        dartClassName: 'Multi',
+        lib: 'multi',
+        namespace: 'multi',
+        iosImpl: NativeImpl.cpp,
+        androidImpl: NativeImpl.cpp,
+        sourceUri: 'multi.native.dart',
+        streams: [
+          BridgeStream(
+            dartName: 'data',
+            registerSymbol: 'multi_register_data_stream',
+            releaseSymbol: 'multi_release_data_stream',
+            itemType: BridgeType(name: 'double'),
+            backpressure: Backpressure.dropLatest,
+          ),
+          BridgeStream(
+            dartName: 'events',
+            registerSymbol: 'multi_register_events_stream',
+            releaseSymbol: 'multi_release_events_stream',
+            itemType: BridgeType(name: 'int'),
+            backpressure: Backpressure.dropLatest,
+          ),
+        ],
+      );
+      final out = CppBridgeGenerator.generate(spec);
+      expect(out, contains('g_port_data'));
+      expect(out, contains('g_port_events'));
+      expect(out, contains('multi_register_data_stream'));
+      expect(out, contains('multi_register_events_stream'));
+      expect(out, contains('multi_release_data_stream'));
+      expect(out, contains('multi_release_events_stream'));
+    });
+
+    test('stream emit helper for int type uses kInt64', () {
+      final spec = BridgeSpec(
+        dartClassName: 'Ints',
+        lib: 'ints',
+        namespace: 'ints',
+        iosImpl: NativeImpl.cpp,
+        androidImpl: NativeImpl.cpp,
+        sourceUri: 'ints.native.dart',
+        streams: [
+          BridgeStream(
+            dartName: 'values',
+            registerSymbol: 'ints_register_values_stream',
+            releaseSymbol: 'ints_release_values_stream',
+            itemType: BridgeType(name: 'int'),
+            backpressure: Backpressure.dropLatest,
+          ),
+        ],
+      );
+      final out = CppBridgeGenerator.generate(spec);
+      expect(out, contains('Dart_CObject_kInt64'));
+    });
+
+    test('stream emit helper for bool type uses kBool', () {
+      final spec = BridgeSpec(
+        dartClassName: 'Bools',
+        lib: 'bools',
+        namespace: 'bools',
+        iosImpl: NativeImpl.cpp,
+        androidImpl: NativeImpl.cpp,
+        sourceUri: 'bools.native.dart',
+        streams: [
+          BridgeStream(
+            dartName: 'flags',
+            registerSymbol: 'bools_register_flags_stream',
+            releaseSymbol: 'bools_release_flags_stream',
+            itemType: BridgeType(name: 'bool'),
+            backpressure: Backpressure.dropLatest,
+          ),
+        ],
+      );
+      final out = CppBridgeGenerator.generate(spec);
+      expect(out, contains('Dart_CObject_kBool'));
+    });
+
+    test('non-cpp spec still routes to JNI path', () {
+      final jniOut = CppBridgeGenerator.generate(_simpleSpec());
+      expect(jniOut, contains('JNI_OnLoad'));
+      expect(jniOut, isNot(contains('g_impl')));
+    });
+  });
+
+  // ── CppMockGenerator — edge cases ────────────────────────────────────────────
+
+  group('CppMockGenerator — edge cases', () {
+    test('TypedData params expand in MOCK_METHOD', () {
+      final spec = BridgeSpec(
+        dartClassName: 'Buffers',
+        lib: 'buffers',
+        namespace: 'buffers',
+        iosImpl: NativeImpl.cpp,
+        androidImpl: NativeImpl.cpp,
+        sourceUri: 'buffers.native.dart',
+        functions: [
+          BridgeFunction(
+            dartName: 'process',
+            cSymbol: 'buffers_process',
+            isAsync: false,
+            returnType: BridgeType(name: 'void'),
+            params: [BridgeParam(name: 'data', type: BridgeType(name: 'Uint8List'))],
+          ),
+        ],
+      );
+      final out = CppMockGenerator.generateMockHeader(spec);
+      expect(out, contains('const uint8_t* data'));
+      expect(out, contains('size_t data_length'));
+    });
+
+    test('enum param appears by enum type name in MOCK_METHOD', () {
+      final out = CppMockGenerator.generateMockHeader(_cppEnumSpec());
+      expect(out, contains('MOCK_METHOD(SensorMode, getMode, (), (override))'));
+    });
+
+    test('struct param uses const ref in MOCK_METHOD', () {
+      final spec = BridgeSpec(
+        dartClassName: 'Sensor',
+        lib: 'sensor',
+        namespace: 'sensor',
+        iosImpl: NativeImpl.cpp,
+        androidImpl: NativeImpl.cpp,
+        sourceUri: 'sensor.native.dart',
+        structs: [BridgeStruct(name: 'SensorData', packed: true, fields: [])],
+        functions: [
+          BridgeFunction(
+            dartName: 'update',
+            cSymbol: 'sensor_update',
+            isAsync: false,
+            returnType: BridgeType(name: 'void'),
+            params: [BridgeParam(name: 'data', type: BridgeType(name: 'SensorData'))],
+          ),
+        ],
+      );
+      final out = CppMockGenerator.generateMockHeader(spec);
+      expect(out, contains('const SensorData& data'));
+    });
+
+    test('spec with only properties generates getter/setter mocks', () {
+      final spec = BridgeSpec(
+        dartClassName: 'Config',
+        lib: 'config',
+        namespace: 'config',
+        iosImpl: NativeImpl.cpp,
+        androidImpl: NativeImpl.cpp,
+        sourceUri: 'config.native.dart',
+        properties: [
+          BridgeProperty(
+            dartName: 'volume',
+            type: BridgeType(name: 'double'),
+            getSymbol: 'config_get_volume',
+            setSymbol: 'config_set_volume',
+            hasGetter: true,
+            hasSetter: true,
+          ),
+        ],
+      );
+      final out = CppMockGenerator.generateMockHeader(spec);
+      expect(out, contains('MOCK_METHOD(double, get_volume, (), (const, override))'));
+      expect(out, contains('MOCK_METHOD(void, set_volume, (double), (override))'));
+    });
+
+    test('test starter includes example for first method', () {
+      final out = CppMockGenerator.generateTestStarter(_cppSpec());
+      // The commented example section should reference the first method
+      expect(out, contains('// TEST(MathTest, Add)'));
+      expect(out, contains('EXPECT_CALL(mock, add('));
+    });
+
+    test('test starter has no example section when no methods', () {
+      final spec = BridgeSpec(
+        dartClassName: 'PropsOnly',
+        lib: 'props',
+        namespace: 'props',
+        iosImpl: NativeImpl.cpp,
+        androidImpl: NativeImpl.cpp,
+        sourceUri: 'props.native.dart',
+        properties: [
+          BridgeProperty(
+            dartName: 'value',
+            type: BridgeType(name: 'int'),
+            getSymbol: 'props_get_value',
+            hasGetter: true,
+            hasSetter: false,
+          ),
+        ],
+      );
+      final out = CppMockGenerator.generateTestStarter(spec);
+      expect(out, contains('SmokeTest'));
+      // No example block — no // Example: header
+      expect(out, isNot(contains('// Example:')));
+    });
+
+    test('mock header guard is UPPERCASE_LIB_MOCK_G_H', () {
+      final out = CppMockGenerator.generateMockHeader(_cppSpec());
+      expect(out, contains('#ifndef MATH_MOCK_G_H'));
+      expect(out, contains('#define MATH_MOCK_G_H'));
+      expect(out, contains('#endif // MATH_MOCK_G_H'));
+    });
+
+    test('mock header includes gmock/gmock.h', () {
+      final out = CppMockGenerator.generateMockHeader(_cppSpec());
+      expect(out, contains('#include <gmock/gmock.h>'));
+    });
+
+    test('test starter build/run instructions present', () {
+      final out = CppMockGenerator.generateTestStarter(_cppSpec());
+      expect(out, contains('cmake --build'));
+      expect(out, contains('math_test'));
+    });
+
+    test('getter-only property generates only const mock getter', () {
+      final spec = BridgeSpec(
+        dartClassName: 'ReadOnly',
+        lib: 'read_only',
+        namespace: 'read_only',
+        iosImpl: NativeImpl.cpp,
+        androidImpl: NativeImpl.cpp,
+        sourceUri: 'read_only.native.dart',
+        properties: [
+          BridgeProperty(
+            dartName: 'id',
+            type: BridgeType(name: 'int'),
+            getSymbol: 'read_only_get_id',
+            hasGetter: true,
+            hasSetter: false,
+          ),
+        ],
+      );
+      final out = CppMockGenerator.generateMockHeader(spec);
+      expect(out, contains('MOCK_METHOD(int64_t, get_id, (), (const, override))'));
+      expect(out, isNot(contains('set_id')));
+    });
+  });
+
+  // ── BridgeSpec.isCppImpl — edge cases ────────────────────────────────────────
+
+  group('BridgeSpec.isCppImpl — edge cases', () {
+    test('true only when BOTH platforms are NativeImpl.cpp', () {
+      expect(
+        BridgeSpec(dartClassName: 'X', lib: 'x', namespace: 'x',
+          iosImpl: NativeImpl.cpp, androidImpl: NativeImpl.cpp,
+          sourceUri: 'x.native.dart').isCppImpl,
+        isTrue,
+      );
+    });
+
+    test('false when only iOS is cpp', () {
+      expect(
+        BridgeSpec(dartClassName: 'X', lib: 'x', namespace: 'x',
+          iosImpl: NativeImpl.cpp, androidImpl: NativeImpl.kotlin,
+          sourceUri: 'x.native.dart').isCppImpl,
+        isFalse,
+      );
+    });
+
+    test('false when only Android is cpp', () {
+      expect(
+        BridgeSpec(dartClassName: 'X', lib: 'x', namespace: 'x',
+          iosImpl: NativeImpl.swift, androidImpl: NativeImpl.cpp,
+          sourceUri: 'x.native.dart').isCppImpl,
+        isFalse,
+      );
+    });
+
+    test('false when both are swift/kotlin', () {
+      expect(
+        BridgeSpec(dartClassName: 'X', lib: 'x', namespace: 'x',
+          iosImpl: NativeImpl.swift, androidImpl: NativeImpl.kotlin,
+          sourceUri: 'x.native.dart').isCppImpl,
+        isFalse,
+      );
     });
   });
 }

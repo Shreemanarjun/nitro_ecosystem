@@ -15,6 +15,8 @@ Directory _scaffold({
   bool withDartApiDl = true,
   List<String> mmBridges = const [],
   List<String> cppBridges = const [],
+  List<String> nativeGHeaders = const [],
+  List<({String name, bool isCpp})> specs = const [],
 }) {
   final root = Directory.systemTemp.createTempSync('nitro_doctor_test_');
 
@@ -100,6 +102,25 @@ end
 
     for (final name in cppBridges) {
       File(p.join(classesDir.path, name)).writeAsStringSync('// cpp bridge');
+    }
+
+    for (final name in nativeGHeaders) {
+      File(p.join(classesDir.path, name)).writeAsStringSync('// native g header');
+    }
+  }
+
+  // Write .native.dart specs under lib/src/
+  if (specs.isNotEmpty) {
+    final libDir = Directory(p.join(root.path, 'lib', 'src'))..createSync(recursive: true);
+    for (final spec in specs) {
+      final implLine = spec.isCpp
+          ? 'iosImpl: NativeImpl.cpp, androidImpl: NativeImpl.cpp'
+          : 'iosImpl: NativeImpl.swift, androidImpl: NativeImpl.kotlin';
+      File(p.join(libDir.path, '${spec.name}.native.dart')).writeAsStringSync('''
+import 'package:nitro/nitro.dart';
+@NitroModule(lib: "${spec.name}", $implLine)
+abstract class ${spec.name[0].toUpperCase()}${spec.name.substring(1)} extends HybridObject {}
+''');
     }
   }
 
@@ -293,6 +314,270 @@ void main() {
       final result = _run(tmp);
       expect(result.errorMessage, contains('No pubspec.yaml found'));
       expect(result.sections, isEmpty);
+    });
+  });
+
+  // ── NativeImpl.cpp — Android section ─────────────────────────────────────────
+
+  group('Android — NativeImpl.cpp', () {
+    test('shows info and skips Kotlin checks when all specs are cpp', () {
+      final tmp = _scaffold(
+        specs: [(name: 'math', isCpp: true)],
+      );
+      addTearDown(() => tmp.deleteSync(recursive: true));
+      final result = _run(tmp);
+      final androidSec = result.sections.firstWhere((s) => s.title == 'Android');
+
+      expect(
+        androidSec.checks.any((c) => c.status == DoctorStatus.info && c.label.contains('NativeImpl.cpp')),
+        isTrue,
+        reason: 'should show info that Kotlin JNI bridge is not required',
+      );
+      // kotlin-android / kotlinOptions checks should NOT appear as errors for all-cpp plugins
+      expect(
+        androidSec.checks.any((c) => c.status == DoctorStatus.error && c.label.contains('kotlin-android')),
+        isFalse,
+      );
+    });
+
+    test('shows JniBridge.register info (not error) when all specs are cpp', () {
+      final tmp = _scaffold(
+        specs: [(name: 'math', isCpp: true)],
+      );
+      addTearDown(() => tmp.deleteSync(recursive: true));
+      final result = _run(tmp);
+      final androidSec = result.sections.firstWhere((s) => s.title == 'Android');
+
+      // Must not error on missing JniBridge.register
+      expect(
+        androidSec.checks.any((c) => c.status == DoctorStatus.error && c.label.contains('JniBridge')),
+        isFalse,
+      );
+    });
+
+    test('still checks Kotlin for non-cpp module in mixed project', () {
+      final tmp = _scaffold(
+        mmBridges: ['utils.bridge.g.mm'],
+        specs: [
+          (name: 'math', isCpp: true),
+          (name: 'utils', isCpp: false),
+        ],
+      );
+      addTearDown(() => tmp.deleteSync(recursive: true));
+      final result = _run(tmp);
+      final androidSec = result.sections.firstWhere((s) => s.title == 'Android');
+
+      // kotlin-android should be checked (and pass since scaffold has it)
+      expect(
+        androidSec.checks.any((c) => c.status == DoctorStatus.ok && c.label.contains('kotlin-android')),
+        isTrue,
+      );
+    });
+  });
+
+  // ── NativeImpl.cpp — iOS section ─────────────────────────────────────────────
+
+  group('iOS — NativeImpl.cpp', () {
+    test('shows info when all specs are cpp (no Swift bridge required)', () {
+      final tmp = _scaffold(
+        specs: [(name: 'math', isCpp: true)],
+        nativeGHeaders: ['math.native.g.h'],
+      );
+      addTearDown(() => tmp.deleteSync(recursive: true));
+      final result = _run(tmp);
+      final iosSec = result.sections.firstWhere((s) => s.title == 'iOS');
+
+      expect(
+        iosSec.checks.any((c) => c.status == DoctorStatus.info && c.label.contains('NativeImpl.cpp')),
+        isTrue,
+      );
+    });
+
+    test('ok when .native.g.h headers are synced to ios/Classes/', () {
+      final tmp = _scaffold(
+        specs: [(name: 'math', isCpp: true)],
+        nativeGHeaders: ['math.native.g.h'],
+      );
+      addTearDown(() => tmp.deleteSync(recursive: true));
+      final result = _run(tmp);
+      final iosSec = result.sections.firstWhere((s) => s.title == 'iOS');
+
+      expect(
+        iosSec.checks.any((c) => c.status == DoctorStatus.ok && c.label.contains('.native.g.h')),
+        isTrue,
+      );
+    });
+
+    test('warns when no .native.g.h in ios/Classes/ for cpp spec', () {
+      final tmp = _scaffold(
+        specs: [(name: 'math', isCpp: true)],
+        nativeGHeaders: [],
+      );
+      addTearDown(() => tmp.deleteSync(recursive: true));
+      final result = _run(tmp);
+      final iosSec = result.sections.firstWhere((s) => s.title == 'iOS');
+
+      expect(
+        iosSec.checks.any((c) => c.status == DoctorStatus.warn && c.label.contains('.native.g.h')),
+        isTrue,
+      );
+    });
+
+    test('no .bridge.g.mm warning for all-cpp plugin', () {
+      final tmp = _scaffold(
+        specs: [(name: 'math', isCpp: true)],
+        mmBridges: [],
+      );
+      addTearDown(() => tmp.deleteSync(recursive: true));
+      final result = _run(tmp);
+      final iosSec = result.sections.firstWhere((s) => s.title == 'iOS');
+
+      expect(
+        iosSec.checks.any((c) => c.label.contains('No .bridge.g.mm')),
+        isFalse,
+        reason: 'cpp-only plugins do not need .bridge.g.mm files',
+      );
+    });
+
+    test('swift_version check skipped for all-cpp plugin', () {
+      final tmp = _scaffold(
+        specs: [(name: 'math', isCpp: true)],
+      );
+      addTearDown(() => tmp.deleteSync(recursive: true));
+      final result = _run(tmp);
+      final iosSec = result.sections.firstWhere((s) => s.title == 'iOS');
+
+      // swift_version warning must not appear for all-cpp
+      expect(
+        iosSec.checks.any((c) => c.label.toLowerCase().contains('swift_version')),
+        isFalse,
+      );
+    });
+
+    test('Registry.register check still runs for non-cpp module in mixed project', () {
+      final tmp = _scaffold(
+        mmBridges: ['utils.bridge.g.mm'],
+        specs: [
+          (name: 'math', isCpp: true),
+          (name: 'utils', isCpp: false),
+        ],
+      );
+      addTearDown(() => tmp.deleteSync(recursive: true));
+      final result = _run(tmp);
+      final iosSec = result.sections.firstWhere((s) => s.title == 'iOS');
+
+      // Registry.register check must appear (passes — scaffold has it)
+      expect(
+        iosSec.checks.any((c) => c.label.contains('Registry.register')),
+        isTrue,
+      );
+    });
+  });
+
+  // ── NativeImpl.cpp — dedicated section ───────────────────────────────────────
+
+  group('NativeImpl.cpp Direct Implementation section', () {
+    test('section appears when any spec is cpp', () {
+      final tmp = _scaffold(specs: [(name: 'math', isCpp: true)]);
+      addTearDown(() => tmp.deleteSync(recursive: true));
+      final result = _run(tmp);
+
+      expect(
+        result.sections.any((s) => s.title.contains('NativeImpl.cpp')),
+        isTrue,
+      );
+    });
+
+    test('section absent when no cpp specs', () {
+      final tmp = _scaffold(specs: [(name: 'math', isCpp: false)]);
+      addTearDown(() => tmp.deleteSync(recursive: true));
+      final result = _run(tmp);
+
+      expect(
+        result.sections.any((s) => s.title.contains('NativeImpl.cpp Direct Implementation')),
+        isFalse,
+      );
+    });
+
+    test('shows info hint when no impl file exists in src/', () {
+      final tmp = _scaffold(specs: [(name: 'math', isCpp: true)]);
+      addTearDown(() => tmp.deleteSync(recursive: true));
+      final result = _run(tmp);
+      final sec = result.sections.firstWhere((s) => s.title.contains('NativeImpl.cpp'));
+
+      expect(
+        sec.checks.any((c) => c.status == DoctorStatus.info && c.label.contains('Hybrid')),
+        isTrue,
+      );
+    });
+
+    test('ok when impl file registers the implementation', () {
+      final tmp = _scaffold(specs: [(name: 'math', isCpp: true)]);
+      addTearDown(() => tmp.deleteSync(recursive: true));
+
+      // Write a user impl file that calls register
+      File(p.join(tmp.path, 'src', 'HybridMath.cpp')).writeAsStringSync('''
+#include "math.native.g.h"
+static HybridMath* s_impl = new HybridMathImpl();
+void setup() { math_register_impl(s_impl); }
+''');
+
+      final result = _run(tmp);
+      final sec = result.sections.firstWhere((s) => s.title.contains('NativeImpl.cpp'));
+
+      expect(
+        sec.checks.any((c) => c.status == DoctorStatus.ok && c.label.contains('math_register_impl')),
+        isTrue,
+      );
+    });
+
+    test('warns when impl file exists but does not call register', () {
+      final tmp = _scaffold(specs: [(name: 'math', isCpp: true)]);
+      addTearDown(() => tmp.deleteSync(recursive: true));
+
+      // Write an impl file without the register call
+      File(p.join(tmp.path, 'src', 'HybridMath.cpp')).writeAsStringSync('''
+#include "math.native.g.h"
+// TODO: register impl
+''');
+
+      final result = _run(tmp);
+      final sec = result.sections.firstWhere((s) => s.title.contains('NativeImpl.cpp'));
+
+      expect(
+        sec.checks.any((c) => c.status == DoctorStatus.warn && c.label.contains('math_register_impl')),
+        isTrue,
+      );
+    });
+
+    test('clangd info shown when .clangd does not include test dir', () {
+      final tmp = _scaffold(specs: [(name: 'math', isCpp: true)]);
+      addTearDown(() => tmp.deleteSync(recursive: true));
+      final result = _run(tmp);
+      final sec = result.sections.firstWhere((s) => s.title.contains('NativeImpl.cpp'));
+
+      expect(
+        sec.checks.any((c) => c.status == DoctorStatus.info && c.label.contains('nitrogen link')),
+        isTrue,
+      );
+    });
+
+    test('clangd ok when .clangd already includes generated/cpp/test', () {
+      final tmp = _scaffold(specs: [(name: 'math', isCpp: true)]);
+      addTearDown(() => tmp.deleteSync(recursive: true));
+
+      File(p.join(tmp.path, '.clangd')).writeAsStringSync('''
+CompileFlags:
+  Add: [-I\${PWD}/lib/src/generated/cpp/test]
+''');
+
+      final result = _run(tmp);
+      final sec = result.sections.firstWhere((s) => s.title.contains('NativeImpl.cpp'));
+
+      expect(
+        sec.checks.any((c) => c.status == DoctorStatus.ok && c.label.contains('generated/cpp/test')),
+        isTrue,
+      );
     });
   });
 }

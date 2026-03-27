@@ -8,6 +8,9 @@ class BridgeSpec {
   final NativeImpl androidImpl;
   final String sourceUri;
 
+  /// True when both platforms use a direct C++ implementation (no JNI / Swift bridge).
+  bool get isCppImpl => iosImpl == NativeImpl.cpp && androidImpl == NativeImpl.cpp;
+
   final List<BridgeStruct> structs;
   final List<BridgeEnum> enums;
   final List<BridgeFunction> functions;

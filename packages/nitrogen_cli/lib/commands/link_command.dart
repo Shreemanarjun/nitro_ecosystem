@@ -54,21 +54,37 @@ String? extractLibNameFromSpec(File specFile) {
   return match?.group(1);
 }
 
-List<Map<String, String>> discoverModules(String pluginName, {String baseDir = '.'}) {
+/// Returns true when the spec file declares both platforms as NativeImpl.cpp —
+/// meaning it uses a direct C++ implementation instead of Kotlin/Swift bridges.
+bool isCppModule(File specFile) {
+  final content = specFile.readAsStringSync();
+  final match = RegExp(r'@NitroModule\s*\(([^)]+)\)').firstMatch(content);
+  if (match == null) return false;
+  final annotation = match.group(1)!;
+  return annotation.contains('NativeImpl.cpp') &&
+      annotation.replaceFirst('NativeImpl.cpp', '').contains('NativeImpl.cpp');
+}
+
+/// Module descriptor. `isCpp` indicates a direct C++ implementation (no JNI/Swift bridge).
+class ModuleInfo {
+  final String lib;
+  final String module;
+  final bool isCpp;
+  const ModuleInfo({required this.lib, required this.module, required this.isCpp});
+  Map<String, String> toMap() => {'lib': lib, 'module': module};
+}
+
+List<ModuleInfo> discoverModuleInfos(String pluginName, {String baseDir = '.'}) {
   final libDir = Directory(p.join(baseDir, 'lib'));
   if (!libDir.existsSync()) {
-    return [
-      {'lib': pluginName, 'module': pluginName}
-    ];
+    return [ModuleInfo(lib: pluginName, module: pluginName, isCpp: false)];
   }
   final specs = libDir.listSync(recursive: true).whereType<File>().where((f) => f.path.endsWith('.native.dart')).toList();
   if (specs.isEmpty) {
-    return [
-      {'lib': pluginName, 'module': pluginName}
-    ];
+    return [ModuleInfo(lib: pluginName, module: pluginName, isCpp: false)];
   }
 
-  final modules = <Map<String, String>>[];
+  final modules = <ModuleInfo>[];
   for (final spec in specs) {
     final content = spec.readAsStringSync();
     final stem = p.basename(spec.path).replaceAll(RegExp(r'\.native\.dart$'), '');
@@ -76,11 +92,16 @@ List<Map<String, String>> discoverModules(String pluginName, {String baseDir = '
     final moduleMatch = RegExp(r'abstract class (\w+) extends HybridObject').firstMatch(content);
     final moduleName = moduleMatch?.group(1) ?? stem.split('_').map((w) => w[0].toUpperCase() + w.substring(1)).join('');
 
-    if (!modules.any((m) => m['module'] == moduleName)) {
-      modules.add({'lib': libName, 'module': moduleName});
+    if (!modules.any((m) => m.module == moduleName)) {
+      modules.add(ModuleInfo(lib: libName, module: moduleName, isCpp: isCppModule(spec)));
     }
   }
   return modules;
+}
+
+// Keep legacy signature for external callers
+List<Map<String, String>> discoverModules(String pluginName, {String baseDir = '.'}) {
+  return discoverModuleInfos(pluginName, baseDir: baseDir).map((m) => m.toMap()).toList();
 }
 
 // ── Progress model ──────────────────────────────
@@ -159,8 +180,8 @@ class _LinkViewState extends State<LinkView> {
     LinkStep('Discovering modules'),
     LinkStep('Updating src/CMakeLists.txt'),
     LinkStep('Updating iOS podspec'),
-    LinkStep('Updating Swift Plugin.swift'),
-    LinkStep('Updating Kotlin Plugin.kt'),
+    LinkStep('Updating Swift Plugin.swift (Kotlin/Swift modules)'),
+    LinkStep('Updating Kotlin Plugin.kt (Kotlin/Swift modules)'),
     LinkStep('Updating .clangd'),
   ];
 
@@ -197,43 +218,69 @@ class _LinkViewState extends State<LinkView> {
     final pluginName = component.pluginName;
     try {
       await _setRunning(0);
-      final modules = discoverModules(pluginName, baseDir: Directory.current.path);
-      await _setDone(0, detail: '${modules.length} module(s): ${modules.map((m) => m['module']).join(', ')}');
+      final moduleInfos = discoverModuleInfos(pluginName, baseDir: Directory.current.path);
+      final allCpp = moduleInfos.every((m) => m.isCpp);
+      final hasCpp = moduleInfos.any((m) => m.isCpp);
+      final hasNonCpp = moduleInfos.any((m) => !m.isCpp);
+      final cppLabel = hasCpp ? ' (${moduleInfos.where((m) => m.isCpp).map((m) => m.module).join(', ')} → C++)' : '';
+      await _setDone(0, detail: '${moduleInfos.length} module(s): ${moduleInfos.map((m) => m.module).join(', ')}$cppLabel');
 
       await _setRunning(1);
       final nitroNativePath = resolveNitroNativePath(Directory.current.path);
-      linkCMake(pluginName, modules.map((m) => m['lib']!).toList(), nitroNativePath, baseDir: Directory.current.path);
+      linkCMake(pluginName, moduleInfos.map((m) => m.lib).toList(), nitroNativePath, baseDir: Directory.current.path);
       await _setDone(1);
 
       await _setRunning(2);
       if (Directory(p.join(Directory.current.path, 'ios')).existsSync()) {
-        linkPodspec(pluginName, modules.map((m) => m['lib']!).toList(), baseDir: Directory.current.path);
+        linkPodspec(pluginName, moduleInfos.map((m) => m.lib).toList(), baseDir: Directory.current.path);
         await _setDone(2);
       } else {
         await _setSkipped(2, detail: 'ios/ not present');
       }
 
       await _setRunning(3);
-      if (Directory(p.join(Directory.current.path, 'ios')).existsSync()) {
-        linkSwiftPlugin(pluginName, modules, baseDir: Directory.current.path);
+      if (!hasNonCpp) {
+        await _setSkipped(3, detail: 'all modules use NativeImpl.cpp — no Swift bridge needed');
+      } else if (Directory(p.join(Directory.current.path, 'ios')).existsSync()) {
+        // Only wire non-cpp modules into Swift plugin
+        final nonCppModules = moduleInfos.where((m) => !m.isCpp).map((m) => m.toMap()).toList();
+        linkSwiftPlugin(pluginName, nonCppModules, baseDir: Directory.current.path);
         await _setDone(3);
       } else {
         await _setSkipped(3, detail: 'ios/ not present');
       }
 
       await _setRunning(4);
-      if (Directory(p.join(Directory.current.path, 'android')).existsSync()) {
-        linkKotlinPlugin(pluginName, modules, baseDir: Directory.current.path);
+      if (!hasNonCpp) {
+        await _setSkipped(4, detail: 'all modules use NativeImpl.cpp — no Kotlin JniBridge needed');
+      } else if (Directory(p.join(Directory.current.path, 'android')).existsSync()) {
+        // Only wire non-cpp modules into Kotlin plugin
+        final nonCppModules = moduleInfos.where((m) => !m.isCpp).map((m) => m.toMap()).toList();
+        linkKotlinPlugin(pluginName, nonCppModules, baseDir: Directory.current.path);
         await _setDone(4);
       } else {
         await _setSkipped(4, detail: 'android/ not present');
       }
 
       await _setRunning(5);
-      linkClangd(pluginName, baseDir: Directory.current.path);
+      linkClangd(pluginName, moduleInfos: moduleInfos, baseDir: Directory.current.path);
       await _setDone(5);
 
-      _nextSteps.addAll(['flutter pub get', 'flutter pub run build_runner build --delete-conflicting-outputs', 'nitrogen generate', 'Implement Specs in Kotlin/Swift']);
+      if (allCpp) {
+        _nextSteps.addAll([
+          'nitrogen generate',
+          'Subclass Hybrid<Module> in C++ and call ${pluginName}_register_impl(&impl)',
+          'Build and test with ctest (auto-generated test target)',
+        ]);
+      } else if (hasCpp) {
+        _nextSteps.addAll([
+          'nitrogen generate',
+          'C++ modules: subclass Hybrid<Module>, call ${pluginName}_register_impl(&impl)',
+          'Kotlin/Swift modules: implement Hybrid<Module>Spec / HybridProtocol',
+        ]);
+      } else {
+        _nextSteps.addAll(['flutter pub get', 'flutter pub run build_runner build --delete-conflicting-outputs', 'nitrogen generate', 'Implement Specs in Kotlin/Swift']);
+      }
     } catch (e) {
       setState(() {
         _failed = true;
@@ -580,9 +627,19 @@ void linkKotlinPlugin(String pluginName, List<Map<String, String>> modules, {Str
   if (modified) pluginFile.writeAsStringSync(content);
 }
 
-void linkClangd(String pluginName, {String baseDir = '.'}) {
-  File(p.join(baseDir, '.clangd'))
-      .writeAsStringSync('CompileFlags:\n  Add:\n    - -I\${PWD}/src\n    - -I\${PWD}/lib/src/generated/cpp\n    - -I\${PWD}/../packages/nitro/src/native\n');
+void linkClangd(String pluginName, {List<ModuleInfo>? moduleInfos, String baseDir = '.'}) {
+  final sb = StringBuffer()
+    ..writeln('CompileFlags:')
+    ..writeln('  Add:')
+    ..writeln('    - -I\${PWD}/src')
+    ..writeln('    - -I\${PWD}/lib/src/generated/cpp')
+    ..writeln('    - -I\${PWD}/../packages/nitro/src/native');
+
+  // For C++ modules also expose the test/ directory so IDEs resolve mock headers
+  if (moduleInfos != null && moduleInfos.any((m) => m.isCpp)) {
+    sb.writeln('    - -I\${PWD}/lib/src/generated/cpp/test');
+  }
+  File(p.join(baseDir, '.clangd')).writeAsStringSync(sb.toString());
 }
 
 class LinkCommand extends Command {

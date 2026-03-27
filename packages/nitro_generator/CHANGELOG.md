@@ -1,3 +1,20 @@
+## 0.2.4
+
+- **New: NativeImpl.cpp — Direct C++ Implementation** — When `@NitroModule(iosImpl: NativeImpl.cpp, androidImpl: NativeImpl.cpp)` is used, the generator now produces three additional files:
+  - `*.native.g.h` — abstract `HybridX` C++ class with pure-virtual methods, properties, and stream emit helpers. The user subclasses this and registers their instance via `${lib}_register_impl()`.
+  - `*.mock.g.h` — GoogleMock `MockX : public HybridX` class with `MOCK_METHOD` declarations for every method and property. Enables unit-testing C++ logic without a running Flutter app.
+  - `*.test.g.cpp` — test starter with a smoke test (verifies registration/unregistration) and a commented example for the first method. Ready to build with CMake + GoogleTest.
+- **New: `CppBridgeGenerator` — direct-dispatch path** — For cpp modules, `.bridge.g.cpp` now uses direct virtual dispatch (`g_impl->method()`) instead of JNI/Swift. No `#ifdef __ANDROID__`, no `#elif __APPLE__`. Includes Dart API DL init, thread-local error state, and stream emit helpers that post to Dart via `Dart_PostCObject_DL`.
+- **New: `BridgeSpec.isCppImpl`** — getter returning `true` when `iosImpl == NativeImpl.cpp && androidImpl == NativeImpl.cpp`.
+- **New: `builder.dart` outputs** — Three new output extensions registered: `*.native.g.h`, `test/*.mock.g.h`, `test/*.test.g.cpp`. Non-cpp modules receive a "Not applicable" comment placeholder (satisfying build_runner's static extension requirement).
+- **Improved: Type mapping (C++ direct path)**:
+  - `String` → `std::string` / `const std::string&` in C++ interface; `const char*` at C boundary
+  - TypedData → `const T* ptr, size_t length` in C++ interface; `T*, int64_t length` at C boundary
+  - Enum → C enum type in interface; `int64_t` with `static_cast` at C boundary
+  - Struct → `const T&` param / by-value return in interface; `void*` at C boundary
+  - Record → `NitroCppBuffer` (pointer + size) in interface
+- **Improved: Test Coverage** — 41 new edge-case tests covering: all TypedData pointer mappings, struct/record/enum params and returns, void methods, getter-only properties, multi-stream modules, lib names with dashes, header guard format, `extern "C"` registration API, GoogleMock MOCK_METHOD signatures, test starter example generation, `BridgeSpec.isCppImpl` edge cases.
+
 ## 0.2.3
 
 - **Fix: Array<UInt8> to Data mismatch in Swift** — Updated the Swift generator to correctly bridge `Uint8List` parameters as `Data` when matching native Swift signatures, ensuring type-safe binary data transfer without manual casts.
