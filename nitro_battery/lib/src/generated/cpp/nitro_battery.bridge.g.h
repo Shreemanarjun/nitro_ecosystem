@@ -28,25 +28,25 @@ typedef struct {
 extern "C" {
 #endif
 
-NitroError* nitro_battery_get_error(void);
-void nitro_battery_clear_error(void);
+NITRO_EXPORT NitroError* nitro_battery_get_error(void);
+NITRO_EXPORT void nitro_battery_clear_error(void);
 
 
 
 // Methods
-int64_t nitro_battery_get_battery_level(void);
-int8_t nitro_battery_is_charging(void);
-int64_t nitro_battery_get_charging_state(void);
-void* nitro_battery_get_battery_info(void);
+NITRO_EXPORT int64_t nitro_battery_get_battery_level(void);
+NITRO_EXPORT int8_t nitro_battery_is_charging(void);
+NITRO_EXPORT int64_t nitro_battery_get_charging_state(void);
+NITRO_EXPORT void* nitro_battery_get_battery_info(void);
 
 // Properties
-int64_t nitro_battery_get_low_power_threshold(void);
-void nitro_battery_set_low_power_threshold(int64_t value);
+NITRO_EXPORT int64_t nitro_battery_get_low_power_threshold(void);
+NITRO_EXPORT void nitro_battery_set_low_power_threshold(int64_t value);
 
 // Streams
 // Stream<int> batteryLevelChanges
-void nitro_battery_register_battery_level_changes_stream(int64_t dart_port);
-void nitro_battery_release_battery_level_changes_stream(int64_t dart_port);
+NITRO_EXPORT void nitro_battery_register_battery_level_changes_stream(int64_t dart_port);
+NITRO_EXPORT void nitro_battery_release_battery_level_changes_stream(int64_t dart_port);
 
 #ifdef __cplusplus
 }

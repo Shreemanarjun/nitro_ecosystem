@@ -227,7 +227,8 @@ class _LinkViewState extends State<LinkView> {
 
       await _setRunning(1);
       final nitroNativePath = resolveNitroNativePath(Directory.current.path);
-      linkCMake(pluginName, moduleInfos.map((m) => m.lib).toList(), nitroNativePath, baseDir: Directory.current.path);
+      linkCMake(pluginName, moduleInfos.map((m) => m.lib).toList(), nitroNativePath, baseDir: Directory.current.path, moduleInfos: moduleInfos);
+      linkCppImplStubs(moduleInfos, baseDir: Directory.current.path);
       await _setDone(1);
 
       await _setRunning(2);
@@ -251,13 +252,16 @@ class _LinkViewState extends State<LinkView> {
       }
 
       await _setRunning(4);
-      if (!hasNonCpp) {
-        await _setSkipped(4, detail: 'all modules use NativeImpl.cpp — no Kotlin JniBridge needed');
-      } else if (Directory(p.join(Directory.current.path, 'android')).existsSync()) {
-        // Only wire non-cpp modules into Kotlin plugin
-        final nonCppModules = moduleInfos.where((m) => !m.isCpp).map((m) => m.toMap()).toList();
-        linkKotlinPlugin(pluginName, nonCppModules, baseDir: Directory.current.path);
-        await _setDone(4);
+      if (Directory(p.join(Directory.current.path, 'android')).existsSync()) {
+        if (hasNonCpp) {
+          final nonCppModules = moduleInfos.where((m) => !m.isCpp).map((m) => m.toMap()).toList();
+          linkKotlinPlugin(pluginName, nonCppModules, baseDir: Directory.current.path);
+        }
+        // cpp modules still need System.loadLibrary to trigger __attribute__((constructor))
+        if (hasCpp) {
+          linkKotlinLoadLibraries(moduleInfos.where((m) => m.isCpp).map((m) => m.lib).toList(), baseDir: Directory.current.path);
+        }
+        await _setDone(4, detail: hasNonCpp ? null : 'cpp: loadLibrary only (no JniBridge)');
       } else {
         await _setSkipped(4, detail: 'android/ not present');
       }
@@ -415,7 +419,7 @@ void createSharedHeaders(String nitroNativePath, {String baseDir = '.'}) {
   File(p.join(baseDir, 'src', 'dart_api_dl.c')).writeAsStringSync(dartApiDlForwarderContent(nitroNativePath));
 }
 
-void linkCMake(String pluginName, List<String> moduleLibs, String nitroNativePath, {String baseDir = '.'}) {
+void linkCMake(String pluginName, List<String> moduleLibs, String nitroNativePath, {String baseDir = '.', List<ModuleInfo>? moduleInfos}) {
   createSharedHeaders(nitroNativePath, baseDir: baseDir);
   final cmakeFile = File(p.join(baseDir, 'src', 'CMakeLists.txt'));
   if (!cmakeFile.existsSync()) {
@@ -452,7 +456,8 @@ void linkCMake(String pluginName, List<String> moduleLibs, String nitroNativePat
   }
   for (final lib in moduleLibs) {
     if (lib != pluginName && !content.contains('add_library($lib ')) {
-      content += _cmakeModuleTarget(lib);
+      final isCpp = moduleInfos?.firstWhere((m) => m.lib == lib, orElse: () => ModuleInfo(lib: lib, module: lib, isCpp: false)).isCpp ?? false;
+      content += _cmakeModuleTarget(lib, isCpp: isCpp);
       modified = true;
     }
   }
@@ -490,8 +495,44 @@ void generateCMake(String pluginName, List<String> moduleLibs, String nitroNativ
   File(p.join(baseDir, 'src', 'CMakeLists.txt')).writeAsStringSync(sb.toString());
 }
 
-String _cmakeModuleTarget(String lib) =>
-    '\nadd_library($lib SHARED\n  "\${CMAKE_CURRENT_SOURCE_DIR}/../lib/src/generated/cpp/$lib.bridge.g.cpp"\n  "dart_api_dl.c"\n)\ntarget_include_directories($lib PRIVATE\n  "\${CMAKE_CURRENT_SOURCE_DIR}/../lib/src/generated/cpp"\n  "\${NITRO_NATIVE}"\n)\nset_target_properties($lib PROPERTIES OUTPUT_NAME "$lib")\ntarget_compile_definitions($lib PUBLIC DART_SHARED_LIB)\nif(ANDROID)\n  target_link_libraries($lib PRIVATE android log)\n  target_link_options($lib PRIVATE "-Wl,-z,max-page-size=16384")\nendif()\n';
+String _cmakeModuleTarget(String lib, {bool isCpp = false}) {
+  final implFile = isCpp ? '\n  "Hybrid${_toPascalCase(lib)}.cpp"' : '';
+  return '\nadd_library($lib SHARED\n  "\${CMAKE_CURRENT_SOURCE_DIR}/../lib/src/generated/cpp/$lib.bridge.g.cpp"$implFile\n  "dart_api_dl.c"\n)\ntarget_include_directories($lib PRIVATE\n  "\${CMAKE_CURRENT_SOURCE_DIR}"\n  "\${CMAKE_CURRENT_SOURCE_DIR}/../lib/src/generated/cpp"\n  "\${NITRO_NATIVE}"\n)\nset_target_properties($lib PROPERTIES OUTPUT_NAME "$lib")\ntarget_compile_definitions($lib PUBLIC DART_SHARED_LIB)\nif(ANDROID)\n  target_link_libraries($lib PRIVATE android log)\n  target_link_options($lib PRIVATE "-Wl,-z,max-page-size=16384")\nendif()\n';
+}
+
+String _toPascalCase(String lib) => lib.split(RegExp(r'[_\-]')).map((w) => w.isEmpty ? '' : w[0].toUpperCase() + w.substring(1)).join('');
+
+/// For each NativeImpl.cpp module, creates a starter `src/Hybrid${Module}.cpp`
+/// if one doesn't already exist. The stub includes the generated abstract header
+/// and has `__attribute__((constructor))` auto-registration so the user only
+/// needs to fill in the method bodies.
+void linkCppImplStubs(List<ModuleInfo> moduleInfos, {String baseDir = '.'}) {
+  for (final m in moduleInfos.where((m) => m.isCpp)) {
+    final className = _toPascalCase(m.lib);
+    final stubFile = File(p.join(baseDir, 'src', 'Hybrid$className.cpp'));
+    if (stubFile.existsSync()) continue; // never overwrite user code
+    stubFile.writeAsStringSync(
+      '// Hybrid$className — NativeImpl.cpp implementation.\n'
+      '// Generated by nitrogen link. Fill in the method bodies.\n'
+      '#include "../lib/src/generated/cpp/${m.lib}.native.g.h"\n'
+      '\n'
+      '#include <string>\n'
+      '\n'
+      'class Hybrid${className}Impl final : public Hybrid$className {\n'
+      'public:\n'
+      '    // TODO: implement all pure-virtual methods declared in Hybrid$className\n'
+      '};\n'
+      '\n'
+      'static Hybrid${className}Impl g_impl;\n'
+      '\n'
+      '// Auto-register on shared library load — no manual init call needed.\n'
+      '__attribute__((constructor))\n'
+      'static void ${m.lib}_auto_register() {\n'
+      '    ${m.lib}_register_impl(&g_impl);\n'
+      '}\n',
+    );
+  }
+}
 
 void linkPodspec(String pluginName, List<String> moduleLibs, {String baseDir = '.'}) {
   final podspecFile = File(p.join(baseDir, 'ios', '$pluginName.podspec'));
@@ -598,6 +639,37 @@ void ensureIosPackageSwift(String pluginName, {String baseDir = '.'}) {
   Directory(p.join(baseDir, 'ios', 'Sources', '${className}Cpp')).createSync(recursive: true);
   packageSwift.writeAsStringSync(
       '// swift-tools-version: 5.9\nimport PackageDescription\nlet package = Package(name: "$pluginName", platforms: [.iOS(.v13)], products: [.library(name: "$pluginName", targets: ["$pluginName"])], targets: [.target(name: "${className}Cpp", path: "Sources/${className}Cpp", publicHeadersPath: "include", cxxSettings: [.headerSearchPath("include"), .unsafeFlags(["-std=c++17", "-I../../.symlinks/plugins/nitro/src/native"])]), .target(name: "$pluginName", dependencies: ["${className}Cpp"], path: "Sources/$className")])');
+}
+
+/// Ensures `System.loadLibrary("lib")` is present in the Kotlin plugin's
+/// companion object init block for each cpp module lib.
+/// cpp modules use `__attribute__((constructor))` for auto-registration, so
+/// no JniBridge.register call is needed — just loading the .so is enough.
+void linkKotlinLoadLibraries(List<String> libs, {String baseDir = '.'}) {
+  final kotlinDir = Directory(p.join(baseDir, 'android', 'src', 'main', 'kotlin'));
+  if (!kotlinDir.existsSync()) return;
+  final pluginFiles = kotlinDir.listSync(recursive: true).whereType<File>().where((f) => f.path.endsWith('Plugin.kt')).toList();
+  if (pluginFiles.isEmpty) return;
+  final pluginFile = pluginFiles.first;
+  var content = pluginFile.readAsStringSync();
+  bool modified = false;
+  for (final lib in libs) {
+    if (!content.contains('loadLibrary("$lib")')) {
+      // Insert after the last existing System.loadLibrary call in the init block
+      final match = RegExp(r'System\.loadLibrary\("[^"]+"\)').allMatches(content);
+      if (match.isNotEmpty) {
+        content = content.replaceFirst(match.last.group(0)!, '${match.last.group(0)!}\n            System.loadLibrary("$lib")');
+      } else {
+        // Fallback: insert a new companion object init block
+        content = content.replaceFirst(
+          'class ${p.basenameWithoutExtension(pluginFile.path)}',
+          'class ${p.basenameWithoutExtension(pluginFile.path)} {\n    companion object {\n        init { System.loadLibrary("$lib") }\n    }\n}\nclass __placeholder__',
+        );
+      }
+      modified = true;
+    }
+  }
+  if (modified) pluginFile.writeAsStringSync(content);
 }
 
 void linkKotlinPlugin(String pluginName, List<Map<String, String>> modules, {String baseDir = '.'}) {

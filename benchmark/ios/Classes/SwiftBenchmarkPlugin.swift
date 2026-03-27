@@ -4,6 +4,7 @@ import UIKit
 public class SwiftBenchmarkPlugin: NSObject, FlutterPlugin {
     public static func register(with registrar: FlutterPluginRegistrar) {
         BenchmarkRegistry.register(BenchmarkImpl())
+        // benchmark_cpp auto-registers via __attribute__((constructor)) in HybridBenchmarkCpp.cpp
 
         let channel = FlutterMethodChannel(name: "dev.shreeman.benchmark/method_channel", binaryMessenger: registrar.messenger())
         registrar.addMethodCallDelegate(SwiftBenchmarkPlugin(), channel: channel)

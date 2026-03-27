@@ -19,6 +19,7 @@ class CppBridgeGenerator {
     final headerName = '$libStem.bridge.g.h';
     final ifaceHeader = '$libStem.native.g.h';
 
+    final recordNames = spec.recordTypes.map((r) => r.name).toSet();
     final enumNames = spec.enums.map((e) => e.name).toSet();
     final structNames = spec.structs.map((st) => st.name).toSet();
 
@@ -50,6 +51,7 @@ class CppBridgeGenerator {
     s.writeln('extern "C" {');
     s.writeln('NitroError* ${libStem}_get_error() { return &g_nitro_error; }');
     s.writeln('void ${libStem}_clear_error() {');
+    s.writeln('    if (!g_nitro_error.hasError) return;');
     s.writeln('    g_nitro_error.hasError = 0;');
     s.writeln('    if (g_nitro_error.name)       { free((void*)g_nitro_error.name);       g_nitro_error.name       = nullptr; }');
     s.writeln('    if (g_nitro_error.message)    { free((void*)g_nitro_error.message);    g_nitro_error.message    = nullptr; }');
@@ -123,13 +125,15 @@ class CppBridgeGenerator {
     for (final func in spec.functions) {
       final isEnumRet = enumNames.contains(func.returnType.name.replaceFirst('?', ''));
       final isStructRet = structNames.contains(func.returnType.name.replaceFirst('?', ''));
+      final isRecordRet = recordNames.contains(func.returnType.name.replaceFirst('?', ''));
       final cRet = isEnumRet ? 'int64_t' : _typeToC(func.returnType.name);
       final dflt = _defaultValue(cRet);
 
       final paramParts = <String>[];
       for (final p in func.params) {
         final isStructParam = structNames.contains(p.type.name.replaceFirst('?', ''));
-        paramParts.add('${isStructParam ? 'void*' : _typeToC(p.type.name)} ${p.name}');
+        final isRecordParam = recordNames.contains(p.type.name.replaceFirst('?', ''));
+        paramParts.add('${(isStructParam || isRecordParam) ? 'void*' : _typeToC(p.type.name)} ${p.name}');
         if (p.type.isTypedData) paramParts.add('int64_t ${p.name}_length');
       }
       final paramsDecl = paramParts.isEmpty ? 'void' : paramParts.join(', ');
@@ -151,6 +155,19 @@ class CppBridgeGenerator {
           callArgs.add('std::string(${p.name})');
         } else if (structNames.contains(base)) {
           callArgs.add('*static_cast<const $base*>(${p.name})');
+        } else if (recordNames.contains(base)) {
+          final opt = p.type.name.endsWith('?');
+          if (opt) {
+            s.writeln('        NitroCppBuffer _buf_${p.name} = { nullptr, 0 };');
+            s.writeln('        if (${p.name} != nullptr) {');
+            s.writeln('            _buf_${p.name}.data = (const uint8_t*)${p.name} + 4;');
+            s.writeln('            _buf_${p.name}.size = (size_t)*(int32_t*)${p.name};');
+            s.writeln('        }');
+            callArgs.add('_buf_${p.name}');
+          } else {
+            s.writeln('        NitroCppBuffer _buf_${p.name} = { (const uint8_t*)${p.name} + 4, (size_t)*(int32_t*)${p.name} };');
+            callArgs.add('_buf_${p.name}');
+          }
         } else if (p.type.isTypedData) {
           callArgs.add(p.name);
           callArgs.add('static_cast<size_t>(${p.name}_length)');
@@ -175,6 +192,9 @@ class CppBridgeGenerator {
         s.writeln('        $stName* _ptr = ($stName*)malloc(sizeof($stName));');
         s.writeln('        *_ptr = _res;');
         s.writeln('        return _ptr;');
+      } else if (isRecordRet) {
+        s.writeln('        NitroCppBuffer _res = g_impl->${func.dartName}($callArgStr);');
+        s.writeln('        return (void*)_res.data;');
       } else {
         s.writeln('        return g_impl->${func.dartName}($callArgStr);');
       }
@@ -209,6 +229,15 @@ class CppBridgeGenerator {
           s.writeln('        return strdup(_res.c_str());');
         } else if (isEnum) {
           s.writeln('        return static_cast<int64_t>(g_impl->get_${prop.dartName}());');
+        } else if (recordNames.contains(prop.type.name.replaceFirst('?', ''))) {
+          s.writeln('        NitroCppBuffer _res = g_impl->get_${prop.dartName}();');
+          s.writeln('        return (void*)_res.data;');
+        } else if (structNames.contains(prop.type.name.replaceFirst('?', ''))) {
+          final stName = prop.type.name.replaceFirst('?', '');
+          s.writeln('        $stName _res = g_impl->get_${prop.dartName}();');
+          s.writeln('        $stName* _ptr = ($stName*)malloc(sizeof($stName));');
+          s.writeln('        *_ptr = _res;');
+          s.writeln('        return _ptr;');
         } else {
           s.writeln('        return g_impl->get_${prop.dartName}();');
         }
@@ -221,7 +250,9 @@ class CppBridgeGenerator {
       }
 
       if (prop.hasSetter) {
-        final paramCType = isEnum ? 'int64_t' : _typeToC(prop.type.name);
+        final isStructParam = structNames.contains(prop.type.name.replaceFirst('?', ''));
+        final isRecordParam = recordNames.contains(prop.type.name.replaceFirst('?', ''));
+        final paramCType = (isEnum || isStructParam || isRecordParam) ? (isEnum ? 'int64_t' : 'void*') : _typeToC(prop.type.name);
         s.writeln('void ${prop.setSymbol}($paramCType value) {');
         s.writeln('    ${libStem}_clear_error();');
         s.writeln('    if (!g_impl) { $notInit; return; }');
@@ -231,6 +262,22 @@ class CppBridgeGenerator {
         } else if (isEnum) {
           final enumName = prop.type.name.replaceFirst('?', '');
           s.writeln('        g_impl->set_${prop.dartName}(static_cast<$enumName>(value));');
+        } else if (isRecordParam) {
+          final opt = prop.type.name.endsWith('?');
+          if (opt) {
+            s.writeln('        NitroCppBuffer _buf = { nullptr, 0 };');
+            s.writeln('        if (value != nullptr) {');
+            s.writeln('            _buf.data = (const uint8_t*)value + 4;');
+            s.writeln('            _buf.size = (size_t)*(int32_t*)value;');
+            s.writeln('        }');
+            s.writeln('        g_impl->set_${prop.dartName}(_buf);');
+          } else {
+            s.writeln('        NitroCppBuffer _buf = { (const uint8_t*)value + 4, (size_t)*(int32_t*)value };');
+            s.writeln('        g_impl->set_${prop.dartName}(_buf);');
+          }
+        } else if (isStructParam) {
+          final stName = prop.type.name.replaceFirst('?', '');
+          s.writeln('        g_impl->set_${prop.dartName}(*static_cast<const $stName*>(value));');
         } else {
           s.writeln('        g_impl->set_${prop.dartName}(value);');
         }

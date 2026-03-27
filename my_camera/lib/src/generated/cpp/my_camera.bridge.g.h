@@ -21,23 +21,23 @@ typedef struct {
 extern "C" {
 #endif
 
-NitroError* my_camera_get_error(void);
-void my_camera_clear_error(void);
+NITRO_EXPORT NitroError* my_camera_get_error(void);
+NITRO_EXPORT void my_camera_clear_error(void);
 
 
 
 // Methods
-double my_camera_add(double a, double b);
-const char* my_camera_get_greeting(const char* name);
-void* my_camera_get_available_devices(void);
+NITRO_EXPORT double my_camera_add(double a, double b);
+NITRO_EXPORT const char* my_camera_get_greeting(const char* name);
+NITRO_EXPORT void* my_camera_get_available_devices(void);
 
 // Streams
 // Stream<CameraFrame> frames
-void my_camera_register_frames_stream(int64_t dart_port);
-void my_camera_release_frames_stream(int64_t dart_port);
+NITRO_EXPORT void my_camera_register_frames_stream(int64_t dart_port);
+NITRO_EXPORT void my_camera_release_frames_stream(int64_t dart_port);
 // Stream<CameraFrame> coloredFrames
-void my_camera_register_colored_frames_stream(int64_t dart_port);
-void my_camera_release_colored_frames_stream(int64_t dart_port);
+NITRO_EXPORT void my_camera_register_colored_frames_stream(int64_t dart_port);
+NITRO_EXPORT void my_camera_release_colored_frames_stream(int64_t dart_port);
 
 #ifdef __cplusplus
 }

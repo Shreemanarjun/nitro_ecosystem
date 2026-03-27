@@ -10,15 +10,15 @@ This package is used by `nitro_generator` to generate high-performance FFI bridg
 
 ### `@NitroModule`
 
-Marks a class as a native module. The `iosImpl` and `androidImpl` parameters select the implementation strategy for each platform:
+Marks a class as a native module. The `ios` and `android` parameters select the implementation strategy for each platform:
 
 ```dart
 // Swift (iOS) + Kotlin (Android) — platform-specific APIs
-@NitroModule(lib: 'camera', iosImpl: NativeImpl.swift, androidImpl: NativeImpl.kotlin)
+@NitroModule(lib: 'camera', ios: NativeImpl.swift, android: NativeImpl.kotlin)
 abstract class Camera extends HybridObject { ... }
 
 // Direct C++ on both platforms — shared logic, ~1µs latency
-@NitroModule(lib: 'math', iosImpl: NativeImpl.cpp, androidImpl: NativeImpl.cpp)
+@NitroModule(lib: 'math', ios: NativeImpl.cpp, android: NativeImpl.cpp)
 abstract class Math extends HybridObject { ... }
 ```
 

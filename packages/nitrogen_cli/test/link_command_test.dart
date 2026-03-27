@@ -231,6 +231,112 @@ abstract class MyModule extends HybridObject {
     });
   });
 
+  // ── linkCppImplStubs ──────────────────────────────────────────────────────────
+
+  group('linkCppImplStubs', () {
+    test('creates stub file for a cpp module when none exists', () {
+      Directory(p.join(tmp.path, 'src')).createSync();
+      linkCppImplStubs([ModuleInfo(lib: 'math', module: 'Math', isCpp: true)], baseDir: tmp.path);
+      final stub = File(p.join(tmp.path, 'src', 'HybridMath.cpp'));
+      expect(stub.existsSync(), isTrue);
+      final content = stub.readAsStringSync();
+      expect(content, contains('HybridMath'));
+      expect(content, contains('math_register_impl'));
+      expect(content, contains('__attribute__((constructor))'));
+      expect(content, contains('#include "../lib/src/generated/cpp/math.native.g.h"'));
+    });
+
+    test('does not overwrite an existing stub file', () {
+      Directory(p.join(tmp.path, 'src')).createSync();
+      final stub = File(p.join(tmp.path, 'src', 'HybridMath.cpp'));
+      stub.writeAsStringSync('// user code');
+      linkCppImplStubs([ModuleInfo(lib: 'math', module: 'Math', isCpp: true)], baseDir: tmp.path);
+      expect(stub.readAsStringSync(), equals('// user code'));
+    });
+
+    test('does not create stub for a non-cpp module', () {
+      Directory(p.join(tmp.path, 'src')).createSync();
+      linkCppImplStubs([ModuleInfo(lib: 'sensor', module: 'Sensor', isCpp: false)], baseDir: tmp.path);
+      expect(File(p.join(tmp.path, 'src', 'HybridSensor.cpp')).existsSync(), isFalse);
+    });
+
+    test('creates stubs for multiple cpp modules', () {
+      Directory(p.join(tmp.path, 'src')).createSync();
+      linkCppImplStubs([
+        ModuleInfo(lib: 'math', module: 'Math', isCpp: true),
+        ModuleInfo(lib: 'crypto', module: 'Crypto', isCpp: true),
+      ], baseDir: tmp.path);
+      expect(File(p.join(tmp.path, 'src', 'HybridMath.cpp')).existsSync(), isTrue);
+      expect(File(p.join(tmp.path, 'src', 'HybridCrypto.cpp')).existsSync(), isTrue);
+    });
+
+    test('lib name with underscores produces correct PascalCase class name', () {
+      Directory(p.join(tmp.path, 'src')).createSync();
+      linkCppImplStubs([ModuleInfo(lib: 'my_math_lib', module: 'MyMathLib', isCpp: true)], baseDir: tmp.path);
+      final stub = File(p.join(tmp.path, 'src', 'HybridMyMathLib.cpp'));
+      expect(stub.existsSync(), isTrue);
+      expect(stub.readAsStringSync(), contains('my_math_lib_register_impl'));
+    });
+  });
+
+  // ── linkKotlinLoadLibraries ───────────────────────────────────────────────────
+
+  group('linkKotlinLoadLibraries', () {
+    File writeKotlinPlugin(Directory tmp, String content) {
+      final dir = Directory(p.join(tmp.path, 'android', 'src', 'main', 'kotlin', 'dev', 'test'))
+        ..createSync(recursive: true);
+      final f = File(p.join(dir.path, 'TestPlugin.kt'));
+      f.writeAsStringSync(content);
+      return f;
+    }
+
+    test('adds System.loadLibrary for a cpp module lib', () {
+      final plugin = writeKotlinPlugin(tmp, '''
+package dev.test
+class TestPlugin {
+    companion object {
+        init { System.loadLibrary("my_plugin") }
+    }
+}
+''');
+      linkKotlinLoadLibraries(['math_cpp'], baseDir: tmp.path);
+      final content = plugin.readAsStringSync();
+      expect(content, contains('System.loadLibrary("math_cpp")'));
+    });
+
+    test('does not add duplicate System.loadLibrary', () {
+      final plugin = writeKotlinPlugin(tmp, '''
+package dev.test
+class TestPlugin {
+    companion object {
+        init {
+            System.loadLibrary("my_plugin")
+            System.loadLibrary("math_cpp")
+        }
+    }
+}
+''');
+      linkKotlinLoadLibraries(['math_cpp'], baseDir: tmp.path);
+      final content = plugin.readAsStringSync();
+      expect('System.loadLibrary("math_cpp")'.allMatches(content).length, equals(1));
+    });
+
+    test('adds multiple cpp libraries', () {
+      final plugin = writeKotlinPlugin(tmp, '''
+package dev.test
+class TestPlugin {
+    companion object {
+        init { System.loadLibrary("my_plugin") }
+    }
+}
+''');
+      linkKotlinLoadLibraries(['lib_a', 'lib_b'], baseDir: tmp.path);
+      final content = plugin.readAsStringSync();
+      expect(content, contains('System.loadLibrary("lib_a")'));
+      expect(content, contains('System.loadLibrary("lib_b")'));
+    });
+  });
+
   group('LinkCommand Content Generation', () {
     test('linkPodspec updates Swift version and Header Search Paths', () {
       final iosDir = Directory(p.join(tmp.path, 'ios'))..createSync();

@@ -4,7 +4,7 @@ A high-performance code generator for **Nitro Modules** (Nitrogen). Converts `.n
 
 ## Features
 
-- **Three implementation paths**: Swift (`@_cdecl`), Kotlin (JNI), or direct C++ virtual dispatch — chosen per-module via `@NitroModule(iosImpl:, androidImpl:)`.
+- **Three implementation paths**: Swift (`@_cdecl`), Kotlin (JNI), or direct C++ virtual dispatch — chosen per-module via `@NitroModule(ios:, android:)`.
 - **NativeImpl.cpp**: generates an abstract C++ interface (`HybridX`), a direct virtual-dispatch bridge (no JNI/Swift), GoogleMock stubs, and a test starter — everything needed to implement and test in pure C++.
 - **Type-safe**: strict Dart-to-native type mapping with validation before generation.
 - **Zero-copy structs**: `@HybridStruct` passes packed C structs directly across the FFI boundary.
@@ -19,11 +19,11 @@ A high-performance code generator for **Nitro Modules** (Nitrogen). Converts `.n
 
 ```dart
 // Swift/Kotlin (platform-specific APIs)
-@NitroModule(lib: 'camera', iosImpl: NativeImpl.swift, androidImpl: NativeImpl.kotlin)
+@NitroModule(lib: 'camera', ios: NativeImpl.swift, android: NativeImpl.kotlin)
 abstract class Camera extends HybridObject { ... }
 
 // Direct C++ (shared logic, max performance)
-@NitroModule(lib: 'math', iosImpl: NativeImpl.cpp, androidImpl: NativeImpl.cpp)
+@NitroModule(lib: 'math', ios: NativeImpl.cpp, android: NativeImpl.cpp)
 abstract class Math extends HybridObject { ... }
 ```
 
@@ -62,7 +62,7 @@ For cpp modules, `.bridge.g.cpp` uses direct virtual dispatch (`g_impl->method()
 
 ```dart
 // spec
-@NitroModule(lib: 'math', iosImpl: NativeImpl.cpp, androidImpl: NativeImpl.cpp)
+@NitroModule(lib: 'math', ios: NativeImpl.cpp, android: NativeImpl.cpp)
 abstract class Math extends HybridObject {
   double add(double a, double b);
   String greet(String name);

@@ -15,7 +15,7 @@ Nitrogen bridges Flutter and native code with **zero overhead** and **full type-
 import 'package:nitro/nitro.dart';
 part 'math.g.dart';
 
-@NitroModule(lib: 'math', iosImpl: NativeImpl.cpp, androidImpl: NativeImpl.cpp)
+@NitroModule(lib: 'math', ios: NativeImpl.cpp, android: NativeImpl.cpp)
 abstract class Math extends HybridObject {
   static final Math instance = _MathImpl();
   double add(double a, double b);
@@ -33,7 +33,7 @@ Run `nitrogen generate` → get Dart FFI, a C++ abstract interface, GoogleMock t
 
 Choose the native layer that fits your use-case — all driven by the same spec:
 
-| `iosImpl` / `androidImpl` | What Nitrogen generates | When to use |
+| `ios` / `android` | What Nitrogen generates | When to use |
 |---|---|---|
 | `NativeImpl.swift` / `NativeImpl.kotlin` | Swift `@_cdecl` bridge + Kotlin JNI bridge | Platform-specific APIs (camera, sensors, BLE) |
 | `NativeImpl.cpp` / `NativeImpl.cpp` | Abstract C++ interface + direct virtual-dispatch bridge | Pure-computation, shared C++ libs, max performance |

@@ -13,7 +13,7 @@ class BenchmarkController {
   // --- Signals (State) ---
   final isRunning = signal(false);
   final status = signal('Ready');
-  final iterationCount = signal(20000);
+  final iterationCount = signal(50000);
   final runsCount = signal(10);
   final currentIteration = signal(0);
   final currentRun = signal(0);
@@ -62,11 +62,30 @@ class BenchmarkController {
     switch (bridge) {
       case BridgeType.nitro:
         return plugin.Benchmark.instance.add(a, b);
+
+      case BridgeType.nitroCpp:
+        // Baseline: sync C++ direct dispatch
+        return plugin.BenchmarkCpp.instance.add(a, b);
+
+      case BridgeType.nitroCppStruct:
+        // Zero-copy struct param + return — measures struct marshalling overhead
+        final pt = plugin.BenchmarkPoint(x: a, y: b);
+        final scaled = plugin.BenchmarkCpp.instance.scalePoint(pt, 1.0);
+        return scaled.x + scaled.y;
+
+      case BridgeType.nitroCppAsync:
+        // Async Future returning a @HybridRecord — measures Future + record overhead
+        final stats = await plugin.BenchmarkCpp.instance.computeStats(1);
+        return stats.meanUs;
+
+      case BridgeType.nitroLeaf:
+        // Absolute best performance: Leaf Call + No Error Check
+        return plugin.BenchmarkCpp.instance.addFast(a, b);
+
       case BridgeType.rawFfi:
-        if (_rawAdd == null) {
-          throw Exception('Raw FFI bridge not initialized');
-        }
+        if (_rawAdd == null) throw Exception('Raw FFI bridge not initialized');
         return _rawAdd!(a, b);
+
       case BridgeType.methodChannel:
         final res = await _channel.invokeMethod<double>('add', {
           'a': a,

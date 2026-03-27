@@ -35,29 +35,29 @@ typedef struct {
 extern "C" {
 #endif
 
-NitroError* complex_get_error(void);
-void complex_clear_error(void);
+NITRO_EXPORT NitroError* complex_get_error(void);
+NITRO_EXPORT void complex_clear_error(void);
 
 
 
 // Methods
-int64_t complex_module_calculate(int64_t seed, double factor, int8_t enabled);
-const char* complex_module_fetch_metadata(const char* url);
-int64_t complex_module_get_status(void);
-void complex_module_update_sensors(void* data);
-void* complex_module_generate_packet(int64_t type);
+NITRO_EXPORT int64_t complex_module_calculate(int64_t seed, double factor, int8_t enabled);
+NITRO_EXPORT const char* complex_module_fetch_metadata(const char* url);
+NITRO_EXPORT int64_t complex_module_get_status(void);
+NITRO_EXPORT void complex_module_update_sensors(void* data);
+NITRO_EXPORT void* complex_module_generate_packet(int64_t type);
 
 // Properties
-double complex_module_get_battery_level(void);
-void complex_module_set_config(const char* value);
+NITRO_EXPORT double complex_module_get_battery_level(void);
+NITRO_EXPORT void complex_module_set_config(const char* value);
 
 // Streams
 // Stream<SensorData> sensorStream
-void complex_module_register_sensor_stream_stream(int64_t dart_port);
-void complex_module_release_sensor_stream_stream(int64_t dart_port);
+NITRO_EXPORT void complex_module_register_sensor_stream_stream(int64_t dart_port);
+NITRO_EXPORT void complex_module_release_sensor_stream_stream(int64_t dart_port);
 // Stream<Packet> dataStream
-void complex_module_register_data_stream_stream(int64_t dart_port);
-void complex_module_release_data_stream_stream(int64_t dart_port);
+NITRO_EXPORT void complex_module_register_data_stream_stream(int64_t dart_port);
+NITRO_EXPORT void complex_module_release_data_stream_stream(int64_t dart_port);
 
 #ifdef __cplusplus
 }

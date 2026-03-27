@@ -47,6 +47,7 @@ dependencies:
     path: ../../packages/nitro
   intl: ^0.20.2
   signals_flutter: ^6.3.0
+  wakelock_plus: ^1.5.1
 
 dev_dependencies:
   flutter_test:

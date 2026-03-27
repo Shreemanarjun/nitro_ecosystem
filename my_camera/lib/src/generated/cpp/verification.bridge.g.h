@@ -18,17 +18,17 @@ typedef struct {
 extern "C" {
 #endif
 
-NitroError* verification_get_error(void);
-void verification_clear_error(void);
+NITRO_EXPORT NitroError* verification_get_error(void);
+NITRO_EXPORT void verification_clear_error(void);
 
 
 
 // Methods
-double verification_module_multiply(double a, double b);
-const char* verification_module_ping(const char* message);
-const char* verification_module_ping_async(const char* message);
-void verification_module_throw_error(const char* message);
-void* verification_module_process_floats(float* inputs, int64_t inputs_length);
+NITRO_EXPORT double verification_module_multiply(double a, double b);
+NITRO_EXPORT const char* verification_module_ping(const char* message);
+NITRO_EXPORT const char* verification_module_ping_async(const char* message);
+NITRO_EXPORT void verification_module_throw_error(const char* message);
+NITRO_EXPORT void* verification_module_process_floats(float* inputs, int64_t inputs_length);
 
 #ifdef __cplusplus
 }

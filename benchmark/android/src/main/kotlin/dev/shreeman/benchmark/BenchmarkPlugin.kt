@@ -6,7 +6,10 @@ import nitro.benchmark_module.BenchmarkJniBridge
 class BenchmarkPlugin : FlutterPlugin {
 
     companion object {
-        init { System.loadLibrary("benchmark") }
+        init {
+            System.loadLibrary("benchmark")
+            System.loadLibrary("benchmark_cpp")
+        }
     }
 
     override fun onAttachedToEngine(binding: FlutterPlugin.FlutterPluginBinding) {

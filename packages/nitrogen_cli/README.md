@@ -153,7 +153,7 @@ For plugins where both platforms use direct C++:
 
 ```dart
 // lib/src/math.native.dart
-@NitroModule(lib: 'math', iosImpl: NativeImpl.cpp, androidImpl: NativeImpl.cpp)
+@NitroModule(lib: 'math', ios: NativeImpl.cpp, android: NativeImpl.cpp)
 abstract class Math extends HybridObject {
   static final Math instance = _MathImpl();
   double add(double a, double b);
@@ -201,7 +201,7 @@ class SensorData {
   const SensorData({required this.temperature, required this.humidity});
 }
 
-@NitroModule(lib: 'sensor', iosImpl: NativeImpl.swift, androidImpl: NativeImpl.kotlin)
+@NitroModule(lib: 'sensor', ios: NativeImpl.swift, android: NativeImpl.kotlin)
 abstract class SensorModule extends HybridObject {
   static final SensorModule instance = _SensorModuleImpl();
 

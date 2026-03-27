@@ -56,46 +56,46 @@ typedef struct {
 extern "C" {
 #endif
 
-NitroError* nitro_camera_get_error(void);
-void nitro_camera_clear_error(void);
+NITRO_EXPORT NitroError* nitro_camera_get_error(void);
+NITRO_EXPORT void nitro_camera_clear_error(void);
 
 
 
 // Methods
-int64_t nitro_camera_request_camera_permission(void);
-int64_t nitro_camera_get_camera_permission_status(void);
-int64_t nitro_camera_request_microphone_permission(void);
-int64_t nitro_camera_get_microphone_permission_status(void);
-const char* nitro_camera_get_available_camera_devices_json(void);
-int64_t nitro_camera_get_device_count(void);
-void* nitro_camera_get_device(int64_t index);
-int64_t nitro_camera_open_camera(const char* deviceId, int64_t width, int64_t height, int64_t fps, int64_t enableAudio);
-void nitro_camera_close_camera(int64_t textureId);
-void nitro_camera_start_preview(int64_t textureId);
-void nitro_camera_stop_preview(int64_t textureId);
-void nitro_camera_set_zoom(int64_t textureId, double zoom);
-void nitro_camera_set_focus_point(int64_t textureId, double x, double y);
-void nitro_camera_set_auto_focus(int64_t textureId, int64_t mode);
-void nitro_camera_set_exposure(int64_t textureId, double value);
-void nitro_camera_set_flash(int64_t textureId, int64_t mode);
-void nitro_camera_set_torch(int64_t textureId, int64_t enabled);
-void nitro_camera_set_white_balance(int64_t textureId, int64_t temperature);
-void nitro_camera_set_hdr(int64_t textureId, int64_t enabled);
-void* nitro_camera_take_photo(int64_t textureId);
-void nitro_camera_start_video_recording(int64_t textureId, const char* outputPath);
-void* nitro_camera_stop_video_recording(int64_t textureId);
-void nitro_camera_pause_recording(int64_t textureId);
-void nitro_camera_resume_recording(int64_t textureId);
-void nitro_camera_cancel_recording(int64_t textureId);
-void nitro_camera_enable_frame_processing(int64_t textureId, int64_t enabled);
-void nitro_camera_set_frame_format(int64_t textureId, int64_t format);
-void nitro_camera_set_filter_shader(int64_t textureId, const char* shaderSource);
-void nitro_camera_update_overlay(int64_t textureId, const char* overlayData);
+NITRO_EXPORT int64_t nitro_camera_request_camera_permission(void);
+NITRO_EXPORT int64_t nitro_camera_get_camera_permission_status(void);
+NITRO_EXPORT int64_t nitro_camera_request_microphone_permission(void);
+NITRO_EXPORT int64_t nitro_camera_get_microphone_permission_status(void);
+NITRO_EXPORT const char* nitro_camera_get_available_camera_devices_json(void);
+NITRO_EXPORT int64_t nitro_camera_get_device_count(void);
+NITRO_EXPORT void* nitro_camera_get_device(int64_t index);
+NITRO_EXPORT int64_t nitro_camera_open_camera(const char* deviceId, int64_t width, int64_t height, int64_t fps, int64_t enableAudio);
+NITRO_EXPORT void nitro_camera_close_camera(int64_t textureId);
+NITRO_EXPORT void nitro_camera_start_preview(int64_t textureId);
+NITRO_EXPORT void nitro_camera_stop_preview(int64_t textureId);
+NITRO_EXPORT void nitro_camera_set_zoom(int64_t textureId, double zoom);
+NITRO_EXPORT void nitro_camera_set_focus_point(int64_t textureId, double x, double y);
+NITRO_EXPORT void nitro_camera_set_auto_focus(int64_t textureId, int64_t mode);
+NITRO_EXPORT void nitro_camera_set_exposure(int64_t textureId, double value);
+NITRO_EXPORT void nitro_camera_set_flash(int64_t textureId, int64_t mode);
+NITRO_EXPORT void nitro_camera_set_torch(int64_t textureId, int64_t enabled);
+NITRO_EXPORT void nitro_camera_set_white_balance(int64_t textureId, int64_t temperature);
+NITRO_EXPORT void nitro_camera_set_hdr(int64_t textureId, int64_t enabled);
+NITRO_EXPORT void* nitro_camera_take_photo(int64_t textureId);
+NITRO_EXPORT void nitro_camera_start_video_recording(int64_t textureId, const char* outputPath);
+NITRO_EXPORT void* nitro_camera_stop_video_recording(int64_t textureId);
+NITRO_EXPORT void nitro_camera_pause_recording(int64_t textureId);
+NITRO_EXPORT void nitro_camera_resume_recording(int64_t textureId);
+NITRO_EXPORT void nitro_camera_cancel_recording(int64_t textureId);
+NITRO_EXPORT void nitro_camera_enable_frame_processing(int64_t textureId, int64_t enabled);
+NITRO_EXPORT void nitro_camera_set_frame_format(int64_t textureId, int64_t format);
+NITRO_EXPORT void nitro_camera_set_filter_shader(int64_t textureId, const char* shaderSource);
+NITRO_EXPORT void nitro_camera_update_overlay(int64_t textureId, const char* overlayData);
 
 // Streams
 // Stream<CameraFrame> frameStream
-void nitro_camera_register_frame_stream_stream(int64_t dart_port);
-void nitro_camera_release_frame_stream_stream(int64_t dart_port);
+NITRO_EXPORT void nitro_camera_register_frame_stream_stream(int64_t dart_port);
+NITRO_EXPORT void nitro_camera_release_frame_stream_stream(int64_t dart_port);
 
 #ifdef __cplusplus
 }

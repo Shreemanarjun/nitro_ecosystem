@@ -1,6 +1,6 @@
 ## 0.2.4
 
-- **New: NativeImpl.cpp Direct C++ Support** — All CLI commands now fully support `@NitroModule(iosImpl: NativeImpl.cpp, androidImpl: NativeImpl.cpp)` modules:
+- **New: NativeImpl.cpp Direct C++ Support** — All CLI commands now fully support `@NitroModule(ios: NativeImpl.cpp, android: NativeImpl.cpp)` modules:
   - `nitrogen generate`: syncs `.native.g.h` headers to `ios/Classes/`; skips "Not applicable" Swift placeholder files; shows a tailored next-steps hint for cpp modules.
   - `nitrogen link`: skips Swift bridge registration and Kotlin `JniBridge.register` steps for all-cpp plugins; adds `generated/cpp/test/` to `.clangd` for GoogleMock IDE support.
   - `nitrogen doctor`: new **NativeImpl.cpp Direct Implementation** section checks whether `${lib}_register_impl()` is wired up in `src/` and whether `.clangd` includes the test directory; Android/iOS sections show `ℹ info` (not errors) for checks irrelevant to cpp modules.
