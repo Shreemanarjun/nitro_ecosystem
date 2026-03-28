@@ -1,5 +1,9 @@
 ## 0.2.4
 
+- **Fixed: iOS build failure for NativeImpl.cpp modules** — Three issues that blocked `NativeImpl.cpp` modules from linking on iOS have been resolved:
+  - `linkPodspec` now creates `ios/Classes/Hybrid<Lib>.cpp` forwarders for C++ module impl files. On Android each module is its own `.so`; on iOS everything is one binary — the impl must be compiled in `ios/Classes/`.
+  - `syncBridgeFiles` now auto-discovers NativeImpl.cpp modules by reading `.native.dart` specs and skips copying their `.bridge.g.swift` to `ios/Classes/`. The C++ bridge calls `g_impl` directly; the `@_cdecl("_call_*")` stubs in the Swift file are never called and their names clash with the non-cpp Swift bridge, causing a duplicate-symbol linker error.
+  - `ensureIosPackageSwift` + new `_syncCppModuleSourcesToSpm` syncs the `.bridge.g.mm` and `Hybrid<Lib>.cpp` forwarders into the SPM `Sources/<Main>Cpp/` target, and copies only the C-compatible `.bridge.g.h` into `include/` (never `.native.g.h`, which uses C++ types that break the CocoaPods umbrella header).
 - **New: NativeImpl.cpp Direct C++ Support** — All CLI commands now fully support `@NitroModule(ios: NativeImpl.cpp, android: NativeImpl.cpp)` modules:
   - `nitrogen generate`: syncs `.native.g.h` headers to `ios/Classes/`; skips "Not applicable" Swift placeholder files; shows a tailored next-steps hint for cpp modules.
   - `nitrogen link`: skips Swift bridge registration and Kotlin `JniBridge.register` steps for all-cpp plugins; adds `generated/cpp/test/` to `.clangd` for GoogleMock IDE support.

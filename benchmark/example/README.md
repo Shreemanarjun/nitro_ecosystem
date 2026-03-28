@@ -12,8 +12,7 @@ graph LR
     A -->|🔄 Zero-Copy 🔄| B
 ```
 
-**✅ Currently Supporting**: Android (Kotlin), iOS (Swift), & **Direct C++**
-**🚀 Performance Gain**: up to **~65x faster** than MethodChannels!
+**🚀 Performance Gain**: up to **~82x faster** than MethodChannels! (iOS)
 
 ---
 
@@ -64,25 +63,38 @@ graph LR
 ---
 
 ## 📊 Unified Performance Dashboard
-*Results captured in production Release mode (Lower is better).*
+Captured in production Release mode on flagship hardware (Lower is better).
 
-| Bridge | 🚗 Sequential (Min - Max) | 🏎️ Simultaneous (Min - Max) | 🏆 Nitro Advantage |
+### 🍎 iOS Performance (iPhone 13 Pro)
+*Results for the latest sub-microsecond optimized build.*
+
+| Bridge | 🚗 Sequential (Avg) | 🏎️ Simultaneous (Avg) | 🏆 Nitro Advantage |
 | :--- | :--- | :--- | :--- |
-| **Nitro (Direct C++)** | **1.891 µs** (1.32 - 2.28) | **1.537 µs** (1.04 - 1.87) | **~60x Faster!** |
-| **Nitro (Leaf Call)** | **TBD (Pending Run)** | **TBD (Pending Run)** | *Sub-1µs target* |
-| **Nitro (Swift/Kotlin)** | **2.287 µs** (1.77 - 2.61) | **1.781 µs** (1.39 - 2.18) | **~50x Faster!** |
-| **Direct FFI** | 1.978 µs (1.65 - 2.58) | 1.489 µs (1.11 - 1.78) | *FFI Baseline* |
-| MethodChannel | 114.576 µs (92.68 - 122.50) | 79.058 µs (70.90 - 85.27) | (Legacy) |
+| **Nitro (Leaf Call)** | **0.558 µs** | **0.558 µs** | **~82x Faster!** |
+| **Nitro (Direct C++)** | **0.726 µs** | **0.511 µs** | **~63x Faster!** |
+| **Nitro (Swift/Kotlin)** | **1.030 µs** | **0.638 µs** | **~44x Faster!** |
+| **Direct FFI** | 0.559 µs | 0.546 µs | *FFI Baseline* |
+| MethodChannel | 45.871 µs | 17.251 µs | (Legacy) |
 
-### ⚡ One-Off Metric
-*Single execution latency (avg of 50 samples)*
-- **Nitro (Direct C++)**: `0.480 µs`
-- **MethodChannel**: `185.24 µs`
+### 🤖 Android Performance (Pixel 6 Pro)
+*Baseline reference for the JRE/JNI layer.*
+
+| Bridge | 🚗 Sequential (Avg) | 🏎️ Simultaneous (Avg) | 🏆 Nitro Advantage |
+| :--- | :--- | :--- | :--- |
+| **Nitro (Direct C++)** | **1.891 µs** | **1.537 µs** | **~60x Faster!** |
+| **Nitro (Swift/Kotlin)** | **2.287 µs** | **1.781 µs** | **~50x Faster!** |
+| **Direct FFI** | 1.978 µs | 1.489 µs | *FFI Baseline* |
+| MethodChannel | 114.576 µs | 79.058 µs | (Legacy) |
+
+### ⚡ One-Off Metrics (iOS)
+- **Nitro (Leaf Call)**: `0.140 µs`
+- **Nitro (Direct C++)**: `0.400 µs`
+- **MethodChannel**: `30.68 µs`
 
 ---
 
 ## 🎯 Conclusion
-Nitro has achieved **absolute performance parity** with raw FFI while maintaining a fully automated, type-safe development workflow. By delivering **1.6µs latencies**, it allows developers to build high-throughput native integrations (like frame-by-frame video processing or real-time sensor fusion) with effectively zero bridge overhead.
+Nitro has achieved **absolute performance parity** with raw FFI on iOS while maintaining a fully automated, type-safe development workflow. By delivering **sub-microsecond latencies (0.5µs)**, it allows developers to build high-throughput native integrations with effectively zero bridge overhead.
 
 ---
 

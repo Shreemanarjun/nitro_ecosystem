@@ -1,5 +1,6 @@
 ## 0.2.4
 
+- **Fixed: `typedef redefinition` when multiple modules share a struct** — `generateCStructs` now wraps each C struct in a `#ifndef NITRO_STRUCT_<NAME>_DEFINED` / `#define` / `#endif` guard. When two bridge headers (e.g. `benchmark.bridge.g.h` and `benchmark_cpp.bridge.g.h`) both declare the same struct (e.g. `BenchmarkPoint`) and are compiled into the same translation unit via the CocoaPods umbrella header, the second definition becomes a no-op instead of a fatal `typedef redefinition` error.
 - **New: NativeImpl.cpp — Direct C++ Implementation** — When `@NitroModule(ios: NativeImpl.cpp, android: NativeImpl.cpp)` is used, the generator now produces three additional files:
   - `*.native.g.h` — abstract `HybridX` C++ class with pure-virtual methods, properties, and stream emit helpers. The user subclasses this and registers their instance via `${lib}_register_impl()`.
   - `*.mock.g.h` — GoogleMock `MockX : public HybridX` class with `MOCK_METHOD` declarations for every method and property. Enables unit-testing C++ logic without a running Flutter app.

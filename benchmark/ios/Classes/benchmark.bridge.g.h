@@ -12,14 +12,14 @@
 extern "C" {
 #endif
 
-NitroError* benchmark_get_error(void);
-void benchmark_clear_error(void);
+NITRO_EXPORT NitroError* benchmark_get_error(void);
+NITRO_EXPORT void benchmark_clear_error(void);
 
 
 
 // Methods
-double benchmark_add(double a, double b);
-const char* benchmark_get_greeting(const char* name);
+NITRO_EXPORT double benchmark_add(double a, double b);
+NITRO_EXPORT const char* benchmark_get_greeting(const char* name);
 
 #ifdef __cplusplus
 }
