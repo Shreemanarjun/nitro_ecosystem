@@ -1259,12 +1259,9 @@ void main() {
   group('DartFfiGenerator (edge cases)', () {
     test('bool return converts via != 0', () {
       final out = DartFfiGenerator.generate(_richSpec());
-      expect(
-        out,
-        contains(
-          "return () { final res = _isReadyPtr(strict ? 1 : 0); NitroRuntime.checkError(_dylib, getErrorName: 'sensor_get_error', clearErrorName: 'sensor_clear_error'); return res; }() != 0;",
-        ),
-      );
+      expect(out, contains('final res = _isReadyPtr(strict ? 1 : 0);'));
+      expect(out, contains('NitroRuntime.checkError(_getErrorPtr, _clearErrorPtr);'));
+      expect(out, contains('return res != 0;'));
     });
 
     test('bool param passes value ? 1 : 0', () {
@@ -1274,12 +1271,9 @@ void main() {
 
     test('int return is passed through directly', () {
       final out = DartFfiGenerator.generate(_richSpec());
-      expect(
-        out,
-        contains(
-          "return () { final res = _countPtr(); NitroRuntime.checkError(_dylib, getErrorName: 'sensor_get_error', clearErrorName: 'sensor_clear_error'); return res; }();",
-        ),
-      );
+      expect(out, contains('final res = _countPtr();'));
+      expect(out, contains('NitroRuntime.checkError(_getErrorPtr, _clearErrorPtr);'));
+      expect(out, contains('return res;'));
     });
 
     test('String return calls toDartStringWithFree', () {
@@ -1318,10 +1312,10 @@ void main() {
       expect(
         out,
         contains(
-          'bool get enabled {\n'
+          '  bool get enabled {\n'
           '    checkDisposed();\n'
           '    final res = _getEnabledPtr();\n'
-          "    NitroRuntime.checkError(_dylib, getErrorName: 'sensor_get_error', clearErrorName: 'sensor_clear_error');\n"
+          '    NitroRuntime.checkError(_getErrorPtr, _clearErrorPtr);\n'
           '    return res != 0;\n'
           '  }',
         ),
@@ -1338,7 +1332,7 @@ void main() {
       expect(
         out,
         contains(
-          "set enabled(bool value) { checkDisposed(); _setEnabledPtr(value ? 1 : 0); NitroRuntime.checkError(_dylib, getErrorName: 'sensor_get_error', clearErrorName: 'sensor_clear_error'); }",
+          'set enabled(bool value) { checkDisposed(); _setEnabledPtr(value ? 1 : 0); NitroRuntime.checkError(_getErrorPtr, _clearErrorPtr); }',
         ),
       );
     });
