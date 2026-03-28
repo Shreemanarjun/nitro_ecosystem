@@ -752,10 +752,17 @@ ios/my_camera.podspec ........ ✅
 
 ## Non-goals for v1
 
-- Windows / Linux / macOS desktop (Android + iOS only)
 - C++ as primary implementation language (Swift + Kotlin are v1 targets)
 - Pigeon-compatible platform channel fallback (pure FFI only)
-- Automatic C ABI versioning
+
+## Promoted to v2 (see `plan_v2_extensions.md`)
+
+The following items were non-goals for v1 and are now planned for v2:
+
+- **Automatic C ABI versioning** — fingerprint-based ABI snapshot (`.abi` JSON), compile-time hash guard macros in generated `.h`/`.cpp`, diff engine in `nitrogen generate`, `--strict-abi` CI flag, `nitrogen doctor --abi` check.
+- **Windows / Linux / macOS desktop support** — new `desktop: NativeImpl.cpp` annotation field, `CppImplStubGenerator` for once-only C++ stub, updated `CMakeGenerator` with platform guards, `DartFfiGenerator` desktop `_loadLib()` branches, `nitrogen link` emitting all 5 `ffiPlugin` sections.
+
+👉 Full design: [`plan_v2_extensions.md`](./plan_v2_extensions.md)
 
 ---
 
