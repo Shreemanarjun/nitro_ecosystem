@@ -1,5 +1,4 @@
 import 'package:nitro_generator/src/generators/swift_generator.dart';
-import 'package:nitro_generator/src/bridge_spec.dart';
 import 'package:test/test.dart';
 import 'test_utils.dart';
 
