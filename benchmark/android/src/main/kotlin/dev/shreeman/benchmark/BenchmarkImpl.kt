@@ -50,7 +50,8 @@ class BenchmarkImpl(private val context: Context) : HybridBenchmarkSpec {
 
     override fun addFast(a: Double, b: Double): Double = a + b
 
-    override suspend fun getGreeting(name: String): String = "Hello, $name!"
+
+    override  fun getGreeting(name: String): String = "Hello, $name!"
 
     override fun scalePoint(point: BenchmarkPoint, factor: Double): BenchmarkPoint {
         return BenchmarkPoint(point.x * factor, point.y * factor)
@@ -60,13 +61,13 @@ class BenchmarkImpl(private val context: Context) : HybridBenchmarkSpec {
         return BenchmarkStats(iterations, 1.5, 1.2, 2.5)
     }
 
-    override fun sendLargeBuffer(buffer: ByteArray): Int {
+    override fun sendLargeBuffer(buffer: ByteArray): Long {
         var sum = 0
         // Access memory to prevent optimization
         for (i in buffer.indices step 4096) {
            sum += buffer[i].toInt()
         }
-        return buffer.size
+        return buffer.size.toLong()
     }
 
     override val dataStream: SharedFlow<BenchmarkPoint> = _dataStream.asSharedFlow()

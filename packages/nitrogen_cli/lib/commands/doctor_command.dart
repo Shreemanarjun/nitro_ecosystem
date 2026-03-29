@@ -542,11 +542,34 @@ class DoctorCommand extends Command {
       } else {
         err(cmakeSec, 'dart_api_dl.c not included', hint: 'Run: nitrogen link');
       }
+
+      // Check for unlinked source files in src/
+      final allSrcFiles = srcDir.listSync().whereType<File>().where((f) => f.path.endsWith('.cpp') || f.path.endsWith('.c')).toList();
+      for (final f in allSrcFiles) {
+        final name = p.basename(f.path);
+        if (name == 'dart_api_dl.c') continue;
+        if (name == '${pluginName}.cpp' || name == '${pluginName}.c') continue; // Handled by primary target checks
+        
+        if (!cmake.contains('"$name"') && !cmake.contains(' $name ') && !cmake.contains('\n  $name')) {
+          warn(cmakeSec, 'Unlinked source: $name', hint: 'File found in src/ but not mentioned in CMakeLists.txt');
+        }
+      }
+
       for (final spec in specs) {
         final stem = p.basename(spec.path).replaceAll(RegExp(r'\.native\.dart$'), '');
         final lib = _extractLibName(spec) ?? stem.replaceAll('-', '_');
         if (cmake.contains('add_library($lib ')) {
           ok(cmakeSec, 'add_library($lib) target present');
+          
+          // Verify implementation file is linked for C++ modules
+          if (isCppModule(spec)) {
+            final moduleMatch = RegExp(r'abstract class (\w+) extends HybridObject').firstMatch(spec.readAsStringSync());
+            final moduleName = moduleMatch?.group(1) ?? _toPascalCase(stem);
+            final implName = 'Hybrid$moduleName.cpp';
+            if (!cmake.contains('"$implName"') && !cmake.contains(' $implName ') && !cmake.contains('\n  $implName')) {
+               err(cmakeSec, '$lib: $implName not linked in target', hint: 'Add "$implName" to add_library($lib ...)');
+            }
+          }
         } else {
           err(cmakeSec, 'add_library($lib) missing', hint: 'Run: nitrogen link');
         }
@@ -801,13 +824,14 @@ class DoctorCommand extends Command {
     }
 
     // Change working directory so that doctor checks (File('ios'), etc) work correctly.
+    final originalCwd = Directory.current;
     Directory.current = projectDir;
 
-    if (projectDir.path != Directory.current.path) {
+    if (projectDir.path != originalCwd.path) {
       stdout.writeln('  \x1B[90m📂 Found project in: ${projectDir.path}\x1B[0m');
     }
 
-    final result = performChecks();
+    final result = performChecks(root: projectDir);
 
     await runApp(
       DoctorView(
@@ -815,21 +839,24 @@ class DoctorCommand extends Command {
         sections: result.sections,
         errors: result.errors,
         warnings: result.warnings,
+        errorMessage: result.errorMessage,
       ),
     );
 
     // Print persistent one-liner after TUI exits
-    if (result.errors == 0 && result.warnings == 0) {
-      stdout.writeln('  \x1B[1;32m✨ ${result.pluginName} — all checks passed\x1B[0m');
-    } else if (result.errors > 0) {
-      stdout.writeln(
-        '  \x1B[1;31m✘  ${result.pluginName} — ${result.errors} error(s)'
-        '${result.warnings > 0 ? ", ${result.warnings}" : ""}\x1B[0m',
-      );
-    } else {
-      stdout.writeln('  \x1B[1;33m⚠  ${result.pluginName} — ${result.warnings} warning(s)\x1B[0m');
+    if (result.errorMessage == null) {
+      if (result.errors == 0 && result.warnings == 0) {
+        stdout.writeln('  \x1B[1;32m✨ ${result.pluginName} — all checks passed\x1B[0m');
+      } else if (result.errors > 0) {
+        stdout.writeln(
+          '  \x1B[1;31m✘  ${result.pluginName} — ${result.errors} error(s)'
+          '${result.warnings > 0 ? ", ${result.warnings} warning(s)" : ""}\x1B[0m',
+        );
+      } else {
+        stdout.writeln('  \x1B[1;33m⚠  ${result.pluginName} — ${result.warnings} warning(s)\x1B[0m');
+      }
+      stdout.writeln('');
     }
-    stdout.writeln('');
 
     exit(result.errors > 0 ? 1 : 0);
   }
@@ -857,13 +884,15 @@ class DoctorCommand extends Command {
 
   String _pluginName(File pubspec) {
     for (final line in pubspec.readAsLinesSync()) {
-      if (line.startsWith('name: ')) {
+      if (line.trim().startsWith('name: ')) {
         return line.replaceFirst('name: ', '').trim();
       }
     }
     return 'unknown';
   }
 }
+
+String _toPascalCase(String lib) => lib.split(RegExp(r'[_\-]')).map((w) => w.isEmpty ? '' : w[0].toUpperCase() + w.substring(1)).join('');
 
 class DoctorViewResult {
   final String pluginName;
@@ -879,3 +908,4 @@ class DoctorViewResult {
     this.errorMessage,
   });
 }
+

@@ -174,7 +174,7 @@ class _MultiBridgeDashboardState extends State<MultiBridgeDashboard>
                             try {
                               for (var i = 0; i < iterations; i++) {
                                 if (!mounted) return;
-                                await _controller.runHighBandwidthTest(1);
+                                await _controller.runHighBandwidthTest(100);
                               }
                               if (mounted) {
                                 _triggerSuccess();
@@ -184,7 +184,7 @@ class _MultiBridgeDashboardState extends State<MultiBridgeDashboard>
                               _isTestingSignal.value = false;
                             }
                           },
-                          tooltip: 'Run 1GB Test',
+                          tooltip: 'Run 100MB Test',
                         ),
                 ),
                 IconButton(

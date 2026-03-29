@@ -29,6 +29,8 @@ endif()
 add_library(benchmark_cpp SHARED
   "${CMAKE_CURRENT_SOURCE_DIR}/../lib/src/generated/cpp/benchmark_cpp.bridge.g.cpp"
   "HybridBenchmarkCpp.cpp"
+  "benchmark.cpp"
+  "benchmark.c"
   "dart_api_dl.c"
 )
 

@@ -106,8 +106,8 @@ class VisualBenchmarkController {
     _accumulatedMicros[type] = (_accumulatedMicros[type] ?? 0) + micros;
   }
 
-  Future<void> runHighBandwidthTest(int gb) async {
-    final byteSize = gb * 1024 * 1024 * 1024;
+  Future<void> runHighBandwidthTest(int mb) async {
+    final byteSize = mb * 1024 * 1024;
     final buffer = Uint8List(byteSize);
 
     for (final type in [
