@@ -81,6 +81,18 @@ class _MultiBridgeDashboardState extends State<MultiBridgeDashboard> with Ticker
               ),
             ],
           ),
+          Watch(
+            (_) => Row(
+              children: [
+                const Text('Checksum', style: TextStyle(fontSize: 10, color: Colors.white54)),
+                Switch(
+                  value: BenchmarkManager.isChecksumEnabled.value,
+                  activeColor: Colors.cyan,
+                  onChanged: (v) => BenchmarkManager.isChecksumEnabled.value = v,
+                ),
+              ],
+            ),
+          ),
           Watch((_) => IconButton(
             icon: _isTestingSignal.value 
               ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.cyan))
@@ -88,7 +100,8 @@ class _MultiBridgeDashboardState extends State<MultiBridgeDashboard> with Ticker
             onPressed: _isTestingSignal.value ? null : () async {
               _isTestingSignal.value = true;
               final iterations = _iterationSignal.value;
-              debugPrint('🚀 [NitroBenchmark] Starting Multi-Sample Throughput Profile (x$iterations)...');
+              final checksum = BenchmarkManager.isChecksumEnabled.value;
+              debugPrint('🚀 [NitroBenchmark] Starting Multi-Sample Throughput Profile (x$iterations, checksum=$checksum)...');
               
               try {
                 for (var i = 0; i < iterations; i++) {
@@ -188,7 +201,8 @@ class _MultiBridgeDashboardState extends State<MultiBridgeDashboard> with Ticker
   }
 
   void _logFinalStats(int iterations) {
-    debugPrint('\n📊 [NitroBenchmark] FINAL THROUGHPUT RESULTS (Averages over $iterations iterations):');
+    final checksum = BenchmarkManager.isChecksumEnabled.value;
+    debugPrint('\n📊 [NitroBenchmark] FINAL THROUGHPUT RESULTS (Averages over $iterations iterations, checksum=$checksum):');
     for (var type in BridgeType.values) {
       final res = BenchmarkManager.throughputResults[type]?.value;
       if (res != null) {

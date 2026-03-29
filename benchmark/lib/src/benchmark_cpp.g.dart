@@ -122,6 +122,16 @@ class _BenchmarkCppImpl extends BenchmarkCpp {
       .lookup<NativeFunction<Int64 Function(Pointer<Uint8>, Int64)>>(
           'benchmark_cpp_send_large_buffer_fast')
       .asFunction<int Function(Pointer<Uint8>, int)>(isLeaf: true);
+  late final int Function(Pointer<Uint8>, int) _sendLargeBufferNoopPtr =
+      _dylib.lookupFunction<
+          Int64 Function(Pointer<Uint8>, Int64),
+          int Function(
+              Pointer<Uint8>, int)>('benchmark_cpp_send_large_buffer_noop');
+  late final int Function(Pointer<Uint8>, int) _sendLargeBufferNoopFastPtr =
+      _dylib
+          .lookup<NativeFunction<Int64 Function(Pointer<Uint8>, Int64)>>(
+              'benchmark_cpp_send_large_buffer_noop_fast')
+          .asFunction<int Function(Pointer<Uint8>, int)>(isLeaf: true);
   late final void Function(int) _registerDataStreamPtr =
       _dylib.lookupFunction<Void Function(Int64), void Function(int)>(
           'benchmark_cpp_register_data_stream_stream');
@@ -216,6 +226,27 @@ class _BenchmarkCppImpl extends BenchmarkCpp {
     return withArena((arena) {
       final res =
           _sendLargeBufferFastPtr(buffer.toPointer(arena), buffer.length);
+      return res;
+    });
+  }
+
+  @override
+  int sendLargeBufferNoop(Uint8List buffer) {
+    checkDisposed();
+    return withArena((arena) {
+      final res =
+          _sendLargeBufferNoopPtr(buffer.toPointer(arena), buffer.length);
+      NitroRuntime.checkError(_getErrorPtr, _clearErrorPtr);
+      return res;
+    });
+  }
+
+  @override
+  int sendLargeBufferNoopFast(Uint8List buffer) {
+    checkDisposed();
+    return withArena((arena) {
+      final res =
+          _sendLargeBufferNoopFastPtr(buffer.toPointer(arena), buffer.length);
       return res;
     });
   }

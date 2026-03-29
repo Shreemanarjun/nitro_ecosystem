@@ -35,6 +35,8 @@ public:
     virtual BenchmarkPoint scalePoint(const BenchmarkPoint& point, double factor) = 0;
     virtual NitroCppBuffer computeStats(int64_t iterations) = 0;
     virtual int64_t sendLargeBufferFast(const uint8_t* buffer, size_t buffer_length) = 0;
+    virtual int64_t sendLargeBufferNoop(const uint8_t* buffer, size_t buffer_length) = 0;
+    virtual int64_t sendLargeBufferNoopFast(const uint8_t* buffer, size_t buffer_length) = 0;
 
     // ── Streams ──────────────────────────────────────────────────────────
     // Call the emit_* helpers below to push items to Dart from any thread.

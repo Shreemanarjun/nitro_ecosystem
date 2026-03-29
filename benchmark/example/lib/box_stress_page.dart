@@ -13,6 +13,7 @@ import 'models/benchmark_bridge.dart';
 
 class BenchmarkManager {
   static final isRunning = signal<bool>(false);
+  static final isChecksumEnabled = signal<bool>(true);
 
   static final tickCounts = {
     for (var type in [
@@ -74,6 +75,7 @@ class BenchmarkManager {
   static DynamicLibrary? _dylib;
   static double Function(double, double)? _rawAdd;
   static int Function(Pointer<Uint8>, int)? _rawSendBuffer;
+  static int Function(Pointer<Uint8>, int)? _rawSendBufferNoop;
   static const _channel = MethodChannel(
     'dev.shreeman.benchmark/method_channel',
   );
@@ -105,6 +107,16 @@ class BenchmarkManager {
           >('send_large_buffer');
     } catch (_) {
       debugPrint('⚠️ [NitroBenchmark] Raw FFI send_large_buffer not found.');
+    }
+
+    try {
+      _rawSendBufferNoop = _dylib!
+          .lookupFunction<
+            Int64 Function(Pointer<Uint8>, Int64),
+            int Function(Pointer<Uint8>, int)
+          >('send_large_buffer_noop');
+    } catch (_) {
+      debugPrint('⚠️ [NitroBenchmark] Raw FFI send_large_buffer_noop not found.');
     }
 
     _fpsTimer?.cancel();
@@ -160,13 +172,18 @@ class BenchmarkManager {
             Benchmark.instance.sendLargeBuffer(buffer);
             break;
           case BridgeType.nitroCpp:
-            BenchmarkCpp.instance.sendLargeBufferFast(buffer);
+            if (isChecksumEnabled.value) {
+              BenchmarkCpp.instance.sendLargeBufferFast(buffer);
+            } else {
+              BenchmarkCpp.instance.sendLargeBufferNoopFast(buffer);
+            }
             break;
           case BridgeType.rawFfi:
-            if (_rawSendBuffer != null) {
+            final func = isChecksumEnabled.value ? _rawSendBuffer : _rawSendBufferNoop;
+            if (func != null) {
               // We use a pre-allocated pointer to avoid measuring allocation cost
               final ptr = malloc<Uint8>(size);
-              _rawSendBuffer!(ptr, size);
+              func(ptr, size);
               malloc.free(ptr);
             } else {
               throw Exception('Not implemented');
@@ -309,6 +326,18 @@ class _BoxStressPageState extends State<BoxStressPage> {
           IconButton(
             icon: const Icon(Icons.analytics, color: Colors.amber),
             onPressed: BenchmarkManager.runOneOffProfiler,
+          ),
+          Watch(
+            (_) => Row(
+              children: [
+                const Text('Checksum', style: TextStyle(fontSize: 10, color: Colors.white54)),
+                Switch(
+                  value: BenchmarkManager.isChecksumEnabled.value,
+                  activeColor: Colors.cyan,
+                  onChanged: (v) => BenchmarkManager.isChecksumEnabled.value = v,
+                ),
+              ],
+            ),
           ),
           Watch(
             (_) => Switch(

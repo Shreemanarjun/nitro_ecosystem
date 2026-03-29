@@ -69,6 +69,8 @@ interface HybridBenchmarkCppSpec {
     fun scalePoint(point: BenchmarkPoint, factor: Double): BenchmarkPoint
     suspend fun computeStats(iterations: Long): BenchmarkStats
     fun sendLargeBufferFast(buffer: ByteArray): Long
+    fun sendLargeBufferNoop(buffer: ByteArray): Long
+    fun sendLargeBufferNoopFast(buffer: ByteArray): Long
     val dataStream: Flow<BenchmarkPoint>
     val boxStream: Flow<BenchmarkBox>
 }
@@ -109,6 +111,14 @@ object BenchmarkCppJniBridge {
     @JvmStatic fun sendLargeBufferFast_call(buffer: ByteArray): Long {
         val impl = implementation ?: throw IllegalStateException("BenchmarkCpp not registered")
         return impl.sendLargeBufferFast(buffer)
+    }
+    @JvmStatic fun sendLargeBufferNoop_call(buffer: ByteArray): Long {
+        val impl = implementation ?: throw IllegalStateException("BenchmarkCpp not registered")
+        return impl.sendLargeBufferNoop(buffer)
+    }
+    @JvmStatic fun sendLargeBufferNoopFast_call(buffer: ByteArray): Long {
+        val impl = implementation ?: throw IllegalStateException("BenchmarkCpp not registered")
+        return impl.sendLargeBufferNoopFast(buffer)
     }
     private val _streamJobs = java.util.concurrent.ConcurrentHashMap<Pair<String, Long>, kotlinx.coroutines.Job>()
 

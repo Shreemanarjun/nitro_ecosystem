@@ -17,4 +17,9 @@ extern "C" {
     }
     return static_cast<int64_t>(sum == 0 ? length : length + 1);
   }
+
+  NITRO_EXPORT int64_t send_large_buffer_noop(const uint8_t* buffer, int64_t length) {
+    // Immediate return for baseline dispatch overhead.
+    return length;
+  }
 }

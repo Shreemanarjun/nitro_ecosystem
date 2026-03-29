@@ -80,6 +80,19 @@ No platform ifdefs. No JNI boilerplate. No Swift interop layer.
 > [!TIP]
 > **Nitro (Leaf Call)** has achieved absolute performance parity with **Raw FFI (~0.5µs)** on iOS, representing an **~82x jump** over Method Channels. On Android, Nitro remains ~60x faster than legacy bridges.
 
+### High-Bandwidth Throughput (iPhone 17 Pro Max, iOS 26.3)
+Test: **1 GB** zero-copy `Uint8List` transfer (incl. 4KB-step memory-access checksum).
+
+| Bridge Type | Time (1GB) | Throughput (MB/s) | Bridge Overhead |
+|---|---|---|---|
+| **Method Channel** | ~526ms | 1,946.2 MB/s | (High Serialization) |
+| **Nitro (Swift/Kotlin)** | ~383ms | 2,668.5 MB/s | (JNI / Swift Bridge) |
+| **Nitro (Direct C++)** | **~118ms** | **8,655.2 MB/s** | **~1.3x Floor** |
+| **Raw FFI (Baseline)** | **~85ms** | **12,041.1 MB/s** | **Hardware Floor** |
+
+> [!NOTE]
+> Nitro's Direct C++ path (via **isLeaf: true** optimization) eliminates the ~90ms Dart-to-C++ dispatch overhead, achieving **8.6 GB/s** in Debug Mode on target hardware.
+
 ---
 
 ---

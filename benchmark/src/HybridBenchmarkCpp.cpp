@@ -128,6 +128,16 @@ public:
         return static_cast<int64_t>(sum == 0 ? buffer_length : buffer_length + 1);
     }
 
+    int64_t sendLargeBufferNoop(const uint8_t* buffer, size_t buffer_length) override {
+        // Return immediately to measure pure dispatch overhead (NO checksum loop).
+        return static_cast<int64_t>(buffer_length);
+    }
+
+    int64_t sendLargeBufferNoopFast(const uint8_t* buffer, size_t buffer_length) override {
+        // Absolute floor: No-op leaf call.
+        return static_cast<int64_t>(buffer_length);
+    }
+
 private:
     std::thread _streamThread;
     std::atomic<bool> _running;

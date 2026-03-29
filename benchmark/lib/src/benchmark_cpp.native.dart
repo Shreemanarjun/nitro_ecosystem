@@ -73,6 +73,12 @@ abstract class BenchmarkCpp extends HybridObject {
   @NitroStream(backpressure: Backpressure.dropLatest)
   Stream<BenchmarkBox> get boxStream;
 
-  /// High-bandwidth test — pushes up to 4GB zero-copy buffers.
+  /// High-bandwidth test — pushes up to 4GB zero-copy buffers (with bus stalling).
   int sendLargeBufferFast(Uint8List buffer);
+
+  /// Baseline FFI test — no memory access (pure dispatch overhead).
+  int sendLargeBufferNoop(Uint8List buffer);
+
+  /// Ultra-fast baseline FFI test (Leaf call).
+  int sendLargeBufferNoopFast(Uint8List buffer);
 }
