@@ -135,6 +135,7 @@ class CppInterfaceGenerator {
     // isRecord covers bare @HybridRecord, List<T>, and Map<K,V> — all bridge
     // as NitroCppBuffer regardless of the name string.
     if (bt.isRecord) return 'NitroCppBuffer';
+    if (bt.isPointer) return 'void*';
     final base = bt.name.replaceFirst('?', '');
     if (base == 'void') return 'void';
     if (base == 'String') return 'std::string';
@@ -153,6 +154,7 @@ class CppInterfaceGenerator {
   ) {
     // isRecord covers bare @HybridRecord, List<T>, and Map<K,V>.
     if (bt.isRecord) return 'NitroCppBuffer';
+    if (bt.isPointer) return 'void*';
     final base = bt.name.replaceFirst('?', '');
     if (base == 'String') return 'const std::string&';
     if (enumNames.contains(base)) return base;
@@ -171,6 +173,7 @@ class CppInterfaceGenerator {
   ) {
     // isRecord covers bare @HybridRecord, List<T>, and Map<K,V>.
     if (bt.isRecord) return 'NitroCppBuffer';
+    if (bt.isPointer) return 'void*';
     final base = bt.name.replaceFirst('?', '');
     if (base == 'String') return 'std::string';
     if (enumNames.contains(base)) return base;
@@ -192,6 +195,10 @@ class CppInterfaceGenerator {
       // isRecord covers bare @HybridRecord, List<T>, and Map<K,V>.
       if (p.type.isRecord) {
         parts.add('NitroCppBuffer ${p.name}');
+        continue;
+      }
+      if (p.type.isPointer) {
+        parts.add('void* ${p.name}');
         continue;
       }
       final base = p.type.name.replaceFirst('?', '');

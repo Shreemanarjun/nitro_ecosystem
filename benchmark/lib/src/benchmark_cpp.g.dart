@@ -132,6 +132,11 @@ class _BenchmarkCppImpl extends BenchmarkCpp {
           .lookup<NativeFunction<Int64 Function(Pointer<Uint8>, Int64)>>(
               'benchmark_cpp_send_large_buffer_noop_fast')
           .asFunction<int Function(Pointer<Uint8>, int)>(isLeaf: true);
+  late final int Function(Pointer<Uint8>, int) _sendLargeBufferUnsafePtr =
+      _dylib.lookupFunction<
+          Int64 Function(Pointer<Uint8>, Int64),
+          int Function(
+              Pointer<Uint8>, int)>('benchmark_cpp_send_large_buffer_unsafe');
   late final void Function(int) _registerDataStreamPtr =
       _dylib.lookupFunction<Void Function(Int64), void Function(int)>(
           'benchmark_cpp_register_data_stream_stream');
@@ -144,11 +149,6 @@ class _BenchmarkCppImpl extends BenchmarkCpp {
   late final void Function(int) _releaseBoxStreamPtr =
       _dylib.lookupFunction<Void Function(Int64), void Function(int)>(
           'benchmark_cpp_release_box_stream_stream');
-  late final int Function(Pointer<Uint8>, int) _sendLargeBufferUnsafePtr =
-      _dylib
-          .lookup<NativeFunction<Int64 Function(Pointer<Uint8>, Int64)>>(
-              'benchmark_cpp_send_large_buffer_noop_fast')
-          .asFunction<int Function(Pointer<Uint8>, int)>(isLeaf: true);
   // ignore: unused_field
   late final Pointer<NitroErrorFfi> Function() _getErrorPtr =
       _dylib.lookupFunction<Pointer<NitroErrorFfi> Function(),
@@ -257,6 +257,14 @@ class _BenchmarkCppImpl extends BenchmarkCpp {
   }
 
   @override
+  int sendLargeBufferUnsafe(Pointer<Uint8> ptr, int length) {
+    checkDisposed();
+    final res = _sendLargeBufferUnsafePtr(ptr, length);
+    NitroRuntime.checkError(_getErrorPtr, _clearErrorPtr);
+    return res;
+  }
+
+  @override
   Stream<BenchmarkPoint> get dataStream {
     checkDisposed();
     return NitroRuntime.openStream<BenchmarkPoint>(
@@ -290,11 +298,5 @@ class _BenchmarkCppImpl extends BenchmarkCpp {
       release: (port) => _releaseBoxStreamPtr(port),
       backpressure: Backpressure.dropLatest,
     );
-  }
-
-  @override
-  int sendLargeBufferUnsafe(Pointer<Uint8> ptr, int length) {
-    checkDisposed();
-    return _sendLargeBufferUnsafePtr(ptr, length);
   }
 }

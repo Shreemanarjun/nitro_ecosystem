@@ -165,6 +165,7 @@ public protocol HybridBenchmarkCppProtocol: AnyObject {
     func sendLargeBufferFast(buffer: Data) -> Int64
     func sendLargeBufferNoop(buffer: Data) -> Int64
     func sendLargeBufferNoopFast(buffer: Data) -> Int64
+    func sendLargeBufferUnsafe(ptr: Any, length: Int64) -> Int64
     var dataStream: AnyPublisher<BenchmarkPoint, Never> { get }
     var boxStream: AnyPublisher<BenchmarkBox, Never> { get }
 }
@@ -243,6 +244,12 @@ public func _call_sendLargeBufferNoopFast(_ buffer: UnsafeMutablePointer<UInt8>?
     let bufferArr = buffer.map { Data(UnsafeBufferPointer(start: $0, count: Int(buffer_length))) } ?? Data()
     guard let impl = BenchmarkCppRegistry.impl else { return 0 }
     return impl.sendLargeBufferNoopFast(buffer: bufferArr)
+}
+
+@_cdecl("_call_sendLargeBufferUnsafe")
+public func _call_sendLargeBufferUnsafe(_ ptr: Any, _ length: Int64) -> Int64 {
+    guard let impl = BenchmarkCppRegistry.impl else { return 0 }
+    return impl.sendLargeBufferUnsafe(ptr: ptr, length: length)
 }
 
 @_cdecl("_register_dataStream_stream")

@@ -190,6 +190,20 @@ int64_t benchmark_cpp_send_large_buffer_noop_fast(uint8_t* buffer, int64_t buffe
     }
 }
 
+int64_t benchmark_cpp_send_large_buffer_unsafe(void* ptr, int64_t length) {
+    benchmark_cpp_clear_error();
+    if (!g_impl) { nitro_report_error("NotInitialized", "No C++ implementation registered. Call benchmark_cpp_register_impl() first.", nullptr, nullptr); return 0; }
+    try {
+        return g_impl->sendLargeBufferUnsafe(ptr, length);
+    } catch (const std::exception& e) {
+        nitro_report_error("CppException", e.what(), nullptr, nullptr);
+        return 0;
+    } catch (...) {
+        nitro_report_error("CppException", "Unknown C++ exception", nullptr, nullptr);
+        return 0;
+    }
+}
+
 void benchmark_cpp_register_data_stream_stream(int64_t dart_port) {
     g_port_dataStream = dart_port;
 }

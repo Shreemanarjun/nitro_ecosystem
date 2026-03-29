@@ -48,6 +48,7 @@ NITRO_EXPORT void* benchmark_cpp_compute_stats(int64_t iterations);
 NITRO_EXPORT int64_t benchmark_cpp_send_large_buffer_fast(uint8_t* buffer, int64_t buffer_length);
 NITRO_EXPORT int64_t benchmark_cpp_send_large_buffer_noop(uint8_t* buffer, int64_t buffer_length);
 NITRO_EXPORT int64_t benchmark_cpp_send_large_buffer_noop_fast(uint8_t* buffer, int64_t buffer_length);
+NITRO_EXPORT int64_t benchmark_cpp_send_large_buffer_unsafe(void* ptr, int64_t length);
 
 // Streams
 // Stream<BenchmarkPoint> dataStream

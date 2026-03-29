@@ -17,6 +17,7 @@ public:
     MOCK_METHOD(int64_t, sendLargeBufferFast, (const uint8_t* buffer, size_t buffer_length), (override));
     MOCK_METHOD(int64_t, sendLargeBufferNoop, (const uint8_t* buffer, size_t buffer_length), (override));
     MOCK_METHOD(int64_t, sendLargeBufferNoopFast, (const uint8_t* buffer, size_t buffer_length), (override));
+    MOCK_METHOD(int64_t, sendLargeBufferUnsafe, (void* ptr, int64_t length), (override));
 };
 
 #endif // BENCHMARK_CPP_MOCK_G_H
