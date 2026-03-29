@@ -548,8 +548,8 @@ class DoctorCommand extends Command {
       for (final f in allSrcFiles) {
         final name = p.basename(f.path);
         if (name == 'dart_api_dl.c') continue;
-        if (name == '${pluginName}.cpp' || name == '${pluginName}.c') continue; // Handled by primary target checks
-        
+        if (name == '$pluginName.cpp' || name == '$pluginName.c') continue; // Handled by primary target checks
+
         if (!cmake.contains('"$name"') && !cmake.contains(' $name ') && !cmake.contains('\n  $name')) {
           warn(cmakeSec, 'Unlinked source: $name', hint: 'File found in src/ but not mentioned in CMakeLists.txt');
         }
@@ -560,7 +560,7 @@ class DoctorCommand extends Command {
         final lib = _extractLibName(spec) ?? stem.replaceAll('-', '_');
         if (cmake.contains('add_library($lib ')) {
           ok(cmakeSec, 'add_library($lib) target present');
-          
+
           // Verify implementation file is linked for C++ modules
           if (isCppModule(spec)) {
             final moduleMatch = RegExp(r'abstract class (\w+) extends HybridObject').firstMatch(spec.readAsStringSync());

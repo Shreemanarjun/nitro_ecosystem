@@ -160,7 +160,7 @@ abstract class Math extends HybridObject {}
       expect(modules, hasLength(1));
       expect(modules.first.lib, equals('my_plugin'));
     });
- 
+
     test('handles filenames with consecutive underscores (toPascalCase safety)', () {
       final libDir = _libDir(tmp);
       _writeSpec(libDir, 'my__module.native.dart', '''
@@ -352,7 +352,7 @@ class TestPlugin {
 
   // Builds the minimum directory/file layout that linkPodspec needs to run
   // without hitting "file not found" early-exits.
-  void _scaffoldPodspec(String pluginName) {
+  void scaffoldPodspec(String pluginName) {
     Directory(p.join(tmp.path, 'ios', 'Classes')).createSync(recursive: true);
     File(p.join(tmp.path, 'ios', '$pluginName.podspec')).writeAsStringSync('''
 Pod::Spec.new do |s|
@@ -366,7 +366,7 @@ end
   }
 
   // Creates the generated bridge files and src impl file for a single C++ module.
-  void _scaffoldCppModule(String lib) {
+  void scaffoldCppModule(String lib) {
     final pascal = lib.split('_').map((w) => w.isEmpty ? '' : '${w[0].toUpperCase()}${w.substring(1)}').join('');
     Directory(p.join(tmp.path, 'src')).createSync(recursive: true);
     File(p.join(tmp.path, 'src', 'Hybrid$pascal.cpp')).writeAsStringSync('// impl');
@@ -379,8 +379,8 @@ end
 
   group('linkPodspec — NativeImpl.cpp impl file wiring', () {
     test('creates ios/Classes/Hybrid<Lib>.cpp forwarder for a NativeImpl.cpp module', () {
-      _scaffoldPodspec('my_plugin');
-      _scaffoldCppModule('my_cpp_mod');
+      scaffoldPodspec('my_plugin');
+      scaffoldCppModule('my_cpp_mod');
 
       linkPodspec(
         'my_plugin',
@@ -396,8 +396,8 @@ end
     });
 
     test('forwarder includes the correct relative path to src/', () {
-      _scaffoldPodspec('my_plugin');
-      _scaffoldCppModule('my_cpp_mod');
+      scaffoldPodspec('my_plugin');
+      scaffoldCppModule('my_cpp_mod');
 
       linkPodspec(
         'my_plugin',
@@ -413,7 +413,7 @@ end
     });
 
     test('does NOT create forwarder when the impl src file does not exist', () {
-      _scaffoldPodspec('my_plugin');
+      scaffoldPodspec('my_plugin');
       // Scaffold generated files but NOT the src/HybridMyCppMod.cpp file.
       Directory(p.join(tmp.path, 'lib', 'src', 'generated', 'cpp')).createSync(recursive: true);
 
@@ -433,8 +433,8 @@ end
     });
 
     test('does NOT create forwarder for a non-cpp (Swift) module', () {
-      _scaffoldPodspec('my_plugin');
-      _scaffoldCppModule('my_swift_mod');
+      scaffoldPodspec('my_plugin');
+      scaffoldCppModule('my_swift_mod');
 
       linkPodspec(
         'my_plugin',
@@ -453,7 +453,7 @@ end
     });
 
     test('null moduleInfos skips C++ impl wiring without crashing', () {
-      _scaffoldPodspec('my_plugin');
+      scaffoldPodspec('my_plugin');
 
       expect(
         () => linkPodspec('my_plugin', ['my_plugin'], baseDir: tmp.path, moduleInfos: null),
@@ -468,8 +468,8 @@ end
     // For _syncCppModuleSourcesToSpm to execute, ios/Sources/<PluginCpp>/ must
     // already exist (the function returns early otherwise).  We create it here
     // to simulate an existing SPM-enabled project.
-    void _scaffoldSpm(String pluginName) {
-      _scaffoldPodspec(pluginName);
+    void scaffoldSpm(String pluginName) {
+      scaffoldPodspec(pluginName);
       final pascal = pluginName
           .split('_')
           .map((w) => w.isEmpty ? '' : '${w[0].toUpperCase()}${w.substring(1)}')
@@ -481,8 +481,8 @@ end
     }
 
     test('creates .bridge.g.mm forwarder in Sources/<PluginCpp>/', () {
-      _scaffoldSpm('my_plugin');
-      _scaffoldCppModule('my_cpp_mod');
+      scaffoldSpm('my_plugin');
+      scaffoldCppModule('my_cpp_mod');
 
       linkPodspec(
         'my_plugin',
@@ -498,8 +498,8 @@ end
     });
 
     test('.bridge.g.mm forwarder includes path to the generated .bridge.g.cpp', () {
-      _scaffoldSpm('my_plugin');
-      _scaffoldCppModule('my_cpp_mod');
+      scaffoldSpm('my_plugin');
+      scaffoldCppModule('my_cpp_mod');
 
       linkPodspec(
         'my_plugin',
@@ -515,8 +515,8 @@ end
     });
 
     test('creates Hybrid<Lib>.cpp forwarder in Sources/<PluginCpp>/', () {
-      _scaffoldSpm('my_plugin');
-      _scaffoldCppModule('my_cpp_mod');
+      scaffoldSpm('my_plugin');
+      scaffoldCppModule('my_cpp_mod');
 
       linkPodspec(
         'my_plugin',
@@ -532,8 +532,8 @@ end
     });
 
     test('copies .bridge.g.h into Sources/<PluginCpp>/include/', () {
-      _scaffoldSpm('my_plugin');
-      _scaffoldCppModule('my_cpp_mod');
+      scaffoldSpm('my_plugin');
+      scaffoldCppModule('my_cpp_mod');
 
       linkPodspec(
         'my_plugin',
@@ -552,8 +552,8 @@ end
     });
 
     test('does NOT copy .native.g.h into Sources/<PluginCpp>/include/', () {
-      _scaffoldSpm('my_plugin');
-      _scaffoldCppModule('my_cpp_mod');
+      scaffoldSpm('my_plugin');
+      scaffoldCppModule('my_cpp_mod');
 
       linkPodspec(
         'my_plugin',
@@ -573,8 +573,8 @@ end
     });
 
     test('no-op when Sources/<PluginCpp>/ does not exist', () {
-      _scaffoldPodspec('my_plugin');
-      _scaffoldCppModule('my_cpp_mod');
+      scaffoldPodspec('my_plugin');
+      scaffoldCppModule('my_cpp_mod');
       // No ios/Sources/MyPluginCpp/ directory.
 
       expect(
@@ -589,8 +589,8 @@ end
     });
 
     test('no-op when moduleInfos contains no C++ modules', () {
-      _scaffoldSpm('my_plugin');
-      _scaffoldCppModule('my_swift_mod');
+      scaffoldSpm('my_plugin');
+      scaffoldCppModule('my_swift_mod');
 
       linkPodspec(
         'my_plugin',
