@@ -1,4 +1,5 @@
 name: benchmark
+resolution: workspace
 description: "A new Flutter FFI plugin project."
 version: 0.0.1
 publish_to: 'none'

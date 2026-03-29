@@ -34,11 +34,14 @@ public:
     virtual std::string getGreeting(const std::string& name) = 0;
     virtual BenchmarkPoint scalePoint(const BenchmarkPoint& point, double factor) = 0;
     virtual NitroCppBuffer computeStats(int64_t iterations) = 0;
+    virtual int64_t sendLargeBufferFast(const uint8_t* buffer, size_t buffer_length) = 0;
 
     // ── Streams ──────────────────────────────────────────────────────────
     // Call the emit_* helpers below to push items to Dart from any thread.
     /// Emit a value on the dataStream stream.
     void emit_dataStream(BenchmarkPoint item);
+    /// Emit a value on the boxStream stream.
+    void emit_boxStream(BenchmarkBox item);
 
 protected:
     HybridBenchmarkCpp() = default;

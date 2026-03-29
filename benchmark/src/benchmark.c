@@ -21,7 +21,3 @@ FFI_PLUGIN_EXPORT int sum_long_running(int a, int b) {
 #endif
   return a + b;
 }
-
-FFI_PLUGIN_EXPORT double add_double(double a, double b) {
-  return a + b;
-}

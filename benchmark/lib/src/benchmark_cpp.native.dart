@@ -1,3 +1,4 @@
+import 'dart:typed_data';
 import 'package:nitro/nitro.dart';
 
 part 'benchmark_cpp.g.dart';
@@ -9,6 +10,19 @@ class BenchmarkPoint {
   final double x;
   final double y;
   const BenchmarkPoint({required this.x, required this.y});
+}
+
+/// Packed zero-copy box — for streaming visual stress tests.
+@HybridStruct(packed: true)
+class BenchmarkBox {
+  final int color; // ARGB
+  final double width;
+  final double height;
+  const BenchmarkBox({
+    required this.color,
+    required this.width,
+    required this.height,
+  });
 }
 
 /// Binary-encoded record — complex payload with string field.
@@ -54,4 +68,11 @@ abstract class BenchmarkCpp extends HybridObject {
   /// Stream of zero-copy structs — measures C++ → Dart emit throughput.
   @NitroStream(backpressure: Backpressure.dropLatest)
   Stream<BenchmarkPoint> get dataStream;
+
+  /// Stream of box structs for visual stress test.
+  @NitroStream(backpressure: Backpressure.dropLatest)
+  Stream<BenchmarkBox> get boxStream;
+
+  /// High-bandwidth test — pushes up to 4GB zero-copy buffers.
+  int sendLargeBufferFast(Uint8List buffer);
 }

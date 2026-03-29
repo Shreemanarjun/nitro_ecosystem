@@ -39,18 +39,32 @@ static void nitro_report_error(const char* name, const char* message, const char
 }
 }
 
+// g_impl is written once during DSO load (see __attribute__((constructor)))
+// and is read-only during concurrent bridge calls — no std::atomic needed.
 static HybridBenchmarkCpp* g_impl = nullptr;
 
 void benchmark_cpp_register_impl(HybridBenchmarkCpp* impl) { g_impl = impl; }
 HybridBenchmarkCpp* benchmark_cpp_get_impl() { return g_impl; }
 
 static int64_t g_port_dataStream = 0;
+static int64_t g_port_boxStream = 0;
 
 void HybridBenchmarkCpp::emit_dataStream(BenchmarkPoint item) {
     int64_t port = g_port_dataStream;
     if (port == 0) return;
     Dart_CObject obj;
     BenchmarkPoint* st_ptr = (BenchmarkPoint*)malloc(sizeof(BenchmarkPoint));
+    *st_ptr = item;
+    obj.type = Dart_CObject_kInt64;
+    obj.value.as_int64 = (intptr_t)st_ptr;
+    Dart_PostCObject_DL(port, &obj);
+}
+
+void HybridBenchmarkCpp::emit_boxStream(BenchmarkBox item) {
+    int64_t port = g_port_boxStream;
+    if (port == 0) return;
+    Dart_CObject obj;
+    BenchmarkBox* st_ptr = (BenchmarkBox*)malloc(sizeof(BenchmarkBox));
     *st_ptr = item;
     obj.type = Dart_CObject_kInt64;
     obj.value.as_int64 = (intptr_t)st_ptr;
@@ -134,11 +148,32 @@ void* benchmark_cpp_compute_stats(int64_t iterations) {
     }
 }
 
+int64_t benchmark_cpp_send_large_buffer(uint8_t* buffer, int64_t buffer_length) {
+    benchmark_cpp_clear_error();
+    if (!g_impl) { nitro_report_error("NotInitialized", "No C++ implementation registered. Call benchmark_cpp_register_impl() first.", nullptr, nullptr); return 0; }
+    try {
+        return g_impl->sendLargeBuffer(buffer, static_cast<size_t>(buffer_length));
+    } catch (const std::exception& e) {
+        nitro_report_error("CppException", e.what(), nullptr, nullptr);
+        return 0;
+    } catch (...) {
+        nitro_report_error("CppException", "Unknown C++ exception", nullptr, nullptr);
+        return 0;
+    }
+}
+
 void benchmark_cpp_register_data_stream_stream(int64_t dart_port) {
     g_port_dataStream = dart_port;
 }
 void benchmark_cpp_release_data_stream_stream(int64_t dart_port) {
     if (g_port_dataStream == dart_port) g_port_dataStream = 0;
+}
+
+void benchmark_cpp_register_box_stream_stream(int64_t dart_port) {
+    g_port_boxStream = dart_port;
+}
+void benchmark_cpp_release_box_stream_stream(int64_t dart_port) {
+    if (g_port_boxStream == dart_port) g_port_boxStream = 0;
 }
 
 } // extern "C"

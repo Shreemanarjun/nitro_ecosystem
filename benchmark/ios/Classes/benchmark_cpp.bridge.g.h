@@ -19,6 +19,17 @@ typedef struct {
 #pragma pack(pop)
 #endif // NITRO_STRUCT_BENCHMARKPOINT_DEFINED
 
+#ifndef NITRO_STRUCT_BENCHMARKBOX_DEFINED
+#define NITRO_STRUCT_BENCHMARKBOX_DEFINED
+#pragma pack(push, 1)
+typedef struct {
+  int64_t color; 
+  double width; 
+  double height; 
+} BenchmarkBox;
+#pragma pack(pop)
+#endif // NITRO_STRUCT_BENCHMARKBOX_DEFINED
+
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -34,11 +45,15 @@ NITRO_EXPORT double benchmark_cpp_add_fast(double a, double b);
 NITRO_EXPORT const char* benchmark_cpp_get_greeting(const char* name);
 NITRO_EXPORT void* benchmark_cpp_scale_point(void* point, double factor);
 NITRO_EXPORT void* benchmark_cpp_compute_stats(int64_t iterations);
+NITRO_EXPORT int64_t benchmark_cpp_send_large_buffer(uint8_t* buffer, int64_t buffer_length);
 
 // Streams
 // Stream<BenchmarkPoint> dataStream
 NITRO_EXPORT void benchmark_cpp_register_data_stream_stream(int64_t dart_port);
 NITRO_EXPORT void benchmark_cpp_release_data_stream_stream(int64_t dart_port);
+// Stream<BenchmarkBox> boxStream
+NITRO_EXPORT void benchmark_cpp_register_box_stream_stream(int64_t dart_port);
+NITRO_EXPORT void benchmark_cpp_release_box_stream_stream(int64_t dart_port);
 
 #ifdef __cplusplus
 }
