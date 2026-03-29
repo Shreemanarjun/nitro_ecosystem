@@ -76,72 +76,53 @@ class _ComplexModuleImpl extends ComplexModule {
   final DynamicLibrary _dylib;
 
   _ComplexModuleImpl() : _dylib = NitroRuntime.loadLib('complex') {
-    final initFunc = _dylib
-        .lookupFunction<
-          IntPtr Function(Pointer<Void>),
-          int Function(Pointer<Void>)
-        >('complex_init_dart_api_dl');
+    final initFunc = _dylib.lookupFunction<IntPtr Function(Pointer<Void>),
+        int Function(Pointer<Void>)>('complex_init_dart_api_dl');
     initFunc(NativeApi.initializeApiDLData);
   }
 
-  late final int Function(int, double, int) _calculatePtr = _dylib
-      .lookupFunction<
-        Int64 Function(Int64, Double, Int8),
-        int Function(int, double, int)
-      >('complex_module_calculate');
-  late final Pointer<Utf8> Function(Pointer<Utf8>) _fetchMetadataPtr = _dylib
-      .lookupFunction<
-        Pointer<Utf8> Function(Pointer<Utf8>),
-        Pointer<Utf8> Function(Pointer<Utf8>)
-      >('complex_module_fetch_metadata');
-  late final int Function() _getStatusPtr = _dylib
-      .lookupFunction<Int64 Function(), int Function()>(
-        'complex_module_get_status',
-      );
-  late final void Function(Pointer<Void>) _updateSensorsPtr = _dylib
-      .lookupFunction<
-        Void Function(Pointer<Void>),
-        void Function(Pointer<Void>)
-      >('complex_module_update_sensors');
-  late final Pointer<Void> Function(int) _generatePacketPtr = _dylib
-      .lookupFunction<
-        Pointer<Void> Function(Int64),
-        Pointer<Void> Function(int)
-      >('complex_module_generate_packet');
-  late final double Function() _getBatteryLevelPtr = _dylib
-      .lookupFunction<Double Function(), double Function()>(
-        'complex_module_get_battery_level',
-      );
-  late final void Function(Pointer<Utf8>) _setConfigPtr = _dylib
-      .lookupFunction<
-        Void Function(Pointer<Utf8>),
-        void Function(Pointer<Utf8>)
-      >('complex_module_set_config');
-  late final void Function(int) _registerSensorStreamPtr = _dylib
-      .lookupFunction<Void Function(Int64), void Function(int)>(
-        'complex_module_register_sensor_stream_stream',
-      );
-  late final void Function(int) _releaseSensorStreamPtr = _dylib
-      .lookupFunction<Void Function(Int64), void Function(int)>(
-        'complex_module_release_sensor_stream_stream',
-      );
-  late final void Function(int) _registerDataStreamPtr = _dylib
-      .lookupFunction<Void Function(Int64), void Function(int)>(
-        'complex_module_register_data_stream_stream',
-      );
-  late final void Function(int) _releaseDataStreamPtr = _dylib
-      .lookupFunction<Void Function(Int64), void Function(int)>(
-        'complex_module_release_data_stream_stream',
-      );
-  late final Pointer<NitroErrorFfi> Function() _getErrorPtr = _dylib
-      .lookupFunction<
-        Pointer<NitroErrorFfi> Function(),
-        Pointer<NitroErrorFfi> Function()
-      >('complex_get_error');
+  late final int Function(int, double, int) _calculatePtr =
+      _dylib.lookupFunction<Int64 Function(Int64, Double, Int8),
+          int Function(int, double, int)>('complex_module_calculate');
+  late final Pointer<Utf8> Function(Pointer<Utf8>) _fetchMetadataPtr =
+      _dylib.lookupFunction<
+          Pointer<Utf8> Function(Pointer<Utf8>),
+          Pointer<Utf8> Function(
+              Pointer<Utf8>)>('complex_module_fetch_metadata');
+  late final int Function() _getStatusPtr =
+      _dylib.lookupFunction<Int64 Function(), int Function()>(
+          'complex_module_get_status');
+  late final void Function(Pointer<Void>) _updateSensorsPtr =
+      _dylib.lookupFunction<Void Function(Pointer<Void>),
+          void Function(Pointer<Void>)>('complex_module_update_sensors');
+  late final Pointer<Void> Function(int) _generatePacketPtr =
+      _dylib.lookupFunction<Pointer<Void> Function(Int64),
+          Pointer<Void> Function(int)>('complex_module_generate_packet');
+  late final double Function() _getBatteryLevelPtr =
+      _dylib.lookupFunction<Double Function(), double Function()>(
+          'complex_module_get_battery_level');
+  late final void Function(Pointer<Utf8>) _setConfigPtr = _dylib.lookupFunction<
+      Void Function(Pointer<Utf8>),
+      void Function(Pointer<Utf8>)>('complex_module_set_config');
+  late final void Function(int) _registerSensorStreamPtr =
+      _dylib.lookupFunction<Void Function(Int64), void Function(int)>(
+          'complex_module_register_sensor_stream_stream');
+  late final void Function(int) _releaseSensorStreamPtr =
+      _dylib.lookupFunction<Void Function(Int64), void Function(int)>(
+          'complex_module_release_sensor_stream_stream');
+  late final void Function(int) _registerDataStreamPtr =
+      _dylib.lookupFunction<Void Function(Int64), void Function(int)>(
+          'complex_module_register_data_stream_stream');
+  late final void Function(int) _releaseDataStreamPtr =
+      _dylib.lookupFunction<Void Function(Int64), void Function(int)>(
+          'complex_module_release_data_stream_stream');
+  late final Pointer<NitroErrorFfi> Function() _getErrorPtr =
+      _dylib.lookupFunction<Pointer<NitroErrorFfi> Function(),
+          Pointer<NitroErrorFfi> Function()>('complex_get_error');
   late final void Function() _clearErrorPtr = _dylib
       .lookupFunction<Void Function(), void Function()>('complex_clear_error');
   late final Pointer<NativeFunction<Pointer<NitroErrorFfi> Function()>>
-  _getErrorNativePtr = _dylib.lookup('complex_get_error');
+      _getErrorNativePtr = _dylib.lookup('complex_get_error');
   late final Pointer<NativeFunction<Void Function()>> _clearErrorNativePtr =
       _dylib.lookup('complex_clear_error');
 
@@ -165,11 +146,8 @@ class _ComplexModuleImpl extends ComplexModule {
     final arena = Arena();
     try {
       final rawPtr = await NitroRuntime.callAsync<Pointer<Utf8>>(
-        _fetchMetadataPtr,
-        [url.toNativeUtf8(allocator: arena)],
-        getError: _getErrorNativePtr,
-        clearError: _clearErrorNativePtr,
-      );
+          _fetchMetadataPtr, [url.toNativeUtf8(allocator: arena)],
+          getError: _getErrorNativePtr, clearError: _clearErrorNativePtr);
       return rawPtr.toDartStringWithFree();
     } finally {
       arena.releaseAll();
@@ -198,11 +176,8 @@ class _ComplexModuleImpl extends ComplexModule {
   Future<Packet> generatePacket(int type) async {
     checkDisposed();
     final rawPtr = await NitroRuntime.callAsync<Pointer<Void>>(
-      _generatePacketPtr,
-      [type],
-      getError: _getErrorNativePtr,
-      clearError: _clearErrorNativePtr,
-    );
+        _generatePacketPtr, [type],
+        getError: _getErrorNativePtr, clearError: _clearErrorNativePtr);
     final structPtr = Pointer<PacketFfi>.fromAddress(rawPtr.address);
     final decodedStruct = structPtr.ref.toDart();
     malloc.free(structPtr);
@@ -231,8 +206,12 @@ class _ComplexModuleImpl extends ComplexModule {
     checkDisposed();
     return NitroRuntime.openStream<SensorData>(
       register: (port) => _registerSensorStreamPtr(port),
-      unpack: (rawPtr) =>
-          Pointer<SensorDataFfi>.fromAddress(rawPtr).ref.toDart(),
+      unpack: (rawPtr) {
+        final ptr = Pointer<SensorDataFfi>.fromAddress(rawPtr);
+        final decoded = ptr.ref.toDart();
+        malloc.free(ptr);
+        return decoded;
+      },
       release: (port) => _releaseSensorStreamPtr(port),
       backpressure: Backpressure.dropLatest,
     );
@@ -243,7 +222,12 @@ class _ComplexModuleImpl extends ComplexModule {
     checkDisposed();
     return NitroRuntime.openStream<Packet>(
       register: (port) => _registerDataStreamPtr(port),
-      unpack: (rawPtr) => Pointer<PacketFfi>.fromAddress(rawPtr).ref.toDart(),
+      unpack: (rawPtr) {
+        final ptr = Pointer<PacketFfi>.fromAddress(rawPtr);
+        final decoded = ptr.ref.toDart();
+        malloc.free(ptr);
+        return decoded;
+      },
       release: (port) => _releaseDataStreamPtr(port),
       backpressure: Backpressure.bufferDrop,
     );

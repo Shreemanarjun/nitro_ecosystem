@@ -135,12 +135,7 @@ class _BenchmarkCppImpl extends BenchmarkCpp {
     checkDisposed();
     return NitroRuntime.openStream<BenchmarkPoint>(
       register: (port) => _registerDataStreamPtr(port),
-      unpack: (rawPtr) {
-        final ptr = Pointer<BenchmarkPointFfi>.fromAddress(rawPtr);
-        final decoded = ptr.ref.toDart();
-        malloc.free(ptr);
-        return decoded;
-      },
+      unpack: (rawPtr) { final ptr = Pointer<BenchmarkPointFfi>.fromAddress(rawPtr); final decoded = ptr.ref.toDart(); malloc.free(ptr); return decoded; },
       release: (port) => _releaseDataStreamPtr(port),
       backpressure: Backpressure.dropLatest,
     );

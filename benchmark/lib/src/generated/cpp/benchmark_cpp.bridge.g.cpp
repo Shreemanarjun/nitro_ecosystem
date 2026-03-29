@@ -39,6 +39,8 @@ static void nitro_report_error(const char* name, const char* message, const char
 }
 }
 
+// g_impl is written once during DSO load (see __attribute__((constructor)))
+// and is read-only during concurrent bridge calls — no std::atomic needed.
 static HybridBenchmarkCpp* g_impl = nullptr;
 
 void benchmark_cpp_register_impl(HybridBenchmarkCpp* impl) { g_impl = impl; }

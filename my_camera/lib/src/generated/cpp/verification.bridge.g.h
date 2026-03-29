@@ -9,10 +9,13 @@
 
 
 // --- Structs ---
+#ifndef NITRO_STRUCT_FLOATBUFFER_DEFINED
+#define NITRO_STRUCT_FLOATBUFFER_DEFINED
 typedef struct {
   float* data; /* zero-copy */
   int64_t length; 
 } FloatBuffer;
+#endif // NITRO_STRUCT_FLOATBUFFER_DEFINED
 
 #ifdef __cplusplus
 extern "C" {

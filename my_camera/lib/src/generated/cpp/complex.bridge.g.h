@@ -17,6 +17,8 @@ typedef enum {
 } DeviceStatus;
 
 // --- Structs ---
+#ifndef NITRO_STRUCT_SENSORDATA_DEFINED
+#define NITRO_STRUCT_SENSORDATA_DEFINED
 #pragma pack(push, 1)
 typedef struct {
   double temperature; 
@@ -24,12 +26,16 @@ typedef struct {
   int64_t lastUpdate; 
 } SensorData;
 #pragma pack(pop)
+#endif // NITRO_STRUCT_SENSORDATA_DEFINED
 
+#ifndef NITRO_STRUCT_PACKET_DEFINED
+#define NITRO_STRUCT_PACKET_DEFINED
 typedef struct {
   int64_t sequence; 
   uint8_t* buffer; /* zero-copy */
   int64_t size; 
 } Packet;
+#endif // NITRO_STRUCT_PACKET_DEFINED
 
 #ifdef __cplusplus
 extern "C" {

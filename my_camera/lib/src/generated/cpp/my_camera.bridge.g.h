@@ -9,6 +9,8 @@
 
 
 // --- Structs ---
+#ifndef NITRO_STRUCT_CAMERAFRAME_DEFINED
+#define NITRO_STRUCT_CAMERAFRAME_DEFINED
 typedef struct {
   uint8_t* data; /* zero-copy */
   int64_t width; 
@@ -16,6 +18,7 @@ typedef struct {
   int64_t stride; 
   int64_t timestampNs; 
 } CameraFrame;
+#endif // NITRO_STRUCT_CAMERAFRAME_DEFINED
 
 #ifdef __cplusplus
 extern "C" {

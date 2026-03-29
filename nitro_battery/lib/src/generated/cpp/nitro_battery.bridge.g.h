@@ -17,12 +17,15 @@ typedef enum {
 } ChargingState;
 
 // --- Structs ---
+#ifndef NITRO_STRUCT_BATTERYINFO_DEFINED
+#define NITRO_STRUCT_BATTERYINFO_DEFINED
 typedef struct {
   int64_t level; 
   int64_t chargingState; 
   double voltage; 
   double temperature; 
 } BatteryInfo;
+#endif // NITRO_STRUCT_BATTERYINFO_DEFINED
 
 #ifdef __cplusplus
 extern "C" {

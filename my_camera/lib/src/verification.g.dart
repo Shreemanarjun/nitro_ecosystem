@@ -32,19 +32,40 @@ class _VerificationModuleImpl extends VerificationModule {
   final DynamicLibrary _dylib;
 
   _VerificationModuleImpl() : _dylib = NitroRuntime.loadLib('verification') {
-    final initFunc = _dylib.lookupFunction<IntPtr Function(Pointer<Void>), int Function(Pointer<Void>)>('verification_init_dart_api_dl');
+    final initFunc = _dylib.lookupFunction<IntPtr Function(Pointer<Void>),
+        int Function(Pointer<Void>)>('verification_init_dart_api_dl');
     initFunc(NativeApi.initializeApiDLData);
   }
 
-  late final double Function(double, double) _multiplyPtr = _dylib.lookupFunction<Double Function(Double, Double), double Function(double, double)>('verification_module_multiply');
-  late final Pointer<Utf8> Function(Pointer<Utf8>) _pingPtr = _dylib.lookupFunction<Pointer<Utf8> Function(Pointer<Utf8>), Pointer<Utf8> Function(Pointer<Utf8>)>('verification_module_ping');
-  late final Pointer<Utf8> Function(Pointer<Utf8>) _pingAsyncPtr = _dylib.lookupFunction<Pointer<Utf8> Function(Pointer<Utf8>), Pointer<Utf8> Function(Pointer<Utf8>)>('verification_module_ping_async');
-  late final void Function(Pointer<Utf8>) _throwErrorPtr = _dylib.lookupFunction<Void Function(Pointer<Utf8>), void Function(Pointer<Utf8>)>('verification_module_throw_error');
-  late final Pointer<Void> Function(Pointer<Float>, int) _processFloatsPtr = _dylib.lookupFunction<Pointer<Void> Function(Pointer<Float>, Int64), Pointer<Void> Function(Pointer<Float>, int)>('verification_module_process_floats');
-  late final Pointer<NitroErrorFfi> Function() _getErrorPtr = _dylib.lookupFunction<Pointer<NitroErrorFfi> Function(), Pointer<NitroErrorFfi> Function()>('verification_get_error');
-  late final void Function() _clearErrorPtr = _dylib.lookupFunction<Void Function(), void Function()>('verification_clear_error');
-  late final Pointer<NativeFunction<Pointer<NitroErrorFfi> Function()>> _getErrorNativePtr = _dylib.lookup('verification_get_error');
-  late final Pointer<NativeFunction<Void Function()>> _clearErrorNativePtr = _dylib.lookup('verification_clear_error');
+  late final double Function(double, double) _multiplyPtr =
+      _dylib.lookupFunction<Double Function(Double, Double),
+          double Function(double, double)>('verification_module_multiply');
+  late final Pointer<Utf8> Function(Pointer<Utf8>) _pingPtr =
+      _dylib.lookupFunction<Pointer<Utf8> Function(Pointer<Utf8>),
+          Pointer<Utf8> Function(Pointer<Utf8>)>('verification_module_ping');
+  late final Pointer<Utf8> Function(Pointer<Utf8>) _pingAsyncPtr =
+      _dylib.lookupFunction<
+          Pointer<Utf8> Function(Pointer<Utf8>),
+          Pointer<Utf8> Function(
+              Pointer<Utf8>)>('verification_module_ping_async');
+  late final void Function(Pointer<Utf8>) _throwErrorPtr =
+      _dylib.lookupFunction<Void Function(Pointer<Utf8>),
+          void Function(Pointer<Utf8>)>('verification_module_throw_error');
+  late final Pointer<Void> Function(Pointer<Float>, int) _processFloatsPtr =
+      _dylib.lookupFunction<
+          Pointer<Void> Function(Pointer<Float>, Int64),
+          Pointer<Void> Function(
+              Pointer<Float>, int)>('verification_module_process_floats');
+  late final Pointer<NitroErrorFfi> Function() _getErrorPtr =
+      _dylib.lookupFunction<Pointer<NitroErrorFfi> Function(),
+          Pointer<NitroErrorFfi> Function()>('verification_get_error');
+  late final void Function() _clearErrorPtr =
+      _dylib.lookupFunction<Void Function(), void Function()>(
+          'verification_clear_error');
+  late final Pointer<NativeFunction<Pointer<NitroErrorFfi> Function()>>
+      _getErrorNativePtr = _dylib.lookup('verification_get_error');
+  late final Pointer<NativeFunction<Void Function()>> _clearErrorNativePtr =
+      _dylib.lookup('verification_clear_error');
 
   @override
   // ignore: unnecessary_overrides
@@ -75,7 +96,9 @@ class _VerificationModuleImpl extends VerificationModule {
     checkDisposed();
     final arena = Arena();
     try {
-      final rawPtr = await NitroRuntime.callAsync<Pointer<Utf8>>(_pingAsyncPtr, [message.toNativeUtf8(allocator: arena)], getError: _getErrorNativePtr, clearError: _clearErrorNativePtr);
+      final rawPtr = await NitroRuntime.callAsync<Pointer<Utf8>>(
+          _pingAsyncPtr, [message.toNativeUtf8(allocator: arena)],
+          getError: _getErrorNativePtr, clearError: _clearErrorNativePtr);
       return rawPtr.toDartStringWithFree();
     } finally {
       arena.releaseAll();
@@ -104,5 +127,4 @@ class _VerificationModuleImpl extends VerificationModule {
       return decoded;
     });
   }
-
 }
