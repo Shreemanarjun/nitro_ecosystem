@@ -45,10 +45,10 @@ class BridgeType {
   /// and `Map<String, T>`.
   final bool isRecord;
 
-  /// True when the type is a raw FFI Pointer<T>
+  /// True when the type is a raw FFI `Pointer<T>`
   final bool isPointer;
 
-  /// The inner type of a Pointer<T> (e.g. 'Uint8', 'Void')
+  /// The inner type of a `Pointer<T>` (e.g. 'Uint8', 'Void')
   final String? pointerInnerType;
 
   /// Non-null when [isRecord] is true AND the Dart type is `List<T>`.

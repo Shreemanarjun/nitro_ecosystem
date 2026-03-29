@@ -1,8 +1,8 @@
 import 'package:test/test.dart';
 import 'package:nitro_annotations/nitro_annotations.dart';
-import '../lib/src/bridge_spec.dart';
-import '../lib/src/spec_validator.dart';
-import '../lib/src/generators/dart_ffi_generator.dart';
+import 'package:nitro_generator/src/bridge_spec.dart';
+import 'package:nitro_generator/src/spec_validator.dart';
+import 'package:nitro_generator/src/generators/dart_ffi_generator.dart';
 
 void main() {
   group('Pointer Support Tests', () {
@@ -71,11 +71,11 @@ void main() {
       );
 
       final output = DartFfiGenerator.generate(spec);
-      
+
       // Verify FFI signatures
       expect(output, contains('Void Function(Pointer<Void>)'));
       expect(output, contains('void Function(Pointer<Void>)'));
-      
+
       // Verify implementation call (direct pass-through, no conversion)
       expect(output, contains('_passPointerPtr(p)'));
     });
@@ -104,7 +104,7 @@ void main() {
       );
 
       final output = DartFfiGenerator.generate(spec);
-      
+
       expect(output, contains('Pointer<Uint8> Function()'));
       expect(output, contains('Pointer<Uint8> getBuffer()'));
       expect(output, contains('return res;'));

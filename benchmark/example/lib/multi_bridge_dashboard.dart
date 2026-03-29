@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:signals_flutter/signals_flutter.dart';
-import 'box_stress_page.dart';
 import 'models/benchmark_bridge.dart';
+import 'controllers/visual_benchmark_controller.dart';
 
 class MultiBridgeDashboard extends StatefulWidget {
   const MultiBridgeDashboard({super.key});
@@ -14,6 +14,7 @@ class _MultiBridgeDashboardState extends State<MultiBridgeDashboard>
     with TickerProviderStateMixin {
   final _iterationSignal = signal<int>(1);
   final _isTestingSignal = signal<bool>(false);
+  late final VisualBenchmarkController _controller;
 
   late final AnimationController _successController;
   late final Animation<double> _successAnimation;
@@ -21,7 +22,7 @@ class _MultiBridgeDashboardState extends State<MultiBridgeDashboard>
   @override
   void initState() {
     super.initState();
-    BenchmarkManager.init();
+    _controller = VisualBenchmarkController();
 
     _successController = AnimationController(
       vsync: this,
@@ -36,7 +37,7 @@ class _MultiBridgeDashboardState extends State<MultiBridgeDashboard>
   @override
   void dispose() {
     _successController.dispose();
-    BenchmarkManager.dispose();
+    _controller.dispose();
     super.dispose();
   }
 
@@ -57,6 +58,7 @@ class _MultiBridgeDashboardState extends State<MultiBridgeDashboard>
             fontSize: 16,
           ),
         ),
+        backgroundColor: Colors.black,
         actions: [
           Watch(
             (_) => Container(
@@ -118,9 +120,9 @@ class _MultiBridgeDashboardState extends State<MultiBridgeDashboard>
                         label: Text('FLOOR', style: TextStyle(fontSize: 9)),
                       ),
                     ],
-                    selected: {BenchmarkManager.isChecksumEnabled.value},
+                    selected: {_controller.isChecksumEnabled.value},
                     onSelectionChanged: (v) =>
-                        BenchmarkManager.isChecksumEnabled.value = v.first,
+                        _controller.isChecksumEnabled.value = v.first,
                     showSelectedIcon: false,
                     style: const ButtonStyle(
                       visualDensity: VisualDensity.compact,
@@ -136,7 +138,7 @@ class _MultiBridgeDashboardState extends State<MultiBridgeDashboard>
                     size: 20,
                   ),
                   onPressed: () {
-                    for (var res in BenchmarkManager.throughputResults.values) {
+                    for (var res in _controller.throughputResults.values) {
                       res.value = null;
                     }
                   },
@@ -165,14 +167,14 @@ class _MultiBridgeDashboardState extends State<MultiBridgeDashboard>
                             _isTestingSignal.value = true;
                             final iterations = _iterationSignal.value;
                             final checksumValue =
-                                BenchmarkManager.isChecksumEnabled.value;
+                                _controller.isChecksumEnabled.value;
                             debugPrint(
                               '🚀 [NitroBenchmark] Starting Multi-Sample Throughput Profile (x$iterations, checksum=$checksumValue)...',
                             );
                             try {
                               for (var i = 0; i < iterations; i++) {
                                 if (!mounted) return;
-                                await BenchmarkManager.runHighBandwidthTest(1);
+                                await _controller.runHighBandwidthTest(1);
                               }
                               if (mounted) {
                                 _triggerSuccess();
@@ -191,7 +193,7 @@ class _MultiBridgeDashboardState extends State<MultiBridgeDashboard>
                     color: Colors.amberAccent,
                     size: 20,
                   ),
-                  onPressed: BenchmarkManager.runOneOffProfiler,
+                  onPressed: _controller.runOneOffProfiler,
                 ),
               ],
             ),
@@ -206,12 +208,14 @@ class _MultiBridgeDashboardState extends State<MultiBridgeDashboard>
                 child: Row(
                   children: [
                     _Quadrant(
+                      controller: _controller,
                       type: BridgeType.methodChannel,
                       color: Colors.redAccent,
                       title: 'METHOD CHANNEL',
                       description: 'Legacy Binary Messaging',
                     ),
                     _Quadrant(
+                      controller: _controller,
                       type: BridgeType.nitro,
                       color: Colors.deepPurpleAccent,
                       title: 'NITRO (SWIFT/KOTLIN)',
@@ -224,12 +228,14 @@ class _MultiBridgeDashboardState extends State<MultiBridgeDashboard>
                 child: Row(
                   children: [
                     _Quadrant(
+                      controller: _controller,
                       type: BridgeType.nitroCpp,
                       color: Colors.cyanAccent,
                       title: 'NITRO (DIRECT C++)',
                       description: 'Direct V-Table Dispatch',
                     ),
                     _Quadrant(
+                      controller: _controller,
                       type: BridgeType.rawFfi,
                       color: Colors.greenAccent,
                       title: 'RAW FFI (BASELINE)',
@@ -238,7 +244,27 @@ class _MultiBridgeDashboardState extends State<MultiBridgeDashboard>
                   ],
                 ),
               ),
-              const _DashboardStats(),
+              Expanded(
+                child: Row(
+                  children: [
+                    _Quadrant(
+                      controller: _controller,
+                      type: BridgeType.nitroLeaf,
+                      color: Colors.orangeAccent,
+                      title: 'NITRO (LEAF CALL)',
+                      description: 'Zero-Safety Dispatch',
+                    ),
+                    _Quadrant(
+                      controller: _controller,
+                      type: BridgeType.nitroUnsafe,
+                      color: Colors.deepOrangeAccent,
+                      title: 'NITRO (UNSAFE PTR)',
+                      description: 'Direct Memory Access',
+                    ),
+                  ],
+                ),
+              ),
+              _DashboardStats(controller: _controller),
             ],
           ),
           // Success Overlay Animation
@@ -248,35 +274,19 @@ class _MultiBridgeDashboardState extends State<MultiBridgeDashboard>
               child: FadeTransition(
                 opacity: ReverseAnimation(_successAnimation),
                 child: Container(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 24,
-                    vertical: 12,
-                  ),
+                  width: 120,
+                  height: 120,
                   decoration: BoxDecoration(
-                    color: Colors.green.withAlpha(200),
-                    borderRadius: BorderRadius.circular(30),
+                    color: Colors.cyan.withAlpha(200),
+                    shape: BoxShape.circle,
                     boxShadow: [
                       BoxShadow(
-                        color: Colors.green.withAlpha(100),
+                        color: Colors.cyan.withAlpha(100),
                         blurRadius: 40,
                       ),
                     ],
                   ),
-                  child: const Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Icon(Icons.check_circle, color: Colors.white),
-                      SizedBox(width: 12),
-                      Text(
-                        'SUCCESS',
-                        style: TextStyle(
-                          color: Colors.white,
-                          fontWeight: FontWeight.w900,
-                          letterSpacing: 2,
-                        ),
-                      ),
-                    ],
-                  ),
+                  child: const Icon(Icons.check, color: Colors.white, size: 60),
                 ),
               ),
             ),
@@ -287,12 +297,12 @@ class _MultiBridgeDashboardState extends State<MultiBridgeDashboard>
   }
 
   void _logFinalStats(int iterations) {
-    final checksum = BenchmarkManager.isChecksumEnabled.value;
+    final checksum = _controller.isChecksumEnabled.value;
     debugPrint(
       '\n📊 [NitroBenchmark] FINAL THROUGHPUT RESULTS (Averages over $iterations iterations, checksum=$checksum):',
     );
     for (var type in BridgeType.values) {
-      final res = BenchmarkManager.throughputResults[type]?.value;
+      final res = _controller.throughputResults[type]?.value;
       if (res != null) {
         debugPrint('   • ${type.label.padRight(25)}: $res');
       }
@@ -302,12 +312,14 @@ class _MultiBridgeDashboardState extends State<MultiBridgeDashboard>
 }
 
 class _Quadrant extends StatelessWidget {
+  final VisualBenchmarkController controller;
   final BridgeType type;
   final Color color;
   final String title;
   final String description;
 
   const _Quadrant({
+    required this.controller,
     required this.type,
     required this.color,
     required this.title,
@@ -350,7 +362,7 @@ class _Quadrant extends StatelessWidget {
                   const Spacer(),
                   Watch(
                     (_) => Text(
-                      'Avg: ${BenchmarkManager.avgPerCallMicros[type]!.value.toStringAsFixed(3)} µs',
+                      'Avg: ${controller.avgPerCallMicros[type]!.value.toStringAsFixed(3)} µs',
                       style: const TextStyle(
                         color: Colors.white,
                         fontSize: 18,
@@ -360,7 +372,7 @@ class _Quadrant extends StatelessWidget {
                   ),
                   const SizedBox(height: 8),
                   Watch((_) {
-                    final res = BenchmarkManager.throughputResults[type]!.value;
+                    final res = controller.throughputResults[type]!.value;
                     if (res == null) return const SizedBox.shrink();
                     return Container(
                       padding: const EdgeInsets.symmetric(
@@ -392,33 +404,70 @@ class _Quadrant extends StatelessWidget {
   }
 }
 
-class _VisualPulse extends StatelessWidget {
+class _VisualPulse extends StatefulWidget {
   const _VisualPulse();
 
   @override
+  State<_VisualPulse> createState() => _VisualPulseState();
+}
+
+class _VisualPulseState extends State<_VisualPulse>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _controller;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = AnimationController(
+      vsync: this,
+      duration: const Duration(seconds: 2),
+    )..repeat();
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
   Widget build(BuildContext context) {
-    return Center(
-      child: Opacity(
-        opacity: 0.2,
-        child: const Icon(Icons.speed, size: 80, color: Colors.white10),
-      ),
+    return AnimatedBuilder(
+      animation: _controller,
+      builder: (context, child) {
+        return Container(
+          decoration: BoxDecoration(
+            gradient: LinearGradient(
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
+              colors: [
+                Colors.white.withAlpha((10 * _controller.value).toInt()),
+                Colors.transparent,
+              ],
+            ),
+          ),
+        );
+      },
     );
   }
 }
 
 class _DashboardStats extends StatelessWidget {
-  const _DashboardStats();
+  final VisualBenchmarkController controller;
+  const _DashboardStats({required this.controller});
 
   @override
   Widget build(BuildContext context) {
     return Watch((_) {
-      final winner = BenchmarkManager.winner.value;
+      if (controller.oneOffResults.values.every((s) => s.value == null)) {
+        return const SizedBox.shrink();
+      }
+
       return Container(
-        width: double.infinity,
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 20),
+        padding: const EdgeInsets.all(12),
         decoration: BoxDecoration(
           color: Colors.grey.shade900,
-          border: const Border(top: BorderSide(color: Colors.white10)),
+          border: Border(top: BorderSide(color: Colors.white.withAlpha(10))),
         ),
         child: Column(
           children: [
@@ -426,76 +475,71 @@ class _DashboardStats extends StatelessWidget {
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
                 const Text(
-                  'THROUGHPUT DIAGNOSTICS',
+                  'API PERFORMANCE (µs)',
                   style: TextStyle(
-                    color: Colors.white54,
+                    color: Colors.amber,
                     fontWeight: FontWeight.bold,
-                    fontSize: 10,
+                    fontSize: 9,
                   ),
                 ),
-                if (winner != null)
-                  Container(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 8,
-                      vertical: 2,
-                    ),
-                    decoration: BoxDecoration(
-                      color: Colors.green.withAlpha(100),
-                      borderRadius: BorderRadius.circular(4),
-                    ),
-                    child: Text(
-                      'WINNER: ${winner.label}',
-                      style: const TextStyle(
-                        color: Colors.greenAccent,
-                        fontWeight: FontWeight.w900,
-                        fontSize: 10,
-                      ),
+                if (controller.winner.value != null)
+                  Text(
+                    'WINNER: ${controller.winner.value!.label}',
+                    style: TextStyle(
+                      color: controller.winner.value!.color,
+                      fontWeight: FontWeight.w900,
+                      fontSize: 9,
                     ),
                   ),
               ],
             ),
-            const SizedBox(height: 12),
-            const Row(
-              mainAxisAlignment: MainAxisAlignment.spaceAround,
-              children: [
-                _GlobalMetric(label: 'ZERO-COPY', value: '4.0 GB+'),
-                _GlobalMetric(label: 'OVERHEAD', value: '< 1µs'),
-                _GlobalMetric(label: 'FFI GEN', value: 'v0.2.5'),
-              ],
+            const SizedBox(height: 8),
+            SingleChildScrollView(
+              scrollDirection: Axis.horizontal,
+              child: Row(
+                children: BridgeType.values.map((type) {
+                  final result = controller.oneOffResults[type]!.value;
+                  if (result == null) return const SizedBox.shrink();
+
+                  return Container(
+                    margin: const EdgeInsets.only(right: 8),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 10,
+                      vertical: 6,
+                    ),
+                    decoration: BoxDecoration(
+                      color: type.color.withAlpha(15),
+                      borderRadius: BorderRadius.circular(6),
+                      border: Border.all(color: type.color.withAlpha(30)),
+                    ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          type.label,
+                          style: TextStyle(
+                            color: type.color,
+                            fontSize: 7,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                        Text(
+                          '${result.toStringAsFixed(2)}µs',
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontSize: 11,
+                            fontWeight: FontWeight.w900,
+                          ),
+                        ),
+                      ],
+                    ),
+                  );
+                }).toList(),
+              ),
             ),
           ],
         ),
       );
     });
-  }
-}
-
-class _GlobalMetric extends StatelessWidget {
-  final String label;
-  final String value;
-  const _GlobalMetric({required this.label, required this.value});
-
-  @override
-  Widget build(BuildContext context) {
-    return Column(
-      children: [
-        Text(
-          value,
-          style: const TextStyle(
-            color: Colors.white,
-            fontSize: 14,
-            fontWeight: FontWeight.bold,
-          ),
-        ),
-        Text(
-          label,
-          style: const TextStyle(
-            color: Colors.white24,
-            fontSize: 8,
-            fontWeight: FontWeight.bold,
-          ),
-        ),
-      ],
-    );
   }
 }
