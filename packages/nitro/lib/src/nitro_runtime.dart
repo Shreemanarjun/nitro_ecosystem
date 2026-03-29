@@ -65,26 +65,22 @@ class NitroRuntime {
 
   /// Checks if the last native call in [dylib] resulted in an error.
   /// If so, throws a [HybridException] and clears the error state.
+  /// Checks if the last native call resulted in an error.
+  /// If so, throws a [HybridException] and clears the error state.
   static void checkError(
-    DynamicLibrary dylib, {
-    String getErrorName = 'NitroGetError',
-    String clearErrorName = 'NitroClearError',
-  }) {
+    Pointer<NitroErrorFfi> Function() get,
+    void Function() clear,
+  ) {
     try {
-      final getErr = dylib.lookupFunction<Pointer<NitroErrorFfi> Function(), Pointer<NitroErrorFfi> Function()>(
-        getErrorName,
-      );
-      final clearErr = dylib.lookupFunction<Void Function(), void Function()>(clearErrorName);
-
-      final errPtr = getErr();
-      if (errPtr.ref.hasError != 0) {
+      final errPtr = get();
+      if (errPtr != nullptr && errPtr.ref.hasError != 0) {
         final name = errPtr.ref.name.toDartString();
         final message = errPtr.ref.message.toDartString();
         final code = errPtr.ref.code != nullptr ? errPtr.ref.code.toDartString() : null;
         final stack = errPtr.ref.stackTrace != nullptr ? errPtr.ref.stackTrace.toDartString() : null;
 
         // Clear for next call
-        clearErr();
+        clear();
 
         throw HybridException(
           name: name,
@@ -95,8 +91,7 @@ class NitroRuntime {
       }
     } catch (e) {
       if (e is HybridException) rethrow;
-      // If NitroGetError/NitroClearError are missing, the plugin hasn't
-      // transitioned to the new error system yet.
+      // If error handlers fail or are invalid stubs, ignore and continue.
       return;
     }
   }
@@ -126,7 +121,12 @@ class NitroRuntime {
   /// When [NitroConfig.instance.isolatePoolSize] is `0`, falls back to
   /// spawning a fresh [Isolate] per call (legacy behaviour).
   /// Otherwise dispatches to the pre-warmed [IsolatePool].
-  static Future<T> callAsync<T>(Function fn, List<Object?> args) async {
+  static Future<T> callAsync<T>(
+    Function fn,
+    List<Object?> args, {
+    Pointer<NativeFunction<Pointer<NitroErrorFfi> Function()>>? getError,
+    Pointer<NativeFunction<Void Function()>>? clearError,
+  }) async {
     final cfg = NitroConfig.instance;
     final poolSize = cfg.isolatePoolSize;
     final effective = cfg.effectiveLogLevel;
@@ -137,14 +137,25 @@ class NitroRuntime {
     if (poolSize <= 0 || !_poolReady) {
       // Legacy: spawn a fresh isolate per call.
       _log(NitroLogLevel.verbose, 'callAsync', 'dispatching via Isolate.run');
-      result = await Isolate.run(() => Function.apply(fn, args) as T);
+      result = await Isolate.run(() {
+        final res = Function.apply(fn, args) as T;
+        if (getError != null && clearError != null) {
+          checkError(getError.asFunction(), clearError.asFunction());
+        }
+        return res;
+      });
     } else {
       _log(
         NitroLogLevel.verbose,
         'callAsync',
         'dispatching via pool (size=$poolSize)',
       );
-      result = await _pool!.dispatch<T>(fn, args);
+      result = await _pool!.dispatch<T>(
+        fn,
+        args,
+        getError: getError,
+        clearError: clearError,
+      );
     }
 
     if (sw != null) {

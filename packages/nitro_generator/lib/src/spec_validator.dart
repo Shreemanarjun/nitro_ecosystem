@@ -46,6 +46,7 @@ class SpecValidator {
     'Float64List',
     'Int64List',
     'Uint64List',
+    'Pointer',
     'int?',
     'double?',
     'bool?',
@@ -94,6 +95,7 @@ class SpecValidator {
       final retName = func.returnType.name.replaceFirst('?', '');
       if (retName != 'void' &&
           !func.returnType.isRecord && // @HybridRecord types bridge as String
+          !func.returnType.isPointer && // raw FFI pointers
           !knownTypes.contains(retName) &&
           !knownTypes.contains(func.returnType.name)) {
         issues.add(
@@ -149,6 +151,7 @@ class SpecValidator {
       for (final param in func.params) {
         final pName = param.type.name.replaceFirst('?', '');
         if (!param.type.isRecord && // @HybridRecord params bridge as String
+            !param.type.isPointer && // raw FFI pointers
             !knownTypes.contains(pName) &&
             !knownTypes.contains(param.type.name)) {
           issues.add(
@@ -169,7 +172,7 @@ class SpecValidator {
     // ── Properties ─────────────────────────────────────────────────────────
     for (final prop in spec.properties) {
       final pName = prop.type.name.replaceFirst('?', '');
-      if (!prop.type.isRecord && !knownTypes.contains(pName) && !knownTypes.contains(prop.type.name)) {
+      if (!prop.type.isRecord && !prop.type.isPointer && !knownTypes.contains(pName) && !knownTypes.contains(prop.type.name)) {
         issues.add(
           ValidationIssue(
             severity: ValidationSeverity.error,

@@ -9,6 +9,7 @@ import 'widgets/benchmark_history.dart';
 import 'widgets/iteration_selector.dart';
 import 'widgets/runs_selector.dart';
 import 'widgets/status_card.dart';
+import 'box_stress_page.dart';
 
 class BenchmarkPage extends StatefulWidget {
   const BenchmarkPage({super.key});
@@ -44,22 +45,27 @@ class _BenchmarkPageState extends State<BenchmarkPage> {
               child: Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
-                  Row(
-                    children: [
-                      Container(
-                        width: 8,
-                        height: 8,
-                        decoration: BoxDecoration(
-                          color: e.key.color,
-                          shape: BoxShape.circle,
+                  Expanded(
+                    child: Row(
+                      children: [
+                        Container(
+                          width: 8,
+                          height: 8,
+                          decoration: BoxDecoration(
+                            color: e.key.color,
+                            shape: BoxShape.circle,
+                          ),
                         ),
-                      ),
-                      const SizedBox(width: 8),
-                      Text(
-                        e.key.label,
-                        style: const TextStyle(fontWeight: FontWeight.bold),
-                      ),
-                    ],
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: Text(
+                            e.key.label,
+                            style: const TextStyle(fontWeight: FontWeight.bold),
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ),
+                      ],
+                    ),
                   ),
                   Text(
                     '${e.value.toStringAsFixed(3)} µs',
@@ -90,6 +96,14 @@ class _BenchmarkPageState extends State<BenchmarkPage> {
         title: const Text('Nitro Benchmark', style: TextStyle(fontWeight: FontWeight.bold)),
         centerTitle: true,
         actions: [
+          IconButton(
+            onPressed: () => Navigator.push(
+              context,
+              MaterialPageRoute(builder: (context) => const BoxStressPage()),
+            ),
+            icon: const Icon(Icons.flash_on, color: Colors.amber),
+            tooltip: 'Stress Test',
+          ),
           IconButton(
             onPressed: () => _controller.clear(),
             icon: const Icon(Icons.refresh),

@@ -88,12 +88,26 @@ void syncBridgeFiles(String workingDirectory) {
   final generatedDir = Directory(p.join(workingDirectory, 'lib', 'src', 'generated'));
   if (!generatedDir.existsSync()) return;
 
-  // Sync Swift bridges
+  // Discover which modules use the direct C++ path (NativeImpl.cpp).
+  // Their generated .bridge.g.swift must NOT be copied into ios/Classes/:
+  //   - the C++ bridge calls g_impl directly — it never calls the @_cdecl stubs
+  //   - those stubs share the same symbol names as the non-cpp Swift bridge,
+  //     causing duplicate-symbol linker errors.
+  final cppLibs = _discoverCppLibs(workingDirectory);
+
+  // Sync Swift bridges — skip C++ modules.
   final swiftSource = Directory(p.join(generatedDir.path, 'swift'));
   if (swiftSource.existsSync()) {
     for (final file in swiftSource.listSync().whereType<File>()) {
       final name = p.basename(file.path);
       if (name.endsWith('.bridge.g.swift')) {
+        final lib = name.replaceFirst('.bridge.g.swift', '');
+        if (cppLibs.contains(lib)) {
+          // Remove any stale copy that may have been placed here previously.
+          final stale = File(p.join(classesDir.path, name));
+          if (stale.existsSync()) stale.deleteSync();
+          continue;
+        }
         file.copySync(p.join(classesDir.path, name));
       }
     }
@@ -111,4 +125,25 @@ void syncBridgeFiles(String workingDirectory) {
       }
     }
   }
+}
+
+/// Returns the set of lib names that are NativeImpl.cpp modules, by reading
+/// the *.native.dart spec files in lib/.
+Set<String> _discoverCppLibs(String workingDirectory) {
+  final libDir = Directory(p.join(workingDirectory, 'lib'));
+  if (!libDir.existsSync()) return {};
+  final result = <String>{};
+  for (final file in libDir.listSync(recursive: true).whereType<File>()) {
+    if (!file.path.endsWith('.native.dart')) continue;
+    final content = file.readAsStringSync();
+    final libMatch = RegExp(r'''@NitroModule\s*\([^)]*lib\s*:\s*['"]([^'"]+)['"]''').firstMatch(content);
+    if (libMatch == null) continue;
+    final annotationMatch = RegExp(r'@NitroModule\s*\(([^)]+)\)').firstMatch(content);
+    if (annotationMatch == null) continue;
+    final annotation = annotationMatch.group(1)!;
+    // A module is "cpp" when both platform impls are NativeImpl.cpp.
+    final cppCount = RegExp(r'NativeImpl\.cpp').allMatches(annotation).length;
+    if (cppCount >= 2) result.add(libMatch.group(1)!);
+  }
+  return result;
 }

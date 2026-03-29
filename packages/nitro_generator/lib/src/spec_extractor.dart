@@ -120,6 +120,7 @@ class SpecExtractor {
     'Float64List',
     'Int64List',
     'Uint64List',
+    'Pointer',
   };
 
   /// Converts a [DartType] to a [BridgeType], marking JSON-bridged types:
@@ -173,6 +174,17 @@ class SpecExtractor {
       // Direct @HybridRecord class
       if (recordTypeNames.contains(elName)) {
         return BridgeType(name: displayName, isRecord: true, isFuture: isFuture);
+      }
+
+      // Pointer<T> — raw FFI bridge
+      if (elName == 'Pointer' && type.typeArguments.isNotEmpty) {
+        final inner = type.typeArguments.first.getDisplayString(withNullability: false);
+        return BridgeType(
+          name: displayName,
+          isPointer: true,
+          pointerInnerType: inner,
+          isFuture: isFuture,
+        );
       }
     }
 

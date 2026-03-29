@@ -1,3 +1,7 @@
+# 0.2.5
+
+- **Improved: Ecosystem Sync**: Synchronized all Nitro packages to version 0.2.5.
+
 # 0.2.3
 
 - **Dependency Sync**: Synchronized the Nitro ecosystem to version 0.2.3.

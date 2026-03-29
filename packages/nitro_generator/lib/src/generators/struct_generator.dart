@@ -93,12 +93,21 @@ class StructGenerator {
   }
 
   /// Generates C structs for the header file.
+  ///
+  /// Each struct is wrapped in a `#ifndef NITRO_STRUCT_<NAME>_DEFINED` guard so
+  /// that the same struct type can appear in multiple generated bridge headers
+  /// (e.g. a shared `BenchmarkPoint` in both `benchmark.bridge.g.h` and
+  /// `benchmark_cpp.bridge.g.h`) without causing "typedef redefinition" errors
+  /// when both headers are compiled into the same translation unit.
   static String generateCStructs(BridgeSpec spec) {
     if (spec.structs.isEmpty) return '';
     final enumNames = spec.enums.map((e) => e.name).toSet();
     final s = StringBuffer();
     s.writeln('// --- Structs ---');
     for (final st in spec.structs) {
+      final guard = 'NITRO_STRUCT_${st.name.toUpperCase()}_DEFINED';
+      s.writeln('#ifndef $guard');
+      s.writeln('#define $guard');
       if (st.packed) s.writeln('#pragma pack(push, 1)');
       s.writeln('typedef struct {');
       for (final f in st.fields) {
@@ -107,6 +116,7 @@ class StructGenerator {
       }
       s.writeln('} ${st.name};');
       if (st.packed) s.writeln('#pragma pack(pop)');
+      s.writeln('#endif // $guard');
       s.writeln();
     }
     return s.toString();

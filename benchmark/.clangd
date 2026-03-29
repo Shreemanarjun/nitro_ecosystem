@@ -3,3 +3,4 @@ CompileFlags:
     - -I${PWD}/src
     - -I${PWD}/lib/src/generated/cpp
     - -I${PWD}/../packages/nitro/src/native
+    - -I${PWD}/lib/src/generated/cpp/test
