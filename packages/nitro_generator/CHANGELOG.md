@@ -1,42 +1,17 @@
-## 0.2.7
+## 0.3.0
 
-- **New: Benchmark regression tests** — Added `benchmark_spec_test.dart` with 56+ tests that mirror the real `benchmark.native.dart` and `benchmark_cpp.native.dart` specs, covering KotlinGenerator, SwiftGenerator, DartFfiGenerator, CppInterfaceGenerator, and CppBridgeGenerator output for all types used by the benchmark (primitives, structs, @HybridRecord, TypedData, Pointer<T>, streams).
-- **New: `CppInterfaceGenerator` Pointer<T> param/return tests** — Added `cpp_interface_pointer_test.dart` with 22 tests covering all Pointer<T> combinations: Pointer<Void> → `void*`, Pointer<int> → `int64_t*`, Pointer<double> → `double*`, Pointer<EnumName> → `EnumName*`, Pointer<StructName> → `StructName*`, Pointer<RecordName> → `NitroCppBuffer*`, Pointer<String> → `std::string*`, null inner → `void*`, nullable inner types, multiple pointer params.
-- **New: Nullable type handling tests** — Added `nullable_types_test.dart` with 23 tests covering `String?`, `int?`, `double?`, `bool?` type name stripping in CppInterfaceGenerator, nullable type preservation in DartFfiGenerator Dart signatures, and nullable record field handling in Kotlin (null-safe decode pattern, `?` suffix) and Dart (`readNullTag()` pattern).
-- **New: Stream backpressure tests** — Added `stream_backpressure_test.dart` with 15 tests asserting all three `Backpressure` enum values (`dropLatest`, `block`, `bufferDrop`) propagate correctly through DartFfiGenerator, KotlinGenerator, and SwiftGenerator outputs. Includes isolation tests confirming each value does not appear in outputs for the other two.
-- **Fixed: `benchmark_spec_test.dart` atomic/port assertions** — Corrected stream port storage assertions to match the actual `static int64_t g_port_X = 0;` pattern (plain int64_t, not std::atomic), consistent with the generator's single-write startup model.
+- **New: Direct C++ Implementation support** — Generator produces `*.native.g.h`, `*.mock.g.h`, and `*.test.g.cpp` when `@NitroModule(ios: NativeImpl.cpp, android: NativeImpl.cpp)` is specified.
+- **New: Thread-safe bridge** — `CppBridgeGenerator` uses `std::atomic` for `g_impl` and stream port storage; `CppBridgeGenerator` now uses direct virtual dispatch with no platform `#ifdef` blocks.
+- **New: `std::optional<T>` for nullable types** — `CppInterfaceGenerator` emits nullable Dart types as `std::optional<T>`.
+- **New: Precise `Pointer<T>` C++ mapping** — `Pointer<SomeEnum>` → `SomeEnum*`, `Pointer<SomeStruct>` → `SomeStruct*`, `Pointer<Void>` → `void*`.
+- **New: `#ifndef` struct guards** — `generateCStructs` wraps each C struct in an include guard to prevent `typedef redefinition` errors in CocoaPods umbrella builds.
+- **New: `BridgeSpec.isCppImpl`** — convenience getter for detecting pure-C++ modules.
+- **Improved: FFI memory safety** — `DartFfiGenerator` emits `try { ... } finally { malloc.free(...); }` for all record/struct return paths.
+- **Improved: `checkDisposed()` guards** — Added to all generated methods including `Fast` (leaf) functions; annotated `@pragma('vm:prefer-inline')`.
+- **Fixed: Builder diagnostics** — `builder.printWarning` now shows actual file paths instead of literal placeholders.
+- **Tests: 100+ new regression tests** — Benchmark spec tests, `Pointer<T>` param/return tests, nullable type tests, and stream backpressure isolation tests across all generators.
 
-## 0.2.6
 
-- **Improved: `CppInterfaceGenerator` Pointer type mapping** — `_cppReturnType`, `_cppParamType`, `_cppScalarType`, and `_cppMethodParams` now inspect `BridgeType.pointerInnerType` to emit precise C++ pointer types. `Pointer<SomeEnum>` → `SomeEnum*`, `Pointer<SomeStruct>` → `SomeStruct*`, `Pointer<Void>` → `void*`; unknown inner types fall back to `void*` as before.
-- **Improved: Test precision for `checkDisposed()` guards** — The "methods have checkDisposed() guard" and "property getter has checkDisposed() in block body" tests now assert the guard appears *immediately after* the named member's opening brace (e.g. `double add(double a, double b) {\n    checkDisposed();`) rather than anywhere in the file, preventing false positives.
-- **New: Regression test for raw `Pointer<Uint8>` FFI mapping** — Added a test in `dart_ffi_generator_test.dart` that exercises the `Pointer<Uint8>` param path end-to-end, asserting the generated lookup signature and call site both contain `Pointer<Uint8>`.
-
-## 0.2.5
-
-- **New: Thread-Safe Bridge Implementation** — `CppBridgeGenerator` now utilizes `std::atomic` for implementation registration (`g_impl`) and stream port management (`g_port_`). This ensures safe access across multiple native threads and Dart isolates.
-- **New: nullability preservation in C++** — The `CppInterfaceGenerator` now leverages `BridgeType` metadata to emit `std::optional<T>` for nullable Dart types, improving type safety on the native side.
-- **Improved: FFI Memory Safety** — Updated `DartFfiGenerator` to emit robust `try { ... } finally { malloc.free(...); }` blocks for all record and struct return paths. This prevents memory leaks if Dart decoding throws an exception.
-- **Improved: Code Generation Reliability** — Added `checkDisposed()` guards to all generated methods, including `Fast` (leaf) functions.
-- **Fixed: Builder diagnostics** — Corrected string interpolation in `builder.printWarning` to show actual file paths instead of literal placeholders.
-
-## 0.2.4
-
-- **Fixed: `typedef redefinition` when multiple modules share a struct** — `generateCStructs` now wraps each C struct in a `#ifndef NITRO_STRUCT_<NAME>_DEFINED` / `#define` / `#endif` guard. When two bridge headers (e.g. `benchmark.bridge.g.h` and `benchmark_cpp.bridge.g.h`) both declare the same struct (e.g. `BenchmarkPoint`) and are compiled into the same translation unit via the CocoaPods umbrella header, the second definition becomes a no-op instead of a fatal `typedef redefinition` error.
-- **New: NativeImpl.cpp — Direct C++ Implementation** — When `@NitroModule(ios: NativeImpl.cpp, android: NativeImpl.cpp)` is used, the generator now produces three additional files:
-  - `*.native.g.h` — abstract `HybridX` C++ class with pure-virtual methods, properties, and stream emit helpers. The user subclasses this and registers their instance via `${lib}_register_impl()`.
-  - `*.mock.g.h` — GoogleMock `MockX : public HybridX` class with `MOCK_METHOD` declarations for every method and property. Enables unit-testing C++ logic without a running Flutter app.
-  - `*.test.g.cpp` — test starter with a smoke test (verifies registration/unregistration) and a commented example for the first method. Ready to build with CMake + GoogleTest.
-- **New: `CppBridgeGenerator` — direct-dispatch path** — For cpp modules, `.bridge.g.cpp` now uses direct virtual dispatch (`g_impl->method()`) instead of JNI/Swift. No `#ifdef __ANDROID__`, no `#elif __APPLE__`. Includes Dart API DL init, thread-local error state, and stream emit helpers that post to Dart via `Dart_PostCObject_DL`.
-- **New: `BridgeSpec.isCppImpl`** — getter returning `true` when `ios == NativeImpl.cpp && android == NativeImpl.cpp`.
-- **New: `builder.dart` outputs** — Three new output extensions registered: `*.native.g.h`, `test/*.mock.g.h`, `test/*.test.g.cpp`. Non-cpp modules receive a "Not applicable" comment placeholder (satisfying build_runner's static extension requirement).
-- **Improved: Type mapping (C++ direct path)**:
-  - `String` → `std::string` / `const std::string&` in C++ interface; `const char*` at C boundary
-  - TypedData → `const T* ptr, size_t length` in C++ interface; `T*, int64_t length` at C boundary
-  - Enum → C enum type in interface; `int64_t` with `static_cast` at C boundary
-  - Struct → `const T&` param / by-value return in interface; `void*` at C boundary
-  - Record → `NitroCppBuffer` (pointer + size) in interface
-- **Improved: Test Coverage** — 41 new edge-case tests covering: all TypedData pointer mappings, struct/record/enum params and returns, void methods, getter-only properties, multi-stream modules, lib names with dashes, header guard format, `extern "C"` registration API, GoogleMock MOCK_METHOD signatures, test starter example generation, `BridgeSpec.isCppImpl` edge cases.
 
 ## 0.2.3
 

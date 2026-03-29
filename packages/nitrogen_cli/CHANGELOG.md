@@ -1,7 +1,7 @@
-## 0.2.5
+## 0.3.0
 
 - **Fixed: PascalCase derivation for filenames with underscores** — `discoverModuleInfos` now uses a robust `_toPascalCase` helper with empty-segment guards. This prevents `RangeError` exceptions when processing filenames with consecutive underscores (e.g., `my__module.native.dart`).
-- **Improved: Ecosystem Sync**: Synchronized the Nitro ecosystem to version 0.2.5.
+- **Improved: Ecosystem Sync**: Synchronized the Nitro ecosystem to version 0.3.0.
 
 ## 0.2.4
 
