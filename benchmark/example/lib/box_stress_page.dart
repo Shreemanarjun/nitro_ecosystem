@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:ui' as ui;
 import 'dart:math' as math;
 import 'package:benchmark/benchmark.dart';
 import 'package:flutter/foundation.dart';
@@ -116,7 +117,9 @@ class BenchmarkManager {
             int Function(Pointer<Uint8>, int)
           >('send_large_buffer_noop');
     } catch (_) {
-      debugPrint('⚠️ [NitroBenchmark] Raw FFI send_large_buffer_noop not found.');
+      debugPrint(
+        '⚠️ [NitroBenchmark] Raw FFI send_large_buffer_noop not found.',
+      );
     }
 
     _fpsTimer?.cancel();
@@ -149,16 +152,17 @@ class BenchmarkManager {
   }
 
   static Future<void> runHighBandwidthTest(int gb) async {
-    final size = gb * 1024 * 1024 * 1024;
+    final byteSize = gb * 1024 * 1024 * 1024;
     debugPrint('🐘 [NitroBenchmark] Starting $gb GB throughput test...');
 
-    final buffer = Uint8List(size);
+    final buffer = Uint8List(byteSize);
 
     for (final type in [
       BridgeType.methodChannel,
       BridgeType.nitro,
       BridgeType.rawFfi,
       BridgeType.nitroCpp,
+      BridgeType.nitroUnsafe,
     ]) {
       throughputResults[type]!.value = 'Testing...';
       final sw = Stopwatch()..start();
@@ -178,12 +182,20 @@ class BenchmarkManager {
               BenchmarkCpp.instance.sendLargeBufferNoopFast(buffer);
             }
             break;
+          case BridgeType.nitroUnsafe:
+            // Bypasses pinning cost to match Raw FFI theoretical performance.
+            final ptr = malloc<Uint8>(byteSize);
+            BenchmarkCpp.instance.sendLargeBufferUnsafe(ptr, byteSize);
+            malloc.free(ptr);
+            break;
           case BridgeType.rawFfi:
-            final func = isChecksumEnabled.value ? _rawSendBuffer : _rawSendBufferNoop;
+            final func = isChecksumEnabled.value
+                ? _rawSendBuffer
+                : _rawSendBufferNoop;
             if (func != null) {
               // We use a pre-allocated pointer to avoid measuring allocation cost
-              final ptr = malloc<Uint8>(size);
-              func(ptr, size);
+              final ptr = malloc<Uint8>(byteSize);
+              func(ptr, byteSize);
               malloc.free(ptr);
             } else {
               throw Exception('Not implemented');
@@ -197,8 +209,8 @@ class BenchmarkManager {
         // 🛡️ Prevent INFINITY by using a minimum of 1ms (or using microseconds for precision)
         final double elapsedSeconds =
             math.max(1, sw.elapsedMicroseconds) / 1000000.0;
-        final mbSize = size / (1024 * 1024);
-        final speed = mbSize / elapsedSeconds;
+        final mbSizeCalc = byteSize / (1024 * 1024);
+        final speed = mbSizeCalc / elapsedSeconds;
 
         final timeStr = sw.elapsedMilliseconds > 0
             ? '${sw.elapsedMilliseconds}ms'
@@ -235,6 +247,7 @@ class BenchmarkManager {
       BridgeType.nitroCppStruct,
       BridgeType.nitroCppAsync,
       BridgeType.nitroLeaf,
+      BridgeType.nitroUnsafe,
       BridgeType.rawFfi,
       BridgeType.methodChannel,
     ]) {
@@ -257,6 +270,9 @@ class BenchmarkManager {
             await BenchmarkCpp.instance.computeStats(1);
             break;
           case BridgeType.nitroLeaf:
+            BenchmarkCpp.instance.addFast(1, 2);
+            break;
+          case BridgeType.nitroUnsafe:
             BenchmarkCpp.instance.addFast(1, 2);
             break;
           case BridgeType.rawFfi:
@@ -312,43 +328,171 @@ class _BoxStressPageState extends State<BoxStressPage> {
       backgroundColor: Colors.black,
       appBar: AppBar(
         title: const Text(
-          'Nitro Multi-Bridge Bench',
-          style: TextStyle(fontWeight: FontWeight.bold),
+          'NITRO STRESS',
+          style: TextStyle(
+            fontWeight: FontWeight.w900,
+            letterSpacing: 1.2,
+            fontSize: 16,
+          ),
         ),
         backgroundColor: Colors.transparent,
         elevation: 0,
-        actions: [
-          IconButton(
-            icon: const Icon(Icons.sd_storage, color: Colors.cyan),
-            onPressed: () => BenchmarkManager.runHighBandwidthTest(1),
-            tooltip: 'Run 1GB Test',
-          ),
-          IconButton(
-            icon: const Icon(Icons.analytics, color: Colors.amber),
-            onPressed: BenchmarkManager.runOneOffProfiler,
-          ),
-          Watch(
-            (_) => Row(
-              children: [
-                const Text('Checksum', style: TextStyle(fontSize: 10, color: Colors.white54)),
-                Switch(
-                  value: BenchmarkManager.isChecksumEnabled.value,
-                  activeColor: Colors.cyan,
-                  onChanged: (v) => BenchmarkManager.isChecksumEnabled.value = v,
+        bottom: PreferredSize(
+          preferredSize: const ui.Size.fromHeight(96),
+          child: Column(
+            children: [
+              // 🧪 ROW 2: Benchmark Accuracy Mode
+              Container(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 12,
+                  vertical: 8,
                 ),
-              ],
-            ),
+                decoration: BoxDecoration(
+                  border: Border(
+                    top: BorderSide(color: Colors.white.withAlpha(10)),
+                  ),
+                ),
+                child: Row(
+                  children: [
+                    const Icon(
+                      Icons.settings_suggest,
+                      size: 14,
+                      color: Colors.white54,
+                    ),
+                    const SizedBox(width: 8),
+                    const Text(
+                      'DIAGNOSTIC MODE',
+                      style: TextStyle(
+                        fontSize: 10,
+                        color: Colors.white54,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                    const Spacer(),
+                    Watch(
+                      (_) => SegmentedButton<bool>(
+                        segments: const [
+                          ButtonSegment(
+                            value: true,
+                            icon: Icon(Icons.psychology, size: 14),
+                            label: Text(
+                              'ACCURATE',
+                              style: TextStyle(fontSize: 9),
+                            ),
+                          ),
+                          ButtonSegment(
+                            value: false,
+                            icon: Icon(Icons.bolt, size: 14),
+                            label: Text('FLOOR', style: TextStyle(fontSize: 9)),
+                          ),
+                        ],
+                        selected: {BenchmarkManager.isChecksumEnabled.value},
+                        onSelectionChanged: (v) =>
+                            BenchmarkManager.isChecksumEnabled.value = v.first,
+                        showSelectedIcon: false,
+                        style: const ButtonStyle(
+                          visualDensity: VisualDensity.compact,
+                          tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    IconButton(
+                      visualDensity: VisualDensity.compact,
+                      icon: const Icon(
+                        Icons.delete_sweep,
+                        color: Colors.redAccent,
+                        size: 18,
+                      ),
+                      onPressed: () {
+                        for (var res
+                            in BenchmarkManager.throughputResults.values) {
+                          res.value = null;
+                        }
+                      },
+                      tooltip: 'Clear Results',
+                    ),
+                  ],
+                ),
+              ),
+              // 🚀 ROW 3: High-Bandwidth & Master Control
+              Container(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 12,
+                  vertical: 4,
+                ),
+                decoration: BoxDecoration(
+                  border: Border(
+                    top: BorderSide(color: Colors.white.withAlpha(5)),
+                  ),
+                  color: Colors.white.withAlpha(5),
+                ),
+                child: Row(
+                  children: [
+                    const Icon(Icons.speed, size: 14, color: Colors.cyanAccent),
+                    const SizedBox(width: 8),
+                    const Text(
+                      'THROUGHPUT ENGINE',
+                      style: TextStyle(
+                        fontSize: 10,
+                        color: Colors.cyanAccent,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                    const Spacer(),
+                    IconButton(
+                      visualDensity: VisualDensity.compact,
+                      icon: const Icon(
+                        Icons.sd_storage,
+                        color: Colors.cyanAccent,
+                        size: 20,
+                      ),
+                      onPressed: () => BenchmarkManager.runHighBandwidthTest(1),
+                      tooltip: 'Run 1GB Test',
+                    ),
+                    IconButton(
+                      visualDensity: VisualDensity.compact,
+                      icon: const Icon(
+                        Icons.analytics_outlined,
+                        color: Colors.amberAccent,
+                        size: 20,
+                      ),
+                      onPressed: BenchmarkManager.runOneOffProfiler,
+                      tooltip: 'Run Profiler',
+                    ),
+                    const VerticalDivider(
+                      width: 12,
+                      indent: 8,
+                      endIndent: 8,
+                      color: Colors.white24,
+                    ),
+                    const Text(
+                      'LIVE STRESS',
+                      style: TextStyle(
+                        fontSize: 9,
+                        color: Colors.greenAccent,
+                        fontWeight: FontWeight.w900,
+                        letterSpacing: 0.5,
+                      ),
+                    ),
+                    const SizedBox(width: 4),
+                    Watch(
+                      (_) => Transform.scale(
+                        scale: 0.7,
+                        child: Switch(
+                          value: BenchmarkManager.isRunning.value,
+                          activeThumbColor: Colors.greenAccent,
+                          activeTrackColor: Colors.green.withAlpha(100),
+                          onChanged: BenchmarkManager.toggleRunning,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
           ),
-          Watch(
-            (_) => Switch(
-              value: BenchmarkManager.isRunning.value,
-              activeThumbColor: Colors.amber,
-              activeTrackColor: Colors.amber.withAlpha(100),
-              onChanged: BenchmarkManager.toggleRunning,
-            ),
-          ),
-          const SizedBox(width: 16),
-        ],
+        ),
       ),
       body: const Column(
         children: [

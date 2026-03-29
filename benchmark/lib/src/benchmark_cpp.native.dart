@@ -81,4 +81,8 @@ abstract class BenchmarkCpp extends HybridObject {
 
   /// Ultra-fast baseline FFI test (Leaf call).
   int sendLargeBufferNoopFast(Uint8List buffer);
+
+  /// Unsafe baseline — passes a raw pointer directly (Manual memory management).
+  /// This bypasses the 100ms pinning cost to match Raw FFI theoretical performance.
+  int sendLargeBufferUnsafe(Pointer<Uint8> ptr, int length);
 }

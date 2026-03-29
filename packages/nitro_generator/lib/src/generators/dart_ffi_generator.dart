@@ -254,7 +254,7 @@ class DartFfiGenerator {
             s.writeln('      return;');
           } else if (isRecordReturn) {
             final decodeExpr = _decodeRecordExpr(func.returnType, 'res as Pointer<Uint8>');
-            s.writeln('      final ${rt} decoded;');
+            s.writeln('      final $rt decoded;');
             s.writeln('      try {');
             s.writeln('        decoded = $decodeExpr;');
             s.writeln('      } finally {');
@@ -263,7 +263,7 @@ class DartFfiGenerator {
             s.writeln('      return decoded;');
           } else if (spec.structs.any((st) => st.name == rt)) {
             s.writeln('      final structPtr = Pointer<${rt}Ffi>.fromAddress(res.address);');
-            s.writeln('      final ${rt} decoded;');
+            s.writeln('      final $rt decoded;');
             s.writeln('      try {');
             s.writeln('        decoded = structPtr.ref.toDart();');
             s.writeln('      } finally {');
@@ -293,7 +293,7 @@ class DartFfiGenerator {
             }
             if (isRecordReturn) {
               final decodeExpr = _decodeRecordExpr(func.returnType, 'res as Pointer<Uint8>');
-              s.writeln('    final ${rt} decoded;');
+              s.writeln('    final $rt decoded;');
               s.writeln('    try {');
               s.writeln('      decoded = $decodeExpr;');
               s.writeln('    } finally {');
@@ -304,7 +304,7 @@ class DartFfiGenerator {
               s.writeln('    return res.to$rt();');
             } else if (spec.structs.any((st) => st.name == rt)) {
               s.writeln('    final structPtr = Pointer<${rt}Ffi>.fromAddress(res.address);');
-              s.writeln('    final ${rt} decoded;');
+              s.writeln('    final $rt decoded;');
               s.writeln('    try {');
               s.writeln('      decoded = structPtr.ref.toDart();');
               s.writeln('    } finally {');

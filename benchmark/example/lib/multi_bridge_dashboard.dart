@@ -10,10 +10,11 @@ class MultiBridgeDashboard extends StatefulWidget {
   State<MultiBridgeDashboard> createState() => _MultiBridgeDashboardState();
 }
 
-class _MultiBridgeDashboardState extends State<MultiBridgeDashboard> with TickerProviderStateMixin {
+class _MultiBridgeDashboardState extends State<MultiBridgeDashboard>
+    with TickerProviderStateMixin {
   final _iterationSignal = signal<int>(1);
   final _isTestingSignal = signal<bool>(false);
-  
+
   late final AnimationController _successController;
   late final Animation<double> _successAnimation;
 
@@ -21,7 +22,7 @@ class _MultiBridgeDashboardState extends State<MultiBridgeDashboard> with Ticker
   void initState() {
     super.initState();
     BenchmarkManager.init();
-    
+
     _successController = AnimationController(
       vsync: this,
       duration: const Duration(milliseconds: 600),
@@ -49,83 +50,153 @@ class _MultiBridgeDashboardState extends State<MultiBridgeDashboard> with Ticker
       backgroundColor: Colors.black,
       appBar: AppBar(
         title: const Text(
-          'Nitro Throughput Bench',
-          style: TextStyle(fontWeight: FontWeight.bold, letterSpacing: 1.2),
-        ),
-        backgroundColor: Colors.black,
-        elevation: 0,
-        actions: [
-          Row(
-            children: [
-              const Text(
-                'Iterations:',
-                style: TextStyle(fontSize: 10, color: Colors.white54),
-              ),
-              Watch(
-                (_) => DropdownButton<int>(
-                  value: _iterationSignal.value,
-                  dropdownColor: Colors.grey.shade900,
-                  underline: const SizedBox.shrink(),
-                  style: const TextStyle(
-                    color: Colors.cyan,
-                    fontSize: 12,
-                    fontWeight: FontWeight.bold,
-                  ),
-                  items: List.generate(10, (i) => i + 1)
-                      .map(
-                        (i) => DropdownMenuItem(value: i, child: Text('$i x')),
-                      )
-                      .toList(),
-                  onChanged: (v) => _iterationSignal.value = v ?? 1,
-                ),
-              ),
-            ],
+          'NITRO THROUGHPUT',
+          style: TextStyle(
+            fontWeight: FontWeight.w900,
+            letterSpacing: 1.2,
+            fontSize: 16,
           ),
+        ),
+        actions: [
           Watch(
-            (_) => Row(
+            (_) => Container(
+              margin: const EdgeInsets.only(right: 8),
+              padding: const EdgeInsets.symmetric(horizontal: 12),
+              decoration: BoxDecoration(
+                color: Colors.white.withAlpha(10),
+                borderRadius: BorderRadius.circular(20),
+              ),
+              child: DropdownButton<int>(
+                value: _iterationSignal.value,
+                dropdownColor: Colors.grey.shade900,
+                underline: const SizedBox.shrink(),
+                icon: const Icon(
+                  Icons.expand_more,
+                  size: 14,
+                  color: Colors.white54,
+                ),
+                style: const TextStyle(
+                  color: Colors.cyan,
+                  fontSize: 11,
+                  fontWeight: FontWeight.bold,
+                ),
+                items: List.generate(10, (i) => i + 1)
+                    .map(
+                      (i) => DropdownMenuItem(
+                        value: i,
+                        child: Text('$i x Samples'),
+                      ),
+                    )
+                    .toList(),
+                onChanged: (v) => _iterationSignal.value = v ?? 1,
+              ),
+            ),
+          ),
+        ],
+        bottom: PreferredSize(
+          preferredSize: const Size.fromHeight(48),
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+            decoration: BoxDecoration(
+              border: Border(
+                top: BorderSide(color: Colors.white.withAlpha(10)),
+              ),
+            ),
+            child: Row(
               children: [
-                const Text('Checksum', style: TextStyle(fontSize: 10, color: Colors.white54)),
-                Switch(
-                  value: BenchmarkManager.isChecksumEnabled.value,
-                  activeColor: Colors.cyan,
-                  onChanged: (v) => BenchmarkManager.isChecksumEnabled.value = v,
+                Watch(
+                  (_) => SegmentedButton<bool>(
+                    segments: const [
+                      ButtonSegment(
+                        value: true,
+                        icon: Icon(Icons.psychology, size: 16),
+                        label: Text('ACCURATE', style: TextStyle(fontSize: 9)),
+                      ),
+                      ButtonSegment(
+                        value: false,
+                        icon: Icon(Icons.bolt, size: 16),
+                        label: Text('FLOOR', style: TextStyle(fontSize: 9)),
+                      ),
+                    ],
+                    selected: {BenchmarkManager.isChecksumEnabled.value},
+                    onSelectionChanged: (v) =>
+                        BenchmarkManager.isChecksumEnabled.value = v.first,
+                    showSelectedIcon: false,
+                    style: const ButtonStyle(
+                      visualDensity: VisualDensity.compact,
+                      tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                    ),
+                  ),
+                ),
+                const Spacer(),
+                IconButton(
+                  icon: const Icon(
+                    Icons.delete_sweep,
+                    color: Colors.redAccent,
+                    size: 20,
+                  ),
+                  onPressed: () {
+                    for (var res in BenchmarkManager.throughputResults.values) {
+                      res.value = null;
+                    }
+                  },
+                  tooltip: 'Clear Results',
+                ),
+                Watch(
+                  (_) => _isTestingSignal.value
+                      ? const Padding(
+                          padding: EdgeInsets.symmetric(horizontal: 12),
+                          child: SizedBox(
+                            width: 16,
+                            height: 16,
+                            child: CircularProgressIndicator(
+                              strokeWidth: 2,
+                              color: Colors.cyan,
+                            ),
+                          ),
+                        )
+                      : IconButton(
+                          icon: const Icon(
+                            Icons.bolt,
+                            color: Colors.cyanAccent,
+                            size: 20,
+                          ),
+                          onPressed: () async {
+                            _isTestingSignal.value = true;
+                            final iterations = _iterationSignal.value;
+                            final checksumValue =
+                                BenchmarkManager.isChecksumEnabled.value;
+                            debugPrint(
+                              '🚀 [NitroBenchmark] Starting Multi-Sample Throughput Profile (x$iterations, checksum=$checksumValue)...',
+                            );
+                            try {
+                              for (var i = 0; i < iterations; i++) {
+                                if (!mounted) return;
+                                await BenchmarkManager.runHighBandwidthTest(1);
+                              }
+                              if (mounted) {
+                                _triggerSuccess();
+                                _logFinalStats(iterations);
+                              }
+                            } finally {
+                              _isTestingSignal.value = false;
+                            }
+                          },
+                          tooltip: 'Run 1GB Test',
+                        ),
+                ),
+                IconButton(
+                  icon: const Icon(
+                    Icons.analytics_outlined,
+                    color: Colors.amberAccent,
+                    size: 20,
+                  ),
+                  onPressed: BenchmarkManager.runOneOffProfiler,
                 ),
               ],
             ),
           ),
-          Watch((_) => IconButton(
-            icon: _isTestingSignal.value 
-              ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.cyan))
-              : const Icon(Icons.bolt, color: Colors.cyan),
-            onPressed: _isTestingSignal.value ? null : () async {
-              _isTestingSignal.value = true;
-              final iterations = _iterationSignal.value;
-              final checksum = BenchmarkManager.isChecksumEnabled.value;
-              debugPrint('🚀 [NitroBenchmark] Starting Multi-Sample Throughput Profile (x$iterations, checksum=$checksum)...');
-              
-              try {
-                for (var i = 0; i < iterations; i++) {
-                  if (!mounted) return;
-                  await BenchmarkManager.runHighBandwidthTest(1);
-                }
-                
-                if (mounted) {
-                  _triggerSuccess();
-                  debugPrint('✅ [NitroBenchmark] High-Bandwidth Profile Complete!');
-                  _logFinalStats(iterations);
-                }
-              } finally {
-                _isTestingSignal.value = false;
-              }
-            },
-            tooltip: 'Run Test',
-          )),
-          IconButton(
-            icon: const Icon(Icons.analytics, color: Colors.amber),
-            onPressed: BenchmarkManager.runOneOffProfiler,
-          ),
-          const SizedBox(width: 8),
-        ],
+        ),
       ),
       body: Stack(
         children: [
@@ -177,18 +248,33 @@ class _MultiBridgeDashboardState extends State<MultiBridgeDashboard> with Ticker
               child: FadeTransition(
                 opacity: ReverseAnimation(_successAnimation),
                 child: Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 24,
+                    vertical: 12,
+                  ),
                   decoration: BoxDecoration(
                     color: Colors.green.withAlpha(200),
                     borderRadius: BorderRadius.circular(30),
-                    boxShadow: [BoxShadow(color: Colors.green.withAlpha(100), blurRadius: 40)],
+                    boxShadow: [
+                      BoxShadow(
+                        color: Colors.green.withAlpha(100),
+                        blurRadius: 40,
+                      ),
+                    ],
                   ),
                   child: const Row(
                     mainAxisSize: MainAxisSize.min,
                     children: [
                       Icon(Icons.check_circle, color: Colors.white),
                       SizedBox(width: 12),
-                      Text('SUCCESS', style: TextStyle(color: Colors.white, fontWeight: FontWeight.w900, letterSpacing: 2)),
+                      Text(
+                        'SUCCESS',
+                        style: TextStyle(
+                          color: Colors.white,
+                          fontWeight: FontWeight.w900,
+                          letterSpacing: 2,
+                        ),
+                      ),
                     ],
                   ),
                 ),
@@ -202,7 +288,9 @@ class _MultiBridgeDashboardState extends State<MultiBridgeDashboard> with Ticker
 
   void _logFinalStats(int iterations) {
     final checksum = BenchmarkManager.isChecksumEnabled.value;
-    debugPrint('\n📊 [NitroBenchmark] FINAL THROUGHPUT RESULTS (Averages over $iterations iterations, checksum=$checksum):');
+    debugPrint(
+      '\n📊 [NitroBenchmark] FINAL THROUGHPUT RESULTS (Averages over $iterations iterations, checksum=$checksum):',
+    );
     for (var type in BridgeType.values) {
       final res = BenchmarkManager.throughputResults[type]?.value;
       if (res != null) {

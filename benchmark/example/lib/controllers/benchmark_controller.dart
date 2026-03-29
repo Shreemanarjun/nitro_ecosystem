@@ -82,6 +82,9 @@ class BenchmarkController {
         // Absolute best performance: Leaf Call + No Error Check
         return plugin.BenchmarkCpp.instance.addFast(a, b);
 
+      case BridgeType.nitroUnsafe:
+        return plugin.BenchmarkCpp.instance.addFast(a, b);
+
       case BridgeType.rawFfi:
         if (_rawAdd == null) throw Exception('Raw FFI bridge not initialized');
         return _rawAdd!(a, b);

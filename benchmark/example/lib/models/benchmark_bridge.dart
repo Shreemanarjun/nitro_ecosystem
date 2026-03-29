@@ -18,6 +18,9 @@ enum BridgeType {
   /// Nitro C++ path with Leaf call + skipped safety checks.
   nitroLeaf,
 
+  /// Nitro C++ path with Unsafe raw pointer passing (Near-zero pinning cost).
+  nitroUnsafe,
+
   /// Raw Dart FFI — dlsym lookup, no Nitro layer.
   rawFfi,
 
@@ -38,6 +41,8 @@ extension BridgeTypeExt on BridgeType {
         return 'Nitro (C++ Async)';
       case BridgeType.nitroLeaf:
         return 'Nitro (Leaf Call)';
+      case BridgeType.nitroUnsafe:
+        return 'Nitro (Unsafe Ptr)';
       case BridgeType.rawFfi:
         return 'Raw FFI';
       case BridgeType.methodChannel:
@@ -57,6 +62,8 @@ extension BridgeTypeExt on BridgeType {
         return Colors.lightBlue;
       case BridgeType.nitroLeaf:
         return Colors.orange;
+      case BridgeType.nitroUnsafe:
+        return Colors.deepOrangeAccent;
       case BridgeType.rawFfi:
         return Colors.green;
       case BridgeType.methodChannel:
@@ -69,5 +76,6 @@ extension BridgeTypeExt on BridgeType {
       this == BridgeType.nitroCpp ||
       this == BridgeType.nitroCppStruct ||
       this == BridgeType.nitroCppAsync ||
+      this == BridgeType.nitroUnsafe ||
       this == BridgeType.nitroLeaf;
 }

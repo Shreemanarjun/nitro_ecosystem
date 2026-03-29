@@ -138,6 +138,11 @@ public:
         return static_cast<int64_t>(buffer_length);
     }
 
+    int64_t sendLargeBufferUnsafe(const uint8_t* buffer, size_t buffer_length) override {
+        // Bypasses pinning cost — matches Raw FFI theoretical performance.
+        return static_cast<int64_t>(buffer_length);
+    }
+
 private:
     std::thread _streamThread;
     std::atomic<bool> _running;
