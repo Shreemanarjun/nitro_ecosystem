@@ -54,34 +54,27 @@ class _MainNavigationPageState extends State<MainNavigationPage> {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      body: IndexedStack(
-        index: _selectedIndex,
-        children: _pages,
-      ),
-      bottomNavigationBar: NavigationBar(
-        selectedIndex: _selectedIndex,
-        onDestinationSelected: (index) {
-          setState(() {
-            _selectedIndex = index;
-          });
-        },
-        backgroundColor: Colors.grey.shade900,
-        indicatorColor: Colors.cyan.withAlpha(50),
-        destinations: const [
-          NavigationRequest(
-            icon: Icon(Icons.speed),
-            label: 'Throughput',
-          ),
-          NavigationRequest(
-            icon: Icon(Icons.flash_on),
-            label: 'Visual Stress',
-          ),
-          NavigationRequest(
-            icon: Icon(Icons.analytics),
-            label: 'API Bench',
-          ),
-        ],
+    return SafeArea(
+      child: Scaffold(
+        body: IndexedStack(index: _selectedIndex, children: _pages),
+        bottomNavigationBar: NavigationBar(
+          selectedIndex: _selectedIndex,
+          onDestinationSelected: (index) {
+            setState(() {
+              _selectedIndex = index;
+            });
+          },
+          backgroundColor: Colors.grey.shade900,
+          indicatorColor: Colors.cyan.withAlpha(50),
+          destinations: const [
+            NavigationRequest(icon: Icon(Icons.speed), label: 'Throughput'),
+            NavigationRequest(
+              icon: Icon(Icons.flash_on),
+              label: 'Visual Stress',
+            ),
+            NavigationRequest(icon: Icon(Icons.analytics), label: 'API Bench'),
+          ],
+        ),
       ),
     );
   }
