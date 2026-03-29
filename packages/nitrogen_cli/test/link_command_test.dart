@@ -160,6 +160,17 @@ abstract class Math extends HybridObject {}
       expect(modules, hasLength(1));
       expect(modules.first.lib, equals('my_plugin'));
     });
+ 
+    test('handles filenames with consecutive underscores (toPascalCase safety)', () {
+      final libDir = _libDir(tmp);
+      _writeSpec(libDir, 'my__module.native.dart', '''
+@NitroModule(lib: "my_lib")
+abstract class MyModule extends HybridObject {}
+''');
+      final modules = discoverModuleInfos('plugin_name', baseDir: tmp.path);
+      expect(modules, hasLength(1));
+      expect(modules.first.module, equals('MyModule'));
+    });
   });
 
   group('LinkCommand Module Discovery', () {

@@ -845,4 +845,86 @@ void main() {
       },
     );
   });
+ 
+  group('DartFfiGenerator (v4 fixes)', () {
+    test('initFunc check return values and throws on error', () {
+      final out = DartFfiGenerator.generate(simpleSpec());
+      expect(out, contains('final initCode = initFunc(NativeApi.initializeApiDLData);'));
+      expect(out, contains('if (initCode != 0) {'));
+      expect(out, contains("throw StateError('my_camera: Dart API DL initialization failed with code \$initCode.');"));
+    });
+ 
+    test('Fast (leaf) methods have checkDisposed() guard', () {
+      final spec = BridgeSpec(
+        dartClassName: 'Calc',
+        lib: 'calc',
+        namespace: 'calc',
+        iosImpl: NativeImpl.cpp,
+        androidImpl: NativeImpl.cpp,
+        sourceUri: 'calc.native.dart',
+        functions: [
+          BridgeFunction(
+            dartName: 'addFast',
+            cSymbol: 'calc_add_fast',
+            isAsync: false,
+            returnType: BridgeType(name: 'int'),
+            params: [],
+          ),
+        ],
+      );
+      final out = DartFfiGenerator.generate(spec);
+      // It should still have checkDisposed
+      expect(out, contains('int addFast() {\n    checkDisposed();'));
+    });
+ 
+    test('Fast (leaf) methods skip NitroRuntime.checkError', () {
+      final spec = BridgeSpec(
+        dartClassName: 'Calc',
+        lib: 'calc',
+        namespace: 'calc',
+        iosImpl: NativeImpl.cpp,
+        androidImpl: NativeImpl.cpp,
+        sourceUri: 'calc.native.dart',
+        functions: [
+          BridgeFunction(
+            dartName: 'addFast',
+            cSymbol: 'calc_add_fast',
+            isAsync: false,
+            returnType: BridgeType(name: 'int'),
+            params: [],
+          ),
+        ],
+      );
+      final out = DartFfiGenerator.generate(spec);
+      expect(out, isNot(contains('NitroRuntime.checkError')));
+    });
+ 
+    test('non-arena record return uses try/finally for malloc.free', () {
+      final spec = BridgeSpec(
+        dartClassName: 'Mod',
+        lib: 'mod',
+        namespace: 'mod',
+        iosImpl: NativeImpl.swift,
+        androidImpl: NativeImpl.kotlin,
+        sourceUri: 'mod.native.dart',
+        functions: [
+          BridgeFunction(
+            dartName: 'getRecord',
+            cSymbol: 'mod_get_record',
+            isAsync: false,
+            returnType: BridgeType(name: 'Config', isRecord: true),
+            params: [],
+          ),
+        ],
+        recordTypes: [
+          BridgeRecordType(name: 'Config', fields: []),
+        ],
+      );
+      final out = DartFfiGenerator.generate(spec);
+      expect(out, contains('try {'));
+      expect(out, contains('return ConfigRecordExt.fromNative(res as Pointer<Uint8>);'));
+      expect(out, contains('} finally {'));
+      expect(out, contains('malloc.free(res);'));
+    });
+  });
 }

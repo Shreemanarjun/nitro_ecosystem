@@ -89,7 +89,7 @@ List<ModuleInfo> discoverModuleInfos(String pluginName, {String baseDir = '.'}) 
     final stem = p.basename(spec.path).replaceAll(RegExp(r'\.native\.dart$'), '');
     final libName = extractLibNameFromSpec(spec) ?? stem.replaceAll('-', '_');
     final moduleMatch = RegExp(r'abstract class (\w+) extends HybridObject').firstMatch(content);
-    final moduleName = moduleMatch?.group(1) ?? stem.split('_').map((w) => w[0].toUpperCase() + w.substring(1)).join('');
+    final moduleName = moduleMatch?.group(1) ?? _toPascalCase(stem);
 
     if (!modules.any((m) => m.module == moduleName)) {
       modules.add(ModuleInfo(lib: libName, module: moduleName, isCpp: isCppModule(spec)));
