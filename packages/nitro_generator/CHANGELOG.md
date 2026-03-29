@@ -1,3 +1,11 @@
+## 0.2.5
+
+- **New: Thread-Safe Bridge Implementation** — `CppBridgeGenerator` now utilizes `std::atomic` for implementation registration (`g_impl`) and stream port management (`g_port_`). This ensures safe access across multiple native threads and Dart isolates.
+- **New: nullability preservation in C++** — The `CppInterfaceGenerator` now leverages `BridgeType` metadata to emit `std::optional<T>` for nullable Dart types, improving type safety on the native side.
+- **Improved: FFI Memory Safety** — Updated `DartFfiGenerator` to emit robust `try { ... } finally { malloc.free(...); }` blocks for all record and struct return paths. This prevents memory leaks if Dart decoding throws an exception.
+- **Improved: Code Generation Reliability** — Added `checkDisposed()` guards to all generated methods, including `Fast` (leaf) functions.
+- **Fixed: Builder diagnostics** — Corrected string interpolation in `builder.printWarning` to show actual file paths instead of literal placeholders.
+
 ## 0.2.4
 
 - **Fixed: `typedef redefinition` when multiple modules share a struct** — `generateCStructs` now wraps each C struct in a `#ifndef NITRO_STRUCT_<NAME>_DEFINED` / `#define` / `#endif` guard. When two bridge headers (e.g. `benchmark.bridge.g.h` and `benchmark_cpp.bridge.g.h`) both declare the same struct (e.g. `BenchmarkPoint`) and are compiled into the same translation unit via the CocoaPods umbrella header, the second definition becomes a no-op instead of a fatal `typedef redefinition` error.

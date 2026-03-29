@@ -78,7 +78,11 @@ class _ComplexModuleImpl extends ComplexModule {
   _ComplexModuleImpl() : _dylib = NitroRuntime.loadLib('complex') {
     final initFunc = _dylib.lookupFunction<IntPtr Function(Pointer<Void>),
         int Function(Pointer<Void>)>('complex_init_dart_api_dl');
-    initFunc(NativeApi.initializeApiDLData);
+    final initCode = initFunc(NativeApi.initializeApiDLData);
+    if (initCode != 0) {
+      throw StateError(
+          'complex: Dart API DL initialization failed with code $initCode.');
+    }
   }
 
   late final int Function(int, double, int) _calculatePtr =
@@ -214,9 +218,11 @@ class _ComplexModuleImpl extends ComplexModule {
       register: (port) => _registerSensorStreamPtr(port),
       unpack: (rawPtr) {
         final ptr = Pointer<SensorDataFfi>.fromAddress(rawPtr);
-        final decoded = ptr.ref.toDart();
-        malloc.free(ptr);
-        return decoded;
+        try {
+          return ptr.ref.toDart();
+        } finally {
+          malloc.free(ptr);
+        }
       },
       release: (port) => _releaseSensorStreamPtr(port),
       backpressure: Backpressure.dropLatest,
@@ -230,9 +236,11 @@ class _ComplexModuleImpl extends ComplexModule {
       register: (port) => _registerDataStreamPtr(port),
       unpack: (rawPtr) {
         final ptr = Pointer<PacketFfi>.fromAddress(rawPtr);
-        final decoded = ptr.ref.toDart();
-        malloc.free(ptr);
-        return decoded;
+        try {
+          return ptr.ref.toDart();
+        } finally {
+          malloc.free(ptr);
+        }
       },
       release: (port) => _releaseDataStreamPtr(port),
       backpressure: Backpressure.bufferDrop,

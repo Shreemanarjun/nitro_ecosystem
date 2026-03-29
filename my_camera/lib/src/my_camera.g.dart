@@ -98,7 +98,11 @@ class _MyCameraImpl extends MyCamera {
   _MyCameraImpl() : _dylib = NitroRuntime.loadLib('my_camera') {
     final initFunc = _dylib.lookupFunction<IntPtr Function(Pointer<Void>),
         int Function(Pointer<Void>)>('my_camera_init_dart_api_dl');
-    initFunc(NativeApi.initializeApiDLData);
+    final initCode = initFunc(NativeApi.initializeApiDLData);
+    if (initCode != 0) {
+      throw StateError(
+          'my_camera: Dart API DL initialization failed with code $initCode.');
+    }
   }
 
   late final double Function(double, double) _addPtr = _dylib.lookupFunction<
@@ -186,9 +190,11 @@ class _MyCameraImpl extends MyCamera {
       register: (port) => _registerFramesPtr(port),
       unpack: (rawPtr) {
         final ptr = Pointer<CameraFrameFfi>.fromAddress(rawPtr);
-        final decoded = ptr.ref.toDart();
-        malloc.free(ptr);
-        return decoded;
+        try {
+          return ptr.ref.toDart();
+        } finally {
+          malloc.free(ptr);
+        }
       },
       release: (port) => _releaseFramesPtr(port),
       backpressure: Backpressure.dropLatest,
@@ -202,9 +208,11 @@ class _MyCameraImpl extends MyCamera {
       register: (port) => _registerColoredFramesPtr(port),
       unpack: (rawPtr) {
         final ptr = Pointer<CameraFrameFfi>.fromAddress(rawPtr);
-        final decoded = ptr.ref.toDart();
-        malloc.free(ptr);
-        return decoded;
+        try {
+          return ptr.ref.toDart();
+        } finally {
+          malloc.free(ptr);
+        }
       },
       release: (port) => _releaseColoredFramesPtr(port),
       backpressure: Backpressure.dropLatest,

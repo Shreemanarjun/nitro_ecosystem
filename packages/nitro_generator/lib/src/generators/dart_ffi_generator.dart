@@ -397,11 +397,11 @@ class DartFfiGenerator {
       final String unpackExpr;
       if (isRecord) {
         final decodeExpr = _decodeRecordExpr(stream.itemType, 'rawPtr');
-        unpackExpr = '(rawPtr) => $decodeExpr';
+        unpackExpr = '(rawPtr) { try { return $decodeExpr; } finally { malloc.free(rawPtr); } }';
       } else if (isStruct) {
         // The C++ emitter mallocs a struct pointer and sends the raw address.
         // We must free it after copying to Dart to prevent a per-event leak.
-        unpackExpr = '(rawPtr) { final ptr = Pointer<${itemType}Ffi>.fromAddress(rawPtr); final decoded = ptr.ref.toDart(); malloc.free(ptr); return decoded; }';
+        unpackExpr = '(rawPtr) { final ptr = Pointer<${itemType}Ffi>.fromAddress(rawPtr); try { return ptr.ref.toDart(); } finally { malloc.free(ptr); } }';
       } else {
         unpackExpr = '(rawPtr) => rawPtr as $itemType';
       }

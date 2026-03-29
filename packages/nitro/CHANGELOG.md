@@ -1,3 +1,9 @@
+## 0.2.5
+
+- **Improved: Memory Safety**: FFI generated code now uses `try-finally` blocks for all async and sync record/struct return paths, ensuring `malloc.free` is called even if decoding fails.
+- **Improved: Thread Safety**: The `HybridObject` implementation now enforces `checkDisposed()` guards on all native methods, including `Fast` variants, to prevent use-after-dispose crashes.
+- **Fixed: Fail-Fast Initialization**: `NitroRuntime` now explicitly validates return codes from native initialization (e.g., `Dart_InitializeApiDL`). If initialization fails, a `StateError` is thrown immediately instead of failing silently later.
+
 ## 0.2.3
 
 - **Improved: Native Visibility Visibility**: Updated `nitro.h` to include `NITRO_EXPORT` macros by default, ensuring all native symbols are correctly exported for FFI across iOS, Android, macOS, and Windows.

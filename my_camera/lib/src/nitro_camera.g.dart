@@ -187,7 +187,11 @@ class _NitroCameraImpl extends NitroCamera {
   _NitroCameraImpl() : _dylib = NitroRuntime.loadLib('nitro_camera') {
     final initFunc = _dylib.lookupFunction<IntPtr Function(Pointer<Void>),
         int Function(Pointer<Void>)>('nitro_camera_init_dart_api_dl');
-    initFunc(NativeApi.initializeApiDLData);
+    final initCode = initFunc(NativeApi.initializeApiDLData);
+    if (initCode != 0) {
+      throw StateError(
+          'nitro_camera: Dart API DL initialization failed with code $initCode.');
+    }
   }
 
   late final int Function() _requestCameraPermissionPtr =
@@ -614,9 +618,11 @@ class _NitroCameraImpl extends NitroCamera {
       register: (port) => _registerFrameStreamPtr(port),
       unpack: (rawPtr) {
         final ptr = Pointer<CameraFrameFfi>.fromAddress(rawPtr);
-        final decoded = ptr.ref.toDart();
-        malloc.free(ptr);
-        return decoded;
+        try {
+          return ptr.ref.toDart();
+        } finally {
+          malloc.free(ptr);
+        }
       },
       release: (port) => _releaseFrameStreamPtr(port),
       backpressure: Backpressure.dropLatest,

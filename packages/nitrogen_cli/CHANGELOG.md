@@ -1,3 +1,8 @@
+## 0.2.5
+
+- **Fixed: PascalCase derivation for filenames with underscores** — `discoverModuleInfos` now uses a robust `_toPascalCase` helper with empty-segment guards. This prevents `RangeError` exceptions when processing filenames with consecutive underscores (e.g., `my__module.native.dart`).
+- **Improved: Ecosystem Sync**: Synchronized the Nitro ecosystem to version 0.2.5.
+
 ## 0.2.4
 
 - **Fixed: iOS build failure for NativeImpl.cpp modules** — Three issues that blocked `NativeImpl.cpp` modules from linking on iOS have been resolved:

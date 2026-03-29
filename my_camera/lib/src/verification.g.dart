@@ -34,7 +34,11 @@ class _VerificationModuleImpl extends VerificationModule {
   _VerificationModuleImpl() : _dylib = NitroRuntime.loadLib('verification') {
     final initFunc = _dylib.lookupFunction<IntPtr Function(Pointer<Void>),
         int Function(Pointer<Void>)>('verification_init_dart_api_dl');
-    initFunc(NativeApi.initializeApiDLData);
+    final initCode = initFunc(NativeApi.initializeApiDLData);
+    if (initCode != 0) {
+      throw StateError(
+          'verification: Dart API DL initialization failed with code $initCode.');
+    }
   }
 
   late final double Function(double, double) _multiplyPtr =
