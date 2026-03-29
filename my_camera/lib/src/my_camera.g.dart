@@ -46,10 +46,8 @@ extension ResolutionRecordExt on Resolution {
   static Resolution fromNative(Pointer<Uint8> ptr) =>
       fromReader(RecordReader.fromNative(ptr));
 
-  static Resolution fromReader(RecordReader r) => Resolution(
-        width: r.readInt(),
-        height: r.readInt(),
-      );
+  static Resolution fromReader(RecordReader r) =>
+      Resolution(width: r.readInt(), height: r.readInt());
 
   void writeFields(RecordWriter w) {
     w.writeInt(width);
@@ -68,12 +66,14 @@ extension CameraDeviceRecordExt on CameraDevice {
       fromReader(RecordReader.fromNative(ptr));
 
   static CameraDevice fromReader(RecordReader r) => CameraDevice(
-        id: r.readString(),
-        name: r.readString(),
-        resolutions: List.generate(
-            r.readInt32(), (_) => ResolutionRecordExt.fromReader(r)),
-        isFrontFacing: r.readBool(),
-      );
+    id: r.readString(),
+    name: r.readString(),
+    resolutions: List.generate(
+      r.readInt32(),
+      (_) => ResolutionRecordExt.fromReader(r),
+    ),
+    isFrontFacing: r.readBool(),
+  );
 
   void writeFields(RecordWriter w) {
     w.writeString(id);
@@ -96,47 +96,63 @@ class _MyCameraImpl extends MyCamera {
   final DynamicLibrary _dylib;
 
   _MyCameraImpl() : _dylib = NitroRuntime.loadLib('my_camera') {
-    final initFunc = _dylib.lookupFunction<IntPtr Function(Pointer<Void>),
-        int Function(Pointer<Void>)>('my_camera_init_dart_api_dl');
+    final initFunc = _dylib
+        .lookupFunction<
+          IntPtr Function(Pointer<Void>),
+          int Function(Pointer<Void>)
+        >('my_camera_init_dart_api_dl');
     final initCode = initFunc(NativeApi.initializeApiDLData);
     if (initCode != 0) {
       throw StateError(
-          'my_camera: Dart API DL initialization failed with code $initCode.');
+        'my_camera: Dart API DL initialization failed with code $initCode.',
+      );
     }
   }
 
-  late final double Function(double, double) _addPtr = _dylib.lookupFunction<
-      Double Function(Double, Double),
-      double Function(double, double)>('my_camera_add');
-  late final Pointer<Utf8> Function(Pointer<Utf8>) _getGreetingPtr =
-      _dylib.lookupFunction<Pointer<Utf8> Function(Pointer<Utf8>),
-          Pointer<Utf8> Function(Pointer<Utf8>)>('my_camera_get_greeting');
+  late final double Function(double, double) _addPtr = _dylib
+      .lookupFunction<
+        Double Function(Double, Double),
+        double Function(double, double)
+      >('my_camera_add');
+  late final Pointer<Utf8> Function(Pointer<Utf8>) _getGreetingPtr = _dylib
+      .lookupFunction<
+        Pointer<Utf8> Function(Pointer<Utf8>),
+        Pointer<Utf8> Function(Pointer<Utf8>)
+      >('my_camera_get_greeting');
   late final Pointer<Uint8> Function() _getAvailableDevicesPtr = _dylib
       .lookupFunction<Pointer<Uint8> Function(), Pointer<Uint8> Function()>(
-          'my_camera_get_available_devices');
-  late final void Function(int) _registerFramesPtr =
-      _dylib.lookupFunction<Void Function(Int64), void Function(int)>(
-          'my_camera_register_frames_stream');
-  late final void Function(int) _releaseFramesPtr =
-      _dylib.lookupFunction<Void Function(Int64), void Function(int)>(
-          'my_camera_release_frames_stream');
-  late final void Function(int) _registerColoredFramesPtr =
-      _dylib.lookupFunction<Void Function(Int64), void Function(int)>(
-          'my_camera_register_colored_frames_stream');
-  late final void Function(int) _releaseColoredFramesPtr =
-      _dylib.lookupFunction<Void Function(Int64), void Function(int)>(
-          'my_camera_release_colored_frames_stream');
+        'my_camera_get_available_devices',
+      );
+  late final void Function(int) _registerFramesPtr = _dylib
+      .lookupFunction<Void Function(Int64), void Function(int)>(
+        'my_camera_register_frames_stream',
+      );
+  late final void Function(int) _releaseFramesPtr = _dylib
+      .lookupFunction<Void Function(Int64), void Function(int)>(
+        'my_camera_release_frames_stream',
+      );
+  late final void Function(int) _registerColoredFramesPtr = _dylib
+      .lookupFunction<Void Function(Int64), void Function(int)>(
+        'my_camera_register_colored_frames_stream',
+      );
+  late final void Function(int) _releaseColoredFramesPtr = _dylib
+      .lookupFunction<Void Function(Int64), void Function(int)>(
+        'my_camera_release_colored_frames_stream',
+      );
   // ignore: unused_field
-  late final Pointer<NitroErrorFfi> Function() _getErrorPtr =
-      _dylib.lookupFunction<Pointer<NitroErrorFfi> Function(),
-          Pointer<NitroErrorFfi> Function()>('my_camera_get_error');
+  late final Pointer<NitroErrorFfi> Function() _getErrorPtr = _dylib
+      .lookupFunction<
+        Pointer<NitroErrorFfi> Function(),
+        Pointer<NitroErrorFfi> Function()
+      >('my_camera_get_error');
   // ignore: unused_field
-  late final void Function() _clearErrorPtr =
-      _dylib.lookupFunction<Void Function(), void Function()>(
-          'my_camera_clear_error');
+  late final void Function() _clearErrorPtr = _dylib
+      .lookupFunction<Void Function(), void Function()>(
+        'my_camera_clear_error',
+      );
   // ignore: unused_field
   late final Pointer<NativeFunction<Pointer<NitroErrorFfi> Function()>>
-      _getErrorNativePtr = _dylib.lookup('my_camera_get_error');
+  _getErrorNativePtr = _dylib.lookup('my_camera_get_error');
   // ignore: unused_field
   late final Pointer<NativeFunction<Void Function()>> _clearErrorNativePtr =
       _dylib.lookup('my_camera_clear_error');
@@ -161,8 +177,11 @@ class _MyCameraImpl extends MyCamera {
     final arena = Arena();
     try {
       final rawPtr = await NitroRuntime.callAsync<Pointer<Utf8>>(
-          _getGreetingPtr, [name.toNativeUtf8(allocator: arena)],
-          getError: _getErrorNativePtr, clearError: _clearErrorNativePtr);
+        _getGreetingPtr,
+        [name.toNativeUtf8(allocator: arena)],
+        getError: _getErrorNativePtr,
+        clearError: _clearErrorNativePtr,
+      );
       return rawPtr.toDartStringWithFree();
     } finally {
       arena.releaseAll();
@@ -173,11 +192,16 @@ class _MyCameraImpl extends MyCamera {
   Future<List<CameraDevice>> getAvailableDevices() async {
     checkDisposed();
     final rawPtr = await NitroRuntime.callAsync<Pointer<Uint8>>(
-        _getAvailableDevicesPtr, [],
-        getError: _getErrorNativePtr, clearError: _clearErrorNativePtr);
+      _getAvailableDevicesPtr,
+      [],
+      getError: _getErrorNativePtr,
+      clearError: _clearErrorNativePtr,
+    );
     try {
       return RecordReader.decodeList(
-          rawPtr, (r) => CameraDeviceRecordExt.fromReader(r));
+        rawPtr,
+        (r) => CameraDeviceRecordExt.fromReader(r),
+      );
     } finally {
       malloc.free(rawPtr);
     }

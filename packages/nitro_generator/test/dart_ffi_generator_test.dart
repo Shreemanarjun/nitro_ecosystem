@@ -845,7 +845,7 @@ void main() {
       },
     );
   });
- 
+
   group('DartFfiGenerator (v4 fixes)', () {
     test('initFunc check return values and throws on error', () {
       final out = DartFfiGenerator.generate(simpleSpec());
@@ -853,7 +853,7 @@ void main() {
       expect(out, contains('if (initCode != 0) {'));
       expect(out, contains("throw StateError('my_camera: Dart API DL initialization failed with code \$initCode.');"));
     });
- 
+
     test('Fast (leaf) methods have checkDisposed() guard', () {
       final spec = BridgeSpec(
         dartClassName: 'Calc',
@@ -876,7 +876,7 @@ void main() {
       // It should still have checkDisposed
       expect(out, contains('int addFast() {\n    checkDisposed();'));
     });
- 
+
     test('Fast (leaf) methods skip NitroRuntime.checkError', () {
       final spec = BridgeSpec(
         dartClassName: 'Calc',

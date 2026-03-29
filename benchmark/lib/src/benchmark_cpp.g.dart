@@ -14,10 +14,7 @@ final class BenchmarkPointFfi extends Struct {
 
 extension BenchmarkPointFfiExt on BenchmarkPointFfi {
   BenchmarkPoint toDart() {
-    return BenchmarkPoint(
-      x: x,
-      y: y,
-    );
+    return BenchmarkPoint(x: x, y: y);
   }
 }
 
@@ -42,11 +39,7 @@ final class BenchmarkBoxFfi extends Struct {
 
 extension BenchmarkBoxFfiExt on BenchmarkBoxFfi {
   BenchmarkBox toDart() {
-    return BenchmarkBox(
-      color: color,
-      width: width,
-      height: height,
-    );
+    return BenchmarkBox(color: color, width: width, height: height);
   }
 }
 
@@ -67,11 +60,11 @@ extension BenchmarkStatsRecordExt on BenchmarkStats {
       fromReader(RecordReader.fromNative(ptr));
 
   static BenchmarkStats fromReader(RecordReader r) => BenchmarkStats(
-        count: r.readInt(),
-        meanUs: r.readDouble(),
-        minUs: r.readDouble(),
-        maxUs: r.readDouble(),
-      );
+    count: r.readInt(),
+    meanUs: r.readDouble(),
+    minUs: r.readDouble(),
+    maxUs: r.readDouble(),
+  );
 
   void writeFields(RecordWriter w) {
     w.writeInt(count);
@@ -91,75 +84,95 @@ class _BenchmarkCppImpl extends BenchmarkCpp {
   final DynamicLibrary _dylib;
 
   _BenchmarkCppImpl() : _dylib = NitroRuntime.loadLib('benchmark_cpp') {
-    final initFunc = _dylib.lookupFunction<IntPtr Function(Pointer<Void>),
-        int Function(Pointer<Void>)>('benchmark_cpp_init_dart_api_dl');
+    final initFunc = _dylib
+        .lookupFunction<
+          IntPtr Function(Pointer<Void>),
+          int Function(Pointer<Void>)
+        >('benchmark_cpp_init_dart_api_dl');
     final initCode = initFunc(NativeApi.initializeApiDLData);
     if (initCode != 0) {
       throw StateError(
-          'benchmark_cpp: Dart API DL initialization failed with code $initCode.');
+        'benchmark_cpp: Dart API DL initialization failed with code $initCode.',
+      );
     }
   }
 
-  late final double Function(double, double) _addPtr = _dylib.lookupFunction<
-      Double Function(Double, Double),
-      double Function(double, double)>('benchmark_cpp_add');
+  late final double Function(double, double) _addPtr = _dylib
+      .lookupFunction<
+        Double Function(Double, Double),
+        double Function(double, double)
+      >('benchmark_cpp_add');
   late final double Function(double, double) _addFastPtr = _dylib
       .lookup<NativeFunction<Double Function(Double, Double)>>(
-          'benchmark_cpp_add_fast')
+        'benchmark_cpp_add_fast',
+      )
       .asFunction<double Function(double, double)>(isLeaf: true);
-  late final Pointer<Utf8> Function(Pointer<Utf8>) _getGreetingPtr =
-      _dylib.lookupFunction<Pointer<Utf8> Function(Pointer<Utf8>),
-          Pointer<Utf8> Function(Pointer<Utf8>)>('benchmark_cpp_get_greeting');
+  late final Pointer<Utf8> Function(Pointer<Utf8>) _getGreetingPtr = _dylib
+      .lookupFunction<
+        Pointer<Utf8> Function(Pointer<Utf8>),
+        Pointer<Utf8> Function(Pointer<Utf8>)
+      >('benchmark_cpp_get_greeting');
   late final Pointer<Void> Function(Pointer<Void>, double) _scalePointPtr =
       _dylib.lookupFunction<
-          Pointer<Void> Function(Pointer<Void>, Double),
-          Pointer<Void> Function(
-              Pointer<Void>, double)>('benchmark_cpp_scale_point');
-  late final Pointer<Uint8> Function(int) _computeStatsPtr =
-      _dylib.lookupFunction<Pointer<Uint8> Function(Int64),
-          Pointer<Uint8> Function(int)>('benchmark_cpp_compute_stats');
+        Pointer<Void> Function(Pointer<Void>, Double),
+        Pointer<Void> Function(Pointer<Void>, double)
+      >('benchmark_cpp_scale_point');
+  late final Pointer<Uint8> Function(int) _computeStatsPtr = _dylib
+      .lookupFunction<
+        Pointer<Uint8> Function(Int64),
+        Pointer<Uint8> Function(int)
+      >('benchmark_cpp_compute_stats');
   late final int Function(Pointer<Uint8>, int) _sendLargeBufferFastPtr = _dylib
       .lookup<NativeFunction<Int64 Function(Pointer<Uint8>, Int64)>>(
-          'benchmark_cpp_send_large_buffer_fast')
+        'benchmark_cpp_send_large_buffer_fast',
+      )
       .asFunction<int Function(Pointer<Uint8>, int)>(isLeaf: true);
-  late final int Function(Pointer<Uint8>, int) _sendLargeBufferNoopPtr =
-      _dylib.lookupFunction<
-          Int64 Function(Pointer<Uint8>, Int64),
-          int Function(
-              Pointer<Uint8>, int)>('benchmark_cpp_send_large_buffer_noop');
+  late final int Function(Pointer<Uint8>, int) _sendLargeBufferNoopPtr = _dylib
+      .lookupFunction<
+        Int64 Function(Pointer<Uint8>, Int64),
+        int Function(Pointer<Uint8>, int)
+      >('benchmark_cpp_send_large_buffer_noop');
   late final int Function(Pointer<Uint8>, int) _sendLargeBufferNoopFastPtr =
       _dylib
           .lookup<NativeFunction<Int64 Function(Pointer<Uint8>, Int64)>>(
-              'benchmark_cpp_send_large_buffer_noop_fast')
+            'benchmark_cpp_send_large_buffer_noop_fast',
+          )
           .asFunction<int Function(Pointer<Uint8>, int)>(isLeaf: true);
   late final int Function(Pointer<Uint8>, int) _sendLargeBufferUnsafePtr =
       _dylib.lookupFunction<
-          Int64 Function(Pointer<Uint8>, Int64),
-          int Function(
-              Pointer<Uint8>, int)>('benchmark_cpp_send_large_buffer_unsafe');
-  late final void Function(int) _registerDataStreamPtr =
-      _dylib.lookupFunction<Void Function(Int64), void Function(int)>(
-          'benchmark_cpp_register_data_stream_stream');
-  late final void Function(int) _releaseDataStreamPtr =
-      _dylib.lookupFunction<Void Function(Int64), void Function(int)>(
-          'benchmark_cpp_release_data_stream_stream');
-  late final void Function(int) _registerBoxStreamPtr =
-      _dylib.lookupFunction<Void Function(Int64), void Function(int)>(
-          'benchmark_cpp_register_box_stream_stream');
-  late final void Function(int) _releaseBoxStreamPtr =
-      _dylib.lookupFunction<Void Function(Int64), void Function(int)>(
-          'benchmark_cpp_release_box_stream_stream');
+        Int64 Function(Pointer<Uint8>, Int64),
+        int Function(Pointer<Uint8>, int)
+      >('benchmark_cpp_send_large_buffer_unsafe');
+  late final void Function(int) _registerDataStreamPtr = _dylib
+      .lookupFunction<Void Function(Int64), void Function(int)>(
+        'benchmark_cpp_register_data_stream_stream',
+      );
+  late final void Function(int) _releaseDataStreamPtr = _dylib
+      .lookupFunction<Void Function(Int64), void Function(int)>(
+        'benchmark_cpp_release_data_stream_stream',
+      );
+  late final void Function(int) _registerBoxStreamPtr = _dylib
+      .lookupFunction<Void Function(Int64), void Function(int)>(
+        'benchmark_cpp_register_box_stream_stream',
+      );
+  late final void Function(int) _releaseBoxStreamPtr = _dylib
+      .lookupFunction<Void Function(Int64), void Function(int)>(
+        'benchmark_cpp_release_box_stream_stream',
+      );
   // ignore: unused_field
-  late final Pointer<NitroErrorFfi> Function() _getErrorPtr =
-      _dylib.lookupFunction<Pointer<NitroErrorFfi> Function(),
-          Pointer<NitroErrorFfi> Function()>('benchmark_cpp_get_error');
+  late final Pointer<NitroErrorFfi> Function() _getErrorPtr = _dylib
+      .lookupFunction<
+        Pointer<NitroErrorFfi> Function(),
+        Pointer<NitroErrorFfi> Function()
+      >('benchmark_cpp_get_error');
   // ignore: unused_field
-  late final void Function() _clearErrorPtr =
-      _dylib.lookupFunction<Void Function(), void Function()>(
-          'benchmark_cpp_clear_error');
+  late final void Function() _clearErrorPtr = _dylib
+      .lookupFunction<Void Function(), void Function()>(
+        'benchmark_cpp_clear_error',
+      );
   // ignore: unused_field
   late final Pointer<NativeFunction<Pointer<NitroErrorFfi> Function()>>
-      _getErrorNativePtr = _dylib.lookup('benchmark_cpp_get_error');
+  _getErrorNativePtr = _dylib.lookup('benchmark_cpp_get_error');
   // ignore: unused_field
   late final Pointer<NativeFunction<Void Function()>> _clearErrorNativePtr =
       _dylib.lookup('benchmark_cpp_clear_error');
@@ -216,8 +229,11 @@ class _BenchmarkCppImpl extends BenchmarkCpp {
   Future<BenchmarkStats> computeStats(int iterations) async {
     checkDisposed();
     final rawPtr = await NitroRuntime.callAsync<Pointer<Uint8>>(
-        _computeStatsPtr, [iterations],
-        getError: _getErrorNativePtr, clearError: _clearErrorNativePtr);
+      _computeStatsPtr,
+      [iterations],
+      getError: _getErrorNativePtr,
+      clearError: _clearErrorNativePtr,
+    );
     try {
       return BenchmarkStatsRecordExt.fromNative(rawPtr);
     } finally {
@@ -229,8 +245,10 @@ class _BenchmarkCppImpl extends BenchmarkCpp {
   int sendLargeBufferFast(Uint8List buffer) {
     checkDisposed();
     return withArena((arena) {
-      final res =
-          _sendLargeBufferFastPtr(buffer.toPointer(arena), buffer.length);
+      final res = _sendLargeBufferFastPtr(
+        buffer.toPointer(arena),
+        buffer.length,
+      );
       return res;
     });
   }
@@ -239,8 +257,10 @@ class _BenchmarkCppImpl extends BenchmarkCpp {
   int sendLargeBufferNoop(Uint8List buffer) {
     checkDisposed();
     return withArena((arena) {
-      final res =
-          _sendLargeBufferNoopPtr(buffer.toPointer(arena), buffer.length);
+      final res = _sendLargeBufferNoopPtr(
+        buffer.toPointer(arena),
+        buffer.length,
+      );
       NitroRuntime.checkError(_getErrorPtr, _clearErrorPtr);
       return res;
     });
@@ -250,8 +270,10 @@ class _BenchmarkCppImpl extends BenchmarkCpp {
   int sendLargeBufferNoopFast(Uint8List buffer) {
     checkDisposed();
     return withArena((arena) {
-      final res =
-          _sendLargeBufferNoopFastPtr(buffer.toPointer(arena), buffer.length);
+      final res = _sendLargeBufferNoopFastPtr(
+        buffer.toPointer(arena),
+        buffer.length,
+      );
       return res;
     });
   }

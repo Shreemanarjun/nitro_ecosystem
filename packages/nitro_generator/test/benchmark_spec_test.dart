@@ -30,17 +30,32 @@ BridgeSpec _benchmarkSpec() => BridgeSpec(
       name: 'BenchmarkPoint',
       packed: true,
       fields: [
-        BridgeField(name: 'x', type: BridgeType(name: 'double')),
-        BridgeField(name: 'y', type: BridgeType(name: 'double')),
+        BridgeField(
+          name: 'x',
+          type: BridgeType(name: 'double'),
+        ),
+        BridgeField(
+          name: 'y',
+          type: BridgeType(name: 'double'),
+        ),
       ],
     ),
     BridgeStruct(
       name: 'BenchmarkBox',
       packed: true,
       fields: [
-        BridgeField(name: 'color', type: BridgeType(name: 'int')),
-        BridgeField(name: 'width', type: BridgeType(name: 'double')),
-        BridgeField(name: 'height', type: BridgeType(name: 'double')),
+        BridgeField(
+          name: 'color',
+          type: BridgeType(name: 'int'),
+        ),
+        BridgeField(
+          name: 'width',
+          type: BridgeType(name: 'double'),
+        ),
+        BridgeField(
+          name: 'height',
+          type: BridgeType(name: 'double'),
+        ),
       ],
     ),
   ],
@@ -62,8 +77,14 @@ BridgeSpec _benchmarkSpec() => BridgeSpec(
       isAsync: false,
       returnType: BridgeType(name: 'double'),
       params: [
-        BridgeParam(name: 'a', type: BridgeType(name: 'double')),
-        BridgeParam(name: 'b', type: BridgeType(name: 'double')),
+        BridgeParam(
+          name: 'a',
+          type: BridgeType(name: 'double'),
+        ),
+        BridgeParam(
+          name: 'b',
+          type: BridgeType(name: 'double'),
+        ),
       ],
     ),
     BridgeFunction(
@@ -72,8 +93,14 @@ BridgeSpec _benchmarkSpec() => BridgeSpec(
       isAsync: false,
       returnType: BridgeType(name: 'double'),
       params: [
-        BridgeParam(name: 'a', type: BridgeType(name: 'double')),
-        BridgeParam(name: 'b', type: BridgeType(name: 'double')),
+        BridgeParam(
+          name: 'a',
+          type: BridgeType(name: 'double'),
+        ),
+        BridgeParam(
+          name: 'b',
+          type: BridgeType(name: 'double'),
+        ),
       ],
     ),
     BridgeFunction(
@@ -81,7 +108,12 @@ BridgeSpec _benchmarkSpec() => BridgeSpec(
       cSymbol: 'benchmark_get_greeting',
       isAsync: false,
       returnType: BridgeType(name: 'String'),
-      params: [BridgeParam(name: 'name', type: BridgeType(name: 'String'))],
+      params: [
+        BridgeParam(
+          name: 'name',
+          type: BridgeType(name: 'String'),
+        ),
+      ],
     ),
     BridgeFunction(
       dartName: 'scalePoint',
@@ -89,8 +121,14 @@ BridgeSpec _benchmarkSpec() => BridgeSpec(
       isAsync: false,
       returnType: BridgeType(name: 'BenchmarkPoint'),
       params: [
-        BridgeParam(name: 'point', type: BridgeType(name: 'BenchmarkPoint')),
-        BridgeParam(name: 'factor', type: BridgeType(name: 'double')),
+        BridgeParam(
+          name: 'point',
+          type: BridgeType(name: 'BenchmarkPoint'),
+        ),
+        BridgeParam(
+          name: 'factor',
+          type: BridgeType(name: 'double'),
+        ),
       ],
     ),
     BridgeFunction(
@@ -98,14 +136,24 @@ BridgeSpec _benchmarkSpec() => BridgeSpec(
       cSymbol: 'benchmark_compute_stats',
       isAsync: true,
       returnType: BridgeType(name: 'BenchmarkStats', isRecord: true),
-      params: [BridgeParam(name: 'iterations', type: BridgeType(name: 'int'))],
+      params: [
+        BridgeParam(
+          name: 'iterations',
+          type: BridgeType(name: 'int'),
+        ),
+      ],
     ),
     BridgeFunction(
       dartName: 'sendLargeBuffer',
       cSymbol: 'benchmark_send_large_buffer',
       isAsync: false,
       returnType: BridgeType(name: 'int'),
-      params: [BridgeParam(name: 'buffer', type: BridgeType(name: 'Uint8List'))],
+      params: [
+        BridgeParam(
+          name: 'buffer',
+          type: BridgeType(name: 'Uint8List'),
+        ),
+      ],
     ),
   ],
   streams: [
@@ -141,17 +189,32 @@ BridgeSpec _benchmarkCppSpec() => BridgeSpec(
       name: 'BenchmarkPoint',
       packed: true,
       fields: [
-        BridgeField(name: 'x', type: BridgeType(name: 'double')),
-        BridgeField(name: 'y', type: BridgeType(name: 'double')),
+        BridgeField(
+          name: 'x',
+          type: BridgeType(name: 'double'),
+        ),
+        BridgeField(
+          name: 'y',
+          type: BridgeType(name: 'double'),
+        ),
       ],
     ),
     BridgeStruct(
       name: 'BenchmarkBox',
       packed: true,
       fields: [
-        BridgeField(name: 'color', type: BridgeType(name: 'int')),
-        BridgeField(name: 'width', type: BridgeType(name: 'double')),
-        BridgeField(name: 'height', type: BridgeType(name: 'double')),
+        BridgeField(
+          name: 'color',
+          type: BridgeType(name: 'int'),
+        ),
+        BridgeField(
+          name: 'width',
+          type: BridgeType(name: 'double'),
+        ),
+        BridgeField(
+          name: 'height',
+          type: BridgeType(name: 'double'),
+        ),
       ],
     ),
   ],
@@ -173,8 +236,14 @@ BridgeSpec _benchmarkCppSpec() => BridgeSpec(
       isAsync: false,
       returnType: BridgeType(name: 'double'),
       params: [
-        BridgeParam(name: 'a', type: BridgeType(name: 'double')),
-        BridgeParam(name: 'b', type: BridgeType(name: 'double')),
+        BridgeParam(
+          name: 'a',
+          type: BridgeType(name: 'double'),
+        ),
+        BridgeParam(
+          name: 'b',
+          type: BridgeType(name: 'double'),
+        ),
       ],
     ),
     BridgeFunction(
@@ -183,8 +252,14 @@ BridgeSpec _benchmarkCppSpec() => BridgeSpec(
       isAsync: false,
       returnType: BridgeType(name: 'double'),
       params: [
-        BridgeParam(name: 'a', type: BridgeType(name: 'double')),
-        BridgeParam(name: 'b', type: BridgeType(name: 'double')),
+        BridgeParam(
+          name: 'a',
+          type: BridgeType(name: 'double'),
+        ),
+        BridgeParam(
+          name: 'b',
+          type: BridgeType(name: 'double'),
+        ),
       ],
     ),
     BridgeFunction(
@@ -192,7 +267,12 @@ BridgeSpec _benchmarkCppSpec() => BridgeSpec(
       cSymbol: 'benchmark_cpp_get_greeting',
       isAsync: false,
       returnType: BridgeType(name: 'String'),
-      params: [BridgeParam(name: 'name', type: BridgeType(name: 'String'))],
+      params: [
+        BridgeParam(
+          name: 'name',
+          type: BridgeType(name: 'String'),
+        ),
+      ],
     ),
     BridgeFunction(
       dartName: 'scalePoint',
@@ -200,8 +280,14 @@ BridgeSpec _benchmarkCppSpec() => BridgeSpec(
       isAsync: false,
       returnType: BridgeType(name: 'BenchmarkPoint'),
       params: [
-        BridgeParam(name: 'point', type: BridgeType(name: 'BenchmarkPoint')),
-        BridgeParam(name: 'factor', type: BridgeType(name: 'double')),
+        BridgeParam(
+          name: 'point',
+          type: BridgeType(name: 'BenchmarkPoint'),
+        ),
+        BridgeParam(
+          name: 'factor',
+          type: BridgeType(name: 'double'),
+        ),
       ],
     ),
     BridgeFunction(
@@ -209,21 +295,36 @@ BridgeSpec _benchmarkCppSpec() => BridgeSpec(
       cSymbol: 'benchmark_cpp_compute_stats',
       isAsync: true,
       returnType: BridgeType(name: 'BenchmarkStats', isRecord: true),
-      params: [BridgeParam(name: 'iterations', type: BridgeType(name: 'int'))],
+      params: [
+        BridgeParam(
+          name: 'iterations',
+          type: BridgeType(name: 'int'),
+        ),
+      ],
     ),
     BridgeFunction(
       dartName: 'sendLargeBufferFast',
       cSymbol: 'benchmark_cpp_send_large_buffer_fast',
       isAsync: false,
       returnType: BridgeType(name: 'int'),
-      params: [BridgeParam(name: 'buffer', type: BridgeType(name: 'Uint8List'))],
+      params: [
+        BridgeParam(
+          name: 'buffer',
+          type: BridgeType(name: 'Uint8List'),
+        ),
+      ],
     ),
     BridgeFunction(
       dartName: 'sendLargeBufferNoop',
       cSymbol: 'benchmark_cpp_send_large_buffer_noop',
       isAsync: false,
       returnType: BridgeType(name: 'int'),
-      params: [BridgeParam(name: 'buffer', type: BridgeType(name: 'Uint8List'))],
+      params: [
+        BridgeParam(
+          name: 'buffer',
+          type: BridgeType(name: 'Uint8List'),
+        ),
+      ],
     ),
     BridgeFunction(
       dartName: 'sendLargeBufferUnsafe',
@@ -235,7 +336,10 @@ BridgeSpec _benchmarkCppSpec() => BridgeSpec(
           name: 'ptr',
           type: BridgeType(name: 'Pointer<Uint8>', isPointer: true, pointerInnerType: 'Uint8'),
         ),
-        BridgeParam(name: 'length', type: BridgeType(name: 'int')),
+        BridgeParam(
+          name: 'length',
+          type: BridgeType(name: 'int'),
+        ),
       ],
     ),
   ],

@@ -4,11 +4,7 @@ class RunsSelector extends StatelessWidget {
   final int count;
   final ValueChanged<int> onChanged;
 
-  const RunsSelector({
-    super.key,
-    required this.count,
-    required this.onChanged,
-  });
+  const RunsSelector({super.key, required this.count, required this.onChanged});
 
   @override
   Widget build(BuildContext context) {

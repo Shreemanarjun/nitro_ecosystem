@@ -118,8 +118,7 @@ dependencies:
 
     test('skips .bridge.g.swift for a NativeImpl.cpp module', () async {
       Directory(p.join(temp.path, 'ios', 'Classes')).createSync(recursive: true);
-      final genSwift = Directory(p.join(temp.path, 'lib', 'src', 'generated', 'swift'))
-        ..createSync(recursive: true);
+      final genSwift = Directory(p.join(temp.path, 'lib', 'src', 'generated', 'swift'))..createSync(recursive: true);
       File(p.join(genSwift.path, 'cpp_mod.bridge.g.swift')).writeAsStringSync('swift stubs');
 
       writeNativeSpec('cpp_mod', isCpp: true);
@@ -138,8 +137,7 @@ dependencies:
       // Pre-existing stale copy from a previous run before the module was converted.
       File(p.join(classesDir.path, 'cpp_mod.bridge.g.swift')).writeAsStringSync('stale');
 
-      final genSwift = Directory(p.join(temp.path, 'lib', 'src', 'generated', 'swift'))
-        ..createSync(recursive: true);
+      final genSwift = Directory(p.join(temp.path, 'lib', 'src', 'generated', 'swift'))..createSync(recursive: true);
       File(p.join(genSwift.path, 'cpp_mod.bridge.g.swift')).writeAsStringSync('swift stubs');
 
       writeNativeSpec('cpp_mod', isCpp: true);
@@ -155,8 +153,7 @@ dependencies:
 
     test('still copies .bridge.g.swift for a non-cpp (Swift/Kotlin) module', () async {
       final classesDir = Directory(p.join(temp.path, 'ios', 'Classes'))..createSync(recursive: true);
-      final genSwift = Directory(p.join(temp.path, 'lib', 'src', 'generated', 'swift'))
-        ..createSync(recursive: true);
+      final genSwift = Directory(p.join(temp.path, 'lib', 'src', 'generated', 'swift'))..createSync(recursive: true);
       File(p.join(genSwift.path, 'swift_mod.bridge.g.swift')).writeAsStringSync('swift code');
 
       writeNativeSpec('swift_mod', isCpp: false);
@@ -172,8 +169,7 @@ dependencies:
 
     test('mixed project: copies Swift module bridge but skips C++ module bridge', () async {
       final classesDir = Directory(p.join(temp.path, 'ios', 'Classes'))..createSync(recursive: true);
-      final genSwift = Directory(p.join(temp.path, 'lib', 'src', 'generated', 'swift'))
-        ..createSync(recursive: true);
+      final genSwift = Directory(p.join(temp.path, 'lib', 'src', 'generated', 'swift'))..createSync(recursive: true);
       File(p.join(genSwift.path, 'swift_mod.bridge.g.swift')).writeAsStringSync('swift bridge');
       File(p.join(genSwift.path, 'cpp_mod.bridge.g.swift')).writeAsStringSync('unwanted stubs');
 
@@ -190,8 +186,7 @@ dependencies:
       // A module where only iosImpl is NativeImpl.cpp is NOT a fully-cpp module;
       // it still uses the Swift bridge on iOS and needs the .bridge.g.swift.
       final classesDir = Directory(p.join(temp.path, 'ios', 'Classes'))..createSync(recursive: true);
-      final genSwift = Directory(p.join(temp.path, 'lib', 'src', 'generated', 'swift'))
-        ..createSync(recursive: true);
+      final genSwift = Directory(p.join(temp.path, 'lib', 'src', 'generated', 'swift'))..createSync(recursive: true);
       File(p.join(genSwift.path, 'mixed.bridge.g.swift')).writeAsStringSync('swift bridge');
 
       final libDir = Directory(p.join(temp.path, 'lib'))..createSync(recursive: true);

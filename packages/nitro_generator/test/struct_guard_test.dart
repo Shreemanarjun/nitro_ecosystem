@@ -37,8 +37,14 @@ BridgeSpec _singleStructSpec() => BridgeSpec(
       name: 'BenchmarkPoint',
       packed: false,
       fields: [
-        BridgeField(name: 'x', type: BridgeType(name: 'double')),
-        BridgeField(name: 'y', type: BridgeType(name: 'double')),
+        BridgeField(
+          name: 'x',
+          type: BridgeType(name: 'double'),
+        ),
+        BridgeField(
+          name: 'y',
+          type: BridgeType(name: 'double'),
+        ),
       ],
     ),
   ],
@@ -56,8 +62,14 @@ BridgeSpec _packedStructSpec() => BridgeSpec(
       name: 'SensorReading',
       packed: true,
       fields: [
-        BridgeField(name: 'value', type: BridgeType(name: 'double')),
-        BridgeField(name: 'valid', type: BridgeType(name: 'bool')),
+        BridgeField(
+          name: 'value',
+          type: BridgeType(name: 'double'),
+        ),
+        BridgeField(
+          name: 'valid',
+          type: BridgeType(name: 'bool'),
+        ),
       ],
     ),
   ],
@@ -74,12 +86,22 @@ BridgeSpec _multiStructSpec() => BridgeSpec(
     BridgeStruct(
       name: 'CameraFrame',
       packed: false,
-      fields: [BridgeField(name: 'width', type: BridgeType(name: 'int'))],
+      fields: [
+        BridgeField(
+          name: 'width',
+          type: BridgeType(name: 'int'),
+        ),
+      ],
     ),
     BridgeStruct(
       name: 'CameraConfig',
       packed: false,
-      fields: [BridgeField(name: 'fps', type: BridgeType(name: 'int'))],
+      fields: [
+        BridgeField(
+          name: 'fps',
+          type: BridgeType(name: 'int'),
+        ),
+      ],
     ),
   ],
 );
@@ -263,8 +285,14 @@ void main() {
             name: 'BenchmarkPoint', // same name as specA
             packed: false,
             fields: [
-              BridgeField(name: 'x', type: BridgeType(name: 'double')),
-              BridgeField(name: 'y', type: BridgeType(name: 'double')),
+              BridgeField(
+                name: 'x',
+                type: BridgeType(name: 'double'),
+              ),
+              BridgeField(
+                name: 'y',
+                type: BridgeType(name: 'double'),
+              ),
             ],
           ),
         ],
@@ -294,26 +322,29 @@ void main() {
             name: 'BenchmarkPoint',
             packed: false,
             fields: [
-              BridgeField(name: 'x', type: BridgeType(name: 'double')),
-              BridgeField(name: 'y', type: BridgeType(name: 'double')),
+              BridgeField(
+                name: 'x',
+                type: BridgeType(name: 'double'),
+              ),
+              BridgeField(
+                name: 'y',
+                type: BridgeType(name: 'double'),
+              ),
             ],
           ),
         ],
       );
 
-      final combined = '${StructGenerator.generateCStructs(specA)}\n'
+      final combined =
+          '${StructGenerator.generateCStructs(specA)}\n'
           '${StructGenerator.generateCStructs(specB)}';
 
       // The combined output has TWO #ifndef guards (one per header), but after
       // the preprocessor expands them only ONE typedef is active.  We assert
       // that both guards are present and that the #define appears exactly once
       // in each header's section (the preprocessor skips the second one).
-      final ifndefCount = RegExp(r'#ifndef NITRO_STRUCT_BENCHMARKPOINT_DEFINED')
-          .allMatches(combined)
-          .length;
-      final defineCount = RegExp(r'#define NITRO_STRUCT_BENCHMARKPOINT_DEFINED')
-          .allMatches(combined)
-          .length;
+      final ifndefCount = RegExp(r'#ifndef NITRO_STRUCT_BENCHMARKPOINT_DEFINED').allMatches(combined).length;
+      final defineCount = RegExp(r'#define NITRO_STRUCT_BENCHMARKPOINT_DEFINED').allMatches(combined).length;
 
       expect(ifndefCount, equals(2), reason: 'each header emits its own guard check');
       expect(defineCount, equals(2), reason: 'each header emits its own define (preprocessor picks first)');
@@ -321,7 +352,7 @@ void main() {
       // Simulate C preprocessor resolving include guards
       final definedMacros = <String>{};
       final guardPattern = RegExp(r'#ifndef\s+(\w+)\r?\n([\s\S]*?)#endif // \1');
-      
+
       final preprocessed = combined.replaceAllMapped(guardPattern, (match) {
         final macroName = match.group(1)!;
         if (definedMacros.contains(macroName)) {
@@ -332,8 +363,7 @@ void main() {
       });
 
       final typedefCount = RegExp(r'} BenchmarkPoint;').allMatches(preprocessed).length;
-      expect(typedefCount, equals(1),
-          reason: 'after preprocessing, only one active typedef block remains');
+      expect(typedefCount, equals(1), reason: 'after preprocessing, only one active typedef block remains');
     });
 
     test('struct guard macro name does not collide across different struct names', () {

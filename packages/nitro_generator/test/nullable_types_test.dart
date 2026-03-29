@@ -135,7 +135,12 @@ void main() {
           BridgeStruct(
             name: 'Frame',
             packed: false,
-            fields: [BridgeField(name: 'x', type: BridgeType(name: 'double'))],
+            fields: [
+              BridgeField(
+                name: 'x',
+                type: BridgeType(name: 'double'),
+              ),
+            ],
           ),
         ],
         functions: [

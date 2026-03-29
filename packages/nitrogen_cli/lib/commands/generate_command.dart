@@ -83,8 +83,7 @@ class GenerateCommand extends Command {
 
     // Detect whether any spec uses NativeImpl.cpp to tailor the next-steps hint
     final libDir = Directory(p.join(projectDir.path, 'lib'));
-    final hasCppModules = libDir.existsSync() &&
-        libDir.listSync(recursive: true).whereType<File>().where((f) => f.path.endsWith('.native.dart')).any(isCppModule);
+    final hasCppModules = libDir.existsSync() && libDir.listSync(recursive: true).whereType<File>().where((f) => f.path.endsWith('.native.dart')).any(isCppModule);
 
     stdout.writeln('');
     stdout.writeln(boldGreen('  ✨ Generation complete!'));

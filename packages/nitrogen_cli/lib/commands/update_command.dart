@@ -59,7 +59,10 @@ class UpdateStepRow extends StatelessComponent {
         children: [
           Row(
             children: [
-              Text(icon, style: TextStyle(color: color, fontWeight: FontWeight.bold)),
+              Text(
+                icon,
+                style: TextStyle(color: color, fontWeight: FontWeight.bold),
+              ),
               const Text(' '),
               Expanded(
                 child: Text(
@@ -126,19 +129,19 @@ class _UpdateViewState extends State<UpdateView> {
 
   void _setRunning(int i) => setState(() => _steps[i].state = UpdateStepState.running);
   void _setDone(int i, {String? detail}) => setState(() {
-        _steps[i].state = UpdateStepState.done;
-        _steps[i].detail = detail;
-      });
+    _steps[i].state = UpdateStepState.done;
+    _steps[i].detail = detail;
+  });
   void _setFailed(int i, String msg) => setState(() {
-        _errorMessage ??= msg;
-        _steps[i].state = UpdateStepState.done;
-        _steps[i].detail = msg;
-        _failed = true;
-      });
+    _errorMessage ??= msg;
+    _steps[i].state = UpdateStepState.done;
+    _steps[i].detail = msg;
+    _failed = true;
+  });
   void _setSkipped(int i, {String? detail}) => setState(() {
-        _steps[i].state = UpdateStepState.skipped;
-        _steps[i].detail = detail;
-      });
+    _steps[i].state = UpdateStepState.skipped;
+    _steps[i].detail = detail;
+  });
 
   Future<String?> _fetchLatestVersion() async {
     final client = HttpClient();
@@ -247,7 +250,10 @@ class _UpdateViewState extends State<UpdateView> {
               decoration: BoxDecoration(border: BoxBorder.all(color: Colors.cyan)),
               child: const Padding(
                 padding: EdgeInsets.symmetric(horizontal: 2),
-                child: Text(' nitrogen update ', style: TextStyle(color: Colors.cyan, fontWeight: FontWeight.bold)),
+                child: Text(
+                  ' nitrogen update ',
+                  style: TextStyle(color: Colors.cyan, fontWeight: FontWeight.bold),
+                ),
               ),
             ),
           ),
@@ -263,12 +269,18 @@ class _UpdateViewState extends State<UpdateView> {
                           Container(
                             padding: const EdgeInsets.symmetric(horizontal: 2, vertical: 1),
                             decoration: BoxDecoration(border: BoxBorder.all(color: Colors.red)),
-                            child: const Text(' ✘  ERROR ', style: TextStyle(color: Colors.red, fontWeight: FontWeight.bold)),
+                            child: const Text(
+                              ' ✘  ERROR ',
+                              style: TextStyle(color: Colors.red, fontWeight: FontWeight.bold),
+                            ),
                           ),
                           const SizedBox(height: 1),
                           Text(_errorMessage!, style: const TextStyle(color: Colors.white)),
                           const SizedBox(height: 1),
-                          const Text('Hint: Verify your internet connection or pub.dev reachability.', style: TextStyle(color: Colors.gray, fontWeight: FontWeight.dim)),
+                          const Text(
+                            'Hint: Verify your internet connection or pub.dev reachability.',
+                            style: TextStyle(color: Colors.gray, fontWeight: FontWeight.dim),
+                          ),
                         ],
                       ),
                     )
@@ -289,8 +301,14 @@ class _UpdateViewState extends State<UpdateView> {
               child: Column(
                 children: [
                   _failed
-                      ? const Text('✘ Update failed', style: TextStyle(color: Colors.red, fontWeight: FontWeight.bold))
-                      : const Text('✨ nitrogen is up to date!', style: TextStyle(color: Colors.green, fontWeight: FontWeight.bold)),
+                      ? const Text(
+                          '✘ Update failed',
+                          style: TextStyle(color: Colors.red, fontWeight: FontWeight.bold),
+                        )
+                      : const Text(
+                          '✨ nitrogen is up to date!',
+                          style: TextStyle(color: Colors.green, fontWeight: FontWeight.bold),
+                        ),
                   const SizedBox(height: 1),
                   Row(
                     mainAxisAlignment: MainAxisAlignment.center,

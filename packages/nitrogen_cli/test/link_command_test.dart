@@ -294,8 +294,7 @@ abstract class MyModule extends HybridObject {
 
   group('linkKotlinLoadLibraries', () {
     File writeKotlinPlugin(Directory tmp, String content) {
-      final dir = Directory(p.join(tmp.path, 'android', 'src', 'main', 'kotlin', 'dev', 'test'))
-        ..createSync(recursive: true);
+      final dir = Directory(p.join(tmp.path, 'android', 'src', 'main', 'kotlin', 'dev', 'test'))..createSync(recursive: true);
       final f = File(p.join(dir.path, 'TestPlugin.kt'));
       f.writeAsStringSync(content);
       return f;
@@ -370,8 +369,7 @@ end
     final pascal = lib.split('_').map((w) => w.isEmpty ? '' : '${w[0].toUpperCase()}${w.substring(1)}').join('');
     Directory(p.join(tmp.path, 'src')).createSync(recursive: true);
     File(p.join(tmp.path, 'src', 'Hybrid$pascal.cpp')).writeAsStringSync('// impl');
-    final genCpp = Directory(p.join(tmp.path, 'lib', 'src', 'generated', 'cpp'))
-      ..createSync(recursive: true);
+    final genCpp = Directory(p.join(tmp.path, 'lib', 'src', 'generated', 'cpp'))..createSync(recursive: true);
     File(p.join(genCpp.path, '$lib.bridge.g.cpp')).writeAsStringSync('// bridge cpp');
     File(p.join(genCpp.path, '$lib.bridge.g.h')).writeAsStringSync('// bridge header');
     File(p.join(genCpp.path, '$lib.native.g.h')).writeAsStringSync('// native header (C++ types)');
@@ -470,10 +468,7 @@ end
     // to simulate an existing SPM-enabled project.
     void scaffoldSpm(String pluginName) {
       scaffoldPodspec(pluginName);
-      final pascal = pluginName
-          .split('_')
-          .map((w) => w.isEmpty ? '' : '${w[0].toUpperCase()}${w.substring(1)}')
-          .join('');
+      final pascal = pluginName.split('_').map((w) => w.isEmpty ? '' : '${w[0].toUpperCase()}${w.substring(1)}').join('');
       Directory(p.join(tmp.path, 'ios', 'Sources', '${pascal}Cpp')).createSync(recursive: true);
       // Also create Package.swift so ensureIosPackageSwift does not re-create it
       // (which would redundantly call createSync and mask real failures).
@@ -508,9 +503,15 @@ end
         moduleInfos: [const ModuleInfo(lib: 'my_cpp_mod', module: 'MyCppMod', isCpp: true)],
       );
 
-      final content = File(p.join(
-        tmp.path, 'ios', 'Sources', 'MyPluginCpp', 'my_cpp_mod.bridge.g.mm',
-      )).readAsStringSync();
+      final content = File(
+        p.join(
+          tmp.path,
+          'ios',
+          'Sources',
+          'MyPluginCpp',
+          'my_cpp_mod.bridge.g.mm',
+        ),
+      ).readAsStringSync();
       expect(content, contains('my_cpp_mod.bridge.g.cpp'));
     });
 
@@ -543,9 +544,16 @@ end
       );
 
       expect(
-        File(p.join(
-          tmp.path, 'ios', 'Sources', 'MyPluginCpp', 'include', 'my_cpp_mod.bridge.g.h',
-        )).existsSync(),
+        File(
+          p.join(
+            tmp.path,
+            'ios',
+            'Sources',
+            'MyPluginCpp',
+            'include',
+            'my_cpp_mod.bridge.g.h',
+          ),
+        ).existsSync(),
         isTrue,
         reason: '.bridge.g.h is C-compatible and safe to expose as a public SPM header',
       );
@@ -563,11 +571,19 @@ end
       );
 
       expect(
-        File(p.join(
-          tmp.path, 'ios', 'Sources', 'MyPluginCpp', 'include', 'my_cpp_mod.native.g.h',
-        )).existsSync(),
+        File(
+          p.join(
+            tmp.path,
+            'ios',
+            'Sources',
+            'MyPluginCpp',
+            'include',
+            'my_cpp_mod.native.g.h',
+          ),
+        ).existsSync(),
         isFalse,
-        reason: '.native.g.h contains C++ types (std::string, classes) that break the '
+        reason:
+            '.native.g.h contains C++ types (std::string, classes) that break the '
             'CocoaPods umbrella header when placed in a public include dir',
       );
     });

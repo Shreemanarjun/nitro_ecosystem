@@ -102,9 +102,11 @@ class CppMockGenerator {
       final recordNames = spec.recordTypes.map((r) => r.name).toSet();
       final retCpp = _cppReturnType(f.returnType.name, enumNames, structNames, recordNames);
       final exampleRet = _exampleReturnValue(f.returnType.name, retCpp);
-      final exampleArgs = f.params.map((p) {
-        return _exampleArgValue(p.type.name, enumNames, structNames, recordNames);
-      }).join(', ');
+      final exampleArgs = f.params
+          .map((p) {
+            return _exampleArgValue(p.type.name, enumNames, structNames, recordNames);
+          })
+          .join(', ');
 
       s.writeln('//');
       s.writeln('// Example:');
@@ -201,12 +203,18 @@ class CppMockGenerator {
 
   static String _exampleReturnValue(String dartType, String cppType) {
     switch (dartType.replaceFirst('?', '')) {
-      case 'int':    return '0';
-      case 'double': return '0.0';
-      case 'bool':   return 'false';
-      case 'String': return '"example"';
-      case 'void':   return '';
-      default:       return '{}';
+      case 'int':
+        return '0';
+      case 'double':
+        return '0.0';
+      case 'bool':
+        return 'false';
+      case 'String':
+        return '"example"';
+      case 'void':
+        return '';
+      default:
+        return '{}';
     }
   }
 
@@ -217,9 +225,9 @@ class CppMockGenerator {
     Set<String> recordNames,
   ) {
     final base = dartType.replaceFirst('?', '');
-    if (base == 'int')    return '::testing::An<int64_t>()';
+    if (base == 'int') return '::testing::An<int64_t>()';
     if (base == 'double') return '::testing::An<double>()';
-    if (base == 'bool')   return '::testing::An<bool>()';
+    if (base == 'bool') return '::testing::An<bool>()';
     if (base == 'String') return '::testing::An<const std::string&>()';
     return '::testing::_';
   }
@@ -230,50 +238,73 @@ class CppMockGenerator {
     Set<String> structNames,
     Set<String> recordNames,
   ) {
-    return params.map((p) {
-      final base = p.type.name.replaceFirst('?', '');
-      if (base == 'int')    return '0';
-      if (base == 'double') return '0.0';
-      if (base == 'bool')   return 'false';
-      if (base == 'String') return '"example"';
-      return 'nullptr';
-    }).join(', ');
+    return params
+        .map((p) {
+          final base = p.type.name.replaceFirst('?', '');
+          if (base == 'int') return '0';
+          if (base == 'double') return '0.0';
+          if (base == 'bool') return 'false';
+          if (base == 'String') return '"example"';
+          return 'nullptr';
+        })
+        .join(', ');
   }
 
   static bool _isTypedData(String base) {
     const td = {
-      'Uint8List', 'Int8List', 'Int16List', 'Int32List',
-      'Uint16List', 'Uint32List', 'Float32List', 'Float64List',
-      'Int64List', 'Uint64List',
+      'Uint8List',
+      'Int8List',
+      'Int16List',
+      'Int32List',
+      'Uint16List',
+      'Uint32List',
+      'Float32List',
+      'Float64List',
+      'Int64List',
+      'Uint64List',
     };
     return td.contains(base);
   }
 
   static String _typedDataPtr(String base) {
     switch (base) {
-      case 'Uint8List':  return 'const uint8_t*';
-      case 'Int8List':   return 'const int8_t*';
-      case 'Int16List':  return 'const int16_t*';
-      case 'Uint16List': return 'const uint16_t*';
-      case 'Int32List':  return 'const int32_t*';
-      case 'Uint32List': return 'const uint32_t*';
-      case 'Float32List':return 'const float*';
-      case 'Float64List':return 'const double*';
-      case 'Int64List':  return 'const int64_t*';
-      case 'Uint64List': return 'const uint64_t*';
-      default:           return 'const uint8_t*';
+      case 'Uint8List':
+        return 'const uint8_t*';
+      case 'Int8List':
+        return 'const int8_t*';
+      case 'Int16List':
+        return 'const int16_t*';
+      case 'Uint16List':
+        return 'const uint16_t*';
+      case 'Int32List':
+        return 'const int32_t*';
+      case 'Uint32List':
+        return 'const uint32_t*';
+      case 'Float32List':
+        return 'const float*';
+      case 'Float64List':
+        return 'const double*';
+      case 'Int64List':
+        return 'const int64_t*';
+      case 'Uint64List':
+        return 'const uint64_t*';
+      default:
+        return 'const uint8_t*';
     }
   }
 
   static String _primitiveType(String base) {
     switch (base) {
-      case 'int':    return 'int64_t';
-      case 'double': return 'double';
-      case 'bool':   return 'bool';
-      default:       return 'void*';
+      case 'int':
+        return 'int64_t';
+      case 'double':
+        return 'double';
+      case 'bool':
+        return 'bool';
+      default:
+        return 'void*';
     }
   }
 
-  static String _capitalize(String s) =>
-      s.isEmpty ? s : s[0].toUpperCase() + s.substring(1);
+  static String _capitalize(String s) => s.isEmpty ? s : s[0].toUpperCase() + s.substring(1);
 }

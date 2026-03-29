@@ -567,7 +567,7 @@ class DoctorCommand extends Command {
             final moduleName = moduleMatch?.group(1) ?? _toPascalCase(stem);
             final implName = 'Hybrid$moduleName.cpp';
             if (!cmake.contains('"$implName"') && !cmake.contains(' $implName ') && !cmake.contains('\n  $implName')) {
-               err(cmakeSec, '$lib: $implName not linked in target', hint: 'Add "$implName" to add_library($lib ...)');
+              err(cmakeSec, '$lib: $implName not linked in target', hint: 'Add "$implName" to add_library($lib ...)');
             }
           }
         } else {
@@ -908,4 +908,3 @@ class DoctorViewResult {
     this.errorMessage,
   });
 }
-

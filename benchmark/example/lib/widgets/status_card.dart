@@ -78,16 +78,24 @@ class StatusCard extends StatelessWidget {
                 const SizedBox(height: 4),
                 Text(
                   status,
-                  style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15),
+                  style: const TextStyle(
+                    fontWeight: FontWeight.bold,
+                    fontSize: 15,
+                  ),
                 ),
                 if (isRunning && bridgeLabel != null) ...[
                   const SizedBox(height: 8),
                   Row(
                     children: [
                       Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 8,
+                          vertical: 4,
+                        ),
                         decoration: BoxDecoration(
-                          color: Theme.of(context).colorScheme.secondary.withAlpha(40),
+                          color: Theme.of(
+                            context,
+                          ).colorScheme.secondary.withAlpha(40),
                           borderRadius: BorderRadius.circular(8),
                         ),
                         child: Text(
@@ -102,8 +110,11 @@ class StatusCard extends StatelessWidget {
                       const SizedBox(width: 8),
                       Expanded(
                         child: LinearProgressIndicator(
-                          value: (currentIteration ?? 0) / (totalIterations ?? 1),
-                          backgroundColor: Theme.of(context).colorScheme.surface,
+                          value:
+                              (currentIteration ?? 0) / (totalIterations ?? 1),
+                          backgroundColor: Theme.of(
+                            context,
+                          ).colorScheme.surface,
                           borderRadius: BorderRadius.circular(10),
                           minHeight: 6,
                         ),

@@ -88,7 +88,7 @@ class BenchmarkHistory extends StatelessWidget {
                 final isWinner = res.key == entry.winner;
                 final min = entry.minResults[res.key]!;
                 final max = entry.maxResults[res.key]!;
-                
+
                 return Padding(
                   padding: const EdgeInsets.symmetric(vertical: 6),
                   child: Column(

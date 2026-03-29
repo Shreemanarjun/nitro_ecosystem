@@ -82,7 +82,7 @@ class NitroGeneratorBuilder implements Builder {
           await buildStep.writeAsString(outId, CppBridgeGenerator.generate(spec));
         } else if (outId.path.endsWith('.CMakeLists.g.txt')) {
           await buildStep.writeAsString(outId, CMakeGenerator.generate(spec));
-        // ── NativeImpl.cpp outputs ─────────────────────────────────────
+          // ── NativeImpl.cpp outputs ─────────────────────────────────────
         } else if (outId.path.endsWith('.native.g.h')) {
           await buildStep.writeAsString(outId, CppInterfaceGenerator.generate(spec));
         } else if (outId.path.endsWith('.mock.g.h')) {

@@ -16,45 +16,61 @@ class _MathImpl extends Math {
   final DynamicLibrary _dylib;
 
   _MathImpl() : _dylib = NitroRuntime.loadLib('math') {
-    final initFunc = _dylib.lookupFunction<IntPtr Function(Pointer<Void>),
-        int Function(Pointer<Void>)>('math_init_dart_api_dl');
+    final initFunc = _dylib
+        .lookupFunction<
+          IntPtr Function(Pointer<Void>),
+          int Function(Pointer<Void>)
+        >('math_init_dart_api_dl');
     final initCode = initFunc(NativeApi.initializeApiDLData);
     if (initCode != 0) {
       throw StateError(
-          'math: Dart API DL initialization failed with code $initCode.');
+        'math: Dart API DL initialization failed with code $initCode.',
+      );
     }
   }
 
-  late final double Function(double, double) _addPtr = _dylib.lookupFunction<
-      Double Function(Double, Double),
-      double Function(double, double)>('math_add');
-  late final double Function(double, double) _multiplyPtr =
-      _dylib.lookupFunction<Double Function(Double, Double),
-          double Function(double, double)>('math_multiply');
-  late final void Function(Pointer<Uint8>, int) _processBufferPtr =
-      _dylib.lookupFunction<Void Function(Pointer<Uint8>, Int64),
-          void Function(Pointer<Uint8>, int)>('math_process_buffer');
-  late final double Function() _getScaleFactorPtr =
-      _dylib.lookupFunction<Double Function(), double Function()>(
-          'math_get_scale_factor');
+  late final double Function(double, double) _addPtr = _dylib
+      .lookupFunction<
+        Double Function(Double, Double),
+        double Function(double, double)
+      >('math_add');
+  late final double Function(double, double) _multiplyPtr = _dylib
+      .lookupFunction<
+        Double Function(Double, Double),
+        double Function(double, double)
+      >('math_multiply');
+  late final void Function(Pointer<Uint8>, int) _processBufferPtr = _dylib
+      .lookupFunction<
+        Void Function(Pointer<Uint8>, Int64),
+        void Function(Pointer<Uint8>, int)
+      >('math_process_buffer');
+  late final double Function() _getScaleFactorPtr = _dylib
+      .lookupFunction<Double Function(), double Function()>(
+        'math_get_scale_factor',
+      );
   late final int Function() _getPrecisionPtr = _dylib
       .lookupFunction<Int64 Function(), int Function()>('math_get_precision');
-  late final void Function(int) _setPrecisionPtr =
-      _dylib.lookupFunction<Void Function(Int64), void Function(int)>(
-          'math_set_precision');
-  late final void Function(int) _registerUpdatesPtr =
-      _dylib.lookupFunction<Void Function(Int64), void Function(int)>(
-          'math_register_updates_stream');
-  late final void Function(int) _releaseUpdatesPtr =
-      _dylib.lookupFunction<Void Function(Int64), void Function(int)>(
-          'math_release_updates_stream');
-  late final Pointer<NitroErrorFfi> Function() _getErrorPtr =
-      _dylib.lookupFunction<Pointer<NitroErrorFfi> Function(),
-          Pointer<NitroErrorFfi> Function()>('math_get_error');
+  late final void Function(int) _setPrecisionPtr = _dylib
+      .lookupFunction<Void Function(Int64), void Function(int)>(
+        'math_set_precision',
+      );
+  late final void Function(int) _registerUpdatesPtr = _dylib
+      .lookupFunction<Void Function(Int64), void Function(int)>(
+        'math_register_updates_stream',
+      );
+  late final void Function(int) _releaseUpdatesPtr = _dylib
+      .lookupFunction<Void Function(Int64), void Function(int)>(
+        'math_release_updates_stream',
+      );
+  late final Pointer<NitroErrorFfi> Function() _getErrorPtr = _dylib
+      .lookupFunction<
+        Pointer<NitroErrorFfi> Function(),
+        Pointer<NitroErrorFfi> Function()
+      >('math_get_error');
   late final void Function() _clearErrorPtr = _dylib
       .lookupFunction<Void Function(), void Function()>('math_clear_error');
   late final Pointer<NativeFunction<Pointer<NitroErrorFfi> Function()>>
-      _getErrorNativePtr = _dylib.lookup('math_get_error');
+  _getErrorNativePtr = _dylib.lookup('math_get_error');
   late final Pointer<NativeFunction<Void Function()>> _clearErrorNativePtr =
       _dylib.lookup('math_clear_error');
 
@@ -75,8 +91,12 @@ class _MathImpl extends Math {
   @override
   Future<double> multiply(double a, double b) async {
     checkDisposed();
-    final res = await NitroRuntime.callAsync<double>(_multiplyPtr, [a, b],
-        getError: _getErrorNativePtr, clearError: _clearErrorNativePtr);
+    final res = await NitroRuntime.callAsync<double>(
+      _multiplyPtr,
+      [a, b],
+      getError: _getErrorNativePtr,
+      clearError: _clearErrorNativePtr,
+    );
     return res;
   }
 

@@ -17,7 +17,10 @@ void main() {
             name: 'Tight',
             packed: true,
             fields: [
-              BridgeField(name: 'val', type: BridgeType(name: 'int')),
+              BridgeField(
+                name: 'val',
+                type: BridgeType(name: 'int'),
+              ),
             ],
           ),
         ],

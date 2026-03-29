@@ -535,7 +535,14 @@ void generateCMake(String pluginName, List<String> moduleLibs, String nitroNativ
     ..writeln('endif()');
   for (final lib in moduleLibs) {
     if (lib != pluginName) {
-      final isCpp = moduleInfos?.firstWhere((m) => m.lib == lib, orElse: () => ModuleInfo(lib: lib, module: lib, isCpp: false)).isCpp ?? false;
+      final isCpp =
+          moduleInfos
+              ?.firstWhere(
+                (m) => m.lib == lib,
+                orElse: () => ModuleInfo(lib: lib, module: lib, isCpp: false),
+              )
+              .isCpp ??
+          false;
       sb.write(_cmakeModuleTarget(lib, isCpp: isCpp));
     }
   }
@@ -795,10 +802,12 @@ void linkKotlinLoadLibraries(List<String> libs, {String baseDir = '.'}) {
           if (companionMatch != null) {
             content = content.replaceFirst(
               companionMatch.group(0)!,
-              companionMatch.group(0)!.replaceFirst(
-                '}',
-                '    System.loadLibrary("$lib")\n        }',
-              ),
+              companionMatch
+                  .group(0)!
+                  .replaceFirst(
+                    '}',
+                    '    System.loadLibrary("$lib")\n        }',
+                  ),
             );
           } else {
             throw Exception(

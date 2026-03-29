@@ -83,13 +83,15 @@ class IsolatePool {
     final reply = ReceivePort();
     final worker = _workers[_rrIndex % _workers.length];
     _rrIndex++;
-    worker.send(_CallRequest(
-      fn,
-      args,
-      reply.sendPort,
-      getError: getError,
-      clearError: clearError,
-    ));
+    worker.send(
+      _CallRequest(
+        fn,
+        args,
+        reply.sendPort,
+        getError: getError,
+        clearError: clearError,
+      ),
+    );
     return reply.first.then((dynamic msg) {
       reply.close();
       final response = msg as _CallResponse;

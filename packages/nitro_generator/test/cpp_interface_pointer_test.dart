@@ -124,7 +124,9 @@ void main() {
         _ptrSpec(
           innerType: 'SensorMode',
           pointerInnerType: 'SensorMode',
-          enums: [BridgeEnum(name: 'SensorMode', startValue: 0, values: ['off', 'on'])],
+          enums: [
+            BridgeEnum(name: 'SensorMode', startValue: 0, values: ['off', 'on']),
+          ],
         ),
       );
       expect(out, contains('virtual void process(SensorMode* buf) = 0;'));
@@ -139,7 +141,12 @@ void main() {
             BridgeStruct(
               name: 'Frame',
               packed: true,
-              fields: [BridgeField(name: 'w', type: BridgeType(name: 'int'))],
+              fields: [
+                BridgeField(
+                  name: 'w',
+                  type: BridgeType(name: 'int'),
+                ),
+              ],
             ),
           ],
         ),
@@ -205,7 +212,9 @@ void main() {
         _ptrReturnSpec(
           innerType: 'Color',
           pointerInnerType: 'Color',
-          enums: [BridgeEnum(name: 'Color', startValue: 0, values: ['red', 'blue'])],
+          enums: [
+            BridgeEnum(name: 'Color', startValue: 0, values: ['red', 'blue']),
+          ],
         ),
       );
       expect(out, contains('virtual Color* getPtr() = 0;'));
@@ -220,7 +229,12 @@ void main() {
             BridgeStruct(
               name: 'Point',
               packed: true,
-              fields: [BridgeField(name: 'x', type: BridgeType(name: 'double'))],
+              fields: [
+                BridgeField(
+                  name: 'x',
+                  type: BridgeType(name: 'double'),
+                ),
+              ],
             ),
           ],
         ),

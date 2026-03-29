@@ -11,13 +11,9 @@ class VisualBenchmarkController {
   final isChecksumEnabled = signal<bool>(true);
   final isBusy = signal<bool>(false);
 
-  final tickCounts = {
-    for (var type in BridgeType.values) type: signal(0),
-  };
+  final tickCounts = {for (var type in BridgeType.values) type: signal(0)};
 
-  final currentFps = {
-    for (var type in BridgeType.values) type: signal(0.0),
-  };
+  final currentFps = {for (var type in BridgeType.values) type: signal(0.0)};
 
   final perFrameMicros = {
     for (var type in BridgeType.values) type: signal(0.0),
@@ -111,12 +107,14 @@ class VisualBenchmarkController {
     // Validate: must be positive and within a safe threshold (≤ 2GB to avoid OOM).
     if (mb <= 0 || mb > 2048) {
       for (final type in BridgeType.values) {
-        throughputResults[type]!.value = 'Error: invalid size ${mb}MB (must be 1–2048)';
+        throughputResults[type]!.value =
+            'Error: invalid size ${mb}MB (must be 1–2048)';
       }
       return;
     }
     // Use explicit wide multiplication to avoid int32 overflow on some platforms.
-    final byteSize = mb * 1024 * 1024; // mb ≤ 2048 → max ~2 GB, safe in Dart's 64-bit int
+    final byteSize =
+        mb * 1024 * 1024; // mb ≤ 2048 → max ~2 GB, safe in Dart's 64-bit int
     final Uint8List buffer;
     try {
       buffer = Uint8List(byteSize);
@@ -126,7 +124,6 @@ class VisualBenchmarkController {
       }
       return;
     }
-
 
     for (final type in [
       BridgeType.methodChannel,
@@ -177,16 +174,19 @@ class VisualBenchmarkController {
         }
         sw.stop();
 
-        final double elapsedSeconds = math.max(1, sw.elapsedMicroseconds) / 1000000.0;
+        final double elapsedSeconds =
+            math.max(1, sw.elapsedMicroseconds) / 1000000.0;
         final mbSizeCalc = byteSize / (1024 * 1024);
         final speed = mbSizeCalc / elapsedSeconds;
         final timeStr = sw.elapsedMilliseconds > 0
             ? '${sw.elapsedMilliseconds}ms'
             : '${sw.elapsedMicroseconds}µs';
 
-        throughputResults[type]!.value = '$timeStr (${speed.toStringAsFixed(1)} MB/s)';
+        throughputResults[type]!.value =
+            '$timeStr (${speed.toStringAsFixed(1)} MB/s)';
       } catch (e) {
-        throughputResults[type]!.value = 'Error: ${e.toString().split('\n').first}';
+        throughputResults[type]!.value =
+            'Error: ${e.toString().split('\n').first}';
       }
     }
   }

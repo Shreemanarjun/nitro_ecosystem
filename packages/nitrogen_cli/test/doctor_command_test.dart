@@ -113,9 +113,7 @@ end
   if (specs.isNotEmpty) {
     final libDir = Directory(p.join(root.path, 'lib', 'src'))..createSync(recursive: true);
     for (final spec in specs) {
-      final implLine = spec.isCpp
-          ? 'iosImpl: NativeImpl.cpp, androidImpl: NativeImpl.cpp'
-          : 'iosImpl: NativeImpl.swift, androidImpl: NativeImpl.kotlin';
+      final implLine = spec.isCpp ? 'iosImpl: NativeImpl.cpp, androidImpl: NativeImpl.cpp' : 'iosImpl: NativeImpl.swift, androidImpl: NativeImpl.kotlin';
       File(p.join(libDir.path, '${spec.name}.native.dart')).writeAsStringSync('''
 import 'package:nitro/nitro.dart';
 @NitroModule(lib: "${spec.name}", $implLine)
@@ -233,11 +231,13 @@ void main() {
     });
 
     test('ok label includes count of .mm bridge files', () {
-      final tmp = _scaffold(mmBridges: [
-        'a.bridge.g.mm',
-        'b.bridge.g.mm',
-        'c.bridge.g.mm',
-      ]);
+      final tmp = _scaffold(
+        mmBridges: [
+          'a.bridge.g.mm',
+          'b.bridge.g.mm',
+          'c.bridge.g.mm',
+        ],
+      );
       addTearDown(() => tmp.deleteSync(recursive: true));
       final result = _run(tmp);
       final iosSection = result.sections.firstWhere((s) => s.title == 'iOS');

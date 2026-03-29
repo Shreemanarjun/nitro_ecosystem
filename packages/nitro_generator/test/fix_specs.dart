@@ -14,7 +14,7 @@ void main() {
     '_cppSpec',
     '_cppEnumSpec',
     '_cppStreamSpec',
-    '_cppStreamStructSpec'
+    '_cppStreamStructSpec',
   ];
 
   for (final file in testDir.listSync(recursive: true)) {
