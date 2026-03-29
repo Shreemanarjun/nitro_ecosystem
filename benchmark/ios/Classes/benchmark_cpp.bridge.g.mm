@@ -148,11 +148,11 @@ void* benchmark_cpp_compute_stats(int64_t iterations) {
     }
 }
 
-int64_t benchmark_cpp_send_large_buffer(uint8_t* buffer, int64_t buffer_length) {
+int64_t benchmark_cpp_send_large_buffer_fast(uint8_t* buffer, int64_t buffer_length) {
     benchmark_cpp_clear_error();
     if (!g_impl) { nitro_report_error("NotInitialized", "No C++ implementation registered. Call benchmark_cpp_register_impl() first.", nullptr, nullptr); return 0; }
     try {
-        return g_impl->sendLargeBuffer(buffer, static_cast<size_t>(buffer_length));
+        return g_impl->sendLargeBufferFast(buffer, static_cast<size_t>(buffer_length));
     } catch (const std::exception& e) {
         nitro_report_error("CppException", e.what(), nullptr, nullptr);
         return 0;

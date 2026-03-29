@@ -45,7 +45,7 @@ NITRO_EXPORT double benchmark_cpp_add_fast(double a, double b);
 NITRO_EXPORT const char* benchmark_cpp_get_greeting(const char* name);
 NITRO_EXPORT void* benchmark_cpp_scale_point(void* point, double factor);
 NITRO_EXPORT void* benchmark_cpp_compute_stats(int64_t iterations);
-NITRO_EXPORT int64_t benchmark_cpp_send_large_buffer(uint8_t* buffer, int64_t buffer_length);
+NITRO_EXPORT int64_t benchmark_cpp_send_large_buffer_fast(uint8_t* buffer, int64_t buffer_length);
 
 // Streams
 // Stream<BenchmarkPoint> dataStream

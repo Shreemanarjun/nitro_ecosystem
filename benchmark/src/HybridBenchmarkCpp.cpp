@@ -113,7 +113,7 @@ public:
         return {buf, static_cast<size_t>(kTotalSize)};
     }
 
-    int64_t sendLargeBuffer(const uint8_t* buffer, size_t buffer_length) override {
+    int64_t sendLargeBufferFast(const uint8_t* buffer, size_t buffer_length) override {
         if (!buffer || buffer_length == 0) return 0;
 
         uint64_t sum = 0;
