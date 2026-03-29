@@ -254,18 +254,22 @@ class DartFfiGenerator {
             s.writeln('      return;');
           } else if (isRecordReturn) {
             final decodeExpr = _decodeRecordExpr(func.returnType, 'res as Pointer<Uint8>');
+            s.writeln('      final ${rt} decoded;');
             s.writeln('      try {');
-            s.writeln('        return $decodeExpr;');
+            s.writeln('        decoded = $decodeExpr;');
             s.writeln('      } finally {');
             s.writeln('        malloc.free(res);');
             s.writeln('      }');
+            s.writeln('      return decoded;');
           } else if (spec.structs.any((st) => st.name == rt)) {
             s.writeln('      final structPtr = Pointer<${rt}Ffi>.fromAddress(res.address);');
+            s.writeln('      final ${rt} decoded;');
             s.writeln('      try {');
-            s.writeln('        return structPtr.ref.toDart();');
+            s.writeln('        decoded = structPtr.ref.toDart();');
             s.writeln('      } finally {');
             s.writeln('        malloc.free(structPtr);');
             s.writeln('      }');
+            s.writeln('      return decoded;');
           } else if (rt == 'bool') {
             s.writeln('      return res != 0;');
           } else if (rt == 'String') {
@@ -289,20 +293,24 @@ class DartFfiGenerator {
             }
             if (isRecordReturn) {
               final decodeExpr = _decodeRecordExpr(func.returnType, 'res as Pointer<Uint8>');
+              s.writeln('    final ${rt} decoded;');
               s.writeln('    try {');
-              s.writeln('      return $decodeExpr;');
+              s.writeln('      decoded = $decodeExpr;');
               s.writeln('    } finally {');
               s.writeln('      malloc.free(res);');
               s.writeln('    }');
+              s.writeln('    return decoded;');
             } else if (spec.enums.any((en) => en.name == rt)) {
               s.writeln('    return res.to$rt();');
             } else if (spec.structs.any((st) => st.name == rt)) {
               s.writeln('    final structPtr = Pointer<${rt}Ffi>.fromAddress(res.address);');
+              s.writeln('    final ${rt} decoded;');
               s.writeln('    try {');
-              s.writeln('      return structPtr.ref.toDart();');
+              s.writeln('      decoded = structPtr.ref.toDart();');
               s.writeln('    } finally {');
               s.writeln('      malloc.free(structPtr);');
               s.writeln('    }');
+              s.writeln('    return decoded;');
             } else if (rt == 'bool') {
               s.writeln('    return res != 0;');
             } else if (rt == 'String') {

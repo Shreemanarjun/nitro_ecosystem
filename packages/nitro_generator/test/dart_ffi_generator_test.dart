@@ -921,10 +921,12 @@ void main() {
         ],
       );
       final out = DartFfiGenerator.generate(spec);
+      expect(out, contains('final Config decoded;'));
       expect(out, contains('try {'));
-      expect(out, contains('return ConfigRecordExt.fromNative(res as Pointer<Uint8>);'));
+      expect(out, contains('decoded = ConfigRecordExt.fromNative(res as Pointer<Uint8>);'));
       expect(out, contains('} finally {'));
       expect(out, contains('malloc.free(res);'));
+      expect(out, contains('return decoded;'));
     });
   });
 }
