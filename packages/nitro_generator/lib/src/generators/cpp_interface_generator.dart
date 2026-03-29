@@ -135,7 +135,18 @@ class CppInterfaceGenerator {
     // isRecord covers bare @HybridRecord, List<T>, and Map<K,V> — all bridge
     // as NitroCppBuffer regardless of the name string.
     if (bt.isRecord) return 'NitroCppBuffer';
-    if (bt.isPointer) return 'void*';
+    if (bt.isPointer) {
+      final inner = bt.pointerInnerType;
+      if (inner == null) return 'void*';
+      final innerBase = inner.replaceFirst('?', '');
+      if (innerBase == 'void' || innerBase == 'Void') return 'void*';
+      if (innerBase == 'String') return 'std::string*';
+      if (enumNames.contains(innerBase)) return '$innerBase*';
+      if (structNames.contains(innerBase)) return '$innerBase*';
+      if (recordNames.contains(innerBase)) return 'NitroCppBuffer*';
+      final prim = _primitiveType(innerBase);
+      return prim == 'void*' ? 'void*' : '$prim*';
+    }
     final base = bt.name.replaceFirst('?', '');
     if (base == 'void') return 'void';
     if (base == 'String') return 'std::string';
@@ -154,7 +165,18 @@ class CppInterfaceGenerator {
   ) {
     // isRecord covers bare @HybridRecord, List<T>, and Map<K,V>.
     if (bt.isRecord) return 'NitroCppBuffer';
-    if (bt.isPointer) return 'void*';
+    if (bt.isPointer) {
+      final inner = bt.pointerInnerType;
+      if (inner == null) return 'void*';
+      final innerBase = inner.replaceFirst('?', '');
+      if (innerBase == 'void' || innerBase == 'Void') return 'void*';
+      if (innerBase == 'String') return 'std::string*';
+      if (enumNames.contains(innerBase)) return '$innerBase*';
+      if (structNames.contains(innerBase)) return '$innerBase*';
+      if (recordNames.contains(innerBase)) return 'NitroCppBuffer*';
+      final prim = _primitiveType(innerBase);
+      return prim == 'void*' ? 'void*' : '$prim*';
+    }
     final base = bt.name.replaceFirst('?', '');
     if (base == 'String') return 'const std::string&';
     if (enumNames.contains(base)) return base;
@@ -173,7 +195,18 @@ class CppInterfaceGenerator {
   ) {
     // isRecord covers bare @HybridRecord, List<T>, and Map<K,V>.
     if (bt.isRecord) return 'NitroCppBuffer';
-    if (bt.isPointer) return 'void*';
+    if (bt.isPointer) {
+      final inner = bt.pointerInnerType;
+      if (inner == null) return 'void*';
+      final innerBase = inner.replaceFirst('?', '');
+      if (innerBase == 'void' || innerBase == 'Void') return 'void*';
+      if (innerBase == 'String') return 'std::string*';
+      if (enumNames.contains(innerBase)) return '$innerBase*';
+      if (structNames.contains(innerBase)) return '$innerBase*';
+      if (recordNames.contains(innerBase)) return 'NitroCppBuffer*';
+      final prim = _primitiveType(innerBase);
+      return prim == 'void*' ? 'void*' : '$prim*';
+    }
     final base = bt.name.replaceFirst('?', '');
     if (base == 'String') return 'std::string';
     if (enumNames.contains(base)) return base;
@@ -198,7 +231,26 @@ class CppInterfaceGenerator {
         continue;
       }
       if (p.type.isPointer) {
-        parts.add('void* ${p.name}');
+        final inner = p.type.pointerInnerType;
+        if (inner == null) {
+          parts.add('void* ${p.name}');
+        } else {
+          final innerBase = inner.replaceFirst('?', '');
+          if (innerBase == 'void' || innerBase == 'Void') {
+            parts.add('void* ${p.name}');
+          } else if (innerBase == 'String') {
+            parts.add('std::string* ${p.name}');
+          } else if (enumNames.contains(innerBase)) {
+            parts.add('$innerBase* ${p.name}');
+          } else if (structNames.contains(innerBase)) {
+            parts.add('$innerBase* ${p.name}');
+          } else if (recordNames.contains(innerBase)) {
+            parts.add('NitroCppBuffer* ${p.name}');
+          } else {
+            final prim = _primitiveType(innerBase);
+            parts.add('${prim == 'void*' ? 'void*' : '$prim*'} ${p.name}');
+          }
+        }
         continue;
       }
       final base = p.type.name.replaceFirst('?', '');

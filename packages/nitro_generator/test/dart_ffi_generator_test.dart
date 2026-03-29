@@ -222,8 +222,8 @@ void main() {
 
     test('methods have checkDisposed() guard', () {
       final out = DartFfiGenerator.generate(simpleSpec());
-      // add(double, double) should guard
-      expect(out, contains('checkDisposed();'));
+      // add(double, double) should have checkDisposed() immediately after its opening brace
+      expect(out, contains('double add(double a, double b) {\n    checkDisposed();'));
     });
 
     test('stream getter has checkDisposed() guard', () {
@@ -233,7 +233,7 @@ void main() {
 
     test('property getter has checkDisposed() in block body', () {
       final out = DartFfiGenerator.generate(richSpec());
-      expect(out, contains('{\n    checkDisposed();'));
+      expect(out, contains('bool get enabled {\n    checkDisposed();'));
     });
 
     test('primitive double stream uses direct rawPtr cast', () {
@@ -898,7 +898,41 @@ void main() {
       final out = DartFfiGenerator.generate(spec);
       expect(out, isNot(contains('NitroRuntime.checkError')));
     });
- 
+
+    test('raw Pointer<Uint8> param produces correct FFI lookup and call', () {
+      final spec = BridgeSpec(
+        dartClassName: 'BufModule',
+        lib: 'buf_module',
+        namespace: 'buf_module',
+        iosImpl: NativeImpl.cpp,
+        androidImpl: NativeImpl.cpp,
+        sourceUri: 'buf_module.native.dart',
+        functions: [
+          BridgeFunction(
+            dartName: 'sendBuffer',
+            cSymbol: 'buf_module_send_buffer',
+            isAsync: false,
+            returnType: BridgeType(name: 'int'),
+            params: [
+              BridgeParam(
+                name: 'ptr',
+                type: BridgeType(
+                  name: 'Pointer<Uint8>',
+                  isPointer: true,
+                  pointerInnerType: 'Uint8',
+                ),
+              ),
+            ],
+          ),
+        ],
+      );
+      final out = DartFfiGenerator.generate(spec);
+      // The FFI lookup signature must reference Pointer<Uint8>
+      expect(out, contains('Pointer<Uint8>'));
+      // The call site must pass the pointer argument through unchanged
+      expect(out, contains('_sendBufferPtr(ptr)'));
+    });
+
     test('non-arena record return uses try/finally for malloc.free', () {
       final spec = BridgeSpec(
         dartClassName: 'Mod',

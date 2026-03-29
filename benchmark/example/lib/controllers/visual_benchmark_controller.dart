@@ -9,6 +9,7 @@ import '../models/benchmark_bridge.dart';
 class VisualBenchmarkController {
   final isRunning = signal<bool>(false);
   final isChecksumEnabled = signal<bool>(true);
+  final isBusy = signal<bool>(false);
 
   final tickCounts = {
     for (var type in BridgeType.values) type: signal(0),
@@ -107,8 +108,25 @@ class VisualBenchmarkController {
   }
 
   Future<void> runHighBandwidthTest(int mb) async {
-    final byteSize = mb * 1024 * 1024;
-    final buffer = Uint8List(byteSize);
+    // Validate: must be positive and within a safe threshold (≤ 2GB to avoid OOM).
+    if (mb <= 0 || mb > 2048) {
+      for (final type in BridgeType.values) {
+        throughputResults[type]!.value = 'Error: invalid size ${mb}MB (must be 1–2048)';
+      }
+      return;
+    }
+    // Use explicit wide multiplication to avoid int32 overflow on some platforms.
+    final byteSize = mb * 1024 * 1024; // mb ≤ 2048 → max ~2 GB, safe in Dart's 64-bit int
+    final Uint8List buffer;
+    try {
+      buffer = Uint8List(byteSize);
+    } catch (e) {
+      for (final type in BridgeType.values) {
+        throughputResults[type]!.value = 'OOM: cannot allocate ${mb}MB';
+      }
+      return;
+    }
+
 
     for (final type in [
       BridgeType.methodChannel,

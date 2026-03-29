@@ -19,7 +19,7 @@ extern "C" {
   }
 
   NITRO_EXPORT int64_t send_large_buffer_noop(const uint8_t* buffer, int64_t length) {
-    // Immediate return for baseline dispatch overhead.
+    (void)buffer; // intentionally unused — baseline dispatch overhead only
     return length;
   }
 }

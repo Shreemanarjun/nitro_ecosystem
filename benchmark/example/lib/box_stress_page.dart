@@ -139,25 +139,50 @@ class _BoxStressPageState extends State<BoxStressPage> {
                       ),
                     ),
                     const Spacer(),
-                    IconButton(
-                      visualDensity: VisualDensity.compact,
-                      icon: const Icon(
-                        Icons.sd_storage,
-                        color: Colors.cyanAccent,
-                        size: 20,
+                    Watch(
+                      (_) => Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          IconButton(
+                            visualDensity: VisualDensity.compact,
+                            icon: const Icon(
+                              Icons.sd_storage,
+                              color: Colors.cyanAccent,
+                              size: 20,
+                            ),
+                            onPressed: _controller.isBusy.value
+                                ? null
+                                : () async {
+                                    _controller.isBusy.value = true;
+                                    try {
+                                      await _controller.runHighBandwidthTest(1);
+                                    } finally {
+                                      _controller.isBusy.value = false;
+                                    }
+                                  },
+                            tooltip: 'Run 1MB Throughput Test',
+                          ),
+                          IconButton(
+                            visualDensity: VisualDensity.compact,
+                            icon: const Icon(
+                              Icons.analytics_outlined,
+                              color: Colors.amberAccent,
+                              size: 20,
+                            ),
+                            onPressed: _controller.isBusy.value
+                                ? null
+                                : () async {
+                                    _controller.isBusy.value = true;
+                                    try {
+                                      await _controller.runOneOffProfiler();
+                                    } finally {
+                                      _controller.isBusy.value = false;
+                                    }
+                                  },
+                            tooltip: 'Run Profiler',
+                          ),
+                        ],
                       ),
-                      onPressed: () => _controller.runHighBandwidthTest(1),
-                      tooltip: 'Run 1GB Test',
-                    ),
-                    IconButton(
-                      visualDensity: VisualDensity.compact,
-                      icon: const Icon(
-                        Icons.analytics_outlined,
-                        color: Colors.amberAccent,
-                        size: 20,
-                      ),
-                      onPressed: _controller.runOneOffProfiler,
-                      tooltip: 'Run Profiler',
                     ),
                     const VerticalDivider(
                       width: 12,
@@ -434,6 +459,14 @@ class _BridgeDriverState extends State<_BridgeDriver>
           sw.elapsedMicroseconds.toDouble(),
         );
       });
+    } else if (widget.type == BridgeType.nitro) {
+      final sw = Stopwatch()..start();
+      Benchmark.instance.add(1.0, 2.0);
+      sw.stop();
+      widget.controller.recordCallLatency(
+        widget.type,
+        sw.elapsedMicroseconds.toDouble(),
+      );
     } else if (widget.type == BridgeType.nitroCpp) {
       final sw = Stopwatch()..start();
       BenchmarkCpp.instance.addFast(1.0, 2.0);
@@ -442,6 +475,23 @@ class _BridgeDriverState extends State<_BridgeDriver>
         widget.type,
         sw.elapsedMicroseconds.toDouble(),
       );
+    } else if (widget.type == BridgeType.nitroCppStruct) {
+      final sw = Stopwatch()..start();
+      BenchmarkCpp.instance.scalePoint(BenchmarkPoint(x: 1, y: 2), 1.0);
+      sw.stop();
+      widget.controller.recordCallLatency(
+        widget.type,
+        sw.elapsedMicroseconds.toDouble(),
+      );
+    } else if (widget.type == BridgeType.nitroCppAsync) {
+      final sw = Stopwatch()..start();
+      BenchmarkCpp.instance.computeStats(1).then((_) {
+        sw.stop();
+        widget.controller.recordCallLatency(
+          widget.type,
+          sw.elapsedMicroseconds.toDouble(),
+        );
+      });
     } else if (widget.type == BridgeType.rawFfi) {
       final sw = Stopwatch()..start();
       widget.controller.rawAdd(1.0, 2.0);

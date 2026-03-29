@@ -117,11 +117,12 @@ public:
         if (!buffer || buffer_length == 0) return 0;
 
         uint64_t sum = 0;
-        // Optimization: Use larger word-access (8-byte) to sample the memory 
-        // every 4KB. This reduces the number of memory-access instructions.
+        // Sample every 4KB page using 8-byte reads.
+        // Use memcpy to avoid undefined behaviour on architectures requiring aligned access.
         for (size_t i = 0; i < buffer_length; i += 4096) {
-            // Safety: Cast to 64-bit pointer for faster word-aligned access
-            sum += *reinterpret_cast<const uint64_t*>(buffer + i);
+            uint64_t word = 0;
+            memcpy(&word, buffer + i, sizeof(word));
+            sum += word;
         }
 
         // Return a representation of work done to prevent DCE

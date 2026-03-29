@@ -284,13 +284,13 @@ class _LinkViewState extends State<LinkView> {
       if (allCpp) {
         _nextSteps.addAll([
           'nitrogen generate',
-          'Subclass Hybrid<Module> in C++ and call ${pluginName}_register_impl(&impl)',
+          'Subclass Hybrid<Module> in C++ (constructor auto-registers via __attribute__((constructor)))',
           'Build and test with ctest (auto-generated test target)',
         ]);
       } else if (hasCpp) {
         _nextSteps.addAll([
           'nitrogen generate',
-          'C++ modules: subclass Hybrid<Module>, call ${pluginName}_register_impl(&impl)',
+          'C++ modules: subclass Hybrid<Module> (constructor auto-registers)',
           'Kotlin/Swift modules: implement Hybrid<Module>Spec / HybridProtocol',
         ]);
       } else {
@@ -460,7 +460,7 @@ void linkCMake(String pluginName, List<String> moduleLibs, String nitroNativePat
   createSharedHeaders(nitroNativePath, baseDir: baseDir);
   final cmakeFile = File(p.join(baseDir, 'src', 'CMakeLists.txt'));
   if (!cmakeFile.existsSync()) {
-    generateCMake(pluginName, moduleLibs, nitroNativePath, baseDir: baseDir);
+    generateCMake(pluginName, moduleLibs, nitroNativePath, baseDir: baseDir, moduleInfos: moduleInfos);
     return;
   }
   var content = cmakeFile.readAsStringSync();
@@ -508,7 +508,7 @@ void linkCMake(String pluginName, List<String> moduleLibs, String nitroNativePat
   if (modified) cmakeFile.writeAsStringSync(content);
 }
 
-void generateCMake(String pluginName, List<String> moduleLibs, String nitroNativePath, {String baseDir = '.'}) {
+void generateCMake(String pluginName, List<String> moduleLibs, String nitroNativePath, {String baseDir = '.', List<ModuleInfo>? moduleInfos}) {
   final nitroValue = nitroNativePathExists(r'${CMAKE_CURRENT_SOURCE_DIR}/../../packages/nitro/src/native', p.join(baseDir, 'src'))
       ? r'${CMAKE_CURRENT_SOURCE_DIR}/../../packages/nitro/src/native'
       : nitroNativePath.replaceAll(r'\', '/');
@@ -534,7 +534,10 @@ void generateCMake(String pluginName, List<String> moduleLibs, String nitroNativ
     ..writeln('  target_link_options($pluginName PRIVATE "-Wl,-z,max-page-size=16384")')
     ..writeln('endif()');
   for (final lib in moduleLibs) {
-    if (lib != pluginName) sb.write(_cmakeModuleTarget(lib));
+    if (lib != pluginName) {
+      final isCpp = moduleInfos?.firstWhere((m) => m.lib == lib, orElse: () => ModuleInfo(lib: lib, module: lib, isCpp: false)).isCpp ?? false;
+      sb.write(_cmakeModuleTarget(lib, isCpp: isCpp));
+    }
   }
   File(p.join(baseDir, 'src', 'CMakeLists.txt')).writeAsStringSync(sb.toString());
 }
@@ -773,7 +776,7 @@ void linkKotlinLoadLibraries(List<String> libs, {String baseDir = '.'}) {
       if (match.isNotEmpty) {
         content = content.replaceFirst(match.last.group(0)!, '${match.last.group(0)!}\n            System.loadLibrary("$lib")');
       } else {
-        // Fallback: insert a new companion object init block
+        // Fallback: inject into existing companion object, or insert a new one.
         final className = p.basenameWithoutExtension(pluginFile.path);
         final classPattern = RegExp('class\\s+$className[^{]*\\{');
         final classMatch = classPattern.firstMatch(content);
@@ -783,10 +786,32 @@ void linkKotlinLoadLibraries(List<String> libs, {String baseDir = '.'}) {
             'to inject System.loadLibrary("$lib"). Please add it manually.',
           );
         }
-        content = content.replaceFirst(
-          classMatch.group(0)!,
-          '${classMatch.group(0)!}\n    companion object {\n        init { System.loadLibrary("$lib") }\n    }\n',
-        );
+        // Check if there's already a companion object in the class body
+        final classBody = classMatch.group(0)!;
+        final companionPattern = RegExp(r'companion\s+object');
+        if (companionPattern.hasMatch(content)) {
+          // Inject into existing companion object before its closing brace
+          final companionMatch = RegExp(r'companion\s+object[^{]*\{([^}]*)\}').firstMatch(content);
+          if (companionMatch != null) {
+            content = content.replaceFirst(
+              companionMatch.group(0)!,
+              companionMatch.group(0)!.replaceFirst(
+                '}',
+                '    System.loadLibrary("$lib")\n        }',
+              ),
+            );
+          } else {
+            throw Exception(
+              'nitrogen link failed: Found companion object in $className (${p.basename(pluginFile.path)}) '
+              'but could not locate its closing brace to inject System.loadLibrary("$lib"). Please add it manually.',
+            );
+          }
+        } else {
+          content = content.replaceFirst(
+            classBody,
+            '$classBody\n    companion object {\n        init { System.loadLibrary("$lib") }\n    }\n',
+          );
+        }
       }
       modified = true;
     }

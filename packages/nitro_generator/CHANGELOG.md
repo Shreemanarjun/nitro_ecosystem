@@ -1,3 +1,17 @@
+## 0.2.7
+
+- **New: Benchmark regression tests** — Added `benchmark_spec_test.dart` with 56+ tests that mirror the real `benchmark.native.dart` and `benchmark_cpp.native.dart` specs, covering KotlinGenerator, SwiftGenerator, DartFfiGenerator, CppInterfaceGenerator, and CppBridgeGenerator output for all types used by the benchmark (primitives, structs, @HybridRecord, TypedData, Pointer<T>, streams).
+- **New: `CppInterfaceGenerator` Pointer<T> param/return tests** — Added `cpp_interface_pointer_test.dart` with 22 tests covering all Pointer<T> combinations: Pointer<Void> → `void*`, Pointer<int> → `int64_t*`, Pointer<double> → `double*`, Pointer<EnumName> → `EnumName*`, Pointer<StructName> → `StructName*`, Pointer<RecordName> → `NitroCppBuffer*`, Pointer<String> → `std::string*`, null inner → `void*`, nullable inner types, multiple pointer params.
+- **New: Nullable type handling tests** — Added `nullable_types_test.dart` with 23 tests covering `String?`, `int?`, `double?`, `bool?` type name stripping in CppInterfaceGenerator, nullable type preservation in DartFfiGenerator Dart signatures, and nullable record field handling in Kotlin (null-safe decode pattern, `?` suffix) and Dart (`readNullTag()` pattern).
+- **New: Stream backpressure tests** — Added `stream_backpressure_test.dart` with 15 tests asserting all three `Backpressure` enum values (`dropLatest`, `block`, `bufferDrop`) propagate correctly through DartFfiGenerator, KotlinGenerator, and SwiftGenerator outputs. Includes isolation tests confirming each value does not appear in outputs for the other two.
+- **Fixed: `benchmark_spec_test.dart` atomic/port assertions** — Corrected stream port storage assertions to match the actual `static int64_t g_port_X = 0;` pattern (plain int64_t, not std::atomic), consistent with the generator's single-write startup model.
+
+## 0.2.6
+
+- **Improved: `CppInterfaceGenerator` Pointer type mapping** — `_cppReturnType`, `_cppParamType`, `_cppScalarType`, and `_cppMethodParams` now inspect `BridgeType.pointerInnerType` to emit precise C++ pointer types. `Pointer<SomeEnum>` → `SomeEnum*`, `Pointer<SomeStruct>` → `SomeStruct*`, `Pointer<Void>` → `void*`; unknown inner types fall back to `void*` as before.
+- **Improved: Test precision for `checkDisposed()` guards** — The "methods have checkDisposed() guard" and "property getter has checkDisposed() in block body" tests now assert the guard appears *immediately after* the named member's opening brace (e.g. `double add(double a, double b) {\n    checkDisposed();`) rather than anywhere in the file, preventing false positives.
+- **New: Regression test for raw `Pointer<Uint8>` FFI mapping** — Added a test in `dart_ffi_generator_test.dart` that exercises the `Pointer<Uint8>` param path end-to-end, asserting the generated lookup signature and call site both contain `Pointer<Uint8>`.
+
 ## 0.2.5
 
 - **New: Thread-Safe Bridge Implementation** — `CppBridgeGenerator` now utilizes `std::atomic` for implementation registration (`g_impl`) and stream port management (`g_port_`). This ensures safe access across multiple native threads and Dart isolates.

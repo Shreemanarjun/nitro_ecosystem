@@ -215,7 +215,7 @@ Stream support in the C++ direct path uses `Dart_PostCObject_DL` — thread-safe
 
 `@HybridRecord` types cross the FFI boundary as a compact little-endian binary buffer rather than JSON:
 
-```
+```text
 [4-byte payload length][fields in declaration order]
 
 int      → 8 bytes, little-endian int64

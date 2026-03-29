@@ -8,12 +8,26 @@ import 'multi_bridge_dashboard.dart';
 import 'box_stress_page.dart';
 import 'benchmark_page.dart';
 
+String? _startupError;
+
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   WakelockPlus.enable(); // Keep screen awake during benchmarks
   SignalsObserver.instance = null;
   NitroConfig.instance.isolatePoolSize = Platform.numberOfProcessors;
-  await NitroRuntime.init();
+  try {
+    await NitroRuntime.init();
+  } catch (e) {
+    // IsolatePool.create() can fail on some devices — retry with pool disabled.
+    debugPrint('[NitroBenchmark] NitroRuntime.init() failed: $e. Retrying with isolatePoolSize=0.');
+    NitroConfig.instance.isolatePoolSize = 0;
+    try {
+      await NitroRuntime.init();
+    } catch (e2) {
+      debugPrint('[NitroBenchmark] NitroRuntime.init() failed again: $e2. Running without runtime.');
+      _startupError = e2.toString();
+    }
+  }
   runApp(const NitroBenchmarkApp());
 }
 
@@ -31,7 +45,25 @@ class NitroBenchmarkApp extends StatelessWidget {
         colorSchemeSeed: Colors.cyan,
         scaffoldBackgroundColor: Colors.black,
       ),
-      home: const MainNavigationPage(),
+      home: _startupError != null
+          ? Scaffold(
+              body: Center(
+                child: Padding(
+                  padding: const EdgeInsets.all(24),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      const Icon(Icons.error_outline, color: Colors.redAccent, size: 48),
+                      const SizedBox(height: 16),
+                      const Text('Nitro Runtime failed to start', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+                      const SizedBox(height: 8),
+                      Text(_startupError!, style: const TextStyle(color: Colors.white60, fontSize: 12)),
+                    ],
+                  ),
+                ),
+              ),
+            )
+          : const MainNavigationPage(),
     );
   }
 }
