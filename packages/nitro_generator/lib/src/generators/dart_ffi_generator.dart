@@ -34,7 +34,10 @@ class DartFfiGenerator {
     s.writeln(
       "    final initFunc = _dylib.lookupFunction<IntPtr Function(Pointer<Void>), int Function(Pointer<Void>)>('${libStem}_init_dart_api_dl');",
     );
-    s.writeln('    initFunc(NativeApi.initializeApiDLData);');
+    s.writeln('    final initCode = initFunc(NativeApi.initializeApiDLData);');
+    s.writeln('    if (initCode != 0) {');
+    s.writeln("      throw StateError('${spec.lib}: Dart API DL initialization failed with code \$initCode.');");
+    s.writeln('    }');
     s.writeln('  }');
     s.writeln();
 
@@ -83,15 +86,19 @@ class DartFfiGenerator {
     }
 
     // ── Error handling pointers (Cached to avoid dlsym on every check) ──────
+    s.writeln('  // ignore: unused_field');
     s.writeln(
       "  late final Pointer<NitroErrorFfi> Function() _getErrorPtr = _dylib.lookupFunction<Pointer<NitroErrorFfi> Function(), Pointer<NitroErrorFfi> Function()>('${libStem}_get_error');",
     );
+    s.writeln('  // ignore: unused_field');
     s.writeln(
       "  late final void Function() _clearErrorPtr = _dylib.lookupFunction<Void Function(), void Function()>('${libStem}_clear_error');",
     );
+    s.writeln('  // ignore: unused_field');
     s.writeln(
       "  late final Pointer<NativeFunction<Pointer<NitroErrorFfi> Function()>> _getErrorNativePtr = _dylib.lookup('${libStem}_get_error');",
     );
+    s.writeln('  // ignore: unused_field');
     s.writeln(
       "  late final Pointer<NativeFunction<Void Function()>> _clearErrorNativePtr = _dylib.lookup('${libStem}_clear_error');",
     );
@@ -144,9 +151,7 @@ class DartFfiGenerator {
         '  $returnType ${func.dartName}(${_paramList(func.params)}) $asyncMod{',
       );
       final isFast = func.dartName.endsWith('Fast');
-      if (!isFast) {
-        s.writeln('    checkDisposed();');
-      }
+      s.writeln('    checkDisposed();');
 
       final rt = func.returnType.name;
       final isRecordReturn = func.returnType.isRecord;
@@ -237,7 +242,11 @@ class DartFfiGenerator {
       } else {
         if (needsArena) {
           s.writeln('    return withArena((arena) {');
-          s.writeln('      final res = _${func.dartName}Ptr($callArgs);');
+          if (rt == 'void') {
+            s.writeln('      _${func.dartName}Ptr($callArgs);');
+          } else {
+            s.writeln('      final res = _${func.dartName}Ptr($callArgs);');
+          }
           if (!isFast) {
             s.writeln("      NitroRuntime.checkError(_getErrorPtr, _clearErrorPtr);");
           }
@@ -280,16 +289,20 @@ class DartFfiGenerator {
             }
             if (isRecordReturn) {
               final decodeExpr = _decodeRecordExpr(func.returnType, 'res as Pointer<Uint8>');
-              s.writeln('    final decoded = $decodeExpr;');
-              s.writeln('    malloc.free(res);');
-              s.writeln('    return decoded;');
+              s.writeln('    try {');
+              s.writeln('      return $decodeExpr;');
+              s.writeln('    } finally {');
+              s.writeln('      malloc.free(res);');
+              s.writeln('    }');
             } else if (spec.enums.any((en) => en.name == rt)) {
               s.writeln('    return res.to$rt();');
             } else if (spec.structs.any((st) => st.name == rt)) {
               s.writeln('    final structPtr = Pointer<${rt}Ffi>.fromAddress(res.address);');
-              s.writeln('    final decoded = structPtr.ref.toDart();');
-              s.writeln('    malloc.free(structPtr);');
-              s.writeln('    return decoded;');
+              s.writeln('    try {');
+              s.writeln('      return structPtr.ref.toDart();');
+              s.writeln('    } finally {');
+              s.writeln('      malloc.free(structPtr);');
+              s.writeln('    }');
             } else if (rt == 'bool') {
               s.writeln('    return res != 0;');
             } else if (rt == 'String') {

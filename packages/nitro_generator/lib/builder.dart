@@ -68,7 +68,7 @@ class NitroGeneratorBuilder implements Builder {
           try {
             formattedCode = DartFormatter().format(rawCode);
           } catch (e) {
-            log.warning('nitrogen: Could not format \${outId.path}:\n\$e');
+            log.warning('nitrogen: Could not format ${outId.path}:\n$e');
             formattedCode = rawCode;
           }
           await buildStep.writeAsString(outId, formattedCode);

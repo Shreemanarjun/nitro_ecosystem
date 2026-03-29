@@ -17,14 +17,18 @@ class _BenchmarkImpl extends Benchmark {
   late final Pointer<Utf8> Function(Pointer<Utf8>) _getGreetingPtr =
       _dylib.lookupFunction<Pointer<Utf8> Function(Pointer<Utf8>),
           Pointer<Utf8> Function(Pointer<Utf8>)>('benchmark_get_greeting');
+  // ignore: unused_field
   late final Pointer<NitroErrorFfi> Function() _getErrorPtr =
       _dylib.lookupFunction<Pointer<NitroErrorFfi> Function(),
           Pointer<NitroErrorFfi> Function()>('benchmark_get_error');
+  // ignore: unused_field
   late final void Function() _clearErrorPtr =
       _dylib.lookupFunction<Void Function(), void Function()>(
           'benchmark_clear_error');
+  // ignore: unused_field
   late final Pointer<NativeFunction<Pointer<NitroErrorFfi> Function()>>
       _getErrorNativePtr = _dylib.lookup('benchmark_get_error');
+  // ignore: unused_field
   late final Pointer<NativeFunction<Void Function()>> _clearErrorNativePtr =
       _dylib.lookup('benchmark_clear_error');
 

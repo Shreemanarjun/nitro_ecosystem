@@ -116,13 +116,17 @@ class _ComplexModuleImpl extends ComplexModule {
   late final void Function(int) _releaseDataStreamPtr =
       _dylib.lookupFunction<Void Function(Int64), void Function(int)>(
           'complex_module_release_data_stream_stream');
+  // ignore: unused_field
   late final Pointer<NitroErrorFfi> Function() _getErrorPtr =
       _dylib.lookupFunction<Pointer<NitroErrorFfi> Function(),
           Pointer<NitroErrorFfi> Function()>('complex_get_error');
+  // ignore: unused_field
   late final void Function() _clearErrorPtr = _dylib
       .lookupFunction<Void Function(), void Function()>('complex_clear_error');
+  // ignore: unused_field
   late final Pointer<NativeFunction<Pointer<NitroErrorFfi> Function()>>
       _getErrorNativePtr = _dylib.lookup('complex_get_error');
+  // ignore: unused_field
   late final Pointer<NativeFunction<Void Function()>> _clearErrorNativePtr =
       _dylib.lookup('complex_clear_error');
 
@@ -166,7 +170,7 @@ class _ComplexModuleImpl extends ComplexModule {
   void updateSensors(SensorData data) {
     checkDisposed();
     return withArena((arena) {
-      final res = _updateSensorsPtr(data.toNative(arena).cast<Void>());
+      _updateSensorsPtr(data.toNative(arena).cast<Void>());
       NitroRuntime.checkError(_getErrorPtr, _clearErrorPtr);
       return;
     });
@@ -179,9 +183,11 @@ class _ComplexModuleImpl extends ComplexModule {
         _generatePacketPtr, [type],
         getError: _getErrorNativePtr, clearError: _clearErrorNativePtr);
     final structPtr = Pointer<PacketFfi>.fromAddress(rawPtr.address);
-    final decodedStruct = structPtr.ref.toDart();
-    malloc.free(structPtr);
-    return decodedStruct;
+    try {
+      return structPtr.ref.toDart();
+    } finally {
+      malloc.free(structPtr);
+    }
   }
 
   @override

@@ -56,14 +56,18 @@ class _VerificationModuleImpl extends VerificationModule {
           Pointer<Void> Function(Pointer<Float>, Int64),
           Pointer<Void> Function(
               Pointer<Float>, int)>('verification_module_process_floats');
+  // ignore: unused_field
   late final Pointer<NitroErrorFfi> Function() _getErrorPtr =
       _dylib.lookupFunction<Pointer<NitroErrorFfi> Function(),
           Pointer<NitroErrorFfi> Function()>('verification_get_error');
+  // ignore: unused_field
   late final void Function() _clearErrorPtr =
       _dylib.lookupFunction<Void Function(), void Function()>(
           'verification_clear_error');
+  // ignore: unused_field
   late final Pointer<NativeFunction<Pointer<NitroErrorFfi> Function()>>
       _getErrorNativePtr = _dylib.lookup('verification_get_error');
+  // ignore: unused_field
   late final Pointer<NativeFunction<Void Function()>> _clearErrorNativePtr =
       _dylib.lookup('verification_clear_error');
 
@@ -109,7 +113,7 @@ class _VerificationModuleImpl extends VerificationModule {
   void throwError(String message) {
     checkDisposed();
     return withArena((arena) {
-      final res = _throwErrorPtr(message.toNativeUtf8(allocator: arena));
+      _throwErrorPtr(message.toNativeUtf8(allocator: arena));
       NitroRuntime.checkError(_getErrorPtr, _clearErrorPtr);
       return;
     });
@@ -122,9 +126,11 @@ class _VerificationModuleImpl extends VerificationModule {
       final res = _processFloatsPtr(inputs.toPointer(arena), inputs.length);
       NitroRuntime.checkError(_getErrorPtr, _clearErrorPtr);
       final structPtr = Pointer<FloatBufferFfi>.fromAddress(res.address);
-      final decoded = structPtr.ref.toDart();
-      malloc.free(structPtr);
-      return decoded;
+      try {
+        return structPtr.ref.toDart();
+      } finally {
+        malloc.free(structPtr);
+      }
     });
   }
 }

@@ -122,14 +122,18 @@ class _MyCameraImpl extends MyCamera {
   late final void Function(int) _releaseColoredFramesPtr =
       _dylib.lookupFunction<Void Function(Int64), void Function(int)>(
           'my_camera_release_colored_frames_stream');
+  // ignore: unused_field
   late final Pointer<NitroErrorFfi> Function() _getErrorPtr =
       _dylib.lookupFunction<Pointer<NitroErrorFfi> Function(),
           Pointer<NitroErrorFfi> Function()>('my_camera_get_error');
+  // ignore: unused_field
   late final void Function() _clearErrorPtr =
       _dylib.lookupFunction<Void Function(), void Function()>(
           'my_camera_clear_error');
+  // ignore: unused_field
   late final Pointer<NativeFunction<Pointer<NitroErrorFfi> Function()>>
       _getErrorNativePtr = _dylib.lookup('my_camera_get_error');
+  // ignore: unused_field
   late final Pointer<NativeFunction<Void Function()>> _clearErrorNativePtr =
       _dylib.lookup('my_camera_clear_error');
 
@@ -167,10 +171,12 @@ class _MyCameraImpl extends MyCamera {
     final rawPtr = await NitroRuntime.callAsync<Pointer<Uint8>>(
         _getAvailableDevicesPtr, [],
         getError: _getErrorNativePtr, clearError: _clearErrorNativePtr);
-    final decoded = RecordReader.decodeList(
-        rawPtr, (r) => CameraDeviceRecordExt.fromReader(r));
-    malloc.free(rawPtr);
-    return decoded;
+    try {
+      return RecordReader.decodeList(
+          rawPtr, (r) => CameraDeviceRecordExt.fromReader(r));
+    } finally {
+      malloc.free(rawPtr);
+    }
   }
 
   @override
