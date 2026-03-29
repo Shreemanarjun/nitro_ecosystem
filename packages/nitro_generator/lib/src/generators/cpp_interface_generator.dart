@@ -60,7 +60,7 @@ class CppInterfaceGenerator {
     if (spec.functions.isNotEmpty) {
       s.writeln('    // ── Methods ──────────────────────────────────────────────────────────');
       for (final func in spec.functions) {
-        final retType = _cppReturnType(func.returnType.name, enumNames, structNames, recordNames);
+        final retType = _cppReturnType(func.returnType, enumNames, structNames, recordNames);
         final params = _cppMethodParams(func.params, enumNames, structNames, recordNames);
         final paramStr = params.join(', ');
         s.writeln('    virtual $retType ${func.dartName}($paramStr) = 0;');
@@ -72,12 +72,12 @@ class CppInterfaceGenerator {
     if (spec.properties.isNotEmpty) {
       s.writeln('    // ── Properties ───────────────────────────────────────────────────────');
       for (final prop in spec.properties) {
-        final cppType = _cppScalarType(prop.type.name, enumNames, structNames, recordNames);
+        final cppType = _cppScalarType(prop.type, enumNames, structNames, recordNames);
         if (prop.hasGetter) {
           s.writeln('    virtual $cppType get_${prop.dartName}() const = 0;');
         }
         if (prop.hasSetter) {
-          final paramType = _cppParamType(prop.type.name, enumNames, structNames, recordNames);
+          final paramType = _cppParamType(prop.type, enumNames, structNames, recordNames);
           s.writeln('    virtual void set_${prop.dartName}($paramType value) = 0;');
         }
       }
@@ -89,7 +89,7 @@ class CppInterfaceGenerator {
       s.writeln('    // ── Streams ──────────────────────────────────────────────────────────');
       s.writeln('    // Call the emit_* helpers below to push items to Dart from any thread.');
       for (final stream in spec.streams) {
-        final itemCpp = _cppScalarType(stream.itemType.name, enumNames, structNames, recordNames);
+        final itemCpp = _cppScalarType(stream.itemType, enumNames, structNames, recordNames);
         s.writeln('    /// Emit a value on the ${stream.dartName} stream.');
         s.writeln('    void emit_${stream.dartName}($itemCpp item);');
       }
@@ -125,14 +125,17 @@ class CppInterfaceGenerator {
   // ── Type helpers (C++ style) ─────────────────────────────────────────────
 
   /// C++ return type. Primitives → scalar; String → std::string;
-  /// Struct → by-value; Enum → enum typedef; Record → NitroCppBuffer.
+  /// Struct → by-value; Enum → enum typedef; Record/List/Map → NitroCppBuffer.
   static String _cppReturnType(
-    String dartType,
+    BridgeType bt,
     Set<String> enumNames,
     Set<String> structNames,
     Set<String> recordNames,
   ) {
-    final base = dartType.replaceFirst('?', '');
+    // isRecord covers bare @HybridRecord, List<T>, and Map<K,V> — all bridge
+    // as NitroCppBuffer regardless of the name string.
+    if (bt.isRecord) return 'NitroCppBuffer';
+    final base = bt.name.replaceFirst('?', '');
     if (base == 'void') return 'void';
     if (base == 'String') return 'std::string';
     if (enumNames.contains(base)) return base;
@@ -143,12 +146,14 @@ class CppInterfaceGenerator {
 
   /// C++ const-ref param type for setters / scalar positions.
   static String _cppParamType(
-    String dartType,
+    BridgeType bt,
     Set<String> enumNames,
     Set<String> structNames,
     Set<String> recordNames,
   ) {
-    final base = dartType.replaceFirst('?', '');
+    // isRecord covers bare @HybridRecord, List<T>, and Map<K,V>.
+    if (bt.isRecord) return 'NitroCppBuffer';
+    final base = bt.name.replaceFirst('?', '');
     if (base == 'String') return 'const std::string&';
     if (enumNames.contains(base)) return base;
     if (structNames.contains(base)) return 'const $base&';
@@ -157,14 +162,16 @@ class CppInterfaceGenerator {
     return _primitiveType(base);
   }
 
-  /// Scalar C++ type (for return types and property types).
+  /// Scalar C++ type (for return types, property types, and stream item types).
   static String _cppScalarType(
-    String dartType,
+    BridgeType bt,
     Set<String> enumNames,
     Set<String> structNames,
     Set<String> recordNames,
   ) {
-    final base = dartType.replaceFirst('?', '');
+    // isRecord covers bare @HybridRecord, List<T>, and Map<K,V>.
+    if (bt.isRecord) return 'NitroCppBuffer';
+    final base = bt.name.replaceFirst('?', '');
     if (base == 'String') return 'std::string';
     if (enumNames.contains(base)) return base;
     if (structNames.contains(base)) return base;
@@ -182,6 +189,11 @@ class CppInterfaceGenerator {
   ) {
     final parts = <String>[];
     for (final p in params) {
+      // isRecord covers bare @HybridRecord, List<T>, and Map<K,V>.
+      if (p.type.isRecord) {
+        parts.add('NitroCppBuffer ${p.name}');
+        continue;
+      }
       final base = p.type.name.replaceFirst('?', '');
       if (_isTypedData(base)) {
         parts.add('${_typedDataPtr(base)} ${p.name}');
@@ -203,35 +215,57 @@ class CppInterfaceGenerator {
 
   static bool _isTypedData(String base) {
     const td = {
-      'Uint8List', 'Int8List', 'Int16List', 'Int32List',
-      'Uint16List', 'Uint32List', 'Float32List', 'Float64List',
-      'Int64List', 'Uint64List',
+      'Uint8List',
+      'Int8List',
+      'Int16List',
+      'Int32List',
+      'Uint16List',
+      'Uint32List',
+      'Float32List',
+      'Float64List',
+      'Int64List',
+      'Uint64List',
     };
     return td.contains(base);
   }
 
   static String _typedDataPtr(String base) {
     switch (base) {
-      case 'Uint8List':  return 'const uint8_t*';
-      case 'Int8List':   return 'const int8_t*';
-      case 'Int16List':  return 'const int16_t*';
-      case 'Uint16List': return 'const uint16_t*';
-      case 'Int32List':  return 'const int32_t*';
-      case 'Uint32List': return 'const uint32_t*';
-      case 'Float32List':return 'const float*';
-      case 'Float64List':return 'const double*';
-      case 'Int64List':  return 'const int64_t*';
-      case 'Uint64List': return 'const uint64_t*';
-      default:           return 'const uint8_t*';
+      case 'Uint8List':
+        return 'const uint8_t*';
+      case 'Int8List':
+        return 'const int8_t*';
+      case 'Int16List':
+        return 'const int16_t*';
+      case 'Uint16List':
+        return 'const uint16_t*';
+      case 'Int32List':
+        return 'const int32_t*';
+      case 'Uint32List':
+        return 'const uint32_t*';
+      case 'Float32List':
+        return 'const float*';
+      case 'Float64List':
+        return 'const double*';
+      case 'Int64List':
+        return 'const int64_t*';
+      case 'Uint64List':
+        return 'const uint64_t*';
+      default:
+        return 'const uint8_t*';
     }
   }
 
   static String _primitiveType(String base) {
     switch (base) {
-      case 'int':    return 'int64_t';
-      case 'double': return 'double';
-      case 'bool':   return 'bool';
-      default:       return 'void*';
+      case 'int':
+        return 'int64_t';
+      case 'double':
+        return 'double';
+      case 'bool':
+        return 'bool';
+      default:
+        return 'void*';
     }
   }
 }

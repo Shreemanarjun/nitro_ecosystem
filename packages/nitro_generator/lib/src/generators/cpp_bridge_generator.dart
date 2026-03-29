@@ -69,7 +69,17 @@ class CppBridgeGenerator {
     s.writeln('}');
     s.writeln();
 
-    // Implementation registry
+    // Implementation registry.
+    // Thread-safety contract: register_impl() MUST be called (and complete)
+    // before any concurrent native call can reach get_impl().  In practice this
+    // is guaranteed because registration always happens in an
+    // __attribute__((constructor)) which runs synchronously at DSO load —
+    // before Dart's isolate threads can invoke any bridge function.
+    // We intentionally do NOT use std::atomic here: the pointer is written
+    // exactly once at startup and never mutated during concurrent use, so a
+    // plain load is safe and avoids seq_cst memory barriers on every hot call.
+    s.writeln('// g_impl is written once during DSO load (see __attribute__((constructor)))');
+    s.writeln('// and is read-only during concurrent bridge calls — no std::atomic needed.');
     s.writeln('static Hybrid$className* g_impl = nullptr;');
     s.writeln();
     s.writeln('void ${libStem}_register_impl(Hybrid$className* impl) { g_impl = impl; }');
@@ -114,7 +124,8 @@ class CppBridgeGenerator {
     }
 
     // Guard snippet used in every exported function
-    final notInit = 'nitro_report_error("NotInitialized", '
+    final notInit =
+        'nitro_report_error("NotInitialized", '
         '"No C++ implementation registered. Call ${libStem}_register_impl() first.", '
         'nullptr, nullptr)';
 

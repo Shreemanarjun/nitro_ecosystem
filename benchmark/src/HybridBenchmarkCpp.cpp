@@ -68,6 +68,9 @@ public:
         const int kTotalSize = 4 + kPayloadSize; // 4-byte length prefix
 
         uint8_t* buf = static_cast<uint8_t*>(malloc(kTotalSize));
+        if (buf == nullptr) {
+            return NitroCppBuffer{nullptr, 0}; // OOM — bridge returns nullptr to Dart
+        }
         int32_t payloadLen = static_cast<int32_t>(kPayloadSize);
         // Write length prefix (little-endian int32)
         memcpy(buf, &payloadLen, 4);
