@@ -129,6 +129,9 @@ class DartFfiGenerator {
             if (p.type.isRecord) {
               return [_encodeRecordParam(p.type, p.name, 'arena')];
             }
+            if (p.type.isPointer) {
+              return [p.name];
+            }
             if (p.type.isTypedData) {
               return ['${p.name}.toPointer(arena)', '${p.name}.length'];
             }
@@ -462,6 +465,9 @@ class DartFfiGenerator {
     if (bt.isRecord) {
       return bt.isMap ? 'Pointer<Utf8>' : 'Pointer<Uint8>';
     }
+    if (bt.isPointer) {
+      return 'Pointer<${bt.pointerInnerType}>';
+    }
     final name = bt.name.replaceFirst('?', '');
     switch (name) {
       case 'int':
@@ -502,6 +508,9 @@ class DartFfiGenerator {
   static String _typeToDartFFI(BridgeType bt, BridgeSpec spec) {
     if (bt.isRecord) {
       return bt.isMap ? 'Pointer<Utf8>' : 'Pointer<Uint8>';
+    }
+    if (bt.isPointer) {
+      return 'Pointer<${bt.pointerInnerType}>';
     }
     final name = bt.name.replaceFirst('?', '');
     switch (name) {
