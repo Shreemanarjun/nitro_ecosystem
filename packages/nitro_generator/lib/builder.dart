@@ -1,4 +1,5 @@
 import 'package:build/build.dart';
+import 'package:dart_style/dart_style.dart';
 import 'package:source_gen/source_gen.dart';
 import 'src/spec_extractor.dart';
 import 'src/spec_validator.dart';
@@ -62,7 +63,15 @@ class NitroGeneratorBuilder implements Builder {
 
       for (final outId in outputs) {
         if (outId.path.endsWith('.g.dart')) {
-          await buildStep.writeAsString(outId, DartFfiGenerator.generate(spec));
+          final rawCode = DartFfiGenerator.generate(spec);
+          String formattedCode;
+          try {
+            formattedCode = DartFormatter().format(rawCode);
+          } catch (e) {
+            log.warning('nitrogen: Could not format \${outId.path}:\n\$e');
+            formattedCode = rawCode;
+          }
+          await buildStep.writeAsString(outId, formattedCode);
         } else if (outId.path.endsWith('.bridge.g.kt')) {
           await buildStep.writeAsString(outId, KotlinGenerator.generate(spec));
         } else if (outId.path.endsWith('.bridge.g.swift')) {

@@ -128,7 +128,9 @@ void main() {
   group('CppBridgeGenerator (edge cases)', () {
     test('iOS functions wrap @try in #ifdef __OBJC__', () {
       final out = CppBridgeGenerator.generate(simpleSpec());
-      final applePart = out.split('#elif __APPLE__')[1];
+      final parts = out.split('#elif __APPLE__');
+      expect(parts.length, greaterThan(1), reason: 'Output should contain "#elif __APPLE__"');
+      final applePart = parts[1];
       expect(applePart, contains('#ifdef __OBJC__'));
       expect(applePart, contains('@try {'));
     });

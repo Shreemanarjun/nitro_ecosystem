@@ -173,18 +173,22 @@ class DartFfiGenerator {
           if (isRecordReturn) {
             s.writeln('      final rawPtr = await NitroRuntime.callAsync<Pointer<Uint8>>(_${func.dartName}Ptr, [$callArgs], $errArgs);');
             final decodeExpr = _decodeRecordExpr(func.returnType, 'rawPtr');
-            s.writeln('      final decoded = $decodeExpr;');
-            s.writeln('      malloc.free(rawPtr);');
-            s.writeln('      return decoded;');
+            s.writeln('      try {');
+            s.writeln('        return $decodeExpr;');
+            s.writeln('      } finally {');
+            s.writeln('        malloc.free(rawPtr);');
+            s.writeln('      }');
           } else if (rt == 'String') {
             s.writeln('      final rawPtr = await NitroRuntime.callAsync<Pointer<Utf8>>(_${func.dartName}Ptr, [$callArgs], $errArgs);');
             s.writeln('      return rawPtr.toDartStringWithFree();');
           } else if (isStructReturn) {
             s.writeln('      final rawPtr = await NitroRuntime.callAsync<Pointer<Void>>(_${func.dartName}Ptr, [$callArgs], $errArgs);');
             s.writeln('      final structPtr = Pointer<${rt}Ffi>.fromAddress(rawPtr.address);');
-            s.writeln('      final decoded = structPtr.ref.toDart();');
-            s.writeln('      malloc.free(structPtr);');
-            s.writeln('      return decoded;');
+            s.writeln('      try {');
+            s.writeln('        return structPtr.ref.toDart();');
+            s.writeln('      } finally {');
+            s.writeln('        malloc.free(structPtr);');
+            s.writeln('      }');
           } else if (isEnumReturn) {
             s.writeln('      final res = await NitroRuntime.callAsync<int>(_${func.dartName}Ptr, [$callArgs], $errArgs);');
             s.writeln('      return res.to$rt();');
@@ -203,15 +207,19 @@ class DartFfiGenerator {
           if (isRecordReturn) {
             s.writeln('    final rawPtr = await NitroRuntime.callAsync<Pointer<Uint8>>(_${func.dartName}Ptr, [$plainCallArgs], $errArgs);');
             final decodeExpr = _decodeRecordExpr(func.returnType, 'rawPtr');
-            s.writeln('    final decoded = $decodeExpr;');
-            s.writeln('    malloc.free(rawPtr);');
-            s.writeln('    return decoded;');
+            s.writeln('    try {');
+            s.writeln('      return $decodeExpr;');
+            s.writeln('    } finally {');
+            s.writeln('      malloc.free(rawPtr);');
+            s.writeln('    }');
           } else if (isStructReturn) {
             s.writeln('    final rawPtr = await NitroRuntime.callAsync<Pointer<Void>>(_${func.dartName}Ptr, [$plainCallArgs], $errArgs);');
             s.writeln('    final structPtr = Pointer<${rt}Ffi>.fromAddress(rawPtr.address);');
-            s.writeln('    final decodedStruct = structPtr.ref.toDart();');
-            s.writeln('    malloc.free(structPtr);');
-            s.writeln('    return decodedStruct;');
+            s.writeln('    try {');
+            s.writeln('      return structPtr.ref.toDart();');
+            s.writeln('    } finally {');
+            s.writeln('      malloc.free(structPtr);');
+            s.writeln('    }');
           } else if (isEnumReturn) {
             s.writeln('    final res = await NitroRuntime.callAsync<int>(_${func.dartName}Ptr, [$plainCallArgs], $errArgs);');
             s.writeln('    return res.to$rt();');
@@ -230,19 +238,25 @@ class DartFfiGenerator {
         if (needsArena) {
           s.writeln('    return withArena((arena) {');
           s.writeln('      final res = _${func.dartName}Ptr($callArgs);');
-          s.writeln("      NitroRuntime.checkError(_getErrorPtr, _clearErrorPtr);");
+          if (!isFast) {
+            s.writeln("      NitroRuntime.checkError(_getErrorPtr, _clearErrorPtr);");
+          }
           if (rt == 'void') {
             s.writeln('      return;');
           } else if (isRecordReturn) {
             final decodeExpr = _decodeRecordExpr(func.returnType, 'res as Pointer<Uint8>');
-            s.writeln('      final decoded = $decodeExpr;');
-            s.writeln('      malloc.free(res);');
-            s.writeln('      return decoded;');
+            s.writeln('      try {');
+            s.writeln('        return $decodeExpr;');
+            s.writeln('      } finally {');
+            s.writeln('        malloc.free(res);');
+            s.writeln('      }');
           } else if (spec.structs.any((st) => st.name == rt)) {
             s.writeln('      final structPtr = Pointer<${rt}Ffi>.fromAddress(res.address);');
-            s.writeln('      final decoded = structPtr.ref.toDart();');
-            s.writeln('      malloc.free(structPtr);');
-            s.writeln('      return decoded;');
+            s.writeln('      try {');
+            s.writeln('        return structPtr.ref.toDart();');
+            s.writeln('      } finally {');
+            s.writeln('        malloc.free(structPtr);');
+            s.writeln('      }');
           } else if (rt == 'bool') {
             s.writeln('      return res != 0;');
           } else if (rt == 'String') {
@@ -299,10 +313,16 @@ class DartFfiGenerator {
       if (prop.hasGetter) {
         s.writeln('  @override');
         if (isRecordProp) {
-          final decodeExpr = _decodeRecordExpr(prop.type, "_get${cap}Ptr()");
+          final decodeExpr = _decodeRecordExpr(prop.type, "res");
           s.writeln('  $rt get ${prop.dartName} {');
           s.writeln('    checkDisposed();');
-          s.writeln('    return $decodeExpr;');
+          s.writeln('    final res = _get${cap}Ptr();');
+          s.writeln('    NitroRuntime.checkError(_getErrorPtr, _clearErrorPtr);');
+          s.writeln('    try {');
+          s.writeln('      return $decodeExpr;');
+          s.writeln('    } finally {');
+          s.writeln('      malloc.free(res);');
+          s.writeln('    }');
           s.writeln('  }');
         } else {
           s.writeln('  $rt get ${prop.dartName} {');

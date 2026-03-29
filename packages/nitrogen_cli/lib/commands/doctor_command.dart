@@ -54,7 +54,10 @@ class CheckRow extends StatelessComponent {
         children: [
           Row(
             children: [
-              Text(icon, style: TextStyle(color: iconColor, fontWeight: FontWeight.bold)),
+              Text(
+                icon,
+                style: TextStyle(color: iconColor, fontWeight: FontWeight.bold),
+              ),
               const Text(' '),
               Expanded(
                 child: Text(
@@ -63,8 +66,8 @@ class CheckRow extends StatelessComponent {
                     color: check.status == DoctorStatus.error
                         ? Colors.red
                         : check.status == DoctorStatus.warn
-                            ? Colors.yellow
-                            : null,
+                        ? Colors.yellow
+                        : null,
                   ),
                 ),
               ),
@@ -189,18 +192,18 @@ class _DoctorViewState extends State<DoctorView> {
       component.errorMessage != null
           ? '✘  Project discovery failed.'
           : healthy
-              ? '✨ All checks passed.'
-              : component.errors > 0
-                  ? '✘  ${component.errors} error(s)'
-                      '${component.warnings > 0 ? ', ${component.warnings} warning(s)' : ''}.'
-                  : '⚠  ${component.warnings} warning(s).',
+          ? '✨ All checks passed.'
+          : component.errors > 0
+          ? '✘  ${component.errors} error(s)'
+                '${component.warnings > 0 ? ', ${component.warnings} warning(s)' : ''}.'
+          : '⚠  ${component.warnings} warning(s).',
       style: TextStyle(
         fontWeight: FontWeight.bold,
         color: component.errorMessage != null || component.errors > 0
             ? Colors.red
             : healthy
-                ? Colors.green
-                : Colors.yellow,
+            ? Colors.green
+            : Colors.yellow,
       ),
     );
 
@@ -236,7 +239,10 @@ class _DoctorViewState extends State<DoctorView> {
                             decoration: BoxDecoration(
                               border: BoxBorder.all(color: Colors.red),
                             ),
-                            child: const Text(' ✘  ERROR ', style: TextStyle(color: Colors.red, fontWeight: FontWeight.bold)),
+                            child: const Text(
+                              ' ✘  ERROR ',
+                              style: TextStyle(color: Colors.red, fontWeight: FontWeight.bold),
+                            ),
                           ),
                           const SizedBox(height: 1),
                           Text(component.errorMessage!, style: const TextStyle(color: Colors.white)),
@@ -293,7 +299,8 @@ class DoctorCommand extends Command {
   final String name = 'doctor';
 
   @override
-  final String description = 'Checks that a Nitrogen plugin is production-ready: generated files, '
+  final String description =
+      'Checks that a Nitrogen plugin is production-ready: generated files, '
       'build system wiring (CMake, Kotlin, Swift), pubspec, and native configs.';
 
   // Core generated files — always expected for every .native.dart spec.
@@ -666,9 +673,7 @@ class DoctorCommand extends Command {
       if (allSpecsCpp) {
         // No Swift bridge needed — check that the C++ interface headers were synced
         info(iosSec, 'All modules use NativeImpl.cpp — Swift bridge (Registry.register) not required');
-        final cppHeaders = classesDir.existsSync()
-            ? classesDir.listSync().whereType<File>().where((f) => f.path.endsWith('.native.g.h')).toList()
-            : <File>[];
+        final cppHeaders = classesDir.existsSync() ? classesDir.listSync().whereType<File>().where((f) => f.path.endsWith('.native.g.h')).toList() : <File>[];
         if (cppHeaders.isNotEmpty) {
           ok(iosSec, '${cppHeaders.length} *.native.g.h header(s) synced to ios/Classes/');
         } else if (hasAnyCppSpec) {
@@ -743,16 +748,18 @@ class DoctorCommand extends Command {
         final stem = p.basename(spec.path).replaceAll(RegExp(r'\.native\.dart$'), '');
         final lib = _extractLibName(spec) ?? stem.replaceAll('-', '_');
         final moduleMatch = RegExp(r'abstract class (\w+) extends HybridObject').firstMatch(spec.readAsStringSync());
-        final moduleName = moduleMatch?.group(1) ?? stem.split('_').map((w) => w[0].toUpperCase() + w.substring(1)).join('');
+        final parsedSegments = stem.split('_').where((w) => w.isNotEmpty).toList();
+        final fallbackName = parsedSegments.isNotEmpty ? parsedSegments.map((w) => w[0].toUpperCase() + w.substring(1)).join('') : lib;
+        final moduleName = moduleMatch?.group(1) ?? fallbackName;
 
         // Check if user has a C++ impl file in src/ (anything that isn't generated or dart_api_dl)
         final srcDir = Directory(p.join(root.path, 'src'));
         final cppImplFiles = srcDir.existsSync()
-            ? srcDir.listSync().whereType<File>().where((f) =>
-                f.path.endsWith('.cpp') &&
-                !f.path.contains('.bridge.g.') &&
-                !f.path.contains('.test.g.') &&
-                !f.path.contains('dart_api_dl')).toList()
+            ? srcDir
+                  .listSync()
+                  .whereType<File>()
+                  .where((f) => f.path.endsWith('.cpp') && !f.path.contains('.bridge.g.') && !f.path.contains('.test.g.') && !f.path.contains('dart_api_dl'))
+                  .toList()
             : <File>[];
 
         if (cppImplFiles.isNotEmpty) {
@@ -761,8 +768,7 @@ class DoctorCommand extends Command {
           if (anyRegisters) {
             ok(cppSec, '$lib: ${lib}_register_impl() wired up in user impl');
           } else {
-            warn(cppSec, '$lib: ${lib}_register_impl(&impl) not found in src/',
-                hint: 'Call ${lib}_register_impl(&impl) at startup before first Dart use');
+            warn(cppSec, '$lib: ${lib}_register_impl(&impl) not found in src/', hint: 'Call ${lib}_register_impl(&impl) at startup before first Dart use');
           }
         } else {
           info(cppSec, '$lib: Create src/Hybrid$moduleName.cpp, subclass Hybrid$moduleName, then call ${lib}_register_impl(&impl)');
@@ -803,19 +809,23 @@ class DoctorCommand extends Command {
 
     final result = performChecks();
 
-    await runApp(DoctorView(
-      pluginName: result.pluginName,
-      sections: result.sections,
-      errors: result.errors,
-      warnings: result.warnings,
-    ));
+    await runApp(
+      DoctorView(
+        pluginName: result.pluginName,
+        sections: result.sections,
+        errors: result.errors,
+        warnings: result.warnings,
+      ),
+    );
 
     // Print persistent one-liner after TUI exits
     if (result.errors == 0 && result.warnings == 0) {
       stdout.writeln('  \x1B[1;32m✨ ${result.pluginName} — all checks passed\x1B[0m');
     } else if (result.errors > 0) {
-      stdout.writeln('  \x1B[1;31m✘  ${result.pluginName} — ${result.errors} error(s)'
-          '${result.warnings > 0 ? ", ${result.warnings}" : ""}\x1B[0m');
+      stdout.writeln(
+        '  \x1B[1;31m✘  ${result.pluginName} — ${result.errors} error(s)'
+        '${result.warnings > 0 ? ", ${result.warnings}" : ""}\x1B[0m',
+      );
     } else {
       stdout.writeln('  \x1B[1;33m⚠  ${result.pluginName} — ${result.warnings} warning(s)\x1B[0m');
     }

@@ -6,16 +6,27 @@ class _BenchmarkImpl extends Benchmark {
   final DynamicLibrary _dylib;
 
   _BenchmarkImpl() : _dylib = NitroRuntime.loadLib('benchmark') {
-    final initFunc = _dylib.lookupFunction<IntPtr Function(Pointer<Void>), int Function(Pointer<Void>)>('benchmark_init_dart_api_dl');
+    final initFunc = _dylib.lookupFunction<IntPtr Function(Pointer<Void>),
+        int Function(Pointer<Void>)>('benchmark_init_dart_api_dl');
     initFunc(NativeApi.initializeApiDLData);
   }
 
-  late final double Function(double, double) _addPtr = _dylib.lookupFunction<Double Function(Double, Double), double Function(double, double)>('benchmark_add');
-  late final Pointer<Utf8> Function(Pointer<Utf8>) _getGreetingPtr = _dylib.lookupFunction<Pointer<Utf8> Function(Pointer<Utf8>), Pointer<Utf8> Function(Pointer<Utf8>)>('benchmark_get_greeting');
-  late final Pointer<NitroErrorFfi> Function() _getErrorPtr = _dylib.lookupFunction<Pointer<NitroErrorFfi> Function(), Pointer<NitroErrorFfi> Function()>('benchmark_get_error');
-  late final void Function() _clearErrorPtr = _dylib.lookupFunction<Void Function(), void Function()>('benchmark_clear_error');
-  late final Pointer<NativeFunction<Pointer<NitroErrorFfi> Function()>> _getErrorNativePtr = _dylib.lookup('benchmark_get_error');
-  late final Pointer<NativeFunction<Void Function()>> _clearErrorNativePtr = _dylib.lookup('benchmark_clear_error');
+  late final double Function(double, double) _addPtr = _dylib.lookupFunction<
+      Double Function(Double, Double),
+      double Function(double, double)>('benchmark_add');
+  late final Pointer<Utf8> Function(Pointer<Utf8>) _getGreetingPtr =
+      _dylib.lookupFunction<Pointer<Utf8> Function(Pointer<Utf8>),
+          Pointer<Utf8> Function(Pointer<Utf8>)>('benchmark_get_greeting');
+  late final Pointer<NitroErrorFfi> Function() _getErrorPtr =
+      _dylib.lookupFunction<Pointer<NitroErrorFfi> Function(),
+          Pointer<NitroErrorFfi> Function()>('benchmark_get_error');
+  late final void Function() _clearErrorPtr =
+      _dylib.lookupFunction<Void Function(), void Function()>(
+          'benchmark_clear_error');
+  late final Pointer<NativeFunction<Pointer<NitroErrorFfi> Function()>>
+      _getErrorNativePtr = _dylib.lookup('benchmark_get_error');
+  late final Pointer<NativeFunction<Void Function()>> _clearErrorNativePtr =
+      _dylib.lookup('benchmark_clear_error');
 
   @override
   // ignore: unnecessary_overrides
@@ -36,11 +47,12 @@ class _BenchmarkImpl extends Benchmark {
     checkDisposed();
     final arena = Arena();
     try {
-      final rawPtr = await NitroRuntime.callAsync<Pointer<Utf8>>(_getGreetingPtr, [name.toNativeUtf8(allocator: arena)], getError: _getErrorNativePtr, clearError: _clearErrorNativePtr);
+      final rawPtr = await NitroRuntime.callAsync<Pointer<Utf8>>(
+          _getGreetingPtr, [name.toNativeUtf8(allocator: arena)],
+          getError: _getErrorNativePtr, clearError: _clearErrorNativePtr);
       return rawPtr.toDartStringWithFree();
     } finally {
       arena.releaseAll();
     }
   }
-
 }

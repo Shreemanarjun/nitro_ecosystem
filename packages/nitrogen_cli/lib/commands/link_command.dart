@@ -61,8 +61,7 @@ bool isCppModule(File specFile) {
   final match = RegExp(r'@NitroModule\s*\(([^)]+)\)').firstMatch(content);
   if (match == null) return false;
   final annotation = match.group(1)!;
-  return annotation.contains('NativeImpl.cpp') &&
-      annotation.replaceFirst('NativeImpl.cpp', '').contains('NativeImpl.cpp');
+  return annotation.contains('NativeImpl.cpp') && annotation.replaceFirst('NativeImpl.cpp', '').contains('NativeImpl.cpp');
 }
 
 /// Module descriptor. `isCpp` indicates a direct C++ implementation (no JNI/Swift bridge).
@@ -146,15 +145,27 @@ class LinkStepRow extends StatelessComponent {
         children: [
           Row(
             children: [
-              Text(icon, style: TextStyle(color: color, fontWeight: FontWeight.bold)),
+              Text(
+                icon,
+                style: TextStyle(color: color, fontWeight: FontWeight.bold),
+              ),
               const Text(' '),
               Expanded(
-                  child: Text(step.label,
-                      style: TextStyle(color: step.state == LinkStepState.running ? Colors.cyan : null, fontWeight: step.state == LinkStepState.running ? FontWeight.bold : null))),
+                child: Text(
+                  step.label,
+                  style: TextStyle(color: step.state == LinkStepState.running ? Colors.cyan : null, fontWeight: step.state == LinkStepState.running ? FontWeight.bold : null),
+                ),
+              ),
             ],
           ),
           if (step.detail != null)
-            Padding(padding: const EdgeInsets.only(left: 4), child: Text(step.detail!, style: const TextStyle(color: Colors.gray, fontWeight: FontWeight.dim))),
+            Padding(
+              padding: const EdgeInsets.only(left: 4),
+              child: Text(
+                step.detail!,
+                style: const TextStyle(color: Colors.gray, fontWeight: FontWeight.dim),
+              ),
+            ),
         ],
       ),
     );
@@ -317,8 +328,12 @@ class _LinkViewState extends State<LinkView> {
             child: Container(
               decoration: BoxDecoration(border: BoxBorder.all(color: Colors.cyan)),
               child: Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 2),
-                  child: Text(' nitrogen link — ${component.pluginName} ', style: const TextStyle(color: Colors.cyan, fontWeight: FontWeight.bold))),
+                padding: const EdgeInsets.symmetric(horizontal: 2),
+                child: Text(
+                  ' nitrogen link — ${component.pluginName} ',
+                  style: const TextStyle(color: Colors.cyan, fontWeight: FontWeight.bold),
+                ),
+              ),
             ),
           ),
           const SizedBox(height: 1),
@@ -327,33 +342,55 @@ class _LinkViewState extends State<LinkView> {
               padding: const EdgeInsets.symmetric(horizontal: 1),
               child: _errorMessage != null
                   ? Center(
-                      child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [
-                      Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 2, vertical: 1),
-                          decoration: BoxDecoration(border: BoxBorder.all(color: Colors.red)),
-                          child: const Text(' ✘ ERROR ', style: TextStyle(color: Colors.red, fontWeight: FontWeight.bold))),
-                      const SizedBox(height: 1),
-                      Text(_errorMessage!),
-                    ]))
-                  : Container(decoration: BoxDecoration(border: BoxBorder.all(color: Colors.brightBlack)), child: ListView(children: _steps.map(LinkStepRow.new).toList())),
+                      child: Column(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 2, vertical: 1),
+                            decoration: BoxDecoration(border: BoxBorder.all(color: Colors.red)),
+                            child: const Text(
+                              ' ✘ ERROR ',
+                              style: TextStyle(color: Colors.red, fontWeight: FontWeight.bold),
+                            ),
+                          ),
+                          const SizedBox(height: 1),
+                          Text(_errorMessage!),
+                        ],
+                      ),
+                    )
+                  : Container(
+                      decoration: BoxDecoration(border: BoxBorder.all(color: Colors.brightBlack)),
+                      child: ListView(children: _steps.map(LinkStepRow.new).toList()),
+                    ),
             ),
           ),
           if (_finished)
             Padding(
               padding: const EdgeInsets.all(1),
-              child: Column(children: [
-                if (!_failed) ...[
-                  const Text('✨ Linked! Next steps:', style: TextStyle(color: Colors.green, fontWeight: FontWeight.bold)),
-                  ..._nextSteps.asMap().entries.map((e) => Text('  ${e.key + 1}. ${e.value}', style: const TextStyle(color: Colors.gray))),
-                ],
-                Row(mainAxisAlignment: MainAxisAlignment.center, children: [
-                  if (component.onExit != null) ...[
-                    HoverButton(label: '‹ Back', onTap: component.onExit!, color: Colors.cyan),
-                    const Text('  •  ', style: TextStyle(color: Colors.brightBlack))
+              child: Column(
+                children: [
+                  if (!_failed) ...[
+                    const Text(
+                      '✨ Linked! Next steps:',
+                      style: TextStyle(color: Colors.green, fontWeight: FontWeight.bold),
+                    ),
+                    ..._nextSteps.asMap().entries.map((e) => Text('  ${e.key + 1}. ${e.value}', style: const TextStyle(color: Colors.gray))),
                   ],
-                  Text(component.onExit != null ? 'ESC back' : 'ESC exit', style: const TextStyle(color: Colors.gray, fontWeight: FontWeight.dim)),
-                ]),
-              ]),
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      if (component.onExit != null) ...[
+                        HoverButton(label: '‹ Back', onTap: component.onExit!, color: Colors.cyan),
+                        const Text('  •  ', style: TextStyle(color: Colors.brightBlack)),
+                      ],
+                      Text(
+                        component.onExit != null ? 'ESC back' : 'ESC exit',
+                        style: const TextStyle(color: Colors.gray, fontWeight: FontWeight.dim),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
             ),
         ],
       ),
@@ -456,7 +493,14 @@ void linkCMake(String pluginName, List<String> moduleLibs, String nitroNativePat
   }
   for (final lib in moduleLibs) {
     if (lib != pluginName && !content.contains('add_library($lib ')) {
-      final isCpp = moduleInfos?.firstWhere((m) => m.lib == lib, orElse: () => ModuleInfo(lib: lib, module: lib, isCpp: false)).isCpp ?? false;
+      final isCpp =
+          moduleInfos
+              ?.firstWhere(
+                (m) => m.lib == lib,
+                orElse: () => ModuleInfo(lib: lib, module: lib, isCpp: false),
+              )
+              .isCpp ??
+          false;
       content += _cmakeModuleTarget(lib, isCpp: isCpp);
       modified = true;
     }
@@ -548,7 +592,10 @@ void linkPodspec(String pluginName, List<String> moduleLibs, {String baseDir = '
     modified = true;
   }
   if (!content.contains('HEADER_SEARCH_PATHS')) {
-    content = content.replaceFirst('s.pod_target_xcconfig = {', "s.pod_target_xcconfig = {\n    'HEADER_SEARCH_PATHS' => '\$(inherited) \"\${PODS_ROOT}/../.symlinks/plugins/nitro/src/native\" \"\${PODS_TARGET_SRCROOT}/../src\" \"\${PODS_TARGET_SRCROOT}/../lib/src/generated/cpp\"',");
+    content = content.replaceFirst(
+      's.pod_target_xcconfig = {',
+      "s.pod_target_xcconfig = {\n    'HEADER_SEARCH_PATHS' => '\$(inherited) \"\${PODS_ROOT}/../.symlinks/plugins/nitro/src/native\" \"\${PODS_TARGET_SRCROOT}/../src\" \"\${PODS_TARGET_SRCROOT}/../lib/src/generated/cpp\"',",
+    );
     modified = true;
   } else {
     // If it exists, ensure it has the src/ and generated/cpp/ paths.
@@ -582,8 +629,7 @@ void linkPodspec(String pluginName, List<String> moduleLibs, {String baseDir = '
   final cppInSrc = File(p.join(baseDir, 'src', '$pluginName.cpp'));
   if (cppInSrc.existsSync()) {
     cleanRedundantIncludes(cppInSrc);
-    File(p.join(classesDir.path, '$pluginName.cpp'))
-        .writeAsStringSync('// Generated by nitrogen link — do not edit.\n#include "../../src/$pluginName.cpp"\n');
+    File(p.join(classesDir.path, '$pluginName.cpp')).writeAsStringSync('// Generated by nitrogen link — do not edit.\n#include "../../src/$pluginName.cpp"\n');
   }
   final cInSrc = File(p.join(baseDir, 'src', '$pluginName.c'));
   if (cInSrc.existsSync()) {
@@ -599,8 +645,7 @@ void linkPodspec(String pluginName, List<String> moduleLibs, {String baseDir = '
       final className = _toPascalCase(m.lib);
       final implSrc = File(p.join(baseDir, 'src', 'Hybrid$className.cpp'));
       if (implSrc.existsSync()) {
-        File(p.join(classesDir.path, 'Hybrid$className.cpp'))
-            .writeAsStringSync('// Generated by nitrogen link — do not edit.\n#include "../../src/Hybrid$className.cpp"\n');
+        File(p.join(classesDir.path, 'Hybrid$className.cpp')).writeAsStringSync('// Generated by nitrogen link — do not edit.\n#include "../../src/Hybrid$className.cpp"\n');
       }
     }
   }
@@ -636,8 +681,10 @@ void linkSwiftPlugin(String pluginName, List<Map<String, String>> modules, {Stri
         content = content.replaceFirst(match.last.group(0)!, '${match.last.group(0)!}\n        $reg.register($impl())');
         modified = true;
       } else {
-        content = content.replaceFirst('public static func register(with registrar: FlutterPluginRegistrar) {',
-            'public static func register(with registrar: FlutterPluginRegistrar) {\n        $reg.register($impl())');
+        content = content.replaceFirst(
+          'public static func register(with registrar: FlutterPluginRegistrar) {',
+          'public static func register(with registrar: FlutterPluginRegistrar) {\n        $reg.register($impl())',
+        );
         modified = true;
       }
     }
@@ -656,7 +703,8 @@ void ensureIosPackageSwift(String pluginName, {String baseDir = '.', List<Module
   Directory(p.join(baseDir, 'ios', 'Sources', className)).createSync(recursive: true);
   Directory(p.join(baseDir, 'ios', 'Sources', '${className}Cpp')).createSync(recursive: true);
   packageSwift.writeAsStringSync(
-      '// swift-tools-version: 5.9\nimport PackageDescription\nlet package = Package(name: "$pluginName", platforms: [.iOS(.v13)], products: [.library(name: "$pluginName", targets: ["$pluginName"])], targets: [.target(name: "${className}Cpp", path: "Sources/${className}Cpp", publicHeadersPath: "include", cxxSettings: [.headerSearchPath("include"), .unsafeFlags(["-std=c++17", "-I../../.symlinks/plugins/nitro/src/native"])]), .target(name: "$pluginName", dependencies: ["${className}Cpp"], path: "Sources/$className")])');
+    '// swift-tools-version: 5.9\nimport PackageDescription\nlet package = Package(name: "$pluginName", platforms: [.iOS(.v13)], products: [.library(name: "$pluginName", targets: ["$pluginName"])], targets: [.target(name: "${className}Cpp", path: "Sources/${className}Cpp", publicHeadersPath: "include", cxxSettings: [.headerSearchPath("include"), .unsafeFlags(["-std=c++17", "-I../../.symlinks/plugins/nitro/src/native"])]), .target(name: "$pluginName", dependencies: ["${className}Cpp"], path: "Sources/$className")])',
+  );
   _syncCppModuleSourcesToSpm(pluginName, moduleInfos: moduleInfos, baseDir: baseDir);
 }
 
@@ -681,15 +729,17 @@ void _syncCppModuleSourcesToSpm(String pluginName, {List<ModuleInfo>? moduleInfo
     // Forwarder: bridge .cpp -> .mm so SPM compiles it as Obj-C++.
     final bridgeCpp = File(p.join(baseDir, 'lib', 'src', 'generated', 'cpp', '$lib.bridge.g.cpp'));
     if (bridgeCpp.existsSync()) {
-      File(p.join(cppTargetDir.path, '$lib.bridge.g.mm'))
-          .writeAsStringSync('// Generated by nitrogen link — do not edit.\n#include "../../../../lib/src/generated/cpp/$lib.bridge.g.cpp"\n');
+      File(
+        p.join(cppTargetDir.path, '$lib.bridge.g.mm'),
+      ).writeAsStringSync('// Generated by nitrogen link — do not edit.\n#include "../../../../lib/src/generated/cpp/$lib.bridge.g.cpp"\n');
     }
 
     // Forwarder: C++ impl.
     final implSrc = File(p.join(baseDir, 'src', 'Hybrid$hybridClass.cpp'));
     if (implSrc.existsSync()) {
-      File(p.join(cppTargetDir.path, 'Hybrid$hybridClass.cpp'))
-          .writeAsStringSync('// Generated by nitrogen link — do not edit.\n#include "../../../../src/Hybrid$hybridClass.cpp"\n');
+      File(
+        p.join(cppTargetDir.path, 'Hybrid$hybridClass.cpp'),
+      ).writeAsStringSync('// Generated by nitrogen link — do not edit.\n#include "../../../../src/Hybrid$hybridClass.cpp"\n');
     }
 
     // Copy only the C-compatible bridge header into include/. The .native.g.h
@@ -724,9 +774,18 @@ void linkKotlinLoadLibraries(List<String> libs, {String baseDir = '.'}) {
         content = content.replaceFirst(match.last.group(0)!, '${match.last.group(0)!}\n            System.loadLibrary("$lib")');
       } else {
         // Fallback: insert a new companion object init block
+        final className = p.basenameWithoutExtension(pluginFile.path);
+        final classPattern = RegExp('class\\s+$className[^{]*\\{');
+        final classMatch = classPattern.firstMatch(content);
+        if (classMatch == null) {
+          throw Exception(
+            'nitrogen link failed: Cannot find opening "{" for class $className in ${p.basename(pluginFile.path)} '
+            'to inject System.loadLibrary("$lib"). Please add it manually.',
+          );
+        }
         content = content.replaceFirst(
-          'class ${p.basenameWithoutExtension(pluginFile.path)}',
-          'class ${p.basenameWithoutExtension(pluginFile.path)} {\n    companion object {\n        init { System.loadLibrary("$lib") }\n    }\n}\nclass __placeholder__',
+          classMatch.group(0)!,
+          '${classMatch.group(0)!}\n    companion object {\n        init { System.loadLibrary("$lib") }\n    }\n',
         );
       }
       modified = true;
@@ -753,8 +812,10 @@ void linkKotlinPlugin(String pluginName, List<Map<String, String>> modules, {Str
         content = content.replaceFirst(match.last.group(0)!, '${match.last.group(0)!}\n        $reg.register($impl())');
         modified = true;
       } else {
-        content = content.replaceFirst('override fun onAttachedToEngine(binding: FlutterPlugin.FlutterPluginBinding) {',
-            'override fun onAttachedToEngine(binding: FlutterPlugin.FlutterPluginBinding) {\n        $reg.register($impl())');
+        content = content.replaceFirst(
+          'override fun onAttachedToEngine(binding: FlutterPlugin.FlutterPluginBinding) {',
+          'override fun onAttachedToEngine(binding: FlutterPlugin.FlutterPluginBinding) {\n        $reg.register($impl())',
+        );
         modified = true;
       }
     }

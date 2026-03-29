@@ -318,12 +318,22 @@ void main() {
       expect(ifndefCount, equals(2), reason: 'each header emits its own guard check');
       expect(defineCount, equals(2), reason: 'each header emits its own define (preprocessor picks first)');
 
-      // Only ONE typedef struct ... BenchmarkPoint; in the combined output
-      // (the preprocessor skips the second one at compile time).
-      final typedefCount = RegExp(r'} BenchmarkPoint;').allMatches(combined).length;
-      expect(typedefCount, equals(2),
-          reason: 'both headers emit the typedef in source, but at compile-time '
-              'the preprocessor skips the second block via the #ifndef guard');
+      // Simulate C preprocessor resolving include guards
+      final definedMacros = <String>{};
+      final guardPattern = RegExp(r'#ifndef\s+(\w+)\r?\n([\s\S]*?)#endif // \1');
+      
+      final preprocessed = combined.replaceAllMapped(guardPattern, (match) {
+        final macroName = match.group(1)!;
+        if (definedMacros.contains(macroName)) {
+          return ''; // Preprocessor skips this block
+        }
+        definedMacros.add(macroName);
+        return match.group(0)!;
+      });
+
+      final typedefCount = RegExp(r'} BenchmarkPoint;').allMatches(preprocessed).length;
+      expect(typedefCount, equals(1),
+          reason: 'after preprocessing, only one active typedef block remains');
     });
 
     test('struct guard macro name does not collide across different struct names', () {

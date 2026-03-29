@@ -420,8 +420,14 @@ BridgeSpec cppSpec() => BridgeSpec(
       isAsync: false,
       returnType: BridgeType(name: 'double'),
       params: [
-        BridgeParam(name: 'a', type: BridgeType(name: 'double')),
-        BridgeParam(name: 'b', type: BridgeType(name: 'double')),
+        BridgeParam(
+          name: 'a',
+          type: BridgeType(name: 'double'),
+        ),
+        BridgeParam(
+          name: 'b',
+          type: BridgeType(name: 'double'),
+        ),
       ],
     ),
     BridgeFunction(
@@ -429,7 +435,12 @@ BridgeSpec cppSpec() => BridgeSpec(
       cSymbol: 'math_greet',
       isAsync: false,
       returnType: BridgeType(name: 'String'),
-      params: [BridgeParam(name: 'name', type: BridgeType(name: 'String'))],
+      params: [
+        BridgeParam(
+          name: 'name',
+          type: BridgeType(name: 'String'),
+        ),
+      ],
     ),
   ],
   properties: [
@@ -484,7 +495,7 @@ BridgeSpec cppStreamSpec() => BridgeSpec(
 );
 
 /// Same as [cppStreamSpec] but the stream item type is a struct (not a
-/// primitive), so the generated unpack must malloc.free the pointer.
+/// primitive), so the generated unpack must malloc then free the pointer.
 BridgeSpec cppStreamStructSpec() => BridgeSpec(
   dartClassName: 'Lidar',
   lib: 'lidar',
@@ -497,9 +508,18 @@ BridgeSpec cppStreamStructSpec() => BridgeSpec(
       name: 'LidarPoint',
       packed: true,
       fields: [
-        BridgeField(name: 'x', type: BridgeType(name: 'double')),
-        BridgeField(name: 'y', type: BridgeType(name: 'double')),
-        BridgeField(name: 'z', type: BridgeType(name: 'double')),
+        BridgeField(
+          name: 'x',
+          type: BridgeType(name: 'double'),
+        ),
+        BridgeField(
+          name: 'y',
+          type: BridgeType(name: 'double'),
+        ),
+        BridgeField(
+          name: 'z',
+          type: BridgeType(name: 'double'),
+        ),
       ],
     ),
   ],
@@ -513,4 +533,3 @@ BridgeSpec cppStreamStructSpec() => BridgeSpec(
     ),
   ],
 );
-

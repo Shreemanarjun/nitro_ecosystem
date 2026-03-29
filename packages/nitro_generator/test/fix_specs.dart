@@ -31,7 +31,7 @@ void main() {
       }
       if (changed) {
         file.writeAsStringSync(content);
-        print('Updated \${file.path}');
+        print('Updated ${file.path}');
       }
     }
   }
