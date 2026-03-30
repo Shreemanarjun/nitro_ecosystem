@@ -51,7 +51,7 @@ class BenchmarkImpl(private val context: Context) : HybridBenchmarkSpec {
     override fun addFast(a: Double, b: Double): Double = a + b
 
 
-    override  fun getGreeting(name: String): String = "Hello, $name!"
+    override fun getGreeting(name: String): String = "Hello, $name!"
 
     override fun scalePoint(point: BenchmarkPoint, factor: Double): BenchmarkPoint {
         return BenchmarkPoint(point.x * factor, point.y * factor)
