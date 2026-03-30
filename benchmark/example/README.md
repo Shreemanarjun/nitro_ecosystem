@@ -50,7 +50,6 @@ graph LR
     MC -. "Payload" .-> SER
     SER -. "Message Loop" .-> DES
     DES -. "Platform Call" .-> NC
-极致的性能：Nitro Direct C++ 路径实现了亚微秒级的调用延迟，完全消除了 JNI/Obj-C 桥接开销。
 ```
 
 ---
