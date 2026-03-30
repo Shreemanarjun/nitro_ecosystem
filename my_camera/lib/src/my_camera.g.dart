@@ -101,7 +101,12 @@ class _MyCameraImpl extends MyCamera {
           IntPtr Function(Pointer<Void>),
           int Function(Pointer<Void>)
         >('my_camera_init_dart_api_dl');
-    initFunc(NativeApi.initializeApiDLData);
+    final initCode = initFunc(NativeApi.initializeApiDLData);
+    if (initCode != 0) {
+      throw StateError(
+        'my_camera: Dart API DL initialization failed with code $initCode.',
+      );
+    }
   }
 
   late final double Function(double, double) _addPtr = _dylib
@@ -134,6 +139,24 @@ class _MyCameraImpl extends MyCamera {
       .lookupFunction<Void Function(Int64), void Function(int)>(
         'my_camera_release_colored_frames_stream',
       );
+  // ignore: unused_field
+  late final Pointer<NitroErrorFfi> Function() _getErrorPtr = _dylib
+      .lookupFunction<
+        Pointer<NitroErrorFfi> Function(),
+        Pointer<NitroErrorFfi> Function()
+      >('my_camera_get_error');
+  // ignore: unused_field
+  late final void Function() _clearErrorPtr = _dylib
+      .lookupFunction<Void Function(), void Function()>(
+        'my_camera_clear_error',
+      );
+  // ignore: unused_field
+  late final Pointer<NativeFunction<Pointer<NitroErrorFfi> Function()>>
+  _getErrorNativePtr = _dylib.lookup('my_camera_get_error');
+  // ignore: unused_field
+  late final Pointer<NativeFunction<Void Function()>> _clearErrorNativePtr =
+      _dylib.lookup('my_camera_clear_error');
+
   @override
   // ignore: unnecessary_overrides
   void dispose() {
@@ -143,15 +166,9 @@ class _MyCameraImpl extends MyCamera {
   @override
   double add(double a, double b) {
     checkDisposed();
-    return () {
-      final res = _addPtr(a, b);
-      NitroRuntime.checkError(
-        _dylib,
-        getErrorName: 'my_camera_get_error',
-        clearErrorName: 'my_camera_clear_error',
-      );
-      return res;
-    }();
+    final res = _addPtr(a, b);
+    NitroRuntime.checkError(_getErrorPtr, _clearErrorPtr);
+    return res;
   }
 
   @override
@@ -162,11 +179,8 @@ class _MyCameraImpl extends MyCamera {
       final rawPtr = await NitroRuntime.callAsync<Pointer<Utf8>>(
         _getGreetingPtr,
         [name.toNativeUtf8(allocator: arena)],
-      );
-      NitroRuntime.checkError(
-        _dylib,
-        getErrorName: 'my_camera_get_error',
-        clearErrorName: 'my_camera_clear_error',
+        getError: _getErrorNativePtr,
+        clearError: _clearErrorNativePtr,
       );
       return rawPtr.toDartStringWithFree();
     } finally {
@@ -180,18 +194,17 @@ class _MyCameraImpl extends MyCamera {
     final rawPtr = await NitroRuntime.callAsync<Pointer<Uint8>>(
       _getAvailableDevicesPtr,
       [],
+      getError: _getErrorNativePtr,
+      clearError: _clearErrorNativePtr,
     );
-    NitroRuntime.checkError(
-      _dylib,
-      getErrorName: 'my_camera_get_error',
-      clearErrorName: 'my_camera_clear_error',
-    );
-    final decoded = RecordReader.decodeList(
-      rawPtr,
-      (r) => CameraDeviceRecordExt.fromReader(r),
-    );
-    malloc.free(rawPtr);
-    return decoded;
+    try {
+      return RecordReader.decodeList(
+        rawPtr,
+        (r) => CameraDeviceRecordExt.fromReader(r),
+      );
+    } finally {
+      malloc.free(rawPtr);
+    }
   }
 
   @override
@@ -199,8 +212,14 @@ class _MyCameraImpl extends MyCamera {
     checkDisposed();
     return NitroRuntime.openStream<CameraFrame>(
       register: (port) => _registerFramesPtr(port),
-      unpack: (rawPtr) =>
-          Pointer<CameraFrameFfi>.fromAddress(rawPtr).ref.toDart(),
+      unpack: (rawPtr) {
+        final ptr = Pointer<CameraFrameFfi>.fromAddress(rawPtr);
+        try {
+          return ptr.ref.toDart();
+        } finally {
+          malloc.free(ptr);
+        }
+      },
       release: (port) => _releaseFramesPtr(port),
       backpressure: Backpressure.dropLatest,
     );
@@ -211,8 +230,14 @@ class _MyCameraImpl extends MyCamera {
     checkDisposed();
     return NitroRuntime.openStream<CameraFrame>(
       register: (port) => _registerColoredFramesPtr(port),
-      unpack: (rawPtr) =>
-          Pointer<CameraFrameFfi>.fromAddress(rawPtr).ref.toDart(),
+      unpack: (rawPtr) {
+        final ptr = Pointer<CameraFrameFfi>.fromAddress(rawPtr);
+        try {
+          return ptr.ref.toDart();
+        } finally {
+          malloc.free(ptr);
+        }
+      },
       release: (port) => _releaseColoredFramesPtr(port),
       backpressure: Backpressure.dropLatest,
     );

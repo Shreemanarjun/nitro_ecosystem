@@ -1,3 +1,25 @@
+## 0.3.0
+
+- **Fixed: PascalCase derivation for filenames with underscores** — `discoverModuleInfos` now uses a robust `_toPascalCase` helper with empty-segment guards. This prevents `RangeError` exceptions when processing filenames with consecutive underscores (e.g., `my__module.native.dart`).
+- **Improved: Ecosystem Sync**: Synchronized the Nitro ecosystem to version 0.3.0.
+
+## 0.2.4
+
+- **Fixed: iOS build failure for NativeImpl.cpp modules** — Three issues that blocked `NativeImpl.cpp` modules from linking on iOS have been resolved:
+  - `linkPodspec` now creates `ios/Classes/Hybrid<Lib>.cpp` forwarders for C++ module impl files. On Android each module is its own `.so`; on iOS everything is one binary — the impl must be compiled in `ios/Classes/`.
+  - `syncBridgeFiles` now auto-discovers NativeImpl.cpp modules by reading `.native.dart` specs and skips copying their `.bridge.g.swift` to `ios/Classes/`. The C++ bridge calls `g_impl` directly; the `@_cdecl("_call_*")` stubs in the Swift file are never called and their names clash with the non-cpp Swift bridge, causing a duplicate-symbol linker error.
+  - `ensureIosPackageSwift` + new `_syncCppModuleSourcesToSpm` syncs the `.bridge.g.mm` and `Hybrid<Lib>.cpp` forwarders into the SPM `Sources/<Main>Cpp/` target, and copies only the C-compatible `.bridge.g.h` into `include/` (never `.native.g.h`, which uses C++ types that break the CocoaPods umbrella header).
+- **New: NativeImpl.cpp Direct C++ Support** — All CLI commands now fully support `@NitroModule(ios: NativeImpl.cpp, android: NativeImpl.cpp)` modules:
+  - `nitrogen generate`: syncs `.native.g.h` headers to `ios/Classes/`; skips "Not applicable" Swift placeholder files; shows a tailored next-steps hint for cpp modules.
+  - `nitrogen link`: skips Swift bridge registration and Kotlin `JniBridge.register` steps for all-cpp plugins; adds `generated/cpp/test/` to `.clangd` for GoogleMock IDE support.
+  - `nitrogen doctor`: new **NativeImpl.cpp Direct Implementation** section checks whether `${lib}_register_impl()` is wired up in `src/` and whether `.clangd` includes the test directory; Android/iOS sections show `ℹ info` (not errors) for checks irrelevant to cpp modules.
+- **Improved: `nitrogen doctor` — cpp-aware Android/iOS sections**:
+  - Android: when all specs use `NativeImpl.cpp`, Kotlin JNI bridge checks are shown as info.
+  - iOS: Registry.register check skipped for all-cpp plugins; checks for `.native.g.h` headers in `ios/Classes/` instead; `.bridge.g.mm` warning suppressed.
+  - Generated files: `.bridge.g.kt`/`.bridge.g.swift` shown as `ℹ info` (placeholder) for cpp modules; `.native.g.h`, `.mock.g.h`, `.test.g.cpp` checked as required outputs.
+- **New: `isCppModule()` + `ModuleInfo`** — `link_command.dart` exports `isCppModule(File)` (detects two `NativeImpl.cpp` occurrences in annotation) and `ModuleInfo` (carries `isCpp` flag). Legacy `discoverModules()` preserved for compatibility.
+- **Improved: Test Coverage** — 28 new tests covering `isCppModule` edge cases, `discoverModuleInfos` with mixed cpp/kotlin projects, doctor Android/iOS cpp sections, NativeImpl.cpp doctor section (register_impl check, clangd check).
+
 ## 0.2.3
 
 - **Automated Native Healing**: Commands now proactively fix common native build errors.

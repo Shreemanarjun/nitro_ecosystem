@@ -12,201 +12,204 @@
 
 ```sh
 # From this monorepo (local development):
-# In packages/nitrogen_cli:
-dart pub global activate --source path .
+dart pub global activate --source path packages/nitrogen_cli
 
-# Or for users (real package):
-# dart pub global activate nitrogen_cli
+# Or from pub.dev:
+dart pub global activate nitrogen_cli
 ```
 
-Then add the Dart pub global bin to your `PATH` (one-time setup):
+Add the Dart pub global bin to your `PATH` (one-time):
 
 ```sh
-# Add to ~/.zshrc or ~/.bashrc:
+# ~/.zshrc or ~/.bashrc:
 export PATH="$PATH:$HOME/.pub-cache/bin"
 ```
 
 ---
 
-If you run `nitrogen` without any arguments, it launches a beautiful interactive Text-based User Interface (TUI) dashboard.
-
-From the dashboard, you can:
-- **Initialize**: Scaffold new projects with step-by-step confirmation.
-- **Generate**: Run the code generator and see live, scrollable output.
-- **Link**: Wire bridges with immediate visual feedback.
-- **Doctor**: Run production-ready checks and see a detailed health report.
-- **Update**: Check for new versions on `pub.dev` and self-update the CLI.
+Running `nitrogen` without arguments launches an interactive TUI dashboard. From there you can init, generate, link, doctor, and update with live visual feedback.
 
 ---
 
 ## Commands
 
-### `nitrogen init <PluginName>`
+### `nitrogen init`
 
-Scaffolds a complete Nitrogen plugin from scratch with optimized native configurations:
+Scaffolds a complete Nitrogen plugin from scratch with pre-wired native configurations.
 
 ```sh
-# Create a new plugin named "my_camera"
-nitrogen init my_camera
+nitrogen init
+# → prompts for plugin name, then generates everything
 ```
 
 **What it creates:**
 
 | File | Description |
 |---|---|
-| `lib/src/my_camera.native.dart` | Starter spec — define your API here |
-| `ios/Classes/MyCameraImpl.swift` | Starter Swift implementation — edit this |
-| `ios/Classes/SwiftMyCameraPlugin.swift` | Flutter plugin registrar (auto-registers the impl) |
-| `ios/Classes/my_camera.bridge.g.swift` | Symlink → generated Swift bridge (created by `generate`) |
-| `ios/Classes/dart_api_dl.c` | Dart DL API forwarder (compiled as C, not C++) |
-| `ios/my_camera.podspec` | Pre-configured: Swift 5.9, iOS 13.0, C++17, correct `HEADER_SEARCH_PATHS` |
-| `ios/Package.swift` | Swift Package Manager support alongside CocoaPods |
-| `android/.../MyCameraImpl.kt` | Starter Kotlin implementation — edit this |
-| `android/.../MyCameraPlugin.kt` | Flutter plugin registrar |
-| `src/CMakeLists.txt` | Android NDK build file |
+| `lib/src/<name>.native.dart` | Starter spec — define your API here |
+| `ios/Classes/<Name>Impl.swift` | Starter Swift implementation |
+| `ios/Classes/Swift<Name>Plugin.swift` | Flutter plugin registrar |
+| `ios/<name>.podspec` | Pre-configured: Swift 5.9, iOS 13.0, C++17, `HEADER_SEARCH_PATHS` |
+| `ios/Package.swift` | Swift Package Manager support |
+| `android/.../<Name>Impl.kt` | Starter Kotlin implementation |
+| `android/.../<Name>Plugin.kt` | Flutter plugin registrar |
+| `src/CMakeLists.txt` | NDK build file |
 | `pubspec.yaml` | Pre-wired with `nitro` and `nitro_generator` |
 
-**You only edit three things:** the spec, the Kotlin impl, and the Swift impl. Everything else is generated or scaffolded once.
+**You only ever edit:** the spec, the Kotlin impl, and the Swift impl (or a single C++ impl). Everything else is generated.
+
+---
 
 ### `nitrogen generate`
 
-Scans the current package for `*.native.dart` files and regenerates all outputs.
+Runs `flutter pub get` + `build_runner build` and syncs all generated files to their native destinations.
 
 ```sh
-# From your plugin root:
 nitrogen generate
 ```
 
-**What it produces (per `*.native.dart` file):**
+**What it produces (per `.native.dart` spec):**
 
 | Output | Description |
 |---|---|
-| `lib/src/*.g.dart` | Dart FFI implementation class |
-| `lib/src/generated/kotlin/*.kt` | Kotlin JNI bridge + `HybridXxxSpec` interface |
-| `lib/src/generated/swift/*.swift` | Swift `@_cdecl` bridge + `HybridXxxProtocol` protocol |
-| `lib/src/generated/cpp/*.h` | C header with `extern "C"` declarations |
-| `lib/src/generated/cpp/*.cpp` | C++ JNI & Apple bridge implementation |
-| `lib/src/generated/cmake/*.txt` | CMake include for Android builds |
+| `lib/src/*.g.dart` | Dart FFI implementation |
+| `lib/src/generated/kotlin/*.bridge.g.kt` | Kotlin JNI bridge (`NativeImpl.kotlin`) |
+| `lib/src/generated/swift/*.bridge.g.swift` | Swift `@_cdecl` bridge (`NativeImpl.swift`) |
+| `lib/src/generated/cpp/*.bridge.g.h` | C header (all modes) |
+| `lib/src/generated/cpp/*.bridge.g.cpp` | C++ bridge (all modes) |
+| `lib/src/generated/cmake/*.CMakeLists.g.txt` | CMake fragment (all modes) |
+| `lib/src/generated/cpp/*.native.g.h` | Abstract C++ interface (`NativeImpl.cpp`) |
+| `lib/src/generated/cpp/test/*.mock.g.h` | GoogleMock stub (`NativeImpl.cpp`) |
+| `lib/src/generated/cpp/test/*.test.g.cpp` | Test starter (`NativeImpl.cpp`) |
+
+**NativeImpl.cpp awareness:** `.bridge.g.swift` files that contain only a "Not applicable" placeholder are never copied to `ios/Classes/`. Instead, the generated `.native.g.h` headers are synced there so Clang can resolve them during iOS builds.
+
+After generation, `nitrogen generate` also runs `pod install` in any `ios/` directory it finds.
+
+---
 
 ### `nitrogen link`
 
-Ensures the native build files (CMake, Podspec) are correctly linked to Nitrogen's generated code. Use this when adding Nitrogen to an existing plugin.
+Wires native build files (CMake, Podspec, Kotlin plugin, Swift plugin, `.clangd`) to the generated code.
 
 ```sh
 nitrogen link
 ```
 
 **What it wires:**
-- Adds `include(...)` for each generated `.CMakeLists.g.txt` into `src/CMakeLists.txt`
-- Adds `System.loadLibrary("...")` to the Android `Plugin.kt`
-- Sets `HEADER_SEARCH_PATHS` in the iOS `.podspec` to `${PODS_ROOT}/../.symlinks/plugins/nitro/src/native` (works for both local path and pub.dev installs)
-- Adds `DEFINES_MODULE => YES` to the podspec so the generated Swift bridge is visible
-- Creates `ios/Classes/dart_api_dl.c` if missing (must be `.c`, not `.cpp`)
-- Creates `ios/Classes/<Plugin>.bridge.g.swift` symlink if missing
-- Creates `ios/Package.swift` for Swift Package Manager support if missing
+
+- Adds `include(...)` for each `.CMakeLists.g.txt` into `src/CMakeLists.txt`
+- Adds `System.loadLibrary("lib")` to `android/.../Plugin.kt`
+- Skips `JniBridge.register(...)` for all-cpp plugins
+- Sets `HEADER_SEARCH_PATHS` + `DEFINES_MODULE` in the iOS `.podspec`
+- Skips Swift bridge registration step for all-cpp plugins
+- Creates `ios/Classes/dart_api_dl.c` if missing
+- Updates `.clangd` to include `generated/cpp/test/` for GoogleMock IDE support when cpp modules exist
+- Strips redundant `#include "*.bridge.g.cpp"` directives from `src/` files
+
+---
 
 ### `nitrogen doctor`
 
-Checks that all generated files are present and up to date, and that the build system is correctly wired. Safe to run at any time — read-only, no files are changed.
+Deep health check of every layer of your native build. Read-only — no files are changed.
 
 ```sh
-# From your plugin root:
 nitrogen doctor
 ```
 
-**What it checks (per `*.native.dart` spec):**
+**Sections checked:**
 
-| Check | Pass | Fail |
-|---|---|---|
-| Generated `.g.dart` exists | ✔ | `MISSING` → run `nitrogen generate` |
-| Generated `.bridge.g.kt` exists | ✔ | `MISSING` → run `nitrogen generate` |
-| Generated `.bridge.g.swift` exists | ✔ | `MISSING` → run `nitrogen generate` |
-| Generated `.bridge.g.h` exists | ✔ | `MISSING` → run `nitrogen generate` |
-| Generated `.bridge.g.cpp` exists | ✔ | `MISSING` → run `nitrogen generate` |
-| Generated `.CMakeLists.g.txt` exists | ✔ | `MISSING` → run `nitrogen generate` |
-| No generated file is older than its spec | ✔ | `STALE` → run `nitrogen generate` |
-| `add_library(lib)` in `src/CMakeLists.txt` | ✔ | `MISSING` → run `nitrogen link` |
-| `System.loadLibrary("lib")` in `Plugin.kt` | ✔ | `MISSING` → run `nitrogen link` |
-| `HEADER_SEARCH_PATHS` in `.podspec` | ✔ | `MISSING` → run `nitrogen link` |
+| Section | Key checks |
+|---|---|
+| **System Toolchain** | `clang++`, Xcode, Android NDK, Java |
+| **pubspec.yaml** | `nitro`, `build_runner`, `nitro_generator` deps; plugin platform config |
+| **Generated Files** | Every expected output file — present, not stale |
+| **CMakeLists.txt** | `NITRO_NATIVE`, `dart_api_dl.c`, `add_library(lib)` target |
+| **Android** | `kotlin-android`, `kotlinOptions`, `generated/kotlin` sourceSets, `System.loadLibrary`, `JniBridge.register` |
+| **iOS** | `.podspec` headers/C++17, Swift version, `dart_api_dl.c`, `nitro.h`, `NITRO_EXPORT`, `.bridge.g.mm` count |
+| **NativeImpl.cpp** *(cpp modules only)* | `${lib}_register_impl` wired up, `.clangd` includes test dir |
 
-**Example output (healthy plugin):**
+**NativeImpl.cpp awareness:**
 
-```
-Checking my_sensor...
-  ✔  lib/src/my_sensor.g.dart
-  ✔  lib/src/generated/kotlin/my_sensor.bridge.g.kt
-  ✔  lib/src/generated/swift/my_sensor.bridge.g.swift
-  ✔  lib/src/generated/cpp/my_sensor.bridge.g.h
-  ✔  lib/src/generated/cpp/my_sensor.bridge.g.cpp
-  ✔  lib/src/generated/cmake/my_sensor.CMakeLists.g.txt
-
-Checking CMakeLists.txt...
-  ✔  add_library(my_sensor) in src/CMakeLists.txt
-
-Checking android Plugin.kt...
-  ✔  System.loadLibrary("my_sensor") in Plugin.kt
-
-Checking iOS podspec...
-  ✔  HEADER_SEARCH_PATHS in my_sensor.podspec
-
-my_sensor is healthy — all checks passed.
-```
-
-**Example output (with issues):**
-
-```
-Checking my_sensor...
-  ✘  MISSING  lib/src/my_sensor.g.dart
-       → run: nitrogen generate
-  ✘  STALE   lib/src/generated/kotlin/my_sensor.bridge.g.kt
-       → spec is newer than generated file — run build_runner
-
-1 error(s) found.
-```
+- Android: when all specs use `NativeImpl.cpp`, Kotlin JNI bridge checks are shown as `ℹ info` (not required) instead of errors.
+- iOS: Registry.register check skipped; checks for `.native.g.h` headers in `ios/Classes/` instead; no `.bridge.g.mm` warning.
+- Generated files: `.bridge.g.kt` / `.bridge.g.swift` shown as `ℹ info` (placeholder) for cpp modules; `.native.g.h`, `.mock.g.h`, `.test.g.cpp` checked as required outputs.
 
 **Exit codes:** `0` = all checks pass, `1` = one or more errors (suitable for CI).
 
-**Recommended CI usage:**
-
 ```yaml
 # .github/workflows/build.yml
-- name: Check Nitrogen health
+- name: Nitrogen health check
   run: |
-    dart pub global activate --source path packages/nitrogen_cli
-    cd my_sensor
+    dart pub global activate nitrogen_cli
     nitrogen doctor
 ```
 
 ---
 
-## Complex Specification Example
+## NativeImpl.cpp Workflow
 
-Nitrogen supports complex types, nested structures, and multiple streams.
+For plugins where both platforms use direct C++:
 
 ```dart
-// lib/src/complex.native.dart
+// lib/src/math.native.dart
+@NitroModule(lib: 'math', ios: NativeImpl.cpp, android: NativeImpl.cpp)
+abstract class Math extends HybridObject {
+  static final Math instance = _MathImpl();
+  double add(double a, double b);
+}
+```
+
+```sh
+nitrogen generate   # → math.native.g.h (abstract C++ interface)
+nitrogen link       # → wires CMake, podspec, .clangd
+```
+
+```cpp
+// src/HybridMath.cpp  (you write this)
+#include "math.native.g.h"
+
+class HybridMathImpl : public HybridMath {
+public:
+    double add(double a, double b) override { return a + b; }
+};
+
+static HybridMathImpl g_math;
+
+// Auto-register on shared library load — no manual init call needed.
+// (Generated by nitrogen link via linkCppImplStubs)
+__attribute__((constructor))
+static void math_auto_register() {
+    math_register_impl(&g_math);
+}
+```
+
+```sh
+nitrogen doctor     # → checks register_impl is wired, headers synced, .clangd up to date
+```
+
+---
+
+## Spec Example (Swift/Kotlin path)
+
+```dart
+// lib/src/sensor.native.dart
 import 'package:nitro/nitro.dart';
-part 'complex.g.dart';
+part 'sensor.g.dart';
 
 @HybridEnum(startValue: 0)
-enum DeviceStatus { idle, busy, error, fatal }
+enum DeviceStatus { idle, busy, error }
 
 @HybridStruct(packed: true)
 class SensorData {
   final double temperature;
   final double humidity;
-  final int lastUpdate;
-  const SensorData({required this.temperature, required this.humidity, required this.lastUpdate});
+  const SensorData({required this.temperature, required this.humidity});
 }
 
-@NitroModule(ios: NativeImpl.swift, android: NativeImpl.kotlin)
-abstract class ComplexModule extends HybridObject {
-  static final ComplexModule instance = _ComplexModuleImpl();
-
-  int calculate(int seed, double factor, bool enabled);
-  
-  @nitroAsync
-  Future<String> fetchMetadata(String url);
+@NitroModule(lib: 'sensor', ios: NativeImpl.swift, android: NativeImpl.kotlin)
+abstract class SensorModule extends HybridObject {
+  static final SensorModule instance = _SensorModuleImpl();
 
   DeviceStatus getStatus();
   void updateSensors(SensorData data);
@@ -231,8 +234,8 @@ abstract class ComplexModule extends HybridObject {
 
 ---
 
-## Related packages
+## Related
 
 - **[nitro](../nitro/README.md)** — Runtime (base classes, annotations, helpers)
-- **[nitro_generator](../nitrogen/README.md)** — build_runner code generator
-- **[Getting started guide](../../docs/getting-started.md)** — step-by-step walkthrough for plugin authors
+- **[nitro_generator](../nitro_generator/README.md)** — build_runner code generator
+- **[Getting started guide](../../docs/getting-started.md)** — step-by-step walkthrough

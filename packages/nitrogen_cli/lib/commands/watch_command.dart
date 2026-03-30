@@ -35,16 +35,13 @@ class WatchCommand extends Command {
     });
 
     // 3. Run build_runner watch and pipe output
-    final stream = streamProcess(
-        'flutter',
-        [
-          'pub',
-          'run',
-          'build_runner',
-          'watch',
-          '--delete-conflicting-outputs',
-        ],
-        workingDirectory: root.path);
+    final stream = streamProcess('flutter', [
+      'pub',
+      'run',
+      'build_runner',
+      'watch',
+      '--delete-conflicting-outputs',
+    ], workingDirectory: root.path);
 
     await for (final line in stream) {
       stdout.writeln(line);

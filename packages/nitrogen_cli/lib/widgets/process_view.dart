@@ -118,7 +118,10 @@ class _ProcessViewState extends State<ProcessView> {
               decoration: BoxDecoration(border: BoxBorder.all(color: _successPulse ? Colors.green : Colors.cyan)),
               child: Padding(
                 padding: const EdgeInsets.symmetric(horizontal: 2),
-                child: Text(' ${component.title} ', style: TextStyle(color: _successPulse ? Colors.green : Colors.magenta, fontWeight: FontWeight.bold)),
+                child: Text(
+                  ' ${component.title} ',
+                  style: TextStyle(color: _successPulse ? Colors.green : Colors.magenta, fontWeight: FontWeight.bold),
+                ),
               ),
             ),
           ),
@@ -168,7 +171,10 @@ class _ProcessViewState extends State<ProcessView> {
                   color: Colors.cyan,
                 ),
                 const SizedBox(width: 2),
-                const Text('ESC back', style: TextStyle(color: Colors.gray, fontWeight: FontWeight.dim)),
+                const Text(
+                  'ESC back',
+                  style: TextStyle(color: Colors.gray, fontWeight: FontWeight.dim),
+                ),
               ],
             ),
           ),

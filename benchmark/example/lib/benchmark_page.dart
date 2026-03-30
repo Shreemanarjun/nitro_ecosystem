@@ -9,6 +9,7 @@ import 'widgets/benchmark_history.dart';
 import 'widgets/iteration_selector.dart';
 import 'widgets/runs_selector.dart';
 import 'widgets/status_card.dart';
+import 'box_stress_page.dart';
 
 class BenchmarkPage extends StatefulWidget {
   const BenchmarkPage({super.key});
@@ -44,22 +45,27 @@ class _BenchmarkPageState extends State<BenchmarkPage> {
               child: Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
-                  Row(
-                    children: [
-                      Container(
-                        width: 8,
-                        height: 8,
-                        decoration: BoxDecoration(
-                          color: e.key.color,
-                          shape: BoxShape.circle,
+                  Expanded(
+                    child: Row(
+                      children: [
+                        Container(
+                          width: 8,
+                          height: 8,
+                          decoration: BoxDecoration(
+                            color: e.key.color,
+                            shape: BoxShape.circle,
+                          ),
                         ),
-                      ),
-                      const SizedBox(width: 8),
-                      Text(
-                        e.key.label,
-                        style: const TextStyle(fontWeight: FontWeight.bold),
-                      ),
-                    ],
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: Text(
+                            e.key.label,
+                            style: const TextStyle(fontWeight: FontWeight.bold),
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ),
+                      ],
+                    ),
                   ),
                   Text(
                     '${e.value.toStringAsFixed(3)} µs',
@@ -87,9 +93,20 @@ class _BenchmarkPageState extends State<BenchmarkPage> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Nitro Benchmark', style: TextStyle(fontWeight: FontWeight.bold)),
+        title: const Text(
+          'Nitro Benchmark',
+          style: TextStyle(fontWeight: FontWeight.bold),
+        ),
         centerTitle: true,
         actions: [
+          IconButton(
+            onPressed: () => Navigator.push(
+              context,
+              MaterialPageRoute(builder: (context) => const BoxStressPage()),
+            ),
+            icon: const Icon(Icons.flash_on, color: Colors.amber),
+            tooltip: 'Stress Test',
+          ),
           IconButton(
             onPressed: () => _controller.clear(),
             icon: const Icon(Icons.refresh),
@@ -104,65 +121,79 @@ class _BenchmarkPageState extends State<BenchmarkPage> {
             sliver: SliverList(
               delegate: SliverChildListDelegate([
                 // Iteration Selector
-                Watch((context) => IterationSelector(
-                  count: _controller.iterationCount.value,
-                  onChanged: (val) => _controller.iterationCount.value = val,
-                )),
+                Watch(
+                  (context) => IterationSelector(
+                    count: _controller.iterationCount.value,
+                    onChanged: (val) => _controller.iterationCount.value = val,
+                  ),
+                ),
                 const SizedBox(height: 12),
-                
+
                 // Runs Selector
-                Watch((context) => RunsSelector(
-                  count: _controller.runsCount.value,
-                  onChanged: (val) => _controller.runsCount.value = val,
-                )),
+                Watch(
+                  (context) => RunsSelector(
+                    count: _controller.runsCount.value,
+                    onChanged: (val) => _controller.runsCount.value = val,
+                  ),
+                ),
                 const SizedBox(height: 12),
-                
+
                 // Benchmark Controls
-                Watch((context) => BenchmarkControls(
-                  isRunning: _controller.isRunning.value,
-                  onRunSequential: () => _controller.runSequential(),
-                  onRunSimultaneous: () => _controller.runSimultaneous(),
-                  onRunOneOff: () async {
-                    final results = await _controller.runOneOff();
-                    if (results.isNotEmpty && context.mounted) {
-                      _showOneOffResults(context, results);
-                    }
-                  },
-                )),
+                Watch(
+                  (context) => BenchmarkControls(
+                    isRunning: _controller.isRunning.value,
+                    onRunSequential: () => _controller.runSequential(),
+                    onRunSimultaneous: () => _controller.runSimultaneous(),
+                    onRunOneOff: () async {
+                      final results = await _controller.runOneOff();
+                      if (results.isNotEmpty && context.mounted) {
+                        _showOneOffResults(context, results);
+                      }
+                    },
+                  ),
+                ),
                 const SizedBox(height: 24),
-                
+
                 // Status Card
-                Watch((context) => StatusCard(
-                  isRunning: _controller.isRunning.value,
-                  status: _controller.status.value,
-                  currentIteration: _controller.currentIteration.value,
-                  totalIterations: _controller.iterationCount.value,
-                  bridgeLabel: _controller.currentBridge.value?.label,
-                  currentRun: _controller.currentRun.value,
-                  totalRuns: _controller.runsCount.value,
-                )),
+                Watch(
+                  (context) => StatusCard(
+                    isRunning: _controller.isRunning.value,
+                    status: _controller.status.value,
+                    currentIteration: _controller.currentIteration.value,
+                    totalIterations: _controller.iterationCount.value,
+                    bridgeLabel: _controller.currentBridge.value?.label,
+                    currentRun: _controller.currentRun.value,
+                    totalRuns: _controller.runsCount.value,
+                  ),
+                ),
                 const SizedBox(height: 32),
-                
+
                 // Sequential Latency Chart
-                Watch((context) => BenchmarkChart(
-                  title: 'Sequential latency',
-                  subtitle: 'Latency per call (Smaller is better)',
-                  spotsMap: _controller.sequentialSpots.value,
-                )),
+                Watch(
+                  (context) => BenchmarkChart(
+                    title: 'Sequential latency',
+                    subtitle: 'Latency per call (Smaller is better)',
+                    spotsMap: _controller.sequentialSpots.value,
+                  ),
+                ),
                 const SizedBox(height: 48),
-                
+
                 // Simultaneous Throughput Chart
-                Watch((context) => BenchmarkChart(
-                  title: 'Simultaneous throughput',
-                  subtitle: 'Average time per call in batch (Smaller is better)',
-                  spotsMap: _controller.simultaneousSpots.value,
-                )),
+                Watch(
+                  (context) => BenchmarkChart(
+                    title: 'Simultaneous throughput',
+                    subtitle:
+                        'Average time per call in batch (Smaller is better)',
+                    spotsMap: _controller.simultaneousSpots.value,
+                  ),
+                ),
                 const SizedBox(height: 48),
-                
+
                 // History List
-                Watch((context) => BenchmarkHistory(
-                  history: _controller.history.value,
-                )),
+                Watch(
+                  (context) =>
+                      BenchmarkHistory(history: _controller.history.value),
+                ),
                 const SizedBox(height: 48),
               ]),
             ),

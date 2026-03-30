@@ -8,6 +8,9 @@ class BridgeSpec {
   final NativeImpl androidImpl;
   final String sourceUri;
 
+  /// True when both platforms use a direct C++ implementation (no JNI / Swift bridge).
+  bool get isCppImpl => iosImpl == NativeImpl.cpp && androidImpl == NativeImpl.cpp;
+
   final List<BridgeStruct> structs;
   final List<BridgeEnum> enums;
   final List<BridgeFunction> functions;
@@ -42,6 +45,12 @@ class BridgeType {
   /// and `Map<String, T>`.
   final bool isRecord;
 
+  /// True when the type is a raw FFI `Pointer<T>`
+  final bool isPointer;
+
+  /// The inner type of a `Pointer<T>` (e.g. 'Uint8', 'Void')
+  final String? pointerInnerType;
+
   /// Non-null when [isRecord] is true AND the Dart type is `List<T>`.
   /// Holds the item type name T (e.g. 'CameraDevice', 'String', 'int').
   /// Use [recordListItemIsPrimitive] to distinguish primitive vs. record items.
@@ -73,6 +82,8 @@ class BridgeType {
     this.isFuture = false,
     this.isStream = false,
     this.isRecord = false,
+    this.isPointer = false,
+    this.pointerInnerType,
     this.recordListItemType,
     this.recordListItemIsPrimitive = false,
     this.isMap = false,

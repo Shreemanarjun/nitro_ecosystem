@@ -54,33 +54,53 @@ String? extractLibNameFromSpec(File specFile) {
   return match?.group(1);
 }
 
-List<Map<String, String>> discoverModules(String pluginName, {String baseDir = '.'}) {
+/// Returns true when the spec file declares both platforms as NativeImpl.cpp —
+/// meaning it uses a direct C++ implementation instead of Kotlin/Swift bridges.
+bool isCppModule(File specFile) {
+  final content = specFile.readAsStringSync();
+  final match = RegExp(r'@NitroModule\s*\(([^)]+)\)').firstMatch(content);
+  if (match == null) return false;
+  final annotation = match.group(1)!;
+  return annotation.contains('NativeImpl.cpp') && annotation.replaceFirst('NativeImpl.cpp', '').contains('NativeImpl.cpp');
+}
+
+/// Module descriptor. `isCpp` indicates a direct C++ implementation (no JNI/Swift bridge).
+class ModuleInfo {
+  final String lib;
+  final String module;
+  final bool isCpp;
+  const ModuleInfo({required this.lib, required this.module, required this.isCpp});
+  Map<String, String> toMap() => {'lib': lib, 'module': module};
+}
+
+List<ModuleInfo> discoverModuleInfos(String pluginName, {String baseDir = '.'}) {
   final libDir = Directory(p.join(baseDir, 'lib'));
   if (!libDir.existsSync()) {
-    return [
-      {'lib': pluginName, 'module': pluginName}
-    ];
+    return [ModuleInfo(lib: pluginName, module: pluginName, isCpp: false)];
   }
   final specs = libDir.listSync(recursive: true).whereType<File>().where((f) => f.path.endsWith('.native.dart')).toList();
   if (specs.isEmpty) {
-    return [
-      {'lib': pluginName, 'module': pluginName}
-    ];
+    return [ModuleInfo(lib: pluginName, module: pluginName, isCpp: false)];
   }
 
-  final modules = <Map<String, String>>[];
+  final modules = <ModuleInfo>[];
   for (final spec in specs) {
     final content = spec.readAsStringSync();
     final stem = p.basename(spec.path).replaceAll(RegExp(r'\.native\.dart$'), '');
     final libName = extractLibNameFromSpec(spec) ?? stem.replaceAll('-', '_');
     final moduleMatch = RegExp(r'abstract class (\w+) extends HybridObject').firstMatch(content);
-    final moduleName = moduleMatch?.group(1) ?? stem.split('_').map((w) => w[0].toUpperCase() + w.substring(1)).join('');
+    final moduleName = moduleMatch?.group(1) ?? _toPascalCase(stem);
 
-    if (!modules.any((m) => m['module'] == moduleName)) {
-      modules.add({'lib': libName, 'module': moduleName});
+    if (!modules.any((m) => m.module == moduleName)) {
+      modules.add(ModuleInfo(lib: libName, module: moduleName, isCpp: isCppModule(spec)));
     }
   }
   return modules;
+}
+
+// Keep legacy signature for external callers
+List<Map<String, String>> discoverModules(String pluginName, {String baseDir = '.'}) {
+  return discoverModuleInfos(pluginName, baseDir: baseDir).map((m) => m.toMap()).toList();
 }
 
 // ── Progress model ──────────────────────────────
@@ -125,15 +145,27 @@ class LinkStepRow extends StatelessComponent {
         children: [
           Row(
             children: [
-              Text(icon, style: TextStyle(color: color, fontWeight: FontWeight.bold)),
+              Text(
+                icon,
+                style: TextStyle(color: color, fontWeight: FontWeight.bold),
+              ),
               const Text(' '),
               Expanded(
-                  child: Text(step.label,
-                      style: TextStyle(color: step.state == LinkStepState.running ? Colors.cyan : null, fontWeight: step.state == LinkStepState.running ? FontWeight.bold : null))),
+                child: Text(
+                  step.label,
+                  style: TextStyle(color: step.state == LinkStepState.running ? Colors.cyan : null, fontWeight: step.state == LinkStepState.running ? FontWeight.bold : null),
+                ),
+              ),
             ],
           ),
           if (step.detail != null)
-            Padding(padding: const EdgeInsets.only(left: 4), child: Text(step.detail!, style: const TextStyle(color: Colors.gray, fontWeight: FontWeight.dim))),
+            Padding(
+              padding: const EdgeInsets.only(left: 4),
+              child: Text(
+                step.detail!,
+                style: const TextStyle(color: Colors.gray, fontWeight: FontWeight.dim),
+              ),
+            ),
         ],
       ),
     );
@@ -159,8 +191,8 @@ class _LinkViewState extends State<LinkView> {
     LinkStep('Discovering modules'),
     LinkStep('Updating src/CMakeLists.txt'),
     LinkStep('Updating iOS podspec'),
-    LinkStep('Updating Swift Plugin.swift'),
-    LinkStep('Updating Kotlin Plugin.kt'),
+    LinkStep('Updating Swift Plugin.swift (Kotlin/Swift modules)'),
+    LinkStep('Updating Kotlin Plugin.kt (Kotlin/Swift modules)'),
     LinkStep('Updating .clangd'),
   ];
 
@@ -197,25 +229,34 @@ class _LinkViewState extends State<LinkView> {
     final pluginName = component.pluginName;
     try {
       await _setRunning(0);
-      final modules = discoverModules(pluginName, baseDir: Directory.current.path);
-      await _setDone(0, detail: '${modules.length} module(s): ${modules.map((m) => m['module']).join(', ')}');
+      final moduleInfos = discoverModuleInfos(pluginName, baseDir: Directory.current.path);
+      final allCpp = moduleInfos.every((m) => m.isCpp);
+      final hasCpp = moduleInfos.any((m) => m.isCpp);
+      final hasNonCpp = moduleInfos.any((m) => !m.isCpp);
+      final cppLabel = hasCpp ? ' (${moduleInfos.where((m) => m.isCpp).map((m) => m.module).join(', ')} → C++)' : '';
+      await _setDone(0, detail: '${moduleInfos.length} module(s): ${moduleInfos.map((m) => m.module).join(', ')}$cppLabel');
 
       await _setRunning(1);
       final nitroNativePath = resolveNitroNativePath(Directory.current.path);
-      linkCMake(pluginName, modules.map((m) => m['lib']!).toList(), nitroNativePath, baseDir: Directory.current.path);
+      linkCMake(pluginName, moduleInfos.map((m) => m.lib).toList(), nitroNativePath, baseDir: Directory.current.path, moduleInfos: moduleInfos);
+      linkCppImplStubs(moduleInfos, baseDir: Directory.current.path);
       await _setDone(1);
 
       await _setRunning(2);
       if (Directory(p.join(Directory.current.path, 'ios')).existsSync()) {
-        linkPodspec(pluginName, modules.map((m) => m['lib']!).toList(), baseDir: Directory.current.path);
+        linkPodspec(pluginName, moduleInfos.map((m) => m.lib).toList(), baseDir: Directory.current.path, moduleInfos: moduleInfos);
         await _setDone(2);
       } else {
         await _setSkipped(2, detail: 'ios/ not present');
       }
 
       await _setRunning(3);
-      if (Directory(p.join(Directory.current.path, 'ios')).existsSync()) {
-        linkSwiftPlugin(pluginName, modules, baseDir: Directory.current.path);
+      if (!hasNonCpp) {
+        await _setSkipped(3, detail: 'all modules use NativeImpl.cpp — no Swift bridge needed');
+      } else if (Directory(p.join(Directory.current.path, 'ios')).existsSync()) {
+        // Only wire non-cpp modules into Swift plugin
+        final nonCppModules = moduleInfos.where((m) => !m.isCpp).map((m) => m.toMap()).toList();
+        linkSwiftPlugin(pluginName, nonCppModules, baseDir: Directory.current.path);
         await _setDone(3);
       } else {
         await _setSkipped(3, detail: 'ios/ not present');
@@ -223,17 +264,38 @@ class _LinkViewState extends State<LinkView> {
 
       await _setRunning(4);
       if (Directory(p.join(Directory.current.path, 'android')).existsSync()) {
-        linkKotlinPlugin(pluginName, modules, baseDir: Directory.current.path);
-        await _setDone(4);
+        if (hasNonCpp) {
+          final nonCppModules = moduleInfos.where((m) => !m.isCpp).map((m) => m.toMap()).toList();
+          linkKotlinPlugin(pluginName, nonCppModules, baseDir: Directory.current.path);
+        }
+        // cpp modules still need System.loadLibrary to trigger __attribute__((constructor))
+        if (hasCpp) {
+          linkKotlinLoadLibraries(moduleInfos.where((m) => m.isCpp).map((m) => m.lib).toList(), baseDir: Directory.current.path);
+        }
+        await _setDone(4, detail: hasNonCpp ? null : 'cpp: loadLibrary only (no JniBridge)');
       } else {
         await _setSkipped(4, detail: 'android/ not present');
       }
 
       await _setRunning(5);
-      linkClangd(pluginName, baseDir: Directory.current.path);
+      linkClangd(pluginName, moduleInfos: moduleInfos, baseDir: Directory.current.path);
       await _setDone(5);
 
-      _nextSteps.addAll(['flutter pub get', 'flutter pub run build_runner build --delete-conflicting-outputs', 'nitrogen generate', 'Implement Specs in Kotlin/Swift']);
+      if (allCpp) {
+        _nextSteps.addAll([
+          'nitrogen generate',
+          'Subclass Hybrid<Module> in C++ (constructor auto-registers via __attribute__((constructor)))',
+          'Build and test with ctest (auto-generated test target)',
+        ]);
+      } else if (hasCpp) {
+        _nextSteps.addAll([
+          'nitrogen generate',
+          'C++ modules: subclass Hybrid<Module> (constructor auto-registers)',
+          'Kotlin/Swift modules: implement Hybrid<Module>Spec / HybridProtocol',
+        ]);
+      } else {
+        _nextSteps.addAll(['flutter pub get', 'flutter pub run build_runner build --delete-conflicting-outputs', 'nitrogen generate', 'Implement Specs in Kotlin/Swift']);
+      }
     } catch (e) {
       setState(() {
         _failed = true;
@@ -266,8 +328,12 @@ class _LinkViewState extends State<LinkView> {
             child: Container(
               decoration: BoxDecoration(border: BoxBorder.all(color: Colors.cyan)),
               child: Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 2),
-                  child: Text(' nitrogen link — ${component.pluginName} ', style: const TextStyle(color: Colors.cyan, fontWeight: FontWeight.bold))),
+                padding: const EdgeInsets.symmetric(horizontal: 2),
+                child: Text(
+                  ' nitrogen link — ${component.pluginName} ',
+                  style: const TextStyle(color: Colors.cyan, fontWeight: FontWeight.bold),
+                ),
+              ),
             ),
           ),
           const SizedBox(height: 1),
@@ -276,33 +342,55 @@ class _LinkViewState extends State<LinkView> {
               padding: const EdgeInsets.symmetric(horizontal: 1),
               child: _errorMessage != null
                   ? Center(
-                      child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [
-                      Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 2, vertical: 1),
-                          decoration: BoxDecoration(border: BoxBorder.all(color: Colors.red)),
-                          child: const Text(' ✘ ERROR ', style: TextStyle(color: Colors.red, fontWeight: FontWeight.bold))),
-                      const SizedBox(height: 1),
-                      Text(_errorMessage!),
-                    ]))
-                  : Container(decoration: BoxDecoration(border: BoxBorder.all(color: Colors.brightBlack)), child: ListView(children: _steps.map(LinkStepRow.new).toList())),
+                      child: Column(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 2, vertical: 1),
+                            decoration: BoxDecoration(border: BoxBorder.all(color: Colors.red)),
+                            child: const Text(
+                              ' ✘ ERROR ',
+                              style: TextStyle(color: Colors.red, fontWeight: FontWeight.bold),
+                            ),
+                          ),
+                          const SizedBox(height: 1),
+                          Text(_errorMessage!),
+                        ],
+                      ),
+                    )
+                  : Container(
+                      decoration: BoxDecoration(border: BoxBorder.all(color: Colors.brightBlack)),
+                      child: ListView(children: _steps.map(LinkStepRow.new).toList()),
+                    ),
             ),
           ),
           if (_finished)
             Padding(
               padding: const EdgeInsets.all(1),
-              child: Column(children: [
-                if (!_failed) ...[
-                  const Text('✨ Linked! Next steps:', style: TextStyle(color: Colors.green, fontWeight: FontWeight.bold)),
-                  ..._nextSteps.asMap().entries.map((e) => Text('  ${e.key + 1}. ${e.value}', style: const TextStyle(color: Colors.gray))),
-                ],
-                Row(mainAxisAlignment: MainAxisAlignment.center, children: [
-                  if (component.onExit != null) ...[
-                    HoverButton(label: '‹ Back', onTap: component.onExit!, color: Colors.cyan),
-                    const Text('  •  ', style: TextStyle(color: Colors.brightBlack))
+              child: Column(
+                children: [
+                  if (!_failed) ...[
+                    const Text(
+                      '✨ Linked! Next steps:',
+                      style: TextStyle(color: Colors.green, fontWeight: FontWeight.bold),
+                    ),
+                    ..._nextSteps.asMap().entries.map((e) => Text('  ${e.key + 1}. ${e.value}', style: const TextStyle(color: Colors.gray))),
                   ],
-                  Text(component.onExit != null ? 'ESC back' : 'ESC exit', style: const TextStyle(color: Colors.gray, fontWeight: FontWeight.dim)),
-                ]),
-              ]),
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      if (component.onExit != null) ...[
+                        HoverButton(label: '‹ Back', onTap: component.onExit!, color: Colors.cyan),
+                        const Text('  •  ', style: TextStyle(color: Colors.brightBlack)),
+                      ],
+                      Text(
+                        component.onExit != null ? 'ESC back' : 'ESC exit',
+                        style: const TextStyle(color: Colors.gray, fontWeight: FontWeight.dim),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
             ),
         ],
       ),
@@ -368,11 +456,11 @@ void createSharedHeaders(String nitroNativePath, {String baseDir = '.'}) {
   File(p.join(baseDir, 'src', 'dart_api_dl.c')).writeAsStringSync(dartApiDlForwarderContent(nitroNativePath));
 }
 
-void linkCMake(String pluginName, List<String> moduleLibs, String nitroNativePath, {String baseDir = '.'}) {
+void linkCMake(String pluginName, List<String> moduleLibs, String nitroNativePath, {String baseDir = '.', List<ModuleInfo>? moduleInfos}) {
   createSharedHeaders(nitroNativePath, baseDir: baseDir);
   final cmakeFile = File(p.join(baseDir, 'src', 'CMakeLists.txt'));
   if (!cmakeFile.existsSync()) {
-    generateCMake(pluginName, moduleLibs, nitroNativePath, baseDir: baseDir);
+    generateCMake(pluginName, moduleLibs, nitroNativePath, baseDir: baseDir, moduleInfos: moduleInfos);
     return;
   }
   var content = cmakeFile.readAsStringSync();
@@ -405,14 +493,22 @@ void linkCMake(String pluginName, List<String> moduleLibs, String nitroNativePat
   }
   for (final lib in moduleLibs) {
     if (lib != pluginName && !content.contains('add_library($lib ')) {
-      content += _cmakeModuleTarget(lib);
+      final isCpp =
+          moduleInfos
+              ?.firstWhere(
+                (m) => m.lib == lib,
+                orElse: () => ModuleInfo(lib: lib, module: lib, isCpp: false),
+              )
+              .isCpp ??
+          false;
+      content += _cmakeModuleTarget(lib, isCpp: isCpp);
       modified = true;
     }
   }
   if (modified) cmakeFile.writeAsStringSync(content);
 }
 
-void generateCMake(String pluginName, List<String> moduleLibs, String nitroNativePath, {String baseDir = '.'}) {
+void generateCMake(String pluginName, List<String> moduleLibs, String nitroNativePath, {String baseDir = '.', List<ModuleInfo>? moduleInfos}) {
   final nitroValue = nitroNativePathExists(r'${CMAKE_CURRENT_SOURCE_DIR}/../../packages/nitro/src/native', p.join(baseDir, 'src'))
       ? r'${CMAKE_CURRENT_SOURCE_DIR}/../../packages/nitro/src/native'
       : nitroNativePath.replaceAll(r'\', '/');
@@ -438,15 +534,61 @@ void generateCMake(String pluginName, List<String> moduleLibs, String nitroNativ
     ..writeln('  target_link_options($pluginName PRIVATE "-Wl,-z,max-page-size=16384")')
     ..writeln('endif()');
   for (final lib in moduleLibs) {
-    if (lib != pluginName) sb.write(_cmakeModuleTarget(lib));
+    if (lib != pluginName) {
+      final isCpp =
+          moduleInfos
+              ?.firstWhere(
+                (m) => m.lib == lib,
+                orElse: () => ModuleInfo(lib: lib, module: lib, isCpp: false),
+              )
+              .isCpp ??
+          false;
+      sb.write(_cmakeModuleTarget(lib, isCpp: isCpp));
+    }
   }
   File(p.join(baseDir, 'src', 'CMakeLists.txt')).writeAsStringSync(sb.toString());
 }
 
-String _cmakeModuleTarget(String lib) =>
-    '\nadd_library($lib SHARED\n  "\${CMAKE_CURRENT_SOURCE_DIR}/../lib/src/generated/cpp/$lib.bridge.g.cpp"\n  "dart_api_dl.c"\n)\ntarget_include_directories($lib PRIVATE\n  "\${CMAKE_CURRENT_SOURCE_DIR}/../lib/src/generated/cpp"\n  "\${NITRO_NATIVE}"\n)\nset_target_properties($lib PROPERTIES OUTPUT_NAME "$lib")\ntarget_compile_definitions($lib PUBLIC DART_SHARED_LIB)\nif(ANDROID)\n  target_link_libraries($lib PRIVATE android log)\n  target_link_options($lib PRIVATE "-Wl,-z,max-page-size=16384")\nendif()\n';
+String _cmakeModuleTarget(String lib, {bool isCpp = false}) {
+  final implFile = isCpp ? '\n  "Hybrid${_toPascalCase(lib)}.cpp"' : '';
+  return '\nadd_library($lib SHARED\n  "\${CMAKE_CURRENT_SOURCE_DIR}/../lib/src/generated/cpp/$lib.bridge.g.cpp"$implFile\n  "dart_api_dl.c"\n)\ntarget_include_directories($lib PRIVATE\n  "\${CMAKE_CURRENT_SOURCE_DIR}"\n  "\${CMAKE_CURRENT_SOURCE_DIR}/../lib/src/generated/cpp"\n  "\${NITRO_NATIVE}"\n)\nset_target_properties($lib PROPERTIES OUTPUT_NAME "$lib")\ntarget_compile_definitions($lib PUBLIC DART_SHARED_LIB)\nif(ANDROID)\n  target_link_libraries($lib PRIVATE android log)\n  target_link_options($lib PRIVATE "-Wl,-z,max-page-size=16384")\nendif()\n';
+}
 
-void linkPodspec(String pluginName, List<String> moduleLibs, {String baseDir = '.'}) {
+String _toPascalCase(String lib) => lib.split(RegExp(r'[_\-]')).map((w) => w.isEmpty ? '' : w[0].toUpperCase() + w.substring(1)).join('');
+
+/// For each NativeImpl.cpp module, creates a starter `src/Hybrid${Module}.cpp`
+/// if one doesn't already exist. The stub includes the generated abstract header
+/// and has `__attribute__((constructor))` auto-registration so the user only
+/// needs to fill in the method bodies.
+void linkCppImplStubs(List<ModuleInfo> moduleInfos, {String baseDir = '.'}) {
+  for (final m in moduleInfos.where((m) => m.isCpp)) {
+    final className = _toPascalCase(m.lib);
+    final stubFile = File(p.join(baseDir, 'src', 'Hybrid$className.cpp'));
+    if (stubFile.existsSync()) continue; // never overwrite user code
+    stubFile.writeAsStringSync(
+      '// Hybrid$className — NativeImpl.cpp implementation.\n'
+      '// Generated by nitrogen link. Fill in the method bodies.\n'
+      '#include "../lib/src/generated/cpp/${m.lib}.native.g.h"\n'
+      '\n'
+      '#include <string>\n'
+      '\n'
+      'class Hybrid${className}Impl final : public Hybrid$className {\n'
+      'public:\n'
+      '    // TODO: implement all pure-virtual methods declared in Hybrid$className\n'
+      '};\n'
+      '\n'
+      'static Hybrid${className}Impl g_impl;\n'
+      '\n'
+      '// Auto-register on shared library load — no manual init call needed.\n'
+      '__attribute__((constructor))\n'
+      'static void ${m.lib}_auto_register() {\n'
+      '    ${m.lib}_register_impl(&g_impl);\n'
+      '}\n',
+    );
+  }
+}
+
+void linkPodspec(String pluginName, List<String> moduleLibs, {String baseDir = '.', List<ModuleInfo>? moduleInfos}) {
   final podspecFile = File(p.join(baseDir, 'ios', '$pluginName.podspec'));
   if (!podspecFile.existsSync()) return;
   var content = podspecFile.readAsStringSync();
@@ -460,7 +602,10 @@ void linkPodspec(String pluginName, List<String> moduleLibs, {String baseDir = '
     modified = true;
   }
   if (!content.contains('HEADER_SEARCH_PATHS')) {
-    content = content.replaceFirst('s.pod_target_xcconfig = {', "s.pod_target_xcconfig = {\n    'HEADER_SEARCH_PATHS' => '\$(inherited) \"\${PODS_ROOT}/../.symlinks/plugins/nitro/src/native\" \"\${PODS_TARGET_SRCROOT}/../src\" \"\${PODS_TARGET_SRCROOT}/../lib/src/generated/cpp\"',");
+    content = content.replaceFirst(
+      's.pod_target_xcconfig = {',
+      "s.pod_target_xcconfig = {\n    'HEADER_SEARCH_PATHS' => '\$(inherited) \"\${PODS_ROOT}/../.symlinks/plugins/nitro/src/native\" \"\${PODS_TARGET_SRCROOT}/../src\" \"\${PODS_TARGET_SRCROOT}/../lib/src/generated/cpp\"',",
+    );
     modified = true;
   } else {
     // If it exists, ensure it has the src/ and generated/cpp/ paths.
@@ -494,8 +639,7 @@ void linkPodspec(String pluginName, List<String> moduleLibs, {String baseDir = '
   final cppInSrc = File(p.join(baseDir, 'src', '$pluginName.cpp'));
   if (cppInSrc.existsSync()) {
     cleanRedundantIncludes(cppInSrc);
-    File(p.join(classesDir.path, '$pluginName.cpp'))
-        .writeAsStringSync('// Generated by nitrogen link — do not edit.\n#include "../../src/$pluginName.cpp"\n');
+    File(p.join(classesDir.path, '$pluginName.cpp')).writeAsStringSync('// Generated by nitrogen link — do not edit.\n#include "../../src/$pluginName.cpp"\n');
   }
   final cInSrc = File(p.join(baseDir, 'src', '$pluginName.c'));
   if (cInSrc.existsSync()) {
@@ -503,7 +647,20 @@ void linkPodspec(String pluginName, List<String> moduleLibs, {String baseDir = '
     File(p.join(classesDir.path, '$pluginName.c')).writeAsStringSync('#include "../../src/$pluginName.c"\n');
   }
 
-  ensureIosPackageSwift(pluginName, baseDir: baseDir);
+  // Link C++ module implementation files for iOS.
+  // On Android, each module is a separate .so via CMake. On iOS, everything is
+  // compiled into one binary, so the impl files must be in ios/Classes/.
+  if (moduleInfos != null) {
+    for (final m in moduleInfos.where((m) => m.isCpp)) {
+      final className = _toPascalCase(m.lib);
+      final implSrc = File(p.join(baseDir, 'src', 'Hybrid$className.cpp'));
+      if (implSrc.existsSync()) {
+        File(p.join(classesDir.path, 'Hybrid$className.cpp')).writeAsStringSync('// Generated by nitrogen link — do not edit.\n#include "../../src/Hybrid$className.cpp"\n');
+      }
+    }
+  }
+
+  ensureIosPackageSwift(pluginName, baseDir: baseDir, moduleInfos: moduleInfos);
 }
 
 void cleanRedundantIncludes(File file) {
@@ -534,8 +691,10 @@ void linkSwiftPlugin(String pluginName, List<Map<String, String>> modules, {Stri
         content = content.replaceFirst(match.last.group(0)!, '${match.last.group(0)!}\n        $reg.register($impl())');
         modified = true;
       } else {
-        content = content.replaceFirst('public static func register(with registrar: FlutterPluginRegistrar) {',
-            'public static func register(with registrar: FlutterPluginRegistrar) {\n        $reg.register($impl())');
+        content = content.replaceFirst(
+          'public static func register(with registrar: FlutterPluginRegistrar) {',
+          'public static func register(with registrar: FlutterPluginRegistrar) {\n        $reg.register($impl())',
+        );
         modified = true;
       }
     }
@@ -543,14 +702,130 @@ void linkSwiftPlugin(String pluginName, List<Map<String, String>> modules, {Stri
   if (modified) pluginFile.writeAsStringSync(content);
 }
 
-void ensureIosPackageSwift(String pluginName, {String baseDir = '.'}) {
+void ensureIosPackageSwift(String pluginName, {String baseDir = '.', List<ModuleInfo>? moduleInfos}) {
   final packageSwift = File(p.join(baseDir, 'ios', 'Package.swift'));
-  if (packageSwift.existsSync()) return;
+  if (packageSwift.existsSync()) {
+    // Package.swift already exists — sync C++ module sources into Sources/<MainCpp>/.
+    _syncCppModuleSourcesToSpm(pluginName, moduleInfos: moduleInfos, baseDir: baseDir);
+    return;
+  }
   final className = pluginName.split('_').map((w) => w.isEmpty ? '' : w[0].toUpperCase() + w.substring(1)).join('');
   Directory(p.join(baseDir, 'ios', 'Sources', className)).createSync(recursive: true);
   Directory(p.join(baseDir, 'ios', 'Sources', '${className}Cpp')).createSync(recursive: true);
   packageSwift.writeAsStringSync(
-      '// swift-tools-version: 5.9\nimport PackageDescription\nlet package = Package(name: "$pluginName", platforms: [.iOS(.v13)], products: [.library(name: "$pluginName", targets: ["$pluginName"])], targets: [.target(name: "${className}Cpp", path: "Sources/${className}Cpp", publicHeadersPath: "include", cxxSettings: [.headerSearchPath("include"), .unsafeFlags(["-std=c++17", "-I../../.symlinks/plugins/nitro/src/native"])]), .target(name: "$pluginName", dependencies: ["${className}Cpp"], path: "Sources/$className")])');
+    '// swift-tools-version: 5.9\nimport PackageDescription\nlet package = Package(name: "$pluginName", platforms: [.iOS(.v13)], products: [.library(name: "$pluginName", targets: ["$pluginName"])], targets: [.target(name: "${className}Cpp", path: "Sources/${className}Cpp", publicHeadersPath: "include", cxxSettings: [.headerSearchPath("include"), .unsafeFlags(["-std=c++17", "-I../../.symlinks/plugins/nitro/src/native"])]), .target(name: "$pluginName", dependencies: ["${className}Cpp"], path: "Sources/$className")])',
+  );
+  _syncCppModuleSourcesToSpm(pluginName, moduleInfos: moduleInfos, baseDir: baseDir);
+}
+
+/// Writes forwarder files for C++ module bridges and impl into the SPM target
+/// that owns the shared C++ layer (Sources/`<MainCpp>`/). Bridge headers are also
+/// copied into its include/ directory so SPM can find them.
+void _syncCppModuleSourcesToSpm(String pluginName, {List<ModuleInfo>? moduleInfos, String baseDir = '.'}) {
+  if (moduleInfos == null) return;
+  final cppModules = moduleInfos.where((m) => m.isCpp).toList();
+  if (cppModules.isEmpty) return;
+
+  final className = pluginName.split('_').map((w) => w.isEmpty ? '' : w[0].toUpperCase() + w.substring(1)).join('');
+  final cppTargetDir = Directory(p.join(baseDir, 'ios', 'Sources', '${className}Cpp'));
+  if (!cppTargetDir.existsSync()) return;
+
+  final includeDir = Directory(p.join(cppTargetDir.path, 'include'))..createSync(recursive: true);
+
+  for (final m in cppModules) {
+    final lib = m.lib;
+    final hybridClass = _toPascalCase(lib);
+
+    // Forwarder: bridge .cpp -> .mm so SPM compiles it as Obj-C++.
+    final bridgeCpp = File(p.join(baseDir, 'lib', 'src', 'generated', 'cpp', '$lib.bridge.g.cpp'));
+    if (bridgeCpp.existsSync()) {
+      File(
+        p.join(cppTargetDir.path, '$lib.bridge.g.mm'),
+      ).writeAsStringSync('// Generated by nitrogen link — do not edit.\n#include "../../../../lib/src/generated/cpp/$lib.bridge.g.cpp"\n');
+    }
+
+    // Forwarder: C++ impl.
+    final implSrc = File(p.join(baseDir, 'src', 'Hybrid$hybridClass.cpp'));
+    if (implSrc.existsSync()) {
+      File(
+        p.join(cppTargetDir.path, 'Hybrid$hybridClass.cpp'),
+      ).writeAsStringSync('// Generated by nitrogen link — do not edit.\n#include "../../../../src/Hybrid$hybridClass.cpp"\n');
+    }
+
+    // Copy only the C-compatible bridge header into include/. The .native.g.h
+    // uses C++ types (std::string, classes) and must NOT be a public module
+    // header — CocoaPods would include it in the umbrella and break Swift/ObjC
+    // module compilation. It is reachable via HEADER_SEARCH_PATHS instead.
+    final bridgeHeader = '$lib.bridge.g.h';
+    final hSrc = File(p.join(baseDir, 'lib', 'src', 'generated', 'cpp', bridgeHeader));
+    if (hSrc.existsSync()) {
+      hSrc.copySync(p.join(includeDir.path, bridgeHeader));
+    }
+  }
+}
+
+/// Ensures `System.loadLibrary("lib")` is present in the Kotlin plugin's
+/// companion object init block for each cpp module lib.
+/// cpp modules use `__attribute__((constructor))` for auto-registration, so
+/// no JniBridge.register call is needed — just loading the .so is enough.
+void linkKotlinLoadLibraries(List<String> libs, {String baseDir = '.'}) {
+  final kotlinDir = Directory(p.join(baseDir, 'android', 'src', 'main', 'kotlin'));
+  if (!kotlinDir.existsSync()) return;
+  final pluginFiles = kotlinDir.listSync(recursive: true).whereType<File>().where((f) => f.path.endsWith('Plugin.kt')).toList();
+  if (pluginFiles.isEmpty) return;
+  final pluginFile = pluginFiles.first;
+  var content = pluginFile.readAsStringSync();
+  bool modified = false;
+  for (final lib in libs) {
+    if (!content.contains('loadLibrary("$lib")')) {
+      // Insert after the last existing System.loadLibrary call in the init block
+      final match = RegExp(r'System\.loadLibrary\("[^"]+"\)').allMatches(content);
+      if (match.isNotEmpty) {
+        content = content.replaceFirst(match.last.group(0)!, '${match.last.group(0)!}\n            System.loadLibrary("$lib")');
+      } else {
+        // Fallback: inject into existing companion object, or insert a new one.
+        final className = p.basenameWithoutExtension(pluginFile.path);
+        final classPattern = RegExp('class\\s+$className[^{]*\\{');
+        final classMatch = classPattern.firstMatch(content);
+        if (classMatch == null) {
+          throw Exception(
+            'nitrogen link failed: Cannot find opening "{" for class $className in ${p.basename(pluginFile.path)} '
+            'to inject System.loadLibrary("$lib"). Please add it manually.',
+          );
+        }
+        // Check if there's already a companion object in the class body
+        final classBody = classMatch.group(0)!;
+        final companionPattern = RegExp(r'companion\s+object');
+        if (companionPattern.hasMatch(content)) {
+          // Inject into existing companion object before its closing brace
+          final companionMatch = RegExp(r'companion\s+object[^{]*\{([^}]*)\}').firstMatch(content);
+          if (companionMatch != null) {
+            content = content.replaceFirst(
+              companionMatch.group(0)!,
+              companionMatch
+                  .group(0)!
+                  .replaceFirst(
+                    '}',
+                    '    System.loadLibrary("$lib")\n        }',
+                  ),
+            );
+          } else {
+            throw Exception(
+              'nitrogen link failed: Found companion object in $className (${p.basename(pluginFile.path)}) '
+              'but could not locate its closing brace to inject System.loadLibrary("$lib"). Please add it manually.',
+            );
+          }
+        } else {
+          content = content.replaceFirst(
+            classBody,
+            '$classBody\n    companion object {\n        init { System.loadLibrary("$lib") }\n    }\n',
+          );
+        }
+      }
+      modified = true;
+    }
+  }
+  if (modified) pluginFile.writeAsStringSync(content);
 }
 
 void linkKotlinPlugin(String pluginName, List<Map<String, String>> modules, {String baseDir = '.'}) {
@@ -571,8 +846,10 @@ void linkKotlinPlugin(String pluginName, List<Map<String, String>> modules, {Str
         content = content.replaceFirst(match.last.group(0)!, '${match.last.group(0)!}\n        $reg.register($impl())');
         modified = true;
       } else {
-        content = content.replaceFirst('override fun onAttachedToEngine(binding: FlutterPlugin.FlutterPluginBinding) {',
-            'override fun onAttachedToEngine(binding: FlutterPlugin.FlutterPluginBinding) {\n        $reg.register($impl())');
+        content = content.replaceFirst(
+          'override fun onAttachedToEngine(binding: FlutterPlugin.FlutterPluginBinding) {',
+          'override fun onAttachedToEngine(binding: FlutterPlugin.FlutterPluginBinding) {\n        $reg.register($impl())',
+        );
         modified = true;
       }
     }
@@ -580,9 +857,19 @@ void linkKotlinPlugin(String pluginName, List<Map<String, String>> modules, {Str
   if (modified) pluginFile.writeAsStringSync(content);
 }
 
-void linkClangd(String pluginName, {String baseDir = '.'}) {
-  File(p.join(baseDir, '.clangd'))
-      .writeAsStringSync('CompileFlags:\n  Add:\n    - -I\${PWD}/src\n    - -I\${PWD}/lib/src/generated/cpp\n    - -I\${PWD}/../packages/nitro/src/native\n');
+void linkClangd(String pluginName, {List<ModuleInfo>? moduleInfos, String baseDir = '.'}) {
+  final sb = StringBuffer()
+    ..writeln('CompileFlags:')
+    ..writeln('  Add:')
+    ..writeln('    - -I\${PWD}/src')
+    ..writeln('    - -I\${PWD}/lib/src/generated/cpp')
+    ..writeln('    - -I\${PWD}/../packages/nitro/src/native');
+
+  // For C++ modules also expose the test/ directory so IDEs resolve mock headers
+  if (moduleInfos != null && moduleInfos.any((m) => m.isCpp)) {
+    sb.writeln('    - -I\${PWD}/lib/src/generated/cpp/test');
+  }
+  File(p.join(baseDir, '.clangd')).writeAsStringSync(sb.toString());
 }
 
 class LinkCommand extends Command {

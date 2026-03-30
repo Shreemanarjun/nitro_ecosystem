@@ -1,7 +1,7 @@
 import 'dart:io';
 import 'package:args/command_runner.dart';
 import 'package:path/path.dart' as p;
-import 'link_command.dart' show cleanRedundantIncludes, createSharedHeaders, resolveNitroNativePath;
+import 'link_command.dart' show cleanRedundantIncludes, createSharedHeaders, resolveNitroNativePath, isCppModule;
 import '../ui.dart';
 
 class GenerateCommand extends Command {
@@ -81,9 +81,19 @@ class GenerateCommand extends Command {
       }
     }
 
+    // Detect whether any spec uses NativeImpl.cpp to tailor the next-steps hint
+    final libDir = Directory(p.join(projectDir.path, 'lib'));
+    final hasCppModules = libDir.existsSync() && libDir.listSync(recursive: true).whereType<File>().where((f) => f.path.endsWith('.native.dart')).any(isCppModule);
+
     stdout.writeln('');
     stdout.writeln(boldGreen('  ✨ Generation complete!'));
-    stdout.writeln(gray('     Run nitrogen link to wire bridges into the build system.'));
+    if (hasCppModules) {
+      final pubspecName = _readPluginName(projectDir.path);
+      stdout.writeln(gray('     C++ modules: subclass Hybrid<Module>, call ${pubspecName}_register_impl(&impl).'));
+      stdout.writeln(gray('     Run nitrogen link to wire bridges into the build system.'));
+    } else {
+      stdout.writeln(gray('     Run nitrogen link to wire bridges into the build system.'));
+    }
     stdout.writeln('');
     return 0;
   }
@@ -94,8 +104,19 @@ class GenerateCommand extends Command {
     if (exitCode != 0) exit(exitCode);
   }
 
+  String _readPluginName(String projectRoot) {
+    final pubspec = File(p.join(projectRoot, 'pubspec.yaml'));
+    if (!pubspec.existsSync()) return 'my_plugin';
+    for (final line in pubspec.readAsLinesSync()) {
+      if (line.startsWith('name: ')) return line.replaceFirst('name: ', '').trim();
+    }
+    return 'my_plugin';
+  }
+
   /// Copies every *.bridge.g.swift from lib/**/generated/swift/ into
   /// ios/Classes/ so CocoaPods always picks up the freshly generated bridges.
+  /// Skips files that only contain the "Not applicable" placeholder produced
+  /// for NativeImpl.cpp modules (no Swift bridge is needed there).
   void _syncSwiftToIosClasses(String projectRoot) {
     final iosClasses = Directory(p.join(projectRoot, 'ios', 'Classes'));
     if (!iosClasses.existsSync()) return;
@@ -106,9 +127,16 @@ class GenerateCommand extends Command {
     final bridgeFiles = libDir.listSync(recursive: true).whereType<File>().where((f) => f.path.endsWith('.bridge.g.swift'));
 
     for (final src in bridgeFiles) {
+      // Skip placeholder files produced for NativeImpl.cpp modules.
+      final firstLine = src.readAsLinesSync().firstOrNull ?? '';
+      if (firstLine.contains('Not applicable')) continue;
       final dest = File(p.join(iosClasses.path, p.basename(src.path)));
       src.copySync(dest.path);
     }
+
+    // Sync *.native.g.h files for NativeImpl.cpp modules into ios/Classes/
+    // so that Xcode / CocoaPods can resolve them during Swift-interop builds.
+    _syncCppInterfaceHeaders(projectRoot, iosClasses.path);
 
     // Also heal any redundant includes in the main src/ folder
     final srcDir = Directory(p.join(projectRoot, 'src'));
@@ -116,6 +144,24 @@ class GenerateCommand extends Command {
       for (final f in srcDir.listSync().whereType<File>().where((f) => f.path.endsWith('.cpp') || f.path.endsWith('.c'))) {
         cleanRedundantIncludes(f);
       }
+    }
+  }
+
+  /// Copies *.native.g.h files generated for NativeImpl.cpp modules into
+  /// [iosClassesPath] so Clang can resolve them from Swift/ObjC++ files.
+  void _syncCppInterfaceHeaders(String projectRoot, String iosClassesPath) {
+    final libDir = Directory(p.join(projectRoot, 'lib'));
+    if (!libDir.existsSync()) return;
+
+    // Find corresponding .native.dart specs to check isCppModule
+    final specs = libDir.listSync(recursive: true).whereType<File>().where((f) => f.path.endsWith('.native.dart')).toList();
+
+    for (final spec in specs) {
+      if (!isCppModule(spec)) continue;
+      final stem = p.basename(spec.path).replaceAll(RegExp(r'\.native\.dart$'), '');
+      final header = File(p.join(p.dirname(spec.path), 'generated', 'cpp', '$stem.native.g.h'));
+      if (!header.existsSync()) continue;
+      File(p.join(iosClassesPath, p.basename(header.path))).writeAsStringSync(header.readAsStringSync());
     }
   }
 

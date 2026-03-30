@@ -46,7 +46,24 @@ static jclass g_bridgeClass = nullptr;
 static jmethodID g_exc_getName = nullptr;
 static jmethodID g_exc_getMessage = nullptr;
 static jmethodID g_mid_add_call = nullptr;
+static jmethodID g_mid_addFast_call = nullptr;
 static jmethodID g_mid_getGreeting_call = nullptr;
+static jmethodID g_mid_scalePoint_call = nullptr;
+static jmethodID g_mid_computeStats_call = nullptr;
+static jmethodID g_mid_sendLargeBuffer_call = nullptr;
+static jmethodID g_mid_benchmark_register_data_stream_stream_call = nullptr;
+static jmethodID g_mid_benchmark_release_data_stream_stream_call = nullptr;
+static jmethodID g_mid_benchmark_register_box_stream_stream_call = nullptr;
+static jmethodID g_mid_benchmark_release_box_stream_stream_call = nullptr;
+static jclass g_cls_BenchmarkPoint = nullptr;
+static jmethodID g_ctor_BenchmarkPoint = nullptr;
+static jfieldID g_fid_BenchmarkPoint_x = nullptr;
+static jfieldID g_fid_BenchmarkPoint_y = nullptr;
+static jclass g_cls_BenchmarkBox = nullptr;
+static jmethodID g_ctor_BenchmarkBox = nullptr;
+static jfieldID g_fid_BenchmarkBox_color = nullptr;
+static jfieldID g_fid_BenchmarkBox_width = nullptr;
+static jfieldID g_fid_BenchmarkBox_height = nullptr;
 
 // RAII guard: auto-detaches a thread from the JVM when it exits.
 // One instance is stored in thread-local storage; its destructor fires
@@ -80,6 +97,25 @@ static void nitro_report_jni_exception(JNIEnv* env, jthrowable ex) {
     env->DeleteLocalRef(ex);
 }
 
+static BenchmarkPoint pack_BenchmarkPoint_from_jni(JNIEnv* env, jobject obj) {
+    BenchmarkPoint result;
+    result.x = env->GetDoubleField(obj, g_fid_BenchmarkPoint_x);
+    result.y = env->GetDoubleField(obj, g_fid_BenchmarkPoint_y);
+    return result;
+}
+static jobject unpack_BenchmarkPoint_to_jni(JNIEnv* env, const BenchmarkPoint* st) {
+    return env->NewObject(g_cls_BenchmarkPoint, g_ctor_BenchmarkPoint, (jdouble)st->x, (jdouble)st->y);
+}
+static BenchmarkBox pack_BenchmarkBox_from_jni(JNIEnv* env, jobject obj) {
+    BenchmarkBox result;
+    result.color = env->GetLongField(obj, g_fid_BenchmarkBox_color);
+    result.width = env->GetDoubleField(obj, g_fid_BenchmarkBox_width);
+    result.height = env->GetDoubleField(obj, g_fid_BenchmarkBox_height);
+    return result;
+}
+static jobject unpack_BenchmarkBox_to_jni(JNIEnv* env, const BenchmarkBox* st) {
+    return env->NewObject(g_cls_BenchmarkBox, g_ctor_BenchmarkBox, (jlong)st->color, (jdouble)st->width, (jdouble)st->height);
+}
 
 extern "C" {
 
@@ -109,7 +145,38 @@ JNIEXPORT jint JNICALL JNI_OnLoad(JavaVM* vm, void* reserved) {
     // Cache bridge method IDs
     if (g_bridgeClass != nullptr) {
         g_mid_add_call = env->GetStaticMethodID(g_bridgeClass, "add_call", "(DD)D");
+        g_mid_addFast_call = env->GetStaticMethodID(g_bridgeClass, "addFast_call", "(DD)D");
         g_mid_getGreeting_call = env->GetStaticMethodID(g_bridgeClass, "getGreeting_call", "(Ljava/lang/String;)Ljava/lang/String;");
+        g_mid_scalePoint_call = env->GetStaticMethodID(g_bridgeClass, "scalePoint_call", "(Lnitro/benchmark_module/BenchmarkPoint;D)Lnitro/benchmark_module/BenchmarkPoint;");
+        g_mid_computeStats_call = env->GetStaticMethodID(g_bridgeClass, "computeStats_call", "(J)[B");
+        g_mid_sendLargeBuffer_call = env->GetStaticMethodID(g_bridgeClass, "sendLargeBuffer_call", "([B)J");
+        g_mid_benchmark_register_data_stream_stream_call = env->GetStaticMethodID(g_bridgeClass, "benchmark_register_data_stream_stream_call", "(J)V");
+        g_mid_benchmark_release_data_stream_stream_call = env->GetStaticMethodID(g_bridgeClass, "benchmark_release_data_stream_stream_call", "(J)V");
+        g_mid_benchmark_register_box_stream_stream_call = env->GetStaticMethodID(g_bridgeClass, "benchmark_register_box_stream_stream_call", "(J)V");
+        g_mid_benchmark_release_box_stream_stream_call = env->GetStaticMethodID(g_bridgeClass, "benchmark_release_box_stream_stream_call", "(J)V");
+    }
+
+    // Cache struct class + ctor + field IDs
+    {
+        jclass local_cls_BenchmarkPoint = env->FindClass("nitro/benchmark_module/BenchmarkPoint");
+        if (local_cls_BenchmarkPoint != nullptr) {
+            g_cls_BenchmarkPoint = (jclass)env->NewGlobalRef(local_cls_BenchmarkPoint);
+            env->DeleteLocalRef(local_cls_BenchmarkPoint);
+            g_ctor_BenchmarkPoint = env->GetMethodID(g_cls_BenchmarkPoint, "<init>", "(DD)V");
+            g_fid_BenchmarkPoint_x = env->GetFieldID(g_cls_BenchmarkPoint, "x", "D");
+            g_fid_BenchmarkPoint_y = env->GetFieldID(g_cls_BenchmarkPoint, "y", "D");
+        }
+    }
+    {
+        jclass local_cls_BenchmarkBox = env->FindClass("nitro/benchmark_module/BenchmarkBox");
+        if (local_cls_BenchmarkBox != nullptr) {
+            g_cls_BenchmarkBox = (jclass)env->NewGlobalRef(local_cls_BenchmarkBox);
+            env->DeleteLocalRef(local_cls_BenchmarkBox);
+            g_ctor_BenchmarkBox = env->GetMethodID(g_cls_BenchmarkBox, "<init>", "(JDD)V");
+            g_fid_BenchmarkBox_color = env->GetFieldID(g_cls_BenchmarkBox, "color", "J");
+            g_fid_BenchmarkBox_width = env->GetFieldID(g_cls_BenchmarkBox, "width", "D");
+            g_fid_BenchmarkBox_height = env->GetFieldID(g_cls_BenchmarkBox, "height", "D");
+        }
     }
 
     return JNI_VERSION_1_6;
@@ -138,6 +205,18 @@ double benchmark_add(double a, double b) {
     return res;
 }
 
+double benchmark_add_fast(double a, double b) {
+    JNIEnv* env = GetEnv();
+    if (env == nullptr) return 0.0;
+    jmethodID methodId = g_mid_addFast_call;
+    if (methodId == nullptr) { LOGE("Method not found"); return 0.0; }
+
+    benchmark_clear_error();
+    double res = env->CallStaticDoubleMethod(g_bridgeClass, methodId, a, b);
+    if (env->ExceptionCheck()) { nitro_report_jni_exception(env, env->ExceptionOccurred()); return 0.0; }
+    return res;
+}
+
 const char* benchmark_get_greeting(const char* name) {
     JNIEnv* env = GetEnv();
     if (env == nullptr) return nullptr;
@@ -155,6 +234,101 @@ const char* benchmark_get_greeting(const char* name) {
     env->DeleteLocalRef(j_name);
     env->DeleteLocalRef(jstr);
     return result;
+}
+
+void* benchmark_scale_point(void* point, double factor) {
+    JNIEnv* env = GetEnv();
+    if (env == nullptr) return nullptr;
+    jmethodID methodId = g_mid_scalePoint_call;
+    if (methodId == nullptr) { LOGE("Method not found"); return nullptr; }
+
+    benchmark_clear_error();
+    jobject jobj_point = unpack_BenchmarkPoint_to_jni(env, (const BenchmarkPoint*)point);
+    jobject jobj = env->CallStaticObjectMethod(g_bridgeClass, methodId, jobj_point, factor);
+    if (env->ExceptionCheck()) { nitro_report_jni_exception(env, env->ExceptionOccurred()); return nullptr; }
+    if (jobj == nullptr) return nullptr;
+    BenchmarkPoint* result = (BenchmarkPoint*)malloc(sizeof(BenchmarkPoint));
+    *result = pack_BenchmarkPoint_from_jni(env, jobj);
+    env->DeleteLocalRef(jobj);
+    return result;
+}
+
+void* benchmark_compute_stats(int64_t iterations) {
+    JNIEnv* env = GetEnv();
+    if (env == nullptr) return nullptr;
+    jmethodID methodId = g_mid_computeStats_call;
+    if (methodId == nullptr) { LOGE("Method not found"); return nullptr; }
+
+    benchmark_clear_error();
+    jbyteArray jarr = (jbyteArray)env->CallStaticObjectMethod(g_bridgeClass, methodId, iterations);
+    if (env->ExceptionCheck()) { nitro_report_jni_exception(env, env->ExceptionOccurred()); return nullptr; }
+    if (jarr == nullptr) return nullptr;
+    jsize len = env->GetArrayLength(jarr);
+    uint8_t* result = (uint8_t*)malloc(len);
+    env->GetByteArrayRegion(jarr, 0, len, (jbyte*)result);
+    env->DeleteLocalRef(jarr);
+    return result;
+}
+
+int64_t benchmark_send_large_buffer(uint8_t* buffer, int64_t buffer_length) {
+    JNIEnv* env = GetEnv();
+    if (env == nullptr) return 0;
+    jmethodID methodId = g_mid_sendLargeBuffer_call;
+    if (methodId == nullptr) { LOGE("Method not found"); return 0; }
+
+    benchmark_clear_error();
+    jbyteArray j_buffer = env->NewByteArray((jsize)buffer_length);
+    env->SetByteArrayRegion(j_buffer, 0, (jsize)buffer_length, (const jbyte*)buffer);
+    int64_t res = env->CallStaticLongMethod(g_bridgeClass, methodId, j_buffer);
+    env->DeleteLocalRef(j_buffer);
+    if (env->ExceptionCheck()) { nitro_report_jni_exception(env, env->ExceptionOccurred()); return 0; }
+    return res;
+}
+
+void benchmark_register_data_stream_stream(int64_t dart_port) {
+    JNIEnv* env = GetEnv();
+    if (env == nullptr) return;
+    jmethodID methodId = g_mid_benchmark_register_data_stream_stream_call;
+    if (methodId != nullptr) env->CallStaticVoidMethod(g_bridgeClass, methodId, dart_port);
+}
+
+void benchmark_release_data_stream_stream(int64_t dart_port) {
+    JNIEnv* env = GetEnv();
+    if (env == nullptr) return;
+    jmethodID methodId = g_mid_benchmark_release_data_stream_stream_call;
+    if (methodId != nullptr) env->CallStaticVoidMethod(g_bridgeClass, methodId, dart_port);
+}
+
+JNIEXPORT void JNICALL Java_nitro_benchmark_1module_BenchmarkJniBridge_emit_1dataStream(JNIEnv* env, jobject thiz, jlong dartPort, jobject item) {
+    Dart_CObject obj;
+    BenchmarkPoint* st_ptr = (BenchmarkPoint*)malloc(sizeof(BenchmarkPoint));
+    *st_ptr = pack_BenchmarkPoint_from_jni(env, item);
+    obj.type = Dart_CObject_kInt64;
+    obj.value.as_int64 = (intptr_t)st_ptr;
+    Dart_PostCObject_DL(dartPort, &obj);
+}
+
+void benchmark_register_box_stream_stream(int64_t dart_port) {
+    JNIEnv* env = GetEnv();
+    if (env == nullptr) return;
+    jmethodID methodId = g_mid_benchmark_register_box_stream_stream_call;
+    if (methodId != nullptr) env->CallStaticVoidMethod(g_bridgeClass, methodId, dart_port);
+}
+
+void benchmark_release_box_stream_stream(int64_t dart_port) {
+    JNIEnv* env = GetEnv();
+    if (env == nullptr) return;
+    jmethodID methodId = g_mid_benchmark_release_box_stream_stream_call;
+    if (methodId != nullptr) env->CallStaticVoidMethod(g_bridgeClass, methodId, dart_port);
+}
+
+JNIEXPORT void JNICALL Java_nitro_benchmark_1module_BenchmarkJniBridge_emit_1boxStream(JNIEnv* env, jobject thiz, jlong dartPort, jobject item) {
+    Dart_CObject obj;
+    BenchmarkBox* st_ptr = (BenchmarkBox*)malloc(sizeof(BenchmarkBox));
+    *st_ptr = pack_BenchmarkBox_from_jni(env, item);
+    obj.type = Dart_CObject_kInt64;
+    obj.value.as_int64 = (intptr_t)st_ptr;
+    Dart_PostCObject_DL(dartPort, &obj);
 }
 
 JNIEXPORT void JNICALL Java_nitro_benchmark_1module_BenchmarkJniBridge_initialize(JNIEnv* env, jobject thiz, jclass bridgeClass) {
@@ -181,6 +355,21 @@ double benchmark_add(double a, double b) {
 #endif
 }
 
+extern double _call_addFast(double a, double b);
+double benchmark_add_fast(double a, double b) {
+    benchmark_clear_error();
+#ifdef __OBJC__
+    @try {
+        return _call_addFast(a, b);
+    } @catch (NSException* e) {
+        nitro_report_error([e.name UTF8String], [e.reason UTF8String], nullptr, nullptr);
+        return 0.0;
+    }
+#else
+    return _call_addFast(a, b);
+#endif
+}
+
 extern const char* _call_getGreeting(const char* name);
 const char* benchmark_get_greeting(const char* name) {
     benchmark_clear_error();
@@ -194,6 +383,83 @@ const char* benchmark_get_greeting(const char* name) {
 #else
     return _call_getGreeting(name);
 #endif
+}
+
+extern void* _call_scalePoint(void* point, double factor);
+void* benchmark_scale_point(void* point, double factor) {
+    benchmark_clear_error();
+#ifdef __OBJC__
+    @try {
+        return _call_scalePoint(point, factor);
+    } @catch (NSException* e) {
+        nitro_report_error([e.name UTF8String], [e.reason UTF8String], nullptr, nullptr);
+        return nullptr;
+    }
+#else
+    return _call_scalePoint(point, factor);
+#endif
+}
+
+extern void* _call_computeStats(int64_t iterations);
+void* benchmark_compute_stats(int64_t iterations) {
+    benchmark_clear_error();
+#ifdef __OBJC__
+    @try {
+        return _call_computeStats(iterations);
+    } @catch (NSException* e) {
+        nitro_report_error([e.name UTF8String], [e.reason UTF8String], nullptr, nullptr);
+        return nullptr;
+    }
+#else
+    return _call_computeStats(iterations);
+#endif
+}
+
+extern int64_t _call_sendLargeBuffer(uint8_t* buffer, int64_t buffer_length);
+int64_t benchmark_send_large_buffer(uint8_t* buffer, int64_t buffer_length) {
+    benchmark_clear_error();
+#ifdef __OBJC__
+    @try {
+        return _call_sendLargeBuffer(buffer, buffer_length);
+    } @catch (NSException* e) {
+        nitro_report_error([e.name UTF8String], [e.reason UTF8String], nullptr, nullptr);
+        return 0;
+    }
+#else
+    return _call_sendLargeBuffer(buffer, buffer_length);
+#endif
+}
+
+void _emit_dataStream_to_dart(int64_t dartPort, void* item) {
+    Dart_CObject obj;
+    obj.type = Dart_CObject_kInt64;
+    obj.value.as_int64 = (intptr_t)item;
+    Dart_PostCObject_DL(dartPort, &obj);
+}
+
+extern void _register_dataStream_stream(int64_t dartPort, void (*emitCb)(int64_t, void*));
+void benchmark_register_data_stream_stream(int64_t dart_port) {
+    _register_dataStream_stream(dart_port, _emit_dataStream_to_dart);
+}
+extern void _release_dataStream_stream(int64_t dart_port);
+void benchmark_release_data_stream_stream(int64_t dart_port) {
+    _release_dataStream_stream(dart_port);
+}
+
+void _emit_boxStream_to_dart(int64_t dartPort, void* item) {
+    Dart_CObject obj;
+    obj.type = Dart_CObject_kInt64;
+    obj.value.as_int64 = (intptr_t)item;
+    Dart_PostCObject_DL(dartPort, &obj);
+}
+
+extern void _register_boxStream_stream(int64_t dartPort, void (*emitCb)(int64_t, void*));
+void benchmark_register_box_stream_stream(int64_t dart_port) {
+    _register_boxStream_stream(dart_port, _emit_boxStream_to_dart);
+}
+extern void _release_boxStream_stream(int64_t dart_port);
+void benchmark_release_box_stream_stream(int64_t dart_port) {
+    _release_boxStream_stream(dart_port);
 }
 
 } // extern "C"

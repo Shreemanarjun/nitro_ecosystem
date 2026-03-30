@@ -135,12 +135,11 @@ void main() {
     Component form(
       void Function(String, String) onSubmit, {
       VoidCallback? onExit,
-    }) =>
-        Container(
-          width: 60,
-          height: 22,
-          child: PluginNameForm(onSubmit: onSubmit, onExit: onExit),
-        );
+    }) => Container(
+      width: 60,
+      height: 22,
+      child: PluginNameForm(onSubmit: onSubmit, onExit: onExit),
+    );
 
     test('renders header, fields and hint', () async {
       await testNocterm('PluginNameForm initial', (tester) async {
@@ -221,10 +220,12 @@ void main() {
         String? gotName;
         String? gotOrg;
 
-        await tester.pumpComponent(form((n, o) {
-          gotName = n;
-          gotOrg = o;
-        }));
+        await tester.pumpComponent(
+          form((n, o) {
+            gotName = n;
+            gotOrg = o;
+          }),
+        );
 
         await tester.enterText('my_plugin');
         await tester.sendKey(LogicalKey.tab);
@@ -391,7 +392,8 @@ void main() {
 
   group('example/lib/main.dart template', () {
     // Mirror of the content produced by _writeExampleMain for testing.
-    String exampleMainTemplate(String pluginName, String className) => '''import 'dart:async';
+    String exampleMainTemplate(String pluginName, String className) =>
+        '''import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:$pluginName/$pluginName.dart' as plugin;

@@ -190,7 +190,12 @@ class _NitroCameraImpl extends NitroCamera {
           IntPtr Function(Pointer<Void>),
           int Function(Pointer<Void>)
         >('nitro_camera_init_dart_api_dl');
-    initFunc(NativeApi.initializeApiDLData);
+    final initCode = initFunc(NativeApi.initializeApiDLData);
+    if (initCode != 0) {
+      throw StateError(
+        'nitro_camera: Dart API DL initialization failed with code $initCode.',
+      );
+    }
   }
 
   late final int Function() _requestCameraPermissionPtr = _dylib
@@ -325,6 +330,24 @@ class _NitroCameraImpl extends NitroCamera {
       .lookupFunction<Void Function(Int64), void Function(int)>(
         'nitro_camera_release_frame_stream_stream',
       );
+  // ignore: unused_field
+  late final Pointer<NitroErrorFfi> Function() _getErrorPtr = _dylib
+      .lookupFunction<
+        Pointer<NitroErrorFfi> Function(),
+        Pointer<NitroErrorFfi> Function()
+      >('nitro_camera_get_error');
+  // ignore: unused_field
+  late final void Function() _clearErrorPtr = _dylib
+      .lookupFunction<Void Function(), void Function()>(
+        'nitro_camera_clear_error',
+      );
+  // ignore: unused_field
+  late final Pointer<NativeFunction<Pointer<NitroErrorFfi> Function()>>
+  _getErrorNativePtr = _dylib.lookup('nitro_camera_get_error');
+  // ignore: unused_field
+  late final Pointer<NativeFunction<Void Function()>> _clearErrorNativePtr =
+      _dylib.lookup('nitro_camera_clear_error');
+
   @override
   // ignore: unnecessary_overrides
   void dispose() {
@@ -337,11 +360,8 @@ class _NitroCameraImpl extends NitroCamera {
     final res = await NitroRuntime.callAsync<int>(
       _requestCameraPermissionPtr,
       [],
-    );
-    NitroRuntime.checkError(
-      _dylib,
-      getErrorName: 'nitro_camera_get_error',
-      clearErrorName: 'nitro_camera_clear_error',
+      getError: _getErrorNativePtr,
+      clearError: _clearErrorNativePtr,
     );
     return res;
   }
@@ -352,11 +372,8 @@ class _NitroCameraImpl extends NitroCamera {
     final res = await NitroRuntime.callAsync<int>(
       _getCameraPermissionStatusPtr,
       [],
-    );
-    NitroRuntime.checkError(
-      _dylib,
-      getErrorName: 'nitro_camera_get_error',
-      clearErrorName: 'nitro_camera_clear_error',
+      getError: _getErrorNativePtr,
+      clearError: _clearErrorNativePtr,
     );
     return res;
   }
@@ -367,11 +384,8 @@ class _NitroCameraImpl extends NitroCamera {
     final res = await NitroRuntime.callAsync<int>(
       _requestMicrophonePermissionPtr,
       [],
-    );
-    NitroRuntime.checkError(
-      _dylib,
-      getErrorName: 'nitro_camera_get_error',
-      clearErrorName: 'nitro_camera_clear_error',
+      getError: _getErrorNativePtr,
+      clearError: _clearErrorNativePtr,
     );
     return res;
   }
@@ -382,11 +396,8 @@ class _NitroCameraImpl extends NitroCamera {
     final res = await NitroRuntime.callAsync<int>(
       _getMicrophonePermissionStatusPtr,
       [],
-    );
-    NitroRuntime.checkError(
-      _dylib,
-      getErrorName: 'nitro_camera_get_error',
-      clearErrorName: 'nitro_camera_clear_error',
+      getError: _getErrorNativePtr,
+      clearError: _clearErrorNativePtr,
     );
     return res;
   }
@@ -397,11 +408,8 @@ class _NitroCameraImpl extends NitroCamera {
     final res = await NitroRuntime.callAsync<Pointer<Utf8>>(
       _getAvailableCameraDevicesJsonPtr,
       [],
-    );
-    NitroRuntime.checkError(
-      _dylib,
-      getErrorName: 'nitro_camera_get_error',
-      clearErrorName: 'nitro_camera_clear_error',
+      getError: _getErrorNativePtr,
+      clearError: _clearErrorNativePtr,
     );
     return res.toDartStringWithFree();
   }
@@ -409,11 +417,11 @@ class _NitroCameraImpl extends NitroCamera {
   @override
   Future<int> getDeviceCount() async {
     checkDisposed();
-    final res = await NitroRuntime.callAsync<int>(_getDeviceCountPtr, []);
-    NitroRuntime.checkError(
-      _dylib,
-      getErrorName: 'nitro_camera_get_error',
-      clearErrorName: 'nitro_camera_clear_error',
+    final res = await NitroRuntime.callAsync<int>(
+      _getDeviceCountPtr,
+      [],
+      getError: _getErrorNativePtr,
+      clearError: _clearErrorNativePtr,
     );
     return res;
   }
@@ -421,17 +429,17 @@ class _NitroCameraImpl extends NitroCamera {
   @override
   Future<CameraDevice> getDevice(int index) async {
     checkDisposed();
-    final rawPtr = await NitroRuntime.callAsync<Pointer<Uint8>>(_getDevicePtr, [
-      index,
-    ]);
-    NitroRuntime.checkError(
-      _dylib,
-      getErrorName: 'nitro_camera_get_error',
-      clearErrorName: 'nitro_camera_clear_error',
+    final rawPtr = await NitroRuntime.callAsync<Pointer<Uint8>>(
+      _getDevicePtr,
+      [index],
+      getError: _getErrorNativePtr,
+      clearError: _clearErrorNativePtr,
     );
-    final decoded = CameraDeviceRecordExt.fromNative(rawPtr);
-    malloc.free(rawPtr);
-    return decoded;
+    try {
+      return CameraDeviceRecordExt.fromNative(rawPtr);
+    } finally {
+      malloc.free(rawPtr);
+    }
   }
 
   @override
@@ -445,17 +453,17 @@ class _NitroCameraImpl extends NitroCamera {
     checkDisposed();
     final arena = Arena();
     try {
-      final res = await NitroRuntime.callAsync<int>(_openCameraPtr, [
-        deviceId.toNativeUtf8(allocator: arena),
-        width,
-        height,
-        fps,
-        enableAudio,
-      ]);
-      NitroRuntime.checkError(
-        _dylib,
-        getErrorName: 'nitro_camera_get_error',
-        clearErrorName: 'nitro_camera_clear_error',
+      final res = await NitroRuntime.callAsync<int>(
+        _openCameraPtr,
+        [
+          deviceId.toNativeUtf8(allocator: arena),
+          width,
+          height,
+          fps,
+          enableAudio,
+        ],
+        getError: _getErrorNativePtr,
+        clearError: _clearErrorNativePtr,
       );
       return res;
     } finally {
@@ -466,13 +474,11 @@ class _NitroCameraImpl extends NitroCamera {
   @override
   Future<void> closeCamera(int textureId) async {
     checkDisposed();
-    final res = await NitroRuntime.callAsync<void>(_closeCameraPtr, [
-      textureId,
-    ]);
-    NitroRuntime.checkError(
-      _dylib,
-      getErrorName: 'nitro_camera_get_error',
-      clearErrorName: 'nitro_camera_clear_error',
+    final res = await NitroRuntime.callAsync<void>(
+      _closeCameraPtr,
+      [textureId],
+      getError: _getErrorNativePtr,
+      clearError: _clearErrorNativePtr,
     );
     return res;
   }
@@ -480,13 +486,11 @@ class _NitroCameraImpl extends NitroCamera {
   @override
   Future<void> startPreview(int textureId) async {
     checkDisposed();
-    final res = await NitroRuntime.callAsync<void>(_startPreviewPtr, [
-      textureId,
-    ]);
-    NitroRuntime.checkError(
-      _dylib,
-      getErrorName: 'nitro_camera_get_error',
-      clearErrorName: 'nitro_camera_clear_error',
+    final res = await NitroRuntime.callAsync<void>(
+      _startPreviewPtr,
+      [textureId],
+      getError: _getErrorNativePtr,
+      clearError: _clearErrorNativePtr,
     );
     return res;
   }
@@ -494,13 +498,11 @@ class _NitroCameraImpl extends NitroCamera {
   @override
   Future<void> stopPreview(int textureId) async {
     checkDisposed();
-    final res = await NitroRuntime.callAsync<void>(_stopPreviewPtr, [
-      textureId,
-    ]);
-    NitroRuntime.checkError(
-      _dylib,
-      getErrorName: 'nitro_camera_get_error',
-      clearErrorName: 'nitro_camera_clear_error',
+    final res = await NitroRuntime.callAsync<void>(
+      _stopPreviewPtr,
+      [textureId],
+      getError: _getErrorNativePtr,
+      clearError: _clearErrorNativePtr,
     );
     return res;
   }
@@ -508,14 +510,11 @@ class _NitroCameraImpl extends NitroCamera {
   @override
   Future<void> setZoom(int textureId, double zoom) async {
     checkDisposed();
-    final res = await NitroRuntime.callAsync<void>(_setZoomPtr, [
-      textureId,
-      zoom,
-    ]);
-    NitroRuntime.checkError(
-      _dylib,
-      getErrorName: 'nitro_camera_get_error',
-      clearErrorName: 'nitro_camera_clear_error',
+    final res = await NitroRuntime.callAsync<void>(
+      _setZoomPtr,
+      [textureId, zoom],
+      getError: _getErrorNativePtr,
+      clearError: _clearErrorNativePtr,
     );
     return res;
   }
@@ -523,15 +522,11 @@ class _NitroCameraImpl extends NitroCamera {
   @override
   Future<void> setFocusPoint(int textureId, double x, double y) async {
     checkDisposed();
-    final res = await NitroRuntime.callAsync<void>(_setFocusPointPtr, [
-      textureId,
-      x,
-      y,
-    ]);
-    NitroRuntime.checkError(
-      _dylib,
-      getErrorName: 'nitro_camera_get_error',
-      clearErrorName: 'nitro_camera_clear_error',
+    final res = await NitroRuntime.callAsync<void>(
+      _setFocusPointPtr,
+      [textureId, x, y],
+      getError: _getErrorNativePtr,
+      clearError: _clearErrorNativePtr,
     );
     return res;
   }
@@ -539,14 +534,11 @@ class _NitroCameraImpl extends NitroCamera {
   @override
   Future<void> setAutoFocus(int textureId, int mode) async {
     checkDisposed();
-    final res = await NitroRuntime.callAsync<void>(_setAutoFocusPtr, [
-      textureId,
-      mode,
-    ]);
-    NitroRuntime.checkError(
-      _dylib,
-      getErrorName: 'nitro_camera_get_error',
-      clearErrorName: 'nitro_camera_clear_error',
+    final res = await NitroRuntime.callAsync<void>(
+      _setAutoFocusPtr,
+      [textureId, mode],
+      getError: _getErrorNativePtr,
+      clearError: _clearErrorNativePtr,
     );
     return res;
   }
@@ -554,14 +546,11 @@ class _NitroCameraImpl extends NitroCamera {
   @override
   Future<void> setExposure(int textureId, double value) async {
     checkDisposed();
-    final res = await NitroRuntime.callAsync<void>(_setExposurePtr, [
-      textureId,
-      value,
-    ]);
-    NitroRuntime.checkError(
-      _dylib,
-      getErrorName: 'nitro_camera_get_error',
-      clearErrorName: 'nitro_camera_clear_error',
+    final res = await NitroRuntime.callAsync<void>(
+      _setExposurePtr,
+      [textureId, value],
+      getError: _getErrorNativePtr,
+      clearError: _clearErrorNativePtr,
     );
     return res;
   }
@@ -569,14 +558,11 @@ class _NitroCameraImpl extends NitroCamera {
   @override
   Future<void> setFlash(int textureId, int mode) async {
     checkDisposed();
-    final res = await NitroRuntime.callAsync<void>(_setFlashPtr, [
-      textureId,
-      mode,
-    ]);
-    NitroRuntime.checkError(
-      _dylib,
-      getErrorName: 'nitro_camera_get_error',
-      clearErrorName: 'nitro_camera_clear_error',
+    final res = await NitroRuntime.callAsync<void>(
+      _setFlashPtr,
+      [textureId, mode],
+      getError: _getErrorNativePtr,
+      clearError: _clearErrorNativePtr,
     );
     return res;
   }
@@ -584,14 +570,11 @@ class _NitroCameraImpl extends NitroCamera {
   @override
   Future<void> setTorch(int textureId, int enabled) async {
     checkDisposed();
-    final res = await NitroRuntime.callAsync<void>(_setTorchPtr, [
-      textureId,
-      enabled,
-    ]);
-    NitroRuntime.checkError(
-      _dylib,
-      getErrorName: 'nitro_camera_get_error',
-      clearErrorName: 'nitro_camera_clear_error',
+    final res = await NitroRuntime.callAsync<void>(
+      _setTorchPtr,
+      [textureId, enabled],
+      getError: _getErrorNativePtr,
+      clearError: _clearErrorNativePtr,
     );
     return res;
   }
@@ -599,14 +582,11 @@ class _NitroCameraImpl extends NitroCamera {
   @override
   Future<void> setWhiteBalance(int textureId, int temperature) async {
     checkDisposed();
-    final res = await NitroRuntime.callAsync<void>(_setWhiteBalancePtr, [
-      textureId,
-      temperature,
-    ]);
-    NitroRuntime.checkError(
-      _dylib,
-      getErrorName: 'nitro_camera_get_error',
-      clearErrorName: 'nitro_camera_clear_error',
+    final res = await NitroRuntime.callAsync<void>(
+      _setWhiteBalancePtr,
+      [textureId, temperature],
+      getError: _getErrorNativePtr,
+      clearError: _clearErrorNativePtr,
     );
     return res;
   }
@@ -614,14 +594,11 @@ class _NitroCameraImpl extends NitroCamera {
   @override
   Future<void> setHdr(int textureId, int enabled) async {
     checkDisposed();
-    final res = await NitroRuntime.callAsync<void>(_setHdrPtr, [
-      textureId,
-      enabled,
-    ]);
-    NitroRuntime.checkError(
-      _dylib,
-      getErrorName: 'nitro_camera_get_error',
-      clearErrorName: 'nitro_camera_clear_error',
+    final res = await NitroRuntime.callAsync<void>(
+      _setHdrPtr,
+      [textureId, enabled],
+      getError: _getErrorNativePtr,
+      clearError: _clearErrorNativePtr,
     );
     return res;
   }
@@ -629,17 +606,17 @@ class _NitroCameraImpl extends NitroCamera {
   @override
   Future<PhotoResult> takePhoto(int textureId) async {
     checkDisposed();
-    final rawPtr = await NitroRuntime.callAsync<Pointer<Uint8>>(_takePhotoPtr, [
-      textureId,
-    ]);
-    NitroRuntime.checkError(
-      _dylib,
-      getErrorName: 'nitro_camera_get_error',
-      clearErrorName: 'nitro_camera_clear_error',
+    final rawPtr = await NitroRuntime.callAsync<Pointer<Uint8>>(
+      _takePhotoPtr,
+      [textureId],
+      getError: _getErrorNativePtr,
+      clearError: _clearErrorNativePtr,
     );
-    final decoded = PhotoResultRecordExt.fromNative(rawPtr);
-    malloc.free(rawPtr);
-    return decoded;
+    try {
+      return PhotoResultRecordExt.fromNative(rawPtr);
+    } finally {
+      malloc.free(rawPtr);
+    }
   }
 
   @override
@@ -647,14 +624,11 @@ class _NitroCameraImpl extends NitroCamera {
     checkDisposed();
     final arena = Arena();
     try {
-      final res = await NitroRuntime.callAsync<void>(_startVideoRecordingPtr, [
-        textureId,
-        outputPath.toNativeUtf8(allocator: arena),
-      ]);
-      NitroRuntime.checkError(
-        _dylib,
-        getErrorName: 'nitro_camera_get_error',
-        clearErrorName: 'nitro_camera_clear_error',
+      final res = await NitroRuntime.callAsync<void>(
+        _startVideoRecordingPtr,
+        [textureId, outputPath.toNativeUtf8(allocator: arena)],
+        getError: _getErrorNativePtr,
+        clearError: _clearErrorNativePtr,
       );
       return res;
     } finally {
@@ -668,27 +642,24 @@ class _NitroCameraImpl extends NitroCamera {
     final rawPtr = await NitroRuntime.callAsync<Pointer<Uint8>>(
       _stopVideoRecordingPtr,
       [textureId],
+      getError: _getErrorNativePtr,
+      clearError: _clearErrorNativePtr,
     );
-    NitroRuntime.checkError(
-      _dylib,
-      getErrorName: 'nitro_camera_get_error',
-      clearErrorName: 'nitro_camera_clear_error',
-    );
-    final decoded = RecordingResultRecordExt.fromNative(rawPtr);
-    malloc.free(rawPtr);
-    return decoded;
+    try {
+      return RecordingResultRecordExt.fromNative(rawPtr);
+    } finally {
+      malloc.free(rawPtr);
+    }
   }
 
   @override
   Future<void> pauseRecording(int textureId) async {
     checkDisposed();
-    final res = await NitroRuntime.callAsync<void>(_pauseRecordingPtr, [
-      textureId,
-    ]);
-    NitroRuntime.checkError(
-      _dylib,
-      getErrorName: 'nitro_camera_get_error',
-      clearErrorName: 'nitro_camera_clear_error',
+    final res = await NitroRuntime.callAsync<void>(
+      _pauseRecordingPtr,
+      [textureId],
+      getError: _getErrorNativePtr,
+      clearError: _clearErrorNativePtr,
     );
     return res;
   }
@@ -696,13 +667,11 @@ class _NitroCameraImpl extends NitroCamera {
   @override
   Future<void> resumeRecording(int textureId) async {
     checkDisposed();
-    final res = await NitroRuntime.callAsync<void>(_resumeRecordingPtr, [
-      textureId,
-    ]);
-    NitroRuntime.checkError(
-      _dylib,
-      getErrorName: 'nitro_camera_get_error',
-      clearErrorName: 'nitro_camera_clear_error',
+    final res = await NitroRuntime.callAsync<void>(
+      _resumeRecordingPtr,
+      [textureId],
+      getError: _getErrorNativePtr,
+      clearError: _clearErrorNativePtr,
     );
     return res;
   }
@@ -710,13 +679,11 @@ class _NitroCameraImpl extends NitroCamera {
   @override
   Future<void> cancelRecording(int textureId) async {
     checkDisposed();
-    final res = await NitroRuntime.callAsync<void>(_cancelRecordingPtr, [
-      textureId,
-    ]);
-    NitroRuntime.checkError(
-      _dylib,
-      getErrorName: 'nitro_camera_get_error',
-      clearErrorName: 'nitro_camera_clear_error',
+    final res = await NitroRuntime.callAsync<void>(
+      _cancelRecordingPtr,
+      [textureId],
+      getError: _getErrorNativePtr,
+      clearError: _clearErrorNativePtr,
     );
     return res;
   }
@@ -724,14 +691,11 @@ class _NitroCameraImpl extends NitroCamera {
   @override
   Future<void> enableFrameProcessing(int textureId, int enabled) async {
     checkDisposed();
-    final res = await NitroRuntime.callAsync<void>(_enableFrameProcessingPtr, [
-      textureId,
-      enabled,
-    ]);
-    NitroRuntime.checkError(
-      _dylib,
-      getErrorName: 'nitro_camera_get_error',
-      clearErrorName: 'nitro_camera_clear_error',
+    final res = await NitroRuntime.callAsync<void>(
+      _enableFrameProcessingPtr,
+      [textureId, enabled],
+      getError: _getErrorNativePtr,
+      clearError: _clearErrorNativePtr,
     );
     return res;
   }
@@ -739,14 +703,11 @@ class _NitroCameraImpl extends NitroCamera {
   @override
   Future<void> setFrameFormat(int textureId, int format) async {
     checkDisposed();
-    final res = await NitroRuntime.callAsync<void>(_setFrameFormatPtr, [
-      textureId,
-      format,
-    ]);
-    NitroRuntime.checkError(
-      _dylib,
-      getErrorName: 'nitro_camera_get_error',
-      clearErrorName: 'nitro_camera_clear_error',
+    final res = await NitroRuntime.callAsync<void>(
+      _setFrameFormatPtr,
+      [textureId, format],
+      getError: _getErrorNativePtr,
+      clearError: _clearErrorNativePtr,
     );
     return res;
   }
@@ -756,14 +717,11 @@ class _NitroCameraImpl extends NitroCamera {
     checkDisposed();
     final arena = Arena();
     try {
-      final res = await NitroRuntime.callAsync<void>(_setFilterShaderPtr, [
-        textureId,
-        shaderSource.toNativeUtf8(allocator: arena),
-      ]);
-      NitroRuntime.checkError(
-        _dylib,
-        getErrorName: 'nitro_camera_get_error',
-        clearErrorName: 'nitro_camera_clear_error',
+      final res = await NitroRuntime.callAsync<void>(
+        _setFilterShaderPtr,
+        [textureId, shaderSource.toNativeUtf8(allocator: arena)],
+        getError: _getErrorNativePtr,
+        clearError: _clearErrorNativePtr,
       );
       return res;
     } finally {
@@ -776,14 +734,11 @@ class _NitroCameraImpl extends NitroCamera {
     checkDisposed();
     final arena = Arena();
     try {
-      final res = await NitroRuntime.callAsync<void>(_updateOverlayPtr, [
-        textureId,
-        overlayData.toNativeUtf8(allocator: arena),
-      ]);
-      NitroRuntime.checkError(
-        _dylib,
-        getErrorName: 'nitro_camera_get_error',
-        clearErrorName: 'nitro_camera_clear_error',
+      final res = await NitroRuntime.callAsync<void>(
+        _updateOverlayPtr,
+        [textureId, overlayData.toNativeUtf8(allocator: arena)],
+        getError: _getErrorNativePtr,
+        clearError: _clearErrorNativePtr,
       );
       return res;
     } finally {
@@ -796,8 +751,14 @@ class _NitroCameraImpl extends NitroCamera {
     checkDisposed();
     return NitroRuntime.openStream<CameraFrame>(
       register: (port) => _registerFrameStreamPtr(port),
-      unpack: (rawPtr) =>
-          Pointer<CameraFrameFfi>.fromAddress(rawPtr).ref.toDart(),
+      unpack: (rawPtr) {
+        final ptr = Pointer<CameraFrameFfi>.fromAddress(rawPtr);
+        try {
+          return ptr.ref.toDart();
+        } finally {
+          malloc.free(ptr);
+        }
+      },
       release: (port) => _releaseFrameStreamPtr(port),
       backpressure: Backpressure.dropLatest,
     );

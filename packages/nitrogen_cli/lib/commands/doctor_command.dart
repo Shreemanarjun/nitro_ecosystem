@@ -3,6 +3,7 @@ import 'package:args/command_runner.dart';
 import 'package:nocterm/nocterm.dart';
 import 'package:path/path.dart' as p;
 import 'package:nitrogen_cli/version.dart';
+import 'link_command.dart' show isCppModule;
 import '../ui.dart';
 
 // ── Data model ────────────────────────────────────────────────────────────────
@@ -53,7 +54,10 @@ class CheckRow extends StatelessComponent {
         children: [
           Row(
             children: [
-              Text(icon, style: TextStyle(color: iconColor, fontWeight: FontWeight.bold)),
+              Text(
+                icon,
+                style: TextStyle(color: iconColor, fontWeight: FontWeight.bold),
+              ),
               const Text(' '),
               Expanded(
                 child: Text(
@@ -62,8 +66,8 @@ class CheckRow extends StatelessComponent {
                     color: check.status == DoctorStatus.error
                         ? Colors.red
                         : check.status == DoctorStatus.warn
-                            ? Colors.yellow
-                            : null,
+                        ? Colors.yellow
+                        : null,
                   ),
                 ),
               ),
@@ -188,18 +192,18 @@ class _DoctorViewState extends State<DoctorView> {
       component.errorMessage != null
           ? '✘  Project discovery failed.'
           : healthy
-              ? '✨ All checks passed.'
-              : component.errors > 0
-                  ? '✘  ${component.errors} error(s)'
-                      '${component.warnings > 0 ? ', ${component.warnings} warning(s)' : ''}.'
-                  : '⚠  ${component.warnings} warning(s).',
+          ? '✨ All checks passed.'
+          : component.errors > 0
+          ? '✘  ${component.errors} error(s)'
+                '${component.warnings > 0 ? ', ${component.warnings} warning(s)' : ''}.'
+          : '⚠  ${component.warnings} warning(s).',
       style: TextStyle(
         fontWeight: FontWeight.bold,
         color: component.errorMessage != null || component.errors > 0
             ? Colors.red
             : healthy
-                ? Colors.green
-                : Colors.yellow,
+            ? Colors.green
+            : Colors.yellow,
       ),
     );
 
@@ -235,7 +239,10 @@ class _DoctorViewState extends State<DoctorView> {
                             decoration: BoxDecoration(
                               border: BoxBorder.all(color: Colors.red),
                             ),
-                            child: const Text(' ✘  ERROR ', style: TextStyle(color: Colors.red, fontWeight: FontWeight.bold)),
+                            child: const Text(
+                              ' ✘  ERROR ',
+                              style: TextStyle(color: Colors.red, fontWeight: FontWeight.bold),
+                            ),
                           ),
                           const SizedBox(height: 1),
                           Text(component.errorMessage!, style: const TextStyle(color: Colors.white)),
@@ -292,9 +299,11 @@ class DoctorCommand extends Command {
   final String name = 'doctor';
 
   @override
-  final String description = 'Checks that a Nitrogen plugin is production-ready: generated files, '
+  final String description =
+      'Checks that a Nitrogen plugin is production-ready: generated files, '
       'build system wiring (CMake, Kotlin, Swift), pubspec, and native configs.';
 
+  // Core generated files — always expected for every .native.dart spec.
   static const _generatedSuffixes = [
     '.g.dart',
     '.bridge.g.kt',
@@ -304,12 +313,23 @@ class DoctorCommand extends Command {
     '.CMakeLists.g.txt',
   ];
 
+  // Extra files generated only for NativeImpl.cpp modules.
+  static const _cppGeneratedSuffixes = [
+    '.native.g.h',
+    '.mock.g.h',
+    '.test.g.cpp',
+  ];
+
   static const _generatedSubdir = {
     '.bridge.g.kt': 'kotlin',
     '.bridge.g.swift': 'swift',
     '.bridge.g.h': 'cpp',
     '.bridge.g.cpp': 'cpp',
     '.CMakeLists.g.txt': 'cmake',
+    // cpp-mode outputs
+    '.native.g.h': 'cpp',
+    '.mock.g.h': 'cpp/test',
+    '.test.g.cpp': 'cpp/test',
   };
 
   /// Runs the doctor check logic without launching the UI.
@@ -452,7 +472,15 @@ class DoctorCommand extends Command {
       for (final spec in specs) {
         final stem = p.basename(spec.path).replaceAll(RegExp(r'\.native\.dart$'), '');
         final specMtime = spec.lastModifiedSync();
+        final specIsCpp = isCppModule(spec);
+
         for (final suffix in _generatedSuffixes) {
+          // For NativeImpl.cpp modules the .bridge.g.kt and .bridge.g.swift
+          // outputs contain only a "Not applicable" placeholder — treat as info.
+          if (specIsCpp && (suffix == '.bridge.g.kt' || suffix == '.bridge.g.swift')) {
+            info(genSec, '${p.basename(spec.path)} → $suffix skipped (NativeImpl.cpp)');
+            continue;
+          }
           final genPath = _generatedPath(spec.path, stem, suffix);
           final genFile = File(genPath);
           final relPath = p.relative(genPath);
@@ -462,6 +490,22 @@ class DoctorCommand extends Command {
             warn(genSec, 'STALE    $relPath', hint: 'Run: nitrogen generate');
           } else {
             ok(genSec, relPath);
+          }
+        }
+
+        // Check cpp-only outputs for NativeImpl.cpp modules.
+        if (specIsCpp) {
+          for (final suffix in _cppGeneratedSuffixes) {
+            final genPath = _generatedPath(spec.path, stem, suffix);
+            final genFile = File(genPath);
+            final relPath = p.relative(genPath);
+            if (!genFile.existsSync()) {
+              err(genSec, 'MISSING  $relPath', hint: 'Run: nitrogen generate');
+            } else if (specMtime.isAfter(genFile.lastModifiedSync())) {
+              warn(genSec, 'STALE    $relPath', hint: 'Run: nitrogen generate');
+            } else {
+              ok(genSec, relPath);
+            }
           }
         }
       }
@@ -498,22 +542,60 @@ class DoctorCommand extends Command {
       } else {
         err(cmakeSec, 'dart_api_dl.c not included', hint: 'Run: nitrogen link');
       }
+
+      // Check for unlinked source files in src/
+      final allSrcFiles = srcDir.listSync().whereType<File>().where((f) => f.path.endsWith('.cpp') || f.path.endsWith('.c')).toList();
+      for (final f in allSrcFiles) {
+        final name = p.basename(f.path);
+        if (name == 'dart_api_dl.c') continue;
+        if (name == '$pluginName.cpp' || name == '$pluginName.c') continue; // Handled by primary target checks
+
+        if (!cmake.contains('"$name"') && !cmake.contains(' $name ') && !cmake.contains('\n  $name')) {
+          warn(cmakeSec, 'Unlinked source: $name', hint: 'File found in src/ but not mentioned in CMakeLists.txt');
+        }
+      }
+
       for (final spec in specs) {
         final stem = p.basename(spec.path).replaceAll(RegExp(r'\.native\.dart$'), '');
         final lib = _extractLibName(spec) ?? stem.replaceAll('-', '_');
         if (cmake.contains('add_library($lib ')) {
           ok(cmakeSec, 'add_library($lib) target present');
+
+          // Verify implementation file is linked for C++ modules
+          if (isCppModule(spec)) {
+            final moduleMatch = RegExp(r'abstract class (\w+) extends HybridObject').firstMatch(spec.readAsStringSync());
+            final moduleName = moduleMatch?.group(1) ?? _toPascalCase(stem);
+            final implName = 'Hybrid$moduleName.cpp';
+            if (!cmake.contains('"$implName"') && !cmake.contains(' $implName ') && !cmake.contains('\n  $implName')) {
+              err(cmakeSec, '$lib: $implName not linked in target', hint: 'Add "$implName" to add_library($lib ...)');
+            }
+          }
         } else {
           err(cmakeSec, 'add_library($lib) missing', hint: 'Run: nitrogen link');
         }
       }
     }
 
+    // Whether any / all specs use NativeImpl.cpp — used below to skip irrelevant checks.
+    final allSpecsCpp = specs.isNotEmpty && specs.every(isCppModule);
+    final hasAnyCppSpec = specs.any(isCppModule);
+    final hasAnyNonCppSpec = specs.any((s) => !isCppModule(s));
+
     final androidSec = DoctorSection('Android');
     sections.add(androidSec);
     final androidDir = Directory(p.join(root.path, 'android'));
     if (!androidDir.existsSync()) {
       info(androidSec, 'android/ directory not present — skipped');
+    } else if (allSpecsCpp) {
+      // Pure C++ plugin — no Kotlin bridge needed.
+      info(androidSec, 'All modules use NativeImpl.cpp — Kotlin JNI bridge not required');
+      // Still check that the NDK can build the shared library.
+      final gradle = File(p.join(androidDir.path, 'build.gradle'));
+      if (gradle.existsSync() && gradle.readAsStringSync().contains('externalNativeBuild')) {
+        ok(androidSec, 'externalNativeBuild configured (NDK build)');
+      } else {
+        info(androidSec, 'Add externalNativeBuild to android/build.gradle if using CMake directly');
+      }
     } else {
       final gradle = File(p.join(androidDir.path, 'build.gradle'));
       if (!gradle.existsSync()) {
@@ -548,6 +630,7 @@ class DoctorCommand extends Command {
         err(androidSec, 'No Plugin.kt found', hint: 'Run: nitrogen init');
       } else {
         final kt = pluginFiles.first.readAsStringSync();
+        // Only check System.loadLibrary for non-cpp specs (cpp libs are also loaded but that's fine)
         for (final spec in specs) {
           final stem = p.basename(spec.path).replaceAll(RegExp(r'\.native\.dart$'), '');
           final lib = _extractLibName(spec) ?? stem.replaceAll('-', '_');
@@ -557,10 +640,15 @@ class DoctorCommand extends Command {
             err(androidSec, 'System.loadLibrary("$lib") missing', hint: 'Run: nitrogen link');
           }
         }
-        if (kt.contains('JniBridge.register(')) {
-          ok(androidSec, 'JniBridge.register(...) call present');
+        // JniBridge.register only needed for non-cpp specs
+        if (hasAnyNonCppSpec) {
+          if (kt.contains('JniBridge.register(')) {
+            ok(androidSec, 'JniBridge.register(...) call present');
+          } else {
+            warn(androidSec, 'JniBridge.register(...) not found in Plugin.kt', hint: 'Add register call in onAttachedToEngine');
+          }
         } else {
-          warn(androidSec, 'JniBridge.register(...) not found in Plugin.kt', hint: 'Add register call in onAttachedToEngine');
+          info(androidSec, 'JniBridge.register not needed — all modules use NativeImpl.cpp');
         }
       }
     }
@@ -587,10 +675,13 @@ class DoctorCommand extends Command {
         } else {
           warn(iosSec, 'CLANG_CXX_LANGUAGE_STANDARD not set to c++17', hint: "Set: 'CLANG_CXX_LANGUAGE_STANDARD' => 'c++17' in pod_target_xcconfig");
         }
-        if (pod.contains("swift_version = '5.9'") || pod.contains("swift_version = '6")) {
-          ok(iosSec, 'swift_version ≥ 5.9');
-        } else {
-          warn(iosSec, 'swift_version may be too old', hint: "Set: s.swift_version = '5.9'");
+        if (!allSpecsCpp) {
+          // swift_version only relevant when Swift bridges are used
+          if (pod.contains("swift_version = '5.9'") || pod.contains("swift_version = '6")) {
+            ok(iosSec, 'swift_version ≥ 5.9');
+          } else {
+            warn(iosSec, 'swift_version may be too old', hint: "Set: s.swift_version = '5.9'");
+          }
         }
 
         // Check for complete HEADER_SEARCH_PATHS
@@ -602,15 +693,30 @@ class DoctorCommand extends Command {
       }
 
       final classesDir = Directory(p.join(iosDir.path, 'Classes'));
-      final swiftFiles = classesDir.existsSync() ? classesDir.listSync().whereType<File>().where((f) => f.path.endsWith('Plugin.swift')).toList() : <File>[];
-      if (swiftFiles.isEmpty) {
-        err(iosSec, 'No *Plugin.swift in ios/Classes/', hint: 'Run: nitrogen init');
+      if (allSpecsCpp) {
+        // No Swift bridge needed — check that the C++ interface headers were synced
+        info(iosSec, 'All modules use NativeImpl.cpp — Swift bridge (Registry.register) not required');
+        final cppHeaders = classesDir.existsSync() ? classesDir.listSync().whereType<File>().where((f) => f.path.endsWith('.native.g.h')).toList() : <File>[];
+        if (cppHeaders.isNotEmpty) {
+          ok(iosSec, '${cppHeaders.length} *.native.g.h header(s) synced to ios/Classes/');
+        } else if (hasAnyCppSpec) {
+          warn(iosSec, 'No *.native.g.h in ios/Classes/', hint: 'Run: nitrogen generate && nitrogen link');
+        }
       } else {
-        final swift = swiftFiles.first.readAsStringSync();
-        if (swift.contains('Registry.register(') || swift.contains('.register(')) {
-          ok(iosSec, 'Plugin.swift has Registry.register(...)');
+        final swiftFiles = classesDir.existsSync() ? classesDir.listSync().whereType<File>().where((f) => f.path.endsWith('Plugin.swift')).toList() : <File>[];
+        if (swiftFiles.isEmpty) {
+          err(iosSec, 'No *Plugin.swift in ios/Classes/', hint: 'Run: nitrogen init');
         } else {
-          warn(iosSec, 'Registry.register(...) not found in Plugin.swift', hint: 'Add: NitroModules.Registry.register(...) in register(with:)');
+          final swift = swiftFiles.first.readAsStringSync();
+          if (hasAnyNonCppSpec) {
+            if (swift.contains('Registry.register(') || swift.contains('.register(')) {
+              ok(iosSec, 'Plugin.swift has Registry.register(...)');
+            } else {
+              warn(iosSec, 'Registry.register(...) not found in Plugin.swift', hint: 'Add: NitroModules.Registry.register(...) in register(with:)');
+            }
+          } else {
+            info(iosSec, 'Registry.register not needed — all modules use NativeImpl.cpp');
+          }
         }
       }
 
@@ -650,8 +756,54 @@ class DoctorCommand extends Command {
       final mmBridges = classesDir.existsSync() ? classesDir.listSync().whereType<File>().where((f) => f.path.endsWith('.bridge.g.mm')).toList() : <File>[];
       if (mmBridges.isNotEmpty) {
         ok(iosSec, '${mmBridges.length} .bridge.g.mm file(s) in ios/Classes/');
-      } else if (specs.isNotEmpty) {
+      } else if (specs.isNotEmpty && !allSpecsCpp) {
+        // Only warn about missing .mm bridges for non-cpp modules
         warn(iosSec, 'No .bridge.g.mm files in ios/Classes/', hint: 'Run: nitrogen link');
+      }
+    }
+
+    // ── NativeImpl.cpp Direct Implementation ────────────────────────────────
+    if (hasAnyCppSpec) {
+      final cppSec = DoctorSection('NativeImpl.cpp Direct Implementation');
+      sections.add(cppSec);
+
+      for (final spec in specs.where(isCppModule)) {
+        final stem = p.basename(spec.path).replaceAll(RegExp(r'\.native\.dart$'), '');
+        final lib = _extractLibName(spec) ?? stem.replaceAll('-', '_');
+        final moduleMatch = RegExp(r'abstract class (\w+) extends HybridObject').firstMatch(spec.readAsStringSync());
+        final parsedSegments = stem.split('_').where((w) => w.isNotEmpty).toList();
+        final fallbackName = parsedSegments.isNotEmpty ? parsedSegments.map((w) => w[0].toUpperCase() + w.substring(1)).join('') : lib;
+        final moduleName = moduleMatch?.group(1) ?? fallbackName;
+
+        // Check if user has a C++ impl file in src/ (anything that isn't generated or dart_api_dl)
+        final srcDir = Directory(p.join(root.path, 'src'));
+        final cppImplFiles = srcDir.existsSync()
+            ? srcDir
+                  .listSync()
+                  .whereType<File>()
+                  .where((f) => f.path.endsWith('.cpp') && !f.path.contains('.bridge.g.') && !f.path.contains('.test.g.') && !f.path.contains('dart_api_dl'))
+                  .toList()
+            : <File>[];
+
+        if (cppImplFiles.isNotEmpty) {
+          // Check if any impl file registers the implementation
+          final anyRegisters = cppImplFiles.any((f) => f.readAsStringSync().contains('${lib}_register_impl'));
+          if (anyRegisters) {
+            ok(cppSec, '$lib: ${lib}_register_impl() wired up in user impl');
+          } else {
+            warn(cppSec, '$lib: ${lib}_register_impl(&impl) not found in src/', hint: 'Call ${lib}_register_impl(&impl) at startup before first Dart use');
+          }
+        } else {
+          info(cppSec, '$lib: Create src/Hybrid$moduleName.cpp, subclass Hybrid$moduleName, then call ${lib}_register_impl(&impl)');
+        }
+
+        // Check .clangd includes the test/ directory (for GoogleMock IDE support)
+        final clangdFile = File(p.join(root.path, '.clangd'));
+        if (clangdFile.existsSync() && clangdFile.readAsStringSync().contains('generated/cpp/test')) {
+          ok(cppSec, '.clangd includes generated/cpp/test/ (GoogleMock IDE support)');
+        } else {
+          info(cppSec, 'Run: nitrogen link (adds generated/cpp/test/ to .clangd for IDE mock support)');
+        }
       }
     }
 
@@ -672,31 +824,39 @@ class DoctorCommand extends Command {
     }
 
     // Change working directory so that doctor checks (File('ios'), etc) work correctly.
+    final originalCwd = Directory.current;
     Directory.current = projectDir;
 
-    if (projectDir.path != Directory.current.path) {
+    if (projectDir.path != originalCwd.path) {
       stdout.writeln('  \x1B[90m📂 Found project in: ${projectDir.path}\x1B[0m');
     }
 
-    final result = performChecks();
+    final result = performChecks(root: projectDir);
 
-    await runApp(DoctorView(
-      pluginName: result.pluginName,
-      sections: result.sections,
-      errors: result.errors,
-      warnings: result.warnings,
-    ));
+    await runApp(
+      DoctorView(
+        pluginName: result.pluginName,
+        sections: result.sections,
+        errors: result.errors,
+        warnings: result.warnings,
+        errorMessage: result.errorMessage,
+      ),
+    );
 
     // Print persistent one-liner after TUI exits
-    if (result.errors == 0 && result.warnings == 0) {
-      stdout.writeln('  \x1B[1;32m✨ ${result.pluginName} — all checks passed\x1B[0m');
-    } else if (result.errors > 0) {
-      stdout.writeln('  \x1B[1;31m✘  ${result.pluginName} — ${result.errors} error(s)'
-          '${result.warnings > 0 ? ", ${result.warnings}" : ""}\x1B[0m');
-    } else {
-      stdout.writeln('  \x1B[1;33m⚠  ${result.pluginName} — ${result.warnings} warning(s)\x1B[0m');
+    if (result.errorMessage == null) {
+      if (result.errors == 0 && result.warnings == 0) {
+        stdout.writeln('  \x1B[1;32m✨ ${result.pluginName} — all checks passed\x1B[0m');
+      } else if (result.errors > 0) {
+        stdout.writeln(
+          '  \x1B[1;31m✘  ${result.pluginName} — ${result.errors} error(s)'
+          '${result.warnings > 0 ? ", ${result.warnings} warning(s)" : ""}\x1B[0m',
+        );
+      } else {
+        stdout.writeln('  \x1B[1;33m⚠  ${result.pluginName} — ${result.warnings} warning(s)\x1B[0m');
+      }
+      stdout.writeln('');
     }
-    stdout.writeln('');
 
     exit(result.errors > 0 ? 1 : 0);
   }
@@ -724,13 +884,15 @@ class DoctorCommand extends Command {
 
   String _pluginName(File pubspec) {
     for (final line in pubspec.readAsLinesSync()) {
-      if (line.startsWith('name: ')) {
+      if (line.trim().startsWith('name: ')) {
         return line.replaceFirst('name: ', '').trim();
       }
     }
     return 'unknown';
   }
 }
+
+String _toPascalCase(String lib) => lib.split(RegExp(r'[_\-]')).map((w) => w.isEmpty ? '' : w[0].toUpperCase() + w.substring(1)).join('');
 
 class DoctorViewResult {
   final String pluginName;

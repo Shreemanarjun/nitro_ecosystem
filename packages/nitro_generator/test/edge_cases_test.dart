@@ -669,11 +669,11 @@ void main() {
   // ── 4. DartFfiGenerator — malloc.free after decode ────────────────────────
 
   group('DartFfiGenerator — malloc.free for record returns', () {
-    test('sync record return calls malloc.free(rawPtr) after decode', () {
+    test('sync record return calls malloc.free(res) after decode', () {
       final out = DartFfiGenerator.generate(_syncRecordSpec());
       expect(
         out,
-        contains('malloc.free(rawPtr)'),
+        contains('malloc.free(res)'),
         reason: 'the C-malloc\'d buffer must be freed after Dart decodes it',
       );
     });
@@ -692,10 +692,10 @@ void main() {
 
     test('sync record return frees before returning decoded value', () {
       final out = DartFfiGenerator.generate(_syncRecordSpec());
-      // Verify order: malloc.free(rawPtr) appears before return decoded
-      final freeIdx = out.indexOf('malloc.free(rawPtr)');
+      // Verify order: malloc.free(res) appears before return decoded
+      final freeIdx = out.indexOf('malloc.free(res)');
       final returnIdx = out.indexOf('return decoded');
-      expect(freeIdx, greaterThanOrEqualTo(0), reason: 'malloc.free(rawPtr) must be present');
+      expect(freeIdx, greaterThanOrEqualTo(0), reason: 'malloc.free(res) must be present');
       expect(returnIdx, greaterThanOrEqualTo(0), reason: 'return decoded must be present');
       expect(freeIdx, lessThan(returnIdx), reason: 'must free before returning');
     });

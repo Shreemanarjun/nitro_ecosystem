@@ -88,7 +88,10 @@ class InitStepRow extends StatelessComponent {
         children: [
           Row(
             children: [
-              Text(icon, style: TextStyle(color: color, fontWeight: FontWeight.bold)),
+              Text(
+                icon,
+                style: TextStyle(color: color, fontWeight: FontWeight.bold),
+              ),
               const Text(' '),
               Expanded(
                 child: Text(
@@ -156,16 +159,16 @@ class _InitViewState extends State<InitView> {
 
   void _setRunning(int i) => setState(() => _steps[i].state = InitStepState.running);
   void _setDone(int i, {String? detail}) => setState(() {
-        _steps[i].state = InitStepState.done;
-        _steps[i].detail = detail;
-      });
+    _steps[i].state = InitStepState.done;
+    _steps[i].detail = detail;
+  });
   void _setFailed(int i, String msg) => setState(() {
-        _steps[i].state = InitStepState.failed;
-        _steps[i].detail = msg;
-        _failed = true;
-        _errorMessage = msg;
-        _finished = true;
-      });
+    _steps[i].state = InitStepState.failed;
+    _steps[i].detail = msg;
+    _failed = true;
+    _errorMessage = msg;
+    _finished = true;
+  });
 
   Future<void> _run({bool force = false}) async {
     setState(() => _needsConfirmation = false);
@@ -326,9 +329,15 @@ class _InitViewState extends State<InitView> {
                     const Row(
                       mainAxisAlignment: MainAxisAlignment.center,
                       children: [
-                        Text('[Y]', style: TextStyle(color: Colors.green, fontWeight: FontWeight.bold)),
+                        Text(
+                          '[Y]',
+                          style: TextStyle(color: Colors.green, fontWeight: FontWeight.bold),
+                        ),
                         Text(' Yes, Overwrite   '),
-                        Text('[N]', style: TextStyle(color: Colors.red, fontWeight: FontWeight.bold)),
+                        Text(
+                          '[N]',
+                          style: TextStyle(color: Colors.red, fontWeight: FontWeight.bold),
+                        ),
                         Text(' No, Cancel'),
                       ],
                     ),
@@ -348,12 +357,18 @@ class _InitViewState extends State<InitView> {
                             Container(
                               padding: const EdgeInsets.symmetric(horizontal: 2, vertical: 1),
                               decoration: BoxDecoration(border: BoxBorder.all(color: Colors.red)),
-                              child: const Text(' ✘  ERROR ', style: TextStyle(color: Colors.red, fontWeight: FontWeight.bold)),
+                              child: const Text(
+                                ' ✘  ERROR ',
+                                style: TextStyle(color: Colors.red, fontWeight: FontWeight.bold),
+                              ),
                             ),
                             const SizedBox(height: 1),
                             Text(_errorMessage!, style: const TextStyle(color: Colors.white)),
                             const SizedBox(height: 1),
-                            const Text('Hint: Verify your Flutter/Dart installation and directory permissions.', style: TextStyle(color: Colors.gray, fontWeight: FontWeight.dim)),
+                            const Text(
+                              'Hint: Verify your Flutter/Dart installation and directory permissions.',
+                              style: TextStyle(color: Colors.gray, fontWeight: FontWeight.dim),
+                            ),
                           ],
                         ),
                       )
@@ -372,10 +387,16 @@ class _InitViewState extends State<InitView> {
               Padding(
                 padding: const EdgeInsets.all(1),
                 child: _failed
-                    ? Text('✘ Scaffolding failed: ${_errorMessage ?? ""}', style: const TextStyle(color: Colors.red, fontWeight: FontWeight.bold))
+                    ? Text(
+                        '✘ Scaffolding failed: ${_errorMessage ?? ""}',
+                        style: const TextStyle(color: Colors.red, fontWeight: FontWeight.bold),
+                      )
                     : Column(
                         children: [
-                          const Text('✨ Done! Next steps:', style: TextStyle(color: Colors.green, fontWeight: FontWeight.bold)),
+                          const Text(
+                            '✨ Done! Next steps:',
+                            style: TextStyle(color: Colors.green, fontWeight: FontWeight.bold),
+                          ),
                           Text(
                             '  1. Edit lib/src/${component.pluginName}.native.dart\n'
                             '  2. Run: nitrogen generate\n'
@@ -396,7 +417,10 @@ class _InitViewState extends State<InitView> {
                                 ),
                                 const Text('  •  ', style: TextStyle(color: Colors.brightBlack)),
                               ],
-                              Text(component.onExit != null ? 'ESC back' : 'ESC exit', style: const TextStyle(color: Colors.gray, fontWeight: FontWeight.dim)),
+                              Text(
+                                component.onExit != null ? 'ESC back' : 'ESC exit',
+                                style: const TextStyle(color: Colors.gray, fontWeight: FontWeight.dim),
+                              ),
                             ],
                           ),
                         ],
@@ -506,9 +530,11 @@ endif()
     // as C, not C++. C++ rejects the void*/function-pointer cast inside it.
     // Forwards through ../../src/dart_api_dl.c (created by `nitrogen link`)
     // so both Android CMake and iOS CocoaPods/SPM share one resolved path.
-    File(p.join(classesDir.path, 'dart_api_dl.c')).writeAsStringSync('// Forwarder — compiled by CocoaPods/SPM so the Dart DL API is\n'
-        '// available in the dylib. Kept as .c so it compiles as C, not C++.\n'
-        '#include "../../src/dart_api_dl.c"\n');
+    File(p.join(classesDir.path, 'dart_api_dl.c')).writeAsStringSync(
+      '// Forwarder — compiled by CocoaPods/SPM so the Dart DL API is\n'
+      '// available in the dylib. Kept as .c so it compiles as C, not C++.\n'
+      '#include "../../src/dart_api_dl.c"\n',
+    );
 
     File(p.join(classesDir.path, 'Swift${className}Plugin.swift')).writeAsStringSync('''import Flutter
 import UIKit
@@ -759,31 +785,36 @@ class ${className}Impl(private val context: Context) : Hybrid${className}Spec {
 
     if (nitroGeneratorVersion != null) {
       pubspec = pubspec.replaceFirst(
-          RegExp(r'  flutter_lints: \^\S+'),
-          '  flutter_lints: ^6.0.0\n'
-          '  build_runner: ^2.4.0\n'
-          '  nitro_generator: ^$nitroGeneratorVersion');
+        RegExp(r'  flutter_lints: \^\S+'),
+        '  flutter_lints: ^6.0.0\n'
+        '  build_runner: ^2.4.0\n'
+        '  nitro_generator: ^$nitroGeneratorVersion',
+      );
     } else {
       pubspec = pubspec.replaceFirst(
-          RegExp(r'  flutter_lints: \^\S+'),
-          '  flutter_lints: ^6.0.0\n'
-          '  build_runner: ^2.4.0');
+        RegExp(r'  flutter_lints: \^\S+'),
+        '  flutter_lints: ^6.0.0\n'
+        '  build_runner: ^2.4.0',
+      );
     }
 
     pubspec = pubspec.replaceFirst(
-        RegExp(r'    platforms:\s*\n'
-            r'      android:\s*\n'
-            r'        ffiPlugin: true\s*\n'
-            r'      ios:\s*\n'
-            r'        ffiPlugin: true'),
-        '    platforms:\n'
-        '      android:\n'
-        '        pluginClass: ${className}Plugin\n'
-        '        package: $org.$pluginName\n'
-        '        ffiPlugin: true\n'
-        '      ios:\n'
-        '        pluginClass: Swift${className}Plugin\n'
-        '        ffiPlugin: true');
+      RegExp(
+        r'    platforms:\s*\n'
+        r'      android:\s*\n'
+        r'        ffiPlugin: true\s*\n'
+        r'      ios:\s*\n'
+        r'        ffiPlugin: true',
+      ),
+      '    platforms:\n'
+      '      android:\n'
+      '        pluginClass: ${className}Plugin\n'
+      '        package: $org.$pluginName\n'
+      '        ffiPlugin: true\n'
+      '      ios:\n'
+      '        pluginClass: Swift${className}Plugin\n'
+      '        ffiPlugin: true',
+    );
 
     pubspecFile.writeAsStringSync(pubspec);
   }
@@ -1087,7 +1118,10 @@ class _PluginNameFormState extends State<PluginNameForm> {
               const Text('Plugin name:', style: TextStyle(color: Colors.white)),
               Row(
                 children: [
-                  const Text('› ', style: TextStyle(color: Colors.cyan, fontWeight: FontWeight.bold)),
+                  const Text(
+                    '› ',
+                    style: TextStyle(color: Colors.cyan, fontWeight: FontWeight.bold),
+                  ),
                   SizedBox(
                     width: 44,
                     child: TextField(
@@ -1107,7 +1141,10 @@ class _PluginNameFormState extends State<PluginNameForm> {
               const Text('Organisation (--org):', style: TextStyle(color: Colors.white)),
               Row(
                 children: [
-                  const Text('› ', style: TextStyle(color: Colors.cyan, fontWeight: FontWeight.bold)),
+                  const Text(
+                    '› ',
+                    style: TextStyle(color: Colors.cyan, fontWeight: FontWeight.bold),
+                  ),
                   SizedBox(
                     width: 44,
                     child: TextField(
@@ -1230,11 +1267,13 @@ class InitCommand extends Command {
         exit(1);
       }
       final result = InitResult();
-      await runApp(InitView(
-        pluginName: pluginName,
-        org: org,
-        result: result,
-      ));
+      await runApp(
+        InitView(
+          pluginName: pluginName,
+          org: org,
+          result: result,
+        ),
+      );
       if (result.success) {
         stdout.writeln('  \x1B[1;32m✨ $pluginName created\x1B[0m');
       } else {

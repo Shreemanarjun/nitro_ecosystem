@@ -81,7 +81,12 @@ class _ComplexModuleImpl extends ComplexModule {
           IntPtr Function(Pointer<Void>),
           int Function(Pointer<Void>)
         >('complex_init_dart_api_dl');
-    initFunc(NativeApi.initializeApiDLData);
+    final initCode = initFunc(NativeApi.initializeApiDLData);
+    if (initCode != 0) {
+      throw StateError(
+        'complex: Dart API DL initialization failed with code $initCode.',
+      );
+    }
   }
 
   late final int Function(int, double, int) _calculatePtr = _dylib
@@ -133,6 +138,22 @@ class _ComplexModuleImpl extends ComplexModule {
       .lookupFunction<Void Function(Int64), void Function(int)>(
         'complex_module_release_data_stream_stream',
       );
+  // ignore: unused_field
+  late final Pointer<NitroErrorFfi> Function() _getErrorPtr = _dylib
+      .lookupFunction<
+        Pointer<NitroErrorFfi> Function(),
+        Pointer<NitroErrorFfi> Function()
+      >('complex_get_error');
+  // ignore: unused_field
+  late final void Function() _clearErrorPtr = _dylib
+      .lookupFunction<Void Function(), void Function()>('complex_clear_error');
+  // ignore: unused_field
+  late final Pointer<NativeFunction<Pointer<NitroErrorFfi> Function()>>
+  _getErrorNativePtr = _dylib.lookup('complex_get_error');
+  // ignore: unused_field
+  late final Pointer<NativeFunction<Void Function()>> _clearErrorNativePtr =
+      _dylib.lookup('complex_clear_error');
+
   @override
   // ignore: unnecessary_overrides
   void dispose() {
@@ -142,15 +163,9 @@ class _ComplexModuleImpl extends ComplexModule {
   @override
   int calculate(int seed, double factor, bool enabled) {
     checkDisposed();
-    return () {
-      final res = _calculatePtr(seed, factor, enabled ? 1 : 0);
-      NitroRuntime.checkError(
-        _dylib,
-        getErrorName: 'complex_get_error',
-        clearErrorName: 'complex_clear_error',
-      );
-      return res;
-    }();
+    final res = _calculatePtr(seed, factor, enabled ? 1 : 0);
+    NitroRuntime.checkError(_getErrorPtr, _clearErrorPtr);
+    return res;
   }
 
   @override
@@ -161,11 +176,8 @@ class _ComplexModuleImpl extends ComplexModule {
       final rawPtr = await NitroRuntime.callAsync<Pointer<Utf8>>(
         _fetchMetadataPtr,
         [url.toNativeUtf8(allocator: arena)],
-      );
-      NitroRuntime.checkError(
-        _dylib,
-        getErrorName: 'complex_get_error',
-        clearErrorName: 'complex_clear_error',
+        getError: _getErrorNativePtr,
+        clearError: _clearErrorNativePtr,
       );
       return rawPtr.toDartStringWithFree();
     } finally {
@@ -176,28 +188,18 @@ class _ComplexModuleImpl extends ComplexModule {
   @override
   DeviceStatus getStatus() {
     checkDisposed();
-    return (() {
-      final res = _getStatusPtr();
-      NitroRuntime.checkError(
-        _dylib,
-        getErrorName: 'complex_get_error',
-        clearErrorName: 'complex_clear_error',
-      );
-      return res;
-    }()).toDeviceStatus();
+    final res = _getStatusPtr();
+    NitroRuntime.checkError(_getErrorPtr, _clearErrorPtr);
+    return res.toDeviceStatus();
   }
 
   @override
   void updateSensors(SensorData data) {
     checkDisposed();
     return withArena((arena) {
-      final res = _updateSensorsPtr(data.toNative(arena).cast<Void>());
-      NitroRuntime.checkError(
-        _dylib,
-        getErrorName: 'complex_get_error',
-        clearErrorName: 'complex_clear_error',
-      );
-      return res;
+      _updateSensorsPtr(data.toNative(arena).cast<Void>());
+      NitroRuntime.checkError(_getErrorPtr, _clearErrorPtr);
+      return;
     });
   }
 
@@ -207,27 +209,22 @@ class _ComplexModuleImpl extends ComplexModule {
     final rawPtr = await NitroRuntime.callAsync<Pointer<Void>>(
       _generatePacketPtr,
       [type],
-    );
-    NitroRuntime.checkError(
-      _dylib,
-      getErrorName: 'complex_get_error',
-      clearErrorName: 'complex_clear_error',
+      getError: _getErrorNativePtr,
+      clearError: _clearErrorNativePtr,
     );
     final structPtr = Pointer<PacketFfi>.fromAddress(rawPtr.address);
-    final decodedStruct = structPtr.ref.toDart();
-    malloc.free(structPtr);
-    return decodedStruct;
+    try {
+      return structPtr.ref.toDart();
+    } finally {
+      malloc.free(structPtr);
+    }
   }
 
   @override
   double get batteryLevel {
     checkDisposed();
     final res = _getBatteryLevelPtr();
-    NitroRuntime.checkError(
-      _dylib,
-      getErrorName: 'complex_get_error',
-      clearErrorName: 'complex_clear_error',
-    );
+    NitroRuntime.checkError(_getErrorPtr, _clearErrorPtr);
     return res;
   }
 
@@ -236,11 +233,7 @@ class _ComplexModuleImpl extends ComplexModule {
     checkDisposed();
     withArena((arena) {
       _setConfigPtr(value.toNativeUtf8(allocator: arena));
-      NitroRuntime.checkError(
-        _dylib,
-        getErrorName: 'complex_get_error',
-        clearErrorName: 'complex_clear_error',
-      );
+      NitroRuntime.checkError(_getErrorPtr, _clearErrorPtr);
     });
   }
 
@@ -249,8 +242,14 @@ class _ComplexModuleImpl extends ComplexModule {
     checkDisposed();
     return NitroRuntime.openStream<SensorData>(
       register: (port) => _registerSensorStreamPtr(port),
-      unpack: (rawPtr) =>
-          Pointer<SensorDataFfi>.fromAddress(rawPtr).ref.toDart(),
+      unpack: (rawPtr) {
+        final ptr = Pointer<SensorDataFfi>.fromAddress(rawPtr);
+        try {
+          return ptr.ref.toDart();
+        } finally {
+          malloc.free(ptr);
+        }
+      },
       release: (port) => _releaseSensorStreamPtr(port),
       backpressure: Backpressure.dropLatest,
     );
@@ -261,7 +260,14 @@ class _ComplexModuleImpl extends ComplexModule {
     checkDisposed();
     return NitroRuntime.openStream<Packet>(
       register: (port) => _registerDataStreamPtr(port),
-      unpack: (rawPtr) => Pointer<PacketFfi>.fromAddress(rawPtr).ref.toDart(),
+      unpack: (rawPtr) {
+        final ptr = Pointer<PacketFfi>.fromAddress(rawPtr);
+        try {
+          return ptr.ref.toDart();
+        } finally {
+          malloc.free(ptr);
+        }
+      },
       release: (port) => _releaseDataStreamPtr(port),
       backpressure: Backpressure.bufferDrop,
     );

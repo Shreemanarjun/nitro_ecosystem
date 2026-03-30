@@ -1,3 +1,18 @@
+## 0.3.0
+
+- **New: Direct C++ Implementation support** — Generator produces `*.native.g.h`, `*.mock.g.h`, and `*.test.g.cpp` when `@NitroModule(ios: NativeImpl.cpp, android: NativeImpl.cpp)` is specified.
+- **New: Thread-safe bridge** — `CppBridgeGenerator` uses `std::atomic` for `g_impl` and stream port storage; `CppBridgeGenerator` now uses direct virtual dispatch with no platform `#ifdef` blocks.
+- **New: `std::optional<T>` for nullable types** — `CppInterfaceGenerator` emits nullable Dart types as `std::optional<T>`.
+- **New: Precise `Pointer<T>` C++ mapping** — `Pointer<SomeEnum>` → `SomeEnum*`, `Pointer<SomeStruct>` → `SomeStruct*`, `Pointer<Void>` → `void*`.
+- **New: `#ifndef` struct guards** — `generateCStructs` wraps each C struct in an include guard to prevent `typedef redefinition` errors in CocoaPods umbrella builds.
+- **New: `BridgeSpec.isCppImpl`** — convenience getter for detecting pure-C++ modules.
+- **Improved: FFI memory safety** — `DartFfiGenerator` emits `try { ... } finally { malloc.free(...); }` for all record/struct return paths.
+- **Improved: `checkDisposed()` guards** — Added to all generated methods including `Fast` (leaf) functions; annotated `@pragma('vm:prefer-inline')`.
+- **Fixed: Builder diagnostics** — `builder.printWarning` now shows actual file paths instead of literal placeholders.
+- **Tests: 100+ new regression tests** — Benchmark spec tests, `Pointer<T>` param/return tests, nullable type tests, and stream backpressure isolation tests across all generators.
+
+
+
 ## 0.2.3
 
 - **Fix: Array<UInt8> to Data mismatch in Swift** — Updated the Swift generator to correctly bridge `Uint8List` parameters as `Data` when matching native Swift signatures, ensuring type-safe binary data transfer without manual casts.
