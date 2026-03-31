@@ -3,7 +3,8 @@ resolution: workspace
 description: "A new Flutter FFI plugin project."
 version: 0.0.1
 publish_to: 'none'
-homepage:
+homepage: https://nitro.shreeman.dev
+repository: https://github.com/Shreemanarjun/nitro_ecosystem
 
 environment:
   sdk: ^3.11.3

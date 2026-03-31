@@ -1,6 +1,8 @@
 name: nitro_battery
 description: "A new Flutter FFI plugin project."
 publish_to: none
+homepage: https://nitro.shreeman.dev
+repository: https://github.com/Shreemanarjun/nitro_ecosystem
 environment:
   sdk: ^3.11.3
   flutter: '>=3.3.0'

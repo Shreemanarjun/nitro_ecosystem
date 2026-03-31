@@ -1,4 +1,6 @@
 name: nitro_workspace
+homepage: https://nitro.shreeman.dev
+repository: https://github.com/Shreemanarjun/nitro_ecosystem
 publish_to: none
 
 environment:

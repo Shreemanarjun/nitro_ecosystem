@@ -1,6 +1,8 @@
 name: my_camera
 description: "A new Flutter FFI plugin project."
 version: 0.2.1
+homepage: https://nitro.shreeman.dev
+repository: https://github.com/Shreemanarjun/nitro_ecosystem
 publish_to: none
 environment:
   sdk: ^3.11.3
