@@ -9,9 +9,9 @@ void main() {
       expect(out, contains('CameraDeviceRecordExt.fromNative'));
     });
 
-    test('async List<record> return uses RecordReader.decodeList + fromReader', () {
+    test('async List<record> return uses LazyRecordList.decode + fromReader', () {
       final out = DartFfiGenerator.generate(recordListSpec());
-      expect(out, contains('RecordReader.decodeList'));
+      expect(out, contains('LazyRecordList.decode'));
       expect(out, contains('CameraDeviceRecordExt.fromReader'));
     });
 

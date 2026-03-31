@@ -496,8 +496,10 @@ void main() {
       expect(out, contains("NitroRuntime.loadLib('benchmark')"));
     });
 
-    test('add uses lookupFunction with correct symbol', () {
-      expect(out, contains("lookupFunction<Double Function(Double, Double), double Function(double, double)>('benchmark_add')"));
+    test('add uses asFunction(isLeaf: true) with correct symbol', () {
+      // Primitive sync methods use leaf binding for safepoint-free calls.
+      expect(out, contains("('benchmark_add')"));
+      expect(out, contains('.asFunction<double Function(double, double)>(isLeaf: true)'));
     });
 
     test('addFast uses lookup + asFunction with isLeaf: true', () {
@@ -521,8 +523,9 @@ void main() {
       expect(out, contains('double add(double a, double b) {\n    checkDisposed();'));
     });
 
-    test('dataStream getter has checkDisposed()', () {
-      expect(out, contains('Stream<BenchmarkPoint> get dataStream {\n    checkDisposed();'));
+    test('dataStream getter has checkDisposed() and returns proxy stream', () {
+      // BenchmarkPoint is a @HybridStruct — stream uses zero-copy proxy.
+      expect(out, contains('Stream<BenchmarkPointProxy> get dataStream {\n    checkDisposed();'));
     });
 
     test('streams use backpressure: Backpressure.dropLatest', () {

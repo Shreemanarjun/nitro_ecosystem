@@ -17,6 +17,10 @@ class DartFfiGenerator {
     final structExt = StructGenerator.generateDartExtensions(spec);
     if (structExt.isNotEmpty) s.write(structExt);
 
+    // Zero-copy native proxies for @HybridStruct (used by streams)
+    final proxyExt = StructGenerator.generateDartProxies(spec);
+    if (proxyExt.isNotEmpty) s.write(proxyExt);
+
     // @HybridRecord fromJson / toJson extensions
     final recordExt = RecordGenerator.generateDartExtensions(spec);
     if (recordExt.isNotEmpty) s.write(recordExt);
@@ -45,7 +49,11 @@ class DartFfiGenerator {
     for (final func in spec.functions) {
       final nativeType = _toNativeType(func, spec);
       final dartType = _toDartType(func, spec);
-      final isLeaf = func.dartName.endsWith('Fast');
+      // isLeaf: true skips the Dart VM safepoint transition on every call —
+      // valid for any sync bridge function whose C++ body never calls back into
+      // Dart.  Candidates: explicitly "Fast"-suffixed methods AND any sync
+      // method whose params/return are plain FFI scalars (no arena allocation).
+      final isLeaf = _isLeafCandidate(func, spec);
       if (isLeaf) {
         s.writeln(
           "  late final $dartType _${func.dartName}Ptr = _dylib.lookup<NativeFunction<$nativeType>>('${func.cSymbol}').asFunction<$dartType>(isLeaf: true);",
@@ -62,15 +70,30 @@ class DartFfiGenerator {
       final ffiType = _typeToFFI(prop.type, spec);
       final dartType = _typeToDartFFI(prop.type, spec);
       final cap = _cap(prop.dartName);
+      // Property accessors are always synchronous and their C++ bodies never
+      // call back into Dart, so primitive-typed accessors qualify for isLeaf.
+      final isLeafProp = _isPrimitiveType(prop.type, spec);
       if (prop.hasGetter) {
-        s.writeln(
-          "  late final $dartType Function() _get${cap}Ptr = _dylib.lookupFunction<$ffiType Function(), $dartType Function()>('${prop.getSymbol}');",
-        );
+        if (isLeafProp) {
+          s.writeln(
+            "  late final $dartType Function() _get${cap}Ptr = _dylib.lookup<NativeFunction<$ffiType Function()>>('${prop.getSymbol}').asFunction<$dartType Function()>(isLeaf: true);",
+          );
+        } else {
+          s.writeln(
+            "  late final $dartType Function() _get${cap}Ptr = _dylib.lookupFunction<$ffiType Function(), $dartType Function()>('${prop.getSymbol}');",
+          );
+        }
       }
       if (prop.hasSetter) {
-        s.writeln(
-          "  late final void Function($dartType) _set${cap}Ptr = _dylib.lookupFunction<Void Function($ffiType), void Function($dartType)>('${prop.setSymbol}');",
-        );
+        if (isLeafProp) {
+          s.writeln(
+            "  late final void Function($dartType) _set${cap}Ptr = _dylib.lookup<NativeFunction<Void Function($ffiType)>>('${prop.setSymbol}').asFunction<void Function($dartType)>(isLeaf: true);",
+          );
+        } else {
+          s.writeln(
+            "  late final void Function($dartType) _set${cap}Ptr = _dylib.lookupFunction<Void Function($ffiType), void Function($dartType)>('${prop.setSymbol}');",
+          );
+        }
       }
     }
 
@@ -406,21 +429,27 @@ class DartFfiGenerator {
       final isStruct = spec.structs.any((st) => st.name == itemType);
 
       final String unpackExpr;
+      final String streamItemType;
+
       if (isRecord) {
         final decodeExpr = _decodeRecordExpr(stream.itemType, 'rawPtr');
         unpackExpr = '(rawPtr) { try { return $decodeExpr; } finally { malloc.free(rawPtr); } }';
+        streamItemType = itemType;
       } else if (isStruct) {
-        // The C++ emitter mallocs a struct pointer and sends the raw address.
-        // We must free it after copying to Dart to prevent a per-event leak.
-        unpackExpr = '(rawPtr) { final ptr = Pointer<${itemType}Ffi>.fromAddress(rawPtr); try { return ptr.ref.toDart(); } finally { malloc.free(ptr); } }';
+        // Zero-copy path: wrap the malloc'd pointer in a NativeProxy instead of
+        // copying every field to the Dart heap.  The proxy owns the pointer and
+        // releases it via NativeFinalizer when it is GC'd — no explicit free needed.
+        unpackExpr = '(rawPtr) => ${itemType}Proxy(Pointer<${itemType}Ffi>.fromAddress(rawPtr))';
+        streamItemType = '${itemType}Proxy';
       } else {
         unpackExpr = '(rawPtr) => rawPtr as $itemType';
+        streamItemType = itemType;
       }
 
       s.writeln('  @override');
-      s.writeln('  Stream<$itemType> get ${stream.dartName} {');
+      s.writeln('  Stream<$streamItemType> get ${stream.dartName} {');
       s.writeln('    checkDisposed();');
-      s.writeln('    return NitroRuntime.openStream<$itemType>(');
+      s.writeln('    return NitroRuntime.openStream<$streamItemType>(');
       s.writeln('      register: (port) => _register${cap}Ptr(port),');
       s.writeln('      unpack: $unpackExpr,');
       s.writeln('      release: (port) => _release${cap}Ptr(port),');
@@ -556,10 +585,13 @@ class DartFfiGenerator {
     final item = type.recordListItemType;
     if (item != null) {
       if (type.recordListItemIsPrimitive) {
+        // Primitive lists are small scalars — eager decode is fast enough.
         final readCall = _primitiveReaderCall(item);
         return 'RecordReader.decodePrimitiveList($ptrVar, (r) => r.$readCall())';
       }
-      return 'RecordReader.decodeList($ptrVar, (r) => ${item}RecordExt.fromReader(r))';
+      // Object lists: decode lazily — items are only deserialized when accessed.
+      // Requires the native buffer to have been written by encodeIndexedList.
+      return 'LazyRecordList.decode($ptrVar, (r) => ${item}RecordExt.fromReader(r))';
     }
     final rt = type.name;
     return '${rt}RecordExt.fromNative($ptrVar)';
@@ -599,10 +631,43 @@ class DartFfiGenerator {
     if (item != null) {
       if (type.recordListItemIsPrimitive) {
         final writeCall = _primitiveWriterCall(item);
-        return 'RecordWriter.encodePrimitiveList($varName, (w, e) => w.$writeCall(e), $allocator)';
+        return 'RecordWriter.encodeIndexedPrimitiveList($varName, (w, e) => w.$writeCall(e), $allocator)';
       }
-      return 'RecordWriter.encodeList($varName, (w, e) => e.writeFields(w), $allocator)';
+      // Use indexed encoding so the receiving side can use LazyRecordList.
+      return 'RecordWriter.encodeIndexedList($varName, (w, e) => e.writeFields(w), $allocator)';
     }
     return '$varName.toNative($allocator)';
+  }
+
+  // ── Leaf / isLeaf helpers ─────────────────────────────────────────────────
+
+  /// Returns true when [bt] maps to a plain FFI scalar (int, double, bool, or
+  /// a known enum) — types that require no arena allocation and no Dart heap
+  /// object creation on the call boundary.
+  static bool _isPrimitiveType(BridgeType bt, BridgeSpec spec) {
+    if (bt.isRecord || bt.isTypedData || bt.isPointer) return false;
+    final name = bt.name.replaceFirst('?', '');
+    if (name == 'String' || name == 'void') return false;
+    if (spec.structs.any((st) => st.name == name)) return false;
+    // int, double, bool, and known enums are all FFI scalars.
+    return true;
+  }
+
+  /// Returns true when the function pointer should be bound with `isLeaf: true`.
+  ///
+  /// `isLeaf: true` skips the Dart VM safepoint transition, shaving ~50–200 ns
+  /// per call.  It is safe when the C++ body never calls back into Dart and the
+  /// call is expected to be short-lived (no blocking I/O).
+  ///
+  /// Conditions:
+  ///  • Not async (async calls dispatch to isolates, irrelevant here).
+  ///  • Explicitly named "Fast" — a developer contract that the method is hot.
+  ///  • OR all params and the return type are plain scalars (no arena needed).
+  static bool _isLeafCandidate(BridgeFunction func, BridgeSpec spec) {
+    if (func.isAsync) return false;
+    if (func.dartName.endsWith('Fast')) return true;
+    final rt = func.returnType;
+    if (!_isPrimitiveType(rt, spec) && rt.name != 'void') return false;
+    return func.params.every((p) => _isPrimitiveType(p.type, spec));
   }
 }

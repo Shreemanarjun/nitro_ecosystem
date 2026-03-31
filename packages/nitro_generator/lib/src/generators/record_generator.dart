@@ -238,6 +238,17 @@ class RecordGenerator {
       s.writeln('        fun writeDouble(v: Double) { buf.clear(); buf.putDouble(v); out.write(buf.array()) }');
       s.writeln('        fun writeBool(v: Boolean) { out.write(if (v) 1 else 0) }');
       s.writeln('        fun writeString(v: String) { val b = v.toByteArray(Charsets.UTF_8); writeInt32(b.size); out.write(b) }');
+      // Indexed list helper — emits count + int64[] offsets + item bytes.
+      // Matches the Dart RecordWriter.encodeIndexedList wire format.
+      // Uses a 64-byte initial capacity per item to avoid dynamic growth on small records.
+      s.writeln('        fun <T> writeIndexedList(items: List<T>, writeItem: (java.io.ByteArrayOutputStream) -> Unit) {');
+      s.writeln('            val blobs = items.map { _ -> val io = java.io.ByteArrayOutputStream(64); writeItem(io); io.toByteArray() }');
+      s.writeln('            writeInt32(blobs.size)');
+      s.writeln('            var off = (4L + 8L * blobs.size)');
+      s.writeln('            val offBuf = java.nio.ByteBuffer.allocate(8).order(java.nio.ByteOrder.LITTLE_ENDIAN)');
+      s.writeln('            blobs.forEach { b -> offBuf.clear(); offBuf.putLong(off); out.write(offBuf.array()); off += b.size }');
+      s.writeln('            blobs.forEach { b -> out.write(b) }');
+      s.writeln('        }');
       for (final f in rt.fields) {
         _kotlinWriteStmt(s, f);
       }
@@ -308,10 +319,12 @@ class RecordGenerator {
         return '$base.decodeFrom(buf)';
       case RecordFieldKind.listPrimitive:
         final item = f.itemTypeName ?? 'int';
-        return '(0 until buf.int).map { ${_kotlinPrimRead(item)} }';
+        // Indexed format: count + int64[] offsets + item bytes.
+        // Skip offset table (count * 8 bytes) before reading items.
+        return '{ val _cnt = buf.int; repeat(_cnt) { buf.long }; (0 until _cnt).map { ${_kotlinPrimRead(item)} } }()';
       case RecordFieldKind.listRecordObject:
         final item = f.itemTypeName!;
-        return '(0 until buf.int).map { $item.decodeFrom(buf) }';
+        return '{ val _cnt = buf.int; repeat(_cnt) { buf.long }; (0 until _cnt).map { $item.decodeFrom(buf) } }()';
     }
   }
 
@@ -351,12 +364,19 @@ class RecordGenerator {
         break;
       case RecordFieldKind.listPrimitive:
         final base = f.itemTypeName ?? 'int';
-        s.writeln('        writeInt32(${f.name}.size)');
-        s.writeln('        ${f.name}.forEach { ${_kotlinWriteCall(base, 'it')} }');
+        // Use indexed format: count + int64[] offsets + item bytes.
+        s.writeln('        writeIndexedList(${f.name}) { io ->');
+        s.writeln('            val lb = java.nio.ByteBuffer.allocate(8).order(java.nio.ByteOrder.LITTLE_ENDIAN)');
+        s.writeln('            fun wInt(v: Long) { lb.clear(); lb.putLong(v); io.write(lb.array()) }');
+        s.writeln('            fun wInt32(v: Int) { lb.clear(); lb.putInt(v); io.write(lb.array(), 0, 4) }');
+        s.writeln('            fun wDouble(v: Double) { lb.clear(); lb.putDouble(v); io.write(lb.array()) }');
+        s.writeln('            fun wBool(v: Boolean) { io.write(if (v) 1 else 0) }');
+        s.writeln('            fun wString(v: String) { val b = v.toByteArray(Charsets.UTF_8); wInt32(b.size); io.write(b) }');
+        s.writeln('            it.let { e -> ${_kotlinWriteCallInner(base, 'e')} }');
+        s.writeln('        }');
         break;
       case RecordFieldKind.listRecordObject:
-        s.writeln('        writeInt32(${f.name}.size)');
-        s.writeln('        ${f.name}.forEach { it.writeFieldsTo(out, buf) }');
+        s.writeln('        writeIndexedList(${f.name}) { io -> it.writeFieldsTo(io, buf) }');
         break;
     }
   }
@@ -373,6 +393,23 @@ class RecordGenerator {
         return 'writeString($expr)';
       default:
         return 'writeInt($expr.toLong())';
+    }
+  }
+
+  /// Like [_kotlinWriteCall] but uses the `w*` local functions inside the
+  /// `writeIndexedList` lambda (avoids shadowing the outer `write*` helpers).
+  static String _kotlinWriteCallInner(String base, String expr) {
+    switch (base) {
+      case 'int':
+        return 'wInt($expr.toLong())';
+      case 'double':
+        return 'wDouble($expr)';
+      case 'bool':
+        return 'wBool($expr)';
+      case 'String':
+        return 'wString($expr)';
+      default:
+        return 'wInt($expr.toLong())';
     }
   }
 
@@ -526,10 +563,11 @@ class RecordGenerator {
         return '$base.fromReader(r)';
       case RecordFieldKind.listPrimitive:
         final item = f.itemTypeName ?? 'int';
-        return '(0..<r.readInt32()).map { _ in ${_swiftReadCall(item)} }';
+        // Skip offset table before reading items (indexed format).
+        return '{ let _cnt = r.readInt32(); for _ in 0..<_cnt { _ = r.readInt() }; return (0..<_cnt).map { _ in ${_swiftReadCall(item)} } }()';
       case RecordFieldKind.listRecordObject:
         final item = f.itemTypeName!;
-        return '(0..<r.readInt32()).map { _ in $item.fromReader(r) }';
+        return '{ let _cnt = r.readInt32(); for _ in 0..<_cnt { _ = r.readInt() }; return (0..<_cnt).map { _ in $item.fromReader(r) } }()';
     }
   }
 
@@ -554,12 +592,11 @@ class RecordGenerator {
         break;
       case RecordFieldKind.listPrimitive:
         final item = f.itemTypeName ?? 'int';
-        s.writeln('    w.writeInt32(Int32(${f.name}.count))');
-        s.writeln('    for e in ${f.name} { w.${_swiftWriterCall(item, 'e')} }');
+        // Indexed format: count + int64[] offsets + item bytes.
+        s.writeln('    w.writeIndexedList(${f.name}) { e, iw in iw.${_swiftWriterCall(item, 'e')} }');
         break;
       case RecordFieldKind.listRecordObject:
-        s.writeln('    w.writeInt32(Int32(${f.name}.count))');
-        s.writeln('    for e in ${f.name} { e.writeFields(w) }');
+        s.writeln('    w.writeIndexedList(${f.name}) { e, iw in e.writeFields(iw) }');
         break;
     }
   }
@@ -610,11 +647,29 @@ public class NitroRecordWriter {
         let total = 4 + bytes.count
         let ptr = UnsafeMutablePointer<UInt8>.allocate(capacity: total)
         var length = Int32(bytes.count).littleEndian
-        withUnsafeBytes(of: &length) { 
+        withUnsafeBytes(of: &length) {
             ptr.update(from: \$0.baseAddress!.assumingMemoryBound(to: UInt8.self), count: 4)
         }
         ptr.advanced(by: 4).update(from: bytes, count: bytes.count)
         return ptr
+    }
+    /// Writes items using the indexed list format:
+    ///   int32 count | int64[count] offsets | item_bytes...
+    /// Matches Dart's RecordWriter.encodeIndexedList wire format.
+    public func writeIndexedList<T>(_ items: [T], writeItem: (T, NitroRecordWriter) -> Void) {
+        var blobs: [[UInt8]] = []
+        for item in items {
+            let iw = NitroRecordWriter()
+            writeItem(item, iw)
+            blobs.append(iw.bytes)
+        }
+        writeInt32(Int32(blobs.count))
+        var off = Int64(4 + 8 * blobs.count)
+        for b in blobs {
+            writeInt(off)
+            off += Int64(b.count)
+        }
+        for b in blobs { bytes.append(contentsOf: b) }
     }
     public static func encodeList<T>(_ items: [T], writeItem: (NitroRecordWriter, T) -> Void) -> UnsafeMutablePointer<UInt8>? {
         let w = NitroRecordWriter()

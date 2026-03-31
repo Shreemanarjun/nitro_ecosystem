@@ -147,10 +147,11 @@ void main() {
       expect(out, contains('return lenBuf.array() + payload'));
     });
 
-    test('encode writes list size then each element for List<@HybridRecord>', () {
+    test('encode uses indexed list format for List<@HybridRecord>', () {
       final out = KotlinGenerator.generate(recordListSpec());
-      expect(out, contains('writeInt32(resolutions.size)'));
-      expect(out, contains('resolutions.forEach { it.writeFieldsTo(out, buf) }'));
+      // Indexed list format: uses writeIndexedList helper (writes count + offsets + blobs).
+      expect(out, contains('writeIndexedList(resolutions)'));
+      expect(out, contains('it.writeFieldsTo(io, buf)'));
     });
 
     test('all record types are emitted (Resolution AND CameraDevice)', () {

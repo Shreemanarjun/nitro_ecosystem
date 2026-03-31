@@ -19,12 +19,13 @@ void main() {
       expect(out, contains("NitroRuntime.loadLib('my_camera')"));
     });
 
-    test('sync double function uses lookupFunction', () {
+    test('sync primitive function uses asFunction(isLeaf: true)', () {
       final out = DartFfiGenerator.generate(simpleSpec());
+      // Primitive sync methods now use the leaf binding for lower overhead.
       expect(
         out,
         contains(
-          "lookupFunction<Double Function(Double, Double), double Function(double, double)>('my_camera_add')",
+          ".asFunction<double Function(double, double)>(isLeaf: true)",
         ),
       );
     });
@@ -34,15 +35,11 @@ void main() {
       expect(out, contains('NitroRuntime.callAsync'));
     });
 
-    test('enum return type uses Int64 FFI type', () {
+    test('enum return type uses Int64 FFI type and isLeaf binding', () {
       final out = DartFfiGenerator.generate(enumSpec());
       expect(out, contains('Int64 Function()'));
-      expect(
-        out,
-        contains(
-          "lookupFunction<Int64 Function(), int Function()>('complex_module_get_status')",
-        ),
-      );
+      // Primitive (enum) sync methods now use leaf binding.
+      expect(out, contains(".asFunction<int Function()>(isLeaf: true)"));
     });
 
     test('enum return calls toDeviceStatus()', () {
@@ -67,57 +64,30 @@ void main() {
     });
 
     test(
-      'struct stream uses NitroRuntime.openStream with fromAddress unpack',
+      'struct stream uses zero-copy NativeProxy (no toDart copy, no malloc.free)',
       () {
         final out = DartFfiGenerator.generate(structStreamSpec());
-        expect(out, contains('NitroRuntime.openStream<CameraFrame>'));
+        // Stream type changes to proxy — zero-copy, no eager field copy.
+        expect(out, contains('NitroRuntime.openStream<CameraFrameProxy>'));
         expect(
           out,
           contains('Pointer<CameraFrameFfi>.fromAddress(rawPtr)'),
         );
-        expect(out, contains('.ref.toDart()'));
+        // The unpack lambda must NOT eagerly copy to Dart or manually free.
+        expect(out, isNot(contains('malloc.free(ptr)')));
+        // The unpack expression must use the Proxy constructor, not toDart().
+        expect(out, contains('CameraFrameProxy(Pointer<CameraFrameFfi>.fromAddress(rawPtr))'));
+        // Proxy class must be generated alongside the FFI struct.
+        expect(out, contains('final class CameraFrameProxy'));
       },
     );
 
     test(
-      'struct stream unpack frees the malloc\'d pointer (no leak)',
-      () {
-        final out = DartFfiGenerator.generate(structStreamSpec());
-        // The unpack closure must call malloc.free after copying to Dart.
-        expect(
-          out,
-          contains('malloc.free(ptr)'),
-          reason:
-              'emit_dataStream mallocs a struct pointer; unpack must free it '
-              'after toDart() to avoid a per-event memory leak.',
-        );
-      },
-    );
-
-    test(
-      'struct stream unpack frees AFTER toDart (order check)',
-      () {
-        final out = DartFfiGenerator.generate(structStreamSpec());
-        final toDartPos = out.indexOf('.ref.toDart()');
-        final freePos = out.indexOf('malloc.free(ptr)');
-        expect(toDartPos, greaterThan(0), reason: 'toDart() must appear');
-        expect(freePos, greaterThan(0), reason: 'malloc.free must appear');
-        expect(
-          freePos,
-          greaterThan(toDartPos),
-          reason:
-              'malloc.free must come AFTER toDart() so we do not '
-              'read freed memory',
-        );
-      },
-    );
-
-    test(
-      'cpp struct stream unpack also frees the malloc\'d pointer',
+      'cpp struct stream also uses NativeProxy',
       () {
         final out = DartFfiGenerator.generate(cppStreamStructSpec());
         expect(out, contains('NitroRuntime.openStream'));
-        expect(out, contains('malloc.free(ptr)'));
+        expect(out, isNot(contains('malloc.free(ptr)')));
       },
     );
   });
@@ -284,9 +254,9 @@ void main() {
       expect(out, isNot(contains('as Map<String, dynamic>')));
     });
 
-    test('async List<record> return uses RecordReader.decodeList + fromReader', () {
+    test('async List<record> return uses LazyRecordList.decode + fromReader', () {
       final out = DartFfiGenerator.generate(recordListSpec());
-      expect(out, contains('RecordReader.decodeList'));
+      expect(out, contains('LazyRecordList.decode'));
       expect(out, contains('CameraDeviceRecordExt.fromReader'));
     });
 
@@ -418,7 +388,7 @@ void main() {
       expect(out, isNot(contains('jsonDecode')));
     });
 
-    test('List<record> stream item unpack uses RecordReader.decodeList', () {
+    test('List<record> stream item unpack uses LazyRecordList.decode', () {
       final spec = BridgeSpec(
         dartClassName: 'Foo',
         lib: 'foo',
@@ -453,7 +423,7 @@ void main() {
         ],
       );
       final out = DartFfiGenerator.generate(spec);
-      expect(out, contains('RecordReader.decodeList'));
+      expect(out, contains('LazyRecordList.decode'));
       expect(out, contains('ItemRecordExt.fromReader'));
     });
 
@@ -542,7 +512,7 @@ void main() {
       expect(out, contains('readDouble'));
     });
 
-    test('List<String> param uses RecordWriter.encodePrimitiveList (no jsonEncode)', () {
+    test('List<String> param uses RecordWriter.encodeIndexedPrimitiveList (no jsonEncode)', () {
       final spec = BridgeSpec(
         dartClassName: 'Foo',
         lib: 'foo',
@@ -571,12 +541,12 @@ void main() {
         ],
       );
       final out = DartFfiGenerator.generate(spec);
-      expect(out, contains('RecordWriter.encodePrimitiveList(tags'));
+      expect(out, contains('RecordWriter.encodeIndexedPrimitiveList(tags'));
       expect(out, contains('writeString'));
       expect(out, isNot(contains('jsonEncode(tags)')));
     });
 
-    test('List<String> property setter uses RecordWriter.encodePrimitiveList', () {
+    test('List<String> property setter uses RecordWriter.encodeIndexedPrimitiveList', () {
       final spec = BridgeSpec(
         dartClassName: 'Foo',
         lib: 'foo',
@@ -600,7 +570,7 @@ void main() {
         ],
       );
       final out = DartFfiGenerator.generate(spec);
-      expect(out, contains('RecordWriter.encodePrimitiveList(value'));
+      expect(out, contains('RecordWriter.encodeIndexedPrimitiveList(value'));
       expect(out, contains('writeString'));
       expect(out, isNot(contains('jsonEncode(value)')));
     });

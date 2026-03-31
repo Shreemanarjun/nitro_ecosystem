@@ -92,6 +92,77 @@ class StructGenerator {
     return s.toString();
   }
 
+  /// Generates a zero-copy [${name}Proxy] class for every HybridStruct.
+  ///
+  /// The proxy holds a `Pointer<${name}Ffi>` and exposes lazy getters that read
+  /// each field directly from native memory without copying.  A [NativeFinalizer]
+  /// automatically frees the native buffer when the proxy is GC'd, so the caller
+  /// must NOT call `malloc.free` after passing the pointer to the constructor.
+  ///
+  /// Use [toDartAndRelease] if you need a fully-owned Dart value.
+  static String generateDartProxies(BridgeSpec spec) {
+    if (spec.structs.isEmpty) return '';
+    final enumNames = spec.enums.map((e) => e.name).toSet();
+    final s = StringBuffer();
+    s.writeln('// --- Struct Native Proxies (zero-copy, lazy field access) ---');
+    s.writeln();
+    for (final st in spec.structs) {
+      s.writeln('/// Zero-copy proxy for [${st.name}].');
+      s.writeln('/// Fields are read directly from the native heap on access.');
+      s.writeln('/// The underlying [Pointer<${st.name}Ffi>] is freed when this object is GC\'d.');
+      s.writeln('final class ${st.name}Proxy {');
+      s.writeln('  final Pointer<${st.name}Ffi> _native;');
+      s.writeln('  static final _finalizer = NativeFinalizer(malloc.nativeFree);');
+      s.writeln();
+      s.writeln('  /// Takes ownership of [native]; do NOT call [malloc.free] separately.');
+      s.writeln('  ${st.name}Proxy(this._native) {');
+      s.writeln('    _finalizer.attach(this, _native.cast(), detach: this);');
+      s.writeln('  }');
+      s.writeln();
+
+      // Lazy field getters
+      for (final f in st.fields) {
+        final typeName = f.type.name.replaceFirst('?', '');
+        final dartFieldType = f.type.name; // e.g. 'int', 'double', 'bool', 'String'
+        String readExpr;
+        if (f.type.isTypedData) {
+          final lenField = st.fields
+              .where(
+                (sf) =>
+                    sf.type.name == 'int' &&
+                    _kLengthFieldNames.contains(sf.name.toLowerCase()),
+              )
+              .map((sf) => sf.name)
+              .firstOrNull;
+          readExpr = '_native.ref.${f.name}.asTypedList(${lenField != null ? '_native.ref.$lenField' : '0'})';
+        } else if (f.type.name == 'bool') {
+          readExpr = '_native.ref.${f.name} != 0';
+        } else if (f.type.name == 'String') {
+          readExpr = '_native.ref.${f.name}.toDartString()';
+        } else if (enumNames.contains(typeName)) {
+          readExpr = '_native.ref.${f.name}.to$typeName()';
+        } else {
+          readExpr = '_native.ref.${f.name}';
+        }
+        s.writeln('  $dartFieldType get ${f.name} => $readExpr;');
+      }
+      s.writeln();
+
+      // toDartAndRelease — eager copy + detach finalizer
+      s.writeln('  /// Eagerly copies all fields to a [${st.name}] value and releases');
+      s.writeln('  /// the native buffer.  Must not be called more than once.');
+      s.writeln('  ${st.name} toDartAndRelease() {');
+      s.writeln('    final v = _native.ref.toDart();');
+      s.writeln('    _finalizer.detach(this);');
+      s.writeln('    malloc.free(_native);');
+      s.writeln('    return v;');
+      s.writeln('  }');
+      s.writeln('}');
+      s.writeln();
+    }
+    return s.toString();
+  }
+
   /// Generates C structs for the header file.
   ///
   /// Each struct is wrapped in a `#ifndef NITRO_STRUCT_<NAME>_DEFINED` guard so
