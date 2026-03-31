@@ -4,7 +4,6 @@ import 'package:nitro_generator/src/generators/cpp_mock_generator.dart';
 import 'package:nitro_generator/src/generators/cmake_generator.dart';
 import 'package:nitro_generator/src/generators/swift_generator.dart';
 import 'package:nitro_generator/src/generators/kotlin_generator.dart';
-import 'package:nitro_generator/src/spec_validator.dart';
 import 'package:test/test.dart';
 import 'test_utils.dart';
 
