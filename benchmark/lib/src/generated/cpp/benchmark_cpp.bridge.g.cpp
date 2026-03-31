@@ -218,4 +218,18 @@ void benchmark_cpp_release_box_stream_stream(int64_t dart_port) {
     if (g_port_boxStream == dart_port) g_port_boxStream = 0;
 }
 
+// Frees a malloc'd [BenchmarkPoint] wrapper allocated by the stream emitter.
+// Called automatically by NativeFinalizer when the Dart proxy is GC'd.
+void benchmark_cpp_release_BenchmarkPoint(void* ptr) {
+    if (!ptr) return;
+    free(ptr);
+}
+
+// Frees a malloc'd [BenchmarkBox] wrapper allocated by the stream emitter.
+// Called automatically by NativeFinalizer when the Dart proxy is GC'd.
+void benchmark_cpp_release_BenchmarkBox(void* ptr) {
+    if (!ptr) return;
+    free(ptr);
+}
+
 } // extern "C"

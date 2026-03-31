@@ -462,5 +462,15 @@ void benchmark_release_box_stream_stream(int64_t dart_port) {
     _release_boxStream_stream(dart_port);
 }
 
+void benchmark_release_BenchmarkPoint(void* ptr) {
+    if (!ptr) return;
+    free(ptr);
+}
+
+void benchmark_release_BenchmarkBox(void* ptr) {
+    if (!ptr) return;
+    free(ptr);
+}
+
 } // extern "C"
 #endif

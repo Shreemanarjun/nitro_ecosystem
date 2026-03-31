@@ -87,11 +87,29 @@ public class NitroRecordWriter {
         let total = 4 + bytes.count
         let ptr = UnsafeMutablePointer<UInt8>.allocate(capacity: total)
         var length = Int32(bytes.count).littleEndian
-        withUnsafeBytes(of: &length) { 
+        withUnsafeBytes(of: &length) {
             ptr.update(from: $0.baseAddress!.assumingMemoryBound(to: UInt8.self), count: 4)
         }
         ptr.advanced(by: 4).update(from: bytes, count: bytes.count)
         return ptr
+    }
+    /// Writes items using the indexed list format:
+    ///   int32 count | int64[count] offsets | item_bytes...
+    /// Matches Dart's RecordWriter.encodeIndexedList wire format.
+    public func writeIndexedList<T>(_ items: [T], writeItem: (T, NitroRecordWriter) -> Void) {
+        var blobs: [[UInt8]] = []
+        for item in items {
+            let iw = NitroRecordWriter()
+            writeItem(item, iw)
+            blobs.append(iw.bytes)
+        }
+        writeInt32(Int32(blobs.count))
+        var off = Int64(4 + 8 * blobs.count)
+        for b in blobs {
+            writeInt(off)
+            off += Int64(b.count)
+        }
+        for b in blobs { bytes.append(contentsOf: b) }
     }
     public static func encodeList<T>(_ items: [T], writeItem: (NitroRecordWriter, T) -> Void) -> UnsafeMutablePointer<UInt8>? {
         let w = NitroRecordWriter()

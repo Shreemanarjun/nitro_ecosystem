@@ -41,6 +41,14 @@ data class BenchmarkStats(val count: Long, val meanUs: Double, val minUs: Double
         fun writeDouble(v: Double) { buf.clear(); buf.putDouble(v); out.write(buf.array()) }
         fun writeBool(v: Boolean) { out.write(if (v) 1 else 0) }
         fun writeString(v: String) { val b = v.toByteArray(Charsets.UTF_8); writeInt32(b.size); out.write(b) }
+        fun <T> writeIndexedList(items: List<T>, writeItem: (java.io.ByteArrayOutputStream) -> Unit) {
+            val blobs = items.map { _ -> val io = java.io.ByteArrayOutputStream(64); writeItem(io); io.toByteArray() }
+            writeInt32(blobs.size)
+            var off = (4L + 8L * blobs.size)
+            val offBuf = java.nio.ByteBuffer.allocate(8).order(java.nio.ByteOrder.LITTLE_ENDIAN)
+            blobs.forEach { b -> offBuf.clear(); offBuf.putLong(off); out.write(offBuf.array()); off += b.size }
+            blobs.forEach { b -> out.write(b) }
+        }
         writeInt(count.toLong())
         writeDouble(meanUs)
         writeDouble(minUs)
