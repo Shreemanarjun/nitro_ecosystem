@@ -42,6 +42,11 @@ class DartFfiGenerator {
     s.writeln('    if (initCode != 0) {');
     s.writeln("      throw StateError('${spec.lib}: Dart API DL initialization failed with code \$initCode.');");
     s.writeln('    }');
+    // Initialise NativeFinalizer for every struct proxy.
+    // Each proxy looks up its generated release C-symbol from _dylib.
+    for (final st in spec.structs) {
+      s.writeln('    ${st.name}Proxy._init(_dylib);');
+    }
     s.writeln('  }');
     s.writeln();
 

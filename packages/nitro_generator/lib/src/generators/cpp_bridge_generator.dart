@@ -324,6 +324,17 @@ class CppBridgeGenerator {
       s.writeln();
     }
 
+    // ── Struct release functions (used by NativeFinalizer in Dart proxy classes) ─
+    for (final st in spec.structs) {
+      s.writeln('// Frees a malloc\'d [${st.name}] wrapper allocated by the stream emitter.');
+      s.writeln('// Called automatically by NativeFinalizer when the Dart proxy is GC\'d.');
+      s.writeln('void ${libStem}_release_${st.name}(void* ptr) {');
+      s.writeln('    if (!ptr) return;');
+      s.writeln('    free(ptr);');
+      s.writeln('}');
+      s.writeln();
+    }
+
     s.writeln('} // extern "C"');
     if (cppIosOnly) s.writeln('#endif // __APPLE__');
     if (cppAndroidOnly) s.writeln('#endif // __ANDROID__');
@@ -1072,6 +1083,15 @@ class CppBridgeGenerator {
       s.writeln('}');
       s.writeln('');
     }
+    // ── Struct release functions ──────────────────────────────────────────────────
+    for (final st in spec.structs) {
+      s.writeln('void ${libStem}_release_${st.name}(void* ptr) {');
+      s.writeln('    if (!ptr) return;');
+      s.writeln('    free(ptr);');
+      s.writeln('}');
+      s.writeln();
+    }
+
     s.writeln('} // extern "C"');
     } // end if (includeIos)
     if (includeAndroid && includeIos) s.writeln('#endif');

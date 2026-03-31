@@ -102,28 +102,42 @@ class StructGenerator {
   /// Use [toDartAndRelease] if you need a fully-owned Dart value.
   static String generateDartProxies(BridgeSpec spec) {
     if (spec.structs.isEmpty) return '';
+    final libStem = spec.lib.replaceAll('-', '_');
     final enumNames = spec.enums.map((e) => e.name).toSet();
     final s = StringBuffer();
     s.writeln('// --- Struct Native Proxies (zero-copy, lazy field access) ---');
     s.writeln();
     for (final st in spec.structs) {
+      final releaseSym = '${libStem}_release_${st.name}';
       s.writeln('/// Zero-copy proxy for [${st.name}].');
       s.writeln('/// Fields are read directly from the native heap on access.');
-      s.writeln('/// The underlying [Pointer<${st.name}Ffi>] is freed when this object is GC\'d.');
-      s.writeln('final class ${st.name}Proxy {');
+      s.writeln('/// Native memory is freed via a [NativeFinalizer] backed by the');
+      s.writeln("/// generated C symbol '$releaseSym'.");
+      s.writeln('final class ${st.name}Proxy implements Finalizable {');
       s.writeln('  final Pointer<${st.name}Ffi> _native;');
-      s.writeln('  static final _finalizer = NativeFinalizer(malloc.nativeFree);');
       s.writeln();
-      s.writeln('  /// Takes ownership of [native]; do NOT call [malloc.free] separately.');
-      s.writeln('  ${st.name}Proxy(this._native) {');
-      s.writeln('    _finalizer.attach(this, _native.cast(), detach: this);');
+      s.writeln('  static NativeFinalizer? _finalizer;');
+      s.writeln();
+      s.writeln('  /// Binds the generated release symbol from [dylib].');
+      s.writeln('  /// Must be called once — typically in the impl class constructor.');
+      s.writeln('  /// Idempotent: subsequent calls are a no-op.');
+      s.writeln('  static void _init(DynamicLibrary dylib) {');
+      s.writeln('    _finalizer ??= NativeFinalizer(');
+      s.writeln("      dylib.lookup<NativeFunction<Void Function(Pointer<Void>)>>('$releaseSym'),");
+      s.writeln('    );');
       s.writeln('  }');
       s.writeln();
-
-      // Lazy field getters
+      s.writeln('  /// Takes ownership of [native].');
+      s.writeln('  /// Do NOT call [malloc.free] after passing the pointer here.');
+      s.writeln('  ${st.name}Proxy(this._native) {');
+      s.writeln("    assert(_finalizer != null, '${st.name}Proxy._init() was not called. Ensure the Nitro impl class constructor ran before creating proxies.');");
+      s.writeln('    _finalizer!.attach(this, _native.cast(), detach: this);');
+      s.writeln('  }');
+      s.writeln();
+      s.writeln('  // Lazy field accessors — zero allocation, reads native memory on demand.');
       for (final f in st.fields) {
         final typeName = f.type.name.replaceFirst('?', '');
-        final dartFieldType = f.type.name; // e.g. 'int', 'double', 'bool', 'String'
+        final dartFieldType = f.type.name;
         String readExpr;
         if (f.type.isTypedData) {
           final lenField = st.fields
@@ -134,7 +148,8 @@ class StructGenerator {
               )
               .map((sf) => sf.name)
               .firstOrNull;
-          readExpr = '_native.ref.${f.name}.asTypedList(${lenField != null ? '_native.ref.$lenField' : '0'})';
+          readExpr =
+              '_native.ref.${f.name}.asTypedList(${lenField != null ? '_native.ref.$lenField' : '0'})';
         } else if (f.type.name == 'bool') {
           readExpr = '_native.ref.${f.name} != 0';
         } else if (f.type.name == 'String') {
@@ -147,13 +162,12 @@ class StructGenerator {
         s.writeln('  $dartFieldType get ${f.name} => $readExpr;');
       }
       s.writeln();
-
-      // toDartAndRelease — eager copy + detach finalizer
-      s.writeln('  /// Eagerly copies all fields to a [${st.name}] value and releases');
-      s.writeln('  /// the native buffer.  Must not be called more than once.');
+      s.writeln('  /// Eagerly copies all fields to a [${st.name}] value and detaches');
+      s.writeln('  /// the finalizer, explicitly freeing native memory.');
+      s.writeln('  /// Must not be called more than once.');
       s.writeln('  ${st.name} toDartAndRelease() {');
       s.writeln('    final v = _native.ref.toDart();');
-      s.writeln('    _finalizer.detach(this);');
+      s.writeln('    _finalizer?.detach(this);');
       s.writeln('    malloc.free(_native);');
       s.writeln('    return v;');
       s.writeln('  }');
