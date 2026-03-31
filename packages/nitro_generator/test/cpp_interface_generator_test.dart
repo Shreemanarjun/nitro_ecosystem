@@ -172,5 +172,65 @@ void main() {
       final out = CppInterfaceGenerator.generate(spec);
       expect(out, contains('virtual NitroCppBuffer process() = 0;'));
     });
+
+    test('iOS-only C++ spec produces identical interface to both-platform C++', () {
+      final iosCpp = CppInterfaceGenerator.generate(iosOnlyCppSpec());
+      final bothCpp = CppInterfaceGenerator.generate(
+        BridgeSpec(
+          dartClassName: 'IosProcessor',
+          lib: 'ios_processor',
+          namespace: 'ios_processor',
+          iosImpl: NativeImpl.cpp,
+          androidImpl: NativeImpl.cpp,
+          sourceUri: 'ios_processor.native.dart',
+          functions: [
+            BridgeFunction(
+              dartName: 'process',
+              cSymbol: 'ios_processor_process',
+              isAsync: false,
+              returnType: BridgeType(name: 'double'),
+              params: [BridgeParam(name: 'value', type: BridgeType(name: 'double'))],
+            ),
+          ],
+        ),
+      );
+      expect(iosCpp, equals(bothCpp));
+    });
+
+    test('Android-only C++ spec produces identical interface to both-platform C++', () {
+      final androidCpp = CppInterfaceGenerator.generate(androidOnlyCppSpec());
+      final bothCpp = CppInterfaceGenerator.generate(
+        BridgeSpec(
+          dartClassName: 'AndroidProcessor',
+          lib: 'android_processor',
+          namespace: 'android_processor',
+          iosImpl: NativeImpl.cpp,
+          androidImpl: NativeImpl.cpp,
+          sourceUri: 'android_processor.native.dart',
+          functions: [
+            BridgeFunction(
+              dartName: 'process',
+              cSymbol: 'android_processor_process',
+              isAsync: false,
+              returnType: BridgeType(name: 'double'),
+              params: [BridgeParam(name: 'value', type: BridgeType(name: 'double'))],
+            ),
+          ],
+        ),
+      );
+      expect(androidCpp, equals(bothCpp));
+    });
+
+    test('stream method is declared as virtual void emit_X', () {
+      final out = CppInterfaceGenerator.generate(cppStreamSpec());
+      expect(out, contains('void emit_points('));
+    });
+
+    test('generated header guard uses lib name uppercased', () {
+      final out = CppInterfaceGenerator.generate(cppEnumSpec());
+      expect(out, contains('#ifndef SENSOR_NATIVE_G_H'));
+      expect(out, contains('#define SENSOR_NATIVE_G_H'));
+      expect(out, contains('#endif'));
+    });
   });
 }

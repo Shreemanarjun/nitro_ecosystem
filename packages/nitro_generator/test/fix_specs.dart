@@ -3,18 +3,18 @@ import 'dart:io';
 void main() {
   final testDir = Directory('packages/nitro_generator/test');
   final specs = [
-    '_simpleSpec',
-    '_enumSpec',
-    '_structStreamSpec',
-    '_underscoreLibSpec',
-    '_richSpec',
-    '_asyncEnumSpec',
-    '_singleRecordSpec',
-    '_recordListSpec',
-    '_cppSpec',
-    '_cppEnumSpec',
-    '_cppStreamSpec',
-    '_cppStreamStructSpec',
+    'simpleSpec',
+    'enumSpec',
+    'structStreamSpec',
+    'underscoreLibSpec',
+    'richSpec',
+    'asyncEnumSpec',
+    'singleRecordSpec',
+    'recordListSpec',
+    'cppSpec',
+    'cppEnumSpec',
+    'cppStreamSpec',
+    'cppStreamStructSpec',
   ];
 
   for (final file in testDir.listSync(recursive: true)) {

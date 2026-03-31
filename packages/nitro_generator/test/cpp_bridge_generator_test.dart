@@ -173,6 +173,238 @@ void main() {
       final out = CppBridgeGenerator.generate(cppSpec());
       expect(out, contains('NotInitialized'));
     });
+
+    // Both-platform C++ — no platform guard needed since the bridge is
+    // platform-agnostic (no JNI, no Swift).
+    test('both-platform cpp emits NO platform guard', () {
+      final out = CppBridgeGenerator.generate(cppSpec());
+      expect(out, isNot(contains('#ifdef __APPLE__')));
+      expect(out, isNot(contains('#ifdef __ANDROID__')));
+    });
+  });
+
+  group('CppBridgeGenerator (cpp direct path) — single-platform guards', () {
+    test('iOS-only cpp wraps body in #ifdef __APPLE__', () {
+      final spec = BridgeSpec(
+        dartClassName: 'Renderer',
+        lib: 'renderer',
+        namespace: 'renderer',
+        iosImpl: NativeImpl.cpp,
+        sourceUri: 'renderer.native.dart',
+        functions: [
+          BridgeFunction(
+            dartName: 'draw',
+            cSymbol: 'renderer_draw',
+            isAsync: false,
+            returnType: BridgeType(name: 'void'),
+            params: [],
+          ),
+        ],
+      );
+      final out = CppBridgeGenerator.generate(spec);
+      expect(out, contains('#ifdef __APPLE__'));
+      expect(out, contains('#endif // __APPLE__'));
+      expect(out, isNot(contains('#ifdef __ANDROID__')));
+    });
+
+    test('iOS-only cpp guard appears before #include', () {
+      final spec = BridgeSpec(
+        dartClassName: 'Renderer',
+        lib: 'renderer',
+        namespace: 'renderer',
+        iosImpl: NativeImpl.cpp,
+        sourceUri: 'renderer.native.dart',
+      );
+      final out = CppBridgeGenerator.generate(spec);
+      expect(
+        out.indexOf('#ifdef __APPLE__'),
+        lessThan(out.indexOf('#include <stdint.h>')),
+      );
+    });
+
+    test('iOS-only cpp guard end (#endif) appears after register_impl', () {
+      final spec = BridgeSpec(
+        dartClassName: 'Renderer',
+        lib: 'renderer',
+        namespace: 'renderer',
+        iosImpl: NativeImpl.cpp,
+        sourceUri: 'renderer.native.dart',
+      );
+      final out = CppBridgeGenerator.generate(spec);
+      expect(
+        out.indexOf('renderer_register_impl'),
+        lessThan(out.lastIndexOf('#endif // __APPLE__')),
+      );
+    });
+
+    test('Android-only cpp wraps body in #ifdef __ANDROID__', () {
+      final spec = BridgeSpec(
+        dartClassName: 'Scanner',
+        lib: 'scanner',
+        namespace: 'scanner',
+        androidImpl: NativeImpl.cpp,
+        sourceUri: 'scanner.native.dart',
+        functions: [
+          BridgeFunction(
+            dartName: 'scan',
+            cSymbol: 'scanner_scan',
+            isAsync: false,
+            returnType: BridgeType(name: 'void'),
+            params: [],
+          ),
+        ],
+      );
+      final out = CppBridgeGenerator.generate(spec);
+      expect(out, contains('#ifdef __ANDROID__'));
+      expect(out, contains('#endif // __ANDROID__'));
+      expect(out, isNot(contains('#ifdef __APPLE__')));
+    });
+
+    test('Android-only cpp guard appears before #include', () {
+      final spec = BridgeSpec(
+        dartClassName: 'Scanner',
+        lib: 'scanner',
+        namespace: 'scanner',
+        androidImpl: NativeImpl.cpp,
+        sourceUri: 'scanner.native.dart',
+      );
+      final out = CppBridgeGenerator.generate(spec);
+      expect(
+        out.indexOf('#ifdef __ANDROID__'),
+        lessThan(out.indexOf('#include <stdint.h>')),
+      );
+    });
+
+    test('Android-only cpp guard end (#endif) appears after register_impl', () {
+      final spec = BridgeSpec(
+        dartClassName: 'Scanner',
+        lib: 'scanner',
+        namespace: 'scanner',
+        androidImpl: NativeImpl.cpp,
+        sourceUri: 'scanner.native.dart',
+      );
+      final out = CppBridgeGenerator.generate(spec);
+      expect(
+        out.indexOf('scanner_register_impl'),
+        lessThan(out.lastIndexOf('#endif // __ANDROID__')),
+      );
+    });
+
+    test('iOS-only cpp does NOT emit JNI_OnLoad', () {
+      final spec = BridgeSpec(
+        dartClassName: 'AudioEngine',
+        lib: 'audio_engine',
+        namespace: 'audio_engine',
+        iosImpl: NativeImpl.cpp,
+        sourceUri: 'audio_engine.native.dart',
+      );
+      final out = CppBridgeGenerator.generate(spec);
+      expect(out, isNot(contains('JNI_OnLoad')));
+      expect(out, contains('#ifdef __APPLE__'));
+    });
+
+    test('Android-only cpp does NOT emit Swift _call_ declarations', () {
+      final spec = BridgeSpec(
+        dartClassName: 'AudioEngine',
+        lib: 'audio_engine',
+        namespace: 'audio_engine',
+        androidImpl: NativeImpl.cpp,
+        sourceUri: 'audio_engine.native.dart',
+      );
+      final out = CppBridgeGenerator.generate(spec);
+      expect(out, isNot(contains('_call_')));
+      expect(out, contains('#ifdef __ANDROID__'));
+    });
+  });
+
+  group('CppBridgeGenerator (JNI parameters)', () {
+    test('String param converts to jstring via NewStringUTF', () {
+      final out = CppBridgeGenerator.generate(simpleSpec());
+      expect(out, contains('NewStringUTF(name)'));
+      expect(out, contains('j_name'));
+    });
+
+    test('struct param calls unpack_X_to_jni', () {
+      final out = CppBridgeGenerator.generate(richSpec());
+      expect(out, contains('unpack_Reading_to_jni'));
+    });
+
+    test('int param is passed through unchanged to JNI call', () {
+      final spec = BridgeSpec(
+        dartClassName: 'Counter',
+        lib: 'counter',
+        namespace: 'counter',
+        iosImpl: NativeImpl.swift,
+        androidImpl: NativeImpl.kotlin,
+        sourceUri: 'counter.native.dart',
+        functions: [
+          BridgeFunction(
+            dartName: 'increment',
+            cSymbol: 'counter_increment',
+            isAsync: false,
+            returnType: BridgeType(name: 'void'),
+            params: [BridgeParam(name: 'amount', type: BridgeType(name: 'int'))],
+          ),
+        ],
+      );
+      final out = CppBridgeGenerator.generate(spec);
+      // amount is an int64_t — passed as-is (no jstring wrapping etc.)
+      expect(out, contains('amount'));
+      expect(out, isNot(contains('NewStringUTF(amount)')));
+    });
+
+    test('bool return checks ExceptionCheck before returning', () {
+      final spec = BridgeSpec(
+        dartClassName: 'Flags',
+        lib: 'flags',
+        namespace: 'flags',
+        iosImpl: NativeImpl.swift,
+        androidImpl: NativeImpl.kotlin,
+        sourceUri: 'flags.native.dart',
+        functions: [
+          BridgeFunction(
+            dartName: 'isOn',
+            cSymbol: 'flags_is_on',
+            isAsync: false,
+            returnType: BridgeType(name: 'bool'),
+            params: [],
+          ),
+        ],
+      );
+      final out = CppBridgeGenerator.generate(spec);
+      expect(out, contains('ExceptionCheck'));
+      expect(out, contains('return false'));
+    });
+
+    test('int return checks ExceptionCheck before returning', () {
+      final spec = BridgeSpec(
+        dartClassName: 'Counts',
+        lib: 'counts',
+        namespace: 'counts',
+        iosImpl: NativeImpl.swift,
+        androidImpl: NativeImpl.kotlin,
+        sourceUri: 'counts.native.dart',
+        functions: [
+          BridgeFunction(
+            dartName: 'total',
+            cSymbol: 'counts_total',
+            isAsync: false,
+            returnType: BridgeType(name: 'int'),
+            params: [],
+          ),
+        ],
+      );
+      final out = CppBridgeGenerator.generate(spec);
+      expect(out, contains('ExceptionCheck'));
+      expect(out, contains('return 0'));
+    });
+
+    test('clear_error is called before each JNI function body', () {
+      final out = CppBridgeGenerator.generate(simpleSpec());
+      // Both add() and getGreeting() should clear error before invoking JNI.
+      final count = 'my_camera_clear_error()'.allMatches(out).length;
+      expect(count, greaterThanOrEqualTo(2));
+    });
   });
 
   group('CppBridgeGenerator (cpp direct path) — edge cases', () {
@@ -218,6 +450,66 @@ void main() {
       );
       final out = CppBridgeGenerator.generate(spec);
       expect(out, contains('return 0'));
+    });
+
+    test('String return uses strdup on std::string result', () {
+      final out = CppBridgeGenerator.generate(cppSpec());
+      expect(out, contains('std::string _res = g_impl->greet('));
+      expect(out, contains('return strdup(_res.c_str())'));
+    });
+
+    test('String param is wrapped in std::string()', () {
+      final out = CppBridgeGenerator.generate(cppSpec());
+      expect(out, contains('std::string(name)'));
+    });
+
+    test('clear_error is called before each cpp direct function', () {
+      final out = CppBridgeGenerator.generate(cppSpec());
+      // libStem = spec.lib = 'math', so symbol is math_clear_error()
+      final count = 'math_clear_error()'.allMatches(out).length;
+      // add() + greet() + get_precision() + set_precision() = at least 4
+      expect(count, greaterThanOrEqualTo(4));
+    });
+
+    test('enum return uses static_cast<int64_t>', () {
+      final out = CppBridgeGenerator.generate(cppEnumSpec());
+      expect(out, contains('static_cast<int64_t>(g_impl->getMode())'));
+    });
+
+    test('enum property getter uses static_cast<int64_t>', () {
+      final spec = BridgeSpec(
+        dartClassName: 'Dev',
+        lib: 'dev',
+        namespace: 'dev',
+        iosImpl: NativeImpl.cpp,
+        androidImpl: NativeImpl.cpp,
+        sourceUri: 'dev.native.dart',
+        enums: [BridgeEnum(name: 'Mode', startValue: 0, values: ['a', 'b'])],
+        properties: [
+          BridgeProperty(
+            dartName: 'mode',
+            type: BridgeType(name: 'Mode'),
+            getSymbol: 'dev_get_mode',
+            setSymbol: 'dev_set_mode',
+            hasGetter: true,
+            hasSetter: true,
+          ),
+        ],
+      );
+      final out = CppBridgeGenerator.generate(spec);
+      expect(out, contains('static_cast<int64_t>(g_impl->get_mode())'));
+    });
+
+    test('stream register/release functions are emitted in cpp path', () {
+      final out = CppBridgeGenerator.generate(cppStreamSpec());
+      // Symbols come from stream.registerSymbol / stream.releaseSymbol directly
+      expect(out, contains('void lidar_register_points_stream(int64_t dart_port)'));
+      expect(out, contains('void lidar_release_points_stream(int64_t dart_port)'));
+    });
+
+    test('cpp direct bridge header comment identifies it as cpp path', () {
+      final out = CppBridgeGenerator.generate(cppSpec());
+      expect(out, contains('NativeImpl: cpp'));
     });
   });
 }

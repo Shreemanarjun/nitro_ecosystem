@@ -1,13 +1,13 @@
 class NitroModule {
-  final NativeImpl ios; // which language implements on iOS
-  final NativeImpl android; // which language implements on Android
+  final NativeImpl? ios; // which language implements on iOS (null = not targeting iOS)
+  final NativeImpl? android; // which language implements on Android (null = not targeting Android)
   final String?
   cSymbolPrefix; // override C prefix (default: snake_case classname)
   final String? lib; // override .so/.dylib name (default: lib{classname})
 
   const NitroModule({
-    required this.ios,
-    required this.android,
+    this.ios,
+    this.android,
     this.cSymbolPrefix,
     this.lib,
   });

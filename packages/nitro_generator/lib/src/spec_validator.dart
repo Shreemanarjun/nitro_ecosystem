@@ -66,6 +66,21 @@ class SpecValidator {
   /// Runs all validation rules on [spec] and returns the list of issues.
   static List<ValidationIssue> validate(BridgeSpec spec) {
     final issues = <ValidationIssue>[];
+
+    // ── Platform targeting ─────────────────────────────────────────────────
+    if (spec.iosImpl == null && spec.androidImpl == null) {
+      issues.add(
+        ValidationIssue(
+          severity: ValidationSeverity.error,
+          code: 'NO_TARGET_PLATFORM',
+          message:
+              '${spec.dartClassName}: at least one of `ios` or `android` must be specified in @NitroModule.',
+          hint:
+              'Add `ios: NativeImpl.swift` and/or `android: NativeImpl.kotlin` to your @NitroModule annotation.',
+        ),
+      );
+    }
+
     final enumNames = spec.enums.map((e) => e.name).toSet();
     final structNames = spec.structs.map((s) => s.name).toSet();
     final recordNames = spec.recordTypes.map((r) => r.name).toSet();

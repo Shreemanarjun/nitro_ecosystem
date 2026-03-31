@@ -18,8 +18,8 @@ class SpecExtractor {
     final element = module.element as ClassElement;
     final annotation = module.annotation;
 
-    final iosImpl = _getNativeImpl(annotation.read('ios').objectValue);
-    final androidImpl = _getNativeImpl(annotation.read('android').objectValue);
+    final iosImpl = annotation.read('ios').isNull ? null : _getNativeImpl(annotation.read('ios').objectValue);
+    final androidImpl = annotation.read('android').isNull ? null : _getNativeImpl(annotation.read('android').objectValue);
     final cSymbolPrefix = annotation.read('cSymbolPrefix').isNull ? null : annotation.read('cSymbolPrefix').stringValue;
     final lib = annotation.read('lib').isNull ? null : annotation.read('lib').stringValue;
     final sourceFile = library.element.source.uri.pathSegments.last.replaceFirst('.native.dart', '');

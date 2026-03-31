@@ -45,7 +45,7 @@ import 'package:test/test.dart';
 // ── Shared spec helpers ───────────────────────────────────────────────────────
 
 /// Single @HybridRecord with flat primitives + an async return and a sync param.
-BridgeSpec _singleRecordSpec() => BridgeSpec(
+BridgeSpec singleRecordSpec() => BridgeSpec(
   dartClassName: 'CameraModule',
   lib: 'camera_module',
   namespace: 'camera_module',
@@ -98,7 +98,7 @@ BridgeSpec _singleRecordSpec() => BridgeSpec(
 );
 
 /// Nested @HybridRecord with a List<@HybridRecord> field and a list return.
-BridgeSpec _recordListSpec() => BridgeSpec(
+BridgeSpec recordListSpec() => BridgeSpec(
   dartClassName: 'CameraModule',
   lib: 'camera_module',
   namespace: 'camera_module',
@@ -329,7 +329,7 @@ void main() {
 
   group('RecordGenerator.generateKotlin — decodeFrom / decode / writeFieldsTo', () {
     test('companion object has a static decodeFrom(buf: ByteBuffer) method', () {
-      final out = RecordGenerator.generateKotlin(_singleRecordSpec());
+      final out = RecordGenerator.generateKotlin(singleRecordSpec());
       expect(
         out,
         contains('fun decodeFrom(buf: java.nio.ByteBuffer): CameraDevice'),
@@ -338,7 +338,7 @@ void main() {
     });
 
     test('decode(bytes) wraps into ByteBuffer, skips 4-byte prefix, then delegates to decodeFrom', () {
-      final out = RecordGenerator.generateKotlin(_singleRecordSpec());
+      final out = RecordGenerator.generateKotlin(singleRecordSpec());
       // Must skip the 4-byte length prefix
       expect(out, contains('buf.position(4)'));
       // Must delegate to decodeFrom rather than re-implementing field reads
@@ -347,7 +347,7 @@ void main() {
 
     test('decode(bytes) does NOT inline field reads directly', () {
       // All field reads must go through decodeFrom, never re-implemented inline in decode.
-      final out = RecordGenerator.generateKotlin(_singleRecordSpec());
+      final out = RecordGenerator.generateKotlin(singleRecordSpec());
       final decodeBlock = out.substring(
         out.indexOf('fun decode(bytes: ByteArray)'),
         out.indexOf('fun decode(bytes: ByteArray)') + 300,
@@ -358,7 +358,7 @@ void main() {
     });
 
     test('writeFieldsTo method accepts ByteArrayOutputStream + ByteBuffer params', () {
-      final out = RecordGenerator.generateKotlin(_singleRecordSpec());
+      final out = RecordGenerator.generateKotlin(singleRecordSpec());
       expect(
         out,
         contains(
@@ -368,7 +368,7 @@ void main() {
     });
 
     test('encode() calls writeFieldsTo instead of writing fields inline', () {
-      final out = RecordGenerator.generateKotlin(_singleRecordSpec());
+      final out = RecordGenerator.generateKotlin(singleRecordSpec());
       // Locate the encode() body
       final encodeStart = out.indexOf('fun encode(): ByteArray');
       final encodeBlock = out.substring(encodeStart, encodeStart + 400);
@@ -378,14 +378,14 @@ void main() {
     });
 
     test('encode() prepends 4-byte little-endian length prefix', () {
-      final out = RecordGenerator.generateKotlin(_singleRecordSpec());
+      final out = RecordGenerator.generateKotlin(singleRecordSpec());
       expect(out, contains('lenBuf.putInt(payload.size)'));
       expect(out, contains('return lenBuf.array() + payload'));
     });
 
     test('listRecordObject field in decodeFrom uses ClassName.decodeFrom(buf)', () {
       // Resolution list inside CameraDevice must share the cursor, not slice bytes.
-      final out = RecordGenerator.generateKotlin(_recordListSpec());
+      final out = RecordGenerator.generateKotlin(recordListSpec());
       expect(
         out,
         contains('Resolution.decodeFrom(buf)'),
@@ -394,7 +394,7 @@ void main() {
     });
 
     test('listRecordObject field does NOT call ClassName.decode(…) with sliced bytes', () {
-      final out = RecordGenerator.generateKotlin(_recordListSpec());
+      final out = RecordGenerator.generateKotlin(recordListSpec());
       // The old broken pattern — must not appear
       expect(out, isNot(contains('Resolution.decode(')));
     });
@@ -464,12 +464,12 @@ void main() {
     });
 
     test('int field reads via buf.long in decodeFrom', () {
-      final out = RecordGenerator.generateKotlin(_recordListSpec());
+      final out = RecordGenerator.generateKotlin(recordListSpec());
       expect(out, contains('buf.long'));
     });
 
     test('bool field reads via buf.get().toInt() != 0 in decodeFrom', () {
-      final out = RecordGenerator.generateKotlin(_singleRecordSpec());
+      final out = RecordGenerator.generateKotlin(singleRecordSpec());
       expect(out, contains('buf.get().toInt() != 0'));
     });
 
@@ -499,7 +499,7 @@ void main() {
 
   group('CppBridgeGenerator — @HybridRecord return type', () {
     test('JNI method descriptor uses [B (ByteArray) for record return', () {
-      final out = CppBridgeGenerator.generate(_singleRecordSpec());
+      final out = CppBridgeGenerator.generate(singleRecordSpec());
       // GetStaticMethodID call for getDevice_call must use "[B" as return sig
       expect(
         out,
@@ -509,7 +509,7 @@ void main() {
     });
 
     test('record return uses CallStaticObjectMethod to retrieve jbyteArray', () {
-      final out = CppBridgeGenerator.generate(_singleRecordSpec());
+      final out = CppBridgeGenerator.generate(singleRecordSpec());
       expect(
         out,
         contains('(jbyteArray)env->CallStaticObjectMethod'),
@@ -518,7 +518,7 @@ void main() {
     });
 
     test('record return copies bytes via GetByteArrayRegion into malloc buffer', () {
-      final out = CppBridgeGenerator.generate(_singleRecordSpec());
+      final out = CppBridgeGenerator.generate(singleRecordSpec());
       expect(
         out,
         contains('env->GetByteArrayRegion(jarr, 0, len, (jbyte*)result)'),
@@ -527,17 +527,17 @@ void main() {
     });
 
     test('record return allocates buffer with malloc(len)', () {
-      final out = CppBridgeGenerator.generate(_singleRecordSpec());
+      final out = CppBridgeGenerator.generate(singleRecordSpec());
       expect(out, contains('uint8_t* result = (uint8_t*)malloc(len)'));
     });
 
     test('record return calls DeleteLocalRef on the jbyteArray after copy', () {
-      final out = CppBridgeGenerator.generate(_singleRecordSpec());
+      final out = CppBridgeGenerator.generate(singleRecordSpec());
       expect(out, contains('env->DeleteLocalRef(jarr)'));
     });
 
     test('record return checks exception after CallStaticObjectMethod', () {
-      final out = CppBridgeGenerator.generate(_singleRecordSpec());
+      final out = CppBridgeGenerator.generate(singleRecordSpec());
       // Find the record return block and verify exception check precedes byte copy
       final idx = out.indexOf('(jbyteArray)env->CallStaticObjectMethod');
       final snippet = out.substring(idx, idx + 400);
@@ -553,12 +553,12 @@ void main() {
     });
 
     test('List<@HybridRecord> return also uses [B JNI descriptor', () {
-      final out = CppBridgeGenerator.generate(_recordListSpec());
+      final out = CppBridgeGenerator.generate(recordListSpec());
       expect(out, contains('"getAvailableDevices_call", "()[B"'));
     });
 
     test('record return does NOT use CallStaticDoubleMethod or CallStaticLongMethod', () {
-      final out = CppBridgeGenerator.generate(_singleRecordSpec());
+      final out = CppBridgeGenerator.generate(singleRecordSpec());
       // Isolate the getDevice function body (up to next function)
       final idx = out.indexOf('camera_module_get_device(void)');
       final body = out.substring(idx, idx + 600);
@@ -571,27 +571,27 @@ void main() {
 
   group('CppBridgeGenerator — JNI thread safety (NitroJniThreadGuard)', () {
     test('NitroJniThreadGuard struct is emitted in the Android section', () {
-      final out = CppBridgeGenerator.generate(_singleRecordSpec());
+      final out = CppBridgeGenerator.generate(singleRecordSpec());
       expect(out, contains('struct NitroJniThreadGuard {'));
     });
 
     test('NitroJniThreadGuard destructor calls DetachCurrentThread', () {
-      final out = CppBridgeGenerator.generate(_singleRecordSpec());
+      final out = CppBridgeGenerator.generate(singleRecordSpec());
       expect(out, contains('g_jvm->DetachCurrentThread()'));
     });
 
     test('NitroJniThreadGuard has bool attached field defaulting to false', () {
-      final out = CppBridgeGenerator.generate(_singleRecordSpec());
+      final out = CppBridgeGenerator.generate(singleRecordSpec());
       expect(out, contains('bool attached = false;'));
     });
 
     test('static thread_local NitroJniThreadGuard g_thread_guard is declared', () {
-      final out = CppBridgeGenerator.generate(_singleRecordSpec());
+      final out = CppBridgeGenerator.generate(singleRecordSpec());
       expect(out, contains('static thread_local NitroJniThreadGuard g_thread_guard;'));
     });
 
     test('GetEnv sets g_thread_guard.attached = true when attaching', () {
-      final out = CppBridgeGenerator.generate(_singleRecordSpec());
+      final out = CppBridgeGenerator.generate(singleRecordSpec());
       expect(
         out,
         contains('g_thread_guard.attached = true'),
@@ -600,7 +600,7 @@ void main() {
     });
 
     test('GetEnv attaches via AttachCurrentThread when EDETACHED', () {
-      final out = CppBridgeGenerator.generate(_singleRecordSpec());
+      final out = CppBridgeGenerator.generate(singleRecordSpec());
       expect(out, contains('g_jvm->AttachCurrentThread(&env, nullptr)'));
       expect(out, contains('JNI_EDETACHED'));
     });
@@ -608,7 +608,7 @@ void main() {
 
   group('CppBridgeGenerator — JNI exception safety (nitro_report_jni_exception)', () {
     test('nitro_report_jni_exception calls ExceptionClear() before GetObjectClass', () {
-      final out = CppBridgeGenerator.generate(_singleRecordSpec());
+      final out = CppBridgeGenerator.generate(singleRecordSpec());
       // Locate the function body
       final fnStart = out.indexOf('static void nitro_report_jni_exception');
       final fnBody = out.substring(fnStart, fnStart + 800);
@@ -629,7 +629,7 @@ void main() {
     });
 
     test('nitro_report_jni_exception guards j_name null before ReleaseStringUTFChars', () {
-      final out = CppBridgeGenerator.generate(_singleRecordSpec());
+      final out = CppBridgeGenerator.generate(singleRecordSpec());
       // Must check j_name is non-null before releasing
       expect(out, contains('if (j_name) env->ReleaseStringUTFChars'));
     });
@@ -679,8 +679,8 @@ void main() {
     });
 
     test('async no-arena record return calls malloc.free(rawPtr)', () {
-      // _singleRecordSpec().getDevice has no arena params → no-arena async path
-      final out = DartFfiGenerator.generate(_singleRecordSpec());
+      // singleRecordSpec().getDevice has no arena params → no-arena async path
+      final out = DartFfiGenerator.generate(singleRecordSpec());
       expect(out, contains('malloc.free(rawPtr)'));
     });
 
@@ -701,7 +701,7 @@ void main() {
     });
 
     test('async no-arena record return uses typed callAsync<Pointer<Uint8>>', () {
-      final out = DartFfiGenerator.generate(_singleRecordSpec());
+      final out = DartFfiGenerator.generate(singleRecordSpec());
       expect(out, contains('callAsync<Pointer<Uint8>>'));
       expect(out, contains('final rawPtr = await NitroRuntime.callAsync<Pointer<Uint8>>'));
     });
@@ -757,7 +757,7 @@ void main() {
 
   group('KotlinGenerator — List<@HybridRecord> _call serialisation', () {
     test('_call method for List<@HybridRecord> return type is ByteArray', () {
-      final out = KotlinGenerator.generate(_recordListSpec());
+      final out = KotlinGenerator.generate(recordListSpec());
       expect(
         out,
         contains('fun getAvailableDevices_call(): ByteArray'),
@@ -766,12 +766,12 @@ void main() {
     });
 
     test('_call does NOT return List<CameraDevice> (would not pass JNI boundary)', () {
-      final out = KotlinGenerator.generate(_recordListSpec());
+      final out = KotlinGenerator.generate(recordListSpec());
       expect(out, isNot(contains('fun getAvailableDevices_call(): List<CameraDevice>')));
     });
 
     test('_call serialises list count into countBuf before items', () {
-      final out = KotlinGenerator.generate(_recordListSpec());
+      final out = KotlinGenerator.generate(recordListSpec());
       expect(out, contains('countBuf.putInt(result.size)'));
       expect(out, contains('out.write(countBuf.array())'));
     });
@@ -779,7 +779,7 @@ void main() {
     test('_call writes each item via writeFieldsTo (not encode())', () {
       // Using encode() would prepend a per-item 4-byte length prefix, breaking
       // the wire format expected by RecordReader.decodeList on the Dart side.
-      final out = KotlinGenerator.generate(_recordListSpec());
+      final out = KotlinGenerator.generate(recordListSpec());
       expect(out, contains('result.forEach { it.writeFieldsTo(out, buf) }'));
       expect(
         out,
@@ -789,20 +789,20 @@ void main() {
     });
 
     test('_call wraps payload with 4-byte length prefix via lenBuf', () {
-      final out = KotlinGenerator.generate(_recordListSpec());
+      final out = KotlinGenerator.generate(recordListSpec());
       expect(out, contains('lenBuf.putInt(payload.size)'));
       expect(out, contains('return lenBuf.array() + payload'));
     });
 
     test('_call uses pre-sized ByteArrayOutputStream for list serialisation', () {
-      final out = KotlinGenerator.generate(_recordListSpec());
+      final out = KotlinGenerator.generate(recordListSpec());
       // Must use a pre-sized stream; exact size depends on record fields
       expect(out, contains('val out = java.io.ByteArrayOutputStream(result.size *'));
     });
 
     test('interface return type is List<CameraDevice> (not ByteArray)', () {
       // The interface exposes the rich Kotlin type; only the _call bridge uses ByteArray.
-      final out = KotlinGenerator.generate(_recordListSpec());
+      final out = KotlinGenerator.generate(recordListSpec());
       expect(
         out,
         contains('suspend fun getAvailableDevices(): List<CameraDevice>'),
@@ -814,7 +814,7 @@ void main() {
     });
 
     test('single @HybridRecord _call returns result.encode() not custom serialization', () {
-      final out = KotlinGenerator.generate(_singleRecordSpec());
+      final out = KotlinGenerator.generate(singleRecordSpec());
       expect(
         out,
         contains('return result.encode()'),

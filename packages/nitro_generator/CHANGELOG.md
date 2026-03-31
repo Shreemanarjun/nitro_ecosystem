@@ -9,9 +9,16 @@
 - **Improved: FFI memory safety** — `DartFfiGenerator` emits `try { ... } finally { malloc.free(...); }` for all record/struct return paths.
 - **Improved: `checkDisposed()` guards** — Added to all generated methods including `Fast` (leaf) functions; annotated `@pragma('vm:prefer-inline')`.
 - **Fixed: Builder diagnostics** — `builder.printWarning` now shows actual file paths instead of literal placeholders.
+
+- **New: Single-platform targeting** — `@NitroModule` now accepts optional `ios` and `android` parameters. A module can target iOS only, Android only, or both. Generators skip output for untargeted platforms.
+- **New: `BridgeSpec.targetsIos` / `targetsAndroid`** — convenience getters derived from nullable `iosImpl`/`androidImpl`.
+- **New: `NO_TARGET_PLATFORM` validation error** — `SpecValidator` emits an error when neither `ios` nor `android` is specified.
+- **Improved: `BridgeSpec.isCppImpl`** — correctly handles single-platform C++ specs (`ios: NativeImpl.cpp` with `android` omitted, and vice versa).
+- **Improved: `SwiftGenerator`** — returns a placeholder comment when iOS is not targeted instead of generating an empty/broken file.
+- **Improved: `KotlinGenerator`** — returns a placeholder comment when Android is not targeted.
+- **Improved: `CppBridgeGenerator`** — omits `#ifdef __ANDROID__` / `#elif __APPLE__` / `#endif` platform guards for single-platform specs; routes to the appropriate single-platform code path.
+- **Tests: 72 new tests** — platform targeting unit tests, single-platform generator output, `isCppImpl` edge cases, additional validator rules, JNI parameter handling, CMake variable indirection, C++ mock and interface edge cases.
 - **Tests: 100+ new regression tests** — Benchmark spec tests, `Pointer<T>` param/return tests, nullable type tests, and stream backpressure isolation tests across all generators.
-
-
 
 ## 0.2.3
 

@@ -494,6 +494,158 @@ BridgeSpec cppStreamSpec() => BridgeSpec(
   ],
 );
 
+// ── Single-platform spec helpers ─────────────────────────────────────────────
+
+/// iOS-only with Swift (no Android).
+BridgeSpec iosOnlySpec() => BridgeSpec(
+  dartClassName: 'IosCamera',
+  lib: 'ios_camera',
+  namespace: 'ios_camera',
+  iosImpl: NativeImpl.swift,
+  sourceUri: 'ios_camera.native.dart',
+  functions: [
+    BridgeFunction(
+      dartName: 'capture',
+      cSymbol: 'ios_camera_capture',
+      isAsync: false,
+      returnType: BridgeType(name: 'bool'),
+      params: [],
+    ),
+  ],
+);
+
+/// Android-only with Kotlin (no iOS).
+BridgeSpec androidOnlySpec() => BridgeSpec(
+  dartClassName: 'AndroidSensor',
+  lib: 'android_sensor',
+  namespace: 'android_sensor',
+  androidImpl: NativeImpl.kotlin,
+  sourceUri: 'android_sensor.native.dart',
+  functions: [
+    BridgeFunction(
+      dartName: 'read',
+      cSymbol: 'android_sensor_read',
+      isAsync: false,
+      returnType: BridgeType(name: 'double'),
+      params: [],
+    ),
+  ],
+);
+
+/// iOS-only with C++ (no Android).
+BridgeSpec iosOnlyCppSpec() => BridgeSpec(
+  dartClassName: 'IosProcessor',
+  lib: 'ios_processor',
+  namespace: 'ios_processor',
+  iosImpl: NativeImpl.cpp,
+  sourceUri: 'ios_processor.native.dart',
+  functions: [
+    BridgeFunction(
+      dartName: 'process',
+      cSymbol: 'ios_processor_process',
+      isAsync: false,
+      returnType: BridgeType(name: 'double'),
+      params: [
+        BridgeParam(name: 'value', type: BridgeType(name: 'double')),
+      ],
+    ),
+  ],
+);
+
+/// Android-only with C++ (no iOS).
+BridgeSpec androidOnlyCppSpec() => BridgeSpec(
+  dartClassName: 'AndroidProcessor',
+  lib: 'android_processor',
+  namespace: 'android_processor',
+  androidImpl: NativeImpl.cpp,
+  sourceUri: 'android_processor.native.dart',
+  functions: [
+    BridgeFunction(
+      dartName: 'process',
+      cSymbol: 'android_processor_process',
+      isAsync: false,
+      returnType: BridgeType(name: 'double'),
+      params: [
+        BridgeParam(name: 'value', type: BridgeType(name: 'double')),
+      ],
+    ),
+  ],
+);
+
+/// iOS-only with Swift, includes a property (getter + setter).
+BridgeSpec iosOnlyWithPropertySpec() => BridgeSpec(
+  dartClassName: 'IosBrightness',
+  lib: 'ios_brightness',
+  namespace: 'ios_brightness',
+  iosImpl: NativeImpl.swift,
+  sourceUri: 'ios_brightness.native.dart',
+  properties: [
+    BridgeProperty(
+      dartName: 'level',
+      type: BridgeType(name: 'double'),
+      getSymbol: 'ios_brightness_get_level',
+      setSymbol: 'ios_brightness_set_level',
+      hasGetter: true,
+      hasSetter: true,
+    ),
+  ],
+);
+
+/// Android-only with Kotlin, includes a property (getter + setter).
+BridgeSpec androidOnlyWithPropertySpec() => BridgeSpec(
+  dartClassName: 'AndroidVolume',
+  lib: 'android_volume',
+  namespace: 'android_volume',
+  androidImpl: NativeImpl.kotlin,
+  sourceUri: 'android_volume.native.dart',
+  properties: [
+    BridgeProperty(
+      dartName: 'level',
+      type: BridgeType(name: 'int'),
+      getSymbol: 'android_volume_get_level',
+      setSymbol: 'android_volume_set_level',
+      hasGetter: true,
+      hasSetter: true,
+    ),
+  ],
+);
+
+/// iOS-only with Swift, includes a stream.
+BridgeSpec iosOnlyWithStreamSpec() => BridgeSpec(
+  dartClassName: 'IosHeartRate',
+  lib: 'ios_heart_rate',
+  namespace: 'ios_heart_rate',
+  iosImpl: NativeImpl.swift,
+  sourceUri: 'ios_heart_rate.native.dart',
+  streams: [
+    BridgeStream(
+      dartName: 'bpm',
+      registerSymbol: 'ios_heart_rate_register_bpm_stream',
+      releaseSymbol: 'ios_heart_rate_release_bpm_stream',
+      itemType: BridgeType(name: 'double'),
+      backpressure: Backpressure.dropLatest,
+    ),
+  ],
+);
+
+/// Android-only with Kotlin, includes a stream.
+BridgeSpec androidOnlyWithStreamSpec() => BridgeSpec(
+  dartClassName: 'AndroidStepCounter',
+  lib: 'android_step_counter',
+  namespace: 'android_step_counter',
+  androidImpl: NativeImpl.kotlin,
+  sourceUri: 'android_step_counter.native.dart',
+  streams: [
+    BridgeStream(
+      dartName: 'steps',
+      registerSymbol: 'android_step_counter_register_steps_stream',
+      releaseSymbol: 'android_step_counter_release_steps_stream',
+      itemType: BridgeType(name: 'int'),
+      backpressure: Backpressure.dropLatest,
+    ),
+  ],
+);
+
 /// Same as [cppStreamSpec] but the stream item type is a struct (not a
 /// primitive), so the generated unpack must malloc then free the pointer.
 BridgeSpec cppStreamStructSpec() => BridgeSpec(

@@ -4,12 +4,21 @@ class BridgeSpec {
   final String dartClassName;
   final String lib;
   final String namespace;
-  final NativeImpl iosImpl;
-  final NativeImpl androidImpl;
+  final NativeImpl? iosImpl;
+  final NativeImpl? androidImpl;
   final String sourceUri;
 
-  /// True when both platforms use a direct C++ implementation (no JNI / Swift bridge).
-  bool get isCppImpl => iosImpl == NativeImpl.cpp && androidImpl == NativeImpl.cpp;
+  /// True when iOS is a targeted platform.
+  bool get targetsIos => iosImpl != null;
+
+  /// True when Android is a targeted platform.
+  bool get targetsAndroid => androidImpl != null;
+
+  /// True when all targeted platforms use direct C++ (no JNI / Swift bridge).
+  bool get isCppImpl =>
+      (iosImpl == null || iosImpl == NativeImpl.cpp) &&
+      (androidImpl == null || androidImpl == NativeImpl.cpp) &&
+      (iosImpl != null || androidImpl != null);
 
   final List<BridgeStruct> structs;
   final List<BridgeEnum> enums;
@@ -22,8 +31,8 @@ class BridgeSpec {
     required this.dartClassName,
     required this.lib,
     required this.namespace,
-    required this.iosImpl,
-    required this.androidImpl,
+    this.iosImpl,
+    this.androidImpl,
     required this.sourceUri,
     this.structs = const [],
     this.enums = const [],
