@@ -479,6 +479,88 @@ class MyApp extends StatelessWidget {
     });
   });
 
+  // ── bridge spec template ───────────────────────────────────────────────────
+
+  group('bridge spec template', () {
+    String bridgeSpecTemplate(String pluginName, String className) =>
+        '''import 'package:nitro/nitro.dart';
+
+part '$pluginName.g.dart';
+
+@NitroModule(ios: NativeImpl.swift, android: NativeImpl.kotlin, macos: NativeImpl.swift)
+abstract class $className extends HybridObject {
+  static final $className instance = _${className}Impl();
+
+  double add(double a, double b);
+
+  @nitroAsync
+  Future<String> getGreeting(String name);
+}
+''';
+
+    test('includes macos: NativeImpl.swift', () {
+      final out = bridgeSpecTemplate('my_plugin', 'MyPlugin');
+      expect(out, contains('macos: NativeImpl.swift'));
+    });
+
+    test('includes ios and android impls', () {
+      final out = bridgeSpecTemplate('my_plugin', 'MyPlugin');
+      expect(out, contains('ios: NativeImpl.swift'));
+      expect(out, contains('android: NativeImpl.kotlin'));
+    });
+  });
+
+  // ── macOS Package.swift template ───────────────────────────────────────────
+
+  group('macOS Package.swift template', () {
+    String macosPackageSwiftTemplate(String pluginName, String className) =>
+        '''// swift-tools-version: 5.9
+import PackageDescription
+
+let package = Package(
+    name: "$pluginName",
+    platforms: [.macOS(.v10_15)],
+    products: [
+        .library(name: "$pluginName", targets: ["$pluginName"]),
+    ],
+    targets: [
+        // C/C++ bridge — SPM requires Swift and C++ in separate targets.
+        .target(
+            name: "${className}Cpp",
+            path: "Sources/${className}Cpp",
+            publicHeadersPath: "include",
+            cxxSettings: [
+                .headerSearchPath("include"),
+                .unsafeFlags([
+                    "-std=c++17",
+                    // nitro's dart_api_dl.h — resolved via Flutter's symlink
+                    // so this works for both local path and pub.dev references.
+                    "-I../../.symlinks/plugins/nitro/src/native",
+                ])
+            ]
+        ),
+        // Swift implementation + generated bridge.
+        .target(
+            name: "$pluginName",
+            dependencies: ["${className}Cpp"],
+            path: "Sources/$className"
+        ),
+    ]
+)
+''';
+
+    test('targets macOS v10.15', () {
+      final out = macosPackageSwiftTemplate('my_plugin', 'MyPlugin');
+      expect(out, contains('.macOS(.v10_15)'));
+    });
+
+    test('uses correct plugin name and class name', () {
+      final out = macosPackageSwiftTemplate('nitro_camera', 'NitroCamera');
+      expect(out, contains('name: "nitro_camera"'));
+      expect(out, contains('name: "NitroCameraCpp"'));
+    });
+  });
+
   // ── NitrogenInitApp ────────────────────────────────────────────────────────
 
   group('NitrogenInitApp', () {

@@ -142,6 +142,7 @@ class _InitViewState extends State<InitView> {
     InitStep('Setting up src/ directory'),
     InitStep('Configuring iOS'),
     InitStep('Configuring Android'),
+    InitStep('Configuring macOS'),
     InitStep('Updating pubspec.yaml'),
     InitStep('Writing bridge spec'),
   ];
@@ -192,7 +193,7 @@ class _InitViewState extends State<InitView> {
     final createResult = await Process.run('flutter', [
       'create',
       '--template=plugin_ffi',
-      '--platforms=android,ios',
+      '--platforms=android,ios,macos',
       '--org=$org',
       pluginName,
     ]);
@@ -218,8 +219,13 @@ class _InitViewState extends State<InitView> {
     _configureAndroid(pluginName, className, org);
     _setDone(4, detail: 'build.gradle + ${className}Plugin.kt');
 
-    // Step 5 — pubspec (fetch latest versions from pub.dev)
+    // Step 5 — macOS
     _setRunning(5);
+    _configureMacos(pluginName, className);
+    _setDone(5, detail: 'podspec + Swift${className}Plugin.swift');
+
+    // Step 6 — pubspec (fetch latest versions from pub.dev)
+    _setRunning(6);
     String? nitroVersion;
     String? nitroGeneratorVersion;
     bool usePubAdd = false;
@@ -237,12 +243,12 @@ class _InitViewState extends State<InitView> {
     if (usePubAdd) {
       await Process.run('flutter', ['pub', 'add', 'nitro'], workingDirectory: pluginName);
       await Process.run('flutter', ['pub', 'add', '--dev', 'nitro_generator'], workingDirectory: pluginName);
-      _setDone(5, detail: 'nitro, nitro_generator added via flutter pub add');
+      _setDone(6, detail: 'nitro, nitro_generator added via flutter pub add');
     } else {
       // pubspec was updated without running pub add — run pub get so
       // .dart_tool/package_config.json is created before path resolution.
       await Process.run('flutter', ['pub', 'get'], workingDirectory: pluginName);
-      _setDone(5, detail: 'nitro $nitroVersion, nitro_generator $nitroGeneratorVersion added');
+      _setDone(6, detail: 'nitro $nitroVersion, nitro_generator $nitroGeneratorVersion added');
     }
 
     // Resolve the actual installed nitro path from package_config.json and
@@ -251,11 +257,11 @@ class _InitViewState extends State<InitView> {
     // instead of the monorepo placeholder written in Step 2.
     _resolveSrcPaths(pluginName);
 
-    // Step 6 — bridge spec + example main.dart
-    _setRunning(6);
+    // Step 7 — bridge spec + example main.dart
+    _setRunning(7);
     _writeBridgeSpec(pluginName, className);
     _writeExampleMain(pluginName, className);
-    _setDone(6, detail: 'lib/src/$pluginName.native.dart + example/lib/main.dart');
+    _setDone(7, detail: 'lib/src/$pluginName.native.dart + example/lib/main.dart');
 
     component.result.success = true;
     component.result.pluginName = pluginName;
@@ -599,11 +605,19 @@ public class ${className}Impl: NSObject, Hybrid${className}Protocol {
   }
 
   void _writeIosPackageSwift(String iosPath, String pluginName, String className) {
+    _writeApplePackageSwift(iosPath, pluginName, className, 'iOS(.v13)');
+  }
+
+  void _writeMacosPackageSwift(String macosPath, String pluginName, String className) {
+    _writeApplePackageSwift(macosPath, pluginName, className, 'macOS(.v10_15)');
+  }
+
+  void _writeApplePackageSwift(String path, String pluginName, String className, String platformSpec) {
     // SPM Sources layout (separate dirs required for mixed Swift/C++ targets):
     //   Sources/<ClassName>/     — Swift files (symlinks to Classes/*.swift)
     //   Sources/<ClassName>Cpp/  — C/C++ files (symlinks to Classes/*.cpp/.c)
-    final swiftSrcDir = Directory(p.join(iosPath, 'Sources', className));
-    final cppSrcDir = Directory(p.join(iosPath, 'Sources', '${className}Cpp'));
+    final swiftSrcDir = Directory(p.join(path, 'Sources', className));
+    final cppSrcDir = Directory(p.join(path, 'Sources', '${className}Cpp'));
     swiftSrcDir.createSync(recursive: true);
     cppSrcDir.createSync(recursive: true);
 
@@ -632,12 +646,12 @@ public class ${className}Impl: NSObject, Hybrid${className}Protocol {
       includeLink.createSync('../../Classes');
     }
 
-    File(p.join(iosPath, 'Package.swift')).writeAsStringSync('''// swift-tools-version: 5.9
+    File(p.join(path, 'Package.swift')).writeAsStringSync('''// swift-tools-version: 5.9
 import PackageDescription
 
 let package = Package(
     name: "$pluginName",
-    platforms: [.iOS(.v13)],
+    platforms: [.$platformSpec],
     products: [
         .library(name: "$pluginName", targets: ["$pluginName"]),
     ],
@@ -765,6 +779,78 @@ class ${className}Impl(private val context: Context) : Hybrid${className}Spec {
     }
   }
 
+  void _configureMacos(String pluginName, String className) {
+    final macosDir = Directory(p.join(pluginName, 'macos'));
+    final classesDir = Directory(p.join(macosDir.path, 'Classes'));
+    if (!classesDir.existsSync()) classesDir.createSync(recursive: true);
+
+    final oldC = File(p.join(classesDir.path, '$pluginName.c'));
+    if (oldC.existsSync()) oldC.deleteSync();
+
+    for (final f in classesDir.listSync().whereType<File>()) {
+      if (f.path.endsWith('Plugin.swift')) f.deleteSync();
+    }
+
+    File(p.join(classesDir.path, '$pluginName.cpp')).writeAsStringSync('#include "../../src/$pluginName.cpp"\n');
+
+    File(p.join(classesDir.path, 'dart_api_dl.c')).writeAsStringSync(
+      '// Forwarder — compiled as C so it can be used in the dylib.\n'
+      '#include "../../src/dart_api_dl.c"\n',
+    );
+
+    File(p.join(classesDir.path, 'Swift${className}Plugin.swift')).writeAsStringSync('''import FlutterMacOS
+import AppKit
+
+public class Swift${className}Plugin: NSObject, FlutterPlugin {
+    public static func register(with registrar: FlutterPluginRegistrar) {
+        ${className}Registry.register(${className}Impl())
+    }
+}
+''');
+
+    final implFile = File(p.join(classesDir.path, '${className}Impl.swift'));
+    if (!implFile.existsSync()) {
+      implFile.writeAsStringSync('''import Foundation
+
+/// Native implementation of Hybrid${className}Protocol on macOS.
+public class ${className}Impl: NSObject, Hybrid${className}Protocol {
+
+    public func add(a: Double, b: Double) -> Double {
+        return a + b
+    }
+
+    public func getGreeting(name: String) async throws -> String {
+        return "Hello, \\(name) from macOS!"
+    }
+}
+''');
+    }
+
+    // Symlink bridge
+    final symlinkPath = p.join(classesDir.path, '$pluginName.bridge.g.swift');
+    final symlinkTarget = '../../lib/src/generated/swift/$pluginName.bridge.g.swift';
+    final link = Link(symlinkPath);
+    if (link.existsSync()) link.deleteSync();
+    link.createSync(symlinkTarget);
+
+    final podspecFile = File(p.join(macosDir.path, '$pluginName.podspec'));
+    if (podspecFile.existsSync()) {
+      var content = podspecFile.readAsStringSync();
+      content = content.replaceFirst(RegExp(r"s\.platform = :osx, '[\d.]+'"), "s.platform = :osx, '10.15'");
+      content = content.replaceFirst(RegExp(r"s\.swift_version = '[\d.]+'"), "s.swift_version = '5.9'");
+      const xcconfig = r"""s.pod_target_xcconfig = {
+    'DEFINES_MODULE' => 'YES',
+    'CLANG_CXX_LANGUAGE_STANDARD' => 'c++17',
+    'CLANG_CXX_LIBRARY' => 'libc++',
+    'HEADER_SEARCH_PATHS' => '$(inherited) "${PODS_ROOT}/../.symlinks/plugins/nitro/src/native"'
+  }""";
+      content = content.replaceFirst(RegExp(r's\.pod_target_xcconfig\s*=\s*\{[^}]*\}'), xcconfig);
+      podspecFile.writeAsStringSync(content);
+    }
+
+    _writeMacosPackageSwift(macosDir.path, pluginName, className);
+  }
+
   void _updatePubspec(
     String pluginName,
     String className,
@@ -804,6 +890,8 @@ class ${className}Impl(private val context: Context) : Hybrid${className}Spec {
         r'      android:\s*\n'
         r'        ffiPlugin: true\s*\n'
         r'      ios:\s*\n'
+        r'        ffiPlugin: true\s*\n'
+        r'      macos:\s*\n'
         r'        ffiPlugin: true',
       ),
       '    platforms:\n'
@@ -812,6 +900,9 @@ class ${className}Impl(private val context: Context) : Hybrid${className}Spec {
       '        package: $org.$pluginName\n'
       '        ffiPlugin: true\n'
       '      ios:\n'
+      '        pluginClass: Swift${className}Plugin\n'
+      '        ffiPlugin: true\n'
+      '      macos:\n'
       '        pluginClass: Swift${className}Plugin\n'
       '        ffiPlugin: true',
     );
@@ -827,7 +918,7 @@ class ${className}Impl(private val context: Context) : Hybrid${className}Spec {
 
 part '$pluginName.g.dart';
 
-@NitroModule(ios: NativeImpl.swift, android: NativeImpl.kotlin)
+@NitroModule(ios: NativeImpl.swift, android: NativeImpl.kotlin, macos: NativeImpl.swift)
 abstract class $className extends HybridObject {
   static final $className instance = _${className}Impl();
 
