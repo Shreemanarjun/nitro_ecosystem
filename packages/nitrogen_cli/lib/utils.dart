@@ -79,10 +79,11 @@ void launchUrl(String url) {
   }
 }
 
-/// Synchronizes generated bridge files from lib/src/generated to native project roots (ios/Classes).
-/// This is needed for iOS development as CocoaPods normally uses copies instead of symlinks.
-void syncBridgeFiles(String workingDirectory) {
-  final classesDir = Directory(p.join(workingDirectory, 'ios', 'Classes'));
+/// Synchronizes generated bridge files from lib/src/generated to native project roots.
+/// [platform] is the platform directory name ('ios' or 'macos'). Defaults to 'ios'.
+/// This is needed for Apple development as CocoaPods normally uses copies instead of symlinks.
+void syncBridgeFiles(String workingDirectory, {String platform = 'ios'}) {
+  final classesDir = Directory(p.join(workingDirectory, platform, 'Classes'));
   if (!classesDir.existsSync()) return;
 
   final generatedDir = Directory(p.join(workingDirectory, 'lib', 'src', 'generated'));

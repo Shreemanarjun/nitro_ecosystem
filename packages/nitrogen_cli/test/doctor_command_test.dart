@@ -113,7 +113,7 @@ end
   if (specs.isNotEmpty) {
     final libDir = Directory(p.join(root.path, 'lib', 'src'))..createSync(recursive: true);
     for (final spec in specs) {
-      final implLine = spec.isCpp ? 'iosImpl: NativeImpl.cpp, androidImpl: NativeImpl.cpp' : 'iosImpl: NativeImpl.swift, androidImpl: NativeImpl.kotlin';
+      final implLine = spec.isCpp ? 'ios: NativeImpl.cpp, android: NativeImpl.cpp' : 'ios: NativeImpl.swift, android: NativeImpl.kotlin';
       File(p.join(libDir.path, '${spec.name}.native.dart')).writeAsStringSync('''
 import 'package:nitro/nitro.dart';
 @NitroModule(lib: "${spec.name}", $implLine)

@@ -29,34 +29,50 @@ void main() {
   // ── isCppModule ─────────────────────────────────────────────────────────────
 
   group('isCppModule', () {
-    test('returns true when both iosImpl and androidImpl are NativeImpl.cpp', () {
+    test('returns true when both ios and android are NativeImpl.cpp', () {
       final spec = _writeSpec(_libDir(tmp), 'math.native.dart', '''
 import 'package:nitro/nitro.dart';
-@NitroModule(lib: "math", iosImpl: NativeImpl.cpp, androidImpl: NativeImpl.cpp)
+@NitroModule(lib: "math", ios: NativeImpl.cpp, android: NativeImpl.cpp)
 abstract class Math extends HybridObject {}
 ''');
       expect(isCppModule(spec), isTrue);
     });
 
-    test('returns false when only iosImpl is NativeImpl.cpp', () {
+    test('returns true when only ios is NativeImpl.cpp (ios-only cpp)', () {
       final spec = _writeSpec(_libDir(tmp), 'math.native.dart', '''
-@NitroModule(lib: "math", iosImpl: NativeImpl.cpp, androidImpl: NativeImpl.kotlin)
+@NitroModule(lib: "math", ios: NativeImpl.cpp)
 abstract class Math extends HybridObject {}
 ''');
-      expect(isCppModule(spec), isFalse);
+      expect(isCppModule(spec), isTrue);
     });
 
-    test('returns false when only androidImpl is NativeImpl.cpp', () {
+    test('returns true when only macosImpl is NativeImpl.cpp (macos-only cpp)', () {
       final spec = _writeSpec(_libDir(tmp), 'math.native.dart', '''
-@NitroModule(lib: "math", iosImpl: NativeImpl.swift, androidImpl: NativeImpl.cpp)
+@NitroModule(lib: "math", macos: NativeImpl.cpp)
 abstract class Math extends HybridObject {}
 ''');
-      expect(isCppModule(spec), isFalse);
+      expect(isCppModule(spec), isTrue);
+    });
+
+    test('returns true when ios+macos are both NativeImpl.cpp (no android)', () {
+      final spec = _writeSpec(_libDir(tmp), 'math.native.dart', '''
+@NitroModule(lib: "math", ios: NativeImpl.cpp, macos: NativeImpl.cpp)
+abstract class Math extends HybridObject {}
+''');
+      expect(isCppModule(spec), isTrue);
+    });
+
+    test('returns true when ios is NativeImpl.cpp even when android is kotlin (mixed)', () {
+      final spec = _writeSpec(_libDir(tmp), 'math.native.dart', '''
+@NitroModule(lib: "math", ios: NativeImpl.cpp, android: NativeImpl.kotlin)
+abstract class Math extends HybridObject {}
+''');
+      expect(isCppModule(spec), isTrue);
     });
 
     test('returns false when neither impl is NativeImpl.cpp', () {
       final spec = _writeSpec(_libDir(tmp), 'math.native.dart', '''
-@NitroModule(lib: "math", iosImpl: NativeImpl.swift, androidImpl: NativeImpl.kotlin)
+@NitroModule(lib: "math", ios: NativeImpl.swift, android: NativeImpl.kotlin)
 abstract class Math extends HybridObject {}
 ''');
       expect(isCppModule(spec), isFalse);
@@ -77,10 +93,10 @@ abstract class Math extends HybridObject {}
       expect(isCppModule(spec), isFalse);
     });
 
-    test('returns false when NativeImpl.cpp appears only once in annotation', () {
-      // Edge case: someone writes the lib name as "NativeImpl.cpp" — still only one occurrence
+    test('returns false when lib name contains NativeImpl.cpp but no platform uses it', () {
+      // lib name "NativeImpl.cpp" must not be confused with a platform arg
       final spec = _writeSpec(_libDir(tmp), 'math.native.dart', '''
-@NitroModule(lib: "NativeImpl.cpp", androidImpl: NativeImpl.kotlin)
+@NitroModule(lib: "NativeImpl.cpp", android: NativeImpl.kotlin)
 abstract class Math extends HybridObject {}
 ''');
       expect(isCppModule(spec), isFalse);
@@ -93,7 +109,7 @@ abstract class Math extends HybridObject {}
     test('sets isCpp=true for NativeImpl.cpp spec', () {
       final libDir = _libDir(tmp);
       _writeSpec(libDir, 'math.native.dart', '''
-@NitroModule(lib: "math", iosImpl: NativeImpl.cpp, androidImpl: NativeImpl.cpp)
+@NitroModule(lib: "math", ios: NativeImpl.cpp, android: NativeImpl.cpp)
 abstract class Math extends HybridObject {}
 ''');
       final modules = discoverModuleInfos('plugin_name', baseDir: tmp.path);
@@ -105,7 +121,7 @@ abstract class Math extends HybridObject {}
     test('sets isCpp=false for Swift/Kotlin spec', () {
       final libDir = _libDir(tmp);
       _writeSpec(libDir, 'math.native.dart', '''
-@NitroModule(lib: "math", iosImpl: NativeImpl.swift, androidImpl: NativeImpl.kotlin)
+@NitroModule(lib: "math", ios: NativeImpl.swift, android: NativeImpl.kotlin)
 abstract class Math extends HybridObject {}
 ''');
       final modules = discoverModuleInfos('plugin_name', baseDir: tmp.path);
@@ -116,11 +132,11 @@ abstract class Math extends HybridObject {}
     test('handles mixed cpp and kotlin modules in same project', () {
       final libDir = _libDir(tmp);
       _writeSpec(libDir, 'math.native.dart', '''
-@NitroModule(lib: "math", iosImpl: NativeImpl.cpp, androidImpl: NativeImpl.cpp)
+@NitroModule(lib: "math", ios: NativeImpl.cpp, android: NativeImpl.cpp)
 abstract class Math extends HybridObject {}
 ''');
       _writeSpec(libDir, 'utils.native.dart', '''
-@NitroModule(lib: "utils", iosImpl: NativeImpl.swift, androidImpl: NativeImpl.kotlin)
+@NitroModule(lib: "utils", ios: NativeImpl.swift, android: NativeImpl.kotlin)
 abstract class Utils extends HybridObject {}
 ''');
       final modules = discoverModuleInfos('plugin_name', baseDir: tmp.path);
@@ -135,12 +151,12 @@ abstract class Utils extends HybridObject {}
       final libDir = _libDir(tmp);
       // Two files with the same class name — only one module should be discovered
       _writeSpec(libDir, 'math.native.dart', '''
-@NitroModule(lib: "math", iosImpl: NativeImpl.cpp, androidImpl: NativeImpl.cpp)
+@NitroModule(lib: "math", ios: NativeImpl.cpp, android: NativeImpl.cpp)
 abstract class Math extends HybridObject {}
 ''');
       final subDir = Directory(p.join(libDir.path, 'sub'))..createSync();
       _writeSpec(subDir, 'math.native.dart', '''
-@NitroModule(lib: "math", iosImpl: NativeImpl.cpp, androidImpl: NativeImpl.cpp)
+@NitroModule(lib: "math", ios: NativeImpl.cpp, android: NativeImpl.cpp)
 abstract class Math extends HybridObject {}
 ''');
       final modules = discoverModuleInfos('plugin_name', baseDir: tmp.path);

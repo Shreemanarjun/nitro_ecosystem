@@ -54,14 +54,17 @@ String? extractLibNameFromSpec(File specFile) {
   return match?.group(1);
 }
 
-/// Returns true when the spec file declares both platforms as NativeImpl.cpp —
-/// meaning it uses a direct C++ implementation instead of Kotlin/Swift bridges.
+/// Returns true when the spec file declares at least one platform (ios/android/macos)
+/// as NativeImpl.cpp — meaning it uses a direct C++ implementation instead of
+/// Kotlin/Swift bridges. Handles single-platform (macos-only), dual-platform
+/// (ios+macos), and tri-platform specs. Only checks actual platform args, not
+/// the lib name or other fields that might coincidentally contain "NativeImpl.cpp".
 bool isCppModule(File specFile) {
   final content = specFile.readAsStringSync();
   final match = RegExp(r'@NitroModule\s*\(([^)]+)\)').firstMatch(content);
   if (match == null) return false;
   final annotation = match.group(1)!;
-  return annotation.contains('NativeImpl.cpp') && annotation.replaceFirst('NativeImpl.cpp', '').contains('NativeImpl.cpp');
+  return RegExp(r'\b(?:ios|android|macos)\s*:\s*NativeImpl\.cpp\b').hasMatch(annotation);
 }
 
 /// Module descriptor. `isCpp` indicates a direct C++ implementation (no JNI/Swift bridge).
@@ -191,6 +194,7 @@ class _LinkViewState extends State<LinkView> {
     LinkStep('Discovering modules'),
     LinkStep('Updating src/CMakeLists.txt'),
     LinkStep('Updating iOS podspec'),
+    LinkStep('Updating macOS podspec'),
     LinkStep('Updating Swift Plugin.swift (Kotlin/Swift modules)'),
     LinkStep('Updating Kotlin Plugin.kt (Kotlin/Swift modules)'),
     LinkStep('Updating .clangd'),
@@ -251,18 +255,26 @@ class _LinkViewState extends State<LinkView> {
       }
 
       await _setRunning(3);
+      if (Directory(p.join(Directory.current.path, 'macos')).existsSync()) {
+        linkMacosPodspec(pluginName, moduleInfos.map((m) => m.lib).toList(), baseDir: Directory.current.path, moduleInfos: moduleInfos);
+        await _setDone(3);
+      } else {
+        await _setSkipped(3, detail: 'macos/ not present');
+      }
+
+      await _setRunning(4);
       if (!hasNonCpp) {
-        await _setSkipped(3, detail: 'all modules use NativeImpl.cpp — no Swift bridge needed');
+        await _setSkipped(4, detail: 'all modules use NativeImpl.cpp — no Swift bridge needed');
       } else if (Directory(p.join(Directory.current.path, 'ios')).existsSync()) {
         // Only wire non-cpp modules into Swift plugin
         final nonCppModules = moduleInfos.where((m) => !m.isCpp).map((m) => m.toMap()).toList();
         linkSwiftPlugin(pluginName, nonCppModules, baseDir: Directory.current.path);
-        await _setDone(3);
+        await _setDone(4);
       } else {
-        await _setSkipped(3, detail: 'ios/ not present');
+        await _setSkipped(4, detail: 'ios/ not present');
       }
 
-      await _setRunning(4);
+      await _setRunning(5);
       if (Directory(p.join(Directory.current.path, 'android')).existsSync()) {
         if (hasNonCpp) {
           final nonCppModules = moduleInfos.where((m) => !m.isCpp).map((m) => m.toMap()).toList();
@@ -272,14 +284,14 @@ class _LinkViewState extends State<LinkView> {
         if (hasCpp) {
           linkKotlinLoadLibraries(moduleInfos.where((m) => m.isCpp).map((m) => m.lib).toList(), baseDir: Directory.current.path);
         }
-        await _setDone(4, detail: hasNonCpp ? null : 'cpp: loadLibrary only (no JniBridge)');
+        await _setDone(5, detail: hasNonCpp ? null : 'cpp: loadLibrary only (no JniBridge)');
       } else {
-        await _setSkipped(4, detail: 'android/ not present');
+        await _setSkipped(5, detail: 'android/ not present');
       }
 
-      await _setRunning(5);
+      await _setRunning(6);
       linkClangd(pluginName, moduleInfos: moduleInfos, baseDir: Directory.current.path);
-      await _setDone(5);
+      await _setDone(6);
 
       if (allCpp) {
         _nextSteps.addAll([
@@ -452,6 +464,9 @@ void createSharedHeaders(String nitroNativePath, {String baseDir = '.'}) {
   File(p.join(baseDir, 'src', 'nitro.h')).writeAsStringSync(nitroHContent);
   if (Directory(p.join(baseDir, 'ios', 'Classes')).existsSync()) {
     File(p.join(baseDir, 'ios', 'Classes', 'nitro.h')).writeAsStringSync(nitroHContent);
+  }
+  if (Directory(p.join(baseDir, 'macos', 'Classes')).existsSync()) {
+    File(p.join(baseDir, 'macos', 'Classes', 'nitro.h')).writeAsStringSync(nitroHContent);
   }
   File(p.join(baseDir, 'src', 'dart_api_dl.c')).writeAsStringSync(dartApiDlForwarderContent(nitroNativePath));
 }
@@ -661,6 +676,76 @@ void linkPodspec(String pluginName, List<String> moduleLibs, {String baseDir = '
   }
 
   ensureIosPackageSwift(pluginName, baseDir: baseDir, moduleInfos: moduleInfos);
+}
+
+void linkMacosPodspec(String pluginName, List<String> moduleLibs, {String baseDir = '.', List<ModuleInfo>? moduleInfos}) {
+  final podspecFile = File(p.join(baseDir, 'macos', '$pluginName.podspec'));
+  if (!podspecFile.existsSync()) return;
+  var content = podspecFile.readAsStringSync();
+  bool modified = false;
+  if (!content.contains("s.swift_version = '5.9'")) {
+    content = content.replaceFirst(RegExp(r"s\.swift_version\s*=\s*'.+?'"), "s.swift_version = '5.9'");
+    modified = true;
+  }
+  if (!content.contains("s.platform = :osx, '10.15'")) {
+    content = content.replaceFirst(RegExp(r"s\.platform\s*=\s*:osx,\s*'.+?'"), "s.platform = :osx, '10.15'");
+    modified = true;
+  }
+  if (!content.contains('HEADER_SEARCH_PATHS')) {
+    content = content.replaceFirst(
+      's.pod_target_xcconfig = {',
+      "s.pod_target_xcconfig = {\n    'HEADER_SEARCH_PATHS' => '\$(inherited) \"\${PODS_ROOT}/../.symlinks/plugins/nitro/src/native\" \"\${PODS_TARGET_SRCROOT}/../src\" \"\${PODS_TARGET_SRCROOT}/../lib/src/generated/cpp\"',",
+    );
+    modified = true;
+  } else {
+    if (!content.contains('PODS_TARGET_SRCROOT}/../src') || !content.contains('lib/src/generated/cpp')) {
+      final match = RegExp(r"'HEADER_SEARCH_PATHS'\s*=>\s*'([^']+)'").firstMatch(content);
+      if (match != null) {
+        var paths = match.group(1)!;
+        if (!paths.contains('PODS_TARGET_SRCROOT}/../src')) {
+          paths += ' "\${PODS_TARGET_SRCROOT}/../src"';
+        }
+        if (!paths.contains('lib/src/generated/cpp')) {
+          paths += ' "\${PODS_TARGET_SRCROOT}/../lib/src/generated/cpp"';
+        }
+        content = content.replaceFirst(match.group(0)!, "'HEADER_SEARCH_PATHS' => '$paths'");
+        modified = true;
+      }
+    }
+  }
+  if (!content.contains("'DEFINES_MODULE' => 'YES'")) {
+    content = content.replaceFirst('s.pod_target_xcconfig = {', "s.pod_target_xcconfig = {\n    'DEFINES_MODULE' => 'YES',");
+    modified = true;
+  }
+  if (modified) podspecFile.writeAsStringSync(content);
+  final nitroNativePath = resolveNitroNativePath(baseDir);
+  createSharedHeaders(nitroNativePath, baseDir: baseDir);
+  final classesDir = Directory(p.join(baseDir, 'macos', 'Classes'))..createSync(recursive: true);
+  File(p.join(classesDir.path, 'dart_api_dl.c')).writeAsStringSync('#include "../../src/dart_api_dl.c"\n');
+  syncBridgeFiles(baseDir, platform: 'macos');
+
+  // Link the main project source files.
+  final cppInSrc = File(p.join(baseDir, 'src', '$pluginName.cpp'));
+  if (cppInSrc.existsSync()) {
+    cleanRedundantIncludes(cppInSrc);
+    File(p.join(classesDir.path, '$pluginName.cpp')).writeAsStringSync('// Generated by nitrogen link — do not edit.\n#include "../../src/$pluginName.cpp"\n');
+  }
+  final cInSrc = File(p.join(baseDir, 'src', '$pluginName.c'));
+  if (cInSrc.existsSync()) {
+    cleanRedundantIncludes(cInSrc);
+    File(p.join(classesDir.path, '$pluginName.c')).writeAsStringSync('#include "../../src/$pluginName.c"\n');
+  }
+
+  // Link C++ module implementation files for macOS.
+  if (moduleInfos != null) {
+    for (final m in moduleInfos.where((m) => m.isCpp)) {
+      final className = _toPascalCase(m.lib);
+      final implSrc = File(p.join(baseDir, 'src', 'Hybrid$className.cpp'));
+      if (implSrc.existsSync()) {
+        File(p.join(classesDir.path, 'Hybrid$className.cpp')).writeAsStringSync('// Generated by nitrogen link — do not edit.\n#include "../../src/Hybrid$className.cpp"\n');
+      }
+    }
+  }
 }
 
 void cleanRedundantIncludes(File file) {

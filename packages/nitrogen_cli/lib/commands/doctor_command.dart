@@ -466,6 +466,16 @@ class DoctorCommand extends Command {
       err(pubSec, 'ios pluginClass missing', hint: 'Add pluginClass under flutter.plugin.platforms.ios');
     }
 
+    if (pubspec.contains('  macos:')) {
+      if (RegExp(r'macos:\s*\n(?:\s+\S[^\n]*\n)*\s+pluginClass:').hasMatch(pubspec)) {
+        ok(pubSec, 'macos pluginClass defined');
+      } else if (RegExp(r'macos:\s*\n(?:\s+\S[^\n]*\n)*\s+ffiPlugin:\s*true').hasMatch(pubspec)) {
+        ok(pubSec, 'macos ffiPlugin: true (pluginClass optional for FFI plugins)');
+      } else {
+        warn(pubSec, 'macos pluginClass missing', hint: 'Add pluginClass or ffiPlugin: true under flutter.plugin.platforms.macos');
+      }
+    }
+
     if (specs.isNotEmpty) {
       final genSec = DoctorSection('Generated Files');
       sections.add(genSec);
@@ -759,6 +769,100 @@ class DoctorCommand extends Command {
       } else if (specs.isNotEmpty && !allSpecsCpp) {
         // Only warn about missing .mm bridges for non-cpp modules
         warn(iosSec, 'No .bridge.g.mm files in ios/Classes/', hint: 'Run: nitrogen link');
+      }
+    }
+
+    final macosSec = DoctorSection('macOS');
+    sections.add(macosSec);
+    final macosDir = Directory(p.join(root.path, 'macos'));
+    if (!macosDir.existsSync()) {
+      info(macosSec, 'macos/ directory not present — skipped');
+    } else {
+      final podFiles = macosDir.listSync().whereType<File>().where((f) => f.path.endsWith('.podspec')).toList();
+      if (podFiles.isEmpty) {
+        err(macosSec, 'No .podspec found in macos/', hint: 'Run: nitrogen init');
+      } else {
+        final pod = podFiles.first.readAsStringSync();
+        final podName = p.basename(podFiles.first.path);
+        if (pod.contains('HEADER_SEARCH_PATHS')) {
+          ok(macosSec, 'HEADER_SEARCH_PATHS in $podName');
+        } else {
+          err(macosSec, 'HEADER_SEARCH_PATHS missing in $podName', hint: 'Run: nitrogen link');
+        }
+        if (pod.contains('c++17')) {
+          ok(macosSec, 'CLANG_CXX_LANGUAGE_STANDARD = c++17');
+        } else {
+          warn(macosSec, 'CLANG_CXX_LANGUAGE_STANDARD not set to c++17', hint: "Set: 'CLANG_CXX_LANGUAGE_STANDARD' => 'c++17' in pod_target_xcconfig");
+        }
+        if (pod.contains('lib/src/generated/cpp') && pod.contains('src/native')) {
+          ok(macosSec, 'Comprehensive HEADER_SEARCH_PATHS in podspec');
+        } else {
+          warn(macosSec, 'Incomplete HEADER_SEARCH_PATHS in podspec', hint: 'Run: nitrogen link');
+        }
+      }
+
+      final macosClassesDir = Directory(p.join(macosDir.path, 'Classes'));
+      if (allSpecsCpp) {
+        info(macosSec, 'All modules use NativeImpl.cpp — Swift bridge (Registry.register) not required');
+        final cppHeaders = macosClassesDir.existsSync() ? macosClassesDir.listSync().whereType<File>().where((f) => f.path.endsWith('.native.g.h')).toList() : <File>[];
+        if (cppHeaders.isNotEmpty) {
+          ok(macosSec, '${cppHeaders.length} *.native.g.h header(s) synced to macos/Classes/');
+        } else if (hasAnyCppSpec) {
+          warn(macosSec, 'No *.native.g.h in macos/Classes/', hint: 'Run: nitrogen generate && nitrogen link');
+        }
+      } else {
+        final swiftFiles = macosClassesDir.existsSync() ? macosClassesDir.listSync().whereType<File>().where((f) => f.path.endsWith('Plugin.swift')).toList() : <File>[];
+        if (swiftFiles.isEmpty) {
+          err(macosSec, 'No *Plugin.swift in macos/Classes/', hint: 'Run: nitrogen init');
+        } else {
+          final swift = swiftFiles.first.readAsStringSync();
+          if (hasAnyNonCppSpec) {
+            if (swift.contains('Registry.register(') || swift.contains('.register(')) {
+              ok(macosSec, 'Plugin.swift has Registry.register(...)');
+            } else {
+              warn(macosSec, 'Registry.register(...) not found in Plugin.swift', hint: 'Add: NitroModules.Registry.register(...) in register(with:)');
+            }
+          } else {
+            info(macosSec, 'Registry.register not needed — all modules use NativeImpl.cpp');
+          }
+        }
+      }
+
+      final dartApiDl = File(p.join(macosDir.path, 'Classes', 'dart_api_dl.c'));
+      if (dartApiDl.existsSync()) {
+        ok(macosSec, 'macos/Classes/dart_api_dl.c present');
+      } else {
+        err(macosSec, 'macos/Classes/dart_api_dl.c missing', hint: 'Run: nitrogen link');
+      }
+
+      final nitroH = File(p.join(macosDir.path, 'Classes', 'nitro.h'));
+      if (nitroH.existsSync()) {
+        ok(macosSec, 'macos/Classes/nitro.h present');
+      } else {
+        err(macosSec, 'macos/Classes/nitro.h missing', hint: 'Run: nitrogen link');
+      }
+
+      if (nitroH.existsSync()) {
+        final content = nitroH.readAsStringSync();
+        if (content.contains('NITRO_EXPORT')) {
+          ok(macosSec, 'nitro.h contains NITRO_EXPORT visibility macro');
+        } else {
+          err(macosSec, 'nitro.h missing NITRO_EXPORT visibility macro', hint: 'Run: nitrogen link');
+        }
+      }
+
+      final staleCppBridges = macosClassesDir.existsSync() ? macosClassesDir.listSync().whereType<File>().where((f) => f.path.endsWith('.bridge.g.cpp')).toList() : <File>[];
+      if (staleCppBridges.isNotEmpty) {
+        for (final f in staleCppBridges) {
+          err(macosSec, 'Stale .cpp bridge: ${p.basename(f.path)} (must be .mm)', hint: 'Run: nitrogen link (auto-renames .bridge.g.cpp → .bridge.g.mm)');
+        }
+      }
+
+      final mmBridges = macosClassesDir.existsSync() ? macosClassesDir.listSync().whereType<File>().where((f) => f.path.endsWith('.bridge.g.mm')).toList() : <File>[];
+      if (mmBridges.isNotEmpty) {
+        ok(macosSec, '${mmBridges.length} .bridge.g.mm file(s) in macos/Classes/');
+      } else if (specs.isNotEmpty && !allSpecsCpp) {
+        warn(macosSec, 'No .bridge.g.mm files in macos/Classes/', hint: 'Run: nitrogen link');
       }
     }
 
