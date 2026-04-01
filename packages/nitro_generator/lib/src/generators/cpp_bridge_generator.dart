@@ -527,14 +527,27 @@ class CppBridgeGenerator {
       s.writeln(
         'static jobject unpack_${st.name}_to_jni(JNIEnv* env, const ${st.name}* st) {',
       );
+      // Pre-compute zero-copy ByteBuffer objects with null guards.
+      // NewDirectByteBuffer(nullptr, n) is undefined behaviour in JNI — guard
+      // every zeroCopy pointer before passing it to the constructor.
+      for (final f in st.fields) {
+        if (!_isZeroCopy(st, f.name)) continue;
+        final lenField = _zeroCopyLenField(st, f.name);
+        final elemSize = _zeroCopyElementSizeExpr(f.type.name);
+        s.writeln('    if (st->${f.name} == nullptr) {');
+        s.writeln('        jclass npe = env->FindClass("java/lang/NullPointerException");');
+        s.writeln('        if (npe) env->ThrowNew(npe, "${st.name}.${f.name}: TypedData pointer is null");');
+        s.writeln('        return nullptr;');
+        s.writeln('    }');
+        // NewDirectByteBuffer takes a BYTE count, not element count.
+        s.writeln('    jobject dbuf_${f.name} = env->NewDirectByteBuffer((void*)st->${f.name}, st->$lenField$elemSize);');
+      }
       final ctorArgs = st.fields
           .map((f) {
             final isEnum = enumNames.contains(f.type.name.replaceFirst('?', ''));
             if (_isZeroCopy(st, f.name)) {
-              final lenField = _zeroCopyLenField(st, f.name);
-              final elemSize = _zeroCopyElementSizeExpr(f.type.name);
-              // NewDirectByteBuffer takes a BYTE count, not element count.
-              return 'env->NewDirectByteBuffer((void*)st->${f.name}, st->$lenField$elemSize)';
+              // Reference the pre-computed (and null-guarded) local variable.
+              return 'dbuf_${f.name}';
             } else if (f.type.name == 'String') {
               return 'env->NewStringUTF(st->${f.name})';
             } else if (isEnum) {

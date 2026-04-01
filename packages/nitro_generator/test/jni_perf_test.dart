@@ -1284,5 +1284,204 @@ void main() {
       // width is an int field, not zero-copy — no null guard for it
       expect(cpp, isNot(contains('if (buf_width == nullptr)')));
     });
+
+    test('multiple zeroCopy fields each get an independent null guard', () {
+      final spec = BridgeSpec(
+        dartClassName: 'MultiBufferMod',
+        lib: 'multi_buffer_mod',
+        namespace: 'multi_buffer_mod',
+        iosImpl: NativeImpl.swift,
+        androidImpl: NativeImpl.kotlin,
+        sourceUri: 'multi.native.dart',
+        structs: [
+          BridgeStruct(
+            name: 'DualFrame',
+            packed: false,
+            fields: [
+              BridgeField(name: 'luma', type: BridgeType(name: 'Uint8List'), zeroCopy: true),
+              BridgeField(name: 'lumaLength', type: BridgeType(name: 'int')),
+              BridgeField(name: 'chroma', type: BridgeType(name: 'Uint8List'), zeroCopy: true),
+              BridgeField(name: 'chromaLength', type: BridgeType(name: 'int')),
+            ],
+          ),
+        ],
+        functions: [
+          BridgeFunction(
+            dartName: 'getFrame',
+            cSymbol: 'multi_buffer_mod_get_frame',
+            isAsync: false,
+            returnType: BridgeType(name: 'DualFrame'),
+            params: [],
+          ),
+        ],
+      );
+      final cpp = CppBridgeGenerator.generate(spec);
+      expect(cpp, contains('if (buf_luma == nullptr)'), reason: 'guard for luma field');
+      expect(cpp, contains('"DualFrame.luma: TypedData ByteBuffer is null"'));
+      expect(cpp, contains('if (buf_chroma == nullptr)'), reason: 'guard for chroma field');
+      expect(cpp, contains('"DualFrame.chroma: TypedData ByteBuffer is null"'));
+      expect(cpp, contains('GetDirectBufferAddress(buf_luma)'));
+      expect(cpp, contains('GetDirectBufferAddress(buf_chroma)'));
+    });
+
+    test('Float32List zeroCopy field gets null guard', () {
+      final spec = BridgeSpec(
+        dartClassName: 'FloatMod',
+        lib: 'float_mod',
+        namespace: 'float_mod',
+        iosImpl: NativeImpl.swift,
+        androidImpl: NativeImpl.kotlin,
+        sourceUri: 'float.native.dart',
+        structs: [
+          BridgeStruct(
+            name: 'FloatFrame',
+            packed: false,
+            fields: [
+              BridgeField(name: 'data', type: BridgeType(name: 'Float32List'), zeroCopy: true),
+              BridgeField(name: 'dataLength', type: BridgeType(name: 'int')),
+            ],
+          ),
+        ],
+        functions: [
+          BridgeFunction(
+            dartName: 'getFloatFrame',
+            cSymbol: 'float_mod_get_float_frame',
+            isAsync: false,
+            returnType: BridgeType(name: 'FloatFrame'),
+            params: [],
+          ),
+        ],
+      );
+      final cpp = CppBridgeGenerator.generate(spec);
+      expect(cpp, contains('if (buf_data == nullptr)'));
+      expect(cpp, contains('"FloatFrame.data: TypedData ByteBuffer is null"'));
+      expect(cpp, contains('GetDirectBufferAddress(buf_data)'));
+    });
+
+    test('pack null guard returns result (not void) preserving return type', () {
+      final cpp = CppBridgeGenerator.generate(typedDataStructSpec());
+      // The pack function returns 'Frame result;' and the early return must
+      // return the zero-initialised struct, not a void or nullptr.
+      final packFn = cpp.substring(cpp.indexOf('pack_Frame_from_jni'));
+      final guardEnd = packFn.indexOf('return result;');
+      expect(guardEnd, greaterThan(0),
+          reason: 'early return should yield the default-initialised struct');
+    });
+
+    test('luma guard precedes chroma guard in multi-field struct', () {
+      final spec = BridgeSpec(
+        dartClassName: 'MultiBufferMod',
+        lib: 'multi_buffer_mod',
+        namespace: 'multi_buffer_mod',
+        iosImpl: NativeImpl.swift,
+        androidImpl: NativeImpl.kotlin,
+        sourceUri: 'multi.native.dart',
+        structs: [
+          BridgeStruct(
+            name: 'DualFrame',
+            packed: false,
+            fields: [
+              BridgeField(name: 'luma', type: BridgeType(name: 'Uint8List'), zeroCopy: true),
+              BridgeField(name: 'lumaLength', type: BridgeType(name: 'int')),
+              BridgeField(name: 'chroma', type: BridgeType(name: 'Uint8List'), zeroCopy: true),
+              BridgeField(name: 'chromaLength', type: BridgeType(name: 'int')),
+            ],
+          ),
+        ],
+        functions: [
+          BridgeFunction(
+            dartName: 'getFrame',
+            cSymbol: 'multi_buffer_mod_get_frame',
+            isAsync: false,
+            returnType: BridgeType(name: 'DualFrame'),
+            params: [],
+          ),
+        ],
+      );
+      final cpp = CppBridgeGenerator.generate(spec);
+      final lumaIdx = cpp.indexOf('if (buf_luma == nullptr)');
+      final chromaIdx = cpp.indexOf('if (buf_chroma == nullptr)');
+      expect(lumaIdx, greaterThan(0));
+      expect(chromaIdx, greaterThan(lumaIdx),
+          reason: 'fields are guarded in declaration order');
+    });
+  });
+
+  // ── Fix 10b: TypedData null guard in unpack_to_jni ────────────────────────
+
+  group('CppBridgeGenerator — Fix 10b: TypedData null guard in unpack_to_jni', () {
+    test('unpack null guard emitted for zeroCopy field pointer', () {
+      final cpp = CppBridgeGenerator.generate(typedDataStructSpec());
+      // C struct pointer is null-guarded before NewDirectByteBuffer
+      expect(cpp, contains('if (st->pixels == nullptr)'));
+    });
+
+    test('unpack null guard throws NullPointerException', () {
+      final cpp = CppBridgeGenerator.generate(typedDataStructSpec());
+      expect(cpp, contains('"Frame.pixels: TypedData pointer is null"'));
+    });
+
+    test('unpack null guard returns nullptr early', () {
+      final cpp = CppBridgeGenerator.generate(typedDataStructSpec());
+      final unpackStart = cpp.indexOf('unpack_Frame_to_jni');
+      final unpackSrc = cpp.substring(unpackStart);
+      final guardIdx = unpackSrc.indexOf('if (st->pixels == nullptr)');
+      final retNullIdx = unpackSrc.indexOf('return nullptr;');
+      expect(guardIdx, greaterThan(0));
+      expect(retNullIdx, greaterThan(guardIdx),
+          reason: 'null guard must return nullptr before NewDirectByteBuffer');
+    });
+
+    test('unpack NewDirectByteBuffer uses local dbuf_ variable, not inline', () {
+      final cpp = CppBridgeGenerator.generate(typedDataStructSpec());
+      // After refactor, the call should reference a local jobject, not an inline call
+      expect(cpp, contains('jobject dbuf_pixels = env->NewDirectByteBuffer'));
+      expect(cpp, contains('g_ctor_Frame, dbuf_pixels'));
+    });
+
+    test('unpack non-zeroCopy fields have no pointer null guard', () {
+      final cpp = CppBridgeGenerator.generate(typedDataStructSpec());
+      expect(cpp, isNot(contains('if (st->width == nullptr)')));
+      expect(cpp, isNot(contains('if (st->pixelsLength == nullptr)')));
+    });
+
+    test('multiple zeroCopy fields get individual unpack null guards', () {
+      final spec = BridgeSpec(
+        dartClassName: 'MultiBufferMod',
+        lib: 'multi_buffer_mod',
+        namespace: 'multi_buffer_mod',
+        iosImpl: NativeImpl.swift,
+        androidImpl: NativeImpl.kotlin,
+        sourceUri: 'multi.native.dart',
+        structs: [
+          BridgeStruct(
+            name: 'DualFrame',
+            packed: false,
+            fields: [
+              BridgeField(name: 'luma', type: BridgeType(name: 'Uint8List'), zeroCopy: true),
+              BridgeField(name: 'lumaLength', type: BridgeType(name: 'int')),
+              BridgeField(name: 'chroma', type: BridgeType(name: 'Uint8List'), zeroCopy: true),
+              BridgeField(name: 'chromaLength', type: BridgeType(name: 'int')),
+            ],
+          ),
+        ],
+        functions: [
+          BridgeFunction(
+            dartName: 'getFrame',
+            cSymbol: 'multi_buffer_mod_get_frame',
+            isAsync: false,
+            returnType: BridgeType(name: 'DualFrame'),
+            params: [],
+          ),
+        ],
+      );
+      final cpp = CppBridgeGenerator.generate(spec);
+      expect(cpp, contains('if (st->luma == nullptr)'));
+      expect(cpp, contains('"DualFrame.luma: TypedData pointer is null"'));
+      expect(cpp, contains('if (st->chroma == nullptr)'));
+      expect(cpp, contains('"DualFrame.chroma: TypedData pointer is null"'));
+      expect(cpp, contains('jobject dbuf_luma = env->NewDirectByteBuffer'));
+      expect(cpp, contains('jobject dbuf_chroma = env->NewDirectByteBuffer'));
+    });
   });
 }

@@ -334,7 +334,7 @@ class _BenchmarkImpl extends Benchmark {
           BenchmarkPointProxy(Pointer<BenchmarkPointFfi>.fromAddress(rawPtr)),
       release: (port) => _releaseDataStreamPtr(port),
       backpressure: Backpressure.dropLatest,
-    ).map((proxy) => proxy.toDartAndRelease());
+    );
   }
 
   @override
@@ -346,6 +346,6 @@ class _BenchmarkImpl extends Benchmark {
           BenchmarkBoxProxy(Pointer<BenchmarkBoxFfi>.fromAddress(rawPtr)),
       release: (port) => _releaseBoxStreamPtr(port),
       backpressure: Backpressure.dropLatest,
-    ).map((proxy) => proxy.toDartAndRelease());
+    );
   }
 }
