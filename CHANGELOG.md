@@ -1,6 +1,17 @@
 # Changelog
-
 ## 0.3.1
+### macOS support across the Nitro ecosystem
+
+**Platform targeting** — `@NitroModule` now accepts a `macos` parameter (`NativeImpl.swift` or `NativeImpl.cpp`). Using `NativeImpl.kotlin` on macOS is a validator error (`INVALID_MACOS_IMPL`).
+
+**`nitro_generator`** — `BridgeSpec` gains `macosImpl`, `targetsMacos`, and `targetsAppleCpp` fields. The C++ bridge `#ifdef` guard is now `__APPLE__` (covers both iOS and macOS). `isCppImpl` correctly accounts for macOS.
+
+**`nitrogen link`** — `nitrogen link` now wires the macOS podspec (`linkMacosPodspec`) and macOS Swift plugin (`linkMacosSwiftPlugin`) in a dedicated link step. `nitro.h` is written to `macos/Classes/` alongside `ios/Classes/`.
+
+**`nitrogen doctor`** — A new macOS section checks podspec configuration, C++ headers, bridge files, and Swift plugin registration — on par with the existing iOS checks. The pubspec validator now also inspects the `macos:` platform block.
+
+**Bridge sync** — `syncBridgeFiles` accepts a `platform` parameter so macOS bridge files are correctly copied to `macos/Classes/` with the same `.cpp` → `.mm` rename and Swift-exclusion logic. The `isCppModule()` / `_discoverCppLibs()` detection bug (required two `NativeImpl.cpp` occurrences; broke macOS-only specs) is fixed.
+
 
 ### Zero-copy proxy streaming (`@HybridStruct` + `@NitroStream`)
 

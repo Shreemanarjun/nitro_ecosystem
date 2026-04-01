@@ -580,4 +580,281 @@ CompileFlags:
       );
     });
   });
+
+  // ── macOS section ────────────────────────────────────────────────────────────
+
+  group('macOS section', () {
+    Directory _scaffoldWithMacos({
+      bool withPodspec = true,
+      bool withDartApiDl = true,
+      bool withNitroH = true,
+      List<String> mmBridges = const [],
+      List<String> cppBridges = const [],
+      List<String> nativeGHeaders = const [],
+      List<({String name, bool isCpp})> specs = const [],
+    }) {
+      final root = _scaffold(specs: specs);
+
+      final classesDir = Directory(p.join(root.path, 'macos', 'Classes'))..createSync(recursive: true);
+
+      if (withPodspec) {
+        File(p.join(root.path, 'macos', 'my_plugin.podspec')).writeAsStringSync('''
+Pod::Spec.new do |s|
+  s.name = "my_plugin"
+  s.swift_version = '5.9'
+  s.pod_target_xcconfig = {
+    'HEADER_SEARCH_PATHS' => '"...", "src/native"',
+    'CLANG_CXX_LANGUAGE_STANDARD' => 'c++17',
+  }
+end
+''');
+      }
+
+      if (withDartApiDl) {
+        File(p.join(classesDir.path, 'dart_api_dl.c')).writeAsStringSync('// stub');
+      }
+      if (withNitroH) {
+        File(p.join(classesDir.path, 'nitro.h')).writeAsStringSync('#define NITRO_EXPORT __attribute__((visibility("default")))');
+      }
+      for (final name in mmBridges) {
+        File(p.join(classesDir.path, name)).writeAsStringSync('// mm bridge');
+      }
+      for (final name in cppBridges) {
+        File(p.join(classesDir.path, name)).writeAsStringSync('// cpp bridge');
+      }
+      for (final name in nativeGHeaders) {
+        File(p.join(classesDir.path, name)).writeAsStringSync('// native g header');
+      }
+
+      return root;
+    }
+
+    test('macOS section is info when macos/ directory is not present', () {
+      final tmp = _scaffold();
+      addTearDown(() => tmp.deleteSync(recursive: true));
+      final result = _run(tmp);
+      final sec = result.sections.firstWhere((s) => s.title == 'macOS');
+      expect(
+        sec.checks.any((c) => c.status == DoctorStatus.info && c.label.contains('not present')),
+        isTrue,
+      );
+    });
+
+    test('macOS section error when no .podspec in macos/', () {
+      final tmp = _scaffoldWithMacos(withPodspec: false);
+      addTearDown(() => tmp.deleteSync(recursive: true));
+      final result = _run(tmp);
+      final sec = result.sections.firstWhere((s) => s.title == 'macOS');
+      expect(
+        sec.checks.any((c) => c.status == DoctorStatus.error && c.label.contains('podspec')),
+        isTrue,
+      );
+    });
+
+    test('macOS section ok when HEADER_SEARCH_PATHS present in podspec', () {
+      final tmp = _scaffoldWithMacos();
+      addTearDown(() => tmp.deleteSync(recursive: true));
+      final result = _run(tmp);
+      final sec = result.sections.firstWhere((s) => s.title == 'macOS');
+      expect(
+        sec.checks.any((c) => c.status == DoctorStatus.ok && c.label.contains('HEADER_SEARCH_PATHS')),
+        isTrue,
+      );
+    });
+
+    test('macOS section error when HEADER_SEARCH_PATHS missing from podspec', () {
+      final root = _scaffold();
+      addTearDown(() => root.deleteSync(recursive: true));
+      Directory(p.join(root.path, 'macos', 'Classes')).createSync(recursive: true);
+      File(p.join(root.path, 'macos', 'my_plugin.podspec')).writeAsStringSync('''
+Pod::Spec.new do |s|
+  s.name = "my_plugin"
+  s.pod_target_xcconfig = { 'OTHER_LDFLAGS' => '-framework AVFoundation' }
+end
+''');
+      final result = _run(root);
+      final sec = result.sections.firstWhere((s) => s.title == 'macOS');
+      expect(
+        sec.checks.any((c) => c.status == DoctorStatus.error && c.label.contains('HEADER_SEARCH_PATHS missing')),
+        isTrue,
+      );
+    });
+
+    test('macOS section error when dart_api_dl.c missing from macos/Classes/', () {
+      final tmp = _scaffoldWithMacos(withDartApiDl: false);
+      addTearDown(() => tmp.deleteSync(recursive: true));
+      final result = _run(tmp);
+      final sec = result.sections.firstWhere((s) => s.title == 'macOS');
+      expect(
+        sec.checks.any((c) => c.status == DoctorStatus.error && c.label.contains('dart_api_dl.c missing')),
+        isTrue,
+      );
+    });
+
+    test('macOS section ok when dart_api_dl.c present in macos/Classes/', () {
+      final tmp = _scaffoldWithMacos(withDartApiDl: true);
+      addTearDown(() => tmp.deleteSync(recursive: true));
+      final result = _run(tmp);
+      final sec = result.sections.firstWhere((s) => s.title == 'macOS');
+      expect(
+        sec.checks.any((c) => c.status == DoctorStatus.ok && c.label.contains('dart_api_dl.c present')),
+        isTrue,
+      );
+    });
+
+    test('macOS section error when nitro.h missing from macos/Classes/', () {
+      final tmp = _scaffoldWithMacos(withNitroH: false);
+      addTearDown(() => tmp.deleteSync(recursive: true));
+      final result = _run(tmp);
+      final sec = result.sections.firstWhere((s) => s.title == 'macOS');
+      expect(
+        sec.checks.any((c) => c.status == DoctorStatus.error && c.label.contains('nitro.h missing')),
+        isTrue,
+      );
+    });
+
+    test('macOS section ok when nitro.h present and has NITRO_EXPORT', () {
+      final tmp = _scaffoldWithMacos(withNitroH: true);
+      addTearDown(() => tmp.deleteSync(recursive: true));
+      final result = _run(tmp);
+      final sec = result.sections.firstWhere((s) => s.title == 'macOS');
+      expect(
+        sec.checks.any((c) => c.status == DoctorStatus.ok && c.label.contains('nitro.h present')),
+        isTrue,
+      );
+      expect(
+        sec.checks.any((c) => c.status == DoctorStatus.ok && c.label.contains('NITRO_EXPORT')),
+        isTrue,
+      );
+    });
+
+    test('macOS section error for each stale .bridge.g.cpp in macos/Classes/', () {
+      final tmp = _scaffoldWithMacos(cppBridges: ['foo.bridge.g.cpp', 'bar.bridge.g.cpp']);
+      addTearDown(() => tmp.deleteSync(recursive: true));
+      final result = _run(tmp);
+      final sec = result.sections.firstWhere((s) => s.title == 'macOS');
+      final stale = sec.checks.where((c) => c.status == DoctorStatus.error && c.label.contains('Stale .cpp bridge')).toList();
+      expect(stale, hasLength(2));
+      expect(stale.first.hint, contains('bridge.g.mm'));
+    });
+
+    test('macOS section ok count when .bridge.g.mm files present', () {
+      final tmp = _scaffoldWithMacos(mmBridges: ['foo.bridge.g.mm', 'bar.bridge.g.mm']);
+      addTearDown(() => tmp.deleteSync(recursive: true));
+      final result = _run(tmp);
+      final sec = result.sections.firstWhere((s) => s.title == 'macOS');
+      expect(
+        sec.checks.any((c) => c.status == DoctorStatus.ok && c.label.contains('2') && c.label.contains('.bridge.g.mm')),
+        isTrue,
+      );
+    });
+
+    test('macOS section info when all specs are NativeImpl.cpp', () {
+      final tmp = _scaffoldWithMacos(
+        nativeGHeaders: ['math.native.g.h'],
+        specs: [(name: 'math', isCpp: true)],
+      );
+      addTearDown(() => tmp.deleteSync(recursive: true));
+      final result = _run(tmp);
+      final sec = result.sections.firstWhere((s) => s.title == 'macOS');
+      expect(
+        sec.checks.any((c) => c.status == DoctorStatus.info && c.label.contains('NativeImpl.cpp')),
+        isTrue,
+      );
+    });
+
+    test('macOS section ok when .native.g.h synced and all specs are cpp', () {
+      final tmp = _scaffoldWithMacos(
+        nativeGHeaders: ['math.native.g.h'],
+        specs: [(name: 'math', isCpp: true)],
+      );
+      addTearDown(() => tmp.deleteSync(recursive: true));
+      final result = _run(tmp);
+      final sec = result.sections.firstWhere((s) => s.title == 'macOS');
+      expect(
+        sec.checks.any((c) => c.status == DoctorStatus.ok && c.label.contains('native.g.h')),
+        isTrue,
+      );
+    });
+  });
+
+  // ── pubspec macOS platform ────────────────────────────────────────────────────
+
+  group('pubspec — macOS platform', () {
+    Directory _scaffoldWithMacosPubspec(String macosPlatformEntry) {
+      final root = Directory.systemTemp.createTempSync('nitro_doctor_macos_pubspec_');
+      File(p.join(root.path, 'pubspec.yaml')).writeAsStringSync('''
+name: my_plugin
+environment:
+  sdk: ">=3.0.0 <4.0.0"
+dependencies:
+  nitro: any
+dev_dependencies:
+  build_runner: ^2.4.0
+  nitro_generator: any
+flutter:
+  plugin:
+    platforms:
+      android:
+        package: com.example.my_plugin
+        pluginClass: MyPlugin
+      ios:
+        pluginClass: MyPlugin
+$macosPlatformEntry
+''');
+      Directory(p.join(root.path, 'src')).createSync();
+      File(p.join(root.path, 'src', 'CMakeLists.txt')).writeAsStringSync(
+        'set(NITRO_NATIVE "...")\nadd_library(my_plugin SHARED dart_api_dl.c)\n',
+      );
+      return root;
+    }
+
+    test('ok when macos pluginClass is defined', () {
+      final tmp = _scaffoldWithMacosPubspec('''      macos:
+        pluginClass: MyPlugin''');
+      addTearDown(() => tmp.deleteSync(recursive: true));
+      final result = _run(tmp);
+      final pub = result.sections.firstWhere((s) => s.title == 'pubspec.yaml');
+      expect(
+        pub.checks.any((c) => c.status == DoctorStatus.ok && c.label.contains('macos pluginClass')),
+        isTrue,
+      );
+    });
+
+    test('ok when macos ffiPlugin: true is set', () {
+      final tmp = _scaffoldWithMacosPubspec('''      macos:
+        ffiPlugin: true''');
+      addTearDown(() => tmp.deleteSync(recursive: true));
+      final result = _run(tmp);
+      final pub = result.sections.firstWhere((s) => s.title == 'pubspec.yaml');
+      expect(
+        pub.checks.any((c) => c.status == DoctorStatus.ok && c.label.contains('ffiPlugin')),
+        isTrue,
+      );
+    });
+
+    test('warn when macos section exists but has no pluginClass or ffiPlugin', () {
+      final tmp = _scaffoldWithMacosPubspec('''      macos:
+        dartPluginClass: MyPlugin''');
+      addTearDown(() => tmp.deleteSync(recursive: true));
+      final result = _run(tmp);
+      final pub = result.sections.firstWhere((s) => s.title == 'pubspec.yaml');
+      expect(
+        pub.checks.any((c) => c.status == DoctorStatus.warn && c.label.contains('macos pluginClass missing')),
+        isTrue,
+      );
+    });
+
+    test('no macOS pubspec check when macos: key is absent entirely', () {
+      final tmp = _scaffoldWithMacosPubspec('');
+      addTearDown(() => tmp.deleteSync(recursive: true));
+      final result = _run(tmp);
+      final pub = result.sections.firstWhere((s) => s.title == 'pubspec.yaml');
+      // Should have no macos-related check at all (macos: not present)
+      expect(
+        pub.checks.any((c) => c.label.toLowerCase().contains('macos')),
+        isFalse,
+      );
+    });
+  });
 }

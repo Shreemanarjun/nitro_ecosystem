@@ -101,6 +101,36 @@ abstract class Math extends HybridObject {}
 ''');
       expect(isCppModule(spec), isFalse);
     });
+
+    test('returns true for multi-line annotation with macos: NativeImpl.cpp', () {
+      final spec = _writeSpec(_libDir(tmp), 'math.native.dart', '''
+@NitroModule(
+  lib: "math",
+  macos: NativeImpl.cpp,
+)
+abstract class Math extends HybridObject {}
+''');
+      expect(isCppModule(spec), isTrue);
+    });
+
+    test('returns true when all three platforms are NativeImpl.cpp', () {
+      final spec = _writeSpec(_libDir(tmp), 'math.native.dart', '''
+@NitroModule(lib: "math", ios: NativeImpl.cpp, android: NativeImpl.cpp, macos: NativeImpl.cpp)
+abstract class Math extends HybridObject {}
+''');
+      expect(isCppModule(spec), isTrue);
+    });
+
+    test('returns false when annotation body contains NativeImpl.cpp only in a comment', () {
+      // Comment-only occurrence must not trigger the platform check
+      final spec = _writeSpec(_libDir(tmp), 'math.native.dart', '''
+// Use ios: NativeImpl.cpp for fast path
+@NitroModule(lib: "math", ios: NativeImpl.swift)
+abstract class Math extends HybridObject {}
+''');
+      // The comment is outside the annotation body captured by the regex, so isFalse
+      expect(isCppModule(spec), isFalse);
+    });
   });
 
   // ── discoverModuleInfos ──────────────────────────────────────────────────────
@@ -175,6 +205,25 @@ abstract class Math extends HybridObject {}
       final modules = discoverModuleInfos('my_plugin', baseDir: tmp.path);
       expect(modules, hasLength(1));
       expect(modules.first.lib, equals('my_plugin'));
+    });
+
+    test('sets isCpp=true for macos-only NativeImpl.cpp spec', () {
+      _writeSpec(_libDir(tmp), 'nav.native.dart', '''
+@NitroModule(lib: "nav", macos: NativeImpl.cpp)
+abstract class Nav extends HybridObject {}
+''');
+      final modules = discoverModuleInfos('plugin_name', baseDir: tmp.path);
+      expect(modules.first.isCpp, isTrue,
+          reason: 'macos: NativeImpl.cpp alone is sufficient to mark the module as cpp');
+    });
+
+    test('sets isCpp=true for tri-platform cpp spec (ios+android+macos)', () {
+      _writeSpec(_libDir(tmp), 'engine.native.dart', '''
+@NitroModule(lib: "engine", ios: NativeImpl.cpp, android: NativeImpl.cpp, macos: NativeImpl.cpp)
+abstract class Engine extends HybridObject {}
+''');
+      final modules = discoverModuleInfos('plugin_name', baseDir: tmp.path);
+      expect(modules.first.isCpp, isTrue);
     });
 
     test('handles filenames with consecutive underscores (toPascalCase safety)', () {
@@ -693,6 +742,57 @@ void foo() {}
       expect(content, contains('#include "my_plugin.bridge.g.h"'));
       expect(content, isNot(contains('#include "my_plugin.bridge.g.cpp"')));
       expect(content, contains('void foo() {}'));
+    });
+
+    test('linkMacosPodspec is no-op when macos/ directory does not exist', () {
+      // No macos/ directory — should not crash.
+      expect(
+        () => linkMacosPodspec('my_plugin', ['my_plugin'], baseDir: tmp.path),
+        returnsNormally,
+      );
+    });
+
+    test('linkMacosPodspec inserts s.platform when absent from podspec', () {
+      final macosDir = Directory(p.join(tmp.path, 'macos'))..createSync();
+      final podspec = File(p.join(macosDir.path, 'my_plugin.podspec'));
+      podspec.writeAsStringSync('''
+Pod::Spec.new do |s|
+  s.name             = 'my_plugin'
+  s.version          = '0.0.1'
+  s.swift_version    = '5.9'
+  s.pod_target_xcconfig = { 'OTHER_LDFLAGS' => '-framework CoreBluetooth' }
+end
+''');
+      Directory(p.join(tmp.path, 'src')).createSync();
+
+      linkMacosPodspec('my_plugin', ['my_plugin'], baseDir: tmp.path);
+
+      expect(podspec.readAsStringSync(), contains("s.platform = :osx, '10.15'"),
+          reason: 'platform line must be inserted when absent');
+    });
+
+    test('linkMacosPodspec does not duplicate DEFINES_MODULE on second run', () {
+      final macosDir = Directory(p.join(tmp.path, 'macos'))..createSync();
+      final podspec = File(p.join(macosDir.path, 'my_plugin.podspec'));
+      podspec.writeAsStringSync('''
+Pod::Spec.new do |s|
+  s.name = 'my_plugin'
+  s.swift_version = '5.9'
+  s.platform = :osx, '10.15'
+  s.pod_target_xcconfig = {
+    'DEFINES_MODULE' => 'YES',
+    'HEADER_SEARCH_PATHS' => '"\${PODS_TARGET_SRCROOT}/../src" "\${PODS_TARGET_SRCROOT}/../lib/src/generated/cpp"',
+  }
+end
+''');
+      Directory(p.join(tmp.path, 'src')).createSync();
+
+      linkMacosPodspec('my_plugin', ['my_plugin'], baseDir: tmp.path);
+      linkMacosPodspec('my_plugin', ['my_plugin'], baseDir: tmp.path);
+
+      final content = podspec.readAsStringSync();
+      expect("'DEFINES_MODULE'".allMatches(content).length, equals(1),
+          reason: 'second run must not duplicate DEFINES_MODULE');
     });
 
     test('linkMacosPodspec updates Swift version, osx platform and HEADER_SEARCH_PATHS', () {

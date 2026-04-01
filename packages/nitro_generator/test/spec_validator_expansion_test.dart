@@ -146,6 +146,48 @@ void main() {
       );
       expect(SpecValidator.validate(spec).any((i) => i.code == 'CYCLIC_STRUCT'), isFalse);
     });
+
+    test('struct with no fields has no cycle', () {
+      final spec = _emptySpec(structs: [_struct('Empty', [])]);
+      expect(SpecValidator.validate(spec).any((i) => i.code == 'CYCLIC_STRUCT'), isFalse);
+    });
+
+    test('single struct with only primitive fields has no cycle', () {
+      final spec = _emptySpec(structs: [
+        _struct('Point', [_field('x', 'double'), _field('y', 'double')]),
+      ]);
+      expect(SpecValidator.validate(spec).any((i) => i.code == 'CYCLIC_STRUCT'), isFalse);
+    });
+
+    test('two independent cycles each reported once', () {
+      // Cycle 1: P → Q → P.  Cycle 2: R → S → R.
+      final spec = _emptySpec(structs: [
+        _struct('P', [_field('q', 'Q')]),
+        _struct('Q', [_field('p', 'P')]),
+        _struct('R', [_field('s', 'S')]),
+        _struct('S', [_field('r', 'R')]),
+      ]);
+      final cycleIssues = SpecValidator.validate(spec).where((i) => i.code == 'CYCLIC_STRUCT').toList();
+      expect(cycleIssues, hasLength(2));
+    });
+
+    test('four-struct transitive cycle (A→B→C→D→A) is detected', () {
+      final spec = _emptySpec(structs: [
+        _struct('A', [_field('b', 'B')]),
+        _struct('B', [_field('c', 'C')]),
+        _struct('C', [_field('d', 'D')]),
+        _struct('D', [_field('a', 'A')]),
+      ]);
+      expect(SpecValidator.validate(spec).any((i) => i.code == 'CYCLIC_STRUCT'), isTrue);
+    });
+
+    test('struct referencing non-struct type is not treated as cycle', () {
+      // 'int' is a primitive — should not be placed in adj graph.
+      final spec = _emptySpec(structs: [
+        _struct('Data', [_field('count', 'int'), _field('value', 'double')]),
+      ]);
+      expect(SpecValidator.validate(spec).any((i) => i.code == 'CYCLIC_STRUCT'), isFalse);
+    });
   });
 
   // ── 2. Enum as struct field — validator ──────────────────────────────────────

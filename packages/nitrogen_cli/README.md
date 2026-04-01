@@ -101,9 +101,11 @@ nitrogen link
 - Adds `include(...)` for each `.CMakeLists.g.txt` into `src/CMakeLists.txt`
 - Adds `System.loadLibrary("lib")` to `android/.../Plugin.kt`
 - Skips `JniBridge.register(...)` for all-cpp plugins
-- Sets `HEADER_SEARCH_PATHS` + `DEFINES_MODULE` in the iOS `.podspec`
+- Sets `HEADER_SEARCH_PATHS` + `DEFINES_MODULE` in the iOS `.podspec` (and macOS `.podspec` when `macos/` exists)
+- Injects bridge registration into `ios/*Plugin.swift` and `macos/*Plugin.swift` for Swift/Kotlin modules
 - Skips Swift bridge registration step for all-cpp plugins
-- Creates `ios/Classes/dart_api_dl.c` if missing
+- Creates `ios/Classes/dart_api_dl.c` and `macos/Classes/dart_api_dl.c` forwarders if missing
+- Copies `nitro.h` to both `ios/Classes/` and `macos/Classes/`
 - Updates `.clangd` to include `generated/cpp/test/` for GoogleMock IDE support when cpp modules exist
 - Strips redundant `#include "*.bridge.g.cpp"` directives from `src/` files
 
@@ -122,11 +124,12 @@ nitrogen doctor
 | Section | Key checks |
 |---|---|
 | **System Toolchain** | `clang++`, Xcode, Android NDK, Java |
-| **pubspec.yaml** | `nitro`, `build_runner`, `nitro_generator` deps; plugin platform config |
+| **pubspec.yaml** | `nitro`, `build_runner`, `nitro_generator` deps; iOS and macOS plugin platform config |
 | **Generated Files** | Every expected output file — present, not stale |
 | **CMakeLists.txt** | `NITRO_NATIVE`, `dart_api_dl.c`, `add_library(lib)` target |
 | **Android** | `kotlin-android`, `kotlinOptions`, `generated/kotlin` sourceSets, `System.loadLibrary`, `JniBridge.register` |
 | **iOS** | `.podspec` headers/C++17, Swift version, `dart_api_dl.c`, `nitro.h`, `NITRO_EXPORT`, `.bridge.g.mm` count |
+| **macOS** | `.podspec` headers/C++17, Swift version, `dart_api_dl.c`, `nitro.h`, `NITRO_EXPORT`, `.bridge.g.mm` count, Swift plugin registration |
 | **NativeImpl.cpp** *(cpp modules only)* | `${lib}_register_impl` wired up, `.clangd` includes test dir |
 
 **NativeImpl.cpp awareness:**
@@ -147,13 +150,35 @@ nitrogen doctor
 
 ---
 
+## Platform Targeting
+
+Each platform is configured independently via the `@NitroModule` annotation. All three platforms can be mixed and matched:
+
+```dart
+// iOS + Android Swift/Kotlin, macOS via direct C++
+@NitroModule(lib: 'sensor', ios: NativeImpl.swift, android: NativeImpl.kotlin, macos: NativeImpl.cpp)
+abstract class SensorModule extends HybridObject { ... }
+
+// All three platforms using direct C++ (same implementation everywhere)
+@NitroModule(lib: 'math', ios: NativeImpl.cpp, android: NativeImpl.cpp, macos: NativeImpl.cpp)
+abstract class Math extends HybridObject { ... }
+
+// iOS + macOS Swift, Android Kotlin
+@NitroModule(lib: 'plugin', ios: NativeImpl.swift, android: NativeImpl.kotlin, macos: NativeImpl.swift)
+abstract class MyPlugin extends HybridObject { ... }
+```
+
+> **Note:** `macos: NativeImpl.kotlin` is not valid — Kotlin is not a native macOS language. The generator will emit an `INVALID_MACOS_IMPL` error at build time.
+
+---
+
 ## NativeImpl.cpp Workflow
 
 For plugins where both platforms use direct C++:
 
 ```dart
 // lib/src/math.native.dart
-@NitroModule(lib: 'math', ios: NativeImpl.cpp, android: NativeImpl.cpp)
+@NitroModule(lib: 'math', ios: NativeImpl.cpp, android: NativeImpl.cpp, macos: NativeImpl.cpp)
 abstract class Math extends HybridObject {
   static final Math instance = _MathImpl();
   double add(double a, double b);
@@ -207,7 +232,7 @@ class SensorData {
   const SensorData({required this.temperature, required this.humidity});
 }
 
-@NitroModule(lib: 'sensor', ios: NativeImpl.swift, android: NativeImpl.kotlin)
+@NitroModule(lib: 'sensor', ios: NativeImpl.swift, android: NativeImpl.kotlin, macos: NativeImpl.swift)
 abstract class SensorModule extends HybridObject {
   static final SensorModule instance = _SensorModuleImpl();
 

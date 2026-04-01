@@ -1,6 +1,14 @@
 ## 0.3.1
-
 - **Improved: Ecosystem Sync** — Synchronized to version 0.3.1.
+- **New: macOS `nitrogen link` step** — `linkMacosPodspec()` now wires `macos/$plugin.podspec` with the correct `s.platform = :osx, '10.15'`, `HEADER_SEARCH_PATHS`, `swift_version`, `DEFINES_MODULE`, `dart_api_dl.c` forwarder, and per-module C++ impl forwarders in `macos/Classes/`. The new step appears in the link progress view at index 3.
+- **New: macOS Swift plugin wiring** — `linkMacosSwiftPlugin()` injects `NitroModules` bridge registration calls into `macos/*Plugin.swift`, mirroring the existing iOS `linkSwiftPlugin()`. Both iOS and macOS Swift wiring now run in a single link step that marks done if either platform directory is present.
+- **New: macOS `nitrogen doctor` section** — A dedicated `macOS` doctor section checks podspec `HEADER_SEARCH_PATHS`, C++17 flag, `dart_api_dl.c`, `nitro.h`, `NITRO_EXPORT` macro, stale `.bridge.g.cpp` presence, `.bridge.g.mm` bridges, `.native.g.h` header sync, and Swift plugin registration — parallel to the existing iOS section.
+- **New: macOS pubspec check** — `nitrogen doctor` now validates the `macos:` platform block in `pubspec.yaml`, checking for `pluginClass` or `ffiPlugin: true`.
+- **Fixed: `isCppModule()` detection for macOS-only and mixed-platform specs** — The old implementation required two occurrences of `NativeImpl.cpp` in the annotation string, so `macos: NativeImpl.cpp` alone (or `ios: NativeImpl.cpp, macos: NativeImpl.cpp` with no Android) was falsely classified as non-cpp. Now uses a platform-arg regex `\b(?:ios|android|macos)\s*:\s*NativeImpl\.cpp\b` — any platform being cpp marks the module as cpp.
+- **Fixed: `_discoverCppLibs()` same two-occurrence bug** — The internal bridge-sync utility had identical broken logic; stale `.bridge.g.swift` files were not cleaned from `ios/Classes/` or `macos/Classes/` for macOS-only cpp specs. Fixed with the same platform-arg regex.
+- **New: `syncBridgeFiles(platform:)` parameter** — `syncBridgeFiles` now accepts an optional `platform` parameter ('ios' or 'macos', default 'ios') so macOS bridge files are correctly synced to `macos/Classes/` with the same Swift-exclusion and `.cpp` → `.mm` rename logic.
+- **New: `nitro.h` copied to `macos/Classes/`** — `createSharedHeaders()` now writes `nitro.h` into `macos/Classes/` when that directory exists, in addition to `ios/Classes/`.
+- **Improved: Test coverage** — 30+ new edge-case tests across `link_command_test.dart`, `doctor_command_test.dart`, and `utils_test.dart`: multi-line/comment-above annotation parsing, macOS-only `discoverModuleInfos`, tri-platform specs, `linkMacosPodspec` no-op/insertion/idempotency, `linkMacosSwiftPlugin` injection/deduplication/no-op, `syncBridgeFiles(platform: 'macos')` variants, macOS doctor section states, and macOS pubspec check variants.
 
 ## 0.3.0
 

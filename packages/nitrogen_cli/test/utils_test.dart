@@ -106,12 +106,13 @@ dependencies:
 
     // Helper: writes a minimal .native.dart spec into lib/ so _discoverCppLibs
     // can detect whether the module is a direct C++ implementation.
-    void writeNativeSpec(String libName, {required bool isCpp}) {
+    void writeNativeSpec(String libName, {required bool isCpp, String? customAnnotation}) {
       final libDir = Directory(p.join(temp.path, 'lib'))..createSync(recursive: true);
-      final impl = isCpp ? 'NativeImpl.cpp' : 'NativeImpl.swift';
-      final otherImpl = isCpp ? 'NativeImpl.cpp' : 'NativeImpl.kotlin';
+      final annotation = customAnnotation ?? (isCpp
+          ? 'ios: NativeImpl.cpp, android: NativeImpl.cpp'
+          : 'ios: NativeImpl.swift, android: NativeImpl.kotlin');
       File(p.join(libDir.path, '$libName.native.dart')).writeAsStringSync(
-        '@NitroModule(lib: "$libName", iosImpl: $impl, androidImpl: $otherImpl)\n'
+        '@NitroModule(lib: "$libName", $annotation)\n'
         'abstract class ${libName[0].toUpperCase()}${libName.substring(1)} extends HybridObject {}\n',
       );
     }
@@ -167,6 +168,83 @@ dependencies:
       );
     });
 
+    test('skips .bridge.g.swift when macos-only NativeImpl.cpp spec', () async {
+      // macos: NativeImpl.cpp alone — still detected as cpp; Swift bridge excluded.
+      final classesDir = Directory(p.join(temp.path, 'ios', 'Classes'))..createSync(recursive: true);
+      final genSwift = Directory(p.join(temp.path, 'lib', 'src', 'generated', 'swift'))..createSync(recursive: true);
+      File(p.join(genSwift.path, 'macos_mod.bridge.g.swift')).writeAsStringSync('swift stubs');
+
+      writeNativeSpec('macos_mod', isCpp: false, customAnnotation: 'macos: NativeImpl.cpp');
+
+      syncBridgeFiles(temp.path);
+
+      expect(
+        File(p.join(classesDir.path, 'macos_mod.bridge.g.swift')).existsSync(),
+        isFalse,
+        reason: 'macos: NativeImpl.cpp is cpp — Swift stubs must be excluded',
+      );
+    });
+
+    test('syncBridgeFiles is no-op when ios/Classes/ does not exist', () async {
+      // No ios/ directory — should not crash.
+      final genSwift = Directory(p.join(temp.path, 'lib', 'src', 'generated', 'swift'))..createSync(recursive: true);
+      File(p.join(genSwift.path, 'mod.bridge.g.swift')).writeAsStringSync('code');
+      expect(() => syncBridgeFiles(temp.path), returnsNormally);
+    });
+
+    test('syncBridgeFiles is no-op when lib/src/generated/ does not exist', () async {
+      Directory(p.join(temp.path, 'ios', 'Classes')).createSync(recursive: true);
+      // No generated/ directory — should not crash.
+      expect(() => syncBridgeFiles(temp.path), returnsNormally);
+    });
+
+    test('syncBridgeFiles(platform: macos) copies bridge files to macos/Classes/', () async {
+      final macosClasses = Directory(p.join(temp.path, 'macos', 'Classes'))..createSync(recursive: true);
+      final genSwift = Directory(p.join(temp.path, 'lib', 'src', 'generated', 'swift'))..createSync(recursive: true);
+      final genCpp = Directory(p.join(temp.path, 'lib', 'src', 'generated', 'cpp'))..createSync(recursive: true);
+      File(p.join(genSwift.path, 'my.bridge.g.swift')).writeAsStringSync('swift code');
+      File(p.join(genCpp.path, 'my.bridge.g.h')).writeAsStringSync('header code');
+      File(p.join(genCpp.path, 'my.bridge.g.cpp')).writeAsStringSync('cpp code');
+
+      syncBridgeFiles(temp.path, platform: 'macos');
+
+      expect(File(p.join(macosClasses.path, 'my.bridge.g.swift')).existsSync(), isTrue);
+      expect(File(p.join(macosClasses.path, 'my.bridge.g.h')).existsSync(), isTrue);
+      expect(File(p.join(macosClasses.path, 'my.bridge.g.mm')).existsSync(), isTrue,
+          reason: '.bridge.g.cpp is renamed to .mm for Objective-C++ on macOS too');
+      expect(File(p.join(macosClasses.path, 'my.bridge.g.cpp')).existsSync(), isFalse);
+    });
+
+    test('syncBridgeFiles(platform: macos) is no-op when macos/Classes/ does not exist', () async {
+      final genSwift = Directory(p.join(temp.path, 'lib', 'src', 'generated', 'swift'))..createSync(recursive: true);
+      File(p.join(genSwift.path, 'mod.bridge.g.swift')).writeAsStringSync('code');
+      expect(() => syncBridgeFiles(temp.path, platform: 'macos'), returnsNormally);
+    });
+
+    test('syncBridgeFiles(platform: macos) skips .bridge.g.swift for cpp module', () async {
+      final macosClasses = Directory(p.join(temp.path, 'macos', 'Classes'))..createSync(recursive: true);
+      final genSwift = Directory(p.join(temp.path, 'lib', 'src', 'generated', 'swift'))..createSync(recursive: true);
+      File(p.join(genSwift.path, 'cpp_mod.bridge.g.swift')).writeAsStringSync('stubs');
+      writeNativeSpec('cpp_mod', isCpp: true);
+
+      syncBridgeFiles(temp.path, platform: 'macos');
+
+      expect(File(p.join(macosClasses.path, 'cpp_mod.bridge.g.swift')).existsSync(), isFalse,
+          reason: 'C++ modules do not use the Swift bridge on macOS either');
+    });
+
+    test('syncBridgeFiles(platform: macos) removes stale .bridge.g.swift for cpp module', () async {
+      final macosClasses = Directory(p.join(temp.path, 'macos', 'Classes'))..createSync(recursive: true);
+      File(p.join(macosClasses.path, 'cpp_mod.bridge.g.swift')).writeAsStringSync('stale');
+      final genSwift = Directory(p.join(temp.path, 'lib', 'src', 'generated', 'swift'))..createSync(recursive: true);
+      File(p.join(genSwift.path, 'cpp_mod.bridge.g.swift')).writeAsStringSync('stubs');
+      writeNativeSpec('cpp_mod', isCpp: true);
+
+      syncBridgeFiles(temp.path, platform: 'macos');
+
+      expect(File(p.join(macosClasses.path, 'cpp_mod.bridge.g.swift')).existsSync(), isFalse);
+    });
+
     test('mixed project: copies Swift module bridge but skips C++ module bridge', () async {
       final classesDir = Directory(p.join(temp.path, 'ios', 'Classes'))..createSync(recursive: true);
       final genSwift = Directory(p.join(temp.path, 'lib', 'src', 'generated', 'swift'))..createSync(recursive: true);
@@ -182,25 +260,21 @@ dependencies:
       expect(File(p.join(classesDir.path, 'cpp_mod.bridge.g.swift')).existsSync(), isFalse);
     });
 
-    test('copies .bridge.g.swift when only one platform is NativeImpl.cpp (not both)', () async {
-      // A module where only iosImpl is NativeImpl.cpp is NOT a fully-cpp module;
-      // it still uses the Swift bridge on iOS and needs the .bridge.g.swift.
+    test('skips .bridge.g.swift when any platform (ios-only) is NativeImpl.cpp', () async {
+      // ios: NativeImpl.cpp means iOS uses direct C++ — the Swift @_cdecl stubs
+      // must NOT land in ios/Classes/ or they cause duplicate-symbol linker errors.
       final classesDir = Directory(p.join(temp.path, 'ios', 'Classes'))..createSync(recursive: true);
       final genSwift = Directory(p.join(temp.path, 'lib', 'src', 'generated', 'swift'))..createSync(recursive: true);
-      File(p.join(genSwift.path, 'mixed.bridge.g.swift')).writeAsStringSync('swift bridge');
+      File(p.join(genSwift.path, 'mixed.bridge.g.swift')).writeAsStringSync('swift stubs');
 
-      final libDir = Directory(p.join(temp.path, 'lib'))..createSync(recursive: true);
-      File(p.join(libDir.path, 'mixed.native.dart')).writeAsStringSync(
-        '@NitroModule(lib: "mixed", iosImpl: NativeImpl.cpp, androidImpl: NativeImpl.kotlin)\n'
-        'abstract class Mixed extends HybridObject {}\n',
-      );
+      writeNativeSpec('mixed', isCpp: false, customAnnotation: 'ios: NativeImpl.cpp, android: NativeImpl.kotlin');
 
       syncBridgeFiles(temp.path);
 
       expect(
         File(p.join(classesDir.path, 'mixed.bridge.g.swift')).existsSync(),
-        isTrue,
-        reason: 'Only both-platform cpp counts as NativeImpl.cpp; one-platform cpp is not excluded',
+        isFalse,
+        reason: 'Any platform using NativeImpl.cpp excludes the Swift bridge — duplicate-symbol guard',
       );
     });
   });

@@ -142,9 +142,10 @@ Set<String> _discoverCppLibs(String workingDirectory) {
     final annotationMatch = RegExp(r'@NitroModule\s*\(([^)]+)\)').firstMatch(content);
     if (annotationMatch == null) continue;
     final annotation = annotationMatch.group(1)!;
-    // A module is "cpp" when both platform impls are NativeImpl.cpp.
-    final cppCount = RegExp(r'NativeImpl\.cpp').allMatches(annotation).length;
-    if (cppCount >= 2) result.add(libMatch.group(1)!);
+    // A module is "cpp" when any platform arg (ios/android/macos) is NativeImpl.cpp.
+    if (RegExp(r'\b(?:ios|android|macos)\s*:\s*NativeImpl\.cpp\b').hasMatch(annotation)) {
+      result.add(libMatch.group(1)!);
+    }
   }
   return result;
 }

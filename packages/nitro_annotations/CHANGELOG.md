@@ -1,6 +1,7 @@
 # 0.3.1
 
 - **Improved: Ecosystem Sync** — Synchronized to version 0.3.1.
+- **New: `macos` field on `@NitroModule`** — `NitroModule` now accepts an optional `macos` parameter (`NativeImpl?`) for macOS platform targeting. Valid values are `NativeImpl.swift` and `NativeImpl.cpp`; `NativeImpl.kotlin` is rejected by `SpecValidator` with `INVALID_MACOS_IMPL`. Omitting `macos` means no macOS bridge is generated (existing behaviour unchanged).
 
 # 0.3.0
 
