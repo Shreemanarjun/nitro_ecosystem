@@ -20,6 +20,7 @@ class SpecExtractor {
 
     final iosImpl = annotation.read('ios').isNull ? null : _getNativeImpl(annotation.read('ios').objectValue);
     final androidImpl = annotation.read('android').isNull ? null : _getNativeImpl(annotation.read('android').objectValue);
+    final macosImpl = annotation.read('macos').isNull ? null : _getNativeImpl(annotation.read('macos').objectValue);
     final cSymbolPrefix = annotation.read('cSymbolPrefix').isNull ? null : annotation.read('cSymbolPrefix').stringValue;
     final lib = annotation.read('lib').isNull ? null : annotation.read('lib').stringValue;
     final sourceFile = library.element.source.uri.pathSegments.last.replaceFirst('.native.dart', '');
@@ -38,6 +39,7 @@ class SpecExtractor {
       namespace: ns,
       iosImpl: iosImpl,
       androidImpl: androidImpl,
+      macosImpl: macosImpl,
       sourceUri: library.element.source.uri.toString(),
       functions: _extractFunctions(element, ns, recordTypeNames),
       properties: properties,

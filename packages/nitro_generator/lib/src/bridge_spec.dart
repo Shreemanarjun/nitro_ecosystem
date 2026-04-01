@@ -6,6 +6,7 @@ class BridgeSpec {
   final String namespace;
   final NativeImpl? iosImpl;
   final NativeImpl? androidImpl;
+  final NativeImpl? macosImpl;
   final String sourceUri;
 
   /// True when iOS is a targeted platform.
@@ -14,11 +15,19 @@ class BridgeSpec {
   /// True when Android is a targeted platform.
   bool get targetsAndroid => androidImpl != null;
 
+  /// True when macOS is a targeted platform.
+  bool get targetsMacos => macosImpl != null;
+
+  /// True when any Apple platform (iOS and/or macOS) is targeted with C++.
+  bool get targetsAppleCpp =>
+      (iosImpl == NativeImpl.cpp || macosImpl == NativeImpl.cpp);
+
   /// True when all targeted platforms use direct C++ (no JNI / Swift bridge).
   bool get isCppImpl =>
       (iosImpl == null || iosImpl == NativeImpl.cpp) &&
       (androidImpl == null || androidImpl == NativeImpl.cpp) &&
-      (iosImpl != null || androidImpl != null);
+      (macosImpl == null || macosImpl == NativeImpl.cpp) &&
+      (iosImpl != null || androidImpl != null || macosImpl != null);
 
   final List<BridgeStruct> structs;
   final List<BridgeEnum> enums;
@@ -33,6 +42,7 @@ class BridgeSpec {
     required this.namespace,
     this.iosImpl,
     this.androidImpl,
+    this.macosImpl,
     required this.sourceUri,
     this.structs = const [],
     this.enums = const [],

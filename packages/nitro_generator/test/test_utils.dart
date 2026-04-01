@@ -572,6 +572,69 @@ BridgeSpec androidOnlyCppSpec() => BridgeSpec(
   ],
 );
 
+/// macOS-only with C++ (no iOS, no Android).
+BridgeSpec macosOnlyCppSpec() => BridgeSpec(
+  dartClassName: 'MacProcessor',
+  lib: 'mac_processor',
+  namespace: 'mac_processor',
+  macosImpl: NativeImpl.cpp,
+  sourceUri: 'mac_processor.native.dart',
+  functions: [
+    BridgeFunction(
+      dartName: 'process',
+      cSymbol: 'mac_processor_process',
+      isAsync: false,
+      returnType: BridgeType(name: 'double'),
+      params: [
+        BridgeParam(name: 'value', type: BridgeType(name: 'double')),
+      ],
+    ),
+  ],
+);
+
+/// iOS + macOS shared C++ (no Android).
+BridgeSpec appleOnlyCppSpec() => BridgeSpec(
+  dartClassName: 'AppleProcessor',
+  lib: 'apple_processor',
+  namespace: 'apple_processor',
+  iosImpl: NativeImpl.cpp,
+  macosImpl: NativeImpl.cpp,
+  sourceUri: 'apple_processor.native.dart',
+  functions: [
+    BridgeFunction(
+      dartName: 'process',
+      cSymbol: 'apple_processor_process',
+      isAsync: false,
+      returnType: BridgeType(name: 'double'),
+      params: [
+        BridgeParam(name: 'value', type: BridgeType(name: 'double')),
+      ],
+    ),
+  ],
+);
+
+/// iOS + macOS + Android — full shared C++ across all three platforms.
+BridgeSpec triPlatformCppSpec() => BridgeSpec(
+  dartClassName: 'SharedProcessor',
+  lib: 'shared_processor',
+  namespace: 'shared_processor',
+  iosImpl: NativeImpl.cpp,
+  macosImpl: NativeImpl.cpp,
+  androidImpl: NativeImpl.cpp,
+  sourceUri: 'shared_processor.native.dart',
+  functions: [
+    BridgeFunction(
+      dartName: 'process',
+      cSymbol: 'shared_processor_process',
+      isAsync: false,
+      returnType: BridgeType(name: 'double'),
+      params: [
+        BridgeParam(name: 'value', type: BridgeType(name: 'double')),
+      ],
+    ),
+  ],
+);
+
 /// iOS-only with Swift, includes a property (getter + setter).
 BridgeSpec iosOnlyWithPropertySpec() => BridgeSpec(
   dartClassName: 'IosBrightness',

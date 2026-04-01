@@ -1,22 +1,23 @@
 class NitroModule {
   final NativeImpl? ios; // which language implements on iOS (null = not targeting iOS)
   final NativeImpl? android; // which language implements on Android (null = not targeting Android)
-  final String?
-  cSymbolPrefix; // override C prefix (default: snake_case classname)
+  final NativeImpl? macos; // which language implements on macOS (null = not targeting macOS); only NativeImpl.cpp or NativeImpl.swift are valid
+  final String? cSymbolPrefix; // override C prefix (default: snake_case classname)
   final String? lib; // override .so/.dylib name (default: lib{classname})
 
   const NitroModule({
     this.ios,
     this.android,
+    this.macos,
     this.cSymbolPrefix,
     this.lib,
   });
 }
 
 enum NativeImpl {
-  swift, // iOS: Swift + @_cdecl C bridge
+  swift, // iOS / macOS: Swift + @_cdecl C bridge
   kotlin, // Android: Kotlin + JNI bridge
-  cpp, // Both: shared C++ (advanced)
+  cpp, // Shared C++ across any targeted platform (iOS, macOS, Android)
 }
 
 class HybridStruct {

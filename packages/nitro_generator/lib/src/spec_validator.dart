@@ -1,3 +1,4 @@
+import 'package:nitro_annotations/nitro_annotations.dart' show NativeImpl;
 import 'bridge_spec.dart';
 
 enum ValidationSeverity { error, warning }
@@ -68,15 +69,28 @@ class SpecValidator {
     final issues = <ValidationIssue>[];
 
     // ── Platform targeting ─────────────────────────────────────────────────
-    if (spec.iosImpl == null && spec.androidImpl == null) {
+    if (spec.iosImpl == null && spec.androidImpl == null && spec.macosImpl == null) {
       issues.add(
         ValidationIssue(
           severity: ValidationSeverity.error,
           code: 'NO_TARGET_PLATFORM',
           message:
-              '${spec.dartClassName}: at least one of `ios` or `android` must be specified in @NitroModule.',
+              '${spec.dartClassName}: at least one of `ios`, `android`, or `macos` must be specified in @NitroModule.',
           hint:
-              'Add `ios: NativeImpl.swift` and/or `android: NativeImpl.kotlin` to your @NitroModule annotation.',
+              'Add `ios: NativeImpl.swift`, `android: NativeImpl.kotlin`, and/or `macos: NativeImpl.cpp` to your @NitroModule annotation.',
+        ),
+      );
+    }
+
+    // macOS only supports NativeImpl.cpp or NativeImpl.swift — not Kotlin.
+    if (spec.macosImpl == NativeImpl.kotlin) {
+      issues.add(
+        ValidationIssue(
+          severity: ValidationSeverity.error,
+          code: 'INVALID_MACOS_IMPL',
+          message:
+              '${spec.dartClassName}: macOS does not support NativeImpl.kotlin.',
+          hint: 'Use `macos: NativeImpl.cpp` or `macos: NativeImpl.swift` instead.',
         ),
       );
     }

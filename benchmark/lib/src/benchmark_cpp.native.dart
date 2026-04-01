@@ -112,7 +112,7 @@ class BenchmarkStats {
 ///   renderBox(Color(box.color), box.width, box.height);
 /// }); // NativeFinalizer frees each box when it goes out of scope
 /// ```
-@NitroModule(lib: 'benchmark_cpp', ios: NativeImpl.cpp, android: NativeImpl.cpp)
+@NitroModule(lib: 'benchmark_cpp', ios: NativeImpl.cpp, macos: NativeImpl.cpp, android: NativeImpl.cpp)
 abstract class BenchmarkCpp extends HybridObject {
   /// Shared singleton. Loads the `benchmark_cpp` native library once and
   /// initialises proxy finalizers. Thread-safe after first access.

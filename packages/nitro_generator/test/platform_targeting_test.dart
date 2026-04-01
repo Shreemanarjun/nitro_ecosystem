@@ -193,7 +193,7 @@ void main() {
       expect(out, isNot(contains('_call_process')));
     });
 
-    test('wraps code in #ifdef __APPLE__ guard', () {
+    test('wraps code in #ifdef __APPLE__ guard (covers iOS + macOS)', () {
       final out = CppBridgeGenerator.generate(iosOnlyCppSpec());
       expect(out, contains('#ifdef __APPLE__'));
       expect(out, contains('#endif // __APPLE__'));
@@ -213,6 +213,143 @@ void main() {
       expect(guardStart, lessThan(includePos));
       expect(includePos, lessThan(implPos));
       expect(implPos, lessThan(guardEnd));
+    });
+  });
+
+  // ── macOS C++ support ───────────────────────────────────────────────────────
+
+  group('BridgeSpec — macOS targeting', () {
+    test('macosImpl: targetsMacos=true', () {
+      expect(macosOnlyCppSpec().targetsMacos, isTrue);
+    });
+
+    test('macOS-only: isCppImpl=true', () {
+      expect(macosOnlyCppSpec().isCppImpl, isTrue);
+    });
+
+    test('iOS + macOS cpp: isCppImpl=true, targetsAndroid=false', () {
+      final spec = appleOnlyCppSpec();
+      expect(spec.isCppImpl, isTrue);
+      expect(spec.targetsAndroid, isFalse);
+      expect(spec.targetsIos, isTrue);
+      expect(spec.targetsMacos, isTrue);
+    });
+
+    test('iOS + macOS + Android cpp: isCppImpl=true, all platforms targeted', () {
+      final spec = triPlatformCppSpec();
+      expect(spec.isCppImpl, isTrue);
+      expect(spec.targetsIos, isTrue);
+      expect(spec.targetsMacos, isTrue);
+      expect(spec.targetsAndroid, isTrue);
+    });
+
+    test('macosImpl: NativeImpl.kotlin raises INVALID_MACOS_IMPL error', () {
+      final spec = BridgeSpec(
+        dartClassName: 'Bad',
+        lib: 'bad',
+        namespace: 'bad',
+        macosImpl: NativeImpl.kotlin,
+        sourceUri: 'bad.native.dart',
+      );
+      final issues = SpecValidator.validate(spec);
+      expect(issues.any((i) => i.code == 'INVALID_MACOS_IMPL' && i.isError), isTrue);
+    });
+
+    test('macOS-only: no NO_TARGET_PLATFORM error', () {
+      final issues = SpecValidator.validate(macosOnlyCppSpec());
+      expect(issues.any((i) => i.code == 'NO_TARGET_PLATFORM'), isFalse);
+    });
+  });
+
+  group('CppBridgeGenerator — macOS-only C++', () {
+    test('uses _generateCppDirect path', () {
+      final out = CppBridgeGenerator.generate(macosOnlyCppSpec());
+      expect(out, contains('NativeImpl: cpp'));
+      expect(out, contains('mac_processor_register_impl'));
+    });
+
+    test('does NOT emit JNI_OnLoad', () {
+      final out = CppBridgeGenerator.generate(macosOnlyCppSpec());
+      expect(out, isNot(contains('JNI_OnLoad')));
+    });
+
+    test('does NOT emit Swift _call_ declarations', () {
+      final out = CppBridgeGenerator.generate(macosOnlyCppSpec());
+      expect(out, isNot(contains('_call_process')));
+    });
+
+    test('wraps code in #ifdef __APPLE__ guard (same macro covers iOS + macOS)', () {
+      final out = CppBridgeGenerator.generate(macosOnlyCppSpec());
+      expect(out, contains('#ifdef __APPLE__'));
+      expect(out, contains('#endif // __APPLE__'));
+    });
+
+    test('does NOT emit #ifdef __ANDROID__ guard', () {
+      final out = CppBridgeGenerator.generate(macosOnlyCppSpec());
+      expect(out, isNot(contains('#ifdef __ANDROID__')));
+    });
+  });
+
+  group('CppBridgeGenerator — iOS + macOS shared C++ (Apple only)', () {
+    test('uses _generateCppDirect path', () {
+      final out = CppBridgeGenerator.generate(appleOnlyCppSpec());
+      expect(out, contains('NativeImpl: cpp'));
+      expect(out, contains('apple_processor_register_impl'));
+    });
+
+    test('wraps in #ifdef __APPLE__ (no Android)', () {
+      final out = CppBridgeGenerator.generate(appleOnlyCppSpec());
+      expect(out, contains('#ifdef __APPLE__'));
+      expect(out, isNot(contains('#ifdef __ANDROID__')));
+    });
+
+    test('does NOT emit JNI_OnLoad', () {
+      final out = CppBridgeGenerator.generate(appleOnlyCppSpec());
+      expect(out, isNot(contains('JNI_OnLoad')));
+    });
+  });
+
+  group('CppBridgeGenerator — iOS + macOS + Android shared C++ (tri-platform)', () {
+    test('uses _generateCppDirect path', () {
+      final out = CppBridgeGenerator.generate(triPlatformCppSpec());
+      expect(out, contains('NativeImpl: cpp'));
+      expect(out, contains('shared_processor_register_impl'));
+    });
+
+    test('emits NO platform guard — same source compiles everywhere', () {
+      final out = CppBridgeGenerator.generate(triPlatformCppSpec());
+      expect(out, isNot(contains('#ifdef __APPLE__')));
+      expect(out, isNot(contains('#ifdef __ANDROID__')));
+    });
+
+    test('does NOT emit JNI_OnLoad', () {
+      final out = CppBridgeGenerator.generate(triPlatformCppSpec());
+      expect(out, isNot(contains('JNI_OnLoad')));
+    });
+
+    test('does NOT emit Swift _call_ declarations', () {
+      final out = CppBridgeGenerator.generate(triPlatformCppSpec());
+      expect(out, isNot(contains('_call_process')));
+    });
+
+    test('register_impl and get_impl present for all platforms', () {
+      final out = CppBridgeGenerator.generate(triPlatformCppSpec());
+      expect(out, contains('shared_processor_register_impl'));
+      expect(out, contains('shared_processor_get_impl'));
+    });
+  });
+
+  group('CppInterfaceGenerator — macOS C++', () {
+    test('macOS-only generates abstract class', () {
+      final out = CppInterfaceGenerator.generate(macosOnlyCppSpec());
+      expect(out, contains('class HybridMacProcessor'));
+      expect(out, contains('virtual double process(double value) = 0;'));
+    });
+
+    test('tri-platform generates single shared abstract class', () {
+      final out = CppInterfaceGenerator.generate(triPlatformCppSpec());
+      expect(out, contains('class HybridSharedProcessor'));
+      expect(out, contains('shared_processor_register_impl'));
     });
   });
 
