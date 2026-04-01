@@ -67,7 +67,9 @@ void main() {
       'struct stream uses zero-copy NativeProxy (no toDart copy, no malloc.free)',
       () {
         final out = DartFfiGenerator.generate(structStreamSpec());
-        // Stream type changes to proxy — zero-copy, no eager field copy.
+        // Override signature matches spec type — no broken override.
+        expect(out, contains('Stream<CameraFrame> get frames'));
+        // openStream uses the proxy type internally for deferred copying.
         expect(out, contains('NitroRuntime.openStream<CameraFrameProxy>'));
         expect(
           out,
@@ -77,6 +79,8 @@ void main() {
         expect(out, isNot(contains('malloc.free(ptr)')));
         // The unpack expression must use the Proxy constructor, not toDart().
         expect(out, contains('CameraFrameProxy(Pointer<CameraFrameFfi>.fromAddress(rawPtr))'));
+        // No .map() — proxy IS-A value type, so Stream<Proxy> satisfies Stream<Value>.
+        expect(out, isNot(contains('.map((proxy) => proxy.toDartAndRelease())')));
         // Proxy class must be generated alongside the FFI struct.
         expect(out, contains('final class CameraFrameProxy'));
       },

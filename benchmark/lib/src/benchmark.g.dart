@@ -63,10 +63,13 @@ extension BenchmarkBoxExt on BenchmarkBox {
 // --- Struct Native Proxies (zero-copy, lazy field access) ---
 
 /// Zero-copy proxy for [BenchmarkPoint].
-/// Fields are read directly from the native heap on access.
+/// Extends [BenchmarkPoint] and overrides every getter to read lazily from
+/// native memory — no field is copied at construction time.
+/// Because `BenchmarkPointProxy <: BenchmarkPoint`, a `Stream<BenchmarkPointProxy>`
+/// satisfies `Stream<BenchmarkPoint>` via Dart covariant generics.
 /// Native memory is freed via a [NativeFinalizer] backed by the
 /// generated C symbol 'benchmark_release_BenchmarkPoint'.
-final class BenchmarkPointProxy implements Finalizable {
+final class BenchmarkPointProxy extends BenchmarkPoint implements Finalizable {
   final Pointer<BenchmarkPointFfi> _native;
 
   static NativeFinalizer? _finalizer;
@@ -81,20 +84,25 @@ final class BenchmarkPointProxy implements Finalizable {
     );
   }
 
-  /// Takes ownership of [native].
+  /// Takes ownership of [native]. Super fields are zeroed and never read;
+  /// all getters below are overridden to read from native memory instead.
   /// Do NOT call [malloc.free] after passing the pointer here.
-  BenchmarkPointProxy(this._native) {
+  BenchmarkPointProxy(this._native) : super(x: 0.0, y: 0.0) {
     assert(_finalizer != null,
         'BenchmarkPointProxy._init() was not called. Ensure the Nitro impl class constructor ran before creating proxies.');
     _finalizer!.attach(this, _native.cast(), detach: this);
   }
 
-  // Lazy field accessors — zero allocation, reads native memory on demand.
+  // @override lazy getters — read native memory on demand, zero allocation.
+  @override
   double get x => _native.ref.x;
+  @override
   double get y => _native.ref.y;
 
-  /// Eagerly copies all fields to a [BenchmarkPoint] value and detaches
-  /// the finalizer, explicitly freeing native memory.
+  /// Eagerly copies all fields to a plain [BenchmarkPoint] value, detaches
+  /// the finalizer, and frees native memory immediately.
+  /// Use this only when you need an immutable snapshot; for streams
+  /// prefer consuming the proxy fields lazily then letting it GC.
   /// Must not be called more than once.
   BenchmarkPoint toDartAndRelease() {
     final v = _native.ref.toDart();
@@ -105,10 +113,13 @@ final class BenchmarkPointProxy implements Finalizable {
 }
 
 /// Zero-copy proxy for [BenchmarkBox].
-/// Fields are read directly from the native heap on access.
+/// Extends [BenchmarkBox] and overrides every getter to read lazily from
+/// native memory — no field is copied at construction time.
+/// Because `BenchmarkBoxProxy <: BenchmarkBox`, a `Stream<BenchmarkBoxProxy>`
+/// satisfies `Stream<BenchmarkBox>` via Dart covariant generics.
 /// Native memory is freed via a [NativeFinalizer] backed by the
 /// generated C symbol 'benchmark_release_BenchmarkBox'.
-final class BenchmarkBoxProxy implements Finalizable {
+final class BenchmarkBoxProxy extends BenchmarkBox implements Finalizable {
   final Pointer<BenchmarkBoxFfi> _native;
 
   static NativeFinalizer? _finalizer;
@@ -123,21 +134,27 @@ final class BenchmarkBoxProxy implements Finalizable {
     );
   }
 
-  /// Takes ownership of [native].
+  /// Takes ownership of [native]. Super fields are zeroed and never read;
+  /// all getters below are overridden to read from native memory instead.
   /// Do NOT call [malloc.free] after passing the pointer here.
-  BenchmarkBoxProxy(this._native) {
+  BenchmarkBoxProxy(this._native) : super(color: 0, width: 0.0, height: 0.0) {
     assert(_finalizer != null,
         'BenchmarkBoxProxy._init() was not called. Ensure the Nitro impl class constructor ran before creating proxies.');
     _finalizer!.attach(this, _native.cast(), detach: this);
   }
 
-  // Lazy field accessors — zero allocation, reads native memory on demand.
+  // @override lazy getters — read native memory on demand, zero allocation.
+  @override
   int get color => _native.ref.color;
+  @override
   double get width => _native.ref.width;
+  @override
   double get height => _native.ref.height;
 
-  /// Eagerly copies all fields to a [BenchmarkBox] value and detaches
-  /// the finalizer, explicitly freeing native memory.
+  /// Eagerly copies all fields to a plain [BenchmarkBox] value, detaches
+  /// the finalizer, and frees native memory immediately.
+  /// Use this only when you need an immutable snapshot; for streams
+  /// prefer consuming the proxy fields lazily then letting it GC.
   /// Must not be called more than once.
   BenchmarkBox toDartAndRelease() {
     final v = _native.ref.toDart();
@@ -309,7 +326,7 @@ class _BenchmarkImpl extends Benchmark {
   }
 
   @override
-  Stream<BenchmarkPointProxy> get dataStream {
+  Stream<BenchmarkPoint> get dataStream {
     checkDisposed();
     return NitroRuntime.openStream<BenchmarkPointProxy>(
       register: (port) => _registerDataStreamPtr(port),
@@ -317,11 +334,11 @@ class _BenchmarkImpl extends Benchmark {
           BenchmarkPointProxy(Pointer<BenchmarkPointFfi>.fromAddress(rawPtr)),
       release: (port) => _releaseDataStreamPtr(port),
       backpressure: Backpressure.dropLatest,
-    );
+    ).map((proxy) => proxy.toDartAndRelease());
   }
 
   @override
-  Stream<BenchmarkBoxProxy> get boxStream {
+  Stream<BenchmarkBox> get boxStream {
     checkDisposed();
     return NitroRuntime.openStream<BenchmarkBoxProxy>(
       register: (port) => _registerBoxStreamPtr(port),
@@ -329,6 +346,6 @@ class _BenchmarkImpl extends Benchmark {
           BenchmarkBoxProxy(Pointer<BenchmarkBoxFfi>.fromAddress(rawPtr)),
       release: (port) => _releaseBoxStreamPtr(port),
       backpressure: Backpressure.dropLatest,
-    );
+    ).map((proxy) => proxy.toDartAndRelease());
   }
 }

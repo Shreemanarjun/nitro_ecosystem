@@ -211,6 +211,36 @@ Stream support in the C++ direct path uses `Dart_PostCObject_DL` — thread-safe
 
 ---
 
+## Zero-Copy Proxy Streaming
+
+For `@HybridStruct` stream items, Nitrogen generates a **proxy class** that *extends* the value type with `@override` lazy getters. This eliminates all eager field copying on the hot path:
+
+```
+@HybridStruct BenchmarkBox (color, width, height)
+        │
+        └── generated: BenchmarkBoxProxy extends BenchmarkBox
+                           @override int get color    => _native.ref.color
+                           @override double get width  => _native.ref.width
+                           @override double get height => _native.ref.height
+```
+
+The stream signature stays `Stream<BenchmarkBox>` — no API change needed. Consumers receive a `BenchmarkBoxProxy` at runtime (IS-A `BenchmarkBox`), but every field access reads directly from native heap memory via the `Pointer<BenchmarkBoxFfi>`:
+
+```dart
+// Works exactly like before — type annotation unchanged.
+BenchmarkCpp.instance.boxStream.listen((box) {
+  // box is BenchmarkBoxProxy at runtime — IS-A BenchmarkBox.
+  // These reads go straight to native memory. Zero copy. Zero allocation.
+  renderBox(Color(box.color), box.width, box.height);
+  // When box leaves scope, NativeFinalizer calls the generated C release
+  // function — no manual malloc.free() needed.
+});
+```
+
+Memory is managed by a `NativeFinalizer` backed by a **generated C release symbol** (`${lib}_release_${StructName}`), so native memory is freed automatically when the proxy is GC'd. Call `(box as BenchmarkBoxProxy).toDartAndRelease()` for an eager snapshot if you need to outlive the current frame.
+
+---
+
 ## `@HybridRecord` Wire Format
 
 `@HybridRecord` types cross the FFI boundary as a compact little-endian binary buffer rather than JSON:

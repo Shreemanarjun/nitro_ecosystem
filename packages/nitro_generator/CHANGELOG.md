@@ -1,3 +1,13 @@
+## 0.3.1
+
+- **New: Zero-copy proxy streaming** — `StructGenerator.generateDartProxies` now emits `final class ${Name}Proxy extends ${Name} implements Finalizable`. Every getter is `@override` and reads lazily from a `Pointer<${Name}Ffi>`; super fields are zeroed and never read. Because `Proxy <: ValueType`, `Stream<Proxy>` satisfies `Stream<Value>` via Dart covariant generics — no `.map()` or API change required.
+- **New: Generated C release symbols** — `CppBridgeGenerator` emits a `void ${lib}_release_${Struct}(void* ptr)` function for every `@HybridStruct` inside `extern "C"` blocks on both the direct-C++ and JNI+Swift paths.
+- **New: `NativeFinalizer` with generated release symbol** — Each proxy's `static NativeFinalizer? _finalizer` is lazily bound to `dylib.lookup('${lib}_release_${Struct}')` via an idempotent `static void _init(DynamicLibrary dylib)`. The impl constructor calls `${Name}Proxy._init(_dylib)` for each struct.
+- **New: `isLeaf: true` on sync primitive bindings** — All synchronous FFI bindings with primitive-only return types (including read/write property accessors) are emitted with `.asFunction<...>(isLeaf: true)`, skipping the Dart VM safepoint transition.
+- **New: Indexed `@HybridRecord` list encoding** — `DartFfiGenerator` encodes list record params with `RecordWriter.encodeIndexedList` and decodes list record returns with `LazyRecordList.decode`. Kotlin and Swift encode with a `writeIndexedList` helper; the decode path skips the offset table.
+- **New: `_superDefault` helper in `StructGenerator`** — Returns a safe zero-value Dart literal for each field type so the proxy's `super(...)` call compiles without touching native data.
+- **Breaking fix: struct stream override type** — Generated struct stream overrides now emit `Stream<${ValueType}>` (matching the spec) while using `openStream<${Proxy}>` internally. Previously the impl emitted `Stream<${Proxy}>` which was an invalid override.
+
 ## 0.3.0
 
 - **New: Direct C++ Implementation support** — Generator produces `*.native.g.h`, `*.mock.g.h`, and `*.test.g.cpp` when `@NitroModule(ios: NativeImpl.cpp, android: NativeImpl.cpp)` is specified.

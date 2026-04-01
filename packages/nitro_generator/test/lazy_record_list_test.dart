@@ -1,8 +1,6 @@
-import 'dart:ffi';
 import 'dart:typed_data';
 import 'package:nitro/nitro.dart';
 import 'package:test/test.dart';
-import 'package:ffi/ffi.dart';
 
 // A tiny record type for testing — mimics what the generator would produce.
 class _Point {

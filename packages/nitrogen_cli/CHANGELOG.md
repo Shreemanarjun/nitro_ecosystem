@@ -1,3 +1,7 @@
+## 0.3.1
+
+- **Improved: Ecosystem Sync** — Synchronized to version 0.3.1.
+
 ## 0.3.0
 
 - **Fixed: PascalCase derivation for filenames with underscores** — `discoverModuleInfos` now uses a robust `_toPascalCase` helper with empty-segment guards. This prevents `RangeError` exceptions when processing filenames with consecutive underscores (e.g., `my__module.native.dart`).

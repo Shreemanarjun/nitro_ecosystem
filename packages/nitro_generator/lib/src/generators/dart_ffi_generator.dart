@@ -441,11 +441,12 @@ class DartFfiGenerator {
         unpackExpr = '(rawPtr) { try { return $decodeExpr; } finally { malloc.free(rawPtr); } }';
         streamItemType = itemType;
       } else if (isStruct) {
-        // Zero-copy path: wrap the malloc'd pointer in a NativeProxy instead of
-        // copying every field to the Dart heap.  The proxy owns the pointer and
-        // releases it via NativeFinalizer when it is GC'd — no explicit free needed.
+        // Zero-copy path: ${itemType}Proxy extends ${itemType} and overrides every
+        // getter to read lazily from native memory.  Because the proxy IS-A value
+        // type, Stream<${itemType}Proxy> satisfies Stream<${itemType}> via Dart's
+        // covariant generics — no .map() or eager field copy required.
         unpackExpr = '(rawPtr) => ${itemType}Proxy(Pointer<${itemType}Ffi>.fromAddress(rawPtr))';
-        streamItemType = '${itemType}Proxy';
+        streamItemType = itemType;
       } else {
         unpackExpr = '(rawPtr) => rawPtr as $itemType';
         streamItemType = itemType;
@@ -454,7 +455,10 @@ class DartFfiGenerator {
       s.writeln('  @override');
       s.writeln('  Stream<$streamItemType> get ${stream.dartName} {');
       s.writeln('    checkDisposed();');
-      s.writeln('    return NitroRuntime.openStream<$streamItemType>(');
+      // For struct streams, openStream is typed to the Proxy so the NativeFinalizer
+      // is attached correctly, but the return is implicitly upcast to Stream<value>.
+      final openType = isStruct ? '${itemType}Proxy' : streamItemType;
+      s.writeln('    return NitroRuntime.openStream<$openType>(');
       s.writeln('      register: (port) => _register${cap}Ptr(port),');
       s.writeln('      unpack: $unpackExpr,');
       s.writeln('      release: (port) => _release${cap}Ptr(port),');

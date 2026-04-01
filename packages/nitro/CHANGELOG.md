@@ -1,3 +1,10 @@
+## 0.3.1
+
+- **New: `LazyRecordList<T>`** — `record_codec.dart` gains a `ListBase<T>` implementation backed by a raw `Pointer<Uint8>` and a pre-parsed offset table. Items are decoded on first access and cached; a `NativeFinalizer` backed by `malloc.nativeFree` frees the buffer on GC.
+- **New: `RecordWriter.encodeIndexedList<T>`** — serialises a list of records into the indexed wire format: `[int32 count | int64[count] byte_offsets | item_blobs...]`, enabling O(1) random access by the Dart reader.
+- **New: `RecordWriter.encodeIndexedPrimitiveList<T>`** — same indexed format for primitive-typed lists.
+- **New: `RecordReader.fromPayloadOffset(Pointer<Uint8>, int)`** — constructs a reader at an arbitrary byte offset within an existing payload, used by `LazyRecordList` to decode individual items on demand.
+
 ## 0.3.0
 
 - **Breaking: C++ Interface Pointer Generation** — The C++ bridge generator now generates `void*` interface pointers instead of concrete class pointers for `HybridObject` types.

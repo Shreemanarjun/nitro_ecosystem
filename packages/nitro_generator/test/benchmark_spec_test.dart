@@ -523,9 +523,10 @@ void main() {
       expect(out, contains('double add(double a, double b) {\n    checkDisposed();'));
     });
 
-    test('dataStream getter has checkDisposed() and returns proxy stream', () {
-      // BenchmarkPoint is a @HybridStruct — stream uses zero-copy proxy.
-      expect(out, contains('Stream<BenchmarkPointProxy> get dataStream {\n    checkDisposed();'));
+    test('dataStream getter has checkDisposed() and returns value stream', () {
+      // Override signature matches spec (Stream<BenchmarkPoint>); proxy is used
+      // internally and mapped back via toDartAndRelease().
+      expect(out, contains('Stream<BenchmarkPoint> get dataStream {\n    checkDisposed();'));
     });
 
     test('streams use backpressure: Backpressure.dropLatest', () {

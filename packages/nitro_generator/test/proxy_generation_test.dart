@@ -17,9 +17,9 @@ void main() {
       expect(out, contains('final class CameraFrameProxy'));
     });
 
-    test('proxy implements Finalizable', () {
+    test('proxy extends the value type AND implements Finalizable', () {
       final out = StructGenerator.generateDartProxies(structStreamSpec());
-      expect(out, contains('final class CameraFrameProxy implements Finalizable'));
+      expect(out, contains('final class CameraFrameProxy extends CameraFrame implements Finalizable'));
     });
 
     test('proxy has nullable static NativeFinalizer field', () {
@@ -56,6 +56,33 @@ void main() {
     test('proxy constructor calls _finalizer!.attach()', () {
       final out = StructGenerator.generateDartProxies(structStreamSpec());
       expect(out, contains('_finalizer!.attach(this, _native.cast(), detach: this)'));
+    });
+
+    test('proxy constructor calls super with zero defaults', () {
+      final out = StructGenerator.generateDartProxies(structStreamSpec());
+      // Zero-value super call — fields in super are never read.
+      expect(out, contains(': super('));
+    });
+
+    test('double fields get 0.0 super default', () {
+      final out = StructGenerator.generateDartProxies(richSpec());
+      expect(out, contains('value: 0.0'));
+    });
+
+    test('int fields get 0 super default', () {
+      final out = StructGenerator.generateDartProxies(structStreamSpec());
+      expect(out, contains('width: 0'));
+    });
+
+    test('bool fields get false super default', () {
+      final out = StructGenerator.generateDartProxies(richSpec());
+      expect(out, contains('valid: false'));
+    });
+
+    test('lazy getters are decorated with @override', () {
+      final out = StructGenerator.generateDartProxies(structStreamSpec());
+      expect(out, contains('@override\n  int get width'));
+      expect(out, contains('@override\n  int get height'));
     });
 
     test('proxy has int lazy getter for int field', () {
@@ -149,9 +176,9 @@ void main() {
       expect(out, contains("'my_camera_lib_release_Frame'"));
     });
 
-    test('packed struct proxy is still generated', () {
+    test('packed struct proxy extends value type and implements Finalizable', () {
       final out = StructGenerator.generateDartProxies(cppStreamStructSpec());
-      expect(out, contains('final class LidarPointProxy implements Finalizable'));
+      expect(out, contains('final class LidarPointProxy extends LidarPoint implements Finalizable'));
     });
   });
 
@@ -182,9 +209,11 @@ void main() {
       expect(out, contains('LidarPointProxy._init(_dylib);'));
     });
 
-    test('stream returns Stream<StructProxy> type (proxy is the stream item)', () {
+    test('stream override uses declared value type (proxy is internal only)', () {
       final out = DartFfiGenerator.generate(structStreamSpec());
-      expect(out, contains('Stream<CameraFrameProxy>'));
+      // Override signature matches spec type; proxy is used inside openStream.
+      expect(out, contains('Stream<CameraFrame> get frames'));
+      expect(out, contains('openStream<CameraFrameProxy>'));
     });
 
     test('stream unpack uses proxy constructor, not toDart()+free', () {
@@ -194,6 +223,11 @@ void main() {
         contains('CameraFrameProxy(Pointer<CameraFrameFfi>.fromAddress(rawPtr))'),
       );
       expect(out, isNot(contains('malloc.free(ptr)')));
+    });
+
+    test('struct stream has no .map() — proxy IS-A value type so no conversion needed', () {
+      final out = DartFfiGenerator.generate(structStreamSpec());
+      expect(out, isNot(contains('.map((proxy) => proxy.toDartAndRelease())')));
     });
   });
 

@@ -1,8 +1,55 @@
 # Changelog
 
-## 0.1.0-wip
+## 0.3.1
 
-- Initial workspace setup for Nitro Modules ecosystem.
+### Zero-copy proxy streaming (`@HybridStruct` + `@NitroStream`)
+
+Generated proxy classes now **extend** the value type instead of only implementing `Finalizable`. Every getter is `@override` and reads lazily from the native heap — no fields are copied until accessed:
+
+```dart
+// Generated: BenchmarkBoxProxy extends BenchmarkBox
+@override int get color    => _native.ref.color;   // lazy native read
+@override double get width  => _native.ref.width;  // lazy native read
+@override double get height => _native.ref.height; // lazy native read
+```
+
+Because `Proxy <: ValueType`, `Stream<BenchmarkBoxProxy>` satisfies `Stream<BenchmarkBox>` via Dart's covariant generics — no `.map()`, no eager copy, and **no API change** required in consumer code.
+
+### Memory-safe `NativeFinalizer` with generated C release symbols
+
+Each `@HybridStruct` proxy is backed by a generated C function (`${lib}_release_${Struct}`) rather than `malloc.nativeFree`. The finalizer is lazily bound via an idempotent `static void _init(DynamicLibrary dylib)` called once in the impl constructor:
+
+```cpp
+// Generated in *.bridge.g.cpp
+void benchmark_cpp_release_BenchmarkBox(void* ptr) {
+    if (!ptr) return;
+    free(ptr);
+}
+```
+
+### `isLeaf: true` on all sync primitive bindings
+
+All synchronous FFI bindings with primitive-only return types (including property accessors) now use `.asFunction<...>(isLeaf: true)`, skipping the Dart VM safepoint transition (~50–200 ns saved per call on hot paths).
+
+### Indexed lazy decoding for `@HybridRecord` collections
+
+`@HybridRecord` list fields use an **indexed wire format** with an offset table (`[count | int64[count] offsets | blobs...]`), enabling O(1) random item access. The Dart runtime exposes `LazyRecordList<T>` — items are decoded on first access and cached. Kotlin and Swift encode with a `writeIndexedList` helper; the decode path skips the offset table for sequential reads.
+
+### Documentation & benchmark example
+
+- All `benchmark_cpp.native.dart` declarations now have full dartdoc with usage examples.
+- `benchmark/README.md` replaced with performance tables, architecture diagram, and zero-copy proxy explanation.
+- `packages/nitro/README.md` and top-level `README.md` updated with proxy streaming section and performance comparison table.
+- `box_stress_page.dart` `nitroCppStruct` panel now subscribes to `BenchmarkCpp.instance.boxStream`; boxes are rendered via lazy `BenchmarkBoxProxy` field reads directly from native heap.
+
+---
+
+## 0.3.0
+
+- Initial workspace setup for the Nitro Modules ecosystem.
 - Core packages: `nitro`, `nitro_annotations`, `nitro_generator`.
 - CLI tool: `nitrogen_cli`.
-- Support for Android, iOS, and desktop platforms.
+- Support for Android and iOS platforms.
+- Direct C++ implementation path (`NativeImpl.cpp`) — no JNI or Swift bridge.
+- `@HybridStruct`, `@HybridEnum`, `@HybridRecord`, `@NitroStream`, `@nitroAsync` annotations.
+- GoogleMock test stubs and CMake fragment generation.

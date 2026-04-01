@@ -94,12 +94,17 @@ class StructGenerator {
 
   /// Generates a zero-copy [${name}Proxy] class for every HybridStruct.
   ///
-  /// The proxy holds a `Pointer<${name}Ffi>` and exposes lazy getters that read
-  /// each field directly from native memory without copying.  A [NativeFinalizer]
-  /// automatically frees the native buffer when the proxy is GC'd, so the caller
-  /// must NOT call `malloc.free` after passing the pointer to the constructor.
+  /// Each proxy **extends** its corresponding value class (e.g. `BenchmarkBoxProxy
+  /// extends BenchmarkBox`) and overrides every getter to read lazily from the
+  /// native heap. Because `BenchmarkBoxProxy <: BenchmarkBox`, Dart's covariant
+  /// generic type system accepts `Stream<BenchmarkBoxProxy>` wherever
+  /// `Stream<BenchmarkBox>` is expected — so the generated impl override requires
+  /// **no `.map()` or eager copy at all**.
   ///
-  /// Use [toDartAndRelease] if you need a fully-owned Dart value.
+  /// A [NativeFinalizer] backed by the generated C release symbol frees native
+  /// memory when the proxy is GC'd. The caller must NOT call `malloc.free`.
+  ///
+  /// Use [toDartAndRelease] to eagerly copy and free before GC if needed.
   static String generateDartProxies(BridgeSpec spec) {
     if (spec.structs.isEmpty) return '';
     final libStem = spec.lib.replaceAll('-', '_');
@@ -109,11 +114,19 @@ class StructGenerator {
     s.writeln();
     for (final st in spec.structs) {
       final releaseSym = '${libStem}_release_${st.name}';
+      // Build the super() call with zero-value defaults so the proxy can
+      // satisfy the base class constructor without copying any native data.
+      final superArgs = st.fields
+          .map((f) => '${f.name}: ${_superDefault(f.type.name, enumNames)}')
+          .join(', ');
       s.writeln('/// Zero-copy proxy for [${st.name}].');
-      s.writeln('/// Fields are read directly from the native heap on access.');
+      s.writeln('/// Extends [${st.name}] and overrides every getter to read lazily from');
+      s.writeln('/// native memory — no field is copied at construction time.');
+      s.writeln('/// Because `${st.name}Proxy <: ${st.name}`, a `Stream<${st.name}Proxy>`');
+      s.writeln('/// satisfies `Stream<${st.name}>` via Dart covariant generics.');
       s.writeln('/// Native memory is freed via a [NativeFinalizer] backed by the');
       s.writeln("/// generated C symbol '$releaseSym'.");
-      s.writeln('final class ${st.name}Proxy implements Finalizable {');
+      s.writeln('final class ${st.name}Proxy extends ${st.name} implements Finalizable {');
       s.writeln('  final Pointer<${st.name}Ffi> _native;');
       s.writeln();
       s.writeln('  static NativeFinalizer? _finalizer;');
@@ -127,14 +140,15 @@ class StructGenerator {
       s.writeln('    );');
       s.writeln('  }');
       s.writeln();
-      s.writeln('  /// Takes ownership of [native].');
+      s.writeln('  /// Takes ownership of [native]. Super fields are zeroed and never read;');
+      s.writeln('  /// all getters below are overridden to read from native memory instead.');
       s.writeln('  /// Do NOT call [malloc.free] after passing the pointer here.');
-      s.writeln('  ${st.name}Proxy(this._native) {');
+      s.writeln('  ${st.name}Proxy(this._native) : super($superArgs) {');
       s.writeln("    assert(_finalizer != null, '${st.name}Proxy._init() was not called. Ensure the Nitro impl class constructor ran before creating proxies.');");
       s.writeln('    _finalizer!.attach(this, _native.cast(), detach: this);');
       s.writeln('  }');
       s.writeln();
-      s.writeln('  // Lazy field accessors — zero allocation, reads native memory on demand.');
+      s.writeln('  // @override lazy getters — read native memory on demand, zero allocation.');
       for (final f in st.fields) {
         final typeName = f.type.name.replaceFirst('?', '');
         final dartFieldType = f.type.name;
@@ -159,11 +173,14 @@ class StructGenerator {
         } else {
           readExpr = '_native.ref.${f.name}';
         }
+        s.writeln('  @override');
         s.writeln('  $dartFieldType get ${f.name} => $readExpr;');
       }
       s.writeln();
-      s.writeln('  /// Eagerly copies all fields to a [${st.name}] value and detaches');
-      s.writeln('  /// the finalizer, explicitly freeing native memory.');
+      s.writeln('  /// Eagerly copies all fields to a plain [${st.name}] value, detaches');
+      s.writeln('  /// the finalizer, and frees native memory immediately.');
+      s.writeln('  /// Use this only when you need an immutable snapshot; for streams');
+      s.writeln('  /// prefer consuming the proxy fields lazily then letting it GC.');
       s.writeln('  /// Must not be called more than once.');
       s.writeln('  ${st.name} toDartAndRelease() {');
       s.writeln('    final v = _native.ref.toDart();');
@@ -175,6 +192,45 @@ class StructGenerator {
       s.writeln();
     }
     return s.toString();
+  }
+
+  /// Returns a Dart literal that is a safe zero-value default for [type].
+  /// Used only for the proxy's `super(...)` call — those fields are never read.
+  static String _superDefault(String type, Set<String> enumNames) {
+    final base = type.replaceFirst('?', '');
+    if (enumNames.contains(base)) return '$base.values.first';
+    switch (base) {
+      case 'double':
+        return '0.0';
+      case 'int':
+        return '0';
+      case 'bool':
+        return 'false';
+      case 'String':
+        return "''";
+      case 'Uint8List':
+        return 'Uint8List(0)';
+      case 'Int8List':
+        return 'Int8List(0)';
+      case 'Int16List':
+        return 'Int16List(0)';
+      case 'Int32List':
+        return 'Int32List(0)';
+      case 'Uint16List':
+        return 'Uint16List(0)';
+      case 'Uint32List':
+        return 'Uint32List(0)';
+      case 'Float32List':
+        return 'Float32List(0)';
+      case 'Float64List':
+        return 'Float64List(0)';
+      case 'Int64List':
+        return 'Int64List(0)';
+      case 'Uint64List':
+        return 'Uint64List(0)';
+      default:
+        return 'null';
+    }
   }
 
   /// Generates C structs for the header file.

@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:math' as math;
 import 'package:benchmark/benchmark.dart';
 import 'package:flutter/material.dart';
@@ -255,10 +256,12 @@ class _BoxStressPageState extends State<BoxStressPage> {
             ),
             Row(
               children: [
+                // nitroCppStruct subscribes to boxStream — boxes come from C++
+                // and are rendered via lazy BenchmarkBoxProxy field reads.
                 _BridgePanel(
                   controller: _controller,
                   type: BridgeType.nitroCppStruct,
-                  title: 'Nitro (C++ Struct)',
+                  title: 'Nitro (C++ BoxStream)',
                   color: Colors.teal,
                 ),
                 _BridgePanel(
@@ -398,6 +401,26 @@ class _BridgePanel extends StatelessWidget {
   }
 }
 
+/// Drives one bridge panel with either a vsync [Ticker] (all non-struct
+/// bridges) or a [Stream] subscription ([BridgeType.nitroCppStruct]).
+///
+/// ### Zero-copy boxStream demo ([BridgeType.nitroCppStruct])
+///
+/// When assigned [BridgeType.nitroCppStruct] this driver subscribes to
+/// [BenchmarkCpp.instance.boxStream] instead of using the vsync ticker.
+/// Each item is a [BenchmarkBoxProxy] at runtime — a class that extends
+/// [BenchmarkBox] and overrides every getter to read lazily from native
+/// heap memory:
+///
+/// ```
+/// stream item:  BenchmarkBoxProxy (extends BenchmarkBox)
+///   box.color   → _native.ref.color   (native-heap read, zero copy)
+///   box.width   → _native.ref.width   (native-heap read, zero copy)
+///   box.height  → _native.ref.height  (native-heap read, zero copy)
+/// NativeFinalizer frees each struct when the proxy goes out of scope.
+/// ```
+///
+/// The FPS counter shows the actual C++ emit rate, not the vsync rate.
 class _BridgeDriver extends StatefulWidget {
   final VisualBenchmarkController controller;
   final BridgeType type;
@@ -416,23 +439,53 @@ class _BridgeDriver extends StatefulWidget {
 class _BridgeDriverState extends State<_BridgeDriver>
     with SingleTickerProviderStateMixin {
   Ticker? _ticker;
+
+  /// Active only for [BridgeType.nitroCppStruct]. Receives [BenchmarkBox]
+  /// items (actually [BenchmarkBoxProxy] at runtime) from the C++ native
+  /// thread via Dart_PostCObject_DL.
+  StreamSubscription<BenchmarkBox>? _streamSub;
+
+  /// Holds the box currently being rendered. For the struct-stream panel
+  /// this is a [BenchmarkBoxProxy] — a zero-copy view into native memory.
   final _boxSignal = signal<BenchmarkBox?>(null);
   EffectCleanup? _sub;
 
   @override
   void initState() {
     super.initState();
-    _ticker = createTicker(_onTick);
-    _sub =
-        (widget.controller.isRunning..subscribe((running) {
-              if (running) {
-                _ticker?.start();
-              } else {
-                _ticker?.stop();
-                _boxSignal.value = null;
-              }
-            }))
-            .call;
+    // Struct-stream panel is driven by the stream, not the vsync ticker.
+    if (widget.type != BridgeType.nitroCppStruct) {
+      _ticker = createTicker(_onTick);
+    }
+    _sub = (widget.controller.isRunning..subscribe((running) {
+      if (running) {
+        if (widget.type == BridgeType.nitroCppStruct) {
+          // Subscribe to the C++ boxStream. Each item arrives as a
+          // BenchmarkBoxProxy that extends BenchmarkBox — field reads
+          // go directly to native heap (zero copy, zero allocation).
+          _streamSub =
+              BenchmarkCpp.instance.boxStream.listen(_onBoxFromStream);
+        } else {
+          _ticker?.start();
+        }
+      } else {
+        _streamSub?.cancel();
+        _streamSub = null;
+        _ticker?.stop();
+        _boxSignal.value = null;
+      }
+    })).call;
+  }
+
+  /// Called for each box emitted by [BenchmarkCpp.instance.boxStream].
+  ///
+  /// [box] is [BenchmarkBoxProxy] at runtime. Reading [BenchmarkBox.color],
+  /// [BenchmarkBox.width], and [BenchmarkBox.height] in the widget's
+  /// [build] method goes directly to native heap — no Dart allocation.
+  /// The [NativeFinalizer] frees the native struct once the proxy is GC'd.
+  void _onBoxFromStream(BenchmarkBox box) {
+    _boxSignal.value = box;
+    widget.onTick();
   }
 
   void _onTick(Duration elapsed) {
@@ -475,14 +528,6 @@ class _BridgeDriverState extends State<_BridgeDriver>
         widget.type,
         sw.elapsedMicroseconds.toDouble(),
       );
-    } else if (widget.type == BridgeType.nitroCppStruct) {
-      final sw = Stopwatch()..start();
-      BenchmarkCpp.instance.scalePoint(BenchmarkPoint(x: 1, y: 2), 1.0);
-      sw.stop();
-      widget.controller.recordCallLatency(
-        widget.type,
-        sw.elapsedMicroseconds.toDouble(),
-      );
     } else if (widget.type == BridgeType.nitroCppAsync) {
       final sw = Stopwatch()..start();
       BenchmarkCpp.instance.computeStats(1).then((_) {
@@ -511,6 +556,7 @@ class _BridgeDriverState extends State<_BridgeDriver>
       );
     }
 
+    // nitroCppStruct is stream-driven; _onTick is never called for it.
     _boxSignal.value = BenchmarkBox(
       color: colorVal,
       width: width,
@@ -522,6 +568,7 @@ class _BridgeDriverState extends State<_BridgeDriver>
   @override
   void dispose() {
     _sub?.call();
+    _streamSub?.cancel();
     _ticker?.dispose();
     super.dispose();
   }
@@ -532,6 +579,9 @@ class _BridgeDriverState extends State<_BridgeDriver>
       final box = _boxSignal.value;
       if (box == null) return const SizedBox.shrink();
 
+      // For nitroCppStruct, box is BenchmarkBoxProxy at runtime.
+      // box.color / box.width / box.height are lazy native-heap reads.
+      // For all other panels, box is a plain BenchmarkBox value object.
       return Center(
         child: Container(
           width: box.width,
@@ -650,13 +700,5 @@ class _SummaryPanel extends StatelessWidget {
   }
 }
 
-class BenchmarkBox {
-  final int color;
-  final double width;
-  final double height;
-  BenchmarkBox({
-    required this.color,
-    required this.width,
-    required this.height,
-  });
-}
+// BenchmarkBox is exported from package:benchmark/benchmark.dart — generated
+// by Nitrogen from the @HybridStruct declaration in benchmark_cpp.native.dart.
