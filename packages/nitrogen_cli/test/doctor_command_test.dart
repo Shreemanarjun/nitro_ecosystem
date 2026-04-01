@@ -584,7 +584,7 @@ CompileFlags:
   // ── macOS section ────────────────────────────────────────────────────────────
 
   group('macOS section', () {
-    Directory _scaffoldWithMacos({
+    Directory scaffoldWithMacos({
       bool withPodspec = true,
       bool withDartApiDl = true,
       bool withNitroH = true,
@@ -641,7 +641,7 @@ end
     });
 
     test('macOS section error when no .podspec in macos/', () {
-      final tmp = _scaffoldWithMacos(withPodspec: false);
+      final tmp = scaffoldWithMacos(withPodspec: false);
       addTearDown(() => tmp.deleteSync(recursive: true));
       final result = _run(tmp);
       final sec = result.sections.firstWhere((s) => s.title == 'macOS');
@@ -652,7 +652,7 @@ end
     });
 
     test('macOS section ok when HEADER_SEARCH_PATHS present in podspec', () {
-      final tmp = _scaffoldWithMacos();
+      final tmp = scaffoldWithMacos();
       addTearDown(() => tmp.deleteSync(recursive: true));
       final result = _run(tmp);
       final sec = result.sections.firstWhere((s) => s.title == 'macOS');
@@ -681,7 +681,7 @@ end
     });
 
     test('macOS section error when dart_api_dl.c missing from macos/Classes/', () {
-      final tmp = _scaffoldWithMacos(withDartApiDl: false);
+      final tmp = scaffoldWithMacos(withDartApiDl: false);
       addTearDown(() => tmp.deleteSync(recursive: true));
       final result = _run(tmp);
       final sec = result.sections.firstWhere((s) => s.title == 'macOS');
@@ -692,7 +692,7 @@ end
     });
 
     test('macOS section ok when dart_api_dl.c present in macos/Classes/', () {
-      final tmp = _scaffoldWithMacos(withDartApiDl: true);
+      final tmp = scaffoldWithMacos(withDartApiDl: true);
       addTearDown(() => tmp.deleteSync(recursive: true));
       final result = _run(tmp);
       final sec = result.sections.firstWhere((s) => s.title == 'macOS');
@@ -703,7 +703,7 @@ end
     });
 
     test('macOS section error when nitro.h missing from macos/Classes/', () {
-      final tmp = _scaffoldWithMacos(withNitroH: false);
+      final tmp = scaffoldWithMacos(withNitroH: false);
       addTearDown(() => tmp.deleteSync(recursive: true));
       final result = _run(tmp);
       final sec = result.sections.firstWhere((s) => s.title == 'macOS');
@@ -714,7 +714,7 @@ end
     });
 
     test('macOS section ok when nitro.h present and has NITRO_EXPORT', () {
-      final tmp = _scaffoldWithMacos(withNitroH: true);
+      final tmp = scaffoldWithMacos(withNitroH: true);
       addTearDown(() => tmp.deleteSync(recursive: true));
       final result = _run(tmp);
       final sec = result.sections.firstWhere((s) => s.title == 'macOS');
@@ -729,7 +729,7 @@ end
     });
 
     test('macOS section error for each stale .bridge.g.cpp in macos/Classes/', () {
-      final tmp = _scaffoldWithMacos(cppBridges: ['foo.bridge.g.cpp', 'bar.bridge.g.cpp']);
+      final tmp = scaffoldWithMacos(cppBridges: ['foo.bridge.g.cpp', 'bar.bridge.g.cpp']);
       addTearDown(() => tmp.deleteSync(recursive: true));
       final result = _run(tmp);
       final sec = result.sections.firstWhere((s) => s.title == 'macOS');
@@ -739,7 +739,7 @@ end
     });
 
     test('macOS section ok count when .bridge.g.mm files present', () {
-      final tmp = _scaffoldWithMacos(mmBridges: ['foo.bridge.g.mm', 'bar.bridge.g.mm']);
+      final tmp = scaffoldWithMacos(mmBridges: ['foo.bridge.g.mm', 'bar.bridge.g.mm']);
       addTearDown(() => tmp.deleteSync(recursive: true));
       final result = _run(tmp);
       final sec = result.sections.firstWhere((s) => s.title == 'macOS');
@@ -750,7 +750,7 @@ end
     });
 
     test('macOS section info when all specs are NativeImpl.cpp', () {
-      final tmp = _scaffoldWithMacos(
+      final tmp = scaffoldWithMacos(
         nativeGHeaders: ['math.native.g.h'],
         specs: [(name: 'math', isCpp: true)],
       );
@@ -764,7 +764,7 @@ end
     });
 
     test('macOS section ok when .native.g.h synced and all specs are cpp', () {
-      final tmp = _scaffoldWithMacos(
+      final tmp = scaffoldWithMacos(
         nativeGHeaders: ['math.native.g.h'],
         specs: [(name: 'math', isCpp: true)],
       );
@@ -781,7 +781,7 @@ end
   // ── pubspec macOS platform ────────────────────────────────────────────────────
 
   group('pubspec — macOS platform', () {
-    Directory _scaffoldWithMacosPubspec(String macosPlatformEntry) {
+    Directory scaffoldWithMacosPubspec(String macosPlatformEntry) {
       final root = Directory.systemTemp.createTempSync('nitro_doctor_macos_pubspec_');
       File(p.join(root.path, 'pubspec.yaml')).writeAsStringSync('''
 name: my_plugin
@@ -810,7 +810,7 @@ $macosPlatformEntry
     }
 
     test('ok when macos pluginClass is defined', () {
-      final tmp = _scaffoldWithMacosPubspec('''      macos:
+      final tmp = scaffoldWithMacosPubspec('''      macos:
         pluginClass: MyPlugin''');
       addTearDown(() => tmp.deleteSync(recursive: true));
       final result = _run(tmp);
@@ -822,7 +822,7 @@ $macosPlatformEntry
     });
 
     test('ok when macos ffiPlugin: true is set', () {
-      final tmp = _scaffoldWithMacosPubspec('''      macos:
+      final tmp = scaffoldWithMacosPubspec('''      macos:
         ffiPlugin: true''');
       addTearDown(() => tmp.deleteSync(recursive: true));
       final result = _run(tmp);
@@ -834,7 +834,7 @@ $macosPlatformEntry
     });
 
     test('warn when macos section exists but has no pluginClass or ffiPlugin', () {
-      final tmp = _scaffoldWithMacosPubspec('''      macos:
+      final tmp = scaffoldWithMacosPubspec('''      macos:
         dartPluginClass: MyPlugin''');
       addTearDown(() => tmp.deleteSync(recursive: true));
       final result = _run(tmp);
@@ -846,7 +846,7 @@ $macosPlatformEntry
     });
 
     test('no macOS pubspec check when macos: key is absent entirely', () {
-      final tmp = _scaffoldWithMacosPubspec('');
+      final tmp = scaffoldWithMacosPubspec('');
       addTearDown(() => tmp.deleteSync(recursive: true));
       final result = _run(tmp);
       final pub = result.sections.firstWhere((s) => s.title == 'pubspec.yaml');
