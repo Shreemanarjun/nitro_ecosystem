@@ -265,13 +265,22 @@ class _LinkViewState extends State<LinkView> {
       await _setRunning(4);
       if (!hasNonCpp) {
         await _setSkipped(4, detail: 'all modules use NativeImpl.cpp — no Swift bridge needed');
-      } else if (Directory(p.join(Directory.current.path, 'ios')).existsSync()) {
-        // Only wire non-cpp modules into Swift plugin
-        final nonCppModules = moduleInfos.where((m) => !m.isCpp).map((m) => m.toMap()).toList();
-        linkSwiftPlugin(pluginName, nonCppModules, baseDir: Directory.current.path);
-        await _setDone(4);
       } else {
-        await _setSkipped(4, detail: 'ios/ not present');
+        final nonCppModules = moduleInfos.where((m) => !m.isCpp).map((m) => m.toMap()).toList();
+        bool linkedSwift = false;
+        if (Directory(p.join(Directory.current.path, 'ios')).existsSync()) {
+          linkSwiftPlugin(pluginName, nonCppModules, baseDir: Directory.current.path);
+          linkedSwift = true;
+        }
+        if (Directory(p.join(Directory.current.path, 'macos')).existsSync()) {
+          linkMacosSwiftPlugin(pluginName, nonCppModules, baseDir: Directory.current.path);
+          linkedSwift = true;
+        }
+        if (linkedSwift) {
+          await _setDone(4);
+        } else {
+          await _setSkipped(4, detail: 'neither ios/ nor macos/ present');
+        }
       }
 
       await _setRunning(5);
@@ -688,7 +697,12 @@ void linkMacosPodspec(String pluginName, List<String> moduleLibs, {String baseDi
     modified = true;
   }
   if (!content.contains("s.platform = :osx, '10.15'")) {
-    content = content.replaceFirst(RegExp(r"s\.platform\s*=\s*:osx,\s*'.+?'"), "s.platform = :osx, '10.15'");
+    if (RegExp(r"s\.platform\s*=\s*:osx").hasMatch(content)) {
+      content = content.replaceFirst(RegExp(r"s\.platform\s*=\s*:osx,\s*'.+?'"), "s.platform = :osx, '10.15'");
+    } else {
+      // Insert platform line after the spec name line
+      content = content.replaceFirst(RegExp(r"(s\.name\s*=.+\n)"), r"$1  s.platform = :osx, '10.15'\n");
+    }
     modified = true;
   }
   if (!content.contains('HEADER_SEARCH_PATHS')) {
@@ -746,6 +760,40 @@ void linkMacosPodspec(String pluginName, List<String> moduleLibs, {String baseDi
       }
     }
   }
+}
+
+/// Wires non-cpp module registrations into the macOS Swift plugin file.
+///
+/// Mirrors [linkSwiftPlugin] but targets `macos/` instead of `ios/`. Searches
+/// `macos/` recursively for `*Plugin.swift` and injects `Registry.register(...)`
+/// calls for each non-cpp module that doesn't already have one.
+void linkMacosSwiftPlugin(String pluginName, List<Map<String, String>> modules, {String baseDir = '.'}) {
+  final macosDir = Directory(p.join(baseDir, 'macos'));
+  if (!macosDir.existsSync()) return;
+  final pluginFiles = macosDir.listSync(recursive: true).whereType<File>().where((f) => f.path.endsWith('Plugin.swift')).toList();
+  if (pluginFiles.isEmpty) return;
+  final pluginFile = pluginFiles.first;
+  var content = pluginFile.readAsStringSync();
+  bool modified = false;
+  for (final m in modules) {
+    final name = m['module']!;
+    final reg = '${name}Registry';
+    final impl = name.endsWith('Module') ? '${name}Impl' : '${name}ModuleImpl';
+    if (!content.contains('$reg.register')) {
+      final match = RegExp(r'\w+Registry\.register\(.*?\)\)').allMatches(content);
+      if (match.isNotEmpty) {
+        content = content.replaceFirst(match.last.group(0)!, '${match.last.group(0)!}\n        $reg.register($impl())');
+        modified = true;
+      } else {
+        content = content.replaceFirst(
+          'public static func register(with registrar: FlutterPluginRegistrar) {',
+          'public static func register(with registrar: FlutterPluginRegistrar) {\n        $reg.register($impl())',
+        );
+        modified = true;
+      }
+    }
+  }
+  if (modified) pluginFile.writeAsStringSync(content);
 }
 
 void cleanRedundantIncludes(File file) {

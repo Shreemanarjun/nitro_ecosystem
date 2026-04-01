@@ -694,5 +694,135 @@ void foo() {}
       expect(content, isNot(contains('#include "my_plugin.bridge.g.cpp"')));
       expect(content, contains('void foo() {}'));
     });
+
+    test('linkMacosPodspec updates Swift version, osx platform and HEADER_SEARCH_PATHS', () {
+      final macosDir = Directory(p.join(tmp.path, 'macos'))..createSync();
+      final podspec = File(p.join(macosDir.path, 'my_plugin.podspec'));
+      podspec.writeAsStringSync('''
+Pod::Spec.new do |s|
+  s.name             = 'my_plugin'
+  s.version          = '0.0.1'
+  s.platform         = :osx, '10.11'
+  s.swift_version    = '5.0'
+  s.pod_target_xcconfig = { 'OTHER_LDFLAGS' => '-framework SomeFramework' }
+end
+''');
+
+      linkMacosPodspec('my_plugin', ['my_plugin'], baseDir: tmp.path);
+
+      final content = podspec.readAsStringSync();
+      expect(content, contains("s.swift_version = '5.9'"));
+      expect(content, contains("s.platform = :osx, '10.15'"));
+      expect(content, contains('HEADER_SEARCH_PATHS'));
+      expect(content, contains('DEFINES_MODULE'));
+    });
+
+    test('linkMacosPodspec creates macos/Classes/dart_api_dl.c forwarder', () {
+      final macosDir = Directory(p.join(tmp.path, 'macos'))..createSync();
+      File(p.join(macosDir.path, 'my_plugin.podspec')).writeAsStringSync('''
+Pod::Spec.new do |s|
+  s.name = 'my_plugin'
+  s.pod_target_xcconfig = {}
+end
+''');
+      Directory(p.join(tmp.path, 'src')).createSync();
+
+      linkMacosPodspec('my_plugin', ['my_plugin'], baseDir: tmp.path);
+
+      final dartApiDl = File(p.join(tmp.path, 'macos', 'Classes', 'dart_api_dl.c'));
+      expect(dartApiDl.existsSync(), isTrue);
+      expect(dartApiDl.readAsStringSync(), contains('dart_api_dl.c'));
+    });
+
+    test('linkMacosPodspec links C++ impl forwarder for cpp module', () {
+      final macosDir = Directory(p.join(tmp.path, 'macos'))..createSync();
+      File(p.join(macosDir.path, 'my_plugin.podspec')).writeAsStringSync('''
+Pod::Spec.new do |s|
+  s.name = 'my_plugin'
+  s.pod_target_xcconfig = {}
+end
+''');
+      final srcDir = Directory(p.join(tmp.path, 'src'))..createSync();
+      File(p.join(srcDir.path, 'HybridMath.cpp')).writeAsStringSync('// impl');
+
+      linkMacosPodspec(
+        'my_plugin',
+        ['my_plugin'],
+        baseDir: tmp.path,
+        moduleInfos: [const ModuleInfo(lib: 'math', module: 'Math', isCpp: true)],
+      );
+
+      final forwarder = File(p.join(tmp.path, 'macos', 'Classes', 'HybridMath.cpp'));
+      expect(forwarder.existsSync(), isTrue);
+      expect(forwarder.readAsStringSync(), contains('#include "../../src/HybridMath.cpp"'));
+    });
+  });
+
+  // ── linkMacosSwiftPlugin ─────────────────────────────────────────────────────
+
+  group('linkMacosSwiftPlugin', () {
+    File writeMacosPlugin(Directory tmp, String content) {
+      final dir = Directory(p.join(tmp.path, 'macos', 'Classes'))..createSync(recursive: true);
+      final f = File(p.join(dir.path, 'MyPlugin.swift'));
+      f.writeAsStringSync(content);
+      return f;
+    }
+
+    test('injects Registry.register into a new macOS Plugin.swift', () {
+      final plugin = writeMacosPlugin(tmp, '''
+import Flutter
+public class MyPlugin: NSObject, FlutterPlugin {
+  public static func register(with registrar: FlutterPluginRegistrar) {
+  }
+}
+''');
+
+      linkMacosSwiftPlugin('my_plugin', [{'module': 'Math', 'lib': 'math'}], baseDir: tmp.path);
+
+      final content = plugin.readAsStringSync();
+      expect(content, contains('MathRegistry.register('));
+    });
+
+    test('appends after last existing Registry.register call', () {
+      final plugin = writeMacosPlugin(tmp, '''
+public static func register(with registrar: FlutterPluginRegistrar) {
+  FooRegistry.register(FooImpl())
+}
+''');
+
+      linkMacosSwiftPlugin('my_plugin', [{'module': 'Bar', 'lib': 'bar'}], baseDir: tmp.path);
+
+      final content = plugin.readAsStringSync();
+      expect(content, contains('FooRegistry.register(FooImpl())'));
+      expect(content, contains('BarRegistry.register('));
+    });
+
+    test('does not duplicate an existing registration', () {
+      final plugin = writeMacosPlugin(tmp, '''
+public static func register(with registrar: FlutterPluginRegistrar) {
+  MathRegistry.register(MathModuleImpl())
+}
+''');
+
+      linkMacosSwiftPlugin('my_plugin', [{'module': 'Math', 'lib': 'math'}], baseDir: tmp.path);
+
+      final content = plugin.readAsStringSync();
+      expect('MathRegistry.register'.allMatches(content).length, equals(1));
+    });
+
+    test('no-op when macos/ directory does not exist', () {
+      expect(
+        () => linkMacosSwiftPlugin('my_plugin', [{'module': 'Math', 'lib': 'math'}], baseDir: tmp.path),
+        returnsNormally,
+      );
+    });
+
+    test('no-op when no Plugin.swift found in macos/', () {
+      Directory(p.join(tmp.path, 'macos', 'Classes')).createSync(recursive: true);
+      expect(
+        () => linkMacosSwiftPlugin('my_plugin', [{'module': 'Math', 'lib': 'math'}], baseDir: tmp.path),
+        returnsNormally,
+      );
+    });
   });
 }
