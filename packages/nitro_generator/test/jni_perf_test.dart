@@ -1208,6 +1208,167 @@ void main() {
     });
   });
 
+  // ── Fix 12: callAsync carries methodName for slow-call diagnostics ────────
+
+  group('DartFfiGenerator — Fix 12: callAsync includes methodName for slow-call logs', () {
+    test('async function passes methodName to callAsync', () {
+      final out = DartFfiGenerator.generate(_specWithFunctions());
+      // fetchData is the async function in this spec
+      expect(out, contains("methodName: 'fetchData'"));
+    });
+
+    test('methodName matches the dart function name, not the C symbol', () {
+      final spec = BridgeSpec(
+        dartClassName: 'DiagMod',
+        lib: 'diag_mod',
+        namespace: 'diag_mod',
+        iosImpl: NativeImpl.swift,
+        androidImpl: NativeImpl.kotlin,
+        sourceUri: 'diag.native.dart',
+        functions: [
+          BridgeFunction(
+            dartName: 'fetchUserProfile',
+            cSymbol: 'diag_mod_fetch_user_profile_c',
+            isAsync: true,
+            returnType: BridgeType(name: 'String'),
+            params: [],
+          ),
+        ],
+      );
+      final out = DartFfiGenerator.generate(spec);
+      expect(out, contains("methodName: 'fetchUserProfile'"));
+      // C symbol must NOT appear as the method name
+      expect(out, isNot(contains("methodName: 'diag_mod_fetch_user_profile_c'")));
+    });
+
+    test('each async function carries its own methodName', () {
+      final spec = BridgeSpec(
+        dartClassName: 'MultiMod',
+        lib: 'multi_mod',
+        namespace: 'multi_mod',
+        iosImpl: NativeImpl.swift,
+        androidImpl: NativeImpl.kotlin,
+        sourceUri: 'multi.native.dart',
+        functions: [
+          BridgeFunction(
+            dartName: 'loadA',
+            cSymbol: 'multi_mod_load_a',
+            isAsync: true,
+            returnType: BridgeType(name: 'double'),
+            params: [],
+          ),
+          BridgeFunction(
+            dartName: 'loadB',
+            cSymbol: 'multi_mod_load_b',
+            isAsync: true,
+            returnType: BridgeType(name: 'int'),
+            params: [],
+          ),
+        ],
+      );
+      final out = DartFfiGenerator.generate(spec);
+      expect(out, contains("methodName: 'loadA'"));
+      expect(out, contains("methodName: 'loadB'"));
+    });
+
+    test('sync functions do not emit callAsync', () {
+      final spec = BridgeSpec(
+        dartClassName: 'SyncMod',
+        lib: 'sync_mod',
+        namespace: 'sync_mod',
+        iosImpl: NativeImpl.swift,
+        androidImpl: NativeImpl.kotlin,
+        sourceUri: 'sync.native.dart',
+        functions: [
+          BridgeFunction(
+            dartName: 'add',
+            cSymbol: 'sync_mod_add',
+            isAsync: false,
+            returnType: BridgeType(name: 'double'),
+            params: [
+              BridgeParam(name: 'a', type: BridgeType(name: 'double')),
+              BridgeParam(name: 'b', type: BridgeType(name: 'double')),
+            ],
+          ),
+        ],
+      );
+      final out = DartFfiGenerator.generate(spec);
+      expect(out, isNot(contains('callAsync')));
+      expect(out, isNot(contains('methodName:')));
+    });
+
+    test('record async return still carries methodName', () {
+      final out = DartFfiGenerator.generate(asyncRecordNoArenaSpec());
+      // asyncRecordNoArenaSpec uses dartName 'getItemAsync'
+      expect(out, contains("methodName: 'getItemAsync'"));
+      expect(out, contains('callAsync<Pointer<Uint8>>'));
+    });
+
+    test('methodName is adjacent to getError / clearError args', () {
+      final out = DartFfiGenerator.generate(_specWithFunctions());
+      // All three named args should appear together on the same callAsync call
+      expect(out, contains('getError: _getErrorNativePtr, clearError: _clearErrorNativePtr, methodName:'));
+    });
+  });
+
+  // ── Fix 11: LOGE carries method name + JNI signature ─────────────────────
+
+  group('CppBridgeGenerator — Fix 11: LOGE includes method name and JNI signature', () {
+    test('function null-methodId LOGE includes dartName and sig= prefix', () {
+      final cpp = CppBridgeGenerator.generate(_specWithFunctions());
+      // Generic check: no bare "Method not found" without context
+      expect(cpp, isNot(contains('LOGE("Method not found")')),
+          reason: 'bare LOGE with no context must not be emitted');
+      // multiply_call must appear in the LOGE
+      expect(cpp, contains('LOGE("Method not found: multiply_call sig='));
+    });
+
+    test('function LOGE includes the JNI signature, not just the name', () {
+      final cpp = CppBridgeGenerator.generate(_specWithFunctions());
+      // (DD)D — two doubles → double
+      expect(cpp, contains('multiply_call sig=(DD)D"'));
+    });
+
+    test('second function LOGE uses its own name', () {
+      final cpp = CppBridgeGenerator.generate(_specWithFunctions());
+      expect(cpp, contains('LOGE("Method not found: fetchData_call sig='));
+    });
+
+    test('property getter LOGE includes getSymbol and sig=()J', () {
+      final cpp = CppBridgeGenerator.generate(_specWithProperties());
+      expect(cpp, contains('LOGE("Method not found: prop_mod_get_count_call sig=()J"'));
+    });
+
+    test('property setter LOGE includes setSymbol and sig=(J)V', () {
+      final cpp = CppBridgeGenerator.generate(_specWithProperties());
+      expect(cpp, contains('LOGE("Method not found: prop_mod_set_count_call sig=(J)V"'));
+    });
+
+    test('stream register LOGE includes registerSymbol and sig=(J)V', () {
+      final cpp = CppBridgeGenerator.generate(_specWithStreams());
+      expect(cpp, contains('LOGE("Method not found: stream_mod_register_temperature_call sig=(J)V"'));
+    });
+
+    test('stream release LOGE includes releaseSymbol and sig=(J)V', () {
+      final cpp = CppBridgeGenerator.generate(_specWithStreams());
+      expect(cpp, contains('LOGE("Method not found: stream_mod_release_temperature_call sig=(J)V"'));
+    });
+
+    test('stream functions return early on null methodId instead of silently skipping', () {
+      final cpp = CppBridgeGenerator.generate(_specWithStreams());
+      // Old pattern was: if (methodId != nullptr) CallStaticVoidMethod(...)
+      // New pattern: if (methodId == nullptr) { LOGE(...); return; }
+      expect(cpp, isNot(contains('if (methodId != nullptr) env->CallStaticVoidMethod')));
+      expect(cpp, contains('if (methodId == nullptr) { LOGE("Method not found: stream_mod_register_temperature_call'));
+    });
+
+    test('second stream also gets LOGE for both register and release', () {
+      final cpp = CppBridgeGenerator.generate(_specWithStreams());
+      expect(cpp, contains('LOGE("Method not found: stream_mod_register_pressure_call sig=(J)V"'));
+      expect(cpp, contains('LOGE("Method not found: stream_mod_release_pressure_call sig=(J)V"'));
+    });
+  });
+
   // ── Fix 10: TypedData null guard in pack_from_jni ─────────────────────────
 
   BridgeSpec typedDataStructSpec() => BridgeSpec(

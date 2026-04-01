@@ -201,7 +201,7 @@ class DartFfiGenerator {
             ? 'int'
             : _typeToDartFFI(func.returnType, spec);
 
-        final errArgs = 'getError: _getErrorNativePtr, clearError: _clearErrorNativePtr';
+        final errArgs = "getError: _getErrorNativePtr, clearError: _clearErrorNativePtr, methodName: '${func.dartName}'";
 
         if (needsArena) {
           s.writeln('    final arena = Arena();');

@@ -694,10 +694,11 @@ class CppBridgeGenerator {
         );
       }
       s.writeln('    jmethodID methodId = g_mid_${func.dartName}_call;');
+      final jniSigForLog = _jniSig(func.params, func.returnType, enumNames, structNames, libPkg);
       if (func.returnType.name == 'void') {
-        s.writeln('    if (methodId == nullptr) { LOGE("Method not found"); return; }');
+        s.writeln('    if (methodId == nullptr) { LOGE("Method not found: ${func.dartName}_call sig=$jniSigForLog"); return; }');
       } else {
-        s.writeln('    if (methodId == nullptr) { LOGE("Method not found"); return ${_defaultValue(cReturnType)}; }');
+        s.writeln('    if (methodId == nullptr) { LOGE("Method not found: ${func.dartName}_call sig=$jniSigForLog"); return ${_defaultValue(cReturnType)}; }');
       }
       s.writeln();
       s.writeln('    ${libStem}_clear_error();');
@@ -852,8 +853,9 @@ class CppBridgeGenerator {
         s.writeln('    JNIEnv* env = GetEnv();');
         s.writeln('    if (env == nullptr) return ${_defaultValue(cType)};');
         s.writeln('    jmethodID methodId = g_mid_${prop.getSymbol}_call;');
+        final jniGetSig = '()${isEnum ? 'J' : _jniSigType(prop.type.name)}';
         s.writeln(
-          '    if (methodId == nullptr) { LOGE("Method not found"); return ${_defaultValue(cType)}; }',
+          '    if (methodId == nullptr) { LOGE("Method not found: ${prop.getSymbol}_call sig=$jniGetSig"); return ${_defaultValue(cType)}; }',
         );
         if (prop.type.name == 'double') {
           s.writeln(
@@ -891,8 +893,9 @@ class CppBridgeGenerator {
         s.writeln('    JNIEnv* env = GetEnv();');
         s.writeln('    if (env == nullptr) return;');
         s.writeln('    jmethodID methodId = g_mid_${prop.setSymbol}_call;');
+        final jniSetSig = '(${isEnum ? 'J' : _jniSigType(prop.type.name)})V';
         s.writeln(
-          '    if (methodId == nullptr) { LOGE("Method not found"); return; }',
+          '    if (methodId == nullptr) { LOGE("Method not found: ${prop.setSymbol}_call sig=$jniSetSig"); return; }',
         );
         if (prop.type.name == 'String') {
           s.writeln('    jstring jval = env->NewStringUTF(value);');
@@ -920,18 +923,16 @@ class CppBridgeGenerator {
       s.writeln('    JNIEnv* env = GetEnv();');
       s.writeln('    if (env == nullptr) return;');
       s.writeln('    jmethodID methodId = g_mid_${stream.registerSymbol}_call;');
-      s.writeln(
-        '    if (methodId != nullptr) env->CallStaticVoidMethod(g_bridgeClass, methodId, dart_port);',
-      );
+      s.writeln('    if (methodId == nullptr) { LOGE("Method not found: ${stream.registerSymbol}_call sig=(J)V"); return; }');
+      s.writeln('    env->CallStaticVoidMethod(g_bridgeClass, methodId, dart_port);');
       s.writeln('}');
       s.writeln('');
       s.writeln('void ${stream.releaseSymbol}(int64_t dart_port) {');
       s.writeln('    JNIEnv* env = GetEnv();');
       s.writeln('    if (env == nullptr) return;');
       s.writeln('    jmethodID methodId = g_mid_${stream.releaseSymbol}_call;');
-      s.writeln(
-        '    if (methodId != nullptr) env->CallStaticVoidMethod(g_bridgeClass, methodId, dart_port);',
-      );
+      s.writeln('    if (methodId == nullptr) { LOGE("Method not found: ${stream.releaseSymbol}_call sig=(J)V"); return; }');
+      s.writeln('    env->CallStaticVoidMethod(g_bridgeClass, methodId, dart_port);');
       s.writeln('}');
       s.writeln('');
 

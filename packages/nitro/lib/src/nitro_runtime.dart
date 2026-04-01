@@ -126,6 +126,10 @@ class NitroRuntime {
     List<Object?> args, {
     Pointer<NativeFunction<Pointer<NitroErrorFfi> Function()>>? getError,
     Pointer<NativeFunction<Void Function()>>? clearError,
+    /// The Dart method name passed by generated code (e.g. `'fetchData'`).
+    /// Included in every log message so slow-call warnings are immediately
+    /// actionable without attaching a debugger.
+    String methodName = '',
   }) async {
     final cfg = NitroConfig.instance;
     final poolSize = cfg.isolatePoolSize;
@@ -133,10 +137,12 @@ class NitroRuntime {
     // Only pay for timing when there's somewhere to send the result.
     final sw = effective != NitroLogLevel.none && (effective == NitroLogLevel.verbose || cfg.slowCallThresholdUs > 0) ? (Stopwatch()..start()) : null;
 
+    final tag = methodName.isEmpty ? 'callAsync' : 'callAsync($methodName)';
+
     final T result;
     if (poolSize <= 0 || !_poolReady) {
       // Legacy: spawn a fresh isolate per call.
-      _log(NitroLogLevel.verbose, 'callAsync', 'dispatching via Isolate.run');
+      _log(NitroLogLevel.verbose, tag, 'dispatching via Isolate.run');
       result = await Isolate.run(() {
         final res = Function.apply(fn, args) as T;
         if (getError != null && clearError != null) {
@@ -145,11 +151,7 @@ class NitroRuntime {
         return res;
       });
     } else {
-      _log(
-        NitroLogLevel.verbose,
-        'callAsync',
-        'dispatching via pool (size=$poolSize)',
-      );
+      _log(NitroLogLevel.verbose, tag, 'dispatching via pool (size=$poolSize)');
       result = await _pool!.dispatch<T>(
         fn,
         args,
@@ -161,12 +163,12 @@ class NitroRuntime {
     if (sw != null) {
       sw.stop();
       final us = sw.elapsedMicroseconds;
-      _log(NitroLogLevel.verbose, 'callAsync', 'completed in $us µs');
+      _log(NitroLogLevel.verbose, tag, 'completed in $us µs');
       if (cfg.slowCallThresholdUs > 0 && us > cfg.slowCallThresholdUs) {
         _log(
           NitroLogLevel.warning,
-          'callAsync',
-          'slow call detected: $us µs > threshold ${cfg.slowCallThresholdUs} µs',
+          tag,
+          'slow call: $us µs exceeded threshold of ${cfg.slowCallThresholdUs} µs',
         );
       }
     }

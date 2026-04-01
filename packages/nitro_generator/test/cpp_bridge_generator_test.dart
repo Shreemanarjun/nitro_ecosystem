@@ -94,7 +94,7 @@ void main() {
       final out = CppBridgeGenerator.generate(spec);
       expect(out, contains('void my_camera_do_something(void)'));
       expect(out, contains('if (env == nullptr) return;\n'));
-      expect(out, contains('if (methodId == nullptr) { LOGE("Method not found"); return; }'));
+      expect(out, contains('if (methodId == nullptr) { LOGE("Method not found: doSomething_call sig=()V"); return; }'));
     });
 
     test('enum return uses int64_t and CallStaticLongMethod', () {
