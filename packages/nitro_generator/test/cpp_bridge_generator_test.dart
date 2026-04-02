@@ -143,8 +143,11 @@ void main() {
         ],
       );
       final out = CppBridgeGenerator.generate(spec);
-      expect(out, contains('env->DeleteLocalRef(j_name);'));
-      expect(out, contains('env->DeleteLocalRef(jobj_pt);'));
+      // The generator uses PushLocalFrame/PopLocalFrame — all local refs
+      // (j_name, jobj_pt) are freed automatically when the frame pops,
+      // so explicit DeleteLocalRef per-param is not emitted.
+      expect(out, contains('env->PushLocalFrame(16)'));
+      expect(out, contains('env->PopLocalFrame(nullptr)'));
     });
 
     test('struct stream emit uses malloc', () {
@@ -202,10 +205,13 @@ void main() {
       expect(applePart, contains('@try {'));
     });
 
-    test('String return uses strdup and DeleteLocalRef', () {
+    test('String return uses strdup and local-frame cleanup', () {
       final out = CppBridgeGenerator.generate(richSpec());
       expect(out, contains('strdup(nativeStr)'));
-      expect(out, contains('DeleteLocalRef(jstr)'));
+      // jstr lives inside the PushLocalFrame/PopLocalFrame region — freed
+      // automatically when the frame pops rather than via a manual DeleteLocalRef.
+      expect(out, contains('env->ReleaseStringUTFChars(jstr, nativeStr)'));
+      expect(out, contains('env->PopLocalFrame(nullptr)'));
     });
 
     test('iOS section emits property getter extern', () {

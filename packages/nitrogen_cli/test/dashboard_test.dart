@@ -130,7 +130,9 @@ void main() {
           const Container(width: 80, height: 24, child: NitroDashboard()),
         );
         expect(tester.terminalState, containsText('Watch'));
-        expect(tester.terminalState, containsText('Run the Nitro generator in watch mode.'));
+        // The description column is narrow — only the first ~18 chars fit before
+        // the right edge.  Check a prefix that is always visible.
+        expect(tester.terminalState, containsText('Run the Nitro gen'));
       });
     });
   });

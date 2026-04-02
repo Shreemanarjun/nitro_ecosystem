@@ -531,20 +531,26 @@ void main() {
       expect(out, contains('uint8_t* result = (uint8_t*)malloc(len)'));
     });
 
-    test('record return calls DeleteLocalRef on the jbyteArray after copy', () {
+    test('record return cleans up jbyteArray via PopLocalFrame after copy', () {
       final out = CppBridgeGenerator.generate(singleRecordSpec());
-      expect(out, contains('env->DeleteLocalRef(jarr)'));
+      // jarr lives inside the PushLocalFrame/PopLocalFrame region — freed when
+      // the frame pops, not via an explicit DeleteLocalRef.
+      expect(out, contains('env->PopLocalFrame(nullptr)'));
+      expect(out, isNot(contains('env->DeleteLocalRef(jarr)')));
     });
 
     test('record return checks exception after CallStaticObjectMethod', () {
       final out = CppBridgeGenerator.generate(singleRecordSpec());
-      // Find the record return block and verify exception check precedes byte copy
+      // Find the record return block and verify exception check precedes byte copy.
+      // Use 700 chars — the PopLocalFrame blocks add ~50 chars vs the old DeleteLocalRef style.
       final idx = out.indexOf('(jbyteArray)env->CallStaticObjectMethod');
-      final snippet = out.substring(idx, idx + 400);
+      expect(idx, greaterThan(-1), reason: 'Expected jbyteArray cast in generated code');
+      final snippet = out.substring(idx, idx + 700);
       expect(snippet, contains('ExceptionCheck()'));
       // ExceptionCheck must come before GetByteArrayRegion
       final exceptionIdx = snippet.indexOf('ExceptionCheck()');
       final copyIdx = snippet.indexOf('GetByteArrayRegion');
+      expect(copyIdx, greaterThan(-1), reason: 'GetByteArrayRegion must appear in the record-return block');
       expect(
         exceptionIdx,
         lessThan(copyIdx),
@@ -1041,29 +1047,43 @@ void main() {
       ],
     );
 
-    test('void return: DeleteLocalRef(j_inputs) emitted after call', () {
+    // The generator wraps every JNI call in PushLocalFrame/PopLocalFrame.
+    // j_inputs (and all other local refs) are freed automatically when the
+    // frame pops — no explicit DeleteLocalRef per-param is emitted.
+
+    test('void return: j_inputs freed via PopLocalFrame (not DeleteLocalRef)', () {
       final cpp = CppBridgeGenerator.generate(specWithParam('Float32List'));
-      expect(cpp, contains('env->DeleteLocalRef(j_inputs)'), reason: 'JNI array local ref must be deleted after the void call');
+      expect(cpp, contains('env->PushLocalFrame(16)'), reason: 'frame must be opened before building JNI args');
+      expect(cpp, contains('env->PopLocalFrame(nullptr)'), reason: 'frame must be closed to free j_inputs');
+      expect(cpp, isNot(contains('env->DeleteLocalRef(j_inputs)')), reason: 'explicit DeleteLocalRef is redundant inside a local frame');
     });
 
-    test('double return: DeleteLocalRef(j_inputs) emitted after call', () {
+    test('double return: j_inputs freed via PopLocalFrame (not DeleteLocalRef)', () {
       final cpp = CppBridgeGenerator.generate(specWithParam('Float32List', returnType: 'double'));
-      expect(cpp, contains('env->DeleteLocalRef(j_inputs)'), reason: 'JNI array local ref must be deleted after double return call');
+      expect(cpp, contains('env->PushLocalFrame(16)'));
+      expect(cpp, contains('env->PopLocalFrame(nullptr)'));
+      expect(cpp, isNot(contains('env->DeleteLocalRef(j_inputs)')));
     });
 
-    test('int return: DeleteLocalRef(j_inputs) emitted after call', () {
+    test('int return: j_inputs freed via PopLocalFrame (not DeleteLocalRef)', () {
       final cpp = CppBridgeGenerator.generate(specWithParam('Int32List', returnType: 'int'));
-      expect(cpp, contains('env->DeleteLocalRef(j_inputs)'), reason: 'JNI array local ref must be deleted after int return call');
+      expect(cpp, contains('env->PushLocalFrame(16)'));
+      expect(cpp, contains('env->PopLocalFrame(nullptr)'));
+      expect(cpp, isNot(contains('env->DeleteLocalRef(j_inputs)')));
     });
 
-    test('bool return: DeleteLocalRef(j_inputs) emitted after call', () {
+    test('bool return: j_inputs freed via PopLocalFrame (not DeleteLocalRef)', () {
       final cpp = CppBridgeGenerator.generate(specWithParam('Uint8List', returnType: 'bool'));
-      expect(cpp, contains('env->DeleteLocalRef(j_inputs)'), reason: 'JNI array local ref must be deleted after bool return call');
+      expect(cpp, contains('env->PushLocalFrame(16)'));
+      expect(cpp, contains('env->PopLocalFrame(nullptr)'));
+      expect(cpp, isNot(contains('env->DeleteLocalRef(j_inputs)')));
     });
 
-    test('String return: DeleteLocalRef(j_inputs) emitted after call', () {
+    test('String return: j_inputs freed via PopLocalFrame (not DeleteLocalRef)', () {
       final cpp = CppBridgeGenerator.generate(specWithParam('Float64List', returnType: 'String'));
-      expect(cpp, contains('env->DeleteLocalRef(j_inputs)'), reason: 'JNI array local ref must be deleted after String return call');
+      expect(cpp, contains('env->PushLocalFrame(16)'));
+      expect(cpp, contains('env->PopLocalFrame(nullptr)'));
+      expect(cpp, isNot(contains('env->DeleteLocalRef(j_inputs)')));
     });
   });
 
