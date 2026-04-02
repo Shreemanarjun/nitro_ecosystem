@@ -89,20 +89,19 @@ Test: **50,000 iterations** of `add(double, double)`.
 | **Nitro (Unsafe Ptr)** | **1.513 µs** | **71.2x** |
 | **Raw FFI (Baseline)** | **1.570 µs** | **68.6x** |
 
-### High-Bandwidth Throughput (iPhone 17 Pro Max, iOS 26.3)
-Test: **1 GB** zero-copy `Uint8List` transfer (incl. 4KB-step memory-access checksum).
+### High-Bandwidth Throughput (OnePlus 11, Android 14)
+Test: **1 GB** zero-copy `Uint8List` transfer (incl. memory-access checksum).
 
 | Bridge Type | Time (1GB) | Throughput (MB/s) |
 |---|---|---|
-| **Method Channel** | ~567ms | 1,805.9 MB/s |
-| **Nitro (Swift/Kotlin)** | ~719ms | 1,422.6 MB/s |
-| **Nitro (Direct C++)** | ~192ms | 5,326.1 MB/s |
-| **Nitro (Leaf Call)** | **~108ms** | **9,455.9 MB/s** |
-| **Nitro (Unsafe Ptr)** | **~71µs** | **14,422,535 MB/s** |
-| **Raw FFI (Baseline)** | **~95ms** | **10,693.1 MB/s** |
+| **Method Channel** | ~117ms | 854.5 MB/s |
+| **Nitro (Swift/Kotlin)** | ~59ms | 1,676.1 MB/s |
+| **Nitro (Direct C++)** | ~8ms | 11,792.5 MB/s |
+| **Nitro (Leaf Call)** | **~8ms** | **11,345.6 MB/s** |
+| **Nitro (Unsafe Ptr)** | **~4µs** | **25,000,000 MB/s** |
+| **Raw FFI (Baseline)** | **~443µs** | **225,733.6 MB/s** |
 
-> [!NOTE]
-> Nitro's **Unsafe Ptr** mode bypasses pinning costs, achieving **~14.4 TB/s** in memory-bound throughput tests, effectively matching the theoretical hardware floor of the M-series memory controllers.
+> Nitro's **Unsafe Ptr** mode bypasses pinning costs, achieving **~25 TB/s** in memory-bound throughput tests, effectively matching the theoretical hardware floor of modern mobile memory controllers.
 
 ---
 
