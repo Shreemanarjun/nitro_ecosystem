@@ -15,7 +15,7 @@ Nitrogen bridges Flutter and native code with **zero overhead** and **full type-
 import 'package:nitro/nitro.dart';
 part 'math.g.dart';
 
-@NitroModule(lib: 'math', ios: NativeImpl.cpp, android: NativeImpl.cpp)
+@NitroModule(lib: 'math', ios: NativeImpl.cpp, android: NativeImpl.cpp, macos: NativeImpl.cpp)
 abstract class Math extends HybridObject {
   static final Math instance = _MathImpl();
   double add(double a, double b);
@@ -25,7 +25,7 @@ abstract class Math extends HybridObject {
 }
 ```
 
-Run `nitrogen generate` → get Dart FFI, a C++ abstract interface, GoogleMock test headers, and a ready-to-use CMake build — on **both** platforms, from **one** spec.
+Run `nitrogen generate` → get Dart FFI, a C++ abstract interface, GoogleMock test headers, and a ready-to-use CMake build — on **all three** platforms, from **one** spec.
 
 ---
 
@@ -33,14 +33,17 @@ Run `nitrogen generate` → get Dart FFI, a C++ abstract interface, GoogleMock t
 
 Choose the native layer that fits your use-case — all driven by the same spec:
 
-| `ios` / `android` | What Nitrogen generates | When to use |
+| `ios` / `android` / `macos` | What Nitrogen generates | When to use |
 |---|---|---|
-| `NativeImpl.swift` / `NativeImpl.kotlin` | Swift `@_cdecl` bridge + Kotlin JNI bridge | Platform-specific APIs (camera, sensors, BLE) |
-| `NativeImpl.cpp` / `NativeImpl.cpp` | Abstract C++ interface + direct virtual-dispatch bridge | Pure-computation, shared C++ libs, max performance |
+| `NativeImpl.swift` / `NativeImpl.kotlin` / `NativeImpl.swift` | Swift `@_cdecl` bridge + Kotlin JNI bridge | Platform-specific APIs (camera, sensors, BLE) |
+| `NativeImpl.cpp` / `NativeImpl.cpp` / `NativeImpl.cpp` | Abstract C++ interface + direct virtual-dispatch bridge | Pure-computation, shared C++ libs, max performance |
+| Mix freely per-platform | Per-platform output, skips untargeted platforms | Gradual adoption; e.g. Swift on iOS, C++ on macOS |
+
+> **Note:** `macos: NativeImpl.kotlin` is not valid — Kotlin is not a native macOS language. Use `NativeImpl.swift` or `NativeImpl.cpp` for macOS.
 
 ### NativeImpl.cpp — Direct C++ Path
 
-When both platforms use `NativeImpl.cpp`, the generated bridge talks directly to a `HybridX` C++ virtual interface — no JNI, no Swift. The same implementation works on Android and iOS:
+When all platforms use `NativeImpl.cpp`, the generated bridge talks directly to a `HybridX` C++ virtual interface — no JNI, no Swift. The same implementation works on Android, iOS, and macOS:
 
 ```cpp
 // src/HybridMath.cpp  (you write this)
