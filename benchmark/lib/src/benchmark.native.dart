@@ -39,7 +39,7 @@ class BenchmarkStats {
   });
 }
 
-@NitroModule(ios: NativeImpl.swift, android: NativeImpl.kotlin)
+@NitroModule(ios: NativeImpl.swift, android: NativeImpl.kotlin, macos: NativeImpl.swift)
 abstract class Benchmark extends HybridObject {
   static final Benchmark instance = _BenchmarkImpl();
 

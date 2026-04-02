@@ -50,7 +50,10 @@ flutter:
         package: dev.shreeman.benchmark
         ffiPlugin: true
       ios:
-        pluginClass: SwiftBenchmarkPlugin
+        pluginClass: BenchmarkPlugin
+        ffiPlugin: true
+      macos:
+        pluginClass: BenchmarkPlugin
         ffiPlugin: true
 
   # To add assets to your plugin package, add an assets section, like this:

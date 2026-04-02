@@ -613,6 +613,7 @@ void linkCppImplStubs(List<ModuleInfo> moduleInfos, {String baseDir = '.'}) {
 }
 
 void linkPodspec(String pluginName, List<String> moduleLibs, {String baseDir = '.', List<ModuleInfo>? moduleInfos}) {
+  final nitroNativePath = resolveNitroNativePath(baseDir);
   final podspecFile = File(p.join(baseDir, 'ios', '$pluginName.podspec'));
   if (!podspecFile.existsSync()) return;
   var content = podspecFile.readAsStringSync();
@@ -628,7 +629,7 @@ void linkPodspec(String pluginName, List<String> moduleLibs, {String baseDir = '
   if (!content.contains('HEADER_SEARCH_PATHS')) {
     content = content.replaceFirst(
       's.pod_target_xcconfig = {',
-      "s.pod_target_xcconfig = {\n    'HEADER_SEARCH_PATHS' => '\$(inherited) \"\${PODS_ROOT}/../.symlinks/plugins/nitro/src/native\" \"\${PODS_TARGET_SRCROOT}/../src\" \"\${PODS_TARGET_SRCROOT}/../lib/src/generated/cpp\"',",
+      "s.pod_target_xcconfig = {\n    'HEADER_SEARCH_PATHS' => '\$(inherited) \"$nitroNativePath\" \"\${PODS_TARGET_SRCROOT}/../src\" \"\${PODS_TARGET_SRCROOT}/../lib/src/generated/cpp\"',",
     );
     modified = true;
   } else {
@@ -653,7 +654,6 @@ void linkPodspec(String pluginName, List<String> moduleLibs, {String baseDir = '
     modified = true;
   }
   if (modified) podspecFile.writeAsStringSync(content);
-  final nitroNativePath = resolveNitroNativePath(baseDir);
   createSharedHeaders(nitroNativePath, baseDir: baseDir);
   final classesDir = Directory(p.join(baseDir, 'ios', 'Classes'))..createSync(recursive: true);
   File(p.join(classesDir.path, 'dart_api_dl.c')).writeAsStringSync('#include "../../src/dart_api_dl.c"\n');
@@ -688,6 +688,7 @@ void linkPodspec(String pluginName, List<String> moduleLibs, {String baseDir = '
 }
 
 void linkMacosPodspec(String pluginName, List<String> moduleLibs, {String baseDir = '.', List<ModuleInfo>? moduleInfos}) {
+  final nitroNativePath = resolveNitroNativePath(baseDir);
   final podspecFile = File(p.join(baseDir, 'macos', '$pluginName.podspec'));
   if (!podspecFile.existsSync()) return;
   var content = podspecFile.readAsStringSync();
@@ -708,7 +709,7 @@ void linkMacosPodspec(String pluginName, List<String> moduleLibs, {String baseDi
   if (!content.contains('HEADER_SEARCH_PATHS')) {
     content = content.replaceFirst(
       's.pod_target_xcconfig = {',
-      "s.pod_target_xcconfig = {\n    'HEADER_SEARCH_PATHS' => '\$(inherited) \"\${PODS_ROOT}/../.symlinks/plugins/nitro/src/native\" \"\${PODS_TARGET_SRCROOT}/../src\" \"\${PODS_TARGET_SRCROOT}/../lib/src/generated/cpp\"',",
+      "s.pod_target_xcconfig = {\n    'HEADER_SEARCH_PATHS' => '\$(inherited) \"$nitroNativePath\" \"\${PODS_TARGET_SRCROOT}/../src\" \"\${PODS_TARGET_SRCROOT}/../lib/src/generated/cpp\"',",
     );
     modified = true;
   } else {
@@ -732,7 +733,6 @@ void linkMacosPodspec(String pluginName, List<String> moduleLibs, {String baseDi
     modified = true;
   }
   if (modified) podspecFile.writeAsStringSync(content);
-  final nitroNativePath = resolveNitroNativePath(baseDir);
   createSharedHeaders(nitroNativePath, baseDir: baseDir);
   final classesDir = Directory(p.join(baseDir, 'macos', 'Classes'))..createSync(recursive: true);
   File(p.join(classesDir.path, 'dart_api_dl.c')).writeAsStringSync('#include "../../src/dart_api_dl.c"\n');
@@ -770,7 +770,12 @@ void linkMacosPodspec(String pluginName, List<String> moduleLibs, {String baseDi
 void linkMacosSwiftPlugin(String pluginName, List<Map<String, String>> modules, {String baseDir = '.'}) {
   final macosDir = Directory(p.join(baseDir, 'macos'));
   if (!macosDir.existsSync()) return;
-  final pluginFiles = macosDir.listSync(recursive: true).whereType<File>().where((f) => f.path.endsWith('Plugin.swift')).toList();
+  final pluginFiles = macosDir
+      .listSync(recursive: true, followLinks: false)
+      .whereType<File>()
+      .where((f) => !f.path.contains('.symlinks'))
+      .where((f) => f.path.endsWith('Plugin.swift'))
+      .toList();
   if (pluginFiles.isEmpty) return;
   final pluginFile = pluginFiles.first;
   var content = pluginFile.readAsStringSync();
@@ -809,7 +814,12 @@ void cleanRedundantIncludes(File file) {
 void linkSwiftPlugin(String pluginName, List<Map<String, String>> modules, {String baseDir = '.'}) {
   final iosDir = Directory(p.join(baseDir, 'ios'));
   if (!iosDir.existsSync()) return;
-  final pluginFiles = iosDir.listSync(recursive: true).whereType<File>().where((f) => f.path.endsWith('Plugin.swift')).toList();
+  final pluginFiles = iosDir
+      .listSync(recursive: true, followLinks: false)
+      .whereType<File>()
+      .where((f) => !f.path.contains('.symlinks'))
+      .where((f) => f.path.endsWith('Plugin.swift'))
+      .toList();
   if (pluginFiles.isEmpty) return;
   final pluginFile = pluginFiles.first;
   var content = pluginFile.readAsStringSync();
@@ -904,7 +914,12 @@ void _syncCppModuleSourcesToSpm(String pluginName, {List<ModuleInfo>? moduleInfo
 void linkKotlinLoadLibraries(List<String> libs, {String baseDir = '.'}) {
   final kotlinDir = Directory(p.join(baseDir, 'android', 'src', 'main', 'kotlin'));
   if (!kotlinDir.existsSync()) return;
-  final pluginFiles = kotlinDir.listSync(recursive: true).whereType<File>().where((f) => f.path.endsWith('Plugin.kt')).toList();
+  final pluginFiles = kotlinDir
+      .listSync(recursive: true, followLinks: false)
+      .whereType<File>()
+      .where((f) => !f.path.contains('.symlinks'))
+      .where((f) => f.path.endsWith('Plugin.kt'))
+      .toList();
   if (pluginFiles.isEmpty) return;
   final pluginFile = pluginFiles.first;
   var content = pluginFile.readAsStringSync();
@@ -964,7 +979,12 @@ void linkKotlinLoadLibraries(List<String> libs, {String baseDir = '.'}) {
 void linkKotlinPlugin(String pluginName, List<Map<String, String>> modules, {String baseDir = '.'}) {
   final kotlinDir = Directory(p.join(baseDir, 'android', 'src', 'main', 'kotlin'));
   if (!kotlinDir.existsSync()) return;
-  final pluginFiles = kotlinDir.listSync(recursive: true).whereType<File>().where((f) => f.path.endsWith('Plugin.kt')).toList();
+  final pluginFiles = kotlinDir
+      .listSync(recursive: true, followLinks: false)
+      .whereType<File>()
+      .where((f) => !f.path.contains('.symlinks'))
+      .where((f) => f.path.endsWith('Plugin.kt'))
+      .toList();
   if (pluginFiles.isEmpty) return;
   final pluginFile = pluginFiles.first;
   var content = pluginFile.readAsStringSync();
