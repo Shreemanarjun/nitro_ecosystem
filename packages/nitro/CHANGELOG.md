@@ -1,5 +1,11 @@
 ## 0.3.1
 
+- **Improved: `IsolatePool` — persistent reply port** — replaced per-call `ReceivePort` allocation with a single pool-level port kept alive for the pool's lifetime. Each call is tagged with a monotonically-increasing `callId`; a `Map<int, Completer>` demuxes responses without any OS port operation per call.
+- **Improved: `IsolatePool` — least-busy scheduling** — replaced round-robin with a per-worker in-flight counter; the dispatcher always picks the worker with the fewest pending calls, preventing a slow JNI/FFI call from blocking the next task.
+- **Improved: `IsolatePool` — `Completer.sync()`** — reply completers use `Completer.sync()` to deliver values in the same microtask as the port message, removing one extra microtask hop per async call.
+- **Improved: `IsolatePool.dispose()`** — now idempotent; in-flight calls are completed with `StateError` so awaiting code never hangs; the reply port is closed and worker shutdown is signalled gracefully.
+- **New: `IsolatePool` tests** — 21 tests covering pool creation, return values, error propagation, callId uniqueness, least-busy scheduling, dispose idempotency, in-flight cancellation, and stress scenarios.
+
 - **New: `LazyRecordList<T>`** — `record_codec.dart` gains a `ListBase<T>` implementation backed by a raw `Pointer<Uint8>` and a pre-parsed offset table. Items are decoded on first access and cached; a `NativeFinalizer` backed by `malloc.nativeFree` frees the buffer on GC.
 - **New: `RecordWriter.encodeIndexedList<T>`** — serialises a list of records into the indexed wire format: `[int32 count | int64[count] byte_offsets | item_blobs...]`, enabling O(1) random access by the Dart reader.
 - **New: `RecordWriter.encodeIndexedPrimitiveList<T>`** — same indexed format for primitive-typed lists.

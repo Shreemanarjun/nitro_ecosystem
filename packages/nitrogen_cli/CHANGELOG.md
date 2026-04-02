@@ -8,6 +8,7 @@
 - **Fixed: `_discoverCppLibs()` same two-occurrence bug** — The internal bridge-sync utility had identical broken logic; stale `.bridge.g.swift` files were not cleaned from `ios/Classes/` or `macos/Classes/` for macOS-only cpp specs. Fixed with the same platform-arg regex.
 - **New: `syncBridgeFiles(platform:)` parameter** — `syncBridgeFiles` now accepts an optional `platform` parameter ('ios' or 'macos', default 'ios') so macOS bridge files are correctly synced to `macos/Classes/` with the same Swift-exclusion and `.cpp` → `.mm` rename logic.
 - **New: `nitro.h` copied to `macos/Classes/`** — `createSharedHeaders()` now writes `nitro.h` into `macos/Classes/` when that directory exists, in addition to `ios/Classes/`.
+- **Fixed: `dashboard_test` Watch description assertion** — the TUI right-panel column truncates long strings; test now checks the visible prefix `'Run the Nitro gen'` instead of the full description.
 - **Improved: Test coverage** — 30+ new edge-case tests across `link_command_test.dart`, `doctor_command_test.dart`, and `utils_test.dart`: multi-line/comment-above annotation parsing, macOS-only `discoverModuleInfos`, tri-platform specs, `linkMacosPodspec` no-op/insertion/idempotency, `linkMacosSwiftPlugin` injection/deduplication/no-op, `syncBridgeFiles(platform: 'macos')` variants, macOS doctor section states, and macOS pubspec check variants.
 
 ## 0.3.0
