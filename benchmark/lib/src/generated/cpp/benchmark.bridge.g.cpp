@@ -103,8 +103,15 @@ static void nitro_report_jni_exception(JNIEnv* env, jthrowable ex) {
 
     nitro_report_error(name, msg, nullptr, nullptr);
 
-    if (j_name) env->ReleaseStringUTFChars(j_name, name);
-    if (j_msg) env->ReleaseStringUTFChars(j_msg, msg);
+    if (j_name) {
+        env->ReleaseStringUTFChars(j_name, name);
+        env->DeleteLocalRef(j_name);
+    }
+    if (j_msg) {
+        env->ReleaseStringUTFChars(j_msg, msg);
+        env->DeleteLocalRef(j_msg);
+    }
+    env->DeleteLocalRef(ex_class);
     env->DeleteLocalRef(ex);
 }
 
@@ -115,7 +122,8 @@ static BenchmarkPoint pack_BenchmarkPoint_from_jni(JNIEnv* env, jobject obj) {
     return result;
 }
 static jobject unpack_BenchmarkPoint_to_jni(JNIEnv* env, const BenchmarkPoint* st) {
-    return env->NewObject(g_cls_BenchmarkPoint, g_ctor_BenchmarkPoint, (jdouble)st->x, (jdouble)st->y);
+    jobject result = env->NewObject(g_cls_BenchmarkPoint, g_ctor_BenchmarkPoint, (jdouble)st->x, (jdouble)st->y);
+    return result;
 }
 static BenchmarkBox pack_BenchmarkBox_from_jni(JNIEnv* env, jobject obj) {
     BenchmarkBox result;
@@ -125,7 +133,8 @@ static BenchmarkBox pack_BenchmarkBox_from_jni(JNIEnv* env, jobject obj) {
     return result;
 }
 static jobject unpack_BenchmarkBox_to_jni(JNIEnv* env, const BenchmarkBox* st) {
-    return env->NewObject(g_cls_BenchmarkBox, g_ctor_BenchmarkBox, (jlong)st->color, (jdouble)st->width, (jdouble)st->height);
+    jobject result = env->NewObject(g_cls_BenchmarkBox, g_ctor_BenchmarkBox, (jlong)st->color, (jdouble)st->width, (jdouble)st->height);
+    return result;
 }
 
 extern "C" {
@@ -211,8 +220,14 @@ double benchmark_add(double a, double b) {
     if (methodId == nullptr) { LOGE("Method not found: add_call sig=(DD)D"); return 0.0; }
 
     benchmark_clear_error();
+    if (env->PushLocalFrame(16) != 0) return 0.0;
     double res = env->CallStaticDoubleMethod(g_bridgeClass, methodId, a, b);
-    if (env->ExceptionCheck()) { nitro_report_jni_exception(env, env->ExceptionOccurred()); return 0.0; }
+    if (env->ExceptionCheck()) {
+        nitro_report_jni_exception(env, env->ExceptionOccurred());
+        env->PopLocalFrame(nullptr);
+        return 0.0;
+    }
+    env->PopLocalFrame(nullptr);
     return res;
 }
 
@@ -223,8 +238,14 @@ double benchmark_add_fast(double a, double b) {
     if (methodId == nullptr) { LOGE("Method not found: addFast_call sig=(DD)D"); return 0.0; }
 
     benchmark_clear_error();
+    if (env->PushLocalFrame(16) != 0) return 0.0;
     double res = env->CallStaticDoubleMethod(g_bridgeClass, methodId, a, b);
-    if (env->ExceptionCheck()) { nitro_report_jni_exception(env, env->ExceptionOccurred()); return 0.0; }
+    if (env->ExceptionCheck()) {
+        nitro_report_jni_exception(env, env->ExceptionOccurred());
+        env->PopLocalFrame(nullptr);
+        return 0.0;
+    }
+    env->PopLocalFrame(nullptr);
     return res;
 }
 
@@ -235,15 +256,22 @@ const char* benchmark_get_greeting(const char* name) {
     if (methodId == nullptr) { LOGE("Method not found: getGreeting_call sig=(Ljava/lang/String;)Ljava/lang/String;"); return nullptr; }
 
     benchmark_clear_error();
+    if (env->PushLocalFrame(16) != 0) return nullptr;
     jstring j_name = env->NewStringUTF(name);
     jstring jstr = (jstring)env->CallStaticObjectMethod(g_bridgeClass, methodId, j_name);
-    if (env->ExceptionCheck()) { nitro_report_jni_exception(env, env->ExceptionOccurred()); return nullptr; }
-    if (jstr == nullptr) return nullptr;
+    if (env->ExceptionCheck()) {
+        nitro_report_jni_exception(env, env->ExceptionOccurred());
+        env->PopLocalFrame(nullptr);
+        return nullptr;
+    }
+    if (jstr == nullptr) {
+        env->PopLocalFrame(nullptr);
+        return nullptr;
+    }
     const char* nativeStr = env->GetStringUTFChars(jstr, 0);
     char* result = strdup(nativeStr);
     env->ReleaseStringUTFChars(jstr, nativeStr);
-    env->DeleteLocalRef(j_name);
-    env->DeleteLocalRef(jstr);
+    env->PopLocalFrame(nullptr);
     return result;
 }
 
@@ -254,13 +282,21 @@ void* benchmark_scale_point(void* point, double factor) {
     if (methodId == nullptr) { LOGE("Method not found: scalePoint_call sig=(Lnitro/benchmark_module/BenchmarkPoint;D)Lnitro/benchmark_module/BenchmarkPoint;"); return nullptr; }
 
     benchmark_clear_error();
+    if (env->PushLocalFrame(16) != 0) return nullptr;
     jobject jobj_point = unpack_BenchmarkPoint_to_jni(env, (const BenchmarkPoint*)point);
     jobject jobj = env->CallStaticObjectMethod(g_bridgeClass, methodId, jobj_point, factor);
-    if (env->ExceptionCheck()) { nitro_report_jni_exception(env, env->ExceptionOccurred()); return nullptr; }
-    if (jobj == nullptr) return nullptr;
+    if (env->ExceptionCheck()) {
+        nitro_report_jni_exception(env, env->ExceptionOccurred());
+        env->PopLocalFrame(nullptr);
+        return nullptr;
+    }
+    if (jobj == nullptr) {
+        env->PopLocalFrame(nullptr);
+        return nullptr;
+    }
     BenchmarkPoint* result = (BenchmarkPoint*)malloc(sizeof(BenchmarkPoint));
     *result = pack_BenchmarkPoint_from_jni(env, jobj);
-    env->DeleteLocalRef(jobj);
+    env->PopLocalFrame(nullptr);
     return result;
 }
 
@@ -271,13 +307,21 @@ void* benchmark_compute_stats(int64_t iterations) {
     if (methodId == nullptr) { LOGE("Method not found: computeStats_call sig=(J)[B"); return nullptr; }
 
     benchmark_clear_error();
+    if (env->PushLocalFrame(16) != 0) return nullptr;
     jbyteArray jarr = (jbyteArray)env->CallStaticObjectMethod(g_bridgeClass, methodId, iterations);
-    if (env->ExceptionCheck()) { nitro_report_jni_exception(env, env->ExceptionOccurred()); return nullptr; }
-    if (jarr == nullptr) return nullptr;
+    if (env->ExceptionCheck()) {
+        nitro_report_jni_exception(env, env->ExceptionOccurred());
+        env->PopLocalFrame(nullptr);
+        return nullptr;
+    }
+    if (jarr == nullptr) {
+        env->PopLocalFrame(nullptr);
+        return nullptr;
+    }
     jsize len = env->GetArrayLength(jarr);
     uint8_t* result = (uint8_t*)malloc(len);
     env->GetByteArrayRegion(jarr, 0, len, (jbyte*)result);
-    env->DeleteLocalRef(jarr);
+    env->PopLocalFrame(nullptr);
     return result;
 }
 
@@ -288,11 +332,16 @@ int64_t benchmark_send_large_buffer(uint8_t* buffer, int64_t buffer_length) {
     if (methodId == nullptr) { LOGE("Method not found: sendLargeBuffer_call sig=([B)J"); return 0; }
 
     benchmark_clear_error();
+    if (env->PushLocalFrame(16) != 0) return 0;
     jbyteArray j_buffer = env->NewByteArray((jsize)buffer_length);
     env->SetByteArrayRegion(j_buffer, 0, (jsize)buffer_length, (const jbyte*)buffer);
     int64_t res = env->CallStaticLongMethod(g_bridgeClass, methodId, j_buffer);
-    env->DeleteLocalRef(j_buffer);
-    if (env->ExceptionCheck()) { nitro_report_jni_exception(env, env->ExceptionOccurred()); return 0; }
+    if (env->ExceptionCheck()) {
+        nitro_report_jni_exception(env, env->ExceptionOccurred());
+        env->PopLocalFrame(nullptr);
+        return 0;
+    }
+    env->PopLocalFrame(nullptr);
     return res;
 }
 

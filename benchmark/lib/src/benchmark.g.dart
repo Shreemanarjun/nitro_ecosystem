@@ -19,6 +19,10 @@ extension BenchmarkPointFfiExt on BenchmarkPointFfi {
       y: y,
     );
   }
+
+  /// Frees internal fields (like strings) that were allocated on the C heap.
+  /// Does NOT free the struct itself.
+  void freeFields() {}
 }
 
 extension BenchmarkPointExt on BenchmarkPoint {
@@ -48,6 +52,10 @@ extension BenchmarkBoxFfiExt on BenchmarkBoxFfi {
       height: height,
     );
   }
+
+  /// Frees internal fields (like strings) that were allocated on the C heap.
+  /// Does NOT free the struct itself.
+  void freeFields() {}
 }
 
 extension BenchmarkBoxExt on BenchmarkBox {
@@ -296,6 +304,7 @@ class _BenchmarkImpl extends Benchmark {
       try {
         decoded = structPtr.ref.toDart();
       } finally {
+        structPtr.ref.freeFields();
         malloc.free(structPtr);
       }
       return decoded;

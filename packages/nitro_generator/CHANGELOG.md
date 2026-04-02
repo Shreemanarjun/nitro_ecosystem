@@ -11,6 +11,14 @@
 - **New: Indexed `@HybridRecord` list encoding** — `DartFfiGenerator` encodes list record params with `RecordWriter.encodeIndexedList` and decodes list record returns with `LazyRecordList.decode`. Kotlin and Swift encode with a `writeIndexedList` helper; the decode path skips the offset table.
 - **New: `_superDefault` helper in `StructGenerator`** — Returns a safe zero-value Dart literal for each field type so the proxy's `super(...)` call compiles without touching native data.
 - **Breaking fix: struct stream override type** — Generated struct stream overrides now emit `Stream<${ValueType}>` (matching the spec) while using `openStream<${Proxy}>` internally. Previously the impl emitted `Stream<${Proxy}>` which was an invalid override.
+- **Fixed: missing struct release symbols on Android** — Struct release functions (used by Dart's `NativeFinalizer`) were previously incorrectly guarded by platform preprocessor blocks in `CppBridgeGenerator`, causing them to be missing from Android builds. They are now generated in a common `extern "C"` block for all platforms.
+- **Fixed: memory leaks in struct return paths** — Implemented deep release of heap-allocated native fields (e.g., native strings `char*` allocated via `strdup`) in the struct release functions.
+- **Fixed: struct property getter leaks** — Updated the Dart FFI generator to correctly convert and deeply release struct properties, matching the safety logic used for method returns.
+- **Fixed: struct release exports in C++ header** — `CppHeaderGenerator` now includes `NITRO_EXPORT` declarations for all struct release functions, ensuring they are correctly exported and visible to the Dart FFI layer.
+- **New: `freeFields()` for FFI structs** — Generated FFI struct extensions now include a `freeFields()` method to safely release internal native resources.
+- **Improved: memory safety in `toDart()`** — Struct conversion now performs an eager copy of `TypedData` fields (using `Uint8List.fromList`), preventing use-after-free errors when the native buffer is quickly released.
+- **Improved: cleaner bridge code** — Struct release functions are now coalesced into a single `extern "C"` block in the generated bridge C++ source.
+- **Tests: regression coverage for struct release** — Added unit tests to `cpp_header_generator_test.dart`, `cpp_bridge_generator_test.dart`, and `dart_ffi_generator_test.dart` to verify memory safety and correct symbol generation across all layers.
 
 ## 0.3.0
 

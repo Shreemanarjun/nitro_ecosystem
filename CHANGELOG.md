@@ -53,6 +53,14 @@ All synchronous FFI bindings with primitive-only return types (including propert
 - `packages/nitro/README.md` and top-level `README.md` updated with proxy streaming section and performance comparison table.
 - `box_stress_page.dart` `nitroCppStruct` panel now subscribes to `BenchmarkCpp.instance.boxStream`; boxes are rendered via lazy `BenchmarkBoxProxy` field reads directly from native heap.
 
+### Bridge Safety & Memory Hygiene
+
+**JNI Local Reference Management** — Optimized JNI bridge performance by systematically releasing all local references for Strings, Structs, and ByteBuffers. This prevents JNI table overflows and significantly reduces GC pressure during high-throughput operations. Added explicit cleanup in both success and exception paths.
+
+**LazyRecordList Memory Safety** — Transitioned `LazyRecordList` from manual `malloc.free` in `finally` blocks to `NativeFinalizer`-backed cleanup. This ensures that the underlying native buffer remains valid for the entire lifecycle of the Dart object, resolving use-after-free vulnerabilities in asynchronous iteration.
+
+**Struct Deep Release & Integrity** — Reinforced complex type safety by ensuring all `TypedData` fields are eagerly copied during `toDart()` conversion. Added `freeFields()` logic to C++ struct release paths to properly clean up heap-allocated properties (like `char*` strings) before the struct itself is released.
+
 ---
 
 ## 0.3.0

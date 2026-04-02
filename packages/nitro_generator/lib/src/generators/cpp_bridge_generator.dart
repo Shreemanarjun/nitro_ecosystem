@@ -334,6 +334,15 @@ class CppBridgeGenerator {
       s.writeln('// Called automatically by NativeFinalizer when the Dart proxy is GC\'d.');
       s.writeln('void ${libStem}_release_${st.name}(void* ptr) {');
       s.writeln('    if (!ptr) return;');
+      final hasStrings = st.fields.any((f) => f.type.name == 'String');
+      if (hasStrings) {
+        s.writeln('    ${st.name}* st_ptr = (${st.name}*)ptr;');
+        for (final f in st.fields) {
+          if (f.type.name == 'String') {
+            s.writeln('    if (st_ptr->${f.name}) free((void*)st_ptr->${f.name});');
+          }
+        }
+      }
       s.writeln('    free(ptr);');
       s.writeln('}');
       s.writeln();
@@ -417,6 +426,15 @@ class CppBridgeGenerator {
       for (final st in spec.structs) {
         s.writeln('void ${libStem}_release_${st.name}(void* ptr) {');
         s.writeln('    if (!ptr) return;');
+        final hasStrings = st.fields.any((f) => f.type.name == 'String');
+        if (hasStrings) {
+          s.writeln('    ${st.name}* st_ptr = (${st.name}*)ptr;');
+          for (final f in st.fields) {
+            if (f.type.name == 'String') {
+              s.writeln('    if (st_ptr->${f.name}) free((void*)st_ptr->${f.name});');
+            }
+          }
+        }
         s.writeln('    free(ptr);');
         s.writeln('}');
       }
@@ -485,8 +503,15 @@ class CppBridgeGenerator {
       s.writeln();
       s.writeln('    nitro_report_error(name, msg, nullptr, nullptr);');
       s.writeln();
-      s.writeln('    if (j_name) env->ReleaseStringUTFChars(j_name, name);');
-      s.writeln('    if (j_msg) env->ReleaseStringUTFChars(j_msg, msg);');
+      s.writeln('    if (j_name) {');
+      s.writeln('        env->ReleaseStringUTFChars(j_name, name);');
+      s.writeln('        env->DeleteLocalRef(j_name);');
+      s.writeln('    }');
+      s.writeln('    if (j_msg) {');
+      s.writeln('        env->ReleaseStringUTFChars(j_msg, msg);');
+      s.writeln('        env->DeleteLocalRef(j_msg);');
+      s.writeln('    }');
+      s.writeln('    env->DeleteLocalRef(ex_class);');
       s.writeln('    env->DeleteLocalRef(ex);');
       s.writeln('}');
       s.writeln();
@@ -517,17 +542,19 @@ class CppBridgeGenerator {
             s.writeln(
               '    result.${f.name} = ($elemCast)env->GetDirectBufferAddress(buf_${f.name});',
             );
+            s.writeln('    env->DeleteLocalRef(buf_${f.name});');
           } else if (f.type.name == 'String') {
             s.writeln(
               '    jstring j_${f.name} = (jstring)env->GetObjectField(obj, g_fid_${st.name}_${f.name});',
             );
             s.writeln(
-              '    const char* str_${f.name} = env->GetStringUTFChars(j_${f.name}, 0);',
+              '    const char* str_${f.name} = (j_${f.name} != nullptr) ? env->GetStringUTFChars(j_${f.name}, 0) : "";',
             );
             s.writeln('    result.${f.name} = strdup(str_${f.name});');
-            s.writeln(
-              '    env->ReleaseStringUTFChars(j_${f.name}, str_${f.name});',
-            );
+            s.writeln('    if (j_${f.name}) {');
+            s.writeln('        env->ReleaseStringUTFChars(j_${f.name}, str_${f.name});');
+            s.writeln('        env->DeleteLocalRef(j_${f.name});');
+            s.writeln('    }');
           } else if (isEnumField) {
             final enumType = f.type.name.replaceFirst('?', '');
             s.writeln(
@@ -559,14 +586,19 @@ class CppBridgeGenerator {
           // NewDirectByteBuffer takes a BYTE count, not element count.
           s.writeln('    jobject dbuf_${f.name} = env->NewDirectByteBuffer((void*)st->${f.name}, st->$lenField$elemSize);');
         }
+        for (final f in st.fields) {
+          if (_isZeroCopy(st, f.name)) continue;
+          if (f.type.name == 'String') {
+            s.writeln('    jstring j_${f.name} = env->NewStringUTF(st->${f.name} ? st->${f.name} : "");');
+          }
+        }
         final ctorArgs = st.fields
             .map((f) {
               final isEnum = enumNames.contains(f.type.name.replaceFirst('?', ''));
               if (_isZeroCopy(st, f.name)) {
-                // Reference the pre-computed (and null-guarded) local variable.
                 return 'dbuf_${f.name}';
               } else if (f.type.name == 'String') {
-                return 'env->NewStringUTF(st->${f.name})';
+                return 'j_${f.name}';
               } else if (isEnum) {
                 return '(jlong)(int32_t)st->${f.name}';
               } else {
@@ -574,7 +606,15 @@ class CppBridgeGenerator {
               }
             })
             .join(', ');
-        s.writeln('    return env->NewObject(g_cls_${st.name}, g_ctor_${st.name}, $ctorArgs);');
+        s.writeln('    jobject result = env->NewObject(g_cls_${st.name}, g_ctor_${st.name}, $ctorArgs);');
+        for (final f in st.fields) {
+          if (_isZeroCopy(st, f.name)) {
+            s.writeln('    if (dbuf_${f.name}) env->DeleteLocalRef(dbuf_${f.name});');
+          } else if (f.type.name == 'String') {
+            s.writeln('    if (j_${f.name}) env->DeleteLocalRef(j_${f.name});');
+          }
+        }
+        s.writeln('    return result;');
         s.writeln('}');
       }
       s.writeln();
@@ -719,10 +759,10 @@ class CppBridgeGenerator {
         }
         s.writeln();
         s.writeln('    ${libStem}_clear_error();');
+        s.writeln('    if (env->PushLocalFrame(16) != 0) return ${_defaultValue(cReturnType)};');
 
         // Build call args (converting C types to JNI types)
         final callArgsList = <String>[];
-        final jniTypedArrayParams = <String>[];
         for (final p in func.params) {
           final pt = p.type.name;
           if (pt == 'String') {
@@ -734,17 +774,14 @@ class CppBridgeGenerator {
             );
             callArgsList.add('jobj_${p.name}');
           } else if (p.zeroCopy && p.type.isTypedData) {
-            // Zero-copy: wrap native pointer in a DirectByteBuffer (no data copy)
             final elemSize = _zeroCopyElementSizeExpr(pt);
             s.writeln('    jobject j_${p.name} = env->NewDirectByteBuffer(${p.name}, ${p.name}_length$elemSize);');
             callArgsList.add('j_${p.name}');
           } else if (!p.zeroCopy && p.type.isTypedData) {
-            // Non-zero-copy: copy data into a JNI typed array
             final ops = _typedDataJniOps(pt);
             s.writeln('    ${ops[0]} j_${p.name} = env->${ops[1]}((jsize)${p.name}_length);');
             s.writeln('    env->${ops[2]}(j_${p.name}, 0, (jsize)${p.name}_length, (const ${ops[3]}*)${p.name});');
             callArgsList.add('j_${p.name}');
-            jniTypedArrayParams.add(p.name);
           } else {
             callArgsList.add(p.name);
           }
@@ -753,70 +790,76 @@ class CppBridgeGenerator {
         final callArgs = callArgsList.join(', ');
         final bridgeArgs = callArgs.isEmpty ? '' : ', $callArgs';
 
+
         if (func.returnType.name == 'void') {
           s.writeln(
             '    env->CallStaticVoidMethod(g_bridgeClass, methodId$bridgeArgs);',
           );
-          for (final n in jniTypedArrayParams) {
-            s.writeln('    env->DeleteLocalRef(j_$n);');
-          }
+          s.writeln('    env->PopLocalFrame(nullptr);');
         } else if (func.returnType.name == 'double') {
           s.writeln(
             '    double res = env->CallStaticDoubleMethod(g_bridgeClass, methodId$bridgeArgs);',
           );
-          for (final n in jniTypedArrayParams) {
-            s.writeln('    env->DeleteLocalRef(j_$n);');
-          }
-          s.writeln('    if (env->ExceptionCheck()) { nitro_report_jni_exception(env, env->ExceptionOccurred()); return 0.0; }');
+          s.writeln('    if (env->ExceptionCheck()) {');
+          s.writeln('        nitro_report_jni_exception(env, env->ExceptionOccurred());');
+          s.writeln('        env->PopLocalFrame(nullptr);');
+          s.writeln('        return 0.0;');
+          s.writeln('    }');
+          s.writeln('    env->PopLocalFrame(nullptr);');
           s.writeln('    return res;');
         } else if (func.returnType.name == 'int') {
           s.writeln(
             '    int64_t res = env->CallStaticLongMethod(g_bridgeClass, methodId$bridgeArgs);',
           );
-          for (final n in jniTypedArrayParams) {
-            s.writeln('    env->DeleteLocalRef(j_$n);');
-          }
-          s.writeln('    if (env->ExceptionCheck()) { nitro_report_jni_exception(env, env->ExceptionOccurred()); return 0; }');
+          s.writeln('    if (env->ExceptionCheck()) {');
+          s.writeln('        nitro_report_jni_exception(env, env->ExceptionOccurred());');
+          s.writeln('        env->PopLocalFrame(nullptr);');
+          s.writeln('        return 0;');
+          s.writeln('    }');
+          s.writeln('    env->PopLocalFrame(nullptr);');
           s.writeln('    return res;');
         } else if (func.returnType.name == 'bool') {
           s.writeln(
             '    bool res = env->CallStaticBooleanMethod(g_bridgeClass, methodId$bridgeArgs);',
           );
-          for (final n in jniTypedArrayParams) {
-            s.writeln('    env->DeleteLocalRef(j_$n);');
-          }
-          s.writeln('    if (env->ExceptionCheck()) { nitro_report_jni_exception(env, env->ExceptionOccurred()); return false; }');
+          s.writeln('    if (env->ExceptionCheck()) {');
+          s.writeln('        nitro_report_jni_exception(env, env->ExceptionOccurred());');
+          s.writeln('        env->PopLocalFrame(nullptr);');
+          s.writeln('        return false;');
+          s.writeln('    }');
+          s.writeln('    env->PopLocalFrame(nullptr);');
           s.writeln('    return res;');
         } else if (func.returnType.name == 'String') {
           s.writeln(
             '    jstring jstr = (jstring)env->CallStaticObjectMethod(g_bridgeClass, methodId$bridgeArgs);',
           );
-          for (final n in jniTypedArrayParams) {
-            s.writeln('    env->DeleteLocalRef(j_$n);');
-          }
-          s.writeln('    if (env->ExceptionCheck()) { nitro_report_jni_exception(env, env->ExceptionOccurred()); return nullptr; }');
-          s.writeln('    if (jstr == nullptr) return nullptr;');
+          s.writeln('    if (env->ExceptionCheck()) {');
+          s.writeln('        nitro_report_jni_exception(env, env->ExceptionOccurred());');
+          s.writeln('        env->PopLocalFrame(nullptr);');
+          s.writeln('        return nullptr;');
+          s.writeln('    }');
+          s.writeln('    if (jstr == nullptr) {');
+          s.writeln('        env->PopLocalFrame(nullptr);');
+          s.writeln('        return nullptr;');
+          s.writeln('    }');
           s.writeln(
             '    const char* nativeStr = env->GetStringUTFChars(jstr, 0);',
           );
           s.writeln('    char* result = strdup(nativeStr);');
           s.writeln('    env->ReleaseStringUTFChars(jstr, nativeStr);');
-          for (final p in func.params) {
-            if (p.type.name == 'String') {
-              s.writeln('    env->DeleteLocalRef(j_${p.name});');
-            }
-          }
-          s.writeln('    env->DeleteLocalRef(jstr);');
+          s.writeln('    env->PopLocalFrame(nullptr);');
           s.writeln('    return result;');
         } else if (isEnum) {
           // Bridge returns Long (nativeValue)
           s.writeln(
             '    int64_t res = env->CallStaticLongMethod(g_bridgeClass, methodId$bridgeArgs);',
           );
-          for (final n in jniTypedArrayParams) {
-            s.writeln('    env->DeleteLocalRef(j_$n);');
-          }
-          s.writeln('    if (env->ExceptionCheck()) { nitro_report_jni_exception(env, env->ExceptionOccurred()); return 0; }');
+          s.writeln('    if (env->ExceptionCheck()) {');
+          s.writeln('        nitro_report_jni_exception(env, env->ExceptionOccurred());');
+          s.writeln('        env->PopLocalFrame(nullptr);');
+          s.writeln('        return 0;');
+          s.writeln('    }');
+          s.writeln('    env->PopLocalFrame(nullptr);');
           s.writeln('    return res;');
         } else if (isStruct) {
           // Bridge returns the Kotlin data class; pack it to C struct via malloc
@@ -824,33 +867,39 @@ class CppBridgeGenerator {
           s.writeln(
             '    jobject jobj = env->CallStaticObjectMethod(g_bridgeClass, methodId$bridgeArgs);',
           );
-          for (final n in jniTypedArrayParams) {
-            s.writeln('    env->DeleteLocalRef(j_$n);');
-          }
-          s.writeln('    if (env->ExceptionCheck()) { nitro_report_jni_exception(env, env->ExceptionOccurred()); return nullptr; }');
-          s.writeln('    if (jobj == nullptr) return nullptr;');
+          s.writeln('    if (env->ExceptionCheck()) {');
+          s.writeln('        nitro_report_jni_exception(env, env->ExceptionOccurred());');
+          s.writeln('        env->PopLocalFrame(nullptr);');
+          s.writeln('        return nullptr;');
+          s.writeln('    }');
+          s.writeln('    if (jobj == nullptr) {');
+          s.writeln('        env->PopLocalFrame(nullptr);');
+          s.writeln('        return nullptr;');
+          s.writeln('    }');
           s.writeln('    $stName* result = ($stName*)malloc(sizeof($stName));');
           s.writeln('    *result = pack_${stName}_from_jni(env, jobj);');
-          s.writeln('    env->DeleteLocalRef(jobj);');
+          s.writeln('    env->PopLocalFrame(nullptr);');
           s.writeln('    return result;');
         } else if (isRecord) {
           // Bridge returns ByteArray (serialized @HybridRecord / List<@HybridRecord>)
           // Copy bytes to malloc'd buffer and return as void* for Dart RecordReader
           s.writeln('    jbyteArray jarr = (jbyteArray)env->CallStaticObjectMethod(g_bridgeClass, methodId$bridgeArgs);');
-          for (final n in jniTypedArrayParams) {
-            s.writeln('    env->DeleteLocalRef(j_$n);');
-          }
-          s.writeln('    if (env->ExceptionCheck()) { nitro_report_jni_exception(env, env->ExceptionOccurred()); return nullptr; }');
-          s.writeln('    if (jarr == nullptr) return nullptr;');
+          s.writeln('    if (env->ExceptionCheck()) {');
+          s.writeln('        nitro_report_jni_exception(env, env->ExceptionOccurred());');
+          s.writeln('        env->PopLocalFrame(nullptr);');
+          s.writeln('        return nullptr;');
+          s.writeln('    }');
+          s.writeln('    if (jarr == nullptr) {');
+          s.writeln('        env->PopLocalFrame(nullptr);');
+          s.writeln('        return nullptr;');
+          s.writeln('    }');
           s.writeln('    jsize len = env->GetArrayLength(jarr);');
           s.writeln('    uint8_t* result = (uint8_t*)malloc(len);');
           s.writeln('    env->GetByteArrayRegion(jarr, 0, len, (jbyte*)result);');
-          s.writeln('    env->DeleteLocalRef(jarr);');
+          s.writeln('    env->PopLocalFrame(nullptr);');
           s.writeln('    return result;');
         } else {
-          for (final n in jniTypedArrayParams) {
-            s.writeln('    env->DeleteLocalRef(j_$n);');
-          }
+          s.writeln('    env->PopLocalFrame(nullptr);');
           s.writeln('    return ${_defaultValue(cReturnType)};');
         }
         if (func.returnType.name == 'void') {
@@ -874,30 +923,39 @@ class CppBridgeGenerator {
           s.writeln(
             '    if (methodId == nullptr) { LOGE("Method not found: ${prop.getSymbol}_call sig=$jniGetSig"); return ${_defaultValue(cType)}; }',
           );
+          s.writeln('    if (env->PushLocalFrame(8) != 0) return ${_defaultValue(cType)};');
           if (prop.type.name == 'double') {
             s.writeln(
-              '    return env->CallStaticDoubleMethod(g_bridgeClass, methodId);',
+              '    double res = env->CallStaticDoubleMethod(g_bridgeClass, methodId);',
             );
+            s.writeln('    env->PopLocalFrame(nullptr);');
+            s.writeln('    return res;');
           } else if (prop.type.name == 'int' || isEnum) {
             s.writeln(
-              '    return ($cType)env->CallStaticLongMethod(g_bridgeClass, methodId);',
+              '    $cType res = ($cType)env->CallStaticLongMethod(g_bridgeClass, methodId);',
             );
+            s.writeln('    env->PopLocalFrame(nullptr);');
+            s.writeln('    return res;');
           } else if (prop.type.name == 'bool') {
             s.writeln(
-              '    return env->CallStaticBooleanMethod(g_bridgeClass, methodId);',
+              '    bool res = env->CallStaticBooleanMethod(g_bridgeClass, methodId);',
             );
+            s.writeln('    env->PopLocalFrame(nullptr);');
+            s.writeln('    return res;');
           } else if (prop.type.name == 'String') {
             s.writeln(
               '    jstring jstr = (jstring)env->CallStaticObjectMethod(g_bridgeClass, methodId);',
             );
+            s.writeln('    if (jstr == nullptr) { env->PopLocalFrame(nullptr); return nullptr; }');
             s.writeln(
               '    const char* nativeStr = env->GetStringUTFChars(jstr, 0);',
             );
             s.writeln('    char* result = strdup(nativeStr);');
             s.writeln('    env->ReleaseStringUTFChars(jstr, nativeStr);');
-            s.writeln('    env->DeleteLocalRef(jstr);');
+            s.writeln('    env->PopLocalFrame(nullptr);');
             s.writeln('    return result;');
           } else {
+            s.writeln('    env->PopLocalFrame(nullptr);');
             s.writeln('    return ${_defaultValue(cType)};');
           }
           s.writeln('}');
@@ -914,17 +972,21 @@ class CppBridgeGenerator {
           s.writeln(
             '    if (methodId == nullptr) { LOGE("Method not found: ${prop.setSymbol}_call sig=$jniSetSig"); return; }',
           );
+          s.writeln('    if (env->PushLocalFrame(8) != 0) return;');
           if (prop.type.name == 'String') {
             s.writeln('    jstring jval = env->NewStringUTF(value);');
             s.writeln(
               '    env->CallStaticVoidMethod(g_bridgeClass, methodId, jval);',
             );
-            s.writeln('    env->DeleteLocalRef(jval);');
+          } else if (structNames.contains(prop.type.name)) {
+            s.writeln('    jobject jval = unpack_${prop.type.name}_to_jni(env, (const ${prop.type.name}*)value);');
+            s.writeln('    env->CallStaticVoidMethod(g_bridgeClass, methodId, jval);');
           } else {
             s.writeln(
               '    env->CallStaticVoidMethod(g_bridgeClass, methodId, value);',
             );
           }
+          s.writeln('    env->PopLocalFrame(nullptr);');
           s.writeln('}');
           s.writeln('');
         }

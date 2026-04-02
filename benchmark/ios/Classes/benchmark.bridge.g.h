@@ -55,6 +55,10 @@ NITRO_EXPORT void benchmark_release_data_stream_stream(int64_t dart_port);
 NITRO_EXPORT void benchmark_register_box_stream_stream(int64_t dart_port);
 NITRO_EXPORT void benchmark_release_box_stream_stream(int64_t dart_port);
 
+// Struct release functions
+NITRO_EXPORT void benchmark_release_BenchmarkPoint(void* ptr);
+NITRO_EXPORT void benchmark_release_BenchmarkBox(void* ptr);
+
 #ifdef __cplusplus
 }
 #endif

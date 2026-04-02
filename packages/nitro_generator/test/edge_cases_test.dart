@@ -631,7 +631,8 @@ void main() {
     test('nitro_report_jni_exception guards j_name null before ReleaseStringUTFChars', () {
       final out = CppBridgeGenerator.generate(singleRecordSpec());
       // Must check j_name is non-null before releasing
-      expect(out, contains('if (j_name) env->ReleaseStringUTFChars'));
+      expect(out, contains('if (j_name) {'));
+      expect(out, contains('env->ReleaseStringUTFChars(j_name, name);'));
     });
 
     test('_defaultValue for const char* returns nullptr not empty string', () {
@@ -1113,7 +1114,8 @@ void main() {
         isNot(contains('nitro_report_jni_exception(env, env->ExceptionOccurred()); env->ExceptionClear(); return')),
       );
       // The ExceptionCheck + report + return pattern must still be present.
-      expect(cpp, contains('nitro_report_jni_exception(env, env->ExceptionOccurred()); return 0.0;'));
+      expect(cpp, contains('nitro_report_jni_exception(env, env->ExceptionOccurred());'));
+      expect(cpp, contains('return 0.0;'));
     });
   });
 

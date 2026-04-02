@@ -112,6 +112,40 @@ void main() {
       final out = CppBridgeGenerator.generate(enumSpec());
       expect(out, contains('void complex_module_set_config(const char* value)'));
     });
+    test('JNI cleanup is emitted for object arguments', () {
+      final spec = BridgeSpec(
+        dartClassName: 'MyCamera',
+        lib: 'my_camera',
+        namespace: 'my_camera_module',
+        iosImpl: NativeImpl.swift,
+        androidImpl: NativeImpl.kotlin,
+        sourceUri: 'my_camera.native.dart',
+        structs: [
+          BridgeStruct(
+            name: 'Point',
+            packed: false,
+            fields: [
+              BridgeField(name: 'x', type: BridgeType(name: 'double')),
+            ],
+          ),
+        ],
+        functions: [
+          BridgeFunction(
+            dartName: 'uploadData',
+            cSymbol: 'my_camera_upload_data',
+            isAsync: false,
+            returnType: BridgeType(name: 'void'),
+            params: [
+              BridgeParam(name: 'name', type: BridgeType(name: 'String'), zeroCopy: false),
+              BridgeParam(name: 'pt', type: BridgeType(name: 'Point'), zeroCopy: false),
+            ],
+          ),
+        ],
+      );
+      final out = CppBridgeGenerator.generate(spec);
+      expect(out, contains('env->DeleteLocalRef(j_name);'));
+      expect(out, contains('env->DeleteLocalRef(jobj_pt);'));
+    });
 
     test('struct stream emit uses malloc', () {
       final out = CppBridgeGenerator.generate(structStreamSpec());
@@ -132,6 +166,29 @@ void main() {
       expect(releasePos, isNot(-1));
       expect(androidPos, isNot(-1));
       expect(releasePos, lessThan(androidPos), reason: 'Release function should be in the shared section before platform guards');
+    });
+
+    test('struct with string release frees field', () {
+      final spec = BridgeSpec(
+        lib: 'test_lib',
+        namespace: 'nitro.test',
+        dartClassName: 'Test',
+        sourceUri: 'test.native.dart',
+        structs: [
+          BridgeStruct(
+            name: 'User',
+            packed: false,
+            fields: [
+              BridgeField(name: 'id', type: BridgeType(name: 'int')),
+              BridgeField(name: 'name', type: BridgeType(name: 'String')),
+            ],
+          ),
+        ],
+      );
+      final out = CppBridgeGenerator.generate(spec);
+      expect(out, contains('void test_lib_release_User(void* ptr)'));
+      expect(out, contains('User* st_ptr = (User*)ptr;'));
+      expect(out, contains('if (st_ptr->name) free((void*)st_ptr->name);'));
     });
   });
 

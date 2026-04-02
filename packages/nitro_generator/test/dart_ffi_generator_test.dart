@@ -97,6 +97,45 @@ void main() {
   });
 
   group('DartFfiGenerator (edge cases)', () {
+    test('struct return calls freeFields()', () {
+      final out = DartFfiGenerator.generate(richSpec());
+      // For any non-zero-copy struct return, we should see freeFields()
+      expect(out, contains('structPtr.ref.freeFields();'));
+      expect(out, contains('malloc.free(structPtr);'));
+    });
+
+    test('struct property getter calls freeFields()', () {
+      final spec = BridgeSpec(
+        dartClassName: 'Foo',
+        lib: 'foo',
+        namespace: 'foo',
+        iosImpl: NativeImpl.swift,
+        androidImpl: NativeImpl.kotlin,
+        sourceUri: 'foo.native.dart',
+        structs: [
+          BridgeStruct(
+            name: 'Reading',
+            packed: false,
+            fields: [
+              BridgeField(name: 'value', type: BridgeType(name: 'double')),
+            ],
+          ),
+        ],
+        properties: [
+          BridgeProperty(
+            dartName: 'reading',
+            type: BridgeType(name: 'Reading'),
+            getSymbol: 'foo_get_reading',
+            hasGetter: true,
+            hasSetter: false,
+          ),
+        ],
+      );
+      final out = DartFfiGenerator.generate(spec);
+      expect(out, contains('structPtr.ref.freeFields();'));
+      expect(out, contains('malloc.free(structPtr);'));
+    });
+
     test('bool return converts via != 0', () {
       final out = DartFfiGenerator.generate(richSpec());
       expect(out, contains('final res = _isReadyPtr(strict ? 1 : 0);'));

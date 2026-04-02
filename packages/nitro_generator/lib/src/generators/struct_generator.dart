@@ -49,7 +49,7 @@ class StructGenerator {
               )
               .map((sf) => sf.name)
               .firstOrNull;
-          value = '${f.name}.asTypedList(${lenField ?? '0'})';
+          value = '$typeName.fromList(${f.name}.asTypedList(${lenField ?? '0'}))';
         } else if (f.type.name == 'bool') {
           value = '${f.name} != 0';
         } else if (f.type.name == 'String') {
@@ -62,6 +62,16 @@ class StructGenerator {
         s.writeln('      ${f.name}: $value,');
       }
       s.writeln('    );');
+      s.writeln('  }');
+      s.writeln();
+      s.writeln('  /// Frees internal fields (like strings) that were allocated on the C heap.');
+      s.writeln('  /// Does NOT free the struct itself.');
+      s.writeln('  void freeFields() {');
+      for (final f in st.fields) {
+        if (f.type.name == 'String') {
+          s.writeln('    if (${f.name} != nullptr) malloc.free(${f.name});');
+        }
+      }
       s.writeln('  }');
       s.writeln('}');
       s.writeln();
