@@ -86,6 +86,15 @@ class CppHeaderGenerator {
       s.writeln();
     }
 
+    // ── Struct release functions ────────────────────────────────────────────
+    if (spec.structs.isNotEmpty) {
+      s.writeln('// Struct release functions');
+      for (final st in spec.structs) {
+        s.writeln('NITRO_EXPORT void ${libStem}_release_${st.name}(void* ptr);');
+      }
+      s.writeln();
+    }
+
     s.writeln('#ifdef __cplusplus');
     s.writeln('}');
     s.writeln('#endif');

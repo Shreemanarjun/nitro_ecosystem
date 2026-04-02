@@ -123,6 +123,16 @@ void main() {
       expect(out, contains('#elif __APPLE__'));
       expect(out, contains('extern double _call_add(double a, double b)'));
     });
+
+    test('emits shared struct release functions', () {
+      final out = CppBridgeGenerator.generate(structStreamSpec());
+      // Should find the release function before the platform guards
+      final releasePos = out.indexOf('void my_camera_release_CameraFrame(void* ptr)');
+      final androidPos = out.indexOf('#ifdef __ANDROID__');
+      expect(releasePos, isNot(-1));
+      expect(androidPos, isNot(-1));
+      expect(releasePos, lessThan(androidPos), reason: 'Release function should be in the shared section before platform guards');
+    });
   });
 
   group('CppBridgeGenerator (edge cases)', () {

@@ -324,7 +324,9 @@ class _BenchmarkCppImpl extends BenchmarkCpp {
     checkDisposed();
     final rawPtr = await NitroRuntime.callAsync<Pointer<Uint8>>(
         _computeStatsPtr, [iterations],
-        getError: _getErrorNativePtr, clearError: _clearErrorNativePtr);
+        getError: _getErrorNativePtr,
+        clearError: _clearErrorNativePtr,
+        methodName: 'computeStats');
     try {
       return BenchmarkStatsRecordExt.fromNative(rawPtr);
     } finally {

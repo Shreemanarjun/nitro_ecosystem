@@ -34,6 +34,17 @@ static void nitro_report_error(const char* name, const char* message, const char
 }
 }
 
+extern "C" {
+void benchmark_release_BenchmarkPoint(void* ptr) {
+    if (!ptr) return;
+    free(ptr);
+}
+void benchmark_release_BenchmarkBox(void* ptr) {
+    if (!ptr) return;
+    free(ptr);
+}
+}
+
 #ifdef __ANDROID__
 #include <jni.h>
 #include <android/log.h>
@@ -197,7 +208,7 @@ double benchmark_add(double a, double b) {
     JNIEnv* env = GetEnv();
     if (env == nullptr) return 0.0;
     jmethodID methodId = g_mid_add_call;
-    if (methodId == nullptr) { LOGE("Method not found"); return 0.0; }
+    if (methodId == nullptr) { LOGE("Method not found: add_call sig=(DD)D"); return 0.0; }
 
     benchmark_clear_error();
     double res = env->CallStaticDoubleMethod(g_bridgeClass, methodId, a, b);
@@ -209,7 +220,7 @@ double benchmark_add_fast(double a, double b) {
     JNIEnv* env = GetEnv();
     if (env == nullptr) return 0.0;
     jmethodID methodId = g_mid_addFast_call;
-    if (methodId == nullptr) { LOGE("Method not found"); return 0.0; }
+    if (methodId == nullptr) { LOGE("Method not found: addFast_call sig=(DD)D"); return 0.0; }
 
     benchmark_clear_error();
     double res = env->CallStaticDoubleMethod(g_bridgeClass, methodId, a, b);
@@ -221,7 +232,7 @@ const char* benchmark_get_greeting(const char* name) {
     JNIEnv* env = GetEnv();
     if (env == nullptr) return nullptr;
     jmethodID methodId = g_mid_getGreeting_call;
-    if (methodId == nullptr) { LOGE("Method not found"); return nullptr; }
+    if (methodId == nullptr) { LOGE("Method not found: getGreeting_call sig=(Ljava/lang/String;)Ljava/lang/String;"); return nullptr; }
 
     benchmark_clear_error();
     jstring j_name = env->NewStringUTF(name);
@@ -240,7 +251,7 @@ void* benchmark_scale_point(void* point, double factor) {
     JNIEnv* env = GetEnv();
     if (env == nullptr) return nullptr;
     jmethodID methodId = g_mid_scalePoint_call;
-    if (methodId == nullptr) { LOGE("Method not found"); return nullptr; }
+    if (methodId == nullptr) { LOGE("Method not found: scalePoint_call sig=(Lnitro/benchmark_module/BenchmarkPoint;D)Lnitro/benchmark_module/BenchmarkPoint;"); return nullptr; }
 
     benchmark_clear_error();
     jobject jobj_point = unpack_BenchmarkPoint_to_jni(env, (const BenchmarkPoint*)point);
@@ -257,7 +268,7 @@ void* benchmark_compute_stats(int64_t iterations) {
     JNIEnv* env = GetEnv();
     if (env == nullptr) return nullptr;
     jmethodID methodId = g_mid_computeStats_call;
-    if (methodId == nullptr) { LOGE("Method not found"); return nullptr; }
+    if (methodId == nullptr) { LOGE("Method not found: computeStats_call sig=(J)[B"); return nullptr; }
 
     benchmark_clear_error();
     jbyteArray jarr = (jbyteArray)env->CallStaticObjectMethod(g_bridgeClass, methodId, iterations);
@@ -274,7 +285,7 @@ int64_t benchmark_send_large_buffer(uint8_t* buffer, int64_t buffer_length) {
     JNIEnv* env = GetEnv();
     if (env == nullptr) return 0;
     jmethodID methodId = g_mid_sendLargeBuffer_call;
-    if (methodId == nullptr) { LOGE("Method not found"); return 0; }
+    if (methodId == nullptr) { LOGE("Method not found: sendLargeBuffer_call sig=([B)J"); return 0; }
 
     benchmark_clear_error();
     jbyteArray j_buffer = env->NewByteArray((jsize)buffer_length);
@@ -289,14 +300,16 @@ void benchmark_register_data_stream_stream(int64_t dart_port) {
     JNIEnv* env = GetEnv();
     if (env == nullptr) return;
     jmethodID methodId = g_mid_benchmark_register_data_stream_stream_call;
-    if (methodId != nullptr) env->CallStaticVoidMethod(g_bridgeClass, methodId, dart_port);
+    if (methodId == nullptr) { LOGE("Method not found: benchmark_register_data_stream_stream_call sig=(J)V"); return; }
+    env->CallStaticVoidMethod(g_bridgeClass, methodId, dart_port);
 }
 
 void benchmark_release_data_stream_stream(int64_t dart_port) {
     JNIEnv* env = GetEnv();
     if (env == nullptr) return;
     jmethodID methodId = g_mid_benchmark_release_data_stream_stream_call;
-    if (methodId != nullptr) env->CallStaticVoidMethod(g_bridgeClass, methodId, dart_port);
+    if (methodId == nullptr) { LOGE("Method not found: benchmark_release_data_stream_stream_call sig=(J)V"); return; }
+    env->CallStaticVoidMethod(g_bridgeClass, methodId, dart_port);
 }
 
 JNIEXPORT void JNICALL Java_nitro_benchmark_1module_BenchmarkJniBridge_emit_1dataStream(JNIEnv* env, jobject thiz, jlong dartPort, jobject item) {
@@ -312,14 +325,16 @@ void benchmark_register_box_stream_stream(int64_t dart_port) {
     JNIEnv* env = GetEnv();
     if (env == nullptr) return;
     jmethodID methodId = g_mid_benchmark_register_box_stream_stream_call;
-    if (methodId != nullptr) env->CallStaticVoidMethod(g_bridgeClass, methodId, dart_port);
+    if (methodId == nullptr) { LOGE("Method not found: benchmark_register_box_stream_stream_call sig=(J)V"); return; }
+    env->CallStaticVoidMethod(g_bridgeClass, methodId, dart_port);
 }
 
 void benchmark_release_box_stream_stream(int64_t dart_port) {
     JNIEnv* env = GetEnv();
     if (env == nullptr) return;
     jmethodID methodId = g_mid_benchmark_release_box_stream_stream_call;
-    if (methodId != nullptr) env->CallStaticVoidMethod(g_bridgeClass, methodId, dart_port);
+    if (methodId == nullptr) { LOGE("Method not found: benchmark_release_box_stream_stream_call sig=(J)V"); return; }
+    env->CallStaticVoidMethod(g_bridgeClass, methodId, dart_port);
 }
 
 JNIEXPORT void JNICALL Java_nitro_benchmark_1module_BenchmarkJniBridge_emit_1boxStream(JNIEnv* env, jobject thiz, jlong dartPort, jobject item) {
@@ -460,16 +475,6 @@ void benchmark_register_box_stream_stream(int64_t dart_port) {
 extern void _release_boxStream_stream(int64_t dart_port);
 void benchmark_release_box_stream_stream(int64_t dart_port) {
     _release_boxStream_stream(dart_port);
-}
-
-void benchmark_release_BenchmarkPoint(void* ptr) {
-    if (!ptr) return;
-    free(ptr);
-}
-
-void benchmark_release_BenchmarkBox(void* ptr) {
-    if (!ptr) return;
-    free(ptr);
 }
 
 } // extern "C"
