@@ -675,6 +675,11 @@ class DoctorCommand extends Command {
       } else {
         final pod = podFiles.first.readAsStringSync();
         final podName = p.basename(podFiles.first.path);
+        if (pod.contains("s.dependency 'nitro'")) {
+          ok(iosSec, "s.dependency 'nitro' in $podName");
+        } else {
+          err(iosSec, "s.dependency 'nitro' missing in $podName", hint: 'Run: nitrogen link');
+        }
         if (pod.contains('HEADER_SEARCH_PATHS')) {
           ok(iosSec, 'HEADER_SEARCH_PATHS in $podName');
         } else {
@@ -784,6 +789,11 @@ class DoctorCommand extends Command {
       } else {
         final pod = podFiles.first.readAsStringSync();
         final podName = p.basename(podFiles.first.path);
+        if (pod.contains("s.dependency 'nitro'")) {
+          ok(macosSec, "s.dependency 'nitro' in $podName");
+        } else {
+          err(macosSec, "s.dependency 'nitro' missing in $podName", hint: 'Run: nitrogen link');
+        }
         if (pod.contains('HEADER_SEARCH_PATHS')) {
           ok(macosSec, 'HEADER_SEARCH_PATHS in $podName');
         } else {

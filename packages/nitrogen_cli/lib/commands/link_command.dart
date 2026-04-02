@@ -653,6 +653,10 @@ void linkPodspec(String pluginName, List<String> moduleLibs, {String baseDir = '
     content = content.replaceFirst('s.pod_target_xcconfig = {', "s.pod_target_xcconfig = {\n    'DEFINES_MODULE' => 'YES',");
     modified = true;
   }
+  if (!content.contains("s.dependency 'nitro'")) {
+    content = content.replaceFirst('s.pod_target_xcconfig = {', "s.dependency 'nitro'\n  s.pod_target_xcconfig = {");
+    modified = true;
+  }
   if (modified) podspecFile.writeAsStringSync(content);
   createSharedHeaders(nitroNativePath, baseDir: baseDir);
   final classesDir = Directory(p.join(baseDir, 'ios', 'Classes'))..createSync(recursive: true);
@@ -732,6 +736,10 @@ void linkMacosPodspec(String pluginName, List<String> moduleLibs, {String baseDi
     content = content.replaceFirst('s.pod_target_xcconfig = {', "s.pod_target_xcconfig = {\n    'DEFINES_MODULE' => 'YES',");
     modified = true;
   }
+  if (!content.contains("s.dependency 'nitro'")) {
+    content = content.replaceFirst('s.pod_target_xcconfig = {', "s.dependency 'nitro'\n  s.pod_target_xcconfig = {");
+    modified = true;
+  }
   if (modified) podspecFile.writeAsStringSync(content);
   createSharedHeaders(nitroNativePath, baseDir: baseDir);
   final classesDir = Directory(p.join(baseDir, 'macos', 'Classes'))..createSync(recursive: true);
@@ -776,26 +784,40 @@ void linkMacosSwiftPlugin(String pluginName, List<Map<String, String>> modules, 
       .where((f) => !f.path.contains('.symlinks'))
       .where((f) => f.path.endsWith('Plugin.swift'))
       .toList();
-  if (pluginFiles.isEmpty) return;
+
+  if (pluginFiles.isEmpty) {
+    // Create default macOS plugin if missing
+    final className = _toPascalCase(pluginName);
+    final fileName = '${className}Plugin.swift';
+    final targetPath = p.join(macosDir.path, 'Classes', fileName);
+    Directory(p.dirname(targetPath)).createSync(recursive: true);
+    final stub = '''import FlutterMacOS
+import Foundation
+
+public class ${className}Plugin: NSObject, FlutterPlugin {
+  public static func register(with registrar: FlutterPluginRegistrar) {
+    // Nitro registration will be injected here by nitrogen link.
+  }
+}
+''';
+    File(targetPath).writeAsStringSync(stub);
+    pluginFiles.add(File(targetPath));
+  }
+
   final pluginFile = pluginFiles.first;
   var content = pluginFile.readAsStringSync();
   bool modified = false;
   for (final m in modules) {
     final name = m['module']!;
     final reg = '${name}Registry';
+    // Standard implementation naming: BenchmarkImpl or BenchmarkModuleImpl
     final impl = name.endsWith('Module') ? '${name}Impl' : '${name}ModuleImpl';
     if (!content.contains('$reg.register')) {
-      final match = RegExp(r'\w+Registry\.register\(.*?\)\)').allMatches(content);
-      if (match.isNotEmpty) {
-        content = content.replaceFirst(match.last.group(0)!, '${match.last.group(0)!}\n        $reg.register($impl())');
-        modified = true;
-      } else {
-        content = content.replaceFirst(
-          'public static func register(with registrar: FlutterPluginRegistrar) {',
-          'public static func register(with registrar: FlutterPluginRegistrar) {\n        $reg.register($impl())',
-        );
-        modified = true;
-      }
+      content = content.replaceFirst(
+        'public static func register(with registrar: FlutterPluginRegistrar) {',
+        'public static func register(with registrar: FlutterPluginRegistrar) {\n    $reg.register($impl())',
+      );
+      modified = true;
     }
   }
   if (modified) pluginFile.writeAsStringSync(content);
