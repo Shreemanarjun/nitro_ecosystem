@@ -73,21 +73,21 @@ No platform ifdefs. No JNI boilerplate. No Swift interop layer.
 | | Method Channel | Raw FFI | **Nitrogen (Swift/Kotlin)** | **Nitrogen (C++ direct)** |
 |---|---|---|---|---|
 | **Latency (iOS)** | ~30µs | **~0.12µs** | **~0.30µs** | **~0.18µs** |
-| **Latency (Android)** | ~114µs | ~1.9µs | **~2.2µs** | **~1.8µs** |
+| **Latency (Android)** | **~107µs** | **~1.5µs** | **~2.1µs** | **~1.6µs** |
 | **Type Safety** | None | None | Full (generated) | Full (generated) |
 | **Boilerplate** | Medium | Extreme | Minimal | Minimal |
 
-### API Benchmarking (iPhone 17 Pro Max, iOS 26.3, Debug)
-Test: **50 iterations** of `add(double, double)`.
+### API Benchmarking (OnePlus 11, Android 14, Release/Impeller/Vulkan)
+Test: **50,000 iterations** of `add(double, double)`.
 
 | Bridge Type | Latency (Avg) | Speedup vs Channel |
 |---|---|---|
-| **Method Channel** | 29.160 µs | 1.0x |
-| **Nitro (Swift/Kotlin)** | 0.300 µs | 97.2x |
-| **Nitro (Direct C++)** | 0.180 µs | 162.0x |
-| **Nitro (Leaf Call)** | **0.140 µs** | **208.3x** |
-| **Nitro (Unsafe Ptr)** | **0.140 µs** | **208.3x** |
-| **Raw FFI (Baseline)** | **0.120 µs** | **240.2x** |
+| **Method Channel** | 107.731 µs | 1.0x |
+| **Nitro (Swift/Kotlin)** | 2.126 µs | 50.6x |
+| **Nitro (Direct C++)** | 1.678 µs | 64.2x |
+| **Nitro (Leaf Call)** | **1.559 µs** | **69.1x** |
+| **Nitro (Unsafe Ptr)** | **1.513 µs** | **71.2x** |
+| **Raw FFI (Baseline)** | **1.570 µs** | **68.6x** |
 
 ### High-Bandwidth Throughput (iPhone 17 Pro Max, iOS 26.3)
 Test: **1 GB** zero-copy `Uint8List` transfer (incl. 4KB-step memory-access checksum).

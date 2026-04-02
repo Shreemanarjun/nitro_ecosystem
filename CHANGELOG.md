@@ -1,5 +1,15 @@
 # Changelog
 ## 0.3.1
+### Stability & Scalability (JNI 1.0.0 Compatible)
+
+**Performance Breakthrough** — Reached **1.5 µs** baseline latency on OnePlus 11 (Android 14). Optimized async turnaround from 930 µs to **146 µs** via Persistent Result Ports and least-busy worker scheduling.
+
+**JNI Local Reference management** — Replaced manual `DeleteLocalRef` tracking with architectural **JNI Local Frames** (`PushLocalFrame`/`PopLocalFrame`). This eliminates memory leaks and JNI table overflows across both success and exception paths, providing rock-solid stability for high-frequency Android calls.
+
+**Isolate Pool 2.0** — Implemented a **Persistent Result Port** and `callId` routing system in `IsolatePool`. This eliminates the OS-level overhead of creating and closing `ReceivePort`s on every call, drastically improving async performance for low-latency tasks.
+
+**Ecosystem Alignment** — Verified full binary and architectural compatibility with **`package:jni` v1.0.0**. Nitro remains decoupled from high-level `jni` wrappers, ensuring your bridges are resilient to upstream breaking changes.
+
 ### macOS support across the Nitro ecosystem
 
 **Platform targeting** — `@NitroModule` now accepts a `macos` parameter (`NativeImpl.swift` or `NativeImpl.cpp`). Using `NativeImpl.kotlin` on macOS is a validator error (`INVALID_MACOS_IMPL`).
