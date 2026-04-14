@@ -90,11 +90,9 @@ void syncBridgeFiles(String workingDirectory, {String platform = 'ios'}) {
   if (!generatedDir.existsSync()) return;
 
   // Discover which modules use the direct C++ path (NativeImpl.cpp).
-  // Their generated .bridge.g.swift must NOT be copied into ios/Classes/:
-  //   - the C++ bridge calls g_impl directly — it never calls the @_cdecl stubs
-  //   - those stubs share the same symbol names as the non-cpp Swift bridge,
-  //     causing duplicate-symbol linker errors.
-  final cppLibs = _discoverCppLibs(workingDirectory);
+  // Swift bridges are compiled from lib/src/generated/swift/ directly via the
+  // podspec source_files pattern — stale copies in ios/Classes/ cause
+  // duplicate-symbol linker errors and must be removed.
 
   // Discover Apple C++ modules specifically — HybridXxx.cpp must be in ios/Classes/
   // so CocoaPods can compile them as part of the pod target.
@@ -192,39 +190,11 @@ Map<String, String> _discoverAppleCppModules(String workingDirectory) {
     // Apple C++ = ios or macos using AppleNativeImpl.cpp (or legacy NativeImpl.cpp)
     if (!RegExp(
       r'\b(?:ios|macos)\s*:\s*(?:NativeImpl|AppleNativeImpl)\.cpp\b',
-    ).hasMatch(annotation)) continue;
+    ).hasMatch(annotation)) { continue; }
     final lib = libMatch.group(1)!;
     final moduleMatch = RegExp(r'abstract class (\w+) extends HybridObject').firstMatch(content);
     final moduleName = moduleMatch?.group(1) ?? _toPascalCase(lib);
     result[lib] = moduleName;
-  }
-  return result;
-}
-
-/// Returns the set of lib names that are NativeImpl.cpp modules, by reading
-/// the *.native.dart spec files in lib/. Recognises both the legacy shorthand
-/// (`NativeImpl.cpp`) and the new per-platform sealed-class variants
-/// (`AppleNativeImpl.cpp`, `AndroidNativeImpl.cpp`, etc.).
-Set<String> _discoverCppLibs(String workingDirectory) {
-  final libDir = Directory(p.join(workingDirectory, 'lib'));
-  if (!libDir.existsSync()) return {};
-  final result = <String>{};
-  for (final file in libDir.listSync(recursive: true).whereType<File>()) {
-    if (!file.path.endsWith('.native.dart')) continue;
-    final content = file.readAsStringSync();
-    final libMatch = RegExp(r'''@NitroModule\s*\([^)]*lib\s*:\s*['"]([^'"]+)['"]''', dotAll: true).firstMatch(content);
-    if (libMatch == null) continue;
-    final annotationMatch = RegExp(r'@NitroModule\s*\(([^)]+)\)', dotAll: true).firstMatch(content);
-    if (annotationMatch == null) continue;
-    // Normalise multi-line annotations for reliable matching.
-    final annotation = annotationMatch.group(1)!.replaceAll('\n', ' ');
-    // A module is "cpp" when any native platform arg resolves to a C++ impl.
-    if (RegExp(
-      r'\b(?:ios|android|macos|windows|linux)\s*:\s*'
-      r'(?:NativeImpl|AppleNativeImpl|AndroidNativeImpl|WindowsNativeImpl|LinuxNativeImpl)\.cpp\b',
-    ).hasMatch(annotation)) {
-      result.add(libMatch.group(1)!);
-    }
   }
   return result;
 }

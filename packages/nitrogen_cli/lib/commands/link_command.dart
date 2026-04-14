@@ -1008,7 +1008,7 @@ public class ${className}Plugin: NSObject, FlutterPlugin {
 /// C++ modules auto-register via `__attribute__((constructor))` when the .dylib
 /// loads. No Swift `Registry.register()` call is needed or valid — the Registry
 /// class is not generated for CppImpl modules, so the call causes:
-///   "Cannot find '<Module>Registry' in scope"
+///   "Cannot find `<Module>Registry` in scope"
 ///
 /// This mirrors [purgeStaleCppKotlinRegistrations] on the Swift side.
 void purgeStaleCppSwiftRegistrations(
@@ -1477,13 +1477,108 @@ void linkClangd(String pluginName, {List<ModuleInfo>? moduleInfos, String baseDi
   File(p.join(baseDir, '.clangd')).writeAsStringSync(sb.toString());
 }
 
+/// A single piece of managed content that is missing from a native plugin file.
+class ManagedContentIssue {
+  final String file;
+  final String description;
+  const ManagedContentIssue({required this.file, required this.description});
+}
+
+/// Scans Plugin.kt and Plugin.swift for managed sections (JniBridge import,
+/// register() call, Registry.register) that are expected for non-cpp modules
+/// but are currently missing. Returns each gap as a [ManagedContentIssue].
+///
+/// Called before the link TUI starts so the user can confirm re-injection.
+List<ManagedContentIssue> detectManagedContentIssues({String baseDir = '.'}) {
+  final issues = <ManagedContentIssue>[];
+
+  // Discover non-cpp modules.
+  final libDir = Directory(p.join(baseDir, 'lib'));
+  if (!libDir.existsSync()) return issues;
+  final specFiles = libDir
+      .listSync(recursive: true)
+      .whereType<File>()
+      .where((f) => f.path.endsWith('.native.dart'))
+      .where((f) => !isCppModule(f))
+      .toList();
+  if (specFiles.isEmpty) return issues;
+
+  // ── Android: Plugin.kt ────────────────────────────────────────────────────
+  final ktDir = Directory(p.join(baseDir, 'android', 'src', 'main', 'kotlin'));
+  if (ktDir.existsSync()) {
+    final pluginFiles = ktDir
+        .listSync(recursive: true)
+        .whereType<File>()
+        .where((f) => f.path.endsWith('Plugin.kt'))
+        .toList();
+    if (pluginFiles.isNotEmpty) {
+      final kt = pluginFiles.first.readAsStringSync();
+      final ktPath = p.relative(pluginFiles.first.path, from: baseDir);
+      for (final specFile in specFiles) {
+        final stem = p.basename(specFile.path).replaceAll(RegExp(r'\.native\.dart$'), '');
+        final lib = (extractLibNameFromSpec(specFile) ?? stem).replaceAll('-', '_');
+        final moduleMatch = RegExp(r'abstract class (\w+) extends HybridObject').firstMatch(specFile.readAsStringSync());
+        final moduleName = moduleMatch?.group(1) ?? _toPascalCase(stem);
+        final importLine = 'import nitro.${lib}_module.${moduleName}JniBridge';
+        final registerCall = '${moduleName}JniBridge.register(';
+        if (!kt.contains(importLine)) {
+          issues.add(ManagedContentIssue(
+            file: ktPath,
+            description: 'Missing import: $importLine',
+          ));
+        }
+        if (!kt.contains(registerCall)) {
+          issues.add(ManagedContentIssue(
+            file: ktPath,
+            description: 'Missing registration: ${moduleName}JniBridge.register(${moduleName}Impl(...))',
+          ));
+        }
+      }
+    }
+  }
+
+  // ── iOS: Plugin.swift ─────────────────────────────────────────────────────
+  final iosDir = Directory(p.join(baseDir, 'ios'));
+  if (iosDir.existsSync()) {
+    final swiftFiles = iosDir
+        .listSync(recursive: true, followLinks: false)
+        .whereType<File>()
+        .where((f) => !f.path.contains('.symlinks') && f.path.endsWith('Plugin.swift'))
+        .toList();
+    if (swiftFiles.isNotEmpty) {
+      final swift = swiftFiles.first.readAsStringSync();
+      final swiftPath = p.relative(swiftFiles.first.path, from: baseDir);
+      for (final specFile in specFiles) {
+        final stem = p.basename(specFile.path).replaceAll(RegExp(r'\.native\.dart$'), '');
+        final moduleMatch = RegExp(r'abstract class (\w+) extends HybridObject').firstMatch(specFile.readAsStringSync());
+        final moduleName = moduleMatch?.group(1) ?? _toPascalCase(stem);
+        if (!swift.contains('${moduleName}Registry.register(')) {
+          issues.add(ManagedContentIssue(
+            file: swiftPath,
+            description: 'Missing registration: ${moduleName}Registry.register(${moduleName}ModuleImpl())',
+          ));
+        }
+      }
+    }
+  }
+
+  return issues;
+}
+
 class LinkCommand extends Command {
+  LinkCommand() {
+    argParser.addFlag('yes', abbr: 'y', negatable: false,
+        help: 'Skip confirmation prompts (useful for CI.');
+  }
+
   @override
   final String name = 'link';
   @override
   final String description = 'Wires all Nitrogen-generated native bridges into the build system.';
   @override
   Future<void> run() async {
+    final yesFlag = argResults!['yes'] as bool;
+
     final projectDir = findNitroProjectRoot();
     if (projectDir == null) {
       stderr.writeln('❌ No Nitro project found.');
@@ -1498,6 +1593,44 @@ class LinkCommand extends Command {
       }
     }
     Directory.current = projectDir;
+
+    // ── Preflight: detect managed content removed by manual edits ─────────────
+    // If the user manually deleted an import or register() call that nitrogen
+    // link previously injected, we detect it here — before the TUI starts —
+    // and ask for confirmation to re-inject. This prevents silent overwrites.
+    final issues = detectManagedContentIssues(baseDir: projectDir.path);
+    if (issues.isNotEmpty) {
+      stderr.writeln('');
+      stderr.writeln('  \x1B[1;33m⚠  nitrogen link detected managed content missing from plugin files:\x1B[0m');
+      stderr.writeln('');
+      // Group by file for readability.
+      final byFile = <String, List<String>>{};
+      for (final issue in issues) {
+        byFile.putIfAbsent(issue.file, () => []).add(issue.description);
+      }
+      for (final entry in byFile.entries) {
+        stderr.writeln('  \x1B[1;37m${entry.key}\x1B[0m');
+        for (final desc in entry.value) {
+          stderr.writeln('    \x1B[33m• $desc\x1B[0m');
+        }
+      }
+      stderr.writeln('');
+      stderr.writeln('  These sections are managed by nitrogen link.');
+      stderr.writeln('  Re-running link will restore them automatically.');
+
+      if (!yesFlag) {
+        stderr.write('\n  Re-inject missing sections? [Y/n] ');
+        final answer = (stdin.readLineSync() ?? '').trim().toLowerCase();
+        if (answer == 'n' || answer == 'no') {
+          stderr.writeln('\n  Skipped. Run `nitrogen link --yes` to suppress this prompt.');
+          return;
+        }
+      } else {
+        stderr.writeln('  (--yes flag set — proceeding without confirmation)');
+      }
+      stderr.writeln('');
+    }
+
     final result = LinkResult();
     await runApp(LinkView(pluginName: pluginName, result: result));
     if (result.success) {
@@ -1505,3 +1638,4 @@ class LinkCommand extends Command {
     }
   }
 }
+

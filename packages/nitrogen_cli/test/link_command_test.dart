@@ -1534,12 +1534,12 @@ override fun onAttachedToEngine(binding: FlutterPlugin.FlutterPluginBinding) {
   // ── linkKotlinPlugin — import + register injection ────────────────────────────
 
   group('linkKotlinPlugin', () {
-    Directory _ktDir(Directory base) =>
+    Directory ktDir(Directory base) =>
         Directory(p.join(base.path, 'android', 'src', 'main', 'kotlin', 'dev', 'test'))
           ..createSync(recursive: true);
 
     File writePlugin(Directory base, String content) {
-      final f = File(p.join(_ktDir(base).path, 'TestPlugin.kt'));
+      final f = File(p.join(ktDir(base).path, 'TestPlugin.kt'));
       f.writeAsStringSync(content);
       return f;
     }
@@ -1563,7 +1563,7 @@ class TestPlugin : FlutterPlugin {
 
     test('injects register() with binding.applicationContext when impl takes Context', () {
       // Create a MathImpl.kt file whose constructor takes Context.
-      final ktImplDir = _ktDir(tmp);
+      final ktImplDir = ktDir(tmp);
       File(p.join(ktImplDir.path, 'MathImpl.kt')).writeAsStringSync('''
 package dev.test
 import android.content.Context

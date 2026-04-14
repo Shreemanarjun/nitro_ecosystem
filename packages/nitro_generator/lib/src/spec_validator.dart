@@ -1,5 +1,6 @@
 import 'package:nitro_annotations/nitro_annotations.dart'
-    show NativeImpl, CppImpl, KotlinImpl, WasmImpl;
+    show CppImpl, KotlinImpl, WasmImpl;
+
 import 'bridge_spec.dart';
 
 enum ValidationSeverity { error, warning }
