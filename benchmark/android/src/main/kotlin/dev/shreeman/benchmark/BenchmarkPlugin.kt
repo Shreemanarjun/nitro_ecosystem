@@ -13,10 +13,7 @@ class BenchmarkPlugin : FlutterPlugin {
     }
 
     override fun onAttachedToEngine(binding: FlutterPlugin.FlutterPluginBinding) {
-        BenchmarkCppJniBridge.register(BenchmarkCppImpl())
-        BenchmarkJniBridge.register(
-            BenchmarkImpl(binding.applicationContext)
-        )
+        BenchmarkJniBridge.register(BenchmarkImpl(binding.applicationContext))
 
         val channel = io.flutter.plugin.common.MethodChannel(
             binding.binaryMessenger,

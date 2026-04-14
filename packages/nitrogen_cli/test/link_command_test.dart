@@ -359,7 +359,7 @@ abstract class MyModule extends HybridObject {
   group('linkCppImplStubs', () {
     test('creates stub file for a cpp module when none exists', () {
       Directory(p.join(tmp.path, 'src')).createSync();
-      linkCppImplStubs([ModuleInfo(lib: 'math', module: 'Math', isCpp: true)], baseDir: tmp.path);
+      linkCppImplStubs([ModuleInfo(lib: 'math', module: 'Math', isCpp: true, isNativeCpp: true)], baseDir: tmp.path);
       final stub = File(p.join(tmp.path, 'src', 'HybridMath.cpp'));
       expect(stub.existsSync(), isTrue);
       final content = stub.readAsStringSync();
@@ -373,7 +373,7 @@ abstract class MyModule extends HybridObject {
       Directory(p.join(tmp.path, 'src')).createSync();
       final stub = File(p.join(tmp.path, 'src', 'HybridMath.cpp'));
       stub.writeAsStringSync('// user code');
-      linkCppImplStubs([ModuleInfo(lib: 'math', module: 'Math', isCpp: true)], baseDir: tmp.path);
+      linkCppImplStubs([ModuleInfo(lib: 'math', module: 'Math', isCpp: true, isNativeCpp: true)], baseDir: tmp.path);
       expect(stub.readAsStringSync(), equals('// user code'));
     });
 
@@ -386,8 +386,8 @@ abstract class MyModule extends HybridObject {
     test('creates stubs for multiple cpp modules', () {
       Directory(p.join(tmp.path, 'src')).createSync();
       linkCppImplStubs([
-        ModuleInfo(lib: 'math', module: 'Math', isCpp: true),
-        ModuleInfo(lib: 'crypto', module: 'Crypto', isCpp: true),
+        ModuleInfo(lib: 'math', module: 'Math', isCpp: true, isNativeCpp: true),
+        ModuleInfo(lib: 'crypto', module: 'Crypto', isCpp: true, isNativeCpp: true),
       ], baseDir: tmp.path);
       expect(File(p.join(tmp.path, 'src', 'HybridMath.cpp')).existsSync(), isTrue);
       expect(File(p.join(tmp.path, 'src', 'HybridCrypto.cpp')).existsSync(), isTrue);
@@ -395,7 +395,7 @@ abstract class MyModule extends HybridObject {
 
     test('lib name with underscores produces correct PascalCase class name', () {
       Directory(p.join(tmp.path, 'src')).createSync();
-      linkCppImplStubs([ModuleInfo(lib: 'my_math_lib', module: 'MyMathLib', isCpp: true)], baseDir: tmp.path);
+      linkCppImplStubs([ModuleInfo(lib: 'my_math_lib', module: 'MyMathLib', isCpp: true, isNativeCpp: true)], baseDir: tmp.path);
       final stub = File(p.join(tmp.path, 'src', 'HybridMyMathLib.cpp'));
       expect(stub.existsSync(), isTrue);
       expect(stub.readAsStringSync(), contains('my_math_lib_register_impl'));
@@ -477,7 +477,9 @@ end
   }
 
   // Creates the generated bridge files and src impl file for a single C++ module.
-  void scaffoldCppModule(String lib) {
+  // Pass [appleCpp: true] to also write a .native.dart spec that marks it as an
+  // Apple C++ module so linkPodspec's isAppleCppModule check recognises it.
+  void scaffoldCppModule(String lib, {bool appleCpp = false}) {
     final pascal = lib.split('_').map((w) => w.isEmpty ? '' : '${w[0].toUpperCase()}${w.substring(1)}').join('');
     Directory(p.join(tmp.path, 'src')).createSync(recursive: true);
     File(p.join(tmp.path, 'src', 'Hybrid$pascal.cpp')).writeAsStringSync('// impl');
@@ -485,12 +487,20 @@ end
     File(p.join(genCpp.path, '$lib.bridge.g.cpp')).writeAsStringSync('// bridge cpp');
     File(p.join(genCpp.path, '$lib.bridge.g.h')).writeAsStringSync('// bridge header');
     File(p.join(genCpp.path, '$lib.native.g.h')).writeAsStringSync('// native header (C++ types)');
+    if (appleCpp) {
+      // Spec file so isAppleCppModule recognises this as an Apple C++ module.
+      final specDir = Directory(p.join(tmp.path, 'lib', 'src'))..createSync(recursive: true);
+      File(p.join(specDir.path, '$lib.native.dart')).writeAsStringSync(
+        "@NitroModule(lib: '$lib', ios: AppleNativeImpl.cpp, macos: AppleNativeImpl.cpp)\n"
+        'abstract class $pascal extends HybridObject {}\n',
+      );
+    }
   }
 
   group('linkPodspec — NativeImpl.cpp impl file wiring', () {
     test('creates ios/Classes/Hybrid<Lib>.cpp forwarder for a NativeImpl.cpp module', () {
       scaffoldPodspec('my_plugin');
-      scaffoldCppModule('my_cpp_mod');
+      scaffoldCppModule('my_cpp_mod', appleCpp: true);
 
       linkPodspec(
         'my_plugin',
@@ -507,7 +517,7 @@ end
 
     test('forwarder includes the correct relative path to src/', () {
       scaffoldPodspec('my_plugin');
-      scaffoldCppModule('my_cpp_mod');
+      scaffoldCppModule('my_cpp_mod', appleCpp: true);
 
       linkPodspec(
         'my_plugin',
@@ -589,7 +599,7 @@ end
 
     test('creates .bridge.g.mm forwarder in Sources/<PluginCpp>/', () {
       scaffoldSpm('my_plugin');
-      scaffoldCppModule('my_cpp_mod');
+      scaffoldCppModule('my_cpp_mod', appleCpp: true);
 
       linkPodspec(
         'my_plugin',
@@ -606,7 +616,7 @@ end
 
     test('.bridge.g.mm forwarder includes path to the generated .bridge.g.cpp', () {
       scaffoldSpm('my_plugin');
-      scaffoldCppModule('my_cpp_mod');
+      scaffoldCppModule('my_cpp_mod', appleCpp: true);
 
       linkPodspec(
         'my_plugin',
@@ -629,7 +639,7 @@ end
 
     test('creates Hybrid<Lib>.cpp forwarder in Sources/<PluginCpp>/', () {
       scaffoldSpm('my_plugin');
-      scaffoldCppModule('my_cpp_mod');
+      scaffoldCppModule('my_cpp_mod', appleCpp: true);
 
       linkPodspec(
         'my_plugin',
@@ -646,7 +656,7 @@ end
 
     test('copies .bridge.g.h into Sources/<PluginCpp>/include/', () {
       scaffoldSpm('my_plugin');
-      scaffoldCppModule('my_cpp_mod');
+      scaffoldCppModule('my_cpp_mod', appleCpp: true);
 
       linkPodspec(
         'my_plugin',
@@ -891,6 +901,12 @@ end
 ''');
       final srcDir = Directory(p.join(tmp.path, 'src'))..createSync();
       File(p.join(srcDir.path, 'HybridMath.cpp')).writeAsStringSync('// impl');
+      // Spec file needed so linkMacosPodspec's isAppleCppModule check recognises math as Apple C++.
+      final libSrc = Directory(p.join(tmp.path, 'lib', 'src'))..createSync(recursive: true);
+      File(p.join(libSrc.path, 'math.native.dart')).writeAsStringSync(
+        "@NitroModule(lib: 'math', ios: AppleNativeImpl.cpp, macos: AppleNativeImpl.cpp)\n"
+        'abstract class Math extends HybridObject {}\n',
+      );
 
       linkMacosPodspec(
         'my_plugin',
@@ -902,6 +918,95 @@ end
       final forwarder = File(p.join(tmp.path, 'macos', 'Classes', 'HybridMath.cpp'));
       expect(forwarder.existsSync(), isTrue);
       expect(forwarder.readAsStringSync(), contains('#include "../../src/HybridMath.cpp"'));
+    });
+  });
+
+  // ── linkPodspec — source_files + stale Swift bridge cleanup ─────────────────
+
+  group('linkPodspec — source_files and stale Swift bridge cleanup', () {
+    void scaffoldMinimalPodspec(String platform, String pluginName, {String? sourceFilesLine}) {
+      Directory(p.join(tmp.path, platform, 'Classes')).createSync(recursive: true);
+      final srcFilesDecl = sourceFilesLine != null ? "\n  $sourceFilesLine" : '';
+      File(p.join(tmp.path, platform, '$pluginName.podspec')).writeAsStringSync('''
+Pod::Spec.new do |s|
+  s.name = '$pluginName'$srcFilesDecl
+  s.pod_target_xcconfig = {}
+end
+''');
+    }
+
+    test('linkPodspec appends generated swift glob to existing source_files', () {
+      scaffoldMinimalPodspec('ios', 'my_plugin',
+          sourceFilesLine: "s.source_files = 'Classes/**/*'");
+      Directory(p.join(tmp.path, 'src')).createSync();
+
+      linkPodspec('my_plugin', ['my_plugin'], baseDir: tmp.path);
+
+      final content = File(p.join(tmp.path, 'ios', 'my_plugin.podspec')).readAsStringSync();
+      expect(content, contains("lib/src/generated/swift/**/*.swift"));
+    });
+
+    test('linkPodspec inserts source_files when absent from podspec', () {
+      scaffoldMinimalPodspec('ios', 'my_plugin');
+      Directory(p.join(tmp.path, 'src')).createSync();
+
+      linkPodspec('my_plugin', ['my_plugin'], baseDir: tmp.path);
+
+      final content = File(p.join(tmp.path, 'ios', 'my_plugin.podspec')).readAsStringSync();
+      expect(content, contains("lib/src/generated/swift/**/*.swift"));
+    });
+
+    test('linkPodspec does not duplicate source_files on second run', () {
+      scaffoldMinimalPodspec('ios', 'my_plugin',
+          sourceFilesLine: "s.source_files = 'Classes/**/*'");
+      Directory(p.join(tmp.path, 'src')).createSync();
+
+      linkPodspec('my_plugin', ['my_plugin'], baseDir: tmp.path);
+      linkPodspec('my_plugin', ['my_plugin'], baseDir: tmp.path);
+
+      final content = File(p.join(tmp.path, 'ios', 'my_plugin.podspec')).readAsStringSync();
+      expect(
+        'lib/src/generated/swift'.allMatches(content).length,
+        equals(1),
+        reason: 'second run must not add a second swift glob',
+      );
+    });
+
+    test('linkPodspec deletes stale .bridge.g.swift from ios/Classes/', () {
+      scaffoldMinimalPodspec('ios', 'my_plugin',
+          sourceFilesLine: "s.source_files = 'Classes/**/*'");
+      Directory(p.join(tmp.path, 'src')).createSync();
+      // Plant a stale copy that would cause duplicate-symbol errors.
+      final stale = File(p.join(tmp.path, 'ios', 'Classes', 'my_plugin.bridge.g.swift'))
+        ..writeAsStringSync('// stale copy');
+
+      linkPodspec('my_plugin', ['my_plugin'], baseDir: tmp.path);
+
+      expect(stale.existsSync(), isFalse,
+          reason: 'stale .bridge.g.swift must be deleted — canonical file is in lib/src/generated/swift/');
+    });
+
+    test('linkMacosPodspec appends generated swift glob to existing source_files', () {
+      scaffoldMinimalPodspec('macos', 'my_plugin',
+          sourceFilesLine: "s.source_files = 'Classes/**/*'");
+      Directory(p.join(tmp.path, 'src')).createSync();
+
+      linkMacosPodspec('my_plugin', ['my_plugin'], baseDir: tmp.path);
+
+      final content = File(p.join(tmp.path, 'macos', 'my_plugin.podspec')).readAsStringSync();
+      expect(content, contains("lib/src/generated/swift/**/*.swift"));
+    });
+
+    test('linkMacosPodspec deletes stale .bridge.g.swift from macos/Classes/', () {
+      scaffoldMinimalPodspec('macos', 'my_plugin',
+          sourceFilesLine: "s.source_files = 'Classes/**/*'");
+      Directory(p.join(tmp.path, 'src')).createSync();
+      final stale = File(p.join(tmp.path, 'macos', 'Classes', 'my_plugin.bridge.g.swift'))
+        ..writeAsStringSync('// stale copy');
+
+      linkMacosPodspec('my_plugin', ['my_plugin'], baseDir: tmp.path);
+
+      expect(stale.existsSync(), isFalse);
     });
   });
 
@@ -1169,14 +1274,14 @@ target_include_directories(\${PLUGIN_NAME} PUBLIC
   group('linkCppImplStubs — cross-platform constructor', () {
     test('stub contains #if defined(_WIN32) guard', () {
       Directory(p.join(tmp.path, 'src')).createSync();
-      linkCppImplStubs([ModuleInfo(lib: 'math', module: 'Math', isCpp: true)], baseDir: tmp.path);
+      linkCppImplStubs([ModuleInfo(lib: 'math', module: 'Math', isCpp: true, isNativeCpp: true)], baseDir: tmp.path);
       final content = File(p.join(tmp.path, 'src', 'HybridMath.cpp')).readAsStringSync();
       expect(content, contains('#if defined(_WIN32)'));
     });
 
     test('stub contains static object registration on Windows path', () {
       Directory(p.join(tmp.path, 'src')).createSync();
-      linkCppImplStubs([ModuleInfo(lib: 'math', module: 'Math', isCpp: true)], baseDir: tmp.path);
+      linkCppImplStubs([ModuleInfo(lib: 'math', module: 'Math', isCpp: true, isNativeCpp: true)], baseDir: tmp.path);
       final content = File(p.join(tmp.path, 'src', 'HybridMath.cpp')).readAsStringSync();
       expect(content, contains('struct _AutoRegister'));
       expect(content, contains('_AutoRegister()'));
@@ -1184,7 +1289,7 @@ target_include_directories(\${PLUGIN_NAME} PUBLIC
 
     test('stub contains __attribute__((constructor)) on non-Windows path', () {
       Directory(p.join(tmp.path, 'src')).createSync();
-      linkCppImplStubs([ModuleInfo(lib: 'math', module: 'Math', isCpp: true)], baseDir: tmp.path);
+      linkCppImplStubs([ModuleInfo(lib: 'math', module: 'Math', isCpp: true, isNativeCpp: true)], baseDir: tmp.path);
       final content = File(p.join(tmp.path, 'src', 'HybridMath.cpp')).readAsStringSync();
       expect(content, contains('__attribute__((constructor))'));
       expect(content, contains('#else'));
@@ -1193,9 +1298,438 @@ target_include_directories(\${PLUGIN_NAME} PUBLIC
 
     test('stub register call appears in both Windows and non-Windows blocks', () {
       Directory(p.join(tmp.path, 'src')).createSync();
-      linkCppImplStubs([ModuleInfo(lib: 'math', module: 'Math', isCpp: true)], baseDir: tmp.path);
+      linkCppImplStubs([ModuleInfo(lib: 'math', module: 'Math', isCpp: true, isNativeCpp: true)], baseDir: tmp.path);
       final content = File(p.join(tmp.path, 'src', 'HybridMath.cpp')).readAsStringSync();
       expect('math_register_impl'.allMatches(content).length, greaterThanOrEqualTo(2));
     });
   });
+
+  // ── isAppleCppModule ──────────────────────────────────────────────────────────
+
+  group('isAppleCppModule', () {
+    test('returns true for ios: AppleNativeImpl.cpp', () {
+      final spec = _writeSpec(_libDir(tmp), 'cam.native.dart', '''
+@NitroModule(lib: "cam", ios: AppleNativeImpl.cpp)
+abstract class Cam extends HybridObject {}
+''');
+      expect(isAppleCppModule(spec), isTrue);
+    });
+
+    test('returns true for macos: AppleNativeImpl.cpp', () {
+      final spec = _writeSpec(_libDir(tmp), 'cam.native.dart', '''
+@NitroModule(lib: "cam", macos: AppleNativeImpl.cpp)
+abstract class Cam extends HybridObject {}
+''');
+      expect(isAppleCppModule(spec), isTrue);
+    });
+
+    test('returns true for legacy ios: NativeImpl.cpp', () {
+      final spec = _writeSpec(_libDir(tmp), 'cam.native.dart', '''
+@NitroModule(lib: "cam", ios: NativeImpl.cpp)
+abstract class Cam extends HybridObject {}
+''');
+      expect(isAppleCppModule(spec), isTrue);
+    });
+
+    test('returns false for android-only: AndroidNativeImpl.cpp', () {
+      final spec = _writeSpec(_libDir(tmp), 'cam.native.dart', '''
+@NitroModule(lib: "cam", android: AndroidNativeImpl.cpp)
+abstract class Cam extends HybridObject {}
+''');
+      expect(isAppleCppModule(spec), isFalse);
+    });
+
+    test('returns false for windows-only: WindowsNativeImpl.cpp', () {
+      final spec = _writeSpec(_libDir(tmp), 'cam.native.dart', '''
+@NitroModule(lib: "cam", windows: WindowsNativeImpl.cpp)
+abstract class Cam extends HybridObject {}
+''');
+      expect(isAppleCppModule(spec), isFalse,
+          reason: 'Windows-only C++ must NOT produce an Apple forwarder in ios/Classes/');
+    });
+
+    test('returns false for ios: AppleNativeImpl.swift (Swift, not C++)', () {
+      final spec = _writeSpec(_libDir(tmp), 'cam.native.dart', '''
+@NitroModule(lib: "cam", ios: NativeImpl.swift)
+abstract class Cam extends HybridObject {}
+''');
+      expect(isAppleCppModule(spec), isFalse);
+    });
+
+    test('returns true for multi-line annotation with ios: AppleNativeImpl.cpp', () {
+      final spec = _writeSpec(_libDir(tmp), 'cam.native.dart', '''
+@NitroModule(
+  lib: "cam",
+  ios: AppleNativeImpl.cpp,
+  android: AndroidNativeImpl.cpp,
+)
+abstract class Cam extends HybridObject {}
+''');
+      expect(isAppleCppModule(spec), isTrue);
+    });
+  });
+
+  // ── isNativeCppModule ─────────────────────────────────────────────────────────
+
+  group('isNativeCppModule', () {
+    test('returns true for android: AndroidNativeImpl.cpp', () {
+      final spec = _writeSpec(_libDir(tmp), 'eng.native.dart', '''
+@NitroModule(lib: "eng", android: AndroidNativeImpl.cpp)
+abstract class Eng extends HybridObject {}
+''');
+      expect(isNativeCppModule(spec), isTrue);
+    });
+
+    test('returns true for linux: LinuxNativeImpl.cpp', () {
+      final spec = _writeSpec(_libDir(tmp), 'eng.native.dart', '''
+@NitroModule(lib: "eng", linux: LinuxNativeImpl.cpp)
+abstract class Eng extends HybridObject {}
+''');
+      expect(isNativeCppModule(spec), isTrue);
+    });
+
+    test('returns true for legacy android: NativeImpl.cpp', () {
+      final spec = _writeSpec(_libDir(tmp), 'eng.native.dart', '''
+@NitroModule(lib: "eng", android: NativeImpl.cpp)
+abstract class Eng extends HybridObject {}
+''');
+      expect(isNativeCppModule(spec), isTrue);
+    });
+
+    test('returns false for ios-only: AppleNativeImpl.cpp (not Android/Linux)', () {
+      final spec = _writeSpec(_libDir(tmp), 'eng.native.dart', '''
+@NitroModule(lib: "eng", ios: AppleNativeImpl.cpp)
+abstract class Eng extends HybridObject {}
+''');
+      expect(isNativeCppModule(spec), isFalse,
+          reason: 'Apple-only C++ does not belong in src/CMakeLists.txt');
+    });
+
+    test('returns false for windows-only: WindowsNativeImpl.cpp', () {
+      final spec = _writeSpec(_libDir(tmp), 'eng.native.dart', '''
+@NitroModule(lib: "eng", windows: WindowsNativeImpl.cpp)
+abstract class Eng extends HybridObject {}
+''');
+      expect(isNativeCppModule(spec), isFalse);
+    });
+  });
+
+  // ── purgeStaleCppSwiftRegistrations ──────────────────────────────────────────
+
+  group('purgeStaleCppSwiftRegistrations', () {
+    File writeIosPlugin(Directory dir, String content) {
+      final d = Directory(p.join(dir.path, 'ios', 'Classes'))..createSync(recursive: true);
+      final f = File(p.join(d.path, 'MyPlugin.swift'));
+      f.writeAsStringSync(content);
+      return f;
+    }
+
+    test('removes stale XxxRegistry.register() call for a cpp module', () {
+      final plugin = writeIosPlugin(tmp, '''
+public static func register(with registrar: FlutterPluginRegistrar) {
+    BenchmarkRegistry.register(BenchmarkImpl())
+    BenchmarkCppRegistry.register(BenchmarkCppModuleImpl())
 }
+''');
+      purgeStaleCppSwiftRegistrations(
+        [const ModuleInfo(lib: 'benchmark_cpp', module: 'BenchmarkCpp', isCpp: true)],
+        platform: 'ios',
+        baseDir: tmp.path,
+      );
+      final content = plugin.readAsStringSync();
+      expect(content, isNot(contains('BenchmarkCppRegistry.register')));
+      expect(content, contains('BenchmarkRegistry.register')); // non-cpp untouched
+    });
+
+    test('no-op when stale call is not present', () {
+      const original = '''
+public static func register(with registrar: FlutterPluginRegistrar) {
+    BenchmarkRegistry.register(BenchmarkImpl())
+}
+''';
+      final plugin = writeIosPlugin(tmp, original);
+      purgeStaleCppSwiftRegistrations(
+        [const ModuleInfo(lib: 'benchmark_cpp', module: 'BenchmarkCpp', isCpp: true)],
+        platform: 'ios',
+        baseDir: tmp.path,
+      );
+      expect(plugin.readAsStringSync(), equals(original));
+    });
+
+    test('no-op when cppModules list is empty', () {
+      const original = 'public static func register(with r: FlutterPluginRegistrar) {}';
+      final plugin = writeIosPlugin(tmp, original);
+      purgeStaleCppSwiftRegistrations([], platform: 'ios', baseDir: tmp.path);
+      expect(plugin.readAsStringSync(), equals(original));
+    });
+
+    test('handles impl variant without ModuleImpl suffix', () {
+      final plugin = writeIosPlugin(tmp, '''
+public static func register(with registrar: FlutterPluginRegistrar) {
+    FooRegistry.register(FooImpl())
+}
+''');
+      purgeStaleCppSwiftRegistrations(
+        [const ModuleInfo(lib: 'foo', module: 'Foo', isCpp: true)],
+        platform: 'ios',
+        baseDir: tmp.path,
+      );
+      expect(plugin.readAsStringSync(), isNot(contains('FooRegistry.register')));
+    });
+  });
+
+  // ── purgeStaleCppKotlinRegistrations ─────────────────────────────────────────
+
+  group('purgeStaleCppKotlinRegistrations', () {
+    File writeKotlinPlugin2(Directory dir, String content) {
+      final d = Directory(p.join(dir.path, 'android', 'src', 'main', 'kotlin', 'dev', 'test'))
+        ..createSync(recursive: true);
+      final f = File(p.join(d.path, 'TestPlugin.kt'));
+      f.writeAsStringSync(content);
+      return f;
+    }
+
+    test('removes stale XxxJniBridge.register() call for a cpp module', () {
+      final plugin = writeKotlinPlugin2(tmp, '''
+override fun onAttachedToEngine(binding: FlutterPlugin.FlutterPluginBinding) {
+    BenchmarkJniBridge.register(BenchmarkImpl(binding.applicationContext))
+    BenchmarkCppJniBridge.register(BenchmarkCppImpl())
+}
+''');
+      purgeStaleCppKotlinRegistrations(
+        [const ModuleInfo(lib: 'benchmark_cpp', module: 'BenchmarkCpp', isCpp: true)],
+        baseDir: tmp.path,
+      );
+      final content = plugin.readAsStringSync();
+      expect(content, isNot(contains('BenchmarkCppJniBridge.register')));
+      expect(content, contains('BenchmarkJniBridge.register')); // non-cpp untouched
+    });
+
+    test('also removes stale import for the cpp module', () {
+      final plugin = writeKotlinPlugin2(tmp, '''
+package dev.test
+import nitro.benchmark_cpp_module.BenchmarkCppJniBridge
+import nitro.benchmark_module.BenchmarkJniBridge
+override fun onAttachedToEngine(binding: FlutterPlugin.FlutterPluginBinding) {
+    BenchmarkCppJniBridge.register(BenchmarkCppImpl())
+}
+''');
+      purgeStaleCppKotlinRegistrations(
+        [const ModuleInfo(lib: 'benchmark_cpp', module: 'BenchmarkCpp', isCpp: true)],
+        baseDir: tmp.path,
+      );
+      final content = plugin.readAsStringSync();
+      expect(content, isNot(contains('BenchmarkCppJniBridge')));
+      expect(content, contains('BenchmarkJniBridge')); // non-cpp import untouched
+    });
+
+    test('no-op when cppModules list is empty', () {
+      const original = 'class TestPlugin {}';
+      final plugin = writeKotlinPlugin2(tmp, original);
+      purgeStaleCppKotlinRegistrations([], baseDir: tmp.path);
+      expect(plugin.readAsStringSync(), equals(original));
+    });
+  });
+
+  // ── linkKotlinPlugin — import + register injection ────────────────────────────
+
+  group('linkKotlinPlugin', () {
+    Directory _ktDir(Directory base) =>
+        Directory(p.join(base.path, 'android', 'src', 'main', 'kotlin', 'dev', 'test'))
+          ..createSync(recursive: true);
+
+    File writePlugin(Directory base, String content) {
+      final f = File(p.join(_ktDir(base).path, 'TestPlugin.kt'));
+      f.writeAsStringSync(content);
+      return f;
+    }
+
+    test('injects import and register() call for a no-arg impl', () {
+      final plugin = writePlugin(tmp, '''
+package dev.test
+import io.flutter.embedding.engine.plugins.FlutterPlugin
+class TestPlugin : FlutterPlugin {
+  override fun onAttachedToEngine(binding: FlutterPlugin.FlutterPluginBinding) {
+  }
+}
+''');
+
+      linkKotlinPlugin('my_plugin', [{'module': 'Math', 'lib': 'math'}], baseDir: tmp.path);
+
+      final content = plugin.readAsStringSync();
+      expect(content, contains('import nitro.math_module.MathJniBridge'));
+      expect(content, contains('MathJniBridge.register(MathImpl())'));
+    });
+
+    test('injects register() with binding.applicationContext when impl takes Context', () {
+      // Create a MathImpl.kt file whose constructor takes Context.
+      final ktImplDir = _ktDir(tmp);
+      File(p.join(ktImplDir.path, 'MathImpl.kt')).writeAsStringSync('''
+package dev.test
+import android.content.Context
+class MathImpl(private val context: Context) : HybridMathSpec {}
+''');
+
+      writePlugin(tmp, '''
+package dev.test
+import io.flutter.embedding.engine.plugins.FlutterPlugin
+class TestPlugin : FlutterPlugin {
+  override fun onAttachedToEngine(binding: FlutterPlugin.FlutterPluginBinding) {
+  }
+}
+''');
+
+      linkKotlinPlugin('my_plugin', [{'module': 'Math', 'lib': 'math'}], baseDir: tmp.path);
+
+      final plugin = File(p.join(ktImplDir.path, 'TestPlugin.kt'));
+      final content = plugin.readAsStringSync();
+      expect(content, contains('MathJniBridge.register(MathImpl(binding.applicationContext))'));
+    });
+
+    test('does not duplicate import on second run (idempotent)', () {
+      final plugin = writePlugin(tmp, '''
+package dev.test
+import nitro.math_module.MathJniBridge
+class TestPlugin : FlutterPlugin {
+  override fun onAttachedToEngine(binding: FlutterPlugin.FlutterPluginBinding) {
+    MathJniBridge.register(MathImpl())
+  }
+}
+''');
+
+      linkKotlinPlugin('my_plugin', [{'module': 'Math', 'lib': 'math'}], baseDir: tmp.path);
+
+      final content = plugin.readAsStringSync();
+      expect('import nitro.math_module.MathJniBridge'.allMatches(content).length, equals(1));
+      expect('MathJniBridge.register'.allMatches(content).length, equals(1));
+    });
+
+    test('appends after last existing JniBridge.register() when multiple modules', () {
+      final plugin = writePlugin(tmp, '''
+package dev.test
+import nitro.foo_module.FooJniBridge
+class TestPlugin : FlutterPlugin {
+  override fun onAttachedToEngine(binding: FlutterPlugin.FlutterPluginBinding) {
+    FooJniBridge.register(FooImpl())
+  }
+}
+''');
+
+      linkKotlinPlugin('my_plugin', [
+        {'module': 'Foo', 'lib': 'foo'},
+        {'module': 'Bar', 'lib': 'bar'},
+      ], baseDir: tmp.path);
+
+      final content = plugin.readAsStringSync();
+      expect(content, contains('FooJniBridge.register'));
+      expect(content, contains('BarJniBridge.register'));
+      expect(content, contains('import nitro.bar_module.BarJniBridge'));
+    });
+
+    test('inserts import after last existing import line', () {
+      final plugin = writePlugin(tmp, '''
+package dev.test
+import io.flutter.embedding.engine.plugins.FlutterPlugin
+class TestPlugin : FlutterPlugin {
+  override fun onAttachedToEngine(binding: FlutterPlugin.FlutterPluginBinding) {
+  }
+}
+''');
+
+      linkKotlinPlugin('my_plugin', [{'module': 'Math', 'lib': 'math'}], baseDir: tmp.path);
+
+      final content = plugin.readAsStringSync();
+      // import must appear after FlutterPlugin import
+      final flutterIdx = content.indexOf('import io.flutter');
+      final nitroIdx = content.indexOf('import nitro.math_module.MathJniBridge');
+      expect(nitroIdx, greaterThan(flutterIdx));
+    });
+
+    test('no-op when no Plugin.kt file found in android/', () {
+      expect(
+        () => linkKotlinPlugin('my_plugin', [{'module': 'Math', 'lib': 'math'}], baseDir: tmp.path),
+        returnsNormally,
+      );
+    });
+  });
+
+  // ── _syncCppModuleSourcesToSpm — non-Apple-cpp stale cleanup ─────────────────
+
+  group('_syncCppModuleSourcesToSpm — stale forwarder cleanup for non-Apple-cpp', () {
+    void scaffoldSpmFull(String pluginName) {
+      Directory(p.join(tmp.path, 'ios', 'Classes')).createSync(recursive: true);
+      File(p.join(tmp.path, 'ios', '$pluginName.podspec')).writeAsStringSync('''
+Pod::Spec.new do |s|
+  s.name = '$pluginName'
+  s.pod_target_xcconfig = {}
+end
+''');
+      final pascal = pluginName.split('_').map((w) => w.isEmpty ? '' : '${w[0].toUpperCase()}${w.substring(1)}').join('');
+      Directory(p.join(tmp.path, 'ios', 'Sources', '${pascal}Cpp')).createSync(recursive: true);
+      File(p.join(tmp.path, 'ios', 'Package.swift')).writeAsStringSync('// existing');
+    }
+
+    test('removes stale Hybrid*.cpp forwarder for Windows-only cpp module', () {
+      scaffoldSpmFull('my_plugin');
+
+      // Plant a stale forwarder for a Windows-only module.
+      final stale = File(p.join(tmp.path, 'ios', 'Sources', 'MyPluginCpp', 'HybridBenchmark.cpp'))
+        ..writeAsStringSync('// stale');
+      // Plant bridge files for the windows-only module.
+      final genCpp = Directory(p.join(tmp.path, 'lib', 'src', 'generated', 'cpp'))
+        ..createSync(recursive: true);
+      File(p.join(genCpp.path, 'benchmark.bridge.g.cpp')).writeAsStringSync('// bridge');
+      File(p.join(genCpp.path, 'benchmark.bridge.g.h')).writeAsStringSync('// header');
+      Directory(p.join(tmp.path, 'src')).createSync();
+      File(p.join(tmp.path, 'src', 'HybridBenchmark.cpp')).writeAsStringSync('// impl');
+
+      // Write a spec marking benchmark as Windows-only cpp — NOT Apple.
+      final specDir = Directory(p.join(tmp.path, 'lib', 'src'))..createSync(recursive: true);
+      File(p.join(specDir.path, 'benchmark.native.dart')).writeAsStringSync(
+        "@NitroModule(lib: 'benchmark', windows: WindowsNativeImpl.cpp)\n"
+        'abstract class Benchmark extends HybridObject {}\n',
+      );
+
+      linkPodspec(
+        'my_plugin',
+        ['my_plugin', 'benchmark'],
+        baseDir: tmp.path,
+        moduleInfos: [const ModuleInfo(lib: 'benchmark', module: 'Benchmark', isCpp: true)],
+      );
+
+      expect(stale.existsSync(), isFalse,
+          reason: 'Windows-only forwarder must be removed from ios/Sources — it has no iOS implementation');
+    });
+
+    test('keeps Hybrid*.cpp forwarder for Apple cpp module', () {
+      scaffoldSpmFull('my_plugin');
+
+      // Scaffold the Apple-cpp module.
+      final genCpp = Directory(p.join(tmp.path, 'lib', 'src', 'generated', 'cpp'))
+        ..createSync(recursive: true);
+      File(p.join(genCpp.path, 'gpu.bridge.g.cpp')).writeAsStringSync('// bridge');
+      File(p.join(genCpp.path, 'gpu.bridge.g.h')).writeAsStringSync('// header');
+      Directory(p.join(tmp.path, 'src')).createSync();
+      File(p.join(tmp.path, 'src', 'HybridGpu.cpp')).writeAsStringSync('// impl');
+
+      final specDir = Directory(p.join(tmp.path, 'lib', 'src'))..createSync(recursive: true);
+      File(p.join(specDir.path, 'gpu.native.dart')).writeAsStringSync(
+        "@NitroModule(lib: 'gpu', ios: AppleNativeImpl.cpp, macos: AppleNativeImpl.cpp)\n"
+        'abstract class Gpu extends HybridObject {}\n',
+      );
+
+      linkPodspec(
+        'my_plugin',
+        ['my_plugin', 'gpu'],
+        baseDir: tmp.path,
+        moduleInfos: [const ModuleInfo(lib: 'gpu', module: 'Gpu', isCpp: true)],
+      );
+
+      final forwarder = File(p.join(tmp.path, 'ios', 'Sources', 'MyPluginCpp', 'HybridGpu.cpp'));
+      expect(forwarder.existsSync(), isTrue,
+          reason: 'Apple C++ module must have a Hybrid*.cpp forwarder in ios/Sources/');
+      expect(forwarder.readAsStringSync(), contains('#include "../../../../src/HybridGpu.cpp"'));
+    });
+  });
+}
+

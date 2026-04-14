@@ -96,20 +96,20 @@ void syncBridgeFiles(String workingDirectory, {String platform = 'ios'}) {
   //     causing duplicate-symbol linker errors.
   final cppLibs = _discoverCppLibs(workingDirectory);
 
-  // Sync Swift bridges — skip C++ modules.
+  // Discover Apple C++ modules specifically — HybridXxx.cpp must be in ios/Classes/
+  // so CocoaPods can compile them as part of the pod target.
+  // For non-Apple-cpp modules, any stale HybridXxx.cpp must be removed.
+  final appleCppModules = _discoverAppleCppModules(workingDirectory);
+
+  // Swift bridges are compiled from lib/src/generated/swift/ directly via the
+  // podspec source_files pattern — remove any stale copies from Classes/.
   final swiftSource = Directory(p.join(generatedDir.path, 'swift'));
   if (swiftSource.existsSync()) {
     for (final file in swiftSource.listSync().whereType<File>()) {
       final name = p.basename(file.path);
       if (name.endsWith('.bridge.g.swift')) {
-        final lib = name.replaceFirst('.bridge.g.swift', '');
-        if (cppLibs.contains(lib)) {
-          // Remove any stale copy that may have been placed here previously.
-          final stale = File(p.join(classesDir.path, name));
-          if (stale.existsSync()) stale.deleteSync();
-          continue;
-        }
-        file.copySync(p.join(classesDir.path, name));
+        final stale = File(p.join(classesDir.path, name));
+        if (stale.existsSync()) stale.deleteSync();
       }
     }
   }
@@ -126,6 +126,79 @@ void syncBridgeFiles(String workingDirectory, {String platform = 'ios'}) {
       }
     }
   }
+
+  // Sync HybridXxx.cpp impl stubs for Apple C++ modules.
+  //
+  // CocoaPods compiles everything in ios/Classes/** — the impl stubs must be
+  // there so the C++ HybridObject methods are compiled into the pod target.
+  //
+  // For modules that are NOT Apple C++ (e.g. benchmark: AppleNativeImpl.swift),
+  // any stale HybridXxx.cpp in ios/Classes/ must be REMOVED — if left behind
+  // they cause "Variable type 'HybridXxxImpl' is an abstract class" errors
+  // because the abstract base (Hybrid$Xxx) has no implementation on iOS.
+  final srcDir = Directory(p.join(workingDirectory, 'src'));
+  if (srcDir.existsSync()) {
+    // Build the set of Hybrid*.cpp files that SHOULD be present for Apple C++ modules.
+    final expectedImplFiles = <String>{};
+    for (final entry in appleCppModules.entries) {
+      final className = _toPascalCase(entry.key);  // lib → PascalCase
+      expectedImplFiles.add('Hybrid$className.cpp');
+      // Also try module name in case they differ.
+      final moduleClassName = _toPascalCase(entry.value);
+      expectedImplFiles.add('Hybrid$moduleClassName.cpp');
+    }
+
+    // Copy expected Hybrid*.cpp files from src/ into ios/Classes/.
+    for (final name in expectedImplFiles) {
+      final srcFile = File(p.join(srcDir.path, name));
+      if (srcFile.existsSync()) {
+        srcFile.copySync(p.join(classesDir.path, name));
+      }
+    }
+
+    // Remove stale Hybrid*.cpp files that should NOT be in ios/Classes/.
+    if (classesDir.existsSync()) {
+      for (final file in classesDir.listSync().whereType<File>()) {
+        final name = p.basename(file.path);
+        if (name.startsWith('Hybrid') && name.endsWith('.cpp')) {
+          if (!expectedImplFiles.contains(name)) {
+            file.deleteSync();
+          }
+        }
+      }
+    }
+  }
+}
+
+String _toPascalCase(String s) =>
+    s.split(RegExp(r'[_\-]')).map((w) => w.isEmpty ? '' : w[0].toUpperCase() + w.substring(1)).join('');
+
+/// Returns a map of {lib → moduleName} for modules where Apple platforms
+/// (ios or macos) use a direct C++ implementation (AppleNativeImpl.cpp).
+/// These need their HybridXxx.cpp impl file copied to ios/Classes/ or macos/Classes/
+/// so CocoaPods includes them in the pod target compilation.
+Map<String, String> _discoverAppleCppModules(String workingDirectory) {
+  final libDir = Directory(p.join(workingDirectory, 'lib'));
+  if (!libDir.existsSync()) return {};
+  final result = <String, String>{};
+  for (final file in libDir.listSync(recursive: true).whereType<File>()) {
+    if (!file.path.endsWith('.native.dart')) continue;
+    final content = file.readAsStringSync();
+    final libMatch = RegExp(r"""@NitroModule\s*\([^)]*lib\s*:\s*['"]([^'"]+)['"]""", dotAll: true).firstMatch(content);
+    if (libMatch == null) continue;
+    final annotationMatch = RegExp(r'@NitroModule\s*\(([^)]+)\)', dotAll: true).firstMatch(content);
+    if (annotationMatch == null) continue;
+    final annotation = annotationMatch.group(1)!.replaceAll('\n', ' ');
+    // Apple C++ = ios or macos using AppleNativeImpl.cpp (or legacy NativeImpl.cpp)
+    if (!RegExp(
+      r'\b(?:ios|macos)\s*:\s*(?:NativeImpl|AppleNativeImpl)\.cpp\b',
+    ).hasMatch(annotation)) continue;
+    final lib = libMatch.group(1)!;
+    final moduleMatch = RegExp(r'abstract class (\w+) extends HybridObject').firstMatch(content);
+    final moduleName = moduleMatch?.group(1) ?? _toPascalCase(lib);
+    result[lib] = moduleName;
+  }
+  return result;
 }
 
 /// Returns the set of lib names that are NativeImpl.cpp modules, by reading

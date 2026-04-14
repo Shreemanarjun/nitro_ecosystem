@@ -18,7 +18,9 @@ A new Flutter FFI plugin project.
   # paths, so Classes contains a forwarder C file that relatively imports
   # `../src/*` so that the C sources can be shared among all target platforms.
   s.source           = { :path => '.' }
-  s.source_files = 'Classes/**/*'
+  # Generated Swift bridges live in lib/src/generated/swift/ (canonical location).
+  # Classes/ contains the C/C++/ObjC++ bridges and handwritten Swift files.
+  s.source_files = 'Classes/**/*', '../lib/src/generated/swift/**/*.swift'
 
   # If your plugin requires a privacy manifest, for example if it collects user
   # data, update the PrivacyInfo.xcprivacy file to describe your plugin's

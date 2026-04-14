@@ -10,7 +10,7 @@ import package_info_plus
 import wakelock_plus
 
 func RegisterGeneratedPlugins(registry: FlutterPluginRegistry) {
-  BenchmarkPlugin.register(with: registry.registrar(forPlugin: "BenchmarkPlugin"))
+  SwiftBenchmarkPlugin.register(with: registry.registrar(forPlugin: "SwiftBenchmarkPlugin"))
   FPPPackageInfoPlusPlugin.register(with: registry.registrar(forPlugin: "FPPPackageInfoPlusPlugin"))
   WakelockPlusMacosPlugin.register(with: registry.registrar(forPlugin: "WakelockPlusMacosPlugin"))
 }

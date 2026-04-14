@@ -62,10 +62,13 @@ class GenerateCommand extends Command {
       return exitCode;
     }
 
-    // ── Sync generated Swift bridges to ios/Classes/ ─────────────────────────
+    // ── Post-generation bridge cleanup ───────────────────────────────────────
+    // Generated Swift bridges live in lib/src/generated/swift/ and are compiled
+    // via the podspec source_files pattern. Remove any stale copies from Classes/
+    // to prevent "Invalid redeclaration" Swift compiler errors.
     final nitroNativePath = resolveNitroNativePath(projectDir.path);
     createSharedHeaders(nitroNativePath, baseDir: projectDir.path);
-    _syncSwiftToIosClasses(projectDir.path);
+    _cleanStaleSwiftBridges(projectDir.path);
 
     // ── pod install ──────────────────────────────────────────────────────────
     final podfileDirs = _findPodfileDirs(projectDir.path);
@@ -113,55 +116,30 @@ class GenerateCommand extends Command {
     return 'my_plugin';
   }
 
-  /// Copies every *.bridge.g.swift from lib/**/generated/swift/ into
-  /// ios/Classes/ so CocoaPods always picks up the freshly generated bridges.
-  /// Skips files that only contain the "Not applicable" placeholder produced
-  /// for NativeImpl.cpp modules (no Swift bridge is needed there).
-  void _syncSwiftToIosClasses(String projectRoot) {
-    final iosClasses = Directory(p.join(projectRoot, 'ios', 'Classes'));
-    if (!iosClasses.existsSync()) return;
-
-    final libDir = Directory(p.join(projectRoot, 'lib'));
-    if (!libDir.existsSync()) return;
-
-    final bridgeFiles = libDir.listSync(recursive: true).whereType<File>().where((f) => f.path.endsWith('.bridge.g.swift'));
-
-    for (final src in bridgeFiles) {
-      // Skip placeholder files produced for NativeImpl.cpp modules.
-      final firstLine = src.readAsLinesSync().firstOrNull ?? '';
-      if (firstLine.contains('Not applicable')) continue;
-      final dest = File(p.join(iosClasses.path, p.basename(src.path)));
-      src.copySync(dest.path);
+  /// Removes any stale `*.bridge.g.swift` copies from `ios/Classes/` and
+  /// `macos/Classes/`. Generated Swift bridges are compiled from their
+  /// canonical location (`lib/src/generated/swift/`) via the podspec
+  /// `source_files` pattern — copies in Classes/ are duplicate compilation
+  /// units that cause "Invalid redeclaration" Swift compiler errors.
+  ///
+  /// Also heals any redundant `#include` lines in `src/*.cpp` files.
+  void _cleanStaleSwiftBridges(String projectRoot) {
+    for (final platform in ['ios', 'macos']) {
+      final classesDir = Directory(p.join(projectRoot, platform, 'Classes'));
+      if (!classesDir.existsSync()) continue;
+      for (final file in classesDir.listSync().whereType<File>()) {
+        if (p.basename(file.path).endsWith('.bridge.g.swift')) {
+          file.deleteSync();
+        }
+      }
     }
 
-    // Sync *.native.g.h files for NativeImpl.cpp modules into ios/Classes/
-    // so that Xcode / CocoaPods can resolve them during Swift-interop builds.
-    _syncCppInterfaceHeaders(projectRoot, iosClasses.path);
-
-    // Also heal any redundant includes in the main src/ folder
+    // Heal any redundant includes in the main src/ folder.
     final srcDir = Directory(p.join(projectRoot, 'src'));
     if (srcDir.existsSync()) {
       for (final f in srcDir.listSync().whereType<File>().where((f) => f.path.endsWith('.cpp') || f.path.endsWith('.c'))) {
         cleanRedundantIncludes(f);
       }
-    }
-  }
-
-  /// Copies *.native.g.h files generated for NativeImpl.cpp modules into
-  /// [iosClassesPath] so Clang can resolve them from Swift/ObjC++ files.
-  void _syncCppInterfaceHeaders(String projectRoot, String iosClassesPath) {
-    final libDir = Directory(p.join(projectRoot, 'lib'));
-    if (!libDir.existsSync()) return;
-
-    // Find corresponding .native.dart specs to check isCppModule
-    final specs = libDir.listSync(recursive: true).whereType<File>().where((f) => f.path.endsWith('.native.dart')).toList();
-
-    for (final spec in specs) {
-      if (!isCppModule(spec)) continue;
-      final stem = p.basename(spec.path).replaceAll(RegExp(r'\.native\.dart$'), '');
-      final header = File(p.join(p.dirname(spec.path), 'generated', 'cpp', '$stem.native.g.h'));
-      if (!header.existsSync()) continue;
-      File(p.join(iosClassesPath, p.basename(header.path))).writeAsStringSync(header.readAsStringSync());
     }
   }
 

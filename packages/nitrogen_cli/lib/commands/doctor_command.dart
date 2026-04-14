@@ -3,7 +3,7 @@ import 'package:args/command_runner.dart';
 import 'package:nocterm/nocterm.dart';
 import 'package:path/path.dart' as p;
 import 'package:nitrogen_cli/version.dart';
-import 'link_command.dart' show isCppModule;
+import 'link_command.dart' show isCppModule, isNativeCppModule;
 import '../ui.dart';
 
 // ── Data model ────────────────────────────────────────────────────────────────
@@ -553,12 +553,29 @@ class DoctorCommand extends Command {
         err(cmakeSec, 'dart_api_dl.c not included', hint: 'Run: nitrogen link');
       }
 
-      // Check for unlinked source files in src/
+      // Build a lookup: impl file name → whether it's a native-cpp (android/linux)
+      // module so we can skip “unlinked source” warnings for files that are
+      // intentionally absent from the Android CMakeLists.txt (windows-only cpp).
+      final nativeCppImplFiles = <String>{};
+      for (final spec in specs) {
+        if (!isNativeCppModule(spec)) continue;
+        final stem = p.basename(spec.path).replaceAll(RegExp(r'\.native\.dart$'), '');
+        final moduleMatch = RegExp(r'abstract class (\w+) extends HybridObject').firstMatch(spec.readAsStringSync());
+        final moduleName = moduleMatch?.group(1) ?? _toPascalCase(stem);
+        nativeCppImplFiles.add('Hybrid$moduleName.cpp');
+      }
+
+      // Check for unlinked source files in src/.
+      // Skip HybridXxx.cpp files for modules that are NOT native-cpp (android/linux) —
+      // e.g. a module that is only C++ on Windows has its impl in windows/CMakeLists.txt.
       final allSrcFiles = srcDir.listSync().whereType<File>().where((f) => f.path.endsWith('.cpp') || f.path.endsWith('.c')).toList();
       for (final f in allSrcFiles) {
         final name = p.basename(f.path);
         if (name == 'dart_api_dl.c') continue;
-        if (name == '$pluginName.cpp' || name == '$pluginName.c') continue; // Handled by primary target checks
+        if (name == '$pluginName.cpp' || name == '$pluginName.c') continue;
+        // Hybrid impl files for windows-only cpp modules don’t belong in the
+        // Android/Linux CMakeLists — skip them to avoid a false-positive warning.
+        if (name.startsWith('Hybrid') && name.endsWith('.cpp') && !nativeCppImplFiles.contains(name)) continue;
 
         if (!cmake.contains('"$name"') && !cmake.contains(' $name ') && !cmake.contains('\n  $name')) {
           warn(cmakeSec, 'Unlinked source: $name', hint: 'File found in src/ but not mentioned in CMakeLists.txt');
@@ -571,8 +588,9 @@ class DoctorCommand extends Command {
         if (cmake.contains('add_library($lib ')) {
           ok(cmakeSec, 'add_library($lib) target present');
 
-          // Verify implementation file is linked for C++ modules
-          if (isCppModule(spec)) {
+          // Verify HybridXxx.cpp is linked for native-cpp (android/linux) modules.
+          // Windows-only cpp modules do NOT need this in src/CMakeLists.txt.
+          if (isNativeCppModule(spec)) {
             final moduleMatch = RegExp(r'abstract class (\w+) extends HybridObject').firstMatch(spec.readAsStringSync());
             final moduleName = moduleMatch?.group(1) ?? _toPascalCase(stem);
             final implName = 'Hybrid$moduleName.cpp';
@@ -660,6 +678,44 @@ class DoctorCommand extends Command {
         } else {
           info(androidSec, 'JniBridge.register not needed — all modules use NativeImpl.cpp');
         }
+
+        // Check for stale JniBridge.register() calls for C++ modules.
+        // When a module transitions from Kotlin/JNI to NativeImpl.cpp its
+        // JniBridge class no longer exists, causing "Unresolved reference" at
+        // compile time. nitrogen link auto-removes these, but doctor flags them
+        // so users know to re-run link.
+        for (final spec in specs.where(isCppModule)) {
+          final stem = p.basename(spec.path).replaceAll(RegExp(r'\.native\.dart$'), '');
+          final moduleMatch = RegExp(r'abstract class (\w+) extends HybridObject').firstMatch(spec.readAsStringSync());
+          final moduleName = moduleMatch?.group(1) ?? _toPascalCase(stem);
+          if (kt.contains('${moduleName}JniBridge.register(')) {
+            err(
+              androidSec,
+              'Stale ${moduleName}JniBridge.register() in Plugin.kt — $moduleName is now NativeImpl.cpp',
+              hint: 'Run: nitrogen link  (auto-removes stale registrations for C++ modules)',
+            );
+          }
+        }
+
+        // For each non-cpp Kotlin module, verify the JniBridge import is present.
+        // Missing imports cause "Unresolved reference: FooJniBridge" Kotlin errors.
+        // nitrogen link auto-injects these imports alongside the register() call.
+        for (final spec in specs.where((s) => !isCppModule(s))) {
+          final stem = p.basename(spec.path).replaceAll(RegExp(r'\.native\.dart$'), '');
+          final lib = (_extractLibName(spec) ?? stem).replaceAll('-', '_');
+          final moduleMatch = RegExp(r'abstract class (\w+) extends HybridObject').firstMatch(spec.readAsStringSync());
+          final moduleName = moduleMatch?.group(1) ?? _toPascalCase(stem);
+          final importLine = 'import nitro.${lib}_module.${moduleName}JniBridge';
+          if (!kt.contains(importLine)) {
+            err(
+              androidSec,
+              'Missing import in Plugin.kt: $importLine',
+              hint: 'Run: nitrogen link  (auto-adds missing JniBridge imports)',
+            );
+          } else {
+            ok(androidSec, 'import ${moduleName}JniBridge present');
+          }
+        }
       }
     }
 
@@ -718,7 +774,9 @@ class DoctorCommand extends Command {
           warn(iosSec, 'No *.native.g.h in ios/Classes/', hint: 'Run: nitrogen generate && nitrogen link');
         }
       } else {
-        final swiftFiles = classesDir.existsSync() ? classesDir.listSync().whereType<File>().where((f) => f.path.endsWith('Plugin.swift')).toList() : <File>[];
+        final swiftFiles = classesDir.existsSync()
+            ? classesDir.listSync().whereType<File>().where((f) => f.path.endsWith('Plugin.swift')).toList()
+            : <File>[];
         if (swiftFiles.isEmpty) {
           err(iosSec, 'No *Plugin.swift in ios/Classes/', hint: 'Run: nitrogen init');
         } else {
@@ -732,8 +790,25 @@ class DoctorCommand extends Command {
           } else {
             info(iosSec, 'Registry.register not needed — all modules use NativeImpl.cpp');
           }
+
+          // Check for stale XxxRegistry.register() calls for C++ modules.
+          // AppleNativeImpl.cpp modules have no Swift Registry — the call causes
+          // "Cannot find 'XxxRegistry' in scope". nitrogen link auto-removes these.
+          for (final spec in specs.where(isCppModule)) {
+            final stem = p.basename(spec.path).replaceAll(RegExp(r'\.native\.dart$'), '');
+            final moduleMatch = RegExp(r'abstract class (\w+) extends HybridObject').firstMatch(spec.readAsStringSync());
+            final moduleName = moduleMatch?.group(1) ?? _toPascalCase(stem);
+            if (swift.contains('${moduleName}Registry.register(')) {
+              err(
+                iosSec,
+                'Stale ${moduleName}Registry.register() in Plugin.swift — $moduleName is now NativeImpl.cpp',
+                hint: 'Run: nitrogen link  (auto-removes stale Swift registry calls for C++ modules)',
+              );
+            }
+          }
         }
       }
+
 
       final dartApiDl = File(p.join(iosDir.path, 'Classes', 'dart_api_dl.c'));
       if (dartApiDl.existsSync()) {
