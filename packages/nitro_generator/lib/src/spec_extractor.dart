@@ -18,12 +18,12 @@ class SpecExtractor {
     final element = module.element as ClassElement;
     final annotation = module.annotation;
 
-    final iosImpl     = annotation.read('ios').isNull     ? null : _getNativeImpl(annotation.read('ios').objectValue);
-    final androidImpl = annotation.read('android').isNull ? null : _getNativeImpl(annotation.read('android').objectValue);
-    final macosImpl   = annotation.read('macos').isNull   ? null : _getNativeImpl(annotation.read('macos').objectValue);
-    final windowsImpl = annotation.read('windows').isNull ? null : _getNativeImpl(annotation.read('windows').objectValue);
-    final linuxImpl   = annotation.read('linux').isNull   ? null : _getNativeImpl(annotation.read('linux').objectValue);
-    final webImpl     = annotation.read('web').isNull     ? null : _getNativeImpl(annotation.read('web').objectValue);
+    final iosImpl     = annotation.read('ios').isNull     ? null : _getNativeImpl(annotation.read('ios').objectValue,     fieldName: 'ios');
+    final androidImpl = annotation.read('android').isNull ? null : _getNativeImpl(annotation.read('android').objectValue, fieldName: 'android');
+    final macosImpl   = annotation.read('macos').isNull   ? null : _getNativeImpl(annotation.read('macos').objectValue,   fieldName: 'macos');
+    final windowsImpl = annotation.read('windows').isNull ? null : _getNativeImpl(annotation.read('windows').objectValue, fieldName: 'windows');
+    final linuxImpl   = annotation.read('linux').isNull   ? null : _getNativeImpl(annotation.read('linux').objectValue,   fieldName: 'linux');
+    final webImpl     = annotation.read('web').isNull     ? null : _getNativeImpl(annotation.read('web').objectValue,     fieldName: 'web');
     final cSymbolPrefix = annotation.read('cSymbolPrefix').isNull ? null : annotation.read('cSymbolPrefix').stringValue;
     final lib = annotation.read('lib').isNull ? null : annotation.read('lib').stringValue;
     final sourceFile = library.element.source.uri.pathSegments.last.replaceFirst('.native.dart', '');
@@ -56,22 +56,74 @@ class SpecExtractor {
     );
   }
 
-  static NativeImpl _getNativeImpl(DartObject object) {
+  static NativeImpl _getNativeImpl(DartObject object, {String? fieldName}) {
     // Reconstruct by runtime type name — robust against class reordering.
     // Each NativeImpl subclass (SwiftImpl, KotlinImpl, CppImpl, WasmImpl) has a
     // unique name that the analyzer preserves in the DartObject type element.
+    //
+    // Per-platform sealed class constants (e.g. AppleNativeImpl.swift) share
+    // the same compile-time objects as NativeImpl.* — they are identical Dart
+    // const values. The analyzer should return the concrete type (SwiftImpl,
+    // CppImpl, etc.) rather than the sealed class type. The platform-type
+    // entries below act as a safety-net in case a future analyzer version
+    // returns the declared type of the constant instead of its value type.
     final typeName = object.type?.element?.name;
     return switch (typeName) {
+      // Concrete impl type names — normal path
       'SwiftImpl'  => NativeImpl.swift,
       'KotlinImpl' => NativeImpl.kotlin,
       'CppImpl'    => NativeImpl.cpp,
       'WasmImpl'   => NativeImpl.wasm,
+      // Per-platform sealed class type names — safety-net path
+      // AppleNativeImpl can be swift or cpp; disambiguate by field name.
+      'AppleNativeImpl' => switch (fieldName) {
+        'ios' || 'macos' => _inferAppleImpl(object),
+        _ => throw InvalidGenerationSourceError(
+          'Cannot infer AppleNativeImpl kind for field "$fieldName". '
+          'Use AppleNativeImpl.swift or AppleNativeImpl.cpp explicitly.',
+        ),
+      },
+      'AndroidNativeImpl' => _inferAndroidImpl(object),
+      'WindowsNativeImpl' => NativeImpl.cpp,
+      'LinuxNativeImpl'   => NativeImpl.cpp,
+      'WebNativeImpl'     => NativeImpl.wasm,
       _ => throw InvalidGenerationSourceError(
         'Unknown NativeImpl subclass: "$typeName". '
-        'Expected SwiftImpl, KotlinImpl, CppImpl, or WasmImpl. '
-        'Use NativeImpl.swift, NativeImpl.kotlin, NativeImpl.cpp, or NativeImpl.wasm.',
+        'Use AppleNativeImpl.swift/.cpp, AndroidNativeImpl.kotlin/.cpp, '
+        'WindowsNativeImpl.cpp, LinuxNativeImpl.cpp, WebNativeImpl.wasm, '
+        'or the NativeImpl.* shorthands.',
       ),
     };
+  }
+
+  /// Disambiguates [AppleNativeImpl] by inspecting the constant's supertype
+  /// chain for [SwiftImpl] vs [CppImpl].
+  static NativeImpl _inferAppleImpl(DartObject object) {
+    final element = object.type?.element;
+    final names = (element is InterfaceElement)
+        ? element.allSupertypes.map((t) => t.element.name).toSet()
+        : <String>{};
+    if (names.contains('SwiftImpl')) return NativeImpl.swift;
+    if (names.contains('CppImpl')) return NativeImpl.cpp;
+    throw InvalidGenerationSourceError(
+      'Cannot determine AppleNativeImpl kind from type hierarchy. '
+      'Use AppleNativeImpl.swift or AppleNativeImpl.cpp.',
+    );
+  }
+
+  /// Disambiguates [AndroidNativeImpl] by inspecting the constant's supertype
+  /// chain for [KotlinImpl] vs [CppImpl].
+  static NativeImpl _inferAndroidImpl(DartObject object) {
+    final element = object.type?.element;
+    final names = (element is InterfaceElement)
+        ? element.allSupertypes.map((t) => t.element.name).toSet()
+        : <String>{};
+    if (names.contains('KotlinImpl')) return NativeImpl.kotlin;
+    if (names.contains('CppImpl')) return NativeImpl.cpp;
+    throw InvalidGenerationSourceError(
+      'Cannot determine AndroidNativeImpl kind from type hierarchy. '
+      'Use AndroidNativeImpl.kotlin or AndroidNativeImpl.cpp.',
+    );
   }
 
   // ─── @HybridRecord ────────────────────────────────────────────────────────

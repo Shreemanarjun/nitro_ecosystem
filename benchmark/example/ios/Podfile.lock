@@ -1,6 +1,7 @@
 PODS:
   - benchmark (0.0.1):
     - Flutter
+    - nitro
   - Flutter (1.0.0)
   - nitro (0.0.1):
     - Flutter
@@ -29,7 +30,7 @@ EXTERNAL SOURCES:
     :path: ".symlinks/plugins/wakelock_plus/ios"
 
 SPEC CHECKSUMS:
-  benchmark: 0417ba54c13756e5c98bbd0ce8628ee59b41dab8
+  benchmark: be24ad376ea08d8857b6aed3eaeb6bd8a10846a1
   Flutter: cabc95a1d2626b1b06e7179b784ebcf0c0cde467
   nitro: 3f399f826dcec7d59928ac53bfa3d6a4234bfb5a
   package_info_plus: af8e2ca6888548050f16fa2f1938db7b5a5df499

@@ -804,6 +804,218 @@ void main() {
     });
   });
 
+  // ── CppBridgeGenerator — Windows + Linux desktop ──────────────────────────
+
+  group('CppBridgeGenerator — Windows-only C++', () {
+    test('uses _generateCppDirect path', () {
+      final out = CppBridgeGenerator.generate(windowsOnlyCppSpec());
+      expect(out, contains('NativeImpl: cpp'));
+      expect(out, contains('win_processor_register_impl'));
+    });
+
+    test('does NOT emit #ifdef __ANDROID__ guard', () {
+      final out = CppBridgeGenerator.generate(windowsOnlyCppSpec());
+      expect(out, isNot(contains('#ifdef __ANDROID__')));
+    });
+
+    test('does NOT emit #ifdef __APPLE__ guard', () {
+      final out = CppBridgeGenerator.generate(windowsOnlyCppSpec());
+      expect(out, isNot(contains('#ifdef __APPLE__')));
+    });
+
+    test('does NOT emit JNI_OnLoad', () {
+      final out = CppBridgeGenerator.generate(windowsOnlyCppSpec());
+      expect(out, isNot(contains('JNI_OnLoad')));
+    });
+
+    test('does NOT emit Swift _call_ declarations', () {
+      final out = CppBridgeGenerator.generate(windowsOnlyCppSpec());
+      expect(out, isNot(contains('_call_process')));
+    });
+
+    test('emits Dart API DL init symbol', () {
+      final out = CppBridgeGenerator.generate(windowsOnlyCppSpec());
+      expect(out, contains('win_processor_init_dart_api_dl'));
+    });
+
+    test('emits register_impl and get_impl', () {
+      final out = CppBridgeGenerator.generate(windowsOnlyCppSpec());
+      expect(out, contains('win_processor_register_impl'));
+      expect(out, contains('win_processor_get_impl'));
+    });
+  });
+
+  group('CppBridgeGenerator — Linux-only C++', () {
+    test('uses _generateCppDirect path', () {
+      final out = CppBridgeGenerator.generate(linuxOnlyCppSpec());
+      expect(out, contains('NativeImpl: cpp'));
+      expect(out, contains('linux_processor_register_impl'));
+    });
+
+    test('does NOT emit #ifdef __ANDROID__ guard', () {
+      final out = CppBridgeGenerator.generate(linuxOnlyCppSpec());
+      expect(out, isNot(contains('#ifdef __ANDROID__')));
+    });
+
+    test('does NOT emit #ifdef __APPLE__ guard', () {
+      final out = CppBridgeGenerator.generate(linuxOnlyCppSpec());
+      expect(out, isNot(contains('#ifdef __APPLE__')));
+    });
+
+    test('does NOT emit JNI_OnLoad', () {
+      final out = CppBridgeGenerator.generate(linuxOnlyCppSpec());
+      expect(out, isNot(contains('JNI_OnLoad')));
+    });
+
+    test('emits Dart API DL init symbol', () {
+      final out = CppBridgeGenerator.generate(linuxOnlyCppSpec());
+      expect(out, contains('linux_processor_init_dart_api_dl'));
+    });
+  });
+
+  group('CppBridgeGenerator — Windows + Linux shared C++ (desktop)', () {
+    test('uses _generateCppDirect path', () {
+      final out = CppBridgeGenerator.generate(windowsLinuxCppSpec());
+      expect(out, contains('NativeImpl: cpp'));
+      expect(out, contains('desktop_processor_register_impl'));
+    });
+
+    test('does NOT emit any platform guard', () {
+      final out = CppBridgeGenerator.generate(windowsLinuxCppSpec());
+      expect(out, isNot(contains('#ifdef __ANDROID__')));
+      expect(out, isNot(contains('#ifdef __APPLE__')));
+    });
+
+    test('does NOT emit JNI_OnLoad', () {
+      final out = CppBridgeGenerator.generate(windowsLinuxCppSpec());
+      expect(out, isNot(contains('JNI_OnLoad')));
+    });
+
+    test('emits register_impl and get_impl for shared lib', () {
+      final out = CppBridgeGenerator.generate(windowsLinuxCppSpec());
+      expect(out, contains('desktop_processor_register_impl'));
+      expect(out, contains('desktop_processor_get_impl'));
+    });
+  });
+
+  // ── CppInterfaceGenerator — desktop C++ ───────────────────────────────────
+
+  group('CppInterfaceGenerator — Windows + Linux desktop C++', () {
+    test('Windows-only generates abstract class', () {
+      final out = CppInterfaceGenerator.generate(windowsOnlyCppSpec());
+      expect(out, contains('class HybridWinProcessor'));
+      expect(out, contains('virtual double process(double value) = 0;'));
+    });
+
+    test('Linux-only generates abstract class', () {
+      final out = CppInterfaceGenerator.generate(linuxOnlyCppSpec());
+      expect(out, contains('class HybridLinuxProcessor'));
+    });
+
+    test('Windows + Linux generates shared abstract class', () {
+      final out = CppInterfaceGenerator.generate(windowsLinuxCppSpec());
+      expect(out, contains('class HybridDesktopProcessor'));
+      expect(out, contains('virtual double process(double value) = 0;'));
+    });
+
+    test('Windows-only registration API is emitted', () {
+      final out = CppInterfaceGenerator.generate(windowsOnlyCppSpec());
+      expect(out, contains('win_processor_register_impl'));
+      expect(out, contains('win_processor_get_impl'));
+    });
+
+    test('all-five-native generates universal abstract class', () {
+      final out = CppInterfaceGenerator.generate(allNativeCppSpec());
+      expect(out, contains('class HybridUniversalProcessor'));
+      expect(out, contains('universal_processor_register_impl'));
+    });
+  });
+
+  // ── CppMockGenerator — desktop C++ ───────────────────────────────────────
+
+  group('CppMockGenerator — Windows + Linux desktop C++', () {
+    test('Windows-only mock extends correct abstract class', () {
+      final out = CppMockGenerator.generateMockHeader(windowsOnlyCppSpec());
+      expect(out, contains('class MockWinProcessor : public HybridWinProcessor'));
+    });
+
+    test('Linux-only mock extends correct abstract class', () {
+      final out = CppMockGenerator.generateMockHeader(linuxOnlyCppSpec());
+      expect(out, contains('class MockLinuxProcessor : public HybridLinuxProcessor'));
+    });
+
+    test('Windows + Linux mock extends correct abstract class', () {
+      final out = CppMockGenerator.generateMockHeader(windowsLinuxCppSpec());
+      expect(out, contains('class MockDesktopProcessor : public HybridDesktopProcessor'));
+    });
+
+    test('Windows-only mock MOCK_METHOD emitted for process method', () {
+      final out = CppMockGenerator.generateMockHeader(windowsOnlyCppSpec());
+      expect(out, contains('MOCK_METHOD(double, process, (double value), (override))'));
+    });
+
+    test('Windows test starter references mock class', () {
+      final out = CppMockGenerator.generateTestStarter(windowsOnlyCppSpec());
+      expect(out, contains('MockWinProcessor'));
+    });
+  });
+
+  // ── BridgeSpec.hasCppImpl — macOS coverage ────────────────────────────────
+
+  group('BridgeSpec.hasCppImpl — macOS', () {
+    test('macOS-only: hasCppImpl=true', () {
+      expect(macosOnlyCppSpec().hasCppImpl, isTrue);
+    });
+
+    test('iOS + macOS cpp: hasCppImpl=true', () {
+      expect(appleOnlyCppSpec().hasCppImpl, isTrue);
+    });
+
+    test('macOS-only: isCppImpl=true (single platform, all are cpp)', () {
+      expect(macosOnlyCppSpec().isCppImpl, isTrue);
+    });
+
+    test('full cross-platform: hasCppImpl=true', () {
+      expect(fullCrossPlatformSpec().hasCppImpl, isTrue);
+    });
+
+    test('full cross-platform: isCppImpl=true (web does not disqualify)', () {
+      expect(fullCrossPlatformSpec().isCppImpl, isTrue);
+    });
+  });
+
+  // ── CMakeGenerator — desktop and web ─────────────────────────────────────
+
+  group('CMakeGenerator — Windows and Linux targeting', () {
+    test('Windows-only sets correct module name', () {
+      final out = CMakeGenerator.generate(windowsOnlyCppSpec());
+      expect(out, contains('set(NITRO_MODULE_NAME win_processor)'));
+    });
+
+    test('Linux-only sets correct module name', () {
+      final out = CMakeGenerator.generate(linuxOnlyCppSpec());
+      expect(out, contains('set(NITRO_MODULE_NAME linux_processor)'));
+    });
+
+    test('Windows + Linux sets correct module name', () {
+      final out = CMakeGenerator.generate(windowsLinuxCppSpec());
+      expect(out, contains('set(NITRO_MODULE_NAME desktop_processor)'));
+    });
+
+    test('Windows spec generates valid CMake structure', () {
+      final out = CMakeGenerator.generate(windowsOnlyCppSpec());
+      expect(out, contains('cmake_minimum_required'));
+      expect(out, contains('add_library('));
+      expect(out, contains('target_link_libraries('));
+    });
+
+    test('all-native generates valid CMake structure', () {
+      final out = CMakeGenerator.generate(allNativeCppSpec());
+      expect(out, contains('cmake_minimum_required'));
+      expect(out, contains('set(NITRO_MODULE_NAME universal_processor)'));
+    });
+  });
+
   // ── Web targeting ──────────────────────────────────────────────────────────
 
   group('BridgeSpec — Web targeting', () {

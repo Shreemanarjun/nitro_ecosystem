@@ -142,6 +142,199 @@ void main() {
     });
   });
 
+  // ── Per-platform sealed class constants ────────────────────────────────────
+
+  group('AppleNativeImpl sealed constants', () {
+    test('AppleNativeImpl.swift is SwiftImpl', () {
+      expect(AppleNativeImpl.swift, isA<SwiftImpl>());
+    });
+
+    test('AppleNativeImpl.cpp is CppImpl', () {
+      expect(AppleNativeImpl.cpp, isA<CppImpl>());
+    });
+
+    test('AppleNativeImpl.swift is identical to NativeImpl.swift', () {
+      expect(identical(AppleNativeImpl.swift, NativeImpl.swift), isTrue);
+    });
+
+    test('AppleNativeImpl.cpp is identical to NativeImpl.cpp', () {
+      expect(identical(AppleNativeImpl.cpp, NativeImpl.cpp), isTrue);
+    });
+
+    test('AppleNativeImpl.swift is not AppleNativeImpl.cpp', () {
+      expect(identical(AppleNativeImpl.swift, AppleNativeImpl.cpp), isFalse);
+    });
+
+    test('AppleNativeImpl.swift is AppleNativeImpl', () {
+      expect(AppleNativeImpl.swift, isA<AppleNativeImpl>());
+    });
+
+    test('AppleNativeImpl.cpp is AppleNativeImpl', () {
+      expect(AppleNativeImpl.cpp, isA<AppleNativeImpl>());
+    });
+  });
+
+  group('AndroidNativeImpl sealed constants', () {
+    test('AndroidNativeImpl.kotlin is KotlinImpl', () {
+      expect(AndroidNativeImpl.kotlin, isA<KotlinImpl>());
+    });
+
+    test('AndroidNativeImpl.cpp is CppImpl', () {
+      expect(AndroidNativeImpl.cpp, isA<CppImpl>());
+    });
+
+    test('AndroidNativeImpl.kotlin is identical to NativeImpl.kotlin', () {
+      expect(identical(AndroidNativeImpl.kotlin, NativeImpl.kotlin), isTrue);
+    });
+
+    test('AndroidNativeImpl.cpp is identical to NativeImpl.cpp', () {
+      expect(identical(AndroidNativeImpl.cpp, NativeImpl.cpp), isTrue);
+    });
+
+    test('AndroidNativeImpl.kotlin is not AndroidNativeImpl.cpp', () {
+      expect(identical(AndroidNativeImpl.kotlin, AndroidNativeImpl.cpp), isFalse);
+    });
+
+    test('AndroidNativeImpl.kotlin is AndroidNativeImpl', () {
+      expect(AndroidNativeImpl.kotlin, isA<AndroidNativeImpl>());
+    });
+
+    test('AndroidNativeImpl.cpp is AndroidNativeImpl', () {
+      expect(AndroidNativeImpl.cpp, isA<AndroidNativeImpl>());
+    });
+  });
+
+  group('WindowsNativeImpl sealed constants', () {
+    test('WindowsNativeImpl.cpp is CppImpl', () {
+      expect(WindowsNativeImpl.cpp, isA<CppImpl>());
+    });
+
+    test('WindowsNativeImpl.cpp is identical to NativeImpl.cpp', () {
+      expect(identical(WindowsNativeImpl.cpp, NativeImpl.cpp), isTrue);
+    });
+
+    test('WindowsNativeImpl.cpp is WindowsNativeImpl', () {
+      expect(WindowsNativeImpl.cpp, isA<WindowsNativeImpl>());
+    });
+  });
+
+  group('LinuxNativeImpl sealed constants', () {
+    test('LinuxNativeImpl.cpp is CppImpl', () {
+      expect(LinuxNativeImpl.cpp, isA<CppImpl>());
+    });
+
+    test('LinuxNativeImpl.cpp is identical to NativeImpl.cpp', () {
+      expect(identical(LinuxNativeImpl.cpp, NativeImpl.cpp), isTrue);
+    });
+
+    test('LinuxNativeImpl.cpp is LinuxNativeImpl', () {
+      expect(LinuxNativeImpl.cpp, isA<LinuxNativeImpl>());
+    });
+  });
+
+  group('WebNativeImpl sealed constants', () {
+    test('WebNativeImpl.wasm is WasmImpl', () {
+      expect(WebNativeImpl.wasm, isA<WasmImpl>());
+    });
+
+    test('WebNativeImpl.wasm is identical to NativeImpl.wasm', () {
+      expect(identical(WebNativeImpl.wasm, NativeImpl.wasm), isTrue);
+    });
+
+    test('WebNativeImpl.wasm is WebNativeImpl', () {
+      expect(WebNativeImpl.wasm, isA<WebNativeImpl>());
+    });
+  });
+
+  group('Cross-platform const canonicalization', () {
+    test('all cpp constants are the same object', () {
+      expect(identical(AppleNativeImpl.cpp, AndroidNativeImpl.cpp), isTrue);
+      expect(identical(AppleNativeImpl.cpp, WindowsNativeImpl.cpp), isTrue);
+      expect(identical(AppleNativeImpl.cpp, LinuxNativeImpl.cpp), isTrue);
+      expect(identical(AppleNativeImpl.cpp, NativeImpl.cpp), isTrue);
+    });
+
+    test('AppleNativeImpl.swift is NOT AndroidNativeImpl', () {
+      expect(AppleNativeImpl.swift, isNot(isA<AndroidNativeImpl>()));
+    });
+
+    test('AndroidNativeImpl.kotlin is NOT AppleNativeImpl', () {
+      expect(AndroidNativeImpl.kotlin, isNot(isA<AppleNativeImpl>()));
+    });
+
+    test('WebNativeImpl.wasm is NOT any native platform impl', () {
+      expect(WebNativeImpl.wasm, isNot(isA<AppleNativeImpl>()));
+      expect(WebNativeImpl.wasm, isNot(isA<AndroidNativeImpl>()));
+      expect(WebNativeImpl.wasm, isNot(isA<WindowsNativeImpl>()));
+      expect(WebNativeImpl.wasm, isNot(isA<LinuxNativeImpl>()));
+    });
+  });
+
+  group('NitroModule field type acceptance (compile-time safety in runtime form)', () {
+    // These tests verify the type hierarchy: that per-platform constants
+    // satisfy the field type constraints of NitroModule at runtime.
+    test('AppleNativeImpl.swift satisfies ios field type', () {
+      final mod = NitroModule(ios: AppleNativeImpl.swift);
+      expect(mod.ios, isA<SwiftImpl>());
+    });
+
+    test('AppleNativeImpl.cpp satisfies macos field type', () {
+      final mod = NitroModule(macos: AppleNativeImpl.cpp);
+      expect(mod.macos, isA<CppImpl>());
+    });
+
+    test('AndroidNativeImpl.kotlin satisfies android field type', () {
+      final mod = NitroModule(android: AndroidNativeImpl.kotlin);
+      expect(mod.android, isA<KotlinImpl>());
+    });
+
+    test('AndroidNativeImpl.cpp satisfies android field type', () {
+      final mod = NitroModule(android: AndroidNativeImpl.cpp);
+      expect(mod.android, isA<CppImpl>());
+    });
+
+    test('WindowsNativeImpl.cpp satisfies windows field type', () {
+      final mod = NitroModule(windows: WindowsNativeImpl.cpp);
+      expect(mod.windows, isA<CppImpl>());
+    });
+
+    test('LinuxNativeImpl.cpp satisfies linux field type', () {
+      final mod = NitroModule(linux: LinuxNativeImpl.cpp);
+      expect(mod.linux, isA<CppImpl>());
+    });
+
+    test('WebNativeImpl.wasm satisfies web field type', () {
+      final mod = NitroModule(web: WebNativeImpl.wasm);
+      expect(mod.web, isA<WasmImpl>());
+    });
+
+    test('NativeImpl.* shorthand still satisfies field types (backward compat)', () {
+      final mod = NitroModule(
+        ios: NativeImpl.swift,
+        android: NativeImpl.kotlin,
+        macos: NativeImpl.cpp,
+        windows: NativeImpl.cpp,
+        linux: NativeImpl.cpp,
+        web: NativeImpl.wasm,
+      );
+      expect(mod.ios, isA<SwiftImpl>());
+      expect(mod.android, isA<KotlinImpl>());
+      expect(mod.macos, isA<CppImpl>());
+      expect(mod.windows, isA<CppImpl>());
+      expect(mod.linux, isA<CppImpl>());
+      expect(mod.web, isA<WasmImpl>());
+    });
+
+    test('ios + android with different impls: mixed-platform module is valid', () {
+      final mod = NitroModule(
+        ios: AppleNativeImpl.cpp,
+        android: AndroidNativeImpl.kotlin,
+      );
+      expect(mod.ios, isA<CppImpl>());
+      expect(mod.android, isA<KotlinImpl>());
+    });
+  });
+
   // ── Exhaustive sealed switch ────────────────────────────────────────────────
 
   group('Exhaustive switch over NativeImpl sealed hierarchy', () {

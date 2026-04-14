@@ -857,14 +857,14 @@ class ${className}Impl(private val context: Context) : Hybrid${className}Spec {
     if (!content.contains('dart_api_dl.c')) {
       content = content.replaceFirst(
         addLibLine,
-        '${addLibLine}  "\${CMAKE_CURRENT_SOURCE_DIR}/../src/dart_api_dl.c"\n',
+        '$addLibLine  "\${CMAKE_CURRENT_SOURCE_DIR}/../src/dart_api_dl.c"\n',
       );
     }
     final bridgeRel = '../lib/src/generated/cpp/$pluginName.bridge.g.cpp';
     if (!content.contains(bridgeRel)) {
       content = content.replaceFirst(
         addLibLine,
-        '${addLibLine}  "\${CMAKE_CURRENT_SOURCE_DIR}/$bridgeRel"\n',
+        '$addLibLine  "\${CMAKE_CURRENT_SOURCE_DIR}/$bridgeRel"\n',
       );
     }
     if (!content.contains(r'${NITRO_NATIVE}')) {

@@ -3,6 +3,7 @@ import Foundation
 
 public class BenchmarkPlugin: NSObject, FlutterPlugin {
   public static func register(with registrar: FlutterPluginRegistrar) {
+    BenchmarkCppRegistry.register(BenchmarkCppModuleImpl())
     BenchmarkRegistry.register(BenchmarkImpl())
     // benchmark_cpp auto-registers via __attribute__((constructor)) in HybridBenchmarkCpp.cpp
 

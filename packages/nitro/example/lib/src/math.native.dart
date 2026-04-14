@@ -8,7 +8,7 @@ part 'math.g.dart';
 enum Rounding { floor, ceil, round }
 
 // ── Module spec ───────────────────────────────────────────────────────────────
-@NitroModule(ios: NativeImpl.swift, android: NativeImpl.kotlin)
+@NitroModule(ios: AppleNativeImpl.swift, android: AndroidNativeImpl.kotlin)
 abstract class Math extends HybridObject {
   static final Math instance = _MathImpl();
 

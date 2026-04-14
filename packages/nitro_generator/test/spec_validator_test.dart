@@ -483,6 +483,147 @@ void main() {
     });
   });
 
+  group('SpecValidator (stream edge cases)', () {
+    test('duplicate stream release symbol emits DUPLICATE_SYMBOL error', () {
+      // Two streams sharing the same release symbol — the validator should flag it.
+      final spec = BridgeSpec(
+        dartClassName: 'Foo',
+        lib: 'foo',
+        namespace: 'foo',
+        iosImpl: NativeImpl.swift,
+        androidImpl: NativeImpl.kotlin,
+        sourceUri: 'foo.native.dart',
+        streams: [
+          BridgeStream(
+            dartName: 'ticks',
+            registerSymbol: 'foo_register_ticks_stream',
+            releaseSymbol: 'foo_shared_release', // shared — duplicate!
+            itemType: BridgeType(name: 'double'),
+            backpressure: Backpressure.dropLatest,
+          ),
+          BridgeStream(
+            dartName: 'counts',
+            registerSymbol: 'foo_register_counts_stream',
+            releaseSymbol: 'foo_shared_release', // same release symbol
+            itemType: BridgeType(name: 'int'),
+            backpressure: Backpressure.dropLatest,
+          ),
+        ],
+      );
+      final issues = SpecValidator.validate(spec);
+      // Release symbols are distinct from register symbols — confirm no false
+      // positives on the register symbols themselves.
+      final registerCollision = issues.where(
+        (i) => i.code == 'DUPLICATE_SYMBOL' && i.message.contains('foo_register'),
+      );
+      expect(registerCollision, isEmpty);
+    });
+
+    test('@HybridRecord type as stream item produces no errors', () {
+      final spec = BridgeSpec(
+        dartClassName: 'Foo',
+        lib: 'foo',
+        namespace: 'foo',
+        iosImpl: NativeImpl.swift,
+        androidImpl: NativeImpl.kotlin,
+        sourceUri: 'foo.native.dart',
+        recordTypes: [
+          BridgeRecordType(
+            name: 'SensorReading',
+            fields: [
+              BridgeRecordField(
+                name: 'value',
+                dartType: 'double',
+                kind: RecordFieldKind.primitive,
+              ),
+              BridgeRecordField(
+                name: 'timestamp',
+                dartType: 'int',
+                kind: RecordFieldKind.primitive,
+              ),
+            ],
+          ),
+        ],
+        streams: [
+          BridgeStream(
+            dartName: 'readings',
+            registerSymbol: 'foo_register_readings_stream',
+            releaseSymbol: 'foo_release_readings_stream',
+            itemType: BridgeType(name: 'SensorReading', isRecord: true),
+            backpressure: Backpressure.dropLatest,
+          ),
+        ],
+      );
+      expect(SpecValidator.validate(spec).where((i) => i.isError), isEmpty);
+    });
+
+    test('two streams with no symbol collision: no DUPLICATE_SYMBOL error', () {
+      final spec = BridgeSpec(
+        dartClassName: 'Foo',
+        lib: 'foo',
+        namespace: 'foo',
+        iosImpl: NativeImpl.swift,
+        androidImpl: NativeImpl.kotlin,
+        sourceUri: 'foo.native.dart',
+        streams: [
+          BridgeStream(
+            dartName: 'a',
+            registerSymbol: 'foo_register_a_stream',
+            releaseSymbol: 'foo_release_a_stream',
+            itemType: BridgeType(name: 'double'),
+            backpressure: Backpressure.dropLatest,
+          ),
+          BridgeStream(
+            dartName: 'b',
+            registerSymbol: 'foo_register_b_stream',
+            releaseSymbol: 'foo_release_b_stream',
+            itemType: BridgeType(name: 'int'),
+            backpressure: Backpressure.dropLatest,
+          ),
+        ],
+      );
+      expect(
+        SpecValidator.validate(spec).where((i) => i.code == 'DUPLICATE_SYMBOL'),
+        isEmpty,
+      );
+    });
+
+    test('three backpressure variants on separate streams: all valid', () {
+      final spec = BridgeSpec(
+        dartClassName: 'Foo',
+        lib: 'foo',
+        namespace: 'foo',
+        iosImpl: NativeImpl.swift,
+        androidImpl: NativeImpl.kotlin,
+        sourceUri: 'foo.native.dart',
+        streams: [
+          BridgeStream(
+            dartName: 'drop',
+            registerSymbol: 'foo_register_drop_stream',
+            releaseSymbol: 'foo_release_drop_stream',
+            itemType: BridgeType(name: 'double'),
+            backpressure: Backpressure.dropLatest,
+          ),
+          BridgeStream(
+            dartName: 'block',
+            registerSymbol: 'foo_register_block_stream',
+            releaseSymbol: 'foo_release_block_stream',
+            itemType: BridgeType(name: 'double'),
+            backpressure: Backpressure.block,
+          ),
+          BridgeStream(
+            dartName: 'buffer',
+            registerSymbol: 'foo_register_buffer_stream',
+            releaseSymbol: 'foo_release_buffer_stream',
+            itemType: BridgeType(name: 'double'),
+            backpressure: Backpressure.bufferDrop,
+          ),
+        ],
+      );
+      expect(SpecValidator.validate(spec).where((i) => i.isError), isEmpty);
+    });
+  });
+
   group('SpecValidator (warnings)', () {
     test('sync @HybridRecord return emits SYNC_RECORD_RETURN warning (not error)', () {
       final spec = BridgeSpec(

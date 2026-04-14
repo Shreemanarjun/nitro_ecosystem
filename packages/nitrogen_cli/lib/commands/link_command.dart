@@ -1093,7 +1093,7 @@ void _linkDesktopCMake(
   if (!content.contains('dart_api_dl.c')) {
     content = content.replaceFirst(
       addLibLine,
-      '${addLibLine}  "\${CMAKE_CURRENT_SOURCE_DIR}/../src/dart_api_dl.c"\n',
+      '$addLibLine  "\${CMAKE_CURRENT_SOURCE_DIR}/../src/dart_api_dl.c"\n',
     );
     modified = true;
   }
@@ -1102,7 +1102,7 @@ void _linkDesktopCMake(
   if (!content.contains(bridgeRel)) {
     content = content.replaceFirst(
       addLibLine,
-      '${addLibLine}  "\${CMAKE_CURRENT_SOURCE_DIR}/$bridgeRel"\n',
+      '$addLibLine  "\${CMAKE_CURRENT_SOURCE_DIR}/$bridgeRel"\n',
     );
     modified = true;
   }

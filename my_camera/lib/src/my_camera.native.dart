@@ -46,7 +46,7 @@ class CameraDevice {
   });
 }
 
-@NitroModule(ios: NativeImpl.swift, android: NativeImpl.kotlin)
+@NitroModule(ios: AppleNativeImpl.swift, android: AndroidNativeImpl.kotlin)
 abstract class MyCamera extends HybridObject {
   static final MyCamera instance = _MyCameraImpl();
 

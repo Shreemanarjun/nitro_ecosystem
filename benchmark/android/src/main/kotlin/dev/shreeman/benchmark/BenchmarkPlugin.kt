@@ -13,6 +13,7 @@ class BenchmarkPlugin : FlutterPlugin {
     }
 
     override fun onAttachedToEngine(binding: FlutterPlugin.FlutterPluginBinding) {
+        BenchmarkCppJniBridge.register(BenchmarkCppImpl())
         BenchmarkJniBridge.register(
             BenchmarkImpl(binding.applicationContext)
         )
