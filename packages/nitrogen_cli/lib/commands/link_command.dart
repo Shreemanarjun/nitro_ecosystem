@@ -323,18 +323,32 @@ class _LinkViewState extends State<LinkView> {
       if (!hasNonCpp) {
         await _setSkipped(4, detail: 'all modules use NativeImpl.cpp — no Swift bridge needed');
       } else {
-        final nonCppModules = moduleInfos.where((m) => !m.isCpp).map((m) => m.toMap()).toList();
-        final cppModuleInfos = moduleInfos.where((m) => m.isCpp).toList();
+        // For Swift steps: split by whether the module uses AppleNativeImpl.cpp on ios/macos.
+        // A module may be isCpp:true due to windows/android cpp but still need Swift
+        // registration on iOS (e.g. android:kotlin, windows:cpp, ios:swift).
+        final libDir = Directory(p.join(Directory.current.path, 'lib'));
+        final specFiles = libDir.existsSync()
+            ? libDir.listSync(recursive: true).whereType<File>().where((f) => f.path.endsWith('.native.dart')).toList()
+            : <File>[];
+        final appleCppLibs = specFiles.where(isAppleCppModule).map((f) {
+          final stem = p.basename(f.path).replaceAll(RegExp(r'\.native\.dart$'), '');
+          return extractLibNameFromSpec(f) ?? stem;
+        }).toSet();
+
+        // Modules that need Swift registration = NOT an Apple C++ module.
+        final swiftModules = moduleInfos.where((m) => !appleCppLibs.contains(m.lib)).map((m) => m.toMap()).toList();
+        // Modules that should have Swift registration REMOVED = Apple C++ modules.
+        final appleCppModuleInfos = moduleInfos.where((m) => appleCppLibs.contains(m.lib)).toList();
+
         bool linkedSwift = false;
         if (Directory(p.join(Directory.current.path, 'ios')).existsSync()) {
-          linkSwiftPlugin(pluginName, nonCppModules, baseDir: Directory.current.path);
-          // Purge stale XxxRegistry.register() calls for any module now using AppleNativeImpl.cpp.
-          purgeStaleCppSwiftRegistrations(cppModuleInfos, platform: 'ios', baseDir: Directory.current.path);
+          linkSwiftPlugin(pluginName, swiftModules, baseDir: Directory.current.path);
+          purgeStaleCppSwiftRegistrations(appleCppModuleInfos, platform: 'ios', baseDir: Directory.current.path);
           linkedSwift = true;
         }
         if (Directory(p.join(Directory.current.path, 'macos')).existsSync()) {
-          linkMacosSwiftPlugin(pluginName, nonCppModules, baseDir: Directory.current.path);
-          purgeStaleCppSwiftRegistrations(cppModuleInfos, platform: 'macos', baseDir: Directory.current.path);
+          linkMacosSwiftPlugin(pluginName, swiftModules, baseDir: Directory.current.path);
+          purgeStaleCppSwiftRegistrations(appleCppModuleInfos, platform: 'macos', baseDir: Directory.current.path);
           linkedSwift = true;
         }
         if (linkedSwift) {
@@ -346,21 +360,38 @@ class _LinkViewState extends State<LinkView> {
 
       await _setRunning(5);
       if (Directory(p.join(Directory.current.path, 'android')).existsSync()) {
-        if (hasNonCpp) {
-          final nonCppModules = moduleInfos.where((m) => !m.isCpp).map((m) => m.toMap()).toList();
-          linkKotlinPlugin(pluginName, nonCppModules, baseDir: Directory.current.path);
+        // For Android/Kotlin steps: split by whether the module uses AndroidNativeImpl.cpp
+        // (android/linux cpp). A module with windows:cpp but android:kotlin still needs
+        // JniBridge registration — isNativeCppModule checks android/linux only.
+        final libDir = Directory(p.join(Directory.current.path, 'lib'));
+        final specFiles = libDir.existsSync()
+            ? libDir.listSync(recursive: true).whereType<File>().where((f) => f.path.endsWith('.native.dart')).toList()
+            : <File>[];
+        final androidCppLibs = specFiles.where(isNativeCppModule).map((f) {
+          final stem = p.basename(f.path).replaceAll(RegExp(r'\.native\.dart$'), '');
+          return extractLibNameFromSpec(f) ?? stem;
+        }).toSet();
+
+        // Modules that need JniBridge.register = NOT android/linux C++ modules.
+        final kotlinModules = moduleInfos.where((m) => !androidCppLibs.contains(m.lib)).map((m) => m.toMap()).toList();
+        // Modules that should have JniBridge.register REMOVED = android/linux C++ modules.
+        final androidCppModuleInfos = moduleInfos.where((m) => androidCppLibs.contains(m.lib)).toList();
+
+        if (kotlinModules.isNotEmpty) {
+          linkKotlinPlugin(pluginName, kotlinModules, baseDir: Directory.current.path);
         }
         // cpp modules still need System.loadLibrary to trigger __attribute__((constructor))
         if (hasCpp) {
           linkKotlinLoadLibraries(moduleInfos.where((m) => m.isCpp).map((m) => m.lib).toList(), baseDir: Directory.current.path);
         }
-        // Always purge stale JniBridge.register() calls for any module that has
-        // been converted to NativeImpl.cpp (old or new sealed-class syntax).
-        purgeStaleCppKotlinRegistrations(moduleInfos.where((m) => m.isCpp).toList(), baseDir: Directory.current.path);
-        await _setDone(5, detail: hasNonCpp ? null : 'cpp: loadLibrary only (no JniBridge)');
+        // Purge stale JniBridge.register() only for modules that are actually
+        // Android/Linux C++ — not for mixed modules like android:kotlin + windows:cpp.
+        purgeStaleCppKotlinRegistrations(androidCppModuleInfos, baseDir: Directory.current.path);
+        await _setDone(5, detail: kotlinModules.isNotEmpty ? null : 'cpp: loadLibrary only (no JniBridge)');
       } else {
         await _setSkipped(5, detail: 'android/ not present');
       }
+
 
       await _setRunning(6);
       if (Directory(p.join(Directory.current.path, 'windows')).existsSync()) {
@@ -1492,16 +1523,25 @@ class ManagedContentIssue {
 List<ManagedContentIssue> detectManagedContentIssues({String baseDir = '.'}) {
   final issues = <ManagedContentIssue>[];
 
-  // Discover non-cpp modules.
   final libDir = Directory(p.join(baseDir, 'lib'));
   if (!libDir.existsSync()) return issues;
-  final specFiles = libDir
+  final allSpecFiles = libDir
       .listSync(recursive: true)
       .whereType<File>()
       .where((f) => f.path.endsWith('.native.dart'))
-      .where((f) => !isCppModule(f))
       .toList();
-  if (specFiles.isEmpty) return issues;
+  if (allSpecFiles.isEmpty) return issues;
+
+  // For Android Plugin.kt: a module needs JniBridge registration when it does NOT
+  // use a native C++ impl on android/linux (isNativeCppModule). A module like
+  // `benchmark` (android: kotlin, windows: cpp) is correctly included here because
+  // isNativeCppModule checks android/linux only — isCppModule (broad) would
+  // falsely exclude it due to the windows: cpp entry.
+  final androidSpecFiles = allSpecFiles.where((f) => !isNativeCppModule(f)).toList();
+
+  // For iOS Plugin.swift: a module needs Registry.register when it does NOT use
+  // AppleNativeImpl.cpp on ios/macos.
+  final iosSpecFiles = allSpecFiles.where((f) => !isAppleCppModule(f)).toList();
 
   // ── Android: Plugin.kt ────────────────────────────────────────────────────
   final ktDir = Directory(p.join(baseDir, 'android', 'src', 'main', 'kotlin'));
@@ -1514,7 +1554,7 @@ List<ManagedContentIssue> detectManagedContentIssues({String baseDir = '.'}) {
     if (pluginFiles.isNotEmpty) {
       final kt = pluginFiles.first.readAsStringSync();
       final ktPath = p.relative(pluginFiles.first.path, from: baseDir);
-      for (final specFile in specFiles) {
+      for (final specFile in androidSpecFiles) {
         final stem = p.basename(specFile.path).replaceAll(RegExp(r'\.native\.dart$'), '');
         final lib = (extractLibNameFromSpec(specFile) ?? stem).replaceAll('-', '_');
         final moduleMatch = RegExp(r'abstract class (\w+) extends HybridObject').firstMatch(specFile.readAsStringSync());
@@ -1548,7 +1588,7 @@ List<ManagedContentIssue> detectManagedContentIssues({String baseDir = '.'}) {
     if (swiftFiles.isNotEmpty) {
       final swift = swiftFiles.first.readAsStringSync();
       final swiftPath = p.relative(swiftFiles.first.path, from: baseDir);
-      for (final specFile in specFiles) {
+      for (final specFile in iosSpecFiles) {
         final stem = p.basename(specFile.path).replaceAll(RegExp(r'\.native\.dart$'), '');
         final moduleMatch = RegExp(r'abstract class (\w+) extends HybridObject').firstMatch(specFile.readAsStringSync());
         final moduleName = moduleMatch?.group(1) ?? _toPascalCase(stem);
