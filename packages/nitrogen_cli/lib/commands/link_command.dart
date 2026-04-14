@@ -54,17 +54,16 @@ String? extractLibNameFromSpec(File specFile) {
   return match?.group(1);
 }
 
-/// Returns true when the spec file declares at least one platform (ios/android/macos)
-/// as NativeImpl.cpp — meaning it uses a direct C++ implementation instead of
-/// Kotlin/Swift bridges. Handles single-platform (macos-only), dual-platform
-/// (ios+macos), and tri-platform specs. Only checks actual platform args, not
-/// the lib name or other fields that might coincidentally contain "NativeImpl.cpp".
+/// Returns true when the spec file declares at least one platform as
+/// NativeImpl.cpp — meaning it uses a direct C++ implementation instead of
+/// Kotlin/Swift bridges. Covers all C++ platforms: ios, android, macos,
+/// windows, linux. Only checks actual platform args in the annotation.
 bool isCppModule(File specFile) {
   final content = specFile.readAsStringSync();
   final match = RegExp(r'@NitroModule\s*\(([^)]+)\)').firstMatch(content);
   if (match == null) return false;
   final annotation = match.group(1)!;
-  return RegExp(r'\b(?:ios|android|macos)\s*:\s*NativeImpl\.cpp\b').hasMatch(annotation);
+  return RegExp(r'\b(?:ios|android|macos|windows|linux)\s*:\s*NativeImpl\.cpp\b').hasMatch(annotation);
 }
 
 /// Module descriptor. `isCpp` indicates a direct C++ implementation (no JNI/Swift bridge).
@@ -197,6 +196,8 @@ class _LinkViewState extends State<LinkView> {
     LinkStep('Updating macOS podspec'),
     LinkStep('Updating Swift Plugin.swift (Kotlin/Swift modules)'),
     LinkStep('Updating Kotlin Plugin.kt (Kotlin/Swift modules)'),
+    LinkStep('Updating windows/CMakeLists.txt'),
+    LinkStep('Updating linux/CMakeLists.txt'),
     LinkStep('Updating .clangd'),
   ];
 
@@ -299,8 +300,24 @@ class _LinkViewState extends State<LinkView> {
       }
 
       await _setRunning(6);
+      if (Directory(p.join(Directory.current.path, 'windows')).existsSync()) {
+        linkWindows(pluginName, moduleInfos.map((m) => m.lib).toList(), nitroNativePath, baseDir: Directory.current.path, moduleInfos: moduleInfos);
+        await _setDone(6);
+      } else {
+        await _setSkipped(6, detail: 'windows/ not present');
+      }
+
+      await _setRunning(7);
+      if (Directory(p.join(Directory.current.path, 'linux')).existsSync()) {
+        linkLinux(pluginName, moduleInfos.map((m) => m.lib).toList(), nitroNativePath, baseDir: Directory.current.path, moduleInfos: moduleInfos);
+        await _setDone(7);
+      } else {
+        await _setSkipped(7, detail: 'linux/ not present');
+      }
+
+      await _setRunning(8);
       linkClangd(pluginName, moduleInfos: moduleInfos, baseDir: Directory.current.path);
-      await _setDone(6);
+      await _setDone(8);
 
       if (allCpp) {
         _nextSteps.addAll([
@@ -556,6 +573,10 @@ void generateCMake(String pluginName, List<String> moduleLibs, String nitroNativ
     ..writeln('if(ANDROID)')
     ..writeln('  target_link_libraries($pluginName PRIVATE android log)')
     ..writeln('  target_link_options($pluginName PRIVATE "-Wl,-z,max-page-size=16384")')
+    ..writeln('elseif(WIN32)')
+    ..writeln('  target_link_libraries($pluginName PRIVATE dbghelp)')
+    ..writeln('elseif(UNIX AND NOT APPLE)')
+    ..writeln('  target_link_libraries($pluginName PRIVATE dl pthread)')
     ..writeln('endif()');
   for (final lib in moduleLibs) {
     if (lib != pluginName) {
@@ -575,7 +596,7 @@ void generateCMake(String pluginName, List<String> moduleLibs, String nitroNativ
 
 String _cmakeModuleTarget(String lib, {bool isCpp = false}) {
   final implFile = isCpp ? '\n  "Hybrid${_toPascalCase(lib)}.cpp"' : '';
-  return '\nadd_library($lib SHARED\n  "\${CMAKE_CURRENT_SOURCE_DIR}/../lib/src/generated/cpp/$lib.bridge.g.cpp"$implFile\n  "dart_api_dl.c"\n)\ntarget_include_directories($lib PRIVATE\n  "\${CMAKE_CURRENT_SOURCE_DIR}"\n  "\${CMAKE_CURRENT_SOURCE_DIR}/../lib/src/generated/cpp"\n  "\${NITRO_NATIVE}"\n)\nset_target_properties($lib PROPERTIES OUTPUT_NAME "$lib")\ntarget_compile_definitions($lib PUBLIC DART_SHARED_LIB)\nif(ANDROID)\n  target_link_libraries($lib PRIVATE android log)\n  target_link_options($lib PRIVATE "-Wl,-z,max-page-size=16384")\nendif()\n';
+  return '\nadd_library($lib SHARED\n  "\${CMAKE_CURRENT_SOURCE_DIR}/../lib/src/generated/cpp/$lib.bridge.g.cpp"$implFile\n  "dart_api_dl.c"\n)\ntarget_include_directories($lib PRIVATE\n  "\${CMAKE_CURRENT_SOURCE_DIR}"\n  "\${CMAKE_CURRENT_SOURCE_DIR}/../lib/src/generated/cpp"\n  "\${NITRO_NATIVE}"\n)\nset_target_properties($lib PROPERTIES OUTPUT_NAME "$lib")\ntarget_compile_definitions($lib PUBLIC DART_SHARED_LIB)\nif(ANDROID)\n  target_link_libraries($lib PRIVATE android log)\n  target_link_options($lib PRIVATE "-Wl,-z,max-page-size=16384")\nelseif(WIN32)\n  target_link_libraries($lib PRIVATE dbghelp)\nelseif(UNIX AND NOT APPLE)\n  target_link_libraries($lib PRIVATE dl pthread)\nendif()\n';
 }
 
 String _toPascalCase(String lib) => lib.split(RegExp(r'[_\-]')).map((w) => w.isEmpty ? '' : w[0].toUpperCase() + w.substring(1)).join('');
@@ -604,10 +625,20 @@ void linkCppImplStubs(List<ModuleInfo> moduleInfos, {String baseDir = '.'}) {
       'static Hybrid${className}Impl g_impl;\n'
       '\n'
       '// Auto-register on shared library load — no manual init call needed.\n'
+      '#if defined(_WIN32)\n'
+      '// MSVC lacks __attribute__((constructor)); use a static object instead.\n'
+      'namespace {\n'
+      '  struct _AutoRegister {\n'
+      '    _AutoRegister() { ${m.lib}_register_impl(&g_impl); }\n'
+      '  };\n'
+      '  _AutoRegister _auto_register_instance;\n'
+      '}\n'
+      '#else\n'
       '__attribute__((constructor))\n'
       'static void ${m.lib}_auto_register() {\n'
       '    ${m.lib}_register_impl(&g_impl);\n'
-      '}\n',
+      '}\n'
+      '#endif\n',
     );
   }
 }
@@ -1030,6 +1061,75 @@ void linkKotlinPlugin(String pluginName, List<Map<String, String>> modules, {Str
     }
   }
   if (modified) pluginFile.writeAsStringSync(content);
+}
+
+/// Patches a desktop platform CMakeLists.txt (windows/ or linux/) to include
+/// the Nitro bridge sources and headers required for dart:ffi C++ plugins.
+/// Desktop templates use `${PLUGIN_NAME}` as the CMake target name.
+void _linkDesktopCMake(
+  String pluginName,
+  List<String> moduleLibs,
+  String nitroNativePath, {
+  required String platform,
+  String baseDir = '.',
+  List<ModuleInfo>? moduleInfos,
+}) {
+  final cmakeFile = File(p.join(baseDir, platform, 'CMakeLists.txt'));
+  if (!cmakeFile.existsSync()) return;
+  var content = cmakeFile.readAsStringSync();
+  bool modified = false;
+
+  final desiredNitroValue = nitroNativePath.replaceAll(r'\', '/');
+  if (!content.contains('NITRO_NATIVE')) {
+    content = 'set(NITRO_NATIVE "$desiredNitroValue")\n\n$content';
+    modified = true;
+  }
+
+  // Desktop CMake templates use `${PLUGIN_NAME}` (a CMake variable) as the
+  // target name. Use literal string matching to avoid regex backreference issues.
+  // The pattern covers the common "add_library(${PLUGIN_NAME} SHARED\n" line.
+  const addLibLine = 'add_library(\${PLUGIN_NAME} SHARED\n';
+
+  if (!content.contains('dart_api_dl.c')) {
+    content = content.replaceFirst(
+      addLibLine,
+      '${addLibLine}  "\${CMAKE_CURRENT_SOURCE_DIR}/../src/dart_api_dl.c"\n',
+    );
+    modified = true;
+  }
+
+  final bridgeRel = '../lib/src/generated/cpp/$pluginName.bridge.g.cpp';
+  if (!content.contains(bridgeRel)) {
+    content = content.replaceFirst(
+      addLibLine,
+      '${addLibLine}  "\${CMAKE_CURRENT_SOURCE_DIR}/$bridgeRel"\n',
+    );
+    modified = true;
+  }
+
+  if (!content.contains(r'${NITRO_NATIVE}')) {
+    final addBlock = '\ntarget_include_directories(\${PLUGIN_NAME} PRIVATE\n'
+        '  "\${NITRO_NATIVE}"\n'
+        '  "\${CMAKE_CURRENT_SOURCE_DIR}/../lib/src/generated/cpp"\n'
+        ')\n';
+    final inclMatch = RegExp(r'target_include_directories\(\s*\$\{PLUGIN_NAME\}[^)]+\)').firstMatch(content);
+    if (inclMatch != null) {
+      content = content.replaceFirst(inclMatch.group(0)!, '${inclMatch.group(0)!}$addBlock');
+    } else {
+      content += addBlock;
+    }
+    modified = true;
+  }
+
+  if (modified) cmakeFile.writeAsStringSync(content);
+}
+
+void linkWindows(String pluginName, List<String> moduleLibs, String nitroNativePath, {String baseDir = '.', List<ModuleInfo>? moduleInfos}) {
+  _linkDesktopCMake(pluginName, moduleLibs, nitroNativePath, platform: 'windows', baseDir: baseDir, moduleInfos: moduleInfos);
+}
+
+void linkLinux(String pluginName, List<String> moduleLibs, String nitroNativePath, {String baseDir = '.', List<ModuleInfo>? moduleInfos}) {
+  _linkDesktopCMake(pluginName, moduleLibs, nitroNativePath, platform: 'linux', baseDir: baseDir, moduleInfos: moduleInfos);
 }
 
 void linkClangd(String pluginName, {List<ModuleInfo>? moduleInfos, String baseDir = '.'}) {

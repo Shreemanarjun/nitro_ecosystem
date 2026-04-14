@@ -857,4 +857,202 @@ $macosPlatformEntry
       );
     });
   });
+
+  // ── Windows section ──────────────────────────────────────────────────────────
+
+  group('Windows section', () {
+    Directory scaffoldWithWindows({
+      bool hasCmake = true,
+      bool hasNitroNative = true,
+      bool hasDartApiDl = true,
+      bool hasBridgeCpp = true,
+      String specName = 'math',
+    }) {
+      final root = _scaffold(specs: [(name: specName, isCpp: false)]);
+
+      final winDir = Directory(p.join(root.path, 'windows'))..createSync();
+      if (hasCmake) {
+        final cmakeContent = StringBuffer();
+        if (hasNitroNative) cmakeContent.writeln('set(NITRO_NATIVE "/some/path")');
+        if (hasDartApiDl) cmakeContent.writeln('add_library(\${PLUGIN_NAME} SHARED dart_api_dl.c)');
+        if (hasBridgeCpp) cmakeContent.writeln('../lib/src/generated/cpp/$specName.bridge.g.cpp');
+        File(p.join(winDir.path, 'CMakeLists.txt')).writeAsStringSync(cmakeContent.toString());
+      }
+      return root;
+    }
+
+    test('Windows section is info when windows/ directory is not present', () {
+      final root = _scaffold();
+      addTearDown(() => root.deleteSync(recursive: true));
+      final result = _run(root);
+      final sec = result.sections.firstWhere((s) => s.title == 'Windows');
+      expect(sec.checks.first.status, equals(DoctorStatus.info));
+      expect(sec.checks.first.label, contains('not present'));
+    });
+
+    test('Windows section error when CMakeLists.txt not found', () {
+      final root = scaffoldWithWindows(hasCmake: false);
+      addTearDown(() => root.deleteSync(recursive: true));
+      final result = _run(root);
+      final sec = result.sections.firstWhere((s) => s.title == 'Windows');
+      expect(
+        sec.checks.any((c) => c.status == DoctorStatus.error && c.label.contains('CMakeLists.txt not found')),
+        isTrue,
+      );
+    });
+
+    test('Windows section ok when NITRO_NATIVE defined in CMakeLists.txt', () {
+      final root = scaffoldWithWindows();
+      addTearDown(() => root.deleteSync(recursive: true));
+      final result = _run(root);
+      final sec = result.sections.firstWhere((s) => s.title == 'Windows');
+      expect(
+        sec.checks.any((c) => c.status == DoctorStatus.ok && c.label.contains('NITRO_NATIVE')),
+        isTrue,
+      );
+    });
+
+    test('Windows section error when NITRO_NATIVE missing', () {
+      final root = scaffoldWithWindows(hasNitroNative: false);
+      addTearDown(() => root.deleteSync(recursive: true));
+      final result = _run(root);
+      final sec = result.sections.firstWhere((s) => s.title == 'Windows');
+      expect(
+        sec.checks.any((c) => c.status == DoctorStatus.error && c.label.contains('NITRO_NATIVE missing')),
+        isTrue,
+      );
+    });
+
+    test('Windows section ok when dart_api_dl.c present', () {
+      final root = scaffoldWithWindows();
+      addTearDown(() => root.deleteSync(recursive: true));
+      final result = _run(root);
+      final sec = result.sections.firstWhere((s) => s.title == 'Windows');
+      expect(
+        sec.checks.any((c) => c.status == DoctorStatus.ok && c.label.contains('dart_api_dl.c')),
+        isTrue,
+      );
+    });
+
+    test('Windows section error when dart_api_dl.c missing', () {
+      final root = scaffoldWithWindows(hasDartApiDl: false);
+      addTearDown(() => root.deleteSync(recursive: true));
+      final result = _run(root);
+      final sec = result.sections.firstWhere((s) => s.title == 'Windows');
+      expect(
+        sec.checks.any((c) => c.status == DoctorStatus.error && c.label.contains('dart_api_dl.c not included')),
+        isTrue,
+      );
+    });
+
+    test('Windows section ok when bridge .cpp linked', () {
+      final root = scaffoldWithWindows();
+      addTearDown(() => root.deleteSync(recursive: true));
+      final result = _run(root);
+      final sec = result.sections.firstWhere((s) => s.title == 'Windows');
+      expect(
+        sec.checks.any((c) => c.status == DoctorStatus.ok && c.label.contains('bridge.g.cpp linked')),
+        isTrue,
+      );
+    });
+
+    test('Windows section warn when bridge .cpp not linked', () {
+      final root = scaffoldWithWindows(hasBridgeCpp: false);
+      addTearDown(() => root.deleteSync(recursive: true));
+      final result = _run(root);
+      final sec = result.sections.firstWhere((s) => s.title == 'Windows');
+      expect(
+        sec.checks.any((c) => c.status == DoctorStatus.warn && c.label.contains('bridge.g.cpp not linked')),
+        isTrue,
+      );
+    });
+  });
+
+  // ── Linux section ────────────────────────────────────────────────────────────
+
+  group('Linux section', () {
+    Directory scaffoldWithLinux({
+      bool hasCmake = true,
+      bool hasNitroNative = true,
+      bool hasDartApiDl = true,
+      bool hasBridgeCpp = true,
+      String specName = 'math',
+    }) {
+      final root = _scaffold(specs: [(name: specName, isCpp: false)]);
+
+      final linuxDir = Directory(p.join(root.path, 'linux'))..createSync();
+      if (hasCmake) {
+        final cmakeContent = StringBuffer();
+        if (hasNitroNative) cmakeContent.writeln('set(NITRO_NATIVE "/some/path")');
+        if (hasDartApiDl) cmakeContent.writeln('add_library(\${PLUGIN_NAME} SHARED dart_api_dl.c)');
+        if (hasBridgeCpp) cmakeContent.writeln('../lib/src/generated/cpp/$specName.bridge.g.cpp');
+        File(p.join(linuxDir.path, 'CMakeLists.txt')).writeAsStringSync(cmakeContent.toString());
+      }
+      return root;
+    }
+
+    test('Linux section is info when linux/ directory is not present', () {
+      final root = _scaffold();
+      addTearDown(() => root.deleteSync(recursive: true));
+      final result = _run(root);
+      final sec = result.sections.firstWhere((s) => s.title == 'Linux');
+      expect(sec.checks.first.status, equals(DoctorStatus.info));
+      expect(sec.checks.first.label, contains('not present'));
+    });
+
+    test('Linux section error when CMakeLists.txt not found', () {
+      final root = scaffoldWithLinux(hasCmake: false);
+      addTearDown(() => root.deleteSync(recursive: true));
+      final result = _run(root);
+      final sec = result.sections.firstWhere((s) => s.title == 'Linux');
+      expect(
+        sec.checks.any((c) => c.status == DoctorStatus.error && c.label.contains('CMakeLists.txt not found')),
+        isTrue,
+      );
+    });
+
+    test('Linux section ok when NITRO_NATIVE defined', () {
+      final root = scaffoldWithLinux();
+      addTearDown(() => root.deleteSync(recursive: true));
+      final result = _run(root);
+      final sec = result.sections.firstWhere((s) => s.title == 'Linux');
+      expect(
+        sec.checks.any((c) => c.status == DoctorStatus.ok && c.label.contains('NITRO_NATIVE')),
+        isTrue,
+      );
+    });
+
+    test('Linux section error when NITRO_NATIVE missing', () {
+      final root = scaffoldWithLinux(hasNitroNative: false);
+      addTearDown(() => root.deleteSync(recursive: true));
+      final result = _run(root);
+      final sec = result.sections.firstWhere((s) => s.title == 'Linux');
+      expect(
+        sec.checks.any((c) => c.status == DoctorStatus.error && c.label.contains('NITRO_NATIVE missing')),
+        isTrue,
+      );
+    });
+
+    test('Linux section error when dart_api_dl.c missing', () {
+      final root = scaffoldWithLinux(hasDartApiDl: false);
+      addTearDown(() => root.deleteSync(recursive: true));
+      final result = _run(root);
+      final sec = result.sections.firstWhere((s) => s.title == 'Linux');
+      expect(
+        sec.checks.any((c) => c.status == DoctorStatus.error && c.label.contains('dart_api_dl.c not included')),
+        isTrue,
+      );
+    });
+
+    test('Linux section warn when bridge .cpp not linked', () {
+      final root = scaffoldWithLinux(hasBridgeCpp: false);
+      addTearDown(() => root.deleteSync(recursive: true));
+      final result = _run(root);
+      final sec = result.sections.firstWhere((s) => s.title == 'Linux');
+      expect(
+        sec.checks.any((c) => c.status == DoctorStatus.warn && c.label.contains('bridge.g.cpp not linked')),
+        isTrue,
+      );
+    });
+  });
 }

@@ -7,7 +7,7 @@ import '../bridge_spec.dart';
 /// `${lib}_register_impl(&myImpl)` during plugin initialisation.
 class CppInterfaceGenerator {
   static String generate(BridgeSpec spec) {
-    if (!spec.isCppImpl) {
+    if (!spec.hasCppImpl) {
       return '// Not applicable: NativeImpl is not cpp for this module.\n';
     }
 

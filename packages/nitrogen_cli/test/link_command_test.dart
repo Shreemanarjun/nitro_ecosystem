@@ -113,12 +113,59 @@ abstract class Math extends HybridObject {}
       expect(isCppModule(spec), isTrue);
     });
 
-    test('returns true when all three platforms are NativeImpl.cpp', () {
+    test('returns true when all three Apple/Android platforms are NativeImpl.cpp', () {
       final spec = _writeSpec(_libDir(tmp), 'math.native.dart', '''
 @NitroModule(lib: "math", ios: NativeImpl.cpp, android: NativeImpl.cpp, macos: NativeImpl.cpp)
 abstract class Math extends HybridObject {}
 ''');
       expect(isCppModule(spec), isTrue);
+    });
+
+    test('returns true when only windows is NativeImpl.cpp', () {
+      final spec = _writeSpec(_libDir(tmp), 'math.native.dart', '''
+@NitroModule(lib: "math", windows: NativeImpl.cpp)
+abstract class Math extends HybridObject {}
+''');
+      expect(isCppModule(spec), isTrue);
+    });
+
+    test('returns true when only linux is NativeImpl.cpp', () {
+      final spec = _writeSpec(_libDir(tmp), 'math.native.dart', '''
+@NitroModule(lib: "math", linux: NativeImpl.cpp)
+abstract class Math extends HybridObject {}
+''');
+      expect(isCppModule(spec), isTrue);
+    });
+
+    test('returns true when windows + linux are both NativeImpl.cpp', () {
+      final spec = _writeSpec(_libDir(tmp), 'math.native.dart', '''
+@NitroModule(lib: "math", windows: NativeImpl.cpp, linux: NativeImpl.cpp)
+abstract class Math extends HybridObject {}
+''');
+      expect(isCppModule(spec), isTrue);
+    });
+
+    test('returns true when all five native platforms are NativeImpl.cpp', () {
+      final spec = _writeSpec(_libDir(tmp), 'math.native.dart', '''
+@NitroModule(
+  lib: "math",
+  ios: NativeImpl.cpp,
+  android: NativeImpl.cpp,
+  macos: NativeImpl.cpp,
+  windows: NativeImpl.cpp,
+  linux: NativeImpl.cpp,
+)
+abstract class Math extends HybridObject {}
+''');
+      expect(isCppModule(spec), isTrue);
+    });
+
+    test('returns false when only web: NativeImpl.wasm (web is not a native C++ platform)', () {
+      final spec = _writeSpec(_libDir(tmp), 'math.native.dart', '''
+@NitroModule(lib: "math", web: NativeImpl.wasm)
+abstract class Math extends HybridObject {}
+''');
+      expect(isCppModule(spec), isFalse);
     });
 
     test('returns false when annotation body contains NativeImpl.cpp only in a comment', () {
@@ -923,6 +970,232 @@ public static func register(with registrar: FlutterPluginRegistrar) {
         () => linkMacosSwiftPlugin('my_plugin', [{'module': 'Math', 'lib': 'math'}], baseDir: tmp.path),
         returnsNormally,
       );
+    });
+  });
+
+  // ── linkWindows ──────────────────────────────────────────────────────────────
+
+  group('linkWindows', () {
+    File writeWinCmake(Directory dir, String content) {
+      final winDir = Directory(p.join(dir.path, 'windows'))..createSync(recursive: true);
+      final f = File(p.join(winDir.path, 'CMakeLists.txt'));
+      f.writeAsStringSync(content);
+      return f;
+    }
+
+    const minimalWinCmake = '''cmake_minimum_required(VERSION 3.14)
+set(PLUGIN_NAME "my_plugin_plugin")
+
+add_library(\${PLUGIN_NAME} SHARED
+  "my_plugin_plugin.cpp"
+)
+target_compile_definitions(\${PLUGIN_NAME} PRIVATE DART_SHARED_LIB)
+target_include_directories(\${PLUGIN_NAME} PUBLIC
+  "\${CMAKE_CURRENT_SOURCE_DIR}/include")
+''';
+
+    test('no-op when windows/ directory does not exist', () {
+      expect(
+        () => linkWindows('my_plugin', ['my_plugin'], '/path/to/nitro', baseDir: tmp.path),
+        returnsNormally,
+      );
+    });
+
+    test('no-op when windows/CMakeLists.txt does not exist', () {
+      Directory(p.join(tmp.path, 'windows')).createSync();
+      expect(
+        () => linkWindows('my_plugin', ['my_plugin'], '/path/to/nitro', baseDir: tmp.path),
+        returnsNormally,
+      );
+    });
+
+    test('injects NITRO_NATIVE at top of CMakeLists.txt', () {
+      final cmake = writeWinCmake(tmp, minimalWinCmake);
+      linkWindows('my_plugin', ['my_plugin'], '/nitro/native', baseDir: tmp.path);
+      final content = cmake.readAsStringSync();
+      expect(content, contains('set(NITRO_NATIVE "/nitro/native")'));
+      // Must appear before the cmake_minimum_required line
+      expect(content.indexOf('NITRO_NATIVE'), lessThan(content.indexOf('cmake_minimum')));
+    });
+
+    test('does not duplicate set(NITRO_NATIVE) if already present', () {
+      final cmake = writeWinCmake(tmp, 'set(NITRO_NATIVE "old/path")\n$minimalWinCmake');
+      linkWindows('my_plugin', ['my_plugin'], '/nitro/native', baseDir: tmp.path);
+      final content = cmake.readAsStringSync();
+      // set(NITRO_NATIVE) must appear exactly once (not injected again)
+      expect('set(NITRO_NATIVE'.allMatches(content).length, equals(1));
+    });
+
+    test('injects dart_api_dl.c into add_library target', () {
+      final cmake = writeWinCmake(tmp, minimalWinCmake);
+      linkWindows('my_plugin', ['my_plugin'], '/nitro/native', baseDir: tmp.path);
+      final content = cmake.readAsStringSync();
+      expect(content, contains('dart_api_dl.c'));
+    });
+
+    test('does not duplicate dart_api_dl.c if already present', () {
+      final cmake = writeWinCmake(tmp, 'add_library(\${PLUGIN_NAME} SHARED\n  "dart_api_dl.c"\n)\n');
+      linkWindows('my_plugin', ['my_plugin'], '/nitro/native', baseDir: tmp.path);
+      final content = cmake.readAsStringSync();
+      expect('dart_api_dl.c'.allMatches(content).length, equals(1));
+    });
+
+    test('injects bridge .cpp into add_library target', () {
+      final cmake = writeWinCmake(tmp, minimalWinCmake);
+      linkWindows('my_plugin', ['my_plugin'], '/nitro/native', baseDir: tmp.path);
+      final content = cmake.readAsStringSync();
+      expect(content, contains('../lib/src/generated/cpp/my_plugin.bridge.g.cpp'));
+    });
+
+    test('adds NITRO_NATIVE to target_include_directories', () {
+      final cmake = writeWinCmake(tmp, minimalWinCmake);
+      linkWindows('my_plugin', ['my_plugin'], '/nitro/native', baseDir: tmp.path);
+      final content = cmake.readAsStringSync();
+      expect(content, contains(r'${NITRO_NATIVE}'));
+      expect(content, contains('../lib/src/generated/cpp'));
+    });
+  });
+
+  // ── linkLinux ────────────────────────────────────────────────────────────────
+
+  group('linkLinux', () {
+    File writeLinuxCmake(Directory dir, String content) {
+      final linuxDir = Directory(p.join(dir.path, 'linux'))..createSync(recursive: true);
+      final f = File(p.join(linuxDir.path, 'CMakeLists.txt'));
+      f.writeAsStringSync(content);
+      return f;
+    }
+
+    const minimalLinuxCmake = '''cmake_minimum_required(VERSION 3.10)
+set(PLUGIN_NAME "my_plugin_plugin")
+
+add_library(\${PLUGIN_NAME} SHARED
+  "my_plugin_plugin.cc"
+)
+target_compile_definitions(\${PLUGIN_NAME} PRIVATE DART_SHARED_LIB)
+target_include_directories(\${PLUGIN_NAME} PUBLIC
+  "\${CMAKE_CURRENT_SOURCE_DIR}/include")
+''';
+
+    test('no-op when linux/ directory does not exist', () {
+      expect(
+        () => linkLinux('my_plugin', ['my_plugin'], '/path/to/nitro', baseDir: tmp.path),
+        returnsNormally,
+      );
+    });
+
+    test('injects NITRO_NATIVE at top of CMakeLists.txt', () {
+      final cmake = writeLinuxCmake(tmp, minimalLinuxCmake);
+      linkLinux('my_plugin', ['my_plugin'], '/nitro/native', baseDir: tmp.path);
+      final content = cmake.readAsStringSync();
+      expect(content, contains('set(NITRO_NATIVE "/nitro/native")'));
+    });
+
+    test('injects dart_api_dl.c into add_library target', () {
+      final cmake = writeLinuxCmake(tmp, minimalLinuxCmake);
+      linkLinux('my_plugin', ['my_plugin'], '/nitro/native', baseDir: tmp.path);
+      final content = cmake.readAsStringSync();
+      expect(content, contains('dart_api_dl.c'));
+    });
+
+    test('injects bridge .cpp into add_library target', () {
+      final cmake = writeLinuxCmake(tmp, minimalLinuxCmake);
+      linkLinux('my_plugin', ['my_plugin'], '/nitro/native', baseDir: tmp.path);
+      final content = cmake.readAsStringSync();
+      expect(content, contains('../lib/src/generated/cpp/my_plugin.bridge.g.cpp'));
+    });
+
+    test('adds NITRO_NATIVE to target_include_directories', () {
+      final cmake = writeLinuxCmake(tmp, minimalLinuxCmake);
+      linkLinux('my_plugin', ['my_plugin'], '/nitro/native', baseDir: tmp.path);
+      final content = cmake.readAsStringSync();
+      expect(content, contains(r'${NITRO_NATIVE}'));
+      expect(content, contains('../lib/src/generated/cpp'));
+    });
+
+    test('does not duplicate entries on re-run (idempotent)', () {
+      final cmake = writeLinuxCmake(tmp, minimalLinuxCmake);
+      linkLinux('my_plugin', ['my_plugin'], '/nitro/native', baseDir: tmp.path);
+      final afterFirst = cmake.readAsStringSync();
+      linkLinux('my_plugin', ['my_plugin'], '/nitro/native', baseDir: tmp.path);
+      final afterSecond = cmake.readAsStringSync();
+      expect(afterFirst, equals(afterSecond), reason: 'linkLinux must be idempotent');
+    });
+  });
+
+  // ── generateCMake cross-platform ────────────────────────────────────────────
+
+  group('generateCMake — cross-platform link libraries', () {
+    test('generated CMakeLists.txt contains if(ANDROID) block', () {
+      Directory(p.join(tmp.path, 'src')).createSync();
+      generateCMake('my_plugin', ['my_plugin'], '/nitro/native', baseDir: tmp.path);
+      final content = File(p.join(tmp.path, 'src', 'CMakeLists.txt')).readAsStringSync();
+      expect(content, contains('if(ANDROID)'));
+      expect(content, contains('target_link_libraries(my_plugin PRIVATE android log)'));
+    });
+
+    test('generated CMakeLists.txt contains elseif(WIN32) block', () {
+      Directory(p.join(tmp.path, 'src')).createSync();
+      generateCMake('my_plugin', ['my_plugin'], '/nitro/native', baseDir: tmp.path);
+      final content = File(p.join(tmp.path, 'src', 'CMakeLists.txt')).readAsStringSync();
+      expect(content, contains('elseif(WIN32)'));
+      expect(content, contains('target_link_libraries(my_plugin PRIVATE dbghelp)'));
+    });
+
+    test('generated CMakeLists.txt contains elseif(UNIX AND NOT APPLE) block', () {
+      Directory(p.join(tmp.path, 'src')).createSync();
+      generateCMake('my_plugin', ['my_plugin'], '/nitro/native', baseDir: tmp.path);
+      final content = File(p.join(tmp.path, 'src', 'CMakeLists.txt')).readAsStringSync();
+      expect(content, contains('elseif(UNIX AND NOT APPLE)'));
+      expect(content, contains('target_link_libraries(my_plugin PRIVATE dl pthread)'));
+    });
+
+    test('conditional blocks appear in correct order (ANDROID, WIN32, UNIX, endif)', () {
+      Directory(p.join(tmp.path, 'src')).createSync();
+      generateCMake('my_plugin', ['my_plugin'], '/nitro/native', baseDir: tmp.path);
+      final content = File(p.join(tmp.path, 'src', 'CMakeLists.txt')).readAsStringSync();
+      final androidIdx = content.indexOf('if(ANDROID)');
+      final win32Idx = content.indexOf('elseif(WIN32)');
+      final unixIdx = content.indexOf('elseif(UNIX AND NOT APPLE)');
+      final endifIdx = content.indexOf('endif()');
+      expect(androidIdx, lessThan(win32Idx));
+      expect(win32Idx, lessThan(unixIdx));
+      expect(unixIdx, lessThan(endifIdx));
+    });
+  });
+
+  // ── linkCppImplStubs — cross-platform constructor ────────────────────────────
+
+  group('linkCppImplStubs — cross-platform constructor', () {
+    test('stub contains #if defined(_WIN32) guard', () {
+      Directory(p.join(tmp.path, 'src')).createSync();
+      linkCppImplStubs([ModuleInfo(lib: 'math', module: 'Math', isCpp: true)], baseDir: tmp.path);
+      final content = File(p.join(tmp.path, 'src', 'HybridMath.cpp')).readAsStringSync();
+      expect(content, contains('#if defined(_WIN32)'));
+    });
+
+    test('stub contains static object registration on Windows path', () {
+      Directory(p.join(tmp.path, 'src')).createSync();
+      linkCppImplStubs([ModuleInfo(lib: 'math', module: 'Math', isCpp: true)], baseDir: tmp.path);
+      final content = File(p.join(tmp.path, 'src', 'HybridMath.cpp')).readAsStringSync();
+      expect(content, contains('struct _AutoRegister'));
+      expect(content, contains('_AutoRegister()'));
+    });
+
+    test('stub contains __attribute__((constructor)) on non-Windows path', () {
+      Directory(p.join(tmp.path, 'src')).createSync();
+      linkCppImplStubs([ModuleInfo(lib: 'math', module: 'Math', isCpp: true)], baseDir: tmp.path);
+      final content = File(p.join(tmp.path, 'src', 'HybridMath.cpp')).readAsStringSync();
+      expect(content, contains('__attribute__((constructor))'));
+      expect(content, contains('#else'));
+      expect(content, contains('#endif'));
+    });
+
+    test('stub register call appears in both Windows and non-Windows blocks', () {
+      Directory(p.join(tmp.path, 'src')).createSync();
+      linkCppImplStubs([ModuleInfo(lib: 'math', module: 'Math', isCpp: true)], baseDir: tmp.path);
+      final content = File(p.join(tmp.path, 'src', 'HybridMath.cpp')).readAsStringSync();
+      expect('math_register_impl'.allMatches(content).length, greaterThanOrEqualTo(2));
     });
   });
 }

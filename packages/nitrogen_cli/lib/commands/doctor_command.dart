@@ -876,6 +876,76 @@ class DoctorCommand extends Command {
       }
     }
 
+    // ── Windows ──────────────────────────────────────────────────────────────
+    final winSec = DoctorSection('Windows');
+    sections.add(winSec);
+    final winDir = Directory(p.join(root.path, 'windows'));
+    if (!winDir.existsSync()) {
+      info(winSec, 'windows/ directory not present — skipped');
+    } else {
+      final cmakeFile = File(p.join(winDir.path, 'CMakeLists.txt'));
+      if (!cmakeFile.existsSync()) {
+        err(winSec, 'windows/CMakeLists.txt not found', hint: 'Run: nitrogen link');
+      } else {
+        final cmake = cmakeFile.readAsStringSync();
+        if (cmake.contains('NITRO_NATIVE')) {
+          ok(winSec, 'NITRO_NATIVE variable defined in windows/CMakeLists.txt');
+        } else {
+          err(winSec, 'NITRO_NATIVE missing in windows/CMakeLists.txt', hint: 'Run: nitrogen link');
+        }
+        if (cmake.contains('dart_api_dl.c')) {
+          ok(winSec, 'dart_api_dl.c included in windows/CMakeLists.txt');
+        } else {
+          err(winSec, 'dart_api_dl.c not included in windows/CMakeLists.txt', hint: 'Run: nitrogen link');
+        }
+        for (final spec in specs) {
+          final stem = p.basename(spec.path).replaceAll(RegExp(r'\.native\.dart$'), '');
+          final lib = _extractLibName(spec) ?? stem.replaceAll('-', '_');
+          final bridgeRel = '../lib/src/generated/cpp/$lib.bridge.g.cpp';
+          if (cmake.contains(bridgeRel)) {
+            ok(winSec, '$lib.bridge.g.cpp linked in windows/CMakeLists.txt');
+          } else {
+            warn(winSec, '$lib.bridge.g.cpp not linked in windows/CMakeLists.txt', hint: 'Run: nitrogen link');
+          }
+        }
+      }
+    }
+
+    // ── Linux ─────────────────────────────────────────────────────────────────
+    final linuxSec = DoctorSection('Linux');
+    sections.add(linuxSec);
+    final linuxDir = Directory(p.join(root.path, 'linux'));
+    if (!linuxDir.existsSync()) {
+      info(linuxSec, 'linux/ directory not present — skipped');
+    } else {
+      final cmakeFile = File(p.join(linuxDir.path, 'CMakeLists.txt'));
+      if (!cmakeFile.existsSync()) {
+        err(linuxSec, 'linux/CMakeLists.txt not found', hint: 'Run: nitrogen link');
+      } else {
+        final cmake = cmakeFile.readAsStringSync();
+        if (cmake.contains('NITRO_NATIVE')) {
+          ok(linuxSec, 'NITRO_NATIVE variable defined in linux/CMakeLists.txt');
+        } else {
+          err(linuxSec, 'NITRO_NATIVE missing in linux/CMakeLists.txt', hint: 'Run: nitrogen link');
+        }
+        if (cmake.contains('dart_api_dl.c')) {
+          ok(linuxSec, 'dart_api_dl.c included in linux/CMakeLists.txt');
+        } else {
+          err(linuxSec, 'dart_api_dl.c not included in linux/CMakeLists.txt', hint: 'Run: nitrogen link');
+        }
+        for (final spec in specs) {
+          final stem = p.basename(spec.path).replaceAll(RegExp(r'\.native\.dart$'), '');
+          final lib = _extractLibName(spec) ?? stem.replaceAll('-', '_');
+          final bridgeRel = '../lib/src/generated/cpp/$lib.bridge.g.cpp';
+          if (cmake.contains(bridgeRel)) {
+            ok(linuxSec, '$lib.bridge.g.cpp linked in linux/CMakeLists.txt');
+          } else {
+            warn(linuxSec, '$lib.bridge.g.cpp not linked in linux/CMakeLists.txt', hint: 'Run: nitrogen link');
+          }
+        }
+      }
+    }
+
     // ── NativeImpl.cpp Direct Implementation ────────────────────────────────
     if (hasAnyCppSpec) {
       final cppSec = DoctorSection('NativeImpl.cpp Direct Implementation');

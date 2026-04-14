@@ -1,7 +1,84 @@
+// ── Platform capability markers ───────────────────────────────────────────────
+// These interfaces restrict which NativeImpl subtypes may be passed to each
+// @NitroModule field. Passing an incompatible impl is a compile-time error.
+
+/// Accepted by [NitroModule.ios] and [NitroModule.macos].
+/// Implemented by [SwiftImpl] and [CppImpl].
+abstract interface class AppleNativeImpl {}
+
+/// Accepted by [NitroModule.android].
+/// Implemented by [KotlinImpl] and [CppImpl].
+abstract interface class AndroidNativeImpl {}
+
+/// Accepted by [NitroModule.windows].
+/// Only implemented by [CppImpl] — Windows requires direct C++.
+abstract interface class WindowsNativeImpl {}
+
+/// Accepted by [NitroModule.linux].
+/// Only implemented by [CppImpl] — Linux requires direct C++.
+abstract interface class LinuxNativeImpl {}
+
+/// Accepted by [NitroModule.web].
+/// Only implemented by [WasmImpl] — Web requires WASM/JS interop (no dart:ffi).
+abstract interface class WebNativeImpl {}
+
+// ── NativeImpl sealed class hierarchy ─────────────────────────────────────────
+// Each subclass implements only the platform capability markers where it is
+// valid. Use the static constants — do not construct subclasses directly.
+//
+//   NativeImpl.swift  → ios, macos only        (AppleNativeImpl)
+//   NativeImpl.kotlin → android only           (AndroidNativeImpl)
+//   NativeImpl.cpp    → all native platforms   (Apple + Android + Windows + Linux)
+//   NativeImpl.wasm   → web only               (WebNativeImpl)
+
+/// Sealed base. Use [NativeImpl.swift], [NativeImpl.kotlin],
+/// [NativeImpl.cpp], or [NativeImpl.wasm].
+sealed class NativeImpl {
+  const NativeImpl._();
+
+  /// Swift + @_cdecl C bridge. Valid on [NitroModule.ios] and [NitroModule.macos].
+  static const swift = SwiftImpl._();
+
+  /// Kotlin + JNI bridge. Valid on [NitroModule.android] only.
+  static const kotlin = KotlinImpl._();
+
+  /// Direct C++ via CMake/FFI. Valid on all native platforms:
+  /// iOS, Android, macOS, Windows, and Linux.
+  static const cpp = CppImpl._();
+
+  /// WASM/JS interop bridge. Valid on [NitroModule.web] only.
+  /// dart:ffi is not available on web — use this for Web targets.
+  static const wasm = WasmImpl._();
+}
+
+/// Swift + @_cdecl bridge. Valid on Apple platforms (iOS and macOS) only.
+final class SwiftImpl extends NativeImpl implements AppleNativeImpl {
+  const SwiftImpl._() : super._();
+}
+
+/// Kotlin + JNI bridge. Valid on Android only.
+final class KotlinImpl extends NativeImpl implements AndroidNativeImpl {
+  const KotlinImpl._() : super._();
+}
+
+/// Direct C++ implementation via CMake/FFI. Valid on all native platforms.
+final class CppImpl extends NativeImpl
+    implements AppleNativeImpl, AndroidNativeImpl, WindowsNativeImpl, LinuxNativeImpl {
+  const CppImpl._() : super._();
+}
+
+/// WASM/JS interop bridge. Valid on Web only — dart:ffi is unavailable on web.
+final class WasmImpl extends NativeImpl implements WebNativeImpl {
+  const WasmImpl._() : super._();
+}
+
 class NitroModule {
-  final NativeImpl? ios; // which language implements on iOS (null = not targeting iOS)
-  final NativeImpl? android; // which language implements on Android (null = not targeting Android)
-  final NativeImpl? macos; // which language implements on macOS (null = not targeting macOS); only NativeImpl.cpp or NativeImpl.swift are valid
+  final AppleNativeImpl? ios; // which language implements on iOS (null = not targeting iOS)
+  final AndroidNativeImpl? android; // which language implements on Android (null = not targeting Android)
+  final AppleNativeImpl? macos; // which language implements on macOS (null = not targeting macOS); NativeImpl.swift or NativeImpl.cpp only
+  final WindowsNativeImpl? windows; // which language implements on Windows (null = not targeting Windows); NativeImpl.cpp only
+  final LinuxNativeImpl? linux; // which language implements on Linux (null = not targeting Linux); NativeImpl.cpp only
+  final WebNativeImpl? web; // which language implements on Web (null = not targeting Web); NativeImpl.wasm only
   final String? cSymbolPrefix; // override C prefix (default: snake_case classname)
   final String? lib; // override .so/.dylib name (default: lib{classname})
 
@@ -9,15 +86,12 @@ class NitroModule {
     this.ios,
     this.android,
     this.macos,
+    this.windows,
+    this.linux,
+    this.web,
     this.cSymbolPrefix,
     this.lib,
   });
-}
-
-enum NativeImpl {
-  swift, // iOS / macOS: Swift + @_cdecl C bridge
-  kotlin, // Android: Kotlin + JNI bridge
-  cpp, // Shared C++ across any targeted platform (iOS, macOS, Android)
 }
 
 class HybridStruct {

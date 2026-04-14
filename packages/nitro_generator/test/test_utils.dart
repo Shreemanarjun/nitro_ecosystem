@@ -635,6 +635,139 @@ BridgeSpec triPlatformCppSpec() => BridgeSpec(
   ],
 );
 
+// ── New desktop / web platform spec helpers ───────────────────────────────────
+
+/// Windows-only with C++ (no iOS, Android, macOS, Linux).
+BridgeSpec windowsOnlyCppSpec() => BridgeSpec(
+  dartClassName: 'WinProcessor',
+  lib: 'win_processor',
+  namespace: 'win_processor',
+  windowsImpl: NativeImpl.cpp,
+  sourceUri: 'win_processor.native.dart',
+  functions: [
+    BridgeFunction(
+      dartName: 'process',
+      cSymbol: 'win_processor_process',
+      isAsync: false,
+      returnType: BridgeType(name: 'double'),
+      params: [BridgeParam(name: 'value', type: BridgeType(name: 'double'))],
+    ),
+  ],
+);
+
+/// Linux-only with C++ (no iOS, Android, macOS, Windows).
+BridgeSpec linuxOnlyCppSpec() => BridgeSpec(
+  dartClassName: 'LinuxProcessor',
+  lib: 'linux_processor',
+  namespace: 'linux_processor',
+  linuxImpl: NativeImpl.cpp,
+  sourceUri: 'linux_processor.native.dart',
+  functions: [
+    BridgeFunction(
+      dartName: 'process',
+      cSymbol: 'linux_processor_process',
+      isAsync: false,
+      returnType: BridgeType(name: 'double'),
+      params: [BridgeParam(name: 'value', type: BridgeType(name: 'double'))],
+    ),
+  ],
+);
+
+/// Windows + Linux shared C++ (no Apple, no Android).
+BridgeSpec windowsLinuxCppSpec() => BridgeSpec(
+  dartClassName: 'DesktopProcessor',
+  lib: 'desktop_processor',
+  namespace: 'desktop_processor',
+  windowsImpl: NativeImpl.cpp,
+  linuxImpl: NativeImpl.cpp,
+  sourceUri: 'desktop_processor.native.dart',
+  functions: [
+    BridgeFunction(
+      dartName: 'process',
+      cSymbol: 'desktop_processor_process',
+      isAsync: false,
+      returnType: BridgeType(name: 'double'),
+      params: [BridgeParam(name: 'value', type: BridgeType(name: 'double'))],
+    ),
+  ],
+);
+
+/// All five native C++ platforms (iOS + Android + macOS + Windows + Linux).
+BridgeSpec allNativeCppSpec() => BridgeSpec(
+  dartClassName: 'UniversalProcessor',
+  lib: 'universal_processor',
+  namespace: 'universal_processor',
+  iosImpl: NativeImpl.cpp,
+  androidImpl: NativeImpl.cpp,
+  macosImpl: NativeImpl.cpp,
+  windowsImpl: NativeImpl.cpp,
+  linuxImpl: NativeImpl.cpp,
+  sourceUri: 'universal_processor.native.dart',
+  functions: [
+    BridgeFunction(
+      dartName: 'process',
+      cSymbol: 'universal_processor_process',
+      isAsync: false,
+      returnType: BridgeType(name: 'double'),
+      params: [BridgeParam(name: 'value', type: BridgeType(name: 'double'))],
+    ),
+  ],
+);
+
+/// Web-only WASM spec (no native platforms).
+BridgeSpec webOnlySpec() => BridgeSpec(
+  dartClassName: 'WebModule',
+  lib: 'web_module',
+  namespace: 'web_module',
+  webImpl: NativeImpl.wasm,
+  sourceUri: 'web_module.native.dart',
+  functions: [
+    BridgeFunction(
+      dartName: 'add',
+      cSymbol: 'web_module_add',
+      isAsync: false,
+      returnType: BridgeType(name: 'double'),
+      params: [
+        BridgeParam(name: 'a', type: BridgeType(name: 'double')),
+        BridgeParam(name: 'b', type: BridgeType(name: 'double')),
+      ],
+    ),
+  ],
+);
+
+/// Maximum coverage: all five native C++ platforms + web.
+BridgeSpec fullCrossPlatformSpec() => BridgeSpec(
+  dartClassName: 'CrossPlatform',
+  lib: 'cross_platform',
+  namespace: 'cross_platform',
+  iosImpl: NativeImpl.cpp,
+  androidImpl: NativeImpl.cpp,
+  macosImpl: NativeImpl.cpp,
+  windowsImpl: NativeImpl.cpp,
+  linuxImpl: NativeImpl.cpp,
+  webImpl: NativeImpl.wasm,
+  sourceUri: 'cross_platform.native.dart',
+  functions: [
+    BridgeFunction(
+      dartName: 'compute',
+      cSymbol: 'cross_platform_compute',
+      isAsync: false,
+      returnType: BridgeType(name: 'double'),
+      params: [BridgeParam(name: 'x', type: BridgeType(name: 'double'))],
+    ),
+  ],
+);
+
+/// Returns one spec per C++ platform — use in parameterized generator tests
+/// to verify a behaviour holds across all five native targets.
+List<BridgeSpec> allCppPlatformSpecs() => [
+  iosOnlyCppSpec(),
+  androidOnlyCppSpec(),
+  macosOnlyCppSpec(),
+  windowsOnlyCppSpec(),
+  linuxOnlyCppSpec(),
+];
+
 /// iOS-only with Swift, includes a property (getter + setter).
 BridgeSpec iosOnlyWithPropertySpec() => BridgeSpec(
   dartClassName: 'IosBrightness',
@@ -705,6 +838,26 @@ BridgeSpec androidOnlyWithStreamSpec() => BridgeSpec(
       releaseSymbol: 'android_step_counter_release_steps_stream',
       itemType: BridgeType(name: 'int'),
       backpressure: Backpressure.dropLatest,
+    ),
+  ],
+);
+
+/// Mixed-platform spec: iOS uses C++, Android uses Kotlin.
+/// Used to verify [BridgeSpec.hasCppImpl] == true and [isCppImpl] == false.
+BridgeSpec mixedPlatformCppSpec() => BridgeSpec(
+  dartClassName: 'MixedProcessor',
+  lib: 'mixed_processor',
+  namespace: 'mixed_processor',
+  iosImpl: NativeImpl.cpp,
+  androidImpl: NativeImpl.kotlin,
+  sourceUri: 'mixed_processor.native.dart',
+  functions: [
+    BridgeFunction(
+      dartName: 'process',
+      cSymbol: 'mixed_processor_process',
+      isAsync: false,
+      returnType: BridgeType(name: 'double'),
+      params: [BridgeParam(name: 'value', type: BridgeType(name: 'double'))],
     ),
   ],
 );

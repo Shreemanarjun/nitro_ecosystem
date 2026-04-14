@@ -7,6 +7,9 @@ class BridgeSpec {
   final NativeImpl? iosImpl;
   final NativeImpl? androidImpl;
   final NativeImpl? macosImpl;
+  final NativeImpl? windowsImpl;
+  final NativeImpl? linuxImpl;
+  final NativeImpl? webImpl;
   final String sourceUri;
 
   /// True when iOS is a targeted platform.
@@ -18,16 +21,45 @@ class BridgeSpec {
   /// True when macOS is a targeted platform.
   bool get targetsMacos => macosImpl != null;
 
-  /// True when any Apple platform (iOS and/or macOS) is targeted with C++.
-  bool get targetsAppleCpp =>
-      (iosImpl == NativeImpl.cpp || macosImpl == NativeImpl.cpp);
+  /// True when Windows is a targeted platform.
+  bool get targetsWindows => windowsImpl != null;
 
-  /// True when all targeted platforms use direct C++ (no JNI / Swift bridge).
+  /// True when Linux is a targeted platform.
+  bool get targetsLinux => linuxImpl != null;
+
+  /// True when Web is a targeted platform.
+  bool get targetsWeb => webImpl != null;
+
+  /// True when any Apple platform (iOS and/or macOS) is targeted with C++.
+  bool get targetsAppleCpp => (iosImpl is CppImpl || macosImpl is CppImpl);
+
+  /// True when any desktop C++ platform (Windows and/or Linux) is targeted.
+  bool get targetsDesktopCpp => (windowsImpl is CppImpl || linuxImpl is CppImpl);
+
+  /// True when at least one native platform uses direct C++ (no JNI / Swift
+  /// bridge). Web is intentionally excluded — it is never a dart:ffi target.
+  ///
+  /// Use this to decide whether to emit C++ headers / mocks that are needed
+  /// by any C++ platform target, even in mixed-impl modules (e.g. android=kotlin,
+  /// ios=cpp).
+  bool get hasCppImpl =>
+      iosImpl     is CppImpl ||
+      androidImpl is CppImpl ||
+      macosImpl   is CppImpl ||
+      windowsImpl is CppImpl ||
+      linuxImpl   is CppImpl;
+
+  /// True when all targeted native platforms use direct C++ (no JNI / Swift
+  /// bridge). Web is intentionally excluded — it is never a dart:ffi target.
   bool get isCppImpl =>
-      (iosImpl == null || iosImpl == NativeImpl.cpp) &&
-      (androidImpl == null || androidImpl == NativeImpl.cpp) &&
-      (macosImpl == null || macosImpl == NativeImpl.cpp) &&
-      (iosImpl != null || androidImpl != null || macosImpl != null);
+      (iosImpl     == null || iosImpl     is CppImpl) &&
+      (androidImpl == null || androidImpl is CppImpl) &&
+      (macosImpl   == null || macosImpl   is CppImpl) &&
+      (windowsImpl == null || windowsImpl is CppImpl) &&
+      (linuxImpl   == null || linuxImpl   is CppImpl) &&
+      // webImpl intentionally excluded — web is never a dart:ffi C++ target
+      (iosImpl != null || androidImpl != null || macosImpl  != null ||
+       windowsImpl != null || linuxImpl != null);
 
   final List<BridgeStruct> structs;
   final List<BridgeEnum> enums;
@@ -43,6 +75,9 @@ class BridgeSpec {
     this.iosImpl,
     this.androidImpl,
     this.macosImpl,
+    this.windowsImpl,
+    this.linuxImpl,
+    this.webImpl,
     required this.sourceUri,
     this.structs = const [],
     this.enums = const [],

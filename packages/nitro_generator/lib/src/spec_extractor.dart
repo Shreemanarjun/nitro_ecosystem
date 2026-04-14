@@ -18,9 +18,12 @@ class SpecExtractor {
     final element = module.element as ClassElement;
     final annotation = module.annotation;
 
-    final iosImpl = annotation.read('ios').isNull ? null : _getNativeImpl(annotation.read('ios').objectValue);
+    final iosImpl     = annotation.read('ios').isNull     ? null : _getNativeImpl(annotation.read('ios').objectValue);
     final androidImpl = annotation.read('android').isNull ? null : _getNativeImpl(annotation.read('android').objectValue);
-    final macosImpl = annotation.read('macos').isNull ? null : _getNativeImpl(annotation.read('macos').objectValue);
+    final macosImpl   = annotation.read('macos').isNull   ? null : _getNativeImpl(annotation.read('macos').objectValue);
+    final windowsImpl = annotation.read('windows').isNull ? null : _getNativeImpl(annotation.read('windows').objectValue);
+    final linuxImpl   = annotation.read('linux').isNull   ? null : _getNativeImpl(annotation.read('linux').objectValue);
+    final webImpl     = annotation.read('web').isNull     ? null : _getNativeImpl(annotation.read('web').objectValue);
     final cSymbolPrefix = annotation.read('cSymbolPrefix').isNull ? null : annotation.read('cSymbolPrefix').stringValue;
     final lib = annotation.read('lib').isNull ? null : annotation.read('lib').stringValue;
     final sourceFile = library.element.source.uri.pathSegments.last.replaceFirst('.native.dart', '');
@@ -40,6 +43,9 @@ class SpecExtractor {
       iosImpl: iosImpl,
       androidImpl: androidImpl,
       macosImpl: macosImpl,
+      windowsImpl: windowsImpl,
+      linuxImpl: linuxImpl,
+      webImpl: webImpl,
       sourceUri: library.element.source.uri.toString(),
       functions: _extractFunctions(element, ns, recordTypeNames),
       properties: properties,
@@ -51,8 +57,21 @@ class SpecExtractor {
   }
 
   static NativeImpl _getNativeImpl(DartObject object) {
-    final index = object.getField('index')?.toIntValue() ?? NativeImpl.cpp.index;
-    return NativeImpl.values[index];
+    // Reconstruct by runtime type name — robust against class reordering.
+    // Each NativeImpl subclass (SwiftImpl, KotlinImpl, CppImpl, WasmImpl) has a
+    // unique name that the analyzer preserves in the DartObject type element.
+    final typeName = object.type?.element?.name;
+    return switch (typeName) {
+      'SwiftImpl'  => NativeImpl.swift,
+      'KotlinImpl' => NativeImpl.kotlin,
+      'CppImpl'    => NativeImpl.cpp,
+      'WasmImpl'   => NativeImpl.wasm,
+      _ => throw InvalidGenerationSourceError(
+        'Unknown NativeImpl subclass: "$typeName". '
+        'Expected SwiftImpl, KotlinImpl, CppImpl, or WasmImpl. '
+        'Use NativeImpl.swift, NativeImpl.kotlin, NativeImpl.cpp, or NativeImpl.wasm.',
+      ),
+    };
   }
 
   // ─── @HybridRecord ────────────────────────────────────────────────────────

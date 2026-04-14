@@ -244,6 +244,9 @@ void main() {
     });
 
     test('macosImpl: NativeImpl.kotlin raises INVALID_MACOS_IMPL error', () {
+      // NativeImpl.kotlin is KotlinImpl which is a NativeImpl subtype —
+      // BridgeSpec.macosImpl is NativeImpl? so this compiles; the validator
+      // catches the violation at runtime as a defensive check.
       final spec = BridgeSpec(
         dartClassName: 'Bad',
         lib: 'bad',
@@ -549,6 +552,80 @@ void main() {
     });
   });
 
+  // ── hasCppImpl — any-platform C++ ─────────────────────────────────────────
+
+  group('BridgeSpec.hasCppImpl', () {
+    test('all-cpp: hasCppImpl=true', () {
+      expect(cppSpec().hasCppImpl, isTrue);
+    });
+
+    test('mixed ios=cpp android=kotlin: hasCppImpl=true, isCppImpl=false', () {
+      final spec = mixedPlatformCppSpec();
+      expect(spec.hasCppImpl, isTrue);
+      expect(spec.isCppImpl, isFalse);
+    });
+
+    test('ios=swift android=kotlin: hasCppImpl=false', () {
+      expect(simpleSpec().hasCppImpl, isFalse);
+    });
+
+    test('windows-only cpp: hasCppImpl=true', () {
+      expect(windowsOnlyCppSpec().hasCppImpl, isTrue);
+    });
+
+    test('linux-only cpp: hasCppImpl=true', () {
+      expect(linuxOnlyCppSpec().hasCppImpl, isTrue);
+    });
+
+    test('web-only: hasCppImpl=false', () {
+      expect(webOnlySpec().hasCppImpl, isFalse);
+    });
+
+    test('no platforms: hasCppImpl=false', () {
+      final spec = BridgeSpec(
+        dartClassName: 'X',
+        lib: 'x',
+        namespace: 'x',
+        sourceUri: 'x.native.dart',
+      );
+      expect(spec.hasCppImpl, isFalse);
+    });
+  });
+
+  // ── CppInterfaceGenerator — mixed-platform ─────────────────────────────────
+
+  group('CppInterfaceGenerator — mixed-platform (ios=cpp, android=kotlin)', () {
+    test('generates abstract class despite android=kotlin', () {
+      final out = CppInterfaceGenerator.generate(mixedPlatformCppSpec());
+      expect(out, contains('class HybridMixedProcessor'));
+    });
+
+    test('generates pure-virtual methods', () {
+      final out = CppInterfaceGenerator.generate(mixedPlatformCppSpec());
+      expect(out, contains('virtual double process(double value) = 0;'));
+    });
+
+    test('generates registration API', () {
+      final out = CppInterfaceGenerator.generate(mixedPlatformCppSpec());
+      expect(out, contains('mixed_processor_register_impl'));
+      expect(out, contains('mixed_processor_get_impl'));
+    });
+  });
+
+  // ── CppMockGenerator — mixed-platform ──────────────────────────────────────
+
+  group('CppMockGenerator — mixed-platform (ios=cpp, android=kotlin)', () {
+    test('generates mock header despite android=kotlin', () {
+      final out = CppMockGenerator.generateMockHeader(mixedPlatformCppSpec());
+      expect(out, contains('class MockMixedProcessor'));
+    });
+
+    test('generates test starter despite android=kotlin', () {
+      final out = CppMockGenerator.generateTestStarter(mixedPlatformCppSpec());
+      expect(out, contains('MockMixedProcessor'));
+    });
+  });
+
   // ── isCppImpl edge cases ───────────────────────────────────────────────────
 
   group('BridgeSpec.isCppImpl edge cases', () {
@@ -576,6 +653,211 @@ void main() {
         sourceUri: 'x.native.dart',
       );
       expect(spec.isCppImpl, isFalse);
+    });
+
+    test('windows cpp only: isCppImpl=true', () {
+      expect(windowsOnlyCppSpec().isCppImpl, isTrue);
+    });
+
+    test('linux cpp only: isCppImpl=true', () {
+      expect(linuxOnlyCppSpec().isCppImpl, isTrue);
+    });
+
+    test('windows + linux cpp: isCppImpl=true', () {
+      expect(windowsLinuxCppSpec().isCppImpl, isTrue);
+    });
+
+    test('all five native cpp platforms: isCppImpl=true', () {
+      expect(allNativeCppSpec().isCppImpl, isTrue);
+    });
+
+    test('web only: isCppImpl=false (web is never a dart:ffi target)', () {
+      expect(webOnlySpec().isCppImpl, isFalse);
+    });
+
+    test('web + windows cpp: isCppImpl=true (web does not disqualify native platforms)', () {
+      expect(fullCrossPlatformSpec().isCppImpl, isTrue);
+    });
+  });
+
+  // ── Windows + Linux targeting ──────────────────────────────────────────────
+
+  group('BridgeSpec — Windows targeting', () {
+    test('windowsImpl set → targetsWindows=true', () {
+      expect(windowsOnlyCppSpec().targetsWindows, isTrue);
+    });
+
+    test('windowsImpl null → targetsWindows=false', () {
+      expect(simpleSpec().targetsWindows, isFalse);
+    });
+
+    test('windows-only: isCppImpl=true, targetsIos=false, targetsAndroid=false', () {
+      final spec = windowsOnlyCppSpec();
+      expect(spec.isCppImpl, isTrue);
+      expect(spec.targetsIos, isFalse);
+      expect(spec.targetsAndroid, isFalse);
+      expect(spec.targetsMacos, isFalse);
+    });
+
+    test('windows-only: targetsDesktopCpp=true', () {
+      expect(windowsOnlyCppSpec().targetsDesktopCpp, isTrue);
+    });
+
+    test('windows-only: no NO_TARGET_PLATFORM error', () {
+      final issues = SpecValidator.validate(windowsOnlyCppSpec());
+      expect(issues.any((i) => i.code == 'NO_TARGET_PLATFORM'), isFalse);
+    });
+
+    test('windowsImpl: NativeImpl.swift (forced) raises INVALID_WINDOWS_IMPL error', () {
+      final spec = BridgeSpec(
+        dartClassName: 'Bad',
+        lib: 'bad',
+        namespace: 'bad',
+        windowsImpl: NativeImpl.swift,
+        sourceUri: 'bad.native.dart',
+      );
+      final issues = SpecValidator.validate(spec);
+      expect(issues.any((i) => i.code == 'INVALID_WINDOWS_IMPL' && i.isError), isTrue);
+    });
+
+    test('windowsImpl: NativeImpl.kotlin (forced) raises INVALID_WINDOWS_IMPL error', () {
+      final spec = BridgeSpec(
+        dartClassName: 'Bad',
+        lib: 'bad',
+        namespace: 'bad',
+        windowsImpl: NativeImpl.kotlin,
+        sourceUri: 'bad.native.dart',
+      );
+      final issues = SpecValidator.validate(spec);
+      expect(issues.any((i) => i.code == 'INVALID_WINDOWS_IMPL' && i.isError), isTrue);
+    });
+
+    test('windowsImpl: NativeImpl.cpp → no INVALID_WINDOWS_IMPL error', () {
+      final issues = SpecValidator.validate(windowsOnlyCppSpec());
+      expect(issues.any((i) => i.code == 'INVALID_WINDOWS_IMPL'), isFalse);
+    });
+  });
+
+  group('BridgeSpec — Linux targeting', () {
+    test('linuxImpl set → targetsLinux=true', () {
+      expect(linuxOnlyCppSpec().targetsLinux, isTrue);
+    });
+
+    test('linuxImpl null → targetsLinux=false', () {
+      expect(simpleSpec().targetsLinux, isFalse);
+    });
+
+    test('linux-only: isCppImpl=true', () {
+      expect(linuxOnlyCppSpec().isCppImpl, isTrue);
+    });
+
+    test('linux-only: targetsDesktopCpp=true', () {
+      expect(linuxOnlyCppSpec().targetsDesktopCpp, isTrue);
+    });
+
+    test('linux-only: no NO_TARGET_PLATFORM error', () {
+      final issues = SpecValidator.validate(linuxOnlyCppSpec());
+      expect(issues.any((i) => i.code == 'NO_TARGET_PLATFORM'), isFalse);
+    });
+
+    test('linuxImpl: NativeImpl.swift (forced) raises INVALID_LINUX_IMPL error', () {
+      final spec = BridgeSpec(
+        dartClassName: 'Bad',
+        lib: 'bad',
+        namespace: 'bad',
+        linuxImpl: NativeImpl.swift,
+        sourceUri: 'bad.native.dart',
+      );
+      final issues = SpecValidator.validate(spec);
+      expect(issues.any((i) => i.code == 'INVALID_LINUX_IMPL' && i.isError), isTrue);
+    });
+
+    test('linuxImpl: NativeImpl.cpp → no INVALID_LINUX_IMPL error', () {
+      final issues = SpecValidator.validate(linuxOnlyCppSpec());
+      expect(issues.any((i) => i.code == 'INVALID_LINUX_IMPL'), isFalse);
+    });
+  });
+
+  group('BridgeSpec — Windows + Linux combined', () {
+    test('windows + linux: both targets true', () {
+      final spec = windowsLinuxCppSpec();
+      expect(spec.targetsWindows, isTrue);
+      expect(spec.targetsLinux, isTrue);
+    });
+
+    test('windows + linux: isCppImpl=true', () {
+      expect(windowsLinuxCppSpec().isCppImpl, isTrue);
+    });
+
+    test('windows + linux: targetsDesktopCpp=true', () {
+      expect(windowsLinuxCppSpec().targetsDesktopCpp, isTrue);
+    });
+
+    test('all five native platforms: all target flags true', () {
+      final spec = allNativeCppSpec();
+      expect(spec.targetsIos, isTrue);
+      expect(spec.targetsAndroid, isTrue);
+      expect(spec.targetsMacos, isTrue);
+      expect(spec.targetsWindows, isTrue);
+      expect(spec.targetsLinux, isTrue);
+      expect(spec.isCppImpl, isTrue);
+    });
+  });
+
+  // ── Web targeting ──────────────────────────────────────────────────────────
+
+  group('BridgeSpec — Web targeting', () {
+    test('webImpl set → targetsWeb=true', () {
+      expect(webOnlySpec().targetsWeb, isTrue);
+    });
+
+    test('webImpl null → targetsWeb=false', () {
+      expect(simpleSpec().targetsWeb, isFalse);
+    });
+
+    test('web-only: isCppImpl=false', () {
+      expect(webOnlySpec().isCppImpl, isFalse);
+    });
+
+    test('web-only: no NO_TARGET_PLATFORM error', () {
+      final issues = SpecValidator.validate(webOnlySpec());
+      expect(issues.any((i) => i.code == 'NO_TARGET_PLATFORM'), isFalse);
+    });
+
+    test('webImpl: NativeImpl.cpp (forced) raises INVALID_WEB_IMPL error', () {
+      // Critical: CppImpl on web would generate dart:ffi code → web compile failure.
+      final spec = BridgeSpec(
+        dartClassName: 'Bad',
+        lib: 'bad',
+        namespace: 'bad',
+        webImpl: NativeImpl.cpp,
+        sourceUri: 'bad.native.dart',
+      );
+      final issues = SpecValidator.validate(spec);
+      expect(issues.any((i) => i.code == 'INVALID_WEB_IMPL' && i.isError), isTrue);
+    });
+
+    test('webImpl: NativeImpl.swift (forced) raises INVALID_WEB_IMPL error', () {
+      final spec = BridgeSpec(
+        dartClassName: 'Bad',
+        lib: 'bad',
+        namespace: 'bad',
+        webImpl: NativeImpl.swift,
+        sourceUri: 'bad.native.dart',
+      );
+      final issues = SpecValidator.validate(spec);
+      expect(issues.any((i) => i.code == 'INVALID_WEB_IMPL' && i.isError), isTrue);
+    });
+
+    test('webImpl: NativeImpl.wasm → no INVALID_WEB_IMPL error', () {
+      final issues = SpecValidator.validate(webOnlySpec());
+      expect(issues.any((i) => i.code == 'INVALID_WEB_IMPL'), isFalse);
+    });
+
+    test('full cross-platform: web + all native cpp, no errors', () {
+      final issues = SpecValidator.validate(fullCrossPlatformSpec());
+      final errors = issues.where((i) => i.isError).toList();
+      expect(errors, isEmpty);
     });
   });
 }
