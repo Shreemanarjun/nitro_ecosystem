@@ -1,1 +1,0 @@
-../../lib/src/generated/swift/benchmark.bridge.g.swift

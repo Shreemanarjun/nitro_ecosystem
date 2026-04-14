@@ -129,7 +129,9 @@ void syncBridgeFiles(String workingDirectory, {String platform = 'ios'}) {
 }
 
 /// Returns the set of lib names that are NativeImpl.cpp modules, by reading
-/// the *.native.dart spec files in lib/.
+/// the *.native.dart spec files in lib/. Recognises both the legacy shorthand
+/// (`NativeImpl.cpp`) and the new per-platform sealed-class variants
+/// (`AppleNativeImpl.cpp`, `AndroidNativeImpl.cpp`, etc.).
 Set<String> _discoverCppLibs(String workingDirectory) {
   final libDir = Directory(p.join(workingDirectory, 'lib'));
   if (!libDir.existsSync()) return {};
@@ -137,13 +139,17 @@ Set<String> _discoverCppLibs(String workingDirectory) {
   for (final file in libDir.listSync(recursive: true).whereType<File>()) {
     if (!file.path.endsWith('.native.dart')) continue;
     final content = file.readAsStringSync();
-    final libMatch = RegExp(r'''@NitroModule\s*\([^)]*lib\s*:\s*['"]([^'"]+)['"]''').firstMatch(content);
+    final libMatch = RegExp(r'''@NitroModule\s*\([^)]*lib\s*:\s*['"]([^'"]+)['"]''', dotAll: true).firstMatch(content);
     if (libMatch == null) continue;
-    final annotationMatch = RegExp(r'@NitroModule\s*\(([^)]+)\)').firstMatch(content);
+    final annotationMatch = RegExp(r'@NitroModule\s*\(([^)]+)\)', dotAll: true).firstMatch(content);
     if (annotationMatch == null) continue;
-    final annotation = annotationMatch.group(1)!;
-    // A module is "cpp" when any platform arg (ios/android/macos) is NativeImpl.cpp.
-    if (RegExp(r'\b(?:ios|android|macos)\s*:\s*NativeImpl\.cpp\b').hasMatch(annotation)) {
+    // Normalise multi-line annotations for reliable matching.
+    final annotation = annotationMatch.group(1)!.replaceAll('\n', ' ');
+    // A module is "cpp" when any native platform arg resolves to a C++ impl.
+    if (RegExp(
+      r'\b(?:ios|android|macos|windows|linux)\s*:\s*'
+      r'(?:NativeImpl|AppleNativeImpl|AndroidNativeImpl|WindowsNativeImpl|LinuxNativeImpl)\.cpp\b',
+    ).hasMatch(annotation)) {
       result.add(libMatch.group(1)!);
     }
   }

@@ -54,16 +54,22 @@ String? extractLibNameFromSpec(File specFile) {
   return match?.group(1);
 }
 
-/// Returns true when the spec file declares at least one platform as
-/// NativeImpl.cpp — meaning it uses a direct C++ implementation instead of
-/// Kotlin/Swift bridges. Covers all C++ platforms: ios, android, macos,
-/// windows, linux. Only checks actual platform args in the annotation.
+/// Returns true when the spec file declares at least one platform as a
+/// direct C++ implementation (no JNI/Swift bridge). Recognises both:
+///   - Legacy shorthand:   `NativeImpl.cpp`
+///   - Per-platform types: `AppleNativeImpl.cpp`, `AndroidNativeImpl.cpp`,
+///                         `WindowsNativeImpl.cpp`, `LinuxNativeImpl.cpp`
 bool isCppModule(File specFile) {
   final content = specFile.readAsStringSync();
-  final match = RegExp(r'@NitroModule\s*\(([^)]+)\)').firstMatch(content);
-  if (match == null) return false;
-  final annotation = match.group(1)!;
-  return RegExp(r'\b(?:ios|android|macos|windows|linux)\s*:\s*NativeImpl\.cpp\b').hasMatch(annotation);
+  // Normalise multi-line annotations into a single string for regex matching.
+  final annotationMatch = RegExp(r'@NitroModule\s*\(([^)]+)\)', dotAll: true).firstMatch(content);
+  if (annotationMatch == null) return false;
+  final annotation = annotationMatch.group(1)!.replaceAll('\n', ' ');
+  // Matches both NativeImpl.cpp and the per-platform sealed-class variants.
+  return RegExp(
+    r'\b(?:ios|android|macos|windows|linux)\s*:\s*'
+    r'(?:NativeImpl|AppleNativeImpl|AndroidNativeImpl|WindowsNativeImpl|LinuxNativeImpl)\.cpp\b',
+  ).hasMatch(annotation);
 }
 
 /// Module descriptor. `isCpp` indicates a direct C++ implementation (no JNI/Swift bridge).
