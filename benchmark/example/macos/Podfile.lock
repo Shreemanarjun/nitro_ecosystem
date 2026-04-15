@@ -30,7 +30,7 @@ EXTERNAL SOURCES:
     :path: Flutter/ephemeral/.symlinks/plugins/wakelock_plus/macos
 
 SPEC CHECKSUMS:
-  benchmark: e72961babd6a79ac96311cc6f51b2cc51989aa66
+  benchmark: b2fad7cd8201aacda160e5b6e79ec177cd184141
   FlutterMacOS: d0db08ddef1a9af05a5ec4b724367152bb0500b1
   nitro: cb12f27bad850beea11e971a362233215ee8bc85
   package_info_plus: f0052d280d17aa382b932f399edf32507174e870
