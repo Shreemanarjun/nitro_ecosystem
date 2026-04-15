@@ -1055,4 +1055,218 @@ $macosPlatformEntry
       );
     });
   });
+
+  // ── Android — java.srcDirs check (AGP 8.x) ───────────────────────────────────
+
+  group('Android — java.srcDirs check', () {
+    test('ok when only kotlin.srcDirs used (no java.srcDirs)', () {
+      // Default scaffold already uses kotlin.srcDirs only.
+      final tmp = _scaffold();
+      addTearDown(() => tmp.deleteSync(recursive: true));
+      final result = _run(tmp);
+      final androidSec = result.sections.firstWhere((s) => s.title == 'Android');
+      expect(
+        androidSec.checks.any((c) => c.status == DoctorStatus.ok && c.label.contains('generated/kotlin sourceSets entry present')),
+        isTrue,
+      );
+      expect(
+        androidSec.checks.any((c) => c.label.contains('java.srcDirs')),
+        isFalse,
+        reason: 'no java.srcDirs check should appear when the bug is not present',
+      );
+    });
+
+    test('error when java.srcDirs includes generated/kotlin (AGP 8.x "Unresolved reference" bug)', () {
+      final tmp = _scaffold();
+      addTearDown(() => tmp.deleteSync(recursive: true));
+      // Overwrite build.gradle to include the buggy java.srcDirs line.
+      File(p.join(tmp.path, 'android', 'build.gradle')).writeAsStringSync('''
+apply plugin: "kotlin-android"
+android {
+  kotlinOptions { jvmTarget = "17" }
+  sourceSets {
+    main {
+      java.srcDirs += "../lib/src/generated/kotlin"
+      kotlin.srcDirs += "../lib/src/generated/kotlin"
+    }
+  }
+}
+dependencies {
+  implementation "org.jetbrains.kotlinx:kotlinx-coroutines-core:1.7.0"
+}
+''');
+      final result = _run(tmp);
+      final androidSec = result.sections.firstWhere((s) => s.title == 'Android');
+      final check = androidSec.checks.firstWhere(
+        (c) => c.label.contains('java.srcDirs includes generated/kotlin'),
+        orElse: () => throw TestFailure('expected java.srcDirs error check not found'),
+      );
+      expect(check.status, equals(DoctorStatus.error));
+      expect(check.hint, contains('kotlin.srcDirs'));
+      expect(result.errors, greaterThan(0));
+    });
+
+    test('hint points to kotlin.srcDirs as the fix', () {
+      final tmp = _scaffold();
+      addTearDown(() => tmp.deleteSync(recursive: true));
+      File(p.join(tmp.path, 'android', 'build.gradle')).writeAsStringSync('''
+apply plugin: "kotlin-android"
+android {
+  kotlinOptions { jvmTarget = "17" }
+  sourceSets { main { java.srcDirs += "../lib/src/generated/kotlin" } }
+}
+dependencies {
+  implementation "org.jetbrains.kotlinx:kotlinx-coroutines-core:1.7.0"
+}
+''');
+      final result = _run(tmp);
+      final androidSec = result.sections.firstWhere((s) => s.title == 'Android');
+      final check = androidSec.checks.firstWhere((c) => c.label.contains('java.srcDirs includes generated/kotlin'));
+      expect(check.hint, contains('Remove the java.srcDirs line'));
+      expect(check.hint, contains('kotlin.srcDirs'));
+    });
+
+    test('error when sourceSets entry for generated/kotlin is missing entirely', () {
+      final tmp = _scaffold();
+      addTearDown(() => tmp.deleteSync(recursive: true));
+      File(p.join(tmp.path, 'android', 'build.gradle')).writeAsStringSync('''
+apply plugin: "kotlin-android"
+android {
+  kotlinOptions { jvmTarget = "17" }
+}
+dependencies {
+  implementation "org.jetbrains.kotlinx:kotlinx-coroutines-core:1.7.0"
+}
+''');
+      final result = _run(tmp);
+      final androidSec = result.sections.firstWhere((s) => s.title == 'Android');
+      final check = androidSec.checks.firstWhere(
+        (c) => c.label.contains('sourceSets entry for generated/kotlin missing'),
+        orElse: () => throw TestFailure('expected sourceSets missing error not found'),
+      );
+      expect(check.status, equals(DoctorStatus.error));
+      expect(check.hint, contains('kotlin.srcDirs'));
+    });
+  });
+
+  // ── Generated Files — platform-specific bridge detection ─────────────────────
+
+  group('Generated Files — platform-specific .bridge.g.kt/.bridge.g.swift detection', () {
+    Directory scaffoldWithRawSpec(String specName, String specContent) {
+      final tmp = _scaffold();
+      final libDir = Directory(p.join(tmp.path, 'lib', 'src'))..createSync(recursive: true);
+      File(p.join(libDir.path, '$specName.native.dart')).writeAsStringSync(specContent);
+      return tmp;
+    }
+
+    test('android:cpp spec shows info that .bridge.g.kt is skipped', () {
+      final tmp = scaffoldWithRawSpec('math', '''
+import 'package:nitro/nitro.dart';
+@NitroModule(lib: "math", windows: WindowsNativeImpl.cpp, android: AndroidNativeImpl.cpp)
+abstract class Math extends HybridObject {}
+''');
+      addTearDown(() => tmp.deleteSync(recursive: true));
+      final result = _run(tmp);
+      final genSec = result.sections.firstWhere((s) => s.title == 'Generated Files');
+      expect(
+        genSec.checks.any((c) => c.status == DoctorStatus.info && c.label.contains('.bridge.g.kt') && c.label.contains('skipped')),
+        isTrue,
+        reason: 'android:cpp module should skip .bridge.g.kt check',
+      );
+      expect(
+        genSec.checks.any((c) => c.status == DoctorStatus.error && c.label.contains('.bridge.g.kt')),
+        isFalse,
+        reason: '.bridge.g.kt must not show as error for android:cpp module',
+      );
+    });
+
+    test('mixed module (windows:cpp + android:kotlin) checks .bridge.g.kt', () {
+      // Mixed spec: windows uses C++ but android uses Kotlin — .bridge.g.kt IS needed.
+      final tmp = scaffoldWithRawSpec('math', '''
+import 'package:nitro/nitro.dart';
+@NitroModule(lib: "math", windows: WindowsNativeImpl.cpp, android: NativeImpl.kotlin)
+abstract class Math extends HybridObject {}
+''');
+      addTearDown(() => tmp.deleteSync(recursive: true));
+      final result = _run(tmp);
+      final genSec = result.sections.firstWhere((s) => s.title == 'Generated Files');
+      // Should NOT show the "skipped" info — must check for the .bridge.g.kt file.
+      expect(
+        genSec.checks.any((c) => c.label.contains('.bridge.g.kt') && c.label.contains('skipped')),
+        isFalse,
+        reason: 'android:kotlin module must not skip the .bridge.g.kt check',
+      );
+      expect(
+        genSec.checks.any((c) => c.label.contains('.bridge.g.kt')),
+        isTrue,
+        reason: '.bridge.g.kt check must appear (likely MISSING since nothing is generated)',
+      );
+    });
+
+    test('apple:cpp (both ios and macos) shows info that .bridge.g.swift is skipped', () {
+      final tmp = scaffoldWithRawSpec('math', '''
+import 'package:nitro/nitro.dart';
+@NitroModule(lib: "math", ios: AppleNativeImpl.cpp, macos: AppleNativeImpl.cpp)
+abstract class Math extends HybridObject {}
+''');
+      addTearDown(() => tmp.deleteSync(recursive: true));
+      final result = _run(tmp);
+      final genSec = result.sections.firstWhere((s) => s.title == 'Generated Files');
+      expect(
+        genSec.checks.any((c) => c.status == DoctorStatus.info && c.label.contains('.bridge.g.swift') && c.label.contains('skipped')),
+        isTrue,
+        reason: 'ios:cpp + macos:cpp module should skip .bridge.g.swift check',
+      );
+      expect(
+        genSec.checks.any((c) => c.status == DoctorStatus.error && c.label.contains('.bridge.g.swift')),
+        isFalse,
+      );
+    });
+
+    test('ios:swift + macos:cpp checks .bridge.g.swift (partial Swift still needs bridge)', () {
+      // At least one Apple platform is Swift → bridge IS needed.
+      final tmp = scaffoldWithRawSpec('math', '''
+import 'package:nitro/nitro.dart';
+@NitroModule(lib: "math", ios: NativeImpl.swift, macos: AppleNativeImpl.cpp)
+abstract class Math extends HybridObject {}
+''');
+      addTearDown(() => tmp.deleteSync(recursive: true));
+      final result = _run(tmp);
+      final genSec = result.sections.firstWhere((s) => s.title == 'Generated Files');
+      expect(
+        genSec.checks.any((c) => c.label.contains('.bridge.g.swift') && c.label.contains('skipped')),
+        isFalse,
+        reason: 'ios:swift means .bridge.g.swift check must NOT be skipped',
+      );
+      expect(
+        genSec.checks.any((c) => c.label.contains('.bridge.g.swift')),
+        isTrue,
+      );
+    });
+
+    test('no Apple platform in annotation skips .bridge.g.swift (no target = no bridge)', () {
+      // @NitroModule with no ios/macos → _isAppleSwiftModule returns false → swift skipped.
+      // android with no explicit .cpp annotation → _isAndroidKotlinModule returns true → kt checked.
+      final tmp = scaffoldWithRawSpec('math', '''
+import 'package:nitro/nitro.dart';
+@NitroModule(lib: "math")
+abstract class Math extends HybridObject {}
+''');
+      addTearDown(() => tmp.deleteSync(recursive: true));
+      final result = _run(tmp);
+      final genSec = result.sections.firstWhere((s) => s.title == 'Generated Files');
+      // No ios/macos → swift bridge not needed → check skipped
+      expect(
+        genSec.checks.any((c) => c.label.contains('.bridge.g.swift') && c.label.contains('skipped')),
+        isTrue,
+        reason: 'No Apple platform in spec → swift bridge check must be skipped',
+      );
+      // Android not explicitly cpp → kotlin bridge needed → check NOT skipped
+      expect(
+        genSec.checks.any((c) => c.label.contains('.bridge.g.kt') && c.label.contains('skipped')),
+        isFalse,
+        reason: 'No android:cpp in spec → kotlin bridge check must run',
+      );
+    });
+  });
 }

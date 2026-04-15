@@ -485,10 +485,16 @@ class DoctorCommand extends Command {
         final specIsCpp = isCppModule(spec);
 
         for (final suffix in _generatedSuffixes) {
-          // For NativeImpl.cpp modules the .bridge.g.kt and .bridge.g.swift
-          // outputs contain only a "Not applicable" placeholder — treat as info.
-          if (specIsCpp && (suffix == '.bridge.g.kt' || suffix == '.bridge.g.swift')) {
-            info(genSec, '${p.basename(spec.path)} → $suffix skipped (NativeImpl.cpp)');
+          // .bridge.g.kt is only needed when Android uses Kotlin (not C++).
+          // .bridge.g.swift is only needed when iOS/macOS uses Swift (not C++).
+          // Use platform-specific checks instead of the broad isCppModule guard
+          // so mixed modules (e.g. windows:cpp + android:kotlin) are correctly handled.
+          if (suffix == '.bridge.g.kt' && !_isAndroidKotlinModule(spec)) {
+            info(genSec, '${p.basename(spec.path)} → $suffix skipped (android: AndroidNativeImpl.cpp)');
+            continue;
+          }
+          if (suffix == '.bridge.g.swift' && !_isAppleSwiftModule(spec)) {
+            info(genSec, '${p.basename(spec.path)} → $suffix skipped (ios/macos: AppleNativeImpl.cpp)');
             continue;
           }
           final genPath = _generatedPath(spec.path, stem, suffix);
@@ -642,8 +648,19 @@ class DoctorCommand extends Command {
         }
         if (g.contains('generated/kotlin')) {
           ok(androidSec, 'generated/kotlin sourceSets entry present');
+          // Warn if java.srcDirs also points at the generated kotlin directory.
+          // In AGP 8.x this routes .kt files through the Java compiler path and
+          // causes "Unresolved reference: XxxJniBridge" compile errors.
+          if (RegExp(r'java\.srcDirs\s*\+=.*generated/kotlin').hasMatch(g)) {
+            err(
+              androidSec,
+              'java.srcDirs includes generated/kotlin — causes "Unresolved reference: XxxJniBridge" in AGP 8.x',
+              hint: 'Remove the java.srcDirs line; kotlin.srcDirs alone is sufficient',
+            );
+          }
         } else {
-          err(androidSec, 'sourceSets entry for generated/kotlin missing');
+          err(androidSec, 'sourceSets entry for generated/kotlin missing',
+              hint: 'Add: kotlin.srcDirs += "\${project.projectDir}/../lib/src/generated/kotlin"');
         }
         if (g.contains('kotlinx-coroutines')) {
           ok(androidSec, 'kotlinx-coroutines dependency present');
@@ -1152,6 +1169,34 @@ class DoctorCommand extends Command {
 }
 
 String _toPascalCase(String lib) => lib.split(RegExp(r'[_\-]')).map((w) => w.isEmpty ? '' : w[0].toUpperCase() + w.substring(1)).join('');
+
+/// Returns true when Android uses a Kotlin JNI bridge (not C++).
+/// A .bridge.g.kt file is needed iff Android is NOT using AndroidNativeImpl.cpp.
+bool _isAndroidKotlinModule(File specFile) {
+  final content = specFile.readAsStringSync();
+  final annotationMatch = RegExp(r'@NitroModule\s*\(([^)]+)\)', dotAll: true).firstMatch(content);
+  if (annotationMatch == null) return true; // no annotation → assume Kotlin
+  final annotation = annotationMatch.group(1)!.replaceAll('\n', ' ');
+  // If android is explicitly .cpp, no Kotlin bridge is needed.
+  return !RegExp(r'\bandroid\s*:\s*(?:NativeImpl|AndroidNativeImpl)\.cpp\b').hasMatch(annotation);
+}
+
+/// Returns true when iOS/macOS use a Swift bridge (not C++).
+/// A .bridge.g.swift file is needed iff at least one of ios/macos is Swift.
+bool _isAppleSwiftModule(File specFile) {
+  final content = specFile.readAsStringSync();
+  final annotationMatch = RegExp(r'@NitroModule\s*\(([^)]+)\)', dotAll: true).firstMatch(content);
+  if (annotationMatch == null) return true; // no annotation → assume Swift
+  final annotation = annotationMatch.group(1)!.replaceAll('\n', ' ');
+  // Swift bridge is needed if any Apple platform is NOT .cpp.
+  final iosIsCpp = RegExp(r'\bios\s*:\s*(?:NativeImpl|AppleNativeImpl)\.cpp\b').hasMatch(annotation);
+  final macosIsCpp = RegExp(r'\bmacos\s*:\s*(?:NativeImpl|AppleNativeImpl)\.cpp\b').hasMatch(annotation);
+  // If ios is absent and macos is absent, default to Swift (may not target Apple).
+  final hasIos = RegExp(r'\bios\s*:').hasMatch(annotation);
+  final hasMacos = RegExp(r'\bmacos\s*:').hasMatch(annotation);
+  if (!hasIos && !hasMacos) return false;
+  return !iosIsCpp || !macosIsCpp;
+}
 
 class DoctorViewResult {
   final String pluginName;

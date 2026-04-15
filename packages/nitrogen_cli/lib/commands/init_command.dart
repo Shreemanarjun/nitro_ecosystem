@@ -773,8 +773,9 @@ android {
 
     sourceSets {
         main {
+            // Do NOT add to java.srcDirs — in AGP 8.x that routes .kt files
+            // through the Java compiler and causes "Unresolved reference" errors.
             kotlin.srcDirs += "\${project.projectDir}/../lib/src/generated/kotlin"
-            java.srcDirs += "\${project.projectDir}/../lib/src/generated/kotlin"
         }
     }
 }
