@@ -161,7 +161,27 @@ class BridgeField {
   final BridgeType type;
   final bool zeroCopy;
 
-  BridgeField({required this.name, required this.type, this.zeroCopy = false});
+  /// True when the matching primary-constructor parameter is a **named**
+  /// parameter (`{required this.x}` / `{this.x = val}`).
+  /// False for positional parameters (`this.x` / `[this.x = val]`).
+  ///
+  /// Defaults to `true` so manually constructed specs (and all pre-existing
+  /// test helpers) keep the named-arg style without any code changes.
+  final bool isNamed;
+
+  /// True when the parameter is required — either a positional required param
+  /// or a named param with the `required` keyword.
+  ///
+  /// False for optional parameters (positional `[this.x]` or named `{this.x = val}`).
+  final bool isRequired;
+
+  BridgeField({
+    required this.name,
+    required this.type,
+    this.zeroCopy = false,
+    this.isNamed = true,
+    this.isRequired = true,
+  });
 }
 
 class BridgeEnum {

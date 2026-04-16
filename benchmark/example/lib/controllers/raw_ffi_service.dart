@@ -23,7 +23,9 @@ class RawFfiService {
   /// Stride-walk the buffer — mirrors the native checksum implementation.
   int sendBuffer(Uint8List buffer) {
     var sum = 0;
-    for (var i = 0; i < buffer.length; i += 4096) sum += buffer[i];
+    for (var i = 0; i < buffer.length; i += 4096) {
+      sum += buffer[i];
+    }
     return sum;
   }
 

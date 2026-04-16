@@ -403,16 +403,36 @@ class SpecExtractor {
       final packed = ann.annotation.read('packed').literalValue as bool? ?? false;
       final zeroCopyFields = ann.annotation.read('zeroCopy').listValue.map((v) => v.toStringValue() ?? '').toSet();
 
+      // Build a map from field name → constructor param metadata so we can
+      // record isNamed / isRequired on each BridgeField.
+      // Use the unnamed generative constructor (the primary one). If there is
+      // none, fall back to treating every field as named-required.
+      final primaryCtor = cls.constructors.where((c) => !c.isFactory && c.name.isEmpty).firstOrNull;
+      final paramInfo = <String, ({bool isNamed, bool isRequired})>{};
+      if (primaryCtor != null) {
+        for (final p in primaryCtor.parameters) {
+          paramInfo[p.name] = (
+            isNamed: p.isNamed,
+            isRequired: p.isRequired,
+          );
+        }
+      }
+
       final fields = cls.fields
           .where((f) => !f.isStatic && !f.isSynthetic)
           .map(
-            (f) => BridgeField(
-              name: f.name,
-              type: BridgeType(
-                name: f.type.getDisplayString(withNullability: true),
-              ),
-              zeroCopy: zeroCopyFields.contains(f.name),
-            ),
+            (f) {
+              final info = paramInfo[f.name];
+              return BridgeField(
+                name: f.name,
+                type: BridgeType(
+                  name: f.type.getDisplayString(withNullability: true),
+                ),
+                zeroCopy: zeroCopyFields.contains(f.name),
+                isNamed: info?.isNamed ?? true,
+                isRequired: info?.isRequired ?? true,
+              );
+            },
           )
           .toList();
 

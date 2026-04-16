@@ -862,6 +862,204 @@ BridgeSpec mixedPlatformCppSpec() => BridgeSpec(
   ],
 );
 
+// ── Struct constructor-param style helpers ────────────────────────────────────
+
+/// Struct with all-positional required parameters: `Point(this.x, this.y)`.
+/// toDart() must emit `Point(x, y)` not `Point(x: x, y: y)`.
+BridgeSpec positionalStructSpec() => BridgeSpec(
+  dartClassName: 'Geo',
+  lib: 'geo',
+  namespace: 'geo',
+  iosImpl: NativeImpl.swift,
+  sourceUri: 'geo.native.dart',
+  structs: [
+    BridgeStruct(
+      name: 'Point',
+      packed: false,
+      fields: [
+        BridgeField(name: 'x', type: BridgeType(name: 'double'), isNamed: false, isRequired: true),
+        BridgeField(name: 'y', type: BridgeType(name: 'double'), isNamed: false, isRequired: true),
+      ],
+    ),
+  ],
+  functions: [],
+);
+
+/// Struct with named optional parameters: `Config({this.debug = false, required this.name})`.
+/// toDart() must emit `Config(debug: val, name: val)` — named args regardless of required/optional.
+BridgeSpec namedOptionalStructSpec() => BridgeSpec(
+  dartClassName: 'ConfigModule',
+  lib: 'config_module',
+  namespace: 'config_module',
+  iosImpl: NativeImpl.swift,
+  sourceUri: 'config_module.native.dart',
+  structs: [
+    BridgeStruct(
+      name: 'Config',
+      packed: false,
+      fields: [
+        BridgeField(name: 'name',  type: BridgeType(name: 'String'), isNamed: true, isRequired: true),
+        BridgeField(name: 'debug', type: BridgeType(name: 'bool'),   isNamed: true, isRequired: false),
+        BridgeField(name: 'level', type: BridgeType(name: 'int'),    isNamed: true, isRequired: false),
+      ],
+    ),
+  ],
+  functions: [],
+);
+
+/// Mixed-param struct: some positional required, then some named required/optional.
+/// e.g. `Rect(this.x, this.y, {required this.width, this.height = 0.0})`.
+/// toDart() must emit positional args first, named args after.
+BridgeSpec mixedParamsStructSpec() => BridgeSpec(
+  dartClassName: 'Layout',
+  lib: 'layout',
+  namespace: 'layout',
+  iosImpl: NativeImpl.swift,
+  sourceUri: 'layout.native.dart',
+  structs: [
+    BridgeStruct(
+      name: 'Rect',
+      packed: false,
+      fields: [
+        BridgeField(name: 'x',      type: BridgeType(name: 'double'), isNamed: false, isRequired: true),
+        BridgeField(name: 'y',      type: BridgeType(name: 'double'), isNamed: false, isRequired: true),
+        BridgeField(name: 'width',  type: BridgeType(name: 'double'), isNamed: true,  isRequired: true),
+        BridgeField(name: 'height', type: BridgeType(name: 'double'), isNamed: true,  isRequired: false),
+      ],
+    ),
+  ],
+  functions: [],
+);
+
+/// Nested struct scenario where the *nested* type itself uses positional params.
+/// Parent is named-required; nested `Vec2` is positional.
+BridgeSpec nestedPositionalChildSpec() => BridgeSpec(
+  dartClassName: 'NestedModule',
+  lib: 'nested_module',
+  namespace: 'nested_module',
+  iosImpl: NativeImpl.swift,
+  sourceUri: 'nested_module.native.dart',
+  structs: [
+    BridgeStruct(
+      name: 'Vec2',
+      packed: false,
+      fields: [
+        BridgeField(name: 'x', type: BridgeType(name: 'double'), isNamed: false, isRequired: true),
+        BridgeField(name: 'y', type: BridgeType(name: 'double'), isNamed: false, isRequired: true),
+      ],
+    ),
+    BridgeStruct(
+      name: 'Line',
+      packed: false,
+      fields: [
+        BridgeField(name: 'start', type: BridgeType(name: 'Vec2'), isNamed: true, isRequired: true),
+        BridgeField(name: 'end',   type: BridgeType(name: 'Vec2'), isNamed: true, isRequired: true),
+      ],
+    ),
+  ],
+  functions: [],
+);
+
+/// Spec modelling the nitro_ar scenario:
+///   - Vector3     (flat double fields — will appear as nested)
+///   - Quaternion  (flat double fields — will appear as nested)
+///   - PackageDimensions (contains Vector3 and Quaternion as struct fields)
+/// Used to verify nested @HybridStruct code generation across all targets.
+BridgeSpec nestedStructSpec() => BridgeSpec(
+  dartClassName: 'ArModule',
+  lib: 'ar_module',
+  namespace: 'ar_module',
+  iosImpl: NativeImpl.swift,
+  androidImpl: NativeImpl.kotlin,
+  sourceUri: 'ar_module.native.dart',
+  structs: [
+    BridgeStruct(
+      name: 'Vector3',
+      packed: false,
+      fields: [
+        BridgeField(name: 'x', type: BridgeType(name: 'double')),
+        BridgeField(name: 'y', type: BridgeType(name: 'double')),
+        BridgeField(name: 'z', type: BridgeType(name: 'double')),
+      ],
+    ),
+    BridgeStruct(
+      name: 'Quaternion',
+      packed: false,
+      fields: [
+        BridgeField(name: 'x', type: BridgeType(name: 'double')),
+        BridgeField(name: 'y', type: BridgeType(name: 'double')),
+        BridgeField(name: 'z', type: BridgeType(name: 'double')),
+        BridgeField(name: 'w', type: BridgeType(name: 'double')),
+      ],
+    ),
+    BridgeStruct(
+      name: 'PackageDimensions',
+      packed: false,
+      fields: [
+        BridgeField(name: 'length', type: BridgeType(name: 'double')),
+        BridgeField(name: 'width', type: BridgeType(name: 'double')),
+        BridgeField(name: 'height', type: BridgeType(name: 'double')),
+        BridgeField(name: 'confidence', type: BridgeType(name: 'double')),
+        BridgeField(name: 'center', type: BridgeType(name: 'Vector3')),
+        BridgeField(name: 'rotation', type: BridgeType(name: 'Quaternion')),
+      ],
+    ),
+  ],
+  functions: [
+    BridgeFunction(
+      dartName: 'detectPackage',
+      cSymbol: 'ar_module_detect_package',
+      isAsync: false,
+      returnType: BridgeType(name: 'PackageDimensions'),
+      params: [],
+    ),
+  ],
+);
+
+/// Spec for deep nesting: A → B → C, all @HybridStruct.
+/// Verifies the generator handles multi-level nesting (each level treats the
+/// next as a nested struct pointer, not void*).
+BridgeSpec deeplyNestedStructSpec() => BridgeSpec(
+  dartClassName: 'DeepModule',
+  lib: 'deep_module',
+  namespace: 'deep_module',
+  iosImpl: NativeImpl.swift,
+  androidImpl: NativeImpl.kotlin,
+  sourceUri: 'deep_module.native.dart',
+  structs: [
+    BridgeStruct(
+      name: 'Leaf',
+      packed: false,
+      fields: [BridgeField(name: 'val', type: BridgeType(name: 'double'))],
+    ),
+    BridgeStruct(
+      name: 'Mid',
+      packed: false,
+      fields: [
+        BridgeField(name: 'leaf', type: BridgeType(name: 'Leaf')),
+        BridgeField(name: 'count', type: BridgeType(name: 'int')),
+      ],
+    ),
+    BridgeStruct(
+      name: 'Root',
+      packed: false,
+      fields: [
+        BridgeField(name: 'mid', type: BridgeType(name: 'Mid')),
+        BridgeField(name: 'label', type: BridgeType(name: 'String')),
+      ],
+    ),
+  ],
+  functions: [
+    BridgeFunction(
+      dartName: 'getRoot',
+      cSymbol: 'deep_module_get_root',
+      isAsync: false,
+      returnType: BridgeType(name: 'Root'),
+      params: [],
+    ),
+  ],
+);
+
 /// Same as [cppStreamSpec] but the stream item type is a struct (not a
 /// primitive), so the generated unpack must malloc then free the pointer.
 BridgeSpec cppStreamStructSpec() => BridgeSpec(
