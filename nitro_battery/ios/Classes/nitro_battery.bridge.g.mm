@@ -34,6 +34,13 @@ static void nitro_report_error(const char* name, const char* message, const char
 }
 }
 
+extern "C" {
+void nitro_battery_release_BatteryInfo(void* ptr) {
+    if (!ptr) return;
+    free(ptr);
+}
+}
+
 #ifdef __ANDROID__
 #include <jni.h>
 #include <android/log.h>
@@ -87,8 +94,15 @@ static void nitro_report_jni_exception(JNIEnv* env, jthrowable ex) {
 
     nitro_report_error(name, msg, nullptr, nullptr);
 
-    if (j_name) env->ReleaseStringUTFChars(j_name, name);
-    if (j_msg) env->ReleaseStringUTFChars(j_msg, msg);
+    if (j_name) {
+        env->ReleaseStringUTFChars(j_name, name);
+        env->DeleteLocalRef(j_name);
+    }
+    if (j_msg) {
+        env->ReleaseStringUTFChars(j_msg, msg);
+        env->DeleteLocalRef(j_msg);
+    }
+    env->DeleteLocalRef(ex_class);
     env->DeleteLocalRef(ex);
 }
 
@@ -101,7 +115,8 @@ static BatteryInfo pack_BatteryInfo_from_jni(JNIEnv* env, jobject obj) {
     return result;
 }
 static jobject unpack_BatteryInfo_to_jni(JNIEnv* env, const BatteryInfo* st) {
-    return env->NewObject(g_cls_BatteryInfo, g_ctor_BatteryInfo, (jlong)st->level, (jlong)st->chargingState, (jdouble)st->voltage, (jdouble)st->temperature);
+    jobject result = env->NewObject(g_cls_BatteryInfo, g_ctor_BatteryInfo, (jlong)st->level, (jlong)st->chargingState, (jdouble)st->voltage, (jdouble)st->temperature);
+    return result;
 }
 
 extern "C" {
@@ -173,11 +188,17 @@ int64_t nitro_battery_get_battery_level(void) {
     JNIEnv* env = GetEnv();
     if (env == nullptr) return 0;
     jmethodID methodId = g_mid_getBatteryLevel_call;
-    if (methodId == nullptr) { LOGE("Method not found"); return 0; }
+    if (methodId == nullptr) { LOGE("Method not found: getBatteryLevel_call sig=()J"); return 0; }
 
     nitro_battery_clear_error();
+    if (env->PushLocalFrame(16) != 0) return 0;
     int64_t res = env->CallStaticLongMethod(g_bridgeClass, methodId);
-    if (env->ExceptionCheck()) { nitro_report_jni_exception(env, env->ExceptionOccurred()); return 0; }
+    if (env->ExceptionCheck()) {
+        nitro_report_jni_exception(env, env->ExceptionOccurred());
+        env->PopLocalFrame(nullptr);
+        return 0;
+    }
+    env->PopLocalFrame(nullptr);
     return res;
 }
 
@@ -185,11 +206,17 @@ int8_t nitro_battery_is_charging(void) {
     JNIEnv* env = GetEnv();
     if (env == nullptr) return false;
     jmethodID methodId = g_mid_isCharging_call;
-    if (methodId == nullptr) { LOGE("Method not found"); return false; }
+    if (methodId == nullptr) { LOGE("Method not found: isCharging_call sig=()Z"); return false; }
 
     nitro_battery_clear_error();
+    if (env->PushLocalFrame(16) != 0) return false;
     bool res = env->CallStaticBooleanMethod(g_bridgeClass, methodId);
-    if (env->ExceptionCheck()) { nitro_report_jni_exception(env, env->ExceptionOccurred()); return false; }
+    if (env->ExceptionCheck()) {
+        nitro_report_jni_exception(env, env->ExceptionOccurred());
+        env->PopLocalFrame(nullptr);
+        return false;
+    }
+    env->PopLocalFrame(nullptr);
     return res;
 }
 
@@ -197,11 +224,17 @@ int64_t nitro_battery_get_charging_state(void) {
     JNIEnv* env = GetEnv();
     if (env == nullptr) return 0;
     jmethodID methodId = g_mid_getChargingState_call;
-    if (methodId == nullptr) { LOGE("Method not found"); return 0; }
+    if (methodId == nullptr) { LOGE("Method not found: getChargingState_call sig=()J"); return 0; }
 
     nitro_battery_clear_error();
+    if (env->PushLocalFrame(16) != 0) return 0;
     int64_t res = env->CallStaticLongMethod(g_bridgeClass, methodId);
-    if (env->ExceptionCheck()) { nitro_report_jni_exception(env, env->ExceptionOccurred()); return 0; }
+    if (env->ExceptionCheck()) {
+        nitro_report_jni_exception(env, env->ExceptionOccurred());
+        env->PopLocalFrame(nullptr);
+        return 0;
+    }
+    env->PopLocalFrame(nullptr);
     return res;
 }
 
@@ -209,15 +242,23 @@ void* nitro_battery_get_battery_info(void) {
     JNIEnv* env = GetEnv();
     if (env == nullptr) return nullptr;
     jmethodID methodId = g_mid_getBatteryInfo_call;
-    if (methodId == nullptr) { LOGE("Method not found"); return nullptr; }
+    if (methodId == nullptr) { LOGE("Method not found: getBatteryInfo_call sig=()Lnitro/nitro_battery_module/BatteryInfo;"); return nullptr; }
 
     nitro_battery_clear_error();
+    if (env->PushLocalFrame(16) != 0) return nullptr;
     jobject jobj = env->CallStaticObjectMethod(g_bridgeClass, methodId);
-    if (env->ExceptionCheck()) { nitro_report_jni_exception(env, env->ExceptionOccurred()); return nullptr; }
-    if (jobj == nullptr) return nullptr;
+    if (env->ExceptionCheck()) {
+        nitro_report_jni_exception(env, env->ExceptionOccurred());
+        env->PopLocalFrame(nullptr);
+        return nullptr;
+    }
+    if (jobj == nullptr) {
+        env->PopLocalFrame(nullptr);
+        return nullptr;
+    }
     BatteryInfo* result = (BatteryInfo*)malloc(sizeof(BatteryInfo));
     *result = pack_BatteryInfo_from_jni(env, jobj);
-    env->DeleteLocalRef(jobj);
+    env->PopLocalFrame(nullptr);
     return result;
 }
 
@@ -225,30 +266,37 @@ int64_t nitro_battery_get_low_power_threshold(void) {
     JNIEnv* env = GetEnv();
     if (env == nullptr) return 0;
     jmethodID methodId = g_mid_nitro_battery_get_low_power_threshold_call;
-    if (methodId == nullptr) { LOGE("Method not found"); return 0; }
-    return (int64_t)env->CallStaticLongMethod(g_bridgeClass, methodId);
+    if (methodId == nullptr) { LOGE("Method not found: nitro_battery_get_low_power_threshold_call sig=()J"); return 0; }
+    if (env->PushLocalFrame(8) != 0) return 0;
+    int64_t res = (int64_t)env->CallStaticLongMethod(g_bridgeClass, methodId);
+    env->PopLocalFrame(nullptr);
+    return res;
 }
 
 void nitro_battery_set_low_power_threshold(int64_t value) {
     JNIEnv* env = GetEnv();
     if (env == nullptr) return;
     jmethodID methodId = g_mid_nitro_battery_set_low_power_threshold_call;
-    if (methodId == nullptr) { LOGE("Method not found"); return; }
+    if (methodId == nullptr) { LOGE("Method not found: nitro_battery_set_low_power_threshold_call sig=(J)V"); return; }
+    if (env->PushLocalFrame(8) != 0) return;
     env->CallStaticVoidMethod(g_bridgeClass, methodId, value);
+    env->PopLocalFrame(nullptr);
 }
 
 void nitro_battery_register_battery_level_changes_stream(int64_t dart_port) {
     JNIEnv* env = GetEnv();
     if (env == nullptr) return;
     jmethodID methodId = g_mid_nitro_battery_register_battery_level_changes_stream_call;
-    if (methodId != nullptr) env->CallStaticVoidMethod(g_bridgeClass, methodId, dart_port);
+    if (methodId == nullptr) { LOGE("Method not found: nitro_battery_register_battery_level_changes_stream_call sig=(J)V"); return; }
+    env->CallStaticVoidMethod(g_bridgeClass, methodId, dart_port);
 }
 
 void nitro_battery_release_battery_level_changes_stream(int64_t dart_port) {
     JNIEnv* env = GetEnv();
     if (env == nullptr) return;
     jmethodID methodId = g_mid_nitro_battery_release_battery_level_changes_stream_call;
-    if (methodId != nullptr) env->CallStaticVoidMethod(g_bridgeClass, methodId, dart_port);
+    if (methodId == nullptr) { LOGE("Method not found: nitro_battery_release_battery_level_changes_stream_call sig=(J)V"); return; }
+    env->CallStaticVoidMethod(g_bridgeClass, methodId, dart_port);
 }
 
 JNIEXPORT void JNICALL Java_nitro_nitro_1battery_1module_NitroBatteryJniBridge_emit_1batteryLevelChanges(JNIEnv* env, jobject thiz, jlong dartPort, jlong item) {

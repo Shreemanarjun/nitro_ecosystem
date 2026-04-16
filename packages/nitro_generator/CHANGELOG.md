@@ -1,3 +1,11 @@
+## 0.3.2
+
+- **Fixed: Nested struct fields generate typed pointers** — Fields whose type is another `@HybridStruct` now use `Pointer<NestedFfi>` instead of `Pointer<Void>`. `toDart()`, `toNative()`, `freeFields()`, and proxy lazy getters all handle nested pointers correctly.
+- **Fixed: Proxy `super()` for nested struct fields** — Zero-value defaults are now generated recursively (e.g. `Vector3(x: 0.0, y: 0.0, z: 0.0)`) instead of `null`, which was invalid for non-nullable types.
+- **New: Positional constructor param support** — `BridgeField` gains `isNamed` and `isRequired` flags. The generator emits positional args before named args in `toDart()` and proxy `super()`, matching the struct's actual constructor signature. The spec extractor reads these flags automatically.
+- **Fixed: TypedData length-field matching is case-sensitive** — Only exact lowercase names (`length`, `size`, `stride`, `bytelength`, `bytelen`, `len`) match. A field named `Stride` (capital S) now correctly falls back to `asTypedList(0)`.
+- **Tests: 135 new tests across 3 files** — `nested_struct_test.dart`, `struct_constructor_params_test.dart`, and `struct_field_types_test.dart` cover nested structs, all constructor styles, String/enum/TypedData fields, `freeFields()` combinations, zeroCopy, nullable stripping, and more.
+
 ## 0.3.1
 - **New: macOS targeting in `BridgeSpec`** — `BridgeSpec` now accepts an optional `macosImpl` field (`NativeImpl?`) and exposes `targetsMacos` and `targetsAppleCpp` getters. `targetsAppleCpp` is true when either `ios` or `macos` (or both) use `NativeImpl.cpp`, enabling a single `#ifdef __APPLE__` guard in the C++ bridge instead of separate iOS/macOS guards.
 - **New: `INVALID_MACOS_IMPL` validator error** — `SpecValidator` emits an error with code `INVALID_MACOS_IMPL` and severity `error` when `macos: NativeImpl.kotlin` is specified, since Kotlin is not a valid native language on macOS.
