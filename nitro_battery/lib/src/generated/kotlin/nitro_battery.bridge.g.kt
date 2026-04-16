@@ -23,8 +23,41 @@ enum class ChargingState(val nativeValue: Long) {
 }
 
 // --- Structs ---
-@Keep
-data class BatteryInfo(val level: Long, val chargingState: Long, val voltage: Double, val temperature: Double)
+@androidx.annotation.Keep
+data class BatteryInfo(val level: Long, val chargingState: Long, val voltage: Double, val temperature: Double) {
+    companion object {
+        @JvmStatic fun decodeFrom(buf: java.nio.ByteBuffer): BatteryInfo {
+            val level = buf.long
+            val chargingState = buf.long
+            val voltage = buf.double
+            val temperature = buf.double
+            return BatteryInfo(level, chargingState, voltage, temperature)
+        }
+        @JvmStatic fun decode(bytes: ByteArray): BatteryInfo {
+            val buf = java.nio.ByteBuffer.wrap(bytes).order(java.nio.ByteOrder.LITTLE_ENDIAN)
+            return decodeFrom(buf)
+        }
+    }
+
+    fun writeFieldsTo(out: java.io.ByteArrayOutputStream, buf: java.nio.ByteBuffer) {
+        fun writeInt(v: Long) { buf.clear(); buf.putLong(v); out.write(buf.array()) }
+        @Suppress("UNUSED_PARAMETER") fun writeInt32(v: Int) { buf.clear(); buf.putInt(v); out.write(buf.array(), 0, 4) }
+        fun writeDouble(v: Double) { buf.clear(); buf.putDouble(v); out.write(buf.array()) }
+        fun writeBool(v: Boolean) { out.write(if (v) 1 else 0) }
+        fun writeString(v: String) { val b = v.toByteArray(Charsets.UTF_8); writeInt32(b.size); out.write(b) }
+        writeInt(level)
+        writeInt(chargingState)
+        writeDouble(voltage)
+        writeDouble(temperature)
+    }
+
+    fun encode(): ByteArray {
+        val out = java.io.ByteArrayOutputStream(32)
+        val buf = java.nio.ByteBuffer.allocate(8).order(java.nio.ByteOrder.LITTLE_ENDIAN)
+        writeFieldsTo(out, buf)
+        return out.toByteArray()
+    }
+}
 
 /**
  * Contract for the [NitroBattery] module.

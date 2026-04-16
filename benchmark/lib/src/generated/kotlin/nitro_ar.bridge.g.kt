@@ -10,20 +10,224 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.runBlocking
 
 // --- Structs ---
-@Keep
-data class Vector3(val x: Double, val y: Double, val z: Double)
+@androidx.annotation.Keep
+data class Vector3(val x: Double, val y: Double, val z: Double) {
+    companion object {
+        @JvmStatic fun decodeFrom(buf: java.nio.ByteBuffer): Vector3 {
+            val x = buf.double
+            val y = buf.double
+            val z = buf.double
+            return Vector3(x, y, z)
+        }
+        @JvmStatic fun decode(bytes: ByteArray): Vector3 {
+            val buf = java.nio.ByteBuffer.wrap(bytes).order(java.nio.ByteOrder.LITTLE_ENDIAN)
+            return decodeFrom(buf)
+        }
+    }
 
-@Keep
-data class Quaternion(val x: Double, val y: Double, val z: Double, val w: Double)
+    fun writeFieldsTo(out: java.io.ByteArrayOutputStream, buf: java.nio.ByteBuffer) {
+        fun writeInt(v: Long) { buf.clear(); buf.putLong(v); out.write(buf.array()) }
+        @Suppress("UNUSED_PARAMETER") fun writeInt32(v: Int) { buf.clear(); buf.putInt(v); out.write(buf.array(), 0, 4) }
+        fun writeDouble(v: Double) { buf.clear(); buf.putDouble(v); out.write(buf.array()) }
+        fun writeBool(v: Boolean) { out.write(if (v) 1 else 0) }
+        fun writeString(v: String) { val b = v.toByteArray(Charsets.UTF_8); writeInt32(b.size); out.write(b) }
+        writeDouble(x)
+        writeDouble(y)
+        writeDouble(z)
+    }
 
-@Keep
-data class BoundingBox(val x: Double, val y: Double, val width: Double, val height: Double)
+    fun encode(): ByteArray {
+        val out = java.io.ByteArrayOutputStream(24)
+        val buf = java.nio.ByteBuffer.allocate(8).order(java.nio.ByteOrder.LITTLE_ENDIAN)
+        writeFieldsTo(out, buf)
+        return out.toByteArray()
+    }
+}
 
-@Keep
-data class PackageDimensions(val length: Double, val width: Double, val height: Double, val confidence: Double, val center: Vector3, val rotation: Quaternion)
+@androidx.annotation.Keep
+data class Quaternion(val x: Double, val y: Double, val z: Double, val w: Double) {
+    companion object {
+        @JvmStatic fun decodeFrom(buf: java.nio.ByteBuffer): Quaternion {
+            val x = buf.double
+            val y = buf.double
+            val z = buf.double
+            val w = buf.double
+            return Quaternion(x, y, z, w)
+        }
+        @JvmStatic fun decode(bytes: ByteArray): Quaternion {
+            val buf = java.nio.ByteBuffer.wrap(bytes).order(java.nio.ByteOrder.LITTLE_ENDIAN)
+            return decodeFrom(buf)
+        }
+    }
 
-@Keep
-data class RawDepthMap(val data: java.nio.ByteBuffer, val width: Long, val height: Long, val stride: Long)
+    fun writeFieldsTo(out: java.io.ByteArrayOutputStream, buf: java.nio.ByteBuffer) {
+        fun writeInt(v: Long) { buf.clear(); buf.putLong(v); out.write(buf.array()) }
+        @Suppress("UNUSED_PARAMETER") fun writeInt32(v: Int) { buf.clear(); buf.putInt(v); out.write(buf.array(), 0, 4) }
+        fun writeDouble(v: Double) { buf.clear(); buf.putDouble(v); out.write(buf.array()) }
+        fun writeBool(v: Boolean) { out.write(if (v) 1 else 0) }
+        fun writeString(v: String) { val b = v.toByteArray(Charsets.UTF_8); writeInt32(b.size); out.write(b) }
+        writeDouble(x)
+        writeDouble(y)
+        writeDouble(z)
+        writeDouble(w)
+    }
+
+    fun encode(): ByteArray {
+        val out = java.io.ByteArrayOutputStream(32)
+        val buf = java.nio.ByteBuffer.allocate(8).order(java.nio.ByteOrder.LITTLE_ENDIAN)
+        writeFieldsTo(out, buf)
+        return out.toByteArray()
+    }
+}
+
+@androidx.annotation.Keep
+data class BoundingBox(val x: Double, val y: Double, val width: Double, val height: Double) {
+    companion object {
+        @JvmStatic fun decodeFrom(buf: java.nio.ByteBuffer): BoundingBox {
+            val x = buf.double
+            val y = buf.double
+            val width = buf.double
+            val height = buf.double
+            return BoundingBox(x, y, width, height)
+        }
+        @JvmStatic fun decode(bytes: ByteArray): BoundingBox {
+            val buf = java.nio.ByteBuffer.wrap(bytes).order(java.nio.ByteOrder.LITTLE_ENDIAN)
+            return decodeFrom(buf)
+        }
+    }
+
+    fun writeFieldsTo(out: java.io.ByteArrayOutputStream, buf: java.nio.ByteBuffer) {
+        fun writeInt(v: Long) { buf.clear(); buf.putLong(v); out.write(buf.array()) }
+        @Suppress("UNUSED_PARAMETER") fun writeInt32(v: Int) { buf.clear(); buf.putInt(v); out.write(buf.array(), 0, 4) }
+        fun writeDouble(v: Double) { buf.clear(); buf.putDouble(v); out.write(buf.array()) }
+        fun writeBool(v: Boolean) { out.write(if (v) 1 else 0) }
+        fun writeString(v: String) { val b = v.toByteArray(Charsets.UTF_8); writeInt32(b.size); out.write(b) }
+        writeDouble(x)
+        writeDouble(y)
+        writeDouble(width)
+        writeDouble(height)
+    }
+
+    fun encode(): ByteArray {
+        val out = java.io.ByteArrayOutputStream(32)
+        val buf = java.nio.ByteBuffer.allocate(8).order(java.nio.ByteOrder.LITTLE_ENDIAN)
+        writeFieldsTo(out, buf)
+        return out.toByteArray()
+    }
+}
+
+@androidx.annotation.Keep
+data class PackageDimensions(val length: Double, val width: Double, val height: Double, val confidence: Double, val vector3: Vector3, val quaternion: Quaternion) {
+    companion object {
+        @JvmStatic fun decodeFrom(buf: java.nio.ByteBuffer): PackageDimensions {
+            val length = buf.double
+            val width = buf.double
+            val height = buf.double
+            val confidence = buf.double
+            val vector3 = Vector3.decodeFrom(buf)
+            val quaternion = Quaternion.decodeFrom(buf)
+            return PackageDimensions(length, width, height, confidence, vector3, quaternion)
+        }
+        @JvmStatic fun decode(bytes: ByteArray): PackageDimensions {
+            val buf = java.nio.ByteBuffer.wrap(bytes).order(java.nio.ByteOrder.LITTLE_ENDIAN)
+            return decodeFrom(buf)
+        }
+    }
+
+    fun writeFieldsTo(out: java.io.ByteArrayOutputStream, buf: java.nio.ByteBuffer) {
+        fun writeInt(v: Long) { buf.clear(); buf.putLong(v); out.write(buf.array()) }
+        @Suppress("UNUSED_PARAMETER") fun writeInt32(v: Int) { buf.clear(); buf.putInt(v); out.write(buf.array(), 0, 4) }
+        fun writeDouble(v: Double) { buf.clear(); buf.putDouble(v); out.write(buf.array()) }
+        fun writeBool(v: Boolean) { out.write(if (v) 1 else 0) }
+        fun writeString(v: String) { val b = v.toByteArray(Charsets.UTF_8); writeInt32(b.size); out.write(b) }
+        writeDouble(length)
+        writeDouble(width)
+        writeDouble(height)
+        writeDouble(confidence)
+        vector3.writeFieldsTo(out, buf)
+        quaternion.writeFieldsTo(out, buf)
+    }
+
+    fun encode(): ByteArray {
+        val out = java.io.ByteArrayOutputStream(96)
+        val buf = java.nio.ByteBuffer.allocate(8).order(java.nio.ByteOrder.LITTLE_ENDIAN)
+        writeFieldsTo(out, buf)
+        return out.toByteArray()
+    }
+}
+
+@androidx.annotation.Keep
+data class RawDepthMap(val data: java.nio.ByteBuffer, val width: Long, val height: Long, val stride: Long) {
+    companion object {
+        @JvmStatic fun decodeFrom(buf: java.nio.ByteBuffer): RawDepthMap {
+            val data = { buf.long; java.nio.ByteBuffer.allocate(0) }()
+            val width = buf.long
+            val height = buf.long
+            val stride = buf.long
+            return RawDepthMap(data, width, height, stride)
+        }
+        @JvmStatic fun decode(bytes: ByteArray): RawDepthMap {
+            val buf = java.nio.ByteBuffer.wrap(bytes).order(java.nio.ByteOrder.LITTLE_ENDIAN)
+            return decodeFrom(buf)
+        }
+    }
+
+    fun writeFieldsTo(out: java.io.ByteArrayOutputStream, buf: java.nio.ByteBuffer) {
+        fun writeInt(v: Long) { buf.clear(); buf.putLong(v); out.write(buf.array()) }
+        @Suppress("UNUSED_PARAMETER") fun writeInt32(v: Int) { buf.clear(); buf.putInt(v); out.write(buf.array(), 0, 4) }
+        fun writeDouble(v: Double) { buf.clear(); buf.putDouble(v); out.write(buf.array()) }
+        fun writeBool(v: Boolean) { out.write(if (v) 1 else 0) }
+        fun writeString(v: String) { val b = v.toByteArray(Charsets.UTF_8); writeInt32(b.size); out.write(b) }
+        writeInt(0L)
+        writeInt(width)
+        writeInt(height)
+        writeInt(stride)
+    }
+
+    fun encode(): ByteArray {
+        val out = java.io.ByteArrayOutputStream(32)
+        val buf = java.nio.ByteBuffer.allocate(8).order(java.nio.ByteOrder.LITTLE_ENDIAN)
+        writeFieldsTo(out, buf)
+        return out.toByteArray()
+    }
+}
+
+// --- @HybridRecord Kotlin data classes (generated by Nitrogen) ---
+
+@androidx.annotation.Keep
+data class PackageBoxes(val boxes: List<Double>) {
+    companion object {
+        @JvmStatic fun decodeFrom(buf: java.nio.ByteBuffer): PackageBoxes {
+            val boxes = (0 until buf.int).map { buf.double }
+            return PackageBoxes(boxes)
+        }
+        @JvmStatic fun decode(bytes: ByteArray): PackageBoxes {
+            val buf = java.nio.ByteBuffer.wrap(bytes).order(java.nio.ByteOrder.LITTLE_ENDIAN)
+            buf.position(4) // skip 4-byte length prefix
+            return decodeFrom(buf)
+        }
+    }
+
+    fun writeFieldsTo(out: java.io.ByteArrayOutputStream, buf: java.nio.ByteBuffer) {
+        fun writeInt(v: Long) { buf.clear(); buf.putLong(v); out.write(buf.array()) }
+        fun writeInt32(v: Int) { buf.clear(); buf.putInt(v); out.write(buf.array(), 0, 4) }
+        fun writeDouble(v: Double) { buf.clear(); buf.putDouble(v); out.write(buf.array()) }
+        fun writeBool(v: Boolean) { out.write(if (v) 1 else 0) }
+        fun writeString(v: String) { val b = v.toByteArray(Charsets.UTF_8); writeInt32(b.size); out.write(b) }
+        writeInt32(boxes.size)
+        boxes.forEach { e -> writeDouble(e) }
+    }
+
+    fun encode(): ByteArray {
+        val out = java.io.ByteArrayOutputStream(36)
+        val buf = java.nio.ByteBuffer.allocate(8).order(java.nio.ByteOrder.LITTLE_ENDIAN)
+        writeFieldsTo(out, buf)
+        val payload = out.toByteArray()
+        val lenBuf = java.nio.ByteBuffer.allocate(4).order(java.nio.ByteOrder.LITTLE_ENDIAN)
+        lenBuf.putInt(payload.size)
+        return lenBuf.array() + payload
+    }
+}
 
 /**
  * Contract for the [NitroAr] module.
@@ -36,6 +240,15 @@ interface HybridNitroArSpec {
     fun detectPackage(rect: BoundingBox): PackageDimensions
     fun getRawDepthMap(): RawDepthMap
     fun estimateVolume(anchor: String): Double
+    suspend fun checkCameraPermission(): Boolean
+    suspend fun requestCameraPermission(): Boolean
+    suspend fun startSession(): Unit
+    suspend fun stopSession(): Unit
+    suspend fun pauseSession(): Unit
+    suspend fun resumeSession(): Unit
+    fun isTracking(): Boolean
+    fun enableFlashlight(enable: Boolean): Unit
+    val detectedPackages: Flow<PackageBoxes>
 }
 
 @Keep
@@ -76,6 +289,63 @@ object NitroArJniBridge {
         val impl = implementation ?: throw IllegalStateException("NitroAr not registered")
         return impl.estimateVolume(anchor)
     }
+    @JvmStatic fun checkCameraPermission_call(): Boolean {
+        val impl = implementation ?: throw IllegalStateException("NitroAr not registered")
+        return _asyncExecutor.submit(java.util.concurrent.Callable {
+            runBlocking { impl.checkCameraPermission() }
+        }).get()
+    }
+    @JvmStatic fun requestCameraPermission_call(): Boolean {
+        val impl = implementation ?: throw IllegalStateException("NitroAr not registered")
+        return _asyncExecutor.submit(java.util.concurrent.Callable {
+            runBlocking { impl.requestCameraPermission() }
+        }).get()
+    }
+    @JvmStatic fun startSession_call(): Unit {
+        val impl = implementation ?: throw IllegalStateException("NitroAr not registered")
+        return _asyncExecutor.submit(java.util.concurrent.Callable {
+            runBlocking { impl.startSession() }
+        }).get()
+    }
+    @JvmStatic fun stopSession_call(): Unit {
+        val impl = implementation ?: throw IllegalStateException("NitroAr not registered")
+        return _asyncExecutor.submit(java.util.concurrent.Callable {
+            runBlocking { impl.stopSession() }
+        }).get()
+    }
+    @JvmStatic fun pauseSession_call(): Unit {
+        val impl = implementation ?: throw IllegalStateException("NitroAr not registered")
+        return _asyncExecutor.submit(java.util.concurrent.Callable {
+            runBlocking { impl.pauseSession() }
+        }).get()
+    }
+    @JvmStatic fun resumeSession_call(): Unit {
+        val impl = implementation ?: throw IllegalStateException("NitroAr not registered")
+        return _asyncExecutor.submit(java.util.concurrent.Callable {
+            runBlocking { impl.resumeSession() }
+        }).get()
+    }
+    @JvmStatic fun isTracking_call(): Boolean {
+        val impl = implementation ?: throw IllegalStateException("NitroAr not registered")
+        return impl.isTracking()
+    }
+    @JvmStatic fun enableFlashlight_call(enable: Boolean): Unit {
+        val impl = implementation ?: throw IllegalStateException("NitroAr not registered")
+        impl.enableFlashlight(enable)
+    }
     private val _streamJobs = java.util.concurrent.ConcurrentHashMap<Pair<String, Long>, kotlinx.coroutines.Job>()
 
+    @JvmStatic external fun emit_detectedPackages(dartPort: Long, item: PackageBoxes): Unit
+
+    @JvmStatic fun nitro_ar_register_detected_packages_stream_call(dartPort: Long) {
+        val impl = implementation ?: return
+        _streamJobs[Pair("detectedPackages", dartPort)] = CoroutineScope(Dispatchers.Default).launch {
+            impl.detectedPackages.collect { item -> 
+                emit_detectedPackages(dartPort, item)
+            }
+        }
+    }
+    @JvmStatic fun nitro_ar_release_detected_packages_stream_call(dartPort: Long) {
+        _streamJobs.remove(Pair("detectedPackages", dartPort))?.cancel()
+    }
 }

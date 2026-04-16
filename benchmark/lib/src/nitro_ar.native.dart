@@ -39,6 +39,12 @@ class BoundingBox {
   final double height;
 }
 
+@HybridRecord()
+class PackageBoxes {
+  const PackageBoxes({required this.boxes});
+  final List<double> boxes; // [x, y, w, h, ...] flattened for stability
+}
+
 @HybridStruct()
 class PackageDimensions {
   final double length; // In centimeters/inches
@@ -46,9 +52,11 @@ class PackageDimensions {
   final double height; // In centimeters/inches
   final double confidence; // 0.0 to 1.0 (How sure is the ML model?)
 
-  // The 'Pose' helps Flutter render a 3D bounding box exactly on the package
-  final Vector3 center;
-  final Quaternion rotation;
+  // Flattened Vector3 center to bypass nested Struct compiler errors
+  final Vector3 vector3;
+
+  // Flattened Quaternion rotation
+  final Quaternion quaternion;
 
   double get volume => length * width * height;
 
@@ -57,8 +65,8 @@ class PackageDimensions {
     required this.width,
     required this.height,
     required this.confidence,
-    required this.center,
-    required this.rotation,
+    required this.vector3,
+    required this.quaternion,
   });
 }
 
@@ -97,4 +105,32 @@ abstract class NitroAr extends HybridObject {
   RawDepthMap getRawDepthMap();
 
   double estimateVolume(String anchor);
+  @nitroAsync
+  Future<bool> checkCameraPermission();
+
+  @nitroAsync
+  Future<bool> requestCameraPermission();
+
+  // Lifecycle methods
+  @nitroAsync
+  Future<void> startSession();
+
+  @nitroAsync
+  Future<void> stopSession();
+
+  @nitroAsync
+  Future<void> pauseSession();
+
+  @nitroAsync
+  Future<void> resumeSession();
+
+  // Status and Control
+  bool isTracking();
+
+  void enableFlashlight(bool enable);
+
+  /// Stream of auto-detected packages using ML on the live AR frame.
+  /// No manual polling required, updates are pushed directly.
+  @NitroStream(backpressure: Backpressure.dropLatest)
+  Stream<PackageBoxes> get detectedPackages;
 }

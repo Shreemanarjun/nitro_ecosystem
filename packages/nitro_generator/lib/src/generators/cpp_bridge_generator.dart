@@ -335,11 +335,14 @@ class CppBridgeGenerator {
       s.writeln('void ${libStem}_release_${st.name}(void* ptr) {');
       s.writeln('    if (!ptr) return;');
       final hasStrings = st.fields.any((f) => f.type.name == 'String');
-      if (hasStrings) {
+      final hasNestedStructs = st.fields.any((f) => structNames.contains(f.type.name.replaceFirst('?', '')));
+      if (hasStrings || hasNestedStructs) {
         s.writeln('    ${st.name}* st_ptr = (${st.name}*)ptr;');
         for (final f in st.fields) {
           if (f.type.name == 'String') {
             s.writeln('    if (st_ptr->${f.name}) free((void*)st_ptr->${f.name});');
+          } else if (structNames.contains(f.type.name.replaceFirst('?', ''))) {
+            s.writeln('    if (st_ptr->${f.name}) { free(st_ptr->${f.name}); st_ptr->${f.name} = nullptr; }');
           }
         }
       }
@@ -427,11 +430,14 @@ class CppBridgeGenerator {
         s.writeln('void ${libStem}_release_${st.name}(void* ptr) {');
         s.writeln('    if (!ptr) return;');
         final hasStrings = st.fields.any((f) => f.type.name == 'String');
-        if (hasStrings) {
+        final hasNestedStructs = st.fields.any((f) => structNames.contains(f.type.name.replaceFirst('?', '')));
+        if (hasStrings || hasNestedStructs) {
           s.writeln('    ${st.name}* st_ptr = (${st.name}*)ptr;');
           for (final f in st.fields) {
             if (f.type.name == 'String') {
               s.writeln('    if (st_ptr->${f.name}) free((void*)st_ptr->${f.name});');
+            } else if (structNames.contains(f.type.name.replaceFirst('?', ''))) {
+              s.writeln('    if (st_ptr->${f.name}) { free(st_ptr->${f.name}); st_ptr->${f.name} = nullptr; }');
             }
           }
         }
@@ -560,6 +566,13 @@ class CppBridgeGenerator {
             s.writeln(
               '    result.${f.name} = ($enumType)(int32_t)env->$getter(obj, g_fid_${st.name}_${f.name});',
             );
+          } else if (structNames.contains(f.type.name.replaceFirst('?', ''))) {
+            final nestedType = f.type.name.replaceFirst('?', '');
+            s.writeln('    jobject j_${f.name} = env->GetObjectField(obj, g_fid_${st.name}_${f.name});');
+            s.writeln('    ${nestedType}* ${f.name}_ptr = (${nestedType}*)malloc(sizeof(${nestedType}));');
+            s.writeln('    *${f.name}_ptr = pack_${nestedType}_from_jni(env, j_${f.name});');
+            s.writeln('    env->DeleteLocalRef(j_${f.name});');
+            s.writeln('    result.${f.name} = ${f.name}_ptr;');
           } else {
             s.writeln('    result.${f.name} = env->$getter(obj, g_fid_${st.name}_${f.name});');
           }
@@ -592,15 +605,24 @@ class CppBridgeGenerator {
             s.writeln('    jstring j_${f.name} = env->NewStringUTF(st->${f.name} ? st->${f.name} : "");');
           }
         }
+        for (final f in st.fields) {
+          if (_isZeroCopy(st, f.name)) continue;
+          if (!structNames.contains(f.type.name.replaceFirst('?', ''))) continue;
+          final nestedType = f.type.name.replaceFirst('?', '');
+          s.writeln('    jobject j_${f.name} = unpack_${nestedType}_to_jni(env, st->${f.name});');
+        }
         final ctorArgs = st.fields
             .map((f) {
               final isEnum = enumNames.contains(f.type.name.replaceFirst('?', ''));
+              final isNestedStruct = structNames.contains(f.type.name.replaceFirst('?', ''));
               if (_isZeroCopy(st, f.name)) {
                 return 'dbuf_${f.name}';
               } else if (f.type.name == 'String') {
                 return 'j_${f.name}';
               } else if (isEnum) {
                 return '(jlong)(int32_t)st->${f.name}';
+              } else if (isNestedStruct) {
+                return 'j_${f.name}';
               } else {
                 return '(${_jniCast(f.type.name)})st->${f.name}';
               }
@@ -611,6 +633,8 @@ class CppBridgeGenerator {
           if (_isZeroCopy(st, f.name)) {
             s.writeln('    if (dbuf_${f.name}) env->DeleteLocalRef(dbuf_${f.name});');
           } else if (f.type.name == 'String') {
+            s.writeln('    if (j_${f.name}) env->DeleteLocalRef(j_${f.name});');
+          } else if (structNames.contains(f.type.name.replaceFirst('?', ''))) {
             s.writeln('    if (j_${f.name}) env->DeleteLocalRef(j_${f.name});');
           }
         }
@@ -685,8 +709,10 @@ class CppBridgeGenerator {
           final ctorSig =
               '(${st.fields.map((f) {
                 final isEnum = enumNames.contains(f.type.name.replaceFirst('?', ''));
+                final isNestedStruct = structNames.contains(f.type.name.replaceFirst('?', ''));
                 if (isEnum) return 'J';
                 if (_isZeroCopy(st, f.name)) return 'Ljava/nio/ByteBuffer;';
+                if (isNestedStruct) return 'L$libPkg/${f.type.name.replaceFirst('?', '')};';
                 return _jniSigType(f.type.name);
               }).join('')})V';
           s.writeln('    {');
@@ -698,7 +724,14 @@ class CppBridgeGenerator {
           for (final f in st.fields) {
             final isEnum = enumNames.contains(f.type.name.replaceFirst('?', ''));
             final isZeroCopy = _isZeroCopy(st, f.name);
-            final sig = isEnum ? 'J' : (isZeroCopy ? 'Ljava/nio/ByteBuffer;' : _jniSigType(f.type.name));
+            final isNestedStruct = structNames.contains(f.type.name.replaceFirst('?', ''));
+            final sig = isEnum
+                ? 'J'
+                : (isZeroCopy
+                    ? 'Ljava/nio/ByteBuffer;'
+                    : (isNestedStruct
+                        ? 'L$libPkg/${f.type.name.replaceFirst('?', '')};'
+                        : _jniSigType(f.type.name)));
             s.writeln('            g_fid_${st.name}_${f.name} = env->GetFieldID(g_cls_${st.name}, "${f.name}", "$sig");');
           }
           s.writeln('        }');

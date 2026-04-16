@@ -45,8 +45,8 @@ typedef struct {
   double width; 
   double height; 
   double confidence; 
-  Vector3* center; 
-  Quaternion* rotation; 
+  Vector3* vector3; 
+  Quaternion* quaternion; 
 } PackageDimensions;
 #endif // NITRO_STRUCT_PACKAGEDIMENSIONS_DEFINED
 
@@ -76,6 +76,19 @@ NITRO_EXPORT int8_t nitro_ar_is_depth_supported(void);
 NITRO_EXPORT void* nitro_ar_detect_package(void* rect);
 NITRO_EXPORT void* nitro_ar_get_raw_depth_map(void);
 NITRO_EXPORT double nitro_ar_estimate_volume(const char* anchor);
+NITRO_EXPORT int8_t nitro_ar_check_camera_permission(void);
+NITRO_EXPORT int8_t nitro_ar_request_camera_permission(void);
+NITRO_EXPORT void nitro_ar_start_session(void);
+NITRO_EXPORT void nitro_ar_stop_session(void);
+NITRO_EXPORT void nitro_ar_pause_session(void);
+NITRO_EXPORT void nitro_ar_resume_session(void);
+NITRO_EXPORT int8_t nitro_ar_is_tracking(void);
+NITRO_EXPORT void nitro_ar_enable_flashlight(int8_t enable);
+
+// Streams
+// Stream<PackageBoxes> detectedPackages
+NITRO_EXPORT void nitro_ar_register_detected_packages_stream(int64_t dart_port);
+NITRO_EXPORT void nitro_ar_release_detected_packages_stream(int64_t dart_port);
 
 // Struct release functions
 NITRO_EXPORT void nitro_ar_release_Vector3(void* ptr);

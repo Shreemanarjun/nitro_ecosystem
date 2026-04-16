@@ -42,6 +42,81 @@ class RecordGenerator {
     );
     s.writeln();
 
+    // ── Emit RecordExt for @HybridStruct types referenced in record fields ──
+    // Structs used as recordObject / listRecordObject items need fromReader /
+    // writeFields so the record codec can embed them inline.
+    final structMap = {for (final st in spec.structs) st.name: st};
+    final enumNames = spec.enums.map((e) => e.name).toSet();
+    final structNames = spec.structs.map((s) => s.name).toSet();
+
+    // Collect referenced struct names (with transitive closure for nesting).
+    final referencedStructs = <String>{};
+    for (final rt in spec.recordTypes) {
+      for (final f in rt.fields) {
+        if (f.kind == RecordFieldKind.recordObject || f.kind == RecordFieldKind.listRecordObject) {
+          final typeName = f.kind == RecordFieldKind.listRecordObject ? f.itemTypeName! : f.dartType.replaceFirst('?', '');
+          if (structMap.containsKey(typeName)) {
+            referencedStructs.add(typeName);
+          }
+        }
+      }
+    }
+    // Transitive: nested struct fields inside referenced structs.
+    void collectNested(String typeName) {
+      final st = structMap[typeName];
+      if (st == null) return;
+      for (final f in st.fields) {
+        final base = f.type.name.replaceFirst('?', '');
+        if (structMap.containsKey(base) && !referencedStructs.contains(base)) {
+          referencedStructs.add(base);
+          collectNested(base);
+        }
+      }
+    }
+
+    for (final name in referencedStructs.toList()) {
+      collectNested(name);
+    }
+
+    for (final stName in referencedStructs) {
+      final st = structMap[stName]!;
+      s.writeln('extension ${st.name}RecordExt on ${st.name} {');
+
+      // fromNative
+      s.writeln('  static ${st.name} fromNative(Pointer<Uint8> ptr) =>');
+      s.writeln('      fromReader(RecordReader.fromNative(ptr));');
+      s.writeln();
+
+      // fromReader
+      s.writeln('  static ${st.name} fromReader(RecordReader r) =>');
+      s.writeln('      ${st.name}(');
+      for (final f in st.fields.where((f) => !f.isNamed)) {
+        s.writeln('        ${_structFieldReadExpr(f, enumNames, structNames)},');
+      }
+      for (final f in st.fields.where((f) => f.isNamed)) {
+        s.writeln('        ${f.name}: ${_structFieldReadExpr(f, enumNames, structNames)},');
+      }
+      s.writeln('      );');
+      s.writeln();
+
+      // writeFields
+      s.writeln('  void writeFields(RecordWriter w) {');
+      for (final f in st.fields) {
+        _writeStructFieldStmt(s, f, enumNames, structNames);
+      }
+      s.writeln('  }');
+      s.writeln();
+
+      // toNative
+      s.writeln('  Pointer<Uint8> toNative(Allocator alloc) {');
+      s.writeln('    final w = RecordWriter();');
+      s.writeln('    writeFields(w);');
+      s.writeln('    return w.toNative(alloc);');
+      s.writeln('  }');
+      s.writeln('}');
+      s.writeln();
+    }
+
     for (final rt in spec.recordTypes) {
       s.writeln('extension ${rt.name}RecordExt on ${rt.name} {');
 
@@ -196,6 +271,33 @@ class RecordGenerator {
     }
   }
 
+  // ── Struct field read/write helpers (for RecordExt generated above) ───────────
+
+  /// Dart read expression for one field of a @HybridStruct embedded in a record.
+  static String _structFieldReadExpr(BridgeField f, Set<String> enumNames, Set<String> structNames) {
+    final base = f.type.name.replaceFirst('?', '');
+    if (enumNames.contains(base)) return _primitiveReadCall('int');
+    if (structNames.contains(base)) return '${base}RecordExt.fromReader(r)';
+    return _primitiveReadCall(base);
+  }
+
+  /// Emits a Dart write statement for one field of a @HybridStruct embedded in a record.
+  static void _writeStructFieldStmt(
+    StringBuffer s,
+    BridgeField f,
+    Set<String> enumNames,
+    Set<String> structNames,
+  ) {
+    final base = f.type.name.replaceFirst('?', '');
+    if (enumNames.contains(base)) {
+      s.writeln('    w.${_primitiveWriteCall('int', '${f.name}.nativeValue')};');
+    } else if (structNames.contains(base)) {
+      s.writeln('    ${f.name}.writeFields(w);');
+    } else {
+      _writePrimitiveStmt(s, f.type.name, f.name);
+    }
+  }
+
   // ── Kotlin generator ────────────────────────────────────────────────────────
 
   /// Generates `@Keep data class` declarations for every `@HybridRecord` type
@@ -238,17 +340,6 @@ class RecordGenerator {
       s.writeln('        fun writeDouble(v: Double) { buf.clear(); buf.putDouble(v); out.write(buf.array()) }');
       s.writeln('        fun writeBool(v: Boolean) { out.write(if (v) 1 else 0) }');
       s.writeln('        fun writeString(v: String) { val b = v.toByteArray(Charsets.UTF_8); writeInt32(b.size); out.write(b) }');
-      // Indexed list helper — emits count + int64[] offsets + item bytes.
-      // Matches the Dart RecordWriter.encodeIndexedList wire format.
-      // Uses a 64-byte initial capacity per item to avoid dynamic growth on small records.
-      s.writeln('        fun <T> writeIndexedList(items: List<T>, writeItem: (java.io.ByteArrayOutputStream) -> Unit) {');
-      s.writeln('            val blobs = items.map { _ -> val io = java.io.ByteArrayOutputStream(64); writeItem(io); io.toByteArray() }');
-      s.writeln('            writeInt32(blobs.size)');
-      s.writeln('            var off = (4L + 8L * blobs.size)');
-      s.writeln('            val offBuf = java.nio.ByteBuffer.allocate(8).order(java.nio.ByteOrder.LITTLE_ENDIAN)');
-      s.writeln('            blobs.forEach { b -> offBuf.clear(); offBuf.putLong(off); out.write(offBuf.array()); off += b.size }');
-      s.writeln('            blobs.forEach { b -> out.write(b) }');
-      s.writeln('        }');
       for (final f in rt.fields) {
         _kotlinWriteStmt(s, f);
       }
@@ -319,12 +410,10 @@ class RecordGenerator {
         return '$base.decodeFrom(buf)';
       case RecordFieldKind.listPrimitive:
         final item = f.itemTypeName ?? 'int';
-        // Indexed format: count + int64[] offsets + item bytes.
-        // Skip offset table (count * 8 bytes) before reading items.
-        return '{ val _cnt = buf.int; repeat(_cnt) { buf.long }; (0 until _cnt).map { ${_kotlinPrimRead(item)} } }()';
+        return '(0 until buf.int).map { ${_kotlinPrimRead(item)} }';
       case RecordFieldKind.listRecordObject:
         final item = f.itemTypeName!;
-        return '{ val _cnt = buf.int; repeat(_cnt) { buf.long }; (0 until _cnt).map { $item.decodeFrom(buf) } }()';
+        return '(0 until buf.int).map { $item.decodeFrom(buf) }';
     }
   }
 
@@ -364,19 +453,12 @@ class RecordGenerator {
         break;
       case RecordFieldKind.listPrimitive:
         final base = f.itemTypeName ?? 'int';
-        // Use indexed format: count + int64[] offsets + item bytes.
-        s.writeln('        writeIndexedList(${f.name}) { io ->');
-        s.writeln('            val lb = java.nio.ByteBuffer.allocate(8).order(java.nio.ByteOrder.LITTLE_ENDIAN)');
-        s.writeln('            fun wInt(v: Long) { lb.clear(); lb.putLong(v); io.write(lb.array()) }');
-        s.writeln('            fun wInt32(v: Int) { lb.clear(); lb.putInt(v); io.write(lb.array(), 0, 4) }');
-        s.writeln('            fun wDouble(v: Double) { lb.clear(); lb.putDouble(v); io.write(lb.array()) }');
-        s.writeln('            fun wBool(v: Boolean) { io.write(if (v) 1 else 0) }');
-        s.writeln('            fun wString(v: String) { val b = v.toByteArray(Charsets.UTF_8); wInt32(b.size); io.write(b) }');
-        s.writeln('            it.let { e -> ${_kotlinWriteCallInner(base, 'e')} }');
-        s.writeln('        }');
+        s.writeln('        writeInt32(${f.name}.size)');
+        s.writeln('        ${f.name}.forEach { e -> ${_kotlinWriteCall(base, 'e')} }');
         break;
       case RecordFieldKind.listRecordObject:
-        s.writeln('        writeIndexedList(${f.name}) { io -> it.writeFieldsTo(io, buf) }');
+        s.writeln('        writeInt32(${f.name}.size)');
+        s.writeln('        ${f.name}.forEach { e -> e.writeFieldsTo(out, buf) }');
         break;
     }
   }
@@ -393,23 +475,6 @@ class RecordGenerator {
         return 'writeString($expr)';
       default:
         return 'writeInt($expr.toLong())';
-    }
-  }
-
-  /// Like [_kotlinWriteCall] but uses the `w*` local functions inside the
-  /// `writeIndexedList` lambda (avoids shadowing the outer `write*` helpers).
-  static String _kotlinWriteCallInner(String base, String expr) {
-    switch (base) {
-      case 'int':
-        return 'wInt($expr.toLong())';
-      case 'double':
-        return 'wDouble($expr)';
-      case 'bool':
-        return 'wBool($expr)';
-      case 'String':
-        return 'wString($expr)';
-      default:
-        return 'wInt($expr.toLong())';
     }
   }
 

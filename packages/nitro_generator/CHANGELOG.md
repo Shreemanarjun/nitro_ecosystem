@@ -1,3 +1,8 @@
+## 0.3.3
+
+- **Fixed: Nested structs and records with native code generation for structs for better
+
+
 ## 0.3.2
 
 - **Fixed: Nested struct fields generate typed pointers** — Fields whose type is another `@HybridStruct` now use `Pointer<NestedFfi>` instead of `Pointer<Void>`. `toDart()`, `toNative()`, `freeFields()`, and proxy lazy getters all handle nested pointers correctly.

@@ -49,6 +49,9 @@ void nitro_ar_release_BoundingBox(void* ptr) {
 }
 void nitro_ar_release_PackageDimensions(void* ptr) {
     if (!ptr) return;
+    PackageDimensions* st_ptr = (PackageDimensions*)ptr;
+    if (st_ptr->vector3) { free(st_ptr->vector3); st_ptr->vector3 = nullptr; }
+    if (st_ptr->quaternion) { free(st_ptr->quaternion); st_ptr->quaternion = nullptr; }
     free(ptr);
 }
 void nitro_ar_release_RawDepthMap(void* ptr) {
@@ -74,6 +77,16 @@ static jmethodID g_mid_isDepthSupported_call = nullptr;
 static jmethodID g_mid_detectPackage_call = nullptr;
 static jmethodID g_mid_getRawDepthMap_call = nullptr;
 static jmethodID g_mid_estimateVolume_call = nullptr;
+static jmethodID g_mid_checkCameraPermission_call = nullptr;
+static jmethodID g_mid_requestCameraPermission_call = nullptr;
+static jmethodID g_mid_startSession_call = nullptr;
+static jmethodID g_mid_stopSession_call = nullptr;
+static jmethodID g_mid_pauseSession_call = nullptr;
+static jmethodID g_mid_resumeSession_call = nullptr;
+static jmethodID g_mid_isTracking_call = nullptr;
+static jmethodID g_mid_enableFlashlight_call = nullptr;
+static jmethodID g_mid_nitro_ar_register_detected_packages_stream_call = nullptr;
+static jmethodID g_mid_nitro_ar_release_detected_packages_stream_call = nullptr;
 static jclass g_cls_Vector3 = nullptr;
 static jmethodID g_ctor_Vector3 = nullptr;
 static jfieldID g_fid_Vector3_x = nullptr;
@@ -97,8 +110,8 @@ static jfieldID g_fid_PackageDimensions_length = nullptr;
 static jfieldID g_fid_PackageDimensions_width = nullptr;
 static jfieldID g_fid_PackageDimensions_height = nullptr;
 static jfieldID g_fid_PackageDimensions_confidence = nullptr;
-static jfieldID g_fid_PackageDimensions_center = nullptr;
-static jfieldID g_fid_PackageDimensions_rotation = nullptr;
+static jfieldID g_fid_PackageDimensions_vector3 = nullptr;
+static jfieldID g_fid_PackageDimensions_quaternion = nullptr;
 static jclass g_cls_RawDepthMap = nullptr;
 static jmethodID g_ctor_RawDepthMap = nullptr;
 static jfieldID g_fid_RawDepthMap_data = nullptr;
@@ -186,12 +199,24 @@ static PackageDimensions pack_PackageDimensions_from_jni(JNIEnv* env, jobject ob
     result.width = env->GetDoubleField(obj, g_fid_PackageDimensions_width);
     result.height = env->GetDoubleField(obj, g_fid_PackageDimensions_height);
     result.confidence = env->GetDoubleField(obj, g_fid_PackageDimensions_confidence);
-    result.center = env->GetObjectField(obj, g_fid_PackageDimensions_center);
-    result.rotation = env->GetObjectField(obj, g_fid_PackageDimensions_rotation);
+    jobject j_vector3 = env->GetObjectField(obj, g_fid_PackageDimensions_vector3);
+    Vector3* vector3_ptr = (Vector3*)malloc(sizeof(Vector3));
+    *vector3_ptr = pack_Vector3_from_jni(env, j_vector3);
+    env->DeleteLocalRef(j_vector3);
+    result.vector3 = vector3_ptr;
+    jobject j_quaternion = env->GetObjectField(obj, g_fid_PackageDimensions_quaternion);
+    Quaternion* quaternion_ptr = (Quaternion*)malloc(sizeof(Quaternion));
+    *quaternion_ptr = pack_Quaternion_from_jni(env, j_quaternion);
+    env->DeleteLocalRef(j_quaternion);
+    result.quaternion = quaternion_ptr;
     return result;
 }
 static jobject unpack_PackageDimensions_to_jni(JNIEnv* env, const PackageDimensions* st) {
-    jobject result = env->NewObject(g_cls_PackageDimensions, g_ctor_PackageDimensions, (jdouble)st->length, (jdouble)st->width, (jdouble)st->height, (jdouble)st->confidence, (jobject)st->center, (jobject)st->rotation);
+    jobject j_vector3 = unpack_Vector3_to_jni(env, st->vector3);
+    jobject j_quaternion = unpack_Quaternion_to_jni(env, st->quaternion);
+    jobject result = env->NewObject(g_cls_PackageDimensions, g_ctor_PackageDimensions, (jdouble)st->length, (jdouble)st->width, (jdouble)st->height, (jdouble)st->confidence, j_vector3, j_quaternion);
+    if (j_vector3) env->DeleteLocalRef(j_vector3);
+    if (j_quaternion) env->DeleteLocalRef(j_quaternion);
     return result;
 }
 static RawDepthMap pack_RawDepthMap_from_jni(JNIEnv* env, jobject obj) {
@@ -254,6 +279,16 @@ JNIEXPORT jint JNICALL JNI_OnLoad(JavaVM* vm, void* reserved) {
         g_mid_detectPackage_call = env->GetStaticMethodID(g_bridgeClass, "detectPackage_call", "(Lnitro/nitro_ar_module/BoundingBox;)Lnitro/nitro_ar_module/PackageDimensions;");
         g_mid_getRawDepthMap_call = env->GetStaticMethodID(g_bridgeClass, "getRawDepthMap_call", "()Lnitro/nitro_ar_module/RawDepthMap;");
         g_mid_estimateVolume_call = env->GetStaticMethodID(g_bridgeClass, "estimateVolume_call", "(Ljava/lang/String;)D");
+        g_mid_checkCameraPermission_call = env->GetStaticMethodID(g_bridgeClass, "checkCameraPermission_call", "()Z");
+        g_mid_requestCameraPermission_call = env->GetStaticMethodID(g_bridgeClass, "requestCameraPermission_call", "()Z");
+        g_mid_startSession_call = env->GetStaticMethodID(g_bridgeClass, "startSession_call", "()V");
+        g_mid_stopSession_call = env->GetStaticMethodID(g_bridgeClass, "stopSession_call", "()V");
+        g_mid_pauseSession_call = env->GetStaticMethodID(g_bridgeClass, "pauseSession_call", "()V");
+        g_mid_resumeSession_call = env->GetStaticMethodID(g_bridgeClass, "resumeSession_call", "()V");
+        g_mid_isTracking_call = env->GetStaticMethodID(g_bridgeClass, "isTracking_call", "()Z");
+        g_mid_enableFlashlight_call = env->GetStaticMethodID(g_bridgeClass, "enableFlashlight_call", "(Z)V");
+        g_mid_nitro_ar_register_detected_packages_stream_call = env->GetStaticMethodID(g_bridgeClass, "nitro_ar_register_detected_packages_stream_call", "(J)V");
+        g_mid_nitro_ar_release_detected_packages_stream_call = env->GetStaticMethodID(g_bridgeClass, "nitro_ar_release_detected_packages_stream_call", "(J)V");
     }
 
     // Cache struct class + ctor + field IDs
@@ -297,13 +332,13 @@ JNIEXPORT jint JNICALL JNI_OnLoad(JavaVM* vm, void* reserved) {
         if (local_cls_PackageDimensions != nullptr) {
             g_cls_PackageDimensions = (jclass)env->NewGlobalRef(local_cls_PackageDimensions);
             env->DeleteLocalRef(local_cls_PackageDimensions);
-            g_ctor_PackageDimensions = env->GetMethodID(g_cls_PackageDimensions, "<init>", "(DDDDLjava/lang/Object;Ljava/lang/Object;)V");
+            g_ctor_PackageDimensions = env->GetMethodID(g_cls_PackageDimensions, "<init>", "(DDDDLnitro/nitro_ar_module/Vector3;Lnitro/nitro_ar_module/Quaternion;)V");
             g_fid_PackageDimensions_length = env->GetFieldID(g_cls_PackageDimensions, "length", "D");
             g_fid_PackageDimensions_width = env->GetFieldID(g_cls_PackageDimensions, "width", "D");
             g_fid_PackageDimensions_height = env->GetFieldID(g_cls_PackageDimensions, "height", "D");
             g_fid_PackageDimensions_confidence = env->GetFieldID(g_cls_PackageDimensions, "confidence", "D");
-            g_fid_PackageDimensions_center = env->GetFieldID(g_cls_PackageDimensions, "center", "Ljava/lang/Object;");
-            g_fid_PackageDimensions_rotation = env->GetFieldID(g_cls_PackageDimensions, "rotation", "Ljava/lang/Object;");
+            g_fid_PackageDimensions_vector3 = env->GetFieldID(g_cls_PackageDimensions, "vector3", "Lnitro/nitro_ar_module/Vector3;");
+            g_fid_PackageDimensions_quaternion = env->GetFieldID(g_cls_PackageDimensions, "quaternion", "Lnitro/nitro_ar_module/Quaternion;");
         }
     }
     {
@@ -463,6 +498,147 @@ double nitro_ar_estimate_volume(const char* anchor) {
     return res;
 }
 
+int8_t nitro_ar_check_camera_permission(void) {
+    JNIEnv* env = GetEnv();
+    if (env == nullptr) return false;
+    jmethodID methodId = g_mid_checkCameraPermission_call;
+    if (methodId == nullptr) { LOGE("Method not found: checkCameraPermission_call sig=()Z"); return false; }
+
+    nitro_ar_clear_error();
+    if (env->PushLocalFrame(16) != 0) return false;
+    bool res = env->CallStaticBooleanMethod(g_bridgeClass, methodId);
+    if (env->ExceptionCheck()) {
+        nitro_report_jni_exception(env, env->ExceptionOccurred());
+        env->PopLocalFrame(nullptr);
+        return false;
+    }
+    env->PopLocalFrame(nullptr);
+    return res;
+}
+
+int8_t nitro_ar_request_camera_permission(void) {
+    JNIEnv* env = GetEnv();
+    if (env == nullptr) return false;
+    jmethodID methodId = g_mid_requestCameraPermission_call;
+    if (methodId == nullptr) { LOGE("Method not found: requestCameraPermission_call sig=()Z"); return false; }
+
+    nitro_ar_clear_error();
+    if (env->PushLocalFrame(16) != 0) return false;
+    bool res = env->CallStaticBooleanMethod(g_bridgeClass, methodId);
+    if (env->ExceptionCheck()) {
+        nitro_report_jni_exception(env, env->ExceptionOccurred());
+        env->PopLocalFrame(nullptr);
+        return false;
+    }
+    env->PopLocalFrame(nullptr);
+    return res;
+}
+
+void nitro_ar_start_session(void) {
+    JNIEnv* env = GetEnv();
+    if (env == nullptr) return;
+    jmethodID methodId = g_mid_startSession_call;
+    if (methodId == nullptr) { LOGE("Method not found: startSession_call sig=()V"); return; }
+
+    nitro_ar_clear_error();
+    if (env->PushLocalFrame(16) != 0) return nullptr;
+    env->CallStaticVoidMethod(g_bridgeClass, methodId);
+    env->PopLocalFrame(nullptr);
+    if (env->ExceptionCheck()) { nitro_report_jni_exception(env, env->ExceptionOccurred()); }
+}
+
+void nitro_ar_stop_session(void) {
+    JNIEnv* env = GetEnv();
+    if (env == nullptr) return;
+    jmethodID methodId = g_mid_stopSession_call;
+    if (methodId == nullptr) { LOGE("Method not found: stopSession_call sig=()V"); return; }
+
+    nitro_ar_clear_error();
+    if (env->PushLocalFrame(16) != 0) return nullptr;
+    env->CallStaticVoidMethod(g_bridgeClass, methodId);
+    env->PopLocalFrame(nullptr);
+    if (env->ExceptionCheck()) { nitro_report_jni_exception(env, env->ExceptionOccurred()); }
+}
+
+void nitro_ar_pause_session(void) {
+    JNIEnv* env = GetEnv();
+    if (env == nullptr) return;
+    jmethodID methodId = g_mid_pauseSession_call;
+    if (methodId == nullptr) { LOGE("Method not found: pauseSession_call sig=()V"); return; }
+
+    nitro_ar_clear_error();
+    if (env->PushLocalFrame(16) != 0) return nullptr;
+    env->CallStaticVoidMethod(g_bridgeClass, methodId);
+    env->PopLocalFrame(nullptr);
+    if (env->ExceptionCheck()) { nitro_report_jni_exception(env, env->ExceptionOccurred()); }
+}
+
+void nitro_ar_resume_session(void) {
+    JNIEnv* env = GetEnv();
+    if (env == nullptr) return;
+    jmethodID methodId = g_mid_resumeSession_call;
+    if (methodId == nullptr) { LOGE("Method not found: resumeSession_call sig=()V"); return; }
+
+    nitro_ar_clear_error();
+    if (env->PushLocalFrame(16) != 0) return nullptr;
+    env->CallStaticVoidMethod(g_bridgeClass, methodId);
+    env->PopLocalFrame(nullptr);
+    if (env->ExceptionCheck()) { nitro_report_jni_exception(env, env->ExceptionOccurred()); }
+}
+
+int8_t nitro_ar_is_tracking(void) {
+    JNIEnv* env = GetEnv();
+    if (env == nullptr) return false;
+    jmethodID methodId = g_mid_isTracking_call;
+    if (methodId == nullptr) { LOGE("Method not found: isTracking_call sig=()Z"); return false; }
+
+    nitro_ar_clear_error();
+    if (env->PushLocalFrame(16) != 0) return false;
+    bool res = env->CallStaticBooleanMethod(g_bridgeClass, methodId);
+    if (env->ExceptionCheck()) {
+        nitro_report_jni_exception(env, env->ExceptionOccurred());
+        env->PopLocalFrame(nullptr);
+        return false;
+    }
+    env->PopLocalFrame(nullptr);
+    return res;
+}
+
+void nitro_ar_enable_flashlight(int8_t enable) {
+    JNIEnv* env = GetEnv();
+    if (env == nullptr) return;
+    jmethodID methodId = g_mid_enableFlashlight_call;
+    if (methodId == nullptr) { LOGE("Method not found: enableFlashlight_call sig=(Z)V"); return; }
+
+    nitro_ar_clear_error();
+    if (env->PushLocalFrame(16) != 0) return nullptr;
+    env->CallStaticVoidMethod(g_bridgeClass, methodId, enable);
+    env->PopLocalFrame(nullptr);
+    if (env->ExceptionCheck()) { nitro_report_jni_exception(env, env->ExceptionOccurred()); }
+}
+
+void nitro_ar_register_detected_packages_stream(int64_t dart_port) {
+    JNIEnv* env = GetEnv();
+    if (env == nullptr) return;
+    jmethodID methodId = g_mid_nitro_ar_register_detected_packages_stream_call;
+    if (methodId == nullptr) { LOGE("Method not found: nitro_ar_register_detected_packages_stream_call sig=(J)V"); return; }
+    env->CallStaticVoidMethod(g_bridgeClass, methodId, dart_port);
+}
+
+void nitro_ar_release_detected_packages_stream(int64_t dart_port) {
+    JNIEnv* env = GetEnv();
+    if (env == nullptr) return;
+    jmethodID methodId = g_mid_nitro_ar_release_detected_packages_stream_call;
+    if (methodId == nullptr) { LOGE("Method not found: nitro_ar_release_detected_packages_stream_call sig=(J)V"); return; }
+    env->CallStaticVoidMethod(g_bridgeClass, methodId, dart_port);
+}
+
+JNIEXPORT void JNICALL Java_nitro_nitro_1ar_1module_NitroArJniBridge_emit_1detectedPackages(JNIEnv* env, jobject thiz, jlong dartPort, jobject item) {
+    Dart_CObject obj;
+    obj.type = Dart_CObject_kNull;
+    Dart_PostCObject_DL(dartPort, &obj);
+}
+
 JNIEXPORT void JNICALL Java_nitro_nitro_1ar_1module_NitroArJniBridge_initialize(JNIEnv* env, jobject thiz, jclass bridgeClass) {
     if (g_bridgeClass == nullptr) {
         g_bridgeClass = (jclass)env->NewGlobalRef(bridgeClass);
@@ -560,6 +736,136 @@ double nitro_ar_estimate_volume(const char* anchor) {
 #else
     return _call_estimateVolume(anchor);
 #endif
+}
+
+extern int8_t _call_checkCameraPermission(void);
+int8_t nitro_ar_check_camera_permission(void) {
+    nitro_ar_clear_error();
+#ifdef __OBJC__
+    @try {
+        return _call_checkCameraPermission();
+    } @catch (NSException* e) {
+        nitro_report_error([e.name UTF8String], [e.reason UTF8String], nullptr, nullptr);
+        return false;
+    }
+#else
+    return _call_checkCameraPermission();
+#endif
+}
+
+extern int8_t _call_requestCameraPermission(void);
+int8_t nitro_ar_request_camera_permission(void) {
+    nitro_ar_clear_error();
+#ifdef __OBJC__
+    @try {
+        return _call_requestCameraPermission();
+    } @catch (NSException* e) {
+        nitro_report_error([e.name UTF8String], [e.reason UTF8String], nullptr, nullptr);
+        return false;
+    }
+#else
+    return _call_requestCameraPermission();
+#endif
+}
+
+extern void _call_startSession(void);
+void nitro_ar_start_session(void) {
+    nitro_ar_clear_error();
+#ifdef __OBJC__
+    @try {
+        _call_startSession();
+    } @catch (NSException* e) {
+        nitro_report_error([e.name UTF8String], [e.reason UTF8String], nullptr, nullptr);
+    }
+#else
+    _call_startSession();
+#endif
+}
+
+extern void _call_stopSession(void);
+void nitro_ar_stop_session(void) {
+    nitro_ar_clear_error();
+#ifdef __OBJC__
+    @try {
+        _call_stopSession();
+    } @catch (NSException* e) {
+        nitro_report_error([e.name UTF8String], [e.reason UTF8String], nullptr, nullptr);
+    }
+#else
+    _call_stopSession();
+#endif
+}
+
+extern void _call_pauseSession(void);
+void nitro_ar_pause_session(void) {
+    nitro_ar_clear_error();
+#ifdef __OBJC__
+    @try {
+        _call_pauseSession();
+    } @catch (NSException* e) {
+        nitro_report_error([e.name UTF8String], [e.reason UTF8String], nullptr, nullptr);
+    }
+#else
+    _call_pauseSession();
+#endif
+}
+
+extern void _call_resumeSession(void);
+void nitro_ar_resume_session(void) {
+    nitro_ar_clear_error();
+#ifdef __OBJC__
+    @try {
+        _call_resumeSession();
+    } @catch (NSException* e) {
+        nitro_report_error([e.name UTF8String], [e.reason UTF8String], nullptr, nullptr);
+    }
+#else
+    _call_resumeSession();
+#endif
+}
+
+extern int8_t _call_isTracking(void);
+int8_t nitro_ar_is_tracking(void) {
+    nitro_ar_clear_error();
+#ifdef __OBJC__
+    @try {
+        return _call_isTracking();
+    } @catch (NSException* e) {
+        nitro_report_error([e.name UTF8String], [e.reason UTF8String], nullptr, nullptr);
+        return false;
+    }
+#else
+    return _call_isTracking();
+#endif
+}
+
+extern void _call_enableFlashlight(int8_t enable);
+void nitro_ar_enable_flashlight(int8_t enable) {
+    nitro_ar_clear_error();
+#ifdef __OBJC__
+    @try {
+        _call_enableFlashlight(enable);
+    } @catch (NSException* e) {
+        nitro_report_error([e.name UTF8String], [e.reason UTF8String], nullptr, nullptr);
+    }
+#else
+    _call_enableFlashlight(enable);
+#endif
+}
+
+void _emit_detectedPackages_to_dart(int64_t dartPort, void* item) {
+    Dart_CObject obj;
+    obj.type = Dart_CObject_kNull;
+    Dart_PostCObject_DL(dartPort, &obj);
+}
+
+extern void _register_detectedPackages_stream(int64_t dartPort, void (*emitCb)(int64_t, void*));
+void nitro_ar_register_detected_packages_stream(int64_t dart_port) {
+    _register_detectedPackages_stream(dart_port, _emit_detectedPackages_to_dart);
+}
+extern void _release_detectedPackages_stream(int64_t dart_port);
+void nitro_ar_release_detected_packages_stream(int64_t dart_port) {
+    _release_detectedPackages_stream(dart_port);
 }
 
 } // extern "C"

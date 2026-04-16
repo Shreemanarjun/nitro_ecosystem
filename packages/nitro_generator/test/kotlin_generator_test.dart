@@ -147,11 +147,11 @@ void main() {
       expect(out, contains('return lenBuf.array() + payload'));
     });
 
-    test('encode uses indexed list format for List<@HybridRecord>', () {
+    test('encode uses sequential list format for List<@HybridRecord>', () {
       final out = KotlinGenerator.generate(recordListSpec());
-      // Indexed list format: uses writeIndexedList helper (writes count + offsets + blobs).
-      expect(out, contains('writeIndexedList(resolutions)'));
-      expect(out, contains('it.writeFieldsTo(io, buf)'));
+      // Sequential list format: writes count then iterates items.
+      expect(out, contains('writeInt32(resolutions.size)'));
+      expect(out, contains('resolutions.forEach { e -> e.writeFieldsTo(out, buf) }'));
     });
 
     test('all record types are emitted (Resolution AND CameraDevice)', () {
@@ -231,7 +231,7 @@ void main() {
 
     test('struct data class emits @Keep', () {
       final out = KotlinGenerator.generate(richSpec());
-      expect(out, contains('@Keep\ndata class Reading'));
+      expect(out, contains('@androidx.annotation.Keep\ndata class Reading'));
     });
 
     test('property setter with bool type var in interface', () {

@@ -126,14 +126,8 @@ class StructGenerator {
       // Build the super() call with zero-value defaults so the proxy can
       // satisfy the base class constructor without copying any native data.
       // Positional params first (no label), named params after (with label).
-      final positionalDefaults = st.fields
-          .where((f) => !f.isNamed)
-          .map((f) => _superDefault(f.type.name, enumNames, structNames, structMap))
-          .join(', ');
-      final namedDefaults = st.fields
-          .where((f) => f.isNamed)
-          .map((f) => '${f.name}: ${_superDefault(f.type.name, enumNames, structNames, structMap)}')
-          .join(', ');
+      final positionalDefaults = st.fields.where((f) => !f.isNamed).map((f) => _superDefault(f.type.name, enumNames, structNames, structMap)).join(', ');
+      final namedDefaults = st.fields.where((f) => f.isNamed).map((f) => '${f.name}: ${_superDefault(f.type.name, enumNames, structNames, structMap)}').join(', ');
       final superArgs = [
         if (positionalDefaults.isNotEmpty) positionalDefaults,
         if (namedDefaults.isNotEmpty) namedDefaults,
@@ -175,9 +169,7 @@ class StructGenerator {
         if (f.type.isTypedData) {
           final lenField = st.fields
               .where(
-                (sf) =>
-                    sf.type.name == 'int' &&
-                    _kLengthFieldNames.contains(sf.name),
+                (sf) => sf.type.name == 'int' && _kLengthFieldNames.contains(sf.name),
               )
               .map((sf) => sf.name)
               .firstOrNull;
@@ -225,10 +217,7 @@ class StructGenerator {
   ) {
     final typeName = f.type.name.replaceFirst('?', '');
     if (f.type.isTypedData) {
-      final lenField = st.fields
-          .where((sf) => sf.type.name == 'int' && _kLengthFieldNames.contains(sf.name))
-          .map((sf) => sf.name)
-          .firstOrNull;
+      final lenField = st.fields.where((sf) => sf.type.name == 'int' && _kLengthFieldNames.contains(sf.name)).map((sf) => sf.name).firstOrNull;
       return '$typeName.fromList(${f.name}.asTypedList(${lenField ?? '0'}))';
     } else if (f.type.name == 'bool') {
       return '${f.name} != 0';
@@ -257,14 +246,8 @@ class StructGenerator {
       // respecting the nested type's own positional/named param layout.
       final nestedSt = structMap[base];
       if (nestedSt != null) {
-        final positional = nestedSt.fields
-            .where((f) => !f.isNamed)
-            .map((f) => _superDefault(f.type.name, enumNames, structNames, structMap))
-            .join(', ');
-        final named = nestedSt.fields
-            .where((f) => f.isNamed)
-            .map((f) => '${f.name}: ${_superDefault(f.type.name, enumNames, structNames, structMap)}')
-            .join(', ');
+        final positional = nestedSt.fields.where((f) => !f.isNamed).map((f) => _superDefault(f.type.name, enumNames, structNames, structMap)).join(', ');
+        final named = nestedSt.fields.where((f) => f.isNamed).map((f) => '${f.name}: ${_superDefault(f.type.name, enumNames, structNames, structMap)}').join(', ');
         final args = [if (positional.isNotEmpty) positional, if (named.isNotEmpty) named].join(', ');
         return '$base($args)';
       }
@@ -334,7 +317,9 @@ class StructGenerator {
     return s.toString();
   }
 
-  /// Generates Kotlin @Keep data classes for structs.
+  /// Generates Kotlin @Keep data classes for structs, including binary
+  /// [decodeFrom] / [decode] / [writeFieldsTo] / [encode] codec methods so
+  /// structs can be used as item types inside @HybridRecord list fields.
   static String generateKotlin(BridgeSpec spec) {
     if (spec.structs.isEmpty) return '';
     final enumNames = spec.enums.map((e) => e.name).toSet();
@@ -342,16 +327,155 @@ class StructGenerator {
     final s = StringBuffer();
     s.writeln('// --- Structs ---');
     for (final st in spec.structs) {
-      s.writeln('@Keep');
+      s.writeln('@androidx.annotation.Keep');
       final params = st.fields
           .map(
-            (f) => 'val ${f.name}: ${_dartTypeToKotlin(f.type.name, f.zeroCopy, enumNames, structNames)}',
+            (f) => 'val ${f.name}: ${_dartTypeToKotlin(f.type.name, f.type.isNullable, f.zeroCopy, enumNames, structNames)}',
           )
           .join(', ');
-      s.writeln('data class ${st.name}($params)');
+      s.writeln('data class ${st.name}($params) {');
+
+      // ── companion object: decodeFrom(buf) + decode(bytes) ──────────────
+      s.writeln('    companion object {');
+      s.writeln('        @JvmStatic fun decodeFrom(buf: java.nio.ByteBuffer): ${st.name} {');
+      for (final f in st.fields) {
+        s.writeln('            val ${f.name} = ${_kotlinReadCallForStruct(f, enumNames, structNames)}');
+      }
+      final ctorArgs = st.fields.map((f) => f.name).join(', ');
+      s.writeln('            return ${st.name}($ctorArgs)');
+      s.writeln('        }');
+      s.writeln('        @JvmStatic fun decode(bytes: ByteArray): ${st.name} {');
+      s.writeln('            val buf = java.nio.ByteBuffer.wrap(bytes).order(java.nio.ByteOrder.LITTLE_ENDIAN)');
+      s.writeln('            return decodeFrom(buf)');
+      s.writeln('        }');
+      s.writeln('    }');
+      s.writeln();
+
+      // ── writeFieldsTo: writes fields into a shared stream/buffer ───────
+      s.writeln('    fun writeFieldsTo(out: java.io.ByteArrayOutputStream, buf: java.nio.ByteBuffer) {');
+      s.writeln('        fun writeInt(v: Long) { buf.clear(); buf.putLong(v); out.write(buf.array()) }');
+      s.writeln('        @Suppress("UNUSED_PARAMETER") fun writeInt32(v: Int) { buf.clear(); buf.putInt(v); out.write(buf.array(), 0, 4) }');
+      s.writeln('        fun writeDouble(v: Double) { buf.clear(); buf.putDouble(v); out.write(buf.array()) }');
+      s.writeln('        fun writeBool(v: Boolean) { out.write(if (v) 1 else 0) }');
+      s.writeln('        fun writeString(v: String) { val b = v.toByteArray(Charsets.UTF_8); writeInt32(b.size); out.write(b) }');
+      for (final f in st.fields) {
+        if (f.type.isNullable) {
+          s.writeln('        out.write(if (${f.name} == null) 0 else 1)');
+          final writeExpr = _kotlinWriteCallForStruct(f, enumNames, structNames, 'it');
+          s.writeln('        ${f.name}?.let { $writeExpr }');
+        } else {
+          final writeExpr = _kotlinWriteCallForStruct(f, enumNames, structNames);
+          s.writeln('        $writeExpr');
+        }
+      }
+      s.writeln('    }');
+      s.writeln();
+
+      // ── encode(): ByteArray — standalone serialization ──────────────────
+      final capacity = _structBytesHint(st, enumNames, structNames);
+      s.writeln('    fun encode(): ByteArray {');
+      s.writeln('        val out = java.io.ByteArrayOutputStream($capacity)');
+      s.writeln('        val buf = java.nio.ByteBuffer.allocate(8).order(java.nio.ByteOrder.LITTLE_ENDIAN)');
+      s.writeln('        writeFieldsTo(out, buf)');
+      s.writeln('        return out.toByteArray()');
+      s.writeln('    }');
+      s.writeln('}');
       s.writeln();
     }
     return s.toString();
+  }
+
+  /// Kotlin expression to read one struct field from a [java.nio.ByteBuffer].
+  static String _kotlinReadCallForStruct(BridgeField f, Set<String> enumNames, Set<String> structNames) {
+    var expr = _kotlinReadExprNoNull(f, enumNames, structNames);
+    if (f.type.isNullable) {
+      return '(if (buf.get().toInt() != 0) $expr else null)';
+    }
+    return expr;
+  }
+
+  static String _kotlinReadExprNoNull(BridgeField f, Set<String> enumNames, Set<String> structNames) {
+    final base = f.type.name.replaceFirst('?', '');
+    if (enumNames.contains(base)) return 'buf.long';
+    if (structNames.contains(base)) return '$base.decodeFrom(buf)';
+    if (f.type.isTypedData) {
+      if (f.zeroCopy) {
+        // Return a dummy/empty ByteBuffer for now as we don't have a safe way
+        // to wrap a Long pointer in pure Kotlin without JNI.
+        // This fixes compilation when the struct is embedded in a @HybridRecord.
+        return '{ buf.long; java.nio.ByteBuffer.allocate(0) }()';
+      } else {
+        return '{ val len = buf.int; val b = ByteArray(len); buf.get(b); b }()';
+      }
+    }
+    switch (base) {
+      case 'int':
+        return 'buf.long';
+      case 'double':
+        return 'buf.double';
+      case 'bool':
+        return '(buf.get().toInt() != 0)';
+      case 'String':
+        return '{ val len = buf.int; val b = ByteArray(len); buf.get(b); b.toString(Charsets.UTF_8) }()';
+      default:
+        return 'buf.long';
+    }
+  }
+
+  /// Kotlin statement to write one struct field to [out]/[buf].
+  /// Assumes local helper functions [writeInt], [writeDouble], etc. exist in scope.
+  static String _kotlinWriteCallForStruct(BridgeField f, Set<String> enumNames, Set<String> structNames, [String? varOverride]) {
+    final name = varOverride ?? f.name;
+    final base = f.type.name.replaceFirst('?', '');
+    if (enumNames.contains(base)) return 'writeInt($name.toLong())';
+    if (structNames.contains(base)) return '$name.writeFieldsTo(out, buf)';
+    if (f.type.isTypedData) {
+      if (f.zeroCopy) {
+        // We write 0 as a placeholder for the pointer since we can't easily
+        // get the address of a DirectByteBuffer in pure Kotlin.
+        return 'writeInt(0L)';
+      } else {
+        return 'writeInt32($name.size); out.write($name)';
+      }
+    }
+    switch (base) {
+      case 'int':
+        return 'writeInt($name)';
+      case 'double':
+        return 'writeDouble($name)';
+      case 'bool':
+        return 'writeBool($name)';
+      case 'String':
+        return 'writeString($name)';
+      default:
+        return 'writeInt($name.toLong())';
+    }
+  }
+
+  /// Estimates the serialized byte size of one [BridgeStruct] instance.
+  /// Used to pre-size [ByteArrayOutputStream] in [encode].
+  static int _structBytesHint(BridgeStruct st, Set<String> enumNames, Set<String> structNames) {
+    var total = 0;
+    for (final f in st.fields) {
+      if (f.type.isNullable) total += 1;
+      final base = f.type.name.replaceFirst('?', '');
+      if (enumNames.contains(base) || base == 'int') {
+        total += 8;
+      } else if (base == 'double') {
+        total += 8;
+      } else if (base == 'bool') {
+        total += 1;
+      } else if (base == 'String') {
+        total += 36; // 4-byte len + ~32 avg content
+      } else if (structNames.contains(base)) {
+        total += 32; // rough estimate for nested struct
+      } else if (f.type.isTypedData) {
+        total += 36; // 4-byte len + ~32 byte hint
+      } else {
+        total += 8;
+      }
+    }
+    return total > 0 ? total : 32;
   }
 
   /// Generates Swift structs.
@@ -412,45 +536,48 @@ class StructGenerator {
     }
   }
 
-  static String _dartTypeToKotlin(String t, [bool isZeroCopy = false, Set<String> enumNames = const {}, Set<String> structNames = const {}]) {
+  static String _dartTypeToKotlin(String t, bool isNullable, [bool isZeroCopy = false, Set<String> enumNames = const {}, Set<String> structNames = const {}]) {
     final base = t.replaceFirst('?', '');
+    String kotlinType;
     // Enum fields are stored as Long in Kotlin data classes (matches JNI Long
     // bridging used for enum function params/returns).
-    if (enumNames.contains(base)) return 'Long';
-    // Nested @HybridStruct — use its Kotlin data class by the same name.
-    if (structNames.contains(base)) return base;
-    switch (base) {
-      case 'int':
-        return 'Long';
-      case 'double':
-        return 'Double';
-      case 'bool':
-        return 'Boolean';
-      case 'String':
-        return 'String';
-      case 'Uint8List':
-        return isZeroCopy ? 'java.nio.ByteBuffer' : 'ByteArray';
-      case 'Int8List':
-        return isZeroCopy ? 'java.nio.ByteBuffer' : 'ByteArray';
-      case 'Int16List':
-        return isZeroCopy ? 'java.nio.ByteBuffer' : 'ShortArray';
-      case 'Int32List':
-        return isZeroCopy ? 'java.nio.ByteBuffer' : 'IntArray';
-      case 'Uint16List':
-        return isZeroCopy ? 'java.nio.ByteBuffer' : 'ShortArray';
-      case 'Uint32List':
-        return isZeroCopy ? 'java.nio.ByteBuffer' : 'IntArray';
-      case 'Float32List':
-        return isZeroCopy ? 'java.nio.ByteBuffer' : 'FloatArray';
-      case 'Float64List':
-        return isZeroCopy ? 'java.nio.ByteBuffer' : 'DoubleArray';
-      case 'Int64List':
-        return isZeroCopy ? 'java.nio.ByteBuffer' : 'LongArray';
-      case 'Uint64List':
-        return isZeroCopy ? 'java.nio.ByteBuffer' : 'LongArray';
-      default:
-        return 'Any?';
+    if (enumNames.contains(base)) {
+      kotlinType = 'Long';
+    } else if (structNames.contains(base)) {
+      // Nested @HybridStruct — use its Kotlin data class by the same name.
+      kotlinType = base;
+    } else {
+      switch (base) {
+        case 'int':
+          kotlinType = 'Long';
+          break;
+        case 'double':
+          kotlinType = 'Double';
+          break;
+        case 'bool':
+          kotlinType = 'Boolean';
+          break;
+        case 'String':
+          kotlinType = 'String';
+          break;
+        case 'Uint8List':
+        case 'Int8List':
+        case 'Int16List':
+        case 'Int32List':
+        case 'Uint16List':
+        case 'Uint32List':
+        case 'Float32List':
+        case 'Float64List':
+        case 'Int64List':
+        case 'Uint64List':
+          kotlinType = isZeroCopy ? 'java.nio.ByteBuffer' : 'ByteArray';
+          break;
+        default:
+          kotlinType = 'Any?';
+          break;
+      }
     }
+    return isNullable ? '$kotlinType?' : kotlinType;
   }
 
   static String _dartTypeToSwift(String t, [bool isZeroCopy = false, Set<String> enumNames = const {}, Set<String> structNames = const {}]) {

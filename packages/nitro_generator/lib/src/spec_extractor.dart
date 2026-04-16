@@ -1,6 +1,7 @@
 import 'package:analyzer/dart/element/element.dart';
 import 'package:analyzer/dart/constant/value.dart';
 import 'package:analyzer/dart/element/type.dart';
+import 'package:analyzer/dart/element/nullability_suffix.dart';
 import 'package:source_gen/source_gen.dart';
 import 'package:nitro_annotations/nitro_annotations.dart';
 import 'bridge_spec.dart';
@@ -130,17 +131,25 @@ class SpecExtractor {
 
   static List<BridgeRecordType> _extractRecordTypes(LibraryReader library) {
     const checker = TypeChecker.fromRuntime(HybridRecord);
+    const structChecker = TypeChecker.fromRuntime(HybridStruct);
 
     // Single pass: collect annotated ClassElements, then reuse the list.
     final classes = library.annotatedWith(checker).where((ann) => ann.element is ClassElement).map((ann) => ann.element as ClassElement).toList();
 
     final recordTypeNames = classes.map((c) => c.name).toSet();
+    // Also collect @HybridStruct names so that List<@HybridStruct T> fields
+    // inside @HybridRecord classes are classified as listRecordObject (not
+    // listPrimitive), enabling binary codec generation for struct items.
+    final structTypeNames = library.annotatedWith(structChecker)
+        .where((ann) => ann.element is ClassElement)
+        .map((ann) => (ann.element as ClassElement).name)
+        .toSet();
 
     return classes.map((cls) {
       final fields = cls.fields.where((f) => !f.isStatic && !f.isSynthetic).map((f) {
         final displayType = f.type.getDisplayString(withNullability: true);
         final isNullable = displayType.endsWith('?');
-        final kind = _recordFieldKind(f.type, recordTypeNames);
+        final kind = _recordFieldKind(f.type, recordTypeNames, structTypeNames);
         final itemTypeName = _listItemTypeName(f.type);
         return BridgeRecordField(
           name: f.name,
@@ -156,14 +165,18 @@ class SpecExtractor {
 
   static RecordFieldKind _recordFieldKind(
     DartType type,
-    Set<String> recordTypeNames,
-  ) {
+    Set<String> recordTypeNames, [
+    Set<String> structTypeNames = const {},
+  ]) {
     if (type is InterfaceType) {
       if (type.element.name == 'List' && type.typeArguments.isNotEmpty) {
         final itemName = type.typeArguments.first.getDisplayString(withNullability: false);
-        return recordTypeNames.contains(itemName) ? RecordFieldKind.listRecordObject : RecordFieldKind.listPrimitive;
+        if (recordTypeNames.contains(itemName) || structTypeNames.contains(itemName)) {
+          return RecordFieldKind.listRecordObject;
+        }
+        return RecordFieldKind.listPrimitive;
       }
-      if (recordTypeNames.contains(type.element.name)) {
+      if (recordTypeNames.contains(type.element.name) || structTypeNames.contains(type.element.name)) {
         return RecordFieldKind.recordObject;
       }
     }
@@ -427,6 +440,7 @@ class SpecExtractor {
                 name: f.name,
                 type: BridgeType(
                   name: f.type.getDisplayString(withNullability: true),
+                  isNullable: f.type.nullabilitySuffix == NullabilitySuffix.question,
                 ),
                 zeroCopy: zeroCopyFields.contains(f.name),
                 isNamed: info?.isNamed ?? true,
