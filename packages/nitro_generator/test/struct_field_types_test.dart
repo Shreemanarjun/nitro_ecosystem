@@ -524,7 +524,7 @@ void main() {
   // ── 5. ZeroCopy comment in C struct ──────────────────────────────────────────
 
   group('ZeroCopy — C struct field comment', () {
-    BridgeSpec _zeroCopySpec() => BridgeSpec(
+    BridgeSpec zeroCopySpec() => BridgeSpec(
       dartClassName: 'Cam',
       lib: 'cam',
       namespace: 'cam',
@@ -546,17 +546,17 @@ void main() {
     );
 
     test('zeroCopy field has /* zero-copy */ comment in C typedef', () {
-      final out = StructGenerator.generateCStructs(_zeroCopySpec());
+      final out = StructGenerator.generateCStructs(zeroCopySpec());
       expect(out, contains('/* zero-copy */'));
     });
 
     test('zeroCopy comment appears on the data field line', () {
-      final out = StructGenerator.generateCStructs(_zeroCopySpec());
+      final out = StructGenerator.generateCStructs(zeroCopySpec());
       expect(out, contains('uint8_t* data; /* zero-copy */'));
     });
 
     test('non-zeroCopy fields have no /* zero-copy */ comment', () {
-      final out = StructGenerator.generateCStructs(_zeroCopySpec());
+      final out = StructGenerator.generateCStructs(zeroCopySpec());
       expect(out, isNot(contains('int64_t width; /* zero-copy */')));
       expect(out, isNot(contains('int64_t stride; /* zero-copy */')));
     });
@@ -565,7 +565,7 @@ void main() {
   // ── 6. Nullable field type name — '?' stripping ───────────────────────────────
 
   group("Nullable field type '?' stripping", () {
-    BridgeSpec _nullableSpec() => BridgeSpec(
+    BridgeSpec nullableSpec() => BridgeSpec(
       dartClassName: 'Mod',
       lib: 'mod',
       namespace: 'mod',
@@ -589,24 +589,24 @@ void main() {
     );
 
     test('enum with ? still maps to @Int32() + int in FFI Struct', () {
-      final out = StructGenerator.generateDartExtensions(_nullableSpec());
+      final out = StructGenerator.generateDartExtensions(nullableSpec());
       expect(out, contains('@Int32()'));
       expect(out, contains('external int mode;'));
     });
 
     test('nullable enum field toDart() strips ? and calls toEnumName()', () {
-      final out = StructGenerator.generateDartExtensions(_nullableSpec());
+      final out = StructGenerator.generateDartExtensions(nullableSpec());
       expect(out, contains('mode: mode.toState()'));
     });
 
     test('nullable double still maps to @Double() + double in FFI Struct', () {
-      final out = StructGenerator.generateDartExtensions(_nullableSpec());
+      final out = StructGenerator.generateDartExtensions(nullableSpec());
       expect(out, contains('@Double()'));
       expect(out, contains('external double score;'));
     });
 
     test('nullable double toDart() strips ? and passes field directly', () {
-      final out = StructGenerator.generateDartExtensions(_nullableSpec());
+      final out = StructGenerator.generateDartExtensions(nullableSpec());
       expect(out, contains('score: score'));
     });
   });
@@ -730,7 +730,7 @@ void main() {
   // ── 8. Kitchen-sink: all field types in one struct ────────────────────────────
 
   group('Kitchen-sink struct — all field types together', () {
-    BridgeSpec _kitchenSinkSpec() => BridgeSpec(
+    BridgeSpec kitchenSinkSpec() => BridgeSpec(
       dartClassName: 'KitchenMod',
       lib: 'kitchen_mod',
       namespace: 'kitchen_mod',
@@ -765,7 +765,7 @@ void main() {
     );
 
     test('all FFI Struct field types are correct', () {
-      final out = StructGenerator.generateDartExtensions(_kitchenSinkSpec());
+      final out = StructGenerator.generateDartExtensions(kitchenSinkSpec());
       expect(out, contains('@Int64()\n  external int count;'));
       expect(out, contains('@Double()\n  external double ratio;'));
       expect(out, contains('@Int8()\n  external int active;'));
@@ -776,7 +776,7 @@ void main() {
     });
 
     test('all toDart() conversions are correct', () {
-      final out = StructGenerator.generateDartExtensions(_kitchenSinkSpec());
+      final out = StructGenerator.generateDartExtensions(kitchenSinkSpec());
       expect(out, contains('count: count'));
       expect(out, contains('ratio: ratio'));
       expect(out, contains('active: active != 0'));
@@ -787,7 +787,7 @@ void main() {
     });
 
     test('all toNative() assignments are correct', () {
-      final out = StructGenerator.generateDartExtensions(_kitchenSinkSpec());
+      final out = StructGenerator.generateDartExtensions(kitchenSinkSpec());
       expect(out, contains('ptr.ref.count = count'));
       expect(out, contains('ptr.ref.ratio = ratio'));
       expect(out, contains('ptr.ref.active = active ? 1 : 0'));
@@ -798,7 +798,7 @@ void main() {
     });
 
     test('freeFields() frees string and nested struct only', () {
-      final out = StructGenerator.generateDartExtensions(_kitchenSinkSpec());
+      final out = StructGenerator.generateDartExtensions(kitchenSinkSpec());
       // Find the freeFields for Everything
       final evIdx = out.indexOf('extension EverythingFfiExt');
       final evBlock = out.substring(evIdx, out.indexOf('extension Everything', evIdx + 1));
@@ -820,7 +820,7 @@ void main() {
     });
 
     test('proxy super() has correct zero defaults for all types', () {
-      final out = StructGenerator.generateDartProxies(_kitchenSinkSpec());
+      final out = StructGenerator.generateDartProxies(kitchenSinkSpec());
       expect(out, contains('count: 0'));
       expect(out, contains('ratio: 0.0'));
       expect(out, contains('active: false'));
@@ -832,7 +832,7 @@ void main() {
     });
 
     test('Kotlin data class maps all types correctly', () {
-      final out = StructGenerator.generateKotlin(_kitchenSinkSpec());
+      final out = StructGenerator.generateKotlin(kitchenSinkSpec());
       expect(out, contains('val count: Long'));
       expect(out, contains('val ratio: Double'));
       expect(out, contains('val active: Boolean'));
@@ -844,7 +844,7 @@ void main() {
     });
 
     test('Swift struct maps all types correctly', () {
-      final out = StructGenerator.generateSwift(_kitchenSinkSpec());
+      final out = StructGenerator.generateSwift(kitchenSinkSpec());
       expect(out, contains('var count: Int64'));
       expect(out, contains('var ratio: Double'));
       expect(out, contains('var active: Bool'));
@@ -856,7 +856,7 @@ void main() {
     });
 
     test('C typedef maps all types correctly', () {
-      final out = StructGenerator.generateCStructs(_kitchenSinkSpec());
+      final out = StructGenerator.generateCStructs(kitchenSinkSpec());
       expect(out, contains('int64_t count;'));
       expect(out, contains('double ratio;'));
       expect(out, contains('int8_t active;'));
