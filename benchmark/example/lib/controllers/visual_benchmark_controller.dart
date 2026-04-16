@@ -2,9 +2,10 @@ import 'dart:async';
 import 'dart:math' as math;
 import 'package:benchmark/benchmark.dart';
 import 'package:flutter/services.dart';
-import 'package:nitro/nitro.dart';
 import 'package:signals_flutter/signals_flutter.dart';
 import '../models/benchmark_bridge.dart';
+// Raw FFI helpers — web stub returns pure-Dart results; native loads the lib.
+import 'raw_ffi_service.dart' if (dart.library.io) 'raw_ffi_service_native.dart';
 
 class VisualBenchmarkController {
   final isRunning = signal<bool>(false);
@@ -34,10 +35,6 @@ class VisualBenchmarkController {
   final winner = signal<BridgeType?>(null);
 
   Timer? _fpsTimer;
-  static DynamicLibrary? _dylib;
-  static double Function(double, double)? _rawAdd;
-  static int Function(Pointer<Uint8>, int)? _rawSendBuffer;
-  static int Function(Pointer<Uint8>, int)? _rawSendBufferNoop;
   static const _channel = MethodChannel(
     'dev.shreeman.benchmark/method_channel',
   );
@@ -47,33 +44,10 @@ class VisualBenchmarkController {
   };
 
   VisualBenchmarkController() {
-    _init();
+    _startFpsTimer();
   }
 
-  void _init() {
-    _dylib ??= NitroRuntime.loadLib('benchmark_cpp');
-    _rawAdd ??= _dylib!
-        .lookupFunction<
-          Double Function(Double, Double),
-          double Function(double, double)
-        >('add_double');
-
-    try {
-      _rawSendBuffer = _dylib!
-          .lookupFunction<
-            Int64 Function(Pointer<Uint8>, Int64),
-            int Function(Pointer<Uint8>, int)
-          >('send_large_buffer');
-    } catch (_) {}
-
-    try {
-      _rawSendBufferNoop = _dylib!
-          .lookupFunction<
-            Int64 Function(Pointer<Uint8>, Int64),
-            int Function(Pointer<Uint8>, int)
-          >('send_large_buffer_noop');
-    } catch (_) {}
-
+  void _startFpsTimer() {
     _fpsTimer?.cancel();
     _fpsTimer = Timer.periodic(const Duration(seconds: 1), (_) {
       batch(() {
@@ -82,11 +56,9 @@ class VisualBenchmarkController {
             final count = tickCounts[type]!.value;
             currentFps[type]!.value = count.toDouble();
             perFrameMicros[type]!.value = count > 0 ? 1000000.0 / count : 0.0;
-
             final totalMicros = _accumulatedMicros[type]!;
-            avgPerCallMicros[type]!.value = count > 0
-                ? totalMicros / count
-                : 0.0;
+            avgPerCallMicros[type]!.value =
+                count > 0 ? totalMicros / count : 0.0;
           } else {
             currentFps[type]!.value = 0.0;
             perFrameMicros[type]!.value = 0.0;
@@ -104,7 +76,6 @@ class VisualBenchmarkController {
   }
 
   Future<void> runHighBandwidthTest(int mb) async {
-    // Validate: must be positive and within a safe threshold (≤ 2GB to avoid OOM).
     if (mb <= 0 || mb > 2048) {
       for (final type in BridgeType.values) {
         throughputResults[type]!.value =
@@ -112,18 +83,8 @@ class VisualBenchmarkController {
       }
       return;
     }
-    // Use explicit wide multiplication to avoid int32 overflow on some platforms.
-    final byteSize =
-        mb * 1024 * 1024; // mb ≤ 2048 → max ~2 GB, safe in Dart's 64-bit int
-    final Uint8List buffer;
-    try {
-      buffer = Uint8List(byteSize);
-    } catch (e) {
-      for (final type in BridgeType.values) {
-        throughputResults[type]!.value = 'OOM: cannot allocate ${mb}MB';
-      }
-      return;
-    }
+    final byteSize = mb * 1024 * 1024;
+    final buffer = Uint8List(byteSize);
 
     for (final type in [
       BridgeType.methodChannel,
@@ -155,18 +116,15 @@ class VisualBenchmarkController {
             BenchmarkCpp.instance.sendLargeBufferNoopFast(buffer);
             break;
           case BridgeType.nitroUnsafe:
-            final ptr = malloc<Uint8>(byteSize);
-            BenchmarkCpp.instance.sendLargeBufferUnsafe(ptr, byteSize);
-            malloc.free(ptr);
+            // Uses RawFfiService to keep Pointer<Uint8> out of this file,
+            // allowing the same source to compile on web.
+            RawFfiService.instance.sendBufferUnsafe(byteSize);
             break;
           case BridgeType.rawFfi:
-            final func = isChecksumEnabled.value
-                ? _rawSendBuffer
-                : _rawSendBufferNoop;
-            if (func != null) {
-              final ptr = malloc<Uint8>(byteSize);
-              func(ptr, byteSize);
-              malloc.free(ptr);
+            if (isChecksumEnabled.value) {
+              RawFfiService.instance.sendBuffer(buffer);
+            } else {
+              RawFfiService.instance.sendBufferNoop(buffer);
             }
             break;
           default:
@@ -200,7 +158,9 @@ class VisualBenchmarkController {
     isRunning.value = false;
   }
 
-  double rawAdd(double a, double b) => _rawAdd!(a, b);
+  double rawAdd(double a, double b) =>
+      RawFfiService.instance.rawAddCpp(a, b);
+
   MethodChannel get channel => _channel;
 
   Future<void> runOneOffProfiler() async {
@@ -227,7 +187,8 @@ class VisualBenchmarkController {
             BenchmarkCpp.instance.add(1.0, 2.0);
             break;
           case BridgeType.nitroCppStruct:
-            BenchmarkCpp.instance.scalePoint(BenchmarkPoint(x: 1, y: 2), 1.0);
+            BenchmarkCpp.instance
+                .scalePoint(BenchmarkPoint(x: 1, y: 2), 1.0);
             break;
           case BridgeType.nitroCppAsync:
             await BenchmarkCpp.instance.computeStats(1);
@@ -239,7 +200,7 @@ class VisualBenchmarkController {
             BenchmarkCpp.instance.addFast(1.0, 2.0);
             break;
           case BridgeType.rawFfi:
-            rawAdd(1.0, 2.0);
+            RawFfiService.instance.rawAddCpp(1.0, 2.0);
             break;
           case BridgeType.methodChannel:
             await _channel.invokeMethod('add', {'a': 1.0, 'b': 2.0});

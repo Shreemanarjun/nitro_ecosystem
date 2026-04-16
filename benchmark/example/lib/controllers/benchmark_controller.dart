@@ -2,12 +2,13 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:signals_flutter/signals_flutter.dart';
-import 'package:nitro/nitro.dart';
 import 'package:benchmark/benchmark.dart' as plugin;
 import 'package:fl_chart/fl_chart.dart';
 
 import '../models/benchmark_bridge.dart';
 import '../models/benchmark_history.dart';
+// Raw FFI helpers — web stub returns pure-Dart results; native loads the lib.
+import 'raw_ffi_service.dart' if (dart.library.io) 'raw_ffi_service_native.dart';
 
 class BenchmarkController {
   // --- Signals (State) ---
@@ -28,27 +29,9 @@ class BenchmarkController {
     for (var bridge in BridgeType.values) bridge: [],
   });
 
-  // --- Private Bridge State ---
   static const _channel = MethodChannel(
     'dev.shreeman.benchmark/method_channel',
   );
-  late final DynamicLibrary _dylib;
-  double Function(double, double)? _rawAdd;
-
-  BenchmarkController() {
-    _initFfi();
-  }
-
-  void _initFfi() {
-    try {
-      _dylib = NitroRuntime.loadLib('benchmark');
-      _rawAdd = _dylib
-          .lookup<NativeFunction<Double Function(Double, Double)>>('add_double')
-          .asFunction<double Function(double, double)>();
-    } catch (e) {
-      debugPrint('Failed to load raw FFI: $e');
-    }
-  }
 
   void clear() {
     for (var bridge in BridgeType.values) {
@@ -64,30 +47,25 @@ class BenchmarkController {
         return plugin.Benchmark.instance.add(a, b);
 
       case BridgeType.nitroCpp:
-        // Baseline: sync C++ direct dispatch
         return plugin.BenchmarkCpp.instance.add(a, b);
 
       case BridgeType.nitroCppStruct:
-        // Zero-copy struct param + return — measures struct marshalling overhead
         final pt = plugin.BenchmarkPoint(x: a, y: b);
         final scaled = plugin.BenchmarkCpp.instance.scalePoint(pt, 1.0);
         return scaled.x + scaled.y;
 
       case BridgeType.nitroCppAsync:
-        // Async Future returning a @HybridRecord — measures Future + record overhead
         final stats = await plugin.BenchmarkCpp.instance.computeStats(1);
         return stats.meanUs;
 
       case BridgeType.nitroLeaf:
-        // Absolute best performance: Leaf Call + No Error Check
         return plugin.BenchmarkCpp.instance.addFast(a, b);
 
       case BridgeType.nitroUnsafe:
         return plugin.BenchmarkCpp.instance.addFast(a, b);
 
       case BridgeType.rawFfi:
-        if (_rawAdd == null) throw Exception('Raw FFI bridge not initialized');
-        return _rawAdd!(a, b);
+        return RawFfiService.instance.rawAdd(a, b);
 
       case BridgeType.methodChannel:
         final res = await _channel.invokeMethod<double>('add', {

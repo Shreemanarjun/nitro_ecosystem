@@ -14,6 +14,8 @@ dependencies:
   fl_chart: ^1.2.0
   flutter:
     sdk: flutter
+  flutter_web_plugins:
+    sdk: flutter
   nitro:
     path: ../packages/nitro
   plugin_platform_interface: ^2.0.2
@@ -55,6 +57,11 @@ flutter:
       macos:
         pluginClass: SwiftBenchmarkPlugin
         ffiPlugin: true
+      web:
+        # Pure-Dart stub implementation — no native bridge on web.
+        # Results serve as a baseline "pure Dart dispatch" reference.
+        pluginClass: BenchmarkWebPlugin
+        fileName: src/benchmark_web_plugin.dart
 
   # To add assets to your plugin package, add an assets section, like this:
   # assets:
