@@ -84,11 +84,15 @@ NITRO_EXPORT void nitro_ar_pause_session(void);
 NITRO_EXPORT void nitro_ar_resume_session(void);
 NITRO_EXPORT int8_t nitro_ar_is_tracking(void);
 NITRO_EXPORT void nitro_ar_enable_flashlight(int8_t enable);
+NITRO_EXPORT void nitro_ar_set_detection_options(double threshold, int64_t rotation, int8_t useMock);
 
 // Streams
 // Stream<PackageBoxes> detectedPackages
 NITRO_EXPORT void nitro_ar_register_detected_packages_stream(int64_t dart_port);
 NITRO_EXPORT void nitro_ar_release_detected_packages_stream(int64_t dart_port);
+// Stream<LiveTrackingUpdate> liveTrackingUpdates
+NITRO_EXPORT void nitro_ar_register_live_tracking_updates_stream(int64_t dart_port);
+NITRO_EXPORT void nitro_ar_release_live_tracking_updates_stream(int64_t dart_port);
 
 // Struct release functions
 NITRO_EXPORT void nitro_ar_release_Vector3(void* ptr);

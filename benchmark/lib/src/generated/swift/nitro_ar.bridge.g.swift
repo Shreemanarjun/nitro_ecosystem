@@ -59,14 +59,46 @@ public struct PackageBoxes {
     )
   }
 
-  public func writeFields(_ w: NitroRecordWriter) {
-    w.writeIndexedList(boxes) { e, iw in iw.writeDouble(e) }
+  public func writeFields(_ writer: NitroRecordWriter) {
+    writer.writeIndexedList(boxes) { e, iw in iw.writeDouble(e) }
   }
 
   public func toNative() -> UnsafeMutablePointer<UInt8>? {
-    let w = NitroRecordWriter()
-    writeFields(w)
-    return w.toNative()
+    let writer = NitroRecordWriter()
+    writeFields(writer)
+    return writer.toNative()
+  }
+}
+
+public struct LiveTrackingUpdate {
+  public var isTracking: Bool
+  public var centerDimensions: PackageDimensions
+
+  public init(isTracking: Bool, centerDimensions: PackageDimensions) {
+    self.isTracking = isTracking
+    self.centerDimensions = centerDimensions
+  }
+
+  public static func fromNative(_ ptr: UnsafeMutablePointer<UInt8>) -> LiveTrackingUpdate {
+    return fromReader(NitroRecordReader(ptr: ptr))
+  }
+
+  public static func fromReader(_ r: NitroRecordReader) -> LiveTrackingUpdate {
+    return LiveTrackingUpdate(
+      isTracking: r.readBool(),
+      centerDimensions: PackageDimensions.fromReader(r),
+    )
+  }
+
+  public func writeFields(_ writer: NitroRecordWriter) {
+    writer.writeBool(isTracking)
+    centerDimensions.writeFields(writer)
+  }
+
+  public func toNative() -> UnsafeMutablePointer<UInt8>? {
+    let writer = NitroRecordWriter()
+    writeFields(writer)
+    return writer.toNative()
   }
 }
 
@@ -202,7 +234,9 @@ public protocol HybridNitroArProtocol: AnyObject {
     func resumeSession() async throws -> Void
     func isTracking() -> Bool
     func enableFlashlight(enable: Bool) -> Void
+    func setDetectionOptions(threshold: Double, rotation: Int64, useMock: Bool) -> Void
     var detectedPackages: AnyPublisher<PackageBoxes, Never> { get }
+    var liveTrackingUpdates: AnyPublisher<LiveTrackingUpdate, Never> { get }
 }
 
 public class NitroArRegistry {
@@ -214,6 +248,9 @@ public class NitroArRegistry {
 
     // Stream: detectedPackages cancellables keyed by dartPort
     public static var _detectedPackagesCancellables = [Int64: AnyCancellable]()
+
+    // Stream: liveTrackingUpdates cancellables keyed by dartPort
+    public static var _liveTrackingUpdatesCancellables = [Int64: AnyCancellable]()
 }
 
 // MARK: - C bridge stubs — exported as C symbols called by the generated .cpp shim
@@ -346,6 +383,11 @@ public func _call_enableFlashlight(_ enable: Int8) -> Void {
     NitroArRegistry.impl?.enableFlashlight(enable: enable != 0)
 }
 
+@_cdecl("_call_setDetectionOptions")
+public func _call_setDetectionOptions(_ threshold: Double, _ rotation: Int64, _ useMock: Int8) -> Void {
+    NitroArRegistry.impl?.setDetectionOptions(threshold: threshold, rotation: rotation, useMock: useMock != 0)
+}
+
 @_cdecl("_register_detectedPackages_stream")
 public func _register_detectedPackages_stream(
     _ dartPort: Int64,
@@ -361,4 +403,20 @@ public func _register_detectedPackages_stream(
 public func _release_detectedPackages_stream(_ dartPort: Int64) {
     NitroArRegistry._detectedPackagesCancellables[dartPort]?.cancel()
     NitroArRegistry._detectedPackagesCancellables.removeValue(forKey: dartPort)
+}
+@_cdecl("_register_liveTrackingUpdates_stream")
+public func _register_liveTrackingUpdates_stream(
+    _ dartPort: Int64,
+    _ emitCb: @convention(c) (Int64, UnsafeMutablePointer<UInt8>?) -> Void
+) {
+    NitroArRegistry._liveTrackingUpdatesCancellables[dartPort] =
+        NitroArRegistry.impl?.liveTrackingUpdates.sink { item in
+            emitCb(dartPort, item)
+        }
+}
+
+@_cdecl("_release_liveTrackingUpdates_stream")
+public func _release_liveTrackingUpdates_stream(_ dartPort: Int64) {
+    NitroArRegistry._liveTrackingUpdatesCancellables[dartPort]?.cancel()
+    NitroArRegistry._liveTrackingUpdatesCancellables.removeValue(forKey: dartPort)
 }

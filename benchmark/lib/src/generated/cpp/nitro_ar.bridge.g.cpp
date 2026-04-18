@@ -85,8 +85,15 @@ static jmethodID g_mid_pauseSession_call = nullptr;
 static jmethodID g_mid_resumeSession_call = nullptr;
 static jmethodID g_mid_isTracking_call = nullptr;
 static jmethodID g_mid_enableFlashlight_call = nullptr;
+static jmethodID g_mid_setDetectionOptions_call = nullptr;
 static jmethodID g_mid_nitro_ar_register_detected_packages_stream_call = nullptr;
 static jmethodID g_mid_nitro_ar_release_detected_packages_stream_call = nullptr;
+static jmethodID g_mid_nitro_ar_register_live_tracking_updates_stream_call = nullptr;
+static jmethodID g_mid_nitro_ar_release_live_tracking_updates_stream_call = nullptr;
+static jclass g_cls_PackageBoxes = nullptr;
+static jmethodID g_mid_PackageBoxes_encode = nullptr;
+static jclass g_cls_LiveTrackingUpdate = nullptr;
+static jmethodID g_mid_LiveTrackingUpdate_encode = nullptr;
 static jclass g_cls_Vector3 = nullptr;
 static jmethodID g_ctor_Vector3 = nullptr;
 static jfieldID g_fid_Vector3_x = nullptr;
@@ -287,10 +294,35 @@ JNIEXPORT jint JNICALL JNI_OnLoad(JavaVM* vm, void* reserved) {
         g_mid_resumeSession_call = env->GetStaticMethodID(g_bridgeClass, "resumeSession_call", "()V");
         g_mid_isTracking_call = env->GetStaticMethodID(g_bridgeClass, "isTracking_call", "()Z");
         g_mid_enableFlashlight_call = env->GetStaticMethodID(g_bridgeClass, "enableFlashlight_call", "(Z)V");
+        g_mid_setDetectionOptions_call = env->GetStaticMethodID(g_bridgeClass, "setDetectionOptions_call", "(DJZ)V");
         g_mid_nitro_ar_register_detected_packages_stream_call = env->GetStaticMethodID(g_bridgeClass, "nitro_ar_register_detected_packages_stream_call", "(J)V");
         g_mid_nitro_ar_release_detected_packages_stream_call = env->GetStaticMethodID(g_bridgeClass, "nitro_ar_release_detected_packages_stream_call", "(J)V");
+        g_mid_nitro_ar_register_live_tracking_updates_stream_call = env->GetStaticMethodID(g_bridgeClass, "nitro_ar_register_live_tracking_updates_stream_call", "(J)V");
+        g_mid_nitro_ar_release_live_tracking_updates_stream_call = env->GetStaticMethodID(g_bridgeClass, "nitro_ar_release_live_tracking_updates_stream_call", "(J)V");
     }
 
+    // Cache PackageBoxes class + encode() for stream serialisation
+    {
+        jclass local_cls_PackageBoxes = env->FindClass("nitro/nitro_ar_module/PackageBoxes");
+        if (local_cls_PackageBoxes != nullptr) {
+            g_cls_PackageBoxes = (jclass)env->NewGlobalRef(local_cls_PackageBoxes);
+            env->DeleteLocalRef(local_cls_PackageBoxes);
+            g_mid_PackageBoxes_encode = env->GetMethodID(g_cls_PackageBoxes, "encode", "()[B");
+        } else {
+            LOGE("Failed to find class nitro/nitro_ar_module/PackageBoxes");
+        }
+    }
+    // Cache LiveTrackingUpdate class + encode() for stream serialisation
+    {
+        jclass local_cls_LiveTrackingUpdate = env->FindClass("nitro/nitro_ar_module/LiveTrackingUpdate");
+        if (local_cls_LiveTrackingUpdate != nullptr) {
+            g_cls_LiveTrackingUpdate = (jclass)env->NewGlobalRef(local_cls_LiveTrackingUpdate);
+            env->DeleteLocalRef(local_cls_LiveTrackingUpdate);
+            g_mid_LiveTrackingUpdate_encode = env->GetMethodID(g_cls_LiveTrackingUpdate, "encode", "()[B");
+        } else {
+            LOGE("Failed to find class nitro/nitro_ar_module/LiveTrackingUpdate");
+        }
+    }
     // Cache struct class + ctor + field IDs
     {
         jclass local_cls_Vector3 = env->FindClass("nitro/nitro_ar_module/Vector3");
@@ -541,7 +573,7 @@ void nitro_ar_start_session(void) {
     if (methodId == nullptr) { LOGE("Method not found: startSession_call sig=()V"); return; }
 
     nitro_ar_clear_error();
-    if (env->PushLocalFrame(16) != 0) return nullptr;
+    if (env->PushLocalFrame(16) != 0) return;
     env->CallStaticVoidMethod(g_bridgeClass, methodId);
     env->PopLocalFrame(nullptr);
     if (env->ExceptionCheck()) { nitro_report_jni_exception(env, env->ExceptionOccurred()); }
@@ -554,7 +586,7 @@ void nitro_ar_stop_session(void) {
     if (methodId == nullptr) { LOGE("Method not found: stopSession_call sig=()V"); return; }
 
     nitro_ar_clear_error();
-    if (env->PushLocalFrame(16) != 0) return nullptr;
+    if (env->PushLocalFrame(16) != 0) return;
     env->CallStaticVoidMethod(g_bridgeClass, methodId);
     env->PopLocalFrame(nullptr);
     if (env->ExceptionCheck()) { nitro_report_jni_exception(env, env->ExceptionOccurred()); }
@@ -567,7 +599,7 @@ void nitro_ar_pause_session(void) {
     if (methodId == nullptr) { LOGE("Method not found: pauseSession_call sig=()V"); return; }
 
     nitro_ar_clear_error();
-    if (env->PushLocalFrame(16) != 0) return nullptr;
+    if (env->PushLocalFrame(16) != 0) return;
     env->CallStaticVoidMethod(g_bridgeClass, methodId);
     env->PopLocalFrame(nullptr);
     if (env->ExceptionCheck()) { nitro_report_jni_exception(env, env->ExceptionOccurred()); }
@@ -580,7 +612,7 @@ void nitro_ar_resume_session(void) {
     if (methodId == nullptr) { LOGE("Method not found: resumeSession_call sig=()V"); return; }
 
     nitro_ar_clear_error();
-    if (env->PushLocalFrame(16) != 0) return nullptr;
+    if (env->PushLocalFrame(16) != 0) return;
     env->CallStaticVoidMethod(g_bridgeClass, methodId);
     env->PopLocalFrame(nullptr);
     if (env->ExceptionCheck()) { nitro_report_jni_exception(env, env->ExceptionOccurred()); }
@@ -611,8 +643,21 @@ void nitro_ar_enable_flashlight(int8_t enable) {
     if (methodId == nullptr) { LOGE("Method not found: enableFlashlight_call sig=(Z)V"); return; }
 
     nitro_ar_clear_error();
-    if (env->PushLocalFrame(16) != 0) return nullptr;
+    if (env->PushLocalFrame(16) != 0) return;
     env->CallStaticVoidMethod(g_bridgeClass, methodId, enable);
+    env->PopLocalFrame(nullptr);
+    if (env->ExceptionCheck()) { nitro_report_jni_exception(env, env->ExceptionOccurred()); }
+}
+
+void nitro_ar_set_detection_options(double threshold, int64_t rotation, int8_t useMock) {
+    JNIEnv* env = GetEnv();
+    if (env == nullptr) return;
+    jmethodID methodId = g_mid_setDetectionOptions_call;
+    if (methodId == nullptr) { LOGE("Method not found: setDetectionOptions_call sig=(DJZ)V"); return; }
+
+    nitro_ar_clear_error();
+    if (env->PushLocalFrame(16) != 0) return;
+    env->CallStaticVoidMethod(g_bridgeClass, methodId, threshold, rotation, useMock);
     env->PopLocalFrame(nullptr);
     if (env->ExceptionCheck()) { nitro_report_jni_exception(env, env->ExceptionOccurred()); }
 }
@@ -635,7 +680,51 @@ void nitro_ar_release_detected_packages_stream(int64_t dart_port) {
 
 JNIEXPORT void JNICALL Java_nitro_nitro_1ar_1module_NitroArJniBridge_emit_1detectedPackages(JNIEnv* env, jobject thiz, jlong dartPort, jobject item) {
     Dart_CObject obj;
-    obj.type = Dart_CObject_kNull;
+    if (g_cls_PackageBoxes == nullptr || g_mid_PackageBoxes_encode == nullptr) {
+        LOGE("PackageBoxes encode method not cached — skipping emit");
+        return;
+    }
+    jbyteArray encoded = (jbyteArray)env->CallObjectMethod(item, g_mid_PackageBoxes_encode);
+    if (encoded == nullptr) { LOGE("PackageBoxes.encode() returned null"); return; }
+    jsize len = env->GetArrayLength(encoded);
+    uint8_t* buf = (uint8_t*)malloc((size_t)len);
+    env->GetByteArrayRegion(encoded, 0, len, (jbyte*)buf);
+    env->DeleteLocalRef(encoded);
+    obj.type = Dart_CObject_kInt64;
+    obj.value.as_int64 = (intptr_t)buf;
+    Dart_PostCObject_DL(dartPort, &obj);
+}
+
+void nitro_ar_register_live_tracking_updates_stream(int64_t dart_port) {
+    JNIEnv* env = GetEnv();
+    if (env == nullptr) return;
+    jmethodID methodId = g_mid_nitro_ar_register_live_tracking_updates_stream_call;
+    if (methodId == nullptr) { LOGE("Method not found: nitro_ar_register_live_tracking_updates_stream_call sig=(J)V"); return; }
+    env->CallStaticVoidMethod(g_bridgeClass, methodId, dart_port);
+}
+
+void nitro_ar_release_live_tracking_updates_stream(int64_t dart_port) {
+    JNIEnv* env = GetEnv();
+    if (env == nullptr) return;
+    jmethodID methodId = g_mid_nitro_ar_release_live_tracking_updates_stream_call;
+    if (methodId == nullptr) { LOGE("Method not found: nitro_ar_release_live_tracking_updates_stream_call sig=(J)V"); return; }
+    env->CallStaticVoidMethod(g_bridgeClass, methodId, dart_port);
+}
+
+JNIEXPORT void JNICALL Java_nitro_nitro_1ar_1module_NitroArJniBridge_emit_1liveTrackingUpdates(JNIEnv* env, jobject thiz, jlong dartPort, jobject item) {
+    Dart_CObject obj;
+    if (g_cls_LiveTrackingUpdate == nullptr || g_mid_LiveTrackingUpdate_encode == nullptr) {
+        LOGE("LiveTrackingUpdate encode method not cached — skipping emit");
+        return;
+    }
+    jbyteArray encoded = (jbyteArray)env->CallObjectMethod(item, g_mid_LiveTrackingUpdate_encode);
+    if (encoded == nullptr) { LOGE("LiveTrackingUpdate.encode() returned null"); return; }
+    jsize len = env->GetArrayLength(encoded);
+    uint8_t* buf = (uint8_t*)malloc((size_t)len);
+    env->GetByteArrayRegion(encoded, 0, len, (jbyte*)buf);
+    env->DeleteLocalRef(encoded);
+    obj.type = Dart_CObject_kInt64;
+    obj.value.as_int64 = (intptr_t)buf;
     Dart_PostCObject_DL(dartPort, &obj);
 }
 
@@ -853,9 +942,24 @@ void nitro_ar_enable_flashlight(int8_t enable) {
 #endif
 }
 
+extern void _call_setDetectionOptions(double threshold, int64_t rotation, int8_t useMock);
+void nitro_ar_set_detection_options(double threshold, int64_t rotation, int8_t useMock) {
+    nitro_ar_clear_error();
+#ifdef __OBJC__
+    @try {
+        _call_setDetectionOptions(threshold, rotation, useMock);
+    } @catch (NSException* e) {
+        nitro_report_error([e.name UTF8String], [e.reason UTF8String], nullptr, nullptr);
+    }
+#else
+    _call_setDetectionOptions(threshold, rotation, useMock);
+#endif
+}
+
 void _emit_detectedPackages_to_dart(int64_t dartPort, void* item) {
     Dart_CObject obj;
-    obj.type = Dart_CObject_kNull;
+    obj.type = Dart_CObject_kInt64;
+    obj.value.as_int64 = (intptr_t)item;
     Dart_PostCObject_DL(dartPort, &obj);
 }
 
@@ -866,6 +970,22 @@ void nitro_ar_register_detected_packages_stream(int64_t dart_port) {
 extern void _release_detectedPackages_stream(int64_t dart_port);
 void nitro_ar_release_detected_packages_stream(int64_t dart_port) {
     _release_detectedPackages_stream(dart_port);
+}
+
+void _emit_liveTrackingUpdates_to_dart(int64_t dartPort, void* item) {
+    Dart_CObject obj;
+    obj.type = Dart_CObject_kInt64;
+    obj.value.as_int64 = (intptr_t)item;
+    Dart_PostCObject_DL(dartPort, &obj);
+}
+
+extern void _register_liveTrackingUpdates_stream(int64_t dartPort, void (*emitCb)(int64_t, void*));
+void nitro_ar_register_live_tracking_updates_stream(int64_t dart_port) {
+    _register_liveTrackingUpdates_stream(dart_port, _emit_liveTrackingUpdates_to_dart);
+}
+extern void _release_liveTrackingUpdates_stream(int64_t dart_port);
+void nitro_ar_release_live_tracking_updates_stream(int64_t dart_port) {
+    _release_liveTrackingUpdates_stream(dart_port);
 }
 
 } // extern "C"

@@ -112,6 +112,7 @@ class CppBridgeGenerator {
     // Stream emit helpers (called by user's C++ implementation)
     for (final stream in spec.streams) {
       final isStruct = structNames.contains(stream.itemType.name.replaceFirst('?', ''));
+      final isRecord = stream.itemType.isRecord;
       final itemCpp = _cppScalarType(stream.itemType.name, enumNames, structNames);
       s.writeln('void Hybrid$className::emit_${stream.dartName}($itemCpp item) {');
       s.writeln('    int64_t port = g_port_${stream.dartName};');
@@ -132,6 +133,12 @@ class CppBridgeGenerator {
         s.writeln('    *st_ptr = item;');
         s.writeln('    obj.type = Dart_CObject_kInt64;');
         s.writeln('    obj.value.as_int64 = (intptr_t)st_ptr;');
+      } else if (isRecord) {
+        // item is void* pointing to malloc'd encoded record bytes
+        // (wire format: [4-byte payload_len][payload]).
+        // Dart reads it via RecordReader.fromNative and frees with malloc.free.
+        s.writeln('    obj.type = Dart_CObject_kInt64;');
+        s.writeln('    obj.value.as_int64 = (intptr_t)item;');
       } else {
         s.writeln('    obj.type = Dart_CObject_kNull;');
       }
@@ -474,6 +481,17 @@ class CppBridgeGenerator {
         s.writeln('static jmethodID g_mid_${stream.registerSymbol}_call = nullptr;');
         s.writeln('static jmethodID g_mid_${stream.releaseSymbol}_call = nullptr;');
       }
+      // Record types used in streams: cache class + encode() method ID for JNI emit
+      final emittedRecordGlobals = <String>{};
+      for (final stream in spec.streams) {
+        if (stream.itemType.isRecord) {
+          final recName = stream.itemType.name.replaceFirst('?', '');
+          if (emittedRecordGlobals.add(recName)) {
+            s.writeln('static jclass g_cls_$recName = nullptr;');
+            s.writeln('static jmethodID g_mid_${recName}_encode = nullptr;');
+          }
+        }
+      }
       for (final st in spec.structs) {
         s.writeln('static jclass g_cls_${st.name} = nullptr;');
         s.writeln('static jmethodID g_ctor_${st.name} = nullptr;');
@@ -569,7 +587,7 @@ class CppBridgeGenerator {
           } else if (structNames.contains(f.type.name.replaceFirst('?', ''))) {
             final nestedType = f.type.name.replaceFirst('?', '');
             s.writeln('    jobject j_${f.name} = env->GetObjectField(obj, g_fid_${st.name}_${f.name});');
-            s.writeln('    ${nestedType}* ${f.name}_ptr = (${nestedType}*)malloc(sizeof(${nestedType}));');
+            s.writeln('    $nestedType* ${f.name}_ptr = ($nestedType*)malloc(sizeof($nestedType));');
             s.writeln('    *${f.name}_ptr = pack_${nestedType}_from_jni(env, j_${f.name});');
             s.writeln('    env->DeleteLocalRef(j_${f.name});');
             s.writeln('    result.${f.name} = ${f.name}_ptr;');
@@ -701,6 +719,27 @@ class CppBridgeGenerator {
         s.writeln('    }');
         s.writeln();
       }
+      // Cache record class + encode() method IDs for record-typed stream items
+      final cachedRecordClasses = <String>{};
+      for (final stream in spec.streams) {
+        if (stream.itemType.isRecord) {
+          final recName = stream.itemType.name.replaceFirst('?', '');
+          if (cachedRecordClasses.add(recName)) {
+            final jniRecClass = 'nitro/${spec.lib.replaceAll('-', '_')}_module/$recName';
+            s.writeln('    // Cache $recName class + encode() for stream serialisation');
+            s.writeln('    {');
+            s.writeln('        jclass local_cls_$recName = env->FindClass("$jniRecClass");');
+            s.writeln('        if (local_cls_$recName != nullptr) {');
+            s.writeln('            g_cls_$recName = (jclass)env->NewGlobalRef(local_cls_$recName);');
+            s.writeln('            env->DeleteLocalRef(local_cls_$recName);');
+            s.writeln('            g_mid_${recName}_encode = env->GetMethodID(g_cls_$recName, "encode", "()[B");');
+            s.writeln('        } else {');
+            s.writeln('            LOGE("Failed to find class $jniRecClass");');
+            s.writeln('        }');
+            s.writeln('    }');
+          }
+        }
+      }
       if (spec.structs.isNotEmpty) {
         s.writeln('    // Cache struct class + ctor + field IDs');
         for (final st in spec.structs) {
@@ -792,7 +831,11 @@ class CppBridgeGenerator {
         }
         s.writeln();
         s.writeln('    ${libStem}_clear_error();');
-        s.writeln('    if (env->PushLocalFrame(16) != 0) return ${_defaultValue(cReturnType)};');
+        if (func.returnType.name == 'void') {
+          s.writeln('    if (env->PushLocalFrame(16) != 0) return;');
+        } else {
+          s.writeln('    if (env->PushLocalFrame(16) != 0) return ${_defaultValue(cReturnType)};');
+        }
 
         // Build call args (converting C types to JNI types)
         final callArgsList = <String>[];
@@ -1075,6 +1118,23 @@ class CppBridgeGenerator {
           );
           s.writeln('    obj.type = Dart_CObject_kInt64;');
           s.writeln('    obj.value.as_int64 = (intptr_t)st_ptr;');
+        } else if (stream.itemType.isRecord) {
+          // Serialize the Kotlin @HybridRecord to bytes via encode(), copy to a
+          // malloc'd native buffer, and send the pointer as kInt64.
+          // Dart reads it via RecordReader.fromNative and frees with malloc.free.
+          final recName = stream.itemType.name.replaceFirst('?', '');
+          s.writeln('    if (g_cls_$recName == nullptr || g_mid_${recName}_encode == nullptr) {');
+          s.writeln('        LOGE("$recName encode method not cached — skipping emit");');
+          s.writeln('        return;');
+          s.writeln('    }');
+          s.writeln('    jbyteArray encoded = (jbyteArray)env->CallObjectMethod(item, g_mid_${recName}_encode);');
+          s.writeln('    if (encoded == nullptr) { LOGE("$recName.encode() returned null"); return; }');
+          s.writeln('    jsize len = env->GetArrayLength(encoded);');
+          s.writeln('    uint8_t* buf = (uint8_t*)malloc((size_t)len);');
+          s.writeln('    env->GetByteArrayRegion(encoded, 0, len, (jbyte*)buf);');
+          s.writeln('    env->DeleteLocalRef(encoded);');
+          s.writeln('    obj.type = Dart_CObject_kInt64;');
+          s.writeln('    obj.value.as_int64 = (intptr_t)buf;');
         } else {
           s.writeln('    obj.type = Dart_CObject_kNull;');
         }
@@ -1170,7 +1230,9 @@ class CppBridgeGenerator {
 
       for (final stream in spec.streams) {
         final isStruct = structNames.contains(stream.itemType.name);
-        final itemCType = isStruct ? 'void*' : _typeToC(stream.itemType.name);
+        final isRecord = stream.itemType.isRecord;
+        // For record types, the Swift side encodes to bytes and passes void*.
+        final itemCType = (isStruct || isRecord) ? 'void*' : _typeToC(stream.itemType.name);
         s.writeln(
           'void _emit_${stream.dartName}_to_dart(int64_t dartPort, $itemCType item) {',
         );
@@ -1184,7 +1246,11 @@ class CppBridgeGenerator {
         } else if (stream.itemType.name == 'bool') {
           s.writeln('    obj.type = Dart_CObject_kBool;');
           s.writeln('    obj.value.as_bool = item;');
-        } else if (isStruct) {
+        } else if (isStruct || isRecord) {
+          // item is void* pointing to malloc'd native memory:
+          //   struct  → packed C struct (freed by NativeFinalizer in Dart proxy)
+          //   record  → encoded bytes [4-byte payload_len][payload]
+          //             freed by malloc.free in the Dart unpack closure
           s.writeln('    obj.type = Dart_CObject_kInt64;');
           s.writeln('    obj.value.as_int64 = (intptr_t)item;');
         } else {

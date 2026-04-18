@@ -15,7 +15,7 @@ import '../bridge_spec.dart';
 ///       Inner decoder: reads fields from an already-opened reader.
 ///       Used when this record is an element inside a list.
 ///
-///   • `void writeFields(RecordWriter w)`
+///   • `void writeFields(RecordWriter writer)`
 ///       Writes fields into an in-progress writer.
 ///       Used when this record is inside a list param.
 ///
@@ -100,19 +100,16 @@ class RecordGenerator {
       s.writeln();
 
       // writeFields
-      s.writeln('  void writeFields(RecordWriter w) {');
+      s.writeln('  void writeFields(RecordWriter writer) {');
       for (final f in st.fields) {
         _writeStructFieldStmt(s, f, enumNames, structNames);
       }
       s.writeln('  }');
-      s.writeln();
-
-      // toNative
-      s.writeln('  Pointer<Uint8> toNative(Allocator alloc) {');
-      s.writeln('    final w = RecordWriter();');
-      s.writeln('    writeFields(w);');
-      s.writeln('    return w.toNative(alloc);');
-      s.writeln('  }');
+      // NOTE: toNative(Allocator) is intentionally omitted for @HybridStruct types.
+      // The struct already has XxxExt.toNative(Arena arena) via its FFI extension,
+      // and Arena implements Allocator, so emitting a second toNative(Allocator)
+      // here would create an ambiguous call-site error ("member defined in both
+      // XxxExt and XxxRecordExt"). Nested serialisation only needs writeFields.
       s.writeln('}');
       s.writeln();
     }
@@ -139,7 +136,7 @@ class RecordGenerator {
       s.writeln();
 
       // ── writeFields (inner, for use inside lists) ─────────────────────
-      s.writeln('  void writeFields(RecordWriter w) {');
+      s.writeln('  void writeFields(RecordWriter writer) {');
       for (final f in rt.fields) {
         _writeFieldStmt(s, f);
       }
@@ -148,9 +145,9 @@ class RecordGenerator {
 
       // ── toNative (top-level, allocates native buffer) ─────────────────
       s.writeln('  Pointer<Uint8> toNative(Allocator alloc) {');
-      s.writeln('    final w = RecordWriter();');
-      s.writeln('    writeFields(w);');
-      s.writeln('    return w.toNative(alloc);');
+      s.writeln('    final writer = RecordWriter();');
+      s.writeln('    writeFields(writer);');
+      s.writeln('    return writer.toNative(alloc);');
       s.writeln('  }');
 
       s.writeln('}');
@@ -218,23 +215,23 @@ class RecordGenerator {
 
       case RecordFieldKind.recordObject:
         if (f.isNullable) {
-          s.writeln('    w.writeNullTag(${f.name} == null);');
-          s.writeln('    if (${f.name} != null) ${f.name}!.writeFields(w);');
+          s.writeln('    writer.writeNullTag(${f.name} == null);');
+          s.writeln('    if (${f.name} != null) ${f.name}!.writeFields(writer);');
         } else {
-          s.writeln('    ${f.name}.writeFields(w);');
+          s.writeln('    ${f.name}.writeFields(writer);');
         }
         break;
 
       case RecordFieldKind.listPrimitive:
         final item = f.itemTypeName ?? 'dynamic';
         final writeCall = _primitiveWriteCall(item, 'e');
-        s.writeln('    w.writeInt32(${f.name}.length);');
-        s.writeln('    for (final e in ${f.name}) { w.$writeCall; }');
+        s.writeln('    writer.writeInt32(${f.name}.length);');
+        s.writeln('    for (final e in ${f.name}) { writer.$writeCall; }');
         break;
 
       case RecordFieldKind.listRecordObject:
-        s.writeln('    w.writeInt32(${f.name}.length);');
-        s.writeln('    for (final e in ${f.name}) { e.writeFields(w); }');
+        s.writeln('    writer.writeInt32(${f.name}.length);');
+        s.writeln('    for (final e in ${f.name}) { e.writeFields(writer); }');
         break;
     }
   }
@@ -247,12 +244,12 @@ class RecordGenerator {
     final base = dartType.replaceFirst('?', '');
     final nullable = dartType.endsWith('?');
     if (nullable) {
-      s.writeln('    w.writeNullTag($fieldName == null);');
+      s.writeln('    writer.writeNullTag($fieldName == null);');
       s.writeln(
-        '    if ($fieldName != null) w.${_primitiveWriteCall(base, '$fieldName!')};',
+        '    if ($fieldName != null) writer.${_primitiveWriteCall(base, '$fieldName!')};',
       );
     } else {
-      s.writeln('    w.${_primitiveWriteCall(base, fieldName)};');
+      s.writeln('    writer.${_primitiveWriteCall(base, fieldName)};');
     }
   }
 
@@ -290,9 +287,9 @@ class RecordGenerator {
   ) {
     final base = f.type.name.replaceFirst('?', '');
     if (enumNames.contains(base)) {
-      s.writeln('    w.${_primitiveWriteCall('int', '${f.name}.nativeValue')};');
+      s.writeln('    writer.${_primitiveWriteCall('int', '${f.name}.nativeValue')};');
     } else if (structNames.contains(base)) {
-      s.writeln('    ${f.name}.writeFields(w);');
+      s.writeln('    ${f.name}.writeFields(writer);');
     } else {
       _writePrimitiveStmt(s, f.type.name, f.name);
     }
@@ -552,7 +549,7 @@ class RecordGenerator {
       s.writeln('  }');
       s.writeln();
 
-      s.writeln('  public func writeFields(_ w: NitroRecordWriter) {');
+      s.writeln('  public func writeFields(_ writer: NitroRecordWriter) {');
       for (final f in rt.fields) {
         _swiftWriteStmt(s, f);
       }
@@ -560,9 +557,9 @@ class RecordGenerator {
       s.writeln();
 
       s.writeln('  public func toNative() -> UnsafeMutablePointer<UInt8>? {');
-      s.writeln('    let w = NitroRecordWriter()');
-      s.writeln('    writeFields(w)');
-      s.writeln('    return w.toNative()');
+      s.writeln('    let writer = NitroRecordWriter()');
+      s.writeln('    writeFields(writer)');
+      s.writeln('    return writer.toNative()');
       s.writeln('  }');
       s.writeln('}');
       s.writeln();
@@ -641,27 +638,27 @@ class RecordGenerator {
       case RecordFieldKind.primitive:
         final base = f.dartType.replaceFirst('?', '');
         if (f.isNullable) {
-          s.writeln('    w.writeNullTag(${f.name} == nil)');
-          s.writeln('    if let val = ${f.name} { w.${_swiftWriterCall(base, 'val')} }');
+          s.writeln('    writer.writeNullTag(${f.name} == nil)');
+          s.writeln('    if let val = ${f.name} { writer.${_swiftWriterCall(base, 'val')} }');
         } else {
-          s.writeln('    w.${_swiftWriterCall(base, f.name)}');
+          s.writeln('    writer.${_swiftWriterCall(base, f.name)}');
         }
         break;
       case RecordFieldKind.recordObject:
         if (f.isNullable) {
-          s.writeln('    w.writeNullTag(${f.name} == nil)');
-          s.writeln('    if let val = ${f.name} { val.writeFields(w) }');
+          s.writeln('    writer.writeNullTag(${f.name} == nil)');
+          s.writeln('    if let val = ${f.name} { val.writeFields(writer) }');
         } else {
-          s.writeln('    ${f.name}.writeFields(w)');
+          s.writeln('    ${f.name}.writeFields(writer)');
         }
         break;
       case RecordFieldKind.listPrimitive:
         final item = f.itemTypeName ?? 'int';
         // Indexed format: count + int64[] offsets + item bytes.
-        s.writeln('    w.writeIndexedList(${f.name}) { e, iw in iw.${_swiftWriterCall(item, 'e')} }');
+        s.writeln('    writer.writeIndexedList(${f.name}) { e, iw in iw.${_swiftWriterCall(item, 'e')} }');
         break;
       case RecordFieldKind.listRecordObject:
-        s.writeln('    w.writeIndexedList(${f.name}) { e, iw in e.writeFields(iw) }');
+        s.writeln('    writer.writeIndexedList(${f.name}) { e, iw in e.writeFields(iw) }');
         break;
     }
   }

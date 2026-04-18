@@ -201,21 +201,21 @@ void main() {
       expect(block, contains('r.readDouble()'));
     });
 
-    test('writeFields emits w.writeDouble for each double field', () {
-      expect(dart, contains('void writeFields(RecordWriter w)'));
-      final writeIdx = dart.indexOf('void writeFields(RecordWriter w)');
+    test('writeFields emits writer.writeDouble for each double field', () {
+      expect(dart, contains('void writeFields(RecordWriter writer)'));
+      final writeIdx = dart.indexOf('void writeFields(RecordWriter writer)');
       final block = dart.substring(writeIdx, dart.indexOf('}', writeIdx + 1) + 1);
-      expect(block, contains('w.writeDouble(x)'));
-      expect(block, contains('w.writeDouble(y)'));
-      expect(block, contains('w.writeDouble(w)'));
-      expect(block, contains('w.writeDouble(h)'));
+      expect(block, contains('writer.writeDouble(x)'));
+      expect(block, contains('writer.writeDouble(y)'));
+      expect(block, contains('writer.writeDouble(w)'));
+      expect(block, contains('writer.writeDouble(h)'));
     });
 
     test('toNative allocates via RecordWriter', () {
       expect(dart, contains('Pointer<Uint8> toNative(Allocator alloc)'));
-      expect(dart, contains('final w = RecordWriter()'));
-      expect(dart, contains('writeFields(w)'));
-      expect(dart, contains('return w.toNative(alloc)'));
+      expect(dart, contains('final writer = RecordWriter()'));
+      expect(dart, contains('writeFields(writer)'));
+      expect(dart, contains('return writer.toNative(alloc)'));
     });
 
     test('PackageBoxesRecordExt is also emitted (for the record type)', () {
@@ -226,14 +226,14 @@ void main() {
       expect(dart, contains('BoundingBoxRecordExt.fromReader(r)'));
     });
 
-    test('PackageBoxes.writeFields calls e.writeFields(w) for each item in list', () {
-      expect(dart, contains('e.writeFields(w)'));
+    test('PackageBoxes.writeFields calls e.writeFields(writer) for each item in list', () {
+      expect(dart, contains('e.writeFields(writer)'));
     });
 
     test('PackageBoxes.writeFields writes list count via writeInt32', () {
-      final writeIdx = dart.lastIndexOf('void writeFields(RecordWriter w)');
+      final writeIdx = dart.lastIndexOf('void writeFields(RecordWriter writer)');
       final block = dart.substring(writeIdx, dart.indexOf('}', writeIdx + 1) + 1);
-      expect(block, contains('w.writeInt32(boxes.length)'));
+      expect(block, contains('writer.writeInt32(boxes.length)'));
     });
   });
 
@@ -374,10 +374,10 @@ void main() {
 
     test('LineRecordExt.writeFields calls start.writeFields and end.writeFields', () {
       final idx = dart.indexOf('extension LineRecordExt');
-      final writeIdx = dart.indexOf('void writeFields(RecordWriter w)', idx);
+      final writeIdx = dart.indexOf('void writeFields(RecordWriter writer)', idx);
       final block = dart.substring(writeIdx, dart.indexOf('}', writeIdx + 1) + 1);
-      expect(block, contains('start.writeFields(w)'));
-      expect(block, contains('end.writeFields(w)'));
+      expect(block, contains('start.writeFields(writer)'));
+      expect(block, contains('end.writeFields(writer)'));
     });
   });
 
@@ -401,9 +401,9 @@ void main() {
     });
 
     test('GeoResultRecordExt.writeFields calls origin.writeFields', () {
-      final writeIdx = dart.lastIndexOf('void writeFields(RecordWriter w)');
+      final writeIdx = dart.lastIndexOf('void writeFields(RecordWriter writer)');
       final block = dart.substring(writeIdx, dart.indexOf('}', writeIdx + 1) + 1);
-      expect(block, contains('origin.writeFields(w)'));
+      expect(block, contains('origin.writeFields(writer)'));
     });
 
     test('Kotlin GeoResult uses Point3D.decodeFrom(buf) for origin', () {

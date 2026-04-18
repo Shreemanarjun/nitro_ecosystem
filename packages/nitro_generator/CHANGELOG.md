@@ -1,6 +1,12 @@
 ## 0.3.3
 
-- **Fixed: Nested structs and records with native code generation for structs for better
+- **Fixed: JNI crash (ART abort) with nested `@HybridStruct` fields** — `GetFieldID` was called with `"Ljava/lang/Object;"` for nested struct fields, posting a `NoSuchFieldError` that ART turned into a fatal runtime abort on the next JNI call. Fixed by generating the correct class descriptor (e.g. `Lnitro/nitro_ar_module/Vector3;`) in the constructor signature, `GetFieldID` calls, `pack_*_from_jni`, `unpack_*_to_jni`, and the release function. Both the already-generated file and the generator itself were fixed to prevent regression.
+- **New: `@HybridStruct` types usable as `@HybridRecord` list fields** — `@HybridRecord() class PackageBoxes { final List<BoundingBox> boxes; }` now serializes correctly end-to-end.
+  - `spec_extractor.dart`: `_recordFieldKind` now recognises `@HybridStruct`-annotated types, classifying `List<BoundingBox>` as `listRecordObject` (not `listPrimitive`).
+  - `struct_generator.dart` `generateKotlin`: Every Kotlin `data class` for a struct now includes `companion object { decodeFrom(buf) / decode(bytes) }`, `writeFieldsTo(out, buf)`, and `encode(): ByteArray` so structs can be embedded inline in record binary payloads.
+  - `record_generator.dart` `generateDartExtensions`: Auto-generates `RecordExt` extensions (with `fromNative`, `fromReader`, `writeFields`, `toNative`) for every `@HybridStruct` type referenced in a record field, including transitive closure for nested struct types.
+- **Fixed: Kotlin record list field wire format** — The `writeIndexedList` helper (which discarded list items via `{ _ ->}` and referenced an undefined `it`) has been replaced with a simple `writeInt32(size) + forEach { e -> e.writeFieldsTo(out, buf) }`. The corresponding Kotlin read no longer skips a phantom offset table; both sides now use the same count-then-items format as the Dart codec.
+- **Tests: 50 new tests in `struct_in_record_test.dart`** — Cover: Dart `RecordExt` for struct list items, Kotlin struct codec methods, Kotlin record using struct codecs, transitive nested-struct closure, `recordObject` (non-list) struct fields, all primitive field types, wire-format consistency, and negative cases (unreferenced structs produce no `RecordExt`).
 
 
 ## 0.3.2

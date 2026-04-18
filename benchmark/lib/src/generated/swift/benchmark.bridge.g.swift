@@ -43,17 +43,17 @@ public struct BenchmarkStats {
     )
   }
 
-  public func writeFields(_ w: NitroRecordWriter) {
-    w.writeInt(count)
-    w.writeDouble(meanUs)
-    w.writeDouble(minUs)
-    w.writeDouble(maxUs)
+  public func writeFields(_ writer: NitroRecordWriter) {
+    writer.writeInt(count)
+    writer.writeDouble(meanUs)
+    writer.writeDouble(minUs)
+    writer.writeDouble(maxUs)
   }
 
   public func toNative() -> UnsafeMutablePointer<UInt8>? {
-    let w = NitroRecordWriter()
-    writeFields(w)
-    return w.toNative()
+    let writer = NitroRecordWriter()
+    writeFields(writer)
+    return writer.toNative()
   }
 }
 

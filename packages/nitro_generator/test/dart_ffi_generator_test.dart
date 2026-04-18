@@ -73,12 +73,12 @@ void main() {
         expect(out, contains('NitroRuntime.openStream<CameraFrameProxy>'));
         expect(
           out,
-          contains('Pointer<CameraFrameFfi>.fromAddress(rawPtr)'),
+          contains('Pointer<CameraFrameFfi>.fromAddress(message as int)'),
         );
         // The unpack lambda must NOT eagerly copy to Dart or manually free.
         expect(out, isNot(contains('malloc.free(ptr)')));
         // The unpack expression must use the Proxy constructor, not toDart().
-        expect(out, contains('CameraFrameProxy(Pointer<CameraFrameFfi>.fromAddress(rawPtr))'));
+        expect(out, contains('CameraFrameProxy(Pointer<CameraFrameFfi>.fromAddress(message as int))'));
         // No .map() — proxy IS-A value type, so Stream<Proxy> satisfies Stream<Value>.
         expect(out, isNot(contains('.map((proxy) => proxy.toDartAndRelease())')));
         // Proxy class must be generated alongside the FFI struct.
@@ -249,15 +249,15 @@ void main() {
       expect(out, contains('bool get enabled {\n    checkDisposed();'));
     });
 
-    test('primitive double stream uses direct rawPtr cast', () {
+    test('primitive double stream uses direct message cast', () {
       final out = DartFfiGenerator.generate(richSpec());
-      // double stream item: unpack is cast to double
-      expect(out, contains('(rawPtr) => rawPtr as double'));
+      // double stream item: unpack casts message to double
+      expect(out, contains('(message) => message as double'));
     });
 
-    test('primitive int stream uses direct rawPtr cast', () {
+    test('primitive int stream uses direct message cast', () {
       final out = DartFfiGenerator.generate(richSpec());
-      expect(out, contains('(rawPtr) => rawPtr as int'));
+      expect(out, contains('(message) => message as int'));
     });
   });
 

@@ -185,7 +185,7 @@ data class RawDepthMap(val data: java.nio.ByteBuffer, val width: Long, val heigh
     }
 
     fun encode(): ByteArray {
-        val out = java.io.ByteArrayOutputStream(32)
+        val out = java.io.ByteArrayOutputStream(60)
         val buf = java.nio.ByteBuffer.allocate(8).order(java.nio.ByteOrder.LITTLE_ENDIAN)
         writeFieldsTo(out, buf)
         return out.toByteArray()
@@ -229,6 +229,42 @@ data class PackageBoxes(val boxes: List<Double>) {
     }
 }
 
+@androidx.annotation.Keep
+data class LiveTrackingUpdate(val isTracking: Boolean, val centerDimensions: PackageDimensions) {
+    companion object {
+        @JvmStatic fun decodeFrom(buf: java.nio.ByteBuffer): LiveTrackingUpdate {
+            val isTracking = (buf.get().toInt() != 0)
+            val centerDimensions = PackageDimensions.decodeFrom(buf)
+            return LiveTrackingUpdate(isTracking, centerDimensions)
+        }
+        @JvmStatic fun decode(bytes: ByteArray): LiveTrackingUpdate {
+            val buf = java.nio.ByteBuffer.wrap(bytes).order(java.nio.ByteOrder.LITTLE_ENDIAN)
+            buf.position(4) // skip 4-byte length prefix
+            return decodeFrom(buf)
+        }
+    }
+
+    fun writeFieldsTo(out: java.io.ByteArrayOutputStream, buf: java.nio.ByteBuffer) {
+        fun writeInt(v: Long) { buf.clear(); buf.putLong(v); out.write(buf.array()) }
+        fun writeInt32(v: Int) { buf.clear(); buf.putInt(v); out.write(buf.array(), 0, 4) }
+        fun writeDouble(v: Double) { buf.clear(); buf.putDouble(v); out.write(buf.array()) }
+        fun writeBool(v: Boolean) { out.write(if (v) 1 else 0) }
+        fun writeString(v: String) { val b = v.toByteArray(Charsets.UTF_8); writeInt32(b.size); out.write(b) }
+        writeBool(isTracking)
+        centerDimensions.writeFieldsTo(out, buf)
+    }
+
+    fun encode(): ByteArray {
+        val out = java.io.ByteArrayOutputStream(33)
+        val buf = java.nio.ByteBuffer.allocate(8).order(java.nio.ByteOrder.LITTLE_ENDIAN)
+        writeFieldsTo(out, buf)
+        val payload = out.toByteArray()
+        val lenBuf = java.nio.ByteBuffer.allocate(4).order(java.nio.ByteOrder.LITTLE_ENDIAN)
+        lenBuf.putInt(payload.size)
+        return lenBuf.array() + payload
+    }
+}
+
 /**
  * Contract for the [NitroAr] module.
  * Implement this in your Kotlin source code.
@@ -248,7 +284,9 @@ interface HybridNitroArSpec {
     suspend fun resumeSession(): Unit
     fun isTracking(): Boolean
     fun enableFlashlight(enable: Boolean): Unit
+    fun setDetectionOptions(threshold: Double, rotation: Long, useMock: Boolean): Unit
     val detectedPackages: Flow<PackageBoxes>
+    val liveTrackingUpdates: Flow<LiveTrackingUpdate>
 }
 
 @Keep
@@ -333,6 +371,10 @@ object NitroArJniBridge {
         val impl = implementation ?: throw IllegalStateException("NitroAr not registered")
         impl.enableFlashlight(enable)
     }
+    @JvmStatic fun setDetectionOptions_call(threshold: Double, rotation: Long, useMock: Boolean): Unit {
+        val impl = implementation ?: throw IllegalStateException("NitroAr not registered")
+        impl.setDetectionOptions(threshold, rotation, useMock)
+    }
     private val _streamJobs = java.util.concurrent.ConcurrentHashMap<Pair<String, Long>, kotlinx.coroutines.Job>()
 
     @JvmStatic external fun emit_detectedPackages(dartPort: Long, item: PackageBoxes): Unit
@@ -347,5 +389,18 @@ object NitroArJniBridge {
     }
     @JvmStatic fun nitro_ar_release_detected_packages_stream_call(dartPort: Long) {
         _streamJobs.remove(Pair("detectedPackages", dartPort))?.cancel()
+    }
+    @JvmStatic external fun emit_liveTrackingUpdates(dartPort: Long, item: LiveTrackingUpdate): Unit
+
+    @JvmStatic fun nitro_ar_register_live_tracking_updates_stream_call(dartPort: Long) {
+        val impl = implementation ?: return
+        _streamJobs[Pair("liveTrackingUpdates", dartPort)] = CoroutineScope(Dispatchers.Default).launch {
+            impl.liveTrackingUpdates.collect { item -> 
+                emit_liveTrackingUpdates(dartPort, item)
+            }
+        }
+    }
+    @JvmStatic fun nitro_ar_release_live_tracking_updates_stream_call(dartPort: Long) {
+        _streamJobs.remove(Pair("liveTrackingUpdates", dartPort))?.cancel()
     }
 }

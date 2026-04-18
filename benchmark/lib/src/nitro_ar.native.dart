@@ -85,6 +85,16 @@ class RawDepthMap {
   });
 }
 
+@HybridRecord()
+class LiveTrackingUpdate {
+  const LiveTrackingUpdate({
+    required this.isTracking,
+    required this.centerDimensions,
+  });
+  final bool isTracking;
+  final PackageDimensions centerDimensions;
+}
+
 @NitroModule(
   ios: NativeImpl.swift,
   android: NativeImpl.kotlin,
@@ -129,8 +139,15 @@ abstract class NitroAr extends HybridObject {
 
   void enableFlashlight(bool enable);
 
+  /// Configure the ML object detector parameters.
+  void setDetectionOptions(double threshold, int rotation, bool useMock);
+
   /// Stream of auto-detected packages using ML on the live AR frame.
   /// No manual polling required, updates are pushed directly.
   @NitroStream(backpressure: Backpressure.dropLatest)
   Stream<PackageBoxes> get detectedPackages;
+
+  /// Stream of tracking state and live center dimensions updated every 500ms natively.
+  @NitroStream(backpressure: Backpressure.dropLatest)
+  Stream<LiveTrackingUpdate> get liveTrackingUpdates;
 }

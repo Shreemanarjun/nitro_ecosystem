@@ -474,26 +474,32 @@ class DartFfiGenerator {
 
       if (isRecord) {
         final decodeExpr = _decodeRecordExpr(stream.itemType, 'rawPtr');
-        unpackExpr = '(rawPtr) { try { return $decodeExpr; } finally { malloc.free(rawPtr); } }';
+        final nullAction = stream.itemType.isNullable
+            ? 'return null'
+            : "throw StateError('Received null event on non-nullable stream ${stream.dartName}')";
+        unpackExpr = '(message) { if (message == null) { $nullAction; } final rawPtr = Pointer<Uint8>.fromAddress(message as int); try { return $decodeExpr; } finally { malloc.free(rawPtr); } }';
         streamItemType = itemType;
       } else if (isStruct) {
         // Zero-copy path: ${itemType}Proxy extends ${itemType} and overrides every
         // getter to read lazily from native memory.  Because the proxy IS-A value
         // type, Stream<${itemType}Proxy> satisfies Stream<${itemType}> via Dart's
         // covariant generics — no .map() or eager field copy required.
-        unpackExpr = '(rawPtr) => ${itemType}Proxy(Pointer<${itemType}Ffi>.fromAddress(rawPtr))';
+        final nullAction = stream.itemType.isNullable
+            ? 'return null'
+            : "throw StateError('Received null event on non-nullable stream ${stream.dartName}')";
+        unpackExpr = '(message) { if (message == null) { $nullAction; } return ${itemType}Proxy(Pointer<${itemType}Ffi>.fromAddress(message as int)); }';
         streamItemType = itemType;
       } else {
-        unpackExpr = '(rawPtr) => rawPtr as $itemType';
+        unpackExpr = '(message) => message as $itemType';
         streamItemType = itemType;
       }
 
       s.writeln('  @override');
-      s.writeln('  Stream<$streamItemType> get ${stream.dartName} {');
+      s.writeln('  Stream<$streamItemType${stream.itemType.isNullable ? '?' : ''}> get ${stream.dartName} {');
       s.writeln('    checkDisposed();');
       // For struct streams, openStream is typed to the Proxy so the NativeFinalizer
       // is attached correctly, but the return is implicitly upcast to Stream<value>.
-      final openType = isStruct ? '${itemType}Proxy' : streamItemType;
+      final openType = isStruct ? '${itemType}Proxy${stream.itemType.isNullable ? '?' : ''}' : '$streamItemType${stream.itemType.isNullable ? '?' : ''}';
       s.writeln('    return NitroRuntime.openStream<$openType>(');
       s.writeln('      register: (port) => _register${cap}Ptr(port),');
       s.writeln('      unpack: $unpackExpr,');
