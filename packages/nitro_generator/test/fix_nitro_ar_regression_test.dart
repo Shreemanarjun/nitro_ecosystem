@@ -64,7 +64,7 @@ void main() {
       expect(out, contains('emitCb(dartPort, item.toNative())'));
     });
 
-    test('Swift: all structs get fromReader/writeFields extensions', () {
+    test('Swift: structs referenced in record fields get fromReader/writeFields extensions', () {
       final spec = BridgeSpec(
         dartClassName: 'Test',
         lib: 'test',
@@ -85,13 +85,17 @@ void main() {
           BridgeRecordType(
             name: 'Update',
             fields: [
-              BridgeRecordField(name: 'id', dartType: 'String', kind: RecordFieldKind.primitive),
+              BridgeRecordField(
+                name: 'dims',
+                dartType: 'PackageDimensions',
+                kind: RecordFieldKind.recordObject,
+                itemTypeName: 'PackageDimensions',
+              ),
             ],
           ),
         ],
       );
       final out = RecordGenerator.generateSwift(spec);
-      // Verify extension is generated for the struct even if it's not explicitly in a record
       expect(out, contains('extension PackageDimensions {'));
       expect(out, contains('public static func fromReader(_ r: NitroRecordReader) -> PackageDimensions'));
       expect(out, contains('public func writeFields(_ writer: NitroRecordWriter)'));

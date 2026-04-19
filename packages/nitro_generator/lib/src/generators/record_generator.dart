@@ -49,8 +49,32 @@ class RecordGenerator {
     final enumNames = spec.enums.map((e) => e.name).toSet();
     final structNames = spec.structs.map((s) => s.name).toSet();
 
-    // Collect referenced struct names (with transitive closure for nesting).
-    final referencedStructs = spec.structs.map((st) => st.name).toSet();
+    // Collect structs directly referenced in record fields, then transitively.
+    final referencedStructs = <String>{};
+    for (final rt in spec.recordTypes) {
+      for (final f in rt.fields) {
+        if (f.kind == RecordFieldKind.recordObject || f.kind == RecordFieldKind.listRecordObject) {
+          final typeName = f.kind == RecordFieldKind.listRecordObject
+              ? (f.itemTypeName ?? f.dartType.replaceFirst('?', ''))
+              : f.dartType.replaceFirst('?', '');
+          if (structMap.containsKey(typeName)) referencedStructs.add(typeName);
+        }
+      }
+    }
+    void collectNestedDart(String typeName) {
+      final st = structMap[typeName];
+      if (st == null) return;
+      for (final f in st.fields) {
+        final base = f.type.name.replaceFirst('?', '');
+        if (structMap.containsKey(base) && !referencedStructs.contains(base)) {
+          referencedStructs.add(base);
+          collectNestedDart(base);
+        }
+      }
+    }
+    for (final name in referencedStructs.toList()) {
+      collectNestedDart(name);
+    }
 
     for (final stName in referencedStructs) {
       final st = structMap[stName]!;
@@ -511,7 +535,32 @@ class RecordGenerator {
     final enumNames = spec.enums.map((e) => e.name).toSet();
     final structNames = spec.structs.map((st) => st.name).toSet();
 
-    final referencedStructs = spec.structs.map((st) => st.name).toSet();
+    // Collect structs directly referenced in record fields, then transitively.
+    final referencedStructs = <String>{};
+    for (final rt in spec.recordTypes) {
+      for (final f in rt.fields) {
+        if (f.kind == RecordFieldKind.recordObject || f.kind == RecordFieldKind.listRecordObject) {
+          final typeName = f.kind == RecordFieldKind.listRecordObject
+              ? (f.itemTypeName ?? f.dartType.replaceFirst('?', ''))
+              : f.dartType.replaceFirst('?', '');
+          if (structMap.containsKey(typeName)) referencedStructs.add(typeName);
+        }
+      }
+    }
+    void collectNestedSwift(String typeName) {
+      final st = structMap[typeName];
+      if (st == null) return;
+      for (final f in st.fields) {
+        final base = f.type.name.replaceFirst('?', '');
+        if (structMap.containsKey(base) && !referencedStructs.contains(base)) {
+          referencedStructs.add(base);
+          collectNestedSwift(base);
+        }
+      }
+    }
+    for (final name in referencedStructs.toList()) {
+      collectNestedSwift(name);
+    }
 
     for (final stName in referencedStructs) {
       final st = structMap[stName]!;
@@ -643,11 +692,10 @@ class RecordGenerator {
         return '$base.fromReader(r)';
       case RecordFieldKind.listPrimitive:
         final item = f.itemTypeName ?? 'int';
-        // Skip offset table before reading items (indexed format).
-        return '{ let _cnt = r.readInt32(); for _ in 0..<_cnt { _ = r.readInt() }; return (0..<_cnt).map { _ in ${_swiftReadCall(item)} } }()';
+        return '(0..<Int(r.readInt32())).map { _ in ${_swiftReadCall(item)} }';
       case RecordFieldKind.listRecordObject:
         final item = f.itemTypeName!;
-        return '{ let _cnt = r.readInt32(); for _ in 0..<_cnt { _ = r.readInt() }; return (0..<_cnt).map { _ in $item.fromReader(r) } }()';
+        return '(0..<Int(r.readInt32())).map { _ in $item.fromReader(r) }';
     }
   }
 
@@ -672,11 +720,12 @@ class RecordGenerator {
         break;
       case RecordFieldKind.listPrimitive:
         final item = f.itemTypeName ?? 'int';
-        // Indexed format: count + int64[] offsets + item bytes.
-        s.writeln('    writer.writeIndexedList(${f.name}) { e, iw in iw.${_swiftWriterCall(item, 'e')} }');
+        s.writeln('    writer.writeInt32(Int32(${f.name}.count))');
+        s.writeln('    for e in ${f.name} { writer.${_swiftWriterCall(item, 'e')} }');
         break;
       case RecordFieldKind.listRecordObject:
-        s.writeln('    writer.writeIndexedList(${f.name}) { e, iw in e.writeFields(iw) }');
+        s.writeln('    writer.writeInt32(Int32(${f.name}.count))');
+        s.writeln('    for e in ${f.name} { e.writeFields(writer) }');
         break;
     }
   }
@@ -772,24 +821,6 @@ public class NitroRecordWriter {
         }
         ptr.advanced(by: 4).update(from: bytes, count: bytes.count)
         return ptr
-    }
-    /// Writes items using the indexed list format:
-    ///   int32 count | int64[count] offsets | item_bytes...
-    /// Matches Dart's RecordWriter.encodeIndexedList wire format.
-    public func writeIndexedList<T>(_ items: [T], writeItem: (T, NitroRecordWriter) -> Void) {
-        var blobs: [[UInt8]] = []
-        for item in items {
-            let iw = NitroRecordWriter()
-            writeItem(item, iw)
-            blobs.append(iw.bytes)
-        }
-        writeInt32(Int32(blobs.count))
-        var off = Int64(4 + 8 * blobs.count)
-        for b in blobs {
-            writeInt(off)
-            off += Int64(b.count)
-        }
-        for b in blobs { bytes.append(contentsOf: b) }
     }
     public static func encodeList<T>(_ items: [T], writeItem: (NitroRecordWriter, T) -> Void) -> UnsafeMutablePointer<UInt8>? {
         let w = NitroRecordWriter()

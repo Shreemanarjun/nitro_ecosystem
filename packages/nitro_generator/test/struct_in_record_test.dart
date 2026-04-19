@@ -556,4 +556,84 @@ void main() {
       expect(out, contains('SimpleRecordRecordExt'));
     });
   });
+
+  // ── 10. Swift list wire format: simple count-then-items (no indexed offsets) ───
+
+  group('Swift list wire format uses count-then-items (matches Dart/Kotlin)', () {
+    late String swift;
+
+    setUp(() {
+      swift = RecordGenerator.generateSwift(_boxesSpec());
+    });
+
+    test('listRecordObject write uses writeInt32(count) not writeIndexedList', () {
+      expect(swift, contains('writer.writeInt32(Int32(boxes.count))'));
+      expect(swift, isNot(contains('writeIndexedList')));
+    });
+
+    test('listRecordObject write iterates with for-in loop', () {
+      expect(swift, contains('for e in boxes { e.writeFields(writer) }'));
+    });
+
+    test('listRecordObject read uses (0..<count).map without offset skip', () {
+      expect(swift, contains('(0..<Int(r.readInt32())).map { _ in BoundingBox.fromReader(r) }'));
+      // Must NOT contain the old offset-skip pattern
+      expect(swift, isNot(contains('r.readInt()')));
+    });
+  });
+
+  group('Swift listPrimitive wire format uses count-then-values (matches Dart)', () {
+    test('listPrimitive write uses writeInt32(count) + per-item write', () {
+      final spec = BridgeSpec(
+        dartClassName: 'Pkg',
+        lib: 'pkg',
+        namespace: 'pkg',
+        iosImpl: NativeImpl.swift,
+        sourceUri: 'pkg.native.dart',
+        recordTypes: [
+          BridgeRecordType(
+            name: 'PackageBoxes',
+            fields: [
+              BridgeRecordField(
+                name: 'boxes',
+                dartType: 'List<double>',
+                kind: RecordFieldKind.listPrimitive,
+                itemTypeName: 'double',
+              ),
+            ],
+          ),
+        ],
+      );
+      final swift = RecordGenerator.generateSwift(spec);
+      expect(swift, contains('writer.writeInt32(Int32(boxes.count))'));
+      expect(swift, contains('for e in boxes { writer.writeDouble(e) }'));
+      expect(swift, isNot(contains('writeIndexedList')));
+    });
+
+    test('listPrimitive read uses (0..<count).map without offset skip', () {
+      final spec = BridgeSpec(
+        dartClassName: 'Pkg',
+        lib: 'pkg',
+        namespace: 'pkg',
+        iosImpl: NativeImpl.swift,
+        sourceUri: 'pkg.native.dart',
+        recordTypes: [
+          BridgeRecordType(
+            name: 'PackageBoxes',
+            fields: [
+              BridgeRecordField(
+                name: 'boxes',
+                dartType: 'List<double>',
+                kind: RecordFieldKind.listPrimitive,
+                itemTypeName: 'double',
+              ),
+            ],
+          ),
+        ],
+      );
+      final swift = RecordGenerator.generateSwift(spec);
+      expect(swift, contains('(0..<Int(r.readInt32())).map { _ in r.readDouble() }'));
+      expect(swift, isNot(matches(RegExp(r'for.*r\.readInt\(\)'))));
+    });
+  });
 }
