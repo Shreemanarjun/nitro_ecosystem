@@ -782,13 +782,20 @@ class DoctorCommand extends Command {
 
       final classesDir = Directory(p.join(iosDir.path, 'Classes'));
       if (allSpecsCpp) {
-        // No Swift bridge needed — check that the C++ interface headers were synced
+        // All C++ modules — no Swift Registry.register() needed.
         info(iosSec, 'All modules use NativeImpl.cpp — Swift bridge (Registry.register) not required');
-        final cppHeaders = classesDir.existsSync() ? classesDir.listSync().whereType<File>().where((f) => f.path.endsWith('.native.g.h')).toList() : <File>[];
-        if (cppHeaders.isNotEmpty) {
-          ok(iosSec, '${cppHeaders.length} *.native.g.h header(s) synced to ios/Classes/');
-        } else if (hasAnyCppSpec) {
-          warn(iosSec, 'No *.native.g.h in ios/Classes/', hint: 'Run: nitrogen generate && nitrogen link');
+        // .native.g.h uses C++ types (std::string, classes) and must NOT be placed in
+        // ios/Classes/ — CocoaPods includes every header there into the umbrella header
+        // which breaks Swift/ObjC compilation. It is reachable via HEADER_SEARCH_PATHS.
+        // Verify that HEADER_SEARCH_PATHS includes lib/src/generated/cpp/ instead.
+        final podFiles = iosDir.listSync().whereType<File>().where((f) => f.path.endsWith('.podspec')).toList();
+        if (podFiles.isNotEmpty) {
+          final pod = podFiles.first.readAsStringSync();
+          if (pod.contains('lib/src/generated/cpp')) {
+            ok(iosSec, '*.native.g.h reachable via HEADER_SEARCH_PATHS → lib/src/generated/cpp');
+          } else {
+            warn(iosSec, 'HEADER_SEARCH_PATHS may not include lib/src/generated/cpp (needed for *.native.g.h)', hint: 'Run: nitrogen link');
+          }
         }
       } else {
         final swiftFiles = classesDir.existsSync()

@@ -86,6 +86,19 @@ bool isAppleCppModule(File specFile) {
   ).hasMatch(annotation);
 }
 
+/// Returns true when the spec file uses direct C++ for **Windows** only.
+/// Windows C++ modules use `windows/CMakeLists.txt` (not the shared `src/`)
+/// and need their own impl stub created in `windows/src/`.
+bool isWindowsCppModule(File specFile) {
+  final content = specFile.readAsStringSync();
+  final annotationMatch = RegExp(r'@NitroModule\s*\(([^)]+)\)', dotAll: true).firstMatch(content);
+  if (annotationMatch == null) return false;
+  final annotation = annotationMatch.group(1)!.replaceAll('\n', ' ');
+  return RegExp(
+    r'\bwindows\s*:\s*(?:NativeImpl|WindowsNativeImpl)\.cpp\b',
+  ).hasMatch(annotation);
+}
+
 /// Returns true when the spec file uses direct C++ for **Android or Linux** —
 /// the platforms that share `src/CMakeLists.txt` (Android NDK / Linux GCC).
 ///
@@ -159,6 +172,27 @@ List<ModuleInfo> discoverModuleInfos(String pluginName, {String baseDir = '.'}) 
 // Keep legacy signature for external callers
 List<Map<String, String>> discoverModules(String pluginName, {String baseDir = '.'}) {
   return discoverModuleInfos(pluginName, baseDir: baseDir).map((m) => m.toMap()).toList();
+}
+
+/// Returns directories containing a Podfile, searching common locations:
+/// `<root>/ios/`, `<root>/macos/`, `<root>/example/ios/`, `<root>/example/macos/`,
+/// and any direct child `*/ios/` or `*/macos/`.
+List<String> findPodfileDirs(String projectRoot) {
+  final candidates = [
+    p.join(projectRoot, 'ios'),
+    p.join(projectRoot, 'macos'),
+    p.join(projectRoot, 'example', 'ios'),
+    p.join(projectRoot, 'example', 'macos'),
+  ];
+  try {
+    for (final entity in Directory(projectRoot).listSync()) {
+      if (entity is Directory) {
+        candidates.add(p.join(entity.path, 'ios'));
+        candidates.add(p.join(entity.path, 'macos'));
+      }
+    }
+  } catch (_) {}
+  return candidates.where((dir) => File(p.join(dir, 'Podfile')).existsSync()).toList();
 }
 
 // ── Progress model ──────────────────────────────
@@ -252,9 +286,11 @@ class _LinkViewState extends State<LinkView> {
     LinkStep('Updating macOS podspec'),
     LinkStep('Updating Swift Plugin.swift (Kotlin/Swift modules)'),
     LinkStep('Updating Kotlin Plugin.kt (Kotlin/Swift modules)'),
+    LinkStep('Updating android/build.gradle (kotlin.srcDirs)'),
     LinkStep('Updating windows/CMakeLists.txt'),
     LinkStep('Updating linux/CMakeLists.txt'),
     LinkStep('Updating .clangd'),
+    LinkStep('Running pod install'),
   ];
 
   bool _finished = false;
@@ -392,26 +428,50 @@ class _LinkViewState extends State<LinkView> {
         await _setSkipped(5, detail: 'android/ not present');
       }
 
-
       await _setRunning(6);
-      if (Directory(p.join(Directory.current.path, 'windows')).existsSync()) {
-        linkWindows(pluginName, moduleInfos.map((m) => m.lib).toList(), nitroNativePath, baseDir: Directory.current.path, moduleInfos: moduleInfos);
+      if (Directory(p.join(Directory.current.path, 'android')).existsSync()) {
+        linkAndroid(pluginName, moduleInfos.map((m) => m.lib).toList(), baseDir: Directory.current.path, moduleInfos: moduleInfos);
         await _setDone(6);
       } else {
-        await _setSkipped(6, detail: 'windows/ not present');
+        await _setSkipped(6, detail: 'android/ not present');
       }
 
       await _setRunning(7);
-      if (Directory(p.join(Directory.current.path, 'linux')).existsSync()) {
-        linkLinux(pluginName, moduleInfos.map((m) => m.lib).toList(), nitroNativePath, baseDir: Directory.current.path, moduleInfos: moduleInfos);
+      if (Directory(p.join(Directory.current.path, 'windows')).existsSync()) {
+        linkWindows(pluginName, moduleInfos.map((m) => m.lib).toList(), nitroNativePath, baseDir: Directory.current.path, moduleInfos: moduleInfos);
         await _setDone(7);
       } else {
-        await _setSkipped(7, detail: 'linux/ not present');
+        await _setSkipped(7, detail: 'windows/ not present');
       }
 
       await _setRunning(8);
+      if (Directory(p.join(Directory.current.path, 'linux')).existsSync()) {
+        linkLinux(pluginName, moduleInfos.map((m) => m.lib).toList(), nitroNativePath, baseDir: Directory.current.path, moduleInfos: moduleInfos);
+        await _setDone(8);
+      } else {
+        await _setSkipped(8, detail: 'linux/ not present');
+      }
+
+      await _setRunning(9);
       linkClangd(pluginName, moduleInfos: moduleInfos, baseDir: Directory.current.path);
-      await _setDone(8);
+      await _setDone(9);
+
+      await _setRunning(10);
+      final podfileDirs = findPodfileDirs(Directory.current.path);
+      if (podfileDirs.isEmpty) {
+        await _setSkipped(10, detail: 'no Podfile found');
+      } else {
+        final failures = <String>[];
+        for (final dir in podfileDirs) {
+          final result = await Process.run('pod', ['install'], workingDirectory: dir);
+          if (result.exitCode != 0) failures.add(p.relative(dir, from: Directory.current.path));
+        }
+        if (failures.isEmpty) {
+          await _setDone(10, detail: podfileDirs.map((d) => p.relative(d, from: Directory.current.path)).join(', '));
+        } else {
+          await _setDone(10, detail: 'warning: pod install failed in: ${failures.join(', ')}');
+        }
+      }
 
       if (allCpp) {
         _nextSteps.addAll([
@@ -613,6 +673,14 @@ void linkCMake(String pluginName, List<String> moduleLibs, String nitroNativePat
       modified = true;
     }
   }
+  if (!content.contains('CMAKE_CXX_STANDARD')) {
+    // Inject C++17 standard after the project() declaration.
+    content = content.replaceFirstMapped(
+      RegExp(r'project\([^)]+\)\s*\n'),
+      (m) => '${m.group(0)!}\nset(CMAKE_CXX_STANDARD 17)\nset(CMAKE_CXX_STANDARD_REQUIRED ON)\n',
+    );
+    modified = true;
+  }
   if (!content.contains(r'${NITRO_NATIVE}')) {
     content = content.replaceFirst('target_include_directories($pluginName PRIVATE', 'target_include_directories($pluginName PRIVATE\n  "\${NITRO_NATIVE}"');
     modified = true;
@@ -649,6 +717,9 @@ void generateCMake(String pluginName, List<String> moduleLibs, String nitroNativ
   final sb = StringBuffer()
     ..writeln('cmake_minimum_required(VERSION 3.10)')
     ..writeln('project(${pluginName}_library VERSION 0.0.1 LANGUAGES C CXX)')
+    ..writeln()
+    ..writeln('set(CMAKE_CXX_STANDARD 17)')
+    ..writeln('set(CMAKE_CXX_STANDARD_REQUIRED ON)')
     ..writeln()
     ..writeln('set(NITRO_NATIVE "$nitroValue")')
     ..writeln()
@@ -791,6 +862,10 @@ void linkPodspec(String pluginName, List<String> moduleLibs, {String baseDir = '
     content = content.replaceFirst('s.pod_target_xcconfig = {', "s.pod_target_xcconfig = {\n    'DEFINES_MODULE' => 'YES',");
     modified = true;
   }
+  if (!content.contains("'CLANG_CXX_LANGUAGE_STANDARD'") && !content.contains('c++17')) {
+    content = content.replaceFirst('s.pod_target_xcconfig = {', "s.pod_target_xcconfig = {\n    'CLANG_CXX_LANGUAGE_STANDARD' => 'c++17',");
+    modified = true;
+  }
   if (!content.contains("s.dependency 'nitro'")) {
     content = content.replaceFirst('s.pod_target_xcconfig = {', "s.dependency 'nitro'\n  s.pod_target_xcconfig = {");
     modified = true;
@@ -913,6 +988,10 @@ void linkMacosPodspec(String pluginName, List<String> moduleLibs, {String baseDi
   }
   if (!content.contains("'DEFINES_MODULE' => 'YES'")) {
     content = content.replaceFirst('s.pod_target_xcconfig = {', "s.pod_target_xcconfig = {\n    'DEFINES_MODULE' => 'YES',");
+    modified = true;
+  }
+  if (!content.contains("'CLANG_CXX_LANGUAGE_STANDARD'") && !content.contains('c++17')) {
+    content = content.replaceFirst('s.pod_target_xcconfig = {', "s.pod_target_xcconfig = {\n    'CLANG_CXX_LANGUAGE_STANDARD' => 'c++17',");
     modified = true;
   }
   if (!content.contains("s.dependency 'nitro'")) {
@@ -1472,6 +1551,7 @@ void _linkDesktopCMake(
         '\ntarget_include_directories(\${PLUGIN_NAME} PRIVATE\n'
         '  "\${NITRO_NATIVE}"\n'
         '  "\${CMAKE_CURRENT_SOURCE_DIR}/../lib/src/generated/cpp"\n'
+        '  "\${CMAKE_CURRENT_SOURCE_DIR}/../src"\n'
         ')\n';
     final inclMatch = RegExp(r'target_include_directories\(\s*\$\{PLUGIN_NAME\}[^)]+\)').firstMatch(content);
     if (inclMatch != null) {
@@ -1480,13 +1560,183 @@ void _linkDesktopCMake(
       content += addBlock;
     }
     modified = true;
+  } else if (!content.contains(r'/../src"')) {
+    // NITRO_NATIVE already present but ../src missing — append to existing Nitro include block.
+    content = content.replaceFirstMapped(
+      RegExp(r'("\$\{CMAKE_CURRENT_SOURCE_DIR\}/../lib/src/generated/cpp"\s*\n)'),
+      (m) => '${m.group(0)!}  "\${CMAKE_CURRENT_SOURCE_DIR}/../src"\n',
+    );
+    modified = true;
   }
 
   if (modified) cmakeFile.writeAsStringSync(content);
 }
 
+/// Configures `android/build.gradle` (or `.kts`) so the generated Kotlin bridge
+/// files in `lib/src/generated/kotlin/` are compiled as part of the Android build.
+///
+/// Without the `kotlin.srcDirs` entry, all `.bridge.g.kt` files are generated but
+/// never compiled — causing "Unresolved reference: XxxJniBridge" errors at build time.
+void linkAndroid(String pluginName, List<String> moduleLibs, {String baseDir = '.', List<ModuleInfo>? moduleInfos}) {
+  File? buildGradle;
+  for (final candidate in [
+    File(p.join(baseDir, 'android', 'build.gradle')),
+    File(p.join(baseDir, 'android', 'build.gradle.kts')),
+  ]) {
+    if (candidate.existsSync()) {
+      buildGradle = candidate;
+      break;
+    }
+  }
+  if (buildGradle == null) return;
+
+  var content = buildGradle.readAsStringSync();
+  bool modified = false;
+  final isKts = buildGradle.path.endsWith('.kts');
+  final srcDirsLine = isKts
+      ? r'            kotlin.srcDirs += setOf("${project.projectDir}/../lib/src/generated/kotlin")'
+      : r'            kotlin.srcDirs += "${project.projectDir}/../lib/src/generated/kotlin"';
+
+  // 1. Ensure kotlin.srcDirs for generated Kotlin bridges.
+  //    .bridge.g.kt files live in lib/src/generated/kotlin/ — Gradle must see
+  //    that directory as a Kotlin source root or the JNI bridge classes won't compile.
+  //    Note: add to kotlin.srcDirs ONLY, NOT java.srcDirs — in AGP 8.x, routing
+  //    .kt through the Java compiler path causes "Unresolved reference: XxxJniBridge".
+  if (!content.contains('generated/kotlin')) {
+    final sourceSetsMatch = RegExp(r'\bsourceSets\s*\{').firstMatch(content);
+    if (sourceSetsMatch != null) {
+      // sourceSets block exists — look for main {} inside it.
+      final afterSourceSets = content.substring(sourceSetsMatch.end);
+      final mainInBlock = RegExp(r'\bmain\s*\{').firstMatch(afterSourceSets);
+      if (mainInBlock != null) {
+        final mainAbsStart = sourceSetsMatch.end + mainInBlock.start;
+        // Find the { of main {} and then its matching }
+        final openBrace = content.indexOf('{', mainAbsStart + mainInBlock.group(0)!.length - 1);
+        if (openBrace >= 0) {
+          final mainClose = _findBlockEnd(content, openBrace);
+          if (mainClose > 0) {
+            content = content.replaceRange(mainClose, mainClose, '\n$srcDirsLine\n        ');
+            modified = true;
+          }
+        }
+      } else {
+        // sourceSets exists but no main {} — add main {} before sourceSets closing brace
+        final sourceSetsClose = _findBlockEnd(content, sourceSetsMatch.end - 1);
+        if (sourceSetsClose > 0) {
+          content = content.replaceRange(
+            sourceSetsClose,
+            sourceSetsClose,
+            '    main {\n$srcDirsLine\n        }\n    ',
+          );
+          modified = true;
+        }
+      }
+    } else {
+      // No sourceSets block — inject one inside android {}
+      final androidMatch = RegExp(r'\bandroid\s*\{').firstMatch(content);
+      if (androidMatch != null) {
+        content = content.replaceRange(
+          androidMatch.end,
+          androidMatch.end,
+          '\n    sourceSets {\n        main {\n$srcDirsLine\n        }\n    }',
+        );
+      } else {
+        content += '\nandroid {\n    sourceSets {\n        main {\n$srcDirsLine\n        }\n    }\n}\n';
+      }
+      modified = true;
+    }
+  }
+
+  // 2. Ensure kotlinOptions { jvmTarget = "17" } for correct bytecode target.
+  if (!content.contains('kotlinOptions')) {
+    final androidMatch = RegExp(r'\bandroid\s*\{').firstMatch(content);
+    if (androidMatch != null) {
+      content = content.replaceRange(
+        androidMatch.end,
+        androidMatch.end,
+        '\n    kotlinOptions { jvmTarget = "17" }',
+      );
+      modified = true;
+    }
+  }
+
+  // 3. Ensure kotlinx-coroutines (required for generated Kotlin suspend bridge functions).
+  if (!content.contains('kotlinx-coroutines')) {
+    final depsMatch = RegExp(r'\bdependencies\s*\{').firstMatch(content);
+    if (depsMatch != null) {
+      content = content.replaceRange(
+        depsMatch.end,
+        depsMatch.end,
+        '\n    implementation "org.jetbrains.kotlinx:kotlinx-coroutines-android:1.7.3"\n    implementation "org.jetbrains.kotlinx:kotlinx-coroutines-core:1.7.3"',
+      );
+    } else {
+      content +=
+          '\ndependencies {\n    implementation "org.jetbrains.kotlinx:kotlinx-coroutines-android:1.7.3"\n    implementation "org.jetbrains.kotlinx:kotlinx-coroutines-core:1.7.3"\n}\n';
+    }
+    modified = true;
+  }
+
+  if (modified) buildGradle.writeAsStringSync(content);
+}
+
+/// Returns the index of the `}` that closes the block whose opening `{` is at [openBrace].
+int _findBlockEnd(String content, int openBrace) {
+  int depth = 0;
+  for (int i = openBrace; i < content.length; i++) {
+    if (content[i] == '{') {
+      depth++;
+    } else if (content[i] == '}') {
+      depth--;
+      if (depth == 0) return i;
+    }
+  }
+  return -1;
+}
+
+/// Creates Windows-specific C++ impl stub files for modules that target
+/// `windows: WindowsNativeImpl.cpp`. These stubs live in `windows/src/` so
+/// `windows/CMakeLists.txt` can reference them via a relative path.
+void linkWindowsCppImplStubs(List<ModuleInfo> moduleInfos, {String baseDir = '.'}) {
+  final libDir = Directory(p.join(baseDir, 'lib'));
+  final specFiles = libDir.existsSync()
+      ? libDir.listSync(recursive: true).whereType<File>().where((f) => f.path.endsWith('.native.dart')).toList()
+      : <File>[];
+  final windowsCppLibs = specFiles.where(isWindowsCppModule).map((f) {
+    final stem = p.basename(f.path).replaceAll(RegExp(r'\.native\.dart$'), '');
+    return extractLibNameFromSpec(f) ?? stem;
+  }).toSet();
+
+  for (final m in moduleInfos.where((m) => m.isCpp && windowsCppLibs.contains(m.lib))) {
+    final className = _toPascalCase(m.lib);
+    final winSrcDir = Directory(p.join(baseDir, 'windows', 'src'))..createSync(recursive: true);
+    final stubFile = File(p.join(winSrcDir.path, 'Hybrid$className.cpp'));
+    if (stubFile.existsSync()) continue;
+    stubFile.writeAsStringSync(
+      '// Hybrid$className — WindowsNativeImpl.cpp implementation.\n'
+      '// Generated by nitrogen link. Fill in the method bodies.\n'
+      '#include "../../lib/src/generated/cpp/${m.lib}.native.g.h"\n'
+      '\n'
+      '#include <string>\n'
+      '\n'
+      'class Hybrid${className}Impl final : public Hybrid$className {\n'
+      'public:\n'
+      '    // TODO: implement all pure-virtual methods declared in Hybrid$className\n'
+      '};\n'
+      '\n'
+      '// MSVC static-initializer auto-registration (no __attribute__((constructor)) on Windows).\n'
+      'namespace {\n'
+      '  struct _AutoRegister {\n'
+      '    _AutoRegister() { ${m.lib}_register_impl(new Hybrid${className}Impl()); }\n'
+      '  };\n'
+      '  static _AutoRegister _auto_register_instance;\n'
+      '}\n',
+    );
+  }
+}
+
 void linkWindows(String pluginName, List<String> moduleLibs, String nitroNativePath, {String baseDir = '.', List<ModuleInfo>? moduleInfos}) {
   _linkDesktopCMake(pluginName, moduleLibs, nitroNativePath, platform: 'windows', baseDir: baseDir, moduleInfos: moduleInfos);
+  if (moduleInfos != null) linkWindowsCppImplStubs(moduleInfos, baseDir: baseDir);
 }
 
 void linkLinux(String pluginName, List<String> moduleLibs, String nitroNativePath, {String baseDir = '.', List<ModuleInfo>? moduleInfos}) {

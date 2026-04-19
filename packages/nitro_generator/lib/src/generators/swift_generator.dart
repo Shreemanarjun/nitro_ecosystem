@@ -259,6 +259,20 @@ class SwiftGenerator {
           } else {
             s.writeln('    return NitroRecordWriter.encodeList(r) { w, e in e.writeFields(w) }');
           }
+        } else if (isBool) {
+          s.writeln(
+            '    guard let impl = ${spec.dartClassName}Registry.impl else { return 0 }',
+          );
+          s.writeln('    let sema = DispatchSemaphore(value: 0)');
+          s.writeln('    var result: Bool? = nil');
+          s.writeln('    Task.detached {');
+          s.writeln(
+            '        result = try? await impl.${func.dartName}($callArgs)',
+          );
+          s.writeln('        sema.signal()');
+          s.writeln('    }');
+          s.writeln('    sema.wait()');
+          s.writeln('    return (result ?? false) ? 1 : 0');
         } else {
           final swiftRetType = _toSwiftType(spec, func.returnType.name);
           final defaultVal = _defaultCDeclValue(spec, func.returnType.name);
@@ -416,6 +430,7 @@ class SwiftGenerator {
     for (final stream in spec.streams) {
       final cType = _toSwiftCType(spec, stream.itemType.name);
       final isStructItem = spec.structs.any((st) => st.name == stream.itemType.name);
+      final isRecordItem = spec.recordTypes.any((rt) => rt.name == stream.itemType.name);
       s.writeln('@_cdecl("_register_${stream.dartName}_stream")');
       s.writeln('public func _register_${stream.dartName}_stream(');
       s.writeln('    _ dartPort: Int64,');
@@ -433,6 +448,8 @@ class SwiftGenerator {
         );
         s.writeln('            ptr.initialize(to: item)');
         s.writeln('            emitCb(dartPort, UnsafeMutableRawPointer(ptr))');
+      } else if (isRecordItem) {
+        s.writeln('            emitCb(dartPort, item.toNative())');
       } else {
         s.writeln('            emitCb(dartPort, item)');
       }

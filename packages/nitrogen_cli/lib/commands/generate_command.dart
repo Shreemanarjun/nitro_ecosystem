@@ -1,7 +1,7 @@
 import 'dart:io';
 import 'package:args/command_runner.dart';
 import 'package:path/path.dart' as p;
-import 'link_command.dart' show cleanRedundantIncludes, createSharedHeaders, resolveNitroNativePath, isCppModule;
+import 'link_command.dart' show cleanRedundantIncludes, createSharedHeaders, resolveNitroNativePath, isCppModule, findPodfileDirs;
 import '../ui.dart';
 
 class GenerateCommand extends Command {
@@ -71,7 +71,7 @@ class GenerateCommand extends Command {
     _cleanStaleSwiftBridges(projectDir.path);
 
     // ── pod install ──────────────────────────────────────────────────────────
-    final podfileDirs = _findPodfileDirs(projectDir.path);
+    final podfileDirs = findPodfileDirs(projectDir.path);
     for (final dir in podfileDirs) {
       stdout.writeln(cyan('  › pod install (${p.relative(dir, from: projectDir.path)}) …'));
       final podExitCode = await runStreaming(
@@ -125,11 +125,14 @@ class GenerateCommand extends Command {
   /// Also heals any redundant `#include` lines in `src/*.cpp` files.
   void _cleanStaleSwiftBridges(String projectRoot) {
     for (final platform in ['ios', 'macos']) {
-      final classesDir = Directory(p.join(projectRoot, platform, 'Classes'));
-      if (!classesDir.existsSync()) continue;
-      for (final file in classesDir.listSync().whereType<File>()) {
-        if (p.basename(file.path).endsWith('.bridge.g.swift')) {
-          file.deleteSync();
+      // Check root-level AND example/ subdirectory (monorepo / example-app layouts).
+      for (final prefix in ['', 'example/']) {
+        final classesDir = Directory(p.join(projectRoot, '$prefix$platform', 'Classes'));
+        if (!classesDir.existsSync()) continue;
+        for (final file in classesDir.listSync().whereType<File>()) {
+          if (p.basename(file.path).endsWith('.bridge.g.swift')) {
+            file.deleteSync();
+          }
         }
       }
     }
@@ -141,25 +144,5 @@ class GenerateCommand extends Command {
         cleanRedundantIncludes(f);
       }
     }
-  }
-
-  /// Returns directories containing a Podfile, searching common locations:
-  /// `<root>/ios/`, `<root>/example/ios/`, and any direct child `*/ios/`.
-  List<String> _findPodfileDirs(String projectRoot) {
-    final candidates = [
-      p.join(projectRoot, 'ios'),
-      p.join(projectRoot, 'example', 'ios'),
-    ];
-
-    // Also check any direct subdirectory that has an ios/ with a Podfile.
-    try {
-      for (final entity in Directory(projectRoot).listSync()) {
-        if (entity is Directory) {
-          candidates.add(p.join(entity.path, 'ios'));
-        }
-      }
-    } catch (_) {}
-
-    return candidates.where((dir) => File(p.join(dir, 'Podfile')).existsSync()).toList();
   }
 }

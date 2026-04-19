@@ -19,12 +19,13 @@ class SpecExtractor {
     final element = module.element as ClassElement;
     final annotation = module.annotation;
 
-    final iosImpl     = annotation.read('ios').isNull     ? null : _getNativeImpl(annotation.read('ios').objectValue,     fieldName: 'ios');
-    final androidImpl = annotation.read('android').isNull ? null : _getNativeImpl(annotation.read('android').objectValue, fieldName: 'android');
-    final macosImpl   = annotation.read('macos').isNull   ? null : _getNativeImpl(annotation.read('macos').objectValue,   fieldName: 'macos');
-    final windowsImpl = annotation.read('windows').isNull ? null : _getNativeImpl(annotation.read('windows').objectValue, fieldName: 'windows');
-    final linuxImpl   = annotation.read('linux').isNull   ? null : _getNativeImpl(annotation.read('linux').objectValue,   fieldName: 'linux');
-    final webImpl     = annotation.read('web').isNull     ? null : _getNativeImpl(annotation.read('web').objectValue,     fieldName: 'web');
+    final sourcePath = library.element.source.uri.toString();
+    final iosImpl     = annotation.read('ios').isNull     ? null : _getNativeImpl(annotation.read('ios').objectValue,     fieldName: 'ios',     sourcePath: sourcePath);
+    final androidImpl = annotation.read('android').isNull ? null : _getNativeImpl(annotation.read('android').objectValue, fieldName: 'android', sourcePath: sourcePath);
+    final macosImpl   = annotation.read('macos').isNull   ? null : _getNativeImpl(annotation.read('macos').objectValue,   fieldName: 'macos',   sourcePath: sourcePath);
+    final windowsImpl = annotation.read('windows').isNull ? null : _getNativeImpl(annotation.read('windows').objectValue, fieldName: 'windows', sourcePath: sourcePath);
+    final linuxImpl   = annotation.read('linux').isNull   ? null : _getNativeImpl(annotation.read('linux').objectValue,   fieldName: 'linux',   sourcePath: sourcePath);
+    final webImpl     = annotation.read('web').isNull     ? null : _getNativeImpl(annotation.read('web').objectValue,     fieldName: 'web',     sourcePath: sourcePath);
     final cSymbolPrefix = annotation.read('cSymbolPrefix').isNull ? null : annotation.read('cSymbolPrefix').stringValue;
     final lib = annotation.read('lib').isNull ? null : annotation.read('lib').stringValue;
     final sourceFile = library.element.source.uri.pathSegments.last.replaceFirst('.native.dart', '');
@@ -47,7 +48,7 @@ class SpecExtractor {
       windowsImpl: windowsImpl,
       linuxImpl: linuxImpl,
       webImpl: webImpl,
-      sourceUri: library.element.source.uri.toString(),
+      sourceUri: sourcePath,
       functions: _extractFunctions(element, ns, recordTypeNames),
       properties: properties,
       streams: streams,
@@ -57,7 +58,11 @@ class SpecExtractor {
     );
   }
 
-  static NativeImpl _getNativeImpl(DartObject object, {String? fieldName}) {
+  static NativeImpl _getNativeImpl(
+    DartObject object, {
+    String? fieldName,
+    String? sourcePath,
+  }) {
     // Reconstruct by runtime type name — robust against class reordering.
     // Each NativeImpl subclass (SwiftImpl, KotlinImpl, CppImpl, WasmImpl) has a
     // unique name that the analyzer preserves in the DartObject type element.
@@ -69,32 +74,36 @@ class SpecExtractor {
     // entries below act as a safety-net in case a future analyzer version
     // returns the declared type of the constant instead of its value type.
     final typeName = object.type?.element?.name;
-    return switch (typeName) {
-      // Concrete impl type names — normal path
-      'SwiftImpl'  => NativeImpl.swift,
-      'KotlinImpl' => NativeImpl.kotlin,
-      'CppImpl'    => NativeImpl.cpp,
-      'WasmImpl'   => NativeImpl.wasm,
-      // Per-platform sealed class type names — safety-net path
-      // AppleNativeImpl can be swift or cpp; disambiguate by field name.
-      'AppleNativeImpl' => switch (fieldName) {
-        'ios' || 'macos' => _inferAppleImpl(object),
-        _ => throw InvalidGenerationSourceError(
-          'Cannot infer AppleNativeImpl kind for field "$fieldName". '
+
+    // Fast path: unambiguous names handled by the shared helper in
+    // nitro_annotations. Keeps the mapping co-located with the annotations so
+    // any tool (nitrogen_cli, docs generator) can reuse it.
+    final shared = NativeImpl.fromTypeName(typeName);
+    if (shared != null) return shared;
+
+    // Slow path: ambiguous sealed markers require analyzer-level supertype
+    // inspection to pick between the language-specific impl and CppImpl.
+    switch (typeName) {
+      case 'AppleNativeImpl':
+        if (fieldName == 'ios' || fieldName == 'macos') {
+          return _inferAppleImpl(object);
+        }
+        throw InvalidGenerationSourceError(
+          'Cannot infer AppleNativeImpl kind for field "$fieldName"'
+          '${sourcePath != null ? " in $sourcePath" : ""}. '
           'Use AppleNativeImpl.swift or AppleNativeImpl.cpp explicitly.',
-        ),
-      },
-      'AndroidNativeImpl' => _inferAndroidImpl(object),
-      'WindowsNativeImpl' => NativeImpl.cpp,
-      'LinuxNativeImpl'   => NativeImpl.cpp,
-      'WebNativeImpl'     => NativeImpl.wasm,
-      _ => throw InvalidGenerationSourceError(
-        'Unknown NativeImpl subclass: "$typeName". '
-        'Use AppleNativeImpl.swift/.cpp, AndroidNativeImpl.kotlin/.cpp, '
-        'WindowsNativeImpl.cpp, LinuxNativeImpl.cpp, WebNativeImpl.wasm, '
-        'or the NativeImpl.* shorthands.',
-      ),
-    };
+        );
+      case 'AndroidNativeImpl':
+        return _inferAndroidImpl(object);
+    }
+    throw InvalidGenerationSourceError(
+      'Unknown NativeImpl subclass: "$typeName" '
+      '(field: "${fieldName ?? '<unknown>'}"'
+      '${sourcePath != null ? ", source: $sourcePath" : ""}). '
+      'Use AppleNativeImpl.swift/.cpp, AndroidNativeImpl.kotlin/.cpp, '
+      'WindowsNativeImpl.cpp, LinuxNativeImpl.cpp, WebNativeImpl.wasm, '
+      'or the NativeImpl.* shorthands.',
+    );
   }
 
   /// Disambiguates [AppleNativeImpl] by inspecting the constant's supertype

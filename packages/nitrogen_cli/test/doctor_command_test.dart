@@ -393,18 +393,32 @@ void main() {
       );
     });
 
-    test('ok when .native.g.h headers are synced to ios/Classes/', () {
+    test('ok when HEADER_SEARCH_PATHS covers lib/src/generated/cpp', () {
       final tmp = _scaffold(
         specs: [(name: 'math', isCpp: true)],
-        nativeGHeaders: ['math.native.g.h'],
       );
       addTearDown(() => tmp.deleteSync(recursive: true));
+      // Overwrite podspec to include lib/src/generated/cpp in HEADER_SEARCH_PATHS.
+      // .native.g.h must NOT live in ios/Classes/ (breaks CocoaPods umbrella header);
+      // instead it is reachable via HEADER_SEARCH_PATHS pointing at lib/src/generated/cpp.
+      File(p.join(tmp.path, 'ios', 'my_plugin.podspec')).writeAsStringSync('''
+Pod::Spec.new do |s|
+  s.name = "my_plugin"
+  s.swift_version = '5.9'
+  s.pod_target_xcconfig = {
+    'HEADER_SEARCH_PATHS' => '\${PODS_TARGET_SRCROOT}/../lib/src/generated/cpp \${PODS_TARGET_SRCROOT}/../src/native',
+    'CLANG_CXX_LANGUAGE_STANDARD' => 'c++17',
+  }
+  s.source_files = 'Classes/**/*'
+end
+''');
       final result = _run(tmp);
       final iosSec = result.sections.firstWhere((s) => s.title == 'iOS');
 
       expect(
         iosSec.checks.any((c) => c.status == DoctorStatus.ok && c.label.contains('.native.g.h')),
         isTrue,
+        reason: 'Doctor must confirm *.native.g.h is reachable via HEADER_SEARCH_PATHS when podspec covers lib/src/generated/cpp',
       );
     });
 

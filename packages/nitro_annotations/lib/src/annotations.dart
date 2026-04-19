@@ -103,6 +103,41 @@ sealed class NativeImpl {
   /// dart:ffi is unavailable on web — use this for Web targets.
   /// Equivalent to [WebNativeImpl.wasm].
   static const wasm = WasmImpl._();
+
+  /// Maps an analyzer-reported Dart type name to the corresponding [NativeImpl]
+  /// constant. Used by codegen (`SpecExtractor`) and any tooling that needs to
+  /// reconstruct a [NativeImpl] from a `DartObject` produced by the analyzer.
+  ///
+  /// Handles the **unambiguous** cases:
+  /// - Concrete impl class names: `SwiftImpl`, `KotlinImpl`, `CppImpl`, `WasmImpl`.
+  /// - Sealed marker names with a single valid impl: `WindowsNativeImpl`,
+  ///   `LinuxNativeImpl`, `WebNativeImpl`.
+  ///
+  /// The sealed markers `AppleNativeImpl` and `AndroidNativeImpl` accept both
+  /// a language-specific impl and `CppImpl`, so they require analyzer-level
+  /// disambiguation (supertype inspection) and are intentionally **not**
+  /// handled here — the caller must resolve them before calling.
+  ///
+  /// Returns `null` if [typeName] is unknown or ambiguous.
+  static NativeImpl? fromTypeName(String? typeName) {
+    switch (typeName) {
+      case 'SwiftImpl':
+        return NativeImpl.swift;
+      case 'KotlinImpl':
+        return NativeImpl.kotlin;
+      case 'CppImpl':
+        return NativeImpl.cpp;
+      case 'WasmImpl':
+        return NativeImpl.wasm;
+      case 'WindowsNativeImpl':
+      case 'LinuxNativeImpl':
+        return NativeImpl.cpp;
+      case 'WebNativeImpl':
+        return NativeImpl.wasm;
+      default:
+        return null;
+    }
+  }
 }
 
 // ── Concrete implementation classes ───────────────────────────────────────────

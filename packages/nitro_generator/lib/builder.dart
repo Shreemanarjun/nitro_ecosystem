@@ -17,6 +17,8 @@ Builder nitroGeneratorBuilder(BuilderOptions options) {
 }
 
 class NitroGeneratorBuilder implements Builder {
+  static final _formatter = DartFormatter();
+
   @override
   Map<String, List<String>> get buildExtensions => {
     '^lib/{{dir}}/{{file}}.native.dart': [
@@ -66,7 +68,7 @@ class NitroGeneratorBuilder implements Builder {
           final rawCode = DartFfiGenerator.generate(spec);
           String formattedCode;
           try {
-            formattedCode = DartFormatter().format(rawCode);
+            formattedCode = _formatter.format(rawCode);
           } catch (e) {
             log.warning('nitrogen: Could not format ${outId.path}:\n$e');
             formattedCode = rawCode;
@@ -92,7 +94,7 @@ class NitroGeneratorBuilder implements Builder {
         }
       }
     } catch (e, st) {
-      log.warning('nitrogen: Could not process ${buildStep.inputId}:\n$e\n$st');
+      log.severe('nitrogen: Could not process ${buildStep.inputId}:\n$e\n$st');
     }
   }
 }
