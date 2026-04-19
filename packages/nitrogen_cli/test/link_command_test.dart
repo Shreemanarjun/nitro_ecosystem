@@ -783,6 +783,19 @@ target_include_directories(my_plugin PRIVATE "\${CMAKE_CURRENT_SOURCE_DIR}")
       expect(content, contains('dart_api_dl.c'));
     });
 
+    test('createSharedHeaders includes NitroError idempotency guard', () {
+      final nitroNative = Directory(p.join(tmp.path, 'nitro_native'))..createSync();
+      createSharedHeaders(nitroNative.path, baseDir: tmp.path);
+      
+      final nitroH = File(p.join(tmp.path, 'src', 'nitro.h'));
+      expect(nitroH.existsSync(), isTrue);
+      final content = nitroH.readAsStringSync();
+      expect(content, contains('#ifndef NITRO_ERROR_DEFINED'));
+      expect(content, contains('#define NITRO_ERROR_DEFINED'));
+      expect(content, contains('} NitroError;'));
+      expect(content, contains('#endif'));
+    });
+
     test('cleanRedundantIncludes removes bridge imports', () {
       final file = File(p.join(tmp.path, 'plugin.cpp'));
       file.writeAsStringSync('''

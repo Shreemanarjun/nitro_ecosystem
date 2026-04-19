@@ -45,6 +45,11 @@ class RecordWriter {
     _builder.add(encoded);
   }
 
+  void writeBlob(Uint8List blob) {
+    writeInt32(blob.length);
+    _builder.add(blob);
+  }
+
   /// Writes a 1-byte null tag.  0 = null, 1 = value follows.
   void writeNullTag(bool isNull) => _builder.addByte(isNull ? 0 : 1);
 
@@ -218,6 +223,13 @@ class RecordReader {
     final s = utf8.decode(_bytes.sublist(_pos, _pos + len));
     _pos += len;
     return s;
+  }
+
+  Uint8List readBlob() {
+    final len = readInt32();
+    final blob = _bytes.sublist(_pos, _pos + len);
+    _pos += len;
+    return blob;
   }
 
   /// Returns `true` if the next value is null (tag byte == 0).

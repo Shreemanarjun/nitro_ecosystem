@@ -93,10 +93,10 @@ dependencies:
       File(p.join(generatedCpp.path, 'my.bridge.g.cpp')).writeAsStringSync('cpp code');
 
       syncBridgeFiles(temp.path);
-
-      // Swift bridge must NOT be in ios/Classes — compiled from canonical location.
-      expect(File(p.join(iosClasses.path, 'my.bridge.g.swift')).existsSync(), isFalse,
-          reason: 'Swift bridges are served via podspec source_files, not ios/Classes/');
+      
+      // Swift bridge: now COPIED to ios/Classes for reliability.
+      expect(File(p.join(iosClasses.path, 'my.bridge.g.swift')).existsSync(), isTrue);
+      expect(File(p.join(iosClasses.path, 'my.bridge.g.swift')).readAsStringSync(), equals('swift code'));
       // C++ bridge files must still be present.
       expect(File(p.join(iosClasses.path, 'my.bridge.g.h')).existsSync(), isTrue);
       // .cpp should be renamed to .mm for Objective-C++ support on iOS.
@@ -167,12 +167,13 @@ dependencies:
       writeNativeSpec('swift_mod', isCpp: false);
 
       syncBridgeFiles(temp.path);
-
+ 
       expect(
         File(p.join(classesDir.path, 'swift_mod.bridge.g.swift')).existsSync(),
-        isFalse,
-        reason: 'Swift bridge is compiled from lib/src/generated/swift/ — copies in ios/Classes/ cause "Invalid redeclaration" errors',
+        isTrue,
+        reason: 'Swift bridge is now explicitly copied to ios/Classes/ if it exists',
       );
+      expect(File(p.join(classesDir.path, 'swift_mod.bridge.g.swift')).readAsStringSync(), equals('swift code'));
     });
 
     test('skips .bridge.g.swift when macos-only NativeImpl.cpp spec', () async {
@@ -216,10 +217,10 @@ dependencies:
       File(p.join(genCpp.path, 'my.bridge.g.cpp')).writeAsStringSync('cpp code');
 
       syncBridgeFiles(temp.path, platform: 'macos');
-
-      // Swift bridge: stale copy must be removed.
-      expect(File(p.join(macosClasses.path, 'my.bridge.g.swift')).existsSync(), isFalse,
-          reason: 'Swift bridge is compiled from canonical location via podspec — copies cause redeclaration errors');
+ 
+      // Swift bridge: now COPIED for reliability.
+      expect(File(p.join(macosClasses.path, 'my.bridge.g.swift')).existsSync(), isTrue);
+      expect(File(p.join(macosClasses.path, 'my.bridge.g.swift')).readAsStringSync(), equals('swift code'));
       // C++ bridge files must still be present.
       expect(File(p.join(macosClasses.path, 'my.bridge.g.h')).existsSync(), isTrue);
       expect(File(p.join(macosClasses.path, 'my.bridge.g.mm')).existsSync(), isTrue,
@@ -295,6 +296,19 @@ dependencies:
         isFalse,
         reason: 'Any platform using NativeImpl.cpp excludes the Swift bridge — duplicate-symbol guard',
       );
+    });
+    
+    test('syncBridgeFiles(platform: ios) copies Swift bridges to Sources/ layout if it exists', () async {
+      File(p.join(temp.path, 'pubspec.yaml')).writeAsStringSync('name: my_plugin\ndependencies:\n  nitro: any');
+      
+      final sourcesDir = Directory(p.join(temp.path, 'ios', 'Sources', 'MyPlugin'))..createSync(recursive: true);
+      final genSwift = Directory(p.join(temp.path, 'lib', 'src', 'generated', 'swift'))..createSync(recursive: true);
+      File(p.join(genSwift.path, 'my.bridge.g.swift')).writeAsStringSync('swift code');
+      
+      syncBridgeFiles(temp.path);
+      
+      expect(File(p.join(sourcesDir.path, 'my.bridge.g.swift')).existsSync(), isTrue);
+      expect(File(p.join(sourcesDir.path, 'my.bridge.g.swift')).readAsStringSync(), equals('swift code'));
     });
   });
 }

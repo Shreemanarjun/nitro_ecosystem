@@ -3,6 +3,7 @@ import 'package:args/command_runner.dart';
 import 'package:path/path.dart' as p;
 import 'link_command.dart' show cleanRedundantIncludes, createSharedHeaders, resolveNitroNativePath, isCppModule, findPodfileDirs;
 import '../ui.dart';
+import '../utils.dart';
 
 class GenerateCommand extends Command {
   @override
@@ -124,14 +125,29 @@ class GenerateCommand extends Command {
   ///
   /// Also heals any redundant `#include` lines in `src/*.cpp` files.
   void _cleanStaleSwiftBridges(String projectRoot) {
+    final pluginName = _readPluginName(projectRoot);
+    final className = toPascalCase(pluginName);
+
     for (final platform in ['ios', 'macos']) {
       // Check root-level AND example/ subdirectory (monorepo / example-app layouts).
       for (final prefix in ['', 'example/']) {
+        // 1. Legacy path: Classes/
         final classesDir = Directory(p.join(projectRoot, '$prefix$platform', 'Classes'));
-        if (!classesDir.existsSync()) continue;
-        for (final file in classesDir.listSync().whereType<File>()) {
-          if (p.basename(file.path).endsWith('.bridge.g.swift')) {
-            file.deleteSync();
+        if (classesDir.existsSync()) {
+          for (final file in classesDir.listSync().whereType<File>()) {
+            if (p.basename(file.path).endsWith('.bridge.g.swift')) {
+              file.deleteSync();
+            }
+          }
+        }
+
+        // 2. Modern path: Sources/<PluginClassName>/
+        final sourcesDir = Directory(p.join(projectRoot, '$prefix$platform', 'Sources', className));
+        if (sourcesDir.existsSync()) {
+          for (final file in sourcesDir.listSync().whereType<File>()) {
+            if (p.basename(file.path).endsWith('.bridge.g.swift')) {
+              file.deleteSync();
+            }
           }
         }
       }

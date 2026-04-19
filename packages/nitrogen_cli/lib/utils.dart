@@ -99,15 +99,32 @@ void syncBridgeFiles(String workingDirectory, {String platform = 'ios'}) {
   // For non-Apple-cpp modules, any stale HybridXxx.cpp must be removed.
   final appleCppModules = _discoverAppleCppModules(workingDirectory);
 
-  // Swift bridges are compiled from lib/src/generated/swift/ directly via the
-  // podspec source_files pattern — remove any stale copies from Classes/.
+  // Sync Swift bridges.
+  // We copy them to the native platform's source directory (Sources/ or Classes/)
+  // to ensure they are always findable by Xcode, regardless of relative path issues.
   final swiftSource = Directory(p.join(generatedDir.path, 'swift'));
   if (swiftSource.existsSync()) {
+    final pluginName = _readPluginName(workingDirectory);
+    final className = toPascalCase(pluginName);
+    
+    // Check both legacy (Classes/) and modern (Sources/ClassName/) paths.
+    final targetDirs = [
+      Directory(p.join(workingDirectory, platform, 'Classes')),
+      Directory(p.join(workingDirectory, platform, 'Sources', className)),
+    ];
+
     for (final file in swiftSource.listSync().whereType<File>()) {
       final name = p.basename(file.path);
       if (name.endsWith('.bridge.g.swift')) {
-        final stale = File(p.join(classesDir.path, name));
-        if (stale.existsSync()) stale.deleteSync();
+        // Skip Swift bridge for NativeImpl.cpp modules.
+        final libName = name.replaceFirst('.bridge.g.swift', '');
+        if (appleCppModules.containsKey(libName)) continue;
+        
+        for (final targetDir in targetDirs) {
+          if (targetDir.existsSync()) {
+            file.copySync(p.join(targetDir.path, name));
+          }
+        }
       }
     }
   }
@@ -139,10 +156,10 @@ void syncBridgeFiles(String workingDirectory, {String platform = 'ios'}) {
     // Build the set of Hybrid*.cpp files that SHOULD be present for Apple C++ modules.
     final expectedImplFiles = <String>{};
     for (final entry in appleCppModules.entries) {
-      final className = _toPascalCase(entry.key);  // lib → PascalCase
+      final className = toPascalCase(entry.key);  // lib → PascalCase
       expectedImplFiles.add('Hybrid$className.cpp');
       // Also try module name in case they differ.
-      final moduleClassName = _toPascalCase(entry.value);
+      final moduleClassName = toPascalCase(entry.value);
       expectedImplFiles.add('Hybrid$moduleClassName.cpp');
     }
 
@@ -168,7 +185,7 @@ void syncBridgeFiles(String workingDirectory, {String platform = 'ios'}) {
   }
 }
 
-String _toPascalCase(String s) =>
+String toPascalCase(String s) =>
     s.split(RegExp(r'[_\-]')).map((w) => w.isEmpty ? '' : w[0].toUpperCase() + w.substring(1)).join('');
 
 /// Returns a map of {lib → moduleName} for modules where Apple platforms
@@ -193,8 +210,17 @@ Map<String, String> _discoverAppleCppModules(String workingDirectory) {
     ).hasMatch(annotation)) { continue; }
     final lib = libMatch.group(1)!;
     final moduleMatch = RegExp(r'abstract class (\w+) extends HybridObject').firstMatch(content);
-    final moduleName = moduleMatch?.group(1) ?? _toPascalCase(lib);
+    final moduleName = moduleMatch?.group(1) ?? toPascalCase(lib);
     result[lib] = moduleName;
   }
   return result;
+}
+
+String _readPluginName(String projectRoot) {
+  final pubspec = File(p.join(projectRoot, 'pubspec.yaml'));
+  if (!pubspec.existsSync()) return 'my_plugin';
+  for (final line in pubspec.readAsLinesSync()) {
+    if (line.trim().startsWith('name: ')) return line.replaceFirst('name: ', '').trim();
+  }
+  return 'my_plugin';
 }
