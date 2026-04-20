@@ -1741,7 +1741,7 @@ end
       final forwarder = File(p.join(tmp.path, 'ios', 'Sources', 'MyPluginCpp', 'HybridGpu.cpp'));
       expect(forwarder.existsSync(), isTrue,
           reason: 'Apple C++ module must have a Hybrid*.cpp forwarder in ios/Sources/');
-      expect(forwarder.readAsStringSync(), contains('#include "../../../../src/HybridGpu.cpp"'));
+      expect(forwarder.readAsStringSync(), contains('#include "../../../src/HybridGpu.cpp"'));
     });
   });
 }

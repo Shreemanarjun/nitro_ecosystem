@@ -904,10 +904,10 @@ void linkPodspec(String pluginName, List<String> moduleLibs, {String baseDir = '
   createSharedHeaders(nitroNativePath, baseDir: baseDir);
   final classesDir = Directory(p.join(baseDir, 'ios', 'Classes'))..createSync(recursive: true);
   File(p.join(classesDir.path, 'dart_api_dl.c')).writeAsStringSync('#include "../../src/dart_api_dl.c"\n');
+  syncBridgeFiles(baseDir);
   // Remove any stale .bridge.g.swift copies from ios/Classes/ — they are now
   // compiled directly from lib/src/generated/swift/ via the podspec source_files.
   _cleanStaleSwiftBridges(classesDir.path);
-  syncBridgeFiles(baseDir);
 
   // Link the main project source files.
   final cppInSrc = File(p.join(baseDir, 'src', '$pluginName.cpp'));
@@ -1267,6 +1267,12 @@ void _syncCppModuleSourcesToSpm(String pluginName, {List<ModuleInfo>? moduleInfo
   final cppTargetDir = Directory(p.join(baseDir, 'ios', 'Sources', '${className}Cpp'));
   if (!cppTargetDir.existsSync()) return;
 
+  // All modules that *have* isCpp true (broad), so we can clean up stale
+  // forwarders for any that are no longer Apple C++.
+  // Early-exit when there are no C++ modules — nothing belongs in the SPM dir.
+  final allCppModules = moduleInfos?.where((m) => m.isCpp).toList() ?? [];
+  if (allCppModules.isEmpty) return;
+
   final includeDir = Directory(p.join(cppTargetDir.path, 'include'))..createSync(recursive: true);
 
   // 1. Link the main plugin file (is always an Apple C++ implementation hub)
@@ -1292,8 +1298,6 @@ void _syncCppModuleSourcesToSpm(String pluginName, {List<ModuleInfo>? moduleInfo
     );
   }
 
-  if (moduleInfos == null) return;
-
   // Discover which modules actually use AppleNativeImpl.cpp (or legacy NativeImpl.cpp)
   // on iOS/macOS. Only those belong in the SPM Sources directory.
   final libDir = Directory(p.join(baseDir, 'lib'));
@@ -1302,10 +1306,6 @@ void _syncCppModuleSourcesToSpm(String pluginName, {List<ModuleInfo>? moduleInfo
     final stem = p.basename(f.path).replaceAll(RegExp(r'\.native\.dart$'), '');
     return extractLibNameFromSpec(f) ?? stem;
   }).toSet();
-
-  // All modules that *have* isCpp true (broad), so we can clean up stale
-  // forwarders for any that are no longer Apple C++.
-  final allCppModules = moduleInfos.where((m) => m.isCpp).toList();
 
   for (final m in allCppModules) {
     final lib = m.lib;

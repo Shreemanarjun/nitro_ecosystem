@@ -81,62 +81,64 @@ void launchUrl(String url) {
 
 /// Synchronizes generated bridge files from lib/src/generated to native project roots.
 /// [platform] is the platform directory name ('ios' or 'macos'). Defaults to 'ios'.
-/// This is needed for Apple development as CocoaPods normally uses copies instead of symlinks.
+/// This is needed for Apple development as CocoaPods/SPM normally uses copies instead of symlinks.
 void syncBridgeFiles(String workingDirectory, {String platform = 'ios'}) {
-  final classesDir = Directory(p.join(workingDirectory, platform, 'Classes'));
-  if (!classesDir.existsSync()) return;
-
   final generatedDir = Directory(p.join(workingDirectory, 'lib', 'src', 'generated'));
   if (!generatedDir.existsSync()) return;
 
-  // Discover which modules use the direct C++ path (NativeImpl.cpp).
-  // Swift bridges are compiled from lib/src/generated/swift/ directly via the
-  // podspec source_files pattern — stale copies in ios/Classes/ cause
-  // duplicate-symbol linker errors and must be removed.
-
-  // Discover Apple C++ modules specifically — HybridXxx.cpp must be in ios/Classes/
-  // so CocoaPods can compile them as part of the pod target.
-  // For non-Apple-cpp modules, any stale HybridXxx.cpp must be removed.
+  // Discover Apple C++ modules (ios or macos using NativeImpl.cpp).
+  // Their Swift bridge stubs must NOT be compiled alongside the direct C++ bridge
+  // (duplicate-symbol guard). Any stale copies in Classes/ must be deleted.
   final appleCppModules = _discoverAppleCppModules(workingDirectory);
+  final pluginName = _readPluginName(workingDirectory);
+  final className = toPascalCase(pluginName);
+
+  // Support both legacy (CocoaPods) and modern (SPM) source layouts.
+  final classesDir = Directory(p.join(workingDirectory, platform, 'Classes'));
+  final sourcesDir = Directory(p.join(workingDirectory, platform, 'Sources', className));
+
+  if (!classesDir.existsSync() && !sourcesDir.existsSync()) return;
+
+  final targetDirs = [
+    if (classesDir.existsSync()) classesDir,
+    if (sourcesDir.existsSync()) sourcesDir,
+  ];
 
   // Sync Swift bridges.
-  // We copy them to the native platform's source directory (Sources/ or Classes/)
-  // to ensure they are always findable by Xcode, regardless of relative path issues.
+  // Non-cpp modules: copy to all existing target dirs for reliability.
+  // Cpp modules: delete any stale copy — the direct C++ bridge makes them unnecessary.
   final swiftSource = Directory(p.join(generatedDir.path, 'swift'));
   if (swiftSource.existsSync()) {
-    final pluginName = _readPluginName(workingDirectory);
-    final className = toPascalCase(pluginName);
-    
-    // Check both legacy (Classes/) and modern (Sources/ClassName/) paths.
-    final targetDirs = [
-      Directory(p.join(workingDirectory, platform, 'Classes')),
-      Directory(p.join(workingDirectory, platform, 'Sources', className)),
-    ];
-
     for (final file in swiftSource.listSync().whereType<File>()) {
       final name = p.basename(file.path);
-      if (name.endsWith('.bridge.g.swift')) {
-        // Skip Swift bridge for NativeImpl.cpp modules.
-        final libName = name.replaceFirst('.bridge.g.swift', '');
-        if (appleCppModules.containsKey(libName)) continue;
-        
+      if (!name.endsWith('.bridge.g.swift')) continue;
+      final libName = name.replaceFirst('.bridge.g.swift', '');
+      if (appleCppModules.containsKey(libName)) {
+        // Delete stale Swift bridge copies for C++ modules.
         for (final targetDir in targetDirs) {
-          if (targetDir.existsSync()) {
-            file.copySync(p.join(targetDir.path, name));
-          }
+          final stale = File(p.join(targetDir.path, name));
+          if (stale.existsSync()) stale.deleteSync();
         }
+        continue;
+      }
+      for (final targetDir in targetDirs) {
+        file.copySync(p.join(targetDir.path, name));
       }
     }
   }
 
-  // Sync C++/Obj-C++ bridges
+  // The following syncs target only the CocoaPods Classes/ layout.
+  if (!classesDir.existsSync()) return;
+
+  // Sync C++/Obj-C++ bridges (.bridge.g.cpp → .bridge.g.mm for Obj-C++ support).
   final cppSource = Directory(p.join(generatedDir.path, 'cpp'));
   if (cppSource.existsSync()) {
     for (final file in cppSource.listSync().whereType<File>()) {
       final name = p.basename(file.path);
       if (name.endsWith('.bridge.g.h') || name.endsWith('.bridge.g.cpp')) {
-        // .bridge.g.cpp -> .bridge.g.mm for iOS Objective-C++ support
-        final targetName = name.endsWith('.bridge.g.cpp') ? name.replaceFirst('.bridge.g.cpp', '.bridge.g.mm') : name;
+        final targetName = name.endsWith('.bridge.g.cpp')
+            ? name.replaceFirst('.bridge.g.cpp', '.bridge.g.mm')
+            : name;
         file.copySync(p.join(classesDir.path, targetName));
       }
     }
@@ -144,26 +146,20 @@ void syncBridgeFiles(String workingDirectory, {String platform = 'ios'}) {
 
   // Sync HybridXxx.cpp impl stubs for Apple C++ modules.
   //
-  // CocoaPods compiles everything in ios/Classes/** — the impl stubs must be
+  // CocoaPods compiles everything in Classes/** — the impl stubs must be
   // there so the C++ HybridObject methods are compiled into the pod target.
-  //
-  // For modules that are NOT Apple C++ (e.g. benchmark: AppleNativeImpl.swift),
-  // any stale HybridXxx.cpp in ios/Classes/ must be REMOVED — if left behind
-  // they cause "Variable type 'HybridXxxImpl' is an abstract class" errors
-  // because the abstract base (Hybrid$Xxx) has no implementation on iOS.
+  // Stale Hybrid*.cpp files for non-Apple-cpp modules are removed to prevent
+  // "abstract class" compile errors.
   final srcDir = Directory(p.join(workingDirectory, 'src'));
   if (srcDir.existsSync()) {
-    // Build the set of Hybrid*.cpp files that SHOULD be present for Apple C++ modules.
     final expectedImplFiles = <String>{};
     for (final entry in appleCppModules.entries) {
-      final className = toPascalCase(entry.key);  // lib → PascalCase
-      expectedImplFiles.add('Hybrid$className.cpp');
-      // Also try module name in case they differ.
+      final libClassName = toPascalCase(entry.key);
+      expectedImplFiles.add('Hybrid$libClassName.cpp');
       final moduleClassName = toPascalCase(entry.value);
       expectedImplFiles.add('Hybrid$moduleClassName.cpp');
     }
 
-    // Copy expected Hybrid*.cpp files from src/ into ios/Classes/.
     for (final name in expectedImplFiles) {
       final srcFile = File(p.join(srcDir.path, name));
       if (srcFile.existsSync()) {
@@ -171,14 +167,11 @@ void syncBridgeFiles(String workingDirectory, {String platform = 'ios'}) {
       }
     }
 
-    // Remove stale Hybrid*.cpp files that should NOT be in ios/Classes/.
-    if (classesDir.existsSync()) {
-      for (final file in classesDir.listSync().whereType<File>()) {
-        final name = p.basename(file.path);
-        if (name.startsWith('Hybrid') && name.endsWith('.cpp')) {
-          if (!expectedImplFiles.contains(name)) {
-            file.deleteSync();
-          }
+    for (final file in classesDir.listSync().whereType<File>()) {
+      final name = p.basename(file.path);
+      if (name.startsWith('Hybrid') && name.endsWith('.cpp')) {
+        if (!expectedImplFiles.contains(name)) {
+          file.deleteSync();
         }
       }
     }
