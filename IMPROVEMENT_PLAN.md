@@ -8,6 +8,7 @@ Groupings below are ordered roughly by impact-per-effort.
 ## Performance
 
 ### 1. Skip the isolate hop for native-async calls
+
 `NitroRuntime.callAsync` (`packages/nitro/lib/src/nitro_runtime.dart`) routes every async call through `IsolatePool` or `Isolate.run`. For native methods that are already async (Kotlin coroutine, Swift `async`, C++ with a background thread), the cheap path is:
 
 - Generated C++ executes the work on a native thread pool.
@@ -16,13 +17,259 @@ Groupings below are ordered roughly by impact-per-effort.
 
 **Keep** the isolate pool only for *synchronous* native work that would otherwise block the UI thread.
 
+#### How it works today
+
+`@NitroAsync` → `BridgeFunction.isAsync = true` → `dart_ffi_generator.dart` emits `NitroRuntime.callAsync(fn, args)` → `IsolatePool.dispatch` sends a `SendPort` message to a worker isolate → worker calls the FFI function (blocks) → reply sent back → `Future<T>` completes. Two isolate-message crossings even when the native side is non-blocking.
+
+Streams already use the right pattern (`Dart_PostCObject_DL` → `ReceivePort`). Async methods need the same treatment.
+
+#### Implementation plan
+
+**Step 1 — New annotation (`nitro_annotations`)**
+
+Add `@NitroNativeAsync` (or `@NitroAsync(native: true)`) to `packages/nitro_annotations/lib/src/annotations.dart`:
+
+```dart
+// Marks a @NitroAsync method whose native impl posts the result itself.
+// No Dart isolate is spawned; Dart awaits a ReceivePort.
+const nitroNativeAsync = NitroNativeAsync();
+class NitroNativeAsync { const NitroNativeAsync(); }
+```
+
+**Step 2 — Bridge spec (`bridge_spec.dart`)**
+
+Add `isNativeAsync` field to `BridgeFunction`. It is mutually exclusive with `isAsync` (spec extractor validates this).
+
+**Step 3 — Spec extractor (`spec_extractor.dart`)**
+
+Detect `@NitroNativeAsync` alongside `@NitroAsync`:
+
+```dart
+final isNativeAsync = nativeAsyncChecker.hasAnnotationOf(m);
+if (isAsync && isNativeAsync) throw InvalidGenerationSourceError(
+  'Cannot use both @NitroAsync and @NitroNativeAsync on the same method.');
+```
+
+**Step 4 — Dart FFI generator (`dart_ffi_generator.dart`)**
+
+For `isNativeAsync` methods, emit a `ReceivePort`-based future instead of `callAsync`:
+
+```dart
+// Generated output for @NitroNativeAsync Future<String> fetchData(String q):
+Future<String> fetchData(String q) async {
+  checkDisposed();
+  final _port = ReceivePort();
+  _fetchDataPtr(_encodeString(q), _port.sendPort.nativePort);
+  final _raw = await _port.first;
+  _port.close();
+  return _raw as String; // or unpack via RecordReader / Utf8 for complex types
+}
+```
+
+The FFI lookup gains an extra `int64_t dart_port` final parameter:
+
+```dart
+late final void Function(Pointer<Utf8>, int) _fetchDataPtr =
+    _dylib.lookupFunction<Void Function(Pointer<Utf8>, Int64),
+                          void Function(Pointer<Utf8>, int)>('lib_fetch_data');
+```
+
+**Step 5 — C++ bridge generator (`cpp_bridge_generator.dart`)**
+
+For `isNativeAsync` functions, generate a `void`-returning wrapper with a `dart_port` parameter. No `get_error` / `clear_error` suffix — errors are posted via the port:
+
+```cpp
+void lib_fetch_data(const char* q, int64_t dart_port) {
+    if (!g_impl) {
+        // Post error object back to Dart via port instead of thread-local error slot.
+        Dart_CObject err { .type = Dart_CObject_kNull };
+        Dart_PostCObject_DL(dart_port, &err);
+        return;
+    }
+    // Native impl receives dart_port and posts result when ready.
+    g_impl->fetchData(std::string(q), dart_port);
+}
+```
+
+**Step 6 — C++ interface generator (`cpp_interface_generator.dart`)**
+
+Add `int64_t dartPort` to the abstract method signature:
+
+```cpp
+virtual void fetchData(const std::string& query, int64_t dartPort) = 0;
+```
+
+**Step 7 — Swift generator (`swift_generator.dart`)**
+
+Wrap the `async` Swift call in a `Task` that posts via `Dart_PostCObject_DL`:
+
+```swift
+// Generated Swift bridge stub:
+@_cdecl("lib_fetch_data")
+func lib_fetch_data(_ q: UnsafePointer<CChar>!, _ dartPort: Int64) {
+    Task {
+        let result = await impl.fetchData(String(cString: q))
+        var obj = Dart_CObject(type: .string, value: .init(as_string: result))
+        Dart_PostCObject_DL(dartPort, &obj)
+    }
+}
+```
+
+A small `nitro_post_helpers.h` header will wrap common `Dart_CObject` setup for strings, int64, doubles, and byte arrays.
+
+**Step 8 — Kotlin generator (`kotlin_generator.dart`)**
+
+Wrap the `suspend` call in a coroutine scope:
+
+```kotlin
+@JvmStatic fun lib_fetch_data(q: String, dartPort: Long) {
+    scope.launch {
+        val result = impl.fetchData(q)
+        NitroBridge.postString(dartPort, result)
+    }
+}
+```
+
+`NitroBridge.postString` (a small Kotlin JNI helper added to the runtime) wraps `Dart_PostCObject_DL` via JNI.
+
+**Step 9 — `NitroRuntime` (`nitro_runtime.dart`)**
+
+Add `openNativeAsync<T>` for symmetry with `openStream`:
+
+```dart
+static Future<T> openNativeAsync<T>({
+  required void Function(int dartPort) call,
+  required T Function(dynamic) unpack,
+}) {
+  final port = ReceivePort();
+  call(port.sendPort.nativePort);
+  return port.first.then((raw) { port.close(); return unpack(raw); });
+}
+```
+
+**Step 10 — Tests**
+
+- `dart_ffi_generator_test.dart`: golden snapshot for a `@NitroNativeAsync` method confirming `ReceivePort` pattern and no `callAsync`.
+- `cpp_bridge_generator_test.dart`: confirm `void` return, `int64_t dart_port` param, no `get_error`/`clear_error` suffix.
+- Integration: a mock `g_impl` that calls `Dart_PostCObject_DL` directly to verify end-to-end.
+
+**Migration path:** opt-in annotation — no existing `@NitroAsync` methods change. Ship as a minor version.
+
+---
+
 ### 2. Eliminate the 3-call-per-sync-call overhead
+
 Each generated `callSync` today triggers:
-1. The actual native call
-2. `getError()` FFI call
-3. `clearError()` FFI call
+1. The actual native call — which internally starts with `${lib}_clear_error()`.
+2. `${lib}_get_error()` FFI call — reads the thread-local `NitroError*`.
+3. `${lib}_clear_error()` FFI call — only on the error path but always compiled in.
 
 Replace with a single `int64` error-pointer **out-param** returned from the wrapper, or gate the error-check behind `NitroConfig.debugMode`. In release, error-checking should cost at most one branch on the return value.
+
+#### How it works today
+
+```
+Dart:  _funcPtr(args)               ← FFI call 1 (actual work)
+  C++:   lib_clear_error()          ← clears thread-local error slot
+         g_impl->func(args)
+         return result_or_default
+Dart:  _getErrorPtr()               ← FFI call 2 (cross-boundary read)
+Dart:  _clearErrorPtr()             ← FFI call 3 (only if hasError == 1)
+```
+
+FFI calls 2 and 3 cross the Dart↔native boundary on **every synchronous call** — even when the result is perfectly fine and `hasError == 0`. At 1000 calls/frame in a render loop this is measurable.
+
+#### Two implementation approaches
+
+**Approach A — `debugMode` gate (patch-level, non-breaking, ships first)**
+
+Gate `checkError` in the generated Dart behind `NitroConfig.instance.debugMode`:
+
+```dart
+// dart_ffi_generator.dart emits:
+String getName() {
+  checkDisposed();
+  final rawPtr = _getNamePtr();
+  assert(() {                               // erased in release mode
+    NitroRuntime.checkError(_getErrorPtr, _clearErrorPtr);
+    return true;
+  }());
+  return rawPtr.toDartString();
+}
+```
+
+Using `assert(() { … }())` means the check is fully eliminated by `dart compile` in release builds — no branch, no pointer read, zero overhead. In debug/profile it retains full error surfacing.
+
+Files to change:
+- `dart_ffi_generator.dart` — wrap all `NitroRuntime.checkError(...)` calls in `assert(() { …; return true; }())`.
+- `nitro_config.dart` — document that `checkError` runs only in debug/assert mode going forward.
+- `nitro_runtime.dart` — no change needed; `checkError` still exists for the async pool path.
+
+**Approach B — single-call out-param (major-version ABI change, eliminates extra FFI crossing entirely)**
+
+Change the C wrapper to return `NitroError*` directly; actual result goes through an out-param:
+
+```c
+// Generated C (new convention):
+NitroError* lib_get_name(char** out) {
+    lib_clear_error();
+    if (!g_impl) { nitro_report_error(...); return &g_nitro_error; }
+    try {
+        std::string r = g_impl->getName();
+        *out = strdup(r.c_str());
+        return nullptr;             // nullptr == no error
+    } catch (const std::exception& e) {
+        nitro_report_error("CppException", e.what(), nullptr, nullptr);
+        return &g_nitro_error;
+    }
+}
+```
+
+Generated Dart:
+
+```dart
+String getName() {
+  checkDisposed();
+  final out = calloc<Pointer<Utf8>>();
+  final errPtr = _getNamePtr(out);          // single FFI call
+  if (errPtr != nullptr) {
+    final ex = HybridException.fromErrPtr(errPtr);
+    calloc.free(out);
+    throw ex;
+  }
+  final result = out.value.toDartString();
+  calloc.free(out);
+  return result;
+}
+```
+
+Files to change:
+- `cpp_bridge_generator.dart` — new wrapper signature; `NitroError*` return; out-param for result.
+- `dart_ffi_generator.dart` — `calloc` out-param allocation; single `_funcPtr(out, args)` call; branch on returned pointer.
+- `hybrid_exception.dart` — add `HybridException.fromErrPtr(Pointer<NitroErrorFfi>)` factory.
+- `nitro_runtime.dart` — remove `checkError` from sync paths; retain for isolate-pool async.
+
+Breaking change: all generated `.bridge.g.cpp` and `.bridge.g.dart` must be regenerated. C ABI changes → major version bump.
+
+#### Implementation sequence
+
+```
+PR A (patch)   — assert-gate checkError in dart_ffi_generator.dart
+                 → zero overhead in release, full surfacing in debug
+                 → ships independently, no ABI change
+
+PR B (major)   — out-param ABI (Approach B)
+                 → requires nitrogen generate re-run
+                 → combine with other ABI-breaking changes if any
+```
+
+#### Expected improvement
+
+| Scenario | Current | After PR A | After PR B |
+|---|---|---|---|
+| Sync call happy path | 2 FFI calls | 1 FFI call + 0 overhead | 1 FFI call |
+| Sync call error path | 3 FFI calls | 3 FFI calls (assert = debug only) | 1 FFI call + decode |
+| 1 000 getters/frame at 60 fps | ~2 ms FFI overhead | ~1 ms | ~0.5 ms |
 
 ### 3. Thread-local error slot (not per-dylib)
 `NitroRuntime.checkError` reads from a single shared slot per library (`nitro_runtime.dart:70`). Two concurrent async calls on the same module race on that slot.
