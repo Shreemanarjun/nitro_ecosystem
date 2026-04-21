@@ -1423,7 +1423,7 @@ class NitrogenInitApp extends StatefulComponent {
   const NitrogenInitApp({
     required this.result,
     this.initialOrg,
-    this.initialPlatforms = const ['android', 'ios', 'macos'],
+    this.initialPlatforms = const ['android', 'ios', 'macos', 'windows', 'linux'],
     this.onExit,
     super.key,
   });
