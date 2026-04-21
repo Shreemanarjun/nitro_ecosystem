@@ -7,7 +7,7 @@
 
 # IDEs
 .idea/
-.vscode/ (though many people track tasks.json)
+.vscode/
 *.iml
 *.iws
 *.ipr
@@ -33,3 +33,7 @@
 # Test artifacts
 packages/nitro_generator/test_output.txt
 **/build/test_cache/
+
+# Temporary test projects created by nitrogen init for local verification.
+# These are throwaway sandboxes — never commit them.
+test_projects/

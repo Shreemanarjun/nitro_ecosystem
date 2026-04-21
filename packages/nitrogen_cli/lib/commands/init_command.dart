@@ -130,6 +130,7 @@ class InitView extends StatefulComponent {
   final String pluginName;
   final String org;
   final InitResult result;
+
   /// Platforms to scaffold. Valid values: android, ios, macos, windows, linux.
   final List<String> platforms;
   final VoidCallback? onExit;
@@ -869,7 +870,8 @@ class ${className}Impl(private val context: Context) : Hybrid${className}Spec {
       );
     }
     if (!content.contains(r'${NITRO_NATIVE}')) {
-      content += '\ntarget_include_directories(\${PLUGIN_NAME} PRIVATE\n'
+      content +=
+          '\ntarget_include_directories(\${PLUGIN_NAME} PRIVATE\n'
           '  "\${NITRO_NATIVE}"\n'
           '  "\${CMAKE_CURRENT_SOURCE_DIR}/../lib/src/generated/cpp"\n'
           ')\n';
@@ -1469,7 +1471,7 @@ class InitCommand extends Command {
   final String description = 'Scaffolds a new Nitrogen FFI plugin.';
 
   static const _validPlatforms = {'android', 'ios', 'macos', 'windows', 'linux'};
-  static const _defaultPlatforms = 'android,ios,macos';
+  static const _defaultPlatforms = 'android,ios,macos,windows,linux';
 
   InitCommand() {
     argParser.addOption('org', defaultsTo: 'com.example');
@@ -1482,7 +1484,8 @@ class InitCommand extends Command {
       'platforms',
       abbr: 'p',
       defaultsTo: _defaultPlatforms,
-      help: 'Comma-separated list of platforms to scaffold. '
+      help:
+          'Comma-separated list of platforms to scaffold. '
           'Valid: android, ios, macos, windows, linux. '
           'Example: --platforms=android,ios,macos,windows',
     );
