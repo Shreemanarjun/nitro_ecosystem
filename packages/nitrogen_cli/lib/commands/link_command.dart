@@ -850,7 +850,7 @@ void linkPodspec(String pluginName, List<String> moduleLibs, {String baseDir = '
   if (!content.contains('HEADER_SEARCH_PATHS')) {
     content = content.replaceFirst(
       's.pod_target_xcconfig = {',
-      "s.pod_target_xcconfig = {\n    'HEADER_SEARCH_PATHS' => '\$(inherited) \"$nitroNativePath\" \"\${PODS_TARGET_SRCROOT}/../src\" \"\${PODS_TARGET_SRCROOT}/../lib/src/generated/cpp\"',",
+      "s.pod_target_xcconfig = {\n    'HEADER_SEARCH_PATHS' => '\$(inherited) \"\${PODS_ROOT}/../.symlinks/plugins/nitro/src/native\" \"\${PODS_TARGET_SRCROOT}/../src\" \"\${PODS_TARGET_SRCROOT}/../lib/src/generated/cpp\"',",
     );
     modified = true;
   } else {
@@ -979,7 +979,7 @@ void linkMacosPodspec(String pluginName, List<String> moduleLibs, {String baseDi
   if (!content.contains('HEADER_SEARCH_PATHS')) {
     content = content.replaceFirst(
       's.pod_target_xcconfig = {',
-      "s.pod_target_xcconfig = {\n    'HEADER_SEARCH_PATHS' => '\$(inherited) \"$nitroNativePath\" \"\${PODS_TARGET_SRCROOT}/../src\" \"\${PODS_TARGET_SRCROOT}/../lib/src/generated/cpp\"',",
+      "s.pod_target_xcconfig = {\n    'HEADER_SEARCH_PATHS' => '\$(inherited) \"\${PODS_ROOT}/../Flutter/ephemeral/.symlinks/plugins/nitro/src/native\" \"\${PODS_TARGET_SRCROOT}/../src\" \"\${PODS_TARGET_SRCROOT}/../lib/src/generated/cpp\"',",
     );
     modified = true;
   } else {
@@ -1110,9 +1110,26 @@ public class ${className}Plugin: NSObject, FlutterPlugin {
   bool modified = false;
   for (final m in modules) {
     final name = m['module']!;
+    final lib = (m['lib'] ?? name.toLowerCase()).replaceAll('-', '_');
     final reg = '${name}Registry';
     // Standard implementation naming: BenchmarkImpl or BenchmarkModuleImpl
     final impl = name.endsWith('Module') ? '${name}Impl' : '${name}ModuleImpl';
+
+    // ── 1. Ensure import is present ─────────────────────────────────────────
+    final importLine = 'import nitro_${lib}_module';
+    if (!content.contains(importLine)) {
+      // Insert after the last 'import …' line
+      final importMatches = RegExp(r'^import .+$', multiLine: true).allMatches(content);
+      if (importMatches.isNotEmpty) {
+        final lastImport = importMatches.last;
+        content = content.replaceRange(lastImport.end, lastImport.end, '\n$importLine');
+      } else {
+        content = '$importLine\n\n$content';
+      }
+      modified = true;
+    }
+
+    // ── 2. Ensure register() call is present ────────────────────────────────
     if (!content.contains('$reg.register')) {
       content = content.replaceFirst(
         'public static func register(with registrar: FlutterPluginRegistrar) {',
@@ -1194,8 +1211,24 @@ void linkSwiftPlugin(String pluginName, List<Map<String, String>> modules, {Stri
   bool modified = false;
   for (final m in modules) {
     final name = m['module']!;
+    final lib = (m['lib'] ?? name.toLowerCase()).replaceAll('-', '_');
     final reg = '${name}Registry';
     final impl = name.endsWith('Module') ? '${name}Impl' : '${name}ModuleImpl';
+
+    // ── 1. Ensure import is present ─────────────────────────────────────────
+    final importLine = 'import nitro_${lib}_module';
+    if (!content.contains(importLine)) {
+      final importMatches = RegExp(r'^import .+$', multiLine: true).allMatches(content);
+      if (importMatches.isNotEmpty) {
+        final lastImport = importMatches.last;
+        content = content.replaceRange(lastImport.end, lastImport.end, '\n$importLine');
+      } else {
+        content = '$importLine\n\n$content';
+      }
+      modified = true;
+    }
+
+    // ── 2. Ensure register() call is present ────────────────────────────────
     if (!content.contains('$reg.register')) {
       final match = RegExp(r'\w+Registry\.register\(.*?\)\)').allMatches(content);
       if (match.isNotEmpty) {
@@ -1264,90 +1297,93 @@ void ensureIosPackageSwift(String pluginName, {String baseDir = '.', List<Module
 /// "Build input file cannot be found" when the abstract class has no iOS impl.
 void _syncCppModuleSourcesToSpm(String pluginName, {List<ModuleInfo>? moduleInfos, String baseDir = '.'}) {
   final className = pluginName.split('_').map((w) => w.isEmpty ? '' : w[0].toUpperCase() + w.substring(1)).join('');
-  final cppTargetDir = Directory(p.join(baseDir, 'ios', 'Sources', '${className}Cpp'));
-  if (!cppTargetDir.existsSync()) return;
 
-  // All modules that *have* isCpp true (broad), so we can clean up stale
-  // forwarders for any that are no longer Apple C++.
-  // Early-exit when there are no C++ modules — nothing belongs in the SPM dir.
-  final allCppModules = moduleInfos?.where((m) => m.isCpp).toList() ?? [];
-  if (allCppModules.isEmpty) return;
+  for (final platform in ['ios', 'macos']) {
+    final cppTargetDir = Directory(p.join(baseDir, platform, 'Sources', '${className}Cpp'));
+    if (!cppTargetDir.existsSync()) continue;
 
-  final includeDir = Directory(p.join(cppTargetDir.path, 'include'))..createSync(recursive: true);
+    // All modules that *have* isCpp true (broad), so we can clean up stale
+    // forwarders for any that are no longer Apple C++.
+    // Early-exit when there are no C++ modules — nothing belongs in the SPM dir.
+    final allCppModules = moduleInfos?.where((m) => m.isCpp).toList() ?? [];
+    if (allCppModules.isEmpty) continue;
 
-  // 1. Link the main plugin file (is always an Apple C++ implementation hub)
-  final mainCpp = File(p.join(baseDir, 'src', '$pluginName.cpp'));
-  if (mainCpp.existsSync()) {
-    File(p.join(cppTargetDir.path, '$pluginName.cpp')).writeAsStringSync(
-      '// Generated by nitrogen link — do not edit.\n#include "../../../src/$pluginName.cpp"\n',
-    );
-  } else {
-    final mainC = File(p.join(baseDir, 'src', '$pluginName.c'));
-    if (mainC.existsSync()) {
-      File(p.join(cppTargetDir.path, '$pluginName.c')).writeAsStringSync(
-        '// Generated by nitrogen link — do not edit.\n#include "../../../src/$pluginName.c"\n',
+    final includeDir = Directory(p.join(cppTargetDir.path, 'include'))..createSync(recursive: true);
+
+    // 1. Link the main plugin file (is always an Apple C++ implementation hub)
+    final mainCpp = File(p.join(baseDir, 'src', '$pluginName.cpp'));
+    if (mainCpp.existsSync()) {
+      File(p.join(cppTargetDir.path, '$pluginName.cpp')).writeAsStringSync(
+        '// Generated by nitrogen link — do not edit.\n#include "../../../src/$pluginName.cpp"\n',
+      );
+    } else {
+      final mainC = File(p.join(baseDir, 'src', '$pluginName.c'));
+      if (mainC.existsSync()) {
+        File(p.join(cppTargetDir.path, '$pluginName.c')).writeAsStringSync(
+          '// Generated by nitrogen link — do not edit.\n#include "../../../src/$pluginName.c"\n',
+        );
+      }
+    }
+
+    // 2. Link dart_api_dl.c (needed for FFI)
+    final dartApiDl = File(p.join(baseDir, 'src', 'dart_api_dl.c'));
+    if (dartApiDl.existsSync()) {
+      File(p.join(cppTargetDir.path, 'dart_api_dl.c')).writeAsStringSync(
+        '// Generated by nitrogen link — do not edit.\n#include "../../../src/dart_api_dl.c"\n',
       );
     }
-  }
 
-  // 2. Link dart_api_dl.c (needed for FFI)
-  final dartApiDl = File(p.join(baseDir, 'src', 'dart_api_dl.c'));
-  if (dartApiDl.existsSync()) {
-    File(p.join(cppTargetDir.path, 'dart_api_dl.c')).writeAsStringSync(
-      '// Generated by nitrogen link — do not edit.\n#include "../../../src/dart_api_dl.c"\n',
-    );
-  }
+    // Discover which modules actually use AppleNativeImpl.cpp (or legacy NativeImpl.cpp)
+    // on iOS/macOS. Only those belong in the SPM Sources directory.
+    final libDir = Directory(p.join(baseDir, 'lib'));
+    final specFiles = libDir.existsSync() ? libDir.listSync(recursive: true).whereType<File>().where((f) => f.path.endsWith('.native.dart')).toList() : <File>[];
+    final appleCppLibs = specFiles.where(isAppleCppModule).map((f) {
+      final stem = p.basename(f.path).replaceAll(RegExp(r'\.native\.dart$'), '');
+      return extractLibNameFromSpec(f) ?? stem;
+    }).toSet();
 
-  // Discover which modules actually use AppleNativeImpl.cpp (or legacy NativeImpl.cpp)
-  // on iOS/macOS. Only those belong in the SPM Sources directory.
-  final libDir = Directory(p.join(baseDir, 'lib'));
-  final specFiles = libDir.existsSync() ? libDir.listSync(recursive: true).whereType<File>().where((f) => f.path.endsWith('.native.dart')).toList() : <File>[];
-  final appleCppLibs = specFiles.where(isAppleCppModule).map((f) {
-    final stem = p.basename(f.path).replaceAll(RegExp(r'\.native\.dart$'), '');
-    return extractLibNameFromSpec(f) ?? stem;
-  }).toSet();
+    for (final m in allCppModules) {
+      final lib = m.lib;
+      final hybridClass = _toPascalCase(lib);
+      final isApple = appleCppLibs.contains(lib);
 
-  for (final m in allCppModules) {
-    final lib = m.lib;
-    final hybridClass = _toPascalCase(lib);
-    final isApple = appleCppLibs.contains(lib);
+      final bridgeMm = File(p.join(cppTargetDir.path, '$lib.bridge.g.mm'));
+      final implForwarder = File(p.join(cppTargetDir.path, 'Hybrid$hybridClass.cpp'));
 
-    final bridgeMm = File(p.join(cppTargetDir.path, '$lib.bridge.g.mm'));
-    final implForwarder = File(p.join(cppTargetDir.path, 'Hybrid$hybridClass.cpp'));
+      if (isApple) {
+        // ── Write / update forwarders for Apple C++ modules ──────────────────
 
-    if (isApple) {
-      // ── Write / update forwarders for Apple C++ modules ──────────────────
+        // Forwarder: bridge .cpp → .mm so SPM compiles it as Obj-C++.
+        final bridgeCpp = File(p.join(baseDir, 'lib', 'src', 'generated', 'cpp', '$lib.bridge.g.cpp'));
+        if (bridgeCpp.existsSync()) {
+          bridgeMm.writeAsStringSync(
+            '// Generated by nitrogen link — do not edit.\n#include "../../../lib/src/generated/cpp/$lib.bridge.g.cpp"\n',
+          );
+        }
 
-      // Forwarder: bridge .cpp → .mm so SPM compiles it as Obj-C++.
-      final bridgeCpp = File(p.join(baseDir, 'lib', 'src', 'generated', 'cpp', '$lib.bridge.g.cpp'));
-      if (bridgeCpp.existsSync()) {
-        bridgeMm.writeAsStringSync(
-          '// Generated by nitrogen link — do not edit.\n#include "../../../lib/src/generated/cpp/$lib.bridge.g.cpp"\n',
-        );
+        // Forwarder: C++ impl.
+        final implSrc = File(p.join(baseDir, 'src', 'Hybrid$hybridClass.cpp'));
+        if (implSrc.existsSync()) {
+          implForwarder.writeAsStringSync(
+            '// Generated by nitrogen link — do not edit.\n#include "../../../src/Hybrid$hybridClass.cpp"\n',
+          );
+        }
+
+        // Copy only the C-compatible bridge header into include/. The .native.g.h
+        // uses C++ types (std::string, classes) and must NOT be a public module
+        // header — CocoaPods would include it in the umbrella and break Swift/ObjC
+        // module compilation. It is reachable via HEADER_SEARCH_PATHS instead.
+        final bridgeHeader = '$lib.bridge.g.h';
+        final hSrc = File(p.join(baseDir, 'lib', 'src', 'generated', 'cpp', bridgeHeader));
+        if (hSrc.existsSync()) {
+          hSrc.copySync(p.join(includeDir.path, bridgeHeader));
+        }
+      } else {
+        // ── Remove stale forwarders for non-Apple C++ modules ─────────────────
+        // e.g. benchmark is windows: WindowsNativeImpl.cpp only — no iOS impl.
+        if (bridgeMm.existsSync()) bridgeMm.deleteSync();
+        if (implForwarder.existsSync()) implForwarder.deleteSync();
       }
-
-      // Forwarder: C++ impl.
-      final implSrc = File(p.join(baseDir, 'src', 'Hybrid$hybridClass.cpp'));
-      if (implSrc.existsSync()) {
-        implForwarder.writeAsStringSync(
-          '// Generated by nitrogen link — do not edit.\n#include "../../../src/Hybrid$hybridClass.cpp"\n',
-        );
-      }
-
-      // Copy only the C-compatible bridge header into include/. The .native.g.h
-      // uses C++ types (std::string, classes) and must NOT be a public module
-      // header — CocoaPods would include it in the umbrella and break Swift/ObjC
-      // module compilation. It is reachable via HEADER_SEARCH_PATHS instead.
-      final bridgeHeader = '$lib.bridge.g.h';
-      final hSrc = File(p.join(baseDir, 'lib', 'src', 'generated', 'cpp', bridgeHeader));
-      if (hSrc.existsSync()) {
-        hSrc.copySync(p.join(includeDir.path, bridgeHeader));
-      }
-    } else {
-      // ── Remove stale forwarders for non-Apple C++ modules ─────────────────
-      // e.g. benchmark is windows: WindowsNativeImpl.cpp only — no iOS impl.
-      if (bridgeMm.existsSync()) bridgeMm.deleteSync();
-      if (implForwarder.existsSync()) implForwarder.deleteSync();
     }
   }
 }

@@ -648,7 +648,7 @@ public class ${className}Impl: NSObject, Hybrid${className}Protocol {
     'DEFINES_MODULE' => 'YES',
     'CLANG_CXX_LANGUAGE_STANDARD' => 'c++17',
     'CLANG_CXX_LIBRARY' => 'libc++',
-    'HEADER_SEARCH_PATHS' => '$(inherited) "${PODS_ROOT}/../.symlinks/plugins/nitro/src/native"'
+    'HEADER_SEARCH_PATHS' => '$(inherited) "${PODS_ROOT}/../.symlinks/plugins/nitro/src/native" "${PODS_TARGET_SRCROOT}/../src" "${PODS_TARGET_SRCROOT}/../lib/src/generated/cpp"'
   }""";
       content = content.replaceFirst(RegExp(r's\.pod_target_xcconfig\s*=\s*\{[^}]*\}'), xcconfig);
       podspecFile.writeAsStringSync(content);
@@ -722,7 +722,7 @@ let package = Package(
                     "-std=c++17",
                     // nitro's dart_api_dl.h — resolved via Flutter's symlink
                     // so this works for both local path and pub.dev references.
-                    "-I../../.symlinks/plugins/nitro/src/native",
+                    "${path.endsWith('macos') ? '-IFlutter/ephemeral/.symlinks/plugins/nitro/src/native' : '-I.symlinks/plugins/nitro/src/native'}",
                 ])
             ]
         ),
@@ -942,7 +942,7 @@ public class ${className}Impl: NSObject, Hybrid${className}Protocol {
     'DEFINES_MODULE' => 'YES',
     'CLANG_CXX_LANGUAGE_STANDARD' => 'c++17',
     'CLANG_CXX_LIBRARY' => 'libc++',
-    'HEADER_SEARCH_PATHS' => '$(inherited) "${PODS_ROOT}/../.symlinks/plugins/nitro/src/native"'
+    'HEADER_SEARCH_PATHS' => '$(inherited) "${PODS_ROOT}/../Flutter/ephemeral/.symlinks/plugins/nitro/src/native" "${PODS_TARGET_SRCROOT}/../src" "${PODS_TARGET_SRCROOT}/../lib/src/generated/cpp"'
   }""";
       content = content.replaceFirst(RegExp(r's\.pod_target_xcconfig\s*=\s*\{[^}]*\}'), xcconfig);
       podspecFile.writeAsStringSync(content);

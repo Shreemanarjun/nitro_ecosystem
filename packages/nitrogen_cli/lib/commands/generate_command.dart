@@ -1,7 +1,29 @@
 import 'dart:io';
 import 'package:args/command_runner.dart';
 import 'package:path/path.dart' as p;
-import 'link_command.dart' show cleanRedundantIncludes, createSharedHeaders, resolveNitroNativePath, isCppModule, findPodfileDirs;
+import 'link_command.dart'
+    show
+        cleanRedundantIncludes,
+        createSharedHeaders,
+        resolveNitroNativePath,
+        isCppModule,
+        findPodfileDirs,
+        discoverModuleInfos,
+        linkCMake,
+        linkPodspec,
+        linkMacosPodspec,
+        linkSwiftPlugin,
+        linkMacosSwiftPlugin,
+        purgeStaleCppSwiftRegistrations,
+        linkKotlinPlugin,
+        linkKotlinLoadLibraries,
+        purgeStaleCppKotlinRegistrations,
+        linkAndroid,
+        linkWindows,
+        linkLinux,
+        linkClangd,
+        isAppleCppModule,
+        isNativeCppModule;
 import '../ui.dart';
 import '../utils.dart';
 
@@ -70,6 +92,62 @@ class GenerateCommand extends Command {
     final nitroNativePath = resolveNitroNativePath(projectDir.path);
     createSharedHeaders(nitroNativePath, baseDir: projectDir.path);
     _cleanStaleSwiftBridges(projectDir.path);
+
+    // ── nitrogen link (auto) ─────────────────────────────────────────────────
+    // Automatically run the patching logic (build.gradle, Plugin.kt, etc.)
+    // so users don't have to remember to run `nitrogen link` manually.
+    stdout.writeln(cyan('  › nitrogen link (auto-patching) …'));
+    final pluginName = _readPluginName(projectDir.path);
+    final moduleInfos = discoverModuleInfos(pluginName, baseDir: projectDir.path);
+    final hasCpp = moduleInfos.any((m) => m.isCpp);
+    final hasNonCpp = moduleInfos.any((m) => !m.isCpp);
+
+    // Patch CMake and C++ stubs
+    linkCMake(pluginName, moduleInfos.map((m) => m.lib).toList(), nitroNativePath, baseDir: projectDir.path, moduleInfos: moduleInfos);
+
+    // Patch iOS/macOS
+    if (Directory(p.join(projectDir.path, 'ios')).existsSync()) {
+      linkPodspec(pluginName, moduleInfos.map((m) => m.lib).toList(), baseDir: projectDir.path, moduleInfos: moduleInfos);
+      if (hasNonCpp) {
+        final appleCppLibs = moduleInfos.where((m) => isAppleCppModule(File(p.join(projectDir.path, 'lib', 'src', '${m.lib}.native.dart')))).map((m) => m.lib).toSet();
+        final swiftModules = moduleInfos.where((m) => !appleCppLibs.contains(m.lib)).map((m) => m.toMap()).toList();
+        linkSwiftPlugin(pluginName, swiftModules, baseDir: projectDir.path);
+        purgeStaleCppSwiftRegistrations(moduleInfos.where((m) => appleCppLibs.contains(m.lib)).toList(), platform: 'ios', baseDir: projectDir.path);
+      }
+    }
+    if (Directory(p.join(projectDir.path, 'macos')).existsSync()) {
+      linkMacosPodspec(pluginName, moduleInfos.map((m) => m.lib).toList(), baseDir: projectDir.path, moduleInfos: moduleInfos);
+      if (hasNonCpp) {
+        final appleCppLibs = moduleInfos.where((m) => isAppleCppModule(File(p.join(projectDir.path, 'lib', 'src', '${m.lib}.native.dart')))).map((m) => m.lib).toSet();
+        final swiftModules = moduleInfos.where((m) => !appleCppLibs.contains(m.lib)).map((m) => m.toMap()).toList();
+        linkMacosSwiftPlugin(pluginName, swiftModules, baseDir: projectDir.path);
+        purgeStaleCppSwiftRegistrations(moduleInfos.where((m) => appleCppLibs.contains(m.lib)).toList(), platform: 'macos', baseDir: projectDir.path);
+      }
+    }
+
+    // Patch Android
+    if (Directory(p.join(projectDir.path, 'android')).existsSync()) {
+      final androidCppLibs = moduleInfos.where((m) => isNativeCppModule(File(p.join(projectDir.path, 'lib', 'src', '${m.lib}.native.dart')))).map((m) => m.lib).toSet();
+      final kotlinModules = moduleInfos.where((m) => !androidCppLibs.contains(m.lib)).map((m) => m.toMap()).toList();
+      if (kotlinModules.isNotEmpty) {
+        linkKotlinPlugin(pluginName, kotlinModules, baseDir: projectDir.path);
+      }
+      if (hasCpp) {
+        linkKotlinLoadLibraries(moduleInfos.where((m) => m.isCpp).map((m) => m.lib).toList(), baseDir: projectDir.path);
+      }
+      purgeStaleCppKotlinRegistrations(moduleInfos.where((m) => androidCppLibs.contains(m.lib)).toList(), baseDir: projectDir.path);
+      linkAndroid(pluginName, moduleInfos.map((m) => m.lib).toList(), baseDir: projectDir.path, moduleInfos: moduleInfos);
+    }
+
+    // Patch Desktop
+    if (Directory(p.join(projectDir.path, 'windows')).existsSync()) {
+      linkWindows(pluginName, moduleInfos.map((m) => m.lib).toList(), nitroNativePath, baseDir: projectDir.path, moduleInfos: moduleInfos);
+    }
+    if (Directory(p.join(projectDir.path, 'linux')).existsSync()) {
+      linkLinux(pluginName, moduleInfos.map((m) => m.lib).toList(), nitroNativePath, baseDir: projectDir.path, moduleInfos: moduleInfos);
+    }
+
+    linkClangd(pluginName, moduleInfos: moduleInfos, baseDir: projectDir.path);
 
     // ── pod install ──────────────────────────────────────────────────────────
     final podfileDirs = findPodfileDirs(projectDir.path);
