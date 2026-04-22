@@ -118,6 +118,22 @@ bool isNativeCppModule(File specFile) {
   ).hasMatch(annotation);
 }
 
+/// Returns true ONLY when the spec declares `android: NativeImpl.cpp` (or AndroidNativeImpl.cpp).
+/// Unlike [isNativeCppModule] this does NOT match linux-only C++ modules.
+///
+/// Use this when deciding whether a module needs a Kotlin JniBridge.register() call:
+/// a module with `android: NativeImpl.kotlin, linux: NativeImpl.cpp` uses the JNI
+/// bridge on Android and should NOT be excluded from Kotlin linking.
+bool isAndroidCppModule(File specFile) {
+  final content = specFile.readAsStringSync();
+  final annotationMatch = RegExp(r'@NitroModule\s*\(([^)]+)\)', dotAll: true).firstMatch(content);
+  if (annotationMatch == null) return false;
+  final annotation = annotationMatch.group(1)!.replaceAll('\n', ' ');
+  return RegExp(
+    r'\bandroid\s*:\s*(?:NativeImpl|AndroidNativeImpl)\.cpp\b',
+  ).hasMatch(annotation);
+}
+
 /// Module descriptor.
 /// - `isCpp` — at least one platform uses direct C++ (broad; used for
 ///   System.loadLibrary, Swift-bridge skipping, stub file creation).
@@ -399,7 +415,7 @@ class _LinkViewState extends State<LinkView> {
         // JniBridge registration — isNativeCppModule checks android/linux only.
         final libDir = Directory(p.join(Directory.current.path, 'lib'));
         final specFiles = libDir.existsSync() ? libDir.listSync(recursive: true).whereType<File>().where((f) => f.path.endsWith('.native.dart')).toList() : <File>[];
-        final androidCppLibs = specFiles.where(isNativeCppModule).map((f) {
+        final androidCppLibs = specFiles.where(isAndroidCppModule).map((f) {
           final stem = p.basename(f.path).replaceAll(RegExp(r'\.native\.dart$'), '');
           return extractLibNameFromSpec(f) ?? stem;
         }).toSet();
@@ -773,18 +789,32 @@ String _cmakeModuleTarget(String lib, {bool isCpp = false}) {
 
 String _toPascalCase(String lib) => lib.split(RegExp(r'[_\-]')).map((w) => w.isEmpty ? '' : w[0].toUpperCase() + w.substring(1)).join('');
 
-/// Deletes any `*.bridge.g.swift` files from [classesPath].
-/// Generated Swift bridges are now compiled from `lib/src/generated/swift/`
-/// directly via the podspec `source_files` pattern — copies in Classes/ are
-/// stale duplicates that cause "Invalid redeclaration" Swift compiler errors.
-void _cleanStaleSwiftBridges(String classesPath) {
-  final dir = Directory(classesPath);
-  if (!dir.existsSync()) return;
-  for (final file in dir.listSync().whereType<File>()) {
+/// Copies `*.bridge.g.swift` files from `lib/src/generated/swift/` into [classesDir].
+/// Putting the bridge in Classes/ ensures Xcode compiles it in the **same module
+/// scope** as the plugin's other Swift files, resolving "Cannot find X in scope" errors
+/// that occur when the bridge is only referenced via a podspec outer-glob path.
+void _copySwiftBridgesToClasses(Directory classesDir, String baseDir, {String platform = 'ios'}) {
+  classesDir.createSync(recursive: true);
+  final swiftGenDir = Directory(p.join(baseDir, 'lib', 'src', 'generated', 'swift'));
+  if (!swiftGenDir.existsSync()) return;
+  for (final file in swiftGenDir.listSync().whereType<File>()) {
     if (p.basename(file.path).endsWith('.bridge.g.swift')) {
-      file.deleteSync();
+      file.copySync(p.join(classesDir.path, p.basename(file.path)));
     }
   }
+}
+
+/// Removes the `'../lib/src/generated/swift/**/*.swift'` glob from [podspecFile]'s
+/// `s.source_files` line. This must be called after [_copySwiftBridgesToClasses] to
+/// prevent the same file from being compiled twice (duplicate-symbol errors).
+void _removeSwiftGlobFromPodspec(File podspecFile) {
+  if (!podspecFile.existsSync()) return;
+  var spec = podspecFile.readAsStringSync();
+  final fixed = spec
+      .replaceAll(", '../lib/src/generated/swift/**/*.swift'", '')
+      .replaceAll("'../lib/src/generated/swift/**/*.swift', ", '')
+      .replaceAll("'../lib/src/generated/swift/**/*.swift'", "'Classes/**/*'");
+  if (fixed != spec) podspecFile.writeAsStringSync(fixed);
 }
 
 /// For each NativeImpl.cpp module that targets Android or Linux, creates a
@@ -882,32 +912,19 @@ void linkPodspec(String pluginName, List<String> moduleLibs, {String baseDir = '
     content = content.replaceFirst('s.pod_target_xcconfig = {', "s.dependency 'nitro'\n  s.pod_target_xcconfig = {");
     modified = true;
   }
-  // Ensure generated Swift bridges are included from their canonical location.
-  // CocoaPods compiles source_files patterns directly — no copying to ios/Classes/ needed.
-  if (!content.contains("lib/src/generated/swift")) {
-    final before = content;
-    // Try to append to an existing source_files line.
-    content = content.replaceFirstMapped(
-      RegExp(r"(s\.source_files\s*=\s*'[^']+')"),
-      (m) => "${m.group(1)}, '../lib/src/generated/swift/**/*.swift'",
-    );
-    // If no source_files line existed, insert one before pod_target_xcconfig.
-    if (content == before) {
-      content = content.replaceFirst(
-        's.pod_target_xcconfig = {',
-        "s.source_files = 'Classes/**/*', '../lib/src/generated/swift/**/*.swift'\n  s.pod_target_xcconfig = {",
-      );
-    }
-    modified = true;
-  }
+  // Sync generated Swift bridges into ios/Classes/ so Xcode can compile them
+  // in the same module scope as the plugin's other Swift files.
+  // Using a podspec source_files glob to ../lib/src/generated/swift/ does NOT
+  // reliably work — types defined there are not always in scope for Classes/ files.
   if (modified) podspecFile.writeAsStringSync(content);
   createSharedHeaders(nitroNativePath, baseDir: baseDir);
   final classesDir = Directory(p.join(baseDir, 'ios', 'Classes'))..createSync(recursive: true);
   File(p.join(classesDir.path, 'dart_api_dl.c')).writeAsStringSync('#include "../../src/dart_api_dl.c"\n');
   syncBridgeFiles(baseDir);
-  // Remove any stale .bridge.g.swift copies from ios/Classes/ — they are now
-  // compiled directly from lib/src/generated/swift/ via the podspec source_files.
-  _cleanStaleSwiftBridges(classesDir.path);
+  _copySwiftBridgesToClasses(classesDir, baseDir);
+  // Remove the outer lib/src/generated/swift glob from the podspec if present,
+  // since the bridge is now copied directly into Classes/ (avoids duplicate symbols).
+  _removeSwiftGlobFromPodspec(podspecFile);
 
   // Link the main project source files.
   final cppInSrc = File(p.join(baseDir, 'src', '$pluginName.cpp'));
@@ -955,6 +972,18 @@ void linkPodspec(String pluginName, List<String> moduleLibs, {String baseDir = '
   }
 
   ensureIosPackageSwift(pluginName, baseDir: baseDir, moduleInfos: moduleInfos);
+
+  // Re-affirm the correct ../../src/ relative paths AFTER ensureIosPackageSwift,
+  // which may write forwarders into Sources/NitroPubTestCpp/ with ../../../src/.
+  // These are two different files, but belt-and-suspenders: always end with the
+  // definitive Classes/ versions so a stale copy can never win.
+  File(p.join(classesDir.path, 'dart_api_dl.c')).writeAsStringSync('#include "../../src/dart_api_dl.c"\n');
+  if (cppInSrc.existsSync()) {
+    File(p.join(classesDir.path, '$pluginName.cpp')).writeAsStringSync('// Generated by nitrogen link — do not edit.\n#include "../../src/$pluginName.cpp"\n');
+  }
+  if (cInSrc.existsSync()) {
+    File(p.join(classesDir.path, '$pluginName.c')).writeAsStringSync('#include "../../src/$pluginName.c"\n');
+  }
 }
 
 void linkMacosPodspec(String pluginName, List<String> moduleLibs, {String baseDir = '.', List<ModuleInfo>? moduleInfos}) {
@@ -1010,28 +1039,15 @@ void linkMacosPodspec(String pluginName, List<String> moduleLibs, {String baseDi
     content = content.replaceFirst('s.pod_target_xcconfig = {', "s.dependency 'nitro'\n  s.pod_target_xcconfig = {");
     modified = true;
   }
-  // Ensure generated Swift bridges are included from their canonical location.
-  if (!content.contains("lib/src/generated/swift")) {
-    final before = content;
-    content = content.replaceFirstMapped(
-      RegExp(r"(s\.source_files\s*=\s*'[^']+')"),
-      (m) => "${m.group(1)}, '../lib/src/generated/swift/**/*.swift'",
-    );
-    if (content == before) {
-      content = content.replaceFirst(
-        's.pod_target_xcconfig = {',
-        "s.source_files = 'Classes/**/*', '../lib/src/generated/swift/**/*.swift'\n  s.pod_target_xcconfig = {",
-      );
-    }
-    modified = true;
-  }
+  // Sync generated Swift bridges into macos/Classes/ so Xcode compiles them
+  // in the same module scope as the plugin's other Swift files.
   if (modified) podspecFile.writeAsStringSync(content);
   createSharedHeaders(nitroNativePath, baseDir: baseDir);
   final classesDir = Directory(p.join(baseDir, 'macos', 'Classes'))..createSync(recursive: true);
   File(p.join(classesDir.path, 'dart_api_dl.c')).writeAsStringSync('#include "../../src/dart_api_dl.c"\n');
-  // Remove stale .bridge.g.swift copies — now compiled from canonical location.
-  _cleanStaleSwiftBridges(classesDir.path);
   syncBridgeFiles(baseDir, platform: 'macos');
+  _copySwiftBridgesToClasses(classesDir, baseDir, platform: 'macos');
+  _removeSwiftGlobFromPodspec(podspecFile);
 
   // Link the main project source files.
   final cppInSrc = File(p.join(baseDir, 'src', '$pluginName.cpp'));
@@ -1681,6 +1697,41 @@ void linkAndroid(String pluginName, List<String> moduleLibs, {String baseDir = '
   var content = buildGradle.readAsStringSync();
   bool modified = false;
   final isKts = buildGradle.path.endsWith('.kts');
+
+  // 0. Upgrade old-style `apply plugin: "kotlin-android"` to modern plugins{} DSL.
+  //    The legacy `buildscript {}` + `apply plugin` approach fails in modern AGP
+  //    because `kotlin-android` alias is not resolvable without the classpath in
+  //    the consuming app's settings.gradle. Modern Flutter apps use `plugins {}`.
+  if (content.contains('apply plugin: "kotlin-android"') || content.contains("apply plugin: 'kotlin-android'")) {
+    // Remove the entire buildscript block if present.
+    content = content.replaceAll(RegExp(r'\bbuildscript\s*\{[^}]*\{[^}]*\}[^}]*\}\s*\n?', dotAll: true), '');
+    // Remove rootProject.allprojects block.
+    content = content.replaceAll(RegExp(r'\brootProject\.allprojects\s*\{[^}]*\}\s*\n?', dotAll: true), '');
+    // Replace apply plugin lines with plugins{} block.
+    content = content.replaceAll(RegExp(r"apply plugin:\s*'com\.android\.library'\s*\n?"), '');
+    content = content.replaceAll(RegExp(r'apply plugin:\s*"com\.android\.library"\s*\n?'), '');
+    content = content.replaceAll(RegExp(r"apply plugin:\s*'kotlin-android'\s*\n?"), '');
+    content = content.replaceAll(RegExp(r'apply plugin:\s*"kotlin-android"\s*\n?'), '');
+    // Insert plugins{} block at the very TOP of the file (Gradle requires it
+    // before any other statements including group/version assignments).
+    if (!content.contains('plugins {') && !content.contains('plugins{')) {
+      // Remove group/version from their current position (they'll move after plugins{}).
+      final groupVersionMatch = RegExp(r'^group\s*=.+\nversion\s*=.+\n', multiLine: true).firstMatch(content);
+      String groupVersionBlock = '';
+      if (groupVersionMatch != null) {
+        groupVersionBlock = groupVersionMatch.group(0)!;
+        content = content.replaceFirst(groupVersionBlock, '');
+      }
+      content =
+          'plugins {\n    id "com.android.library"\n    id "org.jetbrains.kotlin.android"\n}\n\n${groupVersionBlock.trim().isEmpty ? "" : "${groupVersionBlock.trim()}\n\n"}${content.trimLeft()}';
+    }
+    // Fix ndkVersion = android.ndkVersion → hardcoded version for standalone builds.
+    content = content.replaceAll('ndkVersion = android.ndkVersion', 'ndkVersion = "27.0.12077973"');
+    // Collapse sequences of 3+ blank lines to a single blank line (cosmetic cleanup).
+    content = content.replaceAll(RegExp(r'\n{3,}'), '\n\n');
+    modified = true;
+  }
+
   final srcDirsLine = isKts
       ? r'            kotlin.srcDirs += setOf("${project.projectDir}/../lib/src/generated/kotlin")'
       : r'            kotlin.srcDirs += "${project.projectDir}/../lib/src/generated/kotlin"';

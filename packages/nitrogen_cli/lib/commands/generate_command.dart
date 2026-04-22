@@ -23,7 +23,8 @@ import 'link_command.dart'
         linkLinux,
         linkClangd,
         isAppleCppModule,
-        isNativeCppModule;
+        isNativeCppModule,
+        isAndroidCppModule;
 import '../ui.dart';
 import '../utils.dart';
 
@@ -64,12 +65,14 @@ class GenerateCommand extends Command {
     stdout.writeln('');
 
     // ── build_runner ─────────────────────────────────────────────────────────
+    // Use `dart run` instead of `flutter pub run` to skip the pub.dev update
+    // check that build_runner triggers via `flutter pub run`, which can hang
+    // for 30+ seconds or indefinitely on slow/no network.
     stdout.writeln(cyan('  › build_runner build …'));
     stdout.writeln('');
     exitCode = await runStreaming(
-      'flutter',
+      'dart',
       [
-        'pub',
         'run',
         'build_runner',
         'build',
@@ -77,6 +80,7 @@ class GenerateCommand extends Command {
       ],
       workingDirectory: projectDir.path,
     );
+
 
     stdout.writeln('');
     if (exitCode != 0) {
@@ -91,7 +95,7 @@ class GenerateCommand extends Command {
     // to prevent "Invalid redeclaration" Swift compiler errors.
     final nitroNativePath = resolveNitroNativePath(projectDir.path);
     createSharedHeaders(nitroNativePath, baseDir: projectDir.path);
-    _cleanStaleSwiftBridges(projectDir.path);
+    _syncSwiftBridgesToClasses(projectDir.path);
 
     // ── nitrogen link (auto) ─────────────────────────────────────────────────
     // Automatically run the patching logic (build.gradle, Plugin.kt, etc.)
@@ -127,7 +131,10 @@ class GenerateCommand extends Command {
 
     // Patch Android
     if (Directory(p.join(projectDir.path, 'android')).existsSync()) {
-      final androidCppLibs = moduleInfos.where((m) => isNativeCppModule(File(p.join(projectDir.path, 'lib', 'src', '${m.lib}.native.dart')))).map((m) => m.lib).toSet();
+      // Use isAndroidCppModule (android-only) — NOT isNativeCppModule (android+linux).
+      // A module with 'android: NativeImpl.kotlin, linux: NativeImpl.cpp' still needs
+      // a Kotlin JniBridge on Android and must not be excluded from kotlinModules.
+      final androidCppLibs = moduleInfos.where((m) => isAndroidCppModule(File(p.join(projectDir.path, 'lib', 'src', '${m.lib}.native.dart')))).map((m) => m.lib).toSet();
       final kotlinModules = moduleInfos.where((m) => !androidCppLibs.contains(m.lib)).map((m) => m.toMap()).toList();
       if (kotlinModules.isNotEmpty) {
         linkKotlinPlugin(pluginName, kotlinModules, baseDir: projectDir.path);
@@ -195,43 +202,59 @@ class GenerateCommand extends Command {
     return 'my_plugin';
   }
 
-  /// Removes any stale `*.bridge.g.swift` copies from `ios/Classes/` and
-  /// `macos/Classes/`. Generated Swift bridges are compiled from their
-  /// canonical location (`lib/src/generated/swift/`) via the podspec
-  /// `source_files` pattern — copies in Classes/ are duplicate compilation
-  /// units that cause "Invalid redeclaration" Swift compiler errors.
+  /// Copies generated `*.bridge.g.swift` files from `lib/src/generated/swift/`
+  /// into `ios/Classes/` and `macos/Classes/`. This ensures Xcode compiles them
+  /// in the same module scope as the other Swift plugin files, resolving
+  /// "Cannot find X in scope" errors.
+  ///
+  /// Also ensures the podspec `source_files` only uses `'Classes/**/*'` (not
+  /// the outer lib glob) to prevent duplicate-symbol errors.
   ///
   /// Also heals any redundant `#include` lines in `src/*.cpp` files.
-  void _cleanStaleSwiftBridges(String projectRoot) {
+  void _syncSwiftBridgesToClasses(String projectRoot) {
+    final swiftGenDir = Directory(p.join(projectRoot, 'lib', 'src', 'generated', 'swift'));
+    if (!swiftGenDir.existsSync()) {
+      _healCppIncludes(projectRoot);
+      return;
+    }
+
+    final bridgeFiles = swiftGenDir.listSync().whereType<File>().where((f) => p.basename(f.path).endsWith('.bridge.g.swift')).toList();
+    if (bridgeFiles.isEmpty) {
+      _healCppIncludes(projectRoot);
+      return;
+    }
+
     final pluginName = _readPluginName(projectRoot);
-    final className = toPascalCase(pluginName);
 
     for (final platform in ['ios', 'macos']) {
-      // Check root-level AND example/ subdirectory (monorepo / example-app layouts).
       for (final prefix in ['', 'example/']) {
-        // 1. Legacy path: Classes/
-        final classesDir = Directory(p.join(projectRoot, '$prefix$platform', 'Classes'));
-        if (classesDir.existsSync()) {
-          for (final file in classesDir.listSync().whereType<File>()) {
-            if (p.basename(file.path).endsWith('.bridge.g.swift')) {
-              file.deleteSync();
-            }
-          }
+        final classesDir = Directory(p.join(projectRoot, '${prefix}$platform', 'Classes'));
+        if (!classesDir.existsSync()) continue;
+
+        // Copy each bridge file into Classes/.
+        for (final bridge in bridgeFiles) {
+          bridge.copySync(p.join(classesDir.path, p.basename(bridge.path)));
         }
 
-        // 2. Modern path: Sources/<PluginClassName>/
-        final sourcesDir = Directory(p.join(projectRoot, '$prefix$platform', 'Sources', className));
-        if (sourcesDir.existsSync()) {
-          for (final file in sourcesDir.listSync().whereType<File>()) {
-            if (p.basename(file.path).endsWith('.bridge.g.swift')) {
-              file.deleteSync();
-            }
-          }
+        // Ensure the podspec does NOT have the outer ../lib/src/generated/swift glob
+        // (that would cause duplicate-symbol errors since the file is now in Classes/).
+        final podspecFile = File(p.join(projectRoot, '${prefix}$platform', '$pluginName.podspec'));
+        if (podspecFile.existsSync()) {
+          var spec = podspecFile.readAsStringSync();
+          final fixed = spec
+              .replaceAll(", '../lib/src/generated/swift/**/*.swift'", '')
+              .replaceAll("'../lib/src/generated/swift/**/*.swift', ", '')
+              .replaceAll("'../lib/src/generated/swift/**/*.swift'", "'Classes/**/*'");
+          if (fixed != spec) podspecFile.writeAsStringSync(fixed);
         }
       }
     }
 
-    // Heal any redundant includes in the main src/ folder.
+    _healCppIncludes(projectRoot);
+  }
+
+  /// Heals any redundant `#include` lines in the main `src/` folder.
+  void _healCppIncludes(String projectRoot) {
     final srcDir = Directory(p.join(projectRoot, 'src'));
     if (srcDir.existsSync()) {
       for (final f in srcDir.listSync().whereType<File>().where((f) => f.path.endsWith('.cpp') || f.path.endsWith('.c'))) {

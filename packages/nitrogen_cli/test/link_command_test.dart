@@ -945,70 +945,54 @@ end
 ''');
     }
 
-    test('linkPodspec appends generated swift glob to existing source_files', () {
+    test('linkPodspec copies .bridge.g.swift into ios/Classes/', () {
       scaffoldMinimalPodspec('ios', 'my_plugin', sourceFilesLine: "s.source_files = 'Classes/**/*'");
       Directory(p.join(tmp.path, 'src')).createSync();
+      // Create a generated bridge file that should be copied.
+      Directory(p.join(tmp.path, 'lib', 'src', 'generated', 'swift')).createSync(recursive: true);
+      File(p.join(tmp.path, 'lib', 'src', 'generated', 'swift', 'my_plugin.bridge.g.swift'))
+          .writeAsStringSync('// generated bridge');
 
       linkPodspec('my_plugin', ['my_plugin'], baseDir: tmp.path);
 
-      final content = File(p.join(tmp.path, 'ios', 'my_plugin.podspec')).readAsStringSync();
-      expect(content, contains("lib/src/generated/swift/**/*.swift"));
+      final copied = File(p.join(tmp.path, 'ios', 'Classes', 'my_plugin.bridge.g.swift'));
+      expect(copied.existsSync(), isTrue,
+          reason: 'bridge must be copied into Classes/ so Xcode can compile it in scope');
+      expect(copied.readAsStringSync(), contains('generated bridge'));
+      // The podspec must NOT have the lib/src/generated/swift glob (avoids duplicates).
+      final spec = File(p.join(tmp.path, 'ios', 'my_plugin.podspec')).readAsStringSync();
+      expect(spec, isNot(contains('lib/src/generated/swift')));
     });
 
-    test('linkPodspec inserts source_files when absent from podspec', () {
-      scaffoldMinimalPodspec('ios', 'my_plugin');
-      Directory(p.join(tmp.path, 'src')).createSync();
-
-      linkPodspec('my_plugin', ['my_plugin'], baseDir: tmp.path);
-
-      final content = File(p.join(tmp.path, 'ios', 'my_plugin.podspec')).readAsStringSync();
-      expect(content, contains("lib/src/generated/swift/**/*.swift"));
-    });
-
-    test('linkPodspec does not duplicate source_files on second run', () {
+    test('linkPodspec is idempotent — copying bridge twice does not duplicate it', () {
       scaffoldMinimalPodspec('ios', 'my_plugin', sourceFilesLine: "s.source_files = 'Classes/**/*'");
       Directory(p.join(tmp.path, 'src')).createSync();
+      Directory(p.join(tmp.path, 'lib', 'src', 'generated', 'swift')).createSync(recursive: true);
+      File(p.join(tmp.path, 'lib', 'src', 'generated', 'swift', 'my_plugin.bridge.g.swift'))
+          .writeAsStringSync('// generated bridge');
 
       linkPodspec('my_plugin', ['my_plugin'], baseDir: tmp.path);
       linkPodspec('my_plugin', ['my_plugin'], baseDir: tmp.path);
 
-      final content = File(p.join(tmp.path, 'ios', 'my_plugin.podspec')).readAsStringSync();
-      expect(
-        'lib/src/generated/swift'.allMatches(content).length,
-        equals(1),
-        reason: 'second run must not add a second swift glob',
-      );
+      // Should still only have one copy and no duplicates in podspec.
+      final spec = File(p.join(tmp.path, 'ios', 'my_plugin.podspec')).readAsStringSync();
+      expect(spec, isNot(contains('lib/src/generated/swift')));
     });
 
-    test('linkPodspec deletes stale .bridge.g.swift from ios/Classes/', () {
-      scaffoldMinimalPodspec('ios', 'my_plugin', sourceFilesLine: "s.source_files = 'Classes/**/*'");
-      Directory(p.join(tmp.path, 'src')).createSync();
-      // Plant a stale copy that would cause duplicate-symbol errors.
-      final stale = File(p.join(tmp.path, 'ios', 'Classes', 'my_plugin.bridge.g.swift'))..writeAsStringSync('// stale copy');
-
-      linkPodspec('my_plugin', ['my_plugin'], baseDir: tmp.path);
-
-      expect(stale.existsSync(), isFalse, reason: 'stale .bridge.g.swift must be deleted — canonical file is in lib/src/generated/swift/');
-    });
-
-    test('linkMacosPodspec appends generated swift glob to existing source_files', () {
+    test('linkMacosPodspec copies .bridge.g.swift into macos/Classes/', () {
       scaffoldMinimalPodspec('macos', 'my_plugin', sourceFilesLine: "s.source_files = 'Classes/**/*'");
       Directory(p.join(tmp.path, 'src')).createSync();
+      Directory(p.join(tmp.path, 'lib', 'src', 'generated', 'swift')).createSync(recursive: true);
+      File(p.join(tmp.path, 'lib', 'src', 'generated', 'swift', 'my_plugin.bridge.g.swift'))
+          .writeAsStringSync('// generated bridge');
 
       linkMacosPodspec('my_plugin', ['my_plugin'], baseDir: tmp.path);
 
-      final content = File(p.join(tmp.path, 'macos', 'my_plugin.podspec')).readAsStringSync();
-      expect(content, contains("lib/src/generated/swift/**/*.swift"));
-    });
-
-    test('linkMacosPodspec deletes stale .bridge.g.swift from macos/Classes/', () {
-      scaffoldMinimalPodspec('macos', 'my_plugin', sourceFilesLine: "s.source_files = 'Classes/**/*'");
-      Directory(p.join(tmp.path, 'src')).createSync();
-      final stale = File(p.join(tmp.path, 'macos', 'Classes', 'my_plugin.bridge.g.swift'))..writeAsStringSync('// stale copy');
-
-      linkMacosPodspec('my_plugin', ['my_plugin'], baseDir: tmp.path);
-
-      expect(stale.existsSync(), isFalse);
+      final copied = File(p.join(tmp.path, 'macos', 'Classes', 'my_plugin.bridge.g.swift'));
+      expect(copied.existsSync(), isTrue,
+          reason: 'bridge must be copied into macos/Classes/ for Xcode scope resolution');
+      final spec = File(p.join(tmp.path, 'macos', 'my_plugin.podspec')).readAsStringSync();
+      expect(spec, isNot(contains('lib/src/generated/swift')));
     });
   });
 
