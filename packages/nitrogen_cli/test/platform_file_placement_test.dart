@@ -239,16 +239,21 @@ void main() {
       expect(pod, contains("swift_version = '5.9'"));
     });
 
-    test('linkPodspec upgrades minimum iOS platform to 13.0', () {
+    test('linkPodspec upgrades minimum iOS platform to 13.0 if lower', () {
       linkPodspec('my_plugin', ['my_plugin'], baseDir: root.path);
       final pod = File(p.join(root.path, 'ios', 'my_plugin.podspec')).readAsStringSync();
       expect(pod, contains("platform = :ios, '13.0'"));
     });
 
-    test('linkPodspec adds Swift bridge glob to source_files', () {
+    test('linkPodspec removes the outer Swift bridge glob from source_files', () {
+      // First, add it manually to simulate an old podspec state
+      final podFile = File(p.join(root.path, 'ios', 'my_plugin.podspec'));
+      podFile.writeAsStringSync(podFile.readAsStringSync().replaceFirst("s.source_files     = 'Classes/**/*'", "s.source_files     = 'Classes/**/*', '../lib/src/generated/swift/**/*.swift'"));
+
       linkPodspec('my_plugin', ['my_plugin'], baseDir: root.path);
-      final pod = File(p.join(root.path, 'ios', 'my_plugin.podspec')).readAsStringSync();
-      expect(pod, contains('lib/src/generated/swift/**/*.swift'));
+      final pod = podFile.readAsStringSync();
+      expect(pod, isNot(contains('lib/src/generated/swift/**/*.swift')),
+          reason: 'Bridges are now copied to Classes/ — outer glob causes "Invalid redeclaration" errors');
     });
 
     test('ios/Classes/dart_api_dl.c is created by linkPodspec', () {
@@ -272,14 +277,12 @@ void main() {
       );
     });
 
-    test('stale .bridge.g.swift is NOT present in ios/Classes/', () {
-      // Place a stale copy to simulate the old layout
-      File(p.join(root.path, 'ios', 'Classes', 'my_plugin.bridge.g.swift')).writeAsStringSync('// stale');
+    test('Swift bridge .bridge.g.swift is present in ios/Classes/', () {
       linkPodspec('my_plugin', ['my_plugin'], baseDir: root.path);
       expect(
         File(p.join(root.path, 'ios', 'Classes', 'my_plugin.bridge.g.swift')).existsSync(),
-        isFalse,
-        reason: 'Swift bridges compiled from lib/src/generated/swift/ — stale copies cause "Invalid redeclaration"',
+        isTrue,
+        reason: 'Swift bridge must be in Classes/ so it is in the same scope as the plugin class (stability)',
       );
     });
 
@@ -899,7 +902,8 @@ target_include_directories(my_plugin PRIVATE "\${CMAKE_CURRENT_SOURCE_DIR}")
       final iosPod = File(p.join(root.path, 'ios', 'benchmark.podspec')).readAsStringSync();
       expect(iosPod, contains("s.dependency 'nitro'"), reason: 'iOS podspec must declare nitro dependency');
       expect(iosPod, contains('c++17'), reason: 'iOS podspec must set C++17 standard');
-      expect(iosPod, contains('lib/src/generated/swift'), reason: 'iOS podspec must include Swift bridge glob');
+      expect(iosPod, isNot(contains('lib/src/generated/swift')), reason: 'iOS podspec should not have outer Swift glob');
+      expect(File(p.join(root.path, 'ios', 'Classes', 'benchmark.bridge.g.swift')).existsSync(), isTrue);
       expect(File(p.join(root.path, 'ios', 'Classes', 'dart_api_dl.c')).existsSync(), isTrue);
       expect(File(p.join(root.path, 'ios', 'Classes', 'nitro.h')).existsSync(), isTrue);
 
