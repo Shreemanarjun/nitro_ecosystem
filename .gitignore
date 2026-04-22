@@ -11,6 +11,7 @@
 *.iml
 *.iws
 *.ipr
+.claude/
 
 # Root Dart Tool (Workspace resolution)
 .dart_tool/

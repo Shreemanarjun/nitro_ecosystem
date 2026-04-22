@@ -28,7 +28,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 
 PLUGIN_NAME="${1:-nitro_test_plugin}"
-PLATFORMS="${2:-ios,android}"
+PLATFORMS="${2:-android,ios,macos,windows,linux}"
 
 # ── Resolve flutter / dart ────────────────────────────────────────────────────
 # Priority: puro stable (matches workspace SDK ^3.11.3) → fvm → PATH
@@ -101,85 +101,93 @@ echo "▶ Step 2/6: Patching pubspec.yaml with local path deps ..."
 PUBSPEC="$PLUGIN_DIR/pubspec.yaml"
 
 python3 - "$PUBSPEC" "$NITRO_DIR" "$NITRO_GEN_DIR" "$NITRO_ANN_DIR" << 'PYEOF'
-import sys, re
+import sys, os
 
-pubspec_path = sys.argv[1]
-nitro_path   = sys.argv[2]
-gen_path     = sys.argv[3]
-ann_path     = sys.argv[4]
+def patch_pubspec(pubspec_path, nitro_path, gen_path, ann_path):
+    with open(pubspec_path, 'r') as f:
+        lines = f.readlines()
 
-with open(pubspec_path) as f:
-    lines = f.readlines()
+    new_lines = []
+    in_deps = False
+    in_dev_deps = False
 
-result = []
-for line in lines:
-    result.append(line)
+    for line in lines:
+        stripped = line.strip()
+        if stripped.startswith('dependencies:'):
+            in_deps = True
+            in_dev_deps = False
+            new_lines.append(line)
+            new_lines.append(f'  nitro:\n    path: {nitro_path}\n')
+            new_lines.append(f'  nitro_annotations:\n    path: {ann_path}\n')
+            continue
+        if stripped.startswith('dev_dependencies:'):
+            in_deps = False
+            in_dev_deps = True
+            new_lines.append(line)
+            new_lines.append(f'  nitro_generator:\n    path: {gen_path}\n')
+            new_lines.append('  build_runner: ^2.4.0\n')
+            continue
+        
+        if in_deps or in_dev_deps:
+            # Skip lines that are already nitro-related to avoid duplicates
+            if any(x in stripped for x in ['nitro:', 'nitro_annotations:', 'nitro_generator:', 'build_runner:', 'ffigen:']):
+                continue
+            # Also skip nested path/version lines for those deps
+            if (line.startswith('    path:') or line.startswith('    sdk:') or line.startswith('    version:')) and len(new_lines) > 0 and any(x in new_lines[-1] for x in ['nitro:', 'nitro_annotations:', 'nitro_generator:', 'ffigen:']):
+                 continue
+            
+            if stripped == '' or line.startswith('  '):
+                new_lines.append(line)
+                continue
+            else:
+                in_deps = False
+                in_dev_deps = False
+        
+        new_lines.append(line)
 
-content = ''.join(result)
+    # Add overrides at the end
+    new_lines.append('\ndependency_overrides:\n')
+    new_lines.append(f'  nitro:\n    path: {nitro_path}\n')
+    new_lines.append(f'  nitro_generator:\n    path: {gen_path}\n')
+    new_lines.append(f'  nitro_annotations:\n    path: {ann_path}\n')
 
-# Add nitro, nitro_generator, nitro_annotations under dependencies
-# (flutter create plugin_ffi doesn't add them, so we append)
-overrides = (
-    '\ndependency_overrides:\n'
-    f'  nitro:\n    path: {nitro_path}\n'
-    f'  nitro_generator:\n    path: {gen_path}\n'
-    f'  nitro_annotations:\n    path: {ann_path}\n'
-)
+    with open(pubspec_path, 'w') as f:
+        f.writelines(new_lines)
 
-deps_block = (
-    '\ndependencies:\n'
-    '  flutter:\n'
-    '    sdk: flutter\n'
-    f'  nitro:\n    path: {nitro_path}\n'
-    f'  nitro_annotations:\n    path: {ann_path}\n'
-)
+    print(f'  ✔ {pubspec_path} patched')
 
-dev_deps_block = (
-    '\ndev_dependencies:\n'
-    '  flutter_test:\n'
-    '    sdk: flutter\n'
-    '  flutter_lints: ^5.0.0\n'
-    f'  nitro_generator:\n    path: {gen_path}\n'
-    '  build_runner: ^2.4.0\n'
-)
-
-# Remove flutter create's default dependencies/dev_dependencies sections
-# and replace with our nitro-aware ones
-content = re.sub(
-    r'\n?dependencies:.*?(?=\ndev_dependencies:|\Z)',
-    deps_block,
-    content,
-    flags=re.DOTALL,
-)
-content = re.sub(
-    r'\n?dev_dependencies:.*?(?=\n[^\s]|\Z)',
-    dev_deps_block,
-    content,
-    flags=re.DOTALL,
-)
-
-if 'dependency_overrides:' not in content:
-    content += overrides
-
-with open(pubspec_path, 'w') as f:
-    f.write(content)
-
-print(f'  ✔ {pubspec_path} patched')
+patch_pubspec(sys.argv[1], sys.argv[2], sys.argv[3], sys.argv[4])
+# Also patch example if it exists
+example_path = os.path.join(os.path.dirname(sys.argv[1]), 'example', 'pubspec.yaml')
+if os.path.exists(example_path):
+    patch_pubspec(example_path, sys.argv[2], sys.argv[3], sys.argv[4])
 PYEOF
 
 # ── 3. Write a minimal .native.dart spec ─────────────────────────────────────
 echo "▶ Step 2b: Writing bridge spec ..."
 mkdir -p "$PLUGIN_DIR/lib/src"
 CLASS_NAME="$(python3 -c "print(''.join(w.capitalize() for w in '$PLUGIN_NAME'.split('_')))")"
-python3 - "$PLUGIN_DIR/lib/src/$PLUGIN_NAME.native.dart" "$CLASS_NAME" << 'PYEOF'
+python3 - "$PLUGIN_DIR/lib/src/$PLUGIN_NAME.native.dart" "$CLASS_NAME" "$PLUGIN_NAME" << 'PYEOF'
 import sys
-path, cls = sys.argv[1], sys.argv[2]
-content = f"""import 'package:nitro_annotations/nitro_annotations.dart';
+import os
+path, className, pluginName = sys.argv[1], sys.argv[2], sys.argv[3]
+content = f"""import 'package:nitro/nitro.dart';
 
-@HybridInterface()
-abstract class Hybrid{cls}Spec {{
+part '{pluginName}.g.dart';
+
+@NitroModule(
+  ios: NativeImpl.swift,
+  android: NativeImpl.kotlin,
+  macos: NativeImpl.cpp,
+  windows: NativeImpl.cpp,
+  linux: NativeImpl.cpp,
+)
+abstract class {className}Spec extends HybridObject {{
+  static final {className}Spec instance = _{className}SpecImpl();
+
   double add(double a, double b);
 
+  @NitroAsync()
   Future<String> getGreeting(String name);
 }}
 """
@@ -188,6 +196,48 @@ with open(path, 'w') as f:
 print(f'  ✔ {path} written')
 PYEOF
 echo "  ✔ bridge spec written"
+
+# ── 3b. Overwrite plugin entry point ─────────────────────────────────────────
+echo "▶ Step 2c: Overwriting $PLUGIN_NAME.dart entry point ..."
+cat > "$PLUGIN_DIR/lib/$PLUGIN_NAME.dart" << DARTEOF
+export 'src/$PLUGIN_NAME.native.dart';
+DARTEOF
+
+# ── 3c. Overwrite example main ───────────────────────────────────────────────
+echo "▶ Step 2d: Overwriting example/lib/main.dart ..."
+cat > "$PLUGIN_DIR/example/lib/main.dart" << DARTEOF
+import 'package:flutter/material.dart';
+import 'package:$PLUGIN_NAME/$PLUGIN_NAME.dart';
+
+void main() => runApp(const MyApp());
+
+class MyApp extends StatelessWidget {
+  const MyApp({super.key});
+  @override
+  Widget build(BuildContext context) {
+    return MaterialApp(
+      home: Scaffold(
+        appBar: AppBar(title: const Text('Nitro Test')),
+        body: Center(
+          child: FutureBuilder<String>(
+            future: ${CLASS_NAME}Spec.instance.getGreeting('Nitro'),
+            builder: (context, snapshot) {
+              if (snapshot.hasData) return Text(snapshot.data!);
+              return const CircularProgressIndicator();
+            },
+          ),
+        ),
+      ),
+    );
+  }
+}
+DARTEOF
+
+# ── 3d. Purge legacy FFI boilerplate ────────────────────────────────────────
+echo "▶ Step 2e: Purging legacy FFI boilerplate ..."
+rm -f "$PLUGIN_DIR/lib/${PLUGIN_NAME}_bindings_generated.dart"
+rm -rf "$PLUGIN_DIR/src"
+rm -f "$PLUGIN_DIR/ffigen.yaml"
 
 # ── 4. flutter pub get ───────────────────────────────────────────────────────
 echo "▶ Step 3/6: flutter pub get ..."
