@@ -54,6 +54,64 @@ String? extractLibNameFromSpec(File specFile) {
   return match?.group(1);
 }
 
+/// Parses the `@NitroModule(...)` annotation from a spec file **once** and
+/// exposes typed query methods for each platform target.
+///
+/// Replaces five independent regex passes with a single parse so callers that
+/// need multiple platform attributes (e.g. [discoverModuleInfos]) avoid
+/// re-reading and re-matching the annotation for every query.
+///
+/// ```dart
+/// final analyzer = PlatformTargetAnalyzer.fromSpec(specFile);
+/// if (analyzer.requiresCpp) { /* at least one platform is C++ */ }
+/// if (analyzer.supportsApple) { /* ios or macos is C++ */ }
+/// ```
+class PlatformTargetAnalyzer {
+  final String _annotation;
+
+  PlatformTargetAnalyzer._(this._annotation);
+
+  /// Parses the annotation from [specFile] (one file read, one regex match).
+  factory PlatformTargetAnalyzer.fromSpec(File specFile) {
+    return PlatformTargetAnalyzer.fromContent(specFile.readAsStringSync());
+  }
+
+  /// Parses the annotation from already-loaded [content] (zero file reads).
+  factory PlatformTargetAnalyzer.fromContent(String content) {
+    final match = RegExp(r'@NitroModule\s*\(([^)]+)\)', dotAll: true).firstMatch(content);
+    final annotation = match == null ? '' : match.group(1)!.replaceAll('\n', ' ');
+    return PlatformTargetAnalyzer._(annotation);
+  }
+
+  /// True when at least one platform uses direct C++ (broad check).
+  /// Matches ios, android, macos, windows, and linux C++ declarations.
+  bool get requiresCpp => RegExp(
+    r'\b(?:ios|android|macos|windows|linux)\s*:\s*'
+    r'(?:NativeImpl|AppleNativeImpl|AndroidNativeImpl|WindowsNativeImpl|LinuxNativeImpl)\.cpp\b',
+  ).hasMatch(_annotation);
+
+  /// True when iOS or macOS use direct C++ (Apple platforms only).
+  bool get supportsApple => RegExp(
+    r'\b(?:ios|macos)\s*:\s*(?:NativeImpl|AppleNativeImpl)\.cpp\b',
+  ).hasMatch(_annotation);
+
+  /// True when Android uses direct C++ (bypasses JNI bridge).
+  bool get supportsAndroid => RegExp(
+    r'\bandroid\s*:\s*(?:NativeImpl|AndroidNativeImpl)\.cpp\b',
+  ).hasMatch(_annotation);
+
+  /// True when Windows uses direct C++ (windows/CMakeLists.txt path).
+  bool get supportsWindows => RegExp(
+    r'\bwindows\s*:\s*(?:NativeImpl|WindowsNativeImpl)\.cpp\b',
+  ).hasMatch(_annotation);
+
+  /// True when Android or Linux use direct C++ (src/CMakeLists.txt NDK/GCC path).
+  bool get isNativeCpp => RegExp(
+    r'\b(?:android|linux)\s*:\s*'
+    r'(?:NativeImpl|AndroidNativeImpl|LinuxNativeImpl)\.cpp\b',
+  ).hasMatch(_annotation);
+}
+
 /// Returns true when the spec file declares at least one platform as a
 /// direct C++ implementation (no JNI/Swift bridge). Recognises both:
 ///   - Legacy shorthand:   `NativeImpl.cpp`
@@ -62,42 +120,17 @@ String? extractLibNameFromSpec(File specFile) {
 ///
 /// **Broad check** — true if ANY platform uses C++. Use for deciding whether
 /// to create a HybridXxx.cpp stub file or load the library on Android.
-bool isCppModule(File specFile) {
-  final content = specFile.readAsStringSync();
-  final annotationMatch = RegExp(r'@NitroModule\s*\(([^)]+)\)', dotAll: true).firstMatch(content);
-  if (annotationMatch == null) return false;
-  final annotation = annotationMatch.group(1)!.replaceAll('\n', ' ');
-  return RegExp(
-    r'\b(?:ios|android|macos|windows|linux)\s*:\s*'
-    r'(?:NativeImpl|AppleNativeImpl|AndroidNativeImpl|WindowsNativeImpl|LinuxNativeImpl)\.cpp\b',
-  ).hasMatch(annotation);
-}
+bool isCppModule(File specFile) => PlatformTargetAnalyzer.fromSpec(specFile).requiresCpp;
 
 /// Returns true when the spec file uses direct C++ for **Apple platforms** (ios or macos).
 /// Only Apple C++ modules need a `HybridXxx.cpp` forwarder in `ios/Classes/` or
 /// `macos/Classes/` so CocoaPods compiles the implementation into the pod target.
-bool isAppleCppModule(File specFile) {
-  final content = specFile.readAsStringSync();
-  final annotationMatch = RegExp(r'@NitroModule\s*\(([^)]+)\)', dotAll: true).firstMatch(content);
-  if (annotationMatch == null) return false;
-  final annotation = annotationMatch.group(1)!.replaceAll('\n', ' ');
-  return RegExp(
-    r'\b(?:ios|macos)\s*:\s*(?:NativeImpl|AppleNativeImpl)\.cpp\b',
-  ).hasMatch(annotation);
-}
+bool isAppleCppModule(File specFile) => PlatformTargetAnalyzer.fromSpec(specFile).supportsApple;
 
 /// Returns true when the spec file uses direct C++ for **Windows** only.
 /// Windows C++ modules use `windows/CMakeLists.txt` (not the shared `src/`)
 /// and need their own impl stub created in `windows/src/`.
-bool isWindowsCppModule(File specFile) {
-  final content = specFile.readAsStringSync();
-  final annotationMatch = RegExp(r'@NitroModule\s*\(([^)]+)\)', dotAll: true).firstMatch(content);
-  if (annotationMatch == null) return false;
-  final annotation = annotationMatch.group(1)!.replaceAll('\n', ' ');
-  return RegExp(
-    r'\bwindows\s*:\s*(?:NativeImpl|WindowsNativeImpl)\.cpp\b',
-  ).hasMatch(annotation);
-}
+bool isWindowsCppModule(File specFile) => PlatformTargetAnalyzer.fromSpec(specFile).supportsWindows;
 
 /// Returns true when the spec file uses direct C++ for **Android or Linux** —
 /// the platforms that share `src/CMakeLists.txt` (Android NDK / Linux GCC).
@@ -106,17 +139,7 @@ bool isWindowsCppModule(File specFile) {
 /// - Deciding whether `HybridXxx.cpp` belongs in `src/CMakeLists.txt`
 /// - Doctor's "impl file linked" check for the shared cmake target
 /// - Skipping the "unlinked source" warning for Windows-only C++ modules
-bool isNativeCppModule(File specFile) {
-  final content = specFile.readAsStringSync();
-  final annotationMatch = RegExp(r'@NitroModule\s*\(([^)]+)\)', dotAll: true).firstMatch(content);
-  if (annotationMatch == null) return false;
-  final annotation = annotationMatch.group(1)!.replaceAll('\n', ' ');
-  // Only consider Android and Linux — these use src/CMakeLists.txt via NDK/GCC.
-  return RegExp(
-    r'\b(?:android|linux)\s*:\s*'
-    r'(?:NativeImpl|AndroidNativeImpl|LinuxNativeImpl)\.cpp\b',
-  ).hasMatch(annotation);
-}
+bool isNativeCppModule(File specFile) => PlatformTargetAnalyzer.fromSpec(specFile).isNativeCpp;
 
 /// Returns true ONLY when the spec declares `android: NativeImpl.cpp` (or AndroidNativeImpl.cpp).
 /// Unlike [isNativeCppModule] this does NOT match linux-only C++ modules.
@@ -124,15 +147,7 @@ bool isNativeCppModule(File specFile) {
 /// Use this when deciding whether a module needs a Kotlin JniBridge.register() call:
 /// a module with `android: NativeImpl.kotlin, linux: NativeImpl.cpp` uses the JNI
 /// bridge on Android and should NOT be excluded from Kotlin linking.
-bool isAndroidCppModule(File specFile) {
-  final content = specFile.readAsStringSync();
-  final annotationMatch = RegExp(r'@NitroModule\s*\(([^)]+)\)', dotAll: true).firstMatch(content);
-  if (annotationMatch == null) return false;
-  final annotation = annotationMatch.group(1)!.replaceAll('\n', ' ');
-  return RegExp(
-    r'\bandroid\s*:\s*(?:NativeImpl|AndroidNativeImpl)\.cpp\b',
-  ).hasMatch(annotation);
-}
+bool isAndroidCppModule(File specFile) => PlatformTargetAnalyzer.fromSpec(specFile).supportsAndroid;
 
 /// Module descriptor.
 /// - `isCpp` — at least one platform uses direct C++ (broad; used for
@@ -170,14 +185,16 @@ List<ModuleInfo> discoverModuleInfos(String pluginName, {String baseDir = '.'}) 
     final libName = extractLibNameFromSpec(spec) ?? stem.replaceAll('-', '_');
     final moduleMatch = RegExp(r'abstract class (\w+) extends HybridObject').firstMatch(content);
     final moduleName = moduleMatch?.group(1) ?? _toPascalCase(stem);
+    // Parse annotation once; avoids two extra file reads vs calling isCppModule + isNativeCppModule.
+    final analyzer = PlatformTargetAnalyzer.fromContent(content);
 
     if (!modules.any((m) => m.module == moduleName)) {
       modules.add(
         ModuleInfo(
           lib: libName,
           module: moduleName,
-          isCpp: isCppModule(spec),
-          isNativeCpp: isNativeCppModule(spec),
+          isCpp: analyzer.requiresCpp,
+          isNativeCpp: analyzer.isNativeCpp,
         ),
       );
     }

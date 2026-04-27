@@ -3,6 +3,7 @@ import 'dart:ffi';
 import 'dart:io';
 import 'dart:isolate';
 import 'package:ffi/ffi.dart';
+import 'package:meta/meta.dart';
 import 'annotations.dart';
 import 'hybrid_exception.dart';
 import 'isolate_pool.dart';
@@ -208,9 +209,13 @@ class NitroRuntime {
     /// Optional tag used in log messages to identify this stream.
     /// Defaults to `'Stream<$T>'`.
     String? debugLabel,
+
+    /// Inject a pre-created [ReceivePort] instead of creating one internally.
+    /// Only for unit tests — production callers should leave this null.
+    @visibleForTesting ReceivePort? testPort,
   }) {
     final label = debugLabel ?? 'Stream<$T>';
-    final receivePort = ReceivePort();
+    final receivePort = testPort ?? ReceivePort();
     final nativePort = receivePort.sendPort.nativePort;
     var released = false;
     var eventCount = 0;
