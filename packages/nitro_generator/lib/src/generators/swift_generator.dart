@@ -164,6 +164,75 @@ class SwiftGenerator {
         (en) => en.name == func.returnType.name.replaceFirst('?', ''),
       );
 
+      if (func.isNativeAsync) {
+        // @NitroNativeAsync — Task posts result via Dart_PostCObject_DL.
+        // No semaphore: the calling C thread returns immediately; Swift Task
+        // runs concurrently and posts when the async work completes.
+        final isVoidRet = func.returnType.name == 'void';
+        s.writeln('@_cdecl("_call_${func.dartName}")');
+        s.writeln('public func _call_${func.dartName}($params${params.isNotEmpty ? ", " : ""}_ dartPort: Int64) {');
+
+        // Param conversions (same as regular async)
+        for (final p in stringParams) {
+          s.writeln('    let ${p.name}Str = ${p.name}.map { String(cString: \$0) } ?? ""');
+        }
+        for (final p in typedListParams) {
+          final isData = p.type.name.startsWith('Uint8List') || p.type.name.startsWith('Int8List');
+          if (isData) {
+            s.writeln('    let ${p.name}Arr = ${p.name}.map { Data(UnsafeBufferPointer(start: \$0, count: Int(${p.name}_length))) } ?? Data()');
+          } else {
+            s.writeln('    let ${p.name}Arr = ${p.name}.map { Array(UnsafeBufferPointer(start: \$0, count: Int(${p.name}_length))) } ?? []');
+          }
+        }
+
+        s.writeln('    guard let impl = ${spec.dartClassName}Registry.impl else {');
+        s.writeln('        var _null = Dart_CObject(type: Dart_CObject_Type(rawValue: 0)!, value: Dart_CObject_Value())');
+        s.writeln('        Dart_PostCObject_DL(dartPort, &_null)');
+        s.writeln('        return');
+        s.writeln('    }');
+        s.writeln('    Task.detached {');
+        if (isVoidRet) {
+          s.writeln('        try? await impl.${func.dartName}($callArgs)');
+          s.writeln('        var _null = Dart_CObject(type: Dart_CObject_Type(rawValue: 0)!, value: Dart_CObject_Value())');
+          s.writeln('        Dart_PostCObject_DL(dartPort, &_null)');
+        } else if (func.returnType.name == 'String') {
+          s.writeln('        let _result = (try? await impl.${func.dartName}($callArgs)) ?? ""');
+          s.writeln('        _result.withCString { ptr in');
+          s.writeln('            var _obj = Dart_CObject(type: Dart_CObject_Type(rawValue: 14)!, value: Dart_CObject_Value())'); // kString = 14
+          s.writeln('            withUnsafeMutablePointer(to: &_obj.value) { _ in');
+          s.writeln('                Dart_PostCObject_DL(dartPort, &_obj)');
+          s.writeln('            }');
+          s.writeln('        }');
+        } else if (func.returnType.name == 'bool') {
+          s.writeln('        let _result = (try? await impl.${func.dartName}($callArgs)) ?? false');
+          s.writeln('        var _obj = Dart_CObject(type: Dart_CObject_Type(rawValue: 5)!, value: Dart_CObject_Value())'); // kBool = 5
+          s.writeln('        _obj.value.as_bool = _result');
+          s.writeln('        Dart_PostCObject_DL(dartPort, &_obj)');
+        } else {
+          // int / double / enum — post as kInt64 / kDouble
+          final isDouble = func.returnType.name == 'double';
+          final isEnum = spec.enums.any((e) => e.name == func.returnType.name);
+          if (isDouble) {
+            s.writeln('        let _result = (try? await impl.${func.dartName}($callArgs)) ?? 0.0');
+            s.writeln('        var _obj = Dart_CObject(type: Dart_CObject_Type(rawValue: 7)!, value: Dart_CObject_Value())'); // kDouble = 7
+            s.writeln('        _obj.value.as_double = _result');
+          } else if (isEnum) {
+            s.writeln('        let _result = (try? await impl.${func.dartName}($callArgs))?.rawValue ?? 0');
+            s.writeln('        var _obj = Dart_CObject(type: Dart_CObject_Type(rawValue: 6)!, value: Dart_CObject_Value())'); // kInt64 = 6
+            s.writeln('        _obj.value.as_int64 = Int64(_result)');
+          } else {
+            s.writeln('        let _result = (try? await impl.${func.dartName}($callArgs)) ?? 0');
+            s.writeln('        var _obj = Dart_CObject(type: Dart_CObject_Type(rawValue: 6)!, value: Dart_CObject_Value())'); // kInt64 = 6
+            s.writeln('        _obj.value.as_int64 = Int64(_result)');
+          }
+          s.writeln('        Dart_PostCObject_DL(dartPort, &_obj)');
+        }
+        s.writeln('    }');
+        s.writeln('}');
+        s.writeln();
+        continue;
+      }
+
       s.writeln('@_cdecl("_call_${func.dartName}")');
       s.writeln('public func _call_${func.dartName}($params) -> $cRetType {');
 

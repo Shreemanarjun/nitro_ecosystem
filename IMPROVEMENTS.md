@@ -21,23 +21,26 @@
 
 ## 1. Architecture
 
-### 1.1 Platform Detection Is Fragmented (`link_command.dart`)
+### 1.1 Platform Detection Is Fragmented (`link_command.dart`) ✅ Done
 
 **Problem:** Five near-identical functions (`isCppModule`, `isAppleCppModule`, `isAndroidCppModule`, `isWindowsCppModule`, `isNativeCppModule`) each run independent regex passes over annotation blocks. Order-sensitive, brittle to formatting changes, and hard to test in isolation.
 
-**Fix:** Introduce a `PlatformTargetAnalyzer` class that parses the annotation block once and exposes typed query methods.
+**Fix:** Introduced `PlatformTargetAnalyzer` with two factories (`fromSpec(File)` and `fromContent(String)`) that parse the annotation **once** and expose five typed query properties (`requiresCpp`, `supportsApple`, `supportsAndroid`, `supportsWindows`, `isNativeCpp`). The five existing top-level functions are now one-line delegations — all call sites (including `.where(isAppleCppModule)`) remain unchanged. `discoverModuleInfos` was updated to use `fromContent(content)`, eliminating two redundant file reads per spec.
 
 ```dart
-// before — scattered across 200+ lines
-bool isCppModule(String specContent) => _regex1.hasMatch(specContent);
-bool isAppleCppModule(String specContent) => _regex2.hasMatch(specContent);
+// before — each function reads + parses independently
+bool isCppModule(File f) { /* 8-line regex */ }
+bool isAppleCppModule(File f) { /* 8-line regex */ }
 
-// after — single-parse, cohesive API
-final analyzer = PlatformTargetAnalyzer.fromSpec(specContent);
-analyzer.requiresCpp;          // bool
-analyzer.supportsApple;        // bool
-analyzer.targetedPlatforms;   // Set<NativePlatform>
+// after — single parse, cohesive API
+final analyzer = PlatformTargetAnalyzer.fromSpec(specFile);
+analyzer.requiresCpp;     // bool
+analyzer.supportsApple;   // bool
+analyzer.isNativeCpp;     // bool
+// top-level functions still exist as one-liners for backward compat
 ```
+
+**119/119 existing tests pass.**
 
 ---
 
@@ -57,25 +60,45 @@ analyzer.targetedPlatforms;   // Set<NativePlatform>
 
 ---
 
-### 1.4 Isolate Pool Double-Hop for Native-Async Methods
+### 1.4 Isolate Pool Double-Hop for Native-Async Methods ✅ Done
 
 **Problem:** Every `@nitroAsync` call crosses two isolate-message boundaries (dispatch → result), even for methods that are already natively asynchronous and could post results directly via `Dart_PostCObject`.
 
-**Fix:** Already tracked in `IMPROVEMENT_PLAN.md`. Annotate native-async methods with `@NitroNativeAsync` so the generator emits direct `Dart_PostCObject` paths, cutting async overhead from ~930 µs to ~146 µs (per CHANGELOG).
+**Fix:** Implemented the full `@NitroNativeAsync` pipeline across 8 files:
+
+- **`nitro_annotations`** — Added `const nitroNativeAsync = NitroNativeAsync()` annotation class.
+- **`bridge_spec.dart`** — Added `isNativeAsync` field to `BridgeFunction`; mutually exclusive with `isAsync`.
+- **`spec_extractor.dart`** — Detects `@NitroNativeAsync`, validates mutual exclusion with `@NitroAsync`.
+- **`NitroRuntime.openNativeAsync<T>`** — New zero-hop Future helper: opens a `ReceivePort`, calls the bridge with the native port ID, awaits exactly one message, unpacks. No Dart isolate spawned.
+- **`dart_ffi_generator.dart`** — For `isNativeAsync` methods: emits a `void Function(params, int)` pointer (extra `Int64 dart_port`), `Future<T>` method body calling `openNativeAsync`, correct unpack lambdas per return type, arena allocation/release for String/TypedData params.
+- **`cpp_bridge_generator.dart`** — For `isNativeAsync` (direct C++ path): `void`-returning wrapper with `int64_t dart_port` param, posts `kNull` if no impl (no error slot), delegates to `g_impl->method(params, dart_port)`.
+- **`cpp_interface_generator.dart`** — `@NitroNativeAsync` methods generate `virtual void method(params, int64_t dartPort) = 0`.
+- **`swift_generator.dart`** — Emits `Task.detached { ... Dart_PostCObject_DL(dartPort, &obj) }` — no `DispatchSemaphore`, no thread blocking.
+- **`kotlin_generator.dart`** — Emits `_asyncExecutor.execute { runBlocking { ... }; postXxxToPort(dartPort, result) }` — non-blocking coroutine dispatch; `suspend fun` in interface; `postXxxToPort` external JNI stubs only when needed.
+
+**Performance:** ~930 µs (`@nitroAsync`) → ~146 µs (`@NitroNativeAsync`) per call when the native side is already asynchronous. Zero breaking changes — `@nitroAsync` is unchanged; `@NitroNativeAsync` is opt-in.
+
+**56 new tests** in `packages/nitro_generator/test/native_async_test.dart` covering all 5 generators and all return types (int, double, bool, String, void). **229/229 tests pass** across all affected test files.
 
 ---
 
 ## 2. Code Quality & Duplication
 
-### 2.1 `ZeroCopyBuffer` Has 8 Identical Classes (`ffi_utils.dart`)
+### 2.1 `ZeroCopyBuffer` Has 8 Identical Classes (`ffi_utils.dart`) ✅ Done
 
 **Problem:** `Float32ZeroCopyBuffer`, `Int32ZeroCopyBuffer`, etc. are structurally identical: constructor, `Pointer` field, `length`, typed getter, `NativeFinalizer`. Maintaining 8 copies means 8 places to update when the pattern changes.
 
-**Fix:** Extract a generic `ZeroCopyBuffer<T extends TypedData>` base class with shared finalizer logic. Each concrete class becomes a one-liner factory.
+**Fix:** Lifted the shared `static final _finalizer` and `_releaseFinalizerToken()` logic into `_ZeroCopyBufferBase`. The base constructor now takes `(bool hasValidPtr, nativeRelease)` and does the `_finalizer.attach` directly. Each of the 8 subclasses lost its own `_finalizer`, `_releaseFinalizerToken()` override, and manual `attach` call — replaced by a single initializer-list constructor delegation (`super(ptr != nullptr, nativeRelease)`). The abstract `_releaseFinalizerToken()` method was removed entirely.
 
 ```dart
-// current: 8 × ~30 LOC = 240 LOC of duplication
-// target: 1 base class + 8 two-line subclasses
+// before: 8 × (finalizer + override + attach) = ~32 lines of pure duplication
+static final Finalizer<void Function()> _finalizer = Finalizer((r) => r());
+ZeroCopyBuffer(...) : super(nativeRelease) { if (ptr != nullptr) _finalizer.attach(...); }
+@override void _releaseFinalizerToken() => _finalizer.detach(this);
+
+// after: one shared finalizer in base, each subclass is constructor + getter only
+ZeroCopyBuffer(this.ptr, this.length, void Function() nativeRelease)
+    : super(ptr != nullptr, nativeRelease);
 ```
 
 ---
@@ -169,11 +192,18 @@ JSON parse errors during spec extraction are silently discarded. The caller rece
 
 ---
 
-### 4.3 Minimal `@NitroStream` Tests
+### 4.3 Minimal `@NitroStream` Tests ✅ Done
 
-**Problem:** Streams are a core feature but only 2-3 tests cover them. Event ordering, backpressure, and cancellation under concurrent emission are not tested.
+**Problem:** Streams are a core feature but only 2-3 generator-level tests covered them. Runtime behavior — event ordering, backpressure, cancellation under concurrent emission — was entirely untested.
 
-**Fix:** Add dedicated stream tests: single subscriber, multi-subscriber, cancel-before-first-event, high-frequency emission.
+**Fix:** Added `@visibleForTesting ReceivePort? testPort` to `NitroRuntime.openStream` (injected only by tests; production callers leave it null). Created `packages/nitro/test/nitro_stream_test.dart` with **14 runtime tests** across 4 groups:
+
+- **Lazy registration** — `register` not called before subscribe; called exactly once on first listener; called with the correct native port
+- **Cancellation lifecycle** — `release` not called pre-cancel; called on cancel; idempotent on double-cancel; cancel-before-first-event works cleanly
+- **Single-subscriber contract** — second `listen()` throws `StateError`; re-listen after cancel throws `StateError`
+- **Event delivery** — ordered receipt; high-frequency (1 000 events without loss); cancel mid-emission does not throw; `unpack` exception forwarded as stream error; stream continues after unpack error
+
+**14/14 new tests pass; all 21 existing nitro package tests continue to pass.**
 
 ---
 
@@ -337,20 +367,21 @@ JSON parse errors during spec extraction are silently discarded. The caller rece
 
 ## 10. Priority Matrix
 
-| # | Item | Impact | Effort | Do First? |
+| # | Item | Impact | Effort | Status |
 |---|---|---|---|---|
 | 1 | WASM: emit error instead of silently succeeding | High | Low | ✅ Yes |
 | 2 | Fix silent `catch (_) {}` in spec extractor | High | Low | ✅ Yes |
 | 3 | Fix empty catch in link command | High | Low | ✅ Yes |
-| 4 | `PlatformTargetAnalyzer` refactor | High | Medium | ✅ Yes |
+| 4 | `PlatformTargetAnalyzer` refactor | High | Medium | ✅ **Done** |
 | 5 | Centralise hardcoded platform versions | High | Low | ✅ Yes |
-| 6 | Integration test suite | High | High | Next sprint |
-| 7 | Isolate pool `@NitroNativeAsync` optimization | High | High | Next sprint |
-| 8 | Windows / Linux CI build jobs | Medium | Medium | Next sprint |
-| 9 | `ZeroCopyBuffer` generic base class | Medium | Low | Next sprint |
-| 10 | Template files extracted from Dart strings | Medium | Medium | Backlog |
-| 11 | Migration guide (0.2 → 0.3) | Medium | Low | Backlog |
-| 12 | `isLeaf: true` in generated bindings | Medium | Medium | Backlog |
-| 13 | WASM code generator | High | Very High | Backlog |
-| 14 | Transactional link step with rollback | Low | High | Backlog |
-| 15 | DevTools FFI timeline events | Low | High | Backlog |
+| 6 | `ZeroCopyBuffer` shared finalizer in base | Medium | Low | ✅ **Done** |
+| 7 | `@NitroStream` runtime test suite (14 tests) | High | Low | ✅ **Done** |
+| 8 | Integration test suite | High | High | Next sprint |
+| 9 | `@NitroNativeAsync` zero-hop async path | High | High | ✅ **Done** |
+| 10 | Windows / Linux CI build jobs | Medium | Medium | Next sprint |
+| 11 | Template files extracted from Dart strings | Medium | Medium | Backlog |
+| 12 | Migration guide (0.2 → 0.3) | Medium | Low | Backlog |
+| 13 | `isLeaf: true` in generated bindings | Medium | Medium | Backlog |
+| 14 | WASM code generator | High | Very High | Backlog |
+| 15 | Transactional link step with rollback | Low | High | Backlog |
+| 16 | DevTools FFI timeline events | Low | High | Backlog |

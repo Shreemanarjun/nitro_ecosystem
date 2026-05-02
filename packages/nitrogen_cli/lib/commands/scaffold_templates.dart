@@ -3,6 +3,7 @@
 /// Every file that `nitrogen init` writes is defined here as a named function.
 /// This keeps [init_command.dart] focused on logic and makes templates easy
 /// to find, review, and update independently.
+library;
 
 // ── C / C++ / CMake templates ─────────────────────────────────────────────────
 

@@ -158,6 +158,56 @@ class CppBridgeGenerator {
 
     // ── Methods ──────────────────────────────────────────────────────────────
     for (final func in spec.functions) {
+      if (func.isNativeAsync) {
+        // ── @NitroNativeAsync — void wrapper with dart_port param ────────────
+        // The C function returns void and delegates to the impl, passing the
+        // Dart port so the impl can post the result via Dart_PostCObject_DL.
+        // No error slot is used — implementations must post errors via the port.
+        final paramParts = <String>[];
+        for (final p in func.params) {
+          final isStructParam = structNames.contains(p.type.name.replaceFirst('?', ''));
+          final isRecordParam = recordNames.contains(p.type.name.replaceFirst('?', ''));
+          paramParts.add('${(isStructParam || isRecordParam) ? 'void*' : _typeToC(p.type.name)} ${p.name}');
+          if (p.type.isTypedData) paramParts.add('int64_t ${p.name}_length');
+        }
+        paramParts.add('int64_t dart_port');
+        final paramsDecl = paramParts.join(', ');
+
+        // Build C++ call args (same conversion logic as regular methods)
+        final callArgs = <String>[];
+        for (final p in func.params) {
+          final base = p.type.name.replaceFirst('?', '');
+          if (base == 'String') {
+            callArgs.add('std::string(${p.name})');
+          } else if (structNames.contains(base)) {
+            callArgs.add('*static_cast<const $base*>(${p.name})');
+          } else if (recordNames.contains(base)) {
+            callArgs.add('NitroCppBuffer{ (const uint8_t*)${p.name} + 4, (size_t)*(int32_t*)${p.name} }');
+          } else if (p.type.isTypedData) {
+            callArgs.add(p.name);
+            callArgs.add('static_cast<size_t>(${p.name}_length)');
+          } else if (enumNames.contains(base)) {
+            callArgs.add('static_cast<$base>(${p.name})');
+          } else {
+            callArgs.add(p.name);
+          }
+        }
+        callArgs.add('dart_port');
+        final callArgStr = callArgs.join(', ');
+
+        s.writeln('void ${func.cSymbol}($paramsDecl) {');
+        s.writeln('    if (!g_impl) {');
+        s.writeln('        Dart_CObject _err = { Dart_CObject_kNull };');
+        s.writeln('        Dart_PostCObject_DL(dart_port, &_err);');
+        s.writeln('        return;');
+        s.writeln('    }');
+        s.writeln('    g_impl->${func.dartName}($callArgStr);');
+        s.writeln('}');
+        s.writeln();
+        continue;
+      }
+
+      // ── Regular (sync or @nitroAsync) method ─────────────────────────────
       final isEnumRet = enumNames.contains(func.returnType.name.replaceFirst('?', ''));
       final isStructRet = structNames.contains(func.returnType.name.replaceFirst('?', ''));
       final isRecordRet = recordNames.contains(func.returnType.name.replaceFirst('?', ''));

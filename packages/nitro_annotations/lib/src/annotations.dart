@@ -232,6 +232,21 @@ class NitroAsync {
   const NitroAsync();
 }
 
+// Makes a method use the zero-hop native-async path. Return type must be Future<T>.
+//
+// Unlike @nitroAsync, no Dart isolate is ever spawned. Instead, Dart opens a
+// ReceivePort and passes its native port ID to the C/Swift/Kotlin bridge. The
+// native implementation runs its own async work (coroutine, Task, thread pool)
+// and calls Dart_PostCObject_DL when done.
+//
+// Cut async overhead from ~930 µs (@nitroAsync) to ~146 µs.
+// Cannot be combined with @nitroAsync on the same method.
+const nitroNativeAsync = NitroNativeAsync();
+
+class NitroNativeAsync {
+  const NitroNativeAsync();
+}
+
 // Makes a getter a native stream via SendPort dispatch.
 // Only valid on abstract getters returning Stream<T>.
 class NitroStream {

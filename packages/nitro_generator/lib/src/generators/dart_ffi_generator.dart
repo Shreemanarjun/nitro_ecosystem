@@ -144,9 +144,6 @@ class DartFfiGenerator {
 
     // ── Method implementations ───────────────────────────────────────────────
     for (final func in spec.functions) {
-      final returnType = func.isAsync ? 'Future<${func.returnType.name}>' : func.returnType.name;
-      final asyncMod = func.isAsync ? 'async ' : '';
-
       final needsArena = func.params.any(
         (p) => p.type.isTypedData || p.type.name == 'String' || p.type.isRecord || spec.structs.any((st) => st.name == p.type.name),
       );
@@ -177,6 +174,13 @@ class DartFfiGenerator {
           })
           .join(', ');
 
+      // For NativeAsync, the return type annotation is Future<T> but asyncMod is
+    // left empty (no `async` keyword) — the method returns an already-Future.
+      final returnType = (func.isAsync || func.isNativeAsync)
+          ? 'Future<${func.returnType.name}>'
+          : func.returnType.name;
+      final asyncMod = func.isAsync ? 'async ' : '';
+
       s.writeln('  @override');
       s.writeln(
         '  $returnType ${func.dartName}(${_paramList(func.params)}) $asyncMod{',
@@ -187,7 +191,9 @@ class DartFfiGenerator {
       final rt = func.returnType.name;
       final isRecordReturn = func.returnType.isRecord;
 
-      if (func.isAsync) {
+      if (func.isNativeAsync) {
+        _emitNativeAsyncBody(s, func, spec, callArgs, needsArena);
+      } else if (func.isAsync) {
         final isStructReturn = spec.structs.any((st) => st.name == rt);
         final isEnumReturn = spec.enums.any((en) => en.name == rt);
         final plainCallArgs = func.params.map((p) => p.name).join(', ');
@@ -520,24 +526,28 @@ class DartFfiGenerator {
   static String _cap(String name) => name[0].toUpperCase() + name.substring(1);
 
   static String _toNativeType(BridgeFunction func, BridgeSpec spec) {
-    final ret = _typeToFFI(func.returnType, spec);
-    final params = func.params
-        .expand((p) {
-          if (p.type.isTypedData) return [_typeToFFI(p.type, spec), 'Int64'];
-          return [_typeToFFI(p.type, spec)];
-        })
-        .join(', ');
+    // NativeAsync: C function returns void and takes an extra Int64 dart_port.
+    final ret = func.isNativeAsync ? 'Void' : _typeToFFI(func.returnType, spec);
+    final params = [
+      ...func.params.expand((p) {
+        if (p.type.isTypedData) return [_typeToFFI(p.type, spec), 'Int64'];
+        return [_typeToFFI(p.type, spec)];
+      }),
+      if (func.isNativeAsync) 'Int64', // dart_port
+    ].join(', ');
     return '$ret Function($params)';
   }
 
   static String _toDartType(BridgeFunction func, BridgeSpec spec) {
-    final ret = _typeToDartFFI(func.returnType, spec);
-    final params = func.params
-        .expand((p) {
-          if (p.type.isTypedData) return [_typeToDartFFI(p.type, spec), 'int'];
-          return [_typeToDartFFI(p.type, spec)];
-        })
-        .join(', ');
+    // NativeAsync: Dart callable returns void and takes an extra int dart_port.
+    final ret = func.isNativeAsync ? 'void' : _typeToDartFFI(func.returnType, spec);
+    final params = [
+      ...func.params.expand((p) {
+        if (p.type.isTypedData) return [_typeToDartFFI(p.type, spec), 'int'];
+        return [_typeToDartFFI(p.type, spec)];
+      }),
+      if (func.isNativeAsync) 'int', // dart_port
+    ].join(', ');
     return '$ret Function($params)';
   }
 
@@ -690,6 +700,98 @@ class DartFfiGenerator {
     return '$varName.toNative($allocator)';
   }
 
+  // ── NativeAsync helpers ───────────────────────────────────────────────────
+
+  /// Emits the body of a @NitroNativeAsync method.
+  ///
+  /// The generated code:
+  ///  1. Opens a ReceivePort and passes its native port to the C bridge.
+  ///  2. Awaits exactly one message (the native result).
+  ///  3. Unpacks the raw message to the Dart return type.
+  ///
+  /// Arena params (String, TypedData, Record) are allocated, passed to the
+  /// bridge call, then immediately freed — the native side must copy them.
+  static void _emitNativeAsyncBody(
+    StringBuffer s,
+    BridgeFunction func,
+    BridgeSpec spec,
+    String callArgs,
+    bool needsArena,
+  ) {
+    final unpack = _nativeAsyncUnpack(func, spec);
+    final openType = _nativeAsyncOpenType(func, spec);
+
+    if (needsArena) {
+      s.writeln('    final arena = Arena();');
+      s.writeln('    try {');
+      s.writeln('      return NitroRuntime.openNativeAsync<$openType>(');
+      s.writeln('        call: (port) => _${func.dartName}Ptr($callArgs, port),');
+      s.writeln('        unpack: $unpack,');
+      s.writeln('      );');
+      s.writeln('    } finally {');
+      s.writeln('      arena.releaseAll();');
+      s.writeln('    }');
+    } else {
+      final plainCallArgs = func.params.map((p) {
+        if (spec.enums.any((en) => en.name == p.type.name)) return '${p.name}.nativeValue';
+        if (p.type.name == 'bool') return '${p.name} ? 1 : 0';
+        return p.name;
+      }).join(', ');
+      final portSep = plainCallArgs.isEmpty ? '' : ', ';
+      s.writeln('    return NitroRuntime.openNativeAsync<$openType>(');
+      s.writeln('      call: (port) => _${func.dartName}Ptr($plainCallArgs${portSep}port),');
+      s.writeln('      unpack: $unpack,');
+      s.writeln('    );');
+    }
+  }
+
+  /// The Dart type parameter for openNativeAsync`<T>` for this function.
+  static String _nativeAsyncOpenType(BridgeFunction func, BridgeSpec spec) {
+    final rt = func.returnType.name;
+    if (rt == 'void') return 'void';
+    if (rt == 'bool') return 'bool';
+    if (rt == 'String') return 'String';
+    if (func.returnType.isRecord) return rt;
+    if (spec.structs.any((st) => st.name == rt)) return rt;
+    if (spec.enums.any((en) => en.name == rt)) return rt;
+    return rt; // int, double, ...
+  }
+
+  /// Returns the unpack lambda expression for a @NitroNativeAsync method.
+  ///
+  /// The native side posts via Dart_PostCObject_DL:
+  ///  • primitives (int/double) → kInt64/kDouble → received as int/double
+  ///  • bool                   → kBool          → received as bool
+  ///  • void                   → kNull           → received as null
+  ///  • String                 → kString         → received as Dart String
+  ///  • record/struct/list     → kInt64 (ptr)    → decode from Pointer`<Uint8>`
+  ///  • enum                   → kInt64          → call .toEnumType()
+  static String _nativeAsyncUnpack(BridgeFunction func, BridgeSpec spec) {
+    final rt = func.returnType.name;
+    if (rt == 'void') return '(_) {}';
+    if (rt == 'bool') return '(raw) => raw as bool';
+    if (rt == 'String') return '(raw) => raw as String';
+    if (func.returnType.isRecord) {
+      // Native posts kInt64 (pointer to binary-encoded record bytes).
+      final decodeExpr = _decodeRecordExpr(func.returnType, 'rawPtr');
+      final isLazy = func.returnType.recordListItemType != null &&
+          !func.returnType.recordListItemIsPrimitive;
+      if (isLazy) {
+        return '(raw) { final rawPtr = Pointer<Uint8>.fromAddress(raw as int); return $decodeExpr; }';
+      }
+      return '(raw) { final rawPtr = Pointer<Uint8>.fromAddress(raw as int); try { return $decodeExpr; } finally { malloc.free(rawPtr); } }';
+    }
+    if (spec.structs.any((st) => st.name == rt)) {
+      // Native posts kInt64 (pointer to heap-allocated struct).
+      return '(raw) { final ptr = Pointer<${rt}Ffi>.fromAddress(raw as int); try { return ptr.ref.toDart(); } finally { ptr.ref.freeFields(); malloc.free(ptr); } }';
+    }
+    if (spec.enums.any((en) => en.name == rt)) {
+      return '(raw) => (raw as int).to$rt()';
+    }
+    // int, double — native posts kInt64/kDouble.
+    return '(raw) => raw as $rt';
+  }
+
   // ── Leaf / isLeaf helpers ─────────────────────────────────────────────────
 
   /// Returns true when [bt] maps to a plain FFI scalar (int, double, bool, or
@@ -715,7 +817,7 @@ class DartFfiGenerator {
   ///  • Explicitly named "Fast" — a developer contract that the method is hot.
   ///  • OR all params and the return type are plain scalars (no arena needed).
   static bool _isLeafCandidate(BridgeFunction func, BridgeSpec spec) {
-    if (func.isAsync) return false;
+    if (func.isAsync || func.isNativeAsync) return false;
     if (func.dartName.endsWith('Fast')) return true;
     final rt = func.returnType;
     if (!_isPrimitiveType(rt, spec) && rt.name != 'void') return false;

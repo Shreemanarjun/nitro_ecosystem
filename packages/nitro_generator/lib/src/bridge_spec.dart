@@ -200,6 +200,13 @@ class BridgeFunction {
   final String dartName;
   final String cSymbol;
   final bool isAsync;
+
+  /// True when the method is annotated with @NitroNativeAsync.
+  ///
+  /// Mutually exclusive with [isAsync]: the native side posts the result
+  /// directly via Dart_PostCObject_DL — no Dart isolate is ever spawned.
+  final bool isNativeAsync;
+
   final BridgeType returnType;
   final List<BridgeParam> params;
 
@@ -207,6 +214,7 @@ class BridgeFunction {
     required this.dartName,
     required this.cSymbol,
     required this.isAsync,
+    this.isNativeAsync = false,
     required this.returnType,
     required this.params,
   });

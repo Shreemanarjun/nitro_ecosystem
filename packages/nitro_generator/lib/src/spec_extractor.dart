@@ -294,14 +294,24 @@ class SpecExtractor {
     Set<String> recordTypeNames,
   ) {
     const asyncChecker = TypeChecker.fromRuntime(NitroAsync);
+    const nativeAsyncChecker = TypeChecker.fromRuntime(NitroNativeAsync);
     const zeroCopyChecker = TypeChecker.fromRuntime(ZeroCopy);
 
     // Skip abstract getters annotated with @NitroStream or abstract getters/setters
     return element.methods.where((m) => m.isAbstract).map((m) {
       final isAsync = asyncChecker.hasAnnotationOf(m);
+      final isNativeAsync = nativeAsyncChecker.hasAnnotationOf(m);
+
+      if (isAsync && isNativeAsync) {
+        throw InvalidGenerationSourceError(
+          '@NitroAsync and @NitroNativeAsync cannot both be applied to "${m.name}". '
+          'Use @NitroNativeAsync when the native implementation posts the result '
+          'directly via Dart_PostCObject_DL.',
+        );
+      }
 
       DartType returnDartType = m.returnType;
-      if (isAsync && returnDartType.isDartAsyncFuture) {
+      if ((isAsync || isNativeAsync) && returnDartType.isDartAsyncFuture) {
         final it = returnDartType as InterfaceType;
         if (it.typeArguments.isNotEmpty) returnDartType = it.typeArguments.first;
       }
@@ -310,10 +320,11 @@ class SpecExtractor {
         dartName: m.name,
         cSymbol: '${ns}_${_toSnakeCase(m.name)}',
         isAsync: isAsync,
+        isNativeAsync: isNativeAsync,
         returnType: _makeBridgeType(
           returnDartType,
           recordTypeNames,
-          isFuture: isAsync,
+          isFuture: isAsync || isNativeAsync,
         ),
         params: m.parameters.map((p) {
           return BridgeParam(

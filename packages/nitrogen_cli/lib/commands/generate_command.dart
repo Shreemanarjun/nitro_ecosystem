@@ -1,6 +1,9 @@
 import 'dart:io';
+
 import 'package:args/command_runner.dart';
 import 'package:path/path.dart' as p;
+
+import '../ui.dart';
 import 'link_command.dart'
     show
         cleanRedundantIncludes,
@@ -23,10 +26,7 @@ import 'link_command.dart'
         linkLinux,
         linkClangd,
         isAppleCppModule,
-        isNativeCppModule,
         isAndroidCppModule;
-import '../ui.dart';
-import '../utils.dart';
 
 class GenerateCommand extends Command {
   @override
@@ -228,7 +228,7 @@ class GenerateCommand extends Command {
 
     for (final platform in ['ios', 'macos']) {
       for (final prefix in ['', 'example/']) {
-        final classesDir = Directory(p.join(projectRoot, '${prefix}$platform', 'Classes'));
+        final classesDir = Directory(p.join(projectRoot, '$prefix$platform', 'Classes'));
         if (!classesDir.existsSync()) continue;
 
         // Copy each bridge file into Classes/.
@@ -238,7 +238,7 @@ class GenerateCommand extends Command {
 
         // Ensure the podspec does NOT have the outer ../lib/src/generated/swift glob
         // (that would cause duplicate-symbol errors since the file is now in Classes/).
-        final podspecFile = File(p.join(projectRoot, '${prefix}$platform', '$pluginName.podspec'));
+        final podspecFile = File(p.join(projectRoot, '$prefix$platform', '$pluginName.podspec'));
         if (podspecFile.existsSync()) {
           var spec = podspecFile.readAsStringSync();
           final fixed = spec

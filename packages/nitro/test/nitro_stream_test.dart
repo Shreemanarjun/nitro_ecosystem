@@ -5,6 +5,9 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:nitro/nitro.dart';
 
 void main() {
+  setUpAll(() => NitroConfig.instance.disable());
+  tearDownAll(() => NitroConfig.instance.reset());
+
   // ── Lazy registration ─────────────────────────────────────────────────────
 
   group('NitroRuntime.openStream — lazy registration', () {

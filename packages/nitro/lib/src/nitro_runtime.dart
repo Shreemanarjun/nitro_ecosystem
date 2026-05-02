@@ -177,6 +177,30 @@ class NitroRuntime {
     return result;
   }
 
+  // ── Native-async (zero-hop) ──────────────────────────────────────────────
+
+  /// Opens a single-use [ReceivePort], hands its native port ID to [call] so
+  /// the native implementation can post the result via `Dart_PostCObject_DL`,
+  /// then waits for exactly one message and converts it with [unpack].
+  ///
+  /// This eliminates the isolate-message double-hop that [callAsync] incurs:
+  /// no Dart isolate is ever spawned, cutting per-call overhead
+  /// when the native side is already asynchronous (Kotlin coroutine,
+  /// Swift `async`, C++ thread pool).
+  ///
+  /// The native side **must** post exactly one message to the port.
+  static Future<T> openNativeAsync<T>({
+    required void Function(int dartPort) call,
+    required T Function(dynamic raw) unpack,
+  }) {
+    final port = ReceivePort();
+    call(port.sendPort.nativePort);
+    return port.first.then((raw) {
+      port.close();
+      return unpack(raw);
+    });
+  }
+
   // ── Stream ───────────────────────────────────────────────────────────────
 
   /// Opens a high-performance stream from a native event source.
