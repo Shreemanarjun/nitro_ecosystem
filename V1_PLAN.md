@@ -127,6 +127,25 @@
 | G15 | Fix empty catch in `link_command.dart` Nitro-native path resolution | 🔴 High | ⬜ Pending |
 | G16 | Centralise hardcoded platform versions (`swift-tools: 5.9`, `ndkVersion 34`, etc.) | 🟡 Medium | ⬜ Pending |
 
+### Native Handle (Raw Pointer Escape Hatch)
+
+> Allows users to receive or pass raw native pointers and do their own type conversion without going through any generated codec.
+
+| ID | Item | Priority | Status |
+|----|------|----------|--------|
+| NH1 | `NativeHandle<T>` runtime class (`packages/nitro/lib/src/native_handle.dart`) | 🔴 High | ⬜ Pending |
+| NH2 | `@NitroOwned` annotation — auto-attach `NativeFinalizer` + emit `_release` extern | 🔴 High | ⬜ Pending |
+| NH3 | `BridgeType.isNativeHandle` + `nativeHandleTypeParam` in `bridge_spec.dart` | 🔴 High | ⬜ Pending |
+| NH4 | `SpecExtractor`: detect `NativeHandle<T>` return/param types + `@NitroOwned` | 🔴 High | ⬜ Pending |
+| NH5 | `SpecValidator`: `@NitroOwned` only on `NativeHandle` return types (not params) | 🟡 Medium | ⬜ Pending |
+| NH6 | `dart_ffi_generator`: `Pointer<Void>` in FFI lookup, wrap/unwrap `NativeHandle<T>` at call site; `@NitroOwned` emits `NativeFinalizer` attachment | 🔴 High | ⬜ Pending |
+| NH7 | `kotlin_generator`: `NativeHandle` → `Long` in JNI interface + bridge | 🔴 High | ⬜ Pending |
+| NH8 | `swift_generator`: `NativeHandle` → `UnsafeMutableRawPointer?` in protocol + C bridge | 🔴 High | ⬜ Pending |
+| NH9 | `cpp_bridge_generator`: `NativeHandle` → `void*` pass-through, no codec; `@NitroOwned` emits `extern "C" void ${sym}_release(void*)` declaration | 🔴 High | ⬜ Pending |
+| NH10 | `cpp_interface_generator`: `NativeHandle` → `void*` in abstract method signature | 🔴 High | ⬜ Pending |
+| NH11 | Unit tests: `native_handle_test.dart` — all generators, `@NitroOwned` wiring, no-codec pass-through | 🟡 Medium | ⬜ Pending |
+| NH12 | Docs: `doc/advanced/native_handle.md` — usage guide, lifetime rules, cast patterns | 🟡 Medium | ⬜ Pending |
+
 ### Developer Experience
 
 | ID | Item | Priority | Status |
@@ -522,7 +541,155 @@ Replace silent fall-through in generated `_init()` with a named `assert(Platform
 
 ---
 
-## 8. Test Coverage
+## 8. `NativeHandle<T>` — Raw Pointer Escape Hatch
+
+### Problem
+
+`Pointer<T>` is recognized in `BridgeType` and the Dart FFI generator but Kotlin and Swift generators have **no handling** for `isPointer` — raw pointer types silently break across JNI/Swift. There is also no lifetime wrapper; returned pointers have no `NativeFinalizer` attached. Users who need raw access to a native object (e.g. an opaque camera handle, a GPU buffer pointer, a C++ object created and owned by native) have no clean path — they must fight the codec and manage lifetimes manually.
+
+### Solution: `NativeHandle<T>` + `@NitroOwned`
+
+**`NativeHandle<T>`** is a new first-class type in the `nitro` runtime. The type parameter `T extends NativeType` is a Dart-side hint only (no runtime constraint); the wire format is always a raw `int64` pointer address.
+
+```dart
+// packages/nitro/lib/src/native_handle.dart
+
+class NativeHandle<T extends NativeType> {
+  final Pointer<T> pointer;
+  int get address => pointer.address;
+
+  const NativeHandle(this.pointer);
+  NativeHandle.fromAddress(int addr) : pointer = Pointer<T>.fromAddress(addr);
+
+  // Manual early release — only meaningful when @NitroOwned attaches a finalizer.
+  void release() => _releaseCallback?.call(address);
+
+  // Internal — set by generated code when @NitroOwned is present.
+  void Function(int)? _releaseCallback;
+}
+```
+
+**`@NitroOwned`** is a new annotation in `nitro_annotations`. It marks that the native side heap-allocates the returned handle and the generator should:
+1. Emit `extern "C" void ${cSymbol}_release(void* handle)` in the C++ header.
+2. Attach a `NativeFinalizer` on the Dart side that calls `${cSymbol}_release` when the `NativeHandle` is GC'd.
+3. Wire the `_releaseCallback` so `handle.release()` triggers early free.
+
+```dart
+// packages/nitro_annotations/lib/src/annotations.dart
+const nitroOwned = NitroOwned();
+class NitroOwned { const NitroOwned(); }
+```
+
+### Spec usage
+
+```dart
+@NitroModule(ios: NativeImpl.swift, android: NativeImpl.kotlin)
+abstract class Camera extends HybridObject {
+  // Borrow — caller does NOT own; handle is valid only for this call.
+  NativeHandle<Void> peekLatestFrame();
+
+  // Own — native heap-allocates; Dart NativeFinalizer calls _release on GC.
+  @NitroOwned
+  NativeHandle<Void> acquireFrame();
+
+  // Pass handle back to native — no codec, pure pointer pass-through.
+  void processFrame(NativeHandle<Void> handle);
+
+  // Type-hinted variant — T is documentation only, no runtime difference.
+  @NitroOwned
+  NativeHandle<CameraFrameNative> acquireTypedFrame();
+}
+```
+
+User then does their own conversion on the Dart side:
+```dart
+final handle = cam.acquireFrame();                         // NativeHandle<Void>
+final framePtr = handle.pointer.cast<CameraFrameNative>(); // Pointer<CameraFrameNative>
+final frame = framePtr.ref;                                // CameraFrameNative (Dart NativeStruct)
+handle.release();                                          // early free; or let GC do it
+```
+
+### Cross-platform generator output
+
+| Platform | Param type | Return type | Notes |
+|----------|-----------|-------------|-------|
+| C++ interface | `void*` | `void*` | Pure pass-through; no codec touched |
+| C++ bridge | `void*` | `void*` | `@NitroOwned`: also emits `void ${sym}_release(void*)` extern decl |
+| Kotlin (JNI) | `Long` | `Long` | Pointer address cast to `Long`; JNI sig `J` |
+| Swift | `UnsafeMutableRawPointer?` | `UnsafeMutableRawPointer?` | `@_cdecl` bridge uses same type |
+| Dart FFI lookup | `Pointer<Void>` | `Pointer<Void>` | Unwrapped to `int`/rewrapped to `NativeHandle<T>` at call site |
+
+### `@NitroOwned` generated wiring (Dart FFI side)
+
+```dart
+// Generated for: @NitroOwned NativeHandle<Void> acquireFrame()
+static final _acquireFrameReleasePtr =
+    _dylib.lookup<NativeFunction<Void Function(Pointer<Void>)>>('camera_acquire_frame_release');
+static final _acquireFrameFinalizer =
+    NativeFinalizer(_acquireFrameReleasePtr.cast());
+
+NativeHandle<Void> acquireFrame() {
+  checkDisposed();
+  final raw = _acquireFramePtr();
+  NitroRuntime.checkError(_getErrorPtr, _clearErrorPtr);
+  final handle = NativeHandle<Void>.fromAddress(raw.address);
+  _acquireFrameFinalizer.attach(handle, raw.cast(), detach: handle);
+  handle._releaseCallback = (addr) {
+    _acquireFrameReleasePtr.asFunction<void Function(Pointer<Void>)>()(
+        Pointer<Void>.fromAddress(addr));
+    _acquireFrameFinalizer.detach(handle);
+  };
+  return handle;
+}
+```
+
+### `@NitroOwned` C++ header output
+
+```cpp
+// Generated in camera.native.g.h alongside the abstract interface:
+
+/// Release a handle acquired from acquireFrame().
+/// Called automatically by Dart's NativeFinalizer; also callable manually.
+extern "C" NITRO_EXPORT void camera_acquire_frame_release(void* handle);
+```
+
+The user implements it in their `.cpp` file:
+```cpp
+void camera_acquire_frame_release(void* handle) {
+    delete static_cast<CameraFrame*>(handle);
+}
+```
+
+### `SpecValidator` rules
+
+```
+ERROR   @NitroOwned on a void return type — nothing to release
+ERROR   @NitroOwned on a non-NativeHandle return type — use @NitroOwned only with NativeHandle<T>
+ERROR   @NitroOwned on a parameter — ownership annotation only applies to return values
+WARNING NativeHandle<T> param with no matching @NitroOwned return — consider documenting borrow contract
+```
+
+### File changes
+
+| File | Change |
+|------|--------|
+| `packages/nitro/lib/src/native_handle.dart` | **New** — `NativeHandle<T>` class |
+| `packages/nitro/lib/nitro.dart` | Export `native_handle.dart` |
+| `packages/nitro_annotations/lib/src/annotations.dart` | Add `@NitroOwned` |
+| `packages/nitro_generator/lib/src/bridge_spec.dart` | `BridgeType.isNativeHandle`, `nativeHandleTypeParam`; `BridgeFunction.isOwned` |
+| `packages/nitro_generator/lib/src/spec_extractor.dart` | Detect `NativeHandle<T>` + `@NitroOwned` |
+| `packages/nitro_generator/lib/src/spec_validator.dart` | `@NitroOwned` validation rules |
+| `packages/nitro_generator/lib/src/generators/dart_ffi_generator.dart` | Wrap/unwrap `NativeHandle<T>`; `@NitroOwned` finalizer wiring |
+| `packages/nitro_generator/lib/src/generators/kotlin_generator.dart` | `NativeHandle` → `Long` |
+| `packages/nitro_generator/lib/src/generators/swift_generator.dart` | `NativeHandle` → `UnsafeMutableRawPointer?` |
+| `packages/nitro_generator/lib/src/generators/cpp_bridge_generator.dart` | `void*` pass-through; `@NitroOwned` release extern |
+| `packages/nitro_generator/lib/src/generators/cpp_interface_generator.dart` | `void*` in abstract method |
+| `packages/nitro_generator/test/native_handle_test.dart` | **New** — all generators, `@NitroOwned` wiring |
+| `doc/advanced/native_handle.md` | **New** — usage guide, lifetime rules, cast patterns |
+
+---
+
+## 9. Test Coverage
 
 ### Immediate unit test gaps (from §4 type coverage):
 - `record_primitive_list_test.dart` — `List<int/double/bool/String>` fields in all 4 serializers, nullable record field
@@ -546,7 +713,7 @@ Replace silent fall-through in generated `_init()` with a named `assert(Platform
 
 ---
 
-## 9. Documentation
+## 10. Documentation
 
 | Doc | Path | Content |
 |-----|------|---------|
@@ -560,7 +727,7 @@ Replace silent fall-through in generated `_init()` with a named `assert(Platform
 
 ---
 
-## 10. Delivery Sequencing
+## 11. Delivery Sequencing
 
 ### Phase A — Critical bug fixes (ship first)
 T3 (bool JNI sig) → T1 (stream unpack) → T2 (async TypedData) → T6 (withArena use-after-free) → T4 (enum in record) → G8 (jniSigType throw) → G14 (spec extractor catch) → G15 (link empty catch)
@@ -582,6 +749,9 @@ S3 (stream port-death) → S4 (JNI detach) → S2 (load race) → S7 (TLS error 
 
 ### Phase G — Type coverage integration
 T7–T10 (unit tests) → T11 (type_coverage plugin) → TC1 (integration test suite)
+
+### Phase H — Native Handle
+NH1 (`NativeHandle<T>` runtime class) → NH2 (`@NitroOwned` annotation) → NH3–NH4 (`BridgeSpec` + `SpecExtractor`) → NH5 (`SpecValidator`) → NH6–NH10 (all 5 generators) → NH11 (tests) → NH12 (docs)
 
 ---
 
@@ -637,3 +807,13 @@ T7–T10 (unit tests) → T11 (type_coverage plugin) → TC1 (integration test s
 | D3 | `nitrogen_cli/lib/commands/doctor_command.dart` |
 | D5 | `dart_ffi_generator.dart`, `cpp_bridge_generator.dart` |
 | D6 | `cpp_bridge_generator.dart` (JNI path), `kotlin_generator.dart` |
+| NH1 | `nitro/lib/src/native_handle.dart` (new) |
+| NH2 | `nitro_annotations/lib/src/annotations.dart` |
+| NH3, NH4, NH5 | `bridge_spec.dart`, `spec_extractor.dart`, `spec_validator.dart` |
+| NH6 | `dart_ffi_generator.dart` |
+| NH7 | `kotlin_generator.dart` |
+| NH8 | `swift_generator.dart` |
+| NH9 | `cpp_bridge_generator.dart` |
+| NH10 | `cpp_interface_generator.dart` |
+| NH11 | `test/native_handle_test.dart` (new) |
+| NH12 | `doc/advanced/native_handle.md` (new) |
