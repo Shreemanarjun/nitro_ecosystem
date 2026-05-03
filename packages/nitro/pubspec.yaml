@@ -58,9 +58,9 @@ flutter:
       android:
         ffiPlugin: true
       ios:
-        ffiPlugin: true
+        swiftPackagePath: ios
       macos:
-        ffiPlugin: true
+        swiftPackagePath: macos
       windows:
         ffiPlugin: true
       linux:

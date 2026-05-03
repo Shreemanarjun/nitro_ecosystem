@@ -1,7 +1,7 @@
 cmake_minimum_required(VERSION 3.10)
 project(benchmark_library VERSION 0.0.1 LANGUAGES C CXX)
 
-set(NITRO_NATIVE "/Users/shreemanarjunsahu/.puro/shared/pub_cache/hosted/pub.dev/nitro-0.2.2/src/native")
+set(NITRO_NATIVE "${CMAKE_CURRENT_SOURCE_DIR}/../../packages/nitro/src/native")
 set(GENERATED_CPP "${CMAKE_CURRENT_SOURCE_DIR}/../lib/src/generated/cpp")
 
 # ── Swift/Kotlin bridge (NativeImpl.swift / NativeImpl.kotlin) ────────────────

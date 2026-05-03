@@ -52,11 +52,11 @@ flutter:
         package: dev.shreeman.benchmark
         ffiPlugin: true
       ios:
-        pluginClass: SwiftBenchmarkPlugin
-        ffiPlugin: true
+        pluginClass: BenchmarkPlugin
+        swiftPackagePath: ios
       macos:
-        pluginClass: SwiftBenchmarkPlugin
-        ffiPlugin: true
+        pluginClass: BenchmarkPlugin
+        swiftPackagePath: macos
       web:
         # Pure-Dart stub implementation — no native bridge on web.
         # Results serve as a baseline "pure Dart dispatch" reference.

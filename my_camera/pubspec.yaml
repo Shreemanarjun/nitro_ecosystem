@@ -46,8 +46,8 @@ flutter:
         package: com.example.my_camera
         pluginClass: MyCameraPlugin
       ios:
-        ffiPlugin: true
         pluginClass: SwiftMyCameraPlugin
+        swiftPackagePath: ios
 
   # To add assets to your plugin package, add an assets section, like this:
   # assets:

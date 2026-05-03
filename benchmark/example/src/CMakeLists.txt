@@ -1,7 +1,7 @@
 cmake_minimum_required(VERSION 3.10)
 project(benchmark_example_library VERSION 0.0.1 LANGUAGES C CXX)
 
-set(NITRO_NATIVE "/Users/shreemanarjunsahu/personal/flutter_package/nitro_ecosystem/benchmark/packages/nitro/src/native")
+set(NITRO_NATIVE "${CMAKE_CURRENT_SOURCE_DIR}/../../../packages/nitro/src/native")
 
 add_library(benchmark_example SHARED
   "benchmark_example.cpp"
