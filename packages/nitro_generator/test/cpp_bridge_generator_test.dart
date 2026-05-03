@@ -158,7 +158,8 @@ void main() {
     test('iOS section emits extern _call functions', () {
       final out = CppBridgeGenerator.generate(simpleSpec());
       expect(out, contains('#elif __APPLE__'));
-      expect(out, contains('extern double _call_add(double a, double b)'));
+      // namespace = 'my_camera_module' → _my_camera_module_call_add
+      expect(out, contains('extern double _my_camera_module_call_add(double a, double b)'));
     });
 
     test('emits shared struct release functions', () {
@@ -216,7 +217,8 @@ void main() {
 
     test('iOS section emits property getter extern', () {
       final out = CppBridgeGenerator.generate(richSpec());
-      expect(out, contains('extern int8_t _call_get_enabled(void)'));
+      // namespace = 'sensor' → _sensor_call_get_enabled
+      expect(out, contains('extern int8_t _sensor_call_get_enabled(void)'));
     });
   });
 

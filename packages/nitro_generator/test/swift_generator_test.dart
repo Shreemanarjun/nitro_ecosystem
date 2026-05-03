@@ -47,7 +47,8 @@ void main() {
 
     test('_call_ stub uses @_cdecl attribute', () {
       final out = SwiftGenerator.generate(simpleSpec());
-      expect(out, contains('@_cdecl("_call_add")'));
+      // namespace = 'my_camera_module' → _my_camera_module_call_add
+      expect(out, contains('@_cdecl("_my_camera_module_call_add")'));
     });
 
     test('registry class has no @objc or NSObject', () {

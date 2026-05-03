@@ -517,7 +517,8 @@ void main() {
 
     test('stub has @_cdecl annotation', () {
       final out = SwiftGenerator.generate(_nativeAsyncIntSpec());
-      expect(out, contains('@_cdecl("_call_compute")'));
+      // namespace = 'compute' → _compute_call_compute
+      expect(out, contains('@_cdecl("_compute_call_compute")'));
     });
 
     test('stub does NOT call sema.wait() — no thread blocking', () {
@@ -606,7 +607,8 @@ void main() {
 
     test('no-params stub: signature has no comma before _ dartPort', () {
       final out = SwiftGenerator.generate(_nativeAsyncVoidSpec());
-      expect(out, contains('public func _call_doWork(_ dartPort: Int64)'));
+      // namespace = 'worker' → _worker_call_doWork
+      expect(out, contains('public func _worker_call_doWork(_ dartPort: Int64)'));
       expect(out, isNot(contains('(, _ dartPort')));
     });
 
