@@ -58,8 +58,10 @@ flutter:
       android:
         ffiPlugin: true
       ios:
+        sharedDarwinSource: true
         ffiPlugin: true
       macos:
+        sharedDarwinSource: true
         ffiPlugin: true
       windows:
         ffiPlugin: true
