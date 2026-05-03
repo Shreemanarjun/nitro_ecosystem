@@ -1,6 +1,7 @@
 import 'dart:io';
 import 'package:path/path.dart' as p;
 import 'package:nitrogen_cli/commands/doctor_command.dart';
+import 'package:nitrogen_cli/commands/spm_utils.dart';
 import 'package:test/test.dart';
 
 // ── Minimal valid plugin scaffold ─────────────────────────────────────────────
@@ -1281,6 +1282,202 @@ abstract class Math extends HybridObject {}
         isFalse,
         reason: 'No android:cpp in spec → kotlin bridge check must run',
       );
+    });
+  });
+
+  // ── Apple SPM section ─────────────────────────────────────────────────────
+
+  group('Apple SPM section — macOS only', () {
+    // The SPM section is only added on macOS (Platform.isMacOS guard).
+    // These tests run on macOS only; on other platforms we verify it's absent.
+
+    test('SPM section present on macOS, absent on other platforms', () {
+      final tmp = _scaffold();
+      addTearDown(() => tmp.deleteSync(recursive: true));
+      final result = _run(tmp);
+      final spmSec = result.sections.where((s) => s.title.contains('SPM')).firstOrNull;
+      if (Platform.isMacOS) {
+        expect(spmSec, isNotNull);
+      } else {
+        expect(spmSec, isNull);
+      }
+    });
+
+    // ── SPM absent — CocoaPods only ──
+
+    test('error check when CocoaPods found but no SPM (macOS)', () {
+      if (!Platform.isMacOS) return;
+      final tmp = _scaffold(withIos: true); // scaffold has podspec, no Package.swift
+      addTearDown(() => tmp.deleteSync(recursive: true));
+      final result = _run(tmp);
+
+      final spmSec = result.sections.firstWhere((s) => s.title.contains('SPM'));
+      expect(
+        spmSec.checks.any((c) =>
+            c.status == DoctorStatus.error &&
+            c.label.toLowerCase().contains('cocoapods')),
+        isTrue,
+        reason: 'Should report error when only CocoaPods is present',
+      );
+      expect(
+        spmSec.checks.any((c) => c.hint != null && c.hint!.contains('nitrogen migrate')),
+        isTrue,
+        reason: 'Hint should suggest nitrogen migrate',
+      );
+    });
+
+    // ── Nested SPM layout ──
+
+    test('ok checks for nested Flutter 3.41+ layout (macOS)', () {
+      if (!Platform.isMacOS) return;
+      final tmp = _scaffold(withIos: true);
+      addTearDown(() => tmp.deleteSync(recursive: true));
+
+      // Add a nested Package.swift: ios/my_plugin/Package.swift
+      final pkgDir = Directory(p.join(tmp.path, 'ios', 'my_plugin'))..createSync(recursive: true);
+      File(p.join(pkgDir.path, 'Package.swift')).writeAsStringSync(
+        '// swift-tools-version: 5.9\n'
+        'import PackageDescription\n'
+        'let package = Package(name:"my_plugin", platforms:[.iOS(.v13)], products:[], targets:[])',
+      );
+
+      final result = _run(tmp);
+      final spmSec = result.sections.firstWhere((s) => s.title.contains('SPM'));
+
+      // Should show nested layout OK
+      expect(
+        spmSec.checks.any((c) =>
+            c.status == DoctorStatus.ok &&
+            c.label.contains('nested')),
+        isTrue,
+        reason: 'Should detect and report nested Flutter 3.41+ SPM layout',
+      );
+    });
+
+    // ── Flat SPM layout — warns about upgrade ──
+
+    test('warning for flat SPM layout suggests migration (macOS)', () {
+      if (!Platform.isMacOS) return;
+      final tmp = _scaffold(withIos: true);
+      addTearDown(() => tmp.deleteSync(recursive: true));
+
+      // Flat layout: ios/Package.swift
+      final iosDir = Directory(p.join(tmp.path, 'ios'));
+      File(p.join(iosDir.path, 'Package.swift')).writeAsStringSync(
+        '// swift-tools-version: 5.9\n'
+        'import PackageDescription\n'
+        'let package = Package(name:"my_plugin", platforms:[.iOS(.v13)], products:[], targets:[])',
+      );
+
+      final result = _run(tmp);
+      final spmSec = result.sections.firstWhere((s) => s.title.contains('SPM'));
+
+      expect(
+        spmSec.checks.any((c) =>
+            c.status == DoctorStatus.warn &&
+            c.label.toLowerCase().contains('flat')),
+        isTrue,
+        reason: 'Flat layout should produce a warning',
+      );
+      expect(
+        spmSec.checks.any((c) =>
+            c.hint != null &&
+            c.hint!.contains('nitrogen migrate')),
+        isTrue,
+        reason: 'Warning hint should suggest nitrogen migrate for nested layout upgrade',
+      );
+    });
+
+    // ── Modern SPM-only ──
+
+    test('ok check for SPM-only (modern) setup (macOS)', () {
+      if (!Platform.isMacOS) return;
+      final tmp = Directory.systemTemp.createTempSync('doctor_spm_modern_');
+      addTearDown(() => tmp.deleteSync(recursive: true));
+
+      // Minimal pubspec
+      File(p.join(tmp.path, 'pubspec.yaml')).writeAsStringSync('''
+name: my_plugin
+environment:
+  sdk: ">=3.0.0 <4.0.0"
+dependencies:
+  nitro: any
+dev_dependencies:
+  build_runner: ^2.4.0
+  nitro_generator: any
+flutter:
+  plugin:
+    platforms:
+      ios:
+        ffiPlugin: true
+''');
+      final srcDir = Directory(p.join(tmp.path, 'src'))..createSync();
+      File(p.join(srcDir.path, 'CMakeLists.txt')).writeAsStringSync(
+        'set(NITRO_NATIVE "x")\nadd_library(my_plugin SHARED dart_api_dl.c)\n',
+      );
+
+      // Nested SPM — no podspec
+      final pkgDir = Directory(p.join(tmp.path, 'ios', 'my_plugin'))..createSync(recursive: true);
+      File(p.join(pkgDir.path, 'Package.swift')).writeAsStringSync(
+        '// swift-tools-version: 5.9\n'
+        'let package = Package(name:"my_plugin", platforms:[.iOS(.v13)], products:[], targets:[])',
+      );
+      // ios/Classes with minimum files (no podspec)
+      final classesDir = Directory(p.join(tmp.path, 'ios', 'Classes'))..createSync(recursive: true);
+      File(p.join(classesDir.path, 'dart_api_dl.c')).writeAsStringSync('// stub');
+      File(p.join(classesDir.path, 'nitro.h')).writeAsStringSync('// NITRO_EXPORT stub');
+
+      final result = _run(tmp);
+      final spmSec = result.sections.firstWhere((s) => s.title.contains('SPM'));
+
+      expect(
+        spmSec.checks.any((c) =>
+            c.status == DoctorStatus.ok &&
+            c.label.toLowerCase().contains('spm-only')),
+        isTrue,
+        reason: 'Should show ok for SPM-only modern setup',
+      );
+    });
+  });
+
+  // ── SpmStatus integration with DoctorCommand ──────────────────────────────
+
+  group('SpmStatus detectSpmStatus integration', () {
+    test('detects nested layout in real filesystem', () {
+      final tmp = Directory.systemTemp.createTempSync('spm_detect_test_');
+      addTearDown(() => tmp.deleteSync(recursive: true));
+
+      final pkgDir = Directory(p.join(tmp.path, 'ios', 'my_plugin'))..createSync(recursive: true);
+      File(p.join(pkgDir.path, 'Package.swift')).writeAsStringSync('// swift-tools-version: 5.9\n');
+
+      final status = detectSpmStatus(tmp.path);
+      expect(status.iosHasSpm, isTrue);
+      expect(status.iosPackageSwiftPath, contains(p.join('ios', 'my_plugin', 'Package.swift')));
+    });
+
+    test('detects flat layout', () {
+      final tmp = Directory.systemTemp.createTempSync('spm_flat_detect_');
+      addTearDown(() => tmp.deleteSync(recursive: true));
+
+      final iosDir = Directory(p.join(tmp.path, 'ios'))..createSync();
+      File(p.join(iosDir.path, 'Package.swift')).writeAsStringSync('// swift-tools-version: 5.9\n');
+
+      final status = detectSpmStatus(tmp.path);
+      expect(status.iosHasSpm, isTrue);
+      expect(status.iosPackageSwiftPath, endsWith('ios${p.separator}Package.swift'));
+    });
+
+    test('CocoaPods-only detected correctly', () {
+      final tmp = Directory.systemTemp.createTempSync('spm_pods_detect_');
+      addTearDown(() => tmp.deleteSync(recursive: true));
+
+      final iosDir = Directory(p.join(tmp.path, 'ios'))..createSync();
+      File(p.join(iosDir.path, 'my_plugin.podspec')).writeAsStringSync('# pod');
+
+      final status = detectSpmStatus(tmp.path);
+      expect(status.hasCocoaPods, isTrue);
+      expect(status.hasSpm, isFalse);
+      expect(status.isLegacy, isTrue);
     });
   });
 }

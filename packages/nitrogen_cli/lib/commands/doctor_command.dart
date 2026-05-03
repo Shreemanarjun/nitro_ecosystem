@@ -4,6 +4,7 @@ import 'package:nocterm/nocterm.dart';
 import 'package:path/path.dart' as p;
 import 'package:nitrogen_cli/version.dart';
 import 'link_command.dart' show isCppModule, isNativeCppModule;
+import 'spm_utils.dart';
 import '../ui.dart';
 
 // ── Data model ────────────────────────────────────────────────────────────────
@@ -473,6 +474,70 @@ class DoctorCommand extends Command {
         ok(pubSec, 'macos ffiPlugin: true (pluginClass optional for FFI plugins)');
       } else {
         warn(pubSec, 'macos pluginClass missing', hint: 'Add pluginClass or ffiPlugin: true under flutter.plugin.platforms.macos');
+      }
+    }
+
+    // ── Apple SPM ──────────────────────────────────────────────────────────────
+    final spmStatus = detectSpmStatus(root.path);
+    if (Platform.isMacOS) {
+      final spmSec = DoctorSection('Apple SPM (Swift Package Manager)');
+      sections.add(spmSec);
+
+      if (spmStatus.hasSpm) {
+        if (spmStatus.isModern) {
+          ok(spmSec, 'SPM-only setup (modern)');
+        } else if (spmStatus.isMixed) {
+          warn(spmSec, 'Mixed SPM + CocoaPods setup', hint: 'Run: nitrogen migrate  to complete SPM migration');
+        }
+
+        if (spmStatus.iosHasSpm) {
+          final path = spmStatus.iosPackageSwiftPath!;
+          final rel = p.relative(path, from: root.path);
+          ok(spmSec, 'iOS: $rel');
+
+          // Detect flat vs nested layout
+          final segments = p.split(p.relative(p.dirname(path), from: root.path));
+          if (segments.length >= 2 && segments[0] == 'ios') {
+            ok(spmSec, 'iOS using Flutter 3.41+ nested SPM layout');
+          } else {
+            warn(spmSec, 'iOS using flat SPM layout (ios/Package.swift)', hint: 'Run: nitrogen migrate  to upgrade to nested Flutter 3.41+ layout');
+          }
+
+          for (final issue in spmStatus.issues.where((i) => i.startsWith('ios'))) {
+            err(spmSec, issue, hint: 'Run: nitrogen migrate');
+          }
+          for (final w in spmStatus.warnings.where((w) => w.startsWith('ios'))) {
+            warn(spmSec, w);
+          }
+        } else {
+          info(spmSec, 'iOS SPM not configured');
+        }
+
+        if (spmStatus.macosHasSpm) {
+          final path = spmStatus.macosPackageSwiftPath!;
+          final rel = p.relative(path, from: root.path);
+          ok(spmSec, 'macOS: $rel');
+
+          final segments = p.split(p.relative(p.dirname(path), from: root.path));
+          if (segments.length >= 2 && segments[0] == 'macos') {
+            ok(spmSec, 'macOS using Flutter 3.41+ nested SPM layout');
+          } else {
+            warn(spmSec, 'macOS using flat SPM layout (macos/Package.swift)', hint: 'Run: nitrogen migrate  to upgrade to nested Flutter 3.41+ layout');
+          }
+
+          for (final issue in spmStatus.issues.where((i) => i.startsWith('macos'))) {
+            err(spmSec, issue, hint: 'Run: nitrogen migrate');
+          }
+          for (final w in spmStatus.warnings.where((w) => w.startsWith('macos'))) {
+            warn(spmSec, w);
+          }
+        } else {
+          info(spmSec, 'macOS SPM not configured');
+        }
+      } else if (spmStatus.hasCocoaPods) {
+        err(spmSec, 'CocoaPods detected — no SPM configuration found', hint: 'Run: nitrogen migrate  to migrate to Swift Package Manager');
+      } else {
+        info(spmSec, 'No Apple platform directories found');
       }
     }
 

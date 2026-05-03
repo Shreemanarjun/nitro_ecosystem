@@ -23,7 +23,7 @@ enum NitroCommand {
     'Link',
     'Wire native bridges into the build system.',
     '/link',
-    'Automatically configures CMake, Gradle, and CocoaPods for your bridges.',
+    'Automatically configures CMake, Gradle, and Swift Package Manager for your bridges.',
   ),
   doctor(
     'Doctor',
@@ -36,6 +36,12 @@ enum NitroCommand {
     'Self-update the Nitrogen CLI.',
     '/update',
     'Fetches the latest version of nitrogen from pub.dev.',
+  ),
+  migrate(
+    'Migrate',
+    'Migrate plugin to Swift Package Manager.',
+    '/migrate',
+    'Detects CocoaPods setup and migrates to Flutter 3.41+ SPM layout automatically.',
   ),
   openCode(
     'Open in VS Code',

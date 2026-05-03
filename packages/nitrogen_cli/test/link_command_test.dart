@@ -1054,7 +1054,9 @@ public static func register(with registrar: FlutterPluginRegistrar) {
       expect('MathRegistry.register'.allMatches(content).length, equals(1));
     });
 
-    test('adds missing import when Registry.register() call already exists', () {
+    test('does not add module import when Registry.register() call already exists (SPM: no module import needed)', () {
+      // In the SPM-only model bridge files are compiled into the same package target,
+      // so `import nitro_*_module` is not required and is actively removed if stale.
       final plugin = writeMacosPlugin(tmp, '''
 import Flutter
 public class MyPlugin: NSObject, FlutterPlugin {
@@ -1067,7 +1069,10 @@ public class MyPlugin: NSObject, FlutterPlugin {
       linkMacosSwiftPlugin('my_plugin', [{'module': 'Math', 'lib': 'math'}], baseDir: tmp.path);
 
       final content = plugin.readAsStringSync();
-      expect(content, contains('import nitro_math_module'));
+      // No module import is injected in the SPM model.
+      expect(content, isNot(contains('import nitro_math_module')));
+      // The existing registration is preserved (not duplicated).
+      expect('MathRegistry.register'.allMatches(content).length, equals(1));
     });
 
     test('no-op when macos/ directory does not exist', () {

@@ -124,6 +124,7 @@ class InitView extends StatefulComponent {
     required this.pluginName,
     required this.org,
     required this.result,
+    this.targetDir,
     this.platforms = const ['android', 'ios', 'macos'],
     this.onExit,
     super.key,
@@ -131,6 +132,10 @@ class InitView extends StatefulComponent {
   final String pluginName;
   final String org;
   final InitResult result;
+
+  /// Parent directory where the plugin folder will be created.
+  /// Defaults to [Directory.current] if null.
+  final String? targetDir;
 
   /// Platforms to scaffold. Valid values: android, ios, macos, windows, linux.
   final List<String> platforms;
@@ -199,6 +204,16 @@ class _InitViewState extends State<InitView> {
     setState(() => _needsConfirmation = false);
     final pluginName = component.pluginName;
 
+    // Change to target directory before any file operations
+    if (component.targetDir != null) {
+      try {
+        Directory.current = component.targetDir!;
+      } catch (e) {
+        _setFailed(_kStepCheck, 'Cannot access target directory: ${component.targetDir}');
+        return;
+      }
+    }
+
     // Step 0 — Check existing
     _setRunning(_kStepCheck);
     final dir = Directory(pluginName);
@@ -239,7 +254,7 @@ class _InitViewState extends State<InitView> {
     _setRunning(_kStepIos);
     if (platforms.contains('ios')) {
       _configureIos(pluginName, className);
-      _setDone(_kStepIos, detail: 'podspec + Swift${className}Plugin.swift');
+      _setDone(_kStepIos, detail: 'ios/$pluginName/Package.swift + Swift${className}Plugin.swift');
     } else {
       _setSkipped(_kStepIos, detail: 'ios not in selected platforms');
     }
@@ -257,7 +272,7 @@ class _InitViewState extends State<InitView> {
     _setRunning(_kStepMacos);
     if (platforms.contains('macos')) {
       _configureMacos(pluginName, className);
-      _setDone(_kStepMacos, detail: 'podspec + Swift${className}Plugin.swift');
+      _setDone(_kStepMacos, detail: 'macos/$pluginName/Package.swift + Swift${className}Plugin.swift');
     } else {
       _setSkipped(_kStepMacos, detail: 'macos not in selected platforms');
     }
@@ -613,15 +628,20 @@ class _InitViewState extends State<InitView> {
   }
 
   void _writeApplePackageSwift(String path, String pluginName, String className, String platformSpec) {
-    // SPM Sources layout (separate dirs required for mixed Swift/C++ targets):
-    //   Sources/<ClassName>/     — Swift files (symlinks to Classes/*.swift)
-    //   Sources/<ClassName>Cpp/  — C/C++ files (symlinks to Classes/*.cpp/.c)
-    final swiftSrcDir = Directory(p.join(path, 'Sources', className));
-    final cppSrcDir = Directory(p.join(path, 'Sources', '${className}Cpp'));
+    // Flutter 3.41+ nested SPM layout:
+    //   ios/<pluginName>/Package.swift
+    //   ios/<pluginName>/Sources/<ClassName>/     — Swift files
+    //   ios/<pluginName>/Sources/<ClassName>Cpp/  — C/C++ files
+    // Flutter auto-discovers this layout; the old flat ios/Package.swift is not auto-detected.
+    final packageDir = Directory(p.join(path, pluginName));
+    packageDir.createSync(recursive: true);
+
+    final swiftSrcDir = Directory(p.join(packageDir.path, 'Sources', className));
+    final cppSrcDir = Directory(p.join(packageDir.path, 'Sources', '${className}Cpp'));
     swiftSrcDir.createSync(recursive: true);
     cppSrcDir.createSync(recursive: true);
 
-    // Swift symlinks
+    // Swift symlinks — 3 levels up from ios/<pluginName>/Sources/<ClassName>/
     for (final name in [
       'Swift${className}Plugin.swift',
       '${className}Impl.swift',
@@ -629,7 +649,7 @@ class _InitViewState extends State<InitView> {
     ]) {
       final lnk = Link(p.join(swiftSrcDir.path, name));
       if (!lnk.existsSync()) {
-        lnk.createSync('../../Classes/$name');
+        try { lnk.createSync('../../../Classes/$name'); } catch (_) {}
       }
     }
 
@@ -637,16 +657,16 @@ class _InitViewState extends State<InitView> {
     for (final name in ['$pluginName.cpp', 'dart_api_dl.c']) {
       final lnk = Link(p.join(cppSrcDir.path, name));
       if (!lnk.existsSync()) {
-        lnk.createSync('../../Classes/$name');
+        try { lnk.createSync('../../../Classes/$name'); } catch (_) {}
       }
     }
     // Public headers dir — symlink to Classes/ so SPM can find .h files
     final includeLink = Link(p.join(cppSrcDir.path, 'include'));
     if (!includeLink.existsSync()) {
-      includeLink.createSync('../../Classes');
+      try { includeLink.createSync('../../../Classes'); } catch (_) {}
     }
 
-    File(p.join(path, 'Package.swift')).writeAsStringSync(
+    File(p.join(packageDir.path, 'Package.swift')).writeAsStringSync(
       packageSwiftTemplate(pluginName, className, platformSpec, isMacos: path.endsWith('macos')),
     );
   }
@@ -877,7 +897,7 @@ class _InitViewState extends State<InitView> {
 
 class PluginNameForm extends StatefulComponent {
   const PluginNameForm({required this.onSubmit, this.onExit, super.key});
-  final void Function(String pluginName, String org) onSubmit;
+  final void Function(String pluginName, String org, String targetDir) onSubmit;
   final VoidCallback? onExit;
 
   @override
@@ -887,19 +907,22 @@ class PluginNameForm extends StatefulComponent {
 class _PluginNameFormState extends State<PluginNameForm> {
   final _nameController = TextEditingController();
   final _orgController = TextEditingController(text: 'com.example');
-  bool _nameHasFocus = true;
+  late final _dirController = TextEditingController(text: Directory.current.path);
+  int _focusIndex = 0; // 0 = name, 1 = org, 2 = dir
   String? _error;
 
   @override
   void dispose() {
     _nameController.dispose();
     _orgController.dispose();
+    _dirController.dispose();
     super.dispose();
   }
 
   void _submit() {
     final name = _nameController.text.trim();
     final org = _orgController.text.trim().isEmpty ? 'com.example' : _orgController.text.trim();
+    final dir = _dirController.text.trim().isEmpty ? Directory.current.path : _dirController.text.trim();
 
     if (name.isEmpty) {
       setState(() => _error = 'Plugin name is required');
@@ -909,7 +932,12 @@ class _PluginNameFormState extends State<PluginNameForm> {
       setState(() => _error = 'Use only lowercase letters, numbers, and underscores');
       return;
     }
-    component.onSubmit(name, org);
+    final targetDir = Directory(dir);
+    if (!targetDir.existsSync()) {
+      setState(() => _error = 'Directory does not exist: $dir');
+      return;
+    }
+    component.onSubmit(name, org, dir);
   }
 
   bool _handleKey(KeyboardEvent e) {
@@ -919,7 +947,7 @@ class _PluginNameFormState extends State<PluginNameForm> {
     }
     if (e.logicalKey == LogicalKey.tab) {
       setState(() {
-        _nameHasFocus = !_nameHasFocus;
+        _focusIndex = (_focusIndex + 1) % 3;
         _error = null;
       });
       return true;
@@ -929,12 +957,16 @@ class _PluginNameFormState extends State<PluginNameForm> {
 
   @override
   Component build(BuildContext context) {
+    final pluginName = _nameController.text.trim();
+    final targetDir = _dirController.text.trim().isEmpty ? Directory.current.path : _dirController.text.trim();
+    final previewPath = pluginName.isEmpty ? targetDir : p.join(targetDir, pluginName);
+
     return Focusable(
       focused: true,
       onKeyEvent: _handleKey,
       child: Center(
         child: SizedBox(
-          width: 52,
+          width: 60,
           child: Column(
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.start,
@@ -961,13 +993,13 @@ class _PluginNameFormState extends State<PluginNameForm> {
                     style: TextStyle(color: Colors.cyan, fontWeight: FontWeight.bold),
                   ),
                   SizedBox(
-                    width: 44,
+                    width: 52,
                     child: TextField(
                       controller: _nameController,
-                      focused: _nameHasFocus,
+                      focused: _focusIndex == 0,
                       placeholder: 'my_plugin',
                       onSubmitted: (_) => setState(() {
-                        _nameHasFocus = false;
+                        _focusIndex = 1;
                         _error = null;
                       }),
                       style: const TextStyle(color: Colors.white),
@@ -984,13 +1016,45 @@ class _PluginNameFormState extends State<PluginNameForm> {
                     style: TextStyle(color: Colors.cyan, fontWeight: FontWeight.bold),
                   ),
                   SizedBox(
-                    width: 44,
+                    width: 52,
                     child: TextField(
                       controller: _orgController,
-                      focused: !_nameHasFocus,
+                      focused: _focusIndex == 1,
                       placeholder: 'com.example',
                       onSubmitted: (_) => _submit(),
                       style: const TextStyle(color: Colors.white),
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 1),
+              const Text('Target directory:', style: TextStyle(color: Colors.white)),
+              Row(
+                children: [
+                  const Text(
+                    '› ',
+                    style: TextStyle(color: Colors.cyan, fontWeight: FontWeight.bold),
+                  ),
+                  SizedBox(
+                    width: 52,
+                    child: TextField(
+                      controller: _dirController,
+                      focused: _focusIndex == 2,
+                      placeholder: Directory.current.path,
+                      onSubmitted: (_) => _submit(),
+                      style: const TextStyle(color: Colors.white),
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 1),
+              Row(
+                children: [
+                  const Text('📂 ', style: TextStyle(color: Colors.cyan)),
+                  Expanded(
+                    child: Text(
+                      'Will create: $previewPath',
+                      style: const TextStyle(color: Colors.gray, fontWeight: FontWeight.dim),
                     ),
                   ),
                 ],
@@ -1022,7 +1086,7 @@ class _PluginNameFormState extends State<PluginNameForm> {
               ),
               const SizedBox(height: 1),
               const Text(
-                '[Tab] switch field   [Enter] confirm   [ESC] back',
+                '[Tab] cycle fields   [Enter] next/confirm   [ESC] back',
                 style: TextStyle(color: Colors.gray, fontWeight: FontWeight.dim),
               ),
             ],
@@ -1055,6 +1119,7 @@ class NitrogenInitApp extends StatefulComponent {
 class _NitrogenInitAppState extends State<NitrogenInitApp> {
   String? _pluginName;
   String? _org;
+  String? _targetDir;
 
   @override
   Component build(BuildContext context) {
@@ -1062,15 +1127,17 @@ class _NitrogenInitAppState extends State<NitrogenInitApp> {
       return InitView(
         pluginName: _pluginName!,
         org: _org ?? component.initialOrg ?? 'com.example',
+        targetDir: _targetDir ?? Directory.current.path,
         platforms: component.initialPlatforms,
         result: component.result,
         onExit: component.onExit,
       );
     }
     return PluginNameForm(
-      onSubmit: (name, org) => setState(() {
+      onSubmit: (name, org, dir) => setState(() {
         _pluginName = name;
         _org = org;
+        _targetDir = dir;
       }),
       onExit: component.onExit,
     );
@@ -1097,6 +1164,11 @@ class InitCommand extends Command {
       help: 'Plugin name (skips interactive form; useful for scripts/CI).',
     );
     argParser.addOption(
+      'dir',
+      abbr: 'd',
+      help: 'Target directory to create the plugin in. Defaults to the current directory.',
+    );
+    argParser.addOption(
       'platforms',
       abbr: 'p',
       defaultsTo: _defaultPlatforms,
@@ -1121,8 +1193,21 @@ class InitCommand extends Command {
   Future<void> run() async {
     final org = argResults!['org'] as String;
     final nameArg = argResults!['name'] as String?;
+    final dirArg = argResults!['dir'] as String?;
     final platformsArg = argResults!['platforms'] as String;
     final platforms = _parsePlatforms(platformsArg);
+
+    // Validate --dir if provided
+    final targetDir = dirArg?.trim();
+    if (targetDir != null && !Directory(targetDir).existsSync()) {
+      stderr.writeln('❌ Target directory does not exist: $targetDir');
+      exit(1);
+    }
+    if (targetDir != null) {
+      stdout.writeln('  \x1B[90m📂 Creating in: $targetDir\x1B[0m');
+    } else {
+      stdout.writeln('  \x1B[90m📂 Creating in: ${Directory.current.path}\x1B[0m');
+    }
 
     // Non-interactive path: --name was supplied, run directly without TUI.
     if (nameArg != null && nameArg.isNotEmpty) {
@@ -1136,6 +1221,7 @@ class InitCommand extends Command {
         InitView(
           pluginName: pluginName,
           org: org,
+          targetDir: targetDir,
           platforms: platforms,
           result: result,
         ),

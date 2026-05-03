@@ -2499,8 +2499,9 @@ void linkWindows(
     baseDir: baseDir,
     moduleInfos: moduleInfos,
   );
-  if (moduleInfos != null)
+  if (moduleInfos != null) {
     linkWindowsCppImplStubs(moduleInfos, baseDir: baseDir);
+  }
 }
 
 void linkLinux(
