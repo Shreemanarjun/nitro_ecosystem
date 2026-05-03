@@ -7,6 +7,9 @@ let package = Package(
     products: [
         .library(name: "benchmark", targets: ["benchmark"]),
     ],
+    dependencies: [
+        .package(name: "FlutterFramework", path: "../FlutterFramework"),
+    ],
     targets: [
         // C/C++ bridge — SPM requires Swift and C++ in separate targets.
         .target(
@@ -15,18 +18,16 @@ let package = Package(
             publicHeadersPath: "include",
             cxxSettings: [
                 .headerSearchPath("include"),
-                .unsafeFlags([
-                    "-std=c++17",
-                    // nitro's dart_api_dl.h — resolved via Flutter's symlink
-                    // so this works for both local path and pub.dev references.
-                    "-I../../.symlinks/plugins/nitro/src/native",
-                ])
+                .unsafeFlags(["-std=c++17"])
             ]
         ),
         // Swift implementation + generated bridge.
         .target(
             name: "benchmark",
-            dependencies: ["BenchmarkCpp"],
+            dependencies: [
+                "BenchmarkCpp",
+                .product(name: "FlutterFramework", package: "FlutterFramework"),
+            ],
             path: "Sources/Benchmark"
         ),
     ]

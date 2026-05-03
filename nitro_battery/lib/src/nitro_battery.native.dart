@@ -22,7 +22,7 @@ class BatteryInfo {
   });
 }
 
-@NitroModule(ios: NativeImpl.swift, android: NativeImpl.kotlin)
+@NitroModule(ios: AppleNativeImpl.swift, android: AndroidNativeImpl.kotlin)
 abstract class NitroBattery extends HybridObject {
   static final NitroBattery instance = _NitroBatteryImpl();
 

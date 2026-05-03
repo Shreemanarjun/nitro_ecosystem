@@ -5,6 +5,7 @@ import 'package:nocterm/nocterm.dart';
 import 'package:path/path.dart' as p;
 import '../ui.dart';
 import 'link_command.dart' show resolveNitroNativePath, dartApiDlForwarderContent, createSharedHeaders;
+import 'scaffold_templates.dart';
 
 // ── CMakeLists.txt updater ────────────────────────────────────────────────────
 
@@ -123,12 +124,21 @@ class InitView extends StatefulComponent {
     required this.pluginName,
     required this.org,
     required this.result,
+    this.targetDir,
+    this.platforms = const ['android', 'ios', 'macos'],
     this.onExit,
     super.key,
   });
   final String pluginName;
   final String org;
   final InitResult result;
+
+  /// Parent directory where the plugin folder will be created.
+  /// Defaults to [Directory.current] if null.
+  final String? targetDir;
+
+  /// Platforms to scaffold. Valid values: android, ios, macos, windows, linux.
+  final List<String> platforms;
   final VoidCallback? onExit;
 
   @override
@@ -136,6 +146,19 @@ class InitView extends StatefulComponent {
 }
 
 class _InitViewState extends State<InitView> {
+  // Step indices — Windows(6) and Linux(7) are always in the list but may be
+  // skipped when the platform is not in component.platforms.
+  static const _kStepCheck = 0;
+  static const _kStepCreate = 1;
+  static const _kStepSrc = 2;
+  static const _kStepIos = 3;
+  static const _kStepAndroid = 4;
+  static const _kStepMacos = 5;
+  static const _kStepWindows = 6;
+  static const _kStepLinux = 7;
+  static const _kStepPubspec = 8;
+  static const _kStepBridge = 9;
+
   late final List<InitStep> _steps = [
     InitStep('Checking environment and target'),
     InitStep('Running flutter create'),
@@ -143,6 +166,8 @@ class _InitViewState extends State<InitView> {
     InitStep('Configuring iOS'),
     InitStep('Configuring Android'),
     InitStep('Configuring macOS'),
+    InitStep('Configuring Windows'),
+    InitStep('Configuring Linux'),
     InitStep('Updating pubspec.yaml'),
     InitStep('Writing bridge spec'),
   ];
@@ -163,6 +188,10 @@ class _InitViewState extends State<InitView> {
     _steps[i].state = InitStepState.done;
     _steps[i].detail = detail;
   });
+  void _setSkipped(int i, {String? detail}) => setState(() {
+    _steps[i].state = InitStepState.skipped;
+    _steps[i].detail = detail;
+  });
   void _setFailed(int i, String msg) => setState(() {
     _steps[i].state = InitStepState.failed;
     _steps[i].detail = msg;
@@ -175,57 +204,99 @@ class _InitViewState extends State<InitView> {
     setState(() => _needsConfirmation = false);
     final pluginName = component.pluginName;
 
+    // Change to target directory before any file operations
+    if (component.targetDir != null) {
+      try {
+        Directory.current = component.targetDir!;
+      } catch (e) {
+        _setFailed(_kStepCheck, 'Cannot access target directory: ${component.targetDir}');
+        return;
+      }
+    }
+
     // Step 0 — Check existing
-    _setRunning(0);
+    _setRunning(_kStepCheck);
     final dir = Directory(pluginName);
     if (!force && dir.existsSync()) {
-      _setDone(0, detail: 'Target directory already exists');
+      _setDone(_kStepCheck, detail: 'Target directory already exists');
       setState(() => _needsConfirmation = true);
       return;
     }
-    _setDone(0, detail: 'Target area ready');
+    _setDone(_kStepCheck, detail: 'Target area ready');
 
     final org = component.org;
     final className = _toClassName(pluginName);
+    final platforms = component.platforms;
 
     // Step 1 — flutter create
-    _setRunning(1);
+    _setRunning(_kStepCreate);
+    final platformsArg = platforms.join(',');
     final createResult = await Process.run('flutter', [
       'create',
       '--template=plugin_ffi',
-      '--platforms=android,ios,macos',
+      '--platforms=$platformsArg',
       '--org=$org',
       pluginName,
     ]);
     if (createResult.exitCode != 0) {
-      _setFailed(1, 'flutter create failed: ${createResult.stderr}');
+      _setFailed(_kStepCreate, 'flutter create failed: ${createResult.stderr}');
       setState(() => _finished = true);
       return;
     }
-    _setDone(1, detail: 'Created $pluginName/');
+    _setDone(_kStepCreate, detail: 'Created $pluginName/ (platforms: $platformsArg)');
 
     // Step 2 — src/
-    _setRunning(2);
+    _setRunning(_kStepSrc);
     _setupSrc(pluginName);
-    _setDone(2, detail: 'src/CMakeLists.txt created');
+    _setDone(_kStepSrc, detail: 'src/CMakeLists.txt created');
 
     // Step 3 — iOS
-    _setRunning(3);
-    _configureIos(pluginName, className);
-    _setDone(3, detail: 'podspec + Swift${className}Plugin.swift');
+    _setRunning(_kStepIos);
+    if (platforms.contains('ios')) {
+      _configureIos(pluginName, className);
+      _setDone(_kStepIos, detail: 'ios/$pluginName/Package.swift + Swift${className}Plugin.swift');
+    } else {
+      _setSkipped(_kStepIos, detail: 'ios not in selected platforms');
+    }
 
     // Step 4 — Android
-    _setRunning(4);
-    _configureAndroid(pluginName, className, org);
-    _setDone(4, detail: 'build.gradle + ${className}Plugin.kt');
+    _setRunning(_kStepAndroid);
+    if (platforms.contains('android')) {
+      _configureAndroid(pluginName, className, org);
+      _setDone(_kStepAndroid, detail: 'build.gradle + ${className}Plugin.kt');
+    } else {
+      _setSkipped(_kStepAndroid, detail: 'android not in selected platforms');
+    }
 
     // Step 5 — macOS
-    _setRunning(5);
-    _configureMacos(pluginName, className);
-    _setDone(5, detail: 'podspec + Swift${className}Plugin.swift');
+    _setRunning(_kStepMacos);
+    if (platforms.contains('macos')) {
+      _configureMacos(pluginName, className);
+      _setDone(_kStepMacos, detail: 'macos/$pluginName/Package.swift + Swift${className}Plugin.swift');
+    } else {
+      _setSkipped(_kStepMacos, detail: 'macos not in selected platforms');
+    }
 
-    // Step 6 — pubspec (fetch latest versions from pub.dev)
-    _setRunning(6);
+    // Step 6 — Windows
+    _setRunning(_kStepWindows);
+    if (platforms.contains('windows')) {
+      _configureWindows(pluginName, className);
+      _setDone(_kStepWindows, detail: 'windows/CMakeLists.txt patched');
+    } else {
+      _setSkipped(_kStepWindows, detail: 'windows not in selected platforms');
+    }
+
+    // Step 7 — Linux
+    _setRunning(_kStepLinux);
+    if (platforms.contains('linux')) {
+      _configureLinux(pluginName, className);
+      _setDone(_kStepLinux, detail: 'linux/CMakeLists.txt patched');
+    } else {
+      _setSkipped(_kStepLinux, detail: 'linux not in selected platforms');
+    }
+
+    // Step 8 — pubspec (fetch latest versions from pub.dev)
+    _setRunning(_kStepPubspec);
     String? nitroVersion;
     String? nitroGeneratorVersion;
     bool usePubAdd = false;
@@ -239,16 +310,16 @@ class _InitViewState extends State<InitView> {
     } catch (_) {
       usePubAdd = true;
     }
-    _updatePubspec(pluginName, className, org, nitroVersion: nitroVersion, nitroGeneratorVersion: nitroGeneratorVersion);
+    _updatePubspec(pluginName, className, org, platforms: platforms, nitroVersion: nitroVersion, nitroGeneratorVersion: nitroGeneratorVersion);
     if (usePubAdd) {
       await Process.run('flutter', ['pub', 'add', 'nitro'], workingDirectory: pluginName);
       await Process.run('flutter', ['pub', 'add', '--dev', 'nitro_generator'], workingDirectory: pluginName);
-      _setDone(6, detail: 'nitro, nitro_generator added via flutter pub add');
+      _setDone(_kStepPubspec, detail: 'nitro, nitro_generator added via flutter pub add');
     } else {
       // pubspec was updated without running pub add — run pub get so
       // .dart_tool/package_config.json is created before path resolution.
       await Process.run('flutter', ['pub', 'get'], workingDirectory: pluginName);
-      _setDone(6, detail: 'nitro $nitroVersion, nitro_generator $nitroGeneratorVersion added');
+      _setDone(_kStepPubspec, detail: 'nitro $nitroVersion, nitro_generator $nitroGeneratorVersion added');
     }
 
     // Resolve the actual installed nitro path from package_config.json and
@@ -257,11 +328,11 @@ class _InitViewState extends State<InitView> {
     // instead of the monorepo placeholder written in Step 2.
     _resolveSrcPaths(pluginName);
 
-    // Step 7 — bridge spec + example main.dart
-    _setRunning(7);
-    _writeBridgeSpec(pluginName, className);
+    // Step 9 — bridge spec + example main.dart
+    _setRunning(_kStepBridge);
+    _writeBridgeSpec(pluginName, className, platforms: platforms);
     _writeExampleMain(pluginName, className);
-    _setDone(7, detail: 'lib/src/$pluginName.native.dart + example/lib/main.dart');
+    _setDone(_kStepBridge, detail: 'lib/src/$pluginName.native.dart + example/lib/main.dart');
 
     component.result.success = true;
     component.result.pluginName = pluginName;
@@ -469,16 +540,7 @@ class _InitViewState extends State<InitView> {
     final srcDir = Directory(p.join(pluginName, 'src'));
     if (!srcDir.existsSync()) srcDir.createSync(recursive: true);
 
-    File(p.join(srcDir.path, '$pluginName.cpp')).writeAsStringSync('''
-#include <stdint.h>
-#include <stdbool.h>
-#include "nitro.h"
-
-#include "../lib/src/generated/cpp/$pluginName.bridge.g.h"
-
-extern "C" {
-}
-''');
+    File(p.join(srcDir.path, '$pluginName.cpp')).writeAsStringSync(pluginCppTemplate(pluginName));
 
     // dart_api_dl.c is created as a local forwarder by `nitrogen link` (after
     // `flutter pub get` resolves the nitro package path).  We create a
@@ -490,32 +552,7 @@ extern "C" {
       '#include "../../packages/nitro/src/native/dart_api_dl.c"\n',
     );
 
-    File(p.join(srcDir.path, 'CMakeLists.txt')).writeAsStringSync('''
-cmake_minimum_required(VERSION 3.10)
-project(${pluginName}_library VERSION 0.0.1 LANGUAGES C CXX)
-
-set(NITRO_NATIVE "\${CMAKE_CURRENT_SOURCE_DIR}/../../packages/nitro/src/native")
-set(GENERATED_CPP "\${CMAKE_CURRENT_SOURCE_DIR}/../lib/src/generated/cpp")
-
-add_library($pluginName SHARED
-  "$pluginName.cpp"
-  "\${CMAKE_CURRENT_SOURCE_DIR}/../lib/src/generated/cpp/$pluginName.bridge.g.cpp"
-  "dart_api_dl.c"
-)
-
-target_include_directories($pluginName PRIVATE
-  "\${CMAKE_CURRENT_SOURCE_DIR}"
-  "\${GENERATED_CPP}"
-  "\${NITRO_NATIVE}"
-)
-
-target_compile_definitions($pluginName PUBLIC DART_SHARED_LIB)
-
-if(ANDROID)
-  target_link_libraries($pluginName PRIVATE android log)
-  target_link_options($pluginName PRIVATE "-Wl,-z,max-page-size=16384")
-endif()
-''');
+    File(p.join(srcDir.path, 'CMakeLists.txt')).writeAsStringSync(cmakeListsTemplate(pluginName));
   }
 
   void _configureIos(String pluginName, String className) {
@@ -542,35 +579,13 @@ endif()
       '#include "../../src/dart_api_dl.c"\n',
     );
 
-    File(p.join(classesDir.path, 'Swift${className}Plugin.swift')).writeAsStringSync('''import Flutter
-import UIKit
-
-public class Swift${className}Plugin: NSObject, FlutterPlugin {
-    public static func register(with registrar: FlutterPluginRegistrar) {
-        ${className}Registry.register(${className}Impl())
-    }
-}
-''');
+    File(p.join(classesDir.path, 'Swift${className}Plugin.swift')).writeAsStringSync(iosSwiftPluginTemplate(className));
 
     // Starter implementation — developers replace the placeholder logic with
     // real native code. The protocol is generated by `nitrogen generate`.
     final implFile = File(p.join(classesDir.path, '${className}Impl.swift'));
     if (!implFile.existsSync()) {
-      implFile.writeAsStringSync('''import Foundation
-
-/// Native implementation of Hybrid${className}Protocol.
-/// This file is yours to edit — the protocol is generated by `nitrogen generate`.
-public class ${className}Impl: NSObject, Hybrid${className}Protocol {
-
-    public func add(a: Double, b: Double) -> Double {
-        return a + b
-    }
-
-    public func getGreeting(name: String) async throws -> String {
-        return "Hello, \\(name)!"
-    }
-}
-''');
+      implFile.writeAsStringSync(iosSwiftImplTemplate(className));
     }
 
     // Symlink so CocoaPods (Classes/**/*) picks up the generated Swift bridge
@@ -593,7 +608,7 @@ public class ${className}Impl: NSObject, Hybrid${className}Protocol {
     'DEFINES_MODULE' => 'YES',
     'CLANG_CXX_LANGUAGE_STANDARD' => 'c++17',
     'CLANG_CXX_LIBRARY' => 'libc++',
-    'HEADER_SEARCH_PATHS' => '$(inherited) "${PODS_ROOT}/../.symlinks/plugins/nitro/src/native"'
+    'HEADER_SEARCH_PATHS' => '$(inherited) "${PODS_ROOT}/../.symlinks/plugins/nitro/src/native" "${PODS_TARGET_SRCROOT}/../src" "${PODS_TARGET_SRCROOT}/../lib/src/generated/cpp"'
   }""";
       content = content.replaceFirst(RegExp(r's\.pod_target_xcconfig\s*=\s*\{[^}]*\}'), xcconfig);
       podspecFile.writeAsStringSync(content);
@@ -613,15 +628,20 @@ public class ${className}Impl: NSObject, Hybrid${className}Protocol {
   }
 
   void _writeApplePackageSwift(String path, String pluginName, String className, String platformSpec) {
-    // SPM Sources layout (separate dirs required for mixed Swift/C++ targets):
-    //   Sources/<ClassName>/     — Swift files (symlinks to Classes/*.swift)
-    //   Sources/<ClassName>Cpp/  — C/C++ files (symlinks to Classes/*.cpp/.c)
-    final swiftSrcDir = Directory(p.join(path, 'Sources', className));
-    final cppSrcDir = Directory(p.join(path, 'Sources', '${className}Cpp'));
+    // Flutter 3.41+ nested SPM layout:
+    //   ios/<pluginName>/Package.swift
+    //   ios/<pluginName>/Sources/<ClassName>/     — Swift files
+    //   ios/<pluginName>/Sources/<ClassName>Cpp/  — C/C++ files
+    // Flutter auto-discovers this layout; the old flat ios/Package.swift is not auto-detected.
+    final packageDir = Directory(p.join(path, pluginName));
+    packageDir.createSync(recursive: true);
+
+    final swiftSrcDir = Directory(p.join(packageDir.path, 'Sources', className));
+    final cppSrcDir = Directory(p.join(packageDir.path, 'Sources', '${className}Cpp'));
     swiftSrcDir.createSync(recursive: true);
     cppSrcDir.createSync(recursive: true);
 
-    // Swift symlinks
+    // Swift symlinks — 3 levels up from ios/<pluginName>/Sources/<ClassName>/
     for (final name in [
       'Swift${className}Plugin.swift',
       '${className}Impl.swift',
@@ -629,7 +649,7 @@ public class ${className}Impl: NSObject, Hybrid${className}Protocol {
     ]) {
       final lnk = Link(p.join(swiftSrcDir.path, name));
       if (!lnk.existsSync()) {
-        lnk.createSync('../../Classes/$name');
+        try { lnk.createSync('../../../Classes/$name'); } catch (_) {}
       }
     }
 
@@ -637,146 +657,80 @@ public class ${className}Impl: NSObject, Hybrid${className}Protocol {
     for (final name in ['$pluginName.cpp', 'dart_api_dl.c']) {
       final lnk = Link(p.join(cppSrcDir.path, name));
       if (!lnk.existsSync()) {
-        lnk.createSync('../../Classes/$name');
+        try { lnk.createSync('../../../Classes/$name'); } catch (_) {}
       }
     }
     // Public headers dir — symlink to Classes/ so SPM can find .h files
     final includeLink = Link(p.join(cppSrcDir.path, 'include'));
     if (!includeLink.existsSync()) {
-      includeLink.createSync('../../Classes');
+      try { includeLink.createSync('../../../Classes'); } catch (_) {}
     }
 
-    File(p.join(path, 'Package.swift')).writeAsStringSync('''// swift-tools-version: 5.9
-import PackageDescription
-
-let package = Package(
-    name: "$pluginName",
-    platforms: [.$platformSpec],
-    products: [
-        .library(name: "$pluginName", targets: ["$pluginName"]),
-    ],
-    targets: [
-        // C/C++ bridge — SPM requires Swift and C++ in separate targets.
-        .target(
-            name: "${className}Cpp",
-            path: "Sources/${className}Cpp",
-            publicHeadersPath: "include",
-            cxxSettings: [
-                .headerSearchPath("include"),
-                .unsafeFlags([
-                    "-std=c++17",
-                    // nitro's dart_api_dl.h — resolved via Flutter's symlink
-                    // so this works for both local path and pub.dev references.
-                    "-I../../.symlinks/plugins/nitro/src/native",
-                ])
-            ]
-        ),
-        // Swift implementation + generated bridge.
-        .target(
-            name: "$pluginName",
-            dependencies: ["${className}Cpp"],
-            path: "Sources/$className"
-        ),
-    ]
-)
-''');
+    File(p.join(packageDir.path, 'Package.swift')).writeAsStringSync(
+      packageSwiftTemplate(pluginName, className, platformSpec, isMacos: path.endsWith('macos')),
+    );
   }
 
   void _configureAndroid(String pluginName, String className, String org) {
-    File(p.join(pluginName, 'android', 'build.gradle')).writeAsStringSync('''
-group = "$org.$pluginName"
-version = "1.0"
-
-buildscript {
-    repositories { google(); mavenCentral() }
-    dependencies { classpath("com.android.tools.build:gradle:8.11.1") }
-}
-
-rootProject.allprojects {
-    repositories { google(); mavenCentral() }
-}
-
-apply plugin: "com.android.library"
-apply plugin: "kotlin-android"
-
-android {
-    namespace = "$org.$pluginName"
-    compileSdk = 36
-    ndkVersion = android.ndkVersion
-
-    externalNativeBuild {
-        cmake { path = "../src/CMakeLists.txt" }
-    }
-
-    compileOptions {
-        sourceCompatibility = JavaVersion.VERSION_17
-        targetCompatibility = JavaVersion.VERSION_17
-    }
-
-    kotlinOptions { jvmTarget = "17" }
-
-    defaultConfig { minSdk = 24 }
-
-    sourceSets {
-        main {
-            kotlin.srcDirs += "\${project.projectDir}/../lib/src/generated/kotlin"
-            java.srcDirs += "\${project.projectDir}/../lib/src/generated/kotlin"
-        }
-    }
-}
-
-dependencies {
-    implementation "org.jetbrains.kotlinx:kotlinx-coroutines-android:1.7.3"
-    implementation "org.jetbrains.kotlinx:kotlinx-coroutines-core:1.7.3"
-}
-''');
+    File(p.join(pluginName, 'android', 'build.gradle')).writeAsStringSync(androidBuildGradleTemplate(org, pluginName));
 
     final moduleName = '${pluginName}_module';
     final orgPath = org.replaceAll('.', p.separator);
     final kotlinDir = Directory(p.join(pluginName, 'android', 'src', 'main', 'kotlin', orgPath, pluginName));
     if (!kotlinDir.existsSync()) kotlinDir.createSync(recursive: true);
 
-    File(p.join(kotlinDir.path, '${className}Plugin.kt')).writeAsStringSync('''
-package $org.$pluginName
-
-import io.flutter.embedding.engine.plugins.FlutterPlugin
-import nitro.$moduleName.${className}JniBridge
-
-class ${className}Plugin : FlutterPlugin {
-
-    companion object {
-        init { System.loadLibrary("$pluginName") }
-    }
-
-    override fun onAttachedToEngine(binding: FlutterPlugin.FlutterPluginBinding) {
-        ${className}JniBridge.register(
-            ${className}Impl(binding.applicationContext)
-        )
-    }
-
-    override fun onDetachedFromEngine(binding: FlutterPlugin.FlutterPluginBinding) {}
-}''');
+    File(p.join(kotlinDir.path, '${className}Plugin.kt')).writeAsStringSync(androidPluginKtTemplate(org, pluginName, className, moduleName));
 
     // Starter implementation — developers replace the placeholder logic.
     // The Hybrid${className}Spec interface is generated by `nitrogen generate`.
     final implFile = File(p.join(kotlinDir.path, '${className}Impl.kt'));
     if (!implFile.existsSync()) {
-      implFile.writeAsStringSync('''
-package $org.$pluginName
-
-import android.content.Context
-import nitro.$moduleName.Hybrid${className}Spec
-
-/// Native implementation of Hybrid${className}Spec.
-/// This file is yours to edit — the interface is generated by `nitrogen generate`.
-class ${className}Impl(private val context: Context) : Hybrid${className}Spec {
-
-    override fun add(a: Double, b: Double): Double = a + b
-
-    override suspend fun getGreeting(name: String): String = "Hello, \$name!"
-}
-''');
+      implFile.writeAsStringSync(androidImplKtTemplate(org, pluginName, className, moduleName));
     }
+  }
+
+  void _configureWindows(String pluginName, String className) {
+    final winDir = Directory(p.join(pluginName, 'windows'));
+    if (!winDir.existsSync()) return;
+    _patchDesktopCMake(p.join(winDir.path, 'CMakeLists.txt'), pluginName);
+  }
+
+  void _configureLinux(String pluginName, String className) {
+    final linuxDir = Directory(p.join(pluginName, 'linux'));
+    if (!linuxDir.existsSync()) return;
+    _patchDesktopCMake(p.join(linuxDir.path, 'CMakeLists.txt'), pluginName);
+  }
+
+  /// Shared CMake patcher for desktop platforms (windows/ and linux/).
+  void _patchDesktopCMake(String cmakePath, String pluginName) {
+    final cmakeFile = File(cmakePath);
+    if (!cmakeFile.existsSync()) return;
+    var content = cmakeFile.readAsStringSync();
+    const addLibLine = 'add_library(\${PLUGIN_NAME} SHARED\n';
+    if (!content.contains('NITRO_NATIVE')) {
+      content = 'set(NITRO_NATIVE "\${CMAKE_CURRENT_SOURCE_DIR}/../../packages/nitro/src/native")\n\n$content';
+    }
+    if (!content.contains('dart_api_dl.c')) {
+      content = content.replaceFirst(
+        addLibLine,
+        '$addLibLine  "\${CMAKE_CURRENT_SOURCE_DIR}/../src/dart_api_dl.c"\n',
+      );
+    }
+    final bridgeRel = '../lib/src/generated/cpp/$pluginName.bridge.g.cpp';
+    if (!content.contains(bridgeRel)) {
+      content = content.replaceFirst(
+        addLibLine,
+        '$addLibLine  "\${CMAKE_CURRENT_SOURCE_DIR}/$bridgeRel"\n',
+      );
+    }
+    if (!content.contains(r'${NITRO_NATIVE}')) {
+      content +=
+          '\ntarget_include_directories(\${PLUGIN_NAME} PRIVATE\n'
+          '  "\${NITRO_NATIVE}"\n'
+          '  "\${CMAKE_CURRENT_SOURCE_DIR}/../lib/src/generated/cpp"\n'
+          ')\n';
+    }
+    cmakeFile.writeAsStringSync(content);
   }
 
   void _configureMacos(String pluginName, String className) {
@@ -798,32 +752,11 @@ class ${className}Impl(private val context: Context) : Hybrid${className}Spec {
       '#include "../../src/dart_api_dl.c"\n',
     );
 
-    File(p.join(classesDir.path, 'Swift${className}Plugin.swift')).writeAsStringSync('''import FlutterMacOS
-import AppKit
-
-public class Swift${className}Plugin: NSObject, FlutterPlugin {
-    public static func register(with registrar: FlutterPluginRegistrar) {
-        ${className}Registry.register(${className}Impl())
-    }
-}
-''');
+    File(p.join(classesDir.path, 'Swift${className}Plugin.swift')).writeAsStringSync(macosSwiftPluginTemplate(className));
 
     final implFile = File(p.join(classesDir.path, '${className}Impl.swift'));
     if (!implFile.existsSync()) {
-      implFile.writeAsStringSync('''import Foundation
-
-/// Native implementation of Hybrid${className}Protocol on macOS.
-public class ${className}Impl: NSObject, Hybrid${className}Protocol {
-
-    public func add(a: Double, b: Double) -> Double {
-        return a + b
-    }
-
-    public func getGreeting(name: String) async throws -> String {
-        return "Hello, \\(name) from macOS!"
-    }
-}
-''');
+      implFile.writeAsStringSync(macosSwiftImplTemplate(className));
     }
 
     // Symlink bridge
@@ -842,7 +775,7 @@ public class ${className}Impl: NSObject, Hybrid${className}Protocol {
     'DEFINES_MODULE' => 'YES',
     'CLANG_CXX_LANGUAGE_STANDARD' => 'c++17',
     'CLANG_CXX_LIBRARY' => 'libc++',
-    'HEADER_SEARCH_PATHS' => '$(inherited) "${PODS_ROOT}/../.symlinks/plugins/nitro/src/native"'
+    'HEADER_SEARCH_PATHS' => '$(inherited) "${PODS_ROOT}/../Flutter/ephemeral/.symlinks/plugins/nitro/src/native" "${PODS_TARGET_SRCROOT}/../src" "${PODS_TARGET_SRCROOT}/../lib/src/generated/cpp"'
   }""";
       content = content.replaceFirst(RegExp(r's\.pod_target_xcconfig\s*=\s*\{[^}]*\}'), xcconfig);
       podspecFile.writeAsStringSync(content);
@@ -855,6 +788,7 @@ public class ${className}Impl: NSObject, Hybrid${className}Protocol {
     String pluginName,
     String className,
     String org, {
+    List<String> platforms = const ['android', 'ios', 'macos'],
     String? nitroVersion,
     String? nitroGeneratorVersion,
   }) {
@@ -884,50 +818,67 @@ public class ${className}Impl: NSObject, Hybrid${className}Protocol {
       );
     }
 
+    // Build the platforms block dynamically based on selected platforms.
+    final platformsBlock = StringBuffer('    platforms:\n');
+    if (platforms.contains('android')) {
+      platformsBlock
+        ..writeln('      android:')
+        ..writeln('        pluginClass: ${className}Plugin')
+        ..writeln('        package: $org.$pluginName')
+        ..write('        ffiPlugin: true');
+    }
+    if (platforms.contains('ios')) {
+      platformsBlock
+        ..writeln()
+        ..writeln('      ios:')
+        ..writeln('        pluginClass: Swift${className}Plugin')
+        ..write('        ffiPlugin: true');
+    }
+    if (platforms.contains('macos')) {
+      platformsBlock
+        ..writeln()
+        ..writeln('      macos:')
+        ..writeln('        pluginClass: Swift${className}Plugin')
+        ..write('        ffiPlugin: true');
+    }
+    if (platforms.contains('windows')) {
+      platformsBlock
+        ..writeln()
+        ..writeln('      windows:')
+        ..writeln('        pluginClass: ${className}Plugin')
+        ..write('        ffiPlugin: true');
+    }
+    if (platforms.contains('linux')) {
+      platformsBlock
+        ..writeln()
+        ..writeln('      linux:')
+        ..writeln('        pluginClass: ${className}Plugin')
+        ..write('        ffiPlugin: true');
+    }
+
+    // Replace whatever platforms block flutter create generated with ours.
     pubspec = pubspec.replaceFirst(
-      RegExp(
-        r'    platforms:\s*\n'
-        r'      android:\s*\n'
-        r'        ffiPlugin: true\s*\n'
-        r'      ios:\s*\n'
-        r'        ffiPlugin: true\s*\n'
-        r'      macos:\s*\n'
-        r'        ffiPlugin: true',
-      ),
-      '    platforms:\n'
-      '      android:\n'
-      '        pluginClass: ${className}Plugin\n'
-      '        package: $org.$pluginName\n'
-      '        ffiPlugin: true\n'
-      '      ios:\n'
-      '        pluginClass: Swift${className}Plugin\n'
-      '        ffiPlugin: true\n'
-      '      macos:\n'
-      '        pluginClass: Swift${className}Plugin\n'
-      '        ffiPlugin: true',
+      RegExp(r'    platforms:\n(?:      \w+:\n(?:        \w+: [^\n]+\n)*)+', multiLine: true),
+      platformsBlock.toString(),
     );
 
     pubspecFile.writeAsStringSync(pubspec);
   }
 
-  void _writeBridgeSpec(String pluginName, String className) {
+  void _writeBridgeSpec(String pluginName, String className, {List<String> platforms = const ['android', 'ios', 'macos']}) {
     final libSrcDir = Directory(p.join(pluginName, 'lib', 'src'));
     libSrcDir.createSync(recursive: true);
 
-    File(p.join(libSrcDir.path, '$pluginName.native.dart')).writeAsStringSync('''import 'package:nitro/nitro.dart';
+    // Build @NitroModule annotation based on selected platforms.
+    final args = <String>[];
+    if (platforms.contains('ios')) args.add('ios: NativeImpl.swift');
+    if (platforms.contains('android')) args.add('android: NativeImpl.kotlin');
+    if (platforms.contains('macos')) args.add('macos: NativeImpl.swift');
+    if (platforms.contains('windows')) args.add('windows: NativeImpl.cpp');
+    if (platforms.contains('linux')) args.add('linux: NativeImpl.cpp');
+    final annotation = '@NitroModule(${args.join(', ')})';
 
-part '$pluginName.g.dart';
-
-@NitroModule(ios: NativeImpl.swift, android: NativeImpl.kotlin, macos: NativeImpl.swift)
-abstract class $className extends HybridObject {
-  static final $className instance = _${className}Impl();
-
-  double add(double a, double b);
-
-  @nitroAsync
-  Future<String> getGreeting(String name);
-}
-''');
+    File(p.join(libSrcDir.path, '$pluginName.native.dart')).writeAsStringSync(nativeDartTemplate(pluginName, className, annotation));
 
     File(p.join(pluginName, 'lib', '$pluginName.dart')).writeAsStringSync("export 'src/$pluginName.native.dart';\n");
   }
@@ -938,191 +889,7 @@ abstract class $className extends HybridObject {
     final exampleLibDir = Directory(p.join(pluginName, 'example', 'lib'));
     exampleLibDir.createSync(recursive: true);
 
-    File(p.join(exampleLibDir.path, 'main.dart')).writeAsStringSync('''import 'dart:async';
-
-import 'package:flutter/material.dart';
-import 'package:$pluginName/$pluginName.dart' as plugin;
-
-void main() {
-  WidgetsFlutterBinding.ensureInitialized();
-  runApp(const MyApp());
-}
-
-class MyApp extends StatelessWidget {
-  const MyApp({super.key});
-
-  @override
-  Widget build(BuildContext context) {
-    return MaterialApp(
-      title: '$className Demo',
-      debugShowCheckedModeBanner: false,
-      theme: ThemeData(useMaterial3: true, colorSchemeSeed: Colors.deepPurple),
-      home: const _DemoPage(),
-    );
-  }
-}
-
-class _DemoPage extends StatefulWidget {
-  const _DemoPage();
-  @override
-  State<_DemoPage> createState() => _DemoPageState();
-}
-
-class _DemoPageState extends State<_DemoPage> {
-  String _addResult = '—';
-  Future<String>? _greetingFuture;
-  String? _initError;
-
-  @override
-  void initState() {
-    super.initState();
-    _init();
-  }
-
-  void _init() {
-    try {
-      _addResult = '\${plugin.$className.instance.add(1.0, 2.0)}';
-      _greetingFuture = plugin.$className.instance.getGreeting('World');
-    } catch (e) {
-      setState(() => _initError = e.toString());
-    }
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    if (_initError != null) {
-      return Scaffold(
-        appBar: AppBar(title: const Text('$className Demo')),
-        body: Center(
-          child: Padding(
-            padding: const EdgeInsets.all(24),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                const Icon(Icons.error_outline, size: 64, color: Colors.red),
-                const SizedBox(height: 16),
-                const Text('Failed to load native library',
-                    style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
-                const SizedBox(height: 8),
-                Text(_initError!,
-                    style: const TextStyle(color: Colors.grey, fontSize: 12),
-                    textAlign: TextAlign.center),
-              ],
-            ),
-          ),
-        ),
-      );
-    }
-
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text('$className Demo'),
-        centerTitle: true,
-      ),
-      body: ListView(
-        padding: const EdgeInsets.all(16),
-        children: [
-          Row(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              const Icon(Icons.bolt, size: 36, color: Colors.amber),
-              const SizedBox(width: 8),
-              Text(
-                '$className',
-                style: Theme.of(context)
-                    .textTheme
-                    .headlineSmall
-                    ?.copyWith(fontWeight: FontWeight.bold),
-              ),
-            ],
-          ),
-          const SizedBox(height: 4),
-          Text(
-            'Nitro FFI module — edit lib/src/$pluginName.native.dart to add methods.',
-            style: Theme.of(context)
-                .textTheme
-                .bodySmall
-                ?.copyWith(color: Colors.grey),
-            textAlign: TextAlign.center,
-          ),
-          const SizedBox(height: 24),
-          _FeatureCard(
-            label: 'Sync method',
-            code: '$className.instance.add(1.0, 2.0)',
-            result: _addResult,
-          ),
-          const SizedBox(height: 12),
-          FutureBuilder<String>(
-            future: _greetingFuture,
-            builder: (context, snapshot) => _FeatureCard(
-              label: 'Async method  (@nitroAsync)',
-              code: 'await $className.instance.getGreeting("World")',
-              result: snapshot.hasData
-                  ? snapshot.data!
-                  : snapshot.hasError
-                      ? 'Error: \${snapshot.error}'
-                      : null,
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _FeatureCard extends StatelessWidget {
-  const _FeatureCard({
-    required this.label,
-    required this.code,
-    required this.result,
-  });
-  final String label;
-  final String code;
-  final String? result; // null = loading
-
-  @override
-  Widget build(BuildContext context) {
-    return Card(
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Row(
-          children: [
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(label,
-                      style: const TextStyle(
-                          fontWeight: FontWeight.bold, fontSize: 13)),
-                  const SizedBox(height: 2),
-                  Text(code,
-                      style: const TextStyle(
-                          color: Colors.grey,
-                          fontSize: 11,
-                          fontFamily: 'monospace')),
-                ],
-              ),
-            ),
-            const SizedBox(width: 12),
-            result == null
-                ? const SizedBox(
-                    width: 20,
-                    height: 20,
-                    child: CircularProgressIndicator(strokeWidth: 2))
-                : Text(
-                    result!,
-                    style: const TextStyle(
-                        fontSize: 20,
-                        fontWeight: FontWeight.bold,
-                        color: Colors.deepPurple),
-                  ),
-          ],
-        ),
-      ),
-    );
-  }
-}
-''');
+    File(p.join(exampleLibDir.path, 'main.dart')).writeAsStringSync(exampleMainDartTemplate(pluginName, className));
   }
 }
 
@@ -1130,7 +897,7 @@ class _FeatureCard extends StatelessWidget {
 
 class PluginNameForm extends StatefulComponent {
   const PluginNameForm({required this.onSubmit, this.onExit, super.key});
-  final void Function(String pluginName, String org) onSubmit;
+  final void Function(String pluginName, String org, String targetDir) onSubmit;
   final VoidCallback? onExit;
 
   @override
@@ -1140,19 +907,22 @@ class PluginNameForm extends StatefulComponent {
 class _PluginNameFormState extends State<PluginNameForm> {
   final _nameController = TextEditingController();
   final _orgController = TextEditingController(text: 'com.example');
-  bool _nameHasFocus = true;
+  late final _dirController = TextEditingController(text: Directory.current.path);
+  int _focusIndex = 0; // 0 = name, 1 = org, 2 = dir
   String? _error;
 
   @override
   void dispose() {
     _nameController.dispose();
     _orgController.dispose();
+    _dirController.dispose();
     super.dispose();
   }
 
   void _submit() {
     final name = _nameController.text.trim();
     final org = _orgController.text.trim().isEmpty ? 'com.example' : _orgController.text.trim();
+    final dir = _dirController.text.trim().isEmpty ? Directory.current.path : _dirController.text.trim();
 
     if (name.isEmpty) {
       setState(() => _error = 'Plugin name is required');
@@ -1162,7 +932,12 @@ class _PluginNameFormState extends State<PluginNameForm> {
       setState(() => _error = 'Use only lowercase letters, numbers, and underscores');
       return;
     }
-    component.onSubmit(name, org);
+    final targetDir = Directory(dir);
+    if (!targetDir.existsSync()) {
+      setState(() => _error = 'Directory does not exist: $dir');
+      return;
+    }
+    component.onSubmit(name, org, dir);
   }
 
   bool _handleKey(KeyboardEvent e) {
@@ -1172,7 +947,7 @@ class _PluginNameFormState extends State<PluginNameForm> {
     }
     if (e.logicalKey == LogicalKey.tab) {
       setState(() {
-        _nameHasFocus = !_nameHasFocus;
+        _focusIndex = (_focusIndex + 1) % 3;
         _error = null;
       });
       return true;
@@ -1182,12 +957,16 @@ class _PluginNameFormState extends State<PluginNameForm> {
 
   @override
   Component build(BuildContext context) {
+    final pluginName = _nameController.text.trim();
+    final targetDir = _dirController.text.trim().isEmpty ? Directory.current.path : _dirController.text.trim();
+    final previewPath = pluginName.isEmpty ? targetDir : p.join(targetDir, pluginName);
+
     return Focusable(
       focused: true,
       onKeyEvent: _handleKey,
       child: Center(
         child: SizedBox(
-          width: 52,
+          width: 60,
           child: Column(
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.start,
@@ -1214,13 +993,13 @@ class _PluginNameFormState extends State<PluginNameForm> {
                     style: TextStyle(color: Colors.cyan, fontWeight: FontWeight.bold),
                   ),
                   SizedBox(
-                    width: 44,
+                    width: 52,
                     child: TextField(
                       controller: _nameController,
-                      focused: _nameHasFocus,
+                      focused: _focusIndex == 0,
                       placeholder: 'my_plugin',
                       onSubmitted: (_) => setState(() {
-                        _nameHasFocus = false;
+                        _focusIndex = 1;
                         _error = null;
                       }),
                       style: const TextStyle(color: Colors.white),
@@ -1237,13 +1016,45 @@ class _PluginNameFormState extends State<PluginNameForm> {
                     style: TextStyle(color: Colors.cyan, fontWeight: FontWeight.bold),
                   ),
                   SizedBox(
-                    width: 44,
+                    width: 52,
                     child: TextField(
                       controller: _orgController,
-                      focused: !_nameHasFocus,
+                      focused: _focusIndex == 1,
                       placeholder: 'com.example',
                       onSubmitted: (_) => _submit(),
                       style: const TextStyle(color: Colors.white),
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 1),
+              const Text('Target directory:', style: TextStyle(color: Colors.white)),
+              Row(
+                children: [
+                  const Text(
+                    '› ',
+                    style: TextStyle(color: Colors.cyan, fontWeight: FontWeight.bold),
+                  ),
+                  SizedBox(
+                    width: 52,
+                    child: TextField(
+                      controller: _dirController,
+                      focused: _focusIndex == 2,
+                      placeholder: Directory.current.path,
+                      onSubmitted: (_) => _submit(),
+                      style: const TextStyle(color: Colors.white),
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 1),
+              Row(
+                children: [
+                  const Text('📂 ', style: TextStyle(color: Colors.cyan)),
+                  Expanded(
+                    child: Text(
+                      'Will create: $previewPath',
+                      style: const TextStyle(color: Colors.gray, fontWeight: FontWeight.dim),
                     ),
                   ),
                 ],
@@ -1275,7 +1086,7 @@ class _PluginNameFormState extends State<PluginNameForm> {
               ),
               const SizedBox(height: 1),
               const Text(
-                '[Tab] switch field   [Enter] confirm   [ESC] back',
+                '[Tab] cycle fields   [Enter] next/confirm   [ESC] back',
                 style: TextStyle(color: Colors.gray, fontWeight: FontWeight.dim),
               ),
             ],
@@ -1292,11 +1103,13 @@ class NitrogenInitApp extends StatefulComponent {
   const NitrogenInitApp({
     required this.result,
     this.initialOrg,
+    this.initialPlatforms = const ['android', 'ios', 'macos', 'windows', 'linux'],
     this.onExit,
     super.key,
   });
   final InitResult result;
   final String? initialOrg;
+  final List<String> initialPlatforms;
   final VoidCallback? onExit;
 
   @override
@@ -1306,6 +1119,7 @@ class NitrogenInitApp extends StatefulComponent {
 class _NitrogenInitAppState extends State<NitrogenInitApp> {
   String? _pluginName;
   String? _org;
+  String? _targetDir;
 
   @override
   Component build(BuildContext context) {
@@ -1313,14 +1127,17 @@ class _NitrogenInitAppState extends State<NitrogenInitApp> {
       return InitView(
         pluginName: _pluginName!,
         org: _org ?? component.initialOrg ?? 'com.example',
+        targetDir: _targetDir ?? Directory.current.path,
+        platforms: component.initialPlatforms,
         result: component.result,
         onExit: component.onExit,
       );
     }
     return PluginNameForm(
-      onSubmit: (name, org) => setState(() {
+      onSubmit: (name, org, dir) => setState(() {
         _pluginName = name;
         _org = org;
+        _targetDir = dir;
       }),
       onExit: component.onExit,
     );
@@ -1336,6 +1153,9 @@ class InitCommand extends Command {
   @override
   final String description = 'Scaffolds a new Nitrogen FFI plugin.';
 
+  static const _validPlatforms = {'android', 'ios', 'macos', 'windows', 'linux'};
+  static const _defaultPlatforms = 'android,ios,macos,windows,linux';
+
   InitCommand() {
     argParser.addOption('org', defaultsTo: 'com.example');
     argParser.addOption(
@@ -1343,12 +1163,51 @@ class InitCommand extends Command {
       abbr: 'n',
       help: 'Plugin name (skips interactive form; useful for scripts/CI).',
     );
+    argParser.addOption(
+      'dir',
+      abbr: 'd',
+      help: 'Target directory to create the plugin in. Defaults to the current directory.',
+    );
+    argParser.addOption(
+      'platforms',
+      abbr: 'p',
+      defaultsTo: _defaultPlatforms,
+      help:
+          'Comma-separated list of platforms to scaffold. '
+          'Valid: android, ios, macos, windows, linux. '
+          'Example: --platforms=android,ios,macos,windows',
+    );
+  }
+
+  List<String> _parsePlatforms(String raw) {
+    final platforms = raw.split(',').map((s) => s.trim().toLowerCase()).where((s) => s.isNotEmpty).toList();
+    final invalid = platforms.where((p) => !_validPlatforms.contains(p)).toList();
+    if (invalid.isNotEmpty) {
+      stderr.writeln('❌ Unknown platform(s): ${invalid.join(', ')}. Valid: ${_validPlatforms.join(', ')}');
+      exit(1);
+    }
+    return platforms;
   }
 
   @override
   Future<void> run() async {
     final org = argResults!['org'] as String;
     final nameArg = argResults!['name'] as String?;
+    final dirArg = argResults!['dir'] as String?;
+    final platformsArg = argResults!['platforms'] as String;
+    final platforms = _parsePlatforms(platformsArg);
+
+    // Validate --dir if provided
+    final targetDir = dirArg?.trim();
+    if (targetDir != null && !Directory(targetDir).existsSync()) {
+      stderr.writeln('❌ Target directory does not exist: $targetDir');
+      exit(1);
+    }
+    if (targetDir != null) {
+      stdout.writeln('  \x1B[90m📂 Creating in: $targetDir\x1B[0m');
+    } else {
+      stdout.writeln('  \x1B[90m📂 Creating in: ${Directory.current.path}\x1B[0m');
+    }
 
     // Non-interactive path: --name was supplied, run directly without TUI.
     if (nameArg != null && nameArg.isNotEmpty) {
@@ -1362,6 +1221,8 @@ class InitCommand extends Command {
         InitView(
           pluginName: pluginName,
           org: org,
+          targetDir: targetDir,
+          platforms: platforms,
           result: result,
         ),
       );
@@ -1375,7 +1236,7 @@ class InitCommand extends Command {
 
     // Interactive path: show the TUI name form.
     final result = InitResult();
-    await runApp(NitrogenInitApp(result: result, initialOrg: org));
+    await runApp(NitrogenInitApp(result: result, initialOrg: org, initialPlatforms: platforms));
     if (result.success) {
       stdout.writeln('  \x1B[1;32m✨ ${result.pluginName ?? ''} created\x1B[0m');
     } else {

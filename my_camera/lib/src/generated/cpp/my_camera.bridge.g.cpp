@@ -34,6 +34,13 @@ static void nitro_report_error(const char* name, const char* message, const char
 }
 }
 
+extern "C" {
+void my_camera_release_CameraFrame(void* ptr) {
+    if (!ptr) return;
+    free(ptr);
+}
+}
+
 #ifdef __ANDROID__
 #include <jni.h>
 #include <android/log.h>
@@ -87,8 +94,15 @@ static void nitro_report_jni_exception(JNIEnv* env, jthrowable ex) {
 
     nitro_report_error(name, msg, nullptr, nullptr);
 
-    if (j_name) env->ReleaseStringUTFChars(j_name, name);
-    if (j_msg) env->ReleaseStringUTFChars(j_msg, msg);
+    if (j_name) {
+        env->ReleaseStringUTFChars(j_name, name);
+        env->DeleteLocalRef(j_name);
+    }
+    if (j_msg) {
+        env->ReleaseStringUTFChars(j_msg, msg);
+        env->DeleteLocalRef(j_msg);
+    }
+    env->DeleteLocalRef(ex_class);
     env->DeleteLocalRef(ex);
 }
 
@@ -101,6 +115,7 @@ static CameraFrame pack_CameraFrame_from_jni(JNIEnv* env, jobject obj) {
         return result;
     }
     result.data = (uint8_t*)env->GetDirectBufferAddress(buf_data);
+    env->DeleteLocalRef(buf_data);
     result.width = env->GetLongField(obj, g_fid_CameraFrame_width);
     result.height = env->GetLongField(obj, g_fid_CameraFrame_height);
     result.stride = env->GetLongField(obj, g_fid_CameraFrame_stride);
@@ -108,7 +123,15 @@ static CameraFrame pack_CameraFrame_from_jni(JNIEnv* env, jobject obj) {
     return result;
 }
 static jobject unpack_CameraFrame_to_jni(JNIEnv* env, const CameraFrame* st) {
-    return env->NewObject(g_cls_CameraFrame, g_ctor_CameraFrame, env->NewDirectByteBuffer((void*)st->data, st->stride), (jlong)st->width, (jlong)st->height, (jlong)st->stride, (jlong)st->timestampNs);
+    if (st->data == nullptr) {
+        jclass npe = env->FindClass("java/lang/NullPointerException");
+        if (npe) env->ThrowNew(npe, "CameraFrame.data: TypedData pointer is null");
+        return nullptr;
+    }
+    jobject dbuf_data = env->NewDirectByteBuffer((void*)st->data, st->stride);
+    jobject result = env->NewObject(g_cls_CameraFrame, g_ctor_CameraFrame, dbuf_data, (jlong)st->width, (jlong)st->height, (jlong)st->stride, (jlong)st->timestampNs);
+    if (dbuf_data) env->DeleteLocalRef(dbuf_data);
+    return result;
 }
 
 extern "C" {
@@ -180,11 +203,17 @@ double my_camera_add(double a, double b) {
     JNIEnv* env = GetEnv();
     if (env == nullptr) return 0.0;
     jmethodID methodId = g_mid_add_call;
-    if (methodId == nullptr) { LOGE("Method not found"); return 0.0; }
+    if (methodId == nullptr) { LOGE("Method not found: add_call sig=(DD)D"); return 0.0; }
 
     my_camera_clear_error();
+    if (env->PushLocalFrame(16) != 0) return 0.0;
     double res = env->CallStaticDoubleMethod(g_bridgeClass, methodId, a, b);
-    if (env->ExceptionCheck()) { nitro_report_jni_exception(env, env->ExceptionOccurred()); return 0.0; }
+    if (env->ExceptionCheck()) {
+        nitro_report_jni_exception(env, env->ExceptionOccurred());
+        env->PopLocalFrame(nullptr);
+        return 0.0;
+    }
+    env->PopLocalFrame(nullptr);
     return res;
 }
 
@@ -192,18 +221,25 @@ const char* my_camera_get_greeting(const char* name) {
     JNIEnv* env = GetEnv();
     if (env == nullptr) return nullptr;
     jmethodID methodId = g_mid_getGreeting_call;
-    if (methodId == nullptr) { LOGE("Method not found"); return nullptr; }
+    if (methodId == nullptr) { LOGE("Method not found: getGreeting_call sig=(Ljava/lang/String;)Ljava/lang/String;"); return nullptr; }
 
     my_camera_clear_error();
+    if (env->PushLocalFrame(16) != 0) return nullptr;
     jstring j_name = env->NewStringUTF(name);
     jstring jstr = (jstring)env->CallStaticObjectMethod(g_bridgeClass, methodId, j_name);
-    if (env->ExceptionCheck()) { nitro_report_jni_exception(env, env->ExceptionOccurred()); return nullptr; }
-    if (jstr == nullptr) return nullptr;
+    if (env->ExceptionCheck()) {
+        nitro_report_jni_exception(env, env->ExceptionOccurred());
+        env->PopLocalFrame(nullptr);
+        return nullptr;
+    }
+    if (jstr == nullptr) {
+        env->PopLocalFrame(nullptr);
+        return nullptr;
+    }
     const char* nativeStr = env->GetStringUTFChars(jstr, 0);
     char* result = strdup(nativeStr);
     env->ReleaseStringUTFChars(jstr, nativeStr);
-    env->DeleteLocalRef(j_name);
-    env->DeleteLocalRef(jstr);
+    env->PopLocalFrame(nullptr);
     return result;
 }
 
@@ -211,16 +247,24 @@ void* my_camera_get_available_devices(void) {
     JNIEnv* env = GetEnv();
     if (env == nullptr) return nullptr;
     jmethodID methodId = g_mid_getAvailableDevices_call;
-    if (methodId == nullptr) { LOGE("Method not found"); return nullptr; }
+    if (methodId == nullptr) { LOGE("Method not found: getAvailableDevices_call sig=()[B"); return nullptr; }
 
     my_camera_clear_error();
+    if (env->PushLocalFrame(16) != 0) return nullptr;
     jbyteArray jarr = (jbyteArray)env->CallStaticObjectMethod(g_bridgeClass, methodId);
-    if (env->ExceptionCheck()) { nitro_report_jni_exception(env, env->ExceptionOccurred()); return nullptr; }
-    if (jarr == nullptr) return nullptr;
+    if (env->ExceptionCheck()) {
+        nitro_report_jni_exception(env, env->ExceptionOccurred());
+        env->PopLocalFrame(nullptr);
+        return nullptr;
+    }
+    if (jarr == nullptr) {
+        env->PopLocalFrame(nullptr);
+        return nullptr;
+    }
     jsize len = env->GetArrayLength(jarr);
     uint8_t* result = (uint8_t*)malloc(len);
     env->GetByteArrayRegion(jarr, 0, len, (jbyte*)result);
-    env->DeleteLocalRef(jarr);
+    env->PopLocalFrame(nullptr);
     return result;
 }
 
@@ -228,14 +272,16 @@ void my_camera_register_frames_stream(int64_t dart_port) {
     JNIEnv* env = GetEnv();
     if (env == nullptr) return;
     jmethodID methodId = g_mid_my_camera_register_frames_stream_call;
-    if (methodId != nullptr) env->CallStaticVoidMethod(g_bridgeClass, methodId, dart_port);
+    if (methodId == nullptr) { LOGE("Method not found: my_camera_register_frames_stream_call sig=(J)V"); return; }
+    env->CallStaticVoidMethod(g_bridgeClass, methodId, dart_port);
 }
 
 void my_camera_release_frames_stream(int64_t dart_port) {
     JNIEnv* env = GetEnv();
     if (env == nullptr) return;
     jmethodID methodId = g_mid_my_camera_release_frames_stream_call;
-    if (methodId != nullptr) env->CallStaticVoidMethod(g_bridgeClass, methodId, dart_port);
+    if (methodId == nullptr) { LOGE("Method not found: my_camera_release_frames_stream_call sig=(J)V"); return; }
+    env->CallStaticVoidMethod(g_bridgeClass, methodId, dart_port);
 }
 
 JNIEXPORT void JNICALL Java_nitro_my_1camera_1module_MyCameraJniBridge_emit_1frames(JNIEnv* env, jobject thiz, jlong dartPort, jobject item) {
@@ -251,14 +297,16 @@ void my_camera_register_colored_frames_stream(int64_t dart_port) {
     JNIEnv* env = GetEnv();
     if (env == nullptr) return;
     jmethodID methodId = g_mid_my_camera_register_colored_frames_stream_call;
-    if (methodId != nullptr) env->CallStaticVoidMethod(g_bridgeClass, methodId, dart_port);
+    if (methodId == nullptr) { LOGE("Method not found: my_camera_register_colored_frames_stream_call sig=(J)V"); return; }
+    env->CallStaticVoidMethod(g_bridgeClass, methodId, dart_port);
 }
 
 void my_camera_release_colored_frames_stream(int64_t dart_port) {
     JNIEnv* env = GetEnv();
     if (env == nullptr) return;
     jmethodID methodId = g_mid_my_camera_release_colored_frames_stream_call;
-    if (methodId != nullptr) env->CallStaticVoidMethod(g_bridgeClass, methodId, dart_port);
+    if (methodId == nullptr) { LOGE("Method not found: my_camera_release_colored_frames_stream_call sig=(J)V"); return; }
+    env->CallStaticVoidMethod(g_bridgeClass, methodId, dart_port);
 }
 
 JNIEXPORT void JNICALL Java_nitro_my_1camera_1module_MyCameraJniBridge_emit_1coloredFrames(JNIEnv* env, jobject thiz, jlong dartPort, jobject item) {

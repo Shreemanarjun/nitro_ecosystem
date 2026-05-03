@@ -42,6 +42,9 @@ NITRO_EXPORT void my_camera_release_frames_stream(int64_t dart_port);
 NITRO_EXPORT void my_camera_register_colored_frames_stream(int64_t dart_port);
 NITRO_EXPORT void my_camera_release_colored_frames_stream(int64_t dart_port);
 
+// Struct release functions
+NITRO_EXPORT void my_camera_release_CameraFrame(void* ptr);
+
 #ifdef __cplusplus
 }
 #endif

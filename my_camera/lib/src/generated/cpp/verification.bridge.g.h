@@ -33,6 +33,9 @@ NITRO_EXPORT const char* verification_module_ping_async(const char* message);
 NITRO_EXPORT void verification_module_throw_error(const char* message);
 NITRO_EXPORT void* verification_module_process_floats(float* inputs, int64_t inputs_length);
 
+// Struct release functions
+NITRO_EXPORT void verification_release_FloatBuffer(void* ptr);
+
 #ifdef __cplusplus
 }
 #endif

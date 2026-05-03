@@ -1,42 +1,26 @@
-import 'dart:io';
-
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
-import 'package:nitro/nitro.dart';
 import 'package:signals_flutter/signals_flutter.dart';
 import 'package:wakelock_plus/wakelock_plus.dart';
 import 'multi_bridge_dashboard.dart';
 import 'box_stress_page.dart';
 import 'benchmark_page.dart';
-
-String? _startupError;
+// NitroRuntime init is skipped on web (no dart:ffi); the web stub is a no-op.
+import 'nitro_init.dart' if (dart.library.io) 'nitro_init_native.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   WakelockPlus.enable(); // Keep screen awake during benchmarks
   SignalsObserver.instance = null;
-  NitroConfig.instance.isolatePoolSize = Platform.numberOfProcessors;
-  try {
-    await NitroRuntime.init();
-  } catch (e) {
-    // IsolatePool.create() can fail on some devices — retry with pool disabled.
-    debugPrint(
-      '[NitroBenchmark] NitroRuntime.init() failed: $e. Retrying with isolatePoolSize=0.',
-    );
-    NitroConfig.instance.isolatePoolSize = 0;
-    try {
-      await NitroRuntime.init();
-    } catch (e2) {
-      debugPrint(
-        '[NitroBenchmark] NitroRuntime.init() failed again: $e2. Running without runtime.',
-      );
-      _startupError = e2.toString();
-    }
-  }
-  runApp(const NitroBenchmarkApp());
+
+  await initNitroRuntime();
+
+  runApp(NitroBenchmarkApp(startupError: startupError));
 }
 
 class NitroBenchmarkApp extends StatelessWidget {
-  const NitroBenchmarkApp({super.key});
+  const NitroBenchmarkApp({super.key, this.startupError});
+  final String? startupError;
 
   @override
   Widget build(BuildContext context) {
@@ -49,7 +33,7 @@ class NitroBenchmarkApp extends StatelessWidget {
         colorSchemeSeed: Colors.cyan,
         scaffoldBackgroundColor: Colors.black,
       ),
-      home: _startupError != null
+      home: startupError != null
           ? Scaffold(
               body: Center(
                 child: Padding(
@@ -72,7 +56,7 @@ class NitroBenchmarkApp extends StatelessWidget {
                       ),
                       const SizedBox(height: 8),
                       Text(
-                        _startupError!,
+                        startupError!,
                         style: const TextStyle(
                           color: Colors.white60,
                           fontSize: 12,
@@ -83,13 +67,14 @@ class NitroBenchmarkApp extends StatelessWidget {
                 ),
               ),
             )
-          : const MainNavigationPage(),
+          : MainNavigationPage(isWeb: kIsWeb),
     );
   }
 }
 
 class MainNavigationPage extends StatefulWidget {
-  const MainNavigationPage({super.key});
+  const MainNavigationPage({super.key, this.isWeb = false});
+  final bool isWeb;
 
   @override
   State<MainNavigationPage> createState() => _MainNavigationPageState();
@@ -98,7 +83,7 @@ class MainNavigationPage extends StatefulWidget {
 class _MainNavigationPageState extends State<MainNavigationPage> {
   int _selectedIndex = 0;
 
-  final List<Widget> _pages = [
+  late final List<Widget> _pages = [
     const MultiBridgeDashboard(),
     const BoxStressPage(),
     const BenchmarkPage(),
@@ -108,6 +93,24 @@ class _MainNavigationPageState extends State<MainNavigationPage> {
   Widget build(BuildContext context) {
     return SafeArea(
       child: Scaffold(
+        appBar: widget.isWeb
+            ? AppBar(
+                backgroundColor: Colors.grey.shade900,
+                title: Row(
+                  children: [
+                    const Icon(Icons.language, color: Colors.cyan, size: 16),
+                    const SizedBox(width: 8),
+                    Text(
+                      'Web Platform — Pure Dart baseline (no native bridge)',
+                      style: TextStyle(
+                        fontSize: 12,
+                        color: Colors.cyan.shade200,
+                      ),
+                    ),
+                  ],
+                ),
+              )
+            : null,
         body: IndexedStack(index: _selectedIndex, children: _pages),
         bottomNavigationBar: NavigationBar(
           selectedIndex: _selectedIndex,
@@ -119,23 +122,21 @@ class _MainNavigationPageState extends State<MainNavigationPage> {
           backgroundColor: Colors.grey.shade900,
           indicatorColor: Colors.cyan.withAlpha(50),
           destinations: const [
-            NavigationRequest(icon: Icon(Icons.speed), label: 'Throughput'),
-            NavigationRequest(
+            NavigationDestination(
+              icon: Icon(Icons.speed),
+              label: 'Throughput',
+            ),
+            NavigationDestination(
               icon: Icon(Icons.flash_on),
               label: 'Visual Stress',
             ),
-            NavigationRequest(icon: Icon(Icons.analytics), label: 'API Bench'),
+            NavigationDestination(
+              icon: Icon(Icons.analytics),
+              label: 'API Bench',
+            ),
           ],
         ),
       ),
     );
   }
-}
-
-class NavigationRequest extends NavigationDestination {
-  const NavigationRequest({
-    required super.icon,
-    required super.label,
-    super.key,
-  });
 }

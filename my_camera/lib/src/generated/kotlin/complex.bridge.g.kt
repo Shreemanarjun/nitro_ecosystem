@@ -23,11 +23,73 @@ enum class DeviceStatus(val nativeValue: Long) {
 }
 
 // --- Structs ---
-@Keep
-data class SensorData(val temperature: Double, val humidity: Double, val lastUpdate: Long)
+@androidx.annotation.Keep
+data class SensorData(val temperature: Double, val humidity: Double, val lastUpdate: Long) {
+    companion object {
+        @JvmStatic fun decodeFrom(buf: java.nio.ByteBuffer): SensorData {
+            val temperature = buf.double
+            val humidity = buf.double
+            val lastUpdate = buf.long
+            return SensorData(temperature, humidity, lastUpdate)
+        }
+        @JvmStatic fun decode(bytes: ByteArray): SensorData {
+            val buf = java.nio.ByteBuffer.wrap(bytes).order(java.nio.ByteOrder.LITTLE_ENDIAN)
+            return decodeFrom(buf)
+        }
+    }
 
-@Keep
-data class Packet(val sequence: Long, val buffer: java.nio.ByteBuffer, val size: Long)
+    fun writeFieldsTo(out: java.io.ByteArrayOutputStream, buf: java.nio.ByteBuffer) {
+        fun writeInt(v: Long) { buf.clear(); buf.putLong(v); out.write(buf.array()) }
+        @Suppress("UNUSED_PARAMETER") fun writeInt32(v: Int) { buf.clear(); buf.putInt(v); out.write(buf.array(), 0, 4) }
+        fun writeDouble(v: Double) { buf.clear(); buf.putDouble(v); out.write(buf.array()) }
+        fun writeBool(v: Boolean) { out.write(if (v) 1 else 0) }
+        fun writeString(v: String) { val b = v.toByteArray(Charsets.UTF_8); writeInt32(b.size); out.write(b) }
+        writeDouble(temperature)
+        writeDouble(humidity)
+        writeInt(lastUpdate)
+    }
+
+    fun encode(): ByteArray {
+        val out = java.io.ByteArrayOutputStream(24)
+        val buf = java.nio.ByteBuffer.allocate(8).order(java.nio.ByteOrder.LITTLE_ENDIAN)
+        writeFieldsTo(out, buf)
+        return out.toByteArray()
+    }
+}
+
+@androidx.annotation.Keep
+data class Packet(val sequence: Long, val buffer: java.nio.ByteBuffer, val size: Long) {
+    companion object {
+        @JvmStatic fun decodeFrom(buf: java.nio.ByteBuffer): Packet {
+            val sequence = buf.long
+            val buffer = { buf.long; java.nio.ByteBuffer.allocate(0) }()
+            val size = buf.long
+            return Packet(sequence, buffer, size)
+        }
+        @JvmStatic fun decode(bytes: ByteArray): Packet {
+            val buf = java.nio.ByteBuffer.wrap(bytes).order(java.nio.ByteOrder.LITTLE_ENDIAN)
+            return decodeFrom(buf)
+        }
+    }
+
+    fun writeFieldsTo(out: java.io.ByteArrayOutputStream, buf: java.nio.ByteBuffer) {
+        fun writeInt(v: Long) { buf.clear(); buf.putLong(v); out.write(buf.array()) }
+        @Suppress("UNUSED_PARAMETER") fun writeInt32(v: Int) { buf.clear(); buf.putInt(v); out.write(buf.array(), 0, 4) }
+        fun writeDouble(v: Double) { buf.clear(); buf.putDouble(v); out.write(buf.array()) }
+        fun writeBool(v: Boolean) { out.write(if (v) 1 else 0) }
+        fun writeString(v: String) { val b = v.toByteArray(Charsets.UTF_8); writeInt32(b.size); out.write(b) }
+        writeInt(sequence)
+        writeInt(0L)
+        writeInt(size)
+    }
+
+    fun encode(): ByteArray {
+        val out = java.io.ByteArrayOutputStream(52)
+        val buf = java.nio.ByteBuffer.allocate(8).order(java.nio.ByteOrder.LITTLE_ENDIAN)
+        writeFieldsTo(out, buf)
+        return out.toByteArray()
+    }
+}
 
 /**
  * Contract for the [ComplexModule] module.

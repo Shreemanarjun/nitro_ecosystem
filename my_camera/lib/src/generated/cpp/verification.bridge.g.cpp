@@ -34,6 +34,13 @@ static void nitro_report_error(const char* name, const char* message, const char
 }
 }
 
+extern "C" {
+void verification_release_FloatBuffer(void* ptr) {
+    if (!ptr) return;
+    free(ptr);
+}
+}
+
 #ifdef __ANDROID__
 #include <jni.h>
 #include <android/log.h>
@@ -82,8 +89,15 @@ static void nitro_report_jni_exception(JNIEnv* env, jthrowable ex) {
 
     nitro_report_error(name, msg, nullptr, nullptr);
 
-    if (j_name) env->ReleaseStringUTFChars(j_name, name);
-    if (j_msg) env->ReleaseStringUTFChars(j_msg, msg);
+    if (j_name) {
+        env->ReleaseStringUTFChars(j_name, name);
+        env->DeleteLocalRef(j_name);
+    }
+    if (j_msg) {
+        env->ReleaseStringUTFChars(j_msg, msg);
+        env->DeleteLocalRef(j_msg);
+    }
+    env->DeleteLocalRef(ex_class);
     env->DeleteLocalRef(ex);
 }
 
@@ -96,11 +110,20 @@ static FloatBuffer pack_FloatBuffer_from_jni(JNIEnv* env, jobject obj) {
         return result;
     }
     result.data = (float*)env->GetDirectBufferAddress(buf_data);
+    env->DeleteLocalRef(buf_data);
     result.length = env->GetLongField(obj, g_fid_FloatBuffer_length);
     return result;
 }
 static jobject unpack_FloatBuffer_to_jni(JNIEnv* env, const FloatBuffer* st) {
-    return env->NewObject(g_cls_FloatBuffer, g_ctor_FloatBuffer, env->NewDirectByteBuffer((void*)st->data, st->length * sizeof(float)), (jlong)st->length);
+    if (st->data == nullptr) {
+        jclass npe = env->FindClass("java/lang/NullPointerException");
+        if (npe) env->ThrowNew(npe, "FloatBuffer.data: TypedData pointer is null");
+        return nullptr;
+    }
+    jobject dbuf_data = env->NewDirectByteBuffer((void*)st->data, st->length * sizeof(float));
+    jobject result = env->NewObject(g_cls_FloatBuffer, g_ctor_FloatBuffer, dbuf_data, (jlong)st->length);
+    if (dbuf_data) env->DeleteLocalRef(dbuf_data);
+    return result;
 }
 
 extern "C" {
@@ -167,11 +190,17 @@ double verification_module_multiply(double a, double b) {
     JNIEnv* env = GetEnv();
     if (env == nullptr) return 0.0;
     jmethodID methodId = g_mid_multiply_call;
-    if (methodId == nullptr) { LOGE("Method not found"); return 0.0; }
+    if (methodId == nullptr) { LOGE("Method not found: multiply_call sig=(DD)D"); return 0.0; }
 
     verification_clear_error();
+    if (env->PushLocalFrame(16) != 0) return 0.0;
     double res = env->CallStaticDoubleMethod(g_bridgeClass, methodId, a, b);
-    if (env->ExceptionCheck()) { nitro_report_jni_exception(env, env->ExceptionOccurred()); return 0.0; }
+    if (env->ExceptionCheck()) {
+        nitro_report_jni_exception(env, env->ExceptionOccurred());
+        env->PopLocalFrame(nullptr);
+        return 0.0;
+    }
+    env->PopLocalFrame(nullptr);
     return res;
 }
 
@@ -179,18 +208,25 @@ const char* verification_module_ping(const char* message) {
     JNIEnv* env = GetEnv();
     if (env == nullptr) return nullptr;
     jmethodID methodId = g_mid_ping_call;
-    if (methodId == nullptr) { LOGE("Method not found"); return nullptr; }
+    if (methodId == nullptr) { LOGE("Method not found: ping_call sig=(Ljava/lang/String;)Ljava/lang/String;"); return nullptr; }
 
     verification_clear_error();
+    if (env->PushLocalFrame(16) != 0) return nullptr;
     jstring j_message = env->NewStringUTF(message);
     jstring jstr = (jstring)env->CallStaticObjectMethod(g_bridgeClass, methodId, j_message);
-    if (env->ExceptionCheck()) { nitro_report_jni_exception(env, env->ExceptionOccurred()); return nullptr; }
-    if (jstr == nullptr) return nullptr;
+    if (env->ExceptionCheck()) {
+        nitro_report_jni_exception(env, env->ExceptionOccurred());
+        env->PopLocalFrame(nullptr);
+        return nullptr;
+    }
+    if (jstr == nullptr) {
+        env->PopLocalFrame(nullptr);
+        return nullptr;
+    }
     const char* nativeStr = env->GetStringUTFChars(jstr, 0);
     char* result = strdup(nativeStr);
     env->ReleaseStringUTFChars(jstr, nativeStr);
-    env->DeleteLocalRef(j_message);
-    env->DeleteLocalRef(jstr);
+    env->PopLocalFrame(nullptr);
     return result;
 }
 
@@ -198,18 +234,25 @@ const char* verification_module_ping_async(const char* message) {
     JNIEnv* env = GetEnv();
     if (env == nullptr) return nullptr;
     jmethodID methodId = g_mid_pingAsync_call;
-    if (methodId == nullptr) { LOGE("Method not found"); return nullptr; }
+    if (methodId == nullptr) { LOGE("Method not found: pingAsync_call sig=(Ljava/lang/String;)Ljava/lang/String;"); return nullptr; }
 
     verification_clear_error();
+    if (env->PushLocalFrame(16) != 0) return nullptr;
     jstring j_message = env->NewStringUTF(message);
     jstring jstr = (jstring)env->CallStaticObjectMethod(g_bridgeClass, methodId, j_message);
-    if (env->ExceptionCheck()) { nitro_report_jni_exception(env, env->ExceptionOccurred()); return nullptr; }
-    if (jstr == nullptr) return nullptr;
+    if (env->ExceptionCheck()) {
+        nitro_report_jni_exception(env, env->ExceptionOccurred());
+        env->PopLocalFrame(nullptr);
+        return nullptr;
+    }
+    if (jstr == nullptr) {
+        env->PopLocalFrame(nullptr);
+        return nullptr;
+    }
     const char* nativeStr = env->GetStringUTFChars(jstr, 0);
     char* result = strdup(nativeStr);
     env->ReleaseStringUTFChars(jstr, nativeStr);
-    env->DeleteLocalRef(j_message);
-    env->DeleteLocalRef(jstr);
+    env->PopLocalFrame(nullptr);
     return result;
 }
 
@@ -217,11 +260,13 @@ void verification_module_throw_error(const char* message) {
     JNIEnv* env = GetEnv();
     if (env == nullptr) return;
     jmethodID methodId = g_mid_throwError_call;
-    if (methodId == nullptr) { LOGE("Method not found"); return; }
+    if (methodId == nullptr) { LOGE("Method not found: throwError_call sig=(Ljava/lang/String;)V"); return; }
 
     verification_clear_error();
+    if (env->PushLocalFrame(16) != 0) return;
     jstring j_message = env->NewStringUTF(message);
     env->CallStaticVoidMethod(g_bridgeClass, methodId, j_message);
+    env->PopLocalFrame(nullptr);
     if (env->ExceptionCheck()) { nitro_report_jni_exception(env, env->ExceptionOccurred()); }
 }
 
@@ -229,16 +274,24 @@ void* verification_module_process_floats(float* inputs, int64_t inputs_length) {
     JNIEnv* env = GetEnv();
     if (env == nullptr) return nullptr;
     jmethodID methodId = g_mid_processFloats_call;
-    if (methodId == nullptr) { LOGE("Method not found"); return nullptr; }
+    if (methodId == nullptr) { LOGE("Method not found: processFloats_call sig=(Ljava/nio/ByteBuffer;)Lnitro/verification_module/FloatBuffer;"); return nullptr; }
 
     verification_clear_error();
+    if (env->PushLocalFrame(16) != 0) return nullptr;
     jobject j_inputs = env->NewDirectByteBuffer(inputs, inputs_length * sizeof(float));
     jobject jobj = env->CallStaticObjectMethod(g_bridgeClass, methodId, j_inputs);
-    if (env->ExceptionCheck()) { nitro_report_jni_exception(env, env->ExceptionOccurred()); return nullptr; }
-    if (jobj == nullptr) return nullptr;
+    if (env->ExceptionCheck()) {
+        nitro_report_jni_exception(env, env->ExceptionOccurred());
+        env->PopLocalFrame(nullptr);
+        return nullptr;
+    }
+    if (jobj == nullptr) {
+        env->PopLocalFrame(nullptr);
+        return nullptr;
+    }
     FloatBuffer* result = (FloatBuffer*)malloc(sizeof(FloatBuffer));
     *result = pack_FloatBuffer_from_jni(env, jobj);
-    env->DeleteLocalRef(jobj);
+    env->PopLocalFrame(nullptr);
     return result;
 }
 

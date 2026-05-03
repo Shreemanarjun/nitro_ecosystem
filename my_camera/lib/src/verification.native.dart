@@ -10,7 +10,7 @@ class FloatBuffer {
   const FloatBuffer({required this.data, required this.length});
 }
 
-@NitroModule(ios: NativeImpl.swift, android: NativeImpl.kotlin)
+@NitroModule(ios: AppleNativeImpl.swift, android: AndroidNativeImpl.kotlin)
 abstract class VerificationModule extends HybridObject {
   static final VerificationModule instance = _VerificationModuleImpl();
 

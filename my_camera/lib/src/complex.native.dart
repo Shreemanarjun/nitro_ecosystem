@@ -30,7 +30,7 @@ class Packet {
   });
 }
 
-@NitroModule(ios: NativeImpl.swift, android: NativeImpl.kotlin)
+@NitroModule(ios: AppleNativeImpl.swift, android: AndroidNativeImpl.kotlin)
 abstract class ComplexModule extends HybridObject {
   static final ComplexModule instance = _ComplexModuleImpl();
 

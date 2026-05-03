@@ -13,9 +13,9 @@ class _Point {
   @override
   int get hashCode => Object.hash(x, y);
 
-  void writeFields(RecordWriter w) {
-    w.writeInt(x);
-    w.writeInt(y);
+  void writeFields(RecordWriter writer) {
+    writer.writeInt(x);
+    writer.writeInt(y);
   }
 
   static _Point fromReader(RecordReader r) => _Point(r.readInt(), r.readInt());
@@ -26,7 +26,7 @@ class _Point {
 Pointer<Uint8> _encodePoints(List<_Point> items) =>
     RecordWriter.encodeIndexedList<_Point>(
       items,
-      (w, e) => e.writeFields(w),
+      (writer, e) => e.writeFields(writer),
       malloc,
     );
 

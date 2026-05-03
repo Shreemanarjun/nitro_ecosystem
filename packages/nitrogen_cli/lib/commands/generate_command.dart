@@ -1,8 +1,32 @@
 import 'dart:io';
+
 import 'package:args/command_runner.dart';
 import 'package:path/path.dart' as p;
-import 'link_command.dart' show cleanRedundantIncludes, createSharedHeaders, resolveNitroNativePath, isCppModule;
+
 import '../ui.dart';
+import 'link_command.dart'
+    show
+        cleanRedundantIncludes,
+        createSharedHeaders,
+        resolveNitroNativePath,
+        isCppModule,
+        findPodfileDirs,
+        discoverModuleInfos,
+        linkCMake,
+        linkPodspec,
+        linkMacosPodspec,
+        linkSwiftPlugin,
+        linkMacosSwiftPlugin,
+        purgeStaleCppSwiftRegistrations,
+        linkKotlinPlugin,
+        linkKotlinLoadLibraries,
+        purgeStaleCppKotlinRegistrations,
+        linkAndroid,
+        linkWindows,
+        linkLinux,
+        linkClangd,
+        isAppleCppModule,
+        isAndroidCppModule;
 
 class GenerateCommand extends Command {
   @override
@@ -41,12 +65,14 @@ class GenerateCommand extends Command {
     stdout.writeln('');
 
     // ── build_runner ─────────────────────────────────────────────────────────
+    // Use `dart run` instead of `flutter pub run` to skip the pub.dev update
+    // check that build_runner triggers via `flutter pub run`, which can hang
+    // for 30+ seconds or indefinitely on slow/no network.
     stdout.writeln(cyan('  › build_runner build …'));
     stdout.writeln('');
     exitCode = await runStreaming(
-      'flutter',
+      'dart',
       [
-        'pub',
         'run',
         'build_runner',
         'build',
@@ -55,6 +81,7 @@ class GenerateCommand extends Command {
       workingDirectory: projectDir.path,
     );
 
+
     stdout.writeln('');
     if (exitCode != 0) {
       stderr.writeln(boldRed('  ✘  build_runner failed (exit $exitCode)'));
@@ -62,13 +89,75 @@ class GenerateCommand extends Command {
       return exitCode;
     }
 
-    // ── Sync generated Swift bridges to ios/Classes/ ─────────────────────────
+    // ── Post-generation bridge cleanup ───────────────────────────────────────
+    // Generated Swift bridges live in lib/src/generated/swift/ and are compiled
+    // via the podspec source_files pattern. Remove any stale copies from Classes/
+    // to prevent "Invalid redeclaration" Swift compiler errors.
     final nitroNativePath = resolveNitroNativePath(projectDir.path);
     createSharedHeaders(nitroNativePath, baseDir: projectDir.path);
-    _syncSwiftToIosClasses(projectDir.path);
+    _syncSwiftBridgesToClasses(projectDir.path);
+
+    // ── nitrogen link (auto) ─────────────────────────────────────────────────
+    // Automatically run the patching logic (build.gradle, Plugin.kt, etc.)
+    // so users don't have to remember to run `nitrogen link` manually.
+    stdout.writeln(cyan('  › nitrogen link (auto-patching) …'));
+    final pluginName = _readPluginName(projectDir.path);
+    final moduleInfos = discoverModuleInfos(pluginName, baseDir: projectDir.path);
+    final hasCpp = moduleInfos.any((m) => m.isCpp);
+    final hasNonCpp = moduleInfos.any((m) => !m.isCpp);
+
+    // Patch CMake and C++ stubs
+    linkCMake(pluginName, moduleInfos.map((m) => m.lib).toList(), nitroNativePath, baseDir: projectDir.path, moduleInfos: moduleInfos);
+
+    // Patch iOS/macOS
+    if (Directory(p.join(projectDir.path, 'ios')).existsSync()) {
+      linkPodspec(pluginName, moduleInfos.map((m) => m.lib).toList(), baseDir: projectDir.path, moduleInfos: moduleInfos);
+      if (hasNonCpp) {
+        final appleCppLibs = moduleInfos.where((m) => isAppleCppModule(File(p.join(projectDir.path, 'lib', 'src', '${m.lib}.native.dart')))).map((m) => m.lib).toSet();
+        final swiftModules = moduleInfos.where((m) => !appleCppLibs.contains(m.lib)).map((m) => m.toMap()).toList();
+        linkSwiftPlugin(pluginName, swiftModules, baseDir: projectDir.path);
+        purgeStaleCppSwiftRegistrations(moduleInfos.where((m) => appleCppLibs.contains(m.lib)).toList(), platform: 'ios', baseDir: projectDir.path);
+      }
+    }
+    if (Directory(p.join(projectDir.path, 'macos')).existsSync()) {
+      linkMacosPodspec(pluginName, moduleInfos.map((m) => m.lib).toList(), baseDir: projectDir.path, moduleInfos: moduleInfos);
+      if (hasNonCpp) {
+        final appleCppLibs = moduleInfos.where((m) => isAppleCppModule(File(p.join(projectDir.path, 'lib', 'src', '${m.lib}.native.dart')))).map((m) => m.lib).toSet();
+        final swiftModules = moduleInfos.where((m) => !appleCppLibs.contains(m.lib)).map((m) => m.toMap()).toList();
+        linkMacosSwiftPlugin(pluginName, swiftModules, baseDir: projectDir.path);
+        purgeStaleCppSwiftRegistrations(moduleInfos.where((m) => appleCppLibs.contains(m.lib)).toList(), platform: 'macos', baseDir: projectDir.path);
+      }
+    }
+
+    // Patch Android
+    if (Directory(p.join(projectDir.path, 'android')).existsSync()) {
+      // Use isAndroidCppModule (android-only) — NOT isNativeCppModule (android+linux).
+      // A module with 'android: NativeImpl.kotlin, linux: NativeImpl.cpp' still needs
+      // a Kotlin JniBridge on Android and must not be excluded from kotlinModules.
+      final androidCppLibs = moduleInfos.where((m) => isAndroidCppModule(File(p.join(projectDir.path, 'lib', 'src', '${m.lib}.native.dart')))).map((m) => m.lib).toSet();
+      final kotlinModules = moduleInfos.where((m) => !androidCppLibs.contains(m.lib)).map((m) => m.toMap()).toList();
+      if (kotlinModules.isNotEmpty) {
+        linkKotlinPlugin(pluginName, kotlinModules, baseDir: projectDir.path);
+      }
+      if (hasCpp) {
+        linkKotlinLoadLibraries(moduleInfos.where((m) => m.isCpp).map((m) => m.lib).toList(), baseDir: projectDir.path);
+      }
+      purgeStaleCppKotlinRegistrations(moduleInfos.where((m) => androidCppLibs.contains(m.lib)).toList(), baseDir: projectDir.path);
+      linkAndroid(pluginName, moduleInfos.map((m) => m.lib).toList(), baseDir: projectDir.path, moduleInfos: moduleInfos);
+    }
+
+    // Patch Desktop
+    if (Directory(p.join(projectDir.path, 'windows')).existsSync()) {
+      linkWindows(pluginName, moduleInfos.map((m) => m.lib).toList(), nitroNativePath, baseDir: projectDir.path, moduleInfos: moduleInfos);
+    }
+    if (Directory(p.join(projectDir.path, 'linux')).existsSync()) {
+      linkLinux(pluginName, moduleInfos.map((m) => m.lib).toList(), nitroNativePath, baseDir: projectDir.path, moduleInfos: moduleInfos);
+    }
+
+    linkClangd(pluginName, moduleInfos: moduleInfos, baseDir: projectDir.path);
 
     // ── pod install ──────────────────────────────────────────────────────────
-    final podfileDirs = _findPodfileDirs(projectDir.path);
+    final podfileDirs = findPodfileDirs(projectDir.path);
     for (final dir in podfileDirs) {
       stdout.writeln(cyan('  › pod install (${p.relative(dir, from: projectDir.path)}) …'));
       final podExitCode = await runStreaming(
@@ -113,75 +202,64 @@ class GenerateCommand extends Command {
     return 'my_plugin';
   }
 
-  /// Copies every *.bridge.g.swift from lib/**/generated/swift/ into
-  /// ios/Classes/ so CocoaPods always picks up the freshly generated bridges.
-  /// Skips files that only contain the "Not applicable" placeholder produced
-  /// for NativeImpl.cpp modules (no Swift bridge is needed there).
-  void _syncSwiftToIosClasses(String projectRoot) {
-    final iosClasses = Directory(p.join(projectRoot, 'ios', 'Classes'));
-    if (!iosClasses.existsSync()) return;
-
-    final libDir = Directory(p.join(projectRoot, 'lib'));
-    if (!libDir.existsSync()) return;
-
-    final bridgeFiles = libDir.listSync(recursive: true).whereType<File>().where((f) => f.path.endsWith('.bridge.g.swift'));
-
-    for (final src in bridgeFiles) {
-      // Skip placeholder files produced for NativeImpl.cpp modules.
-      final firstLine = src.readAsLinesSync().firstOrNull ?? '';
-      if (firstLine.contains('Not applicable')) continue;
-      final dest = File(p.join(iosClasses.path, p.basename(src.path)));
-      src.copySync(dest.path);
+  /// Copies generated `*.bridge.g.swift` files from `lib/src/generated/swift/`
+  /// into `ios/Classes/` and `macos/Classes/`. This ensures Xcode compiles them
+  /// in the same module scope as the other Swift plugin files, resolving
+  /// "Cannot find X in scope" errors.
+  ///
+  /// Also ensures the podspec `source_files` only uses `'Classes/**/*'` (not
+  /// the outer lib glob) to prevent duplicate-symbol errors.
+  ///
+  /// Also heals any redundant `#include` lines in `src/*.cpp` files.
+  void _syncSwiftBridgesToClasses(String projectRoot) {
+    final swiftGenDir = Directory(p.join(projectRoot, 'lib', 'src', 'generated', 'swift'));
+    if (!swiftGenDir.existsSync()) {
+      _healCppIncludes(projectRoot);
+      return;
     }
 
-    // Sync *.native.g.h files for NativeImpl.cpp modules into ios/Classes/
-    // so that Xcode / CocoaPods can resolve them during Swift-interop builds.
-    _syncCppInterfaceHeaders(projectRoot, iosClasses.path);
+    final bridgeFiles = swiftGenDir.listSync().whereType<File>().where((f) => p.basename(f.path).endsWith('.bridge.g.swift')).toList();
+    if (bridgeFiles.isEmpty) {
+      _healCppIncludes(projectRoot);
+      return;
+    }
 
-    // Also heal any redundant includes in the main src/ folder
+    final pluginName = _readPluginName(projectRoot);
+
+    for (final platform in ['ios', 'macos']) {
+      for (final prefix in ['', 'example/']) {
+        final classesDir = Directory(p.join(projectRoot, '$prefix$platform', 'Classes'));
+        if (!classesDir.existsSync()) continue;
+
+        // Copy each bridge file into Classes/.
+        for (final bridge in bridgeFiles) {
+          bridge.copySync(p.join(classesDir.path, p.basename(bridge.path)));
+        }
+
+        // Ensure the podspec does NOT have the outer ../lib/src/generated/swift glob
+        // (that would cause duplicate-symbol errors since the file is now in Classes/).
+        final podspecFile = File(p.join(projectRoot, '$prefix$platform', '$pluginName.podspec'));
+        if (podspecFile.existsSync()) {
+          var spec = podspecFile.readAsStringSync();
+          final fixed = spec
+              .replaceAll(", '../lib/src/generated/swift/**/*.swift'", '')
+              .replaceAll("'../lib/src/generated/swift/**/*.swift', ", '')
+              .replaceAll("'../lib/src/generated/swift/**/*.swift'", "'Classes/**/*'");
+          if (fixed != spec) podspecFile.writeAsStringSync(fixed);
+        }
+      }
+    }
+
+    _healCppIncludes(projectRoot);
+  }
+
+  /// Heals any redundant `#include` lines in the main `src/` folder.
+  void _healCppIncludes(String projectRoot) {
     final srcDir = Directory(p.join(projectRoot, 'src'));
     if (srcDir.existsSync()) {
       for (final f in srcDir.listSync().whereType<File>().where((f) => f.path.endsWith('.cpp') || f.path.endsWith('.c'))) {
         cleanRedundantIncludes(f);
       }
     }
-  }
-
-  /// Copies *.native.g.h files generated for NativeImpl.cpp modules into
-  /// [iosClassesPath] so Clang can resolve them from Swift/ObjC++ files.
-  void _syncCppInterfaceHeaders(String projectRoot, String iosClassesPath) {
-    final libDir = Directory(p.join(projectRoot, 'lib'));
-    if (!libDir.existsSync()) return;
-
-    // Find corresponding .native.dart specs to check isCppModule
-    final specs = libDir.listSync(recursive: true).whereType<File>().where((f) => f.path.endsWith('.native.dart')).toList();
-
-    for (final spec in specs) {
-      if (!isCppModule(spec)) continue;
-      final stem = p.basename(spec.path).replaceAll(RegExp(r'\.native\.dart$'), '');
-      final header = File(p.join(p.dirname(spec.path), 'generated', 'cpp', '$stem.native.g.h'));
-      if (!header.existsSync()) continue;
-      File(p.join(iosClassesPath, p.basename(header.path))).writeAsStringSync(header.readAsStringSync());
-    }
-  }
-
-  /// Returns directories containing a Podfile, searching common locations:
-  /// `<root>/ios/`, `<root>/example/ios/`, and any direct child `*/ios/`.
-  List<String> _findPodfileDirs(String projectRoot) {
-    final candidates = [
-      p.join(projectRoot, 'ios'),
-      p.join(projectRoot, 'example', 'ios'),
-    ];
-
-    // Also check any direct subdirectory that has an ios/ with a Podfile.
-    try {
-      for (final entity in Directory(projectRoot).listSync()) {
-        if (entity is Directory) {
-          candidates.add(p.join(entity.path, 'ios'));
-        }
-      }
-    } catch (_) {}
-
-    return candidates.where((dir) => File(p.join(dir, 'Podfile')).existsSync()).toList();
   }
 }

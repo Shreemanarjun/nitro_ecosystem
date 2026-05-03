@@ -211,9 +211,10 @@ void main() {
   group('CppBridgeGenerator — iOS section typed-list length', () {
     test('extern _call_ declaration includes length param', () {
       final out = CppBridgeGenerator.generate(_floatSpec());
+      // namespace = 'verification_module' → _verification_module_call_processFloats
       expect(
         out,
-        contains('extern void* _call_processFloats(float* inputs, int64_t inputs_length)'),
+        contains('extern void* _verification_module_call_processFloats(float* inputs, int64_t inputs_length)'),
         reason: 'extern C declaration must forward the length to Swift',
       );
     });
@@ -230,9 +231,10 @@ void main() {
 
     test('call to _call_ stub forwards both pointer and length', () {
       final out = CppBridgeGenerator.generate(_floatSpec());
+      // namespace = 'verification_module' → _verification_module_call_processFloats
       expect(
         out,
-        contains('_call_processFloats(inputs, inputs_length)'),
+        contains('_verification_module_call_processFloats(inputs, inputs_length)'),
         reason: 'bridge must pass the length through to Swift',
       );
     });
@@ -251,7 +253,8 @@ void main() {
 
     test('Uint8List extern includes data_length', () {
       final out = CppBridgeGenerator.generate(_multiTypedListSpec());
-      expect(out, contains('extern void _call_writeBytes(uint8_t* data, int64_t data_length)'));
+      // namespace = 'buf_module' → _buf_module_call_writeBytes
+      expect(out, contains('extern void _buf_module_call_writeBytes(uint8_t* data, int64_t data_length)'));
     });
 
     test('mixed spec: only data param gets length, not label or scale', () {

@@ -15,7 +15,7 @@ import '../bridge_spec.dart';
 ///       Inner decoder: reads fields from an already-opened reader.
 ///       Used when this record is an element inside a list.
 ///
-///   • `void writeFields(RecordWriter w)`
+///   • `void writeFields(RecordWriter writer)`
 ///       Writes fields into an in-progress writer.
 ///       Used when this record is inside a list param.
 ///
@@ -42,6 +42,76 @@ class RecordGenerator {
     );
     s.writeln();
 
+    // ── Emit RecordExt for @HybridStruct types referenced in record fields ──
+    // Structs used as recordObject / listRecordObject items need fromReader /
+    // writeFields so the record codec can embed them inline.
+    final structMap = {for (final st in spec.structs) st.name: st};
+    final enumNames = spec.enums.map((e) => e.name).toSet();
+    final structNames = spec.structs.map((s) => s.name).toSet();
+
+    // Collect structs directly referenced in record fields, then transitively.
+    final referencedStructs = <String>{};
+    for (final rt in spec.recordTypes) {
+      for (final f in rt.fields) {
+        if (f.kind == RecordFieldKind.recordObject || f.kind == RecordFieldKind.listRecordObject) {
+          final typeName = f.kind == RecordFieldKind.listRecordObject
+              ? (f.itemTypeName ?? f.dartType.replaceFirst('?', ''))
+              : f.dartType.replaceFirst('?', '');
+          if (structMap.containsKey(typeName)) referencedStructs.add(typeName);
+        }
+      }
+    }
+    void collectNestedDart(String typeName) {
+      final st = structMap[typeName];
+      if (st == null) return;
+      for (final f in st.fields) {
+        final base = f.type.name.replaceFirst('?', '');
+        if (structMap.containsKey(base) && !referencedStructs.contains(base)) {
+          referencedStructs.add(base);
+          collectNestedDart(base);
+        }
+      }
+    }
+    for (final name in referencedStructs.toList()) {
+      collectNestedDart(name);
+    }
+
+    for (final stName in referencedStructs) {
+      final st = structMap[stName]!;
+      s.writeln('extension ${st.name}RecordExt on ${st.name} {');
+
+      // fromNative
+      s.writeln('  static ${st.name} fromNative(Pointer<Uint8> ptr) =>');
+      s.writeln('      fromReader(RecordReader.fromNative(ptr));');
+      s.writeln();
+
+      // fromReader
+      s.writeln('  static ${st.name} fromReader(RecordReader r) =>');
+      s.writeln('      ${st.name}(');
+      for (final f in st.fields.where((f) => !f.isNamed)) {
+        s.writeln('        ${_structFieldReadExpr(f, enumNames, structNames)},');
+      }
+      for (final f in st.fields.where((f) => f.isNamed)) {
+        s.writeln('        ${f.name}: ${_structFieldReadExpr(f, enumNames, structNames)},');
+      }
+      s.writeln('      );');
+      s.writeln();
+
+      // writeFields
+      s.writeln('  void writeFields(RecordWriter writer) {');
+      for (final f in st.fields) {
+        _writeStructFieldStmt(s, f, enumNames, structNames);
+      }
+      s.writeln('  }');
+      // NOTE: toNative(Allocator) is intentionally omitted for @HybridStruct types.
+      // The struct already has XxxExt.toNative(Arena arena) via its FFI extension,
+      // and Arena implements Allocator, so emitting a second toNative(Allocator)
+      // here would create an ambiguous call-site error ("member defined in both
+      // XxxExt and XxxRecordExt"). Nested serialisation only needs writeFields.
+      s.writeln('}');
+      s.writeln();
+    }
+
     for (final rt in spec.recordTypes) {
       s.writeln('extension ${rt.name}RecordExt on ${rt.name} {');
 
@@ -64,7 +134,7 @@ class RecordGenerator {
       s.writeln();
 
       // ── writeFields (inner, for use inside lists) ─────────────────────
-      s.writeln('  void writeFields(RecordWriter w) {');
+      s.writeln('  void writeFields(RecordWriter writer) {');
       for (final f in rt.fields) {
         _writeFieldStmt(s, f);
       }
@@ -73,9 +143,9 @@ class RecordGenerator {
 
       // ── toNative (top-level, allocates native buffer) ─────────────────
       s.writeln('  Pointer<Uint8> toNative(Allocator alloc) {');
-      s.writeln('    final w = RecordWriter();');
-      s.writeln('    writeFields(w);');
-      s.writeln('    return w.toNative(alloc);');
+      s.writeln('    final writer = RecordWriter();');
+      s.writeln('    writeFields(writer);');
+      s.writeln('    return writer.toNative(alloc);');
       s.writeln('  }');
 
       s.writeln('}');
@@ -128,6 +198,8 @@ class RecordGenerator {
         return 'r.readBool()';
       case 'String':
         return 'r.readString()';
+      case 'Uint8List':
+        return 'r.readBlob()';
       default:
         return 'r.readInt()';
     }
@@ -143,23 +215,23 @@ class RecordGenerator {
 
       case RecordFieldKind.recordObject:
         if (f.isNullable) {
-          s.writeln('    w.writeNullTag(${f.name} == null);');
-          s.writeln('    if (${f.name} != null) ${f.name}!.writeFields(w);');
+          s.writeln('    writer.writeNullTag(${f.name} == null);');
+          s.writeln('    if (${f.name} != null) ${f.name}!.writeFields(writer);');
         } else {
-          s.writeln('    ${f.name}.writeFields(w);');
+          s.writeln('    ${f.name}.writeFields(writer);');
         }
         break;
 
       case RecordFieldKind.listPrimitive:
         final item = f.itemTypeName ?? 'dynamic';
         final writeCall = _primitiveWriteCall(item, 'e');
-        s.writeln('    w.writeInt32(${f.name}.length);');
-        s.writeln('    for (final e in ${f.name}) { w.$writeCall; }');
+        s.writeln('    writer.writeInt32(${f.name}.length);');
+        s.writeln('    for (final e in ${f.name}) { writer.$writeCall; }');
         break;
 
       case RecordFieldKind.listRecordObject:
-        s.writeln('    w.writeInt32(${f.name}.length);');
-        s.writeln('    for (final e in ${f.name}) { e.writeFields(w); }');
+        s.writeln('    writer.writeInt32(${f.name}.length);');
+        s.writeln('    for (final e in ${f.name}) { e.writeFields(writer); }');
         break;
     }
   }
@@ -172,12 +244,12 @@ class RecordGenerator {
     final base = dartType.replaceFirst('?', '');
     final nullable = dartType.endsWith('?');
     if (nullable) {
-      s.writeln('    w.writeNullTag($fieldName == null);');
+      s.writeln('    writer.writeNullTag($fieldName == null);');
       s.writeln(
-        '    if ($fieldName != null) w.${_primitiveWriteCall(base, '$fieldName!')};',
+        '    if ($fieldName != null) writer.${_primitiveWriteCall(base, '$fieldName!')};',
       );
     } else {
-      s.writeln('    w.${_primitiveWriteCall(base, fieldName)};');
+      s.writeln('    writer.${_primitiveWriteCall(base, fieldName)};');
     }
   }
 
@@ -191,10 +263,202 @@ class RecordGenerator {
         return 'writeBool($expr)';
       case 'String':
         return 'writeString($expr)';
+      case 'Uint8List':
+        return 'writeBlob($expr)';
       default:
         return 'writeInt($expr)';
     }
   }
+
+  // ── Struct field read/write helpers (for RecordExt generated above) ───────────
+
+  /// Dart read expression for one field of a @HybridStruct embedded in a record.
+  static String _structFieldReadExpr(BridgeField f, Set<String> enumNames, Set<String> structNames) {
+    final base = f.type.name.replaceFirst('?', '');
+    if (enumNames.contains(base)) return _primitiveReadCall('int');
+    if (structNames.contains(base)) return '${base}RecordExt.fromReader(r)';
+    return _primitiveReadCall(base);
+  }
+
+  /// Emits a Dart write statement for one field of a @HybridStruct embedded in a record.
+  static void _writeStructFieldStmt(
+    StringBuffer s,
+    BridgeField f,
+    Set<String> enumNames,
+    Set<String> structNames,
+  ) {
+    final base = f.type.name.replaceFirst('?', '');
+    if (enumNames.contains(base)) {
+      s.writeln('    writer.${_primitiveWriteCall('int', '${f.name}.nativeValue')};');
+    } else if (structNames.contains(base)) {
+      s.writeln('    ${f.name}.writeFields(writer);');
+    } else {
+      _writePrimitiveStmt(s, f.type.name, f.name);
+    }
+  }
+
+  // ── C++ record decoder generator ────────────────────────────────────────────
+
+  /// Generates C++ struct definitions and a bounds-checked `NitroRecordReader`
+  /// for every `@HybridRecord` type in the spec.  Emitted into the
+  /// `*.native.g.h` header so C++ native implementations can call
+  /// `MyRecord::fromNative(buf)` without hand-rolling binary parsing.
+  ///
+  /// Safety guarantee: every `readNullTag()` call is preceded by an explicit
+  /// `if (offset + 1 > size)` check that throws `std::runtime_error`, preventing
+  /// out-of-bounds reads on malformed wire data (IMPROVEMENTS.md §3.3).
+  static String generateCpp(BridgeSpec spec) {
+    if (spec.recordTypes.isEmpty) return '';
+
+    final s = StringBuffer();
+
+    // Forward declarations so mutually-referencing types compile in any order.
+    s.writeln('// @HybridRecord C++ structs (generated by Nitrogen)');
+    for (final rt in spec.recordTypes) {
+      s.writeln('struct ${rt.name};');
+    }
+    s.writeln();
+
+    // NitroRecordReader — shared helper used by all fromReader implementations.
+    s.writeln(_cppRecordReaderDef);
+    s.writeln();
+
+    // Per-record struct + fromNative / fromReader.
+    for (final rt in spec.recordTypes) {
+      s.writeln('struct ${rt.name} {');
+      for (final f in rt.fields) {
+        s.writeln('    ${_cppFieldType(f)} ${f.name};');
+      }
+      s.writeln();
+      s.writeln('    static ${rt.name} fromNative(NitroCppBuffer buf) {');
+      s.writeln('        NitroRecordReader _r(buf);');
+      s.writeln('        return fromReader(_r);');
+      s.writeln('    }');
+      s.writeln();
+      s.writeln('    static ${rt.name} fromReader(NitroRecordReader& _r) {');
+      s.writeln('        ${rt.name} _obj;');
+      for (final f in rt.fields) {
+        _cppEmitFieldRead(s, f);
+      }
+      s.writeln('        return _obj;');
+      s.writeln('    }');
+      s.writeln('};');
+      s.writeln();
+    }
+
+    return s.toString();
+  }
+
+  static String _cppFieldType(BridgeRecordField f) {
+    switch (f.kind) {
+      case RecordFieldKind.primitive:
+        final t = _cppPrimType(f.dartType.replaceFirst('?', ''));
+        return f.isNullable ? 'std::optional<$t>' : t;
+      case RecordFieldKind.recordObject:
+        final base = f.dartType.replaceFirst('?', '');
+        return f.isNullable ? 'std::optional<$base>' : base;
+      case RecordFieldKind.listPrimitive:
+        return 'std::vector<${_cppPrimType(f.itemTypeName ?? 'int')}>';
+      case RecordFieldKind.listRecordObject:
+        return 'std::vector<${f.itemTypeName}>';
+    }
+  }
+
+  static String _cppPrimType(String dartType) {
+    switch (dartType) {
+      case 'int':    return 'int64_t';
+      case 'double': return 'double';
+      case 'bool':   return 'bool';
+      case 'String': return 'std::string';
+      default:       return 'int64_t';
+    }
+  }
+
+  static String _cppPrimRead(String dartType) {
+    switch (dartType) {
+      case 'int':    return 'readInt';
+      case 'double': return 'readDouble';
+      case 'bool':   return 'readBool';
+      case 'String': return 'readString';
+      default:       return 'readInt';
+    }
+  }
+
+  static void _cppEmitFieldRead(StringBuffer s, BridgeRecordField f) {
+    switch (f.kind) {
+      case RecordFieldKind.primitive:
+        final base = f.dartType.replaceFirst('?', '');
+        final t = _cppPrimType(base);
+        final read = _cppPrimRead(base);
+        if (f.isNullable) {
+          s.writeln('        { bool _null = _r.readNullTag(); _obj.${f.name} = _null ? std::nullopt : std::optional<$t>(_r.$read()); }');
+        } else {
+          s.writeln('        _obj.${f.name} = _r.$read();');
+        }
+        break;
+      case RecordFieldKind.recordObject:
+        final base = f.dartType.replaceFirst('?', '');
+        if (f.isNullable) {
+          s.writeln('        { bool _null = _r.readNullTag(); _obj.${f.name} = _null ? std::nullopt : std::optional<$base>($base::fromReader(_r)); }');
+        } else {
+          s.writeln('        _obj.${f.name} = $base::fromReader(_r);');
+        }
+        break;
+      case RecordFieldKind.listPrimitive:
+        final item = f.itemTypeName ?? 'int';
+        final read = _cppPrimRead(item);
+        s.writeln('        { int32_t _n = _r.readInt32(); _obj.${f.name}.reserve((size_t)_n); for (int32_t _i = 0; _i < _n; _i++) _obj.${f.name}.push_back(_r.$read()); }');
+        break;
+      case RecordFieldKind.listRecordObject:
+        final item = f.itemTypeName!;
+        s.writeln('        { int32_t _n = _r.readInt32(); _obj.${f.name}.reserve((size_t)_n); for (int32_t _i = 0; _i < _n; _i++) _obj.${f.name}.push_back($item::fromReader(_r)); }');
+        break;
+    }
+  }
+
+  /// Inline C++ definition of the bounds-checked record reader.
+  static const _cppRecordReaderDef = '''
+// Bounds-checked binary reader for @HybridRecord wire payloads.
+// Every readNullTag() bounds-checks before the byte access (IMPROVEMENTS.md §3.3).
+struct NitroRecordReader {
+    const uint8_t* _data;
+    size_t         _size;
+    size_t         _offset;
+    explicit NitroRecordReader(NitroCppBuffer buf)
+        : _data(buf.data), _size(buf.size), _offset(0) {}
+    explicit NitroRecordReader(const uint8_t* data, size_t size)
+        : _data(data), _size(size), _offset(0) {}
+private:
+    void _require(size_t n) const {
+        if (_offset + n > _size)
+            throw std::runtime_error("NitroRecordReader: buffer underflow");
+    }
+public:
+    int64_t readInt() {
+        _require(8); int64_t v; std::memcpy(&v, _data + _offset, 8); _offset += 8; return v;
+    }
+    int32_t readInt32() {
+        _require(4); int32_t v; std::memcpy(&v, _data + _offset, 4); _offset += 4; return v;
+    }
+    double readDouble() {
+        _require(8); uint64_t b; std::memcpy(&b, _data + _offset, 8);
+        _offset += 8; double v; std::memcpy(&v, &b, 8); return v;
+    }
+    bool readBool() {
+        _require(1); return _data[_offset++] != 0;
+    }
+    std::string readString() {
+        int32_t len = readInt32(); _require((size_t)len);
+        std::string s(reinterpret_cast<const char*>(_data + _offset), (size_t)len);
+        _offset += (size_t)len; return s;
+    }
+    // Bounds-checked null tag read — throws if no byte remains.
+    bool readNullTag() {
+        if (_offset + 1 > _size)
+            throw std::runtime_error("NitroRecordReader: null tag read past end of buffer");
+        return _data[_offset++] == 0;
+    }
+};''';
 
   // ── Kotlin generator ────────────────────────────────────────────────────────
 
@@ -238,17 +502,6 @@ class RecordGenerator {
       s.writeln('        fun writeDouble(v: Double) { buf.clear(); buf.putDouble(v); out.write(buf.array()) }');
       s.writeln('        fun writeBool(v: Boolean) { out.write(if (v) 1 else 0) }');
       s.writeln('        fun writeString(v: String) { val b = v.toByteArray(Charsets.UTF_8); writeInt32(b.size); out.write(b) }');
-      // Indexed list helper — emits count + int64[] offsets + item bytes.
-      // Matches the Dart RecordWriter.encodeIndexedList wire format.
-      // Uses a 64-byte initial capacity per item to avoid dynamic growth on small records.
-      s.writeln('        fun <T> writeIndexedList(items: List<T>, writeItem: (java.io.ByteArrayOutputStream) -> Unit) {');
-      s.writeln('            val blobs = items.map { _ -> val io = java.io.ByteArrayOutputStream(64); writeItem(io); io.toByteArray() }');
-      s.writeln('            writeInt32(blobs.size)');
-      s.writeln('            var off = (4L + 8L * blobs.size)');
-      s.writeln('            val offBuf = java.nio.ByteBuffer.allocate(8).order(java.nio.ByteOrder.LITTLE_ENDIAN)');
-      s.writeln('            blobs.forEach { b -> offBuf.clear(); offBuf.putLong(off); out.write(offBuf.array()); off += b.size }');
-      s.writeln('            blobs.forEach { b -> out.write(b) }');
-      s.writeln('        }');
       for (final f in rt.fields) {
         _kotlinWriteStmt(s, f);
       }
@@ -319,12 +572,10 @@ class RecordGenerator {
         return '$base.decodeFrom(buf)';
       case RecordFieldKind.listPrimitive:
         final item = f.itemTypeName ?? 'int';
-        // Indexed format: count + int64[] offsets + item bytes.
-        // Skip offset table (count * 8 bytes) before reading items.
-        return '{ val _cnt = buf.int; repeat(_cnt) { buf.long }; (0 until _cnt).map { ${_kotlinPrimRead(item)} } }()';
+        return '(0 until buf.int).map { ${_kotlinPrimRead(item)} }';
       case RecordFieldKind.listRecordObject:
         final item = f.itemTypeName!;
-        return '{ val _cnt = buf.int; repeat(_cnt) { buf.long }; (0 until _cnt).map { $item.decodeFrom(buf) } }()';
+        return '(0 until buf.int).map { $item.decodeFrom(buf) }';
     }
   }
 
@@ -338,6 +589,9 @@ class RecordGenerator {
         return '(buf.get().toInt() != 0)';
       case 'String':
         return '{ val len = buf.int; val b = ByteArray(len); buf.get(b); b.toString(Charsets.UTF_8) }()';
+      case 'Uint8List':
+      case 'ByteArray':
+        return '{ val len = buf.int; val b = ByteArray(len); buf.get(b); b }()';
       default:
         return 'buf.long';
     }
@@ -364,19 +618,12 @@ class RecordGenerator {
         break;
       case RecordFieldKind.listPrimitive:
         final base = f.itemTypeName ?? 'int';
-        // Use indexed format: count + int64[] offsets + item bytes.
-        s.writeln('        writeIndexedList(${f.name}) { io ->');
-        s.writeln('            val lb = java.nio.ByteBuffer.allocate(8).order(java.nio.ByteOrder.LITTLE_ENDIAN)');
-        s.writeln('            fun wInt(v: Long) { lb.clear(); lb.putLong(v); io.write(lb.array()) }');
-        s.writeln('            fun wInt32(v: Int) { lb.clear(); lb.putInt(v); io.write(lb.array(), 0, 4) }');
-        s.writeln('            fun wDouble(v: Double) { lb.clear(); lb.putDouble(v); io.write(lb.array()) }');
-        s.writeln('            fun wBool(v: Boolean) { io.write(if (v) 1 else 0) }');
-        s.writeln('            fun wString(v: String) { val b = v.toByteArray(Charsets.UTF_8); wInt32(b.size); io.write(b) }');
-        s.writeln('            it.let { e -> ${_kotlinWriteCallInner(base, 'e')} }');
-        s.writeln('        }');
+        s.writeln('        writeInt32(${f.name}.size)');
+        s.writeln('        ${f.name}.forEach { e -> ${_kotlinWriteCall(base, 'e')} }');
         break;
       case RecordFieldKind.listRecordObject:
-        s.writeln('        writeIndexedList(${f.name}) { io -> it.writeFieldsTo(io, buf) }');
+        s.writeln('        writeInt32(${f.name}.size)');
+        s.writeln('        ${f.name}.forEach { e -> e.writeFieldsTo(out, buf) }');
         break;
     }
   }
@@ -391,25 +638,11 @@ class RecordGenerator {
         return 'writeBool($expr)';
       case 'String':
         return 'writeString($expr)';
+      case 'Uint8List':
+      case 'ByteArray':
+        return 'writeInt32($expr.size); out.write($expr)';
       default:
         return 'writeInt($expr.toLong())';
-    }
-  }
-
-  /// Like [_kotlinWriteCall] but uses the `w*` local functions inside the
-  /// `writeIndexedList` lambda (avoids shadowing the outer `write*` helpers).
-  static String _kotlinWriteCallInner(String base, String expr) {
-    switch (base) {
-      case 'int':
-        return 'wInt($expr.toLong())';
-      case 'double':
-        return 'wDouble($expr)';
-      case 'bool':
-        return 'wBool($expr)';
-      case 'String':
-        return 'wString($expr)';
-      default:
-        return 'wInt($expr.toLong())';
     }
   }
 
@@ -450,12 +683,69 @@ class RecordGenerator {
 
   // ── Native generators ───────────────────────────────────────────────────
 
-  static String generateSwift(BridgeSpec spec) {
-    if (spec.recordTypes.isEmpty) return '';
+  static String generateSwift(BridgeSpec spec, {bool emitBoilerplate = true}) {
+    if (spec.recordTypes.isEmpty && spec.structs.isEmpty) return '';
 
     final s = StringBuffer();
     s.writeln('// --- @HybridRecord binary extensions (generated by Nitrogen) ---');
     s.writeln();
+
+    // ── fromReader/writeFields extensions for plain structs embedded in records ──
+    // The Dart side generates RecordExt for HybridStructs; we mirror this for Swift.
+    // Without these extensions, `LiveTrackingUpdate.fromReader` cannot call
+    // `PackageDimensions.fromReader(r)` because plain structs have no such method.
+    final structMap = {for (final st in spec.structs) st.name: st};
+    final enumNames = spec.enums.map((e) => e.name).toSet();
+    final structNames = spec.structs.map((st) => st.name).toSet();
+
+    // Collect structs directly referenced in record fields, then transitively.
+    final referencedStructs = <String>{};
+    for (final rt in spec.recordTypes) {
+      for (final f in rt.fields) {
+        if (f.kind == RecordFieldKind.recordObject || f.kind == RecordFieldKind.listRecordObject) {
+          final typeName = f.kind == RecordFieldKind.listRecordObject
+              ? (f.itemTypeName ?? f.dartType.replaceFirst('?', ''))
+              : f.dartType.replaceFirst('?', '');
+          if (structMap.containsKey(typeName)) referencedStructs.add(typeName);
+        }
+      }
+    }
+    void collectNestedSwift(String typeName) {
+      final st = structMap[typeName];
+      if (st == null) return;
+      for (final f in st.fields) {
+        final base = f.type.name.replaceFirst('?', '');
+        if (structMap.containsKey(base) && !referencedStructs.contains(base)) {
+          referencedStructs.add(base);
+          collectNestedSwift(base);
+        }
+      }
+    }
+    for (final name in referencedStructs.toList()) {
+      collectNestedSwift(name);
+    }
+
+    for (final stName in referencedStructs) {
+      final st = structMap[stName]!;
+      s.writeln('extension ${st.name} {');
+
+      s.writeln('  public static func fromReader(_ r: NitroRecordReader) -> ${st.name} {');
+      s.writeln('    return ${st.name}(');
+      for (final f in st.fields) {
+        s.writeln('      ${f.name}: ${_swiftStructReadExpr(f, enumNames, structNames)},');
+      }
+      s.writeln('    )');
+      s.writeln('  }');
+      s.writeln();
+
+      s.writeln('  public func writeFields(_ writer: NitroRecordWriter) {');
+      for (final f in st.fields) {
+        _swiftStructWriteStmt(s, f, enumNames, structNames, st);
+      }
+      s.writeln('  }');
+      s.writeln('}');
+      s.writeln();
+    }
 
     for (final rt in spec.recordTypes) {
       s.writeln('public struct ${rt.name} {');
@@ -487,7 +777,7 @@ class RecordGenerator {
       s.writeln('  }');
       s.writeln();
 
-      s.writeln('  public func writeFields(_ w: NitroRecordWriter) {');
+      s.writeln('  public func writeFields(_ writer: NitroRecordWriter) {');
       for (final f in rt.fields) {
         _swiftWriteStmt(s, f);
       }
@@ -495,15 +785,17 @@ class RecordGenerator {
       s.writeln();
 
       s.writeln('  public func toNative() -> UnsafeMutablePointer<UInt8>? {');
-      s.writeln('    let w = NitroRecordWriter()');
-      s.writeln('    writeFields(w)');
-      s.writeln('    return w.toNative()');
+      s.writeln('    let writer = NitroRecordWriter()');
+      s.writeln('    writeFields(writer)');
+      s.writeln('    return writer.toNative()');
       s.writeln('  }');
       s.writeln('}');
       s.writeln();
     }
 
-    s.writeln(_swiftRecordWriterReader);
+    if (emitBoilerplate) {
+      s.writeln(_swiftRecordWriterReader);
+    }
     return s.toString();
   }
 
@@ -546,6 +838,8 @@ class RecordGenerator {
         return 'r.readBool()';
       case 'String':
         return 'r.readString()';
+      case 'Uint8List':
+        return 'r.readBlob()';
       default:
         return 'r.readInt()';
     }
@@ -563,11 +857,10 @@ class RecordGenerator {
         return '$base.fromReader(r)';
       case RecordFieldKind.listPrimitive:
         final item = f.itemTypeName ?? 'int';
-        // Skip offset table before reading items (indexed format).
-        return '{ let _cnt = r.readInt32(); for _ in 0..<_cnt { _ = r.readInt() }; return (0..<_cnt).map { _ in ${_swiftReadCall(item)} } }()';
+        return '(0..<Int(r.readInt32())).map { _ in ${_swiftReadCall(item)} }';
       case RecordFieldKind.listRecordObject:
         final item = f.itemTypeName!;
-        return '{ let _cnt = r.readInt32(); for _ in 0..<_cnt { _ = r.readInt() }; return (0..<_cnt).map { _ in $item.fromReader(r) } }()';
+        return '(0..<Int(r.readInt32())).map { _ in $item.fromReader(r) }';
     }
   }
 
@@ -576,27 +869,28 @@ class RecordGenerator {
       case RecordFieldKind.primitive:
         final base = f.dartType.replaceFirst('?', '');
         if (f.isNullable) {
-          s.writeln('    w.writeNullTag(${f.name} == nil)');
-          s.writeln('    if let val = ${f.name} { w.${_swiftWriterCall(base, 'val')} }');
+          s.writeln('    writer.writeNullTag(${f.name} == nil)');
+          s.writeln('    if let val = ${f.name} { writer.${_swiftWriterCall(base, 'val')} }');
         } else {
-          s.writeln('    w.${_swiftWriterCall(base, f.name)}');
+          s.writeln('    writer.${_swiftWriterCall(base, f.name)}');
         }
         break;
       case RecordFieldKind.recordObject:
         if (f.isNullable) {
-          s.writeln('    w.writeNullTag(${f.name} == nil)');
-          s.writeln('    if let val = ${f.name} { val.writeFields(w) }');
+          s.writeln('    writer.writeNullTag(${f.name} == nil)');
+          s.writeln('    if let val = ${f.name} { val.writeFields(writer) }');
         } else {
-          s.writeln('    ${f.name}.writeFields(w)');
+          s.writeln('    ${f.name}.writeFields(writer)');
         }
         break;
       case RecordFieldKind.listPrimitive:
         final item = f.itemTypeName ?? 'int';
-        // Indexed format: count + int64[] offsets + item bytes.
-        s.writeln('    w.writeIndexedList(${f.name}) { e, iw in iw.${_swiftWriterCall(item, 'e')} }');
+        s.writeln('    writer.writeInt32(Int32(${f.name}.count))');
+        s.writeln('    for e in ${f.name} { writer.${_swiftWriterCall(item, 'e')} }');
         break;
       case RecordFieldKind.listRecordObject:
-        s.writeln('    w.writeIndexedList(${f.name}) { e, iw in e.writeFields(iw) }');
+        s.writeln('    writer.writeInt32(Int32(${f.name}.count))');
+        s.writeln('    for e in ${f.name} { e.writeFields(writer) }');
         break;
     }
   }
@@ -611,8 +905,44 @@ class RecordGenerator {
         return 'writeBool($expr)';
       case 'String':
         return 'writeString($expr)';
+      case 'Uint8List':
+        return 'writeBlob($expr)';
       default:
         return 'writeInt($expr)';
+    }
+  }
+
+  static String _swiftStructReadExpr(BridgeField f, Set<String> enumNames, Set<String> structNames) {
+    final base = f.type.name.replaceFirst('?', '');
+    if (enumNames.contains(base)) return '$base(rawValue: Int(r.readInt()))!';
+    if (structNames.contains(base)) return '$base.fromReader(r)';
+    if (base == 'Uint8List' && f.zeroCopy) {
+      return 'r.readBlobAsPointer()';
+    }
+    return _swiftReadCall(base);
+  }
+
+  static void _swiftStructWriteStmt(StringBuffer s, BridgeField f, Set<String> enumNames, Set<String> structNames, BridgeStruct st) {
+    final base = f.type.name.replaceFirst('?', '');
+    if (enumNames.contains(base)) {
+      s.writeln('    writer.writeInt(Int64(${f.name}.rawValue))');
+    } else if (structNames.contains(base)) {
+      s.writeln('    ${f.name}.writeFields(writer)');
+    } else {
+      if (base == 'Uint8List' && f.zeroCopy) {
+        final countField = st.fields.firstWhere(
+          (cf) => ['stride', 'length', 'size', 'count'].contains(cf.name),
+          orElse: () => st.fields.first,
+        );
+        final countExpr = 'Int(${countField.name})';
+        s.writeln('    if let ptr = ${f.name} {');
+        s.writeln('        writer.writeBlob(Data(bytes: ptr, count: $countExpr))');
+        s.writeln('    } else {');
+        s.writeln('        writer.writeInt32(0)');
+        s.writeln('    }');
+      } else {
+        s.writeln('    writer.${_swiftWriterCall(base, f.name)}');
+      }
     }
   }
 
@@ -643,6 +973,10 @@ public class NitroRecordWriter {
     public func writeNullTag(_ isNull: Bool) {
         bytes.append(isNull ? 0 : 1)
     }
+    public func writeBlob(_ v: Data) {
+        writeInt32(Int32(v.count))
+        bytes.append(contentsOf: Array(v))
+    }
     public func toNative() -> UnsafeMutablePointer<UInt8>? {
         let total = 4 + bytes.count
         let ptr = UnsafeMutablePointer<UInt8>.allocate(capacity: total)
@@ -652,24 +986,6 @@ public class NitroRecordWriter {
         }
         ptr.advanced(by: 4).update(from: bytes, count: bytes.count)
         return ptr
-    }
-    /// Writes items using the indexed list format:
-    ///   int32 count | int64[count] offsets | item_bytes...
-    /// Matches Dart's RecordWriter.encodeIndexedList wire format.
-    public func writeIndexedList<T>(_ items: [T], writeItem: (T, NitroRecordWriter) -> Void) {
-        var blobs: [[UInt8]] = []
-        for item in items {
-            let iw = NitroRecordWriter()
-            writeItem(item, iw)
-            blobs.append(iw.bytes)
-        }
-        writeInt32(Int32(blobs.count))
-        var off = Int64(4 + 8 * blobs.count)
-        for b in blobs {
-            writeInt(off)
-            off += Int64(b.count)
-        }
-        for b in blobs { bytes.append(contentsOf: b) }
     }
     public static func encodeList<T>(_ items: [T], writeItem: (NitroRecordWriter, T) -> Void) -> UnsafeMutablePointer<UInt8>? {
         let w = NitroRecordWriter()
@@ -718,6 +1034,20 @@ public class NitroRecordReader {
         let v = bytes[pos]
         pos += 1
         return v == 0
+    }
+    public func readBlob() -> Data {
+        let len = Int(readInt32())
+        let data = Data(bytes: bytes.advanced(by: pos), count: len)
+        pos += len
+        return data
+    }
+    public func readBlobAsPointer() -> UnsafeMutablePointer<UInt8>? {
+        let len = Int(readInt32())
+        if (len == 0) { return nil }
+        let ptr = UnsafeMutablePointer<UInt8>.allocate(capacity: len)
+        ptr.initialize(from: bytes.advanced(by: pos), count: len)
+        pos += len
+        return ptr
     }
     public static func decodeList<T>(_ ptr: UnsafeMutablePointer<UInt8>, readItem: (NitroRecordReader) -> T) -> [T] {
         let r = NitroRecordReader(ptr: ptr)

@@ -1,0 +1,1 @@
+../../Classes/nitro_camera.bridge.g.swift

@@ -51,6 +51,9 @@ NITRO_EXPORT void nitro_battery_set_low_power_threshold(int64_t value);
 NITRO_EXPORT void nitro_battery_register_battery_level_changes_stream(int64_t dart_port);
 NITRO_EXPORT void nitro_battery_release_battery_level_changes_stream(int64_t dart_port);
 
+// Struct release functions
+NITRO_EXPORT void nitro_battery_release_BatteryInfo(void* ptr);
+
 #ifdef __cplusplus
 }
 #endif

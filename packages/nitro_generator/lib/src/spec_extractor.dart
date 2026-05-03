@@ -1,6 +1,7 @@
 import 'package:analyzer/dart/element/element.dart';
 import 'package:analyzer/dart/constant/value.dart';
 import 'package:analyzer/dart/element/type.dart';
+import 'package:analyzer/dart/element/nullability_suffix.dart';
 import 'package:source_gen/source_gen.dart';
 import 'package:nitro_annotations/nitro_annotations.dart';
 import 'bridge_spec.dart';
@@ -18,9 +19,13 @@ class SpecExtractor {
     final element = module.element as ClassElement;
     final annotation = module.annotation;
 
-    final iosImpl = annotation.read('ios').isNull ? null : _getNativeImpl(annotation.read('ios').objectValue);
-    final androidImpl = annotation.read('android').isNull ? null : _getNativeImpl(annotation.read('android').objectValue);
-    final macosImpl = annotation.read('macos').isNull ? null : _getNativeImpl(annotation.read('macos').objectValue);
+    final sourcePath = library.element.source.uri.toString();
+    final iosImpl     = annotation.read('ios').isNull     ? null : _getNativeImpl(annotation.read('ios').objectValue,     fieldName: 'ios',     sourcePath: sourcePath);
+    final androidImpl = annotation.read('android').isNull ? null : _getNativeImpl(annotation.read('android').objectValue, fieldName: 'android', sourcePath: sourcePath);
+    final macosImpl   = annotation.read('macos').isNull   ? null : _getNativeImpl(annotation.read('macos').objectValue,   fieldName: 'macos',   sourcePath: sourcePath);
+    final windowsImpl = annotation.read('windows').isNull ? null : _getNativeImpl(annotation.read('windows').objectValue, fieldName: 'windows', sourcePath: sourcePath);
+    final linuxImpl   = annotation.read('linux').isNull   ? null : _getNativeImpl(annotation.read('linux').objectValue,   fieldName: 'linux',   sourcePath: sourcePath);
+    final webImpl     = annotation.read('web').isNull     ? null : _getNativeImpl(annotation.read('web').objectValue,     fieldName: 'web',     sourcePath: sourcePath);
     final cSymbolPrefix = annotation.read('cSymbolPrefix').isNull ? null : annotation.read('cSymbolPrefix').stringValue;
     final lib = annotation.read('lib').isNull ? null : annotation.read('lib').stringValue;
     final sourceFile = library.element.source.uri.pathSegments.last.replaceFirst('.native.dart', '');
@@ -40,7 +45,10 @@ class SpecExtractor {
       iosImpl: iosImpl,
       androidImpl: androidImpl,
       macosImpl: macosImpl,
-      sourceUri: library.element.source.uri.toString(),
+      windowsImpl: windowsImpl,
+      linuxImpl: linuxImpl,
+      webImpl: webImpl,
+      sourceUri: sourcePath,
       functions: _extractFunctions(element, ns, recordTypeNames),
       properties: properties,
       streams: streams,
@@ -50,26 +58,107 @@ class SpecExtractor {
     );
   }
 
-  static NativeImpl _getNativeImpl(DartObject object) {
-    final index = object.getField('index')?.toIntValue() ?? NativeImpl.cpp.index;
-    return NativeImpl.values[index];
+  static NativeImpl _getNativeImpl(
+    DartObject object, {
+    String? fieldName,
+    String? sourcePath,
+  }) {
+    // Reconstruct by runtime type name — robust against class reordering.
+    // Each NativeImpl subclass (SwiftImpl, KotlinImpl, CppImpl, WasmImpl) has a
+    // unique name that the analyzer preserves in the DartObject type element.
+    //
+    // Per-platform sealed class constants (e.g. AppleNativeImpl.swift) share
+    // the same compile-time objects as NativeImpl.* — they are identical Dart
+    // const values. The analyzer should return the concrete type (SwiftImpl,
+    // CppImpl, etc.) rather than the sealed class type. The platform-type
+    // entries below act as a safety-net in case a future analyzer version
+    // returns the declared type of the constant instead of its value type.
+    final typeName = object.type?.element?.name;
+
+    // Fast path: unambiguous names handled by the shared helper in
+    // nitro_annotations. Keeps the mapping co-located with the annotations so
+    // any tool (nitrogen_cli, docs generator) can reuse it.
+    final shared = NativeImpl.fromTypeName(typeName);
+    if (shared != null) return shared;
+
+    // Slow path: ambiguous sealed markers require analyzer-level supertype
+    // inspection to pick between the language-specific impl and CppImpl.
+    switch (typeName) {
+      case 'AppleNativeImpl':
+        if (fieldName == 'ios' || fieldName == 'macos') {
+          return _inferAppleImpl(object);
+        }
+        throw InvalidGenerationSourceError(
+          'Cannot infer AppleNativeImpl kind for field "$fieldName"'
+          '${sourcePath != null ? " in $sourcePath" : ""}. '
+          'Use AppleNativeImpl.swift or AppleNativeImpl.cpp explicitly.',
+        );
+      case 'AndroidNativeImpl':
+        return _inferAndroidImpl(object);
+    }
+    throw InvalidGenerationSourceError(
+      'Unknown NativeImpl subclass: "$typeName" '
+      '(field: "${fieldName ?? '<unknown>'}"'
+      '${sourcePath != null ? ", source: $sourcePath" : ""}). '
+      'Use AppleNativeImpl.swift/.cpp, AndroidNativeImpl.kotlin/.cpp, '
+      'WindowsNativeImpl.cpp, LinuxNativeImpl.cpp, WebNativeImpl.wasm, '
+      'or the NativeImpl.* shorthands.',
+    );
+  }
+
+  /// Disambiguates [AppleNativeImpl] by inspecting the constant's supertype
+  /// chain for [SwiftImpl] vs [CppImpl].
+  static NativeImpl _inferAppleImpl(DartObject object) {
+    final element = object.type?.element;
+    final names = (element is InterfaceElement)
+        ? element.allSupertypes.map((t) => t.element.name).toSet()
+        : <String>{};
+    if (names.contains('SwiftImpl')) return NativeImpl.swift;
+    if (names.contains('CppImpl')) return NativeImpl.cpp;
+    throw InvalidGenerationSourceError(
+      'Cannot determine AppleNativeImpl kind from type hierarchy. '
+      'Use AppleNativeImpl.swift or AppleNativeImpl.cpp.',
+    );
+  }
+
+  /// Disambiguates [AndroidNativeImpl] by inspecting the constant's supertype
+  /// chain for [KotlinImpl] vs [CppImpl].
+  static NativeImpl _inferAndroidImpl(DartObject object) {
+    final element = object.type?.element;
+    final names = (element is InterfaceElement)
+        ? element.allSupertypes.map((t) => t.element.name).toSet()
+        : <String>{};
+    if (names.contains('KotlinImpl')) return NativeImpl.kotlin;
+    if (names.contains('CppImpl')) return NativeImpl.cpp;
+    throw InvalidGenerationSourceError(
+      'Cannot determine AndroidNativeImpl kind from type hierarchy. '
+      'Use AndroidNativeImpl.kotlin or AndroidNativeImpl.cpp.',
+    );
   }
 
   // ─── @HybridRecord ────────────────────────────────────────────────────────
 
   static List<BridgeRecordType> _extractRecordTypes(LibraryReader library) {
     const checker = TypeChecker.fromRuntime(HybridRecord);
+    const structChecker = TypeChecker.fromRuntime(HybridStruct);
 
     // Single pass: collect annotated ClassElements, then reuse the list.
     final classes = library.annotatedWith(checker).where((ann) => ann.element is ClassElement).map((ann) => ann.element as ClassElement).toList();
 
     final recordTypeNames = classes.map((c) => c.name).toSet();
+    // Also collect @HybridStruct names so that List<@HybridStruct T> fields
+    // inside @HybridRecord classes are classified as listRecordObject (not
+    // listPrimitive), enabling binary codec generation for struct items.
+    final structTypeNames = library.annotatedWith(structChecker)
+        .where((ann) => ann.element is ClassElement)
+        .map((ann) => (ann.element as ClassElement).name)
+        .toSet();
 
     return classes.map((cls) {
       final fields = cls.fields.where((f) => !f.isStatic && !f.isSynthetic).map((f) {
         final displayType = f.type.getDisplayString(withNullability: true);
         final isNullable = displayType.endsWith('?');
-        final kind = _recordFieldKind(f.type, recordTypeNames);
+        final kind = _recordFieldKind(f.type, recordTypeNames, structTypeNames);
         final itemTypeName = _listItemTypeName(f.type);
         return BridgeRecordField(
           name: f.name,
@@ -85,14 +174,18 @@ class SpecExtractor {
 
   static RecordFieldKind _recordFieldKind(
     DartType type,
-    Set<String> recordTypeNames,
-  ) {
+    Set<String> recordTypeNames, [
+    Set<String> structTypeNames = const {},
+  ]) {
     if (type is InterfaceType) {
       if (type.element.name == 'List' && type.typeArguments.isNotEmpty) {
         final itemName = type.typeArguments.first.getDisplayString(withNullability: false);
-        return recordTypeNames.contains(itemName) ? RecordFieldKind.listRecordObject : RecordFieldKind.listPrimitive;
+        if (recordTypeNames.contains(itemName) || structTypeNames.contains(itemName)) {
+          return RecordFieldKind.listRecordObject;
+        }
+        return RecordFieldKind.listPrimitive;
       }
-      if (recordTypeNames.contains(type.element.name)) {
+      if (recordTypeNames.contains(type.element.name) || structTypeNames.contains(type.element.name)) {
         return RecordFieldKind.recordObject;
       }
     }
@@ -201,14 +294,24 @@ class SpecExtractor {
     Set<String> recordTypeNames,
   ) {
     const asyncChecker = TypeChecker.fromRuntime(NitroAsync);
+    const nativeAsyncChecker = TypeChecker.fromRuntime(NitroNativeAsync);
     const zeroCopyChecker = TypeChecker.fromRuntime(ZeroCopy);
 
     // Skip abstract getters annotated with @NitroStream or abstract getters/setters
     return element.methods.where((m) => m.isAbstract).map((m) {
       final isAsync = asyncChecker.hasAnnotationOf(m);
+      final isNativeAsync = nativeAsyncChecker.hasAnnotationOf(m);
+
+      if (isAsync && isNativeAsync) {
+        throw InvalidGenerationSourceError(
+          '@NitroAsync and @NitroNativeAsync cannot both be applied to "${m.name}". '
+          'Use @NitroNativeAsync when the native implementation posts the result '
+          'directly via Dart_PostCObject_DL.',
+        );
+      }
 
       DartType returnDartType = m.returnType;
-      if (isAsync && returnDartType.isDartAsyncFuture) {
+      if ((isAsync || isNativeAsync) && returnDartType.isDartAsyncFuture) {
         final it = returnDartType as InterfaceType;
         if (it.typeArguments.isNotEmpty) returnDartType = it.typeArguments.first;
       }
@@ -217,10 +320,11 @@ class SpecExtractor {
         dartName: m.name,
         cSymbol: '${ns}_${_toSnakeCase(m.name)}',
         isAsync: isAsync,
+        isNativeAsync: isNativeAsync,
         returnType: _makeBridgeType(
           returnDartType,
           recordTypeNames,
-          isFuture: isAsync,
+          isFuture: isAsync || isNativeAsync,
         ),
         params: m.parameters.map((p) {
           return BridgeParam(
@@ -332,16 +436,37 @@ class SpecExtractor {
       final packed = ann.annotation.read('packed').literalValue as bool? ?? false;
       final zeroCopyFields = ann.annotation.read('zeroCopy').listValue.map((v) => v.toStringValue() ?? '').toSet();
 
+      // Build a map from field name → constructor param metadata so we can
+      // record isNamed / isRequired on each BridgeField.
+      // Use the unnamed generative constructor (the primary one). If there is
+      // none, fall back to treating every field as named-required.
+      final primaryCtor = cls.constructors.where((c) => !c.isFactory && c.name.isEmpty).firstOrNull;
+      final paramInfo = <String, ({bool isNamed, bool isRequired})>{};
+      if (primaryCtor != null) {
+        for (final p in primaryCtor.parameters) {
+          paramInfo[p.name] = (
+            isNamed: p.isNamed,
+            isRequired: p.isRequired,
+          );
+        }
+      }
+
       final fields = cls.fields
           .where((f) => !f.isStatic && !f.isSynthetic)
           .map(
-            (f) => BridgeField(
-              name: f.name,
-              type: BridgeType(
-                name: f.type.getDisplayString(withNullability: true),
-              ),
-              zeroCopy: zeroCopyFields.contains(f.name),
-            ),
+            (f) {
+              final info = paramInfo[f.name];
+              return BridgeField(
+                name: f.name,
+                type: BridgeType(
+                  name: f.type.getDisplayString(withNullability: true),
+                  isNullable: f.type.nullabilitySuffix == NullabilitySuffix.question,
+                ),
+                zeroCopy: zeroCopyFields.contains(f.name),
+                isNamed: info?.isNamed ?? true,
+                isRequired: info?.isRequired ?? true,
+              );
+            },
           )
           .toList();
 

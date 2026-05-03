@@ -542,8 +542,8 @@ void main() {
       expect(out, contains("'benchmark_register_box_stream_stream'"));
     });
 
-    test('struct stream unpack uses Pointer.fromAddress + toDart()', () {
-      expect(out, contains('Pointer<BenchmarkPointFfi>.fromAddress(rawPtr)'));
+    test('struct stream unpack uses Pointer.fromAddress with message', () {
+      expect(out, contains('Pointer<BenchmarkPointFfi>.fromAddress(message as int)'));
     });
   });
 

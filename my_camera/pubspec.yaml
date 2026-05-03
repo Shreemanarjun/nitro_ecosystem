@@ -1,6 +1,6 @@
 name: my_camera
 description: "A new Flutter FFI plugin project."
-version: 0.2.1
+version: 0.3.3
 homepage: https://nitro.shreeman.dev
 repository: https://github.com/Shreemanarjun/nitro_ecosystem
 publish_to: none
@@ -46,7 +46,6 @@ flutter:
         package: com.example.my_camera
         pluginClass: MyCameraPlugin
       ios:
-        ffiPlugin: true
         pluginClass: SwiftMyCameraPlugin
 
   # To add assets to your plugin package, add an assets section, like this:

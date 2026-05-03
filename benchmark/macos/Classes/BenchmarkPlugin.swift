@@ -3,8 +3,10 @@ import Foundation
 
 public class BenchmarkPlugin: NSObject, FlutterPlugin {
   public static func register(with registrar: FlutterPluginRegistrar) {
+    NitroArRegistry.register(NitroArModuleImpl())
     BenchmarkRegistry.register(BenchmarkImpl())
-    // benchmark_cpp auto-registers via __attribute__((constructor)) in HybridBenchmarkCpp.cpp
+    // BenchmarkCpp (NativeImpl.cpp) auto-registers via __attribute__((constructor))
+    // in HybridBenchmarkCpp.cpp on library load — no Swift-side registration needed.
 
     let channel = FlutterMethodChannel(name: "dev.shreeman.benchmark/method_channel", binaryMessenger: registrar.messenger)
     registrar.addMethodCallDelegate(BenchmarkPlugin(), channel: channel)

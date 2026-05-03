@@ -65,6 +65,10 @@ NITRO_EXPORT void complex_module_release_sensor_stream_stream(int64_t dart_port)
 NITRO_EXPORT void complex_module_register_data_stream_stream(int64_t dart_port);
 NITRO_EXPORT void complex_module_release_data_stream_stream(int64_t dart_port);
 
+// Struct release functions
+NITRO_EXPORT void complex_release_SensorData(void* ptr);
+NITRO_EXPORT void complex_release_Packet(void* ptr);
+
 #ifdef __cplusplus
 }
 #endif

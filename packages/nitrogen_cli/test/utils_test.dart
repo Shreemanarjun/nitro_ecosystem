@@ -78,27 +78,30 @@ dependencies:
       expect(names.contains('normal'), isFalse);
     });
 
-    test('syncBridgeFiles correctly copies and renames bridge files to ios/Classes', () async {
-      // Setup mock file structure in temp dir
+    test('syncBridgeFiles copies C++ bridge files to ios/Classes and deletes stale Swift bridges', () async {
+      // Swift bridges live in lib/src/generated/swift/ and are compiled via the
+      // podspec source_files pattern — they must NOT be copied to ios/Classes/.
+      // C++ bridge files (.bridge.g.h, .bridge.g.cpp→.mm) are still needed there.
       final iosClasses = Directory(p.join(temp.path, 'ios', 'Classes'))..createSync(recursive: true);
       final generatedSwift = Directory(p.join(temp.path, 'lib', 'src', 'generated', 'swift'))..createSync(recursive: true);
       final generatedCpp = Directory(p.join(temp.path, 'lib', 'src', 'generated', 'cpp'))..createSync(recursive: true);
 
-      // Create dummy bridge files
+      // Create dummy bridge files — including a stale Swift copy that should be removed.
       File(p.join(generatedSwift.path, 'my.bridge.g.swift')).writeAsStringSync('swift code');
+      File(p.join(iosClasses.path, 'my.bridge.g.swift')).writeAsStringSync('stale copy');
       File(p.join(generatedCpp.path, 'my.bridge.g.h')).writeAsStringSync('header code');
       File(p.join(generatedCpp.path, 'my.bridge.g.cpp')).writeAsStringSync('cpp code');
 
-      // Run sync utility
       syncBridgeFiles(temp.path);
-
-      // Verify they now exist in ios/Classes
+      
+      // Swift bridge: now COPIED to ios/Classes for reliability.
       expect(File(p.join(iosClasses.path, 'my.bridge.g.swift')).existsSync(), isTrue);
+      expect(File(p.join(iosClasses.path, 'my.bridge.g.swift')).readAsStringSync(), equals('swift code'));
+      // C++ bridge files must still be present.
       expect(File(p.join(iosClasses.path, 'my.bridge.g.h')).existsSync(), isTrue);
-      // .cpp should be renamed to .mm for Objective-C++ support on iOS
+      // .cpp should be renamed to .mm for Objective-C++ support on iOS.
       expect(File(p.join(iosClasses.path, 'my.bridge.g.mm')).existsSync(), isTrue);
       expect(File(p.join(iosClasses.path, 'my.bridge.g.mm')).readAsStringSync(), equals('cpp code'));
-      // The original .cpp should NOT be in ios/Classes (it was renamed/copied)
       expect(File(p.join(iosClasses.path, 'my.bridge.g.cpp')).existsSync(), isFalse);
     });
 
@@ -152,20 +155,25 @@ dependencies:
       );
     });
 
-    test('still copies .bridge.g.swift for a non-cpp (Swift/Kotlin) module', () async {
+    test('.bridge.g.swift for non-cpp module is NOT in ios/Classes (served from canonical location)', () async {
+      // Swift bridges are compiled directly from lib/src/generated/swift/ via the
+      // podspec source_files pattern — no copy in ios/Classes/ is needed or wanted.
       final classesDir = Directory(p.join(temp.path, 'ios', 'Classes'))..createSync(recursive: true);
       final genSwift = Directory(p.join(temp.path, 'lib', 'src', 'generated', 'swift'))..createSync(recursive: true);
       File(p.join(genSwift.path, 'swift_mod.bridge.g.swift')).writeAsStringSync('swift code');
+      // Plant a stale copy — syncBridgeFiles must delete it.
+      File(p.join(classesDir.path, 'swift_mod.bridge.g.swift')).writeAsStringSync('stale');
 
       writeNativeSpec('swift_mod', isCpp: false);
 
       syncBridgeFiles(temp.path);
-
+ 
       expect(
         File(p.join(classesDir.path, 'swift_mod.bridge.g.swift')).existsSync(),
         isTrue,
-        reason: 'Swift-backed modules still need their .bridge.g.swift in ios/Classes',
+        reason: 'Swift bridge is now explicitly copied to ios/Classes/ if it exists',
       );
+      expect(File(p.join(classesDir.path, 'swift_mod.bridge.g.swift')).readAsStringSync(), equals('swift code'));
     });
 
     test('skips .bridge.g.swift when macos-only NativeImpl.cpp spec', () async {
@@ -198,17 +206,22 @@ dependencies:
       expect(() => syncBridgeFiles(temp.path), returnsNormally);
     });
 
-    test('syncBridgeFiles(platform: macos) copies bridge files to macos/Classes/', () async {
+    test('syncBridgeFiles(platform: macos) copies C++ bridges to macos/Classes/ and removes stale Swift bridges', () async {
       final macosClasses = Directory(p.join(temp.path, 'macos', 'Classes'))..createSync(recursive: true);
       final genSwift = Directory(p.join(temp.path, 'lib', 'src', 'generated', 'swift'))..createSync(recursive: true);
       final genCpp = Directory(p.join(temp.path, 'lib', 'src', 'generated', 'cpp'))..createSync(recursive: true);
       File(p.join(genSwift.path, 'my.bridge.g.swift')).writeAsStringSync('swift code');
+      // Stale copy in macos/Classes/ — must be deleted.
+      File(p.join(macosClasses.path, 'my.bridge.g.swift')).writeAsStringSync('stale');
       File(p.join(genCpp.path, 'my.bridge.g.h')).writeAsStringSync('header code');
       File(p.join(genCpp.path, 'my.bridge.g.cpp')).writeAsStringSync('cpp code');
 
       syncBridgeFiles(temp.path, platform: 'macos');
-
+ 
+      // Swift bridge: now COPIED for reliability.
       expect(File(p.join(macosClasses.path, 'my.bridge.g.swift')).existsSync(), isTrue);
+      expect(File(p.join(macosClasses.path, 'my.bridge.g.swift')).readAsStringSync(), equals('swift code'));
+      // C++ bridge files must still be present.
       expect(File(p.join(macosClasses.path, 'my.bridge.g.h')).existsSync(), isTrue);
       expect(File(p.join(macosClasses.path, 'my.bridge.g.mm')).existsSync(), isTrue,
           reason: '.bridge.g.cpp is renamed to .mm for Objective-C++ on macOS too');
@@ -245,19 +258,30 @@ dependencies:
       expect(File(p.join(macosClasses.path, 'cpp_mod.bridge.g.swift')).existsSync(), isFalse);
     });
 
-    test('mixed project: copies Swift module bridge but skips C++ module bridge', () async {
+    test('mixed project: Swift bridge updated in ios/Classes/, stale C++ module bridge deleted', () async {
+      // In a mixed project:
+      // — Non-cpp module's Swift bridge is copied (updated) in ios/Classes/.
+      // — C++ module's stale Swift bridge copy is deleted from ios/Classes/.
       final classesDir = Directory(p.join(temp.path, 'ios', 'Classes'))..createSync(recursive: true);
       final genSwift = Directory(p.join(temp.path, 'lib', 'src', 'generated', 'swift'))..createSync(recursive: true);
       File(p.join(genSwift.path, 'swift_mod.bridge.g.swift')).writeAsStringSync('swift bridge');
       File(p.join(genSwift.path, 'cpp_mod.bridge.g.swift')).writeAsStringSync('unwanted stubs');
+      // Plant stale copies — swift_mod's stale content will be updated, cpp_mod's will be deleted.
+      File(p.join(classesDir.path, 'swift_mod.bridge.g.swift')).writeAsStringSync('stale swift');
+      File(p.join(classesDir.path, 'cpp_mod.bridge.g.swift')).writeAsStringSync('stale cpp');
 
       writeNativeSpec('swift_mod', isCpp: false);
       writeNativeSpec('cpp_mod', isCpp: true);
 
       syncBridgeFiles(temp.path);
 
-      expect(File(p.join(classesDir.path, 'swift_mod.bridge.g.swift')).existsSync(), isTrue);
-      expect(File(p.join(classesDir.path, 'cpp_mod.bridge.g.swift')).existsSync(), isFalse);
+      // Non-cpp module: stale content replaced with current bridge from generated/swift/.
+      expect(File(p.join(classesDir.path, 'swift_mod.bridge.g.swift')).existsSync(), isTrue,
+          reason: 'Swift module bridge: copied to ios/Classes/ for reliability');
+      expect(File(p.join(classesDir.path, 'swift_mod.bridge.g.swift')).readAsStringSync(), equals('swift bridge'));
+      // C++ module: stale Swift bridge stub deleted — direct C++ bridge makes it unnecessary.
+      expect(File(p.join(classesDir.path, 'cpp_mod.bridge.g.swift')).existsSync(), isFalse,
+          reason: 'C++ module bridge: stale copy deleted from ios/Classes/');
     });
 
     test('skips .bridge.g.swift when any platform (ios-only) is NativeImpl.cpp', () async {
@@ -276,6 +300,19 @@ dependencies:
         isFalse,
         reason: 'Any platform using NativeImpl.cpp excludes the Swift bridge — duplicate-symbol guard',
       );
+    });
+    
+    test('syncBridgeFiles(platform: ios) copies Swift bridges to Sources/ layout if it exists', () async {
+      File(p.join(temp.path, 'pubspec.yaml')).writeAsStringSync('name: my_plugin\ndependencies:\n  nitro: any');
+      
+      final sourcesDir = Directory(p.join(temp.path, 'ios', 'Sources', 'MyPlugin'))..createSync(recursive: true);
+      final genSwift = Directory(p.join(temp.path, 'lib', 'src', 'generated', 'swift'))..createSync(recursive: true);
+      File(p.join(genSwift.path, 'my.bridge.g.swift')).writeAsStringSync('swift code');
+      
+      syncBridgeFiles(temp.path);
+      
+      expect(File(p.join(sourcesDir.path, 'my.bridge.g.swift')).existsSync(), isTrue);
+      expect(File(p.join(sourcesDir.path, 'my.bridge.g.swift')).readAsStringSync(), equals('swift code'));
     });
   });
 }

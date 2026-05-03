@@ -10,6 +10,8 @@ import 'package:nitrogen_cli/commands/doctor_command.dart';
 import 'package:nitrogen_cli/commands/update_command.dart';
 import 'package:nitrogen_cli/commands/open_command.dart';
 import 'package:nitrogen_cli/commands/watch_command.dart';
+import 'package:nitrogen_cli/commands/migrate_command.dart';
+import 'package:nitrogen_cli/commands/spm_utils.dart';
 import 'package:nitrogen_cli/version.dart';
 import 'package:nitrogen_cli/models.dart';
 import 'package:nitrogen_cli/routes.dart';
@@ -33,6 +35,7 @@ void main(List<String> args) async {
     ..addCommand(GenerateCommand())
     ..addCommand(LinkCommand())
     ..addCommand(DoctorCommand())
+    ..addCommand(MigrateCommand())
     ..addCommand(UpdateCommand())
     ..addCommand(OpenCommand())
     ..addCommand(WatchCommand());
@@ -95,6 +98,24 @@ Future<void> _runTui() async {
               return LinkView(
                 pluginName: name,
                 result: LinkResult(),
+                onExit: () => context.unrouterAs<NitroRoute>().go(const RootRoute()),
+              );
+            },
+          ),
+
+          // MIGRATE
+          route<CommandRoute>(
+            path: '/migrate',
+            parse: (_) => const CommandRoute(NitroCommand.migrate),
+            builder: (context, _) {
+              final info = getProjectInfo();
+              final name = info?.name ?? 'unknown';
+              final projectPath = info?.directory.path ?? Directory.current.path;
+              final spmStatus = detectSpmStatus(projectPath);
+              return MigrateView(
+                pluginName: name,
+                result: MigrationResult(),
+                spmStatus: spmStatus,
                 onExit: () => context.unrouterAs<NitroRoute>().go(const RootRoute()),
               );
             },

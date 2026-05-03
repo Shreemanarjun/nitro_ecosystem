@@ -1,7 +1,7 @@
 name: benchmark
 resolution: workspace
 description: "A new Flutter FFI plugin project."
-version: 0.0.1
+version: 0.3.3
 publish_to: 'none'
 homepage: https://nitro.shreeman.dev
 repository: https://github.com/Shreemanarjun/nitro_ecosystem
@@ -13,6 +13,8 @@ environment:
 dependencies:
   fl_chart: ^1.2.0
   flutter:
+    sdk: flutter
+  flutter_web_plugins:
     sdk: flutter
   nitro:
     path: ../packages/nitro
@@ -50,11 +52,14 @@ flutter:
         package: dev.shreeman.benchmark
         ffiPlugin: true
       ios:
-        pluginClass: BenchmarkPlugin
-        ffiPlugin: true
+        pluginClass: SwiftBenchmarkPlugin
       macos:
         pluginClass: BenchmarkPlugin
-        ffiPlugin: true
+      web:
+        # Pure-Dart stub implementation — no native bridge on web.
+        # Results serve as a baseline "pure Dart dispatch" reference.
+        pluginClass: BenchmarkWebPlugin
+        fileName: src/benchmark_web_plugin.dart
 
   # To add assets to your plugin package, add an assets section, like this:
   # assets:

@@ -3,6 +3,7 @@ import 'dart:ffi';
 import 'dart:io';
 import 'dart:isolate';
 import 'package:ffi/ffi.dart';
+import 'package:meta/meta.dart';
 import 'annotations.dart';
 import 'hybrid_exception.dart';
 import 'isolate_pool.dart';
@@ -176,6 +177,30 @@ class NitroRuntime {
     return result;
   }
 
+  // ── Native-async (zero-hop) ──────────────────────────────────────────────
+
+  /// Opens a single-use [ReceivePort], hands its native port ID to [call] so
+  /// the native implementation can post the result via `Dart_PostCObject_DL`,
+  /// then waits for exactly one message and converts it with [unpack].
+  ///
+  /// This eliminates the isolate-message double-hop that [callAsync] incurs:
+  /// no Dart isolate is ever spawned, cutting per-call overhead
+  /// when the native side is already asynchronous (Kotlin coroutine,
+  /// Swift `async`, C++ thread pool).
+  ///
+  /// The native side **must** post exactly one message to the port.
+  static Future<T> openNativeAsync<T>({
+    required void Function(int dartPort) call,
+    required T Function(dynamic raw) unpack,
+  }) {
+    final port = ReceivePort();
+    call(port.sendPort.nativePort);
+    return port.first.then((raw) {
+      port.close();
+      return unpack(raw);
+    });
+  }
+
   // ── Stream ───────────────────────────────────────────────────────────────
 
   /// Opens a high-performance stream from a native event source.
@@ -208,9 +233,13 @@ class NitroRuntime {
     /// Optional tag used in log messages to identify this stream.
     /// Defaults to `'Stream<$T>'`.
     String? debugLabel,
+
+    /// Inject a pre-created [ReceivePort] instead of creating one internally.
+    /// Only for unit tests — production callers should leave this null.
+    @visibleForTesting ReceivePort? testPort,
   }) {
     final label = debugLabel ?? 'Stream<$T>';
-    final receivePort = ReceivePort();
+    final receivePort = testPort ?? ReceivePort();
     final nativePort = receivePort.sendPort.nativePort;
     var released = false;
     var eventCount = 0;

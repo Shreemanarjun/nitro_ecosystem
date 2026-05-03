@@ -1,4 +1,6 @@
-import 'package:nitro_annotations/nitro_annotations.dart' show NativeImpl;
+import 'package:nitro_annotations/nitro_annotations.dart'
+    show CppImpl, KotlinImpl, WasmImpl;
+
 import 'bridge_spec.dart';
 
 enum ValidationSeverity { error, warning }
@@ -69,21 +71,29 @@ class SpecValidator {
     final issues = <ValidationIssue>[];
 
     // ── Platform targeting ─────────────────────────────────────────────────
-    if (spec.iosImpl == null && spec.androidImpl == null && spec.macosImpl == null) {
+    if (spec.iosImpl == null && spec.androidImpl == null && spec.macosImpl == null &&
+        spec.windowsImpl == null && spec.linuxImpl == null && spec.webImpl == null) {
       issues.add(
         ValidationIssue(
           severity: ValidationSeverity.error,
           code: 'NO_TARGET_PLATFORM',
           message:
-              '${spec.dartClassName}: at least one of `ios`, `android`, or `macos` must be specified in @NitroModule.',
+              '${spec.dartClassName}: at least one platform must be specified in @NitroModule.',
           hint:
-              'Add `ios: NativeImpl.swift`, `android: NativeImpl.kotlin`, and/or `macos: NativeImpl.cpp` to your @NitroModule annotation.',
+              'Add one or more platform fields: `ios: NativeImpl.swift`, '
+              '`android: NativeImpl.kotlin`, `macos: NativeImpl.cpp`, '
+              '`windows: NativeImpl.cpp`, `linux: NativeImpl.cpp`, '
+              'or `web: NativeImpl.wasm`.',
         ),
       );
     }
 
-    // macOS only supports NativeImpl.cpp or NativeImpl.swift — not Kotlin.
-    if (spec.macosImpl == NativeImpl.kotlin) {
+    // Defensive platform impl checks. At the @NitroModule annotation level these
+    // are compile-time errors (marker interfaces prevent invalid assignments).
+    // The checks below guard against BridgeSpec being constructed directly.
+
+    // macOS: only Swift or C++ — not Kotlin.
+    if (spec.macosImpl is KotlinImpl) {
       issues.add(
         ValidationIssue(
           severity: ValidationSeverity.error,
@@ -91,6 +101,48 @@ class SpecValidator {
           message:
               '${spec.dartClassName}: macOS does not support NativeImpl.kotlin.',
           hint: 'Use `macos: NativeImpl.cpp` or `macos: NativeImpl.swift` instead.',
+        ),
+      );
+    }
+
+    // Windows: only C++.
+    if (spec.windowsImpl != null && spec.windowsImpl is! CppImpl) {
+      issues.add(
+        ValidationIssue(
+          severity: ValidationSeverity.error,
+          code: 'INVALID_WINDOWS_IMPL',
+          message:
+              '${spec.dartClassName}: Windows only supports NativeImpl.cpp.',
+          hint: 'Use `windows: NativeImpl.cpp` — Windows requires direct C++ via CMake/MSVC.',
+        ),
+      );
+    }
+
+    // Linux: only C++.
+    if (spec.linuxImpl != null && spec.linuxImpl is! CppImpl) {
+      issues.add(
+        ValidationIssue(
+          severity: ValidationSeverity.error,
+          code: 'INVALID_LINUX_IMPL',
+          message:
+              '${spec.dartClassName}: Linux only supports NativeImpl.cpp.',
+          hint: 'Use `linux: NativeImpl.cpp` — Linux requires direct C++ via CMake/GCC/Clang.',
+        ),
+      );
+    }
+
+    // Web: only WASM. This is the most critical check — CppImpl on web would
+    // generate dart:ffi code that fails to compile for web targets.
+    if (spec.webImpl != null && spec.webImpl is! WasmImpl) {
+      issues.add(
+        ValidationIssue(
+          severity: ValidationSeverity.error,
+          code: 'INVALID_WEB_IMPL',
+          message:
+              '${spec.dartClassName}: Web only supports NativeImpl.wasm.',
+          hint:
+              'Use `web: NativeImpl.wasm` — dart:ffi is unavailable on web. '
+              'Web requires WASM/JS interop. Compile your C++ to WASM using Emscripten.',
         ),
       );
     }

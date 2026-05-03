@@ -121,7 +121,7 @@ class RecordingResult {
 ///
 /// Use [NitroCamera.instance] directly, or prefer the higher-level
 /// [CameraController] + [CameraPreview] Dart API for widget integration.
-@NitroModule(ios: NativeImpl.swift, android: NativeImpl.kotlin)
+@NitroModule(ios: AppleNativeImpl.swift, android: AndroidNativeImpl.kotlin)
 abstract class NitroCamera extends HybridObject {
   static final NitroCamera instance = _NitroCameraImpl();
 

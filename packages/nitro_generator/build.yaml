@@ -10,5 +10,8 @@ builders:
         - 'lib/{{dir}}/generated/cpp/{{file}}.bridge.g.h'
         - 'lib/{{dir}}/generated/cpp/{{file}}.bridge.g.cpp'
         - 'lib/{{dir}}/generated/cmake/{{file}}.CMakeLists.g.txt'
+        - 'lib/{{dir}}/generated/cpp/{{file}}.native.g.h'
+        - 'lib/{{dir}}/generated/cpp/test/{{file}}.mock.g.h'
+        - 'lib/{{dir}}/generated/cpp/test/{{file}}.test.g.cpp'
     auto_apply: dependents
     build_to: source

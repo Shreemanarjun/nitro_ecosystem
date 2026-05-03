@@ -12,8 +12,15 @@ final class FloatBufferFfi extends Struct {
 
 extension FloatBufferFfiExt on FloatBufferFfi {
   FloatBuffer toDart() {
-    return FloatBuffer(data: data.asTypedList(length), length: length);
+    return FloatBuffer(
+      data: Float32List.fromList(data.asTypedList(length)),
+      length: length,
+    );
   }
+
+  /// Frees internal fields (like strings) that were allocated on the C heap.
+  /// Does NOT free the struct itself.
+  void freeFields() {}
 }
 
 extension FloatBufferExt on FloatBuffer {
@@ -25,62 +32,103 @@ extension FloatBufferExt on FloatBuffer {
   }
 }
 
+// --- Struct Native Proxies (zero-copy, lazy field access) ---
+
+/// Zero-copy proxy for [FloatBuffer].
+/// Extends [FloatBuffer] and overrides every getter to read lazily from
+/// native memory — no field is copied at construction time.
+/// Because `FloatBufferProxy <: FloatBuffer`, a `Stream<FloatBufferProxy>`
+/// satisfies `Stream<FloatBuffer>` via Dart covariant generics.
+/// Native memory is freed via a [NativeFinalizer] backed by the
+/// generated C symbol 'verification_release_FloatBuffer'.
+final class FloatBufferProxy extends FloatBuffer implements Finalizable {
+  final Pointer<FloatBufferFfi> _native;
+
+  static NativeFinalizer? _finalizer;
+
+  /// Binds the generated release symbol from [dylib].
+  /// Must be called once — typically in the impl class constructor.
+  /// Idempotent: subsequent calls are a no-op.
+  static void _init(DynamicLibrary dylib) {
+    _finalizer ??= NativeFinalizer(
+      dylib.lookup<NativeFunction<Void Function(Pointer<Void>)>>(
+          'verification_release_FloatBuffer'),
+    );
+  }
+
+  /// Takes ownership of [native]. Super fields are zeroed and never read;
+  /// all getters below are overridden to read from native memory instead.
+  /// Do NOT call [malloc.free] after passing the pointer here.
+  FloatBufferProxy(this._native) : super(data: Float32List(0), length: 0) {
+    assert(_finalizer != null,
+        'FloatBufferProxy._init() was not called. Ensure the Nitro impl class constructor ran before creating proxies.');
+    _finalizer!.attach(this, _native.cast(), detach: this);
+  }
+
+  // @override lazy getters — read native memory on demand, zero allocation.
+  @override
+  Float32List get data => _native.ref.data.asTypedList(_native.ref.length);
+  @override
+  int get length => _native.ref.length;
+
+  /// Eagerly copies all fields to a plain [FloatBuffer] value, detaches
+  /// the finalizer, and frees native memory immediately.
+  /// Use this only when you need an immutable snapshot; for streams
+  /// prefer consuming the proxy fields lazily then letting it GC.
+  /// Must not be called more than once.
+  FloatBuffer toDartAndRelease() {
+    final v = _native.ref.toDart();
+    _finalizer?.detach(this);
+    malloc.free(_native);
+    return v;
+  }
+}
+
 class _VerificationModuleImpl extends VerificationModule {
   final DynamicLibrary _dylib;
 
   _VerificationModuleImpl() : _dylib = NitroRuntime.loadLib('verification') {
-    final initFunc = _dylib
-        .lookupFunction<
-          IntPtr Function(Pointer<Void>),
-          int Function(Pointer<Void>)
-        >('verification_init_dart_api_dl');
+    final initFunc = _dylib.lookupFunction<IntPtr Function(Pointer<Void>),
+        int Function(Pointer<Void>)>('verification_init_dart_api_dl');
     final initCode = initFunc(NativeApi.initializeApiDLData);
     if (initCode != 0) {
       throw StateError(
-        'verification: Dart API DL initialization failed with code $initCode.',
-      );
+          'verification: Dart API DL initialization failed with code $initCode.');
     }
+    FloatBufferProxy._init(_dylib);
   }
 
   late final double Function(double, double) _multiplyPtr = _dylib
-      .lookupFunction<
-        Double Function(Double, Double),
-        double Function(double, double)
-      >('verification_module_multiply');
-  late final Pointer<Utf8> Function(Pointer<Utf8>) _pingPtr = _dylib
-      .lookupFunction<
-        Pointer<Utf8> Function(Pointer<Utf8>),
-        Pointer<Utf8> Function(Pointer<Utf8>)
-      >('verification_module_ping');
-  late final Pointer<Utf8> Function(Pointer<Utf8>) _pingAsyncPtr = _dylib
-      .lookupFunction<
-        Pointer<Utf8> Function(Pointer<Utf8>),
-        Pointer<Utf8> Function(Pointer<Utf8>)
-      >('verification_module_ping_async');
-  late final void Function(Pointer<Utf8>) _throwErrorPtr = _dylib
-      .lookupFunction<
-        Void Function(Pointer<Utf8>),
-        void Function(Pointer<Utf8>)
-      >('verification_module_throw_error');
+      .lookup<NativeFunction<Double Function(Double, Double)>>(
+          'verification_module_multiply')
+      .asFunction<double Function(double, double)>(isLeaf: true);
+  late final Pointer<Utf8> Function(Pointer<Utf8>) _pingPtr =
+      _dylib.lookupFunction<Pointer<Utf8> Function(Pointer<Utf8>),
+          Pointer<Utf8> Function(Pointer<Utf8>)>('verification_module_ping');
+  late final Pointer<Utf8> Function(Pointer<Utf8>) _pingAsyncPtr =
+      _dylib.lookupFunction<
+          Pointer<Utf8> Function(Pointer<Utf8>),
+          Pointer<Utf8> Function(
+              Pointer<Utf8>)>('verification_module_ping_async');
+  late final void Function(Pointer<Utf8>) _throwErrorPtr =
+      _dylib.lookupFunction<Void Function(Pointer<Utf8>),
+          void Function(Pointer<Utf8>)>('verification_module_throw_error');
   late final Pointer<Void> Function(Pointer<Float>, int) _processFloatsPtr =
       _dylib.lookupFunction<
-        Pointer<Void> Function(Pointer<Float>, Int64),
-        Pointer<Void> Function(Pointer<Float>, int)
-      >('verification_module_process_floats');
+          Pointer<Void> Function(Pointer<Float>, Int64),
+          Pointer<Void> Function(
+              Pointer<Float>, int)>('verification_module_process_floats');
   // ignore: unused_field
-  late final Pointer<NitroErrorFfi> Function() _getErrorPtr = _dylib
-      .lookupFunction<
-        Pointer<NitroErrorFfi> Function(),
-        Pointer<NitroErrorFfi> Function()
-      >('verification_get_error');
+  late final Pointer<NitroErrorFfi> Function() _getErrorPtr =
+      _dylib.lookupFunction<Pointer<NitroErrorFfi> Function(),
+          Pointer<NitroErrorFfi> Function()>('verification_get_error');
   // ignore: unused_field
-  late final void Function() _clearErrorPtr = _dylib
-      .lookupFunction<Void Function(), void Function()>(
-        'verification_clear_error',
-      );
+  late final void Function() _clearErrorPtr =
+      _dylib.lookupFunction<Void Function(), void Function()>(
+          'verification_clear_error');
   // ignore: unused_field
   late final Pointer<NativeFunction<Pointer<NitroErrorFfi> Function()>>
-  _getErrorNativePtr = _dylib.lookup('verification_get_error');
+      _getErrorNativePtr = _dylib.lookup('verification_get_error');
   // ignore: unused_field
   late final Pointer<NativeFunction<Void Function()>> _clearErrorNativePtr =
       _dylib.lookup('verification_clear_error');
@@ -115,11 +163,10 @@ class _VerificationModuleImpl extends VerificationModule {
     final arena = Arena();
     try {
       final rawPtr = await NitroRuntime.callAsync<Pointer<Utf8>>(
-        _pingAsyncPtr,
-        [message.toNativeUtf8(allocator: arena)],
-        getError: _getErrorNativePtr,
-        clearError: _clearErrorNativePtr,
-      );
+          _pingAsyncPtr, [message.toNativeUtf8(allocator: arena)],
+          getError: _getErrorNativePtr,
+          clearError: _clearErrorNativePtr,
+          methodName: 'pingAsync');
       return rawPtr.toDartStringWithFree();
     } finally {
       arena.releaseAll();
@@ -143,11 +190,14 @@ class _VerificationModuleImpl extends VerificationModule {
       final res = _processFloatsPtr(inputs.toPointer(arena), inputs.length);
       NitroRuntime.checkError(_getErrorPtr, _clearErrorPtr);
       final structPtr = Pointer<FloatBufferFfi>.fromAddress(res.address);
+      final FloatBuffer decoded;
       try {
-        return structPtr.ref.toDart();
+        decoded = structPtr.ref.toDart();
       } finally {
+        structPtr.ref.freeFields();
         malloc.free(structPtr);
       }
+      return decoded;
     });
   }
 }

@@ -2,6 +2,9 @@ import 'dart:ffi';
 import 'dart:typed_data';
 import 'package:ffi/ffi.dart';
 
+/// A function that releases native memory.
+typedef NativeRelease<T extends NativeType> = void Function(Pointer<T> pointer);
+
 T withArena<T>(T Function(Arena arena) action) {
   return using(action);
 }
@@ -105,18 +108,22 @@ abstract class _ZeroCopyBufferBase {
   final void Function() _nativeRelease;
   bool _released = false;
 
-  _ZeroCopyBufferBase(this._nativeRelease);
+  // One shared Finalizer for all 8 concrete buffer types.
+  // The detach token is `this` (unique per instance), so sharing across types is safe.
+  static final _finalizer = Finalizer<void Function()>((r) => r());
+
+  _ZeroCopyBufferBase(bool hasValidPtr, void Function() nativeRelease) : _nativeRelease = nativeRelease {
+    if (hasValidPtr) _finalizer.attach(this, nativeRelease, detach: this);
+  }
 
   /// Explicitly releases native memory before GC.
   void release() {
     if (!_released) {
       _released = true;
-      _releaseFinalizerToken();
+      _finalizer.detach(this);
       _nativeRelease();
     }
   }
-
-  void _releaseFinalizerToken();
 
   void _assertNotReleased() {
     if (_released) throw StateError('ZeroCopyBuffer already released');
@@ -128,22 +135,13 @@ class ZeroCopyBuffer extends _ZeroCopyBufferBase {
   final Pointer<Uint8> ptr;
   final int length;
 
-  ZeroCopyBuffer(this.ptr, this.length, void Function() nativeRelease) : super(nativeRelease) {
-    if (ptr != nullptr) {
-      _finalizer.attach(this, nativeRelease, detach: this);
-    }
-  }
+  ZeroCopyBuffer(this.ptr, this.length, void Function() nativeRelease) : super(ptr != nullptr, nativeRelease);
 
   /// Zero-copy [Uint8List] view of native memory.
   Uint8List get bytes {
     _assertNotReleased();
     return ptr.asTypedList(length);
   }
-
-  @override
-  void _releaseFinalizerToken() => _finalizer.detach(this);
-
-  static final Finalizer<void Function()> _finalizer = Finalizer((r) => r());
 }
 
 /// Zero-copy buffer backed by `int8_t*` — maps to [Int8List].
@@ -151,18 +149,12 @@ class ZeroCopyInt8Buffer extends _ZeroCopyBufferBase {
   final Pointer<Int8> ptr;
   final int length;
 
-  ZeroCopyInt8Buffer(this.ptr, this.length, void Function() nativeRelease) : super(nativeRelease) {
-    if (ptr != nullptr) _finalizer.attach(this, nativeRelease, detach: this);
-  }
+  ZeroCopyInt8Buffer(this.ptr, this.length, void Function() nativeRelease) : super(ptr != nullptr, nativeRelease);
 
   Int8List get values {
     _assertNotReleased();
     return ptr.asTypedList(length);
   }
-
-  @override
-  void _releaseFinalizerToken() => _finalizer.detach(this);
-  static final Finalizer<void Function()> _finalizer = Finalizer((r) => r());
 }
 
 /// Zero-copy buffer backed by `int16_t*` — maps to [Int16List].
@@ -170,18 +162,12 @@ class ZeroCopyInt16Buffer extends _ZeroCopyBufferBase {
   final Pointer<Int16> ptr;
   final int length;
 
-  ZeroCopyInt16Buffer(this.ptr, this.length, void Function() nativeRelease) : super(nativeRelease) {
-    if (ptr != nullptr) _finalizer.attach(this, nativeRelease, detach: this);
-  }
+  ZeroCopyInt16Buffer(this.ptr, this.length, void Function() nativeRelease) : super(ptr != nullptr, nativeRelease);
 
   Int16List get values {
     _assertNotReleased();
     return ptr.asTypedList(length);
   }
-
-  @override
-  void _releaseFinalizerToken() => _finalizer.detach(this);
-  static final Finalizer<void Function()> _finalizer = Finalizer((r) => r());
 }
 
 /// Zero-copy buffer backed by `uint16_t*` — maps to [Uint16List].
@@ -189,18 +175,12 @@ class ZeroCopyUint16Buffer extends _ZeroCopyBufferBase {
   final Pointer<Uint16> ptr;
   final int length;
 
-  ZeroCopyUint16Buffer(this.ptr, this.length, void Function() nativeRelease) : super(nativeRelease) {
-    if (ptr != nullptr) _finalizer.attach(this, nativeRelease, detach: this);
-  }
+  ZeroCopyUint16Buffer(this.ptr, this.length, void Function() nativeRelease) : super(ptr != nullptr, nativeRelease);
 
   Uint16List get values {
     _assertNotReleased();
     return ptr.asTypedList(length);
   }
-
-  @override
-  void _releaseFinalizerToken() => _finalizer.detach(this);
-  static final Finalizer<void Function()> _finalizer = Finalizer((r) => r());
 }
 
 /// Zero-copy buffer backed by `int32_t*` — maps to [Int32List].
@@ -208,18 +188,12 @@ class ZeroCopyInt32Buffer extends _ZeroCopyBufferBase {
   final Pointer<Int32> ptr;
   final int length;
 
-  ZeroCopyInt32Buffer(this.ptr, this.length, void Function() nativeRelease) : super(nativeRelease) {
-    if (ptr != nullptr) _finalizer.attach(this, nativeRelease, detach: this);
-  }
+  ZeroCopyInt32Buffer(this.ptr, this.length, void Function() nativeRelease) : super(ptr != nullptr, nativeRelease);
 
   Int32List get values {
     _assertNotReleased();
     return ptr.asTypedList(length);
   }
-
-  @override
-  void _releaseFinalizerToken() => _finalizer.detach(this);
-  static final Finalizer<void Function()> _finalizer = Finalizer((r) => r());
 }
 
 /// Zero-copy buffer backed by `uint32_t*` — maps to [Uint32List].
@@ -227,18 +201,12 @@ class ZeroCopyUint32Buffer extends _ZeroCopyBufferBase {
   final Pointer<Uint32> ptr;
   final int length;
 
-  ZeroCopyUint32Buffer(this.ptr, this.length, void Function() nativeRelease) : super(nativeRelease) {
-    if (ptr != nullptr) _finalizer.attach(this, nativeRelease, detach: this);
-  }
+  ZeroCopyUint32Buffer(this.ptr, this.length, void Function() nativeRelease) : super(ptr != nullptr, nativeRelease);
 
   Uint32List get values {
     _assertNotReleased();
     return ptr.asTypedList(length);
   }
-
-  @override
-  void _releaseFinalizerToken() => _finalizer.detach(this);
-  static final Finalizer<void Function()> _finalizer = Finalizer((r) => r());
 }
 
 /// Zero-copy buffer backed by `float*` — maps to [Float32List].
@@ -248,19 +216,13 @@ class ZeroCopyFloat32Buffer extends _ZeroCopyBufferBase {
   final Pointer<Float> ptr;
   final int length;
 
-  ZeroCopyFloat32Buffer(this.ptr, this.length, void Function() nativeRelease) : super(nativeRelease) {
-    if (ptr != nullptr) _finalizer.attach(this, nativeRelease, detach: this);
-  }
+  ZeroCopyFloat32Buffer(this.ptr, this.length, void Function() nativeRelease) : super(ptr != nullptr, nativeRelease);
 
   /// Zero-copy [Float32List] view of native memory.
   Float32List get floats {
     _assertNotReleased();
     return ptr.asTypedList(length);
   }
-
-  @override
-  void _releaseFinalizerToken() => _finalizer.detach(this);
-  static final Finalizer<void Function()> _finalizer = Finalizer((r) => r());
 }
 
 /// Zero-copy buffer backed by `double*` — maps to [Float64List].
@@ -268,18 +230,12 @@ class ZeroCopyFloat64Buffer extends _ZeroCopyBufferBase {
   final Pointer<Double> ptr;
   final int length;
 
-  ZeroCopyFloat64Buffer(this.ptr, this.length, void Function() nativeRelease) : super(nativeRelease) {
-    if (ptr != nullptr) _finalizer.attach(this, nativeRelease, detach: this);
-  }
+  ZeroCopyFloat64Buffer(this.ptr, this.length, void Function() nativeRelease) : super(ptr != nullptr, nativeRelease);
 
   Float64List get doubles {
     _assertNotReleased();
     return ptr.asTypedList(length);
   }
-
-  @override
-  void _releaseFinalizerToken() => _finalizer.detach(this);
-  static final Finalizer<void Function()> _finalizer = Finalizer((r) => r());
 }
 
 /// Zero-copy buffer backed by `int64_t*` — maps to [Int64List].
@@ -287,16 +243,10 @@ class ZeroCopyInt64Buffer extends _ZeroCopyBufferBase {
   final Pointer<Int64> ptr;
   final int length;
 
-  ZeroCopyInt64Buffer(this.ptr, this.length, void Function() nativeRelease) : super(nativeRelease) {
-    if (ptr != nullptr) _finalizer.attach(this, nativeRelease, detach: this);
-  }
+  ZeroCopyInt64Buffer(this.ptr, this.length, void Function() nativeRelease) : super(ptr != nullptr, nativeRelease);
 
   Int64List get values {
     _assertNotReleased();
     return ptr.asTypedList(length);
   }
-
-  @override
-  void _releaseFinalizerToken() => _finalizer.detach(this);
-  static final Finalizer<void Function()> _finalizer = Finalizer((r) => r());
 }

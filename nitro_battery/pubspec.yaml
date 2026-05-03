@@ -1,5 +1,6 @@
 name: nitro_battery
 description: "A new Flutter FFI plugin project."
+version: 0.3.3
 publish_to: none
 homepage: https://nitro.shreeman.dev
 repository: https://github.com/Shreemanarjun/nitro_ecosystem
@@ -46,7 +47,6 @@ flutter:
         ffiPlugin: true
       ios:
         pluginClass: SwiftNitroBatteryPlugin
-        ffiPlugin: true
 
   # To add assets to your plugin package, add an assets section, like this:
   # assets:

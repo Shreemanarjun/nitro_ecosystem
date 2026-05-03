@@ -1,3 +1,22 @@
+## 0.3.3
+
+- **Fixed: JNI crash (ART abort) with nested `@HybridStruct` fields** — `GetFieldID` was called with `"Ljava/lang/Object;"` for nested struct fields, posting a `NoSuchFieldError` that ART turned into a fatal runtime abort on the next JNI call. Fixed by generating the correct class descriptor (e.g. `Lnitro/nitro_ar_module/Vector3;`) in the constructor signature, `GetFieldID` calls, `pack_*_from_jni`, `unpack_*_to_jni`, and the release function. Both the already-generated file and the generator itself were fixed to prevent regression.
+- **New: `@HybridStruct` types usable as `@HybridRecord` list fields** — `@HybridRecord() class PackageBoxes { final List<BoundingBox> boxes; }` now serializes correctly end-to-end.
+  - `spec_extractor.dart`: `_recordFieldKind` now recognises `@HybridStruct`-annotated types, classifying `List<BoundingBox>` as `listRecordObject` (not `listPrimitive`).
+  - `struct_generator.dart` `generateKotlin`: Every Kotlin `data class` for a struct now includes `companion object { decodeFrom(buf) / decode(bytes) }`, `writeFieldsTo(out, buf)`, and `encode(): ByteArray` so structs can be embedded inline in record binary payloads.
+  - `record_generator.dart` `generateDartExtensions`: Auto-generates `RecordExt` extensions (with `fromNative`, `fromReader`, `writeFields`, `toNative`) for every `@HybridStruct` type referenced in a record field, including transitive closure for nested struct types.
+- **Fixed: Kotlin record list field wire format** — The `writeIndexedList` helper (which discarded list items via `{ _ ->}` and referenced an undefined `it`) has been replaced with a simple `writeInt32(size) + forEach { e -> e.writeFieldsTo(out, buf) }`. The corresponding Kotlin read no longer skips a phantom offset table; both sides now use the same count-then-items format as the Dart codec.
+- **Tests: 50 new tests in `struct_in_record_test.dart`** — Cover: Dart `RecordExt` for struct list items, Kotlin struct codec methods, Kotlin record using struct codecs, transitive nested-struct closure, `recordObject` (non-list) struct fields, all primitive field types, wire-format consistency, and negative cases (unreferenced structs produce no `RecordExt`).
+
+
+## 0.3.2
+
+- **Fixed: Nested struct fields generate typed pointers** — Fields whose type is another `@HybridStruct` now use `Pointer<NestedFfi>` instead of `Pointer<Void>`. `toDart()`, `toNative()`, `freeFields()`, and proxy lazy getters all handle nested pointers correctly.
+- **Fixed: Proxy `super()` for nested struct fields** — Zero-value defaults are now generated recursively (e.g. `Vector3(x: 0.0, y: 0.0, z: 0.0)`) instead of `null`, which was invalid for non-nullable types.
+- **New: Positional constructor param support** — `BridgeField` gains `isNamed` and `isRequired` flags. The generator emits positional args before named args in `toDart()` and proxy `super()`, matching the struct's actual constructor signature. The spec extractor reads these flags automatically.
+- **Fixed: TypedData length-field matching is case-sensitive** — Only exact lowercase names (`length`, `size`, `stride`, `bytelength`, `bytelen`, `len`) match. A field named `Stride` (capital S) now correctly falls back to `asTypedList(0)`.
+- **Tests: 135 new tests across 3 files** — `nested_struct_test.dart`, `struct_constructor_params_test.dart`, and `struct_field_types_test.dart` cover nested structs, all constructor styles, String/enum/TypedData fields, `freeFields()` combinations, zeroCopy, nullable stripping, and more.
+
 ## 0.3.1
 - **New: macOS targeting in `BridgeSpec`** — `BridgeSpec` now accepts an optional `macosImpl` field (`NativeImpl?`) and exposes `targetsMacos` and `targetsAppleCpp` getters. `targetsAppleCpp` is true when either `ios` or `macos` (or both) use `NativeImpl.cpp`, enabling a single `#ifdef __APPLE__` guard in the C++ bridge instead of separate iOS/macOS guards.
 - **New: `INVALID_MACOS_IMPL` validator error** — `SpecValidator` emits an error with code `INVALID_MACOS_IMPL` and severity `error` when `macos: NativeImpl.kotlin` is specified, since Kotlin is not a valid native language on macOS.

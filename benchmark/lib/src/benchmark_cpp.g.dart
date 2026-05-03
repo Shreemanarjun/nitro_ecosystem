@@ -185,17 +185,17 @@ extension BenchmarkStatsRecordExt on BenchmarkStats {
         maxUs: r.readDouble(),
       );
 
-  void writeFields(RecordWriter w) {
-    w.writeInt(count);
-    w.writeDouble(meanUs);
-    w.writeDouble(minUs);
-    w.writeDouble(maxUs);
+  void writeFields(RecordWriter writer) {
+    writer.writeInt(count);
+    writer.writeDouble(meanUs);
+    writer.writeDouble(minUs);
+    writer.writeDouble(maxUs);
   }
 
   Pointer<Uint8> toNative(Allocator alloc) {
-    final w = RecordWriter();
-    writeFields(w);
-    return w.toNative(alloc);
+    final writer = RecordWriter();
+    writeFields(writer);
+    return writer.toNative(alloc);
   }
 }
 
@@ -387,8 +387,14 @@ class _BenchmarkCppImpl extends BenchmarkCpp {
     checkDisposed();
     return NitroRuntime.openStream<BenchmarkPointProxy>(
       register: (port) => _registerDataStreamPtr(port),
-      unpack: (rawPtr) =>
-          BenchmarkPointProxy(Pointer<BenchmarkPointFfi>.fromAddress(rawPtr)),
+      unpack: (message) {
+        if (message == null) {
+          throw StateError(
+              'Received null event on non-nullable stream dataStream');
+        }
+        return BenchmarkPointProxy(
+            Pointer<BenchmarkPointFfi>.fromAddress(message as int));
+      },
       release: (port) => _releaseDataStreamPtr(port),
       backpressure: Backpressure.dropLatest,
     );
@@ -399,8 +405,14 @@ class _BenchmarkCppImpl extends BenchmarkCpp {
     checkDisposed();
     return NitroRuntime.openStream<BenchmarkBoxProxy>(
       register: (port) => _registerBoxStreamPtr(port),
-      unpack: (rawPtr) =>
-          BenchmarkBoxProxy(Pointer<BenchmarkBoxFfi>.fromAddress(rawPtr)),
+      unpack: (message) {
+        if (message == null) {
+          throw StateError(
+              'Received null event on non-nullable stream boxStream');
+        }
+        return BenchmarkBoxProxy(
+            Pointer<BenchmarkBoxFfi>.fromAddress(message as int));
+      },
       release: (port) => _releaseBoxStreamPtr(port),
       backpressure: Backpressure.dropLatest,
     );

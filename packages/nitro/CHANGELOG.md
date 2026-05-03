@@ -1,3 +1,14 @@
+## 0.3.3
+- **Improved: Ecosystem Sync** — Synchronized to version 0.3.3.
+
+
+
+## 0.3.2
+
+- **Improved: Ecosystem Sync** — Synchronized to version 0.3.2.
+- **Improved: Nested `@HybridStruct` integration** — Works seamlessly with `nitro_generator` 0.3.2, which now generates correct `Pointer<NestedFfi>` types, recursive `freeFields()`, and typed `toNative()`/`toDart()` for nested struct fields.
+- **Improved: Struct constructor styles** — Generated FFI extensions respect positional and named constructor parameters as declared in your `.native.dart` spec, so `toDart()` calls always match the actual constructor signature.
+
 ## 0.3.1
 
 - **Improved: `IsolatePool` — persistent reply port** — replaced per-call `ReceivePort` allocation with a single pool-level port kept alive for the pool's lifetime. Each call is tagged with a monotonically-increasing `callId`; a `Map<int, Completer>` demuxes responses without any OS port operation per call.

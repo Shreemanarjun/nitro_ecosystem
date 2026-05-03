@@ -220,7 +220,7 @@ void main() {
       final out = DartFfiGenerator.generate(structStreamSpec());
       expect(
         out,
-        contains('CameraFrameProxy(Pointer<CameraFrameFfi>.fromAddress(rawPtr))'),
+        contains('CameraFrameProxy(Pointer<CameraFrameFfi>.fromAddress(message as int))'),
       );
       expect(out, isNot(contains('malloc.free(ptr)')));
     });

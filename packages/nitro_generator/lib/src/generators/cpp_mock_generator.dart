@@ -5,12 +5,12 @@ import '../bridge_spec.dart';
 /// * `*.mock.g.h`    — GoogleMock header (`Mock${ClassName}` class).
 /// * `*.test.g.cpp`  — Test-starter file with a smoke test + commented examples.
 ///
-/// These are only meaningful when `spec.isCppImpl == true`.
+/// These are only meaningful when `spec.hasCppImpl == true`.
 class CppMockGenerator {
   // ── Mock header ─────────────────────────────────────────────────────────────
 
   static String generateMockHeader(BridgeSpec spec) {
-    if (!spec.isCppImpl) {
+    if (!spec.hasCppImpl) {
       return '// Not applicable: NativeImpl is not cpp for this module.\n';
     }
 
@@ -65,7 +65,7 @@ class CppMockGenerator {
   // ── Test starter ────────────────────────────────────────────────────────────
 
   static String generateTestStarter(BridgeSpec spec) {
-    if (!spec.isCppImpl) {
+    if (!spec.hasCppImpl) {
       return '// Not applicable: NativeImpl is not cpp for this module.\n';
     }
 

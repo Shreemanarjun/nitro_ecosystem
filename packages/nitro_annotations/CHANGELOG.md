@@ -1,3 +1,11 @@
+# 0.3.3
+
+- **Improved: Ecosystem Sync** — Synchronized to version 0.3.3.
+
+# 0.3.2
+
+- **Improved: Ecosystem Sync** — Synchronized to version 0.3.2.
+
 # 0.3.1
 
 - **Improved: Ecosystem Sync** — Synchronized to version 0.3.1.

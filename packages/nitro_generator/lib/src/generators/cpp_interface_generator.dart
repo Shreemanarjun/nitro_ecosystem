@@ -1,4 +1,5 @@
 import '../bridge_spec.dart';
+import 'record_generator.dart';
 
 /// Generates `*.native.g.h` — the abstract C++ class that the user implements
 /// when `@NitroModule(ios: NativeImpl.cpp, android: NativeImpl.cpp)` is used.
@@ -7,7 +8,7 @@ import '../bridge_spec.dart';
 /// `${lib}_register_impl(&myImpl)` during plugin initialisation.
 class CppInterfaceGenerator {
   static String generate(BridgeSpec spec) {
-    if (!spec.isCppImpl) {
+    if (!spec.hasCppImpl) {
       return '// Not applicable: NativeImpl is not cpp for this module.\n';
     }
 
@@ -34,6 +35,11 @@ class CppInterfaceGenerator {
     s.writeln('#include <stddef.h>');
     s.writeln('#include <string>');
     s.writeln('#include <stdexcept>');
+    if (spec.recordTypes.isNotEmpty) {
+      s.writeln('#include <cstring>');
+      s.writeln('#include <optional>');
+      s.writeln('#include <vector>');
+    }
     s.writeln('#include "$bridgeHeader"');
     s.writeln();
 
@@ -45,6 +51,10 @@ class CppInterfaceGenerator {
     s.writeln('    size_t size;');
     s.writeln('};');
     s.writeln();
+
+    // @HybridRecord C++ structs with bounds-checked decoder (§3.3)
+    final cppRecords = RecordGenerator.generateCpp(spec);
+    if (cppRecords.isNotEmpty) s.write(cppRecords);
 
     // ── Abstract interface class ─────────────────────────────────────────────
     s.writeln('/// Abstract C++ interface for $className.');
@@ -60,10 +70,18 @@ class CppInterfaceGenerator {
     if (spec.functions.isNotEmpty) {
       s.writeln('    // ── Methods ──────────────────────────────────────────────────────────');
       for (final func in spec.functions) {
-        final retType = _cppReturnType(func.returnType, enumNames, structNames, recordNames);
-        final params = _cppMethodParams(func.params, enumNames, structNames, recordNames);
-        final paramStr = params.join(', ');
-        s.writeln('    virtual $retType ${func.dartName}($paramStr) = 0;');
+        if (func.isNativeAsync) {
+          // @NitroNativeAsync: impl returns void and accepts dart_port so it can
+          // post the result directly via Dart_PostCObject_DL from any thread.
+          final params = _cppMethodParams(func.params, enumNames, structNames, recordNames);
+          params.add('int64_t dartPort');
+          s.writeln('    virtual void ${func.dartName}(${params.join(', ')}) = 0;');
+        } else {
+          final retType = _cppReturnType(func.returnType, enumNames, structNames, recordNames);
+          final params = _cppMethodParams(func.params, enumNames, structNames, recordNames);
+          final paramStr = params.join(', ');
+          s.writeln('    virtual $retType ${func.dartName}($paramStr) = 0;');
+        }
       }
       s.writeln();
     }

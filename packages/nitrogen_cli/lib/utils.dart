@@ -81,71 +81,139 @@ void launchUrl(String url) {
 
 /// Synchronizes generated bridge files from lib/src/generated to native project roots.
 /// [platform] is the platform directory name ('ios' or 'macos'). Defaults to 'ios'.
-/// This is needed for Apple development as CocoaPods normally uses copies instead of symlinks.
+/// This is needed for Apple development as CocoaPods/SPM normally uses copies instead of symlinks.
 void syncBridgeFiles(String workingDirectory, {String platform = 'ios'}) {
-  final classesDir = Directory(p.join(workingDirectory, platform, 'Classes'));
-  if (!classesDir.existsSync()) return;
-
   final generatedDir = Directory(p.join(workingDirectory, 'lib', 'src', 'generated'));
   if (!generatedDir.existsSync()) return;
 
-  // Discover which modules use the direct C++ path (NativeImpl.cpp).
-  // Their generated .bridge.g.swift must NOT be copied into ios/Classes/:
-  //   - the C++ bridge calls g_impl directly — it never calls the @_cdecl stubs
-  //   - those stubs share the same symbol names as the non-cpp Swift bridge,
-  //     causing duplicate-symbol linker errors.
-  final cppLibs = _discoverCppLibs(workingDirectory);
+  // Discover Apple C++ modules (ios or macos using NativeImpl.cpp).
+  // Their Swift bridge stubs must NOT be compiled alongside the direct C++ bridge
+  // (duplicate-symbol guard). Any stale copies in Classes/ must be deleted.
+  final appleCppModules = _discoverAppleCppModules(workingDirectory);
+  final pluginName = _readPluginName(workingDirectory);
+  final className = toPascalCase(pluginName);
 
-  // Sync Swift bridges — skip C++ modules.
+  // Support both legacy (CocoaPods) and modern (SPM) source layouts.
+  final classesDir = Directory(p.join(workingDirectory, platform, 'Classes'));
+  final sourcesDir = Directory(p.join(workingDirectory, platform, 'Sources', className));
+
+  if (!classesDir.existsSync() && !sourcesDir.existsSync()) return;
+
+  final targetDirs = [
+    if (classesDir.existsSync()) classesDir,
+    if (sourcesDir.existsSync()) sourcesDir,
+  ];
+
+  // Sync Swift bridges.
+  // Non-cpp modules: copy to all existing target dirs for reliability.
+  // Cpp modules: delete any stale copy — the direct C++ bridge makes them unnecessary.
   final swiftSource = Directory(p.join(generatedDir.path, 'swift'));
   if (swiftSource.existsSync()) {
     for (final file in swiftSource.listSync().whereType<File>()) {
       final name = p.basename(file.path);
-      if (name.endsWith('.bridge.g.swift')) {
-        final lib = name.replaceFirst('.bridge.g.swift', '');
-        if (cppLibs.contains(lib)) {
-          // Remove any stale copy that may have been placed here previously.
-          final stale = File(p.join(classesDir.path, name));
+      if (!name.endsWith('.bridge.g.swift')) continue;
+      final libName = name.replaceFirst('.bridge.g.swift', '');
+      if (appleCppModules.containsKey(libName)) {
+        // Delete stale Swift bridge copies for C++ modules.
+        for (final targetDir in targetDirs) {
+          final stale = File(p.join(targetDir.path, name));
           if (stale.existsSync()) stale.deleteSync();
-          continue;
         }
-        file.copySync(p.join(classesDir.path, name));
+        continue;
+      }
+      for (final targetDir in targetDirs) {
+        file.copySync(p.join(targetDir.path, name));
       }
     }
   }
 
-  // Sync C++/Obj-C++ bridges
+  // The following syncs target only the CocoaPods Classes/ layout.
+  if (!classesDir.existsSync()) return;
+
+  // Sync C++/Obj-C++ bridges (.bridge.g.cpp → .bridge.g.mm for Obj-C++ support).
   final cppSource = Directory(p.join(generatedDir.path, 'cpp'));
   if (cppSource.existsSync()) {
     for (final file in cppSource.listSync().whereType<File>()) {
       final name = p.basename(file.path);
       if (name.endsWith('.bridge.g.h') || name.endsWith('.bridge.g.cpp')) {
-        // .bridge.g.cpp -> .bridge.g.mm for iOS Objective-C++ support
-        final targetName = name.endsWith('.bridge.g.cpp') ? name.replaceFirst('.bridge.g.cpp', '.bridge.g.mm') : name;
+        final targetName = name.endsWith('.bridge.g.cpp')
+            ? name.replaceFirst('.bridge.g.cpp', '.bridge.g.mm')
+            : name;
         file.copySync(p.join(classesDir.path, targetName));
+      }
+    }
+  }
+
+  // Sync HybridXxx.cpp impl stubs for Apple C++ modules.
+  //
+  // CocoaPods compiles everything in Classes/** — the impl stubs must be
+  // there so the C++ HybridObject methods are compiled into the pod target.
+  // Stale Hybrid*.cpp files for non-Apple-cpp modules are removed to prevent
+  // "abstract class" compile errors.
+  final srcDir = Directory(p.join(workingDirectory, 'src'));
+  if (srcDir.existsSync()) {
+    final expectedImplFiles = <String>{};
+    for (final entry in appleCppModules.entries) {
+      final libClassName = toPascalCase(entry.key);
+      expectedImplFiles.add('Hybrid$libClassName.cpp');
+      final moduleClassName = toPascalCase(entry.value);
+      expectedImplFiles.add('Hybrid$moduleClassName.cpp');
+    }
+
+    for (final name in expectedImplFiles) {
+      final srcFile = File(p.join(srcDir.path, name));
+      if (srcFile.existsSync()) {
+        srcFile.copySync(p.join(classesDir.path, name));
+      }
+    }
+
+    for (final file in classesDir.listSync().whereType<File>()) {
+      final name = p.basename(file.path);
+      if (name.startsWith('Hybrid') && name.endsWith('.cpp')) {
+        if (!expectedImplFiles.contains(name)) {
+          file.deleteSync();
+        }
       }
     }
   }
 }
 
-/// Returns the set of lib names that are NativeImpl.cpp modules, by reading
-/// the *.native.dart spec files in lib/.
-Set<String> _discoverCppLibs(String workingDirectory) {
+String toPascalCase(String s) =>
+    s.split(RegExp(r'[_\-]')).map((w) => w.isEmpty ? '' : w[0].toUpperCase() + w.substring(1)).join('');
+
+/// Returns a map of {lib → moduleName} for modules where Apple platforms
+/// (ios or macos) use a direct C++ implementation (AppleNativeImpl.cpp).
+/// These need their HybridXxx.cpp impl file copied to ios/Classes/ or macos/Classes/
+/// so CocoaPods includes them in the pod target compilation.
+Map<String, String> _discoverAppleCppModules(String workingDirectory) {
   final libDir = Directory(p.join(workingDirectory, 'lib'));
   if (!libDir.existsSync()) return {};
-  final result = <String>{};
+  final result = <String, String>{};
   for (final file in libDir.listSync(recursive: true).whereType<File>()) {
     if (!file.path.endsWith('.native.dart')) continue;
     final content = file.readAsStringSync();
-    final libMatch = RegExp(r'''@NitroModule\s*\([^)]*lib\s*:\s*['"]([^'"]+)['"]''').firstMatch(content);
+    final libMatch = RegExp(r"""@NitroModule\s*\([^)]*lib\s*:\s*['"]([^'"]+)['"]""", dotAll: true).firstMatch(content);
     if (libMatch == null) continue;
-    final annotationMatch = RegExp(r'@NitroModule\s*\(([^)]+)\)').firstMatch(content);
+    final annotationMatch = RegExp(r'@NitroModule\s*\(([^)]+)\)', dotAll: true).firstMatch(content);
     if (annotationMatch == null) continue;
-    final annotation = annotationMatch.group(1)!;
-    // A module is "cpp" when any platform arg (ios/android/macos) is NativeImpl.cpp.
-    if (RegExp(r'\b(?:ios|android|macos)\s*:\s*NativeImpl\.cpp\b').hasMatch(annotation)) {
-      result.add(libMatch.group(1)!);
-    }
+    final annotation = annotationMatch.group(1)!.replaceAll('\n', ' ');
+    // Apple C++ = ios or macos using AppleNativeImpl.cpp (or legacy NativeImpl.cpp)
+    if (!RegExp(
+      r'\b(?:ios|macos)\s*:\s*(?:NativeImpl|AppleNativeImpl)\.cpp\b',
+    ).hasMatch(annotation)) { continue; }
+    final lib = libMatch.group(1)!;
+    final moduleMatch = RegExp(r'abstract class (\w+) extends HybridObject').firstMatch(content);
+    final moduleName = moduleMatch?.group(1) ?? toPascalCase(lib);
+    result[lib] = moduleName;
   }
   return result;
+}
+
+String _readPluginName(String projectRoot) {
+  final pubspec = File(p.join(projectRoot, 'pubspec.yaml'));
+  if (!pubspec.existsSync()) return 'my_plugin';
+  for (final line in pubspec.readAsLinesSync()) {
+    if (line.trim().startsWith('name: ')) return line.replaceFirst('name: ', '').trim();
+  }
+  return 'my_plugin';
 }

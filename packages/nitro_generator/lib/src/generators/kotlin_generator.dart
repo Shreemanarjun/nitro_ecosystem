@@ -45,7 +45,7 @@ class KotlinGenerator {
     for (final func in spec.functions) {
       final retType = _toKotlinRetType(enumNames, structNames, recordNames, func.returnType);
       final params = func.params.map((p) => '${p.name}: ${_toKotlinParamType(enumNames, structNames, recordNames, p)}').join(', ');
-      final suspend = func.isAsync ? 'suspend ' : '';
+      final suspend = (func.isAsync || func.isNativeAsync) ? 'suspend ' : '';
       // Use the actual return type (enum/struct/record class) in the interface
       s.writeln('    ${suspend}fun ${func.dartName}($params): $retType');
     }
@@ -85,11 +85,66 @@ class KotlinGenerator {
     s.writeln('    }');
     s.writeln();
 
+    // Emit postXxxToPort helpers only when the spec has @NitroNativeAsync methods
+    final hasNativeAsync = spec.functions.any((f) => f.isNativeAsync);
+    if (hasNativeAsync) {
+      s.writeln('    // @NitroNativeAsync helpers — post primitive results via Dart_PostCObject_DL.');
+      s.writeln('    @JvmStatic external fun postNullToPort(dartPort: Long)');
+      s.writeln('    @JvmStatic external fun postInt64ToPort(dartPort: Long, value: Long)');
+      s.writeln('    @JvmStatic external fun postDoubleToPort(dartPort: Long, value: Double)');
+      s.writeln('    @JvmStatic external fun postBoolToPort(dartPort: Long, value: Boolean)');
+      s.writeln('    @JvmStatic external fun postStringToPort(dartPort: Long, value: String)');
+      s.writeln();
+    }
+
     for (final func in spec.functions) {
       final retType = _toKotlinRetType(enumNames, structNames, recordNames, func.returnType);
       final paramsDecl = func.params.map((p) => '${p.name}: ${_toKotlinParamType(enumNames, structNames, recordNames, p)}').join(', ');
       final callParams = func.params.map((p) => p.name).join(', ');
 
+      if (func.isNativeAsync) {
+        // ── @NitroNativeAsync — launch a coroutine and post the result ────────
+        // The _call method accepts an extra Long dartPort and returns immediately.
+        // The coroutine runs on Dispatchers.IO and posts the result via JNI
+        // Dart_PostCObject_DL when the suspend function completes.
+        final isUnit = (retType == 'Unit');
+        final isEnum = enumNames.contains(func.returnType.name);
+        final portParamDecl = paramsDecl.isEmpty ? 'dartPort: Long' : '$paramsDecl, dartPort: Long';
+        s.writeln('    @JvmStatic fun ${func.dartName}_call($portParamDecl) {');
+        s.writeln('        val impl = implementation ?: run {');
+        s.writeln('            postNullToPort(dartPort)');
+        s.writeln('            return');
+        s.writeln('        }');
+        s.writeln('        _asyncExecutor.execute {');
+        if (isUnit) {
+          s.writeln('            runBlocking { impl.${func.dartName}($callParams) }');
+          s.writeln('            postNullToPort(dartPort)');
+        } else if (isEnum) {
+          s.writeln('            val result = runBlocking { impl.${func.dartName}($callParams) }');
+          s.writeln('            postInt64ToPort(dartPort, result.nativeValue)');
+        } else if (retType == 'String') {
+          s.writeln('            val result = runBlocking { impl.${func.dartName}($callParams) }');
+          s.writeln('            postStringToPort(dartPort, result)');
+        } else if (retType == 'Boolean') {
+          s.writeln('            val result = runBlocking { impl.${func.dartName}($callParams) }');
+          s.writeln('            postBoolToPort(dartPort, result)');
+        } else if (retType == 'Long' || retType == 'Int') {
+          s.writeln('            val result = runBlocking { impl.${func.dartName}($callParams) }');
+          s.writeln('            postInt64ToPort(dartPort, result.toLong())');
+        } else if (retType == 'Double') {
+          s.writeln('            val result = runBlocking { impl.${func.dartName}($callParams) }');
+          s.writeln('            postDoubleToPort(dartPort, result)');
+        } else {
+          // Fallback for record/struct: post null (advanced types can be added later)
+          s.writeln('            runBlocking { impl.${func.dartName}($callParams) }');
+          s.writeln('            postNullToPort(dartPort)');
+        }
+        s.writeln('        }');
+        s.writeln('    }');
+        continue;
+      }
+
+      // ── Regular (sync / @nitroAsync) method ────────────────────────────────
       final isUnit = (retType == 'Unit');
       final isEnum = enumNames.contains(func.returnType.name);
       final isRecord = func.returnType.isRecord && !func.returnType.isMap;
