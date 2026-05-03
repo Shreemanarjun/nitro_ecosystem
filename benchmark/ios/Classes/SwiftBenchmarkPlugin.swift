@@ -4,6 +4,7 @@ import UIKit
 public class SwiftBenchmarkPlugin: NSObject, FlutterPlugin {
     public static func register(with registrar: FlutterPluginRegistrar) {
         BenchmarkRegistry.register(BenchmarkImpl())
+        NitroArRegistry.register(NitroArModuleImpl())
         // BenchmarkCpp is AppleNativeImpl.cpp — auto-registers via
         // __attribute__((constructor)) in HybridBenchmarkCpp.cpp on load.
         // No BenchmarkCppRegistry exists in Swift — do NOT add one here.

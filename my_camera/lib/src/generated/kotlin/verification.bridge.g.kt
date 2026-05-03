@@ -10,8 +10,37 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.runBlocking
 
 // --- Structs ---
-@Keep
-data class FloatBuffer(val data: java.nio.ByteBuffer, val length: Long)
+@androidx.annotation.Keep
+data class FloatBuffer(val data: java.nio.ByteBuffer, val length: Long) {
+    companion object {
+        @JvmStatic fun decodeFrom(buf: java.nio.ByteBuffer): FloatBuffer {
+            val data = { buf.long; java.nio.ByteBuffer.allocate(0) }()
+            val length = buf.long
+            return FloatBuffer(data, length)
+        }
+        @JvmStatic fun decode(bytes: ByteArray): FloatBuffer {
+            val buf = java.nio.ByteBuffer.wrap(bytes).order(java.nio.ByteOrder.LITTLE_ENDIAN)
+            return decodeFrom(buf)
+        }
+    }
+
+    fun writeFieldsTo(out: java.io.ByteArrayOutputStream, buf: java.nio.ByteBuffer) {
+        fun writeInt(v: Long) { buf.clear(); buf.putLong(v); out.write(buf.array()) }
+        @Suppress("UNUSED_PARAMETER") fun writeInt32(v: Int) { buf.clear(); buf.putInt(v); out.write(buf.array(), 0, 4) }
+        fun writeDouble(v: Double) { buf.clear(); buf.putDouble(v); out.write(buf.array()) }
+        fun writeBool(v: Boolean) { out.write(if (v) 1 else 0) }
+        fun writeString(v: String) { val b = v.toByteArray(Charsets.UTF_8); writeInt32(b.size); out.write(b) }
+        writeInt(0L)
+        writeInt(length)
+    }
+
+    fun encode(): ByteArray {
+        val out = java.io.ByteArrayOutputStream(44)
+        val buf = java.nio.ByteBuffer.allocate(8).order(java.nio.ByteOrder.LITTLE_ENDIAN)
+        writeFieldsTo(out, buf)
+        return out.toByteArray()
+    }
+}
 
 /**
  * Contract for the [VerificationModule] module.

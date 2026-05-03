@@ -404,93 +404,93 @@ JNIEXPORT void JNICALL Java_nitro_benchmark_1module_BenchmarkJniBridge_initializ
 } // extern "C"
 #elif __APPLE__
 extern "C" {
-extern double _call_add(double a, double b);
+extern double _benchmark_call_add(double a, double b);
 double benchmark_add(double a, double b) {
     benchmark_clear_error();
 #ifdef __OBJC__
     @try {
-        return _call_add(a, b);
+        return _benchmark_call_add(a, b);
     } @catch (NSException* e) {
         nitro_report_error([e.name UTF8String], [e.reason UTF8String], nullptr, nullptr);
         return 0.0;
     }
 #else
-    return _call_add(a, b);
+    return _benchmark_call_add(a, b);
 #endif
 }
 
-extern double _call_addFast(double a, double b);
+extern double _benchmark_call_addFast(double a, double b);
 double benchmark_add_fast(double a, double b) {
     benchmark_clear_error();
 #ifdef __OBJC__
     @try {
-        return _call_addFast(a, b);
+        return _benchmark_call_addFast(a, b);
     } @catch (NSException* e) {
         nitro_report_error([e.name UTF8String], [e.reason UTF8String], nullptr, nullptr);
         return 0.0;
     }
 #else
-    return _call_addFast(a, b);
+    return _benchmark_call_addFast(a, b);
 #endif
 }
 
-extern const char* _call_getGreeting(const char* name);
+extern const char* _benchmark_call_getGreeting(const char* name);
 const char* benchmark_get_greeting(const char* name) {
     benchmark_clear_error();
 #ifdef __OBJC__
     @try {
-        return _call_getGreeting(name);
+        return _benchmark_call_getGreeting(name);
     } @catch (NSException* e) {
         nitro_report_error([e.name UTF8String], [e.reason UTF8String], nullptr, nullptr);
         return nullptr;
     }
 #else
-    return _call_getGreeting(name);
+    return _benchmark_call_getGreeting(name);
 #endif
 }
 
-extern void* _call_scalePoint(void* point, double factor);
+extern void* _benchmark_call_scalePoint(void* point, double factor);
 void* benchmark_scale_point(void* point, double factor) {
     benchmark_clear_error();
 #ifdef __OBJC__
     @try {
-        return _call_scalePoint(point, factor);
+        return _benchmark_call_scalePoint(point, factor);
     } @catch (NSException* e) {
         nitro_report_error([e.name UTF8String], [e.reason UTF8String], nullptr, nullptr);
         return nullptr;
     }
 #else
-    return _call_scalePoint(point, factor);
+    return _benchmark_call_scalePoint(point, factor);
 #endif
 }
 
-extern void* _call_computeStats(int64_t iterations);
+extern void* _benchmark_call_computeStats(int64_t iterations);
 void* benchmark_compute_stats(int64_t iterations) {
     benchmark_clear_error();
 #ifdef __OBJC__
     @try {
-        return _call_computeStats(iterations);
+        return _benchmark_call_computeStats(iterations);
     } @catch (NSException* e) {
         nitro_report_error([e.name UTF8String], [e.reason UTF8String], nullptr, nullptr);
         return nullptr;
     }
 #else
-    return _call_computeStats(iterations);
+    return _benchmark_call_computeStats(iterations);
 #endif
 }
 
-extern int64_t _call_sendLargeBuffer(uint8_t* buffer, int64_t buffer_length);
+extern int64_t _benchmark_call_sendLargeBuffer(uint8_t* buffer, int64_t buffer_length);
 int64_t benchmark_send_large_buffer(uint8_t* buffer, int64_t buffer_length) {
     benchmark_clear_error();
 #ifdef __OBJC__
     @try {
-        return _call_sendLargeBuffer(buffer, buffer_length);
+        return _benchmark_call_sendLargeBuffer(buffer, buffer_length);
     } @catch (NSException* e) {
         nitro_report_error([e.name UTF8String], [e.reason UTF8String], nullptr, nullptr);
         return 0;
     }
 #else
-    return _call_sendLargeBuffer(buffer, buffer_length);
+    return _benchmark_call_sendLargeBuffer(buffer, buffer_length);
 #endif
 }
 
@@ -501,13 +501,13 @@ void _emit_dataStream_to_dart(int64_t dartPort, void* item) {
     Dart_PostCObject_DL(dartPort, &obj);
 }
 
-extern void _register_dataStream_stream(int64_t dartPort, void (*emitCb)(int64_t, void*));
+extern void _benchmark_register_dataStream_stream(int64_t dartPort, void (*emitCb)(int64_t, void*));
 void benchmark_register_data_stream_stream(int64_t dart_port) {
-    _register_dataStream_stream(dart_port, _emit_dataStream_to_dart);
+    _benchmark_register_dataStream_stream(dart_port, _emit_dataStream_to_dart);
 }
-extern void _release_dataStream_stream(int64_t dart_port);
+extern void _benchmark_release_dataStream_stream(int64_t dart_port);
 void benchmark_release_data_stream_stream(int64_t dart_port) {
-    _release_dataStream_stream(dart_port);
+    _benchmark_release_dataStream_stream(dart_port);
 }
 
 void _emit_boxStream_to_dart(int64_t dartPort, void* item) {
@@ -517,13 +517,13 @@ void _emit_boxStream_to_dart(int64_t dartPort, void* item) {
     Dart_PostCObject_DL(dartPort, &obj);
 }
 
-extern void _register_boxStream_stream(int64_t dartPort, void (*emitCb)(int64_t, void*));
+extern void _benchmark_register_boxStream_stream(int64_t dartPort, void (*emitCb)(int64_t, void*));
 void benchmark_register_box_stream_stream(int64_t dart_port) {
-    _register_boxStream_stream(dart_port, _emit_boxStream_to_dart);
+    _benchmark_register_boxStream_stream(dart_port, _emit_boxStream_to_dart);
 }
-extern void _release_boxStream_stream(int64_t dart_port);
+extern void _benchmark_release_boxStream_stream(int64_t dart_port);
 void benchmark_release_box_stream_stream(int64_t dart_port) {
-    _release_boxStream_stream(dart_port);
+    _benchmark_release_boxStream_stream(dart_port);
 }
 
 } // extern "C"

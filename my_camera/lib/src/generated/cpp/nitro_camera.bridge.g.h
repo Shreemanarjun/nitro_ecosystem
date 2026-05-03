@@ -100,6 +100,9 @@ NITRO_EXPORT void nitro_camera_update_overlay(int64_t textureId, const char* ove
 NITRO_EXPORT void nitro_camera_register_frame_stream_stream(int64_t dart_port);
 NITRO_EXPORT void nitro_camera_release_frame_stream_stream(int64_t dart_port);
 
+// Struct release functions
+NITRO_EXPORT void nitro_camera_release_CameraFrame(void* ptr);
+
 #ifdef __cplusplus
 }
 #endif

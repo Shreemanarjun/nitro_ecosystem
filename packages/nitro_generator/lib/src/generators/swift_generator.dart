@@ -169,8 +169,8 @@ class SwiftGenerator {
         // No semaphore: the calling C thread returns immediately; Swift Task
         // runs concurrently and posts when the async work completes.
         final isVoidRet = func.returnType.name == 'void';
-        s.writeln('@_cdecl("_call_${func.dartName}")');
-        s.writeln('public func _call_${func.dartName}($params${params.isNotEmpty ? ", " : ""}_ dartPort: Int64) {');
+        s.writeln('@_cdecl("_${spec.namespace}_call_${func.dartName}")');
+        s.writeln('public func _${spec.namespace}_call_${func.dartName}($params${params.isNotEmpty ? ", " : ""}_ dartPort: Int64) {');
 
         // Param conversions (same as regular async)
         for (final p in stringParams) {
@@ -233,8 +233,8 @@ class SwiftGenerator {
         continue;
       }
 
-      s.writeln('@_cdecl("_call_${func.dartName}")');
-      s.writeln('public func _call_${func.dartName}($params) -> $cRetType {');
+      s.writeln('@_cdecl("_${spec.namespace}_call_${func.dartName}")');
+      s.writeln('public func _${spec.namespace}_call_${func.dartName}($params) -> $cRetType {');
 
       // Emit UnsafePointer<CChar>? → Swift String conversions for each String param.
       for (final p in stringParams) {
@@ -437,8 +437,8 @@ class SwiftGenerator {
             : isEnumProp
             ? 'Int64'
             : swiftType;
-        s.writeln('@_cdecl("_call_get_${prop.dartName}")');
-        s.writeln('public func _call_get_${prop.dartName}() -> $getRetType {');
+        s.writeln('@_cdecl("_${spec.namespace}_call_get_${prop.dartName}")');
+        s.writeln('public func _${spec.namespace}_call_get_${prop.dartName}() -> $getRetType {');
         if (isString) {
           s.writeln(
             '    return strdup(${spec.dartClassName}Registry.impl?.${prop.dartName} ?? "")',
@@ -467,9 +467,9 @@ class SwiftGenerator {
             : isStructProp
             ? 'UnsafeRawPointer?'
             : swiftType;
-        s.writeln('@_cdecl("_call_set_${prop.dartName}")');
+        s.writeln('@_cdecl("_${spec.namespace}_call_set_${prop.dartName}")');
         s.writeln(
-          'public func _call_set_${prop.dartName}(_ value: $setParamType) {',
+          'public func _${spec.namespace}_call_set_${prop.dartName}(_ value: $setParamType) {',
         );
         if (isBool) {
           s.writeln(
@@ -506,8 +506,8 @@ class SwiftGenerator {
       final itemName = stream.itemType.name.replaceFirst('?', '');
       final isStructItem = spec.structs.any((st) => st.name == itemName);
       final isRecordItem = stream.itemType.isRecord;
-      s.writeln('@_cdecl("_register_${stream.dartName}_stream")');
-      s.writeln('public func _register_${stream.dartName}_stream(');
+      s.writeln('@_cdecl("_${spec.namespace}_register_${stream.dartName}_stream")');
+      s.writeln('public func _${spec.namespace}_register_${stream.dartName}_stream(');
       s.writeln('    _ dartPort: Int64,');
       s.writeln('    _ emitCb: @convention(c) (Int64, $cType) -> Void');
       s.writeln(') {');
@@ -531,9 +531,9 @@ class SwiftGenerator {
       s.writeln('        }');
       s.writeln('}');
       s.writeln();
-      s.writeln('@_cdecl("_release_${stream.dartName}_stream")');
+      s.writeln('@_cdecl("_${spec.namespace}_release_${stream.dartName}_stream")');
       s.writeln(
-        'public func _release_${stream.dartName}_stream(_ dartPort: Int64) {',
+        'public func _${spec.namespace}_release_${stream.dartName}_stream(_ dartPort: Int64) {',
       );
       s.writeln(
         '    ${spec.dartClassName}Registry._${stream.dartName}Cancellables[dartPort]?.cancel()',

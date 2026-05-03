@@ -2,6 +2,7 @@ package dev.shreeman.benchmark
 
 import io.flutter.embedding.engine.plugins.FlutterPlugin
 import nitro.benchmark_module.BenchmarkJniBridge
+import nitro.nitro_ar_module.NitroArJniBridge
 
 class BenchmarkPlugin : FlutterPlugin {
 
@@ -14,6 +15,7 @@ class BenchmarkPlugin : FlutterPlugin {
 
     override fun onAttachedToEngine(binding: FlutterPlugin.FlutterPluginBinding) {
         BenchmarkJniBridge.register(BenchmarkImpl(binding.applicationContext))
+        NitroArJniBridge.register(NitroArImpl())
 
         val channel = io.flutter.plugin.common.MethodChannel(
             binding.binaryMessenger,

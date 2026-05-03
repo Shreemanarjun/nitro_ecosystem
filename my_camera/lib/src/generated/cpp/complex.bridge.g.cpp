@@ -34,6 +34,17 @@ static void nitro_report_error(const char* name, const char* message, const char
 }
 }
 
+extern "C" {
+void complex_release_SensorData(void* ptr) {
+    if (!ptr) return;
+    free(ptr);
+}
+void complex_release_Packet(void* ptr) {
+    if (!ptr) return;
+    free(ptr);
+}
+}
+
 #ifdef __ANDROID__
 #include <jni.h>
 #include <android/log.h>
@@ -94,8 +105,15 @@ static void nitro_report_jni_exception(JNIEnv* env, jthrowable ex) {
 
     nitro_report_error(name, msg, nullptr, nullptr);
 
-    if (j_name) env->ReleaseStringUTFChars(j_name, name);
-    if (j_msg) env->ReleaseStringUTFChars(j_msg, msg);
+    if (j_name) {
+        env->ReleaseStringUTFChars(j_name, name);
+        env->DeleteLocalRef(j_name);
+    }
+    if (j_msg) {
+        env->ReleaseStringUTFChars(j_msg, msg);
+        env->DeleteLocalRef(j_msg);
+    }
+    env->DeleteLocalRef(ex_class);
     env->DeleteLocalRef(ex);
 }
 
@@ -107,7 +125,8 @@ static SensorData pack_SensorData_from_jni(JNIEnv* env, jobject obj) {
     return result;
 }
 static jobject unpack_SensorData_to_jni(JNIEnv* env, const SensorData* st) {
-    return env->NewObject(g_cls_SensorData, g_ctor_SensorData, (jdouble)st->temperature, (jdouble)st->humidity, (jlong)st->lastUpdate);
+    jobject result = env->NewObject(g_cls_SensorData, g_ctor_SensorData, (jdouble)st->temperature, (jdouble)st->humidity, (jlong)st->lastUpdate);
+    return result;
 }
 static Packet pack_Packet_from_jni(JNIEnv* env, jobject obj) {
     Packet result;
@@ -119,11 +138,20 @@ static Packet pack_Packet_from_jni(JNIEnv* env, jobject obj) {
         return result;
     }
     result.buffer = (uint8_t*)env->GetDirectBufferAddress(buf_buffer);
+    env->DeleteLocalRef(buf_buffer);
     result.size = env->GetLongField(obj, g_fid_Packet_size);
     return result;
 }
 static jobject unpack_Packet_to_jni(JNIEnv* env, const Packet* st) {
-    return env->NewObject(g_cls_Packet, g_ctor_Packet, (jlong)st->sequence, env->NewDirectByteBuffer((void*)st->buffer, st->size), (jlong)st->size);
+    if (st->buffer == nullptr) {
+        jclass npe = env->FindClass("java/lang/NullPointerException");
+        if (npe) env->ThrowNew(npe, "Packet.buffer: TypedData pointer is null");
+        return nullptr;
+    }
+    jobject dbuf_buffer = env->NewDirectByteBuffer((void*)st->buffer, st->size);
+    jobject result = env->NewObject(g_cls_Packet, g_ctor_Packet, (jlong)st->sequence, dbuf_buffer, (jlong)st->size);
+    if (dbuf_buffer) env->DeleteLocalRef(dbuf_buffer);
+    return result;
 }
 
 extern "C" {
@@ -208,11 +236,17 @@ int64_t complex_module_calculate(int64_t seed, double factor, int8_t enabled) {
     JNIEnv* env = GetEnv();
     if (env == nullptr) return 0;
     jmethodID methodId = g_mid_calculate_call;
-    if (methodId == nullptr) { LOGE("Method not found"); return 0; }
+    if (methodId == nullptr) { LOGE("Method not found: calculate_call sig=(JDZ)J"); return 0; }
 
     complex_clear_error();
+    if (env->PushLocalFrame(16) != 0) return 0;
     int64_t res = env->CallStaticLongMethod(g_bridgeClass, methodId, seed, factor, enabled);
-    if (env->ExceptionCheck()) { nitro_report_jni_exception(env, env->ExceptionOccurred()); return 0; }
+    if (env->ExceptionCheck()) {
+        nitro_report_jni_exception(env, env->ExceptionOccurred());
+        env->PopLocalFrame(nullptr);
+        return 0;
+    }
+    env->PopLocalFrame(nullptr);
     return res;
 }
 
@@ -220,18 +254,25 @@ const char* complex_module_fetch_metadata(const char* url) {
     JNIEnv* env = GetEnv();
     if (env == nullptr) return nullptr;
     jmethodID methodId = g_mid_fetchMetadata_call;
-    if (methodId == nullptr) { LOGE("Method not found"); return nullptr; }
+    if (methodId == nullptr) { LOGE("Method not found: fetchMetadata_call sig=(Ljava/lang/String;)Ljava/lang/String;"); return nullptr; }
 
     complex_clear_error();
+    if (env->PushLocalFrame(16) != 0) return nullptr;
     jstring j_url = env->NewStringUTF(url);
     jstring jstr = (jstring)env->CallStaticObjectMethod(g_bridgeClass, methodId, j_url);
-    if (env->ExceptionCheck()) { nitro_report_jni_exception(env, env->ExceptionOccurred()); return nullptr; }
-    if (jstr == nullptr) return nullptr;
+    if (env->ExceptionCheck()) {
+        nitro_report_jni_exception(env, env->ExceptionOccurred());
+        env->PopLocalFrame(nullptr);
+        return nullptr;
+    }
+    if (jstr == nullptr) {
+        env->PopLocalFrame(nullptr);
+        return nullptr;
+    }
     const char* nativeStr = env->GetStringUTFChars(jstr, 0);
     char* result = strdup(nativeStr);
     env->ReleaseStringUTFChars(jstr, nativeStr);
-    env->DeleteLocalRef(j_url);
-    env->DeleteLocalRef(jstr);
+    env->PopLocalFrame(nullptr);
     return result;
 }
 
@@ -239,11 +280,17 @@ int64_t complex_module_get_status(void) {
     JNIEnv* env = GetEnv();
     if (env == nullptr) return 0;
     jmethodID methodId = g_mid_getStatus_call;
-    if (methodId == nullptr) { LOGE("Method not found"); return 0; }
+    if (methodId == nullptr) { LOGE("Method not found: getStatus_call sig=()J"); return 0; }
 
     complex_clear_error();
+    if (env->PushLocalFrame(16) != 0) return 0;
     int64_t res = env->CallStaticLongMethod(g_bridgeClass, methodId);
-    if (env->ExceptionCheck()) { nitro_report_jni_exception(env, env->ExceptionOccurred()); return 0; }
+    if (env->ExceptionCheck()) {
+        nitro_report_jni_exception(env, env->ExceptionOccurred());
+        env->PopLocalFrame(nullptr);
+        return 0;
+    }
+    env->PopLocalFrame(nullptr);
     return res;
 }
 
@@ -251,11 +298,13 @@ void complex_module_update_sensors(void* data) {
     JNIEnv* env = GetEnv();
     if (env == nullptr) return;
     jmethodID methodId = g_mid_updateSensors_call;
-    if (methodId == nullptr) { LOGE("Method not found"); return; }
+    if (methodId == nullptr) { LOGE("Method not found: updateSensors_call sig=(Lnitro/complex_module/SensorData;)V"); return; }
 
     complex_clear_error();
+    if (env->PushLocalFrame(16) != 0) return;
     jobject jobj_data = unpack_SensorData_to_jni(env, (const SensorData*)data);
     env->CallStaticVoidMethod(g_bridgeClass, methodId, jobj_data);
+    env->PopLocalFrame(nullptr);
     if (env->ExceptionCheck()) { nitro_report_jni_exception(env, env->ExceptionOccurred()); }
 }
 
@@ -263,15 +312,23 @@ void* complex_module_generate_packet(int64_t type) {
     JNIEnv* env = GetEnv();
     if (env == nullptr) return nullptr;
     jmethodID methodId = g_mid_generatePacket_call;
-    if (methodId == nullptr) { LOGE("Method not found"); return nullptr; }
+    if (methodId == nullptr) { LOGE("Method not found: generatePacket_call sig=(J)Lnitro/complex_module/Packet;"); return nullptr; }
 
     complex_clear_error();
+    if (env->PushLocalFrame(16) != 0) return nullptr;
     jobject jobj = env->CallStaticObjectMethod(g_bridgeClass, methodId, type);
-    if (env->ExceptionCheck()) { nitro_report_jni_exception(env, env->ExceptionOccurred()); return nullptr; }
-    if (jobj == nullptr) return nullptr;
+    if (env->ExceptionCheck()) {
+        nitro_report_jni_exception(env, env->ExceptionOccurred());
+        env->PopLocalFrame(nullptr);
+        return nullptr;
+    }
+    if (jobj == nullptr) {
+        env->PopLocalFrame(nullptr);
+        return nullptr;
+    }
     Packet* result = (Packet*)malloc(sizeof(Packet));
     *result = pack_Packet_from_jni(env, jobj);
-    env->DeleteLocalRef(jobj);
+    env->PopLocalFrame(nullptr);
     return result;
 }
 
@@ -279,32 +336,38 @@ double complex_module_get_battery_level(void) {
     JNIEnv* env = GetEnv();
     if (env == nullptr) return 0.0;
     jmethodID methodId = g_mid_complex_module_get_battery_level_call;
-    if (methodId == nullptr) { LOGE("Method not found"); return 0.0; }
-    return env->CallStaticDoubleMethod(g_bridgeClass, methodId);
+    if (methodId == nullptr) { LOGE("Method not found: complex_module_get_battery_level_call sig=()D"); return 0.0; }
+    if (env->PushLocalFrame(8) != 0) return 0.0;
+    double res = env->CallStaticDoubleMethod(g_bridgeClass, methodId);
+    env->PopLocalFrame(nullptr);
+    return res;
 }
 
 void complex_module_set_config(const char* value) {
     JNIEnv* env = GetEnv();
     if (env == nullptr) return;
     jmethodID methodId = g_mid_complex_module_set_config_call;
-    if (methodId == nullptr) { LOGE("Method not found"); return; }
+    if (methodId == nullptr) { LOGE("Method not found: complex_module_set_config_call sig=(Ljava/lang/String;)V"); return; }
+    if (env->PushLocalFrame(8) != 0) return;
     jstring jval = env->NewStringUTF(value);
     env->CallStaticVoidMethod(g_bridgeClass, methodId, jval);
-    env->DeleteLocalRef(jval);
+    env->PopLocalFrame(nullptr);
 }
 
 void complex_module_register_sensor_stream_stream(int64_t dart_port) {
     JNIEnv* env = GetEnv();
     if (env == nullptr) return;
     jmethodID methodId = g_mid_complex_module_register_sensor_stream_stream_call;
-    if (methodId != nullptr) env->CallStaticVoidMethod(g_bridgeClass, methodId, dart_port);
+    if (methodId == nullptr) { LOGE("Method not found: complex_module_register_sensor_stream_stream_call sig=(J)V"); return; }
+    env->CallStaticVoidMethod(g_bridgeClass, methodId, dart_port);
 }
 
 void complex_module_release_sensor_stream_stream(int64_t dart_port) {
     JNIEnv* env = GetEnv();
     if (env == nullptr) return;
     jmethodID methodId = g_mid_complex_module_release_sensor_stream_stream_call;
-    if (methodId != nullptr) env->CallStaticVoidMethod(g_bridgeClass, methodId, dart_port);
+    if (methodId == nullptr) { LOGE("Method not found: complex_module_release_sensor_stream_stream_call sig=(J)V"); return; }
+    env->CallStaticVoidMethod(g_bridgeClass, methodId, dart_port);
 }
 
 JNIEXPORT void JNICALL Java_nitro_complex_1module_ComplexModuleJniBridge_emit_1sensorStream(JNIEnv* env, jobject thiz, jlong dartPort, jobject item) {
@@ -320,14 +383,16 @@ void complex_module_register_data_stream_stream(int64_t dart_port) {
     JNIEnv* env = GetEnv();
     if (env == nullptr) return;
     jmethodID methodId = g_mid_complex_module_register_data_stream_stream_call;
-    if (methodId != nullptr) env->CallStaticVoidMethod(g_bridgeClass, methodId, dart_port);
+    if (methodId == nullptr) { LOGE("Method not found: complex_module_register_data_stream_stream_call sig=(J)V"); return; }
+    env->CallStaticVoidMethod(g_bridgeClass, methodId, dart_port);
 }
 
 void complex_module_release_data_stream_stream(int64_t dart_port) {
     JNIEnv* env = GetEnv();
     if (env == nullptr) return;
     jmethodID methodId = g_mid_complex_module_release_data_stream_stream_call;
-    if (methodId != nullptr) env->CallStaticVoidMethod(g_bridgeClass, methodId, dart_port);
+    if (methodId == nullptr) { LOGE("Method not found: complex_module_release_data_stream_stream_call sig=(J)V"); return; }
+    env->CallStaticVoidMethod(g_bridgeClass, methodId, dart_port);
 }
 
 JNIEXPORT void JNICALL Java_nitro_complex_1module_ComplexModuleJniBridge_emit_1dataStream(JNIEnv* env, jobject thiz, jlong dartPort, jobject item) {

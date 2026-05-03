@@ -3,6 +3,7 @@ import Foundation
 
 public class BenchmarkPlugin: NSObject, FlutterPlugin {
   public static func register(with registrar: FlutterPluginRegistrar) {
+    NitroArRegistry.register(NitroArModuleImpl())
     BenchmarkRegistry.register(BenchmarkImpl())
     // BenchmarkCpp (NativeImpl.cpp) auto-registers via __attribute__((constructor))
     // in HybridBenchmarkCpp.cpp on library load — no Swift-side registration needed.

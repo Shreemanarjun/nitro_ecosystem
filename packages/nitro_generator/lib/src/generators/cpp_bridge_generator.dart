@@ -1228,7 +1228,7 @@ class CppBridgeGenerator {
         final params = paramParts.join(', ');
         final callParams = callParamParts.join(', ');
         s.writeln(
-          'extern $cReturnType _call_${func.dartName}(${params.isEmpty ? 'void' : params});',
+          'extern $cReturnType _${spec.namespace}_call_${func.dartName}(${params.isEmpty ? 'void' : params});',
         );
         s.writeln(
           '$cReturnType ${func.cSymbol}(${params.isEmpty ? 'void' : params}) {',
@@ -1237,9 +1237,9 @@ class CppBridgeGenerator {
         s.writeln('#ifdef __OBJC__');
         s.writeln('    @try {');
         if (func.returnType.name != 'void') {
-          s.writeln('        return _call_${func.dartName}($callParams);');
+          s.writeln('        return _${spec.namespace}_call_${func.dartName}($callParams);');
         } else {
-          s.writeln('        _call_${func.dartName}($callParams);');
+          s.writeln('        _${spec.namespace}_call_${func.dartName}($callParams);');
         }
         s.writeln('    } @catch (NSException* e) {');
         s.writeln('        nitro_report_error([e.name UTF8String], [e.reason UTF8String], nullptr, nullptr);');
@@ -1249,9 +1249,9 @@ class CppBridgeGenerator {
         s.writeln('    }');
         s.writeln('#else');
         if (func.returnType.name != 'void') {
-          s.writeln('    return _call_${func.dartName}($callParams);');
+          s.writeln('    return _${spec.namespace}_call_${func.dartName}($callParams);');
         } else {
-          s.writeln('    _call_${func.dartName}($callParams);');
+          s.writeln('    _${spec.namespace}_call_${func.dartName}($callParams);');
         }
         s.writeln('#endif');
         s.writeln('}');
@@ -1262,17 +1262,17 @@ class CppBridgeGenerator {
         final isEnum = enumNames.contains(prop.type.name);
         final cType = isEnum ? 'int64_t' : _typeToC(prop.type.name);
         if (prop.hasGetter) {
-          s.writeln('extern $cType _call_get_${prop.dartName}(void);');
+          s.writeln('extern $cType _${spec.namespace}_call_get_${prop.dartName}(void);');
           s.writeln('$cType ${prop.getSymbol}(void) {');
-          s.writeln('    return _call_get_${prop.dartName}();');
+          s.writeln('    return _${spec.namespace}_call_get_${prop.dartName}();');
           s.writeln('}');
           s.writeln('');
         }
         if (prop.hasSetter) {
           final paramCType = isEnum ? 'int64_t' : _typeToC(prop.type.name);
-          s.writeln('extern void _call_set_${prop.dartName}($paramCType value);');
+          s.writeln('extern void _${spec.namespace}_call_set_${prop.dartName}($paramCType value);');
           s.writeln('void ${prop.setSymbol}($paramCType value) {');
-          s.writeln('    _call_set_${prop.dartName}(value);');
+          s.writeln('    _${spec.namespace}_call_set_${prop.dartName}(value);');
           s.writeln('}');
           s.writeln('');
         }
@@ -1310,18 +1310,18 @@ class CppBridgeGenerator {
         s.writeln('}');
         s.writeln('');
         s.writeln(
-          'extern void _register_${stream.dartName}_stream(int64_t dartPort, void (*emitCb)(int64_t, $itemCType));',
+          'extern void _${spec.namespace}_register_${stream.dartName}_stream(int64_t dartPort, void (*emitCb)(int64_t, $itemCType));',
         );
         s.writeln('void ${stream.registerSymbol}(int64_t dart_port) {');
         s.writeln(
-          '    _register_${stream.dartName}_stream(dart_port, _emit_${stream.dartName}_to_dart);',
+          '    _${spec.namespace}_register_${stream.dartName}_stream(dart_port, _emit_${stream.dartName}_to_dart);',
         );
         s.writeln('}');
         s.writeln(
-          'extern void _release_${stream.dartName}_stream(int64_t dart_port);',
+          'extern void _${spec.namespace}_release_${stream.dartName}_stream(int64_t dart_port);',
         );
         s.writeln('void ${stream.releaseSymbol}(int64_t dart_port) {');
-        s.writeln('    _release_${stream.dartName}_stream(dart_port);');
+        s.writeln('    _${spec.namespace}_release_${stream.dartName}_stream(dart_port);');
         s.writeln('}');
         s.writeln('');
       }

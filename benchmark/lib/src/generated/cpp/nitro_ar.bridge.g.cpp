@@ -737,222 +737,222 @@ JNIEXPORT void JNICALL Java_nitro_nitro_1ar_1module_NitroArJniBridge_initialize(
 } // extern "C"
 #elif __APPLE__
 extern "C" {
-extern double _call_add(double a, double b);
+extern double _nitro_ar_call_add(double a, double b);
 double nitro_ar_add(double a, double b) {
     nitro_ar_clear_error();
 #ifdef __OBJC__
     @try {
-        return _call_add(a, b);
+        return _nitro_ar_call_add(a, b);
     } @catch (NSException* e) {
         nitro_report_error([e.name UTF8String], [e.reason UTF8String], nullptr, nullptr);
         return 0.0;
     }
 #else
-    return _call_add(a, b);
+    return _nitro_ar_call_add(a, b);
 #endif
 }
 
-extern const char* _call_getGreeting(const char* name);
+extern const char* _nitro_ar_call_getGreeting(const char* name);
 const char* nitro_ar_get_greeting(const char* name) {
     nitro_ar_clear_error();
 #ifdef __OBJC__
     @try {
-        return _call_getGreeting(name);
+        return _nitro_ar_call_getGreeting(name);
     } @catch (NSException* e) {
         nitro_report_error([e.name UTF8String], [e.reason UTF8String], nullptr, nullptr);
         return nullptr;
     }
 #else
-    return _call_getGreeting(name);
+    return _nitro_ar_call_getGreeting(name);
 #endif
 }
 
-extern int8_t _call_isDepthSupported(void);
+extern int8_t _nitro_ar_call_isDepthSupported(void);
 int8_t nitro_ar_is_depth_supported(void) {
     nitro_ar_clear_error();
 #ifdef __OBJC__
     @try {
-        return _call_isDepthSupported();
+        return _nitro_ar_call_isDepthSupported();
     } @catch (NSException* e) {
         nitro_report_error([e.name UTF8String], [e.reason UTF8String], nullptr, nullptr);
         return false;
     }
 #else
-    return _call_isDepthSupported();
+    return _nitro_ar_call_isDepthSupported();
 #endif
 }
 
-extern void* _call_detectPackage(void* rect);
+extern void* _nitro_ar_call_detectPackage(void* rect);
 void* nitro_ar_detect_package(void* rect) {
     nitro_ar_clear_error();
 #ifdef __OBJC__
     @try {
-        return _call_detectPackage(rect);
+        return _nitro_ar_call_detectPackage(rect);
     } @catch (NSException* e) {
         nitro_report_error([e.name UTF8String], [e.reason UTF8String], nullptr, nullptr);
         return nullptr;
     }
 #else
-    return _call_detectPackage(rect);
+    return _nitro_ar_call_detectPackage(rect);
 #endif
 }
 
-extern void* _call_getRawDepthMap(void);
+extern void* _nitro_ar_call_getRawDepthMap(void);
 void* nitro_ar_get_raw_depth_map(void) {
     nitro_ar_clear_error();
 #ifdef __OBJC__
     @try {
-        return _call_getRawDepthMap();
+        return _nitro_ar_call_getRawDepthMap();
     } @catch (NSException* e) {
         nitro_report_error([e.name UTF8String], [e.reason UTF8String], nullptr, nullptr);
         return nullptr;
     }
 #else
-    return _call_getRawDepthMap();
+    return _nitro_ar_call_getRawDepthMap();
 #endif
 }
 
-extern double _call_estimateVolume(const char* anchor);
+extern double _nitro_ar_call_estimateVolume(const char* anchor);
 double nitro_ar_estimate_volume(const char* anchor) {
     nitro_ar_clear_error();
 #ifdef __OBJC__
     @try {
-        return _call_estimateVolume(anchor);
+        return _nitro_ar_call_estimateVolume(anchor);
     } @catch (NSException* e) {
         nitro_report_error([e.name UTF8String], [e.reason UTF8String], nullptr, nullptr);
         return 0.0;
     }
 #else
-    return _call_estimateVolume(anchor);
+    return _nitro_ar_call_estimateVolume(anchor);
 #endif
 }
 
-extern int8_t _call_checkCameraPermission(void);
+extern int8_t _nitro_ar_call_checkCameraPermission(void);
 int8_t nitro_ar_check_camera_permission(void) {
     nitro_ar_clear_error();
 #ifdef __OBJC__
     @try {
-        return _call_checkCameraPermission();
+        return _nitro_ar_call_checkCameraPermission();
     } @catch (NSException* e) {
         nitro_report_error([e.name UTF8String], [e.reason UTF8String], nullptr, nullptr);
         return false;
     }
 #else
-    return _call_checkCameraPermission();
+    return _nitro_ar_call_checkCameraPermission();
 #endif
 }
 
-extern int8_t _call_requestCameraPermission(void);
+extern int8_t _nitro_ar_call_requestCameraPermission(void);
 int8_t nitro_ar_request_camera_permission(void) {
     nitro_ar_clear_error();
 #ifdef __OBJC__
     @try {
-        return _call_requestCameraPermission();
+        return _nitro_ar_call_requestCameraPermission();
     } @catch (NSException* e) {
         nitro_report_error([e.name UTF8String], [e.reason UTF8String], nullptr, nullptr);
         return false;
     }
 #else
-    return _call_requestCameraPermission();
+    return _nitro_ar_call_requestCameraPermission();
 #endif
 }
 
-extern void _call_startSession(void);
+extern void _nitro_ar_call_startSession(void);
 void nitro_ar_start_session(void) {
     nitro_ar_clear_error();
 #ifdef __OBJC__
     @try {
-        _call_startSession();
+        _nitro_ar_call_startSession();
     } @catch (NSException* e) {
         nitro_report_error([e.name UTF8String], [e.reason UTF8String], nullptr, nullptr);
     }
 #else
-    _call_startSession();
+    _nitro_ar_call_startSession();
 #endif
 }
 
-extern void _call_stopSession(void);
+extern void _nitro_ar_call_stopSession(void);
 void nitro_ar_stop_session(void) {
     nitro_ar_clear_error();
 #ifdef __OBJC__
     @try {
-        _call_stopSession();
+        _nitro_ar_call_stopSession();
     } @catch (NSException* e) {
         nitro_report_error([e.name UTF8String], [e.reason UTF8String], nullptr, nullptr);
     }
 #else
-    _call_stopSession();
+    _nitro_ar_call_stopSession();
 #endif
 }
 
-extern void _call_pauseSession(void);
+extern void _nitro_ar_call_pauseSession(void);
 void nitro_ar_pause_session(void) {
     nitro_ar_clear_error();
 #ifdef __OBJC__
     @try {
-        _call_pauseSession();
+        _nitro_ar_call_pauseSession();
     } @catch (NSException* e) {
         nitro_report_error([e.name UTF8String], [e.reason UTF8String], nullptr, nullptr);
     }
 #else
-    _call_pauseSession();
+    _nitro_ar_call_pauseSession();
 #endif
 }
 
-extern void _call_resumeSession(void);
+extern void _nitro_ar_call_resumeSession(void);
 void nitro_ar_resume_session(void) {
     nitro_ar_clear_error();
 #ifdef __OBJC__
     @try {
-        _call_resumeSession();
+        _nitro_ar_call_resumeSession();
     } @catch (NSException* e) {
         nitro_report_error([e.name UTF8String], [e.reason UTF8String], nullptr, nullptr);
     }
 #else
-    _call_resumeSession();
+    _nitro_ar_call_resumeSession();
 #endif
 }
 
-extern int8_t _call_isTracking(void);
+extern int8_t _nitro_ar_call_isTracking(void);
 int8_t nitro_ar_is_tracking(void) {
     nitro_ar_clear_error();
 #ifdef __OBJC__
     @try {
-        return _call_isTracking();
+        return _nitro_ar_call_isTracking();
     } @catch (NSException* e) {
         nitro_report_error([e.name UTF8String], [e.reason UTF8String], nullptr, nullptr);
         return false;
     }
 #else
-    return _call_isTracking();
+    return _nitro_ar_call_isTracking();
 #endif
 }
 
-extern void _call_enableFlashlight(int8_t enable);
+extern void _nitro_ar_call_enableFlashlight(int8_t enable);
 void nitro_ar_enable_flashlight(int8_t enable) {
     nitro_ar_clear_error();
 #ifdef __OBJC__
     @try {
-        _call_enableFlashlight(enable);
+        _nitro_ar_call_enableFlashlight(enable);
     } @catch (NSException* e) {
         nitro_report_error([e.name UTF8String], [e.reason UTF8String], nullptr, nullptr);
     }
 #else
-    _call_enableFlashlight(enable);
+    _nitro_ar_call_enableFlashlight(enable);
 #endif
 }
 
-extern void _call_setDetectionOptions(double threshold, int64_t rotation, int8_t useMock);
+extern void _nitro_ar_call_setDetectionOptions(double threshold, int64_t rotation, int8_t useMock);
 void nitro_ar_set_detection_options(double threshold, int64_t rotation, int8_t useMock) {
     nitro_ar_clear_error();
 #ifdef __OBJC__
     @try {
-        _call_setDetectionOptions(threshold, rotation, useMock);
+        _nitro_ar_call_setDetectionOptions(threshold, rotation, useMock);
     } @catch (NSException* e) {
         nitro_report_error([e.name UTF8String], [e.reason UTF8String], nullptr, nullptr);
     }
 #else
-    _call_setDetectionOptions(threshold, rotation, useMock);
+    _nitro_ar_call_setDetectionOptions(threshold, rotation, useMock);
 #endif
 }
 
@@ -963,13 +963,13 @@ void _emit_detectedPackages_to_dart(int64_t dartPort, void* item) {
     Dart_PostCObject_DL(dartPort, &obj);
 }
 
-extern void _register_detectedPackages_stream(int64_t dartPort, void (*emitCb)(int64_t, void*));
+extern void _nitro_ar_register_detectedPackages_stream(int64_t dartPort, void (*emitCb)(int64_t, void*));
 void nitro_ar_register_detected_packages_stream(int64_t dart_port) {
-    _register_detectedPackages_stream(dart_port, _emit_detectedPackages_to_dart);
+    _nitro_ar_register_detectedPackages_stream(dart_port, _emit_detectedPackages_to_dart);
 }
-extern void _release_detectedPackages_stream(int64_t dart_port);
+extern void _nitro_ar_release_detectedPackages_stream(int64_t dart_port);
 void nitro_ar_release_detected_packages_stream(int64_t dart_port) {
-    _release_detectedPackages_stream(dart_port);
+    _nitro_ar_release_detectedPackages_stream(dart_port);
 }
 
 void _emit_liveTrackingUpdates_to_dart(int64_t dartPort, void* item) {
@@ -979,13 +979,13 @@ void _emit_liveTrackingUpdates_to_dart(int64_t dartPort, void* item) {
     Dart_PostCObject_DL(dartPort, &obj);
 }
 
-extern void _register_liveTrackingUpdates_stream(int64_t dartPort, void (*emitCb)(int64_t, void*));
+extern void _nitro_ar_register_liveTrackingUpdates_stream(int64_t dartPort, void (*emitCb)(int64_t, void*));
 void nitro_ar_register_live_tracking_updates_stream(int64_t dart_port) {
-    _register_liveTrackingUpdates_stream(dart_port, _emit_liveTrackingUpdates_to_dart);
+    _nitro_ar_register_liveTrackingUpdates_stream(dart_port, _emit_liveTrackingUpdates_to_dart);
 }
-extern void _release_liveTrackingUpdates_stream(int64_t dart_port);
+extern void _nitro_ar_release_liveTrackingUpdates_stream(int64_t dart_port);
 void nitro_ar_release_live_tracking_updates_stream(int64_t dart_port) {
-    _release_liveTrackingUpdates_stream(dart_port);
+    _nitro_ar_release_liveTrackingUpdates_stream(dart_port);
 }
 
 } // extern "C"

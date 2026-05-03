@@ -53,10 +53,8 @@ flutter:
         ffiPlugin: true
       ios:
         pluginClass: SwiftBenchmarkPlugin
-        swiftPackagePath: ios
       macos:
         pluginClass: BenchmarkPlugin
-        swiftPackagePath: macos
       web:
         # Pure-Dart stub implementation — no native bridge on web.
         # Results serve as a baseline "pure Dart dispatch" reference.
