@@ -52,7 +52,7 @@ flutter:
         package: dev.shreeman.benchmark
         ffiPlugin: true
       ios:
-        pluginClass: BenchmarkPlugin
+        pluginClass: SwiftBenchmarkPlugin
         swiftPackagePath: ios
       macos:
         pluginClass: BenchmarkPlugin
