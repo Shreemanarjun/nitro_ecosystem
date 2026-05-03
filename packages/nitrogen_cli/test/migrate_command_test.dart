@@ -1,6 +1,6 @@
 import 'dart:io';
 import 'package:path/path.dart' as p;
-import 'package:nocterm/nocterm.dart' hide isEmpty, isNotEmpty, isNull, isNot, isTrue, isFalse, contains, containsAll;
+import 'package:nocterm/nocterm.dart' hide isEmpty, isNotEmpty;
 import 'package:nitrogen_cli/commands/migrate_command.dart';
 import 'package:nitrogen_cli/commands/spm_utils.dart';
 import 'package:test/test.dart';
@@ -15,12 +15,12 @@ Directory _scaffoldLegacy({bool withIos = true, bool withMacos = false}) {
   if (withIos) {
     final iosDir = Directory(p.join(root.path, 'ios'))..createSync();
     File(p.join(iosDir.path, 'my_plugin.podspec')).writeAsStringSync('# podspec');
-    Directory(p.join(iosDir.path, 'Classes'))..createSync();
+    Directory(p.join(iosDir.path, 'Classes')).createSync();
   }
   if (withMacos) {
     final macosDir = Directory(p.join(root.path, 'macos'))..createSync();
     File(p.join(macosDir.path, 'my_plugin.podspec')).writeAsStringSync('# podspec');
-    Directory(p.join(macosDir.path, 'Classes'))..createSync();
+    Directory(p.join(macosDir.path, 'Classes')).createSync();
   }
   return root;
 }
@@ -105,7 +105,7 @@ void main() {
   // ── MigrationStepRow component ────────────────────────────────────────────
 
   group('MigrationStepRow', () {
-    Component _row(MigrationStepState state, {String? detail}) {
+    Component row(MigrationStepState state, {String? detail}) {
       final step = MigrationStep('My step')
         ..state = state
         ..detail = detail;
@@ -118,7 +118,7 @@ void main() {
 
     test('pending renders ○', () async {
       await testNocterm('MigrationStepRow pending', (tester) async {
-        await tester.pumpComponent(_row(MigrationStepState.pending));
+        await tester.pumpComponent(row(MigrationStepState.pending));
         expect(tester.terminalState, containsText('○'));
         expect(tester.terminalState, containsText('My step'));
       });
@@ -126,42 +126,42 @@ void main() {
 
     test('running renders ◉', () async {
       await testNocterm('MigrationStepRow running', (tester) async {
-        await tester.pumpComponent(_row(MigrationStepState.running));
+        await tester.pumpComponent(row(MigrationStepState.running));
         expect(tester.terminalState, containsText('◉'));
       });
     });
 
     test('done renders ✔', () async {
       await testNocterm('MigrationStepRow done', (tester) async {
-        await tester.pumpComponent(_row(MigrationStepState.done));
+        await tester.pumpComponent(row(MigrationStepState.done));
         expect(tester.terminalState, containsText('✔'));
       });
     });
 
     test('failed renders ✘', () async {
       await testNocterm('MigrationStepRow failed', (tester) async {
-        await tester.pumpComponent(_row(MigrationStepState.failed));
+        await tester.pumpComponent(row(MigrationStepState.failed));
         expect(tester.terminalState, containsText('✘'));
       });
     });
 
     test('skipped renders –', () async {
       await testNocterm('MigrationStepRow skipped', (tester) async {
-        await tester.pumpComponent(_row(MigrationStepState.skipped));
+        await tester.pumpComponent(row(MigrationStepState.skipped));
         expect(tester.terminalState, containsText('–'));
       });
     });
 
     test('detail text is shown when set', () async {
       await testNocterm('MigrationStepRow detail', (tester) async {
-        await tester.pumpComponent(_row(MigrationStepState.done, detail: 'file backed up'));
+        await tester.pumpComponent(row(MigrationStepState.done, detail: 'file backed up'));
         expect(tester.terminalState, containsText('file backed up'));
       });
     });
 
     test('no detail shown when null', () async {
       await testNocterm('MigrationStepRow no detail', (tester) async {
-        await tester.pumpComponent(_row(MigrationStepState.pending));
+        await tester.pumpComponent(row(MigrationStepState.pending));
         expect(tester.terminalState, isNot(containsText('backed up')));
       });
     });

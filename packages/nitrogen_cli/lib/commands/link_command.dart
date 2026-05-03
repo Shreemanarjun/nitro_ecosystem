@@ -421,7 +421,6 @@ class _LinkViewState extends State<LinkView> {
       );
       final allCpp = moduleInfos.every((m) => m.isCpp);
       final hasCpp = moduleInfos.any((m) => m.isCpp);
-      final hasNonCpp = moduleInfos.any((m) => !m.isCpp);
       final cppLabel = hasCpp
           ? ' (${moduleInfos.where((m) => m.isCpp).map((m) => m.module).join(', ')} → C++)'
           : '';
