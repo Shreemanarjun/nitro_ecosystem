@@ -683,7 +683,7 @@ public:
 
   // ── Native generators ───────────────────────────────────────────────────
 
-  static String generateSwift(BridgeSpec spec) {
+  static String generateSwift(BridgeSpec spec, {bool emitBoilerplate = true}) {
     if (spec.recordTypes.isEmpty && spec.structs.isEmpty) return '';
 
     final s = StringBuffer();
@@ -793,7 +793,9 @@ public:
       s.writeln();
     }
 
-    s.writeln(_swiftRecordWriterReader);
+    if (emitBoilerplate) {
+      s.writeln(_swiftRecordWriterReader);
+    }
     return s.toString();
   }
 

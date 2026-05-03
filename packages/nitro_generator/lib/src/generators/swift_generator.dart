@@ -579,6 +579,16 @@ class SwiftGenerator {
     s.writeln('// and would conflict with the Swift module\'s exported symbols.');
     s.writeln();
 
+    final swiftEnums = EnumGenerator.generateSwift(spec);
+    if (swiftEnums.isNotEmpty) s.write(swiftEnums);
+
+    final swiftStructs = StructGenerator.generateSwift(spec);
+    if (swiftStructs.isNotEmpty) s.write(swiftStructs);
+
+    final swiftRecords = RecordGenerator.generateSwift(spec, emitBoilerplate: false);
+    if (swiftRecords.isNotEmpty) s.write(swiftRecords);
+
+
     // Protocol
     s.writeln('/**');
     s.writeln(' * Protocol for the ${spec.dartClassName} module (NativeImpl.cpp).');
