@@ -58,21 +58,33 @@ class GenerateCommand extends Command {
     // ── pub get ─────────────────────────────────────────────────────────────
     stdout.writeln(cyan('  › flutter pub get …'));
     var exitCode = await runStreaming('flutter', ['pub', 'get'], workingDirectory: projectDir.path);
-    if (exitCode != 0) {
+    // Exit 255 is a known Dart SDK advisory-decode bug (pub.dev API mismatch).
+    // Packages are still resolved successfully — do not abort.
+    if (exitCode != 0 && exitCode != 255) {
       stderr.writeln(red('  ✘  flutter pub get failed (exit $exitCode)'));
       return exitCode;
     }
     stdout.writeln('');
 
     // ── build_runner ─────────────────────────────────────────────────────────
-    // Use `dart run` instead of `flutter pub run` to skip the pub.dev update
-    // check that build_runner triggers via `flutter pub run`, which can hang
-    // for 30+ seconds or indefinitely on slow/no network.
+    // Use `flutter pub run` (not `dart run`) because Flutter projects require
+    // Flutter's package resolution — `dart run build_runner` fails with
+    // "Flutter users should use flutter pub instead of dart pub".
+    //
+    // Clear the build cache first so build_runner always does a fresh build.
+    // Without this, on the second run build_runner enters the "check for
+    // updates since last build" code path which internally calls `dart pub get`
+    // — this fails for Flutter workspace members with the same Flutter SDK
+    // resolution error, causing exit 247 / "Failed to update packages".
+    final buildCache = Directory(p.join(projectDir.path, '.dart_tool', 'build'));
+    if (buildCache.existsSync()) buildCache.deleteSync(recursive: true);
+
     stdout.writeln(cyan('  › build_runner build …'));
     stdout.writeln('');
     exitCode = await runStreaming(
-      'dart',
+      'flutter',
       [
+        'pub',
         'run',
         'build_runner',
         'build',

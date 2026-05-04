@@ -22,6 +22,8 @@ String cmakeListsTemplate(String pluginName) => '''
 cmake_minimum_required(VERSION 3.10)
 project(${pluginName}_library VERSION 0.0.1 LANGUAGES C CXX)
 
+set(CMAKE_CXX_STANDARD 17)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(NITRO_NATIVE "\${CMAKE_CURRENT_SOURCE_DIR}/../../packages/nitro/src/native")
 set(GENERATED_CPP "\${CMAKE_CURRENT_SOURCE_DIR}/../lib/src/generated/cpp")
 
@@ -116,9 +118,6 @@ String packageSwiftTemplate(
   String platformSpec, {
   bool isMacos = false,
 }) {
-  final nitroFlag = isMacos
-      ? '-IFlutter/ephemeral/.symlinks/plugins/nitro/src/native'
-      : '-I.symlinks/plugins/nitro/src/native';
   return '''
 // swift-tools-version: 5.9
 import PackageDescription
@@ -127,22 +126,19 @@ let package = Package(
     name: "$pluginName",
     platforms: [.$platformSpec],
     products: [
-        .library(name: "$pluginName", targets: ["$pluginName"]),
+        .library(name: "${pluginName.replaceAll('_', '-')}", targets: ["$pluginName"]),
     ],
     targets: [
         // C/C++ bridge — SPM requires Swift and C++ in separate targets.
+        // nitro headers (nitro.h, dart_api_dl.h …) are copied into include/
+        // by `nitrogen link`, so no extra header search path is needed.
         .target(
             name: "${className}Cpp",
             path: "Sources/${className}Cpp",
             publicHeadersPath: "include",
             cxxSettings: [
                 .headerSearchPath("include"),
-                .unsafeFlags([
-                    "-std=c++17",
-                    // nitro's dart_api_dl.h — resolved via Flutter's symlink
-                    // so this works for both local path and pub.dev references.
-                    "$nitroFlag",
-                ])
+                .unsafeFlags(["-std=c++17"])
             ]
         ),
         // Swift implementation + generated bridge.

@@ -134,6 +134,11 @@ Future<void> _runTui() async {
           ),
 
           // GENERATE (Streaming View)
+          // Runs `flutter pub get` first so Flutter SDK deps are resolved, then
+          // `flutter pub run build_runner` which is safe (no hang) because the
+          // lockfile is already fresh from the preceding pub get.
+          // `|| true` tolerates exit 255 (Dart SDK advisory-decode bug where
+          // packages ARE resolved but the advisory JSON parse fails).
           route<CommandRoute>(
             path: '/generate',
             parse: (_) => const CommandRoute(NitroCommand.generate),
@@ -141,9 +146,9 @@ Future<void> _runTui() async {
               final info = getProjectInfo();
               return ProcessView(
                 title: 'Nitrogen Generate',
-                executable: 'flutter',
+                executable: '/bin/sh',
                 workingDirectory: info?.directory.path,
-                args: const ['pub', 'run', 'build_runner', 'build', '--delete-conflicting-outputs'],
+                args: const ['-c', 'flutter pub get || true; flutter pub run build_runner build --delete-conflicting-outputs'],
               );
             },
           ),
@@ -155,9 +160,9 @@ Future<void> _runTui() async {
               final info = getProjectInfo();
               return ProcessView(
                 title: 'Nitrogen Watch',
-                executable: 'flutter',
+                executable: '/bin/sh',
                 workingDirectory: info?.directory.path,
-                args: const ['pub', 'run', 'build_runner', 'watch', '--delete-conflicting-outputs'],
+                args: const ['-c', 'flutter pub get || true; flutter pub run build_runner watch --delete-conflicting-outputs'],
               );
             },
           ),

@@ -107,9 +107,12 @@ String magenta(String t) => _s(t, const TextStyle(color: Colors.magenta));
 /// Returns the exit code.
 Future<int> runStreaming(String executable, List<String> args, {String? workingDirectory}) async {
   final process = await Process.start(executable, args, workingDirectory: workingDirectory);
+  // Use listen().asFuture() instead of pipe() — pipe() closes the sink when
+  // the stream ends, which would close nitrogen's own stdout/stderr for all
+  // subsequent output.
   await Future.wait([
-    process.stdout.pipe(stdout),
-    process.stderr.pipe(stderr),
+    process.stdout.listen(stdout.add).asFuture<void>(),
+    process.stderr.listen(stderr.add).asFuture<void>(),
   ]);
   return process.exitCode;
 }

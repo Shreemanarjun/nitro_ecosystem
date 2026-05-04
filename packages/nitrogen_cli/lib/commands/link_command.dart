@@ -5,35 +5,42 @@ import 'package:nocterm/nocterm.dart';
 import 'package:path/path.dart' as p;
 import '../ui.dart';
 import '../utils.dart';
+import 'spm_utils.dart' as spm;
 
 // ── Package-level helpers (also used in tests) ─────────────────────────────
 
 /// Resolves the absolute path to the installed `nitro` package's `src/native`
 /// directory by reading `.dart_tool/package_config.json` inside [pluginDir].
 String resolveNitroNativePath(String pluginDir) {
-  final configFile = File(
-    p.join(pluginDir, '.dart_tool', 'package_config.json'),
-  );
-  if (configFile.existsSync()) {
-    try {
-      final config =
-          jsonDecode(configFile.readAsStringSync()) as Map<String, dynamic>;
-      final packages = (config['packages'] as List<dynamic>?) ?? [];
-      for (final pkg in packages) {
-        final pkgMap = pkg as Map<String, dynamic>;
-        if (pkgMap['name'] == 'nitro') {
-          final rootUri = pkgMap['rootUri'] as String;
-          final uri = Uri.parse(rootUri);
-          if (uri.scheme == 'file') {
-            return p.join(uri.toFilePath(), 'src', 'native');
-          } else {
-            final dartToolDir = p.join(pluginDir, '.dart_tool');
-            final resolved = p.normalize(p.join(dartToolDir, rootUri));
-            return p.join(resolved, 'src', 'native');
+  // Walk up from pluginDir looking for .dart_tool/package_config.json.
+  // In Dart workspaces the config lives at the workspace root, not in each
+  // member's own directory.
+  var searchDir = Directory(pluginDir);
+  while (true) {
+    final configFile = File(p.join(searchDir.path, '.dart_tool', 'package_config.json'));
+    if (configFile.existsSync()) {
+      try {
+        final config = jsonDecode(configFile.readAsStringSync()) as Map<String, dynamic>;
+        final packages = (config['packages'] as List<dynamic>?) ?? [];
+        for (final pkg in packages) {
+          final pkgMap = pkg as Map<String, dynamic>;
+          if (pkgMap['name'] == 'nitro') {
+            final rootUri = pkgMap['rootUri'] as String;
+            final uri = Uri.parse(rootUri);
+            if (uri.scheme == 'file') {
+              return p.join(uri.toFilePath(), 'src', 'native');
+            } else {
+              final dartToolDir = p.join(searchDir.path, '.dart_tool');
+              final resolved = p.normalize(p.join(dartToolDir, rootUri));
+              return p.join(resolved, 'src', 'native');
+            }
           }
         }
-      }
-    } catch (_) {}
+      } catch (_) {}
+    }
+    final parent = searchDir.parent;
+    if (parent.path == searchDir.path) break;
+    searchDir = parent;
   }
   return p.normalize(
     p.absolute(p.join(pluginDir, '..', 'packages', 'nitro', 'src', 'native')),
@@ -450,6 +457,9 @@ class _LinkViewState extends State<LinkView> {
           baseDir: Directory.current.path,
           moduleInfos: moduleInfos,
         );
+        // Ensure SPM Package.swift exists even when no podspec is present
+        // (e.g. SPM-first projects, or after podspec was removed).
+        ensureIosPackageSwift(pluginName, baseDir: Directory.current.path, moduleInfos: moduleInfos);
         await _setDone(2);
       } else {
         await _setSkipped(2, detail: 'ios/ not present');
@@ -463,6 +473,7 @@ class _LinkViewState extends State<LinkView> {
           baseDir: Directory.current.path,
           moduleInfos: moduleInfos,
         );
+        ensureMacosPackageSwift(pluginName, baseDir: Directory.current.path, moduleInfos: moduleInfos);
         await _setDone(3);
       } else {
         await _setSkipped(3, detail: 'macos/ not present');
@@ -646,12 +657,12 @@ class _LinkViewState extends State<LinkView> {
 
       await _setRunning(10);
       // ── SPM-first strategy ─────────────────────────────────────────────────
-      // When the plugin has a Package.swift in ios/ or macos/, Flutter uses
-      // Swift Package Manager directly (flutter config --enable-swift-package-manager).
+      // When the plugin has a Package.swift in ios/ or macos/ (either flat or
+      // Flutter 3.41+ nested layout), Flutter uses Swift Package Manager directly.
       // Running `pod install` in that case conflicts and is unnecessary.
       // CocoaPods is only used as a fallback when NO Package.swift is present.
-      final hasSpm = File(p.join(Directory.current.path, 'ios', 'Package.swift')).existsSync() ||
-          File(p.join(Directory.current.path, 'macos', 'Package.swift')).existsSync();
+      final spmDetected = spm.detectSpmStatus(Directory.current.path);
+      final hasSpm = spmDetected.hasSpm;
 
       if (hasSpm) {
         // Sync generated Swift bridges into the SPM Sources/ target directories
@@ -1102,12 +1113,11 @@ void _copySwiftBridgesToClasses(
 
 /// Syncs generated `.bridge.g.swift` files into the SPM Swift target directories.
 ///
-/// For each platform that has a `Package.swift`, this function reads the package
-/// to locate the Swift source targets and copies all generated `.bridge.g.swift`
-/// files from `lib/src/generated/swift/` into every `Sources/<TargetName>/` dir
-/// that exists under that platform directory.
-///
-/// This ensures SPM compiles the latest generated bridges without needing CocoaPods.
+/// Handles both flat (`ios/Package.swift`) and Flutter 3.41+ nested
+/// (`ios/<name>/Package.swift`) SPM layouts.  For each detected platform
+/// package, the function walks every `Sources/<Target>/` directory (excluding
+/// C++ targets ending in `Cpp`) and copies generated bridge files there so SPM
+/// compiles the latest bridges without needing CocoaPods.
 void _syncSwiftBridgesToSpmSources(String baseDir) {
   final swiftGenDir = Directory(p.join(baseDir, 'lib', 'src', 'generated', 'swift'));
   if (!swiftGenDir.existsSync()) return;
@@ -1116,12 +1126,17 @@ void _syncSwiftBridgesToSpmSources(String baseDir) {
       .toList();
   if (generatedBridges.isEmpty) return;
 
-  for (final platform in ['ios', 'macos']) {
-    final platformDir = Directory(p.join(baseDir, platform));
-    final packageSwift = File(p.join(platformDir.path, 'Package.swift'));
-    if (!packageSwift.existsSync()) continue;
+  final spmStatus = spm.detectSpmStatus(baseDir);
 
-    final sourcesDir = Directory(p.join(platformDir.path, 'Sources'));
+  for (final platform in ['ios', 'macos']) {
+    final packageSwiftPath = platform == 'ios'
+        ? spmStatus.iosPackageSwiftPath
+        : spmStatus.macosPackageSwiftPath;
+    if (packageSwiftPath == null) continue;
+
+    // Sources/ is always a sibling of Package.swift (whether flat or nested).
+    final packageRoot = File(packageSwiftPath).parent.path;
+    final sourcesDir = Directory(p.join(packageRoot, 'Sources'));
     if (!sourcesDir.existsSync()) continue;
 
     // Walk all immediate subdirs of Sources/ — each is an SPM target
@@ -1735,8 +1750,10 @@ void ensureIosPackageSwift(
   String baseDir = '.',
   List<ModuleInfo>? moduleInfos,
 }) {
-  final packageSwift = File(p.join(baseDir, 'ios', 'Package.swift'));
-  if (packageSwift.existsSync()) {
+  // Check nested layout first (Flutter 3.41+: ios/<pluginName>/Package.swift),
+  // then fall back to flat layout (ios/Package.swift).
+  final spmStatus = spm.detectSpmStatus(baseDir);
+  if (spmStatus.iosHasSpm) {
     // Package.swift already exists — sync C/C++ module sources into Sources/<MainCpp>/.
     _syncCppModuleSourcesToSpm(
       pluginName,
@@ -1745,16 +1762,18 @@ void ensureIosPackageSwift(
     );
     return;
   }
+
   final className = pluginName
       .split('_')
       .map((w) => w.isEmpty ? '' : w[0].toUpperCase() + w.substring(1))
       .join('');
-  Directory(
-    p.join(baseDir, 'ios', 'Sources', className),
-  ).createSync(recursive: true);
-  Directory(
-    p.join(baseDir, 'ios', 'Sources', '${className}Cpp'),
-  ).createSync(recursive: true);
+
+  // Create nested Flutter 3.41+ layout: ios/<pluginName>/Sources/
+  final packageRoot = p.join(baseDir, 'ios', pluginName);
+  Directory(p.join(packageRoot, 'Sources', className)).createSync(recursive: true);
+  Directory(p.join(packageRoot, 'Sources', '${className}Cpp')).createSync(recursive: true);
+
+  final packageSwift = File(p.join(packageRoot, 'Package.swift'));
   packageSwift.writeAsStringSync(
     '// swift-tools-version: 5.9\n'
     'import PackageDescription\n'
@@ -1763,7 +1782,7 @@ void ensureIosPackageSwift(
     '  name: "$pluginName",\n'
     '  platforms: [.iOS(.v13)],\n'
     '  products: [\n'
-    '    .library(name: "$pluginName", targets: ["$pluginName"])\n'
+    '    .library(name: "${pluginName.replaceAll('_', '-')}", targets: ["$pluginName"])\n'
     '  ],\n'
     '  targets: [\n'
     '    .target(\n'
@@ -1772,7 +1791,7 @@ void ensureIosPackageSwift(
     '      publicHeadersPath: "include",\n'
     '      cxxSettings: [\n'
     '        .headerSearchPath("include"),\n'
-    '        .unsafeFlags(["-std=c++17", "-I.symlinks/plugins/nitro/src/native"])\n'
+    '        .unsafeFlags(["-std=c++17"])\n'
     '      ]\n'
     '    ),\n'
     '    .target(\n'
@@ -1790,9 +1809,66 @@ void ensureIosPackageSwift(
   );
 }
 
+/// Mirrors [ensureIosPackageSwift] for `macos/`. Creates the Flutter 3.41+
+/// nested SPM layout (`macos/<pluginName>/Package.swift`) if not present,
+/// then syncs C/C++ module sources into SPM Sources directories.
+void ensureMacosPackageSwift(
+  String pluginName, {
+  String baseDir = '.',
+  List<ModuleInfo>? moduleInfos,
+}) {
+  final spmStatus = spm.detectSpmStatus(baseDir);
+  if (spmStatus.macosHasSpm) {
+    _syncCppModuleSourcesToSpm(pluginName, moduleInfos: moduleInfos, baseDir: baseDir);
+    return;
+  }
+
+  final className = pluginName
+      .split('_')
+      .map((w) => w.isEmpty ? '' : w[0].toUpperCase() + w.substring(1))
+      .join('');
+
+  final packageRoot = p.join(baseDir, 'macos', pluginName);
+  Directory(p.join(packageRoot, 'Sources', className)).createSync(recursive: true);
+  Directory(p.join(packageRoot, 'Sources', '${className}Cpp')).createSync(recursive: true);
+
+  File(p.join(packageRoot, 'Package.swift')).writeAsStringSync(
+    '// swift-tools-version: 5.9\n'
+    'import PackageDescription\n'
+    '\n'
+    'let package = Package(\n'
+    '  name: "$pluginName",\n'
+    '  platforms: [.macOS(.v10_15)],\n'
+    '  products: [\n'
+    '    .library(name: "${pluginName.replaceAll('_', '-')}", targets: ["$pluginName"])\n'
+    '  ],\n'
+    '  targets: [\n'
+    '    .target(\n'
+    '      name: "${className}Cpp",\n'
+    '      path: "Sources/${className}Cpp",\n'
+    '      publicHeadersPath: "include",\n'
+    '      cxxSettings: [\n'
+    '        .headerSearchPath("include"),\n'
+    '        .unsafeFlags(["-std=c++17"])\n'
+    '      ]\n'
+    '    ),\n'
+    '    .target(\n'
+    '      name: "$pluginName",\n'
+    '      dependencies: ["${className}Cpp"],\n'
+    '      path: "Sources/$className"\n'
+    '    )\n'
+    '  ]\n'
+    ')\n',
+  );
+  _syncCppModuleSourcesToSpm(pluginName, moduleInfos: moduleInfos, baseDir: baseDir);
+}
+
 /// Writes forwarder files for C++ module bridges and impl into the SPM target
 /// that owns the shared C++ layer (Sources/`<MainCpp>`/). Bridge headers are also
 /// copied into its include/ directory so SPM can find them.
+///
+/// Handles both flat (`ios/Sources/`) and Flutter 3.41+ nested
+/// (`ios/<pluginName>/Sources/`) SPM layouts automatically.
 ///
 /// Only modules using `AppleNativeImpl.cpp` (or legacy `NativeImpl.cpp`) on
 /// ios or macos are synced here. Windows-only C++ modules must NOT appear in
@@ -1808,43 +1884,80 @@ void _syncCppModuleSourcesToSpm(
       .map((w) => w.isEmpty ? '' : w[0].toUpperCase() + w.substring(1))
       .join('');
 
+  final spmStatus = spm.detectSpmStatus(baseDir);
+
   for (final platform in ['ios', 'macos']) {
-    final cppTargetDir = Directory(
-      p.join(baseDir, platform, 'Sources', '${className}Cpp'),
-    );
+    final packageSwiftPath = platform == 'ios'
+        ? spmStatus.iosPackageSwiftPath
+        : spmStatus.macosPackageSwiftPath;
+
+    // Determine package root (sibling of Package.swift).
+    final packageRoot = packageSwiftPath != null
+        ? File(packageSwiftPath).parent.path
+        : null;
+
+    // Nested layout: ios/<pluginName>/Sources/<className>Cpp
+    // Flat layout:   ios/Sources/<className>Cpp
+    final cppTargetDir = packageRoot != null
+        ? Directory(p.join(packageRoot, 'Sources', '${className}Cpp'))
+        : Directory(p.join(baseDir, platform, 'Sources', '${className}Cpp'));
     if (!cppTargetDir.existsSync()) continue;
+
 
     // All modules that *have* isCpp true (broad), so we can clean up stale
     // forwarders for any that are no longer Apple C++.
-    // Early-exit when there are no C++ modules — nothing belongs in the SPM dir.
     final allCppModules = moduleInfos?.where((m) => m.isCpp).toList() ?? [];
-    if (allCppModules.isEmpty) continue;
 
+    final nitroNativePath = resolveNitroNativePath(baseDir);
     final includeDir = Directory(p.join(cppTargetDir.path, 'include'))
       ..createSync(recursive: true);
 
-    // 1. Link the main plugin file (is always an Apple C++ implementation hub)
-    final mainCpp = File(p.join(baseDir, 'src', '$pluginName.cpp'));
-    if (mainCpp.existsSync()) {
+    // Always copy nitro API headers and dart_api_dl.c into the SPM C++ target,
+    // even for Swift-only modules. The SPM C++ target (TestingProjectCpp etc.)
+    // is always present in the init template and needs these files to compile.
+    // Always write the canonical nitroHContent (with NITRO_ERROR_DEFINED guard)
+    // directly rather than copying from packages/nitro/src/native/nitro.h, which
+    // lacks the guard. Using different copies with inconsistent guards causes a
+    // "Typedef redefinition" error when both are included in the same TU.
+    File(p.join(includeDir.path, 'nitro.h')).writeAsStringSync(nitroHContent);
+    for (final headerName in ['dart_api_dl.h', 'dart_api.h', 'dart_native_api.h', 'dart_version.h']) {
+      final src = File(p.join(nitroNativePath, headerName));
+      if (src.existsSync()) src.copySync(p.join(includeDir.path, headerName));
+    }
+    final internalSrc = Directory(p.join(nitroNativePath, 'internal'));
+    if (internalSrc.existsSync()) {
+      final internalDst = Directory(p.join(includeDir.path, 'internal'))
+        ..createSync(recursive: true);
+      for (final f in internalSrc.listSync().whereType<File>()) {
+        f.copySync(p.join(internalDst.path, p.basename(f.path)));
+      }
+    }
+
+    // dart_api_dl.c — use the absolute resolved nitro path for reliability.
+    // This avoids the relative .symlinks path written by init which is only
+    // valid in a CocoaPods build tree, not in SPM.
+    File(p.join(cppTargetDir.path, 'dart_api_dl.c'))
+        .writeAsStringSync(dartApiDlForwarderContent(nitroNativePath));
+
+    // 1. Link the main plugin file using the absolute src path for reliability.
+    final mainCppAbs = p.join(baseDir, 'src', '$pluginName.cpp').replaceAll(r'\', '/');
+    final mainCppFile = File(p.join(baseDir, 'src', '$pluginName.cpp'));
+    if (mainCppFile.existsSync()) {
       File(p.join(cppTargetDir.path, '$pluginName.cpp')).writeAsStringSync(
-        '// Generated by nitrogen link — do not edit.\n#include "../../../src/$pluginName.cpp"\n',
+        '// Generated by nitrogen link — do not edit.\n#include "$mainCppAbs"\n',
       );
     } else {
-      final mainC = File(p.join(baseDir, 'src', '$pluginName.c'));
-      if (mainC.existsSync()) {
+      final mainCPath = p.join(baseDir, 'src', '$pluginName.c');
+      final mainCFile = File(mainCPath);
+      if (mainCFile.existsSync()) {
         File(p.join(cppTargetDir.path, '$pluginName.c')).writeAsStringSync(
-          '// Generated by nitrogen link — do not edit.\n#include "../../../src/$pluginName.c"\n',
+          '// Generated by nitrogen link — do not edit.\n#include "${mainCPath.replaceAll(r'\', '/')}"\n',
         );
       }
     }
 
-    // 2. Link dart_api_dl.c (needed for FFI)
-    final dartApiDl = File(p.join(baseDir, 'src', 'dart_api_dl.c'));
-    if (dartApiDl.existsSync()) {
-      File(p.join(cppTargetDir.path, 'dart_api_dl.c')).writeAsStringSync(
-        '// Generated by nitrogen link — do not edit.\n#include "../../../src/dart_api_dl.c"\n',
-      );
-    }
+    // Skip module-specific C++ bridge linking when no C++ modules exist.
+    if (allCppModules.isEmpty) continue;
 
     // Discover which modules actually use AppleNativeImpl.cpp (or legacy NativeImpl.cpp)
     // on iOS/macOS. Only those belong in the SPM Sources directory.
@@ -1889,15 +2002,17 @@ void _syncCppModuleSourcesToSpm(
         );
         if (bridgeCpp.existsSync()) {
           bridgeMm.writeAsStringSync(
-            '// Generated by nitrogen link — do not edit.\n#include "../../../lib/src/generated/cpp/$lib.bridge.g.cpp"\n',
+            '// Generated by nitrogen link — do not edit.\n'
+            '#include "${bridgeCpp.path.replaceAll(r'\', '/')}"\n',
           );
         }
 
-        // Forwarder: C++ impl.
+        // Forwarder: C++ impl — use absolute path for reliability.
         final implSrc = File(p.join(baseDir, 'src', 'Hybrid$hybridClass.cpp'));
         if (implSrc.existsSync()) {
           implForwarder.writeAsStringSync(
-            '// Generated by nitrogen link — do not edit.\n#include "../../../src/Hybrid$hybridClass.cpp"\n',
+            '// Generated by nitrogen link — do not edit.\n'
+            '#include "${implSrc.path.replaceAll(r'\', '/')}"\n',
           );
         }
 
