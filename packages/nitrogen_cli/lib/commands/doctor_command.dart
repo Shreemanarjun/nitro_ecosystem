@@ -843,6 +843,22 @@ class DoctorCommand extends Command {
         } else {
           warn(iosSec, 'Incomplete HEADER_SEARCH_PATHS in podspec', hint: 'Run: nitrogen link');
         }
+
+        // Check source_files points to an existing path.
+        // The SPM-first Flutter template generates paths like '<plugin>/Sources/<plugin>/**/*'
+        // which are non-existent when CocoaPods is used, causing "No files found" warnings.
+        final sourceFilesMatch = RegExp(r"s\.source_files\s*=\s*'([^']+)'").firstMatch(pod);
+        if (sourceFilesMatch != null) {
+          final sfPath = sourceFilesMatch.group(1)!;
+          final firstSegment = sfPath.split('/').first;
+          final firstDir = Directory(p.join(iosDir.path, firstSegment));
+          if (firstSegment == 'Classes' || firstDir.existsSync()) {
+            ok(iosSec, 'source_files path valid: $sfPath');
+          } else {
+            err(iosSec, 'source_files points to non-existent path: $sfPath',
+                hint: "Run: nitrogen link  (fixes to 'Classes/**/*')");
+          }
+        }
       }
 
       final classesDir = Directory(p.join(iosDir.path, 'Classes'));
@@ -939,6 +955,28 @@ class DoctorCommand extends Command {
         // Only warn about missing .mm bridges for non-cpp modules
         warn(iosSec, 'No .bridge.g.mm files in ios/Classes/', hint: 'Run: nitrogen link');
       }
+
+      // When using SPM (Flutter 3.22+), the bridge symbols are compiled from
+      // Sources/<PluginCpp>/*.bridge.g.mm inside the Package.swift target, not
+      // from ios/Classes/. Without this file, the plugin's init symbol
+      // (<plugin>_init_dart_api_dl) is missing at runtime.
+      if (spmStatus.iosHasSpm && spmStatus.iosPackageSwiftPath != null) {
+        final packageRoot = File(spmStatus.iosPackageSwiftPath!).parent.path;
+        final cppTargetName = '${_toPascalCase(pluginName)}Cpp';
+        final spmCppDir = Directory(p.join(packageRoot, 'Sources', cppTargetName));
+        if (spmCppDir.existsSync()) {
+          final spmMmBridges = spmCppDir.listSync().whereType<File>().where((f) => f.path.endsWith('.bridge.g.mm')).toList();
+          if (spmMmBridges.isNotEmpty) {
+            ok(iosSec, '${spmMmBridges.length} .bridge.g.mm in SPM Sources/$cppTargetName/');
+          } else if (specs.isNotEmpty) {
+            err(iosSec, 'Missing .bridge.g.mm in SPM Sources/$cppTargetName/',
+                hint: 'Run: nitrogen link  (symbol <plugin>_init_dart_api_dl will be missing at runtime)');
+          }
+        } else if (specs.isNotEmpty) {
+          warn(iosSec, 'SPM Sources/$cppTargetName/ directory not found',
+              hint: 'Run: nitrogen link  (creates the SPM C++ target with bridge forwarders)');
+        }
+      }
     }
 
     final macosSec = DoctorSection('macOS');
@@ -972,6 +1010,20 @@ class DoctorCommand extends Command {
           ok(macosSec, 'Comprehensive HEADER_SEARCH_PATHS in podspec');
         } else {
           warn(macosSec, 'Incomplete HEADER_SEARCH_PATHS in podspec', hint: 'Run: nitrogen link');
+        }
+
+        // Check source_files points to an existing path.
+        final sourceFilesMatchMacos = RegExp(r"s\.source_files\s*=\s*'([^']+)'").firstMatch(pod);
+        if (sourceFilesMatchMacos != null) {
+          final sfPath = sourceFilesMatchMacos.group(1)!;
+          final firstSegment = sfPath.split('/').first;
+          final firstDir = Directory(p.join(macosDir.path, firstSegment));
+          if (firstSegment == 'Classes' || firstDir.existsSync()) {
+            ok(macosSec, 'source_files path valid: $sfPath');
+          } else {
+            err(macosSec, 'source_files points to non-existent path: $sfPath',
+                hint: "Run: nitrogen link  (fixes to 'Classes/**/*')");
+          }
         }
       }
 
@@ -1037,6 +1089,28 @@ class DoctorCommand extends Command {
         ok(macosSec, '${mmBridges.length} .bridge.g.mm file(s) in macos/Classes/');
       } else if (specs.isNotEmpty && !allSpecsCpp) {
         warn(macosSec, 'No .bridge.g.mm files in macos/Classes/', hint: 'Run: nitrogen link');
+      }
+
+      // SPM-specific: check that Sources/<PluginCpp>/*.bridge.g.mm exists.
+      // Flutter 3.22+ uses SPM for macOS plugins; without this forwarder file
+      // the symbol `<plugin>_init_dart_api_dl` is not compiled and the plugin
+      // crashes at startup with "Failed to lookup symbol".
+      if (spmStatus.macosHasSpm && spmStatus.macosPackageSwiftPath != null) {
+        final packageRoot = File(spmStatus.macosPackageSwiftPath!).parent.path;
+        final cppTargetName = '${_toPascalCase(pluginName)}Cpp';
+        final spmCppDir = Directory(p.join(packageRoot, 'Sources', cppTargetName));
+        if (spmCppDir.existsSync()) {
+          final spmMmBridges = spmCppDir.listSync().whereType<File>().where((f) => f.path.endsWith('.bridge.g.mm')).toList();
+          if (spmMmBridges.isNotEmpty) {
+            ok(macosSec, '${spmMmBridges.length} .bridge.g.mm in SPM Sources/$cppTargetName/');
+          } else if (specs.isNotEmpty) {
+            err(macosSec, 'Missing .bridge.g.mm in SPM Sources/$cppTargetName/',
+                hint: 'Run: nitrogen link  (symbol <plugin>_init_dart_api_dl will be missing at runtime)');
+          }
+        } else if (specs.isNotEmpty) {
+          warn(macosSec, 'SPM Sources/$cppTargetName/ directory not found',
+              hint: 'Run: nitrogen link  (creates the SPM C++ target with bridge forwarders)');
+        }
       }
     }
 

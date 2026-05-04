@@ -584,9 +584,10 @@ end
   // ── _syncCppModuleSourcesToSpm (via linkPodspec → ensureIosPackageSwift) ────
 
   group('_syncCppModuleSourcesToSpm — SPM C++ module source wiring', () {
-    // For _syncCppModuleSourcesToSpm to execute, ios/Sources/<PluginCpp>/ must
-    // already exist (the function returns early otherwise).  We create it here
-    // to simulate an existing SPM-enabled project.
+    // Sets up a flat SPM layout with Package.swift + Sources/<PluginCpp>/ already
+    // present, simulating an existing SPM-enabled project that has been fully
+    // initialised before.  Both Package.swift and the Cpp target dir are required
+    // so that _syncCppModuleSourcesToSpm can locate and populate them.
     void scaffoldSpm(String pluginName) {
       scaffoldPodspec(pluginName);
       final pascal = pluginName.split('_').map((w) => w.isEmpty ? '' : '${w[0].toUpperCase()}${w.substring(1)}').join('');
@@ -709,19 +710,33 @@ end
       );
     });
 
-    test('no-op when Sources/<PluginCpp>/ does not exist', () {
+    test('auto-creates Sources/<PluginCpp>/ when Package.swift exists but dir is missing', () {
+      // Simulate the real-world scenario that caused "Failed to lookup symbol
+      // '<plugin>_init_dart_api_dl'": Package.swift exists (iosHasSpm=true) but
+      // Sources/<PluginCpp>/ was never created — e.g. manual Package.swift setup
+      // or a previous partial nitrogen link run.
       scaffoldPodspec('my_plugin');
-      scaffoldCppModule('my_cpp_mod');
-      // No ios/Sources/MyPluginCpp/ directory.
-
+      scaffoldCppModule('my_cpp_mod', appleCpp: true);
+      // Create Package.swift WITHOUT Sources/<PluginCpp>/.
+      File(p.join(tmp.path, 'ios', 'Package.swift')).writeAsStringSync('// existing');
+      // Ensure the dir does NOT exist before link runs.
       expect(
-        () => linkPodspec(
-          'my_plugin',
-          ['my_plugin', 'my_cpp_mod'],
-          baseDir: tmp.path,
-          moduleInfos: [const ModuleInfo(lib: 'my_cpp_mod', module: 'MyCppMod', isCpp: true)],
-        ),
-        returnsNormally,
+        Directory(p.join(tmp.path, 'ios', 'Sources', 'MyPluginCpp')).existsSync(),
+        isFalse,
+      );
+
+      linkPodspec(
+        'my_plugin',
+        ['my_plugin', 'my_cpp_mod'],
+        baseDir: tmp.path,
+        moduleInfos: [const ModuleInfo(lib: 'my_cpp_mod', module: 'MyCppMod', isCpp: true)],
+      );
+
+      // After link, the directory should have been created and the bridge forwarder written.
+      expect(
+        Directory(p.join(tmp.path, 'ios', 'Sources', 'MyPluginCpp')).existsSync(),
+        isTrue,
+        reason: 'nitrogen link should create Sources/<PluginCpp>/ when missing',
       );
     });
 
@@ -993,6 +1008,67 @@ end
           reason: 'bridge must be copied into macos/Classes/ for Xcode scope resolution');
       final spec = File(p.join(tmp.path, 'macos', 'my_plugin.podspec')).readAsStringSync();
       expect(spec, isNot(contains('lib/src/generated/swift')));
+    });
+
+    // ── source_files normalization ──────────────────────────────────────────
+
+    test('linkPodspec fixes SPM-template source_files to Classes/**/* (iOS)', () {
+      // The Flutter SPM-first template generates source_files like
+      // 'my_plugin/Sources/my_plugin/**/*' which is non-existent when CocoaPods
+      // is the build system. nitrogen link must normalise it to 'Classes/**/*'.
+      Directory(p.join(tmp.path, 'ios', 'Classes')).createSync(recursive: true);
+      File(p.join(tmp.path, 'ios', 'my_plugin.podspec')).writeAsStringSync('''
+Pod::Spec.new do |s|
+  s.name = 'my_plugin'
+  s.source_files = 'my_plugin/Sources/my_plugin/**/*'
+  s.pod_target_xcconfig = {}
+end
+''');
+      Directory(p.join(tmp.path, 'src')).createSync();
+
+      linkPodspec('my_plugin', ['my_plugin'], baseDir: tmp.path);
+
+      final spec = File(p.join(tmp.path, 'ios', 'my_plugin.podspec')).readAsStringSync();
+      expect(spec, contains("s.source_files = 'Classes/**/*'"),
+          reason: 'linkPodspec must normalise non-existent source_files to Classes/**/*');
+      expect(spec, isNot(contains("my_plugin/Sources/my_plugin")));
+    });
+
+    test('linkPodspec does NOT change source_files when it is already Classes/**/* (iOS)', () {
+      Directory(p.join(tmp.path, 'ios', 'Classes')).createSync(recursive: true);
+      File(p.join(tmp.path, 'ios', 'my_plugin.podspec')).writeAsStringSync('''
+Pod::Spec.new do |s|
+  s.name = 'my_plugin'
+  s.source_files = 'Classes/**/*'
+  s.pod_target_xcconfig = {}
+end
+''');
+      Directory(p.join(tmp.path, 'src')).createSync();
+
+      linkPodspec('my_plugin', ['my_plugin'], baseDir: tmp.path);
+
+      final spec = File(p.join(tmp.path, 'ios', 'my_plugin.podspec')).readAsStringSync();
+      expect(spec, contains("s.source_files = 'Classes/**/*'"),
+          reason: 'Classes/**/* must be preserved as-is');
+    });
+
+    test('linkMacosPodspec fixes SPM-template source_files to Classes/**/* (macOS)', () {
+      Directory(p.join(tmp.path, 'macos', 'Classes')).createSync(recursive: true);
+      File(p.join(tmp.path, 'macos', 'my_plugin.podspec')).writeAsStringSync('''
+Pod::Spec.new do |s|
+  s.name = 'my_plugin'
+  s.source_files = 'my_plugin/Sources/my_plugin/**/*'
+  s.pod_target_xcconfig = {}
+end
+''');
+      Directory(p.join(tmp.path, 'src')).createSync();
+
+      linkMacosPodspec('my_plugin', ['my_plugin'], baseDir: tmp.path);
+
+      final spec = File(p.join(tmp.path, 'macos', 'my_plugin.podspec')).readAsStringSync();
+      expect(spec, contains("s.source_files = 'Classes/**/*'"),
+          reason: 'linkMacosPodspec must normalise non-existent source_files to Classes/**/*');
+      expect(spec, isNot(contains("my_plugin/Sources/my_plugin")));
     });
   });
 

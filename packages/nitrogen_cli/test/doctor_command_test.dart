@@ -1440,6 +1440,133 @@ flutter:
     });
   });
 
+  // ── SPM Sources/<PluginCpp>/*.bridge.g.mm ─────────────────────────────────
+
+  group('iOS — SPM Sources bridge.g.mm', () {
+    test('ok when bridge.g.mm exists in nested SPM Sources/MyPluginCpp/', () {
+      if (!Platform.isMacOS) return;
+      final tmp = _scaffold(withIos: true, mmBridges: ['my_plugin.bridge.g.mm']);
+      addTearDown(() => tmp.deleteSync(recursive: true));
+
+      // Add a spec so the check fires
+      final specDir = Directory(p.join(tmp.path, 'lib', 'src'))..createSync(recursive: true);
+      File(p.join(specDir.path, 'my_plugin.native.dart')).writeAsStringSync('@NitroModule(lib: "my_plugin")');
+
+      // Nested SPM layout: ios/my_plugin/Sources/MyPluginCpp/
+      final cppDir = Directory(p.join(tmp.path, 'ios', 'my_plugin', 'Sources', 'MyPluginCpp'))
+        ..createSync(recursive: true);
+      File(p.join(cppDir.path, 'my_plugin.bridge.g.mm')).writeAsStringSync('// bridge');
+      File(p.join(tmp.path, 'ios', 'my_plugin', 'Package.swift')).writeAsStringSync(
+        '// swift-tools-version: 5.9\nlet package = Package(name:"my_plugin")',
+      );
+
+      final result = _run(tmp);
+      final iosSec = result.sections.firstWhere((s) => s.title == 'iOS');
+      expect(
+        iosSec.checks.any((c) => c.status == DoctorStatus.ok && c.label.contains('bridge.g.mm') && c.label.contains('SPM')),
+        isTrue,
+        reason: 'Should show ok when SPM bridge.g.mm is present',
+      );
+    });
+
+    test('error when bridge.g.mm missing from SPM Sources/MyPluginCpp/', () {
+      if (!Platform.isMacOS) return;
+      final tmp = _scaffold(withIos: true, mmBridges: ['my_plugin.bridge.g.mm']);
+      addTearDown(() => tmp.deleteSync(recursive: true));
+
+      final specDir = Directory(p.join(tmp.path, 'lib', 'src'))..createSync(recursive: true);
+      File(p.join(specDir.path, 'my_plugin.native.dart')).writeAsStringSync('@NitroModule(lib: "my_plugin")');
+
+      // SPM dir exists but no bridge.g.mm inside
+      Directory(p.join(tmp.path, 'ios', 'my_plugin', 'Sources', 'MyPluginCpp'))
+          .createSync(recursive: true);
+      File(p.join(tmp.path, 'ios', 'my_plugin', 'Package.swift')).writeAsStringSync(
+        '// swift-tools-version: 5.9\nlet package = Package(name:"my_plugin")',
+      );
+
+      final result = _run(tmp);
+      final iosSec = result.sections.firstWhere((s) => s.title == 'iOS');
+      final check = iosSec.checks.firstWhere(
+        (c) => c.label.contains('Missing .bridge.g.mm') && c.label.contains('SPM'),
+        orElse: () => throw TestFailure('Expected SPM bridge.g.mm error not found'),
+      );
+      expect(check.status, equals(DoctorStatus.error));
+      expect(check.hint, contains('nitrogen link'));
+    });
+
+    test('warning when SPM Sources/MyPluginCpp/ directory does not exist', () {
+      if (!Platform.isMacOS) return;
+      final tmp = _scaffold(withIos: true, mmBridges: []);
+      addTearDown(() => tmp.deleteSync(recursive: true));
+
+      final specDir = Directory(p.join(tmp.path, 'lib', 'src'))..createSync(recursive: true);
+      File(p.join(specDir.path, 'my_plugin.native.dart')).writeAsStringSync('@NitroModule(lib: "my_plugin")');
+
+      // Package.swift exists but no Sources/MyPluginCpp/
+      Directory(p.join(tmp.path, 'ios', 'my_plugin')).createSync(recursive: true);
+      File(p.join(tmp.path, 'ios', 'my_plugin', 'Package.swift')).writeAsStringSync(
+        '// swift-tools-version: 5.9\nlet package = Package(name:"my_plugin")',
+      );
+
+      final result = _run(tmp);
+      final iosSec = result.sections.firstWhere((s) => s.title == 'iOS');
+      final check = iosSec.checks.firstWhere(
+        (c) => c.label.contains('SPM Sources') && c.label.contains('not found'),
+        orElse: () => throw TestFailure('Expected SPM sources directory warning not found'),
+      );
+      expect(check.status, equals(DoctorStatus.warn));
+      expect(check.hint, contains('nitrogen link'));
+    });
+  });
+
+  // ── Podspec source_files validity ────────────────────────────────────────────
+
+  group('iOS — podspec source_files', () {
+    test('ok when source_files is Classes/**/*', () {
+      // The _scaffold() already uses 'Classes/**/*' in the podspec
+      final tmp = _scaffold(withIos: true);
+      addTearDown(() => tmp.deleteSync(recursive: true));
+      final result = _run(tmp);
+      final iosSec = result.sections.firstWhere((s) => s.title == 'iOS');
+      expect(
+        iosSec.checks.any((c) => c.status == DoctorStatus.ok && c.label.contains('source_files path valid')),
+        isTrue,
+        reason: 'Classes/**/* should be reported as valid',
+      );
+    });
+
+    test('error when source_files points to non-existent directory', () {
+      final tmp = _scaffold(withIos: false);
+      addTearDown(() => tmp.deleteSync(recursive: true));
+
+      // Create ios/ with a bad podspec (SPM-template path that doesn't exist)
+      final classesDir = Directory(p.join(tmp.path, 'ios', 'Classes'))..createSync(recursive: true);
+      File(p.join(classesDir.path, 'dart_api_dl.c')).writeAsStringSync('// stub');
+      File(p.join(classesDir.path, 'nitro.h')).writeAsStringSync('// NITRO_EXPORT stub');
+      File(p.join(classesDir.path, 'MyPlugin.swift')).writeAsStringSync('MyRegistry.register(impl)');
+      File(p.join(tmp.path, 'ios', 'my_plugin.podspec')).writeAsStringSync('''
+Pod::Spec.new do |s|
+  s.name = "my_plugin"
+  s.swift_version = '5.9'
+  s.source_files = 'my_plugin/Sources/my_plugin/**/*'
+  s.pod_target_xcconfig = {
+    'HEADER_SEARCH_PATHS' => '"\${PODS_TARGET_SRCROOT}/../src" "\${PODS_TARGET_SRCROOT}/../lib/src/generated/cpp"',
+    'CLANG_CXX_LANGUAGE_STANDARD' => 'c++17',
+  }
+end
+''');
+
+      final result = _run(tmp);
+      final iosSec = result.sections.firstWhere((s) => s.title == 'iOS');
+      final check = iosSec.checks.firstWhere(
+        (c) => c.label.contains('source_files points to non-existent'),
+        orElse: () => throw TestFailure('Expected source_files error not found'),
+      );
+      expect(check.status, equals(DoctorStatus.error));
+      expect(check.hint, contains('nitrogen link'));
+    });
+  });
+
   // ── SpmStatus integration with DoctorCommand ──────────────────────────────
 
   group('SpmStatus detectSpmStatus integration', () {

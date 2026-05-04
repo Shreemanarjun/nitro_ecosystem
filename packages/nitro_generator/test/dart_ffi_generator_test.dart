@@ -217,12 +217,8 @@ void main() {
 
     test('dispose() override is emitted in generated impl', () {
       final out = DartFfiGenerator.generate(simpleSpec());
-      expect(
-        out,
-        contains(
-          '@override\n  // ignore: unnecessary_overrides\n  void dispose() {',
-        ),
-      );
+      expect(out, contains('@override\n  void dispose() {'));
+      expect(out, contains("NitroRuntime.logLifecycle("));
       expect(out, contains('super.dispose();'));
     });
 

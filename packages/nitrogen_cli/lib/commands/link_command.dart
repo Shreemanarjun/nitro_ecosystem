@@ -1246,6 +1246,24 @@ void linkPodspec(
   if (!podspecFile.existsSync()) return;
   var content = podspecFile.readAsStringSync();
   bool modified = false;
+  // Normalize source_files to 'Classes/**/*'.
+  // Flutter's SPM-first template generates paths like '<plugin>/Sources/<plugin>/**/*'
+  // which point to non-existent directories when CocoaPods is the build system,
+  // causing "No files found matching ..." warnings and empty pod targets.
+  final sourceFilesMatch = RegExp(r"s\.source_files\s*=\s*'([^']+)'").firstMatch(content);
+  if (sourceFilesMatch != null && sourceFilesMatch.group(1) != 'Classes/**/*') {
+    final badPath = sourceFilesMatch.group(1)!;
+    // Only fix when the first segment is not 'Classes' and doesn't exist on disk.
+    final firstSegment = badPath.split('/').first;
+    final firstDir = Directory(p.join(podspecFile.parent.path, firstSegment));
+    if (firstSegment != 'Classes' && !firstDir.existsSync()) {
+      content = content.replaceFirst(
+        sourceFilesMatch.group(0)!,
+        "s.source_files = 'Classes/**/*'",
+      );
+      modified = true;
+    }
+  }
   if (!content.contains("s.swift_version = '5.9'")) {
     content = content.replaceFirst(
       RegExp(r"s\.swift_version\s*=\s*'.+?'"),
@@ -1421,6 +1439,20 @@ void linkMacosPodspec(
   if (!podspecFile.existsSync()) return;
   var content = podspecFile.readAsStringSync();
   bool modified = false;
+  // Normalize source_files to 'Classes/**/*' (same fix as linkIosPodspec).
+  final sourceFilesMatchMacos = RegExp(r"s\.source_files\s*=\s*'([^']+)'").firstMatch(content);
+  if (sourceFilesMatchMacos != null && sourceFilesMatchMacos.group(1) != 'Classes/**/*') {
+    final badPath = sourceFilesMatchMacos.group(1)!;
+    final firstSegment = badPath.split('/').first;
+    final firstDir = Directory(p.join(podspecFile.parent.path, firstSegment));
+    if (firstSegment != 'Classes' && !firstDir.existsSync()) {
+      content = content.replaceFirst(
+        sourceFilesMatchMacos.group(0)!,
+        "s.source_files = 'Classes/**/*'",
+      );
+      modified = true;
+    }
+  }
   if (!content.contains("s.swift_version = '5.9'")) {
     content = content.replaceFirst(
       RegExp(r"s\.swift_version\s*=\s*'.+?'"),
@@ -1924,8 +1956,6 @@ void _syncCppModuleSourcesToSpm(
     final cppTargetDir = packageRoot != null
         ? Directory(p.join(packageRoot, 'Sources', '${className}Cpp'))
         : Directory(p.join(baseDir, platform, 'Sources', '${className}Cpp'));
-    if (!cppTargetDir.existsSync()) continue;
-
 
     // All modules that *have* isCpp true (broad), so we can clean up stale
     // forwarders for any that are no longer Apple C++.
@@ -1941,6 +1971,16 @@ void _syncCppModuleSourcesToSpm(
         mainCppFile.existsSync() || mainCFile.existsSync() || allCppModules.isNotEmpty;
 
     if (!hasCContent) continue;
+
+    // Create the SPM C++ target directory if it doesn't exist yet. This handles
+    // the case where Package.swift already exists (spmHasSpm=true) but the
+    // Sources/<PluginCpp>/ directory was never created — e.g. first run of
+    // `nitrogen link` on a plugin whose Package.swift was set up manually, or
+    // where a previous partial run left the directory missing. Without this,
+    // the symbol `<plugin>_init_dart_api_dl` would be missing at runtime under SPM.
+    if (!cppTargetDir.existsSync()) {
+      cppTargetDir.createSync(recursive: true);
+    }
 
     final nitroNativePath = resolveNitroNativePath(baseDir);
     final includeDir = Directory(p.join(cppTargetDir.path, 'include'))
