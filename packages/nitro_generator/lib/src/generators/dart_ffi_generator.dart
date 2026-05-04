@@ -35,6 +35,7 @@ class DartFfiGenerator {
     s.writeln(
       '  _${spec.dartClassName}Impl() : _dylib = NitroRuntime.loadLib(\'${spec.lib}\') {',
     );
+    s.writeln("    final _initSw = Stopwatch()..start();");
     s.writeln(
       "    final initFunc = _dylib.lookupFunction<IntPtr Function(Pointer<Void>), int Function(Pointer<Void>)>('${libStem}_init_dart_api_dl');",
     );
@@ -47,6 +48,8 @@ class DartFfiGenerator {
     for (final st in spec.structs) {
       s.writeln('    ${st.name}Proxy._init(_dylib);');
     }
+    s.writeln('    _initSw.stop();');
+    s.writeln("    NitroRuntime.logLifecycle('init(${spec.lib})', 'initialized in \${_initSw.elapsedMicroseconds} µs');");
     s.writeln('  }');
     s.writeln();
 
@@ -134,11 +137,12 @@ class DartFfiGenerator {
 
     // ── dispose() override ───────────────────────────────────────────────────
     s.writeln('  @override');
-    s.writeln('  // ignore: unnecessary_overrides');
     s.writeln('  void dispose() {');
+    s.writeln("    NitroRuntime.logLifecycle('dispose(${spec.lib})', 'disposing');");
     s.writeln(
       '    super.dispose(); // sets isDisposed = true, calls onDestroy()',
     );
+    s.writeln("    NitroRuntime.logLifecycle('dispose(${spec.lib})', 'disposed');");
     s.writeln('  }');
     s.writeln();
 
@@ -289,8 +293,12 @@ class DartFfiGenerator {
           }
         }
       } else {
+        // ── Synchronous path — wrapped in callSync for logging + slow-call detection ──
+        final mnArg = ", methodName: '${func.dartName}'";
         if (needsArena) {
-          s.writeln('    return withArena((arena) {');
+          // callSync wraps withArena so timing covers the whole call including
+          // arena allocation and native execution.
+          s.writeln('    return NitroRuntime.callSync(() => withArena((arena) {');
           if (rt == 'void') {
             s.writeln('      _${func.dartName}Ptr($callArgs);');
           } else {
@@ -334,51 +342,55 @@ class DartFfiGenerator {
           } else {
             s.writeln('      return res;');
           }
-          s.writeln('    });');
+          s.writeln('    })$mnArg);');
         } else {
           if (rt == 'void') {
-            s.writeln('    _${func.dartName}Ptr($callArgs);');
+            s.writeln('    NitroRuntime.callSync<void>(() {');
+            s.writeln('      _${func.dartName}Ptr($callArgs);');
             if (!isFast) {
-              s.writeln("    NitroRuntime.checkError(_getErrorPtr, _clearErrorPtr);");
+              s.writeln("      NitroRuntime.checkError(_getErrorPtr, _clearErrorPtr);");
             }
+            s.writeln('    }$mnArg);');
           } else {
-            s.writeln('    final res = _${func.dartName}Ptr($callArgs);');
+            s.writeln('    return NitroRuntime.callSync(() {');
+            s.writeln('      final res = _${func.dartName}Ptr($callArgs);');
             if (!isFast) {
-              s.writeln("    NitroRuntime.checkError(_getErrorPtr, _clearErrorPtr);");
+              s.writeln("      NitroRuntime.checkError(_getErrorPtr, _clearErrorPtr);");
             }
             if (isRecordReturn) {
               final decodeExpr = _decodeRecordExpr(func.returnType, 'res as Pointer<Uint8>');
               final isLazy = func.returnType.recordListItemType != null && !func.returnType.recordListItemIsPrimitive;
               if (isLazy) {
-                s.writeln('    return $decodeExpr;');
+                s.writeln('      return $decodeExpr;');
               } else {
-                s.writeln('    final $rt decoded;');
-                s.writeln('    try {');
-                s.writeln('      decoded = $decodeExpr;');
-                s.writeln('    } finally {');
-                s.writeln('      malloc.free(res);');
-                s.writeln('    }');
-                s.writeln('    return decoded;');
+                s.writeln('      final $rt decoded;');
+                s.writeln('      try {');
+                s.writeln('        decoded = $decodeExpr;');
+                s.writeln('      } finally {');
+                s.writeln('        malloc.free(res);');
+                s.writeln('      }');
+                s.writeln('      return decoded;');
               }
             } else if (spec.enums.any((en) => en.name == rt)) {
-              s.writeln('    return res.to$rt();');
+              s.writeln('      return res.to$rt();');
             } else if (spec.structs.any((st) => st.name == rt)) {
-              s.writeln('    final structPtr = Pointer<${rt}Ffi>.fromAddress(res.address);');
-              s.writeln('    final $rt decoded;');
-              s.writeln('    try {');
-              s.writeln('      decoded = structPtr.ref.toDart();');
-              s.writeln('    } finally {');
-              s.writeln('      structPtr.ref.freeFields();');
-              s.writeln('      malloc.free(structPtr);');
-              s.writeln('    }');
-              s.writeln('    return decoded;');
+              s.writeln('      final structPtr = Pointer<${rt}Ffi>.fromAddress(res.address);');
+              s.writeln('      final $rt decoded;');
+              s.writeln('      try {');
+              s.writeln('        decoded = structPtr.ref.toDart();');
+              s.writeln('      } finally {');
+              s.writeln('        structPtr.ref.freeFields();');
+              s.writeln('        malloc.free(structPtr);');
+              s.writeln('      }');
+              s.writeln('      return decoded;');
             } else if (rt == 'bool') {
-              s.writeln('    return res != 0;');
+              s.writeln('      return res != 0;');
             } else if (rt == 'String') {
-              s.writeln('    return res.toDartStringWithFree();');
+              s.writeln('      return res.toDartStringWithFree();');
             } else {
-              s.writeln('    return res;');
+              s.writeln('      return res;');
             }
+            s.writeln('    }$mnArg);');
           }
         }
       }
@@ -398,38 +410,42 @@ class DartFfiGenerator {
           final isLazy = prop.type.recordListItemType != null && !prop.type.recordListItemIsPrimitive;
           s.writeln('  $rt get ${prop.dartName} {');
           s.writeln('    checkDisposed();');
-          s.writeln('    final res = _get${cap}Ptr();');
-          s.writeln('    NitroRuntime.checkError(_getErrorPtr, _clearErrorPtr);');
+          s.writeln("    return NitroRuntime.callSync(() {");
+          s.writeln('      final res = _get${cap}Ptr();');
+          s.writeln('      NitroRuntime.checkError(_getErrorPtr, _clearErrorPtr);');
           if (isLazy) {
-            s.writeln('    return ${_decodeRecordExpr(prop.type, "res")};');
-          } else {
-            s.writeln('    try {');
             s.writeln('      return ${_decodeRecordExpr(prop.type, "res")};');
-            s.writeln('    } finally {');
-            s.writeln('      malloc.free(res);');
-            s.writeln('    }');
+          } else {
+            s.writeln('      try {');
+            s.writeln('        return ${_decodeRecordExpr(prop.type, "res")};');
+            s.writeln('      } finally {');
+            s.writeln('        malloc.free(res);');
+            s.writeln('      }');
           }
+          s.writeln("    }, methodName: 'get ${prop.dartName}');");
           s.writeln('  }');
         } else {
           s.writeln('  $rt get ${prop.dartName} {');
           s.writeln('    checkDisposed();');
-          s.writeln('    final res = _get${cap}Ptr();');
-          s.writeln("    NitroRuntime.checkError(_getErrorPtr, _clearErrorPtr);");
+          s.writeln("    return NitroRuntime.callSync(() {");
+          s.writeln('      final res = _get${cap}Ptr();');
+          s.writeln("      NitroRuntime.checkError(_getErrorPtr, _clearErrorPtr);");
           if (spec.enums.any((en) => en.name == rt)) {
-            s.writeln('    return res.to$rt();');
+            s.writeln('      return res.to$rt();');
           } else if (rt == 'bool') {
-            s.writeln('    return res != 0;');
+            s.writeln('      return res != 0;');
           } else if (spec.structs.any((st) => st.name == rt)) {
-            s.writeln('    final structPtr = Pointer<${rt}Ffi>.fromAddress(res.address);');
-            s.writeln('    try {');
-            s.writeln('      return structPtr.ref.toDart();');
-            s.writeln('    } finally {');
-            s.writeln('      structPtr.ref.freeFields();');
-            s.writeln('      malloc.free(structPtr);');
-            s.writeln('    }');
+            s.writeln('      final structPtr = Pointer<${rt}Ffi>.fromAddress(res.address);');
+            s.writeln('      try {');
+            s.writeln('        return structPtr.ref.toDart();');
+            s.writeln('      } finally {');
+            s.writeln('        structPtr.ref.freeFields();');
+            s.writeln('        malloc.free(structPtr);');
+            s.writeln('      }');
           } else {
-            s.writeln('    return res;');
+            s.writeln('      return res;');
           }
+          s.writeln("    }, methodName: 'get ${prop.dartName}');");
           s.writeln('  }');
         }
       }
@@ -440,7 +456,7 @@ class DartFfiGenerator {
           final encodeExpr = _encodeRecordParam(prop.type, 'value', 'arena');
           s.writeln('  set ${prop.dartName}($rt value) {');
           s.writeln('    checkDisposed();');
-          s.writeln('    withArena((arena) { _set${cap}Ptr($encodeExpr); NitroRuntime.checkError(_getErrorPtr, _clearErrorPtr); });');
+          s.writeln("    NitroRuntime.callSync<void>(() => withArena((arena) { _set${cap}Ptr($encodeExpr); NitroRuntime.checkError(_getErrorPtr, _clearErrorPtr); }), methodName: 'set ${prop.dartName}');");
           s.writeln('  }');
         } else {
           final propNeedsArena = rt == 'String' || prop.type.isTypedData || spec.structs.any((st) => st.name == rt);
@@ -453,7 +469,7 @@ class DartFfiGenerator {
             } else {
               valExpr = 'value.toNative(arena).cast<Void>()';
             }
-            s.writeln("  set ${prop.dartName}($rt value) { checkDisposed(); withArena((arena) { _set${cap}Ptr($valExpr); NitroRuntime.checkError(_getErrorPtr, _clearErrorPtr); }); }");
+            s.writeln("  set ${prop.dartName}($rt value) { checkDisposed(); NitroRuntime.callSync<void>(() => withArena((arena) { _set${cap}Ptr($valExpr); NitroRuntime.checkError(_getErrorPtr, _clearErrorPtr); }), methodName: 'set ${prop.dartName}'); }");
           } else {
             String valExpr = 'value';
             if (spec.enums.any((en) => en.name == rt)) {
@@ -461,7 +477,7 @@ class DartFfiGenerator {
             } else if (rt == 'bool') {
               valExpr = 'value ? 1 : 0';
             }
-            s.writeln("  set ${prop.dartName}($rt value) { checkDisposed(); _set${cap}Ptr($valExpr); NitroRuntime.checkError(_getErrorPtr, _clearErrorPtr); }");
+            s.writeln("  set ${prop.dartName}($rt value) { checkDisposed(); NitroRuntime.callSync<void>(() { _set${cap}Ptr($valExpr); NitroRuntime.checkError(_getErrorPtr, _clearErrorPtr); }, methodName: 'set ${prop.dartName}'); }");
           }
         }
       }
@@ -727,6 +743,7 @@ class DartFfiGenerator {
       s.writeln('      return NitroRuntime.openNativeAsync<$openType>(');
       s.writeln('        call: (port) => _${func.dartName}Ptr($callArgs, port),');
       s.writeln('        unpack: $unpack,');
+      s.writeln("        methodName: '${func.dartName}',");
       s.writeln('      );');
       s.writeln('    } finally {');
       s.writeln('      arena.releaseAll();');
@@ -741,6 +758,7 @@ class DartFfiGenerator {
       s.writeln('    return NitroRuntime.openNativeAsync<$openType>(');
       s.writeln('      call: (port) => _${func.dartName}Ptr($plainCallArgs${portSep}port),');
       s.writeln('      unpack: $unpack,');
+      s.writeln("      methodName: '${func.dartName}',");
       s.writeln('    );');
     }
   }

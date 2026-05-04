@@ -748,7 +748,24 @@ class CppBridgeGenerator {
         s.writeln('    // Cache bridge method IDs');
         s.writeln('    if (g_bridgeClass != nullptr) {');
         for (final func in spec.functions) {
-          final jniSig = _jniSig(func.params, func.returnType, enumNames, structNames, libPkg);
+          final String jniSig;
+          if (func.isNativeAsync) {
+            // @nitroNativeAsync: Kotlin method signature is (params + J dartPort) → V
+            final sb = StringBuffer('(');
+            for (final p in func.params) {
+              if (structNames.contains(p.type.name)) {
+                sb.write('L$libPkg/${p.type.name};');
+              } else if (p.zeroCopy && p.type.isTypedData) {
+                sb.write('Ljava/nio/ByteBuffer;');
+              } else {
+                sb.write(_jniSigType(p.type.name));
+              }
+            }
+            sb.write('J)V'); // J = long (dart_port), V = void
+            jniSig = sb.toString();
+          } else {
+            jniSig = _jniSig(func.params, func.returnType, enumNames, structNames, libPkg);
+          }
           s.writeln('        g_mid_${func.dartName}_call = env->GetStaticMethodID(g_bridgeClass, "${func.dartName}_call", "$jniSig");');
         }
         for (final prop in spec.properties) {
@@ -847,6 +864,72 @@ class CppBridgeGenerator {
 
       // ── Functions ─────────────────────────────────────────────────────────────
       for (final func in spec.functions) {
+        // ── @nitroNativeAsync: void + dart_port, delegates to CallStaticVoidMethod ──
+        if (func.isNativeAsync) {
+          final paramsDeclParts = <String>[];
+          for (final p in func.params) {
+            paramsDeclParts.add('${_paramTypeToC(p.type.name, structNames)} ${p.name}');
+            if (p.type.isTypedData) paramsDeclParts.add('int64_t ${p.name}_length');
+          }
+          paramsDeclParts.add('int64_t dart_port');
+          final paramsDecl = paramsDeclParts.join(', ');
+          // Build JNI sig for log
+          final sb = StringBuffer('(');
+          for (final p in func.params) {
+            if (structNames.contains(p.type.name)) {
+              sb.write('L$libPkg/${p.type.name};');
+            } else if (p.zeroCopy && p.type.isTypedData) {
+              sb.write('Ljava/nio/ByteBuffer;');
+            } else {
+              sb.write(_jniSigType(p.type.name));
+            }
+          }
+          sb.write('J)V');
+          final jniNativeAsyncSig = sb.toString();
+
+          s.writeln('void ${func.cSymbol}($paramsDecl) {');
+          s.writeln('    JNIEnv* env = GetEnv();');
+          s.writeln('    if (env == nullptr) return;');
+          s.writeln('    jmethodID methodId = g_mid_${func.dartName}_call;');
+          s.writeln('    if (methodId == nullptr) { LOGE("Method not found: ${func.dartName}_call sig=$jniNativeAsyncSig"); return; }');
+          s.writeln();
+          s.writeln('    ${libStem}_clear_error();');
+          s.writeln('    if (env->PushLocalFrame(16) != 0) return;');
+
+          final callArgsList = <String>[];
+          for (final p in func.params) {
+            final pt = p.type.name;
+            if (pt == 'String') {
+              s.writeln('    jstring j_${p.name} = env->NewStringUTF(${p.name});');
+              callArgsList.add('j_${p.name}');
+            } else if (structNames.contains(pt)) {
+              s.writeln('    jobject jobj_${p.name} = unpack_${pt}_to_jni(env, (const $pt*)${p.name});');
+              callArgsList.add('jobj_${p.name}');
+            } else if (p.zeroCopy && p.type.isTypedData) {
+              final elemSize = _zeroCopyElementSizeExpr(pt);
+              s.writeln('    jobject j_${p.name} = env->NewDirectByteBuffer(${p.name}, ${p.name}_length$elemSize);');
+              callArgsList.add('j_${p.name}');
+            } else if (!p.zeroCopy && p.type.isTypedData) {
+              final ops = _typedDataJniOps(pt);
+              s.writeln('    ${ops[0]} j_${p.name} = env->${ops[1]}((jsize)${p.name}_length);');
+              s.writeln('    env->${ops[2]}(j_${p.name}, 0, (jsize)${p.name}_length, (const ${ops[3]}*)${p.name});');
+              callArgsList.add('j_${p.name}');
+            } else {
+              callArgsList.add(p.name);
+            }
+          }
+          callArgsList.add('(jlong)dart_port');
+          final callArgs = callArgsList.join(', ');
+          s.writeln('    env->CallStaticVoidMethod(g_bridgeClass, methodId, $callArgs);');
+          s.writeln('    if (env->ExceptionCheck()) {');
+          s.writeln('        nitro_report_jni_exception(env, env->ExceptionOccurred());');
+          s.writeln('    }');
+          s.writeln('    env->PopLocalFrame(nullptr);');
+          s.writeln('}');
+          s.writeln();
+          continue;
+        }
+
         final isEnum = enumNames.contains(func.returnType.name);
         final isStruct = structNames.contains(func.returnType.name);
         final isRecord = func.returnType.isRecord && !func.returnType.isMap;
@@ -1205,6 +1288,59 @@ class CppBridgeGenerator {
       s.writeln('}');
       s.writeln();
 
+      // ── postXxxToPort helpers (used by @nitroNativeAsync Kotlin bridge) ──────
+      final hasNativeAsync = spec.functions.any((f) => f.isNativeAsync);
+      if (hasNativeAsync) {
+        final jniPostNull = _jniMethodName(spec.lib, spec.dartClassName, 'postNullToPort');
+        final jniPostInt64 = _jniMethodName(spec.lib, spec.dartClassName, 'postInt64ToPort');
+        final jniPostDouble = _jniMethodName(spec.lib, spec.dartClassName, 'postDoubleToPort');
+        final jniPostBool = _jniMethodName(spec.lib, spec.dartClassName, 'postBoolToPort');
+        final jniPostString = _jniMethodName(spec.lib, spec.dartClassName, 'postStringToPort');
+
+        s.writeln('// ── postXxxToPort helpers for @nitroNativeAsync ──');
+        // postNullToPort
+        s.writeln('JNIEXPORT void JNICALL $jniPostNull(JNIEnv*, jclass, jlong dartPort) {');
+        s.writeln('    Dart_CObject obj;');
+        s.writeln('    obj.type = Dart_CObject_kNull;');
+        s.writeln('    Dart_PostCObject_DL((Dart_Port)dartPort, &obj);');
+        s.writeln('}');
+        s.writeln();
+        // postInt64ToPort
+        s.writeln('JNIEXPORT void JNICALL $jniPostInt64(JNIEnv*, jclass, jlong dartPort, jlong value) {');
+        s.writeln('    Dart_CObject obj;');
+        s.writeln('    obj.type = Dart_CObject_kInt64;');
+        s.writeln('    obj.value.as_int64 = (int64_t)value;');
+        s.writeln('    Dart_PostCObject_DL((Dart_Port)dartPort, &obj);');
+        s.writeln('}');
+        s.writeln();
+        // postDoubleToPort
+        s.writeln('JNIEXPORT void JNICALL $jniPostDouble(JNIEnv*, jclass, jlong dartPort, jdouble value) {');
+        s.writeln('    Dart_CObject obj;');
+        s.writeln('    obj.type = Dart_CObject_kDouble;');
+        s.writeln('    obj.value.as_double = (double)value;');
+        s.writeln('    Dart_PostCObject_DL((Dart_Port)dartPort, &obj);');
+        s.writeln('}');
+        s.writeln();
+        // postBoolToPort
+        s.writeln('JNIEXPORT void JNICALL $jniPostBool(JNIEnv*, jclass, jlong dartPort, jboolean value) {');
+        s.writeln('    Dart_CObject obj;');
+        s.writeln('    obj.type = Dart_CObject_kBool;');
+        s.writeln('    obj.value.as_bool = (bool)value;');
+        s.writeln('    Dart_PostCObject_DL((Dart_Port)dartPort, &obj);');
+        s.writeln('}');
+        s.writeln();
+        // postStringToPort
+        s.writeln('JNIEXPORT void JNICALL $jniPostString(JNIEnv* env, jclass, jlong dartPort, jstring value) {');
+        s.writeln('    const char* cStr = env->GetStringUTFChars(value, nullptr);');
+        s.writeln('    Dart_CObject obj;');
+        s.writeln('    obj.type = Dart_CObject_kString;');
+        s.writeln('    obj.value.as_string = const_cast<char*>(cStr);');
+        s.writeln('    Dart_PostCObject_DL((Dart_Port)dartPort, &obj);');
+        s.writeln('    env->ReleaseStringUTFChars(value, cStr);');
+        s.writeln('}');
+        s.writeln();
+      }
+
       s.writeln('} // extern "C"');
     } // end if (includeAndroid)
 
@@ -1214,7 +1350,6 @@ class CppBridgeGenerator {
       s.writeln('extern "C" {');
       for (final func in spec.functions) {
         final isEnum = enumNames.contains(func.returnType.name);
-        final cReturnType = isEnum ? 'int64_t' : _typeToC(func.returnType.name);
         final paramParts = <String>[];
         final callParamParts = <String>[];
         for (final p in func.params) {
@@ -1225,6 +1360,24 @@ class CppBridgeGenerator {
             callParamParts.add('${p.name}_length');
           }
         }
+
+        if (func.isNativeAsync) {
+          // @nitroNativeAsync on Apple: void func(params, int64_t dart_port)
+          // delegates to Swift _call_ which accepts the dart_port and posts back via Dart_PostCObject_DL
+          paramParts.add('int64_t dart_port');
+          callParamParts.add('dart_port');
+          final params = paramParts.join(', ');
+          final callParams = callParamParts.join(', ');
+          s.writeln('extern void _${spec.namespace}_call_${func.dartName}(${params.isEmpty ? 'void' : params});');
+          s.writeln('void ${func.cSymbol}($params) {');
+          s.writeln('    ${libStem}_clear_error();');
+          s.writeln('    _${spec.namespace}_call_${func.dartName}($callParams);');
+          s.writeln('}');
+          s.writeln('');
+          continue;
+        }
+
+        final cReturnType = isEnum ? 'int64_t' : _typeToC(func.returnType.name);
         final params = paramParts.join(', ');
         final callParams = callParamParts.join(', ');
         s.writeln(

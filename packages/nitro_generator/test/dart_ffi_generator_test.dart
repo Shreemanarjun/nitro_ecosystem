@@ -188,17 +188,12 @@ void main() {
 
     test('property bool getter converts != 0', () {
       final out = DartFfiGenerator.generate(richSpec());
-      expect(
-        out,
-        contains(
-          '  bool get enabled {\n'
-          '    checkDisposed();\n'
-          '    final res = _getEnabledPtr();\n'
-          '    NitroRuntime.checkError(_getErrorPtr, _clearErrorPtr);\n'
-          '    return res != 0;\n'
-          '  }',
-        ),
-      );
+      expect(out, contains('bool get enabled {'));
+      expect(out, contains("NitroRuntime.callSync(() {"));
+      expect(out, contains('final res = _getEnabledPtr();'));
+      expect(out, contains('NitroRuntime.checkError(_getErrorPtr, _clearErrorPtr);'));
+      expect(out, contains('return res != 0;'));
+      expect(out, contains("methodName: 'get enabled'"));
     });
 
     test('property enum getter calls toSensorMode()', () {
@@ -208,12 +203,10 @@ void main() {
 
     test('property bool setter converts value ? 1 : 0', () {
       final out = DartFfiGenerator.generate(richSpec());
-      expect(
-        out,
-        contains(
-          'set enabled(bool value) { checkDisposed(); _setEnabledPtr(value ? 1 : 0); NitroRuntime.checkError(_getErrorPtr, _clearErrorPtr); }',
-        ),
-      );
+      expect(out, contains('set enabled(bool value)'));
+      expect(out, contains('_setEnabledPtr(value ? 1 : 0)'));
+      expect(out, contains('NitroRuntime.checkError(_getErrorPtr, _clearErrorPtr)'));
+      expect(out, contains("methodName: 'set enabled'"));
     });
 
     test('property enum setter passes nativeValue', () {

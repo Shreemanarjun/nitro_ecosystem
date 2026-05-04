@@ -502,17 +502,20 @@ void main() {
 
     test('int return: posts via kInt64', () {
       final out = SwiftGenerator.generate(_nativeAsyncIntSpec());
-      expect(out, contains('Dart_CObject_Type(rawValue: 6)'));
+      expect(out, contains('Dart_CObject_kInt64'));
+      expect(out, contains('as_int64'));
     });
 
     test('double return: posts via kDouble', () {
       final out = SwiftGenerator.generate(_nativeAsyncDoubleSpec());
-      expect(out, contains('Dart_CObject_Type(rawValue: 7)'));
+      expect(out, contains('Dart_CObject_kDouble'));
+      expect(out, contains('as_double'));
     });
 
     test('bool return: posts via kBool', () {
       final out = SwiftGenerator.generate(_nativeAsyncBoolSpec());
-      expect(out, contains('Dart_CObject_Type(rawValue: 5)'));
+      expect(out, contains('Dart_CObject_kBool'));
+      expect(out, contains('as_bool'));
     });
 
     test('stub has @_cdecl annotation', () {
@@ -584,9 +587,9 @@ void main() {
   // ── SwiftGenerator — additional return types ──────────────────────────────────
 
   group('SwiftGenerator — @NitroNativeAsync additional coverage', () {
-    test('void return: posts kNull (rawValue 0) after executing inside Task', () {
+    test('void return: posts kNull after executing inside Task', () {
       final out = SwiftGenerator.generate(_nativeAsyncVoidSpec());
-      expect(out, contains('Dart_CObject_Type(rawValue: 0)'));
+      expect(out, contains('Dart_CObject_kNull'));
     });
 
     test('void return: calls impl.doWork() before posting null', () {
@@ -595,9 +598,10 @@ void main() {
       expect(out, contains('Dart_PostCObject_DL(dartPort, &_null)'));
     });
 
-    test('String return: uses kString type (rawValue 14)', () {
+    test('String return: uses kString type', () {
       final out = SwiftGenerator.generate(_nativeAsyncStringSpec());
-      expect(out, contains('Dart_CObject_Type(rawValue: 14)'));
+      expect(out, contains('Dart_CObject_kString'));
+      expect(out, contains('as_string'));
     });
 
     test('String return: uses withCString to pass the string pointer', () {
@@ -620,10 +624,11 @@ void main() {
       expect(guardBlock, contains('Dart_PostCObject_DL(dartPort, &_null)'));
     });
 
-    test('enum return: posts via kInt64 (rawValue 6) using .rawValue', () {
+    test('enum return: posts via kInt64 using .rawValue', () {
       final out = SwiftGenerator.generate(_nativeAsyncEnumReturnSpec());
       expect(out, contains('?.rawValue ?? 0'));
-      expect(out, contains('Dart_CObject_Type(rawValue: 6)'));
+      expect(out, contains('Dart_CObject_kInt64'));
+      expect(out, contains('as_int64'));
     });
   });
 
@@ -717,6 +722,90 @@ void main() {
       );
       final out = CppBridgeGenerator.generate(spec);
       expect(out, contains('const char* name'));
+    });
+  });
+
+  // ── CppBridgeGenerator — Android JNI @NitroNativeAsync ───────────────────
+
+  BridgeSpec jniNativeAsyncSpec(String returnType) => BridgeSpec(
+        dartClassName: 'Fetcher',
+        lib: 'fetcher',
+        namespace: 'fetcher',
+        iosImpl: NativeImpl.swift,
+        androidImpl: NativeImpl.kotlin,
+        sourceUri: 'fetcher.native.dart',
+        functions: [
+          BridgeFunction(
+            dartName: 'fetch',
+            cSymbol: 'fetcher_fetch',
+            isAsync: false,
+            isNativeAsync: true,
+            returnType: BridgeType(name: returnType),
+            params: [BridgeParam(name: 'key', type: BridgeType(name: 'String'))],
+          ),
+        ],
+      );
+
+  group('CppBridgeGenerator — Android JNI @NitroNativeAsync', () {
+    test('JNI_OnLoad caches method with (params + J)V signature for native async', () {
+      final out = CppBridgeGenerator.generate(jniNativeAsyncSpec('String'));
+      expect(out, contains('"(Ljava/lang/String;J)V"'));
+    });
+
+    test('Android C function is void with dart_port param', () {
+      final out = CppBridgeGenerator.generate(jniNativeAsyncSpec('String'));
+      expect(out, contains('void fetcher_fetch(const char* key, int64_t dart_port)'));
+    });
+
+    test('Android C function calls CallStaticVoidMethod with jlong dart_port', () {
+      final out = CppBridgeGenerator.generate(jniNativeAsyncSpec('String'));
+      expect(out, contains('CallStaticVoidMethod('));
+      expect(out, contains('(jlong)dart_port'));
+    });
+
+    test('postNullToPort JNIEXPORT is emitted for specs with @NitroNativeAsync', () {
+      final out = CppBridgeGenerator.generate(jniNativeAsyncSpec('String'));
+      expect(out, contains('JNIEXPORT void JNICALL Java_nitro_fetcher_1module_FetcherJniBridge_postNullToPort'));
+    });
+
+    test('postStringToPort JNIEXPORT uses GetStringUTFChars and Dart_PostCObject_DL', () {
+      final out = CppBridgeGenerator.generate(jniNativeAsyncSpec('String'));
+      expect(out, contains('JNIEXPORT void JNICALL Java_nitro_fetcher_1module_FetcherJniBridge_postStringToPort'));
+      expect(out, contains('GetStringUTFChars'));
+      expect(out, contains('Dart_CObject_kString'));
+      expect(out, contains('Dart_PostCObject_DL'));
+    });
+
+    test('postInt64ToPort JNIEXPORT emitted', () {
+      final out = CppBridgeGenerator.generate(jniNativeAsyncSpec('int'));
+      expect(out, contains('JNIEXPORT void JNICALL Java_nitro_fetcher_1module_FetcherJniBridge_postInt64ToPort'));
+      expect(out, contains('Dart_CObject_kInt64'));
+    });
+
+    test('postDoubleToPort JNIEXPORT emitted', () {
+      final out = CppBridgeGenerator.generate(jniNativeAsyncSpec('double'));
+      expect(out, contains('JNIEXPORT void JNICALL Java_nitro_fetcher_1module_FetcherJniBridge_postDoubleToPort'));
+      expect(out, contains('Dart_CObject_kDouble'));
+    });
+
+    test('postBoolToPort JNIEXPORT emitted', () {
+      final out = CppBridgeGenerator.generate(jniNativeAsyncSpec('bool'));
+      expect(out, contains('JNIEXPORT void JNICALL Java_nitro_fetcher_1module_FetcherJniBridge_postBoolToPort'));
+      expect(out, contains('Dart_CObject_kBool'));
+    });
+
+    test('postXxxToPort helpers NOT emitted when no @NitroNativeAsync', () {
+      final out = CppBridgeGenerator.generate(simpleSpec());
+      expect(out, isNot(contains('postNullToPort')));
+      expect(out, isNot(contains('postStringToPort')));
+    });
+
+    test('Apple section for @NitroNativeAsync emits void + dart_port signature', () {
+      final out = CppBridgeGenerator.generate(jniNativeAsyncSpec('String'));
+      // The Apple #elif section should have void func(params, int64_t dart_port)
+      expect(out, contains('void fetcher_fetch(const char* key, int64_t dart_port)'));
+      // And should declare the Swift extern as void too
+      expect(out, contains('extern void _fetcher_call_fetch('));
     });
   });
 }

@@ -1,6 +1,7 @@
 import 'package:build/build.dart';
 import 'package:dart_style/dart_style.dart';
 import 'package:source_gen/source_gen.dart';
+import 'src/build_extensions.dart';
 import 'src/spec_extractor.dart';
 import 'src/spec_validator.dart';
 import 'src/generators/dart_ffi_generator.dart';
@@ -20,20 +21,7 @@ class NitroGeneratorBuilder implements Builder {
   static final _formatter = DartFormatter();
 
   @override
-  Map<String, List<String>> get buildExtensions => {
-    '^lib/{{dir}}/{{file}}.native.dart': [
-      'lib/{{dir}}/{{file}}.g.dart',
-      'lib/{{dir}}/generated/kotlin/{{file}}.bridge.g.kt',
-      'lib/{{dir}}/generated/swift/{{file}}.bridge.g.swift',
-      'lib/{{dir}}/generated/cpp/{{file}}.bridge.g.h',
-      'lib/{{dir}}/generated/cpp/{{file}}.bridge.g.cpp',
-      'lib/{{dir}}/generated/cmake/{{file}}.CMakeLists.g.txt',
-      // NativeImpl.cpp — direct C++ implementation support
-      'lib/{{dir}}/generated/cpp/{{file}}.native.g.h',
-      'lib/{{dir}}/generated/cpp/test/{{file}}.mock.g.h',
-      'lib/{{dir}}/generated/cpp/test/{{file}}.test.g.cpp',
-    ],
-  };
+  Map<String, List<String>> get buildExtensions => nitroBuilderExtensions;
 
   @override
   Future<void> build(BuildStep buildStep) async {

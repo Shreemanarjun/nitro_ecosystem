@@ -1,3 +1,7 @@
+## 0.3.4
+
+- **Fixed: `createSharedHeaders` now populates SPM Cpp target include dirs** — Previously, `createSharedHeaders` only wrote `nitro.h` and Dart API headers to `src/`, `ios/Classes/`, and `macos/Classes/`. Plugins using the nested Flutter 3.41+ SPM layout (`{platform}/<plugin>/Sources/<ClassName>Cpp/include/`) were left without those headers until `linkPodspec` ran. `createSharedHeaders` now scans for any existing `*Cpp/include/` directories under `ios/<plugin>/Sources/` and `macos/<plugin>/Sources/` and writes `nitro.h` plus copies all `dart_api*.h` headers into them.
+
 ## 0.3.3
 
 - **Fixed: `linkPodspec` operation order causing re-added stale Swift bridges** — `_cleanStaleSwiftBridges` was called before `syncBridgeFiles`, so any stale `.bridge.g.swift` copies deleted from `ios/Classes/` were immediately re-added by the subsequent `syncBridgeFiles` call. The order is now `syncBridgeFiles` first, then `_cleanStaleSwiftBridges`, ensuring stale copies are permanently removed.

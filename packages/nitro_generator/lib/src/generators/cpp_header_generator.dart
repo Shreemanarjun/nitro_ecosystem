@@ -41,7 +41,6 @@ class CppHeaderGenerator {
         final isEnumRet = spec.enums.any(
           (en) => en.name == func.returnType.name.replaceFirst('?', ''),
         );
-        final ret = isEnumRet ? 'int64_t' : _typeToC(func.returnType.name);
         final paramParts = <String>[];
         for (final p in func.params) {
           final isStructParam = spec.structs.any(
@@ -50,9 +49,17 @@ class CppHeaderGenerator {
           paramParts.add('${isStructParam ? 'void*' : _typeToC(p.type.name)} ${p.name}');
           if (p.type.isTypedData) paramParts.add('int64_t ${p.name}_length');
         }
-        final params = paramParts.join(', ');
-        final paramStr = params.isEmpty ? 'void' : params;
-        s.writeln('NITRO_EXPORT $ret ${func.cSymbol}($paramStr);');
+        // @NitroNativeAsync: C entry point is always void + extra dart_port param.
+        if (func.isNativeAsync) {
+          paramParts.add('int64_t dart_port');
+          final paramStr = paramParts.join(', ');
+          s.writeln('NITRO_EXPORT void ${func.cSymbol}($paramStr);');
+        } else {
+          final ret = isEnumRet ? 'int64_t' : _typeToC(func.returnType.name);
+          final params = paramParts.join(', ');
+          final paramStr = params.isEmpty ? 'void' : params;
+          s.writeln('NITRO_EXPORT $ret ${func.cSymbol}($paramStr);');
+        }
       }
       s.writeln();
     }

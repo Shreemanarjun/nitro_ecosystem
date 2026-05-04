@@ -1,3 +1,8 @@
+## 0.3.4
+
+- **Fixed: Swift protocol signature for `@nitroNativeAsync` methods** — Methods annotated with `@nitroNativeAsync` were incorrectly declared as non-`async` in the generated `HybridXxxProtocol`, even though the bridge stub uses `Task.detached { try? await impl.method(...) }`. The protocol now correctly emits `async throws` for both `@nitroAsync` and `@nitroNativeAsync` methods.
+- **Fixed: `build_yaml_drift_test` compilation under `flutter test`** — The test previously imported `package:nitro_generator/builder.dart`, which transitively pulls in `source_gen` → `dart:mirrors` (unavailable in the Flutter test runner). The `buildExtensions` map is now extracted into a standalone `lib/src/build_extensions.dart` with no `source_gen` dependency; the builder references it there and the test imports only that file.
+
 ## 0.3.3
 
 - **Fixed: JNI crash (ART abort) with nested `@HybridStruct` fields** — `GetFieldID` was called with `"Ljava/lang/Object;"` for nested struct fields, posting a `NoSuchFieldError` that ART turned into a fatal runtime abort on the next JNI call. Fixed by generating the correct class descriptor (e.g. `Lnitro/nitro_ar_module/Vector3;`) in the constructor signature, `GetFieldID` calls, `pack_*_from_jni`, `unpack_*_to_jni`, and the release function. Both the already-generated file and the generator itself were fixed to prevent regression.

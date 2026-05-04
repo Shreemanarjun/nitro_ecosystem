@@ -19,6 +19,7 @@ workspace:
   - benchmark
   - benchmark/example
   - test_projects/testing_project
+  - test_projects/testing_project/example
 
 dependency_overrides:
   matcher: 0.12.19

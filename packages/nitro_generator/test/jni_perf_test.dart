@@ -1294,7 +1294,9 @@ void main() {
       );
       final out = DartFfiGenerator.generate(spec);
       expect(out, isNot(contains('callAsync')));
-      expect(out, isNot(contains('methodName:')));
+      // callSync also now passes methodName for logging — verify it's the right method
+      expect(out, contains("methodName: 'add'"));
+      expect(out, contains('NitroRuntime.callSync'));
     });
 
     test('record async return still carries methodName', () {

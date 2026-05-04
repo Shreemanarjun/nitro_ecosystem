@@ -158,7 +158,11 @@ final class KotlinImpl extends NativeImpl implements AndroidNativeImpl {
 /// Implements all native-platform sealed interfaces so it is accepted by
 /// every [NitroModule] platform field except [NitroModule.web].
 final class CppImpl extends NativeImpl
-    implements AppleNativeImpl, AndroidNativeImpl, WindowsNativeImpl, LinuxNativeImpl {
+    implements
+        AppleNativeImpl,
+        AndroidNativeImpl,
+        WindowsNativeImpl,
+        LinuxNativeImpl {
   const CppImpl._() : super._();
 }
 

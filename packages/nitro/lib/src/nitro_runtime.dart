@@ -46,6 +46,7 @@ class NitroRuntime {
     if (_libCache.containsKey(libName)) return _libCache[libName]!;
 
     _log(NitroLogLevel.verbose, 'loadLib', 'Loading native lib: $libName');
+    final sw = Stopwatch()..start();
     late DynamicLibrary lib;
     if (Platform.isIOS || Platform.isMacOS) {
       lib = DynamicLibrary.process();
@@ -58,8 +59,17 @@ class NitroRuntime {
     }
 
     _libCache[libName] = lib;
-    _log(NitroLogLevel.verbose, 'loadLib', 'Loaded: $libName');
+    sw.stop();
+    _log(NitroLogLevel.verbose, 'loadLib', 'Loaded: $libName in ${sw.elapsedMicroseconds} µs');
     return lib;
+  }
+
+  // ── Lifecycle logging ────────────────────────────────────────────────────
+
+  /// Logs a lifecycle event (init, dispose) for a module.
+  /// Called by generated code so it has access to the module name.
+  static void logLifecycle(String tag, String message) {
+    _log(NitroLogLevel.verbose, tag, message);
   }
 
   // ── Error handling ────────────────────────────────────────────────────────
@@ -99,20 +109,62 @@ class NitroRuntime {
 
   // ── Synchronous call ─────────────────────────────────────────────────────
 
-  /// Calls a native function synchronously.
-  static T callSync<T>(Function fn, List<Object?> args) {
-    if (NitroConfig.instance.effectiveLogLevel == NitroLogLevel.verbose) {
-      final sw = Stopwatch()..start();
-      final result = Function.apply(fn, args) as T;
-      sw.stop();
-      _log(
-        NitroLogLevel.verbose,
-        'callSync',
-        'call completed in ${sw.elapsedMicroseconds} µs',
-      );
+  /// Calls a native function synchronously, with logging and slow-call
+  /// detection that mirror [callAsync].
+  ///
+  /// Pass [methodName] so log lines identify which method was called:
+  ///
+  /// ```dart
+  /// final res = NitroRuntime.callSync(
+  ///   () {
+  ///     final r = _addPtr(a, b);
+  ///     NitroRuntime.checkError(_getErrorPtr, _clearErrorPtr);
+  ///     return r;
+  ///   },
+  ///   methodName: 'add',
+  /// );
+  /// ```
+  ///
+  /// At [NitroLogLevel.verbose] every call emits a "calling" + "completed in
+  /// N µs" pair.  When [NitroConfig.slowCallThresholdUs] > 0 a
+  /// [NitroLogLevel.warning] is emitted for calls that exceed the threshold —
+  /// useful for catching synchronous FFI calls that block the UI thread.
+  ///
+  /// Any exception thrown by [call] (typically a [HybridException] from
+  /// [checkError]) is logged at [NitroLogLevel.error] and re-thrown.
+  static T callSync<T>(T Function() call, {String methodName = ''}) {
+    final cfg = NitroConfig.instance;
+    final effective = cfg.effectiveLogLevel;
+
+    // Fast path: logging is fully disabled.
+    if (effective == NitroLogLevel.none) return call();
+
+    final tag = methodName.isEmpty ? 'callSync' : 'callSync($methodName)';
+    final sw = (effective == NitroLogLevel.verbose || cfg.slowCallThresholdUs > 0)
+        ? (Stopwatch()..start())
+        : null;
+
+    _log(NitroLogLevel.verbose, tag, 'calling');
+
+    try {
+      final result = call();
+      if (sw != null) {
+        sw.stop();
+        final us = sw.elapsedMicroseconds;
+        _log(NitroLogLevel.verbose, tag, 'completed in $us µs');
+        if (cfg.slowCallThresholdUs > 0 && us > cfg.slowCallThresholdUs) {
+          _log(
+            NitroLogLevel.warning,
+            tag,
+            'slow call: $us µs exceeded threshold of ${cfg.slowCallThresholdUs} µs',
+          );
+        }
+      }
       return result;
+    } catch (e, st) {
+      _log(NitroLogLevel.error, tag, 'threw: $e', e, st);
+      rethrow;
     }
-    return Function.apply(fn, args) as T;
   }
 
   // ── Async call via isolate pool ──────────────────────────────────────────
@@ -192,12 +244,41 @@ class NitroRuntime {
   static Future<T> openNativeAsync<T>({
     required void Function(int dartPort) call,
     required T Function(dynamic raw) unpack,
+    String methodName = '',
   }) {
+    final cfg = NitroConfig.instance;
+    final effective = cfg.effectiveLogLevel;
+    final tag = methodName.isEmpty ? 'nativeAsync' : 'nativeAsync($methodName)';
+
+    final sw = effective != NitroLogLevel.none &&
+            (effective == NitroLogLevel.verbose || cfg.slowCallThresholdUs > 0)
+        ? (Stopwatch()..start())
+        : null;
+
+    _log(NitroLogLevel.verbose, tag, 'calling');
+
     final port = ReceivePort();
     call(port.sendPort.nativePort);
     return port.first.then((raw) {
       port.close();
-      return unpack(raw);
+      if (sw != null) {
+        sw.stop();
+        final us = sw.elapsedMicroseconds;
+        _log(NitroLogLevel.verbose, tag, 'completed in $us µs');
+        if (cfg.slowCallThresholdUs > 0 && us > cfg.slowCallThresholdUs) {
+          _log(
+            NitroLogLevel.warning,
+            tag,
+            'slow call: $us µs exceeded threshold of ${cfg.slowCallThresholdUs} µs',
+          );
+        }
+      }
+      try {
+        return unpack(raw);
+      } catch (e, st) {
+        _log(NitroLogLevel.error, tag, 'threw during unpack: $e', e, st);
+        rethrow;
+      }
     });
   }
 

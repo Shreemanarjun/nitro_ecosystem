@@ -8,23 +8,22 @@
 ///   2. The fixture has the correct file structure (init + generate + link).
 ///   3. Running the link functions on a temp copy produces the expected output.
 ///   4. A full scaffold-from-scratch produces a structurally correct plugin.
+library;
 
 import 'dart:io';
 
-import 'package:path/path.dart' as p;
-import 'package:test/test.dart';
-
-import 'package:nitrogen_cli/commands/scaffold_templates.dart';
 import 'package:nitrogen_cli/commands/link_command.dart'
     show
         linkSwiftPlugin,
         linkMacosSwiftPlugin,
         linkKotlinPlugin,
         linkKotlinLoadLibraries,
-        linkCMake,
-        linkAndroid,
+        linkPodspec,
         createSharedHeaders,
-        discoverModuleInfos;
+        ModuleInfo;
+import 'package:nitrogen_cli/commands/scaffold_templates.dart';
+import 'package:path/path.dart' as p;
+import 'package:test/test.dart';
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -498,8 +497,10 @@ void main() {
       final gen = File(p.join(
           _fixture.path, 'lib', 'src', 'generated', 'swift', 'testing_project.bridge.g.swift'));
       final content = gen.readAsStringSync();
-      // @_cdecl uses namespace_call_methodName format
-      expect(content, contains('@_cdecl("_testing_project_module_call_add")'));
+      // @_cdecl uses _<namespace>_call_<methodName> format.
+      // The testing_project spec has no explicit namespace so the generator
+      // defaults to the snake_case class name: "testing_project".
+      expect(content, contains('@_cdecl("_testing_project_call_add")'));
     });
   });
 
@@ -620,6 +621,31 @@ class TestingProjectPlugin : FlutterPlugin {
       );
     });
 
+    test('linkPodspec writes <plugin>.bridge.g.mm forwarder into SPM Cpp target', () {
+      // The forwarder is what makes testing_project_init_dart_api_dl available
+      // at runtime — without it the symbol lookup fails with dlsym not found.
+      linkPodspec(
+        'testing_project',
+        ['testing_project'],
+        baseDir: tmp.path,
+        moduleInfos: [const ModuleInfo(lib: 'testing_project', module: 'TestingProject', isCpp: false)],
+      );
+
+      for (final platform in ['ios', 'macos']) {
+        final mm = File(p.join(
+          tmp.path, platform, 'testing_project', 'Sources',
+          'TestingProjectCpp', 'testing_project.bridge.g.mm',
+        ));
+        expect(mm.existsSync(), isTrue,
+            reason: '$platform bridge.g.mm forwarder must exist so the C bridge symbols are compiled under SPM');
+        final content = mm.readAsStringSync();
+        expect(content, contains('#import <Foundation/Foundation.h>'),
+            reason: 'Foundation import is required for NSException in the @catch blocks');
+        expect(content, contains('testing_project.bridge.g.cpp'),
+            reason: 'forwarder must include the generated bridge .cpp');
+      }
+    });
+
     test('createSharedHeaders populates ios include/ with dart_api.h and nitro.h', () {
       final includeDir = Directory(p.join(
           tmp.path, 'ios', 'testing_project', 'Sources', 'TestingProjectCpp', 'include'));
@@ -656,6 +682,49 @@ class TestingProjectPlugin : FlutterPlugin {
           .allMatches(pluginFile.readAsStringSync())
           .length;
       expect(count, equals(1), reason: 'Registration must not be duplicated');
+    });
+
+    test('keeps Hybrid*.cpp forwarder for Apple cpp module', () {
+      // Simulate a second module (gpu) that uses AppleNativeImpl.cpp.
+      // The fixture uses nested SPM layout: ios/testing_project/Package.swift
+      // so the SPM C++ target is at ios/testing_project/Sources/TestingProjectCpp/.
+
+      // Bridge generated files
+      final genCpp = Directory(p.join(tmp.path, 'lib', 'src', 'generated', 'cpp'))
+        ..createSync(recursive: true);
+      File(p.join(genCpp.path, 'gpu.bridge.g.cpp')).writeAsStringSync('// bridge');
+      File(p.join(genCpp.path, 'gpu.bridge.g.h')).writeAsStringSync('// header');
+
+      // Native implementation stub
+      File(p.join(tmp.path, 'src', 'HybridGpu.cpp')).writeAsStringSync('// impl');
+
+      // Spec marking gpu as AppleNativeImpl.cpp on iOS/macOS
+      File(p.join(tmp.path, 'lib', 'src', 'gpu.native.dart')).writeAsStringSync(
+        "@NitroModule(lib: 'gpu', ios: AppleNativeImpl.cpp, macos: AppleNativeImpl.cpp)\n"
+        'abstract class Gpu extends HybridObject {}\n',
+      );
+
+      linkPodspec(
+        'testing_project',
+        ['testing_project', 'gpu'],
+        baseDir: tmp.path,
+        moduleInfos: [const ModuleInfo(lib: 'gpu', module: 'Gpu', isCpp: true)],
+      );
+
+      // Fixture uses nested SPM layout — forwarder goes into the nested Cpp target.
+      final forwarder = File(p.join(
+        tmp.path, 'ios', 'testing_project', 'Sources', 'TestingProjectCpp', 'HybridGpu.cpp',
+      ));
+      expect(
+        forwarder.existsSync(),
+        isTrue,
+        reason: 'Apple C++ module must have a Hybrid*.cpp forwarder in ios/<plugin>/Sources/<PluginCpp>/',
+      );
+      // Nested layout: 4 levels up from Sources/<PluginCpp>/ to project root.
+      expect(
+        forwarder.readAsStringSync(),
+        contains('#include "../../../../src/HybridGpu.cpp"'),
+      );
     });
   });
 

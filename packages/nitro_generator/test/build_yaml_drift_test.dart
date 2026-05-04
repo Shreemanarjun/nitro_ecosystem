@@ -7,7 +7,9 @@
 // can edit build.yaml thinking it controls outputs — and silently produce a
 // broken build.
 import 'dart:io';
-import 'package:nitro_generator/builder.dart';
+// Import only the extension map, not the full builder — avoids pulling in
+// source_gen which imports dart:mirrors (unavailable in flutter test runner).
+import 'package:nitro_generator/src/build_extensions.dart';
 import 'package:test/test.dart';
 
 void main() {
@@ -26,8 +28,7 @@ void main() {
     );
     final yamlText = buildYaml.readAsStringSync();
 
-    final builder = NitroGeneratorBuilder();
-    final expected = builder.buildExtensions.values.expand((v) => v).toSet();
+    final expected = nitroBuilderExtensions.values.expand((v) => v).toSet();
 
     final missing = <String>[];
     for (final output in expected) {

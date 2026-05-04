@@ -31,6 +31,12 @@ class SwiftGenerator {
     s.writeln('// Generated from: ${spec.sourceUri.split('/').last}');
     s.writeln('import Foundation');
     s.writeln('import Combine');
+    // @nitroNativeAsync stubs use Dart_CObject / Dart_PostCObject_DL, which are
+    // C types from dart_api.h — exposed by the sibling SPM C++ target.
+    final hasNativeAsync = spec.functions.any((f) => f.isNativeAsync);
+    if (hasNativeAsync) {
+      s.writeln('import ${spec.dartClassName}Cpp');
+    }
     s.writeln();
 
     final swiftEnums = EnumGenerator.generateSwift(spec);
@@ -54,7 +60,7 @@ class SwiftGenerator {
     for (final func in spec.functions) {
       final retType = _toSwiftType(spec, func.returnType.name);
       final params = func.params.map((p) => '${p.name}: ${_toSwiftType(spec, p.type.name)}').join(', ');
-      if (func.isAsync) {
+      if (func.isAsync || func.isNativeAsync) {
         s.writeln(
           '    func ${func.dartName}($params) async throws -> $retType',
         );
@@ -168,6 +174,14 @@ class SwiftGenerator {
         // @NitroNativeAsync — Task posts result via Dart_PostCObject_DL.
         // No semaphore: the calling C thread returns immediately; Swift Task
         // runs concurrently and posts when the async work completes.
+        //
+        // Dart_CObject is a C struct with an anonymous union field `value`.
+        // Swift interop rules:
+        //   • Always zero-init:  var obj = Dart_CObject()
+        //   • Set type with named C enum constant: obj.type = Dart_CObject_kXxx
+        //   • Set union field directly:           obj.value.as_string = ptr
+        //   • Never use Dart_CObject(type:value:) initialiser — the anonymous
+        //     union has no standalone Swift type name.
         final isVoidRet = func.returnType.name == 'void';
         s.writeln('@_cdecl("_${spec.namespace}_call_${func.dartName}")');
         s.writeln('public func _${spec.namespace}_call_${func.dartName}($params${params.isNotEmpty ? ", " : ""}_ dartPort: Int64) {');
@@ -185,27 +199,31 @@ class SwiftGenerator {
           }
         }
 
+        // Post kNull when impl is not registered.
         s.writeln('    guard let impl = ${spec.dartClassName}Registry.impl else {');
-        s.writeln('        var _null = Dart_CObject(type: Dart_CObject_Type(rawValue: 0)!, value: Dart_CObject_Value())');
+        s.writeln('        var _null = Dart_CObject()');
+        s.writeln('        _null.type = Dart_CObject_kNull');
         s.writeln('        Dart_PostCObject_DL(dartPort, &_null)');
         s.writeln('        return');
         s.writeln('    }');
         s.writeln('    Task.detached {');
         if (isVoidRet) {
           s.writeln('        try? await impl.${func.dartName}($callArgs)');
-          s.writeln('        var _null = Dart_CObject(type: Dart_CObject_Type(rawValue: 0)!, value: Dart_CObject_Value())');
+          s.writeln('        var _null = Dart_CObject()');
+          s.writeln('        _null.type = Dart_CObject_kNull');
           s.writeln('        Dart_PostCObject_DL(dartPort, &_null)');
         } else if (func.returnType.name == 'String') {
           s.writeln('        let _result = (try? await impl.${func.dartName}($callArgs)) ?? ""');
-          s.writeln('        _result.withCString { ptr in');
-          s.writeln('            var _obj = Dart_CObject(type: Dart_CObject_Type(rawValue: 14)!, value: Dart_CObject_Value())'); // kString = 14
-          s.writeln('            withUnsafeMutablePointer(to: &_obj.value) { _ in');
-          s.writeln('                Dart_PostCObject_DL(dartPort, &_obj)');
-          s.writeln('            }');
+          s.writeln('        _result.withCString { cStr in');
+          s.writeln('            var _obj = Dart_CObject()');
+          s.writeln('            _obj.type = Dart_CObject_kString');
+          s.writeln('            _obj.value.as_string = cStr');
+          s.writeln('            Dart_PostCObject_DL(dartPort, &_obj)');
           s.writeln('        }');
         } else if (func.returnType.name == 'bool') {
           s.writeln('        let _result = (try? await impl.${func.dartName}($callArgs)) ?? false');
-          s.writeln('        var _obj = Dart_CObject(type: Dart_CObject_Type(rawValue: 5)!, value: Dart_CObject_Value())'); // kBool = 5
+          s.writeln('        var _obj = Dart_CObject()');
+          s.writeln('        _obj.type = Dart_CObject_kBool');
           s.writeln('        _obj.value.as_bool = _result');
           s.writeln('        Dart_PostCObject_DL(dartPort, &_obj)');
         } else {
@@ -214,15 +232,18 @@ class SwiftGenerator {
           final isEnum = spec.enums.any((e) => e.name == func.returnType.name);
           if (isDouble) {
             s.writeln('        let _result = (try? await impl.${func.dartName}($callArgs)) ?? 0.0');
-            s.writeln('        var _obj = Dart_CObject(type: Dart_CObject_Type(rawValue: 7)!, value: Dart_CObject_Value())'); // kDouble = 7
+            s.writeln('        var _obj = Dart_CObject()');
+            s.writeln('        _obj.type = Dart_CObject_kDouble');
             s.writeln('        _obj.value.as_double = _result');
           } else if (isEnum) {
             s.writeln('        let _result = (try? await impl.${func.dartName}($callArgs))?.rawValue ?? 0');
-            s.writeln('        var _obj = Dart_CObject(type: Dart_CObject_Type(rawValue: 6)!, value: Dart_CObject_Value())'); // kInt64 = 6
+            s.writeln('        var _obj = Dart_CObject()');
+            s.writeln('        _obj.type = Dart_CObject_kInt64');
             s.writeln('        _obj.value.as_int64 = Int64(_result)');
           } else {
             s.writeln('        let _result = (try? await impl.${func.dartName}($callArgs)) ?? 0');
-            s.writeln('        var _obj = Dart_CObject(type: Dart_CObject_Type(rawValue: 6)!, value: Dart_CObject_Value())'); // kInt64 = 6
+            s.writeln('        var _obj = Dart_CObject()');
+            s.writeln('        _obj.type = Dart_CObject_kInt64');
             s.writeln('        _obj.value.as_int64 = Int64(_result)');
           }
           s.writeln('        Dart_PostCObject_DL(dartPort, &_obj)');
@@ -600,7 +621,7 @@ class SwiftGenerator {
     for (final func in spec.functions) {
       final retType = _toSwiftType(spec, func.returnType.name);
       final params = func.params.map((p) => '${p.name}: ${_toSwiftType(spec, p.type.name)}').join(', ');
-      if (func.isAsync) {
+      if (func.isAsync || func.isNativeAsync) {
         s.writeln('    func ${func.dartName}($params) async throws -> $retType');
       } else {
         s.writeln('    func ${func.dartName}($params) -> $retType');
