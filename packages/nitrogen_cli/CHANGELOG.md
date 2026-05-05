@@ -1,12 +1,10 @@
 ## 0.4.0
 
-- **Fixed: `Failed to lookup symbol '<plugin>_init_dart_api_dl'` at runtime** — `bridge.g.mm` is now always written unconditionally by both `nitrogen init` and `nitrogen link`, using a relative `#include` path. Removed the `existsSync()` guard that prevented the file from being created when link ran before generate.
-- **Fixed: `nitrogen link` deleted `bridge.g.mm` when `lib == pluginName`** — The stale-cleanup branch was incorrectly deleting the main plugin bridge for the common single-module layout where the module lib name matches the plugin name.
-- **Fixed: per-module `bridge.g.mm` used an absolute filesystem path** — Now uses a portable relative `#include` path, safe on CI and for all teammates.
-- **Fixed: `nitrogen link` auto-creates `Sources/<PluginCpp>/` when missing.**
-- **Fixed: podspec `source_files` normalised from SPM template path to `Classes/**/*`** — Flutter's SPM-first template generates a path that doesn't exist under CocoaPods; `nitrogen link` now detects and corrects it.
-- **Fixed: `nitrogen generate` / `nitrogen watch` no longer hang when `build_runner` is already running** — Both commands now kill any existing `build_runner` instance (SIGTERM → SIGKILL) and clear the stale lock file before spawning a new one.
-- **Improved: `nitrogen doctor` is fully SPM-aware for iOS and macOS** — Checks `Sources/<PluginCpp>/` files (`dart_api_dl.c`, `<plugin>.cpp`, `include/nitro.h`, `bridge.g.mm`) and `Package.swift` content (`-std=c++17`, target name, `publicHeadersPath`) when SPM is active; suppresses false errors about missing `Classes/` files that only apply to CocoaPods.
+- **New: Mixed Apple platform support** — `nitrogen link` now correctly handles modules with different implementation languages per Apple platform (e.g. `ios: NativeImpl.swift` + `macos: NativeImpl.cpp`). iOS `Plugin.swift` registration and macOS `Plugin.swift` registration are managed independently, and `HybridXxx.cpp` forwarders are only written for the platform that actually uses C++.
+- **SPM and CocoaPods** — Both build systems are fully supported. SPM targets (`Sources/<PluginCpp>/`) and CocoaPods targets (`ios/Classes/`, `macos/Classes/`) are wired automatically by `nitrogen link`. `nitrogen doctor` validates both layouts.
+- **Fixed: `bridge.g.mm` always written** — `bridge.g.mm` is now written unconditionally (relative `#include` path), so plugins build correctly even when `nitrogen link` is run before `nitrogen generate`.
+- **Fixed: `nitrogen link` no longer deletes the main plugin bridge** when the module lib name matches the plugin name.
+- **Fixed: `nitrogen generate` / `nitrogen watch` no longer hang** when `build_runner` is already running.
 
 ## 0.3.4
 

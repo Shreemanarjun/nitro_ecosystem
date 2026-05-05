@@ -11,7 +11,7 @@ import 'package:path/path.dart' as p;
 import '../ui.dart';
 // findNitroProjectRoot is provided by ../ui.dart (already imported below)
 import 'spm_utils.dart';
-import 'scaffold_templates.dart' show packageSwiftTemplate;
+import '../templates/scaffold_templates.dart' show packageSwiftTemplate;
 
 // ── Migration Result ──────────────────────────────────────────────────────────
 

@@ -1,7 +1,9 @@
-## 0.3.4
+## 0.4.0
 
-- **Fixed: Swift protocol signature for `@nitroNativeAsync` methods** — Methods annotated with `@nitroNativeAsync` were incorrectly declared as non-`async` in the generated `HybridXxxProtocol`, even though the bridge stub uses `Task.detached { try? await impl.method(...) }`. The protocol now correctly emits `async throws` for both `@nitroAsync` and `@nitroNativeAsync` methods.
-- **Fixed: `build_yaml_drift_test` compilation under `flutter test`** — The test previously imported `package:nitro_generator/builder.dart`, which transitively pulls in `source_gen` → `dart:mirrors` (unavailable in the Flutter test runner). The `buildExtensions` map is now extracted into a standalone `lib/src/build_extensions.dart` with no `source_gen` dependency; the builder references it there and the test imports only that file.
+- **New: Mixed Apple platform implementation targets** — A single module can now use different implementation languages per Apple platform. For example, `macos: NativeImpl.cpp` with `ios: NativeImpl.swift` generates a single bridge with `#if TARGET_OS_OSX` / `#else` guards — no manual patching required. Supports all combinations: both Swift, both C++, or mixed.
+- **Fixed: Swift `@nitroNativeAsync` protocol signature** — Methods annotated with `@nitroNativeAsync` now correctly declare `async throws` in the generated `HybridXxxProtocol`.
+- **SPM and CocoaPods support** — Generated C++ bridges compile correctly under both Swift Package Manager (`.mm` forwarder via `nitrogen link`) and CocoaPods (`ios/Classes/` and `macos/Classes/` forwarders).
+- **Ecosystem sync** — Aligned with `nitro`, `nitro_annotations`, and `nitrogen_cli` 0.4.0.
 
 ## 0.3.3
 

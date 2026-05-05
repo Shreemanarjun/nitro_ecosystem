@@ -1,12 +1,8 @@
-## 0.3.4
+## 0.4.0
 
-- **New: `NitroRuntime.callSync` logging & slow-call detection** — `callSync` now provides the same developer-experience as `callAsync`:
-  - Emits a `verbose` "calling" log before the call and a "completed in N µs" log after.
-  - Emits a `warning` "slow call" log when elapsed microseconds exceed `NitroConfig.slowCallThresholdUs`.
-  - Emits an `error` log (with the exception and stack trace) when the call throws, then re-throws the original exception.
-  - Fast path (zero allocation) when `NitroConfig.effectiveLogLevel` is `NitroLogLevel.none` — the closure is called directly with no overhead.
-  - The `Stopwatch` is only created when the log level is `verbose` or a slow-call threshold is configured.
-- **New: `callSync` test suite** — 13 tests covering the fast path, verbose log pairs, tag formatting, error logging, slow-call detection, and config parity with `callAsync`.
+- **New: `NitroRuntime.callSync` observability** — `callSync` now has the same developer experience as `callAsync`: verbose call/completion logs, slow-call warnings, error logs with stack traces, and a zero-allocation fast path when logging is disabled.
+- **SPM and CocoaPods support** — The runtime library is compatible with both Swift Package Manager and CocoaPods. Plugins built with `nitrogen link` work in either build system with no code changes.
+- **Ecosystem sync** — Aligned with `nitro_annotations`, `nitro_generator`, and `nitrogen_cli` 0.4.0.
 
 ## 0.3.3
 - **Improved: Ecosystem Sync** — Synchronized to version 0.3.3.

@@ -2,18 +2,23 @@ import '../bridge_spec.dart';
 
 class CppBridgeGenerator {
   static String generate(BridgeSpec spec) {
-    // All targeted platforms use C++ — emit a lean direct-call bridge.
-    if (spec.isCppImpl) {
-      return _generateCppDirect(spec);
+    // All targeted platforms use C++ — emit the lean direct-call bridge.
+    if (spec.isCppImpl) return _generateCppDirect(spec);
+
+    final iosIsCpp   = spec.iosIsCpp;
+    final macosIsCpp = spec.macosIsCpp;
+    // hasApple covers both iOS and macOS (either may use Swift or C++).
+    final hasApple = spec.targetsIos || spec.targetsMacos;
+
+    if (hasApple && !spec.targetsAndroid) {
+      return _generateJniSwift(spec,
+          includeAndroid: false, iosIsCpp: iosIsCpp, macosIsCpp: macosIsCpp);
     }
-    // Single-platform: skip the platform block that is not targeted.
-    if (spec.targetsIos && !spec.targetsAndroid) {
-      return _generateJniSwift(spec, includeAndroid: false);
+    if (!hasApple && spec.targetsAndroid) {
+      return _generateJniSwift(spec,
+          includeIos: false, iosIsCpp: iosIsCpp, macosIsCpp: macosIsCpp);
     }
-    if (!spec.targetsIos && spec.targetsAndroid) {
-      return _generateJniSwift(spec, includeIos: false);
-    }
-    return _generateJniSwift(spec);
+    return _generateJniSwift(spec, iosIsCpp: iosIsCpp, macosIsCpp: macosIsCpp);
   }
 
   // ── Direct C++ path (NativeImpl.cpp on all targeted platforms) ─────────────
@@ -431,6 +436,8 @@ class CppBridgeGenerator {
     BridgeSpec spec, {
     bool includeAndroid = true,
     bool includeIos = true,
+    bool iosIsCpp = false,
+    bool macosIsCpp = false,
   }) {
     final s = StringBuffer();
     final headerName = '${spec.lib.replaceAll('-', '_')}.bridge.g.h';
@@ -441,6 +448,11 @@ class CppBridgeGenerator {
     s.writeln('#include <stdbool.h>');
     s.writeln('#include <string.h>');
     s.writeln('#include <stdlib.h>');
+    // C++ standard headers needed when any Apple platform uses NativeImpl.cpp.
+    if (iosIsCpp || macosIsCpp) {
+      s.writeln('#include <string>');
+      s.writeln('#include <stdexcept>');
+    }
     s.writeln('#include "dart_api_dl.h"');
     s.writeln('#include "$headerName"');
     s.writeln();
@@ -1344,145 +1356,452 @@ class CppBridgeGenerator {
       s.writeln('} // extern "C"');
     } // end if (includeAndroid)
 
-    // ── iOS Swift section ──────────────────────────────────────────────────────
-    if (includeAndroid && includeIos) s.writeln('#elif __APPLE__');
-    if (includeIos) {
-      s.writeln('extern "C" {');
-      for (final func in spec.functions) {
-        final isEnum = enumNames.contains(func.returnType.name);
-        final paramParts = <String>[];
-        final callParamParts = <String>[];
-        for (final p in func.params) {
-          paramParts.add('${_paramTypeToC(p.type.name, structNames)} ${p.name}');
-          callParamParts.add(p.name);
-          if (p.type.isTypedData) {
-            paramParts.add('int64_t ${p.name}_length');
-            callParamParts.add('${p.name}_length');
-          }
-        }
+    // ── Apple section: NativeImpl.swift / NativeImpl.cpp / mixed ─────────────
+    // Determine per-platform Apple strategy.
+    final appleBothCpp     = iosIsCpp && macosIsCpp;
+    final appleMixedMacosCpp = macosIsCpp && !iosIsCpp && spec.targetsMacos;
+    final appleMixedIosCpp   = iosIsCpp && !macosIsCpp && spec.targetsIos;
+    // The Apple section is emitted when iOS is Swift/C++ OR macOS is C++.
+    final includeApple = includeIos || (macosIsCpp && spec.targetsMacos);
 
-        if (func.isNativeAsync) {
-          // @nitroNativeAsync on Apple: void func(params, int64_t dart_port)
-          // delegates to Swift _call_ which accepts the dart_port and posts back via Dart_PostCObject_DL
-          paramParts.add('int64_t dart_port');
-          callParamParts.add('dart_port');
-          final params = paramParts.join(', ');
-          final callParams = callParamParts.join(', ');
-          s.writeln('extern void _${spec.namespace}_call_${func.dartName}(${params.isEmpty ? 'void' : params});');
-          s.writeln('void ${func.cSymbol}($params) {');
-          s.writeln('    ${libStem}_clear_error();');
-          s.writeln('    _${spec.namespace}_call_${func.dartName}($callParams);');
-          s.writeln('}');
-          s.writeln('');
-          continue;
-        }
+    if (includeAndroid && includeApple) s.writeln('#elif __APPLE__');
 
-        final cReturnType = isEnum ? 'int64_t' : _typeToC(func.returnType.name);
+    if (includeApple) {
+      if (appleBothCpp) {
+        // Both iOS and macOS use NativeImpl.cpp — unified C++ dispatch.
+        _emitAppleCppDispatch(s, spec, libStem, enumNames, structNames);
+      } else if (appleMixedMacosCpp) {
+        // macOS → NativeImpl.cpp, iOS → NativeImpl.swift
+        s.writeln('#include <TargetConditionals.h>');
+        s.writeln('#if TARGET_OS_OSX  // macOS: NativeImpl.cpp — direct C++ dispatch');
+        _emitAppleCppDispatch(s, spec, libStem, enumNames, structNames);
+        if (includeIos) {
+          s.writeln('#else  // iOS: NativeImpl.swift — call through Swift bridge');
+          _emitSwiftBridgeSection(s, spec, libStem, enumNames, structNames);
+        }
+        s.writeln('#endif  // TARGET_OS_OSX');
+      } else if (appleMixedIosCpp) {
+        // iOS → NativeImpl.cpp, macOS → NativeImpl.swift (or absent)
+        s.writeln('#include <TargetConditionals.h>');
+        s.writeln('#if TARGET_OS_IOS  // iOS: NativeImpl.cpp — direct C++ dispatch');
+        _emitAppleCppDispatch(s, spec, libStem, enumNames, structNames);
+        if (spec.targetsMacos) {
+          s.writeln('#else  // macOS: NativeImpl.swift — call through Swift bridge');
+          _emitSwiftBridgeSection(s, spec, libStem, enumNames, structNames);
+        }
+        s.writeln('#endif  // TARGET_OS_IOS');
+      } else if (includeIos) {
+        // Pure Swift on all Apple platforms (legacy / default path).
+        _emitSwiftBridgeSection(s, spec, libStem, enumNames, structNames);
+      }
+    }
+    if (includeAndroid && includeApple) s.writeln('#endif');
+    return s.toString();
+  }
+
+  // ── Swift bridge section emitter ─────────────────────────────────────────
+  // Emits the extern "C" block that calls into Swift via _namespace_call_* symbols.
+  static void _emitSwiftBridgeSection(
+    StringBuffer s,
+    BridgeSpec spec,
+    String libStem,
+    Set<String> enumNames,
+    Set<String> structNames,
+  ) {
+    s.writeln('extern "C" {');
+
+    for (final func in spec.functions) {
+      final isEnum = enumNames.contains(func.returnType.name);
+      final paramParts = <String>[];
+      final callParamParts = <String>[];
+      for (final p in func.params) {
+        paramParts.add('${_paramTypeToC(p.type.name, structNames)} ${p.name}');
+        callParamParts.add(p.name);
+        if (p.type.isTypedData) {
+          paramParts.add('int64_t ${p.name}_length');
+          callParamParts.add('${p.name}_length');
+        }
+      }
+
+      if (func.isNativeAsync) {
+        paramParts.add('int64_t dart_port');
+        callParamParts.add('dart_port');
         final params = paramParts.join(', ');
         final callParams = callParamParts.join(', ');
-        s.writeln(
-          'extern $cReturnType _${spec.namespace}_call_${func.dartName}(${params.isEmpty ? 'void' : params});',
-        );
-        s.writeln(
-          '$cReturnType ${func.cSymbol}(${params.isEmpty ? 'void' : params}) {',
-        );
+        s.writeln('extern void _${spec.namespace}_call_${func.dartName}(${params.isEmpty ? 'void' : params});');
+        s.writeln('void ${func.cSymbol}($params) {');
         s.writeln('    ${libStem}_clear_error();');
-        s.writeln('#ifdef __OBJC__');
-        s.writeln('    @try {');
-        if (func.returnType.name != 'void') {
-          s.writeln('        return _${spec.namespace}_call_${func.dartName}($callParams);');
-        } else {
-          s.writeln('        _${spec.namespace}_call_${func.dartName}($callParams);');
+        s.writeln('    _${spec.namespace}_call_${func.dartName}($callParams);');
+        s.writeln('}');
+        s.writeln('');
+        continue;
+      }
+
+      final cReturnType = isEnum ? 'int64_t' : _typeToC(func.returnType.name);
+      final params = paramParts.join(', ');
+      final callParams = callParamParts.join(', ');
+      s.writeln('extern $cReturnType _${spec.namespace}_call_${func.dartName}(${params.isEmpty ? 'void' : params});');
+      s.writeln('$cReturnType ${func.cSymbol}(${params.isEmpty ? 'void' : params}) {');
+      s.writeln('    ${libStem}_clear_error();');
+      s.writeln('#ifdef __OBJC__');
+      s.writeln('    @try {');
+      if (func.returnType.name != 'void') {
+        s.writeln('        return _${spec.namespace}_call_${func.dartName}($callParams);');
+      } else {
+        s.writeln('        _${spec.namespace}_call_${func.dartName}($callParams);');
+      }
+      s.writeln('    } @catch (NSException* e) {');
+      s.writeln('        nitro_report_error([e.name UTF8String], [e.reason UTF8String], nullptr, nullptr);');
+      if (func.returnType.name != 'void') {
+        s.writeln('        return ${_defaultValue(cReturnType)};');
+      }
+      s.writeln('    }');
+      s.writeln('#else');
+      if (func.returnType.name != 'void') {
+        s.writeln('    return _${spec.namespace}_call_${func.dartName}($callParams);');
+      } else {
+        s.writeln('    _${spec.namespace}_call_${func.dartName}($callParams);');
+      }
+      s.writeln('#endif');
+      s.writeln('}');
+      s.writeln('');
+    }
+
+    for (final prop in spec.properties) {
+      final isEnum = enumNames.contains(prop.type.name);
+      final cType = isEnum ? 'int64_t' : _typeToC(prop.type.name);
+      if (prop.hasGetter) {
+        s.writeln('extern $cType _${spec.namespace}_call_get_${prop.dartName}(void);');
+        s.writeln('$cType ${prop.getSymbol}(void) {');
+        s.writeln('    return _${spec.namespace}_call_get_${prop.dartName}();');
+        s.writeln('}');
+        s.writeln('');
+      }
+      if (prop.hasSetter) {
+        final paramCType = isEnum ? 'int64_t' : _typeToC(prop.type.name);
+        s.writeln('extern void _${spec.namespace}_call_set_${prop.dartName}($paramCType value);');
+        s.writeln('void ${prop.setSymbol}($paramCType value) {');
+        s.writeln('    _${spec.namespace}_call_set_${prop.dartName}(value);');
+        s.writeln('}');
+        s.writeln('');
+      }
+    }
+
+    for (final stream in spec.streams) {
+      final isStruct = structNames.contains(stream.itemType.name);
+      final isRecord = stream.itemType.isRecord;
+      final itemCType = (isStruct || isRecord) ? 'void*' : _typeToC(stream.itemType.name);
+      s.writeln('void _emit_${stream.dartName}_to_dart(int64_t dartPort, $itemCType item) {');
+      s.writeln('    Dart_CObject obj;');
+      if (stream.itemType.name == 'double') {
+        s.writeln('    obj.type = Dart_CObject_kDouble;');
+        s.writeln('    obj.value.as_double = item;');
+      } else if (stream.itemType.name == 'int') {
+        s.writeln('    obj.type = Dart_CObject_kInt64;');
+        s.writeln('    obj.value.as_int64 = (int64_t)item;');
+      } else if (stream.itemType.name == 'bool') {
+        s.writeln('    obj.type = Dart_CObject_kBool;');
+        s.writeln('    obj.value.as_bool = item;');
+      } else if (isStruct || isRecord) {
+        s.writeln('    obj.type = Dart_CObject_kInt64;');
+        s.writeln('    obj.value.as_int64 = (intptr_t)item;');
+      } else {
+        s.writeln('    obj.type = Dart_CObject_kNull;');
+      }
+      s.writeln('    Dart_PostCObject_DL(dartPort, &obj);');
+      s.writeln('}');
+      s.writeln('');
+      s.writeln('extern void _${spec.namespace}_register_${stream.dartName}_stream(int64_t dartPort, void (*emitCb)(int64_t, $itemCType));');
+      s.writeln('void ${stream.registerSymbol}(int64_t dart_port) {');
+      s.writeln('    _${spec.namespace}_register_${stream.dartName}_stream(dart_port, _emit_${stream.dartName}_to_dart);');
+      s.writeln('}');
+      s.writeln('extern void _${spec.namespace}_release_${stream.dartName}_stream(int64_t dart_port);');
+      s.writeln('void ${stream.releaseSymbol}(int64_t dart_port) {');
+      s.writeln('    _${spec.namespace}_release_${stream.dartName}_stream(dart_port);');
+      s.writeln('}');
+      s.writeln('');
+    }
+
+    s.writeln('} // extern "C"');
+  }
+
+  // ── Apple C++ dispatch section emitter ────────────────────────────────────
+  // Emits the virtual-dispatch bridge for an Apple platform using NativeImpl.cpp.
+  // Headers and global error state are already emitted before this is called.
+  // Struct release functions are emitted globally in the JNI section — not here.
+  static void _emitAppleCppDispatch(
+    StringBuffer s,
+    BridgeSpec spec,
+    String libStem,
+    Set<String> enumNames,
+    Set<String> structNames,
+  ) {
+    final className = spec.dartClassName;
+    final ifaceHeader = '$libStem.native.g.h';
+    final recordNames = spec.recordTypes.map((r) => r.name).toSet();
+
+    s.writeln('#include "$ifaceHeader"');
+    s.writeln();
+
+    for (final stream in spec.streams) {
+      s.writeln('static int64_t g_port_${stream.dartName} = 0;');
+    }
+    if (spec.streams.isNotEmpty) s.writeln();
+
+    for (final stream in spec.streams) {
+      final isStruct = structNames.contains(stream.itemType.name.replaceFirst('?', ''));
+      final isRecord = stream.itemType.isRecord;
+      final itemCpp = _cppScalarType(stream.itemType.name, enumNames, structNames);
+      s.writeln('void Hybrid$className::emit_${stream.dartName}($itemCpp item) {');
+      s.writeln('    int64_t port = g_port_${stream.dartName};');
+      s.writeln('    if (port == 0) return;');
+      s.writeln('    Dart_CObject obj;');
+      if (stream.itemType.name == 'double') {
+        s.writeln('    obj.type = Dart_CObject_kDouble;');
+        s.writeln('    obj.value.as_double = item;');
+      } else if (stream.itemType.name == 'int') {
+        s.writeln('    obj.type = Dart_CObject_kInt64;');
+        s.writeln('    obj.value.as_int64 = item;');
+      } else if (stream.itemType.name == 'bool') {
+        s.writeln('    obj.type = Dart_CObject_kBool;');
+        s.writeln('    obj.value.as_bool = item;');
+      } else if (isStruct) {
+        final stName = stream.itemType.name.replaceFirst('?', '');
+        s.writeln('    $stName* st_ptr = ($stName*)malloc(sizeof($stName));');
+        s.writeln('    *st_ptr = item;');
+        s.writeln('    obj.type = Dart_CObject_kInt64;');
+        s.writeln('    obj.value.as_int64 = (intptr_t)st_ptr;');
+      } else if (isRecord) {
+        s.writeln('    obj.type = Dart_CObject_kInt64;');
+        s.writeln('    obj.value.as_int64 = (intptr_t)item;');
+      } else {
+        s.writeln('    obj.type = Dart_CObject_kNull;');
+      }
+      s.writeln('    Dart_PostCObject_DL(port, &obj);');
+      s.writeln('}');
+      s.writeln();
+    }
+
+    final notInit =
+        'nitro_report_error("NotInitialized", '
+        '"No C++ implementation registered. Call ${libStem}_register_impl() first.", '
+        'nullptr, nullptr)';
+
+    s.writeln('static Hybrid$className* g_impl = nullptr;');
+    s.writeln();
+    s.writeln('extern "C" {');
+    s.writeln('void ${libStem}_register_impl(Hybrid$className* impl) { g_impl = impl; }');
+    s.writeln('Hybrid$className* ${libStem}_get_impl() { return g_impl; }');
+    s.writeln();
+
+    for (final func in spec.functions) {
+      if (func.isNativeAsync) {
+        final paramParts = <String>[];
+        for (final p in func.params) {
+          final isStructParam = structNames.contains(p.type.name.replaceFirst('?', ''));
+          final isRecordParam = recordNames.contains(p.type.name.replaceFirst('?', ''));
+          paramParts.add('${(isStructParam || isRecordParam) ? 'void*' : _typeToC(p.type.name)} ${p.name}');
+          if (p.type.isTypedData) paramParts.add('int64_t ${p.name}_length');
         }
-        s.writeln('    } @catch (NSException* e) {');
-        s.writeln('        nitro_report_error([e.name UTF8String], [e.reason UTF8String], nullptr, nullptr);');
-        if (func.returnType.name != 'void') {
-          s.writeln('        return ${_defaultValue(cReturnType)};');
+        paramParts.add('int64_t dart_port');
+        final paramsDecl = paramParts.join(', ');
+        final callArgs = <String>[];
+        for (final p in func.params) {
+          final base = p.type.name.replaceFirst('?', '');
+          if (base == 'String') {
+            callArgs.add('std::string(${p.name})');
+          } else if (structNames.contains(base)) {
+            callArgs.add('*static_cast<const $base*>(${p.name})');
+          } else if (recordNames.contains(base)) {
+            callArgs.add('NitroCppBuffer{ (const uint8_t*)${p.name} + 4, (size_t)*(int32_t*)${p.name} }');
+          } else if (p.type.isTypedData) {
+            callArgs.add(p.name);
+            callArgs.add('static_cast<size_t>(${p.name}_length)');
+          } else if (enumNames.contains(base)) {
+            callArgs.add('static_cast<$base>(${p.name})');
+          } else {
+            callArgs.add(p.name);
+          }
         }
+        callArgs.add('dart_port');
+        s.writeln('void ${func.cSymbol}($paramsDecl) {');
+        s.writeln('    if (!g_impl) {');
+        s.writeln('        Dart_CObject _err = { Dart_CObject_kNull };');
+        s.writeln('        Dart_PostCObject_DL(dart_port, &_err);');
+        s.writeln('        return;');
         s.writeln('    }');
-        s.writeln('#else');
-        if (func.returnType.name != 'void') {
-          s.writeln('    return _${spec.namespace}_call_${func.dartName}($callParams);');
+        s.writeln('    g_impl->${func.dartName}(${callArgs.join(', ')});');
+        s.writeln('}');
+        s.writeln();
+        continue;
+      }
+
+      final isEnumRet = enumNames.contains(func.returnType.name.replaceFirst('?', ''));
+      final isStructRet = structNames.contains(func.returnType.name.replaceFirst('?', ''));
+      final isRecordRet = recordNames.contains(func.returnType.name.replaceFirst('?', ''));
+      final cRet = isEnumRet ? 'int64_t' : _typeToC(func.returnType.name);
+      final dflt = _defaultValue(cRet);
+      final paramParts = <String>[];
+      for (final p in func.params) {
+        final isStructParam = structNames.contains(p.type.name.replaceFirst('?', ''));
+        final isRecordParam = recordNames.contains(p.type.name.replaceFirst('?', ''));
+        paramParts.add('${(isStructParam || isRecordParam) ? 'void*' : _typeToC(p.type.name)} ${p.name}');
+        if (p.type.isTypedData) paramParts.add('int64_t ${p.name}_length');
+      }
+      final paramsDecl = paramParts.isEmpty ? 'void' : paramParts.join(', ');
+
+      s.writeln('$cRet ${func.cSymbol}($paramsDecl) {');
+      s.writeln('    ${libStem}_clear_error();');
+      if (func.returnType.name == 'void') {
+        s.writeln('    if (!g_impl) { $notInit; return; }');
+      } else {
+        s.writeln('    if (!g_impl) { $notInit; return $dflt; }');
+      }
+      s.writeln('    try {');
+      final callArgs = <String>[];
+      for (final p in func.params) {
+        final base = p.type.name.replaceFirst('?', '');
+        if (base == 'String') {
+          callArgs.add('std::string(${p.name})');
+        } else if (structNames.contains(base)) {
+          callArgs.add('*static_cast<const $base*>(${p.name})');
+        } else if (recordNames.contains(base)) {
+          final opt = p.type.name.endsWith('?');
+          if (opt) {
+            s.writeln('        NitroCppBuffer _buf_${p.name} = { nullptr, 0 };');
+            s.writeln('        if (${p.name} != nullptr) {');
+            s.writeln('            _buf_${p.name}.data = (const uint8_t*)${p.name} + 4;');
+            s.writeln('            _buf_${p.name}.size = (size_t)*(int32_t*)${p.name};');
+            s.writeln('        }');
+            callArgs.add('_buf_${p.name}');
+          } else {
+            s.writeln('        NitroCppBuffer _buf_${p.name} = { (const uint8_t*)${p.name} + 4, (size_t)*(int32_t*)${p.name} };');
+            callArgs.add('_buf_${p.name}');
+          }
+        } else if (p.type.isTypedData) {
+          callArgs.add(p.name);
+          callArgs.add('static_cast<size_t>(${p.name}_length)');
+        } else if (enumNames.contains(base)) {
+          callArgs.add('static_cast<$base>(${p.name})');
         } else {
-          s.writeln('    _${spec.namespace}_call_${func.dartName}($callParams);');
-        }
-        s.writeln('#endif');
-        s.writeln('}');
-        s.writeln('');
-      }
-
-      for (final prop in spec.properties) {
-        final isEnum = enumNames.contains(prop.type.name);
-        final cType = isEnum ? 'int64_t' : _typeToC(prop.type.name);
-        if (prop.hasGetter) {
-          s.writeln('extern $cType _${spec.namespace}_call_get_${prop.dartName}(void);');
-          s.writeln('$cType ${prop.getSymbol}(void) {');
-          s.writeln('    return _${spec.namespace}_call_get_${prop.dartName}();');
-          s.writeln('}');
-          s.writeln('');
-        }
-        if (prop.hasSetter) {
-          final paramCType = isEnum ? 'int64_t' : _typeToC(prop.type.name);
-          s.writeln('extern void _${spec.namespace}_call_set_${prop.dartName}($paramCType value);');
-          s.writeln('void ${prop.setSymbol}($paramCType value) {');
-          s.writeln('    _${spec.namespace}_call_set_${prop.dartName}(value);');
-          s.writeln('}');
-          s.writeln('');
+          callArgs.add(p.name);
         }
       }
+      final callArgStr = callArgs.join(', ');
 
-      for (final stream in spec.streams) {
-        final isStruct = structNames.contains(stream.itemType.name);
-        final isRecord = stream.itemType.isRecord;
-        // For record types, the Swift side encodes to bytes and passes void*.
-        final itemCType = (isStruct || isRecord) ? 'void*' : _typeToC(stream.itemType.name);
-        s.writeln(
-          'void _emit_${stream.dartName}_to_dart(int64_t dartPort, $itemCType item) {',
-        );
-        s.writeln('    Dart_CObject obj;');
-        if (stream.itemType.name == 'double') {
-          s.writeln('    obj.type = Dart_CObject_kDouble;');
-          s.writeln('    obj.value.as_double = item;');
-        } else if (stream.itemType.name == 'int') {
-          s.writeln('    obj.type = Dart_CObject_kInt64;');
-          s.writeln('    obj.value.as_int64 = (int64_t)item;');
-        } else if (stream.itemType.name == 'bool') {
-          s.writeln('    obj.type = Dart_CObject_kBool;');
-          s.writeln('    obj.value.as_bool = item;');
-        } else if (isStruct || isRecord) {
-          // item is void* pointing to malloc'd native memory:
-          //   struct  → packed C struct (freed by NativeFinalizer in Dart proxy)
-          //   record  → encoded bytes [4-byte payload_len][payload]
-          //             freed by malloc.free in the Dart unpack closure
-          s.writeln('    obj.type = Dart_CObject_kInt64;');
-          s.writeln('    obj.value.as_int64 = (intptr_t)item;');
+      if (func.returnType.name == 'void') {
+        s.writeln('        g_impl->${func.dartName}($callArgStr);');
+      } else if (func.returnType.name == 'String') {
+        s.writeln('        std::string _res = g_impl->${func.dartName}($callArgStr);');
+        s.writeln('        return strdup(_res.c_str());');
+      } else if (isEnumRet) {
+        s.writeln('        return static_cast<int64_t>(g_impl->${func.dartName}($callArgStr));');
+      } else if (isStructRet) {
+        final stName = func.returnType.name.replaceFirst('?', '');
+        s.writeln('        $stName _res = g_impl->${func.dartName}($callArgStr);');
+        s.writeln('        $stName* _ptr = ($stName*)malloc(sizeof($stName));');
+        s.writeln('        *_ptr = _res;');
+        s.writeln('        return _ptr;');
+      } else if (isRecordRet) {
+        s.writeln('        NitroCppBuffer _res = g_impl->${func.dartName}($callArgStr);');
+        s.writeln('        return (void*)_res.data;');
+      } else {
+        s.writeln('        return g_impl->${func.dartName}($callArgStr);');
+      }
+      s.writeln('    } catch (const std::exception& e) {');
+      s.writeln('        nitro_report_error("CppException", e.what(), nullptr, nullptr);');
+      if (func.returnType.name != 'void') s.writeln('        return $dflt;');
+      s.writeln('    } catch (...) {');
+      s.writeln('        nitro_report_error("CppException", "Unknown C++ exception", nullptr, nullptr);');
+      if (func.returnType.name != 'void') s.writeln('        return $dflt;');
+      s.writeln('    }');
+      s.writeln('}');
+      s.writeln();
+    }
+
+    for (final prop in spec.properties) {
+      final isEnum = enumNames.contains(prop.type.name.replaceFirst('?', ''));
+      final cType = isEnum ? 'int64_t' : _typeToC(prop.type.name);
+      if (prop.hasGetter) {
+        s.writeln('$cType ${prop.getSymbol}(void) {');
+        s.writeln('    ${libStem}_clear_error();');
+        s.writeln('    if (!g_impl) { $notInit; return ${_defaultValue(cType)}; }');
+        s.writeln('    try {');
+        if (prop.type.name == 'String') {
+          s.writeln('        std::string _res = g_impl->get_${prop.dartName}();');
+          s.writeln('        return strdup(_res.c_str());');
+        } else if (isEnum) {
+          s.writeln('        return static_cast<int64_t>(g_impl->get_${prop.dartName}());');
+        } else if (recordNames.contains(prop.type.name.replaceFirst('?', ''))) {
+          s.writeln('        NitroCppBuffer _res = g_impl->get_${prop.dartName}();');
+          s.writeln('        return (void*)_res.data;');
+        } else if (structNames.contains(prop.type.name.replaceFirst('?', ''))) {
+          final stName = prop.type.name.replaceFirst('?', '');
+          s.writeln('        $stName _res = g_impl->get_${prop.dartName}();');
+          s.writeln('        $stName* _ptr = ($stName*)malloc(sizeof($stName));');
+          s.writeln('        *_ptr = _res;');
+          s.writeln('        return _ptr;');
         } else {
-          s.writeln('    obj.type = Dart_CObject_kNull;');
+          s.writeln('        return g_impl->get_${prop.dartName}();');
         }
-        s.writeln('    Dart_PostCObject_DL(dartPort, &obj);');
+        s.writeln('    } catch (const std::exception& e) {');
+        s.writeln('        nitro_report_error("CppException", e.what(), nullptr, nullptr);');
+        s.writeln('        return ${_defaultValue(cType)};');
+        s.writeln('    }');
         s.writeln('}');
-        s.writeln('');
-        s.writeln(
-          'extern void _${spec.namespace}_register_${stream.dartName}_stream(int64_t dartPort, void (*emitCb)(int64_t, $itemCType));',
-        );
-        s.writeln('void ${stream.registerSymbol}(int64_t dart_port) {');
-        s.writeln(
-          '    _${spec.namespace}_register_${stream.dartName}_stream(dart_port, _emit_${stream.dartName}_to_dart);',
-        );
-        s.writeln('}');
-        s.writeln(
-          'extern void _${spec.namespace}_release_${stream.dartName}_stream(int64_t dart_port);',
-        );
-        s.writeln('void ${stream.releaseSymbol}(int64_t dart_port) {');
-        s.writeln('    _${spec.namespace}_release_${stream.dartName}_stream(dart_port);');
-        s.writeln('}');
-        s.writeln('');
+        s.writeln();
       }
+      if (prop.hasSetter) {
+        final isStructParam = structNames.contains(prop.type.name.replaceFirst('?', ''));
+        final isRecordParam = recordNames.contains(prop.type.name.replaceFirst('?', ''));
+        final paramCType = (isEnum || isStructParam || isRecordParam) ? (isEnum ? 'int64_t' : 'void*') : _typeToC(prop.type.name);
+        s.writeln('void ${prop.setSymbol}($paramCType value) {');
+        s.writeln('    ${libStem}_clear_error();');
+        s.writeln('    if (!g_impl) { $notInit; return; }');
+        s.writeln('    try {');
+        if (prop.type.name == 'String') {
+          s.writeln('        g_impl->set_${prop.dartName}(std::string(value));');
+        } else if (isEnum) {
+          final enumName = prop.type.name.replaceFirst('?', '');
+          s.writeln('        g_impl->set_${prop.dartName}(static_cast<$enumName>(value));');
+        } else if (isRecordParam) {
+          final opt = prop.type.name.endsWith('?');
+          if (opt) {
+            s.writeln('        NitroCppBuffer _buf = { nullptr, 0 };');
+            s.writeln('        if (value != nullptr) {');
+            s.writeln('            _buf.data = (const uint8_t*)value + 4;');
+            s.writeln('            _buf.size = (size_t)*(int32_t*)value;');
+            s.writeln('        }');
+            s.writeln('        g_impl->set_${prop.dartName}(_buf);');
+          } else {
+            s.writeln('        NitroCppBuffer _buf = { (const uint8_t*)value + 4, (size_t)*(int32_t*)value };');
+            s.writeln('        g_impl->set_${prop.dartName}(_buf);');
+          }
+        } else if (isStructParam) {
+          final stName = prop.type.name.replaceFirst('?', '');
+          s.writeln('        g_impl->set_${prop.dartName}(*static_cast<const $stName*>(value));');
+        } else {
+          s.writeln('        g_impl->set_${prop.dartName}(value);');
+        }
+        s.writeln('    } catch (const std::exception& e) {');
+        s.writeln('        nitro_report_error("CppException", e.what(), nullptr, nullptr);');
+        s.writeln('    }');
+        s.writeln('}');
+        s.writeln();
+      }
+    }
 
-      s.writeln('} // extern "C"');
-    } // end if (includeIos)
-    if (includeAndroid && includeIos) s.writeln('#endif');
-    return s.toString();
+    for (final stream in spec.streams) {
+      s.writeln('void ${stream.registerSymbol}(int64_t dart_port) {');
+      s.writeln('    g_port_${stream.dartName} = dart_port;');
+      s.writeln('}');
+      s.writeln('void ${stream.releaseSymbol}(int64_t dart_port) {');
+      s.writeln('    if (g_port_${stream.dartName} == dart_port) g_port_${stream.dartName} = 0;');
+      s.writeln('}');
+      s.writeln();
+    }
+
+    s.writeln('} // extern "C"');
   }
 
   static String _typeToC(String dartType) {

@@ -30,6 +30,12 @@ class BridgeSpec {
   /// True when Web is a targeted platform.
   bool get targetsWeb => webImpl != null;
 
+  /// True when the iOS platform uses a direct C++ implementation.
+  bool get iosIsCpp => iosImpl is CppImpl;
+
+  /// True when the macOS platform uses a direct C++ implementation.
+  bool get macosIsCpp => macosImpl is CppImpl;
+
   /// True when any Apple platform (iOS and/or macOS) is targeted with C++.
   bool get targetsAppleCpp => (iosImpl is CppImpl || macosImpl is CppImpl);
 
