@@ -134,11 +134,9 @@ Future<void> _runTui() async {
           ),
 
           // GENERATE (Streaming View)
-          // Runs `flutter pub get` first so Flutter SDK deps are resolved, then
-          // `flutter pub run build_runner` which is safe (no hang) because the
-          // lockfile is already fresh from the preceding pub get.
-          // `|| true` tolerates exit 255 (Dart SDK advisory-decode bug where
-          // packages ARE resolved but the advisory JSON parse fails).
+          // 1. Kill any already-running build_runner so the new one never hangs.
+          // 2. `flutter pub get || true` tolerates exit 255 (advisory-decode bug).
+          // 3. Then run build_runner build.
           route<CommandRoute>(
             path: '/generate',
             parse: (_) => const CommandRoute(NitroCommand.generate),
@@ -148,11 +146,19 @@ Future<void> _runTui() async {
                 title: 'Nitrogen Generate',
                 executable: '/bin/sh',
                 workingDirectory: info?.directory.path,
-                args: const ['-c', 'flutter pub get || true; flutter pub run build_runner build --delete-conflicting-outputs'],
+                args: const [
+                  '-c',
+                  'pkill -TERM -f build_runner 2>/dev/null; sleep 0.8; pkill -KILL -f build_runner 2>/dev/null; '
+                  'flutter pub get || true; '
+                  'flutter pub run build_runner build --delete-conflicting-outputs',
+                ],
               );
             },
           ),
           // WATCH (Streaming View)
+          // Same kill-first pattern. killOnDispose ensures the watcher process
+          // is terminated when the user presses ESC / Back. watchMode suppresses
+          // the success pulse and treats SIGTERM exit as a clean stop.
           route<CommandRoute>(
             path: '/watch',
             parse: (_) => const CommandRoute(NitroCommand.watch),
@@ -162,7 +168,14 @@ Future<void> _runTui() async {
                 title: 'Nitrogen Watch',
                 executable: '/bin/sh',
                 workingDirectory: info?.directory.path,
-                args: const ['-c', 'flutter pub get || true; flutter pub run build_runner watch --delete-conflicting-outputs'],
+                killOnDispose: true,
+                watchMode: true,
+                args: const [
+                  '-c',
+                  'pkill -TERM -f build_runner 2>/dev/null; sleep 0.8; pkill -KILL -f build_runner 2>/dev/null; '
+                  'flutter pub get || true; '
+                  'flutter pub run build_runner watch --delete-conflicting-outputs',
+                ],
               );
             },
           ),

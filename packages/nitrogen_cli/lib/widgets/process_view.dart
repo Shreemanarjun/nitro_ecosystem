@@ -12,6 +12,13 @@ class ProcessView extends StatefulComponent {
     required this.executable,
     required this.args,
     this.workingDirectory,
+    /// When true the underlying process is sent SIGTERM on dispose (e.g. watch
+    /// mode so the process doesn't keep running after the user navigates back).
+    this.killOnDispose = false,
+    /// When true the view shows "Watching…" instead of "Running…", and treats
+    /// SIGTERM / SIGKILL exit codes (143, 137) as normal "Stopped" rather than
+    /// "Failed".
+    this.watchMode = false,
     super.key,
   });
 
@@ -19,6 +26,8 @@ class ProcessView extends StatefulComponent {
   final String executable;
   final List<String> args;
   final String? workingDirectory;
+  final bool killOnDispose;
+  final bool watchMode;
 
   @override
   State<ProcessView> createState() => _ProcessViewState();
@@ -32,6 +41,7 @@ class _ProcessViewState extends State<ProcessView> {
   int? _exitCode;
   bool _successPulse = false;
   Timer? _pulseTimer;
+  Process? _process;
 
   @override
   void initState() {
@@ -42,6 +52,15 @@ class _ProcessViewState extends State<ProcessView> {
   @override
   void dispose() {
     _pulseTimer?.cancel();
+    if (component.killOnDispose && _process != null) {
+      // Terminate the process group so child processes (e.g. build_runner) are
+      // also killed. Fall back to plain kill() if ProcessSignal is unavailable.
+      try {
+        _process!.kill(ProcessSignal.sigterm);
+      } catch (_) {
+        _process!.kill();
+      }
+    }
     super.dispose();
   }
 
@@ -57,6 +76,7 @@ class _ProcessViewState extends State<ProcessView> {
         component.args,
         workingDirectory: component.workingDirectory,
       );
+      _process = process;
 
       // Handle stdout
       process.stdout.transform(const Utf8Decoder()).transform(const LineSplitter()).listen((line) {
@@ -78,12 +98,20 @@ class _ProcessViewState extends State<ProcessView> {
 
       final code = await process.exitCode;
       if (!mounted) return;
+      // In watch mode SIGTERM (143) / SIGKILL (137) are expected when the user
+      // navigates away — treat them as a clean stop.
+      final bool watchStopped = component.watchMode && (code == 143 || code == 137 || code == -1);
+      final int effectiveCode = watchStopped ? 0 : code;
       setState(() {
         _running = false;
         _done = true;
-        _exitCode = code;
-        _logs.add('[Info] Process exited with code $code');
-        if (code == 0) {
+        _exitCode = effectiveCode;
+        if (watchStopped) {
+          _logs.add('[Info] Watcher stopped.');
+        } else {
+          _logs.add('[Info] Process exited with code $code');
+        }
+        if (effectiveCode == 0 && !component.watchMode) {
           _pulseTimer = Timer.periodic(const Duration(milliseconds: 300), (t) {
             if (mounted) setState(() => _successPulse = !_successPulse);
           });
@@ -127,7 +155,7 @@ class _ProcessViewState extends State<ProcessView> {
           ),
           const SizedBox(height: 1),
           // Keep the success layout stable even when pulsing to avoid flickering/jumps
-          if (_done && _exitCode == 0)
+          if (_done && _exitCode == 0 && !component.watchMode)
             Container(
               padding: const EdgeInsets.all(1),
               child: Text(
@@ -142,7 +170,11 @@ class _ProcessViewState extends State<ProcessView> {
             child: Padding(
               padding: const EdgeInsets.symmetric(horizontal: 1),
               child: Container(
-                decoration: BoxDecoration(border: BoxBorder.all(color: (_done && _exitCode != 0 && _exitCode != null) ? Colors.red : Colors.brightBlack)),
+                decoration: BoxDecoration(
+                  border: BoxBorder.all(
+                    color: (_done && _exitCode != null && _exitCode != 0) ? Colors.red : Colors.brightBlack,
+                  ),
+                ),
                 child: Padding(
                   padding: const EdgeInsets.all(1),
                   child: ListView(
@@ -158,10 +190,16 @@ class _ProcessViewState extends State<ProcessView> {
             child: Row(
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
-                if (_running) const Text('⚙ Running...', style: TextStyle(color: Colors.yellow)),
+                if (_running)
+                  Text(
+                    component.watchMode ? '👁 Watching...' : '⚙ Running...',
+                    style: const TextStyle(color: Colors.yellow),
+                  ),
                 if (_done)
                   Text(
-                    _exitCode == 0 ? '✔ Success' : '✘ Failed (Code $_exitCode)',
+                    _exitCode == 0
+                        ? (component.watchMode ? '■ Stopped' : '✔ Success')
+                        : '✘ Failed (Code $_exitCode)',
                     style: TextStyle(color: _exitCode == 0 ? Colors.green : Colors.red, fontWeight: FontWeight.bold),
                   ),
                 const SizedBox(width: 2),
