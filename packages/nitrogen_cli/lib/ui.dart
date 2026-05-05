@@ -274,16 +274,3 @@ Stream<String> streamProcess(String executable, List<String> args, {String? work
   return controller.stream;
 }
 
-Stream<String> _interleave(Stream<String> a, Stream<String> b) {
-  final controller = StreamController<String>();
-  int active = 2;
-  void handle(String s) => controller.add(s);
-  void done() {
-    active--;
-    if (active == 0) controller.close();
-  }
-
-  a.listen(handle, onDone: done, onError: controller.addError);
-  b.listen(handle, onDone: done, onError: controller.addError);
-  return controller.stream;
-}
