@@ -148,7 +148,18 @@ Future<void> _runTui() async {
                 workingDirectory: info?.directory.path,
                 args: const [
                   '-c',
-                  'pkill -TERM -f build_runner 2>/dev/null; sleep 0.8; pkill -KILL -f build_runner 2>/dev/null; '
+                  // 1. Find the PID holding the lock file (most reliable — bypasses
+                  //    argv truncation that makes pkill -f miss the dart process).
+                  // NOTE: \$ escapes Dart string interpolation; the shell sees $LOCK, $PIDS.
+                  r'LOCK=.dart_tool/build/lock; '
+                  r'if [ -f "$LOCK" ]; then '
+                  r'  PIDS=$(lsof -t "$LOCK" 2>/dev/null); '
+                  r'  [ -n "$PIDS" ] && kill -TERM $PIDS 2>/dev/null && sleep 0.7 && kill -KILL $PIDS 2>/dev/null; '
+                  r'fi; '
+                  // 2. pkill -f as a broad fallback.
+                  'pkill -f build_runner 2>/dev/null; sleep 0.5; pkill -9 -f build_runner 2>/dev/null; '
+                  // 3. Delete the entire build cache (stale lock can't block startup).
+                  'rm -rf .dart_tool/build 2>/dev/null; '
                   'flutter pub get || true; '
                   'flutter pub run build_runner build --delete-conflicting-outputs',
                 ],
@@ -172,7 +183,13 @@ Future<void> _runTui() async {
                 watchMode: true,
                 args: const [
                   '-c',
-                  'pkill -TERM -f build_runner 2>/dev/null; sleep 0.8; pkill -KILL -f build_runner 2>/dev/null; '
+                  r'LOCK=.dart_tool/build/lock; '
+                  r'if [ -f "$LOCK" ]; then '
+                  r'  PIDS=$(lsof -t "$LOCK" 2>/dev/null); '
+                  r'  [ -n "$PIDS" ] && kill -TERM $PIDS 2>/dev/null && sleep 0.7 && kill -KILL $PIDS 2>/dev/null; '
+                  r'fi; '
+                  'pkill -f build_runner 2>/dev/null; sleep 0.5; pkill -9 -f build_runner 2>/dev/null; '
+                  'rm -rf .dart_tool/build 2>/dev/null; '
                   'flutter pub get || true; '
                   'flutter pub run build_runner watch --delete-conflicting-outputs',
                 ],

@@ -1,5 +1,6 @@
 import 'dart:io';
 import 'package:args/command_runner.dart';
+import 'package:path/path.dart' as p;
 import 'package:watcher/watcher.dart';
 import 'package:nitrogen_cli/ui.dart';
 import 'package:nitrogen_cli/utils.dart' show syncBridgeFiles, killBuildRunner;
@@ -35,6 +36,13 @@ class WatchCommand extends Command {
       stdout.writeln(gray('  ✔ No existing build_runner found.'));
     }
     stdout.writeln('');
+
+    // Always clear the build cache so watch starts fresh — same as generate.
+    // Without this a stale lock from a previously crashed process blocks startup.
+    final buildCache = Directory(p.join(root.path, '.dart_tool', 'build'));
+    if (buildCache.existsSync()) {
+      try { buildCache.deleteSync(recursive: true); } catch (_) {}
+    }
 
     // 2. Initial bridge sync to make sure everything is wired
     stdout.writeln(gray('  - Performing initial bridge sync...'));

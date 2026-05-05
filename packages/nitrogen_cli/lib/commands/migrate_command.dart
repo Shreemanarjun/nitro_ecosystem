@@ -143,6 +143,30 @@ class _MigrateViewState extends State<MigrateView> {
   bool _needsConfirmation = false;
   String? _errorMessage;
 
+  String _stepsAsText() {
+    final buf = StringBuffer();
+    buf.writeln('nitrogen migrate — ${component.pluginName}');
+    buf.writeln('');
+    for (final step in _steps) {
+      final icon = switch (step.state) {
+        MigrationStepState.done => '✔',
+        MigrationStepState.skipped => '–',
+        MigrationStepState.running => '⚙',
+        MigrationStepState.failed => '✘',
+        MigrationStepState.pending => '○',
+      };
+      buf.write('  $icon ${step.label}');
+      if (step.detail != null) buf.write('  (${step.detail})');
+      buf.writeln();
+    }
+    if (_errorMessage != null) {
+      buf.writeln('\nERROR: $_errorMessage');
+    } else if (_finished && !_failed) {
+      buf.writeln('\n✨ Migration complete!');
+    }
+    return buf.toString();
+  }
+
   @override
   void initState() {
     super.initState();
@@ -424,6 +448,10 @@ class _MigrateViewState extends State<MigrateView> {
       shutdownApp(_failed ? 1 : 0);
       return true;
     }
+    if (e.character == 'c' || e.character == 'C') {
+      copyToClipboard(_stepsAsText());
+      return true;
+    }
 
     return false;
   }
@@ -555,8 +583,10 @@ class _MigrateViewState extends State<MigrateView> {
                                 ),
                                 const Text('  •  ', style: TextStyle(color: Colors.brightBlack)),
                               ],
+                              CopyButton(getData: _stepsAsText),
+                              const Text('  •  ', style: TextStyle(color: Colors.brightBlack)),
                               Text(
-                                component.onExit != null ? 'ESC back' : 'ESC exit',
+                                'c copy   ${component.onExit != null ? 'ESC back' : 'ESC exit'}',
                                 style: const TextStyle(color: Colors.gray, fontWeight: FontWeight.dim),
                               ),
                             ],

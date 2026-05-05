@@ -170,8 +170,16 @@ PackageSwiftValidation validatePackageSwift(String path, String platform) {
     warnings.add('$platform/Package.swift may be missing C++ target for bridges');
   }
 
-  // Check for nitro include path
-  final hasNitroFlags = content.contains('nitro/src/native') || content.contains('.symlinks/plugins/nitro');
+  // Check for nitro include path.
+  // Three valid layouts:
+  //   1. Direct path:  headerSearchPath("…/nitro/src/native")
+  //   2. Symlinks:     headerSearchPath("…/.symlinks/plugins/nitro/…")
+  //   3. Nitrogen-managed nested SPM layout: nitrogen link copies nitro.h
+  //      into Sources/<PluginCpp>/include/ and declares publicHeadersPath: "include".
+  //      No explicit nitro path is needed in Package.swift.
+  final hasNitroFlags = content.contains('nitro/src/native') ||
+      content.contains('.symlinks/plugins/nitro') ||
+      (content.contains('publicHeadersPath') && content.contains('Sources/'));
   if (!hasNitroFlags) {
     warnings.add('$platform/Package.swift missing nitro header search path');
   }

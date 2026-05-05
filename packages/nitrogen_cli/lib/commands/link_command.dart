@@ -394,6 +394,32 @@ class _LinkViewState extends State<LinkView> {
   String? _errorMessage;
   final List<String> _nextSteps = [];
 
+  String _stepsAsText() {
+    final buf = StringBuffer();
+    buf.writeln('nitrogen link — ${component.pluginName}');
+    buf.writeln('');
+    for (final step in _steps) {
+      final icon = switch (step.state) {
+        LinkStepState.done => '✔',
+        LinkStepState.skipped => '–',
+        LinkStepState.running => '⚙',
+        LinkStepState.failed => '✘',
+        LinkStepState.pending => '○',
+      };
+      buf.write('  $icon ${step.label}');
+      if (step.detail != null) buf.write('  (${step.detail})');
+      buf.writeln();
+    }
+    buf.writeln();
+    if (_errorMessage != null) {
+      buf.writeln('ERROR: $_errorMessage');
+    } else if (_finished && !_failed) {
+      buf.writeln('✨ Linked!');
+      for (final s in _nextSteps) { buf.writeln('  • $s'); }
+    }
+    return buf.toString();
+  }
+
   @override
   void initState() {
     super.initState();
@@ -747,6 +773,10 @@ class _LinkViewState extends State<LinkView> {
           shutdownApp(_failed ? 1 : 0);
           return true;
         }
+        if (e.character == 'c' || e.character == 'C') {
+          copyToClipboard(_stepsAsText());
+          return true;
+        }
         return false;
       },
       child: Column(
@@ -843,8 +873,13 @@ class _LinkViewState extends State<LinkView> {
                           style: TextStyle(color: Colors.brightBlack),
                         ),
                       ],
+                      CopyButton(getData: _stepsAsText),
+                      const Text(
+                        '  •  ',
+                        style: TextStyle(color: Colors.brightBlack),
+                      ),
                       Text(
-                        component.onExit != null ? 'ESC back' : 'ESC exit',
+                        'c copy   ${component.onExit != null ? 'ESC back' : 'ESC exit'}',
                         style: const TextStyle(
                           color: Colors.gray,
                           fontWeight: FontWeight.dim,
@@ -1027,6 +1062,36 @@ void linkCMake(
     );
     modified = true;
   }
+
+  // Add the main plugin's HybridXxx.cpp impl file when:
+  //   • the module uses NativeImpl.cpp on android/linux (isNativeCpp), or any
+  //     platform that compiles through src/ (isCpp), and
+  //   • the file exists in src/, and
+  //   • it is not already listed in the cmake.
+  if (moduleInfos != null) {
+    final mainInfo = moduleInfos.firstWhere(
+      (m) => m.lib == pluginName,
+      orElse: () => ModuleInfo(lib: pluginName, module: pluginName, isCpp: false),
+    );
+    if (mainInfo.isCpp) {
+      final className = _toPascalCase(
+        mainInfo.module.isNotEmpty ? mainInfo.module : pluginName,
+      );
+      final implName = 'Hybrid$className.cpp';
+      final implFile = File(p.join(baseDir, 'src', implName));
+      if (implFile.existsSync() &&
+          !content.contains('"$implName"') &&
+          !content.contains(' $implName ') &&
+          !content.contains('\n  $implName')) {
+        content = content.replaceFirst(
+          'add_library($pluginName SHARED',
+          'add_library($pluginName SHARED\n  "$implName"',
+        );
+        modified = true;
+      }
+    }
+  }
+
   for (final lib in moduleLibs) {
     if (lib != pluginName && !content.contains('add_library($lib ')) {
       final info = moduleInfos?.firstWhere(
@@ -2412,21 +2477,31 @@ void _linkDesktopCMake(
   // The pattern covers the common "add_library(${PLUGIN_NAME} SHARED\n" line.
   const addLibLine = 'add_library(\${PLUGIN_NAME} SHARED\n';
 
-  if (!content.contains('dart_api_dl.c')) {
-    content = content.replaceFirst(
-      addLibLine,
-      '$addLibLine  "\${CMAKE_CURRENT_SOURCE_DIR}/../src/dart_api_dl.c"\n',
-    );
-    modified = true;
-  }
+  // If the platform CMakeLists delegates compilation to the shared src/ directory
+  // via add_subdirectory("../src"), then dart_api_dl.c and bridge.g.cpp are
+  // already compiled through src/CMakeLists.txt. Skip adding them here to avoid
+  // duplicate-symbol linker errors and confusing doctor warnings.
+  final usesSharedSrc = content.contains('add_subdirectory') &&
+      (content.contains('"../src"') ||
+       content.contains(r'"${CMAKE_CURRENT_SOURCE_DIR}/../src"'));
 
-  final bridgeRel = '../lib/src/generated/cpp/$pluginName.bridge.g.cpp';
-  if (!content.contains(bridgeRel)) {
-    content = content.replaceFirst(
-      addLibLine,
-      '$addLibLine  "\${CMAKE_CURRENT_SOURCE_DIR}/$bridgeRel"\n',
-    );
-    modified = true;
+  if (!usesSharedSrc) {
+    if (!content.contains('dart_api_dl.c')) {
+      content = content.replaceFirst(
+        addLibLine,
+        '$addLibLine  "\${CMAKE_CURRENT_SOURCE_DIR}/../src/dart_api_dl.c"\n',
+      );
+      modified = true;
+    }
+
+    final bridgeRel = '../lib/src/generated/cpp/$pluginName.bridge.g.cpp';
+    if (!content.contains(bridgeRel)) {
+      content = content.replaceFirst(
+        addLibLine,
+        '$addLibLine  "\${CMAKE_CURRENT_SOURCE_DIR}/$bridgeRel"\n',
+      );
+      modified = true;
+    }
   }
 
   if (!content.contains(r'${NITRO_NATIVE}')) {

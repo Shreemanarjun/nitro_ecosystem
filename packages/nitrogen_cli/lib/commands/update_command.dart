@@ -225,6 +225,27 @@ class _UpdateViewState extends State<UpdateView> {
     setState(() => _finished = true);
   }
 
+  String _stepsAsText() {
+    final buf = StringBuffer();
+    buf.writeln('nitrogen update');
+    if (_currentVersion != null) buf.writeln('  Current: v$_currentVersion');
+    if (_latestVersion != null) buf.writeln('  Latest:  v$_latestVersion');
+    buf.writeln('');
+    for (final step in _steps) {
+      final icon = switch (step.state) {
+        UpdateStepState.done => '✔',
+        UpdateStepState.skipped => '–',
+        UpdateStepState.running => '⚙',
+        UpdateStepState.idle => '○',
+      };
+      buf.write('  $icon ${step.label}');
+      if (step.detail != null) buf.write('  (${step.detail})');
+      buf.writeln();
+    }
+    if (_errorMessage != null) buf.writeln('\nERROR: $_errorMessage');
+    return buf.toString();
+  }
+
   bool _handleKey(KeyboardEvent e) {
     if (e.logicalKey == LogicalKey.escape) {
       if (component.onExit != null) {
@@ -232,6 +253,10 @@ class _UpdateViewState extends State<UpdateView> {
         return true;
       }
       shutdownApp(_failed ? 1 : 0);
+      return true;
+    }
+    if (e.character == 'c' || e.character == 'C') {
+      copyToClipboard(_stepsAsText());
       return true;
     }
     return false;
@@ -321,8 +346,10 @@ class _UpdateViewState extends State<UpdateView> {
                         ),
                         const Text('  •  ', style: TextStyle(color: Colors.brightBlack)),
                       ],
+                      CopyButton(getData: _stepsAsText),
+                      const Text('  •  ', style: TextStyle(color: Colors.brightBlack)),
                       Text(
-                        component.onExit != null ? 'ESC back' : 'ESC exit',
+                        'c copy   ${component.onExit != null ? 'ESC back' : 'ESC exit'}',
                         style: const TextStyle(color: Colors.gray, fontWeight: FontWeight.dim),
                       ),
                     ],

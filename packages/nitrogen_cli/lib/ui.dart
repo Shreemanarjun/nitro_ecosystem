@@ -39,6 +39,86 @@ bool _isNitroRoot(Directory dir) {
 
 // ── nocterm UI Components ──────────────────────────────────────────────────
 
+// ── Clipboard helpers ─────────────────────────────────────────────────────────
+
+/// Copies [text] to the system clipboard.
+/// Returns true on success, false on failure.
+Future<bool> copyToClipboard(String text) async {
+  try {
+    if (Platform.isMacOS) {
+      final p = await Process.start('pbcopy', []);
+      p.stdin.write(text);
+      await p.stdin.close();
+      await p.exitCode;
+      return true;
+    } else if (Platform.isLinux) {
+      try {
+        final p = await Process.start('xclip', ['-selection', 'clipboard']);
+        p.stdin.write(text);
+        await p.stdin.close();
+        await p.exitCode;
+        return true;
+      } catch (_) {
+        final p = await Process.start('xsel', ['--clipboard', '--input']);
+        p.stdin.write(text);
+        await p.stdin.close();
+        await p.exitCode;
+        return true;
+      }
+    } else if (Platform.isWindows) {
+      final p = await Process.start('clip', []);
+      p.stdin.write(text);
+      await p.stdin.close();
+      await p.exitCode;
+      return true;
+    }
+  } catch (_) {}
+  return false;
+}
+
+/// A button that copies data to the clipboard.
+///
+/// Pass a [getData] callback that returns the string to copy.
+/// The button shows "📋 Copy" → "✔ Copied!" (green) or "✘ Failed" (red)
+/// for 2 s, then resets. Fully self-contained — no parent state needed.
+class CopyButton extends StatefulComponent {
+  const CopyButton({required this.getData, super.key});
+  final String Function() getData;
+
+  @override
+  State<CopyButton> createState() => _CopyButtonState();
+}
+
+class _CopyButtonState extends State<CopyButton> {
+  bool? _result; // null = idle, true = ok, false = error
+  Timer? _timer;
+
+  @override
+  void dispose() {
+    _timer?.cancel();
+    super.dispose();
+  }
+
+  void _copy() async {
+    final ok = await copyToClipboard(component.getData());
+    if (!mounted) return;
+    _timer?.cancel();
+    setState(() => _result = ok);
+    _timer = Timer(const Duration(seconds: 2), () {
+      if (mounted) setState(() => _result = null);
+    });
+  }
+
+  @override
+  Component build(BuildContext context) {
+    final label = _result == null ? '📋 Copy' : (_result! ? '✔ Copied!' : '✘ Failed');
+    final color = _result == null ? Colors.white : (_result! ? Colors.green : Colors.red);
+    return HoverButton(label: label, onTap: _copy, color: color);
+  }
+}
+
+// ── HoverButton ───────────────────────────────────────────────────────────────
+
 class HoverButton extends StatefulComponent {
   const HoverButton({
     required this.label,

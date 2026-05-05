@@ -6,11 +6,22 @@ import 'models.dart';
 ///
 /// build_runner uses a lock file (`.dart_tool/build/lock`) so a second
 /// invocation in the same project will hang indefinitely waiting for the
-/// lock. This function:
-///   1. Sends SIGTERM to all processes whose command line contains
-///      "build_runner" (graceful shutdown).
-///   2. Waits up to 1 s for them to exit, then force-kills with SIGKILL.
-///   3. Deletes the stale lock file so the new process starts immediately.
+/// lock. This function uses two complementary strategies:
+///
+///   **Strategy 1 — lock-file owner (most reliable)**
+///   Uses `lsof -t` to find the exact PID(s) holding the lock file and
+///   kills them directly. This bypasses command-line truncation issues that
+///   can cause `pkill -f` to miss the process (e.g. when Flutter/puro runs
+///   build_runner via a long snapshot path).
+///
+///   **Strategy 2 — pkill fallback**
+///   `pkill -f build_runner` catches any remaining dart processes whose
+///   argv contains "build_runner" in case `lsof` found nothing (e.g. when
+///   the lock file doesn't exist yet but the process is still starting).
+///
+///   Finally, the entire `.dart_tool/build` directory is deleted so no
+///   stale lock can block the new process, even if the killed process held
+///   the file handle right up to SIGKILL.
 ///
 /// Returns the number of processes that were killed (0 = none were running).
 Future<int> killBuildRunner({String? workingDirectory}) async {
@@ -34,31 +45,65 @@ Future<int> killBuildRunner({String? workingDirectory}) async {
       }
     } catch (_) {}
   } else {
-    // macOS / Linux — pkill -f matches against the full command line.
-    // Ignore exit code 1 (no process found); only 0 means something was killed.
+    // ── Strategy 1: lsof — find the process holding the lock file ───────────
+    // This is the most reliable method: we know exactly which process is
+    // blocking. It is immune to argv truncation issues in pkill -f.
+    if (workingDirectory != null) {
+      for (final lockName in ['lock', '.lock']) {
+        final lockPath = p.join(workingDirectory, '.dart_tool', 'build', lockName);
+        if (!File(lockPath).existsSync()) continue;
+        try {
+          final lsof = await Process.run('lsof', ['-t', lockPath]);
+          final pids = (lsof.stdout as String)
+              .trim()
+              .split(RegExp(r'\s+'))
+              .where((s) => RegExp(r'^\d+$').hasMatch(s))
+              .toList();
+          for (final pid in pids) {
+            await Process.run('kill', ['-TERM', pid]);
+            killed++;
+          }
+          if (pids.isNotEmpty) {
+            // Grace period for clean shutdown.
+            await Future.delayed(const Duration(milliseconds: 700));
+            for (final pid in pids) {
+              await Process.run('kill', ['-KILL', pid]);
+            }
+          }
+        } catch (_) {}
+      }
+    }
+
+    // ── Strategy 2: pkill -f as a broad fallback ────────────────────────────
+    // Catches processes whose lock file doesn't exist yet (still starting up)
+    // or when lsof is unavailable. On macOS -f searches the full argv.
     try {
-      final r = await Process.run('pkill', ['-TERM', '-f', 'build_runner']);
+      final r = await Process.run('pkill', ['-f', 'build_runner']);
       if (r.exitCode == 0) {
         killed++;
-        // Give the process up to 800 ms to exit cleanly before force-killing.
         await Future.delayed(const Duration(milliseconds: 800));
-        // Force-kill any survivor.
-        await Process.run('pkill', ['-KILL', '-f', 'build_runner']);
+        await Process.run('pkill', ['-9', '-f', 'build_runner']);
       }
     } catch (_) {}
   }
 
-  // Always remove the stale lock file — even if pkill found nothing, a
-  // previous crashed process may have left it behind.
+  // ── Delete the entire .dart_tool/build directory ─────────────────────────
+  // Deleting just the lock file is insufficient — the OS may keep the file
+  // descriptor open briefly after SIGKILL. Removing the whole directory
+  // guarantees a clean slate. Retry once after a short pause.
   if (workingDirectory != null) {
-    for (final lockPath in [
-      p.join(workingDirectory, '.dart_tool', 'build', 'lock'),
-      p.join(workingDirectory, '.dart_tool', 'build', '.lock'),
-    ]) {
+    final buildCache = Directory(p.join(workingDirectory, '.dart_tool', 'build'));
+    if (buildCache.existsSync()) {
+      await Future.delayed(const Duration(milliseconds: 200));
       try {
-        final f = File(lockPath);
-        if (f.existsSync()) f.deleteSync();
-      } catch (_) {}
+        buildCache.deleteSync(recursive: true);
+      } catch (_) {
+        // If the first attempt races with the dying process, wait and retry.
+        await Future.delayed(const Duration(milliseconds: 400));
+        try {
+          buildCache.deleteSync(recursive: true);
+        } catch (_) {}
+      }
     }
   }
 

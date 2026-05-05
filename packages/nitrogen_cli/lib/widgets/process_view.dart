@@ -136,6 +136,11 @@ class _ProcessViewState extends State<ProcessView> {
           context.unrouterAs<NitroRoute>().go(const RootRoute());
           return true;
         }
+        // 'c' / 'C' — copy all logs to clipboard
+        if (event.character == 'c' || event.character == 'C') {
+          copyToClipboard(_logs.join('\n'));
+          return true;
+        }
         return false;
       },
       child: Column(
@@ -209,8 +214,10 @@ class _ProcessViewState extends State<ProcessView> {
                   color: Colors.cyan,
                 ),
                 const SizedBox(width: 2),
+                CopyButton(getData: () => _logs.join('\n')),
+                const SizedBox(width: 2),
                 const Text(
-                  'ESC back',
+                  'ESC back • c copy',
                   style: TextStyle(color: Colors.gray, fontWeight: FontWeight.dim),
                 ),
               ],

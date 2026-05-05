@@ -147,6 +147,36 @@ class DoctorView extends StatefulComponent {
 class _DoctorViewState extends State<DoctorView> {
   final _scroll = ScrollController();
 
+  /// Serialises the doctor report to plain text for clipboard copy.
+  String _reportAsText() {
+    final buf = StringBuffer();
+    buf.writeln('nitrogen doctor — ${component.pluginName}');
+    buf.writeln('');
+    for (final section in component.sections) {
+      buf.writeln('[${section.title}]');
+      for (final check in section.checks) {
+        final icon = switch (check.status) {
+          DoctorStatus.ok => '✔',
+          DoctorStatus.warn => '⚠',
+          DoctorStatus.error => '✘',
+          DoctorStatus.info => 'ℹ',
+        };
+        buf.write('  $icon ${check.label}');
+        if (check.hint != null) buf.write('  (${check.hint})');
+        buf.writeln();
+      }
+      buf.writeln();
+    }
+    if (component.errorMessage != null) {
+      buf.writeln('ERROR: ${component.errorMessage}');
+    } else if (component.errors == 0 && component.warnings == 0) {
+      buf.writeln('✨ All checks passed.');
+    } else {
+      buf.writeln('Summary: ${component.errors} error(s), ${component.warnings} warning(s)');
+    }
+    return buf.toString();
+  }
+
   bool _handleKey(KeyboardEvent e) {
     final k = e.logicalKey;
     if (k == LogicalKey.arrowUp) {
@@ -171,6 +201,11 @@ class _DoctorViewState extends State<DoctorView> {
     }
     if (k == LogicalKey.end) {
       _scroll.scrollToEnd();
+      return true;
+    }
+    // 'c' / 'C' — copy the doctor report to clipboard
+    if (e.character == 'c' || e.character == 'C') {
+      copyToClipboard(_reportAsText());
       return true;
     }
 
@@ -278,8 +313,10 @@ class _DoctorViewState extends State<DoctorView> {
                       ),
                       const Text('  •  ', style: TextStyle(color: Colors.brightBlack)),
                     ],
+                    CopyButton(getData: _reportAsText),
+                    const Text('  •  ', style: TextStyle(color: Colors.brightBlack)),
                     Text(
-                      '↑↓ scroll   PgUp/PgDn   ${component.onExit != null ? 'ESC back' : 'ESC exit'}',
+                      '↑↓ scroll   PgUp/PgDn   c copy   ${component.onExit != null ? 'ESC back' : 'ESC exit'}',
                       style: TextStyle(color: Colors.gray, fontWeight: FontWeight.dim),
                     ),
                   ],
@@ -1092,11 +1129,19 @@ class DoctorCommand extends Command {
       final macosClassesDir = Directory(p.join(macosDir.path, 'Classes'));
       if (allSpecsCpp) {
         info(macosSec, 'All modules use NativeImpl.cpp — Swift bridge (Registry.register) not required');
-        final cppHeaders = macosClassesDir.existsSync() ? macosClassesDir.listSync().whereType<File>().where((f) => f.path.endsWith('.native.g.h')).toList() : <File>[];
-        if (cppHeaders.isNotEmpty) {
-          ok(macosSec, '${cppHeaders.length} *.native.g.h header(s) synced to macos/Classes/');
-        } else if (hasAnyCppSpec) {
-          warn(macosSec, 'No *.native.g.h in macos/Classes/', hint: 'Run: nitrogen generate && nitrogen link');
+        // .native.g.h uses C++ types and must NOT be placed in macos/Classes/ —
+        // CocoaPods includes every header there into the umbrella header, which
+        // breaks Swift/ObjC compilation. Check HEADER_SEARCH_PATHS instead (same
+        // logic as iOS). If SPM is active the file is also reachable via
+        // Sources/NitroVaniCpp/ so the podspec check is advisory only.
+        final macosPodFiles = macosDir.listSync().whereType<File>().where((f) => f.path.endsWith('.podspec')).toList();
+        if (macosPodFiles.isNotEmpty) {
+          final pod = macosPodFiles.first.readAsStringSync();
+          if (pod.contains('lib/src/generated/cpp')) {
+            ok(macosSec, '*.native.g.h reachable via HEADER_SEARCH_PATHS → lib/src/generated/cpp');
+          } else {
+            warn(macosSec, 'HEADER_SEARCH_PATHS may not include lib/src/generated/cpp (needed for *.native.g.h)', hint: 'Run: nitrogen link');
+          }
         }
       } else {
         final swiftFiles = macosClassesDir.existsSync() ? macosClassesDir.listSync().whereType<File>().where((f) => f.path.endsWith('Plugin.swift')).toList() : <File>[];
@@ -1241,6 +1286,21 @@ class DoctorCommand extends Command {
     }
 
     // ── Windows ──────────────────────────────────────────────────────────────
+    // Helper: returns true when [cmake] uses add_subdirectory to the shared
+    // src/ directory (Nitro layout). In that case dart_api_dl.c and bridge
+    // files are compiled via src/CMakeLists.txt — checking the platform file
+    // directly would produce false errors.
+    bool usesSharedSrc(String cmake) =>
+        cmake.contains('add_subdirectory') &&
+        (cmake.contains('"../src"') ||
+         cmake.contains(r'"${CMAKE_CURRENT_SOURCE_DIR}/../src"'));
+
+    // When the platform CMakeLists delegates to src/, check src/CMakeLists.txt
+    // as the authoritative source of truth for dart_api_dl.c / bridge.g.cpp.
+    final srcCmake = File(p.join(root.path, 'src', 'CMakeLists.txt'));
+    final srcCmakeContent = srcCmake.existsSync() ? srcCmake.readAsStringSync() : '';
+
+    // ── Windows ───────────────────────────────────────────────────────────────
     final winSec = DoctorSection('Windows');
     sections.add(winSec);
     final winDir = Directory(p.join(root.path, 'windows'));
@@ -1252,13 +1312,18 @@ class DoctorCommand extends Command {
         err(winSec, 'windows/CMakeLists.txt not found', hint: 'Run: nitrogen link');
       } else {
         final cmake = cmakeFile.readAsStringSync();
-        if (cmake.contains('NITRO_NATIVE')) {
+        final sharedSrc = usesSharedSrc(cmake);
+        // For NITRO_NATIVE, check both the platform file and src/CMakeLists.
+        if (cmake.contains('NITRO_NATIVE') || (sharedSrc && srcCmakeContent.contains('NITRO_NATIVE'))) {
           ok(winSec, 'NITRO_NATIVE variable defined in windows/CMakeLists.txt');
         } else {
           err(winSec, 'NITRO_NATIVE missing in windows/CMakeLists.txt', hint: 'Run: nitrogen link');
         }
-        if (cmake.contains('dart_api_dl.c')) {
-          ok(winSec, 'dart_api_dl.c included in windows/CMakeLists.txt');
+        // dart_api_dl.c: accept if present in platform file OR in src/ (via add_subdirectory).
+        if (cmake.contains('dart_api_dl.c') || (sharedSrc && srcCmakeContent.contains('dart_api_dl.c'))) {
+          ok(winSec, sharedSrc
+              ? 'dart_api_dl.c compiled via src/CMakeLists.txt (add_subdirectory)'
+              : 'dart_api_dl.c included in windows/CMakeLists.txt');
         } else {
           err(winSec, 'dart_api_dl.c not included in windows/CMakeLists.txt', hint: 'Run: nitrogen link');
         }
@@ -1266,8 +1331,12 @@ class DoctorCommand extends Command {
           final stem = p.basename(spec.path).replaceAll(RegExp(r'\.native\.dart$'), '');
           final lib = _extractLibName(spec) ?? stem.replaceAll('-', '_');
           final bridgeRel = '../lib/src/generated/cpp/$lib.bridge.g.cpp';
-          if (cmake.contains(bridgeRel)) {
-            ok(winSec, '$lib.bridge.g.cpp linked in windows/CMakeLists.txt');
+          // Accept if the bridge is in the platform file, or in src/CMakeLists (shared build).
+          final inSrc = sharedSrc && (srcCmakeContent.contains('$lib.bridge.g.cpp') || srcCmakeContent.contains(bridgeRel));
+          if (cmake.contains(bridgeRel) || inSrc) {
+            ok(winSec, sharedSrc
+                ? '$lib.bridge.g.cpp compiled via src/CMakeLists.txt'
+                : '$lib.bridge.g.cpp linked in windows/CMakeLists.txt');
           } else {
             warn(winSec, '$lib.bridge.g.cpp not linked in windows/CMakeLists.txt', hint: 'Run: nitrogen link');
           }
@@ -1287,13 +1356,16 @@ class DoctorCommand extends Command {
         err(linuxSec, 'linux/CMakeLists.txt not found', hint: 'Run: nitrogen link');
       } else {
         final cmake = cmakeFile.readAsStringSync();
-        if (cmake.contains('NITRO_NATIVE')) {
+        final sharedSrc = usesSharedSrc(cmake);
+        if (cmake.contains('NITRO_NATIVE') || (sharedSrc && srcCmakeContent.contains('NITRO_NATIVE'))) {
           ok(linuxSec, 'NITRO_NATIVE variable defined in linux/CMakeLists.txt');
         } else {
           err(linuxSec, 'NITRO_NATIVE missing in linux/CMakeLists.txt', hint: 'Run: nitrogen link');
         }
-        if (cmake.contains('dart_api_dl.c')) {
-          ok(linuxSec, 'dart_api_dl.c included in linux/CMakeLists.txt');
+        if (cmake.contains('dart_api_dl.c') || (sharedSrc && srcCmakeContent.contains('dart_api_dl.c'))) {
+          ok(linuxSec, sharedSrc
+              ? 'dart_api_dl.c compiled via src/CMakeLists.txt (add_subdirectory)'
+              : 'dart_api_dl.c included in linux/CMakeLists.txt');
         } else {
           err(linuxSec, 'dart_api_dl.c not included in linux/CMakeLists.txt', hint: 'Run: nitrogen link');
         }
@@ -1301,8 +1373,11 @@ class DoctorCommand extends Command {
           final stem = p.basename(spec.path).replaceAll(RegExp(r'\.native\.dart$'), '');
           final lib = _extractLibName(spec) ?? stem.replaceAll('-', '_');
           final bridgeRel = '../lib/src/generated/cpp/$lib.bridge.g.cpp';
-          if (cmake.contains(bridgeRel)) {
-            ok(linuxSec, '$lib.bridge.g.cpp linked in linux/CMakeLists.txt');
+          final inSrc = sharedSrc && (srcCmakeContent.contains('$lib.bridge.g.cpp') || srcCmakeContent.contains(bridgeRel));
+          if (cmake.contains(bridgeRel) || inSrc) {
+            ok(linuxSec, sharedSrc
+                ? '$lib.bridge.g.cpp compiled via src/CMakeLists.txt'
+                : '$lib.bridge.g.cpp linked in linux/CMakeLists.txt');
           } else {
             warn(linuxSec, '$lib.bridge.g.cpp not linked in linux/CMakeLists.txt', hint: 'Run: nitrogen link');
           }

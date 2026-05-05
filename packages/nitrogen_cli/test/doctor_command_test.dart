@@ -778,12 +778,23 @@ end
       );
     });
 
-    test('macOS section ok when .native.g.h synced and all specs are cpp', () {
+    test('macOS section ok when HEADER_SEARCH_PATHS covers lib/src/generated/cpp for cpp spec', () {
       final tmp = scaffoldWithMacos(
-        nativeGHeaders: ['math.native.g.h'],
         specs: [(name: 'math', isCpp: true)],
       );
       addTearDown(() => tmp.deleteSync(recursive: true));
+      // Overwrite podspec to include lib/src/generated/cpp — the doctor checks this
+      // path, not the presence of .native.g.h in macos/Classes/ (which must NOT be
+      // placed there as CocoaPods would include it in the umbrella header).
+      File(p.join(tmp.path, 'macos', 'my_plugin.podspec')).writeAsStringSync('''
+Pod::Spec.new do |s|
+  s.name = "my_plugin"
+  s.pod_target_xcconfig = {
+    'HEADER_SEARCH_PATHS' => '"\${PODS_TARGET_SRCROOT}/../lib/src/generated/cpp" "\${PODS_TARGET_SRCROOT}/../src/native"',
+    'CLANG_CXX_LANGUAGE_STANDARD' => 'c++17',
+  }
+end
+''');
       final result = _run(tmp);
       final sec = result.sections.firstWhere((s) => s.title == 'macOS');
       expect(
