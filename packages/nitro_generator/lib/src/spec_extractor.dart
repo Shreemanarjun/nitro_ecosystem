@@ -1,3 +1,4 @@
+// ignore_for_file: deprecated_member_use
 import 'package:analyzer/dart/element/element.dart';
 import 'package:analyzer/dart/constant/value.dart';
 import 'package:analyzer/dart/element/type.dart';
@@ -8,9 +9,9 @@ import 'bridge_spec.dart';
 
 class SpecExtractor {
   static BridgeSpec extract(LibraryReader library) {
-    final modules = library.annotatedWith(const TypeChecker.fromRuntime(NitroModule));
+    final modules = library.annotatedWith(const TypeChecker.fromUrl('package:nitro_annotations/src/annotations.dart#NitroModule'));
     if (modules.isEmpty) {
-      throw InvalidGenerationSourceError(
+      throw InvalidGenerationSource(
         'No @NitroModule annotated classes found.',
       );
     }
@@ -19,7 +20,7 @@ class SpecExtractor {
     final element = module.element as ClassElement;
     final annotation = module.annotation;
 
-    final sourcePath = library.element.source.uri.toString();
+    final sourcePath = library.element.uri.toString();
     final iosImpl     = annotation.read('ios').isNull     ? null : _getNativeImpl(annotation.read('ios').objectValue,     fieldName: 'ios',     sourcePath: sourcePath);
     final androidImpl = annotation.read('android').isNull ? null : _getNativeImpl(annotation.read('android').objectValue, fieldName: 'android', sourcePath: sourcePath);
     final macosImpl   = annotation.read('macos').isNull   ? null : _getNativeImpl(annotation.read('macos').objectValue,   fieldName: 'macos',   sourcePath: sourcePath);
@@ -28,9 +29,9 @@ class SpecExtractor {
     final webImpl     = annotation.read('web').isNull     ? null : _getNativeImpl(annotation.read('web').objectValue,     fieldName: 'web',     sourcePath: sourcePath);
     final cSymbolPrefix = annotation.read('cSymbolPrefix').isNull ? null : annotation.read('cSymbolPrefix').stringValue;
     final lib = annotation.read('lib').isNull ? null : annotation.read('lib').stringValue;
-    final sourceFile = library.element.source.uri.pathSegments.last.replaceFirst('.native.dart', '');
+    final sourceFile = library.element.uri.pathSegments.last.replaceFirst('.native.dart', '');
     final libName = lib ?? sourceFile.replaceAll('-', '_');
-    final ns = cSymbolPrefix ?? _toSnakeCase(element.name);
+    final ns = cSymbolPrefix ?? _toSnakeCase(element.name!);
 
     // Extract @HybridRecord types first so we know which type names are records
     // when classifying function/property/stream types.
@@ -39,7 +40,7 @@ class SpecExtractor {
 
     final (:properties, :streams) = _extractPropertiesAndStreams(element, ns, recordTypeNames);
     return BridgeSpec(
-      dartClassName: element.name,
+      dartClassName: element.name!,
       lib: libName,
       namespace: ns,
       iosImpl: iosImpl,
@@ -88,7 +89,7 @@ class SpecExtractor {
         if (fieldName == 'ios' || fieldName == 'macos') {
           return _inferAppleImpl(object);
         }
-        throw InvalidGenerationSourceError(
+        throw InvalidGenerationSource(
           'Cannot infer AppleNativeImpl kind for field "$fieldName"'
           '${sourcePath != null ? " in $sourcePath" : ""}. '
           'Use AppleNativeImpl.swift or AppleNativeImpl.cpp explicitly.',
@@ -96,7 +97,7 @@ class SpecExtractor {
       case 'AndroidNativeImpl':
         return _inferAndroidImpl(object);
     }
-    throw InvalidGenerationSourceError(
+    throw InvalidGenerationSource(
       'Unknown NativeImpl subclass: "$typeName" '
       '(field: "${fieldName ?? '<unknown>'}"'
       '${sourcePath != null ? ", source: $sourcePath" : ""}). '
@@ -111,11 +112,11 @@ class SpecExtractor {
   static NativeImpl _inferAppleImpl(DartObject object) {
     final element = object.type?.element;
     final names = (element is InterfaceElement)
-        ? element.allSupertypes.map((t) => t.element.name).toSet()
+        ? element.allSupertypes.map((t) => t.element.name).whereType<String>().toSet()
         : <String>{};
     if (names.contains('SwiftImpl')) return NativeImpl.swift;
     if (names.contains('CppImpl')) return NativeImpl.cpp;
-    throw InvalidGenerationSourceError(
+    throw InvalidGenerationSource(
       'Cannot determine AppleNativeImpl kind from type hierarchy. '
       'Use AppleNativeImpl.swift or AppleNativeImpl.cpp.',
     );
@@ -126,11 +127,11 @@ class SpecExtractor {
   static NativeImpl _inferAndroidImpl(DartObject object) {
     final element = object.type?.element;
     final names = (element is InterfaceElement)
-        ? element.allSupertypes.map((t) => t.element.name).toSet()
+        ? element.allSupertypes.map((t) => t.element.name).whereType<String>().toSet()
         : <String>{};
     if (names.contains('KotlinImpl')) return NativeImpl.kotlin;
     if (names.contains('CppImpl')) return NativeImpl.cpp;
-    throw InvalidGenerationSourceError(
+    throw InvalidGenerationSource(
       'Cannot determine AndroidNativeImpl kind from type hierarchy. '
       'Use AndroidNativeImpl.kotlin or AndroidNativeImpl.cpp.',
     );
@@ -139,36 +140,36 @@ class SpecExtractor {
   // ─── @HybridRecord ────────────────────────────────────────────────────────
 
   static List<BridgeRecordType> _extractRecordTypes(LibraryReader library) {
-    const checker = TypeChecker.fromRuntime(HybridRecord);
-    const structChecker = TypeChecker.fromRuntime(HybridStruct);
+    const checker = TypeChecker.fromUrl('package:nitro_annotations/src/annotations.dart#HybridRecord');
+    const structChecker = TypeChecker.fromUrl('package:nitro_annotations/src/annotations.dart#HybridStruct');
 
     // Single pass: collect annotated ClassElements, then reuse the list.
     final classes = library.annotatedWith(checker).where((ann) => ann.element is ClassElement).map((ann) => ann.element as ClassElement).toList();
 
-    final recordTypeNames = classes.map((c) => c.name).toSet();
+    final recordTypeNames = classes.map((c) => c.name!).toSet();
     // Also collect @HybridStruct names so that List<@HybridStruct T> fields
     // inside @HybridRecord classes are classified as listRecordObject (not
     // listPrimitive), enabling binary codec generation for struct items.
     final structTypeNames = library.annotatedWith(structChecker)
         .where((ann) => ann.element is ClassElement)
-        .map((ann) => (ann.element as ClassElement).name)
+        .map((ann) => (ann.element as ClassElement).name!)
         .toSet();
 
     return classes.map((cls) {
       final fields = cls.fields.where((f) => !f.isStatic && !f.isSynthetic).map((f) {
-        final displayType = f.type.getDisplayString(withNullability: true);
+        final displayType = f.type.getDisplayString();
         final isNullable = displayType.endsWith('?');
         final kind = _recordFieldKind(f.type, recordTypeNames, structTypeNames);
         final itemTypeName = _listItemTypeName(f.type);
         return BridgeRecordField(
-          name: f.name,
+          name: f.name!,
           dartType: displayType,
           kind: kind,
           itemTypeName: itemTypeName,
           isNullable: isNullable,
         );
       }).toList();
-      return BridgeRecordType(name: cls.name, fields: fields);
+      return BridgeRecordType(name: cls.name!, fields: fields);
     }).toList();
   }
 
@@ -228,7 +229,7 @@ class SpecExtractor {
     Set<String> recordTypeNames, {
     bool isFuture = false,
   }) {
-    final displayName = type.getDisplayString(withNullability: true);
+    final displayName = type.getDisplayString();
 
     if (type is InterfaceType) {
       final elName = type.element.name;
@@ -293,9 +294,9 @@ class SpecExtractor {
     String ns,
     Set<String> recordTypeNames,
   ) {
-    const asyncChecker = TypeChecker.fromRuntime(NitroAsync);
-    const nativeAsyncChecker = TypeChecker.fromRuntime(NitroNativeAsync);
-    const zeroCopyChecker = TypeChecker.fromRuntime(ZeroCopy);
+    const asyncChecker = TypeChecker.fromUrl('package:nitro_annotations/src/annotations.dart#NitroAsync');
+    const nativeAsyncChecker = TypeChecker.fromUrl('package:nitro_annotations/src/annotations.dart#NitroNativeAsync');
+    const zeroCopyChecker = TypeChecker.fromUrl('package:nitro_annotations/src/annotations.dart#ZeroCopy');
 
     // Skip abstract getters annotated with @NitroStream or abstract getters/setters
     return element.methods.where((m) => m.isAbstract).map((m) {
@@ -303,8 +304,8 @@ class SpecExtractor {
       final isNativeAsync = nativeAsyncChecker.hasAnnotationOf(m);
 
       if (isAsync && isNativeAsync) {
-        throw InvalidGenerationSourceError(
-          '@NitroAsync and @NitroNativeAsync cannot both be applied to "${m.name}". '
+        throw InvalidGenerationSource(
+          '@NitroAsync and @NitroNativeAsync cannot both be applied to "${m.name!}". '
           'Use @NitroNativeAsync when the native implementation posts the result '
           'directly via Dart_PostCObject_DL.',
         );
@@ -317,8 +318,8 @@ class SpecExtractor {
       }
 
       return BridgeFunction(
-        dartName: m.name,
-        cSymbol: '${ns}_${_toSnakeCase(m.name)}',
+        dartName: m.name!,
+        cSymbol: '${ns}_${_toSnakeCase(m.name!)}',
         isAsync: isAsync,
         isNativeAsync: isNativeAsync,
         returnType: _makeBridgeType(
@@ -326,9 +327,9 @@ class SpecExtractor {
           recordTypeNames,
           isFuture: isAsync || isNativeAsync,
         ),
-        params: m.parameters.map((p) {
+        params: m.formalParameters.map((p) {
           return BridgeParam(
-            name: p.name,
+            name: p.name!,
             type: _makeBridgeType(p.type, recordTypeNames),
             zeroCopy: zeroCopyChecker.hasAnnotationOf(p),
           );
@@ -337,24 +338,25 @@ class SpecExtractor {
     }).toList();
   }
 
-  // ─── Properties + Streams (single pass over element.accessors) ──────────────
+  // ─── Properties + Streams (two passes: getters then setters) ────────────────
 
   static ({List<BridgeProperty> properties, List<BridgeStream> streams}) _extractPropertiesAndStreams(
     ClassElement element,
     String ns,
     Set<String> recordTypeNames,
   ) {
-    const streamChecker = TypeChecker.fromRuntime(NitroStream);
+    const streamChecker = TypeChecker.fromUrl('package:nitro_annotations/src/annotations.dart#NitroStream');
 
     // Accumulate properties grouped by accessor name.
     final propMap = <String, Map<String, dynamic>>{};
     final streams = <BridgeStream>[];
 
-    for (final ac in element.accessors) {
+    // ── Getters ──────────────────────────────────────────────────────────────
+    for (final ac in element.getters) {
       if (!ac.isAbstract) continue;
 
       // Stream getters are handled separately; skip them for properties.
-      if (ac.isGetter && _isStreamType(ac.returnType)) {
+      if (_isStreamType(ac.returnType)) {
         final retType = ac.returnType as InterfaceType;
         final itemDartType = retType.typeArguments.isNotEmpty ? retType.typeArguments.first : null;
 
@@ -379,23 +381,25 @@ class SpecExtractor {
         continue;
       }
 
-      final name = ac.displayName.replaceFirst('=', '');
-      final entry = propMap.putIfAbsent(
-        name,
-        () => {'name': name, 'getter': false, 'setter': false},
-      );
+      final name = ac.displayName;
+      final type = ac.returnType;
+      if (type.isDartCoreFunction) continue;
+      final entry = propMap.putIfAbsent(name, () => {'name': name, 'getter': false, 'setter': false});
+      entry['getter'] = true;
+      entry['dartType'] = type;
+    }
 
-      if (ac.isGetter) {
-        final type = ac.returnType;
-        if (type.isDartCoreFunction) continue;
-        entry['getter'] = true;
-        entry['dartType'] = type;
-      } else {
-        final type = ac.parameters.first.type;
-        if (type.isDartCoreFunction) continue;
-        entry['setter'] = true;
-        entry['dartType'] ??= type;
-      }
+    // ── Setters ──────────────────────────────────────────────────────────────
+    for (final ac in element.setters) {
+      if (!ac.isAbstract) continue;
+
+      // Setter displayName includes '=' suffix (e.g. "myProp="); strip it.
+      final name = ac.displayName.replaceFirst('=', '');
+      final type = ac.formalParameters.first.type;
+      if (type.isDartCoreFunction) continue;
+      final entry = propMap.putIfAbsent(name, () => {'name': name, 'getter': false, 'setter': false});
+      entry['setter'] = true;
+      entry['dartType'] ??= type;
     }
 
     final properties = propMap.values.where((e) => e['dartType'] != null).map((e) {
@@ -424,7 +428,7 @@ class SpecExtractor {
   // ─── Structs ─────────────────────────────────────────────────────────────────
 
   static List<BridgeStruct> _extractStructs(LibraryReader library) {
-    const checker = TypeChecker.fromRuntime(HybridStruct);
+    const checker = TypeChecker.fromUrl('package:nitro_annotations/src/annotations.dart#HybridStruct');
     final results = <BridgeStruct>[];
 
     for (final ann in library.annotatedWith(checker)) {
@@ -440,11 +444,11 @@ class SpecExtractor {
       // record isNamed / isRequired on each BridgeField.
       // Use the unnamed generative constructor (the primary one). If there is
       // none, fall back to treating every field as named-required.
-      final primaryCtor = cls.constructors.where((c) => !c.isFactory && c.name.isEmpty).firstOrNull;
+      final primaryCtor = cls.unnamedConstructor;
       final paramInfo = <String, ({bool isNamed, bool isRequired})>{};
       if (primaryCtor != null) {
-        for (final p in primaryCtor.parameters) {
-          paramInfo[p.name] = (
+        for (final p in primaryCtor.formalParameters) {
+          paramInfo[p.name!] = (
             isNamed: p.isNamed,
             isRequired: p.isRequired,
           );
@@ -455,11 +459,11 @@ class SpecExtractor {
           .where((f) => !f.isStatic && !f.isSynthetic)
           .map(
             (f) {
-              final info = paramInfo[f.name];
+              final info = paramInfo[f.name!];
               return BridgeField(
-                name: f.name,
+                name: f.name!,
                 type: BridgeType(
-                  name: f.type.getDisplayString(withNullability: true),
+                  name: f.type.getDisplayString(),
                   isNullable: f.type.nullabilitySuffix == NullabilitySuffix.question,
                 ),
                 zeroCopy: zeroCopyFields.contains(f.name),
@@ -470,7 +474,7 @@ class SpecExtractor {
           )
           .toList();
 
-      results.add(BridgeStruct(name: cls.name, packed: packed, fields: fields));
+      results.add(BridgeStruct(name: cls.name!, packed: packed, fields: fields));
     }
     return results;
   }
@@ -478,7 +482,7 @@ class SpecExtractor {
   // ─── Enums ───────────────────────────────────────────────────────────────────
 
   static List<BridgeEnum> _extractEnums(LibraryReader library) {
-    const checker = TypeChecker.fromRuntime(HybridEnum);
+    const checker = TypeChecker.fromUrl('package:nitro_annotations/src/annotations.dart#HybridEnum');
     final results = <BridgeEnum>[];
 
     for (final ann in library.annotatedWith(checker)) {
@@ -491,9 +495,9 @@ class SpecExtractor {
 
       results.add(
         BridgeEnum(
-          name: cls.name,
+          name: cls.name!,
           startValue: startValue,
-          values: cls.fields.where((f) => f.isEnumConstant).map((f) => f.name).toList(),
+          values: cls.fields.where((f) => f.isEnumConstant).map((f) => f.name!).toList(),
         ),
       );
     }

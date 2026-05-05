@@ -17,7 +17,7 @@ void main() {
 
   // ── Helper: capture log output ────────────────────────────────────────────
 
-  List<(NitroLogLevel, String, String)> _captureLogs(void Function() body) {
+  List<(NitroLogLevel, String, String)> captureLogs(void Function() body) {
     final logs = <(NitroLogLevel, String, String)>[];
     NitroConfig.instance.logHandler = (level, tag, msg, [_, _]) {
       logs.add((level, tag, msg));
@@ -63,7 +63,7 @@ void main() {
     setUp(() => NitroConfig.instance.logLevel = NitroLogLevel.verbose);
 
     test('emits "calling" and "completed in N µs" at verbose level', () {
-      final logs = _captureLogs(() {
+      final logs = captureLogs(() {
         NitroRuntime.callSync(() => 1, methodName: 'add');
       });
 
@@ -75,7 +75,7 @@ void main() {
     });
 
     test('log tag includes the method name', () {
-      final logs = _captureLogs(() {
+      final logs = captureLogs(() {
         NitroRuntime.callSync(() => 0, methodName: 'myMethod');
       });
 
@@ -87,7 +87,7 @@ void main() {
     });
 
     test('tag falls back to "callSync" when methodName is empty', () {
-      final logs = _captureLogs(() {
+      final logs = captureLogs(() {
         NitroRuntime.callSync(() => 0);
       });
 
@@ -208,7 +208,7 @@ void main() {
     test('enable(verbose) activates verbose logs for callSync', () {
       NitroConfig.instance.enable(level: NitroLogLevel.verbose);
 
-      final logs = _captureLogs(() {
+      final logs = captureLogs(() {
         NitroRuntime.callSync(() => 0, methodName: 'check');
       });
 

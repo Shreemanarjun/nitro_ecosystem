@@ -14,10 +14,7 @@ final class BenchmarkPointFfi extends Struct {
 
 extension BenchmarkPointFfiExt on BenchmarkPointFfi {
   BenchmarkPoint toDart() {
-    return BenchmarkPoint(
-      x: x,
-      y: y,
-    );
+    return BenchmarkPoint(x: x, y: y);
   }
 
   /// Frees internal fields (like strings) that were allocated on the C heap.
@@ -46,11 +43,7 @@ final class BenchmarkBoxFfi extends Struct {
 
 extension BenchmarkBoxFfiExt on BenchmarkBoxFfi {
   BenchmarkBox toDart() {
-    return BenchmarkBox(
-      color: color,
-      width: width,
-      height: height,
-    );
+    return BenchmarkBox(color: color, width: width, height: height);
   }
 
   /// Frees internal fields (like strings) that were allocated on the C heap.
@@ -88,7 +81,8 @@ final class BenchmarkPointProxy extends BenchmarkPoint implements Finalizable {
   static void _init(DynamicLibrary dylib) {
     _finalizer ??= NativeFinalizer(
       dylib.lookup<NativeFunction<Void Function(Pointer<Void>)>>(
-          'benchmark_release_BenchmarkPoint'),
+        'benchmark_release_BenchmarkPoint',
+      ),
     );
   }
 
@@ -96,8 +90,10 @@ final class BenchmarkPointProxy extends BenchmarkPoint implements Finalizable {
   /// all getters below are overridden to read from native memory instead.
   /// Do NOT call [malloc.free] after passing the pointer here.
   BenchmarkPointProxy(this._native) : super(x: 0.0, y: 0.0) {
-    assert(_finalizer != null,
-        'BenchmarkPointProxy._init() was not called. Ensure the Nitro impl class constructor ran before creating proxies.');
+    assert(
+      _finalizer != null,
+      'BenchmarkPointProxy._init() was not called. Ensure the Nitro impl class constructor ran before creating proxies.',
+    );
     _finalizer!.attach(this, _native.cast(), detach: this);
   }
 
@@ -138,7 +134,8 @@ final class BenchmarkBoxProxy extends BenchmarkBox implements Finalizable {
   static void _init(DynamicLibrary dylib) {
     _finalizer ??= NativeFinalizer(
       dylib.lookup<NativeFunction<Void Function(Pointer<Void>)>>(
-          'benchmark_release_BenchmarkBox'),
+        'benchmark_release_BenchmarkBox',
+      ),
     );
   }
 
@@ -146,8 +143,10 @@ final class BenchmarkBoxProxy extends BenchmarkBox implements Finalizable {
   /// all getters below are overridden to read from native memory instead.
   /// Do NOT call [malloc.free] after passing the pointer here.
   BenchmarkBoxProxy(this._native) : super(color: 0, width: 0.0, height: 0.0) {
-    assert(_finalizer != null,
-        'BenchmarkBoxProxy._init() was not called. Ensure the Nitro impl class constructor ran before creating proxies.');
+    assert(
+      _finalizer != null,
+      'BenchmarkBoxProxy._init() was not called. Ensure the Nitro impl class constructor ran before creating proxies.',
+    );
     _finalizer!.attach(this, _native.cast(), detach: this);
   }
 
@@ -179,11 +178,11 @@ extension BenchmarkStatsRecordExt on BenchmarkStats {
       fromReader(RecordReader.fromNative(ptr));
 
   static BenchmarkStats fromReader(RecordReader r) => BenchmarkStats(
-        count: r.readInt(),
-        meanUs: r.readDouble(),
-        minUs: r.readDouble(),
-        maxUs: r.readDouble(),
-      );
+    count: r.readInt(),
+    meanUs: r.readDouble(),
+    minUs: r.readDouble(),
+    maxUs: r.readDouble(),
+  );
 
   void writeFields(RecordWriter writer) {
     writer.writeInt(count);
@@ -203,15 +202,25 @@ class _BenchmarkImpl extends Benchmark {
   final DynamicLibrary _dylib;
 
   _BenchmarkImpl() : _dylib = NitroRuntime.loadLib('benchmark') {
-    final initFunc = _dylib.lookupFunction<IntPtr Function(Pointer<Void>),
-        int Function(Pointer<Void>)>('benchmark_init_dart_api_dl');
+    final initSw = Stopwatch()..start();
+    final initFunc = _dylib
+        .lookupFunction<
+          IntPtr Function(Pointer<Void>),
+          int Function(Pointer<Void>)
+        >('benchmark_init_dart_api_dl');
     final initCode = initFunc(NativeApi.initializeApiDLData);
     if (initCode != 0) {
       throw StateError(
-          'benchmark: Dart API DL initialization failed with code $initCode.');
+        'benchmark: Dart API DL initialization failed with code $initCode.',
+      );
     }
     BenchmarkPointProxy._init(_dylib);
     BenchmarkBoxProxy._init(_dylib);
+    initSw.stop();
+    NitroRuntime.logLifecycle(
+      'init(benchmark)',
+      'initialized in ${initSw.elapsedMicroseconds} µs',
+    );
   }
 
   late final double Function(double, double) _addPtr = _dylib
@@ -219,106 +228,133 @@ class _BenchmarkImpl extends Benchmark {
       .asFunction<double Function(double, double)>(isLeaf: true);
   late final double Function(double, double) _addFastPtr = _dylib
       .lookup<NativeFunction<Double Function(Double, Double)>>(
-          'benchmark_add_fast')
+        'benchmark_add_fast',
+      )
       .asFunction<double Function(double, double)>(isLeaf: true);
-  late final Pointer<Utf8> Function(Pointer<Utf8>) _getGreetingPtr =
-      _dylib.lookupFunction<Pointer<Utf8> Function(Pointer<Utf8>),
-          Pointer<Utf8> Function(Pointer<Utf8>)>('benchmark_get_greeting');
+  late final Pointer<Utf8> Function(Pointer<Utf8>) _getGreetingPtr = _dylib
+      .lookupFunction<
+        Pointer<Utf8> Function(Pointer<Utf8>),
+        Pointer<Utf8> Function(Pointer<Utf8>)
+      >('benchmark_get_greeting');
   late final Pointer<Void> Function(Pointer<Void>, double) _scalePointPtr =
       _dylib.lookupFunction<
-          Pointer<Void> Function(Pointer<Void>, Double),
-          Pointer<Void> Function(
-              Pointer<Void>, double)>('benchmark_scale_point');
-  late final Pointer<Uint8> Function(int) _computeStatsPtr =
-      _dylib.lookupFunction<Pointer<Uint8> Function(Int64),
-          Pointer<Uint8> Function(int)>('benchmark_compute_stats');
-  late final int Function(Pointer<Uint8>, int) _sendLargeBufferPtr =
-      _dylib.lookupFunction<Int64 Function(Pointer<Uint8>, Int64),
-          int Function(Pointer<Uint8>, int)>('benchmark_send_large_buffer');
-  late final void Function(int) _registerDataStreamPtr =
-      _dylib.lookupFunction<Void Function(Int64), void Function(int)>(
-          'benchmark_register_data_stream_stream');
-  late final void Function(int) _releaseDataStreamPtr =
-      _dylib.lookupFunction<Void Function(Int64), void Function(int)>(
-          'benchmark_release_data_stream_stream');
-  late final void Function(int) _registerBoxStreamPtr =
-      _dylib.lookupFunction<Void Function(Int64), void Function(int)>(
-          'benchmark_register_box_stream_stream');
-  late final void Function(int) _releaseBoxStreamPtr =
-      _dylib.lookupFunction<Void Function(Int64), void Function(int)>(
-          'benchmark_release_box_stream_stream');
+        Pointer<Void> Function(Pointer<Void>, Double),
+        Pointer<Void> Function(Pointer<Void>, double)
+      >('benchmark_scale_point');
+  late final Pointer<Uint8> Function(int) _computeStatsPtr = _dylib
+      .lookupFunction<
+        Pointer<Uint8> Function(Int64),
+        Pointer<Uint8> Function(int)
+      >('benchmark_compute_stats');
+  late final int Function(Pointer<Uint8>, int) _sendLargeBufferPtr = _dylib
+      .lookupFunction<
+        Int64 Function(Pointer<Uint8>, Int64),
+        int Function(Pointer<Uint8>, int)
+      >('benchmark_send_large_buffer');
+  late final void Function(int) _registerDataStreamPtr = _dylib
+      .lookupFunction<Void Function(Int64), void Function(int)>(
+        'benchmark_register_data_stream_stream',
+      );
+  late final void Function(int) _releaseDataStreamPtr = _dylib
+      .lookupFunction<Void Function(Int64), void Function(int)>(
+        'benchmark_release_data_stream_stream',
+      );
+  late final void Function(int) _registerBoxStreamPtr = _dylib
+      .lookupFunction<Void Function(Int64), void Function(int)>(
+        'benchmark_register_box_stream_stream',
+      );
+  late final void Function(int) _releaseBoxStreamPtr = _dylib
+      .lookupFunction<Void Function(Int64), void Function(int)>(
+        'benchmark_release_box_stream_stream',
+      );
   // ignore: unused_field
-  late final Pointer<NitroErrorFfi> Function() _getErrorPtr =
-      _dylib.lookupFunction<Pointer<NitroErrorFfi> Function(),
-          Pointer<NitroErrorFfi> Function()>('benchmark_get_error');
+  late final Pointer<NitroErrorFfi> Function() _getErrorPtr = _dylib
+      .lookupFunction<
+        Pointer<NitroErrorFfi> Function(),
+        Pointer<NitroErrorFfi> Function()
+      >('benchmark_get_error');
   // ignore: unused_field
-  late final void Function() _clearErrorPtr =
-      _dylib.lookupFunction<Void Function(), void Function()>(
-          'benchmark_clear_error');
+  late final void Function() _clearErrorPtr = _dylib
+      .lookupFunction<Void Function(), void Function()>(
+        'benchmark_clear_error',
+      );
   // ignore: unused_field
   late final Pointer<NativeFunction<Pointer<NitroErrorFfi> Function()>>
-      _getErrorNativePtr = _dylib.lookup('benchmark_get_error');
+  _getErrorNativePtr = _dylib.lookup('benchmark_get_error');
   // ignore: unused_field
   late final Pointer<NativeFunction<Void Function()>> _clearErrorNativePtr =
       _dylib.lookup('benchmark_clear_error');
 
   @override
-  // ignore: unnecessary_overrides
   void dispose() {
+    NitroRuntime.logLifecycle('dispose(benchmark)', 'disposing');
     super.dispose(); // sets isDisposed = true, calls onDestroy()
+    NitroRuntime.logLifecycle('dispose(benchmark)', 'disposed');
   }
 
   @override
   double add(double a, double b) {
     checkDisposed();
-    final res = _addPtr(a, b);
-    NitroRuntime.checkError(_getErrorPtr, _clearErrorPtr);
-    return res;
+    return NitroRuntime.callSync(() {
+      final res = _addPtr(a, b);
+      NitroRuntime.checkError(_getErrorPtr, _clearErrorPtr);
+      return res;
+    }, methodName: 'add');
   }
 
   @override
   double addFast(double a, double b) {
     checkDisposed();
-    final res = _addFastPtr(a, b);
-    return res;
+    return NitroRuntime.callSync(() {
+      final res = _addFastPtr(a, b);
+      return res;
+    }, methodName: 'addFast');
   }
 
   @override
   String getGreeting(String name) {
     checkDisposed();
-    return withArena((arena) {
-      final res = _getGreetingPtr(name.toNativeUtf8(allocator: arena));
-      NitroRuntime.checkError(_getErrorPtr, _clearErrorPtr);
-      return res.toDartStringWithFree();
-    });
+    return NitroRuntime.callSync(
+      () => withArena((arena) {
+        final res = _getGreetingPtr(name.toNativeUtf8(allocator: arena));
+        NitroRuntime.checkError(_getErrorPtr, _clearErrorPtr);
+        return res.toDartStringWithFree();
+      }),
+      methodName: 'getGreeting',
+    );
   }
 
   @override
   BenchmarkPoint scalePoint(BenchmarkPoint point, double factor) {
     checkDisposed();
-    return withArena((arena) {
-      final res = _scalePointPtr(point.toNative(arena).cast<Void>(), factor);
-      NitroRuntime.checkError(_getErrorPtr, _clearErrorPtr);
-      final structPtr = Pointer<BenchmarkPointFfi>.fromAddress(res.address);
-      final BenchmarkPoint decoded;
-      try {
-        decoded = structPtr.ref.toDart();
-      } finally {
-        structPtr.ref.freeFields();
-        malloc.free(structPtr);
-      }
-      return decoded;
-    });
+    return NitroRuntime.callSync(
+      () => withArena((arena) {
+        final res = _scalePointPtr(point.toNative(arena).cast<Void>(), factor);
+        NitroRuntime.checkError(_getErrorPtr, _clearErrorPtr);
+        final structPtr = Pointer<BenchmarkPointFfi>.fromAddress(res.address);
+        final BenchmarkPoint decoded;
+        try {
+          decoded = structPtr.ref.toDart();
+        } finally {
+          structPtr.ref.freeFields();
+          malloc.free(structPtr);
+        }
+        return decoded;
+      }),
+      methodName: 'scalePoint',
+    );
   }
 
   @override
   Future<BenchmarkStats> computeStats(int iterations) async {
     checkDisposed();
     final rawPtr = await NitroRuntime.callAsync<Pointer<Uint8>>(
-        _computeStatsPtr, [iterations],
-        getError: _getErrorNativePtr,
-        clearError: _clearErrorNativePtr,
-        methodName: 'computeStats');
+      _computeStatsPtr,
+      [iterations],
+      getError: _getErrorNativePtr,
+      clearError: _clearErrorNativePtr,
+      methodName: 'computeStats',
+    );
     try {
       return BenchmarkStatsRecordExt.fromNative(rawPtr);
     } finally {
@@ -329,11 +365,14 @@ class _BenchmarkImpl extends Benchmark {
   @override
   int sendLargeBuffer(Uint8List buffer) {
     checkDisposed();
-    return withArena((arena) {
-      final res = _sendLargeBufferPtr(buffer.toPointer(arena), buffer.length);
-      NitroRuntime.checkError(_getErrorPtr, _clearErrorPtr);
-      return res;
-    });
+    return NitroRuntime.callSync(
+      () => withArena((arena) {
+        final res = _sendLargeBufferPtr(buffer.toPointer(arena), buffer.length);
+        NitroRuntime.checkError(_getErrorPtr, _clearErrorPtr);
+        return res;
+      }),
+      methodName: 'sendLargeBuffer',
+    );
   }
 
   @override
@@ -344,10 +383,12 @@ class _BenchmarkImpl extends Benchmark {
       unpack: (message) {
         if (message == null) {
           throw StateError(
-              'Received null event on non-nullable stream dataStream');
+            'Received null event on non-nullable stream dataStream',
+          );
         }
         return BenchmarkPointProxy(
-            Pointer<BenchmarkPointFfi>.fromAddress(message as int));
+          Pointer<BenchmarkPointFfi>.fromAddress(message as int),
+        );
       },
       release: (port) => _releaseDataStreamPtr(port),
       backpressure: Backpressure.dropLatest,
@@ -362,10 +403,12 @@ class _BenchmarkImpl extends Benchmark {
       unpack: (message) {
         if (message == null) {
           throw StateError(
-              'Received null event on non-nullable stream boxStream');
+            'Received null event on non-nullable stream boxStream',
+          );
         }
         return BenchmarkBoxProxy(
-            Pointer<BenchmarkBoxFfi>.fromAddress(message as int));
+          Pointer<BenchmarkBoxFfi>.fromAddress(message as int),
+        );
       },
       release: (port) => _releaseBoxStreamPtr(port),
       backpressure: Backpressure.dropLatest,

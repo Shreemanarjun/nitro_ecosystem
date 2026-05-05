@@ -18,7 +18,7 @@ Builder nitroGeneratorBuilder(BuilderOptions options) {
 }
 
 class NitroGeneratorBuilder implements Builder {
-  static final _formatter = DartFormatter();
+  static final _formatter = DartFormatter(languageVersion: DartFormatter.latestLanguageVersion);
 
   @override
   Map<String, List<String>> get buildExtensions => nitroBuilderExtensions;

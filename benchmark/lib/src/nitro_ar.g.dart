@@ -15,11 +15,7 @@ final class Vector3Ffi extends Struct {
 
 extension Vector3FfiExt on Vector3Ffi {
   Vector3 toDart() {
-    return Vector3(
-      x: x,
-      y: y,
-      z: z,
-    );
+    return Vector3(x: x, y: y, z: z);
   }
 
   /// Frees internal fields (like strings) that were allocated on the C heap.
@@ -50,12 +46,7 @@ final class QuaternionFfi extends Struct {
 
 extension QuaternionFfiExt on QuaternionFfi {
   Quaternion toDart() {
-    return Quaternion(
-      x: x,
-      y: y,
-      z: z,
-      w: w,
-    );
+    return Quaternion(x: x, y: y, z: z, w: w);
   }
 
   /// Frees internal fields (like strings) that were allocated on the C heap.
@@ -87,12 +78,7 @@ final class BoundingBoxFfi extends Struct {
 
 extension BoundingBoxFfiExt on BoundingBoxFfi {
   BoundingBox toDart() {
-    return BoundingBox(
-      x: x,
-      y: y,
-      width: width,
-      height: height,
-    );
+    return BoundingBox(x: x, y: y, width: width, height: height);
   }
 
   /// Frees internal fields (like strings) that were allocated on the C heap.
@@ -219,7 +205,8 @@ final class Vector3Proxy extends Vector3 implements Finalizable {
   static void _init(DynamicLibrary dylib) {
     _finalizer ??= NativeFinalizer(
       dylib.lookup<NativeFunction<Void Function(Pointer<Void>)>>(
-          'nitro_ar_release_Vector3'),
+        'nitro_ar_release_Vector3',
+      ),
     );
   }
 
@@ -227,8 +214,10 @@ final class Vector3Proxy extends Vector3 implements Finalizable {
   /// all getters below are overridden to read from native memory instead.
   /// Do NOT call [malloc.free] after passing the pointer here.
   Vector3Proxy(this._native) : super(x: 0.0, y: 0.0, z: 0.0) {
-    assert(_finalizer != null,
-        'Vector3Proxy._init() was not called. Ensure the Nitro impl class constructor ran before creating proxies.');
+    assert(
+      _finalizer != null,
+      'Vector3Proxy._init() was not called. Ensure the Nitro impl class constructor ran before creating proxies.',
+    );
     _finalizer!.attach(this, _native.cast(), detach: this);
   }
 
@@ -271,7 +260,8 @@ final class QuaternionProxy extends Quaternion implements Finalizable {
   static void _init(DynamicLibrary dylib) {
     _finalizer ??= NativeFinalizer(
       dylib.lookup<NativeFunction<Void Function(Pointer<Void>)>>(
-          'nitro_ar_release_Quaternion'),
+        'nitro_ar_release_Quaternion',
+      ),
     );
   }
 
@@ -279,8 +269,10 @@ final class QuaternionProxy extends Quaternion implements Finalizable {
   /// all getters below are overridden to read from native memory instead.
   /// Do NOT call [malloc.free] after passing the pointer here.
   QuaternionProxy(this._native) : super(x: 0.0, y: 0.0, z: 0.0, w: 0.0) {
-    assert(_finalizer != null,
-        'QuaternionProxy._init() was not called. Ensure the Nitro impl class constructor ran before creating proxies.');
+    assert(
+      _finalizer != null,
+      'QuaternionProxy._init() was not called. Ensure the Nitro impl class constructor ran before creating proxies.',
+    );
     _finalizer!.attach(this, _native.cast(), detach: this);
   }
 
@@ -325,7 +317,8 @@ final class BoundingBoxProxy extends BoundingBox implements Finalizable {
   static void _init(DynamicLibrary dylib) {
     _finalizer ??= NativeFinalizer(
       dylib.lookup<NativeFunction<Void Function(Pointer<Void>)>>(
-          'nitro_ar_release_BoundingBox'),
+        'nitro_ar_release_BoundingBox',
+      ),
     );
   }
 
@@ -333,9 +326,11 @@ final class BoundingBoxProxy extends BoundingBox implements Finalizable {
   /// all getters below are overridden to read from native memory instead.
   /// Do NOT call [malloc.free] after passing the pointer here.
   BoundingBoxProxy(this._native)
-      : super(x: 0.0, y: 0.0, width: 0.0, height: 0.0) {
-    assert(_finalizer != null,
-        'BoundingBoxProxy._init() was not called. Ensure the Nitro impl class constructor ran before creating proxies.');
+    : super(x: 0.0, y: 0.0, width: 0.0, height: 0.0) {
+    assert(
+      _finalizer != null,
+      'BoundingBoxProxy._init() was not called. Ensure the Nitro impl class constructor ran before creating proxies.',
+    );
     _finalizer!.attach(this, _native.cast(), detach: this);
   }
 
@@ -381,7 +376,8 @@ final class PackageDimensionsProxy extends PackageDimensions
   static void _init(DynamicLibrary dylib) {
     _finalizer ??= NativeFinalizer(
       dylib.lookup<NativeFunction<Void Function(Pointer<Void>)>>(
-          'nitro_ar_release_PackageDimensions'),
+        'nitro_ar_release_PackageDimensions',
+      ),
     );
   }
 
@@ -389,15 +385,18 @@ final class PackageDimensionsProxy extends PackageDimensions
   /// all getters below are overridden to read from native memory instead.
   /// Do NOT call [malloc.free] after passing the pointer here.
   PackageDimensionsProxy(this._native)
-      : super(
-            length: 0.0,
-            width: 0.0,
-            height: 0.0,
-            confidence: 0.0,
-            vector3: Vector3(x: 0.0, y: 0.0, z: 0.0),
-            quaternion: Quaternion(x: 0.0, y: 0.0, z: 0.0, w: 0.0)) {
-    assert(_finalizer != null,
-        'PackageDimensionsProxy._init() was not called. Ensure the Nitro impl class constructor ran before creating proxies.');
+    : super(
+        length: 0.0,
+        width: 0.0,
+        height: 0.0,
+        confidence: 0.0,
+        vector3: Vector3(x: 0.0, y: 0.0, z: 0.0),
+        quaternion: Quaternion(x: 0.0, y: 0.0, z: 0.0, w: 0.0),
+      ) {
+    assert(
+      _finalizer != null,
+      'PackageDimensionsProxy._init() was not called. Ensure the Nitro impl class constructor ran before creating proxies.',
+    );
     _finalizer!.attach(this, _native.cast(), detach: this);
   }
 
@@ -446,7 +445,8 @@ final class RawDepthMapProxy extends RawDepthMap implements Finalizable {
   static void _init(DynamicLibrary dylib) {
     _finalizer ??= NativeFinalizer(
       dylib.lookup<NativeFunction<Void Function(Pointer<Void>)>>(
-          'nitro_ar_release_RawDepthMap'),
+        'nitro_ar_release_RawDepthMap',
+      ),
     );
   }
 
@@ -454,9 +454,11 @@ final class RawDepthMapProxy extends RawDepthMap implements Finalizable {
   /// all getters below are overridden to read from native memory instead.
   /// Do NOT call [malloc.free] after passing the pointer here.
   RawDepthMapProxy(this._native)
-      : super(data: Uint8List(0), width: 0, height: 0, stride: 0) {
-    assert(_finalizer != null,
-        'RawDepthMapProxy._init() was not called. Ensure the Nitro impl class constructor ran before creating proxies.');
+    : super(data: Uint8List(0), width: 0, height: 0, stride: 0) {
+    assert(
+      _finalizer != null,
+      'RawDepthMapProxy._init() was not called. Ensure the Nitro impl class constructor ran before creating proxies.',
+    );
     _finalizer!.attach(this, _native.cast(), detach: this);
   }
 
@@ -490,13 +492,13 @@ extension PackageDimensionsRecordExt on PackageDimensions {
       fromReader(RecordReader.fromNative(ptr));
 
   static PackageDimensions fromReader(RecordReader r) => PackageDimensions(
-        length: r.readDouble(),
-        width: r.readDouble(),
-        height: r.readDouble(),
-        confidence: r.readDouble(),
-        vector3: Vector3RecordExt.fromReader(r),
-        quaternion: QuaternionRecordExt.fromReader(r),
-      );
+    length: r.readDouble(),
+    width: r.readDouble(),
+    height: r.readDouble(),
+    confidence: r.readDouble(),
+    vector3: Vector3RecordExt.fromReader(r),
+    quaternion: QuaternionRecordExt.fromReader(r),
+  );
 
   void writeFields(RecordWriter writer) {
     writer.writeDouble(length);
@@ -512,11 +514,8 @@ extension Vector3RecordExt on Vector3 {
   static Vector3 fromNative(Pointer<Uint8> ptr) =>
       fromReader(RecordReader.fromNative(ptr));
 
-  static Vector3 fromReader(RecordReader r) => Vector3(
-        x: r.readDouble(),
-        y: r.readDouble(),
-        z: r.readDouble(),
-      );
+  static Vector3 fromReader(RecordReader r) =>
+      Vector3(x: r.readDouble(), y: r.readDouble(), z: r.readDouble());
 
   void writeFields(RecordWriter writer) {
     writer.writeDouble(x);
@@ -530,11 +529,11 @@ extension QuaternionRecordExt on Quaternion {
       fromReader(RecordReader.fromNative(ptr));
 
   static Quaternion fromReader(RecordReader r) => Quaternion(
-        x: r.readDouble(),
-        y: r.readDouble(),
-        z: r.readDouble(),
-        w: r.readDouble(),
-      );
+    x: r.readDouble(),
+    y: r.readDouble(),
+    z: r.readDouble(),
+    w: r.readDouble(),
+  );
 
   void writeFields(RecordWriter writer) {
     writer.writeDouble(x);
@@ -548,9 +547,8 @@ extension PackageBoxesRecordExt on PackageBoxes {
   static PackageBoxes fromNative(Pointer<Uint8> ptr) =>
       fromReader(RecordReader.fromNative(ptr));
 
-  static PackageBoxes fromReader(RecordReader r) => PackageBoxes(
-        boxes: List.generate(r.readInt32(), (_) => r.readDouble()),
-      );
+  static PackageBoxes fromReader(RecordReader r) =>
+      PackageBoxes(boxes: List.generate(r.readInt32(), (_) => r.readDouble()));
 
   void writeFields(RecordWriter writer) {
     writer.writeInt32(boxes.length);
@@ -571,9 +569,9 @@ extension LiveTrackingUpdateRecordExt on LiveTrackingUpdate {
       fromReader(RecordReader.fromNative(ptr));
 
   static LiveTrackingUpdate fromReader(RecordReader r) => LiveTrackingUpdate(
-        isTracking: r.readBool(),
-        centerDimensions: PackageDimensionsRecordExt.fromReader(r),
-      );
+    isTracking: r.readBool(),
+    centerDimensions: PackageDimensionsRecordExt.fromReader(r),
+  );
 
   void writeFields(RecordWriter writer) {
     writer.writeBool(isTracking);
@@ -591,56 +589,79 @@ class _NitroArImpl extends NitroAr {
   final DynamicLibrary _dylib;
 
   _NitroArImpl() : _dylib = NitroRuntime.loadLib('nitro_ar') {
-    final initFunc = _dylib.lookupFunction<IntPtr Function(Pointer<Void>),
-        int Function(Pointer<Void>)>('nitro_ar_init_dart_api_dl');
+    final initSw = Stopwatch()..start();
+    final initFunc = _dylib
+        .lookupFunction<
+          IntPtr Function(Pointer<Void>),
+          int Function(Pointer<Void>)
+        >('nitro_ar_init_dart_api_dl');
     final initCode = initFunc(NativeApi.initializeApiDLData);
     if (initCode != 0) {
       throw StateError(
-          'nitro_ar: Dart API DL initialization failed with code $initCode.');
+        'nitro_ar: Dart API DL initialization failed with code $initCode.',
+      );
     }
     Vector3Proxy._init(_dylib);
     QuaternionProxy._init(_dylib);
     BoundingBoxProxy._init(_dylib);
     PackageDimensionsProxy._init(_dylib);
     RawDepthMapProxy._init(_dylib);
+    initSw.stop();
+    NitroRuntime.logLifecycle(
+      'init(nitro_ar)',
+      'initialized in ${initSw.elapsedMicroseconds} µs',
+    );
   }
 
   late final double Function(double, double) _addPtr = _dylib
       .lookup<NativeFunction<Double Function(Double, Double)>>('nitro_ar_add')
       .asFunction<double Function(double, double)>(isLeaf: true);
-  late final Pointer<Utf8> Function(Pointer<Utf8>) _getGreetingPtr =
-      _dylib.lookupFunction<Pointer<Utf8> Function(Pointer<Utf8>),
-          Pointer<Utf8> Function(Pointer<Utf8>)>('nitro_ar_get_greeting');
+  late final Pointer<Utf8> Function(Pointer<Utf8>) _getGreetingPtr = _dylib
+      .lookupFunction<
+        Pointer<Utf8> Function(Pointer<Utf8>),
+        Pointer<Utf8> Function(Pointer<Utf8>)
+      >('nitro_ar_get_greeting');
   late final int Function() _isDepthSupportedPtr = _dylib
       .lookup<NativeFunction<Int8 Function()>>('nitro_ar_is_depth_supported')
       .asFunction<int Function()>(isLeaf: true);
-  late final Pointer<Void> Function(Pointer<Void>) _detectPackagePtr =
-      _dylib.lookupFunction<Pointer<Void> Function(Pointer<Void>),
-          Pointer<Void> Function(Pointer<Void>)>('nitro_ar_detect_package');
-  late final Pointer<Void> Function() _getRawDepthMapPtr =
-      _dylib.lookupFunction<Pointer<Void> Function(), Pointer<Void> Function()>(
-          'nitro_ar_get_raw_depth_map');
-  late final double Function(Pointer<Utf8>) _estimateVolumePtr =
-      _dylib.lookupFunction<Double Function(Pointer<Utf8>),
-          double Function(Pointer<Utf8>)>('nitro_ar_estimate_volume');
-  late final int Function() _checkCameraPermissionPtr =
-      _dylib.lookupFunction<Int8 Function(), int Function()>(
-          'nitro_ar_check_camera_permission');
-  late final int Function() _requestCameraPermissionPtr =
-      _dylib.lookupFunction<Int8 Function(), int Function()>(
-          'nitro_ar_request_camera_permission');
-  late final void Function() _startSessionPtr =
-      _dylib.lookupFunction<Void Function(), void Function()>(
-          'nitro_ar_start_session');
-  late final void Function() _stopSessionPtr =
-      _dylib.lookupFunction<Void Function(), void Function()>(
-          'nitro_ar_stop_session');
-  late final void Function() _pauseSessionPtr =
-      _dylib.lookupFunction<Void Function(), void Function()>(
-          'nitro_ar_pause_session');
-  late final void Function() _resumeSessionPtr =
-      _dylib.lookupFunction<Void Function(), void Function()>(
-          'nitro_ar_resume_session');
+  late final Pointer<Void> Function(Pointer<Void>) _detectPackagePtr = _dylib
+      .lookupFunction<
+        Pointer<Void> Function(Pointer<Void>),
+        Pointer<Void> Function(Pointer<Void>)
+      >('nitro_ar_detect_package');
+  late final Pointer<Void> Function() _getRawDepthMapPtr = _dylib
+      .lookupFunction<Pointer<Void> Function(), Pointer<Void> Function()>(
+        'nitro_ar_get_raw_depth_map',
+      );
+  late final double Function(Pointer<Utf8>) _estimateVolumePtr = _dylib
+      .lookupFunction<
+        Double Function(Pointer<Utf8>),
+        double Function(Pointer<Utf8>)
+      >('nitro_ar_estimate_volume');
+  late final int Function() _checkCameraPermissionPtr = _dylib
+      .lookupFunction<Int8 Function(), int Function()>(
+        'nitro_ar_check_camera_permission',
+      );
+  late final int Function() _requestCameraPermissionPtr = _dylib
+      .lookupFunction<Int8 Function(), int Function()>(
+        'nitro_ar_request_camera_permission',
+      );
+  late final void Function() _startSessionPtr = _dylib
+      .lookupFunction<Void Function(), void Function()>(
+        'nitro_ar_start_session',
+      );
+  late final void Function() _stopSessionPtr = _dylib
+      .lookupFunction<Void Function(), void Function()>(
+        'nitro_ar_stop_session',
+      );
+  late final void Function() _pauseSessionPtr = _dylib
+      .lookupFunction<Void Function(), void Function()>(
+        'nitro_ar_pause_session',
+      );
+  late final void Function() _resumeSessionPtr = _dylib
+      .lookupFunction<Void Function(), void Function()>(
+        'nitro_ar_resume_session',
+      );
   late final int Function() _isTrackingPtr = _dylib
       .lookup<NativeFunction<Int8 Function()>>('nitro_ar_is_tracking')
       .asFunction<int Function()>(isLeaf: true);
@@ -649,46 +670,56 @@ class _NitroArImpl extends NitroAr {
       .asFunction<void Function(int)>(isLeaf: true);
   late final void Function(double, int, int) _setDetectionOptionsPtr = _dylib
       .lookup<NativeFunction<Void Function(Double, Int64, Int8)>>(
-          'nitro_ar_set_detection_options')
+        'nitro_ar_set_detection_options',
+      )
       .asFunction<void Function(double, int, int)>(isLeaf: true);
-  late final void Function(int) _registerDetectedPackagesPtr =
-      _dylib.lookupFunction<Void Function(Int64), void Function(int)>(
-          'nitro_ar_register_detected_packages_stream');
-  late final void Function(int) _releaseDetectedPackagesPtr =
-      _dylib.lookupFunction<Void Function(Int64), void Function(int)>(
-          'nitro_ar_release_detected_packages_stream');
-  late final void Function(int) _registerLiveTrackingUpdatesPtr =
-      _dylib.lookupFunction<Void Function(Int64), void Function(int)>(
-          'nitro_ar_register_live_tracking_updates_stream');
-  late final void Function(int) _releaseLiveTrackingUpdatesPtr =
-      _dylib.lookupFunction<Void Function(Int64), void Function(int)>(
-          'nitro_ar_release_live_tracking_updates_stream');
+  late final void Function(int) _registerDetectedPackagesPtr = _dylib
+      .lookupFunction<Void Function(Int64), void Function(int)>(
+        'nitro_ar_register_detected_packages_stream',
+      );
+  late final void Function(int) _releaseDetectedPackagesPtr = _dylib
+      .lookupFunction<Void Function(Int64), void Function(int)>(
+        'nitro_ar_release_detected_packages_stream',
+      );
+  late final void Function(int) _registerLiveTrackingUpdatesPtr = _dylib
+      .lookupFunction<Void Function(Int64), void Function(int)>(
+        'nitro_ar_register_live_tracking_updates_stream',
+      );
+  late final void Function(int) _releaseLiveTrackingUpdatesPtr = _dylib
+      .lookupFunction<Void Function(Int64), void Function(int)>(
+        'nitro_ar_release_live_tracking_updates_stream',
+      );
   // ignore: unused_field
-  late final Pointer<NitroErrorFfi> Function() _getErrorPtr =
-      _dylib.lookupFunction<Pointer<NitroErrorFfi> Function(),
-          Pointer<NitroErrorFfi> Function()>('nitro_ar_get_error');
+  late final Pointer<NitroErrorFfi> Function() _getErrorPtr = _dylib
+      .lookupFunction<
+        Pointer<NitroErrorFfi> Function(),
+        Pointer<NitroErrorFfi> Function()
+      >('nitro_ar_get_error');
   // ignore: unused_field
   late final void Function() _clearErrorPtr = _dylib
       .lookupFunction<Void Function(), void Function()>('nitro_ar_clear_error');
   // ignore: unused_field
   late final Pointer<NativeFunction<Pointer<NitroErrorFfi> Function()>>
-      _getErrorNativePtr = _dylib.lookup('nitro_ar_get_error');
+  _getErrorNativePtr = _dylib.lookup('nitro_ar_get_error');
   // ignore: unused_field
   late final Pointer<NativeFunction<Void Function()>> _clearErrorNativePtr =
       _dylib.lookup('nitro_ar_clear_error');
 
   @override
-  // ignore: unnecessary_overrides
   void dispose() {
+    NitroRuntime.logLifecycle('dispose(nitro_ar)', 'disposing');
     super.dispose(); // sets isDisposed = true, calls onDestroy()
+    NitroRuntime.logLifecycle('dispose(nitro_ar)', 'disposed');
   }
 
   @override
   double add(double a, double b) {
     checkDisposed();
-    final res = _addPtr(a, b);
-    NitroRuntime.checkError(_getErrorPtr, _clearErrorPtr);
-    return res;
+    return NitroRuntime.callSync(() {
+      final res = _addPtr(a, b);
+      NitroRuntime.checkError(_getErrorPtr, _clearErrorPtr);
+      return res;
+    }, methodName: 'add');
   }
 
   @override
@@ -697,10 +728,12 @@ class _NitroArImpl extends NitroAr {
     final arena = Arena();
     try {
       final rawPtr = await NitroRuntime.callAsync<Pointer<Utf8>>(
-          _getGreetingPtr, [name.toNativeUtf8(allocator: arena)],
-          getError: _getErrorNativePtr,
-          clearError: _clearErrorNativePtr,
-          methodName: 'getGreeting');
+        _getGreetingPtr,
+        [name.toNativeUtf8(allocator: arena)],
+        getError: _getErrorNativePtr,
+        clearError: _clearErrorNativePtr,
+        methodName: 'getGreeting',
+      );
       return rawPtr.toDartStringWithFree();
     } finally {
       arena.releaseAll();
@@ -710,19 +743,44 @@ class _NitroArImpl extends NitroAr {
   @override
   bool isDepthSupported() {
     checkDisposed();
-    final res = _isDepthSupportedPtr();
-    NitroRuntime.checkError(_getErrorPtr, _clearErrorPtr);
-    return res != 0;
+    return NitroRuntime.callSync(() {
+      final res = _isDepthSupportedPtr();
+      NitroRuntime.checkError(_getErrorPtr, _clearErrorPtr);
+      return res != 0;
+    }, methodName: 'isDepthSupported');
   }
 
   @override
   PackageDimensions detectPackage(BoundingBox rect) {
     checkDisposed();
-    return withArena((arena) {
-      final res = _detectPackagePtr(rect.toNative(arena).cast<Void>());
+    return NitroRuntime.callSync(
+      () => withArena((arena) {
+        final res = _detectPackagePtr(rect.toNative(arena).cast<Void>());
+        NitroRuntime.checkError(_getErrorPtr, _clearErrorPtr);
+        final structPtr = Pointer<PackageDimensionsFfi>.fromAddress(
+          res.address,
+        );
+        final PackageDimensions decoded;
+        try {
+          decoded = structPtr.ref.toDart();
+        } finally {
+          structPtr.ref.freeFields();
+          malloc.free(structPtr);
+        }
+        return decoded;
+      }),
+      methodName: 'detectPackage',
+    );
+  }
+
+  @override
+  RawDepthMap getRawDepthMap() {
+    checkDisposed();
+    return NitroRuntime.callSync(() {
+      final res = _getRawDepthMapPtr();
       NitroRuntime.checkError(_getErrorPtr, _clearErrorPtr);
-      final structPtr = Pointer<PackageDimensionsFfi>.fromAddress(res.address);
-      final PackageDimensions decoded;
+      final structPtr = Pointer<RawDepthMapFfi>.fromAddress(res.address);
+      final RawDepthMap decoded;
       try {
         decoded = structPtr.ref.toDart();
       } finally {
@@ -730,42 +788,32 @@ class _NitroArImpl extends NitroAr {
         malloc.free(structPtr);
       }
       return decoded;
-    });
-  }
-
-  @override
-  RawDepthMap getRawDepthMap() {
-    checkDisposed();
-    final res = _getRawDepthMapPtr();
-    NitroRuntime.checkError(_getErrorPtr, _clearErrorPtr);
-    final structPtr = Pointer<RawDepthMapFfi>.fromAddress(res.address);
-    final RawDepthMap decoded;
-    try {
-      decoded = structPtr.ref.toDart();
-    } finally {
-      structPtr.ref.freeFields();
-      malloc.free(structPtr);
-    }
-    return decoded;
+    }, methodName: 'getRawDepthMap');
   }
 
   @override
   double estimateVolume(String anchor) {
     checkDisposed();
-    return withArena((arena) {
-      final res = _estimateVolumePtr(anchor.toNativeUtf8(allocator: arena));
-      NitroRuntime.checkError(_getErrorPtr, _clearErrorPtr);
-      return res;
-    });
+    return NitroRuntime.callSync(
+      () => withArena((arena) {
+        final res = _estimateVolumePtr(anchor.toNativeUtf8(allocator: arena));
+        NitroRuntime.checkError(_getErrorPtr, _clearErrorPtr);
+        return res;
+      }),
+      methodName: 'estimateVolume',
+    );
   }
 
   @override
   Future<bool> checkCameraPermission() async {
     checkDisposed();
-    final res = await NitroRuntime.callAsync<int>(_checkCameraPermissionPtr, [],
-        getError: _getErrorNativePtr,
-        clearError: _clearErrorNativePtr,
-        methodName: 'checkCameraPermission');
+    final res = await NitroRuntime.callAsync<int>(
+      _checkCameraPermissionPtr,
+      [],
+      getError: _getErrorNativePtr,
+      clearError: _clearErrorNativePtr,
+      methodName: 'checkCameraPermission',
+    );
     return res != 0;
   }
 
@@ -773,73 +821,93 @@ class _NitroArImpl extends NitroAr {
   Future<bool> requestCameraPermission() async {
     checkDisposed();
     final res = await NitroRuntime.callAsync<int>(
-        _requestCameraPermissionPtr, [],
-        getError: _getErrorNativePtr,
-        clearError: _clearErrorNativePtr,
-        methodName: 'requestCameraPermission');
+      _requestCameraPermissionPtr,
+      [],
+      getError: _getErrorNativePtr,
+      clearError: _clearErrorNativePtr,
+      methodName: 'requestCameraPermission',
+    );
     return res != 0;
   }
 
   @override
   Future<void> startSession() async {
     checkDisposed();
-    final res = await NitroRuntime.callAsync<void>(_startSessionPtr, [],
-        getError: _getErrorNativePtr,
-        clearError: _clearErrorNativePtr,
-        methodName: 'startSession');
+    final res = await NitroRuntime.callAsync<void>(
+      _startSessionPtr,
+      [],
+      getError: _getErrorNativePtr,
+      clearError: _clearErrorNativePtr,
+      methodName: 'startSession',
+    );
     return res;
   }
 
   @override
   Future<void> stopSession() async {
     checkDisposed();
-    final res = await NitroRuntime.callAsync<void>(_stopSessionPtr, [],
-        getError: _getErrorNativePtr,
-        clearError: _clearErrorNativePtr,
-        methodName: 'stopSession');
+    final res = await NitroRuntime.callAsync<void>(
+      _stopSessionPtr,
+      [],
+      getError: _getErrorNativePtr,
+      clearError: _clearErrorNativePtr,
+      methodName: 'stopSession',
+    );
     return res;
   }
 
   @override
   Future<void> pauseSession() async {
     checkDisposed();
-    final res = await NitroRuntime.callAsync<void>(_pauseSessionPtr, [],
-        getError: _getErrorNativePtr,
-        clearError: _clearErrorNativePtr,
-        methodName: 'pauseSession');
+    final res = await NitroRuntime.callAsync<void>(
+      _pauseSessionPtr,
+      [],
+      getError: _getErrorNativePtr,
+      clearError: _clearErrorNativePtr,
+      methodName: 'pauseSession',
+    );
     return res;
   }
 
   @override
   Future<void> resumeSession() async {
     checkDisposed();
-    final res = await NitroRuntime.callAsync<void>(_resumeSessionPtr, [],
-        getError: _getErrorNativePtr,
-        clearError: _clearErrorNativePtr,
-        methodName: 'resumeSession');
+    final res = await NitroRuntime.callAsync<void>(
+      _resumeSessionPtr,
+      [],
+      getError: _getErrorNativePtr,
+      clearError: _clearErrorNativePtr,
+      methodName: 'resumeSession',
+    );
     return res;
   }
 
   @override
   bool isTracking() {
     checkDisposed();
-    final res = _isTrackingPtr();
-    NitroRuntime.checkError(_getErrorPtr, _clearErrorPtr);
-    return res != 0;
+    return NitroRuntime.callSync(() {
+      final res = _isTrackingPtr();
+      NitroRuntime.checkError(_getErrorPtr, _clearErrorPtr);
+      return res != 0;
+    }, methodName: 'isTracking');
   }
 
   @override
   void enableFlashlight(bool enable) {
     checkDisposed();
-    _enableFlashlightPtr(enable ? 1 : 0);
-    NitroRuntime.checkError(_getErrorPtr, _clearErrorPtr);
+    NitroRuntime.callSync<void>(() {
+      _enableFlashlightPtr(enable ? 1 : 0);
+      NitroRuntime.checkError(_getErrorPtr, _clearErrorPtr);
+    }, methodName: 'enableFlashlight');
   }
 
   @override
   void setDetectionOptions(double threshold, int rotation, bool useMock) {
     checkDisposed();
-    _setDetectionOptionsPtr(threshold, rotation, useMock ? 1 : 0);
-    NitroRuntime.checkError(_getErrorPtr, _clearErrorPtr);
+    NitroRuntime.callSync<void>(() {
+      _setDetectionOptionsPtr(threshold, rotation, useMock ? 1 : 0);
+      NitroRuntime.checkError(_getErrorPtr, _clearErrorPtr);
+    }, methodName: 'setDetectionOptions');
   }
 
   @override
@@ -850,7 +918,8 @@ class _NitroArImpl extends NitroAr {
       unpack: (message) {
         if (message == null) {
           throw StateError(
-              'Received null event on non-nullable stream detectedPackages');
+            'Received null event on non-nullable stream detectedPackages',
+          );
         }
         final rawPtr = Pointer<Uint8>.fromAddress(message as int);
         try {
@@ -872,7 +941,8 @@ class _NitroArImpl extends NitroAr {
       unpack: (message) {
         if (message == null) {
           throw StateError(
-              'Received null event on non-nullable stream liveTrackingUpdates');
+            'Received null event on non-nullable stream liveTrackingUpdates',
+          );
         }
         final rawPtr = Pointer<Uint8>.fromAddress(message as int);
         try {
