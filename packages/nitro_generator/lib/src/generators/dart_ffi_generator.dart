@@ -35,7 +35,7 @@ class DartFfiGenerator {
     s.writeln(
       '  _${spec.dartClassName}Impl() : _dylib = NitroRuntime.loadLib(\'${spec.lib}\') {',
     );
-    s.writeln("    final _initSw = Stopwatch()..start();");
+    s.writeln("    final initSw = Stopwatch()..start();");
     s.writeln(
       "    final initFunc = _dylib.lookupFunction<IntPtr Function(Pointer<Void>), int Function(Pointer<Void>)>('${libStem}_init_dart_api_dl');",
     );
@@ -48,8 +48,8 @@ class DartFfiGenerator {
     for (final st in spec.structs) {
       s.writeln('    ${st.name}Proxy._init(_dylib);');
     }
-    s.writeln('    _initSw.stop();');
-    s.writeln("    NitroRuntime.logLifecycle('init(${spec.lib})', 'initialized in \${_initSw.elapsedMicroseconds} µs');");
+    s.writeln('    initSw.stop();');
+    s.writeln("    NitroRuntime.logLifecycle('init(${spec.lib})', 'initialized in \${initSw.elapsedMicroseconds} µs');");
     s.writeln('  }');
     s.writeln();
 

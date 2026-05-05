@@ -620,7 +620,6 @@ class TestingProjectPlugin : FlutterPlugin {
         'com', 'example', 'testing_project',
         'TestingProjectPlugin.kt',
       ));
-      final content = pluginFile.readAsStringSync();
       // The fixture should already have it; verify idempotent
       linkKotlinLoadLibraries(['testing_project'], baseDir: tmp.path);
       final after = pluginFile.readAsStringSync();

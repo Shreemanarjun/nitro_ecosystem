@@ -1582,7 +1582,7 @@ end
 
   /// Creates a minimal plugin directory with an iOS SPM nested layout and a
   /// populated Sources/MyPluginCpp/ target, then returns the tmp root.
-  Directory _scaffoldSpm({
+  Directory scaffoldSpm({
     bool hasDartApiDl = true,
     bool hasPluginCpp = true,
     bool hasNitroH = true,
@@ -1655,7 +1655,7 @@ let package = Package(name: "my_plugin", targets: [
   group('iOS — SPM target file completeness', () {
     test('ok when all SPM target files present', () {
       if (!Platform.isMacOS) return;
-      final tmp = _scaffoldSpm();
+      final tmp = scaffoldSpm();
       addTearDown(() => tmp.deleteSync(recursive: true));
       final result = _run(tmp);
       final iosSec = result.sections.firstWhere((s) => s.title == 'iOS');
@@ -1675,7 +1675,7 @@ let package = Package(name: "my_plugin", targets: [
 
     test('error when SPM dart_api_dl.c missing', () {
       if (!Platform.isMacOS) return;
-      final tmp = _scaffoldSpm(hasDartApiDl: false);
+      final tmp = scaffoldSpm(hasDartApiDl: false);
       addTearDown(() => tmp.deleteSync(recursive: true));
       final result = _run(tmp);
       final iosSec = result.sections.firstWhere((s) => s.title == 'iOS');
@@ -1689,7 +1689,7 @@ let package = Package(name: "my_plugin", targets: [
 
     test('error when SPM include/nitro.h missing', () {
       if (!Platform.isMacOS) return;
-      final tmp = _scaffoldSpm(hasNitroH: false);
+      final tmp = scaffoldSpm(hasNitroH: false);
       addTearDown(() => tmp.deleteSync(recursive: true));
       final result = _run(tmp);
       final iosSec = result.sections.firstWhere((s) => s.title == 'iOS');
@@ -1703,7 +1703,7 @@ let package = Package(name: "my_plugin", targets: [
 
     test('warning when SPM plugin.cpp forwarder missing', () {
       if (!Platform.isMacOS) return;
-      final tmp = _scaffoldSpm(hasPluginCpp: false);
+      final tmp = scaffoldSpm(hasPluginCpp: false);
       addTearDown(() => tmp.deleteSync(recursive: true));
       final result = _run(tmp);
       final iosSec = result.sections.firstWhere((s) => s.title == 'iOS');
@@ -1718,7 +1718,7 @@ let package = Package(name: "my_plugin", targets: [
     test('Package.swift target name check', () {
       if (!Platform.isMacOS) return;
       // Package.swift without MyPluginCpp target name
-      final tmp = _scaffoldSpm(
+      final tmp = scaffoldSpm(
         pkgSwiftContent: '// swift-tools-version: 5.9\nlet package = Package(name: "my_plugin")',
       );
       addTearDown(() => tmp.deleteSync(recursive: true));
@@ -1733,7 +1733,7 @@ let package = Package(name: "my_plugin", targets: [
 
     test('Package.swift c++17 check', () {
       if (!Platform.isMacOS) return;
-      final tmp = _scaffoldSpm(
+      final tmp = scaffoldSpm(
         pkgSwiftContent: '// swift-tools-version: 5.9\nlet package = Package(name: "my_plugin", targets: [.target(name: "MyPluginCpp")])',
       );
       addTearDown(() => tmp.deleteSync(recursive: true));
@@ -1749,7 +1749,7 @@ let package = Package(name: "my_plugin", targets: [
     test('no false error for ios/Classes/dart_api_dl.c when SPM is active', () {
       if (!Platform.isMacOS) return;
       // When SPM exists, missing ios/Classes/dart_api_dl.c must NOT produce an error
-      final tmp = _scaffoldSpm();
+      final tmp = scaffoldSpm();
       addTearDown(() => tmp.deleteSync(recursive: true));
       final result = _run(tmp);
       final iosSec = result.sections.firstWhere((s) => s.title == 'iOS');
@@ -1765,7 +1765,7 @@ let package = Package(name: "my_plugin", targets: [
   });
 
   group('macOS — SPM target file completeness', () {
-    Directory _scaffoldMacosSpm({
+    Directory scaffoldMacosSpm({
       bool hasDartApiDl = true,
       bool hasPluginCpp = true,
       bool hasNitroH = true,
@@ -1828,7 +1828,7 @@ let package = Package(name: "my_plugin", targets: [
 
     test('ok when all SPM target files present', () {
       if (!Platform.isMacOS) return;
-      final tmp = _scaffoldMacosSpm();
+      final tmp = scaffoldMacosSpm();
       addTearDown(() => tmp.deleteSync(recursive: true));
       final result = _run(tmp);
       final sec = result.sections.firstWhere((s) => s.title == 'macOS');
@@ -1848,7 +1848,7 @@ let package = Package(name: "my_plugin", targets: [
 
     test('error when SPM dart_api_dl.c missing', () {
       if (!Platform.isMacOS) return;
-      final tmp = _scaffoldMacosSpm(hasDartApiDl: false);
+      final tmp = scaffoldMacosSpm(hasDartApiDl: false);
       addTearDown(() => tmp.deleteSync(recursive: true));
       final result = _run(tmp);
       final sec = result.sections.firstWhere((s) => s.title == 'macOS');
@@ -1861,7 +1861,7 @@ let package = Package(name: "my_plugin", targets: [
 
     test('error when SPM include/nitro.h missing', () {
       if (!Platform.isMacOS) return;
-      final tmp = _scaffoldMacosSpm(hasNitroH: false);
+      final tmp = scaffoldMacosSpm(hasNitroH: false);
       addTearDown(() => tmp.deleteSync(recursive: true));
       final result = _run(tmp);
       final sec = result.sections.firstWhere((s) => s.title == 'macOS');
@@ -1874,7 +1874,7 @@ let package = Package(name: "my_plugin", targets: [
 
     test('no false error for macos/Classes/dart_api_dl.c when SPM is active', () {
       if (!Platform.isMacOS) return;
-      final tmp = _scaffoldMacosSpm();
+      final tmp = scaffoldMacosSpm();
       addTearDown(() => tmp.deleteSync(recursive: true));
       final result = _run(tmp);
       final sec = result.sections.firstWhere((s) => s.title == 'macOS');
