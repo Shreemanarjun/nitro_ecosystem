@@ -1,3 +1,13 @@
+## 0.4.0
+
+- **Fixed: `Failed to lookup symbol '<plugin>_init_dart_api_dl'` at runtime** — `bridge.g.mm` is now always written unconditionally by both `nitrogen init` and `nitrogen link`, using a relative `#include` path. Removed the `existsSync()` guard that prevented the file from being created when link ran before generate.
+- **Fixed: `nitrogen link` deleted `bridge.g.mm` when `lib == pluginName`** — The stale-cleanup branch was incorrectly deleting the main plugin bridge for the common single-module layout where the module lib name matches the plugin name.
+- **Fixed: per-module `bridge.g.mm` used an absolute filesystem path** — Now uses a portable relative `#include` path, safe on CI and for all teammates.
+- **Fixed: `nitrogen link` auto-creates `Sources/<PluginCpp>/` when missing.**
+- **Fixed: podspec `source_files` normalised from SPM template path to `Classes/**/*`** — Flutter's SPM-first template generates a path that doesn't exist under CocoaPods; `nitrogen link` now detects and corrects it.
+- **Fixed: `nitrogen generate` / `nitrogen watch` no longer hang when `build_runner` is already running** — Both commands now kill any existing `build_runner` instance (SIGTERM → SIGKILL) and clear the stale lock file before spawning a new one.
+- **Improved: `nitrogen doctor` is fully SPM-aware for iOS and macOS** — Checks `Sources/<PluginCpp>/` files (`dart_api_dl.c`, `<plugin>.cpp`, `include/nitro.h`, `bridge.g.mm`) and `Package.swift` content (`-std=c++17`, target name, `publicHeadersPath`) when SPM is active; suppresses false errors about missing `Classes/` files that only apply to CocoaPods.
+
 ## 0.3.4
 
 - **Fixed: `createSharedHeaders` now populates SPM Cpp target include dirs** — Previously, `createSharedHeaders` only wrote `nitro.h` and Dart API headers to `src/`, `ios/Classes/`, and `macos/Classes/`. Plugins using the nested Flutter 3.41+ SPM layout (`{platform}/<plugin>/Sources/<ClassName>Cpp/include/`) were left without those headers until `linkPodspec` ran. `createSharedHeaders` now scans for any existing `*Cpp/include/` directories under `ios/<plugin>/Sources/` and `macos/<plugin>/Sources/` and writes `nitro.h` plus copies all `dart_api*.h` headers into them.

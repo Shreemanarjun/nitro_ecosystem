@@ -2,7 +2,7 @@ import 'dart:io';
 import 'package:args/command_runner.dart';
 import 'package:watcher/watcher.dart';
 import 'package:nitrogen_cli/ui.dart';
-import 'package:nitrogen_cli/utils.dart';
+import 'package:nitrogen_cli/utils.dart' show syncBridgeFiles, killBuildRunner;
 
 class WatchCommand extends Command {
   @override
@@ -23,18 +23,31 @@ class WatchCommand extends Command {
     stdout.writeln(cyan('\n⚡ Starting Nitrogen Watch Mode (build_runner watch)...'));
     stdout.writeln(dim('Project: ${root.path}\n'));
 
-    // 1. Initial link to make sure everything is wired
+    // 1. Kill any existing build_runner before starting a new one.
+    //    build_runner uses a lock file — a second invocation hangs waiting
+    //    for the lock. Stopping the old instance (and clearing the lock)
+    //    lets the new watch process start immediately without hanging.
+    stdout.writeln(gray('  › Stopping any existing build_runner instance...'));
+    final killed = await killBuildRunner(workingDirectory: root.path);
+    if (killed > 0) {
+      stdout.writeln(gray('  ✔ Stopped previous build_runner.'));
+    } else {
+      stdout.writeln(gray('  ✔ No existing build_runner found.'));
+    }
+    stdout.writeln('');
+
+    // 2. Initial bridge sync to make sure everything is wired
     stdout.writeln(gray('  - Performing initial bridge sync...'));
     syncBridgeFiles(root.path);
 
-    // 2. Start the watcher for .native.dart file additions/removals
+    // 3. Start the watcher for .native.dart file additions/removals
     // (This acts as a backup, but build_runner handles the generation itself)
     final specWatcher = DirectoryWatcher(root.path);
     specWatcher.events.listen((event) {
       // Just logging or reacting to file-system level changes
     });
 
-    // 3. Run build_runner watch and pipe output
+    // 4. Run build_runner watch and pipe output
     final stream = streamProcess('flutter', [
       'pub',
       'run',

@@ -756,6 +756,96 @@ end
       final children = spmDir.listSync().whereType<File>().toList();
       expect(children, isEmpty);
     });
+
+    // ── Regression: bridge.g.mm must survive when lib == pluginName ──────────
+    //
+    // The most common plugin layout has a single module whose lib name matches
+    // the plugin name (e.g. plugin "my_plugin", @NitroModule(lib: "my_plugin")).
+    // A previous bug caused _syncCppModuleSourcesToSpm to delete the main plugin
+    // bridge.g.mm written earlier in the same function when the module was in
+    // allCppModules (isCpp=true) but NOT an Apple C++ module (isApple=false),
+    // because the stale-cleanup `else` branch used `bridgeMm.deleteSync()` without
+    // checking whether `lib == pluginName`.
+
+    test('bridge.g.mm survives link when lib == pluginName and module is not Apple-cpp', () {
+      scaffoldSpm('my_plugin');
+      // The main plugin C++ file (src/my_plugin.cpp) makes hasCContent=true so
+      // the SPM target is populated.
+      Directory(p.join(tmp.path, 'src')).createSync(recursive: true);
+      File(p.join(tmp.path, 'src', 'my_plugin.cpp')).writeAsStringSync('// stub');
+
+      // Single module with lib == pluginName, isCpp=true but NOT Apple-cpp
+      // (e.g. android: NativeImpl.cpp only). The module is in allCppModules
+      // (broad isCpp check) but isApple=false because the .native.dart has no
+      // ios/macos NativeImpl.cpp annotation — so the else-branch ran deleteSync.
+      linkPodspec(
+        'my_plugin',
+        ['my_plugin'],
+        baseDir: tmp.path,
+        moduleInfos: [const ModuleInfo(lib: 'my_plugin', module: 'MyPlugin', isCpp: true)],
+      );
+
+      final bridgeMm = File(
+        p.join(tmp.path, 'ios', 'Sources', 'MyPluginCpp', 'my_plugin.bridge.g.mm'),
+      );
+      expect(
+        bridgeMm.existsSync(),
+        isTrue,
+        reason: 'bridge.g.mm must not be deleted when lib == pluginName',
+      );
+      // Content must include Foundation import (main plugin bridge format).
+      expect(bridgeMm.readAsStringSync(), contains('#import <Foundation/Foundation.h>'));
+    });
+
+    test('bridge.g.mm uses relative path (not absolute) for portability', () {
+      scaffoldSpm('my_plugin');
+      scaffoldCppModule('my_cpp_mod', appleCpp: true);
+
+      linkPodspec(
+        'my_plugin',
+        ['my_plugin', 'my_cpp_mod'],
+        baseDir: tmp.path,
+        moduleInfos: [const ModuleInfo(lib: 'my_cpp_mod', module: 'MyCppMod', isCpp: true)],
+      );
+
+      final content = File(
+        p.join(tmp.path, 'ios', 'Sources', 'MyPluginCpp', 'my_cpp_mod.bridge.g.mm'),
+      ).readAsStringSync();
+      // Must use a relative path (starts with ../) not an absolute path.
+      expect(
+        content,
+        isNot(contains(tmp.path)),
+        reason: 'bridge.g.mm #include must use a relative path, not an absolute filesystem path',
+      );
+      expect(content, contains('../'));
+    });
+
+    test('bridge.g.mm for Apple-cpp module written even when bridge.g.cpp not yet generated', () {
+      scaffoldSpm('my_plugin');
+      // NOTE: do NOT create the .bridge.g.cpp — simulates running link before generate.
+      Directory(p.join(tmp.path, 'src')).createSync(recursive: true);
+      File(p.join(tmp.path, 'src', 'my_plugin.cpp')).writeAsStringSync('// stub');
+
+      // Scaffold the .native.dart with ios: AppleNativeImpl.cpp so isApple=true.
+      final libDir = Directory(p.join(tmp.path, 'lib', 'src'))..createSync(recursive: true);
+      File(p.join(libDir.path, 'my_cpp_mod.native.dart')).writeAsStringSync(
+        "@NitroModule(lib: 'my_cpp_mod', ios: AppleNativeImpl.cpp)\n"
+        'abstract class MyCppMod extends HybridObject {}',
+      );
+
+      linkPodspec(
+        'my_plugin',
+        ['my_plugin', 'my_cpp_mod'],
+        baseDir: tmp.path,
+        moduleInfos: [const ModuleInfo(lib: 'my_cpp_mod', module: 'MyCppMod', isCpp: true)],
+      );
+
+      expect(
+        File(p.join(tmp.path, 'ios', 'Sources', 'MyPluginCpp', 'my_cpp_mod.bridge.g.mm')).existsSync(),
+        isTrue,
+        reason: 'bridge.g.mm must be written even when bridge.g.cpp does not exist yet',
+      );
+    });
   });
 
   group('LinkCommand Content Generation', () {

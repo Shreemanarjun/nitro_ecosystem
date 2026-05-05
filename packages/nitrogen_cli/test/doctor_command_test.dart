@@ -1567,6 +1567,317 @@ end
     });
   });
 
+  // ── SPM target file completeness ─────────────────────────────────────────
+
+  /// Creates a minimal plugin directory with an iOS SPM nested layout and a
+  /// populated Sources/MyPluginCpp/ target, then returns the tmp root.
+  Directory _scaffoldSpm({
+    bool hasDartApiDl = true,
+    bool hasPluginCpp = true,
+    bool hasNitroH = true,
+    bool hasBridgeMm = true,
+    String pkgSwiftContent = '',
+  }) {
+    final tmp = Directory.systemTemp.createTempSync('spm_files_test_');
+    File(p.join(tmp.path, 'pubspec.yaml')).writeAsStringSync('''
+name: my_plugin
+dependencies:
+  nitro:
+dev_dependencies:
+  build_runner:
+  nitro_generator:
+flutter:
+  plugin:
+    platforms:
+      ios:
+        pluginClass: MyPlugin
+      android:
+        pluginClass: MyPlugin
+        package: com.example.my_plugin
+''');
+    // Minimal spec
+    final libDir = Directory(p.join(tmp.path, 'lib', 'src'))..createSync(recursive: true);
+    File(p.join(libDir.path, 'my_plugin.native.dart'))
+        .writeAsStringSync('@NitroModule(lib: "my_plugin")');
+    // iOS podspec
+    final iosDir = Directory(p.join(tmp.path, 'ios'))..createSync(recursive: true);
+    File(p.join(iosDir.path, 'my_plugin.podspec')).writeAsStringSync('''
+Pod::Spec.new do |s|
+  s.name = "my_plugin"
+  s.swift_version = '5.9'
+  s.source_files = 'Classes/**/*'
+  s.dependency 'nitro'
+  s.pod_target_xcconfig = {
+    'HEADER_SEARCH_PATHS' => '"\$\${PODS_TARGET_SRCROOT}/../src" "\$\${PODS_TARGET_SRCROOT}/../lib/src/generated/cpp"',
+    'CLANG_CXX_LANGUAGE_STANDARD' => 'c++17',
+  }
+end
+''');
+    // SPM Package.swift
+    final pkgDir = Directory(p.join(tmp.path, 'ios', 'my_plugin'))..createSync(recursive: true);
+    final defaultPkg = pkgSwiftContent.isEmpty
+        ? '''
+// swift-tools-version: 5.9
+import PackageDescription
+let package = Package(name: "my_plugin", targets: [
+  .target(name: "MyPluginCpp", path: "Sources/MyPluginCpp",
+    publicHeadersPath: "include",
+    cxxSettings: [.unsafeFlags(["-std=c++17"])]),
+  .target(name: "my_plugin", dependencies: ["MyPluginCpp"], path: "Sources/MyPlugin"),
+])
+'''
+        : pkgSwiftContent;
+    File(p.join(pkgDir.path, 'Package.swift')).writeAsStringSync(defaultPkg);
+    // Sources/MyPluginCpp/
+    final cppDir = Directory(p.join(pkgDir.path, 'Sources', 'MyPluginCpp'))
+      ..createSync(recursive: true);
+    if (hasDartApiDl) File(p.join(cppDir.path, 'dart_api_dl.c')).writeAsStringSync('// stub');
+    if (hasPluginCpp) File(p.join(cppDir.path, 'my_plugin.cpp')).writeAsStringSync('// stub');
+    if (hasBridgeMm) File(p.join(cppDir.path, 'my_plugin.bridge.g.mm')).writeAsStringSync('// stub');
+    if (hasNitroH) {
+      final includeDir = Directory(p.join(cppDir.path, 'include'))..createSync(recursive: true);
+      File(p.join(includeDir.path, 'nitro.h')).writeAsStringSync('// NITRO_EXPORT stub');
+    }
+    return tmp;
+  }
+
+  group('iOS — SPM target file completeness', () {
+    test('ok when all SPM target files present', () {
+      if (!Platform.isMacOS) return;
+      final tmp = _scaffoldSpm();
+      addTearDown(() => tmp.deleteSync(recursive: true));
+      final result = _run(tmp);
+      final iosSec = result.sections.firstWhere((s) => s.title == 'iOS');
+      expect(
+        iosSec.checks.any((c) => c.status == DoctorStatus.ok && c.label.contains('dart_api_dl.c present')),
+        isTrue, reason: 'SPM dart_api_dl.c should be ok',
+      );
+      expect(
+        iosSec.checks.any((c) => c.status == DoctorStatus.ok && c.label.contains('nitro.h present')),
+        isTrue, reason: 'SPM include/nitro.h should be ok',
+      );
+      expect(
+        iosSec.checks.any((c) => c.status == DoctorStatus.ok && c.label.contains('bridge.g.mm') && c.label.contains('SPM')),
+        isTrue, reason: 'SPM bridge.g.mm should be ok',
+      );
+    });
+
+    test('error when SPM dart_api_dl.c missing', () {
+      if (!Platform.isMacOS) return;
+      final tmp = _scaffoldSpm(hasDartApiDl: false);
+      addTearDown(() => tmp.deleteSync(recursive: true));
+      final result = _run(tmp);
+      final iosSec = result.sections.firstWhere((s) => s.title == 'iOS');
+      final check = iosSec.checks.firstWhere(
+        (c) => c.label.contains('dart_api_dl.c missing') && c.label.contains('SPM'),
+        orElse: () => throw TestFailure('Expected SPM dart_api_dl.c error not found'),
+      );
+      expect(check.status, equals(DoctorStatus.error));
+      expect(check.hint, contains('nitrogen link'));
+    });
+
+    test('error when SPM include/nitro.h missing', () {
+      if (!Platform.isMacOS) return;
+      final tmp = _scaffoldSpm(hasNitroH: false);
+      addTearDown(() => tmp.deleteSync(recursive: true));
+      final result = _run(tmp);
+      final iosSec = result.sections.firstWhere((s) => s.title == 'iOS');
+      final check = iosSec.checks.firstWhere(
+        (c) => c.label.contains('nitro.h missing') && c.label.contains('SPM'),
+        orElse: () => throw TestFailure('Expected SPM nitro.h error not found'),
+      );
+      expect(check.status, equals(DoctorStatus.error));
+      expect(check.hint, contains('nitrogen link'));
+    });
+
+    test('warning when SPM plugin.cpp forwarder missing', () {
+      if (!Platform.isMacOS) return;
+      final tmp = _scaffoldSpm(hasPluginCpp: false);
+      addTearDown(() => tmp.deleteSync(recursive: true));
+      final result = _run(tmp);
+      final iosSec = result.sections.firstWhere((s) => s.title == 'iOS');
+      final check = iosSec.checks.firstWhere(
+        (c) => c.label.contains('forwarder missing') && c.label.contains('SPM'),
+        orElse: () => throw TestFailure('Expected SPM plugin.cpp warning not found'),
+      );
+      expect(check.status, equals(DoctorStatus.warn));
+      expect(check.hint, contains('nitrogen link'));
+    });
+
+    test('Package.swift target name check', () {
+      if (!Platform.isMacOS) return;
+      // Package.swift without MyPluginCpp target name
+      final tmp = _scaffoldSpm(
+        pkgSwiftContent: '// swift-tools-version: 5.9\nlet package = Package(name: "my_plugin")',
+      );
+      addTearDown(() => tmp.deleteSync(recursive: true));
+      final result = _run(tmp);
+      final iosSec = result.sections.firstWhere((s) => s.title == 'iOS');
+      final check = iosSec.checks.firstWhere(
+        (c) => c.label.contains('MyPluginCpp target missing'),
+        orElse: () => throw TestFailure('Expected Package.swift target missing error not found'),
+      );
+      expect(check.status, equals(DoctorStatus.error));
+    });
+
+    test('Package.swift c++17 check', () {
+      if (!Platform.isMacOS) return;
+      final tmp = _scaffoldSpm(
+        pkgSwiftContent: '// swift-tools-version: 5.9\nlet package = Package(name: "my_plugin", targets: [.target(name: "MyPluginCpp")])',
+      );
+      addTearDown(() => tmp.deleteSync(recursive: true));
+      final result = _run(tmp);
+      final iosSec = result.sections.firstWhere((s) => s.title == 'iOS');
+      final check = iosSec.checks.firstWhere(
+        (c) => c.label.contains('-std=c++17 missing'),
+        orElse: () => throw TestFailure('Expected cxxSettings warning not found'),
+      );
+      expect(check.status, equals(DoctorStatus.warn));
+    });
+
+    test('no false error for ios/Classes/dart_api_dl.c when SPM is active', () {
+      if (!Platform.isMacOS) return;
+      // When SPM exists, missing ios/Classes/dart_api_dl.c must NOT produce an error
+      final tmp = _scaffoldSpm();
+      addTearDown(() => tmp.deleteSync(recursive: true));
+      final result = _run(tmp);
+      final iosSec = result.sections.firstWhere((s) => s.title == 'iOS');
+      expect(
+        iosSec.checks.any((c) =>
+            c.status == DoctorStatus.error &&
+            c.label.contains('dart_api_dl.c missing') &&
+            c.label.contains('ios/Classes')),
+        isFalse,
+        reason: 'ios/Classes/dart_api_dl.c is not required when SPM is active',
+      );
+    });
+  });
+
+  group('macOS — SPM target file completeness', () {
+    Directory _scaffoldMacosSpm({
+      bool hasDartApiDl = true,
+      bool hasPluginCpp = true,
+      bool hasNitroH = true,
+      bool hasBridgeMm = true,
+    }) {
+      final tmp = Directory.systemTemp.createTempSync('macos_spm_test_');
+      File(p.join(tmp.path, 'pubspec.yaml')).writeAsStringSync('''
+name: my_plugin
+dependencies:
+  nitro:
+dev_dependencies:
+  build_runner:
+  nitro_generator:
+flutter:
+  plugin:
+    platforms:
+      macos:
+        pluginClass: MyPlugin
+      android:
+        pluginClass: MyPlugin
+        package: com.example.my_plugin
+''');
+      final libDir = Directory(p.join(tmp.path, 'lib', 'src'))..createSync(recursive: true);
+      File(p.join(libDir.path, 'my_plugin.native.dart'))
+          .writeAsStringSync('@NitroModule(lib: "my_plugin")');
+      final macosDir = Directory(p.join(tmp.path, 'macos'))..createSync(recursive: true);
+      File(p.join(macosDir.path, 'my_plugin.podspec')).writeAsStringSync('''
+Pod::Spec.new do |s|
+  s.name = "my_plugin"
+  s.source_files = 'Classes/**/*'
+  s.dependency 'FlutterMacOS'
+  s.dependency 'nitro'
+  s.pod_target_xcconfig = {
+    'HEADER_SEARCH_PATHS' => '"\$\${PODS_TARGET_SRCROOT}/../src" "\$\${PODS_TARGET_SRCROOT}/../lib/src/generated/cpp"',
+    'CLANG_CXX_LANGUAGE_STANDARD' => 'c++17',
+  }
+end
+''');
+      final pkgDir = Directory(p.join(tmp.path, 'macos', 'my_plugin'))..createSync(recursive: true);
+      File(p.join(pkgDir.path, 'Package.swift')).writeAsStringSync('''
+// swift-tools-version: 5.9
+import PackageDescription
+let package = Package(name: "my_plugin", targets: [
+  .target(name: "MyPluginCpp", path: "Sources/MyPluginCpp",
+    publicHeadersPath: "include",
+    cxxSettings: [.unsafeFlags(["-std=c++17"])]),
+])
+''');
+      final cppDir = Directory(p.join(pkgDir.path, 'Sources', 'MyPluginCpp'))
+        ..createSync(recursive: true);
+      if (hasDartApiDl) File(p.join(cppDir.path, 'dart_api_dl.c')).writeAsStringSync('// stub');
+      if (hasPluginCpp) File(p.join(cppDir.path, 'my_plugin.cpp')).writeAsStringSync('// stub');
+      if (hasBridgeMm) File(p.join(cppDir.path, 'my_plugin.bridge.g.mm')).writeAsStringSync('// stub');
+      if (hasNitroH) {
+        final includeDir = Directory(p.join(cppDir.path, 'include'))..createSync(recursive: true);
+        File(p.join(includeDir.path, 'nitro.h')).writeAsStringSync('// NITRO_EXPORT stub');
+      }
+      return tmp;
+    }
+
+    test('ok when all SPM target files present', () {
+      if (!Platform.isMacOS) return;
+      final tmp = _scaffoldMacosSpm();
+      addTearDown(() => tmp.deleteSync(recursive: true));
+      final result = _run(tmp);
+      final sec = result.sections.firstWhere((s) => s.title == 'macOS');
+      expect(
+        sec.checks.any((c) => c.status == DoctorStatus.ok && c.label.contains('dart_api_dl.c present')),
+        isTrue, reason: 'SPM dart_api_dl.c should be ok',
+      );
+      expect(
+        sec.checks.any((c) => c.status == DoctorStatus.ok && c.label.contains('nitro.h present')),
+        isTrue, reason: 'SPM include/nitro.h should be ok',
+      );
+      expect(
+        sec.checks.any((c) => c.status == DoctorStatus.ok && c.label.contains('bridge.g.mm') && c.label.contains('SPM')),
+        isTrue, reason: 'SPM bridge.g.mm should be ok',
+      );
+    });
+
+    test('error when SPM dart_api_dl.c missing', () {
+      if (!Platform.isMacOS) return;
+      final tmp = _scaffoldMacosSpm(hasDartApiDl: false);
+      addTearDown(() => tmp.deleteSync(recursive: true));
+      final result = _run(tmp);
+      final sec = result.sections.firstWhere((s) => s.title == 'macOS');
+      final check = sec.checks.firstWhere(
+        (c) => c.label.contains('dart_api_dl.c missing') && c.label.contains('SPM'),
+        orElse: () => throw TestFailure('Expected macOS SPM dart_api_dl.c error not found'),
+      );
+      expect(check.status, equals(DoctorStatus.error));
+    });
+
+    test('error when SPM include/nitro.h missing', () {
+      if (!Platform.isMacOS) return;
+      final tmp = _scaffoldMacosSpm(hasNitroH: false);
+      addTearDown(() => tmp.deleteSync(recursive: true));
+      final result = _run(tmp);
+      final sec = result.sections.firstWhere((s) => s.title == 'macOS');
+      final check = sec.checks.firstWhere(
+        (c) => c.label.contains('nitro.h missing') && c.label.contains('SPM'),
+        orElse: () => throw TestFailure('Expected macOS SPM nitro.h error not found'),
+      );
+      expect(check.status, equals(DoctorStatus.error));
+    });
+
+    test('no false error for macos/Classes/dart_api_dl.c when SPM is active', () {
+      if (!Platform.isMacOS) return;
+      final tmp = _scaffoldMacosSpm();
+      addTearDown(() => tmp.deleteSync(recursive: true));
+      final result = _run(tmp);
+      final sec = result.sections.firstWhere((s) => s.title == 'macOS');
+      expect(
+        sec.checks.any((c) =>
+            c.status == DoctorStatus.error &&
+            c.label.contains('dart_api_dl.c missing') &&
+            c.label.contains('macos/Classes')),
+        isFalse,
+        reason: 'macos/Classes/dart_api_dl.c is not required when SPM is active',
+      );
+    });
+  });
+
   // ── SpmStatus integration with DoctorCommand ──────────────────────────────
 
   group('SpmStatus detectSpmStatus integration', () {

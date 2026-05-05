@@ -914,27 +914,30 @@ class DoctorCommand extends Command {
         }
       }
 
-
-      final dartApiDl = File(p.join(iosDir.path, 'Classes', 'dart_api_dl.c'));
-      if (dartApiDl.existsSync()) {
-        ok(iosSec, 'ios/Classes/dart_api_dl.c present');
-      } else {
-        err(iosSec, 'ios/Classes/dart_api_dl.c missing', hint: 'Run: nitrogen link');
-      }
-
-      final nitroH = File(p.join(iosDir.path, 'Classes', 'nitro.h'));
-      if (nitroH.existsSync()) {
-        ok(iosSec, 'ios/Classes/nitro.h present');
-      } else {
-        err(iosSec, 'ios/Classes/nitro.h missing', hint: 'Run: nitrogen link');
-      }
-
-      if (nitroH.existsSync()) {
-        final content = nitroH.readAsStringSync();
-        if (content.contains('NITRO_EXPORT')) {
-          ok(iosSec, 'nitro.h contains NITRO_EXPORT visibility macro');
+      // ── dart_api_dl.c / nitro.h ─────────────────────────────────────────────
+      // For SPM builds (Flutter 3.22+) these files live in Sources/<PluginCpp>/,
+      // not ios/Classes/. Only check ios/Classes/ when there is no Package.swift.
+      if (!spmStatus.iosHasSpm) {
+        final dartApiDl = File(p.join(iosDir.path, 'Classes', 'dart_api_dl.c'));
+        if (dartApiDl.existsSync()) {
+          ok(iosSec, 'ios/Classes/dart_api_dl.c present');
         } else {
-          err(iosSec, 'nitro.h missing NITRO_EXPORT visibility macro', hint: 'Run: nitrogen link');
+          err(iosSec, 'ios/Classes/dart_api_dl.c missing', hint: 'Run: nitrogen link');
+        }
+
+        final nitroH = File(p.join(iosDir.path, 'Classes', 'nitro.h'));
+        if (nitroH.existsSync()) {
+          ok(iosSec, 'ios/Classes/nitro.h present');
+        } else {
+          err(iosSec, 'ios/Classes/nitro.h missing', hint: 'Run: nitrogen link');
+        }
+        if (nitroH.existsSync()) {
+          final content = nitroH.readAsStringSync();
+          if (content.contains('NITRO_EXPORT')) {
+            ok(iosSec, 'nitro.h contains NITRO_EXPORT visibility macro');
+          } else {
+            err(iosSec, 'nitro.h missing NITRO_EXPORT visibility macro', hint: 'Run: nitrogen link');
+          }
         }
       }
 
@@ -951,26 +954,85 @@ class DoctorCommand extends Command {
       final mmBridges = classesDir.existsSync() ? classesDir.listSync().whereType<File>().where((f) => f.path.endsWith('.bridge.g.mm')).toList() : <File>[];
       if (mmBridges.isNotEmpty) {
         ok(iosSec, '${mmBridges.length} .bridge.g.mm file(s) in ios/Classes/');
-      } else if (specs.isNotEmpty && !allSpecsCpp) {
-        // Only warn about missing .mm bridges for non-cpp modules
+      } else if (specs.isNotEmpty && !allSpecsCpp && !spmStatus.iosHasSpm) {
+        // For CocoaPods-only builds, warn about missing .mm bridges.
+        // For SPM builds, the bridge.g.mm belongs in Sources/<PluginCpp>/, not Classes/.
         warn(iosSec, 'No .bridge.g.mm files in ios/Classes/', hint: 'Run: nitrogen link');
       }
 
-      // When using SPM (Flutter 3.22+), the bridge symbols are compiled from
-      // Sources/<PluginCpp>/*.bridge.g.mm inside the Package.swift target, not
-      // from ios/Classes/. Without this file, the plugin's init symbol
-      // (<plugin>_init_dart_api_dl) is missing at runtime.
+      // ── SPM target completeness ──────────────────────────────────────────────
+      // Flutter 3.22+ compiles the plugin via Package.swift. Every file that
+      // nitrogen link creates in Sources/<PluginCpp>/ is critical for the build.
       if (spmStatus.iosHasSpm && spmStatus.iosPackageSwiftPath != null) {
-        final packageRoot = File(spmStatus.iosPackageSwiftPath!).parent.path;
+        final packageSwiftFile = File(spmStatus.iosPackageSwiftPath!);
+        final packageRoot = packageSwiftFile.parent.path;
         final cppTargetName = '${_toPascalCase(pluginName)}Cpp';
         final spmCppDir = Directory(p.join(packageRoot, 'Sources', cppTargetName));
+
+        // Validate Package.swift declares the C++ target with correct settings.
+        final pkgSwift = packageSwiftFile.readAsStringSync();
+        if (pkgSwift.contains(cppTargetName)) {
+          ok(iosSec, 'Package.swift: $cppTargetName target defined');
+        } else {
+          err(iosSec, 'Package.swift: $cppTargetName target missing',
+              hint: 'Run: nitrogen init  (re-creates Package.swift with the correct C++ target)');
+        }
+        if (pkgSwift.contains('c++17') || pkgSwift.contains('-std=c++17')) {
+          ok(iosSec, 'Package.swift: cxxSettings -std=c++17 present');
+        } else {
+          warn(iosSec, 'Package.swift: -std=c++17 missing in cxxSettings',
+              hint: 'Add .unsafeFlags(["-std=c++17"]) to the $cppTargetName cxxSettings');
+        }
+        if (pkgSwift.contains('publicHeadersPath')) {
+          ok(iosSec, 'Package.swift: publicHeadersPath configured for $cppTargetName');
+        } else {
+          warn(iosSec, 'Package.swift: publicHeadersPath missing for $cppTargetName',
+              hint: 'Run: nitrogen init  (sets publicHeadersPath: "include")');
+        }
+
         if (spmCppDir.existsSync()) {
-          final spmMmBridges = spmCppDir.listSync().whereType<File>().where((f) => f.path.endsWith('.bridge.g.mm')).toList();
+          // dart_api_dl.c — compiled as plain C; provides the Dart FFI bootstrap ABI
+          final dartApiDlSpm = File(p.join(spmCppDir.path, 'dart_api_dl.c'));
+          if (dartApiDlSpm.existsSync()) {
+            ok(iosSec, 'SPM Sources/$cppTargetName/dart_api_dl.c present');
+          } else {
+            err(iosSec, 'SPM Sources/$cppTargetName/dart_api_dl.c missing',
+                hint: 'Run: nitrogen link');
+          }
+
+          // <plugin>.cpp — forwarder that pulls in src/<plugin>.cpp via #include
+          final pluginCppSpm = File(p.join(spmCppDir.path, '$pluginName.cpp'));
+          final pluginCSpm = File(p.join(spmCppDir.path, '$pluginName.c'));
+          if (pluginCppSpm.existsSync() || pluginCSpm.existsSync()) {
+            ok(iosSec, 'SPM Sources/$cppTargetName/$pluginName.cpp forwarder present');
+          } else {
+            warn(iosSec, 'SPM Sources/$cppTargetName/$pluginName.cpp forwarder missing',
+                hint: 'Run: nitrogen link');
+          }
+
+          // include/nitro.h — exposes NITRO_EXPORT and Nitro types to the C++ target
+          final nitroHSpm = File(p.join(spmCppDir.path, 'include', 'nitro.h'));
+          if (nitroHSpm.existsSync()) {
+            ok(iosSec, 'SPM Sources/$cppTargetName/include/nitro.h present');
+          } else {
+            err(iosSec, 'SPM Sources/$cppTargetName/include/nitro.h missing',
+                hint: 'Run: nitrogen link');
+          }
+
+          // bridge.g.mm — CRITICAL: compiled as Obj-C++ so that the SPM target
+          // links the C symbols defined in bridge.g.cpp (init_dart_api_dl etc.).
+          // Without this the plugin crashes at startup with:
+          //   "Failed to lookup symbol '${pluginName}_init_dart_api_dl'"
+          final spmMmBridges = spmCppDir
+              .listSync()
+              .whereType<File>()
+              .where((f) => f.path.endsWith('.bridge.g.mm'))
+              .toList();
           if (spmMmBridges.isNotEmpty) {
             ok(iosSec, '${spmMmBridges.length} .bridge.g.mm in SPM Sources/$cppTargetName/');
           } else if (specs.isNotEmpty) {
             err(iosSec, 'Missing .bridge.g.mm in SPM Sources/$cppTargetName/',
-                hint: 'Run: nitrogen link  (symbol <plugin>_init_dart_api_dl will be missing at runtime)');
+                hint: 'Run: nitrogen link  (symbol ${pluginName}_init_dart_api_dl will be missing at runtime)');
           }
         } else if (specs.isNotEmpty) {
           warn(iosSec, 'SPM Sources/$cppTargetName/ directory not found',
@@ -1054,26 +1116,30 @@ class DoctorCommand extends Command {
         }
       }
 
-      final dartApiDl = File(p.join(macosDir.path, 'Classes', 'dart_api_dl.c'));
-      if (dartApiDl.existsSync()) {
-        ok(macosSec, 'macos/Classes/dart_api_dl.c present');
-      } else {
-        err(macosSec, 'macos/Classes/dart_api_dl.c missing', hint: 'Run: nitrogen link');
-      }
-
-      final nitroH = File(p.join(macosDir.path, 'Classes', 'nitro.h'));
-      if (nitroH.existsSync()) {
-        ok(macosSec, 'macos/Classes/nitro.h present');
-      } else {
-        err(macosSec, 'macos/Classes/nitro.h missing', hint: 'Run: nitrogen link');
-      }
-
-      if (nitroH.existsSync()) {
-        final content = nitroH.readAsStringSync();
-        if (content.contains('NITRO_EXPORT')) {
-          ok(macosSec, 'nitro.h contains NITRO_EXPORT visibility macro');
+      // ── dart_api_dl.c / nitro.h ─────────────────────────────────────────────
+      // For SPM builds (Flutter 3.22+) these files live in Sources/<PluginCpp>/,
+      // not macos/Classes/. Only check macos/Classes/ when there is no Package.swift.
+      if (!spmStatus.macosHasSpm) {
+        final dartApiDl = File(p.join(macosDir.path, 'Classes', 'dart_api_dl.c'));
+        if (dartApiDl.existsSync()) {
+          ok(macosSec, 'macos/Classes/dart_api_dl.c present');
         } else {
-          err(macosSec, 'nitro.h missing NITRO_EXPORT visibility macro', hint: 'Run: nitrogen link');
+          err(macosSec, 'macos/Classes/dart_api_dl.c missing', hint: 'Run: nitrogen link');
+        }
+
+        final nitroH = File(p.join(macosDir.path, 'Classes', 'nitro.h'));
+        if (nitroH.existsSync()) {
+          ok(macosSec, 'macos/Classes/nitro.h present');
+        } else {
+          err(macosSec, 'macos/Classes/nitro.h missing', hint: 'Run: nitrogen link');
+        }
+        if (nitroH.existsSync()) {
+          final content = nitroH.readAsStringSync();
+          if (content.contains('NITRO_EXPORT')) {
+            ok(macosSec, 'nitro.h contains NITRO_EXPORT visibility macro');
+          } else {
+            err(macosSec, 'nitro.h missing NITRO_EXPORT visibility macro', hint: 'Run: nitrogen link');
+          }
         }
       }
 
@@ -1087,25 +1153,85 @@ class DoctorCommand extends Command {
       final mmBridges = macosClassesDir.existsSync() ? macosClassesDir.listSync().whereType<File>().where((f) => f.path.endsWith('.bridge.g.mm')).toList() : <File>[];
       if (mmBridges.isNotEmpty) {
         ok(macosSec, '${mmBridges.length} .bridge.g.mm file(s) in macos/Classes/');
-      } else if (specs.isNotEmpty && !allSpecsCpp) {
+      } else if (specs.isNotEmpty && !allSpecsCpp && !spmStatus.macosHasSpm) {
+        // For CocoaPods-only builds, warn about missing .mm bridges.
+        // For SPM builds, the bridge.g.mm belongs in Sources/<PluginCpp>/, not Classes/.
         warn(macosSec, 'No .bridge.g.mm files in macos/Classes/', hint: 'Run: nitrogen link');
       }
 
-      // SPM-specific: check that Sources/<PluginCpp>/*.bridge.g.mm exists.
-      // Flutter 3.22+ uses SPM for macOS plugins; without this forwarder file
-      // the symbol `<plugin>_init_dart_api_dl` is not compiled and the plugin
-      // crashes at startup with "Failed to lookup symbol".
+      // ── SPM target completeness ──────────────────────────────────────────────
+      // Flutter 3.22+ compiles the plugin via Package.swift. Every file that
+      // nitrogen link creates in Sources/<PluginCpp>/ is critical for the build.
       if (spmStatus.macosHasSpm && spmStatus.macosPackageSwiftPath != null) {
-        final packageRoot = File(spmStatus.macosPackageSwiftPath!).parent.path;
+        final packageSwiftFile = File(spmStatus.macosPackageSwiftPath!);
+        final packageRoot = packageSwiftFile.parent.path;
         final cppTargetName = '${_toPascalCase(pluginName)}Cpp';
         final spmCppDir = Directory(p.join(packageRoot, 'Sources', cppTargetName));
+
+        // Validate Package.swift declares the C++ target with correct settings.
+        final pkgSwift = packageSwiftFile.readAsStringSync();
+        if (pkgSwift.contains(cppTargetName)) {
+          ok(macosSec, 'Package.swift: $cppTargetName target defined');
+        } else {
+          err(macosSec, 'Package.swift: $cppTargetName target missing',
+              hint: 'Run: nitrogen init  (re-creates Package.swift with the correct C++ target)');
+        }
+        if (pkgSwift.contains('c++17') || pkgSwift.contains('-std=c++17')) {
+          ok(macosSec, 'Package.swift: cxxSettings -std=c++17 present');
+        } else {
+          warn(macosSec, 'Package.swift: -std=c++17 missing in cxxSettings',
+              hint: 'Add .unsafeFlags(["-std=c++17"]) to the $cppTargetName cxxSettings');
+        }
+        if (pkgSwift.contains('publicHeadersPath')) {
+          ok(macosSec, 'Package.swift: publicHeadersPath configured for $cppTargetName');
+        } else {
+          warn(macosSec, 'Package.swift: publicHeadersPath missing for $cppTargetName',
+              hint: 'Run: nitrogen init  (sets publicHeadersPath: "include")');
+        }
+
         if (spmCppDir.existsSync()) {
-          final spmMmBridges = spmCppDir.listSync().whereType<File>().where((f) => f.path.endsWith('.bridge.g.mm')).toList();
+          // dart_api_dl.c — compiled as plain C; provides the Dart FFI bootstrap ABI
+          final dartApiDlSpm = File(p.join(spmCppDir.path, 'dart_api_dl.c'));
+          if (dartApiDlSpm.existsSync()) {
+            ok(macosSec, 'SPM Sources/$cppTargetName/dart_api_dl.c present');
+          } else {
+            err(macosSec, 'SPM Sources/$cppTargetName/dart_api_dl.c missing',
+                hint: 'Run: nitrogen link');
+          }
+
+          // <plugin>.cpp — forwarder that pulls in src/<plugin>.cpp via #include
+          final pluginCppSpm = File(p.join(spmCppDir.path, '$pluginName.cpp'));
+          final pluginCSpm = File(p.join(spmCppDir.path, '$pluginName.c'));
+          if (pluginCppSpm.existsSync() || pluginCSpm.existsSync()) {
+            ok(macosSec, 'SPM Sources/$cppTargetName/$pluginName.cpp forwarder present');
+          } else {
+            warn(macosSec, 'SPM Sources/$cppTargetName/$pluginName.cpp forwarder missing',
+                hint: 'Run: nitrogen link');
+          }
+
+          // include/nitro.h — exposes NITRO_EXPORT and Nitro types to the C++ target
+          final nitroHSpm = File(p.join(spmCppDir.path, 'include', 'nitro.h'));
+          if (nitroHSpm.existsSync()) {
+            ok(macosSec, 'SPM Sources/$cppTargetName/include/nitro.h present');
+          } else {
+            err(macosSec, 'SPM Sources/$cppTargetName/include/nitro.h missing',
+                hint: 'Run: nitrogen link');
+          }
+
+          // bridge.g.mm — CRITICAL: compiled as Obj-C++ so that the SPM target
+          // links the C symbols defined in bridge.g.cpp (init_dart_api_dl etc.).
+          // Without this the plugin crashes at startup with:
+          //   "Failed to lookup symbol '${pluginName}_init_dart_api_dl'"
+          final spmMmBridges = spmCppDir
+              .listSync()
+              .whereType<File>()
+              .where((f) => f.path.endsWith('.bridge.g.mm'))
+              .toList();
           if (spmMmBridges.isNotEmpty) {
             ok(macosSec, '${spmMmBridges.length} .bridge.g.mm in SPM Sources/$cppTargetName/');
           } else if (specs.isNotEmpty) {
             err(macosSec, 'Missing .bridge.g.mm in SPM Sources/$cppTargetName/',
-                hint: 'Run: nitrogen link  (symbol <plugin>_init_dart_api_dl will be missing at runtime)');
+                hint: 'Run: nitrogen link  (symbol ${pluginName}_init_dart_api_dl will be missing at runtime)');
           }
         } else if (specs.isNotEmpty) {
           warn(macosSec, 'SPM Sources/$cppTargetName/ directory not found',

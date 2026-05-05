@@ -4,6 +4,7 @@ import 'package:args/command_runner.dart';
 import 'package:path/path.dart' as p;
 
 import '../ui.dart';
+import '../utils.dart' show killBuildRunner;
 import 'link_command.dart'
     show
         cleanRedundantIncludes,
@@ -71,6 +72,14 @@ class GenerateCommand extends Command {
     // Flutter's package resolution — `dart run build_runner` fails with
     // "Flutter users should use flutter pub instead of dart pub".
     //
+    // Stop any already-running build_runner first. A second invocation hangs
+    // indefinitely waiting for the lock file; killing the old process and
+    // removing the lock file lets the new one start immediately.
+    final existingCount = await killBuildRunner(workingDirectory: projectDir.path);
+    if (existingCount > 0) {
+      stdout.writeln(gray('  › Stopped existing build_runner instance.'));
+    }
+
     // Clear the build cache first so build_runner always does a fresh build.
     // Without this, on the second run build_runner enters the "check for
     // updates since last build" code path which internally calls `dart pub get`

@@ -2,6 +2,69 @@ import 'dart:io';
 import 'package:path/path.dart' as p;
 import 'models.dart';
 
+/// Kills any existing `build_runner` processes before starting a new one.
+///
+/// build_runner uses a lock file (`.dart_tool/build/lock`) so a second
+/// invocation in the same project will hang indefinitely waiting for the
+/// lock. This function:
+///   1. Sends SIGTERM to all processes whose command line contains
+///      "build_runner" (graceful shutdown).
+///   2. Waits up to 1 s for them to exit, then force-kills with SIGKILL.
+///   3. Deletes the stale lock file so the new process starts immediately.
+///
+/// Returns the number of processes that were killed (0 = none were running).
+Future<int> killBuildRunner({String? workingDirectory}) async {
+  int killed = 0;
+
+  if (Platform.isWindows) {
+    // Windows: use WMIC to find dart.exe processes running build_runner.
+    try {
+      final list = await Process.run(
+        'wmic',
+        ['process', 'where', "CommandLine like '%build_runner%'", 'get', 'ProcessId'],
+        runInShell: true,
+      );
+      final pids = (list.stdout as String)
+          .split(RegExp(r'\s+'))
+          .where((s) => RegExp(r'^\d+$').hasMatch(s))
+          .toList();
+      for (final pid in pids) {
+        final r = await Process.run('taskkill', ['/F', '/PID', pid], runInShell: true);
+        if (r.exitCode == 0) killed++;
+      }
+    } catch (_) {}
+  } else {
+    // macOS / Linux — pkill -f matches against the full command line.
+    // Ignore exit code 1 (no process found); only 0 means something was killed.
+    try {
+      final r = await Process.run('pkill', ['-TERM', '-f', 'build_runner']);
+      if (r.exitCode == 0) {
+        killed++;
+        // Give the process up to 800 ms to exit cleanly before force-killing.
+        await Future.delayed(const Duration(milliseconds: 800));
+        // Force-kill any survivor.
+        await Process.run('pkill', ['-KILL', '-f', 'build_runner']);
+      }
+    } catch (_) {}
+  }
+
+  // Always remove the stale lock file — even if pkill found nothing, a
+  // previous crashed process may have left it behind.
+  if (workingDirectory != null) {
+    for (final lockPath in [
+      p.join(workingDirectory, '.dart_tool', 'build', 'lock'),
+      p.join(workingDirectory, '.dart_tool', 'build', '.lock'),
+    ]) {
+      try {
+        final f = File(lockPath);
+        if (f.existsSync()) f.deleteSync();
+      } catch (_) {}
+    }
+  }
+
+  return killed;
+}
+
 List<ProjectInfo> getAllProjects({Directory? baseDir}) {
   final List<ProjectInfo> projects = [];
   final root = baseDir ?? Directory.current;
