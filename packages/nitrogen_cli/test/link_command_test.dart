@@ -1,6 +1,7 @@
 import 'dart:io';
 import 'package:path/path.dart' as p;
 import 'package:nitrogen_cli/commands/link_command.dart';
+import 'package:nitrogen_cli/templates/cmake_templates.dart' as ct;
 import 'package:test/test.dart';
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -398,6 +399,35 @@ abstract class MyModule extends HybridObject {
       final stub = File(p.join(tmp.path, 'src', 'HybridMyMathLib.cpp'));
       expect(stub.existsSync(), isTrue);
       expect(stub.readAsStringSync(), contains('my_math_lib_register_impl'));
+    });
+
+    test('linux-only C++ stub excludes __ANDROID__ from auto-register guard', () {
+      // isNativeCpp=true + isAndroidCpp=false means only Linux uses C++.
+      // Android uses Kotlin JNI — register_impl is NOT defined on Android, so
+      // the auto-register must be guarded with !defined(__ANDROID__).
+      Directory(p.join(tmp.path, 'src')).createSync();
+      linkCppImplStubs(
+        [ModuleInfo(lib: 'math', module: 'Math', isCpp: true, isNativeCpp: true, isAndroidCpp: false)],
+        baseDir: tmp.path,
+      );
+      final content = File(p.join(tmp.path, 'src', 'HybridMath.cpp')).readAsStringSync();
+      expect(content, contains('!defined(__ANDROID__)'),
+          reason: 'Linux-only C++ guard must exclude Android NDK');
+      expect(content, isNot(contains('#if !defined(__APPLE__)')),
+          reason: 'bare !defined(__APPLE__) would wrongly include Android');
+    });
+
+    test('android C++ stub uses !defined(__APPLE__) guard without Android exclusion', () {
+      // isAndroidCpp=true: Android uses C++ directly, so register_impl IS defined
+      // on Android. The guard should NOT exclude Android.
+      Directory(p.join(tmp.path, 'src')).createSync();
+      linkCppImplStubs(
+        [ModuleInfo(lib: 'math', module: 'Math', isCpp: true, isNativeCpp: true, isAndroidCpp: true)],
+        baseDir: tmp.path,
+      );
+      final content = File(p.join(tmp.path, 'src', 'HybridMath.cpp')).readAsStringSync();
+      expect(content, contains('!defined(__APPLE__)'),
+          reason: 'Android C++ guard must include Android');
     });
   });
 
@@ -885,6 +915,126 @@ target_include_directories(my_plugin PRIVATE "\${CMAKE_CURRENT_SOURCE_DIR}")
       expect(content, contains('set(NITRO_NATIVE "/path/to/nitro/native")'));
       expect(content, contains('add_library(other_lib SHARED'));
       expect(content, contains('dart_api_dl.c'));
+    });
+
+    test('linkCMake adds HybridXxx.cpp inside add_library when android uses C++', () {
+      final srcDir = Directory(p.join(tmp.path, 'src'))..createSync();
+      final cmake = File(p.join(srcDir.path, 'CMakeLists.txt'));
+      cmake.writeAsStringSync('''
+add_library(my_plugin SHARED "my_plugin.cpp")
+target_include_directories(my_plugin PRIVATE "\${CMAKE_CURRENT_SOURCE_DIR}")
+''');
+      // Create the impl stub so linkCMake can find it.
+      File(p.join(srcDir.path, 'HybridMyPlugin.cpp')).writeAsStringSync('');
+
+      final androidCppInfo = ModuleInfo(
+        lib: 'my_plugin',
+        module: 'MyPlugin',
+        isCpp: true,
+        isNativeCpp: true,
+        isAndroidCpp: true,
+      );
+      linkCMake(
+        'my_plugin', ['my_plugin'], '/path/to/nitro/native',
+        baseDir: tmp.path,
+        moduleInfos: [androidCppInfo],
+      );
+
+      final content = cmake.readAsStringSync();
+      // Android C++ — impl embedded directly in add_library, no NOT ANDROID guard.
+      expect(content, contains('"HybridMyPlugin.cpp"'));
+      expect(content, isNot(contains('if(NOT ANDROID)')));
+    });
+
+    test('linkCMake wraps HybridXxx.cpp in if(NOT ANDROID) when android uses Kotlin', () {
+      final srcDir = Directory(p.join(tmp.path, 'src'))..createSync();
+      final cmake = File(p.join(srcDir.path, 'CMakeLists.txt'));
+      cmake.writeAsStringSync('''
+add_library(my_plugin SHARED "my_plugin.cpp")
+target_include_directories(my_plugin PRIVATE "\${CMAKE_CURRENT_SOURCE_DIR}")
+''');
+      File(p.join(srcDir.path, 'HybridMyPlugin.cpp')).writeAsStringSync('');
+
+      final linuxCppInfo = ModuleInfo(
+        lib: 'my_plugin',
+        module: 'MyPlugin',
+        isCpp: true,
+        isNativeCpp: true,
+        isAndroidCpp: false,
+      );
+      linkCMake(
+        'my_plugin', ['my_plugin'], '/path/to/nitro/native',
+        baseDir: tmp.path,
+        moduleInfos: [linuxCppInfo],
+      );
+
+      final content = cmake.readAsStringSync();
+      // Linux-only C++ — impl must be excluded from Android NDK builds.
+      expect(content, contains('if(NOT ANDROID)'));
+      expect(content, contains('target_sources(my_plugin PRIVATE "HybridMyPlugin.cpp")'));
+      expect(content, contains('endif()'));
+      // Must NOT be inside add_library block.
+      final addLibIdx = content.indexOf('add_library(my_plugin SHARED');
+      final ifNotAndroidIdx = content.indexOf('if(NOT ANDROID)');
+      expect(ifNotAndroidIdx, greaterThan(addLibIdx));
+    });
+
+    test('linkCMake NOT ANDROID guard is idempotent on second run', () {
+      final srcDir = Directory(p.join(tmp.path, 'src'))..createSync();
+      final cmake = File(p.join(srcDir.path, 'CMakeLists.txt'));
+      cmake.writeAsStringSync('''
+add_library(my_plugin SHARED "my_plugin.cpp")
+if(NOT ANDROID)
+  target_sources(my_plugin PRIVATE "HybridMyPlugin.cpp")
+endif()
+target_include_directories(my_plugin PRIVATE "\${CMAKE_CURRENT_SOURCE_DIR}")
+''');
+      File(p.join(srcDir.path, 'HybridMyPlugin.cpp')).writeAsStringSync('');
+
+      final linuxCppInfo = ModuleInfo(
+        lib: 'my_plugin',
+        module: 'MyPlugin',
+        isCpp: true,
+        isNativeCpp: true,
+        isAndroidCpp: false,
+      );
+      linkCMake(
+        'my_plugin', ['my_plugin'], '/path/to/nitro/native',
+        baseDir: tmp.path,
+        moduleInfos: [linuxCppInfo],
+      );
+
+      final content = cmake.readAsStringSync();
+      // Guard must appear exactly once.
+      expect('"HybridMyPlugin.cpp"'.allMatches(content).length, equals(1));
+    });
+
+    test('generateCMakeContent adds if(NOT ANDROID) guard for linux-only C++', () {
+      final result = ct.generateCMakeContent(
+        'my_plugin',
+        ['my_plugin'],
+        '/path/to/nitro/native',
+        moduleInfos: [
+          (lib: 'my_plugin', module: 'MyPlugin', isNativeCpp: true, isAndroidCpp: false),
+        ],
+      );
+      expect(result, contains('if(NOT ANDROID)'));
+      expect(result, contains('target_sources(my_plugin PRIVATE "HybridMyPlugin.cpp")'));
+      // Must NOT be inside add_library source list.
+      expect(result, isNot(contains('"HybridMyPlugin.cpp"\n  "my_plugin.cpp"')));
+    });
+
+    test('generateCMakeContent embeds impl in add_library when android uses C++', () {
+      final result = ct.generateCMakeContent(
+        'my_plugin',
+        ['my_plugin'],
+        '/path/to/nitro/native',
+        moduleInfos: [
+          (lib: 'my_plugin', module: 'MyPlugin', isNativeCpp: true, isAndroidCpp: true),
+        ],
+      );
+      expect(result, isNot(contains('if(NOT ANDROID)')));
+      expect(result, contains('"HybridMyPlugin.cpp"'));
     });
 
     test('createSharedHeaders includes NitroError idempotency guard', () {
@@ -1657,6 +1807,27 @@ public static func register(with registrar: FlutterPluginRegistrar) {
       );
       expect(plugin.readAsStringSync(), isNot(contains('FooRegistry.register')));
     });
+
+    test('removes stale call with nested parentheses perfectly', () {
+      final plugin = writeIosPlugin(tmp, '''
+public static func register(with registrar: FlutterPluginRegistrar) {
+    BenchmarkRegistry.register(BenchmarkImpl())
+    BenchmarkCppRegistry.register(BenchmarkCppModuleImpl())
+}
+''');
+      purgeStaleCppSwiftRegistrations(
+        [const ModuleInfo(lib: 'benchmark_cpp', module: 'BenchmarkCpp', isCpp: true)],
+        platform: 'ios',
+        baseDir: tmp.path,
+      );
+      final content = plugin.readAsStringSync();
+      // Should not leave a stray ')'
+      expect(content, equals('''
+public static func register(with registrar: FlutterPluginRegistrar) {
+    BenchmarkRegistry.register(BenchmarkImpl())
+}
+'''));
+    });
   });
 
   // ── purgeStaleCppKotlinRegistrations ─────────────────────────────────────────
@@ -1708,6 +1879,26 @@ override fun onAttachedToEngine(binding: FlutterPlugin.FlutterPluginBinding) {
       final plugin = writeKotlinPlugin2(tmp, original);
       purgeStaleCppKotlinRegistrations([], baseDir: tmp.path);
       expect(plugin.readAsStringSync(), equals(original));
+    });
+
+    test('removes stale call with nested parentheses perfectly', () {
+      final plugin = writeKotlinPlugin2(tmp, '''
+override fun onAttachedToEngine(binding: FlutterPlugin.FlutterPluginBinding) {
+    BenchmarkJniBridge.register(BenchmarkImpl(binding.applicationContext))
+    BenchmarkCppJniBridge.register(BenchmarkCppImpl())
+}
+''');
+      purgeStaleCppKotlinRegistrations(
+        [const ModuleInfo(lib: 'benchmark_cpp', module: 'BenchmarkCpp', isCpp: true)],
+        baseDir: tmp.path,
+      );
+      final content = plugin.readAsStringSync();
+      // Should not leave a stray ')'
+      expect(content, equals('''
+override fun onAttachedToEngine(binding: FlutterPlugin.FlutterPluginBinding) {
+    BenchmarkJniBridge.register(BenchmarkImpl(binding.applicationContext))
+}
+'''));
     });
   });
 

@@ -146,6 +146,7 @@ Future<void> _runTui() async {
                 title: 'Nitrogen Generate',
                 executable: '/bin/sh',
                 workingDirectory: info?.directory.path,
+                killOnDispose: true,
                 args: const [
                   '-c',
                   // 1. Find the PID holding the lock file (most reliable — bypasses
@@ -158,10 +159,10 @@ Future<void> _runTui() async {
                   r'fi; '
                   // 2. pkill -f as a broad fallback.
                   'pkill -f build_runner 2>/dev/null; sleep 0.5; pkill -9 -f build_runner 2>/dev/null; '
-                  // 3. Delete the entire build cache (stale lock can't block startup).
-                  'rm -rf .dart_tool/build 2>/dev/null; '
-                  'flutter pub get || true; '
-                  'flutter pub run build_runner build --delete-conflicting-outputs',
+                  // 3. Delete only the lock + asset graph, NOT entrypoint/ (AOT snapshot).
+                  //    Deleting entrypoint/ forces an expensive ~15 s recompile every run.
+                  'rm -f .dart_tool/build/lock .dart_tool/build/asset_graph.json 2>/dev/null; '
+                  'flutter pub run build_runner build',
                 ],
               );
             },
@@ -189,7 +190,7 @@ Future<void> _runTui() async {
                   r'  [ -n "$PIDS" ] && kill -TERM $PIDS 2>/dev/null && sleep 0.7 && kill -KILL $PIDS 2>/dev/null; '
                   r'fi; '
                   'pkill -f build_runner 2>/dev/null; sleep 0.5; pkill -9 -f build_runner 2>/dev/null; '
-                  'rm -rf .dart_tool/build 2>/dev/null; '
+                  'rm -f .dart_tool/build/lock .dart_tool/build/asset_graph.json 2>/dev/null; '
                   'flutter pub get || true; '
                   'flutter pub run build_runner watch --delete-conflicting-outputs',
                 ],

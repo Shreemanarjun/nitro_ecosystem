@@ -80,13 +80,17 @@ class GenerateCommand extends Command {
       stdout.writeln(gray('  › Stopped existing build_runner instance.'));
     }
 
-    // Clear the build cache first so build_runner always does a fresh build.
-    // Without this, on the second run build_runner enters the "check for
-    // updates since last build" code path which internally calls `dart pub get`
-    // — this fails for Flutter workspace members with the same Flutter SDK
-    // resolution error, causing exit 247 / "Failed to update packages".
-    final buildCache = Directory(p.join(projectDir.path, '.dart_tool', 'build'));
-    if (buildCache.existsSync()) buildCache.deleteSync(recursive: true);
+    // Delete only the lock file and asset graph — NOT the entrypoint/ directory.
+    // The entrypoint/ directory contains the AOT-compiled builder snapshot; deleting
+    // it forces an expensive recompile (~10-15 s) on every run. Deleting just the
+    // lock + asset graph is enough to let build_runner start fresh without
+    // triggering the "check for updates → dart pub get → exit 247" failure that
+    // occurs in Flutter workspace members on the second run.
+    final buildDir = p.join(projectDir.path, '.dart_tool', 'build');
+    for (final name in ['lock', 'asset_graph.json']) {
+      final f = File(p.join(buildDir, name));
+      if (f.existsSync()) f.deleteSync();
+    }
 
     stdout.writeln(cyan('  › build_runner build …'));
     stdout.writeln('');

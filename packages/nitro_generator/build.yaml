@@ -15,3 +15,6 @@ builders:
         - 'lib/{{dir}}/generated/cpp/test/{{file}}.test.g.cpp'
     auto_apply: dependents
     build_to: source
+    defaults:
+      generate_for:
+        - lib/src/**.native.dart

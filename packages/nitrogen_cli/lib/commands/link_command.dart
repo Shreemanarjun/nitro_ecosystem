@@ -211,6 +211,10 @@ class ModuleInfo {
   final String module;
   final bool isCpp;
   final bool isNativeCpp;
+  /// True only when `android: NativeImpl.cpp` — distinct from isNativeCpp
+  /// which is true for android OR linux. Used to generate the correct
+  /// auto-register platform guard: Linux-only C++ must exclude __ANDROID__.
+  final bool isAndroidCpp;
   final bool iosIsCpp;
   final bool macosIsCpp;
   const ModuleInfo({
@@ -218,6 +222,7 @@ class ModuleInfo {
     required this.module,
     required this.isCpp,
     this.isNativeCpp = false,
+    this.isAndroidCpp = false,
     this.iosIsCpp = false,
     this.macosIsCpp = false,
   });
@@ -262,6 +267,7 @@ List<ModuleInfo> discoverModuleInfos(
           module: moduleName,
           isCpp: analyzer.requiresCpp,
           isNativeCpp: analyzer.isNativeCpp,
+          isAndroidCpp: analyzer.supportsAndroid,
           iosIsCpp: analyzer.supportsIosCpp,
           macosIsCpp: analyzer.supportsMacosCpp,
         ),
@@ -1083,7 +1089,10 @@ void linkCMake(
   //   • the module uses NativeImpl.cpp on android/linux (isNativeCpp) — the
   //     src/ CMakeLists is for Android/Linux only; macOS/iOS are handled by SPM/CocoaPods.
   //   • the file exists in src/, and
-  //   • it is not already listed in the cmake.
+  //   • it is not already listed in the cmake (either inline or in a NOT ANDROID guard).
+  //
+  // When android uses Kotlin (isAndroidCpp=false) but linux uses C++, wrap in
+  // `if(NOT ANDROID)` so the NDK build skips the C++ impl stub.
   if (moduleInfos != null) {
     final mainInfo = moduleInfos.firstWhere(
       (m) => m.lib == pluginName,
@@ -1095,14 +1104,20 @@ void linkCMake(
       );
       final implName = 'Hybrid$className.cpp';
       final implFile = File(p.join(baseDir, 'src', implName));
-      if (implFile.existsSync() &&
-          !content.contains('"$implName"') &&
-          !content.contains(' $implName ') &&
-          !content.contains('\n  $implName')) {
-        content = content.replaceFirst(
-          'add_library($pluginName SHARED',
-          'add_library($pluginName SHARED\n  "$implName"',
-        );
+      if (implFile.existsSync() && !content.contains('"$implName"')) {
+        if (mainInfo.isAndroidCpp) {
+          // Android uses C++ directly — embed impl in add_library.
+          content = content.replaceFirst(
+            'add_library($pluginName SHARED',
+            'add_library($pluginName SHARED\n  "$implName"',
+          );
+        } else {
+          // Linux-only C++ — exclude from Android NDK builds.
+          content = content.replaceFirst(
+            'target_include_directories($pluginName PRIVATE',
+            'if(NOT ANDROID)\n  target_sources($pluginName PRIVATE "$implName")\nendif()\ntarget_include_directories($pluginName PRIVATE',
+          );
+        }
         modified = true;
       }
     }
@@ -1117,7 +1132,11 @@ void linkCMake(
       // Use isNativeCpp (android/linux) — only those platforms put
       // HybridXxx.cpp into src/CMakeLists.txt. Windows-only cpp uses
       // windows/CMakeLists.txt instead.
-      content += ct.cmakeModuleTarget(lib, isCpp: info?.isNativeCpp ?? false);
+      content += ct.cmakeModuleTarget(
+        lib,
+        isCpp: info?.isNativeCpp ?? false,
+        isAndroidCpp: info?.isAndroidCpp ?? false,
+      );
       modified = true;
     }
   }
@@ -1140,7 +1159,7 @@ void generateCMake(
       : nitroNativePath.replaceAll(r'\', '/');
 
   final infos = moduleInfos
-      ?.map((m) => (lib: m.lib, module: m.module, isNativeCpp: m.isNativeCpp))
+      ?.map((m) => (lib: m.lib, module: m.module, isNativeCpp: m.isNativeCpp, isAndroidCpp: m.isAndroidCpp))
       .toList();
 
   File(p.join(baseDir, 'src', 'CMakeLists.txt')).writeAsStringSync(
@@ -1264,6 +1283,7 @@ void linkCppImplStubs(List<ModuleInfo> moduleInfos, {String baseDir = '.'}) {
         lib: m.lib,
         className: className,
         isNativeCpp: m.isNativeCpp,
+        isAndroidCpp: m.isAndroidCpp,
         iosIsCpp: m.iosIsCpp,
         macosIsCpp: m.macosIsCpp,
       ),
@@ -1734,7 +1754,7 @@ void purgeStaleCppSwiftRegistrations(
     final stalePattern = RegExp(
       r'[ \t]*' +
           RegExp.escape('${m.module}Registry') +
-          r'\.register\([^)]*\)[ \t]*\r?\n?',
+          r'\.register\(.*\)[ \t]*\r?\n?',
     );
     if (stalePattern.hasMatch(content)) {
       content = content.replaceAll(stalePattern, '');
@@ -2340,7 +2360,7 @@ void purgeStaleCppKotlinRegistrations(
     final stalePattern = RegExp(
       r'[ \t]*' +
           RegExp.escape('${m.module}JniBridge') +
-          r'\.register\([^)]*\)\)[ \t]*\r?\n?',
+          r'\.register\(.*\)[ \t]*\r?\n?',
     );
     if (stalePattern.hasMatch(content)) {
       content = content.replaceAll(stalePattern, '');

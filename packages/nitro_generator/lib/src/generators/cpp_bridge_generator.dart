@@ -104,8 +104,10 @@ class CppBridgeGenerator {
     s.writeln('// and is read-only during concurrent bridge calls — no std::atomic needed.');
     s.writeln('static Hybrid$className* g_impl = nullptr;');
     s.writeln();
+    s.writeln('extern "C" {');
     s.writeln('void ${libStem}_register_impl(Hybrid$className* impl) { g_impl = impl; }');
     s.writeln('Hybrid$className* ${libStem}_get_impl() { return g_impl; }');
+    s.writeln('}');
     s.writeln();
 
     // Stream state: one Dart port per stream (simplest model)

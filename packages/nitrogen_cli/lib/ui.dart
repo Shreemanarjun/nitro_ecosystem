@@ -187,6 +187,22 @@ String magenta(String t) => _s(t, const TextStyle(color: Colors.magenta));
 /// Returns the exit code.
 Future<int> runStreaming(String executable, List<String> args, {String? workingDirectory}) async {
   final process = await Process.start(executable, args, workingDirectory: workingDirectory);
+
+  // Kill the child process if the parent is interrupted (Ctrl+C).
+  // SIGINT/SIGTERM watch is not supported on Windows.
+  StreamSubscription? sigintSub;
+  StreamSubscription? sigtermSub;
+  if (!Platform.isWindows) {
+    sigintSub = ProcessSignal.sigint.watch().listen((_) {
+      process.kill(ProcessSignal.sigint);
+      exit(130); // 128 + SIGINT
+    });
+    sigtermSub = ProcessSignal.sigterm.watch().listen((_) {
+      process.kill(ProcessSignal.sigterm);
+      exit(143); // 128 + SIGTERM
+    });
+  }
+
   // Use listen().asFuture() instead of pipe() — pipe() closes the sink when
   // the stream ends, which would close nitrogen's own stdout/stderr for all
   // subsequent output.
@@ -194,17 +210,68 @@ Future<int> runStreaming(String executable, List<String> args, {String? workingD
     process.stdout.listen(stdout.add).asFuture<void>(),
     process.stderr.listen(stderr.add).asFuture<void>(),
   ]);
+
+  await sigintSub?.cancel();
+  await sigtermSub?.cancel();
+
   return process.exitCode;
 }
 
 /// Runs [executable] and returns a stream of its interleaved stdout/stderr.
-Stream<String> streamProcess(String executable, List<String> args, {String? workingDirectory}) async* {
-  final process = await Process.start(executable, args, workingDirectory: workingDirectory);
+Stream<String> streamProcess(String executable, List<String> args, {String? workingDirectory}) {
+  final controller = StreamController<String>();
+  Process? process;
+  StreamSubscription? sigintSub;
+  StreamSubscription? sigtermSub;
 
-  yield* _interleave(
-    process.stdout.transform(utf8.decoder).transform(const LineSplitter()),
-    process.stderr.transform(utf8.decoder).transform(const LineSplitter()),
-  );
+  controller.onListen = () async {
+    try {
+      process = await Process.start(executable, args, workingDirectory: workingDirectory);
+
+      if (!Platform.isWindows) {
+        sigintSub = ProcessSignal.sigint.watch().listen((_) {
+          process?.kill(ProcessSignal.sigint);
+          exit(130);
+        });
+        sigtermSub = ProcessSignal.sigterm.watch().listen((_) {
+          process?.kill(ProcessSignal.sigterm);
+          exit(143);
+        });
+      }
+
+      int active = 2;
+      void done() {
+        active--;
+        if (active == 0) {
+          sigintSub?.cancel();
+          sigtermSub?.cancel();
+          controller.close();
+        }
+      }
+
+      process!.stdout.transform(utf8.decoder).transform(const LineSplitter()).listen(
+        controller.add,
+        onDone: done,
+        onError: controller.addError,
+      );
+      process!.stderr.transform(utf8.decoder).transform(const LineSplitter()).listen(
+        controller.add,
+        onDone: done,
+        onError: controller.addError,
+      );
+    } catch (e) {
+      controller.addError(e);
+      controller.close();
+    }
+  };
+
+  controller.onCancel = () {
+    sigintSub?.cancel();
+    sigtermSub?.cancel();
+    process?.kill();
+  };
+
+  return controller.stream;
 }
 
 Stream<String> _interleave(Stream<String> a, Stream<String> b) {

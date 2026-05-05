@@ -12,8 +12,27 @@ class CppHeaderGenerator {
     s.writeln('#include <stdint.h>');
     s.writeln('#include <stdbool.h>');
     s.writeln('#include <stdlib.h>');
-    s.writeln('#include "nitro.h"');
     s.writeln();
+    // Inline nitro.h content so this header is fully self-contained.
+    // Using ifndef guards so it composes cleanly with user-supplied nitro.h copies.
+    s.writeln('#ifndef NITRO_EXPORT');
+    s.writeln('#  if defined(_WIN32)');
+    s.writeln('#    define NITRO_EXPORT __declspec(dllexport)');
+    s.writeln('#  else');
+    s.writeln('#    define NITRO_EXPORT __attribute__((visibility("default"))) __attribute__((used))');
+    s.writeln('#  endif');
+    s.writeln('#endif');
+    s.writeln();
+    s.writeln('#ifndef NITRO_ERROR_DEFINED');
+    s.writeln('#define NITRO_ERROR_DEFINED');
+    s.writeln('typedef struct {');
+    s.writeln('  int8_t hasError;');
+    s.writeln('  const char* name;');
+    s.writeln('  const char* message;');
+    s.writeln('  const char* code;');
+    s.writeln('  const char* stackTrace;');
+    s.writeln('} NitroError;');
+    s.writeln('#endif');
     s.writeln();
 
     final cEnums = EnumGenerator.generateCEnums(spec);

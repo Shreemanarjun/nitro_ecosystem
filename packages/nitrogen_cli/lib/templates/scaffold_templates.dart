@@ -349,3 +349,16 @@ class _DemoPageState extends State<_DemoPage> {
   }
 }
 ''';
+
+// ── build.yaml template ───────────────────────────────────────────────────────
+
+String buildYamlTemplate() => r'''
+# Optimized Nitrogen configuration.
+# Restricts the generator to lib/src/**/*.native.dart for faster builds.
+targets:
+  $default:
+    builders:
+      nitro_generator:
+        generate_for:
+          - lib/src/**.native.dart
+''';

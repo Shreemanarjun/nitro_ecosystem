@@ -3,15 +3,22 @@
 /// Returns the CMake target block for a secondary module library.
 ///
 /// [lib] is the snake_case library name. [isCpp] true when android/linux uses
-/// direct C++ for this module (adds `HybridXxx.cpp` to the source list).
-String cmakeModuleTarget(String lib, {bool isCpp = false}) {
+/// direct C++ for this module. [isAndroidCpp] true only when android uses C++
+/// directly — when false and isCpp is true, HybridXxx.cpp is wrapped in
+/// `if(NOT ANDROID)` so Android Kotlin builds skip the C++ impl stub.
+String cmakeModuleTarget(String lib, {bool isCpp = false, bool isAndroidCpp = false}) {
   final className = _toPascalCase(lib);
-  final implFile = isCpp ? '\n  "Hybrid$className.cpp"' : '';
+  // Android C++: embed impl in add_library; Linux-only C++: guard with if(NOT ANDROID).
+  final implInLib = (isCpp && isAndroidCpp) ? '\n  "Hybrid$className.cpp"' : '';
+  final androidGuard = (isCpp && !isAndroidCpp)
+      ? 'if(NOT ANDROID)\n  target_sources($lib PRIVATE "Hybrid$className.cpp")\nendif()\n'
+      : '';
   return '\nadd_library($lib SHARED\n'
       '  "\${CMAKE_CURRENT_SOURCE_DIR}/../lib/src/generated/cpp/$lib.bridge.g.cpp"'
-      '$implFile\n'
+      '$implInLib\n'
       '  "dart_api_dl.c"\n'
       ')\n'
+      '$androidGuard'
       'target_include_directories($lib PRIVATE\n'
       '  "\${CMAKE_CURRENT_SOURCE_DIR}"\n'
       '  "\${CMAKE_CURRENT_SOURCE_DIR}/../lib/src/generated/cpp"\n'
@@ -38,8 +45,23 @@ String generateCMakeContent(
   String pluginName,
   List<String> moduleLibs,
   String nitroNativePath, {
-  List<({String lib, String module, bool isNativeCpp})>? moduleInfos,
+  List<({String lib, String module, bool isNativeCpp, bool isAndroidCpp})>? moduleInfos,
 }) {
+  final mainInfo = moduleInfos?.firstWhere(
+    (m) => m.lib == pluginName,
+    orElse: () => (lib: pluginName, module: pluginName, isNativeCpp: false, isAndroidCpp: false),
+  );
+  final mainClassName = _toPascalCase(mainInfo?.module ?? pluginName);
+  // Android C++: embed in add_library; Linux-only C++: guard with if(NOT ANDROID).
+  final mainImplInLib =
+      (mainInfo?.isNativeCpp == true && mainInfo?.isAndroidCpp == true)
+      ? '  "Hybrid$mainClassName.cpp"\n'
+      : '';
+  final mainAndroidGuard =
+      (mainInfo?.isNativeCpp == true && mainInfo?.isAndroidCpp != true)
+      ? 'if(NOT ANDROID)\n  target_sources($pluginName PRIVATE "Hybrid$mainClassName.cpp")\nendif()\n'
+      : '';
+
   final buf = StringBuffer()
     ..writeln('cmake_minimum_required(VERSION 3.10)')
     ..writeln('project(${pluginName}_library VERSION 0.0.1 LANGUAGES C CXX)')
@@ -50,10 +72,12 @@ String generateCMakeContent(
     ..writeln('set(NITRO_NATIVE "$nitroNativePath")')
     ..writeln()
     ..writeln('add_library($pluginName SHARED')
+    ..write(mainImplInLib)
     ..writeln('  "$pluginName.cpp"')
     ..writeln('  "\${CMAKE_CURRENT_SOURCE_DIR}/../lib/src/generated/cpp/$pluginName.bridge.g.cpp"')
     ..writeln('  "dart_api_dl.c"')
     ..writeln(')')
+    ..write(mainAndroidGuard)
     ..writeln('target_include_directories($pluginName PRIVATE')
     ..writeln('  "\${CMAKE_CURRENT_SOURCE_DIR}"')
     ..writeln('  "\${CMAKE_CURRENT_SOURCE_DIR}/../lib/src/generated/cpp"')
@@ -73,9 +97,13 @@ String generateCMakeContent(
     if (lib == pluginName) continue;
     final info = moduleInfos?.firstWhere(
       (m) => m.lib == lib,
-      orElse: () => (lib: lib, module: lib, isNativeCpp: false),
+      orElse: () => (lib: lib, module: lib, isNativeCpp: false, isAndroidCpp: false),
     );
-    buf.write(cmakeModuleTarget(lib, isCpp: info?.isNativeCpp ?? false));
+    buf.write(cmakeModuleTarget(
+      lib,
+      isCpp: info?.isNativeCpp ?? false,
+      isAndroidCpp: info?.isAndroidCpp ?? false,
+    ));
   }
   return buf.toString();
 }

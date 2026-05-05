@@ -335,7 +335,8 @@ class _InitViewState extends State<InitView> {
     _setRunning(_kStepBridge);
     _writeBridgeSpec(pluginName, className, platforms: platforms);
     _writeExampleMain(pluginName, className);
-    _setDone(_kStepBridge, detail: 'lib/src/$pluginName.native.dart + example/lib/main.dart');
+    _writeBuildYaml(pluginName);
+    _setDone(_kStepBridge, detail: 'lib/src/$pluginName.native.dart + build.yaml');
 
     component.result.success = true;
     component.result.pluginName = pluginName;
@@ -868,6 +869,10 @@ class _InitViewState extends State<InitView> {
     exampleLibDir.createSync(recursive: true);
 
     File(p.join(exampleLibDir.path, 'main.dart')).writeAsStringSync(exampleMainDartTemplate(pluginName, className));
+  }
+
+  void _writeBuildYaml(String pluginName) {
+    File(p.join(pluginName, 'build.yaml')).writeAsStringSync(buildYamlTemplate());
   }
 }
 

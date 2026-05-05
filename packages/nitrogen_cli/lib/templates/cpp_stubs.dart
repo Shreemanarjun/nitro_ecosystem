@@ -10,6 +10,7 @@
 /// Returns an empty string when no guard is needed (all compiled platforms are C++).
 String autoRegisterPlatformGuard({
   required bool isNativeCpp,
+  required bool isAndroidCpp,
   required bool iosIsCpp,
   required bool macosIsCpp,
 }) {
@@ -17,7 +18,17 @@ String autoRegisterPlatformGuard({
   if (isNativeCpp && macosIsCpp && iosIsCpp) return '';
 
   final conditions = <String>[];
-  if (isNativeCpp) conditions.add('!defined(__APPLE__)'); // android / linux / windows
+  if (isNativeCpp) {
+    // isNativeCpp is true when Android OR Linux (or both) use C++.
+    // When only Linux uses C++ (isAndroidCpp is false), Android must be excluded:
+    // __linux__ is defined on Android NDK too, so `!defined(__APPLE__)` would
+    // incorrectly compile the auto-register on Android where register_impl is absent.
+    if (isAndroidCpp) {
+      conditions.add('!defined(__APPLE__)'); // android + linux + windows
+    } else {
+      conditions.add('(defined(__linux__) && !defined(__ANDROID__))'); // linux only
+    }
+  }
   if (macosIsCpp && iosIsCpp) {
     conditions.add('defined(__APPLE__)');
   } else if (macosIsCpp) {
@@ -38,11 +49,13 @@ String cppImplStubContent({
   required String lib,
   required String className,
   required bool isNativeCpp,
+  bool isAndroidCpp = false,
   required bool iosIsCpp,
   required bool macosIsCpp,
 }) {
   final guard = autoRegisterPlatformGuard(
     isNativeCpp: isNativeCpp,
+    isAndroidCpp: isAndroidCpp,
     iosIsCpp: iosIsCpp,
     macosIsCpp: macosIsCpp,
   );
