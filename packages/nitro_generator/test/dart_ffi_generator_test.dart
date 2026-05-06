@@ -248,6 +248,27 @@ void main() {
       final out = DartFfiGenerator.generate(richSpec());
       expect(out, contains('(message) => message as int'));
     });
+
+    test('enum stream uses conversion via toEnumName()', () {
+      final spec = BridgeSpec(
+        dartClassName: 'Foo',
+        lib: 'foo',
+        namespace: 'foo',
+        sourceUri: 'foo.native.dart',
+        enums: [BridgeEnum(name: 'Status', values: ['idle', 'running'], startValue: 0)],
+        streams: [
+          BridgeStream(
+            dartName: 'statusStream',
+            registerSymbol: 'foo_register_status_stream',
+            releaseSymbol: 'foo_release_status_stream',
+            itemType: BridgeType(name: 'Status'),
+            backpressure: Backpressure.block,
+          ),
+        ],
+      );
+      final out = DartFfiGenerator.generate(spec);
+      expect(out, contains('(message as int).toStatus()'));
+    });
   });
 
   group('DartFfiGenerator (@HybridRecord)', () {

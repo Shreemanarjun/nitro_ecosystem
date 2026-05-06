@@ -630,22 +630,15 @@ let package = Package(
         .library(name: "$pluginName", targets: ["$pluginName"]),
     ],
     targets: [
-        // C/C++ bridge — SPM requires Swift and C++ in separate targets.
         .target(
             name: "${className}Cpp",
             path: "Sources/${className}Cpp",
             publicHeadersPath: "include",
             cxxSettings: [
                 .headerSearchPath("include"),
-                .unsafeFlags([
-                    "-std=c++17",
-                    // nitro's dart_api_dl.h — resolved via Flutter's symlink
-                    // so this works for both local path and pub.dev references.
-                    "-I../../.symlinks/plugins/nitro/src/native",
-                ])
+                .unsafeFlags(["-std=c++17"])
             ]
         ),
-        // Swift implementation + generated bridge.
         .target(
             name: "$pluginName",
             dependencies: ["${className}Cpp"],

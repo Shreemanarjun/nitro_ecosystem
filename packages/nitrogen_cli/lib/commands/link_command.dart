@@ -2140,6 +2140,53 @@ void _syncCppModuleSourcesToSpm(
         if (implForwarder.existsSync()) implForwarder.deleteSync();
       }
     }
+
+    // ── Sync Swift plugin registration and impl to SPM target ────────────────
+    // SPM can't see files in ios/Classes/ — copy them to Sources/<className>/
+    // so the Swift target can compile them.
+    _syncSwiftPluginToSpm(
+      pluginName,
+      baseDir: baseDir,
+      platform: platform,
+      packageRoot: packageRoot,
+      className: className,
+    );
+  }
+}
+
+/// Copies Swift plugin registration and impl files from the target platform's
+/// Classes/ directory to the SPM Sources/ directory. This is required because
+/// SPM packages are isolated — they cannot access files outside their source path.
+/// Without these copies, the Flutter plugin registrant cannot find the Swift
+/// plugin class.
+void _syncSwiftPluginToSpm(
+  String pluginName, {
+  required String baseDir,
+  required String platform,
+  String? packageRoot,
+  required String className,
+}) {
+  // Determine the SPM Swift source directory.
+  final swiftTargetDir = packageRoot != null
+      ? Directory(p.join(packageRoot, 'Sources', className))
+      : Directory(p.join(baseDir, platform, 'Sources', className));
+
+  // Determine the source Classes directory.
+  final classesDir = Directory(p.join(baseDir, platform, 'Classes'));
+  if (!classesDir.existsSync()) return;
+
+  // Find Swift files in Classes: *Plugin.swift and *Impl.swift
+  final swiftFiles = classesDir
+      .listSync(followLinks: false)
+      .whereType<File>()
+      .where((f) => f.path.endsWith('.swift'))
+      .toList();
+
+  for (final srcFile in swiftFiles) {
+    final dstFile = File(p.join(swiftTargetDir.path, p.basename(srcFile.path)));
+    if (!dstFile.existsSync()) {
+      srcFile.copySync(dstFile.path);
+    }
   }
 }
 

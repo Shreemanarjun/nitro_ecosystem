@@ -120,6 +120,7 @@ class CppBridgeGenerator {
     for (final stream in spec.streams) {
       final isStruct = structNames.contains(stream.itemType.name.replaceFirst('?', ''));
       final isRecord = stream.itemType.isRecord;
+      final isEnum = enumNames.contains(stream.itemType.name.replaceFirst('?', ''));
       final itemCpp = _cppScalarType(stream.itemType.name, enumNames, structNames);
       s.writeln('void Hybrid$className::emit_${stream.dartName}($itemCpp item) {');
       s.writeln('    int64_t port = g_port_${stream.dartName};');
@@ -134,6 +135,9 @@ class CppBridgeGenerator {
       } else if (stream.itemType.name == 'bool') {
         s.writeln('    obj.type = Dart_CObject_kBool;');
         s.writeln('    obj.value.as_bool = item;');
+      } else if (isEnum) {
+        s.writeln('    obj.type = Dart_CObject_kInt64;');
+        s.writeln('    obj.value.as_int64 = static_cast<int64_t>(item);');
       } else if (isStruct) {
         final stName = stream.itemType.name.replaceFirst('?', '');
         s.writeln('    $stName* st_ptr = ($stName*)malloc(sizeof($stName));');
@@ -1564,6 +1568,7 @@ class CppBridgeGenerator {
     for (final stream in spec.streams) {
       final isStruct = structNames.contains(stream.itemType.name);
       final isRecord = stream.itemType.isRecord;
+      final isEnum = enumNames.contains(stream.itemType.name);
       final itemCType = (isStruct || isRecord) ? 'void*' : _typeToC(stream.itemType.name);
       s.writeln('void _emit_${stream.dartName}_to_dart(int64_t dartPort, $itemCType item) {');
       s.writeln('    Dart_CObject obj;');
@@ -1576,6 +1581,9 @@ class CppBridgeGenerator {
       } else if (stream.itemType.name == 'bool') {
         s.writeln('    obj.type = Dart_CObject_kBool;');
         s.writeln('    obj.value.as_bool = item;');
+      } else if (isEnum) {
+        s.writeln('    obj.type = Dart_CObject_kInt64;');
+        s.writeln('    obj.value.as_int64 = (int64_t)item;');
       } else if (isStruct || isRecord) {
         s.writeln('    obj.type = Dart_CObject_kInt64;');
         s.writeln('    obj.value.as_int64 = (intptr_t)item;');
@@ -1625,6 +1633,7 @@ class CppBridgeGenerator {
     for (final stream in spec.streams) {
       final isStruct = structNames.contains(stream.itemType.name.replaceFirst('?', ''));
       final isRecord = stream.itemType.isRecord;
+      final isEnum = enumNames.contains(stream.itemType.name.replaceFirst('?', ''));
       final itemCpp = _cppScalarType(stream.itemType.name, enumNames, structNames);
       s.writeln('void Hybrid$className::emit_${stream.dartName}($itemCpp item) {');
       s.writeln('    int64_t port = g_port_${stream.dartName};');
@@ -1639,6 +1648,9 @@ class CppBridgeGenerator {
       } else if (stream.itemType.name == 'bool') {
         s.writeln('    obj.type = Dart_CObject_kBool;');
         s.writeln('    obj.value.as_bool = item;');
+      } else if (isEnum) {
+        s.writeln('    obj.type = Dart_CObject_kInt64;');
+        s.writeln('    obj.value.as_int64 = static_cast<int64_t>(item);');
       } else if (isStruct) {
         final stName = stream.itemType.name.replaceFirst('?', '');
         s.writeln('    $stName* st_ptr = ($stName*)malloc(sizeof($stName));');

@@ -601,6 +601,32 @@ void main() {
       expect(out, contains('void lidar_release_points_stream(int64_t dart_port)'));
     });
 
+    test('enum stream emits Int64 instead of Null', () {
+      final spec = BridgeSpec(
+        dartClassName: 'Device',
+        lib: 'device',
+        namespace: 'device',
+        iosImpl: NativeImpl.cpp,
+        androidImpl: NativeImpl.kotlin,
+        sourceUri: 'device.native.dart',
+        enums: [
+          BridgeEnum(name: 'Status', startValue: 0, values: ['idle', 'running']),
+        ],
+        streams: [
+          BridgeStream(
+            dartName: 'statusStream',
+            registerSymbol: 'device_register_status_stream',
+            releaseSymbol: 'device_release_status_stream',
+            itemType: BridgeType(name: 'Status'),
+            backpressure: Backpressure.block,
+          ),
+        ],
+      );
+      final out = CppBridgeGenerator.generate(spec);
+      expect(out, contains('Dart_CObject_kInt64'));
+      expect(out, isNot(contains('Dart_CObject_kNull')));
+    });
+
     test('cpp direct bridge header comment identifies it as cpp path', () {
       final out = CppBridgeGenerator.generate(cppSpec());
       expect(out, contains('NativeImpl: cpp'));

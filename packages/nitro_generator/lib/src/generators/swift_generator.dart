@@ -136,14 +136,16 @@ class SwiftGenerator {
           })
           .join(', ');
       // String params arrive as UnsafePointer<CChar>? — convert to Swift String.
-      final stringParams = func.params.where((p) => p.type.name == 'String').toList();
+      final stringParams = func.params.where((p) => p.type.name == 'String' || p.type.name == 'String?').toList();
       // Typed list params arrive as raw C pointer + length — convert to Swift Array.
       final typedListParams = func.params.where((p) => p.type.isTypedData).toList();
       // Pass the converted local variables for String/typed-list params.
       final callArgs = func.params
           .map((p) {
-            if (p.type.name == 'String') return '${p.name}: ${p.name}Str';
-            if (p.type.name == 'bool') return '${p.name}: ${p.name} != 0';
+            final isString = p.type.name == 'String' || p.type.name == 'String?';
+            final isBool = p.type.name == 'bool' || p.type.name == 'bool?';
+            if (isString) return '${p.name}: ${p.name}Str';
+            if (isBool) return '${p.name}: ${p.name} != 0';
             if (p.type.isTypedData) return '${p.name}: ${p.name}Arr';
             if (spec.structs.any((st) => st.name == p.type.name.replaceFirst('?', ''))) {
               final structName = p.type.name.replaceFirst('?', '');
@@ -188,14 +190,14 @@ class SwiftGenerator {
 
         // Param conversions (same as regular async)
         for (final p in stringParams) {
-          s.writeln('    let ${p.name}Str = ${p.name}.map { String(cString: \$0) } ?? ""');
+          s.writeln('    let ${p.name}Str = ${p.name} != nil ? String(cString: ${p.name}!) : ""');
         }
         for (final p in typedListParams) {
           final isData = p.type.name.startsWith('Uint8List') || p.type.name.startsWith('Int8List');
           if (isData) {
-            s.writeln('    let ${p.name}Arr = ${p.name}.map { Data(UnsafeBufferPointer(start: \$0, count: Int(${p.name}_length))) } ?? Data()');
+            s.writeln('    let ${p.name}Arr = ${p.name} != nil ? Data(UnsafeBufferPointer(start: ${p.name}!, count: Int(${p.name}_length))) : Data()');
           } else {
-            s.writeln('    let ${p.name}Arr = ${p.name}.map { Array(UnsafeBufferPointer(start: \$0, count: Int(${p.name}_length))) } ?? []');
+            s.writeln('    let ${p.name}Arr = ${p.name} != nil ? Array(UnsafeBufferPointer(start: ${p.name}!, count: Int(${p.name}_length))) : []');
           }
         }
 
@@ -207,6 +209,12 @@ class SwiftGenerator {
         s.writeln('        return');
         s.writeln('    }');
         s.writeln('    Task.detached {');
+        // Use pre-defined stringParams conversions inside Task.detached
+        final callArgs = func.params.map((p) {
+          final isString = p.type.name == 'String' || p.type.name == 'String?';
+          final argValue = isString ? '${p.name}Str' : p.name;
+          return '${p.name}: $argValue';
+        }).join(', ');
         if (isVoidRet) {
           s.writeln('        try? await impl.${func.dartName}($callArgs)');
           s.writeln('        var _null = Dart_CObject()');
@@ -260,16 +268,16 @@ class SwiftGenerator {
       // Emit UnsafePointer<CChar>? → Swift String conversions for each String param.
       for (final p in stringParams) {
         s.writeln(
-          '    let ${p.name}Str = ${p.name}.map { String(cString: \$0) } ?? ""',
+          '    let ${p.name}Str = ${p.name} != nil ? String(cString: ${p.name}!) : ""',
         );
       }
       // Emit UnsafeMutablePointer<T>? + length -> Data/Array for each typed-list param.
       for (final p in typedListParams) {
         final isData = p.type.name.startsWith('Uint8List') || p.type.name.startsWith('Int8List');
         if (isData) {
-          s.writeln('    let ${p.name}Arr = ${p.name}.map { Data(UnsafeBufferPointer(start: \$0, count: Int(${p.name}_length))) } ?? Data()');
+          s.writeln('    let ${p.name}Arr = ${p.name} != nil ? Data(UnsafeBufferPointer(start: ${p.name}!, count: Int(${p.name}_length))) : Data()');
         } else {
-          s.writeln('    let ${p.name}Arr = ${p.name}.map { Array(UnsafeBufferPointer(start: \$0, count: Int(${p.name}_length))) } ?? []');
+          s.writeln('    let ${p.name}Arr = ${p.name} != nil ? Array(UnsafeBufferPointer(start: ${p.name}!, count: Int(${p.name}_length))) : []');
         }
       }
 
@@ -464,6 +472,10 @@ class SwiftGenerator {
           s.writeln(
             '    return strdup(${spec.dartClassName}Registry.impl?.${prop.dartName} ?? "")',
           );
+        } else if (isBool) {
+          s.writeln(
+            '    return ${spec.dartClassName}Registry.impl?.${prop.dartName} == true ? 1 : 0',
+          );
         } else if (isEnumProp) {
           s.writeln(
             '    return ${spec.dartClassName}Registry.impl?.${prop.dartName}.rawValue ?? ${_defaultCDeclValue(spec, prop.type.name)}',
@@ -498,7 +510,7 @@ class SwiftGenerator {
           );
         } else if (isString) {
           s.writeln(
-            '    ${spec.dartClassName}Registry.impl?.${prop.dartName} = value.map { String(cString: \$0) } ?? ""',
+            '    ${spec.dartClassName}Registry.impl?.${prop.dartName} = value != nil ? String(cString: value!) : ""',
           );
         } else if (isEnumProp) {
           s.writeln(
@@ -527,6 +539,7 @@ class SwiftGenerator {
       final itemName = stream.itemType.name.replaceFirst('?', '');
       final isStructItem = spec.structs.any((st) => st.name == itemName);
       final isRecordItem = stream.itemType.isRecord;
+      final isEnumItem = spec.enums.any((en) => en.name == itemName);
       s.writeln('@_cdecl("_${spec.namespace}_register_${stream.dartName}_stream")');
       s.writeln('public func _${spec.namespace}_register_${stream.dartName}_stream(');
       s.writeln('    _ dartPort: Int64,');
@@ -544,6 +557,8 @@ class SwiftGenerator {
         );
         s.writeln('            ptr.initialize(to: item)');
         s.writeln('            emitCb(dartPort, UnsafeMutableRawPointer(ptr))');
+      } else if (isEnumItem) {
+        s.writeln('            emitCb(dartPort, item.rawValue)');
       } else if (isRecordItem) {
         s.writeln('            emitCb(dartPort, item.toNative())');
       } else {

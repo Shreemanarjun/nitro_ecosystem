@@ -512,6 +512,10 @@ class DartFfiGenerator {
         final nullAction = stream.itemType.isNullable ? 'return null' : "throw StateError('Received null event on non-nullable stream ${stream.dartName}')";
         unpackExpr = '(message) { if (message == null) { $nullAction; } return ${itemType}Proxy(Pointer<${itemType}Ffi>.fromAddress(message as int)); }';
         streamItemType = itemType;
+      } else if (spec.enums.any((e) => e.name == itemType)) {
+        // Enum stream: convert int to enum via generated extension
+        unpackExpr = '(message) => (message as int).to${itemType}()';
+        streamItemType = itemType;
       } else {
         unpackExpr = '(message) => message as $itemType';
         streamItemType = itemType;

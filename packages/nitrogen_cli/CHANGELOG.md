@@ -1,3 +1,8 @@
+## 0.4.1
+
+- **Fixed: SPM Package.swift invalid header search paths** — SPM packages cannot have header search paths outside the package root. Removed external paths (`../../lib/src/generated/cpp`, `../../.symlinks/plugins/nitro/src/native`) from the Swift target configuration. The Swift target now correctly accesses types through its `${classNameCpp` dependency via `publicHeadersPath: "include"`.
+- **Fixed: Swift plugin not found under SPM** — SPM targets are isolated and cannot see files in `ios/Classes/` or `macos/Classes/`. Added `_syncSwiftPluginToSpm()` which automatically copies Swift plugin registration (`*Plugin.swift`) and implementation (`*Impl.swift` files) from `Classes/` to the SPM `Sources/<className>/` directory. This ensures `GeneratedPluginRegistrant.m` can find the Swift plugin class when building with SPM.
+
 ## 0.4.0
 
 - **New: Mixed Apple platform support** — `nitrogen link` now correctly handles modules with different implementation languages per Apple platform (e.g. `ios: NativeImpl.swift` + `macos: NativeImpl.cpp`). iOS `Plugin.swift` registration and macOS `Plugin.swift` registration are managed independently, and `HybridXxx.cpp` forwarders are only written for the platform that actually uses C++.

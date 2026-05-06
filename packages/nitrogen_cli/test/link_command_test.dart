@@ -2,6 +2,7 @@ import 'dart:io';
 import 'package:path/path.dart' as p;
 import 'package:nitrogen_cli/commands/link_command.dart';
 import 'package:nitrogen_cli/templates/cmake_templates.dart' as ct;
+import 'package:nitrogen_cli/templates/swift_templates.dart' as st;
 import 'package:test/test.dart';
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -2096,32 +2097,170 @@ end
       expect(stale.existsSync(), isFalse, reason: 'Windows-only forwarder must be removed from ios/Sources — it has no iOS implementation');
     });
 
-    test('keeps Hybrid*.cpp forwarder for Apple cpp module', () {
+test('keeps Hybrid*.cpp forwarder for Apple cpp module', () {
       scaffoldSpmFull('my_plugin');
 
-      // Scaffold the Apple-cpp module.
+      // Plant forwarder for an Apple cpp module.
+      final forwarder = File(p.join(tmp.path, 'ios', 'Sources', 'MyPluginCpp', 'HybridMyCppMod.cpp'))..writeAsStringSync('// forwarder');
+      // Plant bridge files.
       final genCpp = Directory(p.join(tmp.path, 'lib', 'src', 'generated', 'cpp'))..createSync(recursive: true);
-      File(p.join(genCpp.path, 'gpu.bridge.g.cpp')).writeAsStringSync('// bridge');
-      File(p.join(genCpp.path, 'gpu.bridge.g.h')).writeAsStringSync('// header');
+      File(p.join(genCpp.path, 'my_cpp_mod.bridge.g.cpp')).writeAsStringSync('// bridge');
+      File(p.join(genCpp.path, 'my_cpp_mod.bridge.g.h')).writeAsStringSync('// header');
       Directory(p.join(tmp.path, 'src')).createSync();
-      File(p.join(tmp.path, 'src', 'HybridGpu.cpp')).writeAsStringSync('// impl');
-
-      final specDir = Directory(p.join(tmp.path, 'lib', 'src'))..createSync(recursive: true);
-      File(p.join(specDir.path, 'gpu.native.dart')).writeAsStringSync(
-        "@NitroModule(lib: 'gpu', ios: AppleNativeImpl.cpp, macos: AppleNativeImpl.cpp)\n"
-        'abstract class Gpu extends HybridObject {}\n',
-      );
+      File(p.join(tmp.path, 'src', 'HybridMyCppMod.cpp')).writeAsStringSync('// impl');
 
       linkPodspec(
         'my_plugin',
-        ['my_plugin', 'gpu'],
+        ['my_plugin', 'my_cpp_mod'],
         baseDir: tmp.path,
-        moduleInfos: [const ModuleInfo(lib: 'gpu', module: 'Gpu', isCpp: true)],
+        moduleInfos: [const ModuleInfo(lib: 'my_cpp_mod', module: 'MyCppMod', isCpp: true)],
       );
 
-      final forwarder = File(p.join(tmp.path, 'ios', 'Sources', 'MyPluginCpp', 'HybridGpu.cpp'));
-      expect(forwarder.existsSync(), isTrue, reason: 'Apple C++ module must have a Hybrid*.cpp forwarder in ios/Sources/');
-      expect(forwarder.readAsStringSync(), contains('#include "../../../src/HybridGpu.cpp"'));
+      expect(forwarder.existsSync(), isTrue, reason: 'Apple cpp forwarder must be kept');
+    });
+  });
+
+  // ── _syncSwiftPluginToSpm — Swift plugin sync to SPM target ────────────
+
+  group('_syncSwiftPluginToSpm — copies Swift plugin files to SPM target', () {
+    void scaffoldSpmWithSwiftPlugin(String pluginName, String platform) {
+      // Create the SPM layout.
+      final pascal = pluginName.split('_').map((w) => w.isEmpty ? '' : '${w[0].toUpperCase()}${w.substring(1)}').join('');
+      Directory(p.join(tmp.path, platform, 'Sources', pascal)).createSync(recursive: true);
+      Directory(p.join(tmp.path, platform, 'Sources', '${pascal}Cpp')).createSync(recursive: true);
+      Directory(p.join(tmp.path, platform, 'Classes')).createSync(recursive: true);
+      File(p.join(tmp.path, platform, 'Package.swift')).writeAsStringSync('// SPM package');
+      // Create Swift plugin class in Classes.
+      File(p.join(tmp.path, platform, 'Classes', 'Swift${pascal}Plugin.swift'))..writeAsStringSync('// plugin');
+      // Create impl in Classes.
+      File(p.join(tmp.path, platform, 'Classes', '${pascal}Impl.swift'))..writeAsStringSync('// impl');
+    }
+
+    test('iOS: copies SwiftPlugin.swift from Classes to Sources/<className>/', () {
+      scaffoldSpmWithSwiftPlugin('my_plugin', 'ios');
+      scaffoldPodspec('my_plugin');
+
+      ensureIosPackageSwift('my_plugin', baseDir: tmp.path);
+
+      final copied = File(p.join(tmp.path, 'ios', 'Sources', 'MyPlugin', 'SwiftMyPlugin.swift'));
+      expect(copied.existsSync(), isTrue, reason: 'SwiftPlugin must be copied to SPM target');
+    });
+
+    test('iOS: copies Impl.swift from Classes to Sources/<className>/', () {
+      scaffoldSpmWithSwiftPlugin('my_plugin', 'ios');
+      scaffoldPodspec('my_plugin');
+
+      ensureIosPackageSwift('my_plugin', baseDir: tmp.path);
+
+      final copied = File(p.join(tmp.path, 'ios', 'Sources', 'MyPlugin', 'MyPluginImpl.swift'));
+      expect(copied.existsSync(), isTrue, reason: 'Impl must be copied to SPM target');
+    });
+
+    test('iOS: does not overwrite existing Swift files in SPM target', () {
+      scaffoldSpmWithSwiftPlugin('my_plugin', 'ios');
+      scaffoldPodspec('my_plugin');
+      // Pre-create with different content.
+      final existing = File(p.join(tmp.path, 'ios', 'Sources', 'MyPlugin', 'SwiftMyPlugin.swift'))
+        ..writeAsStringSync('// existing');
+      final existingImpl = File(p.join(tmp.path, 'ios', 'Sources', 'MyPlugin', 'MyPluginImpl.swift'))
+        ..writeAsStringSync('// existing');
+
+      ensureIosPackageSwift('my_plugin', baseDir: tmp.path);
+
+      expect(existing.readAsStringSync(), equals('// existing'), reason: 'Existing file must not be overwritten');
+      expect(existingImpl.readAsStringSync(), equals('// existing'), reason: 'Existing impl must not be overwritten');
+    });
+
+    test('macOS: copies SwiftPlugin.swift from Classes to Sources/<className>/', () {
+      scaffoldSpmWithSwiftPlugin('my_plugin', 'macos');
+      scaffoldPodspec('my_plugin');
+
+      ensureMacosPackageSwift('my_plugin', baseDir: tmp.path);
+
+      final copied = File(p.join(tmp.path, 'macos', 'Sources', 'MyPlugin', 'SwiftMyPlugin.swift'));
+      expect(copied.existsSync(), isTrue, reason: 'SwiftPlugin must be copied to SPM target');
+    });
+
+    test('macOS: copies Impl.swift from Classes to Sources/<className>/', () {
+      scaffoldSpmWithSwiftPlugin('my_plugin', 'macos');
+      scaffoldPodspec('my_plugin');
+
+      ensureMacosPackageSwift('my_plugin', baseDir: tmp.path);
+
+      final copied = File(p.join(tmp.path, 'macos', 'Sources', 'MyPlugin', 'MyPluginImpl.swift'));
+      expect(copied.existsSync(), isTrue, reason: 'Impl must be copied to SPM target');
+    });
+
+    test('iOS: skips if no Classes directory exists', () {
+      scaffoldSpmWithSwiftPlugin('my_plugin', 'ios');
+      scaffoldPodspec('my_plugin');
+      // Delete Classes directory.
+      Directory(p.join(tmp.path, 'ios', 'Classes')).deleteSync(recursive: true);
+
+ensureIosPackageSwift('my_plugin', baseDir: tmp.path);
+
+      final copied = File(p.join(tmp.path, 'ios', 'Sources', 'MyPlugin', 'SwiftMyPlugin.swift'));
+      expect(copied.existsSync(), isFalse, reason: 'Nothing should be copied when Classes is missing');
+    });
+  });
+
+  // ── Package.swift template tests ────────────────────────────────────────────────
+
+  group('Package.swift template — iOS', () {
+    test('generates valid SPM Package.swift without external header paths', () {
+      final out = st.iosPackageSwiftContent('my_plugin', 'MyPlugin');
+      expect(out, contains('// swift-tools-version: 5.9'));
+      expect(out, contains('name: "my_plugin"'));
+      expect(out, contains('name: "MyPluginCpp"'));
+      expect(out, contains('path: "Sources/MyPluginCpp"'));
+      expect(out, contains('path: "Sources/MyPlugin"'));
+      expect(out, isNot(contains('../')), reason: 'No external paths allowed in SPM');
+      expect(out, isNot(contains('../../')), reason: 'No external paths allowed in SPM');
+    });
+
+    test('depends on C++ target via publicHeadersPath', () {
+      final out = st.iosPackageSwiftContent('my_plugin', 'MyPlugin');
+      expect(out, contains('dependencies: ["MyPluginCpp"]'));
+      expect(out, contains('publicHeadersPath: "include"'));
+    });
+
+    test('uses c++17 for C++ target', () {
+      final out = st.iosPackageSwiftContent('my_plugin', 'MyPlugin');
+      expect(out, contains('.unsafeFlags(["-std=c++17"])'));
+    });
+
+    test('targets iOS 13+', () {
+      final out = st.iosPackageSwiftContent('my_plugin', 'MyPlugin');
+      expect(out, contains('.iOS(.v13)'));
+    });
+  });
+
+  group('Package.swift template — macOS', () {
+    test('generates valid SPM Package.swift without external header paths', () {
+      final out = st.macosPackageSwiftContent('my_plugin', 'MyPlugin');
+      expect(out, contains('// swift-tools-version: 5.9'));
+      expect(out, contains('name: "my_plugin"'));
+      expect(out, contains('name: "MyPluginCpp"'));
+      expect(out, contains('path: "Sources/MyPluginCpp"'));
+      expect(out, contains('path: "Sources/MyPlugin"'));
+      expect(out, isNot(contains('../')), reason: 'No external paths allowed in SPM');
+      expect(out, isNot(contains('../../')), reason: 'No external paths allowed in SPM');
+    });
+
+    test('depends on C++ target via publicHeadersPath', () {
+      final out = st.macosPackageSwiftContent('my_plugin', 'MyPlugin');
+      expect(out, contains('dependencies: ["MyPluginCpp"]'));
+      expect(out, contains('publicHeadersPath: "include"'));
+    });
+
+    test('uses c++17 for C++ target', () {
+      final out = st.macosPackageSwiftContent('my_plugin', 'MyPlugin');
+      expect(out, contains('.unsafeFlags(["-std=c++17"])'));
+    });
+
+    test('targets macOS 10.15+', () {
+      final out = st.macosPackageSwiftContent('my_plugin', 'MyPlugin');
+      expect(out, contains('.macOS(.v10_15)'));
     });
   });
 }

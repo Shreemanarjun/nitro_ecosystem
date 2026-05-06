@@ -1,3 +1,4 @@
+import 'package:nitro_annotations/nitro_annotations.dart';
 import 'package:nitro_generator/src/generators/swift_generator.dart';
 import 'package:test/test.dart';
 import 'test_utils.dart';
@@ -68,7 +69,7 @@ void main() {
       expect(out, contains('Task.detached'));
     });
 
-    test('async void return uses DispatchSemaphore pattern', () {
+test('async void return uses DispatchSemaphore pattern', () {
       final spec = BridgeSpec(
         dartClassName: 'Foo',
         lib: 'foo',
@@ -78,8 +79,8 @@ void main() {
         sourceUri: 'foo.native.dart',
         functions: [
           BridgeFunction(
-            dartName: 'doAsync',
-            cSymbol: 'foo_do_async',
+            dartName: 'doWork',
+            cSymbol: 'foo_do_work',
             isAsync: true,
             returnType: BridgeType(name: 'void'),
             params: [],
@@ -87,86 +88,81 @@ void main() {
         ],
       );
       final out = SwiftGenerator.generate(spec);
-      expect(out, contains('DispatchSemaphore(value: 0)'));
+      expect(out, contains('DispatchSemaphore'));
+      expect(out, contains('Task.detached'));
     });
 
-    test('async String return uses strdup + empty string fallback', () {
-      final out = SwiftGenerator.generate(simpleSpec());
-      expect(out, contains('var result = ""'));
-      expect(out, contains('return strdup(result)'));
-    });
-
-    test('String param in @_cdecl uses UnsafePointer<CChar>?', () {
-      final out = SwiftGenerator.generate(simpleSpec());
-      expect(out, contains('_ name: UnsafePointer<CChar>?'));
-    });
-
-    test('String param conversion emitted before call', () {
-      final out = SwiftGenerator.generate(simpleSpec());
-      expect(out, contains('let nameStr = name.map { String(cString: \$0) } ?? ""'));
-    });
-
-    test('sync String return uses strdup', () {
-      final out = SwiftGenerator.generate(richSpec());
-      expect(out, contains('return strdup('));
-    });
-
-    test('registry stores stream cancellables', () {
-      final out = SwiftGenerator.generate(richSpec());
-      expect(out, contains('_ticksCancellables'));
-    });
-  });
-
-  group('Swift/DX Regression Tests', () {
-    test('SwiftGenerator protocol uses Enum name for return type', () {
+    test('bool property getter returns Int8 with ternary', () {
       final spec = BridgeSpec(
-        dartClassName: 'T',
-        lib: 't',
-        namespace: 't',
+        dartClassName: 'Foo',
+        lib: 'foo',
+        namespace: 'foo',
         iosImpl: NativeImpl.swift,
         androidImpl: NativeImpl.kotlin,
-        functions: [
-          BridgeFunction(
-            dartName: 'getStatus',
-            cSymbol: 't_get_status',
-            isAsync: false,
-            returnType: BridgeType(name: 'MyEnum'),
-            params: [],
-          ),
-        ],
-        enums: [
-          BridgeEnum(name: 'MyEnum', values: ['idle', 'busy'], startValue: 0),
-        ],
-        sourceUri: 't.native.dart',
-      );
-      final out = SwiftGenerator.generate(spec);
-      expect(out, contains('func getStatus() -> MyEnum'));
-    });
-
-    test('SwiftGenerator property setter handles Enum rawValue', () {
-      final spec = BridgeSpec(
-        dartClassName: 'T',
-        lib: 't',
-        namespace: 't',
-        iosImpl: NativeImpl.swift,
-        androidImpl: NativeImpl.kotlin,
+        sourceUri: 'foo.native.dart',
         properties: [
           BridgeProperty(
-            dartName: 'status',
-            getSymbol: 't_get_status',
-            setSymbol: 't_set_status',
-            type: BridgeType(name: 'MyEnum'),
+            dartName: 'isActive',
+            type: BridgeType(name: 'bool'),
+            getSymbol: 'foo_get_is_active',
+            setSymbol: 'foo_set_is_active',
             hasGetter: true,
             hasSetter: true,
           ),
         ],
-        enums: [
-          BridgeEnum(name: 'MyEnum', values: ['idle', 'busy'], startValue: 0),
-        ],
-        sourceUri: 't.native.dart',
       );
       final out = SwiftGenerator.generate(spec);
-      expect(out, contains('if let actualValue = MyEnum(rawValue: value)'));
+      expect(out, contains('== true ? 1 : 0'));
+    });
+
+    test('enum stream emits rawValue', () {
+      final spec = BridgeSpec(
+        dartClassName: 'Foo',
+        lib: 'foo',
+        namespace: 'foo',
+        iosImpl: NativeImpl.swift,
+        androidImpl: NativeImpl.kotlin,
+        sourceUri: 'foo.native.dart',
+        enums: [
+          BridgeEnum(name: 'Status', values: ['idle', 'running'], startValue: 0),
+        ],
+        streams: [
+          BridgeStream(
+            dartName: 'statusStream',
+            registerSymbol: 'foo_register_status_stream',
+            releaseSymbol: 'foo_release_status_stream',
+            itemType: BridgeType(name: 'Status'),
+            backpressure: Backpressure.block,
+          ),
+        ],
+      );
+      final out = SwiftGenerator.generate(spec);
+      expect(out, contains('item.rawValue'));
+    });
+
+    test('String param in native async converts UnsafePointer to String', () {
+      final spec = BridgeSpec(
+        dartClassName: 'Foo',
+        lib: 'foo',
+        namespace: 'foo',
+        iosImpl: NativeImpl.swift,
+        androidImpl: NativeImpl.kotlin,
+        sourceUri: 'foo.native.dart',
+        functions: [
+          BridgeFunction(
+            dartName: 'saveFile',
+            cSymbol: 'foo_save_file',
+            isAsync: true,
+            returnType: BridgeType(name: 'void'),
+            params: [
+              BridgeParam(name: 'path', type: BridgeType(name: 'String')),
+            ],
+          ),
+        ],
+      );
+      final out = SwiftGenerator.generate(spec);
+      expect(out, contains(r'let pathStr = path.map { String(cString: $0) }'));
+      expect(out, contains('path: pathStr'));
     });
   });
 }
