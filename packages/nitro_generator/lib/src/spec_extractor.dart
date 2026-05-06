@@ -455,18 +455,28 @@ class SpecExtractor {
         }
       }
 
+      const fieldZeroCopyChecker = TypeChecker.fromUrl(
+        'package:nitro_annotations/src/annotations.dart#ZeroCopy',
+      );
+
       final fields = cls.fields
           .where((f) => !f.isStatic && !f.isSynthetic)
           .map(
             (f) {
               final info = paramInfo[f.name!];
+              // Accept zero-copy declared either on the struct annotation
+              // (@HybridStruct(zeroCopy: ['field'])) or directly on the field
+              // (@ZeroCopy()). Both forms are equivalent.
+              final isZeroCopy =
+                  zeroCopyFields.contains(f.name) ||
+                  fieldZeroCopyChecker.hasAnnotationOf(f);
               return BridgeField(
                 name: f.name!,
                 type: BridgeType(
                   name: f.type.getDisplayString(),
                   isNullable: f.type.nullabilitySuffix == NullabilitySuffix.question,
                 ),
-                zeroCopy: zeroCopyFields.contains(f.name),
+                zeroCopy: isZeroCopy,
                 isNamed: info?.isNamed ?? true,
                 isRequired: info?.isRequired ?? true,
               );

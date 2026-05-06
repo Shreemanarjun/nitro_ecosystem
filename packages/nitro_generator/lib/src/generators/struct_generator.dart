@@ -1,6 +1,6 @@
 import '../bridge_spec.dart';
 
-/// Field names that are treated as the byte-length of a zero-copy Uint8List sibling.
+/// Field names that are treated as the element-count of a zero-copy TypedData sibling.
 const _kLengthFieldNames = {
   'length',
   'size',
@@ -9,6 +9,25 @@ const _kLengthFieldNames = {
   'bytelen',
   'len',
 };
+
+/// Returns the companion element-count field name for a zero-copy field, or
+/// null when no explicit companion is declared (caller should use the synthetic
+/// '${fieldName}Length' name injected by [generateCStructs]).
+String? _zeroCopyCompanionField(BridgeStruct st, String zeroCopyFieldName) {
+  // Field-specific names take priority (pcmLength, pcmSize).
+  for (final c in ['${zeroCopyFieldName}Length', '${zeroCopyFieldName}Size']) {
+    if (st.fields.any((f) => f.name == c && f.type.name == 'int')) return c;
+  }
+  // Generic length names.
+  for (final c in _kLengthFieldNames) {
+    if (st.fields.any((f) => f.name == c && f.type.name == 'int')) return c;
+  }
+  return null;
+}
+
+/// True when [zeroCopyFieldName] needs a synthetic '${name}Length' companion.
+bool _needsSyntheticLen(BridgeStruct st, String zeroCopyFieldName) =>
+    _zeroCopyCompanionField(st, zeroCopyFieldName) == null;
 
 /// Generates Dart extension helpers for HybridStructs.
 /// The struct class itself MUST already be declared in the .native.dart spec file.
@@ -34,6 +53,11 @@ class StructGenerator {
           s.writeln('  @$annotationType()');
         }
         s.writeln('  external $ffiType ${f.name};');
+        // Mirror the synthetic C field so the Dart FFI struct layout matches.
+        if (f.zeroCopy && f.type.isTypedData && _needsSyntheticLen(st, f.name)) {
+          s.writeln('  @Int64()');
+          s.writeln('  external int ${f.name}Length;');
+        }
       }
       s.writeln('}');
       s.writeln();
@@ -76,6 +100,10 @@ class StructGenerator {
         final typeName = f.type.name.replaceFirst('?', '');
         if (f.type.isTypedData) {
           s.writeln('    ptr.ref.${f.name} = ${f.name}.toPointer(arena);');
+          // Populate the synthetic length field so C can round-trip the size.
+          if (f.zeroCopy && _needsSyntheticLen(st, f.name)) {
+            s.writeln('    ptr.ref.${f.name}Length = ${f.name}.length;');
+          }
         } else if (f.type.name == 'bool') {
           s.writeln('    ptr.ref.${f.name} = ${f.name} ? 1 : 0;');
         } else if (f.type.name == 'String') {
@@ -167,13 +195,11 @@ class StructGenerator {
         final dartFieldType = f.type.name;
         String readExpr;
         if (f.type.isTypedData) {
-          final lenField = st.fields
-              .where(
-                (sf) => sf.type.name == 'int' && _kLengthFieldNames.contains(sf.name),
-              )
-              .map((sf) => sf.name)
-              .firstOrNull;
-          readExpr = '_native.ref.${f.name}.asTypedList(${lenField != null ? '_native.ref.$lenField' : '0'})';
+          final companion = _zeroCopyCompanionField(st, f.name);
+          final lenRef = f.zeroCopy
+              ? '_native.ref.${companion ?? '${f.name}Length'}'
+              : (st.fields.where((sf) => sf.type.name == 'int' && _kLengthFieldNames.contains(sf.name)).map((sf) => '_native.ref.${sf.name}').firstOrNull ?? '0');
+          readExpr = '_native.ref.${f.name}.asTypedList($lenRef)';
         } else if (f.type.name == 'bool') {
           readExpr = '_native.ref.${f.name} != 0';
         } else if (f.type.name == 'String') {
@@ -217,8 +243,12 @@ class StructGenerator {
   ) {
     final typeName = f.type.name.replaceFirst('?', '');
     if (f.type.isTypedData) {
-      final lenField = st.fields.where((sf) => sf.type.name == 'int' && _kLengthFieldNames.contains(sf.name)).map((sf) => sf.name).firstOrNull;
-      return '$typeName.fromList(${f.name}.asTypedList(${lenField ?? '0'}))';
+      final companion = _zeroCopyCompanionField(st, f.name);
+      // Use the explicit companion field, or the synthesized '${field}Length'.
+      final lenExpr = f.zeroCopy
+          ? (companion ?? '${f.name}Length')
+          : (st.fields.where((sf) => sf.type.name == 'int' && _kLengthFieldNames.contains(sf.name)).map((sf) => sf.name).firstOrNull ?? '0');
+      return '$typeName.fromList(${f.name}.asTypedList($lenExpr))';
     } else if (f.type.name == 'bool') {
       return '${f.name} != 0';
     } else if (f.type.name == 'String') {
@@ -308,6 +338,12 @@ class StructGenerator {
       for (final f in st.fields) {
         final cType = _dartTypeToCType(f.type.name, enumNames, structNames);
         s.writeln('  $cType ${f.name}; ${f.zeroCopy ? "/* zero-copy */" : ""}');
+        // When a @ZeroCopy() TypedData field has no explicit companion length
+        // field, inject a synthetic int64_t '${field}Length' field so the JNI
+        // bridge can round-trip the element count without an extra Kotlin field.
+        if (f.zeroCopy && f.type.isTypedData && _needsSyntheticLen(st, f.name)) {
+          s.writeln('  int64_t ${f.name}Length; /* synthesized: element count for zero-copy buffer */');
+        }
       }
       s.writeln('} ${st.name};');
       if (st.packed) s.writeln('#pragma pack(pop)');
@@ -490,6 +526,10 @@ class StructGenerator {
       for (final f in st.fields) {
         final swiftType = _dartTypeToSwift(f.type.name, f.zeroCopy, enumNames, structNames);
         s.writeln('  public var ${f.name}: $swiftType');
+        // Mirror the synthesized C field so Swift can read/write element count.
+        if (f.zeroCopy && f.type.isTypedData && _needsSyntheticLen(st, f.name)) {
+          s.writeln('  public var ${f.name}Length: Int64');
+        }
       }
       s.writeln('}');
       s.writeln();

@@ -630,6 +630,14 @@ class CppBridgeGenerator {
             s.writeln(
               '    result.${f.name} = ($elemCast)env->GetDirectBufferAddress(buf_${f.name});',
             );
+            // When no explicit companion length field exists, auto-populate the
+            // synthesized '${field}Length' field from the ByteBuffer's capacity.
+            if (_zeroCopyNeedsSynthetic(st, f.name)) {
+              final divisor = _elementSizeDivisorExpr(f.type.name);
+              s.writeln(
+                '    result.${f.name}Length = (int64_t)env->GetDirectBufferCapacity(buf_${f.name})$divisor;',
+              );
+            }
             s.writeln('    env->DeleteLocalRef(buf_${f.name});');
           } else if (f.type.name == 'String') {
             s.writeln(
@@ -1855,14 +1863,63 @@ class CppBridgeGenerator {
     return st.fields.any((f) => f.name == fieldName && f.zeroCopy);
   }
 
-  /// Returns the field name used as the byte length for a zero-copy field.
+  /// Returns the field name used as the element count for a zero-copy field.
+  ///
+  /// Checks field-specific names first (e.g. pcmLength, pcmSize), then
+  /// generic length names (stride, size, length, etc.). If nothing is found,
+  /// returns the synthesized name '${zeroCopyField}Length' — this matches the
+  /// companion field that [generateCStructs] / [generateDartExtensions] auto-inject
+  /// when no explicit companion is declared.
   static String _zeroCopyLenField(BridgeStruct st, String zeroCopyField) {
-    // Heuristic: use 'stride' if present, otherwise 'size', otherwise 'length'
-    const candidates = ['stride', 'size', 'length'];
-    for (final c in candidates) {
-      if (st.fields.any((f) => f.name == c)) return c;
+    final fieldSpecific = ['${zeroCopyField}Length', '${zeroCopyField}Size'];
+    for (final c in fieldSpecific) {
+      if (st.fields.any((f) => f.name == c && f.type.name == 'int')) return c;
     }
-    return 'size';
+    const generic = ['stride', 'size', 'length', 'len', 'byteLength', 'byteLen'];
+    for (final c in generic) {
+      if (st.fields.any((f) => f.name == c && f.type.name == 'int')) return c;
+    }
+    return '${zeroCopyField}Length'; // synthesized — must be auto-injected in struct
+  }
+
+  /// Returns true when [zeroCopyField] has no explicit companion length field
+  /// in [st]. In that case, the generators inject a synthetic '${field}Length'
+  /// field into the C struct and populate it from GetDirectBufferCapacity.
+  static bool _zeroCopyNeedsSynthetic(BridgeStruct st, String zeroCopyField) {
+    final fieldSpecific = ['${zeroCopyField}Length', '${zeroCopyField}Size'];
+    for (final c in fieldSpecific) {
+      if (st.fields.any((f) => f.name == c && f.type.name == 'int')) return false;
+    }
+    const generic = ['stride', 'size', 'length', 'len', 'byteLength', 'byteLen'];
+    for (final c in generic) {
+      if (st.fields.any((f) => f.name == c && f.type.name == 'int')) return false;
+    }
+    return true;
+  }
+
+  /// Element-count divisor when storing capacity from GetDirectBufferCapacity
+  /// (byte count) into a synthetic length field (element count).
+  static String _elementSizeDivisorExpr(String dartType) {
+    switch (dartType.replaceFirst('?', '')) {
+      case 'Uint8List':
+      case 'Int8List':
+        return ''; // 1 byte each — no division
+      case 'Int16List':
+      case 'Uint16List':
+        return ' / (jlong)sizeof(int16_t)';
+      case 'Int32List':
+      case 'Uint32List':
+        return ' / (jlong)sizeof(int32_t)';
+      case 'Float32List':
+        return ' / (jlong)sizeof(float)';
+      case 'Float64List':
+        return ' / (jlong)sizeof(double)';
+      case 'Int64List':
+      case 'Uint64List':
+        return ' / (jlong)sizeof(int64_t)';
+      default:
+        return '';
+    }
   }
 
   static String _jniGetter(String t) {
