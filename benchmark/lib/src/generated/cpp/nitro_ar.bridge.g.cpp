@@ -126,6 +126,7 @@ static jfieldID g_fid_RawDepthMap_width = nullptr;
 static jfieldID g_fid_RawDepthMap_height = nullptr;
 static jfieldID g_fid_RawDepthMap_stride = nullptr;
 
+
 // RAII guard: auto-detaches a thread from the JVM when it exits.
 // One instance is stored in thread-local storage; its destructor fires
 // when the thread terminates, ensuring no JVM thread descriptor leaks.
@@ -235,6 +236,12 @@ static RawDepthMap pack_RawDepthMap_from_jni(JNIEnv* env, jobject obj) {
         return result;
     }
     result.data = (uint8_t*)env->GetDirectBufferAddress(buf_data);
+    if (result.data == nullptr) {
+        jclass iae = env->FindClass("java/lang/IllegalArgumentException");
+        if (iae) env->ThrowNew(iae, "RawDepthMap.data: @ZeroCopy requires ByteBuffer.allocateDirect() — heap-backed ByteBuffer.wrap() is not supported.");
+        env->DeleteLocalRef(buf_data);
+        return result;
+    }
     env->DeleteLocalRef(buf_data);
     result.width = env->GetLongField(obj, g_fid_RawDepthMap_width);
     result.height = env->GetLongField(obj, g_fid_RawDepthMap_height);
@@ -262,130 +269,14 @@ JNIEXPORT jint JNICALL JNI_OnLoad(JavaVM* vm, void* reserved) {
     if (vm->GetEnv(reinterpret_cast<void**>(&env), JNI_VERSION_1_6) != JNI_OK) {
         return -1;
     }
-    jclass localClass = env->FindClass("nitro/nitro_ar_module/NitroArJniBridge");
-    if (localClass != nullptr) {
-        g_bridgeClass = (jclass)env->NewGlobalRef(localClass);
-        env->DeleteLocalRef(localClass);
-    } else {
-        LOGE("Failed to find JniBridge class");
-    }
-
-    // Cache exception introspection method IDs
+    // Cache standard-library method IDs only — system class loader is always
+    // available here. Application class IDs are deferred to initialize().
     {
         jclass cls_class = env->FindClass("java/lang/Class");
         if (cls_class) { g_exc_getName = env->GetMethodID(cls_class, "getName", "()Ljava/lang/String;"); env->DeleteLocalRef(cls_class); }
         jclass throwable_class = env->FindClass("java/lang/Throwable");
         if (throwable_class) { g_exc_getMessage = env->GetMethodID(throwable_class, "getMessage", "()Ljava/lang/String;"); env->DeleteLocalRef(throwable_class); }
     }
-
-    // Cache bridge method IDs
-    if (g_bridgeClass != nullptr) {
-        g_mid_add_call = env->GetStaticMethodID(g_bridgeClass, "add_call", "(DD)D");
-        g_mid_getGreeting_call = env->GetStaticMethodID(g_bridgeClass, "getGreeting_call", "(Ljava/lang/String;)Ljava/lang/String;");
-        g_mid_isDepthSupported_call = env->GetStaticMethodID(g_bridgeClass, "isDepthSupported_call", "()Z");
-        g_mid_detectPackage_call = env->GetStaticMethodID(g_bridgeClass, "detectPackage_call", "(Lnitro/nitro_ar_module/BoundingBox;)Lnitro/nitro_ar_module/PackageDimensions;");
-        g_mid_getRawDepthMap_call = env->GetStaticMethodID(g_bridgeClass, "getRawDepthMap_call", "()Lnitro/nitro_ar_module/RawDepthMap;");
-        g_mid_estimateVolume_call = env->GetStaticMethodID(g_bridgeClass, "estimateVolume_call", "(Ljava/lang/String;)D");
-        g_mid_checkCameraPermission_call = env->GetStaticMethodID(g_bridgeClass, "checkCameraPermission_call", "()Z");
-        g_mid_requestCameraPermission_call = env->GetStaticMethodID(g_bridgeClass, "requestCameraPermission_call", "()Z");
-        g_mid_startSession_call = env->GetStaticMethodID(g_bridgeClass, "startSession_call", "()V");
-        g_mid_stopSession_call = env->GetStaticMethodID(g_bridgeClass, "stopSession_call", "()V");
-        g_mid_pauseSession_call = env->GetStaticMethodID(g_bridgeClass, "pauseSession_call", "()V");
-        g_mid_resumeSession_call = env->GetStaticMethodID(g_bridgeClass, "resumeSession_call", "()V");
-        g_mid_isTracking_call = env->GetStaticMethodID(g_bridgeClass, "isTracking_call", "()Z");
-        g_mid_enableFlashlight_call = env->GetStaticMethodID(g_bridgeClass, "enableFlashlight_call", "(Z)V");
-        g_mid_setDetectionOptions_call = env->GetStaticMethodID(g_bridgeClass, "setDetectionOptions_call", "(DJZ)V");
-        g_mid_nitro_ar_register_detected_packages_stream_call = env->GetStaticMethodID(g_bridgeClass, "nitro_ar_register_detected_packages_stream_call", "(J)V");
-        g_mid_nitro_ar_release_detected_packages_stream_call = env->GetStaticMethodID(g_bridgeClass, "nitro_ar_release_detected_packages_stream_call", "(J)V");
-        g_mid_nitro_ar_register_live_tracking_updates_stream_call = env->GetStaticMethodID(g_bridgeClass, "nitro_ar_register_live_tracking_updates_stream_call", "(J)V");
-        g_mid_nitro_ar_release_live_tracking_updates_stream_call = env->GetStaticMethodID(g_bridgeClass, "nitro_ar_release_live_tracking_updates_stream_call", "(J)V");
-    }
-
-    // Cache PackageBoxes class + encode() for stream serialisation
-    {
-        jclass local_cls_PackageBoxes = env->FindClass("nitro/nitro_ar_module/PackageBoxes");
-        if (local_cls_PackageBoxes != nullptr) {
-            g_cls_PackageBoxes = (jclass)env->NewGlobalRef(local_cls_PackageBoxes);
-            env->DeleteLocalRef(local_cls_PackageBoxes);
-            g_mid_PackageBoxes_encode = env->GetMethodID(g_cls_PackageBoxes, "encode", "()[B");
-        } else {
-            LOGE("Failed to find class nitro/nitro_ar_module/PackageBoxes");
-        }
-    }
-    // Cache LiveTrackingUpdate class + encode() for stream serialisation
-    {
-        jclass local_cls_LiveTrackingUpdate = env->FindClass("nitro/nitro_ar_module/LiveTrackingUpdate");
-        if (local_cls_LiveTrackingUpdate != nullptr) {
-            g_cls_LiveTrackingUpdate = (jclass)env->NewGlobalRef(local_cls_LiveTrackingUpdate);
-            env->DeleteLocalRef(local_cls_LiveTrackingUpdate);
-            g_mid_LiveTrackingUpdate_encode = env->GetMethodID(g_cls_LiveTrackingUpdate, "encode", "()[B");
-        } else {
-            LOGE("Failed to find class nitro/nitro_ar_module/LiveTrackingUpdate");
-        }
-    }
-    // Cache struct class + ctor + field IDs
-    {
-        jclass local_cls_Vector3 = env->FindClass("nitro/nitro_ar_module/Vector3");
-        if (local_cls_Vector3 != nullptr) {
-            g_cls_Vector3 = (jclass)env->NewGlobalRef(local_cls_Vector3);
-            env->DeleteLocalRef(local_cls_Vector3);
-            g_ctor_Vector3 = env->GetMethodID(g_cls_Vector3, "<init>", "(DDD)V");
-            g_fid_Vector3_x = env->GetFieldID(g_cls_Vector3, "x", "D");
-            g_fid_Vector3_y = env->GetFieldID(g_cls_Vector3, "y", "D");
-            g_fid_Vector3_z = env->GetFieldID(g_cls_Vector3, "z", "D");
-        }
-    }
-    {
-        jclass local_cls_Quaternion = env->FindClass("nitro/nitro_ar_module/Quaternion");
-        if (local_cls_Quaternion != nullptr) {
-            g_cls_Quaternion = (jclass)env->NewGlobalRef(local_cls_Quaternion);
-            env->DeleteLocalRef(local_cls_Quaternion);
-            g_ctor_Quaternion = env->GetMethodID(g_cls_Quaternion, "<init>", "(DDDD)V");
-            g_fid_Quaternion_x = env->GetFieldID(g_cls_Quaternion, "x", "D");
-            g_fid_Quaternion_y = env->GetFieldID(g_cls_Quaternion, "y", "D");
-            g_fid_Quaternion_z = env->GetFieldID(g_cls_Quaternion, "z", "D");
-            g_fid_Quaternion_w = env->GetFieldID(g_cls_Quaternion, "w", "D");
-        }
-    }
-    {
-        jclass local_cls_BoundingBox = env->FindClass("nitro/nitro_ar_module/BoundingBox");
-        if (local_cls_BoundingBox != nullptr) {
-            g_cls_BoundingBox = (jclass)env->NewGlobalRef(local_cls_BoundingBox);
-            env->DeleteLocalRef(local_cls_BoundingBox);
-            g_ctor_BoundingBox = env->GetMethodID(g_cls_BoundingBox, "<init>", "(DDDD)V");
-            g_fid_BoundingBox_x = env->GetFieldID(g_cls_BoundingBox, "x", "D");
-            g_fid_BoundingBox_y = env->GetFieldID(g_cls_BoundingBox, "y", "D");
-            g_fid_BoundingBox_width = env->GetFieldID(g_cls_BoundingBox, "width", "D");
-            g_fid_BoundingBox_height = env->GetFieldID(g_cls_BoundingBox, "height", "D");
-        }
-    }
-    {
-        jclass local_cls_PackageDimensions = env->FindClass("nitro/nitro_ar_module/PackageDimensions");
-        if (local_cls_PackageDimensions != nullptr) {
-            g_cls_PackageDimensions = (jclass)env->NewGlobalRef(local_cls_PackageDimensions);
-            env->DeleteLocalRef(local_cls_PackageDimensions);
-            g_ctor_PackageDimensions = env->GetMethodID(g_cls_PackageDimensions, "<init>", "(DDDDLnitro/nitro_ar_module/Vector3;Lnitro/nitro_ar_module/Quaternion;)V");
-            g_fid_PackageDimensions_length = env->GetFieldID(g_cls_PackageDimensions, "length", "D");
-            g_fid_PackageDimensions_width = env->GetFieldID(g_cls_PackageDimensions, "width", "D");
-            g_fid_PackageDimensions_height = env->GetFieldID(g_cls_PackageDimensions, "height", "D");
-            g_fid_PackageDimensions_confidence = env->GetFieldID(g_cls_PackageDimensions, "confidence", "D");
-            g_fid_PackageDimensions_vector3 = env->GetFieldID(g_cls_PackageDimensions, "vector3", "Lnitro/nitro_ar_module/Vector3;");
-            g_fid_PackageDimensions_quaternion = env->GetFieldID(g_cls_PackageDimensions, "quaternion", "Lnitro/nitro_ar_module/Quaternion;");
-        }
-    }
-    {
-        jclass local_cls_RawDepthMap = env->FindClass("nitro/nitro_ar_module/RawDepthMap");
-        if (local_cls_RawDepthMap != nullptr) {
-            g_cls_RawDepthMap = (jclass)env->NewGlobalRef(local_cls_RawDepthMap);
-            env->DeleteLocalRef(local_cls_RawDepthMap);
-            g_ctor_RawDepthMap = env->GetMethodID(g_cls_RawDepthMap, "<init>", "(Ljava/nio/ByteBuffer;JJJ)V");
-            g_fid_RawDepthMap_data = env->GetFieldID(g_cls_RawDepthMap, "data", "Ljava/nio/ByteBuffer;");
-            g_fid_RawDepthMap_width = env->GetFieldID(g_cls_RawDepthMap, "width", "J");
-            g_fid_RawDepthMap_height = env->GetFieldID(g_cls_RawDepthMap, "height", "J");
-            g_fid_RawDepthMap_stride = env->GetFieldID(g_cls_RawDepthMap, "stride", "J");
-        }
-    }
-
     return JNI_VERSION_1_6;
 }
 
@@ -731,6 +622,116 @@ JNIEXPORT void JNICALL Java_nitro_nitro_1ar_1module_NitroArJniBridge_emit_1liveT
 JNIEXPORT void JNICALL Java_nitro_nitro_1ar_1module_NitroArJniBridge_initialize(JNIEnv* env, jobject thiz, jclass bridgeClass) {
     if (g_bridgeClass == nullptr) {
         g_bridgeClass = (jclass)env->NewGlobalRef(bridgeClass);
+    }
+    // Re-cache method IDs every time (safe; idempotent; works even if JNI_OnLoad
+    // could not find the app class. initialize() is called from Kotlin with the
+    // correct class loader.)
+    if (g_bridgeClass != nullptr) {
+        // Cache bridge method IDs
+        g_mid_add_call = env->GetStaticMethodID(g_bridgeClass, "add_call", "(DD)D");
+        g_mid_getGreeting_call = env->GetStaticMethodID(g_bridgeClass, "getGreeting_call", "(Ljava/lang/String;)Ljava/lang/String;");
+        g_mid_isDepthSupported_call = env->GetStaticMethodID(g_bridgeClass, "isDepthSupported_call", "()Z");
+        g_mid_detectPackage_call = env->GetStaticMethodID(g_bridgeClass, "detectPackage_call", "(Lnitro/nitro_ar_module/BoundingBox;)Lnitro/nitro_ar_module/PackageDimensions;");
+        g_mid_getRawDepthMap_call = env->GetStaticMethodID(g_bridgeClass, "getRawDepthMap_call", "()Lnitro/nitro_ar_module/RawDepthMap;");
+        g_mid_estimateVolume_call = env->GetStaticMethodID(g_bridgeClass, "estimateVolume_call", "(Ljava/lang/String;)D");
+        g_mid_checkCameraPermission_call = env->GetStaticMethodID(g_bridgeClass, "checkCameraPermission_call", "()Z");
+        g_mid_requestCameraPermission_call = env->GetStaticMethodID(g_bridgeClass, "requestCameraPermission_call", "()Z");
+        g_mid_startSession_call = env->GetStaticMethodID(g_bridgeClass, "startSession_call", "()V");
+        g_mid_stopSession_call = env->GetStaticMethodID(g_bridgeClass, "stopSession_call", "()V");
+        g_mid_pauseSession_call = env->GetStaticMethodID(g_bridgeClass, "pauseSession_call", "()V");
+        g_mid_resumeSession_call = env->GetStaticMethodID(g_bridgeClass, "resumeSession_call", "()V");
+        g_mid_isTracking_call = env->GetStaticMethodID(g_bridgeClass, "isTracking_call", "()Z");
+        g_mid_enableFlashlight_call = env->GetStaticMethodID(g_bridgeClass, "enableFlashlight_call", "(Z)V");
+        g_mid_setDetectionOptions_call = env->GetStaticMethodID(g_bridgeClass, "setDetectionOptions_call", "(DJZ)V");
+        g_mid_nitro_ar_register_detected_packages_stream_call = env->GetStaticMethodID(g_bridgeClass, "nitro_ar_register_detected_packages_stream_call", "(J)V");
+        g_mid_nitro_ar_release_detected_packages_stream_call = env->GetStaticMethodID(g_bridgeClass, "nitro_ar_release_detected_packages_stream_call", "(J)V");
+        g_mid_nitro_ar_register_live_tracking_updates_stream_call = env->GetStaticMethodID(g_bridgeClass, "nitro_ar_register_live_tracking_updates_stream_call", "(J)V");
+        g_mid_nitro_ar_release_live_tracking_updates_stream_call = env->GetStaticMethodID(g_bridgeClass, "nitro_ar_release_live_tracking_updates_stream_call", "(J)V");
+    }
+
+    // Cache PackageBoxes class + encode() for stream serialisation
+    {
+        jclass local_cls_PackageBoxes = env->FindClass("nitro/nitro_ar_module/PackageBoxes");
+        if (local_cls_PackageBoxes != nullptr) {
+            g_cls_PackageBoxes = (jclass)env->NewGlobalRef(local_cls_PackageBoxes);
+            env->DeleteLocalRef(local_cls_PackageBoxes);
+            g_mid_PackageBoxes_encode = env->GetMethodID(g_cls_PackageBoxes, "encode", "()[B");
+        } else {
+            LOGE("Failed to find class nitro/nitro_ar_module/PackageBoxes");
+        }
+    }
+    // Cache LiveTrackingUpdate class + encode() for stream serialisation
+    {
+        jclass local_cls_LiveTrackingUpdate = env->FindClass("nitro/nitro_ar_module/LiveTrackingUpdate");
+        if (local_cls_LiveTrackingUpdate != nullptr) {
+            g_cls_LiveTrackingUpdate = (jclass)env->NewGlobalRef(local_cls_LiveTrackingUpdate);
+            env->DeleteLocalRef(local_cls_LiveTrackingUpdate);
+            g_mid_LiveTrackingUpdate_encode = env->GetMethodID(g_cls_LiveTrackingUpdate, "encode", "()[B");
+        } else {
+            LOGE("Failed to find class nitro/nitro_ar_module/LiveTrackingUpdate");
+        }
+    }
+    // Cache struct class + ctor + field IDs
+    {
+        jclass local_cls_Vector3 = env->FindClass("nitro/nitro_ar_module/Vector3");
+        if (local_cls_Vector3 != nullptr) {
+            g_cls_Vector3 = (jclass)env->NewGlobalRef(local_cls_Vector3);
+            env->DeleteLocalRef(local_cls_Vector3);
+            g_ctor_Vector3 = env->GetMethodID(g_cls_Vector3, "<init>", "(DDD)V");
+            g_fid_Vector3_x = env->GetFieldID(g_cls_Vector3, "x", "D");
+            g_fid_Vector3_y = env->GetFieldID(g_cls_Vector3, "y", "D");
+            g_fid_Vector3_z = env->GetFieldID(g_cls_Vector3, "z", "D");
+        }
+    }
+    {
+        jclass local_cls_Quaternion = env->FindClass("nitro/nitro_ar_module/Quaternion");
+        if (local_cls_Quaternion != nullptr) {
+            g_cls_Quaternion = (jclass)env->NewGlobalRef(local_cls_Quaternion);
+            env->DeleteLocalRef(local_cls_Quaternion);
+            g_ctor_Quaternion = env->GetMethodID(g_cls_Quaternion, "<init>", "(DDDD)V");
+            g_fid_Quaternion_x = env->GetFieldID(g_cls_Quaternion, "x", "D");
+            g_fid_Quaternion_y = env->GetFieldID(g_cls_Quaternion, "y", "D");
+            g_fid_Quaternion_z = env->GetFieldID(g_cls_Quaternion, "z", "D");
+            g_fid_Quaternion_w = env->GetFieldID(g_cls_Quaternion, "w", "D");
+        }
+    }
+    {
+        jclass local_cls_BoundingBox = env->FindClass("nitro/nitro_ar_module/BoundingBox");
+        if (local_cls_BoundingBox != nullptr) {
+            g_cls_BoundingBox = (jclass)env->NewGlobalRef(local_cls_BoundingBox);
+            env->DeleteLocalRef(local_cls_BoundingBox);
+            g_ctor_BoundingBox = env->GetMethodID(g_cls_BoundingBox, "<init>", "(DDDD)V");
+            g_fid_BoundingBox_x = env->GetFieldID(g_cls_BoundingBox, "x", "D");
+            g_fid_BoundingBox_y = env->GetFieldID(g_cls_BoundingBox, "y", "D");
+            g_fid_BoundingBox_width = env->GetFieldID(g_cls_BoundingBox, "width", "D");
+            g_fid_BoundingBox_height = env->GetFieldID(g_cls_BoundingBox, "height", "D");
+        }
+    }
+    {
+        jclass local_cls_PackageDimensions = env->FindClass("nitro/nitro_ar_module/PackageDimensions");
+        if (local_cls_PackageDimensions != nullptr) {
+            g_cls_PackageDimensions = (jclass)env->NewGlobalRef(local_cls_PackageDimensions);
+            env->DeleteLocalRef(local_cls_PackageDimensions);
+            g_ctor_PackageDimensions = env->GetMethodID(g_cls_PackageDimensions, "<init>", "(DDDDLnitro/nitro_ar_module/Vector3;Lnitro/nitro_ar_module/Quaternion;)V");
+            g_fid_PackageDimensions_length = env->GetFieldID(g_cls_PackageDimensions, "length", "D");
+            g_fid_PackageDimensions_width = env->GetFieldID(g_cls_PackageDimensions, "width", "D");
+            g_fid_PackageDimensions_height = env->GetFieldID(g_cls_PackageDimensions, "height", "D");
+            g_fid_PackageDimensions_confidence = env->GetFieldID(g_cls_PackageDimensions, "confidence", "D");
+            g_fid_PackageDimensions_vector3 = env->GetFieldID(g_cls_PackageDimensions, "vector3", "Lnitro/nitro_ar_module/Vector3;");
+            g_fid_PackageDimensions_quaternion = env->GetFieldID(g_cls_PackageDimensions, "quaternion", "Lnitro/nitro_ar_module/Quaternion;");
+        }
+    }
+    {
+        jclass local_cls_RawDepthMap = env->FindClass("nitro/nitro_ar_module/RawDepthMap");
+        if (local_cls_RawDepthMap != nullptr) {
+            g_cls_RawDepthMap = (jclass)env->NewGlobalRef(local_cls_RawDepthMap);
+            env->DeleteLocalRef(local_cls_RawDepthMap);
+            g_ctor_RawDepthMap = env->GetMethodID(g_cls_RawDepthMap, "<init>", "(Ljava/nio/ByteBuffer;JJJ)V");
+            g_fid_RawDepthMap_data = env->GetFieldID(g_cls_RawDepthMap, "data", "Ljava/nio/ByteBuffer;");
+            g_fid_RawDepthMap_width = env->GetFieldID(g_cls_RawDepthMap, "width", "J");
+            g_fid_RawDepthMap_height = env->GetFieldID(g_cls_RawDepthMap, "height", "J");
+            g_fid_RawDepthMap_stride = env->GetFieldID(g_cls_RawDepthMap, "stride", "J");
+        }
     }
 }
 

@@ -155,6 +155,25 @@ void main() {
       expect(out, contains('CameraFrame* st_ptr = (CameraFrame*)malloc(sizeof(CameraFrame))'));
     });
 
+    test('struct stream with ZeroCopy fields checks ExceptionCheck after pack_ and before NewGlobalRef', () {
+      final out = CppBridgeGenerator.generate(structStreamSpec());
+      expect(out, contains('*st_ptr = pack_CameraFrame_from_jni(env, item);'));
+      expect(out, contains('if (env->ExceptionCheck()) {'));
+      expect(out, contains('env->ExceptionDescribe();'));
+      expect(out, contains('env->ExceptionClear();'));
+      expect(out, contains('free(st_ptr);'));
+      expect(out, contains('return;'));
+      expect(
+        out,
+        contains('g_zero_copy_refs[(void*)st_ptr] = env->NewGlobalRef(item);'),
+      );
+      final packPos = out.indexOf('pack_CameraFrame_from_jni(env, item);');
+      final exCheckPos = out.indexOf('env->ExceptionCheck()', packPos);
+      final newGlobalRefPos = out.indexOf('NewGlobalRef(item)', packPos);
+      expect(exCheckPos, lessThan(newGlobalRefPos),
+          reason: 'ExceptionCheck must come BEFORE NewGlobalRef');
+    });
+
     test('iOS section emits extern _call functions', () {
       final out = CppBridgeGenerator.generate(simpleSpec());
       expect(out, contains('#elif __APPLE__'));

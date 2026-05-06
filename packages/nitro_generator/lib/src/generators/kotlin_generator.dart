@@ -311,8 +311,12 @@ class KotlinGenerator {
     Set<String> recordNames,
     BridgeParam p,
   ) {
-    if (p.zeroCopy && p.type.isTypedData) return 'java.nio.ByteBuffer';
-    return _toKotlinType(enumNames, structNames, recordNames, p.type.name);
+    final isNullable = p.type.name.endsWith('?') || p.isOptional;
+    if (p.zeroCopy && p.type.isTypedData) {
+      return isNullable ? 'java.nio.ByteBuffer?' : 'java.nio.ByteBuffer';
+    }
+    final base = _toKotlinType(enumNames, structNames, recordNames, p.type.name);
+    return isNullable ? '$base?' : base;
   }
 
   static String _toKotlinType(

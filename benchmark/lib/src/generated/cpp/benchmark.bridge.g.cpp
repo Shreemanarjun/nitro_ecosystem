@@ -76,6 +76,7 @@ static jfieldID g_fid_BenchmarkBox_color = nullptr;
 static jfieldID g_fid_BenchmarkBox_width = nullptr;
 static jfieldID g_fid_BenchmarkBox_height = nullptr;
 
+
 // RAII guard: auto-detaches a thread from the JVM when it exits.
 // One instance is stored in thread-local storage; its destructor fires
 // when the thread terminates, ensuring no JVM thread descriptor leaks.
@@ -146,59 +147,14 @@ JNIEXPORT jint JNICALL JNI_OnLoad(JavaVM* vm, void* reserved) {
     if (vm->GetEnv(reinterpret_cast<void**>(&env), JNI_VERSION_1_6) != JNI_OK) {
         return -1;
     }
-    jclass localClass = env->FindClass("nitro/benchmark_module/BenchmarkJniBridge");
-    if (localClass != nullptr) {
-        g_bridgeClass = (jclass)env->NewGlobalRef(localClass);
-        env->DeleteLocalRef(localClass);
-    } else {
-        LOGE("Failed to find JniBridge class");
-    }
-
-    // Cache exception introspection method IDs
+    // Cache standard-library method IDs only — system class loader is always
+    // available here. Application class IDs are deferred to initialize().
     {
         jclass cls_class = env->FindClass("java/lang/Class");
         if (cls_class) { g_exc_getName = env->GetMethodID(cls_class, "getName", "()Ljava/lang/String;"); env->DeleteLocalRef(cls_class); }
         jclass throwable_class = env->FindClass("java/lang/Throwable");
         if (throwable_class) { g_exc_getMessage = env->GetMethodID(throwable_class, "getMessage", "()Ljava/lang/String;"); env->DeleteLocalRef(throwable_class); }
     }
-
-    // Cache bridge method IDs
-    if (g_bridgeClass != nullptr) {
-        g_mid_add_call = env->GetStaticMethodID(g_bridgeClass, "add_call", "(DD)D");
-        g_mid_addFast_call = env->GetStaticMethodID(g_bridgeClass, "addFast_call", "(DD)D");
-        g_mid_getGreeting_call = env->GetStaticMethodID(g_bridgeClass, "getGreeting_call", "(Ljava/lang/String;)Ljava/lang/String;");
-        g_mid_scalePoint_call = env->GetStaticMethodID(g_bridgeClass, "scalePoint_call", "(Lnitro/benchmark_module/BenchmarkPoint;D)Lnitro/benchmark_module/BenchmarkPoint;");
-        g_mid_computeStats_call = env->GetStaticMethodID(g_bridgeClass, "computeStats_call", "(J)[B");
-        g_mid_sendLargeBuffer_call = env->GetStaticMethodID(g_bridgeClass, "sendLargeBuffer_call", "([B)J");
-        g_mid_benchmark_register_data_stream_stream_call = env->GetStaticMethodID(g_bridgeClass, "benchmark_register_data_stream_stream_call", "(J)V");
-        g_mid_benchmark_release_data_stream_stream_call = env->GetStaticMethodID(g_bridgeClass, "benchmark_release_data_stream_stream_call", "(J)V");
-        g_mid_benchmark_register_box_stream_stream_call = env->GetStaticMethodID(g_bridgeClass, "benchmark_register_box_stream_stream_call", "(J)V");
-        g_mid_benchmark_release_box_stream_stream_call = env->GetStaticMethodID(g_bridgeClass, "benchmark_release_box_stream_stream_call", "(J)V");
-    }
-
-    // Cache struct class + ctor + field IDs
-    {
-        jclass local_cls_BenchmarkPoint = env->FindClass("nitro/benchmark_module/BenchmarkPoint");
-        if (local_cls_BenchmarkPoint != nullptr) {
-            g_cls_BenchmarkPoint = (jclass)env->NewGlobalRef(local_cls_BenchmarkPoint);
-            env->DeleteLocalRef(local_cls_BenchmarkPoint);
-            g_ctor_BenchmarkPoint = env->GetMethodID(g_cls_BenchmarkPoint, "<init>", "(DD)V");
-            g_fid_BenchmarkPoint_x = env->GetFieldID(g_cls_BenchmarkPoint, "x", "D");
-            g_fid_BenchmarkPoint_y = env->GetFieldID(g_cls_BenchmarkPoint, "y", "D");
-        }
-    }
-    {
-        jclass local_cls_BenchmarkBox = env->FindClass("nitro/benchmark_module/BenchmarkBox");
-        if (local_cls_BenchmarkBox != nullptr) {
-            g_cls_BenchmarkBox = (jclass)env->NewGlobalRef(local_cls_BenchmarkBox);
-            env->DeleteLocalRef(local_cls_BenchmarkBox);
-            g_ctor_BenchmarkBox = env->GetMethodID(g_cls_BenchmarkBox, "<init>", "(JDD)V");
-            g_fid_BenchmarkBox_color = env->GetFieldID(g_cls_BenchmarkBox, "color", "J");
-            g_fid_BenchmarkBox_width = env->GetFieldID(g_cls_BenchmarkBox, "width", "D");
-            g_fid_BenchmarkBox_height = env->GetFieldID(g_cls_BenchmarkBox, "height", "D");
-        }
-    }
-
     return JNI_VERSION_1_6;
 }
 
@@ -398,6 +354,45 @@ JNIEXPORT void JNICALL Java_nitro_benchmark_1module_BenchmarkJniBridge_emit_1box
 JNIEXPORT void JNICALL Java_nitro_benchmark_1module_BenchmarkJniBridge_initialize(JNIEnv* env, jobject thiz, jclass bridgeClass) {
     if (g_bridgeClass == nullptr) {
         g_bridgeClass = (jclass)env->NewGlobalRef(bridgeClass);
+    }
+    // Re-cache method IDs every time (safe; idempotent; works even if JNI_OnLoad
+    // could not find the app class. initialize() is called from Kotlin with the
+    // correct class loader.)
+    if (g_bridgeClass != nullptr) {
+        // Cache bridge method IDs
+        g_mid_add_call = env->GetStaticMethodID(g_bridgeClass, "add_call", "(DD)D");
+        g_mid_addFast_call = env->GetStaticMethodID(g_bridgeClass, "addFast_call", "(DD)D");
+        g_mid_getGreeting_call = env->GetStaticMethodID(g_bridgeClass, "getGreeting_call", "(Ljava/lang/String;)Ljava/lang/String;");
+        g_mid_scalePoint_call = env->GetStaticMethodID(g_bridgeClass, "scalePoint_call", "(Lnitro/benchmark_module/BenchmarkPoint;D)Lnitro/benchmark_module/BenchmarkPoint;");
+        g_mid_computeStats_call = env->GetStaticMethodID(g_bridgeClass, "computeStats_call", "(J)[B");
+        g_mid_sendLargeBuffer_call = env->GetStaticMethodID(g_bridgeClass, "sendLargeBuffer_call", "([B)J");
+        g_mid_benchmark_register_data_stream_stream_call = env->GetStaticMethodID(g_bridgeClass, "benchmark_register_data_stream_stream_call", "(J)V");
+        g_mid_benchmark_release_data_stream_stream_call = env->GetStaticMethodID(g_bridgeClass, "benchmark_release_data_stream_stream_call", "(J)V");
+        g_mid_benchmark_register_box_stream_stream_call = env->GetStaticMethodID(g_bridgeClass, "benchmark_register_box_stream_stream_call", "(J)V");
+        g_mid_benchmark_release_box_stream_stream_call = env->GetStaticMethodID(g_bridgeClass, "benchmark_release_box_stream_stream_call", "(J)V");
+    }
+
+    // Cache struct class + ctor + field IDs
+    {
+        jclass local_cls_BenchmarkPoint = env->FindClass("nitro/benchmark_module/BenchmarkPoint");
+        if (local_cls_BenchmarkPoint != nullptr) {
+            g_cls_BenchmarkPoint = (jclass)env->NewGlobalRef(local_cls_BenchmarkPoint);
+            env->DeleteLocalRef(local_cls_BenchmarkPoint);
+            g_ctor_BenchmarkPoint = env->GetMethodID(g_cls_BenchmarkPoint, "<init>", "(DD)V");
+            g_fid_BenchmarkPoint_x = env->GetFieldID(g_cls_BenchmarkPoint, "x", "D");
+            g_fid_BenchmarkPoint_y = env->GetFieldID(g_cls_BenchmarkPoint, "y", "D");
+        }
+    }
+    {
+        jclass local_cls_BenchmarkBox = env->FindClass("nitro/benchmark_module/BenchmarkBox");
+        if (local_cls_BenchmarkBox != nullptr) {
+            g_cls_BenchmarkBox = (jclass)env->NewGlobalRef(local_cls_BenchmarkBox);
+            env->DeleteLocalRef(local_cls_BenchmarkBox);
+            g_ctor_BenchmarkBox = env->GetMethodID(g_cls_BenchmarkBox, "<init>", "(JDD)V");
+            g_fid_BenchmarkBox_color = env->GetFieldID(g_cls_BenchmarkBox, "color", "J");
+            g_fid_BenchmarkBox_width = env->GetFieldID(g_cls_BenchmarkBox, "width", "D");
+            g_fid_BenchmarkBox_height = env->GetFieldID(g_cls_BenchmarkBox, "height", "D");
+        }
     }
 }
 

@@ -43,8 +43,10 @@ static void nitro_report_error(const char* name, const char* message, const char
 // and is read-only during concurrent bridge calls — no std::atomic needed.
 static HybridBenchmarkCpp* g_impl = nullptr;
 
+extern "C" {
 void benchmark_cpp_register_impl(HybridBenchmarkCpp* impl) { g_impl = impl; }
 HybridBenchmarkCpp* benchmark_cpp_get_impl() { return g_impl; }
+}
 
 static int64_t g_port_dataStream = 0;
 static int64_t g_port_boxStream = 0;

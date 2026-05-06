@@ -400,6 +400,7 @@ class CppBridgeGenerator {
       s.writeln('    if (!ptr) return;');
       final hasStrings = st.fields.any((f) => f.type.name == 'String');
       final hasNestedStructs = st.fields.any((f) => structNames.contains(f.type.name.replaceFirst('?', '')));
+      final hasZeroCopy = st.fields.any((f) => f.zeroCopy);
       if (hasStrings || hasNestedStructs) {
         s.writeln('    ${st.name}* st_ptr = (${st.name}*)ptr;');
         for (final f in st.fields) {
@@ -409,6 +410,19 @@ class CppBridgeGenerator {
             s.writeln('    if (st_ptr->${f.name}) { free(st_ptr->${f.name}); st_ptr->${f.name} = nullptr; }');
           }
         }
+      }
+      if (hasZeroCopy) {
+        s.writeln('#ifdef __ANDROID__');
+        s.writeln('    {');
+        s.writeln('        std::lock_guard<std::mutex> _lk(g_zero_copy_refs_mtx);');
+        s.writeln('        auto it = g_zero_copy_refs.find(ptr);');
+        s.writeln('        if (it != g_zero_copy_refs.end()) {');
+        s.writeln('            JNIEnv* _env = GetEnv();');
+        s.writeln('            if (_env != nullptr) _env->DeleteGlobalRef(it->second);');
+        s.writeln('            g_zero_copy_refs.erase(it);');
+        s.writeln('        }');
+        s.writeln('    }');
+        s.writeln('#endif // __ANDROID__');
       }
       s.writeln('    free(ptr);');
       s.writeln('}');
@@ -564,6 +578,20 @@ class CppBridgeGenerator {
         }
       }
       s.writeln();
+      final zeroCopyStreamStructs = spec.streams
+          .where((st2) => structNames.contains(st2.itemType.name.replaceFirst('?', '')))
+          .map((st2) => st2.itemType.name.replaceFirst('?', ''))
+          .where((name) => spec.structs.any((st3) => st3.name == name && st3.fields.any((f) => f.zeroCopy)))
+          .toSet();
+      if (zeroCopyStreamStructs.isNotEmpty) {
+        s.writeln('#include <unordered_map>');
+        s.writeln('#include <mutex>');
+        s.writeln('// GlobalRef map: keeps zero-copy struct backing objects alive until Dart finalizer fires.');
+        s.writeln('static std::unordered_map<void*, jobject> g_zero_copy_refs;');
+        s.writeln('static std::mutex g_zero_copy_refs_mtx;');
+        s.writeln();
+      }
+      s.writeln();
       s.writeln('// RAII guard: auto-detaches a thread from the JVM when it exits.');
       s.writeln('// One instance is stored in thread-local storage; its destructor fires');
       s.writeln('// when the thread terminates, ensuring no JVM thread descriptor leaks.');
@@ -630,6 +658,12 @@ class CppBridgeGenerator {
             s.writeln(
               '    result.${f.name} = ($elemCast)env->GetDirectBufferAddress(buf_${f.name});',
             );
+            s.writeln('    if (result.${f.name} == nullptr) {');
+            s.writeln('        jclass iae = env->FindClass("java/lang/IllegalArgumentException");');
+            s.writeln('        if (iae) env->ThrowNew(iae, "${st.name}.${f.name}: @ZeroCopy requires ByteBuffer.allocateDirect() — heap-backed ByteBuffer.wrap() is not supported.");');
+            s.writeln('        env->DeleteLocalRef(buf_${f.name});');
+            s.writeln('        return result;');
+            s.writeln('    }');
             // When no explicit companion length field exists, auto-populate the
             // synthesized '${field}Length' field from the ByteBuffer's capacity.
             if (_zeroCopyNeedsSynthetic(st, f.name)) {
@@ -749,124 +783,16 @@ class CppBridgeGenerator {
       s.writeln('        return -1;');
       s.writeln('    }');
       s.writeln(
-        '    jclass localClass = env->FindClass("nitro/${spec.lib.replaceAll('-', '_')}_module/${spec.dartClassName}JniBridge");',
+        '    // Cache standard-library method IDs only — system class loader is always',
       );
-      s.writeln('    if (localClass != nullptr) {');
-      s.writeln('        g_bridgeClass = (jclass)env->NewGlobalRef(localClass);');
-      s.writeln('        env->DeleteLocalRef(localClass);');
-      s.writeln('    } else {');
-      s.writeln('        LOGE("Failed to find JniBridge class");');
-      s.writeln('    }');
-      s.writeln();
-      s.writeln('    // Cache exception introspection method IDs');
+      s.writeln('    // available here. Application class IDs are deferred to initialize().',
+      );
       s.writeln('    {');
       s.writeln('        jclass cls_class = env->FindClass("java/lang/Class");');
       s.writeln('        if (cls_class) { g_exc_getName = env->GetMethodID(cls_class, "getName", "()Ljava/lang/String;"); env->DeleteLocalRef(cls_class); }');
       s.writeln('        jclass throwable_class = env->FindClass("java/lang/Throwable");');
       s.writeln('        if (throwable_class) { g_exc_getMessage = env->GetMethodID(throwable_class, "getMessage", "()Ljava/lang/String;"); env->DeleteLocalRef(throwable_class); }');
       s.writeln('    }');
-      s.writeln();
-      if (spec.functions.isNotEmpty || spec.properties.isNotEmpty || spec.streams.isNotEmpty) {
-        s.writeln('    // Cache bridge method IDs');
-        s.writeln('    if (g_bridgeClass != nullptr) {');
-        for (final func in spec.functions) {
-          final String jniSig;
-          if (func.isNativeAsync) {
-            // @nitroNativeAsync: Kotlin method signature is (params + J dartPort) → V
-            final sb = StringBuffer('(');
-            for (final p in func.params) {
-              if (structNames.contains(p.type.name)) {
-                sb.write('L$libPkg/${p.type.name};');
-              } else if (p.zeroCopy && p.type.isTypedData) {
-                sb.write('Ljava/nio/ByteBuffer;');
-              } else {
-                sb.write(_jniSigType(p.type.name));
-              }
-            }
-            sb.write('J)V'); // J = long (dart_port), V = void
-            jniSig = sb.toString();
-          } else {
-            jniSig = _jniSig(func.params, func.returnType, enumNames, structNames, libPkg);
-          }
-          s.writeln('        g_mid_${func.dartName}_call = env->GetStaticMethodID(g_bridgeClass, "${func.dartName}_call", "$jniSig");');
-        }
-        for (final prop in spec.properties) {
-          final isEnum = enumNames.contains(prop.type.name);
-          if (prop.hasGetter) {
-            final jniRetSig = isEnum ? 'J' : _jniSigType(prop.type.name);
-            s.writeln('        g_mid_${prop.getSymbol}_call = env->GetStaticMethodID(g_bridgeClass, "${prop.getSymbol}_call", "()$jniRetSig");');
-          }
-          if (prop.hasSetter) {
-            final jniParamSig = isEnum ? 'J' : _jniSigType(prop.type.name);
-            s.writeln('        g_mid_${prop.setSymbol}_call = env->GetStaticMethodID(g_bridgeClass, "${prop.setSymbol}_call", "($jniParamSig)V");');
-          }
-        }
-        for (final stream in spec.streams) {
-          s.writeln('        g_mid_${stream.registerSymbol}_call = env->GetStaticMethodID(g_bridgeClass, "${stream.registerSymbol}_call", "(J)V");');
-          s.writeln('        g_mid_${stream.releaseSymbol}_call = env->GetStaticMethodID(g_bridgeClass, "${stream.releaseSymbol}_call", "(J)V");');
-        }
-        s.writeln('    }');
-        s.writeln();
-      }
-      // Cache record class + encode() method IDs for record-typed stream items
-      final cachedRecordClasses = <String>{};
-      for (final stream in spec.streams) {
-        if (stream.itemType.isRecord) {
-          final recName = stream.itemType.name.replaceFirst('?', '');
-          if (cachedRecordClasses.add(recName)) {
-            final jniRecClass = 'nitro/${spec.lib.replaceAll('-', '_')}_module/$recName';
-            s.writeln('    // Cache $recName class + encode() for stream serialisation');
-            s.writeln('    {');
-            s.writeln('        jclass local_cls_$recName = env->FindClass("$jniRecClass");');
-            s.writeln('        if (local_cls_$recName != nullptr) {');
-            s.writeln('            g_cls_$recName = (jclass)env->NewGlobalRef(local_cls_$recName);');
-            s.writeln('            env->DeleteLocalRef(local_cls_$recName);');
-            s.writeln('            g_mid_${recName}_encode = env->GetMethodID(g_cls_$recName, "encode", "()[B");');
-            s.writeln('        } else {');
-            s.writeln('            LOGE("Failed to find class $jniRecClass");');
-            s.writeln('        }');
-            s.writeln('    }');
-          }
-        }
-      }
-      if (spec.structs.isNotEmpty) {
-        s.writeln('    // Cache struct class + ctor + field IDs');
-        for (final st in spec.structs) {
-          final jniClass = 'nitro/${spec.lib.replaceAll('-', '_')}_module/${st.name}';
-
-          final ctorSig =
-              '(${st.fields.map((f) {
-                final isEnum = enumNames.contains(f.type.name.replaceFirst('?', ''));
-                final isNestedStruct = structNames.contains(f.type.name.replaceFirst('?', ''));
-                if (isEnum) return 'J';
-                if (_isZeroCopy(st, f.name)) return 'Ljava/nio/ByteBuffer;';
-                if (isNestedStruct) return 'L$libPkg/${f.type.name.replaceFirst('?', '')};';
-                return _jniSigType(f.type.name);
-              }).join('')})V';
-          s.writeln('    {');
-          s.writeln('        jclass local_cls_${st.name} = env->FindClass("$jniClass");');
-          s.writeln('        if (local_cls_${st.name} != nullptr) {');
-          s.writeln('            g_cls_${st.name} = (jclass)env->NewGlobalRef(local_cls_${st.name});');
-          s.writeln('            env->DeleteLocalRef(local_cls_${st.name});');
-          s.writeln('            g_ctor_${st.name} = env->GetMethodID(g_cls_${st.name}, "<init>", "$ctorSig");');
-          for (final f in st.fields) {
-            final isEnum = enumNames.contains(f.type.name.replaceFirst('?', ''));
-            final isZeroCopy = _isZeroCopy(st, f.name);
-            final isNestedStruct = structNames.contains(f.type.name.replaceFirst('?', ''));
-            final sig = isEnum
-                ? 'J'
-                : (isZeroCopy
-                    ? 'Ljava/nio/ByteBuffer;'
-                    : (isNestedStruct
-                        ? 'L$libPkg/${f.type.name.replaceFirst('?', '')};'
-                        : _jniSigType(f.type.name)));
-            s.writeln('            g_fid_${st.name}_${f.name} = env->GetFieldID(g_cls_${st.name}, "${f.name}", "$sig");');
-          }
-          s.writeln('        }');
-          s.writeln('    }');
-        }
-        s.writeln();
-      }
       s.writeln('    return JNI_VERSION_1_6;');
       s.writeln('}');
       s.writeln();
@@ -923,6 +849,9 @@ class CppBridgeGenerator {
             final pt = p.type.name;
             if (pt == 'String') {
               s.writeln('    jstring j_${p.name} = env->NewStringUTF(${p.name});');
+              callArgsList.add('j_${p.name}');
+            } else if (pt == 'String?') {
+              s.writeln('    jstring j_${p.name} = (${p.name} != nullptr) ? env->NewStringUTF(${p.name}) : nullptr;');
               callArgsList.add('j_${p.name}');
             } else if (structNames.contains(pt)) {
               s.writeln('    jobject jobj_${p.name} = unpack_${pt}_to_jni(env, (const $pt*)${p.name});');
@@ -998,6 +927,9 @@ class CppBridgeGenerator {
           final pt = p.type.name;
           if (pt == 'String') {
             s.writeln('    jstring j_${p.name} = env->NewStringUTF(${p.name});');
+            callArgsList.add('j_${p.name}');
+          } else if (pt == 'String?') {
+            s.writeln('    jstring j_${p.name} = (${p.name} != nullptr) ? env->NewStringUTF(${p.name}) : nullptr;');
             callArgsList.add('j_${p.name}');
           } else if (structNames.contains(pt)) {
             s.writeln(
@@ -1265,14 +1197,31 @@ class CppBridgeGenerator {
           s.writeln('    obj.type = Dart_CObject_kBool;');
           s.writeln('    obj.value.as_bool = item;');
         } else if (isStruct) {
+          final stName = stream.itemType.name.replaceFirst('?', '');
           s.writeln(
-            '    ${stream.itemType.name}* st_ptr = (${stream.itemType.name}*)malloc(sizeof(${stream.itemType.name}));',
+            '    $stName* st_ptr = ($stName*)malloc(sizeof($stName));',
           );
           s.writeln(
             '    *st_ptr = pack_${stream.itemType.name}_from_jni(env, item);',
           );
+          s.writeln('    // Check if pack_ threw an exception (e.g., heap ByteBuffer for @ZeroCopy)');
+          s.writeln('    if (env->ExceptionCheck()) {');
+          s.writeln('        env->ExceptionDescribe();');
+          s.writeln('        env->ExceptionClear();');
+          s.writeln('        free(st_ptr);');
+          s.writeln('        return;');
+          s.writeln('    }');
           s.writeln('    obj.type = Dart_CObject_kInt64;');
           s.writeln('    obj.value.as_int64 = (intptr_t)st_ptr;');
+          final structDef = spec.structs.firstWhere((st3) => st3.name == stName, orElse: () => spec.structs.first);
+          final hasZeroCopy = structDef.fields.any((f) => f.zeroCopy);
+          if (hasZeroCopy) {
+            s.writeln('    // Keep item alive so JVM does not GC the ByteBuffer backing st_ptr\'s zero-copy fields.');
+            s.writeln('    {');
+            s.writeln('        std::lock_guard<std::mutex> _lk(g_zero_copy_refs_mtx);');
+            s.writeln('        g_zero_copy_refs[(void*)st_ptr] = env->NewGlobalRef(item);');
+            s.writeln('    }');
+          }
         } else if (stream.itemType.isRecord) {
           // Serialize the Kotlin @HybridRecord to bytes via encode(), copy to a
           // malloc'd native buffer, and send the pointer as kInt64.
@@ -1290,6 +1239,14 @@ class CppBridgeGenerator {
           s.writeln('    env->DeleteLocalRef(encoded);');
           s.writeln('    obj.type = Dart_CObject_kInt64;');
           s.writeln('    obj.value.as_int64 = (intptr_t)buf;');
+        } else if (enumNames.contains(stream.itemType.name.replaceFirst('?', ''))) {
+          s.writeln('    // item is a jobject (Kotlin enum). Extract its nativeValue Long field.');
+          s.writeln('    jclass enumCls = env->GetObjectClass(item);');
+          s.writeln('    jfieldID fid = enumCls ? env->GetFieldID(enumCls, "nativeValue", "J") : nullptr;');
+          s.writeln('    if (fid == nullptr) { LOGE("emit_${stream.dartName}: cannot find nativeValue on ${stream.itemType.name}"); if (enumCls) env->DeleteLocalRef(enumCls); return; }');
+          s.writeln('    obj.type = Dart_CObject_kInt64;');
+          s.writeln('    obj.value.as_int64 = (int64_t)env->GetLongField(item, fid);');
+          s.writeln('    env->DeleteLocalRef(enumCls);');
         } else {
           s.writeln('    obj.type = Dart_CObject_kNull;');
         }
@@ -1307,6 +1264,113 @@ class CppBridgeGenerator {
         '        g_bridgeClass = (jclass)env->NewGlobalRef(bridgeClass);',
       );
       s.writeln('    }');
+      s.writeln(
+        '    // Re-cache method IDs every time (safe; idempotent; works even if JNI_OnLoad',
+      );
+      s.writeln(
+        '    // could not find the app class. initialize() is called from Kotlin with the',
+      );
+      s.writeln(
+        '    // correct class loader.)',
+      );
+      s.writeln('    if (g_bridgeClass != nullptr) {');
+      s.writeln('        // Cache bridge method IDs');
+      for (final func in spec.functions) {
+        final String jniSig;
+        if (func.isNativeAsync) {
+          final sb = StringBuffer('(');
+          for (final p in func.params) {
+            if (structNames.contains(p.type.name)) {
+              sb.write('L$libPkg/${p.type.name};');
+            } else if (p.zeroCopy && p.type.isTypedData) {
+              sb.write('Ljava/nio/ByteBuffer;');
+            } else {
+              sb.write(_jniSigType(p.type.name));
+            }
+          }
+          sb.write('J)V');
+          jniSig = sb.toString();
+        } else {
+          jniSig = _jniSig(func.params, func.returnType, enumNames, structNames, libPkg);
+        }
+        s.writeln('        g_mid_${func.dartName}_call = env->GetStaticMethodID(g_bridgeClass, "${func.dartName}_call", "$jniSig");');
+      }
+      for (final prop in spec.properties) {
+        final isEnum = enumNames.contains(prop.type.name);
+        if (prop.hasGetter) {
+          final jniRetSig = isEnum ? 'J' : _jniSigType(prop.type.name);
+          s.writeln('        g_mid_${prop.getSymbol}_call = env->GetStaticMethodID(g_bridgeClass, "${prop.getSymbol}_call", "()$jniRetSig");');
+        }
+        if (prop.hasSetter) {
+          final jniParamSig = isEnum ? 'J' : _jniSigType(prop.type.name);
+          s.writeln('        g_mid_${prop.setSymbol}_call = env->GetStaticMethodID(g_bridgeClass, "${prop.setSymbol}_call", "($jniParamSig)V");');
+        }
+      }
+      for (final stream in spec.streams) {
+        s.writeln('        g_mid_${stream.registerSymbol}_call = env->GetStaticMethodID(g_bridgeClass, "${stream.registerSymbol}_call", "(J)V");');
+        s.writeln('        g_mid_${stream.releaseSymbol}_call = env->GetStaticMethodID(g_bridgeClass, "${stream.releaseSymbol}_call", "(J)V");');
+      }
+      s.writeln('    }');
+      s.writeln();
+
+      // Cache record class + encode() method IDs for record-typed stream items
+      final cachedRecordClasses = <String>{};
+      for (final stream in spec.streams) {
+        if (stream.itemType.isRecord) {
+          final recName = stream.itemType.name.replaceFirst('?', '');
+          if (cachedRecordClasses.add(recName)) {
+            final jniRecClass = 'nitro/${spec.lib.replaceAll('-', '_')}_module/$recName';
+            s.writeln('    // Cache $recName class + encode() for stream serialisation');
+            s.writeln('    {');
+            s.writeln('        jclass local_cls_$recName = env->FindClass("$jniRecClass");');
+            s.writeln('        if (local_cls_$recName != nullptr) {');
+            s.writeln('            g_cls_$recName = (jclass)env->NewGlobalRef(local_cls_$recName);');
+            s.writeln('            env->DeleteLocalRef(local_cls_$recName);');
+            s.writeln('            g_mid_${recName}_encode = env->GetMethodID(g_cls_$recName, "encode", "()[B");');
+            s.writeln('        } else {');
+            s.writeln('            LOGE("Failed to find class $jniRecClass");');
+            s.writeln('        }');
+            s.writeln('    }');
+          }
+        }
+      }
+      if (spec.structs.isNotEmpty) {
+        s.writeln('    // Cache struct class + ctor + field IDs');
+        for (final st in spec.structs) {
+          final jniClass = 'nitro/${spec.lib.replaceAll('-', '_')}_module/${st.name}';
+
+          final ctorSig =
+              '(${st.fields.map((f) {
+                final isEnum = enumNames.contains(f.type.name.replaceFirst('?', ''));
+                final isNestedStruct = structNames.contains(f.type.name.replaceFirst('?', ''));
+                if (isEnum) return 'J';
+                if (_isZeroCopy(st, f.name)) return 'Ljava/nio/ByteBuffer;';
+                if (isNestedStruct) return 'L$libPkg/${f.type.name.replaceFirst('?', '')};';
+                return _jniSigType(f.type.name);
+              }).join('')})V';
+          s.writeln('    {');
+          s.writeln('        jclass local_cls_${st.name} = env->FindClass("$jniClass");');
+          s.writeln('        if (local_cls_${st.name} != nullptr) {');
+          s.writeln('            g_cls_${st.name} = (jclass)env->NewGlobalRef(local_cls_${st.name});');
+          s.writeln('            env->DeleteLocalRef(local_cls_${st.name});');
+          s.writeln('            g_ctor_${st.name} = env->GetMethodID(g_cls_${st.name}, "<init>", "$ctorSig");');
+          for (final f in st.fields) {
+            final isEnum = enumNames.contains(f.type.name.replaceFirst('?', ''));
+            final isZeroCopy = _isZeroCopy(st, f.name);
+            final isNestedStruct = structNames.contains(f.type.name.replaceFirst('?', ''));
+            final sig = isEnum
+                ? 'J'
+                : (isZeroCopy
+                    ? 'Ljava/nio/ByteBuffer;'
+                    : (isNestedStruct
+                        ? 'L$libPkg/${f.type.name.replaceFirst('?', '')};'
+                        : _jniSigType(f.type.name)));
+            s.writeln('            g_fid_${st.name}_${f.name} = env->GetFieldID(g_cls_${st.name}, "${f.name}", "$sig");');
+          }
+          s.writeln('        }');
+          s.writeln('    }');
+        }
+      }
       s.writeln('}');
       s.writeln();
 
