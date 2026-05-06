@@ -149,7 +149,7 @@ class DartFfiGenerator {
     // ── Method implementations ───────────────────────────────────────────────
     for (final func in spec.functions) {
       final needsArena = func.params.any(
-        (p) => p.type.isTypedData || p.type.name == 'String' || p.type.isRecord || spec.structs.any((st) => st.name == p.type.name),
+        (p) => p.type.isTypedData || p.type.name == 'String' || p.type.name == 'String?' || p.type.isRecord || spec.structs.any((st) => st.name == p.type.name),
       );
 
       final callArgs = func.params
@@ -167,6 +167,9 @@ class DartFfiGenerator {
             if (t == 'String') {
               return ['${p.name}.toNativeUtf8(allocator: arena)'];
             }
+            if (t == 'String?') {
+              return ['${p.name} != null ? ${p.name}.toNativeUtf8(allocator: arena) : nullptr'];
+            }
             if (spec.structs.any((st) => st.name == t)) {
               return ['${p.name}.toNative(arena).cast<Void>()'];
             }
@@ -179,10 +182,8 @@ class DartFfiGenerator {
           .join(', ');
 
       // For NativeAsync, the return type annotation is Future<T> but asyncMod is
-    // left empty (no `async` keyword) — the method returns an already-Future.
-      final returnType = (func.isAsync || func.isNativeAsync)
-          ? 'Future<${func.returnType.name}>'
-          : func.returnType.name;
+      // left empty (no `async` keyword) — the method returns an already-Future.
+      final returnType = (func.isAsync || func.isNativeAsync) ? 'Future<${func.returnType.name}>' : func.returnType.name;
       final asyncMod = func.isAsync ? 'async ' : '';
 
       s.writeln('  @override');
@@ -469,7 +470,9 @@ class DartFfiGenerator {
             } else {
               valExpr = 'value.toNative(arena).cast<Void>()';
             }
-            s.writeln("  set ${prop.dartName}($rt value) { checkDisposed(); NitroRuntime.callSync<void>(() => withArena((arena) { _set${cap}Ptr($valExpr); NitroRuntime.checkError(_getErrorPtr, _clearErrorPtr); }), methodName: 'set ${prop.dartName}'); }");
+            s.writeln(
+              "  set ${prop.dartName}($rt value) { checkDisposed(); NitroRuntime.callSync<void>(() => withArena((arena) { _set${cap}Ptr($valExpr); NitroRuntime.checkError(_getErrorPtr, _clearErrorPtr); }), methodName: 'set ${prop.dartName}'); }",
+            );
           } else {
             String valExpr = 'value';
             if (spec.enums.any((en) => en.name == rt)) {
@@ -477,7 +480,9 @@ class DartFfiGenerator {
             } else if (rt == 'bool') {
               valExpr = 'value ? 1 : 0';
             }
-            s.writeln("  set ${prop.dartName}($rt value) { checkDisposed(); NitroRuntime.callSync<void>(() { _set${cap}Ptr($valExpr); NitroRuntime.checkError(_getErrorPtr, _clearErrorPtr); }, methodName: 'set ${prop.dartName}'); }");
+            s.writeln(
+              "  set ${prop.dartName}($rt value) { checkDisposed(); NitroRuntime.callSync<void>(() { _set${cap}Ptr($valExpr); NitroRuntime.checkError(_getErrorPtr, _clearErrorPtr); }, methodName: 'set ${prop.dartName}'); }",
+            );
           }
         }
       }
@@ -496,9 +501,7 @@ class DartFfiGenerator {
 
       if (isRecord) {
         final decodeExpr = _decodeRecordExpr(stream.itemType, 'rawPtr');
-        final nullAction = stream.itemType.isNullable
-            ? 'return null'
-            : "throw StateError('Received null event on non-nullable stream ${stream.dartName}')";
+        final nullAction = stream.itemType.isNullable ? 'return null' : "throw StateError('Received null event on non-nullable stream ${stream.dartName}')";
         unpackExpr = '(message) { if (message == null) { $nullAction; } final rawPtr = Pointer<Uint8>.fromAddress(message as int); try { return $decodeExpr; } finally { malloc.free(rawPtr); } }';
         streamItemType = itemType;
       } else if (isStruct) {
@@ -506,9 +509,7 @@ class DartFfiGenerator {
         // getter to read lazily from native memory.  Because the proxy IS-A value
         // type, Stream<${itemType}Proxy> satisfies Stream<${itemType}> via Dart's
         // covariant generics — no .map() or eager field copy required.
-        final nullAction = stream.itemType.isNullable
-            ? 'return null'
-            : "throw StateError('Received null event on non-nullable stream ${stream.dartName}')";
+        final nullAction = stream.itemType.isNullable ? 'return null' : "throw StateError('Received null event on non-nullable stream ${stream.dartName}')";
         unpackExpr = '(message) { if (message == null) { $nullAction; } return ${itemType}Proxy(Pointer<${itemType}Ffi>.fromAddress(message as int)); }';
         streamItemType = itemType;
       } else {
@@ -538,7 +539,15 @@ class DartFfiGenerator {
     return s.toString();
   }
 
-  static String _paramList(List<BridgeParam> params) => params.map((p) => '${p.type.name} ${p.name}').join(', ');
+  static String _paramList(List<BridgeParam> params) {
+    final positional = params.where((p) => !p.isNamed).map((p) => '${p.type.name} ${p.name}').join(', ');
+    final named = params.where((p) => p.isNamed).toList();
+    if (named.isEmpty) return positional;
+    final namedStr = named.map((p) => '${p.type.name} ${p.name}').join(', ');
+    final sep = positional.isEmpty ? '' : ', ';
+    return '$positional$sep{$namedStr}';
+  }
+
   static String _cap(String name) => name[0].toUpperCase() + name.substring(1);
 
   static String _toNativeType(BridgeFunction func, BridgeSpec spec) {
@@ -749,11 +758,13 @@ class DartFfiGenerator {
       s.writeln('      arena.releaseAll();');
       s.writeln('    }');
     } else {
-      final plainCallArgs = func.params.map((p) {
-        if (spec.enums.any((en) => en.name == p.type.name)) return '${p.name}.nativeValue';
-        if (p.type.name == 'bool') return '${p.name} ? 1 : 0';
-        return p.name;
-      }).join(', ');
+      final plainCallArgs = func.params
+          .map((p) {
+            if (spec.enums.any((en) => en.name == p.type.name)) return '${p.name}.nativeValue';
+            if (p.type.name == 'bool') return '${p.name} ? 1 : 0';
+            return p.name;
+          })
+          .join(', ');
       final portSep = plainCallArgs.isEmpty ? '' : ', ';
       s.writeln('    return NitroRuntime.openNativeAsync<$openType>(');
       s.writeln('      call: (port) => _${func.dartName}Ptr($plainCallArgs${portSep}port),');
@@ -792,8 +803,7 @@ class DartFfiGenerator {
     if (func.returnType.isRecord) {
       // Native posts kInt64 (pointer to binary-encoded record bytes).
       final decodeExpr = _decodeRecordExpr(func.returnType, 'rawPtr');
-      final isLazy = func.returnType.recordListItemType != null &&
-          !func.returnType.recordListItemIsPrimitive;
+      final isLazy = func.returnType.recordListItemType != null && !func.returnType.recordListItemIsPrimitive;
       if (isLazy) {
         return '(raw) { final rawPtr = Pointer<Uint8>.fromAddress(raw as int); return $decodeExpr; }';
       }

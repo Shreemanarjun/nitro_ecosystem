@@ -231,7 +231,20 @@ class BridgeParam {
   final BridgeType type;
   final bool zeroCopy;
 
-  BridgeParam({required this.name, required this.type, this.zeroCopy = false});
+  /// True when the parameter is a named parameter (`{...}`).
+  final bool isNamed;
+
+  /// True when the named parameter is optional (no `required` keyword).
+  /// Always false for positional parameters.
+  final bool isOptional;
+
+  BridgeParam({
+    required this.name,
+    required this.type,
+    this.zeroCopy = false,
+    this.isNamed = false,
+    this.isOptional = false,
+  });
 }
 
 class BridgeStream {

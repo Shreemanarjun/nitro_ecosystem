@@ -332,6 +332,8 @@ class SpecExtractor {
             name: p.name!,
             type: _makeBridgeType(p.type, recordTypeNames),
             zeroCopy: zeroCopyChecker.hasAnnotationOf(p),
+            isNamed: p.isNamed,
+            isOptional: p.isOptional,
           );
         }).toList(),
       );
