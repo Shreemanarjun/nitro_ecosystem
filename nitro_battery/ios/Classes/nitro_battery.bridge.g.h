@@ -31,6 +31,7 @@ typedef struct {
 extern "C" {
 #endif
 
+NITRO_EXPORT intptr_t nitro_battery_init_dart_api_dl(void* data);
 NITRO_EXPORT NitroError* nitro_battery_get_error(void);
 NITRO_EXPORT void nitro_battery_clear_error(void);
 

@@ -61,7 +61,7 @@ class CppBridgeGenerator {
 
     // Dart API DL init
     s.writeln('extern "C" {');
-    s.writeln('intptr_t ${libStem}_init_dart_api_dl(void* data) {');
+    s.writeln('NITRO_EXPORT intptr_t ${libStem}_init_dart_api_dl(void* data) {');
     s.writeln('    return Dart_InitializeApiDL(data);');
     s.writeln('}');
     s.writeln('}');
@@ -484,7 +484,7 @@ class CppBridgeGenerator {
     final enumNames = spec.enums.map((e) => e.name).toSet();
     final structNames = spec.structs.map((s) => s.name).toSet();
     s.writeln('extern "C" {');
-    s.writeln('intptr_t ${libStem}_init_dart_api_dl(void* data) {');
+    s.writeln('NITRO_EXPORT intptr_t ${libStem}_init_dart_api_dl(void* data) {');
     s.writeln('    return Dart_InitializeApiDL(data);');
     s.writeln('}');
     s.writeln('}');

@@ -21,6 +21,7 @@ typedef struct {
 extern "C" {
 #endif
 
+NITRO_EXPORT intptr_t verification_init_dart_api_dl(void* data);
 NITRO_EXPORT NitroError* verification_get_error(void);
 NITRO_EXPORT void verification_clear_error(void);
 

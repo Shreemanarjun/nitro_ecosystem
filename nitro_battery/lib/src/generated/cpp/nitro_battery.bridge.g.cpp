@@ -8,7 +8,7 @@
 #include "nitro_battery.bridge.g.h"
 
 extern "C" {
-intptr_t nitro_battery_init_dart_api_dl(void* data) {
+NITRO_EXPORT intptr_t nitro_battery_init_dart_api_dl(void* data) {
     return Dart_InitializeApiDL(data);
 }
 }

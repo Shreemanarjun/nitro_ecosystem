@@ -47,6 +47,7 @@ class CppHeaderGenerator {
     s.writeln();
 
     final libStem = spec.lib.replaceAll('-', '_');
+    s.writeln('NITRO_EXPORT intptr_t ${libStem}_init_dart_api_dl(void* data);');
     s.writeln('NITRO_EXPORT NitroError* ${libStem}_get_error(void);');
     s.writeln('NITRO_EXPORT void ${libStem}_clear_error(void);');
     s.writeln();

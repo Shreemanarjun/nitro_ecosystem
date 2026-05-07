@@ -6,7 +6,7 @@ void main() {
   group('CppBridgeGenerator', () {
     test('emits InitDartApiDL', () {
       final out = CppBridgeGenerator.generate(simpleSpec());
-      expect(out, contains('intptr_t my_camera_init_dart_api_dl(void* data)'));
+      expect(out, contains('NITRO_EXPORT intptr_t my_camera_init_dart_api_dl(void* data)'));
       expect(out, contains('Dart_InitializeApiDL(data)'));
     });
 

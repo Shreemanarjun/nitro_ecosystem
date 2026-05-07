@@ -8,7 +8,7 @@
 #include "nitro_camera.bridge.g.h"
 
 extern "C" {
-intptr_t nitro_camera_init_dart_api_dl(void* data) {
+NITRO_EXPORT intptr_t nitro_camera_init_dart_api_dl(void* data) {
     return Dart_InitializeApiDL(data);
 }
 }

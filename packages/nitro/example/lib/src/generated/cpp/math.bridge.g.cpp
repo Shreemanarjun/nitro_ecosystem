@@ -8,7 +8,7 @@
 #include "math.bridge.g.h"
 
 extern "C" {
-intptr_t math_init_dart_api_dl(void* data) {
+NITRO_EXPORT intptr_t math_init_dart_api_dl(void* data) {
     return Dart_InitializeApiDL(data);
 }
 }

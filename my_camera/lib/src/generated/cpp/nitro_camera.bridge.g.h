@@ -59,6 +59,7 @@ typedef struct {
 extern "C" {
 #endif
 
+NITRO_EXPORT intptr_t nitro_camera_init_dart_api_dl(void* data);
 NITRO_EXPORT NitroError* nitro_camera_get_error(void);
 NITRO_EXPORT void nitro_camera_clear_error(void);
 

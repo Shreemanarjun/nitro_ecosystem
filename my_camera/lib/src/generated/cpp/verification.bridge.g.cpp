@@ -8,7 +8,7 @@
 #include "verification.bridge.g.h"
 
 extern "C" {
-intptr_t verification_init_dart_api_dl(void* data) {
+NITRO_EXPORT intptr_t verification_init_dart_api_dl(void* data) {
     return Dart_InitializeApiDL(data);
 }
 }

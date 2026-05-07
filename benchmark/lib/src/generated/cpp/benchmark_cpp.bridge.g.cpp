@@ -12,7 +12,7 @@
 #include "benchmark_cpp.native.g.h"
 
 extern "C" {
-intptr_t benchmark_cpp_init_dart_api_dl(void* data) {
+NITRO_EXPORT intptr_t benchmark_cpp_init_dart_api_dl(void* data) {
     return Dart_InitializeApiDL(data);
 }
 }

@@ -19,6 +19,7 @@ typedef enum {
 extern "C" {
 #endif
 
+NITRO_EXPORT intptr_t math_init_dart_api_dl(void* data);
 NITRO_EXPORT NitroError* math_get_error(void);
 NITRO_EXPORT void math_clear_error(void);
 
