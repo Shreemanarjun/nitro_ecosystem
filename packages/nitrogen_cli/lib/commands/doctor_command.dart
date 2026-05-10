@@ -1032,6 +1032,16 @@ class DoctorCommand extends Command {
           final dartApiDlSpm = File(p.join(spmCppDir.path, 'dart_api_dl.c'));
           if (dartApiDlSpm.existsSync()) {
             ok(iosSec, 'SPM Sources/$cppTargetName/dart_api_dl.c present');
+            final dartApiDlContent = dartApiDlSpm.readAsStringSync();
+            if (dartApiDlContent.contains('.symlinks') || RegExp(r'#include\s*"\/').hasMatch(dartApiDlContent)) {
+              warn(iosSec,
+                  'SPM Sources/$cppTargetName/dart_api_dl.c uses a machine-specific or .symlinks path',
+                  hint: 'Run: nitrogen link  (rewrites to portable bundled stub)');
+            } else if (!dartApiDlContent.contains('Dart_InitializeApiDL')) {
+              err(iosSec,
+                  'SPM Sources/$cppTargetName/dart_api_dl.c is a header-only stub — missing Dart_InitializeApiDL implementation',
+                  hint: 'Run: nitrogen link  (rewrites to full self-contained implementation)');
+            }
           } else {
             err(iosSec, 'SPM Sources/$cppTargetName/dart_api_dl.c missing',
                 hint: 'Run: nitrogen link');
@@ -1239,6 +1249,16 @@ class DoctorCommand extends Command {
           final dartApiDlSpm = File(p.join(spmCppDir.path, 'dart_api_dl.c'));
           if (dartApiDlSpm.existsSync()) {
             ok(macosSec, 'SPM Sources/$cppTargetName/dart_api_dl.c present');
+            final dartApiDlContent = dartApiDlSpm.readAsStringSync();
+            if (dartApiDlContent.contains('.symlinks') || RegExp(r'#include\s*"\/').hasMatch(dartApiDlContent)) {
+              warn(macosSec,
+                  'SPM Sources/$cppTargetName/dart_api_dl.c uses a machine-specific or .symlinks path',
+                  hint: 'Run: nitrogen link  (rewrites to portable bundled stub)');
+            } else if (!dartApiDlContent.contains('Dart_InitializeApiDL')) {
+              err(macosSec,
+                  'SPM Sources/$cppTargetName/dart_api_dl.c is a header-only stub — missing Dart_InitializeApiDL implementation',
+                  hint: 'Run: nitrogen link  (rewrites to full self-contained implementation)');
+            }
           } else {
             err(macosSec, 'SPM Sources/$cppTargetName/dart_api_dl.c missing',
                 hint: 'Run: nitrogen link');
@@ -1426,6 +1446,75 @@ class DoctorCommand extends Command {
           ok(cppSec, '.clangd includes generated/cpp/test/ (GoogleMock IDE support)');
         } else {
           info(cppSec, 'Run: nitrogen link (adds generated/cpp/test/ to .clangd for IDE mock support)');
+        }
+      }
+    }
+
+    // ── Example App CocoaPods/SPM conflict ─────────────────────────────────────
+    // Detects the broken state where example/ios (or example/macos) has
+    // project.pbxproj references to Pods_Runner.framework but no Podfile —
+    // causing "Framework 'Pods_Runner' not found" at build time.
+    if (Platform.isMacOS) {
+      final exampleDir = Directory(p.join(root.path, 'example'));
+      if (exampleDir.existsSync()) {
+        final exSec = DoctorSection('Example App (CocoaPods/SPM)');
+        sections.add(exSec);
+
+        for (final platform in ['ios', 'macos']) {
+          final platformDir = Directory(p.join(exampleDir.path, platform));
+          if (!platformDir.existsSync()) {
+            info(exSec, 'example/$platform/ not present — skipped');
+            continue;
+          }
+
+          // Find project.pbxproj
+          final xcodeprojDirs = platformDir
+              .listSync()
+              .whereType<Directory>()
+              .where((d) => d.path.endsWith('.xcodeproj'))
+              .toList();
+          if (xcodeprojDirs.isEmpty) {
+            info(exSec, 'example/$platform/: no .xcodeproj found — skipped');
+            continue;
+          }
+          final pbxproj = File(p.join(xcodeprojDirs.first.path, 'project.pbxproj'));
+          if (!pbxproj.existsSync()) {
+            info(exSec, 'example/$platform/: project.pbxproj not found — skipped');
+            continue;
+          }
+
+          final pbxContent = pbxproj.readAsStringSync();
+          final hasPodsRunner = pbxContent.contains('Pods_Runner.framework');
+          final podfile = File(p.join(platformDir.path, 'Podfile'));
+          final hasPodfile = podfile.existsSync();
+          final podfileLock = File(p.join(platformDir.path, 'Podfile.lock'));
+          final hasPodfileLock = podfileLock.existsSync();
+
+          if (!hasPodsRunner) {
+            ok(exSec, 'example/$platform/: no Pods_Runner.framework reference (clean SPM-only setup)');
+          } else if (!hasPodfile) {
+            err(
+              exSec,
+              'example/$platform/: project.pbxproj references Pods_Runner.framework but Podfile is missing',
+              hint: hasPodfileLock
+                  ? 'Podfile.lock exists but Podfile was deleted. Recreate it then run: cd example/$platform && pod install'
+                  : 'Run: flutter pub get  (regenerates Podfile), then: cd example/$platform && pod install',
+            );
+          } else {
+            // Podfile exists — check if Pods have been installed (framework built)
+            final podsDir = Directory(p.join(platformDir.path, 'Pods'));
+            final podsBuilt = podsDir.existsSync() &&
+                podsDir.listSync().whereType<Directory>().any((d) => d.path.contains('Pods.xcodeproj'));
+            if (podsBuilt) {
+              ok(exSec, 'example/$platform/: Podfile present and pods installed');
+            } else {
+              warn(
+                exSec,
+                'example/$platform/: Podfile present but pods not installed',
+                hint: 'Run: cd example/$platform && pod install',
+              );
+            }
+          }
         }
       }
     }

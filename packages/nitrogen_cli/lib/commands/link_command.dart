@@ -1309,10 +1309,12 @@ void linkPodspec(
   final sourceFilesMatch = RegExp(r"s\.source_files\s*=\s*'([^']+)'").firstMatch(content);
   if (sourceFilesMatch != null && sourceFilesMatch.group(1) != 'Classes/**/*') {
     final badPath = sourceFilesMatch.group(1)!;
-    // Only fix when the first segment is not 'Classes' and doesn't exist on disk.
+    // Fix any non-Classes path. Flutter's SPM-first template generates paths like
+    // '<plugin>/Sources/<plugin>/**/*'; for SPM-layout plugins the first directory
+    // segment exists on disk even though the glob matches nothing, so we cannot
+    // rely on existsSync() to detect the bad path — always normalize.
     final firstSegment = badPath.split('/').first;
-    final firstDir = Directory(p.join(podspecFile.parent.path, firstSegment));
-    if (firstSegment != 'Classes' && !firstDir.existsSync()) {
+    if (firstSegment != 'Classes') {
       content = content.replaceFirst(
         sourceFilesMatch.group(0)!,
         "s.source_files = 'Classes/**/*'",
@@ -1497,9 +1499,10 @@ void linkMacosPodspec(
   final sourceFilesMatchMacos = RegExp(r"s\.source_files\s*=\s*'([^']+)'").firstMatch(content);
   if (sourceFilesMatchMacos != null && sourceFilesMatchMacos.group(1) != 'Classes/**/*') {
     final badPath = sourceFilesMatchMacos.group(1)!;
+    // Fix any non-Classes path regardless of whether the first directory exists —
+    // for SPM-layout plugins the directory exists but the glob still matches nothing.
     final firstSegment = badPath.split('/').first;
-    final firstDir = Directory(p.join(podspecFile.parent.path, firstSegment));
-    if (firstSegment != 'Classes' && !firstDir.existsSync()) {
+    if (firstSegment != 'Classes') {
       content = content.replaceFirst(
         sourceFilesMatchMacos.group(0)!,
         "s.source_files = 'Classes/**/*'",
@@ -2010,11 +2013,11 @@ void _syncCppModuleSourcesToSpm(
       }
     }
 
-    // dart_api_dl.c — use the absolute resolved nitro path for reliability.
-    // This avoids the relative .symlinks path written by init which is only
-    // valid in a CocoaPods build tree, not in SPM.
+    // dart_api_dl.c — write a portable self-contained stub that includes only
+    // the local header copies in include/. The old forwarder embedded an
+    // absolute machine-specific path which broke on other machines / CI.
     File(p.join(cppTargetDir.path, 'dart_api_dl.c'))
-        .writeAsStringSync(dartApiDlForwarderContent(nitroNativePath));
+        .writeAsStringSync(bundledDartApiDlContent);
 
     // 1. Link the main plugin stub file.
     if (mainCppFile.existsSync()) {

@@ -5,7 +5,7 @@ import 'package:nocterm/nocterm.dart';
 import 'package:path/path.dart' as p;
 import '../ui.dart';
 import 'link_command.dart' show resolveNitroNativePath, createSharedHeaders;
-import '../templates/native_headers.dart' show dartApiDlForwarderContent;
+import '../templates/native_headers.dart' show dartApiDlForwarderContent, bundledDartApiDlContent;
 import '../templates/scaffold_templates.dart';
 import '../templates/podspec_templates.dart';
 import '../templates/forwarder_templates.dart';
@@ -639,12 +639,8 @@ class _InitViewState extends State<InitView> {
     // C++ target: real forwarder files (NOT symlinks to Classes).
     // Symlinks would expose Swift files via the include/ path and cause SPM
     // "mixed language source files" errors.
-    final isIos = !path.endsWith('macos');
-
     File(p.join(cppSrcDir.path, '$pluginName.cpp')).writeAsStringSync(spmCppClassesForwarder(pluginName));
-    File(p.join(cppSrcDir.path, 'dart_api_dl.c')).writeAsStringSync(
-      isIos ? spmIosDartApiDlForwarder : spmMacosDartApiDlForwarder,
-    );
+    File(p.join(cppSrcDir.path, 'dart_api_dl.c')).writeAsStringSync(bundledDartApiDlContent);
 
     File(p.join(cppSrcDir.path, '$pluginName.bridge.g.mm')).writeAsStringSync(spmBridgeMmForwarder(pluginName));
 

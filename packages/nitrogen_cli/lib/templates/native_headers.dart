@@ -32,11 +32,88 @@ typedef struct {
 #endif
 ''';
 
+/// Portable self-contained `dart_api_dl.c` for SPM targets.
+///
+/// This is the complete Dart VM DL API implementation inlined so the SPM
+/// target has no dependency on an external path. Header files (dart_api_dl.h,
+/// dart_version.h, internal/dart_api_dl_impl.h) must exist in the SPM
+/// target's `include/` directory — `nitrogen link` writes them there.
+/// Compiled as plain C (not C++) by SPM because of the `.c` extension.
+const String bundledDartApiDlContent = r'''/*
+ * Copyright (c) 2020, the Dart project authors.  Please see the AUTHORS file
+ * for details. All rights reserved. Use of this source code is governed by a
+ * BSD-style license that can be found in the LICENSE file.
+ */
+
+/* Bundled by nitrogen — full self-contained implementation, no external path. */
+#include "dart_api_dl.h"               /* NOLINT */
+#include "dart_version.h"              /* NOLINT */
+#include "internal/dart_api_dl_impl.h" /* NOLINT */
+
+#include <stdio.h>
+#include <string.h>
+
+#define DART_API_DL_DEFINITIONS(name, R, A) name##_Type name##_DL = NULL;
+
+DART_API_ALL_DL_SYMBOLS(DART_API_DL_DEFINITIONS)
+DART_API_DEPRECATED_DL_SYMBOLS(DART_API_DL_DEFINITIONS)
+
+#undef DART_API_DL_DEFINITIONS
+
+typedef void* DartApiEntry_function;
+
+DartApiEntry_function FindFunctionPointer(const DartApiEntry* entries,
+                                          const char* name) {
+  while (entries->name != NULL) {
+    if (strcmp(entries->name, name) == 0) return entries->function;
+    entries++;
+  }
+  return NULL;
+}
+
+DART_EXPORT void Dart_UpdateExternalSize_Deprecated(
+    Dart_WeakPersistentHandle object, intptr_t external_size) {
+  printf("Dart_UpdateExternalSize is a nop, it has been deprecated\n");
+}
+
+DART_EXPORT void Dart_UpdateFinalizableExternalSize_Deprecated(
+    Dart_FinalizableHandle object,
+    Dart_Handle strong_ref_to_object,
+    intptr_t external_allocation_size) {
+  printf("Dart_UpdateFinalizableExternalSize is a nop, "
+         "it has been deprecated\n");
+}
+
+intptr_t Dart_InitializeApiDL(void* data) {
+  DartApi* dart_api_data = (DartApi*)data;
+
+  if (dart_api_data->major != DART_API_DL_MAJOR_VERSION) {
+    return -1;
+  }
+
+  const DartApiEntry* dart_api_function_pointers = dart_api_data->functions;
+
+#define DART_API_DL_INIT(name, R, A)                                           \
+  name##_DL =                                                                  \
+      (name##_Type)(FindFunctionPointer(dart_api_function_pointers, #name));
+  DART_API_ALL_DL_SYMBOLS(DART_API_DL_INIT)
+#undef DART_API_DL_INIT
+
+#define DART_API_DEPRECATED_DL_INIT(name, R, A)                                \
+  name##_DL = name##_Deprecated;
+  DART_API_DEPRECATED_DL_SYMBOLS(DART_API_DEPRECATED_DL_INIT)
+#undef DART_API_DEPRECATED_DL_INIT
+
+  return 0;
+}
+''';
+
 /// Returns the content of a `dart_api_dl.c` forwarder that includes the real
 /// file from the resolved nitro native path.
 ///
-/// The forwarder is compiled as plain C (not C++) because the void*/function-pointer
-/// casts inside `dart_api_dl.c` would be rejected by a C++ compiler.
+/// Prefer [bundledDartApiDlContent] for SPM targets. Use this forwarder only
+/// for the legacy `src/dart_api_dl.c` (CocoaPods / CMake) path where the
+/// nitro native path is always available on the local machine.
 String dartApiDlForwarderContent(String nitroNativePath) {
   final includePath = nitroNativePath
       .replaceAll(r'\', '/')

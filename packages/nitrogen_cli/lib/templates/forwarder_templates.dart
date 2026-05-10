@@ -63,18 +63,6 @@ const String srcDartApiDlInitForwarder =
     '// Run `nitrogen link` to update this path after `flutter pub get`.\n'
     '#include "../../packages/nitro/src/native/dart_api_dl.c"\n';
 
-/// `dart_api_dl.c` forwarder for an iOS SPM C++ target.
-/// Uses the CocoaPods `.symlinks` path (valid in a `pod install` tree).
-const String spmIosDartApiDlForwarder =
-    '// Dart DL API implementation — compiled as C (not C++) for correctness.\n'
-    '#include "../../../.symlinks/plugins/nitro/src/native/dart_api_dl.c"\n';
-
-/// `dart_api_dl.c` forwarder for a macOS SPM C++ target.
-/// Uses Flutter's macOS `ephemeral` `.symlinks` path.
-const String spmMacosDartApiDlForwarder =
-    '// Dart DL API implementation — compiled as C (not C++) for correctness.\n'
-    '#include "../../../Flutter/ephemeral/.symlinks/plugins/nitro/src/native/dart_api_dl.c"\n';
-
 /// `dart_api_dl.c` forwarder for CocoaPods ios/macos `Classes/` targets with
 /// the comment explaining why it must remain `.c`.
 const String classesIosDartApiDlForwarder =
