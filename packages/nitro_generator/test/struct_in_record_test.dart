@@ -30,10 +30,22 @@ BridgeSpec _boxesSpec() => BridgeSpec(
       name: 'BoundingBox',
       packed: false,
       fields: [
-        BridgeField(name: 'x', type: BridgeType(name: 'double')),
-        BridgeField(name: 'y', type: BridgeType(name: 'double')),
-        BridgeField(name: 'w', type: BridgeType(name: 'double')),
-        BridgeField(name: 'h', type: BridgeType(name: 'double')),
+        BridgeField(
+          name: 'x',
+          type: BridgeType(name: 'double'),
+        ),
+        BridgeField(
+          name: 'y',
+          type: BridgeType(name: 'double'),
+        ),
+        BridgeField(
+          name: 'w',
+          type: BridgeType(name: 'double'),
+        ),
+        BridgeField(
+          name: 'h',
+          type: BridgeType(name: 'double'),
+        ),
       ],
     ),
   ],
@@ -66,9 +78,18 @@ BridgeSpec _singleStructFieldSpec() => BridgeSpec(
       name: 'Point3D',
       packed: false,
       fields: [
-        BridgeField(name: 'x', type: BridgeType(name: 'double')),
-        BridgeField(name: 'y', type: BridgeType(name: 'double')),
-        BridgeField(name: 'z', type: BridgeType(name: 'double')),
+        BridgeField(
+          name: 'x',
+          type: BridgeType(name: 'double'),
+        ),
+        BridgeField(
+          name: 'y',
+          type: BridgeType(name: 'double'),
+        ),
+        BridgeField(
+          name: 'z',
+          type: BridgeType(name: 'double'),
+        ),
       ],
     ),
   ],
@@ -107,16 +128,28 @@ BridgeSpec _transitiveNestedSpec() => BridgeSpec(
       name: 'Vec2',
       packed: false,
       fields: [
-        BridgeField(name: 'x', type: BridgeType(name: 'double')),
-        BridgeField(name: 'y', type: BridgeType(name: 'double')),
+        BridgeField(
+          name: 'x',
+          type: BridgeType(name: 'double'),
+        ),
+        BridgeField(
+          name: 'y',
+          type: BridgeType(name: 'double'),
+        ),
       ],
     ),
     BridgeStruct(
       name: 'Line',
       packed: false,
       fields: [
-        BridgeField(name: 'start', type: BridgeType(name: 'Vec2')),
-        BridgeField(name: 'end',   type: BridgeType(name: 'Vec2')),
+        BridgeField(
+          name: 'start',
+          type: BridgeType(name: 'Vec2'),
+        ),
+        BridgeField(
+          name: 'end',
+          type: BridgeType(name: 'Vec2'),
+        ),
       ],
     ),
   ],
@@ -149,10 +182,22 @@ BridgeSpec _allPrimitiveFieldsSpec() => BridgeSpec(
       name: 'AllTypes',
       packed: false,
       fields: [
-        BridgeField(name: 'n',  type: BridgeType(name: 'int')),
-        BridgeField(name: 'd',  type: BridgeType(name: 'double')),
-        BridgeField(name: 'ok', type: BridgeType(name: 'bool')),
-        BridgeField(name: 's',  type: BridgeType(name: 'String')),
+        BridgeField(
+          name: 'n',
+          type: BridgeType(name: 'int'),
+        ),
+        BridgeField(
+          name: 'd',
+          type: BridgeType(name: 'double'),
+        ),
+        BridgeField(
+          name: 'ok',
+          type: BridgeType(name: 'bool'),
+        ),
+        BridgeField(
+          name: 's',
+          type: BridgeType(name: 'String'),
+        ),
       ],
     ),
   ],
@@ -388,7 +433,7 @@ void main() {
     late String kotlin;
 
     setUp(() {
-      dart   = RecordGenerator.generateDartExtensions(_singleStructFieldSpec());
+      dart = RecordGenerator.generateDartExtensions(_singleStructFieldSpec());
       kotlin = RecordGenerator.generateKotlin(_singleStructFieldSpec());
     });
 
@@ -538,7 +583,12 @@ void main() {
           BridgeStruct(
             name: 'UnusedStruct',
             packed: false,
-            fields: [BridgeField(name: 'v', type: BridgeType(name: 'double'))],
+            fields: [
+              BridgeField(
+                name: 'v',
+                type: BridgeType(name: 'double'),
+              ),
+            ],
           ),
         ],
         recordTypes: [

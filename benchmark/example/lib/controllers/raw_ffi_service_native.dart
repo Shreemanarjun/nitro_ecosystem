@@ -38,17 +38,23 @@ class RawFfiService {
     try {
       _cppDylib = NitroRuntime.loadLib('benchmark_cpp');
       _cppRawAdd = _cppDylib!
-          .lookupFunction<Double Function(Double, Double), double Function(double, double)>(
-              'add_double');
+          .lookupFunction<
+            Double Function(Double, Double),
+            double Function(double, double)
+          >('add_double');
       try {
-        _sendBuffer = _cppDylib!.lookupFunction<
-            Int64 Function(Pointer<Uint8>, Int64),
-            int Function(Pointer<Uint8>, int)>('send_large_buffer');
+        _sendBuffer = _cppDylib!
+            .lookupFunction<
+              Int64 Function(Pointer<Uint8>, Int64),
+              int Function(Pointer<Uint8>, int)
+            >('send_large_buffer');
       } catch (_) {}
       try {
-        _sendBufferNoop = _cppDylib!.lookupFunction<
-            Int64 Function(Pointer<Uint8>, Int64),
-            int Function(Pointer<Uint8>, int)>('send_large_buffer_noop');
+        _sendBufferNoop = _cppDylib!
+            .lookupFunction<
+              Int64 Function(Pointer<Uint8>, Int64),
+              int Function(Pointer<Uint8>, int)
+            >('send_large_buffer_noop');
       } catch (_) {}
     } catch (_) {}
   }

@@ -13,14 +13,7 @@ library;
 import 'dart:io';
 
 import 'package:nitrogen_cli/commands/link_command.dart'
-    show
-        linkSwiftPlugin,
-        linkMacosSwiftPlugin,
-        linkKotlinPlugin,
-        linkKotlinLoadLibraries,
-        linkPodspec,
-        createSharedHeaders,
-        ModuleInfo;
+    show linkSwiftPlugin, linkMacosSwiftPlugin, linkKotlinPlugin, linkKotlinLoadLibraries, linkPodspec, createSharedHeaders, ModuleInfo;
 import 'package:nitrogen_cli/commands/scaffold_templates.dart';
 import 'package:nitrogen_cli/templates/native_headers.dart' show bundledDartApiDlContent;
 import 'package:path/path.dart' as p;
@@ -32,12 +25,10 @@ import 'package:test/test.dart';
 String get _repoRoot => p.normalize(p.join(Directory.current.path, '..', '..'));
 
 /// The pre-built fixture project under test_projects/.
-Directory get _fixture =>
-    Directory(p.join(_repoRoot, 'test_projects', 'testing_project'));
+Directory get _fixture => Directory(p.join(_repoRoot, 'test_projects', 'testing_project'));
 
 /// The local nitro package native sources path (used to seed headers).
-String get _nitroNativePath =>
-    p.join(_repoRoot, 'packages', 'nitro', 'src', 'native');
+String get _nitroNativePath => p.join(_repoRoot, 'packages', 'nitro', 'src', 'native');
 
 /// Copies [src] recursively to [dst], following symlinks for files.
 void _copyDir(Directory src, Directory dst) {
@@ -60,8 +51,7 @@ void _copyDir(Directory src, Directory dst) {
 /// `flutter create --template=plugin_ffi` + `nitrogen init` would produce.
 /// Does NOT require the Flutter SDK.
 void _scaffoldPlugin(Directory root, String name, String org) {
-  final className =
-      name.split('_').map((w) => w.isEmpty ? '' : '${w[0].toUpperCase()}${w.substring(1)}').join('');
+  final className = name.split('_').map((w) => w.isEmpty ? '' : '${w[0].toUpperCase()}${w.substring(1)}').join('');
 
   // pubspec.yaml
   File(p.join(root.path, 'pubspec.yaml')).writeAsStringSync('''
@@ -93,106 +83,82 @@ flutter:
   // src/
   final srcDir = Directory(p.join(root.path, 'src'))..createSync(recursive: true);
   File(p.join(srcDir.path, '$name.cpp')).writeAsStringSync(pluginCppTemplate(name));
-  File(p.join(srcDir.path, 'dart_api_dl.c'))
-      .writeAsStringSync('// placeholder\n#include "../../packages/nitro/src/native/dart_api_dl.c"\n');
+  File(p.join(srcDir.path, 'dart_api_dl.c')).writeAsStringSync('// placeholder\n#include "../../packages/nitro/src/native/dart_api_dl.c"\n');
   File(p.join(srcDir.path, 'CMakeLists.txt')).writeAsStringSync(cmakeListsTemplate(name));
 
   // ios/Classes/
   final iosClasses = Directory(p.join(root.path, 'ios', 'Classes'))..createSync(recursive: true);
   File(p.join(iosClasses.path, '$name.cpp')).writeAsStringSync('#include "../../src/$name.cpp"\n');
-  File(p.join(iosClasses.path, 'dart_api_dl.c'))
-      .writeAsStringSync('// Forwarder\n#include "../../src/dart_api_dl.c"\n');
-  File(p.join(iosClasses.path, 'Swift${className}Plugin.swift'))
-      .writeAsStringSync(iosSwiftPluginTemplate(className));
-  File(p.join(iosClasses.path, '${className}Impl.swift'))
-      .writeAsStringSync(iosSwiftImplTemplate(className));
+  File(p.join(iosClasses.path, 'dart_api_dl.c')).writeAsStringSync('// Forwarder\n#include "../../src/dart_api_dl.c"\n');
+  File(p.join(iosClasses.path, 'Swift${className}Plugin.swift')).writeAsStringSync(iosSwiftPluginTemplate(className));
+  File(p.join(iosClasses.path, '${className}Impl.swift')).writeAsStringSync(iosSwiftImplTemplate(className));
 
   // ios/Classes/<name>.bridge.g.swift symlink (dangling before generate)
-  Link(p.join(iosClasses.path, '$name.bridge.g.swift'))
-      .createSync('../../lib/src/generated/swift/$name.bridge.g.swift');
+  Link(p.join(iosClasses.path, '$name.bridge.g.swift')).createSync('../../lib/src/generated/swift/$name.bridge.g.swift');
 
   // ios/<name>/Package.swift (nested SPM layout)
-  final iosPackageDir =
-      Directory(p.join(root.path, 'ios', name))..createSync(recursive: true);
-  final iosSwiftSrc =
-      Directory(p.join(iosPackageDir.path, 'Sources', className))..createSync(recursive: true);
-  final iosCppSrc =
-      Directory(p.join(iosPackageDir.path, 'Sources', '${className}Cpp'))
-        ..createSync(recursive: true);
+  final iosPackageDir = Directory(p.join(root.path, 'ios', name))..createSync(recursive: true);
+  final iosSwiftSrc = Directory(p.join(iosPackageDir.path, 'Sources', className))..createSync(recursive: true);
+  final iosCppSrc = Directory(p.join(iosPackageDir.path, 'Sources', '${className}Cpp'))..createSync(recursive: true);
   Directory(p.join(iosCppSrc.path, 'include')).createSync(recursive: true);
 
   // SPM symlinks
   for (final fn in ['Swift${className}Plugin.swift', '${className}Impl.swift', '$name.bridge.g.swift']) {
-    try { Link(p.join(iosSwiftSrc.path, fn)).createSync('../../../Classes/$fn'); } catch (_) {}
+    try {
+      Link(p.join(iosSwiftSrc.path, fn)).createSync('../../../Classes/$fn');
+    } catch (_) {}
   }
-  File(p.join(iosCppSrc.path, '$name.cpp'))
-      .writeAsStringSync('// Generated by nitrogen init\n#include "../../../Classes/$name.cpp"\n');
-  File(p.join(iosCppSrc.path, 'dart_api_dl.c'))
-      .writeAsStringSync(bundledDartApiDlContent);
+  File(p.join(iosCppSrc.path, '$name.cpp')).writeAsStringSync('// Generated by nitrogen init\n#include "../../../Classes/$name.cpp"\n');
+  File(p.join(iosCppSrc.path, 'dart_api_dl.c')).writeAsStringSync(bundledDartApiDlContent);
   // bridge.g.mm — created by nitrogen init; nitrogen link rewrites with resolved paths.
-  File(p.join(iosCppSrc.path, '$name.bridge.g.mm'))
-      .writeAsStringSync('// Generated by nitrogen init — do not edit.\n'
-          '#import <Foundation/Foundation.h>\n'
-          '#include "../../../../lib/src/generated/cpp/$name.bridge.g.cpp"\n');
-  File(p.join(iosPackageDir.path, 'Package.swift'))
-      .writeAsStringSync(packageSwiftTemplate(name, className, 'iOS(.v13)'));
+  File(p.join(iosCppSrc.path, '$name.bridge.g.mm')).writeAsStringSync(
+    '// Generated by nitrogen init — do not edit.\n'
+    '#import <Foundation/Foundation.h>\n'
+    '#include "../../../../lib/src/generated/cpp/$name.bridge.g.cpp"\n',
+  );
+  File(p.join(iosPackageDir.path, 'Package.swift')).writeAsStringSync(packageSwiftTemplate(name, className, 'iOS(.v13)'));
 
   // macos/Classes/ + macos/<name>/Package.swift
-  final macosClasses =
-      Directory(p.join(root.path, 'macos', 'Classes'))..createSync(recursive: true);
+  final macosClasses = Directory(p.join(root.path, 'macos', 'Classes'))..createSync(recursive: true);
   File(p.join(macosClasses.path, '$name.cpp')).writeAsStringSync('#include "../../src/$name.cpp"\n');
-  File(p.join(macosClasses.path, 'dart_api_dl.c'))
-      .writeAsStringSync('// Forwarder\n#include "../../src/dart_api_dl.c"\n');
-  File(p.join(macosClasses.path, 'Swift${className}Plugin.swift'))
-      .writeAsStringSync(macosSwiftPluginTemplate(className));
-  File(p.join(macosClasses.path, '${className}Impl.swift'))
-      .writeAsStringSync(macosSwiftImplTemplate(className));
-  Link(p.join(macosClasses.path, '$name.bridge.g.swift'))
-      .createSync('../../lib/src/generated/swift/$name.bridge.g.swift');
+  File(p.join(macosClasses.path, 'dart_api_dl.c')).writeAsStringSync('// Forwarder\n#include "../../src/dart_api_dl.c"\n');
+  File(p.join(macosClasses.path, 'Swift${className}Plugin.swift')).writeAsStringSync(macosSwiftPluginTemplate(className));
+  File(p.join(macosClasses.path, '${className}Impl.swift')).writeAsStringSync(macosSwiftImplTemplate(className));
+  Link(p.join(macosClasses.path, '$name.bridge.g.swift')).createSync('../../lib/src/generated/swift/$name.bridge.g.swift');
 
-  final macosPackageDir =
-      Directory(p.join(root.path, 'macos', name))..createSync(recursive: true);
-  final macosSwiftSrc =
-      Directory(p.join(macosPackageDir.path, 'Sources', className))..createSync(recursive: true);
-  final macosCppSrc =
-      Directory(p.join(macosPackageDir.path, 'Sources', '${className}Cpp'))
-        ..createSync(recursive: true);
+  final macosPackageDir = Directory(p.join(root.path, 'macos', name))..createSync(recursive: true);
+  final macosSwiftSrc = Directory(p.join(macosPackageDir.path, 'Sources', className))..createSync(recursive: true);
+  final macosCppSrc = Directory(p.join(macosPackageDir.path, 'Sources', '${className}Cpp'))..createSync(recursive: true);
   Directory(p.join(macosCppSrc.path, 'include')).createSync(recursive: true);
 
   for (final fn in ['Swift${className}Plugin.swift', '${className}Impl.swift', '$name.bridge.g.swift']) {
-    try { Link(p.join(macosSwiftSrc.path, fn)).createSync('../../../Classes/$fn'); } catch (_) {}
+    try {
+      Link(p.join(macosSwiftSrc.path, fn)).createSync('../../../Classes/$fn');
+    } catch (_) {}
   }
-  File(p.join(macosCppSrc.path, '$name.cpp'))
-      .writeAsStringSync('// Generated by nitrogen init\n#include "../../../Classes/$name.cpp"\n');
-  File(p.join(macosCppSrc.path, 'dart_api_dl.c'))
-      .writeAsStringSync(bundledDartApiDlContent);
+  File(p.join(macosCppSrc.path, '$name.cpp')).writeAsStringSync('// Generated by nitrogen init\n#include "../../../Classes/$name.cpp"\n');
+  File(p.join(macosCppSrc.path, 'dart_api_dl.c')).writeAsStringSync(bundledDartApiDlContent);
   // bridge.g.mm — created by nitrogen init; nitrogen link rewrites with resolved paths.
-  File(p.join(macosCppSrc.path, '$name.bridge.g.mm'))
-      .writeAsStringSync('// Generated by nitrogen init — do not edit.\n'
-          '#import <Foundation/Foundation.h>\n'
-          '#include "../../../../lib/src/generated/cpp/$name.bridge.g.cpp"\n');
-  File(p.join(macosPackageDir.path, 'Package.swift'))
-      .writeAsStringSync(packageSwiftTemplate(name, className, 'macOS(.v10_15)', isMacos: true));
+  File(p.join(macosCppSrc.path, '$name.bridge.g.mm')).writeAsStringSync(
+    '// Generated by nitrogen init — do not edit.\n'
+    '#import <Foundation/Foundation.h>\n'
+    '#include "../../../../lib/src/generated/cpp/$name.bridge.g.cpp"\n',
+  );
+  File(p.join(macosPackageDir.path, 'Package.swift')).writeAsStringSync(packageSwiftTemplate(name, className, 'macOS(.v10_15)', isMacos: true));
 
   // android/
   final orgPath = org.replaceAll('.', p.separator);
-  final kotlinDir = Directory(p.join(root.path, 'android', 'src', 'main', 'kotlin', orgPath, name))
-    ..createSync(recursive: true);
+  final kotlinDir = Directory(p.join(root.path, 'android', 'src', 'main', 'kotlin', orgPath, name))..createSync(recursive: true);
   final moduleName = '${name}_module';
-  File(p.join(root.path, 'android', 'build.gradle'))
-      .writeAsStringSync(androidBuildGradleTemplate(org, name));
-  File(p.join(kotlinDir.path, '${className}Plugin.kt'))
-      .writeAsStringSync(androidPluginKtTemplate(org, name, className, moduleName));
-  File(p.join(kotlinDir.path, '${className}Impl.kt'))
-      .writeAsStringSync(androidImplKtTemplate(org, name, className, moduleName));
+  File(p.join(root.path, 'android', 'build.gradle')).writeAsStringSync(androidBuildGradleTemplate(org, name));
+  File(p.join(kotlinDir.path, '${className}Plugin.kt')).writeAsStringSync(androidPluginKtTemplate(org, name, className, moduleName));
+  File(p.join(kotlinDir.path, '${className}Impl.kt')).writeAsStringSync(androidImplKtTemplate(org, name, className, moduleName));
 
   // lib/src/<name>.native.dart
   final libSrc = Directory(p.join(root.path, 'lib', 'src'))..createSync(recursive: true);
   const annotation = '@NitroModule(ios: NativeImpl.swift, android: NativeImpl.kotlin, macos: NativeImpl.swift)';
-  File(p.join(libSrc.path, '$name.native.dart'))
-      .writeAsStringSync(nativeDartTemplate(name, className, annotation));
-  File(p.join(root.path, 'lib', '$name.dart'))
-      .writeAsStringSync("export 'src/$name.native.dart';\n");
+  File(p.join(libSrc.path, '$name.native.dart')).writeAsStringSync(nativeDartTemplate(name, className, annotation));
+  File(p.join(root.path, 'lib', '$name.dart')).writeAsStringSync("export 'src/$name.native.dart';\n");
 
   // lib/src/generated/swift + cpp + kotlin (stubs — link will populate include/)
   Directory(p.join(libSrc.path, 'generated', 'swift')).createSync(recursive: true);
@@ -310,11 +276,7 @@ void main() {
 
   // ── 2. nitrogen init — fixture file structure ─────────────────────────────────
 
-  group(
-    'nitrogen init — testing_project fixture structure',
-    skip: _fixture.existsSync() ? null : 'test_projects/testing_project not found — run from monorepo root',
-    () {
-
+  group('nitrogen init — testing_project fixture structure', skip: _fixture.existsSync() ? null : 'test_projects/testing_project not found — run from monorepo root', () {
     test('pubspec.yaml declares nitro dependency', () {
       final pubspec = File(p.join(_fixture.path, 'pubspec.yaml'));
       expect(pubspec.existsSync(), isTrue);
@@ -342,8 +304,7 @@ void main() {
 
     test('ios/<name>/Package.swift — nested Flutter 3.41+ SPM layout', () {
       final pkg = File(p.join(_fixture.path, 'ios', 'testing_project', 'Package.swift'));
-      expect(pkg.existsSync(), isTrue,
-          reason: 'Nested Package.swift must exist at ios/testing_project/Package.swift');
+      expect(pkg.existsSync(), isTrue, reason: 'Nested Package.swift must exist at ios/testing_project/Package.swift');
       final content = pkg.readAsStringSync();
       expect(content, contains('swift-tools-version: 5.9'));
       expect(content, contains('.iOS(.v13)'));
@@ -356,23 +317,20 @@ void main() {
 
     test('ios/testing_project/Sources/TestingProject/ directory exists', () {
       expect(
-        Directory(p.join(_fixture.path, 'ios', 'testing_project', 'Sources', 'TestingProject'))
-            .existsSync(),
+        Directory(p.join(_fixture.path, 'ios', 'testing_project', 'Sources', 'TestingProject')).existsSync(),
         isTrue,
       );
     });
 
     test('ios/testing_project/Sources/TestingProjectCpp/ directory exists', () {
       expect(
-        Directory(p.join(_fixture.path, 'ios', 'testing_project', 'Sources', 'TestingProjectCpp'))
-            .existsSync(),
+        Directory(p.join(_fixture.path, 'ios', 'testing_project', 'Sources', 'TestingProjectCpp')).existsSync(),
         isTrue,
       );
     });
 
     test('ios/testing_project/Sources/TestingProjectCpp/include/ has nitro headers', () {
-      final incl = Directory(p.join(
-          _fixture.path, 'ios', 'testing_project', 'Sources', 'TestingProjectCpp', 'include'));
+      final incl = Directory(p.join(_fixture.path, 'ios', 'testing_project', 'Sources', 'TestingProjectCpp', 'include'));
       expect(incl.existsSync(), isTrue);
       expect(File(p.join(incl.path, 'dart_api.h')).existsSync(), isTrue);
       expect(File(p.join(incl.path, 'dart_api_dl.h')).existsSync(), isTrue);
@@ -411,12 +369,19 @@ void main() {
     });
 
     test('android Kotlin Plugin.kt uses JniBridge and registers impl', () {
-      final kt = File(p.join(
-        _fixture.path,
-        'android', 'src', 'main', 'kotlin',
-        'com', 'example', 'testing_project',
-        'TestingProjectPlugin.kt',
-      ));
+      final kt = File(
+        p.join(
+          _fixture.path,
+          'android',
+          'src',
+          'main',
+          'kotlin',
+          'com',
+          'example',
+          'testing_project',
+          'TestingProjectPlugin.kt',
+        ),
+      );
       expect(kt.existsSync(), isTrue);
       final content = kt.readAsStringSync();
       expect(content, contains('TestingProjectJniBridge'));
@@ -449,11 +414,7 @@ void main() {
 
   // ── 3. nitrogen generate — fixture output verification ─────────────────────
 
-  group(
-    'nitrogen generate — testing_project generated output',
-    skip: _fixture.existsSync() ? null : 'test_projects/testing_project not found',
-    () {
-
+  group('nitrogen generate — testing_project generated output', skip: _fixture.existsSync() ? null : 'test_projects/testing_project not found', () {
     test('lib/src/testing_project.g.dart — Dart FFI binding exists', () {
       final gen = File(p.join(_fixture.path, 'lib', 'src', 'testing_project.g.dart'));
       expect(gen.existsSync(), isTrue);
@@ -465,8 +426,7 @@ void main() {
     });
 
     test('lib/src/generated/swift/testing_project.bridge.g.swift — Swift bridge', () {
-      final gen = File(p.join(
-          _fixture.path, 'lib', 'src', 'generated', 'swift', 'testing_project.bridge.g.swift'));
+      final gen = File(p.join(_fixture.path, 'lib', 'src', 'generated', 'swift', 'testing_project.bridge.g.swift'));
       expect(gen.existsSync(), isTrue);
       final content = gen.readAsStringSync();
       expect(content, contains('// Generated by Nitrogen Modules'));
@@ -477,8 +437,7 @@ void main() {
     });
 
     test('lib/src/generated/kotlin/testing_project.bridge.g.kt — Kotlin bridge', () {
-      final gen = File(p.join(
-          _fixture.path, 'lib', 'src', 'generated', 'kotlin', 'testing_project.bridge.g.kt'));
+      final gen = File(p.join(_fixture.path, 'lib', 'src', 'generated', 'kotlin', 'testing_project.bridge.g.kt'));
       expect(gen.existsSync(), isTrue);
       final content = gen.readAsStringSync();
       expect(content, contains('// Generated by Nitrogen Modules'));
@@ -487,14 +446,11 @@ void main() {
     });
 
     test('lib/src/generated/cpp/ bridge files exist', () {
-      final cppDir =
-          Directory(p.join(_fixture.path, 'lib', 'src', 'generated', 'cpp'));
+      final cppDir = Directory(p.join(_fixture.path, 'lib', 'src', 'generated', 'cpp'));
       expect(cppDir.existsSync(), isTrue);
       final files = cppDir.listSync().map((e) => p.basename(e.path)).toList();
-      expect(files.any((f) => f.endsWith('.bridge.g.h')), isTrue,
-          reason: 'C++ bridge header must be generated');
-      expect(files.any((f) => f.endsWith('.bridge.g.cpp')), isTrue,
-          reason: 'C++ bridge impl must be generated');
+      expect(files.any((f) => f.endsWith('.bridge.g.h')), isTrue, reason: 'C++ bridge header must be generated');
+      expect(files.any((f) => f.endsWith('.bridge.g.cpp')), isTrue, reason: 'C++ bridge impl must be generated');
     });
 
     test('generated .g.dart has correct init symbol name', () {
@@ -505,8 +461,7 @@ void main() {
     });
 
     test('Swift bridge has @_cdecl stub with namespace prefix', () {
-      final gen = File(p.join(
-          _fixture.path, 'lib', 'src', 'generated', 'swift', 'testing_project.bridge.g.swift'));
+      final gen = File(p.join(_fixture.path, 'lib', 'src', 'generated', 'swift', 'testing_project.bridge.g.swift'));
       final content = gen.readAsStringSync();
       // @_cdecl uses _<namespace>_call_<methodName> format.
       // The testing_project spec has no explicit namespace so the generator
@@ -517,10 +472,7 @@ void main() {
 
   // ── 4. nitrogen link — integration against temp copy ─────────────────────────
 
-  group(
-    'nitrogen link — integration (temp copy of fixture)',
-    skip: _fixture.existsSync() ? null : 'test_projects/testing_project not found',
-    () {
+  group('nitrogen link — integration (temp copy of fixture)', skip: _fixture.existsSync() ? null : 'test_projects/testing_project not found', () {
     late Directory tmp;
     late Directory originalDir;
 
@@ -551,7 +503,9 @@ public class SwiftTestingProjectPlugin: NSObject, FlutterPlugin {
 
       linkSwiftPlugin(
         'testing_project',
-        [{'module': 'TestingProject', 'lib': 'testing_project'}],
+        [
+          {'module': 'TestingProject', 'lib': 'testing_project'},
+        ],
         baseDir: tmp.path,
       );
 
@@ -560,8 +514,7 @@ public class SwiftTestingProjectPlugin: NSObject, FlutterPlugin {
     });
 
     test('linkMacosSwiftPlugin injects TestingProjectRegistry.register into macos Plugin.swift', () {
-      final pluginFile = File(
-          p.join(tmp.path, 'macos', 'Classes', 'SwiftTestingProjectPlugin.swift'));
+      final pluginFile = File(p.join(tmp.path, 'macos', 'Classes', 'SwiftTestingProjectPlugin.swift'));
       pluginFile.writeAsStringSync('''
 import FlutterMacOS
 import Foundation
@@ -574,7 +527,9 @@ public class SwiftTestingProjectPlugin: NSObject, FlutterPlugin {
 
       linkMacosSwiftPlugin(
         'testing_project',
-        [{'module': 'TestingProject', 'lib': 'testing_project'}],
+        [
+          {'module': 'TestingProject', 'lib': 'testing_project'},
+        ],
         baseDir: tmp.path,
       );
 
@@ -583,12 +538,19 @@ public class SwiftTestingProjectPlugin: NSObject, FlutterPlugin {
     });
 
     test('linkKotlinPlugin injects JniBridge.register into Plugin.kt', () {
-      final pluginFile = File(p.join(
-        tmp.path,
-        'android', 'src', 'main', 'kotlin',
-        'com', 'example', 'testing_project',
-        'TestingProjectPlugin.kt',
-      ));
+      final pluginFile = File(
+        p.join(
+          tmp.path,
+          'android',
+          'src',
+          'main',
+          'kotlin',
+          'com',
+          'example',
+          'testing_project',
+          'TestingProjectPlugin.kt',
+        ),
+      );
       pluginFile.writeAsStringSync('''
 package com.example.testing_project
 
@@ -605,7 +567,9 @@ class TestingProjectPlugin : FlutterPlugin {
 
       linkKotlinPlugin(
         'testing_project',
-        [{'module': 'TestingProject', 'lib': 'testing_project'}],
+        [
+          {'module': 'TestingProject', 'lib': 'testing_project'},
+        ],
         baseDir: tmp.path,
       );
 
@@ -615,12 +579,19 @@ class TestingProjectPlugin : FlutterPlugin {
     });
 
     test('linkKotlinLoadLibraries injects System.loadLibrary when missing', () {
-      final pluginFile = File(p.join(
-        tmp.path,
-        'android', 'src', 'main', 'kotlin',
-        'com', 'example', 'testing_project',
-        'TestingProjectPlugin.kt',
-      ));
+      final pluginFile = File(
+        p.join(
+          tmp.path,
+          'android',
+          'src',
+          'main',
+          'kotlin',
+          'com',
+          'example',
+          'testing_project',
+          'TestingProjectPlugin.kt',
+        ),
+      );
       // The fixture should already have it; verify idempotent
       linkKotlinLoadLibraries(['testing_project'], baseDir: tmp.path);
       final after = pluginFile.readAsStringSync();
@@ -642,17 +613,20 @@ class TestingProjectPlugin : FlutterPlugin {
       );
 
       for (final platform in ['ios', 'macos']) {
-        final mm = File(p.join(
-          tmp.path, platform, 'testing_project', 'Sources',
-          'TestingProjectCpp', 'testing_project.bridge.g.mm',
-        ));
-        expect(mm.existsSync(), isTrue,
-            reason: '$platform bridge.g.mm forwarder must exist so the C bridge symbols are compiled under SPM');
+        final mm = File(
+          p.join(
+            tmp.path,
+            platform,
+            'testing_project',
+            'Sources',
+            'TestingProjectCpp',
+            'testing_project.bridge.g.mm',
+          ),
+        );
+        expect(mm.existsSync(), isTrue, reason: '$platform bridge.g.mm forwarder must exist so the C bridge symbols are compiled under SPM');
         final content = mm.readAsStringSync();
-        expect(content, contains('#import <Foundation/Foundation.h>'),
-            reason: 'Foundation import is required for NSException in the @catch blocks');
-        expect(content, contains('testing_project.bridge.g.cpp'),
-            reason: 'forwarder must include the generated bridge .cpp');
+        expect(content, contains('#import <Foundation/Foundation.h>'), reason: 'Foundation import is required for NSException in the @catch blocks');
+        expect(content, contains('testing_project.bridge.g.cpp'), reason: 'forwarder must include the generated bridge .cpp');
       }
     });
 
@@ -662,9 +636,16 @@ class TestingProjectPlugin : FlutterPlugin {
       // generate, the bridge.g.mm was never created and the app crashed with
       // "Failed to lookup symbol '<plugin>_init_dart_api_dl'".
       // Now link must write the forwarder unconditionally.
-      final bridgeCpp = File(p.join(
-        tmp.path, 'lib', 'src', 'generated', 'cpp', 'testing_project.bridge.g.cpp',
-      ));
+      final bridgeCpp = File(
+        p.join(
+          tmp.path,
+          'lib',
+          'src',
+          'generated',
+          'cpp',
+          'testing_project.bridge.g.cpp',
+        ),
+      );
       if (bridgeCpp.existsSync()) bridgeCpp.deleteSync();
 
       linkPodspec(
@@ -675,20 +656,23 @@ class TestingProjectPlugin : FlutterPlugin {
       );
 
       for (final platform in ['ios', 'macos']) {
-        final mm = File(p.join(
-          tmp.path, platform, 'testing_project', 'Sources',
-          'TestingProjectCpp', 'testing_project.bridge.g.mm',
-        ));
-        expect(mm.existsSync(), isTrue,
-            reason: '$platform bridge.g.mm must be written even before nitrogen generate is run');
-        expect(mm.readAsStringSync(), contains('testing_project.bridge.g.cpp'),
-            reason: 'forwarder path must reference the (not-yet-generated) bridge .cpp');
+        final mm = File(
+          p.join(
+            tmp.path,
+            platform,
+            'testing_project',
+            'Sources',
+            'TestingProjectCpp',
+            'testing_project.bridge.g.mm',
+          ),
+        );
+        expect(mm.existsSync(), isTrue, reason: '$platform bridge.g.mm must be written even before nitrogen generate is run');
+        expect(mm.readAsStringSync(), contains('testing_project.bridge.g.cpp'), reason: 'forwarder path must reference the (not-yet-generated) bridge .cpp');
       }
     });
 
     test('createSharedHeaders populates ios include/ with dart_api.h and nitro.h', () {
-      final includeDir = Directory(p.join(
-          tmp.path, 'ios', 'testing_project', 'Sources', 'TestingProjectCpp', 'include'));
+      final includeDir = Directory(p.join(tmp.path, 'ios', 'testing_project', 'Sources', 'TestingProjectCpp', 'include'));
       // Clear existing headers to test that createSharedHeaders re-populates
       if (includeDir.existsSync()) {
         for (final f in includeDir.listSync().whereType<File>()) {
@@ -702,25 +686,21 @@ class TestingProjectPlugin : FlutterPlugin {
 
       // Both ios and macos include dirs should now have the headers
       for (final platform in ['ios', 'macos']) {
-        final incl = Directory(p.join(
-            tmp.path, platform, 'testing_project', 'Sources', 'TestingProjectCpp', 'include'));
-        expect(File(p.join(incl.path, 'dart_api.h')).existsSync(), isTrue,
-            reason: '$platform include/dart_api.h must exist after createSharedHeaders');
-        expect(File(p.join(incl.path, 'nitro.h')).existsSync(), isTrue,
-            reason: '$platform include/nitro.h must exist after createSharedHeaders');
+        final incl = Directory(p.join(tmp.path, platform, 'testing_project', 'Sources', 'TestingProjectCpp', 'include'));
+        expect(File(p.join(incl.path, 'dart_api.h')).existsSync(), isTrue, reason: '$platform include/dart_api.h must exist after createSharedHeaders');
+        expect(File(p.join(incl.path, 'nitro.h')).existsSync(), isTrue, reason: '$platform include/nitro.h must exist after createSharedHeaders');
       }
     });
 
     test('linkSwiftPlugin is idempotent — no duplicate registrations', () {
-      final modules = [{'module': 'TestingProject', 'lib': 'testing_project'}];
+      final modules = [
+        {'module': 'TestingProject', 'lib': 'testing_project'},
+      ];
       linkSwiftPlugin('testing_project', modules, baseDir: tmp.path);
       linkSwiftPlugin('testing_project', modules, baseDir: tmp.path);
 
-      final pluginFile = File(
-          p.join(tmp.path, 'ios', 'Classes', 'SwiftTestingProjectPlugin.swift'));
-      final count = RegExp(r'TestingProjectRegistry\.register')
-          .allMatches(pluginFile.readAsStringSync())
-          .length;
+      final pluginFile = File(p.join(tmp.path, 'ios', 'Classes', 'SwiftTestingProjectPlugin.swift'));
+      final count = RegExp(r'TestingProjectRegistry\.register').allMatches(pluginFile.readAsStringSync()).length;
       expect(count, equals(1), reason: 'Registration must not be duplicated');
     });
 
@@ -730,8 +710,7 @@ class TestingProjectPlugin : FlutterPlugin {
       // so the SPM C++ target is at ios/testing_project/Sources/TestingProjectCpp/.
 
       // Bridge generated files
-      final genCpp = Directory(p.join(tmp.path, 'lib', 'src', 'generated', 'cpp'))
-        ..createSync(recursive: true);
+      final genCpp = Directory(p.join(tmp.path, 'lib', 'src', 'generated', 'cpp'))..createSync(recursive: true);
       File(p.join(genCpp.path, 'gpu.bridge.g.cpp')).writeAsStringSync('// bridge');
       File(p.join(genCpp.path, 'gpu.bridge.g.h')).writeAsStringSync('// header');
 
@@ -752,9 +731,16 @@ class TestingProjectPlugin : FlutterPlugin {
       );
 
       // Fixture uses nested SPM layout — forwarder goes into the nested Cpp target.
-      final forwarder = File(p.join(
-        tmp.path, 'ios', 'testing_project', 'Sources', 'TestingProjectCpp', 'HybridGpu.cpp',
-      ));
+      final forwarder = File(
+        p.join(
+          tmp.path,
+          'ios',
+          'testing_project',
+          'Sources',
+          'TestingProjectCpp',
+          'HybridGpu.cpp',
+        ),
+      );
       expect(
         forwarder.existsSync(),
         isTrue,
@@ -798,8 +784,7 @@ class TestingProjectPlugin : FlutterPlugin {
 
     test('ios/my_plugin/Package.swift — nested SPM layout', () {
       final pkg = File(p.join(tmp.path, 'ios', 'my_plugin', 'Package.swift'));
-      expect(pkg.existsSync(), isTrue,
-          reason: 'Package.swift must be at ios/<name>/Package.swift, not ios/Package.swift');
+      expect(pkg.existsSync(), isTrue, reason: 'Package.swift must be at ios/<name>/Package.swift, not ios/Package.swift');
       expect(pkg.readAsStringSync(), contains('iOS(.v13)'));
       expect(pkg.readAsStringSync(), contains('"MyPluginCpp"'));
     });
@@ -822,46 +807,66 @@ class TestingProjectPlugin : FlutterPlugin {
       // Critical: the bridge.g.mm forwarder must exist immediately after
       // nitrogen init so the symbol <plugin>_init_dart_api_dl is available
       // when the project is compiled, even before nitrogen link is run.
-      final mm = File(p.join(
-        tmp.path, 'ios', 'my_plugin', 'Sources', 'MyPluginCpp', 'my_plugin.bridge.g.mm',
-      ));
-      expect(mm.existsSync(), isTrue,
-          reason: 'nitrogen init must create bridge.g.mm in SPM C++ target');
+      final mm = File(
+        p.join(
+          tmp.path,
+          'ios',
+          'my_plugin',
+          'Sources',
+          'MyPluginCpp',
+          'my_plugin.bridge.g.mm',
+        ),
+      );
+      expect(mm.existsSync(), isTrue, reason: 'nitrogen init must create bridge.g.mm in SPM C++ target');
       final content = mm.readAsStringSync();
-      expect(content, contains('#import <Foundation/Foundation.h>'),
-          reason: 'Foundation import required for NSException/Obj-C++ bridge');
-      expect(content, contains('my_plugin.bridge.g.cpp'),
-          reason: 'forwarder must reference the generated bridge .cpp');
+      expect(content, contains('#import <Foundation/Foundation.h>'), reason: 'Foundation import required for NSException/Obj-C++ bridge');
+      expect(content, contains('my_plugin.bridge.g.cpp'), reason: 'forwarder must reference the generated bridge .cpp');
     });
 
     test('macos/my_plugin/Sources/MyPluginCpp/my_plugin.bridge.g.mm created by init', () {
-      final mm = File(p.join(
-        tmp.path, 'macos', 'my_plugin', 'Sources', 'MyPluginCpp', 'my_plugin.bridge.g.mm',
-      ));
-      expect(mm.existsSync(), isTrue,
-          reason: 'nitrogen init must create bridge.g.mm in macOS SPM C++ target');
+      final mm = File(
+        p.join(
+          tmp.path,
+          'macos',
+          'my_plugin',
+          'Sources',
+          'MyPluginCpp',
+          'my_plugin.bridge.g.mm',
+        ),
+      );
+      expect(mm.existsSync(), isTrue, reason: 'nitrogen init must create bridge.g.mm in macOS SPM C++ target');
       expect(mm.readAsStringSync(), contains('my_plugin.bridge.g.cpp'));
     });
 
     test('ios/my_plugin/Sources/MyPluginCpp/dart_api_dl.c uses portable bundled stub', () {
-      final f = File(p.join(
-        tmp.path, 'ios', 'my_plugin', 'Sources', 'MyPluginCpp', 'dart_api_dl.c',
-      ));
-      expect(f.existsSync(), isTrue,
-          reason: 'nitrogen init must create dart_api_dl.c in iOS SPM C++ target');
+      final f = File(
+        p.join(
+          tmp.path,
+          'ios',
+          'my_plugin',
+          'Sources',
+          'MyPluginCpp',
+          'dart_api_dl.c',
+        ),
+      );
+      expect(f.existsSync(), isTrue, reason: 'nitrogen init must create dart_api_dl.c in iOS SPM C++ target');
       final content = f.readAsStringSync();
-      expect(content, contains('dart_api_dl.h'),
-          reason: 'bundled stub must include local dart_api_dl.h');
-      expect(content, isNot(contains('.symlinks')),
-          reason: 'must not use CocoaPods .symlinks path — breaks on machines without pod install');
-      expect(content, isNot(matches(RegExp(r'#include\s*"/'))),
-          reason: 'must not use absolute path — breaks on other machines');
+      expect(content, contains('dart_api_dl.h'), reason: 'bundled stub must include local dart_api_dl.h');
+      expect(content, isNot(contains('.symlinks')), reason: 'must not use CocoaPods .symlinks path — breaks on machines without pod install');
+      expect(content, isNot(matches(RegExp(r'#include\s*"/'))), reason: 'must not use absolute path — breaks on other machines');
     });
 
     test('macos/my_plugin/Sources/MyPluginCpp/dart_api_dl.c uses portable bundled stub', () {
-      final f = File(p.join(
-        tmp.path, 'macos', 'my_plugin', 'Sources', 'MyPluginCpp', 'dart_api_dl.c',
-      ));
+      final f = File(
+        p.join(
+          tmp.path,
+          'macos',
+          'my_plugin',
+          'Sources',
+          'MyPluginCpp',
+          'dart_api_dl.c',
+        ),
+      );
       expect(f.existsSync(), isTrue);
       final content = f.readAsStringSync();
       expect(content, contains('dart_api_dl.h'));
@@ -903,16 +908,13 @@ class TestingProjectPlugin : FlutterPlugin {
     });
 
     test('android Plugin.kt and Impl.kt are created', () {
-      final base = p.join(
-          tmp.path, 'android', 'src', 'main', 'kotlin', 'com', 'example', 'my_plugin');
+      final base = p.join(tmp.path, 'android', 'src', 'main', 'kotlin', 'com', 'example', 'my_plugin');
       expect(File(p.join(base, 'MyPluginPlugin.kt')).existsSync(), isTrue);
       expect(File(p.join(base, 'MyPluginImpl.kt')).existsSync(), isTrue);
     });
 
     test('android Impl.kt implements HybridMyPluginSpec', () {
-      final kt = File(p.join(
-          tmp.path, 'android', 'src', 'main', 'kotlin',
-          'com', 'example', 'my_plugin', 'MyPluginImpl.kt'));
+      final kt = File(p.join(tmp.path, 'android', 'src', 'main', 'kotlin', 'com', 'example', 'my_plugin', 'MyPluginImpl.kt'));
       expect(kt.readAsStringSync(), contains('HybridMyPluginSpec'));
     });
 
@@ -946,12 +948,13 @@ class TestingProjectPlugin : FlutterPlugin {
 
     test('link functions work on scaffolded project — Swift registration injected', () {
       // Create a minimal generated dir so linkSwiftPlugin has a target
-      Directory(p.join(tmp.path, 'lib', 'src', 'generated', 'swift'))
-          .createSync(recursive: true);
+      Directory(p.join(tmp.path, 'lib', 'src', 'generated', 'swift')).createSync(recursive: true);
 
       linkSwiftPlugin(
         'my_plugin',
-        [{'module': 'MyPlugin', 'lib': 'my_plugin'}],
+        [
+          {'module': 'MyPlugin', 'lib': 'my_plugin'},
+        ],
         baseDir: tmp.path,
       );
 
@@ -962,13 +965,13 @@ class TestingProjectPlugin : FlutterPlugin {
     test('link functions work on scaffolded project — Kotlin registration injected', () {
       linkKotlinPlugin(
         'my_plugin',
-        [{'module': 'MyPlugin', 'lib': 'my_plugin'}],
+        [
+          {'module': 'MyPlugin', 'lib': 'my_plugin'},
+        ],
         baseDir: tmp.path,
       );
 
-      final kt = File(p.join(
-          tmp.path, 'android', 'src', 'main', 'kotlin',
-          'com', 'example', 'my_plugin', 'MyPluginPlugin.kt'));
+      final kt = File(p.join(tmp.path, 'android', 'src', 'main', 'kotlin', 'com', 'example', 'my_plugin', 'MyPluginPlugin.kt'));
       expect(kt.readAsStringSync(), contains('MyPluginJniBridge.register('));
     });
   });

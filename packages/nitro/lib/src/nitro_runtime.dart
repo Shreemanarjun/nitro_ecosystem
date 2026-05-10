@@ -140,9 +140,7 @@ class NitroRuntime {
     if (effective == NitroLogLevel.none) return call();
 
     final tag = methodName.isEmpty ? 'callSync' : 'callSync($methodName)';
-    final sw = (effective == NitroLogLevel.verbose || cfg.slowCallThresholdUs > 0)
-        ? (Stopwatch()..start())
-        : null;
+    final sw = (effective == NitroLogLevel.verbose || cfg.slowCallThresholdUs > 0) ? (Stopwatch()..start()) : null;
 
     _log(NitroLogLevel.verbose, tag, 'calling');
 
@@ -179,6 +177,7 @@ class NitroRuntime {
     List<Object?> args, {
     Pointer<NativeFunction<Pointer<NitroErrorFfi> Function()>>? getError,
     Pointer<NativeFunction<Void Function()>>? clearError,
+
     /// The Dart method name passed by generated code (e.g. `'fetchData'`).
     /// Included in every log message so slow-call warnings are immediately
     /// actionable without attaching a debugger.
@@ -250,10 +249,7 @@ class NitroRuntime {
     final effective = cfg.effectiveLogLevel;
     final tag = methodName.isEmpty ? 'nativeAsync' : 'nativeAsync($methodName)';
 
-    final sw = effective != NitroLogLevel.none &&
-            (effective == NitroLogLevel.verbose || cfg.slowCallThresholdUs > 0)
-        ? (Stopwatch()..start())
-        : null;
+    final sw = effective != NitroLogLevel.none && (effective == NitroLogLevel.verbose || cfg.slowCallThresholdUs > 0) ? (Stopwatch()..start()) : null;
 
     _log(NitroLogLevel.verbose, tag, 'calling');
 

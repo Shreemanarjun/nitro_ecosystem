@@ -318,15 +318,12 @@ final class LazyRecordList<T> extends ListBase<T> implements Finalizable {
   @override
   T operator [](int index) {
     RangeError.checkValidIndex(index, this);
-    return _cache[index] ??=
-        _readItem(RecordReader.fromPayloadOffset(_ptr, _offsets[index]));
+    return _cache[index] ??= _readItem(RecordReader.fromPayloadOffset(_ptr, _offsets[index]));
   }
 
   @override
-  void operator []=(int index, T value) =>
-      throw UnsupportedError('LazyRecordList is read-only');
+  void operator []=(int index, T value) => throw UnsupportedError('LazyRecordList is read-only');
 
   @override
-  set length(int _) =>
-      throw UnsupportedError('LazyRecordList is read-only');
+  set length(int _) => throw UnsupportedError('LazyRecordList is read-only');
 }

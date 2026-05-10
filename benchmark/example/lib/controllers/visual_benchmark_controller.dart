@@ -5,7 +5,8 @@ import 'package:flutter/services.dart';
 import 'package:signals_flutter/signals_flutter.dart';
 import '../models/benchmark_bridge.dart';
 // Raw FFI helpers — web stub returns pure-Dart results; native loads the lib.
-import 'raw_ffi_service.dart' if (dart.library.io) 'raw_ffi_service_native.dart';
+import 'raw_ffi_service.dart'
+    if (dart.library.io) 'raw_ffi_service_native.dart';
 
 class VisualBenchmarkController {
   final isRunning = signal<bool>(false);
@@ -57,8 +58,9 @@ class VisualBenchmarkController {
             currentFps[type]!.value = count.toDouble();
             perFrameMicros[type]!.value = count > 0 ? 1000000.0 / count : 0.0;
             final totalMicros = _accumulatedMicros[type]!;
-            avgPerCallMicros[type]!.value =
-                count > 0 ? totalMicros / count : 0.0;
+            avgPerCallMicros[type]!.value = count > 0
+                ? totalMicros / count
+                : 0.0;
           } else {
             currentFps[type]!.value = 0.0;
             perFrameMicros[type]!.value = 0.0;
@@ -158,8 +160,7 @@ class VisualBenchmarkController {
     isRunning.value = false;
   }
 
-  double rawAdd(double a, double b) =>
-      RawFfiService.instance.rawAddCpp(a, b);
+  double rawAdd(double a, double b) => RawFfiService.instance.rawAddCpp(a, b);
 
   MethodChannel get channel => _channel;
 
@@ -187,8 +188,7 @@ class VisualBenchmarkController {
             BenchmarkCpp.instance.add(1.0, 2.0);
             break;
           case BridgeType.nitroCppStruct:
-            BenchmarkCpp.instance
-                .scalePoint(BenchmarkPoint(x: 1, y: 2), 1.0);
+            BenchmarkCpp.instance.scalePoint(BenchmarkPoint(x: 1, y: 2), 1.0);
             break;
           case BridgeType.nitroCppAsync:
             await BenchmarkCpp.instance.computeStats(1);

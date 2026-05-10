@@ -95,8 +95,7 @@ class _PendingCall {
 /// one worker from blocking the next task that would have landed there via
 /// round-robin.
 class IsolatePool {
-  IsolatePool._(this._workers, ReceivePort replyPort)
-      : _inflight = List.filled(_workers.length, 0) {
+  IsolatePool._(this._workers, ReceivePort replyPort) : _inflight = List.filled(_workers.length, 0) {
     _replyPort = replyPort;
     replyPort.listen(_onReply);
   }

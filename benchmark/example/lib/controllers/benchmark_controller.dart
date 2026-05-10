@@ -8,7 +8,8 @@ import 'package:fl_chart/fl_chart.dart';
 import '../models/benchmark_bridge.dart';
 import '../models/benchmark_history.dart';
 // Raw FFI helpers — web stub returns pure-Dart results; native loads the lib.
-import 'raw_ffi_service.dart' if (dart.library.io) 'raw_ffi_service_native.dart';
+import 'raw_ffi_service.dart'
+    if (dart.library.io) 'raw_ffi_service_native.dart';
 
 class BenchmarkController {
   // --- Signals (State) ---

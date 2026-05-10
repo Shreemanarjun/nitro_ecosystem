@@ -100,7 +100,8 @@ final class SensorDataProxy extends SensorData implements Finalizable {
   static void _init(DynamicLibrary dylib) {
     _finalizer ??= NativeFinalizer(
       dylib.lookup<NativeFunction<Void Function(Pointer<Void>)>>(
-          'complex_release_SensorData'),
+        'complex_release_SensorData',
+      ),
     );
   }
 
@@ -108,9 +109,11 @@ final class SensorDataProxy extends SensorData implements Finalizable {
   /// all getters below are overridden to read from native memory instead.
   /// Do NOT call [malloc.free] after passing the pointer here.
   SensorDataProxy(this._native)
-      : super(temperature: 0.0, humidity: 0.0, lastUpdate: 0) {
-    assert(_finalizer != null,
-        'SensorDataProxy._init() was not called. Ensure the Nitro impl class constructor ran before creating proxies.');
+    : super(temperature: 0.0, humidity: 0.0, lastUpdate: 0) {
+    assert(
+      _finalizer != null,
+      'SensorDataProxy._init() was not called. Ensure the Nitro impl class constructor ran before creating proxies.',
+    );
     _finalizer!.attach(this, _native.cast(), detach: this);
   }
 
@@ -153,7 +156,8 @@ final class PacketProxy extends Packet implements Finalizable {
   static void _init(DynamicLibrary dylib) {
     _finalizer ??= NativeFinalizer(
       dylib.lookup<NativeFunction<Void Function(Pointer<Void>)>>(
-          'complex_release_Packet'),
+        'complex_release_Packet',
+      ),
     );
   }
 
@@ -161,9 +165,11 @@ final class PacketProxy extends Packet implements Finalizable {
   /// all getters below are overridden to read from native memory instead.
   /// Do NOT call [malloc.free] after passing the pointer here.
   PacketProxy(this._native)
-      : super(sequence: 0, buffer: Uint8List(0), size: 0) {
-    assert(_finalizer != null,
-        'PacketProxy._init() was not called. Ensure the Nitro impl class constructor ran before creating proxies.');
+    : super(sequence: 0, buffer: Uint8List(0), size: 0) {
+    assert(
+      _finalizer != null,
+      'PacketProxy._init() was not called. Ensure the Nitro impl class constructor ran before creating proxies.',
+    );
     _finalizer!.attach(this, _native.cast(), detach: this);
   }
 
@@ -192,12 +198,16 @@ class _ComplexModuleImpl extends ComplexModule {
   final DynamicLibrary _dylib;
 
   _ComplexModuleImpl() : _dylib = NitroRuntime.loadLib('complex') {
-    final initFunc = _dylib.lookupFunction<IntPtr Function(Pointer<Void>),
-        int Function(Pointer<Void>)>('complex_init_dart_api_dl');
+    final initFunc = _dylib
+        .lookupFunction<
+          IntPtr Function(Pointer<Void>),
+          int Function(Pointer<Void>)
+        >('complex_init_dart_api_dl');
     final initCode = initFunc(NativeApi.initializeApiDLData);
     if (initCode != 0) {
       throw StateError(
-          'complex: Dart API DL initialization failed with code $initCode.');
+        'complex: Dart API DL initialization failed with code $initCode.',
+      );
     }
     SensorDataProxy._init(_dylib);
     PacketProxy._init(_dylib);
@@ -205,51 +215,65 @@ class _ComplexModuleImpl extends ComplexModule {
 
   late final int Function(int, double, int) _calculatePtr = _dylib
       .lookup<NativeFunction<Int64 Function(Int64, Double, Int8)>>(
-          'complex_module_calculate')
+        'complex_module_calculate',
+      )
       .asFunction<int Function(int, double, int)>(isLeaf: true);
-  late final Pointer<Utf8> Function(Pointer<Utf8>) _fetchMetadataPtr =
-      _dylib.lookupFunction<
-          Pointer<Utf8> Function(Pointer<Utf8>),
-          Pointer<Utf8> Function(
-              Pointer<Utf8>)>('complex_module_fetch_metadata');
+  late final Pointer<Utf8> Function(Pointer<Utf8>) _fetchMetadataPtr = _dylib
+      .lookupFunction<
+        Pointer<Utf8> Function(Pointer<Utf8>),
+        Pointer<Utf8> Function(Pointer<Utf8>)
+      >('complex_module_fetch_metadata');
   late final int Function() _getStatusPtr = _dylib
       .lookup<NativeFunction<Int64 Function()>>('complex_module_get_status')
       .asFunction<int Function()>(isLeaf: true);
-  late final void Function(Pointer<Void>) _updateSensorsPtr =
-      _dylib.lookupFunction<Void Function(Pointer<Void>),
-          void Function(Pointer<Void>)>('complex_module_update_sensors');
-  late final Pointer<Void> Function(int) _generatePacketPtr =
-      _dylib.lookupFunction<Pointer<Void> Function(Int64),
-          Pointer<Void> Function(int)>('complex_module_generate_packet');
+  late final void Function(Pointer<Void>) _updateSensorsPtr = _dylib
+      .lookupFunction<
+        Void Function(Pointer<Void>),
+        void Function(Pointer<Void>)
+      >('complex_module_update_sensors');
+  late final Pointer<Void> Function(int) _generatePacketPtr = _dylib
+      .lookupFunction<
+        Pointer<Void> Function(Int64),
+        Pointer<Void> Function(int)
+      >('complex_module_generate_packet');
   late final double Function() _getBatteryLevelPtr = _dylib
       .lookup<NativeFunction<Double Function()>>(
-          'complex_module_get_battery_level')
+        'complex_module_get_battery_level',
+      )
       .asFunction<double Function()>(isLeaf: true);
-  late final void Function(Pointer<Utf8>) _setConfigPtr = _dylib.lookupFunction<
-      Void Function(Pointer<Utf8>),
-      void Function(Pointer<Utf8>)>('complex_module_set_config');
-  late final void Function(int) _registerSensorStreamPtr =
-      _dylib.lookupFunction<Void Function(Int64), void Function(int)>(
-          'complex_module_register_sensor_stream_stream');
-  late final void Function(int) _releaseSensorStreamPtr =
-      _dylib.lookupFunction<Void Function(Int64), void Function(int)>(
-          'complex_module_release_sensor_stream_stream');
-  late final void Function(int) _registerDataStreamPtr =
-      _dylib.lookupFunction<Void Function(Int64), void Function(int)>(
-          'complex_module_register_data_stream_stream');
-  late final void Function(int) _releaseDataStreamPtr =
-      _dylib.lookupFunction<Void Function(Int64), void Function(int)>(
-          'complex_module_release_data_stream_stream');
+  late final void Function(Pointer<Utf8>) _setConfigPtr = _dylib
+      .lookupFunction<
+        Void Function(Pointer<Utf8>),
+        void Function(Pointer<Utf8>)
+      >('complex_module_set_config');
+  late final void Function(int) _registerSensorStreamPtr = _dylib
+      .lookupFunction<Void Function(Int64), void Function(int)>(
+        'complex_module_register_sensor_stream_stream',
+      );
+  late final void Function(int) _releaseSensorStreamPtr = _dylib
+      .lookupFunction<Void Function(Int64), void Function(int)>(
+        'complex_module_release_sensor_stream_stream',
+      );
+  late final void Function(int) _registerDataStreamPtr = _dylib
+      .lookupFunction<Void Function(Int64), void Function(int)>(
+        'complex_module_register_data_stream_stream',
+      );
+  late final void Function(int) _releaseDataStreamPtr = _dylib
+      .lookupFunction<Void Function(Int64), void Function(int)>(
+        'complex_module_release_data_stream_stream',
+      );
   // ignore: unused_field
-  late final Pointer<NitroErrorFfi> Function() _getErrorPtr =
-      _dylib.lookupFunction<Pointer<NitroErrorFfi> Function(),
-          Pointer<NitroErrorFfi> Function()>('complex_get_error');
+  late final Pointer<NitroErrorFfi> Function() _getErrorPtr = _dylib
+      .lookupFunction<
+        Pointer<NitroErrorFfi> Function(),
+        Pointer<NitroErrorFfi> Function()
+      >('complex_get_error');
   // ignore: unused_field
   late final void Function() _clearErrorPtr = _dylib
       .lookupFunction<Void Function(), void Function()>('complex_clear_error');
   // ignore: unused_field
   late final Pointer<NativeFunction<Pointer<NitroErrorFfi> Function()>>
-      _getErrorNativePtr = _dylib.lookup('complex_get_error');
+  _getErrorNativePtr = _dylib.lookup('complex_get_error');
   // ignore: unused_field
   late final Pointer<NativeFunction<Void Function()>> _clearErrorNativePtr =
       _dylib.lookup('complex_clear_error');
@@ -274,10 +298,12 @@ class _ComplexModuleImpl extends ComplexModule {
     final arena = Arena();
     try {
       final rawPtr = await NitroRuntime.callAsync<Pointer<Utf8>>(
-          _fetchMetadataPtr, [url.toNativeUtf8(allocator: arena)],
-          getError: _getErrorNativePtr,
-          clearError: _clearErrorNativePtr,
-          methodName: 'fetchMetadata');
+        _fetchMetadataPtr,
+        [url.toNativeUtf8(allocator: arena)],
+        getError: _getErrorNativePtr,
+        clearError: _clearErrorNativePtr,
+        methodName: 'fetchMetadata',
+      );
       return rawPtr.toDartStringWithFree();
     } finally {
       arena.releaseAll();
@@ -306,10 +332,12 @@ class _ComplexModuleImpl extends ComplexModule {
   Future<Packet> generatePacket(int type) async {
     checkDisposed();
     final rawPtr = await NitroRuntime.callAsync<Pointer<Void>>(
-        _generatePacketPtr, [type],
-        getError: _getErrorNativePtr,
-        clearError: _clearErrorNativePtr,
-        methodName: 'generatePacket');
+      _generatePacketPtr,
+      [type],
+      getError: _getErrorNativePtr,
+      clearError: _clearErrorNativePtr,
+      methodName: 'generatePacket',
+    );
     final structPtr = Pointer<PacketFfi>.fromAddress(rawPtr.address);
     try {
       return structPtr.ref.toDart();
@@ -344,10 +372,12 @@ class _ComplexModuleImpl extends ComplexModule {
       unpack: (message) {
         if (message == null) {
           throw StateError(
-              'Received null event on non-nullable stream sensorStream');
+            'Received null event on non-nullable stream sensorStream',
+          );
         }
         return SensorDataProxy(
-            Pointer<SensorDataFfi>.fromAddress(message as int));
+          Pointer<SensorDataFfi>.fromAddress(message as int),
+        );
       },
       release: (port) => _releaseSensorStreamPtr(port),
       backpressure: Backpressure.dropLatest,
@@ -362,7 +392,8 @@ class _ComplexModuleImpl extends ComplexModule {
       unpack: (message) {
         if (message == null) {
           throw StateError(
-              'Received null event on non-nullable stream dataStream');
+            'Received null event on non-nullable stream dataStream',
+          );
         }
         return PacketProxy(Pointer<PacketFfi>.fromAddress(message as int));
       },

@@ -1286,8 +1286,14 @@ void main() {
             isAsync: false,
             returnType: BridgeType(name: 'double'),
             params: [
-              BridgeParam(name: 'a', type: BridgeType(name: 'double')),
-              BridgeParam(name: 'b', type: BridgeType(name: 'double')),
+              BridgeParam(
+                name: 'a',
+                type: BridgeType(name: 'double'),
+              ),
+              BridgeParam(
+                name: 'b',
+                type: BridgeType(name: 'double'),
+              ),
             ],
           ),
         ],
@@ -1319,8 +1325,7 @@ void main() {
     test('function null-methodId LOGE includes dartName and sig= prefix', () {
       final cpp = CppBridgeGenerator.generate(_specWithFunctions());
       // Generic check: no bare "Method not found" without context
-      expect(cpp, isNot(contains('LOGE("Method not found")')),
-          reason: 'bare LOGE with no context must not be emitted');
+      expect(cpp, isNot(contains('LOGE("Method not found")')), reason: 'bare LOGE with no context must not be emitted');
       // multiply_call must appear in the LOGE
       expect(cpp, contains('LOGE("Method not found: multiply_call sig='));
     });
@@ -1461,10 +1466,24 @@ void main() {
             name: 'DualFrame',
             packed: false,
             fields: [
-              BridgeField(name: 'luma', type: BridgeType(name: 'Uint8List'), zeroCopy: true),
-              BridgeField(name: 'lumaLength', type: BridgeType(name: 'int')),
-              BridgeField(name: 'chroma', type: BridgeType(name: 'Uint8List'), zeroCopy: true),
-              BridgeField(name: 'chromaLength', type: BridgeType(name: 'int')),
+              BridgeField(
+                name: 'luma',
+                type: BridgeType(name: 'Uint8List'),
+                zeroCopy: true,
+              ),
+              BridgeField(
+                name: 'lumaLength',
+                type: BridgeType(name: 'int'),
+              ),
+              BridgeField(
+                name: 'chroma',
+                type: BridgeType(name: 'Uint8List'),
+                zeroCopy: true,
+              ),
+              BridgeField(
+                name: 'chromaLength',
+                type: BridgeType(name: 'int'),
+              ),
             ],
           ),
         ],
@@ -1500,8 +1519,15 @@ void main() {
             name: 'FloatFrame',
             packed: false,
             fields: [
-              BridgeField(name: 'data', type: BridgeType(name: 'Float32List'), zeroCopy: true),
-              BridgeField(name: 'dataLength', type: BridgeType(name: 'int')),
+              BridgeField(
+                name: 'data',
+                type: BridgeType(name: 'Float32List'),
+                zeroCopy: true,
+              ),
+              BridgeField(
+                name: 'dataLength',
+                type: BridgeType(name: 'int'),
+              ),
             ],
           ),
         ],
@@ -1527,8 +1553,7 @@ void main() {
       // return the zero-initialised struct, not a void or nullptr.
       final packFn = cpp.substring(cpp.indexOf('pack_Frame_from_jni'));
       final guardEnd = packFn.indexOf('return result;');
-      expect(guardEnd, greaterThan(0),
-          reason: 'early return should yield the default-initialised struct');
+      expect(guardEnd, greaterThan(0), reason: 'early return should yield the default-initialised struct');
     });
 
     test('luma guard precedes chroma guard in multi-field struct', () {
@@ -1544,10 +1569,24 @@ void main() {
             name: 'DualFrame',
             packed: false,
             fields: [
-              BridgeField(name: 'luma', type: BridgeType(name: 'Uint8List'), zeroCopy: true),
-              BridgeField(name: 'lumaLength', type: BridgeType(name: 'int')),
-              BridgeField(name: 'chroma', type: BridgeType(name: 'Uint8List'), zeroCopy: true),
-              BridgeField(name: 'chromaLength', type: BridgeType(name: 'int')),
+              BridgeField(
+                name: 'luma',
+                type: BridgeType(name: 'Uint8List'),
+                zeroCopy: true,
+              ),
+              BridgeField(
+                name: 'lumaLength',
+                type: BridgeType(name: 'int'),
+              ),
+              BridgeField(
+                name: 'chroma',
+                type: BridgeType(name: 'Uint8List'),
+                zeroCopy: true,
+              ),
+              BridgeField(
+                name: 'chromaLength',
+                type: BridgeType(name: 'int'),
+              ),
             ],
           ),
         ],
@@ -1565,8 +1604,7 @@ void main() {
       final lumaIdx = cpp.indexOf('if (buf_luma == nullptr)');
       final chromaIdx = cpp.indexOf('if (buf_chroma == nullptr)');
       expect(lumaIdx, greaterThan(0));
-      expect(chromaIdx, greaterThan(lumaIdx),
-          reason: 'fields are guarded in declaration order');
+      expect(chromaIdx, greaterThan(lumaIdx), reason: 'fields are guarded in declaration order');
     });
   });
 
@@ -1591,8 +1629,7 @@ void main() {
       final guardIdx = unpackSrc.indexOf('if (st->pixels == nullptr)');
       final retNullIdx = unpackSrc.indexOf('return nullptr;');
       expect(guardIdx, greaterThan(0));
-      expect(retNullIdx, greaterThan(guardIdx),
-          reason: 'null guard must return nullptr before NewDirectByteBuffer');
+      expect(retNullIdx, greaterThan(guardIdx), reason: 'null guard must return nullptr before NewDirectByteBuffer');
     });
 
     test('unpack NewDirectByteBuffer uses local dbuf_ variable, not inline', () {
@@ -1621,10 +1658,24 @@ void main() {
             name: 'DualFrame',
             packed: false,
             fields: [
-              BridgeField(name: 'luma', type: BridgeType(name: 'Uint8List'), zeroCopy: true),
-              BridgeField(name: 'lumaLength', type: BridgeType(name: 'int')),
-              BridgeField(name: 'chroma', type: BridgeType(name: 'Uint8List'), zeroCopy: true),
-              BridgeField(name: 'chromaLength', type: BridgeType(name: 'int')),
+              BridgeField(
+                name: 'luma',
+                type: BridgeType(name: 'Uint8List'),
+                zeroCopy: true,
+              ),
+              BridgeField(
+                name: 'lumaLength',
+                type: BridgeType(name: 'int'),
+              ),
+              BridgeField(
+                name: 'chroma',
+                type: BridgeType(name: 'Uint8List'),
+                zeroCopy: true,
+              ),
+              BridgeField(
+                name: 'chromaLength',
+                type: BridgeType(name: 'int'),
+              ),
             ],
           ),
         ],

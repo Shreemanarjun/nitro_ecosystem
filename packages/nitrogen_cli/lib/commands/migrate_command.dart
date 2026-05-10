@@ -68,7 +68,10 @@ class MigrationStepRow extends StatelessComponent {
         children: [
           Row(
             children: [
-              Text(icon, style: TextStyle(color: color, fontWeight: FontWeight.bold)),
+              Text(
+                icon,
+                style: TextStyle(color: color, fontWeight: FontWeight.bold),
+              ),
               const Text(' '),
               Expanded(
                 child: Text(
@@ -368,7 +371,9 @@ class _MigrateViewState extends State<MigrateView> {
     ]) {
       final lnk = Link(p.join(swiftDir.path, name));
       if (!lnk.existsSync()) {
-        try { lnk.createSync('../../../Classes/$name'); } catch (_) {}
+        try {
+          lnk.createSync('../../../Classes/$name');
+        } catch (_) {}
       }
     }
 
@@ -376,14 +381,18 @@ class _MigrateViewState extends State<MigrateView> {
     for (final name in ['$pluginName.cpp', 'dart_api_dl.c']) {
       final lnk = Link(p.join(cppDir.path, name));
       if (!lnk.existsSync()) {
-        try { lnk.createSync('../../../Classes/$name'); } catch (_) {}
+        try {
+          lnk.createSync('../../../Classes/$name');
+        } catch (_) {}
       }
     }
 
     // include → Classes/ (public headers)
     final includeLink = Link(p.join(cppDir.path, 'include'));
     if (!includeLink.existsSync()) {
-      try { includeLink.createSync('../../../Classes'); } catch (_) {}
+      try {
+        includeLink.createSync('../../../Classes');
+      } catch (_) {}
     }
 
     // Write Package.swift
@@ -489,24 +498,26 @@ class _MigrateViewState extends State<MigrateView> {
                     ),
                     const SizedBox(height: 1),
                     Text(
-                      component.spmStatus.isLegacy
-                          ? 'Found CocoaPods-only setup. Ready to add SPM support.'
-                          : 'Mixed setup detected. Will complete SPM configuration.',
+                      component.spmStatus.isLegacy ? 'Found CocoaPods-only setup. Ready to add SPM support.' : 'Mixed setup detected. Will complete SPM configuration.',
                     ),
                     const SizedBox(height: 1),
                     Text(
-                      component.createBackup
-                          ? 'A backup will be created before migration.'
-                          : 'No backup will be created (--no-backup).',
+                      component.createBackup ? 'A backup will be created before migration.' : 'No backup will be created (--no-backup).',
                       style: const TextStyle(color: Colors.gray),
                     ),
                     const SizedBox(height: 1),
                     const Row(
                       mainAxisAlignment: MainAxisAlignment.center,
                       children: [
-                        Text('[Y]', style: TextStyle(color: Colors.green, fontWeight: FontWeight.bold)),
+                        Text(
+                          '[Y]',
+                          style: TextStyle(color: Colors.green, fontWeight: FontWeight.bold),
+                        ),
                         Text(' Migrate   '),
-                        Text('[N]', style: TextStyle(color: Colors.red, fontWeight: FontWeight.bold)),
+                        Text(
+                          '[N]',
+                          style: TextStyle(color: Colors.red, fontWeight: FontWeight.bold),
+                        ),
                         Text(' Cancel'),
                       ],
                     ),

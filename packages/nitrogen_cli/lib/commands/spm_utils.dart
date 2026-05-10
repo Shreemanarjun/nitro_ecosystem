@@ -177,9 +177,8 @@ PackageSwiftValidation validatePackageSwift(String path, String platform) {
   //   3. Nitrogen-managed nested SPM layout: nitrogen link copies nitro.h
   //      into Sources/<PluginCpp>/include/ and declares publicHeadersPath: "include".
   //      No explicit nitro path is needed in Package.swift.
-  final hasNitroFlags = content.contains('nitro/src/native') ||
-      content.contains('.symlinks/plugins/nitro') ||
-      (content.contains('publicHeadersPath') && content.contains('Sources/'));
+  final hasNitroFlags =
+      content.contains('nitro/src/native') || content.contains('.symlinks/plugins/nitro') || (content.contains('publicHeadersPath') && content.contains('Sources/'));
   if (!hasNitroFlags) {
     warnings.add('$platform/Package.swift missing nitro header search path');
   }

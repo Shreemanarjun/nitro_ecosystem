@@ -546,7 +546,10 @@ BridgeSpec iosOnlyCppSpec() => BridgeSpec(
       isAsync: false,
       returnType: BridgeType(name: 'double'),
       params: [
-        BridgeParam(name: 'value', type: BridgeType(name: 'double')),
+        BridgeParam(
+          name: 'value',
+          type: BridgeType(name: 'double'),
+        ),
       ],
     ),
   ],
@@ -566,7 +569,10 @@ BridgeSpec androidOnlyCppSpec() => BridgeSpec(
       isAsync: false,
       returnType: BridgeType(name: 'double'),
       params: [
-        BridgeParam(name: 'value', type: BridgeType(name: 'double')),
+        BridgeParam(
+          name: 'value',
+          type: BridgeType(name: 'double'),
+        ),
       ],
     ),
   ],
@@ -586,7 +592,10 @@ BridgeSpec macosOnlyCppSpec() => BridgeSpec(
       isAsync: false,
       returnType: BridgeType(name: 'double'),
       params: [
-        BridgeParam(name: 'value', type: BridgeType(name: 'double')),
+        BridgeParam(
+          name: 'value',
+          type: BridgeType(name: 'double'),
+        ),
       ],
     ),
   ],
@@ -607,7 +616,10 @@ BridgeSpec appleOnlyCppSpec() => BridgeSpec(
       isAsync: false,
       returnType: BridgeType(name: 'double'),
       params: [
-        BridgeParam(name: 'value', type: BridgeType(name: 'double')),
+        BridgeParam(
+          name: 'value',
+          type: BridgeType(name: 'double'),
+        ),
       ],
     ),
   ],
@@ -629,7 +641,10 @@ BridgeSpec triPlatformCppSpec() => BridgeSpec(
       isAsync: false,
       returnType: BridgeType(name: 'double'),
       params: [
-        BridgeParam(name: 'value', type: BridgeType(name: 'double')),
+        BridgeParam(
+          name: 'value',
+          type: BridgeType(name: 'double'),
+        ),
       ],
     ),
   ],
@@ -650,7 +665,12 @@ BridgeSpec windowsOnlyCppSpec() => BridgeSpec(
       cSymbol: 'win_processor_process',
       isAsync: false,
       returnType: BridgeType(name: 'double'),
-      params: [BridgeParam(name: 'value', type: BridgeType(name: 'double'))],
+      params: [
+        BridgeParam(
+          name: 'value',
+          type: BridgeType(name: 'double'),
+        ),
+      ],
     ),
   ],
 );
@@ -668,7 +688,12 @@ BridgeSpec linuxOnlyCppSpec() => BridgeSpec(
       cSymbol: 'linux_processor_process',
       isAsync: false,
       returnType: BridgeType(name: 'double'),
-      params: [BridgeParam(name: 'value', type: BridgeType(name: 'double'))],
+      params: [
+        BridgeParam(
+          name: 'value',
+          type: BridgeType(name: 'double'),
+        ),
+      ],
     ),
   ],
 );
@@ -687,7 +712,12 @@ BridgeSpec windowsLinuxCppSpec() => BridgeSpec(
       cSymbol: 'desktop_processor_process',
       isAsync: false,
       returnType: BridgeType(name: 'double'),
-      params: [BridgeParam(name: 'value', type: BridgeType(name: 'double'))],
+      params: [
+        BridgeParam(
+          name: 'value',
+          type: BridgeType(name: 'double'),
+        ),
+      ],
     ),
   ],
 );
@@ -709,7 +739,12 @@ BridgeSpec allNativeCppSpec() => BridgeSpec(
       cSymbol: 'universal_processor_process',
       isAsync: false,
       returnType: BridgeType(name: 'double'),
-      params: [BridgeParam(name: 'value', type: BridgeType(name: 'double'))],
+      params: [
+        BridgeParam(
+          name: 'value',
+          type: BridgeType(name: 'double'),
+        ),
+      ],
     ),
   ],
 );
@@ -728,8 +763,14 @@ BridgeSpec webOnlySpec() => BridgeSpec(
       isAsync: false,
       returnType: BridgeType(name: 'double'),
       params: [
-        BridgeParam(name: 'a', type: BridgeType(name: 'double')),
-        BridgeParam(name: 'b', type: BridgeType(name: 'double')),
+        BridgeParam(
+          name: 'a',
+          type: BridgeType(name: 'double'),
+        ),
+        BridgeParam(
+          name: 'b',
+          type: BridgeType(name: 'double'),
+        ),
       ],
     ),
   ],
@@ -753,7 +794,12 @@ BridgeSpec fullCrossPlatformSpec() => BridgeSpec(
       cSymbol: 'cross_platform_compute',
       isAsync: false,
       returnType: BridgeType(name: 'double'),
-      params: [BridgeParam(name: 'x', type: BridgeType(name: 'double'))],
+      params: [
+        BridgeParam(
+          name: 'x',
+          type: BridgeType(name: 'double'),
+        ),
+      ],
     ),
   ],
 );
@@ -857,7 +903,12 @@ BridgeSpec mixedPlatformCppSpec() => BridgeSpec(
       cSymbol: 'mixed_processor_process',
       isAsync: false,
       returnType: BridgeType(name: 'double'),
-      params: [BridgeParam(name: 'value', type: BridgeType(name: 'double'))],
+      params: [
+        BridgeParam(
+          name: 'value',
+          type: BridgeType(name: 'double'),
+        ),
+      ],
     ),
   ],
 );
@@ -877,8 +928,18 @@ BridgeSpec positionalStructSpec() => BridgeSpec(
       name: 'Point',
       packed: false,
       fields: [
-        BridgeField(name: 'x', type: BridgeType(name: 'double'), isNamed: false, isRequired: true),
-        BridgeField(name: 'y', type: BridgeType(name: 'double'), isNamed: false, isRequired: true),
+        BridgeField(
+          name: 'x',
+          type: BridgeType(name: 'double'),
+          isNamed: false,
+          isRequired: true,
+        ),
+        BridgeField(
+          name: 'y',
+          type: BridgeType(name: 'double'),
+          isNamed: false,
+          isRequired: true,
+        ),
       ],
     ),
   ],
@@ -898,9 +959,24 @@ BridgeSpec namedOptionalStructSpec() => BridgeSpec(
       name: 'Config',
       packed: false,
       fields: [
-        BridgeField(name: 'name',  type: BridgeType(name: 'String'), isNamed: true, isRequired: true),
-        BridgeField(name: 'debug', type: BridgeType(name: 'bool'),   isNamed: true, isRequired: false),
-        BridgeField(name: 'level', type: BridgeType(name: 'int'),    isNamed: true, isRequired: false),
+        BridgeField(
+          name: 'name',
+          type: BridgeType(name: 'String'),
+          isNamed: true,
+          isRequired: true,
+        ),
+        BridgeField(
+          name: 'debug',
+          type: BridgeType(name: 'bool'),
+          isNamed: true,
+          isRequired: false,
+        ),
+        BridgeField(
+          name: 'level',
+          type: BridgeType(name: 'int'),
+          isNamed: true,
+          isRequired: false,
+        ),
       ],
     ),
   ],
@@ -921,10 +997,30 @@ BridgeSpec mixedParamsStructSpec() => BridgeSpec(
       name: 'Rect',
       packed: false,
       fields: [
-        BridgeField(name: 'x',      type: BridgeType(name: 'double'), isNamed: false, isRequired: true),
-        BridgeField(name: 'y',      type: BridgeType(name: 'double'), isNamed: false, isRequired: true),
-        BridgeField(name: 'width',  type: BridgeType(name: 'double'), isNamed: true,  isRequired: true),
-        BridgeField(name: 'height', type: BridgeType(name: 'double'), isNamed: true,  isRequired: false),
+        BridgeField(
+          name: 'x',
+          type: BridgeType(name: 'double'),
+          isNamed: false,
+          isRequired: true,
+        ),
+        BridgeField(
+          name: 'y',
+          type: BridgeType(name: 'double'),
+          isNamed: false,
+          isRequired: true,
+        ),
+        BridgeField(
+          name: 'width',
+          type: BridgeType(name: 'double'),
+          isNamed: true,
+          isRequired: true,
+        ),
+        BridgeField(
+          name: 'height',
+          type: BridgeType(name: 'double'),
+          isNamed: true,
+          isRequired: false,
+        ),
       ],
     ),
   ],
@@ -944,16 +1040,36 @@ BridgeSpec nestedPositionalChildSpec() => BridgeSpec(
       name: 'Vec2',
       packed: false,
       fields: [
-        BridgeField(name: 'x', type: BridgeType(name: 'double'), isNamed: false, isRequired: true),
-        BridgeField(name: 'y', type: BridgeType(name: 'double'), isNamed: false, isRequired: true),
+        BridgeField(
+          name: 'x',
+          type: BridgeType(name: 'double'),
+          isNamed: false,
+          isRequired: true,
+        ),
+        BridgeField(
+          name: 'y',
+          type: BridgeType(name: 'double'),
+          isNamed: false,
+          isRequired: true,
+        ),
       ],
     ),
     BridgeStruct(
       name: 'Line',
       packed: false,
       fields: [
-        BridgeField(name: 'start', type: BridgeType(name: 'Vec2'), isNamed: true, isRequired: true),
-        BridgeField(name: 'end',   type: BridgeType(name: 'Vec2'), isNamed: true, isRequired: true),
+        BridgeField(
+          name: 'start',
+          type: BridgeType(name: 'Vec2'),
+          isNamed: true,
+          isRequired: true,
+        ),
+        BridgeField(
+          name: 'end',
+          type: BridgeType(name: 'Vec2'),
+          isNamed: true,
+          isRequired: true,
+        ),
       ],
     ),
   ],
@@ -977,31 +1093,70 @@ BridgeSpec nestedStructSpec() => BridgeSpec(
       name: 'Vector3',
       packed: false,
       fields: [
-        BridgeField(name: 'x', type: BridgeType(name: 'double')),
-        BridgeField(name: 'y', type: BridgeType(name: 'double')),
-        BridgeField(name: 'z', type: BridgeType(name: 'double')),
+        BridgeField(
+          name: 'x',
+          type: BridgeType(name: 'double'),
+        ),
+        BridgeField(
+          name: 'y',
+          type: BridgeType(name: 'double'),
+        ),
+        BridgeField(
+          name: 'z',
+          type: BridgeType(name: 'double'),
+        ),
       ],
     ),
     BridgeStruct(
       name: 'Quaternion',
       packed: false,
       fields: [
-        BridgeField(name: 'x', type: BridgeType(name: 'double')),
-        BridgeField(name: 'y', type: BridgeType(name: 'double')),
-        BridgeField(name: 'z', type: BridgeType(name: 'double')),
-        BridgeField(name: 'w', type: BridgeType(name: 'double')),
+        BridgeField(
+          name: 'x',
+          type: BridgeType(name: 'double'),
+        ),
+        BridgeField(
+          name: 'y',
+          type: BridgeType(name: 'double'),
+        ),
+        BridgeField(
+          name: 'z',
+          type: BridgeType(name: 'double'),
+        ),
+        BridgeField(
+          name: 'w',
+          type: BridgeType(name: 'double'),
+        ),
       ],
     ),
     BridgeStruct(
       name: 'PackageDimensions',
       packed: false,
       fields: [
-        BridgeField(name: 'length', type: BridgeType(name: 'double')),
-        BridgeField(name: 'width', type: BridgeType(name: 'double')),
-        BridgeField(name: 'height', type: BridgeType(name: 'double')),
-        BridgeField(name: 'confidence', type: BridgeType(name: 'double')),
-        BridgeField(name: 'center', type: BridgeType(name: 'Vector3')),
-        BridgeField(name: 'rotation', type: BridgeType(name: 'Quaternion')),
+        BridgeField(
+          name: 'length',
+          type: BridgeType(name: 'double'),
+        ),
+        BridgeField(
+          name: 'width',
+          type: BridgeType(name: 'double'),
+        ),
+        BridgeField(
+          name: 'height',
+          type: BridgeType(name: 'double'),
+        ),
+        BridgeField(
+          name: 'confidence',
+          type: BridgeType(name: 'double'),
+        ),
+        BridgeField(
+          name: 'center',
+          type: BridgeType(name: 'Vector3'),
+        ),
+        BridgeField(
+          name: 'rotation',
+          type: BridgeType(name: 'Quaternion'),
+        ),
       ],
     ),
   ],
@@ -1030,22 +1185,39 @@ BridgeSpec deeplyNestedStructSpec() => BridgeSpec(
     BridgeStruct(
       name: 'Leaf',
       packed: false,
-      fields: [BridgeField(name: 'val', type: BridgeType(name: 'double'))],
+      fields: [
+        BridgeField(
+          name: 'val',
+          type: BridgeType(name: 'double'),
+        ),
+      ],
     ),
     BridgeStruct(
       name: 'Mid',
       packed: false,
       fields: [
-        BridgeField(name: 'leaf', type: BridgeType(name: 'Leaf')),
-        BridgeField(name: 'count', type: BridgeType(name: 'int')),
+        BridgeField(
+          name: 'leaf',
+          type: BridgeType(name: 'Leaf'),
+        ),
+        BridgeField(
+          name: 'count',
+          type: BridgeType(name: 'int'),
+        ),
       ],
     ),
     BridgeStruct(
       name: 'Root',
       packed: false,
       fields: [
-        BridgeField(name: 'mid', type: BridgeType(name: 'Mid')),
-        BridgeField(name: 'label', type: BridgeType(name: 'String')),
+        BridgeField(
+          name: 'mid',
+          type: BridgeType(name: 'Mid'),
+        ),
+        BridgeField(
+          name: 'label',
+          type: BridgeType(name: 'String'),
+        ),
       ],
     ),
   ],

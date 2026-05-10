@@ -1,4 +1,3 @@
-import 'package:nitro_annotations/nitro_annotations.dart';
 import 'package:nitro_generator/src/generators/cpp_bridge_generator.dart';
 import 'package:nitro_generator/src/generators/struct_generator.dart';
 import 'package:test/test.dart';
@@ -21,9 +20,19 @@ BridgeStruct _pcmChunkNoCompanion() => BridgeStruct(
   name: 'PcmChunk',
   packed: false,
   fields: [
-    BridgeField(name: 'pcm', type: BridgeType(name: 'Uint8List'), zeroCopy: true),
-    BridgeField(name: 'timestampMs', type: BridgeType(name: 'int')),
-    BridgeField(name: 'sampleRate', type: BridgeType(name: 'int')),
+    BridgeField(
+      name: 'pcm',
+      type: BridgeType(name: 'Uint8List'),
+      zeroCopy: true,
+    ),
+    BridgeField(
+      name: 'timestampMs',
+      type: BridgeType(name: 'int'),
+    ),
+    BridgeField(
+      name: 'sampleRate',
+      type: BridgeType(name: 'int'),
+    ),
   ],
 );
 
@@ -31,8 +40,15 @@ BridgeStruct _frameWithLength() => BridgeStruct(
   name: 'Frame',
   packed: false,
   fields: [
-    BridgeField(name: 'data', type: BridgeType(name: 'Uint8List'), zeroCopy: true),
-    BridgeField(name: 'length', type: BridgeType(name: 'int')),
+    BridgeField(
+      name: 'data',
+      type: BridgeType(name: 'Uint8List'),
+      zeroCopy: true,
+    ),
+    BridgeField(
+      name: 'length',
+      type: BridgeType(name: 'int'),
+    ),
   ],
 );
 

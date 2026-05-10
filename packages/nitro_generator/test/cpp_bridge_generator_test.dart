@@ -125,7 +125,10 @@ void main() {
             name: 'Point',
             packed: false,
             fields: [
-              BridgeField(name: 'x', type: BridgeType(name: 'double')),
+              BridgeField(
+                name: 'x',
+                type: BridgeType(name: 'double'),
+              ),
             ],
           ),
         ],
@@ -136,8 +139,16 @@ void main() {
             isAsync: false,
             returnType: BridgeType(name: 'void'),
             params: [
-              BridgeParam(name: 'name', type: BridgeType(name: 'String'), zeroCopy: false),
-              BridgeParam(name: 'pt', type: BridgeType(name: 'Point'), zeroCopy: false),
+              BridgeParam(
+                name: 'name',
+                type: BridgeType(name: 'String'),
+                zeroCopy: false,
+              ),
+              BridgeParam(
+                name: 'pt',
+                type: BridgeType(name: 'Point'),
+                zeroCopy: false,
+              ),
             ],
           ),
         ],
@@ -170,8 +181,7 @@ void main() {
       final packPos = out.indexOf('pack_CameraFrame_from_jni(env, item);');
       final exCheckPos = out.indexOf('env->ExceptionCheck()', packPos);
       final newGlobalRefPos = out.indexOf('NewGlobalRef(item)', packPos);
-      expect(exCheckPos, lessThan(newGlobalRefPos),
-          reason: 'ExceptionCheck must come BEFORE NewGlobalRef');
+      expect(exCheckPos, lessThan(newGlobalRefPos), reason: 'ExceptionCheck must come BEFORE NewGlobalRef');
     });
 
     test('iOS section emits extern _call functions', () {
@@ -202,8 +212,14 @@ void main() {
             name: 'User',
             packed: false,
             fields: [
-              BridgeField(name: 'id', type: BridgeType(name: 'int')),
-              BridgeField(name: 'name', type: BridgeType(name: 'String')),
+              BridgeField(
+                name: 'id',
+                type: BridgeType(name: 'int'),
+              ),
+              BridgeField(
+                name: 'name',
+                type: BridgeType(name: 'String'),
+              ),
             ],
           ),
         ],
@@ -437,7 +453,12 @@ void main() {
             cSymbol: 'counter_increment',
             isAsync: false,
             returnType: BridgeType(name: 'void'),
-            params: [BridgeParam(name: 'amount', type: BridgeType(name: 'int'))],
+            params: [
+              BridgeParam(
+                name: 'amount',
+                type: BridgeType(name: 'int'),
+              ),
+            ],
           ),
         ],
       );
@@ -578,7 +599,9 @@ void main() {
         iosImpl: NativeImpl.cpp,
         androidImpl: NativeImpl.cpp,
         sourceUri: 'dev.native.dart',
-        enums: [BridgeEnum(name: 'Mode', startValue: 0, values: ['a', 'b'])],
+        enums: [
+          BridgeEnum(name: 'Mode', startValue: 0, values: ['a', 'b']),
+        ],
         properties: [
           BridgeProperty(
             dartName: 'mode',

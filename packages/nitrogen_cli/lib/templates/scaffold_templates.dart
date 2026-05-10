@@ -7,7 +7,8 @@ library;
 
 // ── C / C++ / CMake templates ─────────────────────────────────────────────────
 
-String pluginCppTemplate(String pluginName) => '''
+String pluginCppTemplate(String pluginName) =>
+    '''
 #include <stdint.h>
 #include <stdbool.h>
 #include "nitro.h"
@@ -18,7 +19,8 @@ extern "C" {
 }
 ''';
 
-String cmakeListsTemplate(String pluginName) => '''
+String cmakeListsTemplate(String pluginName) =>
+    '''
 cmake_minimum_required(VERSION 3.10)
 project(${pluginName}_library VERSION 0.0.1 LANGUAGES C CXX)
 
@@ -49,7 +51,8 @@ endif()
 
 // ── iOS templates ─────────────────────────────────────────────────────────────
 
-String iosSwiftPluginTemplate(String className) => '''
+String iosSwiftPluginTemplate(String className) =>
+    '''
 import Flutter
 import UIKit
 
@@ -60,7 +63,8 @@ public class Swift${className}Plugin: NSObject, FlutterPlugin {
 }
 ''';
 
-String iosSwiftImplTemplate(String className) => '''
+String iosSwiftImplTemplate(String className) =>
+    '''
 import Foundation
 
 /// Native implementation of Hybrid${className}Protocol.
@@ -79,7 +83,8 @@ public class ${className}Impl: NSObject, Hybrid${className}Protocol {
 
 // ── macOS templates ───────────────────────────────────────────────────────────
 
-String macosSwiftPluginTemplate(String className) => '''
+String macosSwiftPluginTemplate(String className) =>
+    '''
 import FlutterMacOS
 import AppKit
 
@@ -90,7 +95,8 @@ public class Swift${className}Plugin: NSObject, FlutterPlugin {
 }
 ''';
 
-String macosSwiftImplTemplate(String className) => '''
+String macosSwiftImplTemplate(String className) =>
+    '''
 import Foundation
 
 /// Native implementation of Hybrid${className}Protocol on macOS.
@@ -158,7 +164,8 @@ let package = Package(
 ///
 /// Uses [plugins {}] at the very top as required by Gradle 7+ — no legacy
 /// `buildscript {}` or `apply plugin` blocks which break AGP 8/9+.
-String androidBuildGradleTemplate(String org, String pluginName) => '''
+String androidBuildGradleTemplate(String org, String pluginName) =>
+    '''
 plugins {
     id "com.android.library"
     id "org.jetbrains.kotlin.android"
@@ -251,7 +258,8 @@ class ${className}Impl(private val context: Context) : Hybrid${className}Spec {
 
 // ── Dart / Flutter templates ──────────────────────────────────────────────────
 
-String nativeDartTemplate(String pluginName, String className, String annotation) => '''
+String nativeDartTemplate(String pluginName, String className, String annotation) =>
+    '''
 import 'package:nitro/nitro.dart';
 
 part '$pluginName.g.dart';
@@ -267,7 +275,8 @@ abstract class $className extends HybridObject {
 }
 ''';
 
-String exampleMainDartTemplate(String pluginName, String className) => '''
+String exampleMainDartTemplate(String pluginName, String className) =>
+    '''
 import 'dart:async';
 
 import 'package:flutter/material.dart';

@@ -52,7 +52,8 @@ final class FloatBufferProxy extends FloatBuffer implements Finalizable {
   static void _init(DynamicLibrary dylib) {
     _finalizer ??= NativeFinalizer(
       dylib.lookup<NativeFunction<Void Function(Pointer<Void>)>>(
-          'verification_release_FloatBuffer'),
+        'verification_release_FloatBuffer',
+      ),
     );
   }
 
@@ -60,8 +61,10 @@ final class FloatBufferProxy extends FloatBuffer implements Finalizable {
   /// all getters below are overridden to read from native memory instead.
   /// Do NOT call [malloc.free] after passing the pointer here.
   FloatBufferProxy(this._native) : super(data: Float32List(0), length: 0) {
-    assert(_finalizer != null,
-        'FloatBufferProxy._init() was not called. Ensure the Nitro impl class constructor ran before creating proxies.');
+    assert(
+      _finalizer != null,
+      'FloatBufferProxy._init() was not called. Ensure the Nitro impl class constructor ran before creating proxies.',
+    );
     _finalizer!.attach(this, _native.cast(), detach: this);
   }
 
@@ -88,47 +91,59 @@ class _VerificationModuleImpl extends VerificationModule {
   final DynamicLibrary _dylib;
 
   _VerificationModuleImpl() : _dylib = NitroRuntime.loadLib('verification') {
-    final initFunc = _dylib.lookupFunction<IntPtr Function(Pointer<Void>),
-        int Function(Pointer<Void>)>('verification_init_dart_api_dl');
+    final initFunc = _dylib
+        .lookupFunction<
+          IntPtr Function(Pointer<Void>),
+          int Function(Pointer<Void>)
+        >('verification_init_dart_api_dl');
     final initCode = initFunc(NativeApi.initializeApiDLData);
     if (initCode != 0) {
       throw StateError(
-          'verification: Dart API DL initialization failed with code $initCode.');
+        'verification: Dart API DL initialization failed with code $initCode.',
+      );
     }
     FloatBufferProxy._init(_dylib);
   }
 
   late final double Function(double, double) _multiplyPtr = _dylib
       .lookup<NativeFunction<Double Function(Double, Double)>>(
-          'verification_module_multiply')
+        'verification_module_multiply',
+      )
       .asFunction<double Function(double, double)>(isLeaf: true);
-  late final Pointer<Utf8> Function(Pointer<Utf8>) _pingPtr =
-      _dylib.lookupFunction<Pointer<Utf8> Function(Pointer<Utf8>),
-          Pointer<Utf8> Function(Pointer<Utf8>)>('verification_module_ping');
-  late final Pointer<Utf8> Function(Pointer<Utf8>) _pingAsyncPtr =
-      _dylib.lookupFunction<
-          Pointer<Utf8> Function(Pointer<Utf8>),
-          Pointer<Utf8> Function(
-              Pointer<Utf8>)>('verification_module_ping_async');
-  late final void Function(Pointer<Utf8>) _throwErrorPtr =
-      _dylib.lookupFunction<Void Function(Pointer<Utf8>),
-          void Function(Pointer<Utf8>)>('verification_module_throw_error');
+  late final Pointer<Utf8> Function(Pointer<Utf8>) _pingPtr = _dylib
+      .lookupFunction<
+        Pointer<Utf8> Function(Pointer<Utf8>),
+        Pointer<Utf8> Function(Pointer<Utf8>)
+      >('verification_module_ping');
+  late final Pointer<Utf8> Function(Pointer<Utf8>) _pingAsyncPtr = _dylib
+      .lookupFunction<
+        Pointer<Utf8> Function(Pointer<Utf8>),
+        Pointer<Utf8> Function(Pointer<Utf8>)
+      >('verification_module_ping_async');
+  late final void Function(Pointer<Utf8>) _throwErrorPtr = _dylib
+      .lookupFunction<
+        Void Function(Pointer<Utf8>),
+        void Function(Pointer<Utf8>)
+      >('verification_module_throw_error');
   late final Pointer<Void> Function(Pointer<Float>, int) _processFloatsPtr =
       _dylib.lookupFunction<
-          Pointer<Void> Function(Pointer<Float>, Int64),
-          Pointer<Void> Function(
-              Pointer<Float>, int)>('verification_module_process_floats');
+        Pointer<Void> Function(Pointer<Float>, Int64),
+        Pointer<Void> Function(Pointer<Float>, int)
+      >('verification_module_process_floats');
   // ignore: unused_field
-  late final Pointer<NitroErrorFfi> Function() _getErrorPtr =
-      _dylib.lookupFunction<Pointer<NitroErrorFfi> Function(),
-          Pointer<NitroErrorFfi> Function()>('verification_get_error');
+  late final Pointer<NitroErrorFfi> Function() _getErrorPtr = _dylib
+      .lookupFunction<
+        Pointer<NitroErrorFfi> Function(),
+        Pointer<NitroErrorFfi> Function()
+      >('verification_get_error');
   // ignore: unused_field
-  late final void Function() _clearErrorPtr =
-      _dylib.lookupFunction<Void Function(), void Function()>(
-          'verification_clear_error');
+  late final void Function() _clearErrorPtr = _dylib
+      .lookupFunction<Void Function(), void Function()>(
+        'verification_clear_error',
+      );
   // ignore: unused_field
   late final Pointer<NativeFunction<Pointer<NitroErrorFfi> Function()>>
-      _getErrorNativePtr = _dylib.lookup('verification_get_error');
+  _getErrorNativePtr = _dylib.lookup('verification_get_error');
   // ignore: unused_field
   late final Pointer<NativeFunction<Void Function()>> _clearErrorNativePtr =
       _dylib.lookup('verification_clear_error');
@@ -163,10 +178,12 @@ class _VerificationModuleImpl extends VerificationModule {
     final arena = Arena();
     try {
       final rawPtr = await NitroRuntime.callAsync<Pointer<Utf8>>(
-          _pingAsyncPtr, [message.toNativeUtf8(allocator: arena)],
-          getError: _getErrorNativePtr,
-          clearError: _clearErrorNativePtr,
-          methodName: 'pingAsync');
+        _pingAsyncPtr,
+        [message.toNativeUtf8(allocator: arena)],
+        getError: _getErrorNativePtr,
+        clearError: _clearErrorNativePtr,
+        methodName: 'pingAsync',
+      );
       return rawPtr.toDartStringWithFree();
     } finally {
       arena.releaseAll();

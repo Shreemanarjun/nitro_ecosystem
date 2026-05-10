@@ -77,7 +77,10 @@ void main() {
             name: 'PackageDimensions',
             packed: false,
             fields: [
-              BridgeField(name: 'width', type: BridgeType(name: 'double')),
+              BridgeField(
+                name: 'width',
+                type: BridgeType(name: 'double'),
+              ),
             ],
           ),
         ],
@@ -118,12 +121,12 @@ void main() {
           ),
         ],
       );
-      
+
       // Test Swift generation
       final swiftOut = RecordGenerator.generateSwift(spec);
       expect(swiftOut, contains('writer.writeBlob(depthData)'));
       expect(swiftOut, contains('depthData: r.readBlob()'));
-      
+
       // Test Dart extensions generation
       final dartOut = RecordGenerator.generateDartExtensions(spec);
       expect(dartOut, contains('writer.writeBlob(depthData)'));

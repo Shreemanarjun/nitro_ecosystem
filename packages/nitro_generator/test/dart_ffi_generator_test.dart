@@ -117,7 +117,10 @@ void main() {
             name: 'Reading',
             packed: false,
             fields: [
-              BridgeField(name: 'value', type: BridgeType(name: 'double')),
+              BridgeField(
+                name: 'value',
+                type: BridgeType(name: 'double'),
+              ),
             ],
           ),
         ],
@@ -255,7 +258,9 @@ void main() {
         lib: 'foo',
         namespace: 'foo',
         sourceUri: 'foo.native.dart',
-        enums: [BridgeEnum(name: 'Status', values: ['idle', 'running'], startValue: 0)],
+        enums: [
+          BridgeEnum(name: 'Status', values: ['idle', 'running'], startValue: 0),
+        ],
         streams: [
           BridgeStream(
             dartName: 'statusStream',

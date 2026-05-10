@@ -457,24 +457,27 @@ class _BridgeDriverState extends State<_BridgeDriver>
     if (widget.type != BridgeType.nitroCppStruct) {
       _ticker = createTicker(_onTick);
     }
-    _sub = (widget.controller.isRunning..subscribe((running) {
-      if (running) {
-        if (widget.type == BridgeType.nitroCppStruct) {
-          // Subscribe to the C++ boxStream. Each item arrives as a
-          // BenchmarkBoxProxy that extends BenchmarkBox — field reads
-          // go directly to native heap (zero copy, zero allocation).
-          _streamSub =
-              BenchmarkCpp.instance.boxStream.listen(_onBoxFromStream);
-        } else {
-          _ticker?.start();
-        }
-      } else {
-        _streamSub?.cancel();
-        _streamSub = null;
-        _ticker?.stop();
-        _boxSignal.value = null;
-      }
-    })).call;
+    _sub =
+        (widget.controller.isRunning..subscribe((running) {
+              if (running) {
+                if (widget.type == BridgeType.nitroCppStruct) {
+                  // Subscribe to the C++ boxStream. Each item arrives as a
+                  // BenchmarkBoxProxy that extends BenchmarkBox — field reads
+                  // go directly to native heap (zero copy, zero allocation).
+                  _streamSub = BenchmarkCpp.instance.boxStream.listen(
+                    _onBoxFromStream,
+                  );
+                } else {
+                  _ticker?.start();
+                }
+              } else {
+                _streamSub?.cancel();
+                _streamSub = null;
+                _ticker?.stop();
+                _boxSignal.value = null;
+              }
+            }))
+            .call;
   }
 
   /// Called for each box emitted by [BenchmarkCpp.instance.boxStream].

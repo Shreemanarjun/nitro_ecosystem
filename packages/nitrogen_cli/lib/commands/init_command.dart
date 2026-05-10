@@ -632,7 +632,9 @@ class _InitViewState extends State<InitView> {
     ]) {
       final lnk = Link(p.join(swiftSrcDir.path, name));
       if (!lnk.existsSync()) {
-        try { lnk.createSync('../../../Classes/$name'); } catch (_) {}
+        try {
+          lnk.createSync('../../../Classes/$name');
+        } catch (_) {}
       }
     }
 

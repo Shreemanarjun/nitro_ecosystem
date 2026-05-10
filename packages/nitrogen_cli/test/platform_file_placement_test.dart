@@ -164,7 +164,6 @@ abstract class $pascal extends HybridObject {}
   File(p.join(root.path, 'src', 'Hybrid$pascal.cpp')).writeAsStringSync('// impl');
 }
 
-
 /// Writes a NitroModule spec for a Windows-only C++ module.
 void _writeWindowsCppSpec(Directory root, String lib) {
   final pascal = _toPascal(lib);
@@ -223,8 +222,7 @@ void main() {
     test('linkPodspec sets CLANG_CXX_LANGUAGE_STANDARD = c++17', () {
       linkPodspec('my_plugin', ['my_plugin'], baseDir: root.path);
       final pod = File(p.join(root.path, 'ios', 'my_plugin.podspec')).readAsStringSync();
-      expect(pod, contains('c++17'),
-          reason: 'Doctor checks for c++17 — linkPodspec must set it to prevent build warnings');
+      expect(pod, contains('c++17'), reason: 'Doctor checks for c++17 — linkPodspec must set it to prevent build warnings');
     });
 
     test('linkPodspec sets DEFINES_MODULE = YES', () {
@@ -248,12 +246,13 @@ void main() {
     test('linkPodspec removes the outer Swift bridge glob from source_files', () {
       // First, add it manually to simulate an old podspec state
       final podFile = File(p.join(root.path, 'ios', 'my_plugin.podspec'));
-      podFile.writeAsStringSync(podFile.readAsStringSync().replaceFirst("s.source_files     = 'Classes/**/*'", "s.source_files     = 'Classes/**/*', '../lib/src/generated/swift/**/*.swift'"));
+      podFile.writeAsStringSync(
+        podFile.readAsStringSync().replaceFirst("s.source_files     = 'Classes/**/*'", "s.source_files     = 'Classes/**/*', '../lib/src/generated/swift/**/*.swift'"),
+      );
 
       linkPodspec('my_plugin', ['my_plugin'], baseDir: root.path);
       final pod = podFile.readAsStringSync();
-      expect(pod, isNot(contains('lib/src/generated/swift/**/*.swift')),
-          reason: 'Bridges are now copied to Classes/ — outer glob causes "Invalid redeclaration" errors');
+      expect(pod, isNot(contains('lib/src/generated/swift/**/*.swift')), reason: 'Bridges are now copied to Classes/ — outer glob causes "Invalid redeclaration" errors');
     });
 
     test('ios/Classes/dart_api_dl.c is created by linkPodspec', () {
@@ -457,11 +456,9 @@ void main() {
       _writeSwiftKotlinSpec(root, 'my_plugin');
     });
 
-    void writeBuildGradle(String content) =>
-        File(p.join(root.path, 'android', 'build.gradle')).writeAsStringSync(content);
+    void writeBuildGradle(String content) => File(p.join(root.path, 'android', 'build.gradle')).writeAsStringSync(content);
 
-    String readBuildGradle() =>
-        File(p.join(root.path, 'android', 'build.gradle')).readAsStringSync();
+    String readBuildGradle() => File(p.join(root.path, 'android', 'build.gradle')).readAsStringSync();
 
     test('no-op when android/build.gradle does not exist', () {
       // No build.gradle written — must not throw.
@@ -577,10 +574,8 @@ dependencies {
       linkAndroid('my_plugin', ['my_plugin'], baseDir: root.path);
       final after2 = readBuildGradle();
       expect(after1, equals(after2), reason: 'linkAndroid must be idempotent');
-      expect('generated/kotlin'.allMatches(after2).length, equals(1),
-          reason: 'kotlin.srcDirs must not be duplicated');
-      expect('kotlinOptions'.allMatches(after2).length, equals(1),
-          reason: 'kotlinOptions must not be duplicated');
+      expect('generated/kotlin'.allMatches(after2).length, equals(1), reason: 'kotlin.srcDirs must not be duplicated');
+      expect('kotlinOptions'.allMatches(after2).length, equals(1), reason: 'kotlinOptions must not be duplicated');
     });
 
     test('supports Kotlin DSL (build.gradle.kts) with setOf() syntax', () {
@@ -592,8 +587,7 @@ android {
       linkAndroid('my_plugin', ['my_plugin'], baseDir: root.path);
       final kts = File(p.join(root.path, 'android', 'build.gradle.kts')).readAsStringSync();
       expect(kts, contains('generated/kotlin'));
-      expect(kts, contains('setOf('),
-          reason: 'Kotlin DSL requires setOf() instead of simple string assignment');
+      expect(kts, contains('setOf('), reason: 'Kotlin DSL requires setOf() instead of simple string assignment');
     });
 
     test('Groovy DSL does not use setOf() syntax', () {
@@ -645,8 +639,7 @@ android {
     test('linkWindows adds ../src to target_include_directories', () {
       linkWindows('my_plugin', ['my_plugin'], '/path/to/nitro/native', baseDir: root.path);
       final cmake = File(p.join(root.path, 'windows', 'CMakeLists.txt')).readAsStringSync();
-      expect(cmake, contains('/../src"'),
-          reason: 'Headers in src/ must be reachable from windows/CMakeLists.txt');
+      expect(cmake, contains('/../src"'), reason: 'Headers in src/ must be reachable from windows/CMakeLists.txt');
     });
 
     test('linkWindows is idempotent', () {
@@ -733,8 +726,7 @@ android {
         [const ModuleInfo(lib: 'swift_mod', module: 'SwiftMod', isCpp: false)],
         baseDir: root.path,
       );
-      expect(Directory(p.join(root.path, 'windows', 'src')).existsSync(), isFalse,
-          reason: 'Non-Windows-cpp modules must not create stubs in windows/src/');
+      expect(Directory(p.join(root.path, 'windows', 'src')).existsSync(), isFalse, reason: 'Non-Windows-cpp modules must not create stubs in windows/src/');
     });
   });
 
@@ -763,8 +755,7 @@ android {
     test('linkLinux adds ../src to target_include_directories', () {
       linkLinux('my_plugin', ['my_plugin'], '/path/to/nitro/native', baseDir: root.path);
       final cmake = File(p.join(root.path, 'linux', 'CMakeLists.txt')).readAsStringSync();
-      expect(cmake, contains('/../src"'),
-          reason: 'Headers in src/ must be reachable from linux/CMakeLists.txt');
+      expect(cmake, contains('/../src"'), reason: 'Headers in src/ must be reachable from linux/CMakeLists.txt');
     });
 
     test('linkLinux is idempotent', () {
@@ -861,8 +852,7 @@ target_include_directories(my_plugin PRIVATE "\${CMAKE_CURRENT_SOURCE_DIR}")
         "@NitroModule(lib: 'wasm_mod', ios: NativeImpl.swift)\n"
         'abstract class WasmMod extends HybridObject {}\n',
       );
-      expect(isCppModule(spec), isFalse,
-          reason: 'Web/Wasm modules use a separate codegen path; no C++ placement must occur');
+      expect(isCppModule(spec), isFalse, reason: 'Web/Wasm modules use a separate codegen path; no C++ placement must occur');
     });
 
     test('no windows/linux/ios/macos platform directories are touched when only web spec present', () {
@@ -877,8 +867,7 @@ target_include_directories(my_plugin PRIVATE "\${CMAKE_CURRENT_SOURCE_DIR}")
         [const ModuleInfo(lib: 'web_mod', module: 'WebMod', isCpp: false)],
         baseDir: root.path,
       );
-      expect(Directory(p.join(root.path, 'windows', 'src')).existsSync(), isFalse,
-          reason: 'No C++ stubs must be created for a web-only module');
+      expect(Directory(p.join(root.path, 'windows', 'src')).existsSync(), isFalse, reason: 'No C++ stubs must be created for a web-only module');
     });
   });
 
@@ -894,7 +883,9 @@ target_include_directories(my_plugin PRIVATE "\${CMAKE_CURRENT_SOURCE_DIR}")
       linkCMake('benchmark', ['benchmark'], nitroPath, baseDir: root.path, moduleInfos: moduleInfos);
       linkPodspec('benchmark', ['benchmark'], baseDir: root.path, moduleInfos: moduleInfos);
       linkMacosPodspec('benchmark', ['benchmark'], baseDir: root.path, moduleInfos: moduleInfos);
-      linkKotlinPlugin('benchmark', [{'lib': 'benchmark', 'module': 'Benchmark'}], baseDir: root.path);
+      linkKotlinPlugin('benchmark', [
+        {'lib': 'benchmark', 'module': 'Benchmark'},
+      ], baseDir: root.path);
       linkWindows('benchmark', ['benchmark'], nitroPath, baseDir: root.path, moduleInfos: moduleInfos);
       linkLinux('benchmark', ['benchmark'], nitroPath, baseDir: root.path, moduleInfos: moduleInfos);
 
@@ -962,8 +953,7 @@ target_include_directories(my_plugin PRIVATE "\${CMAKE_CURRENT_SOURCE_DIR}")
 
       // src/CMakeLists.txt must NOT have the HybridNitroMath.cpp (isNativeCpp is false — apple only)
       final srcCmake = File(p.join(root.path, 'src', 'CMakeLists.txt')).readAsStringSync();
-      expect(srcCmake, isNot(contains('HybridNitroMath.cpp')),
-          reason: 'Apple-only C++ modules are compiled via CocoaPods, not src/CMakeLists.txt');
+      expect(srcCmake, isNot(contains('HybridNitroMath.cpp')), reason: 'Apple-only C++ modules are compiled via CocoaPods, not src/CMakeLists.txt');
     });
   });
 }

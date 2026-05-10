@@ -106,7 +106,6 @@ class GenerateCommand extends Command {
       workingDirectory: projectDir.path,
     );
 
-
     stdout.writeln('');
     if (exitCode != 0) {
       stderr.writeln(boldRed('  ✘  build_runner failed (exit $exitCode)'));

@@ -35,10 +35,7 @@ Future<int> killBuildRunner({String? workingDirectory}) async {
         ['process', 'where', "CommandLine like '%build_runner%'", 'get', 'ProcessId'],
         runInShell: true,
       );
-      final pids = (list.stdout as String)
-          .split(RegExp(r'\s+'))
-          .where((s) => RegExp(r'^\d+$').hasMatch(s))
-          .toList();
+      final pids = (list.stdout as String).split(RegExp(r'\s+')).where((s) => RegExp(r'^\d+$').hasMatch(s)).toList();
       for (final pid in pids) {
         final r = await Process.run('taskkill', ['/F', '/PID', pid], runInShell: true);
         if (r.exitCode == 0) killed++;
@@ -54,11 +51,7 @@ Future<int> killBuildRunner({String? workingDirectory}) async {
         if (!File(lockPath).existsSync()) continue;
         try {
           final lsof = await Process.run('lsof', ['-t', lockPath]);
-          final pids = (lsof.stdout as String)
-              .trim()
-              .split(RegExp(r'\s+'))
-              .where((s) => RegExp(r'^\d+$').hasMatch(s))
-              .toList();
+          final pids = (lsof.stdout as String).trim().split(RegExp(r'\s+')).where((s) => RegExp(r'^\d+$').hasMatch(s)).toList();
           for (final pid in pids) {
             await Process.run('kill', ['-TERM', pid]);
             killed++;
@@ -244,9 +237,7 @@ void syncBridgeFiles(String workingDirectory, {String platform = 'ios'}) {
     for (final file in cppSource.listSync().whereType<File>()) {
       final name = p.basename(file.path);
       if (name.endsWith('.bridge.g.h') || name.endsWith('.bridge.g.cpp')) {
-        final targetName = name.endsWith('.bridge.g.cpp')
-            ? name.replaceFirst('.bridge.g.cpp', '.bridge.g.mm')
-            : name;
+        final targetName = name.endsWith('.bridge.g.cpp') ? name.replaceFirst('.bridge.g.cpp', '.bridge.g.mm') : name;
         file.copySync(p.join(classesDir.path, targetName));
       }
     }
@@ -286,8 +277,7 @@ void syncBridgeFiles(String workingDirectory, {String platform = 'ios'}) {
   }
 }
 
-String toPascalCase(String s) =>
-    s.split(RegExp(r'[_\-]')).map((w) => w.isEmpty ? '' : w[0].toUpperCase() + w.substring(1)).join('');
+String toPascalCase(String s) => s.split(RegExp(r'[_\-]')).map((w) => w.isEmpty ? '' : w[0].toUpperCase() + w.substring(1)).join('');
 
 /// Returns a map of {lib → moduleName} for modules where Apple platforms
 /// (ios or macos) use a direct C++ implementation (AppleNativeImpl.cpp).
@@ -308,7 +298,9 @@ Map<String, String> _discoverAppleCppModules(String workingDirectory) {
     // Apple C++ = ios or macos using AppleNativeImpl.cpp (or legacy NativeImpl.cpp)
     if (!RegExp(
       r'\b(?:ios|macos)\s*:\s*(?:NativeImpl|AppleNativeImpl)\.cpp\b',
-    ).hasMatch(annotation)) { continue; }
+    ).hasMatch(annotation)) {
+      continue;
+    }
     final lib = libMatch.group(1)!;
     final moduleMatch = RegExp(r'abstract class (\w+) extends HybridObject').firstMatch(content);
     final moduleName = moduleMatch?.group(1) ?? toPascalCase(lib);

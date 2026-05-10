@@ -69,7 +69,7 @@ void main() {
       expect(out, contains('Task.detached'));
     });
 
-test('async void return uses DispatchSemaphore pattern', () {
+    test('async void return uses DispatchSemaphore pattern', () {
       final spec = BridgeSpec(
         dartClassName: 'Foo',
         lib: 'foo',
@@ -155,7 +155,10 @@ test('async void return uses DispatchSemaphore pattern', () {
             isAsync: true,
             returnType: BridgeType(name: 'void'),
             params: [
-              BridgeParam(name: 'path', type: BridgeType(name: 'String')),
+              BridgeParam(
+                name: 'path',
+                type: BridgeType(name: 'String'),
+              ),
             ],
           ),
         ],

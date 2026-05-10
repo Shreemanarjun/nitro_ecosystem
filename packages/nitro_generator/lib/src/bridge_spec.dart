@@ -48,24 +48,18 @@ class BridgeSpec {
   /// Use this to decide whether to emit C++ headers / mocks that are needed
   /// by any C++ platform target, even in mixed-impl modules (e.g. android=kotlin,
   /// ios=cpp).
-  bool get hasCppImpl =>
-      iosImpl     is CppImpl ||
-      androidImpl is CppImpl ||
-      macosImpl   is CppImpl ||
-      windowsImpl is CppImpl ||
-      linuxImpl   is CppImpl;
+  bool get hasCppImpl => iosImpl is CppImpl || androidImpl is CppImpl || macosImpl is CppImpl || windowsImpl is CppImpl || linuxImpl is CppImpl;
 
   /// True when all targeted native platforms use direct C++ (no JNI / Swift
   /// bridge). Web is intentionally excluded — it is never a dart:ffi target.
   bool get isCppImpl =>
-      (iosImpl     == null || iosImpl     is CppImpl) &&
+      (iosImpl == null || iosImpl is CppImpl) &&
       (androidImpl == null || androidImpl is CppImpl) &&
-      (macosImpl   == null || macosImpl   is CppImpl) &&
+      (macosImpl == null || macosImpl is CppImpl) &&
       (windowsImpl == null || windowsImpl is CppImpl) &&
-      (linuxImpl   == null || linuxImpl   is CppImpl) &&
+      (linuxImpl == null || linuxImpl is CppImpl) &&
       // webImpl intentionally excluded — web is never a dart:ffi C++ target
-      (iosImpl != null || androidImpl != null || macosImpl  != null ||
-       windowsImpl != null || linuxImpl != null);
+      (iosImpl != null || androidImpl != null || macosImpl != null || windowsImpl != null || linuxImpl != null);
 
   final List<BridgeStruct> structs;
   final List<BridgeEnum> enums;

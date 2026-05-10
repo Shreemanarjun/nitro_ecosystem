@@ -8,8 +8,7 @@ class _Point {
   final int y;
   _Point(this.x, this.y);
   @override
-  bool operator ==(Object other) =>
-      other is _Point && other.x == x && other.y == y;
+  bool operator ==(Object other) => other is _Point && other.x == x && other.y == y;
   @override
   int get hashCode => Object.hash(x, y);
 
@@ -23,12 +22,11 @@ class _Point {
 
 // Allocates via malloc so that LazyRecordList's NativeFinalizer exclusively
 // owns the buffer (no arena double-free conflict).
-Pointer<Uint8> _encodePoints(List<_Point> items) =>
-    RecordWriter.encodeIndexedList<_Point>(
-      items,
-      (writer, e) => e.writeFields(writer),
-      malloc,
-    );
+Pointer<Uint8> _encodePoints(List<_Point> items) => RecordWriter.encodeIndexedList<_Point>(
+  items,
+  (writer, e) => e.writeFields(writer),
+  malloc,
+);
 
 void main() {
   group('RecordWriter.encodeIndexedList / LazyRecordList.decode', () {
@@ -121,8 +119,7 @@ void main() {
       final items = [_Point(7, 8), _Point(9, 10)];
       final ptr = _encodePoints(items);
       // Validate the raw bytes of the payload (after the 4-byte outer length).
-      final outerLen = ByteData.view(ptr.asTypedList(4).buffer)
-          .getInt32(0, Endian.little);
+      final outerLen = ByteData.view(ptr.asTypedList(4).buffer).getInt32(0, Endian.little);
       expect(outerLen, greaterThan(0));
 
       final payload = (ptr + 4).asTypedList(outerLen);

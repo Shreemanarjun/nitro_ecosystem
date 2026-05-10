@@ -25,7 +25,7 @@ void main() {
     late String dartProxy;
 
     setUp(() {
-      dartExt   = StructGenerator.generateDartExtensions(positionalStructSpec());
+      dartExt = StructGenerator.generateDartExtensions(positionalStructSpec());
       dartProxy = StructGenerator.generateDartProxies(positionalStructSpec());
     });
 
@@ -85,7 +85,7 @@ void main() {
     late String dartProxy;
 
     setUp(() {
-      dartExt   = StructGenerator.generateDartExtensions(namedOptionalStructSpec());
+      dartExt = StructGenerator.generateDartExtensions(namedOptionalStructSpec());
       dartProxy = StructGenerator.generateDartProxies(namedOptionalStructSpec());
     });
 
@@ -118,7 +118,7 @@ void main() {
     late String dartProxy;
 
     setUp(() {
-      dartExt   = StructGenerator.generateDartExtensions(mixedParamsStructSpec());
+      dartExt = StructGenerator.generateDartExtensions(mixedParamsStructSpec());
       dartProxy = StructGenerator.generateDartProxies(mixedParamsStructSpec());
     });
 
@@ -133,7 +133,7 @@ void main() {
       expect(block, contains('height:'));
       // positional must come before named
       final lastPositional = [block.indexOf('x,'), block.indexOf('y,')].reduce((a, b) => a > b ? a : b);
-      final firstNamed     = [block.indexOf('width:'), block.indexOf('height:')].reduce((a, b) => a < b ? a : b);
+      final firstNamed = [block.indexOf('width:'), block.indexOf('height:')].reduce((a, b) => a < b ? a : b);
       expect(lastPositional, lessThan(firstNamed));
     });
 
@@ -166,7 +166,7 @@ void main() {
     late String dartProxy;
 
     setUp(() {
-      dartExt   = StructGenerator.generateDartExtensions(nestedPositionalChildSpec());
+      dartExt = StructGenerator.generateDartExtensions(nestedPositionalChildSpec());
       dartProxy = StructGenerator.generateDartProxies(nestedPositionalChildSpec());
     });
 
@@ -222,8 +222,8 @@ void main() {
       );
       final out = StructGenerator.generateDartExtensions(spec);
       expect(out, contains('return Scalar('));
-      expect(out, isNot(contains('val: val')));  // no label for positional
-      expect(out, contains('val,'));              // raw value as positional arg
+      expect(out, isNot(contains('val: val'))); // no label for positional
+      expect(out, contains('val,')); // raw value as positional arg
     });
 
     test('single named-optional field', () {
@@ -249,9 +249,9 @@ void main() {
         ],
         functions: [],
       );
-      final ext   = StructGenerator.generateDartExtensions(spec);
+      final ext = StructGenerator.generateDartExtensions(spec);
       final proxy = StructGenerator.generateDartProxies(spec);
-      expect(ext,   contains('enabled: enabled != 0'));
+      expect(ext, contains('enabled: enabled != 0'));
       expect(proxy, contains('enabled: false'));
     });
 
@@ -267,19 +267,29 @@ void main() {
             name: 'NamedValue',
             packed: false,
             fields: [
-              BridgeField(name: 'id',   type: BridgeType(name: 'int'),    isNamed: false, isRequired: true),
-              BridgeField(name: 'label', type: BridgeType(name: 'String'), isNamed: true,  isRequired: true),
+              BridgeField(
+                name: 'id',
+                type: BridgeType(name: 'int'),
+                isNamed: false,
+                isRequired: true,
+              ),
+              BridgeField(
+                name: 'label',
+                type: BridgeType(name: 'String'),
+                isNamed: true,
+                isRequired: true,
+              ),
             ],
           ),
         ],
         functions: [],
       );
-      final ext   = StructGenerator.generateDartExtensions(spec);
+      final ext = StructGenerator.generateDartExtensions(spec);
       final proxy = StructGenerator.generateDartProxies(spec);
       // toDart() — `id` positional, `label` named
-      expect(ext,   contains('id,'));
-      expect(ext,   isNot(contains('id:')));
-      expect(ext,   contains('label: label.toDartString()'));
+      expect(ext, contains('id,'));
+      expect(ext, isNot(contains('id:')));
+      expect(ext, contains('label: label.toDartString()'));
       // super() — same order
       expect(proxy, contains("super(0, label: '')"));
     });
@@ -299,10 +309,30 @@ void main() {
             name: 'Row',
             packed: false,
             fields: [
-              BridgeField(name: 'count',  type: BridgeType(name: 'int'),    isNamed: false, isRequired: true),
-              BridgeField(name: 'active', type: BridgeType(name: 'bool'),   isNamed: false, isRequired: true),
-              BridgeField(name: 'label',  type: BridgeType(name: 'String'), isNamed: false, isRequired: true),
-              BridgeField(name: 'mode',   type: BridgeType(name: 'Mode'),   isNamed: false, isRequired: true),
+              BridgeField(
+                name: 'count',
+                type: BridgeType(name: 'int'),
+                isNamed: false,
+                isRequired: true,
+              ),
+              BridgeField(
+                name: 'active',
+                type: BridgeType(name: 'bool'),
+                isNamed: false,
+                isRequired: true,
+              ),
+              BridgeField(
+                name: 'label',
+                type: BridgeType(name: 'String'),
+                isNamed: false,
+                isRequired: true,
+              ),
+              BridgeField(
+                name: 'mode',
+                type: BridgeType(name: 'Mode'),
+                isNamed: false,
+                isRequired: true,
+              ),
             ],
           ),
         ],

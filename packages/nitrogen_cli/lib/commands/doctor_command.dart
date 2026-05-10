@@ -761,8 +761,7 @@ class DoctorCommand extends Command {
             );
           }
         } else {
-          err(androidSec, 'sourceSets entry for generated/kotlin missing',
-              hint: 'Add: kotlin.srcDirs += "\${project.projectDir}/../lib/src/generated/kotlin"');
+          err(androidSec, 'sourceSets entry for generated/kotlin missing', hint: 'Add: kotlin.srcDirs += "\${project.projectDir}/../lib/src/generated/kotlin"');
         }
         if (g.contains('kotlinx-coroutines')) {
           ok(androidSec, 'kotlinx-coroutines dependency present');
@@ -892,8 +891,7 @@ class DoctorCommand extends Command {
           if (firstSegment == 'Classes' || firstDir.existsSync()) {
             ok(iosSec, 'source_files path valid: $sfPath');
           } else {
-            err(iosSec, 'source_files points to non-existent path: $sfPath',
-                hint: "Run: nitrogen link  (fixes to 'Classes/**/*')");
+            err(iosSec, 'source_files points to non-existent path: $sfPath', hint: "Run: nitrogen link  (fixes to 'Classes/**/*')");
           }
         }
       }
@@ -916,9 +914,7 @@ class DoctorCommand extends Command {
           }
         }
       } else {
-        final swiftFiles = classesDir.existsSync()
-            ? classesDir.listSync().whereType<File>().where((f) => f.path.endsWith('Plugin.swift')).toList()
-            : <File>[];
+        final swiftFiles = classesDir.existsSync() ? classesDir.listSync().whereType<File>().where((f) => f.path.endsWith('Plugin.swift')).toList() : <File>[];
         if (swiftFiles.isEmpty) {
           err(iosSec, 'No *Plugin.swift in ios/Classes/', hint: 'Run: nitrogen init');
         } else {
@@ -1011,20 +1007,17 @@ class DoctorCommand extends Command {
         if (pkgSwift.contains(cppTargetName)) {
           ok(iosSec, 'Package.swift: $cppTargetName target defined');
         } else {
-          err(iosSec, 'Package.swift: $cppTargetName target missing',
-              hint: 'Run: nitrogen init  (re-creates Package.swift with the correct C++ target)');
+          err(iosSec, 'Package.swift: $cppTargetName target missing', hint: 'Run: nitrogen init  (re-creates Package.swift with the correct C++ target)');
         }
         if (pkgSwift.contains('c++17') || pkgSwift.contains('-std=c++17')) {
           ok(iosSec, 'Package.swift: cxxSettings -std=c++17 present');
         } else {
-          warn(iosSec, 'Package.swift: -std=c++17 missing in cxxSettings',
-              hint: 'Add .unsafeFlags(["-std=c++17"]) to the $cppTargetName cxxSettings');
+          warn(iosSec, 'Package.swift: -std=c++17 missing in cxxSettings', hint: 'Add .unsafeFlags(["-std=c++17"]) to the $cppTargetName cxxSettings');
         }
         if (pkgSwift.contains('publicHeadersPath')) {
           ok(iosSec, 'Package.swift: publicHeadersPath configured for $cppTargetName');
         } else {
-          warn(iosSec, 'Package.swift: publicHeadersPath missing for $cppTargetName',
-              hint: 'Run: nitrogen init  (sets publicHeadersPath: "include")');
+          warn(iosSec, 'Package.swift: publicHeadersPath missing for $cppTargetName', hint: 'Run: nitrogen init  (sets publicHeadersPath: "include")');
         }
 
         if (spmCppDir.existsSync()) {
@@ -1034,17 +1027,16 @@ class DoctorCommand extends Command {
             ok(iosSec, 'SPM Sources/$cppTargetName/dart_api_dl.c present');
             final dartApiDlContent = dartApiDlSpm.readAsStringSync();
             if (dartApiDlContent.contains('.symlinks') || RegExp(r'#include\s*"\/').hasMatch(dartApiDlContent)) {
-              warn(iosSec,
-                  'SPM Sources/$cppTargetName/dart_api_dl.c uses a machine-specific or .symlinks path',
-                  hint: 'Run: nitrogen link  (rewrites to portable bundled stub)');
+              warn(iosSec, 'SPM Sources/$cppTargetName/dart_api_dl.c uses a machine-specific or .symlinks path', hint: 'Run: nitrogen link  (rewrites to portable bundled stub)');
             } else if (!dartApiDlContent.contains('Dart_InitializeApiDL')) {
-              err(iosSec,
-                  'SPM Sources/$cppTargetName/dart_api_dl.c is a header-only stub — missing Dart_InitializeApiDL implementation',
-                  hint: 'Run: nitrogen link  (rewrites to full self-contained implementation)');
+              err(
+                iosSec,
+                'SPM Sources/$cppTargetName/dart_api_dl.c is a header-only stub — missing Dart_InitializeApiDL implementation',
+                hint: 'Run: nitrogen link  (rewrites to full self-contained implementation)',
+              );
             }
           } else {
-            err(iosSec, 'SPM Sources/$cppTargetName/dart_api_dl.c missing',
-                hint: 'Run: nitrogen link');
+            err(iosSec, 'SPM Sources/$cppTargetName/dart_api_dl.c missing', hint: 'Run: nitrogen link');
           }
 
           // <plugin>.cpp — forwarder that pulls in src/<plugin>.cpp via #include
@@ -1053,8 +1045,7 @@ class DoctorCommand extends Command {
           if (pluginCppSpm.existsSync() || pluginCSpm.existsSync()) {
             ok(iosSec, 'SPM Sources/$cppTargetName/$pluginName.cpp forwarder present');
           } else {
-            warn(iosSec, 'SPM Sources/$cppTargetName/$pluginName.cpp forwarder missing',
-                hint: 'Run: nitrogen link');
+            warn(iosSec, 'SPM Sources/$cppTargetName/$pluginName.cpp forwarder missing', hint: 'Run: nitrogen link');
           }
 
           // include/nitro.h — exposes NITRO_EXPORT and Nitro types to the C++ target
@@ -1062,28 +1053,21 @@ class DoctorCommand extends Command {
           if (nitroHSpm.existsSync()) {
             ok(iosSec, 'SPM Sources/$cppTargetName/include/nitro.h present');
           } else {
-            err(iosSec, 'SPM Sources/$cppTargetName/include/nitro.h missing',
-                hint: 'Run: nitrogen link');
+            err(iosSec, 'SPM Sources/$cppTargetName/include/nitro.h missing', hint: 'Run: nitrogen link');
           }
 
           // bridge.g.mm — CRITICAL: compiled as Obj-C++ so that the SPM target
           // links the C symbols defined in bridge.g.cpp (init_dart_api_dl etc.).
           // Without this the plugin crashes at startup with:
           //   "Failed to lookup symbol '${pluginName}_init_dart_api_dl'"
-          final spmMmBridges = spmCppDir
-              .listSync()
-              .whereType<File>()
-              .where((f) => f.path.endsWith('.bridge.g.mm'))
-              .toList();
+          final spmMmBridges = spmCppDir.listSync().whereType<File>().where((f) => f.path.endsWith('.bridge.g.mm')).toList();
           if (spmMmBridges.isNotEmpty) {
             ok(iosSec, '${spmMmBridges.length} .bridge.g.mm in SPM Sources/$cppTargetName/');
           } else if (specs.isNotEmpty) {
-            err(iosSec, 'Missing .bridge.g.mm in SPM Sources/$cppTargetName/',
-                hint: 'Run: nitrogen link  (symbol ${pluginName}_init_dart_api_dl will be missing at runtime)');
+            err(iosSec, 'Missing .bridge.g.mm in SPM Sources/$cppTargetName/', hint: 'Run: nitrogen link  (symbol ${pluginName}_init_dart_api_dl will be missing at runtime)');
           }
         } else if (specs.isNotEmpty) {
-          warn(iosSec, 'SPM Sources/$cppTargetName/ directory not found',
-              hint: 'Run: nitrogen link  (creates the SPM C++ target with bridge forwarders)');
+          warn(iosSec, 'SPM Sources/$cppTargetName/ directory not found', hint: 'Run: nitrogen link  (creates the SPM C++ target with bridge forwarders)');
         }
       }
     }
@@ -1130,8 +1114,7 @@ class DoctorCommand extends Command {
           if (firstSegment == 'Classes' || firstDir.existsSync()) {
             ok(macosSec, 'source_files path valid: $sfPath');
           } else {
-            err(macosSec, 'source_files points to non-existent path: $sfPath',
-                hint: "Run: nitrogen link  (fixes to 'Classes/**/*')");
+            err(macosSec, 'source_files points to non-existent path: $sfPath', hint: "Run: nitrogen link  (fixes to 'Classes/**/*')");
           }
         }
       }
@@ -1228,20 +1211,17 @@ class DoctorCommand extends Command {
         if (pkgSwift.contains(cppTargetName)) {
           ok(macosSec, 'Package.swift: $cppTargetName target defined');
         } else {
-          err(macosSec, 'Package.swift: $cppTargetName target missing',
-              hint: 'Run: nitrogen init  (re-creates Package.swift with the correct C++ target)');
+          err(macosSec, 'Package.swift: $cppTargetName target missing', hint: 'Run: nitrogen init  (re-creates Package.swift with the correct C++ target)');
         }
         if (pkgSwift.contains('c++17') || pkgSwift.contains('-std=c++17')) {
           ok(macosSec, 'Package.swift: cxxSettings -std=c++17 present');
         } else {
-          warn(macosSec, 'Package.swift: -std=c++17 missing in cxxSettings',
-              hint: 'Add .unsafeFlags(["-std=c++17"]) to the $cppTargetName cxxSettings');
+          warn(macosSec, 'Package.swift: -std=c++17 missing in cxxSettings', hint: 'Add .unsafeFlags(["-std=c++17"]) to the $cppTargetName cxxSettings');
         }
         if (pkgSwift.contains('publicHeadersPath')) {
           ok(macosSec, 'Package.swift: publicHeadersPath configured for $cppTargetName');
         } else {
-          warn(macosSec, 'Package.swift: publicHeadersPath missing for $cppTargetName',
-              hint: 'Run: nitrogen init  (sets publicHeadersPath: "include")');
+          warn(macosSec, 'Package.swift: publicHeadersPath missing for $cppTargetName', hint: 'Run: nitrogen init  (sets publicHeadersPath: "include")');
         }
 
         if (spmCppDir.existsSync()) {
@@ -1251,17 +1231,16 @@ class DoctorCommand extends Command {
             ok(macosSec, 'SPM Sources/$cppTargetName/dart_api_dl.c present');
             final dartApiDlContent = dartApiDlSpm.readAsStringSync();
             if (dartApiDlContent.contains('.symlinks') || RegExp(r'#include\s*"\/').hasMatch(dartApiDlContent)) {
-              warn(macosSec,
-                  'SPM Sources/$cppTargetName/dart_api_dl.c uses a machine-specific or .symlinks path',
-                  hint: 'Run: nitrogen link  (rewrites to portable bundled stub)');
+              warn(macosSec, 'SPM Sources/$cppTargetName/dart_api_dl.c uses a machine-specific or .symlinks path', hint: 'Run: nitrogen link  (rewrites to portable bundled stub)');
             } else if (!dartApiDlContent.contains('Dart_InitializeApiDL')) {
-              err(macosSec,
-                  'SPM Sources/$cppTargetName/dart_api_dl.c is a header-only stub — missing Dart_InitializeApiDL implementation',
-                  hint: 'Run: nitrogen link  (rewrites to full self-contained implementation)');
+              err(
+                macosSec,
+                'SPM Sources/$cppTargetName/dart_api_dl.c is a header-only stub — missing Dart_InitializeApiDL implementation',
+                hint: 'Run: nitrogen link  (rewrites to full self-contained implementation)',
+              );
             }
           } else {
-            err(macosSec, 'SPM Sources/$cppTargetName/dart_api_dl.c missing',
-                hint: 'Run: nitrogen link');
+            err(macosSec, 'SPM Sources/$cppTargetName/dart_api_dl.c missing', hint: 'Run: nitrogen link');
           }
 
           // <plugin>.cpp — forwarder that pulls in src/<plugin>.cpp via #include
@@ -1270,8 +1249,7 @@ class DoctorCommand extends Command {
           if (pluginCppSpm.existsSync() || pluginCSpm.existsSync()) {
             ok(macosSec, 'SPM Sources/$cppTargetName/$pluginName.cpp forwarder present');
           } else {
-            warn(macosSec, 'SPM Sources/$cppTargetName/$pluginName.cpp forwarder missing',
-                hint: 'Run: nitrogen link');
+            warn(macosSec, 'SPM Sources/$cppTargetName/$pluginName.cpp forwarder missing', hint: 'Run: nitrogen link');
           }
 
           // include/nitro.h — exposes NITRO_EXPORT and Nitro types to the C++ target
@@ -1279,28 +1257,21 @@ class DoctorCommand extends Command {
           if (nitroHSpm.existsSync()) {
             ok(macosSec, 'SPM Sources/$cppTargetName/include/nitro.h present');
           } else {
-            err(macosSec, 'SPM Sources/$cppTargetName/include/nitro.h missing',
-                hint: 'Run: nitrogen link');
+            err(macosSec, 'SPM Sources/$cppTargetName/include/nitro.h missing', hint: 'Run: nitrogen link');
           }
 
           // bridge.g.mm — CRITICAL: compiled as Obj-C++ so that the SPM target
           // links the C symbols defined in bridge.g.cpp (init_dart_api_dl etc.).
           // Without this the plugin crashes at startup with:
           //   "Failed to lookup symbol '${pluginName}_init_dart_api_dl'"
-          final spmMmBridges = spmCppDir
-              .listSync()
-              .whereType<File>()
-              .where((f) => f.path.endsWith('.bridge.g.mm'))
-              .toList();
+          final spmMmBridges = spmCppDir.listSync().whereType<File>().where((f) => f.path.endsWith('.bridge.g.mm')).toList();
           if (spmMmBridges.isNotEmpty) {
             ok(macosSec, '${spmMmBridges.length} .bridge.g.mm in SPM Sources/$cppTargetName/');
           } else if (specs.isNotEmpty) {
-            err(macosSec, 'Missing .bridge.g.mm in SPM Sources/$cppTargetName/',
-                hint: 'Run: nitrogen link  (symbol ${pluginName}_init_dart_api_dl will be missing at runtime)');
+            err(macosSec, 'Missing .bridge.g.mm in SPM Sources/$cppTargetName/', hint: 'Run: nitrogen link  (symbol ${pluginName}_init_dart_api_dl will be missing at runtime)');
           }
         } else if (specs.isNotEmpty) {
-          warn(macosSec, 'SPM Sources/$cppTargetName/ directory not found',
-              hint: 'Run: nitrogen link  (creates the SPM C++ target with bridge forwarders)');
+          warn(macosSec, 'SPM Sources/$cppTargetName/ directory not found', hint: 'Run: nitrogen link  (creates the SPM C++ target with bridge forwarders)');
         }
       }
     }
@@ -1310,10 +1281,7 @@ class DoctorCommand extends Command {
     // src/ directory (Nitro layout). In that case dart_api_dl.c and bridge
     // files are compiled via src/CMakeLists.txt — checking the platform file
     // directly would produce false errors.
-    bool usesSharedSrc(String cmake) =>
-        cmake.contains('add_subdirectory') &&
-        (cmake.contains('"../src"') ||
-         cmake.contains(r'"${CMAKE_CURRENT_SOURCE_DIR}/../src"'));
+    bool usesSharedSrc(String cmake) => cmake.contains('add_subdirectory') && (cmake.contains('"../src"') || cmake.contains(r'"${CMAKE_CURRENT_SOURCE_DIR}/../src"'));
 
     // When the platform CMakeLists delegates to src/, check src/CMakeLists.txt
     // as the authoritative source of truth for dart_api_dl.c / bridge.g.cpp.
@@ -1341,9 +1309,7 @@ class DoctorCommand extends Command {
         }
         // dart_api_dl.c: accept if present in platform file OR in src/ (via add_subdirectory).
         if (cmake.contains('dart_api_dl.c') || (sharedSrc && srcCmakeContent.contains('dart_api_dl.c'))) {
-          ok(winSec, sharedSrc
-              ? 'dart_api_dl.c compiled via src/CMakeLists.txt (add_subdirectory)'
-              : 'dart_api_dl.c included in windows/CMakeLists.txt');
+          ok(winSec, sharedSrc ? 'dart_api_dl.c compiled via src/CMakeLists.txt (add_subdirectory)' : 'dart_api_dl.c included in windows/CMakeLists.txt');
         } else {
           err(winSec, 'dart_api_dl.c not included in windows/CMakeLists.txt', hint: 'Run: nitrogen link');
         }
@@ -1354,9 +1320,7 @@ class DoctorCommand extends Command {
           // Accept if the bridge is in the platform file, or in src/CMakeLists (shared build).
           final inSrc = sharedSrc && (srcCmakeContent.contains('$lib.bridge.g.cpp') || srcCmakeContent.contains(bridgeRel));
           if (cmake.contains(bridgeRel) || inSrc) {
-            ok(winSec, sharedSrc
-                ? '$lib.bridge.g.cpp compiled via src/CMakeLists.txt'
-                : '$lib.bridge.g.cpp linked in windows/CMakeLists.txt');
+            ok(winSec, sharedSrc ? '$lib.bridge.g.cpp compiled via src/CMakeLists.txt' : '$lib.bridge.g.cpp linked in windows/CMakeLists.txt');
           } else {
             warn(winSec, '$lib.bridge.g.cpp not linked in windows/CMakeLists.txt', hint: 'Run: nitrogen link');
           }
@@ -1383,9 +1347,7 @@ class DoctorCommand extends Command {
           err(linuxSec, 'NITRO_NATIVE missing in linux/CMakeLists.txt', hint: 'Run: nitrogen link');
         }
         if (cmake.contains('dart_api_dl.c') || (sharedSrc && srcCmakeContent.contains('dart_api_dl.c'))) {
-          ok(linuxSec, sharedSrc
-              ? 'dart_api_dl.c compiled via src/CMakeLists.txt (add_subdirectory)'
-              : 'dart_api_dl.c included in linux/CMakeLists.txt');
+          ok(linuxSec, sharedSrc ? 'dart_api_dl.c compiled via src/CMakeLists.txt (add_subdirectory)' : 'dart_api_dl.c included in linux/CMakeLists.txt');
         } else {
           err(linuxSec, 'dart_api_dl.c not included in linux/CMakeLists.txt', hint: 'Run: nitrogen link');
         }
@@ -1395,9 +1357,7 @@ class DoctorCommand extends Command {
           final bridgeRel = '../lib/src/generated/cpp/$lib.bridge.g.cpp';
           final inSrc = sharedSrc && (srcCmakeContent.contains('$lib.bridge.g.cpp') || srcCmakeContent.contains(bridgeRel));
           if (cmake.contains(bridgeRel) || inSrc) {
-            ok(linuxSec, sharedSrc
-                ? '$lib.bridge.g.cpp compiled via src/CMakeLists.txt'
-                : '$lib.bridge.g.cpp linked in linux/CMakeLists.txt');
+            ok(linuxSec, sharedSrc ? '$lib.bridge.g.cpp compiled via src/CMakeLists.txt' : '$lib.bridge.g.cpp linked in linux/CMakeLists.txt');
           } else {
             warn(linuxSec, '$lib.bridge.g.cpp not linked in linux/CMakeLists.txt', hint: 'Run: nitrogen link');
           }
@@ -1468,11 +1428,7 @@ class DoctorCommand extends Command {
           }
 
           // Find project.pbxproj
-          final xcodeprojDirs = platformDir
-              .listSync()
-              .whereType<Directory>()
-              .where((d) => d.path.endsWith('.xcodeproj'))
-              .toList();
+          final xcodeprojDirs = platformDir.listSync().whereType<Directory>().where((d) => d.path.endsWith('.xcodeproj')).toList();
           if (xcodeprojDirs.isEmpty) {
             info(exSec, 'example/$platform/: no .xcodeproj found — skipped');
             continue;
@@ -1503,8 +1459,7 @@ class DoctorCommand extends Command {
           } else {
             // Podfile exists — check if Pods have been installed (framework built)
             final podsDir = Directory(p.join(platformDir.path, 'Pods'));
-            final podsBuilt = podsDir.existsSync() &&
-                podsDir.listSync().whereType<Directory>().any((d) => d.path.contains('Pods.xcodeproj'));
+            final podsBuilt = podsDir.existsSync() && podsDir.listSync().whereType<Directory>().any((d) => d.path.contains('Pods.xcodeproj'));
             if (podsBuilt) {
               ok(exSec, 'example/$platform/: Podfile present and pods installed');
             } else {

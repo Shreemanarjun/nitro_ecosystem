@@ -10,9 +10,7 @@ String cmakeModuleTarget(String lib, {bool isCpp = false, bool isAndroidCpp = fa
   final className = _toPascalCase(lib);
   // Android C++: embed impl in add_library; Linux-only C++: guard with if(NOT ANDROID).
   final implInLib = (isCpp && isAndroidCpp) ? '\n  "Hybrid$className.cpp"' : '';
-  final androidGuard = (isCpp && !isAndroidCpp)
-      ? 'if(NOT ANDROID)\n  target_sources($lib PRIVATE "Hybrid$className.cpp")\nendif()\n'
-      : '';
+  final androidGuard = (isCpp && !isAndroidCpp) ? 'if(NOT ANDROID)\n  target_sources($lib PRIVATE "Hybrid$className.cpp")\nendif()\n' : '';
   return '\nadd_library($lib SHARED\n'
       '  "\${CMAKE_CURRENT_SOURCE_DIR}/../lib/src/generated/cpp/$lib.bridge.g.cpp"'
       '$implInLib\n'
@@ -53,12 +51,8 @@ String generateCMakeContent(
   );
   final mainClassName = _toPascalCase(mainInfo?.module ?? pluginName);
   // Android C++: embed in add_library; Linux-only C++: guard with if(NOT ANDROID).
-  final mainImplInLib =
-      (mainInfo?.isNativeCpp == true && mainInfo?.isAndroidCpp == true)
-      ? '  "Hybrid$mainClassName.cpp"\n'
-      : '';
-  final mainAndroidGuard =
-      (mainInfo?.isNativeCpp == true && mainInfo?.isAndroidCpp != true)
+  final mainImplInLib = (mainInfo?.isNativeCpp == true && mainInfo?.isAndroidCpp == true) ? '  "Hybrid$mainClassName.cpp"\n' : '';
+  final mainAndroidGuard = (mainInfo?.isNativeCpp == true && mainInfo?.isAndroidCpp != true)
       ? 'if(NOT ANDROID)\n  target_sources($pluginName PRIVATE "Hybrid$mainClassName.cpp")\nendif()\n'
       : '';
 
@@ -99,16 +93,15 @@ String generateCMakeContent(
       (m) => m.lib == lib,
       orElse: () => (lib: lib, module: lib, isNativeCpp: false, isAndroidCpp: false),
     );
-    buf.write(cmakeModuleTarget(
-      lib,
-      isCpp: info?.isNativeCpp ?? false,
-      isAndroidCpp: info?.isAndroidCpp ?? false,
-    ));
+    buf.write(
+      cmakeModuleTarget(
+        lib,
+        isCpp: info?.isNativeCpp ?? false,
+        isAndroidCpp: info?.isAndroidCpp ?? false,
+      ),
+    );
   }
   return buf.toString();
 }
 
-String _toPascalCase(String lib) => lib
-    .split(RegExp(r'[_\-]'))
-    .map((w) => w.isEmpty ? '' : w[0].toUpperCase() + w.substring(1))
-    .join('');
+String _toPascalCase(String lib) => lib.split(RegExp(r'[_\-]')).map((w) => w.isEmpty ? '' : w[0].toUpperCase() + w.substring(1)).join('');

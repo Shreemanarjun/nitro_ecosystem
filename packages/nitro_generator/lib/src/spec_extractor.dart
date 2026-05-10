@@ -21,12 +21,12 @@ class SpecExtractor {
     final annotation = module.annotation;
 
     final sourcePath = library.element.uri.toString();
-    final iosImpl     = annotation.read('ios').isNull     ? null : _getNativeImpl(annotation.read('ios').objectValue,     fieldName: 'ios',     sourcePath: sourcePath);
+    final iosImpl = annotation.read('ios').isNull ? null : _getNativeImpl(annotation.read('ios').objectValue, fieldName: 'ios', sourcePath: sourcePath);
     final androidImpl = annotation.read('android').isNull ? null : _getNativeImpl(annotation.read('android').objectValue, fieldName: 'android', sourcePath: sourcePath);
-    final macosImpl   = annotation.read('macos').isNull   ? null : _getNativeImpl(annotation.read('macos').objectValue,   fieldName: 'macos',   sourcePath: sourcePath);
+    final macosImpl = annotation.read('macos').isNull ? null : _getNativeImpl(annotation.read('macos').objectValue, fieldName: 'macos', sourcePath: sourcePath);
     final windowsImpl = annotation.read('windows').isNull ? null : _getNativeImpl(annotation.read('windows').objectValue, fieldName: 'windows', sourcePath: sourcePath);
-    final linuxImpl   = annotation.read('linux').isNull   ? null : _getNativeImpl(annotation.read('linux').objectValue,   fieldName: 'linux',   sourcePath: sourcePath);
-    final webImpl     = annotation.read('web').isNull     ? null : _getNativeImpl(annotation.read('web').objectValue,     fieldName: 'web',     sourcePath: sourcePath);
+    final linuxImpl = annotation.read('linux').isNull ? null : _getNativeImpl(annotation.read('linux').objectValue, fieldName: 'linux', sourcePath: sourcePath);
+    final webImpl = annotation.read('web').isNull ? null : _getNativeImpl(annotation.read('web').objectValue, fieldName: 'web', sourcePath: sourcePath);
     final cSymbolPrefix = annotation.read('cSymbolPrefix').isNull ? null : annotation.read('cSymbolPrefix').stringValue;
     final lib = annotation.read('lib').isNull ? null : annotation.read('lib').stringValue;
     final sourceFile = library.element.uri.pathSegments.last.replaceFirst('.native.dart', '');
@@ -111,9 +111,7 @@ class SpecExtractor {
   /// chain for [SwiftImpl] vs [CppImpl].
   static NativeImpl _inferAppleImpl(DartObject object) {
     final element = object.type?.element;
-    final names = (element is InterfaceElement)
-        ? element.allSupertypes.map((t) => t.element.name).whereType<String>().toSet()
-        : <String>{};
+    final names = (element is InterfaceElement) ? element.allSupertypes.map((t) => t.element.name).whereType<String>().toSet() : <String>{};
     if (names.contains('SwiftImpl')) return NativeImpl.swift;
     if (names.contains('CppImpl')) return NativeImpl.cpp;
     throw InvalidGenerationSource(
@@ -126,9 +124,7 @@ class SpecExtractor {
   /// chain for [KotlinImpl] vs [CppImpl].
   static NativeImpl _inferAndroidImpl(DartObject object) {
     final element = object.type?.element;
-    final names = (element is InterfaceElement)
-        ? element.allSupertypes.map((t) => t.element.name).whereType<String>().toSet()
-        : <String>{};
+    final names = (element is InterfaceElement) ? element.allSupertypes.map((t) => t.element.name).whereType<String>().toSet() : <String>{};
     if (names.contains('KotlinImpl')) return NativeImpl.kotlin;
     if (names.contains('CppImpl')) return NativeImpl.cpp;
     throw InvalidGenerationSource(
@@ -150,10 +146,7 @@ class SpecExtractor {
     // Also collect @HybridStruct names so that List<@HybridStruct T> fields
     // inside @HybridRecord classes are classified as listRecordObject (not
     // listPrimitive), enabling binary codec generation for struct items.
-    final structTypeNames = library.annotatedWith(structChecker)
-        .where((ann) => ann.element is ClassElement)
-        .map((ann) => (ann.element as ClassElement).name!)
-        .toSet();
+    final structTypeNames = library.annotatedWith(structChecker).where((ann) => ann.element is ClassElement).map((ann) => (ann.element as ClassElement).name!).toSet();
 
     return classes.map((cls) {
       final fields = cls.fields.where((f) => !f.isStatic && !f.isSynthetic).map((f) {
@@ -461,30 +454,25 @@ class SpecExtractor {
         'package:nitro_annotations/src/annotations.dart#ZeroCopy',
       );
 
-      final fields = cls.fields
-          .where((f) => !f.isStatic && !f.isSynthetic)
-          .map(
-            (f) {
-              final info = paramInfo[f.name!];
-              // Accept zero-copy declared either on the struct annotation
-              // (@HybridStruct(zeroCopy: ['field'])) or directly on the field
-              // (@ZeroCopy()). Both forms are equivalent.
-              final isZeroCopy =
-                  zeroCopyFields.contains(f.name) ||
-                  fieldZeroCopyChecker.hasAnnotationOf(f);
-              return BridgeField(
-                name: f.name!,
-                type: BridgeType(
-                  name: f.type.getDisplayString(),
-                  isNullable: f.type.nullabilitySuffix == NullabilitySuffix.question,
-                ),
-                zeroCopy: isZeroCopy,
-                isNamed: info?.isNamed ?? true,
-                isRequired: info?.isRequired ?? true,
-              );
-            },
-          )
-          .toList();
+      final fields = cls.fields.where((f) => !f.isStatic && !f.isSynthetic).map(
+        (f) {
+          final info = paramInfo[f.name!];
+          // Accept zero-copy declared either on the struct annotation
+          // (@HybridStruct(zeroCopy: ['field'])) or directly on the field
+          // (@ZeroCopy()). Both forms are equivalent.
+          final isZeroCopy = zeroCopyFields.contains(f.name) || fieldZeroCopyChecker.hasAnnotationOf(f);
+          return BridgeField(
+            name: f.name!,
+            type: BridgeType(
+              name: f.type.getDisplayString(),
+              isNullable: f.type.nullabilitySuffix == NullabilitySuffix.question,
+            ),
+            zeroCopy: isZeroCopy,
+            isNamed: info?.isNamed ?? true,
+            isRequired: info?.isRequired ?? true,
+          );
+        },
+      ).toList();
 
       results.add(BridgeStruct(name: cls.name!, packed: packed, fields: fields));
     }

@@ -122,10 +122,7 @@ class _MainNavigationPageState extends State<MainNavigationPage> {
           backgroundColor: Colors.grey.shade900,
           indicatorColor: Colors.cyan.withAlpha(50),
           destinations: const [
-            NavigationDestination(
-              icon: Icon(Icons.speed),
-              label: 'Throughput',
-            ),
+            NavigationDestination(icon: Icon(Icons.speed), label: 'Throughput'),
             NavigationDestination(
               icon: Icon(Icons.flash_on),
               label: 'Visual Stress',

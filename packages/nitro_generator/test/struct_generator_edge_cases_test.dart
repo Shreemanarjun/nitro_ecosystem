@@ -43,7 +43,7 @@ void main() {
         ],
       );
       final out = StructGenerator.generateKotlin(spec);
-      
+
       // Constructor signatures
       expect(out, contains('val id: String?'));
       expect(out, contains('val data: java.nio.ByteBuffer'));
@@ -65,14 +65,14 @@ void main() {
       // id: ?.let { writeString(it) }
       expect(out, contains('out.write(if (id == null) 0 else 1)'));
       expect(out, contains('id?.let { writeString(it) }'));
-      
+
       // data: required writeInt(0L)
       expect(out, contains('writeInt(0L)')); // for data
-      
+
       // buffer: nullable ?.let { writeInt(0L) }
       expect(out, contains('out.write(if (buffer == null) 0 else 1)'));
       expect(out, contains('buffer?.let { writeInt(0L) }'));
-      
+
       // weights: nullable ?.let { writeInt32(it.size); out.write(it) }
       expect(out, contains('out.write(if (weights == null) 0 else 1)'));
       expect(out, contains('weights?.let { writeInt32(it.size); out.write(it) }'));

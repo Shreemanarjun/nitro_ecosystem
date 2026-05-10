@@ -118,8 +118,7 @@ void main() {
       final freePos = out.indexOf('malloc.free(_native)');
       expect(detachPos, greaterThan(0), reason: 'detach must appear');
       expect(freePos, greaterThan(0), reason: 'free must appear');
-      expect(freePos, greaterThan(detachPos),
-          reason: 'must detach before freeing to avoid finalizer double-free');
+      expect(freePos, greaterThan(detachPos), reason: 'must detach before freeing to avoid finalizer double-free');
     });
 
     test('toDartAndRelease calls toDart() then frees', () {
@@ -140,12 +139,22 @@ void main() {
           BridgeStruct(
             name: 'Alpha',
             packed: false,
-            fields: [BridgeField(name: 'x', type: BridgeType(name: 'int'))],
+            fields: [
+              BridgeField(
+                name: 'x',
+                type: BridgeType(name: 'int'),
+              ),
+            ],
           ),
           BridgeStruct(
             name: 'Beta',
             packed: false,
-            fields: [BridgeField(name: 'y', type: BridgeType(name: 'double'))],
+            fields: [
+              BridgeField(
+                name: 'y',
+                type: BridgeType(name: 'double'),
+              ),
+            ],
           ),
         ],
       );
@@ -168,7 +177,12 @@ void main() {
           BridgeStruct(
             name: 'Frame',
             packed: false,
-            fields: [BridgeField(name: 'ts', type: BridgeType(name: 'int'))],
+            fields: [
+              BridgeField(
+                name: 'ts',
+                type: BridgeType(name: 'int'),
+              ),
+            ],
           ),
         ],
       );
@@ -291,12 +305,22 @@ void main() {
           BridgeStruct(
             name: 'PointA',
             packed: false,
-            fields: [BridgeField(name: 'x', type: BridgeType(name: 'double'))],
+            fields: [
+              BridgeField(
+                name: 'x',
+                type: BridgeType(name: 'double'),
+              ),
+            ],
           ),
           BridgeStruct(
             name: 'PointB',
             packed: false,
-            fields: [BridgeField(name: 'y', type: BridgeType(name: 'double'))],
+            fields: [
+              BridgeField(
+                name: 'y',
+                type: BridgeType(name: 'double'),
+              ),
+            ],
           ),
         ],
       );

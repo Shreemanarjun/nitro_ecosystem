@@ -41,7 +41,9 @@ class WatchCommand extends Command {
     // Without this a stale lock from a previously crashed process blocks startup.
     final buildCache = Directory(p.join(root.path, '.dart_tool', 'build'));
     if (buildCache.existsSync()) {
-      try { buildCache.deleteSync(recursive: true); } catch (_) {}
+      try {
+        buildCache.deleteSync(recursive: true);
+      } catch (_) {}
     }
 
     // 2. Initial bridge sync to make sure everything is wired

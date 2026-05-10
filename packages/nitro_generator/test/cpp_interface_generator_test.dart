@@ -189,7 +189,12 @@ void main() {
               cSymbol: 'ios_processor_process',
               isAsync: false,
               returnType: BridgeType(name: 'double'),
-              params: [BridgeParam(name: 'value', type: BridgeType(name: 'double'))],
+              params: [
+                BridgeParam(
+                  name: 'value',
+                  type: BridgeType(name: 'double'),
+                ),
+              ],
             ),
           ],
         ),
@@ -213,7 +218,12 @@ void main() {
               cSymbol: 'android_processor_process',
               isAsync: false,
               returnType: BridgeType(name: 'double'),
-              params: [BridgeParam(name: 'value', type: BridgeType(name: 'double'))],
+              params: [
+                BridgeParam(
+                  name: 'value',
+                  type: BridgeType(name: 'double'),
+                ),
+              ],
             ),
           ],
         ),

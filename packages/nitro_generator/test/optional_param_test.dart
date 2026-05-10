@@ -21,7 +21,10 @@ BridgeSpec _optionalStringParamSpec() => BridgeSpec(
       isAsync: true,
       returnType: BridgeType(name: 'void'),
       params: [
-        BridgeParam(name: 'sampleRate', type: BridgeType(name: 'int')),
+        BridgeParam(
+          name: 'sampleRate',
+          type: BridgeType(name: 'int'),
+        ),
         BridgeParam(
           name: 'outputFile',
           type: BridgeType(name: 'String?'),

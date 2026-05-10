@@ -29,19 +29,40 @@ BridgeSpec _nitroArSpec() => BridgeSpec(
       name: 'Vector3',
       packed: false,
       fields: [
-        BridgeField(name: 'x', type: BridgeType(name: 'double')),
-        BridgeField(name: 'y', type: BridgeType(name: 'double')),
-        BridgeField(name: 'z', type: BridgeType(name: 'double')),
+        BridgeField(
+          name: 'x',
+          type: BridgeType(name: 'double'),
+        ),
+        BridgeField(
+          name: 'y',
+          type: BridgeType(name: 'double'),
+        ),
+        BridgeField(
+          name: 'z',
+          type: BridgeType(name: 'double'),
+        ),
       ],
     ),
     BridgeStruct(
       name: 'Quaternion',
       packed: false,
       fields: [
-        BridgeField(name: 'x', type: BridgeType(name: 'double')),
-        BridgeField(name: 'y', type: BridgeType(name: 'double')),
-        BridgeField(name: 'z', type: BridgeType(name: 'double')),
-        BridgeField(name: 'w', type: BridgeType(name: 'double')),
+        BridgeField(
+          name: 'x',
+          type: BridgeType(name: 'double'),
+        ),
+        BridgeField(
+          name: 'y',
+          type: BridgeType(name: 'double'),
+        ),
+        BridgeField(
+          name: 'z',
+          type: BridgeType(name: 'double'),
+        ),
+        BridgeField(
+          name: 'w',
+          type: BridgeType(name: 'double'),
+        ),
       ],
     ),
     // Directly referenced in LiveTrackingUpdate (a record)
@@ -49,14 +70,38 @@ BridgeSpec _nitroArSpec() => BridgeSpec(
       name: 'PackageDimensions',
       packed: false,
       fields: [
-        BridgeField(name: 'length',           type: BridgeType(name: 'double')),
-        BridgeField(name: 'width',            type: BridgeType(name: 'double')),
-        BridgeField(name: 'height',           type: BridgeType(name: 'double')),
-        BridgeField(name: 'confidence',       type: BridgeType(name: 'double')),
-        BridgeField(name: 'vector3',          type: BridgeType(name: 'Vector3')),
-        BridgeField(name: 'quaternion',       type: BridgeType(name: 'Quaternion')),
-        BridgeField(name: 'dimensionSource',  type: BridgeType(name: 'int')),
-        BridgeField(name: 'ransacInlierCount',type: BridgeType(name: 'int')),
+        BridgeField(
+          name: 'length',
+          type: BridgeType(name: 'double'),
+        ),
+        BridgeField(
+          name: 'width',
+          type: BridgeType(name: 'double'),
+        ),
+        BridgeField(
+          name: 'height',
+          type: BridgeType(name: 'double'),
+        ),
+        BridgeField(
+          name: 'confidence',
+          type: BridgeType(name: 'double'),
+        ),
+        BridgeField(
+          name: 'vector3',
+          type: BridgeType(name: 'Vector3'),
+        ),
+        BridgeField(
+          name: 'quaternion',
+          type: BridgeType(name: 'Quaternion'),
+        ),
+        BridgeField(
+          name: 'dimensionSource',
+          type: BridgeType(name: 'int'),
+        ),
+        BridgeField(
+          name: 'ransacInlierCount',
+          type: BridgeType(name: 'int'),
+        ),
       ],
     ),
     // Used only as function return/param — NOT in any record field
@@ -64,10 +109,22 @@ BridgeSpec _nitroArSpec() => BridgeSpec(
       name: 'BoundingBox',
       packed: false,
       fields: [
-        BridgeField(name: 'x',      type: BridgeType(name: 'double')),
-        BridgeField(name: 'y',      type: BridgeType(name: 'double')),
-        BridgeField(name: 'width',  type: BridgeType(name: 'double')),
-        BridgeField(name: 'height', type: BridgeType(name: 'double')),
+        BridgeField(
+          name: 'x',
+          type: BridgeType(name: 'double'),
+        ),
+        BridgeField(
+          name: 'y',
+          type: BridgeType(name: 'double'),
+        ),
+        BridgeField(
+          name: 'width',
+          type: BridgeType(name: 'double'),
+        ),
+        BridgeField(
+          name: 'height',
+          type: BridgeType(name: 'double'),
+        ),
       ],
     ),
   ],
@@ -88,10 +145,10 @@ BridgeSpec _nitroArSpec() => BridgeSpec(
     BridgeRecordType(
       name: 'LiveTrackingUpdate',
       fields: [
-        BridgeRecordField(name: 'isTracking',           dartType: 'bool',              kind: RecordFieldKind.primitive),
-        BridgeRecordField(name: 'centerDimensions',     dartType: 'PackageDimensions', kind: RecordFieldKind.recordObject, itemTypeName: 'PackageDimensions'),
-        BridgeRecordField(name: 'trackingFailureReason',dartType: 'int',               kind: RecordFieldKind.primitive),
-        BridgeRecordField(name: 'detectedPlaneCount',   dartType: 'int',               kind: RecordFieldKind.primitive),
+        BridgeRecordField(name: 'isTracking', dartType: 'bool', kind: RecordFieldKind.primitive),
+        BridgeRecordField(name: 'centerDimensions', dartType: 'PackageDimensions', kind: RecordFieldKind.recordObject, itemTypeName: 'PackageDimensions'),
+        BridgeRecordField(name: 'trackingFailureReason', dartType: 'int', kind: RecordFieldKind.primitive),
+        BridgeRecordField(name: 'detectedPlaneCount', dartType: 'int', kind: RecordFieldKind.primitive),
       ],
     ),
   ],
@@ -125,7 +182,12 @@ BridgeSpec _nitroArSpec() => BridgeSpec(
       cSymbol: 'nitro_ar_detect_package',
       isAsync: true,
       returnType: BridgeType(name: 'PackageDimensions'),
-      params: [BridgeParam(name: 'rect', type: BridgeType(name: 'BoundingBox'))],
+      params: [
+        BridgeParam(
+          name: 'rect',
+          type: BridgeType(name: 'BoundingBox'),
+        ),
+      ],
     ),
   ],
   streams: [
@@ -163,7 +225,7 @@ void main() {
 
   setUp(() {
     final spec = _nitroArSpec();
-    swiftBridge  = SwiftGenerator.generate(spec);
+    swiftBridge = SwiftGenerator.generate(spec);
     swiftRecords = RecordGenerator.generateSwift(spec);
   });
 

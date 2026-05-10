@@ -26,7 +26,12 @@ BridgeSpec _nativeAsyncIntSpec() => BridgeSpec(
       isAsync: false,
       isNativeAsync: true,
       returnType: BridgeType(name: 'int'),
-      params: [BridgeParam(name: 'x', type: BridgeType(name: 'int'))],
+      params: [
+        BridgeParam(
+          name: 'x',
+          type: BridgeType(name: 'int'),
+        ),
+      ],
     ),
   ],
 );
@@ -45,7 +50,12 @@ BridgeSpec _nativeAsyncStringSpec() => BridgeSpec(
       isAsync: false,
       isNativeAsync: true,
       returnType: BridgeType(name: 'String'),
-      params: [BridgeParam(name: 'query', type: BridgeType(name: 'String'))],
+      params: [
+        BridgeParam(
+          name: 'query',
+          type: BridgeType(name: 'String'),
+        ),
+      ],
     ),
   ],
 );
@@ -83,7 +93,12 @@ BridgeSpec _nativeAsyncBoolSpec() => BridgeSpec(
       isAsync: false,
       isNativeAsync: true,
       returnType: BridgeType(name: 'bool'),
-      params: [BridgeParam(name: 'flag', type: BridgeType(name: 'bool'))],
+      params: [
+        BridgeParam(
+          name: 'flag',
+          type: BridgeType(name: 'bool'),
+        ),
+      ],
     ),
   ],
 );
@@ -121,8 +136,14 @@ BridgeSpec _mixedSpec() => BridgeSpec(
       isAsync: false,
       returnType: BridgeType(name: 'int'),
       params: [
-        BridgeParam(name: 'a', type: BridgeType(name: 'int')),
-        BridgeParam(name: 'b', type: BridgeType(name: 'int')),
+        BridgeParam(
+          name: 'a',
+          type: BridgeType(name: 'int'),
+        ),
+        BridgeParam(
+          name: 'b',
+          type: BridgeType(name: 'int'),
+        ),
       ],
     ),
     BridgeFunction(
@@ -138,7 +159,12 @@ BridgeSpec _mixedSpec() => BridgeSpec(
       isAsync: false,
       isNativeAsync: true,
       returnType: BridgeType(name: 'int'),
-      params: [BridgeParam(name: 'n', type: BridgeType(name: 'int'))],
+      params: [
+        BridgeParam(
+          name: 'n',
+          type: BridgeType(name: 'int'),
+        ),
+      ],
     ),
   ],
 );
@@ -179,7 +205,12 @@ BridgeSpec _cppOnlyNativeAsyncSpec() => BridgeSpec(
       isAsync: false,
       isNativeAsync: true,
       returnType: BridgeType(name: 'int'),
-      params: [BridgeParam(name: 'value', type: BridgeType(name: 'int'))],
+      params: [
+        BridgeParam(
+          name: 'value',
+          type: BridgeType(name: 'int'),
+        ),
+      ],
     ),
   ],
 );
@@ -669,7 +700,12 @@ void main() {
             isAsync: false,
             isNativeAsync: true,
             returnType: BridgeType(name: 'void'),
-            params: [BridgeParam(name: 'name', type: BridgeType(name: 'String'))],
+            params: [
+              BridgeParam(
+                name: 'name',
+                type: BridgeType(name: 'String'),
+              ),
+            ],
           ),
         ],
       );
@@ -685,7 +721,9 @@ void main() {
         iosImpl: NativeImpl.cpp,
         androidImpl: NativeImpl.cpp,
         sourceUri: 'ctrl.native.dart',
-        enums: [BridgeEnum(name: 'Mode', startValue: 0, values: ['on', 'off'])],
+        enums: [
+          BridgeEnum(name: 'Mode', startValue: 0, values: ['on', 'off']),
+        ],
         functions: [
           BridgeFunction(
             dartName: 'setMode',
@@ -693,7 +731,12 @@ void main() {
             isAsync: false,
             isNativeAsync: true,
             returnType: BridgeType(name: 'void'),
-            params: [BridgeParam(name: 'mode', type: BridgeType(name: 'Mode'))],
+            params: [
+              BridgeParam(
+                name: 'mode',
+                type: BridgeType(name: 'Mode'),
+              ),
+            ],
           ),
         ],
       );
@@ -716,7 +759,12 @@ void main() {
             isAsync: false,
             isNativeAsync: true,
             returnType: BridgeType(name: 'void'),
-            params: [BridgeParam(name: 'name', type: BridgeType(name: 'String'))],
+            params: [
+              BridgeParam(
+                name: 'name',
+                type: BridgeType(name: 'String'),
+              ),
+            ],
           ),
         ],
       );
@@ -728,23 +776,28 @@ void main() {
   // ── CppBridgeGenerator — Android JNI @NitroNativeAsync ───────────────────
 
   BridgeSpec jniNativeAsyncSpec(String returnType) => BridgeSpec(
-        dartClassName: 'Fetcher',
-        lib: 'fetcher',
-        namespace: 'fetcher',
-        iosImpl: NativeImpl.swift,
-        androidImpl: NativeImpl.kotlin,
-        sourceUri: 'fetcher.native.dart',
-        functions: [
-          BridgeFunction(
-            dartName: 'fetch',
-            cSymbol: 'fetcher_fetch',
-            isAsync: false,
-            isNativeAsync: true,
-            returnType: BridgeType(name: returnType),
-            params: [BridgeParam(name: 'key', type: BridgeType(name: 'String'))],
+    dartClassName: 'Fetcher',
+    lib: 'fetcher',
+    namespace: 'fetcher',
+    iosImpl: NativeImpl.swift,
+    androidImpl: NativeImpl.kotlin,
+    sourceUri: 'fetcher.native.dart',
+    functions: [
+      BridgeFunction(
+        dartName: 'fetch',
+        cSymbol: 'fetcher_fetch',
+        isAsync: false,
+        isNativeAsync: true,
+        returnType: BridgeType(name: returnType),
+        params: [
+          BridgeParam(
+            name: 'key',
+            type: BridgeType(name: 'String'),
           ),
         ],
-      );
+      ),
+    ],
+  );
 
   group('CppBridgeGenerator — Android JNI @NitroNativeAsync', () {
     test('JNI_OnLoad caches method with (params + J)V signature for native async', () {

@@ -247,19 +247,40 @@ void main() {
           name: 'Point',
           packed: false,
           fields: [
-            BridgeField(name: 'x', type: BridgeType(name: 'double')),
-            BridgeField(name: 'y', type: BridgeType(name: 'double')),
+            BridgeField(
+              name: 'x',
+              type: BridgeType(name: 'double'),
+            ),
+            BridgeField(
+              name: 'y',
+              type: BridgeType(name: 'double'),
+            ),
           ],
         ),
         BridgeStruct(
           name: 'Annotation',
           packed: false,
           fields: [
-            BridgeField(name: 'label', type: BridgeType(name: 'String')),
-            BridgeField(name: 'confidence', type: BridgeType(name: 'double')),
-            BridgeField(name: 'active', type: BridgeType(name: 'bool')),
-            BridgeField(name: 'status', type: BridgeType(name: 'Status')),
-            BridgeField(name: 'origin', type: BridgeType(name: 'Point')),
+            BridgeField(
+              name: 'label',
+              type: BridgeType(name: 'String'),
+            ),
+            BridgeField(
+              name: 'confidence',
+              type: BridgeType(name: 'double'),
+            ),
+            BridgeField(
+              name: 'active',
+              type: BridgeType(name: 'bool'),
+            ),
+            BridgeField(
+              name: 'status',
+              type: BridgeType(name: 'Status'),
+            ),
+            BridgeField(
+              name: 'origin',
+              type: BridgeType(name: 'Point'),
+            ),
           ],
         ),
       ],
@@ -350,16 +371,28 @@ void main() {
           name: 'Vec2',
           packed: false,
           fields: [
-            BridgeField(name: 'x', type: BridgeType(name: 'double')),
-            BridgeField(name: 'y', type: BridgeType(name: 'double')),
+            BridgeField(
+              name: 'x',
+              type: BridgeType(name: 'double'),
+            ),
+            BridgeField(
+              name: 'y',
+              type: BridgeType(name: 'double'),
+            ),
           ],
         ),
         BridgeStruct(
           name: 'TightHeader',
           packed: true,
           fields: [
-            BridgeField(name: 'flags', type: BridgeType(name: 'int')),
-            BridgeField(name: 'pos', type: BridgeType(name: 'Vec2')),
+            BridgeField(
+              name: 'flags',
+              type: BridgeType(name: 'int'),
+            ),
+            BridgeField(
+              name: 'pos',
+              type: BridgeType(name: 'Vec2'),
+            ),
           ],
         ),
       ],

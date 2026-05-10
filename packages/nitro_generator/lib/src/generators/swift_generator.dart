@@ -210,11 +210,13 @@ class SwiftGenerator {
         s.writeln('    }');
         s.writeln('    Task.detached {');
         // Use pre-defined stringParams conversions inside Task.detached
-        final callArgs = func.params.map((p) {
-          final isString = p.type.name == 'String' || p.type.name == 'String?';
-          final argValue = isString ? '${p.name}Str' : p.name;
-          return '${p.name}: $argValue';
-        }).join(', ');
+        final callArgs = func.params
+            .map((p) {
+              final isString = p.type.name == 'String' || p.type.name == 'String?';
+              final argValue = isString ? '${p.name}Str' : p.name;
+              return '${p.name}: $argValue';
+            })
+            .join(', ');
         if (isVoidRet) {
           s.writeln('        try? await impl.${func.dartName}($callArgs)');
           s.writeln('        var _null = Dart_CObject()');
@@ -623,7 +625,6 @@ class SwiftGenerator {
 
     final swiftRecords = RecordGenerator.generateSwift(spec, emitBoilerplate: false);
     if (swiftRecords.isNotEmpty) s.write(swiftRecords);
-
 
     // Protocol
     s.writeln('/**');

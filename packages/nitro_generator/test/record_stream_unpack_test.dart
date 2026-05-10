@@ -228,8 +228,14 @@ BridgeSpec _mixedRecordStructStreamSpec() => BridgeSpec(
       name: 'Frame',
       packed: false,
       fields: [
-        BridgeField(name: 'width', type: BridgeType(name: 'int')),
-        BridgeField(name: 'height', type: BridgeType(name: 'int')),
+        BridgeField(
+          name: 'width',
+          type: BridgeType(name: 'int'),
+        ),
+        BridgeField(
+          name: 'height',
+          type: BridgeType(name: 'int'),
+        ),
       ],
     ),
   ],
@@ -467,10 +473,7 @@ void main() {
       () {
         final out = DartFfiGenerator.generate(_twoRecordStreamsSpec());
         // Both streams must emit fromAddress — use allMatches to count occurrences
-        final matches =
-            'Pointer<Uint8>.fromAddress(message as int)'
-            .allMatches(out)
-            .length;
+        final matches = 'Pointer<Uint8>.fromAddress(message as int)'.allMatches(out).length;
         expect(
           matches,
           greaterThanOrEqualTo(2),

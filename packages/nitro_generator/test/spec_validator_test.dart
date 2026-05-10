@@ -318,7 +318,12 @@ void main() {
             cSymbol: 'foo_write',
             isAsync: false,
             returnType: BridgeType(name: 'void'),
-            params: [BridgeParam(name: 'data', type: BridgeType(name: 'Uint8List'))],
+            params: [
+              BridgeParam(
+                name: 'data',
+                type: BridgeType(name: 'Uint8List'),
+              ),
+            ],
           ),
         ],
       );
@@ -380,9 +385,16 @@ void main() {
         androidImpl: NativeImpl.kotlin,
         sourceUri: 'foo.native.dart',
         structs: [
-          BridgeStruct(name: 'Frame', packed: false, fields: [
-            BridgeField(name: 'size', type: BridgeType(name: 'int')),
-          ]),
+          BridgeStruct(
+            name: 'Frame',
+            packed: false,
+            fields: [
+              BridgeField(
+                name: 'size',
+                type: BridgeType(name: 'int'),
+              ),
+            ],
+          ),
         ],
         streams: [
           BridgeStream(
@@ -474,7 +486,10 @@ void main() {
                 type: BridgeType(name: 'Uint8List'),
                 zeroCopy: true,
               ),
-              BridgeField(name: 'length', type: BridgeType(name: 'int')),
+              BridgeField(
+                name: 'length',
+                type: BridgeType(name: 'int'),
+              ),
             ],
           ),
         ],
@@ -727,7 +742,12 @@ void main() {
             cSymbol: 'foo_bar',
             isAsync: false,
             returnType: BridgeType(name: 'void'),
-            params: [BridgeParam(name: 'x', type: BridgeType(name: 'GhostType'))],
+            params: [
+              BridgeParam(
+                name: 'x',
+                type: BridgeType(name: 'GhostType'),
+              ),
+            ],
           ),
         ],
       );
@@ -750,7 +770,12 @@ void main() {
             cSymbol: 'multi_err_sym',
             isAsync: false,
             returnType: BridgeType(name: 'GhostA'),
-            params: [BridgeParam(name: 'x', type: BridgeType(name: 'GhostB'))],
+            params: [
+              BridgeParam(
+                name: 'x',
+                type: BridgeType(name: 'GhostB'),
+              ),
+            ],
           ),
           BridgeFunction(
             dartName: 'b',

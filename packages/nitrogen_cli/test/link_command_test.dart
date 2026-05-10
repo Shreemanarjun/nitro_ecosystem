@@ -412,10 +412,8 @@ abstract class MyModule extends HybridObject {
         baseDir: tmp.path,
       );
       final content = File(p.join(tmp.path, 'src', 'HybridMath.cpp')).readAsStringSync();
-      expect(content, contains('!defined(__ANDROID__)'),
-          reason: 'Linux-only C++ guard must exclude Android NDK');
-      expect(content, isNot(contains('#if !defined(__APPLE__)')),
-          reason: 'bare !defined(__APPLE__) would wrongly include Android');
+      expect(content, contains('!defined(__ANDROID__)'), reason: 'Linux-only C++ guard must exclude Android NDK');
+      expect(content, isNot(contains('#if !defined(__APPLE__)')), reason: 'bare !defined(__APPLE__) would wrongly include Android');
     });
 
     test('android C++ stub uses !defined(__APPLE__) guard without Android exclusion', () {
@@ -427,8 +425,7 @@ abstract class MyModule extends HybridObject {
         baseDir: tmp.path,
       );
       final content = File(p.join(tmp.path, 'src', 'HybridMath.cpp')).readAsStringSync();
-      expect(content, contains('!defined(__APPLE__)'),
-          reason: 'Android C++ guard must include Android');
+      expect(content, contains('!defined(__APPLE__)'), reason: 'Android C++ guard must include Android');
     });
   });
 
@@ -936,7 +933,9 @@ target_include_directories(my_plugin PRIVATE "\${CMAKE_CURRENT_SOURCE_DIR}")
         isAndroidCpp: true,
       );
       linkCMake(
-        'my_plugin', ['my_plugin'], '/path/to/nitro/native',
+        'my_plugin',
+        ['my_plugin'],
+        '/path/to/nitro/native',
         baseDir: tmp.path,
         moduleInfos: [androidCppInfo],
       );
@@ -964,7 +963,9 @@ target_include_directories(my_plugin PRIVATE "\${CMAKE_CURRENT_SOURCE_DIR}")
         isAndroidCpp: false,
       );
       linkCMake(
-        'my_plugin', ['my_plugin'], '/path/to/nitro/native',
+        'my_plugin',
+        ['my_plugin'],
+        '/path/to/nitro/native',
         baseDir: tmp.path,
         moduleInfos: [linuxCppInfo],
       );
@@ -1000,7 +1001,9 @@ target_include_directories(my_plugin PRIVATE "\${CMAKE_CURRENT_SOURCE_DIR}")
         isAndroidCpp: false,
       );
       linkCMake(
-        'my_plugin', ['my_plugin'], '/path/to/nitro/native',
+        'my_plugin',
+        ['my_plugin'],
+        '/path/to/nitro/native',
         baseDir: tmp.path,
         moduleInfos: [linuxCppInfo],
       );
@@ -1206,14 +1209,12 @@ end
       Directory(p.join(tmp.path, 'src')).createSync();
       // Create a generated bridge file that should be copied.
       Directory(p.join(tmp.path, 'lib', 'src', 'generated', 'swift')).createSync(recursive: true);
-      File(p.join(tmp.path, 'lib', 'src', 'generated', 'swift', 'my_plugin.bridge.g.swift'))
-          .writeAsStringSync('// generated bridge');
+      File(p.join(tmp.path, 'lib', 'src', 'generated', 'swift', 'my_plugin.bridge.g.swift')).writeAsStringSync('// generated bridge');
 
       linkPodspec('my_plugin', ['my_plugin'], baseDir: tmp.path);
 
       final copied = File(p.join(tmp.path, 'ios', 'Classes', 'my_plugin.bridge.g.swift'));
-      expect(copied.existsSync(), isTrue,
-          reason: 'bridge must be copied into Classes/ so Xcode can compile it in scope');
+      expect(copied.existsSync(), isTrue, reason: 'bridge must be copied into Classes/ so Xcode can compile it in scope');
       expect(copied.readAsStringSync(), contains('generated bridge'));
       // The podspec must NOT have the lib/src/generated/swift glob (avoids duplicates).
       final spec = File(p.join(tmp.path, 'ios', 'my_plugin.podspec')).readAsStringSync();
@@ -1224,8 +1225,7 @@ end
       scaffoldMinimalPodspec('ios', 'my_plugin', sourceFilesLine: "s.source_files = 'Classes/**/*'");
       Directory(p.join(tmp.path, 'src')).createSync();
       Directory(p.join(tmp.path, 'lib', 'src', 'generated', 'swift')).createSync(recursive: true);
-      File(p.join(tmp.path, 'lib', 'src', 'generated', 'swift', 'my_plugin.bridge.g.swift'))
-          .writeAsStringSync('// generated bridge');
+      File(p.join(tmp.path, 'lib', 'src', 'generated', 'swift', 'my_plugin.bridge.g.swift')).writeAsStringSync('// generated bridge');
 
       linkPodspec('my_plugin', ['my_plugin'], baseDir: tmp.path);
       linkPodspec('my_plugin', ['my_plugin'], baseDir: tmp.path);
@@ -1239,14 +1239,12 @@ end
       scaffoldMinimalPodspec('macos', 'my_plugin', sourceFilesLine: "s.source_files = 'Classes/**/*'");
       Directory(p.join(tmp.path, 'src')).createSync();
       Directory(p.join(tmp.path, 'lib', 'src', 'generated', 'swift')).createSync(recursive: true);
-      File(p.join(tmp.path, 'lib', 'src', 'generated', 'swift', 'my_plugin.bridge.g.swift'))
-          .writeAsStringSync('// generated bridge');
+      File(p.join(tmp.path, 'lib', 'src', 'generated', 'swift', 'my_plugin.bridge.g.swift')).writeAsStringSync('// generated bridge');
 
       linkMacosPodspec('my_plugin', ['my_plugin'], baseDir: tmp.path);
 
       final copied = File(p.join(tmp.path, 'macos', 'Classes', 'my_plugin.bridge.g.swift'));
-      expect(copied.existsSync(), isTrue,
-          reason: 'bridge must be copied into macos/Classes/ for Xcode scope resolution');
+      expect(copied.existsSync(), isTrue, reason: 'bridge must be copied into macos/Classes/ for Xcode scope resolution');
       final spec = File(p.join(tmp.path, 'macos', 'my_plugin.podspec')).readAsStringSync();
       expect(spec, isNot(contains('lib/src/generated/swift')));
     });
@@ -1270,8 +1268,7 @@ end
       linkPodspec('my_plugin', ['my_plugin'], baseDir: tmp.path);
 
       final spec = File(p.join(tmp.path, 'ios', 'my_plugin.podspec')).readAsStringSync();
-      expect(spec, contains("s.source_files = 'Classes/**/*'"),
-          reason: 'linkPodspec must normalise non-existent source_files to Classes/**/*');
+      expect(spec, contains("s.source_files = 'Classes/**/*'"), reason: 'linkPodspec must normalise non-existent source_files to Classes/**/*');
       expect(spec, isNot(contains("my_plugin/Sources/my_plugin")));
     });
 
@@ -1289,8 +1286,7 @@ end
       linkPodspec('my_plugin', ['my_plugin'], baseDir: tmp.path);
 
       final spec = File(p.join(tmp.path, 'ios', 'my_plugin.podspec')).readAsStringSync();
-      expect(spec, contains("s.source_files = 'Classes/**/*'"),
-          reason: 'Classes/**/* must be preserved as-is');
+      expect(spec, contains("s.source_files = 'Classes/**/*'"), reason: 'Classes/**/* must be preserved as-is');
     });
 
     test('linkMacosPodspec fixes SPM-template source_files to Classes/**/* (macOS)', () {
@@ -1307,8 +1303,7 @@ end
       linkMacosPodspec('my_plugin', ['my_plugin'], baseDir: tmp.path);
 
       final spec = File(p.join(tmp.path, 'macos', 'my_plugin.podspec')).readAsStringSync();
-      expect(spec, contains("s.source_files = 'Classes/**/*'"),
-          reason: 'linkMacosPodspec must normalise non-existent source_files to Classes/**/*');
+      expect(spec, contains("s.source_files = 'Classes/**/*'"), reason: 'linkMacosPodspec must normalise non-existent source_files to Classes/**/*');
       expect(spec, isNot(contains("my_plugin/Sources/my_plugin")));
     });
   });
@@ -1383,7 +1378,9 @@ public class MyPlugin: NSObject, FlutterPlugin {
 }
 ''');
 
-      linkMacosSwiftPlugin('my_plugin', [{'module': 'Math', 'lib': 'math'}], baseDir: tmp.path);
+      linkMacosSwiftPlugin('my_plugin', [
+        {'module': 'Math', 'lib': 'math'},
+      ], baseDir: tmp.path);
 
       final content = plugin.readAsStringSync();
       // No module import is injected in the SPM model.
@@ -1823,11 +1820,14 @@ public static func register(with registrar: FlutterPluginRegistrar) {
       );
       final content = plugin.readAsStringSync();
       // Should not leave a stray ')'
-      expect(content, equals('''
+      expect(
+        content,
+        equals('''
 public static func register(with registrar: FlutterPluginRegistrar) {
     BenchmarkRegistry.register(BenchmarkImpl())
 }
-'''));
+'''),
+      );
     });
   });
 
@@ -1895,11 +1895,14 @@ override fun onAttachedToEngine(binding: FlutterPlugin.FlutterPluginBinding) {
       );
       final content = plugin.readAsStringSync();
       // Should not leave a stray ')'
-      expect(content, equals('''
+      expect(
+        content,
+        equals('''
 override fun onAttachedToEngine(binding: FlutterPlugin.FlutterPluginBinding) {
     BenchmarkJniBridge.register(BenchmarkImpl(binding.applicationContext))
 }
-'''));
+'''),
+      );
     });
   });
 
@@ -2097,7 +2100,7 @@ end
       expect(stale.existsSync(), isFalse, reason: 'Windows-only forwarder must be removed from ios/Sources — it has no iOS implementation');
     });
 
-test('keeps Hybrid*.cpp forwarder for Apple cpp module', () {
+    test('keeps Hybrid*.cpp forwarder for Apple cpp module', () {
       scaffoldSpmFull('my_plugin');
 
       // Plant forwarder for an Apple cpp module.
@@ -2160,10 +2163,8 @@ test('keeps Hybrid*.cpp forwarder for Apple cpp module', () {
       scaffoldSpmWithSwiftPlugin('my_plugin', 'ios');
       scaffoldPodspec('my_plugin');
       // Pre-create with different content.
-      final existing = File(p.join(tmp.path, 'ios', 'Sources', 'MyPlugin', 'SwiftMyPlugin.swift'))
-        ..writeAsStringSync('// existing');
-      final existingImpl = File(p.join(tmp.path, 'ios', 'Sources', 'MyPlugin', 'MyPluginImpl.swift'))
-        ..writeAsStringSync('// existing');
+      final existing = File(p.join(tmp.path, 'ios', 'Sources', 'MyPlugin', 'SwiftMyPlugin.swift'))..writeAsStringSync('// existing');
+      final existingImpl = File(p.join(tmp.path, 'ios', 'Sources', 'MyPlugin', 'MyPluginImpl.swift'))..writeAsStringSync('// existing');
 
       ensureIosPackageSwift('my_plugin', baseDir: tmp.path);
 
@@ -2197,7 +2198,7 @@ test('keeps Hybrid*.cpp forwarder for Apple cpp module', () {
       // Delete Classes directory.
       Directory(p.join(tmp.path, 'ios', 'Classes')).deleteSync(recursive: true);
 
-ensureIosPackageSwift('my_plugin', baseDir: tmp.path);
+      ensureIosPackageSwift('my_plugin', baseDir: tmp.path);
 
       final copied = File(p.join(tmp.path, 'ios', 'Sources', 'MyPlugin', 'SwiftMyPlugin.swift'));
       expect(copied.existsSync(), isFalse, reason: 'Nothing should be copied when Classes is missing');

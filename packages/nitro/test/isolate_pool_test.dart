@@ -26,7 +26,9 @@ Never _throws(String msg) => throw ArgumentError(msg);
 int _slowAdd(int a, int b) {
   // simulate a small amount of work (no actual sleep — just arithmetic)
   var sum = 0;
-  for (var i = 0; i < 1000; i++) { sum += i; }
+  for (var i = 0; i < 1000; i++) {
+    sum += i;
+  }
   return a + b + (sum - sum); // sum cancels out; avoids dead-code elimination
 }
 
@@ -64,9 +66,7 @@ void main() {
         () async => IsolatePool.create(0),
         throwsA(anything), // AssertionError in debug, no-op otherwise
       );
-    }, skip: !const bool.fromEnvironment('dart.vm.product') == false
-        ? false
-        : true); // run in debug only
+    }, skip: !const bool.fromEnvironment('dart.vm.product') == false ? false : true); // run in debug only
   });
 
   group('IsolatePool.dispatch — return values', () {
@@ -221,10 +221,7 @@ void main() {
 
       // The future must complete (either with the result or with a StateError).
       // It must NOT hang.
-      final result = await future
-          .then<Object>((v) => v)
-          .onError<StateError>((e, _) => 'cancelled')
-          .onError<Object>((e, s) => 'other-error');
+      final result = await future.then<Object>((v) => v).onError<StateError>((e, _) => 'cancelled').onError<Object>((e, s) => 'other-error');
 
       expect(result, anyOf(3, 'cancelled', 'other-error'));
     });
@@ -266,10 +263,7 @@ void main() {
         const n = 30;
         final futures = List.generate(n, (i) {
           if (i.isOdd) {
-            return pool
-                .dispatch<int>(_throws, ['fail $i'])
-                .then<int>((_) => -999)
-                .onError<ArgumentError>((e, s) => -(i));
+            return pool.dispatch<int>(_throws, ['fail $i']).then<int>((_) => -999).onError<ArgumentError>((e, s) => -(i));
           }
           return pool.dispatch<int>(_add, [i, 0]);
         });

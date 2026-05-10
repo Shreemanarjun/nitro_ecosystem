@@ -99,22 +99,19 @@ class _BenchmarkWebImpl extends Benchmark {
 
   @override
   Stream<BenchmarkPoint> get dataStream => Stream.periodic(
-        const Duration(microseconds: 100),
-        (i) => BenchmarkPoint(
-          x: i.toDouble() * 0.001,
-          y: i.toDouble() * 0.001,
-        ),
-      );
+    const Duration(microseconds: 100),
+    (i) => BenchmarkPoint(x: i.toDouble() * 0.001, y: i.toDouble() * 0.001),
+  );
 
   @override
   Stream<BenchmarkBox> get boxStream => Stream.periodic(
-        const Duration(microseconds: 100),
-        (i) => BenchmarkBox(
-          color: 0xFF0000FF + (i % 256),
-          width: 50.0 + (i % 100),
-          height: 50.0 + (i % 100),
-        ),
-      );
+    const Duration(microseconds: 100),
+    (i) => BenchmarkBox(
+      color: 0xFF0000FF + (i % 256),
+      width: 50.0 + (i % 100),
+      height: 50.0 + (i % 100),
+    ),
+  );
 
   @override
   int sendLargeBuffer(Uint8List buffer) {
@@ -184,27 +181,26 @@ class _BenchmarkCppWebImpl extends BenchmarkCpp {
 
   @override
   Stream<BenchmarkPoint> get dataStream => Stream.periodic(
-        const Duration(microseconds: 100),
-        (i) => BenchmarkPoint(
-          x: i.toDouble() * 0.001,
-          y: i.toDouble() * 0.001,
-        ),
-      );
+    const Duration(microseconds: 100),
+    (i) => BenchmarkPoint(x: i.toDouble() * 0.001, y: i.toDouble() * 0.001),
+  );
 
   @override
   Stream<BenchmarkBox> get boxStream => Stream.periodic(
-        const Duration(microseconds: 100),
-        (i) => BenchmarkBox(
-          color: 0xFF0000FF + (i % 256),
-          width: 50.0 + (i % 100),
-          height: 50.0 + (i % 100),
-        ),
-      );
+    const Duration(microseconds: 100),
+    (i) => BenchmarkBox(
+      color: 0xFF0000FF + (i % 256),
+      width: 50.0 + (i % 100),
+      height: 50.0 + (i % 100),
+    ),
+  );
 
   @override
   int sendLargeBufferFast(Uint8List buffer) {
     var sum = 0;
-    for (var i = 0; i < buffer.length; i += 4096) { sum += buffer[i]; }
+    for (var i = 0; i < buffer.length; i += 4096) {
+      sum += buffer[i];
+    }
     return sum;
   }
 

@@ -179,16 +179,18 @@ void main() {
 
       final result = MigrationResult();
       await testNocterm('MigrateView modern', (tester) async {
-        await tester.pumpComponent(Container(
-          width: 60,
-          height: 20,
-          child: MigrateView(
-            pluginName: 'my_plugin',
-            result: result,
-            spmStatus: spmStatus,
-            onExit: () {},
+        await tester.pumpComponent(
+          Container(
+            width: 60,
+            height: 20,
+            child: MigrateView(
+              pluginName: 'my_plugin',
+              result: result,
+              spmStatus: spmStatus,
+              onExit: () {},
+            ),
           ),
-        ));
+        );
 
         await tester.pump(); // allow initState Future to run
         await tester.pump();
@@ -210,16 +212,18 @@ void main() {
       expect(spmStatus.isLegacy, isTrue);
 
       await testNocterm('MigrateView legacy confirm', (tester) async {
-        await tester.pumpComponent(Container(
-          width: 70,
-          height: 20,
-          child: MigrateView(
-            pluginName: 'my_plugin',
-            result: MigrationResult(),
-            spmStatus: spmStatus,
-            onExit: () {},
+        await tester.pumpComponent(
+          Container(
+            width: 70,
+            height: 20,
+            child: MigrateView(
+              pluginName: 'my_plugin',
+              result: MigrationResult(),
+              spmStatus: spmStatus,
+              onExit: () {},
+            ),
           ),
-        ));
+        );
 
         await tester.pump();
         await tester.pump();
@@ -238,16 +242,18 @@ void main() {
       var exited = false;
 
       await testNocterm('MigrateView cancel', (tester) async {
-        await tester.pumpComponent(Container(
-          width: 70,
-          height: 20,
-          child: MigrateView(
-            pluginName: 'my_plugin',
-            result: MigrationResult(),
-            spmStatus: spmStatus,
-            onExit: () => exited = true,
+        await tester.pumpComponent(
+          Container(
+            width: 70,
+            height: 20,
+            child: MigrateView(
+              pluginName: 'my_plugin',
+              result: MigrationResult(),
+              spmStatus: spmStatus,
+              onExit: () => exited = true,
+            ),
           ),
-        ));
+        );
 
         await tester.pump();
         await tester.pump();
@@ -271,16 +277,18 @@ void main() {
       var exited = false;
 
       await testNocterm('MigrateView ESC modern', (tester) async {
-        await tester.pumpComponent(Container(
-          width: 60,
-          height: 20,
-          child: MigrateView(
-            pluginName: 'my_plugin',
-            result: MigrationResult(),
-            spmStatus: spmStatus,
-            onExit: () => exited = true,
+        await tester.pumpComponent(
+          Container(
+            width: 60,
+            height: 20,
+            child: MigrateView(
+              pluginName: 'my_plugin',
+              result: MigrationResult(),
+              spmStatus: spmStatus,
+              onExit: () => exited = true,
+            ),
           ),
-        ));
+        );
 
         await tester.pump();
         await tester.pump();
@@ -342,17 +350,19 @@ void main() {
       final result = MigrationResult();
 
       await testNocterm('migration nested layout', (tester) async {
-        await tester.pumpComponent(Container(
-          width: 70,
-          height: 24,
-          child: MigrateView(
-            pluginName: 'my_plugin',
-            result: result,
-            spmStatus: spmStatus,
-            createBackup: false, // skip backup for speed
-            onExit: () {},
+        await tester.pumpComponent(
+          Container(
+            width: 70,
+            height: 24,
+            child: MigrateView(
+              pluginName: 'my_plugin',
+              result: result,
+              spmStatus: spmStatus,
+              createBackup: false, // skip backup for speed
+              onExit: () {},
+            ),
           ),
-        ));
+        );
 
         await tester.pump();
         await tester.pump(); // state: confirmation shown
@@ -385,17 +395,19 @@ void main() {
       final spmStatus = detectSpmStatus(tmp.path);
 
       await testNocterm('migration sources', (tester) async {
-        await tester.pumpComponent(Container(
-          width: 70,
-          height: 24,
-          child: MigrateView(
-            pluginName: 'my_plugin',
-            result: MigrationResult(),
-            spmStatus: spmStatus,
-            createBackup: false,
-            onExit: () {},
+        await tester.pumpComponent(
+          Container(
+            width: 70,
+            height: 24,
+            child: MigrateView(
+              pluginName: 'my_plugin',
+              result: MigrationResult(),
+              spmStatus: spmStatus,
+              createBackup: false,
+              onExit: () {},
+            ),
           ),
-        ));
+        );
 
         await tester.pump();
         await tester.pump();
@@ -422,17 +434,19 @@ void main() {
       final result = MigrationResult();
 
       await testNocterm('migration platforms', (tester) async {
-        await tester.pumpComponent(Container(
-          width: 70,
-          height: 24,
-          child: MigrateView(
-            pluginName: 'my_plugin',
-            result: result,
-            spmStatus: spmStatus,
-            createBackup: false,
-            onExit: () {},
+        await tester.pumpComponent(
+          Container(
+            width: 70,
+            height: 24,
+            child: MigrateView(
+              pluginName: 'my_plugin',
+              result: result,
+              spmStatus: spmStatus,
+              createBackup: false,
+              onExit: () {},
+            ),
           ),
-        ));
+        );
 
         await tester.pump();
         await tester.pump();

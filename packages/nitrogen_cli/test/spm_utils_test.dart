@@ -7,8 +7,9 @@ import 'package:test/test.dart';
 
 /// Writes a minimal Package.swift to [path].
 void _writePackageSwift(String path, {String content = ''}) {
-  File(path).writeAsStringSync(content.isEmpty
-      ? '''
+  File(path).writeAsStringSync(
+    content.isEmpty
+        ? '''
 // swift-tools-version: 5.9
 import PackageDescription
 let package = Package(
@@ -21,7 +22,8 @@ let package = Package(
     ]
 )
 '''
-      : content);
+        : content,
+  );
 }
 
 /// Creates a temp dir, writes a podspec inside [platform]/, and returns the root.
@@ -212,9 +214,12 @@ void main() {
   group('SpmStatus — computed properties', () {
     test('isModern: SPM without CocoaPods', () {
       final s = SpmStatus(
-        hasSpm: true, hasCocoaPods: false,
-        iosHasSpm: true, macosHasSpm: false,
-        iosHasPodspec: false, macosHasPodspec: false,
+        hasSpm: true,
+        hasCocoaPods: false,
+        iosHasSpm: true,
+        macosHasSpm: false,
+        iosHasPodspec: false,
+        macosHasPodspec: false,
       );
       expect(s.isModern, isTrue);
       expect(s.isMixed, isFalse);
@@ -223,9 +228,12 @@ void main() {
 
     test('isMixed: SPM and CocoaPods', () {
       final s = SpmStatus(
-        hasSpm: true, hasCocoaPods: true,
-        iosHasSpm: true, macosHasSpm: false,
-        iosHasPodspec: true, macosHasPodspec: false,
+        hasSpm: true,
+        hasCocoaPods: true,
+        iosHasSpm: true,
+        macosHasSpm: false,
+        iosHasPodspec: true,
+        macosHasPodspec: false,
       );
       expect(s.isMixed, isTrue);
       expect(s.isModern, isFalse);
@@ -234,9 +242,12 @@ void main() {
 
     test('isLegacy: CocoaPods only', () {
       final s = SpmStatus(
-        hasSpm: false, hasCocoaPods: true,
-        iosHasSpm: false, macosHasSpm: false,
-        iosHasPodspec: true, macosHasPodspec: false,
+        hasSpm: false,
+        hasCocoaPods: true,
+        iosHasSpm: false,
+        macosHasSpm: false,
+        iosHasPodspec: true,
+        macosHasPodspec: false,
       );
       expect(s.isLegacy, isTrue);
       expect(s.isModern, isFalse);
@@ -245,9 +256,12 @@ void main() {
 
     test('neither: no Apple platforms', () {
       final s = SpmStatus(
-        hasSpm: false, hasCocoaPods: false,
-        iosHasSpm: false, macosHasSpm: false,
-        iosHasPodspec: false, macosHasPodspec: false,
+        hasSpm: false,
+        hasCocoaPods: false,
+        iosHasSpm: false,
+        macosHasSpm: false,
+        iosHasPodspec: false,
+        macosHasPodspec: false,
       );
       expect(s.isModern, isFalse);
       expect(s.isMixed, isFalse);

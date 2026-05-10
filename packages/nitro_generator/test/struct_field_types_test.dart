@@ -30,8 +30,14 @@ BridgeSpec _stringFieldSpec() => BridgeSpec(
       name: 'Greeting',
       packed: false,
       fields: [
-        BridgeField(name: 'message', type: BridgeType(name: 'String')),
-        BridgeField(name: 'count',   type: BridgeType(name: 'int')),
+        BridgeField(
+          name: 'message',
+          type: BridgeType(name: 'String'),
+        ),
+        BridgeField(
+          name: 'count',
+          type: BridgeType(name: 'int'),
+        ),
       ],
     ),
   ],
@@ -53,8 +59,14 @@ BridgeSpec _enumFieldSpec() => BridgeSpec(
       name: 'StatusRecord',
       packed: false,
       fields: [
-        BridgeField(name: 'level', type: BridgeType(name: 'Level')),
-        BridgeField(name: 'score', type: BridgeType(name: 'double')),
+        BridgeField(
+          name: 'level',
+          type: BridgeType(name: 'Level'),
+        ),
+        BridgeField(
+          name: 'score',
+          type: BridgeType(name: 'double'),
+        ),
       ],
     ),
   ],
@@ -73,8 +85,14 @@ BridgeSpec _typedDataSpec({required String lenFieldName}) => BridgeSpec(
       name: 'DataBuf',
       packed: false,
       fields: [
-        BridgeField(name: 'data',        type: BridgeType(name: 'Uint8List')),
-        BridgeField(name: lenFieldName,  type: BridgeType(name: 'int')),
+        BridgeField(
+          name: 'data',
+          type: BridgeType(name: 'Uint8List'),
+        ),
+        BridgeField(
+          name: lenFieldName,
+          type: BridgeType(name: 'int'),
+        ),
       ],
     ),
   ],
@@ -93,7 +111,10 @@ BridgeSpec _typedDataNoLenSpec() => BridgeSpec(
       name: 'DataBuf',
       packed: false,
       fields: [
-        BridgeField(name: 'data', type: BridgeType(name: 'Uint8List')),
+        BridgeField(
+          name: 'data',
+          type: BridgeType(name: 'Uint8List'),
+        ),
       ],
     ),
   ],
@@ -110,15 +131,32 @@ BridgeSpec _freeFieldsSpec({
           BridgeStruct(
             name: 'Inner',
             packed: false,
-            fields: [BridgeField(name: 'v', type: BridgeType(name: 'double'))],
+            fields: [
+              BridgeField(
+                name: 'v',
+                type: BridgeType(name: 'double'),
+              ),
+            ],
           ),
         ]
       : <BridgeStruct>[];
 
   final fields = <BridgeField>[
-    if (hasDouble) BridgeField(name: 'value', type: BridgeType(name: 'double')),
-    if (hasString) BridgeField(name: 'label', type: BridgeType(name: 'String')),
-    if (hasNested) BridgeField(name: 'inner', type: BridgeType(name: 'Inner')),
+    if (hasDouble)
+      BridgeField(
+        name: 'value',
+        type: BridgeType(name: 'double'),
+      ),
+    if (hasString)
+      BridgeField(
+        name: 'label',
+        type: BridgeType(name: 'String'),
+      ),
+    if (hasNested)
+      BridgeField(
+        name: 'inner',
+        type: BridgeType(name: 'Inner'),
+      ),
   ];
 
   return BridgeSpec(
@@ -150,10 +188,10 @@ void main() {
 
     setUp(() {
       dartExt = StructGenerator.generateDartExtensions(_stringFieldSpec());
-      proxy   = StructGenerator.generateDartProxies(_stringFieldSpec());
-      kotlin  = StructGenerator.generateKotlin(_stringFieldSpec());
-      swift   = StructGenerator.generateSwift(_stringFieldSpec());
-      c       = StructGenerator.generateCStructs(_stringFieldSpec());
+      proxy = StructGenerator.generateDartProxies(_stringFieldSpec());
+      kotlin = StructGenerator.generateKotlin(_stringFieldSpec());
+      swift = StructGenerator.generateSwift(_stringFieldSpec());
+      c = StructGenerator.generateCStructs(_stringFieldSpec());
     });
 
     // FFI Struct
@@ -227,10 +265,10 @@ void main() {
 
     setUp(() {
       dartExt = StructGenerator.generateDartExtensions(_enumFieldSpec());
-      proxy   = StructGenerator.generateDartProxies(_enumFieldSpec());
-      kotlin  = StructGenerator.generateKotlin(_enumFieldSpec());
-      swift   = StructGenerator.generateSwift(_enumFieldSpec());
-      c       = StructGenerator.generateCStructs(_enumFieldSpec());
+      proxy = StructGenerator.generateDartProxies(_enumFieldSpec());
+      kotlin = StructGenerator.generateKotlin(_enumFieldSpec());
+      swift = StructGenerator.generateSwift(_enumFieldSpec());
+      c = StructGenerator.generateCStructs(_enumFieldSpec());
     });
 
     // FFI Struct
@@ -305,7 +343,7 @@ void main() {
 
         setUp(() {
           dartExt = StructGenerator.generateDartExtensions(_typedDataSpec(lenFieldName: lenName));
-          proxy   = StructGenerator.generateDartProxies(_typedDataSpec(lenFieldName: lenName));
+          proxy = StructGenerator.generateDartProxies(_typedDataSpec(lenFieldName: lenName));
         });
 
         test('toDart() uses $lenName as the asTypedList length', () {
@@ -324,7 +362,7 @@ void main() {
 
       setUp(() {
         dartExt = StructGenerator.generateDartExtensions(_typedDataNoLenSpec());
-        proxy   = StructGenerator.generateDartProxies(_typedDataNoLenSpec());
+        proxy = StructGenerator.generateDartProxies(_typedDataNoLenSpec());
       });
 
       test('toDart() falls back to asTypedList(0) when no length field exists', () {
@@ -351,8 +389,14 @@ void main() {
               name: 'Buf',
               packed: false,
               fields: [
-                BridgeField(name: 'data',   type: BridgeType(name: 'Uint8List')),
-                BridgeField(name: 'Stride', type: BridgeType(name: 'int')),
+                BridgeField(
+                  name: 'data',
+                  type: BridgeType(name: 'Uint8List'),
+                ),
+                BridgeField(
+                  name: 'Stride',
+                  type: BridgeType(name: 'int'),
+                ),
               ],
             ),
           ],
@@ -367,8 +411,14 @@ void main() {
 
     group('non-Uint8List TypedData types', () {
       for (final tdType in [
-        'Float32List', 'Float64List', 'Int32List', 'Uint32List',
-        'Int16List', 'Uint16List', 'Int64List', 'Uint64List',
+        'Float32List',
+        'Float64List',
+        'Int32List',
+        'Uint32List',
+        'Int16List',
+        'Uint16List',
+        'Int64List',
+        'Uint64List',
       ]) {
         test('$tdType toDart() uses $tdType.fromList(...asTypedList(length))', () {
           final spec = BridgeSpec(
@@ -382,8 +432,14 @@ void main() {
                 name: 'Buf',
                 packed: false,
                 fields: [
-                  BridgeField(name: 'data',   type: BridgeType(name: tdType)),
-                  BridgeField(name: 'length', type: BridgeType(name: 'int')),
+                  BridgeField(
+                    name: 'data',
+                    type: BridgeType(name: tdType),
+                  ),
+                  BridgeField(
+                    name: 'length',
+                    type: BridgeType(name: 'int'),
+                  ),
                 ],
               ),
             ],
@@ -448,9 +504,18 @@ void main() {
             name: 'Mix',
             packed: false,
             fields: [
-              BridgeField(name: 'x', type: BridgeType(name: 'double')),
-              BridgeField(name: 'n', type: BridgeType(name: 'int')),
-              BridgeField(name: 'ok', type: BridgeType(name: 'bool')),
+              BridgeField(
+                name: 'x',
+                type: BridgeType(name: 'double'),
+              ),
+              BridgeField(
+                name: 'n',
+                type: BridgeType(name: 'int'),
+              ),
+              BridgeField(
+                name: 'ok',
+                type: BridgeType(name: 'bool'),
+              ),
             ],
           ),
         ],
@@ -475,8 +540,14 @@ void main() {
             name: 'TwoStrings',
             packed: false,
             fields: [
-              BridgeField(name: 'first',  type: BridgeType(name: 'String')),
-              BridgeField(name: 'second', type: BridgeType(name: 'String')),
+              BridgeField(
+                name: 'first',
+                type: BridgeType(name: 'String'),
+              ),
+              BridgeField(
+                name: 'second',
+                type: BridgeType(name: 'String'),
+              ),
             ],
           ),
         ],
@@ -498,14 +569,25 @@ void main() {
           BridgeStruct(
             name: 'Leaf',
             packed: false,
-            fields: [BridgeField(name: 'v', type: BridgeType(name: 'double'))],
+            fields: [
+              BridgeField(
+                name: 'v',
+                type: BridgeType(name: 'double'),
+              ),
+            ],
           ),
           BridgeStruct(
             name: 'TwoNested',
             packed: false,
             fields: [
-              BridgeField(name: 'a', type: BridgeType(name: 'Leaf')),
-              BridgeField(name: 'b', type: BridgeType(name: 'Leaf')),
+              BridgeField(
+                name: 'a',
+                type: BridgeType(name: 'Leaf'),
+              ),
+              BridgeField(
+                name: 'b',
+                type: BridgeType(name: 'Leaf'),
+              ),
             ],
           ),
         ],
@@ -536,9 +618,21 @@ void main() {
           name: 'Frame',
           packed: false,
           fields: [
-            BridgeField(name: 'data',   type: BridgeType(name: 'Uint8List'), zeroCopy: true),
-            BridgeField(name: 'width',  type: BridgeType(name: 'int'),       zeroCopy: false),
-            BridgeField(name: 'stride', type: BridgeType(name: 'int'),       zeroCopy: false),
+            BridgeField(
+              name: 'data',
+              type: BridgeType(name: 'Uint8List'),
+              zeroCopy: true,
+            ),
+            BridgeField(
+              name: 'width',
+              type: BridgeType(name: 'int'),
+              zeroCopy: false,
+            ),
+            BridgeField(
+              name: 'stride',
+              type: BridgeType(name: 'int'),
+              zeroCopy: false,
+            ),
           ],
         ),
       ],
@@ -580,8 +674,14 @@ void main() {
           packed: false,
           fields: [
             // The extractor writes withNullability: true → 'State?' can appear
-            BridgeField(name: 'mode',  type: BridgeType(name: 'State?')),
-            BridgeField(name: 'score', type: BridgeType(name: 'double?')),
+            BridgeField(
+              name: 'mode',
+              type: BridgeType(name: 'State?'),
+            ),
+            BridgeField(
+              name: 'score',
+              type: BridgeType(name: 'double?'),
+            ),
           ],
         ),
       ],
@@ -643,15 +743,20 @@ void main() {
             name: 'P',
             packed: false,
             fields: [
-              BridgeField(name: 'x', type: BridgeType(name: 'double'), isNamed: true, isRequired: true),
+              BridgeField(
+                name: 'x',
+                type: BridgeType(name: 'double'),
+                isNamed: true,
+                isRequired: true,
+              ),
             ],
           ),
         ],
         functions: [],
       );
-      final ext   = StructGenerator.generateDartExtensions(spec);
+      final ext = StructGenerator.generateDartExtensions(spec);
       final proxy = StructGenerator.generateDartProxies(spec);
-      expect(ext,   contains('x: x'));
+      expect(ext, contains('x: x'));
       expect(proxy, contains('x: 0.0'));
     });
 
@@ -667,15 +772,20 @@ void main() {
             name: 'P',
             packed: false,
             fields: [
-              BridgeField(name: 'x', type: BridgeType(name: 'double'), isNamed: false, isRequired: true),
+              BridgeField(
+                name: 'x',
+                type: BridgeType(name: 'double'),
+                isNamed: false,
+                isRequired: true,
+              ),
             ],
           ),
         ],
         functions: [],
       );
-      final ext   = StructGenerator.generateDartExtensions(spec);
+      final ext = StructGenerator.generateDartExtensions(spec);
       final proxy = StructGenerator.generateDartProxies(spec);
-      expect(ext,   isNot(contains('x: x')));
+      expect(ext, isNot(contains('x: x')));
       expect(proxy, contains('super(0.0)'));
     });
 
@@ -693,7 +803,12 @@ void main() {
             name: 'P',
             packed: false,
             fields: [
-              BridgeField(name: 'x', type: BridgeType(name: 'double'), isNamed: true, isRequired: true),
+              BridgeField(
+                name: 'x',
+                type: BridgeType(name: 'double'),
+                isNamed: true,
+                isRequired: true,
+              ),
             ],
           ),
         ],
@@ -710,7 +825,12 @@ void main() {
             name: 'P',
             packed: false,
             fields: [
-              BridgeField(name: 'x', type: BridgeType(name: 'double'), isNamed: true, isRequired: false),
+              BridgeField(
+                name: 'x',
+                type: BridgeType(name: 'double'),
+                isNamed: true,
+                isRequired: false,
+              ),
             ],
           ),
         ],
@@ -744,20 +864,49 @@ void main() {
         BridgeStruct(
           name: 'Sub',
           packed: false,
-          fields: [BridgeField(name: 'v', type: BridgeType(name: 'double'))],
+          fields: [
+            BridgeField(
+              name: 'v',
+              type: BridgeType(name: 'double'),
+            ),
+          ],
         ),
         BridgeStruct(
           name: 'Everything',
           packed: false,
           fields: [
-            BridgeField(name: 'count',  type: BridgeType(name: 'int')),
-            BridgeField(name: 'ratio',  type: BridgeType(name: 'double')),
-            BridgeField(name: 'active', type: BridgeType(name: 'bool')),
-            BridgeField(name: 'label',  type: BridgeType(name: 'String')),
-            BridgeField(name: 'color',  type: BridgeType(name: 'Color')),
-            BridgeField(name: 'sub',    type: BridgeType(name: 'Sub')),
-            BridgeField(name: 'data',   type: BridgeType(name: 'Uint8List')),
-            BridgeField(name: 'length', type: BridgeType(name: 'int')),
+            BridgeField(
+              name: 'count',
+              type: BridgeType(name: 'int'),
+            ),
+            BridgeField(
+              name: 'ratio',
+              type: BridgeType(name: 'double'),
+            ),
+            BridgeField(
+              name: 'active',
+              type: BridgeType(name: 'bool'),
+            ),
+            BridgeField(
+              name: 'label',
+              type: BridgeType(name: 'String'),
+            ),
+            BridgeField(
+              name: 'color',
+              type: BridgeType(name: 'Color'),
+            ),
+            BridgeField(
+              name: 'sub',
+              type: BridgeType(name: 'Sub'),
+            ),
+            BridgeField(
+              name: 'data',
+              type: BridgeType(name: 'Uint8List'),
+            ),
+            BridgeField(
+              name: 'length',
+              type: BridgeType(name: 'int'),
+            ),
           ],
         ),
       ],
@@ -837,8 +986,8 @@ void main() {
       expect(out, contains('val ratio: Double'));
       expect(out, contains('val active: Boolean'));
       expect(out, contains('val label: String'));
-      expect(out, contains('val color: Long'));   // enum → Long
-      expect(out, contains('val sub: Sub'));       // nested struct → type name
+      expect(out, contains('val color: Long')); // enum → Long
+      expect(out, contains('val sub: Sub')); // nested struct → type name
       expect(out, contains('val data: ByteArray'));
       expect(out, contains('val length: Long'));
     });
@@ -849,9 +998,9 @@ void main() {
       expect(out, contains('var ratio: Double'));
       expect(out, contains('var active: Bool'));
       expect(out, contains('var label: String'));
-      expect(out, contains('var color: Color'));   // enum → type name
-      expect(out, contains('var sub: Sub'));        // nested struct → type name
-      expect(out, contains('var data: Data'));      // non-zeroCopy Uint8List → Data
+      expect(out, contains('var color: Color')); // enum → type name
+      expect(out, contains('var sub: Sub')); // nested struct → type name
+      expect(out, contains('var data: Data')); // non-zeroCopy Uint8List → Data
       expect(out, contains('var length: Int64'));
     });
 
@@ -861,8 +1010,8 @@ void main() {
       expect(out, contains('double ratio;'));
       expect(out, contains('int8_t active;'));
       expect(out, contains('const char* label;'));
-      expect(out, contains('int32_t color;'));     // enum → int32_t
-      expect(out, contains('Sub* sub;'));           // nested struct → pointer
+      expect(out, contains('int32_t color;')); // enum → int32_t
+      expect(out, contains('Sub* sub;')); // nested struct → pointer
       expect(out, contains('uint8_t* data;'));
       expect(out, contains('int64_t length;'));
     });
@@ -882,17 +1031,22 @@ void main() {
           BridgeStruct(
             name: 'Message',
             packed: false,
-            fields: [BridgeField(name: 'text', type: BridgeType(name: 'String'))],
+            fields: [
+              BridgeField(
+                name: 'text',
+                type: BridgeType(name: 'String'),
+              ),
+            ],
           ),
         ],
         functions: [],
       );
-      final ext   = StructGenerator.generateDartExtensions(spec);
+      final ext = StructGenerator.generateDartExtensions(spec);
       final proxy = StructGenerator.generateDartProxies(spec);
-      expect(ext,   contains('external Pointer<Utf8> text;'));
-      expect(ext,   contains('text: text.toDartString()'));
-      expect(ext,   contains('ptr.ref.text = text.toNativeUtf8(allocator: arena)'));
-      expect(ext,   contains('if (text != nullptr) malloc.free(text)'));
+      expect(ext, contains('external Pointer<Utf8> text;'));
+      expect(ext, contains('text: text.toDartString()'));
+      expect(ext, contains('ptr.ref.text = text.toNativeUtf8(allocator: arena)'));
+      expect(ext, contains('if (text != nullptr) malloc.free(text)'));
       expect(proxy, contains("text: ''"));
       expect(proxy, contains('String get text => _native.ref.text.toDartString()'));
     });
@@ -908,17 +1062,22 @@ void main() {
           BridgeStruct(
             name: 'Flag',
             packed: false,
-            fields: [BridgeField(name: 'enabled', type: BridgeType(name: 'bool'))],
+            fields: [
+              BridgeField(
+                name: 'enabled',
+                type: BridgeType(name: 'bool'),
+              ),
+            ],
           ),
         ],
         functions: [],
       );
-      final ext   = StructGenerator.generateDartExtensions(spec);
+      final ext = StructGenerator.generateDartExtensions(spec);
       final proxy = StructGenerator.generateDartProxies(spec);
-      expect(ext,   contains('@Int8()'));
-      expect(ext,   contains('external int enabled;'));
-      expect(ext,   contains('enabled: enabled != 0'));
-      expect(ext,   contains('ptr.ref.enabled = enabled ? 1 : 0'));
+      expect(ext, contains('@Int8()'));
+      expect(ext, contains('external int enabled;'));
+      expect(ext, contains('enabled: enabled != 0'));
+      expect(ext, contains('ptr.ref.enabled = enabled ? 1 : 0'));
       expect(proxy, contains('enabled: false'));
       expect(proxy, contains('bool get enabled => _native.ref.enabled != 0'));
     });

@@ -68,10 +68,8 @@ void main() {
       });
 
       final verboseLogs = logs.where((l) => l.$1 == NitroLogLevel.verbose).toList();
-      expect(verboseLogs.any((l) => l.$3.contains('calling')), isTrue,
-          reason: 'should emit a "calling" log at verbose');
-      expect(verboseLogs.any((l) => l.$3.contains('completed in') && l.$3.contains('µs')),
-          isTrue, reason: 'should emit a "completed in N µs" log at verbose');
+      expect(verboseLogs.any((l) => l.$3.contains('calling')), isTrue, reason: 'should emit a "calling" log at verbose');
+      expect(verboseLogs.any((l) => l.$3.contains('completed in') && l.$3.contains('µs')), isTrue, reason: 'should emit a "completed in N µs" log at verbose');
     });
 
     test('log tag includes the method name', () {
@@ -122,8 +120,7 @@ void main() {
 
       final errorLogs = logs.where((l) => l.$1 == NitroLogLevel.error).toList();
       expect(errorLogs, isNotEmpty, reason: 'should log at error level on throw');
-      expect(errorLogs.any((l) => l.$2.contains('explode')), isTrue,
-          reason: 'error tag should contain the method name');
+      expect(errorLogs.any((l) => l.$2.contains('explode')), isTrue, reason: 'error tag should contain the method name');
     });
 
     test('re-throws the original exception after logging', () {

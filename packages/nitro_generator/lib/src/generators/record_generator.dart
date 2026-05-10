@@ -54,9 +54,7 @@ class RecordGenerator {
     for (final rt in spec.recordTypes) {
       for (final f in rt.fields) {
         if (f.kind == RecordFieldKind.recordObject || f.kind == RecordFieldKind.listRecordObject) {
-          final typeName = f.kind == RecordFieldKind.listRecordObject
-              ? (f.itemTypeName ?? f.dartType.replaceFirst('?', ''))
-              : f.dartType.replaceFirst('?', '');
+          final typeName = f.kind == RecordFieldKind.listRecordObject ? (f.itemTypeName ?? f.dartType.replaceFirst('?', '')) : f.dartType.replaceFirst('?', '');
           if (structMap.containsKey(typeName)) referencedStructs.add(typeName);
         }
       }
@@ -72,6 +70,7 @@ class RecordGenerator {
         }
       }
     }
+
     for (final name in referencedStructs.toList()) {
       collectNestedDart(name);
     }
@@ -366,21 +365,31 @@ class RecordGenerator {
 
   static String _cppPrimType(String dartType) {
     switch (dartType) {
-      case 'int':    return 'int64_t';
-      case 'double': return 'double';
-      case 'bool':   return 'bool';
-      case 'String': return 'std::string';
-      default:       return 'int64_t';
+      case 'int':
+        return 'int64_t';
+      case 'double':
+        return 'double';
+      case 'bool':
+        return 'bool';
+      case 'String':
+        return 'std::string';
+      default:
+        return 'int64_t';
     }
   }
 
   static String _cppPrimRead(String dartType) {
     switch (dartType) {
-      case 'int':    return 'readInt';
-      case 'double': return 'readDouble';
-      case 'bool':   return 'readBool';
-      case 'String': return 'readString';
-      default:       return 'readInt';
+      case 'int':
+        return 'readInt';
+      case 'double':
+        return 'readDouble';
+      case 'bool':
+        return 'readBool';
+      case 'String':
+        return 'readString';
+      default:
+        return 'readInt';
     }
   }
 
@@ -703,9 +712,7 @@ public:
     for (final rt in spec.recordTypes) {
       for (final f in rt.fields) {
         if (f.kind == RecordFieldKind.recordObject || f.kind == RecordFieldKind.listRecordObject) {
-          final typeName = f.kind == RecordFieldKind.listRecordObject
-              ? (f.itemTypeName ?? f.dartType.replaceFirst('?', ''))
-              : f.dartType.replaceFirst('?', '');
+          final typeName = f.kind == RecordFieldKind.listRecordObject ? (f.itemTypeName ?? f.dartType.replaceFirst('?', '')) : f.dartType.replaceFirst('?', '');
           if (structMap.containsKey(typeName)) referencedStructs.add(typeName);
         }
       }
@@ -721,6 +728,7 @@ public:
         }
       }
     }
+
     for (final name in referencedStructs.toList()) {
       collectNestedSwift(name);
     }

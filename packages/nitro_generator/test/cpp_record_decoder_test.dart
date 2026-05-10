@@ -18,10 +18,10 @@ BridgeSpec _primitiveRecordSpec() => BridgeSpec(
     BridgeRecordType(
       name: 'CameraDevice',
       fields: [
-        BridgeRecordField(name: 'id',    dartType: 'String', kind: RecordFieldKind.primitive),
-        BridgeRecordField(name: 'index', dartType: 'int',    kind: RecordFieldKind.primitive),
+        BridgeRecordField(name: 'id', dartType: 'String', kind: RecordFieldKind.primitive),
+        BridgeRecordField(name: 'index', dartType: 'int', kind: RecordFieldKind.primitive),
         BridgeRecordField(name: 'score', dartType: 'double', kind: RecordFieldKind.primitive),
-        BridgeRecordField(name: 'front', dartType: 'bool',   kind: RecordFieldKind.primitive),
+        BridgeRecordField(name: 'front', dartType: 'bool', kind: RecordFieldKind.primitive),
       ],
     ),
   ],
@@ -38,10 +38,10 @@ BridgeSpec _nullableRecordSpec() => BridgeSpec(
     BridgeRecordType(
       name: 'SensorReading',
       fields: [
-        BridgeRecordField(name: 'value', dartType: 'double',  kind: RecordFieldKind.primitive),
+        BridgeRecordField(name: 'value', dartType: 'double', kind: RecordFieldKind.primitive),
         BridgeRecordField(name: 'label', dartType: 'String?', kind: RecordFieldKind.primitive, isNullable: true),
-        BridgeRecordField(name: 'count', dartType: 'int?',    kind: RecordFieldKind.primitive, isNullable: true),
-        BridgeRecordField(name: 'valid', dartType: 'bool?',   kind: RecordFieldKind.primitive, isNullable: true),
+        BridgeRecordField(name: 'count', dartType: 'int?', kind: RecordFieldKind.primitive, isNullable: true),
+        BridgeRecordField(name: 'valid', dartType: 'bool?', kind: RecordFieldKind.primitive, isNullable: true),
       ],
     ),
   ],
@@ -65,9 +65,9 @@ BridgeSpec _nestedRecordSpec() => BridgeSpec(
     BridgeRecordType(
       name: 'Region',
       fields: [
-        BridgeRecordField(name: 'center',  dartType: 'Point',  kind: RecordFieldKind.recordObject),
-        BridgeRecordField(name: 'optPt',   dartType: 'Point?', kind: RecordFieldKind.recordObject, isNullable: true),
-        BridgeRecordField(name: 'radius',  dartType: 'double', kind: RecordFieldKind.primitive),
+        BridgeRecordField(name: 'center', dartType: 'Point', kind: RecordFieldKind.recordObject),
+        BridgeRecordField(name: 'optPt', dartType: 'Point?', kind: RecordFieldKind.recordObject, isNullable: true),
+        BridgeRecordField(name: 'radius', dartType: 'double', kind: RecordFieldKind.primitive),
       ],
     ),
   ],
@@ -84,9 +84,9 @@ BridgeSpec _listRecordSpec() => BridgeSpec(
     BridgeRecordType(
       name: 'Item',
       fields: [
-        BridgeRecordField(name: 'name',   dartType: 'String', kind: RecordFieldKind.primitive),
-        BridgeRecordField(name: 'counts', dartType: 'List<int>',    kind: RecordFieldKind.listPrimitive,    itemTypeName: 'int'),
-        BridgeRecordField(name: 'tags',   dartType: 'List<String>', kind: RecordFieldKind.listPrimitive,    itemTypeName: 'String'),
+        BridgeRecordField(name: 'name', dartType: 'String', kind: RecordFieldKind.primitive),
+        BridgeRecordField(name: 'counts', dartType: 'List<int>', kind: RecordFieldKind.listPrimitive, itemTypeName: 'int'),
+        BridgeRecordField(name: 'tags', dartType: 'List<String>', kind: RecordFieldKind.listPrimitive, itemTypeName: 'String'),
       ],
     ),
     BridgeRecordType(
@@ -111,7 +111,12 @@ BridgeSpec _noRecordSpec() => BridgeSpec(
       cSymbol: 'simple_add',
       isAsync: false,
       returnType: BridgeType(name: 'int'),
-      params: [BridgeParam(name: 'a', type: BridgeType(name: 'int'))],
+      params: [
+        BridgeParam(
+          name: 'a',
+          type: BridgeType(name: 'int'),
+        ),
+      ],
     ),
   ],
 );
@@ -139,8 +144,7 @@ void main() {
       final methodIdx = out.indexOf(methodDecl);
       expect(methodIdx, isNot(-1), reason: 'readNullTag method must be defined');
       final methodBody = out.substring(methodIdx, out.indexOf('\n    }', methodIdx) + 6);
-      expect(methodBody, contains('_offset + 1 > _size'),
-          reason: 'bounds check must compare offset+1 against size');
+      expect(methodBody, contains('_offset + 1 > _size'), reason: 'bounds check must compare offset+1 against size');
       expect(methodBody, contains('throw std::runtime_error'));
     });
 
@@ -152,8 +156,8 @@ void main() {
     test('other read methods use _require() helper (not open-coded check)', () {
       final out = RecordGenerator.generateCpp(_primitiveRecordSpec());
       // readInt / readDouble / readBool / readString use _require(n)
-      expect(out, contains('_require(8)'));  // readInt + readDouble
-      expect(out, contains('_require(1)'));  // readBool
+      expect(out, contains('_require(8)')); // readInt + readDouble
+      expect(out, contains('_require(1)')); // readBool
       // _require itself throws runtime_error for general underflow
       expect(out, contains('throw std::runtime_error("NitroRecordReader: buffer underflow")'));
     });
@@ -262,10 +266,12 @@ void main() {
     test('non-nullable field does NOT call readNullTag()', () {
       final out = RecordGenerator.generateCpp(_nullableRecordSpec());
       // 'value' is non-nullable — its read line must not contain readNullTag
-      final valueReadLine = out.split('\n').firstWhere(
-        (l) => l.contains('_obj.value'),
-        orElse: () => '',
-      );
+      final valueReadLine = out
+          .split('\n')
+          .firstWhere(
+            (l) => l.contains('_obj.value'),
+            orElse: () => '',
+          );
       expect(valueReadLine, isNot(contains('readNullTag')));
     });
   });

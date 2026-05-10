@@ -249,16 +249,22 @@ Stream<String> streamProcess(String executable, List<String> args, {String? work
         }
       }
 
-      process!.stdout.transform(utf8.decoder).transform(const LineSplitter()).listen(
-        controller.add,
-        onDone: done,
-        onError: controller.addError,
-      );
-      process!.stderr.transform(utf8.decoder).transform(const LineSplitter()).listen(
-        controller.add,
-        onDone: done,
-        onError: controller.addError,
-      );
+      process!.stdout
+          .transform(utf8.decoder)
+          .transform(const LineSplitter())
+          .listen(
+            controller.add,
+            onDone: done,
+            onError: controller.addError,
+          );
+      process!.stderr
+          .transform(utf8.decoder)
+          .transform(const LineSplitter())
+          .listen(
+            controller.add,
+            onDone: done,
+            onError: controller.addError,
+          );
     } catch (e) {
       controller.addError(e);
       controller.close();
@@ -273,4 +279,3 @@ Stream<String> streamProcess(String executable, List<String> args, {String? work
 
   return controller.stream;
 }
-

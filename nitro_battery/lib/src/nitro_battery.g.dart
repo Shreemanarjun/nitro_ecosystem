@@ -71,7 +71,8 @@ final class BatteryInfoProxy extends BatteryInfo implements Finalizable {
   static void _init(DynamicLibrary dylib) {
     _finalizer ??= NativeFinalizer(
       dylib.lookup<NativeFunction<Void Function(Pointer<Void>)>>(
-          'nitro_battery_release_BatteryInfo'),
+        'nitro_battery_release_BatteryInfo',
+      ),
     );
   }
 
@@ -79,9 +80,11 @@ final class BatteryInfoProxy extends BatteryInfo implements Finalizable {
   /// all getters below are overridden to read from native memory instead.
   /// Do NOT call [malloc.free] after passing the pointer here.
   BatteryInfoProxy(this._native)
-      : super(level: 0, chargingState: 0, voltage: 0.0, temperature: 0.0) {
-    assert(_finalizer != null,
-        'BatteryInfoProxy._init() was not called. Ensure the Nitro impl class constructor ran before creating proxies.');
+    : super(level: 0, chargingState: 0, voltage: 0.0, temperature: 0.0) {
+    assert(
+      _finalizer != null,
+      'BatteryInfoProxy._init() was not called. Ensure the Nitro impl class constructor ran before creating proxies.',
+    );
     _finalizer!.attach(this, _native.cast(), detach: this);
   }
 
@@ -112,55 +115,69 @@ class _NitroBatteryImpl extends NitroBattery {
   final DynamicLibrary _dylib;
 
   _NitroBatteryImpl() : _dylib = NitroRuntime.loadLib('nitro_battery') {
-    final initFunc = _dylib.lookupFunction<IntPtr Function(Pointer<Void>),
-        int Function(Pointer<Void>)>('nitro_battery_init_dart_api_dl');
+    final initFunc = _dylib
+        .lookupFunction<
+          IntPtr Function(Pointer<Void>),
+          int Function(Pointer<Void>)
+        >('nitro_battery_init_dart_api_dl');
     final initCode = initFunc(NativeApi.initializeApiDLData);
     if (initCode != 0) {
       throw StateError(
-          'nitro_battery: Dart API DL initialization failed with code $initCode.');
+        'nitro_battery: Dart API DL initialization failed with code $initCode.',
+      );
     }
     BatteryInfoProxy._init(_dylib);
   }
 
   late final int Function() _getBatteryLevelPtr = _dylib
       .lookup<NativeFunction<Int64 Function()>>(
-          'nitro_battery_get_battery_level')
+        'nitro_battery_get_battery_level',
+      )
       .asFunction<int Function()>(isLeaf: true);
   late final int Function() _isChargingPtr = _dylib
       .lookup<NativeFunction<Int8 Function()>>('nitro_battery_is_charging')
       .asFunction<int Function()>(isLeaf: true);
   late final int Function() _getChargingStatePtr = _dylib
       .lookup<NativeFunction<Int64 Function()>>(
-          'nitro_battery_get_charging_state')
+        'nitro_battery_get_charging_state',
+      )
       .asFunction<int Function()>(isLeaf: true);
-  late final Pointer<Void> Function() _getBatteryInfoPtr =
-      _dylib.lookupFunction<Pointer<Void> Function(), Pointer<Void> Function()>(
-          'nitro_battery_get_battery_info');
+  late final Pointer<Void> Function() _getBatteryInfoPtr = _dylib
+      .lookupFunction<Pointer<Void> Function(), Pointer<Void> Function()>(
+        'nitro_battery_get_battery_info',
+      );
   late final int Function() _getLowPowerThresholdPtr = _dylib
       .lookup<NativeFunction<Int64 Function()>>(
-          'nitro_battery_get_low_power_threshold')
+        'nitro_battery_get_low_power_threshold',
+      )
       .asFunction<int Function()>(isLeaf: true);
   late final void Function(int) _setLowPowerThresholdPtr = _dylib
       .lookup<NativeFunction<Void Function(Int64)>>(
-          'nitro_battery_set_low_power_threshold')
+        'nitro_battery_set_low_power_threshold',
+      )
       .asFunction<void Function(int)>(isLeaf: true);
-  late final void Function(int) _registerBatteryLevelChangesPtr =
-      _dylib.lookupFunction<Void Function(Int64), void Function(int)>(
-          'nitro_battery_register_battery_level_changes_stream');
-  late final void Function(int) _releaseBatteryLevelChangesPtr =
-      _dylib.lookupFunction<Void Function(Int64), void Function(int)>(
-          'nitro_battery_release_battery_level_changes_stream');
+  late final void Function(int) _registerBatteryLevelChangesPtr = _dylib
+      .lookupFunction<Void Function(Int64), void Function(int)>(
+        'nitro_battery_register_battery_level_changes_stream',
+      );
+  late final void Function(int) _releaseBatteryLevelChangesPtr = _dylib
+      .lookupFunction<Void Function(Int64), void Function(int)>(
+        'nitro_battery_release_battery_level_changes_stream',
+      );
   // ignore: unused_field
-  late final Pointer<NitroErrorFfi> Function() _getErrorPtr =
-      _dylib.lookupFunction<Pointer<NitroErrorFfi> Function(),
-          Pointer<NitroErrorFfi> Function()>('nitro_battery_get_error');
+  late final Pointer<NitroErrorFfi> Function() _getErrorPtr = _dylib
+      .lookupFunction<
+        Pointer<NitroErrorFfi> Function(),
+        Pointer<NitroErrorFfi> Function()
+      >('nitro_battery_get_error');
   // ignore: unused_field
-  late final void Function() _clearErrorPtr =
-      _dylib.lookupFunction<Void Function(), void Function()>(
-          'nitro_battery_clear_error');
+  late final void Function() _clearErrorPtr = _dylib
+      .lookupFunction<Void Function(), void Function()>(
+        'nitro_battery_clear_error',
+      );
   // ignore: unused_field
   late final Pointer<NativeFunction<Pointer<NitroErrorFfi> Function()>>
-      _getErrorNativePtr = _dylib.lookup('nitro_battery_get_error');
+  _getErrorNativePtr = _dylib.lookup('nitro_battery_get_error');
   // ignore: unused_field
   late final Pointer<NativeFunction<Void Function()>> _clearErrorNativePtr =
       _dylib.lookup('nitro_battery_clear_error');
@@ -199,10 +216,12 @@ class _NitroBatteryImpl extends NitroBattery {
   Future<BatteryInfo> getBatteryInfo() async {
     checkDisposed();
     final rawPtr = await NitroRuntime.callAsync<Pointer<Void>>(
-        _getBatteryInfoPtr, [],
-        getError: _getErrorNativePtr,
-        clearError: _clearErrorNativePtr,
-        methodName: 'getBatteryInfo');
+      _getBatteryInfoPtr,
+      [],
+      getError: _getErrorNativePtr,
+      clearError: _clearErrorNativePtr,
+      methodName: 'getBatteryInfo',
+    );
     final structPtr = Pointer<BatteryInfoFfi>.fromAddress(rawPtr.address);
     try {
       return structPtr.ref.toDart();

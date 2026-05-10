@@ -26,8 +26,7 @@ String? _zeroCopyCompanionField(BridgeStruct st, String zeroCopyFieldName) {
 }
 
 /// True when [zeroCopyFieldName] needs a synthetic '${name}Length' companion.
-bool _needsSyntheticLen(BridgeStruct st, String zeroCopyFieldName) =>
-    _zeroCopyCompanionField(st, zeroCopyFieldName) == null;
+bool _needsSyntheticLen(BridgeStruct st, String zeroCopyFieldName) => _zeroCopyCompanionField(st, zeroCopyFieldName) == null;
 
 /// Generates Dart extension helpers for HybridStructs.
 /// The struct class itself MUST already be declared in the .native.dart spec file.
@@ -245,9 +244,7 @@ class StructGenerator {
     if (f.type.isTypedData) {
       final companion = _zeroCopyCompanionField(st, f.name);
       // Use the explicit companion field, or the synthesized '${field}Length'.
-      final lenExpr = f.zeroCopy
-          ? (companion ?? '${f.name}Length')
-          : (st.fields.where((sf) => sf.type.name == 'int' && _kLengthFieldNames.contains(sf.name)).map((sf) => sf.name).firstOrNull ?? '0');
+      final lenExpr = f.zeroCopy ? (companion ?? '${f.name}Length') : (st.fields.where((sf) => sf.type.name == 'int' && _kLengthFieldNames.contains(sf.name)).map((sf) => sf.name).firstOrNull ?? '0');
       return '$typeName.fromList(${f.name}.asTypedList($lenExpr))';
     } else if (f.type.name == 'bool') {
       return '${f.name} != 0';

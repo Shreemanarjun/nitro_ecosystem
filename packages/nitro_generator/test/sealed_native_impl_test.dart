@@ -342,10 +342,10 @@ void main() {
       // This switch must be exhaustive — adding a new sealed subclass without
       // updating this switch causes a compile-time warning/error.
       return switch (impl) {
-        SwiftImpl()  => 'apple-swift',
+        SwiftImpl() => 'apple-swift',
         KotlinImpl() => 'android-kotlin',
-        CppImpl()    => 'native-cpp',
-        WasmImpl()   => 'web-wasm',
+        CppImpl() => 'native-cpp',
+        WasmImpl() => 'web-wasm',
       };
     }
 

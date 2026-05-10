@@ -6,12 +6,10 @@ library;
 
 /// A CocoaPods-style `Classes/plugin.cpp` forwarder to `src/plugin.cpp`.
 /// The relative path `../../src/` is correct from `{platform}/Classes/`.
-String classesCppForwarder(String pluginName) =>
-    '#include "../../src/$pluginName.cpp"\n';
+String classesCppForwarder(String pluginName) => '#include "../../src/$pluginName.cpp"\n';
 
 /// A CocoaPods-style `Classes/plugin.c` forwarder to `src/plugin.c`.
-String classesCForwarder(String pluginName) =>
-    '#include "../../src/$pluginName.c"\n';
+String classesCForwarder(String pluginName) => '#include "../../src/$pluginName.c"\n';
 
 /// A `nitrogen link` managed C++ source forwarder — used in both CocoaPods
 /// `Classes/` and SPM `Sources/<Plugin>Cpp/` targets.
@@ -52,8 +50,7 @@ String spmBridgeMmForwarder(String pluginName) =>
 /// `dart_api_dl.c` forwarder for CocoaPods `Classes/` targets.
 /// Must be a `.c` file (not `.cpp`) so the void*/function-pointer casts
 /// inside `dart_api_dl.c` are accepted without C++ complaints.
-const String classesDartApiDlForwarder =
-    '#include "../../src/dart_api_dl.c"\n';
+const String classesDartApiDlForwarder = '#include "../../src/dart_api_dl.c"\n';
 
 /// `dart_api_dl.c` forwarder written into `src/` during `nitrogen init`.
 /// Points to the monorepo placeholder path; `nitrogen link` rewrites it with

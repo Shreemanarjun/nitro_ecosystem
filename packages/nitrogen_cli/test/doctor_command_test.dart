@@ -1324,9 +1324,7 @@ abstract class Math extends HybridObject {}
 
       final spmSec = result.sections.firstWhere((s) => s.title.contains('SPM'));
       expect(
-        spmSec.checks.any((c) =>
-            c.status == DoctorStatus.error &&
-            c.label.toLowerCase().contains('cocoapods')),
+        spmSec.checks.any((c) => c.status == DoctorStatus.error && c.label.toLowerCase().contains('cocoapods')),
         isTrue,
         reason: 'Should report error when only CocoaPods is present',
       );
@@ -1357,9 +1355,7 @@ abstract class Math extends HybridObject {}
 
       // Should show nested layout OK
       expect(
-        spmSec.checks.any((c) =>
-            c.status == DoctorStatus.ok &&
-            c.label.contains('nested')),
+        spmSec.checks.any((c) => c.status == DoctorStatus.ok && c.label.contains('nested')),
         isTrue,
         reason: 'Should detect and report nested Flutter 3.41+ SPM layout',
       );
@@ -1384,16 +1380,12 @@ abstract class Math extends HybridObject {}
       final spmSec = result.sections.firstWhere((s) => s.title.contains('SPM'));
 
       expect(
-        spmSec.checks.any((c) =>
-            c.status == DoctorStatus.warn &&
-            c.label.toLowerCase().contains('flat')),
+        spmSec.checks.any((c) => c.status == DoctorStatus.warn && c.label.toLowerCase().contains('flat')),
         isTrue,
         reason: 'Flat layout should produce a warning',
       );
       expect(
-        spmSec.checks.any((c) =>
-            c.hint != null &&
-            c.hint!.contains('nitrogen migrate')),
+        spmSec.checks.any((c) => c.hint != null && c.hint!.contains('nitrogen migrate')),
         isTrue,
         reason: 'Warning hint should suggest nitrogen migrate for nested layout upgrade',
       );
@@ -1442,9 +1434,7 @@ flutter:
       final spmSec = result.sections.firstWhere((s) => s.title.contains('SPM'));
 
       expect(
-        spmSec.checks.any((c) =>
-            c.status == DoctorStatus.ok &&
-            c.label.toLowerCase().contains('spm-only')),
+        spmSec.checks.any((c) => c.status == DoctorStatus.ok && c.label.toLowerCase().contains('spm-only')),
         isTrue,
         reason: 'Should show ok for SPM-only modern setup',
       );
@@ -1464,8 +1454,7 @@ flutter:
       File(p.join(specDir.path, 'my_plugin.native.dart')).writeAsStringSync('@NitroModule(lib: "my_plugin")');
 
       // Nested SPM layout: ios/my_plugin/Sources/MyPluginCpp/
-      final cppDir = Directory(p.join(tmp.path, 'ios', 'my_plugin', 'Sources', 'MyPluginCpp'))
-        ..createSync(recursive: true);
+      final cppDir = Directory(p.join(tmp.path, 'ios', 'my_plugin', 'Sources', 'MyPluginCpp'))..createSync(recursive: true);
       File(p.join(cppDir.path, 'my_plugin.bridge.g.mm')).writeAsStringSync('// bridge');
       File(p.join(tmp.path, 'ios', 'my_plugin', 'Package.swift')).writeAsStringSync(
         '// swift-tools-version: 5.9\nlet package = Package(name:"my_plugin")',
@@ -1489,8 +1478,7 @@ flutter:
       File(p.join(specDir.path, 'my_plugin.native.dart')).writeAsStringSync('@NitroModule(lib: "my_plugin")');
 
       // SPM dir exists but no bridge.g.mm inside
-      Directory(p.join(tmp.path, 'ios', 'my_plugin', 'Sources', 'MyPluginCpp'))
-          .createSync(recursive: true);
+      Directory(p.join(tmp.path, 'ios', 'my_plugin', 'Sources', 'MyPluginCpp')).createSync(recursive: true);
       File(p.join(tmp.path, 'ios', 'my_plugin', 'Package.swift')).writeAsStringSync(
         '// swift-tools-version: 5.9\nlet package = Package(name:"my_plugin")',
       );
@@ -1608,8 +1596,7 @@ flutter:
 ''');
     // Minimal spec
     final libDir = Directory(p.join(tmp.path, 'lib', 'src'))..createSync(recursive: true);
-    File(p.join(libDir.path, 'my_plugin.native.dart'))
-        .writeAsStringSync('@NitroModule(lib: "my_plugin")');
+    File(p.join(libDir.path, 'my_plugin.native.dart')).writeAsStringSync('@NitroModule(lib: "my_plugin")');
     // iOS podspec
     final iosDir = Directory(p.join(tmp.path, 'ios'))..createSync(recursive: true);
     File(p.join(iosDir.path, 'my_plugin.podspec')).writeAsStringSync('''
@@ -1640,8 +1627,7 @@ let package = Package(name: "my_plugin", targets: [
         : pkgSwiftContent;
     File(p.join(pkgDir.path, 'Package.swift')).writeAsStringSync(defaultPkg);
     // Sources/MyPluginCpp/
-    final cppDir = Directory(p.join(pkgDir.path, 'Sources', 'MyPluginCpp'))
-      ..createSync(recursive: true);
+    final cppDir = Directory(p.join(pkgDir.path, 'Sources', 'MyPluginCpp'))..createSync(recursive: true);
     if (hasDartApiDl) File(p.join(cppDir.path, 'dart_api_dl.c')).writeAsStringSync('// stub');
     if (hasPluginCpp) File(p.join(cppDir.path, 'my_plugin.cpp')).writeAsStringSync('// stub');
     if (hasBridgeMm) File(p.join(cppDir.path, 'my_plugin.bridge.g.mm')).writeAsStringSync('// stub');
@@ -1661,15 +1647,18 @@ let package = Package(name: "my_plugin", targets: [
       final iosSec = result.sections.firstWhere((s) => s.title == 'iOS');
       expect(
         iosSec.checks.any((c) => c.status == DoctorStatus.ok && c.label.contains('dart_api_dl.c present')),
-        isTrue, reason: 'SPM dart_api_dl.c should be ok',
+        isTrue,
+        reason: 'SPM dart_api_dl.c should be ok',
       );
       expect(
         iosSec.checks.any((c) => c.status == DoctorStatus.ok && c.label.contains('nitro.h present')),
-        isTrue, reason: 'SPM include/nitro.h should be ok',
+        isTrue,
+        reason: 'SPM include/nitro.h should be ok',
       );
       expect(
         iosSec.checks.any((c) => c.status == DoctorStatus.ok && c.label.contains('bridge.g.mm') && c.label.contains('SPM')),
-        isTrue, reason: 'SPM bridge.g.mm should be ok',
+        isTrue,
+        reason: 'SPM bridge.g.mm should be ok',
       );
     });
 
@@ -1754,10 +1743,7 @@ let package = Package(name: "my_plugin", targets: [
       final result = _run(tmp);
       final iosSec = result.sections.firstWhere((s) => s.title == 'iOS');
       expect(
-        iosSec.checks.any((c) =>
-            c.status == DoctorStatus.error &&
-            c.label.contains('dart_api_dl.c missing') &&
-            c.label.contains('ios/Classes')),
+        iosSec.checks.any((c) => c.status == DoctorStatus.error && c.label.contains('dart_api_dl.c missing') && c.label.contains('ios/Classes')),
         isFalse,
         reason: 'ios/Classes/dart_api_dl.c is not required when SPM is active',
       );
@@ -1789,8 +1775,7 @@ flutter:
         package: com.example.my_plugin
 ''');
       final libDir = Directory(p.join(tmp.path, 'lib', 'src'))..createSync(recursive: true);
-      File(p.join(libDir.path, 'my_plugin.native.dart'))
-          .writeAsStringSync('@NitroModule(lib: "my_plugin")');
+      File(p.join(libDir.path, 'my_plugin.native.dart')).writeAsStringSync('@NitroModule(lib: "my_plugin")');
       final macosDir = Directory(p.join(tmp.path, 'macos'))..createSync(recursive: true);
       File(p.join(macosDir.path, 'my_plugin.podspec')).writeAsStringSync('''
 Pod::Spec.new do |s|
@@ -1814,8 +1799,7 @@ let package = Package(name: "my_plugin", targets: [
     cxxSettings: [.unsafeFlags(["-std=c++17"])]),
 ])
 ''');
-      final cppDir = Directory(p.join(pkgDir.path, 'Sources', 'MyPluginCpp'))
-        ..createSync(recursive: true);
+      final cppDir = Directory(p.join(pkgDir.path, 'Sources', 'MyPluginCpp'))..createSync(recursive: true);
       if (hasDartApiDl) File(p.join(cppDir.path, 'dart_api_dl.c')).writeAsStringSync('// stub');
       if (hasPluginCpp) File(p.join(cppDir.path, 'my_plugin.cpp')).writeAsStringSync('// stub');
       if (hasBridgeMm) File(p.join(cppDir.path, 'my_plugin.bridge.g.mm')).writeAsStringSync('// stub');
@@ -1834,15 +1818,18 @@ let package = Package(name: "my_plugin", targets: [
       final sec = result.sections.firstWhere((s) => s.title == 'macOS');
       expect(
         sec.checks.any((c) => c.status == DoctorStatus.ok && c.label.contains('dart_api_dl.c present')),
-        isTrue, reason: 'SPM dart_api_dl.c should be ok',
+        isTrue,
+        reason: 'SPM dart_api_dl.c should be ok',
       );
       expect(
         sec.checks.any((c) => c.status == DoctorStatus.ok && c.label.contains('nitro.h present')),
-        isTrue, reason: 'SPM include/nitro.h should be ok',
+        isTrue,
+        reason: 'SPM include/nitro.h should be ok',
       );
       expect(
         sec.checks.any((c) => c.status == DoctorStatus.ok && c.label.contains('bridge.g.mm') && c.label.contains('SPM')),
-        isTrue, reason: 'SPM bridge.g.mm should be ok',
+        isTrue,
+        reason: 'SPM bridge.g.mm should be ok',
       );
     });
 
@@ -1879,10 +1866,7 @@ let package = Package(name: "my_plugin", targets: [
       final result = _run(tmp);
       final sec = result.sections.firstWhere((s) => s.title == 'macOS');
       expect(
-        sec.checks.any((c) =>
-            c.status == DoctorStatus.error &&
-            c.label.contains('dart_api_dl.c missing') &&
-            c.label.contains('macos/Classes')),
+        sec.checks.any((c) => c.status == DoctorStatus.error && c.label.contains('dart_api_dl.c missing') && c.label.contains('macos/Classes')),
         isFalse,
         reason: 'macos/Classes/dart_api_dl.c is not required when SPM is active',
       );

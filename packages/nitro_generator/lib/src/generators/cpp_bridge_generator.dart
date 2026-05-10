@@ -5,18 +5,16 @@ class CppBridgeGenerator {
     // All targeted platforms use C++ — emit the lean direct-call bridge.
     if (spec.isCppImpl) return _generateCppDirect(spec);
 
-    final iosIsCpp   = spec.iosIsCpp;
+    final iosIsCpp = spec.iosIsCpp;
     final macosIsCpp = spec.macosIsCpp;
     // hasApple covers both iOS and macOS (either may use Swift or C++).
     final hasApple = spec.targetsIos || spec.targetsMacos;
 
     if (hasApple && !spec.targetsAndroid) {
-      return _generateJniSwift(spec,
-          includeAndroid: false, iosIsCpp: iosIsCpp, macosIsCpp: macosIsCpp);
+      return _generateJniSwift(spec, includeAndroid: false, iosIsCpp: iosIsCpp, macosIsCpp: macosIsCpp);
     }
     if (!hasApple && spec.targetsAndroid) {
-      return _generateJniSwift(spec,
-          includeIos: false, iosIsCpp: iosIsCpp, macosIsCpp: macosIsCpp);
+      return _generateJniSwift(spec, includeIos: false, iosIsCpp: iosIsCpp, macosIsCpp: macosIsCpp);
     }
     return _generateJniSwift(spec, iosIsCpp: iosIsCpp, macosIsCpp: macosIsCpp);
   }
@@ -789,7 +787,8 @@ class CppBridgeGenerator {
       s.writeln(
         '    // Cache standard-library method IDs only — system class loader is always',
       );
-      s.writeln('    // available here. Application class IDs are deferred to initialize().',
+      s.writeln(
+        '    // available here. Application class IDs are deferred to initialize().',
       );
       s.writeln('    {');
       s.writeln('        jclass cls_class = env->FindClass("java/lang/Class");');
@@ -956,7 +955,6 @@ class CppBridgeGenerator {
 
         final callArgs = callArgsList.join(', ');
         final bridgeArgs = callArgs.isEmpty ? '' : ', $callArgs';
-
 
         if (func.returnType.name == 'void') {
           s.writeln(
@@ -1362,13 +1360,7 @@ class CppBridgeGenerator {
             final isEnum = enumNames.contains(f.type.name.replaceFirst('?', ''));
             final isZeroCopy = _isZeroCopy(st, f.name);
             final isNestedStruct = structNames.contains(f.type.name.replaceFirst('?', ''));
-            final sig = isEnum
-                ? 'J'
-                : (isZeroCopy
-                    ? 'Ljava/nio/ByteBuffer;'
-                    : (isNestedStruct
-                        ? 'L$libPkg/${f.type.name.replaceFirst('?', '')};'
-                        : _jniSigType(f.type.name)));
+            final sig = isEnum ? 'J' : (isZeroCopy ? 'Ljava/nio/ByteBuffer;' : (isNestedStruct ? 'L$libPkg/${f.type.name.replaceFirst('?', '')};' : _jniSigType(f.type.name)));
             s.writeln('            g_fid_${st.name}_${f.name} = env->GetFieldID(g_cls_${st.name}, "${f.name}", "$sig");');
           }
           s.writeln('        }');
@@ -1436,9 +1428,9 @@ class CppBridgeGenerator {
 
     // ── Apple section: NativeImpl.swift / NativeImpl.cpp / mixed ─────────────
     // Determine per-platform Apple strategy.
-    final appleBothCpp     = iosIsCpp && macosIsCpp;
+    final appleBothCpp = iosIsCpp && macosIsCpp;
     final appleMixedMacosCpp = macosIsCpp && !iosIsCpp && spec.targetsMacos;
-    final appleMixedIosCpp   = iosIsCpp && !macosIsCpp && spec.targetsIos;
+    final appleMixedIosCpp = iosIsCpp && !macosIsCpp && spec.targetsIos;
     // The Apple section is emitted when iOS is Swift/C++ OR macOS is C++.
     final includeApple = includeIos || (macosIsCpp && spec.targetsMacos);
 

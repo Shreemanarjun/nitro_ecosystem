@@ -153,16 +153,16 @@ Future<void> _runTui() async {
                   //    argv truncation that makes pkill -f miss the dart process).
                   // NOTE: \$ escapes Dart string interpolation; the shell sees $LOCK, $PIDS.
                   r'LOCK=.dart_tool/build/lock; '
-                  r'if [ -f "$LOCK" ]; then '
-                  r'  PIDS=$(lsof -t "$LOCK" 2>/dev/null); '
-                  r'  [ -n "$PIDS" ] && kill -TERM $PIDS 2>/dev/null && sleep 0.7 && kill -KILL $PIDS 2>/dev/null; '
-                  r'fi; '
-                  // 2. pkill -f as a broad fallback.
-                  'pkill -f build_runner 2>/dev/null; sleep 0.5; pkill -9 -f build_runner 2>/dev/null; '
-                  // 3. Delete only the lock + asset graph, NOT entrypoint/ (AOT snapshot).
-                  //    Deleting entrypoint/ forces an expensive ~15 s recompile every run.
-                  'rm -f .dart_tool/build/lock .dart_tool/build/asset_graph.json 2>/dev/null; '
-                  'flutter pub run build_runner build',
+                      r'if [ -f "$LOCK" ]; then '
+                      r'  PIDS=$(lsof -t "$LOCK" 2>/dev/null); '
+                      r'  [ -n "$PIDS" ] && kill -TERM $PIDS 2>/dev/null && sleep 0.7 && kill -KILL $PIDS 2>/dev/null; '
+                      r'fi; '
+                      // 2. pkill -f as a broad fallback.
+                      'pkill -f build_runner 2>/dev/null; sleep 0.5; pkill -9 -f build_runner 2>/dev/null; '
+                      // 3. Delete only the lock + asset graph, NOT entrypoint/ (AOT snapshot).
+                      //    Deleting entrypoint/ forces an expensive ~15 s recompile every run.
+                      'rm -f .dart_tool/build/lock .dart_tool/build/asset_graph.json 2>/dev/null; '
+                      'flutter pub run build_runner build',
                 ],
               );
             },
@@ -185,14 +185,14 @@ Future<void> _runTui() async {
                 args: const [
                   '-c',
                   r'LOCK=.dart_tool/build/lock; '
-                  r'if [ -f "$LOCK" ]; then '
-                  r'  PIDS=$(lsof -t "$LOCK" 2>/dev/null); '
-                  r'  [ -n "$PIDS" ] && kill -TERM $PIDS 2>/dev/null && sleep 0.7 && kill -KILL $PIDS 2>/dev/null; '
-                  r'fi; '
-                  'pkill -f build_runner 2>/dev/null; sleep 0.5; pkill -9 -f build_runner 2>/dev/null; '
-                  'rm -f .dart_tool/build/lock .dart_tool/build/asset_graph.json 2>/dev/null; '
-                  'flutter pub get || true; '
-                  'flutter pub run build_runner watch --delete-conflicting-outputs',
+                      r'if [ -f "$LOCK" ]; then '
+                      r'  PIDS=$(lsof -t "$LOCK" 2>/dev/null); '
+                      r'  [ -n "$PIDS" ] && kill -TERM $PIDS 2>/dev/null && sleep 0.7 && kill -KILL $PIDS 2>/dev/null; '
+                      r'fi; '
+                      'pkill -f build_runner 2>/dev/null; sleep 0.5; pkill -9 -f build_runner 2>/dev/null; '
+                      'rm -f .dart_tool/build/lock .dart_tool/build/asset_graph.json 2>/dev/null; '
+                      'flutter pub get || true; '
+                      'flutter pub run build_runner watch --delete-conflicting-outputs',
                 ],
               );
             },

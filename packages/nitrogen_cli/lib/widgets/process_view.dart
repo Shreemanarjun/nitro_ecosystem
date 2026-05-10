@@ -12,9 +12,11 @@ class ProcessView extends StatefulComponent {
     required this.executable,
     required this.args,
     this.workingDirectory,
+
     /// When true the underlying process is sent SIGTERM on dispose (e.g. watch
     /// mode so the process doesn't keep running after the user navigates back).
     this.killOnDispose = false,
+
     /// When true the view shows "Watching…" instead of "Running…", and treats
     /// SIGTERM / SIGKILL exit codes (143, 137) as normal "Stopped" rather than
     /// "Failed".
@@ -202,9 +204,7 @@ class _ProcessViewState extends State<ProcessView> {
                   ),
                 if (_done)
                   Text(
-                    _exitCode == 0
-                        ? (component.watchMode ? '■ Stopped' : '✔ Success')
-                        : '✘ Failed (Code $_exitCode)',
+                    _exitCode == 0 ? (component.watchMode ? '■ Stopped' : '✔ Success') : '✘ Failed (Code $_exitCode)',
                     style: TextStyle(color: _exitCode == 0 ? Colors.green : Colors.red, fontWeight: FontWeight.bold),
                   ),
                 const SizedBox(width: 2),
