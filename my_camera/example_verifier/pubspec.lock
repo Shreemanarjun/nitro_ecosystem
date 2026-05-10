@@ -152,15 +152,15 @@ packages:
       path: "../../packages/nitro"
       relative: true
     source: path
-    version: "0.3.3"
+    version: "0.4.0"
   nitro_annotations:
     dependency: transitive
     description:
       name: nitro_annotations
-      sha256: "8ea3208d73c7ccb7bf8189be7ce0811ead6bac43e488bab439380e7d173ce5ea"
+      sha256: e67f01ee1a0a38d890ccfabc7df15360bf40d5c66680a099620d540e7c26ac4d
       url: "https://pub.dev"
     source: hosted
-    version: "0.3.3"
+    version: "0.4.0"
   path:
     dependency: transitive
     description:
