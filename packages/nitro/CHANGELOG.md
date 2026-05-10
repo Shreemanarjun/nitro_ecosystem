@@ -1,3 +1,8 @@
+## 0.4.1
+
+- **Ecosystem sync** — Aligned with `nitro_annotations`, `nitro_generator`, and `nitrogen_cli` 0.4.1.
+- **Improved: `build_runner` constraint** — Updated dev dependency to `^2.15.0` for compatibility with the upgraded `analyzer` and `source_gen` used by `nitro_generator` 0.4.1.
+
 ## 0.4.0
 
 - **New: `NitroRuntime.callSync` observability** — `callSync` now has the same developer experience as `callAsync`: verbose call/completion logs, slow-call warnings, error logs with stack traces, and a zero-allocation fast path when logging is disabled.

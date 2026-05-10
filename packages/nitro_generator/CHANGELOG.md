@@ -1,3 +1,13 @@
+## 0.4.1
+
+- **Fixed: Struct size calculation** — `@HybridStruct` field sizes are now computed correctly for nested struct types and aligned to pointer boundaries, preventing silent memory corruption when structs are passed across the FFI boundary.
+- **Fixed: Optional parameter support** — Methods with optional positional or named parameters now generate correct Dart FFI signatures and C++ bridge stubs; previously optional params were treated as required, causing compile errors.
+- **Fixed: C++ bridge release-mode compilation** — Generated `*.bridge.g.cpp` and `*.bridge.g.h` now include the `NITRO_EXPORT` macro from `nitro.h` unconditionally, fixing linker errors when building in release/archive mode with LTO.
+- **Fixed: Mixed Apple platform linking** — Generated C++ bridges now emit correct per-platform `#if TARGET_OS_OSX` / `#else` guards for modules that use different implementation languages on iOS vs macOS (e.g. `ios: NativeImpl.swift` + `macos: NativeImpl.cpp`). Swift protocol generation handles mixed targets without emitting a `HybridXxxProtocol` for the wrong platform.
+- **Fixed: Android stabilization** — C++ bridge generator no longer emits duplicate `JNI_OnLoad` registrations on multi-module builds; `build.yaml` input exclusions prevent stale outputs from prior runs.
+- **Fixed: Generated code lint** — `_initSw` renamed to `initSw` in the generated Dart FFI impl constructor; eliminates the `no_leading_underscores_for_local_identifiers` warning in every generated `.g.dart` file.
+- **Ecosystem sync** — Aligned with `nitro`, `nitro_annotations`, and `nitrogen_cli` 0.4.1.
+
 ## 0.4.0
 
 - **New: Mixed Apple platform implementation targets** — A single module can now use different implementation languages per Apple platform. For example, `macos: NativeImpl.cpp` with `ios: NativeImpl.swift` generates a single bridge with `#if TARGET_OS_OSX` / `#else` guards — no manual patching required. Supports all combinations: both Swift, both C++, or mixed.

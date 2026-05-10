@@ -1,7 +1,13 @@
 ## 0.4.1
 
-- **Fixed: SPM Package.swift invalid header search paths** — SPM packages cannot have header search paths outside the package root. Removed external paths (`../../lib/src/generated/cpp`, `../../.symlinks/plugins/nitro/src/native`) from the Swift target configuration. The Swift target now correctly accesses types through its `${classNameCpp` dependency via `publicHeadersPath: "include"`.
-- **Fixed: Swift plugin not found under SPM** — SPM targets are isolated and cannot see files in `ios/Classes/` or `macos/Classes/`. Added `_syncSwiftPluginToSpm()` which automatically copies Swift plugin registration (`*Plugin.swift`) and implementation (`*Impl.swift` files) from `Classes/` to the SPM `Sources/<className>/` directory. This ensures `GeneratedPluginRegistrant.m` can find the Swift plugin class when building with SPM.
+- **Fixed: SPM Package.swift invalid header search paths** — Removed external paths (`../../lib/src/generated/cpp`, `../../.symlinks/plugins/nitro/src/native`) from SPM Swift target configuration. The Swift target accesses types through its `${className}Cpp` dependency via `publicHeadersPath: "include"`.
+- **Fixed: Swift plugin not found under SPM** — Added `_syncSwiftPluginToSpm()` which copies `*Plugin.swift` and `*Impl.swift` from `Classes/` to `Sources/<className>/`, ensuring `GeneratedPluginRegistrant.m` can find the Swift plugin class when building with SPM.
+- **Fixed: Mixed Apple platform linking** — `nitrogen link` now correctly handles modules with different implementations per Apple platform (e.g. `ios: NativeImpl.swift` + `macos: NativeImpl.cpp`). iOS and macOS `Plugin.swift` registration and `HybridXxx.cpp` forwarders are managed independently per platform.
+- **Fixed: Portable `dart_api_dl` header** — `dart_api_dl.h` is now written from the resolved pub-cache path rather than a relative `.symlinks` path, making it stable across both CocoaPods and SPM build trees and on CI machines.
+- **Fixed: Release-mode `nitro.h` export macros** — `createSharedHeaders` and `nitrogen doctor` now validate that `NITRO_EXPORT` is present in `nitro.h`, fixing linker errors in archive/release builds.
+- **Fixed: Android multi-module stabilization** — `nitrogen init` and `nitrogen link` CMake templates no longer produce duplicate library targets in multi-module projects; `build.gradle` source-set configuration avoids AGP 8.x routing issues.
+- **Refactored: Template extraction** — All inline string templates moved from command files into `lib/templates/` (`forwarder_templates.dart`, `podspec_templates.dart`, `cpp_stubs.dart`, `swift_templates.dart`, `cmake_templates.dart`, `native_headers.dart`, `scaffold_templates.dart`). Command files now contain only logic.
+- **Fixed: Lint warnings in generated and test code** — Removed underscore-prefixed local identifiers (`_scaffoldSpm`, `_scaffoldMacosSpm`) and unused variables from test files; `no_leading_underscores_for_local_identifiers` warnings eliminated.
 
 ## 0.4.0
 

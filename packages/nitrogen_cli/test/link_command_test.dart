@@ -2131,9 +2131,9 @@ test('keeps Hybrid*.cpp forwarder for Apple cpp module', () {
       Directory(p.join(tmp.path, platform, 'Classes')).createSync(recursive: true);
       File(p.join(tmp.path, platform, 'Package.swift')).writeAsStringSync('// SPM package');
       // Create Swift plugin class in Classes.
-      File(p.join(tmp.path, platform, 'Classes', 'Swift${pascal}Plugin.swift'))..writeAsStringSync('// plugin');
+      File(p.join(tmp.path, platform, 'Classes', 'Swift${pascal}Plugin.swift')).writeAsStringSync('// plugin');
       // Create impl in Classes.
-      File(p.join(tmp.path, platform, 'Classes', '${pascal}Impl.swift'))..writeAsStringSync('// impl');
+      File(p.join(tmp.path, platform, 'Classes', '${pascal}Impl.swift')).writeAsStringSync('// impl');
     }
 
     test('iOS: copies SwiftPlugin.swift from Classes to Sources/<className>/', () {
