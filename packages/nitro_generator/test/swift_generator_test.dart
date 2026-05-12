@@ -213,7 +213,12 @@ void main() {
 
       test('nullable enum? return uses optional chaining with rawValue ?? 0', () {
         final out = SwiftGenerator.generate(
-          _nullableSpec('Status', enums: [BridgeEnum(name: 'Status', values: ['idle', 'active'], startValue: 0)]),
+          _nullableSpec(
+            'Status',
+            enums: [
+              BridgeEnum(name: 'Status', values: ['idle', 'active'], startValue: 0),
+            ],
+          ),
         );
         expect(out, contains('return impl.getValue()?.rawValue ?? 0'));
         expect(out, isNot(contains('return impl.getValue().rawValue')));
@@ -255,8 +260,14 @@ void main() {
               name: 'Point',
               packed: false,
               fields: [
-                BridgeField(name: 'x', type: BridgeType(name: 'double')),
-                BridgeField(name: 'y', type: BridgeType(name: 'double')),
+                BridgeField(
+                  name: 'x',
+                  type: BridgeType(name: 'double'),
+                ),
+                BridgeField(
+                  name: 'y',
+                  type: BridgeType(name: 'double'),
+                ),
               ],
             ),
           ],
@@ -293,8 +304,14 @@ void main() {
               name: 'Point',
               packed: false,
               fields: [
-                BridgeField(name: 'x', type: BridgeType(name: 'double')),
-                BridgeField(name: 'y', type: BridgeType(name: 'double')),
+                BridgeField(
+                  name: 'x',
+                  type: BridgeType(name: 'double'),
+                ),
+                BridgeField(
+                  name: 'y',
+                  type: BridgeType(name: 'double'),
+                ),
               ],
             ),
           ],

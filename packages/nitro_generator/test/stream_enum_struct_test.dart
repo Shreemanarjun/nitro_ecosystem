@@ -18,8 +18,14 @@ BridgeSpec _torchStreamSpec() => BridgeSpec(
       name: 'TorchLevel',
       packed: false,
       fields: [
-        BridgeField(name: 'level', type: BridgeType(name: 'int')),
-        BridgeField(name: 'maxLevel', type: BridgeType(name: 'int')),
+        BridgeField(
+          name: 'level',
+          type: BridgeType(name: 'int'),
+        ),
+        BridgeField(
+          name: 'maxLevel',
+          type: BridgeType(name: 'int'),
+        ),
       ],
     ),
   ],
@@ -57,8 +63,14 @@ BridgeSpec _specWithStreamItemType(String typeName) => BridgeSpec(
       name: 'TorchLevel',
       packed: false,
       fields: [
-        BridgeField(name: 'level', type: BridgeType(name: 'int')),
-        BridgeField(name: 'maxLevel', type: BridgeType(name: 'int')),
+        BridgeField(
+          name: 'level',
+          type: BridgeType(name: 'int'),
+        ),
+        BridgeField(
+          name: 'maxLevel',
+          type: BridgeType(name: 'int'),
+        ),
       ],
     ),
   ],

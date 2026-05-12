@@ -403,8 +403,7 @@ class SpecValidator {
 
       if (containerType == 'List' || containerType == 'Set') {
         final innerWithoutNullability = innerType.replaceFirst('?', '');
-        return knownTypes.contains(innerWithoutNullability) ||
-               knownTypes.contains(innerType);
+        return knownTypes.contains(innerWithoutNullability) || knownTypes.contains(innerType);
       }
     }
 
