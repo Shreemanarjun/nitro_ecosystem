@@ -159,15 +159,15 @@ class SwiftGenerator {
           })
           .join(', ');
       final isStruct = spec.structs.any(
-        (st) => st.name == func.returnType.name,
+        (st) => st.name == func.returnType.name.replaceFirst('?', ''),
       );
       final isRecord = spec.recordTypes.any(
-        (rt) => rt.name == func.returnType.name,
+        (rt) => rt.name == func.returnType.name.replaceFirst('?', ''),
       );
       final isRecordList = func.returnType.name.startsWith('List<');
       final isBool = _toCDeclReturnType(spec, func) == 'Int8';
       final isVoid = func.returnType.name == 'void';
-      final isString = func.returnType.name == 'String';
+      final isString = func.returnType.name.replaceFirst('?', '') == 'String';
       final isEnumRet = spec.enums.any(
         (en) => en.name == func.returnType.name.replaceFirst('?', ''),
       );
@@ -195,9 +195,9 @@ class SwiftGenerator {
         for (final p in typedListParams) {
           final isData = p.type.name.startsWith('Uint8List') || p.type.name.startsWith('Int8List');
           if (isData) {
-            s.writeln('    let ${p.name}Arr = ${p.name} != nil ? Data(UnsafeBufferPointer(start: ${p.name}!, count: Int(${p.name}_length))) : Data()');
+            s.writeln('    let ${p.name}Arr = ${p.name}.map { Data(UnsafeBufferPointer(start: \$0, count: Int(${p.name}_length))) } ?? Data()');
           } else {
-            s.writeln('    let ${p.name}Arr = ${p.name} != nil ? Array(UnsafeBufferPointer(start: ${p.name}!, count: Int(${p.name}_length))) : []');
+            s.writeln('    let ${p.name}Arr = ${p.name}.map { Array(UnsafeBufferPointer(start: \$0, count: Int(${p.name}_length))) } ?? []');
           }
         }
 
@@ -277,9 +277,9 @@ class SwiftGenerator {
       for (final p in typedListParams) {
         final isData = p.type.name.startsWith('Uint8List') || p.type.name.startsWith('Int8List');
         if (isData) {
-          s.writeln('    let ${p.name}Arr = ${p.name} != nil ? Data(UnsafeBufferPointer(start: ${p.name}!, count: Int(${p.name}_length))) : Data()');
+          s.writeln('    let ${p.name}Arr = ${p.name}.map { Data(UnsafeBufferPointer(start: \$0, count: Int(${p.name}_length))) } ?? Data()');
         } else {
-          s.writeln('    let ${p.name}Arr = ${p.name} != nil ? Array(UnsafeBufferPointer(start: ${p.name}!, count: Int(${p.name}_length))) : []');
+          s.writeln('    let ${p.name}Arr = ${p.name}.map { Array(UnsafeBufferPointer(start: \$0, count: Int(${p.name}_length))) } ?? []');
         }
       }
 
@@ -408,11 +408,21 @@ class SwiftGenerator {
           '    return Int8((${spec.dartClassName}Registry.impl?.${func.dartName}($callArgs) ?? false) ? 1 : 0)',
         );
       } else if (isStruct) {
+        final structName = func.returnType.name.replaceFirst('?', '');
+        if (func.returnType.isNullable) {
+          // Double-guard: unwrap impl AND unwrap the nullable struct result.
+          // impl?.method() where method returns Struct? gives Struct?? — guard let
+          // only peels one layer, so split into two guards.
+          s.writeln(
+            '    guard let impl = ${spec.dartClassName}Registry.impl, let result = impl.${func.dartName}($callArgs) else { return nil }',
+          );
+        } else {
+          s.writeln(
+            '    guard let result = ${spec.dartClassName}Registry.impl?.${func.dartName}($callArgs) else { return nil }',
+          );
+        }
         s.writeln(
-          '    guard let result = ${spec.dartClassName}Registry.impl?.${func.dartName}($callArgs) else { return nil }',
-        );
-        s.writeln(
-          '    let ptr = UnsafeMutablePointer<${func.returnType.name}>.allocate(capacity: 1)',
+          '    let ptr = UnsafeMutablePointer<$structName>.allocate(capacity: 1)',
         );
         s.writeln('    ptr.initialize(to: result)');
         s.writeln('    return UnsafeMutableRawPointer(ptr)');
@@ -422,7 +432,13 @@ class SwiftGenerator {
           '    return strdup(${spec.dartClassName}Registry.impl?.${func.dartName}($callArgs) ?? "")',
         );
       } else if (isRecord) {
-        s.writeln('    return ${spec.dartClassName}Registry.impl?.${func.dartName}($callArgs)?.toNative()');
+        if (func.returnType.isNullable) {
+          // Explicit impl guard to avoid Struct?? double-optional chaining.
+          s.writeln('    guard let impl = ${spec.dartClassName}Registry.impl else { return nil }');
+          s.writeln('    return impl.${func.dartName}($callArgs)?.toNative()');
+        } else {
+          s.writeln('    return ${spec.dartClassName}Registry.impl?.${func.dartName}($callArgs)?.toNative()');
+        }
       } else if (isRecordList) {
         s.writeln('    guard let r = ${spec.dartClassName}Registry.impl?.${func.dartName}($callArgs) else { return nil }');
         final itemType = func.returnType.name.substring(5, func.returnType.name.length - 1);
@@ -444,8 +460,12 @@ class SwiftGenerator {
         s.writeln(
           '    guard let impl = ${spec.dartClassName}Registry.impl else { return $defaultVal }',
         );
-        if (isEnumRet) {
+        if (isEnumRet && func.returnType.isNullable) {
+          s.writeln('    return impl.${func.dartName}($callArgs)?.rawValue ?? $defaultVal');
+        } else if (isEnumRet) {
           s.writeln('    return impl.${func.dartName}($callArgs).rawValue');
+        } else if (func.returnType.isNullable) {
+          s.writeln('    return impl.${func.dartName}($callArgs) ?? $defaultVal');
         } else {
           s.writeln('    return impl.${func.dartName}($callArgs)');
         }

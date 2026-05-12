@@ -444,6 +444,49 @@ void main() {
       expect(out, contains('fun encode(): ByteArray'));
       expect(out, contains('lenBuf.putInt(payload.size)'));
     });
+
+    test('import android.app.Activity and android.content.Context are present', () {
+      expect(out, contains('import android.app.Activity'));
+      expect(out, contains('import android.content.Context'));
+    });
+
+    test('interface exposes applicationContext with default getter', () {
+      expect(out, contains('val applicationContext: Context'));
+      expect(out, contains('get() = BenchmarkJniBridge.applicationContext'));
+    });
+
+    test('interface exposes nullable activity with default getter', () {
+      expect(out, contains('val activity: Activity?'));
+      expect(out, contains('get() = BenchmarkJniBridge.activity'));
+    });
+
+    test('interface has four optional no-op lifecycle hooks', () {
+      expect(out, contains('fun onAttached() {}'));
+      expect(out, contains('fun onDetached() {}'));
+      expect(out, contains('fun onActivityAttached(activity: Activity) {}'));
+      expect(out, contains('fun onActivityDetached() {}'));
+    });
+
+    test('JniBridge stores applicationContext and activity', () {
+      expect(out, contains('lateinit var applicationContext: Context'));
+      expect(out, contains('var activity: Activity? = null'));
+    });
+
+    test('register calls onAttached after initialize', () {
+      expect(out, contains('fun register(impl: HybridBenchmarkSpec, context: Context)'));
+      expect(out, contains('applicationContext = context'));
+      expect(out, contains('impl.onAttached()'));
+    });
+
+    test('JniBridge has onDetached, onActivityAttached, onActivityDetached', () {
+      expect(out, contains('fun onDetached()'));
+      expect(out, contains('implementation?.onDetached()'));
+      expect(out, contains('fun onActivityAttached(newActivity: Activity)'));
+      expect(out, contains('activity = newActivity'));
+      expect(out, contains('implementation?.onActivityAttached(newActivity)'));
+      expect(out, contains('fun onActivityDetached()'));
+      expect(out, contains('implementation?.onActivityDetached()'));
+    });
   });
 
   // ── SwiftGenerator ──────────────────────────────────────────────────────────

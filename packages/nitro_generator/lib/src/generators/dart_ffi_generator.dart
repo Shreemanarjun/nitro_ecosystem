@@ -125,14 +125,20 @@ class DartFfiGenerator {
     s.writeln(
       "  late final void Function() _clearErrorPtr = _dylib.lookupFunction<Void Function(), void Function()>('${libStem}_clear_error');",
     );
-    s.writeln('  // ignore: unused_field');
-    s.writeln(
-      "  late final Pointer<NativeFunction<Pointer<NitroErrorFfi> Function()>> _getErrorNativePtr = _dylib.lookup('${libStem}_get_error');",
-    );
-    s.writeln('  // ignore: unused_field');
-    s.writeln(
-      "  late final Pointer<NativeFunction<Void Function()>> _clearErrorNativePtr = _dylib.lookup('${libStem}_clear_error');",
-    );
+    // Only emit the native-pointer variants when there are regular callAsync
+    // functions that need them. isNativeAsync functions use openNativeAsync
+    // which doesn't require these pointers.
+    final hasCallAsync = spec.functions.any((f) => f.isAsync && !f.isNativeAsync);
+    if (hasCallAsync) {
+      s.writeln('  // ignore: unused_field');
+      s.writeln(
+        "  late final Pointer<NativeFunction<Pointer<NitroErrorFfi> Function()>> _getErrorNativePtr = _dylib.lookup('${libStem}_get_error');",
+      );
+      s.writeln('  // ignore: unused_field');
+      s.writeln(
+        "  late final Pointer<NativeFunction<Void Function()>> _clearErrorNativePtr = _dylib.lookup('${libStem}_clear_error');",
+      );
+    }
     s.writeln();
 
     // ── dispose() override ───────────────────────────────────────────────────
@@ -168,7 +174,7 @@ class DartFfiGenerator {
               return ['${p.name}.toNativeUtf8(allocator: arena)'];
             }
             if (t == 'String?') {
-              return ['${p.name} != null ? ${p.name}.toNativeUtf8(allocator: arena) : nullptr'];
+              return ['${p.name} != null ? ${p.name}!.toNativeUtf8(allocator: arena) : nullptr'];
             }
             if (spec.structs.any((st) => st.name == t)) {
               return ['${p.name}.toNative(arena).cast<Void>()'];
@@ -522,7 +528,10 @@ class DartFfiGenerator {
       }
 
       s.writeln('  @override');
-      s.writeln('  Stream<$streamItemType${stream.itemType.isNullable ? '?' : ''}> get ${stream.dartName} {');
+      final streamSig = stream.isMethodStyle
+          ? 'Stream<$streamItemType${stream.itemType.isNullable ? '?' : ''}> ${stream.dartName}()'
+          : 'Stream<$streamItemType${stream.itemType.isNullable ? '?' : ''}> get ${stream.dartName}';
+      s.writeln('  $streamSig {');
       s.writeln('    checkDisposed();');
       // For struct streams, openStream is typed to the Proxy so the NativeFinalizer
       // is attached correctly, but the return is implicitly upcast to Stream<value>.

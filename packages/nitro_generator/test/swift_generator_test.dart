@@ -1,4 +1,3 @@
-import 'package:nitro_annotations/nitro_annotations.dart';
 import 'package:nitro_generator/src/generators/swift_generator.dart';
 import 'package:test/test.dart';
 import 'test_utils.dart';
@@ -164,8 +163,220 @@ void main() {
         ],
       );
       final out = SwiftGenerator.generate(spec);
-      expect(out, contains(r'let pathStr = path.map { String(cString: $0) }'));
+      expect(out, contains('let pathStr = path != nil ? String(cString: path!) : ""'));
       expect(out, contains('path: pathStr'));
+    });
+
+    group('nullable return types — sync @_cdecl stubs', () {
+      BridgeSpec _nullableSpec(String returnTypeName, {List<BridgeEnum> enums = const []}) => BridgeSpec(
+        dartClassName: 'Mod',
+        lib: 'mod',
+        namespace: 'mod',
+        iosImpl: NativeImpl.swift,
+        androidImpl: NativeImpl.kotlin,
+        sourceUri: 'mod.native.dart',
+        enums: enums,
+        functions: [
+          BridgeFunction(
+            dartName: 'getValue',
+            cSymbol: 'mod_get_value',
+            isAsync: false,
+            returnType: BridgeType(name: returnTypeName, isNullable: true),
+            params: [],
+          ),
+        ],
+      );
+
+      test('nullable int? return unwraps with ?? 0', () {
+        final out = SwiftGenerator.generate(_nullableSpec('int'));
+        expect(out, contains('return impl.getValue() ?? 0'));
+        expect(out, isNot(contains('return impl.getValue()\n')));
+      });
+
+      test('nullable double? return unwraps with ?? 0.0', () {
+        final out = SwiftGenerator.generate(_nullableSpec('double'));
+        expect(out, contains('return impl.getValue() ?? 0.0'));
+      });
+
+      test('nullable bool? return uses ternary with false default', () {
+        final out = SwiftGenerator.generate(_nullableSpec('bool'));
+        // bool? → Int8 via _toCDeclReturnType (strips ?); nullable chaining already safe
+        expect(out, contains('?? false'));
+        expect(out, contains('? 1 : 0'));
+      });
+
+      test('nullable String? return uses strdup with empty string default', () {
+        final out = SwiftGenerator.generate(_nullableSpec('String'));
+        expect(out, contains('return strdup('));
+        expect(out, contains('?? ""'));
+      });
+
+      test('nullable enum? return uses optional chaining with rawValue ?? 0', () {
+        final out = SwiftGenerator.generate(
+          _nullableSpec('Status', enums: [BridgeEnum(name: 'Status', values: ['idle', 'active'], startValue: 0)]),
+        );
+        expect(out, contains('return impl.getValue()?.rawValue ?? 0'));
+        expect(out, isNot(contains('return impl.getValue().rawValue')));
+      });
+
+      test('non-nullable int return has no ?? fallback', () {
+        final spec = BridgeSpec(
+          dartClassName: 'Mod',
+          lib: 'mod',
+          namespace: 'mod',
+          iosImpl: NativeImpl.swift,
+          androidImpl: NativeImpl.kotlin,
+          sourceUri: 'mod.native.dart',
+          functions: [
+            BridgeFunction(
+              dartName: 'getCount',
+              cSymbol: 'mod_get_count',
+              isAsync: false,
+              returnType: BridgeType(name: 'int'),
+              params: [],
+            ),
+          ],
+        );
+        final out = SwiftGenerator.generate(spec);
+        expect(out, contains('return impl.getCount()'));
+        expect(out, isNot(contains('return impl.getCount() ?? ')));
+      });
+
+      test('nullable struct? return uses double-guard and bare struct name in pointer', () {
+        final spec = BridgeSpec(
+          dartClassName: 'Mod',
+          lib: 'mod',
+          namespace: 'mod',
+          iosImpl: NativeImpl.swift,
+          androidImpl: NativeImpl.kotlin,
+          sourceUri: 'mod.native.dart',
+          structs: [
+            BridgeStruct(
+              name: 'Point',
+              packed: false,
+              fields: [
+                BridgeField(name: 'x', type: BridgeType(name: 'double')),
+                BridgeField(name: 'y', type: BridgeType(name: 'double')),
+              ],
+            ),
+          ],
+          functions: [
+            BridgeFunction(
+              dartName: 'getPoint',
+              cSymbol: 'mod_get_point',
+              isAsync: false,
+              returnType: BridgeType(name: 'Point', isNullable: true),
+              params: [],
+            ),
+          ],
+        );
+        final out = SwiftGenerator.generate(spec);
+        // Must unwrap both impl and the optional result in one guard.
+        expect(out, contains('guard let impl = ModRegistry.impl, let result = impl.getPoint() else { return nil }'));
+        // Pointer type must use bare 'Point', not 'Point?'.
+        expect(out, contains('UnsafeMutablePointer<Point>.allocate(capacity: 1)'));
+        expect(out, isNot(contains('UnsafeMutablePointer<Point?>')));
+        // Must still return a raw pointer, not the struct directly.
+        expect(out, contains('return UnsafeMutableRawPointer(ptr)'));
+      });
+
+      test('non-nullable struct return uses single impl? guard', () {
+        final spec = BridgeSpec(
+          dartClassName: 'Mod',
+          lib: 'mod',
+          namespace: 'mod',
+          iosImpl: NativeImpl.swift,
+          androidImpl: NativeImpl.kotlin,
+          sourceUri: 'mod.native.dart',
+          structs: [
+            BridgeStruct(
+              name: 'Point',
+              packed: false,
+              fields: [
+                BridgeField(name: 'x', type: BridgeType(name: 'double')),
+                BridgeField(name: 'y', type: BridgeType(name: 'double')),
+              ],
+            ),
+          ],
+          functions: [
+            BridgeFunction(
+              dartName: 'getPoint',
+              cSymbol: 'mod_get_point',
+              isAsync: false,
+              returnType: BridgeType(name: 'Point'),
+              params: [],
+            ),
+          ],
+        );
+        final out = SwiftGenerator.generate(spec);
+        expect(out, contains('guard let result = ModRegistry.impl?.getPoint()'));
+        expect(out, isNot(contains('guard let impl = ModRegistry.impl, let result')));
+      });
+
+      test('nullable record? return uses explicit impl guard then optional toNative', () {
+        final spec = BridgeSpec(
+          dartClassName: 'Mod',
+          lib: 'mod',
+          namespace: 'mod',
+          iosImpl: NativeImpl.swift,
+          androidImpl: NativeImpl.kotlin,
+          sourceUri: 'mod.native.dart',
+          recordTypes: [
+            BridgeRecordType(
+              name: 'Reading',
+              fields: [
+                BridgeRecordField(name: 'value', dartType: 'double', kind: RecordFieldKind.primitive),
+              ],
+            ),
+          ],
+          functions: [
+            BridgeFunction(
+              dartName: 'getReading',
+              cSymbol: 'mod_get_reading',
+              isAsync: false,
+              returnType: BridgeType(name: 'Reading', isNullable: true, isRecord: true),
+              params: [],
+            ),
+          ],
+        );
+        final out = SwiftGenerator.generate(spec);
+        // Must guard on impl first to avoid Struct?? double-optional.
+        expect(out, contains('guard let impl = ModRegistry.impl else { return nil }'));
+        expect(out, contains('return impl.getReading()?.toNative()'));
+        // Must not use double-optional chaining pattern.
+        expect(out, isNot(contains('Registry.impl?.getReading()?.toNative()')));
+      });
+
+      test('non-nullable record return uses single optional-chained toNative', () {
+        final spec = BridgeSpec(
+          dartClassName: 'Mod',
+          lib: 'mod',
+          namespace: 'mod',
+          iosImpl: NativeImpl.swift,
+          androidImpl: NativeImpl.kotlin,
+          sourceUri: 'mod.native.dart',
+          recordTypes: [
+            BridgeRecordType(
+              name: 'Reading',
+              fields: [
+                BridgeRecordField(name: 'value', dartType: 'double', kind: RecordFieldKind.primitive),
+              ],
+            ),
+          ],
+          functions: [
+            BridgeFunction(
+              dartName: 'getReading',
+              cSymbol: 'mod_get_reading',
+              isAsync: false,
+              returnType: BridgeType(name: 'Reading', isRecord: true),
+              params: [],
+            ),
+          ],
+        );
+        final out = SwiftGenerator.generate(spec);
+        expect(out, contains('return ModRegistry.impl?.getReading()?.toNative()'));
+        expect(out, isNot(contains('guard let impl = ModRegistry.impl else { return nil }\n    return impl.getReading()')));
+      });
     });
   });
 }

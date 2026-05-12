@@ -252,6 +252,28 @@ void main() {
       expect(out, contains('(message) => message as int'));
     });
 
+    test('method-style stream emits method signature not getter', () {
+      final spec = BridgeSpec(
+        dartClassName: 'Foo',
+        lib: 'foo',
+        namespace: 'foo',
+        sourceUri: 'foo.native.dart',
+        streams: [
+          BridgeStream(
+            dartName: 'onLevelChanged',
+            registerSymbol: 'foo_register_on_level_changed_stream',
+            releaseSymbol: 'foo_release_on_level_changed_stream',
+            itemType: BridgeType(name: 'int'),
+            backpressure: Backpressure.dropLatest,
+            isMethodStyle: true,
+          ),
+        ],
+      );
+      final out = DartFfiGenerator.generate(spec);
+      expect(out, contains('Stream<int> onLevelChanged()'));
+      expect(out, isNot(contains('get onLevelChanged')));
+    });
+
     test('enum stream uses conversion via toEnumName()', () {
       final spec = BridgeSpec(
         dartClassName: 'Foo',

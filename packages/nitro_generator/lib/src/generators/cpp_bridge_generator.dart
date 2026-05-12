@@ -1259,12 +1259,13 @@ class CppBridgeGenerator {
 
       final jniInit = _jniMethodName(spec.lib, spec.dartClassName, 'initialize');
       s.writeln(
-        'JNIEXPORT void JNICALL $jniInit(JNIEnv* env, jobject thiz, jclass bridgeClass) {',
+        'JNIEXPORT void JNICALL $jniInit(JNIEnv* env, jobject thiz, jclass localClass) {',
       );
       s.writeln('    if (g_bridgeClass == nullptr) {');
       s.writeln(
-        '        g_bridgeClass = (jclass)env->NewGlobalRef(bridgeClass);',
+        '        g_bridgeClass = (jclass)env->NewGlobalRef(localClass);',
       );
+      s.writeln('        env->DeleteLocalRef(localClass);');
       s.writeln('    }');
       s.writeln(
         '    // Re-cache method IDs every time (safe; idempotent; works even if JNI_OnLoad',

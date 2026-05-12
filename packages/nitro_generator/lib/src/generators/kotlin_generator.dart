@@ -18,6 +18,8 @@ class KotlinGenerator {
     s.writeln('// Generated from: ${spec.sourceUri.split('/').last}');
     s.writeln('package nitro.${spec.lib.replaceAll('-', '_')}_module');
     s.writeln();
+    s.writeln('import android.app.Activity');
+    s.writeln('import android.content.Context');
     s.writeln('import androidx.annotation.Keep');
     s.writeln('import kotlinx.coroutines.flow.Flow');
     s.writeln('import kotlinx.coroutines.launch');
@@ -41,6 +43,19 @@ class KotlinGenerator {
     s.writeln(' * Implement this in your Kotlin source code.');
     s.writeln(' */');
     s.writeln('interface Hybrid${spec.dartClassName}Spec {');
+    s.writeln(
+      '    val applicationContext: Context get() = ${spec.dartClassName}JniBridge.applicationContext',
+    );
+    s.writeln(
+      '    val activity: Activity? get() = ${spec.dartClassName}JniBridge.activity',
+    );
+    s.writeln();
+    s.writeln('    // Optional lifecycle hooks — override only what you need.');
+    s.writeln('    fun onAttached() {}');
+    s.writeln('    fun onDetached() {}');
+    s.writeln('    fun onActivityAttached(activity: Activity) {}');
+    s.writeln('    fun onActivityDetached() {}');
+    s.writeln();
 
     for (final func in spec.functions) {
       final retType = _toKotlinRetType(enumNames, structNames, recordNames, func.returnType);
@@ -77,11 +92,35 @@ class KotlinGenerator {
     );
     s.writeln('    private val _asyncExecutor = java.util.concurrent.Executors.newCachedThreadPool()');
     s.writeln();
+    s.writeln('    lateinit var applicationContext: Context');
+    s.writeln('        private set');
+    s.writeln();
+    s.writeln('    var activity: Activity? = null');
+    s.writeln('        private set');
+    s.writeln();
     s.writeln('    @JvmStatic external fun initialize(bridgeClass: Class<*>)');
     s.writeln();
-    s.writeln('    fun register(impl: Hybrid${spec.dartClassName}Spec) {');
+    s.writeln('    fun register(impl: Hybrid${spec.dartClassName}Spec, context: Context) {');
+    s.writeln('        applicationContext = context');
     s.writeln('        implementation = impl');
     s.writeln('        initialize(this::class.java)');
+    s.writeln('        impl.onAttached()');
+    s.writeln('    }');
+    s.writeln();
+    s.writeln('    fun onDetached() {');
+    s.writeln('        implementation?.onDetached()');
+    s.writeln('        activity = null');
+    s.writeln('        implementation = null');
+    s.writeln('    }');
+    s.writeln();
+    s.writeln('    fun onActivityAttached(newActivity: Activity) {');
+    s.writeln('        activity = newActivity');
+    s.writeln('        implementation?.onActivityAttached(newActivity)');
+    s.writeln('    }');
+    s.writeln();
+    s.writeln('    fun onActivityDetached() {');
+    s.writeln('        activity = null');
+    s.writeln('        implementation?.onActivityDetached()');
     s.writeln('    }');
     s.writeln();
 

@@ -170,8 +170,8 @@ class SpecValidator {
       if (retName != 'void' &&
           !func.returnType.isRecord && // @HybridRecord types bridge as String
           !func.returnType.isPointer && // raw FFI pointers
-          !knownTypes.contains(retName) &&
-          !knownTypes.contains(func.returnType.name)) {
+          !_isKnownType(retName, knownTypes) &&
+          !_isKnownType(func.returnType.name, knownTypes)) {
         issues.add(
           ValidationIssue(
             severity: ValidationSeverity.error,
@@ -226,8 +226,8 @@ class SpecValidator {
         final pName = param.type.name.replaceFirst('?', '');
         if (!param.type.isRecord && // @HybridRecord params bridge as String
             !param.type.isPointer && // raw FFI pointers
-            !knownTypes.contains(pName) &&
-            !knownTypes.contains(param.type.name)) {
+            !_isKnownType(pName, knownTypes) &&
+            !_isKnownType(param.type.name, knownTypes)) {
           issues.add(
             ValidationIssue(
               severity: ValidationSeverity.error,
@@ -246,7 +246,7 @@ class SpecValidator {
     // ── Properties ─────────────────────────────────────────────────────────
     for (final prop in spec.properties) {
       final pName = prop.type.name.replaceFirst('?', '');
-      if (!prop.type.isRecord && !prop.type.isPointer && !knownTypes.contains(pName) && !knownTypes.contains(prop.type.name)) {
+      if (!prop.type.isRecord && !prop.type.isPointer && !_isKnownType(pName, knownTypes) && !_isKnownType(prop.type.name, knownTypes)) {
         issues.add(
           ValidationIssue(
             severity: ValidationSeverity.error,
@@ -275,20 +275,20 @@ class SpecValidator {
     // ── Streams ────────────────────────────────────────────────────────────
     for (final stream in spec.streams) {
       final iName = stream.itemType.name.replaceFirst('?', '');
-      if (!stream.itemType.isRecord && !knownTypes.contains(iName) && !knownTypes.contains(stream.itemType.name)) {
+      if (!_isKnownType(iName, knownTypes) && !_isKnownType(stream.itemType.name, knownTypes)) {
         issues.add(
           ValidationIssue(
             severity: ValidationSeverity.error,
             code: 'UNKNOWN_STREAM_ITEM_TYPE',
             message: '${spec.dartClassName}.${stream.dartName} — unknown stream item type "$iName".',
             hint:
-                'Stream item types must be primitives, String, Uint8List, a @HybridStruct, or a @HybridRecord. '
-                'Wrap complex types in a @HybridRecord.',
+                'If "$iName" is a struct, annotate it with @HybridStruct. '
+                'If it is an enum, annotate it with @HybridEnum. '
+                'If it is a complex/nested type, annotate it with @HybridRecord.',
           ),
         );
       }
 
-      // Duplicate stream register symbols
       if (!seenSymbols.add(stream.registerSymbol)) {
         issues.add(
           ValidationIssue(
@@ -388,5 +388,26 @@ class SpecValidator {
       if (state[name] == 0) dfs(name, [name]);
     }
     return issues;
+  }
+
+  static bool _isKnownType(String typeName, Set<String> knownTypes) {
+    if (knownTypes.contains(typeName)) return true;
+
+    final withoutNullability = typeName.replaceFirst('?', '');
+    if (knownTypes.contains(withoutNullability)) return true;
+
+    final genericMatch = RegExp(r'^(\w+)<(.+)>$').firstMatch(typeName);
+    if (genericMatch != null) {
+      final containerType = genericMatch.group(1)!;
+      final innerType = genericMatch.group(2)!;
+
+      if (containerType == 'List' || containerType == 'Set') {
+        final innerWithoutNullability = innerType.replaceFirst('?', '');
+        return knownTypes.contains(innerWithoutNullability) ||
+               knownTypes.contains(innerType);
+      }
+    }
+
+    return false;
   }
 }

@@ -1862,7 +1862,17 @@ void _syncCppModuleSourcesToSpm(
     final mainCFile = File(p.join(baseDir, 'src', '$pluginName.c'));
     final hasCContent = mainCppFile.existsSync() || mainCFile.existsSync() || allCppModules.isNotEmpty;
 
-    if (!hasCContent) continue;
+    if (!hasCContent) {
+      // No C/C++ content — still sync Swift plugin files so SPM can compile them.
+      _syncSwiftPluginToSpm(
+        pluginName,
+        baseDir: baseDir,
+        platform: platform,
+        packageRoot: packageRoot,
+        className: className,
+      );
+      continue;
+    }
 
     // Create the SPM C++ target directory if it doesn't exist yet. This handles
     // the case where Package.swift already exists (spmHasSpm=true) but the
@@ -1954,11 +1964,18 @@ void _syncCppModuleSourcesToSpm(
       final stem = p.basename(f.path).replaceAll(RegExp(r'\.native\.dart$'), '');
       return extractLibNameFromSpec(f) ?? stem;
     }).toSet();
+    // All lib names that have any spec file (used to detect "spec exists but not Apple").
+    final knownLibs = specFiles.map((f) {
+      final stem = p.basename(f.path).replaceAll(RegExp(r'\.native\.dart$'), '');
+      return extractLibNameFromSpec(f) ?? stem;
+    }).toSet();
 
     for (final m in allCppModules) {
       final lib = m.lib;
       final hybridClass = _toPascalCase(lib);
-      final isApple = platformCppLibs.contains(lib);
+      // Safe default: if no spec file was found for this lib, assume Apple (keep forwarder).
+      // Only remove the forwarder when a spec explicitly confirms it is NOT Apple C++.
+      final isApple = !knownLibs.contains(lib) || platformCppLibs.contains(lib);
 
       final bridgeMm = File(p.join(cppTargetDir.path, '$lib.bridge.g.mm'));
       final implForwarder = File(
@@ -2048,6 +2065,9 @@ void _syncSwiftPluginToSpm(
   // Determine the source Classes directory.
   final classesDir = Directory(p.join(baseDir, platform, 'Classes'));
   if (!classesDir.existsSync()) return;
+
+  // Skip if the SPM Swift target directory doesn't exist — no SPM layout for this platform.
+  if (!swiftTargetDir.existsSync()) return;
 
   // Find Swift files in Classes: *Plugin.swift and *Impl.swift
   final swiftFiles = classesDir.listSync(followLinks: false).whereType<File>().where((f) => f.path.endsWith('.swift')).toList();

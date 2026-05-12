@@ -247,6 +247,8 @@ class BridgeStream {
   final String releaseSymbol;
   final BridgeType itemType;
   final Backpressure backpressure;
+  // true when declared as a method (`Stream<T> name()`), false for a getter.
+  final bool isMethodStyle;
 
   BridgeStream({
     required this.dartName,
@@ -254,6 +256,7 @@ class BridgeStream {
     required this.releaseSymbol,
     required this.itemType,
     required this.backpressure,
+    this.isMethodStyle = false,
   });
 }
 
