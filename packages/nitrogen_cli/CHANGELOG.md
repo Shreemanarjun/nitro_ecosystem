@@ -1,3 +1,11 @@
+## 0.4.2
+
+- **Fixed: Apple C++ forwarder incorrectly deleted** — `link_command.dart` now uses a safe default: forwarders are kept when no spec file exists for a library. Previously any lib not in `platformCppLibs` was deleted, removing valid Apple forwarders from plugins without a local spec.
+- **Fixed: Pure-Swift plugin files not copied to SPM target** — `_syncSwiftPluginToSpm` is now called for plugins with no C/C++ content before the early `continue`, ensuring Swift plugin files reach `Sources/<className>/` when building with SPM.
+- **Fixed: SPM sync crash for macOS-only plugins** — `_syncSwiftPluginToSpm` now returns early when the target directory doesn't exist, preventing a `PathNotFoundException` for platforms that have no SPM layout.
+- **Fixed: Scaffold generated double "Plugin" suffix** — `scaffold_templates.dart` was generating `Swift${pascal}Plugin.swift`; corrected to `Swift${pascal}.swift` to match the expected filename.
+- **Ecosystem sync** — Aligned with `nitro`, `nitro_annotations`, and `nitro_generator` 0.4.2.
+
 ## 0.4.1
 
 - **Fixed: SPM Package.swift invalid header search paths** — Removed external paths (`../../lib/src/generated/cpp`, `../../.symlinks/plugins/nitro/src/native`) from SPM Swift target configuration. The Swift target accesses types through its `${className}Cpp` dependency via `publicHeadersPath: "include"`.

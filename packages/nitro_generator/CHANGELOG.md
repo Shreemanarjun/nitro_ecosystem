@@ -1,3 +1,15 @@
+## 0.4.2
+
+- **Fixed: Nullable return types in Swift bridge** — `spec_extractor.dart` `_makeBridgeType` now reads `type.nullabilitySuffix == NullabilitySuffix.question` and propagates `isNullable: true` into every returned `BridgeType`. Previously `isNullable` was always `false` for function return types, so methods like `int? maxLevel()` silently generated `return impl.maxLevel()` (invalid Swift — `Int64?` not assignable to `Int64`).
+- **Fixed: Swift `@_cdecl` stubs for every nullable return kind** — `swift_generator.dart` now emits correct fallback code for all nullable return types: `int?` → `?? 0`, `double?` → `?? 0.0`, `bool?` → `?? false` then ternary `? 1 : 0`, `String?` → `strdup("") ??` guard, `Enum?` → `?.rawValue ?? 0`, `Struct?` → double-guard pattern (`guard let impl = …, let result = impl.method() else { return nil }`) with bare struct name in `UnsafeMutablePointer`, `Record?` → explicit impl guard + `?.toNative()`.
+- **Fixed: Nullable type name stripping for `isString`/`isStruct`/`isRecord` detection** — Strip trailing `?` before matching against type names so nullable return types (e.g., `Point?`, `Reading?`) are routed to the correct generator branch.
+- **Fixed: `knownTypeNames` propagation to `_extractFunctions` and `_extractPropertiesAndStreams`** — Struct and enum names are now included in the `knownTypeNames` set passed to `_makeBridgeType`, enabling correct type classification for user-defined return types.
+- **Fixed: Swift typed-data pointer conversion** — Replaced the broken `!= nil ? param! …` pattern with the correct `.map { … } ?? fallback` idiom for `UnsafeBufferPointer` typed-data parameters.
+- **Fixed: Dart FFI nullable `String?` parameter** — Added `!` null assertion in `toNativeUtf8` call for nullable String params so the generated code compiles correctly.
+- **Fixed: JNI bridge class local-ref leak** — `cpp_bridge_generator.dart` `initialize()` now calls `env->DeleteLocalRef(localClass)` after `NewGlobalRef`, preventing a local reference from accumulating in the JNI frame on every re-initialization.
+- **Tests: 10 new nullable return type tests** — `swift_generator_test.dart` covers `int?`, `double?`, `bool?`, `String?`, `Enum?`, `Struct?` (nullable + non-nullable), and `Record?` (nullable + non-nullable) return paths.
+- **Ecosystem sync** — Aligned with `nitro`, `nitro_annotations`, and `nitrogen_cli` 0.4.2.
+
 ## 0.4.1
 
 - **Fixed: Struct size calculation** — `@HybridStruct` field sizes are now computed correctly for nested struct types and aligned to pointer boundaries, preventing silent memory corruption when structs are passed across the FFI boundary.
