@@ -168,7 +168,7 @@ void main() {
     });
 
     group('nullable return types — sync @_cdecl stubs', () {
-      BridgeSpec _nullableSpec(String returnTypeName, {List<BridgeEnum> enums = const []}) => BridgeSpec(
+      BridgeSpec nullableSpec(String returnTypeName, {List<BridgeEnum> enums = const []}) => BridgeSpec(
         dartClassName: 'Mod',
         lib: 'mod',
         namespace: 'mod',
@@ -188,32 +188,32 @@ void main() {
       );
 
       test('nullable int? return unwraps with ?? 0', () {
-        final out = SwiftGenerator.generate(_nullableSpec('int'));
+        final out = SwiftGenerator.generate(nullableSpec('int'));
         expect(out, contains('return impl.getValue() ?? 0'));
         expect(out, isNot(contains('return impl.getValue()\n')));
       });
 
       test('nullable double? return unwraps with ?? 0.0', () {
-        final out = SwiftGenerator.generate(_nullableSpec('double'));
+        final out = SwiftGenerator.generate(nullableSpec('double'));
         expect(out, contains('return impl.getValue() ?? 0.0'));
       });
 
       test('nullable bool? return uses ternary with false default', () {
-        final out = SwiftGenerator.generate(_nullableSpec('bool'));
+        final out = SwiftGenerator.generate(nullableSpec('bool'));
         // bool? → Int8 via _toCDeclReturnType (strips ?); nullable chaining already safe
         expect(out, contains('?? false'));
         expect(out, contains('? 1 : 0'));
       });
 
       test('nullable String? return uses strdup with empty string default', () {
-        final out = SwiftGenerator.generate(_nullableSpec('String'));
+        final out = SwiftGenerator.generate(nullableSpec('String'));
         expect(out, contains('return strdup('));
         expect(out, contains('?? ""'));
       });
 
       test('nullable enum? return uses optional chaining with rawValue ?? 0', () {
         final out = SwiftGenerator.generate(
-          _nullableSpec(
+          nullableSpec(
             'Status',
             enums: [
               BridgeEnum(name: 'Status', values: ['idle', 'active'], startValue: 0),
