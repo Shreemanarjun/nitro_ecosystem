@@ -894,8 +894,13 @@ class CppBridgeGenerator {
             } else if (pt == 'String?') {
               s.writeln('    jstring j_${p.name} = (${p.name} != nullptr) ? env->NewStringUTF(${p.name}) : nullptr;');
               callArgsList.add('j_${p.name}');
-            } else if (structNames.contains(pt)) {
-              s.writeln('    jobject jobj_${p.name} = unpack_${pt}_to_jni(env, (const $pt*)${p.name});');
+            } else if (structNames.contains(pt.replaceFirst('?', ''))) {
+              final baseType = pt.replaceFirst('?', '');
+              if (pt.endsWith('?')) {
+                s.writeln('    jobject jobj_${p.name} = (${p.name} != nullptr) ? unpack_${baseType}_to_jni(env, (const $baseType*)${p.name}) : nullptr;');
+              } else {
+                s.writeln('    jobject jobj_${p.name} = unpack_${baseType}_to_jni(env, (const $baseType*)${p.name});');
+              }
               callArgsList.add('jobj_${p.name}');
             } else if (p.zeroCopy && p.type.isTypedData) {
               final elemSize = _zeroCopyElementSizeExpr(pt);
@@ -972,10 +977,17 @@ class CppBridgeGenerator {
           } else if (pt == 'String?') {
             s.writeln('    jstring j_${p.name} = (${p.name} != nullptr) ? env->NewStringUTF(${p.name}) : nullptr;');
             callArgsList.add('j_${p.name}');
-          } else if (structNames.contains(pt)) {
-            s.writeln(
-              '    jobject jobj_${p.name} = unpack_${pt}_to_jni(env, (const $pt*)${p.name});',
-            );
+          } else if (structNames.contains(pt.replaceFirst('?', ''))) {
+            final baseType = pt.replaceFirst('?', '');
+            if (pt.endsWith('?')) {
+              s.writeln(
+                '    jobject jobj_${p.name} = (${p.name} != nullptr) ? unpack_${baseType}_to_jni(env, (const $baseType*)${p.name}) : nullptr;',
+              );
+            } else {
+              s.writeln(
+                '    jobject jobj_${p.name} = unpack_${baseType}_to_jni(env, (const $baseType*)${p.name});',
+              );
+            }
             callArgsList.add('jobj_${p.name}');
           } else if (p.zeroCopy && p.type.isTypedData) {
             final elemSize = _zeroCopyElementSizeExpr(pt);
@@ -2247,22 +2259,28 @@ class CppBridgeGenerator {
     final sb = StringBuffer();
     sb.write('(');
     for (final p in params) {
-      if (structNames.contains(p.type.name)) {
+      final baseParamType = p.type.name.replaceFirst('?', '');
+      if (structNames.contains(baseParamType)) {
         // Struct params are passed as the Kotlin data class object
-        sb.write('L$libPkg/${p.type.name};');
+        sb.write('L$libPkg/$baseParamType;');
       } else if (p.zeroCopy && p.type.isTypedData) {
         // Zero-copy TypedData params bridge as java.nio.ByteBuffer (direct buffer)
         sb.write('Ljava/nio/ByteBuffer;');
+      } else if (enumNames.contains(baseParamType)) {
+        sb.write('J');
+      } else if (p.type.isRecord && !p.type.isMap) {
+        sb.write('[B');
       } else {
         sb.write(_jniSigType(p.type.name));
       }
     }
     sb.write(')');
     // Enum return type: bridge returns Long
-    if (enumNames.contains(returnType.name)) {
+    final baseRetType = returnType.name.replaceFirst('?', '');
+    if (enumNames.contains(baseRetType)) {
       sb.write('J');
-    } else if (structNames.contains(returnType.name)) {
-      sb.write('L$libPkg/${returnType.name};');
+    } else if (structNames.contains(baseRetType)) {
+      sb.write('L$libPkg/$baseRetType;');
     } else if (returnType.isRecord && !returnType.isMap) {
       // @HybridRecord / List<@HybridRecord>: bridge returns ByteArray ("[B")
       sb.write('[B');
