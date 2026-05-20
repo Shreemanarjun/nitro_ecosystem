@@ -179,6 +179,43 @@ void main() {
       expect(out, contains('.toNative(arena).cast<Void>()'));
     });
 
+    test('optional struct? param uses ternary toNative or nullptr', () {
+      // Mirrors the printText(text, {PrintSettings? settings}) pattern that
+      // crashed with "type 'PrintSettings' is not a subtype of 'Pointer<Void>'".
+      final spec = BridgeSpec(
+        dartClassName: 'Printer',
+        lib: 'printer',
+        namespace: 'printer',
+        iosImpl: NativeImpl.swift,
+        androidImpl: NativeImpl.kotlin,
+        sourceUri: 'printer.native.dart',
+        structs: [
+          BridgeStruct(
+            name: 'Options',
+            packed: false,
+            fields: [BridgeField(name: 'copies', type: BridgeType(name: 'int'))],
+          ),
+        ],
+        functions: [
+          BridgeFunction(
+            dartName: 'print',
+            cSymbol: 'printer_print',
+            isAsync: true,
+            returnType: BridgeType(name: 'bool'),
+            params: [
+              BridgeParam(name: 'text', type: BridgeType(name: 'String')),
+              BridgeParam(name: 'opts', type: BridgeType(name: 'Options?')),
+            ],
+          ),
+        ],
+      );
+      final out = DartFfiGenerator.generate(spec);
+      // Must use ternary null-check and nullptr — never pass the Dart object raw.
+      expect(out, contains('opts != null ? opts.toNative(arena).cast<Void>() : nullptr'));
+      expect(out, isNot(contains(', opts,')));
+      expect(out, isNot(contains(', opts]')));
+    });
+
     test('async enum return calls toState()', () {
       final out = DartFfiGenerator.generate(asyncEnumSpec());
       expect(out, contains('.toState()'));

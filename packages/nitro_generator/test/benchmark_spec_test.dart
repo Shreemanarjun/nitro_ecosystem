@@ -524,8 +524,8 @@ void main() {
       expect(out, contains('_ buffer_length: Int64'));
     });
 
-    test('stream sink uses ptr.initialize for struct items', () {
-      expect(out, contains('ptr.initialize(to: item)'));
+    test('stream sink uses ptr.initialize with fromSwift for struct items', () {
+      expect(out, contains('ptr.initialize(to: _BenchmarkPointC.fromSwift(item))'));
     });
   });
 

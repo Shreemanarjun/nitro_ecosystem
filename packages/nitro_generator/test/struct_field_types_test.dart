@@ -356,7 +356,7 @@ void main() {
       });
     }
 
-    group('no matching length field — fallback to 0', () {
+    group('no matching length field — uses synthesized dataLength', () {
       late String dartExt;
       late String proxy;
 
@@ -365,18 +365,20 @@ void main() {
         proxy = StructGenerator.generateDartProxies(_typedDataNoLenSpec());
       });
 
-      test('toDart() falls back to asTypedList(0) when no length field exists', () {
-        expect(dartExt, contains('data.asTypedList(0)'));
+      test('toDart() uses synthesized dataLength when no explicit length field exists', () {
+        expect(dartExt, contains('data.asTypedList(dataLength)'));
+        expect(dartExt, isNot(contains('asTypedList(0)')));
       });
 
-      test('proxy lazy getter falls back to asTypedList(0)', () {
-        expect(proxy, contains('_native.ref.data.asTypedList(0)'));
+      test('proxy lazy getter uses _native.ref.dataLength', () {
+        expect(proxy, contains('_native.ref.data.asTypedList(_native.ref.dataLength)'));
+        expect(proxy, isNot(contains('asTypedList(0)')));
       });
     });
 
     group('TypedData length field is case-insensitive', () {
       // 'Stride' (capital S) should NOT match — only lowercase names are in the set.
-      // This documents the current intentional behaviour.
+      // When unrecognised, falls back to the synthesized dataLength field.
       test('capitalised variant "Stride" is NOT treated as a length field', () {
         final spec = BridgeSpec(
           dartClassName: 'Mod',
@@ -403,8 +405,8 @@ void main() {
           functions: [],
         );
         final out = StructGenerator.generateDartExtensions(spec);
-        // 'Stride' is not in the lowercase set → falls back to 0
-        expect(out, contains('data.asTypedList(0)'));
+        // 'Stride' is not in the lowercase set → uses synthesized dataLength
+        expect(out, contains('data.asTypedList(dataLength)'));
         expect(out, isNot(contains('data.asTypedList(Stride)')));
       });
     });

@@ -149,7 +149,14 @@ class SwiftGenerator {
             if (p.type.isTypedData) return '${p.name}: ${p.name}Arr';
             if (spec.structs.any((st) => st.name == p.type.name.replaceFirst('?', ''))) {
               final structName = p.type.name.replaceFirst('?', '');
-              return '${p.name}: ${p.name}!.assumingMemoryBound(to: $structName.self).pointee';
+              final isOpt = p.type.name.endsWith('?');
+              // Read via C shadow struct to match C header layout exactly.
+              // Swift String (16 bytes) != C const char* (8 bytes) → must use shadow.
+              if (isOpt) {
+                return '${p.name}: ${p.name}.map { \$0.assumingMemoryBound(to: _${structName}C.self).pointee.toSwift() }';
+              } else {
+                return '${p.name}: ${p.name}!.assumingMemoryBound(to: _${structName}C.self).pointee.toSwift()';
+              }
             }
             if (spec.recordTypes.any((rt) => rt.name == p.type.name.replaceFirst('?', ''))) {
               final recordName = p.type.name.replaceFirst('?', '');
@@ -287,6 +294,7 @@ class SwiftGenerator {
         // Async: block the calling thread with a semaphore until the Task
         // completes. Safe because callAsync() always runs on a background isolate.
         if (isStruct) {
+          final retStructName = func.returnType.name.replaceFirst('?', '');
           s.writeln(
             '    guard let impl = ${spec.dartClassName}Registry.impl else { return nil }',
           );
@@ -300,10 +308,11 @@ class SwiftGenerator {
           s.writeln('    }');
           s.writeln('    sema.wait()');
           s.writeln('    guard let r = result else { return nil }');
+          // Allocate a C-ABI shadow struct so Dart reads C-layout memory (not Swift SSO layout).
           s.writeln(
-            '    let ptr = UnsafeMutablePointer<${func.returnType.name}>.allocate(capacity: 1)',
+            '    let ptr = UnsafeMutablePointer<_${retStructName}C>.allocate(capacity: 1)',
           );
-          s.writeln('    ptr.initialize(to: r)');
+          s.writeln('    ptr.initialize(to: _${retStructName}C.fromSwift(r))');
           s.writeln('    return UnsafeMutableRawPointer(ptr)');
         } else if (isVoid) {
           s.writeln(
@@ -421,10 +430,11 @@ class SwiftGenerator {
             '    guard let result = ${spec.dartClassName}Registry.impl?.${func.dartName}($callArgs) else { return nil }',
           );
         }
+        // Allocate a C-ABI shadow struct so Dart reads C-layout memory (not Swift SSO layout).
         s.writeln(
-          '    let ptr = UnsafeMutablePointer<$structName>.allocate(capacity: 1)',
+          '    let ptr = UnsafeMutablePointer<_${structName}C>.allocate(capacity: 1)',
         );
-        s.writeln('    ptr.initialize(to: result)');
+        s.writeln('    ptr.initialize(to: _${structName}C.fromSwift(result))');
         s.writeln('    return UnsafeMutableRawPointer(ptr)');
       } else if (isString) {
         // String result must be malloc'd (strdup) so Dart's free() works.
@@ -541,10 +551,12 @@ class SwiftGenerator {
           s.writeln('        ${spec.dartClassName}Registry.impl?.${prop.dartName} = actualValue');
           s.writeln('    }');
         } else if (isStructProp) {
+          final propStructName = prop.type.name.replaceFirst('?', '');
           s.writeln(
             '    if let v = value {',
           );
-          s.writeln('        ${spec.dartClassName}Registry.impl?.${prop.dartName} = v.assumingMemoryBound(to: ${prop.type.name}.self).pointee');
+          // Use C shadow struct to read C-layout memory correctly.
+          s.writeln('        ${spec.dartClassName}Registry.impl?.${prop.dartName} = v.assumingMemoryBound(to: _${propStructName}C.self).pointee.toSwift()');
           s.writeln('    }');
         } else {
           s.writeln(
@@ -574,10 +586,11 @@ class SwiftGenerator {
         '        ${spec.dartClassName}Registry.impl?.${stream.dartName}.sink { item in',
       );
       if (isStructItem) {
+        // Allocate a C-ABI shadow struct so Dart reads correct memory layout.
         s.writeln(
-          '            let ptr = UnsafeMutablePointer<${stream.itemType.name}>.allocate(capacity: 1)',
+          '            let ptr = UnsafeMutablePointer<_${itemName}C>.allocate(capacity: 1)',
         );
-        s.writeln('            ptr.initialize(to: item)');
+        s.writeln('            ptr.initialize(to: _${itemName}C.fromSwift(item))');
         s.writeln('            emitCb(dartPort, UnsafeMutableRawPointer(ptr))');
       } else if (isEnumItem) {
         s.writeln('            emitCb(dartPort, item.rawValue)');

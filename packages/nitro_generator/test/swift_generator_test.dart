@@ -284,9 +284,10 @@ void main() {
         final out = SwiftGenerator.generate(spec);
         // Must unwrap both impl and the optional result in one guard.
         expect(out, contains('guard let impl = ModRegistry.impl, let result = impl.getPoint() else { return nil }'));
-        // Pointer type must use bare 'Point', not 'Point?'.
-        expect(out, contains('UnsafeMutablePointer<Point>.allocate(capacity: 1)'));
+        // Pointer type must use C-ABI shadow '_PointC', not 'Point?' or bare 'Point'.
+        expect(out, contains('UnsafeMutablePointer<_PointC>.allocate(capacity: 1)'));
         expect(out, isNot(contains('UnsafeMutablePointer<Point?>')));
+        expect(out, isNot(contains('UnsafeMutablePointer<Point>.allocate')));
         // Must still return a raw pointer, not the struct directly.
         expect(out, contains('return UnsafeMutableRawPointer(ptr)'));
       });

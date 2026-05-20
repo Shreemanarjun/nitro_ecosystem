@@ -285,7 +285,7 @@ void main() {
 
     test('struct stream (livePreciseDimensions) uses pointer allocation, not toNative()', () {
       final registerBlock = _extractBlock(swiftBridge, '_register_livePreciseDimensions_stream');
-      expect(registerBlock, contains('UnsafeMutablePointer<PackageDimensions>.allocate'));
+      expect(registerBlock, contains('UnsafeMutablePointer<_PackageDimensionsC>.allocate'));
       expect(registerBlock, isNot(contains('item.toNative()')));
     });
   });

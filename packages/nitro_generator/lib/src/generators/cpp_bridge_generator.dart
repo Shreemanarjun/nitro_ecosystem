@@ -402,13 +402,16 @@ class CppBridgeGenerator {
       s.writeln('    if (!ptr) return;');
       final hasStrings = st.fields.any((f) => f.type.name == 'String');
       final hasNestedStructs = st.fields.any((f) => structNames.contains(f.type.name.replaceFirst('?', '')));
+      final hasNonZcData = st.fields.any((f) => f.type.isTypedData && !f.zeroCopy);
       final hasZeroCopy = st.fields.any((f) => f.zeroCopy);
-      if (hasStrings || hasNestedStructs) {
+      if (hasStrings || hasNestedStructs || hasNonZcData) {
         s.writeln('    ${st.name}* st_ptr = (${st.name}*)ptr;');
         for (final f in st.fields) {
           if (f.type.name == 'String') {
             s.writeln('    if (st_ptr->${f.name}) free((void*)st_ptr->${f.name});');
           } else if (structNames.contains(f.type.name.replaceFirst('?', ''))) {
+            s.writeln('    if (st_ptr->${f.name}) { free(st_ptr->${f.name}); st_ptr->${f.name} = nullptr; }');
+          } else if (f.type.isTypedData && !f.zeroCopy) {
             s.writeln('    if (st_ptr->${f.name}) { free(st_ptr->${f.name}); st_ptr->${f.name} = nullptr; }');
           }
         }
@@ -518,12 +521,15 @@ class CppBridgeGenerator {
         s.writeln('    if (!ptr) return;');
         final hasStrings = st.fields.any((f) => f.type.name == 'String');
         final hasNestedStructs = st.fields.any((f) => structNames.contains(f.type.name.replaceFirst('?', '')));
-        if (hasStrings || hasNestedStructs) {
+        final hasNonZcDataJni = st.fields.any((f) => f.type.isTypedData && !f.zeroCopy);
+        if (hasStrings || hasNestedStructs || hasNonZcDataJni) {
           s.writeln('    ${st.name}* st_ptr = (${st.name}*)ptr;');
           for (final f in st.fields) {
             if (f.type.name == 'String') {
               s.writeln('    if (st_ptr->${f.name}) free((void*)st_ptr->${f.name});');
             } else if (structNames.contains(f.type.name.replaceFirst('?', ''))) {
+              s.writeln('    if (st_ptr->${f.name}) { free(st_ptr->${f.name}); st_ptr->${f.name} = nullptr; }');
+            } else if (f.type.isTypedData && !f.zeroCopy) {
               s.writeln('    if (st_ptr->${f.name}) { free(st_ptr->${f.name}); st_ptr->${f.name} = nullptr; }');
             }
           }
@@ -699,6 +705,24 @@ class CppBridgeGenerator {
             s.writeln('    *${f.name}_ptr = pack_${nestedType}_from_jni(env, j_${f.name});');
             s.writeln('    env->DeleteLocalRef(j_${f.name});');
             s.writeln('    result.${f.name} = ${f.name}_ptr;');
+          } else if (f.type.isTypedData) {
+            // Non-zero-copy typed data: extract Java array bytes into a malloc'd C buffer.
+            final ops = _typedDataJniOps(f.type.name);
+            final cElemType = _zeroCopyCElementCast(f.type.name).replaceAll('*', '').trim();
+            s.writeln('    ${ops[0]} j_${f.name} = (${ops[0]})env->GetObjectField(obj, g_fid_${st.name}_${f.name});');
+            s.writeln('    jsize _len_${f.name} = (j_${f.name} != nullptr) ? env->GetArrayLength(j_${f.name}) : 0;');
+            s.writeln('    result.${f.name} = nullptr;');
+            if (_zeroCopyNeedsSynthetic(st, f.name)) {
+              s.writeln('    result.${f.name}Length = 0;');
+            }
+            s.writeln('    if (j_${f.name} != nullptr && _len_${f.name} > 0) {');
+            s.writeln('        result.${f.name} = ($cElemType*)malloc(_len_${f.name} * sizeof($cElemType));');
+            s.writeln('        env->Get${ops[2].replaceFirst('Set', '')}(j_${f.name}, 0, _len_${f.name}, (${ops[3]}*)result.${f.name});');
+            if (_zeroCopyNeedsSynthetic(st, f.name)) {
+              s.writeln('        result.${f.name}Length = (int64_t)_len_${f.name};');
+            }
+            s.writeln('        env->DeleteLocalRef(j_${f.name});');
+            s.writeln('    }');
           } else {
             s.writeln('    result.${f.name} = env->$getter(obj, g_fid_${st.name}_${f.name});');
           }
@@ -737,12 +761,24 @@ class CppBridgeGenerator {
           final nestedType = f.type.name.replaceFirst('?', '');
           s.writeln('    jobject j_${f.name} = unpack_${nestedType}_to_jni(env, st->${f.name});');
         }
+        // Pre-compute non-zero-copy typed data: create Java arrays from C buffers.
+        for (final f in st.fields) {
+          if (_isZeroCopy(st, f.name) || !f.type.isTypedData) continue;
+          final ops = _typedDataJniOps(f.type.name);
+          final lenField = _zeroCopyLenField(st, f.name);
+          s.writeln('    ${ops[0]} j_${f.name} = env->${ops[1]}((jsize)st->$lenField);');
+          s.writeln('    if (j_${f.name} != nullptr && st->${f.name} != nullptr) {');
+          s.writeln('        env->${ops[2]}(j_${f.name}, 0, (jsize)st->$lenField, (const ${ops[3]}*)st->${f.name});');
+          s.writeln('    }');
+        }
         final ctorArgs = st.fields
             .map((f) {
               final isEnum = enumNames.contains(f.type.name.replaceFirst('?', ''));
               final isNestedStruct = structNames.contains(f.type.name.replaceFirst('?', ''));
               if (_isZeroCopy(st, f.name)) {
                 return 'dbuf_${f.name}';
+              } else if (f.type.isTypedData) {
+                return 'j_${f.name}'; // non-ZC typed data → Java array created above
               } else if (f.type.name == 'String') {
                 return 'j_${f.name}';
               } else if (isEnum) {
@@ -758,6 +794,8 @@ class CppBridgeGenerator {
         for (final f in st.fields) {
           if (_isZeroCopy(st, f.name)) {
             s.writeln('    if (dbuf_${f.name}) env->DeleteLocalRef(dbuf_${f.name});');
+          } else if (!_isZeroCopy(st, f.name) && f.type.isTypedData) {
+            s.writeln('    if (j_${f.name}) env->DeleteLocalRef(j_${f.name});');
           } else if (f.type.name == 'String') {
             s.writeln('    if (j_${f.name}) env->DeleteLocalRef(j_${f.name});');
           } else if (structNames.contains(f.type.name.replaceFirst('?', ''))) {

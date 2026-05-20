@@ -53,7 +53,7 @@ class StructGenerator {
         }
         s.writeln('  external $ffiType ${f.name};');
         // Mirror the synthetic C field so the Dart FFI struct layout matches.
-        if (f.zeroCopy && f.type.isTypedData && _needsSyntheticLen(st, f.name)) {
+        if (f.type.isTypedData && _needsSyntheticLen(st, f.name)) {
           s.writeln('  @Int64()');
           s.writeln('  external int ${f.name}Length;');
         }
@@ -87,6 +87,9 @@ class StructGenerator {
           s.writeln('      ${f.name}.ref.freeFields();');
           s.writeln('      malloc.free(${f.name});');
           s.writeln('    }');
+        } else if (f.type.isTypedData && !f.zeroCopy) {
+          // Non-zero-copy typed data is malloc'd by the native side; free it.
+          s.writeln('    if (${f.name} != nullptr) malloc.free(${f.name});');
         }
       }
       s.writeln('  }');
@@ -100,7 +103,7 @@ class StructGenerator {
         if (f.type.isTypedData) {
           s.writeln('    ptr.ref.${f.name} = ${f.name}.toPointer(arena);');
           // Populate the synthetic length field so C can round-trip the size.
-          if (f.zeroCopy && _needsSyntheticLen(st, f.name)) {
+          if (_needsSyntheticLen(st, f.name)) {
             s.writeln('    ptr.ref.${f.name}Length = ${f.name}.length;');
           }
         } else if (f.type.name == 'bool') {
@@ -195,9 +198,8 @@ class StructGenerator {
         String readExpr;
         if (f.type.isTypedData) {
           final companion = _zeroCopyCompanionField(st, f.name);
-          final lenRef = f.zeroCopy
-              ? '_native.ref.${companion ?? '${f.name}Length'}'
-              : (st.fields.where((sf) => sf.type.name == 'int' && _kLengthFieldNames.contains(sf.name)).map((sf) => '_native.ref.${sf.name}').firstOrNull ?? '0');
+          // Prefer explicit companion field; fall back to synthesized ${fieldName}Length.
+          final lenRef = '_native.ref.${companion ?? '${f.name}Length'}';
           readExpr = '_native.ref.${f.name}.asTypedList($lenRef)';
         } else if (f.type.name == 'bool') {
           readExpr = '_native.ref.${f.name} != 0';
@@ -243,8 +245,8 @@ class StructGenerator {
     final typeName = f.type.name.replaceFirst('?', '');
     if (f.type.isTypedData) {
       final companion = _zeroCopyCompanionField(st, f.name);
-      // Use the explicit companion field, or the synthesized '${field}Length'.
-      final lenExpr = f.zeroCopy ? (companion ?? '${f.name}Length') : (st.fields.where((sf) => sf.type.name == 'int' && _kLengthFieldNames.contains(sf.name)).map((sf) => sf.name).firstOrNull ?? '0');
+      // Prefer explicit companion field; fall back to synthesized ${fieldName}Length.
+      final lenExpr = companion ?? '${f.name}Length';
       return '$typeName.fromList(${f.name}.asTypedList($lenExpr))';
     } else if (f.type.name == 'bool') {
       return '${f.name} != 0';
@@ -335,11 +337,15 @@ class StructGenerator {
       for (final f in st.fields) {
         final cType = _dartTypeToCType(f.type.name, enumNames, structNames);
         s.writeln('  $cType ${f.name}; ${f.zeroCopy ? "/* zero-copy */" : ""}');
-        // When a @ZeroCopy() TypedData field has no explicit companion length
-        // field, inject a synthetic int64_t '${field}Length' field so the JNI
-        // bridge can round-trip the element count without an extra Kotlin field.
-        if (f.zeroCopy && f.type.isTypedData && _needsSyntheticLen(st, f.name)) {
-          s.writeln('  int64_t ${f.name}Length; /* synthesized: element count for zero-copy buffer */');
+        // When a TypedData field has no explicit companion length field, inject
+        // a synthetic int64_t '${field}Length' field so the JNI bridge can
+        // round-trip the element count. This covers both @ZeroCopy buffers
+        // (direct ByteBuffer address) and regular copy-typed arrays (malloc'd).
+        if (f.type.isTypedData && _needsSyntheticLen(st, f.name)) {
+          final comment = f.zeroCopy
+              ? '/* synthesized: element count for zero-copy buffer */'
+              : '/* synthesized: element count for data buffer */';
+          s.writeln('  int64_t ${f.name}Length; $comment');
         }
       }
       s.writeln('} ${st.name};');
@@ -511,7 +517,16 @@ class StructGenerator {
     return total > 0 ? total : 32;
   }
 
-  /// Generates Swift structs.
+  /// Generates Swift structs and their C-ABI shadow structs.
+  ///
+  /// Each public struct uses idiomatic Swift types (String, Bool, Data, etc.)
+  /// for use in the protocol and user implementation.
+  ///
+  /// A private `_${Name}C` shadow struct is also emitted for each struct, with
+  /// C-ABI-compatible field types (UnsafeMutablePointer<CChar>?, Int8, Int32,
+  /// etc.) that match the C header layout exactly. The shadow is used by the
+  /// @_cdecl bridge functions to correctly marshal structs across the FFI
+  /// boundary without Swift String Small-String-Optimization (SSO) crashes.
   static String generateSwift(BridgeSpec spec) {
     if (spec.structs.isEmpty) return '';
     final enumNames = spec.enums.map((e) => e.name).toSet();
@@ -519,19 +534,165 @@ class StructGenerator {
     final s = StringBuffer();
     s.writeln('// --- Structs ---');
     for (final st in spec.structs) {
+      // ── Public user-facing Swift struct ──────────────────────────────────
       s.writeln('public struct ${st.name} {');
       for (final f in st.fields) {
         final swiftType = _dartTypeToSwift(f.type.name, f.zeroCopy, enumNames, structNames);
         s.writeln('  public var ${f.name}: $swiftType');
-        // Mirror the synthesized C field so Swift can read/write element count.
+        // For zero-copy typed data without an explicit companion, expose the
+        // synthesized length field so callers can set it. Non-zero-copy fields
+        // derive their length from Data.count — no extra field needed.
         if (f.zeroCopy && f.type.isTypedData && _needsSyntheticLen(st, f.name)) {
           s.writeln('  public var ${f.name}Length: Int64');
         }
       }
       s.writeln('}');
       s.writeln();
+
+      // ── C-ABI shadow struct ───────────────────────────────────────────────
+      // Fields use raw C types (pointer-sized, 1-byte booleans, Int32 enums)
+      // so that UnsafeMutablePointer<_${Name}C> has EXACTLY the same layout
+      // as the C typedef in the bridge header.
+      s.writeln('// C-ABI shadow — layout matches the C typedef ${st.name}');
+      s.writeln('fileprivate struct _${st.name}C {');
+      for (final f in st.fields) {
+        final shadowType = _dartTypeToSwiftCShadow(f.type.name, f.zeroCopy, enumNames, structNames);
+        s.writeln('  var ${f.name}: $shadowType');
+        if (f.type.isTypedData && _needsSyntheticLen(st, f.name)) {
+          s.writeln('  var ${f.name}Length: Int64');
+        }
+      }
+      s.writeln();
+
+      // fromSwift: convert user-facing struct → C shadow (for returns/emit)
+      s.writeln('  static func fromSwift(_ s: ${st.name}) -> _${st.name}C {');
+      // Pre-compute any typed-data buffers (they need temp vars before the struct literal)
+      for (final f in st.fields) {
+        if (f.type.isTypedData && !f.zeroCopy) {
+          s.writeln('    var _buf_${f.name}: UnsafeMutablePointer<${_swiftTypedDataElement(f.type.name)}>? = nil');
+          s.writeln('    var _len_${f.name}: Int64 = 0');
+          s.writeln('    if !s.${f.name}.isEmpty {');
+          s.writeln('      _buf_${f.name} = UnsafeMutablePointer<${_swiftTypedDataElement(f.type.name)}>.allocate(capacity: s.${f.name}.count)');
+          s.writeln('      s.${f.name}.copyBytes(to: _buf_${f.name}!, count: s.${f.name}.count)');
+          s.writeln('      _len_${f.name} = Int64(s.${f.name}.count)');
+          s.writeln('    }');
+        }
+      }
+      s.writeln('    return _${st.name}C(');
+      final fromFields = <String>[];
+      for (final f in st.fields) {
+        fromFields.add('      ${f.name}: ${_swiftFromSwiftExpr(f, enumNames, structNames)}');
+        if (f.type.isTypedData && !f.zeroCopy && _needsSyntheticLen(st, f.name)) {
+          fromFields.add('      ${f.name}Length: _len_${f.name}');
+        }
+      }
+      s.writeln(fromFields.join(',\n'));
+      s.writeln('    )');
+      s.writeln('  }');
+      s.writeln();
+
+      // toSwift: convert C shadow → user-facing struct (for received params)
+      s.writeln('  func toSwift() -> ${st.name} {');
+      // Pre-compute any typed-data arrays
+      for (final f in st.fields) {
+        if (f.type.isTypedData && !f.zeroCopy) {
+          s.writeln('    let _arr_${f.name} = ${f.name}.map { Data(bytes: \$0, count: Int(${_lenExprForField(st, f.name)})) } ?? Data()');
+        }
+      }
+      s.writeln('    return ${st.name}(');
+      final toFields = <String>[];
+      for (final f in st.fields) {
+        if (f.type.isTypedData && !f.zeroCopy) {
+          toFields.add('      ${f.name}: _arr_${f.name}');
+        } else {
+          toFields.add('      ${f.name}: ${_swiftToSwiftExpr(f, enumNames, structNames)}');
+        }
+      }
+      s.writeln(toFields.join(',\n'));
+      s.writeln('    )');
+      s.writeln('  }');
+      s.writeln('}');
+      s.writeln();
     }
     return s.toString();
+  }
+
+  /// C-ABI Swift type for a shadow struct field. Must exactly match the C struct.
+  static String _dartTypeToSwiftCShadow(String t, [bool isZeroCopy = false, Set<String> enumNames = const {}, Set<String> structNames = const {}]) {
+    final base = t.replaceFirst('?', '');
+    if (enumNames.contains(base)) return 'Int32'; // C enum is int32_t
+    if (structNames.contains(base)) return 'UnsafeMutablePointer<_${base}C>?';
+    switch (base) {
+      case 'int': return 'Int64';
+      case 'double': return 'Double';
+      case 'bool': return 'Int8'; // C int8_t
+      case 'String': return 'UnsafeMutablePointer<CChar>?'; // C const char*
+      case 'Uint8List': return 'UnsafeMutablePointer<UInt8>?';
+      case 'Int8List': return 'UnsafeMutablePointer<Int8>?';
+      case 'Int16List': case 'Uint16List': return 'UnsafeMutablePointer<Int16>?';
+      case 'Int32List': case 'Uint32List': return 'UnsafeMutablePointer<Int32>?';
+      case 'Float32List': return 'UnsafeMutablePointer<Float>?';
+      case 'Float64List': return 'UnsafeMutablePointer<Double>?';
+      case 'Int64List': case 'Uint64List': return 'UnsafeMutablePointer<Int64>?';
+      default: return 'UnsafeMutableRawPointer?';
+    }
+  }
+
+  /// Swift element type for a TypedData field (used to allocate temp buffers).
+  static String _swiftTypedDataElement(String t) {
+    switch (t.replaceFirst('?', '')) {
+      case 'Uint8List': return 'UInt8';
+      case 'Int8List': return 'Int8';
+      case 'Int16List': case 'Uint16List': return 'Int16';
+      case 'Int32List': case 'Uint32List': return 'Int32';
+      case 'Float32List': return 'Float';
+      case 'Float64List': return 'Double';
+      case 'Int64List': case 'Uint64List': return 'Int64';
+      default: return 'UInt8';
+    }
+  }
+
+  /// Swift expression to convert a Swift struct field value → C shadow field.
+  static String _swiftFromSwiftExpr(BridgeField f, Set<String> enumNames, Set<String> structNames) {
+    final base = f.type.name.replaceFirst('?', '');
+    if (f.type.isTypedData && !f.zeroCopy) return '_buf_${f.name}';
+    if (f.type.isTypedData && f.zeroCopy) return 's.${f.name}';
+    if (enumNames.contains(base)) return 'Int32(s.${f.name}.rawValue)';
+    if (structNames.contains(base)) return '_${base}C.fromSwiftPtr(s.${f.name})'; // pointer alloc
+    switch (base) {
+      case 'String': return 'strdup(s.${f.name})';
+      case 'bool': return 's.${f.name} ? 1 : 0';
+      default: return 's.${f.name}';
+    }
+  }
+
+  /// Swift expression to convert a C shadow field value → Swift struct field.
+  static String _swiftToSwiftExpr(BridgeField f, Set<String> enumNames, Set<String> structNames) {
+    final base = f.type.name.replaceFirst('?', '');
+    if (enumNames.contains(base)) {
+      // Force-unwrap: the C bridge always sends a valid rawValue; crashing on
+      // corruption is intentional and avoids silent wrong-enum-case bugs.
+      return '${base}(rawValue: Int64(${f.name}))!';
+    }
+    if (structNames.contains(base)) return '${f.name}!.pointee.toSwift()';
+    switch (base) {
+      case 'String': return '${f.name}.map { String(cString: \$0) } ?? ""';
+      case 'bool': return '${f.name} != 0';
+      default: return f.name;
+    }
+  }
+
+  /// Returns the length field name for a typed-data field (in the C shadow struct).
+  static String _lenExprForField(BridgeStruct st, String fieldName) {
+    // Check for explicit companion first
+    for (final c in ['${fieldName}Length', '${fieldName}Size']) {
+      if (st.fields.any((f) => f.name == c && f.type.name == 'int')) return c;
+    }
+    const generic = ['length', 'size', 'stride', 'bytelength', 'bytelen', 'len'];
+    for (final c in generic) {
+      if (st.fields.any((f) => f.name == c && f.type.name == 'int')) return c;
+    }
+    return '${fieldName}Length'; // synthetic
   }
 
   static String _dartTypeToCType(String t, [Set<String> enumNames = const {}, Set<String> structNames = const {}]) {

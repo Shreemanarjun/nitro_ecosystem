@@ -179,6 +179,10 @@ class DartFfiGenerator {
             if (spec.structs.any((st) => st.name == t)) {
               return ['${p.name}.toNative(arena).cast<Void>()'];
             }
+            final tBase = t.replaceFirst('?', '');
+            if (t.endsWith('?') && spec.structs.any((st) => st.name == tBase)) {
+              return ['${p.name} != null ? ${p.name}.toNative(arena).cast<Void>() : nullptr'];
+            }
             if (spec.enums.any((en) => en.name == t)) {
               return ['${p.name}.nativeValue'];
             }
@@ -241,6 +245,7 @@ class DartFfiGenerator {
             s.writeln('      return rawPtr.toDartStringWithFree();');
           } else if (isStructReturn) {
             s.writeln('      final rawPtr = await NitroRuntime.callAsync<Pointer<Void>>(_${func.dartName}Ptr, [$callArgs], $errArgs);');
+            s.writeln('      if (rawPtr == nullptr) throw StateError(\'${func.dartName} returned null\');');
             s.writeln('      final structPtr = Pointer<${rt}Ffi>.fromAddress(rawPtr.address);');
             s.writeln('      try {');
             s.writeln('        return structPtr.ref.toDart();');
@@ -278,6 +283,7 @@ class DartFfiGenerator {
             }
           } else if (isStructReturn) {
             s.writeln('    final rawPtr = await NitroRuntime.callAsync<Pointer<Void>>(_${func.dartName}Ptr, [$plainCallArgs], $errArgs);');
+            s.writeln('    if (rawPtr == nullptr) throw StateError(\'${func.dartName} returned null\');');
             s.writeln('    final structPtr = Pointer<${rt}Ffi>.fromAddress(rawPtr.address);');
             s.writeln('    try {');
             s.writeln('      return structPtr.ref.toDart();');
@@ -331,6 +337,7 @@ class DartFfiGenerator {
               s.writeln('      return decoded;');
             }
           } else if (spec.structs.any((st) => st.name == rt)) {
+            s.writeln('      if (res == nullptr) throw StateError(\'${func.dartName} returned null\');');
             s.writeln('      final structPtr = Pointer<${rt}Ffi>.fromAddress(res.address);');
             s.writeln('      final $rt decoded;');
             s.writeln('      try {');
@@ -381,6 +388,7 @@ class DartFfiGenerator {
             } else if (spec.enums.any((en) => en.name == rt)) {
               s.writeln('      return res.to$rt();');
             } else if (spec.structs.any((st) => st.name == rt)) {
+              s.writeln('      if (res == nullptr) throw StateError(\'${func.dartName} returned null\');');
               s.writeln('      final structPtr = Pointer<${rt}Ffi>.fromAddress(res.address);');
               s.writeln('      final $rt decoded;');
               s.writeln('      try {');
@@ -442,6 +450,7 @@ class DartFfiGenerator {
           } else if (rt == 'bool') {
             s.writeln('      return res != 0;');
           } else if (spec.structs.any((st) => st.name == rt)) {
+            s.writeln('      if (res == nullptr) throw StateError(\'get ${prop.dartName} returned null\');');
             s.writeln('      final structPtr = Pointer<${rt}Ffi>.fromAddress(res.address);');
             s.writeln('      try {');
             s.writeln('        return structPtr.ref.toDart();');
