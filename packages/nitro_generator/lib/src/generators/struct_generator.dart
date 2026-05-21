@@ -80,7 +80,9 @@ class StructGenerator {
       for (final f in st.fields) {
         final typeName = f.type.name.replaceFirst('?', '');
         if (f.type.name == 'String') {
-          s.writeln('    if (${f.name} != nullptr) malloc.free(${f.name});');
+          s.writeln('    if (${f.name} != nullptr) {');
+          s.writeln('      malloc.free(${f.name});');
+          s.writeln('    }');
         } else if (structNames.contains(typeName)) {
           // Nested struct pointer: free its own fields, then the pointer.
           s.writeln('    if (${f.name} != nullptr) {');
@@ -89,7 +91,9 @@ class StructGenerator {
           s.writeln('    }');
         } else if (f.type.isTypedData && !f.zeroCopy) {
           // Non-zero-copy typed data is malloc'd by the native side; free it.
-          s.writeln('    if (${f.name} != nullptr) malloc.free(${f.name});');
+          s.writeln('    if (${f.name} != nullptr) {');
+          s.writeln('      malloc.free(${f.name});');
+          s.writeln('    }');
         }
       }
       s.writeln('  }');

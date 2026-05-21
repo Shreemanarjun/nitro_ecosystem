@@ -1767,7 +1767,11 @@ void ensureIosPackageSwift(
   // then fall back to flat layout (ios/Package.swift).
   final spmStatus = spm.detectSpmStatus(baseDir);
   if (spmStatus.iosHasSpm) {
-    // Package.swift already exists — sync C/C++ module sources into Sources/<MainCpp>/.
+    // Package.swift already exists — patch missing FlutterFramework dep (old plugins)
+    // then sync C/C++ module sources into Sources/<MainCpp>/.
+    if (spmStatus.iosPackageSwiftPath != null) {
+      spm.ensureFlutterFrameworkDependency(spmStatus.iosPackageSwiftPath!);
+    }
     _syncCppModuleSourcesToSpm(
       pluginName,
       moduleInfos: moduleInfos,
@@ -1804,6 +1808,10 @@ void ensureMacosPackageSwift(
 }) {
   final spmStatus = spm.detectSpmStatus(baseDir);
   if (spmStatus.macosHasSpm) {
+    // Patch missing FlutterFramework dep (old plugins) then sync sources.
+    if (spmStatus.macosPackageSwiftPath != null) {
+      spm.ensureFlutterFrameworkDependency(spmStatus.macosPackageSwiftPath!);
+    }
     _syncCppModuleSourcesToSpm(pluginName, moduleInfos: moduleInfos, baseDir: baseDir);
     return;
   }

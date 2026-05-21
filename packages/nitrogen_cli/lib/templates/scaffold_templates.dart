@@ -134,6 +134,9 @@ let package = Package(
     products: [
         .library(name: "${pluginName.replaceAll('_', '-')}", targets: ["$pluginName"]),
     ],
+    dependencies: [
+        .package(name: "FlutterFramework", path: "../FlutterFramework"),
+    ],
     targets: [
         // C/C++ bridge — SPM requires Swift and C++ in separate targets.
         // nitro headers (nitro.h, dart_api_dl.h …) are copied into include/
@@ -150,7 +153,10 @@ let package = Package(
         // Swift implementation + generated bridge.
         .target(
             name: "$pluginName",
-            dependencies: ["${className}Cpp"],
+            dependencies: [
+                "${className}Cpp",
+                .product(name: "FlutterFramework", package: "FlutterFramework"),
+            ],
             path: "Sources/$className"
         ),
     ]

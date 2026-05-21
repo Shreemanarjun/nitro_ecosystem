@@ -1,6 +1,7 @@
 import 'dart:io';
 import 'package:path/path.dart' as p;
 import 'package:nitrogen_cli/commands/link_command.dart';
+import 'package:nitrogen_cli/commands/spm_utils.dart' as spm;
 import 'package:nitrogen_cli/templates/cmake_templates.dart' as ct;
 import 'package:nitrogen_cli/templates/swift_templates.dart' as st;
 import 'package:test/test.dart';
@@ -2208,20 +2209,22 @@ end
   // ── Package.swift template tests ────────────────────────────────────────────────
 
   group('Package.swift template — iOS', () {
-    test('generates valid SPM Package.swift without external header paths', () {
+    test('generates valid SPM Package.swift with FlutterFramework', () {
       final out = st.iosPackageSwiftContent('my_plugin', 'MyPlugin');
       expect(out, contains('// swift-tools-version: 5.9'));
       expect(out, contains('name: "my_plugin"'));
       expect(out, contains('name: "MyPluginCpp"'));
       expect(out, contains('path: "Sources/MyPluginCpp"'));
       expect(out, contains('path: "Sources/MyPlugin"'));
-      expect(out, isNot(contains('../')), reason: 'No external paths allowed in SPM');
-      expect(out, isNot(contains('../../')), reason: 'No external paths allowed in SPM');
+      expect(out, contains('.package(name: "FlutterFramework", path: "../FlutterFramework")'));
+      expect(out, contains('.product(name: "FlutterFramework", package: "FlutterFramework")'));
+      // No arbitrary external header search paths (nitro paths are resolved at link time).
+      expect(out, isNot(contains('../../')), reason: 'No relative header paths in SPM');
     });
 
     test('depends on C++ target via publicHeadersPath', () {
       final out = st.iosPackageSwiftContent('my_plugin', 'MyPlugin');
-      expect(out, contains('dependencies: ["MyPluginCpp"]'));
+      expect(out, contains('"MyPluginCpp"'));
       expect(out, contains('publicHeadersPath: "include"'));
     });
 
@@ -2237,20 +2240,21 @@ end
   });
 
   group('Package.swift template — macOS', () {
-    test('generates valid SPM Package.swift without external header paths', () {
+    test('generates valid SPM Package.swift with FlutterFramework', () {
       final out = st.macosPackageSwiftContent('my_plugin', 'MyPlugin');
       expect(out, contains('// swift-tools-version: 5.9'));
       expect(out, contains('name: "my_plugin"'));
       expect(out, contains('name: "MyPluginCpp"'));
       expect(out, contains('path: "Sources/MyPluginCpp"'));
       expect(out, contains('path: "Sources/MyPlugin"'));
-      expect(out, isNot(contains('../')), reason: 'No external paths allowed in SPM');
-      expect(out, isNot(contains('../../')), reason: 'No external paths allowed in SPM');
+      expect(out, contains('.package(name: "FlutterFramework", path: "../FlutterFramework")'));
+      expect(out, contains('.product(name: "FlutterFramework", package: "FlutterFramework")'));
+      expect(out, isNot(contains('../../')), reason: 'No relative header paths in SPM');
     });
 
     test('depends on C++ target via publicHeadersPath', () {
       final out = st.macosPackageSwiftContent('my_plugin', 'MyPlugin');
-      expect(out, contains('dependencies: ["MyPluginCpp"]'));
+      expect(out, contains('"MyPluginCpp"'));
       expect(out, contains('publicHeadersPath: "include"'));
     });
 
@@ -2262,6 +2266,160 @@ end
     test('targets macOS 10.15+', () {
       final out = st.macosPackageSwiftContent('my_plugin', 'MyPlugin');
       expect(out, contains('.macOS(.v10_15)'));
+    });
+  });
+
+  // ── ensureFlutterFrameworkDependency ─────────────────────────────────────
+
+  group('ensureFlutterFrameworkDependency', () {
+    late Directory tmp;
+    setUp(() => tmp = Directory.systemTemp.createTempSync('flutter_fw_dep_'));
+    tearDown(() => tmp.deleteSync(recursive: true));
+
+    String _path() => p.join(tmp.path, 'Package.swift');
+
+    test('returns false when file does not exist', () {
+      expect(spm.ensureFlutterFrameworkDependency(_path()), isFalse);
+    });
+
+    test('returns false and does not modify when FlutterFramework already present', () {
+      File(_path()).writeAsStringSync(
+        '// swift-tools-version: 5.9\n'
+        'let p = Package(name:"x", platforms:[.iOS(.v13)],\n'
+        '  dependencies:[.package(name:"FlutterFramework",path:"../FlutterFramework")],\n'
+        '  targets:[.target(name:"x",dependencies:["XCpp"],path:"Sources/X")])',
+      );
+      final before = File(_path()).readAsStringSync();
+      expect(spm.ensureFlutterFrameworkDependency(_path()), isFalse);
+      expect(File(_path()).readAsStringSync(), equals(before));
+    });
+
+    test('injects package-level dependency when no dependencies block exists (2-space indent)', () {
+      // Format produced by swift_templates.dart (2-space, old format without FlutterFramework)
+      File(_path()).writeAsStringSync(
+        '// swift-tools-version: 5.9\n'
+        'import PackageDescription\n'
+        '\n'
+        'let package = Package(\n'
+        '  name: "my_plugin",\n'
+        '  platforms: [.iOS(.v13)],\n'
+        '  products: [\n'
+        '    .library(name: "my-plugin", targets: ["my_plugin"])\n'
+        '  ],\n'
+        '  targets: [\n'
+        '    .target(name: "MyPluginCpp", path: "Sources/MyPluginCpp", publicHeadersPath: "include"),\n'
+        '    .target(name: "my_plugin", dependencies: ["MyPluginCpp"], path: "Sources/MyPlugin")\n'
+        '  ]\n'
+        ')\n',
+      );
+      expect(spm.ensureFlutterFrameworkDependency(_path()), isTrue);
+      final result = File(_path()).readAsStringSync();
+      expect(result, contains('.package(name: "FlutterFramework", path: "../FlutterFramework")'));
+      expect(result, contains('.product(name: "FlutterFramework", package: "FlutterFramework")'));
+    });
+
+    test('injects package-level dependency when no dependencies block exists (4-space indent)', () {
+      // Format produced by scaffold_templates.dart (4-space, old format without FlutterFramework)
+      File(_path()).writeAsStringSync(
+        '// swift-tools-version: 5.9\n'
+        'import PackageDescription\n'
+        '\n'
+        'let package = Package(\n'
+        '    name: "my_plugin",\n'
+        '    platforms: [.iOS(.v13)],\n'
+        '    products: [\n'
+        '        .library(name: "my-plugin", targets: ["my_plugin"]),\n'
+        '    ],\n'
+        '    targets: [\n'
+        '        .target(name: "MyPluginCpp", path: "Sources/MyPluginCpp", publicHeadersPath: "include"),\n'
+        '        .target(name: "my_plugin", dependencies: ["MyPluginCpp"], path: "Sources/MyPlugin"),\n'
+        '    ]\n'
+        ')\n',
+      );
+      expect(spm.ensureFlutterFrameworkDependency(_path()), isTrue);
+      final result = File(_path()).readAsStringSync();
+      expect(result, contains('.package(name: "FlutterFramework", path: "../FlutterFramework")'));
+      expect(result, contains('.product(name: "FlutterFramework", package: "FlutterFramework")'));
+    });
+
+    test('appends into existing package-level dependencies array', () {
+      File(_path()).writeAsStringSync(
+        '// swift-tools-version: 5.9\n'
+        'let p = Package(name:"x", platforms:[.iOS(.v13)],\n'
+        '  dependencies:[\n'
+        '    .package(url:"https://example.com/foo", from:"1.0.0"),\n'
+        '  ],\n'
+        '  targets:[.target(name:"x",dependencies:["XCpp"],path:"Sources/X")])',
+      );
+      expect(spm.ensureFlutterFrameworkDependency(_path()), isTrue);
+      final result = File(_path()).readAsStringSync();
+      expect(result, contains('.package(name: "FlutterFramework", path: "../FlutterFramework")'));
+      // Original dependency should still be present.
+      expect(result, contains('https://example.com/foo'));
+    });
+
+    test('converts inline Swift-target dependencies to expanded form with FlutterFramework', () {
+      File(_path()).writeAsStringSync(
+        '// swift-tools-version: 5.9\n'
+        'let p = Package(name:"x",\n'
+        '  targets:[\n'
+        '    .target(name:"XCpp",path:"Sources/XCpp",publicHeadersPath:"include"),\n'
+        '    .target(name:"x",dependencies:["XCpp"],path:"Sources/X")\n'
+        '  ])',
+      );
+      spm.ensureFlutterFrameworkDependency(_path());
+      final result = File(_path()).readAsStringSync();
+      expect(result, contains('"XCpp"'));
+      expect(result, contains('.product(name: "FlutterFramework", package: "FlutterFramework")'));
+    });
+
+    test('is idempotent — second call makes no changes', () {
+      File(_path()).writeAsStringSync(
+        '// swift-tools-version: 5.9\n'
+        'let p = Package(name:"x",\n'
+        '  targets:[\n'
+        '    .target(name:"XCpp",path:"Sources/XCpp",publicHeadersPath:"include"),\n'
+        '    .target(name:"x",dependencies:["XCpp"],path:"Sources/X")\n'
+        '  ])',
+      );
+      spm.ensureFlutterFrameworkDependency(_path());
+      final afterFirst = File(_path()).readAsStringSync();
+      final secondResult = spm.ensureFlutterFrameworkDependency(_path());
+      expect(secondResult, isFalse);
+      expect(File(_path()).readAsStringSync(), equals(afterFirst));
+    });
+
+    test('ensureIosPackageSwift patches FlutterFramework into existing Package.swift', () {
+      // Scaffold an old-style ios/Package.swift without FlutterFramework
+      final iosDir = Directory(p.join(tmp.path, 'ios'))..createSync();
+      final pkgFile = File(p.join(iosDir.path, 'Package.swift'));
+      pkgFile.writeAsStringSync(
+        '// swift-tools-version: 5.9\n'
+        'let p = Package(name:"my_plugin",\n'
+        '  platforms:[.iOS(.v13)],\n'
+        '  targets:[\n'
+        '    .target(name:"MyPluginCpp",path:"Sources/MyPluginCpp",publicHeadersPath:"include"),\n'
+        '    .target(name:"my_plugin",dependencies:["MyPluginCpp"],path:"Sources/MyPlugin")\n'
+        '  ])',
+      );
+      ensureIosPackageSwift('my_plugin', baseDir: tmp.path);
+      expect(pkgFile.readAsStringSync(), contains('FlutterFramework'));
+    });
+
+    test('ensureMacosPackageSwift patches FlutterFramework into existing Package.swift', () {
+      final macosDir = Directory(p.join(tmp.path, 'macos'))..createSync();
+      final pkgFile = File(p.join(macosDir.path, 'Package.swift'));
+      pkgFile.writeAsStringSync(
+        '// swift-tools-version: 5.9\n'
+        'let p = Package(name:"my_plugin",\n'
+        '  platforms:[.macOS(.v10_15)],\n'
+        '  targets:[\n'
+        '    .target(name:"MyPluginCpp",path:"Sources/MyPluginCpp",publicHeadersPath:"include"),\n'
+        '    .target(name:"my_plugin",dependencies:["MyPluginCpp"],path:"Sources/MyPlugin")\n'
+        '  ])',
+      );
+      ensureMacosPackageSwift('my_plugin', baseDir: tmp.path);
+      expect(pkgFile.readAsStringSync(), contains('FlutterFramework'));
     });
   });
 }

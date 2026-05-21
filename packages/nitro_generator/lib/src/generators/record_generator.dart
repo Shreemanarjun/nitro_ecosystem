@@ -215,7 +215,9 @@ class RecordGenerator {
       case RecordFieldKind.recordObject:
         if (f.isNullable) {
           s.writeln('    writer.writeNullTag(${f.name} == null);');
-          s.writeln('    if (${f.name} != null) ${f.name}!.writeFields(writer);');
+          s.writeln('    if (${f.name} != null) {');
+          s.writeln('      ${f.name}!.writeFields(writer);');
+          s.writeln('    }');
         } else {
           s.writeln('    ${f.name}.writeFields(writer);');
         }
@@ -244,9 +246,9 @@ class RecordGenerator {
     final nullable = dartType.endsWith('?');
     if (nullable) {
       s.writeln('    writer.writeNullTag($fieldName == null);');
-      s.writeln(
-        '    if ($fieldName != null) writer.${_primitiveWriteCall(base, '$fieldName!')};',
-      );
+      s.writeln('    if ($fieldName != null) {');
+      s.writeln('      writer.${_primitiveWriteCall(base, '$fieldName!')};');
+      s.writeln('    }');
     } else {
       s.writeln('    writer.${_primitiveWriteCall(base, fieldName)};');
     }

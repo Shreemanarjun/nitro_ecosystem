@@ -129,6 +129,7 @@ class PackageSwiftValidation {
   final bool hasCppTarget;
   final bool hasCorrectPlatform;
   final bool hasNitroFlags;
+  final bool hasFlutterFramework;
 
   PackageSwiftValidation({
     this.issues = const [],
@@ -137,6 +138,7 @@ class PackageSwiftValidation {
     this.hasCppTarget = false,
     this.hasCorrectPlatform = false,
     this.hasNitroFlags = false,
+    this.hasFlutterFramework = false,
   });
 }
 
@@ -183,6 +185,16 @@ PackageSwiftValidation validatePackageSwift(String path, String platform) {
     warnings.add('$platform/Package.swift missing nitro header search path');
   }
 
+  // Check for FlutterFramework dependency — required by Flutter SPM tooling.
+  final hasFlutterFramework = content.contains('FlutterFramework');
+  if (!hasFlutterFramework) {
+    issues.add(
+      '$platform/Package.swift is missing a dependency on FlutterFramework. '
+      'Add .package(name: "FlutterFramework", path: "../FlutterFramework") to dependencies '
+      'and .product(name: "FlutterFramework", package: "FlutterFramework") to the Swift target.',
+    );
+  }
+
   // Check for Swift target
   final hasSwiftTarget = content.contains('.target(') && !content.replaceAll(RegExp(r'Cpp[^"]*'), '').contains('.target(');
 
@@ -193,6 +205,7 @@ PackageSwiftValidation validatePackageSwift(String path, String platform) {
     hasCppTarget: hasCppTarget,
     hasCorrectPlatform: content.contains(expectedPlatform),
     hasNitroFlags: hasNitroFlags,
+    hasFlutterFramework: hasFlutterFramework,
   );
 }
 
@@ -283,6 +296,66 @@ SpmSourcesValidation validateSpmSourcesStructure(
     missingSymlinks: missingSymlinks,
     issues: issues,
   );
+}
+
+/// Ensures [packageSwiftPath] declares FlutterFramework at both the package
+/// level (`dependencies: [...]`) and inside the Swift target's dependencies.
+/// Idempotent — does nothing when already present.
+///
+/// Handles both the 2-space indented format written by [swift_templates.dart]
+/// and the 4-space indented format written by [scaffold_templates.dart].
+///
+/// Returns `true` if the file was modified.
+bool ensureFlutterFrameworkDependency(String packageSwiftPath) {
+  final file = File(packageSwiftPath);
+  if (!file.existsSync()) return false;
+  var content = file.readAsStringSync();
+  if (content.contains('FlutterFramework')) return false;
+
+  bool modified = false;
+
+  // ── 1. Package-level dependencies block ──────────────────────────────────
+  // Anything before the first 'targets:' belongs to the Package(...) struct.
+  final targetsIdx = content.indexOf('targets:');
+  if (targetsIdx == -1) return false;
+
+  final beforeTargets = content.substring(0, targetsIdx);
+
+  if (beforeTargets.contains('dependencies: [')) {
+    // Already has a package-level dependencies array — append into it.
+    content = content.replaceFirst(
+      'dependencies: [',
+      'dependencies: [\n    .package(name: "FlutterFramework", path: "../FlutterFramework"),',
+    );
+  } else {
+    // No package-level dependencies — inject one just before targets:.
+    // Detect indent (2-space from swift_templates, 4-space from scaffold_templates).
+    final indent = content.contains('  targets:') ? '  ' : '    ';
+    content = content.replaceFirst(
+      '${indent}targets:',
+      '${indent}dependencies: [\n$indent  .package(name: "FlutterFramework", path: "../FlutterFramework"),\n$indent],\n${indent}targets:',
+    );
+  }
+  modified = true;
+
+  // ── 2. Swift target's dependencies ───────────────────────────────────────
+  // The Cpp target has no dependencies: entry; the Swift target has one.
+  // Handle the inline single-item form: dependencies: ["XxxCpp"]
+  final inlineDepRe = RegExp(r'dependencies:\s*\["([^"]+)"\]');
+  final m = inlineDepRe.firstMatch(content);
+  if (m != null) {
+    // Detect the leading whitespace of the matched line to preserve alignment.
+    final lineStart = content.lastIndexOf('\n', m.start) + 1;
+    final lineIndent = RegExp(r'^ *').firstMatch(content.substring(lineStart))?.group(0) ?? '      ';
+    final inner = '$lineIndent  ';
+    content = content.replaceFirst(
+      m.group(0)!,
+      'dependencies: [\n$inner"${m.group(1)!}",\n$inner.product(name: "FlutterFramework", package: "FlutterFramework"),\n$lineIndent]',
+    );
+  }
+
+  if (modified) file.writeAsStringSync(content);
+  return modified;
 }
 
 /// Converts a plugin name to PascalCase class name.

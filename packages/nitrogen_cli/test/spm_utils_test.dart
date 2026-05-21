@@ -1,6 +1,7 @@
 import 'dart:io';
 import 'package:path/path.dart' as p;
 import 'package:nitrogen_cli/commands/spm_utils.dart';
+import 'package:nitrogen_cli/templates/scaffold_templates.dart';
 import 'package:test/test.dart';
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -16,9 +17,12 @@ let package = Package(
     name: "test_plugin",
     platforms: [.iOS(.v13)],
     products: [.library(name: "test_plugin", targets: ["test_plugin"])],
+    dependencies: [
+        .package(name: "FlutterFramework", path: "../FlutterFramework"),
+    ],
     targets: [
         .target(name: "TestPluginCpp", path: "Sources/TestPluginCpp", publicHeadersPath: "include"),
-        .target(name: "test_plugin", dependencies: ["TestPluginCpp"], path: "Sources/TestPlugin"),
+        .target(name: "test_plugin", dependencies: ["TestPluginCpp", .product(name: "FlutterFramework", package: "FlutterFramework")], path: "Sources/TestPlugin"),
     ]
 )
 '''
@@ -327,6 +331,95 @@ void main() {
       );
       final v = validatePackageSwift(path, 'ios');
       expect(v.hasNitroFlags, isTrue);
+    });
+
+    test('hasFlutterFramework false when dependency missing', () {
+      final path = p.join(tmp.path, 'Package.swift');
+      File(path).writeAsStringSync(
+        '// swift-tools-version: 5.9\n'
+        'let p = Package(name:"x", platforms:[.iOS(.v13)], targets:['
+        '.target(name:"Cpp",path:"Sources/Cpp",publicHeadersPath:"include")])',
+      );
+      final v = validatePackageSwift(path, 'ios');
+      expect(v.hasFlutterFramework, isFalse);
+      expect(v.issues.any((i) => i.contains('FlutterFramework')), isTrue);
+    });
+
+    test('hasFlutterFramework true when dependency present', () {
+      final path = p.join(tmp.path, 'Package.swift');
+      File(path).writeAsStringSync(
+        '// swift-tools-version: 5.9\n'
+        'let p = Package(name:"x", platforms:[.iOS(.v13)], '
+        'dependencies:[.package(name:"FlutterFramework",path:"../FlutterFramework")], '
+        'targets:[.target(name:"Cpp",path:"Sources/Cpp",publicHeadersPath:"include"),'
+        '.target(name:"x",dependencies:["Cpp",.product(name:"FlutterFramework",package:"FlutterFramework")],'
+        'path:"Sources/X")])',
+      );
+      final v = validatePackageSwift(path, 'ios');
+      expect(v.hasFlutterFramework, isTrue);
+      expect(v.issues.where((i) => i.contains('FlutterFramework')), isEmpty);
+    });
+
+    test('FlutterFramework issue also reported for macos', () {
+      final path = p.join(tmp.path, 'Package.swift');
+      File(path).writeAsStringSync(
+        '// swift-tools-version: 5.9\n'
+        'let p = Package(name:"x", platforms:[.macOS(.v10_15)], targets:['
+        '.target(name:"Cpp",path:"Sources/Cpp",publicHeadersPath:"include")])',
+      );
+      final v = validatePackageSwift(path, 'macos');
+      expect(v.hasFlutterFramework, isFalse);
+      expect(v.issues.any((i) => i.contains('FlutterFramework') && i.contains('macos')), isTrue);
+    });
+  });
+
+  // ── packageSwiftTemplate — FlutterFramework ───────────────────────────────
+
+  group('packageSwiftTemplate — FlutterFramework', () {
+    test('iOS template includes FlutterFramework package dependency', () {
+      final content = packageSwiftTemplate('my_plugin', 'MyPlugin', 'iOS(.v13)');
+      expect(content, contains('.package(name: "FlutterFramework", path: "../FlutterFramework")'));
+    });
+
+    test('macOS template includes FlutterFramework package dependency', () {
+      final content = packageSwiftTemplate('my_plugin', 'MyPlugin', 'macOS(.v10_15)', isMacos: true);
+      expect(content, contains('.package(name: "FlutterFramework", path: "../FlutterFramework")'));
+    });
+
+    test('iOS template includes FlutterFramework as target product dependency', () {
+      final content = packageSwiftTemplate('my_plugin', 'MyPlugin', 'iOS(.v13)');
+      expect(content, contains('.product(name: "FlutterFramework", package: "FlutterFramework")'));
+    });
+
+    test('macOS template includes FlutterFramework as target product dependency', () {
+      final content = packageSwiftTemplate('my_plugin', 'MyPlugin', 'macOS(.v10_15)', isMacos: true);
+      expect(content, contains('.product(name: "FlutterFramework", package: "FlutterFramework")'));
+    });
+
+    test('generated template passes FlutterFramework validation', () {
+      final tmp = Directory.systemTemp.createTempSync('template_validation_');
+      addTearDown(() => tmp.deleteSync(recursive: true));
+
+      final content = packageSwiftTemplate('my_plugin', 'MyPlugin', 'iOS(.v13)');
+      final path = p.join(tmp.path, 'Package.swift');
+      File(path).writeAsStringSync(content);
+
+      final v = validatePackageSwift(path, 'ios');
+      expect(v.hasFlutterFramework, isTrue);
+      expect(v.issues.where((i) => i.contains('FlutterFramework')), isEmpty);
+    });
+
+    test('generated macOS template passes FlutterFramework validation', () {
+      final tmp = Directory.systemTemp.createTempSync('template_macos_validation_');
+      addTearDown(() => tmp.deleteSync(recursive: true));
+
+      final content = packageSwiftTemplate('my_plugin', 'MyPlugin', 'macOS(.v10_15)', isMacos: true);
+      final path = p.join(tmp.path, 'Package.swift');
+      File(path).writeAsStringSync(content);
+
+      final v = validatePackageSwift(path, 'macos');
+      expect(v.hasFlutterFramework, isTrue);
+      expect(v.issues.where((i) => i.contains('FlutterFramework')), isEmpty);
     });
   });
 
