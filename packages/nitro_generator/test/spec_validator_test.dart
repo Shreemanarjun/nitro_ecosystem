@@ -791,4 +791,141 @@ void main() {
       expect(errors.length, greaterThanOrEqualTo(3));
     });
   });
+
+  // ── W001: non-nullable named param with no defaultLiteral ─────────────────
+
+  BridgeSpec _specWithNonNullableNamed(String typeName) => BridgeSpec(
+    dartClassName: 'Mod',
+    lib: 'mod',
+    namespace: 'mod',
+    iosImpl: NativeImpl.swift,
+    androidImpl: NativeImpl.kotlin,
+    sourceUri: 'mod.native.dart',
+    functions: [
+      BridgeFunction(
+        dartName: 'fn',
+        cSymbol: 'mod_fn',
+        isAsync: false,
+        returnType: BridgeType(name: 'void'),
+        params: [
+          BridgeParam(
+            name: 'x',
+            type: BridgeType(name: typeName),
+            isNamed: true,
+            isOptional: true,
+            // no defaultLiteral — triggers W001
+          ),
+        ],
+      ),
+    ],
+  );
+
+  group('SpecValidator — W001: non-nullable named param with no default', () {
+    test('int named param with no default emits W001 warning', () {
+      final issues = SpecValidator.validate(_specWithNonNullableNamed('int'));
+      expect(issues.any((i) => i.code == 'W001'), isTrue);
+    });
+
+    test('bool named param with no default emits W001', () {
+      final issues = SpecValidator.validate(_specWithNonNullableNamed('bool'));
+      expect(issues.any((i) => i.code == 'W001'), isTrue);
+    });
+
+    test('double named param with no default emits W001', () {
+      final issues = SpecValidator.validate(_specWithNonNullableNamed('double'));
+      expect(issues.any((i) => i.code == 'W001'), isTrue);
+    });
+
+    test('W001 is a warning, not an error', () {
+      final issues = SpecValidator.validate(_specWithNonNullableNamed('int'));
+      final w001 = issues.firstWhere((i) => i.code == 'W001');
+      expect(w001.isError, isFalse);
+    });
+
+    test('W001 hint mentions nullable workaround', () {
+      final issues = SpecValidator.validate(_specWithNonNullableNamed('int'));
+      final w001 = issues.firstWhere((i) => i.code == 'W001');
+      expect(w001.hint, contains('nullable'));
+    });
+
+    test('nullable int? named param does NOT emit W001', () {
+      final spec = BridgeSpec(
+        dartClassName: 'Mod',
+        lib: 'mod',
+        namespace: 'mod',
+        iosImpl: NativeImpl.swift,
+        androidImpl: NativeImpl.kotlin,
+        sourceUri: 'mod.native.dart',
+        functions: [
+          BridgeFunction(
+            dartName: 'fn',
+            cSymbol: 'mod_fn',
+            isAsync: false,
+            returnType: BridgeType(name: 'void'),
+            params: [
+              BridgeParam(
+                name: 'x',
+                type: BridgeType(name: 'int?'),
+                isNamed: true,
+                isOptional: true,
+              ),
+            ],
+          ),
+        ],
+      );
+      expect(SpecValidator.validate(spec).any((i) => i.code == 'W001'), isFalse);
+    });
+
+    test('int named param WITH defaultLiteral does NOT emit W001', () {
+      final spec = BridgeSpec(
+        dartClassName: 'Mod',
+        lib: 'mod',
+        namespace: 'mod',
+        iosImpl: NativeImpl.swift,
+        androidImpl: NativeImpl.kotlin,
+        sourceUri: 'mod.native.dart',
+        functions: [
+          BridgeFunction(
+            dartName: 'fn',
+            cSymbol: 'mod_fn',
+            isAsync: false,
+            returnType: BridgeType(name: 'void'),
+            params: [
+              BridgeParam(
+                name: 'x',
+                type: BridgeType(name: 'int'),
+                isNamed: true,
+                isOptional: true,
+                defaultLiteral: '5',
+              ),
+            ],
+          ),
+        ],
+      );
+      expect(SpecValidator.validate(spec).any((i) => i.code == 'W001'), isFalse);
+    });
+
+    test('positional non-nullable param does NOT emit W001', () {
+      final spec = BridgeSpec(
+        dartClassName: 'Mod',
+        lib: 'mod',
+        namespace: 'mod',
+        iosImpl: NativeImpl.swift,
+        androidImpl: NativeImpl.kotlin,
+        sourceUri: 'mod.native.dart',
+        functions: [
+          BridgeFunction(
+            dartName: 'fn',
+            cSymbol: 'mod_fn',
+            isAsync: false,
+            returnType: BridgeType(name: 'void'),
+            params: [
+              BridgeParam(name: 'x', type: BridgeType(name: 'int'), isNamed: false),
+            ],
+          ),
+        ],
+      );
+      expect(SpecValidator.validate(spec).any((i) => i.code == 'W001'), isFalse);
+    });
+  });
 }

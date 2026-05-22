@@ -35,7 +35,7 @@ BridgeSpec simpleSpec() => BridgeSpec(
       dartName: 'getGreeting',
       cSymbol: 'my_camera_get_greeting',
       isAsync: true,
-      returnType: BridgeType(name: 'String'),
+      returnType: BridgeType(name: 'String', isFuture: true),
       params: [
         BridgeParam(
           name: 'name',
@@ -330,7 +330,7 @@ BridgeSpec singleRecordSpec() => BridgeSpec(
       dartName: 'getDevice',
       cSymbol: 'camera_module_get_device',
       isAsync: true,
-      returnType: BridgeType(name: 'CameraDevice', isRecord: true),
+      returnType: BridgeType(name: 'CameraDevice', isRecord: true, isFuture: true),
       params: [],
     ),
     BridgeFunction(
@@ -397,6 +397,7 @@ BridgeSpec recordListSpec() => BridgeSpec(
       returnType: BridgeType(
         name: 'List<CameraDevice>',
         isRecord: true,
+        isFuture: true,
         recordListItemType: 'CameraDevice',
       ),
       params: [],

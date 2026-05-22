@@ -232,12 +232,20 @@ class BridgeParam {
   /// Always false for positional parameters.
   final bool isOptional;
 
+  /// The default value literal to emit verbatim in the generated Dart signature,
+  /// e.g. `'5'`, `'true'`, `'Quality.normal'`, `'PrintSettings()'`.
+  /// When set, the generator emits `{Type name = defaultLiteral}`.
+  /// When null on a non-nullable named param, the generated `{Type name}` is
+  /// invalid Dart (Bug 5.1). Use nullable types (`int?`) as the workaround.
+  final String? defaultLiteral;
+
   BridgeParam({
     required this.name,
     required this.type,
     this.zeroCopy = false,
     this.isNamed = false,
     this.isOptional = false,
+    this.defaultLiteral,
   });
 }
 

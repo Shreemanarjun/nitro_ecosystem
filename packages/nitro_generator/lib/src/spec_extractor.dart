@@ -345,6 +345,7 @@ class SpecExtractor {
             zeroCopy: zeroCopyChecker.hasAnnotationOf(p),
             isNamed: p.isNamed,
             isOptional: p.isOptional,
+            defaultLiteral: p.defaultValueCode,
           );
         }).toList(),
       );

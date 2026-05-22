@@ -221,6 +221,22 @@ class SpecValidator {
         );
       }
 
+      // E002: @nitroAsync on a non-Future return type.
+      // Void is permitted (fire-and-forget async); any other non-Future type is invalid.
+      if (func.isAsync && func.returnType.name != 'void' && !func.returnType.isFuture) {
+        issues.add(
+          ValidationIssue(
+            severity: ValidationSeverity.error,
+            code: 'E002',
+            message:
+                '${spec.dartClassName}.${func.dartName}() — @nitroAsync requires a Future<T> return type, '
+                'got "${func.returnType.name}".',
+            hint:
+                'Change the return type to Future<${func.returnType.name}>, or remove @nitroAsync.',
+          ),
+        );
+      }
+
       // Parameter types
       for (final param in func.params) {
         final pName = param.type.name.replaceFirst('?', '');
@@ -239,6 +255,64 @@ class SpecValidator {
                   'If it is a complex/nested type, annotate it with @HybridRecord.',
             ),
           );
+        }
+
+        // W001/W002/W003: non-nullable named optional param with no defaultLiteral.
+        // The generated `{Type name}` is invalid Dart — non-nullable named params
+        // must be `required` or have a default value.
+        // Nullability is signalled by either the `isNullable` flag OR a trailing `?`
+        // in the type name string (the convention used throughout the generators).
+        // W002 is emitted for @HybridEnum types; W003 for @HybridStruct types;
+        // W001 for all other (primitive) types.
+        final paramIsNullable = param.type.isNullable || param.type.name.endsWith('?');
+        if (param.isNamed &&
+            param.isOptional &&
+            !paramIsNullable &&
+            param.defaultLiteral == null) {
+          final bareTypeName = param.type.name.replaceFirst('?', '');
+          if (enumNames.contains(bareTypeName)) {
+            issues.add(
+              ValidationIssue(
+                severity: ValidationSeverity.warning,
+                code: 'W002',
+                message:
+                    '${spec.dartClassName}.${func.dartName}() — named param '
+                    '"${param.name}: ${param.type.name}" is a non-nullable @HybridEnum with no default value. '
+                    'The generated `{${param.type.name} ${param.name}}` is invalid Dart.',
+                hint:
+                    'Add a default value (e.g. ${param.type.name}.firstCase) to the spec, '
+                    'or make the param nullable (`${param.type.name}? ${param.name}`).',
+              ),
+            );
+          } else if (structNames.contains(bareTypeName)) {
+            issues.add(
+              ValidationIssue(
+                severity: ValidationSeverity.warning,
+                code: 'W003',
+                message:
+                    '${spec.dartClassName}.${func.dartName}() — named param '
+                    '"${param.name}: ${param.type.name}" is a non-nullable @HybridStruct with no default value. '
+                    'The generated `{${param.type.name} ${param.name}}` is invalid Dart.',
+                hint:
+                    'Add a default value (e.g. ${param.type.name}()) to the spec, '
+                    'or make the param nullable (`${param.type.name}? ${param.name}`).',
+              ),
+            );
+          } else {
+            issues.add(
+              ValidationIssue(
+                severity: ValidationSeverity.warning,
+                code: 'W001',
+                message:
+                    '${spec.dartClassName}.${func.dartName}() — named param '
+                    '"${param.name}: ${param.type.name}" is non-nullable with no default value. '
+                    'The generated `{${param.type.name} ${param.name}}` is invalid Dart.',
+                hint:
+                    'Use `${param.type.name}? ${param.name}` (nullable) and handle the default '
+                    'in native code, or add a default value to the spec.',
+              ),
+            );
+          }
         }
       }
     }

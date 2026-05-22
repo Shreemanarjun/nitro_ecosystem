@@ -575,7 +575,10 @@ class DartFfiGenerator {
     final positional = params.where((p) => !p.isNamed).map((p) => '${p.type.name} ${p.name}').join(', ');
     final named = params.where((p) => p.isNamed).toList();
     if (named.isEmpty) return positional;
-    final namedStr = named.map((p) => '${p.type.name} ${p.name}').join(', ');
+    final namedStr = named.map((p) {
+      if (p.defaultLiteral != null) return '${p.type.name} ${p.name} = ${p.defaultLiteral}';
+      return '${p.type.name} ${p.name}';
+    }).join(', ');
     final sep = positional.isEmpty ? '' : ', ';
     return '$positional$sep{$namedStr}';
   }
