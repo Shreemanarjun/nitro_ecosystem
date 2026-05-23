@@ -4,6 +4,8 @@ import 'package:nitro_generator/src/bridge_spec.dart';
 export 'package:nitro_generator/src/bridge_spec.dart';
 export 'package:nitro_generator/src/spec_validator.dart';
 export 'package:nitro_annotations/nitro_annotations.dart';
+export 'spec_from_source.dart';
+export 'spec_tester.dart';
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -1468,6 +1470,95 @@ BridgeSpec typedDataParamSpec(String typeName) => BridgeSpec(
       isAsync: false,
       returnType: BridgeType(name: 'void'),
       params: [BridgeParam(name: 'x', type: BridgeType(name: typeName))],
+    ),
+  ],
+);
+
+/// TypedData variants and their expected C++ element types (used in loop-style tests).
+const typedDataCppMappings = [
+  ('Uint8List',   'std::vector<uint8_t>'),
+  ('Int8List',    'std::vector<int8_t>'),
+  ('Int16List',   'std::vector<int16_t>'),
+  ('Int32List',   'std::vector<int32_t>'),
+  ('Uint16List',  'std::vector<uint16_t>'),
+  ('Uint32List',  'std::vector<uint32_t>'),
+  ('Float32List', 'std::vector<float>'),
+  ('Float64List', 'std::vector<double>'),
+  ('Int64List',   'std::vector<int64_t>'),
+  ('Uint64List',  'std::vector<uint64_t>'),
+];
+
+/// Minimal BridgeSpec for a stream of [itemTypeName] items.
+BridgeSpec streamSpec(String itemTypeName, {Backpressure backpressure = Backpressure.dropLatest}) =>
+    BridgeSpec(
+      dartClassName: 'Streamer',
+      lib: 'streamer',
+      namespace: 'streamer',
+      iosImpl: NativeImpl.swift,
+      androidImpl: NativeImpl.kotlin,
+      sourceUri: 'streamer.native.dart',
+      streams: [
+        BridgeStream(
+          dartName: 'events',
+          registerSymbol: 'streamer_register_events_stream',
+          releaseSymbol: 'streamer_release_events_stream',
+          itemType: BridgeType(name: itemTypeName),
+          backpressure: backpressure,
+        ),
+      ],
+    );
+
+/// Non-nullable named param with no default — triggers W001 in SpecValidator.
+BridgeSpec specWithDefaultlessIntNamedParam() => BridgeSpec(
+  dartClassName: 'Mod',
+  lib: 'mod',
+  namespace: 'mod',
+  iosImpl: NativeImpl.swift,
+  androidImpl: NativeImpl.kotlin,
+  sourceUri: 'mod.native.dart',
+  functions: [
+    BridgeFunction(
+      dartName: 'connect',
+      cSymbol: 'mod_connect',
+      isAsync: false,
+      returnType: BridgeType(name: 'void'),
+      params: [
+        BridgeParam(
+          name: 'timeout',
+          type: BridgeType(name: 'int'),
+          isNamed: true,
+          isOptional: true,
+        ),
+      ],
+    ),
+  ],
+);
+
+/// Named enum param with no default — triggers W002 in SpecValidator.
+BridgeSpec specWithEnumNamedParam() => BridgeSpec(
+  dartClassName: 'Mod',
+  lib: 'mod',
+  namespace: 'mod',
+  iosImpl: NativeImpl.swift,
+  androidImpl: NativeImpl.kotlin,
+  sourceUri: 'mod.native.dart',
+  enums: [
+    BridgeEnum(name: 'Quality', startValue: 0, values: ['low', 'normal', 'high']),
+  ],
+  functions: [
+    BridgeFunction(
+      dartName: 'print',
+      cSymbol: 'mod_print',
+      isAsync: false,
+      returnType: BridgeType(name: 'void'),
+      params: [
+        BridgeParam(
+          name: 'quality',
+          type: BridgeType(name: 'Quality'),
+          isNamed: true,
+          isOptional: true,
+        ),
+      ],
     ),
   ],
 );

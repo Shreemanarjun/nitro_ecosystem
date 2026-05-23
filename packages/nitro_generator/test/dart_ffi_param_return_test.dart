@@ -67,6 +67,51 @@ void main() {
     });
   });
 
+  // ── Section 2b: Struct-typed default param (Bug 5.3) ────────────────────────
+
+  group('DartFfiGenerator — struct named param with default (Bug 5.3)', () {
+    final spec = BridgeSpec(
+      dartClassName: 'Mod',
+      lib: 'mod',
+      namespace: 'mod',
+      iosImpl: NativeImpl.swift,
+      androidImpl: NativeImpl.kotlin,
+      sourceUri: 'mod.native.dart',
+      structs: [
+        BridgeStruct(name: 'PrintSettings', packed: false, fields: [
+          BridgeField(name: 'copies', type: BridgeType(name: 'int')),
+        ]),
+      ],
+      functions: [
+        BridgeFunction(
+          dartName: 'printDoc',
+          cSymbol: 'mod_print_doc',
+          isAsync: false,
+          returnType: BridgeType(name: 'void'),
+          params: [
+            BridgeParam(
+              name: 'settings',
+              type: BridgeType(name: 'PrintSettings', isRecord: false),
+              isNamed: true,
+              isOptional: true,
+              defaultLiteral: 'PrintSettings(copies: 1)',
+            ),
+          ],
+        ),
+      ],
+    );
+
+    test('{PrintSettings settings = PrintSettings(copies: 1)} emits struct default', () {
+      final out = DartFfiGenerator.generate(spec);
+      expect(out, contains('{PrintSettings settings = PrintSettings(copies: 1)}'));
+    });
+
+    test('struct param with default does NOT emit required keyword', () {
+      final out = DartFfiGenerator.generate(spec);
+      expect(out, isNot(contains('required PrintSettings settings')));
+    });
+  });
+
   // ── Section 3: Future<Uint8List> async return ────────────────────────────────
 
   group('DartFfiGenerator — Future<Uint8List> async return', () {

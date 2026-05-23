@@ -5,6 +5,7 @@ import 'package:nocterm_unrouter/nocterm_unrouter.dart';
 
 import 'package:nitrogen_cli/commands/init_command.dart';
 import 'package:nitrogen_cli/commands/generate_command.dart';
+import 'package:nitrogen_cli/commands/clean_command.dart';
 import 'package:nitrogen_cli/commands/link_command.dart';
 import 'package:nitrogen_cli/commands/doctor_command.dart';
 import 'package:nitrogen_cli/commands/update_command.dart';
@@ -33,6 +34,7 @@ void main(List<String> args) async {
   final runner = CommandRunner('nitrogen', 'Nitrogen FFI toolkit')
     ..addCommand(InitCommand())
     ..addCommand(GenerateCommand())
+    ..addCommand(CleanCommand())
     ..addCommand(LinkCommand())
     ..addCommand(DoctorCommand())
     ..addCommand(MigrateCommand())

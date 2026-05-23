@@ -181,6 +181,11 @@ String boldRed(String t) => _s(t, const TextStyle(color: Colors.red, fontWeight:
 String blue(String t) => _s(t, const TextStyle(color: Colors.blue));
 String magenta(String t) => _s(t, const TextStyle(color: Colors.magenta));
 
+// ── ANSI stripping ────────────────────────────────────────────────────────────
+
+/// Removes ANSI escape sequences from [s] (colours, bold, cursor moves, etc.).
+String stripAnsi(String s) => s.replaceAll(RegExp(r'\x1B(?:[@-Z\\-_]|\[[0-9;]*[A-Za-z])'), '');
+
 // ── Process streaming ─────────────────────────────────────────────────────────
 
 /// Runs [executable] and streams its stdout/stderr to the terminal in real time.
@@ -215,6 +220,51 @@ Future<int> runStreaming(String executable, List<String> args, {String? workingD
   await sigtermSub?.cancel();
 
   return process.exitCode;
+}
+
+/// Like [runStreaming] but:
+/// - strips ANSI escape sequences from subprocess output when [headless] is true
+/// - scans each line for `[WARNING]` patterns when [scanWarnings] is true
+///
+/// Returns a record `(exitCode, hadWarnings)`.
+Future<({int exitCode, bool hadWarnings})> runStreamingInspected(
+  String executable,
+  List<String> args, {
+  String? workingDirectory,
+  bool headless = false,
+  bool scanWarnings = false,
+}) async {
+  final process = await Process.start(executable, args, workingDirectory: workingDirectory);
+
+  StreamSubscription? sigintSub;
+  StreamSubscription? sigtermSub;
+  if (!Platform.isWindows) {
+    sigintSub = ProcessSignal.sigint.watch().listen((_) {
+      process.kill(ProcessSignal.sigint);
+      exit(130);
+    });
+    sigtermSub = ProcessSignal.sigterm.watch().listen((_) {
+      process.kill(ProcessSignal.sigterm);
+      exit(143);
+    });
+  }
+
+  var hadWarnings = false;
+
+  void handleLine(String line) {
+    if (scanWarnings && line.contains('[WARNING]')) hadWarnings = true;
+    stdout.writeln(headless ? stripAnsi(line) : line);
+  }
+
+  await Future.wait([
+    process.stdout.transform(utf8.decoder).transform(const LineSplitter()).listen(handleLine).asFuture<void>(),
+    process.stderr.transform(utf8.decoder).transform(const LineSplitter()).listen(handleLine).asFuture<void>(),
+  ]);
+
+  await sigintSub?.cancel();
+  await sigtermSub?.cancel();
+
+  return (exitCode: await process.exitCode, hadWarnings: hadWarnings);
 }
 
 /// Runs [executable] and returns a stream of its interleaved stdout/stderr.

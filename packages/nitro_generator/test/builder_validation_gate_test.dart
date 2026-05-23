@@ -54,8 +54,8 @@ BridgeSpec _e001Spec() => BridgeSpec(
       params: [
         BridgeParam(
           name: 'meta',
-          // Map<K,V> where K != String → E001
-          type: BridgeType(name: 'Map<int, String>', isRecord: true, isMap: true),
+          // Map<K,V> where K != String → E001 (isMap:false = extractor did not recognise Map<String,V>)
+          type: BridgeType(name: 'Map<int, String>', isRecord: true, isMap: false),
         ),
       ],
     ),

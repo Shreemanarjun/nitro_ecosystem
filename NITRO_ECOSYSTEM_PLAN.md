@@ -1493,9 +1493,9 @@ nitro generate --verbose
 | `SwiftGenerator` emits `x: Int64 = 5` when `defaultLiteral` set | ⚠️ N/A — Swift protocols don't allow default values | — |
 | `KotlinGenerator` emits `x: Long = 5` when `defaultLiteral` set | ⚠️ N/A — Dart side manages defaults for bridge | — |
 | Same for bool, double, String defaults | ✅ **DONE** 2026-05-22 | all tested in `optional_param_defaults_test` |
-| Same for enum defaults (Bug 5.2) | 🔲 TODO | `defaultEnumParamSpec()` test passes |
+| Same for enum defaults (Bug 5.2) | ✅ **DONE** 2026-05-23 | `dart_ffi_param_return_test.dart` Bug 5.2 group (3 tests) |
 | Validation emits W001 when `defaultLiteral` is null on non-nullable optional param | ✅ **DONE** 2026-05-22 | 7 W001 tests in `spec_validator_test` pass |
-| All new spec helpers in `test_utils.dart` added (§9) | 🔲 TODO | dart analyze passes |
+| All new spec helpers in `test_utils.dart` added (§9) | ✅ **DONE** 2026-05-23 | `typedDataCppMappings`, `streamSpec`, `specWithDefaultlessIntNamedParam`, `specWithEnumNamedParam` added |
 | All P0 missing tests from §8.1–8.3 added | 🔲 Partial | test suite green |
 
 ### Phase 2 — P1: Type completeness
@@ -1517,10 +1517,10 @@ nitro generate --verbose
 
 | Task | Status | Done when |
 |---|---|---|
-| `nitro generate --no-ui` headless mode | 🔲 TODO | structured `[nitro]` lines, correct exit codes |
-| TTY auto-detection | 🔲 TODO | headless activates automatically in CI |
+| `nitro generate --no-ui` headless mode | ✅ **DONE** 2026-05-23 | `[nitro]` prefix lines, no ANSI; `generate_command.dart` |
+| TTY auto-detection | ✅ **DONE** 2026-05-23 | `_headless` getter checks `!stdout.hasTerminal`; auto-activates in CI |
 | `--check` mode | 🔲 TODO | exit code 3 when stale |
-| `--fail-on-warn` flag | 🔲 TODO | exit code 2 on warnings |
+| `--fail-on-warn` flag | ✅ **DONE** 2026-05-23 | exit code 2 on `[WARNING]` lines; `runStreamingInspected` in `ui.dart` |
 | `--dry-run` flag | 🔲 TODO | no files written, paths listed |
 
 ### Phase 4 — P1: Validation pass
@@ -1534,7 +1534,7 @@ nitro generate --verbose
 | E005: `@ZeroCopy` on non-TypedData | ✅ **DONE** (exists as INVALID_ZERO_COPY) | `spec_validator_test.dart` covers it |
 | W002/W003: enum/struct-typed default param | ✅ **DONE** 2026-05-23 | `spec_validator_complete_test.dart` (16 W002/W003 tests) |
 | W004: `Stream<T>` without `@NitroStream` | ✅ **DONE** 2026-05-23 | `spec_validator_complete_test.dart` W004 group (8 tests); `BridgeStream.isAnnotated` flag in bridge_spec + extractor |
-| Validation runs before any file is written | 🔲 TODO | confirmed in integration test |
+| Validation runs before any file is written | ✅ **DONE** 2026-05-23 | `builder_validation_gate_test.dart` (13 tests) |
 
 ### Phase 5 — P2: Terminal UI
 
@@ -1550,7 +1550,7 @@ nitro generate --verbose
 | Task | Status | Done when |
 |---|---|---|
 | Content-hash incremental generation | 🔲 TODO | only changed spec regenerated |
-| `nitro clean` command | 🔲 TODO | all generated files + cache deleted |
+| `nitro clean` command | ✅ **DONE** 2026-05-23 | `clean_command.dart`; deletes `*.g.dart`, `*.bridge.g.swift`, `*.bridge.g.kt`, `Hybrid*.hpp/cpp`, `*.bridge.g.h`, build_runner lock+graph |
 | `--targets` partial generation | 🔲 TODO | only specified platforms emitted |
 | `--watch` with 250ms debounce | 🔲 TODO | triggers correctly on single file save |
 
@@ -1558,10 +1558,10 @@ nitro generate --verbose
 
 | Task | Status | Done when |
 |---|---|---|
-| `nitro doctor` environment check | 🔲 TODO | all items from §15 |
-| `--verbose` timing breakdown | 🔲 TODO | per-phase timing shown |
-| Struct-typed default params (Bug 5.3) | 🔲 TODO | `defaultStructParamSpec()` test passes |
-| `Map<String,V>` where V is `@HybridRecord` | 🔲 TODO | §3.7 fully verified |
+| `nitro doctor` environment check | ✅ **DONE** (pre-existing) | `doctor_command.dart`; checks Xcode, clang++, Android NDK, CMake, build system wiring |
+| `--verbose` timing breakdown | ✅ **DONE** 2026-05-23 | `-v`/`--verbose` flag; `⏱  pub get/build_runner/total: Xs` after each phase |
+| Struct-typed default params (Bug 5.3) | ✅ **DONE** 2026-05-23 | `dart_ffi_param_return_test.dart` Bug 5.3 group (2 tests); same `defaultLiteral` mechanism as 5.1/5.2 |
+| `Map<String,V>` where V is `@HybridRecord` | ✅ **DONE** 2026-05-23 | `map_hybrid_record_test.dart` (9 tests) — already tracked in §3.7 |
 
 ---
 

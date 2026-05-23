@@ -30,42 +30,110 @@ import 'link_command.dart'
         isAndroidCppModule;
 
 class GenerateCommand extends Command {
+  GenerateCommand() {
+    argParser
+      ..addFlag(
+        'no-ui',
+        negatable: false,
+        help: 'Plain-text headless output (no ANSI). Auto-enabled when stdout is not a TTY.',
+      )
+      ..addFlag(
+        'fail-on-warn',
+        negatable: false,
+        help: 'Exit with code 2 if build_runner emits any [WARNING] lines.',
+      )
+      ..addFlag(
+        'verbose',
+        abbr: 'v',
+        negatable: false,
+        help: 'Show per-phase timing breakdown.',
+      );
+  }
+
   @override
   final String name = 'generate';
 
   @override
   final String description = 'Runs the Nitrogen code generator (build_runner) with live output.';
 
+  bool get _headless => !stdout.hasTerminal || (argResults!['no-ui'] as bool);
+  bool get _verbose => argResults!['verbose'] as bool;
+
+  void _logTiming(String phase, Duration elapsed) {
+    if (!_verbose) return;
+    final ms = elapsed.inMilliseconds;
+    final label = ms >= 1000 ? '${(ms / 1000).toStringAsFixed(1)}s' : '${ms}ms';
+    if (_headless) {
+      stdout.writeln('[nitro:timing] $phase: $label');
+    } else {
+      stdout.writeln(gray('     ⏱  $phase: $label'));
+    }
+  }
+
+  void _log(String msg) {
+    if (_headless) {
+      stdout.writeln('[nitro] $msg');
+    } else {
+      stdout.writeln(cyan('  › $msg'));
+    }
+  }
+
+  void _logError(String msg) {
+    if (_headless) {
+      stderr.writeln('[nitro:error] $msg');
+    } else {
+      stderr.writeln(boldRed('  ✘  $msg'));
+    }
+  }
+
   /// Executes the generation logic and returns the exit code.
   /// Does NOT call exit().
   Future<int> execute() async {
+    final failOnWarn = argResults!['fail-on-warn'] as bool;
+
     final projectDir = findNitroProjectRoot();
     if (projectDir == null) {
-      stderr.writeln(red('❌ No Nitro project found in . or its subdirectories (must have nitro dependency in pubspec.yaml).'));
+      _logError('No Nitro project found in . or its subdirectories (must have nitro dependency in pubspec.yaml).');
       return 1;
     }
 
-    // If we're not in the project root, let the user know we've found it
     if (projectDir.path != Directory.current.path) {
-      stdout.writeln(gray('  📂 Found project in: ${projectDir.path}'));
+      if (_headless) {
+        stdout.writeln('[nitro] project: ${projectDir.path}');
+      } else {
+        stdout.writeln(gray('  📂 Found project in: ${projectDir.path}'));
+      }
     }
 
-    stdout.writeln('');
-    stdout.writeln(boldCyan('  ╔══════════════════════════╗'));
-    stdout.writeln(boldCyan('  ║  nitrogen generate       ║'));
-    stdout.writeln(boldCyan('  ╚══════════════════════════╝'));
-    stdout.writeln('');
+    if (_headless) {
+      stdout.writeln('[nitro] nitrogen generate');
+    } else {
+      stdout.writeln('');
+      stdout.writeln(boldCyan('  ╔══════════════════════════╗'));
+      stdout.writeln(boldCyan('  ║  nitrogen generate       ║'));
+      stdout.writeln(boldCyan('  ╚══════════════════════════╝'));
+      stdout.writeln('');
+    }
+
+    final totalStart = DateTime.now();
 
     // ── pub get ─────────────────────────────────────────────────────────────
-    stdout.writeln(cyan('  › flutter pub get …'));
-    var exitCode = await runStreaming('flutter', ['pub', 'get'], workingDirectory: projectDir.path);
+    _log('flutter pub get …');
+    final t0 = DateTime.now();
+    final pubGetResult = await runStreamingInspected(
+      'flutter', ['pub', 'get'],
+      workingDirectory: projectDir.path,
+      headless: _headless,
+    );
+    _logTiming('pub get', DateTime.now().difference(t0));
+    var exitCode = pubGetResult.exitCode;
     // Exit 255 is a known Dart SDK advisory-decode bug (pub.dev API mismatch).
     // Packages are still resolved successfully — do not abort.
     if (exitCode != 0 && exitCode != 255) {
-      stderr.writeln(red('  ✘  flutter pub get failed (exit $exitCode)'));
+      _logError('flutter pub get failed (exit $exitCode)');
       return exitCode;
     }
-    stdout.writeln('');
+    if (!_headless) stdout.writeln('');
 
     // ── build_runner ─────────────────────────────────────────────────────────
     // Use `flutter pub run` (not `dart run`) because Flutter projects require
@@ -77,7 +145,11 @@ class GenerateCommand extends Command {
     // removing the lock file lets the new one start immediately.
     final existingCount = await killBuildRunner(workingDirectory: projectDir.path);
     if (existingCount > 0) {
-      stdout.writeln(gray('  › Stopped existing build_runner instance.'));
+      if (_headless) {
+        stdout.writeln('[nitro] stopped existing build_runner instance');
+      } else {
+        stdout.writeln(gray('  › Stopped existing build_runner instance.'));
+      }
     }
 
     // Delete only the lock file and asset graph — NOT the entrypoint/ directory.
@@ -92,25 +164,33 @@ class GenerateCommand extends Command {
       if (f.existsSync()) f.deleteSync();
     }
 
-    stdout.writeln(cyan('  › build_runner build …'));
-    stdout.writeln('');
-    exitCode = await runStreaming(
+    _log('build_runner build …');
+    if (!_headless) stdout.writeln('');
+    final t1 = DateTime.now();
+    final buildResult = await runStreamingInspected(
       'flutter',
-      [
-        'pub',
-        'run',
-        'build_runner',
-        'build',
-        '--delete-conflicting-outputs',
-      ],
+      ['pub', 'run', 'build_runner', 'build', '--delete-conflicting-outputs'],
       workingDirectory: projectDir.path,
+      headless: _headless,
+      scanWarnings: failOnWarn,
     );
+    _logTiming('build_runner', DateTime.now().difference(t1));
+    exitCode = buildResult.exitCode;
 
-    stdout.writeln('');
+    if (!_headless) stdout.writeln('');
     if (exitCode != 0) {
-      stderr.writeln(boldRed('  ✘  build_runner failed (exit $exitCode)'));
-      stderr.writeln(gray('     Check the output above for details.'));
+      _logError('build_runner failed (exit $exitCode)');
+      if (!_headless) stderr.writeln(gray('     Check the output above for details.'));
       return exitCode;
+    }
+
+    if (failOnWarn && buildResult.hadWarnings) {
+      if (_headless) {
+        stderr.writeln('[nitro:warn] build_runner emitted warnings — failing due to --fail-on-warn');
+      } else {
+        stderr.writeln(yellow('  ⚠  Warnings detected. Failing due to --fail-on-warn.'));
+      }
+      return 2;
     }
 
     // ── Post-generation bridge cleanup ───────────────────────────────────────
@@ -124,7 +204,7 @@ class GenerateCommand extends Command {
     // ── nitrogen link (auto) ─────────────────────────────────────────────────
     // Automatically run the patching logic (build.gradle, Plugin.kt, etc.)
     // so users don't have to remember to run `nitrogen link` manually.
-    stdout.writeln(cyan('  › nitrogen link (auto-patching) …'));
+    _log('nitrogen link (auto-patching) …');
     final pluginName = _readPluginName(projectDir.path);
     final moduleInfos = discoverModuleInfos(pluginName, baseDir: projectDir.path);
     final hasCpp = moduleInfos.any((m) => m.isCpp);
@@ -183,14 +263,18 @@ class GenerateCommand extends Command {
     // ── pod install ──────────────────────────────────────────────────────────
     final podfileDirs = findPodfileDirs(projectDir.path);
     for (final dir in podfileDirs) {
-      stdout.writeln(cyan('  › pod install (${p.relative(dir, from: projectDir.path)}) …'));
-      final podExitCode = await runStreaming(
-        'pod',
-        ['install'],
+      _log('pod install (${p.relative(dir, from: projectDir.path)}) …');
+      final podResult = await runStreamingInspected(
+        'pod', ['install'],
         workingDirectory: dir,
+        headless: _headless,
       );
-      if (podExitCode != 0) {
-        stderr.writeln(red('  ⚠  pod install failed in $dir (exit $podExitCode) — continuing'));
+      if (podResult.exitCode != 0) {
+        if (_headless) {
+          stderr.writeln('[nitro:warn] pod install failed in $dir (exit ${podResult.exitCode}) — continuing');
+        } else {
+          stderr.writeln(red('  ⚠  pod install failed in $dir (exit ${podResult.exitCode}) — continuing'));
+        }
       }
     }
 
@@ -198,16 +282,26 @@ class GenerateCommand extends Command {
     final libDir = Directory(p.join(projectDir.path, 'lib'));
     final hasCppModules = libDir.existsSync() && libDir.listSync(recursive: true).whereType<File>().where((f) => f.path.endsWith('.native.dart')).any(isCppModule);
 
-    stdout.writeln('');
-    stdout.writeln(boldGreen('  ✨ Generation complete!'));
-    if (hasCppModules) {
-      final pubspecName = _readPluginName(projectDir.path);
-      stdout.writeln(gray('     C++ modules: subclass Hybrid<Module>, call ${pubspecName}_register_impl(&impl).'));
-      stdout.writeln(gray('     Run nitrogen link to wire bridges into the build system.'));
+    _logTiming('total', DateTime.now().difference(totalStart));
+
+    if (_headless) {
+      stdout.writeln('[nitro] generation complete');
+      if (hasCppModules) {
+        final pubspecName = _readPluginName(projectDir.path);
+        stdout.writeln('[nitro] C++ modules: subclass Hybrid<Module>, call ${pubspecName}_register_impl(&impl)');
+      }
     } else {
-      stdout.writeln(gray('     Run nitrogen link to wire bridges into the build system.'));
+      stdout.writeln('');
+      stdout.writeln(boldGreen('  ✨ Generation complete!'));
+      if (hasCppModules) {
+        final pubspecName = _readPluginName(projectDir.path);
+        stdout.writeln(gray('     C++ modules: subclass Hybrid<Module>, call ${pubspecName}_register_impl(&impl).'));
+        stdout.writeln(gray('     Run nitrogen link to wire bridges into the build system.'));
+      } else {
+        stdout.writeln(gray('     Run nitrogen link to wire bridges into the build system.'));
+      }
+      stdout.writeln('');
     }
-    stdout.writeln('');
     return 0;
   }
 

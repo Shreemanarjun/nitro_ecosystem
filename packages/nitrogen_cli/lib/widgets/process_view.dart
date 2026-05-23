@@ -6,6 +6,9 @@ import 'package:nocterm_unrouter/nocterm_unrouter.dart';
 import '../routes.dart';
 import '../ui.dart';
 
+// Braille-dots spinner — 10 frames at 100 ms each gives a smooth crawl.
+const _spinnerFrames = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'];
+
 class ProcessView extends StatefulComponent {
   const ProcessView({
     required this.title,
@@ -43,6 +46,10 @@ class _ProcessViewState extends State<ProcessView> {
   int? _exitCode;
   bool _successPulse = false;
   Timer? _pulseTimer;
+  Timer? _spinnerTimer;
+  int _spinnerFrame = 0;
+  DateTime? _startTime;
+  Duration _elapsed = Duration.zero;
   Process? _process;
 
   @override
@@ -54,6 +61,7 @@ class _ProcessViewState extends State<ProcessView> {
   @override
   void dispose() {
     _pulseTimer?.cancel();
+    _spinnerTimer?.cancel();
     if (component.killOnDispose && _process != null) {
       // Terminate the process group so child processes (e.g. build_runner) are
       // also killed. Fall back to plain kill() if ProcessSignal is unavailable.
@@ -67,9 +75,20 @@ class _ProcessViewState extends State<ProcessView> {
   }
 
   void _start() async {
+    _startTime = DateTime.now();
     setState(() {
       _running = true;
       _logs.add('[Info] Starting ${component.executable} ${component.args.join(' ')}...');
+    });
+
+    // Spinner ticks every 100 ms — advances frame + refreshes elapsed time.
+    _spinnerTimer = Timer.periodic(const Duration(milliseconds: 100), (_) {
+      if (mounted && _running) {
+        setState(() {
+          _spinnerFrame = (_spinnerFrame + 1) % _spinnerFrames.length;
+          _elapsed = DateTime.now().difference(_startTime!);
+        });
+      }
     });
 
     try {
@@ -80,7 +99,6 @@ class _ProcessViewState extends State<ProcessView> {
       );
       _process = process;
 
-      // Handle stdout
       process.stdout.transform(const Utf8Decoder()).transform(const LineSplitter()).listen((line) {
         if (!mounted) return;
         setState(() {
@@ -89,7 +107,6 @@ class _ProcessViewState extends State<ProcessView> {
         });
       });
 
-      // Handle stderr
       process.stderr.transform(const Utf8Decoder()).transform(const LineSplitter()).listen((line) {
         if (!mounted) return;
         setState(() {
@@ -100,14 +117,18 @@ class _ProcessViewState extends State<ProcessView> {
 
       final code = await process.exitCode;
       if (!mounted) return;
-      // In watch mode SIGTERM (143) / SIGKILL (137) are expected when the user
-      // navigates away — treat them as a clean stop.
+
       final bool watchStopped = component.watchMode && (code == 143 || code == 137 || code == -1);
       final int effectiveCode = watchStopped ? 0 : code;
+
+      _spinnerTimer?.cancel();
+      _spinnerTimer = null;
+
       setState(() {
         _running = false;
         _done = true;
         _exitCode = effectiveCode;
+        _elapsed = DateTime.now().difference(_startTime!);
         if (watchStopped) {
           _logs.add('[Info] Watcher stopped.');
         } else {
@@ -120,17 +141,55 @@ class _ProcessViewState extends State<ProcessView> {
         }
       });
     } catch (e) {
+      _spinnerTimer?.cancel();
+      _spinnerTimer = null;
       if (!mounted) return;
       setState(() {
         _running = false;
         _done = true;
+        _elapsed = DateTime.now().difference(_startTime ?? DateTime.now());
         _logs.add('[Fatal] Failed to start process: $e');
       });
     }
   }
 
+  /// Elapsed time formatted as `4.2s` or `1m 03s`.
+  String _formatElapsed(Duration d) {
+    if (d.inMinutes > 0) {
+      final m = d.inMinutes;
+      final s = d.inSeconds % 60;
+      return '${m}m ${s.toString().padLeft(2, '0')}s';
+    }
+    final secs = d.inMilliseconds / 1000.0;
+    return '${secs.toStringAsFixed(1)}s';
+  }
+
+  /// Colour-codes a log line for easier scanning.
+  TextStyle _styleForLine(String line) {
+    if (line.startsWith('[Fatal]') || line.startsWith('[SEVERE]')) {
+      return const TextStyle(color: Colors.red, fontWeight: FontWeight.bold);
+    }
+    if (line.startsWith('[Error]') || line.contains('[ERROR]') || line.contains('ERROR')) {
+      return const TextStyle(color: Colors.red);
+    }
+    if (line.startsWith('[Warning]') || line.contains('[WARNING]') || line.contains('WARNING')) {
+      return const TextStyle(color: Colors.yellow);
+    }
+    if (line.startsWith('[Info]')) {
+      return const TextStyle(color: Colors.gray, fontWeight: FontWeight.dim);
+    }
+    if (line.startsWith('[FINE]') || line.startsWith('[FINER]')) {
+      return const TextStyle(color: Colors.brightBlack);
+    }
+    return const TextStyle(color: Colors.white);
+  }
+
   @override
   Component build(BuildContext context) {
+    final spinnerChar = _spinnerFrames[_spinnerFrame % _spinnerFrames.length];
+    final elapsedStr = _formatElapsed(_elapsed);
+    final lineCount = _logs.length;
+
     return Focusable(
       focused: true,
       onKeyEvent: (event) {
@@ -138,7 +197,6 @@ class _ProcessViewState extends State<ProcessView> {
           context.unrouterAs<NitroRoute>().go(const RootRoute());
           return true;
         }
-        // 'c' / 'C' — copy all logs to clipboard
         if (event.character == 'c' || event.character == 'C') {
           copyToClipboard(_logs.join('\n'));
           return true;
@@ -147,67 +205,111 @@ class _ProcessViewState extends State<ProcessView> {
       },
       child: Column(
         children: [
+          // ── Title bar ─────────────────────────────────────────────────────
           Padding(
             padding: const EdgeInsets.only(top: 1, left: 1, right: 1),
-            child: Container(
-              decoration: BoxDecoration(border: BoxBorder.all(color: _successPulse ? Colors.green : Colors.cyan)),
-              child: Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 2),
-                child: Text(
-                  ' ${component.title} ',
-                  style: TextStyle(color: _successPulse ? Colors.green : Colors.magenta, fontWeight: FontWeight.bold),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Expanded(
+                  child: Container(
+                    decoration: BoxDecoration(
+                      border: BoxBorder.all(color: _successPulse ? Colors.green : Colors.cyan),
+                    ),
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 2),
+                      child: Text(
+                        ' ${component.title} ',
+                        style: TextStyle(
+                          color: _successPulse ? Colors.green : Colors.magenta,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                    ),
+                  ),
                 ),
-              ),
+                // Line-count badge
+                Padding(
+                  padding: const EdgeInsets.only(left: 1),
+                  child: Text(
+                    '$lineCount lines',
+                    style: const TextStyle(color: Colors.brightBlack, fontWeight: FontWeight.dim),
+                  ),
+                ),
+              ],
             ),
           ),
+
           const SizedBox(height: 1),
-          // Keep the success layout stable even when pulsing to avoid flickering/jumps
+
+          // ── Success banner (stable height, prevents layout jumps) ─────────
           if (_done && _exitCode == 0 && !component.watchMode)
             Container(
-              padding: const EdgeInsets.all(1),
+              padding: const EdgeInsets.symmetric(vertical: 1),
               child: Text(
-                '  ✨ SUCCESS  ✨  ',
+                '  ✨ SUCCESS — $_elapsedStr  ✨  ',
                 style: TextStyle(
-                  color: _successPulse ? Colors.green : Colors.black,
+                  color: _successPulse ? Colors.green : Colors.brightGreen,
                   fontWeight: FontWeight.bold,
                 ),
               ),
             ),
+
+          // ── Log viewport ─────────────────────────────────────────────────
           Expanded(
             child: Padding(
               padding: const EdgeInsets.symmetric(horizontal: 1),
               child: Container(
                 decoration: BoxDecoration(
                   border: BoxBorder.all(
-                    color: (_done && _exitCode != null && _exitCode != 0) ? Colors.red : Colors.brightBlack,
+                    color: (_done && _exitCode != null && _exitCode != 0)
+                        ? Colors.red
+                        : (_running ? Colors.cyan : Colors.brightBlack),
                   ),
                 ),
                 child: Padding(
                   padding: const EdgeInsets.all(1),
                   child: ListView(
                     controller: _scroll,
-                    children: _logs.map((l) => Text(l, style: const TextStyle(color: Colors.white))).toList(),
+                    children: _logs.map((l) => Text(l, style: _styleForLine(l))).toList(),
                   ),
                 ),
               ),
             ),
           ),
+
+          // ── Status bar ────────────────────────────────────────────────────
           Padding(
             padding: const EdgeInsets.all(1),
             child: Row(
-              mainAxisAlignment: MainAxisAlignment.center,
               children: [
-                if (_running)
+                // Spinner + status
+                if (_running) ...[
                   Text(
-                    component.watchMode ? '👁 Watching...' : '⚙ Running...',
+                    '$spinnerChar ',
+                    style: const TextStyle(color: Colors.cyan, fontWeight: FontWeight.bold),
+                  ),
+                  Text(
+                    component.watchMode ? 'Watching…' : 'Running…',
                     style: const TextStyle(color: Colors.yellow),
                   ),
+                  const SizedBox(width: 1),
+                  Text(
+                    elapsedStr,
+                    style: const TextStyle(color: Colors.brightBlack),
+                  ),
+                ],
                 if (_done)
                   Text(
-                    _exitCode == 0 ? (component.watchMode ? '■ Stopped' : '✔ Success') : '✘ Failed (Code $_exitCode)',
-                    style: TextStyle(color: _exitCode == 0 ? Colors.green : Colors.red, fontWeight: FontWeight.bold),
+                    _exitCode == 0
+                        ? (component.watchMode ? '■ Stopped' : '✔ Done in $elapsedStr')
+                        : '✘ Failed (code $_exitCode) — $elapsedStr',
+                    style: TextStyle(
+                      color: _exitCode == 0 ? Colors.green : Colors.red,
+                      fontWeight: FontWeight.bold,
+                    ),
                   ),
-                const SizedBox(width: 2),
+                Expanded(child: const SizedBox()),
                 HoverButton(
                   label: '‹ Back',
                   onTap: () => context.unrouterAs<NitroRoute>().go(const RootRoute()),
@@ -227,4 +329,7 @@ class _ProcessViewState extends State<ProcessView> {
       ),
     );
   }
+
+  // Convenience getter so the build method can use `$_elapsedStr` directly.
+  String get _elapsedStr => _formatElapsed(_elapsed);
 }
