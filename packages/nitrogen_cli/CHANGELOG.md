@@ -1,3 +1,12 @@
+## 0.4.3
+
+- **New: `nitrogen generate --no-ui`** — Headless plain-text output mode with no ANSI colours, auto-enabled when stdout is not a TTY (great for CI pipelines and scripts).
+- **New: `nitrogen generate --fail-on-warn`** — Exits with code 2 if `build_runner` emits any `[WARNING]` lines, so CI catches generation warnings as failures.
+- **New: `nitrogen generate --verbose` / `-v`** — Prints a per-phase timing breakdown (e.g. "resolve: 120ms, codegen: 340ms") at the end of generation.
+- **New: `nitrogen clean` command** — Deletes all Nitrogen-generated files (`*.g.dart`, `*.bridge.g.*`, `*.native.g.h`, etc.) and the `build_runner` cache in one command.
+- **Fixed: SPM `Package.swift` missing FlutterFramework dependency** — `nitrogen link` now patches older plugin `Package.swift` files to add the `FlutterFramework` target dependency if it is missing, preventing SPM build failures after upgrading Flutter.
+- **Fixed: ANSI escape codes in headless `build_runner` output** — `runStreamingInspected` strips ANSI sequences from subprocess output when running in `--no-ui` mode, so log files stay clean.
+
 ## 0.4.2
 
 - **Fixed: Apple C++ forwarder incorrectly deleted** — `link_command.dart` now uses a safe default: forwarders are kept when no spec file exists for a library. Previously any lib not in `platformCppLibs` was deleted, removing valid Apple forwarders from plugins without a local spec.

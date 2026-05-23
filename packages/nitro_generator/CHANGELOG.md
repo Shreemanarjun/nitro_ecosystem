@@ -1,3 +1,17 @@
+## 0.4.3
+
+- **Fixed: Optional primitive parameters (`int?`, `double?`, `bool?`) across the FFI bridge** — Dart now encodes `null` as a sentinel value (`-1` for `int?`/`bool?`, `NaN` for `double?`) when calling the C bridge, and Kotlin decodes those sentinels back to `null` before forwarding to your implementation. Previously, passing `null` for an optional primitive caused a JVM method descriptor mismatch crash at runtime.
+- **Fixed: Nullable struct parameters in JNI bridges** — Null-checks are now emitted before calling `unpack_*_to_jni`, so passing a `null` struct reference no longer causes a segfault.
+- **Fixed: Non-zero-copy `TypedData` fields in struct JNI bridges** — Non-ZC typed-data struct fields (e.g. `Uint8List` without `zeroCopy`) now correctly allocate a malloc'd C buffer from the Java array on unpack, and create a Java array from the C buffer on pack, with proper `DeleteLocalRef` cleanup.
+- **Fixed: Type-only spec files generate correctly** — Specs that only declare enums/structs (no class bridge) now early-return and produce only type declarations instead of an empty or broken bridge file.
+- **Fixed: Enum and record JVM method descriptors** — JNI method descriptor builder now emits `J` for enum params and `[B` for record params, matching what the JVM expects.
+- **Fixed: Nullable type stripping in JNI descriptors** — `?` is stripped from type names before struct/enum descriptor lookup so `Point?` maps to the correct `L.../Point;` descriptor.
+- **Fixed: Named parameters with default values in Dart FFI signature** — Generated bridge function signatures now include the default literal (e.g. `int copies = 1`) so callers can omit them.
+- **Fixed: `StateError` on non-optional null struct/record returns** — A `StateError` is now thrown immediately when a native call returns `nullptr` for a non-nullable struct or record return type, instead of crashing later with a null-dereference.
+- **Fixed: Cross-file type includes in C++ header** — When a spec references types from other `.native.dart` files, the generated header now emits the corresponding `#include` directives.
+- **New: `specTest` testing API** — New `test/spec_tester.dart` and `test/spec_from_source.dart` helpers let you test any generator against an inline source string in one `specTest(...)` call — no `build_runner` or on-disk spec file needed. Supports per-language checks (`has`, `hasNot`, `before` ordering), `all:` cross-language assertions, `skip:`, and `debugPrint:`.
+- **Tests: 65 new edge-case tests** — `spec_tester_test.dart` covers parsing defaults, annotation args, function kinds, parameters, sentinel encoding, properties, streams, enums, structs, error cases, and the specTest harness itself.
+
 ## 0.4.2
 
 - **Fixed: Nullable return types in Swift bridge** — `spec_extractor.dart` `_makeBridgeType` now reads `type.nullabilitySuffix == NullabilitySuffix.question` and propagates `isNullable: true` into every returned `BridgeType`. Previously `isNullable` was always `false` for function return types, so methods like `int? maxLevel()` silently generated `return impl.maxLevel()` (invalid Swift — `Int64?` not assignable to `Int64`).

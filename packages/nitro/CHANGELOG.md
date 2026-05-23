@@ -1,3 +1,7 @@
+## 0.4.3
+
+- **Ecosystem sync** — Aligned with `nitro_annotations`, `nitro_generator`, and `nitrogen_cli` 0.4.3.
+
 ## 0.4.2
 
 - **Ecosystem sync** — Aligned with `nitro_annotations`, `nitro_generator`, and `nitrogen_cli` 0.4.2.
