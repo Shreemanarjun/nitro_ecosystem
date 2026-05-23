@@ -1,4 +1,4 @@
-import 'package:flutter_test/flutter_test.dart';
+import 'package:test/test.dart';
 import 'package:nitro_annotations/nitro_annotations.dart';
 import 'package:nitro_generator/src/bridge_spec.dart';
 import 'package:nitro_generator/src/generators/dart_ffi_generator.dart';
@@ -15,45 +15,43 @@ BridgeSpec _typeOnlySpec({
   List<BridgeEnum> enums = const [],
   List<BridgeStruct> structs = const [],
   List<BridgeRecordType> records = const [],
-}) =>
-    BridgeSpec(
-      dartClassName: '',
-      lib: 'my_types',
-      namespace: '',
-      sourceUri: 'my_types.native.dart',
-      enums: enums,
-      structs: structs,
-      recordTypes: records,
-      isTypeOnly: true,
-    );
+}) => BridgeSpec(
+  dartClassName: '',
+  lib: 'my_types',
+  namespace: '',
+  sourceUri: 'my_types.native.dart',
+  enums: enums,
+  structs: structs,
+  recordTypes: records,
+  isTypeOnly: true,
+);
 
 BridgeSpec _moduleSpecWithImported({
   List<BridgeEnum> enums = const [],
   List<BridgeStruct> structs = const [],
   List<BridgeRecordType> records = const [],
   List<String> importedTypeFiles = const [],
-}) =>
-    BridgeSpec(
-      dartClassName: 'Cam',
-      lib: 'cam',
-      namespace: 'cam',
-      iosImpl: NativeImpl.swift,
-      androidImpl: NativeImpl.kotlin,
-      sourceUri: 'cam.native.dart',
-      enums: enums,
-      structs: structs,
-      recordTypes: records,
-      importedTypeFiles: importedTypeFiles,
-      functions: [
-        BridgeFunction(
-          dartName: 'getStatus',
-          cSymbol: 'cam_get_status',
-          isAsync: false,
-          returnType: BridgeType(name: 'int'),
-          params: [],
-        ),
-      ],
-    );
+}) => BridgeSpec(
+  dartClassName: 'Cam',
+  lib: 'cam',
+  namespace: 'cam',
+  iosImpl: NativeImpl.swift,
+  androidImpl: NativeImpl.kotlin,
+  sourceUri: 'cam.native.dart',
+  enums: enums,
+  structs: structs,
+  recordTypes: records,
+  importedTypeFiles: importedTypeFiles,
+  functions: [
+    BridgeFunction(
+      dartName: 'getStatus',
+      cSymbol: 'cam_get_status',
+      isAsync: false,
+      returnType: BridgeType(name: 'int'),
+      params: [],
+    ),
+  ],
+);
 
 // ── Type-only spec: isTypeOnly flag ──────────────────────────────────────────
 
@@ -71,7 +69,9 @@ void main() {
 
     test('isTypeOnly is true when set', () {
       final spec = _typeOnlySpec(
-        enums: [BridgeEnum(name: 'Quality', startValue: 0, values: ['low', 'high'])],
+        enums: [
+          BridgeEnum(name: 'Quality', startValue: 0, values: ['low', 'high']),
+        ],
       );
       expect(spec.isTypeOnly, isTrue);
     });
@@ -143,7 +143,9 @@ void main() {
 
   group('DartFfiGenerator — type-only spec', () {
     final spec = _typeOnlySpec(
-      enums: [BridgeEnum(name: 'Quality', startValue: 0, values: ['low', 'high'])],
+      enums: [
+        BridgeEnum(name: 'Quality', startValue: 0, values: ['low', 'high']),
+      ],
     );
     final code = DartFfiGenerator.generate(spec);
 
@@ -223,12 +225,22 @@ void main() {
     final localStruct = BridgeStruct(
       name: 'Frame',
       packed: false,
-      fields: [BridgeField(name: 'width', type: BridgeType(name: 'int'))],
+      fields: [
+        BridgeField(
+          name: 'width',
+          type: BridgeType(name: 'int'),
+        ),
+      ],
     );
     final importedStruct = BridgeStruct(
       name: 'Config',
       packed: false,
-      fields: [BridgeField(name: 'fps', type: BridgeType(name: 'int'))],
+      fields: [
+        BridgeField(
+          name: 'fps',
+          type: BridgeType(name: 'int'),
+        ),
+      ],
       isImported: true,
     );
     final spec = _moduleSpecWithImported(structs: [localStruct, importedStruct]);
@@ -329,7 +341,9 @@ void main() {
 
   group('CppHeaderGenerator — type-only spec', () {
     final spec = _typeOnlySpec(
-      enums: [BridgeEnum(name: 'Quality', startValue: 0, values: ['low', 'high'])],
+      enums: [
+        BridgeEnum(name: 'Quality', startValue: 0, values: ['low', 'high']),
+      ],
     );
     final code = CppHeaderGenerator.generate(spec);
 
@@ -350,7 +364,9 @@ void main() {
 
   group('SwiftGenerator — type-only spec', () {
     final spec = _typeOnlySpec(
-      enums: [BridgeEnum(name: 'Quality', startValue: 0, values: ['low', 'high'])],
+      enums: [
+        BridgeEnum(name: 'Quality', startValue: 0, values: ['low', 'high']),
+      ],
     );
     final code = SwiftGenerator.generate(spec);
 
@@ -375,7 +391,9 @@ void main() {
 
   group('KotlinGenerator — type-only spec', () {
     final spec = _typeOnlySpec(
-      enums: [BridgeEnum(name: 'Quality', startValue: 0, values: ['low', 'high'])],
+      enums: [
+        BridgeEnum(name: 'Quality', startValue: 0, values: ['low', 'high']),
+      ],
     );
     final code = KotlinGenerator.generate(spec);
 
@@ -417,7 +435,12 @@ void main() {
           cSymbol: 'cam_set_priority',
           isAsync: false,
           returnType: BridgeType(name: 'void'),
-          params: [BridgeParam(name: 'priority', type: BridgeType(name: 'Priority'))],
+          params: [
+            BridgeParam(
+              name: 'priority',
+              type: BridgeType(name: 'Priority'),
+            ),
+          ],
         ),
       ],
     );

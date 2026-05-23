@@ -803,19 +803,22 @@ for (final (typeName, _) in typedDataVariants) {
 
 ### 8.5 CppBridgeGenerator / CppHeaderGenerator
 
-**Files:** `cpp_bridge_generator_test.dart`, `cpp_header_generator_test.dart`
+**Files:** `cpp_bridge_generator_test.dart`, `cpp_header_generator_test.dart`, `cpp_bridge_types_test.dart`
 
-#### Missing tests
+#### ✅ DONE 2026-05-23 — `cpp_bridge_types_test.dart` (40 tests)
 
-| Type | Expected output | Test to add |
+| Type | Expected output | Status |
 |---|---|---|
-| `Uint8List` param marshalling | copy `bytes` to `std::vector<uint8_t>` | `cpp_typed_data_bridge_test.dart` |
-| `Float32List` param marshalling | correct element type | same |
-| Async function in bridge | uses future/callback | `cpp_async_bridge_test.dart` |
-| Enum marshalling | cast to/from `int64_t` | `cpp_enum_bridge_test.dart` |
-| Nested struct marshalling | recursive field access | existing nested_struct_test |
-| `Pointer<Uint8>` in bridge impl | raw pointer pass-through | `cpp_pointer_bridge_test.dart` |
-| All 5 C++ platforms emit same code | parameterized over `allCppPlatformSpecs()` | partial in platform_targeting_test |
+| `Uint8List` param marshalling (JNI) | `NewByteArray` + `SetByteArrayRegion` | ✅ |
+| `Uint8List` param marshalling (cpp direct) | `uint8_t*` + `int64_t` length | ✅ |
+| `Float32List` param marshalling (JNI) | `NewFloatArray` + `SetFloatArrayRegion` | ✅ |
+| `Float32List` param marshalling (cpp direct) | `float*` + `int64_t` length | ✅ |
+| `@NitroNativeAsync` function (JNI) | void + dart_port + `CallStaticVoidMethod` | ✅ |
+| `@NitroNativeAsync` function (cpp direct) | void + dart_port forwarded to `g_impl` | ✅ |
+| Enum param in cpp direct | `static_cast<EnumType>(param)` | ✅ |
+| Enum param in JNI path | passed to `CallStaticVoidMethod` | ✅ |
+| 7 TypedData variants in cpp direct | correct C pointer types | ✅ |
+| `@nitroAsync` bool/String return (cpp direct) | calls `g_impl`, uses `strdup` for String | ✅ |
 
 ---
 
