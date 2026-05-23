@@ -158,8 +158,16 @@ class DartFfiGenerator {
     // ── Method implementations ───────────────────────────────────────────────
     for (final func in spec.functions) {
       final needsArena = func.params.any(
-        (p) => p.type.isTypedData || p.type.name == 'String' || p.type.name == 'String?' || p.type.isRecord || spec.structs.any((st) => st.name == p.type.name),
+        (p) {
+          final baseName = p.type.name.replaceFirst('?', '');
+          return p.type.isTypedData ||
+              p.type.name == 'String' ||
+              p.type.name == 'String?' ||
+              p.type.isRecord ||
+              spec.structs.any((st) => st.name == baseName);
+        },
       );
+
 
       final callArgs = func.params
           .expand((p) {
@@ -190,6 +198,15 @@ class DartFfiGenerator {
               return ['${p.name}.nativeValue'];
             }
             if (t == 'bool') return ['${p.name} ? 1 : 0'];
+            // Optional primitives: C function expects a concrete primitive type
+            // (int64_t / double / int8_t). Pass a sentinel value when the Dart
+            // caller provides null so the args list always holds a non-null value.
+            // The Kotlin _call bridge receives the sentinel and converts it back
+            // to null before forwarding to the implementation interface.
+            // Sentinels: int?→-1, double?→double.nan, bool?→-1
+            if (t == 'int?') return ['${p.name} ?? -1'];
+            if (t == 'double?') return ['${p.name} ?? double.nan'];
+            if (t == 'bool?') return ['${p.name} == null ? -1 : (${p.name}! ? 1 : 0)'];
             return [p.name];
           })
           .join(', ');
@@ -214,7 +231,19 @@ class DartFfiGenerator {
       } else if (func.isAsync) {
         final isStructReturn = spec.structs.any((st) => st.name == rt);
         final isEnumReturn = spec.enums.any((en) => en.name == rt);
-        final plainCallArgs = func.params.map((p) => p.name).join(', ');
+        // plainCallArgs: used when no arena is needed. Apply the same optional-primitive
+        // sentinel encoding as callArgs so that int?/bool?/double? are never passed as null.
+        // (Structs, TypedData, String all require an arena so they can't appear here.)
+        final plainCallArgs = func.params.map((p) {
+          final t = p.type.name;
+          if (t == 'int?') return '${p.name} ?? -1';
+          if (t == 'double?') return '${p.name} ?? double.nan';
+          if (t == 'bool?') return '${p.name} == null ? -1 : (${p.name}! ? 1 : 0)';
+          if (t == 'bool') return '${p.name} ? 1 : 0';
+          if (spec.enums.any((en) => en.name == t)) return '${p.name}.nativeValue';
+          return p.name;
+        }).join(', ');
+
         final callAsyncType = isRecordReturn
             ? 'Pointer<Uint8>'
             : rt == 'String'
@@ -798,11 +827,17 @@ class DartFfiGenerator {
     } else {
       final plainCallArgs = func.params
           .map((p) {
-            if (spec.enums.any((en) => en.name == p.type.name)) return '${p.name}.nativeValue';
-            if (p.type.name == 'bool') return '${p.name} ? 1 : 0';
+            final t = p.type.name;
+            if (spec.enums.any((en) => en.name == t)) return '${p.name}.nativeValue';
+            if (t == 'bool') return '${p.name} ? 1 : 0';
+            // Optional primitives: same sentinel encoding as the arena path.
+            if (t == 'int?') return '${p.name} ?? -1';
+            if (t == 'double?') return '${p.name} ?? double.nan';
+            if (t == 'bool?') return '${p.name} == null ? -1 : (${p.name}! ? 1 : 0)';
             return p.name;
           })
           .join(', ');
+
       final portSep = plainCallArgs.isEmpty ? '' : ', ';
       s.writeln('    return NitroRuntime.openNativeAsync<$openType>(');
       s.writeln('      call: (port) => _${func.dartName}Ptr($plainCallArgs${portSep}port),');

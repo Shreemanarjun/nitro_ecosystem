@@ -145,8 +145,18 @@ class KotlinGenerator {
         s.writeln('    // source: ${spec.sourceUri.split('/').last}:${func.lineNumber}');
       }
       final retType = _toKotlinRetType(enumNames, structNames, recordNames, func.returnType);
-      final paramsDecl = func.params.map((p) => '${p.name}: ${_toKotlinParamType(enumNames, structNames, recordNames, p)}').join(', ');
-      final callParams = func.params.map((p) => p.name).join(', ');
+
+      // JNI _call bridge must use non-nullable primitives (Long, Boolean, Double) for
+      // optional int?/bool?/double? params so the JVM method descriptor (J/Z/D) matches
+      // what C++ registers via GetStaticMethodID. Reference types (String?, structs) stay
+      // nullable because JNI can pass null object references.
+      // Kotlin auto-promotes Long → Long? when forwarding to the interface, so the call
+      // body needs no special handling.
+      final bridgeParamsDecl = func.params
+          .map((p) => '${p.name}: ${_toKotlinBridgeParamType(enumNames, structNames, recordNames, p)}')
+          .join(', ');
+
+
 
       if (func.isNativeAsync) {
         // ── @NitroNativeAsync — launch a coroutine and post the result ────────
@@ -155,34 +165,60 @@ class KotlinGenerator {
         // Dart_PostCObject_DL when the suspend function completes.
         final isUnit = (retType == 'Unit');
         final isEnum = enumNames.contains(func.returnType.name);
-        final portParamDecl = paramsDecl.isEmpty ? 'dartPort: Long' : '$paramsDecl, dartPort: Long';
+        final portParamDecl =
+            bridgeParamsDecl.isEmpty ? 'dartPort: Long' : '$bridgeParamsDecl, dartPort: Long';
+        // Sentinel unwrapping for optional primitives (same logic as regular path).
+        final nativeAsyncOptPrims = func.params.where((p) {
+          final bn = p.type.name.replaceFirst('?', '');
+          final isnull = p.type.name.endsWith('?') || p.isOptional;
+          return isnull && (bn == 'int' || bn == 'bool' || bn == 'double');
+        }).toList();
+        final callParamsNativeAsync = func.params.map((p) {
+          final bn = p.type.name.replaceFirst('?', '');
+          final isnull = p.type.name.endsWith('?') || p.isOptional;
+          if (isnull && (bn == 'int' || bn == 'bool' || bn == 'double')) {
+            return '${p.name}Arg';
+          }
+          return p.name;
+        }).join(', ');
         s.writeln('    @JvmStatic fun ${func.dartName}_call($portParamDecl) {');
         s.writeln('        val impl = implementation ?: run {');
         s.writeln('            postNullToPort(dartPort)');
         s.writeln('            return');
         s.writeln('        }');
+        // Emit sentinel-to-null unwrapping before the execute block.
+        for (final p in nativeAsyncOptPrims) {
+          final bn = p.type.name.replaceFirst('?', '');
+          if (bn == 'int') {
+            s.writeln('        val ${p.name}Arg: Long? = if (${p.name} < 0L) null else ${p.name}');
+          } else if (bn == 'bool') {
+            s.writeln('        val ${p.name}Arg: Boolean? = if (${p.name}.toInt() < 0) null else ${p.name}');
+          } else if (bn == 'double') {
+            s.writeln('        val ${p.name}Arg: Double? = if (${p.name}.isNaN()) null else ${p.name}');
+          }
+        }
         s.writeln('        _asyncExecutor.execute {');
         if (isUnit) {
-          s.writeln('            runBlocking { impl.${func.dartName}($callParams) }');
+          s.writeln('            runBlocking { impl.${func.dartName}($callParamsNativeAsync) }');
           s.writeln('            postNullToPort(dartPort)');
         } else if (isEnum) {
-          s.writeln('            val result = runBlocking { impl.${func.dartName}($callParams) }');
+          s.writeln('            val result = runBlocking { impl.${func.dartName}($callParamsNativeAsync) }');
           s.writeln('            postInt64ToPort(dartPort, result.nativeValue)');
         } else if (retType == 'String') {
-          s.writeln('            val result = runBlocking { impl.${func.dartName}($callParams) }');
+          s.writeln('            val result = runBlocking { impl.${func.dartName}($callParamsNativeAsync) }');
           s.writeln('            postStringToPort(dartPort, result)');
         } else if (retType == 'Boolean') {
-          s.writeln('            val result = runBlocking { impl.${func.dartName}($callParams) }');
+          s.writeln('            val result = runBlocking { impl.${func.dartName}($callParamsNativeAsync) }');
           s.writeln('            postBoolToPort(dartPort, result)');
         } else if (retType == 'Long' || retType == 'Int') {
-          s.writeln('            val result = runBlocking { impl.${func.dartName}($callParams) }');
+          s.writeln('            val result = runBlocking { impl.${func.dartName}($callParamsNativeAsync) }');
           s.writeln('            postInt64ToPort(dartPort, result.toLong())');
         } else if (retType == 'Double') {
-          s.writeln('            val result = runBlocking { impl.${func.dartName}($callParams) }');
+          s.writeln('            val result = runBlocking { impl.${func.dartName}($callParamsNativeAsync) }');
           s.writeln('            postDoubleToPort(dartPort, result)');
         } else {
           // Fallback for record/struct: post null (advanced types can be added later)
-          s.writeln('            runBlocking { impl.${func.dartName}($callParams) }');
+          s.writeln('            runBlocking { impl.${func.dartName}($callParamsNativeAsync) }');
           s.writeln('            postNullToPort(dartPort)');
         }
         s.writeln('        }');
@@ -203,18 +239,53 @@ class KotlinGenerator {
           ? 'ByteArray'
           : retType;
 
+      // Identify optional-primitive params that need sentinel-to-null unwrapping.
+      // Dart sends -1 for int?/bool? and double.nan for double? when the caller
+      // passes null. Convert those sentinels back to null so the interface
+      // receives the correct nullable Kotlin type.
+      final optionalPrimParams = func.params.where((p) {
+        final baseName = p.type.name.replaceFirst('?', '');
+        final isNullable = p.type.name.endsWith('?') || p.isOptional;
+        return isNullable && (baseName == 'int' || baseName == 'bool' || baseName == 'double');
+      }).toList();
+
+      // callParams: for optional-primitive params use the unwrapped arg name
+      // (e.g. timeoutArg) so the sentinel is converted to null.
+      final callParamsResolved = func.params.map((p) {
+        final baseName = p.type.name.replaceFirst('?', '');
+        final isNullable = p.type.name.endsWith('?') || p.isOptional;
+        if (isNullable && (baseName == 'int' || baseName == 'bool' || baseName == 'double')) {
+          return '${p.name}Arg';
+        }
+        return p.name;
+      }).join(', ');
+
       s.writeln(
-        '    @JvmStatic fun ${func.dartName}_call($paramsDecl): $bridgeRetType {',
+        '    @JvmStatic fun ${func.dartName}_call($bridgeParamsDecl): $bridgeRetType {',
       );
       s.writeln(
         '        val impl = implementation ?: throw IllegalStateException("${spec.dartClassName} not registered")',
       );
+      // Emit sentinel-to-null conversions for optional-primitive params.
+      for (final p in optionalPrimParams) {
+        final baseName = p.type.name.replaceFirst('?', '');
+        if (baseName == 'int') {
+          s.writeln('        // Dart layer sends -1L as sentinel when caller passes null for ${p.name}.');
+          s.writeln('        val ${p.name}Arg: Long? = if (${p.name} < 0L) null else ${p.name}');
+        } else if (baseName == 'bool') {
+          s.writeln('        // Dart layer sends -1 as sentinel when caller passes null for ${p.name}.');
+          s.writeln('        val ${p.name}Arg: Boolean? = if (${p.name}.toInt() < 0) null else ${p.name}');
+        } else if (baseName == 'double') {
+          s.writeln('        // Dart layer sends Double.NaN as sentinel when caller passes null for ${p.name}.');
+          s.writeln('        val ${p.name}Arg: Double? = if (${p.name}.isNaN()) null else ${p.name}');
+        }
+      }
       if (isRecord) {
         // Fetch the result, then serialize to ByteArray for JNI
         if (func.isAsync) {
-          s.writeln('        val result = _asyncExecutor.submit(java.util.concurrent.Callable { runBlocking { impl.${func.dartName}($callParams) } }).get()');
+          s.writeln('        val result = _asyncExecutor.submit(java.util.concurrent.Callable { runBlocking { impl.${func.dartName}($callParamsResolved) } }).get()');
         } else {
-          s.writeln('        val result = impl.${func.dartName}($callParams)');
+          s.writeln('        val result = impl.${func.dartName}($callParamsResolved)');
         }
         if (isListRecord) {
           // Serialize List<@HybridRecord> → ByteArray (wire: [4-byte payload len][4-byte count][item fields...])
@@ -238,22 +309,22 @@ class KotlinGenerator {
       } else if (func.isAsync) {
         if (isEnum) {
           s.writeln(
-            '        return _asyncExecutor.submit(java.util.concurrent.Callable { runBlocking { impl.${func.dartName}($callParams) } }).get().nativeValue',
+            '        return _asyncExecutor.submit(java.util.concurrent.Callable { runBlocking { impl.${func.dartName}($callParamsResolved) } }).get().nativeValue',
           );
         } else {
           s.writeln('        return _asyncExecutor.submit(java.util.concurrent.Callable {');
-          s.writeln('            runBlocking { impl.${func.dartName}($callParams) }');
+          s.writeln('            runBlocking { impl.${func.dartName}($callParamsResolved) }');
           s.writeln('        }).get()');
         }
       } else {
         if (isUnit) {
-          s.writeln('        impl.${func.dartName}($callParams)');
+          s.writeln('        impl.${func.dartName}($callParamsResolved)');
         } else if (isEnum) {
           s.writeln(
-            '        return impl.${func.dartName}($callParams).nativeValue',
+            '        return impl.${func.dartName}($callParamsResolved).nativeValue',
           );
         } else {
-          s.writeln('        return impl.${func.dartName}($callParams)');
+          s.writeln('        return impl.${func.dartName}($callParamsResolved)');
         }
       }
       s.writeln('    }');
@@ -372,8 +443,11 @@ class KotlinGenerator {
     return _toKotlinType(enumNames, structNames, recordNames, t.name);
   }
 
-  /// Returns the Kotlin type for a function parameter, respecting @ZeroCopy().
-  /// Zero-copy TypedData params use java.nio.ByteBuffer (direct buffer, no copy).
+  /// Returns the Kotlin type for a function parameter used in the **interface**.
+  ///
+  /// Respects nullability so Kotlin implementations receive `Long?`, `Boolean?`,
+  /// etc. for optional `int?`, `bool?` params. Zero-copy TypedData params use
+  /// `java.nio.ByteBuffer` (direct buffer, no copy).
   static String _toKotlinParamType(
     Set<String> enumNames,
     Set<String> structNames,
@@ -386,6 +460,51 @@ class KotlinGenerator {
     }
     final base = _toKotlinType(enumNames, structNames, recordNames, p.type.name);
     return isNullable ? '$base?' : base;
+  }
+
+  /// Returns the Kotlin type for a parameter in a **`_call` JNI bridge method**.
+  ///
+  /// JNI calls from C++ pass primitive types directly (`J` for long, `Z` for
+  /// boolean, `D` for double). Kotlin's nullable wrappers (`Long?`, `Boolean?`,
+  /// `Double?`) compile to boxed object descriptors (`Ljava/lang/Long;`, …)
+  /// which do **not** match the primitive descriptors that C++ registers via
+  /// `GetStaticMethodID`. This mismatch causes a `NoSuchMethodError` at runtime.
+  ///
+  /// Fix: for optional `int?`, `bool?`, `double?` params, use the non-nullable
+  /// Kotlin primitive type (`Long`, `Boolean`, `Double`) in the `_call` signature.
+  /// Kotlin automatically promotes `Long` → `Long?` when forwarding to the
+  /// interface, so the call body requires no special handling.
+  ///
+  /// Only primitive JVM types are affected. Reference types (`String?`, structs,
+  /// enums, TypedData arrays) can legitimately be null in JNI and remain nullable.
+  static String _toKotlinBridgeParamType(
+    Set<String> enumNames,
+    Set<String> structNames,
+    Set<String> recordNames,
+    BridgeParam p,
+  ) {
+    final isNullable = p.type.name.endsWith('?') || p.isOptional;
+    if (!isNullable) {
+      return _toKotlinParamType(enumNames, structNames, recordNames, p);
+    }
+    if (p.zeroCopy && p.type.isTypedData) {
+      // Zero-copy buffers are reference types — keep nullable.
+      return 'java.nio.ByteBuffer?';
+    }
+    final baseName = p.type.name.replaceFirst('?', '');
+    // Primitive JVM types: strip nullability so the JVM descriptor matches C++.
+    switch (baseName) {
+      case 'int':
+        return 'Long'; // JVM descriptor: J  (primitive long)
+      case 'bool':
+        return 'Boolean'; // JVM descriptor: Z  (primitive boolean)
+      case 'double':
+        return 'Double'; // JVM descriptor: D  (primitive double)
+    }
+    // Reference types (String, structs, enums, TypedData arrays) can be null in
+    // JNI — keep nullable.
+    final base = _toKotlinType(enumNames, structNames, recordNames, p.type.name);
+    return '$base?';
   }
 
   static String _toKotlinType(
