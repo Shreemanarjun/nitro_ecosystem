@@ -338,12 +338,34 @@ class CppInterfaceGenerator {
 
   static String _primitiveType(String base) {
     switch (base) {
+      // Dart primitive names
       case 'int':
         return 'int64_t';
       case 'double':
         return 'double';
       case 'bool':
         return 'bool';
+      // FFI-style inner types used in Pointer<T>
+      case 'Uint8':
+        return 'uint8_t';
+      case 'Int8':
+        return 'int8_t';
+      case 'Int16':
+        return 'int16_t';
+      case 'Int32':
+        return 'int32_t';
+      case 'Uint16':
+        return 'uint16_t';
+      case 'Uint32':
+        return 'uint32_t';
+      case 'Float':
+        return 'float';
+      case 'Double':
+        return 'double';
+      case 'Int64':
+        return 'int64_t';
+      case 'Uint64':
+        return 'uint64_t';
       default:
         return 'void*';
     }

@@ -8,6 +8,41 @@ import 'package:nitro_annotations/nitro_annotations.dart';
 import 'bridge_spec.dart';
 
 class SpecExtractor {
+  /// Extracts a [BridgeSpec] from [library].
+  ///
+  /// If the library has a `@NitroModule` annotation a full spec is returned.
+  /// If it only contains type annotations (`@HybridEnum`, `@HybridStruct`,
+  /// `@HybridRecord`) a type-only spec is returned (no bridge scaffolding).
+  /// Returns `null` when the library has nothing Nitrogen-relevant.
+  static BridgeSpec? extractAny(LibraryReader library) {
+    final modules = library.annotatedWith(const TypeChecker.fromUrl('package:nitro_annotations/src/annotations.dart#NitroModule'));
+    if (modules.isEmpty) return extractTypesOnly(library);
+    return extract(library);
+  }
+
+  /// Extracts a type-only [BridgeSpec] for `.native.dart` files that declare
+  /// shared types (`@HybridEnum`, `@HybridStruct`, `@HybridRecord`) without a
+  /// `@NitroModule` class. Returns `null` when no relevant types are found.
+  static BridgeSpec? extractTypesOnly(LibraryReader library) {
+    final enums = _extractEnums(library);
+    final structs = _extractStructs(library);
+    final records = _extractRecordTypes(library);
+    if (enums.isEmpty && structs.isEmpty && records.isEmpty) return null;
+
+    final sourcePath = library.element.uri.toString();
+    final sourceFile = sourcePath.split('/').last.replaceFirst('.native.dart', '');
+    return BridgeSpec(
+      dartClassName: '',
+      lib: sourceFile.replaceAll('-', '_'),
+      namespace: '',
+      sourceUri: sourcePath,
+      enums: enums,
+      structs: structs,
+      recordTypes: records,
+      isTypeOnly: true,
+    );
+  }
+
   static BridgeSpec extract(LibraryReader library) {
     final modules = library.annotatedWith(const TypeChecker.fromUrl('package:nitro_annotations/src/annotations.dart#NitroModule'));
     if (modules.isEmpty) {
@@ -33,14 +68,23 @@ class SpecExtractor {
     final libName = lib ?? sourceFile.replaceAll('-', '_');
     final ns = cSymbolPrefix ?? _toSnakeCase(element.name!);
 
-    // Extract @HybridRecord types first so we know which type names are records
-    // when classifying function/property/stream types.
-    final recordTypes = _extractRecordTypes(library);
-    final recordTypeNames = recordTypes.map((r) => r.name).toSet();
+    // Extract local types first so we know which type names are records/structs/enums.
+    final localRecordTypes = _extractRecordTypes(library);
+    final localStructs = _extractStructs(library);
+    final localEnums = _extractEnums(library);
 
-    // Collect all known custom type names (structs, enums, records) for type checking
-    final structNames = _extractStructs(library).map((s) => s.name).toSet();
-    final enumNames = _extractEnums(library).map((e) => e.name).toSet();
+    // Also scan directly imported libraries for shared type annotations.
+    // Types found in imported .native.dart files are marked isImported: true so
+    // generators skip re-declaring them (they appear in the other bridge file).
+    final imported = _extractFromImports(library.element, sourcePath);
+
+    final allRecordTypes = [...localRecordTypes, ...imported.records];
+    final allStructs = [...localStructs, ...imported.structs];
+    final allEnums = [...localEnums, ...imported.enums];
+
+    final recordTypeNames = allRecordTypes.map((r) => r.name).toSet();
+    final structNames = allStructs.map((s) => s.name).toSet();
+    final enumNames = allEnums.map((e) => e.name).toSet();
     final knownTypeNames = {...structNames, ...enumNames, ...recordTypeNames};
 
     final (:properties, :streams) = _extractPropertiesAndStreams(element, ns, recordTypeNames, knownTypeNames);
@@ -58,10 +102,105 @@ class SpecExtractor {
       functions: _extractFunctions(element, ns, recordTypeNames, knownTypeNames),
       properties: properties,
       streams: streams,
-      structs: _extractStructs(library),
-      enums: _extractEnums(library),
-      recordTypes: recordTypes,
+      structs: allStructs,
+      enums: allEnums,
+      recordTypes: allRecordTypes,
+      importedTypeFiles: imported.cppIncludes,
     );
+  }
+
+  // ─── Cross-library type scanning ────────────────────────────────────────────
+
+  /// Scans directly imported libraries of [libraryElement] for `@HybridEnum`,
+  /// `@HybridStruct`, and `@HybridRecord` annotations.
+  ///
+  /// Only non-SDK imports are scanned (`dart:` URIs are skipped). Types found
+  /// in `.native.dart` imports are marked [isImported]=true (a bridge file is
+  /// generated for them separately) and contribute a C++ `#include` path.
+  /// Types from regular `.dart` imports are treated as local (included as-is).
+  static ({
+    List<BridgeEnum> enums,
+    List<BridgeStruct> structs,
+    List<BridgeRecordType> records,
+    List<String> cppIncludes,
+  }) _extractFromImports(LibraryElement libraryElement, String currentSourceUri) {
+    final enums = <BridgeEnum>[];
+    final structs = <BridgeStruct>[];
+    final records = <BridgeRecordType>[];
+    final cppIncludes = <String>[];
+
+    for (final imported in libraryElement.firstFragment.importedLibraries) {
+      final uri = imported.uri.toString();
+      // Skip Dart SDK and the nitro annotation packages (no user types there).
+      if (uri.startsWith('dart:')) continue;
+      if (uri.contains('nitro_annotations')) continue;
+
+      final importedReader = LibraryReader(imported);
+      final importedEnums = _extractEnums(importedReader);
+      final importedStructs = _extractStructs(importedReader);
+      final importedRecords = _extractRecordTypes(importedReader);
+
+      if (importedEnums.isEmpty && importedStructs.isEmpty && importedRecords.isEmpty) continue;
+
+      final isNativeFile = uri.endsWith('.native.dart');
+
+      enums.addAll(importedEnums.map((e) => BridgeEnum(
+        name: e.name,
+        startValue: e.startValue,
+        values: e.values,
+        isImported: isNativeFile,
+      )));
+      structs.addAll(importedStructs.map((s) => BridgeStruct(
+        name: s.name,
+        packed: s.packed,
+        fields: s.fields,
+        isImported: isNativeFile,
+      )));
+      records.addAll(importedRecords.map((r) => BridgeRecordType(
+        name: r.name,
+        fields: r.fields,
+        isImported: isNativeFile,
+      )));
+
+      // Compute C++ #include path only for .native.dart imports (those have
+      // a generated bridge header file in generated/cpp/).
+      if (isNativeFile) {
+        cppIncludes.add(_cppIncludePath(currentSourceUri, uri));
+      }
+    }
+
+    return (enums: enums, structs: structs, records: records, cppIncludes: cppIncludes);
+  }
+
+  /// Computes the relative `#include` path from [fromUri]'s generated C++
+  /// header to [toUri]'s generated C++ header.
+  ///
+  /// Both URIs are `.native.dart` source paths. The generated headers live at
+  /// `lib/{dir}/generated/cpp/{stem}.bridge.g.h`.
+  static String _cppIncludePath(String fromUri, String toUri) {
+    // Extract the lib-relative directory portion of a .native.dart source URI.
+    // e.g. "package:pkg/lib/src/camera.native.dart" → "src"
+    String libRelDir(String uri) {
+      final segs = uri.split('/');
+      final li = segs.lastIndexOf('lib');
+      if (li < 0 || li >= segs.length - 1) return '';
+      return segs.sublist(li + 1, segs.length - 1).join('/');
+    }
+
+    final fromDir = libRelDir(fromUri);
+    final toDir = libRelDir(toUri);
+    final toStem = toUri.split('/').last.replaceFirst('.native.dart', '');
+
+    // Same directory: just the filename.
+    if (fromDir == toDir) return '$toStem.bridge.g.h';
+
+    // Different directories: go up from lib/{fromDir}/generated/cpp/ to lib/,
+    // then descend to lib/{toDir}/generated/cpp/{toStem}.bridge.g.h.
+    final fromParts = fromDir.isEmpty ? <String>[] : fromDir.split('/');
+    final upCount = fromParts.length + 2; // +2 for 'generated/cpp' depth
+    final upStr = List.filled(upCount, '..').join('/');
+    final toPart = toDir.isEmpty ? '' : '$toDir/';
+    return '$upStr/${toPart}generated/cpp/$toStem.bridge.g.h';
   }
 
   static NativeImpl _getNativeImpl(

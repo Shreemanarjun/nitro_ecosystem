@@ -97,12 +97,11 @@ void main() {
       expect(out, contains('virtual void process(void* buf) = 0;'));
     });
 
-    test('Pointer<Uint8> param → void* (Uint8 is FFI type, not C primitive)', () {
+    test('Pointer<Uint8> param → uint8_t*', () {
       final out = CppInterfaceGenerator.generate(
         _ptrSpec(innerType: 'Uint8', pointerInnerType: 'Uint8'),
       );
-      // Uint8 is a Dart FFI type — _primitiveType returns void*, so Pointer<Uint8> → void*
-      expect(out, contains('virtual void process(void* buf) = 0;'));
+      expect(out, contains('virtual void process(uint8_t* buf) = 0;'));
     });
 
     test('Pointer<int> param → int64_t*', () {
@@ -177,11 +176,11 @@ void main() {
       expect(out, contains('virtual void process(std::string* buf) = 0;'));
     });
 
-    test('nullable inner type Uint8? strips ? → void* (Uint8 is FFI type)', () {
+    test('nullable inner type Uint8? strips ? → uint8_t*', () {
       final out = CppInterfaceGenerator.generate(
         _ptrSpec(innerType: 'Uint8', pointerInnerType: 'Uint8?'),
       );
-      expect(out, contains('virtual void process(void* buf) = 0;'));
+      expect(out, contains('virtual void process(uint8_t* buf) = 0;'));
     });
   });
 
@@ -296,8 +295,8 @@ void main() {
         ],
       );
       final out = CppInterfaceGenerator.generate(spec);
-      // Uint8 is a Dart FFI type → void*; Void → void*
-      expect(out, contains('virtual void copy(void* src, void* dst) = 0;'));
+      // Uint8 → uint8_t*; Void → void*
+      expect(out, contains('virtual void copy(uint8_t* src, void* dst) = 0;'));
     });
 
     test('Pointer param mixed with regular params', () {
@@ -332,8 +331,8 @@ void main() {
         ],
       );
       final out = CppInterfaceGenerator.generate(spec);
-      // Uint8 is a Dart FFI type (not C uint8_t) → void*; int → int64_t
-      expect(out, contains('virtual int64_t send(void* data, int64_t length) = 0;'));
+      // Uint8 → uint8_t*; int → int64_t
+      expect(out, contains('virtual int64_t send(uint8_t* data, int64_t length) = 0;'));
     });
   });
 

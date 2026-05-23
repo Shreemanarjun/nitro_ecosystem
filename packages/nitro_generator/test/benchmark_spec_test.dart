@@ -624,8 +624,8 @@ void main() {
       expect(out, contains('virtual int64_t sendLargeBufferFast(const uint8_t* buffer, size_t buffer_length) = 0;'));
     });
 
-    test('sendLargeBufferUnsafe Pointer<Uint8> maps to void* param', () {
-      expect(out, contains('virtual int64_t sendLargeBufferUnsafe(void* ptr, int64_t length) = 0;'));
+    test('sendLargeBufferUnsafe Pointer<Uint8> maps to uint8_t* param', () {
+      expect(out, contains('virtual int64_t sendLargeBufferUnsafe(uint8_t* ptr, int64_t length) = 0;'));
     });
 
     test('registration API uses HybridBenchmarkCpp type', () {

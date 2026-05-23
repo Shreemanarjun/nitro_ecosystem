@@ -35,11 +35,23 @@ class CppHeaderGenerator {
     s.writeln('#endif');
     s.writeln();
 
+    // Include headers for types imported from other .native.dart files.
+    if (spec.importedTypeFiles.isNotEmpty) {
+      for (final inc in spec.importedTypeFiles) {
+        s.writeln('#include "$inc"');
+      }
+      s.writeln();
+    }
+
     final cEnums = EnumGenerator.generateCEnums(spec);
     if (cEnums.isNotEmpty) s.write(cEnums);
 
     final cStructs = StructGenerator.generateCStructs(spec);
     if (cStructs.isNotEmpty) s.write(cStructs);
+
+    if (spec.isTypeOnly) {
+      return s.toString();
+    }
 
     s.writeln('#ifdef __cplusplus');
     s.writeln('extern "C" {');

@@ -1272,3 +1272,202 @@ BridgeSpec cppStreamStructSpec() => BridgeSpec(
     ),
   ],
 );
+
+// ── Optional / default param helpers ─────────────────────────────────────────
+
+BridgeSpec optionalBoolParamSpec() => BridgeSpec(
+  dartClassName: 'Mod',
+  lib: 'mod',
+  namespace: 'mod',
+  iosImpl: NativeImpl.swift,
+  androidImpl: NativeImpl.kotlin,
+  sourceUri: 'mod.native.dart',
+  functions: [
+    BridgeFunction(
+      dartName: 'run',
+      cSymbol: 'mod_run',
+      isAsync: false,
+      returnType: BridgeType(name: 'void'),
+      params: [
+        BridgeParam(
+          name: 'flag',
+          type: BridgeType(name: 'bool?'),
+          isNamed: true,
+          isOptional: true,
+        ),
+      ],
+    ),
+  ],
+);
+
+BridgeSpec optionalDoubleParamSpec() => BridgeSpec(
+  dartClassName: 'Mod',
+  lib: 'mod',
+  namespace: 'mod',
+  iosImpl: NativeImpl.swift,
+  androidImpl: NativeImpl.kotlin,
+  sourceUri: 'mod.native.dart',
+  functions: [
+    BridgeFunction(
+      dartName: 'run',
+      cSymbol: 'mod_run',
+      isAsync: false,
+      returnType: BridgeType(name: 'void'),
+      params: [
+        BridgeParam(
+          name: 'd',
+          type: BridgeType(name: 'double?'),
+          isNamed: true,
+          isOptional: true,
+        ),
+      ],
+    ),
+  ],
+);
+
+/// Spec with `{int x = 5}` — non-nullable int with a defaultLiteral (Bug 5.1 fix).
+BridgeSpec defaultIntParamSpec() => BridgeSpec(
+  dartClassName: 'Mod',
+  lib: 'mod',
+  namespace: 'mod',
+  iosImpl: NativeImpl.swift,
+  androidImpl: NativeImpl.kotlin,
+  sourceUri: 'mod.native.dart',
+  functions: [
+    BridgeFunction(
+      dartName: 'connect',
+      cSymbol: 'mod_connect',
+      isAsync: false,
+      returnType: BridgeType(name: 'void'),
+      params: [
+        BridgeParam(
+          name: 'x',
+          type: BridgeType(name: 'int'),
+          isNamed: true,
+          isOptional: true,
+          defaultLiteral: '5',
+        ),
+      ],
+    ),
+  ],
+);
+
+/// Spec with `{Quality quality = Quality.normal}` — Bug 5.2: enum default.
+BridgeSpec defaultEnumParamSpec() => BridgeSpec(
+  dartClassName: 'Mod',
+  lib: 'mod',
+  namespace: 'mod',
+  iosImpl: NativeImpl.swift,
+  androidImpl: NativeImpl.kotlin,
+  sourceUri: 'mod.native.dart',
+  enums: [
+    BridgeEnum(name: 'Quality', startValue: 0, values: ['low', 'normal', 'high']),
+  ],
+  functions: [
+    BridgeFunction(
+      dartName: 'print',
+      cSymbol: 'mod_print',
+      isAsync: false,
+      returnType: BridgeType(name: 'void'),
+      params: [
+        BridgeParam(
+          name: 'quality',
+          type: BridgeType(name: 'Quality'),
+          isNamed: true,
+          isOptional: true,
+          defaultLiteral: 'Quality.normal',
+        ),
+      ],
+    ),
+  ],
+);
+
+// ── Async return type helpers ─────────────────────────────────────────────────
+
+BridgeSpec asyncUint8ListReturnSpec() => BridgeSpec(
+  dartClassName: 'Mod',
+  lib: 'mod',
+  namespace: 'mod',
+  iosImpl: NativeImpl.swift,
+  androidImpl: NativeImpl.kotlin,
+  sourceUri: 'mod.native.dart',
+  functions: [
+    BridgeFunction(
+      dartName: 'getData',
+      cSymbol: 'mod_get_data',
+      isAsync: true,
+      returnType: BridgeType(name: 'Uint8List', isFuture: true),
+      params: [],
+    ),
+  ],
+);
+
+BridgeSpec asyncStructReturnSpec() => BridgeSpec(
+  dartClassName: 'Mod',
+  lib: 'mod',
+  namespace: 'mod',
+  iosImpl: NativeImpl.swift,
+  androidImpl: NativeImpl.kotlin,
+  sourceUri: 'mod.native.dart',
+  structs: [
+    BridgeStruct(name: 'Reading', packed: false, fields: [
+      BridgeField(name: 'value', type: BridgeType(name: 'double')),
+    ]),
+  ],
+  functions: [
+    BridgeFunction(
+      dartName: 'fetch',
+      cSymbol: 'mod_fetch',
+      isAsync: true,
+      returnType: BridgeType(name: 'Reading', isFuture: true),
+      params: [],
+    ),
+  ],
+);
+
+// ── Nullable param helpers ────────────────────────────────────────────────────
+
+BridgeSpec nullableStructParamSpec() => BridgeSpec(
+  dartClassName: 'Mod',
+  lib: 'mod',
+  namespace: 'mod',
+  iosImpl: NativeImpl.swift,
+  androidImpl: NativeImpl.kotlin,
+  sourceUri: 'mod.native.dart',
+  structs: [
+    BridgeStruct(name: 'Foo', packed: false, fields: [
+      BridgeField(name: 'x', type: BridgeType(name: 'double')),
+    ]),
+  ],
+  functions: [
+    BridgeFunction(
+      dartName: 'fn',
+      cSymbol: 'mod_fn',
+      isAsync: false,
+      returnType: BridgeType(name: 'void'),
+      params: [
+        BridgeParam(name: 'x', type: BridgeType(name: 'Foo?', isNullable: true)),
+      ],
+    ),
+  ],
+);
+
+// ── TypedData param helper ────────────────────────────────────────────────────
+
+BridgeSpec typedDataParamSpec(String typeName) => BridgeSpec(
+  dartClassName: 'Mod',
+  lib: 'mod',
+  namespace: 'mod',
+  iosImpl: NativeImpl.swift,
+  androidImpl: NativeImpl.kotlin,
+  sourceUri: 'mod.native.dart',
+  functions: [
+    BridgeFunction(
+      dartName: 'send',
+      cSymbol: 'mod_send',
+      isAsync: false,
+      returnType: BridgeType(name: 'void'),
+      params: [BridgeParam(name: 'x', type: BridgeType(name: typeName))],
+    ),
+  ],
+);

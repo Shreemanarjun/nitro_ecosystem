@@ -25,6 +25,9 @@ class DartFfiGenerator {
     final recordExt = RecordGenerator.generateDartExtensions(spec);
     if (recordExt.isNotEmpty) s.write(recordExt);
 
+    // Type-only files have no bridge implementation — only type declarations.
+    if (spec.isTypeOnly) return s.toString();
+
     // ── Impl class ──────────────────────────────────────────────────────────
     final libStem = spec.lib.replaceAll('-', '_');
     s.writeln(

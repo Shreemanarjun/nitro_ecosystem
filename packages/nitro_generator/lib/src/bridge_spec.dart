@@ -68,6 +68,23 @@ class BridgeSpec {
   final List<BridgeProperty> properties;
   final List<BridgeRecordType> recordTypes;
 
+  /// True when this spec was extracted from a type-only `.native.dart` file
+  /// (no `@NitroModule` annotation). Generators emit only type declarations,
+  /// no bridge scaffolding (no `_Impl` class, no FFI method pointers).
+  final bool isTypeOnly;
+
+  /// Relative C++ `#include` paths for types imported from other `.native.dart`
+  /// files. The C++ generators emit `#include "<path>"` for each entry so that
+  /// shared types are not re-declared in every bridge header.
+  final List<String> importedTypeFiles;
+
+  /// Types defined in THIS file (not imported from another `.native.dart`).
+  /// Use for type DECLARATION in generators — imported types must not be
+  /// redeclared because they already appear in their own bridge file.
+  List<BridgeEnum> get localEnums => enums.where((e) => !e.isImported).toList();
+  List<BridgeStruct> get localStructs => structs.where((s) => !s.isImported).toList();
+  List<BridgeRecordType> get localRecordTypes => recordTypes.where((r) => !r.isImported).toList();
+
   BridgeSpec({
     required this.dartClassName,
     required this.lib,
@@ -85,6 +102,8 @@ class BridgeSpec {
     this.streams = const [],
     this.properties = const [],
     this.recordTypes = const [],
+    this.isTypeOnly = false,
+    this.importedTypeFiles = const [],
   });
 }
 
@@ -149,10 +168,15 @@ class BridgeStruct {
   final bool packed;
   final List<BridgeField> fields;
 
+  /// True when this struct is defined in another `.native.dart` file.
+  /// Generators skip re-declaring it — it appears in the other file's bridge.
+  final bool isImported;
+
   BridgeStruct({
     required this.name,
     required this.packed,
     required this.fields,
+    this.isImported = false,
   });
 }
 
@@ -189,10 +213,16 @@ class BridgeEnum {
   final int startValue;
   final List<String> values;
 
+  /// True when this enum is defined in another `.native.dart` file and imported
+  /// into the current module. Generators use [localEnums] to skip re-declaring
+  /// imported types — they already appear in the other file's bridge output.
+  final bool isImported;
+
   BridgeEnum({
     required this.name,
     required this.startValue,
     required this.values,
+    this.isImported = false,
   });
 }
 
@@ -334,5 +364,9 @@ class BridgeRecordType {
   final String name;
   final List<BridgeRecordField> fields;
 
-  BridgeRecordType({required this.name, required this.fields});
+  /// True when this record type is defined in another `.native.dart` file.
+  /// Generators skip re-declaring it — it appears in the other file's bridge.
+  final bool isImported;
+
+  BridgeRecordType({required this.name, required this.fields, this.isImported = false});
 }

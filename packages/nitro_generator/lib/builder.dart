@@ -29,22 +29,27 @@ class NitroGeneratorBuilder implements Builder {
     final library = LibraryReader(libraryElement);
 
     try {
-      final spec = SpecExtractor.extract(library);
+      // extractAny handles both @NitroModule files and type-only files.
+      // Returns null when the file has no Nitrogen-relevant content.
+      final spec = SpecExtractor.extractAny(library);
+      if (spec == null) return;
 
-      // ── Validate before generating ─────────────────────────────────────
-      final issues = SpecValidator.validate(spec);
-      for (final issue in issues) {
-        if (issue.isError) {
-          log.severe('nitrogen: ${buildStep.inputId.path}\n  $issue');
-        } else {
-          log.warning('nitrogen: ${buildStep.inputId.path}\n  $issue');
+      // ── Validate before generating (module files only) ─────────────────
+      if (!spec.isTypeOnly) {
+        final issues = SpecValidator.validate(spec);
+        for (final issue in issues) {
+          if (issue.isError) {
+            log.severe('nitrogen: ${buildStep.inputId.path}\n  $issue');
+          } else {
+            log.warning('nitrogen: ${buildStep.inputId.path}\n  $issue');
+          }
         }
-      }
-      if (issues.any((i) => i.isError)) {
-        log.severe(
-          'nitrogen: Aborting generation for ${buildStep.inputId.path} due to validation errors above.',
-        );
-        return;
+        if (issues.any((i) => i.isError)) {
+          log.severe(
+            'nitrogen: Aborting generation for ${buildStep.inputId.path} due to validation errors above.',
+          );
+          return;
+        }
       }
 
       // We can use buildStep.allowedOutputs to find the EXACT output paths
@@ -52,6 +57,19 @@ class NitroGeneratorBuilder implements Builder {
       final outputs = buildStep.allowedOutputs;
 
       for (final outId in outputs) {
+        // Type-only files skip implementation outputs (no bridge class, no CMake, etc.).
+        if (spec.isTypeOnly) {
+          if (outId.path.endsWith('.bridge.g.cpp') ||
+              outId.path.endsWith('.CMakeLists.g.txt') ||
+              outId.path.endsWith('.native.g.h') ||
+              outId.path.endsWith('.mock.g.h') ||
+              outId.path.endsWith('.test.g.cpp')) {
+            // Write a minimal placeholder so build_runner is satisfied.
+            await buildStep.writeAsString(outId, '// Type-only file — no bridge implementation generated.\n');
+            continue;
+          }
+        }
+
         if (outId.path.endsWith('.g.dart')) {
           final rawCode = DartFfiGenerator.generate(spec);
           String formattedCode;
