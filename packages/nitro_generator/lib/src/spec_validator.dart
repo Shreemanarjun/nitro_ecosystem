@@ -165,6 +165,22 @@ class SpecValidator {
         );
       }
 
+      // E001: Map<K, V> where K is not String.
+      // isMap is only set by the extractor for Map<String, V>; a bare Map<K,V>
+      // with a non-String key falls through here and needs a specific hint.
+      if (func.returnType.name.startsWith('Map<') && !func.returnType.isMap) {
+        issues.add(
+          ValidationIssue(
+            severity: ValidationSeverity.error,
+            code: 'E001',
+            message:
+                '${spec.dartClassName}.${func.dartName}() — return type "${func.returnType.name}" uses a non-String Map key. '
+                'Only Map<String, V> is supported.',
+            hint: 'Change the key type to String: Map<String, ${func.returnType.name.contains(',') ? func.returnType.name.split(',').last.trim().replaceFirst('>', '') : 'V'}>.',
+          ),
+        );
+      }
+
       // Return type
       final retName = func.returnType.name.replaceFirst('?', '');
       if (retName != 'void' &&
@@ -239,6 +255,20 @@ class SpecValidator {
 
       // Parameter types
       for (final param in func.params) {
+        // E001: Map<K, V> where K is not String.
+        if (param.type.name.startsWith('Map<') && !param.type.isMap) {
+          issues.add(
+            ValidationIssue(
+              severity: ValidationSeverity.error,
+              code: 'E001',
+              message:
+                  '${spec.dartClassName}.${func.dartName}() — parameter "${param.name}" type "${param.type.name}" uses a non-String Map key. '
+                  'Only Map<String, V> is supported.',
+              hint: 'Change the key type to String.',
+            ),
+          );
+        }
+
         final pName = param.type.name.replaceFirst('?', '');
         if (!param.type.isRecord && // @HybridRecord params bridge as String
             !param.type.isPointer && // raw FFI pointers

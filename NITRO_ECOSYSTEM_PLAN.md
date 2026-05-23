@@ -1506,8 +1506,8 @@ nitro generate --verbose
 | All property types tested (§3.11) — Swift + Kotlin + C++ | ✅ **DONE** 2026-05-22 | `property_all_types_test` (42 tests) |
 | Async return types fully tested (§3.9) — Swift + Kotlin + Dart | ✅ **DONE** 2026-05-22 | `async_return_types_test` (28 tests) |
 | Nullable param/return types tested — Swift + Kotlin | ✅ **DONE** 2026-05-22 | Sections 3–4 of `type_mapping_swift/kotlin_test` |
-| Struct with every field type variant (§3.5) | 🔲 TODO | §8.7 struct sections green |
-| Record with every field type variant (§3.6) | 🔲 TODO | §8.6 record sections green |
+| Struct with every field type variant (§3.5) | ✅ **DONE** 2026-05-23 | `struct_field_types_test.dart` kitchen-sink covers all types in Swift/Kotlin/C++ |
+| Record with every field type variant (§3.6) | ✅ **DONE** 2026-05-23 | `record_field_types_test.dart` (56 tests): bool/double/Uint8List/List<T>/Swift boilerplate |
 | Source-map comments emitted in all generators | 🔲 TODO | every generated method has `// Generated from` |
 
 ### Phase 3 — P1: CLI modes
@@ -1526,10 +1526,10 @@ nitro generate --verbose
 |---|---|---|
 | `SpecValidator.validate()` returns typed `ValidationIssue` list | ✅ Already exists | — |
 | W001: non-nullable named param with no default | ✅ **DONE** 2026-05-22 | 7 tests passing |
-| E001: unsupported Map key type | 🔲 TODO | validation test §8.10 passes |
-| E002: `@nitroAsync` on non-Future return | 🔲 TODO | validation test §8.10 passes |
-| E005: `@ZeroCopy` on non-TypedData | 🔲 TODO | validation test §8.10 passes |
-| W002/W003: enum/struct-typed default param | 🔲 TODO | validation test §8.10 passes |
+| E001: unsupported Map key type | ✅ **DONE** 2026-05-23 | `spec_validator_complete_test.dart` (8 E001 tests) |
+| E002: `@nitroAsync` on non-Future return | ✅ **DONE** 2026-05-23 | `spec_validator_complete_test.dart` (9 E002 tests) |
+| E005: `@ZeroCopy` on non-TypedData | ✅ **DONE** (exists as INVALID_ZERO_COPY) | `spec_validator_test.dart` covers it |
+| W002/W003: enum/struct-typed default param | ✅ **DONE** 2026-05-23 | `spec_validator_complete_test.dart` (16 W002/W003 tests) |
 | W004: `Stream<T>` without `@NitroStream` | 🔲 TODO | validation test §8.10 passes |
 | Validation runs before any file is written | 🔲 TODO | confirmed in integration test |
 
@@ -1649,6 +1649,13 @@ Future<bool> setMetadata(String metaJson);   // caller: jsonEncode(map)
 | `typed_list_bridge_test.dart` | TypedData in bridge |
 | `edge_cases_test.dart` | Empty spec, no-function spec, etc. |
 
+### New tests added 2026-05-23 (total: ~89 new tests; suite: 1961 passing — 0 failures)
+
+| Test file | Tests | What it covers |
+|---|---|---|
+| `spec_validator_complete_test.dart` | 33 | E001 (non-String Map key), E002 (async non-Future), W002 (enum named param), W003 (struct named param), mixed |
+| `record_field_types_test.dart` | 56 | bool/double/Uint8List fields; List<String/double/bool>; Swift struct boilerplate; multi-field ordering |
+
 ### New tests added 2026-05-22 (total: 278 new tests; suite: 1864 passing)
 
 | Test file | Tests | What it covers |
@@ -1663,6 +1670,6 @@ Future<bool> setMetadata(String metaJson);   // caller: jsonEncode(map)
 
 ---
 
-*Plan authored 2026-05-22. Updated 2026-05-22 with Phase 1/2 progress.
+*Plan authored 2026-05-22. Updated 2026-05-23 with Phase 1/2/4 progress.
 Ground-truthed against `packages/nitro_generator/` source.
 Revisit §4 Type Mapping tables after each Nitro generator release.*

@@ -1,5 +1,6 @@
-// Comprehensive validation tests for E002, W002, and W003.
+// Comprehensive validation tests for E001, E002, W002, and W003.
 //
+//   E001: Map<K,V> where K is not String — only Map<String,V> is supported.
 //   E002: @nitroAsync on a non-Future return type (non-void).
 //   W002: Non-nullable @HybridEnum named optional param with no default.
 //   W003: Non-nullable @HybridStruct named optional param with no default.
@@ -91,9 +92,118 @@ BridgeSpec _namedStructParamSpec({String? defaultLiteral, bool nullable = false}
   );
 }
 
+// ── E001 helpers ──────────────────────────────────────────────────────────────
+
+BridgeSpec _mapReturnSpec(String mapTypeName, {bool isMap = false}) => BridgeSpec(
+  dartClassName: 'Mod',
+  lib: 'mod',
+  namespace: 'mod',
+  iosImpl: NativeImpl.swift,
+  androidImpl: NativeImpl.kotlin,
+  sourceUri: 'mod.native.dart',
+  functions: [
+    BridgeFunction(
+      dartName: 'fn',
+      cSymbol: 'mod_fn',
+      isAsync: false,
+      returnType: BridgeType(name: mapTypeName, isRecord: isMap, isMap: isMap),
+      params: [],
+    ),
+  ],
+);
+
+BridgeSpec _mapParamSpec(String mapTypeName, {bool isMap = false}) => BridgeSpec(
+  dartClassName: 'Mod',
+  lib: 'mod',
+  namespace: 'mod',
+  iosImpl: NativeImpl.swift,
+  androidImpl: NativeImpl.kotlin,
+  sourceUri: 'mod.native.dart',
+  functions: [
+    BridgeFunction(
+      dartName: 'fn',
+      cSymbol: 'mod_fn',
+      isAsync: false,
+      returnType: BridgeType(name: 'void'),
+      params: [
+        BridgeParam(
+          name: 'data',
+          type: BridgeType(name: mapTypeName, isRecord: isMap, isMap: isMap),
+        ),
+      ],
+    ),
+  ],
+);
+
+// ── E001: Map with non-String key ─────────────────────────────────────────────
+
 // ── E002: @nitroAsync on non-Future return type ───────────────────────────────
 
 void main() {
+  group('SpecValidator — E001: Map<K,V> with non-String key', () {
+    test('Map<int, String> return type emits E001 error', () {
+      final issues = SpecValidator.validate(_mapReturnSpec('Map<int, String>'));
+      expect(issues.any((i) => i.code == 'E001' && i.isError), isTrue);
+    });
+
+    test('Map<bool, String> return type emits E001 error', () {
+      final issues = SpecValidator.validate(_mapReturnSpec('Map<bool, String>'));
+      expect(issues.any((i) => i.code == 'E001' && i.isError), isTrue);
+    });
+
+    test('Map<int, String> parameter emits E001 error', () {
+      final issues = SpecValidator.validate(_mapParamSpec('Map<int, String>'));
+      expect(issues.any((i) => i.code == 'E001' && i.isError), isTrue);
+    });
+
+    test('E001 message includes the bad type name', () {
+      final issues = SpecValidator.validate(_mapReturnSpec('Map<int, String>'));
+      final e = issues.firstWhere((i) => i.code == 'E001');
+      expect(e.message, contains('Map<int, String>'));
+    });
+
+    test('E001 hint mentions String key', () {
+      final issues = SpecValidator.validate(_mapReturnSpec('Map<int, String>'));
+      final e = issues.firstWhere((i) => i.code == 'E001');
+      expect(e.hint, isNotNull);
+      expect(e.hint, contains('String'));
+    });
+
+    test('Map<String, int> return with isMap:true does NOT emit E001', () {
+      final issues = SpecValidator.validate(
+        _mapReturnSpec('Map<String, int>', isMap: true),
+      );
+      expect(issues.any((i) => i.code == 'E001'), isFalse);
+    });
+
+    test('Map<String, String> param with isMap:true does NOT emit E001', () {
+      final issues = SpecValidator.validate(
+        _mapParamSpec('Map<String, String>', isMap: true),
+      );
+      expect(issues.any((i) => i.code == 'E001'), isFalse);
+    });
+
+    test('non-Map type (String) does NOT emit E001', () {
+      final spec = BridgeSpec(
+        dartClassName: 'Mod',
+        lib: 'mod',
+        namespace: 'mod',
+        iosImpl: NativeImpl.swift,
+        androidImpl: NativeImpl.kotlin,
+        sourceUri: 'mod.native.dart',
+        functions: [
+          BridgeFunction(
+            dartName: 'fn',
+            cSymbol: 'mod_fn',
+            isAsync: false,
+            returnType: BridgeType(name: 'String'),
+            params: [],
+          ),
+        ],
+      );
+      expect(SpecValidator.validate(spec).any((i) => i.code == 'E001'), isFalse);
+    });
+  });
   group('SpecValidator — E002: @nitroAsync on non-Future return type', () {
     test('isAsync + String return (isFuture false) emits E002 error', () {
       final issues = SpecValidator.validate(_asyncSpec('String'));
