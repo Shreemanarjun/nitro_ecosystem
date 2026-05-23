@@ -327,7 +327,8 @@ void main() {
 
     test('freeFields(): string freed but nested struct pointer also freed', () {
       final out = StructGenerator.generateDartExtensions(mixedSpec());
-      expect(out, contains('if (label != nullptr) malloc.free(label)'));
+      expect(out, contains('if (label != nullptr) {'));
+      expect(out, contains('malloc.free(label);'));
       expect(out, contains('if (origin != nullptr) {'));
       expect(out, contains('origin.ref.freeFields();'));
       expect(out, contains('malloc.free(origin);'));

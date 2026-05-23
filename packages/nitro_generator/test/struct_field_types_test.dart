@@ -219,7 +219,8 @@ void main() {
 
     // freeFields()
     test('freeFields() emits null-check + malloc.free for string pointer', () {
-      expect(dartExt, contains('if (message != nullptr) malloc.free(message)'));
+      expect(dartExt, contains('if (message != nullptr) {'));
+      expect(dartExt, contains('malloc.free(message);'));
     });
 
     test('freeFields() does NOT free the primitive int field', () {
@@ -471,7 +472,8 @@ void main() {
       final out = StructGenerator.generateDartExtensions(
         _freeFieldsSpec(hasDouble: false, hasString: true, hasNested: false),
       );
-      expect(out, contains('if (label != nullptr) malloc.free(label)'));
+      expect(out, contains('if (label != nullptr) {'));
+      expect(out, contains('malloc.free(label);'));
       expect(out, isNot(contains('label.ref.freeFields')));
     });
 
@@ -488,7 +490,8 @@ void main() {
       final out = StructGenerator.generateDartExtensions(
         _freeFieldsSpec(hasDouble: true, hasString: true, hasNested: true),
       );
-      expect(out, contains('if (label != nullptr) malloc.free(label)'));
+      expect(out, contains('if (label != nullptr) {'));
+      expect(out, contains('malloc.free(label);'));
       expect(out, contains('if (inner != nullptr) {'));
       expect(out, contains('inner.ref.freeFields();'));
       expect(out, contains('malloc.free(inner);'));
@@ -556,8 +559,10 @@ void main() {
         functions: [],
       );
       final out = StructGenerator.generateDartExtensions(spec);
-      expect(out, contains('if (first != nullptr) malloc.free(first)'));
-      expect(out, contains('if (second != nullptr) malloc.free(second)'));
+      expect(out, contains('if (first != nullptr) {'));
+      expect(out, contains('malloc.free(first);'));
+      expect(out, contains('if (second != nullptr) {'));
+      expect(out, contains('malloc.free(second);'));
     });
 
     test('multiple nested struct fields: each gets its own recursive free', () {
@@ -954,10 +959,20 @@ void main() {
       final evIdx = out.indexOf('extension EverythingFfiExt');
       final evBlock = out.substring(evIdx, out.indexOf('extension Everything', evIdx + 1));
       final freeIdx = evBlock.indexOf('void freeFields()');
-      final freeEnd = evBlock.indexOf('}', freeIdx + 1);
+      // Use brace-counting to find the true end of freeFields() — inner
+      // if-blocks now have their own braces so a simple indexOf('}') stops too early.
+      int depth = 0, freeEnd = freeIdx;
+      for (var i = freeIdx; i < evBlock.length; i++) {
+        if (evBlock[i] == '{') depth++;
+        if (evBlock[i] == '}') {
+          depth--;
+          if (depth == 0) { freeEnd = i; break; }
+        }
+      }
       final freeBody = evBlock.substring(freeIdx, freeEnd + 1);
       // String field freed
-      expect(freeBody, contains('if (label != nullptr) malloc.free(label)'));
+      expect(freeBody, contains('if (label != nullptr) {'));
+      expect(freeBody, contains('malloc.free(label);'));
       // Nested struct freed
       expect(freeBody, contains('if (sub != nullptr) {'));
       expect(freeBody, contains('sub.ref.freeFields()'));
@@ -967,7 +982,9 @@ void main() {
       expect(freeBody, isNot(contains('malloc.free(ratio)')));
       expect(freeBody, isNot(contains('malloc.free(active)')));
       expect(freeBody, isNot(contains('malloc.free(color)')));
-      expect(freeBody, isNot(contains('malloc.free(data)')));
+      // data is a non-zero-copy Uint8List — the native side malloc's it, so it IS freed
+      expect(freeBody, contains('if (data != nullptr) {'));
+      expect(freeBody, contains('malloc.free(data);'));
     });
 
     test('proxy super() has correct zero defaults for all types', () {
@@ -1048,7 +1065,8 @@ void main() {
       expect(ext, contains('external Pointer<Utf8> text;'));
       expect(ext, contains('text: text.toDartString()'));
       expect(ext, contains('ptr.ref.text = text.toNativeUtf8(allocator: arena)'));
-      expect(ext, contains('if (text != nullptr) malloc.free(text)'));
+      expect(ext, contains('if (text != nullptr) {'));
+      expect(ext, contains('malloc.free(text);'));
       expect(proxy, contains("text: ''"));
       expect(proxy, contains('String get text => _native.ref.text.toDartString()'));
     });
