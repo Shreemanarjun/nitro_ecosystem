@@ -1,9 +1,10 @@
-// Comprehensive validation tests for E001, E002, W002, and W003.
+// Comprehensive validation tests for E001, E002, W002, W003, and W004.
 //
 //   E001: Map<K,V> where K is not String — only Map<String,V> is supported.
 //   E002: @nitroAsync on a non-Future return type (non-void).
 //   W002: Non-nullable @HybridEnum named optional param with no default.
 //   W003: Non-nullable @HybridStruct named optional param with no default.
+//   W004: Stream<T> declared without @NitroStream annotation.
 
 import 'package:test/test.dart';
 import 'test_utils.dart';
@@ -360,6 +361,107 @@ void main() {
     test('struct named param does NOT emit W001 (W003 is the specific code)', () {
       final issues = SpecValidator.validate(_namedStructParamSpec());
       expect(issues.any((i) => i.code == 'W001'), isFalse);
+    });
+  });
+
+  // ── W004: Stream<T> without @NitroStream annotation ──────────────────────────
+
+  group('SpecValidator — W004: Stream<T> without @NitroStream annotation', () {
+    BridgeSpec streamSpec({required bool isAnnotated}) => BridgeSpec(
+      dartClassName: 'Mod',
+      lib: 'mod',
+      namespace: 'mod',
+      iosImpl: NativeImpl.swift,
+      androidImpl: NativeImpl.kotlin,
+      sourceUri: 'mod.native.dart',
+      streams: [
+        BridgeStream(
+          dartName: 'frames',
+          registerSymbol: 'mod_frames_register',
+          releaseSymbol: 'mod_frames_release',
+          itemType: BridgeType(name: 'int'),
+          backpressure: Backpressure.dropLatest,
+          isAnnotated: isAnnotated,
+        ),
+      ],
+    );
+
+    test('unannotated stream emits W004 warning', () {
+      final issues = SpecValidator.validate(streamSpec(isAnnotated: false));
+      expect(issues.any((i) => i.code == 'W004'), isTrue);
+    });
+
+    test('W004 is a warning, not an error', () {
+      final issues = SpecValidator.validate(streamSpec(isAnnotated: false));
+      final w = issues.firstWhere((i) => i.code == 'W004');
+      expect(w.isError, isFalse);
+    });
+
+    test('W004 message includes stream name', () {
+      final issues = SpecValidator.validate(streamSpec(isAnnotated: false));
+      final w = issues.firstWhere((i) => i.code == 'W004');
+      expect(w.message, contains('frames'));
+    });
+
+    test('W004 message mentions @NitroStream', () {
+      final issues = SpecValidator.validate(streamSpec(isAnnotated: false));
+      final w = issues.firstWhere((i) => i.code == 'W004');
+      expect(w.message, contains('@NitroStream'));
+    });
+
+    test('W004 hint mentions backpressure', () {
+      final issues = SpecValidator.validate(streamSpec(isAnnotated: false));
+      final w = issues.firstWhere((i) => i.code == 'W004');
+      expect(w.hint, isNotNull);
+      expect(w.hint, contains('backpressure'));
+    });
+
+    test('annotated stream does NOT emit W004', () {
+      final issues = SpecValidator.validate(streamSpec(isAnnotated: true));
+      expect(issues.any((i) => i.code == 'W004'), isFalse);
+    });
+
+    test('spec with no streams does NOT emit W004', () {
+      final spec = BridgeSpec(
+        dartClassName: 'Mod',
+        lib: 'mod',
+        namespace: 'mod',
+        iosImpl: NativeImpl.swift,
+        androidImpl: NativeImpl.kotlin,
+        sourceUri: 'mod.native.dart',
+      );
+      expect(SpecValidator.validate(spec).any((i) => i.code == 'W004'), isFalse);
+    });
+
+    test('two unannotated streams each emit a W004', () {
+      final spec = BridgeSpec(
+        dartClassName: 'Mod',
+        lib: 'mod',
+        namespace: 'mod',
+        iosImpl: NativeImpl.swift,
+        androidImpl: NativeImpl.kotlin,
+        sourceUri: 'mod.native.dart',
+        streams: [
+          BridgeStream(
+            dartName: 'frames',
+            registerSymbol: 'mod_frames_register',
+            releaseSymbol: 'mod_frames_release',
+            itemType: BridgeType(name: 'int'),
+            backpressure: Backpressure.dropLatest,
+            isAnnotated: false,
+          ),
+          BridgeStream(
+            dartName: 'events',
+            registerSymbol: 'mod_events_register',
+            releaseSymbol: 'mod_events_release',
+            itemType: BridgeType(name: 'String'),
+            backpressure: Backpressure.dropLatest,
+            isAnnotated: false,
+          ),
+        ],
+      );
+      final w4 = SpecValidator.validate(spec).where((i) => i.code == 'W004').toList();
+      expect(w4.length, 2);
     });
   });
 

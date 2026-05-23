@@ -157,40 +157,40 @@ void main() {
   // and the resulting `{Type name = literal}` is valid Dart.
 
   group('DartFfiGenerator — Bug 5.1 fix: defaultLiteral emits valid {T name = value}', () {
-    BridgeParam _namedWithDefault(String type, String name, String literal) =>
+    BridgeParam namedWithDefault(String type, String name, String literal) =>
         BridgeParam(name: name, type: BridgeType(name: type), isNamed: true, isOptional: true, defaultLiteral: literal);
 
     test('int named with default 5 → {int timeout = 5}', () {
-      final out = DartFfiGenerator.generate(_fnSpec('void', [_namedWithDefault('int', 'timeout', '5')]));
+      final out = DartFfiGenerator.generate(_fnSpec('void', [namedWithDefault('int', 'timeout', '5')]));
       expect(out, contains('{int timeout = 5}'));
     });
 
     test('bool named with default true → {bool verbose = true}', () {
-      final out = DartFfiGenerator.generate(_fnSpec('void', [_namedWithDefault('bool', 'verbose', 'true')]));
+      final out = DartFfiGenerator.generate(_fnSpec('void', [namedWithDefault('bool', 'verbose', 'true')]));
       expect(out, contains('{bool verbose = true}'));
     });
 
     test('double named with default 1.0 → {double scale = 1.0}', () {
-      final out = DartFfiGenerator.generate(_fnSpec('void', [_namedWithDefault('double', 'scale', '1.0')]));
+      final out = DartFfiGenerator.generate(_fnSpec('void', [namedWithDefault('double', 'scale', '1.0')]));
       expect(out, contains('{double scale = 1.0}'));
     });
 
     test('String named with default empty → {String label = \'\'}', () {
-      final out = DartFfiGenerator.generate(_fnSpec('void', [_namedWithDefault('String', 'label', "''")]));
+      final out = DartFfiGenerator.generate(_fnSpec('void', [namedWithDefault('String', 'label', "''")]));
       expect(out, contains("{String label = ''}"));
     });
 
     test('positional + named with default → valid mixed signature', () {
       final out = DartFfiGenerator.generate(_fnSpec('bool', [
         _pos('String', 'id'),
-        _namedWithDefault('int', 'timeout', '30'),
+        namedWithDefault('int', 'timeout', '30'),
       ]));
       expect(out, contains('fn(String id, {int timeout = 30})'));
     });
 
     test('multiple named params — one with default, one nullable', () {
       final out = DartFfiGenerator.generate(_fnSpec('void', [
-        _namedWithDefault('int', 'retries', '3'),
+        namedWithDefault('int', 'retries', '3'),
         _named('bool?', 'verbose'),
       ]));
       expect(out, contains('{int retries = 3, bool? verbose}'));

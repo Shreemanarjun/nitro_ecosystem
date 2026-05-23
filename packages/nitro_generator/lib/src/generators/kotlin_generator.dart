@@ -58,6 +58,9 @@ class KotlinGenerator {
     s.writeln();
 
     for (final func in spec.functions) {
+      if (func.lineNumber != null) {
+        s.writeln('    // source: ${spec.sourceUri.split('/').last}:${func.lineNumber}');
+      }
       final retType = _toKotlinRetType(enumNames, structNames, recordNames, func.returnType);
       final params = func.params.map((p) => '${p.name}: ${_toKotlinParamType(enumNames, structNames, recordNames, p)}').join(', ');
       final suspend = (func.isAsync || func.isNativeAsync) ? 'suspend ' : '';
@@ -137,6 +140,9 @@ class KotlinGenerator {
     }
 
     for (final func in spec.functions) {
+      if (func.lineNumber != null) {
+        s.writeln('    // source: ${spec.sourceUri.split('/').last}:${func.lineNumber}');
+      }
       final retType = _toKotlinRetType(enumNames, structNames, recordNames, func.returnType);
       final paramsDecl = func.params.map((p) => '${p.name}: ${_toKotlinParamType(enumNames, structNames, recordNames, p)}').join(', ');
       final callParams = func.params.map((p) => p.name).join(', ');

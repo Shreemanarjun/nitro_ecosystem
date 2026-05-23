@@ -22,7 +22,9 @@ BridgeProperty _prop(
   String dartType, {
   String name = 'value',
   bool readOnly = false,
+  // ignore: unused_element_parameter
   List<BridgeEnum> enums = const [],
+  // ignore: unused_element_parameter
   List<BridgeStruct> structs = const [],
 }) => BridgeProperty(
   dartName: name,
@@ -214,7 +216,7 @@ void main() {
 
   // ── Section 4: Enum properties ───────────────────────────────────────────
 
-  BridgeSpec _enumPropSpec({bool readOnly = false, bool forCpp = false}) => BridgeSpec(
+  BridgeSpec enumPropSpec({bool readOnly = false, bool forCpp = false}) => BridgeSpec(
     dartClassName: 'Mod',
     lib: 'mod',
     namespace: 'mod',
@@ -238,48 +240,48 @@ void main() {
 
   group('SwiftGenerator — enum property', () {
     test('enum read-write property → var mode: Mode { get set }', () {
-      final out = SwiftGenerator.generate(_enumPropSpec());
+      final out = SwiftGenerator.generate(enumPropSpec());
       expect(out, contains('var mode: Mode { get set }'));
     });
 
     test('enum read-only property → var mode: Mode { get }', () {
-      final out = SwiftGenerator.generate(_enumPropSpec(readOnly: true));
+      final out = SwiftGenerator.generate(enumPropSpec(readOnly: true));
       expect(out, contains('var mode: Mode { get }'));
     });
   });
 
   group('KotlinGenerator — enum property', () {
     test('enum read-write property → var mode: Mode', () {
-      final out = KotlinGenerator.generate(_enumPropSpec());
+      final out = KotlinGenerator.generate(enumPropSpec());
       expect(out, contains('var mode: Mode'));
     });
 
     test('enum read-only property → val mode: Mode', () {
-      final out = KotlinGenerator.generate(_enumPropSpec(readOnly: true));
+      final out = KotlinGenerator.generate(enumPropSpec(readOnly: true));
       expect(out, contains('val mode: Mode'));
     });
   });
 
   group('CppInterfaceGenerator — enum property', () {
     test('enum getter → virtual Mode get_mode() const = 0', () {
-      final out = CppInterfaceGenerator.generate(_enumPropSpec(forCpp: true));
+      final out = CppInterfaceGenerator.generate(enumPropSpec(forCpp: true));
       expect(out, contains('virtual Mode get_mode() const = 0'));
     });
 
     test('enum setter → virtual void set_mode(Mode value) = 0', () {
-      final out = CppInterfaceGenerator.generate(_enumPropSpec(forCpp: true));
+      final out = CppInterfaceGenerator.generate(enumPropSpec(forCpp: true));
       expect(out, contains('virtual void set_mode(Mode value) = 0'));
     });
 
     test('enum read-only has no setter', () {
-      final out = CppInterfaceGenerator.generate(_enumPropSpec(readOnly: true, forCpp: true));
+      final out = CppInterfaceGenerator.generate(enumPropSpec(readOnly: true, forCpp: true));
       expect(out, isNot(contains('set_mode')));
     });
   });
 
   // ── Section 5: Struct properties ─────────────────────────────────────────
 
-  BridgeSpec _structPropSpec({bool readOnly = false, bool forCpp = false}) => BridgeSpec(
+  BridgeSpec structPropSpec({bool readOnly = false, bool forCpp = false}) => BridgeSpec(
     dartClassName: 'Mod',
     lib: 'mod',
     namespace: 'mod',
@@ -307,36 +309,36 @@ void main() {
 
   group('SwiftGenerator — struct property', () {
     test('struct read-only property → var config: Config { get }', () {
-      final out = SwiftGenerator.generate(_structPropSpec(readOnly: true));
+      final out = SwiftGenerator.generate(structPropSpec(readOnly: true));
       expect(out, contains('var config: Config { get }'));
     });
 
     test('struct read-write property → var config: Config { get set }', () {
-      final out = SwiftGenerator.generate(_structPropSpec());
+      final out = SwiftGenerator.generate(structPropSpec());
       expect(out, contains('var config: Config { get set }'));
     });
   });
 
   group('KotlinGenerator — struct property', () {
     test('struct read-only property → val config: Config', () {
-      final out = KotlinGenerator.generate(_structPropSpec(readOnly: true));
+      final out = KotlinGenerator.generate(structPropSpec(readOnly: true));
       expect(out, contains('val config: Config'));
     });
 
     test('struct read-write property → var config: Config', () {
-      final out = KotlinGenerator.generate(_structPropSpec());
+      final out = KotlinGenerator.generate(structPropSpec());
       expect(out, contains('var config: Config'));
     });
   });
 
   group('CppInterfaceGenerator — struct property', () {
     test('struct getter → virtual Config get_config() const = 0', () {
-      final out = CppInterfaceGenerator.generate(_structPropSpec(forCpp: true));
+      final out = CppInterfaceGenerator.generate(structPropSpec(forCpp: true));
       expect(out, contains('virtual Config get_config() const = 0'));
     });
 
     test('struct setter → virtual void set_config(const Config& value) = 0', () {
-      final out = CppInterfaceGenerator.generate(_structPropSpec(forCpp: true));
+      final out = CppInterfaceGenerator.generate(structPropSpec(forCpp: true));
       expect(out, contains('virtual void set_config(const Config& value) = 0'));
     });
   });
@@ -344,7 +346,7 @@ void main() {
   // ── Section 6: Multiple properties in same spec ───────────────────────────
 
   group('Multiple properties in same spec emit all declarations', () {
-    BridgeSpec _multiPropSpec() => BridgeSpec(
+    BridgeSpec multiPropSpec() => BridgeSpec(
       dartClassName: 'Mod',
       lib: 'mod',
       namespace: 'mod',
@@ -362,14 +364,14 @@ void main() {
     );
 
     test('Swift emits all three property declarations', () {
-      final out = SwiftGenerator.generate(_multiPropSpec());
+      final out = SwiftGenerator.generate(multiPropSpec());
       expect(out, contains('var count: Int64 { get set }'));
       expect(out, contains('var name: String { get }'));
       expect(out, contains('var active: Bool { get set }'));
     });
 
     test('Kotlin emits all three property declarations', () {
-      final out = KotlinGenerator.generate(_multiPropSpec());
+      final out = KotlinGenerator.generate(multiPropSpec());
       expect(out, contains('var count: Long'));
       expect(out, contains('val name: String'));
       expect(out, contains('var active: Boolean'));

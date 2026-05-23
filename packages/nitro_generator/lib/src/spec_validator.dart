@@ -402,6 +402,23 @@ class SpecValidator {
           ),
         );
       }
+
+      // W004: Stream<T> declared without @NitroStream annotation — backpressure
+      // defaults silently to dropLatest which may not be the intended behaviour.
+      if (!stream.isAnnotated) {
+        issues.add(
+          ValidationIssue(
+            severity: ValidationSeverity.warning,
+            code: 'W004',
+            message:
+                '${spec.dartClassName}.${stream.dartName} — Stream<T> declared without @NitroStream annotation. '
+                'Backpressure defaults to dropLatest silently.',
+            hint:
+                'Add @NitroStream(backpressure: Backpressure.dropLatest) (or your preferred mode) '
+                'to explicitly configure stream backpressure.',
+          ),
+        );
+      }
     }
 
     // ── Structs ────────────────────────────────────────────────────────────

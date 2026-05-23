@@ -527,6 +527,7 @@ class StructGenerator {
   /// for use in the protocol and user implementation.
   ///
   /// A private `_${Name}C` shadow struct is also emitted for each struct, with
+  // ignore: unintended_html_in_doc_comment
   /// C-ABI-compatible field types (UnsafeMutablePointer<CChar>?, Int8, Int32,
   /// etc.) that match the C header layout exactly. The shadow is used by the
   /// @_cdecl bridge functions to correctly marshal structs across the FFI
@@ -676,6 +677,7 @@ class StructGenerator {
     if (enumNames.contains(base)) {
       // Force-unwrap: the C bridge always sends a valid rawValue; crashing on
       // corruption is intentional and avoids silent wrong-enum-case bugs.
+      // ignore: unnecessary_brace_in_string_interps
       return '${base}(rawValue: Int64(${f.name}))!';
     }
     if (structNames.contains(base)) return '${f.name}!.pointee.toSwift()';

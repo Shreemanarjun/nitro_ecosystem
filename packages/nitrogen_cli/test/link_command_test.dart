@@ -2276,27 +2276,27 @@ end
     setUp(() => tmp = Directory.systemTemp.createTempSync('flutter_fw_dep_'));
     tearDown(() => tmp.deleteSync(recursive: true));
 
-    String _path() => p.join(tmp.path, 'Package.swift');
+    String path0() => p.join(tmp.path, 'Package.swift');
 
     test('returns false when file does not exist', () {
-      expect(spm.ensureFlutterFrameworkDependency(_path()), isFalse);
+      expect(spm.ensureFlutterFrameworkDependency(path0()), isFalse);
     });
 
     test('returns false and does not modify when FlutterFramework already present', () {
-      File(_path()).writeAsStringSync(
+      File(path0()).writeAsStringSync(
         '// swift-tools-version: 5.9\n'
         'let p = Package(name:"x", platforms:[.iOS(.v13)],\n'
         '  dependencies:[.package(name:"FlutterFramework",path:"../FlutterFramework")],\n'
         '  targets:[.target(name:"x",dependencies:["XCpp"],path:"Sources/X")])',
       );
-      final before = File(_path()).readAsStringSync();
-      expect(spm.ensureFlutterFrameworkDependency(_path()), isFalse);
-      expect(File(_path()).readAsStringSync(), equals(before));
+      final before = File(path0()).readAsStringSync();
+      expect(spm.ensureFlutterFrameworkDependency(path0()), isFalse);
+      expect(File(path0()).readAsStringSync(), equals(before));
     });
 
     test('injects package-level dependency when no dependencies block exists (2-space indent)', () {
       // Format produced by swift_templates.dart (2-space, old format without FlutterFramework)
-      File(_path()).writeAsStringSync(
+      File(path0()).writeAsStringSync(
         '// swift-tools-version: 5.9\n'
         'import PackageDescription\n'
         '\n'
@@ -2312,15 +2312,15 @@ end
         '  ]\n'
         ')\n',
       );
-      expect(spm.ensureFlutterFrameworkDependency(_path()), isTrue);
-      final result = File(_path()).readAsStringSync();
+      expect(spm.ensureFlutterFrameworkDependency(path0()), isTrue);
+      final result = File(path0()).readAsStringSync();
       expect(result, contains('.package(name: "FlutterFramework", path: "../FlutterFramework")'));
       expect(result, contains('.product(name: "FlutterFramework", package: "FlutterFramework")'));
     });
 
     test('injects package-level dependency when no dependencies block exists (4-space indent)', () {
       // Format produced by scaffold_templates.dart (4-space, old format without FlutterFramework)
-      File(_path()).writeAsStringSync(
+      File(path0()).writeAsStringSync(
         '// swift-tools-version: 5.9\n'
         'import PackageDescription\n'
         '\n'
@@ -2336,14 +2336,14 @@ end
         '    ]\n'
         ')\n',
       );
-      expect(spm.ensureFlutterFrameworkDependency(_path()), isTrue);
-      final result = File(_path()).readAsStringSync();
+      expect(spm.ensureFlutterFrameworkDependency(path0()), isTrue);
+      final result = File(path0()).readAsStringSync();
       expect(result, contains('.package(name: "FlutterFramework", path: "../FlutterFramework")'));
       expect(result, contains('.product(name: "FlutterFramework", package: "FlutterFramework")'));
     });
 
     test('appends into existing package-level dependencies array', () {
-      File(_path()).writeAsStringSync(
+      File(path0()).writeAsStringSync(
         '// swift-tools-version: 5.9\n'
         'let p = Package(name:"x", platforms:[.iOS(.v13)],\n'
         '  dependencies:[\n'
@@ -2351,15 +2351,15 @@ end
         '  ],\n'
         '  targets:[.target(name:"x",dependencies:["XCpp"],path:"Sources/X")])',
       );
-      expect(spm.ensureFlutterFrameworkDependency(_path()), isTrue);
-      final result = File(_path()).readAsStringSync();
+      expect(spm.ensureFlutterFrameworkDependency(path0()), isTrue);
+      final result = File(path0()).readAsStringSync();
       expect(result, contains('.package(name: "FlutterFramework", path: "../FlutterFramework")'));
       // Original dependency should still be present.
       expect(result, contains('https://example.com/foo'));
     });
 
     test('converts inline Swift-target dependencies to expanded form with FlutterFramework', () {
-      File(_path()).writeAsStringSync(
+      File(path0()).writeAsStringSync(
         '// swift-tools-version: 5.9\n'
         'let p = Package(name:"x",\n'
         '  targets:[\n'
@@ -2367,14 +2367,14 @@ end
         '    .target(name:"x",dependencies:["XCpp"],path:"Sources/X")\n'
         '  ])',
       );
-      spm.ensureFlutterFrameworkDependency(_path());
-      final result = File(_path()).readAsStringSync();
+      spm.ensureFlutterFrameworkDependency(path0());
+      final result = File(path0()).readAsStringSync();
       expect(result, contains('"XCpp"'));
       expect(result, contains('.product(name: "FlutterFramework", package: "FlutterFramework")'));
     });
 
     test('is idempotent — second call makes no changes', () {
-      File(_path()).writeAsStringSync(
+      File(path0()).writeAsStringSync(
         '// swift-tools-version: 5.9\n'
         'let p = Package(name:"x",\n'
         '  targets:[\n'
@@ -2382,11 +2382,11 @@ end
         '    .target(name:"x",dependencies:["XCpp"],path:"Sources/X")\n'
         '  ])',
       );
-      spm.ensureFlutterFrameworkDependency(_path());
-      final afterFirst = File(_path()).readAsStringSync();
-      final secondResult = spm.ensureFlutterFrameworkDependency(_path());
+      spm.ensureFlutterFrameworkDependency(path0());
+      final afterFirst = File(path0()).readAsStringSync();
+      final secondResult = spm.ensureFlutterFrameworkDependency(path0());
       expect(secondResult, isFalse);
-      expect(File(_path()).readAsStringSync(), equals(afterFirst));
+      expect(File(path0()).readAsStringSync(), equals(afterFirst));
     });
 
     test('ensureIosPackageSwift patches FlutterFramework into existing Package.swift', () {

@@ -70,6 +70,9 @@ class CppInterfaceGenerator {
     if (spec.functions.isNotEmpty) {
       s.writeln('    // ── Methods ──────────────────────────────────────────────────────────');
       for (final func in spec.functions) {
+        if (func.lineNumber != null) {
+          s.writeln('    // source: ${spec.sourceUri.split('/').last}:${func.lineNumber}');
+        }
         if (func.isNativeAsync) {
           // @NitroNativeAsync: impl returns void and accepts dart_port so it can
           // post the result directly via Dart_PostCObject_DL from any thread.

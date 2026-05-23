@@ -794,7 +794,7 @@ void main() {
 
   // ── W001: non-nullable named param with no defaultLiteral ─────────────────
 
-  BridgeSpec _specWithNonNullableNamed(String typeName) => BridgeSpec(
+  BridgeSpec specWithNonNullableNamed(String typeName) => BridgeSpec(
     dartClassName: 'Mod',
     lib: 'mod',
     namespace: 'mod',
@@ -822,28 +822,28 @@ void main() {
 
   group('SpecValidator — W001: non-nullable named param with no default', () {
     test('int named param with no default emits W001 warning', () {
-      final issues = SpecValidator.validate(_specWithNonNullableNamed('int'));
+      final issues = SpecValidator.validate(specWithNonNullableNamed('int'));
       expect(issues.any((i) => i.code == 'W001'), isTrue);
     });
 
     test('bool named param with no default emits W001', () {
-      final issues = SpecValidator.validate(_specWithNonNullableNamed('bool'));
+      final issues = SpecValidator.validate(specWithNonNullableNamed('bool'));
       expect(issues.any((i) => i.code == 'W001'), isTrue);
     });
 
     test('double named param with no default emits W001', () {
-      final issues = SpecValidator.validate(_specWithNonNullableNamed('double'));
+      final issues = SpecValidator.validate(specWithNonNullableNamed('double'));
       expect(issues.any((i) => i.code == 'W001'), isTrue);
     });
 
     test('W001 is a warning, not an error', () {
-      final issues = SpecValidator.validate(_specWithNonNullableNamed('int'));
+      final issues = SpecValidator.validate(specWithNonNullableNamed('int'));
       final w001 = issues.firstWhere((i) => i.code == 'W001');
       expect(w001.isError, isFalse);
     });
 
     test('W001 hint mentions nullable workaround', () {
-      final issues = SpecValidator.validate(_specWithNonNullableNamed('int'));
+      final issues = SpecValidator.validate(specWithNonNullableNamed('int'));
       final w001 = issues.firstWhere((i) => i.code == 'W001');
       expect(w001.hint, contains('nullable'));
     });

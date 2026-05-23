@@ -210,6 +210,10 @@ class BridgeFunction {
   final BridgeType returnType;
   final List<BridgeParam> params;
 
+  /// 1-based line number of this function in the source .native.dart file.
+  /// Populated by the spec extractor; null when constructed manually.
+  final int? lineNumber;
+
   BridgeFunction({
     required this.dartName,
     required this.cSymbol,
@@ -217,6 +221,7 @@ class BridgeFunction {
     this.isNativeAsync = false,
     required this.returnType,
     required this.params,
+    this.lineNumber,
   });
 }
 
@@ -258,6 +263,10 @@ class BridgeStream {
   // true when declared as a method (`Stream<T> name()`), false for a getter.
   final bool isMethodStyle;
 
+  /// True when the stream was explicitly annotated with @NitroStream.
+  /// False means default backpressure (dropLatest) was used silently.
+  final bool isAnnotated;
+
   BridgeStream({
     required this.dartName,
     required this.registerSymbol,
@@ -265,6 +274,7 @@ class BridgeStream {
     required this.itemType,
     required this.backpressure,
     this.isMethodStyle = false,
+    this.isAnnotated = true,
   });
 }
 

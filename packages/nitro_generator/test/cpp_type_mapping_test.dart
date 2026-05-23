@@ -196,20 +196,20 @@ void main() {
   // ── Section 4: Enum types ─────────────────────────────────────────────────
 
   group('CppInterfaceGenerator — @HybridEnum types', () {
-    BridgeSpec _enumSpec(String enumName) => _fnSpec(
+    BridgeSpec enumSpec(String enumName) => _fnSpec(
       enumName,
       [_p(enumName, 'mode')],
       enums: [BridgeEnum(name: enumName, startValue: 0, values: ['a', 'b'])],
     );
 
     test('enum param → EnumName mode (no const&)', () {
-      final out = CppInterfaceGenerator.generate(_enumSpec('Status'));
+      final out = CppInterfaceGenerator.generate(enumSpec('Status'));
       expect(out, contains('Status mode'));
       expect(out, isNot(contains('const Status&')));
     });
 
     test('enum return → virtual EnumName fn()', () {
-      final out = CppInterfaceGenerator.generate(_enumSpec('Status'));
+      final out = CppInterfaceGenerator.generate(enumSpec('Status'));
       expect(out, contains('virtual Status fn(Status mode)'));
     });
 
@@ -227,7 +227,7 @@ void main() {
   // ── Section 5: Struct types ───────────────────────────────────────────────
 
   group('CppInterfaceGenerator — @HybridStruct types', () {
-    BridgeSpec _structSpec(String structName) => _fnSpec(
+    BridgeSpec structSpec(String structName) => _fnSpec(
       structName,
       [_p(structName, 'src')],
       structs: [
@@ -238,12 +238,12 @@ void main() {
     );
 
     test('struct param → const StructName& src', () {
-      final out = CppInterfaceGenerator.generate(_structSpec('Point'));
+      final out = CppInterfaceGenerator.generate(structSpec('Point'));
       expect(out, contains('const Point& src'));
     });
 
     test('struct return → virtual StructName fn()', () {
-      final out = CppInterfaceGenerator.generate(_structSpec('Point'));
+      final out = CppInterfaceGenerator.generate(structSpec('Point'));
       expect(out, contains('virtual Point fn(const Point& src)'));
     });
 

@@ -235,7 +235,7 @@ Records bridge as JSON blobs. `isRecord == true` on `BridgeType`.
 | `Map<String, String>` param | Supported via JSON encoding |
 | `Map<String, int>` param | Supported via JSON encoding |
 | `Map<String, bool>` param | Supported via JSON encoding |
-| `Map<String, @HybridRecord>` | Unverified — needs test |
+| `Map<String, @HybridRecord>` | ✅ **DONE** 2026-05-23 — `map_hybrid_record_test.dart` (9 tests); isMap takes precedence over isRecord → JSON path |
 | `Map<K, V>` where K is not String | Should emit E001 (unsupported) |
 
 ### 3.8 Pointers
@@ -1508,7 +1508,7 @@ nitro generate --verbose
 | Nullable param/return types tested — Swift + Kotlin | ✅ **DONE** 2026-05-22 | Sections 3–4 of `type_mapping_swift/kotlin_test` |
 | Struct with every field type variant (§3.5) | ✅ **DONE** 2026-05-23 | `struct_field_types_test.dart` kitchen-sink covers all types in Swift/Kotlin/C++ |
 | Record with every field type variant (§3.6) | ✅ **DONE** 2026-05-23 | `record_field_types_test.dart` (56 tests): bool/double/Uint8List/List<T>/Swift boilerplate |
-| Source-map comments emitted in all generators | 🔲 TODO | every generated method has `// Generated from` |
+| Source-map comments emitted in all generators | ✅ **DONE** 2026-05-23 | `source_map_comments_test.dart` (13 tests); Swift/Kotlin/C++ emit `// source: file:line` when lineNumber non-null |
 
 ### Phase 3 — P1: CLI modes
 
@@ -1530,7 +1530,7 @@ nitro generate --verbose
 | E002: `@nitroAsync` on non-Future return | ✅ **DONE** 2026-05-23 | `spec_validator_complete_test.dart` (9 E002 tests) |
 | E005: `@ZeroCopy` on non-TypedData | ✅ **DONE** (exists as INVALID_ZERO_COPY) | `spec_validator_test.dart` covers it |
 | W002/W003: enum/struct-typed default param | ✅ **DONE** 2026-05-23 | `spec_validator_complete_test.dart` (16 W002/W003 tests) |
-| W004: `Stream<T>` without `@NitroStream` | 🔲 TODO | validation test §8.10 passes |
+| W004: `Stream<T>` without `@NitroStream` | ✅ **DONE** 2026-05-23 | `spec_validator_complete_test.dart` W004 group (8 tests); `BridgeStream.isAnnotated` flag in bridge_spec + extractor |
 | Validation runs before any file is written | 🔲 TODO | confirmed in integration test |
 
 ### Phase 5 — P2: Terminal UI
@@ -1649,12 +1649,14 @@ Future<bool> setMetadata(String metaJson);   // caller: jsonEncode(map)
 | `typed_list_bridge_test.dart` | TypedData in bridge |
 | `edge_cases_test.dart` | Empty spec, no-function spec, etc. |
 
-### New tests added 2026-05-23 (total: ~89 new tests; suite: 1961 passing — 0 failures)
+### New tests added 2026-05-23 (total: ~119 new tests; suite: 1991 passing — 0 failures)
 
 | Test file | Tests | What it covers |
 |---|---|---|
-| `spec_validator_complete_test.dart` | 33 | E001 (non-String Map key), E002 (async non-Future), W002 (enum named param), W003 (struct named param), mixed |
+| `spec_validator_complete_test.dart` | 41 | E001 (non-String Map key), E002 (async non-Future), W002 (enum named param), W003 (struct named param), W004 (Stream without @NitroStream), mixed |
 | `record_field_types_test.dart` | 56 | bool/double/Uint8List fields; List<String/double/bool>; Swift struct boilerplate; multi-field ordering |
+| `source_map_comments_test.dart` | 13 | Swift protocol + @_cdecl stubs, Kotlin interface + JniBridge, C++ virtual methods — `// source: file:line` present/absent |
+| `map_hybrid_record_test.dart` | 9 | Map<String,@HybridRecord> return + param → JSON path (Pointer<Utf8>, jsonDecode/jsonEncode, no RecordExt) |
 
 ### New tests added 2026-05-22 (total: 278 new tests; suite: 1864 passing)
 

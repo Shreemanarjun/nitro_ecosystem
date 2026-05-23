@@ -576,7 +576,7 @@ void main() {
   });
 
   group('SwiftGenerator — spec with both iosImpl and macosImpl emits full protocol', () {
-    BridgeSpec _iosMacSpec() => BridgeSpec(
+    BridgeSpec iosMacSpec() => BridgeSpec(
       dartClassName: 'MacMod',
       lib: 'mac_mod',
       namespace: 'mac_mod',
@@ -595,12 +595,12 @@ void main() {
     );
 
     test('emits HybridMacModProtocol', () {
-      final out = SwiftGenerator.generate(_iosMacSpec());
+      final out = SwiftGenerator.generate(iosMacSpec());
       expect(out, contains('public protocol HybridMacModProtocol'));
     });
 
     test('protocol contains correct function signature', () {
-      final out = SwiftGenerator.generate(_iosMacSpec());
+      final out = SwiftGenerator.generate(iosMacSpec());
       expect(out, contains('func greet(name: String) -> String'));
     });
   });

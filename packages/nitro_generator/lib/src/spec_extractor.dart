@@ -348,6 +348,7 @@ class SpecExtractor {
             defaultLiteral: p.defaultValueCode,
           );
         }).toList(),
+        lineNumber: _lineOf(m),
       );
     }).toList();
   }
@@ -391,6 +392,7 @@ class SpecExtractor {
           itemType: itemDartType != null ? _makeBridgeType(itemDartType, recordTypeNames, knownTypeNames: knownTypeNames) : BridgeType(name: 'dynamic'),
           backpressure: backpressure,
           isMethodStyle: true,
+          isAnnotated: ann != null,
         ),
       );
     }
@@ -420,6 +422,7 @@ class SpecExtractor {
             releaseSymbol: '${ns}_release_${_toSnakeCase(name)}_stream',
             itemType: itemDartType != null ? _makeBridgeType(itemDartType, recordTypeNames, knownTypeNames: knownTypeNames) : BridgeType(name: 'dynamic'),
             backpressure: backpressure,
+            isAnnotated: ann != null,
           ),
         );
         continue;
@@ -467,6 +470,22 @@ class SpecExtractor {
       return type.element.name == 'Stream';
     }
     return false;
+  }
+
+  /// Returns the 1-based line number of [e] in its source file.
+  /// Returns null on any failure (e.g. synthetic elements, missing source).
+  static int? _lineOf(Element e) {
+    try {
+      final fragment = e.firstFragment;
+      final source = fragment.libraryFragment?.source;
+      if (source == null) return null;
+      final text = source.contents.data;
+      final offset = fragment.nameOffset;
+      if (offset == null || offset < 0 || offset >= text.length) return null;
+      return text.substring(0, offset).split('\n').length;
+    } catch (_) {
+      return null;
+    }
   }
 
   // ─── Structs ─────────────────────────────────────────────────────────────────

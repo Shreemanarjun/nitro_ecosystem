@@ -58,6 +58,9 @@ class SwiftGenerator {
     );
 
     for (final func in spec.functions) {
+      if (func.lineNumber != null) {
+        s.writeln('    // source: ${spec.sourceUri.split('/').last}:${func.lineNumber}');
+      }
       final retType = _toSwiftType(spec, func.returnType.name);
       final params = func.params.map((p) => '${p.name}: ${_toSwiftType(spec, p.type.name)}').join(', ');
       if (func.isAsync || func.isNativeAsync) {
@@ -123,6 +126,9 @@ class SwiftGenerator {
     s.writeln();
 
     for (final func in spec.functions) {
+      if (func.lineNumber != null) {
+        s.writeln('// source: ${spec.sourceUri.split('/').last}:${func.lineNumber}');
+      }
       final cRetType = _toCDeclReturnType(spec, func);
       // @_cdecl params must use C-ABI-compatible types.
       // Typed list params get an extra `_ <name>_length: Int64` param.
