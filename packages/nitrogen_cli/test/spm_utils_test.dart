@@ -621,4 +621,101 @@ let package = Package(targets: [
       }
     });
   });
+
+  // ── flutterFrameworkPathExists ────────────────────────────────────────────
+
+  group('flutterFrameworkPathExists', () {
+    late Directory tmp;
+    setUp(() => tmp = Directory.systemTemp.createTempSync('flutter_fw_exists_'));
+    tearDown(() => tmp.deleteSync(recursive: true));
+
+    test('returns false when file does not exist', () {
+      expect(flutterFrameworkPathExists(p.join(tmp.path, 'nonexistent.swift')), isFalse);
+    });
+
+    test('returns false when no FlutterFramework dependency declared', () {
+      final path = p.join(tmp.path, 'Package.swift');
+      File(path).writeAsStringSync('// swift-tools-version: 5.9\nlet p = Package(name:"x")');
+      expect(flutterFrameworkPathExists(path), isFalse);
+    });
+
+    test('returns false when declared path does not exist on disk', () {
+      final pkgDir = Directory(p.join(tmp.path, 'ios', 'my_plugin'))..createSync(recursive: true);
+      final path = p.join(pkgDir.path, 'Package.swift');
+      File(path).writeAsStringSync(
+        '// swift-tools-version: 5.9\n'
+        'let p = Package(name:"x", dependencies:[.package(name:"FlutterFramework",path:"../FlutterFramework")])',
+      );
+      // ios/FlutterFramework does not exist
+      expect(flutterFrameworkPathExists(path), isFalse);
+    });
+
+    test('returns true when declared path exists on disk', () {
+      final pkgDir = Directory(p.join(tmp.path, 'ios', 'my_plugin'))..createSync(recursive: true);
+      // Create the FlutterFramework directory at the expected relative path
+      Directory(p.join(tmp.path, 'ios', 'FlutterFramework')).createSync();
+
+      final path = p.join(pkgDir.path, 'Package.swift');
+      File(path).writeAsStringSync(
+        '// swift-tools-version: 5.9\n'
+        'let p = Package(name:"x", dependencies:[.package(name:"FlutterFramework",path:"../FlutterFramework")])',
+      );
+      expect(flutterFrameworkPathExists(path), isTrue);
+    });
+  });
+
+  // ── ensureFlutterFrameworkSymlink ─────────────────────────────────────────
+
+  group('ensureFlutterFrameworkSymlink', () {
+    late Directory tmp;
+    setUp(() => tmp = Directory.systemTemp.createTempSync('flutter_fw_symlink_'));
+    tearDown(() => tmp.deleteSync(recursive: true));
+
+    test('returns false when path already resolves', () {
+      final pkgDir = Directory(p.join(tmp.path, 'ios', 'my_plugin'))..createSync(recursive: true);
+      Directory(p.join(tmp.path, 'ios', 'FlutterFramework')).createSync();
+
+      final path = p.join(pkgDir.path, 'Package.swift');
+      File(path).writeAsStringSync(
+        '// swift-tools-version: 5.9\n'
+        'let p = Package(name:"x", dependencies:[.package(name:"FlutterFramework",path:"../FlutterFramework")])',
+      );
+      expect(ensureFlutterFrameworkSymlink(path, tmp.path), isFalse);
+    });
+
+    test('returns false when no candidate FlutterFramework found', () {
+      final pkgDir = Directory(p.join(tmp.path, 'ios', 'my_plugin'))..createSync(recursive: true);
+      final path = p.join(pkgDir.path, 'Package.swift');
+      File(path).writeAsStringSync(
+        '// swift-tools-version: 5.9\n'
+        'let p = Package(name:"x", dependencies:[.package(name:"FlutterFramework",path:"../FlutterFramework")])',
+      );
+      // No example/ios/Flutter/ephemeral directory
+      expect(ensureFlutterFrameworkSymlink(path, tmp.path), isFalse);
+    });
+
+    test('creates symlink when candidate exists in example/ios/ephemeral', () {
+      if (Platform.isWindows) return; // symlinks require elevated privileges on Windows
+
+      // Set up fake ephemeral FlutterFramework
+      final fwDir = Directory(
+        p.join(tmp.path, 'example', 'ios', 'Flutter', 'ephemeral', 'Packages', '.packages', 'FlutterFramework'),
+      )..createSync(recursive: true);
+      File(p.join(fwDir.path, 'Package.swift')).writeAsStringSync('// stub');
+
+      final pkgDir = Directory(p.join(tmp.path, 'ios', 'my_plugin'))..createSync(recursive: true);
+      final path = p.join(pkgDir.path, 'Package.swift');
+      File(path).writeAsStringSync(
+        '// swift-tools-version: 5.9\n'
+        'let p = Package(name:"x", dependencies:[.package(name:"FlutterFramework",path:"../FlutterFramework")])',
+      );
+
+      final result = ensureFlutterFrameworkSymlink(path, tmp.path);
+      expect(result, isTrue);
+      // Symlink should now exist at ios/FlutterFramework
+      expect(Directory(p.join(tmp.path, 'ios', 'FlutterFramework')).existsSync(), isTrue);
+      // And the path should now resolve
+      expect(flutterFrameworkPathExists(path), isTrue);
+    });
+  });
 }

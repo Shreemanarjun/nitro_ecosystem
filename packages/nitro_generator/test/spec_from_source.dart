@@ -212,7 +212,7 @@ class SpecFromSource {
       cSymbol: '${ns}_${_toSnakeCase(name)}',
       isAsync: isAsync,
       isNativeAsync: isNativeAsync,
-      returnType: BridgeType(name: effectiveReturn, isFuture: isFuture),
+      returnType: BridgeType(name: effectiveReturn, isFuture: isFuture, isNullable: effectiveReturn.endsWith('?')),
       params: params,
     ));
   }

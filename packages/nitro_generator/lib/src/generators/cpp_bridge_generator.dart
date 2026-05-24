@@ -1011,7 +1011,8 @@ class CppBridgeGenerator {
             '    env->CallStaticVoidMethod(g_bridgeClass, methodId$bridgeArgs);',
           );
           s.writeln('    env->PopLocalFrame(nullptr);');
-        } else if (func.returnType.name == 'double') {
+        } else if (func.returnType.name == 'double' ||
+            func.returnType.name == 'double?') {
           s.writeln(
             '    double res = env->CallStaticDoubleMethod(g_bridgeClass, methodId$bridgeArgs);',
           );
@@ -1022,7 +1023,8 @@ class CppBridgeGenerator {
           s.writeln('    }');
           s.writeln('    env->PopLocalFrame(nullptr);');
           s.writeln('    return res;');
-        } else if (func.returnType.name == 'int') {
+        } else if (func.returnType.name == 'int' ||
+            func.returnType.name == 'int?') {
           s.writeln(
             '    int64_t res = env->CallStaticLongMethod(g_bridgeClass, methodId$bridgeArgs);',
           );
@@ -1033,7 +1035,8 @@ class CppBridgeGenerator {
           s.writeln('    }');
           s.writeln('    env->PopLocalFrame(nullptr);');
           s.writeln('    return res;');
-        } else if (func.returnType.name == 'bool') {
+        } else if (func.returnType.name == 'bool' ||
+            func.returnType.name == 'bool?') {
           s.writeln(
             '    bool res = env->CallStaticBooleanMethod(g_bridgeClass, methodId$bridgeArgs);',
           );
@@ -1044,7 +1047,8 @@ class CppBridgeGenerator {
           s.writeln('    }');
           s.writeln('    env->PopLocalFrame(nullptr);');
           s.writeln('    return res;');
-        } else if (func.returnType.name == 'String') {
+        } else if (func.returnType.name == 'String' ||
+            func.returnType.name == 'String?') {
           s.writeln(
             '    jstring jstr = (jstring)env->CallStaticObjectMethod(g_bridgeClass, methodId$bridgeArgs);',
           );

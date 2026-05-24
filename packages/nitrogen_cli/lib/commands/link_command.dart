@@ -697,6 +697,17 @@ class _LinkViewState extends State<LinkView> {
         // Sync generated Swift bridges into the SPM Sources/ target directories
         // so they are compiled by SPM instead of CocoaPods.
         _syncSwiftBridgesToSpmSources(Directory.current.path);
+
+        // Ensure the FlutterFramework symlink resolves for each Package.swift.
+        // Flutter places FlutterFramework in the example app's ephemeral dir;
+        // the symlink lets Xcode open the plugin project independently.
+        for (final pkgPath in [
+          spmDetected.iosPackageSwiftPath,
+          spmDetected.macosPackageSwiftPath,
+        ].whereType<String>()) {
+          spm.ensureFlutterFrameworkSymlink(pkgPath, Directory.current.path);
+        }
+
         await _setDone(10, detail: 'SPM (Package.swift) — CocoaPods skipped');
       } else {
         final podfileDirs = findPodfileDirs(Directory.current.path);

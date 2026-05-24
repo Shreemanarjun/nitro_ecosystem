@@ -361,6 +361,76 @@ bool ensureFlutterFrameworkDependency(String packageSwiftPath) {
 /// Converts a plugin name to PascalCase class name.
 String toPascalCase(String name) => name.split(RegExp(r'[_\-]')).map((w) => w.isEmpty ? '' : w[0].toUpperCase() + w.substring(1)).join('');
 
+/// Returns `true` when the FlutterFramework path declared in [packageSwiftPath]
+/// resolves to an existing directory on disk.
+///
+/// Flutter 3.22+ places the FlutterFramework SPM package in the example app's
+/// ephemeral directory. The plugin Package.swift references it via a relative
+/// path (`../FlutterFramework`). This path is resolved at build time by the
+/// Flutter toolchain, but is not resolvable when opening the plugin project
+/// directly in Xcode without a prior `flutter pub get` in the example app.
+bool flutterFrameworkPathExists(String packageSwiftPath) {
+  final file = File(packageSwiftPath);
+  if (!file.existsSync()) return false;
+  final content = file.readAsStringSync();
+
+  // Extract the path string from: .package(name: "FlutterFramework", path: "...")
+  final match = RegExp(
+    r'\.package\s*\(\s*name\s*:\s*"FlutterFramework"\s*,\s*path\s*:\s*"([^"]+)"\s*\)',
+  ).firstMatch(content);
+  if (match == null) return false;
+
+  final relativePath = match.group(1)!;
+  final packageDir = File(packageSwiftPath).parent.path;
+  final resolved = p.normalize(p.join(packageDir, relativePath));
+  return Directory(resolved).existsSync();
+}
+
+/// Attempts to ensure the FlutterFramework package referenced in [packageSwiftPath]
+/// is resolvable by creating a symlink at the expected path.
+///
+/// Search order (relative to [pluginBaseDir]):
+///   1. `example/ios/Flutter/ephemeral/Packages/.packages/FlutterFramework` (iOS)
+///   2. `example/macos/Flutter/ephemeral/Packages/.packages/FlutterFramework` (macOS)
+///
+/// Returns `true` when a symlink was created. Returns `false` when the path
+/// already resolves, no FlutterFramework could be located, or the operation
+/// fails (e.g. symlinks not supported on this OS).
+bool ensureFlutterFrameworkSymlink(String packageSwiftPath, String pluginBaseDir) {
+  if (flutterFrameworkPathExists(packageSwiftPath)) return false;
+
+  final file = File(packageSwiftPath);
+  if (!file.existsSync()) return false;
+  final content = file.readAsStringSync();
+
+  final match = RegExp(
+    r'\.package\s*\(\s*name\s*:\s*"FlutterFramework"\s*,\s*path\s*:\s*"([^"]+)"\s*\)',
+  ).firstMatch(content);
+  if (match == null) return false;
+
+  final relativePath = match.group(1)!;
+  final packageDir = file.parent.path;
+  final targetPath = p.normalize(p.join(packageDir, relativePath));
+
+  // Candidate FlutterFramework locations (both iOS and macOS variants).
+  final candidates = [
+    p.join(pluginBaseDir, 'example', 'ios', 'Flutter', 'ephemeral', 'Packages', '.packages', 'FlutterFramework'),
+    p.join(pluginBaseDir, 'example', 'macos', 'Flutter', 'ephemeral', 'Packages', '.packages', 'FlutterFramework'),
+  ];
+
+  for (final candidate in candidates) {
+    if (Directory(candidate).existsSync()) {
+      try {
+        Directory(p.dirname(targetPath)).createSync(recursive: true);
+        final relLink = p.relative(candidate, from: p.dirname(targetPath));
+        Link(targetPath).createSync(relLink);
+        return true;
+      } catch (_) {}
+    }
+  }
+  return false;
+}
+
 /// Creates the SPM Sources directory structure for a platform.
 ///
 /// Automatically detects whether to use the Flutter 3.41+ nested layout

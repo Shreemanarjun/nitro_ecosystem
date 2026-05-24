@@ -540,6 +540,18 @@ class DoctorCommand extends Command {
             warn(spmSec, 'iOS using flat SPM layout (ios/Package.swift)', hint: 'Run: nitrogen migrate  to upgrade to nested Flutter 3.41+ layout');
           }
 
+          // Check the FlutterFramework path resolves from this Package.swift.
+          // The path is only valid after `flutter pub get` runs in the example app.
+          if (!flutterFrameworkPathExists(path)) {
+            warn(
+              spmSec,
+              'iOS Package.swift: FlutterFramework path does not resolve — Xcode will report "Unable to resolve module dependency: Flutter"',
+              hint: 'Run: nitrogen link  (creates a symlink), or run flutter pub get in example/ first',
+            );
+          } else {
+            ok(spmSec, 'iOS Package.swift: FlutterFramework path resolves');
+          }
+
           for (final issue in spmStatus.issues.where((i) => i.startsWith('ios'))) {
             err(spmSec, issue, hint: 'Run: nitrogen migrate');
           }
@@ -560,6 +572,16 @@ class DoctorCommand extends Command {
             ok(spmSec, 'macOS using Flutter 3.41+ nested SPM layout');
           } else {
             warn(spmSec, 'macOS using flat SPM layout (macos/Package.swift)', hint: 'Run: nitrogen migrate  to upgrade to nested Flutter 3.41+ layout');
+          }
+
+          if (!flutterFrameworkPathExists(path)) {
+            warn(
+              spmSec,
+              'macOS Package.swift: FlutterFramework path does not resolve — Xcode will report "Unable to resolve module dependency: Flutter"',
+              hint: 'Run: nitrogen link  (creates a symlink), or run flutter pub get in example/ first',
+            );
+          } else {
+            ok(spmSec, 'macOS Package.swift: FlutterFramework path resolves');
           }
 
           for (final issue in spmStatus.issues.where((i) => i.startsWith('macos'))) {
