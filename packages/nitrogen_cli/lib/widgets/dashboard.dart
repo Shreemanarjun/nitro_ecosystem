@@ -8,6 +8,9 @@ import '../utils.dart';
 import '../ui.dart';
 import '../version.dart';
 import '../commands/open_command.dart';
+import 'nitro_logo.dart';
+import 'rocket_animation.dart';
+
 
 class NitroDashboard extends StatefulComponent {
   const NitroDashboard({super.key});
@@ -244,12 +247,15 @@ class _NitroDashboardState extends State<NitroDashboard> {
                     child: Column(
                       mainAxisAlignment: MainAxisAlignment.center,
                       children: [
-                        _NitroLogo(color: _pulse ? Colors.magenta : Colors.cyan),
+                        NitroLogo(color: _pulse ? Colors.magenta : Colors.cyan),
+
                         const SizedBox(height: 1),
                         const Text(
                           'The high-performance FFI toolkit for Flutter',
                           style: TextStyle(color: Colors.brightBlack, fontWeight: FontWeight.dim),
                         ),
+                        const SizedBox(height: 1),
+                        const RocketAnimation(),
                         const SizedBox(height: 1),
                         // Centered block for aligned commands
                         SizedBox(
@@ -353,29 +359,6 @@ class _NitroDashboardState extends State<NitroDashboard> {
           ),
         ],
       ),
-    );
-  }
-}
-
-const _nitroLogoLines = [
-  '███╗   ██╗██╗████████╗██████╗  ██████╗ ',
-  '████╗  ██║██║╚══██╔══╝██╔══██╗██╔═══██╗',
-  '██╔██╗ ██║██║   ██║   ██████╔╝██║   ██║',
-  '██║╚██╗██║██║   ██║   ██╔══██╗██║   ██║',
-  '██║ ╚████║██║   ██║   ██║  ██║╚██████╔╝',
-  '╚═╝  ╚═══╝╚═╝   ╚═╝   ╚═╝  ╚═╝ ╚═════╝',
-];
-
-class _NitroLogo extends StatelessComponent {
-  const _NitroLogo({required this.color});
-  final Color color;
-
-  @override
-  Component build(BuildContext context) {
-    return Column(
-      children: _nitroLogoLines
-          .map((line) => Text(line, style: TextStyle(color: color, fontWeight: FontWeight.bold)))
-          .toList(),
     );
   }
 }
