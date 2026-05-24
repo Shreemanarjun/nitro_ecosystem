@@ -131,9 +131,7 @@ void main() {
       // viewport before menu items begin, so "Watch" (item 7) is off-screen.
       // Verify the model instead: Watch must be in the menu command list with
       // its expected label and description prefix.
-      final menuCommands = NitroCommand.values
-          .where((c) => c != NitroCommand.openCode && c != NitroCommand.openAntigravity)
-          .toList();
+      final menuCommands = NitroCommand.values.where((c) => c != NitroCommand.openCode && c != NitroCommand.openAntigravity).toList();
 
       final watch = menuCommands.firstWhere((c) => c == NitroCommand.watch);
       expect(watch.label, 'Watch');
