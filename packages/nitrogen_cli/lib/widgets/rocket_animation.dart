@@ -58,7 +58,9 @@ class _RocketAnimationState extends State<RocketAnimation>
     // Determine target width
     final totalWidth = (_terminalColumns() - 45).clamp(20, 200).toDouble();
     // Track width = total - left label (~18) - right stats (~18)
-    final trackWidth = totalWidth - 36.0;
+    // We use math.max to guarantee it never drops below 1 on small resizes,
+    // which would cause clamp(0, negative) to throw an Invalid Argument error.
+    final trackWidth = math.max(1.0, totalWidth - 36.0);
 
     return AnimatedBuilder(
       animation: _controller,
