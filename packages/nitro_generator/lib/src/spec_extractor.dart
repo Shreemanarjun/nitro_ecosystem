@@ -123,7 +123,8 @@ class SpecExtractor {
     List<BridgeStruct> structs,
     List<BridgeRecordType> records,
     List<String> cppIncludes,
-  }) _extractFromImports(LibraryElement libraryElement, String currentSourceUri) {
+  })
+  _extractFromImports(LibraryElement libraryElement, String currentSourceUri) {
     final enums = <BridgeEnum>[];
     final structs = <BridgeStruct>[];
     final records = <BridgeRecordType>[];
@@ -144,23 +145,35 @@ class SpecExtractor {
 
       final isNativeFile = uri.endsWith('.native.dart');
 
-      enums.addAll(importedEnums.map((e) => BridgeEnum(
-        name: e.name,
-        startValue: e.startValue,
-        values: e.values,
-        isImported: isNativeFile,
-      )));
-      structs.addAll(importedStructs.map((s) => BridgeStruct(
-        name: s.name,
-        packed: s.packed,
-        fields: s.fields,
-        isImported: isNativeFile,
-      )));
-      records.addAll(importedRecords.map((r) => BridgeRecordType(
-        name: r.name,
-        fields: r.fields,
-        isImported: isNativeFile,
-      )));
+      enums.addAll(
+        importedEnums.map(
+          (e) => BridgeEnum(
+            name: e.name,
+            startValue: e.startValue,
+            values: e.values,
+            isImported: isNativeFile,
+          ),
+        ),
+      );
+      structs.addAll(
+        importedStructs.map(
+          (s) => BridgeStruct(
+            name: s.name,
+            packed: s.packed,
+            fields: s.fields,
+            isImported: isNativeFile,
+          ),
+        ),
+      );
+      records.addAll(
+        importedRecords.map(
+          (r) => BridgeRecordType(
+            name: r.name,
+            fields: r.fields,
+            isImported: isNativeFile,
+          ),
+        ),
+      );
 
       // Compute C++ #include path only for .native.dart imports (those have
       // a generated bridge header file in generated/cpp/).

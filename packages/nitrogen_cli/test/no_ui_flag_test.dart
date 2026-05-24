@@ -12,16 +12,16 @@ import 'package:test/test.dart';
 
 // All commands that must support --no-ui.
 List<Command> _allCommands() => [
-      CleanCommand(),
-      DoctorCommand(),
-      GenerateCommand(),
-      InitCommand(),
-      LinkCommand(),
-      MigrateCommand(),
-      OpenCommand(),
-      UpdateCommand(),
-      WatchCommand(),
-    ];
+  CleanCommand(),
+  DoctorCommand(),
+  GenerateCommand(),
+  InitCommand(),
+  LinkCommand(),
+  MigrateCommand(),
+  OpenCommand(),
+  UpdateCommand(),
+  WatchCommand(),
+];
 
 void main() {
   // ── Flag registration ──────────────────────────────────────────────────────
@@ -94,9 +94,12 @@ void main() {
       final cmd = InitCommand();
       final r = cmd.argParser.parse([
         '--no-ui',
-        '--name', 'my_pkg',
-        '--org', 'com.example',
-        '--dir', '/tmp',
+        '--name',
+        'my_pkg',
+        '--org',
+        'com.example',
+        '--dir',
+        '/tmp',
       ]);
       expect(r['no-ui'], isTrue);
       expect(r['name'], equals('my_pkg'));
@@ -153,7 +156,7 @@ void main() {
       final cmd = MigrateCommand();
       final r = cmd.argParser.parse(['--no-ui']);
       expect(r['no-ui'], isTrue);
-      expect(r['backup'], isTrue);   // backup defaults to true
+      expect(r['backup'], isTrue); // backup defaults to true
       expect(r['dry-run'], isFalse); // dry-run defaults to false
     });
   });

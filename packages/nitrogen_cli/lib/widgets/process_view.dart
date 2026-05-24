@@ -262,9 +262,7 @@ class _ProcessViewState extends State<ProcessView> {
               child: Container(
                 decoration: BoxDecoration(
                   border: BoxBorder.all(
-                    color: (_done && _exitCode != null && _exitCode != 0)
-                        ? Colors.red
-                        : (_running ? Colors.cyan : Colors.brightBlack),
+                    color: (_done && _exitCode != null && _exitCode != 0) ? Colors.red : (_running ? Colors.cyan : Colors.brightBlack),
                   ),
                 ),
                 child: Padding(
@@ -301,9 +299,7 @@ class _ProcessViewState extends State<ProcessView> {
                 ],
                 if (_done)
                   Text(
-                    _exitCode == 0
-                        ? (component.watchMode ? '■ Stopped' : '✔ Done in $elapsedStr')
-                        : '✘ Failed (code $_exitCode) — $elapsedStr',
+                    _exitCode == 0 ? (component.watchMode ? '■ Stopped' : '✔ Done in $elapsedStr') : '✘ Failed (code $_exitCode) — $elapsedStr',
                     style: TextStyle(
                       color: _exitCode == 0 ? Colors.green : Colors.red,
                       fontWeight: FontWeight.bold,

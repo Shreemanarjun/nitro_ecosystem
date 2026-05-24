@@ -354,14 +354,17 @@ void main() {
   group('§8 Dart FFI — mixed params', () {
     test('all types encoded correctly together', () {
       _checkDartFfi(
-        _asyncSpec(funcName: 'doAll', params: [
-          _p('id', 'String'),
-          _p('timeout', 'int?'),
-          _p('scale', 'double?'),
-          _p('verbose', 'bool?'),
-          _p('enabled', 'bool'),
-          _p('count', 'int'),
-        ]),
+        _asyncSpec(
+          funcName: 'doAll',
+          params: [
+            _p('id', 'String'),
+            _p('timeout', 'int?'),
+            _p('scale', 'double?'),
+            _p('verbose', 'bool?'),
+            _p('enabled', 'bool'),
+            _p('count', 'int'),
+          ],
+        ),
         has: [
           'id.toNativeUtf8',
           'timeout ?? -1',
@@ -486,12 +489,10 @@ void main() {
           returnType: 'int',
         ),
       );
-      final sentinelIdx =
-          out.indexOf('val timeoutArg: Long? = if (timeout < 0L) null else timeout');
+      final sentinelIdx = out.indexOf('val timeoutArg: Long? = if (timeout < 0L) null else timeout');
       final executeIdx = out.indexOf('_asyncExecutor.execute');
       expect(sentinelIdx, greaterThan(-1), reason: 'sentinel conversion must be emitted');
-      expect(sentinelIdx, lessThan(executeIdx),
-          reason: 'sentinel must be computed before the execute block');
+      expect(sentinelIdx, lessThan(executeIdx), reason: 'sentinel must be computed before the execute block');
       expect(out, contains('impl.fetchAsync(timeoutArg)'));
     });
 
@@ -540,14 +541,17 @@ void main() {
   group('§14 Kotlin — mixed params: selective unwrapping', () {
     test('only int?, bool?, double? get Arg locals; others pass raw', () {
       _checkKotlin(
-        _asyncSpec(funcName: 'doAll', params: [
-          _p('id', 'String'),
-          _p('timeout', 'int?'),
-          _p('scale', 'double?'),
-          _p('verbose', 'bool?'),
-          _p('flag', 'bool'),
-          _p('count', 'int'),
-        ]),
+        _asyncSpec(
+          funcName: 'doAll',
+          params: [
+            _p('id', 'String'),
+            _p('timeout', 'int?'),
+            _p('scale', 'double?'),
+            _p('verbose', 'bool?'),
+            _p('flag', 'bool'),
+            _p('count', 'int'),
+          ],
+        ),
         has: [
           'val timeoutArg: Long? = if (timeout < 0L) null else timeout',
           'val scaleArg: Double? = if (scale.isNaN()) null else scale',
@@ -594,36 +598,48 @@ void main() {
   group('§16 isOptional flag — treated same as nullable suffix', () {
     test('Dart: isOptional int? → ?? -1', () {
       _checkDartFfi(
-        _asyncSpec(funcName: 'retry', params: [
-          _p('retries', 'int?', isNamed: true, isOptional: true, defaultLiteral: '3'),
-        ]),
+        _asyncSpec(
+          funcName: 'retry',
+          params: [
+            _p('retries', 'int?', isNamed: true, isOptional: true, defaultLiteral: '3'),
+          ],
+        ),
         has: ['retries ?? -1'],
       );
     });
 
     test('Kotlin: isOptional int? → Long? sentinel conversion', () {
       _checkKotlin(
-        _asyncSpec(funcName: 'retry', params: [
-          _p('retries', 'int?', isNamed: true, isOptional: true, defaultLiteral: '3'),
-        ]),
+        _asyncSpec(
+          funcName: 'retry',
+          params: [
+            _p('retries', 'int?', isNamed: true, isOptional: true, defaultLiteral: '3'),
+          ],
+        ),
         has: ['val retriesArg: Long? = if (retries < 0L) null else retries'],
       );
     });
 
     test('Dart: isOptional double? → ?? double.nan', () {
       _checkDartFfi(
-        _asyncSpec(funcName: 'check', params: [
-          _p('threshold', 'double?', isNamed: true, isOptional: true),
-        ]),
+        _asyncSpec(
+          funcName: 'check',
+          params: [
+            _p('threshold', 'double?', isNamed: true, isOptional: true),
+          ],
+        ),
         has: ['threshold ?? double.nan'],
       );
     });
 
     test('Kotlin: isOptional double? → Double? isNaN conversion', () {
       _checkKotlin(
-        _asyncSpec(funcName: 'check', params: [
-          _p('threshold', 'double?', isNamed: true, isOptional: true),
-        ]),
+        _asyncSpec(
+          funcName: 'check',
+          params: [
+            _p('threshold', 'double?', isNamed: true, isOptional: true),
+          ],
+        ),
         has: ['val thresholdArg: Double? = if (threshold.isNaN()) null else threshold'],
       );
     });

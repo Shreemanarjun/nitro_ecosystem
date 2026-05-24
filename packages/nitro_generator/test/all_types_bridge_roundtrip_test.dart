@@ -67,29 +67,30 @@ BridgeSpec _jniBridgeSpec({
   List<BridgeParam> params = const [],
   List<BridgeEnum> enums = const [],
   List<BridgeStruct> structs = const [],
-}) =>
-    BridgeSpec(
-      dartClassName: 'Mod',
-      lib: 'mod',
-      namespace: 'mod',
-      iosImpl: NativeImpl.swift,
-      androidImpl: NativeImpl.kotlin,
-      sourceUri: 'mod.native.dart',
-      enums: enums,
-      structs: structs,
-      functions: [
-        BridgeFunction(
-          dartName: 'getValue',
-          cSymbol: 'mod_get_value',
-          isAsync: false,
-          returnType: BridgeType(name: returnTypeName),
-          params: params,
-        ),
-      ],
-    );
+}) => BridgeSpec(
+  dartClassName: 'Mod',
+  lib: 'mod',
+  namespace: 'mod',
+  iosImpl: NativeImpl.swift,
+  androidImpl: NativeImpl.kotlin,
+  sourceUri: 'mod.native.dart',
+  enums: enums,
+  structs: structs,
+  functions: [
+    BridgeFunction(
+      dartName: 'getValue',
+      cSymbol: 'mod_get_value',
+      isAsync: false,
+      returnType: BridgeType(name: returnTypeName),
+      params: params,
+    ),
+  ],
+);
 
-BridgeParam _p(String name, String type) =>
-    BridgeParam(name: name, type: BridgeType(name: type));
+BridgeParam _p(String name, String type) => BridgeParam(
+  name: name,
+  type: BridgeType(name: type),
+);
 
 // ══════════════════════════════════════════════════════════════════════════════
 void main() {
@@ -473,11 +474,11 @@ void main() {
   // ══════════════════════════════════════════════════════════════════════════
   group('§8 Future<T> async returns', () {
     for (final (dartType, dartRet, kotlinRet, swiftPat) in [
-      ('int',    'Future<int>',    'Long',    'Int64'),
-      ('double', 'Future<double>', 'Double',  'Double'),
-      ('bool',   'Future<bool>',   'Boolean', 'Bool'),
-      ('String', 'Future<String>', 'String',  'String'),
-      ('int?',   'Future<int?>',   'Long',    'Int64?'),
+      ('int', 'Future<int>', 'Long', 'Int64'),
+      ('double', 'Future<double>', 'Double', 'Double'),
+      ('bool', 'Future<bool>', 'Boolean', 'Bool'),
+      ('String', 'Future<String>', 'String', 'String'),
+      ('int?', 'Future<int?>', 'Long', 'Int64?'),
     ]) {
       specTest(
         'Future<$dartType> — Dart async; Kotlin: $kotlinRet; Swift: $swiftPat',
@@ -501,17 +502,23 @@ void main() {
   group('§9 Nullable primitive parameters — sentinel round-trip', () {
     for (final (dartType, dartSentinel, kotlinCallType, kotlinUnwrap, swiftOptional) in [
       (
-        'int?', 'value ?? -1', 'Long',
+        'int?',
+        'value ?? -1',
+        'Long',
         'val valueArg: Long? = if (value < 0L) null else value',
         'Int64',
       ),
       (
-        'double?', 'value ?? double.nan', 'Double',
+        'double?',
+        'value ?? double.nan',
+        'Double',
         'val valueArg: Double? = if (value.isNaN()) null else value',
         'Double',
       ),
       (
-        'bool?', 'value == null ? -1 : (value! ? 1 : 0)', 'Boolean',
+        'bool?',
+        'value == null ? -1 : (value! ? 1 : 0)',
+        'Boolean',
         'val valueArg: Boolean? = if (value.toInt() < 0) null else value',
         'Bool',
       ),
@@ -560,10 +567,10 @@ void main() {
   // ══════════════════════════════════════════════════════════════════════════
   group('§10 Non-nullable parameters — no sentinel', () {
     for (final (dartType, kotlinType, swiftType) in [
-      ('int',    'Long',    'Int64'),
-      ('double', 'Double',  'Double'),
-      ('bool',   'Boolean', 'Int8'),  // @_cdecl uses Int8 for bool params
-      ('String', 'String',  'UnsafePointer<CChar>'),
+      ('int', 'Long', 'Int64'),
+      ('double', 'Double', 'Double'),
+      ('bool', 'Boolean', 'Int8'), // @_cdecl uses Int8 for bool params
+      ('String', 'String', 'UnsafePointer<CChar>'),
     ]) {
       specTest(
         '$dartType param — no sentinel; direct pass-through in all bridges',
@@ -587,16 +594,16 @@ void main() {
   // ══════════════════════════════════════════════════════════════════════════
   group('§11 C++ JNI bridge (CppBridgeGenerator) — return types', () {
     for (final (returnType, jniCall, cType) in [
-      ('void',    'CallStaticVoidMethod',    'void'),
-      ('int',     'CallStaticLongMethod',    'int64_t'),
-      ('double',  'CallStaticDoubleMethod',  'double'),
-      ('bool',    'CallStaticBooleanMethod', 'int8_t'),
-      ('String',  'CallStaticObjectMethod',  'const char*'),
+      ('void', 'CallStaticVoidMethod', 'void'),
+      ('int', 'CallStaticLongMethod', 'int64_t'),
+      ('double', 'CallStaticDoubleMethod', 'double'),
+      ('bool', 'CallStaticBooleanMethod', 'int8_t'),
+      ('String', 'CallStaticObjectMethod', 'const char*'),
       // Nullable — THE CORE FIX (previously fell to else → return 0 without JNI call)
-      ('int?',    'CallStaticLongMethod',    'int64_t'),
-      ('double?', 'CallStaticDoubleMethod',  'double'),
-      ('bool?',   'CallStaticBooleanMethod', 'int8_t'),
-      ('String?', 'CallStaticObjectMethod',  'const char*'),
+      ('int?', 'CallStaticLongMethod', 'int64_t'),
+      ('double?', 'CallStaticDoubleMethod', 'double'),
+      ('bool?', 'CallStaticBooleanMethod', 'int8_t'),
+      ('String?', 'CallStaticObjectMethod', 'const char*'),
     ]) {
       test('$returnType return → C type $cType, JNI: $jniCall', () {
         final spec = _jniBridgeSpec(returnTypeName: returnType);
@@ -611,7 +618,8 @@ void main() {
         expect(
           out,
           contains(jniCall),
-          reason: '$returnType must call $jniCall in the Android JNI block — '
+          reason:
+              '$returnType must call $jniCall in the Android JNI block — '
               'not just pop frame and return default',
         );
       });
@@ -620,7 +628,9 @@ void main() {
     test('enum return → CallStaticLongMethod (nativeValue encoding)', () {
       final spec = _jniBridgeSpec(
         returnTypeName: 'Color',
-        enums: [BridgeEnum(name: 'Color', startValue: 0, values: ['red', 'green'])],
+        enums: [
+          BridgeEnum(name: 'Color', startValue: 0, values: ['red', 'green']),
+        ],
       );
       final out = CppBridgeGenerator.generate(spec);
       expect(out, contains('int64_t mod_get_value('));
@@ -634,7 +644,12 @@ void main() {
           BridgeStruct(
             name: 'Frame',
             packed: false,
-            fields: [BridgeField(name: 'w', type: BridgeType(name: 'int'))],
+            fields: [
+              BridgeField(
+                name: 'w',
+                type: BridgeType(name: 'int'),
+              ),
+            ],
           ),
         ],
       );
@@ -649,17 +664,13 @@ void main() {
       final spec = _jniBridgeSpec(returnTypeName: 'int?');
       final out = CppBridgeGenerator.generate(spec);
       // Both platforms present: file starts with #ifdef __ANDROID__, ends with #elif __APPLE__
-      expect(out, contains('#ifdef __ANDROID__'),
-          reason: 'Android JNI block must be present');
+      expect(out, contains('#ifdef __ANDROID__'), reason: 'Android JNI block must be present');
       // Extract the Android block (ends at #elif __APPLE__ — no separate #endif // __ANDROID__)
       final androidStart = out.indexOf('#ifdef __ANDROID__');
       final appleStart = out.indexOf('#elif __APPLE__');
-      final androidBlock = (androidStart != -1 && appleStart != -1)
-          ? out.substring(androidStart, appleStart)
-          : out;
+      final androidBlock = (androidStart != -1 && appleStart != -1) ? out.substring(androidStart, appleStart) : out;
       // Must call the JNI method, not silently return 0
-      expect(androidBlock, contains('CallStaticLongMethod'),
-          reason: 'int? must call CallStaticLongMethod — old bug returned 0 silently');
+      expect(androidBlock, contains('CallStaticLongMethod'), reason: 'int? must call CallStaticLongMethod — old bug returned 0 silently');
     });
   });
 
@@ -705,7 +716,12 @@ void main() {
           BridgeStruct(
             name: 'Point',
             packed: false,
-            fields: [BridgeField(name: 'x', type: BridgeType(name: 'double'))],
+            fields: [
+              BridgeField(
+                name: 'x',
+                type: BridgeType(name: 'double'),
+              ),
+            ],
           ),
         ],
       );
@@ -736,14 +752,17 @@ void main() {
       mixedSrc,
       dart: BridgeChecks(
         has: [
-          'name.toNativeUtf8',  // String → pointer
-          'limit ?? -1',        // int? → sentinel -1
+          'name.toNativeUtf8', // String → pointer
+          'limit ?? -1', // int? → sentinel -1
           'threshold ?? double.nan', // double? → nan sentinel
           'verbose == null ? -1 : (verbose! ? 1 : 0)', // bool? → sentinel
-          'flag ? 1 : 0',       // bool (non-nullable) → 0/1 no sentinel
+          'flag ? 1 : 0', // bool (non-nullable) → 0/1 no sentinel
         ],
         hasNot: [
-          'count ?? ', 'ratio ?? ', 'flag ?? ', 'name ?? ',
+          'count ?? ',
+          'ratio ?? ',
+          'flag ?? ',
+          'name ?? ',
         ],
       ),
       kotlin: BridgeChecks(
@@ -760,7 +779,11 @@ void main() {
           'impl.doAll(name, count, ratio, flag, label, limitArg, thresholdArg, verboseArg)',
         ],
         hasNot: [
-          'nameArg', 'countArg', 'ratioArg', 'flagArg', 'labelArg',
+          'nameArg',
+          'countArg',
+          'ratioArg',
+          'flagArg',
+          'labelArg',
         ],
       ),
       swift: BridgeChecks(
@@ -770,7 +793,7 @@ void main() {
           '_ ratio: Double',
           '_ flag: Int8',
           '_ label: UnsafePointer<CChar>?',
-          '_ limit: Int64',     // optional primitive — still passed as primitive in @_cdecl
+          '_ limit: Int64', // optional primitive — still passed as primitive in @_cdecl
           '_ threshold: Double',
           '_ verbose: Int8',
         ],

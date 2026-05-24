@@ -91,14 +91,48 @@ BridgeSpec _nativeAsyncSpec({required List<BridgeParam> params}) => BridgeSpec(
 );
 
 // Common nullable params
-final _nullableIntParam = BridgeParam(name: 'timeout', type: BridgeType(name: 'int?'), isNamed: true, isOptional: true);
-final _nullableBoolParam = BridgeParam(name: 'flag', type: BridgeType(name: 'bool?'), isNamed: true, isOptional: true);
-final _nullableDoubleParam = BridgeParam(name: 'scale', type: BridgeType(name: 'double?'), isNamed: true, isOptional: true);
-final _nullableStringParam = BridgeParam(name: 'label', type: BridgeType(name: 'String?'), isNamed: true, isOptional: true);
-final _nonNullIntParam = BridgeParam(name: 'count', type: BridgeType(name: 'int'));
-final _nonNullBoolParam = BridgeParam(name: 'enabled', type: BridgeType(name: 'bool'));
-final _nonNullStringParam = BridgeParam(name: 'id', type: BridgeType(name: 'String'));
-final _isOptionalIntParam = BridgeParam(name: 'limit', type: BridgeType(name: 'int'), isNamed: true, isOptional: true);
+final _nullableIntParam = BridgeParam(
+  name: 'timeout',
+  type: BridgeType(name: 'int?'),
+  isNamed: true,
+  isOptional: true,
+);
+final _nullableBoolParam = BridgeParam(
+  name: 'flag',
+  type: BridgeType(name: 'bool?'),
+  isNamed: true,
+  isOptional: true,
+);
+final _nullableDoubleParam = BridgeParam(
+  name: 'scale',
+  type: BridgeType(name: 'double?'),
+  isNamed: true,
+  isOptional: true,
+);
+final _nullableStringParam = BridgeParam(
+  name: 'label',
+  type: BridgeType(name: 'String?'),
+  isNamed: true,
+  isOptional: true,
+);
+final _nonNullIntParam = BridgeParam(
+  name: 'count',
+  type: BridgeType(name: 'int'),
+);
+final _nonNullBoolParam = BridgeParam(
+  name: 'enabled',
+  type: BridgeType(name: 'bool'),
+);
+final _nonNullStringParam = BridgeParam(
+  name: 'id',
+  type: BridgeType(name: 'String'),
+);
+final _isOptionalIntParam = BridgeParam(
+  name: 'limit',
+  type: BridgeType(name: 'int'),
+  isNamed: true,
+  isOptional: true,
+);
 
 // ── §1 nullable int? in sync _call ───────────────────────────────────────────
 
@@ -192,10 +226,19 @@ void main() {
 
   group('§5 nullable int? param — @NitroNativeAsync _call uses Long (primitive)', () {
     late String out;
-    setUpAll(() => out = KotlinGenerator.generate(_nativeAsyncSpec(params: [
-      BridgeParam(name: 'printerId', type: BridgeType(name: 'String')),
-      _nullableIntParam,
-    ])));
+    setUpAll(
+      () => out = KotlinGenerator.generate(
+        _nativeAsyncSpec(
+          params: [
+            BridgeParam(
+              name: 'printerId',
+              type: BridgeType(name: 'String'),
+            ),
+            _nullableIntParam,
+          ],
+        ),
+      ),
+    );
 
     test('@NitroNativeAsync _call appends dartPort and uses Long for int?', () {
       expect(out, contains('fun fn_call(printerId: String, timeout: Long, dartPort: Long)'));
@@ -234,11 +277,17 @@ void main() {
 
   group('§7 non-nullable params are identical in interface and _call', () {
     late String out;
-    setUpAll(() => out = KotlinGenerator.generate(_syncSpec(params: [
-      _nonNullIntParam,
-      _nonNullBoolParam,
-      _nonNullStringParam,
-    ])));
+    setUpAll(
+      () => out = KotlinGenerator.generate(
+        _syncSpec(
+          params: [
+            _nonNullIntParam,
+            _nonNullBoolParam,
+            _nonNullStringParam,
+          ],
+        ),
+      ),
+    );
 
     test('non-null int param stays Long in _call', () {
       expect(out, contains('fun fn_call(count: Long, enabled: Boolean, id: String): Boolean'));
@@ -269,7 +318,12 @@ void main() {
   group('§9 nullable struct stays T? in _call (reference type)', () {
     final structSpec = _syncSpec(
       params: [
-        BridgeParam(name: 'settings', type: BridgeType(name: 'Config?'), isNamed: true, isOptional: true),
+        BridgeParam(
+          name: 'settings',
+          type: BridgeType(name: 'Config?'),
+          isNamed: true,
+          isOptional: true,
+        ),
       ],
       structs: [BridgeStruct(name: 'Config', packed: false, fields: [])],
     );
@@ -304,11 +358,17 @@ void main() {
 
   group('§11 mixed nullable and non-nullable params', () {
     late String out;
-    setUpAll(() => out = KotlinGenerator.generate(_syncSpec(params: [
-      _nonNullStringParam, // positional non-null
-      _nullableIntParam,   // named optional int?
-      _nullableStringParam, // named optional String?
-    ])));
+    setUpAll(
+      () => out = KotlinGenerator.generate(
+        _syncSpec(
+          params: [
+            _nonNullStringParam, // positional non-null
+            _nullableIntParam, // named optional int?
+            _nullableStringParam, // named optional String?
+          ],
+        ),
+      ),
+    );
 
     test('_call uses correct primitive/nullable for each param', () {
       // id: String (non-null), timeout: Long (primitive for int?), label: String? (ref type)
@@ -338,8 +398,16 @@ void main() {
             isAsync: true,
             returnType: BridgeType(name: 'bool'),
             params: [
-              BridgeParam(name: 'printerId', type: BridgeType(name: 'String')),
-              BridgeParam(name: 'timeout', type: BridgeType(name: 'int?'), isNamed: true, isOptional: true),
+              BridgeParam(
+                name: 'printerId',
+                type: BridgeType(name: 'String'),
+              ),
+              BridgeParam(
+                name: 'timeout',
+                type: BridgeType(name: 'int?'),
+                isNamed: true,
+                isOptional: true,
+              ),
             ],
           ),
         ],
@@ -365,7 +433,12 @@ void main() {
             isAsync: false,
             returnType: BridgeType(name: 'void'),
             params: [
-              BridgeParam(name: 'flag', type: BridgeType(name: 'bool?'), isNamed: true, isOptional: true),
+              BridgeParam(
+                name: 'flag',
+                type: BridgeType(name: 'bool?'),
+                isNamed: true,
+                isOptional: true,
+              ),
             ],
           ),
         ],
@@ -390,7 +463,12 @@ void main() {
             isAsync: false,
             returnType: BridgeType(name: 'void'),
             params: [
-              BridgeParam(name: 'scale', type: BridgeType(name: 'double?'), isNamed: true, isOptional: true),
+              BridgeParam(
+                name: 'scale',
+                type: BridgeType(name: 'double?'),
+                isNamed: true,
+                isOptional: true,
+              ),
             ],
           ),
         ],
@@ -415,7 +493,12 @@ void main() {
             isAsync: false,
             returnType: BridgeType(name: 'void'),
             params: [
-              BridgeParam(name: 'label', type: BridgeType(name: 'String?'), isNamed: true, isOptional: true),
+              BridgeParam(
+                name: 'label',
+                type: BridgeType(name: 'String?'),
+                isNamed: true,
+                isOptional: true,
+              ),
             ],
           ),
         ],
@@ -443,7 +526,12 @@ void main() {
             isAsync: true,
             returnType: BridgeType(name: 'bool'),
             params: [
-              BridgeParam(name: 'timeout', type: BridgeType(name: 'int?'), isNamed: true, isOptional: true),
+              BridgeParam(
+                name: 'timeout',
+                type: BridgeType(name: 'int?'),
+                isNamed: true,
+                isOptional: true,
+              ),
             ],
           ),
         ],
@@ -471,7 +559,12 @@ void main() {
             isAsync: true,
             returnType: BridgeType(name: 'bool'),
             params: [
-              BridgeParam(name: 'timeout', type: BridgeType(name: 'int?'), isNamed: true, isOptional: true),
+              BridgeParam(
+                name: 'timeout',
+                type: BridgeType(name: 'int?'),
+                isNamed: true,
+                isOptional: true,
+              ),
             ],
           ),
         ],
@@ -484,12 +577,14 @@ void main() {
     });
 
     test('multiple nullable primitives in same spec generates correct bridge', () {
-      final spec = _syncSpec(params: [
-        _nullableIntParam,
-        _nullableBoolParam,
-        _nullableDoubleParam,
-        _nullableStringParam,
-      ]);
+      final spec = _syncSpec(
+        params: [
+          _nullableIntParam,
+          _nullableBoolParam,
+          _nullableDoubleParam,
+          _nullableStringParam,
+        ],
+      );
       final out = KotlinGenerator.generate(spec);
       // _call: all primitives non-nullable, String? stays nullable
       expect(out, contains('fun fn_call(timeout: Long, flag: Boolean, scale: Double, label: String?): Boolean'));

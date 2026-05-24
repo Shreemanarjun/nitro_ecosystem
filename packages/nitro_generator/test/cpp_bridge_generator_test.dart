@@ -657,45 +657,41 @@ void main() {
 
     group('nullable primitive return types call JNI method (not just return 0)', () {
       BridgeSpec _nullableReturnSpec(String returnTypeName) => BridgeSpec(
-            dartClassName: 'MyModule',
-            lib: 'my_module',
-            namespace: 'my_module_ns',
-            iosImpl: NativeImpl.swift,
-            androidImpl: NativeImpl.kotlin,
-            sourceUri: 'my_module.native.dart',
-            functions: [
-              BridgeFunction(
-                dartName: 'getValue',
-                cSymbol: 'my_module_get_value',
-                isAsync: false,
-                returnType: BridgeType(name: returnTypeName),
-                params: [],
-              ),
-            ],
-          );
+        dartClassName: 'MyModule',
+        lib: 'my_module',
+        namespace: 'my_module_ns',
+        iosImpl: NativeImpl.swift,
+        androidImpl: NativeImpl.kotlin,
+        sourceUri: 'my_module.native.dart',
+        functions: [
+          BridgeFunction(
+            dartName: 'getValue',
+            cSymbol: 'my_module_get_value',
+            isAsync: false,
+            returnType: BridgeType(name: returnTypeName),
+            params: [],
+          ),
+        ],
+      );
 
       test('int? return calls CallStaticLongMethod', () {
         final out = CppBridgeGenerator.generate(_nullableReturnSpec('int?'));
-        expect(out, contains('CallStaticLongMethod'),
-            reason: 'int? must call CallStaticLongMethod, not just return 0');
+        expect(out, contains('CallStaticLongMethod'), reason: 'int? must call CallStaticLongMethod, not just return 0');
       });
 
       test('double? return calls CallStaticDoubleMethod', () {
         final out = CppBridgeGenerator.generate(_nullableReturnSpec('double?'));
-        expect(out, contains('CallStaticDoubleMethod'),
-            reason: 'double? must call CallStaticDoubleMethod');
+        expect(out, contains('CallStaticDoubleMethod'), reason: 'double? must call CallStaticDoubleMethod');
       });
 
       test('bool? return calls CallStaticBooleanMethod', () {
         final out = CppBridgeGenerator.generate(_nullableReturnSpec('bool?'));
-        expect(out, contains('CallStaticBooleanMethod'),
-            reason: 'bool? must call CallStaticBooleanMethod');
+        expect(out, contains('CallStaticBooleanMethod'), reason: 'bool? must call CallStaticBooleanMethod');
       });
 
       test('String? return calls CallStaticObjectMethod', () {
         final out = CppBridgeGenerator.generate(_nullableReturnSpec('String?'));
-        expect(out, contains('CallStaticObjectMethod'),
-            reason: 'String? must call CallStaticObjectMethod');
+        expect(out, contains('CallStaticObjectMethod'), reason: 'String? must call CallStaticObjectMethod');
       });
 
       test('int? return has same JNI call pattern as int return', () {

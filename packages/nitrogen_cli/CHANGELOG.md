@@ -4,6 +4,11 @@
 - **New: `nitrogen generate --fail-on-warn`** — Exits with code 2 if `build_runner` emits any `[WARNING]` lines, so CI catches generation warnings as failures.
 - **New: `nitrogen generate --verbose` / `-v`** — Prints a per-phase timing breakdown (e.g. "resolve: 120ms, codegen: 340ms") at the end of generation.
 - **New: `nitrogen clean` command** — Deletes all Nitrogen-generated files (`*.g.dart`, `*.bridge.g.*`, `*.native.g.h`, etc.) and the `build_runner` cache in one command.
+- **New: `--no-ui` headless mode for all commands** — Every command (`init`, `generate`, `clean`, `link`, `doctor`, `migrate`, `update`, `watch`, `open`) now supports `--no-ui`. Output is plain text prefixed with `[nitro]`, `[nitro:warn]`, or `[nitro:error]`; auto-enabled when stdout is not a TTY.
+- **TUI: Animated NITRO logo** — The dashboard now displays a large block-art "NITRO" logo with rocket animation at the top of the main content area, pulsing between cyan and magenta in sync with the header.
+- **TUI: Improved credits** — Credits updated to "Inspired by Nitro — @mrousavy" with clickable links; added a row for Shreeman Arjun with X and GitHub links.
+- **CLI: Nitro credit in `--version` and `--help`** — `nitrogen --version` now prints the Nitro inspiration line; `nitrogen --help` description includes the @mrousavy attribution.
+- **Fixed: Doctor false positives on `FlutterFramework/Package.swift`** — `detectSpmStatus` was picking up `ios/FlutterFramework/Package.swift` (the Flutter SDK's SPM manifest, symlinked by CocoaPods) before the plugin's own `ios/<name>/Package.swift`. The scanner now skips directories whose name is not a valid Dart package identifier (lowercase snake_case), eliminating false-positive SPM errors on real-world plugins.
 - **Fixed: SPM `Package.swift` missing FlutterFramework dependency** — `nitrogen link` now patches older plugin `Package.swift` files to add the `FlutterFramework` target dependency if it is missing, preventing SPM build failures after upgrading Flutter.
 - **Fixed: ANSI escape codes in headless `build_runner` output** — `runStreamingInspected` strips ANSI sequences from subprocess output when running in `--no-ui` mode, so log files stay clean.
 

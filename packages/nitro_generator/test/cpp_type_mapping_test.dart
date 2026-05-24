@@ -42,11 +42,12 @@ BridgeSpec _fnSpec(
   ],
 );
 
-BridgeParam _p(String type, String name) =>
-    BridgeParam(name: name, type: BridgeType(name: type));
+BridgeParam _p(String type, String name) => BridgeParam(
+  name: name,
+  type: BridgeType(name: type),
+);
 
-BridgeSpec _typedDataSpec(String typeName) =>
-    _fnSpec('void', [_p(typeName, 'data')]);
+BridgeSpec _typedDataSpec(String typeName) => _fnSpec('void', [_p(typeName, 'data')]);
 
 // ── Section 1: Scalar primitive params ───────────────────────────────────────
 
@@ -199,7 +200,9 @@ void main() {
     BridgeSpec enumSpec(String enumName) => _fnSpec(
       enumName,
       [_p(enumName, 'mode')],
-      enums: [BridgeEnum(name: enumName, startValue: 0, values: ['a', 'b'])],
+      enums: [
+        BridgeEnum(name: enumName, startValue: 0, values: ['a', 'b']),
+      ],
     );
 
     test('enum param → EnumName mode (no const&)', () {
@@ -217,7 +220,9 @@ void main() {
       final spec = _fnSpec(
         'void',
         [_p('Status?', 'mode')],
-        enums: [BridgeEnum(name: 'Status', startValue: 0, values: ['a', 'b'])],
+        enums: [
+          BridgeEnum(name: 'Status', startValue: 0, values: ['a', 'b']),
+        ],
       );
       final out = CppInterfaceGenerator.generate(spec);
       expect(out, contains('Status mode'));
@@ -231,9 +236,16 @@ void main() {
       structName,
       [_p(structName, 'src')],
       structs: [
-        BridgeStruct(name: structName, packed: false, fields: [
-          BridgeField(name: 'x', type: BridgeType(name: 'double')),
-        ]),
+        BridgeStruct(
+          name: structName,
+          packed: false,
+          fields: [
+            BridgeField(
+              name: 'x',
+              type: BridgeType(name: 'double'),
+            ),
+          ],
+        ),
       ],
     );
 
@@ -252,9 +264,16 @@ void main() {
         'void',
         [_p('Point?', 'src')],
         structs: [
-          BridgeStruct(name: 'Point', packed: false, fields: [
-            BridgeField(name: 'x', type: BridgeType(name: 'double')),
-          ]),
+          BridgeStruct(
+            name: 'Point',
+            packed: false,
+            fields: [
+              BridgeField(
+                name: 'x',
+                type: BridgeType(name: 'double'),
+              ),
+            ],
+          ),
         ],
       );
       final out = CppInterfaceGenerator.generate(spec);
@@ -281,11 +300,13 @@ void main() {
     });
 
     test('multiple params in correct order', () {
-      final out = CppInterfaceGenerator.generate(_fnSpec('bool', [
-        _p('String', 'host'),
-        _p('int', 'port'),
-        _p('bool', 'secure'),
-      ]));
+      final out = CppInterfaceGenerator.generate(
+        _fnSpec('bool', [
+          _p('String', 'host'),
+          _p('int', 'port'),
+          _p('bool', 'secure'),
+        ]),
+      );
       expect(out, contains('const std::string& host, int64_t port, bool secure'));
     });
   });

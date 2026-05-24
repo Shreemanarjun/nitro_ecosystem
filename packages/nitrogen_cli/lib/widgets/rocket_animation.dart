@@ -13,8 +13,7 @@ class RocketAnimation extends StatefulComponent {
   State<RocketAnimation> createState() => _RocketAnimationState();
 }
 
-class _RocketAnimationState extends State<RocketAnimation>
-    with SingleTickerProviderStateMixin {
+class _RocketAnimationState extends State<RocketAnimation> with SingleTickerProviderStateMixin {
   late AnimationController _controller;
 
   @override
@@ -69,25 +68,25 @@ class _RocketAnimationState extends State<RocketAnimation>
         final mcProgress = _controller.value;
         final mcX = (trackWidth * 0.25) * mcProgress;
         final mcPadding = mcX.round().clamp(0, trackWidth.toInt());
-        
+
         final mcTrail = '·' * mcPadding;
         final mcSmoke = (mcProgress * 15).floor().isEven ? '☁️ ' : '💨';
         final mcText = '$mcTrail$mcSmoke🐌';
-        
+
         // From README: Method channel ~107µs latency = ~9,300 ops/s
         final mcOps = (mcProgress * 9300).toInt();
 
         // --- Nitro FFI (Blazing Fast) ---
         var baseProgress = (_controller.value * 2.5).clamp(0.0, 1.0);
         final nitroProgress = math.pow(baseProgress, 4).toDouble();
-        
+
         final nitroEndX = trackWidth - 10.0;
         final nitroX = nitroEndX * nitroProgress;
         final nitroPadding = nitroX.round().clamp(0, trackWidth.toInt());
-        
+
         final isNitroDone = nitroProgress >= 1.0;
         final nitroEffect = isNitroDone ? '✨' : ((nitroProgress * 30).floor().isEven ? '🔥' : '⚡');
-        
+
         final nitroTrail = '≡' * nitroPadding;
         final nitroText = '$nitroTrail$nitroEffect🚀';
 
@@ -141,10 +140,13 @@ class _TrackRow extends StatelessComponent {
   @override
   Component build(BuildContext context) {
     final paddedLabel = label.padLeft(14);
-    
+
     return Row(
       children: [
-        Text(paddedLabel, style: TextStyle(color: labelColor, fontWeight: FontWeight.bold)),
+        Text(
+          paddedLabel,
+          style: TextStyle(color: labelColor, fontWeight: FontWeight.bold),
+        ),
         const Text(' ┆ ', style: TextStyle(color: Colors.brightBlack)),
         SizedBox(
           width: trackWidth,
@@ -156,7 +158,10 @@ class _TrackRow extends StatelessComponent {
           ),
         ),
         const Text(' ┆ ', style: TextStyle(color: Colors.brightBlack)),
-        Text(statsText, style: TextStyle(color: trackColor, fontWeight: FontWeight.bold)),
+        Text(
+          statsText,
+          style: TextStyle(color: trackColor, fontWeight: FontWeight.bold),
+        ),
       ],
     );
   }

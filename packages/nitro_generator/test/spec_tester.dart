@@ -48,10 +48,7 @@ class BridgeChecks {
   /// Both must be present.
   final List<(String, String)> before;
 
-  const BridgeChecks.empty()
-      : has = const [],
-        hasNot = const [],
-        before = const [];
+  const BridgeChecks.empty() : has = const [], hasNot = const [], before = const [];
 }
 
 /// A parsed spec source. Parse is lazy and cached — multiple [specTest] calls
@@ -142,10 +139,10 @@ void specTest(
 
 String _generate(Lang lang, BridgeSpec spec) {
   return switch (lang) {
-    Lang.dart   => DartFfiGenerator.generate(spec),
+    Lang.dart => DartFfiGenerator.generate(spec),
     Lang.kotlin => KotlinGenerator.generate(spec),
-    Lang.swift  => SwiftGenerator.generate(spec),
-    Lang.cpp    => CppInterfaceGenerator.generate(spec),
+    Lang.swift => SwiftGenerator.generate(spec),
+    Lang.cpp => CppInterfaceGenerator.generate(spec),
   };
 }
 
@@ -153,10 +150,10 @@ String _generate(Lang lang, BridgeSpec spec) {
 /// Used by [all:] to auto-skip generators that don't apply.
 bool _langAppliesTo(Lang lang, BridgeSpec spec) {
   return switch (lang) {
-    Lang.dart   => true,
+    Lang.dart => true,
     Lang.kotlin => spec.targetsAndroid,
-    Lang.swift  => spec.targetsIos || spec.targetsMacos,
-    Lang.cpp    => spec.hasCppImpl,
+    Lang.swift => spec.targetsIos || spec.targetsMacos,
+    Lang.cpp => spec.hasCppImpl,
   };
 }
 

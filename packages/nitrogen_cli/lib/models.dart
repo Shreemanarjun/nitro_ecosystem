@@ -60,8 +60,7 @@ enum NitroCommand {
     'Close the Nitrogen CLI.',
     '/exit',
     'Quits the interactive dashboard session.',
-  )
-  ;
+  );
 
   const NitroCommand(this.label, this.description, this.path, this.longInfo);
   final String label;

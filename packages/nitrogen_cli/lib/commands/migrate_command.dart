@@ -806,18 +806,24 @@ class MigrateCommand extends Command {
     for (final name in ['Swift${className}Plugin.swift', '${className}Impl.swift', '$pluginName.bridge.g.swift']) {
       final lnk = Link(p.join(swiftDir.path, name));
       if (!lnk.existsSync()) {
-        try { lnk.createSync('../../../Classes/$name'); } catch (_) {}
+        try {
+          lnk.createSync('../../../Classes/$name');
+        } catch (_) {}
       }
     }
     for (final name in ['$pluginName.cpp', 'dart_api_dl.c']) {
       final lnk = Link(p.join(cppDir.path, name));
       if (!lnk.existsSync()) {
-        try { lnk.createSync('../../../Classes/$name'); } catch (_) {}
+        try {
+          lnk.createSync('../../../Classes/$name');
+        } catch (_) {}
       }
     }
     final includeLink = Link(p.join(cppDir.path, 'include'));
     if (!includeLink.existsSync()) {
-      try { includeLink.createSync('../../../Classes'); } catch (_) {}
+      try {
+        includeLink.createSync('../../../Classes');
+      } catch (_) {}
     }
     File(p.join(packageDir.path, 'Package.swift')).writeAsStringSync(packageSwiftTemplate(pluginName, className, platformSpec, isMacos: isMacos));
   }

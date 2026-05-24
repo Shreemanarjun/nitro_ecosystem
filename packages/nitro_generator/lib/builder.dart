@@ -59,11 +59,7 @@ class NitroGeneratorBuilder implements Builder {
       for (final outId in outputs) {
         // Type-only files skip implementation outputs (no bridge class, no CMake, etc.).
         if (spec.isTypeOnly) {
-          if (outId.path.endsWith('.bridge.g.cpp') ||
-              outId.path.endsWith('.CMakeLists.g.txt') ||
-              outId.path.endsWith('.native.g.h') ||
-              outId.path.endsWith('.mock.g.h') ||
-              outId.path.endsWith('.test.g.cpp')) {
+          if (outId.path.endsWith('.bridge.g.cpp') || outId.path.endsWith('.CMakeLists.g.txt') || outId.path.endsWith('.native.g.h') || outId.path.endsWith('.mock.g.h') || outId.path.endsWith('.test.g.cpp')) {
             // Write a minimal placeholder so build_runner is satisfied.
             await buildStep.writeAsString(outId, '// Type-only file — no bridge implementation generated.\n');
             continue;

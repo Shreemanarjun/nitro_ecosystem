@@ -121,7 +121,8 @@ class GenerateCommand extends Command {
     _log('flutter pub get …');
     final t0 = DateTime.now();
     final pubGetResult = await runStreamingInspected(
-      'flutter', ['pub', 'get'],
+      'flutter',
+      ['pub', 'get'],
       workingDirectory: projectDir.path,
       headless: _headless,
     );
@@ -265,7 +266,8 @@ class GenerateCommand extends Command {
     for (final dir in podfileDirs) {
       _log('pod install (${p.relative(dir, from: projectDir.path)}) …');
       final podResult = await runStreamingInspected(
-        'pod', ['install'],
+        'pod',
+        ['install'],
         workingDirectory: dir,
         headless: _headless,
       );

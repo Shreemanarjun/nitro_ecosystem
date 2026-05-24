@@ -32,19 +32,20 @@ void main(List<String> args) async {
     return;
   }
 
-  final runner = CommandRunner(
-    'nitrogen',
-    'Nitrogen FFI toolkit — inspired by Nitro by @mrousavy (https://x.com/mrousavy)',
-  )
-    ..addCommand(InitCommand())
-    ..addCommand(GenerateCommand())
-    ..addCommand(CleanCommand())
-    ..addCommand(LinkCommand())
-    ..addCommand(DoctorCommand())
-    ..addCommand(MigrateCommand())
-    ..addCommand(UpdateCommand())
-    ..addCommand(OpenCommand())
-    ..addCommand(WatchCommand());
+  final runner =
+      CommandRunner(
+          'nitrogen',
+          'Nitrogen FFI toolkit — inspired by Nitro by @mrousavy (https://x.com/mrousavy)',
+        )
+        ..addCommand(InitCommand())
+        ..addCommand(GenerateCommand())
+        ..addCommand(CleanCommand())
+        ..addCommand(LinkCommand())
+        ..addCommand(DoctorCommand())
+        ..addCommand(MigrateCommand())
+        ..addCommand(UpdateCommand())
+        ..addCommand(OpenCommand())
+        ..addCommand(WatchCommand());
 
   try {
     await runner.run(args);

@@ -920,7 +920,11 @@ void main() {
             isAsync: false,
             returnType: BridgeType(name: 'void'),
             params: [
-              BridgeParam(name: 'x', type: BridgeType(name: 'int'), isNamed: false),
+              BridgeParam(
+                name: 'x',
+                type: BridgeType(name: 'int'),
+                isNamed: false,
+              ),
             ],
           ),
         ],

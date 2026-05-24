@@ -966,7 +966,10 @@ void main() {
         if (evBlock[i] == '{') depth++;
         if (evBlock[i] == '}') {
           depth--;
-          if (depth == 0) { freeEnd = i; break; }
+          if (depth == 0) {
+            freeEnd = i;
+            break;
+          }
         }
       }
       final freeBody = evBlock.substring(freeIdx, freeEnd + 1);

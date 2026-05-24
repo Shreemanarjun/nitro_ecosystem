@@ -1412,9 +1412,16 @@ BridgeSpec asyncStructReturnSpec() => BridgeSpec(
   androidImpl: NativeImpl.kotlin,
   sourceUri: 'mod.native.dart',
   structs: [
-    BridgeStruct(name: 'Reading', packed: false, fields: [
-      BridgeField(name: 'value', type: BridgeType(name: 'double')),
-    ]),
+    BridgeStruct(
+      name: 'Reading',
+      packed: false,
+      fields: [
+        BridgeField(
+          name: 'value',
+          type: BridgeType(name: 'double'),
+        ),
+      ],
+    ),
   ],
   functions: [
     BridgeFunction(
@@ -1437,9 +1444,16 @@ BridgeSpec nullableStructParamSpec() => BridgeSpec(
   androidImpl: NativeImpl.kotlin,
   sourceUri: 'mod.native.dart',
   structs: [
-    BridgeStruct(name: 'Foo', packed: false, fields: [
-      BridgeField(name: 'x', type: BridgeType(name: 'double')),
-    ]),
+    BridgeStruct(
+      name: 'Foo',
+      packed: false,
+      fields: [
+        BridgeField(
+          name: 'x',
+          type: BridgeType(name: 'double'),
+        ),
+      ],
+    ),
   ],
   functions: [
     BridgeFunction(
@@ -1448,7 +1462,10 @@ BridgeSpec nullableStructParamSpec() => BridgeSpec(
       isAsync: false,
       returnType: BridgeType(name: 'void'),
       params: [
-        BridgeParam(name: 'x', type: BridgeType(name: 'Foo?', isNullable: true)),
+        BridgeParam(
+          name: 'x',
+          type: BridgeType(name: 'Foo?', isNullable: true),
+        ),
       ],
     ),
   ],
@@ -1469,44 +1486,48 @@ BridgeSpec typedDataParamSpec(String typeName) => BridgeSpec(
       cSymbol: 'mod_send',
       isAsync: false,
       returnType: BridgeType(name: 'void'),
-      params: [BridgeParam(name: 'x', type: BridgeType(name: typeName))],
+      params: [
+        BridgeParam(
+          name: 'x',
+          type: BridgeType(name: typeName),
+        ),
+      ],
     ),
   ],
 );
 
 /// TypedData variants and their expected C++ element types (used in loop-style tests).
 const typedDataCppMappings = [
-  ('Uint8List',   'std::vector<uint8_t>'),
-  ('Int8List',    'std::vector<int8_t>'),
-  ('Int16List',   'std::vector<int16_t>'),
-  ('Int32List',   'std::vector<int32_t>'),
-  ('Uint16List',  'std::vector<uint16_t>'),
-  ('Uint32List',  'std::vector<uint32_t>'),
+  ('Uint8List', 'std::vector<uint8_t>'),
+  ('Int8List', 'std::vector<int8_t>'),
+  ('Int16List', 'std::vector<int16_t>'),
+  ('Int32List', 'std::vector<int32_t>'),
+  ('Uint16List', 'std::vector<uint16_t>'),
+  ('Uint32List', 'std::vector<uint32_t>'),
   ('Float32List', 'std::vector<float>'),
   ('Float64List', 'std::vector<double>'),
-  ('Int64List',   'std::vector<int64_t>'),
-  ('Uint64List',  'std::vector<uint64_t>'),
+  ('Int64List', 'std::vector<int64_t>'),
+  ('Uint64List', 'std::vector<uint64_t>'),
 ];
 
 /// Minimal BridgeSpec for a stream of [itemTypeName] items.
-BridgeSpec streamSpec(String itemTypeName, {Backpressure backpressure = Backpressure.dropLatest}) =>
-    BridgeSpec(
-      dartClassName: 'Streamer',
-      lib: 'streamer',
-      namespace: 'streamer',
-      iosImpl: NativeImpl.swift,
-      androidImpl: NativeImpl.kotlin,
-      sourceUri: 'streamer.native.dart',
-      streams: [
-        BridgeStream(
-          dartName: 'events',
-          registerSymbol: 'streamer_register_events_stream',
-          releaseSymbol: 'streamer_release_events_stream',
-          itemType: BridgeType(name: itemTypeName),
-          backpressure: backpressure,
-        ),
-      ],
-    );
+BridgeSpec streamSpec(String itemTypeName, {Backpressure backpressure = Backpressure.dropLatest}) => BridgeSpec(
+  dartClassName: 'Streamer',
+  lib: 'streamer',
+  namespace: 'streamer',
+  iosImpl: NativeImpl.swift,
+  androidImpl: NativeImpl.kotlin,
+  sourceUri: 'streamer.native.dart',
+  streams: [
+    BridgeStream(
+      dartName: 'events',
+      registerSymbol: 'streamer_register_events_stream',
+      releaseSymbol: 'streamer_release_events_stream',
+      itemType: BridgeType(name: itemTypeName),
+      backpressure: backpressure,
+    ),
+  ],
+);
 
 /// Non-nullable named param with no default — triggers W001 in SpecValidator.
 BridgeSpec specWithDefaultlessIntNamedParam() => BridgeSpec(

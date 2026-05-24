@@ -18,10 +18,8 @@ abstract class Printer {
 
     test('defaultLiteral is extracted as PrintQuality.normal', () {
       final spec = src.spec;
-      final param = spec.functions.first.params
-          .firstWhere((p) => p.name == 'quality');
-      expect(param.defaultLiteral, equals('PrintQuality.normal'),
-          reason: 'spec_from_source must extract defaultLiteral from enum default');
+      final param = spec.functions.first.params.firstWhere((p) => p.name == 'quality');
+      expect(param.defaultLiteral, equals('PrintQuality.normal'), reason: 'spec_from_source must extract defaultLiteral from enum default');
       expect(param.isNamed, isTrue);
       expect(param.isOptional, isTrue);
     });

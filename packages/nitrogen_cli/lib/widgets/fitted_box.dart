@@ -193,5 +193,4 @@ class RenderFittedBox extends RenderObject with RenderObjectWithChildMixin<Rende
     child!.paintWithContext(clippedCanvas, childLocalOffset);
     super.paint(canvas, offset);
   }
-
 }

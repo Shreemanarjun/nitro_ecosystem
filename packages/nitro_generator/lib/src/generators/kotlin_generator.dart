@@ -152,11 +152,7 @@ class KotlinGenerator {
       // nullable because JNI can pass null object references.
       // Kotlin auto-promotes Long → Long? when forwarding to the interface, so the call
       // body needs no special handling.
-      final bridgeParamsDecl = func.params
-          .map((p) => '${p.name}: ${_toKotlinBridgeParamType(enumNames, structNames, recordNames, p)}')
-          .join(', ');
-
-
+      final bridgeParamsDecl = func.params.map((p) => '${p.name}: ${_toKotlinBridgeParamType(enumNames, structNames, recordNames, p)}').join(', ');
 
       if (func.isNativeAsync) {
         // ── @NitroNativeAsync — launch a coroutine and post the result ────────
@@ -165,22 +161,23 @@ class KotlinGenerator {
         // Dart_PostCObject_DL when the suspend function completes.
         final isUnit = (retType == 'Unit');
         final isEnum = enumNames.contains(func.returnType.name);
-        final portParamDecl =
-            bridgeParamsDecl.isEmpty ? 'dartPort: Long' : '$bridgeParamsDecl, dartPort: Long';
+        final portParamDecl = bridgeParamsDecl.isEmpty ? 'dartPort: Long' : '$bridgeParamsDecl, dartPort: Long';
         // Sentinel unwrapping for optional primitives (same logic as regular path).
         final nativeAsyncOptPrims = func.params.where((p) {
           final bn = p.type.name.replaceFirst('?', '');
           final isnull = p.type.name.endsWith('?') || p.isOptional;
           return isnull && (bn == 'int' || bn == 'bool' || bn == 'double');
         }).toList();
-        final callParamsNativeAsync = func.params.map((p) {
-          final bn = p.type.name.replaceFirst('?', '');
-          final isnull = p.type.name.endsWith('?') || p.isOptional;
-          if (isnull && (bn == 'int' || bn == 'bool' || bn == 'double')) {
-            return '${p.name}Arg';
-          }
-          return p.name;
-        }).join(', ');
+        final callParamsNativeAsync = func.params
+            .map((p) {
+              final bn = p.type.name.replaceFirst('?', '');
+              final isnull = p.type.name.endsWith('?') || p.isOptional;
+              if (isnull && (bn == 'int' || bn == 'bool' || bn == 'double')) {
+                return '${p.name}Arg';
+              }
+              return p.name;
+            })
+            .join(', ');
         s.writeln('    @JvmStatic fun ${func.dartName}_call($portParamDecl) {');
         s.writeln('        val impl = implementation ?: run {');
         s.writeln('            postNullToPort(dartPort)');
@@ -251,14 +248,16 @@ class KotlinGenerator {
 
       // callParams: for optional-primitive params use the unwrapped arg name
       // (e.g. timeoutArg) so the sentinel is converted to null.
-      final callParamsResolved = func.params.map((p) {
-        final baseName = p.type.name.replaceFirst('?', '');
-        final isNullable = p.type.name.endsWith('?') || p.isOptional;
-        if (isNullable && (baseName == 'int' || baseName == 'bool' || baseName == 'double')) {
-          return '${p.name}Arg';
-        }
-        return p.name;
-      }).join(', ');
+      final callParamsResolved = func.params
+          .map((p) {
+            final baseName = p.type.name.replaceFirst('?', '');
+            final isNullable = p.type.name.endsWith('?') || p.isOptional;
+            if (isNullable && (baseName == 'int' || baseName == 'bool' || baseName == 'double')) {
+              return '${p.name}Arg';
+            }
+            return p.name;
+          })
+          .join(', ');
 
       s.writeln(
         '    @JvmStatic fun ${func.dartName}_call($bridgeParamsDecl): $bridgeRetType {',

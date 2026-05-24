@@ -11,26 +11,25 @@ BridgeSpec _jniFuncSpec({
   required List<BridgeParam> params,
   List<BridgeEnum> enums = const [],
   List<BridgeStruct> structs = const [],
-}) =>
-    BridgeSpec(
-      dartClassName: 'Mod',
-      lib: 'mod',
-      namespace: 'mod',
-      iosImpl: NativeImpl.swift,
-      androidImpl: NativeImpl.kotlin,
-      sourceUri: 'mod.native.dart',
-      enums: enums,
-      structs: structs,
-      functions: [
-        BridgeFunction(
-          dartName: dartName,
-          cSymbol: 'mod_$dartName',
-          isAsync: false,
-          returnType: returnType,
-          params: params,
-        ),
-      ],
-    );
+}) => BridgeSpec(
+  dartClassName: 'Mod',
+  lib: 'mod',
+  namespace: 'mod',
+  iosImpl: NativeImpl.swift,
+  androidImpl: NativeImpl.kotlin,
+  sourceUri: 'mod.native.dart',
+  enums: enums,
+  structs: structs,
+  functions: [
+    BridgeFunction(
+      dartName: dartName,
+      cSymbol: 'mod_$dartName',
+      isAsync: false,
+      returnType: returnType,
+      params: params,
+    ),
+  ],
+);
 
 BridgeSpec _cppFuncSpec({
   required String dartName,
@@ -38,26 +37,25 @@ BridgeSpec _cppFuncSpec({
   required List<BridgeParam> params,
   List<BridgeEnum> enums = const [],
   List<BridgeStruct> structs = const [],
-}) =>
-    BridgeSpec(
-      dartClassName: 'Mod',
-      lib: 'mod',
-      namespace: 'mod',
-      iosImpl: NativeImpl.cpp,
-      androidImpl: NativeImpl.cpp,
-      sourceUri: 'mod.native.dart',
-      enums: enums,
-      structs: structs,
-      functions: [
-        BridgeFunction(
-          dartName: dartName,
-          cSymbol: 'mod_$dartName',
-          isAsync: false,
-          returnType: returnType,
-          params: params,
-        ),
-      ],
-    );
+}) => BridgeSpec(
+  dartClassName: 'Mod',
+  lib: 'mod',
+  namespace: 'mod',
+  iosImpl: NativeImpl.cpp,
+  androidImpl: NativeImpl.cpp,
+  sourceUri: 'mod.native.dart',
+  enums: enums,
+  structs: structs,
+  functions: [
+    BridgeFunction(
+      dartName: dartName,
+      cSymbol: 'mod_$dartName',
+      isAsync: false,
+      returnType: returnType,
+      params: params,
+    ),
+  ],
+);
 
 // ── §8.5.1 Uint8List param marshalling (JNI path) ───────────────────────────
 
@@ -67,7 +65,10 @@ void main() {
       dartName: 'upload',
       returnType: BridgeType(name: 'void'),
       params: [
-        BridgeParam(name: 'data', type: BridgeType(name: 'Uint8List')),
+        BridgeParam(
+          name: 'data',
+          type: BridgeType(name: 'Uint8List'),
+        ),
       ],
     );
     final code = CppBridgeGenerator.generate(spec);
@@ -100,7 +101,10 @@ void main() {
       dartName: 'upload',
       returnType: BridgeType(name: 'void'),
       params: [
-        BridgeParam(name: 'data', type: BridgeType(name: 'Uint8List')),
+        BridgeParam(
+          name: 'data',
+          type: BridgeType(name: 'Uint8List'),
+        ),
       ],
     );
     final code = CppBridgeGenerator.generate(spec);
@@ -134,7 +138,10 @@ void main() {
       dartName: 'processSamples',
       returnType: BridgeType(name: 'void'),
       params: [
-        BridgeParam(name: 'samples', type: BridgeType(name: 'Float32List')),
+        BridgeParam(
+          name: 'samples',
+          type: BridgeType(name: 'Float32List'),
+        ),
       ],
     );
     final code = CppBridgeGenerator.generate(spec);
@@ -163,7 +170,10 @@ void main() {
       dartName: 'processSamples',
       returnType: BridgeType(name: 'void'),
       params: [
-        BridgeParam(name: 'samples', type: BridgeType(name: 'Float32List')),
+        BridgeParam(
+          name: 'samples',
+          type: BridgeType(name: 'Float32List'),
+        ),
       ],
     );
     final code = CppBridgeGenerator.generate(spec);
@@ -200,7 +210,10 @@ void main() {
           isNativeAsync: true,
           returnType: BridgeType(name: 'void'),
           params: [
-            BridgeParam(name: 'value', type: BridgeType(name: 'int')),
+            BridgeParam(
+              name: 'value',
+              type: BridgeType(name: 'int'),
+            ),
           ],
         ),
       ],
@@ -251,7 +264,10 @@ void main() {
           isNativeAsync: true,
           returnType: BridgeType(name: 'void'),
           params: [
-            BridgeParam(name: 'x', type: BridgeType(name: 'double')),
+            BridgeParam(
+              name: 'x',
+              type: BridgeType(name: 'double'),
+            ),
           ],
         ),
       ],
@@ -296,7 +312,10 @@ void main() {
           isAsync: false,
           returnType: BridgeType(name: 'void'),
           params: [
-            BridgeParam(name: 'quality', type: BridgeType(name: 'Quality')),
+            BridgeParam(
+              name: 'quality',
+              type: BridgeType(name: 'Quality'),
+            ),
           ],
         ),
       ],
@@ -337,7 +356,10 @@ void main() {
           isAsync: false,
           returnType: BridgeType(name: 'void'),
           params: [
-            BridgeParam(name: 'quality', type: BridgeType(name: 'Quality')),
+            BridgeParam(
+              name: 'quality',
+              type: BridgeType(name: 'Quality'),
+            ),
           ],
         ),
       ],
@@ -372,7 +394,12 @@ void main() {
         final spec = _cppFuncSpec(
           dartName: 'send',
           returnType: BridgeType(name: 'void'),
-          params: [BridgeParam(name: 'buf', type: BridgeType(name: dartType))],
+          params: [
+            BridgeParam(
+              name: 'buf',
+              type: BridgeType(name: dartType),
+            ),
+          ],
         );
         final out = CppBridgeGenerator.generate(spec);
         expect(out, contains(cType), reason: '$dartType should map to $cType');

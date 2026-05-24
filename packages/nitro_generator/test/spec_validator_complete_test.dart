@@ -38,7 +38,9 @@ BridgeSpec _namedEnumParamSpec({String? defaultLiteral, bool nullable = false}) 
     iosImpl: NativeImpl.swift,
     androidImpl: NativeImpl.kotlin,
     sourceUri: 'mod.native.dart',
-    enums: [BridgeEnum(name: 'Status', startValue: 0, values: ['off', 'on'])],
+    enums: [
+      BridgeEnum(name: 'Status', startValue: 0, values: ['off', 'on']),
+    ],
     functions: [
       BridgeFunction(
         dartName: 'fn',
@@ -69,9 +71,16 @@ BridgeSpec _namedStructParamSpec({String? defaultLiteral, bool nullable = false}
     androidImpl: NativeImpl.kotlin,
     sourceUri: 'mod.native.dart',
     structs: [
-      BridgeStruct(name: 'Config', packed: false, fields: [
-        BridgeField(name: 'x', type: BridgeType(name: 'double')),
-      ]),
+      BridgeStruct(
+        name: 'Config',
+        packed: false,
+        fields: [
+          BridgeField(
+            name: 'x',
+            type: BridgeType(name: 'double'),
+          ),
+        ],
+      ),
     ],
     functions: [
       BridgeFunction(
@@ -476,11 +485,20 @@ void main() {
         iosImpl: NativeImpl.swift,
         androidImpl: NativeImpl.kotlin,
         sourceUri: 'mod.native.dart',
-        enums: [BridgeEnum(name: 'Status', startValue: 0, values: ['off', 'on'])],
+        enums: [
+          BridgeEnum(name: 'Status', startValue: 0, values: ['off', 'on']),
+        ],
         structs: [
-          BridgeStruct(name: 'Config', packed: false, fields: [
-            BridgeField(name: 'x', type: BridgeType(name: 'double')),
-          ]),
+          BridgeStruct(
+            name: 'Config',
+            packed: false,
+            fields: [
+              BridgeField(
+                name: 'x',
+                type: BridgeType(name: 'double'),
+              ),
+            ],
+          ),
         ],
         functions: [
           BridgeFunction(
@@ -525,11 +543,20 @@ void main() {
         iosImpl: NativeImpl.swift,
         androidImpl: NativeImpl.kotlin,
         sourceUri: 'mod.native.dart',
-        enums: [BridgeEnum(name: 'Status', startValue: 0, values: ['off', 'on'])],
+        enums: [
+          BridgeEnum(name: 'Status', startValue: 0, values: ['off', 'on']),
+        ],
         structs: [
-          BridgeStruct(name: 'Config', packed: false, fields: [
-            BridgeField(name: 'x', type: BridgeType(name: 'double')),
-          ]),
+          BridgeStruct(
+            name: 'Config',
+            packed: false,
+            fields: [
+              BridgeField(
+                name: 'x',
+                type: BridgeType(name: 'double'),
+              ),
+            ],
+          ),
         ],
         functions: [
           BridgeFunction(

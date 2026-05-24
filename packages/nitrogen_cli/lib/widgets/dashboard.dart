@@ -11,7 +11,6 @@ import '../commands/open_command.dart';
 import 'nitro_logo.dart';
 import 'rocket_animation.dart';
 
-
 class NitroDashboard extends StatefulComponent {
   const NitroDashboard({super.key});
 
@@ -310,7 +309,10 @@ class _NitroDashboardState extends State<NitroDashboard> {
                         Row(
                           mainAxisAlignment: MainAxisAlignment.center,
                           children: [
-                            const Text('By ', style: TextStyle(color: Colors.gray, fontWeight: FontWeight.dim)),
+                            const Text(
+                              'By ',
+                              style: TextStyle(color: Colors.gray, fontWeight: FontWeight.dim),
+                            ),
                             HoverButton(
                               label: 'Shreeman Arjun',
                               onTap: () => launchUrl('https://twitter.com/shreemanarjun'),

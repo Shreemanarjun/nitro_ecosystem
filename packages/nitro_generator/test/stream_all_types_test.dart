@@ -40,15 +40,24 @@ BridgeSpec _streamSpec({
 
 BridgeSpec _enumStreamSpec(String enumName) => _streamSpec(
   itemType: enumName,
-  enums: [BridgeEnum(name: enumName, startValue: 0, values: ['a', 'b'])],
+  enums: [
+    BridgeEnum(name: enumName, startValue: 0, values: ['a', 'b']),
+  ],
 );
 
 BridgeSpec _structStreamSpec(String structName) => _streamSpec(
   itemType: structName,
   structs: [
-    BridgeStruct(name: structName, packed: false, fields: [
-      BridgeField(name: 'x', type: BridgeType(name: 'double')),
-    ]),
+    BridgeStruct(
+      name: structName,
+      packed: false,
+      fields: [
+        BridgeField(
+          name: 'x',
+          type: BridgeType(name: 'double'),
+        ),
+      ],
+    ),
   ],
 );
 

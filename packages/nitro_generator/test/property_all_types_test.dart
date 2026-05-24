@@ -225,7 +225,9 @@ void main() {
     macosImpl: forCpp ? NativeImpl.cpp : null,
     windowsImpl: forCpp ? NativeImpl.cpp : null,
     sourceUri: 'mod.native.dart',
-    enums: [BridgeEnum(name: 'Mode', startValue: 0, values: ['off', 'on'])],
+    enums: [
+      BridgeEnum(name: 'Mode', startValue: 0, values: ['off', 'on']),
+    ],
     properties: [
       BridgeProperty(
         dartName: 'mode',
@@ -291,9 +293,16 @@ void main() {
     windowsImpl: forCpp ? NativeImpl.cpp : null,
     sourceUri: 'mod.native.dart',
     structs: [
-      BridgeStruct(name: 'Config', packed: false, fields: [
-        BridgeField(name: 'x', type: BridgeType(name: 'double')),
-      ]),
+      BridgeStruct(
+        name: 'Config',
+        packed: false,
+        fields: [
+          BridgeField(
+            name: 'x',
+            type: BridgeType(name: 'double'),
+          ),
+        ],
+      ),
     ],
     properties: [
       BridgeProperty(
@@ -354,12 +363,30 @@ void main() {
       androidImpl: NativeImpl.kotlin,
       sourceUri: 'mod.native.dart',
       properties: [
-        BridgeProperty(dartName: 'count', type: BridgeType(name: 'int'),
-          getSymbol: 'mod_get_count', setSymbol: 'mod_set_count', hasGetter: true, hasSetter: true),
-        BridgeProperty(dartName: 'name', type: BridgeType(name: 'String'),
-          getSymbol: 'mod_get_name', setSymbol: 'mod_set_name', hasGetter: true, hasSetter: false),
-        BridgeProperty(dartName: 'active', type: BridgeType(name: 'bool'),
-          getSymbol: 'mod_get_active', setSymbol: 'mod_set_active', hasGetter: true, hasSetter: true),
+        BridgeProperty(
+          dartName: 'count',
+          type: BridgeType(name: 'int'),
+          getSymbol: 'mod_get_count',
+          setSymbol: 'mod_set_count',
+          hasGetter: true,
+          hasSetter: true,
+        ),
+        BridgeProperty(
+          dartName: 'name',
+          type: BridgeType(name: 'String'),
+          getSymbol: 'mod_get_name',
+          setSymbol: 'mod_set_name',
+          hasGetter: true,
+          hasSetter: false,
+        ),
+        BridgeProperty(
+          dartName: 'active',
+          type: BridgeType(name: 'bool'),
+          getSymbol: 'mod_get_active',
+          setSymbol: 'mod_set_active',
+          hasGetter: true,
+          hasSetter: true,
+        ),
       ],
     );
 

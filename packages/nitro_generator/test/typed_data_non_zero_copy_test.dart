@@ -29,8 +29,14 @@ BridgeSpec _nonZcSpec() => BridgeSpec(
       name: 'Document',
       packed: false,
       fields: [
-        BridgeField(name: 'id', type: BridgeType(name: 'String')),
-        BridgeField(name: 'data', type: BridgeType(name: 'Uint8List')),
+        BridgeField(
+          name: 'id',
+          type: BridgeType(name: 'String'),
+        ),
+        BridgeField(
+          name: 'data',
+          type: BridgeType(name: 'Uint8List'),
+        ),
       ],
     ),
   ],
@@ -41,7 +47,10 @@ BridgeSpec _nonZcSpec() => BridgeSpec(
       isAsync: true,
       returnType: BridgeType(name: 'bool'),
       params: [
-        BridgeParam(name: 'doc', type: BridgeType(name: 'Document')),
+        BridgeParam(
+          name: 'doc',
+          type: BridgeType(name: 'Document'),
+        ),
       ],
     ),
   ],
@@ -61,9 +70,18 @@ BridgeSpec _stringFieldSpec() => BridgeSpec(
       name: 'DeviceInfo',
       packed: false,
       fields: [
-        BridgeField(name: 'id', type: BridgeType(name: 'String')),
-        BridgeField(name: 'name', type: BridgeType(name: 'String')),
-        BridgeField(name: 'isDefault', type: BridgeType(name: 'bool')),
+        BridgeField(
+          name: 'id',
+          type: BridgeType(name: 'String'),
+        ),
+        BridgeField(
+          name: 'name',
+          type: BridgeType(name: 'String'),
+        ),
+        BridgeField(
+          name: 'isDefault',
+          type: BridgeType(name: 'bool'),
+        ),
       ],
     ),
   ],
@@ -81,7 +99,10 @@ BridgeSpec _stringFieldSpec() => BridgeSpec(
       isAsync: false,
       returnType: BridgeType(name: 'void'),
       params: [
-        BridgeParam(name: 'info', type: BridgeType(name: 'DeviceInfo')),
+        BridgeParam(
+          name: 'info',
+          type: BridgeType(name: 'DeviceInfo'),
+        ),
       ],
     ),
   ],
@@ -101,8 +122,14 @@ BridgeSpec _richStructSpec() => BridgeSpec(
       name: 'Packet',
       packed: false,
       fields: [
-        BridgeField(name: 'tag', type: BridgeType(name: 'String')),
-        BridgeField(name: 'payload', type: BridgeType(name: 'Uint8List')),
+        BridgeField(
+          name: 'tag',
+          type: BridgeType(name: 'String'),
+        ),
+        BridgeField(
+          name: 'payload',
+          type: BridgeType(name: 'Uint8List'),
+        ),
       ],
     ),
   ],

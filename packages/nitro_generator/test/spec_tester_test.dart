@@ -223,7 +223,7 @@ void main() {
           Future<void> work({int? timeout});
         }
       '''),
-      dart:   BridgeChecks(has: ['timeout ?? -1']),
+      dart: BridgeChecks(has: ['timeout ?? -1']),
       kotlin: BridgeChecks(
         has: ['val timeoutArg: Long? = if (timeout < 0L) null else timeout'],
         before: [('val timeoutArg', 'impl.work(')],
@@ -238,7 +238,7 @@ void main() {
           Future<void> measure({double? scale});
         }
       '''),
-      dart:   BridgeChecks(has: ['scale ?? double.nan']),
+      dart: BridgeChecks(has: ['scale ?? double.nan']),
       kotlin: BridgeChecks(has: ['val scaleArg: Double? = if (scale.isNaN()) null else scale']),
       skip: {Lang.cpp},
     );
@@ -250,7 +250,7 @@ void main() {
           Future<void> toggle({bool? enabled});
         }
       '''),
-      dart:   BridgeChecks(has: ['enabled == null ? -1 : (enabled! ? 1 : 0)']),
+      dart: BridgeChecks(has: ['enabled == null ? -1 : (enabled! ? 1 : 0)']),
       kotlin: BridgeChecks(has: ['val enabledArg: Boolean? = if (enabled.toInt() < 0) null else enabled']),
       skip: {Lang.cpp},
     );
@@ -273,7 +273,7 @@ void main() {
           void send(String msg);
         }
       '''),
-      dart:   BridgeChecks(has: ['msg.toNativeUtf8'], hasNot: ['msg ?? ']),
+      dart: BridgeChecks(has: ['msg.toNativeUtf8'], hasNot: ['msg ?? ']),
       skip: {Lang.cpp},
     );
   });
@@ -322,7 +322,7 @@ void main() {
           bool get isReady;
         }
       '''),
-      swift:  BridgeChecks(has: ['isReady']),
+      swift: BridgeChecks(has: ['isReady']),
       kotlin: BridgeChecks(has: ['isReady']),
       skip: {Lang.cpp},
     );
@@ -362,7 +362,7 @@ void main() {
           Stream<double> ticks();
         }
       '''),
-      dart:   BridgeChecks(has: ['ticks']),
+      dart: BridgeChecks(has: ['ticks']),
       kotlin: BridgeChecks(has: ['ticks']),
       skip: {Lang.cpp},
     );
@@ -454,8 +454,8 @@ void main() {
           void configure(Config cfg);
         }
       '''),
-      dart:   BridgeChecks(has: ['Config']),
-      swift:  BridgeChecks(has: ['Config']),
+      dart: BridgeChecks(has: ['Config']),
+      swift: BridgeChecks(has: ['Config']),
       skip: {Lang.cpp},
     );
   });
@@ -496,11 +496,13 @@ void main() {
     test('throws when no class found', () {
       expect(
         () => SpecFromSource.parse('const x = 42;'),
-        throwsA(isA<ArgumentError>().having(
-          (e) => e.message,
-          'message',
-          contains('no @NitroModule class or abstract class'),
-        )),
+        throwsA(
+          isA<ArgumentError>().having(
+            (e) => e.message,
+            'message',
+            contains('no @NitroModule class or abstract class'),
+          ),
+        ),
       );
     });
 
@@ -539,7 +541,7 @@ void main() {
           void ping();
         }
       '''),
-      dart:   BridgeChecks(hasNot: ['timeout ?? -1']),
+      dart: BridgeChecks(hasNot: ['timeout ?? -1']),
       kotlin: BridgeChecks(hasNot: ['Long?']),
       skip: {Lang.cpp},
     );
@@ -566,7 +568,7 @@ void main() {
           void ping();
         }
       '''),
-      dart:   BridgeChecks.empty(),
+      dart: BridgeChecks.empty(),
       kotlin: BridgeChecks.empty(),
       skip: {Lang.cpp},
     );
@@ -612,7 +614,7 @@ void main() {
       '''),
       // If kotlin were not skipped, 'fn_call' would be present in kotlin output
       // but this test proves skip:{Lang.kotlin} causes no kotlin assertion.
-      dart:  BridgeChecks(has: ['fn']),
+      dart: BridgeChecks(has: ['fn']),
       skip: {Lang.kotlin, Lang.swift, Lang.cpp},
     );
 
@@ -649,12 +651,16 @@ void main() {
       expect(identical(a, b), isTrue);
     });
 
-    specTest('specTest uses same cached spec', shared,
+    specTest(
+      'specTest uses same cached spec',
+      shared,
       dart: BridgeChecks(has: ['capture', 'getModel']),
       skip: {Lang.cpp},
     );
 
-    specTest('second specTest call on same SpecSource', shared,
+    specTest(
+      'second specTest call on same SpecSource',
+      shared,
       kotlin: BridgeChecks(has: ['capture', 'getModel']),
       skip: {Lang.cpp},
     );

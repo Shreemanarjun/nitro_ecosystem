@@ -160,14 +160,9 @@ class DartFfiGenerator {
       final needsArena = func.params.any(
         (p) {
           final baseName = p.type.name.replaceFirst('?', '');
-          return p.type.isTypedData ||
-              p.type.name == 'String' ||
-              p.type.name == 'String?' ||
-              p.type.isRecord ||
-              spec.structs.any((st) => st.name == baseName);
+          return p.type.isTypedData || p.type.name == 'String' || p.type.name == 'String?' || p.type.isRecord || spec.structs.any((st) => st.name == baseName);
         },
       );
-
 
       final callArgs = func.params
           .expand((p) {
@@ -234,15 +229,17 @@ class DartFfiGenerator {
         // plainCallArgs: used when no arena is needed. Apply the same optional-primitive
         // sentinel encoding as callArgs so that int?/bool?/double? are never passed as null.
         // (Structs, TypedData, String all require an arena so they can't appear here.)
-        final plainCallArgs = func.params.map((p) {
-          final t = p.type.name;
-          if (t == 'int?') return '${p.name} ?? -1';
-          if (t == 'double?') return '${p.name} ?? double.nan';
-          if (t == 'bool?') return '${p.name} == null ? -1 : (${p.name}! ? 1 : 0)';
-          if (t == 'bool') return '${p.name} ? 1 : 0';
-          if (spec.enums.any((en) => en.name == t)) return '${p.name}.nativeValue';
-          return p.name;
-        }).join(', ');
+        final plainCallArgs = func.params
+            .map((p) {
+              final t = p.type.name;
+              if (t == 'int?') return '${p.name} ?? -1';
+              if (t == 'double?') return '${p.name} ?? double.nan';
+              if (t == 'bool?') return '${p.name} == null ? -1 : (${p.name}! ? 1 : 0)';
+              if (t == 'bool') return '${p.name} ? 1 : 0';
+              if (spec.enums.any((en) => en.name == t)) return '${p.name}.nativeValue';
+              return p.name;
+            })
+            .join(', ');
 
         final callAsyncType = isRecordReturn
             ? 'Pointer<Uint8>'
@@ -427,8 +424,8 @@ class DartFfiGenerator {
               s.writeln('      return res.to$rt();');
             } else if (spec.structs.any((st) => st.name == rt)) {
               s.writeln('      if (res == nullptr) {');
-            s.writeln('        throw StateError(\'${func.dartName} returned null\');');
-            s.writeln('      }');
+              s.writeln('        throw StateError(\'${func.dartName} returned null\');');
+              s.writeln('      }');
               s.writeln('      final structPtr = Pointer<${rt}Ffi>.fromAddress(res.address);');
               s.writeln('      final $rt decoded;');
               s.writeln('      try {');
@@ -607,10 +604,12 @@ class DartFfiGenerator {
     final positional = params.where((p) => !p.isNamed).map((p) => '${p.type.name} ${p.name}').join(', ');
     final named = params.where((p) => p.isNamed).toList();
     if (named.isEmpty) return positional;
-    final namedStr = named.map((p) {
-      if (p.defaultLiteral != null) return '${p.type.name} ${p.name} = ${p.defaultLiteral}';
-      return '${p.type.name} ${p.name}';
-    }).join(', ');
+    final namedStr = named
+        .map((p) {
+          if (p.defaultLiteral != null) return '${p.type.name} ${p.name} = ${p.defaultLiteral}';
+          return '${p.type.name} ${p.name}';
+        })
+        .join(', ');
     final sep = positional.isEmpty ? '' : ', ';
     return '$positional$sep{$namedStr}';
   }

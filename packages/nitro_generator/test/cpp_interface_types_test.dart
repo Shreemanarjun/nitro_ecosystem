@@ -47,7 +47,12 @@ BridgeSpec _paramSpec(String typeName, {List<BridgeEnum> enums = const [], List<
       cSymbol: 'mod_fn',
       isAsync: false,
       returnType: BridgeType(name: 'void'),
-      params: [BridgeParam(name: 'x', type: BridgeType(name: typeName))],
+      params: [
+        BridgeParam(
+          name: 'x',
+          type: BridgeType(name: typeName),
+        ),
+      ],
     ),
   ],
 );
@@ -73,9 +78,16 @@ BridgeSpec _propSpec(String typeName, {bool hasSetter = false, List<BridgeEnum> 
 );
 
 final _kColorStruct = [
-  BridgeStruct(name: 'Color', packed: false, fields: [
-    BridgeField(name: 'r', type: BridgeType(name: 'double')),
-  ]),
+  BridgeStruct(
+    name: 'Color',
+    packed: false,
+    fields: [
+      BridgeField(
+        name: 'r',
+        type: BridgeType(name: 'double'),
+      ),
+    ],
+  ),
 ];
 final _kStatusEnum = [
   BridgeEnum(name: 'Status', startValue: 0, values: ['off', 'on']),

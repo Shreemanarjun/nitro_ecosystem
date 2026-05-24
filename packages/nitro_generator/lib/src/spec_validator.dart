@@ -247,8 +247,7 @@ class SpecValidator {
             message:
                 '${spec.dartClassName}.${func.dartName}() — @nitroAsync requires a Future<T> return type, '
                 'got "${func.returnType.name}".',
-            hint:
-                'Change the return type to Future<${func.returnType.name}>, or remove @nitroAsync.',
+            hint: 'Change the return type to Future<${func.returnType.name}>, or remove @nitroAsync.',
           ),
         );
       }
@@ -295,10 +294,7 @@ class SpecValidator {
         // W002 is emitted for @HybridEnum types; W003 for @HybridStruct types;
         // W001 for all other (primitive) types.
         final paramIsNullable = param.type.isNullable || param.type.name.endsWith('?');
-        if (param.isNamed &&
-            param.isOptional &&
-            !paramIsNullable &&
-            param.defaultLiteral == null) {
+        if (param.isNamed && param.isOptional && !paramIsNullable && param.defaultLiteral == null) {
           final bareTypeName = param.type.name.replaceFirst('?', '');
           if (enumNames.contains(bareTypeName)) {
             issues.add(

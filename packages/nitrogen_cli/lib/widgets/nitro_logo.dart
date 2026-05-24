@@ -57,9 +57,7 @@ class NitroLogo extends StatelessComponent {
       fit: BoxFit.scaleDown,
       alignment: Alignment.center,
       child: Column(
-        children: _nitroLogoLines
-            .map((line) => Text(line, style: style))
-            .toList(),
+        children: _nitroLogoLines.map((line) => Text(line, style: style)).toList(),
       ),
     );
   }

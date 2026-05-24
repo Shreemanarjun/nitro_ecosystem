@@ -37,11 +37,12 @@ BridgeSpec _fnSpec(String returnType, List<BridgeParam> params, {bool async = fa
   ],
 );
 
-BridgeParam _p(String type, String name) =>
-    BridgeParam(name: name, type: BridgeType(name: type));
+BridgeParam _p(String type, String name) => BridgeParam(
+  name: name,
+  type: BridgeType(name: type),
+);
 
-BridgeSpec _typedDataParamSpec(String typeName) =>
-    _fnSpec('void', [_p(typeName, 'data')]);
+BridgeSpec _typedDataParamSpec(String typeName) => _fnSpec('void', [_p(typeName, 'data')]);
 
 BridgeSpec _propSpec(String dartType, {bool readOnly = false}) => BridgeSpec(
   dartClassName: 'Mod',
@@ -70,7 +71,9 @@ BridgeSpec _enumFnSpec(String enumName) => BridgeSpec(
   iosImpl: NativeImpl.swift,
   androidImpl: NativeImpl.kotlin,
   sourceUri: 'mod.native.dart',
-  enums: [BridgeEnum(name: enumName, startValue: 0, values: ['a', 'b'])],
+  enums: [
+    BridgeEnum(name: enumName, startValue: 0, values: ['a', 'b']),
+  ],
   functions: [
     BridgeFunction(
       dartName: 'fn',
@@ -90,9 +93,16 @@ BridgeSpec _structFnSpec(String structName) => BridgeSpec(
   androidImpl: NativeImpl.kotlin,
   sourceUri: 'mod.native.dart',
   structs: [
-    BridgeStruct(name: structName, packed: false, fields: [
-      BridgeField(name: 'x', type: BridgeType(name: 'double')),
-    ]),
+    BridgeStruct(
+      name: structName,
+      packed: false,
+      fields: [
+        BridgeField(
+          name: 'x',
+          type: BridgeType(name: 'double'),
+        ),
+      ],
+    ),
   ],
   functions: [
     BridgeFunction(
@@ -279,7 +289,9 @@ void main() {
         namespace: 'mod',
         androidImpl: NativeImpl.kotlin,
         sourceUri: 'mod.native.dart',
-        enums: [BridgeEnum(name: 'Mode', startValue: 0, values: ['off', 'on'])],
+        enums: [
+          BridgeEnum(name: 'Mode', startValue: 0, values: ['off', 'on']),
+        ],
         properties: [
           BridgeProperty(
             dartName: 'mode',
@@ -302,7 +314,9 @@ void main() {
         namespace: 'mod',
         androidImpl: NativeImpl.kotlin,
         sourceUri: 'mod.native.dart',
-        enums: [BridgeEnum(name: 'Mode', startValue: 0, values: ['off', 'on'])],
+        enums: [
+          BridgeEnum(name: 'Mode', startValue: 0, values: ['off', 'on']),
+        ],
         properties: [
           BridgeProperty(
             dartName: 'mode',
@@ -440,7 +454,9 @@ void main() {
         iosImpl: NativeImpl.swift,
         androidImpl: NativeImpl.kotlin,
         sourceUri: 'mod.native.dart',
-        enums: [BridgeEnum(name: 'Quality', startValue: 0, values: ['low', 'high'])],
+        enums: [
+          BridgeEnum(name: 'Quality', startValue: 0, values: ['low', 'high']),
+        ],
         functions: [
           BridgeFunction(
             dartName: 'getQuality',

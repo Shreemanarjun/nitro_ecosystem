@@ -78,9 +78,16 @@ void main() {
       androidImpl: NativeImpl.kotlin,
       sourceUri: 'mod.native.dart',
       structs: [
-        BridgeStruct(name: 'PrintSettings', packed: false, fields: [
-          BridgeField(name: 'copies', type: BridgeType(name: 'int')),
-        ]),
+        BridgeStruct(
+          name: 'PrintSettings',
+          packed: false,
+          fields: [
+            BridgeField(
+              name: 'copies',
+              type: BridgeType(name: 'int'),
+            ),
+          ],
+        ),
       ],
       functions: [
         BridgeFunction(

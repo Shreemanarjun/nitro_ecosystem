@@ -221,8 +221,7 @@ void main() {
       );
 
       final status = detectSpmStatus(tmp.path);
-      expect(status.iosHasSpm, isFalse,
-          reason: 'A FlutterFramework-only dir should not count as the plugin having SPM');
+      expect(status.iosHasSpm, isFalse, reason: 'A FlutterFramework-only dir should not count as the plugin having SPM');
     });
 
     test('PascalCase directories other than FlutterFramework are also ignored', () {

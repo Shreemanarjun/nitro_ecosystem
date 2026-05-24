@@ -53,9 +53,16 @@ BridgeSpec _nullableStructReturnSpec() => BridgeSpec(
   androidImpl: NativeImpl.kotlin,
   sourceUri: 'mod.native.dart',
   structs: [
-    BridgeStruct(name: 'Sensor', packed: false, fields: [
-      BridgeField(name: 'id', type: BridgeType(name: 'int')),
-    ]),
+    BridgeStruct(
+      name: 'Sensor',
+      packed: false,
+      fields: [
+        BridgeField(
+          name: 'id',
+          type: BridgeType(name: 'int'),
+        ),
+      ],
+    ),
   ],
   functions: [
     BridgeFunction(
@@ -170,7 +177,10 @@ BridgeSpec _nonNullableBoolParamSpec() => BridgeSpec(
       isAsync: true,
       returnType: BridgeType(name: 'void', isFuture: false),
       params: [
-        BridgeParam(name: 'active', type: BridgeType(name: 'bool')),
+        BridgeParam(
+          name: 'active',
+          type: BridgeType(name: 'bool'),
+        ),
       ],
     ),
   ],
@@ -212,8 +222,14 @@ BridgeSpec _multiEnumSpec() => BridgeSpec(
       isAsync: false,
       returnType: BridgeType(name: 'void'),
       params: [
-        BridgeParam(name: 'quality', type: BridgeType(name: 'Quality')),
-        BridgeParam(name: 'duplex', type: BridgeType(name: 'Duplex')),
+        BridgeParam(
+          name: 'quality',
+          type: BridgeType(name: 'Quality'),
+        ),
+        BridgeParam(
+          name: 'duplex',
+          type: BridgeType(name: 'Duplex'),
+        ),
       ],
     ),
   ],
@@ -569,7 +585,12 @@ void main() {
           isAsync: false,
           isNativeAsync: true,
           returnType: BridgeType(name: 'void'),
-          params: [BridgeParam(name: 'value', type: BridgeType(name: 'int'))],
+          params: [
+            BridgeParam(
+              name: 'value',
+              type: BridgeType(name: 'int'),
+            ),
+          ],
         ),
       ],
     );

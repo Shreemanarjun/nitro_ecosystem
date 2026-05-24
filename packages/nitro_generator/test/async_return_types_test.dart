@@ -41,15 +41,24 @@ BridgeSpec _asyncSpec(
 
 BridgeSpec _asyncEnumSpec(String enumName) => _asyncSpec(
   enumName,
-  enums: [BridgeEnum(name: enumName, startValue: 0, values: ['low', 'high'])],
+  enums: [
+    BridgeEnum(name: enumName, startValue: 0, values: ['low', 'high']),
+  ],
 );
 
 BridgeSpec _asyncStructSpec(String structName) => _asyncSpec(
   structName,
   structs: [
-    BridgeStruct(name: structName, packed: false, fields: [
-      BridgeField(name: 'val', type: BridgeType(name: 'double')),
-    ]),
+    BridgeStruct(
+      name: structName,
+      packed: false,
+      fields: [
+        BridgeField(
+          name: 'val',
+          type: BridgeType(name: 'double'),
+        ),
+      ],
+    ),
   ],
 );
 

@@ -126,14 +126,16 @@ class SpecFromSource {
 
     // Flush property map → list (preserving insertion order).
     for (final entry in propMap.values) {
-      properties.add(BridgeProperty(
-        dartName: entry.name,
-        type: BridgeType(name: entry.typeName, isNullable: entry.typeName.endsWith('?')),
-        getSymbol: '${ns}_get_${_toSnakeCase(entry.name)}',
-        setSymbol: '${ns}_set_${_toSnakeCase(entry.name)}',
-        hasGetter: entry.hasGetter,
-        hasSetter: entry.hasSetter,
-      ));
+      properties.add(
+        BridgeProperty(
+          dartName: entry.name,
+          type: BridgeType(name: entry.typeName, isNullable: entry.typeName.endsWith('?')),
+          getSymbol: '${ns}_get_${_toSnakeCase(entry.name)}',
+          setSymbol: '${ns}_set_${_toSnakeCase(entry.name)}',
+          hasGetter: entry.hasGetter,
+          hasSetter: entry.hasSetter,
+        ),
+      );
     }
 
     return BridgeSpec(
@@ -187,19 +189,20 @@ class SpecFromSource {
     final baseRetSrc = retSrc.replaceAll('?', '').trim();
     if (baseRetSrc.startsWith('Stream<') || baseRetSrc == 'Stream') {
       final itemType = _genericArg(retSrc) ?? 'dynamic';
-      streams.add(BridgeStream(
-        dartName: name,
-        registerSymbol: '${ns}_register_${_toSnakeCase(name)}_stream',
-        releaseSymbol: '${ns}_release_${_toSnakeCase(name)}_stream',
-        itemType: BridgeType(name: itemType),
-        backpressure: Backpressure.dropLatest,
-      ));
+      streams.add(
+        BridgeStream(
+          dartName: name,
+          registerSymbol: '${ns}_register_${_toSnakeCase(name)}_stream',
+          releaseSymbol: '${ns}_release_${_toSnakeCase(name)}_stream',
+          itemType: BridgeType(name: itemType),
+          backpressure: Backpressure.dropLatest,
+        ),
+      );
       return;
     }
 
     // ── Function ───────────────────────────────────────────────────────────
-    final isAsync = m.metadata.any((a) => _annName(a) == 'NitroAsync') ||
-        (!m.metadata.any((a) => _annName(a) == 'NitroNativeAsync') && retSrc.startsWith('Future<'));
+    final isAsync = m.metadata.any((a) => _annName(a) == 'NitroAsync') || (!m.metadata.any((a) => _annName(a) == 'NitroNativeAsync') && retSrc.startsWith('Future<'));
     final isNativeAsync = m.metadata.any((a) => _annName(a) == 'NitroNativeAsync');
 
     final isFuture = retSrc.startsWith('Future<') || isAsync || isNativeAsync;
@@ -207,14 +210,16 @@ class SpecFromSource {
 
     final params = m.parameters?.parameters.map(_extractParam).toList() ?? [];
 
-    functions.add(BridgeFunction(
-      dartName: name,
-      cSymbol: '${ns}_${_toSnakeCase(name)}',
-      isAsync: isAsync,
-      isNativeAsync: isNativeAsync,
-      returnType: BridgeType(name: effectiveReturn, isFuture: isFuture, isNullable: effectiveReturn.endsWith('?')),
-      params: params,
-    ));
+    functions.add(
+      BridgeFunction(
+        dartName: name,
+        cSymbol: '${ns}_${_toSnakeCase(name)}',
+        isAsync: isAsync,
+        isNativeAsync: isNativeAsync,
+        returnType: BridgeType(name: effectiveReturn, isFuture: isFuture, isNullable: effectiveReturn.endsWith('?')),
+        params: params,
+      ),
+    );
   }
 
   // ─── Parameter extraction ─────────────────────────────────────────────────
@@ -250,11 +255,13 @@ class SpecFromSource {
       if (decl is! EnumDeclaration) continue;
       if (!decl.metadata.any((a) => _annName(a) == 'HybridEnum')) continue;
       final startValue = _namedIntArg(decl.metadata, 'HybridEnum', 'startValue') ?? 0;
-      result.add(BridgeEnum(
-        name: decl.namePart.typeName.lexeme,
-        startValue: startValue,
-        values: decl.body.constants.map((c) => c.name.lexeme).toList(),
-      ));
+      result.add(
+        BridgeEnum(
+          name: decl.namePart.typeName.lexeme,
+          startValue: startValue,
+          values: decl.body.constants.map((c) => c.name.lexeme).toList(),
+        ),
+      );
     }
     return result;
   }
@@ -272,10 +279,12 @@ class SpecFromSource {
         if (member is! FieldDeclaration || member.isStatic) continue;
         final typeSrc = member.fields.type?.toSource() ?? 'dynamic';
         for (final v in member.fields.variables) {
-          fields.add(BridgeField(
-            name: v.name.lexeme,
-            type: BridgeType(name: typeSrc, isNullable: typeSrc.endsWith('?')),
-          ));
+          fields.add(
+            BridgeField(
+              name: v.name.lexeme,
+              type: BridgeType(name: typeSrc, isNullable: typeSrc.endsWith('?')),
+            ),
+          );
         }
       }
       result.add(BridgeStruct(name: decl.namePart.typeName.lexeme, packed: packed, fields: fields));
@@ -358,9 +367,7 @@ class SpecFromSource {
     return null;
   }
 
-  static String _toSnakeCase(String text) => text
-      .replaceAllMapped(RegExp(r'([a-z0-9])([A-Z])'), (m) => '${m.group(1)}_${m.group(2)}')
-      .toLowerCase();
+  static String _toSnakeCase(String text) => text.replaceAllMapped(RegExp(r'([a-z0-9])([A-Z])'), (m) => '${m.group(1)}_${m.group(2)}').toLowerCase();
 }
 
 // ─── Internal helpers ─────────────────────────────────────────────────────────

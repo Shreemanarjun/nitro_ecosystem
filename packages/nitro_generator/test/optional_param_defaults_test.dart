@@ -20,11 +20,17 @@ import 'test_utils.dart';
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
-BridgeParam _pos(String type, String name) =>
-    BridgeParam(name: name, type: BridgeType(name: type), isNamed: false);
+BridgeParam _pos(String type, String name) => BridgeParam(
+  name: name,
+  type: BridgeType(name: type),
+  isNamed: false,
+);
 
-BridgeParam _named(String type, String name) =>
-    BridgeParam(name: name, type: BridgeType(name: type), isNamed: true);
+BridgeParam _named(String type, String name) => BridgeParam(
+  name: name,
+  type: BridgeType(name: type),
+  isNamed: true,
+);
 
 BridgeSpec _fnSpec(String returnType, List<BridgeParam> params) => BridgeSpec(
   dartClassName: 'Mod',
@@ -74,10 +80,12 @@ void main() {
     });
 
     test('multiple positional params → comma-separated', () {
-      final out = DartFfiGenerator.generate(_fnSpec(
-        'bool',
-        [_pos('int', 'a'), _pos('double', 'b'), _pos('String', 'c')],
-      ));
+      final out = DartFfiGenerator.generate(
+        _fnSpec(
+          'bool',
+          [_pos('int', 'a'), _pos('double', 'b'), _pos('String', 'c')],
+        ),
+      );
       expect(out, contains('fn(int a, double b, String c)'));
     });
   });
@@ -106,18 +114,22 @@ void main() {
     });
 
     test('multiple nullable named params → {T? a, U? b}', () {
-      final out = DartFfiGenerator.generate(_fnSpec(
-        'void',
-        [_named('int?', 'timeout'), _named('bool?', 'retryOnFail')],
-      ));
+      final out = DartFfiGenerator.generate(
+        _fnSpec(
+          'void',
+          [_named('int?', 'timeout'), _named('bool?', 'retryOnFail')],
+        ),
+      );
       expect(out, contains('{int? timeout, bool? retryOnFail}'));
     });
 
     test('mixed positional + nullable named → positional, {named}', () {
-      final out = DartFfiGenerator.generate(_fnSpec(
-        'void',
-        [_pos('String', 'url'), _named('int?', 'timeout')],
-      ));
+      final out = DartFfiGenerator.generate(
+        _fnSpec(
+          'void',
+          [_pos('String', 'url'), _named('int?', 'timeout')],
+        ),
+      );
       expect(out, contains('fn(String url, {int? timeout})'));
     });
   });
@@ -151,14 +163,19 @@ void main() {
     });
   });
 
-    // ── Section 3b: defaultLiteral fix — Bug 5.1 resolved ───────────────────
+  // ── Section 3b: defaultLiteral fix — Bug 5.1 resolved ───────────────────
   //
   // When BridgeParam.defaultLiteral is set, the generator emits the default
   // and the resulting `{Type name = literal}` is valid Dart.
 
   group('DartFfiGenerator — Bug 5.1 fix: defaultLiteral emits valid {T name = value}', () {
-    BridgeParam namedWithDefault(String type, String name, String literal) =>
-        BridgeParam(name: name, type: BridgeType(name: type), isNamed: true, isOptional: true, defaultLiteral: literal);
+    BridgeParam namedWithDefault(String type, String name, String literal) => BridgeParam(
+      name: name,
+      type: BridgeType(name: type),
+      isNamed: true,
+      isOptional: true,
+      defaultLiteral: literal,
+    );
 
     test('int named with default 5 → {int timeout = 5}', () {
       final out = DartFfiGenerator.generate(_fnSpec('void', [namedWithDefault('int', 'timeout', '5')]));
@@ -181,18 +198,22 @@ void main() {
     });
 
     test('positional + named with default → valid mixed signature', () {
-      final out = DartFfiGenerator.generate(_fnSpec('bool', [
-        _pos('String', 'id'),
-        namedWithDefault('int', 'timeout', '30'),
-      ]));
+      final out = DartFfiGenerator.generate(
+        _fnSpec('bool', [
+          _pos('String', 'id'),
+          namedWithDefault('int', 'timeout', '30'),
+        ]),
+      );
       expect(out, contains('fn(String id, {int timeout = 30})'));
     });
 
     test('multiple named params — one with default, one nullable', () {
-      final out = DartFfiGenerator.generate(_fnSpec('void', [
-        namedWithDefault('int', 'retries', '3'),
-        _named('bool?', 'verbose'),
-      ]));
+      final out = DartFfiGenerator.generate(
+        _fnSpec('void', [
+          namedWithDefault('int', 'retries', '3'),
+          _named('bool?', 'verbose'),
+        ]),
+      );
       expect(out, contains('{int retries = 3, bool? verbose}'));
     });
   });
@@ -201,18 +222,22 @@ void main() {
 
   group('DartFfiGenerator — mixed param lists with nullable named params', () {
     test('positional int + nullable named int? → valid signature', () {
-      final out = DartFfiGenerator.generate(_fnSpec(
-        'bool',
-        [_pos('String', 'id'), _named('int?', 'timeoutSeconds')],
-      ));
+      final out = DartFfiGenerator.generate(
+        _fnSpec(
+          'bool',
+          [_pos('String', 'id'), _named('int?', 'timeoutSeconds')],
+        ),
+      );
       expect(out, contains('fn(String id, {int? timeoutSeconds})'));
     });
 
     test('positional + multiple nullable named → valid signature', () {
-      final out = DartFfiGenerator.generate(_fnSpec(
-        'void',
-        [_pos('String', 'host'), _named('int?', 'port'), _named('bool?', 'secure')],
-      ));
+      final out = DartFfiGenerator.generate(
+        _fnSpec(
+          'void',
+          [_pos('String', 'host'), _named('int?', 'port'), _named('bool?', 'secure')],
+        ),
+      );
       expect(out, contains('fn(String host, {int? port, bool? secure})'));
     });
 

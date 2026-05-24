@@ -193,7 +193,12 @@ void main() {
           BridgeStruct(
             name: 'Options',
             packed: false,
-            fields: [BridgeField(name: 'copies', type: BridgeType(name: 'int'))],
+            fields: [
+              BridgeField(
+                name: 'copies',
+                type: BridgeType(name: 'int'),
+              ),
+            ],
           ),
         ],
         functions: [
@@ -203,8 +208,14 @@ void main() {
             isAsync: true,
             returnType: BridgeType(name: 'bool'),
             params: [
-              BridgeParam(name: 'text', type: BridgeType(name: 'String')),
-              BridgeParam(name: 'opts', type: BridgeType(name: 'Options?')),
+              BridgeParam(
+                name: 'text',
+                type: BridgeType(name: 'String'),
+              ),
+              BridgeParam(
+                name: 'opts',
+                type: BridgeType(name: 'Options?'),
+              ),
             ],
           ),
         ],

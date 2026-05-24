@@ -31,7 +31,7 @@ BridgeSpec _e002Spec() => BridgeSpec(
     BridgeFunction(
       dartName: 'check',
       cSymbol: 'mod_check',
-      isAsync: true,       // @nitroAsync on a non-Future return → E002
+      isAsync: true, // @nitroAsync on a non-Future return → E002
       returnType: BridgeType(name: 'bool'),
       params: [],
     ),
@@ -102,8 +102,14 @@ BridgeSpec _validSpec() => BridgeSpec(
       isAsync: false,
       returnType: BridgeType(name: 'double'),
       params: [
-        BridgeParam(name: 'a', type: BridgeType(name: 'double')),
-        BridgeParam(name: 'b', type: BridgeType(name: 'double')),
+        BridgeParam(
+          name: 'a',
+          type: BridgeType(name: 'double'),
+        ),
+        BridgeParam(
+          name: 'b',
+          type: BridgeType(name: 'double'),
+        ),
       ],
     ),
   ],

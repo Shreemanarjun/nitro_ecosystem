@@ -354,9 +354,7 @@ class StructGenerator {
         // round-trip the element count. This covers both @ZeroCopy buffers
         // (direct ByteBuffer address) and regular copy-typed arrays (malloc'd).
         if (f.type.isTypedData && _needsSyntheticLen(st, f.name)) {
-          final comment = f.zeroCopy
-              ? '/* synthesized: element count for zero-copy buffer */'
-              : '/* synthesized: element count for data buffer */';
+          final comment = f.zeroCopy ? '/* synthesized: element count for zero-copy buffer */' : '/* synthesized: element count for data buffer */';
           s.writeln('  int64_t ${f.name}Length; $comment');
         }
       }
@@ -640,32 +638,58 @@ class StructGenerator {
     if (enumNames.contains(base)) return 'Int32'; // C enum is int32_t
     if (structNames.contains(base)) return 'UnsafeMutablePointer<_${base}C>?';
     switch (base) {
-      case 'int': return 'Int64';
-      case 'double': return 'Double';
-      case 'bool': return 'Int8'; // C int8_t
-      case 'String': return 'UnsafeMutablePointer<CChar>?'; // C const char*
-      case 'Uint8List': return 'UnsafeMutablePointer<UInt8>?';
-      case 'Int8List': return 'UnsafeMutablePointer<Int8>?';
-      case 'Int16List': case 'Uint16List': return 'UnsafeMutablePointer<Int16>?';
-      case 'Int32List': case 'Uint32List': return 'UnsafeMutablePointer<Int32>?';
-      case 'Float32List': return 'UnsafeMutablePointer<Float>?';
-      case 'Float64List': return 'UnsafeMutablePointer<Double>?';
-      case 'Int64List': case 'Uint64List': return 'UnsafeMutablePointer<Int64>?';
-      default: return 'UnsafeMutableRawPointer?';
+      case 'int':
+        return 'Int64';
+      case 'double':
+        return 'Double';
+      case 'bool':
+        return 'Int8'; // C int8_t
+      case 'String':
+        return 'UnsafeMutablePointer<CChar>?'; // C const char*
+      case 'Uint8List':
+        return 'UnsafeMutablePointer<UInt8>?';
+      case 'Int8List':
+        return 'UnsafeMutablePointer<Int8>?';
+      case 'Int16List':
+      case 'Uint16List':
+        return 'UnsafeMutablePointer<Int16>?';
+      case 'Int32List':
+      case 'Uint32List':
+        return 'UnsafeMutablePointer<Int32>?';
+      case 'Float32List':
+        return 'UnsafeMutablePointer<Float>?';
+      case 'Float64List':
+        return 'UnsafeMutablePointer<Double>?';
+      case 'Int64List':
+      case 'Uint64List':
+        return 'UnsafeMutablePointer<Int64>?';
+      default:
+        return 'UnsafeMutableRawPointer?';
     }
   }
 
   /// Swift element type for a TypedData field (used to allocate temp buffers).
   static String _swiftTypedDataElement(String t) {
     switch (t.replaceFirst('?', '')) {
-      case 'Uint8List': return 'UInt8';
-      case 'Int8List': return 'Int8';
-      case 'Int16List': case 'Uint16List': return 'Int16';
-      case 'Int32List': case 'Uint32List': return 'Int32';
-      case 'Float32List': return 'Float';
-      case 'Float64List': return 'Double';
-      case 'Int64List': case 'Uint64List': return 'Int64';
-      default: return 'UInt8';
+      case 'Uint8List':
+        return 'UInt8';
+      case 'Int8List':
+        return 'Int8';
+      case 'Int16List':
+      case 'Uint16List':
+        return 'Int16';
+      case 'Int32List':
+      case 'Uint32List':
+        return 'Int32';
+      case 'Float32List':
+        return 'Float';
+      case 'Float64List':
+        return 'Double';
+      case 'Int64List':
+      case 'Uint64List':
+        return 'Int64';
+      default:
+        return 'UInt8';
     }
   }
 
@@ -677,9 +701,12 @@ class StructGenerator {
     if (enumNames.contains(base)) return 'Int32(s.${f.name}.rawValue)';
     if (structNames.contains(base)) return '_${base}C.fromSwiftPtr(s.${f.name})'; // pointer alloc
     switch (base) {
-      case 'String': return 'strdup(s.${f.name})';
-      case 'bool': return 's.${f.name} ? 1 : 0';
-      default: return 's.${f.name}';
+      case 'String':
+        return 'strdup(s.${f.name})';
+      case 'bool':
+        return 's.${f.name} ? 1 : 0';
+      default:
+        return 's.${f.name}';
     }
   }
 
@@ -694,9 +721,12 @@ class StructGenerator {
     }
     if (structNames.contains(base)) return '${f.name}!.pointee.toSwift()';
     switch (base) {
-      case 'String': return '${f.name}.map { String(cString: \$0) } ?? ""';
-      case 'bool': return '${f.name} != 0';
-      default: return f.name;
+      case 'String':
+        return '${f.name}.map { String(cString: \$0) } ?? ""';
+      case 'bool':
+        return '${f.name} != 0';
+      default:
+        return f.name;
     }
   }
 
