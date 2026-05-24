@@ -244,6 +244,8 @@ class _NitroDashboardState extends State<NitroDashboard> {
                     child: Column(
                       mainAxisAlignment: MainAxisAlignment.center,
                       children: [
+                        _NitroLogo(color: _pulse ? Colors.magenta : Colors.cyan),
+                        const SizedBox(height: 1),
                         const Text(
                           'The high-performance FFI toolkit for Flutter',
                           style: TextStyle(color: Colors.brightBlack, fontWeight: FontWeight.dim),
@@ -292,9 +294,33 @@ class _NitroDashboardState extends State<NitroDashboard> {
                             ),
                             const Text(' • ', style: TextStyle(color: Colors.brightBlack)),
                             HoverButton(
-                              label: 'Creator: @mrousavy',
+                              label: 'Inspired by Nitro — @mrousavy',
                               onTap: () => launchUrl('https://x.com/mrousavy'),
                               color: Colors.yellow,
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 1),
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            const Text('By ', style: TextStyle(color: Colors.gray, fontWeight: FontWeight.dim)),
+                            HoverButton(
+                              label: 'Shreeman Arjun',
+                              onTap: () => launchUrl('https://twitter.com/shreemanarjun'),
+                              color: Colors.cyan,
+                            ),
+                            const Text(' • ', style: TextStyle(color: Colors.brightBlack)),
+                            HoverButton(
+                              label: '𝕏 @shreemanarjun',
+                              onTap: () => launchUrl('https://twitter.com/shreemanarjun'),
+                              color: Colors.white,
+                            ),
+                            const Text(' • ', style: TextStyle(color: Colors.brightBlack)),
+                            HoverButton(
+                              label: 'GitHub: Shreemanarjun',
+                              onTap: () => launchUrl('https://github.com/Shreemanarjun'),
+                              color: Colors.green,
                             ),
                           ],
                         ),
@@ -327,6 +353,29 @@ class _NitroDashboardState extends State<NitroDashboard> {
           ),
         ],
       ),
+    );
+  }
+}
+
+const _nitroLogoLines = [
+  '███╗   ██╗██╗████████╗██████╗  ██████╗ ',
+  '████╗  ██║██║╚══██╔══╝██╔══██╗██╔═══██╗',
+  '██╔██╗ ██║██║   ██║   ██████╔╝██║   ██║',
+  '██║╚██╗██║██║   ██║   ██╔══██╗██║   ██║',
+  '██║ ╚████║██║   ██║   ██║  ██║╚██████╔╝',
+  '╚═╝  ╚═══╝╚═╝   ╚═╝   ╚═╝  ╚═╝ ╚═════╝',
+];
+
+class _NitroLogo extends StatelessComponent {
+  const _NitroLogo({required this.color});
+  final Color color;
+
+  @override
+  Component build(BuildContext context) {
+    return Column(
+      children: _nitroLogoLines
+          .map((line) => Text(line, style: TextStyle(color: color, fontWeight: FontWeight.bold)))
+          .toList(),
     );
   }
 }

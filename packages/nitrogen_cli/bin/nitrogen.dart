@@ -27,11 +27,15 @@ void main(List<String> args) async {
   }
 
   if (args.length == 1 && (args[0] == '--version' || args[0] == '-v')) {
-    stdout.writeln('nitrogen version: $activeVersion');
+    stdout.writeln('nitrogen $activeVersion');
+    stdout.writeln('Inspired by Nitro — created by @mrousavy  https://x.com/mrousavy');
     return;
   }
 
-  final runner = CommandRunner('nitrogen', 'Nitrogen FFI toolkit')
+  final runner = CommandRunner(
+    'nitrogen',
+    'Nitrogen FFI toolkit — inspired by Nitro by @mrousavy (https://x.com/mrousavy)',
+  )
     ..addCommand(InitCommand())
     ..addCommand(GenerateCommand())
     ..addCommand(CleanCommand())
