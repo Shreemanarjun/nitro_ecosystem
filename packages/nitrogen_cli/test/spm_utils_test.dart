@@ -180,6 +180,85 @@ void main() {
     });
   });
 
+  // ── detectSpmStatus — FlutterFramework false-positive regression ─────────
+
+  group('detectSpmStatus — FlutterFramework directory is ignored', () {
+    late Directory tmp;
+    setUp(() => tmp = Directory.systemTemp.createTempSync('spm_ff_test_'));
+    tearDown(() => tmp.deleteSync(recursive: true));
+
+    test('FlutterFramework/Package.swift is skipped; plugin nested dir is found', () {
+      // Simulates the real-world layout after `nitrogen link`:
+      //   ios/FlutterFramework/Package.swift  (symlink target — Flutter SDK)
+      //   ios/my_plugin/Package.swift          (plugin's actual SPM package)
+      final ffDir = Directory(p.join(tmp.path, 'ios', 'FlutterFramework'))..createSync(recursive: true);
+      File(p.join(ffDir.path, 'Package.swift')).writeAsStringSync(
+        '// FlutterFramework package — should be ignored by nitrogen\n'
+        'let package = Package(name: "FlutterFramework")',
+      );
+      final pluginDir = Directory(p.join(tmp.path, 'ios', 'my_plugin'))..createSync(recursive: true);
+      _writePackageSwift(p.join(pluginDir.path, 'Package.swift'));
+
+      final status = detectSpmStatus(tmp.path);
+      expect(status.iosHasSpm, isTrue);
+      expect(
+        status.iosPackageSwiftPath,
+        contains(p.join('ios', 'my_plugin', 'Package.swift')),
+        reason: 'Should resolve to the plugin package, not the FlutterFramework package',
+      );
+      expect(
+        status.iosPackageSwiftPath,
+        isNot(contains('FlutterFramework')),
+        reason: 'FlutterFramework/Package.swift must not be returned as the plugin SPM path',
+      );
+    });
+
+    test('FlutterFramework-only ios/ dir is treated as no SPM (no plugin package present)', () {
+      // Only FlutterFramework exists — no actual plugin package.
+      final ffDir = Directory(p.join(tmp.path, 'ios', 'FlutterFramework'))..createSync(recursive: true);
+      File(p.join(ffDir.path, 'Package.swift')).writeAsStringSync(
+        'let package = Package(name: "FlutterFramework")',
+      );
+
+      final status = detectSpmStatus(tmp.path);
+      expect(status.iosHasSpm, isFalse,
+          reason: 'A FlutterFramework-only dir should not count as the plugin having SPM');
+    });
+
+    test('PascalCase directories other than FlutterFramework are also ignored', () {
+      // e.g. Classes, Flutter, or any other infrastructure directory with a Package.swift.
+      final badDir = Directory(p.join(tmp.path, 'ios', 'Classes'))..createSync(recursive: true);
+      File(p.join(badDir.path, 'Package.swift')).writeAsStringSync(
+        'let package = Package(name: "Classes")',
+      );
+      final pluginDir = Directory(p.join(tmp.path, 'ios', 'my_plugin'))..createSync(recursive: true);
+      _writePackageSwift(p.join(pluginDir.path, 'Package.swift'));
+
+      final status = detectSpmStatus(tmp.path);
+      expect(
+        status.iosPackageSwiftPath,
+        contains(p.join('ios', 'my_plugin', 'Package.swift')),
+        reason: 'PascalCase dirs (like Classes) must be skipped',
+      );
+    });
+
+    test('macOS FlutterFramework dir is also skipped', () {
+      final ffDir = Directory(p.join(tmp.path, 'macos', 'FlutterFramework'))..createSync(recursive: true);
+      File(p.join(ffDir.path, 'Package.swift')).writeAsStringSync(
+        'let package = Package(name: "FlutterFramework")',
+      );
+      final pluginDir = Directory(p.join(tmp.path, 'macos', 'my_plugin'))..createSync(recursive: true);
+      _writePackageSwift(p.join(pluginDir.path, 'Package.swift'));
+
+      final status = detectSpmStatus(tmp.path);
+      expect(status.macosHasSpm, isTrue);
+      expect(
+        status.macosPackageSwiftPath,
+        contains(p.join('macos', 'my_plugin', 'Package.swift')),
+      );
+    });
+  });
+
   // ── detectSpmStatus — CocoaPods only ─────────────────────────────────────
 
   group('detectSpmStatus — CocoaPods only', () {

@@ -6,13 +6,27 @@ import 'package:nocterm/nocterm.dart';
 import '../ui.dart';
 
 class UpdateCommand extends Command {
+  UpdateCommand() {
+    argParser.addFlag(
+      'no-ui',
+      negatable: false,
+      help: 'Plain-text headless output (no ANSI). Auto-enabled when stdout is not a TTY.',
+    );
+  }
+
   @override
   final String name = 'update';
   @override
   final String description = 'Self-update the Nitrogen CLI.';
 
+  bool get _headless => !stdout.hasTerminal || (argResults!['no-ui'] as bool);
+
   @override
   Future<void> run() async {
+    if (_headless) {
+      await _runHeadless();
+      return;
+    }
     final result = UpdateResult();
     await runApp(UpdateView(result: result));
 
@@ -22,6 +36,78 @@ class UpdateCommand extends Command {
       stderr.writeln(red('❌ Update failed. Try running: dart pub global activate nitrogen_cli'));
       exit(1);
     }
+  }
+
+  Future<void> _runHeadless() async {
+    void log(String msg) => stdout.writeln('[nitro] $msg');
+    void logErr(String msg) => stderr.writeln('[nitro:error] $msg');
+
+    log('nitrogen update');
+
+    // Step 0 — Check current activation
+    log('checking current activation...');
+    final listResult = await Process.run('dart', ['pub', 'global', 'list']);
+    final listOut = listResult.stdout as String;
+    final nitroLine = listOut.split('\n').firstWhere((l) => l.contains('nitrogen_cli'), orElse: () => '');
+
+    bool isPathActivated = false;
+    String? repoRoot;
+    String? currentVersion;
+
+    if (nitroLine.contains('at path')) {
+      isPathActivated = true;
+      repoRoot = nitroLine.split('"')[1];
+      log('path activated: $repoRoot');
+    } else {
+      final versionMatch = RegExp(r'nitrogen_cli (\d+\.\d+\.\d+)').firstMatch(nitroLine);
+      currentVersion = versionMatch?.group(1) ?? 'unknown';
+      log('current version: $currentVersion');
+    }
+
+    // Step 1 — Fetch latest
+    log('checking pub.dev for latest version...');
+    String? latestVersion;
+    try {
+      final client = HttpClient();
+      final request = await client.getUrl(Uri.parse('https://pub.dev/api/packages/nitrogen_cli')).timeout(const Duration(seconds: 5));
+      final response = await request.close();
+      if (response.statusCode == 200) {
+        final body = await response.transform(utf8.decoder).join();
+        final json = jsonDecode(body);
+        latestVersion = json['latest']['version'] as String?;
+      }
+      client.close();
+    } catch (_) {}
+
+    if (latestVersion == null) {
+      logErr('failed to fetch latest version from pub.dev');
+      exit(1);
+    }
+    log('latest version: $latestVersion');
+
+    if (!isPathActivated && currentVersion == latestVersion) {
+      log('already up to date');
+      return;
+    }
+
+    // Step 2 — Update
+    log('updating...');
+    if (isPathActivated && repoRoot != null) {
+      final pullResult = await Process.run('git', ['pull', '--ff-only'], workingDirectory: repoRoot);
+      if (pullResult.exitCode != 0) {
+        logErr('git pull failed: ${pullResult.stderr}');
+        exit(1);
+      }
+      log('git pulled in $repoRoot');
+    } else {
+      final activateResult = await Process.run('dart', ['pub', 'global', 'activate', 'nitrogen_cli']);
+      if (activateResult.exitCode != 0) {
+        logErr('activation failed: ${activateResult.stderr}');
+        exit(1);
+      }
+      log('activated v$latestVersion from pub.dev');
+    }
+    log('nitrogen is up to date');
   }
 }
 

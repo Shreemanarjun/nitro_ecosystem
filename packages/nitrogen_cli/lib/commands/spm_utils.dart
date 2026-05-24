@@ -99,10 +99,15 @@ String? _findPackageSwift(Directory platformDir) {
   if (flat.existsSync()) return flat.path;
 
   // 2. Nested layout: ios/<name>/Package.swift (Flutter 3.41+)
+  // Only consider directories whose names match Dart pub package naming
+  // (lowercase letters, digits, underscores). This skips Flutter infrastructure
+  // dirs like FlutterFramework, Classes, Flutter, etc. which may contain
+  // Package.swift files that belong to the Flutter SDK, not the plugin.
+  final pubNameRe = RegExp(r'^[a-z][a-z0-9_]*$');
   try {
     final entries = platformDir.listSync();
     for (final entry in entries) {
-      if (entry is Directory) {
+      if (entry is Directory && pubNameRe.hasMatch(p.basename(entry.path))) {
         final nested = File(p.join(entry.path, 'Package.swift'));
         if (nested.existsSync()) return nested.path;
       }

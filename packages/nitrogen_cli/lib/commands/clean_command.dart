@@ -6,11 +6,21 @@ import 'package:path/path.dart' as p;
 import '../ui.dart';
 
 class CleanCommand extends Command {
+  CleanCommand() {
+    argParser.addFlag(
+      'no-ui',
+      negatable: false,
+      help: 'Plain-text headless output (no ANSI). Auto-enabled when stdout is not a TTY.',
+    );
+  }
+
   @override
   final String name = 'clean';
 
   @override
   final String description = 'Deletes all Nitrogen-generated files and the build_runner cache.';
+
+  bool get _headless => !stdout.hasTerminal || (argResults!['no-ui'] as bool);
 
   @override
   Future<void> run() async {
@@ -20,7 +30,7 @@ class CleanCommand extends Command {
       exit(1);
     }
 
-    final headless = !stdout.hasTerminal;
+    final headless = _headless;
     var deleted = 0;
 
     // Patterns that identify Nitrogen-generated files.

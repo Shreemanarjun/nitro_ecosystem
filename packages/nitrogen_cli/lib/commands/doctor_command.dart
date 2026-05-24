@@ -333,6 +333,14 @@ class _DoctorViewState extends State<DoctorView> {
 // ── DoctorCommand ─────────────────────────────────────────────────────────────
 
 class DoctorCommand extends Command {
+  DoctorCommand() {
+    argParser.addFlag(
+      'no-ui',
+      negatable: false,
+      help: 'Plain-text headless output (no ANSI). Auto-enabled when stdout is not a TTY.',
+    );
+  }
+
   @override
   final String name = 'doctor';
 
@@ -1504,11 +1512,19 @@ class DoctorCommand extends Command {
     );
   }
 
+  bool get _headless => !stdout.hasTerminal || (argResults!['no-ui'] as bool);
+
   @override
   Future<void> run() async {
+    final headless = _headless;
+
     final projectDir = findNitroProjectRoot();
     if (projectDir == null) {
-      stderr.writeln('❌ No Nitro project found in . or its subdirectories (must have nitro dependency in pubspec.yaml).');
+      if (headless) {
+        stderr.writeln('[nitro:error] No Nitro project found in . or its subdirectories (must have nitro dependency in pubspec.yaml).');
+      } else {
+        stderr.writeln('❌ No Nitro project found in . or its subdirectories (must have nitro dependency in pubspec.yaml).');
+      }
       exit(1);
     }
 
@@ -1517,37 +1533,73 @@ class DoctorCommand extends Command {
     Directory.current = projectDir;
 
     if (projectDir.path != originalCwd.path) {
-      stdout.writeln('  \x1B[90m📂 Found project in: ${projectDir.path}\x1B[0m');
+      if (headless) {
+        stdout.writeln('[nitro] project: ${projectDir.path}');
+      } else {
+        stdout.writeln('  \x1B[90m📂 Found project in: ${projectDir.path}\x1B[0m');
+      }
     }
 
     final result = performChecks(root: projectDir);
 
-    await runApp(
-      DoctorView(
-        pluginName: result.pluginName,
-        sections: result.sections,
-        errors: result.errors,
-        warnings: result.warnings,
-        errorMessage: result.errorMessage,
-      ),
-    );
+    if (headless) {
+      _printHeadless(result);
+    } else {
+      await runApp(
+        DoctorView(
+          pluginName: result.pluginName,
+          sections: result.sections,
+          errors: result.errors,
+          warnings: result.warnings,
+          errorMessage: result.errorMessage,
+        ),
+      );
 
-    // Print persistent one-liner after TUI exits
-    if (result.errorMessage == null) {
-      if (result.errors == 0 && result.warnings == 0) {
-        stdout.writeln('  \x1B[1;32m✨ ${result.pluginName} — all checks passed\x1B[0m');
-      } else if (result.errors > 0) {
-        stdout.writeln(
-          '  \x1B[1;31m✘  ${result.pluginName} — ${result.errors} error(s)'
-          '${result.warnings > 0 ? ", ${result.warnings} warning(s)" : ""}\x1B[0m',
-        );
-      } else {
-        stdout.writeln('  \x1B[1;33m⚠  ${result.pluginName} — ${result.warnings} warning(s)\x1B[0m');
+      // Print persistent one-liner after TUI exits
+      if (result.errorMessage == null) {
+        if (result.errors == 0 && result.warnings == 0) {
+          stdout.writeln('  \x1B[1;32m✨ ${result.pluginName} — all checks passed\x1B[0m');
+        } else if (result.errors > 0) {
+          stdout.writeln(
+            '  \x1B[1;31m✘  ${result.pluginName} — ${result.errors} error(s)'
+            '${result.warnings > 0 ? ", ${result.warnings} warning(s)" : ""}\x1B[0m',
+          );
+        } else {
+          stdout.writeln('  \x1B[1;33m⚠  ${result.pluginName} — ${result.warnings} warning(s)\x1B[0m');
+        }
+        stdout.writeln('');
       }
-      stdout.writeln('');
     }
 
     exit(result.errors > 0 ? 1 : 0);
+  }
+
+  void _printHeadless(DoctorViewResult result) {
+    stdout.writeln('[nitro] nitrogen doctor — ${result.pluginName}');
+    if (result.errorMessage != null) {
+      stderr.writeln('[nitro:error] ${result.errorMessage}');
+      return;
+    }
+    for (final section in result.sections) {
+      stdout.writeln('[nitro:section] ${section.title}');
+      for (final check in section.checks) {
+        final prefix = switch (check.status) {
+          DoctorStatus.ok => '[nitro:ok]',
+          DoctorStatus.warn => '[nitro:warn]',
+          DoctorStatus.error => '[nitro:error]',
+          DoctorStatus.info => '[nitro:info]',
+        };
+        final out = check.status == DoctorStatus.error || check.status == DoctorStatus.warn ? stderr : stdout;
+        out.writeln('$prefix ${check.label}');
+        if (check.hint != null) out.writeln('[nitro:hint]   → ${check.hint}');
+      }
+    }
+    if (result.errors == 0 && result.warnings == 0) {
+      stdout.writeln('[nitro] all checks passed');
+    } else {
+      final out = result.errors > 0 ? stderr : stdout;
+      out.writeln('[nitro:summary] ${result.errors} error(s), ${result.warnings} warning(s)');
+    }
   }
 
   // ── Helpers ───────────────────────────────────────────────────────────────

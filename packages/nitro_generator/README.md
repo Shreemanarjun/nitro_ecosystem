@@ -11,6 +11,10 @@ A high-performance code generator for **Nitro Modules** (Nitrogen). Converts `.n
 - **Binary records**: `@HybridRecord` uses a compact little-endian binary protocol (no JSON) for complex infrequent data.
 - **Async**: `@nitroAsync` offloads blocking native calls to a background thread.
 - **Streams**: `@NitroStream` with configurable backpressure strategies; C++ modules emit via `Dart_PostCObject_DL` from any thread.
+- **Default param literals**: Named params with default values (`{int timeout = 30}`, `{MyEnum quality = MyEnum.normal}`) are preserved in the generated Dart FFI signature — no boilerplate wrapper needed.
+- **Cross-file type sharing**: `@HybridEnum`, `@HybridStruct`, and `@HybridRecord` types defined in one `.native.dart` can be imported and used in another; the generator tracks which declarations belong to which file and emits correct `#include` directives in the C header.
+- **Source-map comments**: Each generated method in Swift, Kotlin, and C++ includes a `// source: file.native.dart:42` comment pointing back to the originating spec line.
+- **Pre-generation validation**: The generator reports errors (E) and warnings (W) before emitting any code, so invalid specs surface early with clear messages.
 
 ## Usage
 
@@ -117,6 +121,94 @@ TEST(MathTest, Add) {
     math_register_impl(nullptr);
 }
 ```
+
+## Default Param Literals
+
+Named parameters with default values are preserved in generated Dart FFI bindings:
+
+```dart
+// .native.dart
+@HybridEnum()
+enum PrintQuality { draft, normal, high }
+
+abstract class Printer {
+  void print(String text, {PrintQuality quality = PrintQuality.normal, int copies = 1});
+}
+```
+
+Generated Dart FFI:
+
+```dart
+// .g.dart  — callers get the default, no wrapper needed
+void print(String text, {PrintQuality quality = PrintQuality.normal, int copies = 1}) { ... }
+```
+
+Enum, `int`, `double`, `bool`, and `String` default literals are all supported.
+
+## Cross-File Type Sharing
+
+Types declared in one spec can be used by another:
+
+```dart
+// enums.native.dart  — type-only file (no @NitroModule class)
+@HybridEnum()
+enum DeviceStatus { idle, active, error }
+
+@HybridStruct()
+class Reading { final double value; final int timestamp; }
+```
+
+```dart
+// sensor.native.dart
+import 'enums.native.dart';   // import the type file
+
+@NitroModule(lib: 'sensor', ios: NativeImpl.swift, android: NativeImpl.kotlin)
+abstract class Sensor {
+  DeviceStatus getStatus();
+  Reading getReading();
+}
+```
+
+The generator:
+- Emits a type-only Swift/Kotlin/C++ output for `enums.native.dart` (enums + structs, no bridge scaffolding).
+- Emits `#include "enums.bridge.g.h"` in `sensor.bridge.g.h` so C++ sees both files.
+- Avoids re-declaring imported types in `sensor`'s native outputs.
+
+## Spec Validation
+
+Before emitting any code, the generator validates the spec and reports issues with clear codes:
+
+| Code | Severity | Condition |
+|---|---|---|
+| **E001** | Error | `Map<K, V>` where `K` is not `String` — only `Map<String, V>` is supported |
+| **E002** | Error | `isAsync: true` on a function whose return type is not `void` or `Future<T>` |
+| **W001** | Warning | Non-nullable `int`/`double`/`bool` named param with no `defaultLiteral` — callers must always pass it |
+| **W002** | Warning | Non-nullable `@HybridEnum` named param with no default |
+| **W003** | Warning | Non-nullable `@HybridStruct` named param with no default |
+| **W004** | Warning | `Stream<T>` return declared without `@NitroStream` annotation |
+
+Errors (`E*`) stop generation. Warnings (`W*`) produce output but flag the spec for review. Use `nitrogen generate --fail-on-warn` to treat warnings as errors in CI.
+
+## Source-Map Comments
+
+Every generated method includes a comment linking back to its spec origin:
+
+```swift
+// source: sensor.native.dart:12
+public func getStatus() -> DeviceStatus { ... }
+```
+
+```kotlin
+// source: sensor.native.dart:12
+fun getStatus(): DeviceStatus
+```
+
+```cpp
+// source: sensor.native.dart:12
+virtual DeviceStatus get_status() = 0;
+```
+
+This makes it easy to navigate from generated native code back to the Dart spec.
 
 ## Type Mapping (C++ direct path)
 

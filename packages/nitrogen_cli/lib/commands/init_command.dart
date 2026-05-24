@@ -513,7 +513,7 @@ class _InitViewState extends State<InitView> {
     );
   }
 
-  String _toClassName(String pluginName) {
+  static String _toClassName(String pluginName) {
     return pluginName.split('_').map((w) => w.isEmpty ? '' : w[0].toUpperCase() + w.substring(1)).join('');
   }
 
@@ -521,7 +521,7 @@ class _InitViewState extends State<InitView> {
   /// inside [pluginName]/ and overwrites:
   ///   - `src/dart_api_dl.c` — forwarder to the real pub-cache `.c` file
   ///   - `src/CMakeLists.txt` — absolute NITRO_NATIVE variable
-  void _resolveSrcPaths(String pluginName) {
+  static void _resolveSrcPaths(String pluginName) {
     final pluginAbsPath = p.join(Directory.current.path, pluginName);
     final nitroNativePath = resolveNitroNativePath(pluginAbsPath);
 
@@ -540,7 +540,7 @@ class _InitViewState extends State<InitView> {
     }
   }
 
-  void _setupSrc(String pluginName) {
+  static void _setupSrc(String pluginName) {
     final srcDir = Directory(p.join(pluginName, 'src'));
     if (!srcDir.existsSync()) srcDir.createSync(recursive: true);
 
@@ -555,7 +555,7 @@ class _InitViewState extends State<InitView> {
     File(p.join(srcDir.path, 'CMakeLists.txt')).writeAsStringSync(cmakeListsTemplate(pluginName));
   }
 
-  void _configureIos(String pluginName, String className) {
+  static void _configureIos(String pluginName, String className) {
     final iosDir = Directory(p.join(pluginName, 'ios'));
     final classesDir = Directory(p.join(iosDir.path, 'Classes'));
     if (!classesDir.existsSync()) classesDir.createSync(recursive: true);
@@ -602,15 +602,15 @@ class _InitViewState extends State<InitView> {
     _writeIosPackageSwift(iosDir.path, pluginName, className);
   }
 
-  void _writeIosPackageSwift(String iosPath, String pluginName, String className) {
+  static void _writeIosPackageSwift(String iosPath, String pluginName, String className) {
     _writeApplePackageSwift(iosPath, pluginName, className, 'iOS(.v13)');
   }
 
-  void _writeMacosPackageSwift(String macosPath, String pluginName, String className) {
+  static void _writeMacosPackageSwift(String macosPath, String pluginName, String className) {
     _writeApplePackageSwift(macosPath, pluginName, className, 'macOS(.v10_15)');
   }
 
-  void _writeApplePackageSwift(String path, String pluginName, String className, String platformSpec) {
+  static void _writeApplePackageSwift(String path, String pluginName, String className, String platformSpec) {
     // Flutter 3.41+ nested SPM layout:
     //   ios/<pluginName>/Package.swift
     //   ios/<pluginName>/Sources/<ClassName>/     — Swift files
@@ -657,7 +657,7 @@ class _InitViewState extends State<InitView> {
     );
   }
 
-  void _configureAndroid(String pluginName, String className, String org) {
+  static void _configureAndroid(String pluginName, String className, String org) {
     File(p.join(pluginName, 'android', 'build.gradle')).writeAsStringSync(androidBuildGradleTemplate(org, pluginName));
 
     final moduleName = '${pluginName}_module';
@@ -675,20 +675,20 @@ class _InitViewState extends State<InitView> {
     }
   }
 
-  void _configureWindows(String pluginName, String className) {
+  static void _configureWindows(String pluginName, String className) {
     final winDir = Directory(p.join(pluginName, 'windows'));
     if (!winDir.existsSync()) return;
     _patchDesktopCMake(p.join(winDir.path, 'CMakeLists.txt'), pluginName);
   }
 
-  void _configureLinux(String pluginName, String className) {
+  static void _configureLinux(String pluginName, String className) {
     final linuxDir = Directory(p.join(pluginName, 'linux'));
     if (!linuxDir.existsSync()) return;
     _patchDesktopCMake(p.join(linuxDir.path, 'CMakeLists.txt'), pluginName);
   }
 
   /// Shared CMake patcher for desktop platforms (windows/ and linux/).
-  void _patchDesktopCMake(String cmakePath, String pluginName) {
+  static void _patchDesktopCMake(String cmakePath, String pluginName) {
     final cmakeFile = File(cmakePath);
     if (!cmakeFile.existsSync()) return;
     var content = cmakeFile.readAsStringSync();
@@ -719,7 +719,7 @@ class _InitViewState extends State<InitView> {
     cmakeFile.writeAsStringSync(content);
   }
 
-  void _configureMacos(String pluginName, String className) {
+  static void _configureMacos(String pluginName, String className) {
     final macosDir = Directory(p.join(pluginName, 'macos'));
     final classesDir = Directory(p.join(macosDir.path, 'Classes'));
     if (!classesDir.existsSync()) classesDir.createSync(recursive: true);
@@ -761,7 +761,7 @@ class _InitViewState extends State<InitView> {
     _writeMacosPackageSwift(macosDir.path, pluginName, className);
   }
 
-  void _updatePubspec(
+  static void _updatePubspec(
     String pluginName,
     String className,
     String org, {
@@ -842,7 +842,7 @@ class _InitViewState extends State<InitView> {
     pubspecFile.writeAsStringSync(pubspec);
   }
 
-  void _writeBridgeSpec(String pluginName, String className, {List<String> platforms = const ['android', 'ios', 'macos']}) {
+  static void _writeBridgeSpec(String pluginName, String className, {List<String> platforms = const ['android', 'ios', 'macos']}) {
     final libSrcDir = Directory(p.join(pluginName, 'lib', 'src'));
     libSrcDir.createSync(recursive: true);
 
@@ -862,14 +862,14 @@ class _InitViewState extends State<InitView> {
 
   /// Overwrites the flutter-create template's example/lib/main.dart with a
   /// Nitro-aware version that has error handling, async support, and dispose.
-  void _writeExampleMain(String pluginName, String className) {
+  static void _writeExampleMain(String pluginName, String className) {
     final exampleLibDir = Directory(p.join(pluginName, 'example', 'lib'));
     exampleLibDir.createSync(recursive: true);
 
     File(p.join(exampleLibDir.path, 'main.dart')).writeAsStringSync(exampleMainDartTemplate(pluginName, className));
   }
 
-  void _writeBuildYaml(String pluginName) {
+  static void _writeBuildYaml(String pluginName) {
     File(p.join(pluginName, 'build.yaml')).writeAsStringSync(buildYamlTemplate());
   }
 }
@@ -1138,26 +1138,32 @@ class InitCommand extends Command {
   static const _defaultPlatforms = 'android,ios,macos,windows,linux';
 
   InitCommand() {
-    argParser.addOption('org', defaultsTo: 'com.example');
-    argParser.addOption(
-      'name',
-      abbr: 'n',
-      help: 'Plugin name (skips interactive form; useful for scripts/CI).',
-    );
-    argParser.addOption(
-      'dir',
-      abbr: 'd',
-      help: 'Target directory to create the plugin in. Defaults to the current directory.',
-    );
-    argParser.addOption(
-      'platforms',
-      abbr: 'p',
-      defaultsTo: _defaultPlatforms,
-      help:
-          'Comma-separated list of platforms to scaffold. '
-          'Valid: android, ios, macos, windows, linux. '
-          'Example: --platforms=android,ios,macos,windows',
-    );
+    argParser
+      ..addOption('org', defaultsTo: 'com.example')
+      ..addOption(
+        'name',
+        abbr: 'n',
+        help: 'Plugin name (skips interactive form; useful for scripts/CI).',
+      )
+      ..addOption(
+        'dir',
+        abbr: 'd',
+        help: 'Target directory to create the plugin in. Defaults to the current directory.',
+      )
+      ..addOption(
+        'platforms',
+        abbr: 'p',
+        defaultsTo: _defaultPlatforms,
+        help:
+            'Comma-separated list of platforms to scaffold. '
+            'Valid: android, ios, macos, windows, linux. '
+            'Example: --platforms=android,ios,macos,windows',
+      )
+      ..addFlag(
+        'no-ui',
+        negatable: false,
+        help: 'Plain-text headless output (no ANSI). Auto-enabled when stdout is not a TTY. Requires --name.',
+      );
   }
 
   List<String> _parsePlatforms(String raw) {
@@ -1170,8 +1176,11 @@ class InitCommand extends Command {
     return platforms;
   }
 
+  bool get _headless => !stdout.hasTerminal || (argResults!['no-ui'] as bool);
+
   @override
   Future<void> run() async {
+    final headless = _headless;
     final org = argResults!['org'] as String;
     final nameArg = argResults!['name'] as String?;
     final dirArg = argResults!['dir'] as String?;
@@ -1181,16 +1190,35 @@ class InitCommand extends Command {
     // Validate --dir if provided
     final targetDir = dirArg?.trim();
     if (targetDir != null && !Directory(targetDir).existsSync()) {
-      stderr.writeln('❌ Target directory does not exist: $targetDir');
+      if (headless) {
+        stderr.writeln('[nitro:error] Target directory does not exist: $targetDir');
+      } else {
+        stderr.writeln('❌ Target directory does not exist: $targetDir');
+      }
       exit(1);
     }
+
+    if (headless) {
+      if (nameArg == null || nameArg.isEmpty) {
+        stderr.writeln('[nitro:error] --no-ui requires --name (interactive form is not available in headless mode).');
+        exit(1);
+      }
+      final pluginName = nameArg.trim();
+      if (!RegExp(r'^[a-z][a-z0-9_]*$').hasMatch(pluginName)) {
+        stderr.writeln('[nitro:error] Invalid plugin name "$pluginName". Use only lowercase letters, numbers, and underscores.');
+        exit(1);
+      }
+      await _runHeadless(pluginName: pluginName, org: org, targetDir: targetDir, platforms: platforms);
+      return;
+    }
+
     if (targetDir != null) {
       stdout.writeln('  \x1B[90m📂 Creating in: $targetDir\x1B[0m');
     } else {
       stdout.writeln('  \x1B[90m📂 Creating in: ${Directory.current.path}\x1B[0m');
     }
 
-    // Non-interactive path: --name was supplied, run directly without TUI.
+    // Non-interactive path: --name was supplied.
     if (nameArg != null && nameArg.isNotEmpty) {
       final pluginName = nameArg.trim();
       if (!RegExp(r'^[a-z][a-z0-9_]*$').hasMatch(pluginName)) {
@@ -1224,4 +1252,157 @@ class InitCommand extends Command {
       exit(1);
     }
   }
+
+  Future<void> _runHeadless({
+    required String pluginName,
+    required String org,
+    required String? targetDir,
+    required List<String> platforms,
+  }) async {
+    void log(String msg) => stdout.writeln('[nitro] $msg');
+    void logErr(String msg) => stderr.writeln('[nitro:error] $msg');
+
+    log('nitrogen init $pluginName');
+    if (targetDir != null) log('creating in: $targetDir');
+
+    // Change to target directory before any file operations.
+    if (targetDir != null) {
+      try {
+        Directory.current = targetDir;
+      } catch (e) {
+        logErr('cannot access target directory: $targetDir');
+        exit(1);
+      }
+    }
+
+    final dir = Directory(pluginName);
+    if (dir.existsSync()) {
+      logErr('directory "$pluginName" already exists. Delete it or use --name with a different name.');
+      exit(1);
+    }
+
+    final className = _toClassName(pluginName);
+    final platformsArg = platforms.join(',');
+
+    // Step 1 — flutter create
+    log('running flutter create...');
+    final createResult = await Process.run('flutter', [
+      'create',
+      '--template=plugin_ffi',
+      '--platforms=$platformsArg',
+      '--org=$org',
+      pluginName,
+    ]);
+    if (createResult.exitCode != 0) {
+      logErr('flutter create failed: ${createResult.stderr}');
+      exit(1);
+    }
+    log('created $pluginName/ (platforms: $platformsArg)');
+
+    // Steps 2–7: file configuration (reuse the TUI state machine's logic via a
+    // temporary view instance — the methods are pure file I/O with no TUI side effects).
+    final dummy = _HeadlessInitRunner(
+      pluginName: pluginName,
+      className: className,
+      org: org,
+      platforms: platforms,
+    );
+
+    log('setting up src/...');
+    dummy.setupSrc();
+
+    if (platforms.contains('ios')) {
+      log('configuring iOS...');
+      dummy.configureIos();
+    }
+    if (platforms.contains('android')) {
+      log('configuring Android...');
+      dummy.configureAndroid();
+    }
+    if (platforms.contains('macos')) {
+      log('configuring macOS...');
+      dummy.configureMacos();
+    }
+    if (platforms.contains('windows')) {
+      log('configuring Windows...');
+      dummy.configureWindows();
+    }
+    if (platforms.contains('linux')) {
+      log('configuring Linux...');
+      dummy.configureLinux();
+    }
+
+    // Step 8 — pubspec
+    log('fetching pub.dev versions...');
+    String? nitroVersion;
+    String? nitroGeneratorVersion;
+    bool usePubAdd = false;
+    try {
+      final versions = await Future.wait([
+        _fetchPubVersion('nitro'),
+        _fetchPubVersion('nitro_generator'),
+      ]);
+      nitroVersion = versions[0];
+      nitroGeneratorVersion = versions[1];
+    } catch (_) {
+      usePubAdd = true;
+    }
+    dummy.updatePubspec(nitroVersion: nitroVersion, nitroGeneratorVersion: nitroGeneratorVersion);
+    if (usePubAdd) {
+      await Process.run('flutter', ['pub', 'add', 'nitro'], workingDirectory: pluginName);
+      await Process.run('flutter', ['pub', 'add', '--dev', 'nitro_generator'], workingDirectory: pluginName);
+      log('nitro, nitro_generator added via flutter pub add');
+    } else {
+      await Process.run('flutter', ['pub', 'get'], workingDirectory: pluginName);
+      log('nitro $nitroVersion, nitro_generator $nitroGeneratorVersion added');
+    }
+
+    dummy.resolveSrcPaths();
+
+    // Step 9 — bridge spec
+    log('writing bridge spec...');
+    dummy.writeBridgeSpec();
+    dummy.writeExampleMain();
+    dummy.writeBuildYaml();
+
+    log('$pluginName created');
+    log('next: edit lib/src/$pluginName.native.dart → nitrogen generate → nitrogen link');
+  }
+
+  static String _toClassName(String pluginName) {
+    return pluginName.split('_').map((w) => w.isEmpty ? '' : w[0].toUpperCase() + w.substring(1)).join('');
+  }
+}
+
+// ── Headless init runner ──────────────────────────────────────────────────────
+// Thin wrapper that calls the pure file-operation methods from _InitViewState
+// without spinning up the TUI. Declared here (not inside _InitViewState) so it
+// can be used by InitCommand._runHeadless without making _InitViewState methods
+// public or static.
+
+class _HeadlessInitRunner {
+  _HeadlessInitRunner({
+    required this.pluginName,
+    required this.className,
+    required this.org,
+    required this.platforms,
+  });
+
+  final String pluginName;
+  final String className;
+  final String org;
+  final List<String> platforms;
+
+  void setupSrc() => _InitViewState._setupSrc(pluginName);
+  void configureIos() => _InitViewState._configureIos(pluginName, className);
+  void configureAndroid() => _InitViewState._configureAndroid(pluginName, className, org);
+  void configureMacos() => _InitViewState._configureMacos(pluginName, className);
+  void configureWindows() => _InitViewState._configureWindows(pluginName, className);
+  void configureLinux() => _InitViewState._configureLinux(pluginName, className);
+  void updatePubspec({String? nitroVersion, String? nitroGeneratorVersion}) =>
+      _InitViewState._updatePubspec(pluginName, className, org, platforms: platforms, nitroVersion: nitroVersion, nitroGeneratorVersion: nitroGeneratorVersion);
+  void resolveSrcPaths() => _InitViewState._resolveSrcPaths(pluginName);
+  void writeBridgeSpec() => _InitViewState._writeBridgeSpec(pluginName, className, platforms: platforms);
+  void writeExampleMain() => _InitViewState._writeExampleMain(pluginName, className);
+  void writeBuildYaml() => _InitViewState._writeBuildYaml(pluginName);
 }

@@ -622,26 +622,35 @@ class MigrateCommand extends Command {
   final String description = 'Migrates a CocoaPods-based plugin to Swift Package Manager (SPM).';
 
   MigrateCommand() {
-    argParser.addFlag(
-      'backup',
-      defaultsTo: true,
-      help: 'Create a backup before migration',
-    );
-    argParser.addFlag(
-      'dry-run',
-      defaultsTo: false,
-      help: 'Show what would be migrated without making changes',
-    );
+    argParser
+      ..addFlag(
+        'backup',
+        defaultsTo: true,
+        help: 'Create a backup before migration',
+      )
+      ..addFlag(
+        'dry-run',
+        defaultsTo: false,
+        help: 'Show what would be migrated without making changes',
+      )
+      ..addFlag(
+        'no-ui',
+        negatable: false,
+        help: 'Plain-text headless output (no ANSI). Auto-enabled when stdout is not a TTY. Skips interactive confirmation.',
+      );
   }
+
+  bool get _headless => !stdout.hasTerminal || (argResults!['no-ui'] as bool);
 
   @override
   Future<void> run() async {
+    final headless = _headless;
     final createBackup = argResults!['backup'] as bool;
     final dryRun = argResults!['dry-run'] as bool;
 
     final projectDir = findNitroProjectRoot();
     if (projectDir == null) {
-      stderr.writeln('❌ No Nitro project found in . or its subdirectories.');
+      stderr.writeln(headless ? '[nitro:error] No Nitro project found in . or its subdirectories.' : '❌ No Nitro project found in . or its subdirectories.');
       exit(1);
     }
 
@@ -649,7 +658,11 @@ class MigrateCommand extends Command {
     Directory.current = projectDir;
 
     if (projectDir.path != originalCwd.path) {
-      stdout.writeln('  \x1B[90m📂 Found project in: ${projectDir.path}\x1B[0m');
+      if (headless) {
+        stdout.writeln('[nitro] project: ${projectDir.path}');
+      } else {
+        stdout.writeln('  \x1B[90m📂 Found project in: ${projectDir.path}\x1B[0m');
+      }
     }
 
     // Read plugin name from pubspec
@@ -666,8 +679,13 @@ class MigrateCommand extends Command {
     final spmStatus = detectSpmStatus(projectDir.path);
 
     if (dryRun) {
-      _printDryRun(pluginName, spmStatus);
+      _printDryRun(pluginName, spmStatus, headless: headless);
       exit(0);
+    }
+
+    if (headless) {
+      await _runHeadless(pluginName, projectDir.path, spmStatus, createBackup: createBackup);
+      return;
     }
 
     final result = MigrationResult();
@@ -691,7 +709,140 @@ class MigrateCommand extends Command {
     }
   }
 
-  void _printDryRun(String pluginName, SpmStatus status) {
+  Future<void> _runHeadless(String pluginName, String baseDir, SpmStatus spmStatus, {required bool createBackup}) async {
+    void log(String msg) => stdout.writeln('[nitro] $msg');
+    void logSkip(String msg) => stdout.writeln('[nitro:skip] $msg');
+    void logErr(String msg) => stderr.writeln('[nitro:error] $msg');
+
+    log('nitrogen migrate $pluginName');
+
+    if (spmStatus.isModern) {
+      log('already using SPM — no migration needed');
+      return;
+    }
+
+    if (!spmStatus.isLegacy && !spmStatus.isMixed) {
+      logSkip('no Apple platforms found');
+      return;
+    }
+
+    log(spmStatus.isLegacy ? 'found CocoaPods setup — migrating to SPM' : 'mixed setup detected — completing SPM migration');
+
+    final className = toPascalCase(pluginName);
+    final migratedPlatforms = <String>[];
+
+    // Backup
+    if (createBackup) {
+      log('creating backup...');
+      try {
+        final backupDir = Directory(p.join(baseDir, '.nitrogen_backup_${DateTime.now().millisecondsSinceEpoch}'));
+        backupDir.createSync();
+        for (final platform in ['ios', 'macos']) {
+          final platformDir = Directory(p.join(baseDir, platform));
+          if (!platformDir.existsSync()) continue;
+          for (final podspec in platformDir.listSync().whereType<File>().where((f) => f.path.endsWith('.podspec'))) {
+            final dest = p.join(backupDir.path, platform, p.basename(podspec.path));
+            Directory(p.dirname(dest)).createSync(recursive: true);
+            podspec.copySync(dest);
+          }
+        }
+        log('backup created at ${p.relative(backupDir.path, from: baseDir)}');
+      } catch (e) {
+        logErr('backup failed: $e');
+        exit(1);
+      }
+    }
+
+    // iOS Package.swift
+    final iosDir = Directory(p.join(baseDir, 'ios'));
+    if (iosDir.existsSync() && !spmStatus.iosHasSpm) {
+      log('creating iOS Package.swift...');
+      _createPackageSwiftHeadless(iosDir.path, pluginName, className, 'iOS(.v13)');
+      createSpmSourcesStructure(baseDir, 'ios', className, pluginName);
+      migratedPlatforms.add('ios');
+    } else {
+      logSkip('iOS SPM ${spmStatus.iosHasSpm ? 'already configured' : 'ios/ not present'}');
+    }
+
+    // macOS Package.swift
+    final macosDir = Directory(p.join(baseDir, 'macos'));
+    if (macosDir.existsSync() && !spmStatus.macosHasSpm) {
+      log('creating macOS Package.swift...');
+      _createPackageSwiftHeadless(macosDir.path, pluginName, className, 'macOS(.v10_15)', isMacos: true);
+      createSpmSourcesStructure(baseDir, 'macos', className, pluginName);
+      migratedPlatforms.add('macos');
+    } else {
+      logSkip('macOS SPM ${spmStatus.macosHasSpm ? 'already configured' : 'macos/ not present'}');
+    }
+
+    // Cleanup
+    final examplePodLock = File(p.join(baseDir, 'example', 'ios', 'Podfile.lock'));
+    if (examplePodLock.existsSync()) examplePodLock.deleteSync();
+
+    // Verify
+    final newStatus = detectSpmStatus(baseDir);
+    if (!newStatus.hasSpm && migratedPlatforms.isNotEmpty) {
+      logErr('SPM not detected after migration');
+      exit(1);
+    }
+
+    if (migratedPlatforms.isNotEmpty) {
+      log('migration complete: ${migratedPlatforms.join(', ')}');
+      log('run: nitrogen link  to sync generated files');
+    } else {
+      log('no changes made');
+    }
+  }
+
+  void _createPackageSwiftHeadless(String platformPath, String pluginName, String className, String platformSpec, {bool isMacos = false}) {
+    final packageDir = Directory(p.join(platformPath, pluginName));
+    packageDir.createSync(recursive: true);
+    final sourcesDir = Directory(p.join(packageDir.path, 'Sources'));
+    final swiftDir = Directory(p.join(sourcesDir.path, className));
+    final cppDir = Directory(p.join(sourcesDir.path, '${className}Cpp'));
+    swiftDir.createSync(recursive: true);
+    cppDir.createSync(recursive: true);
+
+    for (final name in ['Swift${className}Plugin.swift', '${className}Impl.swift', '$pluginName.bridge.g.swift']) {
+      final lnk = Link(p.join(swiftDir.path, name));
+      if (!lnk.existsSync()) {
+        try { lnk.createSync('../../../Classes/$name'); } catch (_) {}
+      }
+    }
+    for (final name in ['$pluginName.cpp', 'dart_api_dl.c']) {
+      final lnk = Link(p.join(cppDir.path, name));
+      if (!lnk.existsSync()) {
+        try { lnk.createSync('../../../Classes/$name'); } catch (_) {}
+      }
+    }
+    final includeLink = Link(p.join(cppDir.path, 'include'));
+    if (!includeLink.existsSync()) {
+      try { includeLink.createSync('../../../Classes'); } catch (_) {}
+    }
+    File(p.join(packageDir.path, 'Package.swift')).writeAsStringSync(packageSwiftTemplate(pluginName, className, platformSpec, isMacos: isMacos));
+  }
+
+  void _printDryRun(String pluginName, SpmStatus status, {bool headless = false}) {
+    if (headless) {
+      stdout.writeln('[nitro] dry-run — $pluginName');
+      if (status.isModern) {
+        stdout.writeln('[nitro] already using SPM — no migration needed');
+        return;
+      }
+      stdout.writeln('[nitro:info] iOS SPM: ${status.iosHasSpm}  iOS podspec: ${status.iosHasPodspec}');
+      stdout.writeln('[nitro:info] macOS SPM: ${status.macosHasSpm}  macOS podspec: ${status.macosHasPodspec}');
+      if (!status.iosHasSpm && status.iosHasPodspec) {
+        stdout.writeln('[nitro:would] create ios/Package.swift');
+        stdout.writeln('[nitro:would] create ios/Sources/ structure');
+      }
+      if (!status.macosHasSpm && status.macosHasPodspec) {
+        stdout.writeln('[nitro:would] create macos/Package.swift');
+        stdout.writeln('[nitro:would] create macos/Sources/ structure');
+      }
+      stdout.writeln('[nitro] run without --dry-run to apply changes');
+      return;
+    }
+
     stdout.writeln('\n  \x1B[1;36m📦 Migration Dry Run — $pluginName\x1B[0m\n');
 
     if (status.isModern) {

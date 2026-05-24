@@ -2798,25 +2798,35 @@ List<ManagedContentIssue> detectManagedContentIssues({String baseDir = '.'}) {
 
 class LinkCommand extends Command {
   LinkCommand() {
-    argParser.addFlag(
-      'yes',
-      abbr: 'y',
-      negatable: false,
-      help: 'Skip confirmation prompts (useful for CI.',
-    );
+    argParser
+      ..addFlag(
+        'yes',
+        abbr: 'y',
+        negatable: false,
+        help: 'Skip confirmation prompts (useful for CI).',
+      )
+      ..addFlag(
+        'no-ui',
+        negatable: false,
+        help: 'Plain-text headless output (no ANSI). Auto-enabled when stdout is not a TTY. Implies --yes.',
+      );
   }
 
   @override
   final String name = 'link';
   @override
   final String description = 'Wires all Nitrogen-generated native bridges into the build system.';
+  bool get _headless => !stdout.hasTerminal || (argResults!['no-ui'] as bool);
+
   @override
   Future<void> run() async {
-    final yesFlag = argResults!['yes'] as bool;
+    final headless = _headless;
+    // --no-ui implies --yes (no interactive prompt in headless mode)
+    final yesFlag = (argResults!['yes'] as bool) || headless;
 
     final projectDir = findNitroProjectRoot();
     if (projectDir == null) {
-      stderr.writeln('❌ No Nitro project found.');
+      stderr.writeln(headless ? '[nitro:error] No Nitro project found.' : '❌ No Nitro project found.');
       exit(1);
     }
     final pubspec = File(p.join(projectDir.path, 'pubspec.yaml'));
@@ -2830,50 +2840,177 @@ class LinkCommand extends Command {
     Directory.current = projectDir;
 
     // ── Preflight: detect managed content removed by manual edits ─────────────
-    // If the user manually deleted an import or register() call that nitrogen
-    // link previously injected, we detect it here — before the TUI starts —
-    // and ask for confirmation to re-inject. This prevents silent overwrites.
     final issues = detectManagedContentIssues(baseDir: projectDir.path);
     if (issues.isNotEmpty) {
       stderr.writeln('');
-      stderr.writeln(
-        '  \x1B[1;33m⚠  nitrogen link detected managed content missing from plugin files:\x1B[0m',
-      );
-      stderr.writeln('');
-      // Group by file for readability.
-      final byFile = <String, List<String>>{};
-      for (final issue in issues) {
-        byFile.putIfAbsent(issue.file, () => []).add(issue.description);
-      }
-      for (final entry in byFile.entries) {
-        stderr.writeln('  \x1B[1;37m${entry.key}\x1B[0m');
-        for (final desc in entry.value) {
-          stderr.writeln('    \x1B[33m• $desc\x1B[0m');
+      if (headless) {
+        stderr.writeln('[nitro:warn] managed content missing from plugin files:');
+        for (final issue in issues) {
+          stderr.writeln('[nitro:warn]   ${issue.file}: ${issue.description}');
         }
-      }
-      stderr.writeln('');
-      stderr.writeln('  These sections are managed by nitrogen link.');
-      stderr.writeln('  Re-running link will restore them automatically.');
-
-      if (!yesFlag) {
-        stderr.write('\n  Re-inject missing sections? [Y/n] ');
-        final answer = (stdin.readLineSync() ?? '').trim().toLowerCase();
-        if (answer == 'n' || answer == 'no') {
-          stderr.writeln(
-            '\n  Skipped. Run `nitrogen link --yes` to suppress this prompt.',
-          );
-          return;
-        }
+        stderr.writeln('[nitro:info] proceeding with re-injection (--no-ui implies --yes)');
       } else {
-        stderr.writeln('  (--yes flag set — proceeding without confirmation)');
+        stderr.writeln('  \x1B[1;33m⚠  nitrogen link detected managed content missing from plugin files:\x1B[0m');
+        stderr.writeln('');
+        final byFile = <String, List<String>>{};
+        for (final issue in issues) {
+          byFile.putIfAbsent(issue.file, () => []).add(issue.description);
+        }
+        for (final entry in byFile.entries) {
+          stderr.writeln('  \x1B[1;37m${entry.key}\x1B[0m');
+          for (final desc in entry.value) {
+            stderr.writeln('    \x1B[33m• $desc\x1B[0m');
+          }
+        }
+        stderr.writeln('');
+        stderr.writeln('  These sections are managed by nitrogen link.');
+        stderr.writeln('  Re-running link will restore them automatically.');
+
+        if (!yesFlag) {
+          stderr.write('\n  Re-inject missing sections? [Y/n] ');
+          final answer = (stdin.readLineSync() ?? '').trim().toLowerCase();
+          if (answer == 'n' || answer == 'no') {
+            stderr.writeln('\n  Skipped. Run `nitrogen link --yes` to suppress this prompt.');
+            return;
+          }
+        } else {
+          stderr.writeln('  (--yes flag set — proceeding without confirmation)');
+        }
+        stderr.writeln('');
       }
-      stderr.writeln('');
     }
 
-    final result = LinkResult();
-    await runApp(LinkView(pluginName: pluginName, result: result));
-    if (result.success) {
-      stdout.writeln('\n  \x1B[1;32m✨ $pluginName linked\x1B[0m');
+    if (headless) {
+      await _runHeadless(pluginName, projectDir.path);
+    } else {
+      final result = LinkResult();
+      await runApp(LinkView(pluginName: pluginName, result: result));
+      if (result.success) {
+        stdout.writeln('\n  \x1B[1;32m✨ $pluginName linked\x1B[0m');
+      }
     }
+  }
+
+  Future<void> _runHeadless(String pluginName, String baseDir) async {
+    void log(String msg) => stdout.writeln('[nitro] $msg');
+    void logSkip(String msg) => stdout.writeln('[nitro:skip] $msg');
+
+    log('nitrogen link $pluginName');
+
+    log('discovering modules...');
+    final moduleInfos = discoverModuleInfos(pluginName, baseDir: baseDir);
+    final hasCpp = moduleInfos.any((m) => m.isCpp);
+    log('${moduleInfos.length} module(s): ${moduleInfos.map((m) => m.module).join(', ')}');
+
+    log('patching CMake...');
+    final nitroNativePath = resolveNitroNativePath(baseDir);
+    linkCppImplStubs(moduleInfos, baseDir: baseDir);
+    linkCMake(pluginName, moduleInfos.map((m) => m.lib).toList(), nitroNativePath, baseDir: baseDir, moduleInfos: moduleInfos);
+
+    if (Directory(p.join(baseDir, 'ios')).existsSync()) {
+      log('patching iOS podspec...');
+      linkPodspec(pluginName, moduleInfos.map((m) => m.lib).toList(), baseDir: baseDir, moduleInfos: moduleInfos);
+      ensureIosPackageSwift(pluginName, baseDir: baseDir, moduleInfos: moduleInfos);
+    } else {
+      logSkip('ios/ not present');
+    }
+
+    if (Directory(p.join(baseDir, 'macos')).existsSync()) {
+      log('patching macOS podspec...');
+      linkMacosPodspec(pluginName, moduleInfos.map((m) => m.lib).toList(), baseDir: baseDir, moduleInfos: moduleInfos);
+      ensureMacosPackageSwift(pluginName, baseDir: baseDir, moduleInfos: moduleInfos);
+    } else {
+      logSkip('macos/ not present');
+    }
+
+    final libDir = Directory(p.join(baseDir, 'lib'));
+    final specFiles = libDir.existsSync() ? libDir.listSync(recursive: true).whereType<File>().where((f) => f.path.endsWith('.native.dart')).toList() : <File>[];
+    String libFrom(File f) {
+      final stem = p.basename(f.path).replaceAll(RegExp(r'\.native\.dart$'), '');
+      return extractLibNameFromSpec(f) ?? stem;
+    }
+
+    final iosCppLibs = specFiles.where(isIosCppModule).map(libFrom).toSet();
+    final macosCppLibs = specFiles.where(isMacosCppModule).map(libFrom).toSet();
+    final iosSwiftModules = moduleInfos.where((m) => !iosCppLibs.contains(m.lib)).map((m) => m.toMap()).toList();
+    final macosSwiftModules = moduleInfos.where((m) => !macosCppLibs.contains(m.lib)).map((m) => m.toMap()).toList();
+    final iosCppModuleInfos = moduleInfos.where((m) => iosCppLibs.contains(m.lib)).toList();
+    final macosCppModuleInfos = moduleInfos.where((m) => macosCppLibs.contains(m.lib)).toList();
+
+    if (iosSwiftModules.isEmpty && macosSwiftModules.isEmpty) {
+      logSkip('all modules use AppleNativeImpl.cpp — no Swift bridge needed');
+    } else {
+      if (Directory(p.join(baseDir, 'ios')).existsSync()) {
+        if (iosSwiftModules.isNotEmpty) {
+          log('wiring iOS Swift plugin...');
+          linkSwiftPlugin(pluginName, iosSwiftModules, baseDir: baseDir);
+        }
+        purgeStaleCppSwiftRegistrations(iosCppModuleInfos, platform: 'ios', baseDir: baseDir);
+      }
+      if (Directory(p.join(baseDir, 'macos')).existsSync()) {
+        if (macosSwiftModules.isNotEmpty) {
+          log('wiring macOS Swift plugin...');
+          linkMacosSwiftPlugin(pluginName, macosSwiftModules, baseDir: baseDir);
+        }
+        purgeStaleCppSwiftRegistrations(macosCppModuleInfos, platform: 'macos', baseDir: baseDir);
+      }
+    }
+
+    if (Directory(p.join(baseDir, 'android')).existsSync()) {
+      log('wiring Android Kotlin plugin...');
+      final androidCppLibs = specFiles.where(isAndroidCppModule).map(libFrom).toSet();
+      final kotlinModules = moduleInfos.where((m) => !androidCppLibs.contains(m.lib)).map((m) => m.toMap()).toList();
+      final androidCppModuleInfos = moduleInfos.where((m) => androidCppLibs.contains(m.lib)).toList();
+      if (kotlinModules.isNotEmpty) linkKotlinPlugin(pluginName, kotlinModules, baseDir: baseDir);
+      if (hasCpp) linkKotlinLoadLibraries(moduleInfos.where((m) => m.isCpp).map((m) => m.lib).toList(), baseDir: baseDir);
+      purgeStaleCppKotlinRegistrations(androidCppModuleInfos, baseDir: baseDir);
+      linkAndroid(pluginName, moduleInfos.map((m) => m.lib).toList(), baseDir: baseDir, moduleInfos: moduleInfos);
+    } else {
+      logSkip('android/ not present');
+    }
+
+    if (Directory(p.join(baseDir, 'windows')).existsSync()) {
+      log('wiring Windows CMake...');
+      linkWindows(pluginName, moduleInfos.map((m) => m.lib).toList(), nitroNativePath, baseDir: baseDir, moduleInfos: moduleInfos);
+    } else {
+      logSkip('windows/ not present');
+    }
+
+    if (Directory(p.join(baseDir, 'linux')).existsSync()) {
+      log('wiring Linux CMake...');
+      linkLinux(pluginName, moduleInfos.map((m) => m.lib).toList(), nitroNativePath, baseDir: baseDir, moduleInfos: moduleInfos);
+    } else {
+      logSkip('linux/ not present');
+    }
+
+    log('updating .clangd...');
+    linkClangd(pluginName, moduleInfos: moduleInfos, baseDir: baseDir);
+
+    final spmDetected = spm.detectSpmStatus(baseDir);
+    if (spmDetected.hasSpm) {
+      log('SPM detected — syncing Swift bridges to SPM Sources/...');
+      _syncSwiftBridgesToSpmSources(baseDir);
+      for (final pkgPath in [spmDetected.iosPackageSwiftPath, spmDetected.macosPackageSwiftPath].whereType<String>()) {
+        spm.ensureFlutterFrameworkSymlink(pkgPath, baseDir);
+      }
+    } else {
+      final podfileDirs = findPodfileDirs(baseDir);
+      if (podfileDirs.isEmpty) {
+        logSkip('no Podfile found — skipping pod install');
+      } else {
+        for (final dir in podfileDirs) {
+          log('pod install (${p.relative(dir, from: baseDir)})...');
+          await Process.run('pod', ['deintegrate'], workingDirectory: dir);
+          final r = await Process.run('pod', ['install'], workingDirectory: dir);
+          if (r.exitCode != 0) {
+            stderr.writeln('[nitro:warn] pod install failed in $dir');
+          } else {
+            await Process.run('pod', ['update'], workingDirectory: dir);
+          }
+        }
+      }
+    }
+
+    log('$pluginName linked');
   }
 }

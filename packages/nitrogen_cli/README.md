@@ -31,6 +31,18 @@ Running `nitrogen` without arguments launches an interactive TUI dashboard. From
 
 ---
 
+## Headless / CI mode
+
+Every command supports `--no-ui`. In headless mode all output is plain text prefixed with `[nitro]`, `[nitro:warn]`, or `[nitro:error]` — no ANSI codes, no interactive prompts.
+
+**TTY auto-detection:** when stdout is not a terminal (piped output, CI runner), `--no-ui` activates automatically — you never need to pass it explicitly in CI.
+
+```sh
+nitrogen <command> --no-ui
+```
+
+---
+
 ## Commands
 
 ### `nitrogen init`
@@ -38,9 +50,23 @@ Running `nitrogen` without arguments launches an interactive TUI dashboard. From
 Scaffolds a complete Nitrogen plugin from scratch with pre-wired native configurations.
 
 ```sh
-nitrogen init
-# → prompts for plugin name, then generates everything
+nitrogen init                                    # interactive TUI form
+nitrogen init --name my_plugin                  # skip form, show progress TUI
+nitrogen init --no-ui --name my_plugin          # headless / CI
+nitrogen init --no-ui --name my_plugin \
+              --org com.example \
+              --platforms android,ios,macos
 ```
+
+**Flags:**
+
+| Flag | Default | Description |
+|---|---|---|
+| `--name`, `-n` | — | Plugin name (skips interactive form) |
+| `--org` | `com.example` | Android/iOS organisation identifier |
+| `--dir`, `-d` | `.` | Parent directory to create the plugin in |
+| `--platforms`, `-p` | `android,ios,macos,windows,linux` | Comma-separated target platforms |
+| `--no-ui` | `false` | Headless output. Requires `--name` |
 
 **What it creates:**
 
@@ -50,7 +76,7 @@ nitrogen init
 | `ios/Classes/<Name>Impl.swift` | Starter Swift implementation |
 | `ios/Classes/Swift<Name>Plugin.swift` | Flutter plugin registrar |
 | `ios/<name>.podspec` | Pre-configured: Swift 5.9, iOS 13.0, C++17, `HEADER_SEARCH_PATHS` |
-| `ios/Package.swift` | Swift Package Manager support |
+| `ios/<name>/Package.swift` | Swift Package Manager support (nested Flutter 3.41+ layout) |
 | `android/.../<Name>Impl.kt` | Starter Kotlin implementation |
 | `android/.../<Name>Plugin.kt` | Flutter plugin registrar |
 | `src/CMakeLists.txt` | NDK build file |
@@ -66,7 +92,28 @@ Runs `flutter pub get` + `build_runner build` and syncs all generated files to t
 
 ```sh
 nitrogen generate
+
+# Headless / CI — no ANSI codes, plain [nitro] prefix lines
+nitrogen generate --no-ui
+
+# Treat spec validation warnings as errors (exit code 2)
+nitrogen generate --fail-on-warn
 ```
+
+**Flags:**
+
+| Flag | Default | Description |
+|---|---|---|
+| `--no-ui` | `false` | Headless plain-text output |
+| `--fail-on-warn` | `false` | Exit code 2 if spec has warnings |
+
+**Exit codes:**
+
+| Code | Meaning |
+|---|---|
+| `0` | Success |
+| `1` | Generation error |
+| `2` | Spec warnings present and `--fail-on-warn` was passed |
 
 **What it produces (per `.native.dart` spec):**
 
@@ -86,6 +133,16 @@ nitrogen generate
 
 After generation, `nitrogen generate` also runs `pod install` in any `ios/` directory it finds.
 
+**CI example:**
+
+```yaml
+# .github/workflows/build.yml
+- name: Generate Nitrogen bindings
+  run: |
+    dart pub global activate nitrogen_cli
+    nitrogen generate --no-ui --fail-on-warn   # exit 2 if spec has warnings
+```
+
 ---
 
 ### `nitrogen link`
@@ -93,8 +150,17 @@ After generation, `nitrogen generate` also runs `pod install` in any `ios/` dire
 Wires native build files (CMake, Podspec, Kotlin plugin, Swift plugin, `.clangd`) to the generated code.
 
 ```sh
-nitrogen link
+nitrogen link             # interactive TUI with confirmation prompt
+nitrogen link --yes       # skip confirmation prompt, show TUI
+nitrogen link --no-ui     # headless (implies --yes)
 ```
+
+**Flags:**
+
+| Flag | Default | Description |
+|---|---|---|
+| `--yes`, `-y` | `false` | Skip the "Proceed?" confirmation prompt |
+| `--no-ui` | `false` | Headless plain-text output (implies `--yes`) |
 
 **What it wires:**
 
@@ -116,8 +182,15 @@ nitrogen link
 Deep health check of every layer of your native build. Read-only — no files are changed.
 
 ```sh
-nitrogen doctor
+nitrogen doctor           # interactive TUI
+nitrogen doctor --no-ui   # headless, one line per check
 ```
+
+**Flags:**
+
+| Flag | Default | Description |
+|---|---|---|
+| `--no-ui` | `false` | Plain-text output with `[nitro:ok]` / `[nitro:warn]` / `[nitro:error]` prefixes |
 
 **Sections checked:**
 
@@ -145,8 +218,111 @@ nitrogen doctor
 - name: Nitrogen health check
   run: |
     dart pub global activate nitrogen_cli
-    nitrogen doctor
+    nitrogen doctor --no-ui
 ```
+
+---
+
+### `nitrogen migrate`
+
+Migrates a CocoaPods-only plugin to the Swift Package Manager nested layout (Flutter 3.41+).
+
+```sh
+nitrogen migrate              # interactive TUI with preview
+nitrogen migrate --dry-run    # preview changes without writing files
+nitrogen migrate --no-backup  # skip backup step
+nitrogen migrate --no-ui      # headless, skips interactive confirmation
+```
+
+**Flags:**
+
+| Flag | Default | Description |
+|---|---|---|
+| `--backup` | `true` | Create a `.nitrogen_backup_<ts>/` snapshot before migrating |
+| `--dry-run` | `false` | Show what would change without writing any files |
+| `--no-ui` | `false` | Headless plain-text output (skips confirmation prompt) |
+
+**What it does:**
+
+1. Optionally backs up existing `ios/*.podspec` and `example/ios/Podfile`
+2. Creates `ios/<name>/Package.swift` (Flutter 3.41+ nested SPM layout)
+3. Creates `macos/<name>/Package.swift` when `macos/` exists
+4. Runs `pod deintegrate` + `pod install` in the example app
+
+---
+
+### `nitrogen watch`
+
+Runs `build_runner watch` and re-links generated files on every change.
+
+```sh
+nitrogen watch           # streaming TUI output
+nitrogen watch --no-ui   # headless, raw build_runner lines with [nitro] prefix
+```
+
+**Flags:**
+
+| Flag | Default | Description |
+|---|---|---|
+| `--no-ui` | `false` | Headless plain-text output |
+
+---
+
+### `nitrogen clean`
+
+Deletes all Nitrogen-generated files and the `build_runner` cache.
+
+```sh
+nitrogen clean           # interactive output
+nitrogen clean --no-ui   # headless
+```
+
+**Flags:**
+
+| Flag | Default | Description |
+|---|---|---|
+| `--no-ui` | `false` | Headless plain-text output |
+
+**What it removes:** all `*.g.dart`, `*.bridge.g.swift`, `*.bridge.g.kt`, `*.bridge.g.cpp`, `*.bridge.g.h`, `*.bridge.g.mm`, `*.CMakeLists.g.txt`, `*.native.g.h`, `*.mock.g.h`, `*.test.g.cpp` files and the `.dart_tool/build/` cache.
+
+---
+
+### `nitrogen update`
+
+Self-updates the nitrogen CLI to the latest version on pub.dev (or `git pull` if path-activated).
+
+```sh
+nitrogen update           # interactive TUI
+nitrogen update --no-ui   # headless
+```
+
+**Flags:**
+
+| Flag | Default | Description |
+|---|---|---|
+| `--no-ui` | `false` | Headless plain-text output |
+
+**What it does:**
+1. Checks the current activation (`dart pub global list`)
+2. Fetches the latest version from pub.dev
+3. Runs `dart pub global activate nitrogen_cli` (hosted) or `git pull --ff-only` (path-activated)
+
+---
+
+### `nitrogen open`
+
+Opens the generated spec file in your editor.
+
+```sh
+nitrogen open             # interactive editor picker
+nitrogen open --no-ui     # headless
+```
+
+**Flags:**
+
+| Flag | Default | Description |
+|---|---|---|
+| `--no-ui` | `false` | Headless plain-text output |
 
 ---
 
