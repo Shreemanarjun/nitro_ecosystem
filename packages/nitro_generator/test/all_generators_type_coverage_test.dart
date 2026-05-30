@@ -28,9 +28,18 @@ final _kPrinterStruct = BridgeStruct(
   name: 'Printer',
   packed: false,
   fields: [
-    BridgeField(name: 'id', type: BridgeType(name: 'String')),
-    BridgeField(name: 'isDefault', type: BridgeType(name: 'bool')),
-    BridgeField(name: 'copies', type: BridgeType(name: 'int')),
+    BridgeField(
+      name: 'id',
+      type: BridgeType(name: 'String'),
+    ),
+    BridgeField(
+      name: 'isDefault',
+      type: BridgeType(name: 'bool'),
+    ),
+    BridgeField(
+      name: 'copies',
+      type: BridgeType(name: 'int'),
+    ),
   ],
 );
 
@@ -38,8 +47,14 @@ final _kSettingsStruct = BridgeStruct(
   name: 'Settings',
   packed: false,
   fields: [
-    BridgeField(name: 'quality', type: BridgeType(name: 'String')),
-    BridgeField(name: 'printer', type: BridgeType(name: 'Printer')),
+    BridgeField(
+      name: 'quality',
+      type: BridgeType(name: 'String'),
+    ),
+    BridgeField(
+      name: 'printer',
+      type: BridgeType(name: 'Printer'),
+    ),
   ],
 );
 
@@ -53,7 +68,8 @@ final _kJobRecord = BridgeRecordType(
 
 // ── Spec builders ─────────────────────────────────────────────────────────────
 
-BridgeSpec _swiftKotlinSpec(List<BridgeFunction> fns, {
+BridgeSpec _swiftKotlinSpec(
+  List<BridgeFunction> fns, {
   List<BridgeStruct> structs = const [],
   List<BridgeRecordType> records = const [],
   List<BridgeProperty> props = const [],
@@ -70,7 +86,8 @@ BridgeSpec _swiftKotlinSpec(List<BridgeFunction> fns, {
   properties: props,
 );
 
-BridgeSpec _cppSpec(List<BridgeFunction> fns, {
+BridgeSpec _cppSpec(
+  List<BridgeFunction> fns, {
   List<BridgeStruct> structs = const [],
   List<BridgeRecordType> records = const [],
   List<BridgeProperty> props = const [],
@@ -87,14 +104,13 @@ BridgeSpec _cppSpec(List<BridgeFunction> fns, {
   properties: props,
 );
 
-BridgeFunction _fn(String name, BridgeType ret, {List<BridgeParam> params = const []}) =>
-  BridgeFunction(
-    dartName: name,
-    cSymbol: 'mod_${name.replaceAllMapped(RegExp(r'[A-Z]'), (m) => '_${m[0]!.toLowerCase()}')}',
-    isAsync: false,
-    returnType: ret,
-    params: params,
-  );
+BridgeFunction _fn(String name, BridgeType ret, {List<BridgeParam> params = const []}) => BridgeFunction(
+  dartName: name,
+  cSymbol: 'mod_${name.replaceAllMapped(RegExp(r'[A-Z]'), (m) => '_${m[0]!.toLowerCase()}')}',
+  isAsync: false,
+  returnType: ret,
+  params: params,
+);
 
 BridgeType _listStruct(String name) => BridgeType(
   name: 'List<$name>',
@@ -487,15 +503,33 @@ void main() {
 
   group('@HybridRecord param — all generators', () {
     final spec = _swiftKotlinSpec(
-      [_fn('submitJob', BridgeType(name: 'void'), params: [
-        BridgeParam(name: 'job', type: BridgeType(name: 'Job', isRecord: true)),
-      ])],
+      [
+        _fn(
+          'submitJob',
+          BridgeType(name: 'void'),
+          params: [
+            BridgeParam(
+              name: 'job',
+              type: BridgeType(name: 'Job', isRecord: true),
+            ),
+          ],
+        ),
+      ],
       records: [_kJobRecord],
     );
     final cppSpec = _cppSpec(
-      [_fn('submitJob', BridgeType(name: 'void'), params: [
-        BridgeParam(name: 'job', type: BridgeType(name: 'Job', isRecord: true)),
-      ])],
+      [
+        _fn(
+          'submitJob',
+          BridgeType(name: 'void'),
+          params: [
+            BridgeParam(
+              name: 'job',
+              type: BridgeType(name: 'Job', isRecord: true),
+            ),
+          ],
+        ),
+      ],
       records: [_kJobRecord],
     );
 
@@ -519,15 +553,27 @@ void main() {
 
   group('List<@HybridStruct T> param — all generators', () {
     final spec = _swiftKotlinSpec(
-      [_fn('submitPrinters', BridgeType(name: 'void'), params: [
-        BridgeParam(name: 'printers', type: _listStruct('Printer')),
-      ])],
+      [
+        _fn(
+          'submitPrinters',
+          BridgeType(name: 'void'),
+          params: [
+            BridgeParam(name: 'printers', type: _listStruct('Printer')),
+          ],
+        ),
+      ],
       structs: [_kPrinterStruct],
     );
     final cppSpec = _cppSpec(
-      [_fn('submitPrinters', BridgeType(name: 'void'), params: [
-        BridgeParam(name: 'printers', type: _listStruct('Printer')),
-      ])],
+      [
+        _fn(
+          'submitPrinters',
+          BridgeType(name: 'void'),
+          params: [
+            BridgeParam(name: 'printers', type: _listStruct('Printer')),
+          ],
+        ),
+      ],
       structs: [_kPrinterStruct],
     );
 

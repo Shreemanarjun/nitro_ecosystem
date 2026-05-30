@@ -702,6 +702,7 @@ void main() {
           final end = src.indexOf('#endif // __ANDROID__');
           return end > start ? src.substring(start, end) : src;
         }
+
         expect(
           extractAndroidBlock(nullable),
           contains('CallStaticLongMethod'),

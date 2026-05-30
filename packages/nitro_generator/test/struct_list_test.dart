@@ -406,16 +406,28 @@ void main() {
           name: 'PrintSettings',
           packed: false,
           fields: [
-            BridgeField(name: 'copies', type: BridgeType(name: 'int')),
-            BridgeField(name: 'quality', type: BridgeType(name: 'String')),
+            BridgeField(
+              name: 'copies',
+              type: BridgeType(name: 'int'),
+            ),
+            BridgeField(
+              name: 'quality',
+              type: BridgeType(name: 'String'),
+            ),
           ],
         ),
         BridgeStruct(
           name: 'Printer',
           packed: false,
           fields: [
-            BridgeField(name: 'id', type: BridgeType(name: 'String')),
-            BridgeField(name: 'settings', type: BridgeType(name: 'PrintSettings')),
+            BridgeField(
+              name: 'id',
+              type: BridgeType(name: 'String'),
+            ),
+            BridgeField(
+              name: 'settings',
+              type: BridgeType(name: 'PrintSettings'),
+            ),
           ],
         ),
       ],
