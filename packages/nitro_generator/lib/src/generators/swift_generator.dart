@@ -302,7 +302,7 @@ class SwiftGenerator {
       // Emit UnsafeMutablePointer<UInt8>? → Swift Array for binary-encoded record/struct list params.
       for (final p in recordListParams) {
         final itemType = p.type.name.substring(5, p.type.name.length - 1);
-        s.writeln('    let ${p.name}Decoded = ${p.name}.map { NitroRecordReader.decodeList(\$0) { r in ${itemType}.fromReader(r) } } ?? []');
+        s.writeln('    let ${p.name}Decoded = ${p.name}.map { NitroRecordReader.decodeList(\$0) { r in $itemType.fromReader(r) } } ?? []');
       }
 
       if (func.isAsync) {
