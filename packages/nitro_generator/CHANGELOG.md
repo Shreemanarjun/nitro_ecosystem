@@ -1,3 +1,10 @@
+## 0.4.4
+
+- **Fixed: `List<@HybridStruct T>` return type wire format mismatch on iOS/macOS** — The Swift bridge now calls `NitroRecordWriter.encodeIndexedList` instead of `encodeList` for struct-list return values. The Dart `LazyRecordList.decode` expects the indexed format (`[int32 count][int64×n offsets][item bytes...]`); the old sequential format caused it to interpret item bytes as offset values, producing a `RangeError: Value not in range` at runtime when accessing any element.
+- **Added: `NitroRecordWriter.encodeIndexedList` in the Swift codec template** — `record_generator.dart` now includes `encodeIndexedList` alongside `encodeList` in the `_swiftRecordWriterReader` constant, so every freshly generated Swift bridge has the method available without needing a manual patch.
+- **Fixed: Swift generator emits correct call site for struct-list returns** — Both the sync and async `isRecordList` paths in `swift_generator.dart` now emit `encodeIndexedList` for `@HybridStruct`-element lists. Primitive-element lists (`List<int>`, `List<String>`, etc.) continue to use `encodeList` unchanged, since those are decoded by `RecordReader.decodePrimitiveList` (sequential format).
+- **Tests: Updated 4 test assertions** — `struct_list_test.dart` (2) and `all_generators_type_coverage_test.dart` (2) updated from `encodeList` to `encodeIndexedList` for struct-list Swift output expectations.
+
 ## 0.4.3
 
 - **Fixed: Optional primitive parameters (`int?`, `double?`, `bool?`) across the FFI bridge** — Dart now encodes `null` as a sentinel value (`-1` for `int?`/`bool?`, `NaN` for `double?`) when calling the C bridge, and Kotlin decodes those sentinels back to `null` before forwarding to your implementation. Previously, passing `null` for an optional primitive caused a JVM method descriptor mismatch crash at runtime.

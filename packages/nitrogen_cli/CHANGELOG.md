@@ -1,3 +1,7 @@
+## 0.4.4
+
+- **Ecosystem sync** — Aligned with `nitro`, `nitro_annotations`, and `nitro_generator` 0.4.4.
+
 ## 0.4.3
 
 - **New: `nitrogen generate --no-ui`** — Headless plain-text output mode with no ANSI colours, auto-enabled when stdout is not a TTY (great for CI pipelines and scripts).
