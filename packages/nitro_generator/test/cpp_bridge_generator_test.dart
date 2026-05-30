@@ -656,7 +656,7 @@ void main() {
     });
 
     group('nullable primitive return types call JNI method (not just return 0)', () {
-      BridgeSpec _nullableReturnSpec(String returnTypeName) => BridgeSpec(
+      BridgeSpec nullableReturnSpec(String returnTypeName) => BridgeSpec(
         dartClassName: 'MyModule',
         lib: 'my_module',
         namespace: 'my_module_ns',
@@ -675,33 +675,33 @@ void main() {
       );
 
       test('int? return calls CallStaticLongMethod', () {
-        final out = CppBridgeGenerator.generate(_nullableReturnSpec('int?'));
+        final out = CppBridgeGenerator.generate(nullableReturnSpec('int?'));
         expect(out, contains('CallStaticLongMethod'), reason: 'int? must call CallStaticLongMethod, not just return 0');
       });
 
       test('double? return calls CallStaticDoubleMethod', () {
-        final out = CppBridgeGenerator.generate(_nullableReturnSpec('double?'));
+        final out = CppBridgeGenerator.generate(nullableReturnSpec('double?'));
         expect(out, contains('CallStaticDoubleMethod'), reason: 'double? must call CallStaticDoubleMethod');
       });
 
       test('bool? return calls CallStaticBooleanMethod', () {
-        final out = CppBridgeGenerator.generate(_nullableReturnSpec('bool?'));
+        final out = CppBridgeGenerator.generate(nullableReturnSpec('bool?'));
         expect(out, contains('CallStaticBooleanMethod'), reason: 'bool? must call CallStaticBooleanMethod');
       });
 
       test('String? return calls CallStaticObjectMethod', () {
-        final out = CppBridgeGenerator.generate(_nullableReturnSpec('String?'));
+        final out = CppBridgeGenerator.generate(nullableReturnSpec('String?'));
         expect(out, contains('CallStaticObjectMethod'), reason: 'String? must call CallStaticObjectMethod');
       });
 
       test('int? return has same JNI call pattern as int return', () {
-        final nullable = CppBridgeGenerator.generate(_nullableReturnSpec('int?'));
-        final nonNullable = CppBridgeGenerator.generate(_nullableReturnSpec('int'));
-        final extractAndroidBlock = (String src) {
+        final nullable = CppBridgeGenerator.generate(nullableReturnSpec('int?'));
+        final nonNullable = CppBridgeGenerator.generate(nullableReturnSpec('int'));
+        String extractAndroidBlock(String src) {
           final start = src.indexOf('#ifdef __ANDROID__');
           final end = src.indexOf('#endif // __ANDROID__');
           return end > start ? src.substring(start, end) : src;
-        };
+        }
         expect(
           extractAndroidBlock(nullable),
           contains('CallStaticLongMethod'),

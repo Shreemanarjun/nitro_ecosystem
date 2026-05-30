@@ -219,14 +219,16 @@ class CppBridgeGenerator {
       // ── Regular (sync or @nitroAsync) method ─────────────────────────────
       final isEnumRet = enumNames.contains(func.returnType.name.replaceFirst('?', ''));
       final isStructRet = structNames.contains(func.returnType.name.replaceFirst('?', ''));
-      final isRecordRet = recordNames.contains(func.returnType.name.replaceFirst('?', ''));
+      // Use func.returnType.isRecord so that List<@HybridStruct T>, List<@HybridRecord T>,
+      // and bare @HybridRecord all map to NitroCppBuffer (binary-encoded buffer return).
+      final isRecordRet = func.returnType.isRecord;
       final cRet = isEnumRet ? 'int64_t' : _typeToC(func.returnType.name);
       final dflt = _defaultValue(cRet);
 
       final paramParts = <String>[];
       for (final p in func.params) {
         final isStructParam = structNames.contains(p.type.name.replaceFirst('?', ''));
-        final isRecordParam = recordNames.contains(p.type.name.replaceFirst('?', ''));
+        final isRecordParam = p.type.isRecord;
         paramParts.add('${(isStructParam || isRecordParam) ? 'void*' : _typeToC(p.type.name)} ${p.name}');
         if (p.type.isTypedData) paramParts.add('int64_t ${p.name}_length');
       }
@@ -249,9 +251,8 @@ class CppBridgeGenerator {
           callArgs.add('std::string(${p.name})');
         } else if (structNames.contains(base)) {
           callArgs.add('*static_cast<const $base*>(${p.name})');
-        } else if (recordNames.contains(base)) {
-          final opt = p.type.name.endsWith('?');
-          if (opt) {
+        } else if (p.type.isRecord) {
+          if (p.type.isNullable) {
             s.writeln('        NitroCppBuffer _buf_${p.name} = { nullptr, 0 };');
             s.writeln('        if (${p.name} != nullptr) {');
             s.writeln('            _buf_${p.name}.data = (const uint8_t*)${p.name} + 4;');
@@ -1767,13 +1768,13 @@ class CppBridgeGenerator {
 
       final isEnumRet = enumNames.contains(func.returnType.name.replaceFirst('?', ''));
       final isStructRet = structNames.contains(func.returnType.name.replaceFirst('?', ''));
-      final isRecordRet = recordNames.contains(func.returnType.name.replaceFirst('?', ''));
+      final isRecordRet = func.returnType.isRecord;
       final cRet = isEnumRet ? 'int64_t' : _typeToC(func.returnType.name);
       final dflt = _defaultValue(cRet);
       final paramParts = <String>[];
       for (final p in func.params) {
         final isStructParam = structNames.contains(p.type.name.replaceFirst('?', ''));
-        final isRecordParam = recordNames.contains(p.type.name.replaceFirst('?', ''));
+        final isRecordParam = p.type.isRecord;
         paramParts.add('${(isStructParam || isRecordParam) ? 'void*' : _typeToC(p.type.name)} ${p.name}');
         if (p.type.isTypedData) paramParts.add('int64_t ${p.name}_length');
       }
@@ -1794,9 +1795,8 @@ class CppBridgeGenerator {
           callArgs.add('std::string(${p.name})');
         } else if (structNames.contains(base)) {
           callArgs.add('*static_cast<const $base*>(${p.name})');
-        } else if (recordNames.contains(base)) {
-          final opt = p.type.name.endsWith('?');
-          if (opt) {
+        } else if (p.type.isRecord) {
+          if (p.type.isNullable) {
             s.writeln('        NitroCppBuffer _buf_${p.name} = { nullptr, 0 };');
             s.writeln('        if (${p.name} != nullptr) {');
             s.writeln('            _buf_${p.name}.data = (const uint8_t*)${p.name} + 4;');

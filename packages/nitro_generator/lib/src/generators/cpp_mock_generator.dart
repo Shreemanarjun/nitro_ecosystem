@@ -38,7 +38,8 @@ class CppMockGenerator {
 
     // Methods
     for (final func in spec.functions) {
-      final retCpp = _cppReturnType(func.returnType.name, enumNames, structNames, recordNames);
+      // Use isRecord so that List<@HybridStruct T>, List<@HybridRecord T>, and bare @HybridRecord all map to NitroCppBuffer.
+      final retCpp = func.returnType.isRecord ? 'NitroCppBuffer' : _cppReturnType(func.returnType.name, enumNames, structNames, recordNames);
       final params = _mockParams(func.params, enumNames, structNames, recordNames);
       final paramStr = params.join(', ');
       s.writeln('    MOCK_METHOD($retCpp, ${func.dartName}, ($paramStr), (override));');
@@ -100,7 +101,7 @@ class CppMockGenerator {
       final enumNames = spec.enums.map((e) => e.name).toSet();
       final structNames = spec.structs.map((st) => st.name).toSet();
       final recordNames = spec.recordTypes.map((r) => r.name).toSet();
-      final retCpp = _cppReturnType(f.returnType.name, enumNames, structNames, recordNames);
+      final retCpp = f.returnType.isRecord ? 'NitroCppBuffer' : _cppReturnType(f.returnType.name, enumNames, structNames, recordNames);
       final exampleRet = _exampleReturnValue(f.returnType.name, retCpp);
       final exampleArgs = f.params
           .map((p) {
@@ -192,7 +193,7 @@ class CppMockGenerator {
         parts.add('const $base& ${p.name}');
       } else if (enumNames.contains(base)) {
         parts.add('$base ${p.name}');
-      } else if (recordNames.contains(base)) {
+      } else if (p.type.isRecord) {
         parts.add('NitroCppBuffer ${p.name}');
       } else {
         parts.add('${_primitiveType(base)} ${p.name}');

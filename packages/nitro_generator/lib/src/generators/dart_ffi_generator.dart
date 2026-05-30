@@ -356,7 +356,7 @@ class DartFfiGenerator {
           if (rt == 'void') {
             s.writeln('      return;');
           } else if (isRecordReturn) {
-            final decodeExpr = _decodeRecordExpr(func.returnType, 'res as Pointer<Uint8>');
+            final decodeExpr = _decodeRecordExpr(func.returnType, 'res');
             final isLazy = func.returnType.recordListItemType != null && !func.returnType.recordListItemIsPrimitive;
             if (isLazy) {
               s.writeln('      return $decodeExpr;');
@@ -407,7 +407,7 @@ class DartFfiGenerator {
               s.writeln("      NitroRuntime.checkError(_getErrorPtr, _clearErrorPtr);");
             }
             if (isRecordReturn) {
-              final decodeExpr = _decodeRecordExpr(func.returnType, 'res as Pointer<Uint8>');
+              final decodeExpr = _decodeRecordExpr(func.returnType, 'res');
               final isLazy = func.returnType.recordListItemType != null && !func.returnType.recordListItemIsPrimitive;
               if (isLazy) {
                 s.writeln('      return $decodeExpr;');

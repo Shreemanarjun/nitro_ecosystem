@@ -713,9 +713,10 @@ void main() {
       expect(out, contains('final rawPtr = await NitroRuntime.callAsync<Pointer<Uint8>>'));
     });
 
-    test('sync record return casts call result to Pointer<Uint8>', () {
+    test('sync record return passes res directly to fromNative (no redundant cast)', () {
       final out = DartFfiGenerator.generate(_syncRecordSpec());
-      expect(out, contains('as Pointer<Uint8>'));
+      expect(out, isNot(contains('res as Pointer<Uint8>')));
+      expect(out, contains('fromNative(res)'));
     });
   });
 

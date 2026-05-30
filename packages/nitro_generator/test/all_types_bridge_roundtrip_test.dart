@@ -473,7 +473,7 @@ void main() {
   // §8  Future<T> async returns
   // ══════════════════════════════════════════════════════════════════════════
   group('§8 Future<T> async returns', () {
-    for (final (dartType, dartRet, kotlinRet, swiftPat) in [
+    for (final (dartType, _, kotlinRet, swiftPat) in [
       ('int', 'Future<int>', 'Long', 'Int64'),
       ('double', 'Future<double>', 'Double', 'Double'),
       ('bool', 'Future<bool>', 'Boolean', 'Bool'),
@@ -574,7 +574,7 @@ void main() {
     ]) {
       specTest(
         '$dartType param — no sentinel; direct pass-through in all bridges',
-        _src('  void set(${dartType} value);'),
+        _src('  void set($dartType value);'),
         dart: BridgeChecks(
           hasNot: ['value ?? ', 'value == null'],
         ),

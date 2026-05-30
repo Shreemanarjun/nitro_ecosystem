@@ -146,7 +146,9 @@ class SwiftGenerator {
       final stringParams = func.params.where((p) => p.type.name == 'String' || p.type.name == 'String?').toList();
       // Typed list params arrive as raw C pointer + length — convert to Swift Array.
       final typedListParams = func.params.where((p) => p.type.isTypedData).toList();
-      // Pass the converted local variables for String/typed-list params.
+      // Record-list params arrive as binary-encoded UnsafeMutablePointer<UInt8>? — decode to Swift Array.
+      final recordListParams = func.params.where((p) => p.type.isRecord && p.type.name.startsWith('List<')).toList();
+      // Pass the converted local variables for String/typed-list/record-list params.
       final callArgs = func.params
           .map((p) {
             final isString = p.type.name == 'String' || p.type.name == 'String?';
@@ -154,6 +156,7 @@ class SwiftGenerator {
             if (isString) return '${p.name}: ${p.name}Str';
             if (isBool) return '${p.name}: ${p.name} != 0';
             if (p.type.isTypedData) return '${p.name}: ${p.name}Arr';
+            if (p.type.isRecord && p.type.name.startsWith('List<')) return '${p.name}: ${p.name}Decoded';
             if (spec.structs.any((st) => st.name == p.type.name.replaceFirst('?', ''))) {
               final structName = p.type.name.replaceFirst('?', '');
               final isOpt = p.type.name.endsWith('?');
@@ -296,6 +299,11 @@ class SwiftGenerator {
           s.writeln('    let ${p.name}Arr = ${p.name}.map { Array(UnsafeBufferPointer(start: \$0, count: Int(${p.name}_length))) } ?? []');
         }
       }
+      // Emit UnsafeMutablePointer<UInt8>? → Swift Array for binary-encoded record/struct list params.
+      for (final p in recordListParams) {
+        final itemType = p.type.name.substring(5, p.type.name.length - 1);
+        s.writeln('    let ${p.name}Decoded = ${p.name}.map { NitroRecordReader.decodeList(\$0) { r in ${itemType}.fromReader(r) } } ?? []');
+      }
 
       if (func.isAsync) {
         // Async: block the calling thread with a semaphore until the Task
@@ -378,7 +386,7 @@ class SwiftGenerator {
             if (base == 'String') writeCall = 'writeString(e)';
             s.writeln('    return NitroRecordWriter.encodeList(r) { w, e in w.$writeCall }');
           } else {
-            s.writeln('    return NitroRecordWriter.encodeList(r) { w, e in e.writeFields(w) }');
+            s.writeln('    return NitroRecordWriter.encodeIndexedList(r) { w, e in e.writeFields(w) }');
           }
         } else if (isBool) {
           s.writeln(
@@ -469,7 +477,7 @@ class SwiftGenerator {
           if (base == 'String') writeCall = 'writeString(e)';
           s.writeln('    return NitroRecordWriter.encodeList(r) { w, e in w.$writeCall }');
         } else {
-          s.writeln('    return NitroRecordWriter.encodeList(r) { w, e in e.writeFields(w) }');
+          s.writeln('    return NitroRecordWriter.encodeIndexedList(r) { w, e in e.writeFields(w) }');
         }
       } else {
         final defaultVal = _defaultCDeclValue(spec, func.returnType.name);
