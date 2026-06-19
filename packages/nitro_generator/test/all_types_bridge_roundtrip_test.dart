@@ -20,7 +20,7 @@
 //   §13  Mixed parameters — full cross-bridge consistency
 
 import 'package:test/test.dart';
-import 'package:nitro_generator/src/generators/cpp_bridge_generator.dart';
+import 'package:nitro_generator/src/generators/languages/c_bridge/cpp_bridge_generator.dart';
 import 'package:nitro_generator/src/bridge_spec.dart';
 import 'package:nitro_annotations/nitro_annotations.dart';
 

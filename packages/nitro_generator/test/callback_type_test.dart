@@ -1,4 +1,10 @@
+import 'package:nitro_annotations/nitro_annotations.dart';
 import 'package:nitro_generator/src/bridge_spec.dart';
+import 'package:nitro_generator/src/generators/languages/c_bridge/cpp_bridge_generator.dart';
+import 'package:nitro_generator/src/generators/languages/c_bridge/cpp_header_generator.dart';
+import 'package:nitro_generator/src/generators/languages/cpp_native/cpp_interface_generator.dart';
+import 'package:nitro_generator/src/generators/languages/dart/dart_ffi_generator.dart';
+import 'package:nitro_generator/src/spec_validator.dart';
 import 'package:test/test.dart';
 
 void main() {
@@ -90,6 +96,7 @@ void main() {
       final func = BridgeFunction(
         dartName: 'onEvent',
         cSymbol: 'on_event',
+        isAsync: false,
         returnType: BridgeType(name: 'void'),
         params: [
           BridgeParam(
@@ -97,11 +104,228 @@ void main() {
             type: callbackType,
           ),
         ],
-        isAsync: false,
       );
 
       expect(func.params.first.type.isFunction, isTrue);
       expect(func.params.first.type.functionReturnType, 'void');
     });
   });
+
+  group('Callback native ABI generation', () {
+    test('SpecValidator accepts supported callback parameters', () {
+      final spec = _callbackParamSpec();
+
+      expect(SpecValidator.validate(spec).where((i) => i.isError), isEmpty);
+    });
+
+    test('DartFfiGenerator emits typed NativeCallable cache and pointer argument', () {
+      final out = DartFfiGenerator.generate(_callbackParamSpec());
+
+      expect(out, contains('final Map<Object, NativeCallable<dynamic>> _nativeCallbackCache = {};'));
+      expect(out, contains('void Function(Pointer<NativeFunction<Void Function(Int64)>>) _watchPtr'));
+      expect(out, contains('NativeCallable<Void Function(Int64)> _nativeCallbackWatchOnEvent(void Function(int) callback)'));
+      expect(out, contains("final key = ('watch.onEvent', callback);"));
+      expect(out, contains('NativeCallable<Void Function(Int64)>.listener((int arg0)'));
+      expect(out, contains('callback(arg0);'));
+      expect(out, contains('_watchPtr(_nativeCallbackWatchOnEvent(onEvent).nativeFunction);'));
+      expect(out, contains('callback.close();'));
+      expect(out, contains('_nativeCallbackCache.clear();'));
+    });
+
+    test('DartFfiGenerator supports primitive return callbacks using isolateLocal', () {
+      final out = DartFfiGenerator.generate(_callbackReturnValueParamSpec());
+
+      expect(out, contains('Pointer<NativeFunction<Int8 Function(Pointer<Utf8>)>>'));
+      expect(out, contains('NativeCallable<Int8 Function(Pointer<Utf8>)>.isolateLocal((Pointer<Utf8> arg0)'));
+      expect(out, contains('return callback(arg0.toDartString()) ? 1 : 0;'));
+      expect(out, contains('exceptionalReturn: 0'));
+    });
+
+    test('CppHeaderGenerator emits real function pointer callback parameters', () {
+      final out = CppHeaderGenerator.generate(_callbackParamSpec());
+
+      expect(out, contains('NITRO_EXPORT void camera_watch(void (*onEvent)(int64_t));'));
+    });
+
+    test('C++ interface and bridge preserve callback function pointer ABI', () {
+      final spec = _cppCallbackParamSpec();
+      final iface = CppInterfaceGenerator.generate(spec);
+      final bridge = CppBridgeGenerator.generate(spec);
+
+      expect(iface, contains('virtual void watch(void (*onEvent)(int64_t)) = 0;'));
+      expect(bridge, contains('void camera_watch(void (*onEvent)(int64_t))'));
+      expect(bridge, contains('g_impl->watch(onEvent);'));
+      expect(bridge, isNot(contains('void* onEvent')));
+    });
+
+    test('DartFfiGenerator refuses callback return types if validation is bypassed', () {
+      expect(
+        () => DartFfiGenerator.generate(_callbackReturnSpec()),
+        throwsA(
+          isA<UnsupportedError>().having(
+            (e) => e.message,
+            'message',
+            contains('returns function type'),
+          ),
+        ),
+      );
+    });
+
+    test('SpecValidator rejects callback return types with the same ABI error', () {
+      final issues = SpecValidator.validate(_callbackReturnSpec());
+
+      final issue = issues.singleWhere((i) => i.code == 'UNSUPPORTED_FUNCTION_TYPE');
+      expect(issue.isError, isTrue);
+      expect(issue.message, contains('return type'));
+      expect(issue.message, contains('void Function(int)'));
+    });
+
+    test('SpecValidator rejects unsupported callback object return values', () {
+      final issues = SpecValidator.validate(_unsupportedCallbackParamSpec());
+
+      final issue = issues.singleWhere((i) => i.code == 'UNSUPPORTED_FUNCTION_TYPE');
+      expect(issue.isError, isTrue);
+      expect(issue.message, contains('callback return type "String"'));
+    });
+  });
+}
+
+BridgeSpec _callbackParamSpec() {
+  return BridgeSpec(
+    dartClassName: 'Camera',
+    lib: 'camera',
+    namespace: 'camera',
+    androidImpl: NativeImpl.kotlin,
+    sourceUri: 'camera.native.dart',
+    functions: [
+      BridgeFunction(
+        dartName: 'watch',
+        cSymbol: 'camera_watch',
+        isAsync: false,
+        returnType: BridgeType(name: 'void'),
+        params: [
+          BridgeParam(
+            name: 'onEvent',
+            type: BridgeType(
+              name: 'void Function(int)',
+              isFunction: true,
+              functionReturnType: 'void',
+              functionParams: [BridgeType(name: 'int')],
+            ),
+          ),
+        ],
+      ),
+    ],
+  );
+}
+
+BridgeSpec _callbackReturnValueParamSpec() {
+  return BridgeSpec(
+    dartClassName: 'Camera',
+    lib: 'camera',
+    namespace: 'camera',
+    androidImpl: NativeImpl.kotlin,
+    sourceUri: 'camera.native.dart',
+    functions: [
+      BridgeFunction(
+        dartName: 'validate',
+        cSymbol: 'camera_validate',
+        isAsync: false,
+        returnType: BridgeType(name: 'void'),
+        params: [
+          BridgeParam(
+            name: 'validator',
+            type: BridgeType(
+              name: 'bool Function(String)',
+              isFunction: true,
+              functionReturnType: 'bool',
+              functionParams: [BridgeType(name: 'String')],
+            ),
+          ),
+        ],
+      ),
+    ],
+  );
+}
+
+BridgeSpec _cppCallbackParamSpec() {
+  return BridgeSpec(
+    dartClassName: 'Camera',
+    lib: 'camera',
+    namespace: 'camera',
+    androidImpl: NativeImpl.cpp,
+    sourceUri: 'camera.native.dart',
+    functions: [
+      BridgeFunction(
+        dartName: 'watch',
+        cSymbol: 'camera_watch',
+        isAsync: false,
+        returnType: BridgeType(name: 'void'),
+        params: [
+          BridgeParam(
+            name: 'onEvent',
+            type: BridgeType(
+              name: 'void Function(int)',
+              isFunction: true,
+              functionReturnType: 'void',
+              functionParams: [BridgeType(name: 'int')],
+            ),
+          ),
+        ],
+      ),
+    ],
+  );
+}
+
+BridgeSpec _callbackReturnSpec() {
+  return BridgeSpec(
+    dartClassName: 'Camera',
+    lib: 'camera',
+    namespace: 'camera',
+    androidImpl: NativeImpl.kotlin,
+    sourceUri: 'camera.native.dart',
+    functions: [
+      BridgeFunction(
+        dartName: 'handler',
+        cSymbol: 'camera_handler',
+        isAsync: false,
+        returnType: BridgeType(
+          name: 'void Function(int)',
+          isFunction: true,
+          functionReturnType: 'void',
+          functionParams: [BridgeType(name: 'int')],
+        ),
+        params: [],
+      ),
+    ],
+  );
+}
+
+BridgeSpec _unsupportedCallbackParamSpec() {
+  return BridgeSpec(
+    dartClassName: 'Camera',
+    lib: 'camera',
+    namespace: 'camera',
+    androidImpl: NativeImpl.kotlin,
+    sourceUri: 'camera.native.dart',
+    functions: [
+      BridgeFunction(
+        dartName: 'transform',
+        cSymbol: 'camera_transform',
+        isAsync: false,
+        returnType: BridgeType(name: 'void'),
+        params: [
+          BridgeParam(
+            name: 'transformer',
+            type: BridgeType(
+              name: 'String Function(int)',
+              isFunction: true,
+              functionReturnType: 'String',
+              functionParams: [BridgeType(name: 'int')],
+            ),
+          ),
+        ],
+      ),
+    ],
+  );
 }

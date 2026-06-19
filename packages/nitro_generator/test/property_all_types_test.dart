@@ -10,9 +10,9 @@
 //   Section 5: Struct properties in Swift, Kotlin, and C++
 //   Section 6: Read-only (val / {get}) vs read-write (var / {get set}) enforcement
 
-import 'package:nitro_generator/src/generators/swift_generator.dart';
-import 'package:nitro_generator/src/generators/kotlin_generator.dart';
-import 'package:nitro_generator/src/generators/cpp_interface_generator.dart';
+import 'package:nitro_generator/src/generators/languages/swift/swift_generator.dart';
+import 'package:nitro_generator/src/generators/languages/kotlin/kotlin_generator.dart';
+import 'package:nitro_generator/src/generators/languages/cpp_native/cpp_interface_generator.dart';
 import 'package:test/test.dart';
 import 'test_utils.dart';
 

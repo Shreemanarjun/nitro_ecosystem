@@ -5,7 +5,7 @@
 //   Section 2: Future<Uint8List> async C bridge stub (DispatchSemaphore pattern)
 //   Section 3: Synchronous TypedData return protocol signature
 
-import 'package:nitro_generator/src/generators/swift_generator.dart';
+import 'package:nitro_generator/src/generators/languages/swift/swift_generator.dart';
 import 'package:test/test.dart';
 import 'test_utils.dart';
 

@@ -8,10 +8,10 @@
 //   5. Kotlin generator produces ByteArray return + result.forEach { it.writeFieldsTo(out, buf) }
 //   6. Property getter returning List<@HybridStruct T> is handled correctly (Dart + RecordExt)
 
-import 'package:nitro_generator/src/generators/dart_ffi_generator.dart';
-import 'package:nitro_generator/src/generators/kotlin_generator.dart';
+import 'package:nitro_generator/src/generators/languages/dart/dart_ffi_generator.dart';
+import 'package:nitro_generator/src/generators/languages/kotlin/kotlin_generator.dart';
 import 'package:nitro_generator/src/generators/record_generator.dart';
-import 'package:nitro_generator/src/generators/swift_generator.dart';
+import 'package:nitro_generator/src/generators/languages/swift/swift_generator.dart';
 import 'package:test/test.dart';
 import 'test_utils.dart';
 

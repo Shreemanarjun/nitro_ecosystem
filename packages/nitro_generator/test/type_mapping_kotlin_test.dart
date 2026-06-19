@@ -13,7 +13,7 @@
 //   Section 8: Async — suspend fun for every return type
 //   Section 9: Android-not-targeted spec returns no-target comment
 
-import 'package:nitro_generator/src/generators/kotlin_generator.dart';
+import 'package:nitro_generator/src/generators/languages/kotlin/kotlin_generator.dart';
 import 'package:test/test.dart';
 import 'test_utils.dart';
 

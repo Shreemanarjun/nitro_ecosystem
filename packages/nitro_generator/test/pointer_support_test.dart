@@ -2,7 +2,7 @@ import 'package:test/test.dart';
 import 'package:nitro_annotations/nitro_annotations.dart';
 import 'package:nitro_generator/src/bridge_spec.dart';
 import 'package:nitro_generator/src/spec_validator.dart';
-import 'package:nitro_generator/src/generators/dart_ffi_generator.dart';
+import 'package:nitro_generator/src/generators/languages/dart/dart_ffi_generator.dart';
 
 void main() {
   group('Pointer Support Tests', () {

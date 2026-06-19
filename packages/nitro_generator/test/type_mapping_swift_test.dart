@@ -12,7 +12,7 @@
 //   Section 7: Async (async throws) for every return type
 //   Section 8: macOS Swift — identical protocol output when iosImpl is absent
 
-import 'package:nitro_generator/src/generators/swift_generator.dart';
+import 'package:nitro_generator/src/generators/languages/swift/swift_generator.dart';
 import 'package:test/test.dart';
 import 'test_utils.dart';
 

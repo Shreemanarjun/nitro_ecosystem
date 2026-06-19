@@ -183,7 +183,18 @@ class SpecValidator {
 
       // Return type
       final retName = func.returnType.name.replaceFirst('?', '');
-      if (retName != 'void' &&
+      if (func.returnType.isFunction) {
+        issues.add(
+          ValidationIssue(
+            severity: ValidationSeverity.error,
+            code: 'UNSUPPORTED_FUNCTION_TYPE',
+            message: '${spec.dartClassName}.${func.dartName}() — return type "${func.returnType.name}" is a function type, which is not a supported native ABI type.',
+            hint:
+                'Use a Stream<T> for native-to-Dart events, @NitroNativeAsync/Future<T> for one-shot async results, '
+                'or expose explicit native register and release methods around a stable callback/token handle.',
+          ),
+        );
+      } else if (retName != 'void' &&
           !func.returnType.isRecord && // @HybridRecord types bridge as String
           !func.returnType.isPointer && // raw FFI pointers
           !_isKnownType(retName, knownTypes) &&
@@ -254,6 +265,11 @@ class SpecValidator {
 
       // Parameter types
       for (final param in func.params) {
+        if (param.type.isFunction) {
+          issues.addAll(_validateCallbackParam(spec, func, param));
+          continue;
+        }
+
         // E001: Map<K, V> where K is not String.
         if (param.type.name.startsWith('Map<') && !param.type.isMap) {
           issues.add(
@@ -271,7 +287,6 @@ class SpecValidator {
         final pName = param.type.name.replaceFirst('?', '');
         if (!param.type.isRecord && // @HybridRecord params bridge as String
             !param.type.isPointer && // raw FFI pointers
-            !param.type.isFunction && // Function types (callbacks) are allowed
             !_isKnownType(pName, knownTypes) &&
             !_isKnownType(param.type.name, knownTypes)) {
           issues.add(
@@ -347,6 +362,18 @@ class SpecValidator {
     // ── Properties ─────────────────────────────────────────────────────────
     for (final prop in spec.properties) {
       final pName = prop.type.name.replaceFirst('?', '');
+      if (prop.type.isFunction) {
+        issues.add(
+          ValidationIssue(
+            severity: ValidationSeverity.error,
+            code: 'UNSUPPORTED_FUNCTION_TYPE',
+            message: '${spec.dartClassName}.${prop.dartName} — property type "${prop.type.name}" is a function type, which is not a supported native ABI type.',
+            hint:
+                'Use a Stream<T> for event-like values, or expose explicit native register and release methods around a stable callback/token handle.',
+          ),
+        );
+        continue;
+      }
       if (!prop.type.isRecord && !prop.type.isPointer && !_isKnownType(pName, knownTypes) && !_isKnownType(prop.type.name, knownTypes)) {
         issues.add(
           ValidationIssue(
@@ -526,5 +553,47 @@ class SpecValidator {
     }
 
     return false;
+  }
+
+  static List<ValidationIssue> _validateCallbackParam(
+    BridgeSpec spec,
+    BridgeFunction func,
+    BridgeParam param,
+  ) {
+    final issues = <ValidationIssue>[];
+    final callback = param.type;
+    final returnName = (callback.functionReturnType ?? 'void').replaceFirst('?', '');
+    final enumNames = spec.enums.map((e) => e.name).toSet();
+
+    final supportedReturn = returnName == 'void' || returnName == 'int' || returnName == 'double' || returnName == 'bool' || enumNames.contains(returnName);
+    if (!supportedReturn) {
+      issues.add(
+        ValidationIssue(
+          severity: ValidationSeverity.error,
+          code: 'UNSUPPORTED_FUNCTION_TYPE',
+          message:
+              '${spec.dartClassName}.${func.dartName}() — parameter "${param.name}" callback return type "$returnName" is not supported.',
+          hint: 'Callback returns support void, int, double, bool, and @HybridEnum. Use Future<T> or Stream<T> for object results.',
+        ),
+      );
+    }
+
+    for (final callbackParam in callback.functionParams) {
+      final name = callbackParam.name.replaceFirst('?', '');
+      final supportedParam = callbackParam.isPointer || name == 'int' || name == 'double' || name == 'bool' || name == 'String' || enumNames.contains(name);
+      if (!supportedParam) {
+        issues.add(
+          ValidationIssue(
+            severity: ValidationSeverity.error,
+            code: 'UNSUPPORTED_FUNCTION_TYPE',
+            message:
+                '${spec.dartClassName}.${func.dartName}() — parameter "${param.name}" callback parameter type "${callbackParam.name}" is not supported.',
+            hint: 'Callback parameters support int, double, bool, String, Pointer<T>, and @HybridEnum.',
+          ),
+        );
+      }
+    }
+
+    return issues;
   }
 }

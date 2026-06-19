@@ -9,7 +9,7 @@
 //   Section 6: @HybridEnum positional param in Dart signature
 //   Section 7: TypedData param variants — Int8List, Float32List coverage
 
-import 'package:nitro_generator/src/generators/dart_ffi_generator.dart';
+import 'package:nitro_generator/src/generators/languages/dart/dart_ffi_generator.dart';
 import 'package:test/test.dart';
 import 'test_utils.dart';
 

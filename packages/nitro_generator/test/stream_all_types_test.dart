@@ -7,8 +7,8 @@
 //
 //   Item types covered: bool, int, double, String, Uint8List, @HybridEnum, @HybridStruct
 
-import 'package:nitro_generator/src/generators/swift_generator.dart';
-import 'package:nitro_generator/src/generators/kotlin_generator.dart';
+import 'package:nitro_generator/src/generators/languages/swift/swift_generator.dart';
+import 'package:nitro_generator/src/generators/languages/kotlin/kotlin_generator.dart';
 import 'package:test/test.dart';
 import 'test_utils.dart';
 

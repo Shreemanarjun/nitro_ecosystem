@@ -2,8 +2,8 @@
 // Covers: CppInterfaceGenerator strips '?' from type names,
 // DartFfiGenerator preserves '?' in Dart signatures,
 // RecordGenerator generates nullable fields correctly in Dart and Kotlin.
-import 'package:nitro_generator/src/generators/cpp_interface_generator.dart';
-import 'package:nitro_generator/src/generators/dart_ffi_generator.dart';
+import 'package:nitro_generator/src/generators/languages/cpp_native/cpp_interface_generator.dart';
+import 'package:nitro_generator/src/generators/languages/dart/dart_ffi_generator.dart';
 import 'package:nitro_generator/src/generators/record_generator.dart';
 import 'package:test/test.dart';
 import 'test_utils.dart';

@@ -1,4 +1,4 @@
-import 'package:nitro_generator/src/generators/cpp_mock_generator.dart';
+import 'package:nitro_generator/src/generators/languages/cpp_native/cpp_mock_generator.dart';
 import 'package:test/test.dart';
 import 'test_utils.dart';
 

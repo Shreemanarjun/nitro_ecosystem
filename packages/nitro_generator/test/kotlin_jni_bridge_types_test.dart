@@ -6,7 +6,7 @@
 //   Section 3: Async _call enum → Long via nativeValue
 //   Section 4: _call void → Unit (no return statement)
 
-import 'package:nitro_generator/src/generators/kotlin_generator.dart';
+import 'package:nitro_generator/src/generators/languages/kotlin/kotlin_generator.dart';
 import 'package:test/test.dart';
 import 'test_utils.dart';
 

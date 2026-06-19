@@ -23,8 +23,8 @@
 //   §11 mixed params: some nullable, some not
 //   §12 C++ JNI sig still emits primitive J/Z/D (no regression in cpp generator)
 
-import 'package:nitro_generator/src/generators/kotlin_generator.dart';
-import 'package:nitro_generator/src/generators/cpp_bridge_generator.dart';
+import 'package:nitro_generator/src/generators/languages/kotlin/kotlin_generator.dart';
+import 'package:nitro_generator/src/generators/languages/c_bridge/cpp_bridge_generator.dart';
 import 'package:test/test.dart';
 import 'test_utils.dart';
 

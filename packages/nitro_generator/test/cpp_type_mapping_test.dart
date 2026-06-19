@@ -9,7 +9,7 @@
 //   Section 5: @HybridStruct param and return types
 //   Section 6: C++ interface header boilerplate (virtual, = 0, pure virtual)
 
-import 'package:nitro_generator/src/generators/cpp_interface_generator.dart';
+import 'package:nitro_generator/src/generators/languages/cpp_native/cpp_interface_generator.dart';
 import 'package:test/test.dart';
 import 'test_utils.dart';
 

@@ -1,5 +1,5 @@
 // Tests for stream implementations with @HybridEnum and @HybridStruct item types.
-import 'package:nitro_generator/src/generators/dart_ffi_generator.dart';
+import 'package:nitro_generator/src/generators/languages/dart/dart_ffi_generator.dart';
 import 'package:test/test.dart';
 import 'test_utils.dart';
 

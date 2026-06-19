@@ -4,14 +4,7 @@ import 'package:source_gen/source_gen.dart';
 import 'src/build_extensions.dart';
 import 'src/spec_extractor.dart';
 import 'src/spec_validator.dart';
-import 'src/generators/dart_ffi_generator.dart';
-import 'src/generators/cpp_header_generator.dart';
-import 'src/generators/kotlin_generator.dart';
-import 'src/generators/swift_generator.dart';
-import 'src/generators/cmake_generator.dart';
-import 'src/generators/cpp_bridge_generator.dart';
-import 'src/generators/cpp_interface_generator.dart';
-import 'src/generators/cpp_mock_generator.dart';
+import 'src/generators/native_generator_facade.dart';
 
 Builder nitroGeneratorBuilder(BuilderOptions options) {
   return NitroGeneratorBuilder();
@@ -19,6 +12,7 @@ Builder nitroGeneratorBuilder(BuilderOptions options) {
 
 class NitroGeneratorBuilder implements Builder {
   static final _formatter = DartFormatter(languageVersion: DartFormatter.latestLanguageVersion);
+  static final _nativeGenerators = NativeGeneratorFacade.defaults();
 
   @override
   Map<String, List<String>> get buildExtensions => nitroBuilderExtensions;
@@ -66,8 +60,11 @@ class NitroGeneratorBuilder implements Builder {
           }
         }
 
-        if (outId.path.endsWith('.g.dart')) {
-          final rawCode = DartFfiGenerator.generate(spec);
+        final target = _nativeGenerators.targetForOutputPath(outId.path);
+        if (target == null) continue;
+
+        if (target == NativeGeneratorTarget.dartFfi) {
+          final rawCode = _nativeGenerators.generate(target, spec);
           String formattedCode;
           try {
             formattedCode = _formatter.format(rawCode);
@@ -76,23 +73,8 @@ class NitroGeneratorBuilder implements Builder {
             formattedCode = rawCode;
           }
           await buildStep.writeAsString(outId, formattedCode);
-        } else if (outId.path.endsWith('.bridge.g.kt')) {
-          await buildStep.writeAsString(outId, KotlinGenerator.generate(spec));
-        } else if (outId.path.endsWith('.bridge.g.swift')) {
-          await buildStep.writeAsString(outId, SwiftGenerator.generate(spec));
-        } else if (outId.path.endsWith('.bridge.g.h')) {
-          await buildStep.writeAsString(outId, CppHeaderGenerator.generate(spec));
-        } else if (outId.path.endsWith('.bridge.g.cpp')) {
-          await buildStep.writeAsString(outId, CppBridgeGenerator.generate(spec));
-        } else if (outId.path.endsWith('.CMakeLists.g.txt')) {
-          await buildStep.writeAsString(outId, CMakeGenerator.generate(spec));
-          // ── NativeImpl.cpp outputs ─────────────────────────────────────
-        } else if (outId.path.endsWith('.native.g.h')) {
-          await buildStep.writeAsString(outId, CppInterfaceGenerator.generate(spec));
-        } else if (outId.path.endsWith('.mock.g.h')) {
-          await buildStep.writeAsString(outId, CppMockGenerator.generateMockHeader(spec));
-        } else if (outId.path.endsWith('.test.g.cpp')) {
-          await buildStep.writeAsString(outId, CppMockGenerator.generateTestStarter(spec));
+        } else {
+          await buildStep.writeAsString(outId, _nativeGenerators.generate(target, spec));
         }
       }
     } catch (e, st) {

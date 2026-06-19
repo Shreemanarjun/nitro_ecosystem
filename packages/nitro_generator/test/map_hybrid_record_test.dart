@@ -8,7 +8,7 @@
 // That is the realistic scenario emitted by the spec extractor: it sets isMap on
 // the BridgeType but does NOT synthesize a BridgeRecordType for Map's value.
 
-import 'package:nitro_generator/src/generators/dart_ffi_generator.dart';
+import 'package:nitro_generator/src/generators/languages/dart/dart_ffi_generator.dart';
 import 'package:test/test.dart';
 import 'test_utils.dart';
 

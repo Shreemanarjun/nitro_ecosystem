@@ -1,4 +1,4 @@
-import 'package:nitro_generator/src/generators/cmake_generator.dart';
+import 'package:nitro_generator/src/generators/languages/cmake/cmake_generator.dart';
 import 'package:test/test.dart';
 import 'test_utils.dart';
 
@@ -40,6 +40,7 @@ void main() {
       final out = CMakeGenerator.generate(simpleSpec());
       // CMake uses ${${NITRO_MODULE_NAME}}_bridge.g.h (variable indirection)
       expect(out, contains('\${NITRO_MODULE_NAME}}_bridge.g.h'));
+      expect(out, contains('    \${\${NITRO_MODULE_NAME}}_bridge.g.h'));
     });
 
     test('target_link_libraries uses module name variable', () {

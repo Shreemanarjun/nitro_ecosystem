@@ -10,7 +10,7 @@
 //                           structs actually referenced in record fields
 
 import 'package:nitro_generator/src/generators/record_generator.dart';
-import 'package:nitro_generator/src/generators/swift_generator.dart';
+import 'package:nitro_generator/src/generators/languages/swift/swift_generator.dart';
 import 'package:test/test.dart';
 import 'test_utils.dart';
 

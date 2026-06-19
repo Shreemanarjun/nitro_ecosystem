@@ -8,9 +8,9 @@
 //  3. C++ bridge generator: proper jbyteArray extraction in pack_from_jni and
 //     NewByteArray emission in unpack_to_jni for non-zero-copy typed data.
 
-import 'package:nitro_generator/src/generators/cpp_bridge_generator.dart';
+import 'package:nitro_generator/src/generators/languages/c_bridge/cpp_bridge_generator.dart';
 import 'package:nitro_generator/src/generators/struct_generator.dart';
-import 'package:nitro_generator/src/generators/swift_generator.dart';
+import 'package:nitro_generator/src/generators/languages/swift/swift_generator.dart';
 import 'package:test/test.dart';
 import 'test_utils.dart';
 

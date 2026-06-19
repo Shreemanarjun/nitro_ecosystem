@@ -9,8 +9,8 @@
 //   `XxxRecordExt.fromNative` or `malloc.free`.  Failing to do so produces
 //   a runtime `type 'int' is not a subtype of type 'Pointer<NativeType>'`
 //   crash on the very first stream event.
-import 'package:nitro_generator/src/generators/cpp_bridge_generator.dart';
-import 'package:nitro_generator/src/generators/dart_ffi_generator.dart';
+import 'package:nitro_generator/src/generators/languages/c_bridge/cpp_bridge_generator.dart';
+import 'package:nitro_generator/src/generators/languages/dart/dart_ffi_generator.dart';
 import 'package:test/test.dart';
 import 'test_utils.dart';
 

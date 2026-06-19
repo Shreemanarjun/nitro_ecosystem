@@ -1,7 +1,7 @@
 // End-to-end verification that Bug 5.2 (enum default param) works through
 // the spec_from_source parser → dart_ffi_generator pipeline.
 import 'package:test/test.dart';
-import 'package:nitro_generator/src/generators/dart_ffi_generator.dart';
+import 'package:nitro_generator/src/generators/languages/dart/dart_ffi_generator.dart';
 import 'spec_tester.dart';
 
 void main() {

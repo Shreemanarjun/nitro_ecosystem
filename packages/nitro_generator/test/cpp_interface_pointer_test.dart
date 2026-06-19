@@ -2,7 +2,7 @@
 // Covers: Pointer<Void>, Pointer<EnumName>, Pointer<StructName>,
 // Pointer<RecordName>, Pointer<int>, null pointerInnerType,
 // multiple pointer params, pointer return type.
-import 'package:nitro_generator/src/generators/cpp_interface_generator.dart';
+import 'package:nitro_generator/src/generators/languages/cpp_native/cpp_interface_generator.dart';
 import 'package:test/test.dart';
 import 'test_utils.dart';
 
