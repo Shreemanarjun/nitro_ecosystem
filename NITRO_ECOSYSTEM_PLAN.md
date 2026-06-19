@@ -615,8 +615,8 @@ Each subsection lists the **target test file**, **existing coverage**, and
 | `Future<int>` async | `Future<int>` | ✓ |
 | `Future<double>` async | `Future<double>` | ✓ |
 | `Future<String>` async | `Future<String>` | ✓ |
-| `Future<Uint8List>` async | `Future<Uint8List>` | need test |
-| `Future<@HybridStruct>` async | `Future<Foo>` | need test |
+| `Future<Uint8List>` async | `Future<Uint8List>` | ✓ (`dart_ffi_param_return_test`) |
+| `Future<@HybridStruct>` async | `Future<Foo>` | ✓ (`dart_ffi_param_return_test`) |
 | `Future<@HybridEnum>` async | `Future<Foo>` | ✓ (dart_ffi_generator_test) |
 | `Future<List<@HybridRecord>>` async | `Future<List<Foo>>` | ✓ (dart_ffi_generator_record_test) |
 | `@HybridEnum` sync | `Foo` | ✓ |
@@ -1496,7 +1496,7 @@ nitro generate --verbose
 | Same for enum defaults (Bug 5.2) | ✅ **DONE** 2026-05-23 | `dart_ffi_param_return_test.dart` Bug 5.2 group (3 tests) |
 | Validation emits W001 when `defaultLiteral` is null on non-nullable optional param | ✅ **DONE** 2026-05-22 | 7 W001 tests in `spec_validator_test` pass |
 | All new spec helpers in `test_utils.dart` added (§9) | ✅ **DONE** 2026-05-23 | `typedDataCppMappings`, `streamSpec`, `specWithDefaultlessIntNamedParam`, `specWithEnumNamedParam` added |
-| All P0 missing tests from §8.1–8.3 added | ✅ **DONE** 2026-06-19 | full generator suite green (`2636` passing) |
+| All P0 missing tests from §8.1–8.3 added | ✅ **DONE** 2026-06-19 | full generator suite green (`2646` passing) |
 
 ### Phase 2 — P1: Type completeness
 
@@ -1507,7 +1507,7 @@ nitro generate --verbose
 | All 10 TypedData variant tests — C++ | ✅ **DONE** 2026-05-22 | `cpp_type_mapping_test` (35 tests) |
 | All stream item types tested (§3.10) — Swift + Kotlin | ✅ **DONE** 2026-05-22 | `stream_all_types_test` (27 tests) |
 | All property types tested (§3.11) — Swift + Kotlin + C++ | ✅ **DONE** 2026-05-22 | `property_all_types_test` (42 tests) |
-| Async return types fully tested (§3.9) — Swift + Kotlin + Dart | ✅ **DONE** 2026-05-22 | `async_return_types_test` (28 tests) |
+| Async return types fully tested (§3.9) — Swift + Kotlin + Dart | ✅ **DONE** 2026-06-19 | `async_return_types_test`, `dart_ffi_param_return_test`, `swift_typed_data_async_test`; async TypedData returns now verify decode/copy/free path |
 | Nullable param/return types tested — Swift + Kotlin | ✅ **DONE** 2026-05-22 | Sections 3–4 of `type_mapping_swift/kotlin_test` |
 | Struct with every field type variant (§3.5) | ✅ **DONE** 2026-05-23 | `struct_field_types_test.dart` kitchen-sink covers all types in Swift/Kotlin/C++ |
 | Record with every field type variant (§3.6) | ✅ **DONE** 2026-05-23 | `record_field_types_test.dart` (56 tests): bool/double/Uint8List/List<T>/Swift boilerplate |
@@ -1523,7 +1523,7 @@ nitro generate --verbose
 | Remove raw `StringBuffer(` usage from language generator emitters | ✅ **DONE** 2026-06-19 | `rg "StringBuffer\\(" packages/nitro_generator/lib/src/generators/languages` returns no matches |
 | Fix required `BridgeFunction(isAsync: ...)` constructor fallout in existing tests | ✅ **DONE** 2026-06-19 | full generator suite compiles and passes |
 | Add tests for facade and typed writer isolation | ✅ **DONE** 2026-06-19 | `code_writer_test.dart`, `native_generator_facade_test.dart` |
-| Verify generator suite after architecture move | ✅ **DONE** 2026-06-19 | direct Dart SDK test run: `2636: All tests passed!` |
+| Verify generator suite after architecture move | ✅ **DONE** 2026-06-19 | direct Dart SDK test run: `2646: All tests passed!` |
 
 ### Phase 3 — P1: CLI modes
 
@@ -1665,13 +1665,24 @@ Future<bool> setMetadata(String metaJson);   // caller: jsonEncode(map)
 | `typed_list_bridge_test.dart` | TypedData in bridge |
 | `edge_cases_test.dart` | Empty spec, no-function spec, etc. |
 
-### New tests added 2026-06-19 (architecture/facade; suite: 2636 passing — 0 failures)
+### New tests added 2026-06-19 (architecture/facade; suite: 2646 passing — 0 failures)
 
 | Test file | What it covers |
 |---|---|
 | `code_writer_test.dart` | Typed code writer primitives: lines, blank lines, raw snippets, blocks, and file assembly |
 | `native_generator_facade_test.dart` | Facade/bundle dispatch and language-target isolation for generated native outputs |
 | Existing generator tests updated | `BridgeFunction(isAsync: ...)` required constructor argument added across helpers/tests; all existing generator coverage compiles |
+
+### New tests added 2026-06-19 (performance/correctness; focused suites green)
+
+| Test file | What it covers |
+|---|---|
+| `dart_ffi_param_return_test.dart` | Async `Uint8List` and `Float32List` returns decode from a malloc-owned `[int64 byteLength][payload]` envelope and free native memory |
+| `swift_typed_data_async_test.dart` | Swift async/sync TypedData returns allocate the same C-`malloc` length-prefixed envelope for Dart |
+| `cpp_bridge_types_test.dart` | JNI TypedData returns copy JVM primitive arrays into the length-prefixed envelope |
+| `jni_perf_test.dart` | Assert-gated `NitroRuntime.checkError`, cached JNI IDs, arena lifetime, and unknown JNI type failure |
+| `lazy_record_list_test.dart` | `RecordWriter` growable buffer and `RecordReader` in-place scalar/string decode performance guards |
+| `link_command_test.dart` | Contextual errors for malformed `package_config.json` while resolving Nitro native paths |
 
 ### New tests added 2026-05-23 (total: ~119 new tests; suite: 1991 passing — 0 failures)
 

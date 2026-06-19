@@ -246,6 +246,7 @@ class DartFfiGenerator {
       } else if (func.isAsync) {
         final isStructReturn = spec.structs.any((st) => st.name == rt);
         final isEnumReturn = spec.enums.any((en) => en.name == rt);
+        final isTypedDataReturn = func.returnType.isTypedData;
         // plainCallArgs: used when no arena is needed. Apply the same optional-primitive
         // sentinel encoding as callArgs so that int?/bool?/double? are never passed as null.
         // (Structs, TypedData, String all require an arena so they can't appear here.)
@@ -263,6 +264,8 @@ class DartFfiGenerator {
             .join(', ');
 
         final callAsyncType = isRecordReturn
+            ? 'Pointer<Uint8>'
+            : isTypedDataReturn
             ? 'Pointer<Uint8>'
             : rt == 'String'
             ? 'Pointer<Utf8>'
@@ -308,6 +311,9 @@ class DartFfiGenerator {
           } else if (isEnumReturn) {
             writer.line('      final res = await NitroRuntime.callAsync<int>(_${func.dartName}Ptr, [$callArgs], $errArgs);');
             writer.line('      return res.to$rt();');
+          } else if (isTypedDataReturn) {
+            writer.line('      final rawPtr = await NitroRuntime.callAsync<Pointer<Uint8>>(_${func.dartName}Ptr, [$callArgs], $errArgs);');
+            _emitTypedDataDecodeReturn(writer, func.returnType, 'rawPtr', '      ');
           } else {
             writer.line('      final res = await NitroRuntime.callAsync<$callAsyncType>(_${func.dartName}Ptr, [$callArgs], $errArgs);');
             if (rt == 'bool') {
@@ -348,6 +354,9 @@ class DartFfiGenerator {
           } else if (isEnumReturn) {
             writer.line('    final res = await NitroRuntime.callAsync<int>(_${func.dartName}Ptr, [$plainCallArgs], $errArgs);');
             writer.line('    return res.to$rt();');
+          } else if (isTypedDataReturn) {
+            writer.line('    final rawPtr = await NitroRuntime.callAsync<Pointer<Uint8>>(_${func.dartName}Ptr, [$plainCallArgs], $errArgs);');
+            _emitTypedDataDecodeReturn(writer, func.returnType, 'rawPtr', '    ');
           } else {
             writer.line('    final res = await NitroRuntime.callAsync<$callAsyncType>(_${func.dartName}Ptr, [$plainCallArgs], $errArgs);');
             if (rt == 'bool') {
@@ -372,7 +381,7 @@ class DartFfiGenerator {
             writer.line('      final res = _${func.dartName}Ptr($callArgs);');
           }
           if (!isFast) {
-            writer.line("      NitroRuntime.checkError(_getErrorPtr, _clearErrorPtr);");
+            writer.line(_assertCheckError('      '));
           }
           if (rt == 'void') {
             writer.line('      return;');
@@ -418,14 +427,14 @@ class DartFfiGenerator {
             writer.line('    NitroRuntime.callSync<void>(() {');
             writer.line('      _${func.dartName}Ptr($callArgs);');
             if (!isFast) {
-              writer.line("      NitroRuntime.checkError(_getErrorPtr, _clearErrorPtr);");
+              writer.line(_assertCheckError('      '));
             }
             writer.line('    }$mnArg);');
           } else {
             writer.line('    return NitroRuntime.callSync(() {');
             writer.line('      final res = _${func.dartName}Ptr($callArgs);');
             if (!isFast) {
-              writer.line("      NitroRuntime.checkError(_getErrorPtr, _clearErrorPtr);");
+              writer.line(_assertCheckError('      '));
             }
             if (isRecordReturn) {
               final decodeExpr = _decodeRecordExpr(func.returnType, 'res');
@@ -485,7 +494,7 @@ class DartFfiGenerator {
           writer.line('    checkDisposed();');
           writer.line("    return NitroRuntime.callSync(() {");
           writer.line('      final res = _get${cap}Ptr();');
-          writer.line('      NitroRuntime.checkError(_getErrorPtr, _clearErrorPtr);');
+          writer.line(_assertCheckError('      '));
           if (isLazy) {
             writer.line('      return ${_decodeRecordExpr(prop.type, "res")};');
           } else {
@@ -502,7 +511,7 @@ class DartFfiGenerator {
           writer.line('    checkDisposed();');
           writer.line("    return NitroRuntime.callSync(() {");
           writer.line('      final res = _get${cap}Ptr();');
-          writer.line("      NitroRuntime.checkError(_getErrorPtr, _clearErrorPtr);");
+          writer.line(_assertCheckError('      '));
           if (spec.enums.any((en) => en.name == rt)) {
             writer.line('      return res.to$rt();');
           } else if (rt == 'bool') {
@@ -532,7 +541,7 @@ class DartFfiGenerator {
           final encodeExpr = _encodeRecordParam(prop.type, 'value', 'arena');
           writer.line('  set ${prop.dartName}($rt value) {');
           writer.line('    checkDisposed();');
-          writer.line("    NitroRuntime.callSync<void>(() => withArena((arena) { _set${cap}Ptr($encodeExpr); NitroRuntime.checkError(_getErrorPtr, _clearErrorPtr); }), methodName: 'set ${prop.dartName}');");
+          writer.line("    NitroRuntime.callSync<void>(() => withArena((arena) { _set${cap}Ptr($encodeExpr); ${_inlineAssertCheckError()} }), methodName: 'set ${prop.dartName}');");
           writer.line('  }');
         } else {
           final propNeedsArena = rt == 'String' || prop.type.isTypedData || spec.structs.any((st) => st.name == rt);
@@ -546,7 +555,7 @@ class DartFfiGenerator {
               valExpr = 'value.toNative(arena).cast<Void>()';
             }
             writer.line(
-              "  set ${prop.dartName}($rt value) { checkDisposed(); NitroRuntime.callSync<void>(() => withArena((arena) { _set${cap}Ptr($valExpr); NitroRuntime.checkError(_getErrorPtr, _clearErrorPtr); }), methodName: 'set ${prop.dartName}'); }",
+              "  set ${prop.dartName}($rt value) { checkDisposed(); NitroRuntime.callSync<void>(() => withArena((arena) { _set${cap}Ptr($valExpr); ${_inlineAssertCheckError()} }), methodName: 'set ${prop.dartName}'); }",
             );
           } else {
             String valExpr = 'value';
@@ -556,7 +565,7 @@ class DartFfiGenerator {
               valExpr = 'value ? 1 : 0';
             }
             writer.line(
-              "  set ${prop.dartName}($rt value) { checkDisposed(); NitroRuntime.callSync<void>(() { _set${cap}Ptr($valExpr); NitroRuntime.checkError(_getErrorPtr, _clearErrorPtr); }, methodName: 'set ${prop.dartName}'); }",
+              "  set ${prop.dartName}($rt value) { checkDisposed(); NitroRuntime.callSync<void>(() { _set${cap}Ptr($valExpr); ${_inlineAssertCheckError()} }, methodName: 'set ${prop.dartName}'); }",
             );
           }
         }
@@ -640,6 +649,7 @@ class DartFfiGenerator {
   static String _toNativeType(BridgeFunction func, BridgeSpec spec) {
     // NativeAsync: C function returns void and takes an extra Int64 dart_port.
     final ret = func.isNativeAsync ? 'Void' : _typeToFFI(func.returnType, spec);
+    final effectiveRet = func.isAsync && func.returnType.isTypedData ? 'Pointer<Uint8>' : ret;
     final params = [
       ...func.params.expand((p) {
         if (p.type.isTypedData) return [_typeToFFI(p.type, spec), 'Int64'];
@@ -647,12 +657,13 @@ class DartFfiGenerator {
       }),
       if (func.isNativeAsync) 'Int64', // dart_port
     ].join(', ');
-    return '$ret Function($params)';
+    return '$effectiveRet Function($params)';
   }
 
   static String _toDartType(BridgeFunction func, BridgeSpec spec) {
     // NativeAsync: Dart callable returns void and takes an extra int dart_port.
     final ret = func.isNativeAsync ? 'void' : _typeToDartFFI(func.returnType, spec);
+    final effectiveRet = func.isAsync && func.returnType.isTypedData ? 'Pointer<Uint8>' : ret;
     final params = [
       ...func.params.expand((p) {
         if (p.type.isTypedData) return [_typeToDartFFI(p.type, spec), 'int'];
@@ -660,7 +671,7 @@ class DartFfiGenerator {
       }),
       if (func.isNativeAsync) 'int', // dart_port
     ].join(', ');
-    return '$ret Function($params)';
+    return '$effectiveRet Function($params)';
   }
 
   static String _typeToFFI(BridgeType bt, BridgeSpec spec) {
@@ -774,6 +785,75 @@ class DartFfiGenerator {
     }
     final rt = type.name;
     return '${rt}RecordExt.fromNative($ptrVar)';
+  }
+
+  static void _emitTypedDataDecodeReturn(
+    CodeWriter writer,
+    BridgeType type,
+    String ptrVar,
+    String indent,
+  ) {
+    final rt = type.name.replaceFirst('?', '');
+    final ffiElem = _typedDataFfiElement(rt);
+    final lengthExpr = _typedDataElementSize(rt) == 1 ? 'byteLength' : 'byteLength ~/ ${_typedDataElementSize(rt)}';
+    writer.line('${indent}if ($ptrVar == nullptr) {');
+    writer.line("${indent}  throw StateError('Native async $rt return was null');");
+    writer.line('$indent}');
+    writer.line('${indent}try {');
+    writer.line('$indent  final byteLength = $ptrVar.cast<Int64>().value;');
+    writer.line('$indent  final payloadPtr = Pointer<$ffiElem>.fromAddress($ptrVar.address + 8);');
+    writer.line('$indent  return $rt.fromList(payloadPtr.asTypedList($lengthExpr));');
+    writer.line('$indent} finally {');
+    writer.line('$indent  malloc.free($ptrVar);');
+    writer.line('$indent}');
+  }
+
+  static String _typedDataFfiElement(String dartType) {
+    switch (dartType) {
+      case 'Uint8List':
+        return 'Uint8';
+      case 'Int8List':
+        return 'Int8';
+      case 'Int16List':
+        return 'Int16';
+      case 'Int32List':
+        return 'Int32';
+      case 'Uint16List':
+        return 'Uint16';
+      case 'Uint32List':
+        return 'Uint32';
+      case 'Float32List':
+        return 'Float';
+      case 'Float64List':
+        return 'Double';
+      case 'Int64List':
+        return 'Int64';
+      case 'Uint64List':
+        return 'Uint64';
+      default:
+        throw StateError('Unknown typed-data return type "$dartType".');
+    }
+  }
+
+  static int _typedDataElementSize(String dartType) {
+    switch (dartType) {
+      case 'Uint8List':
+      case 'Int8List':
+        return 1;
+      case 'Int16List':
+      case 'Uint16List':
+        return 2;
+      case 'Int32List':
+      case 'Uint32List':
+      case 'Float32List':
+        return 4;
+      case 'Float64List':
+      case 'Int64List':
+      case 'Uint64List':
+        return 8;
+      default:
+        throw StateError('Unknown typed-data return type "$dartType".');
+    }
   }
 
   static String _primitiveReaderCall(String item) {
@@ -919,6 +999,12 @@ class DartFfiGenerator {
     // int, double — native posts kInt64/kDouble.
     return '(raw) => raw as $rt';
   }
+
+  static String _inlineAssertCheckError() {
+    return 'assert(() { NitroRuntime.checkError(_getErrorPtr, _clearErrorPtr); return true; }());';
+  }
+
+  static String _assertCheckError(String indent) => '$indent${_inlineAssertCheckError()}';
 
   // ── Leaf / isLeaf helpers ─────────────────────────────────────────────────
 

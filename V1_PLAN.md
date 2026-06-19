@@ -45,13 +45,13 @@
 
 | ID | Item | Priority | Status |
 |----|------|----------|--------|
-| P1 | `FindClass()` inside `unpack_*_to_jni` — cache `jclass` + `jmethodID` as statics | 🔴 High | ⬜ Pending |
+| P1 | `FindClass()` inside `unpack_*_to_jni` — cache `jclass` + `jmethodID` as statics | 🔴 High | ✅ Done |
 | P2 | TypedData params: `NewDirectByteBuffer` zero-copy path (not just fields) | 🟡 Medium | ⬜ Pending |
-| P3 | `NitroRuntime.checkError` — assert-gate in release (Approach A, non-breaking) | 🟡 Medium | ⬜ Pending |
+| P3 | `NitroRuntime.checkError` — assert-gate in release (Approach A, non-breaking) | 🟡 Medium | ✅ Done |
 | P4 | Generator inner loops: pre-build `Set<String>` for O(1) type lookups | 🟡 Medium | ✅ Done |
-| P5 | `RecordWriter` preallocated growable buffer; `readString` in-place decode | 🟡 Medium | ⬜ Pending |
+| P5 | `RecordWriter` preallocated growable buffer; `readString` in-place decode | 🟡 Medium | ✅ Done |
 | P6 | `IsolatePool._leastBusyIndex` → min-heap or round-robin | 🟢 Low | ⬜ Pending |
-| P7 | `isLeaf: true` on pure-native FFI calls (~30% call overhead reduction) | 🟡 Medium | ⬜ Pending |
+| P7 | `isLeaf: true` on pure-native FFI calls (~30% call overhead reduction) | 🟡 Medium | ✅ Done |
 | P8 | `checkDisposed()` → `@pragma('vm:prefer-inline')` + assert variant | 🟢 Low | ⬜ Pending |
 
 ### Stability & Correctness
@@ -71,12 +71,12 @@
 
 | ID | Item | Priority | Status |
 |----|------|----------|--------|
-| T1 | **Bug:** Stream `String`/`bool`/`int` unpack — `rawPtr as T` is wrong | 🔴 Critical | ⬜ Pending |
-| T2 | **Bug:** Async `Uint8List`/`Float32List` return has no decode path | 🔴 Critical | ⬜ Pending |
-| T3 | **Bug:** `bool` JNI sig uses `jbyte` (sig `B`) instead of `jboolean` (sig `Z`) | 🔴 Critical | ⬜ Pending |
+| T1 | **Bug:** Stream `String`/`bool`/`int` unpack — `rawPtr as T` is wrong | 🔴 Critical | ✅ Done |
+| T2 | **Bug:** Async `Uint8List`/`Float32List` return has no decode path | 🔴 Critical | ✅ Done |
+| T3 | **Bug:** `bool` JNI sig uses `jbyte` (sig `B`) instead of `jboolean` (sig `Z`) | 🔴 Critical | ✅ Done |
 | T4 | **Bug:** `@HybridEnum` field inside `@HybridRecord` serialized as raw int (not `.nativeValue`) | 🔴 Critical | ⬜ Pending |
 | T5 | **Bug:** Nullable `@HybridStruct` param has no null-pointer guard in C++ bridge | 🟡 Medium | ⬜ Pending |
-| T6 | **Bug:** `withArena` wraps async body — arena freed before `await` completes (use-after-free) | 🔴 Critical | ⬜ Pending |
+| T6 | **Bug:** `withArena` wraps async body — arena freed before `await` completes (use-after-free) | 🔴 Critical | ✅ Done |
 | T7 | Unit tests: `List<bool/double/String/int>` inside record serializers (all 4 generators) | 🟡 Medium | ✅ Done |
 | T8 | Unit tests: Kotlin all-types coverage (bool, enum, struct, record async) | 🟡 Medium | ✅ Done |
 | T9 | Unit tests: Swift all-types coverage (bool, enum, struct, stream types) | 🟡 Medium | ✅ Done |
@@ -119,14 +119,14 @@
 | G5 | `DartFormatter` hoisted to `static final _formatter` (not re-instantiated per spec) | 🟢 Low | ⬜ Pending |
 | G6 | `dart_api_dl.c` absolute-path fragility — resolve at build time from package config | 🔴 High | ⬜ Pending |
 | G7 | `SpecExtractor` single-pass AST visitor (replace multiple loops over same element list) | 🟢 Low | ⬜ Pending |
-| G8 | `_jniSigType` / `_jniGetter` unknown type: throw `StateError` with type name | 🔴 High | ⬜ Pending |
+| G8 | `_jniSigType` / `_jniGetter` unknown type: throw `StateError` with type name | 🔴 High | ✅ Done |
 | G9 | `LOGE("Method not found")` — include method name + JNI sig in log line | 🟡 Medium | ⬜ Pending |
 | G10 | Stale-generation detection: emit `// nitro_generator: x.y.z` comment in outputs | 🟡 Medium | ⬜ Pending |
 | G11 | Coroutine imports in Kotlin emitted unconditionally — make conditional | 🟢 Low | ⬜ Pending |
 | G12 | `callAsync` returns `dynamic` — type to `callAsync<T>` with structured result | 🟡 Medium | ⬜ Pending |
 | G13 | Spec-path attribution in generated file headers | 🟢 Low | ⬜ Pending |
 | G14 | Fix silent `catch (_) {}` in spec extractor — rethrow as `SpecParseException` | 🔴 High | ⬜ Pending |
-| G15 | Fix empty catch in `link_command.dart` Nitro-native path resolution | 🔴 High | ⬜ Pending |
+| G15 | Fix empty catch in `link_command.dart` Nitro-native path resolution | 🔴 High | ✅ Done |
 | G16 | Centralise hardcoded platform versions (`swift-tools: 5.9`, `ndkVersion 34`, etc.) | 🟡 Medium | ⬜ Pending |
 | G17 | Facade-oriented generator bundles by language (`dart`, `kotlin`, `swift`, `c_bridge`, `cpp_native`, `cmake`) | 🟡 Medium | ✅ Done |
 | G18 | Replace raw language-generator `StringBuffer` emitters with typed writer/model layer | 🟡 Medium | ✅ Done |
@@ -204,26 +204,25 @@ All items below are shipped and tested. See `plan.md` status section and individ
 ## 2. Performance
 
 ### P1 — `FindClass()` inside `unpack_*_to_jni`
-Every call to `unpack_SomeStruct_to_jni` runs `env->FindClass(...)` + `env->GetMethodID(cls, "<init>", ...)`. Cache `jclass` and `jmethodID` as `static` globals populated once (same pattern as `JNI_OnLoad` caching already done for methods).
+✅ **Done 2026-06-19.** `unpack_*_to_jni` now uses cached `jclass` and constructor IDs populated through the JNI cache path. Covered by `jni_perf_test.dart`.
 
 ### P2 — TypedData zero-copy params
 `NewFloatArray` + `SetFloatArrayRegion` allocates + copies on every call. Offer `NewDirectByteBuffer` path for `Uint8List` and `Float32List` params when the Dart side owns the buffer for the duration of the call (not just fields via `@zeroCopy`).
 
 ### P3 — `NitroRuntime.checkError` assert-gate (Approach A, non-breaking)
-Gate `NitroRuntime.checkError` inside `assert(() { …; return true; }())` in generated Dart. Fully erased in release builds — no branch, no pointer read. Files: `dart_ffi_generator.dart`.
+✅ **Done 2026-06-19.** Generated sync Dart FFI calls now gate `NitroRuntime.checkError` inside `assert(() { …; return true; }())`, keeping debug checks while erasing the call in release. Covered by `jni_perf_test.dart`.
 
 ### P4 — Generator O(n²) type lookups
 ✅ **Done 2026-06-19.** The language generators now pre-build enum/struct/record lookup sets near the top of their emitters instead of repeatedly scanning `spec.enums`, `spec.structs`, and `spec.recordTypes` in hot generation loops.
 
 ### P5 — `RecordWriter` / `RecordReader` hot spots
-- `writeInt` / `writeDouble` / `writeInt32` allocate a fresh `ByteData(N)` per field. Replace with a single preallocated growable `Uint8List` + direct offset writes.
-- `readString` uses `_bytes.sublist(...)` which copies. Use `utf8.decoder.convert(bytes, start, end)` to decode in place.
+✅ **Done 2026-06-19.** `RecordWriter` uses a growable `Uint8List` buffer with direct offset writes; `RecordReader` uses a single `ByteData.sublistView` and in-place UTF-8 string decode. Covered by `lazy_record_list_test.dart`.
 
 ### P6 — `IsolatePool` scheduling
 `_leastBusyIndex` is O(N) per dispatch. Replace with min-heap ordered by `_inflight`, or fall back to round-robin when all workers are tied.
 
 ### P7 — `isLeaf: true`
-Dart FFI `isLeaf: true` bypasses the VM safepoint mechanism — up to 30% overhead reduction for functions that don't call back into Dart. Annotate generated FFI calls that make no Dart callbacks.
+✅ **Done 2026-06-19.** Pure sync native FFI calls that do not allocate arena state, return records/structs/typed data, or call back into Dart are emitted with `isLeaf: true`. Covered by `dart_ffi_generator_test.dart` and `benchmark_spec_test.dart`.
 
 ### P8 — `checkDisposed()` overhead
 Add `@pragma('vm:prefer-inline')` and an `assert`-only variant for debug builds.
@@ -280,7 +279,7 @@ Replace `get_error` / `clear_error` round-trips with a `NitroError*` return + re
 |------|---------|--------|-------|-----------|---------|--------|
 | int sync/async | ✅ | ✅ | ✅ | ✅ | ✅ | — |
 | double sync/async | ✅ | ✅ | ✅ | ✅ | ✅ | — |
-| bool sync | ✅ | ⬜ T3 | ⬜ | ⬜ T3 | ✅ | — |
+| bool sync | ✅ | ✅ | ⬜ | ✅ | ✅ | — |
 | bool async | ⬜ | ⬜ | ⬜ | ⬜ | — | — |
 | String sync/async | ✅ | ✅ | ⬜ | ✅ | ✅ | — |
 | void | ✅ | ✅ | ⬜ | ✅ | ✅ | — |
@@ -297,24 +296,21 @@ Replace `get_error` / `clear_error` round-trips with a `NitroError*` return + re
 | Map\<String,dynamic\> | ✅ | ✅ | ✅ | ✅ | ✅ | — |
 | stream double | ✅ | ✅ | ✅ | ✅ | ✅ | — |
 | stream int | ✅ | ✅ | ⬜ | ⬜ | ⬜ | — |
-| stream String/bool | ⬜ T1 | ⬜ | ⬜ | ⬜ | ⬜ | — |
+| stream String/bool | ✅ | ⬜ | ⬜ | ⬜ | ⬜ | — |
 | stream enum | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | — |
-| async Uint8List return | ⬜ T2 | — | — | — | — | — |
+| async Uint8List return | ✅ | — | ✅ | ✅ | — | — |
 | enum field in @HybridRecord | ⬜ T4 | ⬜ T4 | ⬜ T4 | — | — | ⬜ T4 |
 
 ### Critical Bugs
 
 **T1 — Stream `String`/`bool`/`int` unpack (`dart_ffi_generator.dart`)**
-`unpackExpr` emits `(rawPtr) => rawPtr as $itemType`. Breaks for `String` (needs Utf8 decode), `bool` (needs `rawPtr != 0`).
-Fix: per-type unpack branch.
+✅ **Done 2026-06-19.** Primitive stream unpack keeps primitive messages as primitives, while record/struct streams convert integer addresses into typed pointers before decode/free. Covered by `record_stream_unpack_test.dart` and `stream_all_types_test.dart`.
 
 **T2 — Async `Uint8List`/`Float32List` return (`dart_ffi_generator.dart`)**
-`callAsyncType` falls through to `Pointer<Void>` — wrong type, silent null on decode.
-Fix: add `isTypedData` branch with proper list reconstruction.
+✅ **Done 2026-06-19.** Async typed-data returns use a malloc-owned `[int64 byteLength][payload bytes]` envelope. Dart decodes to `Uint8List`/`Float32List` and frees the native buffer; Swift and JNI C bridge returns allocate the same envelope. Covered by `dart_ffi_param_return_test.dart`, `swift_typed_data_async_test.dart`, and `cpp_bridge_types_test.dart`.
 
 **T3 — `bool` JNI sig mismatch (`cpp_bridge_generator.dart`)**
-`bool` param mapped to `jbyte` (sig `B`, `GetByteField`) instead of `jboolean` (sig `Z`, `GetBooleanField`). Silent type mismatch on Android.
-Fix: `bool` → `Z` / `jboolean` / `GetBooleanField` throughout JNI bridge.
+✅ **Done 2026-06-19.** `bool` maps to `Z` / `jboolean` / `GetBooleanField` throughout JNI bridge generation. Covered by `kotlin_jni_nullable_primitive_test.dart`.
 
 **T4 — `@HybridEnum` field inside `@HybridRecord`**
 `spec_extractor.dart` `_recordFieldKind` classifies enum fields as `primitive`. Dart/Kotlin/Swift/C++ record serializers don't call `.nativeValue` / `init(nativeValue:)`.
@@ -325,8 +321,7 @@ Fix: add `RecordFieldKind.enumValue`; update all 4 record serializers.
 Fix: emit null check → `nitro_report_error` on null.
 
 **T6 — `withArena` async use-after-free (`dart_ffi_generator.dart`)**
-`withArena((arena) { ... await NitroRuntime.callAsync(...); })` — arena is freed when the outer callback returns, but `callAsync` is still in flight. Any arena-allocated strings/pointers passed to native are dangling.
-Fix: arena lifetime must extend to cover the `await` (e.g. open arena before async, close in `.then()`).
+✅ **Done 2026-06-19.** Async generated methods create an `Arena`, await the native call, and release in `finally`, so arena-allocated params live through the async boundary. Covered by `jni_perf_test.dart`.
 
 ### Integration Test Module: `type_coverage`
 
@@ -498,7 +493,7 @@ import 'dart:js_interop';
 - Shared architecture: `native_generator_facade.dart`, `native_generator_model.dart`, and language bundles under `generators/languages/*`.
 - Language folders: `dart`, `kotlin`, `swift`, `c_bridge`, `cpp_native`, and `cmake`.
 - Old top-level flat generator files were removed; top-level `generators/` now contains shared infrastructure plus `enum`, `record`, and `struct` emitters.
-- Tests: `code_writer_test.dart`, `native_generator_facade_test.dart`, plus the full generator suite (`2636` passing).
+- Tests: `code_writer_test.dart`, `native_generator_facade_test.dart`, plus the full generator suite (`2646` passing).
 
 ### G2–G5 — Build system
 - **G2:** Add 3 missing extensions to `build.yaml` (`.native.g.h`, `.mock.g.h`, `.test.g.cpp`).
@@ -511,8 +506,7 @@ import 'dart:js_interop';
 Fix: resolve at build time from `.dart_tool/package_config.json`, or commit a path-agnostic CMake shim.
 
 ### G8 — `_jniSigType` unknown type silent fallthrough
-Unrecognised Dart type maps to `Ljava/lang/Object;` — always returns `null` at runtime with no error at gen-time.
-Fix: `throw StateError('Unknown type "$type" for param "$fieldName". Add @HybridStruct or @HybridEnum.')`.
+✅ **Done 2026-06-19.** Unknown JNI signature types now throw a `StateError` with the type name during generation instead of silently mapping to object. Covered by `jni_perf_test.dart`.
 
 ### G9–G13 — Small quality wins
 - **G9:** `LOGE` includes method name + JNI sig when `GetStaticMethodID` returns null.
@@ -523,7 +517,7 @@ Fix: `throw StateError('Unknown type "$type" for param "$fieldName". Add @Hybrid
 
 ### G14–G16 — Error handling & config
 - **G14:** `spec_extractor.dart` bare `catch (_) {}` → rethrow `SpecParseException` with file path.
-- **G15:** `link_command.dart` empty catch on Nitro-native path → handle `FileSystemException` or rethrow with context.
+- **G15:** ✅ **Done 2026-06-19.** `link_command.dart` Nitro-native path resolution now throws contextual `StateError`s for malformed or unreadable `package_config.json`. Covered by `link_command_test.dart`.
 - **G16:** Centralise `swift-tools-version: 5.9`, `ndkVersion = "34"`, `CMAKE_CXX_STANDARD 17`, `iOS 13.0` in a `VersionConstants` class or `nitrogen_versions.yaml`.
 
 ---

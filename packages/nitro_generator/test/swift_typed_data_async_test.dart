@@ -112,6 +112,20 @@ void main() {
       final out = SwiftGenerator.generate(_asyncTypedDataSpec('Uint8List'));
       expect(out, contains('sema.signal()'));
     });
+
+    test('Future<Uint8List> async stub returns malloc-owned length-prefixed buffer', () {
+      final out = SwiftGenerator.generate(_asyncTypedDataSpec('Uint8List'));
+      expect(out, contains('private func _nitroCopyTypedDataReturn(_ bytes: UnsafeRawBufferPointer)'));
+      expect(out, contains('raw.storeBytes(of: Int64(byteLength), as: Int64.self)'));
+      expect(out, contains('memcpy(raw.advanced(by: headerSize), base, byteLength)'));
+      expect(out, contains('return r.withUnsafeBytes { _nitroCopyTypedDataReturn(\$0) }'));
+    });
+
+    test('Future<Float32List> async stub copies array return as bytes', () {
+      final out = SwiftGenerator.generate(_asyncTypedDataSpec('Float32List'));
+      expect(out, contains('var result: [Float]?'));
+      expect(out, contains('return _nitroCopyTypedDataArrayReturn(r)'));
+    });
   });
 
   // ── Section 3: Synchronous TypedData return in protocol ─────────────────────

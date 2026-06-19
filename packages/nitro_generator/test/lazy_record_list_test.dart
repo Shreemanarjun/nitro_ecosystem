@@ -1,3 +1,4 @@
+import 'dart:io';
 import 'dart:typed_data';
 import 'package:nitro/nitro.dart';
 import 'package:test/test.dart';
@@ -171,6 +172,39 @@ void main() {
         () => RecordReader.fromPayloadOffset(Pointer.fromAddress(0), 0),
         throwsStateError,
       );
+    });
+  });
+
+  group('RecordWriter / RecordReader performance guards', () {
+    test('growable buffer round-trips payloads larger than initial capacity', () {
+      final writer = RecordWriter();
+      for (var i = 0; i < 80; i++) {
+        writer.writeInt(i);
+        writer.writeDouble(i + 0.25);
+        writer.writeBool(i.isEven);
+        writer.writeString('value-$i-नाइट्रो');
+      }
+
+      final ptr = writer.toNative(malloc);
+      try {
+        final reader = RecordReader.fromNative(ptr);
+        for (var i = 0; i < 80; i++) {
+          expect(reader.readInt(), i);
+          expect(reader.readDouble(), i + 0.25);
+          expect(reader.readBool(), i.isEven);
+          expect(reader.readString(), 'value-$i-नाइट्रो');
+        }
+      } finally {
+        malloc.free(ptr);
+      }
+    });
+
+    test('source avoids per-scalar ByteData allocations and string sublist decode', () {
+      final source = File('packages/nitro/lib/src/record_codec.dart').readAsStringSync();
+      expect(source, isNot(contains('ByteData(8)')));
+      expect(source, isNot(contains('ByteData(4)')));
+      expect(source, contains('_utf8Decoder.convert'));
+      expect(source, isNot(contains('utf8.decode(_bytes.sublist(_pos, _pos + len))')));
     });
   });
 }

@@ -354,6 +354,26 @@ abstract class MyModule extends HybridObject {
       // .dart_tool/../relative/nitro/src/native -> <tmp>/relative/nitro/src/native
       expect(path, equals(p.normalize(p.join(tmp.path, 'relative', 'nitro', 'src', 'native'))));
     });
+
+    test('throws contextual error when package_config.json is malformed', () {
+      final dotTool = Directory(p.join(tmp.path, '.dart_tool'))..createSync();
+      final config = File(p.join(dotTool.path, 'package_config.json'))..writeAsStringSync('{ not json');
+
+      expect(
+        () => resolveNitroNativePath(tmp.path),
+        throwsA(
+          isA<StateError>().having(
+            (error) => error.message,
+            'message',
+            allOf(
+              contains('Failed to parse'),
+              contains(config.path),
+              contains('nitro native path'),
+            ),
+          ),
+        ),
+      );
+    });
   });
 
   // ── linkCppImplStubs ──────────────────────────────────────────────────────────

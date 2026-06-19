@@ -41,7 +41,11 @@ String resolveNitroNativePath(String pluginDir) {
             }
           }
         }
-      } catch (_) {}
+      } on FormatException catch (e) {
+        throw StateError('Failed to parse ${configFile.path} while resolving the nitro native path: ${e.message}');
+      } on FileSystemException catch (e) {
+        throw StateError('Failed to read ${configFile.path} while resolving the nitro native path: ${e.message}');
+      }
     }
     final parent = searchDir.parent;
     if (parent.path == searchDir.path) break;

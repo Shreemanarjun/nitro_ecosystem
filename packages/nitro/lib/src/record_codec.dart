@@ -17,41 +17,84 @@ import 'package:ffi/ffi.dart';
 /// [toNative] prefixes the payload with a 4-byte int32 total length so the
 /// C / Kotlin / Swift receiver knows how many bytes to consume.
 class RecordWriter {
-  final _builder = BytesBuilder(copy: false);
+  static const _initialCapacity = 256;
+
+  Uint8List _buffer;
+  late ByteData _data;
+  int _length = 0;
+
+  RecordWriter([int initialCapacity = _initialCapacity]) : _buffer = Uint8List(initialCapacity) {
+    _data = ByteData.view(_buffer.buffer);
+  }
 
   /// Returns the accumulated bytes and resets the writer (internal use only).
-  Uint8List _takeBytes() => _builder.takeBytes();
+  Uint8List _takeBytes() {
+    final bytes = Uint8List.sublistView(_buffer, 0, _length);
+    _buffer = Uint8List(_initialCapacity);
+    _data = ByteData.view(_buffer.buffer);
+    _length = 0;
+    return bytes;
+  }
+
+  void _ensureCapacity(int additionalBytes) {
+    final required = _length + additionalBytes;
+    if (required <= _buffer.length) return;
+
+    var next = _buffer.length;
+    while (next < required) {
+      next *= 2;
+    }
+
+    final grown = Uint8List(next)..setRange(0, _length, _buffer);
+    _buffer = grown;
+    _data = ByteData.view(_buffer.buffer);
+  }
+
+  void _writeBytes(List<int> bytes) {
+    _ensureCapacity(bytes.length);
+    _buffer.setRange(_length, _length + bytes.length, bytes);
+    _length += bytes.length;
+  }
 
   void writeInt(int v) {
-    final d = ByteData(8)..setInt64(0, v, Endian.little);
-    _builder.add(d.buffer.asUint8List());
+    _ensureCapacity(8);
+    _data.setInt64(_length, v, Endian.little);
+    _length += 8;
   }
 
   void writeInt32(int v) {
-    final d = ByteData(4)..setInt32(0, v, Endian.little);
-    _builder.add(d.buffer.asUint8List());
+    _ensureCapacity(4);
+    _data.setInt32(_length, v, Endian.little);
+    _length += 4;
   }
 
   void writeDouble(double v) {
-    final d = ByteData(8)..setFloat64(0, v, Endian.little);
-    _builder.add(d.buffer.asUint8List());
+    _ensureCapacity(8);
+    _data.setFloat64(_length, v, Endian.little);
+    _length += 8;
   }
 
-  void writeBool(bool v) => _builder.addByte(v ? 1 : 0);
+  void writeBool(bool v) {
+    _ensureCapacity(1);
+    _buffer[_length++] = v ? 1 : 0;
+  }
 
   void writeString(String s) {
     final encoded = utf8.encode(s);
     writeInt32(encoded.length);
-    _builder.add(encoded);
+    _writeBytes(encoded);
   }
 
   void writeBlob(Uint8List blob) {
     writeInt32(blob.length);
-    _builder.add(blob);
+    _writeBytes(blob);
   }
 
   /// Writes a 1-byte null tag.  0 = null, 1 = value follows.
-  void writeNullTag(bool isNull) => _builder.addByte(isNull ? 0 : 1);
+  void writeNullTag(bool isNull) {
+    _ensureCapacity(1);
+    _buffer[_length++] = isNull ? 0 : 1;
+  }
 
   /// Copies the accumulated payload to an allocator-owned native buffer.
   ///
@@ -59,7 +102,7 @@ class RecordWriter {
   ///
   /// The caller / arena is responsible for freeing the pointer.
   Pointer<Uint8> toNative(Allocator alloc) {
-    final payload = _builder.takeBytes();
+    final payload = _takeBytes();
     final total = 4 + payload.length;
     final ptr = alloc<Uint8>(total);
     final view = ByteData.view(ptr.asTypedList(total).buffer);
@@ -132,7 +175,7 @@ class RecordWriter {
       w.writeInt(off); // writeInt emits int64
     }
     for (final b in blobs) {
-      w._builder.add(b);
+      w._writeBytes(b);
     }
     return w.toNative(alloc);
   }
@@ -150,10 +193,15 @@ class RecordWriter {
 /// Counterpart to [RecordWriter].  Fields must be read in the same order
 /// they were written.
 class RecordReader {
+  static const _utf8Decoder = Utf8Decoder();
+
   final Uint8List _bytes;
+  late final ByteData _data;
   int _pos;
 
-  RecordReader._(this._bytes, [this._pos = 0]);
+  RecordReader._(this._bytes, [this._pos = 0]) {
+    _data = ByteData.sublistView(_bytes);
+  }
 
   /// Wraps the native pointer emitted by [RecordWriter.toNative].
   ///
@@ -187,31 +235,19 @@ class RecordReader {
   }
 
   int readInt() {
-    final v = ByteData.view(
-      _bytes.buffer,
-      _bytes.offsetInBytes + _pos,
-      8,
-    ).getInt64(0, Endian.little);
+    final v = _data.getInt64(_pos, Endian.little);
     _pos += 8;
     return v;
   }
 
   int readInt32() {
-    final v = ByteData.view(
-      _bytes.buffer,
-      _bytes.offsetInBytes + _pos,
-      4,
-    ).getInt32(0, Endian.little);
+    final v = _data.getInt32(_pos, Endian.little);
     _pos += 4;
     return v;
   }
 
   double readDouble() {
-    final v = ByteData.view(
-      _bytes.buffer,
-      _bytes.offsetInBytes + _pos,
-      8,
-    ).getFloat64(0, Endian.little);
+    final v = _data.getFloat64(_pos, Endian.little);
     _pos += 8;
     return v;
   }
@@ -220,7 +256,7 @@ class RecordReader {
 
   String readString() {
     final len = readInt32();
-    final s = utf8.decode(_bytes.sublist(_pos, _pos + len));
+    final s = _utf8Decoder.convert(_bytes, _pos, _pos + len);
     _pos += len;
     return s;
   }

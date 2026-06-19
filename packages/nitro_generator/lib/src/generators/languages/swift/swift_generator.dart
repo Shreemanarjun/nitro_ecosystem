@@ -50,6 +50,26 @@ class SwiftGenerator {
     final swiftRecords = RecordGenerator.generateSwift(spec);
     if (swiftRecords.isNotEmpty) writer.raw(swiftRecords);
 
+    if (spec.functions.any((f) => f.returnType.isTypedData)) {
+      writer.line('private func _nitroCopyTypedDataReturn(_ bytes: UnsafeRawBufferPointer) -> UnsafeMutablePointer<UInt8>? {');
+      writer.line('    let headerSize = MemoryLayout<Int64>.size');
+      writer.line('    let byteLength = bytes.count');
+      writer.line('    guard let raw = malloc(byteLength + headerSize) else { return nil }');
+      writer.line('    raw.storeBytes(of: Int64(byteLength), as: Int64.self)');
+      writer.line('    if let base = bytes.baseAddress, byteLength > 0 {');
+      writer.line('        memcpy(raw.advanced(by: headerSize), base, byteLength)');
+      writer.line('    }');
+      writer.line('    return raw.bindMemory(to: UInt8.self, capacity: byteLength + headerSize)');
+      writer.line('}');
+      writer.blankLine();
+      writer.line('private func _nitroCopyTypedDataArrayReturn<T>(_ values: [T]) -> UnsafeMutablePointer<UInt8>? {');
+      writer.line('    return values.withUnsafeBufferPointer { buffer in');
+      writer.line('        _nitroCopyTypedDataReturn(UnsafeRawBufferPointer(buffer))');
+      writer.line('    }');
+      writer.line('}');
+      writer.blankLine();
+    }
+
     // ── Protocol ──────────────────────────────────────────────────────────
     writer.line('/**');
     writer.line(' * Protocol for the ${spec.dartClassName} module.');
@@ -186,6 +206,7 @@ class SwiftGenerator {
       final isBool = _toCDeclReturnType(spec, func) == 'Int8';
       final isVoid = func.returnType.name == 'void';
       final isString = func.returnType.name.replaceFirst('?', '') == 'String';
+      final isTypedDataReturn = func.returnType.isTypedData;
       final isEnumRet = spec.enums.any(
         (en) => en.name == func.returnType.name.replaceFirst('?', ''),
       );
@@ -389,6 +410,22 @@ class SwiftGenerator {
           } else {
             writer.line('    return NitroRecordWriter.encodeIndexedList(r) { w, e in e.writeFields(w) }');
           }
+        } else if (isTypedDataReturn) {
+          final swiftRetType = _toSwiftType(spec, func.returnType.name);
+          writer.line('    guard let impl = ${spec.dartClassName}Registry.impl else { return nil }');
+          writer.line('    let sema = DispatchSemaphore(value: 0)');
+          writer.line('    var result: $swiftRetType? = nil');
+          writer.line('    Task.detached {');
+          writer.line('        result = try? await impl.${func.dartName}($callArgs)');
+          writer.line('        sema.signal()');
+          writer.line('    }');
+          writer.line('    sema.wait()');
+          writer.line('    guard let r = result else { return nil }');
+          if (_isDataBackedTypedData(func.returnType.name)) {
+            writer.line('    return r.withUnsafeBytes { _nitroCopyTypedDataReturn(\$0) }');
+          } else {
+            writer.line('    return _nitroCopyTypedDataArrayReturn(r)');
+          }
         } else if (isBool) {
           writer.line(
             '    guard let impl = ${spec.dartClassName}Registry.impl else { return 0 }',
@@ -479,6 +516,13 @@ class SwiftGenerator {
           writer.line('    return NitroRecordWriter.encodeList(r) { w, e in w.$writeCall }');
         } else {
           writer.line('    return NitroRecordWriter.encodeIndexedList(r) { w, e in e.writeFields(w) }');
+        }
+      } else if (isTypedDataReturn) {
+        writer.line('    guard let r = ${spec.dartClassName}Registry.impl?.${func.dartName}($callArgs) else { return nil }');
+        if (_isDataBackedTypedData(func.returnType.name)) {
+          writer.line('    return r.withUnsafeBytes { _nitroCopyTypedDataReturn(\$0) }');
+        } else {
+          writer.line('    return _nitroCopyTypedDataArrayReturn(r)');
         }
       } else {
         final defaultVal = _defaultCDeclValue(spec, func.returnType.name);
@@ -801,6 +845,7 @@ class SwiftGenerator {
     if (name == 'void') return 'Void';
     if (name == 'bool') return 'Int8';
     if (name == 'String') return 'UnsafeMutablePointer<CChar>?';
+    if (BridgeType(name: name).isTypedData) return 'UnsafeMutablePointer<UInt8>?';
     if (spec.structs.any((st) => st.name == name)) {
       return 'UnsafeMutableRawPointer?';
     }
@@ -974,5 +1019,10 @@ class SwiftGenerator {
         if (spec.structs.any((st) => st.name == name)) return 'nil';
         return '()';
     }
+  }
+
+  static bool _isDataBackedTypedData(String t) {
+    final name = t.replaceFirst('?', '');
+    return name == 'Uint8List' || name == 'Int8List';
   }
 }

@@ -876,7 +876,7 @@ class CppBridgeGenerator {
           }
           paramsDeclParts.add('int64_t dart_port');
           final paramsDecl = paramsDeclParts.join(', ');
-          final jniNativeAsyncSig = _jniNativeAsyncSig(func.params, structNames, libPkg);
+          final jniNativeAsyncSig = _jniNativeAsyncSig(func.params, enumNames, structNames, libPkg);
 
           writer.line('void ${func.cSymbol}($paramsDecl) {');
           writer.line('    JNIEnv* env = GetEnv();');
@@ -932,10 +932,17 @@ class CppBridgeGenerator {
         final isEnum = enumNames.contains(func.returnType.name);
         final isStruct = structNames.contains(func.returnType.name);
         final isRecord = func.returnType.isRecord && !func.returnType.isMap;
+        final isTypedData = func.returnType.isTypedData;
         // For enum returns: bridge returns Long (nativeValue); C returns int64_t
         // For struct returns: bridge returns jobject; C packs to C struct via malloc
         // For record returns: bridge returns ByteArray; C copies bytes to malloc'd buffer
-        final cReturnType = isEnum ? 'int64_t' : _typeToC(func.returnType.name);
+        // For TypedData returns: bridge returns a JVM primitive array; C copies it
+        // into a malloc-owned [int64 byte length][payload bytes] envelope.
+        final cReturnType = isEnum
+            ? 'int64_t'
+            : isTypedData
+            ? 'uint8_t*'
+            : _typeToC(func.returnType.name);
         final paramsDeclParts = <String>[];
         for (final p in func.params) {
           paramsDeclParts.add('${_paramTypeToC(p.type.name, structNames)} ${p.name}');
@@ -1113,6 +1120,26 @@ class CppBridgeGenerator {
           writer.line('    jsize len = env->GetArrayLength(jarr);');
           writer.line('    uint8_t* result = (uint8_t*)malloc(len);');
           writer.line('    env->GetByteArrayRegion(jarr, 0, len, (jbyte*)result);');
+          writer.line('    env->PopLocalFrame(nullptr);');
+          writer.line('    return result;');
+        } else if (isTypedData) {
+          final ops = _typedDataJniOps(func.returnType.name);
+          final elemSize = _typedDataElementSizeExpr(func.returnType.name);
+          writer.line('    ${ops[0]} jarr = (${ops[0]})env->CallStaticObjectMethod(g_bridgeClass, methodId$bridgeArgs);');
+          writer.line('    if (env->ExceptionCheck()) {');
+          writer.line('        nitro_report_jni_exception(env, env->ExceptionOccurred());');
+          writer.line('        env->PopLocalFrame(nullptr);');
+          writer.line('        return nullptr;');
+          writer.line('    }');
+          writer.line('    if (jarr == nullptr) {');
+          writer.line('        env->PopLocalFrame(nullptr);');
+          writer.line('        return nullptr;');
+          writer.line('    }');
+          writer.line('    jsize len = env->GetArrayLength(jarr);');
+          writer.line('    size_t byteLen = (size_t)len * $elemSize;');
+          writer.line('    uint8_t* result = (uint8_t*)malloc(byteLen + sizeof(int64_t));');
+          writer.line('    *((int64_t*)result) = (int64_t)byteLen;');
+          writer.line('    env->${ops[4]}(jarr, 0, len, (${ops[3]}*)(result + sizeof(int64_t)));');
           writer.line('    env->PopLocalFrame(nullptr);');
           writer.line('    return result;');
         } else {
@@ -1333,7 +1360,7 @@ class CppBridgeGenerator {
       for (final func in spec.functions) {
         final String jniSig;
         if (func.isNativeAsync) {
-          jniSig = _jniNativeAsyncSig(func.params, structNames, libPkg);
+          jniSig = _jniNativeAsyncSig(func.params, enumNames, structNames, libPkg);
         } else {
           jniSig = _jniSig(func.params, func.returnType, enumNames, structNames, libPkg);
         }
@@ -1549,7 +1576,11 @@ class CppBridgeGenerator {
         continue;
       }
 
-      final cReturnType = isEnum ? 'int64_t' : _typeToC(func.returnType.name);
+      final cReturnType = isEnum
+          ? 'int64_t'
+          : func.returnType.isTypedData
+          ? 'uint8_t*'
+          : _typeToC(func.returnType.name);
       final params = paramParts.join(', ');
       final callParams = callParamParts.join(', ');
       writer.line('extern $cReturnType _${spec.namespace}_call_${func.dartName}(${params.isEmpty ? 'void' : params});');
@@ -2137,7 +2168,9 @@ class CppBridgeGenerator {
       case 'Uint64List':
         return '[J'; // LongArray
       default:
-        return 'Ljava/lang/Object;';
+        throw StateError(
+          'Unknown JNI signature type "$t". Add @HybridStruct/@HybridEnum metadata or a typed-data mapping before generating the C bridge.',
+        );
     }
   }
 
@@ -2262,27 +2295,50 @@ class CppBridgeGenerator {
     ].join('_');
   }
 
-  /// Returns [jniArrayType, newFn, setRegionFn, elemCast] for a non-zero-copy TypedData param.
+  /// Returns [jniArrayType, newFn, setRegionFn, elemCast, getRegionFn] for a non-zero-copy TypedData param/return.
   static List<String> _typedDataJniOps(String dartType) {
     switch (dartType) {
       case 'Uint8List':
       case 'Int8List':
-        return ['jbyteArray', 'NewByteArray', 'SetByteArrayRegion', 'jbyte'];
+        return ['jbyteArray', 'NewByteArray', 'SetByteArrayRegion', 'jbyte', 'GetByteArrayRegion'];
       case 'Int16List':
       case 'Uint16List':
-        return ['jshortArray', 'NewShortArray', 'SetShortArrayRegion', 'jshort'];
+        return ['jshortArray', 'NewShortArray', 'SetShortArrayRegion', 'jshort', 'GetShortArrayRegion'];
       case 'Int32List':
       case 'Uint32List':
-        return ['jintArray', 'NewIntArray', 'SetIntArrayRegion', 'jint'];
+        return ['jintArray', 'NewIntArray', 'SetIntArrayRegion', 'jint', 'GetIntArrayRegion'];
       case 'Float32List':
-        return ['jfloatArray', 'NewFloatArray', 'SetFloatArrayRegion', 'jfloat'];
+        return ['jfloatArray', 'NewFloatArray', 'SetFloatArrayRegion', 'jfloat', 'GetFloatArrayRegion'];
       case 'Float64List':
-        return ['jdoubleArray', 'NewDoubleArray', 'SetDoubleArrayRegion', 'jdouble'];
+        return ['jdoubleArray', 'NewDoubleArray', 'SetDoubleArrayRegion', 'jdouble', 'GetDoubleArrayRegion'];
       case 'Int64List':
       case 'Uint64List':
-        return ['jlongArray', 'NewLongArray', 'SetLongArrayRegion', 'jlong'];
+        return ['jlongArray', 'NewLongArray', 'SetLongArrayRegion', 'jlong', 'GetLongArrayRegion'];
       default:
-        return ['jbyteArray', 'NewByteArray', 'SetByteArrayRegion', 'jbyte'];
+        return ['jbyteArray', 'NewByteArray', 'SetByteArrayRegion', 'jbyte', 'GetByteArrayRegion'];
+    }
+  }
+
+  static String _typedDataElementSizeExpr(String dartType) {
+    switch (dartType.replaceFirst('?', '')) {
+      case 'Uint8List':
+      case 'Int8List':
+        return 'sizeof(uint8_t)';
+      case 'Int16List':
+      case 'Uint16List':
+        return 'sizeof(int16_t)';
+      case 'Int32List':
+      case 'Uint32List':
+        return 'sizeof(int32_t)';
+      case 'Float32List':
+        return 'sizeof(float)';
+      case 'Float64List':
+        return 'sizeof(double)';
+      case 'Int64List':
+      case 'Uint64List':
+        return 'sizeof(int64_t)';
+      default:
+        return 'sizeof(uint8_t)';
     }
   }
 
@@ -2307,6 +2363,7 @@ class CppBridgeGenerator {
 
   static String _jniNativeAsyncSig(
     List<BridgeParam> params,
+    Set<String> enumNames,
     Set<String> structNames,
     String libPkg,
   ) {
@@ -2314,7 +2371,7 @@ class CppBridgeGenerator {
         .map(
           (p) => _jniParamSig(
             p,
-            const <String>{},
+            enumNames,
             structNames,
             libPkg,
           ),

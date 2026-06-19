@@ -94,6 +94,38 @@ void main() {
     });
   });
 
+  group('CppBridgeGenerator — TypedData return (JNI path)', () {
+    test('Uint8List return copies JVM array into length-prefixed malloc buffer', () {
+      final spec = _jniFuncSpec(
+        dartName: 'download',
+        returnType: BridgeType(name: 'Uint8List'),
+        params: const [],
+      );
+      final out = CppBridgeGenerator.generate(spec);
+
+      expect(out, contains('uint8_t* mod_download(void)'));
+      expect(out, contains('jbyteArray jarr = (jbyteArray)env->CallStaticObjectMethod'));
+      expect(out, contains('size_t byteLen = (size_t)len * sizeof(uint8_t);'));
+      expect(out, contains('uint8_t* result = (uint8_t*)malloc(byteLen + sizeof(int64_t));'));
+      expect(out, contains('*((int64_t*)result) = (int64_t)byteLen;'));
+      expect(out, contains('env->GetByteArrayRegion(jarr, 0, len, (jbyte*)(result + sizeof(int64_t)));'));
+    });
+
+    test('Float32List return preserves byte length and float payload', () {
+      final spec = _jniFuncSpec(
+        dartName: 'samples',
+        returnType: BridgeType(name: 'Float32List'),
+        params: const [],
+      );
+      final out = CppBridgeGenerator.generate(spec);
+
+      expect(out, contains('uint8_t* mod_samples(void)'));
+      expect(out, contains('jfloatArray jarr = (jfloatArray)env->CallStaticObjectMethod'));
+      expect(out, contains('size_t byteLen = (size_t)len * sizeof(float);'));
+      expect(out, contains('env->GetFloatArrayRegion(jarr, 0, len, (jfloat*)(result + sizeof(int64_t)));'));
+    });
+  });
+
   // ── §8.5.2 Uint8List param (C++ direct path) ────────────────────────────
 
   group('CppBridgeGenerator — Uint8List param (C++ direct path)', () {

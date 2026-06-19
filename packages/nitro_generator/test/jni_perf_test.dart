@@ -1698,4 +1698,84 @@ void main() {
       expect(cpp, contains('jobject dbuf_chroma = env->NewDirectByteBuffer'));
     });
   });
+
+  group('DartFfiGenerator — P3: assert-gated sync error checks', () {
+    test('non-leaf sync function checks native error state only inside assert', () {
+      final spec = BridgeSpec(
+        dartClassName: 'ErrorCheckMod',
+        lib: 'error_check_mod',
+        namespace: 'error_check_mod',
+        iosImpl: NativeImpl.swift,
+        androidImpl: NativeImpl.kotlin,
+        sourceUri: 'error_check.native.dart',
+        functions: [
+          BridgeFunction(
+            dartName: 'setName',
+            cSymbol: 'error_check_mod_set_name',
+            isAsync: false,
+            returnType: BridgeType(name: 'void'),
+            params: [
+              BridgeParam(
+                name: 'name',
+                type: BridgeType(name: 'String'),
+              ),
+            ],
+          ),
+        ],
+      );
+
+      final out = DartFfiGenerator.generate(spec);
+      final bodyStart = out.indexOf('void setName(');
+      final bodyEnd = out.indexOf('\n  }', bodyStart);
+      final body = out.substring(bodyStart, bodyEnd);
+
+      expect(
+        body,
+        contains('assert(() { NitroRuntime.checkError(_getErrorPtr, _clearErrorPtr); return true; }());'),
+      );
+      expect(
+        body,
+        isNot(contains('\n      NitroRuntime.checkError(_getErrorPtr, _clearErrorPtr);\n')),
+        reason: 'release builds should erase the checkError call with the surrounding assert',
+      );
+    });
+  });
+
+  group('CppBridgeGenerator — G8: unknown JNI types fail fast', () {
+    test('unknown param type throws StateError instead of Object JNI descriptor', () {
+      final spec = BridgeSpec(
+        dartClassName: 'UnknownTypeMod',
+        lib: 'unknown_type_mod',
+        namespace: 'unknown_type_mod',
+        iosImpl: NativeImpl.swift,
+        androidImpl: NativeImpl.kotlin,
+        sourceUri: 'unknown.native.dart',
+        functions: [
+          BridgeFunction(
+            dartName: 'send',
+            cSymbol: 'unknown_type_mod_send',
+            isAsync: false,
+            returnType: BridgeType(name: 'void'),
+            params: [
+              BridgeParam(
+                name: 'value',
+                type: BridgeType(name: 'MysteryType'),
+              ),
+            ],
+          ),
+        ],
+      );
+
+      expect(
+        () => CppBridgeGenerator.generate(spec),
+        throwsA(
+          isA<StateError>().having(
+            (error) => error.message,
+            'message',
+            contains('Unknown JNI signature type "MysteryType"'),
+          ),
+        ),
+      );
+    });
+  });
 }

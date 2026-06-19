@@ -132,6 +132,25 @@ void main() {
       expect(out, contains('callAsync'));
     });
 
+    test('async Uint8List decodes length-prefixed native buffer and frees it', () {
+      final out = DartFfiGenerator.generate(asyncUint8ListReturnSpec());
+      expect(out, contains('NitroRuntime.callAsync<Pointer<Uint8>>'));
+      expect(out, contains('final byteLength = rawPtr.cast<Int64>().value;'));
+      expect(out, contains('final payloadPtr = Pointer<Uint8>.fromAddress(rawPtr.address + 8);'));
+      expect(out, contains('return Uint8List.fromList(payloadPtr.asTypedList(byteLength));'));
+      expect(out, contains('malloc.free(rawPtr);'));
+      expect(out, isNot(contains('return res;')));
+    });
+
+    test('async Float32List decodes by element size from byte envelope', () {
+      final out = DartFfiGenerator.generate(_asyncTypedDataReturnSpec('Float32List'));
+      expect(out, contains('Future<Float32List>'));
+      expect(out, contains('NitroRuntime.callAsync<Pointer<Uint8>>'));
+      expect(out, contains('final payloadPtr = Pointer<Float>.fromAddress(rawPtr.address + 8);'));
+      expect(out, contains('return Float32List.fromList(payloadPtr.asTypedList(byteLength ~/ 4));'));
+      expect(out, contains('malloc.free(rawPtr);'));
+    });
+
     test('async Uint8List does not return void', () {
       final out = DartFfiGenerator.generate(asyncUint8ListReturnSpec());
       expect(out, isNot(contains('Future<void> getData')));
@@ -209,3 +228,21 @@ void main() {
     }
   });
 }
+
+BridgeSpec _asyncTypedDataReturnSpec(String typeName) => BridgeSpec(
+  dartClassName: 'Mod',
+  lib: 'mod',
+  namespace: 'mod',
+  iosImpl: NativeImpl.swift,
+  androidImpl: NativeImpl.kotlin,
+  sourceUri: 'mod.native.dart',
+  functions: [
+    BridgeFunction(
+      dartName: 'getData',
+      cSymbol: 'mod_get_data',
+      isAsync: true,
+      returnType: BridgeType(name: typeName),
+      params: const [],
+    ),
+  ],
+);
