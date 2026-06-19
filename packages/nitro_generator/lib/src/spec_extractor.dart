@@ -385,6 +385,31 @@ class SpecExtractor {
     final displayName = type.getDisplayString();
     final isNullable = type.nullabilitySuffix == NullabilitySuffix.question;
 
+    // Handle function types (callbacks)
+    if (type is FunctionType) {
+      final returnType = type.returnType;
+      final returnTypeName = returnType.getDisplayString(withNullability: false);
+      final params = <BridgeType>[];
+
+      for (final param in type.formalParameters) {
+        params.add(_makeBridgeType(
+          param.type,
+          recordTypeNames,
+          knownTypeNames: knownTypeNames,
+          structTypeNames: structTypeNames,
+        ));
+      }
+
+      return BridgeType(
+        name: displayName,
+        isNullable: isNullable,
+        isFuture: isFuture,
+        isFunction: true,
+        functionReturnType: returnTypeName,
+        functionParams: params,
+      );
+    }
+
     if (type is InterfaceType) {
       final elName = type.element.name;
 
@@ -596,7 +621,7 @@ class SpecExtractor {
 
       final name = ac.displayName;
       final type = ac.returnType;
-      if (type.isDartCoreFunction) continue;
+
       final entry = propMap.putIfAbsent(name, () => {'name': name, 'getter': false, 'setter': false});
       entry['getter'] = true;
       entry['dartType'] = type;
@@ -609,7 +634,7 @@ class SpecExtractor {
       // Setter displayName includes '=' suffix (e.g. "myProp="); strip it.
       final name = ac.displayName.replaceFirst('=', '');
       final type = ac.formalParameters.first.type;
-      if (type.isDartCoreFunction) continue;
+
       final entry = propMap.putIfAbsent(name, () => {'name': name, 'getter': false, 'setter': false});
       entry['setter'] = true;
       entry['dartType'] ??= type;

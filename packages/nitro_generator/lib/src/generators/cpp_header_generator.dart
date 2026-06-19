@@ -141,7 +141,21 @@ class CppHeaderGenerator {
     return s.toString();
   }
 
-  static String _typeToC(String dartType) {
+  static String _typeToC(String dartType, {BridgeType? bridgeType}) {
+    // Handle function types (callbacks)
+    if (bridgeType != null && bridgeType.isFunction) {
+      final returnType = bridgeType.functionReturnType ?? 'void';
+      final params = bridgeType.functionParams;
+      final paramList = params.asMap().entries.map((entry) {
+        final i = entry.key;
+        final p = entry.value;
+        final cType = _typeToC(p.name, bridgeType: p);
+        return '$cType';
+      }).join(', ');
+      final cReturnType = _typeToC(returnType);
+      return 'void*'; // Function pointers are passed as void* for simplicity
+    }
+
     switch (dartType.replaceFirst('?', '')) {
       case 'int':
         return 'int64_t';

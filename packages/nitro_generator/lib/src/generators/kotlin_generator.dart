@@ -72,7 +72,7 @@ class KotlinGenerator {
     // bridge types (Long for enums) so that C JNI can read them directly.
 
     for (final prop in spec.properties) {
-      final kt = _toKotlinType(enumNames, structNames, recordNames, prop.type.name);
+      final kt = _toKotlinType(enumNames, structNames, recordNames, prop.type.name, bridgeType: prop.type);
       if (prop.hasSetter) {
         s.writeln('    var ${prop.dartName}: $kt');
       } else {
@@ -81,7 +81,7 @@ class KotlinGenerator {
     }
 
     for (final stream in spec.streams) {
-      final itemType = _toKotlinType(enumNames, structNames, recordNames, stream.itemType.name);
+      final itemType = _toKotlinType(enumNames, structNames, recordNames, stream.itemType.name, bridgeType: stream.itemType);
       s.writeln('    val ${stream.dartName}: Flow<$itemType>');
     }
 
@@ -457,7 +457,7 @@ class KotlinGenerator {
     if (p.zeroCopy && p.type.isTypedData) {
       return isNullable ? 'java.nio.ByteBuffer?' : 'java.nio.ByteBuffer';
     }
-    final base = _toKotlinType(enumNames, structNames, recordNames, p.type.name);
+    final base = _toKotlinType(enumNames, structNames, recordNames, p.type.name, bridgeType: p.type);
     return isNullable ? '$base?' : base;
   }
 
@@ -510,9 +510,25 @@ class KotlinGenerator {
     Set<String> enumNames,
     Set<String> structNames,
     Set<String> recordNames,
-    String t,
-  ) {
+    String t, {
+    BridgeType? bridgeType,
+  }) {
     final name = t.replaceFirst('?', '');
+
+    // Handle function types (callbacks)
+    if (bridgeType != null && bridgeType.isFunction) {
+      final returnType = bridgeType.functionReturnType ?? 'Unit';
+      final params = bridgeType.functionParams;
+      final paramList = params.asMap().entries.map((entry) {
+        final i = entry.key;
+        final p = entry.value;
+        final ktType = _toKotlinType(enumNames, structNames, recordNames, p.name);
+        return 'p$i: $ktType';
+      }).join(', ');
+      final ktReturnType = _toKotlinType(enumNames, structNames, recordNames, returnType);
+      return '($paramList) -> $ktReturnType';
+    }
+
     switch (name) {
       case 'int':
         return 'Long';

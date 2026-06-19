@@ -155,6 +155,16 @@ class DartFfiGenerator {
     s.writeln('  }');
     s.writeln();
 
+    // ── Callback wrappers ────────────────────────────────────────────────────
+    // Generate wrapper functions for callback parameters
+    for (final func in spec.functions) {
+      for (final param in func.params) {
+        if (param.type.isFunction) {
+          _generateCallbackWrapper(s, param, spec);
+        }
+      }
+    }
+
     // ── Method implementations ───────────────────────────────────────────────
     for (final func in spec.functions) {
       final needsArena = func.params.any(
@@ -202,6 +212,10 @@ class DartFfiGenerator {
             if (t == 'int?') return ['${p.name} ?? -1'];
             if (t == 'double?') return ['${p.name} ?? double.nan'];
             if (t == 'bool?') return ['${p.name} == null ? -1 : (${p.name}! ? 1 : 0)'];
+            // Callback types: pass as NativeCallable pointer
+            if (p.type.isFunction) {
+              return ['NativeCallable.listener(_callbackWrapper${_cap(p.name)}).nativeFunction'];
+            }
             return [p.name];
           })
           .join(', ');
@@ -922,5 +936,55 @@ class DartFfiGenerator {
     final rt = func.returnType;
     if (!_isPrimitiveType(rt, spec) && rt.name != 'void') return false;
     return func.params.every((p) => _isPrimitiveType(p.type, spec));
+  }
+
+  /// Generates a wrapper function for a callback parameter.
+  /// The wrapper converts native types to Dart types before calling the Dart callback.
+  static void _generateCallbackWrapper(
+    StringBuffer s,
+    BridgeParam param,
+    BridgeSpec spec,
+  ) {
+    final callbackType = param.type;
+    if (!callbackType.isFunction) return;
+
+    final wrapperName = '_callbackWrapper${_cap(param.name)}';
+    final returnType = callbackType.functionReturnType ?? 'void';
+    final params = callbackType.functionParams;
+
+    // Generate the wrapper function signature
+    final paramList = params.asMap().entries.map((entry) {
+      final i = entry.key;
+      final p = entry.value;
+      return '${p.name} arg$i';
+    }).join(', ');
+
+    s.writeln('  // Callback wrapper for ${param.name}');
+    if (returnType == 'void') {
+      s.writeln('  void $wrapperName($paramList) {');
+      s.writeln('    ${param.name}(${params.asMap().entries.map((entry) {
+        final i = entry.key;
+        final p = entry.value;
+        if (spec.enums.any((en) => en.name == p.name)) {
+          return 'arg$i.to${p.name}()';
+        }
+        if (p.name == 'int' || p.name == 'double' || p.name == 'bool') {
+          return 'arg$i';
+        }
+        return 'arg$i';
+      }).join(', ')});');
+      s.writeln('  }');
+    } else {
+      s.writeln('  $returnType $wrapperName($paramList) {');
+      s.writeln('    return ${param.name}(${params.asMap().entries.map((entry) {
+        final i = entry.key;
+        final p = entry.value;
+        if (spec.enums.any((en) => en.name == p.name)) {
+          return 'arg$i.to${p.name}()';
+        }
+        return 'arg$i';
+      }).join(', ')});');
+      s.writeln('  }');
+    }
   }
 }

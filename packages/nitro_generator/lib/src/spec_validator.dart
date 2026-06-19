@@ -271,6 +271,7 @@ class SpecValidator {
         final pName = param.type.name.replaceFirst('?', '');
         if (!param.type.isRecord && // @HybridRecord params bridge as String
             !param.type.isPointer && // raw FFI pointers
+            !param.type.isFunction && // Function types (callbacks) are allowed
             !_isKnownType(pName, knownTypes) &&
             !_isKnownType(param.type.name, knownTypes)) {
           issues.add(

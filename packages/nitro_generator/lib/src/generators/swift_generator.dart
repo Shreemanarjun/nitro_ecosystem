@@ -793,9 +793,24 @@ class SwiftGenerator {
     return _toSwiftType(spec, name);
   }
 
-  static String _toSwiftType(BridgeSpec spec, String t) {
+  static String _toSwiftType(BridgeSpec spec, String t, {BridgeType? bridgeType}) {
     final name = t.replaceFirst('?', '');
     final isOptional = t.endsWith('?');
+
+    // Handle function types (callbacks)
+    if (bridgeType != null && bridgeType.isFunction) {
+      final returnType = bridgeType.functionReturnType ?? 'Void';
+      final params = bridgeType.functionParams;
+      final paramList = params.asMap().entries.map((entry) {
+        final i = entry.key;
+        final p = entry.value;
+        final swiftType = _toSwiftType(spec, p.name, bridgeType: p);
+        return '_: $swiftType';
+      }).join(', ');
+      final swiftReturnType = _toSwiftType(spec, returnType);
+      return '($paramList) -> $swiftReturnType';
+    }
+
     String baseType;
     switch (name) {
       case 'int':

@@ -149,6 +149,16 @@ class BridgeType {
       name.startsWith('Int64List') ||
       name.startsWith('Uint64List');
 
+  /// True when this type is a function type (callback).
+  /// E.g., `void Function(TorchState)` or `Future<void> Function(int)`.
+  final bool isFunction;
+
+  /// Return type name for function types (null if not a function).
+  final String? functionReturnType;
+
+  /// Parameter types for function types (empty list if not a function).
+  final List<BridgeType> functionParams;
+
   BridgeType({
     required this.name,
     this.isNullable = false,
@@ -160,6 +170,9 @@ class BridgeType {
     this.recordListItemType,
     this.recordListItemIsPrimitive = false,
     this.isMap = false,
+    this.isFunction = false,
+    this.functionReturnType,
+    this.functionParams = const [],
   });
 }
 
