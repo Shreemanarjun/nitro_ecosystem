@@ -295,6 +295,7 @@ class SpecExtractor {
   static List<BridgeRecordType> _extractRecordTypes(LibraryReader library) {
     const checker = TypeChecker.fromUrl('package:nitro_annotations/src/annotations.dart#HybridRecord');
     const structChecker = TypeChecker.fromUrl('package:nitro_annotations/src/annotations.dart#HybridStruct');
+    const enumChecker = TypeChecker.fromUrl('package:nitro_annotations/src/annotations.dart#HybridEnum');
 
     // Single pass: collect annotated ClassElements, then reuse the list.
     final classes = library.annotatedWith(checker).where((ann) => ann.element is ClassElement).map((ann) => ann.element as ClassElement).toList();
@@ -304,12 +305,13 @@ class SpecExtractor {
     // inside @HybridRecord classes are classified as listRecordObject (not
     // listPrimitive), enabling binary codec generation for struct items.
     final structTypeNames = library.annotatedWith(structChecker).where((ann) => ann.element is ClassElement).map((ann) => (ann.element as ClassElement).name!).toSet();
+    final enumTypeNames = library.annotatedWith(enumChecker).where((ann) => ann.element is EnumElement).map((ann) => (ann.element as EnumElement).name!).toSet();
 
     return classes.map((cls) {
       final fields = cls.fields.where((f) => !f.isStatic && !f.isSynthetic).map((f) {
         final displayType = f.type.getDisplayString();
         final isNullable = displayType.endsWith('?');
-        final kind = _recordFieldKind(f.type, recordTypeNames, structTypeNames);
+        final kind = _recordFieldKind(f.type, recordTypeNames, structTypeNames, enumTypeNames);
         final itemTypeName = _listItemTypeName(f.type);
         return BridgeRecordField(
           name: f.name!,
@@ -327,6 +329,7 @@ class SpecExtractor {
     DartType type,
     Set<String> recordTypeNames, [
     Set<String> structTypeNames = const {},
+    Set<String> enumTypeNames = const {},
   ]) {
     if (type is InterfaceType) {
       if (type.element.name == 'List' && type.typeArguments.isNotEmpty) {
@@ -334,10 +337,16 @@ class SpecExtractor {
         if (recordTypeNames.contains(itemName) || structTypeNames.contains(itemName)) {
           return RecordFieldKind.listRecordObject;
         }
+        if (enumTypeNames.contains(itemName)) {
+          return RecordFieldKind.listEnumValue;
+        }
         return RecordFieldKind.listPrimitive;
       }
       if (recordTypeNames.contains(type.element.name) || structTypeNames.contains(type.element.name)) {
         return RecordFieldKind.recordObject;
+      }
+      if (enumTypeNames.contains(type.element.name)) {
+        return RecordFieldKind.enumValue;
       }
     }
     return RecordFieldKind.primitive;
@@ -392,12 +401,14 @@ class SpecExtractor {
       final params = <BridgeType>[];
 
       for (final param in type.formalParameters) {
-        params.add(_makeBridgeType(
-          param.type,
-          recordTypeNames,
-          knownTypeNames: knownTypeNames,
-          structTypeNames: structTypeNames,
-        ));
+        params.add(
+          _makeBridgeType(
+            param.type,
+            recordTypeNames,
+            knownTypeNames: knownTypeNames,
+            structTypeNames: structTypeNames,
+          ),
+        );
       }
 
       return BridgeType(

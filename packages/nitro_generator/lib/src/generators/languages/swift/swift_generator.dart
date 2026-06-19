@@ -893,7 +893,6 @@ class SwiftGenerator {
           .asMap()
           .entries
           .map((entry) {
-            final i = entry.key;
             final p = entry.value;
             final swiftType = _toSwiftType(spec, p.name, bridgeType: p);
             return '_: $swiftType';

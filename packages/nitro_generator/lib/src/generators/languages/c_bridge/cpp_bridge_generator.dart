@@ -217,6 +217,13 @@ class CppBridgeGenerator {
         writer.line('        Dart_PostCObject_DL(dart_port, &_err);');
         writer.line('        return;');
         writer.line('    }');
+        _emitNullableStructParamGuards(
+          writer,
+          func.params,
+          structNames,
+          func.dartName,
+          'return;',
+        );
         writer.line('    g_impl->${func.dartName}($callArgStr);');
         writer.line('}');
         writer.blankLine();
@@ -252,6 +259,13 @@ class CppBridgeGenerator {
       } else {
         writer.line('    if (!g_impl) { $notInit; return $dflt; }');
       }
+      _emitNullableStructParamGuards(
+        writer,
+        func.params,
+        structNames,
+        func.dartName,
+        func.returnType.name == 'void' ? 'return;' : 'return $dflt;',
+      );
       writer.line('    try {');
 
       // Build call args (C → C++ types)
@@ -385,6 +399,15 @@ class CppBridgeGenerator {
           }
         } else if (isStructParam) {
           final stName = prop.type.name.replaceFirst('?', '');
+          if (_isNullableStructType(prop.type, structNames)) {
+            _emitNullableStructPointerGuard(
+              writer,
+              paramName: 'value',
+              ownerName: 'set_${prop.dartName}',
+              returnStatement: 'return;',
+              indent: '        ',
+            );
+          }
           writer.line('        g_impl->set_${prop.dartName}(*static_cast<const $stName*>(value));');
         } else {
           writer.line('        g_impl->set_${prop.dartName}(value);');
@@ -1781,6 +1804,13 @@ class CppBridgeGenerator {
         writer.line('        Dart_PostCObject_DL(dart_port, &_err);');
         writer.line('        return;');
         writer.line('    }');
+        _emitNullableStructParamGuards(
+          writer,
+          func.params,
+          structNames,
+          func.dartName,
+          'return;',
+        );
         writer.line('    g_impl->${func.dartName}(${callArgs.join(', ')});');
         writer.line('}');
         writer.blankLine();
@@ -1808,6 +1838,13 @@ class CppBridgeGenerator {
       } else {
         writer.line('    if (!g_impl) { $notInit; return $dflt; }');
       }
+      _emitNullableStructParamGuards(
+        writer,
+        func.params,
+        structNames,
+        func.dartName,
+        func.returnType.name == 'void' ? 'return;' : 'return $dflt;',
+      );
       writer.line('    try {');
       final callArgs = <String>[];
       for (final p in func.params) {
@@ -1929,6 +1966,15 @@ class CppBridgeGenerator {
           }
         } else if (isStructParam) {
           final stName = prop.type.name.replaceFirst('?', '');
+          if (_isNullableStructType(prop.type, structNames)) {
+            _emitNullableStructPointerGuard(
+              writer,
+              paramName: 'value',
+              ownerName: 'set_${prop.dartName}',
+              returnStatement: 'return;',
+              indent: '        ',
+            );
+          }
           writer.line('        g_impl->set_${prop.dartName}(*static_cast<const $stName*>(value));');
         } else {
           writer.line('        g_impl->set_${prop.dartName}(value);');
@@ -2044,6 +2090,47 @@ class CppBridgeGenerator {
       return 'void*';
     }
     return _typeToC(dartType);
+  }
+
+  static bool _isNullableStructType(
+    BridgeType type,
+    Set<String> structNames,
+  ) {
+    return (type.isNullable || type.name.endsWith('?')) && structNames.contains(type.name.replaceFirst('?', ''));
+  }
+
+  static void _emitNullableStructParamGuards(
+    CodeWriter writer,
+    List<BridgeParam> params,
+    Set<String> structNames,
+    String functionName,
+    String returnStatement,
+  ) {
+    for (final p in params) {
+      if (!_isNullableStructType(p.type, structNames)) continue;
+      _emitNullableStructPointerGuard(
+        writer,
+        paramName: p.name,
+        ownerName: functionName,
+        returnStatement: returnStatement,
+        indent: '    ',
+      );
+    }
+  }
+
+  static void _emitNullableStructPointerGuard(
+    CodeWriter writer, {
+    required String paramName,
+    required String ownerName,
+    required String returnStatement,
+    required String indent,
+  }) {
+    final blockIndent = indent;
+    final bodyIndent = '$indent    ';
+    writer.line('${blockIndent}if ($paramName == nullptr) {');
+    writer.line('${bodyIndent}nitro_report_error("NullPointerException", "Parameter $paramName for $ownerName cannot be null.", nullptr, nullptr);');
+    writer.line('$bodyIndent$returnStatement');
+    writer.line('$blockIndent}');
   }
 
   static bool _isZeroCopy(BridgeStruct st, String fieldName) {

@@ -797,7 +797,7 @@ class DartFfiGenerator {
     final ffiElem = _typedDataFfiElement(rt);
     final lengthExpr = _typedDataElementSize(rt) == 1 ? 'byteLength' : 'byteLength ~/ ${_typedDataElementSize(rt)}';
     writer.line('${indent}if ($ptrVar == nullptr) {');
-    writer.line("${indent}  throw StateError('Native async $rt return was null');");
+    writer.line("$indent  throw StateError('Native async $rt return was null');");
     writer.line('$indent}');
     writer.line('${indent}try {');
     writer.line('$indent  final byteLength = $ptrVar.cast<Int64>().value;');

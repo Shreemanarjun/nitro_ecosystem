@@ -1496,7 +1496,7 @@ nitro generate --verbose
 | Same for enum defaults (Bug 5.2) | ✅ **DONE** 2026-05-23 | `dart_ffi_param_return_test.dart` Bug 5.2 group (3 tests) |
 | Validation emits W001 when `defaultLiteral` is null on non-nullable optional param | ✅ **DONE** 2026-05-22 | 7 W001 tests in `spec_validator_test` pass |
 | All new spec helpers in `test_utils.dart` added (§9) | ✅ **DONE** 2026-05-23 | `typedDataCppMappings`, `streamSpec`, `specWithDefaultlessIntNamedParam`, `specWithEnumNamedParam` added |
-| All P0 missing tests from §8.1–8.3 added | ✅ **DONE** 2026-06-19 | full generator suite green (`2646` passing) |
+| All P0 missing tests from §8.1–8.3 added | ✅ **DONE** 2026-06-19 | full generator suite green (`2654` passing) |
 
 ### Phase 2 — P1: Type completeness
 
@@ -1523,7 +1523,7 @@ nitro generate --verbose
 | Remove raw `StringBuffer(` usage from language generator emitters | ✅ **DONE** 2026-06-19 | `rg "StringBuffer\\(" packages/nitro_generator/lib/src/generators/languages` returns no matches |
 | Fix required `BridgeFunction(isAsync: ...)` constructor fallout in existing tests | ✅ **DONE** 2026-06-19 | full generator suite compiles and passes |
 | Add tests for facade and typed writer isolation | ✅ **DONE** 2026-06-19 | `code_writer_test.dart`, `native_generator_facade_test.dart` |
-| Verify generator suite after architecture move | ✅ **DONE** 2026-06-19 | direct Dart SDK test run: `2646: All tests passed!` |
+| Verify generator suite after architecture move | ✅ **DONE** 2026-06-19 | direct Dart SDK test run: `2654: All tests passed!` |
 
 ### Phase 3 — P1: CLI modes
 
@@ -1665,7 +1665,7 @@ Future<bool> setMetadata(String metaJson);   // caller: jsonEncode(map)
 | `typed_list_bridge_test.dart` | TypedData in bridge |
 | `edge_cases_test.dart` | Empty spec, no-function spec, etc. |
 
-### New tests added 2026-06-19 (architecture/facade; suite: 2646 passing — 0 failures)
+### New tests added 2026-06-19 (architecture/facade; suite: 2654 passing — 0 failures)
 
 | Test file | What it covers |
 |---|---|
@@ -1680,6 +1680,8 @@ Future<bool> setMetadata(String metaJson);   // caller: jsonEncode(map)
 | `dart_ffi_param_return_test.dart` | Async `Uint8List` and `Float32List` returns decode from a malloc-owned `[int64 byteLength][payload]` envelope and free native memory |
 | `swift_typed_data_async_test.dart` | Swift async/sync TypedData returns allocate the same C-`malloc` length-prefixed envelope for Dart |
 | `cpp_bridge_types_test.dart` | JNI TypedData returns copy JVM primitive arrays into the length-prefixed envelope |
+| `record_field_types_test.dart` | `@HybridEnum` fields and `List<@HybridEnum>` fields inside `@HybridRecord` encode as native values and decode back to enums across Dart/Kotlin/Swift/C++ record serializers |
+| `cpp_bridge_generator_test.dart` | Nullable `@HybridStruct` params in direct/Apple C++ bridges emit a `nitro_report_error` null guard before pointer dereference |
 | `jni_perf_test.dart` | Assert-gated `NitroRuntime.checkError`, cached JNI IDs, arena lifetime, and unknown JNI type failure |
 | `lazy_record_list_test.dart` | `RecordWriter` growable buffer and `RecordReader` in-place scalar/string decode performance guards |
 | `link_command_test.dart` | Contextual errors for malformed `package_config.json` while resolving Nitro native paths |

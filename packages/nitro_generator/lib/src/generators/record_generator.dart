@@ -178,6 +178,13 @@ class RecordGenerator {
       case RecordFieldKind.primitive:
         return _primitiveReadExpr(f.dartType);
 
+      case RecordFieldKind.enumValue:
+        final baseType = f.dartType.replaceFirst('?', '');
+        if (f.isNullable) {
+          return 'r.readNullTag() ? null : r.readInt().to$baseType()';
+        }
+        return 'r.readInt().to$baseType()';
+
       case RecordFieldKind.recordObject:
         final baseType = f.dartType.replaceFirst('?', '');
         if (f.isNullable) {
@@ -188,6 +195,10 @@ class RecordGenerator {
       case RecordFieldKind.listPrimitive:
         final item = f.itemTypeName ?? 'dynamic';
         return 'List.generate(r.readInt32(), (_) => ${_primitiveReadCall(item)})';
+
+      case RecordFieldKind.listEnumValue:
+        final item = f.itemTypeName!;
+        return 'List.generate(r.readInt32(), (_) => r.readInt().to$item())';
 
       case RecordFieldKind.listRecordObject:
         final item = f.itemTypeName!;
@@ -229,6 +240,17 @@ class RecordGenerator {
         _writePrimitiveStmt(s, f.dartType, f.name);
         break;
 
+      case RecordFieldKind.enumValue:
+        if (f.isNullable) {
+          s.writeln('    writer.writeNullTag(${f.name} == null);');
+          s.writeln('    if (${f.name} != null) {');
+          s.writeln('      writer.writeInt(${f.name}!.nativeValue);');
+          s.writeln('    }');
+        } else {
+          s.writeln('    writer.writeInt(${f.name}.nativeValue);');
+        }
+        break;
+
       case RecordFieldKind.recordObject:
         if (f.isNullable) {
           s.writeln('    writer.writeNullTag(${f.name} == null);');
@@ -245,6 +267,11 @@ class RecordGenerator {
         final writeCall = _primitiveWriteCall(item, 'e');
         s.writeln('    writer.writeInt32(${f.name}.length);');
         s.writeln('    for (final e in ${f.name}) { writer.$writeCall; }');
+        break;
+
+      case RecordFieldKind.listEnumValue:
+        s.writeln('    writer.writeInt32(${f.name}.length);');
+        s.writeln('    for (final e in ${f.name}) { writer.writeInt(e.nativeValue); }');
         break;
 
       case RecordFieldKind.listRecordObject:
@@ -328,6 +355,7 @@ class RecordGenerator {
   static String generateCpp(BridgeSpec spec) {
     final localRecords = spec.localRecordTypes;
     if (localRecords.isEmpty) return '';
+    final enumNames = spec.enums.map((e) => e.name).toSet();
 
     final s = StringBuffer();
 
@@ -346,7 +374,7 @@ class RecordGenerator {
     for (final rt in localRecords) {
       s.writeln('struct ${rt.name} {');
       for (final f in rt.fields) {
-        s.writeln('    ${_cppFieldType(f)} ${f.name};');
+        s.writeln('    ${_cppFieldType(f, enumNames)} ${f.name};');
       }
       s.writeln();
       s.writeln('    static ${rt.name} fromNative(NitroCppBuffer buf) {');
@@ -357,7 +385,7 @@ class RecordGenerator {
       s.writeln('    static ${rt.name} fromReader(NitroRecordReader& _r) {');
       s.writeln('        ${rt.name} _obj;');
       for (final f in rt.fields) {
-        _cppEmitFieldRead(s, f);
+        _cppEmitFieldRead(s, f, enumNames);
       }
       s.writeln('        return _obj;');
       s.writeln('    }');
@@ -368,16 +396,23 @@ class RecordGenerator {
     return s.toString();
   }
 
-  static String _cppFieldType(BridgeRecordField f) {
+  static String _cppFieldType(BridgeRecordField f, Set<String> enumNames) {
     switch (f.kind) {
       case RecordFieldKind.primitive:
         final t = _cppPrimType(f.dartType.replaceFirst('?', ''));
+        return f.isNullable ? 'std::optional<$t>' : t;
+      case RecordFieldKind.enumValue:
+        final base = f.dartType.replaceFirst('?', '');
+        final t = enumNames.contains(base) ? base : 'int64_t';
         return f.isNullable ? 'std::optional<$t>' : t;
       case RecordFieldKind.recordObject:
         final base = f.dartType.replaceFirst('?', '');
         return f.isNullable ? 'std::optional<$base>' : base;
       case RecordFieldKind.listPrimitive:
         return 'std::vector<${_cppPrimType(f.itemTypeName ?? 'int')}>';
+      case RecordFieldKind.listEnumValue:
+        final item = f.itemTypeName ?? 'int64_t';
+        return 'std::vector<${enumNames.contains(item) ? item : 'int64_t'}>';
       case RecordFieldKind.listRecordObject:
         return 'std::vector<${f.itemTypeName}>';
     }
@@ -413,7 +448,7 @@ class RecordGenerator {
     }
   }
 
-  static void _cppEmitFieldRead(StringBuffer s, BridgeRecordField f) {
+  static void _cppEmitFieldRead(StringBuffer s, BridgeRecordField f, Set<String> enumNames) {
     switch (f.kind) {
       case RecordFieldKind.primitive:
         final base = f.dartType.replaceFirst('?', '');
@@ -423,6 +458,16 @@ class RecordGenerator {
           s.writeln('        { bool _null = _r.readNullTag(); _obj.${f.name} = _null ? std::nullopt : std::optional<$t>(_r.$read()); }');
         } else {
           s.writeln('        _obj.${f.name} = _r.$read();');
+        }
+        break;
+      case RecordFieldKind.enumValue:
+        final base = f.dartType.replaceFirst('?', '');
+        final t = enumNames.contains(base) ? base : 'int64_t';
+        final readExpr = enumNames.contains(base) ? 'static_cast<$base>(_r.readInt())' : '_r.readInt()';
+        if (f.isNullable) {
+          s.writeln('        { bool _null = _r.readNullTag(); _obj.${f.name} = _null ? std::nullopt : std::optional<$t>($readExpr); }');
+        } else {
+          s.writeln('        _obj.${f.name} = $readExpr;');
         }
         break;
       case RecordFieldKind.recordObject:
@@ -437,6 +482,11 @@ class RecordGenerator {
         final item = f.itemTypeName ?? 'int';
         final read = _cppPrimRead(item);
         s.writeln('        { int32_t _n = _r.readInt32(); _obj.${f.name}.reserve((size_t)_n); for (int32_t _i = 0; _i < _n; _i++) _obj.${f.name}.push_back(_r.$read()); }');
+        break;
+      case RecordFieldKind.listEnumValue:
+        final item = f.itemTypeName ?? 'int64_t';
+        final readExpr = enumNames.contains(item) ? 'static_cast<$item>(_r.readInt())' : '_r.readInt()';
+        s.writeln('        { int32_t _n = _r.readInt32(); _obj.${f.name}.reserve((size_t)_n); for (int32_t _i = 0; _i < _n; _i++) _obj.${f.name}.push_back($readExpr); }');
         break;
       case RecordFieldKind.listRecordObject:
         final item = f.itemTypeName!;
@@ -497,13 +547,14 @@ public:
   static String generateKotlin(BridgeSpec spec) {
     final localRecords = spec.localRecordTypes;
     if (localRecords.isEmpty) return '';
+    final enumNames = spec.enums.map((e) => e.name).toSet();
 
     final s = StringBuffer();
     s.writeln('// --- @HybridRecord Kotlin data classes (generated by Nitrogen) ---');
     s.writeln();
 
     for (final rt in localRecords) {
-      final fields = rt.fields.map((f) => 'val ${f.name}: ${_kotlinType(f)}').join(', ');
+      final fields = rt.fields.map((f) => 'val ${f.name}: ${_kotlinType(f, enumNames)}').join(', ');
       s.writeln('@androidx.annotation.Keep');
       s.writeln('data class ${rt.name}($fields) {');
 
@@ -512,7 +563,7 @@ public:
       s.writeln('    companion object {');
       s.writeln('        @JvmStatic fun decodeFrom(buf: java.nio.ByteBuffer): ${rt.name} {');
       for (final f in rt.fields) {
-        s.writeln('            val ${f.name} = ${_kotlinReadExpr(f)}');
+        s.writeln('            val ${f.name} = ${_kotlinReadExpr(f, enumNames)}');
       }
       final ctorArgs = rt.fields.map((f) => f.name).join(', ');
       s.writeln('            return ${rt.name}($ctorArgs)');
@@ -556,15 +607,21 @@ public:
     return s.toString();
   }
 
-  static String _kotlinType(BridgeRecordField f) {
+  static String _kotlinType(BridgeRecordField f, Set<String> enumNames) {
     switch (f.kind) {
       case RecordFieldKind.primitive:
         return _kotlinBase(f.dartType) + (f.isNullable ? '?' : '');
+      case RecordFieldKind.enumValue:
+        final base = f.dartType.replaceFirst('?', '');
+        return (enumNames.contains(base) ? base : 'Long') + (f.isNullable ? '?' : '');
       case RecordFieldKind.recordObject:
         final base = f.dartType.replaceFirst('?', '');
         return base + (f.isNullable ? '?' : '');
       case RecordFieldKind.listPrimitive:
         return 'List<${_kotlinBase(f.itemTypeName ?? 'int')}>';
+      case RecordFieldKind.listEnumValue:
+        final item = f.itemTypeName ?? 'Long';
+        return 'List<${enumNames.contains(item) ? item : 'Long'}>';
       case RecordFieldKind.listRecordObject:
         return 'List<${f.itemTypeName}>';
     }
@@ -586,7 +643,7 @@ public:
     }
   }
 
-  static String _kotlinReadExpr(BridgeRecordField f) {
+  static String _kotlinReadExpr(BridgeRecordField f, Set<String> enumNames) {
     switch (f.kind) {
       case RecordFieldKind.primitive:
         final base = f.dartType.replaceFirst('?', '');
@@ -594,6 +651,13 @@ public:
           return '(if (buf.get().toInt() == 0) null else ${_kotlinPrimRead(base)})';
         }
         return _kotlinPrimRead(base);
+      case RecordFieldKind.enumValue:
+        final base = f.dartType.replaceFirst('?', '');
+        final read = enumNames.contains(base) ? '$base.fromNative(buf.long)' : 'buf.long';
+        if (f.isNullable) {
+          return '(if (buf.get().toInt() == 0) null else $read)';
+        }
+        return read;
       case RecordFieldKind.recordObject:
         final base = f.dartType.replaceFirst('?', '');
         if (f.isNullable) {
@@ -603,6 +667,10 @@ public:
       case RecordFieldKind.listPrimitive:
         final item = f.itemTypeName ?? 'int';
         return '(0 until buf.int).map { ${_kotlinPrimRead(item)} }';
+      case RecordFieldKind.listEnumValue:
+        final item = f.itemTypeName ?? 'Long';
+        final read = enumNames.contains(item) ? '$item.fromNative(buf.long)' : 'buf.long';
+        return '(0 until buf.int).map { $read }';
       case RecordFieldKind.listRecordObject:
         final item = f.itemTypeName!;
         return '(0 until buf.int).map { $item.decodeFrom(buf) }';
@@ -638,6 +706,14 @@ public:
           s.writeln('        ${_kotlinWriteCall(base, f.name)}');
         }
         break;
+      case RecordFieldKind.enumValue:
+        if (f.isNullable) {
+          s.writeln('        out.write(if (${f.name} == null) 0 else 1)');
+          s.writeln('        ${f.name}?.let { writeInt(it.nativeValue) }');
+        } else {
+          s.writeln('        writeInt(${f.name}.nativeValue)');
+        }
+        break;
       case RecordFieldKind.recordObject:
         if (f.isNullable) {
           s.writeln('        out.write(if (${f.name} == null) 0 else 1)');
@@ -650,6 +726,10 @@ public:
         final base = f.itemTypeName ?? 'int';
         s.writeln('        writeInt32(${f.name}.size)');
         s.writeln('        ${f.name}.forEach { e -> ${_kotlinWriteCall(base, 'e')} }');
+        break;
+      case RecordFieldKind.listEnumValue:
+        s.writeln('        writeInt32(${f.name}.size)');
+        s.writeln('        ${f.name}.forEach { e -> writeInt(e.nativeValue) }');
         break;
       case RecordFieldKind.listRecordObject:
         s.writeln('        writeInt32(${f.name}.size)');
@@ -701,9 +781,12 @@ public:
             default: // int, double
               total += nullableTag + 8;
           }
+        case RecordFieldKind.enumValue:
+          total += nullableTag + 8;
         case RecordFieldKind.recordObject:
           total += nullableTag + 32;
         case RecordFieldKind.listPrimitive:
+        case RecordFieldKind.listEnumValue:
         case RecordFieldKind.listRecordObject:
           total += 36; // 4-byte count + ~4 items * 8 bytes avg
       }
@@ -850,10 +933,14 @@ public:
     switch (f.kind) {
       case RecordFieldKind.primitive:
         return _swiftBase(f.dartType);
+      case RecordFieldKind.enumValue:
+        return f.dartType.replaceFirst('?', '');
       case RecordFieldKind.recordObject:
         return f.dartType.replaceFirst('?', '');
       case RecordFieldKind.listPrimitive:
         return '[${_swiftBase(f.itemTypeName ?? 'Any')}]';
+      case RecordFieldKind.listEnumValue:
+        return '[${f.itemTypeName}]';
       case RecordFieldKind.listRecordObject:
         return '[${f.itemTypeName}]';
     }
@@ -898,6 +985,11 @@ public:
         final base = f.dartType.replaceFirst('?', '');
         if (f.isNullable) return 'r.readNullTag() ? nil : ${_swiftReadCall(base)}';
         return _swiftReadCall(base);
+      case RecordFieldKind.enumValue:
+        final base = f.dartType.replaceFirst('?', '');
+        final read = '$base(rawValue: r.readInt())!';
+        if (f.isNullable) return 'r.readNullTag() ? nil : $read';
+        return read;
       case RecordFieldKind.recordObject:
         final base = f.dartType.replaceFirst('?', '');
         if (f.isNullable) return 'r.readNullTag() ? nil : $base.fromReader(r)';
@@ -905,6 +997,9 @@ public:
       case RecordFieldKind.listPrimitive:
         final item = f.itemTypeName ?? 'int';
         return '(0..<Int(r.readInt32())).map { _ in ${_swiftReadCall(item)} }';
+      case RecordFieldKind.listEnumValue:
+        final item = f.itemTypeName!;
+        return '(0..<Int(r.readInt32())).map { _ in $item(rawValue: r.readInt())! }';
       case RecordFieldKind.listRecordObject:
         final item = f.itemTypeName!;
         return '(0..<Int(r.readInt32())).map { _ in $item.fromReader(r) }';
@@ -922,6 +1017,14 @@ public:
           s.writeln('    writer.${_swiftWriterCall(base, f.name)}');
         }
         break;
+      case RecordFieldKind.enumValue:
+        if (f.isNullable) {
+          s.writeln('    writer.writeNullTag(${f.name} == nil)');
+          s.writeln('    if let val = ${f.name} { writer.writeInt(val.rawValue) }');
+        } else {
+          s.writeln('    writer.writeInt(${f.name}.rawValue)');
+        }
+        break;
       case RecordFieldKind.recordObject:
         if (f.isNullable) {
           s.writeln('    writer.writeNullTag(${f.name} == nil)');
@@ -934,6 +1037,10 @@ public:
         final item = f.itemTypeName ?? 'int';
         s.writeln('    writer.writeInt32(Int32(${f.name}.count))');
         s.writeln('    for e in ${f.name} { writer.${_swiftWriterCall(item, 'e')} }');
+        break;
+      case RecordFieldKind.listEnumValue:
+        s.writeln('    writer.writeInt32(Int32(${f.name}.count))');
+        s.writeln('    for e in ${f.name} { writer.writeInt(e.rawValue) }');
         break;
       case RecordFieldKind.listRecordObject:
         s.writeln('    writer.writeInt32(Int32(${f.name}.count))');

@@ -74,8 +74,8 @@
 | T1 | **Bug:** Stream `String`/`bool`/`int` unpack — `rawPtr as T` is wrong | 🔴 Critical | ✅ Done |
 | T2 | **Bug:** Async `Uint8List`/`Float32List` return has no decode path | 🔴 Critical | ✅ Done |
 | T3 | **Bug:** `bool` JNI sig uses `jbyte` (sig `B`) instead of `jboolean` (sig `Z`) | 🔴 Critical | ✅ Done |
-| T4 | **Bug:** `@HybridEnum` field inside `@HybridRecord` serialized as raw int (not `.nativeValue`) | 🔴 Critical | ⬜ Pending |
-| T5 | **Bug:** Nullable `@HybridStruct` param has no null-pointer guard in C++ bridge | 🟡 Medium | ⬜ Pending |
+| T4 | **Bug:** `@HybridEnum` field inside `@HybridRecord` serialized as raw int (not `.nativeValue`) | 🔴 Critical | ✅ Done |
+| T5 | **Bug:** Nullable `@HybridStruct` param has no null-pointer guard in C++ bridge | 🟡 Medium | ✅ Done |
 | T6 | **Bug:** `withArena` wraps async body — arena freed before `await` completes (use-after-free) | 🔴 Critical | ✅ Done |
 | T7 | Unit tests: `List<bool/double/String/int>` inside record serializers (all 4 generators) | 🟡 Medium | ✅ Done |
 | T8 | Unit tests: Kotlin all-types coverage (bool, enum, struct, record async) | 🟡 Medium | ✅ Done |
@@ -299,7 +299,7 @@ Replace `get_error` / `clear_error` round-trips with a `NitroError*` return + re
 | stream String/bool | ✅ | ⬜ | ⬜ | ⬜ | ⬜ | — |
 | stream enum | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | — |
 | async Uint8List return | ✅ | — | ✅ | ✅ | — | — |
-| enum field in @HybridRecord | ⬜ T4 | ⬜ T4 | ⬜ T4 | — | — | ⬜ T4 |
+| enum field in @HybridRecord | ✅ T4 | ✅ T4 | ✅ T4 | ✅ T4 | — | ✅ T4 |
 
 ### Critical Bugs
 
@@ -313,12 +313,10 @@ Replace `get_error` / `clear_error` round-trips with a `NitroError*` return + re
 ✅ **Done 2026-06-19.** `bool` maps to `Z` / `jboolean` / `GetBooleanField` throughout JNI bridge generation. Covered by `kotlin_jni_nullable_primitive_test.dart`.
 
 **T4 — `@HybridEnum` field inside `@HybridRecord`**
-`spec_extractor.dart` `_recordFieldKind` classifies enum fields as `primitive`. Dart/Kotlin/Swift/C++ record serializers don't call `.nativeValue` / `init(nativeValue:)`.
-Fix: add `RecordFieldKind.enumValue`; update all 4 record serializers.
+✅ **Done 2026-06-19.** `spec_extractor.dart` now classifies enum record fields and `List<Enum>` record fields as dedicated enum field kinds. Dart/Kotlin/Swift/C++ record serializers write `nativeValue` / `rawValue` and decode native integers back to enum values. Covered by `record_field_types_test.dart` plus the focused record generator suite.
 
 **T5 — Nullable `@HybridStruct` param (C++ bridge)**
-`unpack_T_from_jni` / C++ bridge has no null guard before `.toNative(arena)`.
-Fix: emit null check → `nitro_report_error` on null.
+✅ **Done 2026-06-19.** C++ direct and Apple C++ dispatch bridges now guard nullable struct `void*` params before `*static_cast<const T*>`, report `NullPointerException` through `nitro_report_error`, and return the correct default for the exported C function. Covered by `cpp_bridge_generator_test.dart`.
 
 **T6 — `withArena` async use-after-free (`dart_ffi_generator.dart`)**
 ✅ **Done 2026-06-19.** Async generated methods create an `Arena`, await the native call, and release in `finally`, so arena-allocated params live through the async boundary. Covered by `jni_perf_test.dart`.
@@ -493,7 +491,7 @@ import 'dart:js_interop';
 - Shared architecture: `native_generator_facade.dart`, `native_generator_model.dart`, and language bundles under `generators/languages/*`.
 - Language folders: `dart`, `kotlin`, `swift`, `c_bridge`, `cpp_native`, and `cmake`.
 - Old top-level flat generator files were removed; top-level `generators/` now contains shared infrastructure plus `enum`, `record`, and `struct` emitters.
-- Tests: `code_writer_test.dart`, `native_generator_facade_test.dart`, plus the full generator suite (`2646` passing).
+- Tests: `code_writer_test.dart`, `native_generator_facade_test.dart`, plus the full generator suite (`2654` passing).
 
 ### G2–G5 — Build system
 - **G2:** Add 3 missing extensions to `build.yaml` (`.native.g.h`, `.mock.g.h`, `.test.g.cpp`).
@@ -737,7 +735,7 @@ WARNING NativeHandle<T> param with no matching @NitroOwned return — consider d
 ## 11. Delivery Sequencing
 
 ### Phase A — Critical bug fixes (ship first)
-T3 (bool JNI sig) → T1 (stream unpack) → T2 (async TypedData) → T6 (withArena use-after-free) → T4 (enum in record) → G8 (jniSigType throw) → G14 (spec extractor catch) → G15 (link empty catch)
+T3 (bool JNI sig) → T1 (stream unpack) → T2 (async TypedData) → T6 (withArena use-after-free) → ✅ T4 (enum in record) → ✅ T5 (nullable struct guard) → G8 (jniSigType throw) → G14 (spec extractor catch) → G15 (link empty catch)
 
 ### Phase B — Foundation for platform expansion
 PX1 (sealed NativeImpl) → PX2–PX4 (BridgeSpec + SpecExtractor + SpecValidator) → PX20 (WASM error) → PX6 (link_command) → PX7–PX9 (macOS)

@@ -655,6 +655,81 @@ void main() {
       expect(out, contains('NativeImpl: cpp'));
     });
 
+    group('nullable @HybridStruct param null guard', () {
+      BridgeSpec nullableStructCppSpec({
+        NativeImpl iosImpl = NativeImpl.cpp,
+        NativeImpl androidImpl = NativeImpl.cpp,
+        String returnType = 'int',
+      }) => BridgeSpec(
+        dartClassName: 'Mod',
+        lib: 'mod',
+        namespace: 'mod',
+        iosImpl: iosImpl,
+        androidImpl: androidImpl,
+        sourceUri: 'mod.native.dart',
+        structs: [
+          BridgeStruct(
+            name: 'Foo',
+            packed: false,
+            fields: [
+              BridgeField(
+                name: 'x',
+                type: BridgeType(name: 'double'),
+              ),
+            ],
+          ),
+        ],
+        functions: [
+          BridgeFunction(
+            dartName: 'fn',
+            cSymbol: 'mod_fn',
+            isAsync: false,
+            returnType: BridgeType(name: returnType),
+            params: [
+              BridgeParam(
+                name: 'x',
+                type: BridgeType(name: 'Foo?', isNullable: true),
+              ),
+            ],
+          ),
+        ],
+      );
+
+      test('direct C++ bridge reports error before dereferencing nullable struct', () {
+        final out = CppBridgeGenerator.generate(nullableStructCppSpec());
+        final guard = out.indexOf('if (x == nullptr) {');
+        final deref = out.indexOf('*static_cast<const Foo*>(x)');
+
+        expect(guard, isNot(-1));
+        expect(out, contains('nitro_report_error("NullPointerException", "Parameter x for fn cannot be null.", nullptr, nullptr);'));
+        expect(out, contains('return 0;'));
+        expect(deref, isNot(-1));
+        expect(guard, lessThan(deref));
+      });
+
+      test('direct C++ void return guard returns without a value', () {
+        final out = CppBridgeGenerator.generate(
+          nullableStructCppSpec(returnType: 'void'),
+        );
+        expect(out, contains('if (x == nullptr) {\n        nitro_report_error("NullPointerException", "Parameter x for fn cannot be null.", nullptr, nullptr);\n        return;\n    }'));
+      });
+
+      test('Apple C++ dispatch reports error before dereferencing nullable struct', () {
+        final out = CppBridgeGenerator.generate(
+          nullableStructCppSpec(androidImpl: NativeImpl.kotlin),
+        );
+        final appleStart = out.indexOf('#elif __APPLE__');
+        final guard = out.indexOf('if (x == nullptr) {', appleStart);
+        final deref = out.indexOf('*static_cast<const Foo*>(x)', appleStart);
+
+        expect(appleStart, isNot(-1));
+        expect(guard, isNot(-1));
+        expect(deref, isNot(-1));
+        expect(guard, lessThan(deref));
+        expect(out.substring(appleStart), contains('return 0;'));
+      });
+    });
+
     group('nullable primitive return types call JNI method (not just return 0)', () {
       BridgeSpec nullableReturnSpec(String returnTypeName) => BridgeSpec(
         dartClassName: 'MyModule',
