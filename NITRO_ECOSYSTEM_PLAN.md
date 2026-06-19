@@ -36,7 +36,7 @@
 14. [Incremental Generation](#14-incremental-generation)
 15. [Developer Experience Improvements](#15-developer-experience-improvements)
 16. [Implementation Roadmap](#16-implementation-roadmap)
-17. [Appendix A: Workarounds for Current Bugs](#appendix-a-workarounds-for-current-bugs)
+17. [Appendix A: Historical Workarounds](#appendix-a-historical-workarounds)
 18. [Appendix B: Files Affected Per Plugin](#appendix-b-files-affected-per-plugin)
 
 ---
@@ -1496,7 +1496,7 @@ nitro generate --verbose
 | Same for enum defaults (Bug 5.2) | ✅ **DONE** 2026-05-23 | `dart_ffi_param_return_test.dart` Bug 5.2 group (3 tests) |
 | Validation emits W001 when `defaultLiteral` is null on non-nullable optional param | ✅ **DONE** 2026-05-22 | 7 W001 tests in `spec_validator_test` pass |
 | All new spec helpers in `test_utils.dart` added (§9) | ✅ **DONE** 2026-05-23 | `typedDataCppMappings`, `streamSpec`, `specWithDefaultlessIntNamedParam`, `specWithEnumNamedParam` added |
-| All P0 missing tests from §8.1–8.3 added | 🔲 Partial | test suite green |
+| All P0 missing tests from §8.1–8.3 added | ✅ **DONE** 2026-06-19 | full generator suite green (`2636` passing) |
 
 ### Phase 2 — P1: Type completeness
 
@@ -1512,6 +1512,18 @@ nitro generate --verbose
 | Struct with every field type variant (§3.5) | ✅ **DONE** 2026-05-23 | `struct_field_types_test.dart` kitchen-sink covers all types in Swift/Kotlin/C++ |
 | Record with every field type variant (§3.6) | ✅ **DONE** 2026-05-23 | `record_field_types_test.dart` (56 tests): bool/double/Uint8List/List<T>/Swift boilerplate |
 | Source-map comments emitted in all generators | ✅ **DONE** 2026-05-23 | `source_map_comments_test.dart` (13 tests); Swift/Kotlin/C++ emit `// source: file:line` when lineNumber non-null |
+
+### Phase 2.5 — P1: Generator facade architecture
+
+| Task | Status | Done when |
+|---|---|---|
+| Move native generators from flat files into language folders | ✅ **DONE** 2026-06-19 | `generators/languages/{dart,kotlin,swift,c_bridge,cpp_native,cmake}/` owns language-specific generators |
+| Add facade/model layer for generator isolation and future language support | ✅ **DONE** 2026-06-19 | `native_generator_facade.dart`, `native_generator_model.dart`, and per-language `*_generator_bundle.dart` files |
+| Add typed writer/model for generated code assembly | ✅ **DONE** 2026-06-19 | `code_writer.dart` with `CodeNode`, `CodeFile`, `CodeLine`, `CodeBlock`, `CodeWriter` |
+| Remove raw `StringBuffer(` usage from language generator emitters | ✅ **DONE** 2026-06-19 | `rg "StringBuffer\\(" packages/nitro_generator/lib/src/generators/languages` returns no matches |
+| Fix required `BridgeFunction(isAsync: ...)` constructor fallout in existing tests | ✅ **DONE** 2026-06-19 | full generator suite compiles and passes |
+| Add tests for facade and typed writer isolation | ✅ **DONE** 2026-06-19 | `code_writer_test.dart`, `native_generator_facade_test.dart` |
+| Verify generator suite after architecture move | ✅ **DONE** 2026-06-19 | direct Dart SDK test run: `2636: All tests passed!` |
 
 ### Phase 3 — P1: CLI modes
 
@@ -1565,9 +1577,10 @@ nitro generate --verbose
 
 ---
 
-## Appendix A: Workarounds for Current Bugs
+## Appendix A: Historical Workarounds
 
-Until Phase 1 is complete, use these patterns in spec files.
+Phase 1 default-literal bugs are fixed. Keep these patterns only as fallback
+guidance for older generated code or projects pinned to an older Nitro version.
 
 ### Optional param with int/double/bool default → nullable
 
@@ -1652,6 +1665,14 @@ Future<bool> setMetadata(String metaJson);   // caller: jsonEncode(map)
 | `typed_list_bridge_test.dart` | TypedData in bridge |
 | `edge_cases_test.dart` | Empty spec, no-function spec, etc. |
 
+### New tests added 2026-06-19 (architecture/facade; suite: 2636 passing — 0 failures)
+
+| Test file | What it covers |
+|---|---|
+| `code_writer_test.dart` | Typed code writer primitives: lines, blank lines, raw snippets, blocks, and file assembly |
+| `native_generator_facade_test.dart` | Facade/bundle dispatch and language-target isolation for generated native outputs |
+| Existing generator tests updated | `BridgeFunction(isAsync: ...)` required constructor argument added across helpers/tests; all existing generator coverage compiles |
+
 ### New tests added 2026-05-23 (total: ~119 new tests; suite: 1991 passing — 0 failures)
 
 | Test file | Tests | What it covers |
@@ -1675,6 +1696,6 @@ Future<bool> setMetadata(String metaJson);   // caller: jsonEncode(map)
 
 ---
 
-*Plan authored 2026-05-22. Updated 2026-05-23 with Phase 1/2/4 progress.
+*Plan authored 2026-05-22. Updated 2026-06-19 with Phase 2.5 generator facade architecture and latest passing suite count.
 Ground-truthed against `packages/nitro_generator/` source.
 Revisit §4 Type Mapping tables after each Nitro generator release.*

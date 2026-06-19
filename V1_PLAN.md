@@ -38,6 +38,8 @@
 | F22 | `nitro_report_jni_exception` caches method IDs | ✅ Done |
 | F23 | `_streamJobs` map → `ConcurrentHashMap` | ✅ Done |
 | F24 | `ByteArrayOutputStream` pool-based reuse in record encode | ✅ Done |
+| F25 | Generator facade + per-language folder architecture (`languages/*` bundles + shared model) | ✅ Done |
+| F26 | Shared typed `CodeWriter` infrastructure; language generators no longer use raw `StringBuffer(` emitters | ✅ Done |
 
 ### Performance
 
@@ -46,7 +48,7 @@
 | P1 | `FindClass()` inside `unpack_*_to_jni` — cache `jclass` + `jmethodID` as statics | 🔴 High | ⬜ Pending |
 | P2 | TypedData params: `NewDirectByteBuffer` zero-copy path (not just fields) | 🟡 Medium | ⬜ Pending |
 | P3 | `NitroRuntime.checkError` — assert-gate in release (Approach A, non-breaking) | 🟡 Medium | ⬜ Pending |
-| P4 | Generator inner loops: pre-build `Set<String>` for O(1) type lookups | 🟡 Medium | ⬜ Pending |
+| P4 | Generator inner loops: pre-build `Set<String>` for O(1) type lookups | 🟡 Medium | ✅ Done |
 | P5 | `RecordWriter` preallocated growable buffer; `readString` in-place decode | 🟡 Medium | ⬜ Pending |
 | P6 | `IsolatePool._leastBusyIndex` → min-heap or round-robin | 🟢 Low | ⬜ Pending |
 | P7 | `isLeaf: true` on pure-native FFI calls (~30% call overhead reduction) | 🟡 Medium | ⬜ Pending |
@@ -75,10 +77,10 @@
 | T4 | **Bug:** `@HybridEnum` field inside `@HybridRecord` serialized as raw int (not `.nativeValue`) | 🔴 Critical | ⬜ Pending |
 | T5 | **Bug:** Nullable `@HybridStruct` param has no null-pointer guard in C++ bridge | 🟡 Medium | ⬜ Pending |
 | T6 | **Bug:** `withArena` wraps async body — arena freed before `await` completes (use-after-free) | 🔴 Critical | ⬜ Pending |
-| T7 | Unit tests: `List<bool/double/String/int>` inside record serializers (all 4 generators) | 🟡 Medium | ⬜ Pending |
-| T8 | Unit tests: Kotlin all-types coverage (bool, enum, struct, record async) | 🟡 Medium | ⬜ Pending |
-| T9 | Unit tests: Swift all-types coverage (bool, enum, struct, stream types) | 🟡 Medium | ⬜ Pending |
-| T10 | Unit tests: Dart FFI all-types coverage (bool, enum, typed-data async, properties) | 🟡 Medium | ⬜ Pending |
+| T7 | Unit tests: `List<bool/double/String/int>` inside record serializers (all 4 generators) | 🟡 Medium | ✅ Done |
+| T8 | Unit tests: Kotlin all-types coverage (bool, enum, struct, record async) | 🟡 Medium | ✅ Done |
+| T9 | Unit tests: Swift all-types coverage (bool, enum, struct, stream types) | 🟡 Medium | ✅ Done |
+| T10 | Unit tests: Dart FFI all-types coverage (bool, enum, typed-data async, properties) | 🟡 Medium | ✅ Done |
 | T11 | Integration module: `type_coverage` plugin (echo all types on device) | 🔴 High | ⬜ Pending |
 
 ### Platform Expansion
@@ -110,7 +112,7 @@
 
 | ID | Item | Priority | Status |
 |----|------|----------|--------|
-| G1 | Split `cpp_bridge_generator.dart` (1586 lines) — 8 sub-PRs, byte-identical output | 🟡 Medium | ⬜ Pending |
+| G1 | Split `cpp_bridge_generator.dart` (1586 lines) — 8 sub-PRs, byte-identical output | 🟡 Medium | 🟨 Partial |
 | G2 | `build.yaml` ↔ `builder.dart` sync: add 3 missing output extensions | 🔴 High | ⬜ Pending |
 | G3 | `build.yaml` drift test: assert `buildExtensions` keys match code | 🟡 Medium | ⬜ Pending |
 | G4 | `builder.dart` log escalation: `log.warning` → `log.severe` for stack traces | 🟡 Medium | ⬜ Pending |
@@ -126,6 +128,8 @@
 | G14 | Fix silent `catch (_) {}` in spec extractor — rethrow as `SpecParseException` | 🔴 High | ⬜ Pending |
 | G15 | Fix empty catch in `link_command.dart` Nitro-native path resolution | 🔴 High | ⬜ Pending |
 | G16 | Centralise hardcoded platform versions (`swift-tools: 5.9`, `ndkVersion 34`, etc.) | 🟡 Medium | ⬜ Pending |
+| G17 | Facade-oriented generator bundles by language (`dart`, `kotlin`, `swift`, `c_bridge`, `cpp_native`, `cmake`) | 🟡 Medium | ✅ Done |
+| G18 | Replace raw language-generator `StringBuffer` emitters with typed writer/model layer | 🟡 Medium | ✅ Done |
 
 ### Native Handle (Raw Pointer Escape Hatch)
 
@@ -163,7 +167,7 @@
 
 | ID | Item | Priority | Status |
 |----|------|----------|--------|
-| TC1 | Integration test suite: `nitrogen init` → `generate` → `link` on temp project | 🔴 High | ⬜ Pending |
+| TC1 | Integration test suite: `nitrogen init` → `generate` → `link` on temp project | 🔴 High | ✅ Done |
 | TC2 | Windows/Linux CI build jobs on GitHub Actions | 🟡 Medium | ⬜ Pending |
 | TC3 | Memory/finalizer stress test: 10k `ZeroCopyBuffer` alloc/discard | 🟡 Medium | ⬜ Pending |
 | TC4 | `IsolatePool` concurrency: 1 000 concurrent dispatches, no deadlock | 🟡 Medium | ⬜ Pending |
@@ -193,6 +197,7 @@ All items below are shipped and tested. See `plan.md` status section and individ
 - **`@NitroNativeAsync`** (F16): Zero-hop async — native thread posts result directly via `Dart_PostCObject_DL`. ~930 µs → ~146 µs per call. 75 tests.
 - **C++ Record Decoder** (F19): `NitroRecordReader` with `_require(n)` + explicit bounds-checked `readNullTag()`. `std::optional<T>` for nullable fields. 42 tests.
 - **JNI** (F5, F8, F20, F22, F23): Scoped local frames, correct `_jniMangle` escaping, all IDs cached in `JNI_OnLoad`, exception helper caches IDs, `_streamJobs` → `ConcurrentHashMap`.
+- **Generator architecture** (F25, F26, G17, G18): native generators are routed through `NativeGeneratorFacade` and per-language bundles under `packages/nitro_generator/lib/src/generators/languages/`; old flat generator files were removed. Shared `CodeWriter`/`CodeNode` infrastructure backs language emitters, and `rg "StringBuffer\\(" packages/nitro_generator/lib/src/generators/languages` is clean as of 2026-06-19.
 
 ---
 
@@ -208,7 +213,7 @@ Every call to `unpack_SomeStruct_to_jni` runs `env->FindClass(...)` + `env->GetM
 Gate `NitroRuntime.checkError` inside `assert(() { …; return true; }())` in generated Dart. Fully erased in release builds — no branch, no pointer read. Files: `dart_ffi_generator.dart`.
 
 ### P4 — Generator O(n²) type lookups
-Inside per-param/field loops, `spec.structs.any(...)` / `spec.enums.any(...)` are linear scans. Pre-build `Set<String>` tables at the top of `generate()` — already done for some generators, missing in others.
+✅ **Done 2026-06-19.** The language generators now pre-build enum/struct/record lookup sets near the top of their emitters instead of repeatedly scanning `spec.enums`, `spec.structs`, and `spec.recordTypes` in hot generation loops.
 
 ### P5 — `RecordWriter` / `RecordReader` hot spots
 - `writeInt` / `writeDouble` / `writeInt32` allocate a fresh `ByteData(N)` per field. Replace with a single preallocated growable `Uint8List` + direct offset writes.
@@ -287,7 +292,7 @@ Replace `get_error` / `clear_error` round-trips with a `NitroError*` return + re
 | @ZeroCopy | ✅ | ✅ | ⬜ | ✅ | — | — |
 | record sync/async | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
 | List\<record\> | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
-| List\<int/double/bool/String\> in record | ⬜ T7 | ⬜ T8 | ⬜ T9 | — | — | ⬜ T7 |
+| List\<int/double/bool/String\> in record | ✅ T7 | ✅ T8 | ✅ T9 | — | — | ✅ T7 |
 | nullable record field | ⬜ | ⬜ | ⬜ | — | — | ⬜ |
 | Map\<String,dynamic\> | ✅ | ✅ | ✅ | ✅ | ✅ | — |
 | stream double | ✅ | ✅ | ✅ | ✅ | ✅ | — |
@@ -473,19 +478,27 @@ import 'dart:js_interop';
 
 ## 6. Generator & Build Quality
 
-### G1 — Split `cpp_bridge_generator.dart`
-1586 lines, two top-level emitters, ~15 helpers. Split into sub-modules with **byte-identical output** (verify with `git diff` on `my_camera/` after `build_runner build`):
+### G1 — Split / structure `cpp_bridge_generator.dart`
+🟨 **Partial 2026-06-19.** The old flat generator file has moved to `languages/c_bridge/cpp_bridge_generator.dart`, JNI type mapping helpers live in `generators/cpp_bridge/type_mappings.dart`, and the emitter now uses the shared `CodeWriter`. The remaining optional work is a finer split into smaller c_bridge emitter files while preserving byte-identical output.
 
 | Sub-task | Extract | File |
 |----------|---------|------|
-| G1.1 | Helpers (lines 1285–end) | `cpp_bridge/type_mappings.dart` |
+| G1.1 | Helpers (lines 1285–end) | ✅ `cpp_bridge/type_mappings.dart` |
 | G1.2 | `_generateCppDirect` | `cpp_bridge/cpp_direct_emitter.dart` |
 | G1.3 | JNI prologue (~200 lines) | `cpp_bridge/jni_swift_prologue.dart` |
 | G1.4 | JNI per-function loop | `cpp_bridge/jni_method_emitter.dart` |
 | G1.5 | Swift C-bridge blocks | `cpp_bridge/swift_shim_emitter.dart` |
 | G1.6 | Struct/record/enum helpers | `cpp_bridge/type_emitter.dart` |
-| G1.7 | `CppEmitter` class (explicit indent) | replaces raw `StringBuffer.writeln` |
+| G1.7 | `CodeWriter` class (explicit writer API) | ✅ replaces raw `StringBuffer.writeln` in language generators |
 | G1.8 | Template-string helper for function bodies | after G1.1–G1.7 merged |
+
+### G17–G18 — Generator facade and typed writer
+✅ **Done 2026-06-19.**
+
+- Shared architecture: `native_generator_facade.dart`, `native_generator_model.dart`, and language bundles under `generators/languages/*`.
+- Language folders: `dart`, `kotlin`, `swift`, `c_bridge`, `cpp_native`, and `cmake`.
+- Old top-level flat generator files were removed; top-level `generators/` now contains shared infrastructure plus `enum`, `record`, and `struct` emitters.
+- Tests: `code_writer_test.dart`, `native_generator_facade_test.dart`, plus the full generator suite (`2636` passing).
 
 ### G2–G5 — Build system
 - **G2:** Add 3 missing extensions to `build.yaml` (`.native.g.h`, `.mock.g.h`, `.test.g.cpp`).
@@ -679,11 +692,11 @@ WARNING NativeHandle<T> param with no matching @NitroOwned return — consider d
 | `packages/nitro_generator/lib/src/bridge_spec.dart` | `BridgeType.isNativeHandle`, `nativeHandleTypeParam`; `BridgeFunction.isOwned` |
 | `packages/nitro_generator/lib/src/spec_extractor.dart` | Detect `NativeHandle<T>` + `@NitroOwned` |
 | `packages/nitro_generator/lib/src/spec_validator.dart` | `@NitroOwned` validation rules |
-| `packages/nitro_generator/lib/src/generators/dart_ffi_generator.dart` | Wrap/unwrap `NativeHandle<T>`; `@NitroOwned` finalizer wiring |
-| `packages/nitro_generator/lib/src/generators/kotlin_generator.dart` | `NativeHandle` → `Long` |
-| `packages/nitro_generator/lib/src/generators/swift_generator.dart` | `NativeHandle` → `UnsafeMutableRawPointer?` |
-| `packages/nitro_generator/lib/src/generators/cpp_bridge_generator.dart` | `void*` pass-through; `@NitroOwned` release extern |
-| `packages/nitro_generator/lib/src/generators/cpp_interface_generator.dart` | `void*` in abstract method |
+| `packages/nitro_generator/lib/src/generators/languages/dart/dart_ffi_generator.dart` | Wrap/unwrap `NativeHandle<T>`; `@NitroOwned` finalizer wiring |
+| `packages/nitro_generator/lib/src/generators/languages/kotlin/kotlin_generator.dart` | `NativeHandle` → `Long` |
+| `packages/nitro_generator/lib/src/generators/languages/swift/swift_generator.dart` | `NativeHandle` → `UnsafeMutableRawPointer?` |
+| `packages/nitro_generator/lib/src/generators/languages/c_bridge/cpp_bridge_generator.dart` | `void*` pass-through; `@NitroOwned` release extern |
+| `packages/nitro_generator/lib/src/generators/languages/cpp_native/cpp_interface_generator.dart` | `void*` in abstract method |
 | `packages/nitro_generator/test/native_handle_test.dart` | **New** — all generators, `@NitroOwned` wiring |
 | `doc/advanced/native_handle.md` | **New** — usage guide, lifetime rules, cast patterns |
 
@@ -736,19 +749,19 @@ T3 (bool JNI sig) → T1 (stream unpack) → T2 (async TypedData) → T6 (withAr
 PX1 (sealed NativeImpl) → PX2–PX4 (BridgeSpec + SpecExtractor + SpecValidator) → PX20 (WASM error) → PX6 (link_command) → PX7–PX9 (macOS)
 
 ### Phase C — Performance wins (low risk, non-breaking)
-P3 (assert-gate checkError) → P4 (O(1) type lookups) → P7 (isLeaf) → P1 (JNI struct unpack caching) → P5 (RecordWriter buffer)
+P3 (assert-gate checkError) → ✅ P4 (O(1) type lookups) → P7 (isLeaf) → P1 (JNI struct unpack caching) → P5 (RecordWriter buffer)
 
 ### Phase D — Platform expansion (Windows/Linux/Web)
 PX10–PX16 (Windows + Linux generators, CMake, CLI) → PX17–PX19 (Web conditional export + WebBridgeGenerator)
 
 ### Phase E — Quality & observability
-G1.1–G1.8 (cpp_bridge split, one sub-PR at a time) → G2–G5 (build system) → D1 (Timeline) → D2 (link checksum) → S1 (ABI version)
+✅ G17–G18 (generator facade + typed writer) → G1.2–G1.6/G1.8 (optional finer c_bridge split) → G2–G5 (build system) → D1 (Timeline) → D2 (link checksum) → S1 (ABI version)
 
 ### Phase F — Stability hardening
 S3 (stream port-death) → S4 (JNI detach) → S2 (load race) → S7 (TLS error slot) → TC1–TC4 (integration + stress tests)
 
 ### Phase G — Type coverage integration
-T7–T10 (unit tests) → T11 (type_coverage plugin) → TC1 (integration test suite)
+✅ T7–T10 (unit tests) → T11 (type_coverage plugin) → ✅ TC1 (integration test suite)
 
 ### Phase H — Native Handle
 NH1 (`NativeHandle<T>` runtime class) → NH2 (`@NitroOwned` annotation) → NH3–NH4 (`BridgeSpec` + `SpecExtractor`) → NH5 (`SpecValidator`) → NH6–NH10 (all 5 generators) → NH11 (tests) → NH12 (docs)
@@ -770,50 +783,50 @@ NH1 (`NativeHandle<T>` runtime class) → NH2 (`@NitroOwned` annotation) → NH3
 
 | Plan IDs | Primary file(s) |
 |----------|-----------------|
-| P3, G12 | `dart_ffi_generator.dart` |
-| P1, T3, T5, G8, G9 | `cpp_bridge_generator.dart` |
+| P3, G12 | `generators/languages/dart/dart_ffi_generator.dart` |
+| P1, T3, T5, G8, G9 | `generators/languages/c_bridge/cpp_bridge_generator.dart` |
 | P5 | `nitro/lib/src/record_codec.dart` |
 | P6 | `nitro/lib/src/isolate_pool.dart` |
-| P7 | `dart_ffi_generator.dart` (FFI `lookupFunction` calls) |
-| S1 | `cpp_bridge_generator.dart`, `nitro_runtime.dart` |
+| P7 | `generators/languages/dart/dart_ffi_generator.dart` (FFI `lookupFunction` calls) |
+| S1 | `generators/languages/c_bridge/cpp_bridge_generator.dart`, `nitro_runtime.dart` |
 | S2 | `nitro_runtime.dart` |
 | S3 | all generator emitters |
 | S4 | `isolate_pool.dart`, Kotlin generator |
-| S7 | `cpp_bridge_generator.dart` (TLS), `nitro_runtime.dart` |
-| T1, T2, T6 | `dart_ffi_generator.dart` |
+| S7 | `generators/languages/c_bridge/cpp_bridge_generator.dart` (TLS), `nitro_runtime.dart` |
+| T1, T2, T6 | `generators/languages/dart/dart_ffi_generator.dart` |
 | T4 | `spec_extractor.dart`, all 4 record generators |
 | PX1 | `nitro_annotations/lib/src/annotations.dart` |
 | PX2, PX3 | `bridge_spec.dart` |
 | PX4 | `spec_extractor.dart` |
 | PX5, PX20 | `spec_validator.dart` |
 | PX6 | `nitrogen_cli/lib/commands/link_command.dart` |
-| PX7–PX9, PX10, PX11 | `cpp_bridge_generator.dart`, `dart_ffi_generator.dart` |
-| PX12 | `cmake_generator.dart` (both copies) |
+| PX7–PX9, PX10, PX11 | `generators/languages/c_bridge/cpp_bridge_generator.dart`, `generators/languages/dart/dart_ffi_generator.dart` |
+| PX12 | `generators/languages/cmake/cmake_generator.dart` |
 | PX13, PX14 | `link_command.dart`, `init_command.dart` |
 | PX15 | `doctor_command.dart` |
 | PX17 | `nitro/lib/src/nitro_runtime.dart` (split → `_native` / `_web`) |
 | PX18 | `generators/web_bridge_generator.dart` (new) |
-| G1 | `cpp_bridge_generator.dart` → `cpp_bridge/` sub-modules |
+| G1 | `generators/languages/c_bridge/cpp_bridge_generator.dart` → optional smaller `c_bridge/` sub-modules |
 | G2, G3 | `build.yaml`, `test/build_yaml_drift_test.dart` |
 | G4, G5 | `builder.dart` |
 | G6 | `nitrogen_cli/lib/commands/link_command.dart`, CMake shim |
 | G7 | `spec_extractor.dart` |
-| G10, G11, G13 | `kotlin_generator.dart`, all generators (headers) |
+| G10, G11, G13 | `generators/languages/kotlin/kotlin_generator.dart`, all generators (headers) |
 | G14 | `spec_extractor.dart` |
 | G15 | `nitrogen_cli/lib/commands/link_command.dart` |
 | G16 | new `VersionConstants` class or `nitrogen_versions.yaml` |
-| D1 | `dart_ffi_generator.dart`, `nitro_runtime.dart` |
-| D2 | `cpp_bridge_generator.dart`, `link_command.dart`, `nitro_runtime.dart` |
+| D1 | `generators/languages/dart/dart_ffi_generator.dart`, `nitro_runtime.dart` |
+| D2 | `generators/languages/c_bridge/cpp_bridge_generator.dart`, `link_command.dart`, `nitro_runtime.dart` |
 | D3 | `nitrogen_cli/lib/commands/doctor_command.dart` |
-| D5 | `dart_ffi_generator.dart`, `cpp_bridge_generator.dart` |
-| D6 | `cpp_bridge_generator.dart` (JNI path), `kotlin_generator.dart` |
+| D5 | `generators/languages/dart/dart_ffi_generator.dart`, `generators/languages/c_bridge/cpp_bridge_generator.dart` |
+| D6 | `generators/languages/c_bridge/cpp_bridge_generator.dart` (JNI path), `generators/languages/kotlin/kotlin_generator.dart` |
 | NH1 | `nitro/lib/src/native_handle.dart` (new) |
 | NH2 | `nitro_annotations/lib/src/annotations.dart` |
 | NH3, NH4, NH5 | `bridge_spec.dart`, `spec_extractor.dart`, `spec_validator.dart` |
-| NH6 | `dart_ffi_generator.dart` |
-| NH7 | `kotlin_generator.dart` |
-| NH8 | `swift_generator.dart` |
-| NH9 | `cpp_bridge_generator.dart` |
-| NH10 | `cpp_interface_generator.dart` |
+| NH6 | `generators/languages/dart/dart_ffi_generator.dart` |
+| NH7 | `generators/languages/kotlin/kotlin_generator.dart` |
+| NH8 | `generators/languages/swift/swift_generator.dart` |
+| NH9 | `generators/languages/c_bridge/cpp_bridge_generator.dart` |
+| NH10 | `generators/languages/cpp_native/cpp_interface_generator.dart` |
 | NH11 | `test/native_handle_test.dart` (new) |
 | NH12 | `doc/advanced/native_handle.md` (new) |
