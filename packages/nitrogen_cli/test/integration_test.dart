@@ -21,8 +21,29 @@ import 'package:test/test.dart';
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
-/// Absolute path to the monorepo root (two levels above packages/nitrogen_cli).
-String get _repoRoot => p.normalize(p.join(Directory.current.path, '..', '..'));
+/// Absolute path to the monorepo root.
+///
+/// Keep this independent of [Directory.current]: several tests intentionally
+/// chdir into temp projects, and fixture lookups must still point at the repo.
+String get _repoRoot {
+  final scriptPath = p.fromUri(Platform.script);
+  final candidates = [
+    // package:test normally runs this file directly.
+    p.normalize(p.join(p.dirname(scriptPath), '..', '..', '..')),
+    // Fallback for ad-hoc runs from packages/nitrogen_cli.
+    p.normalize(p.join(Directory.current.path, '..', '..')),
+    // Fallback for ad-hoc runs from the monorepo root.
+    Directory.current.path,
+  ];
+
+  for (final candidate in candidates) {
+    if (Directory(p.join(candidate, 'test_projects', 'testing_project')).existsSync()) {
+      return candidate;
+    }
+  }
+
+  return candidates.first;
+}
 
 /// The pre-built fixture project under test_projects/.
 Directory get _fixture => Directory(p.join(_repoRoot, 'test_projects', 'testing_project'));
