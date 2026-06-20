@@ -200,11 +200,26 @@ void main() {
     });
 
     test('source avoids per-scalar ByteData allocations and string sublist decode', () {
-      final source = File('packages/nitro/lib/src/record_codec.dart').readAsStringSync();
+      final repoRoot = _findRepoRoot();
+      final source = File('$repoRoot/packages/nitro/lib/src/record_codec.dart').readAsStringSync();
       expect(source, isNot(contains('ByteData(8)')));
       expect(source, isNot(contains('ByteData(4)')));
       expect(source, contains('_utf8Decoder.convert'));
       expect(source, isNot(contains('utf8.decode(_bytes.sublist(_pos, _pos + len))')));
     });
   });
+}
+
+String _findRepoRoot() {
+  var dir = Directory.current;
+  while (true) {
+    if (File('${dir.path}/pubspec.yaml').existsSync() &&
+        File('${dir.path}/pubspec.yaml').readAsStringSync().contains('workspace:')) {
+      return dir.path;
+    }
+    final parent = dir.parent;
+    if (parent.path == dir.path) break;
+    dir = parent;
+  }
+  return Directory.current.path;
 }

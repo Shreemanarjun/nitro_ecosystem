@@ -7,17 +7,19 @@ import 'package:test/test.dart';
 
 void main() {
   group('GenerateCommand planning modes', () {
-    late Directory originalDir;
+    String? savedCwd;
     late Directory tempDir;
 
     setUp(() {
-      originalDir = Directory.current;
+      try { savedCwd = Directory.current.path; } catch (_) {}
       tempDir = Directory.systemTemp.createTempSync('nitrogen_generate_dry_run_');
       Directory.current = tempDir;
     });
 
     tearDown(() {
-      Directory.current = originalDir;
+      if (savedCwd != null) {
+        try { Directory.current = savedCwd!; } catch (_) {}
+      }
       if (tempDir.existsSync()) {
         tempDir.deleteSync(recursive: true);
       }

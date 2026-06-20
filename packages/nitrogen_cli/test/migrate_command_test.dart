@@ -331,16 +331,16 @@ void main() {
 
   group('migration filesystem outcomes — nested layout', () {
     late Directory tmp;
-    late Directory originalDir;
+    late String savedCwd;
 
     setUp(() {
-      originalDir = Directory.current;
+      savedCwd = Directory.current.path;
       tmp = _scaffoldLegacy(withIos: true);
     });
 
     tearDown(() {
-      Directory.current = originalDir;
-      tmp.deleteSync(recursive: true);
+      try { Directory.current = savedCwd; } catch (_) {}
+      if (tmp.existsSync()) tmp.deleteSync(recursive: true);
     });
 
     test('creates ios/<pluginName>/Package.swift in nested layout', () async {

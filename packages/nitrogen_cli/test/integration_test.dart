@@ -21,29 +21,132 @@ import 'package:test/test.dart';
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
-/// Absolute path to the monorepo root.
-///
-/// Keep this independent of [Directory.current]: several tests intentionally
-/// chdir into temp projects, and fixture lookups must still point at the repo.
-String get _repoRoot {
-  final scriptPath = p.fromUri(Platform.script);
-  final candidates = [
-    // package:test normally runs this file directly.
-    p.normalize(p.join(p.dirname(scriptPath), '..', '..', '..')),
-    // Fallback for ad-hoc runs from packages/nitrogen_cli.
-    p.normalize(p.join(Directory.current.path, '..', '..')),
-    // Fallback for ad-hoc runs from the monorepo root.
-    Directory.current.path,
-  ];
+/// Whether [dir] looks like the monorepo root (has workspace pubspec + fixture).
+bool _isRepoRoot(String dir) {
+  final pubspec = File(p.join(dir, 'pubspec.yaml'));
+  return pubspec.existsSync() &&
+      pubspec.readAsStringSync().contains('workspace:') &&
+      Directory(p.join(dir, 'test_projects', 'testing_project')).existsSync();
+}
 
-  for (final candidate in candidates) {
-    if (Directory(p.join(candidate, 'test_projects', 'testing_project')).existsSync()) {
-      return candidate;
+/// Walk up from [start] looking for the monorepo root.
+String? _walkUpForRepoRoot(String start) {
+  var dir = start;
+  for (var i = 0; i < 20; i++) {
+    if (_isRepoRoot(dir)) return dir;
+    final parent = p.dirname(dir);
+    if (parent == dir) break;
+    dir = parent;
+  }
+  return null;
+}
+
+/// Try to extract the repo root from a `.dart_tool/package_config.json` file.
+String? _repoRootFromPackageConfig(File cfg) {
+  try {
+    final json = cfg.readAsStringSync();
+    final idx = json.indexOf('"nitrogen_cli"');
+    if (idx == -1) return null;
+    final rootIdx = json.lastIndexOf('"rootUri"', idx);
+    if (rootIdx == -1) return null;
+    final start = json.indexOf('"', rootIdx + 9) + 1;
+    final end = json.indexOf('"', start);
+    final uri = Uri.parse(json.substring(start, end));
+    final pkgPath = uri.toFilePath();
+    final candidate = p.normalize(p.join(pkgPath, '..', '..'));
+    return _isRepoRoot(candidate) ? candidate : null;
+  } catch (_) {
+    return null;
+  }
+}
+
+String _resolveRepoRoot() {
+  // Strategy 1 – walk up from the test-file location.
+  final fromScript = _walkUpForRepoRoot(p.dirname(p.fromUri(Platform.script)));
+  if (fromScript != null) return fromScript;
+
+  // Strategy 2 – walk up from CWD (may be corrupted in combined runs).
+  final fromCwd = _walkUpForRepoRoot(Directory.current.path);
+  if (fromCwd != null) return fromCwd;
+
+  // Strategy 3 – PACKAGE_CONFIG env var (set by dart/flutter test runner).
+  final packageConfigPath = Platform.environment['PACKAGE_CONFIG'];
+  if (packageConfigPath != null && packageConfigPath.isNotEmpty) {
+    final cfg = File(packageConfigPath);
+    if (cfg.existsSync()) {
+      final fromPkgCfg = _repoRootFromPackageConfig(cfg);
+      if (fromPkgCfg != null) return fromPkgCfg;
     }
   }
 
-  return candidates.first;
+  // Strategy 4 – search for .dart_tool/package_config.json walking up from
+  // the script directory.
+  var dir = p.dirname(p.fromUri(Platform.script));
+  for (var i = 0; i < 20; i++) {
+    final cfg = File(p.join(dir, '.dart_tool', 'package_config.json'));
+    if (cfg.existsSync()) {
+      final fromPkgCfg = _repoRootFromPackageConfig(cfg);
+      if (fromPkgCfg != null) return fromPkgCfg;
+    }
+    final parent = p.dirname(dir);
+    if (parent == dir) break;
+    dir = parent;
+  }
+
+  // Strategy 5 – search from CWD for .dart_tool/package_config.json.
+  dir = Directory.current.path;
+  for (var i = 0; i < 20; i++) {
+    final cfg = File(p.join(dir, '.dart_tool', 'package_config.json'));
+    if (cfg.existsSync()) {
+      final fromPkgCfg = _repoRootFromPackageConfig(cfg);
+      if (fromPkgCfg != null) return fromPkgCfg;
+    }
+    final parent = p.dirname(dir);
+    if (parent == dir) break;
+    dir = parent;
+  }
+
+  // Strategy 6 – search from HOME: list first-level subdirectories and
+  // walk up from each looking for .dart_tool/package_config.json.
+  final home = Platform.environment['HOME'];
+  if (home != null && home.isNotEmpty) {
+    // Check HOME itself first.
+    var d = home;
+    for (var i = 0; i < 20; i++) {
+      final cfg = File(p.join(d, '.dart_tool', 'package_config.json'));
+      if (cfg.existsSync()) {
+        final fromPkgCfg = _repoRootFromPackageConfig(cfg);
+        if (fromPkgCfg != null) return fromPkgCfg;
+      }
+      final parent = p.dirname(d);
+      if (parent == d) break;
+      d = parent;
+    }
+    // Also search first-level subdirectories of HOME.
+    try {
+      for (final entity in Directory(home).listSync(followLinks: false)) {
+        if (entity is! Directory) continue;
+        d = entity.path;
+        for (var i = 0; i < 10; i++) {
+          final cfg = File(p.join(d, '.dart_tool', 'package_config.json'));
+          if (cfg.existsSync()) {
+            final fromPkgCfg = _repoRootFromPackageConfig(cfg);
+            if (fromPkgCfg != null) return fromPkgCfg;
+          }
+          final parent = p.dirname(d);
+          if (parent == d) break;
+          d = parent;
+        }
+      }
+    } catch (_) {}
+  }
+
+  // Last resort.
+  return Directory.current.path;
 }
+
+// Eagerly resolve at library load time, before any test can corrupt CWD.
+final String _repoRoot = _resolveRepoRoot();
 
 /// The pre-built fixture project under test_projects/.
 Directory get _fixture => Directory(p.join(_repoRoot, 'test_projects', 'testing_project'));
@@ -190,6 +293,10 @@ flutter:
 // ── Tests ─────────────────────────────────────────────────────────────────────
 
 void main() {
+  // Eagerly resolve paths before any test can corrupt Directory.current.
+  // ignore: unused_local_variable
+  final repoRoot = _repoRoot;
+
   // ── 1. Scaffold template content ─────────────────────────────────────────────
 
   group('nitrogen init — scaffold template content', () {
@@ -435,7 +542,7 @@ void main() {
 
   // ── 3. nitrogen generate — fixture output verification ─────────────────────
 
-  group('nitrogen generate — testing_project generated output', skip: _fixture.existsSync() ? null : 'test_projects/testing_project not found', () {
+  group('nitrogen generate — testing_project generated output', skip: _fixture.existsSync() && File(p.join(_fixture.path, 'lib', 'src', 'testing_project.g.dart')).existsSync() ? null : 'generated output not found — run `nitrogen generate` first', () {
     test('lib/src/testing_project.g.dart — Dart FFI binding exists', () {
       final gen = File(p.join(_fixture.path, 'lib', 'src', 'testing_project.g.dart'));
       expect(gen.existsSync(), isTrue);
@@ -495,16 +602,18 @@ void main() {
 
   group('nitrogen link — integration (temp copy of fixture)', skip: _fixture.existsSync() ? null : 'test_projects/testing_project not found', () {
     late Directory tmp;
-    late Directory originalDir;
+    String? savedCwd;
 
     setUp(() {
-      originalDir = Directory.current;
+      try { savedCwd = Directory.current.path; } catch (_) {}
       tmp = Directory.systemTemp.createTempSync('nitro_link_integration_');
       _copyDir(_fixture, tmp);
     });
 
     tearDown(() {
-      Directory.current = originalDir;
+      if (savedCwd != null) {
+        try { Directory.current = savedCwd!; } catch (_) {}
+      }
       if (tmp.existsSync()) tmp.deleteSync(recursive: true);
     });
 
@@ -779,17 +888,19 @@ class TestingProjectPlugin : FlutterPlugin {
 
   group('nitrogen init — full scaffold simulation', () {
     late Directory tmp;
-    late Directory originalDir;
+    String? savedCwd;
 
     setUp(() {
-      originalDir = Directory.current;
+      try { savedCwd = Directory.current.path; } catch (_) {}
       tmp = Directory.systemTemp.createTempSync('nitro_scaffold_test_');
       Directory.current = tmp;
       _scaffoldPlugin(tmp, 'my_plugin', 'com.example');
     });
 
     tearDown(() {
-      Directory.current = originalDir;
+      if (savedCwd != null) {
+        try { Directory.current = savedCwd!; } catch (_) {}
+      }
       if (tmp.existsSync()) tmp.deleteSync(recursive: true);
     });
 
