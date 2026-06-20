@@ -105,7 +105,12 @@ class SwiftGenerator {
         writer.line('    // source: ${spec.sourceUri.split('/').last}:${func.lineNumber}');
       }
       final retType = _toSwiftType(spec, func.returnType.name);
-      final params = func.params.map((p) => '${p.name}: ${_toSwiftType(spec, p.type.name)}').join(', ');
+      final params = func.params.map((p) {
+        if (p.type.isFunction) {
+          return '${p.name}: @escaping ${_toSwiftProtocolCallbackType(spec, p.type)}';
+        }
+        return '${p.name}: ${_toSwiftType(spec, p.type.name)}';
+      }).join(', ');
       if (func.isAsync || func.isNativeAsync) {
         writer.line(
           '    func ${func.dartName}($params) async throws -> $retType',
@@ -175,8 +180,12 @@ class SwiftGenerator {
       final cRetType = _toCDeclReturnType(spec, func);
       // @_cdecl params must use C-ABI-compatible types.
       // Typed list params get an extra `_ <name>_length: Int64` param.
+      // Function callback params are C function pointers: @convention(c) (...) -> Void.
       final params = func.params
           .expand((p) {
+            if (p.type.isFunction) {
+              return ['_ ${p.name}: ${_toCDeclCallbackType(p.type)}'];
+            }
             final t = _toCDeclParamType(spec, p.type.name);
             if (p.type.isTypedData) {
               return ['_ ${p.name}: $t', '_ ${p.name}_length: Int64'];
@@ -199,6 +208,9 @@ class SwiftGenerator {
             if (isBool) return '${p.name}: ${p.name} != 0';
             if (p.type.isTypedData) return '${p.name}: ${p.name}Arr';
             if (p.type.isRecord && p.type.name.startsWith('List<')) return '${p.name}: ${p.name}Decoded';
+            if (p.type.isFunction) {
+              return '${p.name}: ${_toSwiftCallbackWrapper(spec, p)}';
+            }
             if (spec.structs.any((st) => st.name == p.type.name.replaceFirst('?', ''))) {
               final structName = p.type.name.replaceFirst('?', '');
               final isOpt = p.type.name.endsWith('?');
@@ -871,6 +883,52 @@ class SwiftGenerator {
     ]);
 
     return CodeFile(nodes).render();
+  }
+
+  /// Generates the idiomatic Swift closure type for a function callback parameter
+  /// in the protocol declaration, e.g. `(TorchState) -> Void`.
+  static String _toSwiftProtocolCallbackType(BridgeSpec spec, BridgeType cbType) {
+    final retType = cbType.functionReturnType ?? 'void';
+    final params = cbType.functionParams;
+    final paramList = params.map((p) => _toSwiftType(spec, p.name)).join(', ');
+    final retSwift = _toSwiftType(spec, retType);
+    return '($paramList) -> $retSwift';
+  }
+
+  /// Generates the `@convention(c)` C function pointer type for a callback param
+  /// in a `@_cdecl` stub. All args are passed as Int64 at the C ABI level.
+  static String _toCDeclCallbackType(BridgeType cbType) {
+    final count = cbType.functionParams.length;
+    final paramList = List.filled(count, 'Int64').join(', ');
+    return '@convention(c) ($paramList) -> Void';
+  }
+
+  /// Generates a Swift closure that wraps the raw C function pointer received in
+  /// a `@_cdecl` stub and converts each argument to the idiomatic Swift type
+  /// expected by the protocol. E.g. for `void Function(TorchState)`:
+  ///   `{ arg0 in callback(TorchState(rawValue: arg0) ?? .on) }`
+  static String _toSwiftCallbackWrapper(BridgeSpec spec, BridgeParam p) {
+    final cbType = p.type;
+    final cbName = p.name;
+    final params = cbType.functionParams;
+    if (params.isEmpty) {
+      return '{ $cbName() }';
+    }
+    final argNames = List.generate(params.length, (i) => 'arg$i');
+    final argDecl = argNames.join(', ');
+    final convertedArgs = params.asMap().entries.map((e) {
+      final i = e.key;
+      final pt = e.value;
+      final argVar = argNames[i];
+      final isEnum = spec.enums.any((en) => en.name == pt.name.replaceFirst('?', ''));
+      if (isEnum) {
+        final enumName = pt.name.replaceFirst('?', '');
+        final fallback = spec.enums.firstWhere((en) => en.name == enumName).values.first;
+        return '$enumName(rawValue: $argVar) ?? .$fallback';
+      }
+      return argVar;
+    }).join(', ');
+    return '{ $argDecl in $cbName($convertedArgs) }';
   }
 
   /// Return type for a `@_cdecl` function — must be a C-ABI-compatible type.

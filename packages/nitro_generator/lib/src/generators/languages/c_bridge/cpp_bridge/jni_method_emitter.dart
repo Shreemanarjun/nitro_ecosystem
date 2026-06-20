@@ -677,6 +677,11 @@ void _emitJniMethods(
   );
   writer.line('    if (g_bridgeClass != nullptr) {');
   writer.line('        // Cache bridge method IDs');
+  writer.line('        // Each GetStaticMethodID is followed by an ExceptionClear() guard:');
+  writer.line('        // if ANY lookup fails it throws NoSuchMethodError, and calling the');
+  writer.line('        // NEXT GetStaticMethodID with a pending exception aborts the JVM on');
+  writer.line('        // Android >= API 26 (strict JNI mode). Clearing after each failure');
+  writer.line('        // lets the remaining lookups proceed and logs the missing method.');
   for (final func in spec.functions) {
     final String jniSig;
     if (func.isNativeAsync) {
@@ -685,21 +690,26 @@ void _emitJniMethods(
       jniSig = _jniSig(func.params, func.returnType, enumNames, structNames, libPkg, zeroCopyReturn: func.zeroCopyReturn);
     }
     writer.line('        g_mid_${func.dartName}_call = env->GetStaticMethodID(g_bridgeClass, "${func.dartName}_call", "$jniSig");');
+    writer.line('        if (!g_mid_${func.dartName}_call && env->ExceptionCheck()) { env->ExceptionClear(); LOGE("Method not found: ${func.dartName}_call sig=$jniSig"); }');
   }
   for (final prop in spec.properties) {
     final isEnum = enumNames.contains(prop.type.name);
     if (prop.hasGetter) {
       final jniRetSig = isEnum ? 'J' : _jniSigType(prop.type.name);
       writer.line('        g_mid_${prop.getSymbol}_call = env->GetStaticMethodID(g_bridgeClass, "${prop.getSymbol}_call", "()$jniRetSig");');
+      writer.line('        if (!g_mid_${prop.getSymbol}_call && env->ExceptionCheck()) { env->ExceptionClear(); LOGE("Method not found: ${prop.getSymbol}_call sig=()$jniRetSig"); }');
     }
     if (prop.hasSetter) {
       final jniParamSig = isEnum ? 'J' : _jniSigType(prop.type.name);
       writer.line('        g_mid_${prop.setSymbol}_call = env->GetStaticMethodID(g_bridgeClass, "${prop.setSymbol}_call", "($jniParamSig)V");');
+      writer.line('        if (!g_mid_${prop.setSymbol}_call && env->ExceptionCheck()) { env->ExceptionClear(); LOGE("Method not found: ${prop.setSymbol}_call sig=($jniParamSig)V"); }');
     }
   }
   for (final stream in spec.streams) {
     writer.line('        g_mid_${stream.registerSymbol}_call = env->GetStaticMethodID(g_bridgeClass, "${stream.registerSymbol}_call", "(J)V");');
+    writer.line('        if (!g_mid_${stream.registerSymbol}_call && env->ExceptionCheck()) { env->ExceptionClear(); LOGE("Method not found: ${stream.registerSymbol}_call sig=(J)V"); }');
     writer.line('        g_mid_${stream.releaseSymbol}_call = env->GetStaticMethodID(g_bridgeClass, "${stream.releaseSymbol}_call", "(J)V");');
+    writer.line('        if (!g_mid_${stream.releaseSymbol}_call && env->ExceptionCheck()) { env->ExceptionClear(); LOGE("Method not found: ${stream.releaseSymbol}_call sig=(J)V"); }');
   }
   writer.line('    }');
   writer.blankLine();
