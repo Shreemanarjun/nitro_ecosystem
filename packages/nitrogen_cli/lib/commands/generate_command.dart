@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:args/command_runner.dart';
@@ -41,6 +42,20 @@ class GenerateCommand extends Command {
         'fail-on-warn',
         negatable: false,
         help: 'Exit with code 2 if build_runner emits any [WARNING] lines.',
+      )
+      ..addFlag(
+        'dry-run',
+        negatable: false,
+        help: 'Print files and actions that would be generated without writing anything.',
+      )
+      ..addFlag(
+        'check',
+        negatable: false,
+        help: 'Check whether generated files are up to date. Exits 3 when stale.',
+      )
+      ..addOption(
+        'targets',
+        help: 'Comma-separated output targets: dart,kotlin,swift,cpp,cmake,native,test. Platform aliases are also supported.',
       )
       ..addFlag(
         'verbose',
@@ -90,6 +105,10 @@ class GenerateCommand extends Command {
   /// Does NOT call exit().
   Future<int> execute() async {
     final failOnWarn = argResults!['fail-on-warn'] as bool;
+    final dryRun = argResults!['dry-run'] as bool;
+    final check = argResults!['check'] as bool;
+    final targets = _parseTargets(argResults!['targets'] as String?);
+    if (targets == null) return 1;
 
     final projectDir = findNitroProjectRoot();
     if (projectDir == null) {
@@ -115,7 +134,32 @@ class GenerateCommand extends Command {
       stdout.writeln('');
     }
 
+    if (dryRun) {
+      _printDryRunPlan(projectDir.path, targets);
+      return 0;
+    }
+
+    if (check) {
+      return _checkGeneratedFiles(projectDir.path, targets);
+    }
+
     final totalStart = DateTime.now();
+    final specFiles = _discoverNativeSpecFiles(projectDir.path);
+    final incrementalCache = IncrementalGenerationCache(projectDir.path);
+    final incrementalPlan = incrementalCache.plan(
+      specs: specFiles,
+      outputPathsForSpec: (spec) => _generatedOutputsForSpec(projectDir.path, spec, targets),
+    );
+
+    if (!incrementalPlan.hasChanges) {
+      if (_headless) {
+        stdout.writeln('[nitro] no spec changes detected — generation skipped');
+      } else {
+        stdout.writeln(gray('  › no spec changes detected — generation skipped'));
+      }
+      _logTiming('total', DateTime.now().difference(totalStart));
+      return 0;
+    }
 
     // ── pub get ─────────────────────────────────────────────────────────────
     _log('flutter pub get …');
@@ -153,24 +197,29 @@ class GenerateCommand extends Command {
       }
     }
 
-    // Delete only the lock file and asset graph — NOT the entrypoint/ directory.
+    // Delete only the lock file — NOT the entrypoint/ directory.
     // The entrypoint/ directory contains the AOT-compiled builder snapshot; deleting
-    // it forces an expensive recompile (~10-15 s) on every run. Deleting just the
-    // lock + asset graph is enough to let build_runner start fresh without
-    // triggering the "check for updates → dart pub get → exit 247" failure that
-    // occurs in Flutter workspace members on the second run.
+    // it forces an expensive recompile (~10-15 s) on every run. Keeping the
+    // asset graph lets build_runner preserve its own incremental cache while
+    // still clearing stale locks from crashed processes.
     final buildDir = p.join(projectDir.path, '.dart_tool', 'build');
-    for (final name in ['lock', 'asset_graph.json']) {
-      final f = File(p.join(buildDir, name));
-      if (f.existsSync()) f.deleteSync();
-    }
+    final lockFile = File(p.join(buildDir, 'lock'));
+    if (lockFile.existsSync()) lockFile.deleteSync();
 
     _log('build_runner build …');
     if (!_headless) stdout.writeln('');
     final t1 = DateTime.now();
+    final buildArgs = [
+      'pub',
+      'run',
+      'build_runner',
+      'build',
+      '--delete-conflicting-outputs',
+      ...targets.buildFilterArgs(projectDir.path, incrementalPlan.changedSpecs),
+    ];
     final buildResult = await runStreamingInspected(
       'flutter',
-      ['pub', 'run', 'build_runner', 'build', '--delete-conflicting-outputs'],
+      buildArgs,
       workingDirectory: projectDir.path,
       headless: _headless,
       scanWarnings: failOnWarn,
@@ -194,10 +243,27 @@ class GenerateCommand extends Command {
       return 2;
     }
 
+    incrementalCache.write(
+      specs: specFiles,
+      outputPathsForSpec: (spec) => _generatedOutputsForSpec(projectDir.path, spec, targets),
+    );
+
     // ── Post-generation bridge cleanup ───────────────────────────────────────
     // Generated Swift bridges live in lib/src/generated/swift/ and are compiled
     // via the podspec source_files pattern. Remove any stale copies from Classes/
     // to prevent "Invalid redeclaration" Swift compiler errors.
+    if (targets.isDartOnly) {
+      _logTiming('total', DateTime.now().difference(totalStart));
+      if (_headless) {
+        stdout.writeln('[nitro] generation complete');
+      } else {
+        stdout.writeln('');
+        stdout.writeln(boldGreen('  ✨ Generation complete!'));
+        stdout.writeln('');
+      }
+      return 0;
+    }
+
     final nitroNativePath = resolveNitroNativePath(projectDir.path);
     createSharedHeaders(nitroNativePath, baseDir: projectDir.path);
     _syncSwiftBridgesToClasses(projectDir.path);
@@ -322,6 +388,162 @@ class GenerateCommand extends Command {
     return 'my_plugin';
   }
 
+  void _printDryRunPlan(String projectRoot, _GenerateTargetSelection targets) {
+    final specFiles = _discoverNativeSpecFiles(projectRoot);
+    final generatedFiles = specFiles.expand((file) => _generatedOutputsForSpec(projectRoot, file, targets)).toList();
+    final podfileDirs = findPodfileDirs(projectRoot);
+
+    void line(String msg) {
+      if (_headless) {
+        stdout.writeln('[nitro:dry-run] $msg');
+      } else {
+        stdout.writeln(gray('  › dry-run: $msg'));
+      }
+    }
+
+    void would(String msg) {
+      if (_headless) {
+        stdout.writeln('[nitro:would] $msg');
+      } else {
+        stdout.writeln(cyan('  › would $msg'));
+      }
+    }
+
+    line('project: $projectRoot');
+    if (targets.isRestricted) {
+      line('targets: ${targets.labels.join(',')}');
+    }
+    if (specFiles.isEmpty) {
+      line('no .native.dart specs found under lib/');
+    } else {
+      line('specs: ${specFiles.length}');
+      for (final spec in specFiles) {
+        line('spec: ${p.relative(spec.path, from: projectRoot)}');
+      }
+    }
+
+    if (generatedFiles.isNotEmpty) {
+      line('generated outputs: ${generatedFiles.length}');
+      for (final output in generatedFiles) {
+        would('write ${p.relative(output, from: projectRoot)}');
+      }
+    }
+
+    would('run flutter pub get');
+    final buildFilters = targets.buildFilterArgs(projectRoot, specFiles);
+    final buildCmd = [
+      'flutter',
+      'pub',
+      'run',
+      'build_runner',
+      'build',
+      '--delete-conflicting-outputs',
+      ...buildFilters,
+    ].join(' ');
+    would('run $buildCmd');
+    if (!targets.isDartOnly) {
+      would('sync generated Swift bridges into ios/macos Classes directories');
+      would('run nitrogen link auto-patching');
+      if (podfileDirs.isEmpty) {
+        line('pod install: no Podfile directories found');
+      } else {
+        for (final dir in podfileDirs) {
+          would('run pod install in ${p.relative(dir, from: projectRoot)}');
+        }
+      }
+    }
+    line('no files were written');
+  }
+
+  int _checkGeneratedFiles(String projectRoot, _GenerateTargetSelection targets) {
+    final specFiles = _discoverNativeSpecFiles(projectRoot);
+    final issues = <_GeneratedFileIssue>[];
+
+    for (final spec in specFiles) {
+      final specModified = spec.lastModifiedSync();
+      for (final outputPath in _generatedOutputsForSpec(projectRoot, spec, targets)) {
+        final output = File(outputPath);
+        if (!output.existsSync()) {
+          issues.add(_GeneratedFileIssue.missing(outputPath));
+          continue;
+        }
+        if (output.lastModifiedSync().isBefore(specModified)) {
+          issues.add(_GeneratedFileIssue.stale(outputPath));
+        }
+      }
+    }
+
+    if (issues.isEmpty) {
+      if (_headless) {
+        stdout.writeln('[nitro] generated files are up to date');
+      } else {
+        stdout.writeln(green('  ✔ generated files are up to date'));
+      }
+      return 0;
+    }
+
+    if (_headless) {
+      stderr.writeln('[nitro:error] generated files are stale');
+      for (final issue in issues) {
+        stderr.writeln('[nitro:stale] ${issue.kind} ${p.relative(issue.path, from: projectRoot)}');
+      }
+      stderr.writeln('[nitro:hint] Run: nitrogen generate');
+    } else {
+      stderr.writeln(boldRed('  ✘ generated files are stale'));
+      for (final issue in issues) {
+        stderr.writeln(yellow('     ${issue.kind}: ${p.relative(issue.path, from: projectRoot)}'));
+      }
+      stderr.writeln(gray('     Run: nitrogen generate'));
+    }
+    return 3;
+  }
+
+  List<File> _discoverNativeSpecFiles(String projectRoot) {
+    final libDir = Directory(p.join(projectRoot, 'lib'));
+    if (!libDir.existsSync()) return const [];
+    return libDir.listSync(recursive: true).whereType<File>().where((file) => file.path.endsWith('.native.dart')).toList()..sort((a, b) => a.path.compareTo(b.path));
+  }
+
+  List<String> _generatedOutputsForSpec(String projectRoot, File specFile, [_GenerateTargetSelection targets = const _GenerateTargetSelection.all()]) {
+    final libDir = p.join(projectRoot, 'lib');
+    final relToLib = p.relative(specFile.path, from: libDir);
+    final specDir = p.dirname(relToLib) == '.' ? '' : p.dirname(relToLib);
+    final fileName = p.basename(relToLib);
+    final stem = fileName.substring(0, fileName.length - '.native.dart'.length);
+    final specOutputDir = p.join(projectRoot, 'lib', specDir);
+    final outputs = [
+      p.join(specOutputDir, '$stem.g.dart'),
+      p.join(specOutputDir, 'generated', 'kotlin', '$stem.bridge.g.kt'),
+      p.join(specOutputDir, 'generated', 'swift', '$stem.bridge.g.swift'),
+      p.join(specOutputDir, 'generated', 'cpp', '$stem.bridge.g.h'),
+      p.join(specOutputDir, 'generated', 'cpp', '$stem.bridge.g.cpp'),
+      p.join(specOutputDir, 'generated', 'cmake', '$stem.CMakeLists.g.txt'),
+      p.join(specOutputDir, 'generated', 'cpp', '$stem.native.g.h'),
+      p.join(specOutputDir, 'generated', 'cpp', 'test', '$stem.mock.g.h'),
+      p.join(specOutputDir, 'generated', 'cpp', 'test', '$stem.test.g.cpp'),
+    ];
+    return outputs.where(targets.matchesOutput).toList();
+  }
+
+  _GenerateTargetSelection? _parseTargets(String? raw) {
+    if (raw == null || raw.trim().isEmpty) return const _GenerateTargetSelection.all();
+    final labels = <String>{};
+    final suffixes = <String>{};
+    for (final part in raw.split(',')) {
+      final token = part.trim().toLowerCase();
+      if (token.isEmpty) continue;
+      labels.add(token);
+      final mapped = _targetSuffixAliases[token];
+      if (mapped == null) {
+        _logError('Unknown target "$token". Expected one of: ${_targetSuffixAliases.keys.join(', ')}');
+        return null;
+      }
+      suffixes.addAll(mapped);
+    }
+    if (suffixes.isEmpty) return const _GenerateTargetSelection.all();
+    return _GenerateTargetSelection(Set.unmodifiable(suffixes), Set.unmodifiable(labels));
+  }
+
   /// Copies generated `*.bridge.g.swift` files from `lib/src/generated/swift/`
   /// into `ios/Classes/` and `macos/Classes/`. This ensures Xcode compiles them
   /// in the same module scope as the other Swift plugin files, resolving
@@ -383,3 +605,151 @@ class GenerateCommand extends Command {
     }
   }
 }
+
+class _GeneratedFileIssue {
+  const _GeneratedFileIssue(this.kind, this.path);
+
+  factory _GeneratedFileIssue.missing(String path) => _GeneratedFileIssue('missing', path);
+
+  factory _GeneratedFileIssue.stale(String path) => _GeneratedFileIssue('stale', path);
+
+  final String kind;
+  final String path;
+}
+
+class _GenerateTargetSelection {
+  const _GenerateTargetSelection(this.suffixes, this.labels);
+
+  const _GenerateTargetSelection.all() : suffixes = const {}, labels = const {};
+
+  final Set<String> suffixes;
+  final Set<String> labels;
+
+  bool get isRestricted => suffixes.isNotEmpty;
+
+  bool get isDartOnly => isRestricted && suffixes.length == 1 && suffixes.contains('.g.dart');
+
+  bool matchesOutput(String path) => !isRestricted || suffixes.any(path.endsWith);
+
+  List<String> buildFilterArgs(String projectRoot, List<File> specs) {
+    if (!isRestricted) return const [];
+    return specs.expand((spec) => _candidateOutputs(projectRoot, spec).where(matchesOutput)).map((output) => '--build-filter=${p.relative(output, from: projectRoot)}').toList();
+  }
+
+  static List<String> _candidateOutputs(String projectRoot, File specFile) {
+    final libDir = p.join(projectRoot, 'lib');
+    final relToLib = p.relative(specFile.path, from: libDir);
+    final specDir = p.dirname(relToLib) == '.' ? '' : p.dirname(relToLib);
+    final fileName = p.basename(relToLib);
+    final stem = fileName.substring(0, fileName.length - '.native.dart'.length);
+    final specOutputDir = p.join(projectRoot, 'lib', specDir);
+    return [
+      p.join(specOutputDir, '$stem.g.dart'),
+      p.join(specOutputDir, 'generated', 'kotlin', '$stem.bridge.g.kt'),
+      p.join(specOutputDir, 'generated', 'swift', '$stem.bridge.g.swift'),
+      p.join(specOutputDir, 'generated', 'cpp', '$stem.bridge.g.h'),
+      p.join(specOutputDir, 'generated', 'cpp', '$stem.bridge.g.cpp'),
+      p.join(specOutputDir, 'generated', 'cmake', '$stem.CMakeLists.g.txt'),
+      p.join(specOutputDir, 'generated', 'cpp', '$stem.native.g.h'),
+      p.join(specOutputDir, 'generated', 'cpp', 'test', '$stem.mock.g.h'),
+      p.join(specOutputDir, 'generated', 'cpp', 'test', '$stem.test.g.cpp'),
+    ];
+  }
+}
+
+class IncrementalGenerationPlan {
+  const IncrementalGenerationPlan(this.changedSpecs);
+
+  final List<File> changedSpecs;
+
+  bool get hasChanges => changedSpecs.isNotEmpty;
+}
+
+class IncrementalGenerationCache {
+  IncrementalGenerationCache(this.projectRoot);
+
+  static const manifestRelativePath = '.dart_tool/nitro/cache.json';
+
+  final String projectRoot;
+
+  File get manifestFile => File(p.join(projectRoot, manifestRelativePath));
+
+  IncrementalGenerationPlan plan({
+    required List<File> specs,
+    required List<String> Function(File spec) outputPathsForSpec,
+  }) {
+    final manifest = _readManifest();
+    final changed = <File>[];
+    for (final spec in specs) {
+      final rel = p.relative(spec.path, from: projectRoot);
+      final hash = contentHash(spec);
+      final entry = manifest[rel];
+      final cachedHash = entry is Map<String, dynamic> ? entry['hash'] as String? : null;
+      final outputPaths = outputPathsForSpec(spec);
+      final missingOutput = outputPaths.any((path) => !File(path).existsSync());
+      if (cachedHash != hash || missingOutput) {
+        changed.add(spec);
+      }
+    }
+    return IncrementalGenerationPlan(List.unmodifiable(changed));
+  }
+
+  void write({
+    required List<File> specs,
+    required List<String> Function(File spec) outputPathsForSpec,
+  }) {
+    final manifest = <String, Object>{};
+    for (final spec in specs) {
+      final rel = p.relative(spec.path, from: projectRoot);
+      manifest[rel] = {
+        'hash': contentHash(spec),
+        'outputFiles': outputPathsForSpec(spec).map((path) => p.relative(path, from: projectRoot)).toList(),
+      };
+    }
+    manifestFile.parent.createSync(recursive: true);
+    const encoder = JsonEncoder.withIndent('  ');
+    manifestFile.writeAsStringSync('${encoder.convert(manifest)}\n');
+  }
+
+  Map<String, dynamic> _readManifest() {
+    if (!manifestFile.existsSync()) return const {};
+    try {
+      final decoded = jsonDecode(manifestFile.readAsStringSync());
+      if (decoded is Map<String, dynamic>) return decoded;
+    } catch (_) {}
+    return const {};
+  }
+
+  static String contentHash(File file) {
+    const mask = 0xffffffffffffffff;
+    var hash = 0xcbf29ce484222325;
+    for (final byte in file.readAsBytesSync()) {
+      hash ^= byte;
+      hash = (hash * 0x100000001b3) & mask;
+    }
+    return hash.toRadixString(16).padLeft(16, '0');
+  }
+}
+
+const _targetSuffixAliases = <String, Set<String>>{
+  'dart': {'.g.dart'},
+  'ffi': {'.g.dart'},
+  'kotlin': {'.bridge.g.kt'},
+  'android': {'.g.dart', '.bridge.g.kt', '.bridge.g.h', '.bridge.g.cpp', '.CMakeLists.g.txt'},
+  'swift': {'.bridge.g.swift'},
+  'ios': {'.g.dart', '.bridge.g.swift', '.bridge.g.h', '.bridge.g.cpp', '.CMakeLists.g.txt'},
+  'macos': {'.g.dart', '.bridge.g.swift', '.bridge.g.h', '.bridge.g.cpp', '.CMakeLists.g.txt'},
+  'apple': {'.g.dart', '.bridge.g.swift', '.bridge.g.h', '.bridge.g.cpp', '.CMakeLists.g.txt'},
+  'cpp': {'.bridge.g.h', '.bridge.g.cpp', '.native.g.h'},
+  'cbridge': {'.bridge.g.h', '.bridge.g.cpp'},
+  'c_bridge': {'.bridge.g.h', '.bridge.g.cpp'},
+  'bridge': {'.bridge.g.h', '.bridge.g.cpp'},
+  'cmake': {'.CMakeLists.g.txt'},
+  'build': {'.CMakeLists.g.txt'},
+  'native': {'.native.g.h'},
+  'cpp_native': {'.native.g.h', '.mock.g.h', '.test.g.cpp'},
+  'test': {'.mock.g.h', '.test.g.cpp'},
+  'windows': {'.g.dart', '.bridge.g.h', '.bridge.g.cpp', '.CMakeLists.g.txt', '.native.g.h'},
+  'linux': {'.g.dart', '.bridge.g.h', '.bridge.g.cpp', '.CMakeLists.g.txt', '.native.g.h'},
+  'desktop': {'.g.dart', '.bridge.g.h', '.bridge.g.cpp', '.CMakeLists.g.txt', '.native.g.h'},
+};

@@ -7,6 +7,94 @@ import 'package:source_gen/source_gen.dart';
 import 'package:nitro_annotations/nitro_annotations.dart';
 import 'bridge_spec.dart';
 
+class SpecParseException implements Exception {
+  final String message;
+  final String? sourceUri;
+  final Object? cause;
+  final StackTrace? stackTrace;
+
+  SpecParseException(
+    this.message, {
+    this.sourceUri,
+    this.cause,
+    this.stackTrace,
+  });
+
+  @override
+  String toString() {
+    final source = sourceUri == null ? '' : ' (source: $sourceUri)';
+    final causedBy = cause == null ? '' : '\nCaused by: $cause';
+    return 'SpecParseException: $message$source$causedBy';
+  }
+}
+
+class _ModuleMembers {
+  final List<MethodElement> functions;
+  final List<MethodElement> streamMethods;
+  final List<PropertyAccessorElement> propertyGetters;
+  final List<PropertyAccessorElement> streamGetters;
+  final List<PropertyAccessorElement> setters;
+
+  _ModuleMembers._({
+    required this.functions,
+    required this.streamMethods,
+    required this.propertyGetters,
+    required this.streamGetters,
+    required this.setters,
+  });
+
+  factory _ModuleMembers.from(ClassElement element) {
+    final functions = <MethodElement>[];
+    final streamMethods = <MethodElement>[];
+    final propertyGetters = <PropertyAccessorElement>[];
+    final streamGetters = <PropertyAccessorElement>[];
+    final setters = <PropertyAccessorElement>[];
+
+    for (final method in element.methods) {
+      if (!method.isAbstract) continue;
+      if (SpecExtractor._isStreamType(method.returnType)) {
+        streamMethods.add(method);
+      } else {
+        functions.add(method);
+      }
+    }
+
+    for (final getter in element.getters) {
+      if (!getter.isAbstract) continue;
+      if (SpecExtractor._isStreamType(getter.returnType)) {
+        streamGetters.add(getter);
+      } else {
+        propertyGetters.add(getter);
+      }
+    }
+
+    for (final setter in element.setters) {
+      if (!setter.isAbstract) continue;
+      setters.add(setter);
+    }
+
+    return _ModuleMembers._(
+      functions: functions,
+      streamMethods: streamMethods,
+      propertyGetters: propertyGetters,
+      streamGetters: streamGetters,
+      setters: setters,
+    );
+  }
+}
+
+class _ExtractedTypes {
+  final List<BridgeEnum> enums;
+  final List<BridgeStruct> structs;
+  final List<BridgeRecordType> records;
+
+  const _ExtractedTypes({
+    required this.enums,
+    required this.structs,
+    required this.records,
+  });
+}
+
 class SpecExtractor {
   /// Extracts a [BridgeSpec] from [library].
   ///
@@ -24,9 +112,10 @@ class SpecExtractor {
   /// shared types (`@HybridEnum`, `@HybridStruct`, `@HybridRecord`) without a
   /// `@NitroModule` class. Returns `null` when no relevant types are found.
   static BridgeSpec? extractTypesOnly(LibraryReader library) {
-    final enums = _extractEnums(library);
-    final structs = _extractStructs(library);
-    final records = _extractRecordTypes(library);
+    final types = _extractAnnotatedTypes(library);
+    final enums = types.enums;
+    final structs = types.structs;
+    final records = types.records;
     if (enums.isEmpty && structs.isEmpty && records.isEmpty) return null;
 
     final sourcePath = library.element.uri.toString();
@@ -69,9 +158,10 @@ class SpecExtractor {
     final ns = cSymbolPrefix ?? _toSnakeCase(element.name!);
 
     // Extract local types first so we know which type names are records/structs/enums.
-    final localRecordTypes = _extractRecordTypes(library);
-    final localStructs = _extractStructs(library);
-    final localEnums = _extractEnums(library);
+    final localTypes = _extractAnnotatedTypes(library);
+    final localRecordTypes = localTypes.records;
+    final localStructs = localTypes.structs;
+    final localEnums = localTypes.enums;
 
     // Also scan directly imported libraries for shared type annotations.
     // Types found in imported .native.dart files are marked isImported: true so
@@ -87,7 +177,8 @@ class SpecExtractor {
     final enumNames = allEnums.map((e) => e.name).toSet();
     final knownTypeNames = {...structNames, ...enumNames, ...recordTypeNames};
 
-    final (:properties, :streams) = _extractPropertiesAndStreams(element, ns, recordTypeNames, knownTypeNames, structTypeNames: structNames);
+    final members = _ModuleMembers.from(element);
+    final (:properties, :streams) = _extractPropertiesAndStreams(members, ns, recordTypeNames, knownTypeNames, structTypeNames: structNames);
     return BridgeSpec(
       dartClassName: element.name!,
       lib: libName,
@@ -99,7 +190,7 @@ class SpecExtractor {
       linuxImpl: linuxImpl,
       webImpl: webImpl,
       sourceUri: sourcePath,
-      functions: _extractFunctions(element, ns, recordTypeNames, knownTypeNames, structTypeNames: structNames),
+      functions: _extractFunctions(members.functions, ns, recordTypeNames, knownTypeNames, structTypeNames: structNames),
       properties: properties,
       streams: streams,
       structs: allStructs,
@@ -137,9 +228,10 @@ class SpecExtractor {
       if (uri.contains('nitro_annotations')) continue;
 
       final importedReader = LibraryReader(imported);
-      final importedEnums = _extractEnums(importedReader);
-      final importedStructs = _extractStructs(importedReader);
-      final importedRecords = _extractRecordTypes(importedReader);
+      final importedTypes = _extractAnnotatedTypes(importedReader);
+      final importedEnums = importedTypes.enums;
+      final importedStructs = importedTypes.structs;
+      final importedRecords = importedTypes.records;
 
       if (importedEnums.isEmpty && importedStructs.isEmpty && importedRecords.isEmpty) continue;
 
@@ -292,37 +384,64 @@ class SpecExtractor {
 
   // ─── @HybridRecord ────────────────────────────────────────────────────────
 
-  static List<BridgeRecordType> _extractRecordTypes(LibraryReader library) {
-    const checker = TypeChecker.fromUrl('package:nitro_annotations/src/annotations.dart#HybridRecord');
+  static _ExtractedTypes _extractAnnotatedTypes(LibraryReader library) {
+    const recordChecker = TypeChecker.fromUrl('package:nitro_annotations/src/annotations.dart#HybridRecord');
     const structChecker = TypeChecker.fromUrl('package:nitro_annotations/src/annotations.dart#HybridStruct');
     const enumChecker = TypeChecker.fromUrl('package:nitro_annotations/src/annotations.dart#HybridEnum');
 
-    // Single pass: collect annotated ClassElements, then reuse the list.
-    final classes = library.annotatedWith(checker).where((ann) => ann.element is ClassElement).map((ann) => ann.element as ClassElement).toList();
+    final recordClasses = <ClassElement>[];
+    final structClasses = <({ClassElement cls, ConstantReader annotation})>[];
+    final enumClasses = <({EnumElement cls, ConstantReader annotation})>[];
 
-    final recordTypeNames = classes.map((c) => c.name!).toSet();
-    // Also collect @HybridStruct names so that List<@HybridStruct T> fields
-    // inside @HybridRecord classes are classified as listRecordObject (not
-    // listPrimitive), enabling binary codec generation for struct items.
-    final structTypeNames = library.annotatedWith(structChecker).where((ann) => ann.element is ClassElement).map((ann) => (ann.element as ClassElement).name!).toSet();
-    final enumTypeNames = library.annotatedWith(enumChecker).where((ann) => ann.element is EnumElement).map((ann) => (ann.element as EnumElement).name!).toSet();
+    for (final cls in library.classes) {
+      if (recordChecker.hasAnnotationOf(cls)) {
+        recordClasses.add(cls);
+      }
 
-    return classes.map((cls) {
-      final fields = cls.fields.where((f) => !f.isStatic && !f.isSynthetic).map((f) {
-        final displayType = f.type.getDisplayString();
-        final isNullable = displayType.endsWith('?');
-        final kind = _recordFieldKind(f.type, recordTypeNames, structTypeNames, enumTypeNames);
-        final itemTypeName = _listItemTypeName(f.type);
-        return BridgeRecordField(
-          name: f.name!,
-          dartType: displayType,
-          kind: kind,
-          itemTypeName: itemTypeName,
-          isNullable: isNullable,
-        );
-      }).toList();
-      return BridgeRecordType(name: cls.name!, fields: fields);
+      final structAnnotation = structChecker.firstAnnotationOf(cls);
+      if (structAnnotation != null) {
+        structClasses.add((cls: cls, annotation: ConstantReader(structAnnotation)));
+      }
+    }
+
+    for (final cls in library.enums) {
+      final enumAnnotation = enumChecker.firstAnnotationOf(cls);
+      if (enumAnnotation != null) {
+        enumClasses.add((cls: cls, annotation: ConstantReader(enumAnnotation)));
+      }
+    }
+
+    final recordTypeNames = recordClasses.map((c) => c.name!).toSet();
+    final structTypeNames = structClasses.map((entry) => entry.cls.name!).toSet();
+    final enumTypeNames = enumClasses.map((entry) => entry.cls.name!).toSet();
+
+    return _ExtractedTypes(
+      records: recordClasses.map((cls) => _buildRecordType(cls, recordTypeNames, structTypeNames, enumTypeNames)).toList(),
+      structs: structClasses.map((entry) => _buildStruct(entry.cls, entry.annotation)).toList(),
+      enums: enumClasses.map((entry) => _buildEnum(entry.cls, entry.annotation)).toList(),
+    );
+  }
+
+  static BridgeRecordType _buildRecordType(
+    ClassElement cls,
+    Set<String> recordTypeNames,
+    Set<String> structTypeNames,
+    Set<String> enumTypeNames,
+  ) {
+    final fields = cls.fields.where((f) => !f.isStatic && !f.isSynthetic).map((f) {
+      final displayType = f.type.getDisplayString();
+      final isNullable = displayType.endsWith('?');
+      final kind = _recordFieldKind(f.type, recordTypeNames, structTypeNames, enumTypeNames);
+      final itemTypeName = _listItemTypeName(f.type);
+      return BridgeRecordField(
+        name: f.name!,
+        dartType: displayType,
+        kind: kind,
+        itemTypeName: itemTypeName,
+        isNullable: isNullable,
+      );
     }).toList();
+    return BridgeRecordType(name: cls.name!, fields: fields);
   }
 
   static RecordFieldKind _recordFieldKind(
@@ -498,7 +617,7 @@ class SpecExtractor {
   // ─── Functions ───────────────────────────────────────────────────────────────
 
   static List<BridgeFunction> _extractFunctions(
-    ClassElement element,
+    Iterable<MethodElement> methods,
     String ns,
     Set<String> recordTypeNames,
     Set<String> knownTypeNames, {
@@ -508,8 +627,7 @@ class SpecExtractor {
     const nativeAsyncChecker = TypeChecker.fromUrl('package:nitro_annotations/src/annotations.dart#NitroNativeAsync');
     const zeroCopyChecker = TypeChecker.fromUrl('package:nitro_annotations/src/annotations.dart#ZeroCopy');
 
-    // Skip abstract getters annotated with @NitroStream or abstract getters/setters
-    return element.methods.where((m) => m.isAbstract && !_isStreamType(m.returnType)).map((m) {
+    return methods.map((m) {
       final isAsync = asyncChecker.hasAnnotationOf(m);
       final isNativeAsync = nativeAsyncChecker.hasAnnotationOf(m);
 
@@ -554,10 +672,10 @@ class SpecExtractor {
     }).toList();
   }
 
-  // ─── Properties + Streams (two passes: getters then setters) ────────────────
+  // ─── Properties + Streams ───────────────────────────────────────────────────
 
   static ({List<BridgeProperty> properties, List<BridgeStream> streams}) _extractPropertiesAndStreams(
-    ClassElement element,
+    _ModuleMembers members,
     String ns,
     Set<String> recordTypeNames,
     Set<String> knownTypeNames, {
@@ -570,10 +688,7 @@ class SpecExtractor {
     final streams = <BridgeStream>[];
 
     // ── Stream methods — `Stream<T> name()` style ────────────────────────────
-    for (final m in element.methods) {
-      if (!m.isAbstract) continue;
-      if (!_isStreamType(m.returnType)) continue;
-
+    for (final m in members.streamMethods) {
       final retType = m.returnType as InterfaceType;
       final itemDartType = retType.typeArguments.isNotEmpty ? retType.typeArguments.first : null;
 
@@ -600,36 +715,32 @@ class SpecExtractor {
     }
 
     // ── Getters ──────────────────────────────────────────────────────────────
-    for (final ac in element.getters) {
-      if (!ac.isAbstract) continue;
+    for (final ac in members.streamGetters) {
+      final retType = ac.returnType as InterfaceType;
+      final itemDartType = retType.typeArguments.isNotEmpty ? retType.typeArguments.first : null;
 
-      // Stream getters are handled separately; skip them for properties.
-      if (_isStreamType(ac.returnType)) {
-        final retType = ac.returnType as InterfaceType;
-        final itemDartType = retType.typeArguments.isNotEmpty ? retType.typeArguments.first : null;
-
-        Backpressure backpressure = Backpressure.dropLatest;
-        final ann = streamChecker.firstAnnotationOf(ac);
-        if (ann != null) {
-          final bpField = ann.getField('backpressure');
-          final bpIndex = bpField?.getField('index')?.toIntValue() ?? 0;
-          backpressure = Backpressure.values[bpIndex];
-        }
-
-        final name = ac.displayName;
-        streams.add(
-          BridgeStream(
-            dartName: name,
-            registerSymbol: '${ns}_register_${_toSnakeCase(name)}_stream',
-            releaseSymbol: '${ns}_release_${_toSnakeCase(name)}_stream',
-            itemType: itemDartType != null ? _makeBridgeType(itemDartType, recordTypeNames, knownTypeNames: knownTypeNames, structTypeNames: structTypeNames) : BridgeType(name: 'dynamic'),
-            backpressure: backpressure,
-            isAnnotated: ann != null,
-          ),
-        );
-        continue;
+      Backpressure backpressure = Backpressure.dropLatest;
+      final ann = streamChecker.firstAnnotationOf(ac);
+      if (ann != null) {
+        final bpField = ann.getField('backpressure');
+        final bpIndex = bpField?.getField('index')?.toIntValue() ?? 0;
+        backpressure = Backpressure.values[bpIndex];
       }
 
+      final name = ac.displayName;
+      streams.add(
+        BridgeStream(
+          dartName: name,
+          registerSymbol: '${ns}_register_${_toSnakeCase(name)}_stream',
+          releaseSymbol: '${ns}_release_${_toSnakeCase(name)}_stream',
+          itemType: itemDartType != null ? _makeBridgeType(itemDartType, recordTypeNames, knownTypeNames: knownTypeNames, structTypeNames: structTypeNames) : BridgeType(name: 'dynamic'),
+          backpressure: backpressure,
+          isAnnotated: ann != null,
+        ),
+      );
+    }
+
+    for (final ac in members.propertyGetters) {
       final name = ac.displayName;
       final type = ac.returnType;
 
@@ -639,9 +750,7 @@ class SpecExtractor {
     }
 
     // ── Setters ──────────────────────────────────────────────────────────────
-    for (final ac in element.setters) {
-      if (!ac.isAbstract) continue;
-
+    for (final ac in members.setters) {
       // Setter displayName includes '=' suffix (e.g. "myProp="); strip it.
       final name = ac.displayName.replaceFirst('=', '');
       final type = ac.formalParameters.first.type;
@@ -675,103 +784,86 @@ class SpecExtractor {
   }
 
   /// Returns the 1-based line number of [e] in its source file.
-  /// Returns null on any failure (e.g. synthetic elements, missing source).
+  /// Returns null when source or offset information is absent.
   static int? _lineOf(Element e) {
+    final elementName = e.displayName;
+    String? sourceUri;
     try {
       final fragment = e.firstFragment;
       final source = fragment.libraryFragment?.source;
+      sourceUri = source?.uri.toString();
       if (source == null) return null;
       final text = source.contents.data;
       final offset = fragment.nameOffset;
       if (offset == null || offset < 0 || offset >= text.length) return null;
       return text.substring(0, offset).split('\n').length;
-    } catch (_) {
-      return null;
+    } catch (error, stackTrace) {
+      throw SpecParseException(
+        'Failed to resolve source line for "$elementName".',
+        sourceUri: sourceUri,
+        cause: error,
+        stackTrace: stackTrace,
+      );
     }
   }
 
   // ─── Structs ─────────────────────────────────────────────────────────────────
 
-  static List<BridgeStruct> _extractStructs(LibraryReader library) {
-    const checker = TypeChecker.fromUrl('package:nitro_annotations/src/annotations.dart#HybridStruct');
-    final results = <BridgeStruct>[];
+  static BridgeStruct _buildStruct(ClassElement cls, ConstantReader annotation) {
+    final packed = annotation.read('packed').literalValue as bool? ?? false;
+    final zeroCopyFields = annotation.read('zeroCopy').listValue.map((v) => v.toStringValue() ?? '').toSet();
 
-    for (final ann in library.annotatedWith(checker)) {
-      final cls = ann.element;
-      if (cls is! ClassElement) {
-        continue;
+    // Build a map from field name → constructor param metadata so we can
+    // record isNamed / isRequired on each BridgeField.
+    // Use the unnamed generative constructor (the primary one). If there is
+    // none, fall back to treating every field as named-required.
+    final primaryCtor = cls.unnamedConstructor;
+    final paramInfo = <String, ({bool isNamed, bool isRequired})>{};
+    if (primaryCtor != null) {
+      for (final p in primaryCtor.formalParameters) {
+        paramInfo[p.name!] = (
+          isNamed: p.isNamed,
+          isRequired: p.isRequired,
+        );
       }
-
-      final packed = ann.annotation.read('packed').literalValue as bool? ?? false;
-      final zeroCopyFields = ann.annotation.read('zeroCopy').listValue.map((v) => v.toStringValue() ?? '').toSet();
-
-      // Build a map from field name → constructor param metadata so we can
-      // record isNamed / isRequired on each BridgeField.
-      // Use the unnamed generative constructor (the primary one). If there is
-      // none, fall back to treating every field as named-required.
-      final primaryCtor = cls.unnamedConstructor;
-      final paramInfo = <String, ({bool isNamed, bool isRequired})>{};
-      if (primaryCtor != null) {
-        for (final p in primaryCtor.formalParameters) {
-          paramInfo[p.name!] = (
-            isNamed: p.isNamed,
-            isRequired: p.isRequired,
-          );
-        }
-      }
-
-      const fieldZeroCopyChecker = TypeChecker.fromUrl(
-        'package:nitro_annotations/src/annotations.dart#ZeroCopy',
-      );
-
-      final fields = cls.fields.where((f) => !f.isStatic && !f.isSynthetic).map(
-        (f) {
-          final info = paramInfo[f.name!];
-          // Accept zero-copy declared either on the struct annotation
-          // (@HybridStruct(zeroCopy: ['field'])) or directly on the field
-          // (@ZeroCopy()). Both forms are equivalent.
-          final isZeroCopy = zeroCopyFields.contains(f.name) || fieldZeroCopyChecker.hasAnnotationOf(f);
-          return BridgeField(
-            name: f.name!,
-            type: BridgeType(
-              name: f.type.getDisplayString(),
-              isNullable: f.type.nullabilitySuffix == NullabilitySuffix.question,
-            ),
-            zeroCopy: isZeroCopy,
-            isNamed: info?.isNamed ?? true,
-            isRequired: info?.isRequired ?? true,
-          );
-        },
-      ).toList();
-
-      results.add(BridgeStruct(name: cls.name!, packed: packed, fields: fields));
     }
-    return results;
+
+    const fieldZeroCopyChecker = TypeChecker.fromUrl(
+      'package:nitro_annotations/src/annotations.dart#ZeroCopy',
+    );
+
+    final fields = cls.fields.where((f) => !f.isStatic && !f.isSynthetic).map(
+      (f) {
+        final info = paramInfo[f.name!];
+        // Accept zero-copy declared either on the struct annotation
+        // (@HybridStruct(zeroCopy: ['field'])) or directly on the field
+        // (@ZeroCopy()). Both forms are equivalent.
+        final isZeroCopy = zeroCopyFields.contains(f.name) || fieldZeroCopyChecker.hasAnnotationOf(f);
+        return BridgeField(
+          name: f.name!,
+          type: BridgeType(
+            name: f.type.getDisplayString(),
+            isNullable: f.type.nullabilitySuffix == NullabilitySuffix.question,
+          ),
+          zeroCopy: isZeroCopy,
+          isNamed: info?.isNamed ?? true,
+          isRequired: info?.isRequired ?? true,
+        );
+      },
+    ).toList();
+
+    return BridgeStruct(name: cls.name!, packed: packed, fields: fields);
   }
 
   // ─── Enums ───────────────────────────────────────────────────────────────────
 
-  static List<BridgeEnum> _extractEnums(LibraryReader library) {
-    const checker = TypeChecker.fromUrl('package:nitro_annotations/src/annotations.dart#HybridEnum');
-    final results = <BridgeEnum>[];
-
-    for (final ann in library.annotatedWith(checker)) {
-      final cls = ann.element;
-      if (cls is! EnumElement) {
-        continue;
-      }
-
-      final startValue = ann.annotation.read('startValue').literalValue as int? ?? 0;
-
-      results.add(
-        BridgeEnum(
-          name: cls.name!,
-          startValue: startValue,
-          values: cls.fields.where((f) => f.isEnumConstant).map((f) => f.name!).toList(),
-        ),
-      );
-    }
-    return results;
+  static BridgeEnum _buildEnum(EnumElement cls, ConstantReader annotation) {
+    final startValue = annotation.read('startValue').literalValue as int? ?? 0;
+    return BridgeEnum(
+      name: cls.name!,
+      startValue: startValue,
+      values: cls.fields.where((f) => f.isEnumConstant).map((f) => f.name!).toList(),
+    );
   }
 
   static String _toSnakeCase(String text) {

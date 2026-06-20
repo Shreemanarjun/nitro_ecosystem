@@ -104,7 +104,7 @@ flutter:
   // src/
   final srcDir = Directory(p.join(root.path, 'src'))..createSync(recursive: true);
   File(p.join(srcDir.path, '$name.cpp')).writeAsStringSync(pluginCppTemplate(name));
-  File(p.join(srcDir.path, 'dart_api_dl.c')).writeAsStringSync('// placeholder\n#include "../../packages/nitro/src/native/dart_api_dl.c"\n');
+  File(p.join(srcDir.path, 'dart_api_dl.c')).writeAsStringSync(bundledDartApiDlContent);
   File(p.join(srcDir.path, 'CMakeLists.txt')).writeAsStringSync(cmakeListsTemplate(name));
 
   // ios/Classes/
@@ -961,10 +961,9 @@ class TestingProjectPlugin : FlutterPlugin {
       );
     });
 
-    test('CMakeLists NITRO_NATIVE placeholder references src/native path', () {
+    test('CMakeLists NITRO_NATIVE references local src/native path', () {
       final cmake = File(p.join(tmp.path, 'src', 'CMakeLists.txt')).readAsStringSync();
-      // Placeholder points at monorepo — will be resolved by nitrogen link
-      expect(cmake, contains('NITRO_NATIVE'));
+      expect(cmake, contains(r'set(NITRO_NATIVE "${CMAKE_CURRENT_SOURCE_DIR}/native")'));
     });
 
     test('link functions work on scaffolded project — Swift registration injected', () {

@@ -6,6 +6,7 @@ import 'package:nitrogen_cli/version.dart';
 import 'link_command.dart' show isCppModule, isNativeCppModule;
 import 'spm_utils.dart';
 import '../ui.dart';
+import '../templates/build_versions.dart';
 
 // ── Data model ────────────────────────────────────────────────────────────────
 
@@ -776,7 +777,7 @@ class DoctorCommand extends Command {
         if (g.contains('kotlinOptions')) {
           ok(androidSec, 'kotlinOptions block present');
         } else {
-          err(androidSec, 'kotlinOptions block missing', hint: 'Add: kotlinOptions { jvmTarget = "17" }');
+          err(androidSec, 'kotlinOptions block missing', hint: 'Add: kotlinOptions { jvmTarget = "${BuildVersions.androidJvmTarget}" }');
         }
         if (g.contains('generated/kotlin')) {
           ok(androidSec, 'generated/kotlin sourceSets entry present');
@@ -889,17 +890,21 @@ class DoctorCommand extends Command {
         } else {
           err(iosSec, 'HEADER_SEARCH_PATHS missing in $podName', hint: 'Run: nitrogen link');
         }
-        if (pod.contains('c++17')) {
-          ok(iosSec, 'CLANG_CXX_LANGUAGE_STANDARD = c++17');
+        if (pod.contains(BuildVersions.podCxxStandard)) {
+          ok(iosSec, 'CLANG_CXX_LANGUAGE_STANDARD = ${BuildVersions.podCxxStandard}');
         } else {
-          warn(iosSec, 'CLANG_CXX_LANGUAGE_STANDARD not set to c++17', hint: "Set: 'CLANG_CXX_LANGUAGE_STANDARD' => 'c++17' in pod_target_xcconfig");
+          warn(
+            iosSec,
+            'CLANG_CXX_LANGUAGE_STANDARD not set to ${BuildVersions.podCxxStandard}',
+            hint: "Set: 'CLANG_CXX_LANGUAGE_STANDARD' => '${BuildVersions.podCxxStandard}' in pod_target_xcconfig",
+          );
         }
         if (!allSpecsCpp) {
           // swift_version only relevant when Swift bridges are used
-          if (pod.contains("swift_version = '5.9'") || pod.contains("swift_version = '6")) {
-            ok(iosSec, 'swift_version ≥ 5.9');
+          if (pod.contains("swift_version = '${BuildVersions.podSwiftVersion}'") || pod.contains("swift_version = '6")) {
+            ok(iosSec, 'swift_version >= ${BuildVersions.podSwiftVersion}');
           } else {
-            warn(iosSec, 'swift_version may be too old', hint: "Set: s.swift_version = '5.9'");
+            warn(iosSec, 'swift_version may be too old', hint: "Set: s.swift_version = '${BuildVersions.podSwiftVersion}'");
           }
         }
 
@@ -1039,10 +1044,14 @@ class DoctorCommand extends Command {
         } else {
           err(iosSec, 'Package.swift: $cppTargetName target missing', hint: 'Run: nitrogen init  (re-creates Package.swift with the correct C++ target)');
         }
-        if (pkgSwift.contains('c++17') || pkgSwift.contains('-std=c++17')) {
-          ok(iosSec, 'Package.swift: cxxSettings -std=c++17 present');
+        if (pkgSwift.contains(BuildVersions.podCxxStandard) || pkgSwift.contains(BuildVersions.spmCxxFlag)) {
+          ok(iosSec, 'Package.swift: cxxSettings ${BuildVersions.spmCxxFlag} present');
         } else {
-          warn(iosSec, 'Package.swift: -std=c++17 missing in cxxSettings', hint: 'Add .unsafeFlags(["-std=c++17"]) to the $cppTargetName cxxSettings');
+          warn(
+            iosSec,
+            'Package.swift: ${BuildVersions.spmCxxFlag} missing in cxxSettings',
+            hint: 'Add .unsafeFlags(["${BuildVersions.spmCxxFlag}"]) to the $cppTargetName cxxSettings',
+          );
         }
         if (pkgSwift.contains('publicHeadersPath')) {
           ok(iosSec, 'Package.swift: publicHeadersPath configured for $cppTargetName');
@@ -1124,10 +1133,14 @@ class DoctorCommand extends Command {
         } else {
           err(macosSec, 'HEADER_SEARCH_PATHS missing in $podName', hint: 'Run: nitrogen link');
         }
-        if (pod.contains('c++17')) {
-          ok(macosSec, 'CLANG_CXX_LANGUAGE_STANDARD = c++17');
+        if (pod.contains(BuildVersions.podCxxStandard)) {
+          ok(macosSec, 'CLANG_CXX_LANGUAGE_STANDARD = ${BuildVersions.podCxxStandard}');
         } else {
-          warn(macosSec, 'CLANG_CXX_LANGUAGE_STANDARD not set to c++17', hint: "Set: 'CLANG_CXX_LANGUAGE_STANDARD' => 'c++17' in pod_target_xcconfig");
+          warn(
+            macosSec,
+            'CLANG_CXX_LANGUAGE_STANDARD not set to ${BuildVersions.podCxxStandard}',
+            hint: "Set: 'CLANG_CXX_LANGUAGE_STANDARD' => '${BuildVersions.podCxxStandard}' in pod_target_xcconfig",
+          );
         }
         if (pod.contains('lib/src/generated/cpp') && pod.contains('src/native')) {
           ok(macosSec, 'Comprehensive HEADER_SEARCH_PATHS in podspec');
@@ -1243,10 +1256,14 @@ class DoctorCommand extends Command {
         } else {
           err(macosSec, 'Package.swift: $cppTargetName target missing', hint: 'Run: nitrogen init  (re-creates Package.swift with the correct C++ target)');
         }
-        if (pkgSwift.contains('c++17') || pkgSwift.contains('-std=c++17')) {
-          ok(macosSec, 'Package.swift: cxxSettings -std=c++17 present');
+        if (pkgSwift.contains(BuildVersions.podCxxStandard) || pkgSwift.contains(BuildVersions.spmCxxFlag)) {
+          ok(macosSec, 'Package.swift: cxxSettings ${BuildVersions.spmCxxFlag} present');
         } else {
-          warn(macosSec, 'Package.swift: -std=c++17 missing in cxxSettings', hint: 'Add .unsafeFlags(["-std=c++17"]) to the $cppTargetName cxxSettings');
+          warn(
+            macosSec,
+            'Package.swift: ${BuildVersions.spmCxxFlag} missing in cxxSettings',
+            hint: 'Add .unsafeFlags(["${BuildVersions.spmCxxFlag}"]) to the $cppTargetName cxxSettings',
+          );
         }
         if (pkgSwift.contains('publicHeadersPath')) {
           ok(macosSec, 'Package.swift: publicHeadersPath configured for $cppTargetName');

@@ -614,7 +614,8 @@ android {
     test('linkWindows injects NITRO_NATIVE into CMakeLists.txt', () {
       linkWindows('my_plugin', ['my_plugin'], '/path/to/nitro/native', baseDir: root.path);
       final cmake = File(p.join(root.path, 'windows', 'CMakeLists.txt')).readAsStringSync();
-      expect(cmake, contains('set(NITRO_NATIVE "/path/to/nitro/native")'));
+      expect(cmake, contains(r'set(NITRO_NATIVE "${CMAKE_CURRENT_SOURCE_DIR}/../src/native")'));
+      expect(cmake, isNot(contains('/path/to/nitro/native')));
     });
 
     test('linkWindows adds bridge .cpp to add_library target', () {
@@ -743,7 +744,8 @@ android {
     test('linkLinux injects NITRO_NATIVE into CMakeLists.txt', () {
       linkLinux('my_plugin', ['my_plugin'], '/path/to/nitro/native', baseDir: root.path);
       final cmake = File(p.join(root.path, 'linux', 'CMakeLists.txt')).readAsStringSync();
-      expect(cmake, contains('set(NITRO_NATIVE "/path/to/nitro/native")'));
+      expect(cmake, contains(r'set(NITRO_NATIVE "${CMAKE_CURRENT_SOURCE_DIR}/../src/native")'));
+      expect(cmake, isNot(contains('/path/to/nitro/native')));
     });
 
     test('linkLinux adds bridge .cpp to add_library target', () {

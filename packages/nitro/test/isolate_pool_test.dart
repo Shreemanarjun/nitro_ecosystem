@@ -1,7 +1,7 @@
 import 'dart:async';
 
-import 'package:flutter_test/flutter_test.dart';
 import 'package:nitro/nitro.dart';
+import 'package:test/test.dart';
 
 // ---------------------------------------------------------------------------
 // Helpers

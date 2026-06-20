@@ -195,6 +195,58 @@ void main() {
     });
   });
 
+  group('CppBridgeGenerator — zero-copy TypedData param (JNI path)', () {
+    BridgeSpec zeroCopySpec(String typeName, {String returnType = 'void'}) => _jniFuncSpec(
+      dartName: 'processZeroCopy',
+      returnType: BridgeType(name: returnType),
+      params: [
+        BridgeParam(
+          name: 'samples',
+          type: BridgeType(name: typeName),
+          zeroCopy: true,
+        ),
+      ],
+    );
+
+    test('Float32List param bridges as direct ByteBuffer without JVM array copy', () {
+      final code = CppBridgeGenerator.generate(zeroCopySpec('Float32List'));
+      expect(code, contains('Ljava/nio/ByteBuffer;'));
+      expect(code, contains('int64_t samples_byte_length = samples_length * (int64_t)sizeof(float);'));
+      expect(code, contains('jobject j_samples = env->NewDirectByteBuffer(samples, samples_byte_length);'));
+      expect(code, contains('CallStaticVoidMethod(g_bridgeClass, methodId, j_samples)'));
+      expect(code, isNot(contains('NewFloatArray')));
+      expect(code, isNot(contains('SetFloatArrayRegion')));
+    });
+
+    test('Uint8List param uses byte count without widening copy', () {
+      final code = CppBridgeGenerator.generate(zeroCopySpec('Uint8List'));
+      expect(code, contains('int64_t samples_byte_length = samples_length * (int64_t)sizeof(uint8_t);'));
+      expect(code, contains('jobject j_samples = env->NewDirectByteBuffer(samples, samples_byte_length);'));
+      expect(code, isNot(contains('NewByteArray')));
+      expect(code, isNot(contains('SetByteArrayRegion')));
+    });
+
+    test('non-null param guards negative length, null pointer, overflow, and ByteBuffer creation', () {
+      final code = CppBridgeGenerator.generate(zeroCopySpec('Float32List'));
+      expect(code, contains('if (samples_length < 0)'));
+      expect(code, contains('if (samples == nullptr)'));
+      expect(code, contains('if (samples_length > INT64_MAX / (int64_t)sizeof(float))'));
+      expect(code, contains('if (j_samples == nullptr)'));
+      expect(code, contains('samples: TypedData byte length overflow'));
+    });
+
+    test('nullable param allows null only for empty buffers', () {
+      final code = CppBridgeGenerator.generate(zeroCopySpec('Float32List?'));
+      expect(code, contains('if (samples == nullptr && samples_length > 0)'));
+      expect(code, contains('if (j_samples == nullptr && samples_byte_length > 0)'));
+    });
+
+    test('non-void return guard returns the correct default value', () {
+      final code = CppBridgeGenerator.generate(zeroCopySpec('Float32List', returnType: 'double'));
+      expect(code, contains('return 0.0;'));
+    });
+  });
+
   // ── §8.5.4 Float32List param (C++ direct path) ──────────────────────────
 
   group('CppBridgeGenerator — Float32List param (C++ direct path)', () {

@@ -5,9 +5,10 @@ import 'package:nocterm/nocterm.dart';
 import 'package:path/path.dart' as p;
 import '../ui.dart';
 import 'link_command.dart' show resolveNitroNativePath, createSharedHeaders;
-import '../templates/native_headers.dart' show dartApiDlForwarderContent, bundledDartApiDlContent;
+import '../templates/native_headers.dart' show bundledDartApiDlContent;
 import '../templates/scaffold_templates.dart';
 import '../templates/podspec_templates.dart';
+import '../templates/build_versions.dart';
 import '../templates/forwarder_templates.dart';
 
 // ── CMakeLists.txt updater ────────────────────────────────────────────────────
@@ -325,10 +326,8 @@ class _InitViewState extends State<InitView> {
       _setDone(_kStepPubspec, detail: 'nitro $nitroVersion, nitro_generator $nitroGeneratorVersion added');
     }
 
-    // Resolve the actual installed nitro path from package_config.json and
-    // overwrite src/dart_api_dl.c + the NITRO_NATIVE variable in
-    // src/CMakeLists.txt so they point to the correct pub-cache location
-    // instead of the monorepo placeholder written in Step 2.
+    // Resolve the installed nitro path from package_config.json and copy the
+    // native headers into the plugin-local src/native directory.
     _resolveSrcPaths(pluginName);
 
     // Step 9 — bridge spec + example main.dart
@@ -518,24 +517,19 @@ class _InitViewState extends State<InitView> {
   }
 
   /// Resolves the installed `nitro` package path from `.dart_tool/package_config.json`
-  /// inside [pluginName]/ and overwrites:
-  ///   - `src/dart_api_dl.c` — forwarder to the real pub-cache `.c` file
-  ///   - `src/CMakeLists.txt` — absolute NITRO_NATIVE variable
+  /// and copies the Dart native headers into the plugin-local `src/native`.
   static void _resolveSrcPaths(String pluginName) {
     final pluginAbsPath = p.join(Directory.current.path, pluginName);
     final nitroNativePath = resolveNitroNativePath(pluginAbsPath);
 
-    // Overwrite src/dart_api_dl.c with the resolved absolute include path.
-    File(p.join(pluginName, 'src', 'dart_api_dl.c')).writeAsStringSync(dartApiDlForwarderContent(nitroNativePath));
-
-    // Copy nitro.h to src and ios/Classes
+    // Copy nitro.h and Dart native headers to local project directories.
     createSharedHeaders(nitroNativePath, baseDir: pluginName);
 
-    // Replace the NITRO_NATIVE cmake variable with the resolved absolute path.
+    // Replace legacy absolute/monorepo values with the local generated header path.
     final cmakeFile = File(p.join(pluginName, 'src', 'CMakeLists.txt'));
     if (cmakeFile.existsSync()) {
       cmakeFile.writeAsStringSync(
-        updateCMakeNitroNative(cmakeFile.readAsStringSync(), nitroNativePath),
+        updateCMakeNitroNative(cmakeFile.readAsStringSync(), r'${CMAKE_CURRENT_SOURCE_DIR}/native'),
       );
     }
   }
@@ -546,11 +540,8 @@ class _InitViewState extends State<InitView> {
 
     File(p.join(srcDir.path, '$pluginName.cpp')).writeAsStringSync(pluginCppTemplate(pluginName));
 
-    // dart_api_dl.c is created as a local forwarder by `nitrogen link` (after
-    // `flutter pub get` resolves the nitro package path).  We create a
-    // placeholder here pointing at the monorepo default; running
-    // `nitrogen link` will update it to the correct installed path.
-    File(p.join(srcDir.path, 'dart_api_dl.c')).writeAsStringSync(srcDartApiDlInitForwarder);
+    // `nitrogen link` copies the matching Dart native headers into src/native.
+    File(p.join(srcDir.path, 'dart_api_dl.c')).writeAsStringSync(bundledDartApiDlContent);
 
     File(p.join(srcDir.path, 'CMakeLists.txt')).writeAsStringSync(cmakeListsTemplate(pluginName));
   }
@@ -591,8 +582,8 @@ class _InitViewState extends State<InitView> {
     final podspecFile = File(p.join(iosDir.path, '$pluginName.podspec'));
     if (podspecFile.existsSync()) {
       var content = podspecFile.readAsStringSync();
-      content = content.replaceFirst(RegExp(r"s\.platform = :ios, '[\d.]+'"), "s.platform = :ios, '13.0'");
-      content = content.replaceFirst(RegExp(r"s\.swift_version = '[\d.]+'"), "s.swift_version = '5.9'");
+      content = content.replaceFirst(RegExp(r"s\.platform = :ios, '[\d.]+'"), "s.platform = :ios, '${BuildVersions.iosDeployment}.0'");
+      content = content.replaceFirst(RegExp(r"s\.swift_version = '[\d.]+'"), "s.swift_version = '${BuildVersions.podSwiftVersion}'");
       content = content.replaceFirst(RegExp(r's\.pod_target_xcconfig\s*=\s*\{[^}]*\}'), iosPodTargetXcconfig);
       podspecFile.writeAsStringSync(content);
     }
@@ -603,11 +594,11 @@ class _InitViewState extends State<InitView> {
   }
 
   static void _writeIosPackageSwift(String iosPath, String pluginName, String className) {
-    _writeApplePackageSwift(iosPath, pluginName, className, 'iOS(.v13)');
+    _writeApplePackageSwift(iosPath, pluginName, className, BuildVersions.iosPlatformSpec);
   }
 
   static void _writeMacosPackageSwift(String macosPath, String pluginName, String className) {
-    _writeApplePackageSwift(macosPath, pluginName, className, 'macOS(.v10_15)');
+    _writeApplePackageSwift(macosPath, pluginName, className, BuildVersions.macosPlatformSpec);
   }
 
   static void _writeApplePackageSwift(String path, String pluginName, String className, String platformSpec) {
@@ -694,7 +685,7 @@ class _InitViewState extends State<InitView> {
     var content = cmakeFile.readAsStringSync();
     const addLibLine = 'add_library(\${PLUGIN_NAME} SHARED\n';
     if (!content.contains('NITRO_NATIVE')) {
-      content = 'set(NITRO_NATIVE "\${CMAKE_CURRENT_SOURCE_DIR}/../../packages/nitro/src/native")\n\n$content';
+      content = 'set(NITRO_NATIVE "\${CMAKE_CURRENT_SOURCE_DIR}/../src/native")\n\n$content';
     }
     if (!content.contains('dart_api_dl.c')) {
       content = content.replaceFirst(
@@ -752,8 +743,8 @@ class _InitViewState extends State<InitView> {
     final podspecFile = File(p.join(macosDir.path, '$pluginName.podspec'));
     if (podspecFile.existsSync()) {
       var content = podspecFile.readAsStringSync();
-      content = content.replaceFirst(RegExp(r"s\.platform = :osx, '[\d.]+'"), "s.platform = :osx, '10.15'");
-      content = content.replaceFirst(RegExp(r"s\.swift_version = '[\d.]+'"), "s.swift_version = '5.9'");
+      content = content.replaceFirst(RegExp(r"s\.platform = :osx, '[\d.]+'"), "s.platform = :osx, '${BuildVersions.macosDeployment.replaceAll('_', '.')}'");
+      content = content.replaceFirst(RegExp(r"s\.swift_version = '[\d.]+'"), "s.swift_version = '${BuildVersions.podSwiftVersion}'");
       content = content.replaceFirst(RegExp(r's\.pod_target_xcconfig\s*=\s*\{[^}]*\}'), macosPodTargetXcconfig);
       podspecFile.writeAsStringSync(content);
     }

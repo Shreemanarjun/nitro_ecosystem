@@ -90,6 +90,10 @@ final class CodeWriter {
     _buffer.writeln();
   }
 
+  void writeln([String value = '']) {
+    line(value);
+  }
+
   void blankLine() {
     _buffer.writeln();
   }

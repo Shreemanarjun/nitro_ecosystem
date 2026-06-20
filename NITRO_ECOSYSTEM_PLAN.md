@@ -1520,7 +1520,7 @@ nitro generate --verbose
 | Move native generators from flat files into language folders | ✅ **DONE** 2026-06-19 | `generators/languages/{dart,kotlin,swift,c_bridge,cpp_native,cmake}/` owns language-specific generators |
 | Add facade/model layer for generator isolation and future language support | ✅ **DONE** 2026-06-19 | `native_generator_facade.dart`, `native_generator_model.dart`, and per-language `*_generator_bundle.dart` files |
 | Add typed writer/model for generated code assembly | ✅ **DONE** 2026-06-19 | `code_writer.dart` with `CodeNode`, `CodeFile`, `CodeLine`, `CodeBlock`, `CodeWriter` |
-| Remove raw `StringBuffer(` usage from language generator emitters | ✅ **DONE** 2026-06-19 | `rg "StringBuffer\\(" packages/nitro_generator/lib/src/generators/languages` returns no matches |
+| Remove raw `StringBuffer(` usage from generator emitters | ✅ **DONE** 2026-06-20 | `rg "StringBuffer\\(" packages/nitro_generator/lib/src/generators` only matches `code_writer.dart` internals |
 | Fix required `BridgeFunction(isAsync: ...)` constructor fallout in existing tests | ✅ **DONE** 2026-06-19 | full generator suite compiles and passes |
 | Add tests for facade and typed writer isolation | ✅ **DONE** 2026-06-19 | `code_writer_test.dart`, `native_generator_facade_test.dart` |
 | Verify generator suite after architecture move | ✅ **DONE** 2026-06-19 | direct Dart SDK test run: `2654: All tests passed!` |
@@ -1531,9 +1531,9 @@ nitro generate --verbose
 |---|---|---|
 | `nitro generate --no-ui` headless mode | ✅ **DONE** 2026-05-23 | `[nitro]` prefix lines, no ANSI; `generate_command.dart` |
 | TTY auto-detection | ✅ **DONE** 2026-05-23 | `_headless` getter checks `!stdout.hasTerminal`; auto-activates in CI |
-| `--check` mode | 🔲 TODO | exit code 3 when stale |
+| `--check` mode | ✅ **DONE** 2026-06-20 | exit code 3 when stale |
 | `--fail-on-warn` flag | ✅ **DONE** 2026-05-23 | exit code 2 on `[WARNING]` lines; `runStreamingInspected` in `ui.dart` |
-| `--dry-run` flag | 🔲 TODO | no files written, paths listed |
+| `--dry-run` flag | ✅ **DONE** 2026-06-20 | no files written, paths listed |
 
 ### Phase 4 — P1: Validation pass
 
@@ -1563,8 +1563,8 @@ nitro generate --verbose
 |---|---|---|
 | Content-hash incremental generation | 🔲 TODO | only changed spec regenerated |
 | `nitro clean` command | ✅ **DONE** 2026-05-23 | `clean_command.dart`; deletes `*.g.dart`, `*.bridge.g.swift`, `*.bridge.g.kt`, `Hybrid*.hpp/cpp`, `*.bridge.g.h`, build_runner lock+graph |
-| `--targets` partial generation | 🔲 TODO | only specified platforms emitted |
-| `--watch` with 250ms debounce | 🔲 TODO | triggers correctly on single file save |
+| `--targets` partial generation | ✅ **DONE** 2026-06-20 | only specified targets emitted |
+| `--watch` with 250ms debounce | ✅ **DONE** 2026-06-20 | triggers correctly on single file save |
 
 ### Phase 7 — P3: Developer tools
 
@@ -1677,14 +1677,20 @@ Future<bool> setMetadata(String metaJson);   // caller: jsonEncode(map)
 
 | Test file | What it covers |
 |---|---|
+| `build_yaml_drift_test.dart` | `build.yaml` output extensions stay in sync with the canonical builder extension map, including C++ native/mock/test outputs |
+| `build_versions_test.dart` | CLI scaffold/link templates emit platform/build versions from centralized `BuildVersions` constants and scan `packages/nitrogen_cli/lib` for hardcoded version drift |
 | `dart_ffi_param_return_test.dart` | Async `Uint8List` and `Float32List` returns decode from a malloc-owned `[int64 byteLength][payload]` envelope and free native memory |
 | `swift_typed_data_async_test.dart` | Swift async/sync TypedData returns allocate the same C-`malloc` length-prefixed envelope for Dart |
 | `cpp_bridge_types_test.dart` | JNI TypedData returns copy JVM primitive arrays into the length-prefixed envelope |
 | `record_field_types_test.dart` | `@HybridEnum` fields and `List<@HybridEnum>` fields inside `@HybridRecord` encode as native values and decode back to enums across Dart/Kotlin/Swift/C++ record serializers |
 | `cpp_bridge_generator_test.dart` | Nullable `@HybridStruct` params in direct/Apple C++ bridges emit a `nitro_report_error` null guard before pointer dereference |
-| `jni_perf_test.dart` | Assert-gated `NitroRuntime.checkError`, cached JNI IDs, arena lifetime, and unknown JNI type failure |
+| `generator_metadata_test.dart` | All generator families emit shared `nitro_generator: 0.4.4` stale-generation metadata, CMake uses `#` comments, and the metadata version matches `pubspec.yaml` |
+| `jni_perf_test.dart` | Assert-gated `NitroRuntime.checkError`, cached JNI IDs, arena lifetime, contextual JNI `LOGE`, typed `callAsync<T>`, TypedData null guards, and unknown JNI type failure |
+| `kotlin_generator_test.dart` | Conditional coroutine imports: sync-only bridges omit coroutine APIs, async bridges import `runBlocking`, and stream bridges import Flow/launch scope APIs |
 | `lazy_record_list_test.dart` | `RecordWriter` growable buffer and `RecordReader` in-place scalar/string decode performance guards |
 | `link_command_test.dart` | Contextual errors for malformed `package_config.json` while resolving Nitro native paths |
+| `spec_extractor_error_test.dart` | `SpecParseException` carries source/cause context and `spec_extractor.dart` has no silent `catch (_)` swallow path |
+| `packages/nitro/test/isolate_pool_test.dart` | IsolatePool min-heap least-busy scheduling, call-id routing, dispose behavior, and concurrent dispatch stress coverage |
 
 ### New tests added 2026-05-23 (total: ~119 new tests; suite: 1991 passing — 0 failures)
 

@@ -39,20 +39,20 @@
 | F23 | `_streamJobs` map → `ConcurrentHashMap` | ✅ Done |
 | F24 | `ByteArrayOutputStream` pool-based reuse in record encode | ✅ Done |
 | F25 | Generator facade + per-language folder architecture (`languages/*` bundles + shared model) | ✅ Done |
-| F26 | Shared typed `CodeWriter` infrastructure; language generators no longer use raw `StringBuffer(` emitters | ✅ Done |
+| F26 | Shared typed `CodeWriter` infrastructure; generator emitters no longer use raw `StringBuffer(` directly | ✅ Done |
 
 ### Performance
 
 | ID | Item | Priority | Status |
 |----|------|----------|--------|
 | P1 | `FindClass()` inside `unpack_*_to_jni` — cache `jclass` + `jmethodID` as statics | 🔴 High | ✅ Done |
-| P2 | TypedData params: `NewDirectByteBuffer` zero-copy path (not just fields) | 🟡 Medium | ⬜ Pending |
+| P2 | TypedData params: `NewDirectByteBuffer` zero-copy path (not just fields) | 🟡 Medium | ✅ Done |
 | P3 | `NitroRuntime.checkError` — assert-gate in release (Approach A, non-breaking) | 🟡 Medium | ✅ Done |
 | P4 | Generator inner loops: pre-build `Set<String>` for O(1) type lookups | 🟡 Medium | ✅ Done |
 | P5 | `RecordWriter` preallocated growable buffer; `readString` in-place decode | 🟡 Medium | ✅ Done |
-| P6 | `IsolatePool._leastBusyIndex` → min-heap or round-robin | 🟢 Low | ⬜ Pending |
+| P6 | `IsolatePool._leastBusyIndex` → min-heap or round-robin | 🟢 Low | ✅ Done |
 | P7 | `isLeaf: true` on pure-native FFI calls (~30% call overhead reduction) | 🟡 Medium | ✅ Done |
-| P8 | `checkDisposed()` → `@pragma('vm:prefer-inline')` + assert variant | 🟢 Low | ⬜ Pending |
+| P8 | `checkDisposed()` → `@pragma('vm:prefer-inline')` + assert variant | 🟢 Low | ✅ Done |
 
 ### Stability & Correctness
 
@@ -112,24 +112,24 @@
 
 | ID | Item | Priority | Status |
 |----|------|----------|--------|
-| G1 | Split `cpp_bridge_generator.dart` (1586 lines) — 8 sub-PRs, byte-identical output | 🟡 Medium | 🟨 Partial |
-| G2 | `build.yaml` ↔ `builder.dart` sync: add 3 missing output extensions | 🔴 High | ⬜ Pending |
-| G3 | `build.yaml` drift test: assert `buildExtensions` keys match code | 🟡 Medium | ⬜ Pending |
-| G4 | `builder.dart` log escalation: `log.warning` → `log.severe` for stack traces | 🟡 Medium | ⬜ Pending |
-| G5 | `DartFormatter` hoisted to `static final _formatter` (not re-instantiated per spec) | 🟢 Low | ⬜ Pending |
-| G6 | `dart_api_dl.c` absolute-path fragility — resolve at build time from package config | 🔴 High | ⬜ Pending |
-| G7 | `SpecExtractor` single-pass AST visitor (replace multiple loops over same element list) | 🟢 Low | ⬜ Pending |
+| G1 | Split `cpp_bridge_generator.dart` (1586 lines) — 8 sub-PRs, byte-identical output | 🟡 Medium | ✅ Done |
+| G2 | `build.yaml` ↔ `builder.dart` sync: add 3 missing output extensions | 🔴 High | ✅ Done |
+| G3 | `build.yaml` drift test: assert `buildExtensions` keys match code | 🟡 Medium | ✅ Done |
+| G4 | `builder.dart` log escalation: `log.warning` → `log.severe` for stack traces | 🟡 Medium | ✅ Done |
+| G5 | `DartFormatter` hoisted to `static final _formatter` (not re-instantiated per spec) | 🟢 Low | ✅ Done |
+| G6 | `dart_api_dl.c` absolute-path fragility — resolve at build time from package config | 🔴 High | ✅ Done |
+| G7 | `SpecExtractor` single-pass AST visitor (replace multiple loops over same element list) | 🟢 Low | ✅ Done |
 | G8 | `_jniSigType` / `_jniGetter` unknown type: throw `StateError` with type name | 🔴 High | ✅ Done |
-| G9 | `LOGE("Method not found")` — include method name + JNI sig in log line | 🟡 Medium | ⬜ Pending |
-| G10 | Stale-generation detection: emit `// nitro_generator: x.y.z` comment in outputs | 🟡 Medium | ⬜ Pending |
-| G11 | Coroutine imports in Kotlin emitted unconditionally — make conditional | 🟢 Low | ⬜ Pending |
-| G12 | `callAsync` returns `dynamic` — type to `callAsync<T>` with structured result | 🟡 Medium | ⬜ Pending |
-| G13 | Spec-path attribution in generated file headers | 🟢 Low | ⬜ Pending |
-| G14 | Fix silent `catch (_) {}` in spec extractor — rethrow as `SpecParseException` | 🔴 High | ⬜ Pending |
+| G9 | `LOGE("Method not found")` — include method name + JNI sig in log line | 🟡 Medium | ✅ Done |
+| G10 | Stale-generation detection: emit `// nitro_generator: x.y.z` comment in outputs | 🟡 Medium | ✅ Done |
+| G11 | Coroutine imports in Kotlin emitted unconditionally — make conditional | 🟢 Low | ✅ Done |
+| G12 | `callAsync` returns `dynamic` — type to `callAsync<T>` with structured result | 🟡 Medium | ✅ Done |
+| G13 | Spec-path attribution in generated file headers | 🟢 Low | ✅ Done |
+| G14 | Fix silent `catch (_) {}` in spec extractor — rethrow as `SpecParseException` | 🔴 High | ✅ Done |
 | G15 | Fix empty catch in `link_command.dart` Nitro-native path resolution | 🔴 High | ✅ Done |
-| G16 | Centralise hardcoded platform versions (`swift-tools: 5.9`, `ndkVersion 34`, etc.) | 🟡 Medium | ⬜ Pending |
+| G16 | Centralise hardcoded platform versions (`swift-tools: 5.9`, `ndkVersion 34`, etc.) | 🟡 Medium | ✅ Done |
 | G17 | Facade-oriented generator bundles by language (`dart`, `kotlin`, `swift`, `c_bridge`, `cpp_native`, `cmake`) | 🟡 Medium | ✅ Done |
-| G18 | Replace raw language-generator `StringBuffer` emitters with typed writer/model layer | 🟡 Medium | ✅ Done |
+| G18 | Replace raw generator `StringBuffer` emitters with typed writer/model layer | 🟡 Medium | ✅ Done |
 
 ### Native Handle (Raw Pointer Escape Hatch)
 
@@ -159,7 +159,7 @@
 | D3 | `nitrogen doctor` file-permission checks (read/write, not just existence) | 🔴 High | ⬜ Pending |
 | D4 | `@HybridStruct` String field docs: rule "use `@HybridRecord` instead" | 🟢 Low | ⬜ Pending |
 | D5 | Zero-copy `@zeroCopy` annotation support for TypedData return values | 🟡 Medium | ⬜ Pending |
-| D6 | Null-safety for TypedData fields: null guard before `GetDirectBufferAddress` | 🔴 High | ⬜ Pending |
+| D6 | Null-safety for TypedData fields: null guard before `GetDirectBufferAddress` | 🔴 High | ✅ Done |
 | D7 | `SpecValidator` missing-platform warning (opt-in `warnOnMissingPlatforms` flag) | 🟢 Low | ⬜ Pending |
 | D8 | Generated `_init()` actionable assertion on unsupported platform | 🟡 Medium | ⬜ Pending |
 
@@ -197,7 +197,7 @@ All items below are shipped and tested. See `plan.md` status section and individ
 - **`@NitroNativeAsync`** (F16): Zero-hop async — native thread posts result directly via `Dart_PostCObject_DL`. ~930 µs → ~146 µs per call. 75 tests.
 - **C++ Record Decoder** (F19): `NitroRecordReader` with `_require(n)` + explicit bounds-checked `readNullTag()`. `std::optional<T>` for nullable fields. 42 tests.
 - **JNI** (F5, F8, F20, F22, F23): Scoped local frames, correct `_jniMangle` escaping, all IDs cached in `JNI_OnLoad`, exception helper caches IDs, `_streamJobs` → `ConcurrentHashMap`.
-- **Generator architecture** (F25, F26, G17, G18): native generators are routed through `NativeGeneratorFacade` and per-language bundles under `packages/nitro_generator/lib/src/generators/languages/`; old flat generator files were removed. Shared `CodeWriter`/`CodeNode` infrastructure backs language emitters, and `rg "StringBuffer\\(" packages/nitro_generator/lib/src/generators/languages` is clean as of 2026-06-19.
+- **Generator architecture** (F25, F26, G17, G18): native generators are routed through `NativeGeneratorFacade` and per-language bundles under `packages/nitro_generator/lib/src/generators/languages/`; old flat generator files were removed. Shared `CodeWriter`/`CodeNode` infrastructure backs generator emitters, including shared enum/struct/record emitters, and `rg "StringBuffer\\(" packages/nitro_generator/lib/src/generators` only matches `code_writer.dart` internals as of 2026-06-20.
 
 ---
 
@@ -207,7 +207,7 @@ All items below are shipped and tested. See `plan.md` status section and individ
 ✅ **Done 2026-06-19.** `unpack_*_to_jni` now uses cached `jclass` and constructor IDs populated through the JNI cache path. Covered by `jni_perf_test.dart`.
 
 ### P2 — TypedData zero-copy params
-`NewFloatArray` + `SetFloatArrayRegion` allocates + copies on every call. Offer `NewDirectByteBuffer` path for `Uint8List` and `Float32List` params when the Dart side owns the buffer for the duration of the call (not just fields via `@zeroCopy`).
+✅ **Done 2026-06-19.** `@ZeroCopy` TypedData function params now bridge through `NewDirectByteBuffer` on the JNI C bridge instead of allocating/copying JVM primitive arrays. The generated bridge computes byte length for all TypedData element sizes, guards negative lengths, null non-empty buffers, byte-length overflow, and failed ByteBuffer creation, then passes `j_<param>` to Kotlin. Kotlin interface and `_call` signatures use `java.nio.ByteBuffer` for zero-copy params. Covered by `cpp_bridge_types_test.dart`, `zero_copy_typed_test.dart`, and `kotlin_generator_test.dart`.
 
 ### P3 — `NitroRuntime.checkError` assert-gate (Approach A, non-breaking)
 ✅ **Done 2026-06-19.** Generated sync Dart FFI calls now gate `NitroRuntime.checkError` inside `assert(() { …; return true; }())`, keeping debug checks while erasing the call in release. Covered by `jni_perf_test.dart`.
@@ -219,13 +219,13 @@ All items below are shipped and tested. See `plan.md` status section and individ
 ✅ **Done 2026-06-19.** `RecordWriter` uses a growable `Uint8List` buffer with direct offset writes; `RecordReader` uses a single `ByteData.sublistView` and in-place UTF-8 string decode. Covered by `lazy_record_list_test.dart`.
 
 ### P6 — `IsolatePool` scheduling
-`_leastBusyIndex` is O(N) per dispatch. Replace with min-heap ordered by `_inflight`, or fall back to round-robin when all workers are tied.
+✅ **Done 2026-06-19.** `IsolatePool` now keeps worker load in a min-heap keyed by `_inflight`, so dispatch chooses the least-busy worker without scanning every worker. Covered by `packages/nitro/test/isolate_pool_test.dart`.
 
 ### P7 — `isLeaf: true`
 ✅ **Done 2026-06-19.** Pure sync native FFI calls that do not allocate arena state, return records/structs/typed data, or call back into Dart are emitted with `isLeaf: true`. Covered by `dart_ffi_generator_test.dart` and `benchmark_spec_test.dart`.
 
 ### P8 — `checkDisposed()` overhead
-Add `@pragma('vm:prefer-inline')` and an `assert`-only variant for debug builds.
+✅ **Done 2026-06-19.** `HybridObjectBase.checkDisposed()` is annotated with `@pragma('vm:prefer-inline')`, keeping the tiny guard eligible for VM inlining while preserving the existing debug/release behavior.
 
 ---
 
@@ -472,18 +472,18 @@ import 'dart:js_interop';
 ## 6. Generator & Build Quality
 
 ### G1 — Split / structure `cpp_bridge_generator.dart`
-🟨 **Partial 2026-06-19.** The old flat generator file has moved to `languages/c_bridge/cpp_bridge_generator.dart`, JNI type mapping helpers live in `generators/cpp_bridge/type_mappings.dart`, and the emitter now uses the shared `CodeWriter`. The remaining optional work is a finer split into smaller c_bridge emitter files while preserving byte-identical output.
+✅ **Done 2026-06-20.** The old flat generator file has moved to `languages/c_bridge/cpp_bridge_generator.dart`, JNI type mapping helpers live in `generators/cpp_bridge/type_mappings.dart`, the direct C++, Swift shim, JNI prologue, JNI method, JNI type-helper emitters, and native-async post helper template now live under `languages/c_bridge/cpp_bridge/`, and the emitter uses the shared `CodeWriter`. Covered by the full `packages/nitro_generator/test` suite (`2670` passing).
 
 | Sub-task | Extract | File |
 |----------|---------|------|
 | G1.1 | Helpers (lines 1285–end) | ✅ `cpp_bridge/type_mappings.dart` |
-| G1.2 | `_generateCppDirect` | `cpp_bridge/cpp_direct_emitter.dart` |
-| G1.3 | JNI prologue (~200 lines) | `cpp_bridge/jni_swift_prologue.dart` |
-| G1.4 | JNI per-function loop | `cpp_bridge/jni_method_emitter.dart` |
-| G1.5 | Swift C-bridge blocks | `cpp_bridge/swift_shim_emitter.dart` |
-| G1.6 | Struct/record/enum helpers | `cpp_bridge/type_emitter.dart` |
-| G1.7 | `CodeWriter` class (explicit writer API) | ✅ replaces raw `StringBuffer.writeln` in language generators |
-| G1.8 | Template-string helper for function bodies | after G1.1–G1.7 merged |
+| G1.2 | `_generateCppDirect` | ✅ `cpp_bridge/cpp_direct_emitter.dart` |
+| G1.3 | JNI prologue (~200 lines) | ✅ `cpp_bridge/jni_swift_prologue.dart` |
+| G1.4 | JNI per-function loop | ✅ `cpp_bridge/jni_method_emitter.dart` |
+| G1.5 | Swift C-bridge blocks | ✅ `cpp_bridge/swift_shim_emitter.dart` |
+| G1.6 | Struct/record/enum helpers | ✅ `cpp_bridge/type_emitter.dart` |
+| G1.7 | `CodeWriter` class (explicit writer API) | ✅ replaces raw `StringBuffer.writeln` in generator emitters |
+| G1.8 | Template-string helper for function bodies | ✅ `_emitDartPostCObjectHelper` in `cpp_bridge/jni_method_emitter.dart` |
 
 ### G17–G18 — Generator facade and typed writer
 ✅ **Done 2026-06-19.**
@@ -494,29 +494,32 @@ import 'dart:js_interop';
 - Tests: `code_writer_test.dart`, `native_generator_facade_test.dart`, plus the full generator suite (`2654` passing).
 
 ### G2–G5 — Build system
-- **G2:** Add 3 missing extensions to `build.yaml` (`.native.g.h`, `.mock.g.h`, `.test.g.cpp`).
-- **G3:** Unit test asserting `build.yaml` keys == `NitroGeneratorBuilder().buildExtensions`.
-- **G4:** Escalate `log.warning(...)` to `log.severe(...)` in `builder.dart` catch block.
-- **G5:** `static final _formatter = DartFormatter()` — hoist off the per-build hot path.
+✅ **Done 2026-06-19.**
+- **G2:** `build.yaml` and `nitroBuilderExtensions` include `.native.g.h`, `.mock.g.h`, and `.test.g.cpp`.
+- **G3:** `build_yaml_drift_test.dart` asserts `build.yaml` outputs match the canonical builder extension map.
+- **G4:** `builder.dart` catch block logs processing failures and stack traces via `log.severe(...)`.
+- **G5:** `DartFormatter` is hoisted to `static final _formatter`.
 
 ### G6 — `dart_api_dl.c` path fragility
-`nitrogen link` writes a machine-specific absolute pub-cache path. Breaks on CI / fresh clones.
-Fix: resolve at build time from `.dart_tool/package_config.json`, or commit a path-agnostic CMake shim.
+✅ **Done 2026-06-19.** `nitrogen init` and `nitrogen link` now write a bundled, path-agnostic `src/dart_api_dl.c` and copy Dart native headers into plugin-local `src/native/`. Generated `src/CMakeLists.txt` uses `${CMAKE_CURRENT_SOURCE_DIR}/native`; desktop `windows/` and `linux/` CMake files use `${CMAKE_CURRENT_SOURCE_DIR}/../src/native` and migrate stale absolute values. Covered by `link_command_test.dart`, `platform_file_placement_test.dart`, `integration_test.dart`, and `build_versions_test.dart`.
+
+### G7 — `SpecExtractor` single-pass member/type classification
+✅ **Done 2026-06-19.** Module methods/getters/setters are classified once through `_ModuleMembers`, so function extraction and stream/property extraction reuse the same classified lists. Local/imported `@HybridRecord`, `@HybridStruct`, and `@HybridEnum` types now flow through one `_extractAnnotatedTypes` collector instead of three separate `LibraryReader.annotatedWith(...)` scans. Covered by `spec_extractor_error_test.dart`, `platform_targeting_test.dart`, `cross_file_type_sharing_test.dart`, and `edge_cases_test.dart`.
 
 ### G8 — `_jniSigType` unknown type silent fallthrough
 ✅ **Done 2026-06-19.** Unknown JNI signature types now throw a `StateError` with the type name during generation instead of silently mapping to object. Covered by `jni_perf_test.dart`.
 
 ### G9–G13 — Small quality wins
-- **G9:** `LOGE` includes method name + JNI sig when `GetStaticMethodID` returns null.
-- **G10:** `// nitro_generator: x.y.z` in generated file headers enables stale-detection lint.
-- **G11:** Kotlin coroutine imports only emitted when spec has async/stream functions.
-- **G12:** `callAsync` typed as `callAsync<T>` with structured result envelope.
-- **G13:** Every generated header includes `// Generated from: camera.native.dart`.
+- **G9:** ✅ **Done 2026-06-19.** `LOGE` includes method name + JNI sig when `GetStaticMethodID` returns null. Covered by `jni_perf_test.dart`.
+- **G10:** ✅ **Done 2026-06-19.** All language generator outputs now emit shared `nitro_generator: 0.4.4` metadata near the top of generated files, using `#` comments for CMake. The metadata constant is checked against `pubspec.yaml`. Covered by `generator_metadata_test.dart`.
+- **G11:** ✅ **Done 2026-06-19.** Kotlin coroutine imports are emitted only for specs that need async or stream APIs. Sync-only bridges omit coroutine imports and `_asyncExecutor`; async-only bridges import `runBlocking`; stream-only bridges import Flow/launch scope APIs. Covered by `kotlin_generator_test.dart`.
+- **G12:** ✅ **Done 2026-06-19.** `NitroRuntime.callAsync<T>` and generated async call sites use typed generic calls for records, structs, enums, primitives, strings, and typed-data pointers. Covered by `jni_perf_test.dart`, `edge_cases_test.dart`, `dart_ffi_param_return_test.dart`, and `struct_list_test.dart`.
+- **G13:** ✅ **Done 2026-06-19.** Generated files include `Generated from: <spec>.native.dart` attribution near the top, with CMake using `#` comments. Covered by `edge_cases_test.dart`, `cmake_generator_test.dart`, and `generator_metadata_test.dart`.
 
 ### G14–G16 — Error handling & config
-- **G14:** `spec_extractor.dart` bare `catch (_) {}` → rethrow `SpecParseException` with file path.
+- **G14:** ✅ **Done 2026-06-19.** `spec_extractor.dart` no longer silently swallows extractor failures. Unexpected line-attribution failures throw `SpecParseException` with message, optional source URI, cause, and stack trace. Covered by `spec_extractor_error_test.dart`.
 - **G15:** ✅ **Done 2026-06-19.** `link_command.dart` Nitro-native path resolution now throws contextual `StateError`s for malformed or unreadable `package_config.json`. Covered by `link_command_test.dart`.
-- **G16:** Centralise `swift-tools-version: 5.9`, `ndkVersion = "34"`, `CMAKE_CXX_STANDARD 17`, `iOS 13.0` in a `VersionConstants` class or `nitrogen_versions.yaml`.
+- **G16:** ✅ **Done 2026-06-19.** CLI scaffold/link/doctor templates now use centralized `BuildVersions` constants for Swift tools, iOS/macOS platform specs, CMake minimum/C++ standard, Android NDK/JVM/SDK values, Kotlin coroutines, and podspec/SPM C++ flags. `build_versions_test.dart` verifies generated output and scans `packages/nitrogen_cli/lib` for drift.
 
 ---
 
@@ -535,8 +538,7 @@ Generator emits a checksum of the spec set. `link` writes the checksum into `CMa
 `@zeroCopy` annotation works for struct fields and params, but a function returning `Uint8List` still copies via `GetByteArrayRegion`. Extend `@zeroCopy` to return types.
 
 ### D6 — Nullable TypedData null guard
-If a Kotlin `ByteBuffer` field is `null`, `GetDirectBufferAddress` returns `null`. C++ side assigns the null pointer with no check.
-Fix: emit null guard in generated bridge → `nitro_report_error` path.
+✅ **Done 2026-06-19.** Zero-copy TypedData fields now emit null guards in `pack_*_from_jni` before `GetDirectBufferAddress` and in `unpack_*_to_jni` before `NewDirectByteBuffer`, throwing `NullPointerException` and returning early. Covered by `jni_perf_test.dart`.
 
 ### D7 — Missing-platform warnings
 `SpecValidator` warning: "Camera targets ios + android but not macos." Controlled by `NitroConfig.warnOnMissingPlatforms` (default `true`).
@@ -741,13 +743,13 @@ T3 (bool JNI sig) → T1 (stream unpack) → T2 (async TypedData) → T6 (withAr
 PX1 (sealed NativeImpl) → PX2–PX4 (BridgeSpec + SpecExtractor + SpecValidator) → PX20 (WASM error) → PX6 (link_command) → PX7–PX9 (macOS)
 
 ### Phase C — Performance wins (low risk, non-breaking)
-P3 (assert-gate checkError) → ✅ P4 (O(1) type lookups) → P7 (isLeaf) → P1 (JNI struct unpack caching) → P5 (RecordWriter buffer)
+✅ P3 (assert-gate checkError) → ✅ P4 (O(1) type lookups) → ✅ P7 (isLeaf) → ✅ P1 (JNI struct unpack caching) → ✅ P2 (TypedData zero-copy params) → ✅ P5 (RecordWriter buffer) → ✅ P6 (IsolatePool min-heap) → ✅ P8 (inline disposed guard)
 
 ### Phase D — Platform expansion (Windows/Linux/Web)
 PX10–PX16 (Windows + Linux generators, CMake, CLI) → PX17–PX19 (Web conditional export + WebBridgeGenerator)
 
 ### Phase E — Quality & observability
-✅ G17–G18 (generator facade + typed writer) → G1.2–G1.6/G1.8 (optional finer c_bridge split) → G2–G5 (build system) → D1 (Timeline) → D2 (link checksum) → S1 (ABI version)
+✅ G17–G18 (generator facade + typed writer) → ✅ G1.2–G1.8 (finer c_bridge split) → ✅ G2–G7 (build system, path-stable `dart_api_dl.c`, extractor passes) → D1 (Timeline) → D2 (link checksum) → S1 (ABI version)
 
 ### Phase F — Stability hardening
 S3 (stream port-death) → S4 (JNI detach) → S2 (load race) → S7 (TLS error slot) → TC1–TC4 (integration + stress tests)

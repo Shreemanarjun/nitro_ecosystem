@@ -61,6 +61,21 @@ void main() {
       expect(migrate.argParser.options.containsKey('backup'), isTrue);
       expect(migrate.argParser.options.containsKey('dry-run'), isTrue);
     });
+
+    test('generate command has dry-run flag', () {
+      final generate = runner.commands['generate'] as GenerateCommand;
+      expect(generate.argParser.options.containsKey('dry-run'), isTrue);
+    });
+
+    test('generate command has check flag', () {
+      final generate = runner.commands['generate'] as GenerateCommand;
+      expect(generate.argParser.options.containsKey('check'), isTrue);
+    });
+
+    test('generate command has targets option', () {
+      final generate = runner.commands['generate'] as GenerateCommand;
+      expect(generate.argParser.options.containsKey('targets'), isTrue);
+    });
   });
 
   // ── NitroCommand enum ──────────────────────────────────────────────────────

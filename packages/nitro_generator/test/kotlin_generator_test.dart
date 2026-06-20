@@ -5,6 +5,51 @@ import 'test_utils.dart';
 
 void main() {
   group('KotlinGenerator', () {
+    BridgeSpec syncOnlySpec() => BridgeSpec(
+      dartClassName: 'SyncOnly',
+      lib: 'sync_only',
+      namespace: 'sync_only',
+      iosImpl: NativeImpl.swift,
+      androidImpl: NativeImpl.kotlin,
+      sourceUri: 'sync_only.native.dart',
+      functions: [
+        BridgeFunction(
+          dartName: 'add',
+          cSymbol: 'sync_only_add',
+          isAsync: false,
+          returnType: BridgeType(name: 'int'),
+          params: [
+            BridgeParam(
+              name: 'a',
+              type: BridgeType(name: 'int'),
+            ),
+            BridgeParam(
+              name: 'b',
+              type: BridgeType(name: 'int'),
+            ),
+          ],
+        ),
+      ],
+    );
+
+    BridgeSpec streamOnlySpec() => BridgeSpec(
+      dartClassName: 'StreamOnly',
+      lib: 'stream_only',
+      namespace: 'stream_only',
+      iosImpl: NativeImpl.swift,
+      androidImpl: NativeImpl.kotlin,
+      sourceUri: 'stream_only.native.dart',
+      streams: [
+        BridgeStream(
+          dartName: 'ticks',
+          registerSymbol: 'stream_only_register_ticks_stream',
+          releaseSymbol: 'stream_only_release_ticks_stream',
+          itemType: BridgeType(name: 'int'),
+          backpressure: Backpressure.dropLatest,
+        ),
+      ],
+    );
+
     test('emits correct package', () {
       final out = KotlinGenerator.generate(simpleSpec());
       expect(out, contains('package nitro.my_camera_module'));
@@ -47,6 +92,33 @@ void main() {
       expect(out, contains('val frames: Flow<CameraFrame>'));
     });
 
+    test('pure sync bridge omits coroutine imports and async executor', () {
+      final out = KotlinGenerator.generate(syncOnlySpec());
+      expect(out, isNot(contains('import kotlinx.coroutines')));
+      expect(out, isNot(contains('_asyncExecutor')));
+      expect(out, isNot(contains('runBlocking')));
+    });
+
+    test('async bridge imports runBlocking but not stream-only coroutine APIs', () {
+      final out = KotlinGenerator.generate(simpleSpec());
+      expect(out, contains('import kotlinx.coroutines.runBlocking'));
+      expect(out, contains('_asyncExecutor'));
+      expect(out, isNot(contains('import kotlinx.coroutines.flow.Flow')));
+      expect(out, isNot(contains('import kotlinx.coroutines.launch')));
+      expect(out, isNot(contains('import kotlinx.coroutines.CoroutineScope')));
+      expect(out, isNot(contains('import kotlinx.coroutines.Dispatchers')));
+    });
+
+    test('stream-only bridge imports Flow and launch APIs but not runBlocking or async executor', () {
+      final out = KotlinGenerator.generate(streamOnlySpec());
+      expect(out, contains('import kotlinx.coroutines.flow.Flow'));
+      expect(out, contains('import kotlinx.coroutines.launch'));
+      expect(out, contains('import kotlinx.coroutines.CoroutineScope'));
+      expect(out, contains('import kotlinx.coroutines.Dispatchers'));
+      expect(out, isNot(contains('import kotlinx.coroutines.runBlocking')));
+      expect(out, isNot(contains('_asyncExecutor')));
+    });
+
     test('stream register_call emitted', () {
       final out = KotlinGenerator.generate(structStreamSpec());
       expect(
@@ -63,6 +135,38 @@ void main() {
     test('property var for read-write', () {
       final out = KotlinGenerator.generate(enumSpec());
       expect(out, contains('var config: String'));
+    });
+
+    test('zero-copy TypedData params use direct ByteBuffer in interface and JNI bridge', () {
+      final out = KotlinGenerator.generate(
+        BridgeSpec(
+          dartClassName: 'Dsp',
+          lib: 'dsp',
+          namespace: 'dsp',
+          iosImpl: NativeImpl.swift,
+          androidImpl: NativeImpl.kotlin,
+          sourceUri: 'dsp.native.dart',
+          functions: [
+            BridgeFunction(
+              dartName: 'process',
+              cSymbol: 'dsp_process',
+              isAsync: false,
+              returnType: BridgeType(name: 'void'),
+              params: [
+                BridgeParam(
+                  name: 'samples',
+                  type: BridgeType(name: 'Float32List'),
+                  zeroCopy: true,
+                ),
+              ],
+            ),
+          ],
+        ),
+      );
+
+      expect(out, contains('fun process(samples: java.nio.ByteBuffer)'));
+      expect(out, contains('fun process_call(samples: java.nio.ByteBuffer)'));
+      expect(out, isNot(contains('samples: FloatArray')));
     });
   });
 
