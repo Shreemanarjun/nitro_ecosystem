@@ -60,6 +60,17 @@ void main() {
       expect(out, contains('interface HybridMyCameraSpec'));
     });
 
+    test('documents native implementation thread-safety contract', () {
+      final out = KotlinGenerator.generate(simpleSpec());
+      expect(out, contains('Nitro may call this implementation from any JNI thread.'));
+      expect(
+        out,
+        contains('Keep mutable state thread-safe or marshal work onto your own dispatcher.'),
+      );
+      expect(out, isNot(contains('@Synchronized')));
+      expect(out, isNot(contains('synchronized(')));
+    });
+
     test('emits JniBridge object', () {
       final out = KotlinGenerator.generate(simpleSpec());
       expect(out, contains('object MyCameraJniBridge'));
@@ -90,6 +101,14 @@ void main() {
     test('stream emits Flow<CameraFrame>', () {
       final out = KotlinGenerator.generate(structStreamSpec());
       expect(out, contains('val frames: Flow<CameraFrame>'));
+    });
+
+    test('stream collection cancels when native emit reports a dead Dart port', () {
+      final out = KotlinGenerator.generate(structStreamSpec());
+      expect(out, contains('external fun emit_frames(dartPort: Long, item: CameraFrame): Boolean'));
+      expect(out, contains('if (!emit_frames(dartPort, item)) {'));
+      expect(out, contains('_streamJobs.remove(Pair("frames", dartPort))?.cancel()'));
+      expect(out, contains('return@collect'));
     });
 
     test('pure sync bridge omits coroutine imports and async executor', () {
@@ -167,6 +186,33 @@ void main() {
       expect(out, contains('fun process(samples: java.nio.ByteBuffer)'));
       expect(out, contains('fun process_call(samples: java.nio.ByteBuffer)'));
       expect(out, isNot(contains('samples: FloatArray')));
+    });
+
+    test('zero-copy TypedData return uses direct ByteBuffer in interface and JNI bridge', () {
+      final out = KotlinGenerator.generate(
+        BridgeSpec(
+          dartClassName: 'Dsp',
+          lib: 'dsp',
+          namespace: 'dsp',
+          iosImpl: NativeImpl.swift,
+          androidImpl: NativeImpl.kotlin,
+          sourceUri: 'dsp.native.dart',
+          functions: [
+            BridgeFunction(
+              dartName: 'snapshot',
+              cSymbol: 'dsp_snapshot',
+              isAsync: false,
+              returnType: BridgeType(name: 'Uint8List'),
+              zeroCopyReturn: true,
+              params: [],
+            ),
+          ],
+        ),
+      );
+
+      expect(out, contains('fun snapshot(): java.nio.ByteBuffer'));
+      expect(out, contains('fun snapshot_call(): java.nio.ByteBuffer'));
+      expect(out, isNot(contains('fun snapshot(): ByteArray')));
     });
   });
 

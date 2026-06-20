@@ -175,6 +175,7 @@ class CppMockGenerator {
     if (enumNames.contains(base)) return base;
     if (structNames.contains(base)) return base;
     if (recordNames.contains(base)) return 'NitroCppBuffer';
+    if (_isTypedData(base)) return 'NitroCppBuffer';
     return _primitiveType(base);
   }
 

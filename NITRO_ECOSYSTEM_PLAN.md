@@ -1407,6 +1407,11 @@ nitro generate --watch
 4. Update `cache.json` after generation.
 5. `--clean` / `nitro clean` deletes `cache.json` to force full regen.
 
+**Status:** ✅ Implemented 2026-06-20. `nitrogen generate` stores SHA-256
+spec hashes in `.dart_tool/nitro/cache.json`, passes changed specs into
+build-runner build filters, skips generation when hashes and outputs match,
+and clears stale build-runner locks without deleting `asset_graph.json`.
+
 | Scenario | Full regen | Incremental |
 |---|---|---|
 | 1 spec changed out of 7 | 7× cost | 1× cost |
@@ -1561,7 +1566,7 @@ nitro generate --verbose
 
 | Task | Status | Done when |
 |---|---|---|
-| Content-hash incremental generation | 🔲 TODO | only changed spec regenerated |
+| Content-hash incremental generation | ✅ **DONE** 2026-06-20 | SHA-256 cache in `.dart_tool/nitro/cache.json`; only changed specs regenerated; no-change runs skip; build_runner asset graph preserved |
 | `nitro clean` command | ✅ **DONE** 2026-05-23 | `clean_command.dart`; deletes `*.g.dart`, `*.bridge.g.swift`, `*.bridge.g.kt`, `Hybrid*.hpp/cpp`, `*.bridge.g.h`, build_runner lock+graph |
 | `--targets` partial generation | ✅ **DONE** 2026-06-20 | only specified targets emitted |
 | `--watch` with 250ms debounce | ✅ **DONE** 2026-06-20 | triggers correctly on single file save |
@@ -1687,10 +1692,24 @@ Future<bool> setMetadata(String metaJson);   // caller: jsonEncode(map)
 | `generator_metadata_test.dart` | All generator families emit shared `nitro_generator: 0.4.4` stale-generation metadata, CMake uses `#` comments, and the metadata version matches `pubspec.yaml` |
 | `jni_perf_test.dart` | Assert-gated `NitroRuntime.checkError`, cached JNI IDs, arena lifetime, contextual JNI `LOGE`, typed `callAsync<T>`, TypedData null guards, and unknown JNI type failure |
 | `kotlin_generator_test.dart` | Conditional coroutine imports: sync-only bridges omit coroutine APIs, async bridges import `runBlocking`, and stream bridges import Flow/launch scope APIs |
+
+### New tests added 2026-06-20 (zero-copy TypedData returns)
+
+| Test file | What it covers |
+|---|---|
+| `dart_ffi_generator_test.dart` | Method-level `@zeroCopy` TypedData returns decode from `[int64 byteLength][int64 dataAddress][int64 owner]` and attach the native release symbol as a typed-list finalizer |
+| `kotlin_generator_test.dart` | Zero-copy TypedData returns use `java.nio.ByteBuffer` in both the Kotlin implementation interface and JNI bridge method |
+| `cpp_bridge_generator_test.dart` | JNI zero-copy TypedData returns use `GetDirectBufferAddress`/GlobalRef retention instead of `GetByteArrayRegion` |
+| `cpp_header_generator_test.dart` | Generated C headers declare `${lib}_release_typed_data_return` for Dart finalizer lookup |
+| `swift_generator_test.dart` | Swift emits the same three-word native envelope for zero-copy TypedData return views |
+| `cpp_interface_generator_test.dart` / `cpp_mock_generator_test.dart` | NativeImpl.cpp zero-copy TypedData returns use `NitroCppBuffer` so the C++ ABI carries pointer + length |
+| `spec_validator_test.dart` | Naked TypedData returns remain invalid unless method-level `@zeroCopy` is present; Kotlin/Swift/C++ zero-copy return specs validate cleanly |
 | `lazy_record_list_test.dart` | `RecordWriter` growable buffer and `RecordReader` in-place scalar/string decode performance guards |
 | `link_command_test.dart` | Contextual errors for malformed `package_config.json` while resolving Nitro native paths |
 | `spec_extractor_error_test.dart` | `SpecParseException` carries source/cause context and `spec_extractor.dart` has no silent `catch (_)` swallow path |
 | `packages/nitro/test/isolate_pool_test.dart` | IsolatePool min-heap least-busy scheduling, call-id routing, dispose behavior, and concurrent dispatch stress coverage |
+| `packages/nitro/test/call_sync_test.dart` | `NitroRuntime.checkSupportedPlatform` accepts the current platform and throws an actionable unsupported-platform error before dylib loading |
+| `dart_ffi_generator_test.dart` | Generated Dart FFI implementations route library loading through `NitroRuntime.loadLibForTargets(...)` with the full platform target matrix |
 
 ### New tests added 2026-05-23 (total: ~119 new tests; suite: 1991 passing — 0 failures)
 

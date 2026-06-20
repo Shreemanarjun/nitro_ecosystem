@@ -2,6 +2,8 @@ part of '../cpp_bridge_generator.dart';
 
 String _paramTypeToC(String dartType, Set<String> structNames) => CppBridgeGenerator._paramTypeToC(dartType, structNames);
 
+String _jniCallbackParamToC(BridgeParam param, Set<String> enumNames) => CppBridgeGenerator._callbackParamToC(param, enumNames);
+
 void _emitZeroCopyTypedDataParam(
   CodeWriter writer,
   BridgeParam param, {
@@ -20,8 +22,9 @@ String _jniSig(
   BridgeType returnType,
   Set<String> enumNames,
   Set<String> structNames,
-  String libPkg,
-) => CppBridgeGenerator._jniSig(params, returnType, enumNames, structNames, libPkg);
+  String libPkg, {
+  bool zeroCopyReturn = false,
+}) => CppBridgeGenerator._jniSig(params, returnType, enumNames, structNames, libPkg, zeroCopyReturn: zeroCopyReturn);
 
 String _typedDataElementSizeExpr(String dartType) => CppBridgeGenerator._typedDataElementSizeExpr(dartType);
 
@@ -60,6 +63,20 @@ void _emitJniMethods(
   Set<String> enumNames,
   Set<String> structNames,
 ) {
+  if (spec.functions.any((f) => f.zeroCopyReturn && f.returnType.isTypedData)) {
+    writer.line('NITRO_EXPORT void ${libStem}_release_typed_data_return(void* ptr) {');
+    writer.line('    if (!ptr) return;');
+    writer.line('    int64_t* words = (int64_t*)ptr;');
+    writer.line('    void* owner = (void*)(intptr_t)words[2];');
+    writer.line('    if (owner != nullptr) {');
+    writer.line('        JNIEnv* env = GetEnv();');
+    writer.line('        if (env != nullptr) env->DeleteGlobalRef((jobject)owner);');
+    writer.line('    }');
+    writer.line('    free(ptr);');
+    writer.line('}');
+    writer.blankLine();
+  }
+
   // ── Functions ─────────────────────────────────────────────────────────────
   for (final func in spec.functions) {
     // ── @nitroNativeAsync: void + dart_port, delegates to CallStaticVoidMethod ──
@@ -143,6 +160,10 @@ void _emitJniMethods(
         : _typeToC(func.returnType.name);
     final paramsDeclParts = <String>[];
     for (final p in func.params) {
+      if (p.type.isFunction) {
+        paramsDeclParts.add(_jniCallbackParamToC(p, enumNames));
+        continue;
+      }
       paramsDeclParts.add('${_paramTypeToC(p.type.name, structNames)} ${p.name}');
       if (p.type.isTypedData) paramsDeclParts.add('int64_t ${p.name}_length');
     }
@@ -160,7 +181,7 @@ void _emitJniMethods(
       );
     }
     writer.line('    jmethodID methodId = g_mid_${func.dartName}_call;');
-    final jniSigForLog = _jniSig(func.params, func.returnType, enumNames, structNames, libPkg);
+    final jniSigForLog = _jniSig(func.params, func.returnType, enumNames, structNames, libPkg, zeroCopyReturn: func.zeroCopyReturn);
     if (func.returnType.name == 'void') {
       writer.line('    if (methodId == nullptr) { LOGE("Method not found: ${func.dartName}_call sig=$jniSigForLog"); return; }');
     } else {
@@ -208,6 +229,8 @@ void _emitJniMethods(
         writer.line('    ${ops[0]} j_${p.name} = env->${ops[1]}((jsize)${p.name}_length);');
         writer.line('    env->${ops[2]}(j_${p.name}, 0, (jsize)${p.name}_length, (const ${ops[3]}*)${p.name});');
         callArgsList.add('j_${p.name}');
+      } else if (p.type.isFunction) {
+        callArgsList.add('(jlong)${p.name}');
       } else {
         callArgsList.add(p.name);
       }
@@ -324,25 +347,63 @@ void _emitJniMethods(
       writer.line('    env->PopLocalFrame(nullptr);');
       writer.line('    return result;');
     } else if (isTypedData) {
-      final ops = _typedDataJniOps(func.returnType.name);
-      final elemSize = _typedDataElementSizeExpr(func.returnType.name);
-      writer.line('    ${ops[0]} jarr = (${ops[0]})env->CallStaticObjectMethod(g_bridgeClass, methodId$bridgeArgs);');
-      writer.line('    if (env->ExceptionCheck()) {');
-      writer.line('        nitro_report_jni_exception(env, env->ExceptionOccurred());');
-      writer.line('        env->PopLocalFrame(nullptr);');
-      writer.line('        return nullptr;');
-      writer.line('    }');
-      writer.line('    if (jarr == nullptr) {');
-      writer.line('        env->PopLocalFrame(nullptr);');
-      writer.line('        return nullptr;');
-      writer.line('    }');
-      writer.line('    jsize len = env->GetArrayLength(jarr);');
-      writer.line('    size_t byteLen = (size_t)len * $elemSize;');
-      writer.line('    uint8_t* result = (uint8_t*)malloc(byteLen + sizeof(int64_t));');
-      writer.line('    *((int64_t*)result) = (int64_t)byteLen;');
-      writer.line('    env->${ops[4]}(jarr, 0, len, (${ops[3]}*)(result + sizeof(int64_t)));');
-      writer.line('    env->PopLocalFrame(nullptr);');
-      writer.line('    return result;');
+      if (func.zeroCopyReturn) {
+        writer.line('    jobject jbuf = env->CallStaticObjectMethod(g_bridgeClass, methodId$bridgeArgs);');
+        writer.line('    if (env->ExceptionCheck()) {');
+        writer.line('        nitro_report_jni_exception(env, env->ExceptionOccurred());');
+        writer.line('        env->PopLocalFrame(nullptr);');
+        writer.line('        return nullptr;');
+        writer.line('    }');
+        writer.line('    if (jbuf == nullptr) {');
+        writer.line('        env->PopLocalFrame(nullptr);');
+        writer.line('        return nullptr;');
+        writer.line('    }');
+        writer.line('    void* data = env->GetDirectBufferAddress(jbuf);');
+        writer.line('    jlong byteLen = env->GetDirectBufferCapacity(jbuf);');
+        writer.line('    if (byteLen < 0 || (byteLen > 0 && data == nullptr)) {');
+        writer.line('        nitro_report_error("ArgumentError", "${func.dartName}: @zeroCopy return must be a direct ByteBuffer", nullptr, nullptr);');
+        writer.line('        env->PopLocalFrame(nullptr);');
+        writer.line('        return nullptr;');
+        writer.line('    }');
+        writer.line('    jobject owner = env->NewGlobalRef(jbuf);');
+        writer.line('    if (owner == nullptr) {');
+        writer.line('        nitro_report_error("OutOfMemoryError", "${func.dartName}: failed to retain zero-copy return buffer", nullptr, nullptr);');
+        writer.line('        env->PopLocalFrame(nullptr);');
+        writer.line('        return nullptr;');
+        writer.line('    }');
+        writer.line('    int64_t* result = (int64_t*)malloc(sizeof(int64_t) * 3);');
+        writer.line('    if (result == nullptr) {');
+        writer.line('        env->DeleteGlobalRef(owner);');
+        writer.line('        nitro_report_error("OutOfMemoryError", "${func.dartName}: failed to allocate zero-copy return envelope", nullptr, nullptr);');
+        writer.line('        env->PopLocalFrame(nullptr);');
+        writer.line('        return nullptr;');
+        writer.line('    }');
+        writer.line('    result[0] = (int64_t)byteLen;');
+        writer.line('    result[1] = (int64_t)(intptr_t)(data != nullptr ? data : result);');
+        writer.line('    result[2] = (int64_t)(intptr_t)owner;');
+        writer.line('    env->PopLocalFrame(nullptr);');
+        writer.line('    return (uint8_t*)result;');
+      } else {
+        final ops = _typedDataJniOps(func.returnType.name);
+        final elemSize = _typedDataElementSizeExpr(func.returnType.name);
+        writer.line('    ${ops[0]} jarr = (${ops[0]})env->CallStaticObjectMethod(g_bridgeClass, methodId$bridgeArgs);');
+        writer.line('    if (env->ExceptionCheck()) {');
+        writer.line('        nitro_report_jni_exception(env, env->ExceptionOccurred());');
+        writer.line('        env->PopLocalFrame(nullptr);');
+        writer.line('        return nullptr;');
+        writer.line('    }');
+        writer.line('    if (jarr == nullptr) {');
+        writer.line('        env->PopLocalFrame(nullptr);');
+        writer.line('        return nullptr;');
+        writer.line('    }');
+        writer.line('    jsize len = env->GetArrayLength(jarr);');
+        writer.line('    size_t byteLen = (size_t)len * $elemSize;');
+        writer.line('    uint8_t* result = (uint8_t*)malloc(byteLen + sizeof(int64_t));');
+        writer.line('    *((int64_t*)result) = (int64_t)byteLen;');
+        writer.line('    env->${ops[4]}(jarr, 0, len, (${ops[3]}*)(result + sizeof(int64_t)));');
+        writer.line('    env->PopLocalFrame(nullptr);');
+        writer.line('    return result;');
+      }
     } else {
       writer.line('    env->PopLocalFrame(nullptr);');
       writer.line('    return ${_defaultValue(cReturnType)};');
@@ -466,7 +527,7 @@ void _emitJniMethods(
       'emit_${stream.dartName}',
     );
     writer.line(
-      'JNIEXPORT void JNICALL $jniEmit(JNIEnv* env, jobject thiz, jlong dartPort, ${_jniSigTypeC(stream.itemType.name)} item) {',
+      'JNIEXPORT jboolean JNICALL $jniEmit(JNIEnv* env, jobject thiz, jlong dartPort, ${_jniSigTypeC(stream.itemType.name)} item) {',
     );
     writer.line('    Dart_CObject obj;');
     if (stream.itemType.name == 'double') {
@@ -491,7 +552,7 @@ void _emitJniMethods(
       writer.line('        env->ExceptionDescribe();');
       writer.line('        env->ExceptionClear();');
       writer.line('        free(st_ptr);');
-      writer.line('        return;');
+      writer.line('        return JNI_FALSE;');
       writer.line('    }');
       writer.line('    obj.type = Dart_CObject_kInt64;');
       writer.line('    obj.value.as_int64 = (intptr_t)st_ptr;');
@@ -511,10 +572,10 @@ void _emitJniMethods(
       final recName = stream.itemType.name.replaceFirst('?', '');
       writer.line('    if (g_cls_$recName == nullptr || g_mid_${recName}_encode == nullptr) {');
       writer.line('        LOGE("$recName encode method not cached — skipping emit");');
-      writer.line('        return;');
+      writer.line('        return JNI_FALSE;');
       writer.line('    }');
       writer.line('    jbyteArray encoded = (jbyteArray)env->CallObjectMethod(item, g_mid_${recName}_encode);');
-      writer.line('    if (encoded == nullptr) { LOGE("$recName.encode() returned null"); return; }');
+      writer.line('    if (encoded == nullptr) { LOGE("$recName.encode() returned null"); return JNI_FALSE; }');
       writer.line('    jsize len = env->GetArrayLength(encoded);');
       writer.line('    uint8_t* buf = (uint8_t*)malloc((size_t)len);');
       writer.line('    env->GetByteArrayRegion(encoded, 0, len, (jbyte*)buf);');
@@ -525,16 +586,74 @@ void _emitJniMethods(
       writer.line('    // item is a jobject (Kotlin enum). Extract its nativeValue Long field.');
       writer.line('    jclass enumCls = env->GetObjectClass(item);');
       writer.line('    jfieldID fid = enumCls ? env->GetFieldID(enumCls, "nativeValue", "J") : nullptr;');
-      writer.line('    if (fid == nullptr) { LOGE("emit_${stream.dartName}: cannot find nativeValue on ${stream.itemType.name}"); if (enumCls) env->DeleteLocalRef(enumCls); return; }');
+      writer.line('    if (fid == nullptr) { LOGE("emit_${stream.dartName}: cannot find nativeValue on ${stream.itemType.name}"); if (enumCls) env->DeleteLocalRef(enumCls); return JNI_FALSE; }');
       writer.line('    obj.type = Dart_CObject_kInt64;');
       writer.line('    obj.value.as_int64 = (int64_t)env->GetLongField(item, fid);');
       writer.line('    env->DeleteLocalRef(enumCls);');
     } else {
       writer.line('    obj.type = Dart_CObject_kNull;');
     }
-    writer.line('    Dart_PostCObject_DL(dartPort, &obj);');
+    writer.line('    if (!Dart_PostCObject_DL(dartPort, &obj)) {');
+    if (isStruct) {
+      final stName = stream.itemType.name.replaceFirst('?', '');
+      final structDef = spec.structs.firstWhere((st3) => st3.name == stName, orElse: () => spec.structs.first);
+      final hasZeroCopy = structDef.fields.any((f) => f.zeroCopy);
+      if (hasZeroCopy) {
+        writer.line('        {');
+        writer.line('            std::lock_guard<std::mutex> _lk(g_zero_copy_refs_mtx);');
+        writer.line('            auto _it = g_zero_copy_refs.find((void*)st_ptr);');
+        writer.line('            if (_it != g_zero_copy_refs.end()) {');
+        writer.line('                env->DeleteGlobalRef(_it->second);');
+        writer.line('                g_zero_copy_refs.erase(_it);');
+        writer.line('            }');
+        writer.line('        }');
+      }
+      writer.line('        free(st_ptr);');
+    } else if (stream.itemType.isRecord) {
+      writer.line('        free(buf);');
+    }
+    writer.line('        return JNI_FALSE;');
+    writer.line('    }');
+    writer.line('    return JNI_TRUE;');
     writer.line('}');
     writer.blankLine();
+  }
+
+  // ── Native callback invoker methods ────────────────────────────────────────
+  // These are called from Kotlin to invoke C function pointers (callbacks).
+  // For each function-typed parameter across all bridge functions, emit a JNI
+  // native method that casts the callbackPtr to the correct C function pointer
+  // type and invokes it.
+  final callbackNativeImpls = <String>{};
+  for (final func in spec.functions) {
+    for (final p in func.params) {
+      if (!p.type.isFunction) continue;
+      final nativeName = '_invoke_${p.name}';
+      if (!callbackNativeImpls.add(nativeName)) continue;
+
+      final cbParams = p.type.functionParams;
+
+      // Build JNI method name
+      final jniMethName = _jniMethodName(spec.lib, spec.dartClassName, nativeName);
+
+      // Build C parameter list: (JNIEnv* env, jobject thiz, jlong callbackPtr, jlong arg0, jlong arg1, ...)
+      final cParams = StringBuffer('JNIEnv* env, jobject thiz, jlong callbackPtr');
+      for (var i = 0; i < cbParams.length; i++) {
+        cParams.write(', jlong arg$i');
+      }
+
+      // Build C function pointer cast and argument list
+      final castParts = <String>[];
+      for (var i = 0; i < cbParams.length; i++) {
+        castParts.add('(int64_t)arg$i');
+      }
+
+      writer.line('JNIEXPORT void JNICALL $jniMethName($cParams) {');
+      writer.line('    typedef void (*CB)(${cbParams.map((_) => 'int64_t').join(', ')});');
+      writer.line('    ((CB)callbackPtr)(${castParts.join(', ')});');
+      writer.line('}');
+      writer.blankLine();
+    }
   }
 
   final jniInit = _jniMethodName(spec.lib, spec.dartClassName, 'initialize');
@@ -563,7 +682,7 @@ void _emitJniMethods(
     if (func.isNativeAsync) {
       jniSig = _jniNativeAsyncSig(func.params, enumNames, structNames, libPkg);
     } else {
-      jniSig = _jniSig(func.params, func.returnType, enumNames, structNames, libPkg);
+      jniSig = _jniSig(func.params, func.returnType, enumNames, structNames, libPkg, zeroCopyReturn: func.zeroCopyReturn);
     }
     writer.line('        g_mid_${func.dartName}_call = env->GetStaticMethodID(g_bridgeClass, "${func.dartName}_call", "$jniSig");');
   }

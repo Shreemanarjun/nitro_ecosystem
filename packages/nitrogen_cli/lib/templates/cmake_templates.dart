@@ -49,6 +49,7 @@ String generateCMakeContent(
   List<String> moduleLibs,
   String nitroNativePath, {
   List<({String lib, String module, bool isNativeCpp, bool isAndroidCpp})>? moduleInfos,
+  String? linkChecksum,
 }) {
   final mainInfo = moduleInfos?.firstWhere(
     (m) => m.lib == pluginName,
@@ -69,6 +70,7 @@ String generateCMakeContent(
     ..writeln('set(CMAKE_CXX_STANDARD_REQUIRED ON)')
     ..writeln()
     ..writeln('set(NITRO_NATIVE "$localNitroNativeCmakePath")')
+    ..writeln(_linkChecksumStamp(linkChecksum))
     ..writeln()
     ..writeln('add_library($pluginName SHARED')
     ..write(mainImplInLib)
@@ -110,3 +112,8 @@ String generateCMakeContent(
 }
 
 String _toPascalCase(String lib) => lib.split(RegExp(r'[_\-]')).map((w) => w.isEmpty ? '' : w[0].toUpperCase() + w.substring(1)).join('');
+
+String _linkChecksumStamp(String? checksum) {
+  if (checksum == null || checksum.isEmpty) return '# NITRO_LINK_SPEC_CHECKSUM unavailable';
+  return '# NITRO_LINK_SPEC_CHECKSUM $checksum';
+}

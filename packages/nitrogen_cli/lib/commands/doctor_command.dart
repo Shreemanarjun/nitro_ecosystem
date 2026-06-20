@@ -417,6 +417,40 @@ class DoctorCommand extends Command {
       s.checks.add(DoctorCheck(DoctorStatus.info, label));
     }
 
+    void checkFilePermissions(
+      DoctorSection section,
+      FileSystemEntity entity,
+      String label, {
+      bool requireRead = true,
+      bool requireWrite = true,
+    }) {
+      try {
+        final stat = entity.statSync();
+        const readBits = 0x124; // owner/group/other read: 0400 | 0040 | 0004
+        const writeBits = 0x92; // owner/group/other write: 0200 | 0020 | 0002
+        if (requireRead && (stat.mode & readBits) == 0) {
+          warn(
+            section,
+            '$label is not readable',
+            hint: 'Fix permissions before running nitrogen link/doctor: chmod u+r ${p.relative(entity.path, from: root!.path)}',
+          );
+        }
+        if (requireWrite && (stat.mode & writeBits) == 0) {
+          warn(
+            section,
+            '$label is not writable',
+            hint: 'Fix permissions before running nitrogen link: chmod u+w ${p.relative(entity.path, from: root!.path)}',
+          );
+        }
+      } on FileSystemException catch (e) {
+        warn(
+          section,
+          'Could not inspect permissions for $label',
+          hint: e.message,
+        );
+      }
+    }
+
     // ── System Toolchain ────────────────────────────────────────────────────────
     final sysSec = DoctorSection('System Toolchain');
     sections.add(sysSec);
@@ -670,6 +704,7 @@ class DoctorCommand extends Command {
     if (!cmakeFile.existsSync()) {
       err(cmakeSec, 'src/CMakeLists.txt not found', hint: 'Run: nitrogen link');
     } else {
+      checkFilePermissions(cmakeSec, cmakeFile, 'src/CMakeLists.txt');
       final cmake = cmakeFile.readAsStringSync();
       // Check for redundant includes in nearby C++ files
       final srcDir = Directory(p.join(root.path, 'src'));
@@ -806,6 +841,11 @@ class DoctorCommand extends Command {
       if (pluginFiles.isEmpty) {
         err(androidSec, 'No Plugin.kt found', hint: 'Run: nitrogen init');
       } else {
+        checkFilePermissions(
+          androidSec,
+          pluginFiles.first,
+          p.relative(pluginFiles.first.path, from: root.path),
+        );
         final kt = pluginFiles.first.readAsStringSync();
         // Only check System.loadLibrary for non-cpp specs (cpp libs are also loaded but that's fine)
         for (final spec in specs) {
@@ -878,6 +918,11 @@ class DoctorCommand extends Command {
       if (podFiles.isEmpty) {
         err(iosSec, 'No .podspec found in ios/', hint: 'Run: nitrogen init');
       } else {
+        checkFilePermissions(
+          iosSec,
+          podFiles.first,
+          p.relative(podFiles.first.path, from: root.path),
+        );
         final pod = podFiles.first.readAsStringSync();
         final podName = p.basename(podFiles.first.path);
         if (pod.contains("s.dependency 'nitro'")) {
@@ -1121,6 +1166,11 @@ class DoctorCommand extends Command {
       if (podFiles.isEmpty) {
         err(macosSec, 'No .podspec found in macos/', hint: 'Run: nitrogen init');
       } else {
+        checkFilePermissions(
+          macosSec,
+          podFiles.first,
+          p.relative(podFiles.first.path, from: root.path),
+        );
         final pod = podFiles.first.readAsStringSync();
         final podName = p.basename(podFiles.first.path);
         if (pod.contains("s.dependency 'nitro'")) {
@@ -1346,6 +1396,7 @@ class DoctorCommand extends Command {
       if (!cmakeFile.existsSync()) {
         err(winSec, 'windows/CMakeLists.txt not found', hint: 'Run: nitrogen link');
       } else {
+        checkFilePermissions(winSec, cmakeFile, 'windows/CMakeLists.txt');
         final cmake = cmakeFile.readAsStringSync();
         final sharedSrc = usesSharedSrc(cmake);
         // For NITRO_NATIVE, check both the platform file and src/CMakeLists.
@@ -1386,6 +1437,7 @@ class DoctorCommand extends Command {
       if (!cmakeFile.existsSync()) {
         err(linuxSec, 'linux/CMakeLists.txt not found', hint: 'Run: nitrogen link');
       } else {
+        checkFilePermissions(linuxSec, cmakeFile, 'linux/CMakeLists.txt');
         final cmake = cmakeFile.readAsStringSync();
         final sharedSrc = usesSharedSrc(cmake);
         if (cmake.contains('NITRO_NATIVE') || (sharedSrc && srcCmakeContent.contains('NITRO_NATIVE'))) {
@@ -1454,6 +1506,20 @@ class DoctorCommand extends Command {
         } else {
           info(cppSec, 'Run: nitrogen link (adds generated/cpp/test/ to .clangd for IDE mock support)');
         }
+      }
+    }
+
+    final podfiles = [
+      File(p.join(root.path, 'ios', 'Podfile')),
+      File(p.join(root.path, 'macos', 'Podfile')),
+    ].where((f) => f.existsSync()).toList();
+    if (podfiles.isNotEmpty) {
+      final podsSec = DoctorSection('CocoaPods Permissions');
+      sections.add(podsSec);
+      for (final podfile in podfiles) {
+        final rel = p.relative(podfile.path, from: root.path);
+        checkFilePermissions(podsSec, podfile, rel);
+        ok(podsSec, '$rel present');
       }
     }
 

@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:args/command_runner.dart';
+import 'package:crypto/crypto.dart';
 import 'package:path/path.dart' as p;
 
 import '../ui.dart';
@@ -202,9 +203,7 @@ class GenerateCommand extends Command {
     // it forces an expensive recompile (~10-15 s) on every run. Keeping the
     // asset graph lets build_runner preserve its own incremental cache while
     // still clearing stale locks from crashed processes.
-    final buildDir = p.join(projectDir.path, '.dart_tool', 'build');
-    final lockFile = File(p.join(buildDir, 'lock'));
-    if (lockFile.existsSync()) lockFile.deleteSync();
+    deleteBuildRunnerLock(projectDir.path);
 
     _log('build_runner build …');
     if (!_headless) stdout.writeln('');
@@ -665,6 +664,13 @@ class IncrementalGenerationPlan {
   bool get hasChanges => changedSpecs.isNotEmpty;
 }
 
+bool deleteBuildRunnerLock(String projectRoot) {
+  final lockFile = File(p.join(projectRoot, '.dart_tool', 'build', 'lock'));
+  if (!lockFile.existsSync()) return false;
+  lockFile.deleteSync();
+  return true;
+}
+
 class IncrementalGenerationCache {
   IncrementalGenerationCache(this.projectRoot);
 
@@ -721,13 +727,7 @@ class IncrementalGenerationCache {
   }
 
   static String contentHash(File file) {
-    const mask = 0xffffffffffffffff;
-    var hash = 0xcbf29ce484222325;
-    for (final byte in file.readAsBytesSync()) {
-      hash ^= byte;
-      hash = (hash * 0x100000001b3) & mask;
-    }
-    return hash.toRadixString(16).padLeft(16, '0');
+    return sha256.convert(file.readAsBytesSync()).toString();
   }
 }
 

@@ -14,9 +14,87 @@ void main() {
       expect(out, contains('class _MyCameraImpl extends MyCamera'));
     });
 
-    test('emits loadLib call with correct lib name', () {
+    test('emits target-aware loadLib call with correct lib name', () {
       final out = DartFfiGenerator.generate(simpleSpec());
-      expect(out, contains("NitroRuntime.loadLib('my_camera')"));
+      expect(out, contains("NitroRuntime.loadLibForTargets('my_camera',"));
+      expect(out, contains('ios: true,'));
+      expect(out, contains('android: true,'));
+      expect(out, contains('macos: false,'));
+      expect(out, contains('windows: false,'));
+      expect(out, contains('linux: false,'));
+      expect(out, contains('web: false,'));
+      expect(
+        out,
+        contains('_MyCameraImpl() : _dylib = _loadSupportedLibrary()'),
+      );
+    });
+
+    test('emits full native target matrix for all native platforms', () {
+      final out = DartFfiGenerator.generate(allNativeCppSpec());
+      expect(
+        out,
+        contains("NitroRuntime.loadLibForTargets('universal_processor',"),
+      );
+      expect(out, contains('ios: true,'));
+      expect(out, contains('android: true,'));
+      expect(out, contains('macos: true,'));
+      expect(out, contains('windows: true,'));
+      expect(out, contains('linux: true,'));
+      expect(out, contains('web: false,'));
+    });
+
+    test('checks generated native ABI version during initialization', () {
+      final out = DartFfiGenerator.generate(simpleSpec());
+      expect(
+        out,
+        contains(
+          "NitroRuntime.checkAbiVersion('my_camera', () => _dylib.lookupFunction<Uint32 Function(), int Function()>('my_camera_nitro_abi_version')());",
+        ),
+      );
+    });
+
+    test('checks generated native bridge checksum during initialization', () {
+      final out = DartFfiGenerator.generate(simpleSpec());
+      expect(
+        out,
+        contains(
+          "NitroRuntime.checkLinkChecksum('my_camera', ",
+        ),
+      );
+      expect(
+        out,
+        contains(
+          "lookupFunction<Pointer<Utf8> Function(), Pointer<Utf8> Function()>('my_camera_nitro_bridge_checksum')().toDartString()",
+        ),
+      );
+    });
+
+    test('zero-copy TypedData return uses native finalizer-backed typed list', () {
+      final out = DartFfiGenerator.generate(
+        BridgeSpec(
+          dartClassName: 'Dsp',
+          lib: 'dsp',
+          namespace: 'dsp',
+          iosImpl: NativeImpl.swift,
+          androidImpl: NativeImpl.kotlin,
+          sourceUri: 'dsp.native.dart',
+          functions: [
+            BridgeFunction(
+              dartName: 'snapshot',
+              cSymbol: 'dsp_snapshot',
+              isAsync: false,
+              returnType: BridgeType(name: 'Uint8List'),
+              zeroCopyReturn: true,
+              params: [],
+            ),
+          ],
+        ),
+      );
+
+      expect(out, contains("lookup<NativeFunction<NativeFinalizerFunction>>('dsp_release_typed_data_return')"));
+      expect(out, contains('final dataAddress = Pointer<Int64>.fromAddress(res.address + 8).value;'));
+      expect(out, contains('return payloadPtr.asTypedList(byteLength, finalizer: _typedDataReturnFinalizer, token: res.cast<Void>());'));
+      expect(out, isNot(contains('Uint8List.fromList(payloadPtr.asTypedList(byteLength))')));
     });
 
     test('sync primitive function uses asFunction(isLeaf: true)', () {

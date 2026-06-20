@@ -63,7 +63,8 @@ void main() {
       );
       final out = SwiftGenerator.generate(spec);
       // Verify that records in streams are converted to native pointers
-      expect(out, contains('emitCb(dartPort, item.toNative())'));
+      expect(out, contains('let raw = item.toNative()'));
+      expect(out, contains('emitCb(dartPort, raw)'));
     });
 
     test('Swift: structs referenced in record fields get fromReader/writeFields extensions', () {

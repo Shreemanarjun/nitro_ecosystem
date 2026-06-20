@@ -51,13 +51,14 @@ class CppInterfaceGenerator {
       const BlankLine(),
     ]);
 
-    // NitroCppBuffer — lightweight view for @HybridRecord params / returns
+    // NitroCppBuffer — lightweight view for @HybridRecord payloads and
+    // @zeroCopy TypedData returns.
     nodes.addAll(const [
       CodeLine(
-        '/// Lightweight read-only view over a binary-encoded @HybridRecord payload.',
+        '/// Lightweight read-only view over a binary payload.',
       ),
       CodeLine(
-        '/// Valid only for the duration of the call — copy if you need to retain.',
+        '/// For @zeroCopy returns, native code must keep data alive while Dart uses it.',
       ),
       CodeBlock(
         header: 'struct NitroCppBuffer {',
@@ -208,7 +209,8 @@ class CppInterfaceGenerator {
   // ── Type helpers (C++ style) ─────────────────────────────────────────────
 
   /// C++ return type. Primitives → scalar; String → std::string;
-  /// Struct → by-value; Enum → enum typedef; Record/List/Map → NitroCppBuffer.
+  /// Struct → by-value; Enum → enum typedef; Record/List/Map and TypedData
+  /// returns → NitroCppBuffer.
   static String _cppReturnType(
     BridgeType bt,
     Set<String> enumNames,
@@ -236,6 +238,7 @@ class CppInterfaceGenerator {
     if (enumNames.contains(base)) return base;
     if (structNames.contains(base)) return base;
     if (recordNames.contains(base)) return 'NitroCppBuffer';
+    if (_isTypedData(base)) return 'NitroCppBuffer';
     return _primitiveType(base);
   }
 

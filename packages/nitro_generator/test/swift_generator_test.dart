@@ -15,9 +15,48 @@ void main() {
       expect(out, contains('public protocol HybridMyCameraProtocol'));
     });
 
+    test('documents native implementation thread-safety contract', () {
+      final out = SwiftGenerator.generate(simpleSpec());
+      expect(out, contains('Nitro may call this implementation from any native thread.'));
+      expect(
+        out,
+        contains('Keep mutable state thread-safe or marshal work onto your own queue/actor.'),
+      );
+      expect(out, isNot(contains('DispatchQueue.main.sync')));
+      expect(out, isNot(contains('NSLock')));
+    });
+
     test('sync function in protocol', () {
       final out = SwiftGenerator.generate(simpleSpec());
       expect(out, contains('func add(a: Double, b: Double) -> Double'));
+    });
+
+    test('zero-copy TypedData return emits three-word native envelope helper', () {
+      final out = SwiftGenerator.generate(
+        BridgeSpec(
+          dartClassName: 'Dsp',
+          lib: 'dsp',
+          namespace: 'dsp',
+          iosImpl: NativeImpl.swift,
+          sourceUri: 'dsp.native.dart',
+          functions: [
+            BridgeFunction(
+              dartName: 'snapshot',
+              cSymbol: 'dsp_snapshot',
+              isAsync: false,
+              returnType: BridgeType(name: 'Uint8List'),
+              zeroCopyReturn: true,
+              params: [],
+            ),
+          ],
+        ),
+      );
+
+      expect(out, contains('private func _nitroMakeZeroCopyTypedDataReturn(_ bytes: UnsafeRawBufferPointer)'));
+      expect(out, contains('let headerSize = MemoryLayout<Int64>.size * 3'));
+      expect(out, contains('raw.advanced(by: MemoryLayout<Int64>.size).storeBytes'));
+      expect(out, contains('return r.withUnsafeBytes { _nitroMakeZeroCopyTypedDataReturn(\$0) }'));
+      expect(out, contains('func snapshot() -> Data'));
     });
 
     test('async function uses async throws in protocol', () {
@@ -137,6 +176,33 @@ void main() {
       );
       final out = SwiftGenerator.generate(spec);
       expect(out, contains('item.rawValue'));
+    });
+
+    test('stream callback returns Bool and cancels when Dart port is dead', () {
+      final spec = BridgeSpec(
+        dartClassName: 'Foo',
+        lib: 'foo',
+        namespace: 'foo',
+        iosImpl: NativeImpl.swift,
+        androidImpl: NativeImpl.kotlin,
+        sourceUri: 'foo.native.dart',
+        enums: [
+          BridgeEnum(name: 'Status', values: ['idle', 'running'], startValue: 0),
+        ],
+        streams: [
+          BridgeStream(
+            dartName: 'statusStream',
+            registerSymbol: 'foo_register_status_stream',
+            releaseSymbol: 'foo_release_status_stream',
+            itemType: BridgeType(name: 'Status'),
+            backpressure: Backpressure.block,
+          ),
+        ],
+      );
+      final out = SwiftGenerator.generate(spec);
+      expect(out, contains('_ emitCb: @convention(c) (Int64, Int64) -> Bool'));
+      expect(out, contains('if !emitCb(dartPort, item.rawValue) {'));
+      expect(out, contains('FooRegistry._statusStreamCancellables.removeValue(forKey: dartPort)?.cancel()'));
     });
 
     test('String param in native async converts UnsafePointer to String', () {

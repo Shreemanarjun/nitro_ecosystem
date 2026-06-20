@@ -70,9 +70,13 @@ class CppHeaderGenerator {
 
     final libStem = spec.lib.replaceAll('-', '_');
     nodes.addAll([
+      CodeLine('NITRO_EXPORT uint32_t ${libStem}_nitro_abi_version(void);'),
+      CodeLine('NITRO_EXPORT const char* ${libStem}_nitro_bridge_checksum(void);'),
       CodeLine('NITRO_EXPORT intptr_t ${libStem}_init_dart_api_dl(void* data);'),
       CodeLine('NITRO_EXPORT NitroError* ${libStem}_get_error(void);'),
       CodeLine('NITRO_EXPORT void ${libStem}_clear_error(void);'),
+      if (spec.functions.any((f) => f.zeroCopyReturn && f.returnType.isTypedData))
+        CodeLine('NITRO_EXPORT void ${libStem}_release_typed_data_return(void* ptr);'),
       const BlankLine(),
       const BlankLine(),
       const BlankLine(),
@@ -103,7 +107,11 @@ class CppHeaderGenerator {
           final paramStr = paramParts.join(', ');
           nodes.add(CodeLine('NITRO_EXPORT void ${func.cSymbol}($paramStr);'));
         } else {
-          final ret = isEnumRet ? 'int64_t' : _typeToC(func.returnType.name);
+          final ret = isEnumRet
+              ? 'int64_t'
+              : func.returnType.isTypedData
+              ? 'uint8_t*'
+              : _typeToC(func.returnType.name);
           final params = paramParts.join(', ');
           final paramStr = params.isEmpty ? 'void' : params;
           nodes.add(CodeLine('NITRO_EXPORT $ret ${func.cSymbol}($paramStr);'));

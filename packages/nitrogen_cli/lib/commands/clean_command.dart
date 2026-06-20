@@ -91,13 +91,16 @@ class CleanCommand extends Command {
       }
     }
 
-    deleteIncrementalGenerationCache(projectDir.path, onDeleted: (rel) {
-      if (headless) {
-        stdout.writeln('[nitro:clean] deleted $rel');
-      } else {
-        stdout.writeln('  ${red('−')} $rel');
-      }
-    });
+    deleteIncrementalGenerationCache(
+      projectDir.path,
+      onDeleted: (rel) {
+        if (headless) {
+          stdout.writeln('[nitro:clean] deleted $rel');
+        } else {
+          stdout.writeln('  ${red('−')} $rel');
+        }
+      },
+    );
 
     if (headless) {
       stdout.writeln('[nitro] $deleted generated file(s) removed');

@@ -180,6 +180,10 @@ class StructGenerator {
       s.writeln('/// satisfies `Stream<${st.name}>` via Dart covariant generics.');
       s.writeln('/// Native memory is freed via a [NativeFinalizer] backed by the');
       s.writeln("/// generated C symbol '$releaseSym'.");
+      s.writeln('/// Ownership: this proxy owns the generated struct shell. Zero-copy');
+      s.writeln('/// field buffers remain owned by the native implementation and must');
+      s.writeln('/// stay valid until this proxy is released by the finalizer or');
+      s.writeln('/// [toDartAndRelease].');
       s.writeln('final class ${st.name}Proxy extends ${st.name} implements Finalizable {');
       s.writeln('  final Pointer<${st.name}Ffi> _native;');
       s.writeln();
@@ -196,7 +200,8 @@ class StructGenerator {
       s.writeln();
       s.writeln('  /// Takes ownership of [native]. Super fields are zeroed and never read;');
       s.writeln('  /// all getters below are overridden to read from native memory instead.');
-      s.writeln('  /// Do NOT call [malloc.free] after passing the pointer here.');
+      s.writeln('  /// Do NOT call [malloc.free] on the struct shell after passing it here,');
+      s.writeln('  /// and do not free zero-copy field buffers while the proxy may be read.');
       s.writeln('  ${st.name}Proxy(this._native) : super($superArgs) {');
       s.writeln("    assert(_finalizer != null, '${st.name}Proxy._init() was not called. Ensure the Nitro impl class constructor ran before creating proxies.');");
       s.writeln('    _finalizer!.attach(this, _native.cast(), detach: this);');

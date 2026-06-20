@@ -657,6 +657,7 @@ class SpecExtractor {
           knownTypeNames: knownTypeNames,
           structTypeNames: structTypeNames,
         ),
+        zeroCopyReturn: zeroCopyChecker.hasAnnotationOf(m),
         params: m.formalParameters.map((p) {
           return BridgeParam(
             name: p.name!,

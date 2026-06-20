@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:nitrogen_cli/commands/scaffold_templates.dart' as legacy_scaffold;
@@ -12,14 +13,21 @@ import 'package:test/test.dart';
 /// Try to extract the nitrogen_cli lib dir from a `package_config.json`.
 Directory? _libDirFromPackageConfig(File cfg) {
   try {
-    final json = cfg.readAsStringSync();
-    final idx = json.indexOf('"nitrogen_cli"');
-    if (idx == -1) return null;
-    final rootIdx = json.lastIndexOf('"rootUri"', idx);
-    if (rootIdx == -1) return null;
-    final start = json.indexOf('"', rootIdx + 9) + 1;
-    final end = json.indexOf('"', start);
-    final uri = Uri.parse(json.substring(start, end));
+    final decoded = jsonDecode(cfg.readAsStringSync());
+    if (decoded is! Map<String, Object?>) return null;
+    final packages = decoded['packages'];
+    if (packages is! List) return null;
+    Map<String, Object?>? packageEntry;
+    for (final entry in packages.cast<Object?>().whereType<Map<String, Object?>>()) {
+      if (entry['name'] == 'nitrogen_cli') {
+        packageEntry = entry;
+        break;
+      }
+    }
+    if (packageEntry == null) return null;
+    final rootUriValue = packageEntry['rootUri'];
+    if (rootUriValue is! String || rootUriValue.isEmpty) return null;
+    final uri = cfg.uri.resolve(rootUriValue);
     final pkgPath = uri.toFilePath();
     final libDir = Directory(p.join(pkgPath, 'lib'));
     if (libDir.existsSync()) return libDir;
@@ -28,29 +36,17 @@ Directory? _libDirFromPackageConfig(File cfg) {
 }
 
 Directory _resolvePackageLibDir() {
-  // Strategy 1 – walk up from CWD.
-  var dir = Directory.current.path;
-  for (var i = 0; i < 20; i++) {
-    if (File(p.join(dir, 'lib', 'templates', 'build_versions.dart')).existsSync()) {
-      return Directory(p.join(dir, 'lib'));
+  // Strategy 1 – Platform.packageConfig (set by Dart VM, independent of CWD).
+  final pkgCfgUri = Platform.packageConfig;
+  if (pkgCfgUri != null) {
+    final cfg = File(p.fromUri(pkgCfgUri));
+    if (cfg.existsSync()) {
+      final fromPkg = _libDirFromPackageConfig(cfg);
+      if (fromPkg != null) return fromPkg;
     }
-    final parent = p.dirname(dir);
-    if (parent == dir) break;
-    dir = parent;
   }
 
-  // Strategy 2 – walk up from Platform.script.
-  dir = p.dirname(p.fromUri(Platform.script));
-  for (var i = 0; i < 20; i++) {
-    if (File(p.join(dir, 'lib', 'templates', 'build_versions.dart')).existsSync()) {
-      return Directory(p.join(dir, 'lib'));
-    }
-    final parent = p.dirname(dir);
-    if (parent == dir) break;
-    dir = parent;
-  }
-
-  // Strategy 3 – PACKAGE_CONFIG env var.
+  // Strategy 2 – PACKAGE_CONFIG env var.
   final packageConfigPath = Platform.environment['PACKAGE_CONFIG'];
   if (packageConfigPath != null && packageConfigPath.isNotEmpty) {
     final cfg = File(packageConfigPath);
@@ -60,7 +56,29 @@ Directory _resolvePackageLibDir() {
     }
   }
 
-  // Strategy 4 – walk up from CWD looking for .dart_tool/package_config.json.
+  // Strategy 3 – walk up from Platform.script.
+  var dir = p.dirname(p.fromUri(Platform.script));
+  for (var i = 0; i < 20; i++) {
+    if (File(p.join(dir, 'lib', 'templates', 'build_versions.dart')).existsSync()) {
+      return Directory(p.join(dir, 'lib'));
+    }
+    final parent = p.dirname(dir);
+    if (parent == dir) break;
+    dir = parent;
+  }
+
+  // Strategy 4 – walk up from CWD.
+  dir = Directory.current.path;
+  for (var i = 0; i < 20; i++) {
+    if (File(p.join(dir, 'lib', 'templates', 'build_versions.dart')).existsSync()) {
+      return Directory(p.join(dir, 'lib'));
+    }
+    final parent = p.dirname(dir);
+    if (parent == dir) break;
+    dir = parent;
+  }
+
+  // Strategy 5 – walk up from CWD looking for .dart_tool/package_config.json.
   dir = Directory.current.path;
   for (var i = 0; i < 20; i++) {
     final cfg = File(p.join(dir, '.dart_tool', 'package_config.json'));
@@ -73,37 +91,28 @@ Directory _resolvePackageLibDir() {
     dir = parent;
   }
 
-  // Strategy 5 – search from HOME: list first-level subdirectories and
-  // walk up from each looking for .dart_tool/package_config.json.
+  // Strategy 6 – BFS from HOME: search downward through the directory tree.
   final home = Platform.environment['HOME'];
   if (home != null && home.isNotEmpty) {
-    // Check HOME itself first.
-    var d = home;
-    for (var i = 0; i < 20; i++) {
-      final cfg = File(p.join(d, '.dart_tool', 'package_config.json'));
-      if (cfg.existsSync()) {
-        final fromPkg = _libDirFromPackageConfig(cfg);
-        if (fromPkg != null) return fromPkg;
-      }
-      final parent = p.dirname(d);
-      if (parent == d) break;
-      d = parent;
-    }
-    // Also search first-level subdirectories of HOME.
     try {
-      for (final entity in Directory(home).listSync(followLinks: false)) {
-        if (entity is! Directory) continue;
-        d = entity.path;
-        for (var i = 0; i < 10; i++) {
+      final queue = <String>[home];
+      for (var depth = 0; depth < 5 && queue.isNotEmpty; depth++) {
+        final nextQueue = <String>[];
+        for (final d in queue) {
           final cfg = File(p.join(d, '.dart_tool', 'package_config.json'));
           if (cfg.existsSync()) {
             final fromPkg = _libDirFromPackageConfig(cfg);
             if (fromPkg != null) return fromPkg;
           }
-          final parent = p.dirname(d);
-          if (parent == d) break;
-          d = parent;
+          try {
+            for (final entity in Directory(d).listSync(followLinks: false)) {
+              if (entity is Directory && !p.basename(entity.path).startsWith('.')) {
+                nextQueue.add(entity.path);
+              }
+            }
+          } catch (_) {}
         }
+        queue.addAll(nextQueue);
       }
     } catch (_) {}
   }
@@ -118,7 +127,7 @@ final Directory _packageLibDir = _resolvePackageLibDir();
 String? _resolvedLibDirPath;
 
 void main() {
-  _resolvedLibDirPath = _resolvePackageLibDir().path;
+  _resolvedLibDirPath = _packageLibDir.path;
 
   group('BuildVersions', () {
     test('scaffold templates use centralized build versions', () {

@@ -212,14 +212,37 @@ class SpecValidator {
         );
       }
 
-      // Prohibit naked TypedData return
-      if (func.returnType.isTypedData) {
+      if (func.zeroCopyReturn && !func.returnType.isTypedData) {
+        issues.add(
+          ValidationIssue(
+            severity: ValidationSeverity.error,
+            code: 'INVALID_ZERO_COPY_RETURN',
+            message: '${spec.dartClassName}.${func.dartName}() — @zeroCopy returns are only valid for TypedData types.',
+            hint: 'Use @zeroCopy only on methods returning Uint8List, Float32List, or another Dart TypedData type.',
+          ),
+        );
+      }
+
+      if (func.zeroCopyReturn && func.isNativeAsync) {
+        issues.add(
+          ValidationIssue(
+            severity: ValidationSeverity.error,
+            code: 'INVALID_ZERO_COPY_RETURN',
+            message: '${spec.dartClassName}.${func.dartName}() — @zeroCopy return is not supported with @NitroNativeAsync.',
+            hint: 'Use a synchronous or @NitroAsync method for zero-copy TypedData returns.',
+          ),
+        );
+      }
+
+      // Prohibit naked TypedData return unless the method explicitly opts into
+      // the native-owned zero-copy return contract.
+      if (func.returnType.isTypedData && !func.zeroCopyReturn) {
         issues.add(
           ValidationIssue(
             severity: ValidationSeverity.error,
             code: 'INVALID_RETURN_TYPE',
             message: '${spec.dartClassName}.${func.dartName}() — naked TypedData return type "${func.returnType.name}" is not supported.',
-            hint: 'Wrap TypedData in a @HybridStruct with a sibling length field and mark it as @ZeroCopy.',
+            hint: 'Either annotate the method with @zeroCopy or wrap TypedData in a @HybridStruct with a sibling length field.',
           ),
         );
       }

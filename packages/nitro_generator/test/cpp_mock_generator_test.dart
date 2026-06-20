@@ -89,6 +89,31 @@ void main() {
       expect(out, contains('MOCK_METHOD(SensorMode, getMode'));
     });
 
+    test('zero-copy TypedData return mocks as NitroCppBuffer', () {
+      final out = CppMockGenerator.generateMockHeader(
+        BridgeSpec(
+          dartClassName: 'Buffers',
+          lib: 'buffers',
+          namespace: 'buf',
+          iosImpl: NativeImpl.cpp,
+          androidImpl: NativeImpl.cpp,
+          sourceUri: 'buffers.native.dart',
+          functions: [
+            BridgeFunction(
+              dartName: 'snapshot',
+              cSymbol: 'buffers_snapshot',
+              isAsync: false,
+              returnType: BridgeType(name: 'Uint8List'),
+              zeroCopyReturn: true,
+              params: [],
+            ),
+          ],
+        ),
+      );
+
+      expect(out, contains('MOCK_METHOD(NitroCppBuffer, snapshot, (), (override));'));
+    });
+
     test('cppStreamSpec generates mock extending HybridLidar', () {
       final out = CppMockGenerator.generateMockHeader(cppStreamSpec());
       // Stream emit methods are inherited from HybridLidar, not mocked

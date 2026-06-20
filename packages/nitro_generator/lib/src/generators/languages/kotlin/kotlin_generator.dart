@@ -49,6 +49,8 @@ class KotlinGenerator {
     writer.line('/**');
     writer.line(' * Contract for the [${spec.dartClassName}] module.');
     writer.line(' * Implement this in your Kotlin source code.');
+    writer.line(' * Nitro may call this implementation from any JNI thread.');
+    writer.line(' * Keep mutable state thread-safe or marshal work onto your own dispatcher.');
     writer.line(' */');
     writer.line('interface Hybrid${spec.dartClassName}Spec {');
     writer.line(
@@ -69,7 +71,7 @@ class KotlinGenerator {
       if (func.lineNumber != null) {
         writer.line('    // source: ${spec.sourceUri.split('/').last}:${func.lineNumber}');
       }
-      final retType = _toKotlinRetType(enumNames, structNames, recordNames, func.returnType);
+      final retType = _toKotlinFunctionRetType(enumNames, structNames, recordNames, func);
       final params = func.params.map((p) => '${p.name}: ${_toKotlinParamType(enumNames, structNames, recordNames, p)}').join(', ');
       final suspend = (func.isAsync || func.isNativeAsync) ? 'suspend ' : '';
       // Use the actual return type (enum/struct/record class) in the interface
@@ -155,7 +157,7 @@ class KotlinGenerator {
       if (func.lineNumber != null) {
         writer.line('    // source: ${spec.sourceUri.split('/').last}:${func.lineNumber}');
       }
-      final retType = _toKotlinRetType(enumNames, structNames, recordNames, func.returnType);
+      final retType = _toKotlinFunctionRetType(enumNames, structNames, recordNames, func);
 
       // JNI _call bridge must use non-nullable primitives (Long, Boolean, Double) for
       // optional int?/bool?/double? params so the JVM method descriptor (J/Z/D) matches
@@ -259,12 +261,18 @@ class KotlinGenerator {
 
       // callParams: for optional-primitive params use the unwrapped arg name
       // (e.g. timeoutArg) so the sentinel is converted to null.
+      // For callback params, wrap the Long function pointer in a Kotlin lambda
+      // that invokes the C function via a native JNI bridge method.
       final callParamsResolved = func.params
           .map((p) {
             final baseName = p.type.name.replaceFirst('?', '');
             final isNullable = p.type.name.endsWith('?') || p.isOptional;
             if (isNullable && (baseName == 'int' || baseName == 'bool' || baseName == 'double')) {
               return '${p.name}Arg';
+            }
+            if (p.type.isFunction) {
+              // Wrap Long function pointer in a Kotlin lambda.
+              return _emitCallbackLambda(p, enumNames);
             }
             return p.name;
           })
@@ -381,7 +389,7 @@ class KotlinGenerator {
 
     for (final stream in spec.streams) {
       writer.line(
-        '    @JvmStatic external fun emit_${stream.dartName}(dartPort: Long, item: ${_toKotlinType(enumNames, structNames, recordNames, stream.itemType.name)}): Unit',
+        '    @JvmStatic external fun emit_${stream.dartName}(dartPort: Long, item: ${_toKotlinType(enumNames, structNames, recordNames, stream.itemType.name)}): Boolean',
       );
       writer.blankLine();
       writer.line(
@@ -392,7 +400,10 @@ class KotlinGenerator {
         '        _streamJobs[Pair("${stream.dartName}", dartPort)] = CoroutineScope(Dispatchers.Default).launch {',
       );
       writer.line('            impl.${stream.dartName}.collect { item -> ');
-      writer.line('                emit_${stream.dartName}(dartPort, item)');
+      writer.line('                if (!emit_${stream.dartName}(dartPort, item)) {');
+      writer.line('                    _streamJobs.remove(Pair("${stream.dartName}", dartPort))?.cancel()');
+      writer.line('                    return@collect');
+      writer.line('                }');
       writer.line('            }');
       writer.line('        }');
       writer.line('    }');
@@ -402,6 +413,27 @@ class KotlinGenerator {
       writer.line('        _streamJobs.remove(Pair("${stream.dartName}", dartPort))?.cancel()');
       writer.line('    }');
     }
+
+    // ── Native callback invoker methods ──────────────────────────────────────
+    // For each function-typed parameter, emit a native JNI method that invokes
+    // the C function pointer.  The Kotlin _call method wraps the Long pointer
+    // in a lambda that delegates to this native method.
+    final callbackNativeMethods = <String>{};
+    for (final func in spec.functions) {
+      for (final p in func.params) {
+        if (!p.type.isFunction) continue;
+        final nativeName = '_invoke_${p.name}';
+        if (!callbackNativeMethods.add(nativeName)) continue;
+        final cbParams = p.type.functionParams;
+        // Signature: (callbackPtr: Long, arg0: Long, arg1: Long, ...) -> Unit
+        final paramDecl = StringBuffer('callbackPtr: Long');
+        for (var i = 0; i < cbParams.length; i++) {
+          paramDecl.write(', arg$i: Long');
+        }
+        writer.line('    @JvmStatic external fun $nativeName($paramDecl)');
+      }
+    }
+    if (callbackNativeMethods.isNotEmpty) writer.blankLine();
 
     writer.line('}');
     return writer.toString();
@@ -453,6 +485,18 @@ class KotlinGenerator {
     return _toKotlinType(enumNames, structNames, recordNames, t.name);
   }
 
+  static String _toKotlinFunctionRetType(
+    Set<String> enumNames,
+    Set<String> structNames,
+    Set<String> recordNames,
+    BridgeFunction func,
+  ) {
+    if (func.zeroCopyReturn && func.returnType.isTypedData) {
+      return 'java.nio.ByteBuffer';
+    }
+    return _toKotlinRetType(enumNames, structNames, recordNames, func.returnType);
+  }
+
   /// Returns the Kotlin type for a function parameter used in the **interface**.
   ///
   /// Respects nullability so Kotlin implementations receive `Long?`, `Boolean?`,
@@ -493,6 +537,8 @@ class KotlinGenerator {
     Set<String> recordNames,
     BridgeParam p,
   ) {
+    // Callback / function-typed params are passed as Long (function pointer) via JNI.
+    if (p.type.isFunction) return 'Long';
     final isNullable = p.type.name.endsWith('?') || p.isOptional;
     if (!isNullable) {
       return _toKotlinParamType(enumNames, structNames, recordNames, p);
@@ -576,5 +622,43 @@ class KotlinGenerator {
     if (structNames.contains(name)) return name;
     if (recordNames.contains(name)) return name;
     return 'Any?';
+  }
+
+  /// Generates a Kotlin lambda expression that wraps a Long function pointer
+  /// and invokes the C function via a native JNI bridge method.
+  ///
+  /// For a callback `(TorchState) -> Unit`, generates:
+  /// ```kotlin
+  /// { p0: TorchState -> _invoke_onCallback(onCallbackPtr, p0.nativeValue) }
+  /// ```
+  static String _emitCallbackLambda(BridgeParam p, Set<String> enumNames) {
+    final cbParams = p.type.functionParams;
+    final nativeMethodName = '_invoke_${p.name}';
+
+    final lambdaParams = cbParams
+        .asMap()
+        .entries
+        .map((entry) {
+          final i = entry.key;
+          final cbP = entry.value;
+          final ktType = cbP.name;
+          return 'p$i: $ktType';
+        })
+        .join(', ');
+
+    // Native method args: all passed as Long (jlong).
+    // Enums → nativeValue, primitives → pass as-is (auto-boxed to Long).
+    final nativeArgs = <String>[p.name];
+    for (var i = 0; i < cbParams.length; i++) {
+      final cbP = cbParams[i];
+      if (enumNames.contains(cbP.name)) {
+        nativeArgs.add('p$i.nativeValue');
+      } else {
+        nativeArgs.add('p$i');
+      }
+    }
+
+    final lambdaBody = '$nativeMethodName(${nativeArgs.join(', ')})';
+    return '{ ${lambdaParams.isEmpty ? '' : '$lambdaParams -> '}$lambdaBody }';
   }
 }

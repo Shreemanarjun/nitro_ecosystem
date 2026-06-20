@@ -37,6 +37,7 @@ void _emitNullableStructPointerGuard(
 String _generateCppDirect(BridgeSpec spec) {
   final writer = CodeWriter();
   final libStem = spec.lib.replaceAll('-', '_');
+  final checksum = bridgeSpecChecksum(spec);
   final className = spec.dartClassName;
   final headerName = '$libStem.bridge.g.h';
   final ifaceHeader = '$libStem.native.g.h';
@@ -71,6 +72,12 @@ String _generateCppDirect(BridgeSpec spec) {
 
   // Dart API DL init
   writer.line('extern "C" {');
+  writer.line('NITRO_EXPORT uint32_t ${libStem}_nitro_abi_version(void) {');
+  writer.line('    return 1;');
+  writer.line('}');
+  writer.line('NITRO_EXPORT const char* ${libStem}_nitro_bridge_checksum(void) {');
+  writer.line('    return "$checksum";');
+  writer.line('}');
   writer.line('NITRO_EXPORT intptr_t ${libStem}_init_dart_api_dl(void* data) {');
   writer.line('    return Dart_InitializeApiDL(data);');
   writer.line('}');
@@ -135,6 +142,10 @@ String _generateCppDirect(BridgeSpec spec) {
     writer.line('void Hybrid$className::emit_${stream.dartName}($itemCpp item) {');
     writer.line('    int64_t port = g_port_${stream.dartName};');
     writer.line('    if (port == 0) return;');
+    if (isStruct) {
+      final stName = stream.itemType.name.replaceFirst('?', '');
+      writer.line('    $stName* st_ptr = nullptr;');
+    }
     writer.line('    Dart_CObject obj;');
     if (stream.itemType.name == 'double') {
       writer.line('    obj.type = Dart_CObject_kDouble;');
@@ -150,7 +161,7 @@ String _generateCppDirect(BridgeSpec spec) {
       writer.line('    obj.value.as_int64 = static_cast<int64_t>(item);');
     } else if (isStruct) {
       final stName = stream.itemType.name.replaceFirst('?', '');
-      writer.line('    $stName* st_ptr = ($stName*)malloc(sizeof($stName));');
+      writer.line('    st_ptr = ($stName*)malloc(sizeof($stName));');
       writer.line('    *st_ptr = item;');
       writer.line('    obj.type = Dart_CObject_kInt64;');
       writer.line('    obj.value.as_int64 = (intptr_t)st_ptr;');
@@ -163,7 +174,15 @@ String _generateCppDirect(BridgeSpec spec) {
     } else {
       writer.line('    obj.type = Dart_CObject_kNull;');
     }
-    writer.line('    Dart_PostCObject_DL(port, &obj);');
+    writer.line('    if (!Dart_PostCObject_DL(port, &obj)) {');
+    writer.line('        g_port_${stream.dartName} = 0;');
+    if (isStruct) {
+      writer.line('        free(st_ptr);');
+    } else if (isRecord) {
+      writer.line('        free(item);');
+    }
+    writer.line('        return;');
+    writer.line('    }');
     writer.line('}');
     writer.blankLine();
   }
@@ -247,7 +266,12 @@ String _generateCppDirect(BridgeSpec spec) {
     // Use func.returnType.isRecord so that List<@HybridStruct T>, List<@HybridRecord T>,
     // and bare @HybridRecord all map to NitroCppBuffer (binary-encoded buffer return).
     final isRecordRet = func.returnType.isRecord;
-    final cRet = isEnumRet ? 'int64_t' : _typeToC(func.returnType.name);
+    final isZeroCopyTypedDataRet = func.zeroCopyReturn && func.returnType.isTypedData;
+    final cRet = isEnumRet
+        ? 'int64_t'
+        : func.returnType.isTypedData
+        ? 'uint8_t*'
+        : _typeToC(func.returnType.name);
     final dflt = _defaultValue(cRet);
 
     final paramParts = <String>[];
@@ -328,6 +352,21 @@ String _generateCppDirect(BridgeSpec spec) {
     } else if (isRecordRet) {
       writer.line('        NitroCppBuffer _res = g_impl->${func.dartName}($callArgStr);');
       writer.line('        return (void*)_res.data;');
+    } else if (isZeroCopyTypedDataRet) {
+      writer.line('        NitroCppBuffer _res = g_impl->${func.dartName}($callArgStr);');
+      writer.line('        if (_res.size > (size_t)INT64_MAX || (_res.size > 0 && _res.data == nullptr)) {');
+      writer.line('            nitro_report_error("ArgumentError", "${func.dartName}: @zeroCopy return buffer has invalid data/size", nullptr, nullptr);');
+      writer.line('            return nullptr;');
+      writer.line('        }');
+      writer.line('        int64_t* _env = (int64_t*)malloc(sizeof(int64_t) * 3);');
+      writer.line('        if (_env == nullptr) {');
+      writer.line('            nitro_report_error("OutOfMemoryError", "${func.dartName}: failed to allocate zero-copy return envelope", nullptr, nullptr);');
+      writer.line('            return nullptr;');
+      writer.line('        }');
+      writer.line('        _env[0] = (int64_t)_res.size;');
+      writer.line('        _env[1] = (int64_t)(intptr_t)(_res.data != nullptr ? _res.data : (const uint8_t*)_env);');
+      writer.line('        _env[2] = 0;');
+      writer.line('        return (uint8_t*)_env;');
     } else {
       writer.line('        return g_impl->${func.dartName}($callArgStr);');
     }

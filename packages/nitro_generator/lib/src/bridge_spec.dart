@@ -253,6 +253,12 @@ class BridgeFunction {
   final BridgeType returnType;
   final List<BridgeParam> params;
 
+  /// True when the method is annotated with @ZeroCopy and returns TypedData.
+  ///
+  /// The generated bridge returns a native-backed typed-list view instead of
+  /// copying the native buffer into a new Dart list.
+  final bool zeroCopyReturn;
+
   /// 1-based line number of this function in the source .native.dart file.
   /// Populated by the spec extractor; null when constructed manually.
   final int? lineNumber;
@@ -264,6 +270,7 @@ class BridgeFunction {
     this.isNativeAsync = false,
     required this.returnType,
     required this.params,
+    this.zeroCopyReturn = false,
     this.lineNumber,
   });
 }

@@ -33,6 +33,7 @@ class DartFfiGenerator {
 
     // ── Impl class ──────────────────────────────────────────────────────────
     final libStem = spec.lib.replaceAll('-', '_');
+    final checksum = bridgeSpecChecksum(spec);
     writer.line(
       'class _${spec.dartClassName}Impl extends ${spec.dartClassName} {',
     );
@@ -41,9 +42,26 @@ class DartFfiGenerator {
     if (hasCallbacks) {
       writer.line('  final Map<Object, NativeCallable<dynamic>> _nativeCallbackCache = {};');
     }
+    final hasZeroCopyTypedDataReturn = spec.functions.any((f) => f.zeroCopyReturn && f.returnType.isTypedData);
+    if (hasZeroCopyTypedDataReturn) {
+      writer.line(
+        "  late final Pointer<NativeFinalizerFunction> _typedDataReturnFinalizer = _dylib.lookup<NativeFunction<NativeFinalizerFunction>>('${libStem}_release_typed_data_return').cast();",
+      );
+    }
+    writer.blankLine();
+    writer.line('  static DynamicLibrary _loadSupportedLibrary() {');
+    writer.line("    return NitroRuntime.loadLibForTargets('${spec.lib}',");
+    writer.line('      ios: ${spec.targetsIos},');
+    writer.line('      android: ${spec.targetsAndroid},');
+    writer.line('      macos: ${spec.targetsMacos},');
+    writer.line('      windows: ${spec.targetsWindows},');
+    writer.line('      linux: ${spec.targetsLinux},');
+    writer.line('      web: ${spec.targetsWeb},');
+    writer.line('    );');
+    writer.line('  }');
     writer.blankLine();
     writer.line(
-      '  _${spec.dartClassName}Impl() : _dylib = NitroRuntime.loadLib(\'${spec.lib}\') {',
+      '  _${spec.dartClassName}Impl() : _dylib = _loadSupportedLibrary() {',
     );
     writer.line("    final initSw = Stopwatch()..start();");
     writer.line(
@@ -53,6 +71,12 @@ class DartFfiGenerator {
     writer.line('    if (initCode != 0) {');
     writer.line("      throw StateError('${spec.lib}: Dart API DL initialization failed with code \$initCode.');");
     writer.line('    }');
+    writer.line(
+      "    NitroRuntime.checkAbiVersion('${spec.lib}', () => _dylib.lookupFunction<Uint32 Function(), int Function()>('${libStem}_nitro_abi_version')());",
+    );
+    writer.line(
+      "    NitroRuntime.checkLinkChecksum('${spec.lib}', '$checksum', () => _dylib.lookupFunction<Pointer<Utf8> Function(), Pointer<Utf8> Function()>('${libStem}_nitro_bridge_checksum')().toDartString());",
+    );
     // Initialise NativeFinalizer for every struct proxy.
     // Each proxy looks up its generated release C-symbol from _dylib.
     for (final st in spec.structs) {
@@ -313,7 +337,7 @@ class DartFfiGenerator {
             writer.line('      return res.to$rt();');
           } else if (isTypedDataReturn) {
             writer.line('      final rawPtr = await NitroRuntime.callAsync<Pointer<Uint8>>(_${func.dartName}Ptr, [$callArgs], $errArgs);');
-            _emitTypedDataDecodeReturn(writer, func.returnType, 'rawPtr', '      ');
+            _emitTypedDataDecodeReturn(writer, func.returnType, 'rawPtr', '      ', zeroCopy: func.zeroCopyReturn);
           } else {
             writer.line('      final res = await NitroRuntime.callAsync<$callAsyncType>(_${func.dartName}Ptr, [$callArgs], $errArgs);');
             if (rt == 'bool') {
@@ -356,7 +380,7 @@ class DartFfiGenerator {
             writer.line('    return res.to$rt();');
           } else if (isTypedDataReturn) {
             writer.line('    final rawPtr = await NitroRuntime.callAsync<Pointer<Uint8>>(_${func.dartName}Ptr, [$plainCallArgs], $errArgs);');
-            _emitTypedDataDecodeReturn(writer, func.returnType, 'rawPtr', '    ');
+            _emitTypedDataDecodeReturn(writer, func.returnType, 'rawPtr', '    ', zeroCopy: func.zeroCopyReturn);
           } else {
             writer.line('    final res = await NitroRuntime.callAsync<$callAsyncType>(_${func.dartName}Ptr, [$plainCallArgs], $errArgs);');
             if (rt == 'bool') {
@@ -416,6 +440,8 @@ class DartFfiGenerator {
             writer.line('      return res != 0;');
           } else if (rt == 'String') {
             writer.line('      return res.toDartStringWithFree();');
+          } else if (func.returnType.isTypedData) {
+            _emitTypedDataDecodeReturn(writer, func.returnType, 'res', '      ', zeroCopy: func.zeroCopyReturn);
           } else if (spec.enums.any((en) => en.name == rt)) {
             writer.line('      return res.to$rt();');
           } else {
@@ -469,6 +495,8 @@ class DartFfiGenerator {
               writer.line('      return res != 0;');
             } else if (rt == 'String') {
               writer.line('      return res.toDartStringWithFree();');
+            } else if (func.returnType.isTypedData) {
+              _emitTypedDataDecodeReturn(writer, func.returnType, 'res', '      ', zeroCopy: func.zeroCopyReturn);
             } else {
               writer.line('      return res;');
             }
@@ -649,7 +677,7 @@ class DartFfiGenerator {
   static String _toNativeType(BridgeFunction func, BridgeSpec spec) {
     // NativeAsync: C function returns void and takes an extra Int64 dart_port.
     final ret = func.isNativeAsync ? 'Void' : _typeToFFI(func.returnType, spec);
-    final effectiveRet = func.isAsync && func.returnType.isTypedData ? 'Pointer<Uint8>' : ret;
+    final effectiveRet = func.returnType.isTypedData ? 'Pointer<Uint8>' : ret;
     final params = [
       ...func.params.expand((p) {
         if (p.type.isTypedData) return [_typeToFFI(p.type, spec), 'Int64'];
@@ -663,7 +691,7 @@ class DartFfiGenerator {
   static String _toDartType(BridgeFunction func, BridgeSpec spec) {
     // NativeAsync: Dart callable returns void and takes an extra int dart_port.
     final ret = func.isNativeAsync ? 'void' : _typeToDartFFI(func.returnType, spec);
-    final effectiveRet = func.isAsync && func.returnType.isTypedData ? 'Pointer<Uint8>' : ret;
+    final effectiveRet = func.returnType.isTypedData ? 'Pointer<Uint8>' : ret;
     final params = [
       ...func.params.expand((p) {
         if (p.type.isTypedData) return [_typeToDartFFI(p.type, spec), 'int'];
@@ -791,14 +819,22 @@ class DartFfiGenerator {
     CodeWriter writer,
     BridgeType type,
     String ptrVar,
-    String indent,
-  ) {
+    String indent, {
+    bool zeroCopy = false,
+  }) {
     final rt = type.name.replaceFirst('?', '');
     final ffiElem = _typedDataFfiElement(rt);
     final lengthExpr = _typedDataElementSize(rt) == 1 ? 'byteLength' : 'byteLength ~/ ${_typedDataElementSize(rt)}';
     writer.line('${indent}if ($ptrVar == nullptr) {');
-    writer.line("$indent  throw StateError('Native async $rt return was null');");
+    writer.line("$indent  throw StateError('Native $rt return was null');");
     writer.line('$indent}');
+    if (zeroCopy) {
+      writer.line('$indent final byteLength = $ptrVar.cast<Int64>().value;');
+      writer.line('$indent final dataAddress = Pointer<Int64>.fromAddress($ptrVar.address + 8).value;');
+      writer.line('$indent final payloadPtr = Pointer<$ffiElem>.fromAddress(dataAddress);');
+      writer.line('$indent return payloadPtr.asTypedList($lengthExpr, finalizer: _typedDataReturnFinalizer, token: $ptrVar.cast<Void>());');
+      return;
+    }
     writer.line('${indent}try {');
     writer.line('$indent  final byteLength = $ptrVar.cast<Int64>().value;');
     writer.line('$indent  final payloadPtr = Pointer<$ffiElem>.fromAddress($ptrVar.address + 8);');

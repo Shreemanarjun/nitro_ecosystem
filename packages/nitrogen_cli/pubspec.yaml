@@ -20,6 +20,7 @@ resolution: workspace
 
 dependencies:
   args: ^2.5.0
+  crypto: ^3.0.7
   nocterm: ^0.5.1
   nocterm_unrouter: ^0.1.0
   path: ^1.9.0

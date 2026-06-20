@@ -10,12 +10,24 @@ void _emitSwiftBridgeSection(
 ) {
   writer.line('extern "C" {');
 
+  if (spec.functions.any((f) => f.zeroCopyReturn && f.returnType.isTypedData)) {
+    writer.line('NITRO_EXPORT void ${libStem}_release_typed_data_return(void* ptr) {');
+    writer.line('    if (!ptr) return;');
+    writer.line('    free(ptr);');
+    writer.line('}');
+    writer.blankLine();
+  }
+
   for (final func in spec.functions) {
     final isEnum = enumNames.contains(func.returnType.name);
     final paramParts = <String>[];
     final callParamParts = <String>[];
     for (final p in func.params) {
-      paramParts.add('${CppBridgeGenerator._paramTypeToC(p.type.name, structNames)} ${p.name}');
+      if (p.type.isFunction) {
+        paramParts.add(CppBridgeGenerator._callbackParamToC(p, enumNames));
+      } else {
+        paramParts.add('${CppBridgeGenerator._paramTypeToC(p.type.name, structNames)} ${p.name}');
+      }
       callParamParts.add(p.name);
       if (p.type.isTypedData) {
         paramParts.add('int64_t ${p.name}_length');
@@ -96,7 +108,7 @@ void _emitSwiftBridgeSection(
     final isRecord = stream.itemType.isRecord;
     final isEnum = enumNames.contains(stream.itemType.name);
     final itemCType = (isStruct || isRecord) ? 'void*' : CppBridgeGenerator._typeToC(stream.itemType.name);
-    writer.line('void _emit_${stream.dartName}_to_dart(int64_t dartPort, $itemCType item) {');
+    writer.line('bool _emit_${stream.dartName}_to_dart(int64_t dartPort, $itemCType item) {');
     writer.line('    Dart_CObject obj;');
     if (stream.itemType.name == 'double') {
       writer.line('    obj.type = Dart_CObject_kDouble;');
@@ -116,10 +128,10 @@ void _emitSwiftBridgeSection(
     } else {
       writer.line('    obj.type = Dart_CObject_kNull;');
     }
-    writer.line('    Dart_PostCObject_DL(dartPort, &obj);');
+    writer.line('    return Dart_PostCObject_DL(dartPort, &obj);');
     writer.line('}');
     writer.blankLine();
-    writer.line('extern void _${spec.namespace}_register_${stream.dartName}_stream(int64_t dartPort, void (*emitCb)(int64_t, $itemCType));');
+    writer.line('extern void _${spec.namespace}_register_${stream.dartName}_stream(int64_t dartPort, bool (*emitCb)(int64_t, $itemCType));');
     writer.line('void ${stream.registerSymbol}(int64_t dart_port) {');
     writer.line('    _${spec.namespace}_register_${stream.dartName}_stream(dart_port, _emit_${stream.dartName}_to_dart);');
     writer.line('}');

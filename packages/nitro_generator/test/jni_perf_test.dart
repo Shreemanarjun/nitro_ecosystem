@@ -405,6 +405,22 @@ void main() {
       final count = 'env->GetStaticMethodID(g_bridgeClass, "stream_mod_register_temperature_call"'.allMatches(cpp).length;
       expect(count, equals(1), reason: 'Only once in JNI_OnLoad');
     });
+
+    test('JNI stream emit returns false when Dart port is dead', () {
+      final cpp = CppBridgeGenerator.generate(_specWithStreams());
+      expect(cpp, contains('JNIEXPORT jboolean JNICALL'));
+      expect(cpp, contains('StreamModJniBridge_emit_1temperature'));
+      expect(cpp, contains('if (!Dart_PostCObject_DL(dartPort, &obj)) {'));
+      expect(cpp, contains('return JNI_FALSE;'));
+      expect(cpp, contains('return JNI_TRUE;'));
+    });
+
+    test('Swift stream shim callback returns Dart post success', () {
+      final cpp = CppBridgeGenerator.generate(_specWithStreams());
+      expect(cpp, contains('bool _emit_temperature_to_dart(int64_t dartPort, double item)'));
+      expect(cpp, contains('return Dart_PostCObject_DL(dartPort, &obj);'));
+      expect(cpp, contains('bool (*emitCb)(int64_t, double)'));
+    });
   });
 
   // ── Fix 1d: Struct class + ctor + field ID caching ───────────────────────────

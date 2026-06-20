@@ -67,12 +67,34 @@ class SwiftGenerator {
       writer.line('    }');
       writer.line('}');
       writer.blankLine();
+      writer.line('private func _nitroMakeZeroCopyTypedDataReturn(_ bytes: UnsafeRawBufferPointer) -> UnsafeMutablePointer<UInt8>? {');
+      writer.line('    let headerSize = MemoryLayout<Int64>.size * 3');
+      writer.line('    let byteLength = bytes.count');
+      writer.line('    guard let raw = malloc(byteLength + headerSize) else { return nil }');
+      writer.line('    raw.storeBytes(of: Int64(byteLength), as: Int64.self)');
+      writer.line('    let payload = raw.advanced(by: headerSize)');
+      writer.line('    raw.advanced(by: MemoryLayout<Int64>.size).storeBytes(of: Int64(Int(bitPattern: payload)), as: Int64.self)');
+      writer.line('    raw.advanced(by: MemoryLayout<Int64>.size * 2).storeBytes(of: Int64(0), as: Int64.self)');
+      writer.line('    if let base = bytes.baseAddress, byteLength > 0 {');
+      writer.line('        memcpy(payload, base, byteLength)');
+      writer.line('    }');
+      writer.line('    return raw.bindMemory(to: UInt8.self, capacity: byteLength + headerSize)');
+      writer.line('}');
+      writer.blankLine();
+      writer.line('private func _nitroMakeZeroCopyTypedDataArrayReturn<T>(_ values: [T]) -> UnsafeMutablePointer<UInt8>? {');
+      writer.line('    return values.withUnsafeBufferPointer { buffer in');
+      writer.line('        _nitroMakeZeroCopyTypedDataReturn(UnsafeRawBufferPointer(buffer))');
+      writer.line('    }');
+      writer.line('}');
+      writer.blankLine();
     }
 
     // ── Protocol ──────────────────────────────────────────────────────────
     writer.line('/**');
     writer.line(' * Protocol for the ${spec.dartClassName} module.');
     writer.line(' * Conform to this in your Swift source code.');
+    writer.line(' * Nitro may call this implementation from any native thread.');
+    writer.line(' * Keep mutable state thread-safe or marshal work onto your own queue/actor.');
     writer.line(' */');
     writer.line(
       'public protocol Hybrid${spec.dartClassName}Protocol: AnyObject {',
@@ -421,9 +443,11 @@ class SwiftGenerator {
           writer.line('    sema.wait()');
           writer.line('    guard let r = result else { return nil }');
           if (_isDataBackedTypedData(func.returnType.name)) {
-            writer.line('    return r.withUnsafeBytes { _nitroCopyTypedDataReturn(\$0) }');
+            final helper = func.zeroCopyReturn ? '_nitroMakeZeroCopyTypedDataReturn' : '_nitroCopyTypedDataReturn';
+            writer.line('    return r.withUnsafeBytes { $helper(\$0) }');
           } else {
-            writer.line('    return _nitroCopyTypedDataArrayReturn(r)');
+            final helper = func.zeroCopyReturn ? '_nitroMakeZeroCopyTypedDataArrayReturn' : '_nitroCopyTypedDataArrayReturn';
+            writer.line('    return $helper(r)');
           }
         } else if (isBool) {
           writer.line(
@@ -519,9 +543,11 @@ class SwiftGenerator {
       } else if (isTypedDataReturn) {
         writer.line('    guard let r = ${spec.dartClassName}Registry.impl?.${func.dartName}($callArgs) else { return nil }');
         if (_isDataBackedTypedData(func.returnType.name)) {
-          writer.line('    return r.withUnsafeBytes { _nitroCopyTypedDataReturn(\$0) }');
+          final helper = func.zeroCopyReturn ? '_nitroMakeZeroCopyTypedDataReturn' : '_nitroCopyTypedDataReturn';
+          writer.line('    return r.withUnsafeBytes { $helper(\$0) }');
         } else {
-          writer.line('    return _nitroCopyTypedDataArrayReturn(r)');
+          final helper = func.zeroCopyReturn ? '_nitroMakeZeroCopyTypedDataArrayReturn' : '_nitroCopyTypedDataArrayReturn';
+          writer.line('    return $helper(r)');
         }
       } else {
         final defaultVal = _defaultCDeclValue(spec, func.returnType.name);
@@ -636,7 +662,7 @@ class SwiftGenerator {
       writer.line('@_cdecl("_${spec.namespace}_register_${stream.dartName}_stream")');
       writer.line('public func _${spec.namespace}_register_${stream.dartName}_stream(');
       writer.line('    _ dartPort: Int64,');
-      writer.line('    _ emitCb: @convention(c) (Int64, $cType) -> Void');
+      writer.line('    _ emitCb: @convention(c) (Int64, $cType) -> Bool');
       writer.line(') {');
       writer.line(
         '    ${spec.dartClassName}Registry._${stream.dartName}Cancellables[dartPort] =',
@@ -650,13 +676,25 @@ class SwiftGenerator {
           '            let ptr = UnsafeMutablePointer<_${itemName}C>.allocate(capacity: 1)',
         );
         writer.line('            ptr.initialize(to: _${itemName}C.fromSwift(item))');
-        writer.line('            emitCb(dartPort, UnsafeMutableRawPointer(ptr))');
+        writer.line('            if !emitCb(dartPort, UnsafeMutableRawPointer(ptr)) {');
+        writer.line('                ptr.deinitialize(count: 1)');
+        writer.line('                ptr.deallocate()');
+        writer.line('                ${spec.dartClassName}Registry._${stream.dartName}Cancellables.removeValue(forKey: dartPort)?.cancel()');
+        writer.line('            }');
       } else if (isEnumItem) {
-        writer.line('            emitCb(dartPort, item.rawValue)');
+        writer.line('            if !emitCb(dartPort, item.rawValue) {');
+        writer.line('                ${spec.dartClassName}Registry._${stream.dartName}Cancellables.removeValue(forKey: dartPort)?.cancel()');
+        writer.line('            }');
       } else if (isRecordItem) {
-        writer.line('            emitCb(dartPort, item.toNative())');
+        writer.line('            let raw = item.toNative()');
+        writer.line('            if !emitCb(dartPort, raw) {');
+        writer.line('                if let raw { free(UnsafeMutableRawPointer(raw)) }');
+        writer.line('                ${spec.dartClassName}Registry._${stream.dartName}Cancellables.removeValue(forKey: dartPort)?.cancel()');
+        writer.line('            }');
       } else {
-        writer.line('            emitCb(dartPort, item)');
+        writer.line('            if !emitCb(dartPort, item) {');
+        writer.line('                ${spec.dartClassName}Registry._${stream.dartName}Cancellables.removeValue(forKey: dartPort)?.cancel()');
+        writer.line('            }');
       }
       writer.line('        }');
       writer.line('}');
@@ -758,6 +796,10 @@ class SwiftGenerator {
       ),
       const CodeLine(
         ' * to delegate from the C++ HybridObject to a Swift implementation.',
+      ),
+      const CodeLine(' * Nitro may call this implementation from any native thread.'),
+      const CodeLine(
+        ' * Keep mutable state thread-safe or marshal work onto your own queue/actor.',
       ),
       const CodeLine(' */'),
       CodeLine('public protocol Hybrid${spec.dartClassName}Protocol: AnyObject {'),

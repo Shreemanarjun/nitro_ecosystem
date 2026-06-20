@@ -106,32 +106,32 @@ void main() {
   group('SwiftGenerator — Stream @_cdecl register stub callback param type', () {
     test('Stream<bool> callback param is Int8', () {
       final out = SwiftGenerator.generate(_streamSpec(itemType: 'bool'));
-      expect(out, contains('emitCb: @convention(c) (Int64, Int8) -> Void'));
+      expect(out, contains('emitCb: @convention(c) (Int64, Int8) -> Bool'));
     });
 
     test('Stream<int> callback param is Int64', () {
       final out = SwiftGenerator.generate(_streamSpec(itemType: 'int'));
-      expect(out, contains('emitCb: @convention(c) (Int64, Int64) -> Void'));
+      expect(out, contains('emitCb: @convention(c) (Int64, Int64) -> Bool'));
     });
 
     test('Stream<String> callback param is UnsafeMutablePointer<Int8>?', () {
       final out = SwiftGenerator.generate(_streamSpec(itemType: 'String'));
-      expect(out, contains('emitCb: @convention(c) (Int64, UnsafeMutablePointer<Int8>?) -> Void'));
+      expect(out, contains('emitCb: @convention(c) (Int64, UnsafeMutablePointer<Int8>?) -> Bool'));
     });
 
     test('Stream<Uint8List> callback param is UnsafeMutablePointer<UInt8>?', () {
       final out = SwiftGenerator.generate(_streamSpec(itemType: 'Uint8List'));
-      expect(out, contains('emitCb: @convention(c) (Int64, UnsafeMutablePointer<UInt8>?) -> Void'));
+      expect(out, contains('emitCb: @convention(c) (Int64, UnsafeMutablePointer<UInt8>?) -> Bool'));
     });
 
     test('Stream<@HybridEnum> callback param is Int64', () {
       final out = SwiftGenerator.generate(_enumStreamSpec('Status'));
-      expect(out, contains('emitCb: @convention(c) (Int64, Int64) -> Void'));
+      expect(out, contains('emitCb: @convention(c) (Int64, Int64) -> Bool'));
     });
 
     test('Stream<@HybridStruct> callback param is UnsafeMutableRawPointer?', () {
       final out = SwiftGenerator.generate(_structStreamSpec('Point'));
-      expect(out, contains('emitCb: @convention(c) (Int64, UnsafeMutableRawPointer?) -> Void'));
+      expect(out, contains('emitCb: @convention(c) (Int64, UnsafeMutableRawPointer?) -> Bool'));
     });
   });
 

@@ -11,14 +11,18 @@ void main() {
     late Directory tempDir;
 
     setUp(() {
-      try { savedCwd = Directory.current.path; } catch (_) {}
+      try {
+        savedCwd = Directory.current.path;
+      } catch (_) {}
       tempDir = Directory.systemTemp.createTempSync('nitrogen_generate_dry_run_');
       Directory.current = tempDir;
     });
 
     tearDown(() {
       if (savedCwd != null) {
-        try { Directory.current = savedCwd!; } catch (_) {}
+        try {
+          Directory.current = savedCwd!;
+        } catch (_) {}
       }
       if (tempDir.existsSync()) {
         tempDir.deleteSync(recursive: true);
@@ -133,6 +137,17 @@ void main() {
       expect(plan.changedSpecs, equals([spec]));
     });
 
+    test('uses a stable SHA-256 content hash', () {
+      final spec = File(p.join(tempDir.path, 'lib', 'src', 'hash.native.dart'));
+      spec.parent.createSync(recursive: true);
+      spec.writeAsStringSync('abc');
+
+      expect(
+        IncrementalGenerationCache.contentHash(spec),
+        'ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad',
+      );
+    });
+
     test('skips unchanged specs when hashes and outputs match the manifest', () {
       final spec = _writePluginFixture(tempDir);
       final output = File(p.join(tempDir.path, 'lib', 'src', 'camera.g.dart'));
@@ -181,6 +196,32 @@ void main() {
       );
 
       expect(plan.changedSpecs, equals([audio]));
+    });
+  });
+
+  group('build_runner cache cleanup', () {
+    late Directory tempDir;
+
+    setUp(() {
+      tempDir = Directory.systemTemp.createTempSync('nitrogen_build_cache_');
+    });
+
+    tearDown(() {
+      if (tempDir.existsSync()) {
+        tempDir.deleteSync(recursive: true);
+      }
+    });
+
+    test('generate deletes stale lock without deleting asset graph', () {
+      final buildDir = Directory(p.join(tempDir.path, '.dart_tool', 'build'))..createSync(recursive: true);
+      final lock = File(p.join(buildDir.path, 'lock'))..writeAsStringSync('locked');
+      final assetGraph = File(p.join(buildDir.path, 'asset_graph.json'))..writeAsStringSync('{}');
+
+      final deleted = deleteBuildRunnerLock(tempDir.path);
+
+      expect(deleted, isTrue);
+      expect(lock.existsSync(), isFalse);
+      expect(assetGraph.existsSync(), isTrue);
     });
   });
 }

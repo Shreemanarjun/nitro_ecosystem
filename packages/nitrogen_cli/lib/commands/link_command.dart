@@ -59,6 +59,7 @@ String resolveNitroNativePath(String pluginDir) {
 
 const String _srcLocalNitroNativeCmakePath = ct.localNitroNativeCmakePath;
 const String _desktopLocalNitroNativeCmakePath = r'${CMAKE_CURRENT_SOURCE_DIR}/../src/native';
+const String _linkSpecChecksumPrefix = '# NITRO_LINK_SPEC_CHECKSUM ';
 
 String? extractLibNameFromSpec(File specFile) {
   final content = specFile.readAsStringSync();
@@ -259,6 +260,54 @@ List<ModuleInfo> discoverModuleInfos(
     }
   }
   return modules;
+}
+
+String computeLinkSpecChecksum({String baseDir = '.'}) {
+  final libDir = Directory(p.join(baseDir, 'lib'));
+  if (!libDir.existsSync()) return _fnv64Hex('no-lib');
+
+  final specs = libDir.listSync(recursive: true).whereType<File>().where((f) => f.path.endsWith('.native.dart')).toList()
+    ..sort((a, b) => p.relative(a.path, from: baseDir).compareTo(p.relative(b.path, from: baseDir)));
+
+  if (specs.isEmpty) return _fnv64Hex('no-specs');
+
+  final parts = <String>[];
+  for (final spec in specs) {
+    parts
+      ..add(p.relative(spec.path, from: baseDir))
+      ..add(spec.readAsStringSync());
+  }
+  return _fnv64Hex(parts.join('\n--- nitro spec ---\n'));
+}
+
+String _fnv64Hex(String input) {
+  final mask = BigInt.parse('ffffffffffffffff', radix: 16);
+  final prime = BigInt.parse('100000001b3', radix: 16);
+  var hash = BigInt.parse('cbf29ce484222325', radix: 16);
+  for (final unit in input.codeUnits) {
+    hash = hash ^ BigInt.from(unit);
+    hash = (hash * prime) & mask;
+  }
+  return hash.toRadixString(16).padLeft(16, '0');
+}
+
+({String content, bool modified}) _stampLinkSpecChecksum(String content, String checksum) {
+  final line = '$_linkSpecChecksumPrefix$checksum';
+  final regex = RegExp(r'^# NITRO_LINK_SPEC_CHECKSUM .*$', multiLine: true);
+  final match = regex.firstMatch(content);
+  if (match != null) {
+    if (match.group(0) == line) return (content: content, modified: false);
+    return (content: content.replaceFirst(regex, line), modified: true);
+  }
+
+  final nitroNativeLine = RegExp(r'^set\(NITRO_NATIVE "[^"]+"\)$', multiLine: true);
+  if (nitroNativeLine.hasMatch(content)) {
+    return (
+      content: content.replaceFirstMapped(nitroNativeLine, (m) => '${m.group(0)}\n$line'),
+      modified: true,
+    );
+  }
+  return (content: '$line\n$content', modified: true);
 }
 
 // Keep legacy signature for external callers
@@ -1004,6 +1053,9 @@ void linkCMake(
   }
   var content = cmakeFile.readAsStringSync();
   bool modified = false;
+  final stamp = _stampLinkSpecChecksum(content, computeLinkSpecChecksum(baseDir: baseDir));
+  content = stamp.content;
+  modified = modified || stamp.modified;
   const desiredNitroValue = _srcLocalNitroNativeCmakePath;
   final nitroNativeSetLine = 'set(NITRO_NATIVE "$desiredNitroValue")';
   if (!content.contains('NITRO_NATIVE')) {
@@ -1115,6 +1167,7 @@ void generateCMake(
   List<ModuleInfo>? moduleInfos,
 }) {
   final infos = moduleInfos?.map((m) => (lib: m.lib, module: m.module, isNativeCpp: m.isNativeCpp, isAndroidCpp: m.isAndroidCpp)).toList();
+  final linkChecksum = computeLinkSpecChecksum(baseDir: baseDir);
 
   File(p.join(baseDir, 'src', 'CMakeLists.txt')).writeAsStringSync(
     ct.generateCMakeContent(
@@ -1122,6 +1175,7 @@ void generateCMake(
       moduleLibs,
       _srcLocalNitroNativeCmakePath,
       moduleInfos: infos,
+      linkChecksum: linkChecksum,
     ),
   );
 }

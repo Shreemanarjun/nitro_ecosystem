@@ -1,3 +1,5 @@
+import '../bridge_spec.dart';
+
 const nitroGeneratorVersion = '0.4.4';
 
 String generatedFileHeader(String commentPrefix, {required String sourceUri}) {
@@ -7,4 +9,66 @@ String generatedFileHeader(String commentPrefix, {required String sourceUri}) {
     '$commentPrefix nitro_generator: $nitroGeneratorVersion',
     '$commentPrefix Generated from: $sourceName',
   ].join('\n')}\n';
+}
+
+String bridgeSpecChecksum(BridgeSpec spec) {
+  final parts = <String>[
+    'nitro-generator:$nitroGeneratorVersion',
+    'lib:${spec.lib}',
+    'class:${spec.dartClassName}',
+    'namespace:${spec.namespace}',
+    'ios:${_implName(spec.iosImpl)}',
+    'android:${_implName(spec.androidImpl)}',
+    'macos:${_implName(spec.macosImpl)}',
+    'windows:${_implName(spec.windowsImpl)}',
+    'linux:${_implName(spec.linuxImpl)}',
+    'web:${_implName(spec.webImpl)}',
+    'typeOnly:${spec.isTypeOnly}',
+    'imports:${spec.importedTypeFiles.join(',')}',
+    for (final e in spec.enums) 'enum:${e.name}:${e.startValue}:${e.isImported}:${e.values.join(',')}',
+    for (final st in spec.structs) 'struct:${st.name}:${st.packed}:${st.isImported}:${st.fields.map(_fieldSig).join(',')}',
+    for (final rt in spec.recordTypes) 'record:${rt.name}:${rt.isImported}:${rt.fields.map(_recordFieldSig).join(',')}',
+    for (final f in spec.functions) 'fn:${f.dartName}:${f.cSymbol}:${f.isAsync}:${f.isNativeAsync}:${f.zeroCopyReturn}:${_typeSig(f.returnType)}:${f.params.map(_paramSig).join(',')}',
+    for (final p in spec.properties) 'prop:${p.dartName}:${_typeSig(p.type)}:${p.getSymbol}:${p.setSymbol}:${p.hasGetter}:${p.hasSetter}',
+    for (final s in spec.streams) 'stream:${s.dartName}:${s.registerSymbol}:${s.releaseSymbol}:${_typeSig(s.itemType)}:${s.backpressure.name}:${s.isMethodStyle}:${s.isAnnotated}',
+  ];
+  return _fnv64Hex(parts.join('\n'));
+}
+
+String _implName(Object? impl) => impl == null ? 'none' : impl.runtimeType.toString();
+
+String _fieldSig(BridgeField field) => '${field.name}:${_typeSig(field.type)}:${field.zeroCopy}:${field.isNamed}:${field.isRequired}';
+
+String _paramSig(BridgeParam param) => '${param.name}:${_typeSig(param.type)}:${param.zeroCopy}:${param.isNamed}:${param.isOptional}:${param.defaultLiteral ?? ''}';
+
+String _recordFieldSig(BridgeRecordField field) => '${field.name}:${field.dartType}:${field.kind.name}:${field.itemTypeName ?? ''}:${field.isNullable}';
+
+String _typeSig(BridgeType type) {
+  final fnParams = type.functionParams.map(_typeSig).join(',');
+  return [
+    type.name,
+    type.isNullable,
+    type.isFuture,
+    type.isStream,
+    type.isRecord,
+    type.isPointer,
+    type.pointerInnerType ?? '',
+    type.recordListItemType ?? '',
+    type.recordListItemIsPrimitive,
+    type.isMap,
+    type.isFunction,
+    type.functionReturnType ?? '',
+    '[$fnParams]',
+  ].join(':');
+}
+
+String _fnv64Hex(String input) {
+  final mask = BigInt.parse('ffffffffffffffff', radix: 16);
+  final prime = BigInt.parse('100000001b3', radix: 16);
+  var hash = BigInt.parse('cbf29ce484222325', radix: 16);
+  for (final unit in input.codeUnits) {
+    hash = hash ^ BigInt.from(unit);
+    hash = (hash * prime) & mask;
+  }
+  return hash.toRadixString(16).padLeft(16, '0');
 }

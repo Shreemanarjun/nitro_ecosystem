@@ -258,6 +258,76 @@ void main() {
       expect(issues.any((i) => i.code == 'INVALID_RETURN_TYPE' && i.isError), isTrue);
     });
 
+    test('zero-copy Uint8List return type is valid for Kotlin and Swift NativeImpl', () {
+      final spec = BridgeSpec(
+        dartClassName: 'Foo',
+        lib: 'foo',
+        namespace: 'foo',
+        iosImpl: NativeImpl.swift,
+        androidImpl: NativeImpl.kotlin,
+        sourceUri: 'foo.native.dart',
+        functions: [
+          BridgeFunction(
+            dartName: 'getData',
+            cSymbol: 'foo_get_data',
+            isAsync: false,
+            returnType: BridgeType(name: 'Uint8List'),
+            zeroCopyReturn: true,
+            params: [],
+          ),
+        ],
+      );
+
+      expect(SpecValidator.validate(spec).where((i) => i.isError), isEmpty);
+    });
+
+    test('zero-copy return on non-TypedData emits INVALID_ZERO_COPY_RETURN error', () {
+      final spec = BridgeSpec(
+        dartClassName: 'Foo',
+        lib: 'foo',
+        namespace: 'foo',
+        iosImpl: NativeImpl.swift,
+        androidImpl: NativeImpl.kotlin,
+        sourceUri: 'foo.native.dart',
+        functions: [
+          BridgeFunction(
+            dartName: 'count',
+            cSymbol: 'foo_count',
+            isAsync: false,
+            returnType: BridgeType(name: 'int'),
+            zeroCopyReturn: true,
+            params: [],
+          ),
+        ],
+      );
+
+      final issues = SpecValidator.validate(spec);
+      expect(issues.any((i) => i.code == 'INVALID_ZERO_COPY_RETURN' && i.isError), isTrue);
+    });
+
+    test('zero-copy TypedData return type is valid for C++ NativeImpl', () {
+      final spec = BridgeSpec(
+        dartClassName: 'Foo',
+        lib: 'foo',
+        namespace: 'foo',
+        iosImpl: NativeImpl.cpp,
+        androidImpl: NativeImpl.cpp,
+        sourceUri: 'foo.native.dart',
+        functions: [
+          BridgeFunction(
+            dartName: 'getData',
+            cSymbol: 'foo_get_data',
+            isAsync: false,
+            returnType: BridgeType(name: 'Uint8List'),
+            zeroCopyReturn: true,
+            params: [],
+          ),
+        ],
+      );
+
+      expect(SpecValidator.validate(spec).where((i) => i.isError), isEmpty);
+    });
+
     test('Float32List return type emits INVALID_RETURN_TYPE error', () {
       final spec = BridgeSpec(
         dartClassName: 'Foo',

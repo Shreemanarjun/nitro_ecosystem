@@ -738,7 +738,7 @@ void main() {
       () {
         final out = CppBridgeGenerator.generate(_primitiveDoubleListStreamSpec());
         // The Swift emit helper must accept void* for encoded record bytes
-        expect(out, contains('void _emit_detectedPackages_to_dart(int64_t dartPort, void* item)'));
+        expect(out, contains('bool _emit_detectedPackages_to_dart(int64_t dartPort, void* item)'));
       },
     );
 

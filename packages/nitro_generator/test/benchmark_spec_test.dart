@@ -535,8 +535,11 @@ void main() {
     late String out;
     setUpAll(() => out = DartFfiGenerator.generate(_benchmarkSpec()));
 
-    test('loads library benchmark', () {
-      expect(out, contains("NitroRuntime.loadLib('benchmark')"));
+    test('loads library benchmark through platform target gate', () {
+      expect(out, contains("NitroRuntime.loadLibForTargets('benchmark',"));
+      expect(out, contains('ios: true,'));
+      expect(out, contains('android: true,'));
+      expect(out, contains('macos: false,'));
     });
 
     test('add uses asFunction(isLeaf: true) with correct symbol', () {
@@ -671,6 +674,12 @@ void main() {
 
     test('stream emit reads port via direct variable access', () {
       expect(out, contains('int64_t port = g_port_dataStream;'));
+    });
+
+    test('stream emit clears stored port when Dart post fails', () {
+      expect(out, contains('if (!Dart_PostCObject_DL(port, &obj)) {'));
+      expect(out, contains('g_port_dataStream = 0;'));
+      expect(out, contains('return;'));
     });
 
     test('addFast skips error check (isFast path)', () {

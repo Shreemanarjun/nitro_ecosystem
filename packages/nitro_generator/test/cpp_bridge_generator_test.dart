@@ -10,6 +10,53 @@ void main() {
       expect(out, contains('Dart_InitializeApiDL(data)'));
     });
 
+    test('emits ABI version symbol', () {
+      final out = CppBridgeGenerator.generate(simpleSpec());
+      expect(
+        out,
+        contains('NITRO_EXPORT uint32_t my_camera_nitro_abi_version(void)'),
+      );
+      expect(out, contains('return 1;'));
+    });
+
+    test('emits bridge checksum symbol', () {
+      final out = CppBridgeGenerator.generate(simpleSpec());
+      expect(
+        out,
+        contains('NITRO_EXPORT const char* my_camera_nitro_bridge_checksum(void)'),
+      );
+      expect(out, matches(RegExp(r'return "[0-9a-f]{16}";')));
+    });
+
+    test('zero-copy TypedData JNI return wraps direct ByteBuffer without array copy', () {
+      final out = CppBridgeGenerator.generate(
+        BridgeSpec(
+          dartClassName: 'Dsp',
+          lib: 'dsp',
+          namespace: 'dsp',
+          androidImpl: NativeImpl.kotlin,
+          sourceUri: 'dsp.native.dart',
+          functions: [
+            BridgeFunction(
+              dartName: 'snapshot',
+              cSymbol: 'dsp_snapshot',
+              isAsync: false,
+              returnType: BridgeType(name: 'Uint8List'),
+              zeroCopyReturn: true,
+              params: [],
+            ),
+          ],
+        ),
+      );
+
+      expect(out, contains('GetStaticMethodID(g_bridgeClass, "snapshot_call", "()Ljava/nio/ByteBuffer;")'));
+      expect(out, contains('void* data = env->GetDirectBufferAddress(jbuf);'));
+      expect(out, contains('jobject owner = env->NewGlobalRef(jbuf);'));
+      expect(out, contains('result[1] = (int64_t)(intptr_t)(data != nullptr ? data : result);'));
+      expect(out, contains('NITRO_EXPORT void dsp_release_typed_data_return(void* ptr)'));
+      expect(out, isNot(contains('GetByteArrayRegion(jarr')));
+    });
+
     test('emits JNI_OnLoad with correct lib name', () {
       final out = CppBridgeGenerator.generate(simpleSpec());
       expect(out, contains('JNI_OnLoad called for my_camera'));
@@ -520,6 +567,16 @@ void main() {
       final count = 'my_camera_clear_error()'.allMatches(out).length;
       expect(count, greaterThanOrEqualTo(2));
     });
+
+    test('error slot is thread-local for JNI and Swift bridge calls', () {
+      final out = CppBridgeGenerator.generate(simpleSpec());
+      expect(
+        out,
+        contains('static thread_local NitroError g_nitro_error'),
+        reason: 'concurrent calls on separate native threads must not share error state',
+      );
+      expect(out, contains('NitroError* my_camera_get_error() { return &g_nitro_error; }'));
+    });
   });
 
   group('CppBridgeGenerator (cpp direct path) — edge cases', () {
@@ -543,6 +600,24 @@ void main() {
       );
       final out = CppBridgeGenerator.generate(spec);
       expect(out, contains('return false'));
+    });
+
+    test('emits ABI version symbol for cpp direct path', () {
+      final out = CppBridgeGenerator.generate(cppSpec());
+      expect(
+        out,
+        contains('NITRO_EXPORT uint32_t math_nitro_abi_version(void)'),
+      );
+      expect(out, contains('return 1;'));
+    });
+
+    test('emits bridge checksum symbol for cpp direct path', () {
+      final out = CppBridgeGenerator.generate(cppSpec());
+      expect(
+        out,
+        contains('NITRO_EXPORT const char* math_nitro_bridge_checksum(void)'),
+      );
+      expect(out, matches(RegExp(r'return "[0-9a-f]{16}";')));
     });
 
     test('int return type has correct default (0)', () {
@@ -584,6 +659,16 @@ void main() {
       final count = 'math_clear_error()'.allMatches(out).length;
       // add() + greet() + get_precision() + set_precision() = at least 4
       expect(count, greaterThanOrEqualTo(4));
+    });
+
+    test('error slot is thread-local for cpp direct calls', () {
+      final out = CppBridgeGenerator.generate(cppSpec());
+      expect(
+        out,
+        contains('static thread_local NitroError g_nitro_error'),
+        reason: 'C++ direct calls may run on different native threads',
+      );
+      expect(out, contains('NitroError* math_get_error() { return &g_nitro_error; }'));
     });
 
     test('enum return uses static_cast<int64_t>', () {

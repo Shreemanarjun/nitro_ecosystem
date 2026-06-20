@@ -158,6 +158,25 @@ void main() {
       expect(bridge, isNot(contains('void* onEvent')));
     });
 
+    test('C bridge JNI signature treats enum callback params as function-pointer longs', () {
+      final bridge = CppBridgeGenerator.generate(_jniEnumCallbackParamSpec());
+
+      expect(bridge, contains('torch_watch'));
+      expect(bridge, contains('void torch_watch(void (*onTorchState)(int64_t))'));
+      expect(bridge, contains('GetStaticMethodID(g_bridgeClass, "watch_call", "(J)V")'));
+      expect(bridge, contains('CallStaticVoidMethod(g_bridgeClass, methodId, (jlong)onTorchState)'));
+      expect(bridge, isNot(contains('Unknown JNI signature type')));
+    });
+
+    test('SpecValidator rejects struct callback params before C bridge generation', () {
+      final issues = SpecValidator.validate(_unsupportedStructCallbackParamSpec());
+
+      final issue = issues.singleWhere((i) => i.code == 'UNSUPPORTED_FUNCTION_TYPE');
+      expect(issue.isError, isTrue);
+      expect(issue.message, contains('callback parameter type "TorchState"'));
+      expect(issue.hint, contains('Callback parameters support'));
+    });
+
     test('DartFfiGenerator refuses callback return types if validation is bypassed', () {
       expect(
         () => DartFfiGenerator.generate(_callbackReturnSpec()),
@@ -269,6 +288,79 @@ BridgeSpec _cppCallbackParamSpec() {
               isFunction: true,
               functionReturnType: 'void',
               functionParams: [BridgeType(name: 'int')],
+            ),
+          ),
+        ],
+      ),
+    ],
+  );
+}
+
+BridgeSpec _jniEnumCallbackParamSpec() {
+  return BridgeSpec(
+    dartClassName: 'Torch',
+    lib: 'torch',
+    namespace: 'torch',
+    androidImpl: NativeImpl.kotlin,
+    sourceUri: 'torch.native.dart',
+    enums: [
+      BridgeEnum(name: 'TorchState', startValue: 0, values: ['off', 'on']),
+    ],
+    functions: [
+      BridgeFunction(
+        dartName: 'watch',
+        cSymbol: 'torch_watch',
+        isAsync: false,
+        returnType: BridgeType(name: 'void'),
+        params: [
+          BridgeParam(
+            name: 'onTorchState',
+            type: BridgeType(
+              name: 'void Function(TorchState)',
+              isFunction: true,
+              functionReturnType: 'void',
+              functionParams: [BridgeType(name: 'TorchState')],
+            ),
+          ),
+        ],
+      ),
+    ],
+  );
+}
+
+BridgeSpec _unsupportedStructCallbackParamSpec() {
+  return BridgeSpec(
+    dartClassName: 'Torch',
+    lib: 'torch',
+    namespace: 'torch',
+    androidImpl: NativeImpl.kotlin,
+    sourceUri: 'torch.native.dart',
+    structs: [
+      BridgeStruct(
+        name: 'TorchState',
+        packed: false,
+        fields: [
+          BridgeField(
+            name: 'enabled',
+            type: BridgeType(name: 'bool'),
+          ),
+        ],
+      ),
+    ],
+    functions: [
+      BridgeFunction(
+        dartName: 'watch',
+        cSymbol: 'torch_watch',
+        isAsync: false,
+        returnType: BridgeType(name: 'void'),
+        params: [
+          BridgeParam(
+            name: 'onTorchState',
+            type: BridgeType(
+              name: 'void Function(TorchState)',
+              isFunction: true,
+              functionReturnType: 'void',
+              functionParams: [BridgeType(name: 'TorchState')],
             ),
           ),
         ],

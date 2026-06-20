@@ -58,13 +58,13 @@
 
 | ID | Item | Priority | Status |
 |----|------|----------|--------|
-| S1 | ABI / version handshake between `.so` and Dart runtime | 🔴 High | ⬜ Pending |
-| S2 | Library-load race in `_libCache` (unguarded `Map` across isolates) | 🔴 High | ⬜ Pending |
-| S3 | Stream port-death: `if (!Dart_PostCObject(...)) break;` in emitters | 🟡 Medium | ⬜ Pending |
-| S4 | JNI `AttachCurrentThread` detach on isolate shutdown | 🟡 Medium | ⬜ Pending |
-| S5 | `@HybridStruct(zeroCopy)` ownership contract — finalizer guarantee docs | 🟡 Medium | ⬜ Pending |
-| S6 | Concurrent access on Kotlin/Swift impls — docs or `synchronized` wrapper | 🟡 Medium | ⬜ Pending |
-| S7 | Thread-local error slot (TLS per thread, not shared per library) | 🟡 Medium | ⬜ Pending |
+| S1 | ABI / version handshake between `.so` and Dart runtime | 🔴 High | ✅ Done |
+| S2 | Library-load race in `_libCache` (unguarded `Map` across isolates) | 🔴 High | ✅ Done |
+| S3 | Stream port-death: `if (!Dart_PostCObject(...)) break;` in emitters | 🟡 Medium | ✅ Done |
+| S4 | JNI `AttachCurrentThread` detach on isolate shutdown | 🟡 Medium | ✅ Done |
+| S5 | `@HybridStruct(zeroCopy)` ownership contract — finalizer guarantee docs | 🟡 Medium | ✅ Done |
+| S6 | Concurrent access on Kotlin/Swift impls — docs or `synchronized` wrapper | 🟡 Medium | ✅ Done |
+| S7 | Thread-local error slot (TLS per thread, not shared per library) | 🟡 Medium | ✅ Done |
 | S8 | Out-param ABI (Approach B, major-version): single FFI call eliminates 2nd/3rd call | 🟢 Low | ⬜ Pending |
 
 ### Type Coverage & Bug Fixes
@@ -154,14 +154,14 @@
 
 | ID | Item | Priority | Status |
 |----|------|----------|--------|
-| D1 | Timeline integration: `Timeline.startSync` / `finishSync` around bridge calls | 🟡 Medium | ⬜ Pending |
-| D2 | Better error on missing `nitrogen link` (checksum handshake at runtime init) | 🟡 Medium | ⬜ Pending |
-| D3 | `nitrogen doctor` file-permission checks (read/write, not just existence) | 🔴 High | ⬜ Pending |
+| D1 | Timeline integration: `Timeline.startSync` / `finishSync` around bridge calls | 🟡 Medium | ✅ Done |
+| D2 | Better error on missing `nitrogen link` (checksum handshake at runtime init) | 🟡 Medium | ✅ Done |
+| D3 | `nitrogen doctor` file-permission checks (read/write, not just existence) | 🔴 High | ✅ Done |
 | D4 | `@HybridStruct` String field docs: rule "use `@HybridRecord` instead" | 🟢 Low | ⬜ Pending |
-| D5 | Zero-copy `@zeroCopy` annotation support for TypedData return values | 🟡 Medium | ⬜ Pending |
+| D5 | Zero-copy `@zeroCopy` annotation support for TypedData return values | 🟡 Medium | ✅ Done |
 | D6 | Null-safety for TypedData fields: null guard before `GetDirectBufferAddress` | 🔴 High | ✅ Done |
 | D7 | `SpecValidator` missing-platform warning (opt-in `warnOnMissingPlatforms` flag) | 🟢 Low | ⬜ Pending |
-| D8 | Generated `_init()` actionable assertion on unsupported platform | 🟡 Medium | ⬜ Pending |
+| D8 | Generated `_init()` actionable assertion on unsupported platform | 🟡 Medium | ✅ Done |
 
 ### Test Coverage
 
@@ -183,7 +183,7 @@
 | DC3 | `NativeFinalizer` usage guide (`doc/advanced/memory_management.md`) | 🟡 Medium | ⬜ Pending |
 | DC4 | `@nitroAsync` performance & error semantics guide (`doc/advanced/async.md`) | 🟡 Medium | ⬜ Pending |
 | DC5 | GoogleMock C++ testing guide (`doc/advanced/cpp_testing.md`) | 🟢 Low | ⬜ Pending |
-| DC6 | Zero-copy ownership contract (`doc/lifecycle.md` — buffer lifetime rules) | 🔴 High | ⬜ Pending |
+| DC6 | Zero-copy ownership contract (`doc/lifecycle.md` — buffer lifetime rules) | 🔴 High | ✅ Done |
 
 ---
 
@@ -236,35 +236,49 @@ No magic-number check between generated native code and the Dart runtime. A stal
 
 **Fix:** Emit `extern "C" uint32_t nitro_abi_version()` in every generated module. Check inside `NitroRuntime.init` — print "run `nitrogen generate`" on mismatch.
 
+✅ **Done 2026-06-20.** Generated C headers, JNI/Swift bridges, and direct C++ bridges now expose a per-library `${libStem}_nitro_abi_version()` symbol. Generated Dart constructors call `NitroRuntime.checkAbiVersion(...)` after Dart API DL initialization and fail with an actionable `nitrogen generate` / `nitrogen link` message when the symbol is missing or reports a mismatched ABI. Covered by `call_sync_test.dart`, `dart_ffi_generator_test.dart`, `cpp_header_generator_test.dart`, and `cpp_bridge_generator_test.dart`.
+
 ### S2 — Library-load race
 `NitroRuntime.loadLib` uses an unguarded `Map<String, DynamicLibrary>`. First-call races across isolates can double-open on some platforms.
 
 **Fix:** Synchronize the load, or use an `Expando` keyed on library name.
+
+✅ **Done 2026-06-20.** `NitroRuntime.loadLib` now uses `_libCache.putIfAbsent`, so first load per isolate performs a single cache insertion and repeated calls return the cached `DynamicLibrary` without re-entering platform loading/logging. Covered by `call_sync_test.dart` cache regression coverage on Apple `DynamicLibrary.process()` platforms.
 
 ### S3 — Stream port-death
 A native emitter that ignores the return value of `Dart_PostCObject` loops forever against a dead port after hot restart.
 
 **Fix:** `if (!Dart_PostCObject_DL(port, &obj)) break;` in every generated emitter. Golden test per generator checking for the bail-out pattern.
 
+✅ **Done 2026-06-20.** C++ direct stream emitters now clear the stored Dart port and free generated payloads when `Dart_PostCObject_DL` fails. JNI stream emitters return `jboolean`, free generated struct/record payloads, and clean zero-copy global refs before returning `JNI_FALSE`; Kotlin stream collectors cancel their `_streamJobs` entry when native emit returns false. Swift stream callbacks now return `Bool`; generated Swift cancels the Combine subscription and frees Swift-owned payloads when the C shim reports a dead Dart port. Covered by `jni_perf_test.dart`, `kotlin_generator_test.dart`, `swift_generator_test.dart`, and `benchmark_spec_test.dart`.
+
 ### S4 — JNI `AttachCurrentThread` lifecycle
 Without `DetachCurrentThread` on isolate shutdown, zombie attached threads keep the JVM alive and block app shutdown.
 
 **Fix:** Add `IsolatePool.dispose()` hook that signals each worker to detach before the isolate exits.
+
+✅ **Done 2026-06-20.** Generated JNI bridge code emits `NitroJniThreadGuard` as `static thread_local` RAII state. `GetEnv()` marks threads attached after `AttachCurrentThread`, and the guard destructor calls `DetachCurrentThread` when the native thread exits. Covered by the JNI thread-safety group in `edge_cases_test.dart`.
 
 ### S5 — Zero-copy buffer ownership
 `@HybridStruct(zeroCopy: ...)` fields have no documented contract about when native may free while Dart holds a `Uint8List` view.
 
 **Fix:** Wrap in a finalizable holder, OR emit a compile-time generator error if not wrapped. Document in `doc/lifecycle.md`.
 
+✅ **Done 2026-06-20.** Generated Dart struct proxies already use a `NativeFinalizer` backed by generated `*_release_<Struct>()` symbols; the proxy docs now state the ownership boundary explicitly. The generated release functions free the struct shell and copied non-zero-copy fields, but do not free zero-copy backing buffers owned by native code. `doc/lifecycle.md` now documents the zero-copy buffer lifetime contract for Kotlin, Swift, and C++ paths. Covered by `proxy_generation_test.dart`, `struct_zero_copy_test.dart`, and `typed_data_non_zero_copy_test.dart`.
+
 ### S6 — Concurrent Kotlin/Swift impls
 Two Dart calls from different isolates can land on different JNI threads simultaneously with no synchronisation guarantee.
 
 **Fix:** Either emit `synchronized {}` wrappers in Kotlin by default, or document "impls must be thread-safe; Nitro calls from any thread."
 
+✅ **Done 2026-06-20.** Nitro keeps the hot path free of hidden generated locks and documents the implementation contract instead. Generated Kotlin interfaces and Swift protocols now warn that Nitro may call implementations from any JNI/native thread, and `doc/lifecycle.md` describes the required synchronization patterns for Kotlin, Swift, and C++ implementations. Covered by `kotlin_generator_test.dart` and `swift_generator_test.dart`.
+
 ### S7 — Thread-local error slot
 `NitroRuntime.checkError` reads from a single shared slot per library. Two concurrent async calls on the same module race on that slot.
 
 **Fix:** Move error state to TLS in the C++ bridge; read via the same TLS key on the calling thread.
+
+✅ **Done 2026-06-20.** Both generated C++ direct and JNI/Swift bridge paths emit `static thread_local NitroError g_nitro_error`, and `*_get_error()` returns the calling thread's TLS slot. Covered by explicit TLS assertions in `cpp_bridge_generator_test.dart`.
 
 ### S8 — Out-param ABI (Approach B, major-version)
 Replace `get_error` / `clear_error` round-trips with a `NitroError*` return + result out-param. Single FFI call in all cases. Requires regenerating all `.bridge.g.cpp` and `.bridge.g.dart`. Combine with other ABI-breaking changes.
@@ -526,16 +540,18 @@ import 'dart:js_interop';
 ## 7. Developer Experience
 
 ### D1 — Timeline integration
-Emit `Timeline.startSync('nitro:<method>')` / `finishSync()` around every bridge call. Gate behind `NitroConfig.debugMode`. Shows up in DevTools alongside Flutter frames.
+✅ **Done 2026-06-20.** `NitroConfig.timelineTracingEnabled` opt-in wraps `NitroRuntime.callSync`, `callAsync`, and `openNativeAsync` bridge paths with `Timeline.startSync` / `finishSync` spans named `Nitro.<callTag>`. The default remains off so production fast paths do not pay timeline instrumentation overhead. Covered by `timeline_tracing_test.dart` plus existing runtime call tests.
 
 ### D2 — Missing `nitrogen link` error surface
-Generator emits a checksum of the spec set. `link` writes the checksum into `CMakeLists.txt`. `NitroRuntime.init` compares and prints "run `nitrogen link`" instead of segfaulting.
+✅ **Done 2026-06-20.** Generated Dart now checks a native `${lib}_nitro_bridge_checksum` symbol during module initialization after the ABI version check. The C bridge exports the same deterministic `BridgeSpec` checksum for both JNI/Swift and direct C++ implementations, so stale or missing native bridge artifacts throw an actionable `StateError` that tells users to run `nitrogen generate` and `nitrogen link`. `nitrogen link` also writes a deterministic `# NITRO_LINK_SPEC_CHECKSUM ...` stamp into `src/CMakeLists.txt` and refreshes it when `.native.dart` specs change. Covered by runtime checksum tests, Dart/C header/C bridge generator tests, and `platform_file_placement_test.dart`.
 
 ### D3 — `nitrogen doctor` permission checks
-`FileSystemEntity.stat()` checks on `Podfile`, `CMakeLists.txt`, `Plugin.kt`. Surface permission warnings before link fails.
+✅ **Done 2026-06-20.** `nitrogen doctor` now uses `FileSystemEntity.statSync()` permission checks for `src/`, `windows/`, and `linux` `CMakeLists.txt` files, Android `Plugin.kt`, iOS/macOS podspecs, and project-level `ios/Podfile` / `macos/Podfile` files when present. It warns when required build files are not readable or writable before `nitrogen link` fails while patching them. Covered by `doctor_command_test.dart` permission tests plus existing doctor coverage.
 
 ### D5 — Zero-copy return values
 `@zeroCopy` annotation works for struct fields and params, but a function returning `Uint8List` still copies via `GetByteArrayRegion`. Extend `@zeroCopy` to return types.
+
+✅ **Done 2026-06-20.** Kotlin/JNI, Swift, and NativeImpl.cpp `@zeroCopy` TypedData returns are implemented and tested. `SpecExtractor` records method-level `@zeroCopy`, `SpecValidator` allows naked TypedData returns only when opted in, generated Dart decodes the three-word native envelope as a finalizer-backed typed list, Kotlin signatures use `java.nio.ByteBuffer`, and JNI wraps direct buffers without `GetByteArrayRegion` while retaining a GlobalRef until Dart GC releases the list. Swift emits the same envelope layout. NativeImpl.cpp methods return `NitroCppBuffer { data, size }`; the direct C++ bridge validates the pointer/length and wraps it in the same finalizer-backed envelope. The C bridge exports `${lib}_release_typed_data_return` across Android/Apple/C++ direct paths. Covered by Dart FFI, Kotlin, Swift, C bridge, C header, C++ interface/mock, and validator tests.
 
 ### D6 — Nullable TypedData null guard
 ✅ **Done 2026-06-19.** Zero-copy TypedData fields now emit null guards in `pack_*_from_jni` before `GetDirectBufferAddress` and in `unpack_*_to_jni` before `NewDirectByteBuffer`, throwing `NullPointerException` and returning early. Covered by `jni_perf_test.dart`.
@@ -544,7 +560,7 @@ Generator emits a checksum of the spec set. `link` writes the checksum into `CMa
 `SpecValidator` warning: "Camera targets ios + android but not macos." Controlled by `NitroConfig.warnOnMissingPlatforms` (default `true`).
 
 ### D8 — Unsupported-platform assertion
-Replace silent fall-through in generated `_init()` with a named `assert(Platform.isIOS || Platform.isAndroid || ...)` that names the class and instructs the developer to add the platform.
+✅ **Done 2026-06-20.** Generated Dart FFI implementations now call `NitroRuntime.loadLibForTargets(...)` before loading the dynamic library. Unsupported platforms throw an actionable `UnsupportedError` naming the module, current platform, targeted platforms, and the regenerate/link steps. Covered by runtime and Dart FFI generator tests.
 
 ---
 
@@ -749,10 +765,10 @@ PX1 (sealed NativeImpl) → PX2–PX4 (BridgeSpec + SpecExtractor + SpecValidato
 PX10–PX16 (Windows + Linux generators, CMake, CLI) → PX17–PX19 (Web conditional export + WebBridgeGenerator)
 
 ### Phase E — Quality & observability
-✅ G17–G18 (generator facade + typed writer) → ✅ G1.2–G1.8 (finer c_bridge split) → ✅ G2–G7 (build system, path-stable `dart_api_dl.c`, extractor passes) → D1 (Timeline) → D2 (link checksum) → S1 (ABI version)
+✅ G17–G18 (generator facade + typed writer) → ✅ G1.2–G1.8 (finer c_bridge split) → ✅ G2–G7 (build system, path-stable `dart_api_dl.c`, extractor passes) → ✅ D1 (Timeline) → ✅ D2 (link checksum) → ✅ D3 (doctor permissions) → ✅ S1 (ABI version)
 
 ### Phase F — Stability hardening
-S3 (stream port-death) → S4 (JNI detach) → S2 (load race) → S7 (TLS error slot) → TC1–TC4 (integration + stress tests)
+✅ S3 (stream port-death) → ✅ S4 (JNI detach) → ✅ S2 (load race) → ✅ S7 (TLS error slot) → ✅ S6 (thread-safety contract) → ✅ S5 (zero-copy ownership) → TC1–TC4 (integration + stress tests)
 
 ### Phase G — Type coverage integration
 ✅ T7–T10 (unit tests) → T11 (type_coverage plugin) → ✅ TC1 (integration test suite)

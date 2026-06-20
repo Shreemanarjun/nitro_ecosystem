@@ -163,6 +163,46 @@ void main() {
     });
   });
 
+  group('CppBridgeGenerator — zero-copy TypedData return (C++ direct path)', () {
+    BridgeSpec specFor(String typeName) => BridgeSpec(
+      dartClassName: 'Mod',
+      lib: 'mod',
+      namespace: 'mod',
+      iosImpl: NativeImpl.cpp,
+      androidImpl: NativeImpl.cpp,
+      sourceUri: 'mod.native.dart',
+      functions: [
+        BridgeFunction(
+          dartName: 'snapshot',
+          cSymbol: 'mod_snapshot',
+          isAsync: false,
+          returnType: BridgeType(name: typeName),
+          zeroCopyReturn: true,
+          params: [],
+        ),
+      ],
+    );
+
+    test('Uint8List return wraps NitroCppBuffer in finalizer envelope', () {
+      final code = CppBridgeGenerator.generate(specFor('Uint8List'));
+
+      expect(code, contains('uint8_t* mod_snapshot(void)'));
+      expect(code, contains('NitroCppBuffer _res = g_impl->snapshot();'));
+      expect(code, contains('int64_t* _env = (int64_t*)malloc(sizeof(int64_t) * 3);'));
+      expect(code, contains('_env[0] = (int64_t)_res.size;'));
+      expect(code, contains('_env[1] = (int64_t)(intptr_t)(_res.data != nullptr ? _res.data : (const uint8_t*)_env);'));
+      expect(code, contains('_env[2] = 0;'));
+      expect(code, contains('return (uint8_t*)_env;'));
+    });
+
+    test('Float32List return still exposes uint8_t envelope pointer at C ABI', () {
+      final code = CppBridgeGenerator.generate(specFor('Float32List'));
+
+      expect(code, contains('uint8_t* mod_snapshot(void)'));
+      expect(code, isNot(contains('float* mod_snapshot(void)')));
+    });
+  });
+
   // ── §8.5.3 Float32List param marshalling (JNI path) ─────────────────────
 
   group('CppBridgeGenerator — Float32List param (JNI path)', () {
