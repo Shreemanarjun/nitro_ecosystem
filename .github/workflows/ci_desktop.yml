@@ -37,9 +37,9 @@ jobs:
           channel: stable
           cache: true
 
-      - name: Install dependencies
+      # Resolve workspace from root to avoid "No workspace packages matching" errors.
+      - name: Get workspace dependencies
         run: flutter pub get
-        working-directory: packages/nitro_generator
 
       - name: Run generator tests
         run: flutter test
@@ -73,15 +73,8 @@ jobs:
         with:
           cmake-version: '3.28.x'
 
-      - name: Install Dart/Flutter deps (nitro_generator)
+      - name: Get workspace dependencies
         run: flutter pub get
-        working-directory: packages/nitro_generator
-
-      # Generate a minimal benchmark plugin to verify bridge compilation
-      - name: Install Dart/Flutter deps (benchmark)
-        run: flutter pub get
-        working-directory: benchmark
-        continue-on-error: true  # benchmark may not always be present
 
       - name: Run generator tests on Windows
         run: flutter test
@@ -125,9 +118,8 @@ jobs:
           channel: stable
           cache: true
 
-      - name: Install generator deps
+      - name: Get workspace dependencies
         run: flutter pub get
-        working-directory: packages/nitro_generator
 
       - name: Run generator tests on Linux
         run: flutter test
