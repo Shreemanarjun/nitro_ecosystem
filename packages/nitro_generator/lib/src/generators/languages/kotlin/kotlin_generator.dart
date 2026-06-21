@@ -325,18 +325,14 @@ class KotlinGenerator {
           writer.line('        ${p.name}Buf.getInt() // skip outer length');
           writer.line('        val ${p.name}Count = ${p.name}Buf.getInt()');
           writer.line('        repeat(${p.name}Count) { ${p.name}Buf.getLong() } // skip offsets');
+          // decodeFrom(ByteBuffer) is the overload that reads from an existing buffer position.
+          // decode(ByteArray) wraps the array first — wrong here since we already have a buffer.
           writer.line('        val ${p.name}Decoded = mutableListOf<$itemTypeName>()');
-          writer.line('        repeat(${p.name}Count) { ${p.name}Decoded.add($itemTypeName.decode(${p.name}Buf)) }');
+          writer.line('        repeat(${p.name}Count) { ${p.name}Decoded.add($itemTypeName.decodeFrom(${p.name}Buf)) }');
         } else if (p.type.isRecord && p.type.recordListItemIsPrimitive) {
           // Primitive list — decode from Dart's indexed binary format:
           // [4B outer_len][4B count][8B×count offsets][items...]
           final itemTypeName = p.type.recordListItemType!;
-          final readMethod = switch (itemTypeName) {
-            'int' => 'getLong',
-            'double' => 'getDouble',
-            'String' => 'getString',
-            _ => 'get',
-          };
           final listKtType = switch (itemTypeName) {
             'int' => 'ArrayList<Long>',
             'double' => 'ArrayList<Double>',
@@ -348,7 +344,22 @@ class KotlinGenerator {
           writer.line('        val ${p.name}Count = ${p.name}Buf.getInt()');
           writer.line('        repeat(${p.name}Count) { ${p.name}Buf.getLong() } // skip offsets');
           writer.line('        val ${p.name}Decoded = $listKtType()');
-          writer.line('        repeat(${p.name}Count) { ${p.name}Decoded.add(${p.name}Buf.$readMethod()) }');
+          // ByteBuffer has no getString() — read length-prefixed UTF-8 bytes manually.
+          if (itemTypeName == 'String') {
+            writer.line('        repeat(${p.name}Count) {');
+            writer.line('            val len = ${p.name}Buf.getInt()');
+            writer.line('            val strBytes = ByteArray(len)');
+            writer.line('            ${p.name}Buf.get(strBytes)');
+            writer.line('            ${p.name}Decoded.add(strBytes.toString(Charsets.UTF_8))');
+            writer.line('        }');
+          } else {
+            final readMethod = switch (itemTypeName) {
+              'int' => 'getLong',
+              'double' => 'getDouble',
+              _ => 'getLong',
+            };
+            writer.line('        repeat(${p.name}Count) { ${p.name}Decoded.add(${p.name}Buf.$readMethod()) }');
+          }
         }
       }
       if (isRecord) {

@@ -178,7 +178,10 @@ String androidBuildGradleTemplate(String org, String pluginName) =>
     '''
 plugins {
     id "com.android.library"
-    id "org.jetbrains.kotlin.android"
+    // Flutter's build infrastructure applies KGP automatically (built-in Kotlin).
+    // Do NOT add "org.jetbrains.kotlin.android" here — it triggers a deprecation
+    // warning and will break in future Flutter versions.
+    // See: https://docs.flutter.dev/release/breaking-changes/migrate-to-built-in-kotlin
 }
 
 group = "$org.$pluginName"
