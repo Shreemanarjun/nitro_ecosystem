@@ -468,9 +468,8 @@ class KotlinGenerator {
       } else if (func.isAsync) {
         if (isEnum) {
           if (isNullableEnum) {
-            writer.line(
-              '        return _asyncExecutor.submit(java.util.concurrent.Callable { runBlocking { impl.${func.dartName}($callParamsResolved) } }).get()?.nativeValue ?: -1L',
-            );
+            writer.line('        val _enumResult = _asyncExecutor.submit(java.util.concurrent.Callable { runBlocking { impl.${func.dartName}($callParamsResolved) } }).get()');
+            writer.line('        return if (_enumResult == null) -1L else _enumResult.nativeValue');
           } else {
             writer.line(
               '        return _asyncExecutor.submit(java.util.concurrent.Callable { runBlocking { impl.${func.dartName}($callParamsResolved) } }).get().nativeValue',
@@ -486,9 +485,9 @@ class KotlinGenerator {
           writer.line('        impl.${func.dartName}($callParamsResolved)');
         } else if (isEnum) {
           if (isNullableEnum) {
-            writer.line(
-              '        return impl.${func.dartName}($callParamsResolved)?.nativeValue ?: -1L',
-            );
+            // Explicit null check instead of ?. chain to avoid Kotlin JVM null-boxing edge cases
+            writer.line('        val _enumResult = impl.${func.dartName}($callParamsResolved)');
+            writer.line('        return if (_enumResult == null) -1L else _enumResult.nativeValue');
           } else {
             writer.line(
               '        return impl.${func.dartName}($callParamsResolved).nativeValue',
@@ -535,13 +534,17 @@ class KotlinGenerator {
           '        val impl = implementation ?: throw IllegalStateException("${spec.dartClassName} not registered")',
         );
         if (isEnum && isNullableEnum) {
-          writer.line('        return impl.${prop.dartName}?.nativeValue ?: -1L');
+          // Explicit null check for nullable enum property getter
+          writer.line('        val _propVal = impl.${prop.dartName}');
+          writer.line('        return if (_propVal == null) -1L else _propVal.nativeValue');
         } else if (isEnum) {
           writer.line('        return impl.${prop.dartName}.nativeValue');
         } else if (isNullableInt) {
           writer.line('        return impl.${prop.dartName} ?: -1L');
         } else if (isNullableDouble) {
-          writer.line('        return impl.${prop.dartName} ?: Double.NaN');
+          // Explicit null check instead of ?: to avoid Kotlin boxing edge cases with NaN
+          writer.line('        val _dv = impl.${prop.dartName}');
+          writer.line('        return if (_dv == null) Double.NaN else _dv');
         } else if (isNullableBool) {
           // jboolean cannot carry null — null maps to false (known limitation)
           writer.line('        return impl.${prop.dartName} ?: false');
