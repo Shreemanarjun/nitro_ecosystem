@@ -70,7 +70,7 @@ void main() {
         ),
       );
 
-      expect(out, contains('NITRO_EXPORT uint8_t* dsp_samples(void);'));
+      expect(out, contains('NITRO_EXPORT uint8_t* dsp_samples(NitroError* _nitro_err);'));
       expect(out, isNot(contains('NITRO_EXPORT float* dsp_samples(void);')));
     });
 

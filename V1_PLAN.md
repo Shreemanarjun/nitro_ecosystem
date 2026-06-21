@@ -65,7 +65,7 @@
 | S5 | `@HybridStruct(zeroCopy)` ownership contract — finalizer guarantee docs | 🟡 Medium | ✅ Done |
 | S6 | Concurrent access on Kotlin/Swift impls — docs or `synchronized` wrapper | 🟡 Medium | ✅ Done |
 | S7 | Thread-local error slot (TLS per thread, not shared per library) | 🟡 Medium | ✅ Done |
-| S8 | Out-param ABI (Approach B, major-version): single FFI call eliminates 2nd/3rd call | 🟢 Low | ⬜ Pending |
+| S8 | Out-param ABI (Approach B, major-version): single FFI call eliminates 2nd/3rd call | 🟢 Low | ✅ Done 2026-06-21 — `NitroError*` out-param on every sync C function; Dart pre-allocates one slot per module instance; errors now always checked in release mode too; 30 generator + 15 runtime edge-case tests |
 
 ### Type Coverage & Bug Fixes
 
@@ -82,31 +82,37 @@
 | T9 | Unit tests: Swift all-types coverage (bool, enum, struct, stream types) | 🟡 Medium | ✅ Done |
 | T10 | Unit tests: Dart FFI all-types coverage (bool, enum, typed-data async, properties) | 🟡 Medium | ✅ Done |
 | T11 | Integration module: `type_coverage` plugin (echo all types on device) | 🔴 High | ⬜ Pending |
+| T12 | **Bug:** JNI `GetStaticMethodID` calls in generated `initialize()` have no `ExceptionClear()` guard — first failure cascades to SIGABRT on Android ≥ API 26 | 🔴 Critical | ✅ Done 2026-06-21 |
+| T13 | **Bug:** Swift `_toSwiftCallbackWrapper` enum direction inverted — `EnumType(rawValue: arg0)` instead of `arg0.rawValue` causing iOS compile error | 🔴 Critical | ✅ Done 2026-06-21 |
+| T14 | Callback parameter type support: `double`, `bool`, `String` get wrong JNI/Kotlin/Swift types (all `Long`/`jlong`/`Int64`) | 🔴 Critical | ✅ Done 2026-06-21 |
+| T15 | Callback parameter type support: `@HybridStruct` — `const S*` / `jobject`+`pack_from_jni` / data class / `UnsafeRawPointer?` | 🟡 Medium | ✅ Done 2026-06-21 |
+| T16 | Callback parameter type support: `@HybridRecord` — `const uint8_t*` / `jbyteArray`+malloc / `ByteArray`(.encode()) / `UnsafeMutablePointer<UInt8>?`(.toNative()) | 🟡 Medium | ✅ Done 2026-06-21 |
+| T17 | Unit tests: `callback_param_types_test.dart` — 51 tests covering all 7 callback param types × all 4 generators + struct/record tests | 🟡 Medium | ✅ Done 2026-06-21 |
 
 ### Platform Expansion
 
 | ID | Item | Priority | Status |
 |----|------|----------|--------|
-| PX1 | Sealed `NativeImpl` class hierarchy + platform capability markers | 🔴 High | ⬜ Pending |
-| PX2 | `NitroModule` annotation: add `macos`, `windows`, `linux`, `web` fields | 🔴 High | ⬜ Pending |
-| PX3 | `BridgeSpec`: add `macosImpl`, `windowsImpl`, `linuxImpl`, `webImpl` | 🔴 High | ⬜ Pending |
-| PX4 | `SpecExtractor`: type-name switch (replace index-based `NativeImpl.values[index]`) | 🔴 High | ⬜ Pending |
-| PX5 | `SpecValidator`: per-platform `NativeImpl` constraints + missing-platform warnings | 🟡 Medium | ⬜ Pending |
-| PX6 | `link_command`: extend `isCppModule` regex to include `windows`/`linux` | 🟡 Medium | ⬜ Pending |
-| PX7 | macOS: `Platform.isMacOS` explicit branch in `dart_ffi_generator` | 🟡 Medium | ⬜ Pending |
-| PX8 | macOS: `.podspec` + `Package.swift` platforms entry | 🟡 Medium | ⬜ Pending |
-| PX9 | macOS: scaffold `macos/Classes/` entry point in `init_command` | 🟡 Medium | ⬜ Pending |
-| PX10 | Windows/Linux: `DynamicLibrary.open` paths (`.dll` / `lib*.so`) | 🟡 Medium | ⬜ Pending |
-| PX11 | Windows/Linux: `CppBridgeGenerator` platform guards (`#ifdef _WIN32` etc.) | 🟡 Medium | ⬜ Pending |
-| PX12 | Windows/Linux: `CMakeGenerator` cross-platform link libs and MSVC/GCC flags | 🟡 Medium | ⬜ Pending |
-| PX13 | Windows/Linux: `linkWindows()` / `linkLinux()` in `link_command` | 🟡 Medium | ⬜ Pending |
-| PX14 | Windows/Linux: `init_command` `--platforms` flag; per-platform entry points | 🟡 Medium | ⬜ Pending |
-| PX15 | Windows/Linux: `doctor_command` toolchain checks (MSVC, GCC, CMake) | 🟢 Low | ⬜ Pending |
-| PX16 | Windows: MSVC-safe `__attribute__((constructor))` cross-platform stub | 🟡 Medium | ⬜ Pending |
-| PX17 | Web: conditional export split `nitro_runtime_native.dart` / `nitro_runtime_web.dart` | 🔴 High | ⬜ Pending |
-| PX18 | Web: `WebBridgeGenerator` (`@JS()` external declarations) | 🟡 Medium | ⬜ Pending |
-| PX19 | Web: `dart_ffi_generator` `kIsWeb`-conditional factory | 🟡 Medium | ⬜ Pending |
-| PX20 | `SpecValidator`: emit clear error for `WasmImpl` (not silently succeed) | 🔴 High | ⬜ Pending |
+| PX1 | Sealed `NativeImpl` class hierarchy + platform capability markers | 🔴 High | ✅ Done (was already implemented — `AppleNativeImpl`, `AndroidNativeImpl`, `WindowsNativeImpl`, `LinuxNativeImpl`, `WebNativeImpl` sealed classes in annotations.dart) |
+| PX2 | `NitroModule` annotation: add `macos`, `windows`, `linux`, `web` fields | 🔴 High | ✅ Done (already in `NitroModule` — `ios`, `android`, `macos`, `windows`, `linux`, `web` all present) |
+| PX3 | `BridgeSpec`: add `macosImpl`, `windowsImpl`, `linuxImpl`, `webImpl` | 🔴 High | ✅ Done (all 6 platform fields present in `bridge_spec.dart`) |
+| PX4 | `SpecExtractor`: type-name switch (replace index-based `NativeImpl.values[index]`) | 🔴 High | ✅ Done (`_getNativeImpl` uses type-name switch — `SwiftImpl`/`KotlinImpl`/`CppImpl`/`WasmImpl` match) |
+| PX5 | `SpecValidator`: per-platform `NativeImpl` constraints + missing-platform warnings | 🟡 Medium | ✅ Done 2026-06-21 — constraints already present; added `MISSING_ANDROID_TARGET` + `MISSING_IOS_TARGET` warnings when only one mobile platform targeted |
+| PX6 | `link_command`: extend `isCppModule` regex to include `windows`/`linux` | 🟡 Medium | ✅ Done (already implemented — `link_command.dart` patches `windows/CMakeLists.txt` and `linux/CMakeLists.txt` at link steps 7-8) |
+| PX7 | macOS: `Platform.isMacOS` explicit branch in `dart_ffi_generator` | 🟡 Medium | ✅ Done (already implemented — `loadLibForTargets` takes `macos:` param; `loadLib` calls `DynamicLibrary.process()` for `Platform.isMacOS`) |
+| PX8 | macOS: `.podspec` + `Package.swift` platforms entry | 🟡 Medium | ✅ Done (already implemented — `_configureMacos()` in `init_command.dart` patches podspec with `:osx, '10.15'` and writes `macos/{lib}/Package.swift` with `.macOS(.v10_15)`; `link_command.dart` lines 1509-1523 also patch existing macOS podspecs) |
+| PX9 | macOS: scaffold `macos/Classes/` entry point in `init_command` | 🟡 Medium | ✅ Done (already implemented — `_configureMacos()` creates `macos/Classes/`, Swift plugin + impl stubs, symlinks, and `macos/{lib}/Package.swift` via `_writeMacosPackageSwift()`) |
+| PX10 | Windows/Linux: `DynamicLibrary.open` paths (`.dll` / `lib*.so`) | 🟡 Medium | ✅ Done (already implemented — `loadLib` opens `$name.dll` on Windows, `lib$name.so` on Linux) |
+| PX11 | Windows/Linux: `CppBridgeGenerator` platform guards (`#ifdef _WIN32` etc.) | 🟡 Medium | ✅ Done 2026-06-21 — `_generateJniSwift` now adds `#elif defined(_WIN32) \|\| defined(__linux__)` section when desktop C++ platforms are included in a mixed spec |
+| PX12 | Windows/Linux: `CMakeGenerator` cross-platform link libs and MSVC/GCC flags | 🟡 Medium | ✅ Done 2026-06-21 — full `if(ANDROID)/elseif(WIN32)/elseif(UNIX AND NOT APPLE)` link block with MSVC `LANGUAGE C` for `dart_api_dl.c`; 21 tests |
+| PX13 | Windows/Linux: `linkWindows()` / `linkLinux()` in `link_command` | 🟡 Medium | ✅ Done (already implemented — `link_command.dart` handles both Windows and Linux CMakeLists patching) |
+| PX14 | Windows/Linux: `init_command` `--platforms` flag; per-platform entry points | 🟡 Medium | ✅ Done 2026-06-21 — `_configureWindows()` now creates `windows/src/Hybrid{Class}Impl.cpp` (MSVC static-init pattern); `_configureLinux()` creates `linux/src/Hybrid{Class}Impl.cpp` (__attribute__((constructor)) pattern); `linuxCppStubContent()` added to `cpp_stubs.dart` |
+| PX15 | Windows/Linux: `doctor_command` toolchain checks (MSVC, GCC, CMake) | 🟢 Low | ✅ Done 2026-06-21 — `doctor_command.dart` now checks `cmake`, `cl.exe`+`WINDOWSSDKDIR` on Windows, `g++`/`clang++`+libpthread on Linux; `_findOnPath` + `_runVersionCheck` helpers |
+| PX16 | Windows: MSVC-safe `__attribute__((constructor))` cross-platform stub | 🟡 Medium | ✅ Done (already implemented — `cpp_stubs.dart` emits `#if defined(_WIN32)` namespace+`_AutoRegister` struct vs `__attribute__((constructor))`) |
+| PX17 | Web: conditional export split `nitro_runtime_native.dart` / `nitro_runtime_web.dart` | 🔴 High | ✅ Done 2026-06-21 — `nitro.dart` uses `if (dart.library.js_interop)` conditional exports; `nitro_runtime_web.dart` stub + `ffi_stub.dart` created |
+| PX18 | Web: `WebBridgeGenerator` (`@JS()` external declarations) | 🟡 Medium | ✅ Done 2026-06-21 — new `WebBridgeGenerator` in `languages/web/`; emits `@JS()` externals + `_NitroXxxWebImpl` class + `createXxxWebInstance()` factory; registered in facade + build_extensions + build.yaml; 23 tests |
+| PX19 | Web: `dart_ffi_generator` `kIsWeb`-conditional factory | 🟡 Medium | ✅ Done 2026-06-21 — web-targeting specs get `assert(!kIsWeb)` guard in `_loadSupportedLibrary()` + `_createNativeInstance()` factory for conditional-import routing |
+| PX20 | `SpecValidator`: emit clear error for `WasmImpl` (not silently succeed) | 🔴 High | ✅ Done (`INVALID_WEB_IMPL` error when non-WasmImpl on web; 31 tests in `spec_validator_expansion_test.dart`) |
 
 ### Generator & Build Quality
 
@@ -137,18 +143,18 @@
 
 | ID | Item | Priority | Status |
 |----|------|----------|--------|
-| NH1 | `NativeHandle<T>` runtime class (`packages/nitro/lib/src/native_handle.dart`) | 🔴 High | ⬜ Pending |
-| NH2 | `@NitroOwned` annotation — auto-attach `NativeFinalizer` + emit `_release` extern | 🔴 High | ⬜ Pending |
-| NH3 | `BridgeType.isNativeHandle` + `nativeHandleTypeParam` in `bridge_spec.dart` | 🔴 High | ⬜ Pending |
-| NH4 | `SpecExtractor`: detect `NativeHandle<T>` return/param types + `@NitroOwned` | 🔴 High | ⬜ Pending |
-| NH5 | `SpecValidator`: `@NitroOwned` only on `NativeHandle` return types (not params) | 🟡 Medium | ⬜ Pending |
-| NH6 | `dart_ffi_generator`: `Pointer<Void>` in FFI lookup, wrap/unwrap `NativeHandle<T>` at call site; `@NitroOwned` emits `NativeFinalizer` attachment | 🔴 High | ⬜ Pending |
-| NH7 | `kotlin_generator`: `NativeHandle` → `Long` in JNI interface + bridge | 🔴 High | ⬜ Pending |
-| NH8 | `swift_generator`: `NativeHandle` → `UnsafeMutableRawPointer?` in protocol + C bridge | 🔴 High | ⬜ Pending |
-| NH9 | `cpp_bridge_generator`: `NativeHandle` → `void*` pass-through, no codec; `@NitroOwned` emits `extern "C" void ${sym}_release(void*)` declaration | 🔴 High | ⬜ Pending |
-| NH10 | `cpp_interface_generator`: `NativeHandle` → `void*` in abstract method signature | 🔴 High | ⬜ Pending |
-| NH11 | Unit tests: `native_handle_test.dart` — all generators, `@NitroOwned` wiring, no-codec pass-through | 🟡 Medium | ⬜ Pending |
-| NH12 | Docs: `doc/advanced/native_handle.md` — usage guide, lifetime rules, cast patterns | 🟡 Medium | ⬜ Pending |
+| NH1 | `NativeHandle<T>` runtime class (`packages/nitro/lib/src/native_handle.dart`) | 🔴 High | ✅ Done 2026-06-21 |
+| NH2 | `@NitroOwned` annotation — auto-attach `NativeFinalizer` + emit `_release` extern | 🔴 High | ✅ Done 2026-06-21 |
+| NH3 | `BridgeType.isNativeHandle` + `nativeHandleTypeParam` in `bridge_spec.dart` | 🔴 High | ✅ Done 2026-06-21 |
+| NH4 | `SpecExtractor`: detect `NativeHandle<T>` return/param types + `@NitroOwned` | 🔴 High | ✅ Done 2026-06-21 |
+| NH5 | `SpecValidator`: `@NitroOwned` only on `NativeHandle` return types (not params) | 🟡 Medium | ✅ Done 2026-06-21 |
+| NH6 | `dart_ffi_generator`: `Pointer<Void>` in FFI lookup, wrap/unwrap `NativeHandle<T>` at call site; `@NitroOwned` emits `NativeFinalizer` attachment | 🔴 High | ✅ Done 2026-06-21 |
+| NH7 | `kotlin_generator`: `NativeHandle` → `Long` in JNI interface + bridge | 🔴 High | ✅ Done 2026-06-21 |
+| NH8 | `swift_generator`: `NativeHandle` → `UnsafeMutableRawPointer?` in protocol + C bridge | 🔴 High | ✅ Done 2026-06-21 |
+| NH9 | `cpp_bridge_generator`: `NativeHandle` → `void*` pass-through, no codec; `@NitroOwned` emits `extern "C" void ${sym}_release(void*)` declaration | 🔴 High | ✅ Done 2026-06-21 |
+| NH10 | `cpp_interface_generator`: `NativeHandle` → `void*` in abstract method signature | 🔴 High | ✅ Done 2026-06-21 |
+| NH11 | Unit tests: `native_handle_test.dart` — all generators, `@NitroOwned` wiring, no-codec pass-through | 🟡 Medium | ✅ Done 2026-06-21 (20 tests) |
+| NH12 | Docs: `doc/advanced/native_handle.md` — usage guide, lifetime rules, cast patterns | 🟡 Medium | ✅ Done 2026-06-21 |
 
 ### Developer Experience
 
@@ -157,10 +163,10 @@
 | D1 | Timeline integration: `Timeline.startSync` / `finishSync` around bridge calls | 🟡 Medium | ✅ Done |
 | D2 | Better error on missing `nitrogen link` (checksum handshake at runtime init) | 🟡 Medium | ✅ Done |
 | D3 | `nitrogen doctor` file-permission checks (read/write, not just existence) | 🔴 High | ✅ Done |
-| D4 | `@HybridStruct` String field docs: rule "use `@HybridRecord` instead" | 🟢 Low | ⬜ Pending |
+| D4 | `@HybridStruct` String field docs: rule "use `@HybridRecord` instead" | 🟢 Low | ✅ Done 2026-06-21 — doc comment on `HybridStruct` annotation + `STRUCT_STRING_FIELD` validator warning with @HybridRecord hint; 6 tests |
 | D5 | Zero-copy `@zeroCopy` annotation support for TypedData return values | 🟡 Medium | ✅ Done |
 | D6 | Null-safety for TypedData fields: null guard before `GetDirectBufferAddress` | 🔴 High | ✅ Done |
-| D7 | `SpecValidator` missing-platform warning (opt-in `warnOnMissingPlatforms` flag) | 🟢 Low | ⬜ Pending |
+| D7 | `SpecValidator` missing-platform warning (opt-in `warnOnMissingPlatforms` flag) | 🟢 Low | ✅ Done 2026-06-21 — `MISSING_ANDROID_TARGET` + `MISSING_IOS_TARGET` warnings emitted when mobile platform is one-sided (part of PX5) |
 | D8 | Generated `_init()` actionable assertion on unsupported platform | 🟡 Medium | ✅ Done |
 
 ### Test Coverage
@@ -168,21 +174,21 @@
 | ID | Item | Priority | Status |
 |----|------|----------|--------|
 | TC1 | Integration test suite: `nitrogen init` → `generate` → `link` on temp project | 🔴 High | ✅ Done |
-| TC2 | Windows/Linux CI build jobs on GitHub Actions | 🟡 Medium | ⬜ Pending |
-| TC3 | Memory/finalizer stress test: 10k `ZeroCopyBuffer` alloc/discard | 🟡 Medium | ⬜ Pending |
-| TC4 | `IsolatePool` concurrency: 1 000 concurrent dispatches, no deadlock | 🟡 Medium | ⬜ Pending |
-| TC5 | `spec_roundtrip_test.dart`: all platform combos pass validation | 🟡 Medium | ⬜ Pending |
-| TC6 | `sealed_native_impl_test.dart`: type hierarchy smoke tests | 🟡 Medium | ⬜ Pending |
+| TC2 | Windows/Linux CI build jobs on GitHub Actions | 🟡 Medium | ✅ Done 2026-06-21 — `.github/workflows/ci_desktop.yml` (Windows MSVC + Linux GCC matrix, runs generator tests + optional flutter build); `.github/workflows/ci_generator.yml` (generator + runtime tests on every push/PR) |
+| TC3 | Memory/finalizer stress test: 10k `ZeroCopyBuffer` alloc/discard | 🟡 Medium | ✅ Done 2026-06-21 — `zero_copy_buffer_stress_test.dart` (19 tests, all 9 buffer variants, 10k cycles) |
+| TC4 | `IsolatePool` concurrency: 1 000 concurrent dispatches, no deadlock | 🟡 Medium | ✅ Done 2026-06-21 — added 1,000 concurrent + 1,000 with errors + 4-pool cross-contamination to `isolate_pool_test.dart` |
+| TC5 | `spec_roundtrip_test.dart`: all platform combos pass validation | 🟡 Medium | ✅ Done 2026-06-21 — `spec_roundtrip_test.dart` (42 tests, exhaustive platform matrix + flag consistency) |
+| TC6 | `sealed_native_impl_test.dart`: type hierarchy smoke tests | 🟡 Medium | ✅ Done — 69 tests passing (was already complete) |
 
 ### Documentation
 
 | ID | Item | Priority | Status |
 |----|------|----------|--------|
-| DC1 | Migration guide: `0.2 → 0.3` (`doc/migration/0.2-to-0.3.md`) | 🟡 Medium | ⬜ Pending |
-| DC2 | Windows/Linux build guide (`doc/platforms/windows.md`, `linux.md`) | 🟡 Medium | ⬜ Pending |
-| DC3 | `NativeFinalizer` usage guide (`doc/advanced/memory_management.md`) | 🟡 Medium | ⬜ Pending |
-| DC4 | `@nitroAsync` performance & error semantics guide (`doc/advanced/async.md`) | 🟡 Medium | ⬜ Pending |
-| DC5 | GoogleMock C++ testing guide (`doc/advanced/cpp_testing.md`) | 🟢 Low | ⬜ Pending |
+| DC1 | Migration guide: `0.2 → 0.3` (`doc/migration/0.2-to-0.3.md`) | 🟡 Medium | ✅ Done 2026-06-21 |
+| DC2 | Windows/Linux build guide (`doc/platforms/windows.md`, `linux.md`) | 🟡 Medium | ✅ Done 2026-06-21 |
+| DC3 | `NativeFinalizer` usage guide (`doc/advanced/memory_management.md`) | 🟡 Medium | ✅ Done 2026-06-21 |
+| DC4 | `@nitroAsync` performance & error semantics guide (`doc/advanced/async.md`) | 🟡 Medium | ✅ Done 2026-06-21 |
+| DC5 | GoogleMock C++ testing guide (`doc/advanced/cpp_testing.md`) | 🟢 Low | ✅ Done 2026-06-21 |
 | DC6 | Zero-copy ownership contract (`doc/lifecycle.md` — buffer lifetime rules) | 🔴 High | ✅ Done |
 
 ---
@@ -303,6 +309,10 @@ Replace `get_error` / `clear_error` round-trips with a `NitroError*` return + re
 | struct sync/async | ✅ | ✅/⬜ | ⬜ | ✅/⬜ | ✅ | — |
 | Uint8List / Float32List | ✅ | ✅ | ⬜ | ✅ | ✅ | — |
 | @ZeroCopy | ✅ | ✅ | ⬜ | ✅ | — | — |
+| **callback param: int/double/bool/String** | ✅ T14 | ✅ T14 | ✅ T14 | ✅ T14 | — | — |
+| **callback param: @HybridEnum** | ✅ T14 | ✅ T14 | ✅ T14 | ✅ T14 | — | — |
+| **callback param: @HybridStruct** | ✅ T15 | ✅ T15 | ✅ T15 | ✅ T15 | — | — |
+| **callback param: @HybridRecord** | ✅ T16 | ✅ T16 | ✅ T16 | ✅ T16 | — | — |
 | record sync/async | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
 | List\<record\> | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
 | List\<int/double/bool/String\> in record | ✅ T7 | ✅ T8 | ✅ T9 | — | — | ✅ T7 |

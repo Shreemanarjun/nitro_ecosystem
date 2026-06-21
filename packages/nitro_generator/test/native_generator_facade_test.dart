@@ -18,6 +18,8 @@ void main() {
       expect(facade.targetForOutputPath('lib/src/generated/cpp/camera.native.g.h'), NativeGeneratorTarget.cppInterface);
       expect(facade.targetForOutputPath('lib/src/generated/cpp/test/camera.mock.g.h'), NativeGeneratorTarget.cppMockHeader);
       expect(facade.targetForOutputPath('lib/src/generated/cpp/test/camera.test.g.cpp'), NativeGeneratorTarget.cppTestStarter);
+      // PX18: web bridge
+      expect(facade.targetForOutputPath('lib/src/generated/web/camera.web.bridge.g.dart'), NativeGeneratorTarget.webBridge);
       expect(facade.targetForOutputPath('lib/src/camera.txt'), isNull);
     });
 
@@ -72,6 +74,7 @@ void main() {
           NativeGeneratorLanguage.cBridge,
           NativeGeneratorLanguage.cppNative,
           NativeGeneratorLanguage.build,
+          NativeGeneratorLanguage.web, // PX18
         ],
       );
       expect(facade.bundleFor(NativeGeneratorLanguage.dart)?.directory, 'dart');

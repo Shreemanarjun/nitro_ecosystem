@@ -275,7 +275,7 @@ void main() {
 
     test('release function guards against null pointer', () {
       final out = CppBridgeGenerator.generate(cppStreamStructSpec());
-      expect(out, contains('if (!ptr) return;'));
+      expect(out, contains('if (!ptr) { return; }'));
     });
 
     test('release function is inside extern "C" block', () {
@@ -341,7 +341,7 @@ void main() {
       expect(releaseIdx, greaterThan(0));
       final end = (releaseIdx + 200).clamp(0, out.length);
       final releaseBlock = out.substring(releaseIdx, end);
-      expect(releaseBlock, contains('if (!ptr) return;'));
+      expect(releaseBlock, contains('if (!ptr) { return; }'));
       expect(releaseBlock, contains('free(ptr)'));
     });
 

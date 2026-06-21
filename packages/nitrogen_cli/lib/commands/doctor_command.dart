@@ -505,6 +505,76 @@ class DoctorCommand extends Command {
       warn(sysSec, 'Java not found', hint: 'Install JDK 17+');
     }
 
+    // ── PX15: Windows / Linux toolchain checks ─────────────────────────────
+    // Only run on the platform where Windows/Linux builds are performed.
+
+    // CMake — required for any desktop C++ target (Windows, Linux, macOS)
+    try {
+      final cmakeResult = Process.runSync('cmake', ['--version']);
+      if (cmakeResult.exitCode == 0) {
+        final ver = cmakeResult.stdout.toString().split('\n').first;
+        ok(sysSec, 'cmake: $ver');
+      } else {
+        warn(sysSec, 'cmake not found',
+            hint: Platform.isWindows
+                ? 'Install CMake: winget install Kitware.CMake'
+                : Platform.isLinux
+                    ? 'Install cmake: apt install cmake  (or equivalent)'
+                    : 'Install CMake from cmake.org');
+      }
+    } catch (_) {
+      warn(sysSec, 'cmake not found',
+          hint: Platform.isWindows
+              ? 'Install CMake: winget install Kitware.CMake'
+              : 'Install cmake from cmake.org or your package manager');
+    }
+
+    if (Platform.isWindows) {
+      // MSVC (Visual C++) — check for cl.exe
+      final clPath = _findOnPath('cl.exe');
+      if (clPath != null) {
+        ok(sysSec, 'MSVC (cl.exe) found at $clPath');
+      } else {
+        err(sysSec, 'MSVC (cl.exe) not found',
+            hint: 'Install Visual Studio Build Tools 2019+ and ensure '
+                'the "Desktop development with C++" workload is selected. '
+                'Run from a Developer Command Prompt for VS.');
+      }
+      // Windows SDK
+      final sdkDir = Platform.environment['WINDOWSSDKDIR'];
+      if (sdkDir != null && Directory(sdkDir).existsSync()) {
+        ok(sysSec, 'Windows SDK at $sdkDir');
+      } else {
+        warn(sysSec, 'WINDOWSSDKDIR not set',
+            hint: 'Install the Windows SDK from Visual Studio Installer');
+      }
+    }
+
+    if (Platform.isLinux) {
+      // GCC or Clang (PX15: check for g++ or clang++)
+      final hasGcc = _runVersionCheck('g++');
+      final hasClang = _runVersionCheck('clang++');
+      if (hasGcc != null) {
+        ok(sysSec, 'g++ found: $hasGcc');
+      } else if (hasClang != null) {
+        ok(sysSec, 'clang++ found: $hasClang');
+      } else {
+        err(sysSec, 'No C++ compiler found (g++ / clang++)',
+            hint: 'Install build tools: apt install build-essential  '
+                'or: apt install clang');
+      }
+      // libpthread & libdl (required by Nitro native modules on Linux)
+      final pthreadOk = File('/usr/lib/libpthread.so').existsSync() ||
+          File('/usr/lib/x86_64-linux-gnu/libpthread.so').existsSync() ||
+          File('/usr/lib/aarch64-linux-gnu/libpthread.so').existsSync();
+      if (pthreadOk) {
+        ok(sysSec, 'libpthread available');
+      } else {
+        warn(sysSec, 'libpthread not detected in standard paths',
+            hint: 'Ensure libpthread-dev is installed: apt install libpthread-stubs0-dev');
+      }
+    }
+
     final pubSec = DoctorSection('pubspec.yaml');
     sections.add(pubSec);
     final pubspec = pubspecFile.readAsStringSync();
@@ -1717,6 +1787,33 @@ class DoctorCommand extends Command {
 }
 
 String _toPascalCase(String lib) => lib.split(RegExp(r'[_\-]')).map((w) => w.isEmpty ? '' : w[0].toUpperCase() + w.substring(1)).join('');
+
+// ── PX15 helpers ───────────────────────────────────────────────────────────
+
+/// Returns the full path of [exe] if it is on PATH, null otherwise.
+String? _findOnPath(String exe) {
+  try {
+    final r = Process.runSync('where', [exe]);
+    if (r.exitCode == 0) {
+      return r.stdout.toString().trim().split('\n').first.trim();
+    }
+  } catch (_) {}
+  return null;
+}
+
+/// Runs [exe] --version and returns the first line of stdout/stderr, or null.
+String? _runVersionCheck(String exe) {
+  try {
+    final r = Process.runSync(exe, ['--version']);
+    if (r.exitCode == 0) {
+      final out = r.stdout.toString().trim();
+      final err = r.stderr.toString().trim();
+      final text = out.isNotEmpty ? out : err;
+      return text.split('\n').first.trim();
+    }
+  } catch (_) {}
+  return null;
+}
 
 /// Returns true when Android uses a Kotlin JNI bridge (not C++).
 /// A .bridge.g.kt file is needed iff Android is NOT using AndroidNativeImpl.cpp.

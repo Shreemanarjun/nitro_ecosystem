@@ -73,11 +73,11 @@ void main() {
       final output = DartFfiGenerator.generate(spec);
 
       // Verify FFI signatures
-      expect(output, contains('Void Function(Pointer<Void>)'));
-      expect(output, contains('void Function(Pointer<Void>)'));
+      expect(output, contains('Void Function(Pointer<Void>, Pointer<NitroErrorFfi>)'));
+      expect(output, contains('void Function(Pointer<Void>, Pointer<NitroErrorFfi>)'));
 
       // Verify implementation call (direct pass-through, no conversion)
-      expect(output, contains('_passPointerPtr(p)'));
+      expect(output, contains('_passPointerPtr(p, _nitroErr)'));
     });
 
     test('DartFfiGenerator handles Pointer return types', () {
@@ -105,7 +105,7 @@ void main() {
 
       final output = DartFfiGenerator.generate(spec);
 
-      expect(output, contains('Pointer<Uint8> Function()'));
+      expect(output, contains('Pointer<Uint8> Function(Pointer<NitroErrorFfi>)'));
       expect(output, contains('Pointer<Uint8> getBuffer()'));
       expect(output, contains('return res;'));
     });

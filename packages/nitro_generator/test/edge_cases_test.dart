@@ -566,7 +566,8 @@ void main() {
     test('record return does NOT use CallStaticDoubleMethod or CallStaticLongMethod', () {
       final out = CppBridgeGenerator.generate(singleRecordSpec());
       // Isolate the getDevice function body (up to next function)
-      final idx = out.indexOf('camera_module_get_device(void)');
+      // S8: function now takes NitroError* out-param
+      final idx = out.indexOf('camera_module_get_device(NitroError* _nitro_err)');
       final body = out.substring(idx, idx + 600);
       expect(body, isNot(contains('CallStaticDoubleMethod')));
       expect(body, isNot(contains('CallStaticLongMethod')));
@@ -666,7 +667,7 @@ void main() {
       // The early-return for env == nullptr must return nullptr, not ""
       expect(
         out,
-        contains('if (env == nullptr) return nullptr;'),
+        contains('if (env == nullptr) { return nullptr; }'),
         reason: 'returning a static literal "" would crash toDartStringWithFree',
       );
       expect(out, isNot(contains('if (env == nullptr) return ""')));
@@ -1098,7 +1099,7 @@ void main() {
       final cpp = CppBridgeGenerator.generate(_syncRecordSpec());
       expect(
         cpp,
-        isNot(contains('nitro_report_jni_exception(env, env->ExceptionOccurred()); env->ExceptionClear()')),
+        isNot(contains('nitro_report_jni_exception(env, env->ExceptionOccurred(), _nitro_err); env->ExceptionClear()')),
         reason: 'ExceptionClear() is already called inside nitro_report_jni_exception — no need to repeat it',
       );
     });
@@ -1132,10 +1133,10 @@ void main() {
       final cpp = CppBridgeGenerator.generate(spec);
       expect(
         cpp,
-        isNot(contains('nitro_report_jni_exception(env, env->ExceptionOccurred()); env->ExceptionClear(); return')),
+        isNot(contains('nitro_report_jni_exception(env, env->ExceptionOccurred(), _nitro_err); env->ExceptionClear(); return')),
       );
       // The ExceptionCheck + report + return pattern must still be present.
-      expect(cpp, contains('nitro_report_jni_exception(env, env->ExceptionOccurred());'));
+      expect(cpp, contains('nitro_report_jni_exception(env, env->ExceptionOccurred(), _nitro_err);'));
       expect(cpp, contains('return 0.0;'));
     });
   });

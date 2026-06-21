@@ -214,6 +214,22 @@ class NitroModule {
   });
 }
 
+/// Value type that bridges with C-ABI struct layout.
+///
+/// Every `@HybridStruct` field crosses the FFI boundary on every call:
+/// primitive fields (int, double, bool) are copied by value at zero cost;
+/// **String fields** are heap-copied via `strdup`/`free` on both sides,
+/// adding ~100–500 ns per call — the cost grows with string length.
+///
+/// **D4 guidance:** If your struct carries one or more String fields that are
+/// frequently updated or compared, prefer `@HybridRecord` instead. Records
+/// are binary-encoded once and decoded lazily, making them significantly
+/// cheaper for text-heavy data (device names, error messages, config strings).
+///
+/// ✅ Use `@HybridStruct` for hot-path data where all fields are numeric
+///    or boolean (sensor readings, camera frames, pixel coordinates).
+/// ✅ Use `@HybridRecord` for structured data with String fields or
+///    collections (device lists, configuration objects, API responses).
 class HybridStruct {
   // Fields named here are Uint8List delivered as zero-copy raw pointer.
   // A Finalizer calls the native unlock symbol when the Dart object is GC'd.
@@ -295,3 +311,27 @@ class HybridRecord {
 }
 
 const hybridRecord = HybridRecord();
+
+/// Marks that the native side heap-allocates the returned [NativeHandle] and
+/// Dart takes ownership. The generator will:
+///
+/// 1. Emit `extern "C" void ${cSymbol}_release(void* handle)` in the C++
+///    header — the user implements this to free their native object.
+/// 2. Attach a [NativeFinalizer] on the Dart side that calls `_release` when
+///    the [NativeHandle] is garbage-collected.
+/// 3. Wire `NativeHandle._releaseCallback` so [NativeHandle.release] triggers
+///    early cleanup.
+///
+/// Only valid on methods returning [NativeHandle]. Params and void returns are
+/// rejected at validation time.
+///
+/// ```dart
+/// @NitroOwned
+/// NativeHandle<Void> acquireFrame();
+/// ```
+class NitroOwned {
+  const NitroOwned();
+}
+
+/// Const shorthand for [@NitroOwned].
+const nitroOwned = NitroOwned();

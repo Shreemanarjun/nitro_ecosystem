@@ -103,7 +103,7 @@ void main() {
       expect(
         out,
         contains(
-          ".asFunction<double Function(double, double)>(isLeaf: true)",
+          ".asFunction<double Function(double, double, Pointer<NitroErrorFfi>)>(isLeaf: true)",
         ),
       );
     });
@@ -115,9 +115,9 @@ void main() {
 
     test('enum return type uses Int64 FFI type and isLeaf binding', () {
       final out = DartFfiGenerator.generate(enumSpec());
-      expect(out, contains('Int64 Function()'));
+      expect(out, contains('Int64 Function(Pointer<NitroErrorFfi>)'));
       // Primitive (enum) sync methods now use leaf binding.
-      expect(out, contains(".asFunction<int Function()>(isLeaf: true)"));
+      expect(out, contains(".asFunction<int Function(Pointer<NitroErrorFfi>)>(isLeaf: true)"));
     });
 
     test('enum return calls toDeviceStatus()', () {
@@ -219,8 +219,8 @@ void main() {
 
     test('bool return converts via != 0', () {
       final out = DartFfiGenerator.generate(richSpec());
-      expect(out, contains('final res = _isReadyPtr(strict ? 1 : 0);'));
-      expect(out, contains('NitroRuntime.checkError(_getErrorPtr, _clearErrorPtr);'));
+      expect(out, contains('final res = _isReadyPtr(strict ? 1 : 0, _nitroErr);'));
+      expect(out, contains('NitroRuntime.throwIfOutParamError(_nitroErr);'));
       expect(out, contains('return res != 0;'));
     });
 
@@ -231,8 +231,8 @@ void main() {
 
     test('int return is passed through directly', () {
       final out = DartFfiGenerator.generate(richSpec());
-      expect(out, contains('final res = _countPtr();'));
-      expect(out, contains('NitroRuntime.checkError(_getErrorPtr, _clearErrorPtr);'));
+      expect(out, contains('final res = _countPtr(_nitroErr);'));
+      expect(out, contains('NitroRuntime.throwIfOutParamError(_nitroErr);'));
       expect(out, contains('return res;'));
     });
 
@@ -319,8 +319,8 @@ void main() {
       final out = DartFfiGenerator.generate(richSpec());
       expect(out, contains('bool get enabled {'));
       expect(out, contains("NitroRuntime.callSync(() {"));
-      expect(out, contains('final res = _getEnabledPtr();'));
-      expect(out, contains('NitroRuntime.checkError(_getErrorPtr, _clearErrorPtr);'));
+      expect(out, contains('final res = _getEnabledPtr(_nitroErr);'));
+      expect(out, contains('NitroRuntime.throwIfOutParamError(_nitroErr);'));
       expect(out, contains('return res != 0;'));
       expect(out, contains("methodName: 'get enabled'"));
     });
@@ -333,15 +333,15 @@ void main() {
     test('property bool setter converts value ? 1 : 0', () {
       final out = DartFfiGenerator.generate(richSpec());
       expect(out, contains('set enabled(bool value)'));
-      expect(out, contains('_setEnabledPtr(value ? 1 : 0)'));
-      expect(out, contains('NitroRuntime.checkError(_getErrorPtr, _clearErrorPtr)'));
+      expect(out, contains('_setEnabledPtr(value ? 1 : 0, _nitroErr)'));
+      expect(out, contains('NitroRuntime.throwIfOutParamError(_nitroErr)'));
       expect(out, contains("methodName: 'set enabled'"));
     });
 
     test('property enum setter passes nativeValue', () {
       final out = DartFfiGenerator.generate(richSpec());
       // pointer name = _set{Cap(dartName)}Ptr; dartName='mode' → _setModePtr
-      expect(out, contains('_setModePtr(value.nativeValue)'));
+      expect(out, contains('_setModePtr(value.nativeValue, _nitroErr)'));
     });
 
     test('dispose() override is emitted in generated impl', () {
@@ -441,7 +441,7 @@ void main() {
       expect(
         out,
         contains(
-          "lookupFunction<Void Function(Pointer<Uint8>), void Function(Pointer<Uint8>)>"
+          "lookupFunction<Void Function(Pointer<Uint8>, Pointer<NitroErrorFfi>), void Function(Pointer<Uint8>, Pointer<NitroErrorFfi>)>"
           "('camera_module_set_device')",
         ),
       );
@@ -1106,7 +1106,7 @@ void main() {
       // The FFI lookup signature must reference Pointer<Uint8>
       expect(out, contains('Pointer<Uint8>'));
       // The call site must pass the pointer argument through unchanged
-      expect(out, contains('_sendBufferPtr(ptr)'));
+      expect(out, contains('_sendBufferPtr(ptr, _nitroErr)'));
     });
 
     test('non-arena record return uses try/finally for malloc.free', () {

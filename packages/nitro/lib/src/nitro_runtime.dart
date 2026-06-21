@@ -217,6 +217,68 @@ class NitroRuntime {
     }
   }
 
+  // ── S8: Out-param error checking ─────────────────────────────────────────
+  //
+  // S8 eliminates the two-call `get_error()` + `clear_error()` round-trip from
+  // every synchronous bridge call. Instead, each generated C function receives
+  // a `NitroError*` out-parameter and writes error information directly into it.
+  // Dart allocates ONE `NitroErrorFfi` struct per module instance (in the
+  // constructor) and passes it to every sync call. Since each `_NitroXxxImpl`
+  // lives in a single Dart isolate, the slot is never accessed concurrently.
+  //
+  // Benefits vs the old TLS-slot approach:
+  //   • Debug mode:   3 FFI calls → 1 FFI call  (-2 per sync method)
+  //   • Release mode: errors are NOW ALWAYS checked (assert-gate removed)
+  //   • No heap allocation per call — struct is pre-allocated in constructor
+
+  /// Checks an S8-style out-parameter error slot.
+  ///
+  /// If [errPtr.ref.hasError] is non-zero the method reads the C-owned string
+  /// fields (copying them into Dart [String]s), frees the native memory, resets
+  /// the slot for the next call, and throws a [HybridException].
+  ///
+  /// This is a no-op when there is no error — optimised to a single byte read.
+  static void throwIfOutParamError(Pointer<NitroErrorFfi> errPtr) {
+    if (errPtr.ref.hasError == 0) return;
+    // Copy C-owned strings into Dart before freeing native memory.
+    final name = errPtr.ref.name != nullptr
+        ? errPtr.ref.name.toDartString()
+        : 'NativeException';
+    final message = errPtr.ref.message != nullptr
+        ? errPtr.ref.message.toDartString()
+        : 'An unknown native exception occurred.';
+    final code = errPtr.ref.code != nullptr
+        ? errPtr.ref.code.toDartString()
+        : null;
+    final stack = errPtr.ref.stackTrace != nullptr
+        ? errPtr.ref.stackTrace.toDartString()
+        : null;
+    // Free native-heap strings (strdup'd by the C bridge) and reset the slot.
+    if (errPtr.ref.name != nullptr) {
+      malloc.free(errPtr.ref.name);
+      errPtr.ref.name = nullptr;
+    }
+    if (errPtr.ref.message != nullptr) {
+      malloc.free(errPtr.ref.message);
+      errPtr.ref.message = nullptr;
+    }
+    if (errPtr.ref.code != nullptr) {
+      malloc.free(errPtr.ref.code);
+      errPtr.ref.code = nullptr;
+    }
+    if (errPtr.ref.stackTrace != nullptr) {
+      malloc.free(errPtr.ref.stackTrace);
+      errPtr.ref.stackTrace = nullptr;
+    }
+    errPtr.ref.hasError = 0;
+    throw HybridException(
+      name: name,
+      message: message,
+      code: code,
+      stackTrace: stack,
+    );
+  }
+
   // ── Synchronous call ─────────────────────────────────────────────────────
 
   /// Calls a native function synchronously, with logging and slow-call

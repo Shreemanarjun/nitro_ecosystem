@@ -545,7 +545,7 @@ void main() {
     test('add uses asFunction(isLeaf: true) with correct symbol', () {
       // Primitive sync methods use leaf binding for safepoint-free calls.
       expect(out, contains("('benchmark_add')"));
-      expect(out, contains('.asFunction<double Function(double, double)>(isLeaf: true)'));
+      expect(out, contains('.asFunction<double Function(double, double, Pointer<NitroErrorFfi>)>(isLeaf: true)'));
     });
 
     test('addFast uses lookup + asFunction with isLeaf: true', () {
@@ -554,11 +554,11 @@ void main() {
     });
 
     test('sendLargeBuffer lookup includes Int64 length param', () {
-      expect(out, contains('Int64 Function(Pointer<Uint8>, Int64)'));
+      expect(out, contains('Int64 Function(Pointer<Uint8>, Int64, Pointer<NitroErrorFfi>)'));
     });
 
     test('sendLargeBuffer call site passes buffer and buffer.length', () {
-      expect(out, contains('_sendLargeBufferPtr(buffer.toPointer(arena), buffer.length)'));
+      expect(out, contains('_sendLargeBufferPtr(buffer.toPointer(arena), buffer.length, _nitroErr)'));
     });
 
     test('computeStats uses NitroRuntime.callAsync (async HybridRecord)', () {
@@ -651,15 +651,15 @@ void main() {
     });
 
     test('computeStats returns void* (NitroCppBuffer wrapped)', () {
-      expect(out, contains('void* benchmark_cpp_compute_stats(int64_t iterations)'));
+      expect(out, contains('void* benchmark_cpp_compute_stats(int64_t iterations, NitroError* _nitro_err)'));
     });
 
     test('sendLargeBufferFast has uint8_t* + int64_t length', () {
-      expect(out, contains('int64_t benchmark_cpp_send_large_buffer_fast(uint8_t* buffer, int64_t buffer_length)'));
+      expect(out, contains('int64_t benchmark_cpp_send_large_buffer_fast(uint8_t* buffer, int64_t buffer_length, NitroError* _nitro_err)'));
     });
 
     test('sendLargeBufferUnsafe Pointer<Uint8> param passes as void*', () {
-      expect(out, contains('int64_t benchmark_cpp_send_large_buffer_unsafe(void* ptr, int64_t length)'));
+      expect(out, contains('int64_t benchmark_cpp_send_large_buffer_unsafe(void* ptr, int64_t length, NitroError* _nitro_err)'));
     });
 
     test('stream ports use plain int64_t storage (written once at startup)', () {

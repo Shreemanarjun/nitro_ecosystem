@@ -5,6 +5,7 @@ import 'languages/cpp_native/cpp_native_generator_bundle.dart';
 import 'languages/dart/dart_generator_bundle.dart';
 import 'languages/kotlin/kotlin_generator_bundle.dart';
 import 'languages/swift/swift_generator_bundle.dart';
+import 'languages/web/web_generator_bundle.dart';
 import 'native_generator_model.dart';
 
 export 'native_generator_model.dart';
@@ -40,10 +41,17 @@ final class NativeGeneratorFacade {
   }
 
   NativeGeneratorTarget? targetForOutputPath(String path) {
+    // Use longest-suffix-match so that `.web.bridge.g.dart` wins over `.g.dart`
+    // when both suffixes match the same path.
+    NativeCodeGenerator? best;
     for (final generator in _orderedGenerators) {
-      if (path.endsWith(generator.outputSuffix)) return generator.target;
+      if (path.endsWith(generator.outputSuffix)) {
+        if (best == null || generator.outputSuffix.length > best.outputSuffix.length) {
+          best = generator;
+        }
+      }
     }
-    return null;
+    return best?.target;
   }
 
   NativeGeneratorBundle? bundleFor(NativeGeneratorLanguage language) {
@@ -88,5 +96,6 @@ List<NativeGeneratorBundle> defaultNativeGeneratorBundles() {
     cBridgeGeneratorBundle(),
     cppNativeGeneratorBundle(),
     cmakeGeneratorBundle(),
+    webGeneratorBundle(), // PX18
   ];
 }

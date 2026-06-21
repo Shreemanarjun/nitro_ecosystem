@@ -2,7 +2,7 @@ part of '../cpp_bridge_generator.dart';
 
 String _paramTypeToC(String dartType, Set<String> structNames) => CppBridgeGenerator._paramTypeToC(dartType, structNames);
 
-String _jniCallbackParamToC(BridgeParam param, Set<String> enumNames) => CppBridgeGenerator._callbackParamToC(param, enumNames);
+String _jniCallbackParamToC(BridgeParam param, Set<String> enumNames, {Set<String>? structNames, Set<String>? recordNames}) => CppBridgeGenerator._callbackParamToC(param, enumNames, structNames: structNames, recordNames: recordNames);
 
 void _emitZeroCopyTypedDataParam(
   CodeWriter writer,
@@ -63,14 +63,19 @@ void _emitJniMethods(
   Set<String> enumNames,
   Set<String> structNames,
 ) {
+  // Pre-built at function scope so all inner loops can reference it.
+  final recordNames = spec.recordTypes.map((r) => r.name).toSet();
+
   if (spec.functions.any((f) => f.zeroCopyReturn && f.returnType.isTypedData)) {
     writer.line('NITRO_EXPORT void ${libStem}_release_typed_data_return(void* ptr) {');
-    writer.line('    if (!ptr) return;');
+    writer.line('    if (!ptr) { return; }');
+
     writer.line('    int64_t* words = (int64_t*)ptr;');
     writer.line('    void* owner = (void*)(intptr_t)words[2];');
     writer.line('    if (owner != nullptr) {');
     writer.line('        JNIEnv* env = GetEnv();');
-    writer.line('        if (env != nullptr) env->DeleteGlobalRef((jobject)owner);');
+    writer.line('        if (env != nullptr) { env->DeleteGlobalRef((jobject)owner); }');
+
     writer.line('    }');
     writer.line('    free(ptr);');
     writer.line('}');
@@ -92,12 +97,14 @@ void _emitJniMethods(
 
       writer.line('void ${func.cSymbol}($paramsDecl) {');
       writer.line('    JNIEnv* env = GetEnv();');
-      writer.line('    if (env == nullptr) return;');
+      writer.line('    if (env == nullptr) { return; }');
+
       writer.line('    jmethodID methodId = g_mid_${func.dartName}_call;');
       writer.line('    if (methodId == nullptr) { LOGE("Method not found: ${func.dartName}_call sig=$jniNativeAsyncSig"); return; }');
       writer.blankLine();
       writer.line('    ${libStem}_clear_error();');
-      writer.line('    if (env->PushLocalFrame(16) != 0) return;');
+      writer.line('    if (env->PushLocalFrame(16) != 0) { return; }');
+
 
       final callArgsList = <String>[];
       for (final p in func.params) {
@@ -136,7 +143,7 @@ void _emitJniMethods(
       final callArgs = callArgsList.join(', ');
       writer.line('    env->CallStaticVoidMethod(g_bridgeClass, methodId, $callArgs);');
       writer.line('    if (env->ExceptionCheck()) {');
-      writer.line('        nitro_report_jni_exception(env, env->ExceptionOccurred());');
+      writer.line('        nitro_report_jni_exception(env, env->ExceptionOccurred(), _nitro_err);');
       writer.line('    }');
       writer.line('    env->PopLocalFrame(nullptr);');
       writer.line('}');
@@ -161,23 +168,27 @@ void _emitJniMethods(
     final paramsDeclParts = <String>[];
     for (final p in func.params) {
       if (p.type.isFunction) {
-        paramsDeclParts.add(_jniCallbackParamToC(p, enumNames));
+        paramsDeclParts.add(_jniCallbackParamToC(p, enumNames, structNames: structNames, recordNames: recordNames));
         continue;
       }
       paramsDeclParts.add('${_paramTypeToC(p.type.name, structNames)} ${p.name}');
       if (p.type.isTypedData) paramsDeclParts.add('int64_t ${p.name}_length');
     }
+    // S8: sync C functions take NitroError* as the last parameter.
+    paramsDeclParts.add('NitroError* _nitro_err');
     final paramsDecl = paramsDeclParts.join(', ');
 
     writer.line(
-      '$cReturnType ${func.cSymbol}(${paramsDecl.isEmpty ? 'void' : paramsDecl}) {',
+      '$cReturnType ${func.cSymbol}($paramsDecl) {',
     );
+    writer.line('    if (_nitro_err) { _nitro_err->hasError = 0; }  // S8: clear slot');
     writer.line('    JNIEnv* env = GetEnv();');
     if (func.returnType.name == 'void') {
-      writer.line('    if (env == nullptr) return;');
+      writer.line('    if (env == nullptr) { return; }');
+
     } else {
       writer.line(
-        '    if (env == nullptr) return ${_defaultValue(cReturnType)};',
+        '    if (env == nullptr) { return ${_defaultValue(cReturnType)}; }',
       );
     }
     writer.line('    jmethodID methodId = g_mid_${func.dartName}_call;');
@@ -190,9 +201,10 @@ void _emitJniMethods(
     writer.blankLine();
     writer.line('    ${libStem}_clear_error();');
     if (func.returnType.name == 'void') {
-      writer.line('    if (env->PushLocalFrame(16) != 0) return;');
+      writer.line('    if (env->PushLocalFrame(16) != 0) { return; }');
+
     } else {
-      writer.line('    if (env->PushLocalFrame(16) != 0) return ${_defaultValue(cReturnType)};');
+      writer.line('    if (env->PushLocalFrame(16) != 0) { return ${_defaultValue(cReturnType)}; }');
     }
 
     // Build call args (converting C types to JNI types)
@@ -249,7 +261,7 @@ void _emitJniMethods(
         '    double res = env->CallStaticDoubleMethod(g_bridgeClass, methodId$bridgeArgs);',
       );
       writer.line('    if (env->ExceptionCheck()) {');
-      writer.line('        nitro_report_jni_exception(env, env->ExceptionOccurred());');
+      writer.line('        nitro_report_jni_exception(env, env->ExceptionOccurred(), _nitro_err);');
       writer.line('        env->PopLocalFrame(nullptr);');
       writer.line('        return 0.0;');
       writer.line('    }');
@@ -260,7 +272,7 @@ void _emitJniMethods(
         '    int64_t res = env->CallStaticLongMethod(g_bridgeClass, methodId$bridgeArgs);',
       );
       writer.line('    if (env->ExceptionCheck()) {');
-      writer.line('        nitro_report_jni_exception(env, env->ExceptionOccurred());');
+      writer.line('        nitro_report_jni_exception(env, env->ExceptionOccurred(), _nitro_err);');
       writer.line('        env->PopLocalFrame(nullptr);');
       writer.line('        return 0;');
       writer.line('    }');
@@ -271,7 +283,7 @@ void _emitJniMethods(
         '    bool res = env->CallStaticBooleanMethod(g_bridgeClass, methodId$bridgeArgs);',
       );
       writer.line('    if (env->ExceptionCheck()) {');
-      writer.line('        nitro_report_jni_exception(env, env->ExceptionOccurred());');
+      writer.line('        nitro_report_jni_exception(env, env->ExceptionOccurred(), _nitro_err);');
       writer.line('        env->PopLocalFrame(nullptr);');
       writer.line('        return false;');
       writer.line('    }');
@@ -282,7 +294,7 @@ void _emitJniMethods(
         '    jstring jstr = (jstring)env->CallStaticObjectMethod(g_bridgeClass, methodId$bridgeArgs);',
       );
       writer.line('    if (env->ExceptionCheck()) {');
-      writer.line('        nitro_report_jni_exception(env, env->ExceptionOccurred());');
+      writer.line('        nitro_report_jni_exception(env, env->ExceptionOccurred(), _nitro_err);');
       writer.line('        env->PopLocalFrame(nullptr);');
       writer.line('        return nullptr;');
       writer.line('    }');
@@ -303,7 +315,7 @@ void _emitJniMethods(
         '    int64_t res = env->CallStaticLongMethod(g_bridgeClass, methodId$bridgeArgs);',
       );
       writer.line('    if (env->ExceptionCheck()) {');
-      writer.line('        nitro_report_jni_exception(env, env->ExceptionOccurred());');
+      writer.line('        nitro_report_jni_exception(env, env->ExceptionOccurred(), _nitro_err);');
       writer.line('        env->PopLocalFrame(nullptr);');
       writer.line('        return 0;');
       writer.line('    }');
@@ -316,7 +328,7 @@ void _emitJniMethods(
         '    jobject jobj = env->CallStaticObjectMethod(g_bridgeClass, methodId$bridgeArgs);',
       );
       writer.line('    if (env->ExceptionCheck()) {');
-      writer.line('        nitro_report_jni_exception(env, env->ExceptionOccurred());');
+      writer.line('        nitro_report_jni_exception(env, env->ExceptionOccurred(), _nitro_err);');
       writer.line('        env->PopLocalFrame(nullptr);');
       writer.line('        return nullptr;');
       writer.line('    }');
@@ -333,7 +345,7 @@ void _emitJniMethods(
       // Copy bytes to malloc'd buffer and return as void* for Dart RecordReader
       writer.line('    jbyteArray jarr = (jbyteArray)env->CallStaticObjectMethod(g_bridgeClass, methodId$bridgeArgs);');
       writer.line('    if (env->ExceptionCheck()) {');
-      writer.line('        nitro_report_jni_exception(env, env->ExceptionOccurred());');
+      writer.line('        nitro_report_jni_exception(env, env->ExceptionOccurred(), _nitro_err);');
       writer.line('        env->PopLocalFrame(nullptr);');
       writer.line('        return nullptr;');
       writer.line('    }');
@@ -350,7 +362,7 @@ void _emitJniMethods(
       if (func.zeroCopyReturn) {
         writer.line('    jobject jbuf = env->CallStaticObjectMethod(g_bridgeClass, methodId$bridgeArgs);');
         writer.line('    if (env->ExceptionCheck()) {');
-        writer.line('        nitro_report_jni_exception(env, env->ExceptionOccurred());');
+        writer.line('        nitro_report_jni_exception(env, env->ExceptionOccurred(), _nitro_err);');
         writer.line('        env->PopLocalFrame(nullptr);');
         writer.line('        return nullptr;');
         writer.line('    }');
@@ -388,7 +400,7 @@ void _emitJniMethods(
         final elemSize = _typedDataElementSizeExpr(func.returnType.name);
         writer.line('    ${ops[0]} jarr = (${ops[0]})env->CallStaticObjectMethod(g_bridgeClass, methodId$bridgeArgs);');
         writer.line('    if (env->ExceptionCheck()) {');
-        writer.line('        nitro_report_jni_exception(env, env->ExceptionOccurred());');
+        writer.line('        nitro_report_jni_exception(env, env->ExceptionOccurred(), _nitro_err);');
         writer.line('        env->PopLocalFrame(nullptr);');
         writer.line('        return nullptr;');
         writer.line('    }');
@@ -409,7 +421,7 @@ void _emitJniMethods(
       writer.line('    return ${_defaultValue(cReturnType)};');
     }
     if (func.returnType.name == 'void') {
-      writer.line('    if (env->ExceptionCheck()) { nitro_report_jni_exception(env, env->ExceptionOccurred()); }');
+      writer.line('    if (env->ExceptionCheck()) { nitro_report_jni_exception(env, env->ExceptionOccurred(), _nitro_err); }');
     }
     writer.line('}');
     writer.blankLine();
@@ -421,15 +433,17 @@ void _emitJniMethods(
     final cType = isEnum ? 'int64_t' : _typeToC(prop.type.name);
 
     if (prop.hasGetter) {
-      writer.line('$cType ${prop.getSymbol}(void) {');
+      // S8: property getter receives NitroError* out-param.
+      writer.line('$cType ${prop.getSymbol}(NitroError* _nitro_err) {');
+      writer.line('    if (_nitro_err) { _nitro_err->hasError = 0; }');
       writer.line('    JNIEnv* env = GetEnv();');
-      writer.line('    if (env == nullptr) return ${_defaultValue(cType)};');
+      writer.line('    if (env == nullptr) { return ${_defaultValue(cType)}; }');
       writer.line('    jmethodID methodId = g_mid_${prop.getSymbol}_call;');
       final jniGetSig = '()${isEnum ? 'J' : _jniSigType(prop.type.name)}';
       writer.line(
         '    if (methodId == nullptr) { LOGE("Method not found: ${prop.getSymbol}_call sig=$jniGetSig"); return ${_defaultValue(cType)}; }',
       );
-      writer.line('    if (env->PushLocalFrame(8) != 0) return ${_defaultValue(cType)};');
+      writer.line('    if (env->PushLocalFrame(8) != 0) { return ${_defaultValue(cType)}; }');
       if (prop.type.name == 'double') {
         writer.line(
           '    double res = env->CallStaticDoubleMethod(g_bridgeClass, methodId);',
@@ -470,15 +484,19 @@ void _emitJniMethods(
 
     if (prop.hasSetter) {
       final paramCType = isEnum ? 'int64_t' : _typeToC(prop.type.name);
-      writer.line('void ${prop.setSymbol}($paramCType value) {');
+      // S8: property setter receives NitroError* out-param.
+      writer.line('void ${prop.setSymbol}($paramCType value, NitroError* _nitro_err) {');
+      writer.line('    if (_nitro_err) { _nitro_err->hasError = 0; }');
       writer.line('    JNIEnv* env = GetEnv();');
-      writer.line('    if (env == nullptr) return;');
+      writer.line('    if (env == nullptr) { return; }');
+
       writer.line('    jmethodID methodId = g_mid_${prop.setSymbol}_call;');
       final jniSetSig = '(${isEnum ? 'J' : _jniSigType(prop.type.name)})V';
       writer.line(
         '    if (methodId == nullptr) { LOGE("Method not found: ${prop.setSymbol}_call sig=$jniSetSig"); return; }',
       );
-      writer.line('    if (env->PushLocalFrame(8) != 0) return;');
+      writer.line('    if (env->PushLocalFrame(8) != 0) { return; }');
+
       if (prop.type.name == 'String') {
         writer.line('    jstring jval = env->NewStringUTF(value);');
         writer.line(
@@ -506,7 +524,8 @@ void _emitJniMethods(
 
     writer.line('void ${stream.registerSymbol}(int64_t dart_port) {');
     writer.line('    JNIEnv* env = GetEnv();');
-    writer.line('    if (env == nullptr) return;');
+    writer.line('    if (env == nullptr) { return; }');
+
     writer.line('    jmethodID methodId = g_mid_${stream.registerSymbol}_call;');
     writer.line('    if (methodId == nullptr) { LOGE("Method not found: ${stream.registerSymbol}_call sig=(J)V"); return; }');
     writer.line('    env->CallStaticVoidMethod(g_bridgeClass, methodId, dart_port);');
@@ -514,7 +533,8 @@ void _emitJniMethods(
     writer.blankLine();
     writer.line('void ${stream.releaseSymbol}(int64_t dart_port) {');
     writer.line('    JNIEnv* env = GetEnv();');
-    writer.line('    if (env == nullptr) return;');
+    writer.line('    if (env == nullptr) { return; }');
+
     writer.line('    jmethodID methodId = g_mid_${stream.releaseSymbol}_call;');
     writer.line('    if (methodId == nullptr) { LOGE("Method not found: ${stream.releaseSymbol}_call sig=(J)V"); return; }');
     writer.line('    env->CallStaticVoidMethod(g_bridgeClass, methodId, dart_port);');
@@ -639,11 +659,14 @@ void _emitJniMethods(
       // Map each callback param to its JNI C type and C typedef type.
       // Using type-specific JNI params ensures correct register allocation on ARM64
       // (floating-point values must flow through FP registers, not integer registers).
+
       String jniCParam(BridgeType t) {
         final base = t.name.replaceFirst('?', '');
         if (base == 'double') return 'jdouble';
         if (base == 'bool') return 'jboolean';
         if (base == 'String') return 'jstring';
+        if (structNames.contains(base)) return 'jobject';    // Kotlin data class
+        if (recordNames.contains(base)) return 'jbyteArray'; // serialized ByteArray
         return 'jlong'; // int, enum → jlong
       }
 
@@ -652,6 +675,8 @@ void _emitJniMethods(
         if (base == 'double') return 'double';
         if (base == 'bool') return 'bool';
         if (base == 'String') return 'const char*';
+        if (structNames.contains(base)) return 'const $base*';
+        if (recordNames.contains(base)) return 'const uint8_t*'; // length-prefixed buffer
         return 'int64_t'; // int, enum → int64_t
       }
 
@@ -667,10 +692,21 @@ void _emitJniMethods(
 
       writer.line('JNIEXPORT void JNICALL $jniMethName($cParams) {');
       writer.line('    typedef void (*CB)(${typedefParams.isEmpty ? 'void' : typedefParams});');
-      // Convert jstring args to const char* before the call, release after
+      // Convert jstring → const char* (release after call).
+      // Unpack Kotlin data classes → C struct (stack-allocated).
+      // Copy ByteArray record bytes → malloc'd length-prefixed buffer (Dart frees).
       for (var i = 0; i < cbParams.length; i++) {
-        if (cbParams[i].name.replaceFirst('?', '') == 'String') {
+        final base = cbParams[i].name.replaceFirst('?', '');
+        if (base == 'String') {
           writer.line('    const char* s_arg$i = arg$i ? env->GetStringUTFChars(arg$i, nullptr) : nullptr;');
+        } else if (structNames.contains(base)) {
+          writer.line('    $base c_arg$i = pack_${base}_from_jni(env, arg$i);');
+        } else if (recordNames.contains(base)) {
+          // encode() returns a length-prefixed ByteArray. Copy to malloc'd buffer;
+          // Dart frees via malloc.free() after reading via fromNative().
+          writer.line('    jsize r_len$i = env->GetArrayLength(arg$i);');
+          writer.line('    uint8_t* r_buf$i = (uint8_t*)malloc((size_t)r_len$i);');
+          writer.line('    env->GetByteArrayRegion(arg$i, 0, r_len$i, (jbyte*)r_buf$i);');
         }
       }
       final callArgs = cbParams.asMap().entries.map((e) {
@@ -679,13 +715,16 @@ void _emitJniMethods(
         if (base == 'String') return 's_arg$i';
         if (base == 'double') return '(double)arg$i';
         if (base == 'bool') return '(bool)arg$i';
+        if (structNames.contains(base)) return '&c_arg$i';
+        if (recordNames.contains(base)) return 'r_buf$i';
         return '(int64_t)arg$i';
       }).join(', ');
       writer.line('    ((CB)callbackPtr)(${callArgs.isEmpty ? '' : callArgs});');
       if (needsStringConversion) {
         for (var i = 0; i < cbParams.length; i++) {
           if (cbParams[i].name.replaceFirst('?', '') == 'String') {
-            writer.line('    if (s_arg$i) env->ReleaseStringUTFChars(arg$i, s_arg$i);');
+            writer.line('    if (s_arg$i) { env->ReleaseStringUTFChars(arg$i, s_arg$i); }');
+
           }
         }
       }

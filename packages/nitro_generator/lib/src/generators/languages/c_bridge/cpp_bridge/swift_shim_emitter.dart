@@ -54,11 +54,14 @@ void _emitSwiftBridgeSection(
         : func.returnType.isTypedData
         ? 'uint8_t*'
         : CppBridgeGenerator._typeToC(func.returnType.name);
+    // S8: add NitroError* out-param; the Swift @_cdecl stub does not use it,
+    // but the C wrapper must accept and propagate it.
+    final paramsWithErr = [...paramParts, 'NitroError* _nitro_err'].join(', ');
     final params = paramParts.join(', ');
     final callParams = callParamParts.join(', ');
     writer.line('extern $cReturnType _${spec.namespace}_call_${func.dartName}(${params.isEmpty ? 'void' : params});');
-    writer.line('$cReturnType ${func.cSymbol}(${params.isEmpty ? 'void' : params}) {');
-    writer.line('    ${libStem}_clear_error();');
+    writer.line('$cReturnType ${func.cSymbol}($paramsWithErr) {');
+    writer.line('    if (_nitro_err) { _nitro_err->hasError = 0; }');
     writer.line('#ifdef __OBJC__');
     writer.line('    @try {');
     if (func.returnType.name != 'void') {
@@ -67,7 +70,14 @@ void _emitSwiftBridgeSection(
       writer.line('        _${spec.namespace}_call_${func.dartName}($callParams);');
     }
     writer.line('    } @catch (NSException* e) {');
-    writer.line('        nitro_report_error([e.name UTF8String], [e.reason UTF8String], nullptr, nullptr);');
+    // S8: write to out-param instead of TLS slot.
+    writer.line('        if (_nitro_err) {');
+    writer.line('            _nitro_err->hasError = 1;');
+    writer.line('            _nitro_err->name    = strdup([e.name UTF8String]);');
+    writer.line('            _nitro_err->message = strdup([e.reason UTF8String]);');
+    writer.line('            _nitro_err->code = nullptr;');
+    writer.line('            _nitro_err->stackTrace = nullptr;');
+    writer.line('        }');
     if (func.returnType.name != 'void') {
       writer.line('        return ${CppBridgeGenerator._defaultValue(cReturnType)};');
     }
@@ -88,7 +98,9 @@ void _emitSwiftBridgeSection(
     final cType = isEnum ? 'int64_t' : CppBridgeGenerator._typeToC(prop.type.name);
     if (prop.hasGetter) {
       writer.line('extern $cType _${spec.namespace}_call_get_${prop.dartName}(void);');
-      writer.line('$cType ${prop.getSymbol}(void) {');
+      // S8: getter receives NitroError* out-param.
+      writer.line('$cType ${prop.getSymbol}(NitroError* _nitro_err) {');
+      writer.line('    if (_nitro_err) { _nitro_err->hasError = 0; }');
       writer.line('    return _${spec.namespace}_call_get_${prop.dartName}();');
       writer.line('}');
       writer.blankLine();
@@ -96,7 +108,9 @@ void _emitSwiftBridgeSection(
     if (prop.hasSetter) {
       final paramCType = isEnum ? 'int64_t' : CppBridgeGenerator._typeToC(prop.type.name);
       writer.line('extern void _${spec.namespace}_call_set_${prop.dartName}($paramCType value);');
-      writer.line('void ${prop.setSymbol}($paramCType value) {');
+      // S8: setter receives NitroError* out-param.
+      writer.line('void ${prop.setSymbol}($paramCType value, NitroError* _nitro_err) {');
+      writer.line('    if (_nitro_err) { _nitro_err->hasError = 0; }');
       writer.line('    _${spec.namespace}_call_set_${prop.dartName}(value);');
       writer.line('}');
       writer.blankLine();

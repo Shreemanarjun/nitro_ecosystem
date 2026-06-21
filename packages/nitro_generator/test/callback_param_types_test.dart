@@ -5,7 +5,6 @@
 /// - Kotlin external `_invoke_` fun: correct Kotlin JVM type
 /// - Swift `@_cdecl` stub: correct `@convention(c)` type + wrapper conversion
 /// - Dart FFI NativeCallable: correct FFI type + Dart conversion in listener
-library callback_param_types_test;
 
 import 'package:nitro_annotations/nitro_annotations.dart';
 import 'package:nitro_generator/src/bridge_spec.dart';
@@ -13,7 +12,41 @@ import 'package:nitro_generator/src/generators/languages/c_bridge/cpp_bridge_gen
 import 'package:nitro_generator/src/generators/languages/dart/dart_ffi_generator.dart';
 import 'package:nitro_generator/src/generators/languages/kotlin/kotlin_generator.dart';
 import 'package:nitro_generator/src/generators/languages/swift/swift_generator.dart';
+import 'package:nitro_generator/src/spec_validator.dart';
 import 'package:test/test.dart';
+
+// ── Record fixture ─────────────────────────────────────────────────────────────
+
+BridgeSpec _recordSpec({required List<BridgeType> cbParams, List<BridgeRecordType> records = const []}) {
+  return BridgeSpec(
+    dartClassName: 'Analytics',
+    lib: 'analytics',
+    namespace: 'analytics',
+    androidImpl: NativeImpl.kotlin,
+    iosImpl: NativeImpl.swift,
+    sourceUri: 'analytics.native.dart',
+    recordTypes: records,
+    functions: [
+      BridgeFunction(
+        dartName: 'onEvent',
+        cSymbol: 'analytics_on_event',
+        isAsync: false,
+        returnType: BridgeType(name: 'void'),
+        params: [
+          BridgeParam(
+            name: 'handler',
+            type: BridgeType(
+              name: 'Function',
+              isFunction: true,
+              functionReturnType: 'void',
+              functionParams: cbParams,
+            ),
+          ),
+        ],
+      ),
+    ],
+  );
+}
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -23,9 +56,19 @@ final _stateEnum = BridgeEnum(
   values: ['active', 'idle', 'error'],
 );
 
+final _readingStruct = BridgeStruct(
+  name: 'SensorReading',
+  packed: false,
+  fields: [
+    BridgeField(name: 'value', type: BridgeType(name: 'double')),
+    BridgeField(name: 'ts', type: BridgeType(name: 'int')),
+  ],
+);
+
 BridgeSpec _spec({
   required List<BridgeType> cbParams,
   List<BridgeEnum> enums = const [],
+  List<BridgeStruct> structs = const [],
 }) {
   return BridgeSpec(
     dartClassName: 'Device',
@@ -35,6 +78,7 @@ BridgeSpec _spec({
     iosImpl: NativeImpl.swift,
     sourceUri: 'device.native.dart',
     enums: enums,
+    structs: structs,
     functions: [
       BridgeFunction(
         dartName: 'subscribe',
@@ -303,6 +347,188 @@ void main() {
       final out = SwiftGenerator.generate(_spec(cbParams: []));
       expect(out, contains('@convention(c) () -> Void'));
       expect(out, contains('{ callback() }'));
+    });
+  });
+
+  // ── @HybridStruct callback param ───────────────────────────────────────────
+  group('@HybridStruct callback parameter types', () {
+    test('spec validator accepts struct callback params', () {
+      // Previously rejected; structs are now a supported callback param type.
+      final spec = _spec(
+        cbParams: [BridgeType(name: 'SensorReading')],
+        structs: [_readingStruct],
+      );
+      expect(SpecValidator.validate(spec).where((i) => i.isError), isEmpty);
+    });
+
+    test('C++ JNI → jobject param + pack_*_from_jni + const StructName* in typedef', () {
+      final out = CppBridgeGenerator.generate(
+        _spec(cbParams: [BridgeType(name: 'SensorReading')], structs: [_readingStruct]),
+      );
+      expect(out, contains('jlong callbackPtr, jobject arg0'));
+      expect(out, contains('typedef void (*CB)(const SensorReading*);'));
+      expect(out, contains('SensorReading c_arg0 = pack_SensorReading_from_jni(env, arg0);'));
+      expect(out, contains('((CB)callbackPtr)(&c_arg0);'));
+    });
+
+    test('Kotlin _invoke_ → struct data class param type', () {
+      final out = KotlinGenerator.generate(
+        _spec(cbParams: [BridgeType(name: 'SensorReading')], structs: [_readingStruct]),
+      );
+      expect(out, contains('external fun _invoke_callback(callbackPtr: Long, arg0: SensorReading)'));
+      expect(out, isNot(contains('arg0: Long')));
+    });
+
+    test('Kotlin lambda → passes data class directly (no nativeValue)', () {
+      final out = KotlinGenerator.generate(
+        _spec(cbParams: [BridgeType(name: 'SensorReading')], structs: [_readingStruct]),
+      );
+      expect(out, contains('_invoke_callback(callback, p0)'));
+      expect(out, isNot(contains('p0.nativeValue')));
+    });
+
+    test('Swift @convention(c) → UnsafeRawPointer? for struct param', () {
+      final out = SwiftGenerator.generate(
+        _spec(cbParams: [BridgeType(name: 'SensorReading')], structs: [_readingStruct]),
+      );
+      expect(out, contains('@convention(c) (UnsafeRawPointer?) -> Void'));
+      expect(out, isNot(contains('@convention(c) (Int64) -> Void')));
+    });
+
+    test('Swift protocol → idiomatic Swift struct type in callback', () {
+      final out = SwiftGenerator.generate(
+        _spec(cbParams: [BridgeType(name: 'SensorReading')], structs: [_readingStruct]),
+      );
+      expect(out, contains('callback: @escaping (SensorReading) -> Void'));
+    });
+
+    test('Swift wrapper → shadow struct + UnsafeRawPointer(&_s0)', () {
+      final out = SwiftGenerator.generate(
+        _spec(cbParams: [BridgeType(name: 'SensorReading')], structs: [_readingStruct]),
+      );
+      expect(out, contains('var _s0 = _SensorReadingC.fromSwift(arg0)'));
+      expect(out, contains('UnsafeRawPointer(&_s0)'));
+    });
+
+    test('Dart FFI → Void Function(Pointer<Void>), casts to StructFfi', () {
+      final out = DartFfiGenerator.generate(
+        _spec(cbParams: [BridgeType(name: 'SensorReading')], structs: [_readingStruct]),
+      );
+      expect(out, contains('NativeCallable<Void Function(Pointer<Void>)>'));
+      expect(out, contains('arg0.cast<SensorReadingFfi>().ref.toDart()'));
+    });
+
+    test('mixed struct + primitive → correct types for all positions', () {
+      final out = CppBridgeGenerator.generate(
+        _spec(
+          cbParams: [
+            BridgeType(name: 'SensorReading'),
+            BridgeType(name: 'int'),
+            BridgeType(name: 'bool'),
+          ],
+          structs: [_readingStruct],
+        ),
+      );
+      expect(out, contains('jlong callbackPtr, jobject arg0, jlong arg1, jboolean arg2'));
+      expect(out, contains('typedef void (*CB)(const SensorReading*, int64_t, bool);'));
+      expect(out, contains('SensorReading c_arg0 = pack_SensorReading_from_jni(env, arg0);'));
+      expect(out, contains('((CB)callbackPtr)(&c_arg0, (int64_t)arg1, (bool)arg2);'));
+    });
+  });
+
+  // ── @HybridRecord callback param ───────────────────────────────────────────
+  group('@HybridRecord callback parameter types', () {
+    final _eventRecord = BridgeRecordType(
+      name: 'AnalyticsEvent',
+      fields: [
+        BridgeRecordField(name: 'name', dartType: 'String', kind: RecordFieldKind.primitive),
+        BridgeRecordField(name: 'value', dartType: 'double', kind: RecordFieldKind.primitive),
+      ],
+    );
+
+    test('spec validator accepts record callback params', () {
+      final spec = _recordSpec(
+        cbParams: [BridgeType(name: 'AnalyticsEvent', isRecord: true)],
+        records: [_eventRecord],
+      );
+      expect(SpecValidator.validate(spec).where((i) => i.isError), isEmpty);
+    });
+
+    test('C++ JNI → jbyteArray param + malloc copy + const uint8_t* in typedef', () {
+      final out = CppBridgeGenerator.generate(
+        _recordSpec(
+          cbParams: [BridgeType(name: 'AnalyticsEvent', isRecord: true)],
+          records: [_eventRecord],
+        ),
+      );
+      expect(out, contains('jlong callbackPtr, jbyteArray arg0'));
+      expect(out, contains('typedef void (*CB)(const uint8_t*);'));
+      expect(out, contains('jsize r_len0 = env->GetArrayLength(arg0);'));
+      expect(out, contains('uint8_t* r_buf0 = (uint8_t*)malloc((size_t)r_len0);'));
+      expect(out, contains('env->GetByteArrayRegion(arg0, 0, r_len0, (jbyte*)r_buf0);'));
+      expect(out, contains('((CB)callbackPtr)(r_buf0);'));
+    });
+
+    test('Kotlin _invoke_ → ByteArray param type', () {
+      final out = KotlinGenerator.generate(
+        _recordSpec(
+          cbParams: [BridgeType(name: 'AnalyticsEvent', isRecord: true)],
+          records: [_eventRecord],
+        ),
+      );
+      expect(out, contains('external fun _invoke_handler(callbackPtr: Long, arg0: ByteArray)'));
+    });
+
+    test('Kotlin lambda → .encode() to serialize record', () {
+      final out = KotlinGenerator.generate(
+        _recordSpec(
+          cbParams: [BridgeType(name: 'AnalyticsEvent', isRecord: true)],
+          records: [_eventRecord],
+        ),
+      );
+      expect(out, contains('_invoke_handler(handler, p0.encode())'));
+    });
+
+    test('Swift @convention(c) → UnsafeMutablePointer<UInt8>? for record', () {
+      final out = SwiftGenerator.generate(
+        _recordSpec(
+          cbParams: [BridgeType(name: 'AnalyticsEvent', isRecord: true)],
+          records: [_eventRecord],
+        ),
+      );
+      expect(out, contains('@convention(c) (UnsafeMutablePointer<UInt8>?) -> Void'));
+    });
+
+    test('Swift protocol → idiomatic record type in callback', () {
+      final out = SwiftGenerator.generate(
+        _recordSpec(
+          cbParams: [BridgeType(name: 'AnalyticsEvent', isRecord: true)],
+          records: [_eventRecord],
+        ),
+      );
+      expect(out, contains('handler: @escaping (AnalyticsEvent) -> Void'));
+    });
+
+    test('Swift wrapper → toNative() to serialize record to malloc buffer', () {
+      final out = SwiftGenerator.generate(
+        _recordSpec(
+          cbParams: [BridgeType(name: 'AnalyticsEvent', isRecord: true)],
+          records: [_eventRecord],
+        ),
+      );
+      expect(out, contains('arg0.toNative()'));
+    });
+
+    test('Dart FFI → Void Function(Pointer<Uint8>), fromNative + malloc.free', () {
+      final out = DartFfiGenerator.generate(
+        _recordSpec(
+          cbParams: [BridgeType(name: 'AnalyticsEvent', isRecord: true)],
+          records: [_eventRecord],
+        ),
+      );
+      expect(out, contains('NativeCallable<Void Function(Pointer<Uint8>)>'));
+      expect(out, contains('AnalyticsEvent.fromNative(arg0)'));
+      expect(out, contains('malloc.free(arg0)'));
     });
   });
 

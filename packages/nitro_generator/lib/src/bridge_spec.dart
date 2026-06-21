@@ -159,6 +159,14 @@ class BridgeType {
   /// Parameter types for function types (empty list if not a function).
   final List<BridgeType> functionParams;
 
+  /// True when this type is `NativeHandle<T>` — a raw opaque pointer that
+  /// crosses the bridge with zero codec overhead.
+  final bool isNativeHandle;
+
+  /// The type parameter T in `NativeHandle<T>` (e.g. 'Void', 'CameraFrame').
+  /// Used for documentation only; the wire format is always `void*` / `Long`.
+  final String? nativeHandleTypeParam;
+
   BridgeType({
     required this.name,
     this.isNullable = false,
@@ -173,6 +181,8 @@ class BridgeType {
     this.isFunction = false,
     this.functionReturnType,
     this.functionParams = const [],
+    this.isNativeHandle = false,
+    this.nativeHandleTypeParam,
   });
 }
 
@@ -263,6 +273,13 @@ class BridgeFunction {
   /// Populated by the spec extractor; null when constructed manually.
   final int? lineNumber;
 
+  /// True when the function is annotated with @NitroOwned.
+  ///
+  /// Only valid when [returnType.isNativeHandle] is true. The generator
+  /// emits a `NativeFinalizer` that calls `${cSymbol}_release(void*)` when
+  /// the returned [NativeHandle] is garbage-collected.
+  final bool isOwned;
+
   BridgeFunction({
     required this.dartName,
     required this.cSymbol,
@@ -272,6 +289,7 @@ class BridgeFunction {
     required this.params,
     this.zeroCopyReturn = false,
     this.lineNumber,
+    this.isOwned = false,
   });
 }
 

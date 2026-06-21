@@ -15,5 +15,7 @@ const Map<String, List<String>> nitroBuilderExtensions = {
     'lib/{{dir}}/generated/cpp/{{file}}.native.g.h',
     'lib/{{dir}}/generated/cpp/test/{{file}}.mock.g.h',
     'lib/{{dir}}/generated/cpp/test/{{file}}.test.g.cpp',
+    // PX18: NativeImpl.wasm — dart:js_interop bridge for web targets
+    'lib/{{dir}}/generated/web/{{file}}.web.bridge.g.dart',
   ],
 };

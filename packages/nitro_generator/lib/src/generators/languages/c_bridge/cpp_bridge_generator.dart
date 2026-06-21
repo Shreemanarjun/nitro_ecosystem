@@ -1,3 +1,5 @@
+import 'package:nitro_annotations/nitro_annotations.dart' show CppImpl;
+
 import '../../../bridge_spec.dart';
 import '../../code_writer.dart';
 import '../../generator_metadata.dart';
@@ -111,7 +113,8 @@ class CppBridgeGenerator {
       writer.line('extern "C" {');
       for (final st in spec.structs) {
         writer.line('void ${libStem}_release_${st.name}(void* ptr) {');
-        writer.line('    if (!ptr) return;');
+        writer.line('    if (!ptr) { return; }');
+
         final hasStrings = st.fields.any((f) => f.type.name == 'String');
         final hasNestedStructs = st.fields.any((f) => structNames.contains(f.type.name.replaceFirst('?', '')));
         final hasNonZcDataJni = st.fields.any((f) => f.type.isTypedData && !f.zeroCopy);
@@ -119,7 +122,7 @@ class CppBridgeGenerator {
           writer.line('    ${st.name}* st_ptr = (${st.name}*)ptr;');
           for (final f in st.fields) {
             if (f.type.name == 'String') {
-              writer.line('    if (st_ptr->${f.name}) free((void*)st_ptr->${f.name});');
+              writer.line('    if (st_ptr->${f.name}) { free((void*)st_ptr->${f.name}); }');
             } else if (structNames.contains(f.type.name.replaceFirst('?', ''))) {
               writer.line('    if (st_ptr->${f.name}) { free(st_ptr->${f.name}); st_ptr->${f.name} = nullptr; }');
             } else if (f.type.isTypedData && !f.zeroCopy) {
@@ -181,7 +184,35 @@ class CppBridgeGenerator {
         _emitSwiftBridgeSection(writer, spec, libStem, enumNames, structNames);
       }
     }
-    if (includeAndroid && includeApple) writer.line('#endif');
+    // ── Desktop C++ section: Windows / Linux ────────────────────────────────
+    // When Windows or Linux targets use NativeImpl.cpp in a mixed spec
+    // (e.g. android:kotlin + windows:cpp), emit a direct C++ dispatch block
+    // guarded by the appropriate preprocessor macro.
+    final targetsWindowsCpp = spec.targetsWindows && (spec.windowsImpl is CppImpl);
+    final targetsLinuxCpp = spec.targetsLinux && (spec.linuxImpl is CppImpl);
+    final hasDesktopCpp = targetsWindowsCpp || targetsLinuxCpp;
+
+    if (hasDesktopCpp) {
+      // Build the preprocessor guard for the desktop platforms that use C++.
+      final guards = <String>[
+        if (targetsWindowsCpp) 'defined(_WIN32)',
+        if (targetsLinuxCpp) 'defined(__linux__)',
+      ].join(' || ');
+
+      // Only emit the #elif chain if we're already inside an #ifdef block.
+      // If neither Android nor Apple was targeted, the desktop section is the
+      // only section — no #ifdef wrapper is needed (isCppImpl would have been
+      // true and we'd have gone through _generateCppDirect instead).
+      final insideIfdef = includeAndroid || includeApple;
+      if (insideIfdef) {
+        writer.line('#elif $guards  // Windows/Linux: NativeImpl.cpp — direct C++ dispatch');
+      }
+      _emitAppleCppDispatch(writer, spec, libStem, enumNames, structNames);
+    }
+
+    // Close the preprocessor ifdef chain when more than one platform section
+    // was opened (android+apple or android+desktop).
+    if (includeAndroid && (includeApple || hasDesktopCpp)) writer.line('#endif');
     return writer.toString();
   }
 
@@ -215,7 +246,8 @@ class CppBridgeGenerator {
       final itemCpp = _cppScalarType(stream.itemType.name, enumNames, structNames);
       writer.line('void Hybrid$className::emit_${stream.dartName}($itemCpp item) {');
       writer.line('    int64_t port = g_port_${stream.dartName};');
-      writer.line('    if (port == 0) return;');
+      writer.line('    if (port == 0) { return; }');
+
       if (isStruct) {
         final stName = stream.itemType.name.replaceFirst('?', '');
         writer.line('    $stName* st_ptr = nullptr;');
@@ -270,7 +302,8 @@ class CppBridgeGenerator {
     writer.line('Hybrid$className* ${libStem}_get_impl() { return g_impl; }');
     if (spec.functions.any((f) => f.zeroCopyReturn && f.returnType.isTypedData)) {
       writer.line('NITRO_EXPORT void ${libStem}_release_typed_data_return(void* ptr) {');
-      writer.line('    if (!ptr) return;');
+      writer.line('    if (!ptr) { return; }');
+
       writer.line('    free(ptr);');
       writer.line('}');
     }
@@ -340,7 +373,7 @@ class CppBridgeGenerator {
         final isStructParam = structNames.contains(p.type.name.replaceFirst('?', ''));
         final isRecordParam = p.type.isRecord;
         if (p.type.isFunction) {
-          paramParts.add(_callbackParamToC(p, enumNames));
+          paramParts.add(_callbackParamToC(p, enumNames, structNames: structNames, recordNames: recordNames));
         } else {
           paramParts.add('${(isStructParam || isRecordParam) ? 'void*' : _typeToC(p.type.name)} ${p.name}');
         }
@@ -524,7 +557,7 @@ class CppBridgeGenerator {
       writer.line('    g_port_${stream.dartName} = dart_port;');
       writer.line('}');
       writer.line('void ${stream.releaseSymbol}(int64_t dart_port) {');
-      writer.line('    if (g_port_${stream.dartName} == dart_port) g_port_${stream.dartName} = 0;');
+      writer.line('    if (g_port_${stream.dartName} == dart_port) { g_port_${stream.dartName} = 0; }');
       writer.line('}');
       writer.blankLine();
     }
@@ -532,7 +565,8 @@ class CppBridgeGenerator {
     writer.line('} // extern "C"');
   }
 
-  static String _typeToC(String dartType) {
+  static String _typeToC(String dartType, {bool isNativeHandle = false}) {
+    if (isNativeHandle) return 'void*'; // NativeHandle<T> is always void*
     switch (dartType.replaceFirst('?', '')) {
       case 'int':
         return 'int64_t';
@@ -569,20 +603,22 @@ class CppBridgeGenerator {
     }
   }
 
-  static String _callbackParamToC(BridgeParam param, Set<String> enumNames) {
+  static String _callbackParamToC(BridgeParam param, Set<String> enumNames, {Set<String>? structNames, Set<String>? recordNames}) {
     final callback = param.type;
-    final ret = _callbackTypeToC(callback.functionReturnType ?? 'void', enumNames);
-    final params = callback.functionParams.map((p) => _callbackTypeToC(p.name, enumNames, bridgeType: p)).join(', ');
+    final ret = _callbackTypeToC(callback.functionReturnType ?? 'void', enumNames, structNames: structNames, recordNames: recordNames);
+    final params = callback.functionParams.map((p) => _callbackTypeToC(p.name, enumNames, bridgeType: p, structNames: structNames, recordNames: recordNames)).join(', ');
     final paramStr = params.isEmpty ? 'void' : params;
     return '$ret (*${param.name})($paramStr)';
   }
 
-  static String _callbackTypeToC(String dartType, Set<String> enumNames, {BridgeType? bridgeType}) {
+  static String _callbackTypeToC(String dartType, Set<String> enumNames, {BridgeType? bridgeType, Set<String>? structNames, Set<String>? recordNames}) {
     if (bridgeType?.isPointer == true) {
       return _pointerInnerToC(bridgeType!.pointerInnerType);
     }
     final base = dartType.replaceFirst('?', '');
     if (enumNames.contains(base)) return 'int64_t';
+    if (structNames?.contains(base) == true) return 'const $base*';
+    if (recordNames?.contains(base) == true) return 'const uint8_t*'; // length-prefixed buffer
     return _typeToC(base);
   }
 

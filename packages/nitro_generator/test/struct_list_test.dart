@@ -205,7 +205,7 @@ void main() {
     test('FFI function pointer uses Pointer<Uint8> type for the list return', () {
       final out = DartFfiGenerator.generate(_structListReturnSpec());
       // Should use Pointer<Uint8> (record path) for the getPrinters function pointer
-      expect(out, contains('Pointer<Uint8> Function()'));
+      expect(out, contains('Pointer<Uint8> Function(Pointer<NitroErrorFfi>)'));
       // Should NOT use Pointer<Void> in the function pointer lookup for getPrinters
       expect(out, isNot(contains("lookupFunction<Pointer<Void> Function(), Pointer<Void> Function()>('print_module_get_printers')")));
     });

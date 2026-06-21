@@ -122,12 +122,12 @@ void main() {
       final out = DartFfiGenerator.generate(_callbackParamSpec());
 
       expect(out, contains('final Map<Object, NativeCallable<dynamic>> _nativeCallbackCache = {};'));
-      expect(out, contains('void Function(Pointer<NativeFunction<Void Function(Int64)>>) _watchPtr'));
+      expect(out, contains('void Function(Pointer<NativeFunction<Void Function(Int64)>>, Pointer<NitroErrorFfi>) _watchPtr'));
       expect(out, contains('NativeCallable<Void Function(Int64)> _nativeCallbackWatchOnEvent(void Function(int) callback)'));
       expect(out, contains("final key = ('watch.onEvent', callback);"));
       expect(out, contains('NativeCallable<Void Function(Int64)>.listener((int arg0)'));
       expect(out, contains('callback(arg0);'));
-      expect(out, contains('_watchPtr(_nativeCallbackWatchOnEvent(onEvent).nativeFunction);'));
+      expect(out, contains('_watchPtr(_nativeCallbackWatchOnEvent(onEvent).nativeFunction, _nitroErr);'));
       expect(out, contains('callback.close();'));
       expect(out, contains('_nativeCallbackCache.clear();'));
     });
@@ -144,7 +144,7 @@ void main() {
     test('CppHeaderGenerator emits real function pointer callback parameters', () {
       final out = CppHeaderGenerator.generate(_callbackParamSpec());
 
-      expect(out, contains('NITRO_EXPORT void camera_watch(void (*onEvent)(int64_t));'));
+      expect(out, contains('NITRO_EXPORT void camera_watch(void (*onEvent)(int64_t), NitroError* _nitro_err);'));
     });
 
     test('C++ interface and bridge preserve callback function pointer ABI', () {
@@ -153,7 +153,7 @@ void main() {
       final bridge = CppBridgeGenerator.generate(spec);
 
       expect(iface, contains('virtual void watch(void (*onEvent)(int64_t)) = 0;'));
-      expect(bridge, contains('void camera_watch(void (*onEvent)(int64_t))'));
+      expect(bridge, contains('void camera_watch(void (*onEvent)(int64_t), NitroError* _nitro_err)'));
       expect(bridge, contains('g_impl->watch(onEvent);'));
       expect(bridge, isNot(contains('void* onEvent')));
     });
@@ -162,19 +162,32 @@ void main() {
       final bridge = CppBridgeGenerator.generate(_jniEnumCallbackParamSpec());
 
       expect(bridge, contains('torch_watch'));
-      expect(bridge, contains('void torch_watch(void (*onTorchState)(int64_t))'));
+      expect(bridge, contains('void torch_watch(void (*onTorchState)(int64_t), NitroError* _nitro_err)'));
       expect(bridge, contains('GetStaticMethodID(g_bridgeClass, "watch_call", "(J)V")'));
       expect(bridge, contains('CallStaticVoidMethod(g_bridgeClass, methodId, (jlong)onTorchState)'));
       expect(bridge, isNot(contains('Unknown JNI signature type')));
     });
 
-    test('SpecValidator rejects struct callback params before C bridge generation', () {
+    test('SpecValidator accepts @HybridStruct callback params', () {
+      // Struct callback params were previously rejected; they are now supported.
       final issues = SpecValidator.validate(_unsupportedStructCallbackParamSpec());
+      expect(issues.where((i) => i.code == 'UNSUPPORTED_FUNCTION_TYPE'), isEmpty);
+    });
 
-      final issue = issues.singleWhere((i) => i.code == 'UNSUPPORTED_FUNCTION_TYPE');
-      expect(issue.isError, isTrue);
-      expect(issue.message, contains('callback parameter type "TorchState"'));
-      expect(issue.hint, contains('Callback parameters support'));
+    test('CppBridgeGenerator emits const TorchState* in callback typedef for struct param', () {
+      final bridge = CppBridgeGenerator.generate(_unsupportedStructCallbackParamSpec());
+      expect(bridge, contains('const TorchState*'));
+    });
+
+    test('SpecValidator accepts @HybridRecord callback params', () {
+      // Records are now supported: encode()/toNative() serializes, fromNative() deserializes.
+      final issues = SpecValidator.validate(_unsupportedRecordCallbackParamSpec());
+      expect(issues.where((i) => i.code == 'UNSUPPORTED_FUNCTION_TYPE'), isEmpty);
+    });
+
+    test('CppBridgeGenerator emits const uint8_t* in callback typedef for record param', () {
+      final bridge = CppBridgeGenerator.generate(_unsupportedRecordCallbackParamSpec());
+      expect(bridge, contains('const uint8_t*'));
     });
 
     test('DartFfiGenerator refuses callback return types if validation is bypassed', () {
@@ -414,6 +427,41 @@ BridgeSpec _unsupportedCallbackParamSpec() {
               isFunction: true,
               functionReturnType: 'String',
               functionParams: [BridgeType(name: 'int')],
+            ),
+          ),
+        ],
+      ),
+    ],
+  );
+}
+
+BridgeSpec _unsupportedRecordCallbackParamSpec() {
+  return BridgeSpec(
+    dartClassName: 'Sensor',
+    lib: 'sensor',
+    namespace: 'sensor',
+    androidImpl: NativeImpl.kotlin,
+    sourceUri: 'sensor.native.dart',
+    recordTypes: [
+      BridgeRecordType(
+        name: 'Reading',
+        fields: [BridgeRecordField(name: 'value', dartType: 'double', kind: RecordFieldKind.primitive)],
+      ),
+    ],
+    functions: [
+      BridgeFunction(
+        dartName: 'onReading',
+        cSymbol: 'sensor_on_reading',
+        isAsync: false,
+        returnType: BridgeType(name: 'void'),
+        params: [
+          BridgeParam(
+            name: 'handler',
+            type: BridgeType(
+              name: 'void Function(Reading)',
+              isFunction: true,
+              functionReturnType: 'void',
+              functionParams: [BridgeType(name: 'Reading', isRecord: true)],
             ),
           ),
         ],

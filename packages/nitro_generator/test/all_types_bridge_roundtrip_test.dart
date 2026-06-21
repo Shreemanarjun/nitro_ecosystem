@@ -128,7 +128,7 @@ void main() {
         'int return — Dart: int; Kotlin: Long non-nullable; Swift: Int64 direct',
         src,
         dart: BridgeChecks(
-          has: ['int getCount()', 'Int64 Function()'],
+          has: ['int getCount()', 'Int64 Function(Pointer<NitroErrorFfi>)'],
           hasNot: ['int? getCount'],
         ),
         kotlin: BridgeChecks(
@@ -149,7 +149,7 @@ void main() {
         'double return — Dart: double; Kotlin: Double; Swift: Double direct',
         src,
         dart: BridgeChecks(
-          has: ['double getRatio()', 'Double Function()'],
+          has: ['double getRatio()', 'Double Function(Pointer<NitroErrorFfi>)'],
           hasNot: ['double? getRatio'],
         ),
         kotlin: BridgeChecks(
@@ -169,7 +169,7 @@ void main() {
         'bool return — Dart: bool; Kotlin: Boolean; Swift: Int8 (0/1)',
         src,
         dart: BridgeChecks(
-          has: ['bool isReady()', 'Int8 Function()'],
+          has: ['bool isReady()', 'Int8 Function(Pointer<NitroErrorFfi>)'],
           hasNot: ['bool? isReady'],
         ),
         kotlin: BridgeChecks(
@@ -217,7 +217,7 @@ void main() {
         'int? return — Dart: int?; Kotlin: Long (non-nullable JNI); Swift: ?? 0',
         src,
         dart: BridgeChecks(
-          has: ['int? getCount()', 'Int64 Function()'],
+          has: ['int? getCount()', 'Int64 Function(Pointer<NitroErrorFfi>)'],
           hasNot: ['int getCount()'],
         ),
         kotlin: BridgeChecks(
@@ -240,7 +240,7 @@ void main() {
         'double? return — Dart: double?; Kotlin: Double (JNI); Swift: ?? 0.0',
         src,
         dart: BridgeChecks(
-          has: ['double? getRatio()', 'Double Function()'],
+          has: ['double? getRatio()', 'Double Function(Pointer<NitroErrorFfi>)'],
           hasNot: ['double getRatio()'],
         ),
         kotlin: BridgeChecks(
@@ -259,7 +259,7 @@ void main() {
         'bool? return — Dart: bool?; Kotlin: Boolean (JNI); Swift: ?? 0 (Int8)',
         src,
         dart: BridgeChecks(
-          has: ['bool? isReady()', 'Int8 Function()'],
+          has: ['bool? isReady()', 'Int8 Function(Pointer<NitroErrorFfi>)'],
           hasNot: ['bool isReady()'],
         ),
         kotlin: BridgeChecks(

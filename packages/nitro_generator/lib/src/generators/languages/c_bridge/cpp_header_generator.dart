@@ -77,6 +77,13 @@ class CppHeaderGenerator {
       CodeLine('NITRO_EXPORT void ${libStem}_clear_error(void);'),
       if (spec.functions.any((f) => f.zeroCopyReturn && f.returnType.isTypedData))
         CodeLine('NITRO_EXPORT void ${libStem}_release_typed_data_return(void* ptr);'),
+      // @NitroOwned: emit a _release symbol for each owned NativeHandle function.
+      // The user implements these to free the native heap allocation.
+      for (final f in spec.functions.where((f) => f.isOwned && f.returnType.isNativeHandle))
+        CodeLine('/// Release the handle returned by ${f.dartName}(). Called by Dart NativeFinalizer.')
+      ,
+      for (final f in spec.functions.where((f) => f.isOwned && f.returnType.isNativeHandle))
+        CodeLine('NITRO_EXPORT void ${f.cSymbol}_release(void* handle);'),
       const BlankLine(),
       const BlankLine(),
       const BlankLine(),
@@ -98,7 +105,7 @@ class CppHeaderGenerator {
           final isStructParam = spec.structs.any(
             (st) => st.name == p.type.name.replaceFirst('?', ''),
           );
-          paramParts.add('${isStructParam ? 'void*' : _typeToC(p.type.name)} ${p.name}');
+          paramParts.add('${(isStructParam || p.type.isNativeHandle) ? 'void*' : _typeToC(p.type.name)} ${p.name}');
           if (p.type.isTypedData) paramParts.add('int64_t ${p.name}_length');
         }
         // @NitroNativeAsync: C entry point is always void + extra dart_port param.
@@ -107,14 +114,15 @@ class CppHeaderGenerator {
           final paramStr = paramParts.join(', ');
           nodes.add(CodeLine('NITRO_EXPORT void ${func.cSymbol}($paramStr);'));
         } else {
+          // S8: sync functions take NitroError* out-param as last argument.
+          paramParts.add('NitroError* _nitro_err');
           final ret = isEnumRet
               ? 'int64_t'
               : func.returnType.isTypedData
               ? 'uint8_t*'
               : _typeToC(func.returnType.name);
           final params = paramParts.join(', ');
-          final paramStr = params.isEmpty ? 'void' : params;
-          nodes.add(CodeLine('NITRO_EXPORT $ret ${func.cSymbol}($paramStr);'));
+          nodes.add(CodeLine('NITRO_EXPORT $ret ${func.cSymbol}($params);'));
         }
       }
       nodes.add(const BlankLine());
@@ -128,11 +136,12 @@ class CppHeaderGenerator {
           (en) => en.name == prop.type.name.replaceFirst('?', ''),
         );
         final cType = isEnumProp ? 'int64_t' : _typeToC(prop.type.name);
+        // S8: property accessors also receive NitroError* out-param.
         if (prop.hasGetter) {
-          nodes.add(CodeLine('NITRO_EXPORT $cType ${prop.getSymbol}(void);'));
+          nodes.add(CodeLine('NITRO_EXPORT $cType ${prop.getSymbol}(NitroError* _nitro_err);'));
         }
         if (prop.hasSetter) {
-          nodes.add(CodeLine('NITRO_EXPORT void ${prop.setSymbol}($cType value);'));
+          nodes.add(CodeLine('NITRO_EXPORT void ${prop.setSymbol}($cType value, NitroError* _nitro_err);'));
         }
       }
       nodes.add(const BlankLine());

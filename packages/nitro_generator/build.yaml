@@ -13,6 +13,7 @@ builders:
         - 'lib/{{dir}}/generated/cpp/{{file}}.native.g.h'
         - 'lib/{{dir}}/generated/cpp/test/{{file}}.mock.g.h'
         - 'lib/{{dir}}/generated/cpp/test/{{file}}.test.g.cpp'
+        - 'lib/{{dir}}/generated/web/{{file}}.web.bridge.g.dart'
     auto_apply: dependents
     build_to: source
     defaults:

@@ -272,7 +272,7 @@ class KotlinGenerator {
             }
             if (p.type.isFunction) {
               // Wrap Long function pointer in a Kotlin lambda.
-              return _emitCallbackLambda(p, enumNames);
+              return _emitCallbackLambda(p, enumNames, structNames: structNames, recordNames: recordNames);
             }
             return p.name;
           })
@@ -430,7 +430,7 @@ class KotlinGenerator {
         // wrong for Double/Boolean params (mismatched descriptors → NSME).
         final paramDecl = StringBuffer('callbackPtr: Long');
         for (var i = 0; i < cbParams.length; i++) {
-          paramDecl.write(', arg$i: ${_callbackParamToKotlinJni(cbParams[i])}');
+          paramDecl.write(', arg$i: ${_callbackParamToKotlinJni(cbParams[i], structNames: structNames, recordNames: recordNames)}');
         }
         writer.line('    @JvmStatic external fun $nativeName($paramDecl)');
       }
@@ -475,6 +475,7 @@ class KotlinGenerator {
     Set<String> recordNames,
     BridgeType t,
   ) {
+    if (t.isNativeHandle) return 'Long';  // raw pointer address
     if (t.isRecord && !t.isMap) {
       if (t.recordListItemType != null && !t.recordListItemIsPrimitive) {
         return 'List<${t.recordListItemType}>';
@@ -572,6 +573,8 @@ class KotlinGenerator {
     String t, {
     BridgeType? bridgeType,
   }) {
+    // NativeHandle<T> bridges as a Long (raw pointer address) across JNI.
+    if (bridgeType?.isNativeHandle == true) return 'Long';
     final name = t.replaceFirst('?', '');
 
     // Handle function types (callbacks)
@@ -629,7 +632,7 @@ class KotlinGenerator {
   /// Maps a callback parameter type to its JNI-compatible Kotlin type.
   /// The `_invoke_` external native method must use these types so that
   /// the JVM method descriptor matches the C JNI function signature exactly.
-  static String _callbackParamToKotlinJni(BridgeType t) {
+  static String _callbackParamToKotlinJni(BridgeType t, {Set<String>? structNames, Set<String>? recordNames}) {
     final base = t.name.replaceFirst('?', '');
     switch (base) {
       case 'double':
@@ -639,6 +642,8 @@ class KotlinGenerator {
       case 'String':
         return 'String?';
       default:
+        if (structNames?.contains(base) == true) return base;        // data class
+        if (recordNames?.contains(base) == true) return 'ByteArray'; // serialized record
         return 'Long'; // int, enum rawValue → Long (jlong)
     }
   }
@@ -650,7 +655,7 @@ class KotlinGenerator {
   /// ```kotlin
   /// { p0: TorchState -> _invoke_onCallback(onCallbackPtr, p0.nativeValue) }
   /// ```
-  static String _emitCallbackLambda(BridgeParam p, Set<String> enumNames) {
+  static String _emitCallbackLambda(BridgeParam p, Set<String> enumNames, {Set<String>? structNames, Set<String>? recordNames}) {
     final cbParams = p.type.functionParams;
     final nativeMethodName = '_invoke_${p.name}';
 
@@ -660,21 +665,24 @@ class KotlinGenerator {
         .map((entry) {
           final i = entry.key;
           final cbP = entry.value;
-          final ktType = cbP.name;
-          return 'p$i: $ktType';
+          return 'p$i: ${cbP.name}';
         })
         .join(', ');
 
     // Native method args: type-specific conversions to match the JNI signature.
-    // Enums → nativeValue (Long). All other types pass as-is (Double, Boolean,
-    // String?, Long) — types must match the _invoke_ external fun's declaration.
+    // • Enums    → .nativeValue (Long)
+    // • Records  → .encode() (ByteArray, length-prefixed by encode())
+    // • Structs  → pass the data class directly (jobject)
+    // • Primitives (int, double, bool, String?) → pass as-is
     final nativeArgs = <String>[p.name];
     for (var i = 0; i < cbParams.length; i++) {
       final cbP = cbParams[i];
-      if (enumNames.contains(cbP.name.replaceFirst('?', ''))) {
+      final base = cbP.name.replaceFirst('?', '');
+      if (enumNames.contains(base)) {
         nativeArgs.add('p$i.nativeValue');
+      } else if (recordNames?.contains(base) == true) {
+        nativeArgs.add('p$i.encode()');
       } else {
-        // int → Long auto-widened by Kotlin; double, bool, String? pass as-is.
         nativeArgs.add('p$i');
       }
     }

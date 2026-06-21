@@ -103,7 +103,7 @@ void main() {
       );
       final out = CppBridgeGenerator.generate(spec);
 
-      expect(out, contains('uint8_t* mod_download(void)'));
+      expect(out, contains('uint8_t* mod_download(NitroError* _nitro_err)'));
       expect(out, contains('jbyteArray jarr = (jbyteArray)env->CallStaticObjectMethod'));
       expect(out, contains('size_t byteLen = (size_t)len * sizeof(uint8_t);'));
       expect(out, contains('uint8_t* result = (uint8_t*)malloc(byteLen + sizeof(int64_t));'));
@@ -119,7 +119,7 @@ void main() {
       );
       final out = CppBridgeGenerator.generate(spec);
 
-      expect(out, contains('uint8_t* mod_samples(void)'));
+      expect(out, contains('uint8_t* mod_samples(NitroError* _nitro_err)'));
       expect(out, contains('jfloatArray jarr = (jfloatArray)env->CallStaticObjectMethod'));
       expect(out, contains('size_t byteLen = (size_t)len * sizeof(float);'));
       expect(out, contains('env->GetFloatArrayRegion(jarr, 0, len, (jfloat*)(result + sizeof(int64_t)));'));
@@ -186,7 +186,7 @@ void main() {
     test('Uint8List return wraps NitroCppBuffer in finalizer envelope', () {
       final code = CppBridgeGenerator.generate(specFor('Uint8List'));
 
-      expect(code, contains('uint8_t* mod_snapshot(void)'));
+      expect(code, contains('uint8_t* mod_snapshot(NitroError* _nitro_err)'));
       expect(code, contains('NitroCppBuffer _res = g_impl->snapshot();'));
       expect(code, contains('int64_t* _env = (int64_t*)malloc(sizeof(int64_t) * 3);'));
       expect(code, contains('_env[0] = (int64_t)_res.size;'));
@@ -198,8 +198,8 @@ void main() {
     test('Float32List return still exposes uint8_t envelope pointer at C ABI', () {
       final code = CppBridgeGenerator.generate(specFor('Float32List'));
 
-      expect(code, contains('uint8_t* mod_snapshot(void)'));
-      expect(code, isNot(contains('float* mod_snapshot(void)')));
+      expect(code, contains('uint8_t* mod_snapshot(NitroError* _nitro_err)'));
+      expect(code, isNot(contains('float* mod_snapshot(NitroError* _nitro_err)')));
     });
   });
 

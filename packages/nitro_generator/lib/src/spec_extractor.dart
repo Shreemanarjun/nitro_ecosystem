@@ -593,6 +593,18 @@ class SpecExtractor {
         return BridgeType(name: displayName, isRecord: true, isNullable: isNullable, isFuture: isFuture);
       }
 
+      // NativeHandle<T> — raw opaque pointer, zero codec overhead
+      if (elName == 'NativeHandle' && type.typeArguments.isNotEmpty) {
+        final typeParam = type.typeArguments.first.getDisplayString(withNullability: false);
+        return BridgeType(
+          name: displayName,
+          isNativeHandle: true,
+          isNullable: isNullable,
+          nativeHandleTypeParam: typeParam,
+          isFuture: isFuture,
+        );
+      }
+
       // Pointer<T> — raw FFI bridge
       if (elName == 'Pointer' && type.typeArguments.isNotEmpty) {
         final inner = type.typeArguments.first.getDisplayString(withNullability: false);
@@ -626,6 +638,7 @@ class SpecExtractor {
     const asyncChecker = TypeChecker.fromUrl('package:nitro_annotations/src/annotations.dart#NitroAsync');
     const nativeAsyncChecker = TypeChecker.fromUrl('package:nitro_annotations/src/annotations.dart#NitroNativeAsync');
     const zeroCopyChecker = TypeChecker.fromUrl('package:nitro_annotations/src/annotations.dart#ZeroCopy');
+    const ownedChecker = TypeChecker.fromUrl('package:nitro_annotations/src/annotations.dart#NitroOwned');
 
     return methods.map((m) {
       final isAsync = asyncChecker.hasAnnotationOf(m);
@@ -658,6 +671,7 @@ class SpecExtractor {
           structTypeNames: structTypeNames,
         ),
         zeroCopyReturn: zeroCopyChecker.hasAnnotationOf(m),
+        isOwned: ownedChecker.hasAnnotationOf(m),
         params: m.formalParameters.map((p) {
           return BridgeParam(
             name: p.name!,

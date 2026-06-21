@@ -140,6 +140,62 @@ class SpecValidator {
       );
     }
 
+    // ── D4: @HybridStruct String field advisory ───────────────────────────────
+    // String fields are heap-copied (strdup/free) on every bridge call.
+    // For structs with string-heavy fields, @HybridRecord is more efficient.
+    for (final st in spec.structs) {
+      final stringFields = st.fields.where((f) => f.type.name == 'String' || f.type.name == 'String?').toList();
+      if (stringFields.isNotEmpty) {
+        final names = stringFields.map((f) => f.name).join(', ');
+        issues.add(
+          ValidationIssue(
+            severity: ValidationSeverity.warning,
+            code: 'STRUCT_STRING_FIELD',
+            message:
+                '${spec.dartClassName}: @HybridStruct "${st.name}" has String field(s): $names.',
+            hint:
+                'String fields are heap-copied (strdup/free) on every bridge call. '
+                'If this struct is on a hot path or carries large strings, '
+                'consider @HybridRecord instead — it encodes once and decodes lazily.',
+          ),
+        );
+      }
+    }
+
+    // ── PX5 / D7: Missing-platform warnings ──────────────────────────────────
+    // Advisory: warn when a module targets only one side of the mobile duopoly.
+    // Pure-desktop (windows/linux) and pure-web plugins are not warned about
+    // because they are valid single-platform configurations.
+    final hasAppleTarget = spec.iosImpl != null || spec.macosImpl != null;
+    final hasAndroidTarget = spec.androidImpl != null;
+    final hasMobileTarget = hasAppleTarget || hasAndroidTarget;
+    if (hasMobileTarget && hasAppleTarget && !hasAndroidTarget) {
+      issues.add(
+        ValidationIssue(
+          severity: ValidationSeverity.warning,
+          code: 'MISSING_ANDROID_TARGET',
+          message:
+              '${spec.dartClassName}: iOS/macOS is targeted but Android is not.',
+          hint:
+              'Add `android: NativeImpl.kotlin` (or `.cpp`) to target Android. '
+              'If Android is intentionally excluded, add @NitroModule(android: null) or suppress this warning.',
+        ),
+      );
+    }
+    if (hasMobileTarget && hasAndroidTarget && !hasAppleTarget) {
+      issues.add(
+        ValidationIssue(
+          severity: ValidationSeverity.warning,
+          code: 'MISSING_IOS_TARGET',
+          message:
+              '${spec.dartClassName}: Android is targeted but iOS/macOS is not.',
+          hint:
+              'Add `ios: NativeImpl.swift` (or `.cpp`) to target Apple platforms. '
+              'If iOS is intentionally excluded, add @NitroModule(ios: null) or suppress this warning.',
+        ),
+      );
+    }
+
     final enumNames = spec.enums.map((e) => e.name).toSet();
     final structNames = spec.structs.map((s) => s.name).toSet();
     final recordNames = spec.recordTypes.map((r) => r.name).toSet();
@@ -181,6 +237,36 @@ class SpecValidator {
         );
       }
 
+      // @NitroOwned validation
+      if (func.isOwned) {
+        if (!func.returnType.isNativeHandle) {
+          issues.add(ValidationIssue(
+            severity: ValidationSeverity.error,
+            code: 'INVALID_OWNED',
+            message: '${spec.dartClassName}.${func.dartName}() — @NitroOwned requires a NativeHandle<T> return type, got "${func.returnType.name}".',
+            hint: 'Change the return type to NativeHandle<T>, or remove @NitroOwned.',
+          ));
+        }
+        if (func.returnType.name == 'void') {
+          issues.add(ValidationIssue(
+            severity: ValidationSeverity.error,
+            code: 'INVALID_OWNED',
+            message: '${spec.dartClassName}.${func.dartName}() — @NitroOwned on a void return type has nothing to release.',
+            hint: 'Remove @NitroOwned or change the return type to NativeHandle<T>.',
+          ));
+        }
+      }
+      for (final p in func.params) {
+        if (p.type.isNativeHandle && func.isOwned) {
+          issues.add(ValidationIssue(
+            severity: ValidationSeverity.error,
+            code: 'INVALID_OWNED',
+            message: '${spec.dartClassName}.${func.dartName}() — @NitroOwned applies only to return values, not parameter "${p.name}".',
+            hint: 'Remove @NitroOwned from the method. Ownership annotation is not applicable to parameters.',
+          ));
+        }
+      }
+
       // Return type
       final retName = func.returnType.name.replaceFirst('?', '');
       if (func.returnType.isFunction) {
@@ -197,6 +283,7 @@ class SpecValidator {
       } else if (retName != 'void' &&
           !func.returnType.isRecord && // @HybridRecord types bridge as String
           !func.returnType.isPointer && // raw FFI pointers
+          !func.returnType.isNativeHandle && // NativeHandle<T> is always void*
           !_isKnownType(retName, knownTypes) &&
           !_isKnownType(func.returnType.name, knownTypes)) {
         issues.add(
@@ -310,6 +397,7 @@ class SpecValidator {
         final pName = param.type.name.replaceFirst('?', '');
         if (!param.type.isRecord && // @HybridRecord params bridge as String
             !param.type.isPointer && // raw FFI pointers
+            !param.type.isNativeHandle && // NativeHandle<T> → void*
             !_isKnownType(pName, knownTypes) &&
             !_isKnownType(param.type.name, knownTypes)) {
           issues.add(
@@ -385,6 +473,19 @@ class SpecValidator {
     // ── Properties ─────────────────────────────────────────────────────────
     for (final prop in spec.properties) {
       final pName = prop.type.name.replaceFirst('?', '');
+      // void property type generates invalid C++ (void getter returns void — illegal).
+      if (pName == 'void') {
+        issues.add(
+          ValidationIssue(
+            severity: ValidationSeverity.error,
+            code: 'INVALID_PROPERTY_TYPE',
+            message:
+                '${spec.dartClassName}.${prop.dartName} — property type "void" is not valid.',
+            hint: 'Properties must have a concrete return type. Use a method `void doX()` instead.',
+          ),
+        );
+        continue;
+      }
       if (prop.type.isFunction) {
         issues.add(
           ValidationIssue(
@@ -603,7 +704,13 @@ class SpecValidator {
 
     for (final callbackParam in callback.functionParams) {
       final name = callbackParam.name.replaceFirst('?', '');
-      final supportedParam = callbackParam.isPointer || name == 'int' || name == 'double' || name == 'bool' || name == 'String' || enumNames.contains(name);
+      final structNames = spec.structs.map((s) => s.name).toSet();
+      final recordNames = spec.recordTypes.map((r) => r.name).toSet();
+      final supportedParam = callbackParam.isPointer ||
+          name == 'int' || name == 'double' || name == 'bool' || name == 'String' ||
+          enumNames.contains(name) ||
+          structNames.contains(name) ||
+          recordNames.contains(name);
       if (!supportedParam) {
         issues.add(
           ValidationIssue(
@@ -611,7 +718,7 @@ class SpecValidator {
             code: 'UNSUPPORTED_FUNCTION_TYPE',
             message:
                 '${spec.dartClassName}.${func.dartName}() — parameter "${param.name}" callback parameter type "${callbackParam.name}" is not supported.',
-            hint: 'Callback parameters support int, double, bool, String, Pointer<T>, and @HybridEnum.',
+            hint: 'Callback parameters support int, double, bool, String, Pointer<T>, @HybridEnum, @HybridStruct, and @HybridRecord.',
           ),
         );
       }

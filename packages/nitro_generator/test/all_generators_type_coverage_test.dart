@@ -148,12 +148,12 @@ void main() {
 
     test('CppBridge (Swift path): void mod_reset(void)', () {
       final out = CppBridgeGenerator.generate(spec);
-      expect(out, contains('void mod_reset(void)'));
+      expect(out, contains('void mod_reset(NitroError* _nitro_err)'));
     });
 
     test('CppBridge (pure-C++ path): void mod_reset(void)', () {
       final out = CppBridgeGenerator.generate(cppSpec);
-      expect(out, contains('void mod_reset(void)'));
+      expect(out, contains('void mod_reset(NitroError* _nitro_err)'));
     });
 
     test('CppInterface: virtual void reset() = 0', () {
@@ -168,7 +168,7 @@ void main() {
 
     test('CppHeader: NITRO_EXPORT void mod_reset(void)', () {
       final out = CppHeaderGenerator.generate(spec);
-      expect(out, contains('void mod_reset(void)'));
+      expect(out, contains('void mod_reset(NitroError* _nitro_err)'));
     });
   });
 
@@ -266,7 +266,7 @@ void main() {
 
     test('Dart FFI: FFI pointer uses Pointer<Uint8> (not Pointer<Void>)', () {
       final out = DartFfiGenerator.generate(spec);
-      expect(out, contains("Pointer<Uint8> Function() _getPrintersPtr"));
+      expect(out, contains("Pointer<Uint8> Function(Pointer<NitroErrorFfi>) _getPrintersPtr"));
       expect(out, isNot(contains("Pointer<Void> Function() _getPrintersPtr")));
     });
 

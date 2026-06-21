@@ -4,7 +4,7 @@ String _cppScalarType(String dartType, Set<String> enumNames, Set<String> struct
 
 String _typeToC(String dartType) => CppBridgeGenerator._typeToC(dartType);
 
-String _callbackParamToC(BridgeParam param, Set<String> enumNames) => CppBridgeGenerator._callbackParamToC(param, enumNames);
+String _callbackParamToC(BridgeParam param, Set<String> enumNames, {Set<String>? structNames, Set<String>? recordNames}) => CppBridgeGenerator._callbackParamToC(param, enumNames, structNames: structNames, recordNames: recordNames);
 
 String _defaultValue(String cType) => CppBridgeGenerator._defaultValue(cType);
 
@@ -90,7 +90,8 @@ String _generateCppDirect(BridgeSpec spec) {
   writer.line('extern "C" {');
   writer.line('NitroError* ${libStem}_get_error() { return &g_nitro_error; }');
   writer.line('void ${libStem}_clear_error() {');
-  writer.line('    if (!g_nitro_error.hasError) return;');
+  writer.line('    if (!g_nitro_error.hasError) { return; }');
+
   writer.line('    g_nitro_error.hasError = 0;');
   writer.line('    if (g_nitro_error.name)       { free((void*)g_nitro_error.name);       g_nitro_error.name       = nullptr; }');
   writer.line('    if (g_nitro_error.message)    { free((void*)g_nitro_error.message);    g_nitro_error.message    = nullptr; }');
@@ -141,7 +142,8 @@ String _generateCppDirect(BridgeSpec spec) {
     final itemCpp = _cppScalarType(stream.itemType.name, enumNames, structNames);
     writer.line('void Hybrid$className::emit_${stream.dartName}($itemCpp item) {');
     writer.line('    int64_t port = g_port_${stream.dartName};');
-    writer.line('    if (port == 0) return;');
+    writer.line('    if (port == 0) { return; }');
+
     if (isStruct) {
       final stName = stream.itemType.name.replaceFirst('?', '');
       writer.line('    $stName* st_ptr = nullptr;');
@@ -187,11 +189,25 @@ String _generateCppDirect(BridgeSpec spec) {
     writer.blankLine();
   }
 
+  // S8: helper that writes to the out-param error slot.
+  // Keeps the generated catch blocks compact and consistent.
+  // Emitted once per bridge file; used in every method and property.
+  writer.line('// S8 helper — writes error info to the out-param slot.');
+  writer.line('static void _nitro_out_err(NitroError* e, const char* name, const char* msg) {');
+  writer.line('    if (!e) return;');
+  writer.line('    e->hasError = 1;');
+  writer.line('    e->name       = name ? strdup(name) : nullptr;');
+  writer.line('    e->message    = msg  ? strdup(msg)  : nullptr;');
+  writer.line('    e->code       = nullptr;');
+  writer.line('    e->stackTrace = nullptr;');
+  writer.line('}');
+  writer.blankLine();
+
   // Guard snippet used in every exported function
+  // S8: writes to _nitro_err out-param instead of the TLS slot.
   final notInit =
-      'nitro_report_error("NotInitialized", '
-      '"No C++ implementation registered. Call ${libStem}_register_impl() first.", '
-      'nullptr, nullptr)';
+      '_nitro_out_err(_nitro_err, "NotInitialized", '
+      '"No C++ implementation registered. Call ${libStem}_register_impl() first.")';
 
   writer.line('extern "C" {');
   writer.blankLine();
@@ -206,12 +222,12 @@ String _generateCppDirect(BridgeSpec spec) {
       final paramParts = <String>[];
       for (final p in func.params) {
         if (p.type.isFunction) {
-          paramParts.add(_callbackParamToC(p, enumNames));
+          paramParts.add(_callbackParamToC(p, enumNames, structNames: structNames, recordNames: recordNames));
           continue;
         }
         final isStructParam = structNames.contains(p.type.name.replaceFirst('?', ''));
         final isRecordParam = recordNames.contains(p.type.name.replaceFirst('?', ''));
-        paramParts.add('${(isStructParam || isRecordParam) ? 'void*' : _typeToC(p.type.name)} ${p.name}');
+        paramParts.add('${(isStructParam || isRecordParam || p.type.isNativeHandle) ? 'void*' : _typeToC(p.type.name)} ${p.name}');
         if (p.type.isTypedData) paramParts.add('int64_t ${p.name}_length');
       }
       paramParts.add('int64_t dart_port');
@@ -266,29 +282,34 @@ String _generateCppDirect(BridgeSpec spec) {
     // Use func.returnType.isRecord so that List<@HybridStruct T>, List<@HybridRecord T>,
     // and bare @HybridRecord all map to NitroCppBuffer (binary-encoded buffer return).
     final isRecordRet = func.returnType.isRecord;
+    final isNativeHandleRet = func.returnType.isNativeHandle;
     final isZeroCopyTypedDataRet = func.zeroCopyReturn && func.returnType.isTypedData;
     final cRet = isEnumRet
         ? 'int64_t'
         : func.returnType.isTypedData
         ? 'uint8_t*'
+        : isNativeHandleRet
+        ? 'void*'
         : _typeToC(func.returnType.name);
     final dflt = _defaultValue(cRet);
 
     final paramParts = <String>[];
     for (final p in func.params) {
       if (p.type.isFunction) {
-        paramParts.add(_callbackParamToC(p, enumNames));
+        paramParts.add(_callbackParamToC(p, enumNames, structNames: structNames, recordNames: recordNames));
         continue;
       }
       final isStructParam = structNames.contains(p.type.name.replaceFirst('?', ''));
       final isRecordParam = p.type.isRecord;
-      paramParts.add('${(isStructParam || isRecordParam) ? 'void*' : _typeToC(p.type.name)} ${p.name}');
+      paramParts.add('${(isStructParam || isRecordParam || p.type.isNativeHandle) ? 'void*' : _typeToC(p.type.name)} ${p.name}');
       if (p.type.isTypedData) paramParts.add('int64_t ${p.name}_length');
     }
-    final paramsDecl = paramParts.isEmpty ? 'void' : paramParts.join(', ');
+    // S8: every sync C function takes a NitroError* out-param as its last argument.
+    paramParts.add('NitroError* _nitro_err');
+    final paramsDecl = paramParts.join(', ');
 
     writer.line('$cRet ${func.cSymbol}($paramsDecl) {');
-    writer.line('    ${libStem}_clear_error();');
+    writer.line('    if (_nitro_err) { _nitro_err->hasError = 0; }  // S8: clear slot');
     if (func.returnType.name == 'void') {
       writer.line('    if (!g_impl) { $notInit; return; }');
     } else {
@@ -338,6 +359,9 @@ String _generateCppDirect(BridgeSpec spec) {
 
     if (func.returnType.name == 'void') {
       writer.line('        g_impl->${func.dartName}($callArgStr);');
+    } else if (isNativeHandleRet) {
+      // NativeHandle<T>: impl returns void*. Pass through directly.
+      writer.line('        return g_impl->${func.dartName}($callArgStr);');
     } else if (func.returnType.name == 'String') {
       writer.line('        std::string _res = g_impl->${func.dartName}($callArgStr);');
       writer.line('        return strdup(_res.c_str());');
@@ -372,12 +396,12 @@ String _generateCppDirect(BridgeSpec spec) {
     }
 
     writer.line('    } catch (const std::exception& e) {');
-    writer.line('        nitro_report_error("CppException", e.what(), nullptr, nullptr);');
+    writer.line('        _nitro_out_err(_nitro_err, "CppException", e.what());');
     if (func.returnType.name != 'void') {
       writer.line('        return $dflt;');
     }
     writer.line('    } catch (...) {');
-    writer.line('        nitro_report_error("CppException", "Unknown C++ exception", nullptr, nullptr);');
+    writer.line('        _nitro_out_err(_nitro_err, "CppException", "Unknown C++ exception");');
     if (func.returnType.name != 'void') {
       writer.line('        return $dflt;');
     }
@@ -392,8 +416,9 @@ String _generateCppDirect(BridgeSpec spec) {
     final cType = isEnum ? 'int64_t' : _typeToC(prop.type.name);
 
     if (prop.hasGetter) {
-      writer.line('$cType ${prop.getSymbol}(void) {');
-      writer.line('    ${libStem}_clear_error();');
+      // S8: property getter also receives the NitroError* out-param.
+      writer.line('$cType ${prop.getSymbol}(NitroError* _nitro_err) {');
+      writer.line('    if (_nitro_err) { _nitro_err->hasError = 0; }');
       writer.line('    if (!g_impl) { $notInit; return ${_defaultValue(cType)}; }');
       writer.line('    try {');
       if (prop.type.name == 'String') {
@@ -414,7 +439,7 @@ String _generateCppDirect(BridgeSpec spec) {
         writer.line('        return g_impl->get_${prop.dartName}();');
       }
       writer.line('    } catch (const std::exception& e) {');
-      writer.line('        nitro_report_error("CppException", e.what(), nullptr, nullptr);');
+      writer.line('        _nitro_out_err(_nitro_err, "CppException", e.what());');
       writer.line('        return ${_defaultValue(cType)};');
       writer.line('    }');
       writer.line('}');
@@ -425,8 +450,9 @@ String _generateCppDirect(BridgeSpec spec) {
       final isStructParam = structNames.contains(prop.type.name.replaceFirst('?', ''));
       final isRecordParam = recordNames.contains(prop.type.name.replaceFirst('?', ''));
       final paramCType = (isEnum || isStructParam || isRecordParam) ? (isEnum ? 'int64_t' : 'void*') : _typeToC(prop.type.name);
-      writer.line('void ${prop.setSymbol}($paramCType value) {');
-      writer.line('    ${libStem}_clear_error();');
+      // S8: property setter also receives the NitroError* out-param.
+      writer.line('void ${prop.setSymbol}($paramCType value, NitroError* _nitro_err) {');
+      writer.line('    if (_nitro_err) { _nitro_err->hasError = 0; }');
       writer.line('    if (!g_impl) { $notInit; return; }');
       writer.line('    try {');
       if (prop.type.name == 'String') {
@@ -463,7 +489,7 @@ String _generateCppDirect(BridgeSpec spec) {
         writer.line('        g_impl->set_${prop.dartName}(value);');
       }
       writer.line('    } catch (const std::exception& e) {');
-      writer.line('        nitro_report_error("CppException", e.what(), nullptr, nullptr);');
+      writer.line('        _nitro_out_err(_nitro_err, "CppException", e.what());');
       writer.line('    }');
       writer.line('}');
       writer.blankLine();
@@ -476,7 +502,7 @@ String _generateCppDirect(BridgeSpec spec) {
     writer.line('    g_port_${stream.dartName} = dart_port;');
     writer.line('}');
     writer.line('void ${stream.releaseSymbol}(int64_t dart_port) {');
-    writer.line('    if (g_port_${stream.dartName} == dart_port) g_port_${stream.dartName} = 0;');
+    writer.line('    if (g_port_${stream.dartName} == dart_port) { g_port_${stream.dartName} = 0; }');
     writer.line('}');
     writer.blankLine();
   }
@@ -486,7 +512,8 @@ String _generateCppDirect(BridgeSpec spec) {
     writer.line('// Frees a malloc\'d [${st.name}] wrapper allocated by the stream emitter.');
     writer.line('// Called automatically by NativeFinalizer when the Dart proxy is GC\'d.');
     writer.line('void ${libStem}_release_${st.name}(void* ptr) {');
-    writer.line('    if (!ptr) return;');
+    writer.line('    if (!ptr) { return; }');
+
     final hasStrings = st.fields.any((f) => f.type.name == 'String');
     final hasNestedStructs = st.fields.any((f) => structNames.contains(f.type.name.replaceFirst('?', '')));
     final hasNonZcData = st.fields.any((f) => f.type.isTypedData && !f.zeroCopy);
@@ -495,7 +522,7 @@ String _generateCppDirect(BridgeSpec spec) {
       writer.line('    ${st.name}* st_ptr = (${st.name}*)ptr;');
       for (final f in st.fields) {
         if (f.type.name == 'String') {
-          writer.line('    if (st_ptr->${f.name}) free((void*)st_ptr->${f.name});');
+          writer.line('    if (st_ptr->${f.name}) { free((void*)st_ptr->${f.name}); }');
         } else if (structNames.contains(f.type.name.replaceFirst('?', ''))) {
           writer.line('    if (st_ptr->${f.name}) { free(st_ptr->${f.name}); st_ptr->${f.name} = nullptr; }');
         } else if (f.type.isTypedData && !f.zeroCopy) {
@@ -510,7 +537,8 @@ String _generateCppDirect(BridgeSpec spec) {
       writer.line('        auto it = g_zero_copy_refs.find(ptr);');
       writer.line('        if (it != g_zero_copy_refs.end()) {');
       writer.line('            JNIEnv* _env = GetEnv();');
-      writer.line('            if (_env != nullptr) _env->DeleteGlobalRef(it->second);');
+      writer.line('            if (_env != nullptr) { _env->DeleteGlobalRef(it->second); }');
+
       writer.line('            g_zero_copy_refs.erase(it);');
       writer.line('        }');
       writer.line('    }');

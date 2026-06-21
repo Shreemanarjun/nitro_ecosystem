@@ -38,6 +38,9 @@ class DartFfiGenerator {
       'class _${spec.dartClassName}Impl extends ${spec.dartClassName} {',
     );
     writer.line('  final DynamicLibrary _dylib;');
+    // S8: pre-allocated error slot — shared across all sync calls on this instance.
+    // One allocation per module, zero allocation per call.
+    writer.line('  final Pointer<NitroErrorFfi> _nitroErr = calloc<NitroErrorFfi>();');
     final hasCallbacks = _hasFunctionTypeParams(spec);
     if (hasCallbacks) {
       writer.line('  final Map<Object, NativeCallable<dynamic>> _nativeCallbackCache = {};');
@@ -50,6 +53,19 @@ class DartFfiGenerator {
     }
     writer.blankLine();
     writer.line('  static DynamicLibrary _loadSupportedLibrary() {');
+    // PX19: Guard against dart:ffi usage on web at runtime.
+    // dart:ffi types (DynamicLibrary, Pointer, calloc, etc.) are not available
+    // on web — nitro.dart exports ffi_stub.dart instead. This assertion helps
+    // catch misconfiguration where the FFI impl is instantiated on web instead
+    // of the web bridge from *.web.bridge.g.dart.
+    if (spec.targetsWeb) {
+      writer.line('    assert(');
+      writer.line("      !const bool.fromEnvironment('dart.library.js_interop'),");
+      writer.line("      '${spec.lib}: dart:ffi is unavailable on web. "
+          "Instantiate the web bridge via create${spec.dartClassName}WebInstance() "
+          "from the generated *.web.bridge.g.dart file instead.',");
+      writer.line('    );');
+    }
     writer.line("    return NitroRuntime.loadLibForTargets('${spec.lib}',");
     writer.line('      ios: ${spec.targetsIos},');
     writer.line('      android: ${spec.targetsAndroid},');
@@ -105,6 +121,15 @@ class DartFfiGenerator {
           "  late final $dartType _${func.dartName}Ptr = _dylib.lookupFunction<$nativeType, $dartType>('${func.cSymbol}');",
         );
       }
+      // @NitroOwned: emit a release function pointer and a NativeFinalizer.
+      if (func.isOwned && func.returnType.isNativeHandle) {
+        writer.line(
+          "  late final void Function(Pointer<Void>) _${func.dartName}ReleaseFn = _dylib.lookupFunction<Void Function(Pointer<Void>), void Function(Pointer<Void>)>('${func.cSymbol}_release');",
+        );
+        writer.line(
+          "  late final NativeFinalizer _${func.dartName}Finalizer = NativeFinalizer(_dylib.lookup<NativeFunction<Void Function(Pointer<Void>)>>('${func.cSymbol}_release').cast());",
+        );
+      }
     }
 
     // ── Property pointers ───────────────────────────────────────────────────
@@ -115,25 +140,26 @@ class DartFfiGenerator {
       // Property accessors are always synchronous and their C++ bodies never
       // call back into Dart, so primitive-typed accessors qualify for isLeaf.
       final isLeafProp = _isPrimitiveType(prop.type, spec);
+      // S8: property accessors also receive the NitroError* out-param.
       if (prop.hasGetter) {
         if (isLeafProp) {
           writer.line(
-            "  late final $dartType Function() _get${cap}Ptr = _dylib.lookup<NativeFunction<$ffiType Function()>>('${prop.getSymbol}').asFunction<$dartType Function()>(isLeaf: true);",
+            "  late final $dartType Function(Pointer<NitroErrorFfi>) _get${cap}Ptr = _dylib.lookup<NativeFunction<$ffiType Function(Pointer<NitroErrorFfi>)>>('${prop.getSymbol}').asFunction<$dartType Function(Pointer<NitroErrorFfi>)>(isLeaf: true);",
           );
         } else {
           writer.line(
-            "  late final $dartType Function() _get${cap}Ptr = _dylib.lookupFunction<$ffiType Function(), $dartType Function()>('${prop.getSymbol}');",
+            "  late final $dartType Function(Pointer<NitroErrorFfi>) _get${cap}Ptr = _dylib.lookupFunction<$ffiType Function(Pointer<NitroErrorFfi>), $dartType Function(Pointer<NitroErrorFfi>)>('${prop.getSymbol}');",
           );
         }
       }
       if (prop.hasSetter) {
         if (isLeafProp) {
           writer.line(
-            "  late final void Function($dartType) _set${cap}Ptr = _dylib.lookup<NativeFunction<Void Function($ffiType)>>('${prop.setSymbol}').asFunction<void Function($dartType)>(isLeaf: true);",
+            "  late final void Function($dartType, Pointer<NitroErrorFfi>) _set${cap}Ptr = _dylib.lookup<NativeFunction<Void Function($ffiType, Pointer<NitroErrorFfi>)>>('${prop.setSymbol}').asFunction<void Function($dartType, Pointer<NitroErrorFfi>)>(isLeaf: true);",
           );
         } else {
           writer.line(
-            "  late final void Function($dartType) _set${cap}Ptr = _dylib.lookupFunction<Void Function($ffiType), void Function($dartType)>('${prop.setSymbol}');",
+            "  late final void Function($dartType, Pointer<NitroErrorFfi>) _set${cap}Ptr = _dylib.lookupFunction<Void Function($ffiType, Pointer<NitroErrorFfi>), void Function($dartType, Pointer<NitroErrorFfi>)>('${prop.setSymbol}');",
           );
         }
       }
@@ -185,6 +211,7 @@ class DartFfiGenerator {
       writer.line('    }');
       writer.line('    _nativeCallbackCache.clear();');
     }
+    writer.line('    calloc.free(_nitroErr); // S8: free pre-allocated error slot');
     writer.line(
       '    super.dispose(); // sets isDisposed = true, calls onDestroy()',
     );
@@ -252,7 +279,15 @@ class DartFfiGenerator {
 
       // For NativeAsync, the return type annotation is Future<T> but asyncMod is
       // left empty (no `async` keyword) — the method returns an already-Future.
-      final returnType = (func.isAsync || func.isNativeAsync) ? 'Future<${func.returnType.name}>' : func.returnType.name;
+      // NativeHandle<T>: the declared Dart return type is NativeHandle<T>
+      // but the FFI function pointer returns Pointer<Void>.
+      final nativeHandleTypeParam = func.returnType.nativeHandleTypeParam ?? 'Void';
+      final effectiveDartReturnName = func.returnType.isNativeHandle
+          ? 'NativeHandle<$nativeHandleTypeParam>'
+          : func.returnType.name;
+      final returnType = (func.isAsync || func.isNativeAsync)
+          ? 'Future<$effectiveDartReturnName>'
+          : effectiveDartReturnName;
       final asyncMod = func.isAsync ? 'async ' : '';
 
       writer.line('  @override');
@@ -395,14 +430,17 @@ class DartFfiGenerator {
       } else {
         // ── Synchronous path — wrapped in callSync for logging + slow-call detection ──
         final mnArg = ", methodName: '${func.dartName}'";
+        // S8: append the pre-allocated error slot as the last argument so the C
+        // bridge can write error info directly without a separate get_error() call.
+        final syncArgs = callArgs.isEmpty ? '_nitroErr' : '$callArgs, _nitroErr';
         if (needsArena) {
           // callSync wraps withArena so timing covers the whole call including
           // arena allocation and native execution.
           writer.line('    return NitroRuntime.callSync(() => withArena((arena) {');
           if (rt == 'void') {
-            writer.line('      _${func.dartName}Ptr($callArgs);');
+            writer.line('      _${func.dartName}Ptr($syncArgs);');
           } else {
-            writer.line('      final res = _${func.dartName}Ptr($callArgs);');
+            writer.line('      final res = _${func.dartName}Ptr($syncArgs);');
           }
           if (!isFast) {
             writer.line(_assertCheckError('      '));
@@ -451,14 +489,14 @@ class DartFfiGenerator {
         } else {
           if (rt == 'void') {
             writer.line('    NitroRuntime.callSync<void>(() {');
-            writer.line('      _${func.dartName}Ptr($callArgs);');
+            writer.line('      _${func.dartName}Ptr($syncArgs);');
             if (!isFast) {
               writer.line(_assertCheckError('      '));
             }
             writer.line('    }$mnArg);');
           } else {
             writer.line('    return NitroRuntime.callSync(() {');
-            writer.line('      final res = _${func.dartName}Ptr($callArgs);');
+            writer.line('      final res = _${func.dartName}Ptr($syncArgs);');
             if (!isFast) {
               writer.line(_assertCheckError('      '));
             }
@@ -475,6 +513,16 @@ class DartFfiGenerator {
                 writer.line('        malloc.free(res);');
                 writer.line('      }');
                 writer.line('      return decoded;');
+              }
+            } else if (func.returnType.isNativeHandle) {
+              // NativeHandle<T>: wrap the raw Pointer<Void> in a NativeHandle.
+              if (func.isOwned) {
+                writer.line('      final handle = NativeHandle<$nativeHandleTypeParam>.fromAddress(res.address);');
+                writer.line('      _${func.dartName}Finalizer.attach(handle, res.cast(), detach: handle);');
+                writer.line("      handle._releaseCallback = (addr) { _${func.dartName}ReleaseFn(Pointer<Void>.fromAddress(addr)); _${func.dartName}Finalizer.detach(handle); };");
+                writer.line('      return handle;');
+              } else {
+                writer.line('      return NativeHandle<$nativeHandleTypeParam>.fromAddress(res.address);');
               }
             } else if (spec.enums.any((en) => en.name == rt)) {
               writer.line('      return res.to$rt();');
@@ -521,7 +569,7 @@ class DartFfiGenerator {
           writer.line('  $rt get ${prop.dartName} {');
           writer.line('    checkDisposed();');
           writer.line("    return NitroRuntime.callSync(() {");
-          writer.line('      final res = _get${cap}Ptr();');
+          writer.line('      final res = _get${cap}Ptr(_nitroErr);');
           writer.line(_assertCheckError('      '));
           if (isLazy) {
             writer.line('      return ${_decodeRecordExpr(prop.type, "res")};');
@@ -538,7 +586,7 @@ class DartFfiGenerator {
           writer.line('  $rt get ${prop.dartName} {');
           writer.line('    checkDisposed();');
           writer.line("    return NitroRuntime.callSync(() {");
-          writer.line('      final res = _get${cap}Ptr();');
+          writer.line('      final res = _get${cap}Ptr(_nitroErr);');
           writer.line(_assertCheckError('      '));
           if (spec.enums.any((en) => en.name == rt)) {
             writer.line('      return res.to$rt();');
@@ -569,7 +617,7 @@ class DartFfiGenerator {
           final encodeExpr = _encodeRecordParam(prop.type, 'value', 'arena');
           writer.line('  set ${prop.dartName}($rt value) {');
           writer.line('    checkDisposed();');
-          writer.line("    NitroRuntime.callSync<void>(() => withArena((arena) { _set${cap}Ptr($encodeExpr); ${_inlineAssertCheckError()} }), methodName: 'set ${prop.dartName}');");
+          writer.line("    NitroRuntime.callSync<void>(() => withArena((arena) { _set${cap}Ptr($encodeExpr, _nitroErr); ${_inlineCheckError()} }), methodName: 'set ${prop.dartName}');");
           writer.line('  }');
         } else {
           final propNeedsArena = rt == 'String' || prop.type.isTypedData || spec.structs.any((st) => st.name == rt);
@@ -583,7 +631,7 @@ class DartFfiGenerator {
               valExpr = 'value.toNative(arena).cast<Void>()';
             }
             writer.line(
-              "  set ${prop.dartName}($rt value) { checkDisposed(); NitroRuntime.callSync<void>(() => withArena((arena) { _set${cap}Ptr($valExpr); ${_inlineAssertCheckError()} }), methodName: 'set ${prop.dartName}'); }",
+              "  set ${prop.dartName}($rt value) { checkDisposed(); NitroRuntime.callSync<void>(() => withArena((arena) { _set${cap}Ptr($valExpr, _nitroErr); ${_inlineCheckError()} }), methodName: 'set ${prop.dartName}'); }",
             );
           } else {
             String valExpr = 'value';
@@ -593,7 +641,7 @@ class DartFfiGenerator {
               valExpr = 'value ? 1 : 0';
             }
             writer.line(
-              "  set ${prop.dartName}($rt value) { checkDisposed(); NitroRuntime.callSync<void>(() { _set${cap}Ptr($valExpr); ${_inlineAssertCheckError()} }, methodName: 'set ${prop.dartName}'); }",
+              "  set ${prop.dartName}($rt value) { checkDisposed(); NitroRuntime.callSync<void>(() { _set${cap}Ptr($valExpr, _nitroErr); ${_inlineCheckError()} }, methodName: 'set ${prop.dartName}'); }",
             );
           }
         }
@@ -655,6 +703,43 @@ class DartFfiGenerator {
     }
 
     writer.line('}');
+    writer.blankLine();
+
+    // PX19: Platform-conditional factory used by web-targeting specs.
+    // When `web: NativeImpl.wasm` is targeted, the spec can route via:
+    //
+    //   import 'generated/web/xxx.web.bridge.g.dart'
+    //       if (dart.library.ffi) 'xxx.g.dart';
+    //
+    //   static final T instance = _T_createPlatformInstance();
+    //
+    // This factory creates the native (dart:ffi) instance. The web bridge
+    // exports a matching `create${ClassName}WebInstance()` factory.
+    if (spec.targetsWeb) {
+      writer.line(
+        '/// PX19: Creates the native (dart:ffi) implementation of [${spec.dartClassName}].',
+      );
+      writer.line(
+        '/// On web, import `*.web.bridge.g.dart` conditionally and call',
+      );
+      writer.line(
+        '/// `create${spec.dartClassName}WebInstance()` instead.',
+      );
+      // Build a safe Dart identifier: lowercase the first alphabetic character.
+      // Handles edge cases: single-char names ('A' → 'a'), underscore-prefixed
+      // names ('_X' → '_x'), digits-first (rare; kept as-is for safety).
+      final firstAlpha = spec.dartClassName.split('').indexWhere((c) => RegExp(r'[A-Za-z]').hasMatch(c));
+      final camelName = firstAlpha >= 0
+          ? spec.dartClassName.substring(0, firstAlpha) +
+            spec.dartClassName[firstAlpha].toLowerCase() +
+            spec.dartClassName.substring(firstAlpha + 1)
+          : spec.dartClassName;
+      writer.line(
+        '${spec.dartClassName} ${camelName}_createNativeInstance() => _${spec.dartClassName}Impl();',
+      );
+      writer.blankLine();
+    }
+
     return writer.toString();
   }
 
@@ -684,6 +769,9 @@ class DartFfiGenerator {
         return [_typeToFFI(p.type, spec)];
       }),
       if (func.isNativeAsync) 'Int64', // dart_port
+      // S8: sync functions receive a NitroError* out-param instead of using
+      // the two-call get_error()/clear_error() pattern.
+      if (!func.isAsync && !func.isNativeAsync) 'Pointer<NitroErrorFfi>',
     ].join(', ');
     return '$effectiveRet Function($params)';
   }
@@ -698,6 +786,8 @@ class DartFfiGenerator {
         return [_typeToDartFFI(p.type, spec)];
       }),
       if (func.isNativeAsync) 'int', // dart_port
+      // S8: sync functions receive a Pointer<NitroErrorFfi> out-param.
+      if (!func.isAsync && !func.isNativeAsync) 'Pointer<NitroErrorFfi>',
     ].join(', ');
     return '$effectiveRet Function($params)';
   }
@@ -712,6 +802,7 @@ class DartFfiGenerator {
     if (bt.isPointer) {
       return 'Pointer<${bt.pointerInnerType}>';
     }
+    if (bt.isNativeHandle) return 'Pointer<Void>';
     final name = bt.name.replaceFirst('?', '');
     switch (name) {
       case 'int':
@@ -759,6 +850,7 @@ class DartFfiGenerator {
     if (bt.isPointer) {
       return 'Pointer<${bt.pointerInnerType}>';
     }
+    if (bt.isNativeHandle) return 'Pointer<Void>';
     final name = bt.name.replaceFirst('?', '');
     switch (name) {
       case 'int':
@@ -1036,11 +1128,15 @@ class DartFfiGenerator {
     return '(raw) => raw as $rt';
   }
 
-  static String _inlineAssertCheckError() {
-    return 'assert(() { NitroRuntime.checkError(_getErrorPtr, _clearErrorPtr); return true; }());';
+  // S8: always-on error check via the pre-allocated out-param slot.
+  // This replaces the old assert-gated get_error()/clear_error() pattern.
+  // Errors are now detected in BOTH debug AND release builds.
+  static String _inlineCheckError() {
+    return 'NitroRuntime.throwIfOutParamError(_nitroErr);';
   }
 
-  static String _assertCheckError(String indent) => '$indent${_inlineAssertCheckError()}';
+  // Kept for callers that already pass an indent; delegates to the S8 form.
+  static String _assertCheckError(String indent) => '$indent${_inlineCheckError()}';
 
   // ── Leaf / isLeaf helpers ─────────────────────────────────────────────────
 
@@ -1048,7 +1144,7 @@ class DartFfiGenerator {
   /// a known enum) — types that require no arena allocation and no Dart heap
   /// object creation on the call boundary.
   static bool _isPrimitiveType(BridgeType bt, BridgeSpec spec) {
-    if (bt.isRecord || bt.isTypedData || bt.isPointer || bt.isFunction) return false;
+    if (bt.isRecord || bt.isTypedData || bt.isPointer || bt.isFunction || bt.isNativeHandle) return false;
     final name = bt.name.replaceFirst('?', '');
     if (name == 'String' || name == 'void') return false;
     if (spec.structs.any((st) => st.name == name)) return false;
@@ -1125,7 +1221,10 @@ class DartFfiGenerator {
     if (type.isPointer) return true;
     final name = type.name.replaceFirst('?', '');
     if (name == 'int' || name == 'double' || name == 'bool' || name == 'String') return true;
-    return spec.enums.any((e) => e.name == name);
+    if (spec.enums.any((e) => e.name == name)) return true;
+    if (spec.structs.any((s) => s.name == name)) return true;
+    if (spec.recordTypes.any((r) => r.name == name)) return true;
+    return false;
   }
 
   static void _emitCallbackHelpers(CodeWriter writer, BridgeSpec spec) {
@@ -1217,6 +1316,8 @@ class DartFfiGenerator {
     if (name == 'bool') return 'Int8';
     if (name == 'String') return 'Pointer<Utf8>';
     if (spec.enums.any((e) => e.name == name)) return 'Int64';
+    if (spec.structs.any((s) => s.name == name)) return 'Pointer<Void>';
+    if (spec.recordTypes.any((r) => r.name == name)) return 'Pointer<Uint8>';
     return 'Pointer<Void>';
   }
 
@@ -1240,6 +1341,8 @@ class DartFfiGenerator {
     if (name == 'bool') return 'int';
     if (name == 'String') return 'Pointer<Utf8>';
     if (spec.enums.any((e) => e.name == name)) return 'int';
+    if (spec.structs.any((s) => s.name == name)) return 'Pointer<Void>';
+    if (spec.recordTypes.any((r) => r.name == name)) return 'Pointer<Uint8>';
     return 'Pointer<Void>';
   }
 
@@ -1254,6 +1357,15 @@ class DartFfiGenerator {
           if (name == 'bool') return 'arg$index != 0';
           if (name == 'String') return 'arg$index.toDartString()';
           if (spec.enums.any((e) => e.name == name)) return 'arg$index.to$name()';
+          if (spec.structs.any((s) => s.name == name)) {
+            // C passes a pointer to the stack-allocated struct. Cast and dereference.
+            return 'arg$index.cast<${name}Ffi>().ref.toDart()';
+          }
+          if (spec.recordTypes.any((r) => r.name == name)) {
+            // C passes a malloc'd length-prefixed buffer. Eagerly read then free
+            // so the buffer is released before the user callback runs.
+            return '(() { final _r = $name.fromNative(arg$index); malloc.free(arg$index); return _r; })()';
+          }
           return 'arg$index';
         })
         .join(', ');

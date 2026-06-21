@@ -104,12 +104,12 @@ class SwiftGenerator {
       if (func.lineNumber != null) {
         writer.line('    // source: ${spec.sourceUri.split('/').last}:${func.lineNumber}');
       }
-      final retType = _toSwiftType(spec, func.returnType.name);
+      final retType = _toSwiftType(spec, func.returnType.name, bridgeType: func.returnType);
       final params = func.params.map((p) {
         if (p.type.isFunction) {
           return '${p.name}: @escaping ${_toSwiftProtocolCallbackType(spec, p.type)}';
         }
-        return '${p.name}: ${_toSwiftType(spec, p.type.name)}';
+        return '${p.name}: ${_toSwiftType(spec, p.type.name, bridgeType: p.type)}';
       }).join(', ');
       if (func.isAsync || func.isNativeAsync) {
         writer.line(
@@ -184,9 +184,9 @@ class SwiftGenerator {
       final params = func.params
           .expand((p) {
             if (p.type.isFunction) {
-              return ['_ ${p.name}: ${_toCDeclCallbackType(p.type)}'];
+              return ['_ ${p.name}: ${_toCDeclCallbackType(p.type, spec: spec)}'];
             }
-            final t = _toCDeclParamType(spec, p.type.name);
+            final t = _toCDeclParamType(spec, p.type.name, bridgeType: p.type);
             if (p.type.isTypedData) {
               return ['_ ${p.name}: $t', '_ ${p.name}_length: Int64'];
             }
@@ -890,7 +890,8 @@ class SwiftGenerator {
   static String _toSwiftProtocolCallbackType(BridgeSpec spec, BridgeType cbType) {
     final retType = cbType.functionReturnType ?? 'void';
     final params = cbType.functionParams;
-    final paramList = params.map((p) => _toSwiftType(spec, p.name)).join(', ');
+    // Each param uses its idiomatic Swift type: TorchLevel (struct), TorchState (enum), etc.
+    final paramList = params.map((p) => _toSwiftType(spec, p.name, bridgeType: p)).join(', ');
     final retSwift = _toSwiftType(spec, retType);
     return '($paramList) -> $retSwift';
   }
@@ -898,13 +899,13 @@ class SwiftGenerator {
   /// Generates the `@convention(c)` C function pointer type for a callback param
   /// in a `@_cdecl` stub. Uses type-specific C ABI types so the Swift compiler
   /// allocates args in the correct registers (FP for doubles, GP for integers).
-  static String _toCDeclCallbackType(BridgeType cbType) {
-    final paramList = cbType.functionParams.map(_callbackParamToCDeclSwift).join(', ');
+  static String _toCDeclCallbackType(BridgeType cbType, {BridgeSpec? spec}) {
+    final paramList = cbType.functionParams.map((t) => _callbackParamToCDeclSwift(t, spec: spec)).join(', ');
     return '@convention(c) ($paramList) -> Void';
   }
 
   /// Maps a single callback parameter to its Swift `@convention(c)` C ABI type.
-  static String _callbackParamToCDeclSwift(BridgeType t) {
+  static String _callbackParamToCDeclSwift(BridgeType t, {BridgeSpec? spec}) {
     final base = t.name.replaceFirst('?', '');
     switch (base) {
       case 'int':
@@ -916,7 +917,13 @@ class SwiftGenerator {
       case 'String':
         return 'UnsafePointer<CChar>?';
       default:
-        return 'Int64'; // enum rawValue, pointers-as-Int64
+        if (spec != null && spec.structs.any((s) => s.name == base)) {
+          return 'UnsafeRawPointer?';             // @HybridStruct: pointer to C-layout struct
+        }
+        if (spec != null && spec.recordTypes.any((r) => r.name == base)) {
+          return 'UnsafeMutablePointer<UInt8>?';  // @HybridRecord: length-prefixed buffer
+        }
+        return 'Int64'; // enum rawValue
     }
   }
 
@@ -938,24 +945,42 @@ class SwiftGenerator {
     }
     final argNames = List.generate(params.length, (i) => 'arg$i');
     final argDecl = argNames.join(', ');
-    // Each arg is of the PROTOCOL type. Convert it to the C ABI type expected
-    // by the @convention(c) function pointer before forwarding.
-    final convertedArgs = params.asMap().entries.map((e) {
+    // Build per-arg conversions. Struct args need a named shadow variable so that
+    // `&shadow` is valid (points to a live stack slot) when the C callback runs.
+    // Non-struct conversions are inline expressions in the call args list.
+    final shadowDecls = <String>[];
+    final callArgs = params.asMap().entries.map((e) {
       final i = e.key;
       final pt = e.value;
       final argVar = argNames[i];
       final base = pt.name.replaceFirst('?', '');
       final isEnum = spec.enums.any((en) => en.name == base);
-      if (isEnum) return '$argVar.rawValue';        // EnumType → Int64
+      if (isEnum) return '$argVar.rawValue';          // EnumType → Int64
       if (base == 'String') {
-        // Swift auto-bridges String → UnsafePointer<CChar>? at call sites, but
-        // we make the conversion explicit via NSString to avoid compiler warnings.
-        return '($argVar as NSString).utf8String';  // String → UnsafePointer<CChar>?
+        return '($argVar as NSString).utf8String';    // String → UnsafePointer<CChar>?
       }
-      // int (Int64), double (Double), bool (Bool) — pass through unchanged.
-      return argVar;
-    }).join(', ');
-    return '{ $argDecl in $cbName($convertedArgs) }';
+      final isStruct = spec.structs.any((s) => s.name == base);
+      if (isStruct) {
+        // Declare a shadow struct on the stack; &shadow is valid until the
+        // enclosing closure scope exits, which is after callback() returns.
+        shadowDecls.add('var _s$i = _${base}C.fromSwift($argVar)');
+        return 'UnsafeRawPointer(&_s$i)';            // &shadow → UnsafeRawPointer?
+      }
+      final isRecord = spec.recordTypes.any((r) => r.name == base);
+      if (isRecord) {
+        // Serialize record to a malloc'd length-prefixed buffer via toNative().
+        // Dart receives the pointer and frees it after fromNative() reads it.
+        return '$argVar.toNative()';                  // UnsafeMutablePointer<UInt8>?
+      }
+      return argVar;                                  // int, double, bool
+    }).toList();
+
+    // If there are shadow-variable declarations, emit them as statements
+    // separated by semicolons before the call, all within the closure body.
+    final closureBody = shadowDecls.isEmpty
+        ? '$cbName(${callArgs.join(', ')})'
+        : '${shadowDecls.join('; ')}; $cbName(${callArgs.join(', ')})';
+    return '{ $argDecl in $closureBody }';
   }
 
   /// Return type for a `@_cdecl` function — must be a C-ABI-compatible type.
@@ -965,6 +990,8 @@ class SwiftGenerator {
   /// - struct   → `UnsafeMutableRawPointer?`       (heap-allocated Swift struct)
   /// - others   → same as `_toSwiftType`
   static String _toCDeclReturnType(BridgeSpec spec, BridgeFunction func) {
+    // NativeHandle<T> is a raw opaque pointer — same C type as void*.
+    if (func.returnType.isNativeHandle) return 'UnsafeMutableRawPointer?';
     final name = func.returnType.name.replaceFirst('?', '');
     if (name == 'void') return 'Void';
     if (name == 'bool') return 'Int8';
@@ -986,7 +1013,9 @@ class SwiftGenerator {
   /// - `bool`       → `Int8`
   /// - typed lists  → `UnsafeMutablePointer<T>?`  (raw C pointer; length passed separately)
   /// - others       → same as `_toSwiftType`
-  static String _toCDeclParamType(BridgeSpec spec, String typeName) {
+  static String _toCDeclParamType(BridgeSpec spec, String typeName, {BridgeType? bridgeType}) {
+    // NativeHandle<T> passes as an opaque raw pointer.
+    if (bridgeType?.isNativeHandle == true) return 'UnsafeMutableRawPointer?';
     final name = typeName.replaceFirst('?', '');
     if (name == 'String') return 'UnsafePointer<CChar>?';
     if (name == 'bool') return 'Int8';
@@ -1008,6 +1037,9 @@ class SwiftGenerator {
   static String _toSwiftType(BridgeSpec spec, String t, {BridgeType? bridgeType}) {
     final name = t.replaceFirst('?', '');
     final isOptional = t.endsWith('?');
+
+    // NativeHandle<T> bridges as UnsafeMutableRawPointer? across Swift @_cdecl.
+    if (bridgeType?.isNativeHandle == true) return 'UnsafeMutableRawPointer?';
 
     // Handle function types (callbacks)
     if (bridgeType != null && bridgeType.isFunction) {

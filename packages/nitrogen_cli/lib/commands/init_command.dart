@@ -10,6 +10,7 @@ import '../templates/scaffold_templates.dart';
 import '../templates/podspec_templates.dart';
 import '../templates/build_versions.dart';
 import '../templates/forwarder_templates.dart';
+import '../templates/cpp_stubs.dart' show windowsCppStubContent, linuxCppStubContent;
 
 // ── CMakeLists.txt updater ────────────────────────────────────────────────────
 
@@ -670,12 +671,34 @@ class _InitViewState extends State<InitView> {
     final winDir = Directory(p.join(pluginName, 'windows'));
     if (!winDir.existsSync()) return;
     _patchDesktopCMake(p.join(winDir.path, 'CMakeLists.txt'), pluginName);
+
+    // PX14: scaffold windows/src/Hybrid{Class}Impl.cpp implementation stub.
+    // The stub uses MSVC-compatible static-initializer registration (no
+    // __attribute__((constructor)) on MSVC) and includes a TODO marker
+    // so developers know where to fill in method bodies.
+    final winSrcDir = Directory(p.join(winDir.path, 'src'))..createSync(recursive: true);
+    final stubFile = File(p.join(winSrcDir.path, 'Hybrid${className}Impl.cpp'));
+    if (!stubFile.existsSync()) {
+      stubFile.writeAsStringSync(
+        windowsCppStubContent(lib: pluginName, className: className),
+      );
+    }
   }
 
   static void _configureLinux(String pluginName, String className) {
     final linuxDir = Directory(p.join(pluginName, 'linux'));
     if (!linuxDir.existsSync()) return;
     _patchDesktopCMake(p.join(linuxDir.path, 'CMakeLists.txt'), pluginName);
+
+    // PX14: scaffold linux/src/Hybrid{Class}Impl.cpp implementation stub.
+    // The stub uses __attribute__((constructor)) for GCC/Clang auto-registration.
+    final linuxSrcDir = Directory(p.join(linuxDir.path, 'src'))..createSync(recursive: true);
+    final stubFile = File(p.join(linuxSrcDir.path, 'Hybrid${className}Impl.cpp'));
+    if (!stubFile.existsSync()) {
+      stubFile.writeAsStringSync(
+        linuxCppStubContent(lib: pluginName, className: className),
+      );
+    }
   }
 
   /// Shared CMake patcher for desktop platforms (windows/ and linux/).

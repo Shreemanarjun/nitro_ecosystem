@@ -217,6 +217,8 @@ class CppInterfaceGenerator {
     Set<String> structNames,
     Set<String> recordNames,
   ) {
+    // NativeHandle<T>: raw opaque pointer, zero codec. Always void*.
+    if (bt.isNativeHandle) return 'void*';
     // isRecord covers bare @HybridRecord, List<T>, and Map<K,V> — all bridge
     // as NitroCppBuffer regardless of the name string.
     if (bt.isRecord) return 'NitroCppBuffer';
@@ -249,6 +251,8 @@ class CppInterfaceGenerator {
     Set<String> structNames,
     Set<String> recordNames,
   ) {
+    // NativeHandle<T>: pass raw opaque pointer.
+    if (bt.isNativeHandle) return 'void*';
     // isRecord covers bare @HybridRecord, List<T>, and Map<K,V>.
     if (bt.isRecord) return 'NitroCppBuffer';
     if (bt.isPointer) {
@@ -279,6 +283,8 @@ class CppInterfaceGenerator {
     Set<String> structNames,
     Set<String> recordNames,
   ) {
+    // NativeHandle<T>: pass raw opaque pointer.
+    if (bt.isNativeHandle) return 'void*';
     // isRecord covers bare @HybridRecord, List<T>, and Map<K,V>.
     if (bt.isRecord) return 'NitroCppBuffer';
     if (bt.isPointer) {

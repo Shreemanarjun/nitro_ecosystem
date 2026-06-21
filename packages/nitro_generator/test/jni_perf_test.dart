@@ -1747,7 +1747,7 @@ void main() {
 
       expect(
         body,
-        contains('assert(() { NitroRuntime.checkError(_getErrorPtr, _clearErrorPtr); return true; }());'),
+        contains('NitroRuntime.throwIfOutParamError(_nitroErr);'),
       );
       expect(
         body,

@@ -288,5 +288,70 @@ void main() {
       expect(await pool2.dispatch<int>(_add, [2, 2]), 4);
       pool2.dispose();
     });
+
+    // ── TC4: 1,000 concurrent dispatches — no deadlock guarantee ────────────
+    test('1,000 concurrent dispatches on 8-worker pool — no deadlock, all correct', () async {
+      await withPool(8, (pool) async {
+        const n = 1000;
+        // Each future uniquely identifies its result: double(i) == 2*i.
+        // Any callId routing bug would surface here as a wrong or missing result.
+        final futures = List.generate(n, (i) => pool.dispatch<int>(_double, [i]));
+        final results = await Future.wait(futures);
+        for (var i = 0; i < n; i++) {
+          expect(results[i], i * 2, reason: 'dispatch $i returned wrong value');
+        }
+      });
+    }, timeout: const Timeout(Duration(seconds: 60)));
+
+    test('1,000 concurrent dispatches with mixed errors — pool stays healthy', () async {
+      await withPool(8, (pool) async {
+        const n = 1000;
+        // Even indices succeed, odd indices throw — all 1000 dispatched concurrently.
+        final futures = List.generate(n, (i) {
+          if (i.isOdd) {
+            return pool.dispatch<int>(_throws, ['e$i'])
+                .then<int>((_) => -1)
+                .onError<ArgumentError>((_, __) => -(i));
+          }
+          return pool.dispatch<int>(_add, [i, 0]);
+        });
+        final results = await Future.wait(futures);
+        for (var i = 0; i < n; i++) {
+          if (i.isOdd) {
+            expect(results[i], -i, reason: 'error sentinel for $i');
+          } else {
+            expect(results[i], i, reason: 'success result for $i');
+          }
+        }
+        // After 1,000 concurrent dispatches the pool must still work.
+        expect(await pool.dispatch<int>(_add, [42, 0]), 42);
+      });
+    }, timeout: const Timeout(Duration(seconds: 60)));
+
+    test('4 pools running 250 concurrent dispatches each — no cross-pool corruption', () async {
+      // Four independent pools, each getting 250 concurrent tasks.
+      // Verifies there is no shared global state between IsolatePool instances.
+      const perPool = 250;
+      final pools = await Future.wait(List.generate(4, (_) => IsolatePool.create(4)));
+      try {
+        final allFutures = [
+          for (var p = 0; p < 4; p++)
+            for (var i = 0; i < perPool; i++)
+              pools[p].dispatch<int>(_add, [p * 1000 + i, 0]),
+        ];
+        final results = await Future.wait(allFutures);
+        for (var p = 0; p < 4; p++) {
+          for (var i = 0; i < perPool; i++) {
+            final idx = p * perPool + i;
+            expect(results[idx], p * 1000 + i,
+                reason: 'pool $p task $i returned wrong value');
+          }
+        }
+      } finally {
+        for (final pool in pools) {
+          pool.dispose();
+        }
+      }
+    }, timeout: const Timeout(Duration(seconds: 60)));
   });
 }

@@ -139,25 +139,25 @@ void main() {
         ],
       );
       final out = CppBridgeGenerator.generate(spec);
-      expect(out, contains('void my_camera_do_something(void)'));
-      expect(out, contains('if (env == nullptr) return;\n'));
+      expect(out, contains('void my_camera_do_something(NitroError* _nitro_err)'));
+      expect(out, contains('if (env == nullptr) { return; }\n'));
       expect(out, contains('if (methodId == nullptr) { LOGE("Method not found: doSomething_call sig=()V"); return; }'));
     });
 
     test('enum return uses int64_t and CallStaticLongMethod', () {
       final out = CppBridgeGenerator.generate(enumSpec());
-      expect(out, contains('int64_t complex_module_get_status(void)'));
+      expect(out, contains('int64_t complex_module_get_status(NitroError* _nitro_err)'));
       expect(out, contains('CallStaticLongMethod'));
     });
 
     test('property getter emitted', () {
       final out = CppBridgeGenerator.generate(enumSpec());
-      expect(out, contains('double complex_module_get_battery_level(void)'));
+      expect(out, contains('double complex_module_get_battery_level(NitroError* _nitro_err)'));
     });
 
     test('property setter emitted', () {
       final out = CppBridgeGenerator.generate(enumSpec());
-      expect(out, contains('void complex_module_set_config(const char* value)'));
+      expect(out, contains('void complex_module_set_config(const char* value, NitroError* _nitro_err)'));
     });
     test('JNI cleanup is emitted for object arguments', () {
       final spec = BridgeSpec(
@@ -274,7 +274,7 @@ void main() {
       final out = CppBridgeGenerator.generate(spec);
       expect(out, contains('void test_lib_release_User(void* ptr)'));
       expect(out, contains('User* st_ptr = (User*)ptr;'));
-      expect(out, contains('if (st_ptr->name) free((void*)st_ptr->name);'));
+      expect(out, contains('if (st_ptr->name) { free((void*)st_ptr->name); }'));
     });
   });
 
@@ -653,11 +653,11 @@ void main() {
       expect(out, contains('std::string(name)'));
     });
 
-    test('clear_error is called before each cpp direct function', () {
+    test('S8: NitroError* out-param slot reset before each cpp direct function', () {
       final out = CppBridgeGenerator.generate(cppSpec());
-      // libStem = spec.lib = 'math', so symbol is math_clear_error()
-      final count = 'math_clear_error()'.allMatches(out).length;
-      // add() + greet() + get_precision() + set_precision() = at least 4
+      // S8: each sync function resets the out-param slot instead of calling clear_error().
+      // add() + greet() + get_precision() + set_precision() = at least 4 resets.
+      final count = 'if (_nitro_err) { _nitro_err->hasError = 0; }'.allMatches(out).length;
       expect(count, greaterThanOrEqualTo(4));
     });
 

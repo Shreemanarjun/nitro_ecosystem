@@ -76,7 +76,12 @@ void _emitJniSwiftPrologue(
   writer.line('};');
   writer.line('static thread_local NitroJniThreadGuard g_thread_guard;');
   writer.blankLine();
-  writer.line('static void nitro_report_jni_exception(JNIEnv* env, jthrowable ex) {');
+  // S8: JNI exception → NitroError* out-param.
+  // Extracts the exception name + message via JNI reflection, writes them into
+  // the out-param error slot, then releases all local JNI references.
+  // The out-param must be non-null; callers ensure this via the Dart-side
+  // pre-allocated _nitroErr slot.
+  writer.line('static void nitro_report_jni_exception(JNIEnv* env, jthrowable ex, NitroError* _nitro_err) {');
   writer.line('    // MUST clear the pending exception before making any further JNI calls.');
   writer.line('    // JNI aborts if any JNI function (e.g. GetObjectClass) is called while');
   writer.line('    // an exception is still pending.');
@@ -88,7 +93,14 @@ void _emitJniSwiftPrologue(
   writer.line('    jstring j_msg = (jstring)env->CallObjectMethod(ex, g_exc_getMessage);');
   writer.line('    const char* msg = (j_msg != nullptr) ? env->GetStringUTFChars(j_msg, 0) : "No message provided";');
   writer.blankLine();
-  writer.line('    nitro_report_error(name, msg, nullptr, nullptr);');
+  writer.line('    // S8: write to out-param slot instead of the TLS error slot.');
+  writer.line('    if (_nitro_err) {');
+  writer.line('        _nitro_err->hasError = 1;');
+  writer.line('        _nitro_err->name       = strdup(name);');
+  writer.line('        _nitro_err->message    = strdup(msg);');
+  writer.line('        _nitro_err->code       = nullptr;');
+  writer.line('        _nitro_err->stackTrace = nullptr;');
+  writer.line('    }');
   writer.blankLine();
   writer.line('    if (j_name) {');
   writer.line('        env->ReleaseStringUTFChars(j_name, name);');
@@ -136,7 +148,8 @@ void _emitJniSwiftPrologue(
   writer.line('}');
   writer.blankLine();
   writer.line('static JNIEnv* GetEnv() {');
-  writer.line('    if (g_jvm == nullptr) return nullptr;');
+  writer.line('    if (g_jvm == nullptr) { return nullptr; }');
+
   writer.line('    JNIEnv* env = nullptr;');
   writer.line(
     '    int status = g_jvm->GetEnv(reinterpret_cast<void**>(&env), JNI_VERSION_1_6);',
