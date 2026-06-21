@@ -163,12 +163,12 @@ void main() {
 
   // ── §2 nullable bool? in sync _call ─────────────────────────────────────────
 
-  group('§2 nullable bool? param — sync _call uses Boolean (primitive)', () {
+  group('§2 nullable bool? param — sync _call uses Int (carries -1 null sentinel)', () {
     late String out;
     setUpAll(() => out = KotlinGenerator.generate(_syncSpec(params: [_nullableBoolParam])));
 
     test('_call signature uses Boolean (not Boolean?)', () {
-      expect(out, contains('fun fn_call(flag: Boolean): Boolean'));
+      expect(out, contains('fun fn_call(flag: Int): Boolean'));
     });
 
     test('interface uses Boolean? (nullable for Kotlin impl)', () {
@@ -587,7 +587,7 @@ void main() {
       );
       final out = KotlinGenerator.generate(spec);
       // _call: all primitives non-nullable, String? stays nullable
-      expect(out, contains('fun fn_call(timeout: Long, flag: Boolean, scale: Double, label: String?): Boolean'));
+      expect(out, contains('fun fn_call(timeout: Long, flag: Int, scale: Double, label: String?): Boolean'));
       // interface: all nullable
       expect(out, contains('fun fn(timeout: Long?, flag: Boolean?, scale: Double?, label: String?): Boolean'));
     });

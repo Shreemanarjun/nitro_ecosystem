@@ -334,7 +334,7 @@ void main() {
         ),
         kotlin: BridgeChecks(
           // enum params in _call keep Kotlin enum type (not Long); direct pass-through
-          has: ['setStatus_call(s: Status)', 'impl.setStatus(s)'],
+          has: ['setStatus_call(s: Long)', 'impl.setStatus(Status.fromNative(s))'],
         ),
         swift: BridgeChecks(
           // @_cdecl receives Int64 for enum params
@@ -518,8 +518,8 @@ void main() {
       (
         'bool?',
         'value == null ? -1 : (value ? 1 : 0)',
-        'Boolean',
-        'val valueArg: Boolean? = value // null indistinguishable from false via jboolean',
+        'Int', // Bool? uses Int in _call to carry -1 null sentinel
+        'val valueArg: Boolean? = if (value < 0) null else (value != 0)',
         'Bool',
       ),
     ]) {
@@ -768,13 +768,13 @@ void main() {
       kotlin: BridgeChecks(
         has: [
           // _call uses non-nullable primitives for optional primitives (JVM match)
-          'doAll_call(name: String, count: Long, ratio: Double, flag: Boolean, label: String?, limit: Long, threshold: Double, verbose: Boolean)',
+          'doAll_call(name: String, count: Long, ratio: Double, flag: Boolean, label: String?, limit: Long, threshold: Double, verbose: Int)',
           // Interface preserves nullable types
           'fun doAll(name: String, count: Long, ratio: Double, flag: Boolean, label: String?, limit: Long?, threshold: Double?, verbose: Boolean?)',
           // Sentinel-to-null conversions only for optional primitives
           'val limitArg: Long? = if (limit < 0L) null else limit',
           'val thresholdArg: Double? = if (threshold.isNaN()) null else threshold',
-          'val verboseArg: Boolean? = verbose // null indistinguishable from false via jboolean',
+          'val verboseArg: Boolean? = if (verbose < 0) null else (verbose != 0)',
           // Non-optional primitives and String? forwarded raw
           'impl.doAll(name, count, ratio, flag, label, limitArg, thresholdArg, verboseArg)',
         ],

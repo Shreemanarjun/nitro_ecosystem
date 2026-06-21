@@ -279,7 +279,7 @@ void main() {
     test('enum JniBridge _call returns Long (bridge primitive), param stays enum type', () {
       final out = KotlinGenerator.generate(_enumFnSpec('Status'));
       // Enum params in _call keep the enum type; only the return type is bridged to Long.
-      expect(out, contains('fun fn_call(mode: Status): Long'));
+      expect(out, contains('fun fn_call(mode: Long): Long'));
     });
 
     test('enum read-write property uses var', () {

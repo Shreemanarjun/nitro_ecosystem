@@ -243,6 +243,15 @@ void _emitJniMethods(
         callArgsList.add('j_${p.name}');
       } else if (p.type.isFunction) {
         callArgsList.add('(jlong)${p.name}');
+      } else if (p.type.isRecord) {
+        // @HybridRecord / List<@HybridRecord> params arrive as void* (Dart Pointer<Uint8>).
+        // Dart's RecordWriter.toNative() format: [4-byte payload_len][payload_bytes].
+        // Kotlin's decode(ByteArray) expects ONLY the payload (no length prefix).
+        // Convert by reading the 4-byte length, then copying payload bytes to jbyteArray.
+        writer.line('    int32_t ${p.name}_len = *((const int32_t*)${p.name});');
+        writer.line('    jbyteArray j_${p.name} = env->NewByteArray((jsize)${p.name}_len);');
+        writer.line('    env->SetByteArrayRegion(j_${p.name}, 0, (jsize)${p.name}_len, (const jbyte*)((const uint8_t*)${p.name} + 4));');
+        callArgsList.add('j_${p.name}');
       } else {
         callArgsList.add(p.name);
       }
