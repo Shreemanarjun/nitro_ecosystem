@@ -636,21 +636,59 @@ void _emitJniMethods(
       // Build JNI method name
       final jniMethName = _jniMethodName(spec.lib, spec.dartClassName, nativeName);
 
-      // Build C parameter list: (JNIEnv* env, jobject thiz, jlong callbackPtr, jlong arg0, jlong arg1, ...)
+      // Map each callback param to its JNI C type and C typedef type.
+      // Using type-specific JNI params ensures correct register allocation on ARM64
+      // (floating-point values must flow through FP registers, not integer registers).
+      String jniCParam(BridgeType t) {
+        final base = t.name.replaceFirst('?', '');
+        if (base == 'double') return 'jdouble';
+        if (base == 'bool') return 'jboolean';
+        if (base == 'String') return 'jstring';
+        return 'jlong'; // int, enum → jlong
+      }
+
+      String cTypedefParam(BridgeType t) {
+        final base = t.name.replaceFirst('?', '');
+        if (base == 'double') return 'double';
+        if (base == 'bool') return 'bool';
+        if (base == 'String') return 'const char*';
+        return 'int64_t'; // int, enum → int64_t
+      }
+
+      // Build C parameter list with proper JNI types
       final cParams = StringBuffer('JNIEnv* env, jobject thiz, jlong callbackPtr');
       for (var i = 0; i < cbParams.length; i++) {
-        cParams.write(', jlong arg$i');
+        cParams.write(', ${jniCParam(cbParams[i])} arg$i');
       }
 
-      // Build C function pointer cast and argument list
-      final castParts = <String>[];
-      for (var i = 0; i < cbParams.length; i++) {
-        castParts.add('(int64_t)arg$i');
-      }
+      // Build C typedef params and call args (with conversions where needed)
+      final typedefParams = cbParams.map(cTypedefParam).join(', ');
+      final needsStringConversion = cbParams.any((t) => t.name.replaceFirst('?', '') == 'String');
 
       writer.line('JNIEXPORT void JNICALL $jniMethName($cParams) {');
-      writer.line('    typedef void (*CB)(${cbParams.map((_) => 'int64_t').join(', ')});');
-      writer.line('    ((CB)callbackPtr)(${castParts.join(', ')});');
+      writer.line('    typedef void (*CB)(${typedefParams.isEmpty ? 'void' : typedefParams});');
+      // Convert jstring args to const char* before the call, release after
+      for (var i = 0; i < cbParams.length; i++) {
+        if (cbParams[i].name.replaceFirst('?', '') == 'String') {
+          writer.line('    const char* s_arg$i = arg$i ? env->GetStringUTFChars(arg$i, nullptr) : nullptr;');
+        }
+      }
+      final callArgs = cbParams.asMap().entries.map((e) {
+        final i = e.key;
+        final base = e.value.name.replaceFirst('?', '');
+        if (base == 'String') return 's_arg$i';
+        if (base == 'double') return '(double)arg$i';
+        if (base == 'bool') return '(bool)arg$i';
+        return '(int64_t)arg$i';
+      }).join(', ');
+      writer.line('    ((CB)callbackPtr)(${callArgs.isEmpty ? '' : callArgs});');
+      if (needsStringConversion) {
+        for (var i = 0; i < cbParams.length; i++) {
+          if (cbParams[i].name.replaceFirst('?', '') == 'String') {
+            writer.line('    if (s_arg$i) env->ReleaseStringUTFChars(arg$i, s_arg$i);');
+          }
+        }
+      }
       writer.line('}');
       writer.blankLine();
     }

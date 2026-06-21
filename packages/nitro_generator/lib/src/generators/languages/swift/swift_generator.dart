@@ -896,17 +896,39 @@ class SwiftGenerator {
   }
 
   /// Generates the `@convention(c)` C function pointer type for a callback param
-  /// in a `@_cdecl` stub. All args are passed as Int64 at the C ABI level.
+  /// in a `@_cdecl` stub. Uses type-specific C ABI types so the Swift compiler
+  /// allocates args in the correct registers (FP for doubles, GP for integers).
   static String _toCDeclCallbackType(BridgeType cbType) {
-    final count = cbType.functionParams.length;
-    final paramList = List.filled(count, 'Int64').join(', ');
+    final paramList = cbType.functionParams.map(_callbackParamToCDeclSwift).join(', ');
     return '@convention(c) ($paramList) -> Void';
   }
 
+  /// Maps a single callback parameter to its Swift `@convention(c)` C ABI type.
+  static String _callbackParamToCDeclSwift(BridgeType t) {
+    final base = t.name.replaceFirst('?', '');
+    switch (base) {
+      case 'int':
+        return 'Int64';
+      case 'double':
+        return 'Double';
+      case 'bool':
+        return 'Bool';
+      case 'String':
+        return 'UnsafePointer<CChar>?';
+      default:
+        return 'Int64'; // enum rawValue, pointers-as-Int64
+    }
+  }
+
   /// Generates a Swift closure that wraps the raw C function pointer received in
-  /// a `@_cdecl` stub and converts each argument to the idiomatic Swift type
-  /// expected by the protocol. E.g. for `void Function(TorchState)`:
-  ///   `{ arg0 in callback(TorchState(rawValue: arg0) ?? .on) }`
+  /// a `@_cdecl` stub and converts each argument FROM the idiomatic Swift protocol
+  /// type TO the C ABI type before calling the C function pointer.
+  ///
+  /// E.g. for `void Function(TorchState)`:
+  ///   - The closure is passed to `impl.onCallback(callback:)` where the protocol
+  ///     expects `(TorchState) -> Void`, so `arg0` is `TorchState`.
+  ///   - The C function pointer expects `Int64`, so we convert via `arg0.rawValue`.
+  ///   - Generated: `{ arg0 in callback(arg0.rawValue) }`
   static String _toSwiftCallbackWrapper(BridgeSpec spec, BridgeParam p) {
     final cbType = p.type;
     final cbName = p.name;
@@ -916,16 +938,21 @@ class SwiftGenerator {
     }
     final argNames = List.generate(params.length, (i) => 'arg$i');
     final argDecl = argNames.join(', ');
+    // Each arg is of the PROTOCOL type. Convert it to the C ABI type expected
+    // by the @convention(c) function pointer before forwarding.
     final convertedArgs = params.asMap().entries.map((e) {
       final i = e.key;
       final pt = e.value;
       final argVar = argNames[i];
-      final isEnum = spec.enums.any((en) => en.name == pt.name.replaceFirst('?', ''));
-      if (isEnum) {
-        final enumName = pt.name.replaceFirst('?', '');
-        final fallback = spec.enums.firstWhere((en) => en.name == enumName).values.first;
-        return '$enumName(rawValue: $argVar) ?? .$fallback';
+      final base = pt.name.replaceFirst('?', '');
+      final isEnum = spec.enums.any((en) => en.name == base);
+      if (isEnum) return '$argVar.rawValue';        // EnumType → Int64
+      if (base == 'String') {
+        // Swift auto-bridges String → UnsafePointer<CChar>? at call sites, but
+        // we make the conversion explicit via NSString to avoid compiler warnings.
+        return '($argVar as NSString).utf8String';  // String → UnsafePointer<CChar>?
       }
+      // int (Int64), double (Double), bool (Bool) — pass through unchanged.
       return argVar;
     }).join(', ');
     return '{ $argDecl in $cbName($convertedArgs) }';

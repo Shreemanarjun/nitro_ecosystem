@@ -425,10 +425,12 @@ class KotlinGenerator {
         final nativeName = '_invoke_${p.name}';
         if (!callbackNativeMethods.add(nativeName)) continue;
         final cbParams = p.type.functionParams;
-        // Signature: (callbackPtr: Long, arg0: Long, arg1: Long, ...) -> Unit
+        // Signature uses type-specific JVM types so the JNI bridge and
+        // Kotlin compiler agree on the JVM method descriptor. All-Long was
+        // wrong for Double/Boolean params (mismatched descriptors → NSME).
         final paramDecl = StringBuffer('callbackPtr: Long');
         for (var i = 0; i < cbParams.length; i++) {
-          paramDecl.write(', arg$i: Long');
+          paramDecl.write(', arg$i: ${_callbackParamToKotlinJni(cbParams[i])}');
         }
         writer.line('    @JvmStatic external fun $nativeName($paramDecl)');
       }
@@ -624,6 +626,23 @@ class KotlinGenerator {
     return 'Any?';
   }
 
+  /// Maps a callback parameter type to its JNI-compatible Kotlin type.
+  /// The `_invoke_` external native method must use these types so that
+  /// the JVM method descriptor matches the C JNI function signature exactly.
+  static String _callbackParamToKotlinJni(BridgeType t) {
+    final base = t.name.replaceFirst('?', '');
+    switch (base) {
+      case 'double':
+        return 'Double';
+      case 'bool':
+        return 'Boolean';
+      case 'String':
+        return 'String?';
+      default:
+        return 'Long'; // int, enum rawValue → Long (jlong)
+    }
+  }
+
   /// Generates a Kotlin lambda expression that wraps a Long function pointer
   /// and invokes the C function via a native JNI bridge method.
   ///
@@ -646,14 +665,16 @@ class KotlinGenerator {
         })
         .join(', ');
 
-    // Native method args: all passed as Long (jlong).
-    // Enums → nativeValue, primitives → pass as-is (auto-boxed to Long).
+    // Native method args: type-specific conversions to match the JNI signature.
+    // Enums → nativeValue (Long). All other types pass as-is (Double, Boolean,
+    // String?, Long) — types must match the _invoke_ external fun's declaration.
     final nativeArgs = <String>[p.name];
     for (var i = 0; i < cbParams.length; i++) {
       final cbP = cbParams[i];
-      if (enumNames.contains(cbP.name)) {
+      if (enumNames.contains(cbP.name.replaceFirst('?', ''))) {
         nativeArgs.add('p$i.nativeValue');
       } else {
+        // int → Long auto-widened by Kotlin; double, bool, String? pass as-is.
         nativeArgs.add('p$i');
       }
     }
