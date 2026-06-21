@@ -190,7 +190,7 @@ const _optPrimCases = [
   (
     type: 'bool?',
     param: 'enabled',
-    dartSentinel: 'enabled == null ? -1 : (enabled! ? 1 : 0)',
+    dartSentinel: 'enabled == null ? -1 : (enabled ? 1 : 0)',
     kotlinCallType: 'Boolean',
     kotlinConversion: 'val enabledArg: Boolean? = if (enabled.toInt() < 0) null else enabled',
     kotlinInterfaceType: 'Boolean?',
@@ -369,7 +369,7 @@ void main() {
           'id.toNativeUtf8',
           'timeout ?? -1',
           'scale ?? double.nan',
-          'verbose == null ? -1 : (verbose! ? 1 : 0)',
+          'verbose == null ? -1 : (verbose ? 1 : 0)',
           'enabled ? 1 : 0',
           'count',
         ],

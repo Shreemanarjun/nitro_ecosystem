@@ -151,8 +151,8 @@ void _emitJniMethods(
       continue;
     }
 
-    final isEnum = enumNames.contains(func.returnType.name);
-    final isStruct = structNames.contains(func.returnType.name);
+    final isEnum = enumNames.contains(func.returnType.name.replaceFirst('?', ''));
+    final isStruct = structNames.contains(func.returnType.name.replaceFirst('?', ''));
     final isRecord = func.returnType.isRecord && !func.returnType.isMap;
     final isTypedData = func.returnType.isTypedData;
     // For enum returns: bridge returns Long (nativeValue); C returns int64_t

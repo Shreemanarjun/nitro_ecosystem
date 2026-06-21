@@ -250,7 +250,7 @@ void main() {
           Future<void> toggle({bool? enabled});
         }
       '''),
-      dart: BridgeChecks(has: ['enabled == null ? -1 : (enabled! ? 1 : 0)']),
+      dart: BridgeChecks(has: ['enabled == null ? -1 : (enabled ? 1 : 0)']),
       kotlin: BridgeChecks(has: ['val enabledArg: Boolean? = if (enabled.toInt() < 0) null else enabled']),
       skip: {Lang.cpp},
     );

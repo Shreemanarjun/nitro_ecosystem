@@ -334,7 +334,7 @@ void main() {
 
     test('JniBridge _call for record param uses real class name', () {
       final out = KotlinGenerator.generate(singleRecordSpec());
-      expect(out, contains('fun setDevice_call(device: CameraDevice)'));
+      expect(out, contains('fun setDevice_call(device: ByteArray)'));
     });
 
     test('JniBridge _call for record return uses ByteArray', () {

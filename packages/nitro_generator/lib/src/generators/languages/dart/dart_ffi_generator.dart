@@ -4,6 +4,7 @@ import '../../enum_generator.dart';
 import '../../generator_metadata.dart';
 import '../../struct_generator.dart';
 import '../../record_generator.dart';
+import 'dart_ffi_return_helpers.dart';
 
 class DartFfiGenerator {
   static String generate(BridgeSpec spec) {
@@ -48,7 +49,9 @@ class DartFfiGenerator {
     final hasZeroCopyTypedDataReturn = spec.functions.any((f) => f.zeroCopyReturn && f.returnType.isTypedData);
     if (hasZeroCopyTypedDataReturn) {
       writer.line(
-        "  late final Pointer<NativeFinalizerFunction> _typedDataReturnFinalizer = _dylib.lookup<NativeFunction<NativeFinalizerFunction>>('${libStem}_release_typed_data_return').cast();",
+        // NativeFinalizerFunction is typedef NativeFunction<Void Function(Pointer<Void>)>,
+        // so lookup<NativeFinalizerFunction> is correct — NOT NativeFunction<NativeFinalizerFunction>.
+        "  late final Pointer<NativeFinalizerFunction> _typedDataReturnFinalizer = _dylib.lookup<NativeFinalizerFunction>('${libStem}_release_typed_data_return').cast();",
       );
     }
     writer.blankLine();
@@ -251,7 +254,7 @@ class DartFfiGenerator {
               return ['${p.name}.toNativeUtf8(allocator: arena)'];
             }
             if (t == 'String?') {
-              return ['${p.name} != null ? ${p.name}!.toNativeUtf8(allocator: arena) : nullptr'];
+              return ['${p.name} != null ? ${p.name}.toNativeUtf8(allocator: arena) : nullptr'];
             }
             if (spec.structs.any((st) => st.name == t)) {
               return ['${p.name}.toNative(arena).cast<Void>()'];
@@ -260,7 +263,11 @@ class DartFfiGenerator {
             if (t.endsWith('?') && spec.structs.any((st) => st.name == tBase)) {
               return ['${p.name} != null ? ${p.name}.toNative(arena).cast<Void>() : nullptr'];
             }
-            if (spec.enums.any((en) => en.name == t)) {
+            // Enum (including nullable enum: TcStatus? uses -1 as null sentinel)
+            if (spec.enums.any((en) => en.name == tBase)) {
+              if (t.endsWith('?')) {
+                return ['${p.name} == null ? -1 : ${p.name}.nativeValue'];
+              }
               return ['${p.name}.nativeValue'];
             }
             if (t == 'bool') return ['${p.name} ? 1 : 0'];
@@ -269,10 +276,10 @@ class DartFfiGenerator {
             // caller provides null so the args list always holds a non-null value.
             // The Kotlin _call bridge receives the sentinel and converts it back
             // to null before forwarding to the implementation interface.
-            // Sentinels: int?→-1, double?→double.nan, bool?→-1
+            // Sentinels: int?→-1, double?→double.nan, bool?→-1, enum?→-1
             if (t == 'int?') return ['${p.name} ?? -1'];
             if (t == 'double?') return ['${p.name} ?? double.nan'];
-            if (t == 'bool?') return ['${p.name} == null ? -1 : (${p.name}! ? 1 : 0)'];
+            if (t == 'bool?') return ['${p.name} == null ? -1 : (${p.name} ? 1 : 0)'];
             return [p.name];
           })
           .join(', ');
@@ -298,133 +305,66 @@ class DartFfiGenerator {
       writer.line('    checkDisposed();');
 
       final rt = func.returnType.name;
-      final isRecordReturn = func.returnType.isRecord;
+      // Classify once — avoids repeated spec.structs.any() / spec.enums.any() calls.
+      final returnKind = classifyReturn(func.returnType, spec);
 
       if (func.isNativeAsync) {
         _emitNativeAsyncBody(writer, func, spec, callArgs, needsArena);
       } else if (func.isAsync) {
-        final isStructReturn = spec.structs.any((st) => st.name == rt);
-        final isEnumReturn = spec.enums.any((en) => en.name == rt);
-        final isTypedDataReturn = func.returnType.isTypedData;
         // plainCallArgs: used when no arena is needed. Apply the same optional-primitive
         // sentinel encoding as callArgs so that int?/bool?/double? are never passed as null.
         // (Structs, TypedData, String all require an arena so they can't appear here.)
         final plainCallArgs = func.params
             .map((p) {
               final t = p.type.name;
+              final tBase = p.type.baseName;
               if (t == 'int?') return '${p.name} ?? -1';
               if (t == 'double?') return '${p.name} ?? double.nan';
-              if (t == 'bool?') return '${p.name} == null ? -1 : (${p.name}! ? 1 : 0)';
+              if (t == 'bool?') return '${p.name} == null ? -1 : (${p.name} ? 1 : 0)';
               if (t == 'bool') return '${p.name} ? 1 : 0';
-              if (spec.enums.any((en) => en.name == t)) return '${p.name}.nativeValue';
+              // Nullable enum: TcStatus? → -1 for null, rawValue otherwise
+              if (spec.enums.any((en) => en.name == tBase)) {
+                return t.endsWith('?')
+                    ? '${p.name} == null ? -1 : ${p.name}.nativeValue'
+                    : '${p.name}.nativeValue';
+              }
               if (p.type.isFunction) return _callbackArgExpr(func, p);
               return p.name;
             })
             .join(', ');
 
-        final callAsyncType = isRecordReturn
-            ? 'Pointer<Uint8>'
-            : isTypedDataReturn
-            ? 'Pointer<Uint8>'
-            : rt == 'String'
-            ? 'Pointer<Utf8>'
-            : isStructReturn
-            ? 'Pointer<Void>'
-            : isEnumReturn
-            ? 'int'
-            : _typeToDartFFI(func.returnType, spec);
+        final callAsyncType = callAsyncTransportType(func.returnType, spec);
 
         final errArgs = "getError: _getErrorNativePtr, clearError: _clearErrorNativePtr, methodName: '${func.dartName}'";
 
         if (needsArena) {
+          // needsArena path: wrap in try/finally to release arena allocations.
+          final asyncResVar = _asyncResVarName(returnKind);
           writer.line('    final arena = Arena();');
           writer.line('    try {');
-          if (isRecordReturn) {
-            writer.line('      final rawPtr = await NitroRuntime.callAsync<Pointer<Uint8>>(_${func.dartName}Ptr, [$callArgs], $errArgs);');
-            final decodeExpr = _decodeRecordExpr(func.returnType, 'rawPtr');
-            final isLazy = func.returnType.recordListItemType != null && !func.returnType.recordListItemIsPrimitive;
-            if (isLazy) {
-              writer.line('      return $decodeExpr;');
-            } else {
-              writer.line('      try {');
-              writer.line('        return $decodeExpr;');
-              writer.line('      } finally {');
-              writer.line('        malloc.free(rawPtr);');
-              writer.line('      }');
-            }
-          } else if (rt == 'String') {
-            writer.line('      final rawPtr = await NitroRuntime.callAsync<Pointer<Utf8>>(_${func.dartName}Ptr, [$callArgs], $errArgs);');
-            writer.line('      return rawPtr.toDartStringWithFree();');
-          } else if (isStructReturn) {
-            writer.line('      final rawPtr = await NitroRuntime.callAsync<Pointer<Void>>(_${func.dartName}Ptr, [$callArgs], $errArgs);');
-            writer.line('      if (rawPtr == nullptr) {');
-            writer.line('        throw StateError(\'${func.dartName} returned null\');');
-            writer.line('      }');
-            writer.line('      final structPtr = Pointer<${rt}Ffi>.fromAddress(rawPtr.address);');
-            writer.line('      try {');
-            writer.line('        return structPtr.ref.toDart();');
-            writer.line('      } finally {');
-            writer.line('        structPtr.ref.freeFields();');
-            writer.line('        malloc.free(structPtr);');
-            writer.line('      }');
-          } else if (isEnumReturn) {
-            writer.line('      final res = await NitroRuntime.callAsync<int>(_${func.dartName}Ptr, [$callArgs], $errArgs);');
-            writer.line('      return res.to$rt();');
-          } else if (isTypedDataReturn) {
-            writer.line('      final rawPtr = await NitroRuntime.callAsync<Pointer<Uint8>>(_${func.dartName}Ptr, [$callArgs], $errArgs);');
-            _emitTypedDataDecodeReturn(writer, func.returnType, 'rawPtr', '      ', zeroCopy: func.zeroCopyReturn);
+          if (returnKind == ReturnKind.voidType) {
+            // void return: don't assign to a variable — it's unused and warns.
+            writer.line('      await NitroRuntime.callAsync<$callAsyncType>(_${func.dartName}Ptr, [$callArgs], $errArgs);');
           } else {
-            writer.line('      final res = await NitroRuntime.callAsync<$callAsyncType>(_${func.dartName}Ptr, [$callArgs], $errArgs);');
-            if (rt == 'bool') {
-              writer.line('      return res != 0;');
-            } else {
-              writer.line('      return res;');
-            }
+            writer.line('      final $asyncResVar = await NitroRuntime.callAsync<$callAsyncType>(_${func.dartName}Ptr, [$callArgs], $errArgs);');
+            _emitReturnDecode(writer, func.returnType, asyncResVar, '      ', spec,
+                zeroCopy: func.zeroCopyReturn, dartName: func.dartName,
+                isOwned: func.isOwned,
+                nativeHandleTypeParam: nativeHandleTypeParam);
           }
           writer.line('    } finally {');
           writer.line('      arena.releaseAll();');
           writer.line('    }');
         } else {
-          if (isRecordReturn) {
-            writer.line('    final rawPtr = await NitroRuntime.callAsync<Pointer<Uint8>>(_${func.dartName}Ptr, [$plainCallArgs], $errArgs);');
-            final decodeExpr = _decodeRecordExpr(func.returnType, 'rawPtr');
-            final isLazy = func.returnType.recordListItemType != null && !func.returnType.recordListItemIsPrimitive;
-            if (isLazy) {
-              writer.line('    return $decodeExpr;');
-            } else {
-              writer.line('    try {');
-              writer.line('      return $decodeExpr;');
-              writer.line('    } finally {');
-              writer.line('      malloc.free(rawPtr);');
-              writer.line('    }');
-            }
-          } else if (isStructReturn) {
-            writer.line('    final rawPtr = await NitroRuntime.callAsync<Pointer<Void>>(_${func.dartName}Ptr, [$plainCallArgs], $errArgs);');
-            writer.line('    if (rawPtr == nullptr) {');
-            writer.line('      throw StateError(\'${func.dartName} returned null\');');
-            writer.line('    }');
-            writer.line('    final structPtr = Pointer<${rt}Ffi>.fromAddress(rawPtr.address);');
-            writer.line('    try {');
-            writer.line('      return structPtr.ref.toDart();');
-            writer.line('    } finally {');
-            writer.line('      structPtr.ref.freeFields();');
-            writer.line('      malloc.free(structPtr);');
-            writer.line('    }');
-          } else if (isEnumReturn) {
-            writer.line('    final res = await NitroRuntime.callAsync<int>(_${func.dartName}Ptr, [$plainCallArgs], $errArgs);');
-            writer.line('    return res.to$rt();');
-          } else if (isTypedDataReturn) {
-            writer.line('    final rawPtr = await NitroRuntime.callAsync<Pointer<Uint8>>(_${func.dartName}Ptr, [$plainCallArgs], $errArgs);');
-            _emitTypedDataDecodeReturn(writer, func.returnType, 'rawPtr', '    ', zeroCopy: func.zeroCopyReturn);
+          if (returnKind == ReturnKind.voidType) {
+            writer.line('    await NitroRuntime.callAsync<$callAsyncType>(_${func.dartName}Ptr, [$plainCallArgs], $errArgs);');
           } else {
-            writer.line('    final res = await NitroRuntime.callAsync<$callAsyncType>(_${func.dartName}Ptr, [$plainCallArgs], $errArgs);');
-            if (rt == 'bool') {
-              writer.line('    return res != 0;');
-            } else if (rt == 'String') {
-              writer.line('    return res.toDartStringWithFree();');
-            } else {
-              writer.line('    return res;');
-            }
+            final asyncResVar = _asyncResVarName(returnKind);
+            writer.line('    final $asyncResVar = await NitroRuntime.callAsync<$callAsyncType>(_${func.dartName}Ptr, [$plainCallArgs], $errArgs);');
+            _emitReturnDecode(writer, func.returnType, asyncResVar, '    ', spec,
+                zeroCopy: func.zeroCopyReturn, dartName: func.dartName,
+                isOwned: func.isOwned,
+                nativeHandleTypeParam: nativeHandleTypeParam);
           }
         }
       } else {
@@ -434,120 +374,35 @@ class DartFfiGenerator {
         // bridge can write error info directly without a separate get_error() call.
         final syncArgs = callArgs.isEmpty ? '_nitroErr' : '$callArgs, _nitroErr';
         if (needsArena) {
-          // callSync wraps withArena so timing covers the whole call including
-          // arena allocation and native execution.
+          // callSync wraps withArena so timing covers arena allocation + native call.
           writer.line('    return NitroRuntime.callSync(() => withArena((arena) {');
           if (rt == 'void') {
             writer.line('      _${func.dartName}Ptr($syncArgs);');
+            if (!isFast) writer.line(_assertCheckError('      '));
+            writer.line('      return;');
           } else {
             writer.line('      final res = _${func.dartName}Ptr($syncArgs);');
-          }
-          if (!isFast) {
-            writer.line(_assertCheckError('      '));
-          }
-          if (rt == 'void') {
-            writer.line('      return;');
-          } else if (isRecordReturn) {
-            final decodeExpr = _decodeRecordExpr(func.returnType, 'res');
-            final isLazy = func.returnType.recordListItemType != null && !func.returnType.recordListItemIsPrimitive;
-            if (isLazy) {
-              writer.line('      return $decodeExpr;');
-            } else {
-              writer.line('      final $rt decoded;');
-              writer.line('      try {');
-              writer.line('        decoded = $decodeExpr;');
-              writer.line('      } finally {');
-              writer.line('        malloc.free(res);');
-              writer.line('      }');
-              writer.line('      return decoded;');
-            }
-          } else if (spec.structs.any((st) => st.name == rt)) {
-            writer.line('      if (res == nullptr) {');
-            writer.line('        throw StateError(\'${func.dartName} returned null\');');
-            writer.line('      }');
-            writer.line('      final structPtr = Pointer<${rt}Ffi>.fromAddress(res.address);');
-            writer.line('      final $rt decoded;');
-            writer.line('      try {');
-            writer.line('        decoded = structPtr.ref.toDart();');
-            writer.line('      } finally {');
-            writer.line('        structPtr.ref.freeFields();');
-            writer.line('        malloc.free(structPtr);');
-            writer.line('      }');
-            writer.line('      return decoded;');
-          } else if (rt == 'bool') {
-            writer.line('      return res != 0;');
-          } else if (rt == 'String') {
-            writer.line('      return res.toDartStringWithFree();');
-          } else if (func.returnType.isTypedData) {
-            _emitTypedDataDecodeReturn(writer, func.returnType, 'res', '      ', zeroCopy: func.zeroCopyReturn);
-          } else if (spec.enums.any((en) => en.name == rt)) {
-            writer.line('      return res.to$rt();');
-          } else {
-            writer.line('      return res;');
+            if (!isFast) writer.line(_assertCheckError('      '));
+            _emitReturnDecode(writer, func.returnType, 'res', '      ', spec,
+                zeroCopy: func.zeroCopyReturn, dartName: func.dartName,
+                isOwned: func.isOwned,
+                nativeHandleTypeParam: nativeHandleTypeParam);
           }
           writer.line('    })$mnArg);');
         } else {
           if (rt == 'void') {
             writer.line('    NitroRuntime.callSync<void>(() {');
             writer.line('      _${func.dartName}Ptr($syncArgs);');
-            if (!isFast) {
-              writer.line(_assertCheckError('      '));
-            }
+            if (!isFast) writer.line(_assertCheckError('      '));
             writer.line('    }$mnArg);');
           } else {
             writer.line('    return NitroRuntime.callSync(() {');
             writer.line('      final res = _${func.dartName}Ptr($syncArgs);');
-            if (!isFast) {
-              writer.line(_assertCheckError('      '));
-            }
-            if (isRecordReturn) {
-              final decodeExpr = _decodeRecordExpr(func.returnType, 'res');
-              final isLazy = func.returnType.recordListItemType != null && !func.returnType.recordListItemIsPrimitive;
-              if (isLazy) {
-                writer.line('      return $decodeExpr;');
-              } else {
-                writer.line('      final $rt decoded;');
-                writer.line('      try {');
-                writer.line('        decoded = $decodeExpr;');
-                writer.line('      } finally {');
-                writer.line('        malloc.free(res);');
-                writer.line('      }');
-                writer.line('      return decoded;');
-              }
-            } else if (func.returnType.isNativeHandle) {
-              // NativeHandle<T>: wrap the raw Pointer<Void> in a NativeHandle.
-              if (func.isOwned) {
-                writer.line('      final handle = NativeHandle<$nativeHandleTypeParam>.fromAddress(res.address);');
-                writer.line('      _${func.dartName}Finalizer.attach(handle, res.cast(), detach: handle);');
-                writer.line("      handle._releaseCallback = (addr) { _${func.dartName}ReleaseFn(Pointer<Void>.fromAddress(addr)); _${func.dartName}Finalizer.detach(handle); };");
-                writer.line('      return handle;');
-              } else {
-                writer.line('      return NativeHandle<$nativeHandleTypeParam>.fromAddress(res.address);');
-              }
-            } else if (spec.enums.any((en) => en.name == rt)) {
-              writer.line('      return res.to$rt();');
-            } else if (spec.structs.any((st) => st.name == rt)) {
-              writer.line('      if (res == nullptr) {');
-              writer.line('        throw StateError(\'${func.dartName} returned null\');');
-              writer.line('      }');
-              writer.line('      final structPtr = Pointer<${rt}Ffi>.fromAddress(res.address);');
-              writer.line('      final $rt decoded;');
-              writer.line('      try {');
-              writer.line('        decoded = structPtr.ref.toDart();');
-              writer.line('      } finally {');
-              writer.line('        structPtr.ref.freeFields();');
-              writer.line('        malloc.free(structPtr);');
-              writer.line('      }');
-              writer.line('      return decoded;');
-            } else if (rt == 'bool') {
-              writer.line('      return res != 0;');
-            } else if (rt == 'String') {
-              writer.line('      return res.toDartStringWithFree();');
-            } else if (func.returnType.isTypedData) {
-              _emitTypedDataDecodeReturn(writer, func.returnType, 'res', '      ', zeroCopy: func.zeroCopyReturn);
-            } else {
-              writer.line('      return res;');
-            }
+            if (!isFast) writer.line(_assertCheckError('      '));
+            _emitReturnDecode(writer, func.returnType, 'res', '      ', spec,
+                zeroCopy: func.zeroCopyReturn, dartName: func.dartName,
+                isOwned: func.isOwned,
+                nativeHandleTypeParam: nativeHandleTypeParam);
             writer.line('    }$mnArg);');
           }
         }
@@ -564,84 +419,36 @@ class DartFfiGenerator {
 
       if (prop.hasGetter) {
         writer.line('  @override');
-        if (isRecordProp) {
-          final isLazy = prop.type.recordListItemType != null && !prop.type.recordListItemIsPrimitive;
-          writer.line('  $rt get ${prop.dartName} {');
-          writer.line('    checkDisposed();');
-          writer.line("    return NitroRuntime.callSync(() {");
-          writer.line('      final res = _get${cap}Ptr(_nitroErr);');
-          writer.line(_assertCheckError('      '));
-          if (isLazy) {
-            writer.line('      return ${_decodeRecordExpr(prop.type, "res")};');
-          } else {
-            writer.line('      try {');
-            writer.line('        return ${_decodeRecordExpr(prop.type, "res")};');
-            writer.line('      } finally {');
-            writer.line('        malloc.free(res);');
-            writer.line('      }');
-          }
-          writer.line("    }, methodName: 'get ${prop.dartName}');");
-          writer.line('  }');
-        } else {
-          writer.line('  $rt get ${prop.dartName} {');
-          writer.line('    checkDisposed();');
-          writer.line("    return NitroRuntime.callSync(() {");
-          writer.line('      final res = _get${cap}Ptr(_nitroErr);');
-          writer.line(_assertCheckError('      '));
-          if (spec.enums.any((en) => en.name == rt)) {
-            writer.line('      return res.to$rt();');
-          } else if (rt == 'bool') {
-            writer.line('      return res != 0;');
-          } else if (spec.structs.any((st) => st.name == rt)) {
-            writer.line('      if (res == nullptr) {');
-            writer.line('        throw StateError(\'get ${prop.dartName} returned null\');');
-            writer.line('      }');
-            writer.line('      final structPtr = Pointer<${rt}Ffi>.fromAddress(res.address);');
-            writer.line('      try {');
-            writer.line('        return structPtr.ref.toDart();');
-            writer.line('      } finally {');
-            writer.line('        structPtr.ref.freeFields();');
-            writer.line('        malloc.free(structPtr);');
-            writer.line('      }');
-          } else {
-            writer.line('      return res;');
-          }
-          writer.line("    }, methodName: 'get ${prop.dartName}');");
-          writer.line('  }');
-        }
+        writer.line('  $rt get ${prop.dartName} {');
+        writer.line('    checkDisposed();');
+        writer.line("    return NitroRuntime.callSync(() {");
+        writer.line('      final res = _get${cap}Ptr(_nitroErr);');
+        writer.line(_assertCheckError('      '));
+        _emitReturnDecode(writer, prop.type, 'res', '      ', spec);
+        writer.line("    }, methodName: 'get ${prop.dartName}');");
+        writer.line('  }');
       }
 
       if (prop.hasSetter) {
         writer.line('  @override');
         if (isRecordProp) {
+          // @HybridRecord properties use _encodeRecordParam for full Map/List fidelity.
           final encodeExpr = _encodeRecordParam(prop.type, 'value', 'arena');
           writer.line('  set ${prop.dartName}($rt value) {');
           writer.line('    checkDisposed();');
           writer.line("    NitroRuntime.callSync<void>(() => withArena((arena) { _set${cap}Ptr($encodeExpr, _nitroErr); ${_inlineCheckError()} }), methodName: 'set ${prop.dartName}');");
           writer.line('  }');
         } else {
-          final propNeedsArena = rt == 'String' || prop.type.isTypedData || spec.structs.any((st) => st.name == rt);
-          if (propNeedsArena) {
-            String valExpr;
-            if (rt == 'String') {
-              valExpr = 'value.toNativeUtf8(allocator: arena)';
-            } else if (prop.type.isTypedData) {
-              valExpr = 'value.toPointer(arena)';
-            } else {
-              valExpr = 'value.toNative(arena).cast<Void>()';
-            }
+          // All other types: encodePropertyValue covers String, bool, int?, double?,
+          // enum, TypedData, struct — each with correct sentinel and arena handling.
+          final encoded = encodePropertyValue(prop.type, spec, 'value', 'arena');
+          if (encoded.needsArena) {
             writer.line(
-              "  set ${prop.dartName}($rt value) { checkDisposed(); NitroRuntime.callSync<void>(() => withArena((arena) { _set${cap}Ptr($valExpr, _nitroErr); ${_inlineCheckError()} }), methodName: 'set ${prop.dartName}'); }",
+              "  set ${prop.dartName}($rt value) { checkDisposed(); NitroRuntime.callSync<void>(() => withArena((arena) { _set${cap}Ptr(${encoded.expr}, _nitroErr); ${_inlineCheckError()} }), methodName: 'set ${prop.dartName}'); }",
             );
           } else {
-            String valExpr = 'value';
-            if (spec.enums.any((en) => en.name == rt)) {
-              valExpr = 'value.nativeValue';
-            } else if (rt == 'bool') {
-              valExpr = 'value ? 1 : 0';
-            }
             writer.line(
-              "  set ${prop.dartName}($rt value) { checkDisposed(); NitroRuntime.callSync<void>(() { _set${cap}Ptr($valExpr, _nitroErr); ${_inlineCheckError()} }, methodName: 'set ${prop.dartName}'); }",
+              "  set ${prop.dartName}($rt value) { checkDisposed(); NitroRuntime.callSync<void>(() { _set${cap}Ptr(${encoded.expr}, _nitroErr); ${_inlineCheckError()} }, methodName: 'set ${prop.dartName}'); }",
             );
           }
         }
@@ -1068,7 +875,7 @@ class DartFfiGenerator {
             // Optional primitives: same sentinel encoding as the arena path.
             if (t == 'int?') return '${p.name} ?? -1';
             if (t == 'double?') return '${p.name} ?? double.nan';
-            if (t == 'bool?') return '${p.name} == null ? -1 : (${p.name}! ? 1 : 0)';
+            if (t == 'bool?') return '${p.name} == null ? -1 : (${p.name} ? 1 : 0)';
             return p.name;
           })
           .join(', ');
@@ -1085,13 +892,19 @@ class DartFfiGenerator {
   /// The Dart type parameter for openNativeAsync`<T>` for this function.
   static String _nativeAsyncOpenType(BridgeFunction func, BridgeSpec spec) {
     final rt = func.returnType.name;
+    // For the openNativeAsync<T> type param, strip the nullable suffix — the
+    // native post mechanism uses sentinel values (−1 / NaN / nullptr) for null,
+    // not Dart null, so the transport type is always non-nullable.
+    final rtBase = rt.replaceFirst('?', '');
     if (rt == 'void') return 'void';
-    if (rt == 'bool') return 'bool';
-    if (rt == 'String') return 'String';
-    if (func.returnType.isRecord) return rt;
-    if (spec.structs.any((st) => st.name == rt)) return rt;
-    if (spec.enums.any((en) => en.name == rt)) return rt;
-    return rt; // int, double, ...
+    if (rtBase == 'bool') return 'bool';
+    if (rtBase == 'String') return 'Pointer<Utf8>';
+    if (func.returnType.isRecord) return 'Pointer<Uint8>';
+    if (spec.structs.any((st) => st.name == rtBase)) return 'Pointer<Void>';
+    if (spec.enums.any((en) => en.name == rtBase)) return 'int';
+    if (rtBase == 'int') return 'int';
+    if (rtBase == 'double') return 'double';
+    return rtBase;
   }
 
   /// Returns the unpack lambda expression for a @NitroNativeAsync method.
@@ -1105,26 +918,71 @@ class DartFfiGenerator {
   ///  • enum                   → kInt64          → call .toEnumType()
   static String _nativeAsyncUnpack(BridgeFunction func, BridgeSpec spec) {
     final rt = func.returnType.name;
+    final rtBase = rt.replaceFirst('?', '');
+    final isNullable = rt.endsWith('?');
+
     if (rt == 'void') return '(_) {}';
-    if (rt == 'bool') return '(raw) => raw as bool';
-    if (rt == 'String') return '(raw) => raw as String';
+
+    // bool / bool?
+    if (rtBase == 'bool') {
+      return isNullable
+          ? '(raw) => (raw as bool?) == null ? null : raw as bool'
+          : '(raw) => raw as bool';
+    }
+
+    // String / String?  — native posts kString or kNull
+    if (rtBase == 'String') {
+      return isNullable
+          ? '(raw) { final p = Pointer<Utf8>.fromAddress(raw as int); return p == nullptr ? null : p.toDartStringWithFree(); }'
+          : '(raw) => raw as String';
+    }
+
+    // @HybridRecord  — native posts kInt64 (pointer to binary buffer)
     if (func.returnType.isRecord) {
-      // Native posts kInt64 (pointer to binary-encoded record bytes).
       final decodeExpr = _decodeRecordExpr(func.returnType, 'rawPtr');
       final isLazy = func.returnType.recordListItemType != null && !func.returnType.recordListItemIsPrimitive;
+      if (isNullable) {
+        if (isLazy) {
+          return '(raw) { final rawPtr = Pointer<Uint8>.fromAddress(raw as int); if (rawPtr == nullptr) return null; return $decodeExpr; }';
+        }
+        return '(raw) { final rawPtr = Pointer<Uint8>.fromAddress(raw as int); if (rawPtr == nullptr) return null; try { return $decodeExpr; } finally { malloc.free(rawPtr); } }';
+      }
       if (isLazy) {
         return '(raw) { final rawPtr = Pointer<Uint8>.fromAddress(raw as int); return $decodeExpr; }';
       }
       return '(raw) { final rawPtr = Pointer<Uint8>.fromAddress(raw as int); try { return $decodeExpr; } finally { malloc.free(rawPtr); } }';
     }
-    if (spec.structs.any((st) => st.name == rt)) {
-      // Native posts kInt64 (pointer to heap-allocated struct).
-      return '(raw) { final ptr = Pointer<${rt}Ffi>.fromAddress(raw as int); try { return ptr.ref.toDart(); } finally { ptr.ref.freeFields(); malloc.free(ptr); } }';
+
+    // @HybridStruct  — native posts kInt64 (pointer to heap struct)
+    if (spec.structs.any((st) => st.name == rtBase)) {
+      if (isNullable) {
+        return '(raw) { final ptr = Pointer<${rtBase}Ffi>.fromAddress(raw as int); if (ptr == nullptr) return null; try { return ptr.ref.toDart(); } finally { ptr.ref.freeFields(); malloc.free(ptr); } }';
+      }
+      return '(raw) { final ptr = Pointer<${rtBase}Ffi>.fromAddress(raw as int); try { return ptr.ref.toDart(); } finally { ptr.ref.freeFields(); malloc.free(ptr); } }';
     }
-    if (spec.enums.any((en) => en.name == rt)) {
-      return '(raw) => (raw as int).to$rt()';
+
+    // @HybridEnum  — native posts kInt64 rawValue
+    if (spec.enums.any((en) => en.name == rtBase)) {
+      return isNullable
+          ? '(raw) { final v = raw as int; return v == -1 ? null : v.to$rtBase(); }'
+          : '(raw) => (raw as int).to$rtBase()';
     }
-    // int, double — native posts kInt64/kDouble.
+
+    // int / int?  — native posts kInt64; sentinel −1 = null
+    if (rtBase == 'int') {
+      return isNullable
+          ? '(raw) { final v = raw as int; return v == -1 ? null : v; }'
+          : '(raw) => raw as int';
+    }
+
+    // double / double?  — native posts kDouble; sentinel NaN = null
+    if (rtBase == 'double') {
+      return isNullable
+          ? '(raw) { final v = raw as double; return v.isNaN ? null : v; }'
+          : '(raw) => raw as double';
+    }
+
+    // Fallthrough: unknown type — cast directly (should not normally occur).
     return '(raw) => raw as $rt';
   }
 
@@ -1134,6 +992,101 @@ class DartFfiGenerator {
   static String _inlineCheckError() {
     return 'NitroRuntime.throwIfOutParamError(_nitroErr);';
   }
+
+  // ── Unified return decode helper ──────────────────────────────────────────
+  // Single source of truth for decoding raw FFI results into Dart values.
+  // Replaces four duplicated if/else chains (sync-arena, sync-no-arena,
+  // async-arena, async-no-arena). Calls existing _decodeRecordExpr /
+  // _emitTypedDataDecodeReturn so emitted code is byte-for-byte identical.
+  static void _emitReturnDecode(
+    CodeWriter writer,
+    BridgeType returnType,
+    String resVar,
+    String indent,
+    BridgeSpec spec, {
+    bool zeroCopy = false,
+    bool isOwned = false,
+    String? dartName,
+    String nativeHandleTypeParam = 'Void',
+  }) {
+    final rt = returnType.name;
+    final kind = classifyReturn(returnType, spec);
+    final base = returnType.baseName;
+
+    switch (kind) {
+      case ReturnKind.voidType:
+        return;
+      case ReturnKind.record:
+        final decodeExpr = _decodeRecordExpr(returnType, resVar);
+        final isLazy = returnType.recordListItemType != null && !returnType.recordListItemIsPrimitive;
+        if (isLazy) {
+          writer.line('${indent}return $decodeExpr;');
+        } else {
+          writer.line('${indent}final $rt decoded;');
+          writer.line('${indent}try {');
+          writer.line('$indent  decoded = $decodeExpr;');
+          writer.line('$indent} finally {');
+          writer.line('$indent  malloc.free($resVar);');
+          writer.line('$indent}');
+          writer.line('${indent}return decoded;');
+        }
+      case ReturnKind.typedData:
+        _emitTypedDataDecodeReturn(writer, returnType, resVar, indent, zeroCopy: zeroCopy);
+      case ReturnKind.struct:
+        writer.line('${indent}if ($resVar == nullptr) {');
+        writer.line('$indent  throw StateError(\'${dartName ?? rt} returned null\');');
+        writer.line('$indent}');
+        writer.line('${indent}final structPtr = Pointer<${base}Ffi>.fromAddress($resVar.address);');
+        writer.line('${indent}final $base decoded;');
+        writer.line('${indent}try {');
+        writer.line('$indent  decoded = structPtr.ref.toDart();');
+        writer.line('$indent} finally {');
+        writer.line('$indent  structPtr.ref.freeFields();');
+        writer.line('$indent  malloc.free(structPtr);');
+        writer.line('$indent}');
+        writer.line('${indent}return decoded;');
+      case ReturnKind.nativeHandle:
+        if (isOwned && dartName != null) {
+          writer.line('${indent}final handle = NativeHandle<$nativeHandleTypeParam>.fromAddress($resVar.address);');
+          writer.line('${indent}_${dartName}Finalizer.attach(handle, $resVar.cast(), detach: handle);');
+          writer.line("${indent}handle._releaseCallback = (addr) { _${dartName}ReleaseFn(Pointer<Void>.fromAddress(addr)); _${dartName}Finalizer.detach(handle); };");
+          writer.line('${indent}return handle;');
+        } else {
+          writer.line('${indent}return NativeHandle<$nativeHandleTypeParam>.fromAddress($resVar.address);');
+        }
+      case ReturnKind.enumType:
+        // Nullable enum: -1 sentinel = null; otherwise decode rawValue.
+        final isNullableEnum = returnType.isNullable || returnType.name.endsWith('?');
+        if (isNullableEnum) {
+          writer.line('${indent}return $resVar == -1 ? null : $resVar.to$base();');
+        } else {
+          writer.line('${indent}return $resVar.to$base();');
+        }
+      case ReturnKind.boolNonNull:
+        writer.line('${indent}return $resVar != 0;');
+      case ReturnKind.boolNullable:
+        writer.line('${indent}return $resVar == -1 ? null : $resVar != 0;');
+      case ReturnKind.stringNonNull:
+        writer.line('${indent}return $resVar.toDartStringWithFree();');
+      case ReturnKind.stringNullable:
+        writer.line('${indent}return $resVar == nullptr ? null : $resVar.toDartStringWithFree();');
+      case ReturnKind.intNullable:
+        writer.line('${indent}return $resVar == -1 ? null : $resVar;');
+      case ReturnKind.doubleNullable:
+        writer.line('${indent}return $resVar.isNaN ? null : $resVar;');
+      case ReturnKind.primitive:
+        writer.line('${indent}return $resVar;');
+    }
+  }
+
+  /// Variable name used for the raw async result based on return kind.
+  /// Keeps emitted code readable: `rawPtr` for pointer types, `res` for scalars.
+  static String _asyncResVarName(ReturnKind kind) => switch (kind) {
+    ReturnKind.record    => 'rawPtr',
+    ReturnKind.typedData => 'rawPtr',
+    ReturnKind.struct    => 'rawPtr',
+    _                    => 'res',
+  };
 
   // Kept for callers that already pass an indent; delegates to the S8 form.
   static String _assertCheckError(String indent) => '$indent${_inlineCheckError()}';

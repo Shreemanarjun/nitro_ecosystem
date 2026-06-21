@@ -224,7 +224,7 @@ class SwiftGenerator {
             }
             if (spec.recordTypes.any((rt) => rt.name == p.type.name.replaceFirst('?', ''))) {
               final recordName = p.type.name.replaceFirst('?', '');
-              return '${p.name}: $recordName.fromNative(${p.name}!)';
+              return '${p.name}: $recordName.fromNative(${p.name}!.assumingMemoryBound(to: UInt8.self))';
             }
             return '${p.name}: ${p.name}';
           })
@@ -354,10 +354,11 @@ class SwiftGenerator {
           writer.line('    let ${p.name}Arr = ${p.name}.map { Array(UnsafeBufferPointer(start: \$0, count: Int(${p.name}_length))) } ?? []');
         }
       }
-      // Emit UnsafeMutablePointer<UInt8>? → Swift Array for binary-encoded record/struct list params.
+      // Emit UnsafeMutableRawPointer? → Swift Array for binary-encoded record/struct list params.
       for (final p in recordListParams) {
         final itemType = p.type.name.substring(5, p.type.name.length - 1);
-        writer.line('    let ${p.name}Decoded = ${p.name}.map { NitroRecordReader.decodeList(\$0) { r in $itemType.fromReader(r) } } ?? []');
+        writer.line('    let ${p.name}Ptr = ${p.name}?.assumingMemoryBound(to: UInt8.self)');
+        writer.line('    let ${p.name}Decoded = ${p.name}Ptr.map { NitroRecordReader.decodeList(\$0) { r in $itemType.fromReader(r) } } ?? []');
       }
 
       if (func.isAsync) {
@@ -584,77 +585,147 @@ class SwiftGenerator {
 
     for (final prop in spec.properties) {
       final swiftType = _toSwiftType(spec, prop.type.name);
-      final isBool = prop.type.name.replaceFirst('?', '') == 'bool';
-      final isString = prop.type.name == 'String';
+      final propTypeName = prop.type.name;
+      final propTypeBase = propTypeName.replaceFirst('?', '');
+      final isNullableProp = propTypeName.endsWith('?');
+      final isBool = propTypeBase == 'bool';
+      final isDouble = propTypeBase == 'double';
+      final isInt = propTypeBase == 'int';
+      final isString = propTypeName == 'String' || propTypeName == 'String?';
       if (prop.hasGetter) {
-        final isEnumProp = spec.enums.any((en) => en.name == prop.type.name.replaceFirst('?', ''));
+        final isEnumProp = spec.enums.any((en) => en.name == propTypeBase);
+        // @_cdecl functions cannot use Swift optionals — nullable primitives use sentinels:
+        //   double? → Double  (Double.nan = null)
+        //   int?    → Int64   (-1 = null)
+        //   bool?   → Int8    (-1 = null, 0 = false, 1 = true)
+        //   String? → UnsafeMutablePointer<CChar>? (nullptr = null — already ObjC-safe)
         final getRetType = isString
             ? 'UnsafeMutablePointer<CChar>?'
             : isBool
             ? 'Int8'
             : isEnumProp
             ? 'Int64'
+            : (isNullableProp && (isDouble || isInt))
+            ? (isDouble ? 'Double' : 'Int64')
             : swiftType;
         writer.line('@_cdecl("_${spec.namespace}_call_get_${prop.dartName}")');
         writer.line('public func _${spec.namespace}_call_get_${prop.dartName}() -> $getRetType {');
-        if (isString) {
+        if (isString && isNullableProp) {
+          writer.line(
+            '    guard let v = ${spec.dartClassName}Registry.impl?.${prop.dartName} else { return nil }',
+          );
+          writer.line('    return strdup(v)');
+        } else if (isString) {
           writer.line(
             '    return strdup(${spec.dartClassName}Registry.impl?.${prop.dartName} ?? "")',
           );
+        } else if (isBool && isNullableProp) {
+          // nullable bool: nil → -1, false → 0, true → 1
+          writer.line(
+            '    guard let v = ${spec.dartClassName}Registry.impl?.${prop.dartName} else { return -1 }',
+          );
+          writer.line('    return v == true ? 1 : 0');
         } else if (isBool) {
           writer.line(
             '    return ${spec.dartClassName}Registry.impl?.${prop.dartName} == true ? 1 : 0',
           );
+        } else if (isEnumProp && isNullableProp) {
+          writer.line(
+            '    return ${spec.dartClassName}Registry.impl?.${prop.dartName}?.rawValue ?? -1',
+          );
         } else if (isEnumProp) {
           writer.line(
-            '    return ${spec.dartClassName}Registry.impl?.${prop.dartName}.rawValue ?? ${_defaultCDeclValue(spec, prop.type.name)}',
+            '    return ${spec.dartClassName}Registry.impl?.${prop.dartName}.rawValue ?? ${_defaultCDeclValue(spec, propTypeName)}',
+          );
+        } else if (isNullableProp && isDouble) {
+          // double?: nil → Double.nan
+          writer.line(
+            '    return ${spec.dartClassName}Registry.impl?.${prop.dartName} ?? Double.nan',
+          );
+        } else if (isNullableProp && isInt) {
+          // int?: nil → -1
+          writer.line(
+            '    return ${spec.dartClassName}Registry.impl?.${prop.dartName} ?? -1',
           );
         } else {
           writer.line(
-            '    return ${spec.dartClassName}Registry.impl?.${prop.dartName} ?? ${_defaultCDeclValue(spec, prop.type.name)}',
+            '    return ${spec.dartClassName}Registry.impl?.${prop.dartName} ?? ${_defaultCDeclValue(spec, propTypeName)}',
           );
         }
         writer.line('}');
         writer.blankLine();
       }
       if (prop.hasSetter) {
-        final isEnumProp = spec.enums.any((en) => en.name == prop.type.name.replaceFirst('?', ''));
-        final isStructProp = spec.structs.any((st) => st.name == prop.type.name.replaceFirst('?', ''));
+        final isEnumProp = spec.enums.any((en) => en.name == propTypeBase);
+        final isStructProp = spec.structs.any((st) => st.name == propTypeBase);
+        // @_cdecl setters must not use Swift optional parameter types.
+        // Nullable primitives use sentinels matching the getter convention.
         final setParamType = isBool
             ? 'Int8'
             : isString
-            ? 'UnsafePointer<CChar>?'
+            ? 'UnsafePointer<CChar>?'   // nullable String: nullptr = null
             : isEnumProp
             ? 'Int64'
             : isStructProp
             ? 'UnsafeRawPointer?'
+            : (isNullableProp && isDouble)
+            ? 'Double'      // nullable double: Double.nan = null
+            : (isNullableProp && isInt)
+            ? 'Int64'       // nullable int: -1 = null
             : swiftType;
         writer.line('@_cdecl("_${spec.namespace}_call_set_${prop.dartName}")');
         writer.line(
           'public func _${spec.namespace}_call_set_${prop.dartName}(_ value: $setParamType) {',
         );
-        if (isBool) {
+        if (isBool && isNullableProp) {
+          // nullable bool: -1 = null, 0 = false, 1 = true
+          writer.line(
+            '    ${spec.dartClassName}Registry.impl?.${prop.dartName} = value == -1 ? nil : value != 0',
+          );
+        } else if (isBool) {
           writer.line(
             '    ${spec.dartClassName}Registry.impl?.${prop.dartName} = value != 0',
+          );
+        } else if (isString && isNullableProp) {
+          writer.line(
+            '    ${spec.dartClassName}Registry.impl?.${prop.dartName} = value != nil ? String(cString: value!) : nil',
           );
         } else if (isString) {
           writer.line(
             '    ${spec.dartClassName}Registry.impl?.${prop.dartName} = value != nil ? String(cString: value!) : ""',
           );
+        } else if (isEnumProp && isNullableProp) {
+          // nullable enum: -1 = null
+          writer.line('    if value == -1 { ${spec.dartClassName}Registry.impl?.${prop.dartName} = nil; return }');
+          writer.line(
+            '    if let actualValue = ${propTypeBase}(rawValue: value) {',
+          );
+          writer.line('        ${spec.dartClassName}Registry.impl?.${prop.dartName} = actualValue');
+          writer.line('    }');
         } else if (isEnumProp) {
           writer.line(
-            '    if let actualValue = ${prop.type.name.replaceFirst('?', '')}(rawValue: value) {',
+            '    if let actualValue = ${propTypeBase}(rawValue: value) {',
           );
           writer.line('        ${spec.dartClassName}Registry.impl?.${prop.dartName} = actualValue');
           writer.line('    }');
         } else if (isStructProp) {
-          final propStructName = prop.type.name.replaceFirst('?', '');
+          final propStructName = propTypeBase;
           writer.line(
             '    if let v = value {',
           );
           // Use C shadow struct to read C-layout memory correctly.
           writer.line('        ${spec.dartClassName}Registry.impl?.${prop.dartName} = v.assumingMemoryBound(to: _${propStructName}C.self).pointee.toSwift()');
           writer.line('    }');
+        } else if (isNullableProp && isDouble) {
+          // double?: NaN = null
+          writer.line(
+            '    ${spec.dartClassName}Registry.impl?.${prop.dartName} = value.isNaN ? nil : value',
+          );
+        } else if (isNullableProp && isInt) {
+          // int?: -1 = null
+          writer.line(
+            '    ${spec.dartClassName}Registry.impl?.${prop.dartName} = value == -1 ? nil : value',
+          );
         } else {
           writer.line(
             '    ${spec.dartClassName}Registry.impl?.${prop.dartName} = value',
@@ -1001,7 +1072,7 @@ class SwiftGenerator {
       return 'UnsafeMutableRawPointer?';
     }
     if (spec.recordTypes.any((rt) => rt.name == name) || name.startsWith('List<')) {
-      return 'UnsafeMutablePointer<UInt8>?';
+      return 'UnsafeMutableRawPointer?';
     }
     final isEnumRet = spec.enums.any((en) => en.name == name);
     if (isEnumRet) return 'Int64';
@@ -1020,7 +1091,7 @@ class SwiftGenerator {
     if (name == 'String') return 'UnsafePointer<CChar>?';
     if (name == 'bool') return 'Int8';
     if (spec.recordTypes.any((rt) => rt.name == name) || name.startsWith('List<')) {
-      return 'UnsafeMutablePointer<UInt8>?';
+      return 'UnsafeMutableRawPointer?';
     }
     final isEnum = spec.enums.any((en) => en.name == name);
     if (isEnum) return 'Int64';

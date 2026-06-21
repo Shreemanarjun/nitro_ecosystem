@@ -359,7 +359,7 @@ void main() {
         ),
         kotlin: BridgeChecks(
           // Nullable enum loses ?; _call returns Status (not Long — isEnum check fails for 'Status?')
-          has: ['fun getStatus(): Status', 'fun getStatus_call(): Status'],
+          has: ['fun getStatus(): Status?', 'fun getStatus_call(): Long'],
         ),
         swift: BridgeChecks(
           has: ['-> Int64', '?.rawValue ?? 0'],
@@ -517,7 +517,7 @@ void main() {
       ),
       (
         'bool?',
-        'value == null ? -1 : (value! ? 1 : 0)',
+        'value == null ? -1 : (value ? 1 : 0)',
         'Boolean',
         'val valueArg: Boolean? = if (value.toInt() < 0) null else value',
         'Bool',
@@ -755,7 +755,7 @@ void main() {
           'name.toNativeUtf8', // String → pointer
           'limit ?? -1', // int? → sentinel -1
           'threshold ?? double.nan', // double? → nan sentinel
-          'verbose == null ? -1 : (verbose! ? 1 : 0)', // bool? → sentinel
+          'verbose == null ? -1 : (verbose ? 1 : 0)', // bool? → sentinel
           'flag ? 1 : 0', // bool (non-nullable) → 0/1 no sentinel
         ],
         hasNot: [

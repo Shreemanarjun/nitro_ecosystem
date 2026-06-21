@@ -81,7 +81,7 @@
 | T8 | Unit tests: Kotlin all-types coverage (bool, enum, struct, record async) | 🟡 Medium | ✅ Done |
 | T9 | Unit tests: Swift all-types coverage (bool, enum, struct, stream types) | 🟡 Medium | ✅ Done |
 | T10 | Unit tests: Dart FFI all-types coverage (bool, enum, typed-data async, properties) | 🟡 Medium | ✅ Done |
-| T11 | Integration module: `type_coverage` plugin (echo all types on device) | 🔴 High | ⬜ Pending |
+| T11 | Integration module: `type_coverage` plugin (echo all types on device) | 🔴 High | ✅ Done 2026-06-21 — `nitro_plugins/nitro_type_coverage/`: spec covers int/double/bool/String + nullable variants + enum + struct + @HybridRecord + TypedData (zero-copy) + async + lists + streams + properties; iOS Swift + Android Kotlin echo impls; integration_test with 50+ cases; generator bugs fixed (NativeFinalizerFunction double-wrap, nullable bool?/String?/int?/double? return decode, String property getter, nullable property setters) |
 | T12 | **Bug:** JNI `GetStaticMethodID` calls in generated `initialize()` have no `ExceptionClear()` guard — first failure cascades to SIGABRT on Android ≥ API 26 | 🔴 Critical | ✅ Done 2026-06-21 |
 | T13 | **Bug:** Swift `_toSwiftCallbackWrapper` enum direction inverted — `EnumType(rawValue: arg0)` instead of `arg0.rawValue` causing iOS compile error | 🔴 Critical | ✅ Done 2026-06-21 |
 | T14 | Callback parameter type support: `double`, `bool`, `String` get wrong JNI/Kotlin/Swift types (all `Long`/`jlong`/`Int64`) | 🔴 Critical | ✅ Done 2026-06-21 |

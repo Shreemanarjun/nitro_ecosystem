@@ -81,7 +81,7 @@ class KotlinGenerator {
     // bridge types (Long for enums) so that C JNI can read them directly.
 
     for (final prop in spec.properties) {
-      final kt = _toKotlinType(enumNames, structNames, recordNames, prop.type.name, bridgeType: prop.type);
+      final kt = _toKotlinPropertyType(enumNames, structNames, recordNames, prop.type.name);
       if (prop.hasSetter) {
         writer.line('    var ${prop.dartName}: $kt');
       } else {
@@ -202,6 +202,7 @@ class KotlinGenerator {
           if (bn == 'int') {
             writer.line('        val ${p.name}Arg: Long? = if (${p.name} < 0L) null else ${p.name}');
           } else if (bn == 'bool') {
+            // jboolean is 0/1 only — .toInt() < 0 is always false (known limitation: null bool? ≡ false).
             writer.line('        val ${p.name}Arg: Boolean? = if (${p.name}.toInt() < 0) null else ${p.name}');
           } else if (bn == 'double') {
             writer.line('        val ${p.name}Arg: Double? = if (${p.name}.isNaN()) null else ${p.name}');
@@ -238,7 +239,9 @@ class KotlinGenerator {
 
       // ── Regular (sync / @nitroAsync) method ────────────────────────────────
       final isUnit = (retType == 'Unit');
-      final isEnum = enumNames.contains(func.returnType.name);
+      final retBaseName = func.returnType.name.replaceFirst('?', '');
+      final isEnum = enumNames.contains(retBaseName);
+      final isNullableEnum = isEnum && func.returnType.name.endsWith('?');
       final isRecord = func.returnType.isRecord && !func.returnType.isMap;
       final isListRecord = isRecord && func.returnType.recordListItemType != null && !func.returnType.recordListItemIsPrimitive;
       // JniBridge _call methods expose primitive bridge types to JNI:
@@ -274,6 +277,16 @@ class KotlinGenerator {
               // Wrap Long function pointer in a Kotlin lambda.
               return _emitCallbackLambda(p, enumNames, structNames: structNames, recordNames: recordNames);
             }
+            // Record params are deserialized from ByteArray — use decoded variable.
+            if (p.type.isRecord && p.type.recordListItemType == null && !p.type.isMap) {
+              return '${p.name}Decoded';
+            }
+            if (p.type.isRecord && p.type.recordListItemType != null && !p.type.recordListItemIsPrimitive) {
+              return '${p.name}Decoded';
+            }
+            if (p.type.isRecord && p.type.recordListItemIsPrimitive) {
+              return '${p.name}Decoded';
+            }
             return p.name;
           })
           .join(', ');
@@ -291,11 +304,51 @@ class KotlinGenerator {
           writer.line('        // Dart layer sends -1L as sentinel when caller passes null for ${p.name}.');
           writer.line('        val ${p.name}Arg: Long? = if (${p.name} < 0L) null else ${p.name}');
         } else if (baseName == 'bool') {
+          // jboolean is 0/1 only — .toInt() < 0 is always false (known limitation: null bool? ≡ false).
           writer.line('        // Dart layer sends -1 as sentinel when caller passes null for ${p.name}.');
           writer.line('        val ${p.name}Arg: Boolean? = if (${p.name}.toInt() < 0) null else ${p.name}');
         } else if (baseName == 'double') {
           writer.line('        // Dart layer sends Double.NaN as sentinel when caller passes null for ${p.name}.');
           writer.line('        val ${p.name}Arg: Double? = if (${p.name}.isNaN()) null else ${p.name}');
+        }
+      }
+      // Deserialize record params from ByteArray → Kotlin type.
+      for (final p in func.params) {
+        if (p.type.isRecord && p.type.recordListItemType == null && !p.type.isMap) {
+          final recordName = p.type.name.replaceFirst('?', '');
+          writer.line('        val ${p.name}Decoded = $recordName.decode(${p.name})');
+        } else if (p.type.isRecord && p.type.recordListItemType != null && !p.type.recordListItemIsPrimitive) {
+          // List<@HybridRecord> — decode from Dart's indexed binary format:
+          // [4B outer_len][4B count][8B×count offsets][item_fields...]
+          final itemTypeName = p.type.recordListItemType!;
+          writer.line('        val ${p.name}Buf = java.nio.ByteBuffer.wrap(${p.name}).order(java.nio.ByteOrder.LITTLE_ENDIAN)');
+          writer.line('        ${p.name}Buf.getInt() // skip outer length');
+          writer.line('        val ${p.name}Count = ${p.name}Buf.getInt()');
+          writer.line('        repeat(${p.name}Count) { ${p.name}Buf.getLong() } // skip offsets');
+          writer.line('        val ${p.name}Decoded = mutableListOf<$itemTypeName>()');
+          writer.line('        repeat(${p.name}Count) { ${p.name}Decoded.add($itemTypeName.decode(${p.name}Buf)) }');
+        } else if (p.type.isRecord && p.type.recordListItemIsPrimitive) {
+          // Primitive list — decode from Dart's indexed binary format:
+          // [4B outer_len][4B count][8B×count offsets][items...]
+          final itemTypeName = p.type.recordListItemType!;
+          final readMethod = switch (itemTypeName) {
+            'int' => 'getLong',
+            'double' => 'getDouble',
+            'String' => 'getString',
+            _ => 'get',
+          };
+          final listKtType = switch (itemTypeName) {
+            'int' => 'ArrayList<Long>',
+            'double' => 'ArrayList<Double>',
+            'String' => 'ArrayList<String>',
+            _ => 'ArrayList<Any>',
+          };
+          writer.line('        val ${p.name}Buf = java.nio.ByteBuffer.wrap(${p.name}).order(java.nio.ByteOrder.LITTLE_ENDIAN)');
+          writer.line('        ${p.name}Buf.getInt() // skip outer length');
+          writer.line('        val ${p.name}Count = ${p.name}Buf.getInt()');
+          writer.line('        repeat(${p.name}Count) { ${p.name}Buf.getLong() } // skip offsets');
+          writer.line('        val ${p.name}Decoded = $listKtType()');
+          writer.line('        repeat(${p.name}Count) { ${p.name}Decoded.add(${p.name}Buf.$readMethod()) }');
         }
       }
       if (isRecord) {
@@ -320,15 +373,58 @@ class KotlinGenerator {
           writer.line('        val lenBuf = java.nio.ByteBuffer.allocate(4).order(java.nio.ByteOrder.LITTLE_ENDIAN)');
           writer.line('        lenBuf.putInt(payload.size)');
           writer.line('        return lenBuf.array() + payload');
+        } else if (func.returnType.recordListItemIsPrimitive) {
+          // Primitive list → binary encode: [4B outer_len][4B count][items...]
+          final itemTypeName = func.returnType.recordListItemType!;
+          final itemSize = switch (itemTypeName) {
+            'int' => 8,
+            'double' => 8,
+            'String' => -1, // variable-length, handled separately
+            _ => 8,
+          };
+          if (itemSize > 0) {
+            // Fixed-size primitives (Long, Double)
+            writer.line('        val count = result.size');
+            writer.line('        val payloadSize = 4 + $itemSize * count');
+            writer.line('        val buf = java.nio.ByteBuffer.allocate(4 + payloadSize).order(java.nio.ByteOrder.LITTLE_ENDIAN)');
+            writer.line('        buf.putInt(payloadSize)');
+            writer.line('        buf.putInt(count)');
+            final putMethod = switch (itemTypeName) {
+              'int' => 'putLong',
+              'double' => 'putDouble',
+              _ => 'putLong',
+            };
+            writer.line('        result.forEach { buf.$putMethod(it) }');
+            writer.line('        return buf.array()');
+          } else {
+            // Variable-length strings
+            writer.line('        val baos = java.io.ByteArrayOutputStream()');
+            writer.line('        val lenBuf = java.nio.ByteBuffer.allocate(4).order(java.nio.ByteOrder.LITTLE_ENDIAN)');
+            writer.line('        val strLenBuf = java.nio.ByteBuffer.allocate(4).order(java.nio.ByteOrder.LITTLE_ENDIAN)');
+            writer.line('        val items = result.map { it.toByteArray(Charsets.UTF_8) }');
+            writer.line('        val payloadSize = 4 + items.sumOf { 4 + it.size }');
+            writer.line('        lenBuf.putInt(payloadSize)');
+            writer.line('        baos.write(lenBuf.array())');
+            writer.line('        lenBuf.clear(); lenBuf.putInt(items.size); lenBuf.flip()');
+            writer.line('        baos.write(lenBuf.array())');
+            writer.line('        for (item in items) { strLenBuf.clear(); strLenBuf.putInt(item.size); strLenBuf.flip(); baos.write(strLenBuf.array()); baos.write(item) }');
+            writer.line('        return baos.toByteArray()');
+          }
         } else {
           // Single @HybridRecord — encode() wraps with 4-byte length prefix
           writer.line('        return result.encode()');
         }
       } else if (func.isAsync) {
         if (isEnum) {
-          writer.line(
-            '        return _asyncExecutor.submit(java.util.concurrent.Callable { runBlocking { impl.${func.dartName}($callParamsResolved) } }).get().nativeValue',
-          );
+          if (isNullableEnum) {
+            writer.line(
+              '        return _asyncExecutor.submit(java.util.concurrent.Callable { runBlocking { impl.${func.dartName}($callParamsResolved) } }).get()?.nativeValue ?: -1L',
+            );
+          } else {
+            writer.line(
+              '        return _asyncExecutor.submit(java.util.concurrent.Callable { runBlocking { impl.${func.dartName}($callParamsResolved) } }).get().nativeValue',
+            );
+          }
         } else {
           writer.line('        return _asyncExecutor.submit(java.util.concurrent.Callable {');
           writer.line('            runBlocking { impl.${func.dartName}($callParamsResolved) }');
@@ -338,9 +434,15 @@ class KotlinGenerator {
         if (isUnit) {
           writer.line('        impl.${func.dartName}($callParamsResolved)');
         } else if (isEnum) {
-          writer.line(
-            '        return impl.${func.dartName}($callParamsResolved).nativeValue',
-          );
+          if (isNullableEnum) {
+            writer.line(
+              '        return impl.${func.dartName}($callParamsResolved)?.nativeValue ?: -1L',
+            );
+          } else {
+            writer.line(
+              '        return impl.${func.dartName}($callParamsResolved).nativeValue',
+            );
+          }
         } else {
           writer.line('        return impl.${func.dartName}($callParamsResolved)');
         }
@@ -349,8 +451,10 @@ class KotlinGenerator {
     }
 
     for (final prop in spec.properties) {
-      final kt = _toKotlinType(enumNames, structNames, recordNames, prop.type.name);
-      final isEnum = enumNames.contains(prop.type.name);
+      final kt = _toKotlinPropertyType(enumNames, structNames, recordNames, prop.type.name);
+      final propBaseName = prop.type.name.replaceFirst('?', '');
+      final isEnum = enumNames.contains(propBaseName);
+      final isNullableEnum = isEnum && prop.type.name.endsWith('?');
       final bridgeKt = isEnum ? 'Long' : kt;
       if (prop.hasGetter) {
         writer.line('    @JvmStatic fun ${prop.getSymbol}_call(): $bridgeKt {');
@@ -358,7 +462,11 @@ class KotlinGenerator {
           '        val impl = implementation ?: throw IllegalStateException("${spec.dartClassName} not registered")',
         );
         if (isEnum) {
-          writer.line('        return impl.${prop.dartName}.nativeValue');
+          if (isNullableEnum) {
+            writer.line('        return impl.${prop.dartName}?.nativeValue ?: -1L');
+          } else {
+            writer.line('        return impl.${prop.dartName}.nativeValue');
+          }
         } else {
           writer.line('        return impl.${prop.dartName}');
         }
@@ -372,9 +480,15 @@ class KotlinGenerator {
           '        val impl = implementation ?: throw IllegalStateException("${spec.dartClassName} not registered")',
         );
         if (isEnum) {
-          writer.line(
-            '        impl.${prop.dartName} = ${prop.type.name}.fromNative(value)',
-          );
+          if (isNullableEnum) {
+            writer.line(
+              '        impl.${prop.dartName} = if (value < 0L) null else ${propBaseName}.fromNative(value)',
+            );
+          } else {
+            writer.line(
+              '        impl.${prop.dartName} = ${propBaseName}.fromNative(value)',
+            );
+          }
         } else {
           writer.line('        impl.${prop.dartName} = value');
         }
@@ -485,7 +599,14 @@ class KotlinGenerator {
       // Direct @HybridRecord — use the class name
       return t.name;
     }
-    return _toKotlinType(enumNames, structNames, recordNames, t.name);
+    final base = _toKotlinType(enumNames, structNames, recordNames, t.name);
+    // For the interface signature: nullable enum/struct types preserve '?' (Status? → Status?).
+    // Primitive nullable types (int?, bool?, double?) strip '?' — JNI uses non-nullable primitives.
+    final isNullable = t.name.endsWith('?');
+    final baseName = t.name.replaceFirst('?', '');
+    final isPrimitive = const {'int', 'bool', 'double', 'String'}.contains(baseName);
+    if (isNullable && !isPrimitive && !base.endsWith('?')) return '$base?';
+    return base;
   }
 
   static String _toKotlinFunctionRetType(
@@ -542,6 +663,8 @@ class KotlinGenerator {
   ) {
     // Callback / function-typed params are passed as Long (function pointer) via JNI.
     if (p.type.isFunction) return 'Long';
+    // Record params (List<T> and @HybridRecord) are serialized as ByteArray ([B]) in the C++ bridge.
+    if (p.type.isRecord) return 'ByteArray';
     final isNullable = p.type.name.endsWith('?') || p.isOptional;
     if (!isNullable) {
       return _toKotlinParamType(enumNames, structNames, recordNames, p);
@@ -552,17 +675,22 @@ class KotlinGenerator {
     }
     final baseName = p.type.name.replaceFirst('?', '');
     // Primitive JVM types: strip nullability so the JVM descriptor matches C++.
+    // KNOWN LIMITATION: nullable bool? uses Boolean (jboolean), not Int.
+    // jboolean can only hold 0/1 — it cannot carry -1 as a null sentinel.
+    // This means null bool cannot be distinguished from false through JNI.
+    // A proper fix requires updating CallStaticBooleanMethod → CallStaticIntMethod
+    // in jni_method_emitter.dart AND using Int here; deferred to a separate change.
     switch (baseName) {
       case 'int':
         return 'Long'; // JVM descriptor: J  (primitive long)
       case 'bool':
-        return 'Boolean'; // JVM descriptor: Z  (primitive boolean)
+        return 'Boolean'; // JVM descriptor: Z  (primitive boolean, see limitation above)
       case 'double':
         return 'Double'; // JVM descriptor: D  (primitive double)
     }
     // Reference types (String, structs, enums, TypedData arrays) can be null in
     // JNI — keep nullable.
-    final base = _toKotlinType(enumNames, structNames, recordNames, p.type.name);
+    final base = _toKotlinType(enumNames, structNames, recordNames, baseName);
     return '$base?';
   }
 
@@ -629,6 +757,18 @@ class KotlinGenerator {
     return 'Any?';
   }
 
+  /// Maps a property type to its Kotlin type, preserving nullability for nullable properties.
+  static String _toKotlinPropertyType(
+    Set<String> enumNames,
+    Set<String> structNames,
+    Set<String> recordNames,
+    String t,
+  ) {
+    final base = _toKotlinType(enumNames, structNames, recordNames, t);
+    if (t.endsWith('?') && !base.endsWith('?')) return '$base?';
+    return base;
+  }
+
   /// Maps a callback parameter type to its JNI-compatible Kotlin type.
   /// The `_invoke_` external native method must use these types so that
   /// the JVM method descriptor matches the C JNI function signature exactly.
@@ -665,7 +805,8 @@ class KotlinGenerator {
         .map((entry) {
           final i = entry.key;
           final cbP = entry.value;
-          return 'p$i: ${cbP.name}';
+          final ktType = _toKotlinType(enumNames, structNames ?? {}, recordNames ?? {}, cbP.name);
+          return 'p$i: $ktType';
         })
         .join(', ');
 

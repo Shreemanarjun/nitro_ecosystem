@@ -136,6 +136,13 @@ class BridgeType {
   /// True when the type is `Map<String, V>` — bridges as a JSON object string.
   final bool isMap;
 
+  /// The type name with the nullable `?` suffix stripped.
+  /// `'int?'.baseName == 'int'`, `'String'.baseName == 'String'`.
+  /// Always strips a trailing `?` regardless of the [isNullable] field —
+  /// this ensures correct behaviour for BridgeType instances created in tests
+  /// where [isNullable] may default to `false` even when the name ends with `?`.
+  String get baseName => name.endsWith('?') ? name.substring(0, name.length - 1) : name;
+
   /// True when the type is a Dart TypedData (Uint8List, Float32List, etc.)
   bool get isTypedData =>
       name.startsWith('Uint8List') ||

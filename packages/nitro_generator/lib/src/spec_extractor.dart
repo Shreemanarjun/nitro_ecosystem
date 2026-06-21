@@ -428,7 +428,7 @@ class SpecExtractor {
     Set<String> structTypeNames,
     Set<String> enumTypeNames,
   ) {
-    final fields = cls.fields.where((f) => !f.isStatic && !f.isSynthetic).map((f) {
+    final fields = cls.fields.where((f) => !f.isStatic).map((f) {
       final displayType = f.type.getDisplayString();
       final isNullable = displayType.endsWith('?');
       final kind = _recordFieldKind(f.type, recordTypeNames, structTypeNames, enumTypeNames);
@@ -847,7 +847,7 @@ class SpecExtractor {
       'package:nitro_annotations/src/annotations.dart#ZeroCopy',
     );
 
-    final fields = cls.fields.where((f) => !f.isStatic && !f.isSynthetic).map(
+    final fields = cls.fields.where((f) => !f.isStatic).map(
       (f) {
         final info = paramInfo[f.name!];
         // Accept zero-copy declared either on the struct annotation

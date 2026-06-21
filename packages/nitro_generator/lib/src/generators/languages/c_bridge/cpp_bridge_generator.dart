@@ -375,7 +375,10 @@ class CppBridgeGenerator {
         if (p.type.isFunction) {
           paramParts.add(_callbackParamToC(p, enumNames, structNames: structNames, recordNames: recordNames));
         } else {
-          paramParts.add('${(isStructParam || isRecordParam) ? 'void*' : _typeToC(p.type.name)} ${p.name}');
+          // Nullable bool uses int32_t (jint) to preserve the -1 sentinel for null.
+          final isNullableBool = p.type.isNullable && p.type.name.replaceFirst('?', '') == 'bool';
+          final cType = isNullableBool ? 'int32_t' : ((isStructParam || isRecordParam) ? 'void*' : _typeToC(p.type.name));
+          paramParts.add('$cType ${p.name}');
         }
         if (p.type.isTypedData) paramParts.add('int64_t ${p.name}_length');
       }
@@ -656,6 +659,10 @@ class CppBridgeGenerator {
   static String _paramTypeToC(String dartType, Set<String> structNames) {
     if (structNames.contains(dartType.replaceFirst('?', ''))) {
       return 'void*';
+    }
+    // Nullable bool uses int32_t (jint) to preserve the -1 sentinel for null.
+    if (dartType.endsWith('?') && dartType.replaceFirst('?', '') == 'bool') {
+      return 'int32_t';
     }
     return _typeToC(dartType);
   }
@@ -1093,6 +1100,8 @@ class CppBridgeGenerator {
     if (param.type.isRecord && !param.type.isMap) return '[B';
     // Callback / function-typed params are passed as a long (function pointer).
     if (param.type.isFunction) return 'J';
+    // Nullable bool uses Int (I) to preserve the -1 sentinel for null.
+    if (param.type.isNullable && baseParamType == 'bool') return 'I';
     return _jniSigType(param.type.name);
   }
 }

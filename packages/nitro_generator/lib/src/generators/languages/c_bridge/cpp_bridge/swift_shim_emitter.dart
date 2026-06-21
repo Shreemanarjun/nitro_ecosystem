@@ -19,7 +19,7 @@ void _emitSwiftBridgeSection(
   }
 
   for (final func in spec.functions) {
-    final isEnum = enumNames.contains(func.returnType.name);
+    final isEnum = enumNames.contains(func.returnType.name.replaceFirst('?', ''));
     final paramParts = <String>[];
     final callParamParts = <String>[];
     for (final p in func.params) {

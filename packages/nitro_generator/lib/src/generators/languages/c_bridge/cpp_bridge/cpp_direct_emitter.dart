@@ -301,7 +301,10 @@ String _generateCppDirect(BridgeSpec spec) {
       }
       final isStructParam = structNames.contains(p.type.name.replaceFirst('?', ''));
       final isRecordParam = p.type.isRecord;
-      paramParts.add('${(isStructParam || isRecordParam || p.type.isNativeHandle) ? 'void*' : _typeToC(p.type.name)} ${p.name}');
+      // Nullable bool uses int32_t (jint) to preserve the -1 sentinel for null.
+      final isNullableBool = p.type.isNullable && p.type.name.replaceFirst('?', '') == 'bool';
+      final cType = isNullableBool ? 'int32_t' : ((isStructParam || isRecordParam || p.type.isNativeHandle) ? 'void*' : _typeToC(p.type.name));
+      paramParts.add('$cType ${p.name}');
       if (p.type.isTypedData) paramParts.add('int64_t ${p.name}_length');
     }
     // S8: every sync C function takes a NitroError* out-param as its last argument.

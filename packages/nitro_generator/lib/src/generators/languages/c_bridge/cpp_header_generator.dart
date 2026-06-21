@@ -105,7 +105,10 @@ class CppHeaderGenerator {
           final isStructParam = spec.structs.any(
             (st) => st.name == p.type.name.replaceFirst('?', ''),
           );
-          paramParts.add('${(isStructParam || p.type.isNativeHandle) ? 'void*' : _typeToC(p.type.name)} ${p.name}');
+          // Nullable bool uses int32_t (jint) to preserve the -1 sentinel for null.
+          final isNullableBool = p.type.isNullable && p.type.name.replaceFirst('?', '') == 'bool';
+          final cType = isNullableBool ? 'int32_t' : ((isStructParam || p.type.isNativeHandle) ? 'void*' : _typeToC(p.type.name));
+          paramParts.add('$cType ${p.name}');
           if (p.type.isTypedData) paramParts.add('int64_t ${p.name}_length');
         }
         // @NitroNativeAsync: C entry point is always void + extra dart_port param.
