@@ -251,7 +251,7 @@ void main() {
         }
       '''),
       dart: BridgeChecks(has: ['enabled == null ? -1 : (enabled ? 1 : 0)']),
-      kotlin: BridgeChecks(has: ['val enabledArg: Boolean? = if (enabled.toInt() < 0) null else enabled']),
+      kotlin: BridgeChecks(has: ['val enabledArg: Boolean? = enabled // null indistinguishable from false via jboolean']),
       skip: {Lang.cpp},
     );
 

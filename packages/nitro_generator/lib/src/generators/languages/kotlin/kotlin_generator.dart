@@ -203,7 +203,11 @@ class KotlinGenerator {
             writer.line('        val ${p.name}Arg: Long? = if (${p.name} < 0L) null else ${p.name}');
           } else if (bn == 'bool') {
             // jboolean is 0/1 only — .toInt() < 0 is always false (known limitation: null bool? ≡ false).
-            writer.line('        val ${p.name}Arg: Boolean? = if (${p.name}.toInt() < 0) null else ${p.name}');
+            // KNOWN LIMITATION: jboolean (0/1 only) cannot carry -1 null sentinel.
+            // Boolean.toInt() does not exist in Kotlin stdlib; and even if it did,
+            // jboolean values are always 0 or 1 so < 0 would never be true.
+            // null bool? on Dart side always arrives as false on Android JNI.
+            writer.line('        val ${p.name}Arg: Boolean? = ${p.name} // null indistinguishable from false via jboolean');
           } else if (bn == 'double') {
             writer.line('        val ${p.name}Arg: Double? = if (${p.name}.isNaN()) null else ${p.name}');
           }
@@ -306,7 +310,11 @@ class KotlinGenerator {
         } else if (baseName == 'bool') {
           // jboolean is 0/1 only — .toInt() < 0 is always false (known limitation: null bool? ≡ false).
           writer.line('        // Dart layer sends -1 as sentinel when caller passes null for ${p.name}.');
-          writer.line('        val ${p.name}Arg: Boolean? = if (${p.name}.toInt() < 0) null else ${p.name}');
+          // KNOWN LIMITATION: jboolean (0/1 only) cannot carry -1 null sentinel.
+            // Boolean.toInt() does not exist in Kotlin stdlib; and even if it did,
+            // jboolean values are always 0 or 1 so < 0 would never be true.
+            // null bool? on Dart side always arrives as false on Android JNI.
+            writer.line('        val ${p.name}Arg: Boolean? = ${p.name} // null indistinguishable from false via jboolean');
         } else if (baseName == 'double') {
           writer.line('        // Dart layer sends Double.NaN as sentinel when caller passes null for ${p.name}.');
           writer.line('        val ${p.name}Arg: Double? = if (${p.name}.isNaN()) null else ${p.name}');

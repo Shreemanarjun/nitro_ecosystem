@@ -519,7 +519,7 @@ void main() {
         'bool?',
         'value == null ? -1 : (value ? 1 : 0)',
         'Boolean',
-        'val valueArg: Boolean? = if (value.toInt() < 0) null else value',
+        'val valueArg: Boolean? = value // null indistinguishable from false via jboolean',
         'Bool',
       ),
     ]) {
@@ -774,7 +774,7 @@ void main() {
           // Sentinel-to-null conversions only for optional primitives
           'val limitArg: Long? = if (limit < 0L) null else limit',
           'val thresholdArg: Double? = if (threshold.isNaN()) null else threshold',
-          'val verboseArg: Boolean? = if (verbose.toInt() < 0) null else verbose',
+          'val verboseArg: Boolean? = verbose // null indistinguishable from false via jboolean',
           // Non-optional primitives and String? forwarded raw
           'impl.doAll(name, count, ratio, flag, label, limitArg, thresholdArg, verboseArg)',
         ],

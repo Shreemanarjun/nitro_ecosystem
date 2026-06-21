@@ -192,7 +192,7 @@ const _optPrimCases = [
     param: 'enabled',
     dartSentinel: 'enabled == null ? -1 : (enabled ? 1 : 0)',
     kotlinCallType: 'Boolean',
-    kotlinConversion: 'val enabledArg: Boolean? = if (enabled.toInt() < 0) null else enabled',
+    kotlinConversion: 'val enabledArg: Boolean? = enabled // null indistinguishable from false via jboolean',
     kotlinInterfaceType: 'Boolean?',
   ),
 ];
@@ -518,7 +518,7 @@ void main() {
           returnType: 'bool',
         ),
         has: [
-          'val flagArg: Boolean? = if (flag.toInt() < 0) null else flag',
+          'val flagArg: Boolean? = flag // null indistinguishable from false via jboolean',
           'impl.toggleAsync(flagArg)',
         ],
       );
@@ -555,7 +555,7 @@ void main() {
         has: [
           'val timeoutArg: Long? = if (timeout < 0L) null else timeout',
           'val scaleArg: Double? = if (scale.isNaN()) null else scale',
-          'val verboseArg: Boolean? = if (verbose.toInt() < 0) null else verbose',
+          'val verboseArg: Boolean? = verbose // null indistinguishable from false via jboolean',
           'impl.doAll(id, timeoutArg, scaleArg, verboseArg, flag, count)',
         ],
         hasNot: ['flagArg', 'countArg', 'idArg'],
