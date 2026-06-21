@@ -542,9 +542,12 @@ class KotlinGenerator {
         } else if (isNullableInt) {
           writer.line('        return impl.${prop.dartName} ?: -1L');
         } else if (isNullableDouble) {
-          // Explicit null check instead of ?: to avoid Kotlin boxing edge cases with NaN
+          // Explicit null check + unbox cast to ensure JVM descriptor ()D (primitive double).
+          // 'else _dv' where _dv: Double? might box to Ljava/lang/Double; in some Kotlin
+          // compiler versions, changing the descriptor and causing GetStaticMethodID to fail.
           writer.line('        val _dv = impl.${prop.dartName}');
-          writer.line('        return if (_dv == null) Double.NaN else _dv');
+          writer.line('        if (_dv == null) return java.lang.Double.NaN');
+          writer.line('        return _dv.toDouble()');
         } else if (isNullableBool) {
           // jboolean cannot carry null — null maps to false (known limitation)
           writer.line('        return impl.${prop.dartName} ?: false');
@@ -570,7 +573,8 @@ class KotlinGenerator {
         } else if (isNullableInt) {
           writer.line('        impl.${prop.dartName} = if (value == -1L) null else value');
         } else if (isNullableDouble) {
-          writer.line('        impl.${prop.dartName} = if (value.isNaN()) null else value');
+          // Use java.lang.Double.isNaN() for explicit primitive double check
+          writer.line('        impl.${prop.dartName} = if (java.lang.Double.isNaN(value)) null else value');
         } else if (isNullableBool) {
           // jboolean cannot carry -1 sentinel; null cannot be set from JNI Boolean property
           writer.line('        impl.${prop.dartName} = value');
