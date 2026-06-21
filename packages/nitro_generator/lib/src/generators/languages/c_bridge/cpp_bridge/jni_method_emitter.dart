@@ -171,7 +171,13 @@ void _emitJniMethods(
         paramsDeclParts.add(_jniCallbackParamToC(p, enumNames, structNames: structNames, recordNames: recordNames));
         continue;
       }
-      paramsDeclParts.add('${_paramTypeToC(p.type.name, structNames)} ${p.name}');
+      // Enum params: must be int64_t (rawValue) not void* — void* cast of -1 (null
+      // sentinel) is implementation-defined and may not equal int64_t -1 on some
+      // Android/AArch64 compilers. Use int64_t to guarantee correct bit pattern.
+      final paramBase = p.type.name.replaceFirst('?', '');
+      final isEnumParam = enumNames.contains(paramBase);
+      final cParamType = isEnumParam ? 'int64_t' : _paramTypeToC(p.type.name, structNames);
+      paramsDeclParts.add('$cParamType ${p.name}');
       if (p.type.isTypedData) paramsDeclParts.add('int64_t ${p.name}_length');
     }
     // S8: SYNC functions take NitroError* as the last parameter.

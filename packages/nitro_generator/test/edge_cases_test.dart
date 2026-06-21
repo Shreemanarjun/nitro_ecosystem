@@ -779,22 +779,19 @@ void main() {
       expect(out, isNot(contains('fun getAvailableDevices_call(): List<CameraDevice>')));
     });
 
-    test('_call serialises list count into countBuf before items', () {
+    test('_call serialises list as indexed format (count + offsets + items)', () {
+      // Wire format must match Dart LazyRecordList / encodeIndexedList:
+      // [4B outer_len] [4B count] [8B×n offsets] [item bytes...]
       final out = KotlinGenerator.generate(recordListSpec());
-      expect(out, contains('countBuf.putInt(result.size)'));
-      expect(out, contains('out.write(countBuf.array())'));
+      expect(out, contains('payloadBuf.putInt(result.size)'));  // count
+      expect(out, contains('offsets.forEach { payloadBuf.putLong(it) }'));  // offsets
+      expect(out, contains('itemBufs.forEach { payloadBuf.put(it) }'));  // items
     });
 
-    test('_call writes each item via writeFieldsTo (not encode())', () {
-      // Using encode() would prepend a per-item 4-byte length prefix, breaking
-      // the wire format expected by RecordReader.decodeList on the Dart side.
+    test('_call writes each item via writeFieldsTo into separate buffer', () {
       final out = KotlinGenerator.generate(recordListSpec());
-      expect(out, contains('result.forEach { it.writeFieldsTo(out, buf) }'));
-      expect(
-        out,
-        isNot(contains('result.forEach { out.write(it.encode()) }')),
-        reason: 'encode() adds a per-item length prefix which is not expected by the reader',
-      );
+      expect(out, contains('item.writeFieldsTo(tmpOut, tmpBuf)'));
+      expect(out, contains('itemBufs.add(tmpOut.toByteArray())'));
     });
 
     test('_call wraps payload with 4-byte length prefix via lenBuf', () {
@@ -803,10 +800,10 @@ void main() {
       expect(out, contains('return lenBuf.array() + payload'));
     });
 
-    test('_call uses pre-sized ByteArrayOutputStream for list serialisation', () {
+    test('_call uses indexed offset table so Dart LazyRecordList can random-access', () {
       final out = KotlinGenerator.generate(recordListSpec());
-      // Must use a pre-sized stream; exact size depends on record fields
-      expect(out, contains('val out = java.io.ByteArrayOutputStream(result.size *'));
+      expect(out, contains('val offsets = LongArray(result.size)'));
+      expect(out, contains('val itemBufs = ArrayList<ByteArray>'));
     });
 
     test('interface return type is List<CameraDevice> (not ByteArray)', () {

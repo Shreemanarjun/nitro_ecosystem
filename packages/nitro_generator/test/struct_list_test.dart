@@ -344,12 +344,12 @@ void main() {
 
     test('sync _call uses result.forEach { it.writeFieldsTo(out, buf) }', () {
       final out = KotlinGenerator.generate(_structListReturnSpec());
-      expect(out, contains('result.forEach { it.writeFieldsTo(out, buf) }'));
+      expect(out, contains('item.writeFieldsTo(tmpOut, tmpBuf)'));
     });
 
     test('sync _call encodes list with 4-byte count prefix', () {
       final out = KotlinGenerator.generate(_structListReturnSpec());
-      expect(out, contains('countBuf.putInt(result.size)'));
+      expect(out, contains('payloadBuf.putInt(result.size)'));
     });
 
     test('interface declares fun getPrinters(): List<Printer>', () {

@@ -397,17 +397,30 @@ class KotlinGenerator {
           writer.line('        val result = impl.${func.dartName}($callParamsResolved)');
         }
         if (isListRecord) {
-          // Serialize List<@HybridRecord> → ByteArray (wire: [4-byte payload len][4-byte count][item fields...])
+          // Serialize List<@HybridRecord> → indexed ByteArray.
+          // Wire format (matches Dart LazyRecordList / encodeIndexedList):
+          //   [4B outer_len] [4B count] [8B × count offsets] [item bytes...]
+          // Offsets are byte positions FROM the payload start (i.e. after outer 4B prefix).
+          // Each offset points to the start of that item's fields in the payload.
           final itemTypeName = func.returnType.recordListItemType!;
           final itemRt = spec.recordTypes.where((rt) => rt.name == itemTypeName).firstOrNull;
           final perItemHint = itemRt != null ? RecordGenerator.recordBytesHint(itemRt) : 64;
-          writer.line('        val out = java.io.ByteArrayOutputStream(result.size * $perItemHint + 8)');
-          writer.line('        val buf = java.nio.ByteBuffer.allocate(8).order(java.nio.ByteOrder.LITTLE_ENDIAN)');
-          writer.line('        val countBuf = java.nio.ByteBuffer.allocate(4).order(java.nio.ByteOrder.LITTLE_ENDIAN)');
-          writer.line('        countBuf.putInt(result.size)');
-          writer.line('        out.write(countBuf.array())');
-          writer.line('        result.forEach { it.writeFieldsTo(out, buf) }');
-          writer.line('        val payload = out.toByteArray()');
+          writer.line('        val itemBufs = ArrayList<ByteArray>(result.size)');
+          writer.line('        val tmpBuf = java.nio.ByteBuffer.allocate(8).order(java.nio.ByteOrder.LITTLE_ENDIAN)');
+          writer.line('        for (item in result) {');
+          writer.line('            val tmpOut = java.io.ByteArrayOutputStream($perItemHint)');
+          writer.line('            item.writeFieldsTo(tmpOut, tmpBuf)');
+          writer.line('            itemBufs.add(tmpOut.toByteArray())');
+          writer.line('        }');
+          writer.line('        // payload = [4B count][8B × n offsets][item bytes...]');
+          writer.line('        var offsetPos = 4 + 8L * result.size  // start of item data in payload');
+          writer.line('        val offsets = LongArray(result.size)');
+          writer.line('        for (i in result.indices) { offsets[i] = offsetPos; offsetPos += itemBufs[i].size }');
+          writer.line('        val payloadBuf = java.nio.ByteBuffer.allocate(offsetPos.toInt()).order(java.nio.ByteOrder.LITTLE_ENDIAN)');
+          writer.line('        payloadBuf.putInt(result.size)');
+          writer.line('        offsets.forEach { payloadBuf.putLong(it) }');
+          writer.line('        itemBufs.forEach { payloadBuf.put(it) }');
+          writer.line('        val payload = payloadBuf.array()');
           writer.line('        val lenBuf = java.nio.ByteBuffer.allocate(4).order(java.nio.ByteOrder.LITTLE_ENDIAN)');
           writer.line('        lenBuf.putInt(payload.size)');
           writer.line('        return lenBuf.array() + payload');

@@ -93,13 +93,16 @@ void _emitJniSwiftPrologue(
   writer.line('    jstring j_msg = (jstring)env->CallObjectMethod(ex, g_exc_getMessage);');
   writer.line('    const char* msg = (j_msg != nullptr) ? env->GetStringUTFChars(j_msg, 0) : "No message provided";');
   writer.blankLine();
-  writer.line('    // S8: write to out-param slot instead of the TLS error slot.');
+  writer.line('    // S8: write to out-param slot (sync) or TLS slot (async, _nitro_err == nullptr).');
   writer.line('    if (_nitro_err) {');
   writer.line('        _nitro_err->hasError = 1;');
   writer.line('        _nitro_err->name       = strdup(name);');
   writer.line('        _nitro_err->message    = strdup(msg);');
   writer.line('        _nitro_err->code       = nullptr;');
   writer.line('        _nitro_err->stackTrace = nullptr;');
+  writer.line('    } else {');
+  writer.line('        // Async functions use TLS slot (read by callAsync via get_error/clear_error).');
+  writer.line('        nitro_report_error(name, msg, nullptr, nullptr);');
   writer.line('    }');
   writer.blankLine();
   writer.line('    if (j_name) {');

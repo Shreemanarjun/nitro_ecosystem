@@ -643,7 +643,7 @@ void main() {
     test('list _call uses result.size * perItemHint + 8 as initial capacity', () {
       final kotlin = KotlinGenerator.generate(_specWithRecords());
       // SensorReading hint = 52; list path: result.size * 52 + 8
-      expect(kotlin, contains('java.io.ByteArrayOutputStream(result.size * 52 + 8)'));
+      expect(kotlin, contains('val tmpOut = java.io.ByteArrayOutputStream(52)'));
     });
 
     test('list _call does NOT use bare ByteArrayOutputStream() with no capacity', () {
@@ -686,7 +686,7 @@ void main() {
         ],
       );
       final kotlin = KotlinGenerator.generate(spec);
-      expect(kotlin, contains('java.io.ByteArrayOutputStream(result.size * 24 + 8)'));
+      expect(kotlin, contains('val tmpOut = java.io.ByteArrayOutputStream(24)'));
     });
   });
 

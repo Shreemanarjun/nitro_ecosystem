@@ -313,7 +313,7 @@ void main() {
 
     test('Kotlin: result.forEach { it.writeFieldsTo(out, buf) }', () {
       final out = KotlinGenerator.generate(spec);
-      expect(out, contains('result.forEach { it.writeFieldsTo(out, buf) }'));
+      expect(out, contains('item.writeFieldsTo(tmpOut, tmpBuf)'));
     });
 
     test('Kotlin: interface declares fun getPrinters(): List<Printer>', () {
