@@ -1,10 +1,10 @@
-/// S8 out-param ABI tests — generator output correctness + edge cases.
-///
-/// S8 eliminates the two-call `get_error()` / `clear_error()` pattern from
-/// every synchronous bridge call. Each generated C function receives a
-/// `NitroError*` out-parameter and writes error info directly into it.
-/// Dart pre-allocates ONE slot per module instance and passes it to every
-/// sync call — zero heap allocation per call in normal operation.
+// S8 out-param ABI tests — generator output correctness + edge cases.
+//
+// S8 eliminates the two-call `get_error()` / `clear_error()` pattern from
+// every synchronous bridge call. Each generated C function receives a
+// `NitroError*` out-parameter and writes error info directly into it.
+// Dart pre-allocates ONE slot per module instance and passes it to every
+// sync call — zero heap allocation per call in normal operation.
 
 import 'package:nitro_annotations/nitro_annotations.dart';
 import 'package:nitro_generator/src/bridge_spec.dart';

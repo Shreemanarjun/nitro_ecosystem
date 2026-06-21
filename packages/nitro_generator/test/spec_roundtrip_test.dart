@@ -1,14 +1,14 @@
-/// TC5 — Exhaustive platform-combination roundtrip tests.
-///
-/// For every valid combination of (ios, android, macos, windows, linux, web)
-/// `NativeImpl` values:
-///   1. `SpecValidator.validate()` produces zero errors.
-///   2. All enabled generators produce non-empty, non-throwing output.
-///   3. BridgeSpec platform flags (`targetsIos`, `isCppImpl`, etc.) are
-///      consistent with the declared impls.
-///
-/// This is the "no crashes" guarantee: if a spec passes validation, generation
-/// must never throw for any valid platform combination.
+// TC5 — Exhaustive platform-combination roundtrip tests.
+//
+// For every valid combination of (ios, android, macos, windows, linux, web)
+// `NativeImpl` values:
+//   1. `SpecValidator.validate()` produces zero errors.
+//   2. All enabled generators produce non-empty, non-throwing output.
+//   3. BridgeSpec platform flags (`targetsIos`, `isCppImpl`, etc.) are
+//      consistent with the declared impls.
+//
+// This is the "no crashes" guarantee: if a spec passes validation, generation
+// must never throw for any valid platform combination.
 
 import 'package:nitro_annotations/nitro_annotations.dart';
 import 'package:nitro_generator/src/bridge_spec.dart';
@@ -97,8 +97,6 @@ BridgeSpec _spec({
 /// All valid per-platform implementation values.
 const List<NativeImpl> _appleImpls = [NativeImpl.swift, NativeImpl.cpp];
 const List<NativeImpl> _androidImpls = [NativeImpl.kotlin, NativeImpl.cpp];
-const List<NativeImpl> _desktopImpls = [NativeImpl.cpp];
-const List<NativeImpl> _webImpls = [NativeImpl.wasm];
 
 // ── Helper ────────────────────────────────────────────────────────────────────
 

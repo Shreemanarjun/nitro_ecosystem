@@ -1,17 +1,15 @@
-/// TC3 — Memory / finalizer stress tests for ZeroCopyBuffer and its variants.
-///
-/// Goals:
-///   1. 10,000 alloc/discard cycles without memory leaks or crashes.
-///   2. Double-release is a no-op (no crash, no double-free).
-///   3. Accessing released buffer throws StateError.
-///   4. `release()` fires immediately (no GC wait needed).
-///   5. Mixed concurrent alloc + release without corruption.
-///   6. All nine buffer variants construct and release correctly.
+// TC3 — Memory / finalizer stress tests for ZeroCopyBuffer and its variants.
+//
+// Goals:
+//   1. 10,000 alloc/discard cycles without memory leaks or crashes.
+//   2. Double-release is a no-op (no crash, no double-free).
+//   3. Accessing released buffer throws StateError.
+//   4. `release()` fires immediately (no GC wait needed).
+//   5. Mixed concurrent alloc + release without corruption.
+//   6. All nine buffer variants construct and release correctly.
 
-import 'dart:ffi';
 import 'dart:typed_data';
 
-import 'package:ffi/ffi.dart';
 import 'package:nitro/nitro.dart';
 import 'package:test/test.dart';
 
@@ -43,14 +41,6 @@ ZeroCopyFloat32Buffer _makeFloat32Buffer(int count) {
     ptr[i] = i.toDouble();
   }
   return ZeroCopyFloat32Buffer(ptr, count, () => calloc.free(ptr));
-}
-
-ZeroCopyFloat64Buffer _makeFloat64Buffer(int count) {
-  final ptr = calloc<Double>(count);
-  for (var i = 0; i < count; i++) {
-    ptr[i] = i.toDouble();
-  }
-  return ZeroCopyFloat64Buffer(ptr, count, () => calloc.free(ptr));
 }
 
 // ── Tests ─────────────────────────────────────────────────────────────────────

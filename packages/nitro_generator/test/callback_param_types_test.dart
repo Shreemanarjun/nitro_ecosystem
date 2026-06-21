@@ -1,10 +1,10 @@
-/// Tests for generated callback parameter types across all four generators.
-///
-/// For each Dart callback param type (int, double, bool, String, enum) verifies:
-/// - C++ JNI `_invoke_` function: correct `jXxx` param + C typedef type
-/// - Kotlin external `_invoke_` fun: correct Kotlin JVM type
-/// - Swift `@_cdecl` stub: correct `@convention(c)` type + wrapper conversion
-/// - Dart FFI NativeCallable: correct FFI type + Dart conversion in listener
+// Tests for generated callback parameter types across all four generators.
+//
+// For each Dart callback param type (int, double, bool, String, enum) verifies:
+// - C++ JNI `_invoke_` function: correct `jXxx` param + C typedef type
+// - Kotlin external `_invoke_` fun: correct Kotlin JVM type
+// - Swift `@_cdecl` stub: correct `@convention(c)` type + wrapper conversion
+// - Dart FFI NativeCallable: correct FFI type + Dart conversion in listener
 
 import 'package:nitro_annotations/nitro_annotations.dart';
 import 'package:nitro_generator/src/bridge_spec.dart';
@@ -438,7 +438,7 @@ void main() {
 
   // ── @HybridRecord callback param ───────────────────────────────────────────
   group('@HybridRecord callback parameter types', () {
-    final _eventRecord = BridgeRecordType(
+    final eventRecord = BridgeRecordType(
       name: 'AnalyticsEvent',
       fields: [
         BridgeRecordField(name: 'name', dartType: 'String', kind: RecordFieldKind.primitive),
@@ -449,7 +449,7 @@ void main() {
     test('spec validator accepts record callback params', () {
       final spec = _recordSpec(
         cbParams: [BridgeType(name: 'AnalyticsEvent', isRecord: true)],
-        records: [_eventRecord],
+        records: [eventRecord],
       );
       expect(SpecValidator.validate(spec).where((i) => i.isError), isEmpty);
     });
@@ -458,7 +458,7 @@ void main() {
       final out = CppBridgeGenerator.generate(
         _recordSpec(
           cbParams: [BridgeType(name: 'AnalyticsEvent', isRecord: true)],
-          records: [_eventRecord],
+          records: [eventRecord],
         ),
       );
       expect(out, contains('jlong callbackPtr, jbyteArray arg0'));
@@ -473,7 +473,7 @@ void main() {
       final out = KotlinGenerator.generate(
         _recordSpec(
           cbParams: [BridgeType(name: 'AnalyticsEvent', isRecord: true)],
-          records: [_eventRecord],
+          records: [eventRecord],
         ),
       );
       expect(out, contains('external fun _invoke_handler(callbackPtr: Long, arg0: ByteArray)'));
@@ -483,7 +483,7 @@ void main() {
       final out = KotlinGenerator.generate(
         _recordSpec(
           cbParams: [BridgeType(name: 'AnalyticsEvent', isRecord: true)],
-          records: [_eventRecord],
+          records: [eventRecord],
         ),
       );
       expect(out, contains('_invoke_handler(handler, p0.encode())'));
@@ -493,7 +493,7 @@ void main() {
       final out = SwiftGenerator.generate(
         _recordSpec(
           cbParams: [BridgeType(name: 'AnalyticsEvent', isRecord: true)],
-          records: [_eventRecord],
+          records: [eventRecord],
         ),
       );
       expect(out, contains('@convention(c) (UnsafeMutablePointer<UInt8>?) -> Void'));
@@ -503,7 +503,7 @@ void main() {
       final out = SwiftGenerator.generate(
         _recordSpec(
           cbParams: [BridgeType(name: 'AnalyticsEvent', isRecord: true)],
-          records: [_eventRecord],
+          records: [eventRecord],
         ),
       );
       expect(out, contains('handler: @escaping (AnalyticsEvent) -> Void'));
@@ -513,7 +513,7 @@ void main() {
       final out = SwiftGenerator.generate(
         _recordSpec(
           cbParams: [BridgeType(name: 'AnalyticsEvent', isRecord: true)],
-          records: [_eventRecord],
+          records: [eventRecord],
         ),
       );
       expect(out, contains('arg0.toNative()'));
@@ -523,7 +523,7 @@ void main() {
       final out = DartFfiGenerator.generate(
         _recordSpec(
           cbParams: [BridgeType(name: 'AnalyticsEvent', isRecord: true)],
-          records: [_eventRecord],
+          records: [eventRecord],
         ),
       );
       expect(out, contains('NativeCallable<Void Function(Pointer<Uint8>)>'));

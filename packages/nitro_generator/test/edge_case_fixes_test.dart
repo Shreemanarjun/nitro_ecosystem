@@ -1,9 +1,9 @@
-/// Edge case tests for fixes applied after the audit:
-///   1. void property type → INVALID_PROPERTY_TYPE validator error
-///   2. Web bridge: isMap uses JSString (JSON), not JSArrayBuffer
-///   3. Web bridge: isPointer/isNativeHandle types handled
-///   4. PX19 factory name: safe for single-char and underscore-prefixed class names
-///   5. Suffix matching: .web.bridge.g.dart wins over .g.dart
+// Edge case tests for fixes applied after the audit:
+//   1. void property type → INVALID_PROPERTY_TYPE validator error
+//   2. Web bridge: isMap uses JSString (JSON), not JSArrayBuffer
+//   3. Web bridge: isPointer/isNativeHandle types handled
+//   4. PX19 factory name: safe for single-char and underscore-prefixed class names
+//   5. Suffix matching: .web.bridge.g.dart wins over .g.dart
 
 import 'package:nitro_annotations/nitro_annotations.dart';
 import 'package:nitro_generator/src/bridge_spec.dart';

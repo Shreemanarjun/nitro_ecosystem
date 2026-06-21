@@ -311,7 +311,7 @@ void main() {
           if (i.isOdd) {
             return pool.dispatch<int>(_throws, ['e$i'])
                 .then<int>((_) => -1)
-                .onError<ArgumentError>((_, __) => -(i));
+                .onError<ArgumentError>((_, _) => -(i));
           }
           return pool.dispatch<int>(_add, [i, 0]);
         });

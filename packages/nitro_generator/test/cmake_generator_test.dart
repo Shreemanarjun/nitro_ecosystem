@@ -1,5 +1,3 @@
-import 'package:nitro_annotations/nitro_annotations.dart';
-import 'package:nitro_generator/src/bridge_spec.dart';
 import 'package:nitro_generator/src/generators/languages/cmake/cmake_generator.dart';
 import 'package:test/test.dart';
 import 'test_utils.dart';

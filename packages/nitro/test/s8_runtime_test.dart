@@ -1,14 +1,12 @@
-/// S8 runtime tests for NitroRuntime.throwIfOutParamError.
-///
-/// Tests the correctness of the out-param error slot at the Dart runtime level:
-///   - No-op when hasError == 0
-///   - Throws HybridException with correct fields when hasError != 0
-///   - Resets the slot (hasError → 0, pointers → nullptr) after throwing
-///   - Handles nullptr name/message fields gracefully (uses fallback strings)
-///   - Slot can be reused immediately after an error (hasError is reset)
+// S8 runtime tests for NitroRuntime.throwIfOutParamError.
+//
+// Tests the correctness of the out-param error slot at the Dart runtime level:
+//   - No-op when hasError == 0
+//   - Throws HybridException with correct fields when hasError != 0
+//   - Resets the slot (hasError → 0, pointers → nullptr) after throwing
+//   - Handles nullptr name/message fields gracefully (uses fallback strings)
+//   - Slot can be reused immediately after an error (hasError is reset)
 
-import 'dart:ffi';
-import 'package:ffi/ffi.dart';
 import 'package:nitro/nitro.dart';
 import 'package:test/test.dart';
 

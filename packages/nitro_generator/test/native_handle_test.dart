@@ -1,8 +1,8 @@
-/// Tests for NativeHandle`<T>` and @NitroOwned across all five generators.
-///
-/// NativeHandle is a zero-codec raw-pointer escape hatch. The wire format is
-/// always `void*` / `Long` / `UnsafeMutableRawPointer?` regardless of T.
-/// @NitroOwned attaches a NativeFinalizer and emits a `_release` C symbol.
+// Tests for NativeHandle`<T>` and @NitroOwned across all five generators.
+//
+// NativeHandle is a zero-codec raw-pointer escape hatch. The wire format is
+// always `void*` / `Long` / `UnsafeMutableRawPointer?` regardless of T.
+// @NitroOwned attaches a NativeFinalizer and emits a `_release` C symbol.
 
 import 'package:nitro_annotations/nitro_annotations.dart';
 import 'package:nitro_generator/src/bridge_spec.dart';

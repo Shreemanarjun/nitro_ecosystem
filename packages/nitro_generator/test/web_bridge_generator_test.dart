@@ -1,9 +1,9 @@
-/// PX18 + PX19 tests for the web bridge generator and dart:ffi PX19 guard.
-///
-/// PX18: WebBridgeGenerator emits `@JS()` external declarations and a web
-///       implementation class for specs targeting NativeImpl.wasm.
-/// PX19: dart_ffi_generator emits a kIsWeb assert-guard and a platform
-///       conditional factory function when web is targeted.
+// PX18 + PX19 tests for the web bridge generator and dart:ffi PX19 guard.
+//
+// PX18: WebBridgeGenerator emits `@JS()` external declarations and a web
+//       implementation class for specs targeting NativeImpl.wasm.
+// PX19: dart_ffi_generator emits a kIsWeb assert-guard and a platform
+//       conditional factory function when web is targeted.
 
 import 'package:nitro_annotations/nitro_annotations.dart';
 import 'package:nitro_generator/src/bridge_spec.dart';

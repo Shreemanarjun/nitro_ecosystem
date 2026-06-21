@@ -674,7 +674,7 @@ class _InitViewState extends State<InitView> {
 
     // PX14: scaffold windows/src/Hybrid{Class}Impl.cpp implementation stub.
     // The stub uses MSVC-compatible static-initializer registration (no
-    // __attribute__((constructor)) on MSVC) and includes a TODO marker
+    // __attribute__((constructor)) on MSVC) and includes a `TODO` marker
     // so developers know where to fill in method bodies.
     final winSrcDir = Directory(p.join(winDir.path, 'src'))..createSync(recursive: true);
     final stubFile = File(p.join(winSrcDir.path, 'Hybrid${className}Impl.cpp'));
