@@ -117,8 +117,11 @@ class CppHeaderGenerator {
           final paramStr = paramParts.join(', ');
           nodes.add(CodeLine('NITRO_EXPORT void ${func.cSymbol}($paramStr);'));
         } else {
-          // S8: sync functions take NitroError* out-param as last argument.
-          paramParts.add('NitroError* _nitro_err');
+          // S8: only SYNC functions take NitroError* out-param.
+          // @nitroAsync functions use TLS get_error/clear_error — no NitroError* in signature.
+          if (!func.isAsync) {
+            paramParts.add('NitroError* _nitro_err');
+          }
           final ret = isEnumRet
               ? 'int64_t'
               : func.returnType.isTypedData

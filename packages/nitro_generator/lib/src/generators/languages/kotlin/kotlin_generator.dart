@@ -336,10 +336,14 @@ class KotlinGenerator {
       }
 
       // Deserialize record params from ByteArray → Kotlin type.
+      // Dart's RecordWriter.toNative() format: [4B payload_len][payload_bytes].
+      // C passes the FULL buffer; skip the 4-byte prefix then call decodeFrom.
       for (final p in func.params) {
         if (p.type.isRecord && p.type.recordListItemType == null && !p.type.isMap) {
           final recordName = p.type.name.replaceFirst('?', '');
-          writer.line('        val ${p.name}Decoded = $recordName.decode(${p.name})');
+          writer.line('        val ${p.name}Buf = java.nio.ByteBuffer.wrap(${p.name}).order(java.nio.ByteOrder.LITTLE_ENDIAN)');
+          writer.line('        ${p.name}Buf.getInt() // skip Dart 4-byte outer length prefix');
+          writer.line('        val ${p.name}Decoded = $recordName.decodeFrom(${p.name}Buf)');
         } else if (p.type.isRecord && p.type.recordListItemType != null && !p.type.recordListItemIsPrimitive) {
           // List<@HybridRecord> — decode from Dart's indexed binary format:
           // [4B outer_len][4B count][8B×count offsets][item_fields...]

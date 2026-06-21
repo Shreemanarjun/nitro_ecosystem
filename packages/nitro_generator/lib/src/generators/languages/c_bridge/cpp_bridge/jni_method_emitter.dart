@@ -174,14 +174,25 @@ void _emitJniMethods(
       paramsDeclParts.add('${_paramTypeToC(p.type.name, structNames)} ${p.name}');
       if (p.type.isTypedData) paramsDeclParts.add('int64_t ${p.name}_length');
     }
-    // S8: sync C functions take NitroError* as the last parameter.
-    paramsDeclParts.add('NitroError* _nitro_err');
+    // S8: SYNC functions take NitroError* as the last parameter.
+    // @nitroAsync functions use the old TLS get_error/clear_error mechanism —
+    // Dart's callAsync does NOT pass NitroError* so it must not be in the signature.
+    if (!func.isAsync) {
+      paramsDeclParts.add('NitroError* _nitro_err');
+    }
     final paramsDecl = paramsDeclParts.join(', ');
 
     writer.line(
       '$cReturnType ${func.cSymbol}($paramsDecl) {',
     );
-    writer.line('    if (_nitro_err) { _nitro_err->hasError = 0; }  // S8: clear slot');
+    if (func.isAsync) {
+      // @nitroAsync uses old TLS get_error/clear_error — declare _nitro_err as null
+      // local so nitro_report_jni_exception calls compile (errors go to TLS instead).
+      writer.line('    NitroError* _nitro_err = nullptr; // async: errors use TLS not out-param');
+    } else {
+      // S8: sync functions reset the out-param error slot before each call.
+      writer.line('    if (_nitro_err) { _nitro_err->hasError = 0; }  // S8: clear slot');
+    }
     writer.line('    JNIEnv* env = GetEnv();');
     if (func.returnType.name == 'void') {
       writer.line('    if (env == nullptr) { return; }');
@@ -246,11 +257,12 @@ void _emitJniMethods(
       } else if (p.type.isRecord) {
         // @HybridRecord / List<@HybridRecord> params arrive as void* (Dart Pointer<Uint8>).
         // Dart's RecordWriter.toNative() format: [4-byte payload_len][payload_bytes].
-        // Kotlin's decode(ByteArray) expects ONLY the payload (no length prefix).
-        // Convert by reading the 4-byte length, then copying payload bytes to jbyteArray.
-        writer.line('    int32_t ${p.name}_len = *((const int32_t*)${p.name});');
-        writer.line('    jbyteArray j_${p.name} = env->NewByteArray((jsize)${p.name}_len);');
-        writer.line('    env->SetByteArrayRegion(j_${p.name}, 0, (jsize)${p.name}_len, (const jbyte*)((const uint8_t*)${p.name} + 4));');
+        // Pass the FULL buffer (prefix + payload) to Kotlin as jbyteArray.
+        // Kotlin's record decode skips the 4-byte prefix before reading fields.
+        writer.line('    int32_t ${p.name}_payload_len = *((const int32_t*)${p.name});');
+        writer.line('    int32_t ${p.name}_total = ${p.name}_payload_len + 4;');
+        writer.line('    jbyteArray j_${p.name} = env->NewByteArray((jsize)${p.name}_total);');
+        writer.line('    env->SetByteArrayRegion(j_${p.name}, 0, (jsize)${p.name}_total, (const jbyte*)${p.name});');
         callArgsList.add('j_${p.name}');
       } else {
         callArgsList.add(p.name);
