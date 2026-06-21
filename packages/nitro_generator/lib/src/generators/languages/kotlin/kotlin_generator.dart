@@ -493,11 +493,11 @@ class KotlinGenerator {
         if (isEnum) {
           if (isNullableEnum) {
             writer.line(
-              '        impl.${prop.dartName} = if (value < 0L) null else ${propBaseName}.fromNative(value)',
+              '        impl.${prop.dartName} = if (value < 0L) null else $propBaseName.fromNative(value)',
             );
           } else {
             writer.line(
-              '        impl.${prop.dartName} = ${propBaseName}.fromNative(value)',
+              '        impl.${prop.dartName} = $propBaseName.fromNative(value)',
             );
           }
         } else {

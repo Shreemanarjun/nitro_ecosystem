@@ -698,13 +698,13 @@ class SwiftGenerator {
           // nullable enum: -1 = null
           writer.line('    if value == -1 { ${spec.dartClassName}Registry.impl?.${prop.dartName} = nil; return }');
           writer.line(
-            '    if let actualValue = ${propTypeBase}(rawValue: value) {',
+            '    if let actualValue = $propTypeBase(rawValue: value) {',
           );
           writer.line('        ${spec.dartClassName}Registry.impl?.${prop.dartName} = actualValue');
           writer.line('    }');
         } else if (isEnumProp) {
           writer.line(
-            '    if let actualValue = ${propTypeBase}(rawValue: value) {',
+            '    if let actualValue = $propTypeBase(rawValue: value) {',
           );
           writer.line('        ${spec.dartClassName}Registry.impl?.${prop.dartName} = actualValue');
           writer.line('    }');
