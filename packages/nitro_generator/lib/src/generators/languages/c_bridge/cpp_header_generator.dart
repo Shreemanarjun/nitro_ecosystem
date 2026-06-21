@@ -107,7 +107,15 @@ class CppHeaderGenerator {
           );
           // Nullable bool uses int32_t (jint) to preserve the -1 sentinel for null.
           final isNullableBool = p.type.isNullable && p.type.name.replaceFirst('?', '') == 'bool';
-          final cType = isNullableBool ? 'int32_t' : ((isStructParam || p.type.isNativeHandle) ? 'void*' : _typeToC(p.type.name));
+          // Enum params use int64_t (rawValue) — void* cast of -1 (null sentinel) is
+          // implementation-defined on AArch64 and may not equal int64_t -1.
+          final paramBase = p.type.name.replaceFirst('?', '');
+          final isEnumParam = spec.enums.any((en) => en.name == paramBase);
+          final cType = isNullableBool
+              ? 'int32_t'
+              : isEnumParam
+              ? 'int64_t'
+              : ((isStructParam || p.type.isNativeHandle) ? 'void*' : _typeToC(p.type.name));
           paramParts.add('$cType ${p.name}');
           if (p.type.isTypedData) paramParts.add('int64_t ${p.name}_length');
         }
