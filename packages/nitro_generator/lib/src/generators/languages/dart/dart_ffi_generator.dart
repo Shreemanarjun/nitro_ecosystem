@@ -483,6 +483,10 @@ class DartFfiGenerator {
         // Enum stream: convert int to enum via generated extension
         unpackExpr = '(message) => (message as int).to$itemType()';
         streamItemType = itemType;
+      } else if (itemType == 'bool') {
+        // Native posts kInt64 (0/1) for bool streams — kBool is unreliable on Android.
+        unpackExpr = '(message) => (message as int) != 0';
+        streamItemType = 'bool';
       } else {
         unpackExpr = '(message) => message as $itemType';
         streamItemType = itemType;
@@ -1265,8 +1269,11 @@ class DartFfiGenerator {
     if (type.isPointer) return 'Pointer<${type.pointerInnerType ?? 'Void'}>';
     final name = type.name.replaceFirst('?', '');
     if (name == 'int') return 'Int64';
-    if (name == 'double') return 'Double';
-    if (name == 'bool') return 'Int8';
+    // bool and double are routed through Int64 on Android to ensure NativeCallable.listener
+    // fires synchronously (only Int64/Long has the synchronous fast-path on Android).
+    // The C JNI invoker encodes bool as 1L/0L and double as raw IEEE 754 bits.
+    if (name == 'double') return 'Int64';
+    if (name == 'bool') return 'Int64';
     if (name == 'String') return 'Pointer<Utf8>';
     if (spec.enums.any((e) => e.name == name)) return 'Int64';
     if (spec.structs.any((s) => s.name == name)) return 'Pointer<Void>';
@@ -1290,8 +1297,8 @@ class DartFfiGenerator {
     if (type.isPointer) return 'Pointer<${type.pointerInnerType ?? 'Void'}>';
     final name = type.name.replaceFirst('?', '');
     if (name == 'int') return 'int';
-    if (name == 'double') return 'double';
-    if (name == 'bool') return 'int';
+    if (name == 'double') return 'int'; // received as Int64 (IEEE 754 bits)
+    if (name == 'bool') return 'int';   // received as Int64 (1 = true, 0 = false)
     if (name == 'String') return 'Pointer<Utf8>';
     if (spec.enums.any((e) => e.name == name)) return 'int';
     if (spec.structs.any((s) => s.name == name)) return 'Pointer<Void>';
@@ -1308,6 +1315,8 @@ class DartFfiGenerator {
           final type = entry.value;
           final name = type.name.replaceFirst('?', '');
           if (name == 'bool') return 'arg$index != 0';
+          // double was encoded as raw IEEE 754 bits — reinterpret from Int64.
+          if (name == 'double') return 'Int64List.fromList([arg$index]).buffer.asFloat64List()[0]';
           if (name == 'String') return 'arg$index.toDartString()';
           if (spec.enums.any((e) => e.name == name)) return 'arg$index.to$name()';
           if (spec.structs.any((s) => s.name == name)) {

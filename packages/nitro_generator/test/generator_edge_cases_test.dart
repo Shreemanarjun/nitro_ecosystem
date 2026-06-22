@@ -337,9 +337,13 @@ void main() {
       expect(code, contains('DispatchSemaphore'));
     });
 
-    test('async stub calls try? await impl.flush() without capturing result', () {
-      // void return: no `let _result =`, just `try? await impl.flush()`
-      expect(code, contains('try? await impl.flush()'));
+    test('async void stub uses do/catch to capture error and re-raise as NSException', () {
+      // void async: errors must be re-raised as NSException so the .mm @catch
+      // can route them to the TLS error slot for Dart to read.
+      expect(code, contains('do { try await impl.flush() }'));
+      expect(code, contains('catch { _thrownError = error }'));
+      expect(code, contains('NSException'));
+      expect(code, contains('.raise()'));
     });
 
     test('void async stub does NOT assign result to a variable', () {

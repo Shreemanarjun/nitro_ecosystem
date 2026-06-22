@@ -392,12 +392,14 @@ void main() {
       expect(out, isNot(contains('_ data: [UInt8]')));
     });
 
-    test('Uint8List bridge body converts via UnsafeBufferPointer<Uint8>', () {
+    test('Uint8List bridge body converts via Data(bytes:count:)', () {
       final out = SwiftGenerator.generate(_multiTypedListSpec());
+      // Data(bytes:count:) takes UnsafeRawPointer — works for both UInt8* and Int8*
+      // unlike Data(UnsafeBufferPointer<UInt8>) which rejects Int8List.
       expect(
         out,
         contains(
-          'let dataArr = data.map { Data(UnsafeBufferPointer(start: \$0, count: Int(data_length))) } ?? Data()',
+          'let dataArr = data.map { Data(bytes: \$0, count: Int(data_length)) } ?? Data()',
         ),
       );
     });
@@ -500,7 +502,7 @@ void main() {
       expect(out, contains('#endif'));
     });
 
-    test('throwError spec: void function @try block does not attempt return', () {
+    test('throwError spec: @catch block handles both sync (out-param) and async (TLS)', () {
       final spec = BridgeSpec(
         dartClassName: 'Err',
         lib: 'err',
@@ -524,20 +526,21 @@ void main() {
         ],
       );
       final out = CppBridgeGenerator.generate(spec);
-      // For void return, the @catch block must NOT emit a bare "return;"
-      // before the closing brace — that would skip nitro_report_error.
+      // The @catch block must:
+      //   1. Set the out-param when _nitro_err is non-null (sync path)
+      //   2. Call nitro_report_error (TLS path) in the else branch (async path)
       final appleSection = out.substring(out.indexOf('#elif __APPLE__'));
       final catchBlock = appleSection.substring(
         appleSection.indexOf('@catch (NSException* e) {'),
       );
-      // nitro_report_error must appear before any closing brace
+      // Both paths must be present inside the @catch block.
+      expect(catchBlock, contains('_nitro_err->hasError = 1'));
+      expect(catchBlock, contains('nitro_report_error'));
+      // The else branch (TLS path) must appear inside the @catch, before its closing }.
+      final catchEnd = catchBlock.indexOf('\n}'); // end of the @catch {} body
       final reportIdx = catchBlock.indexOf('nitro_report_error');
-      final firstBrace = catchBlock.indexOf('}');
-      expect(
-        reportIdx < firstBrace,
-        isTrue,
-        reason: 'nitro_report_error must be called inside the @catch block',
-      );
+      expect(reportIdx < catchEnd, isTrue,
+          reason: 'nitro_report_error must be inside the @catch block');
     });
 
     test('non-void function @catch block returns a default value after reporting', () {

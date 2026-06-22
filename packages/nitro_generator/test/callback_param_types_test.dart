@@ -113,19 +113,20 @@ void main() {
       expect(out, contains('((CB)callbackPtr)((int64_t)arg0);'));
     });
 
-    test('double → jdouble + double', () {
+    test('double → jlong (IEEE 754 bits) passed as int64_t (exact NativeCallable<Int64> ABI)', () {
       final out = CppBridgeGenerator.generate(_spec(cbParams: [BridgeType(name: 'double')]));
-      expect(out, contains('jlong callbackPtr, jdouble arg0'));
-      expect(out, contains('typedef void (*CB)(double);'));
-      expect(out, contains('((CB)callbackPtr)((double)arg0);'));
-      expect(out, isNot(contains('jlong arg0')));
+      // double encoded as jlong; typedef uses int64_t to exactly match NativeCallable<Void Function(Int64)>.
+      expect(out, contains('jlong callbackPtr, jlong arg0'));
+      expect(out, contains('typedef void (*CB)(int64_t);'));
+      expect(out, contains('(int64_t)arg0'));
     });
 
-    test('bool → jboolean + bool', () {
+    test('bool → jlong (0/1) passed as int64_t (exact NativeCallable<Int64> ABI)', () {
       final out = CppBridgeGenerator.generate(_spec(cbParams: [BridgeType(name: 'bool')]));
-      expect(out, contains('jlong callbackPtr, jboolean arg0'));
-      expect(out, contains('typedef void (*CB)(bool);'));
-      expect(out, contains('((CB)callbackPtr)((bool)arg0);'));
+      // bool encoded as 1L/0L jlong; typedef uses int64_t to exactly match NativeCallable<Void Function(Int64)>.
+      expect(out, contains('jlong callbackPtr, jlong arg0'));
+      expect(out, contains('typedef void (*CB)(int64_t);'));
+      expect(out, contains('(int64_t)arg0'));
     });
 
     test('String → jstring + const char* with GetStringUTFChars', () {
@@ -158,11 +159,13 @@ void main() {
           enums: [_stateEnum],
         ),
       );
-      expect(out, contains('jlong callbackPtr, jlong arg0, jdouble arg1, jboolean arg2, jstring arg3, jlong arg4'));
-      expect(out, contains('typedef void (*CB)(int64_t, double, bool, const char*, int64_t);'));
+      // bool and double both use jlong/int64_t for NativeCallable<Int64> ABI match.
+      expect(out, contains('jlong callbackPtr, jlong arg0, jlong arg1, jlong arg2, jstring arg3, jlong arg4'));
+      expect(out, contains('typedef void (*CB)(int64_t, int64_t, int64_t, const char*, int64_t);'));
       expect(out, contains('const char* s_arg3 = arg3 ? env->GetStringUTFChars(arg3, nullptr) : nullptr;'));
       expect(out, contains('ReleaseStringUTFChars(arg3, s_arg3)'));
-      expect(out, contains('((CB)callbackPtr)((int64_t)arg0, (double)arg1, (bool)arg2, s_arg3, (int64_t)arg4);'));
+      // All args passed as int64_t.
+      expect(out, contains('((CB)callbackPtr)((int64_t)arg0, (int64_t)arg1, (int64_t)arg2, s_arg3, (int64_t)arg4);'));
     });
 
     test('no String params → no s_arg string conversion variables in _invoke_', () {
@@ -188,15 +191,14 @@ void main() {
       expect(out, contains('external fun _invoke_callback(callbackPtr: Long, arg0: Long)'));
     });
 
-    test('double → Double', () {
+    test('double → Long (raw IEEE 754 bits for synchronous NativeCallable)', () {
       final out = KotlinGenerator.generate(_spec(cbParams: [BridgeType(name: 'double')]));
-      expect(out, contains('external fun _invoke_callback(callbackPtr: Long, arg0: Double)'));
-      expect(out, isNot(contains('arg0: Long')));
+      expect(out, contains('external fun _invoke_callback(callbackPtr: Long, arg0: Long)'));
     });
 
-    test('bool → Boolean', () {
+    test('bool → Long (1L/0L encoding for synchronous NativeCallable)', () {
       final out = KotlinGenerator.generate(_spec(cbParams: [BridgeType(name: 'bool')]));
-      expect(out, contains('external fun _invoke_callback(callbackPtr: Long, arg0: Boolean)'));
+      expect(out, contains('external fun _invoke_callback(callbackPtr: Long, arg0: Long)'));
     });
 
     test('String → String?', () {
@@ -224,9 +226,10 @@ void main() {
           enums: [_stateEnum],
         ),
       );
+      // bool and double both use Long for synchronous NativeCallable firing.
       expect(
         out,
-        contains('external fun _invoke_callback(callbackPtr: Long, arg0: Long, arg1: Double, arg2: Boolean, arg3: String?, arg4: Long)'),
+        contains('external fun _invoke_callback(callbackPtr: Long, arg0: Long, arg1: Long, arg2: Long, arg3: String?, arg4: Long)'),
       );
     });
 
@@ -237,9 +240,9 @@ void main() {
       expect(out, contains('p0.nativeValue'));
     });
 
-    test('double lambda arg → p0 directly (no conversion needed)', () {
+    test('double lambda arg → java.lang.Double.doubleToRawLongBits(p0)', () {
       final out = KotlinGenerator.generate(_spec(cbParams: [BridgeType(name: 'double')]));
-      expect(out, contains('_invoke_callback(callback, p0)'));
+      expect(out, contains('java.lang.Double.doubleToRawLongBits(p0)'));
       expect(out, isNot(contains('p0.nativeValue')));
     });
 
@@ -429,10 +432,11 @@ void main() {
           structs: [_readingStruct],
         ),
       );
-      expect(out, contains('jlong callbackPtr, jobject arg0, jlong arg1, jboolean arg2'));
-      expect(out, contains('typedef void (*CB)(const SensorReading*, int64_t, bool);'));
+      // bool uses jlong/int64_t for NativeCallable<Int64> ABI match.
+      expect(out, contains('jlong callbackPtr, jobject arg0, jlong arg1, jlong arg2'));
+      expect(out, contains('typedef void (*CB)(const SensorReading*, int64_t, int64_t);'));
       expect(out, contains('SensorReading c_arg0 = pack_SensorReading_from_jni(env, arg0);'));
-      expect(out, contains('((CB)callbackPtr)(&c_arg0, (int64_t)arg1, (bool)arg2);'));
+      expect(out, contains('(int64_t)arg2'));
     });
   });
 
@@ -540,15 +544,17 @@ void main() {
       expect(out, contains('callback(arg0);'));
     });
 
-    test('double → Void Function(Double), no conversion', () {
+    test('double → Void Function(Int64), decodes via Int64List bits', () {
+      // double is encoded as raw IEEE 754 bits in Int64 for synchronous NativeCallable.
       final out = DartFfiGenerator.generate(_spec(cbParams: [BridgeType(name: 'double')]));
-      expect(out, contains('NativeCallable<Void Function(Double)>'));
-      expect(out, contains('callback(arg0);'));
+      expect(out, contains('NativeCallable<Void Function(Int64)>'));
+      expect(out, contains('Int64List.fromList([arg0]).buffer.asFloat64List()[0]'));
     });
 
-    test('bool → Void Function(Int8), converts != 0', () {
+    test('bool → Void Function(Int64), converts != 0 from Int64', () {
+      // bool is encoded as 1L/0L in Int64 for synchronous NativeCallable.
       final out = DartFfiGenerator.generate(_spec(cbParams: [BridgeType(name: 'bool')]));
-      expect(out, contains('NativeCallable<Void Function(Int8)>'));
+      expect(out, contains('NativeCallable<Void Function(Int64)>'));
       expect(out, contains('callback(arg0 != 0);'));
     });
 
@@ -579,7 +585,8 @@ void main() {
           enums: [_stateEnum],
         ),
       );
-      expect(out, contains('Void Function(Int64, Double, Int8, Pointer<Utf8>, Int64)'));
+      // bool and double both use Int64 for synchronous NativeCallable firing.
+      expect(out, contains('Void Function(Int64, Int64, Int64, Pointer<Utf8>, Int64)'));
     });
 
     test('empty callback → Void Function()', () {

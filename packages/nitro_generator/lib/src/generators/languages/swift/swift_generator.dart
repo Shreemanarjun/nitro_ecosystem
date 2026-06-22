@@ -278,7 +278,7 @@ class SwiftGenerator {
         for (final p in typedListParams) {
           final isData = p.type.name.startsWith('Uint8List') || p.type.name.startsWith('Int8List');
           if (isData) {
-            writer.line('    let ${p.name}Arr = ${p.name}.map { Data(UnsafeBufferPointer(start: \$0, count: Int(${p.name}_length))) } ?? Data()');
+            writer.line('    let ${p.name}Arr = ${p.name}.map { Data(bytes: \$0, count: Int(${p.name}_length)) } ?? Data()');
           } else {
             writer.line('    let ${p.name}Arr = ${p.name}.map { Array(UnsafeBufferPointer(start: \$0, count: Int(${p.name}_length))) } ?? []');
           }
@@ -369,7 +369,7 @@ class SwiftGenerator {
       for (final p in typedListParams) {
         final isData = p.type.name.startsWith('Uint8List') || p.type.name.startsWith('Int8List');
         if (isData) {
-          writer.line('    let ${p.name}Arr = ${p.name}.map { Data(UnsafeBufferPointer(start: \$0, count: Int(${p.name}_length))) } ?? Data()');
+          writer.line('    let ${p.name}Arr = ${p.name}.map { Data(bytes: \$0, count: Int(${p.name}_length)) } ?? Data()');
         } else {
           writer.line('    let ${p.name}Arr = ${p.name}.map { Array(UnsafeBufferPointer(start: \$0, count: Int(${p.name}_length))) } ?? []');
         }
@@ -422,11 +422,20 @@ class SwiftGenerator {
             '    guard let impl = ${spec.dartClassName}Registry.impl else { return }',
           );
           writer.line('    let sema = DispatchSemaphore(value: 0)');
+          writer.line('    var _thrownError: Error? = nil');
           writer.line('    Task.detached {');
-          writer.line('        try? await impl.${func.dartName}($callArgs)');
+          writer.line('        do { try await impl.${func.dartName}($callArgs) }');
+          writer.line('        catch { _thrownError = error }');
           writer.line('        sema.signal()');
           writer.line('    }');
           writer.line('    sema.wait()');
+          // Re-raise Swift errors as ObjC exceptions so the .mm @try/@catch can route
+          // them into the TLS error slot (nitro_report_error) for Dart to read.
+          writer.line('    if let _e = _thrownError {');
+          writer.line('        NSException(name: NSExceptionName((_e as NSError).domain),');
+          writer.line('                    reason: (_e as NSError).localizedDescription,');
+          writer.line('                    userInfo: nil).raise()');
+          writer.line('    }');
         } else if (isString) {
           // String result must be malloc'd (strdup) so Dart's free() works.
           writer.line(

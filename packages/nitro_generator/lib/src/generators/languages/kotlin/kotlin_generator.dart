@@ -870,10 +870,13 @@ class KotlinGenerator {
   static String _callbackParamToKotlinJni(BridgeType t, {Set<String>? structNames, Set<String>? recordNames}) {
     final base = t.name.replaceFirst('?', '');
     switch (base) {
+      // Use Long (jlong) for bool and double so the native invoker uses x0/GP registers.
+      // NativeCallable.listener with Boolean/Double types may not fire synchronously
+      // on Android — only Int64/Long has the synchronous fast-path.
       case 'double':
-        return 'Double';
+        return 'Long'; // encoded as raw IEEE 754 bits via java.lang.Double.doubleToRawLongBits
       case 'bool':
-        return 'Boolean';
+        return 'Long'; // encoded as 1L (true) or 0L (false)
       case 'String':
         return 'String?';
       default:
@@ -906,15 +909,21 @@ class KotlinGenerator {
         .join(', ');
 
     // Native method args: type-specific conversions to match the JNI signature.
+    // • bool   → 1L / 0L (encoded as Long for synchronous NativeCallable fast-path)
+    // • double → java.lang.Double.doubleToRawLongBits(p) (encoded as Long)
     // • Enums    → .nativeValue (Long)
     // • Records  → .encode() (ByteArray, length-prefixed by encode())
     // • Structs  → pass the data class directly (jobject)
-    // • Primitives (int, double, bool, String?) → pass as-is
+    // • Primitives (int, String?) → pass as-is
     final nativeArgs = <String>[p.name];
     for (var i = 0; i < cbParams.length; i++) {
       final cbP = cbParams[i];
       final base = cbP.name.replaceFirst('?', '');
-      if (enumNames.contains(base)) {
+      if (base == 'bool') {
+        nativeArgs.add('if (p$i) 1L else 0L');
+      } else if (base == 'double') {
+        nativeArgs.add('java.lang.Double.doubleToRawLongBits(p$i)');
+      } else if (enumNames.contains(base)) {
         nativeArgs.add('p$i.nativeValue');
       } else if (recordNames?.contains(base) == true) {
         nativeArgs.add('p$i.encode()');

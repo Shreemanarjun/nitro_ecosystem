@@ -80,13 +80,16 @@ void _emitSwiftBridgeSection(
       writer.line('        _${spec.namespace}_call_${func.dartName}($callParams);');
     }
     writer.line('    } @catch (NSException* e) {');
-    // S8: write to out-param instead of TLS slot.
     writer.line('        if (_nitro_err) {');
+    writer.line('            // sync: write exception to out-param error slot.');
     writer.line('            _nitro_err->hasError = 1;');
     writer.line('            _nitro_err->name    = strdup([e.name UTF8String]);');
     writer.line('            _nitro_err->message = strdup([e.reason UTF8String]);');
     writer.line('            _nitro_err->code = nullptr;');
     writer.line('            _nitro_err->stackTrace = nullptr;');
+    writer.line('        } else {');
+    writer.line('            // async: _nitro_err is null — route exception to TLS slot.');
+    writer.line('            nitro_report_error([e.name UTF8String], [e.reason UTF8String], nullptr, nullptr);');
     writer.line('        }');
     if (func.returnType.name != 'void') {
       writer.line('        return ${CppBridgeGenerator._defaultValue(cReturnType)};');
@@ -141,8 +144,10 @@ void _emitSwiftBridgeSection(
       writer.line('    obj.type = Dart_CObject_kInt64;');
       writer.line('    obj.value.as_int64 = (int64_t)item;');
     } else if (stream.itemType.name == 'bool') {
-      writer.line('    obj.type = Dart_CObject_kBool;');
-      writer.line('    obj.value.as_bool = item;');
+      // Use kInt64 (0/1) — kBool is unreliable on some Android versions.
+      // Dart stream unpack decodes: (message as int) != 0
+      writer.line('    obj.type = Dart_CObject_kInt64;');
+      writer.line('    obj.value.as_int64 = item ? 1 : 0;');
     } else if (isEnum) {
       writer.line('    obj.type = Dart_CObject_kInt64;');
       writer.line('    obj.value.as_int64 = (int64_t)item;');

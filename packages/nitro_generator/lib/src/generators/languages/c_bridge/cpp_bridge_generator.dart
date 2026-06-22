@@ -260,8 +260,9 @@ class CppBridgeGenerator {
         writer.line('    obj.type = Dart_CObject_kInt64;');
         writer.line('    obj.value.as_int64 = item;');
       } else if (stream.itemType.name == 'bool') {
-        writer.line('    obj.type = Dart_CObject_kBool;');
-        writer.line('    obj.value.as_bool = item;');
+        // Use kInt64 (0/1) — kBool is unreliable on some Android versions.
+        writer.line('    obj.type = Dart_CObject_kInt64;');
+        writer.line('    obj.value.as_int64 = item ? 1 : 0;');
       } else if (isEnum) {
         writer.line('    obj.type = Dart_CObject_kInt64;');
         writer.line('    obj.value.as_int64 = static_cast<int64_t>(item);');

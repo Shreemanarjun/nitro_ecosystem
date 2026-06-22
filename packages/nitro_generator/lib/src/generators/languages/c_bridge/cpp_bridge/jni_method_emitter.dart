@@ -471,25 +471,31 @@ void _emitJniMethods(
         '    if (methodId == nullptr) { LOGE("Method not found: ${prop.getSymbol}_call sig=$jniGetSig"); return ${_defaultValue(cType)}; }',
       );
       writer.line('    if (env->PushLocalFrame(8) != 0) { return ${_defaultValue(cType)}; }');
-      if (prop.type.name == 'double') {
+      final propBase = prop.type.name.replaceFirst('?', '');
+      if (propBase == 'double') {
+        // double and double? both return a JNI double (NaN = null for double?)
         writer.line(
           '    double res = env->CallStaticDoubleMethod(g_bridgeClass, methodId);',
         );
         writer.line('    env->PopLocalFrame(nullptr);');
         writer.line('    return res;');
-      } else if (prop.type.name == 'int' || isEnum) {
+      } else if (propBase == 'int' || isEnum) {
+        // int / int? / enum return a JNI long (-1 = null for int? / nullable enum)
         writer.line(
           '    $cType res = ($cType)env->CallStaticLongMethod(g_bridgeClass, methodId);',
         );
         writer.line('    env->PopLocalFrame(nullptr);');
         writer.line('    return res;');
-      } else if (prop.type.name == 'bool') {
+      } else if (propBase == 'bool') {
+        // Both bool and bool? use CallStaticBooleanMethod (sig ()Z).
+        // Android jboolean cannot carry -1, so bool? null arrives as false —
+        // the same known limitation as bool? method params on Android.
         writer.line(
           '    bool res = env->CallStaticBooleanMethod(g_bridgeClass, methodId);',
         );
         writer.line('    env->PopLocalFrame(nullptr);');
         writer.line('    return res;');
-      } else if (prop.type.name == 'String') {
+      } else if (propBase == 'String') {
         writer.line(
           '    jstring jstr = (jstring)env->CallStaticObjectMethod(g_bridgeClass, methodId);',
         );
@@ -524,6 +530,7 @@ void _emitJniMethods(
       );
       writer.line('    if (env->PushLocalFrame(8) != 0) { return; }');
 
+      final propSetBase = prop.type.name.replaceFirst('?', '');
       if (prop.type.name == 'String') {
         writer.line('    jstring jval = env->NewStringUTF(value);');
         writer.line(
@@ -532,6 +539,12 @@ void _emitJniMethods(
       } else if (structNames.contains(prop.type.name)) {
         writer.line('    jobject jval = unpack_${prop.type.name}_to_jni(env, (const ${prop.type.name}*)value);');
         writer.line('    env->CallStaticVoidMethod(g_bridgeClass, methodId, jval);');
+      } else if (propSetBase == 'bool') {
+        // Cast int8_t → jboolean before the variadic call: passing a raw int8_t
+        // lets C promote it to int, and ART throws a type exception for (Z)V params.
+        writer.line(
+          '    env->CallStaticVoidMethod(g_bridgeClass, methodId, (jboolean)(value != 0));',
+        );
       } else {
         writer.line(
           '    env->CallStaticVoidMethod(g_bridgeClass, methodId, value);',
@@ -584,8 +597,11 @@ void _emitJniMethods(
       writer.line('    obj.type = Dart_CObject_kInt64;');
       writer.line('    obj.value.as_int64 = item;');
     } else if (stream.itemType.name == 'bool') {
-      writer.line('    obj.type = Dart_CObject_kBool;');
-      writer.line('    obj.value.as_bool = item;');
+      // Use kInt64 (0/1) instead of kBool: Dart_PostCObject_DL with kBool
+      // is unreliable on some Android versions and returns false.
+      // The Dart stream unpack decodes int != 0 as true.
+      writer.line('    obj.type = Dart_CObject_kInt64;');
+      writer.line('    obj.value.as_int64 = item ? 1 : 0;');
     } else if (isStruct) {
       final stName = stream.itemType.name.replaceFirst('?', '');
       writer.line(
@@ -689,8 +705,11 @@ void _emitJniMethods(
 
       String jniCParam(BridgeType t) {
         final base = t.name.replaceFirst('?', '');
-        if (base == 'double') return 'jdouble';
-        if (base == 'bool') return 'jboolean';
+        // bool and double are encoded as jlong (see _callbackParamToKotlinJni).
+        // Using jlong ensures NativeCallable.listener fires synchronously on Android
+        // (only the Int64/Long fast-path is guaranteed synchronous on the Dart isolate thread).
+        if (base == 'double') return 'jlong'; // raw IEEE 754 bits via doubleToRawLongBits
+        if (base == 'bool') return 'jlong';   // 1L = true, 0L = false
         if (base == 'String') return 'jstring';
         if (structNames.contains(base)) return 'jobject';    // Kotlin data class
         if (recordNames.contains(base)) return 'jbyteArray'; // serialized ByteArray
@@ -699,8 +718,10 @@ void _emitJniMethods(
 
       String cTypedefParam(BridgeType t) {
         final base = t.name.replaceFirst('?', '');
-        if (base == 'double') return 'double';
-        if (base == 'bool') return 'bool';
+        // bool and double are received as jlong (int64_t) and must use int64_t in the
+        // C typedef so the call-site ABI exactly matches NativeCallable<Void Function(Int64)>.
+        if (base == 'double') return 'int64_t';
+        if (base == 'bool') return 'int64_t';
         if (base == 'String') return 'const char*';
         if (structNames.contains(base)) return 'const $base*';
         if (recordNames.contains(base)) return 'const uint8_t*'; // length-prefixed buffer
@@ -740,8 +761,9 @@ void _emitJniMethods(
         final i = e.key;
         final base = e.value.name.replaceFirst('?', '');
         if (base == 'String') return 's_arg$i';
-        if (base == 'double') return '(double)arg$i';
-        if (base == 'bool') return '(bool)arg$i';
+        // bool and double are encoded as int64_t — pass directly (typedef is int64_t).
+        if (base == 'double') return '(int64_t)arg$i';
+        if (base == 'bool') return '(int64_t)arg$i';
         if (structNames.contains(base)) return '&c_arg$i';
         if (recordNames.contains(base)) return 'r_buf$i';
         return '(int64_t)arg$i';
