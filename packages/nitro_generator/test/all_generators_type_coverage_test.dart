@@ -593,9 +593,10 @@ void main() {
       expect(out, contains('NitroCppBuffer printers'));
     });
 
-    test('Swift: list param decodes binary buffer via NitroRecordReader.decodeList', () {
+    test('Swift: list param decodes indexed binary buffer via NitroRecordReader.decodeIndexedList', () {
       final out = SwiftGenerator.generate(spec);
-      expect(out, contains('NitroRecordReader.decodeList'));
+      // Dart encodes list params with encodeIndexedList (offset table format); Swift skips the table.
+      expect(out, contains('NitroRecordReader.decodeIndexedList'));
       expect(out, contains('Printer.fromReader'));
     });
   });

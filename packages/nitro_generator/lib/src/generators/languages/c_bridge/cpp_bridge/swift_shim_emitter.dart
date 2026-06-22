@@ -26,7 +26,9 @@ void _emitSwiftBridgeSection(
       if (p.type.isFunction) {
         paramParts.add(CppBridgeGenerator._callbackParamToC(p, enumNames));
       } else {
-        paramParts.add('${CppBridgeGenerator._paramTypeToC(p.type.name, structNames)} ${p.name}');
+        final isEnumParam = enumNames.contains(p.type.name.replaceFirst('?', ''));
+        final cType = isEnumParam ? 'int64_t' : CppBridgeGenerator._paramTypeToC(p.type.name, structNames);
+        paramParts.add('$cType ${p.name}');
       }
       callParamParts.add(p.name);
       if (p.type.isTypedData) {
@@ -56,12 +58,20 @@ void _emitSwiftBridgeSection(
         : CppBridgeGenerator._typeToC(func.returnType.name);
     // S8: add NitroError* out-param; the Swift @_cdecl stub does not use it,
     // but the C wrapper must accept and propagate it.
-    final paramsWithErr = [...paramParts, 'NitroError* _nitro_err'].join(', ');
+    final paramsWithErr = func.isAsync
+        ? paramParts.join(', ')
+        : [...paramParts, 'NitroError* _nitro_err'].join(', ');
     final params = paramParts.join(', ');
     final callParams = callParamParts.join(', ');
     writer.line('extern $cReturnType _${spec.namespace}_call_${func.dartName}(${params.isEmpty ? 'void' : params});');
     writer.line('$cReturnType ${func.cSymbol}($paramsWithErr) {');
-    writer.line('    if (_nitro_err) { _nitro_err->hasError = 0; }');
+    if (func.isAsync) {
+      // @nitroAsync uses old TLS get_error/clear_error — declare _nitro_err as null
+      // local so error handling code compiles (errors go to TLS instead).
+      writer.line('    NitroError* _nitro_err = nullptr; // async: errors use TLS not out-param');
+    } else {
+      writer.line('    if (_nitro_err) { _nitro_err->hasError = 0; }');
+    }
     writer.line('#ifdef __OBJC__');
     writer.line('    @try {');
     if (func.returnType.name != 'void') {

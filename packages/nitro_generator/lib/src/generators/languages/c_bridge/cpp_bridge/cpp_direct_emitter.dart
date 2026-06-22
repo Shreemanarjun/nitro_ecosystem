@@ -227,7 +227,8 @@ String _generateCppDirect(BridgeSpec spec) {
         }
         final isStructParam = structNames.contains(p.type.name.replaceFirst('?', ''));
         final isRecordParam = recordNames.contains(p.type.name.replaceFirst('?', ''));
-        paramParts.add('${(isStructParam || isRecordParam || p.type.isNativeHandle) ? 'void*' : _typeToC(p.type.name)} ${p.name}');
+        final isEnumParam = enumNames.contains(p.type.name.replaceFirst('?', ''));
+        paramParts.add('${(isStructParam || isRecordParam || p.type.isNativeHandle) ? 'void*' : (isEnumParam ? 'int64_t' : _typeToC(p.type.name))} ${p.name}');
         if (p.type.isTypedData) paramParts.add('int64_t ${p.name}_length');
       }
       paramParts.add('int64_t dart_port');
@@ -301,18 +302,33 @@ String _generateCppDirect(BridgeSpec spec) {
       }
       final isStructParam = structNames.contains(p.type.name.replaceFirst('?', ''));
       final isRecordParam = p.type.isRecord;
+      final isEnumParam = enumNames.contains(p.type.name.replaceFirst('?', ''));
       // Nullable bool uses int32_t (jint) to preserve the -1 sentinel for null.
       final isNullableBool = p.type.isNullable && p.type.name.replaceFirst('?', '') == 'bool';
-      final cType = isNullableBool ? 'int32_t' : ((isStructParam || isRecordParam || p.type.isNativeHandle) ? 'void*' : _typeToC(p.type.name));
+      final cType = isNullableBool
+          ? 'int32_t'
+          : isEnumParam
+              ? 'int64_t'
+              : ((isStructParam || isRecordParam || p.type.isNativeHandle) ? 'void*' : _typeToC(p.type.name));
       paramParts.add('$cType ${p.name}');
       if (p.type.isTypedData) paramParts.add('int64_t ${p.name}_length');
     }
-    // S8: every sync C function takes a NitroError* out-param as its last argument.
-    paramParts.add('NitroError* _nitro_err');
+    // S8: only SYNC functions take NitroError* out-param.
+    // @nitroAsync functions use TLS get_error/clear_error — no NitroError* in signature.
+    if (!func.isAsync) {
+      paramParts.add('NitroError* _nitro_err');
+    }
     final paramsDecl = paramParts.join(', ');
 
     writer.line('$cRet ${func.cSymbol}($paramsDecl) {');
-    writer.line('    if (_nitro_err) { _nitro_err->hasError = 0; }  // S8: clear slot');
+    if (func.isAsync) {
+      // @nitroAsync uses old TLS get_error/clear_error — declare _nitro_err as null
+      // local so _nitro_out_err calls compile (errors go to TLS instead).
+      writer.line('    NitroError* _nitro_err = nullptr; // async: errors use TLS not out-param');
+    } else {
+      // S8: sync functions reset the out-param error slot before each call.
+      writer.line('    if (_nitro_err) { _nitro_err->hasError = 0; }  // S8: clear slot');
+    }
     if (func.returnType.name == 'void') {
       writer.line('    if (!g_impl) { $notInit; return; }');
     } else {

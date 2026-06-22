@@ -10,7 +10,10 @@ let package = Package(
     dependencies: [
         .package(name: "FlutterMacOS", path: "../FlutterMacOS"),
     ],
-    targets: [
+    dependencies: [
+    .package(name: "FlutterFramework", path: "../FlutterFramework"),
+  ],
+  targets: [
         // C/C++ bridge — SPM requires Swift and C++ in separate targets.
         .target(
             name: "BenchmarkCpp",

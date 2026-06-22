@@ -315,7 +315,8 @@ class CppBridgeGenerator {
         for (final p in func.params) {
           final isStructParam = structNames.contains(p.type.name.replaceFirst('?', ''));
           final isRecordParam = recordNames.contains(p.type.name.replaceFirst('?', ''));
-          paramParts.add('${(isStructParam || isRecordParam) ? 'void*' : _typeToC(p.type.name)} ${p.name}');
+          final isEnumParam = enumNames.contains(p.type.name.replaceFirst('?', ''));
+          paramParts.add('${(isStructParam || isRecordParam) ? 'void*' : (isEnumParam ? 'int64_t' : _typeToC(p.type.name))} ${p.name}');
           if (p.type.isTypedData) paramParts.add('int64_t ${p.name}_length');
         }
         paramParts.add('int64_t dart_port');
@@ -372,12 +373,17 @@ class CppBridgeGenerator {
       for (final p in func.params) {
         final isStructParam = structNames.contains(p.type.name.replaceFirst('?', ''));
         final isRecordParam = p.type.isRecord;
+        final isEnumParam = enumNames.contains(p.type.name.replaceFirst('?', ''));
         if (p.type.isFunction) {
           paramParts.add(_callbackParamToC(p, enumNames, structNames: structNames, recordNames: recordNames));
         } else {
           // Nullable bool uses int32_t (jint) to preserve the -1 sentinel for null.
           final isNullableBool = p.type.isNullable && p.type.name.replaceFirst('?', '') == 'bool';
-          final cType = isNullableBool ? 'int32_t' : ((isStructParam || isRecordParam) ? 'void*' : _typeToC(p.type.name));
+          final cType = isNullableBool
+              ? 'int32_t'
+              : isEnumParam
+                  ? 'int64_t'
+                  : ((isStructParam || isRecordParam) ? 'void*' : _typeToC(p.type.name));
           paramParts.add('$cType ${p.name}');
         }
         if (p.type.isTypedData) paramParts.add('int64_t ${p.name}_length');

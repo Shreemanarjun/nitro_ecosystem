@@ -205,6 +205,7 @@ class SwiftGenerator {
             final isString = p.type.name == 'String' || p.type.name == 'String?';
             final isBool = p.type.name == 'bool' || p.type.name == 'bool?';
             if (isString) return '${p.name}: ${p.name}Str';
+            if (p.type.name == 'bool?') return '${p.name}: ${p.name} == -1 ? nil : ${p.name} != 0';
             if (isBool) return '${p.name}: ${p.name} != 0';
             if (p.type.isTypedData) return '${p.name}: ${p.name}Arr';
             if (p.type.isRecord && p.type.name.startsWith('List<')) return '${p.name}: ${p.name}Decoded';
@@ -224,7 +225,17 @@ class SwiftGenerator {
             }
             if (spec.recordTypes.any((rt) => rt.name == p.type.name.replaceFirst('?', ''))) {
               final recordName = p.type.name.replaceFirst('?', '');
+              // Guard against nil rather than force-unwrap to avoid EXC_BAD_ACCESS.
               return '${p.name}: $recordName.fromNative(${p.name}!.assumingMemoryBound(to: UInt8.self))';
+            }
+            final isEnum = spec.enums.any((en) => en.name == p.type.name.replaceFirst('?', ''));
+            if (isEnum) {
+              final enumName = p.type.name.replaceFirst('?', '');
+              final isOpt = p.type.name.endsWith('?');
+              if (isOpt) {
+                return '${p.name}: $enumName(rawValue: ${p.name})';
+              }
+              return '${p.name}: $enumName(rawValue: ${p.name})!';
             }
             return '${p.name}: ${p.name}';
           })
@@ -285,8 +296,17 @@ class SwiftGenerator {
         final callArgs = func.params
             .map((p) {
               final isString = p.type.name == 'String' || p.type.name == 'String?';
-              final argValue = isString ? '${p.name}Str' : p.name;
-              return '${p.name}: $argValue';
+              final isEnum = spec.enums.any((en) => en.name == p.type.name.replaceFirst('?', ''));
+              if (isString) return '${p.name}: ${p.name}Str';
+              if (isEnum) {
+                final enumName = p.type.name.replaceFirst('?', '');
+                final isOpt = p.type.name.endsWith('?');
+                if (isOpt) {
+                  return '${p.name}: $enumName(rawValue: ${p.name})';
+                }
+                return '${p.name}: $enumName(rawValue: ${p.name})!';
+              }
+              return '${p.name}: ${p.name}';
             })
             .join(', ');
         if (isVoidRet) {
@@ -357,8 +377,20 @@ class SwiftGenerator {
       // Emit UnsafeMutableRawPointer? → Swift Array for binary-encoded record/struct list params.
       for (final p in recordListParams) {
         final itemType = p.type.name.substring(5, p.type.name.length - 1);
+        final isPrim = ['int', 'double', 'bool', 'String'].contains(itemType.replaceAll('?', ''));
         writer.line('    let ${p.name}Ptr = ${p.name}?.assumingMemoryBound(to: UInt8.self)');
-        writer.line('    let ${p.name}Decoded = ${p.name}Ptr.map { NitroRecordReader.decodeList(\$0) { r in $itemType.fromReader(r) } } ?? []');
+        if (isPrim) {
+          final base = itemType.replaceAll('?', '');
+          String readCall = 'r.readInt()';
+          if (base == 'double') readCall = 'r.readDouble()';
+          if (base == 'bool') readCall = 'r.readBool()';
+          if (base == 'String') readCall = 'r.readString()';
+          // Dart encodes with encodeIndexedPrimitiveList (indexed format with offset table).
+          writer.line('    let ${p.name}Decoded = ${p.name}Ptr.map { NitroRecordReader.decodeIndexedList(\$0) { r in $readCall } } ?? []');
+        } else {
+          // Dart encodes with encodeIndexedList (indexed format with offset table).
+          writer.line('    let ${p.name}Decoded = ${p.name}Ptr.map { NitroRecordReader.decodeIndexedList(\$0) { r in $itemType.fromReader(r) } } ?? []');
+        }
       }
 
       if (func.isAsync) {
@@ -419,11 +451,13 @@ class SwiftGenerator {
           writer.line('        sema.signal()');
           writer.line('    }');
           writer.line('    sema.wait()');
-          writer.line('    return result?.toNative()');
+          writer.line('    return result?.toNative().map { UnsafeMutableRawPointer(\$0) }');
         } else if (isRecordList) {
           writer.line('    guard let impl = ${spec.dartClassName}Registry.impl else { return nil }');
           writer.line('    let sema = DispatchSemaphore(value: 0)');
-          writer.line('    var result: ${_toSwiftType(spec, func.returnType.name)}? = nil');
+          final recordListSwiftType = _toSwiftType(spec, func.returnType.name);
+          final recordListResultType = recordListSwiftType.endsWith('?') ? recordListSwiftType : '$recordListSwiftType?';
+          writer.line('    var result: $recordListResultType = nil');
           writer.line('    Task.detached {');
           writer.line('        result = try? await impl.${func.dartName}($callArgs)');
           writer.line('        sema.signal()');
@@ -440,9 +474,9 @@ class SwiftGenerator {
             if (base == 'double') writeCall = 'writeDouble(e)';
             if (base == 'bool') writeCall = 'writeBool(e)';
             if (base == 'String') writeCall = 'writeString(e)';
-            writer.line('    return NitroRecordWriter.encodeList(r) { w, e in w.$writeCall }');
+            writer.line('    return NitroRecordWriter.encodeList(r) { w, e in w.$writeCall }.map { UnsafeMutableRawPointer(\$0) }');
           } else {
-            writer.line('    return NitroRecordWriter.encodeIndexedList(r) { w, e in e.writeFields(w) }');
+            writer.line('    return NitroRecordWriter.encodeIndexedList(r) { w, e in e.writeFields(w) }.map { UnsafeMutableRawPointer(\$0) }');
           }
         } else if (isTypedDataReturn) {
           final swiftRetType = _toSwiftType(spec, func.returnType.name);
@@ -463,8 +497,10 @@ class SwiftGenerator {
             writer.line('    return $helper(r)');
           }
         } else if (isBool) {
+          // Nullable bool: -1 = null, 0 = false, 1 = true.
+          final boolGuardDefault = func.returnType.isNullable ? '-1' : '0';
           writer.line(
-            '    guard let impl = ${spec.dartClassName}Registry.impl else { return 0 }',
+            '    guard let impl = ${spec.dartClassName}Registry.impl else { return $boolGuardDefault }',
           );
           writer.line('    let sema = DispatchSemaphore(value: 0)');
           writer.line('    var result: Bool? = nil');
@@ -475,7 +511,12 @@ class SwiftGenerator {
           writer.line('        sema.signal()');
           writer.line('    }');
           writer.line('    sema.wait()');
-          writer.line('    return Int8((result ?? false) ? 1 : 0)');
+          if (func.returnType.isNullable) {
+            writer.line('    guard let b = result else { return -1 }');
+            writer.line('    return b ? 1 : 0');
+          } else {
+            writer.line('    return Int8((result ?? false) ? 1 : 0)');
+          }
         } else {
           final swiftRetType = _toSwiftType(spec, func.returnType.name);
           final defaultVal = _defaultCDeclValue(spec, func.returnType.name);
@@ -483,7 +524,8 @@ class SwiftGenerator {
             '    guard let impl = ${spec.dartClassName}Registry.impl else { return $defaultVal }',
           );
           writer.line('    let sema = DispatchSemaphore(value: 0)');
-          writer.line('    var result: $swiftRetType? = nil');
+          final resultType = swiftRetType.endsWith('?') ? swiftRetType : '$swiftRetType?';
+          writer.line('    var result: $resultType = nil');
           writer.line('    Task.detached {');
           writer.line(
             '        result = try? await impl.${func.dartName}($callArgs)',
@@ -493,6 +535,11 @@ class SwiftGenerator {
           writer.line('    sema.wait()');
           if (isEnumRet) {
             writer.line('    return result?.rawValue ?? $defaultVal');
+          } else if (func.returnType.isNullable) {
+            // Use the type-appropriate null sentinel so Dart can distinguish null from 0.
+            final base = func.returnType.name.replaceFirst('?', '');
+            final nullSentinel = base == 'int' ? '-1' : base == 'double' ? 'Double.nan' : defaultVal;
+            writer.line('    return result ?? $nullSentinel');
           } else {
             writer.line('    return result ?? $defaultVal');
           }
@@ -502,9 +549,16 @@ class SwiftGenerator {
           '    ${spec.dartClassName}Registry.impl?.${func.dartName}($callArgs)',
         );
       } else if (isBool) {
-        writer.line(
-          '    return Int8((${spec.dartClassName}Registry.impl?.${func.dartName}($callArgs) ?? false) ? 1 : 0)',
-        );
+        if (func.returnType.isNullable) {
+          // Nullable bool: return -1 for nil, 0 for false, 1 for true.
+          writer.line('    guard let impl = ${spec.dartClassName}Registry.impl else { return -1 }');
+          writer.line('    guard let result = impl.${func.dartName}($callArgs) else { return -1 }');
+          writer.line('    return result ? 1 : 0');
+        } else {
+          writer.line(
+            '    return Int8((${spec.dartClassName}Registry.impl?.${func.dartName}($callArgs) ?? false) ? 1 : 0)',
+          );
+        }
       } else if (isStruct) {
         final structName = func.returnType.name.replaceFirst('?', '');
         if (func.returnType.isNullable) {
@@ -531,12 +585,12 @@ class SwiftGenerator {
           '    return strdup(${spec.dartClassName}Registry.impl?.${func.dartName}($callArgs) ?? "")',
         );
       } else if (isRecord) {
+        // Explicit impl guard to avoid Struct?? double-optional chaining.
+        writer.line('    guard let impl = ${spec.dartClassName}Registry.impl else { return nil }');
         if (func.returnType.isNullable) {
-          // Explicit impl guard to avoid Struct?? double-optional chaining.
-          writer.line('    guard let impl = ${spec.dartClassName}Registry.impl else { return nil }');
-          writer.line('    return impl.${func.dartName}($callArgs)?.toNative()');
+          writer.line('    return impl.${func.dartName}($callArgs)?.toNative().map { UnsafeMutableRawPointer(\$0) }');
         } else {
-          writer.line('    return ${spec.dartClassName}Registry.impl?.${func.dartName}($callArgs)?.toNative()');
+          writer.line('    return impl.${func.dartName}($callArgs).toNative().map { UnsafeMutableRawPointer(\$0) }');
         }
       } else if (isRecordList) {
         writer.line('    guard let r = ${spec.dartClassName}Registry.impl?.${func.dartName}($callArgs) else { return nil }');
@@ -549,9 +603,9 @@ class SwiftGenerator {
           if (base == 'double') writeCall = 'writeDouble(e)';
           if (base == 'bool') writeCall = 'writeBool(e)';
           if (base == 'String') writeCall = 'writeString(e)';
-          writer.line('    return NitroRecordWriter.encodeList(r) { w, e in w.$writeCall }');
-        } else {
-          writer.line('    return NitroRecordWriter.encodeIndexedList(r) { w, e in e.writeFields(w) }');
+            writer.line('    return NitroRecordWriter.encodeList(r) { w, e in w.$writeCall }.map { UnsafeMutableRawPointer(\$0) }');
+          } else {
+            writer.line('    return NitroRecordWriter.encodeIndexedList(r) { w, e in e.writeFields(w) }.map { UnsafeMutableRawPointer(\$0) }');
         }
       } else if (isTypedDataReturn) {
         writer.line('    guard let r = ${spec.dartClassName}Registry.impl?.${func.dartName}($callArgs) else { return nil }');
@@ -742,6 +796,7 @@ class SwiftGenerator {
       final isStructItem = spec.structs.any((st) => st.name == itemName);
       final isRecordItem = stream.itemType.isRecord;
       final isEnumItem = spec.enums.any((en) => en.name == itemName);
+      final isBoolItem = itemName == 'bool';
       writer.line('@_cdecl("_${spec.namespace}_register_${stream.dartName}_stream")');
       writer.line('public func _${spec.namespace}_register_${stream.dartName}_stream(');
       writer.line('    _ dartPort: Int64,');
@@ -772,6 +827,10 @@ class SwiftGenerator {
         writer.line('            let raw = item.toNative()');
         writer.line('            if !emitCb(dartPort, raw) {');
         writer.line('                if let raw { free(UnsafeMutableRawPointer(raw)) }');
+        writer.line('                ${spec.dartClassName}Registry._${stream.dartName}Cancellables.removeValue(forKey: dartPort)?.cancel()');
+        writer.line('            }');
+      } else if (isBoolItem) {
+        writer.line('            if !emitCb(dartPort, Int8(item ? 1 : 0)) {');
         writer.line('                ${spec.dartClassName}Registry._${stream.dartName}Cancellables.removeValue(forKey: dartPort)?.cancel()');
         writer.line('            }');
       } else {
@@ -1089,6 +1148,8 @@ class SwiftGenerator {
     if (bridgeType?.isNativeHandle == true) return 'UnsafeMutableRawPointer?';
     final name = typeName.replaceFirst('?', '');
     if (name == 'String') return 'UnsafePointer<CChar>?';
+    // Nullable bool uses Int32 to carry the -1 null sentinel; C bridge uses int32_t for the same reason.
+    if (typeName.endsWith('?') && name == 'bool') return 'Int32';
     if (name == 'bool') return 'Int8';
     if (spec.recordTypes.any((rt) => rt.name == name) || name.startsWith('List<')) {
       return 'UnsafeMutableRawPointer?';
@@ -1230,6 +1291,7 @@ class SwiftGenerator {
   }
 
   static String _defaultCDeclValue(BridgeSpec spec, String t) {
+    final isNullable = t.endsWith('?');
     final name = t.replaceFirst('?', '');
     switch (name) {
       case 'int':
@@ -1241,7 +1303,8 @@ class SwiftGenerator {
       case 'String':
         return 'strdup("")';
       default:
-        if (spec.enums.any((en) => en.name == name)) return '0';
+        // Nullable enum: -1 = null sentinel (Dart decodes res == -1 as null).
+        if (spec.enums.any((en) => en.name == name)) return isNullable ? '-1' : '0';
         if (spec.structs.any((st) => st.name == name)) return 'nil';
         return '()';
     }

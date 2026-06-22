@@ -1,7 +1,13 @@
-/* Bundled Dart API DL implementation — no external path dependency. */
-#include "dart_api_dl.h"
-#include "dart_version.h"
-#include "internal/dart_api_dl_impl.h"
+/*
+ * Copyright (c) 2020, the Dart project authors.  Please see the AUTHORS file
+ * for details. All rights reserved. Use of this source code is governed by a
+ * BSD-style license that can be found in the LICENSE file.
+ */
+
+/* Bundled by nitrogen — full self-contained implementation, no external path. */
+#include "dart_api_dl.h"               /* NOLINT */
+#include "dart_version.h"              /* NOLINT */
+#include "internal/dart_api_dl_impl.h" /* NOLINT */
 
 #include <stdio.h>
 #include <string.h>

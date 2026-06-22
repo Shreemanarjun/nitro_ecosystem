@@ -362,7 +362,8 @@ void main() {
           has: ['fun getStatus(): Status?', 'fun getStatus_call(): Long'],
         ),
         swift: BridgeChecks(
-          has: ['-> Int64', '?.rawValue ?? 0'],
+          // -1 is the null sentinel for nullable enum (Dart decodes res == -1 as null).
+          has: ['-> Int64', '?.rawValue ?? -1'],
         ),
       );
     });
@@ -795,7 +796,7 @@ void main() {
           '_ label: UnsafePointer<CChar>?',
           '_ limit: Int64', // optional primitive — still passed as primitive in @_cdecl
           '_ threshold: Double',
-          '_ verbose: Int8',
+          '_ verbose: Int32',  // bool? uses Int32 to carry -1 null sentinel
         ],
       ),
     );

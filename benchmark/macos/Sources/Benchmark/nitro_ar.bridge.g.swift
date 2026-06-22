@@ -160,7 +160,118 @@ public struct LiveTrackingUpdate {
   }
 }
 
+public class NitroRecordWriter {
+    public var bytes: [UInt8] = []
+    public init() {}
+    public func writeInt(_ v: Int64) {
+        var val = v.littleEndian
+        withUnsafeBytes(of: &val) { bytes.append(contentsOf: $0) }
+    }
+    public func writeInt32(_ v: Int32) {
+        var val = v.littleEndian
+        withUnsafeBytes(of: &val) { bytes.append(contentsOf: $0) }
+    }
+    public func writeDouble(_ v: Double) {
+        var val = v.bitPattern.littleEndian
+        withUnsafeBytes(of: &val) { bytes.append(contentsOf: $0) }
+    }
+    public func writeBool(_ v: Bool) {
+        bytes.append(v ? 1 : 0)
+    }
+    public func writeString(_ v: String) {
+        let utf8 = Array(v.utf8)
+        writeInt32(Int32(utf8.count))
+        bytes.append(contentsOf: utf8)
+    }
+    public func writeNullTag(_ isNull: Bool) {
+        bytes.append(isNull ? 0 : 1)
+    }
+    public func writeBlob(_ v: Data) {
+        writeInt32(Int32(v.count))
+        bytes.append(contentsOf: Array(v))
+    }
+    public func toNative() -> UnsafeMutablePointer<UInt8>? {
+        let total = 4 + bytes.count
+        let ptr = UnsafeMutablePointer<UInt8>.allocate(capacity: total)
+        var length = Int32(bytes.count).littleEndian
+        withUnsafeBytes(of: &length) {
+            ptr.update(from: $0.baseAddress!.assumingMemoryBound(to: UInt8.self), count: 4)
+        }
+        ptr.advanced(by: 4).update(from: bytes, count: bytes.count)
+        return ptr
+    }
+    public static func encodeList<T>(_ items: [T], writeItem: (NitroRecordWriter, T) -> Void) -> UnsafeMutablePointer<UInt8>? {
+        let w = NitroRecordWriter()
+        w.writeInt32(Int32(items.count))
+        for item in items { writeItem(w, item) }
+        return w.toNative()
+    }
+}
 
+public class NitroRecordReader {
+    public let bytes: UnsafeMutablePointer<UInt8>
+    public var pos: Int = 0
+    public init(ptr: UnsafeMutablePointer<UInt8>) {
+        self.bytes = ptr.advanced(by: 4)
+    }
+    public init(payload: UnsafeMutablePointer<UInt8>) {
+        self.bytes = payload
+    }
+    public func readInt() -> Int64 {
+        let v = UnsafeRawPointer(bytes.advanced(by: pos)).load(as: Int64.self)
+        pos += 8
+        return Int64(littleEndian: v)
+    }
+    public func readInt32() -> Int32 {
+        let v = UnsafeRawPointer(bytes.advanced(by: pos)).load(as: Int32.self)
+        pos += 4
+        return Int32(littleEndian: v)
+    }
+    public func readDouble() -> Double {
+        let v = UnsafeRawPointer(bytes.advanced(by: pos)).load(as: UInt64.self)
+        pos += 8
+        return Double(bitPattern: UInt64(littleEndian: v))
+    }
+    public func readBool() -> Bool {
+        let v = bytes[pos]
+        pos += 1
+        return v != 0
+    }
+    public func readString() -> String {
+        let len = Int(readInt32())
+        let s = String(bytesNoCopy: UnsafeMutableRawPointer(bytes.advanced(by: pos)), length: len, encoding: .utf8, freeWhenDone: false) ?? ""
+        pos += len
+        return s
+    }
+    public func readNullTag() -> Bool {
+        let v = bytes[pos]
+        pos += 1
+        return v == 0
+    }
+    public func readBlob() -> Data {
+        let len = Int(readInt32())
+        let data = Data(bytes: bytes.advanced(by: pos), count: len)
+        pos += len
+        return data
+    }
+    public func readBlobAsPointer() -> UnsafeMutablePointer<UInt8>? {
+        let len = Int(readInt32())
+        if (len == 0) { return nil }
+        let ptr = UnsafeMutablePointer<UInt8>.allocate(capacity: len)
+        ptr.initialize(from: bytes.advanced(by: pos), count: len)
+        pos += len
+        return ptr
+    }
+    public static func decodeList<T>(_ ptr: UnsafeMutablePointer<UInt8>, readItem: (NitroRecordReader) -> T) -> [T] {
+        let r = NitroRecordReader(ptr: ptr)
+        let count = r.readInt32()
+        var items: [T] = []
+        for _ in 0..<count {
+            items.append(readItem(r))
+        }
+        return items
+    }
+}
 
 /**
  * Protocol for the NitroAr module.

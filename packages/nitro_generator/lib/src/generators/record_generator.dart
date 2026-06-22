@@ -1136,10 +1136,10 @@ public class NitroRecordWriter {
         let total = 4 + bytes.count
         let ptr = UnsafeMutablePointer<UInt8>.allocate(capacity: total)
         var length = Int32(bytes.count).littleEndian
-        withUnsafeBytes(of: &length) {
-            ptr.update(from: \$0.baseAddress!.assumingMemoryBound(to: UInt8.self), count: 4)
+        _ = memcpy(ptr, &length, 4)
+        if bytes.count > 0 {
+            _ = memcpy(ptr.advanced(by: 4), bytes, bytes.count)
         }
-        ptr.advanced(by: 4).update(from: bytes, count: bytes.count)
         return ptr
     }
     public static func encodeList<T>(_ items: [T], writeItem: (NitroRecordWriter, T) -> Void) -> UnsafeMutablePointer<UInt8>? {
@@ -1183,17 +1183,20 @@ public class NitroRecordReader {
         self.bytes = payload
     }
     public func readInt() -> Int64 {
-        let v = UnsafeRawPointer(bytes.advanced(by: pos)).load(as: Int64.self)
+        var v: Int64 = 0
+        _ = memcpy(&v, bytes.advanced(by: pos), 8)
         pos += 8
         return Int64(littleEndian: v)
     }
     public func readInt32() -> Int32 {
-        let v = UnsafeRawPointer(bytes.advanced(by: pos)).load(as: Int32.self)
+        var v: Int32 = 0
+        _ = memcpy(&v, bytes.advanced(by: pos), 4)
         pos += 4
         return Int32(littleEndian: v)
     }
     public func readDouble() -> Double {
-        let v = UnsafeRawPointer(bytes.advanced(by: pos)).load(as: UInt64.self)
+        var v: UInt64 = 0
+        _ = memcpy(&v, bytes.advanced(by: pos), 8)
         pos += 8
         return Double(bitPattern: UInt64(littleEndian: v))
     }
@@ -1204,7 +1207,8 @@ public class NitroRecordReader {
     }
     public func readString() -> String {
         let len = Int(readInt32())
-        let s = String(bytesNoCopy: UnsafeMutableRawPointer(bytes.advanced(by: pos)), length: len, encoding: .utf8, freeWhenDone: false) ?? ""
+        guard len > 0 else { return "" }
+        let s = String(bytes: UnsafeBufferPointer(start: bytes.advanced(by: pos), count: len), encoding: .utf8) ?? ""
         pos += len
         return s
     }
@@ -1230,6 +1234,20 @@ public class NitroRecordReader {
     public static func decodeList<T>(_ ptr: UnsafeMutablePointer<UInt8>, readItem: (NitroRecordReader) -> T) -> [T] {
         let r = NitroRecordReader(ptr: ptr)
         let count = r.readInt32()
+        var items: [T] = []
+        for _ in 0..<count {
+            items.append(readItem(r))
+        }
+        return items
+    }
+    /// Decodes a list encoded by Dart's RecordWriter.encodeIndexedList / encodeIndexedPrimitiveList.
+    /// Wire format (payload after outer 4B length prefix):
+    ///   [int32 count][int64 × count offsets from payload start][item bytes...]
+    /// The offset table is skipped; items are read sequentially after it.
+    public static func decodeIndexedList<T>(_ ptr: UnsafeMutablePointer<UInt8>, readItem: (NitroRecordReader) -> T) -> [T] {
+        let r = NitroRecordReader(ptr: ptr)
+        let count = r.readInt32()
+        r.pos += Int(count) * 8  // skip Int64 offset table
         var items: [T] = []
         for _ in 0..<count {
             items.append(readItem(r))

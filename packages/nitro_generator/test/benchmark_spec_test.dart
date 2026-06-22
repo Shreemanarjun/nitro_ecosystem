@@ -651,7 +651,8 @@ void main() {
     });
 
     test('computeStats returns void* (NitroCppBuffer wrapped)', () {
-      expect(out, contains('void* benchmark_cpp_compute_stats(int64_t iterations, NitroError* _nitro_err)'));
+      // @nitroAsync functions do NOT take NitroError* — they use TLS error mechanism.
+      expect(out, contains('void* benchmark_cpp_compute_stats(int64_t iterations)'));
     });
 
     test('sendLargeBufferFast has uint8_t* + int64_t length', () {

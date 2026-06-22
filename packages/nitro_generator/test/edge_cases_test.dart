@@ -566,8 +566,8 @@ void main() {
     test('record return does NOT use CallStaticDoubleMethod or CallStaticLongMethod', () {
       final out = CppBridgeGenerator.generate(singleRecordSpec());
       // Isolate the getDevice function body (up to next function)
-      // S8: function now takes NitroError* out-param
-      final idx = out.indexOf('camera_module_get_device(NitroError* _nitro_err)');
+      // S8: @nitroAsync functions do NOT take NitroError* — they use TLS error mechanism.
+      final idx = out.indexOf('camera_module_get_device()');
       final body = out.substring(idx, idx + 600);
       expect(body, isNot(contains('CallStaticDoubleMethod')));
       expect(body, isNot(contains('CallStaticLongMethod')));
