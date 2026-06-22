@@ -305,7 +305,8 @@ void _emitJniMethods(
       writer.line('    }');
       writer.line('    env->PopLocalFrame(nullptr);');
       writer.line('    return res;');
-    } else if (func.returnType.name == 'bool' || func.returnType.name == 'bool?') {
+    } else if (func.returnType.name == 'bool') {
+      // Non-nullable bool: use CallStaticBooleanMethod (()Z).
       writer.line(
         '    bool res = env->CallStaticBooleanMethod(g_bridgeClass, methodId$bridgeArgs);',
       );
@@ -316,6 +317,18 @@ void _emitJniMethods(
       writer.line('    }');
       writer.line('    env->PopLocalFrame(nullptr);');
       writer.line('    return res;');
+    } else if (func.returnType.name == 'bool?') {
+      // Nullable bool?: Kotlin returns Int (-1=null, 0=false, 1=true) so null can round-trip.
+      writer.line(
+        '    int32_t res = (int32_t)env->CallStaticIntMethod(g_bridgeClass, methodId$bridgeArgs);',
+      );
+      writer.line('    if (env->ExceptionCheck()) {');
+      writer.line('        nitro_report_jni_exception(env, env->ExceptionOccurred(), _nitro_err);');
+      writer.line('        env->PopLocalFrame(nullptr);');
+      writer.line('        return false;');
+      writer.line('    }');
+      writer.line('    env->PopLocalFrame(nullptr);');
+      writer.line('    return (int8_t)res;');
     } else if (func.returnType.name == 'String' || func.returnType.name == 'String?') {
       writer.line(
         '    jstring jstr = (jstring)env->CallStaticObjectMethod(g_bridgeClass, methodId$bridgeArgs);',
@@ -466,7 +479,10 @@ void _emitJniMethods(
       writer.line('    JNIEnv* env = GetEnv();');
       writer.line('    if (env == nullptr) { return ${_defaultValue(cType)}; }');
       writer.line('    jmethodID methodId = g_mid_${prop.getSymbol}_call;');
-      final jniGetSig = '()${isEnum ? 'J' : _jniSigType(prop.type.name)}';
+      // bool? properties use Int (I) for the 3-state encoding; bool uses Boolean (Z).
+      final propGetBase = prop.type.name.replaceFirst('?', '');
+      final propGetNullable = prop.type.name.endsWith('?');
+      final jniGetSig = '()${isEnum ? 'J' : (propGetBase == 'bool' && propGetNullable ? 'I' : _jniSigType(prop.type.name))}';
       writer.line(
         '    if (methodId == nullptr) { LOGE("Method not found: ${prop.getSymbol}_call sig=$jniGetSig"); return ${_defaultValue(cType)}; }',
       );
@@ -486,15 +502,20 @@ void _emitJniMethods(
         );
         writer.line('    env->PopLocalFrame(nullptr);');
         writer.line('    return res;');
-      } else if (propBase == 'bool') {
-        // Both bool and bool? use CallStaticBooleanMethod (sig ()Z).
-        // Android jboolean cannot carry -1, so bool? null arrives as false —
-        // the same known limitation as bool? method params on Android.
+      } else if (propBase == 'bool' && !prop.type.name.endsWith('?')) {
+        // Non-nullable bool: use CallStaticBooleanMethod (()Z).
         writer.line(
           '    bool res = env->CallStaticBooleanMethod(g_bridgeClass, methodId);',
         );
         writer.line('    env->PopLocalFrame(nullptr);');
         writer.line('    return res;');
+      } else if (propBase == 'bool' && prop.type.name.endsWith('?')) {
+        // Nullable bool?: Kotlin returns Int (-1=null, 0=false, 1=true) via ()I.
+        writer.line(
+          '    int32_t res = (int32_t)env->CallStaticIntMethod(g_bridgeClass, methodId);',
+        );
+        writer.line('    env->PopLocalFrame(nullptr);');
+        writer.line('    return (int8_t)res;');
       } else if (propBase == 'String') {
         writer.line(
           '    jstring jstr = (jstring)env->CallStaticObjectMethod(g_bridgeClass, methodId);',
@@ -524,7 +545,10 @@ void _emitJniMethods(
       writer.line('    if (env == nullptr) { return; }');
 
       writer.line('    jmethodID methodId = g_mid_${prop.setSymbol}_call;');
-      final jniSetSig = '(${isEnum ? 'J' : _jniSigType(prop.type.name)})V';
+      // bool? property setter uses Int (I) for 3-state encoding; bool uses Boolean (Z).
+      final propSetBase2 = prop.type.name.replaceFirst('?', '');
+      final propSetNullable2 = prop.type.name.endsWith('?');
+      final jniSetSig = '(${isEnum ? 'J' : (propSetBase2 == 'bool' && propSetNullable2 ? 'I' : _jniSigType(prop.type.name))})V';
       writer.line(
         '    if (methodId == nullptr) { LOGE("Method not found: ${prop.setSymbol}_call sig=$jniSetSig"); return; }',
       );
@@ -539,11 +563,15 @@ void _emitJniMethods(
       } else if (structNames.contains(prop.type.name)) {
         writer.line('    jobject jval = unpack_${prop.type.name}_to_jni(env, (const ${prop.type.name}*)value);');
         writer.line('    env->CallStaticVoidMethod(g_bridgeClass, methodId, jval);');
-      } else if (propSetBase == 'bool') {
-        // Cast int8_t → jboolean before the variadic call: passing a raw int8_t
-        // lets C promote it to int, and ART throws a type exception for (Z)V params.
+      } else if (propSetBase == 'bool' && !prop.type.name.endsWith('?')) {
+        // Non-nullable bool: cast to jboolean for (Z)V param.
         writer.line(
           '    env->CallStaticVoidMethod(g_bridgeClass, methodId, (jboolean)(value != 0));',
+        );
+      } else if (propSetBase == 'bool' && prop.type.name.endsWith('?')) {
+        // Nullable bool?: Kotlin setter takes Int (I) with -1=null, 0=false, 1=true.
+        writer.line(
+          '    env->CallStaticVoidMethod(g_bridgeClass, methodId, (int32_t)value);',
         );
       } else {
         writer.line(
@@ -821,12 +849,18 @@ void _emitJniMethods(
   for (final prop in spec.properties) {
     final isEnum = enumNames.contains(prop.type.name);
     if (prop.hasGetter) {
-      final jniRetSig = isEnum ? 'J' : _jniSigType(prop.type.name);
+      final propInitBase = prop.type.name.replaceFirst('?', '');
+      final propInitNullable = prop.type.name.endsWith('?');
+      // bool? getter uses Int (I) for 3-state encoding; bool uses Boolean (Z).
+      final jniRetSig = isEnum ? 'J' : (propInitBase == 'bool' && propInitNullable ? 'I' : _jniSigType(prop.type.name));
       writer.line('        g_mid_${prop.getSymbol}_call = env->GetStaticMethodID(g_bridgeClass, "${prop.getSymbol}_call", "()$jniRetSig");');
       writer.line('        if (!g_mid_${prop.getSymbol}_call && env->ExceptionCheck()) { env->ExceptionClear(); LOGE("Method not found: ${prop.getSymbol}_call sig=()$jniRetSig"); }');
     }
     if (prop.hasSetter) {
-      final jniParamSig = isEnum ? 'J' : _jniSigType(prop.type.name);
+      final propInitBase2 = prop.type.name.replaceFirst('?', '');
+      final propInitNullable2 = prop.type.name.endsWith('?');
+      // bool? setter uses Int (I); bool uses Boolean (Z).
+      final jniParamSig = isEnum ? 'J' : (propInitBase2 == 'bool' && propInitNullable2 ? 'I' : _jniSigType(prop.type.name));
       writer.line('        g_mid_${prop.setSymbol}_call = env->GetStaticMethodID(g_bridgeClass, "${prop.setSymbol}_call", "($jniParamSig)V");');
       writer.line('        if (!g_mid_${prop.setSymbol}_call && env->ExceptionCheck()) { env->ExceptionClear(); LOGE("Method not found: ${prop.setSymbol}_call sig=($jniParamSig)V"); }');
     }

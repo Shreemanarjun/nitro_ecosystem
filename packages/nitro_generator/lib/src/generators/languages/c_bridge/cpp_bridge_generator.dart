@@ -1056,9 +1056,12 @@ class CppBridgeGenerator {
     bool zeroCopyReturn = false,
   }) {
     final paramSig = params.map((p) => _jniParamSig(p, enumNames, structNames, libPkg)).join();
-    // Enum return type: bridge returns Long
+    // Enum return type: bridge returns Long.
+    // Nullable bool?: bridge returns Int (I) with -1=null/0=false/1=true.
     final baseRetType = returnType.name.replaceFirst('?', '');
+    final isNullableBoolRet = baseRetType == 'bool' && returnType.name.endsWith('?');
     final returnSig = switch (baseRetType) {
+      _ when isNullableBoolRet => 'I',  // Int for 3-state null/false/true
       final base when enumNames.contains(base) => 'J',
       final base when structNames.contains(base) => 'L$libPkg/$base;',
       _ when zeroCopyReturn && returnType.isTypedData => 'Ljava/nio/ByteBuffer;',

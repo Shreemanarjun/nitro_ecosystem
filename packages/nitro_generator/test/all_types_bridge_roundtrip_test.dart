@@ -256,19 +256,20 @@ void main() {
     group('bool?', () {
       final src = _src('  bool? isReady();');
       specTest(
-        'bool? return — Dart: bool?; Kotlin: Boolean (JNI); Swift: ?? 0 (Int8)',
+        'bool? return — Dart: bool?; Kotlin: Int (-1/0/1); Swift: -1/0/1 via guard',
         src,
         dart: BridgeChecks(
           has: ['bool? isReady()', 'Int8 Function(Pointer<NitroErrorFfi>)'],
           hasNot: ['bool isReady()'],
         ),
         kotlin: BridgeChecks(
-          has: ['fun isReady(): Boolean', 'fun isReady_call(): Boolean'],
-          hasNot: ['Boolean?'],
+          // bool? interface uses Boolean? so impls can return null.
+          // bool? _call uses Int for 3-state JNI transport (-1=null/0=false/1=true).
+          has: ['fun isReady(): Boolean?', 'fun isReady_call(): Int'],
         ),
         swift: BridgeChecks(
           has: ['-> Int8'],
-          // bool? in Swift: impl.isReady() is Bool? — bridge uses nullable optional path
+          // bool? in Swift: guard-let with -1 for nil
           hasNot: ['return impl?.isReady()'],
         ),
       );
@@ -603,7 +604,7 @@ void main() {
       // Nullable — THE CORE FIX (previously fell to else → return 0 without JNI call)
       ('int?', 'CallStaticLongMethod', 'int64_t'),
       ('double?', 'CallStaticDoubleMethod', 'double'),
-      ('bool?', 'CallStaticBooleanMethod', 'int8_t'),
+      ('bool?', 'CallStaticIntMethod', 'int8_t'),  // Int (I) for 3-state null/false/true
       ('String?', 'CallStaticObjectMethod', 'const char*'),
     ]) {
       test('$returnType return → C type $cType, JNI: $jniCall', () {

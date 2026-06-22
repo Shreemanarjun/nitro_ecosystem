@@ -844,9 +844,10 @@ void main() {
         expect(out, contains('CallStaticDoubleMethod'), reason: 'double? must call CallStaticDoubleMethod');
       });
 
-      test('bool? return calls CallStaticBooleanMethod', () {
+      test('bool? return calls CallStaticIntMethod (Int for 3-state null/false/true)', () {
         final out = CppBridgeGenerator.generate(nullableReturnSpec('bool?'));
-        expect(out, contains('CallStaticBooleanMethod'), reason: 'bool? must call CallStaticBooleanMethod');
+        // bool? uses Int (I) — -1=null, 0=false, 1=true — so null can round-trip on Android.
+        expect(out, contains('CallStaticIntMethod'), reason: 'bool? must use Int for 3-state encoding');
       });
 
       test('String? return calls CallStaticObjectMethod', () {

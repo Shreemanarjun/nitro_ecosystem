@@ -245,9 +245,15 @@ class KotlinGenerator {
       final isNullableEnum = isEnum && func.returnType.name.endsWith('?');
       final isRecord = func.returnType.isRecord && !func.returnType.isMap;
       final isListRecord = isRecord && func.returnType.recordListItemType != null && !func.returnType.recordListItemIsPrimitive;
+      // Nullable bool? returns use Int (-1=null, 0=false, 1=true) so the full 3-state
+      // value can cross the JNI boundary. jboolean can only carry 0/1 (not -1 for null).
+      final isNullableBoolReturn = retBaseName == 'bool' && func.returnType.name.endsWith('?');
       // JniBridge _call methods expose primitive bridge types to JNI:
-      // enums → Long (nativeValue), records → ByteArray (serialized binary), everything else → actual type
-      final bridgeRetType = isEnum
+      // enums → Long (nativeValue), records → ByteArray (serialized binary),
+      // nullable bool? → Int (-1/0/1), everything else → actual type.
+      final bridgeRetType = isNullableBoolReturn
+          ? 'Int'
+          : isEnum
           ? 'Long'
           : isRecord
           ? 'ByteArray'
@@ -475,6 +481,12 @@ class KotlinGenerator {
               '        return _asyncExecutor.submit(java.util.concurrent.Callable { runBlocking { impl.${func.dartName}($callParamsResolved) } }).get().nativeValue',
             );
           }
+        } else if (isNullableBoolReturn) {
+          // Nullable bool? async: encode null→-1, false→0, true→1.
+          writer.line('        val _boolResult = _asyncExecutor.submit(java.util.concurrent.Callable {');
+          writer.line('            runBlocking { impl.${func.dartName}($callParamsResolved) }');
+          writer.line('        }).get()');
+          writer.line('        return if (_boolResult == null) -1 else if (_boolResult) 1 else 0');
         } else {
           writer.line('        return _asyncExecutor.submit(java.util.concurrent.Callable {');
           writer.line('            runBlocking { impl.${func.dartName}($callParamsResolved) }');
@@ -493,6 +505,10 @@ class KotlinGenerator {
               '        return impl.${func.dartName}($callParamsResolved).nativeValue',
             );
           }
+        } else if (isNullableBoolReturn) {
+          // Nullable bool? sync: encode null→-1, false→0, true→1.
+          writer.line('        val _boolResult = impl.${func.dartName}($callParamsResolved)');
+          writer.line('        return if (_boolResult == null) -1 else if (_boolResult) 1 else 0');
         } else {
           writer.line('        return impl.${func.dartName}($callParamsResolved)');
         }
@@ -522,7 +538,7 @@ class KotlinGenerator {
       } else if (isNullableDouble) {
         bridgeKt = 'Double'; // double? uses NaN sentinel
       } else if (isNullableBool) {
-        bridgeKt = 'Boolean'; // bool? uses Boolean (jboolean); null ≡ false (known limitation)
+        bridgeKt = 'Int'; // bool? uses Int (-1=null, 0=false, 1=true) — jboolean can't carry -1
       } else {
         final kt = _toKotlinPropertyType(enumNames, structNames, recordNames, propTypeName);
         bridgeKt = kt;
@@ -549,8 +565,9 @@ class KotlinGenerator {
           writer.line('        if (_dv == null) return java.lang.Double.NaN');
           writer.line('        return _dv.toDouble()');
         } else if (isNullableBool) {
-          // jboolean cannot carry null — null maps to false (known limitation)
-          writer.line('        return impl.${prop.dartName} ?: false');
+          // Encode null→-1, false→0, true→1 so null can round-trip via Int.
+          writer.line('        val _bv = impl.${prop.dartName}');
+          writer.line('        return if (_bv == null) -1 else if (_bv) 1 else 0');
         } else {
           writer.line('        return impl.${prop.dartName}');
         }
@@ -576,8 +593,8 @@ class KotlinGenerator {
           // Use java.lang.Double.isNaN() for explicit primitive double check
           writer.line('        impl.${prop.dartName} = if (java.lang.Double.isNaN(value)) null else value');
         } else if (isNullableBool) {
-          // jboolean cannot carry -1 sentinel; null cannot be set from JNI Boolean property
-          writer.line('        impl.${prop.dartName} = value');
+          // Decode -1→null, 0→false, positive→true from the Int sentinel.
+          writer.line('        impl.${prop.dartName} = if (value < 0) null else (value != 0)');
         } else {
           writer.line('        impl.${prop.dartName} = value');
         }
@@ -689,11 +706,14 @@ class KotlinGenerator {
       return t.name;
     }
     final base = _toKotlinType(enumNames, structNames, recordNames, t.name);
-    // For the interface signature: nullable enum/struct types preserve '?' (Status? → Status?).
-    // Primitive nullable types (int?, bool?, double?) strip '?' — JNI uses non-nullable primitives.
     final isNullable = t.name.endsWith('?');
     final baseName = t.name.replaceFirst('?', '');
-    final isPrimitive = const {'int', 'bool', 'double', 'String'}.contains(baseName);
+    // bool? interface return uses Boolean? so implementations CAN return null.
+    // The _call bridge encodes null→-1, false→0, true→1 via Int for JNI transport.
+    if (isNullable && baseName == 'bool') return 'Boolean?';
+    // Other primitive nullable types (int?, double?) strip '?' — JNI uses non-nullable primitives.
+    // Non-primitive nullable types (Status?, String?) preserve '?'.
+    final isPrimitive = const {'int', 'double', 'String'}.contains(baseName);
     if (isNullable && !isPrimitive && !base.endsWith('?')) return '$base?';
     return base;
   }
