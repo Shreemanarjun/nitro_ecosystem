@@ -6,7 +6,7 @@
 //   Kotlin _call   → sentinel-to-null conversion before forwarding to interface
 //
 // Sentinels:
-//   int?    → `?? -1`                        (Kotlin: < 0L  → null)
+//   int?    → `?? Int64.min`              (Kotlin: == Long.MIN_VALUE → null)
 //   double? → `?? double.nan`                (Kotlin: isNaN → null)
 //   bool?   → `== null ? -1 : (v! ? 1 : 0)` (Kotlin: .toInt() < 0 → null)
 //
@@ -174,9 +174,9 @@ const _optPrimCases = [
   (
     type: 'int?',
     param: 'timeout',
-    dartSentinel: 'timeout ?? -1',
+    dartSentinel: 'timeout ?? -9223372036854775808',
     kotlinCallType: 'Long',
-    kotlinConversion: 'val timeoutArg: Long? = if (timeout < 0L) null else timeout',
+    kotlinConversion: 'val timeoutArg: Long? = if (timeout == Long.MIN_VALUE) null else timeout',
     kotlinInterfaceType: 'Long?',
   ),
   (
@@ -201,7 +201,7 @@ const _optPrimCases = [
 // Runtime functions prevent the analyzer from constant-folding the sentinel
 // expressions. They mirror exactly what the generated code emits.
 
-int _encodeInt(int? v) => v ?? -1;
+int _encodeInt(int? v) => v ?? -9223372036854775808;
 double _encodeDouble(double? v) => v ?? double.nan;
 int _encodeBool(bool? v) => v == null ? -1 : (v ? 1 : 0);
 
@@ -232,16 +232,16 @@ void main() {
     }
 
     // Extra int? edge cases
-    test('named int? uses ?? -1', () {
+    test('named int? uses ?? Int64.min', () {
       _checkDartFfi(
         _asyncSpec(funcName: 'fn', params: [_p('limit', 'int?', isNamed: true)]),
-        has: ['limit ?? -1'],
+        has: ['limit ?? -9223372036854775808'],
       );
     });
-    test('multiple int? params each get ?? -1', () {
+    test('multiple int? params each get ?? Int64.min', () {
       _checkDartFfi(
         _asyncSpec(funcName: 'fn', params: [_p('a', 'int?'), _p('b', 'int?')]),
-        has: ['a ?? -1', 'b ?? -1'],
+        has: ['a ?? -9223372036854775808', 'b ?? -9223372036854775808'],
       );
     });
   });
@@ -290,7 +290,7 @@ void main() {
       _checkDartFfi(
         _asyncSpec(funcName: 'send', params: [_p('msg', 'String?')]),
         has: ['msg != null', 'toNativeUtf8', 'nullptr'],
-        hasNot: ['msg ?? -1'],
+        hasNot: ['msg ?? -9223372036854775808'],
       );
     });
   });
@@ -320,7 +320,7 @@ void main() {
           structs: [structSpec],
         ),
         has: ['cfg != null', 'toNative', 'nullptr'],
-        hasNot: ['cfg ?? -1'],
+        hasNot: ['cfg ?? -9223372036854775808'],
       );
     });
   });
@@ -367,7 +367,7 @@ void main() {
         ),
         has: [
           'id.toNativeUtf8',
-          'timeout ?? -1',
+          'timeout ?? -9223372036854775808',
           'scale ?? double.nan',
           'verbose == null ? -1 : (verbose ? 1 : 0)',
           'enabled ? 1 : 0',
@@ -458,7 +458,7 @@ void main() {
     test('sync int? also emits Long? unwrap', () {
       _checkKotlin(
         _syncSpec(funcName: 'fn', params: [_p('timeout', 'int?')]),
-        has: ['val timeoutArg: Long? = if (timeout < 0L) null else timeout'],
+        has: ['val timeoutArg: Long? = if (timeout == Long.MIN_VALUE) null else timeout'],
       );
     });
   });
@@ -489,7 +489,7 @@ void main() {
           returnType: 'int',
         ),
       );
-      final sentinelIdx = out.indexOf('val timeoutArg: Long? = if (timeout < 0L) null else timeout');
+      final sentinelIdx = out.indexOf('val timeoutArg: Long? = if (timeout == Long.MIN_VALUE) null else timeout');
       final executeIdx = out.indexOf('_asyncExecutor.execute');
       expect(sentinelIdx, greaterThan(-1), reason: 'sentinel conversion must be emitted');
       expect(sentinelIdx, lessThan(executeIdx), reason: 'sentinel must be computed before the execute block');
@@ -553,7 +553,7 @@ void main() {
           ],
         ),
         has: [
-          'val timeoutArg: Long? = if (timeout < 0L) null else timeout',
+          'val timeoutArg: Long? = if (timeout == Long.MIN_VALUE) null else timeout',
           'val scaleArg: Double? = if (scale.isNaN()) null else scale',
           'val verboseArg: Boolean? = if (verbose < 0) null else (verbose != 0)',
           'impl.doAll(id, timeoutArg, scaleArg, verboseArg, flag, count)',
@@ -568,7 +568,7 @@ void main() {
   // ══════════════════════════════════════════════════════════════════════════
   group('§15 Sentinel round-trip — Dart expressions', () {
     // Dart-side encoding (mirrors generated callArgs)
-    test('int? null → -1 sentinel', () => expect(_encodeInt(null), equals(-1)));
+    test('int? null → Int64.min sentinel', () => expect(_encodeInt(null), equals(-9223372036854775808)));
     test('int? 30 → 30 (no truncation)', () => expect(_encodeInt(30), equals(30)));
     test('int? 0 → 0 (zero is valid)', () => expect(_encodeInt(0), equals(0)));
 
@@ -596,7 +596,7 @@ void main() {
   // §16  isOptional flag — same treatment as nullable type suffix
   // ══════════════════════════════════════════════════════════════════════════
   group('§16 isOptional flag — treated same as nullable suffix', () {
-    test('Dart: isOptional int? → ?? -1', () {
+    test('Dart: isOptional int? → ?? Int64.min', () {
       _checkDartFfi(
         _asyncSpec(
           funcName: 'retry',
@@ -604,7 +604,7 @@ void main() {
             _p('retries', 'int?', isNamed: true, isOptional: true, defaultLiteral: '3'),
           ],
         ),
-        has: ['retries ?? -1'],
+        has: ['retries ?? -9223372036854775808'],
       );
     });
 
@@ -616,7 +616,7 @@ void main() {
             _p('retries', 'int?', isNamed: true, isOptional: true, defaultLiteral: '3'),
           ],
         ),
-        has: ['val retriesArg: Long? = if (retries < 0L) null else retries'],
+        has: ['val retriesArg: Long? = if (retries == Long.MIN_VALUE) null else retries'],
       );
     });
 

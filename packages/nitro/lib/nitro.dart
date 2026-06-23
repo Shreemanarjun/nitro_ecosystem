@@ -32,6 +32,12 @@ export 'src/ffi_utils.dart'
 export 'src/record_codec.dart'
     if (dart.library.js_interop) 'src/record_codec.dart';
 
+// ── Collision-free nullable primitive types ────────────────────────────────────
+// NitroNullableInt, NitroNullableDouble, NitroNullableBool — binary null flag,
+// no sentinel collisions, identical behavior on all platforms.
+export 'src/nitro_nullable.dart'
+    if (dart.library.js_interop) 'src/nitro_nullable.dart';
+
 // dart:ffi — unavailable on web; web code uses dart:js_interop instead.
 export 'dart:ffi'
     if (dart.library.js_interop) 'src/ffi_stub.dart';

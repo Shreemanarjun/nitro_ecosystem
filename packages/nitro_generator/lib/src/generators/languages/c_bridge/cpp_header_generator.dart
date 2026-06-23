@@ -223,6 +223,8 @@ class CppHeaderGenerator {
       case 'void':
         return 'void';
       default:
+        // Map<String, T> bridges as a JSON string (same as const char*)
+        if (dartType.startsWith('Map<')) return 'const char*';
         return 'void*';
     }
   }
@@ -241,6 +243,10 @@ class CppHeaderGenerator {
     }
     final name = dartType.replaceFirst('?', '');
     if (spec.enums.any((en) => en.name == name)) return 'int64_t';
+    // @HybridStruct callback params use void* — matches both JNI and Swift paths.
+    // The platform bridges cast internally; a typed const T* would conflict across
+    // the #ifdef __ANDROID__ / #elif __APPLE__ compile branches.
+    if (spec.structs.any((s) => s.name == name)) return 'void*';
     return _typeToC(name);
   }
 

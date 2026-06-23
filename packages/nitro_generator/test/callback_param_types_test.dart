@@ -260,11 +260,13 @@ void main() {
       expect(out, contains('{ arg0 in callback(arg0) }'));
     });
 
-    test('double → Double in @convention(c), pass-through in wrapper', () {
+    test('double → Int64 in @convention(c), Int64.bitPattern in wrapper', () {
+      // double uses Int64 (raw IEEE 754 bits) so Dart NativeCallable reads from
+      // GP registers (x0, x1, ...), not FP registers (d0, d1, ...).
       final out = SwiftGenerator.generate(_spec(cbParams: [BridgeType(name: 'double')]));
-      expect(out, contains('@convention(c) (Double) -> Void'));
-      expect(out, contains('{ arg0 in callback(arg0) }'));
-      expect(out, isNot(contains('@convention(c) (Int64) -> Void')));
+      expect(out, contains('@convention(c) (Int64) -> Void'));
+      expect(out, contains('{ arg0 in callback(Int64(bitPattern: arg0.bitPattern)) }'));
+      expect(out, isNot(contains('@convention(c) (Double) -> Void')));
     });
 
     test('bool → Bool in @convention(c), pass-through in wrapper', () {
@@ -309,7 +311,8 @@ void main() {
           enums: [_stateEnum],
         ),
       );
-      expect(out, contains('@convention(c) (Int64, Double, Bool, UnsafePointer<CChar>?, Int64) -> Void'));
+      // double uses Int64 (raw IEEE 754 bits) — same GP register as int, enum.
+      expect(out, contains('@convention(c) (Int64, Int64, Bool, UnsafePointer<CChar>?, Int64) -> Void'));
     });
 
     test('mixed protocol signature uses idiomatic Swift types', () {
@@ -341,8 +344,9 @@ void main() {
           enums: [_stateEnum],
         ),
       );
+      // double arg1 is converted to Int64.bitPattern so it stays in GP registers.
       expect(out, contains(
-        '{ arg0, arg1, arg2, arg3, arg4 in callback(arg0.rawValue, arg1, arg2, (arg3 as NSString).utf8String, arg4) }',
+        '{ arg0, arg1, arg2, arg3, arg4 in callback(arg0.rawValue, Int64(bitPattern: arg1.bitPattern), arg2, (arg3 as NSString).utf8String, arg4) }',
       ));
     });
 

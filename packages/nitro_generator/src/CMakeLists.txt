@@ -1,7 +1,11 @@
 cmake_minimum_required(VERSION 3.10)
 project(nitro_generator_library VERSION 0.0.1 LANGUAGES C CXX)
 
-set(NITRO_NATIVE "${CMAKE_CURRENT_SOURCE_DIR}/../../nitro/src/native")
+
+set(CMAKE_CXX_STANDARD 17)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+set(NITRO_NATIVE "${CMAKE_CURRENT_SOURCE_DIR}/native")
+# NITRO_LINK_SPEC_CHECKSUM efef548a6fc06bc7
 
 add_library(nitro_generator SHARED
   "nitro_generator.cpp"

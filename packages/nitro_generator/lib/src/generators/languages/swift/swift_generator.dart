@@ -205,6 +205,7 @@ class SwiftGenerator {
             final isString = p.type.name == 'String' || p.type.name == 'String?';
             final isBool = p.type.name == 'bool' || p.type.name == 'bool?';
             if (isString) return '${p.name}: ${p.name}Str';
+            if (p.type.name == 'int?') return '${p.name}: ${p.name} == Int64.min ? nil : ${p.name}';
             if (p.type.name == 'bool?') return '${p.name}: ${p.name} == -1 ? nil : ${p.name} != 0';
             if (isBool) return '${p.name}: ${p.name} != 0';
             if (p.type.isTypedData) return '${p.name}: ${p.name}Arr';
@@ -246,6 +247,7 @@ class SwiftGenerator {
       final isRecord = spec.recordTypes.any(
         (rt) => rt.name == func.returnType.name.replaceFirst('?', ''),
       );
+      final isMap = func.returnType.isMap;
       final isRecordList = func.returnType.name.startsWith('List<');
       final isBool = _toCDeclReturnType(spec, func) == 'Int8';
       final isVoid = func.returnType.name == 'void';
@@ -298,6 +300,12 @@ class SwiftGenerator {
               final isString = p.type.name == 'String' || p.type.name == 'String?';
               final isEnum = spec.enums.any((en) => en.name == p.type.name.replaceFirst('?', ''));
               if (isString) return '${p.name}: ${p.name}Str';
+              // int? params: C passes Int64; decode Int64.min → nil
+              if (p.type.name == 'int?') return '${p.name}: ${p.name} == Int64.min ? nil : ${p.name}';
+              // double? params: C passes Double; decode NaN → nil
+              if (p.type.name == 'double?') return '${p.name}: ${p.name}.isNaN ? nil : ${p.name}';
+              // bool? params: C passes Int32; decode -1 → nil
+              if (p.type.name == 'bool?') return '${p.name}: ${p.name} == -1 ? nil : ${p.name} != 0';
               if (isEnum) {
                 final enumName = p.type.name.replaceFirst('?', '');
                 final isOpt = p.type.name.endsWith('?');
@@ -329,14 +337,29 @@ class SwiftGenerator {
           writer.line('        _obj.value.as_bool = _result');
           writer.line('        Dart_PostCObject_DL(dartPort, &_obj)');
         } else {
-          // int / double / enum — post as kInt64 / kDouble
-          final isDouble = func.returnType.name == 'double';
-          final isEnum = spec.enums.any((e) => e.name == func.returnType.name);
+          // int / int? / double / double? / enum — post as kInt64 / kDouble
+          final retName = func.returnType.name;
+          final isDouble = retName == 'double';
+          final isNullableDouble = retName == 'double?';
+          final isNullableInt = retName == 'int?';
+          final isEnum = spec.enums.any((e) => e.name == retName);
           if (isDouble) {
             writer.line('        let _result = (try? await impl.${func.dartName}($callArgs)) ?? 0.0');
             writer.line('        var _obj = Dart_CObject()');
             writer.line('        _obj.type = Dart_CObject_kDouble');
             writer.line('        _obj.value.as_double = _result');
+          } else if (isNullableDouble) {
+            // double? result: NaN = null sentinel (Dart decodes .isNaN → null)
+            writer.line('        let _result = ((try? await impl.${func.dartName}($callArgs)) ?? nil) ?? Double.nan');
+            writer.line('        var _obj = Dart_CObject()');
+            writer.line('        _obj.type = Dart_CObject_kDouble');
+            writer.line('        _obj.value.as_double = _result');
+          } else if (isNullableInt) {
+            // int? result: Int64.min = null sentinel (Dart decodes == Int64.min → null)
+            writer.line('        let _result = ((try? await impl.${func.dartName}($callArgs)) ?? nil) ?? Int64.min');
+            writer.line('        var _obj = Dart_CObject()');
+            writer.line('        _obj.type = Dart_CObject_kInt64');
+            writer.line('        _obj.value.as_int64 = _result');
           } else if (isEnum) {
             writer.line('        let _result = (try? await impl.${func.dartName}($callArgs))?.rawValue ?? 0');
             writer.line('        var _obj = Dart_CObject()');
@@ -547,7 +570,8 @@ class SwiftGenerator {
           } else if (func.returnType.isNullable) {
             // Use the type-appropriate null sentinel so Dart can distinguish null from 0.
             final base = func.returnType.name.replaceFirst('?', '');
-            final nullSentinel = base == 'int' ? '-1' : base == 'double' ? 'Double.nan' : defaultVal;
+            // int? uses Int64.min as null sentinel; double? uses Double.nan.
+            final nullSentinel = base == 'int' ? 'Int64.min' : base == 'double' ? 'Double.nan' : defaultVal;
             writer.line('    return result ?? $nullSentinel');
           } else {
             writer.line('    return result ?? $defaultVal');
@@ -593,6 +617,17 @@ class SwiftGenerator {
         writer.line(
           '    return strdup(${spec.dartClassName}Registry.impl?.${func.dartName}($callArgs) ?? "")',
         );
+      } else if (isMap) {
+        // Map<String, T>: JSON-decode the const char* input, call impl, JSON-encode result → const char*.
+        // The impl declares Any -> Any (type-erased for JSON bridge).
+        writer.line('    guard let impl = ${spec.dartClassName}Registry.impl else { return strdup("{}") }');
+        writer.line('    guard let jsonInput = ${func.params.firstOrNull?.name} else { return strdup("{}") }');
+        writer.line('    guard let inputData = String(cString: jsonInput).data(using: .utf8),');
+        writer.line('          let inputMap = try? JSONSerialization.jsonObject(with: inputData) else { return strdup("{}") }');
+        writer.line('    let result = impl.${func.dartName}(value: inputMap)');
+        writer.line('    guard let outputData = try? JSONSerialization.data(withJSONObject: result),');
+        writer.line('          let outputStr = String(data: outputData, encoding: .utf8) else { return strdup("{}") }');
+        writer.line('    return strdup(outputStr)');
       } else if (isRecord) {
         // Explicit impl guard to avoid Struct?? double-optional chaining.
         writer.line('    guard let impl = ${spec.dartClassName}Registry.impl else { return nil }');
@@ -706,9 +741,9 @@ class SwiftGenerator {
             '    return ${spec.dartClassName}Registry.impl?.${prop.dartName} ?? Double.nan',
           );
         } else if (isNullableProp && isInt) {
-          // int?: nil → -1
+          // int?: nil → Int64.min (sentinel, matches Dart/Kotlin encoding)
           writer.line(
-            '    return ${spec.dartClassName}Registry.impl?.${prop.dartName} ?? -1',
+            '    return ${spec.dartClassName}Registry.impl?.${prop.dartName} ?? Int64.min',
           );
         } else {
           writer.line(
@@ -785,9 +820,9 @@ class SwiftGenerator {
             '    ${spec.dartClassName}Registry.impl?.${prop.dartName} = value.isNaN ? nil : value',
           );
         } else if (isNullableProp && isInt) {
-          // int?: -1 = null
+          // int?: Int64.min = null sentinel
           writer.line(
-            '    ${spec.dartClassName}Registry.impl?.${prop.dartName} = value == -1 ? nil : value',
+            '    ${spec.dartClassName}Registry.impl?.${prop.dartName} = value == Int64.min ? nil : value',
           );
         } else {
           writer.line(
@@ -1049,8 +1084,12 @@ class SwiftGenerator {
     switch (base) {
       case 'int':
         return 'Int64';
+      // double callback params use Int64 (raw IEEE 754 bits in GP registers).
+      // Dart NativeCallable<Void Function(Int64, Int64)> reads GP registers (x0, x1, ...).
+      // If we used Double, the ABI places it in an FP register (d0), which Dart misreads.
+      // The closure converts Double → Int64.bitPattern before calling the C function pointer.
       case 'double':
-        return 'Double';
+        return 'Int64';
       case 'bool':
         return 'Bool';
       case 'String':
@@ -1111,7 +1150,11 @@ class SwiftGenerator {
         // Dart receives the pointer and frees it after fromNative() reads it.
         return '$argVar.toNative()';                  // UnsafeMutablePointer<UInt8>?
       }
-      return argVar;                                  // int, double, bool
+      // double callback params: convert to raw IEEE 754 bits (Int64) so Dart's
+      // NativeCallable<Void Function(Int64, ...)> reads from GP registers (x0, x1, ...).
+      // Using Double directly puts the value in FP registers (d0, d1, ...) which Dart misreads.
+      if (base == 'double') return 'Int64(bitPattern: ${argVar}.bitPattern)';
+      return argVar;                                  // int, bool
     }).toList();
 
     // If there are shadow-variable declarations, emit them as statements
@@ -1135,6 +1178,8 @@ class SwiftGenerator {
     if (name == 'void') return 'Void';
     if (name == 'bool') return 'Int8';
     if (name == 'String') return 'UnsafeMutablePointer<CChar>?';
+    // Map<String, T>: JSON-encoded — returns strdup'd C string, same as String.
+    if (name.startsWith('Map<') || func.returnType.isMap) return 'UnsafeMutablePointer<CChar>?';
     if (BridgeType(name: name).isTypedData) return 'UnsafeMutablePointer<UInt8>?';
     if (spec.structs.any((st) => st.name == name)) {
       return 'UnsafeMutableRawPointer?';
@@ -1160,6 +1205,8 @@ class SwiftGenerator {
     // Nullable bool uses Int32 to carry the -1 null sentinel; C bridge uses int32_t for the same reason.
     if (typeName.endsWith('?') && name == 'bool') return 'Int32';
     if (name == 'bool') return 'Int8';
+    // Map<String, T> is JSON-encoded — passes as a C string (const char*), NOT as a binary buffer.
+    if (name.startsWith('Map<')) return 'UnsafePointer<CChar>?';
     if (spec.recordTypes.any((rt) => rt.name == name) || name.startsWith('List<')) {
       return 'UnsafeMutableRawPointer?';
     }
@@ -1304,7 +1351,8 @@ class SwiftGenerator {
     final name = t.replaceFirst('?', '');
     switch (name) {
       case 'int':
-        return '0';
+        // int? guard failure returns Int64.min (null sentinel); int returns 0.
+        return isNullable ? 'Int64.min' : '0';
       case 'double':
         return '0.0';
       case 'bool':
@@ -1315,6 +1363,8 @@ class SwiftGenerator {
         // Nullable enum: -1 = null sentinel (Dart decodes res == -1 as null).
         if (spec.enums.any((en) => en.name == name)) return isNullable ? '-1' : '0';
         if (spec.structs.any((st) => st.name == name)) return 'nil';
+        // Map<String, T>: default null JSON result (empty map as JSON).
+        if (name.startsWith('Map<')) return 'strdup("{}")';
         return '()';
     }
   }

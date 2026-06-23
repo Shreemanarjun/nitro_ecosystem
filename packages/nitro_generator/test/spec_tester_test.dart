@@ -223,9 +223,9 @@ void main() {
           Future<void> work({int? timeout});
         }
       '''),
-      dart: BridgeChecks(has: ['timeout ?? -1']),
+      dart: BridgeChecks(has: ['timeout ?? -9223372036854775808']),
       kotlin: BridgeChecks(
-        has: ['val timeoutArg: Long? = if (timeout < 0L) null else timeout'],
+        has: ['val timeoutArg: Long? = if (timeout == Long.MIN_VALUE) null else timeout'],
         before: [('val timeoutArg', 'impl.work(')],
       ),
       skip: {Lang.cpp},
@@ -541,7 +541,7 @@ void main() {
           void ping();
         }
       '''),
-      dart: BridgeChecks(hasNot: ['timeout ?? -1']),
+      dart: BridgeChecks(hasNot: ['timeout ?? -9223372036854775808']),
       kotlin: BridgeChecks(hasNot: ['Long?']),
       skip: {Lang.cpp},
     );

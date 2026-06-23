@@ -150,7 +150,7 @@ void main() {
     });
 
     test('_call body unwraps sentinel before calling impl (val timeoutArg)', () {
-      expect(out, contains('val timeoutArg: Long? = if (timeout < 0L) null else timeout'));
+      expect(out, contains('val timeoutArg: Long? = if (timeout == Long.MIN_VALUE) null else timeout'));
       expect(out, contains('impl.fn(timeoutArg)'));
     });
 
@@ -216,7 +216,7 @@ void main() {
     });
 
     test('async _call uses runBlocking and _asyncExecutor.submit with unwrapped arg', () {
-      expect(out, contains('val timeoutArg: Long? = if (timeout < 0L) null else timeout'));
+      expect(out, contains('val timeoutArg: Long? = if (timeout == Long.MIN_VALUE) null else timeout'));
       expect(out, contains('runBlocking { impl.fn(timeoutArg) }'));
       expect(out, contains('_asyncExecutor.submit'));
     });
@@ -249,7 +249,7 @@ void main() {
     });
 
     test('@NitroNativeAsync _call body unwraps sentinel before calling impl', () {
-      expect(out, contains('val timeoutArg: Long? = if (timeout < 0L) null else timeout'));
+      expect(out, contains('val timeoutArg: Long? = if (timeout == Long.MIN_VALUE) null else timeout'));
       expect(out, contains('impl.fn(printerId, timeoutArg)'));
     });
   });

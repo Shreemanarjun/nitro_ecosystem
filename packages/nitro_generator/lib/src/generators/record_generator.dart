@@ -34,8 +34,20 @@ import 'code_writer.dart';
 ///
 /// `Map<String, T>` types are NOT handled here — they continue to use JSON.
 class RecordGenerator {
+  /// Record types whose Dart codec lives in package:nitro — skip RecordExt for these.
+  static const _nitroLibraryRecordTypes = {
+    'NitroNullableInt',
+    'NitroNullableDouble',
+    'NitroNullableBool',
+  };
+
   static String generateDartExtensions(BridgeSpec spec) {
-    final localRecords = spec.localRecordTypes;
+    // Exclude built-in library types: their Dart codec is already on the class
+    // in package:nitro/src/nitro_nullable.dart; generating an extension would
+    // duplicate methods and cause "already defined" compile errors.
+    final localRecords = spec.localRecordTypes
+        .where((r) => !_nitroLibraryRecordTypes.contains(r.name))
+        .toList();
 
     // Compute referencedStructs before the early-return so that modules with
     // NO @HybridRecord types (localRecords.isEmpty) but with List<@HybridStruct T>

@@ -120,8 +120,8 @@ String callAsyncTransportType(BridgeType returnType, BridgeSpec spec) {
   if (rt == 'bool') return (expr: '$varName ? 1 : 0', needsArena: false);
   if (rt == 'bool?') return (expr: '$varName == null ? -1 : ($varName ? 1 : 0)', needsArena: false);
 
-  // int?
-  if (rt == 'int?') return (expr: '$varName ?? -1', needsArena: false);
+  // int? — Int64.min (-9223372036854775808) is the null sentinel (no collision with real values)
+  if (rt == 'int?') return (expr: '$varName ?? -9223372036854775808', needsArena: false);
 
   // double?
   if (rt == 'double?') return (expr: '$varName ?? double.nan', needsArena: false);

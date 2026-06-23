@@ -6,6 +6,15 @@ import '../../struct_generator.dart';
 import '../../record_generator.dart';
 import 'dart_ffi_return_helpers.dart';
 
+/// Record types shipped in package:nitro that define their own codec methods.
+/// For these types the generator skips the *RecordExt extension and calls
+/// the class methods directly (e.g. NitroNullableInt.fromNative).
+const _nitroLibraryRecordTypes = {
+  'NitroNullableInt',
+  'NitroNullableDouble',
+  'NitroNullableBool',
+};
+
 class DartFfiGenerator {
   static String generate(BridgeSpec spec) {
     _assertSupportedFunctionTypes(spec);
@@ -276,8 +285,10 @@ class DartFfiGenerator {
             // caller provides null so the args list always holds a non-null value.
             // The Kotlin _call bridge receives the sentinel and converts it back
             // to null before forwarding to the implementation interface.
-            // Sentinels: int?→-1, double?→double.nan, bool?→-1, enum?→-1
-            if (t == 'int?') return ['${p.name} ?? -1'];
+            // Sentinels: int?→Int64.min, double?→double.nan, bool?→-1, enum?→-1
+            // Int64.min (-9223372036854775808) is used for int? so that -1 and all
+            // other negative values can pass through without sentinel collision.
+            if (t == 'int?') return ['${p.name} ?? -9223372036854775808'];
             if (t == 'double?') return ['${p.name} ?? double.nan'];
             if (t == 'bool?') return ['${p.name} == null ? -1 : (${p.name} ? 1 : 0)'];
             return [p.name];
@@ -318,7 +329,7 @@ class DartFfiGenerator {
             .map((p) {
               final t = p.type.name;
               final tBase = p.type.baseName;
-              if (t == 'int?') return '${p.name} ?? -1';
+              if (t == 'int?') return '${p.name} ?? -9223372036854775808'; // Int64.min sentinel
               if (t == 'double?') return '${p.name} ?? double.nan';
               if (t == 'bool?') return '${p.name} == null ? -1 : (${p.name} ? 1 : 0)';
               if (t == 'bool') return '${p.name} ? 1 : 0';
@@ -701,7 +712,16 @@ class DartFfiGenerator {
 
   static String _decodeRecordExpr(BridgeType type, String ptrVar) {
     if (type.isMap) {
-      return 'jsonDecode(($ptrVar as Pointer<Utf8>).toDartStringWithFree()) as Map<String, dynamic>';
+      // Map<String, T>: JSON-decoded → cast to typed map.
+      // Use toDartString() (NOT toDartStringWithFree) — the caller's try/finally
+      // calls malloc.free(res) to free the buffer. Double-free = heap corruption crash.
+      final mapMatch = RegExp(r'^Map<String,\s*(.+)>$').firstMatch(type.name);
+      final valueType = mapMatch?.group(1)?.trim();
+      final isPrimitive = const {'int', 'double', 'bool', 'String'}.contains(valueType);
+      if (valueType != null && isPrimitive) {
+        return '(jsonDecode(($ptrVar as Pointer<Utf8>).toDartString()) as Map<String, dynamic>).cast<String, $valueType>()';
+      }
+      return 'jsonDecode(($ptrVar as Pointer<Utf8>).toDartString()) as Map<String, dynamic>';
     }
     final item = type.recordListItemType;
     if (item != null) {
@@ -715,6 +735,9 @@ class DartFfiGenerator {
       return 'LazyRecordList.decode($ptrVar, (r) => ${item}RecordExt.fromReader(r))';
     }
     final rt = type.name;
+    // Built-in library types define fromNative on the class itself (package:nitro).
+    // Call directly instead of via the generated *RecordExt extension.
+    if (_nitroLibraryRecordTypes.contains(rt)) return '$rt.fromNative($ptrVar)';
     return '${rt}RecordExt.fromNative($ptrVar)';
   }
 
@@ -877,7 +900,7 @@ class DartFfiGenerator {
             if (t == 'bool') return '${p.name} ? 1 : 0';
             if (p.type.isFunction) return _callbackArgExpr(func, p);
             // Optional primitives: same sentinel encoding as the arena path.
-            if (t == 'int?') return '${p.name} ?? -1';
+            if (t == 'int?') return '${p.name} ?? -9223372036854775808'; // Int64.min sentinel
             if (t == 'double?') return '${p.name} ?? double.nan';
             if (t == 'bool?') return '${p.name} == null ? -1 : (${p.name} ? 1 : 0)';
             return p.name;
@@ -972,10 +995,10 @@ class DartFfiGenerator {
           : '(raw) => (raw as int).to$rtBase()';
     }
 
-    // int / int?  — native posts kInt64; sentinel −1 = null
+    // int / int?  — native posts kInt64; sentinel Int64.min = null
     if (rtBase == 'int') {
       return isNullable
-          ? '(raw) { final v = raw as int; return v == -1 ? null : v; }'
+          ? '(raw) { final v = raw as int; return v == -9223372036854775808 ? null : v; }'
           : '(raw) => raw as int';
     }
 
@@ -1037,9 +1060,15 @@ class DartFfiGenerator {
       case ReturnKind.typedData:
         _emitTypedDataDecodeReturn(writer, returnType, resVar, indent, zeroCopy: zeroCopy);
       case ReturnKind.struct:
-        writer.line('${indent}if ($resVar == nullptr) {');
-        writer.line('$indent  throw StateError(\'${dartName ?? rt} returned null\');');
-        writer.line('$indent}');
+        // Nullable struct (T?): null pointer → Dart null.
+        // Non-nullable struct: null pointer → StateError (should never happen).
+        if (returnType.isNullable || returnType.name.endsWith('?')) {
+          writer.line('${indent}if ($resVar == nullptr) return null;');
+        } else {
+          writer.line('${indent}if ($resVar == nullptr) {');
+          writer.line('$indent  throw StateError(\'${dartName ?? rt} returned null\');');
+          writer.line('$indent}');
+        }
         writer.line('${indent}final structPtr = Pointer<${base}Ffi>.fromAddress($resVar.address);');
         writer.line('${indent}final $base decoded;');
         writer.line('${indent}try {');
@@ -1075,7 +1104,8 @@ class DartFfiGenerator {
       case ReturnKind.stringNullable:
         writer.line('${indent}return $resVar == nullptr ? null : $resVar.toDartStringWithFree();');
       case ReturnKind.intNullable:
-        writer.line('${indent}return $resVar == -1 ? null : $resVar;');
+        // Int64.min (-9223372036854775808) is the null sentinel for int?.
+        writer.line('${indent}return $resVar == -9223372036854775808 ? null : $resVar;');
       case ReturnKind.doubleNullable:
         writer.line('${indent}return $resVar.isNaN ? null : $resVar;');
       case ReturnKind.primitive:

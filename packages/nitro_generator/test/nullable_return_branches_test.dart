@@ -87,10 +87,10 @@ void main() {
   // ── @nitroAsync nullable return decoding ──────────────────────────────────
 
   group('DartFfiGenerator — @nitroAsync nullable return decoding', () {
-    test('int? return: decodes -1 sentinel to null check', () {
+    test('int? return: decodes Int64.min sentinel to null check', () {
       final out = DartFfiGenerator.generate(_asyncNullableSpec());
       // Must decode sentinel: res == -1 ? null : res
-      expect(out, contains('res == -1 ? null : res'));
+      expect(out, contains('res == -9223372036854775808 ? null : res'));
     });
 
     test('double? return: decodes NaN sentinel to null check', () {
@@ -184,7 +184,7 @@ void main() {
     test('int? unpack: sentinel -1 → null', () {
       final out = DartFfiGenerator.generate(_asyncNullableSpec());
       // Unpack for nativeNullableInt should check v == -1
-      expect(out, contains('v == -1 ? null : v'));
+      expect(out, contains('v == -9223372036854775808 ? null : v'));
     });
 
     test('double? unpack: NaN → null', () {
@@ -250,7 +250,7 @@ void main() {
     );
 
     test('sync int? return: sentinel decode present', () {
-      expect(DartFfiGenerator.generate(syncNullable()), contains('res == -1 ? null : res'));
+      expect(DartFfiGenerator.generate(syncNullable()), contains('res == -9223372036854775808 ? null : res'));
     });
     test('sync double? return: NaN decode present', () {
       expect(DartFfiGenerator.generate(syncNullable()), contains('isNaN ? null'));

@@ -135,6 +135,10 @@ void _emitJniMethods(
           writer.line('    ${ops[0]} j_${p.name} = env->${ops[1]}((jsize)${p.name}_length);');
           writer.line('    env->${ops[2]}(j_${p.name}, 0, (jsize)${p.name}_length, (const ${ops[3]}*)${p.name});');
           callArgsList.add('j_${p.name}');
+        } else if (p.type.isMap) {
+          // Map<String, T> params: JSON string → jstring.
+          writer.line('    jstring j_${p.name} = env->NewStringUTF(${p.name});');
+          callArgsList.add('j_${p.name}');
         } else {
           callArgsList.add(p.name);
         }
@@ -154,6 +158,7 @@ void _emitJniMethods(
     final isEnum = enumNames.contains(func.returnType.name.replaceFirst('?', ''));
     final isStruct = structNames.contains(func.returnType.name.replaceFirst('?', ''));
     final isRecord = func.returnType.isRecord && !func.returnType.isMap;
+    final isMap = func.returnType.isMap;
     final isTypedData = func.returnType.isTypedData;
     // For enum returns: bridge returns Long (nativeValue); C returns int64_t
     // For struct returns: bridge returns jobject; C packs to C struct via malloc
@@ -260,6 +265,10 @@ void _emitJniMethods(
         callArgsList.add('j_${p.name}');
       } else if (p.type.isFunction) {
         callArgsList.add('(jlong)${p.name}');
+      } else if (p.type.isMap) {
+        // Map<String, T> params arrive as const char* (JSON string) — pass as jstring.
+        writer.line('    jstring j_${p.name} = env->NewStringUTF(${p.name});');
+        callArgsList.add('j_${p.name}');
       } else if (p.type.isRecord) {
         // @HybridRecord / List<@HybridRecord> params arrive as void* (Dart Pointer<Uint8>).
         // Dart's RecordWriter.toNative() format: [4-byte payload_len][payload_bytes].
@@ -362,8 +371,9 @@ void _emitJniMethods(
       writer.line('    env->PopLocalFrame(nullptr);');
       writer.line('    return res;');
     } else if (isStruct) {
-      // Bridge returns the Kotlin data class; pack it to C struct via malloc
-      final stName = func.returnType.name;
+      // Bridge returns the Kotlin data class; pack it to C struct via malloc.
+      // Strip '?' from the type name — nullable structs use null pointer for null.
+      final stName = func.returnType.name.replaceFirst('?', '');
       writer.line(
         '    jobject jobj = env->CallStaticObjectMethod(g_bridgeClass, methodId$bridgeArgs);',
       );
@@ -378,6 +388,23 @@ void _emitJniMethods(
       writer.line('    }');
       writer.line('    $stName* result = ($stName*)malloc(sizeof($stName));');
       writer.line('    *result = pack_${stName}_from_jni(env, jobj);');
+      writer.line('    env->PopLocalFrame(nullptr);');
+      writer.line('    return result;');
+    } else if (isMap) {
+      // Map<String, T> bridges as a JSON string (Ljava/lang/String; in JNI).
+      // Same path as String returns — strdup the UTF-8 chars and return to Dart.
+      writer.line(
+        '    jstring jstr = (jstring)env->CallStaticObjectMethod(g_bridgeClass, methodId$bridgeArgs);',
+      );
+      writer.line('    if (env->ExceptionCheck()) {');
+      writer.line('        nitro_report_jni_exception(env, env->ExceptionOccurred(), _nitro_err);');
+      writer.line('        env->PopLocalFrame(nullptr);');
+      writer.line('        return nullptr;');
+      writer.line('    }');
+      writer.line('    if (jstr == nullptr) { env->PopLocalFrame(nullptr); return nullptr; }');
+      writer.line('    const char* nativeStr = env->GetStringUTFChars(jstr, 0);');
+      writer.line('    char* result = strdup(nativeStr);');
+      writer.line('    env->ReleaseStringUTFChars(jstr, nativeStr);');
       writer.line('    env->PopLocalFrame(nullptr);');
       writer.line('    return result;');
     } else if (isRecord) {
@@ -496,7 +523,7 @@ void _emitJniMethods(
         writer.line('    env->PopLocalFrame(nullptr);');
         writer.line('    return res;');
       } else if (propBase == 'int' || isEnum) {
-        // int / int? / enum return a JNI long (-1 = null for int? / nullable enum)
+        // int / int? / enum return a JNI long (Long.MIN_VALUE = null for int?, -1 for enum?)
         writer.line(
           '    $cType res = ($cType)env->CallStaticLongMethod(g_bridgeClass, methodId);',
         );

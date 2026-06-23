@@ -168,7 +168,27 @@ class SpecExtractor {
     // generators skip re-declaring them (they appear in the other bridge file).
     final imported = _extractFromImports(library.element, sourcePath);
 
-    final allRecordTypes = [...localRecordTypes, ...imported.records];
+    // ── Built-in library record types (from package:nitro) ──────────────────
+    // isImported: false — Kotlin/Swift data class + codec MUST be generated
+    // (there is no shared native equivalent of package:nitro on Android/iOS).
+    // The Dart RecordExt extension is suppressed separately in record_generator.dart
+    // via _nitroLibraryRecordTypes, because the Dart codec already lives on the
+    // class itself in package:nitro/src/nitro_nullable.dart.
+    final _builtinNitroRecords = <BridgeRecordType>[
+      BridgeRecordType(name: 'NitroNullableInt', fields: [
+        BridgeRecordField(name: 'hasValue', dartType: 'bool', kind: RecordFieldKind.primitive),
+        BridgeRecordField(name: 'value',    dartType: 'int',  kind: RecordFieldKind.primitive),
+      ]),
+      BridgeRecordType(name: 'NitroNullableDouble', fields: [
+        BridgeRecordField(name: 'hasValue', dartType: 'bool',   kind: RecordFieldKind.primitive),
+        BridgeRecordField(name: 'value',    dartType: 'double', kind: RecordFieldKind.primitive),
+      ]),
+      BridgeRecordType(name: 'NitroNullableBool', fields: [
+        BridgeRecordField(name: 'hasValue', dartType: 'bool', kind: RecordFieldKind.primitive),
+        BridgeRecordField(name: 'value',    dartType: 'bool', kind: RecordFieldKind.primitive),
+      ]),
+    ];
+    final allRecordTypes = [...localRecordTypes, ...imported.records, ..._builtinNitroRecords];
     final allStructs = [...localStructs, ...imported.structs];
     final allEnums = [...localEnums, ...imported.enums];
 

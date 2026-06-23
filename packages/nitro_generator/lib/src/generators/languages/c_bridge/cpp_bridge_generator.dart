@@ -609,6 +609,8 @@ class CppBridgeGenerator {
       case 'void':
         return 'void';
       default:
+        // Map<String, T> and other types that bridge as JSON/pointer use const char*
+        if (dartType.startsWith('Map<')) return 'const char*';
         return 'void*';
     }
   }
@@ -627,7 +629,8 @@ class CppBridgeGenerator {
     }
     final base = dartType.replaceFirst('?', '');
     if (enumNames.contains(base)) return 'int64_t';
-    if (structNames?.contains(base) == true) return 'const $base*';
+    // @HybridStruct callback params use void* — uniform across JNI and Swift paths.
+    if (structNames?.contains(base) == true) return 'void*';
     if (recordNames?.contains(base) == true) return 'const uint8_t*'; // length-prefixed buffer
     return _typeToC(base);
   }
@@ -1065,7 +1068,8 @@ class CppBridgeGenerator {
       final base when enumNames.contains(base) => 'J',
       final base when structNames.contains(base) => 'L$libPkg/$base;',
       _ when zeroCopyReturn && returnType.isTypedData => 'Ljava/nio/ByteBuffer;',
-      _ when returnType.isRecord && !returnType.isMap => '[B',
+      _ when returnType.isRecord && !returnType.isMap => '[B',  // binary record
+      _ when returnType.isMap => 'Ljava/lang/String;',          // JSON-encoded string
       _ when returnType.isFunction => 'J',
       _ => _jniSigType(returnType.name),
     };
@@ -1107,7 +1111,8 @@ class CppBridgeGenerator {
       return 'Ljava/nio/ByteBuffer;';
     }
     if (enumNames.contains(baseParamType)) return 'J';
-    if (param.type.isRecord && !param.type.isMap) return '[B';
+    if (param.type.isRecord && !param.type.isMap) return '[B';   // binary record
+    if (param.type.isMap) return 'Ljava/lang/String;';            // JSON-encoded string
     // Callback / function-typed params are passed as a long (function pointer).
     if (param.type.isFunction) return 'J';
     // Nullable bool uses Int (I) to preserve the -1 sentinel for null.

@@ -200,7 +200,7 @@ class KotlinGenerator {
         for (final p in nativeAsyncOptPrims) {
           final bn = p.type.name.replaceFirst('?', '');
           if (bn == 'int') {
-            writer.line('        val ${p.name}Arg: Long? = if (${p.name} < 0L) null else ${p.name}');
+            writer.line('        val ${p.name}Arg: Long? = if (${p.name} == Long.MIN_VALUE) null else ${p.name}');
           } else if (bn == 'bool') {
             // _call param is Int (I) because Dart sends -1/0/1 as sentinel via jint.
             // Int supports -1, so null CAN be detected here.
@@ -244,19 +244,22 @@ class KotlinGenerator {
       final isEnum = enumNames.contains(retBaseName);
       final isNullableEnum = isEnum && func.returnType.name.endsWith('?');
       final isRecord = func.returnType.isRecord && !func.returnType.isMap;
+      final isMap = func.returnType.isMap;
       final isListRecord = isRecord && func.returnType.recordListItemType != null && !func.returnType.recordListItemIsPrimitive;
       // Nullable bool? returns use Int (-1=null, 0=false, 1=true) so the full 3-state
       // value can cross the JNI boundary. jboolean can only carry 0/1 (not -1 for null).
       final isNullableBoolReturn = retBaseName == 'bool' && func.returnType.name.endsWith('?');
       // JniBridge _call methods expose primitive bridge types to JNI:
       // enums → Long (nativeValue), records → ByteArray (serialized binary),
-      // nullable bool? → Int (-1/0/1), everything else → actual type.
+      // maps → String (JSON-encoded), nullable bool? → Int (-1/0/1), else → actual type.
       final bridgeRetType = isNullableBoolReturn
           ? 'Int'
           : isEnum
           ? 'Long'
           : isRecord
           ? 'ByteArray'
+          : isMap
+          ? 'String?'
           : retType;
 
       // Identify optional-primitive params that need sentinel-to-null unwrapping.
@@ -320,8 +323,8 @@ class KotlinGenerator {
       for (final p in optionalPrimParams) {
         final baseName = p.type.name.replaceFirst('?', '');
         if (baseName == 'int') {
-          writer.line('        // Dart layer sends -1L as sentinel when caller passes null for ${p.name}.');
-          writer.line('        val ${p.name}Arg: Long? = if (${p.name} < 0L) null else ${p.name}');
+          writer.line('        // Dart layer sends Long.MIN_VALUE as sentinel when caller passes null for ${p.name}.');
+          writer.line('        val ${p.name}Arg: Long? = if (${p.name} == Long.MIN_VALUE) null else ${p.name}');
         } else if (baseName == 'bool') {
           // _call param is Int (I) — carries -1 sentinel. Properly detects null.
           writer.line('        // Dart layer sends -1 as sentinel when caller passes null for ${p.name}.');
@@ -395,7 +398,27 @@ class KotlinGenerator {
           }
         }
       }
-      if (isRecord) {
+      if (isMap) {
+        // Map<String, T>: JSON-decode input String, call impl, JSON-encode result.
+        final mapParamName = func.params.isNotEmpty ? func.params.first.name : 'value';
+        writer.line('        @Suppress("UNCHECKED_CAST")');
+        writer.line('        val _inputMap: Map<String, Any?> = run {');
+        writer.line('            val jo = org.json.JSONObject($mapParamName)');
+        writer.line('            val m = mutableMapOf<String, Any?>()');
+        writer.line('            for (k in jo.keys()) m[k] = jo.get(k)');
+        writer.line('            m');
+        writer.line('        }');
+        if (func.isAsync) {
+          writer.line('        val _result = _asyncExecutor.submit(java.util.concurrent.Callable { runBlocking { impl.${func.dartName}(_inputMap) } }).get()');
+        } else {
+          writer.line('        val _result = impl.${func.dartName}(_inputMap)');
+        }
+        writer.line('        if (_result == null) return null');
+        writer.line('        val _jo = org.json.JSONObject()');
+        writer.line('        @Suppress("UNCHECKED_CAST")');
+        writer.line('        (_result as Map<String, Any?>).forEach { (k, v) -> _jo.put(k, v) }');
+        writer.line('        return _jo.toString()');
+      } else if (isRecord) {
         // Fetch the result, then serialize to ByteArray for JNI
         if (func.isAsync) {
           writer.line('        val result = _asyncExecutor.submit(java.util.concurrent.Callable { runBlocking { impl.${func.dartName}($callParamsResolved) } }).get()');
@@ -556,7 +579,8 @@ class KotlinGenerator {
         } else if (isEnum) {
           writer.line('        return impl.${prop.dartName}.nativeValue');
         } else if (isNullableInt) {
-          writer.line('        return impl.${prop.dartName} ?: -1L');
+          // Return Long.MIN_VALUE as null sentinel — matches the Dart/C bridge encoding.
+          writer.line('        return impl.${prop.dartName} ?: Long.MIN_VALUE');
         } else if (isNullableDouble) {
           // Explicit null check + unbox cast to ensure JVM descriptor ()D (primitive double).
           // 'else _dv' where _dv: Double? might box to Ljava/lang/Double; in some Kotlin
@@ -588,7 +612,7 @@ class KotlinGenerator {
         } else if (isEnum) {
           writer.line('        impl.${prop.dartName} = $propBaseName.fromNative(value)');
         } else if (isNullableInt) {
-          writer.line('        impl.${prop.dartName} = if (value == -1L) null else value');
+          writer.line('        impl.${prop.dartName} = if (value == Long.MIN_VALUE) null else value');
         } else if (isNullableDouble) {
           // Use java.lang.Double.isNaN() for explicit primitive double check
           writer.line('        impl.${prop.dartName} = if (java.lang.Double.isNaN(value)) null else value');
@@ -772,6 +796,8 @@ class KotlinGenerator {
   ) {
     // Callback / function-typed params are passed as Long (function pointer) via JNI.
     if (p.type.isFunction) return 'Long';
+    // Map<String, T> params are JSON-encoded strings (Ljava/lang/String;), not ByteArray.
+    if (p.type.isMap) return 'String';
     // Record params (List<T> and @HybridRecord) are serialized as ByteArray ([B]) in the C++ bridge.
     if (p.type.isRecord) return 'ByteArray';
     final isNullable = p.type.name.endsWith('?') || p.isOptional;

@@ -529,7 +529,7 @@ void main() {
 
       test('async nullable int? returns -1 for nil (Dart sentinel)', () {
         final out = SwiftGenerator.generate(_asyncNullableSpec('int'));
-        expect(out, contains('return result ?? -1'));
+        expect(out, contains('return result ?? Int64.min'));
         expect(out, isNot(contains('return result ?? 0\n')));
       });
 

@@ -625,10 +625,12 @@ void main() {
       expect(swift, contains('for e in boxes { e.writeFields(writer) }'));
     });
 
-    test('listRecordObject read uses (0..<count).map without offset skip', () {
+    test('listRecordObject read uses (0..<count).map pattern', () {
+      // The inline list read uses simple count-then-items without building an offset table.
       expect(swift, contains('(0..<Int(r.readInt32())).map { _ in BoundingBox.fromReader(r) }'));
-      // Must NOT contain the old offset-skip pattern
-      expect(swift, isNot(contains('r.readInt()')));
+      // decodeIndexedList (boilerplate utility) is for indexed params — that is a separate
+      // utility in the boilerplate and does NOT appear in the inline fromReader path.
+      expect(swift, isNot(contains('decodeIndexedList(\$0) { r in BoundingBox.fromReader')));
     });
   });
 

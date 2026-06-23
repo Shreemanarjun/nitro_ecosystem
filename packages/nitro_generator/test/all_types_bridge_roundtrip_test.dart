@@ -214,21 +214,19 @@ void main() {
     group('int?', () {
       final src = _src('  int? getCount();');
       specTest(
-        'int? return — Dart: int?; Kotlin: Long (non-nullable JNI); Swift: ?? 0',
+        'int? return — Dart: int?; Kotlin: Long (J); Swift: ?? Int64.min sentinel',
         src,
         dart: BridgeChecks(
           has: ['int? getCount()', 'Int64 Function(Pointer<NitroErrorFfi>)'],
           hasNot: ['int getCount()'],
         ),
         kotlin: BridgeChecks(
-          // Return type in interface and _call are both Long (non-nullable) —
-          // JNI CallStaticLongMethod uses primitive descriptor J, not Ljava/lang/Long;
           has: ['fun getCount(): Long', 'fun getCount_call(): Long'],
           hasNot: ['Long?'],
         ),
         swift: BridgeChecks(
-          // Swift impl returns Int64?; bridge unwraps to Int64 with ?? 0
-          has: ['-> Int64', 'impl.getCount() ?? 0'],
+          // int? uses Int64.min as null sentinel (not 0, which is a valid value).
+          has: ['-> Int64', 'Int64.min'],
           hasNot: ['return impl?.getCount()'],
         ),
       );
@@ -459,7 +457,7 @@ void main() {
         src,
         dart: BridgeChecks(
           has: ['p != null', 'nullptr'],
-          hasNot: ['p ?? -1'],
+          hasNot: ['p ?? -9223372036854775808'],
         ),
         kotlin: BridgeChecks(
           has: ['fun move(p: Point?)'],
@@ -505,9 +503,9 @@ void main() {
     for (final (dartType, dartSentinel, kotlinCallType, kotlinUnwrap, swiftOptional) in [
       (
         'int?',
-        'value ?? -1',
+        'value ?? -9223372036854775808',
         'Long',
-        'val valueArg: Long? = if (value < 0L) null else value',
+        'val valueArg: Long? = if (value == Long.MIN_VALUE) null else value',
         'Int64',
       ),
       (
@@ -552,7 +550,7 @@ void main() {
       _src('  void send(String? msg);'),
       dart: BridgeChecks(
         has: ['msg != null', 'toNativeUtf8', 'nullptr'],
-        hasNot: ['msg ?? -1', 'msg ?? double'],
+        hasNot: ['msg ?? -9223372036854775808', 'msg ?? double'],
       ),
       kotlin: BridgeChecks(
         has: ['send_call(msg: String?)', 'fun send(msg: String?)'],
@@ -755,7 +753,7 @@ void main() {
       dart: BridgeChecks(
         has: [
           'name.toNativeUtf8', // String → pointer
-          'limit ?? -1', // int? → sentinel -1
+          'limit ?? -9223372036854775808', // int? → Int64.min sentinel
           'threshold ?? double.nan', // double? → nan sentinel
           'verbose == null ? -1 : (verbose ? 1 : 0)', // bool? → sentinel
           'flag ? 1 : 0', // bool (non-nullable) → 0/1 no sentinel
@@ -774,7 +772,7 @@ void main() {
           // Interface preserves nullable types
           'fun doAll(name: String, count: Long, ratio: Double, flag: Boolean, label: String?, limit: Long?, threshold: Double?, verbose: Boolean?)',
           // Sentinel-to-null conversions only for optional primitives
-          'val limitArg: Long? = if (limit < 0L) null else limit',
+          'val limitArg: Long? = if (limit == Long.MIN_VALUE) null else limit',
           'val thresholdArg: Double? = if (threshold.isNaN()) null else threshold',
           'val verboseArg: Boolean? = if (verbose < 0) null else (verbose != 0)',
           // Non-optional primitives and String? forwarded raw
