@@ -200,10 +200,15 @@ class RecordGenerator {
 
       case RecordFieldKind.recordObject:
         final baseType = f.dartType.replaceFirst('?', '');
+        // Built-in library types (NitroNullableInt etc.) define fromReader on the
+        // class itself — call directly. All others use the generated RecordExt.
+        final readerCall = _nitroLibraryRecordTypes.contains(baseType)
+            ? '$baseType.fromReader(r)'
+            : '${baseType}RecordExt.fromReader(r)';
         if (f.isNullable) {
-          return 'r.readNullTag() ? null : ${baseType}RecordExt.fromReader(r)';
+          return 'r.readNullTag() ? null : $readerCall';
         }
-        return '${baseType}RecordExt.fromReader(r)';
+        return readerCall;
 
       case RecordFieldKind.listPrimitive:
         final item = f.itemTypeName ?? 'dynamic';
@@ -215,7 +220,36 @@ class RecordGenerator {
 
       case RecordFieldKind.listRecordObject:
         final item = f.itemTypeName!;
-        return 'List.generate(r.readInt32(), (_) => ${item}RecordExt.fromReader(r))';
+        final itemReaderCall = _nitroLibraryRecordTypes.contains(item)
+            ? '$item.fromReader(r)'
+            : '${item}RecordExt.fromReader(r)';
+        return 'List.generate(r.readInt32(), (_) => $itemReaderCall)';
+
+      case RecordFieldKind.typedData:
+        final base = f.dartType.replaceFirst('?', '');
+        if (f.isNullable) {
+          return 'r.readNullTag() ? null : ${_typedDataReadCall(base)}';
+        }
+        return _typedDataReadCall(base);
+    }
+  }
+
+  /// Read expression for a TypedData field from a RecordReader.
+  /// All TypedData types are stored as [4B element_count][element_bytes].
+  /// Uint8List uses readBlob() directly; others use buffer view over readBlob().
+  static String _typedDataReadCall(String dartType) {
+    switch (dartType) {
+      case 'Uint8List': return 'r.readBlob()';
+      case 'Int8List':  return 'Int8List.view(r.readBlob().buffer)';
+      case 'Int16List': return 'Int16List.view(r.readBlob().buffer)';
+      case 'Uint16List': return 'Uint16List.view(r.readBlob().buffer)';
+      case 'Int32List': return 'Int32List.view(r.readBlob().buffer)';
+      case 'Uint32List': return 'Uint32List.view(r.readBlob().buffer)';
+      case 'Int64List': return 'Int64List.view(r.readBlob().buffer)';
+      case 'Uint64List': return 'Uint64List.view(r.readBlob().buffer)';
+      case 'Float32List': return 'Float32List.view(r.readBlob().buffer)';
+      case 'Float64List': return 'Float64List.view(r.readBlob().buffer)';
+      default: return 'r.readBlob()';
     }
   }
 
@@ -291,7 +325,30 @@ class RecordGenerator {
         s.writeln('    writer.writeInt32(${f.name}.length);');
         s.writeln('    for (final e in ${f.name}) { e.writeFields(writer); }');
         break;
+
+      case RecordFieldKind.typedData:
+        // TypedData: convert to Uint8List bytes via .buffer.asUint8List() then writeBlob.
+        // Uint8List is written directly; others are reinterpreted through the byte buffer.
+        final base = f.dartType.replaceFirst('?', '');
+        final toBytes = base == 'Uint8List' ? f.name : '${f.name}.buffer.asUint8List()';
+        if (f.isNullable) {
+          s.writeln('    writer.writeNullTag(${f.name} == null);');
+          s.writeln('    if (${f.name} != null) {');
+          final toBytesNonNull = base == 'Uint8List' ? '${f.name}!' : '${f.name}!.buffer.asUint8List()';
+          s.writeln('      writer.writeBlob($toBytesNonNull);');
+          s.writeln('    }');
+        } else {
+          s.writeln('    writer.writeBlob($toBytes);');
+        }
+        break;
     }
+  }
+
+  /// Write expression for a TypedData field to a RecordWriter.
+  /// All TypedData types are stored as [4B byte_length][element_bytes].
+  static String _typedDataWriteCall(String base, String expr) {
+    final toBytes = base == 'Uint8List' ? expr : '$expr.buffer.asUint8List()';
+    return 'writeBlob($toBytes)';
   }
 
   static void _writePrimitiveStmt(
@@ -428,6 +485,9 @@ class RecordGenerator {
         return 'std::vector<${enumNames.contains(item) ? item : 'int64_t'}>';
       case RecordFieldKind.listRecordObject:
         return 'std::vector<${f.itemTypeName}>';
+      case RecordFieldKind.typedData:
+        // TypedData in @HybridRecord bridges as a raw byte vector in C++.
+        return f.isNullable ? 'std::optional<std::vector<uint8_t>>' : 'std::vector<uint8_t>';
     }
   }
 
@@ -505,6 +565,14 @@ class RecordGenerator {
         final item = f.itemTypeName!;
         s.writeln('        { int32_t _n = _r.readInt32(); _obj.${f.name}.reserve((size_t)_n); for (int32_t _i = 0; _i < _n; _i++) _obj.${f.name}.push_back($item::fromReader(_r)); }');
         break;
+      case RecordFieldKind.typedData:
+        // TypedData: [4B count][count bytes] → std::vector<uint8_t>
+        if (f.isNullable) {
+          s.writeln('        { bool _null = _r.readNullTag(); if (!_null) { int32_t _n = _r.readInt32(); _obj.${f.name}.emplace().resize((size_t)_n); _r.readBytes(_obj.${f.name}->data(), (size_t)_n); } }');
+        } else {
+          s.writeln('        { int32_t _n = _r.readInt32(); _obj.${f.name}.resize((size_t)_n); _r.readBytes(_obj.${f.name}.data(), (size_t)_n); }');
+        }
+        break;
     }
   }
 
@@ -549,6 +617,10 @@ public:
         if (_offset + 1 > _size)
             throw std::runtime_error("NitroRecordReader: null tag read past end of buffer");
         return _data[_offset++] == 0;
+    }
+    // TypedData blob: [4B count][count bytes] → reads into caller-owned vector.
+    void readBytes(uint8_t* dst, size_t n) {
+        _require(n); std::memcpy(dst, _data + _offset, n); _offset += n;
     }
 };''';
 
@@ -637,6 +709,25 @@ public:
         return 'List<${enumNames.contains(item) ? item : 'Long'}>';
       case RecordFieldKind.listRecordObject:
         return 'List<${f.itemTypeName}>';
+      case RecordFieldKind.typedData:
+        final kotlinType = _kotlinTypedDataType(f.dartType.replaceFirst('?', ''));
+        return kotlinType + (f.isNullable ? '?' : '');
+    }
+  }
+
+  static String _kotlinTypedDataType(String dartType) {
+    switch (dartType) {
+      case 'Uint8List':
+      case 'Int8List':   return 'ByteArray';
+      case 'Int16List':
+      case 'Uint16List': return 'ShortArray';
+      case 'Int32List':
+      case 'Uint32List': return 'IntArray';
+      case 'Int64List':
+      case 'Uint64List': return 'LongArray';
+      case 'Float32List': return 'FloatArray';
+      case 'Float64List': return 'DoubleArray';
+      default: return 'ByteArray';
     }
   }
 
@@ -687,6 +778,32 @@ public:
       case RecordFieldKind.listRecordObject:
         final item = f.itemTypeName!;
         return '(0 until buf.int).map { $item.decodeFrom(buf) }';
+      case RecordFieldKind.typedData:
+        final base = f.dartType.replaceFirst('?', '');
+        final read = _kotlinTypedDataRead(base);
+        if (f.isNullable) {
+          return '(if (buf.get().toInt() == 0) null else $read)';
+        }
+        return read;
+    }
+  }
+
+  static String _kotlinTypedDataRead(String dartType) {
+    // Wire format: [4B byteCount][byteCount bytes] — byte count, not element count.
+    // Dart writes byte count via writeBlob(TypedData.buffer.asUint8List()).
+    // Kotlin must divide by element size to get element count.
+    switch (dartType) {
+      case 'Uint8List':
+      case 'Int8List':   return '{ val _len = buf.int; val _b = ByteArray(_len); buf.get(_b); _b }()';
+      case 'Int16List':
+      case 'Uint16List': return '{ val _len = buf.int; ShortArray(_len / 2) { buf.short } }()';
+      case 'Int32List':
+      case 'Uint32List': return '{ val _len = buf.int; IntArray(_len / 4) { buf.int } }()';
+      case 'Int64List':
+      case 'Uint64List': return '{ val _len = buf.int; LongArray(_len / 8) { buf.long } }()';
+      case 'Float32List': return '{ val _len = buf.int; FloatArray(_len / 4) { buf.float } }()';
+      case 'Float64List': return '{ val _len = buf.int; DoubleArray(_len / 8) { buf.double } }()';
+      default: return '{ val _len = buf.int; val _b = ByteArray(_len); buf.get(_b); _b }()';
     }
   }
 
@@ -748,6 +865,34 @@ public:
         s.writeln('        writeInt32(${f.name}.size)');
         s.writeln('        ${f.name}.forEach { e -> e.writeFieldsTo(out, buf) }');
         break;
+      case RecordFieldKind.typedData:
+        final base = f.dartType.replaceFirst('?', '');
+        if (f.isNullable) {
+          s.writeln('        out.write(if (${f.name} == null) 0 else 1)');
+          s.writeln('        ${f.name}?.let { ${_kotlinTypedDataWrite(base, 'it')} }');
+        } else {
+          s.writeln('        ${_kotlinTypedDataWrite(base, f.name)}');
+        }
+        break;
+    }
+  }
+
+  static String _kotlinTypedDataWrite(String dartType, String expr) {
+    // Wire format: [4B byteCount][byteCount bytes] — must write BYTE count, not element count,
+    // to match Dart's writeBlob which writes byteCount = TypedData.buffer.byteLength.
+    // Use `run { }` instead of `{ }()` to prevent Kotlin trailing-lambda misparse.
+    switch (dartType) {
+      case 'Uint8List':
+      case 'Int8List':   return 'run { writeInt32($expr.size); out.write($expr) }';
+      case 'Int16List':
+      case 'Uint16List': return 'run { writeInt32($expr.size * 2); $expr.forEach { e -> buf.clear(); buf.putShort(e); buf.flip(); out.write(buf.array(), 0, 2) } }';
+      case 'Int32List':
+      case 'Uint32List': return 'run { writeInt32($expr.size * 4); $expr.forEach { e -> buf.clear(); buf.putInt(e); buf.flip(); out.write(buf.array(), 0, 4) } }';
+      case 'Int64List':
+      case 'Uint64List': return 'run { writeInt32($expr.size * 8); $expr.forEach { e -> buf.clear(); buf.putLong(e); buf.flip(); out.write(buf.array(), 0, 8) } }';
+      case 'Float32List': return 'run { writeInt32($expr.size * 4); $expr.forEach { e -> buf.clear(); buf.putFloat(e); buf.flip(); out.write(buf.array(), 0, 4) } }';
+      case 'Float64List': return 'run { writeInt32($expr.size * 8); $expr.forEach { e -> buf.clear(); buf.putDouble(e); buf.flip(); out.write(buf.array(), 0, 8) } }';
+      default: return 'run { writeInt32($expr.size); out.write($expr) }';
     }
   }
 
@@ -802,6 +947,8 @@ public:
         case RecordFieldKind.listEnumValue:
         case RecordFieldKind.listRecordObject:
           total += 36; // 4-byte count + ~4 items * 8 bytes avg
+        case RecordFieldKind.typedData:
+          total += nullableTag + 68; // 4-byte count + ~64 bytes avg payload
       }
     }
     return total > 0 ? total : 32;
@@ -956,6 +1103,24 @@ public:
         return '[${f.itemTypeName}]';
       case RecordFieldKind.listRecordObject:
         return '[${f.itemTypeName}]';
+      case RecordFieldKind.typedData:
+        return _swiftTypedDataType(f.dartType.replaceFirst('?', ''));
+    }
+  }
+
+  static String _swiftTypedDataType(String dartType) {
+    switch (dartType) {
+      case 'Uint8List':
+      case 'Int8List':   return 'Data';
+      case 'Int16List':
+      case 'Uint16List': return '[Int16]';
+      case 'Int32List':
+      case 'Uint32List': return '[Int32]';
+      case 'Int64List':
+      case 'Uint64List': return '[Int64]';
+      case 'Float32List': return '[Float]';
+      case 'Float64List': return '[Double]';
+      default: return 'Data';
     }
   }
 
@@ -1016,6 +1181,29 @@ public:
       case RecordFieldKind.listRecordObject:
         final item = f.itemTypeName!;
         return '(0..<Int(r.readInt32())).map { _ in $item.fromReader(r) }';
+      case RecordFieldKind.typedData:
+        final base = f.dartType.replaceFirst('?', '');
+        final read = _swiftTypedDataRead(base);
+        if (f.isNullable) return 'r.readNullTag() ? nil : $read';
+        return read;
+    }
+  }
+
+  static String _swiftTypedDataRead(String dartType) {
+    // Note: \$0 uses raw string escaping so the generated Swift gets literal $0.
+    const d0 = r'$0';
+    switch (dartType) {
+      case 'Uint8List':
+      case 'Int8List':   return 'r.readBlob()';
+      case 'Int16List':
+      case 'Uint16List': return '{ let d = r.readBlob(); return d.withUnsafeBytes { Array($d0.bindMemory(to: Int16.self)) } }()';
+      case 'Int32List':
+      case 'Uint32List': return '{ let d = r.readBlob(); return d.withUnsafeBytes { Array($d0.bindMemory(to: Int32.self)) } }()';
+      case 'Int64List':
+      case 'Uint64List': return '{ let d = r.readBlob(); return d.withUnsafeBytes { Array($d0.bindMemory(to: Int64.self)) } }()';
+      case 'Float32List': return '{ let d = r.readBlob(); return d.withUnsafeBytes { Array($d0.bindMemory(to: Float.self)) } }()';
+      case 'Float64List': return '{ let d = r.readBlob(); return d.withUnsafeBytes { Array($d0.bindMemory(to: Double.self)) } }()';
+      default: return 'r.readBlob()';
     }
   }
 
@@ -1059,6 +1247,31 @@ public:
         s.writeln('    writer.writeInt32(Int32(${f.name}.count))');
         s.writeln('    for e in ${f.name} { e.writeFields(writer) }');
         break;
+      case RecordFieldKind.typedData:
+        final base = f.dartType.replaceFirst('?', '');
+        if (f.isNullable) {
+          s.writeln('    writer.writeNullTag(${f.name} == nil)');
+          s.writeln('    if let val = ${f.name} { ${_swiftTypedDataWrite(base, 'val', 'writer')} }');
+        } else {
+          s.writeln('    ${_swiftTypedDataWrite(base, f.name, 'writer')}');
+        }
+        break;
+    }
+  }
+
+  static String _swiftTypedDataWrite(String dartType, String expr, String writer) {
+    switch (dartType) {
+      case 'Uint8List':
+      case 'Int8List':   return '$writer.writeBlob($expr)';
+      case 'Int16List':
+      case 'Uint16List': return '$expr.withUnsafeBufferPointer { $writer.writeBlob(Data(buffer: \$0)) }';
+      case 'Int32List':
+      case 'Uint32List': return '$expr.withUnsafeBufferPointer { $writer.writeBlob(Data(buffer: \$0)) }';
+      case 'Int64List':
+      case 'Uint64List': return '$expr.withUnsafeBufferPointer { $writer.writeBlob(Data(buffer: \$0)) }';
+      case 'Float32List': return '$expr.withUnsafeBufferPointer { $writer.writeBlob(Data(buffer: \$0)) }';
+      case 'Float64List': return '$expr.withUnsafeBufferPointer { $writer.writeBlob(Data(buffer: \$0)) }';
+      default: return '$writer.writeBlob($expr)';
     }
   }
 

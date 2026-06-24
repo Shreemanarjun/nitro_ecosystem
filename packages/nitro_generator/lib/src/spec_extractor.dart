@@ -431,7 +431,12 @@ class SpecExtractor {
       }
     }
 
-    final recordTypeNames = recordClasses.map((c) => c.name!).toSet();
+    // Include built-in library record types (NitroNullableInt etc.) so that
+    // fields whose type is a built-in record get RecordFieldKind.recordObject.
+    const _builtinLibraryRecordNames = {
+      'NitroNullableInt', 'NitroNullableDouble', 'NitroNullableBool',
+    };
+    final recordTypeNames = {...recordClasses.map((c) => c.name!), ..._builtinLibraryRecordNames};
     final structTypeNames = structClasses.map((entry) => entry.cls.name!).toSet();
     final enumTypeNames = enumClasses.map((entry) => entry.cls.name!).toSet();
 
@@ -448,7 +453,7 @@ class SpecExtractor {
     Set<String> structTypeNames,
     Set<String> enumTypeNames,
   ) {
-    final fields = cls.fields.where((f) => !f.isStatic && !f.isSynthetic).map((f) {
+    final fields = cls.fields.where((f) => !f.isStatic && f.isOriginDeclaration).map((f) {
       final displayType = f.type.getDisplayString();
       final isNullable = displayType.endsWith('?');
       final kind = _recordFieldKind(f.type, recordTypeNames, structTypeNames, enumTypeNames);
@@ -486,6 +491,15 @@ class SpecExtractor {
       }
       if (enumTypeNames.contains(type.element.name)) {
         return RecordFieldKind.enumValue;
+      }
+      // TypedData — binary blob encoding: [4B element_count][element_bytes]
+      const typedDataNames = {
+        'Uint8List', 'Int8List', 'Int16List', 'Uint16List',
+        'Int32List', 'Uint32List', 'Float32List',
+        'Int64List', 'Uint64List', 'Float64List',
+      };
+      if (typedDataNames.contains(type.element.name)) {
+        return RecordFieldKind.typedData;
       }
     }
     return RecordFieldKind.primitive;
@@ -867,7 +881,7 @@ class SpecExtractor {
       'package:nitro_annotations/src/annotations.dart#ZeroCopy',
     );
 
-    final fields = cls.fields.where((f) => !f.isStatic && !f.isSynthetic).map(
+    final fields = cls.fields.where((f) => !f.isStatic && f.isOriginDeclaration).map(
       (f) {
         final info = paramInfo[f.name!];
         // Accept zero-copy declared either on the struct annotation

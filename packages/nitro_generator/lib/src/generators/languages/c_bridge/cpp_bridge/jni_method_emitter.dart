@@ -274,10 +274,24 @@ void _emitJniMethods(
         // Dart's RecordWriter.toNative() format: [4-byte payload_len][payload_bytes].
         // Pass the FULL buffer (prefix + payload) to Kotlin as jbyteArray.
         // Kotlin's record decode skips the 4-byte prefix before reading fields.
-        writer.line('    int32_t ${p.name}_payload_len = *((const int32_t*)${p.name});');
-        writer.line('    int32_t ${p.name}_total = ${p.name}_payload_len + 4;');
-        writer.line('    jbyteArray j_${p.name} = env->NewByteArray((jsize)${p.name}_total);');
-        writer.line('    env->SetByteArrayRegion(j_${p.name}, 0, (jsize)${p.name}_total, (const jbyte*)${p.name});');
+        //
+        // NULLABLE records: Dart sends nullptr for null → guard before reading length prefix
+        // to avoid SIGSEGV. Kotlin receives null jbyteArray and passes null to the impl.
+        final isNullableRecord = p.type.isNullable || p.type.name.endsWith('?');
+        if (isNullableRecord) {
+          writer.line('    jbyteArray j_${p.name} = nullptr;');
+          writer.line('    if (${p.name} != nullptr) {');
+          writer.line('        int32_t ${p.name}_payload_len = *((const int32_t*)${p.name});');
+          writer.line('        int32_t ${p.name}_total = ${p.name}_payload_len + 4;');
+          writer.line('        j_${p.name} = env->NewByteArray((jsize)${p.name}_total);');
+          writer.line('        env->SetByteArrayRegion(j_${p.name}, 0, (jsize)${p.name}_total, (const jbyte*)${p.name});');
+          writer.line('    }');
+        } else {
+          writer.line('    int32_t ${p.name}_payload_len = *((const int32_t*)${p.name});');
+          writer.line('    int32_t ${p.name}_total = ${p.name}_payload_len + 4;');
+          writer.line('    jbyteArray j_${p.name} = env->NewByteArray((jsize)${p.name}_total);');
+          writer.line('    env->SetByteArrayRegion(j_${p.name}, 0, (jsize)${p.name}_total, (const jbyte*)${p.name});');
+        }
         callArgsList.add('j_${p.name}');
       } else {
         callArgsList.add(p.name);
@@ -793,8 +807,14 @@ void _emitJniMethods(
       final typedefParams = cbParams.map(cTypedefParam).join(', ');
       final needsStringConversion = cbParams.any((t) => t.name.replaceFirst('?', '') == 'String');
 
-      writer.line('JNIEXPORT void JNICALL $jniMethName($cParams) {');
-      writer.line('    typedef void (*CB)(${typedefParams.isEmpty ? 'void' : typedefParams});');
+      // Bidirectional callbacks: use the functionReturnType to emit correct C types.
+      final cbReturnTypeDart = p.type.functionReturnType;
+      final isVoidReturn = cbReturnTypeDart == null || cbReturnTypeDart == 'void';
+      final cRetType = isVoidReturn ? 'void' : 'jlong';
+      final cTypedefReturn = isVoidReturn ? 'void' : 'int64_t';
+
+      writer.line('JNIEXPORT $cRetType JNICALL $jniMethName($cParams) {');
+      writer.line('    typedef $cTypedefReturn (*CB)(${typedefParams.isEmpty ? 'void' : typedefParams});');
       // Convert jstring → const char* (release after call).
       // Unpack Kotlin data classes → C struct (stack-allocated).
       // Copy ByteArray record bytes → malloc'd length-prefixed buffer (Dart frees).
@@ -823,7 +843,12 @@ void _emitJniMethods(
         if (recordNames.contains(base)) return 'r_buf$i';
         return '(int64_t)arg$i';
       }).join(', ');
-      writer.line('    ((CB)callbackPtr)(${callArgs.isEmpty ? '' : callArgs});');
+      if (isVoidReturn) {
+        writer.line('    ((CB)callbackPtr)(${callArgs.isEmpty ? '' : callArgs});');
+      } else {
+        // Bidirectional: capture return value and return it to Kotlin as jlong.
+        writer.line('    $cTypedefReturn _ret = ((CB)callbackPtr)(${callArgs.isEmpty ? '' : callArgs});');
+      }
       if (needsStringConversion) {
         for (var i = 0; i < cbParams.length; i++) {
           if (cbParams[i].name.replaceFirst('?', '') == 'String') {
@@ -831,6 +856,9 @@ void _emitJniMethods(
 
           }
         }
+      }
+      if (!isVoidReturn) {
+        writer.line('    return (jlong)_ret;');
       }
       writer.line('}');
       writer.blankLine();

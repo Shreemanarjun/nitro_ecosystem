@@ -718,10 +718,11 @@ class DartFfiGenerator {
       final mapMatch = RegExp(r'^Map<String,\s*(.+)>$').firstMatch(type.name);
       final valueType = mapMatch?.group(1)?.trim();
       final isPrimitive = const {'int', 'double', 'bool', 'String'}.contains(valueType);
+      // ptrVar is already Pointer<Utf8> from the FFI lookup — no cast needed.
       if (valueType != null && isPrimitive) {
-        return '(jsonDecode(($ptrVar as Pointer<Utf8>).toDartString()) as Map<String, dynamic>).cast<String, $valueType>()';
+        return '(jsonDecode($ptrVar.toDartString()) as Map<String, dynamic>).cast<String, $valueType>()';
       }
-      return 'jsonDecode(($ptrVar as Pointer<Utf8>).toDartString()) as Map<String, dynamic>';
+      return 'jsonDecode($ptrVar.toDartString()) as Map<String, dynamic>';
     }
     final item = type.recordListItemType;
     if (item != null) {
@@ -734,7 +735,8 @@ class DartFfiGenerator {
       // Requires the native buffer to have been written by encodeIndexedList.
       return 'LazyRecordList.decode($ptrVar, (r) => ${item}RecordExt.fromReader(r))';
     }
-    final rt = type.name;
+    // Strip nullable '?' suffix — the extension/class is always named after the base type.
+    final rt = type.name.replaceFirst('?', '');
     // Built-in library types define fromNative on the class itself (package:nitro).
     // Call directly instead of via the generated *RecordExt extension.
     if (_nitroLibraryRecordTypes.contains(rt)) return '$rt.fromNative($ptrVar)';
@@ -856,6 +858,10 @@ class DartFfiGenerator {
       }
       // Use indexed encoding so the receiving side can use LazyRecordList.
       return 'RecordWriter.encodeIndexedList($varName, (w, e) => e.writeFields(w), $allocator)';
+    }
+    // Nullable @HybridRecord: pass nullptr when null, otherwise encode normally.
+    if (type.isNullable || type.name.endsWith('?')) {
+      return '$varName != null ? $varName.toNative($allocator) : nullptr';
     }
     return '$varName.toNative($allocator)';
   }
@@ -1046,6 +1052,11 @@ class DartFfiGenerator {
       case ReturnKind.record:
         final decodeExpr = _decodeRecordExpr(returnType, resVar);
         final isLazy = returnType.recordListItemType != null && !returnType.recordListItemIsPrimitive;
+        // Nullable @HybridRecord: C returns nullptr when Kotlin returns null ByteArray?.
+        final isNullableRecord = returnType.isNullable || returnType.name.endsWith('?');
+        if (isNullableRecord) {
+          writer.line('${indent}if ($resVar == nullptr) return null;');
+        }
         if (isLazy) {
           writer.line('${indent}return $decodeExpr;');
         } else {

@@ -257,7 +257,8 @@ class KotlinGenerator {
           : isEnum
           ? 'Long'
           : isRecord
-          ? 'ByteArray'
+          // Nullable @HybridRecord returns ByteArray? (null when impl returns null).
+          ? (func.returnType.name.endsWith('?') ? 'ByteArray?' : 'ByteArray')
           : isMap
           ? 'String?'
           : retType;
@@ -350,9 +351,19 @@ class KotlinGenerator {
       for (final p in func.params) {
         if (p.type.isRecord && p.type.recordListItemType == null && !p.type.isMap) {
           final recordName = p.type.name.replaceFirst('?', '');
-          writer.line('        val ${p.name}Buf = java.nio.ByteBuffer.wrap(${p.name}).order(java.nio.ByteOrder.LITTLE_ENDIAN)');
-          writer.line('        ${p.name}Buf.getInt() // skip Dart 4-byte outer length prefix');
-          writer.line('        val ${p.name}Decoded = $recordName.decodeFrom(${p.name}Buf)');
+          final isNullableRec = p.type.isNullable || p.type.name.endsWith('?');
+          if (isNullableRec) {
+            // Nullable record: ByteArray? — null means the Dart caller passed null.
+            writer.line('        val ${p.name}Decoded: $recordName? = if (${p.name} == null) null else {');
+            writer.line('            val _buf = java.nio.ByteBuffer.wrap(${p.name}).order(java.nio.ByteOrder.LITTLE_ENDIAN)');
+            writer.line('            _buf.getInt() // skip 4-byte prefix');
+            writer.line('            $recordName.decodeFrom(_buf)');
+            writer.line('        }');
+          } else {
+            writer.line('        val ${p.name}Buf = java.nio.ByteBuffer.wrap(${p.name}).order(java.nio.ByteOrder.LITTLE_ENDIAN)');
+            writer.line('        ${p.name}Buf.getInt() // skip Dart 4-byte outer length prefix');
+            writer.line('        val ${p.name}Decoded = $recordName.decodeFrom(${p.name}Buf)');
+          }
         } else if (p.type.isRecord && p.type.recordListItemType != null && !p.type.recordListItemIsPrimitive) {
           // List<@HybridRecord> — decode from Dart's indexed binary format:
           // [4B outer_len][4B count][8B×count offsets][item_fields...]
@@ -491,8 +502,14 @@ class KotlinGenerator {
             writer.line('        return baos.toByteArray()');
           }
         } else {
-          // Single @HybridRecord — encode() wraps with 4-byte length prefix
-          writer.line('        return result.encode()');
+          // Single @HybridRecord — encode() wraps with 4-byte length prefix.
+          // Nullable record: return null ByteArray when result is null.
+          final isNullableRecord = func.returnType.name.endsWith('?');
+          if (isNullableRecord) {
+            writer.line('        return result?.encode()');
+          } else {
+            writer.line('        return result.encode()');
+          }
         }
       } else if (func.isAsync) {
         if (isEnum) {
@@ -676,7 +693,12 @@ class KotlinGenerator {
         for (var i = 0; i < cbParams.length; i++) {
           paramDecl.write(', arg$i: ${_callbackParamToKotlinJni(cbParams[i], structNames: structNames, recordNames: recordNames)}');
         }
-        writer.line('    @JvmStatic external fun $nativeName($paramDecl)');
+        // For bidirectional callbacks (non-void return), declare the JNI return type.
+        final cbReturnType = p.type.functionReturnType;
+        final kotlinReturnType = (cbReturnType != null && cbReturnType != 'void')
+            ? ': ${_toKotlinType(enumNames, structNames, recordNames, cbReturnType)}'
+            : '';
+        writer.line('    @JvmStatic external fun $nativeName($paramDecl)$kotlinReturnType');
       }
     }
     if (callbackNativeMethods.isNotEmpty) writer.blankLine();
@@ -799,7 +821,9 @@ class KotlinGenerator {
     // Map<String, T> params are JSON-encoded strings (Ljava/lang/String;), not ByteArray.
     if (p.type.isMap) return 'String';
     // Record params (List<T> and @HybridRecord) are serialized as ByteArray ([B]) in the C++ bridge.
-    if (p.type.isRecord) return 'ByteArray';
+    // Nullable record params use ByteArray? — C passes null jbyteArray for null values.
+    final isNullableRecord = p.type.isRecord && (p.type.isNullable || p.type.name.endsWith('?'));
+    if (p.type.isRecord) return isNullableRecord ? 'ByteArray?' : 'ByteArray';
     final isNullable = p.type.name.endsWith('?') || p.isOptional;
     if (!isNullable) {
       // Enum params: C bridge passes rawValue as jlong — use Long, not the Kotlin enum type.

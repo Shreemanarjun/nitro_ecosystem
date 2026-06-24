@@ -375,12 +375,14 @@ class BridgeProperty {
 
 /// Describes how a field of a @HybridRecord class maps to/from JSON.
 enum RecordFieldKind {
-  primitive, // int, double, bool, String (and nullable variants)
-  enumValue, // @HybridEnum serialized as its native int value
-  recordObject, // another @HybridRecord type
-  listPrimitive, // List<primitive>
-  listEnumValue, // List<@HybridEnum>
+  primitive,       // int, double, bool, String (and nullable variants)
+  enumValue,       // @HybridEnum serialized as its native int value
+  recordObject,    // another @HybridRecord type
+  listPrimitive,   // List<primitive>
+  listEnumValue,   // List<@HybridEnum>
   listRecordObject, // List<@HybridRecord type>
+  typedData,       // Uint8List, Int8List, Int16List, Int32List, Int64List, Float32List, Float64List
+                   // Wire: [4B element_count][element_bytes] — same as writeBlob/readBlob
 }
 
 class BridgeRecordField {

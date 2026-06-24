@@ -409,12 +409,17 @@ void main() {
       expect(out, contains('callback: @escaping (SensorReading) -> Void'));
     });
 
-    test('Swift wrapper → shadow struct + UnsafeRawPointer(&_s0)', () {
+    test('Swift wrapper → shadow struct + withUnsafePointer (no dangling-pointer warning)', () {
       final out = SwiftGenerator.generate(
         _spec(cbParams: [BridgeType(name: 'SensorReading')], structs: [_readingStruct]),
       );
+      // Shadow var still declared for the C-layout conversion.
       expect(out, contains('var _s0 = _SensorReadingC.fromSwift(arg0)'));
-      expect(out, contains('UnsafeRawPointer(&_s0)'));
+      // withUnsafePointer with explicit named parameter ensures the address is valid.
+      expect(out, contains('withUnsafePointer(to: &_s0) { _ptr0 in'));
+      expect(out, contains('UnsafeRawPointer(_ptr0)'));
+      // Old pattern that causes the warning must NOT appear.
+      expect(out, isNot(contains('UnsafeRawPointer(&_s0)')));
     });
 
     test('Dart FFI → Void Function(Pointer<Void>), casts to StructFfi', () {

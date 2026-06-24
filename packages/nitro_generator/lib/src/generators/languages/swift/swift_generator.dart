@@ -226,7 +226,11 @@ class SwiftGenerator {
             }
             if (spec.recordTypes.any((rt) => rt.name == p.type.name.replaceFirst('?', ''))) {
               final recordName = p.type.name.replaceFirst('?', '');
-              // Guard against nil rather than force-unwrap to avoid EXC_BAD_ACCESS.
+              final isNullableRecord = p.type.name.endsWith('?') || p.type.isNullable;
+              if (isNullableRecord) {
+                // Nullable record: Dart sends nil for null — guard before fromNative.
+                return '${p.name}: ${p.name}.map { $recordName.fromNative(\$0.assumingMemoryBound(to: UInt8.self)) }';
+              }
               return '${p.name}: $recordName.fromNative(${p.name}!.assumingMemoryBound(to: UInt8.self))';
             }
             final isEnum = spec.enums.any((en) => en.name == p.type.name.replaceFirst('?', ''));
@@ -1075,7 +1079,11 @@ class SwiftGenerator {
   /// allocates args in the correct registers (FP for doubles, GP for integers).
   static String _toCDeclCallbackType(BridgeType cbType, {BridgeSpec? spec}) {
     final paramList = cbType.functionParams.map((t) => _callbackParamToCDeclSwift(t, spec: spec)).join(', ');
-    return '@convention(c) ($paramList) -> Void';
+    // Bidirectional callbacks: if functionReturnType is non-void, use Int64 as the
+    // C return type (matches Dart NativeCallable<Int64 Function(...)>).
+    final retDart = cbType.functionReturnType;
+    final retSwift = (retDart != null && retDart != 'void') ? 'Int64' : 'Void';
+    return '@convention(c) ($paramList) -> $retSwift';
   }
 
   /// Maps a single callback parameter to its Swift `@convention(c)` C ABI type.
@@ -1126,42 +1134,60 @@ class SwiftGenerator {
     // Build per-arg conversions. Struct args need a named shadow variable so that
     // `&shadow` is valid (points to a live stack slot) when the C callback runs.
     // Non-struct conversions are inline expressions in the call args list.
-    final shadowDecls = <String>[];
-    final callArgs = params.asMap().entries.map((e) {
+    // Struct args need a shadow variable so the C struct layout is correct.
+    // We track (index, shadowVarName) so the call can be wrapped in
+    // withUnsafePointer(to: &shadow) — this avoids the Swift "dangling pointer"
+    // warning that UnsafeRawPointer(&localVar) triggers.
+    final shadowDecls = <String>[];                    // pre-call var decls
+    final structShadowIndices = <int>[];               // indices that use withUnsafePointer
+    final callArgsList = params.asMap().entries.map((e) {
       final i = e.key;
       final pt = e.value;
       final argVar = argNames[i];
       final base = pt.name.replaceFirst('?', '');
       final isEnum = spec.enums.any((en) => en.name == base);
-      if (isEnum) return '$argVar.rawValue';          // EnumType → Int64
-      if (base == 'String') {
-        return '($argVar as NSString).utf8String';    // String → UnsafePointer<CChar>?
-      }
+      if (isEnum) return '$argVar.rawValue';
+      if (base == 'String') return '($argVar as NSString).utf8String';
       final isStruct = spec.structs.any((s) => s.name == base);
       if (isStruct) {
-        // Declare a shadow struct on the stack; &shadow is valid until the
-        // enclosing closure scope exits, which is after callback() returns.
+        // Shadow var gives a stable address; withUnsafePointer (built below)
+        // ensures the pointer is valid for exactly the callback's lifetime.
         shadowDecls.add('var _s$i = _${base}C.fromSwift($argVar)');
-        return 'UnsafeRawPointer(&_s$i)';            // &shadow → UnsafeRawPointer?
+        structShadowIndices.add(i);
+        return '__sp$i';   // placeholder replaced by withUnsafePointer nesting
       }
       final isRecord = spec.recordTypes.any((r) => r.name == base);
-      if (isRecord) {
-        // Serialize record to a malloc'd length-prefixed buffer via toNative().
-        // Dart receives the pointer and frees it after fromNative() reads it.
-        return '$argVar.toNative()';                  // UnsafeMutablePointer<UInt8>?
-      }
-      // double callback params: convert to raw IEEE 754 bits (Int64) so Dart's
-      // NativeCallable<Void Function(Int64, ...)> reads from GP registers (x0, x1, ...).
-      // Using Double directly puts the value in FP registers (d0, d1, ...) which Dart misreads.
+      if (isRecord) return '$argVar.toNative()';
       if (base == 'double') return 'Int64(bitPattern: ${argVar}.bitPattern)';
-      return argVar;                                  // int, bool
+      return argVar;
     }).toList();
 
-    // If there are shadow-variable declarations, emit them as statements
-    // separated by semicolons before the call, all within the closure body.
+    // Build the call expression with bidirectional return handling.
+    final retDart = p.type.functionReturnType;
+    final needsReturn = retDart != null && retDart != 'void';
+    String callExpr = '$cbName(${callArgsList.join(', ')})';
+    String bodyCall;
+    if (!needsReturn) {
+      bodyCall = callExpr;
+    } else if (retDart == 'double') {
+      bodyCall = 'Int64(bitPattern: ($callExpr).bitPattern)';
+    } else {
+      bodyCall = callExpr;
+    }
+
+    // Wrap struct pointer args in withUnsafePointer to eliminate dangling-pointer warning.
+    // Each nesting binds an explicit named pointer variable _ptr$i so there's no
+    // ambiguity with Swift's implicit $0 shorthand (which cannot be used as an explicit param).
+    String innerBody = bodyCall;
+    for (final i in structShadowIndices.reversed) {
+      final replaced = innerBody.replaceFirst('__sp$i', 'UnsafeRawPointer(_ptr$i)');
+      innerBody = 'withUnsafePointer(to: &_s$i) { _ptr$i in $replaced }';
+    }
+
+    // Emit shadow variable declarations then the (possibly wrapped) call.
     final closureBody = shadowDecls.isEmpty
-        ? '$cbName(${callArgs.join(', ')})'
-        : '${shadowDecls.join('; ')}; $cbName(${callArgs.join(', ')})';
+        ? innerBody
+        : '${shadowDecls.join('; ')}; $innerBody';
     return '{ $argDecl in $closureBody }';
   }
 
