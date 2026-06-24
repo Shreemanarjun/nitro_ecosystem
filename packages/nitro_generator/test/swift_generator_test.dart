@@ -496,13 +496,14 @@ void main() {
         expect(out, contains('flag: flag != 0'));
       });
 
-      test('nullable bool? param uses Int32 to carry -1 null sentinel', () {
+      test('nullable bool? param uses UnsafeMutableRawPointer? for NitroNullable', () {
         final out = SwiftGenerator.generate(_boolParamSpec(nullable: true));
-        // C bridge sends int32_t(-1) for null; Swift must read Int32 not Int8.
-        expect(out, contains('_ flag: Int32'));
+        // C bridge sends NitroNullable binary buffer (Pointer<Uint8>) for bool?.
+        expect(out, contains('_ flag: UnsafeMutableRawPointer?'));
+        expect(out, isNot(contains('_ flag: Int32')));
         expect(out, isNot(contains('_ flag: Int8')));
-        // Call arg converts -1 → nil, else converts to Bool.
-        expect(out, contains('flag: flag == -1 ? nil : flag != 0'));
+        // Call arg decodes NitroNullableBool binary.
+        expect(out, contains('NitroNullableBool.fromNative'));
       });
     });
 

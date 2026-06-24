@@ -105,14 +105,15 @@ class CppHeaderGenerator {
           final isStructParam = spec.structs.any(
             (st) => st.name == p.type.name.replaceFirst('?', ''),
           );
-          // Nullable bool uses int32_t (jint) to preserve the -1 sentinel for null.
-          final isNullableBool = p.type.isNullable && p.type.name.replaceFirst('?', '') == 'bool';
-          // Enum params use int64_t (rawValue) — void* cast of -1 (null sentinel) is
-          // implementation-defined on AArch64 and may not equal int64_t -1.
+          // Nullable primitives (int?/double?/bool?) use NitroNullable binary encoding:
+          // [1B hasValue][nB value] passed as void* (matches the JNI [B ByteArray transport).
           final paramBase = p.type.name.replaceFirst('?', '');
+          final isNullablePrim = (p.type.isNullable || p.type.name.endsWith('?')) &&
+              (paramBase == 'int' || paramBase == 'double' || paramBase == 'bool');
+          // Enum params use int64_t (rawValue).
           final isEnumParam = spec.enums.any((en) => en.name == paramBase);
-          final cType = isNullableBool
-              ? 'int32_t'
+          final cType = isNullablePrim
+              ? 'void*'
               : isEnumParam
               ? 'int64_t'
               : ((isStructParam || p.type.isNativeHandle) ? 'void*' : _typeToC(p.type.name));
@@ -130,7 +131,13 @@ class CppHeaderGenerator {
           if (!func.isAsync) {
             paramParts.add('NitroError* _nitro_err');
           }
-          final ret = isEnumRet
+          // Nullable primitives use NitroNullable binary → uint8_t* return.
+          final retBase = func.returnType.name.replaceFirst('?', '');
+          final isNullablePrimRet = (func.returnType.isNullable || func.returnType.name.endsWith('?')) &&
+              (retBase == 'int' || retBase == 'double' || retBase == 'bool');
+          final ret = isNullablePrimRet
+              ? 'uint8_t*'
+              : isEnumRet
               ? 'int64_t'
               : func.returnType.isTypedData
               ? 'uint8_t*'
@@ -149,13 +156,18 @@ class CppHeaderGenerator {
         final isEnumProp = spec.enums.any(
           (en) => en.name == prop.type.name.replaceFirst('?', ''),
         );
-        final cType = isEnumProp ? 'int64_t' : _typeToC(prop.type.name);
+        // Nullable primitive properties: getter returns uint8_t*, setter takes void*.
+        final propBase = prop.type.name.replaceFirst('?', '');
+        final isNullablePrimProp = (prop.type.isNullable || prop.type.name.endsWith('?')) &&
+            (propBase == 'int' || propBase == 'double' || propBase == 'bool');
+        final getterRet = isNullablePrimProp ? 'uint8_t*' : (isEnumProp ? 'int64_t' : _typeToC(prop.type.name));
+        final setterParam = isNullablePrimProp ? 'void*' : (isEnumProp ? 'int64_t' : _typeToC(prop.type.name));
         // S8: property accessors also receive NitroError* out-param.
         if (prop.hasGetter) {
-          nodes.add(CodeLine('NITRO_EXPORT $cType ${prop.getSymbol}(NitroError* _nitro_err);'));
+          nodes.add(CodeLine('NITRO_EXPORT $getterRet ${prop.getSymbol}(NitroError* _nitro_err);'));
         }
         if (prop.hasSetter) {
-          nodes.add(CodeLine('NITRO_EXPORT void ${prop.setSymbol}($cType value, NitroError* _nitro_err);'));
+          nodes.add(CodeLine('NITRO_EXPORT void ${prop.setSymbol}($setterParam value, NitroError* _nitro_err);'));
         }
       }
       nodes.add(const BlankLine());

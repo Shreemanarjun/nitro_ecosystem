@@ -31,8 +31,12 @@ class KotlinGenerator {
       writer.line('import kotlinx.coroutines.CoroutineScope');
       writer.line('import kotlinx.coroutines.Dispatchers');
     }
+    final hasTimeoutFunctions = spec.functions.any((f) => f.isAsync && f.asyncTimeout != null);
     if (hasAsyncFunctions) {
       writer.line('import kotlinx.coroutines.runBlocking');
+    }
+    if (hasTimeoutFunctions) {
+      writer.line('import kotlinx.coroutines.withTimeout');
     }
     writer.blankLine();
 
@@ -196,17 +200,15 @@ class KotlinGenerator {
         writer.line('            postNullToPort(dartPort)');
         writer.line('            return');
         writer.line('        }');
-        // Emit sentinel-to-null unwrapping before the execute block.
+        // Emit NitroNullable decode before the execute block.
         for (final p in nativeAsyncOptPrims) {
           final bn = p.type.name.replaceFirst('?', '');
           if (bn == 'int') {
-            writer.line('        val ${p.name}Arg: Long? = if (${p.name} == Long.MIN_VALUE) null else ${p.name}');
+            writer.line('        val ${p.name}Arg: Long? = NitroNullableInt.decode(${p.name}).nullable');
           } else if (bn == 'bool') {
-            // _call param is Int (I) because Dart sends -1/0/1 as sentinel via jint.
-            // Int supports -1, so null CAN be detected here.
-            writer.line('        val ${p.name}Arg: Boolean? = if (${p.name} < 0) null else (${p.name} != 0)');
+            writer.line('        val ${p.name}Arg: Boolean? = NitroNullableBool.decode(${p.name}).nullable');
           } else if (bn == 'double') {
-            writer.line('        val ${p.name}Arg: Double? = if (${p.name}.isNaN()) null else ${p.name}');
+            writer.line('        val ${p.name}Arg: Double? = NitroNullableDouble.decode(${p.name}).nullable');
           }
         }
         writer.line('        _asyncExecutor.execute {');
@@ -246,14 +248,17 @@ class KotlinGenerator {
       final isRecord = func.returnType.isRecord && !func.returnType.isMap;
       final isMap = func.returnType.isMap;
       final isListRecord = isRecord && func.returnType.recordListItemType != null && !func.returnType.recordListItemIsPrimitive;
-      // Nullable bool? returns use Int (-1=null, 0=false, 1=true) so the full 3-state
-      // value can cross the JNI boundary. jboolean can only carry 0/1 (not -1 for null).
+      // Nullable bool? now uses NitroNullable ByteArray encoding.
       final isNullableBoolReturn = retBaseName == 'bool' && func.returnType.name.endsWith('?');
+      final isNullableIntReturn = retBaseName == 'int' && func.returnType.name.endsWith('?');
+      final isNullableDoubleReturn = retBaseName == 'double' && func.returnType.name.endsWith('?');
       // JniBridge _call methods expose primitive bridge types to JNI:
       // enums → Long (nativeValue), records → ByteArray (serialized binary),
-      // maps → String (JSON-encoded), nullable bool? → Int (-1/0/1), else → actual type.
-      final bridgeRetType = isNullableBoolReturn
-          ? 'Int'
+      // maps → String (JSON-encoded),
+      // nullable int?/double?/bool? → ByteArray (NitroNullable binary encoding),
+      // else → actual type.
+      final bridgeRetType = (isNullableBoolReturn || isNullableIntReturn || isNullableDoubleReturn)
+          ? 'ByteArray'
           : isEnum
           ? 'Long'
           : isRecord
@@ -263,25 +268,23 @@ class KotlinGenerator {
           ? 'String?'
           : retType;
 
-      // Identify optional-primitive params that need sentinel-to-null unwrapping.
-      // Dart sends -1 for int?/bool? and double.nan for double? when the caller
-      // passes null. Convert those sentinels back to null so the interface
-      // receives the correct nullable Kotlin type.
+      // Identify optional-primitive params that need NitroNullable decoding.
+      // Dart sends ByteArray (NitroNullable binary) for int?/bool?/double?.
+      // Decode to Kotlin nullable type before forwarding to interface.
       final optionalPrimParams = func.params.where((p) {
         final baseName = p.type.name.replaceFirst('?', '');
         final isNullable = p.type.name.endsWith('?') || p.isOptional;
         return isNullable && (baseName == 'int' || baseName == 'bool' || baseName == 'double');
       }).toList();
 
-      // callParams: for optional-primitive params use the unwrapped arg name
-      // (e.g. timeoutArg) so the sentinel is converted to null.
+      // callParams: for optional-primitive params use the decoded Arg variable.
       // For callback params, wrap the Long function pointer in a Kotlin lambda
       // that invokes the C function via a native JNI bridge method.
       final callParamsResolved = func.params
           .map((p) {
             final baseName = p.type.name.replaceFirst('?', '');
             final isNullable = p.type.name.endsWith('?') || p.isOptional;
-            // Nullable primitives and nullable enums use sentinel Arg variable.
+            // Nullable primitives decoded from NitroNullable ByteArray → Arg variable.
             if (isNullable && (baseName == 'int' || baseName == 'bool' || baseName == 'double')) {
               return '${p.name}Arg';
             }
@@ -320,19 +323,19 @@ class KotlinGenerator {
       writer.line(
         '        val impl = implementation ?: throw IllegalStateException("${spec.dartClassName} not registered")',
       );
-      // Emit sentinel-to-null conversions for optional-primitive params.
+      // Emit NitroNullable decode for optional-primitive params.
+      // Dart layer sends ByteArray (NitroNullable binary) for int?/double?/bool?.
       for (final p in optionalPrimParams) {
         final baseName = p.type.name.replaceFirst('?', '');
         if (baseName == 'int') {
-          writer.line('        // Dart layer sends Long.MIN_VALUE as sentinel when caller passes null for ${p.name}.');
-          writer.line('        val ${p.name}Arg: Long? = if (${p.name} == Long.MIN_VALUE) null else ${p.name}');
+          writer.line('        // Dart layer sends NitroNullableInt (ByteArray) for ${p.name}.');
+          writer.line('        val ${p.name}Arg: Long? = NitroNullableInt.decode(${p.name}).nullable');
         } else if (baseName == 'bool') {
-          // _call param is Int (I) — carries -1 sentinel. Properly detects null.
-          writer.line('        // Dart layer sends -1 as sentinel when caller passes null for ${p.name}.');
-          writer.line('        val ${p.name}Arg: Boolean? = if (${p.name} < 0) null else (${p.name} != 0)');
+          writer.line('        // Dart layer sends NitroNullableBool (ByteArray) for ${p.name}.');
+          writer.line('        val ${p.name}Arg: Boolean? = NitroNullableBool.decode(${p.name}).nullable');
         } else if (baseName == 'double') {
-          writer.line('        // Dart layer sends Double.NaN as sentinel when caller passes null for ${p.name}.');
-          writer.line('        val ${p.name}Arg: Double? = if (${p.name}.isNaN()) null else ${p.name}');
+          writer.line('        // Dart layer sends NitroNullableDouble (ByteArray) for ${p.name}.');
+          writer.line('        val ${p.name}Arg: Double? = NitroNullableDouble.decode(${p.name}).nullable');
         }
       }
       // Decode nullable enum params: _call receives Long sentinel (-1 = null).
@@ -409,6 +412,10 @@ class KotlinGenerator {
           }
         }
       }
+      // Timeout-aware runBlocking expression (used in isAsync paths).
+      final rb = func.asyncTimeout != null
+          ? 'runBlocking { withTimeout(${func.asyncTimeout}L) { impl.${func.dartName}($callParamsResolved) } }'
+          : 'runBlocking { impl.${func.dartName}($callParamsResolved) }';
       if (isMap) {
         // Map<String, T>: JSON-decode input String, call impl, JSON-encode result.
         final mapParamName = func.params.isNotEmpty ? func.params.first.name : 'value';
@@ -420,7 +427,10 @@ class KotlinGenerator {
         writer.line('            m');
         writer.line('        }');
         if (func.isAsync) {
-          writer.line('        val _result = _asyncExecutor.submit(java.util.concurrent.Callable { runBlocking { impl.${func.dartName}(_inputMap) } }).get()');
+          final rbMap = func.asyncTimeout != null
+              ? 'runBlocking { withTimeout(${func.asyncTimeout}L) { impl.${func.dartName}(_inputMap) } }'
+              : 'runBlocking { impl.${func.dartName}(_inputMap) }';
+          writer.line('        val _result = _asyncExecutor.submit(java.util.concurrent.Callable { $rbMap }).get()');
         } else {
           writer.line('        val _result = impl.${func.dartName}(_inputMap)');
         }
@@ -432,7 +442,7 @@ class KotlinGenerator {
       } else if (isRecord) {
         // Fetch the result, then serialize to ByteArray for JNI
         if (func.isAsync) {
-          writer.line('        val result = _asyncExecutor.submit(java.util.concurrent.Callable { runBlocking { impl.${func.dartName}($callParamsResolved) } }).get()');
+          writer.line('        val result = _asyncExecutor.submit(java.util.concurrent.Callable { $rb }).get()');
         } else {
           writer.line('        val result = impl.${func.dartName}($callParamsResolved)');
         }
@@ -514,22 +524,30 @@ class KotlinGenerator {
       } else if (func.isAsync) {
         if (isEnum) {
           if (isNullableEnum) {
-            writer.line('        val _enumResult = _asyncExecutor.submit(java.util.concurrent.Callable { runBlocking { impl.${func.dartName}($callParamsResolved) } }).get()');
+            writer.line('        val _enumResult = _asyncExecutor.submit(java.util.concurrent.Callable { $rb }).get()');
             writer.line('        return if (_enumResult == null) -1L else _enumResult.nativeValue');
           } else {
             writer.line(
-              '        return _asyncExecutor.submit(java.util.concurrent.Callable { runBlocking { impl.${func.dartName}($callParamsResolved) } }).get().nativeValue',
+              '        return _asyncExecutor.submit(java.util.concurrent.Callable { $rb }).get().nativeValue',
             );
           }
         } else if (isNullableBoolReturn) {
-          // Nullable bool? async: encode null→-1, false→0, true→1.
+          // Nullable bool? async: encode via NitroNullableBool → ByteArray.
           writer.line('        val _boolResult = _asyncExecutor.submit(java.util.concurrent.Callable {');
-          writer.line('            runBlocking { impl.${func.dartName}($callParamsResolved) }');
+          writer.line('            $rb');
           writer.line('        }).get()');
-          writer.line('        return if (_boolResult == null) -1 else if (_boolResult) 1 else 0');
+          writer.line('        return NitroNullableBool(_boolResult).encode()');
+        } else if (isNullableIntReturn) {
+          // Nullable int? async: encode via NitroNullableInt → ByteArray.
+          writer.line('        val _intResult = _asyncExecutor.submit(java.util.concurrent.Callable { $rb }).get()');
+          writer.line('        return NitroNullableInt(_intResult).encode()');
+        } else if (isNullableDoubleReturn) {
+          // Nullable double? async: encode via NitroNullableDouble → ByteArray.
+          writer.line('        val _doubleResult = _asyncExecutor.submit(java.util.concurrent.Callable { $rb }).get()');
+          writer.line('        return NitroNullableDouble(_doubleResult).encode()');
         } else {
           writer.line('        return _asyncExecutor.submit(java.util.concurrent.Callable {');
-          writer.line('            runBlocking { impl.${func.dartName}($callParamsResolved) }');
+          writer.line('            $rb');
           writer.line('        }).get()');
         }
       } else {
@@ -546,9 +564,17 @@ class KotlinGenerator {
             );
           }
         } else if (isNullableBoolReturn) {
-          // Nullable bool? sync: encode null→-1, false→0, true→1.
+          // Nullable bool? sync: encode via NitroNullableBool → ByteArray.
           writer.line('        val _boolResult = impl.${func.dartName}($callParamsResolved)');
-          writer.line('        return if (_boolResult == null) -1 else if (_boolResult) 1 else 0');
+          writer.line('        return NitroNullableBool(_boolResult).encode()');
+        } else if (isNullableIntReturn) {
+          // Nullable int? sync: encode via NitroNullableInt → ByteArray.
+          writer.line('        val _intResult = impl.${func.dartName}($callParamsResolved)');
+          writer.line('        return NitroNullableInt(_intResult).encode()');
+        } else if (isNullableDoubleReturn) {
+          // Nullable double? sync: encode via NitroNullableDouble → ByteArray.
+          writer.line('        val _doubleResult = impl.${func.dartName}($callParamsResolved)');
+          writer.line('        return NitroNullableDouble(_doubleResult).encode()');
         } else {
           writer.line('        return impl.${func.dartName}($callParamsResolved)');
         }
@@ -567,18 +593,16 @@ class KotlinGenerator {
       final isNullableBool = propBaseName == 'bool' && isNullableProp;
 
       // _call bridge type: must match C-side JVM descriptor (jni_method_emitter.dart).
-      // Nullable primitives MUST use non-nullable JVM primitive types (J, D, I, Z).
-      // Boxed nullable Kotlin types (Long?, Double?, Boolean?) do NOT match primitive
-      // JVM descriptors — GetStaticMethodID would return null and all calls silently fail.
+      // Nullable primitives now use NitroNullable ByteArray encoding ([B JVM descriptor).
       final String bridgeKt;
       if (isEnum) {
         bridgeKt = 'Long'; // Enum rawValue as jlong
       } else if (isNullableInt) {
-        bridgeKt = 'Long'; // int? uses Long sentinel (-1 = null)
+        bridgeKt = 'ByteArray'; // int? uses NitroNullableInt ([B)
       } else if (isNullableDouble) {
-        bridgeKt = 'Double'; // double? uses NaN sentinel
+        bridgeKt = 'ByteArray'; // double? uses NitroNullableDouble ([B)
       } else if (isNullableBool) {
-        bridgeKt = 'Int'; // bool? uses Int (-1=null, 0=false, 1=true) — jboolean can't carry -1
+        bridgeKt = 'ByteArray'; // bool? uses NitroNullableBool ([B)
       } else {
         final kt = _toKotlinPropertyType(enumNames, structNames, recordNames, propTypeName);
         bridgeKt = kt;
@@ -596,19 +620,14 @@ class KotlinGenerator {
         } else if (isEnum) {
           writer.line('        return impl.${prop.dartName}.nativeValue');
         } else if (isNullableInt) {
-          // Return Long.MIN_VALUE as null sentinel — matches the Dart/C bridge encoding.
-          writer.line('        return impl.${prop.dartName} ?: Long.MIN_VALUE');
+          // NitroNullableInt binary encoding — ByteArray return.
+          writer.line('        return NitroNullableInt(impl.${prop.dartName}).encode()');
         } else if (isNullableDouble) {
-          // Explicit null check + unbox cast to ensure JVM descriptor ()D (primitive double).
-          // 'else _dv' where _dv: Double? might box to Ljava/lang/Double; in some Kotlin
-          // compiler versions, changing the descriptor and causing GetStaticMethodID to fail.
-          writer.line('        val _dv = impl.${prop.dartName}');
-          writer.line('        if (_dv == null) return java.lang.Double.NaN');
-          writer.line('        return _dv.toDouble()');
+          // NitroNullableDouble binary encoding — ByteArray return.
+          writer.line('        return NitroNullableDouble(impl.${prop.dartName}).encode()');
         } else if (isNullableBool) {
-          // Encode null→-1, false→0, true→1 so null can round-trip via Int.
-          writer.line('        val _bv = impl.${prop.dartName}');
-          writer.line('        return if (_bv == null) -1 else if (_bv) 1 else 0');
+          // NitroNullableBool binary encoding — ByteArray return.
+          writer.line('        return NitroNullableBool(impl.${prop.dartName}).encode()');
         } else {
           writer.line('        return impl.${prop.dartName}');
         }
@@ -629,13 +648,14 @@ class KotlinGenerator {
         } else if (isEnum) {
           writer.line('        impl.${prop.dartName} = $propBaseName.fromNative(value)');
         } else if (isNullableInt) {
-          writer.line('        impl.${prop.dartName} = if (value == Long.MIN_VALUE) null else value');
+          // NitroNullableInt binary decode from ByteArray.
+          writer.line('        impl.${prop.dartName} = NitroNullableInt.decode(value).nullable');
         } else if (isNullableDouble) {
-          // Use java.lang.Double.isNaN() for explicit primitive double check
-          writer.line('        impl.${prop.dartName} = if (java.lang.Double.isNaN(value)) null else value');
+          // NitroNullableDouble binary decode from ByteArray.
+          writer.line('        impl.${prop.dartName} = NitroNullableDouble.decode(value).nullable');
         } else if (isNullableBool) {
-          // Decode -1→null, 0→false, positive→true from the Int sentinel.
-          writer.line('        impl.${prop.dartName} = if (value < 0) null else (value != 0)');
+          // NitroNullableBool binary decode from ByteArray.
+          writer.line('        impl.${prop.dartName} = NitroNullableBool.decode(value).nullable');
         } else {
           writer.line('        impl.${prop.dartName} = value');
         }
@@ -709,6 +729,15 @@ class KotlinGenerator {
 
   /// Generates Kotlin type declarations for a type-only .native.dart file.
   /// Emits only enum/struct/record declarations — no interface or JniBridge object.
+  /// Returns a Kotlin expression wrapping [body] with timeout if [timeout] is non-null.
+  /// Generates: `withTimeout(N) { body }` when N is set, or just `body` otherwise.
+  static String _kotlinRunBlockingCall(BridgeFunction func, String body) {
+    if (func.asyncTimeout != null) {
+      return 'runBlocking { withTimeout(${func.asyncTimeout}L) { $body } }';
+    }
+    return 'runBlocking { $body }';
+  }
+
   static String _generateTypeOnly(BridgeSpec spec) {
     final nodes = <CodeNode>[
       CodeSnippet(generatedFileHeader('//', sourceUri: spec.sourceUri)),
@@ -755,11 +784,14 @@ class KotlinGenerator {
     final isNullable = t.name.endsWith('?');
     final baseName = t.name.replaceFirst('?', '');
     // bool? interface return uses Boolean? so implementations CAN return null.
-    // The _call bridge encodes null→-1, false→0, true→1 via Int for JNI transport.
+    // The _call bridge now uses NitroNullableBool (ByteArray) for JNI transport.
     if (isNullable && baseName == 'bool') return 'Boolean?';
-    // Other primitive nullable types (int?, double?) strip '?' — JNI uses non-nullable primitives.
+    // int? and double? interface returns now use nullable types.
+    // The _call bridge uses NitroNullableInt/NitroNullableDouble (ByteArray) for JNI transport.
+    if (isNullable && baseName == 'int') return 'Long?';
+    if (isNullable && baseName == 'double') return 'Double?';
     // Non-primitive nullable types (Status?, String?) preserve '?'.
-    final isPrimitive = const {'int', 'double', 'String'}.contains(baseName);
+    final isPrimitive = const {'String'}.contains(baseName);
     if (isNullable && !isPrimitive && !base.endsWith('?')) return '$base?';
     return base;
   }
@@ -845,11 +877,14 @@ class KotlinGenerator {
     // because CallStaticBooleanMethod on C side truncates, but the signature MUST match.
     switch (baseName) {
       case 'int':
-        return 'Long'; // JVM descriptor: J  (primitive long)
+        // int? uses NitroNullable ByteArray encoding — [B in JVM descriptor
+        return 'ByteArray'; // JVM descriptor: [B
       case 'bool':
-        return 'Int'; // JVM descriptor: I — matches C bridge's (I) for nullable bool? sentinel
+        // bool? uses NitroNullable ByteArray encoding — [B in JVM descriptor
+        return 'ByteArray'; // JVM descriptor: [B
       case 'double':
-        return 'Double'; // JVM descriptor: D  (primitive double)
+        // double? uses NitroNullable ByteArray encoding — [B in JVM descriptor
+        return 'ByteArray'; // JVM descriptor: [B
     }
     // Nullable enum: C bridge passes -1L as null sentinel, actual rawValue otherwise.
     // Must use Long (J) so JVM descriptor matches C bridge's (J) for enum params.

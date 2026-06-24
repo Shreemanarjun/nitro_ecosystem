@@ -27,7 +27,13 @@ void _emitSwiftBridgeSection(
         paramParts.add(CppBridgeGenerator._callbackParamToC(p, enumNames));
       } else {
         final isEnumParam = enumNames.contains(p.type.name.replaceFirst('?', ''));
-        final cType = isEnumParam ? 'int64_t' : CppBridgeGenerator._paramTypeToC(p.type.name, structNames);
+        // Nullable primitives (int?/double?/bool?) use NitroNullable binary → void*.
+        final pBase = p.type.name.replaceFirst('?', '');
+        final isNullablePrim = (p.type.isNullable || p.type.name.endsWith('?')) &&
+            (pBase == 'int' || pBase == 'double' || pBase == 'bool');
+        final cType = isNullablePrim
+            ? 'void*'
+            : (isEnumParam ? 'int64_t' : CppBridgeGenerator._paramTypeToC(p.type.name, structNames));
         paramParts.add('$cType ${p.name}');
       }
       callParamParts.add(p.name);
@@ -51,7 +57,13 @@ void _emitSwiftBridgeSection(
       continue;
     }
 
-    final cReturnType = isEnum
+    // Nullable primitives (int?/double?/bool?) use NitroNullable binary → uint8_t*.
+    final retBase = func.returnType.name.replaceFirst('?', '');
+    final isNullablePrimRet = (func.returnType.isNullable || func.returnType.name.endsWith('?')) &&
+        (retBase == 'int' || retBase == 'double' || retBase == 'bool');
+    final cReturnType = isNullablePrimRet
+        ? 'uint8_t*'
+        : isEnum
         ? 'int64_t'
         : func.returnType.isTypedData
         ? 'uint8_t*'
@@ -108,7 +120,12 @@ void _emitSwiftBridgeSection(
 
   for (final prop in spec.properties) {
     final isEnum = enumNames.contains(prop.type.name);
-    final cType = isEnum ? 'int64_t' : CppBridgeGenerator._typeToC(prop.type.name);
+    final propPrimBase = prop.type.name.replaceFirst('?', '');
+    final isNullablePrimProp = (prop.type.isNullable || prop.type.name.endsWith('?')) &&
+        (propPrimBase == 'int' || propPrimBase == 'double' || propPrimBase == 'bool');
+    // Nullable primitives use NitroNullable binary: getter→uint8_t*, setter→void*.
+    final cType = isNullablePrimProp ? 'uint8_t*' : (isEnum ? 'int64_t' : CppBridgeGenerator._typeToC(prop.type.name));
+    final setterCType = isNullablePrimProp ? 'void*' : (isEnum ? 'int64_t' : CppBridgeGenerator._typeToC(prop.type.name));
     if (prop.hasGetter) {
       writer.line('extern $cType _${spec.namespace}_call_get_${prop.dartName}(void);');
       // S8: getter receives NitroError* out-param.
@@ -119,10 +136,9 @@ void _emitSwiftBridgeSection(
       writer.blankLine();
     }
     if (prop.hasSetter) {
-      final paramCType = isEnum ? 'int64_t' : CppBridgeGenerator._typeToC(prop.type.name);
-      writer.line('extern void _${spec.namespace}_call_set_${prop.dartName}($paramCType value);');
+      writer.line('extern void _${spec.namespace}_call_set_${prop.dartName}($setterCType value);');
       // S8: setter receives NitroError* out-param.
-      writer.line('void ${prop.setSymbol}($paramCType value, NitroError* _nitro_err) {');
+      writer.line('void ${prop.setSymbol}($setterCType value, NitroError* _nitro_err) {');
       writer.line('    if (_nitro_err) { _nitro_err->hasError = 0; }');
       writer.line('    _${spec.namespace}_call_set_${prop.dartName}(value);');
       writer.line('}');

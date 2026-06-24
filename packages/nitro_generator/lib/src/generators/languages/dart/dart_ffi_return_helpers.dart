@@ -73,12 +73,12 @@ String callAsyncTransportType(BridgeType returnType, BridgeSpec spec) {
     case ReturnKind.struct:      return 'Pointer<Void>';
     case ReturnKind.nativeHandle:return 'Pointer<Void>';
     case ReturnKind.enumType:    return 'int';
-    case ReturnKind.boolNonNull: return 'int';     // bool→Int8 (-1/0/1 sentinel)
-    case ReturnKind.boolNullable:return 'int';     // sentinel −1/0/1
+    case ReturnKind.boolNonNull: return 'int';           // bool→Int8
+    case ReturnKind.boolNullable:return 'Pointer<Uint8>'; // NitroNullable binary
     case ReturnKind.stringNonNull:  return 'Pointer<Utf8>';
     case ReturnKind.stringNullable: return 'Pointer<Utf8>';
-    case ReturnKind.intNullable:    return 'int';
-    case ReturnKind.doubleNullable: return 'double';
+    case ReturnKind.intNullable:    return 'Pointer<Uint8>'; // NitroNullable binary
+    case ReturnKind.doubleNullable: return 'Pointer<Uint8>'; // NitroNullable binary
     case ReturnKind.primitive:      return returnType.name; // int or double
   }
 }
@@ -118,13 +118,14 @@ String callAsyncTransportType(BridgeType returnType, BridgeSpec spec) {
 
   // bool
   if (rt == 'bool') return (expr: '$varName ? 1 : 0', needsArena: false);
-  if (rt == 'bool?') return (expr: '$varName == null ? -1 : ($varName ? 1 : 0)', needsArena: false);
+  // bool? — NitroNullable binary encoding
+  if (rt == 'bool?') return (expr: 'NitroNullableBool.fromNullable($varName).toNative($allocator)', needsArena: true);
 
-  // int? — Int64.min (-9223372036854775808) is the null sentinel (no collision with real values)
-  if (rt == 'int?') return (expr: '$varName ?? -9223372036854775808', needsArena: false);
+  // int? — NitroNullable binary encoding (zero collision)
+  if (rt == 'int?') return (expr: 'NitroNullableInt.fromNullable($varName).toNative($allocator)', needsArena: true);
 
-  // double?
-  if (rt == 'double?') return (expr: '$varName ?? double.nan', needsArena: false);
+  // double? — NitroNullable binary encoding
+  if (rt == 'double?') return (expr: 'NitroNullableDouble.fromNullable($varName).toNative($allocator)', needsArena: true);
 
   // int, double, or any remaining primitive
   return (expr: varName, needsArena: false);

@@ -286,7 +286,13 @@ String _generateCppDirect(BridgeSpec spec) {
     final isRecordRet = func.returnType.isRecord;
     final isNativeHandleRet = func.returnType.isNativeHandle;
     final isZeroCopyTypedDataRet = func.zeroCopyReturn && func.returnType.isTypedData;
-    final cRet = isEnumRet
+    // Nullable primitives (int?/double?/bool?) use NitroNullable binary → uint8_t*.
+    final retBase = func.returnType.name.replaceFirst('?', '');
+    final isNullablePrimRet = (func.returnType.isNullable || func.returnType.name.endsWith('?')) &&
+        (retBase == 'int' || retBase == 'double' || retBase == 'bool');
+    final cRet = isNullablePrimRet
+        ? 'uint8_t*'
+        : isEnumRet
         ? 'int64_t'
         : func.returnType.isTypedData
         ? 'uint8_t*'
@@ -304,10 +310,12 @@ String _generateCppDirect(BridgeSpec spec) {
       final isStructParam = structNames.contains(p.type.name.replaceFirst('?', ''));
       final isRecordParam = p.type.isRecord;
       final isEnumParam = enumNames.contains(p.type.name.replaceFirst('?', ''));
-      // Nullable bool uses int32_t (jint) to preserve the -1 sentinel for null.
-      final isNullableBool = p.type.isNullable && p.type.name.replaceFirst('?', '') == 'bool';
-      final cType = isNullableBool
-          ? 'int32_t'
+      // Nullable primitives (int?/double?/bool?) use NitroNullable binary → void*.
+      final paramPrimBase = p.type.name.replaceFirst('?', '');
+      final isNullablePrimParam = (p.type.isNullable || p.type.name.endsWith('?')) &&
+          (paramPrimBase == 'int' || paramPrimBase == 'double' || paramPrimBase == 'bool');
+      final cType = isNullablePrimParam
+          ? 'void*'
           : isEnumParam
               ? 'int64_t'
               : ((isStructParam || isRecordParam || p.type.isNativeHandle) ? 'void*' : _typeToC(p.type.name));
@@ -433,7 +441,11 @@ String _generateCppDirect(BridgeSpec spec) {
   // ── Properties ───────────────────────────────────────────────────────────
   for (final prop in spec.properties) {
     final isEnum = enumNames.contains(prop.type.name.replaceFirst('?', ''));
-    final cType = isEnum ? 'int64_t' : _typeToC(prop.type.name);
+    final propPrimBase = prop.type.name.replaceFirst('?', '');
+    final isNullablePrimProp = (prop.type.isNullable || prop.type.name.endsWith('?')) &&
+        (propPrimBase == 'int' || propPrimBase == 'double' || propPrimBase == 'bool');
+    // Nullable primitives use NitroNullable binary → uint8_t* getter, void* setter.
+    final cType = isNullablePrimProp ? 'uint8_t*' : (isEnum ? 'int64_t' : _typeToC(prop.type.name));
 
     if (prop.hasGetter) {
       // S8: property getter also receives the NitroError* out-param.
@@ -469,7 +481,10 @@ String _generateCppDirect(BridgeSpec spec) {
     if (prop.hasSetter) {
       final isStructParam = structNames.contains(prop.type.name.replaceFirst('?', ''));
       final isRecordParam = recordNames.contains(prop.type.name.replaceFirst('?', ''));
-      final paramCType = (isEnum || isStructParam || isRecordParam) ? (isEnum ? 'int64_t' : 'void*') : _typeToC(prop.type.name);
+      // Nullable primitive setters use void* (NitroNullable binary buffer).
+      final paramCType = isNullablePrimProp
+          ? 'void*'
+          : (isEnum || isStructParam || isRecordParam) ? (isEnum ? 'int64_t' : 'void*') : _typeToC(prop.type.name);
       // S8: property setter also receives the NitroError* out-param.
       writer.line('void ${prop.setSymbol}($paramCType value, NitroError* _nitro_err) {');
       writer.line('    if (_nitro_err) { _nitro_err->hasError = 0; }');

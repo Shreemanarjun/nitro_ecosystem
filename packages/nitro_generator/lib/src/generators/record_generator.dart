@@ -231,6 +231,14 @@ class RecordGenerator {
           return 'r.readNullTag() ? null : ${_typedDataReadCall(base)}';
         }
         return _typedDataReadCall(base);
+
+      case RecordFieldKind.struct:
+        // @HybridStruct embedded inline — read via RecordReader using the struct's RecordExt.
+        final base = f.dartType.replaceFirst('?', '');
+        if (f.isNullable) {
+          return 'r.readNullTag() ? null : ${base}RecordExt.fromReader(r)';
+        }
+        return '${base}RecordExt.fromReader(r)';
     }
   }
 
@@ -328,7 +336,6 @@ class RecordGenerator {
 
       case RecordFieldKind.typedData:
         // TypedData: convert to Uint8List bytes via .buffer.asUint8List() then writeBlob.
-        // Uint8List is written directly; others are reinterpreted through the byte buffer.
         final base = f.dartType.replaceFirst('?', '');
         final toBytes = base == 'Uint8List' ? f.name : '${f.name}.buffer.asUint8List()';
         if (f.isNullable) {
@@ -339,6 +346,16 @@ class RecordGenerator {
           s.writeln('    }');
         } else {
           s.writeln('    writer.writeBlob($toBytes);');
+        }
+        break;
+
+      case RecordFieldKind.struct:
+        // @HybridStruct embedded inline — write via the struct's RecordExt.writeFields.
+        if (f.isNullable) {
+          s.writeln('    writer.writeNullTag(${f.name} == null);');
+          s.writeln('    ${f.name}?.writeFields(writer);');
+        } else {
+          s.writeln('    ${f.name}.writeFields(writer);');
         }
         break;
     }
@@ -486,8 +503,10 @@ class RecordGenerator {
       case RecordFieldKind.listRecordObject:
         return 'std::vector<${f.itemTypeName}>';
       case RecordFieldKind.typedData:
-        // TypedData in @HybridRecord bridges as a raw byte vector in C++.
         return f.isNullable ? 'std::optional<std::vector<uint8_t>>' : 'std::vector<uint8_t>';
+      case RecordFieldKind.struct:
+        final base = f.dartType.replaceFirst('?', '');
+        return f.isNullable ? 'std::optional<$base>' : base;
     }
   }
 
@@ -566,11 +585,18 @@ class RecordGenerator {
         s.writeln('        { int32_t _n = _r.readInt32(); _obj.${f.name}.reserve((size_t)_n); for (int32_t _i = 0; _i < _n; _i++) _obj.${f.name}.push_back($item::fromReader(_r)); }');
         break;
       case RecordFieldKind.typedData:
-        // TypedData: [4B count][count bytes] → std::vector<uint8_t>
         if (f.isNullable) {
           s.writeln('        { bool _null = _r.readNullTag(); if (!_null) { int32_t _n = _r.readInt32(); _obj.${f.name}.emplace().resize((size_t)_n); _r.readBytes(_obj.${f.name}->data(), (size_t)_n); } }');
         } else {
           s.writeln('        { int32_t _n = _r.readInt32(); _obj.${f.name}.resize((size_t)_n); _r.readBytes(_obj.${f.name}.data(), (size_t)_n); }');
+        }
+        break;
+      case RecordFieldKind.struct:
+        final base = f.dartType.replaceFirst('?', '');
+        if (f.isNullable) {
+          s.writeln('        { bool _null = _r.readNullTag(); if (!_null) _obj.${f.name} = $base::fromReader(_r); }');
+        } else {
+          s.writeln('        _obj.${f.name} = $base::fromReader(_r);');
         }
         break;
     }
@@ -658,7 +684,61 @@ public:
       s.writeln('            buf.position(4) // skip 4-byte length prefix');
       s.writeln('            return decodeFrom(buf)');
       s.writeln('        }');
+      // --- fromJson() for Map<String, ${rt.name}> support (#2) ---
+      final companionFromJsonFields = rt.fields.map((f) {
+        final base = f.dartType.replaceFirst('?', '');
+        switch (f.kind) {
+          case RecordFieldKind.primitive:
+            final kBase = f.dartType.replaceFirst('?', '');
+            if (f.isNullable) {
+              if (kBase == 'int') return '${f.name} = (map["${f.name}"] as Number?)?.toLong()';
+              if (kBase == 'double') return '${f.name} = (map["${f.name}"] as Number?)?.toDouble()';
+              if (kBase == 'bool') return '${f.name} = map["${f.name}"] as Boolean?';
+              return '${f.name} = map["${f.name}"] as String?';
+            }
+            if (kBase == 'int') return '${f.name} = (map["${f.name}"] as Number).toLong()';
+            if (kBase == 'double') return '${f.name} = (map["${f.name}"] as Number).toDouble()';
+            if (kBase == 'bool') return '${f.name} = map["${f.name}"] as Boolean';
+            return '${f.name} = map["${f.name}"] as String';
+          case RecordFieldKind.enumValue:
+            return f.isNullable
+                ? '${f.name} = (map["${f.name}"] as Long?)?.let { ${base}.fromNative(it) }'
+                : '${f.name} = ${base}.fromNative(map["${f.name}"] as Long)';
+          case RecordFieldKind.recordObject:
+            // @Suppress must be on the EXPRESSION, not on the named argument itself.
+            return f.isNullable
+                ? '${f.name} = (map["${f.name}"] as? Map<*, *>)?.let { $base.fromJson(@Suppress("UNCHECKED_CAST") (it as Map<String, Any?>)) }'
+                : '${f.name} = $base.fromJson(@Suppress("UNCHECKED_CAST") (map["${f.name}"] as Map<String, Any?>))';
+          case RecordFieldKind.struct:
+            // @HybridStruct in a record — use the same fromJson pattern.
+            return f.isNullable
+                ? '${f.name} = (map["${f.name}"] as? Map<*, *>)?.let { $base.fromJson(@Suppress("UNCHECKED_CAST") (it as Map<String, Any?>)) }'
+                : '${f.name} = $base.fromJson(@Suppress("UNCHECKED_CAST") (map["${f.name}"] as Map<String, Any?>))';
+          default:
+            return '${f.name} = @Suppress("UNCHECKED_CAST") (map["${f.name}"] as ${_kotlinType(f, enumNames)})';
+        }
+      }).join(',\n                ');
+      s.writeln('        @Suppress("UNCHECKED_CAST")');
+      s.writeln('        @JvmStatic fun fromJson(map: Map<String, Any?>): ${rt.name} = ${rt.name}(');
+      s.writeln('                ${companionFromJsonFields}');
+      s.writeln('        )');
+      // Thread-local encode buffers (#8 perf): avoid per-call ByteArrayOutputStream allocation.
+      s.writeln('        // Thread-local encode buffers — avoids allocation per bridge call.');
+      s.writeln('        val _tlsOut = ThreadLocal.withInitial { java.io.ByteArrayOutputStream(${recordBytesHint(rt)}) }');
+      s.writeln('        val _tlsBuf = ThreadLocal.withInitial { java.nio.ByteBuffer.allocate(8).order(java.nio.ByteOrder.LITTLE_ENDIAN) }');
       s.writeln('    }');
+      // ── Built-in NitroNullable types: add nullable getter + single-arg constructor ──
+      // These are used by the bridge to wrap/unwrap nullable primitives without sentinels.
+      if (rt.name == 'NitroNullableInt') {
+        s.writeln('    constructor(v: Long?) : this(v != null, v ?: 0L)');
+        s.writeln('    val nullable: Long? get() = if (hasValue) value else null');
+      } else if (rt.name == 'NitroNullableDouble') {
+        s.writeln('    constructor(v: Double?) : this(v != null, v ?: 0.0)');
+        s.writeln('    val nullable: Double? get() = if (hasValue) value else null');
+      } else if (rt.name == 'NitroNullableBool') {
+        s.writeln('    constructor(v: Boolean?) : this(v != null, v ?: false)');
+        s.writeln('    val nullable: Boolean? get() = if (hasValue) value else null');
+      }
       s.writeln();
 
       // --- writeFieldsTo: writes fields without length prefix (for use inside lists) ---
@@ -675,16 +755,48 @@ public:
       s.writeln();
 
       // --- encode to ByteArray (with 4-byte length prefix) ---
+      // Thread-local buffers avoid per-call ByteArrayOutputStream/ByteBuffer allocation (#8 perf).
       final capacity = recordBytesHint(rt);
       s.writeln('    fun encode(): ByteArray {');
-      s.writeln('        val out = java.io.ByteArrayOutputStream($capacity)');
-      s.writeln('        val buf = java.nio.ByteBuffer.allocate(8).order(java.nio.ByteOrder.LITTLE_ENDIAN)');
+      s.writeln('        val out = _tlsOut.get()!!.also { it.reset() }');
+      s.writeln('        val buf = _tlsBuf.get()!!');
       s.writeln('        writeFieldsTo(out, buf)');
       s.writeln('        val payload = out.toByteArray()');
       s.writeln('        val lenBuf = java.nio.ByteBuffer.allocate(4).order(java.nio.ByteOrder.LITTLE_ENDIAN)');
       s.writeln('        lenBuf.putInt(payload.size)');
       s.writeln('        return lenBuf.array() + payload');
       s.writeln('    }');
+      s.writeln();
+
+      // --- toJson() / fromJson() for Map<String, @HybridRecord> support (#2) ---
+      // Allows Kotlin bridge to serialize/deserialize when used as Map values.
+      s.writeln('    // --- toJson/fromJson for Map<String, ${rt.name}> support ---');
+      final toJsonFields = rt.fields.map((f) {
+        final base = f.dartType.replaceFirst('?', '');
+        switch (f.kind) {
+          case RecordFieldKind.enumValue:
+            return f.isNullable
+                ? '"${f.name}" to ${f.name}?.nativeValue'
+                : '"${f.name}" to ${f.name}.nativeValue';
+          case RecordFieldKind.recordObject:
+            return f.isNullable
+                ? '"${f.name}" to ${f.name}?.toJson()'
+                : '"${f.name}" to ${f.name}.toJson()';
+          case RecordFieldKind.listPrimitive:
+          case RecordFieldKind.listEnumValue:
+          case RecordFieldKind.listRecordObject:
+            return '"${f.name}" to ${f.name}';
+          case RecordFieldKind.typedData:
+            return '"${f.name}" to ${f.name}';
+          case RecordFieldKind.struct:
+            return '"${f.name}" to ${f.name}';
+          default: // primitive
+            return '"${f.name}" to ${f.name}';
+        }
+      }).join(', ');
+      s.writeln('    fun toJson(): Map<String, Any?> = mapOf($toJsonFields)');
+      s.writeln();
+
       s.writeln('}');
       s.writeln();
     }
@@ -712,6 +824,8 @@ public:
       case RecordFieldKind.typedData:
         final kotlinType = _kotlinTypedDataType(f.dartType.replaceFirst('?', ''));
         return kotlinType + (f.isNullable ? '?' : '');
+      case RecordFieldKind.struct:
+        return f.dartType.replaceFirst('?', '') + (f.isNullable ? '?' : '');
     }
   }
 
@@ -785,6 +899,12 @@ public:
           return '(if (buf.get().toInt() == 0) null else $read)';
         }
         return read;
+      case RecordFieldKind.struct:
+        final structBase = f.dartType.replaceFirst('?', '');
+        if (f.isNullable) {
+          return '(if (buf.get().toInt() == 0) null else $structBase.decodeFrom(buf))';
+        }
+        return '$structBase.decodeFrom(buf)';
     }
   }
 
@@ -874,6 +994,15 @@ public:
           s.writeln('        ${_kotlinTypedDataWrite(base, f.name)}');
         }
         break;
+      case RecordFieldKind.struct:
+        // @HybridStruct embedded inline — write via writeFieldsTo.
+        if (f.isNullable) {
+          s.writeln('        out.write(if (${f.name} == null) 0 else 1)');
+          s.writeln('        ${f.name}?.writeFieldsTo(out, buf)');
+        } else {
+          s.writeln('        ${f.name}.writeFieldsTo(out, buf)');
+        }
+        break;
     }
   }
 
@@ -949,6 +1078,8 @@ public:
           total += 36; // 4-byte count + ~4 items * 8 bytes avg
         case RecordFieldKind.typedData:
           total += nullableTag + 68; // 4-byte count + ~64 bytes avg payload
+        case RecordFieldKind.struct:
+          total += nullableTag + 64; // struct fields inline, estimate 64 bytes
       }
     }
     return total > 0 ? total : 32;
@@ -1079,6 +1210,23 @@ public:
       s.writeln('    writeFields(writer)');
       s.writeln('    return writer.toNative()');
       s.writeln('  }');
+      // ── Built-in NitroNullable types: add nullable computed var + fromNullable factory ──
+      if (rt.name == 'NitroNullableInt') {
+        s.writeln('  public var nullable: Int64? { hasValue ? value : nil }');
+        s.writeln('  public static func fromNullable(_ v: Int64?) -> NitroNullableInt {');
+        s.writeln('    return NitroNullableInt(hasValue: v != nil, value: v ?? 0)');
+        s.writeln('  }');
+      } else if (rt.name == 'NitroNullableDouble') {
+        s.writeln('  public var nullable: Double? { hasValue ? value : nil }');
+        s.writeln('  public static func fromNullable(_ v: Double?) -> NitroNullableDouble {');
+        s.writeln('    return NitroNullableDouble(hasValue: v != nil, value: v ?? 0.0)');
+        s.writeln('  }');
+      } else if (rt.name == 'NitroNullableBool') {
+        s.writeln('  public var nullable: Bool? { hasValue ? value : nil }');
+        s.writeln('  public static func fromNullable(_ v: Bool?) -> NitroNullableBool {');
+        s.writeln('    return NitroNullableBool(hasValue: v != nil, value: v ?? false)');
+        s.writeln('  }');
+      }
       s.writeln('}');
       s.writeln();
     }
@@ -1105,6 +1253,8 @@ public:
         return '[${f.itemTypeName}]';
       case RecordFieldKind.typedData:
         return _swiftTypedDataType(f.dartType.replaceFirst('?', ''));
+      case RecordFieldKind.struct:
+        return f.dartType.replaceFirst('?', '');
     }
   }
 
@@ -1186,6 +1336,10 @@ public:
         final read = _swiftTypedDataRead(base);
         if (f.isNullable) return 'r.readNullTag() ? nil : $read';
         return read;
+      case RecordFieldKind.struct:
+        final base = f.dartType.replaceFirst('?', '');
+        if (f.isNullable) return 'r.readNullTag() ? nil : $base.fromReader(r)';
+        return '$base.fromReader(r)';
     }
   }
 
@@ -1254,6 +1408,15 @@ public:
           s.writeln('    if let val = ${f.name} { ${_swiftTypedDataWrite(base, 'val', 'writer')} }');
         } else {
           s.writeln('    ${_swiftTypedDataWrite(base, f.name, 'writer')}');
+        }
+        break;
+      case RecordFieldKind.struct:
+        // @HybridStruct embedded inline — write via writeFields.
+        if (f.isNullable) {
+          s.writeln('    writer.writeNullTag(${f.name} == nil)');
+          s.writeln('    if let val = ${f.name} { val.writeFields(writer) }');
+        } else {
+          s.writeln('    ${f.name}.writeFields(writer)');
         }
         break;
     }

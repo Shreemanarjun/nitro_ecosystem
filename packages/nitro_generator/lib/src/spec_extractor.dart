@@ -486,8 +486,12 @@ class SpecExtractor {
         }
         return RecordFieldKind.listPrimitive;
       }
-      if (recordTypeNames.contains(type.element.name) || structTypeNames.contains(type.element.name)) {
+      if (recordTypeNames.contains(type.element.name)) {
         return RecordFieldKind.recordObject;
+      }
+      // @HybridStruct embedded inline in a @HybridRecord — each field written as primitives.
+      if (structTypeNames.contains(type.element.name)) {
+        return RecordFieldKind.struct;
       }
       if (enumTypeNames.contains(type.element.name)) {
         return RecordFieldKind.enumValue;
@@ -678,6 +682,18 @@ class SpecExtractor {
       final isAsync = asyncChecker.hasAnnotationOf(m);
       final isNativeAsync = nativeAsyncChecker.hasAnnotationOf(m);
 
+      // Read optional timeout from @NitroAsync(timeout: N)
+      int? asyncTimeout;
+      if (isAsync) {
+        final asyncAnnotation = asyncChecker.firstAnnotationOf(m);
+        if (asyncAnnotation != null) {
+          final timeoutVal = asyncAnnotation.getField('timeout');
+          if (timeoutVal != null && !timeoutVal.isNull) {
+            asyncTimeout = timeoutVal.toIntValue();
+          }
+        }
+      }
+
       if (isAsync && isNativeAsync) {
         throw InvalidGenerationSource(
           '@NitroAsync and @NitroNativeAsync cannot both be applied to "${m.name!}". '
@@ -706,6 +722,7 @@ class SpecExtractor {
         ),
         zeroCopyReturn: zeroCopyChecker.hasAnnotationOf(m),
         isOwned: ownedChecker.hasAnnotationOf(m),
+        asyncTimeout: asyncTimeout,
         params: m.formalParameters.map((p) {
           return BridgeParam(
             name: p.name!,

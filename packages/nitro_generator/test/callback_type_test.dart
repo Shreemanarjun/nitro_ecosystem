@@ -134,9 +134,10 @@ void main() {
 
     test('DartFfiGenerator supports primitive return callbacks using isolateLocal', () {
       final out = DartFfiGenerator.generate(_callbackReturnValueParamSpec());
-
-      expect(out, contains('Pointer<NativeFunction<Int8 Function(Pointer<Utf8>)>>'));
-      expect(out, contains('NativeCallable<Int8 Function(Pointer<Utf8>)>.isolateLocal((Pointer<Utf8> arg0)'));
+      // bool return now uses Int64 (not Int8) — consistent with Android jlong path
+      // and keeps all bidirectional returns in GP registers via Int64.
+      expect(out, contains('Pointer<NativeFunction<Int64 Function(Pointer<Utf8>)>>'));
+      expect(out, contains('NativeCallable<Int64 Function(Pointer<Utf8>)>.isolateLocal((Pointer<Utf8> arg0)'));
       expect(out, contains('return callback(arg0.toDartString()) ? 1 : 0;'));
       expect(out, contains('exceptionalReturn: 0'));
     });

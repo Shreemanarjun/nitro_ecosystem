@@ -287,6 +287,12 @@ class BridgeFunction {
   /// the returned [NativeHandle] is garbage-collected.
   final bool isOwned;
 
+  /// Optional timeout in milliseconds from @NitroAsync(timeout: N).
+  /// When non-null, the Kotlin/Swift generator wraps the async call in a
+  /// timeout block that throws after [asyncTimeout] ms.
+  /// Only meaningful when [isAsync] is true.
+  final int? asyncTimeout;
+
   BridgeFunction({
     required this.dartName,
     required this.cSymbol,
@@ -297,6 +303,7 @@ class BridgeFunction {
     this.zeroCopyReturn = false,
     this.lineNumber,
     this.isOwned = false,
+    this.asyncTimeout,
   });
 }
 
@@ -383,6 +390,7 @@ enum RecordFieldKind {
   listRecordObject, // List<@HybridRecord type>
   typedData,       // Uint8List, Int8List, Int16List, Int32List, Int64List, Float32List, Float64List
                    // Wire: [4B element_count][element_bytes] — same as writeBlob/readBlob
+  struct,          // @HybridStruct embedded inline — each field written as primitives
 }
 
 class BridgeRecordField {

@@ -815,7 +815,7 @@ void main() {
       });
     });
 
-    group('nullable primitive return types call JNI method (not just return 0)', () {
+    group('nullable primitive return types call JNI method (NitroNullable ByteArray)', () {
       BridgeSpec nullableReturnSpec(String returnTypeName) => BridgeSpec(
         dartClassName: 'MyModule',
         lib: 'my_module',
@@ -834,20 +834,25 @@ void main() {
         ],
       );
 
-      test('int? return calls CallStaticLongMethod', () {
+      test('int? return calls CallStaticObjectMethod (NitroNullable ByteArray)', () {
         final out = CppBridgeGenerator.generate(nullableReturnSpec('int?'));
-        expect(out, contains('CallStaticLongMethod'), reason: 'int? must call CallStaticLongMethod, not just return 0');
+        // int? now uses NitroNullableInt binary encoding (ByteArray) — CallStaticObjectMethod
+        expect(out, contains('CallStaticObjectMethod'), reason: 'int? must call CallStaticObjectMethod for NitroNullable ByteArray');
+        expect(out, contains('uint8_t*'), reason: 'int? return type should be uint8_t*');
       });
 
-      test('double? return calls CallStaticDoubleMethod', () {
+      test('double? return calls CallStaticObjectMethod (NitroNullable ByteArray)', () {
         final out = CppBridgeGenerator.generate(nullableReturnSpec('double?'));
-        expect(out, contains('CallStaticDoubleMethod'), reason: 'double? must call CallStaticDoubleMethod');
+        // double? now uses NitroNullableDouble binary encoding (ByteArray)
+        expect(out, contains('CallStaticObjectMethod'), reason: 'double? must call CallStaticObjectMethod for NitroNullable ByteArray');
+        expect(out, contains('uint8_t*'), reason: 'double? return type should be uint8_t*');
       });
 
-      test('bool? return calls CallStaticIntMethod (Int for 3-state null/false/true)', () {
+      test('bool? return calls CallStaticObjectMethod (NitroNullable ByteArray)', () {
         final out = CppBridgeGenerator.generate(nullableReturnSpec('bool?'));
-        // bool? uses Int (I) — -1=null, 0=false, 1=true — so null can round-trip on Android.
-        expect(out, contains('CallStaticIntMethod'), reason: 'bool? must use Int for 3-state encoding');
+        // bool? now uses NitroNullableBool binary encoding (ByteArray) — no more Int 3-state.
+        expect(out, contains('CallStaticObjectMethod'), reason: 'bool? must call CallStaticObjectMethod for NitroNullable ByteArray');
+        expect(out, contains('uint8_t*'), reason: 'bool? return type should be uint8_t*');
       });
 
       test('String? return calls CallStaticObjectMethod', () {
@@ -855,22 +860,25 @@ void main() {
         expect(out, contains('CallStaticObjectMethod'), reason: 'String? must call CallStaticObjectMethod');
       });
 
-      test('int? return has same JNI call pattern as int return', () {
+      test('int? return uses ByteArray encoding (not same as int scalar)', () {
         final nullable = CppBridgeGenerator.generate(nullableReturnSpec('int?'));
         final nonNullable = CppBridgeGenerator.generate(nullableReturnSpec('int'));
         String extractAndroidBlock(String src) {
           final start = src.indexOf('#ifdef __ANDROID__');
-          final end = src.indexOf('#endif // __ANDROID__');
-          return end > start ? src.substring(start, end) : src;
+          final end = src.indexOf('#elif __APPLE__');
+          return (start != -1 && end > start) ? src.substring(start, end) : src;
         }
 
+        // int? now uses ByteArray (GetByteArrayRegion) not scalar (CallStaticLongMethod).
         expect(
           extractAndroidBlock(nullable),
-          contains('CallStaticLongMethod'),
+          contains('CallStaticObjectMethod'),
+          reason: 'int? uses ByteArray (NitroNullable) not Long',
         );
         expect(
           extractAndroidBlock(nonNullable),
           contains('CallStaticLongMethod'),
+          reason: 'int (non-nullable) still uses Long',
         );
       });
     });

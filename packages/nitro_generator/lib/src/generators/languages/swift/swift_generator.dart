@@ -205,8 +205,10 @@ class SwiftGenerator {
             final isString = p.type.name == 'String' || p.type.name == 'String?';
             final isBool = p.type.name == 'bool' || p.type.name == 'bool?';
             if (isString) return '${p.name}: ${p.name}Str';
-            if (p.type.name == 'int?') return '${p.name}: ${p.name} == Int64.min ? nil : ${p.name}';
-            if (p.type.name == 'bool?') return '${p.name}: ${p.name} == -1 ? nil : ${p.name} != 0';
+            // NitroNullable: decode binary buffer to Swift optional
+            if (p.type.name == 'int?') return '${p.name}: NitroNullableInt.fromNative(${p.name}!.assumingMemoryBound(to: UInt8.self)).nullable';
+            if (p.type.name == 'double?') return '${p.name}: NitroNullableDouble.fromNative(${p.name}!.assumingMemoryBound(to: UInt8.self)).nullable';
+            if (p.type.name == 'bool?') return '${p.name}: NitroNullableBool.fromNative(${p.name}!.assumingMemoryBound(to: UInt8.self)).nullable';
             if (isBool) return '${p.name}: ${p.name} != 0';
             if (p.type.isTypedData) return '${p.name}: ${p.name}Arr';
             if (p.type.isRecord && p.type.name.startsWith('List<')) return '${p.name}: ${p.name}Decoded';
@@ -304,12 +306,10 @@ class SwiftGenerator {
               final isString = p.type.name == 'String' || p.type.name == 'String?';
               final isEnum = spec.enums.any((en) => en.name == p.type.name.replaceFirst('?', ''));
               if (isString) return '${p.name}: ${p.name}Str';
-              // int? params: C passes Int64; decode Int64.min → nil
-              if (p.type.name == 'int?') return '${p.name}: ${p.name} == Int64.min ? nil : ${p.name}';
-              // double? params: C passes Double; decode NaN → nil
-              if (p.type.name == 'double?') return '${p.name}: ${p.name}.isNaN ? nil : ${p.name}';
-              // bool? params: C passes Int32; decode -1 → nil
-              if (p.type.name == 'bool?') return '${p.name}: ${p.name} == -1 ? nil : ${p.name} != 0';
+              // NitroNullable: decode binary buffer to Swift optional
+              if (p.type.name == 'int?') return '${p.name}: NitroNullableInt.fromNative(${p.name}!.assumingMemoryBound(to: UInt8.self)).nullable';
+              if (p.type.name == 'double?') return '${p.name}: NitroNullableDouble.fromNative(${p.name}!.assumingMemoryBound(to: UInt8.self)).nullable';
+              if (p.type.name == 'bool?') return '${p.name}: NitroNullableBool.fromNative(${p.name}!.assumingMemoryBound(to: UInt8.self)).nullable';
               if (isEnum) {
                 final enumName = p.type.name.replaceFirst('?', '');
                 final isOpt = p.type.name.endsWith('?');
@@ -560,7 +560,19 @@ class SwiftGenerator {
             '    guard let impl = ${spec.dartClassName}Registry.impl else { return $defaultVal }',
           );
           writer.line('    let sema = DispatchSemaphore(value: 0)');
-          final resultType = swiftRetType.endsWith('?') ? swiftRetType : '$swiftRetType?';
+          // For nullable primitives, result holds the SWIFT impl type (Int64?/Double?/Bool?),
+          // not the C binary type (UnsafeMutablePointer<UInt8>?). NitroNullable encoding
+          // happens at the return statement via fromNullable().toNative().
+          final String resultType;
+          if (func.returnType.name == 'int?') {
+            resultType = 'Int64?';
+          } else if (func.returnType.name == 'double?') {
+            resultType = 'Double?';
+          } else if (func.returnType.name == 'bool?') {
+            resultType = 'Bool?';
+          } else {
+            resultType = swiftRetType.endsWith('?') ? swiftRetType : '$swiftRetType?';
+          }
           writer.line('    var result: $resultType = nil');
           writer.line('    Task.detached {');
           writer.line(
@@ -571,6 +583,15 @@ class SwiftGenerator {
           writer.line('    sema.wait()');
           if (isEnumRet) {
             writer.line('    return result?.rawValue ?? $defaultVal');
+          } else if (func.returnType.name == 'int?') {
+            // NitroNullableInt binary return for async
+            writer.line('    return NitroNullableInt.fromNullable(result).toNative()');
+          } else if (func.returnType.name == 'double?') {
+            // NitroNullableDouble binary return for async
+            writer.line('    return NitroNullableDouble.fromNullable(result).toNative()');
+          } else if (func.returnType.name == 'bool?') {
+            // NitroNullableBool binary return for async
+            writer.line('    return NitroNullableBool.fromNullable(result).toNative()');
           } else if (func.returnType.isNullable) {
             // Use the type-appropriate null sentinel so Dart can distinguish null from 0.
             final base = func.returnType.name.replaceFirst('?', '');
@@ -664,6 +685,21 @@ class SwiftGenerator {
           final helper = func.zeroCopyReturn ? '_nitroMakeZeroCopyTypedDataArrayReturn' : '_nitroCopyTypedDataArrayReturn';
           writer.line('    return $helper(r)');
         }
+      } else if (func.returnType.name == 'int?') {
+        // NitroNullableInt binary return — sync
+        writer.line('    guard let impl = ${spec.dartClassName}Registry.impl else { return nil }');
+        writer.line('    let _ni_result = impl.${func.dartName}($callArgs)');
+        writer.line('    return NitroNullableInt.fromNullable(_ni_result).toNative()');
+      } else if (func.returnType.name == 'double?') {
+        // NitroNullableDouble binary return — sync
+        writer.line('    guard let impl = ${spec.dartClassName}Registry.impl else { return nil }');
+        writer.line('    let _nd_result = impl.${func.dartName}($callArgs)');
+        writer.line('    return NitroNullableDouble.fromNullable(_nd_result).toNative()');
+      } else if (func.returnType.name == 'bool?') {
+        // NitroNullableBool binary return — sync
+        writer.line('    guard let impl = ${spec.dartClassName}Registry.impl else { return nil }');
+        writer.line('    let _nb_result = impl.${func.dartName}($callArgs)');
+        writer.line('    return NitroNullableBool.fromNullable(_nb_result).toNative()');
       } else {
         final defaultVal = _defaultCDeclValue(spec, func.returnType.name);
 
@@ -703,12 +739,16 @@ class SwiftGenerator {
         //   String? → UnsafeMutablePointer<CChar>? (nullptr = null — already ObjC-safe)
         final getRetType = isString
             ? 'UnsafeMutablePointer<CChar>?'
+            : isBool && isNullableProp
+            ? 'UnsafeMutablePointer<UInt8>?' // NitroNullableBool
             : isBool
             ? 'Int8'
             : isEnumProp
             ? 'Int64'
-            : (isNullableProp && (isDouble || isInt))
-            ? (isDouble ? 'Double' : 'Int64')
+            : (isNullableProp && isDouble)
+            ? 'UnsafeMutablePointer<UInt8>?' // NitroNullableDouble
+            : (isNullableProp && isInt)
+            ? 'UnsafeMutablePointer<UInt8>?' // NitroNullableInt
             : swiftType;
         writer.line('@_cdecl("_${spec.namespace}_call_get_${prop.dartName}")');
         writer.line('public func _${spec.namespace}_call_get_${prop.dartName}() -> $getRetType {');
@@ -722,11 +762,8 @@ class SwiftGenerator {
             '    return strdup(${spec.dartClassName}Registry.impl?.${prop.dartName} ?? "")',
           );
         } else if (isBool && isNullableProp) {
-          // nullable bool: nil → -1, false → 0, true → 1
-          writer.line(
-            '    guard let v = ${spec.dartClassName}Registry.impl?.${prop.dartName} else { return -1 }',
-          );
-          writer.line('    return v == true ? 1 : 0');
+          // nullable bool: NitroNullableBool binary return
+          writer.line('    return NitroNullableBool.fromNullable(${spec.dartClassName}Registry.impl?.${prop.dartName}).toNative()');
         } else if (isBool) {
           writer.line(
             '    return ${spec.dartClassName}Registry.impl?.${prop.dartName} == true ? 1 : 0',
@@ -740,15 +777,11 @@ class SwiftGenerator {
             '    return ${spec.dartClassName}Registry.impl?.${prop.dartName}.rawValue ?? ${_defaultCDeclValue(spec, propTypeName)}',
           );
         } else if (isNullableProp && isDouble) {
-          // double?: nil → Double.nan
-          writer.line(
-            '    return ${spec.dartClassName}Registry.impl?.${prop.dartName} ?? Double.nan',
-          );
+          // double?: NitroNullableDouble binary return
+          writer.line('    return NitroNullableDouble.fromNullable(${spec.dartClassName}Registry.impl?.${prop.dartName}).toNative()');
         } else if (isNullableProp && isInt) {
-          // int?: nil → Int64.min (sentinel, matches Dart/Kotlin encoding)
-          writer.line(
-            '    return ${spec.dartClassName}Registry.impl?.${prop.dartName} ?? Int64.min',
-          );
+          // int?: NitroNullableInt binary return
+          writer.line('    return NitroNullableInt.fromNullable(${spec.dartClassName}Registry.impl?.${prop.dartName}).toNative()');
         } else {
           writer.line(
             '    return ${spec.dartClassName}Registry.impl?.${prop.dartName} ?? ${_defaultCDeclValue(spec, propTypeName)}',
@@ -762,28 +795,28 @@ class SwiftGenerator {
         final isStructProp = spec.structs.any((st) => st.name == propTypeBase);
         // @_cdecl setters must not use Swift optional parameter types.
         // Nullable primitives use sentinels matching the getter convention.
-        final setParamType = isBool
+        final setParamType = isBool && isNullableProp
+            ? 'UnsafeMutableRawPointer?'  // NitroNullableBool binary
+            : isBool
             ? 'Int8'
             : isString
-            ? 'UnsafePointer<CChar>?'   // nullable String: nullptr = null
+            ? 'UnsafePointer<CChar>?'
             : isEnumProp
             ? 'Int64'
             : isStructProp
             ? 'UnsafeRawPointer?'
             : (isNullableProp && isDouble)
-            ? 'Double'      // nullable double: Double.nan = null
+            ? 'UnsafeMutableRawPointer?'  // NitroNullableDouble binary
             : (isNullableProp && isInt)
-            ? 'Int64'       // nullable int: -1 = null
+            ? 'UnsafeMutableRawPointer?'  // NitroNullableInt binary
             : swiftType;
         writer.line('@_cdecl("_${spec.namespace}_call_set_${prop.dartName}")');
         writer.line(
           'public func _${spec.namespace}_call_set_${prop.dartName}(_ value: $setParamType) {',
         );
         if (isBool && isNullableProp) {
-          // nullable bool: -1 = null, 0 = false, 1 = true
-          writer.line(
-            '    ${spec.dartClassName}Registry.impl?.${prop.dartName} = value == -1 ? nil : value != 0',
-          );
+          // nullable bool: NitroNullableBool binary decode from UnsafeMutableRawPointer?
+          writer.line('    if let v = value { ${spec.dartClassName}Registry.impl?.${prop.dartName} = NitroNullableBool.fromNative(v.assumingMemoryBound(to: UInt8.self)).nullable }');
         } else if (isBool) {
           writer.line(
             '    ${spec.dartClassName}Registry.impl?.${prop.dartName} = value != 0',
@@ -819,15 +852,11 @@ class SwiftGenerator {
           writer.line('        ${spec.dartClassName}Registry.impl?.${prop.dartName} = v.assumingMemoryBound(to: _${propStructName}C.self).pointee.toSwift()');
           writer.line('    }');
         } else if (isNullableProp && isDouble) {
-          // double?: NaN = null
-          writer.line(
-            '    ${spec.dartClassName}Registry.impl?.${prop.dartName} = value.isNaN ? nil : value',
-          );
+          // double?: NitroNullableDouble binary decode
+          writer.line('    if let v = value { ${spec.dartClassName}Registry.impl?.${prop.dartName} = NitroNullableDouble.fromNative(v.assumingMemoryBound(to: UInt8.self)).nullable }');
         } else if (isNullableProp && isInt) {
-          // int?: Int64.min = null sentinel
-          writer.line(
-            '    ${spec.dartClassName}Registry.impl?.${prop.dartName} = value == Int64.min ? nil : value',
-          );
+          // int?: NitroNullableInt binary decode
+          writer.line('    if let v = value { ${spec.dartClassName}Registry.impl?.${prop.dartName} = NitroNullableInt.fromNative(v.assumingMemoryBound(to: UInt8.self)).nullable }');
         } else {
           writer.line(
             '    ${spec.dartClassName}Registry.impl?.${prop.dartName} = value',
@@ -879,6 +908,12 @@ class SwiftGenerator {
         writer.line('            }');
       } else if (isBoolItem) {
         writer.line('            if !emitCb(dartPort, Int8(item ? 1 : 0)) {');
+        writer.line('                ${spec.dartClassName}Registry._${stream.dartName}Cancellables.removeValue(forKey: dartPort)?.cancel()');
+        writer.line('            }');
+      } else if (stream.itemType.isTypedData && stream.itemType.isNullable) {
+        // Nullable TypedData stream: emit pointer or 0 for nil.
+        writer.line('            let _ptr: Int64 = item.map { d in d.withUnsafeBytes { Int64(bitPattern: UInt64(UInt(bitPattern: \$0.baseAddress))) } } ?? 0');
+        writer.line('            if !emitCb(dartPort, _ptr) {');
         writer.line('                ${spec.dartClassName}Registry._${stream.dartName}Cancellables.removeValue(forKey: dartPort)?.cancel()');
         writer.line('            }');
       } else {
@@ -1079,10 +1114,15 @@ class SwiftGenerator {
   /// allocates args in the correct registers (FP for doubles, GP for integers).
   static String _toCDeclCallbackType(BridgeType cbType, {BridgeSpec? spec}) {
     final paramList = cbType.functionParams.map((t) => _callbackParamToCDeclSwift(t, spec: spec)).join(', ');
-    // Bidirectional callbacks: if functionReturnType is non-void, use Int64 as the
-    // C return type (matches Dart NativeCallable<Int64 Function(...)>).
+    // Bidirectional callbacks: map Dart return type to @convention(c) C ABI type.
     final retDart = cbType.functionReturnType;
-    final retSwift = (retDart != null && retDart != 'void') ? 'Int64' : 'Void';
+    final retSwift = switch (retDart) {
+      null || 'void' => 'Void',
+      'String' => 'UnsafeMutablePointer<CChar>?', // strdup'd result
+      'double' => 'Int64',  // IEEE 754 bits (GP register)
+      'bool'   => 'Int64',  // 0/1
+      _        => 'Int64',  // int, enum → Int64
+    };
     return '@convention(c) ($paramList) -> $retSwift';
   }
 
@@ -1170,7 +1210,13 @@ class SwiftGenerator {
     if (!needsReturn) {
       bodyCall = callExpr;
     } else if (retDart == 'double') {
+      // double → raw bits in Int64 (GP register, matches NativeCallable<Int64 Function(...)>)
       bodyCall = 'Int64(bitPattern: ($callExpr).bitPattern)';
+    } else if (retDart == 'String') {
+      // String → strdup'd UnsafeMutablePointer<CChar>? (Dart frees via malloc.free)
+      bodyCall = '{ let _s = $callExpr; return _s.withCString { strdup(\$0) } }()';
+    } else if (retDart == 'bool') {
+      bodyCall = '($callExpr) ? 1 : 0';
     } else {
       bodyCall = callExpr;
     }
@@ -1202,6 +1248,9 @@ class SwiftGenerator {
     if (func.returnType.isNativeHandle) return 'UnsafeMutableRawPointer?';
     final name = func.returnType.name.replaceFirst('?', '');
     if (name == 'void') return 'Void';
+    // Nullable primitives MUST be checked BEFORE non-nullable bool/int/double
+    // because they now use NitroNullable binary buffers, not primitive types.
+    if (func.returnType.name == 'int?' || func.returnType.name == 'double?' || func.returnType.name == 'bool?') return 'UnsafeMutablePointer<UInt8>?';
     if (name == 'bool') return 'Int8';
     if (name == 'String') return 'UnsafeMutablePointer<CChar>?';
     // Map<String, T>: JSON-encoded — returns strdup'd C string, same as String.
@@ -1228,8 +1277,10 @@ class SwiftGenerator {
     if (bridgeType?.isNativeHandle == true) return 'UnsafeMutableRawPointer?';
     final name = typeName.replaceFirst('?', '');
     if (name == 'String') return 'UnsafePointer<CChar>?';
-    // Nullable bool uses Int32 to carry the -1 null sentinel; C bridge uses int32_t for the same reason.
-    if (typeName.endsWith('?') && name == 'bool') return 'Int32';
+    // Nullable primitives now use NitroNullable binary buffers (Pointer<Uint8> in Dart).
+    if (typeName.endsWith('?') && name == 'bool') return 'UnsafeMutableRawPointer?';
+    if (typeName.endsWith('?') && name == 'int') return 'UnsafeMutableRawPointer?';
+    if (typeName.endsWith('?') && name == 'double') return 'UnsafeMutableRawPointer?';
     if (name == 'bool') return 'Int8';
     // Map<String, T> is JSON-encoded — passes as a C string (const char*), NOT as a binary buffer.
     if (name.startsWith('Map<')) return 'UnsafePointer<CChar>?';
@@ -1377,12 +1428,14 @@ class SwiftGenerator {
     final name = t.replaceFirst('?', '');
     switch (name) {
       case 'int':
-        // int? guard failure returns Int64.min (null sentinel); int returns 0.
-        return isNullable ? 'Int64.min' : '0';
+        // int? now uses NitroNullableInt binary (UnsafeMutablePointer<UInt8>?) → nil for failure.
+        return isNullable ? 'nil' : '0';
       case 'double':
-        return '0.0';
+        // double? now uses NitroNullableDouble binary → nil for failure.
+        return isNullable ? 'nil' : '0.0';
       case 'bool':
-        return '0';
+        // bool? now uses NitroNullableBool binary → nil for failure.
+        return isNullable ? 'nil' : '0';
       case 'String':
         return 'strdup("")';
       default:

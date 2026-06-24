@@ -249,7 +249,11 @@ class HybridEnum {
 const nitroAsync = NitroAsync();
 
 class NitroAsync {
-  const NitroAsync();
+  /// Optional timeout in milliseconds. When set, the async method will throw
+  /// a TimeoutException if the native call takes longer than [timeout] ms.
+  /// null = no timeout.
+  final int? timeout;
+  const NitroAsync({this.timeout});
 }
 
 // Makes a method use the zero-hop native-async path. Return type must be Future<T>.

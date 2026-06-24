@@ -1063,8 +1063,13 @@ class CppBridgeGenerator {
     // Nullable bool?: bridge returns Int (I) with -1=null/0=false/1=true.
     final baseRetType = returnType.name.replaceFirst('?', '');
     final isNullableBoolRet = baseRetType == 'bool' && returnType.name.endsWith('?');
+    // Nullable primitives now return ByteArray (NitroNullable binary encoding).
+    final isNullableIntRet = baseRetType == 'int' && returnType.name.endsWith('?');
+    final isNullableDoubleRet = baseRetType == 'double' && returnType.name.endsWith('?');
     final returnSig = switch (baseRetType) {
-      _ when isNullableBoolRet => 'I',  // Int for 3-state null/false/true
+      _ when isNullableIntRet => '[B',    // NitroNullableInt ByteArray
+      _ when isNullableDoubleRet => '[B', // NitroNullableDouble ByteArray
+      _ when isNullableBoolRet => '[B',   // NitroNullableBool ByteArray
       final base when enumNames.contains(base) => 'J',
       final base when structNames.contains(base) => 'L$libPkg/$base;',
       _ when zeroCopyReturn && returnType.isTypedData => 'Ljava/nio/ByteBuffer;',
@@ -1115,8 +1120,12 @@ class CppBridgeGenerator {
     if (param.type.isMap) return 'Ljava/lang/String;';            // JSON-encoded string
     // Callback / function-typed params are passed as a long (function pointer).
     if (param.type.isFunction) return 'J';
-    // Nullable bool uses Int (I) to preserve the -1 sentinel for null.
-    if (param.type.isNullable && baseParamType == 'bool') return 'I';
+    // Nullable primitives use NitroNullable ByteArray encoding ([B).
+    if (param.type.isNullable && baseParamType == 'int') return '[B';
+    if (param.type.isNullable && baseParamType == 'double') return '[B';
+    if (param.type.isNullable && baseParamType == 'bool') return '[B';
+    // Also handle '?' suffix in type name
+    if (param.type.name.endsWith('?') && (baseParamType == 'int' || baseParamType == 'double' || baseParamType == 'bool')) return '[B';
     return _jniSigType(param.type.name);
   }
 }
