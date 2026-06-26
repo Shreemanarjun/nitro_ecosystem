@@ -320,6 +320,12 @@ void main() {
       expect(out, contains('(raw) => raw as String'));
     });
 
+    test('String return: openNativeAsync uses String transport type', () {
+      final out = DartFfiGenerator.generate(_nativeAsyncStringSpec());
+      expect(out, contains('NitroRuntime.openNativeAsync<String>'));
+      expect(out, isNot(contains('NitroRuntime.openNativeAsync<Pointer<Utf8>>')));
+    });
+
     test('void return: unpack is _ => {}', () {
       final out = DartFfiGenerator.generate(_nativeAsyncVoidSpec());
       expect(out, contains('(_) {}'));

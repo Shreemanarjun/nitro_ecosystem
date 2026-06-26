@@ -24,24 +24,122 @@ BridgeSpec _asyncNullableSpec() => BridgeSpec(
   sourceUri: 'async.native.dart',
   functions: [
     // --- nullable primitives returned from @nitroAsync ---
-    BridgeFunction(dartName: 'getNullableInt', cSymbol: 'async_get_nullable_int', isAsync: true, returnType: BridgeType(name: 'int?'), params: []),
-    BridgeFunction(dartName: 'getNullableDouble', cSymbol: 'async_get_nullable_double', isAsync: true, returnType: BridgeType(name: 'double?'), params: []),
-    BridgeFunction(dartName: 'getNullableBool', cSymbol: 'async_get_nullable_bool', isAsync: true, returnType: BridgeType(name: 'bool?'), params: []),
-    BridgeFunction(dartName: 'getNullableString', cSymbol: 'async_get_nullable_string', isAsync: true, returnType: BridgeType(name: 'String?'), params: []),
+    BridgeFunction(
+      dartName: 'getNullableInt',
+      cSymbol: 'async_get_nullable_int',
+      isAsync: true,
+      returnType: BridgeType(name: 'int?'),
+      params: [],
+    ),
+    BridgeFunction(
+      dartName: 'getNullableDouble',
+      cSymbol: 'async_get_nullable_double',
+      isAsync: true,
+      returnType: BridgeType(name: 'double?'),
+      params: [],
+    ),
+    BridgeFunction(
+      dartName: 'getNullableBool',
+      cSymbol: 'async_get_nullable_bool',
+      isAsync: true,
+      returnType: BridgeType(name: 'bool?'),
+      params: [],
+    ),
+    BridgeFunction(
+      dartName: 'getNullableString',
+      cSymbol: 'async_get_nullable_string',
+      isAsync: true,
+      returnType: BridgeType(name: 'String?'),
+      params: [],
+    ),
     // --- non-nullable variants for comparison ---
-    BridgeFunction(dartName: 'getInt', cSymbol: 'async_get_int', isAsync: true, returnType: BridgeType(name: 'int'), params: []),
-    BridgeFunction(dartName: 'getBool', cSymbol: 'async_get_bool', isAsync: true, returnType: BridgeType(name: 'bool'), params: []),
-    BridgeFunction(dartName: 'getString', cSymbol: 'async_get_string', isAsync: true, returnType: BridgeType(name: 'String'), params: []),
+    BridgeFunction(
+      dartName: 'getInt',
+      cSymbol: 'async_get_int',
+      isAsync: true,
+      returnType: BridgeType(name: 'int'),
+      params: [],
+    ),
+    BridgeFunction(
+      dartName: 'getBool',
+      cSymbol: 'async_get_bool',
+      isAsync: true,
+      returnType: BridgeType(name: 'bool'),
+      params: [],
+    ),
+    BridgeFunction(
+      dartName: 'getString',
+      cSymbol: 'async_get_string',
+      isAsync: true,
+      returnType: BridgeType(name: 'String'),
+      params: [],
+    ),
     // --- @NitroNativeAsync nullable ---
-    BridgeFunction(dartName: 'nativeNullableInt', cSymbol: 'async_native_nullable_int', isAsync: false, isNativeAsync: true, returnType: BridgeType(name: 'int?'), params: []),
-    BridgeFunction(dartName: 'nativeNullableDouble', cSymbol: 'async_native_nullable_double', isAsync: false, isNativeAsync: true, returnType: BridgeType(name: 'double?'), params: []),
-    BridgeFunction(dartName: 'nativeNullableBool', cSymbol: 'async_native_nullable_bool', isAsync: false, isNativeAsync: true, returnType: BridgeType(name: 'bool?'), params: []),
-    BridgeFunction(dartName: 'nativeNullableString', cSymbol: 'async_native_nullable_string', isAsync: false, isNativeAsync: true, returnType: BridgeType(name: 'String?'), params: []),
+    BridgeFunction(
+      dartName: 'nativeNullableInt',
+      cSymbol: 'async_native_nullable_int',
+      isAsync: false,
+      isNativeAsync: true,
+      returnType: BridgeType(name: 'int?'),
+      params: [],
+    ),
+    BridgeFunction(
+      dartName: 'nativeNullableDouble',
+      cSymbol: 'async_native_nullable_double',
+      isAsync: false,
+      isNativeAsync: true,
+      returnType: BridgeType(name: 'double?'),
+      params: [],
+    ),
+    BridgeFunction(
+      dartName: 'nativeNullableBool',
+      cSymbol: 'async_native_nullable_bool',
+      isAsync: false,
+      isNativeAsync: true,
+      returnType: BridgeType(name: 'bool?'),
+      params: [],
+    ),
+    BridgeFunction(
+      dartName: 'nativeNullableString',
+      cSymbol: 'async_native_nullable_string',
+      isAsync: false,
+      isNativeAsync: true,
+      returnType: BridgeType(name: 'String?'),
+      params: [],
+    ),
     // --- @NitroNativeAsync non-nullable for comparison ---
-    BridgeFunction(dartName: 'nativeInt', cSymbol: 'async_native_int', isAsync: false, isNativeAsync: true, returnType: BridgeType(name: 'int'), params: []),
-    BridgeFunction(dartName: 'nativeBool', cSymbol: 'async_native_bool', isAsync: false, isNativeAsync: true, returnType: BridgeType(name: 'bool'), params: []),
-    BridgeFunction(dartName: 'nativeDouble', cSymbol: 'async_native_double', isAsync: false, isNativeAsync: true, returnType: BridgeType(name: 'double'), params: []),
-    BridgeFunction(dartName: 'nativeString', cSymbol: 'async_native_string', isAsync: false, isNativeAsync: true, returnType: BridgeType(name: 'String'), params: []),
+    BridgeFunction(
+      dartName: 'nativeInt',
+      cSymbol: 'async_native_int',
+      isAsync: false,
+      isNativeAsync: true,
+      returnType: BridgeType(name: 'int'),
+      params: [],
+    ),
+    BridgeFunction(
+      dartName: 'nativeBool',
+      cSymbol: 'async_native_bool',
+      isAsync: false,
+      isNativeAsync: true,
+      returnType: BridgeType(name: 'bool'),
+      params: [],
+    ),
+    BridgeFunction(
+      dartName: 'nativeDouble',
+      cSymbol: 'async_native_double',
+      isAsync: false,
+      isNativeAsync: true,
+      returnType: BridgeType(name: 'double'),
+      params: [],
+    ),
+    BridgeFunction(
+      dartName: 'nativeString',
+      cSymbol: 'async_native_string',
+      isAsync: false,
+      isNativeAsync: true,
+      returnType: BridgeType(name: 'String'),
+      params: [],
+    ),
   ],
 );
 
@@ -51,10 +149,25 @@ BridgeSpec _asyncNullableWithEnumSpec() => BridgeSpec(
   namespace: 'nullable_enum',
   iosImpl: NativeImpl.swift,
   sourceUri: 'nullable_enum.native.dart',
-  enums: [BridgeEnum(name: 'Color', startValue: 0, values: ['red', 'green', 'blue'])],
+  enums: [
+    BridgeEnum(name: 'Color', startValue: 0, values: ['red', 'green', 'blue']),
+  ],
   functions: [
-    BridgeFunction(dartName: 'nativeColor', cSymbol: 'nullable_enum_native_color', isAsync: false, isNativeAsync: true, returnType: BridgeType(name: 'Color'), params: []),
-    BridgeFunction(dartName: 'asyncColor', cSymbol: 'nullable_enum_async_color', isAsync: true, returnType: BridgeType(name: 'Color'), params: []),
+    BridgeFunction(
+      dartName: 'nativeColor',
+      cSymbol: 'nullable_enum_native_color',
+      isAsync: false,
+      isNativeAsync: true,
+      returnType: BridgeType(name: 'Color'),
+      params: [],
+    ),
+    BridgeFunction(
+      dartName: 'asyncColor',
+      cSymbol: 'nullable_enum_async_color',
+      isAsync: true,
+      returnType: BridgeType(name: 'Color'),
+      params: [],
+    ),
   ],
 );
 
@@ -69,15 +182,37 @@ BridgeSpec _asyncNullableWithStructSpec() => BridgeSpec(
       name: 'Vec3',
       packed: false,
       fields: [
-        BridgeField(name: 'x', type: BridgeType(name: 'double')),
-        BridgeField(name: 'y', type: BridgeType(name: 'double')),
-        BridgeField(name: 'z', type: BridgeType(name: 'double')),
+        BridgeField(
+          name: 'x',
+          type: BridgeType(name: 'double'),
+        ),
+        BridgeField(
+          name: 'y',
+          type: BridgeType(name: 'double'),
+        ),
+        BridgeField(
+          name: 'z',
+          type: BridgeType(name: 'double'),
+        ),
       ],
     ),
   ],
   functions: [
-    BridgeFunction(dartName: 'asyncVec', cSymbol: 'nullable_struct_async_vec', isAsync: true, returnType: BridgeType(name: 'Vec3'), params: []),
-    BridgeFunction(dartName: 'nativeVec', cSymbol: 'nullable_struct_native_vec', isAsync: false, isNativeAsync: true, returnType: BridgeType(name: 'Vec3'), params: []),
+    BridgeFunction(
+      dartName: 'asyncVec',
+      cSymbol: 'nullable_struct_async_vec',
+      isAsync: true,
+      returnType: BridgeType(name: 'Vec3'),
+      params: [],
+    ),
+    BridgeFunction(
+      dartName: 'nativeVec',
+      cSymbol: 'nullable_struct_native_vec',
+      isAsync: false,
+      isNativeAsync: true,
+      returnType: BridgeType(name: 'Vec3'),
+      params: [],
+    ),
   ],
 );
 
@@ -112,8 +247,8 @@ void main() {
     test('int (non-nullable) return: raw cast, no sentinel decode', () {
       final out = DartFfiGenerator.generate(_asyncNullableSpec());
       // getInt should just return res directly — no sentinel decode
-      expect(out, contains('getNullableInt'));  // nullable has decode
-      expect(out, contains('getInt'));           // non-nullable: raw int
+      expect(out, contains('getNullableInt')); // nullable has decode
+      expect(out, contains('getInt')); // non-nullable: raw int
     });
 
     test('bool (non-nullable) return: res != 0 decode', () {
@@ -151,9 +286,10 @@ void main() {
       expect(out, isNot(contains('openNativeAsync<bool?>')));
     });
 
-    test('String? uses Pointer<Utf8> transport type', () {
+    test('String? uses nullable String transport type', () {
       final out = DartFfiGenerator.generate(_asyncNullableSpec());
-      expect(out, isNot(contains('openNativeAsync<String?>')));
+      expect(out, contains('openNativeAsync<String?>'));
+      expect(out, isNot(contains('openNativeAsync<Pointer<Utf8>>')));
     });
 
     test('enum uses int transport type', () {
@@ -188,6 +324,11 @@ void main() {
       final out = DartFfiGenerator.generate(_asyncNullableSpec());
       // Unpack for nativeNullableInt should check v == Int64.min
       expect(out, contains('v == -9223372036854775808 ? null : v'));
+    });
+
+    test('String? unpack casts posted kString/kNull to String?', () {
+      final out = DartFfiGenerator.generate(_asyncNullableSpec());
+      expect(out, contains('(raw) => raw as String?'));
     });
 
     test('double? unpack: NaN → null (NativeAsync only)', () {
@@ -245,10 +386,34 @@ void main() {
       iosImpl: NativeImpl.swift,
       sourceUri: 'sync.native.dart',
       functions: [
-        BridgeFunction(dartName: 'getNullableInt', cSymbol: 'sync_get_nullable_int', isAsync: false, returnType: BridgeType(name: 'int?'), params: []),
-        BridgeFunction(dartName: 'getNullableDouble', cSymbol: 'sync_get_nullable_double', isAsync: false, returnType: BridgeType(name: 'double?'), params: []),
-        BridgeFunction(dartName: 'getNullableBool', cSymbol: 'sync_get_nullable_bool', isAsync: false, returnType: BridgeType(name: 'bool?'), params: []),
-        BridgeFunction(dartName: 'getNullableString', cSymbol: 'sync_get_nullable_string', isAsync: false, returnType: BridgeType(name: 'String?'), params: []),
+        BridgeFunction(
+          dartName: 'getNullableInt',
+          cSymbol: 'sync_get_nullable_int',
+          isAsync: false,
+          returnType: BridgeType(name: 'int?'),
+          params: [],
+        ),
+        BridgeFunction(
+          dartName: 'getNullableDouble',
+          cSymbol: 'sync_get_nullable_double',
+          isAsync: false,
+          returnType: BridgeType(name: 'double?'),
+          params: [],
+        ),
+        BridgeFunction(
+          dartName: 'getNullableBool',
+          cSymbol: 'sync_get_nullable_bool',
+          isAsync: false,
+          returnType: BridgeType(name: 'bool?'),
+          params: [],
+        ),
+        BridgeFunction(
+          dartName: 'getNullableString',
+          cSymbol: 'sync_get_nullable_string',
+          isAsync: false,
+          returnType: BridgeType(name: 'String?'),
+          params: [],
+        ),
       ],
     );
 

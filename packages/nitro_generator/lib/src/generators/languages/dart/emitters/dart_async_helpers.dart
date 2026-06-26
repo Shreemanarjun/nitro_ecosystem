@@ -53,9 +53,10 @@ String _nativeAsyncOpenType(BridgeFunction func, BridgeSpec spec) {
   // native post mechanism uses sentinel values (−1 / NaN / nullptr) for null,
   // not Dart null, so the transport type is always non-nullable.
   final rtBase = rt.replaceFirst('?', '');
+  final isNullable = func.returnType.isNullable || rt.endsWith('?');
   if (rt == 'void') return 'void';
   if (rtBase == 'bool') return 'bool';
-  if (rtBase == 'String') return 'Pointer<Utf8>';
+  if (rtBase == 'String') return isNullable ? 'String?' : 'String';
   if (func.returnType.isRecord) return 'Pointer<Uint8>';
   if (spec.isStructName(rtBase)) return 'Pointer<Void>';
   if (spec.isEnumName(rtBase)) return 'int';
@@ -82,16 +83,12 @@ String _nativeAsyncUnpack(BridgeFunction func, BridgeSpec spec) {
 
   // bool / bool?
   if (rtBase == 'bool') {
-    return isNullable
-        ? '(raw) => (raw as bool?) == null ? null : raw as bool'
-        : '(raw) => raw as bool';
+    return isNullable ? '(raw) => (raw as bool?) == null ? null : raw as bool' : '(raw) => raw as bool';
   }
 
   // String / String?  — native posts kString or kNull
   if (rtBase == 'String') {
-    return isNullable
-        ? '(raw) { final p = Pointer<Utf8>.fromAddress(raw as int); return p == nullptr ? null : p.toDartStringWithFree(); }'
-        : '(raw) => raw as String';
+    return isNullable ? '(raw) => raw as String?' : '(raw) => raw as String';
   }
 
   // @HybridRecord  — native posts kInt64 (pointer to binary buffer)
@@ -120,23 +117,17 @@ String _nativeAsyncUnpack(BridgeFunction func, BridgeSpec spec) {
 
   // @HybridEnum  — native posts kInt64 rawValue
   if (spec.isEnumName(rtBase)) {
-    return isNullable
-        ? '(raw) { final v = raw as int; return v == -1 ? null : v.to$rtBase(); }'
-        : '(raw) => (raw as int).to$rtBase()';
+    return isNullable ? '(raw) { final v = raw as int; return v == -1 ? null : v.to$rtBase(); }' : '(raw) => (raw as int).to$rtBase()';
   }
 
   // int / int?  — native posts kInt64; sentinel Int64.min = null
   if (rtBase == 'int') {
-    return isNullable
-        ? '(raw) { final v = raw as int; return v == -9223372036854775808 ? null : v; }'
-        : '(raw) => raw as int';
+    return isNullable ? '(raw) { final v = raw as int; return v == -9223372036854775808 ? null : v; }' : '(raw) => raw as int';
   }
 
   // double / double?  — native posts kDouble; sentinel NaN = null
   if (rtBase == 'double') {
-    return isNullable
-        ? '(raw) { final v = raw as double; return v.isNaN ? null : v; }'
-        : '(raw) => raw as double';
+    return isNullable ? '(raw) { final v = raw as double; return v.isNaN ? null : v; }' : '(raw) => raw as double';
   }
 
   // Fallthrough: unknown type — cast directly (should not normally occur).
@@ -253,10 +244,10 @@ void _emitReturnDecode(
 /// Variable name used for the raw async result based on return kind.
 /// Keeps emitted code readable: `rawPtr` for pointer types, `res` for scalars.
 String _asyncResVarName(ReturnKind kind) => switch (kind) {
-  ReturnKind.record    => 'rawPtr',
+  ReturnKind.record => 'rawPtr',
   ReturnKind.typedData => 'rawPtr',
-  ReturnKind.struct    => 'rawPtr',
-  _                    => 'res',
+  ReturnKind.struct => 'rawPtr',
+  _ => 'res',
 };
 
 // Kept for callers that already pass an indent; delegates to the S8 form.
@@ -295,4 +286,3 @@ bool _isLeafCandidate(BridgeFunction func, BridgeSpec spec) {
   if (!_isPrimitiveType(rt, spec) && rt.name != 'void') return false;
   return func.params.every((p) => _isPrimitiveType(p.type, spec));
 }
-
