@@ -308,7 +308,7 @@ class SpecValidator {
         issues.add(
           ValidationIssue(
             severity: ValidationSeverity.error,
-            code: 'UNKNOWN_RETURN_TYPE',
+            code: 'E010',
             message: '${spec.dartClassName}.${func.dartName}() — unknown return type "$retName".',
             hint:
                 'If "$retName" is a struct, annotate it with @HybridStruct. '
@@ -504,7 +504,7 @@ class SpecValidator {
           issues.add(
             ValidationIssue(
               severity: ValidationSeverity.error,
-              code: 'UNKNOWN_PARAM_TYPE',
+              code: 'E010',
               message: '${spec.dartClassName}.${func.dartName}() — parameter "${param.name}" has unknown type "$pName".',
               hint:
                   'If "$pName" is a struct, annotate it with @HybridStruct. '
@@ -623,7 +623,7 @@ class SpecValidator {
         issues.add(
           ValidationIssue(
             severity: ValidationSeverity.error,
-            code: 'UNKNOWN_PROPERTY_TYPE',
+            code: 'E012',
             message: '${spec.dartClassName}.${prop.dartName} — unknown property type "$pName".',
             hint:
                 'If "$pName" is a struct, annotate it with @HybridStruct. '
@@ -665,7 +665,7 @@ class SpecValidator {
         issues.add(
           ValidationIssue(
             severity: ValidationSeverity.error,
-            code: 'UNKNOWN_STREAM_ITEM_TYPE',
+            code: 'E011',
             message: '${spec.dartClassName}.${stream.dartName} — unknown stream item type "$iName".',
             hint:
                 'If "$iName" is a struct, annotate it with @HybridStruct. '
@@ -753,6 +753,50 @@ class SpecValidator {
             hint: 'This works at runtime but bypasses Kotlin type-checking. Consider using @HybridRecord directly.',
           ),
         );
+      }
+    }
+
+    // ── E013: @HybridRecord field type references ─────────────────────────
+    for (final rt in spec.recordTypes) {
+      for (final field in rt.fields) {
+        // RecordFieldKind is set by the spec extractor — if kind is known
+        // (primitive, enumValue, recordObject, etc.) the type is already resolved.
+        // Only report E013 for primitive-kind fields whose dartType base name
+        // is not in the known types set, which signals an unresolved reference.
+        if (field.kind != RecordFieldKind.primitive) continue;
+        final fName = field.dartType.replaceFirst('?', '').split('<').first.trim();
+        if (!_isKnownType(fName, knownTypes)) {
+          issues.add(
+            ValidationIssue(
+              severity: ValidationSeverity.error,
+              code: 'E013',
+              message: '${rt.name}.${field.name} — unknown @HybridRecord field type "$fName".',
+              hint:
+                  'If "$fName" is an enum, annotate it with @HybridEnum. '
+                  'If it is a struct, annotate it with @HybridStruct. '
+                  'If it is a nested record, annotate it with @HybridRecord and mark it as imported.',
+            ),
+          );
+        }
+      }
+    }
+
+    // ── E014: @NitroVariant case count ────────────────────────────────────
+    for (final variant in spec.variants) {
+      if (variant.cases.isEmpty) {
+        issues.add(ValidationIssue(
+          severity: ValidationSeverity.error,
+          code: 'E014',
+          message: '${variant.name} — @NitroVariant has no cases.',
+          hint: 'Add at least one concrete subclass of ${variant.name}.',
+        ));
+      } else if (variant.cases.length > 10) {
+        issues.add(ValidationIssue(
+          severity: ValidationSeverity.error,
+          code: 'E014',
+          message: '${variant.name} — @NitroVariant has ${variant.cases.length} cases (max 10).',
+          hint: 'Split "${variant.name}" into multiple variant types, each with ≤ 10 cases.',
+        ));
       }
     }
 

@@ -1,5 +1,27 @@
 import 'package:nitro_annotations/nitro_annotations.dart';
 
+/// Discriminated kind for a [BridgeType], derived from its boolean flags.
+///
+/// Use `BridgeType.kind` in switch statements instead of chaining `isRecord &&
+/// recordListItemType != null && ...`. Adding a new kind here forces a single
+/// `case` in each generator switch, eliminating silent fall-throughs.
+enum BridgeTypeKind {
+  primitive,      // int, double, bool, String, void
+  enumValue,      // @HybridEnum
+  struct_,        // @HybridStruct (FFI memory layout)
+  record,         // @HybridRecord (binary codec, single instance)
+  recordList,     // List<@HybridRecord>
+  primitiveList,  // List<int|double|bool|String>
+  typedData,      // Uint8List, Float64List, etc.
+  map,            // Map<String, T>
+  function_,      // T Function(...) — callback
+  nativeHandle,   // NativeHandle<T> — opaque raw pointer
+  pointer,        // Pointer<T> — explicit FFI pointer
+  stream,         // Stream<T>
+  future,         // Future<T>
+  variant,        // @NitroVariant (Sprint 2, reserved)
+}
+
 class BridgeSpec {
   final String dartClassName;
   final String lib;
@@ -67,6 +89,7 @@ class BridgeSpec {
   final List<BridgeStream> streams;
   final List<BridgeProperty> properties;
   final List<BridgeRecordType> recordTypes;
+  final List<BridgeVariant> variants;
 
   /// True when this spec was extracted from a type-only `.native.dart` file
   /// (no `@NitroModule` annotation). Generators emit only type declarations,
@@ -84,6 +107,26 @@ class BridgeSpec {
   List<BridgeEnum> get localEnums => enums.where((e) => !e.isImported).toList();
   List<BridgeStruct> get localStructs => structs.where((s) => !s.isImported).toList();
   List<BridgeRecordType> get localRecordTypes => recordTypes.where((r) => !r.isImported).toList();
+  List<BridgeVariant> get localVariants => variants.where((v) => !v.isImported).toList();
+
+  // ── O(1) type index — lazy, cached ─────────────────────────────────────────
+  // Generators historically use `spec.enums.any(e => e.name == name)` in tight
+  // loops — O(n) per lookup, O(m×n) total. These lazily-built maps provide
+  // O(1) lookup and are computed at most once per BridgeSpec instance.
+  late final Map<String, BridgeEnum>       _enumIndex    = { for (final e in enums)    e.name: e };
+  late final Map<String, BridgeStruct>     _structIndex  = { for (final s in structs)  s.name: s };
+  late final Map<String, BridgeRecordType> _recordIndex  = { for (final r in recordTypes) r.name: r };
+  late final Map<String, BridgeVariant>    _variantIndex = { for (final v in variants) v.name: v };
+
+  BridgeEnum?       enumByName(String n)    => _enumIndex[n];
+  BridgeStruct?     structByName(String n)  => _structIndex[n];
+  BridgeRecordType? recordByName(String n)  => _recordIndex[n];
+  BridgeVariant?    variantByName(String n) => _variantIndex[n];
+
+  bool isEnumName(String n)    => _enumIndex.containsKey(n);
+  bool isStructName(String n)  => _structIndex.containsKey(n);
+  bool isRecordName(String n)  => _recordIndex.containsKey(n);
+  bool isVariantName(String n) => _variantIndex.containsKey(n);
 
   BridgeSpec({
     required this.dartClassName,
@@ -102,6 +145,7 @@ class BridgeSpec {
     this.streams = const [],
     this.properties = const [],
     this.recordTypes = const [],
+    this.variants = const [],
     this.isTypeOnly = false,
     this.importedTypeFiles = const [],
   });
@@ -142,6 +186,31 @@ class BridgeType {
   /// this ensures correct behaviour for BridgeType instances created in tests
   /// where [isNullable] may default to `false` even when the name ends with `?`.
   String get baseName => name.endsWith('?') ? name.substring(0, name.length - 1) : name;
+
+  /// Discriminated kind — use in switch instead of chained boolean checks.
+  ///
+  /// Derived purely from the existing flag fields so no existing code breaks.
+  /// Enum/struct membership must be checked by the caller against the spec's
+  /// name sets (BridgeType itself has no access to the spec).
+  /// For enum/struct disambiguation, see [KotlinTypeMapper.type] and [SwiftTypeMapper.swiftType].
+  BridgeTypeKind get kind {
+    if (isNativeHandle)       return BridgeTypeKind.nativeHandle;
+    if (isPointer)            return BridgeTypeKind.pointer;
+    if (isFunction)           return BridgeTypeKind.function_;
+    if (isStream)             return BridgeTypeKind.stream;
+    if (isFuture)             return BridgeTypeKind.future;
+    if (isMap)                return BridgeTypeKind.map;
+    if (isRecord) {
+      if (recordListItemType != null) {
+        return recordListItemIsPrimitive
+            ? BridgeTypeKind.primitiveList
+            : BridgeTypeKind.recordList;
+      }
+      return BridgeTypeKind.record;
+    }
+    if (isTypedData)          return BridgeTypeKind.typedData;
+    return BridgeTypeKind.primitive; // int, double, bool, String, void, enums, structs
+  }
 
   /// True when the type is a Dart TypedData (Uint8List, Float32List, etc.)
   bool get isTypedData =>
@@ -431,4 +500,36 @@ class BridgeRecordType {
   final bool isImported;
 
   BridgeRecordType({required this.name, required this.fields, this.isImported = false});
+}
+
+// ── @NitroVariant ─────────────────────────────────────────────────────────────
+
+/// One concrete case of a [@NitroVariant] sealed class.
+///
+/// [name] is the Dart class name (e.g. `FilterAccepted`).
+/// [label] is the camelCase case identifier for Kotlin `sealed class` /
+///   Swift `enum` (e.g. `accepted`).
+/// [fields] are the fields of the case class — empty for unit cases.
+class BridgeVariantCase {
+  final String name;
+  final String label;
+  final List<BridgeRecordField> fields;
+
+  BridgeVariantCase({required this.name, required this.label, required this.fields});
+
+  bool get isUnit => fields.isEmpty;
+}
+
+/// IR model for a `@NitroVariant`-annotated sealed class.
+///
+/// Wire format: `[1B tag 0..N] [optional payload — record codec]`
+/// The case at index 0 has tag 0, index 1 has tag 1, etc.
+class BridgeVariant {
+  final String name;
+  final List<BridgeVariantCase> cases;
+  final bool isImported;
+
+  BridgeVariant({required this.name, required this.cases, this.isImported = false});
+
+  List<BridgeVariant> get localVariants => isImported ? [] : [this];
 }

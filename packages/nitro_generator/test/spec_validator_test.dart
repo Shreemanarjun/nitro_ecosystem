@@ -15,7 +15,7 @@ void main() {
       expect(SpecValidator.validate(structStreamSpec()), isEmpty);
     });
 
-    test('unknown return type emits UNKNOWN_RETURN_TYPE error', () {
+    test('unknown return type emits E010 error', () {
       final spec = BridgeSpec(
         dartClassName: 'Foo',
         lib: 'foo',
@@ -35,12 +35,12 @@ void main() {
       );
       final issues = SpecValidator.validate(spec);
       expect(
-        issues.any((i) => i.code == 'UNKNOWN_RETURN_TYPE' && i.isError),
+        issues.any((i) => i.code == 'E010' && i.isError),
         isTrue,
       );
     });
 
-    test('unknown parameter type emits UNKNOWN_PARAM_TYPE error', () {
+    test('unknown parameter type emits E010 error', () {
       final spec = BridgeSpec(
         dartClassName: 'Foo',
         lib: 'foo',
@@ -65,7 +65,7 @@ void main() {
       );
       final issues = SpecValidator.validate(spec);
       expect(
-        issues.any((i) => i.code == 'UNKNOWN_PARAM_TYPE' && i.isError),
+        issues.any((i) => i.code == 'E010' && i.isError),
         isTrue,
       );
     });
@@ -402,7 +402,7 @@ void main() {
   });
 
   group('SpecValidator (property and stream types)', () {
-    test('unknown property type emits UNKNOWN_PROPERTY_TYPE error', () {
+    test('unknown property type emits E012 error', () {
       final spec = BridgeSpec(
         dartClassName: 'Foo',
         lib: 'foo',
@@ -421,10 +421,10 @@ void main() {
         ],
       );
       final issues = SpecValidator.validate(spec);
-      expect(issues.any((i) => i.code == 'UNKNOWN_PROPERTY_TYPE' && i.isError), isTrue);
+      expect(issues.any((i) => i.code == 'E012' && i.isError), isTrue);
     });
 
-    test('unknown stream item type emits UNKNOWN_STREAM_ITEM_TYPE error', () {
+    test('unknown stream item type emits E011 error', () {
       final spec = BridgeSpec(
         dartClassName: 'Foo',
         lib: 'foo',
@@ -443,7 +443,7 @@ void main() {
         ],
       );
       final issues = SpecValidator.validate(spec);
-      expect(issues.any((i) => i.code == 'UNKNOWN_STREAM_ITEM_TYPE' && i.isError), isTrue);
+      expect(issues.any((i) => i.code == 'E011' && i.isError), isTrue);
     });
 
     test('known struct as stream item type is valid', () {
@@ -774,7 +774,7 @@ void main() {
   });
 
   group('SpecValidator (error messages)', () {
-    test('UNKNOWN_RETURN_TYPE error includes function name and type', () {
+    test('E010 error includes function name and type', () {
       final spec = BridgeSpec(
         dartClassName: 'MyMod',
         lib: 'my_mod',
@@ -792,13 +792,13 @@ void main() {
           ),
         ],
       );
-      final issue = SpecValidator.validate(spec).firstWhere((i) => i.code == 'UNKNOWN_RETURN_TYPE');
+      final issue = SpecValidator.validate(spec).firstWhere((i) => i.code == 'E010');
       expect(issue.message, contains('fetchBlob'));
       expect(issue.message, contains('Blob'));
       expect(issue.hint, isNotNull);
     });
 
-    test('UNKNOWN_PARAM_TYPE hint is non-null', () {
+    test('E010 hint is non-null', () {
       final spec = BridgeSpec(
         dartClassName: 'Foo',
         lib: 'foo',
@@ -821,7 +821,7 @@ void main() {
           ),
         ],
       );
-      final issue = SpecValidator.validate(spec).firstWhere((i) => i.code == 'UNKNOWN_PARAM_TYPE');
+      final issue = SpecValidator.validate(spec).firstWhere((i) => i.code == 'E010');
       expect(issue.hint, isNotNull);
       expect(issue.hint, isNotEmpty);
     });
@@ -857,7 +857,7 @@ void main() {
         ],
       );
       final errors = SpecValidator.validate(spec).where((i) => i.isError).toList();
-      // UNKNOWN_RETURN_TYPE, UNKNOWN_PARAM_TYPE, DUPLICATE_SYMBOL
+      // E010, E010, DUPLICATE_SYMBOL
       expect(errors.length, greaterThanOrEqualTo(3));
     });
   });

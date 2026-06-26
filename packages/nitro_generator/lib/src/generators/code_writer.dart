@@ -111,6 +111,50 @@ final class CodeWriter {
     }
   }
 
+  // ── High-level helpers ───────────────────────────────────────────────────────
+
+  /// Emits `header {`, indented [body], then `}`.
+  ///
+  ///     writer.block('fun greet()', () {
+  ///       writer.line('println("hello")');
+  ///     });
+  void block(String header, void Function() body) {
+    line('$header {');
+    indent(body);
+    line('}');
+  }
+
+  /// Emits an `if` block and an optional `else` block with braces.
+  void ifBlock(String condition, void Function() body, [void Function()? elseBody]) {
+    if (elseBody == null) {
+      block('if ($condition)', body);
+    } else {
+      line('if ($condition) {');
+      indent(body);
+      line('} else {');
+      indent(elseBody);
+      line('}');
+    }
+  }
+
+  /// Emits [body] only when [condition] is true — no output otherwise.
+  void when(bool condition, void Function() body) {
+    if (condition) body();
+  }
+
+  /// Emits each item in [items] on its own line, separated by [separator].
+  ///
+  /// The separator is appended to every line except the last.
+  void joinLines(Iterable<String> items, {String separator = ','}) {
+    final list = items.toList();
+    for (var i = 0; i < list.length; i++) {
+      line(i < list.length - 1 ? '${list[i]}$separator' : list[i]);
+    }
+  }
+
+  /// Emits a blank line (alias for [blankLine] that matches the plan API name).
+  void blank() => blankLine();
+
   @override
   String toString() => _buffer.toString();
 }

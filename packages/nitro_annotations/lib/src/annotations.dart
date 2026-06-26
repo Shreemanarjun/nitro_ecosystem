@@ -351,3 +351,31 @@ class NitroOwned {
 
 /// Const shorthand for [@NitroOwned].
 const nitroOwned = NitroOwned();
+
+/// Marks a Dart sealed class as a discriminated union type (sum type / tagged union).
+///
+/// The sealed class itself is the variant type. Each concrete subclass becomes
+/// one case of the variant. Cases with fields encode them using the same binary
+/// record codec as [@HybridRecord].
+///
+/// Wire format: `[1B tag 0..N] [optional payload bytes — record codec]`
+///
+/// **E014:** More than 10 cases are rejected at validation time.
+///
+/// Example:
+/// ```dart
+/// @NitroVariant()
+/// sealed class FilterResult { const FilterResult(); }
+///
+/// class FilterAccepted extends FilterResult {
+///   final String id;
+///   const FilterAccepted({required this.id});
+/// }
+/// class FilterRejected extends FilterResult { const FilterRejected(); }
+/// ```
+class NitroVariant {
+  const NitroVariant();
+}
+
+/// Const shorthand for [@NitroVariant].
+const nitroVariant = NitroVariant();

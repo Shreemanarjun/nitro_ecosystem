@@ -1,0 +1,188 @@
+part of '../dart_ffi_generator.dart';
+
+/// Emits `@override` method implementations for all [BridgeFunction]s.
+void _emitFunctionImpls(CodeWriter writer, BridgeSpec spec) {
+// ── Method implementations ───────────────────────────────────────────────
+for (final func in spec.functions) {
+  final needsArena = func.params.any(
+    (p) {
+      final baseName = p.type.name.replaceFirst('?', '');
+      return p.type.isTypedData || p.type.name == 'String' || p.type.name == 'String?' || p.type.isRecord || spec.structs.any((st) => st.name == baseName) || p.type.name == 'int?' || p.type.name == 'double?' || p.type.name == 'bool?';
+    },
+  );
+
+  final callArgs = func.params
+      .expand((p) {
+        final t = p.type.name;
+        if (p.type.isRecord) {
+          return [_encodeRecordParam(p.type, p.name, 'arena')];
+        }
+        if (p.type.isFunction) {
+          return [_callbackArgExpr(func, p)];
+        }
+        if (p.type.isPointer) {
+          return [p.name];
+        }
+        if (p.type.isTypedData) {
+          return ['${p.name}.toPointer(arena)', '${p.name}.length'];
+        }
+        if (t == 'String') {
+          return ['${p.name}.toNativeUtf8(allocator: arena)'];
+        }
+        if (t == 'String?') {
+          return ['${p.name} != null ? ${p.name}.toNativeUtf8(allocator: arena) : nullptr'];
+        }
+        if (spec.structs.any((st) => st.name == t)) {
+          return ['${p.name}.toNative(arena).cast<Void>()'];
+        }
+        final tBase = t.replaceFirst('?', '');
+        if (t.endsWith('?') && spec.structs.any((st) => st.name == tBase)) {
+          return ['${p.name} != null ? ${p.name}.toNative(arena).cast<Void>() : nullptr'];
+        }
+        // Enum (including nullable enum: TcStatus? uses -1 as null sentinel)
+        if (spec.enums.any((en) => en.name == tBase)) {
+          if (t.endsWith('?')) {
+            return ['${p.name} == null ? -1 : ${p.name}.nativeValue'];
+          }
+          return ['${p.name}.nativeValue'];
+        }
+        if (t == 'bool') return ['${p.name} ? 1 : 0'];
+        // Optional primitives: use NitroNullable binary encoding for zero-collision transport.
+        // Wire format: [1B hasValue][nB value] — no sentinel collisions.
+        if (t == 'int?') return ['NitroNullableInt.fromNullable(${p.name}).toNative(arena)'];
+        if (t == 'double?') return ['NitroNullableDouble.fromNullable(${p.name}).toNative(arena)'];
+        if (t == 'bool?') return ['NitroNullableBool.fromNullable(${p.name}).toNative(arena)'];
+        return [p.name];
+      })
+      .join(', ');
+
+  // For NativeAsync, the return type annotation is Future<T> but asyncMod is
+  // left empty (no `async` keyword) — the method returns an already-Future.
+  // NativeHandle<T>: the declared Dart return type is NativeHandle<T>
+  // but the FFI function pointer returns Pointer<Void>.
+  final nativeHandleTypeParam = func.returnType.nativeHandleTypeParam ?? 'Void';
+  final effectiveDartReturnName = func.returnType.isNativeHandle
+      ? 'NativeHandle<$nativeHandleTypeParam>'
+      : func.returnType.name;
+  final returnType = (func.isAsync || func.isNativeAsync)
+      ? 'Future<$effectiveDartReturnName>'
+      : effectiveDartReturnName;
+  final asyncMod = func.isAsync ? 'async ' : '';
+
+  writer.line('  @override');
+  writer.line(
+    '  $returnType ${func.dartName}(${_paramList(func.params)}) $asyncMod{',
+  );
+  final isFast = func.dartName.endsWith('Fast');
+  writer.line('    checkDisposed();');
+
+  final rt = func.returnType.name;
+  // Classify once — avoids repeated spec.structs.any() / spec.enums.any() calls.
+  final returnKind = classifyReturn(func.returnType, spec);
+
+  if (func.isNativeAsync) {
+    _emitNativeAsyncBody(writer, func, spec, callArgs, needsArena);
+  } else if (func.isAsync) {
+    // plainCallArgs: used when no arena is needed. Apply the same optional-primitive
+    // sentinel encoding as callArgs so that int?/bool?/double? are never passed as null.
+    // (Structs, TypedData, String all require an arena so they can't appear here.)
+    final plainCallArgs = func.params
+        .map((p) {
+          final t = p.type.name;
+          final tBase = p.type.baseName;
+          // NOTE: int?/double?/bool? now use NitroNullable — they need an arena.
+          // The outer needsArena check already includes them so this path is fine.
+          if (t == 'int?') return 'NitroNullableInt.fromNullable(${p.name}).toNative(arena)';
+          if (t == 'double?') return 'NitroNullableDouble.fromNullable(${p.name}).toNative(arena)';
+          if (t == 'bool?') return 'NitroNullableBool.fromNullable(${p.name}).toNative(arena)';
+          if (t == 'bool') return '${p.name} ? 1 : 0';
+          // Nullable enum: TcStatus? → -1 for null, rawValue otherwise
+          if (spec.enums.any((en) => en.name == tBase)) {
+            return t.endsWith('?')
+                ? '${p.name} == null ? -1 : ${p.name}.nativeValue'
+                : '${p.name}.nativeValue';
+          }
+          if (p.type.isFunction) return _callbackArgExpr(func, p);
+          return p.name;
+        })
+        .join(', ');
+
+    final callAsyncType = callAsyncTransportType(func.returnType, spec);
+
+    final errArgs = "getError: _getErrorNativePtr, clearError: _clearErrorNativePtr, methodName: '${func.dartName}'";
+
+    if (needsArena) {
+      // needsArena path: wrap in try/finally to release arena allocations.
+      final asyncResVar = _asyncResVarName(returnKind);
+      writer.line('    final arena = Arena();');
+      writer.line('    try {');
+      if (returnKind == ReturnKind.voidType) {
+        // void return: don't assign to a variable — it's unused and warns.
+        writer.line('      await NitroRuntime.callAsync<$callAsyncType>(_${func.dartName}Ptr, [$callArgs], $errArgs);');
+      } else {
+        writer.line('      final $asyncResVar = await NitroRuntime.callAsync<$callAsyncType>(_${func.dartName}Ptr, [$callArgs], $errArgs);');
+        _emitReturnDecode(writer, func.returnType, asyncResVar, '      ', spec,
+            zeroCopy: func.zeroCopyReturn, dartName: func.dartName,
+            isOwned: func.isOwned,
+            nativeHandleTypeParam: nativeHandleTypeParam);
+      }
+      writer.line('    } finally {');
+      writer.line('      arena.releaseAll();');
+      writer.line('    }');
+    } else {
+      if (returnKind == ReturnKind.voidType) {
+        writer.line('    await NitroRuntime.callAsync<$callAsyncType>(_${func.dartName}Ptr, [$plainCallArgs], $errArgs);');
+      } else {
+        final asyncResVar = _asyncResVarName(returnKind);
+        writer.line('    final $asyncResVar = await NitroRuntime.callAsync<$callAsyncType>(_${func.dartName}Ptr, [$plainCallArgs], $errArgs);');
+        _emitReturnDecode(writer, func.returnType, asyncResVar, '    ', spec,
+            zeroCopy: func.zeroCopyReturn, dartName: func.dartName,
+            isOwned: func.isOwned,
+            nativeHandleTypeParam: nativeHandleTypeParam);
+      }
+    }
+  } else {
+    // ── Synchronous path — wrapped in callSync for logging + slow-call detection ──
+    final mnArg = ", methodName: '${func.dartName}'";
+    // S8: append the pre-allocated error slot as the last argument so the C
+    // bridge can write error info directly without a separate get_error() call.
+    final syncArgs = callArgs.isEmpty ? '_nitroErr' : '$callArgs, _nitroErr';
+    if (needsArena) {
+      // callSync wraps withArena so timing covers arena allocation + native call.
+      writer.line('    return NitroRuntime.callSync(() => withArena((arena) {');
+      if (rt == 'void') {
+        writer.line('      _${func.dartName}Ptr($syncArgs);');
+        if (!isFast) writer.line(_assertCheckError('      '));
+        writer.line('      return;');
+      } else {
+        writer.line('      final res = _${func.dartName}Ptr($syncArgs);');
+        if (!isFast) writer.line(_assertCheckError('      '));
+        _emitReturnDecode(writer, func.returnType, 'res', '      ', spec,
+            zeroCopy: func.zeroCopyReturn, dartName: func.dartName,
+            isOwned: func.isOwned,
+            nativeHandleTypeParam: nativeHandleTypeParam);
+      }
+      writer.line('    })$mnArg);');
+    } else {
+      if (rt == 'void') {
+        writer.line('    NitroRuntime.callSync<void>(() {');
+        writer.line('      _${func.dartName}Ptr($syncArgs);');
+        if (!isFast) writer.line(_assertCheckError('      '));
+        writer.line('    }$mnArg);');
+      } else {
+        writer.line('    return NitroRuntime.callSync(() {');
+        writer.line('      final res = _${func.dartName}Ptr($syncArgs);');
+        if (!isFast) writer.line(_assertCheckError('      '));
+        _emitReturnDecode(writer, func.returnType, 'res', '      ', spec,
+            zeroCopy: func.zeroCopyReturn, dartName: func.dartName,
+            isOwned: func.isOwned,
+            nativeHandleTypeParam: nativeHandleTypeParam);
+        writer.line('    }$mnArg);');
+      }
+    }
+  }
+  writer.line('  }');
+  writer.blankLine();
+}
+
+}

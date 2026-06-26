@@ -87,11 +87,13 @@ class _ExtractedTypes {
   final List<BridgeEnum> enums;
   final List<BridgeStruct> structs;
   final List<BridgeRecordType> records;
+  final List<BridgeVariant> variants;
 
   const _ExtractedTypes({
     required this.enums,
     required this.structs,
     required this.records,
+    this.variants = const [],
   });
 }
 
@@ -109,14 +111,15 @@ class SpecExtractor {
   }
 
   /// Extracts a type-only [BridgeSpec] for `.native.dart` files that declare
-  /// shared types (`@HybridEnum`, `@HybridStruct`, `@HybridRecord`) without a
-  /// `@NitroModule` class. Returns `null` when no relevant types are found.
+  /// shared types (`@HybridEnum`, `@HybridStruct`, `@HybridRecord`, `@NitroVariant`)
+  /// without a `@NitroModule` class. Returns `null` when no relevant types are found.
   static BridgeSpec? extractTypesOnly(LibraryReader library) {
     final types = _extractAnnotatedTypes(library);
     final enums = types.enums;
     final structs = types.structs;
     final records = types.records;
-    if (enums.isEmpty && structs.isEmpty && records.isEmpty) return null;
+    final variants = types.variants;
+    if (enums.isEmpty && structs.isEmpty && records.isEmpty && variants.isEmpty) return null;
 
     final sourcePath = library.element.uri.toString();
     final sourceFile = sourcePath.split('/').last.replaceFirst('.native.dart', '');
@@ -128,6 +131,7 @@ class SpecExtractor {
       enums: enums,
       structs: structs,
       recordTypes: records,
+      variants: variants,
       isTypeOnly: true,
     );
   }
@@ -162,6 +166,7 @@ class SpecExtractor {
     final localRecordTypes = localTypes.records;
     final localStructs = localTypes.structs;
     final localEnums = localTypes.enums;
+    final localVariants = localTypes.variants;
 
     // Also scan directly imported libraries for shared type annotations.
     // Types found in imported .native.dart files are marked isImported: true so
@@ -191,11 +196,13 @@ class SpecExtractor {
     final allRecordTypes = [...localRecordTypes, ...imported.records, ..._builtinNitroRecords];
     final allStructs = [...localStructs, ...imported.structs];
     final allEnums = [...localEnums, ...imported.enums];
+    final allVariants = [...localVariants, ...imported.variants];
 
     final recordTypeNames = allRecordTypes.map((r) => r.name).toSet();
     final structNames = allStructs.map((s) => s.name).toSet();
     final enumNames = allEnums.map((e) => e.name).toSet();
-    final knownTypeNames = {...structNames, ...enumNames, ...recordTypeNames};
+    final variantNames = allVariants.map((v) => v.name).toSet();
+    final knownTypeNames = {...structNames, ...enumNames, ...recordTypeNames, ...variantNames};
 
     final members = _ModuleMembers.from(element);
     final (:properties, :streams) = _extractPropertiesAndStreams(members, ns, recordTypeNames, knownTypeNames, structTypeNames: structNames);
@@ -216,6 +223,7 @@ class SpecExtractor {
       structs: allStructs,
       enums: allEnums,
       recordTypes: allRecordTypes,
+      variants: allVariants,
       importedTypeFiles: imported.cppIncludes,
     );
   }
@@ -233,12 +241,14 @@ class SpecExtractor {
     List<BridgeEnum> enums,
     List<BridgeStruct> structs,
     List<BridgeRecordType> records,
+    List<BridgeVariant> variants,
     List<String> cppIncludes,
   })
   _extractFromImports(LibraryElement libraryElement, String currentSourceUri) {
     final enums = <BridgeEnum>[];
     final structs = <BridgeStruct>[];
     final records = <BridgeRecordType>[];
+    final variants = <BridgeVariant>[];
     final cppIncludes = <String>[];
 
     for (final imported in libraryElement.firstFragment.importedLibraries) {
@@ -252,8 +262,9 @@ class SpecExtractor {
       final importedEnums = importedTypes.enums;
       final importedStructs = importedTypes.structs;
       final importedRecords = importedTypes.records;
+      final importedVariants = importedTypes.variants;
 
-      if (importedEnums.isEmpty && importedStructs.isEmpty && importedRecords.isEmpty) continue;
+      if (importedEnums.isEmpty && importedStructs.isEmpty && importedRecords.isEmpty && importedVariants.isEmpty) continue;
 
       final isNativeFile = uri.endsWith('.native.dart');
 
@@ -286,6 +297,15 @@ class SpecExtractor {
           ),
         ),
       );
+      variants.addAll(
+        importedVariants.map(
+          (v) => BridgeVariant(
+            name: v.name,
+            cases: v.cases,
+            isImported: isNativeFile,
+          ),
+        ),
+      );
 
       // Compute C++ #include path only for .native.dart imports (those have
       // a generated bridge header file in generated/cpp/).
@@ -294,7 +314,7 @@ class SpecExtractor {
       }
     }
 
-    return (enums: enums, structs: structs, records: records, cppIncludes: cppIncludes);
+    return (enums: enums, structs: structs, records: records, variants: variants, cppIncludes: cppIncludes);
   }
 
   /// Computes the relative `#include` path from [fromUri]'s generated C++
@@ -402,16 +422,18 @@ class SpecExtractor {
     );
   }
 
-  // ─── @HybridRecord ────────────────────────────────────────────────────────
+  // ─── @HybridRecord / @NitroVariant ───────────────────────────────────────────
 
   static _ExtractedTypes _extractAnnotatedTypes(LibraryReader library) {
-    const recordChecker = TypeChecker.fromUrl('package:nitro_annotations/src/annotations.dart#HybridRecord');
-    const structChecker = TypeChecker.fromUrl('package:nitro_annotations/src/annotations.dart#HybridStruct');
-    const enumChecker = TypeChecker.fromUrl('package:nitro_annotations/src/annotations.dart#HybridEnum');
+    const recordChecker  = TypeChecker.fromUrl('package:nitro_annotations/src/annotations.dart#HybridRecord');
+    const structChecker  = TypeChecker.fromUrl('package:nitro_annotations/src/annotations.dart#HybridStruct');
+    const enumChecker    = TypeChecker.fromUrl('package:nitro_annotations/src/annotations.dart#HybridEnum');
+    const variantChecker = TypeChecker.fromUrl('package:nitro_annotations/src/annotations.dart#NitroVariant');
 
-    final recordClasses = <ClassElement>[];
-    final structClasses = <({ClassElement cls, ConstantReader annotation})>[];
-    final enumClasses = <({EnumElement cls, ConstantReader annotation})>[];
+    final recordClasses  = <ClassElement>[];
+    final structClasses  = <({ClassElement cls, ConstantReader annotation})>[];
+    final enumClasses    = <({EnumElement cls, ConstantReader annotation})>[];
+    final variantClasses = <ClassElement>[];
 
     for (final cls in library.classes) {
       if (recordChecker.hasAnnotationOf(cls)) {
@@ -421,6 +443,10 @@ class SpecExtractor {
       final structAnnotation = structChecker.firstAnnotationOf(cls);
       if (structAnnotation != null) {
         structClasses.add((cls: cls, annotation: ConstantReader(structAnnotation)));
+      }
+
+      if (variantChecker.hasAnnotationOf(cls)) {
+        variantClasses.add(cls);
       }
     }
 
@@ -438,13 +464,66 @@ class SpecExtractor {
     };
     final recordTypeNames = {...recordClasses.map((c) => c.name!), ..._builtinLibraryRecordNames};
     final structTypeNames = structClasses.map((entry) => entry.cls.name!).toSet();
-    final enumTypeNames = enumClasses.map((entry) => entry.cls.name!).toSet();
+    final enumTypeNames   = enumClasses.map((entry) => entry.cls.name!).toSet();
 
     return _ExtractedTypes(
-      records: recordClasses.map((cls) => _buildRecordType(cls, recordTypeNames, structTypeNames, enumTypeNames)).toList(),
-      structs: structClasses.map((entry) => _buildStruct(entry.cls, entry.annotation)).toList(),
-      enums: enumClasses.map((entry) => _buildEnum(entry.cls, entry.annotation)).toList(),
+      records:  recordClasses.map((cls)   => _buildRecordType(cls, recordTypeNames, structTypeNames, enumTypeNames)).toList(),
+      structs:  structClasses.map((entry) => _buildStruct(entry.cls, entry.annotation)).toList(),
+      enums:    enumClasses.map((entry)   => _buildEnum(entry.cls, entry.annotation)).toList(),
+      variants: variantClasses.map((cls)  => _buildVariant(cls, library, recordTypeNames, structTypeNames, enumTypeNames)).toList(),
     );
+  }
+
+  /// Builds a [BridgeVariant] from a `@NitroVariant`-annotated sealed class.
+  ///
+  /// Discovers concrete subclasses within the same library by scanning all
+  /// classes whose direct supertype matches [variantClass].
+  static BridgeVariant _buildVariant(
+    ClassElement variantClass,
+    LibraryReader library,
+    Set<String> recordTypeNames,
+    Set<String> structTypeNames,
+    Set<String> enumTypeNames,
+  ) {
+    final parentName = variantClass.name!;
+
+    // Collect all concrete (non-abstract, non-sealed) subclasses in the same library.
+    final caseClasses = library.classes
+        .where((cls) => !cls.isAbstract && cls.supertype?.element.name == parentName)
+        .toList();
+
+    final cases = <BridgeVariantCase>[];
+    for (final cls in caseClasses) {
+      final fields = cls.fields
+          .where((f) => !f.isStatic && f.isOriginDeclaration)
+          .map((f) {
+            final displayType = f.type.getDisplayString();
+            final isNullable  = displayType.endsWith('?');
+            final kind = _recordFieldKind(f.type, recordTypeNames, structTypeNames, enumTypeNames);
+            final itemTypeName = _listItemTypeName(f.type);
+            return BridgeRecordField(
+              name: f.name!,
+              dartType: displayType,
+              kind: kind,
+              itemTypeName: itemTypeName,
+              isNullable: isNullable,
+            );
+          })
+          .toList();
+
+      // label: 'FilterAccepted' → 'filterAccepted' (lowerCamelCase, strip parent prefix)
+      final rawName = cls.name!;
+      final stripped = rawName.startsWith(parentName)
+          ? rawName.substring(parentName.length)
+          : rawName;
+      final label = stripped.isEmpty
+          ? rawName[0].toLowerCase() + rawName.substring(1)
+          : stripped[0].toLowerCase() + stripped.substring(1);
+
+      cases.add(BridgeVariantCase(name: rawName, label: label, fields: fields));
+    }
+
+    return BridgeVariant(name: parentName, cases: cases);
   }
 
   static BridgeRecordType _buildRecordType(
