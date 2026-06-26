@@ -72,6 +72,7 @@ String _typeToFFI(BridgeType bt, BridgeSpec spec) {
   }
   if (bt.isNativeHandle) return 'Pointer<Void>';
   final name = bt.name.replaceFirst('?', '');
+  if (spec.isVariantName(name)) return 'Pointer<Uint8>';
   // Nullable primitives: NitroNullable binary encoding → Pointer<Uint8>
   if (bt.name == 'int?' || bt.name == 'double?' || bt.name == 'bool?') return 'Pointer<Uint8>';
   switch (name) {
@@ -123,6 +124,7 @@ String _typeToDartFFI(BridgeType bt, BridgeSpec spec) {
   }
   if (bt.isNativeHandle) return 'Pointer<Void>';
   final name = bt.name.replaceFirst('?', '');
+  if (spec.isVariantName(name)) return 'Pointer<Uint8>';
   // Nullable primitives: NitroNullable binary encoding → Pointer<Uint8>
   if (bt.name == 'int?' || bt.name == 'double?' || bt.name == 'bool?') return 'Pointer<Uint8>';
   switch (name) {

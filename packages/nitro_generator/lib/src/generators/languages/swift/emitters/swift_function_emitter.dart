@@ -55,6 +55,8 @@ class SwiftFunctionEmitter {
       return;
     }
 
+    final isVariantRet = spec.isVariantName(func.returnType.name.replaceFirst('?', ''));
+
     writer.line('@_cdecl("_${spec.namespace}_call_${func.dartName}")');
     writer.line('public func _${spec.namespace}_call_${func.dartName}($params) -> $cRetType {');
 
@@ -93,6 +95,7 @@ class SwiftFunctionEmitter {
         isTypedDataReturn: isTypedDataReturn,
         isEnumRet: isEnumRet,
         isMap: isMap,
+        isVariantRet: isVariantRet,
       );
     }
 
@@ -124,6 +127,12 @@ class SwiftFunctionEmitter {
             final rn = p.type.name.replaceFirst('?', '');
             final opt = p.type.name.endsWith('?') || p.type.isNullable;
             return opt ? '${p.name}: ${p.name}.map { $rn.fromNative(\$0.assumingMemoryBound(to: UInt8.self)) }' : '${p.name}: $rn.fromNative(${p.name}!.assumingMemoryBound(to: UInt8.self))';
+          }
+          if (spec.isVariantName(p.type.name.replaceFirst('?', ''))) {
+            // @NitroVariant param: decode from [4B len][1B tag][fields] buffer.
+            // NitroRecordReader skips the 4-byte prefix internally.
+            final vn = p.type.name.replaceFirst('?', '');
+            return '${p.name}: ${vn}.fromReader(NitroRecordReader(ptr: ${p.name}!.assumingMemoryBound(to: UInt8.self)))';
           }
           final isEnum = spec.isEnumName(p.type.name.replaceFirst('?', ''));
           if (isEnum) {
@@ -486,8 +495,29 @@ class SwiftFunctionEmitter {
     required bool isTypedDataReturn,
     required bool isEnumRet,
     required bool isMap,
+    bool isVariantRet = false,
   }) {
-    if (isVoid) {
+    if (func.isResult) {
+      // @NitroResult: call impl, encode success/error into [1B tag][record payload].
+      // The Swift helper _nitroEncodeResult<T> wraps the return/throw.
+      final retName = func.returnType.name.replaceFirst('?', '');
+      final encodeHelper = _nitroResultEncodeHelper(retName, spec);
+      writer.line('    guard let impl = ${spec.dartClassName}Registry.impl else { return nil }');
+      writer.line('    do {');
+      writer.line('        let result = try impl.${func.dartName}($callArgs)');
+      writer.line('        return $encodeHelper(result)');
+      writer.line('    } catch {');
+      writer.line('        return _nitroEncodeResultError(error)');
+      writer.line('    }');
+    } else if (isVariantRet) {
+      // @NitroVariant return: encode as [4B len][1B tag][fields] using NitroRecordWriter.
+      final vn = func.returnType.name.replaceFirst('?', '');
+      writer.line('    guard let impl = ${spec.dartClassName}Registry.impl else { return nil }');
+      writer.line('    let _vResult = impl.${func.dartName}($callArgs)');
+      writer.line('    let _vw = NitroRecordWriter()');
+      writer.line('    _vResult.writeFields(to: _vw)');
+      writer.line('    return _vw.toNative().map { UnsafeMutablePointer(\$0) }');
+    } else if (isVoid) {
       writer.line('    ${spec.dartClassName}Registry.impl?.${func.dartName}($callArgs)');
     } else if (isBool) {
       if (func.returnType.isNullable) {
@@ -554,6 +584,23 @@ class SwiftFunctionEmitter {
       } else {
         writer.line('    return impl.${func.dartName}($callArgs)');
       }
+    }
+  }
+
+  // ── @NitroResult encode helper selector ──────────────────────────────────────
+
+  /// Returns the name of the Swift helper function that encodes a success value
+  /// of the given [retName] type into the @NitroResult byte buffer.
+  static String _nitroResultEncodeHelper(String retName, BridgeSpec spec) {
+    switch (retName) {
+      case 'int':    return '_nitroEncodeResultInt64';
+      case 'double': return '_nitroEncodeResultFloat64';
+      case 'bool':   return '_nitroEncodeResultBool';
+      case 'String': return '_nitroEncodeResultString';
+      default:
+        if (spec.isEnumName(retName)) return '_nitroEncodeResultInt64';
+        // @HybridRecord or @HybridStruct or @NitroVariant: encode via record codec
+        return '_nitroEncodeResultRecord';
     }
   }
 

@@ -295,7 +295,7 @@ void main() {
 
     test('struct uses struct API type', () {
       final out = DartFfiGenerator.generate(_asyncNullableWithStructSpec());
-      expect(out, contains('openNativeAsync<User>'));
+      expect(out, contains('openNativeAsync<Vec3>'));
     });
 
     test('non-nullable int uses int transport type', () {

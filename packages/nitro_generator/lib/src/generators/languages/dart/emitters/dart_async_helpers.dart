@@ -198,7 +198,7 @@ void _emitReturnDecode(
       if (isOwned && dartName != null) {
         writer.line('${indent}final handle = NativeHandle<$nativeHandleTypeParam>.fromAddress($resVar.address);');
         writer.line('${indent}_${dartName}Finalizer.attach(handle, $resVar.cast(), detach: handle);');
-        writer.line("${indent}handle._releaseCallback = (addr) { _${dartName}ReleaseFn(Pointer<Void>.fromAddress(addr)); _${dartName}Finalizer.detach(handle); };");
+        writer.line("${indent}handle.attachReleaseCallback((addr) { _${dartName}ReleaseFn(Pointer<Void>.fromAddress(addr)); _${dartName}Finalizer.detach(handle); });");
         writer.line('${indent}return handle;');
       } else {
         writer.line('${indent}return NativeHandle<$nativeHandleTypeParam>.fromAddress($resVar.address);');
@@ -226,6 +226,18 @@ void _emitReturnDecode(
     case ReturnKind.doubleNullable:
       // NitroNullable binary encoding — decode from Pointer<Uint8>
       writer.line('${indent}return NitroNullableDouble.fromNative($resVar).nullable;');
+    case ReturnKind.variant:
+      // @NitroVariant: C returns Pointer<Uint8> = [4B len][1B tag][fields].
+      // Dart VariantExt.fromNative reads [4B len] then [tag][fields].
+      final vBase = returnType.name.replaceFirst('?', '');
+      writer.line('${indent}if ($resVar == nullptr) throw StateError(\'$vBase returned null\');');
+      writer.line('${indent}final _variant;');
+      writer.line('${indent}try {');
+      writer.line('$indent  _variant = ${vBase}VariantExt.fromNative($resVar);');
+      writer.line('$indent} finally {');
+      writer.line('$indent  malloc.free($resVar);');
+      writer.line('$indent}');
+      writer.line('${indent}return _variant;');
     case ReturnKind.primitive:
       writer.line('${indent}return $resVar;');
   }

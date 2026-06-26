@@ -34,6 +34,7 @@ class DartFfiGenerator {
 
     final writer = CodeWriter();
     writer.raw(generatedFileHeader('//', sourceUri: spec.sourceUri));
+    writer.line('// ignore_for_file: no_leading_underscores_for_local_identifiers, prefer_typing_uninitialized_variables');
     writer.line("part of '${spec.sourceUri.split('/').last}';");
     writer.blankLine();
 

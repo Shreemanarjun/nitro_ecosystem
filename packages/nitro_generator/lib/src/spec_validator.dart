@@ -199,11 +199,13 @@ class SpecValidator {
     final enumNames = spec.enums.map((e) => e.name).toSet();
     final structNames = spec.structs.map((s) => s.name).toSet();
     final recordNames = spec.recordTypes.map((r) => r.name).toSet();
+    final variantNames = spec.variants.map((v) => v.name).toSet();
     final knownTypes = {
       ..._knownPrimitives,
       ...enumNames,
       ...structNames,
       ...recordNames,
+      ...variantNames,
     };
 
     // ── Functions ──────────────────────────────────────────────────────────
@@ -313,6 +315,7 @@ class SpecValidator {
             hint:
                 'If "$retName" is a struct, annotate it with @HybridStruct. '
                 'If it is an enum, annotate it with @HybridEnum. '
+                'If it is a sealed union, annotate it with @NitroVariant. '
                 'If it is a complex/nested type (lists, nested objects), annotate it with @HybridRecord.',
           ),
         );

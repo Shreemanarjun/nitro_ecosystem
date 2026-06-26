@@ -61,7 +61,9 @@ void _emitSwiftBridgeSection(
     final retBase = func.returnType.name.replaceFirst('?', '');
     final isNullablePrimRet = (func.returnType.isNullable || func.returnType.name.endsWith('?')) &&
         (retBase == 'int' || retBase == 'double' || retBase == 'bool');
-    final cReturnType = isNullablePrimRet
+    final cReturnType = func.isResult
+        ? 'uint8_t*'
+        : isNullablePrimRet
         ? 'uint8_t*'
         : isEnum
         ? 'int64_t'

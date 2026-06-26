@@ -15,6 +15,7 @@ class SwiftTypeMapper implements TypeMapper {
   late final Set<String> _enumNames = spec.enums.map((e) => e.name).toSet();
   late final Set<String> _structNames = spec.structs.map((s) => s.name).toSet();
   late final Set<String> _recordNames = spec.recordTypes.map((r) => r.name).toSet();
+  late final Set<String> _variantNames = spec.variants.map((v) => v.name).toSet();
 
   SwiftTypeMapper(this.spec);
 
@@ -137,6 +138,8 @@ class SwiftTypeMapper implements TypeMapper {
   /// C-ABI return type for a `@_cdecl` function bridge.
   String cdeclReturnType(BridgeFunction func) {
     if (func.returnType.isNativeHandle) return 'UnsafeMutableRawPointer?';
+    // @NitroResult: C returns UnsafeMutablePointer<UInt8>? [1B tag][payload].
+    if (func.isResult) return 'UnsafeMutablePointer<UInt8>?';
     final name = func.returnType.name.replaceFirst('?', '');
     if (name == 'void') return 'Void';
     if (func.returnType.name == 'int?' || func.returnType.name == 'double?' || func.returnType.name == 'bool?') return 'UnsafeMutablePointer<UInt8>?';
@@ -146,6 +149,8 @@ class SwiftTypeMapper implements TypeMapper {
     if (BridgeType(name: name).isTypedData) return 'UnsafeMutablePointer<UInt8>?';
     if (_structNames.contains(name)) return 'UnsafeMutableRawPointer?';
     if (_recordNames.contains(name) || name.startsWith('List<')) return 'UnsafeMutableRawPointer?';
+    // @NitroVariant: C returns UnsafeMutablePointer<UInt8>? [4B len][1B tag][fields].
+    if (_variantNames.contains(name)) return 'UnsafeMutablePointer<UInt8>?';
     if (_enumNames.contains(name)) return 'Int64';
     return swiftType(name);
   }
@@ -161,6 +166,8 @@ class SwiftTypeMapper implements TypeMapper {
     if (name == 'bool') return 'Int8';
     if (name.startsWith('Map<')) return 'UnsafeMutableRawPointer?';
     if (_recordNames.contains(name) || name.startsWith('List<')) return 'UnsafeMutableRawPointer?';
+    // @NitroVariant params: encoded as UnsafeMutableRawPointer? [4B len][1B tag][fields]
+    if (_variantNames.contains(name)) return 'UnsafeMutableRawPointer?';
     if (_enumNames.contains(name)) return 'Int64';
     if (_structNames.contains(name)) return 'UnsafeRawPointer?';
     if (BridgeType(name: name).isTypedData) return swiftCType(name, isZeroCopy: true);

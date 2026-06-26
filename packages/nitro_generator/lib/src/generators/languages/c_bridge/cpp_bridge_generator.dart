@@ -810,7 +810,9 @@ class CppBridgeGenerator {
   }
 
   static String _jniSigType(String t) {
-    switch (t.replaceFirst('?', '')) {
+    final base = t.replaceFirst('?', '');
+    if (base.startsWith('NativeHandle<')) return 'J';
+    switch (base) {
       case 'int':
         return 'J';
       case 'double':
@@ -847,7 +849,9 @@ class CppBridgeGenerator {
   }
 
   static String _jniSigTypeC(String t) {
-    switch (t.replaceFirst('?', '')) {
+    final base = t.replaceFirst('?', '');
+    if (base.startsWith('NativeHandle<')) return 'jlong';
+    switch (base) {
       case 'int':
         return 'jlong';
       case 'double':
@@ -1057,8 +1061,12 @@ class CppBridgeGenerator {
     Set<String> structNames,
     String libPkg, {
     bool zeroCopyReturn = false,
+    bool isResult = false,
+    Set<String> variantNames = const {},
   }) {
-    final paramSig = params.map((p) => _jniParamSig(p, enumNames, structNames, libPkg)).join();
+    final paramSig = params.map((p) => _jniParamSig(p, enumNames, structNames, libPkg, variantNames: variantNames)).join();
+    // @NitroResult: Kotlin returns ByteArray [1B tag][payload] → '[B'
+    if (isResult) return '($paramSig)[B';
     // Enum return type: bridge returns Long.
     // Nullable bool?: bridge returns Int (I) with -1=null/0=false/1=true.
     final baseRetType = returnType.name.replaceFirst('?', '');
@@ -1066,7 +1074,10 @@ class CppBridgeGenerator {
     // Nullable primitives now return ByteArray (NitroNullable binary encoding).
     final isNullableIntRet = baseRetType == 'int' && returnType.name.endsWith('?');
     final isNullableDoubleRet = baseRetType == 'double' && returnType.name.endsWith('?');
+    // @NitroVariant: Kotlin returns ByteArray [4B len][1B tag][fields] → '[B'
+    final isVariantRet = variantNames.contains(baseRetType);
     final returnSig = switch (baseRetType) {
+      _ when isVariantRet => '[B',        // @NitroVariant ByteArray
       _ when isNullableIntRet => '[B',    // NitroNullableInt ByteArray
       _ when isNullableDoubleRet => '[B', // NitroNullableDouble ByteArray
       _ when isNullableBoolRet => '[B',   // NitroNullableBool ByteArray
@@ -1104,8 +1115,9 @@ class CppBridgeGenerator {
     BridgeParam param,
     Set<String> enumNames,
     Set<String> structNames,
-    String libPkg,
-  ) {
+    String libPkg, {
+    Set<String> variantNames = const {},
+  }) {
     final baseParamType = param.type.name.replaceFirst('?', '');
     if (structNames.contains(baseParamType)) {
       // Struct params are passed as the Kotlin data class object.
@@ -1118,6 +1130,8 @@ class CppBridgeGenerator {
     if (enumNames.contains(baseParamType)) return 'J';
     if (param.type.isRecord && !param.type.isMap) return '[B';  // binary record
     if (param.type.isMap) return '[B';                           // binary map (replaces JSON)
+    // @NitroVariant params: encoded as ByteArray [4B len][1B tag][fields]
+    if (variantNames.contains(baseParamType)) return '[B';
     // Callback / function-typed params are passed as a long (function pointer).
     if (param.type.isFunction) return 'J';
     // Nullable primitives use NitroNullable ByteArray encoding ([B).

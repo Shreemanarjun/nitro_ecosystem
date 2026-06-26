@@ -131,7 +131,14 @@ class CppHeaderGenerator {
           final retBase = func.returnType.name.replaceFirst('?', '');
           final isNullablePrimRet = (func.returnType.isNullable || func.returnType.name.endsWith('?')) &&
               (retBase == 'int' || retBase == 'double' || retBase == 'bool');
-          final ret = isNullablePrimRet
+          // @NitroResult: C returns uint8_t* [1B tag][payload].
+          // @NitroVariant: C returns uint8_t* [4B len][1B tag][fields].
+          final isVariantRet = spec.isVariantName(retBase);
+          final ret = func.isResult
+              ? 'uint8_t*'
+              : isVariantRet
+              ? 'uint8_t*'
+              : isNullablePrimRet
               ? 'uint8_t*'
               : isEnumRet
               ? 'int64_t'

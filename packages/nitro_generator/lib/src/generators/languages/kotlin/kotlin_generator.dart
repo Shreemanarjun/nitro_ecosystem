@@ -44,7 +44,7 @@ class KotlinGenerator {
     if (hasTimeoutFunctions) writer.line('import kotlinx.coroutines.withTimeout');
     writer.blankLine();
 
-    // ── Type declarations (enums / structs / records) ──────────────────────
+    // ── Type declarations (enums / structs / records / variants) ──────────────────────
     final kotlinEnums = EnumGenerator.generateKotlin(spec);
     if (kotlinEnums.isNotEmpty) writer.raw(kotlinEnums);
 
@@ -53,6 +53,26 @@ class KotlinGenerator {
 
     final kotlinRecords = RecordGenerator.generateKotlin(spec);
     if (kotlinRecords.isNotEmpty) writer.raw(kotlinRecords);
+
+    // Emit @NitroVariant sealed class declarations in the bridge file.
+    // Also emit RecordReader/RecordWriter helper classes needed by variant encode/decode.
+    final hasVariants = spec.localVariants.isNotEmpty;
+    final hasVariantBridge = spec.functions.any((f) {
+      final ret = f.returnType.name.replaceFirst('?', '');
+      return spec.isVariantName(ret) || f.params.any((p) => spec.isVariantName(p.type.name.replaceFirst('?', '')));
+    });
+    if (hasVariants) {
+      final varWriter = CodeWriter();
+      for (final variant in spec.localVariants) {
+        KotlinVariantEmitter.emit(varWriter, variant, KotlinTypeMapper.fromSpec(spec));
+      }
+      writer.raw(varWriter.toString());
+    }
+    // Emit RecordReader/RecordWriter Kotlin helper classes when variant bridge functions exist.
+    final hasResultFunctions = spec.functions.any((f) => f.isResult);
+    if (hasVariantBridge || hasResultFunctions) {
+      _emitKotlinBridgeHelpers(writer, hasVariantBridge: hasVariantBridge, hasResult: hasResultFunctions);
+    }
 
     // ── Interface ──────────────────────────────────────────────────────────
     writer.line('/**');
@@ -174,6 +194,104 @@ class KotlinGenerator {
 
     writer.line('}');
     return writer.toString();
+  }
+
+  /// Emits Kotlin helper classes/functions needed for @NitroVariant bridge and @NitroResult.
+  ///
+  /// RecordReader / RecordWriter are not in the nitro AAR runtime — they must be
+  /// emitted as package-level classes in the generated bridge file so that the
+  /// variant's fromReader / writeFields methods can use them.
+  ///
+  /// nitroEncodeResult* functions are private helpers used by the _call bridge methods.
+  static void _emitKotlinBridgeHelpers(
+    CodeWriter writer, {
+    bool hasVariantBridge = false,
+    bool hasResult = false,
+  }) {
+    if (hasVariantBridge) {
+      writer.line('/** Minimal RecordReader for @NitroVariant bridge decode. */');
+      writer.line('class RecordReader(private val buf: java.nio.ByteBuffer) {');
+      writer.line('    fun readInt8(): Byte = buf.get()');
+      writer.line('    fun readInt32(): Int = buf.int');
+      writer.line('    fun readInt64(): Long = buf.long');
+      writer.line('    fun readFloat64(): Double = buf.double');
+      writer.line('    fun readBool(): Boolean = buf.get().toInt() != 0');
+      writer.line('    fun readString(): String {');
+      writer.line('        val len = buf.int');
+      writer.line('        val bytes = ByteArray(len)');
+      writer.line('        buf.get(bytes)');
+      writer.line('        return bytes.toString(Charsets.UTF_8)');
+      writer.line('    }');
+      writer.line('}');
+      writer.blankLine();
+      writer.line('/** Minimal RecordWriter for @NitroVariant bridge encode. */');
+      writer.line('class RecordWriter {');
+      writer.line('    private val out = java.io.ByteArrayOutputStream()');
+      writer.line('    private val tmp = java.nio.ByteBuffer.allocate(8).order(java.nio.ByteOrder.LITTLE_ENDIAN)');
+      writer.line('    fun writeInt8(v: Byte) { out.write(v.toInt()) }');
+      writer.line('    fun writeInt32(v: Int) { tmp.clear(); tmp.putInt(v); out.write(tmp.array(), 0, 4) }');
+      writer.line('    fun writeInt64(v: Long) { tmp.clear(); tmp.putLong(v); out.write(tmp.array(), 0, 8) }');
+      writer.line('    fun writeFloat64(v: Double) { tmp.clear(); tmp.putDouble(v); out.write(tmp.array(), 0, 8) }');
+      writer.line('    fun writeBool(v: Boolean) { out.write(if (v) 1 else 0) }');
+      writer.line('    fun writeString(v: String) { val b = v.toByteArray(Charsets.UTF_8); writeInt32(b.size); out.write(b) }');
+      writer.line('    fun toByteArray(): ByteArray = out.toByteArray()');
+      writer.line('}');
+      writer.blankLine();
+    }
+    if (hasResult) {
+      writer.line('/** @NitroResult bridge encoding helpers. */');
+      writer.line('private fun nitroWriteResultTag(tag: Byte, payload: ByteArray): ByteArray {');
+      writer.line('    val buf = ByteArray(1 + payload.size)');
+      writer.line('    buf[0] = tag');
+      writer.line('    payload.copyInto(buf, 1)');
+      writer.line('    return buf');
+      writer.line('}');
+      writer.blankLine();
+      writer.line('private fun nitroEncodeResultInt64(v: Long): ByteArray {');
+      writer.line('    val w = java.nio.ByteBuffer.allocate(4 + 8).order(java.nio.ByteOrder.LITTLE_ENDIAN)');
+      writer.line('    w.putInt(8); w.putLong(v)');
+      writer.line('    return nitroWriteResultTag(0, w.array())');
+      writer.line('}');
+      writer.blankLine();
+      writer.line('private fun nitroEncodeResultFloat64(v: Double): ByteArray {');
+      writer.line('    val w = java.nio.ByteBuffer.allocate(4 + 8).order(java.nio.ByteOrder.LITTLE_ENDIAN)');
+      writer.line('    w.putInt(8); w.putDouble(v)');
+      writer.line('    return nitroWriteResultTag(0, w.array())');
+      writer.line('}');
+      writer.blankLine();
+      writer.line('private fun nitroEncodeResultBool(v: Boolean): ByteArray {');
+      writer.line('    val w = java.nio.ByteBuffer.allocate(4 + 1).order(java.nio.ByteOrder.LITTLE_ENDIAN)');
+      writer.line('    w.putInt(1); w.put(if (v) 1.toByte() else 0.toByte())');
+      writer.line('    return nitroWriteResultTag(0, w.array())');
+      writer.line('}');
+      writer.blankLine();
+      writer.line('private fun nitroEncodeResultString(v: String): ByteArray {');
+      writer.line('    val bytes = v.toByteArray(Charsets.UTF_8)');
+      writer.line('    val w = java.nio.ByteBuffer.allocate(4 + 4 + bytes.size).order(java.nio.ByteOrder.LITTLE_ENDIAN)');
+      writer.line('    w.putInt(4 + bytes.size); w.putInt(bytes.size); w.put(bytes)');
+      writer.line('    return nitroWriteResultTag(0, w.array())');
+      writer.line('}');
+      writer.blankLine();
+      writer.line('private fun nitroEncodeResultRecord(v: Any): ByteArray {');
+      writer.line('    // For @HybridRecord: encode via the generated encode() method (duck-typed via reflection)');
+      writer.line('    return try {');
+      writer.line('        val method = v.javaClass.getMethod("encode")');
+      writer.line('        val payload = method.invoke(v) as? ByteArray ?: ByteArray(4)');
+      writer.line('        nitroWriteResultTag(0, payload)');
+      writer.line('    } catch (_: Throwable) {');
+      writer.line('        nitroEncodeResultError("Record encode failed")');
+      writer.line('    }');
+      writer.line('}');
+      writer.blankLine();
+      writer.line('private fun nitroEncodeResultError(msg: String): ByteArray {');
+      writer.line('    // Encode error as [1B tag=1][string payload]');
+      writer.line('    val errBytes = msg.toByteArray(Charsets.UTF_8)');
+      writer.line('    val w = java.nio.ByteBuffer.allocate(4 + 4 + errBytes.size).order(java.nio.ByteOrder.LITTLE_ENDIAN)');
+      writer.line('    w.putInt(4 + errBytes.size); w.putInt(errBytes.size); w.put(errBytes)');
+      writer.line('    return nitroWriteResultTag(1, w.array())');
+      writer.line('}');
+      writer.blankLine();
+    }
   }
 
   static String _generateTypeOnly(BridgeSpec spec) {

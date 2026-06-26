@@ -39,8 +39,13 @@ class KotlinFunctionEmitter {
     final isNullableBoolReturn = retBaseName == 'bool' && func.returnType.name.endsWith('?');
     final isNullableIntReturn = retBaseName == 'int' && func.returnType.name.endsWith('?');
     final isNullableDoubleReturn = retBaseName == 'double' && func.returnType.name.endsWith('?');
+    final isVariantReturn = mapper.variantNames.contains(retBaseName);
 
-    final bridgeRetType = (isNullableBoolReturn || isNullableIntReturn || isNullableDoubleReturn)
+    final bridgeRetType = func.isResult
+        ? 'ByteArray'  // @NitroResult: [1B tag][record payload]
+        : isVariantReturn
+        ? 'ByteArray'  // @NitroVariant: [4B len][1B tag][fields]
+        : (isNullableBoolReturn || isNullableIntReturn || isNullableDoubleReturn)
         ? 'ByteArray'
         : isEnum
         ? 'Long'
@@ -57,7 +62,7 @@ class KotlinFunctionEmitter {
       return isNull && (bn == 'int' || bn == 'bool' || bn == 'double');
     }).toList();
 
-    // Resolve call params — decode enums, records, callbacks, nullable prims.
+    // Resolve call params — decode enums, records, variants, callbacks, nullable prims.
     final callParams = func.params
         .map((p) {
           final baseName = p.type.name.replaceFirst('?', '');
@@ -69,6 +74,7 @@ class KotlinFunctionEmitter {
           if (mapper.enumNames.contains(baseName)) return '$baseName.fromNative(${p.name})';
           if (p.type.isFunction) return mapper.callbackLambda(p);
           if (p.type.isRecord && !p.type.isMap) return '${p.name}Decoded';
+          if (mapper.variantNames.contains(baseName)) return '${p.name}Decoded';
           return p.name;
         })
         .join(', ');
@@ -105,7 +111,11 @@ class KotlinFunctionEmitter {
     // Timeout-aware runBlocking expression.
     final rb = KotlinTypeMapper.runBlockingCall(func, 'impl.${func.dartName}($callParams)');
 
-    if (isMap) {
+    if (func.isResult) {
+      _emitResultBody(writer, func, mapper, callParams);
+    } else if (isVariantReturn) {
+      _emitVariantReturnBody(writer, func, retBaseName, callParams);
+    } else if (isMap) {
       _emitMapBody(writer, func, spec, mapper, callParams);
     } else if (isRecord) {
       _emitRecordBody(writer, func, spec, isListRecord, callParams, rb);
@@ -215,6 +225,17 @@ class KotlinFunctionEmitter {
   // ── Parameter decoding helpers ──────────────────────────────────────────────
 
   static void _emitParamDecodes(CodeWriter writer, BridgeFunction func, KotlinTypeMapper mapper) {
+    // Decode @NitroVariant params from ByteArray [4B len][1B tag][fields].
+    for (final p in func.params) {
+      final bn = p.type.name.replaceFirst('?', '');
+      if (mapper.variantNames.contains(bn)) {
+        writer.line('        val ${p.name}Buf = java.nio.ByteBuffer.wrap(${p.name}).order(java.nio.ByteOrder.LITTLE_ENDIAN)');
+        writer.line('        ${p.name}Buf.getInt() // skip 4-byte length prefix');
+        writer.line('        val ${p.name}Decoded = $bn.fromReader(RecordReader(${p.name}Buf))');
+        continue;
+      }
+    }
+    // Decode @HybridRecord params from ByteArray.
     for (final p in func.params) {
       if (!p.type.isRecord || p.type.isMap) continue;
 
@@ -478,6 +499,60 @@ class KotlinFunctionEmitter {
       writer.line('            $rb');
       writer.line('        }).get()');
     }
+  }
+
+  // ── @NitroResult body ─────────────────────────────────────────────────────────
+
+  /// Emits the JNI bridge body for a @NitroResult function.
+  ///
+  /// The Kotlin impl declares it as a throwing function (annotated with @Throws).
+  /// The bridge wraps it in try/catch and encodes the result as ByteArray:
+  ///   [1B tag: 0=ok, 1=err][record-codec payload]
+  static void _emitResultBody(
+    CodeWriter writer,
+    BridgeFunction func,
+    KotlinTypeMapper mapper,
+    String callParams,
+  ) {
+    final retBaseName = func.returnType.name.replaceFirst('?', '');
+    writer.line('        return try {');
+    writer.line('            val _result = impl.${func.dartName}($callParams)');
+    // Encode success value based on type
+    final encodeExpr = _kotlinResultEncodeOk(retBaseName, mapper);
+    writer.line('            $encodeExpr');
+    writer.line('        } catch (_e: Throwable) {');
+    writer.line('            nitroEncodeResultError(_e.message ?: "Unknown error")');
+    writer.line('        }');
+  }
+
+  static String _kotlinResultEncodeOk(String retBaseName, KotlinTypeMapper mapper) {
+    switch (retBaseName) {
+      case 'int': return 'nitroEncodeResultInt64(_result)';
+      case 'double': return 'nitroEncodeResultFloat64(_result)';
+      case 'bool': return 'nitroEncodeResultBool(_result)';
+      case 'String': return 'nitroEncodeResultString(_result)';
+      default:
+        if (mapper.enumNames.contains(retBaseName)) return 'nitroEncodeResultInt64(_result.nativeValue)';
+        return 'nitroEncodeResultRecord(_result)';  // @HybridRecord / variant
+    }
+  }
+
+  // ── @NitroVariant return body ─────────────────────────────────────────────────
+
+  static void _emitVariantReturnBody(
+    CodeWriter writer,
+    BridgeFunction func,
+    String retBaseName,
+    String callParams,
+  ) {
+    writer.line('        val _vResult = impl.${func.dartName}($callParams)');
+    writer.line('        val _vw = RecordWriter()');
+    writer.line('        _vResult.writeFields(_vw)');
+    writer.line('        val _vPayload = _vw.toByteArray()');
+    writer.line('        val _vBuf = java.nio.ByteBuffer.allocate(4 + _vPayload.size).order(java.nio.ByteOrder.LITTLE_ENDIAN)');
+    writer.line('        _vBuf.putInt(_vPayload.size)');
+    writer.line('        _vBuf.put(_vPayload)');
+    writer.line('        return _vBuf.array()');
   }
 
   // ── Sync body ────────────────────────────────────────────────────────────────

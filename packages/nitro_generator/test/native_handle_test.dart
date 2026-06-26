@@ -207,6 +207,12 @@ void main() {
       expect(out, contains('void camera_process_frame(void* handle, NitroError* _nitro_err)'));
       expect(out, contains('g_impl->processFrame(handle)'));
     });
+
+    test('Android JNI signature maps NativeHandle return to long', () {
+      final out = CppBridgeGenerator.generate(_borrowSpec());
+      expect(out, contains('()J'));
+      expect(out, contains('jlong'));
+    });
   });
 
   // ── Kotlin ─────────────────────────────────────────────────────────────────
@@ -266,10 +272,10 @@ void main() {
       expect(out, contains("'camera_acquire_frame_release'"));
     });
 
-    test('@NitroOwned: attaches finalizer and sets _releaseCallback', () {
+    test('@NitroOwned: attaches finalizer and sets release callback', () {
       final out = DartFfiGenerator.generate(_ownedSpec());
       expect(out, contains('_acquireFrameFinalizer.attach(handle'));
-      expect(out, contains('handle._releaseCallback ='));
+      expect(out, contains('handle.attachReleaseCallback('));
       expect(out, contains('_acquireFrameFinalizer.detach(handle)'));
     });
   });

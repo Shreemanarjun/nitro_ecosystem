@@ -169,12 +169,17 @@ void _emitResultDecode(
   String indent,
   BridgeSpec spec,
 ) {
+  // Wrap entire decode in try/finally to free the native buffer on both branches.
+  // Native allocates with malloc; Dart must free it to avoid a memory leak.
+  writer.line('${indent}try {');
+  final i2 = '$indent  ';
+
   // Error branch — common to all inner types
-  writer.line('${indent}final _tag = $resVar[0];');
-  writer.line('${indent}if (_tag != 0) {');
-  writer.line('$indent  final _errR = RecordReader.fromNative($resVar + 1);');
-  writer.line('$indent  return NitroErr(_errR.readString());');
-  writer.line('$indent}');
+  writer.line('${i2}final _tag = $resVar[0];');
+  writer.line('${i2}if (_tag != 0) {');
+  writer.line('$i2  final _errR = RecordReader.fromNative($resVar + 1);');
+  writer.line('$i2  return NitroErr(_errR.readString());');
+  writer.line('$i2}');
 
   // Success branch — decode T from res + 1
   final rt = returnType.name;
@@ -183,35 +188,38 @@ void _emitResultDecode(
   if (returnType.isRecord) {
     // @HybridRecord / Map / List<Record>
     final decodeExpr = _decodeRecordExpr(returnType, '$resVar + 1');
-    writer.line('${indent}return NitroOk($decodeExpr);');
-    return;
+    writer.line('${i2}return NitroOk($decodeExpr);');
+  } else {
+    // Primitives: wrapped in record codec on native side
+    writer.line('${i2}final _r = RecordReader.fromNative($resVar + 1);');
+    String valueExpr;
+    switch (base) {
+      case 'int':
+        valueExpr = '_r.readInt()';
+      case 'double':
+        valueExpr = '_r.readDouble()';
+      case 'bool':
+        valueExpr = '_r.readBool()';
+      case 'String':
+        valueExpr = '_r.readString()';
+      default:
+        if (spec.isEnumName(base)) {
+          // Enum: stored as int64 on wire, converted to enum case
+          valueExpr = '${base}EnumExt.fromNativeValue(_r.readInt())';
+        } else if (spec.isStructName(base)) {
+          // @HybridStruct: stored as record-codec on wire
+          valueExpr = '${base}StructExt.fromReader(_r)';
+        } else {
+          // Unknown — best-effort record decode
+          valueExpr = '${base}RecordExt.fromReader(_r)';
+        }
+    }
+    writer.line('${i2}return NitroOk($valueExpr);');
   }
 
-  // Primitives: wrapped in record codec on native side
-  writer.line('${indent}final _r = RecordReader.fromNative($resVar + 1);');
-  String valueExpr;
-  switch (base) {
-    case 'int':
-      valueExpr = '_r.readInt()';
-    case 'double':
-      valueExpr = '_r.readDouble()';
-    case 'bool':
-      valueExpr = '_r.readBool()';
-    case 'String':
-      valueExpr = '_r.readString()';
-    default:
-      if (spec.isEnumName(base)) {
-        // Enum: stored as int64 on wire, converted to enum case
-        valueExpr = '${base}EnumExt.fromNativeValue(_r.readInt())';
-      } else if (spec.isStructName(base)) {
-        // @HybridStruct: stored as record-codec on wire
-        valueExpr = '${base}StructExt.fromReader(_r)';
-      } else {
-        // Unknown — best-effort record decode
-        valueExpr = '${base}RecordExt.fromReader(_r)';
-      }
-  }
-  writer.line('${indent}return NitroOk($valueExpr);');
+  writer.line('${indent}} finally {');
+  writer.line('$indent  malloc.free($resVar);');
+  writer.line('$indent}');
 }
 
 // ── NativeAsync helpers ───────────────────────────────────────────────────

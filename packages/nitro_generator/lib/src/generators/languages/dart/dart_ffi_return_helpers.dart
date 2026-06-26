@@ -23,6 +23,7 @@ enum ReturnKind {
   stringNullable,
   intNullable,
   doubleNullable,
+  variant,  // @NitroVariant sealed class — encoded as [4B len][1B tag][fields]
   primitive, // int (non-null), double (non-null) — pass through unchanged
 }
 
@@ -42,6 +43,7 @@ ReturnKind classifyReturn(BridgeType returnType, BridgeSpec spec) {
   if (returnType.isNativeHandle) return ReturnKind.nativeHandle;
   if (isEnumType(base, spec)) return ReturnKind.enumType;
   if (isStructType(base, spec)) return ReturnKind.struct;
+  if (spec.isVariantName(base)) return ReturnKind.variant;
   if (base == 'bool') return isNullable ? ReturnKind.boolNullable : ReturnKind.boolNonNull;
   if (base == 'String') return isNullable ? ReturnKind.stringNullable : ReturnKind.stringNonNull;
   if (base == 'int' && isNullable) return ReturnKind.intNullable;
@@ -77,6 +79,7 @@ String callAsyncTransportType(BridgeType returnType, BridgeSpec spec) {
     case ReturnKind.stringNullable: return 'Pointer<Utf8>';
     case ReturnKind.intNullable:    return 'Pointer<Uint8>'; // NitroNullable binary
     case ReturnKind.doubleNullable: return 'Pointer<Uint8>'; // NitroNullable binary
+    case ReturnKind.variant:        return 'Pointer<Uint8>'; // variant binary [4B len][tag][fields]
     case ReturnKind.primitive:      return returnType.name; // int or double
   }
 }

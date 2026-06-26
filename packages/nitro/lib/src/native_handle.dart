@@ -24,7 +24,7 @@ import 'dart:ffi';
 /// final frame = ptr.ref;                   // read fields
 /// handle.release();                        // early free (optional)
 /// ```
-class NativeHandle<T extends NativeType> {
+class NativeHandle<T extends NativeType> implements Finalizable {
   /// The underlying raw pointer. Do not store this beyond the handle's lifetime.
   final Pointer<T> pointer;
 
@@ -39,6 +39,14 @@ class NativeHandle<T extends NativeType> {
   // Internal: set by generated code when @NitroOwned is present.
   // Calling release() triggers this and detaches the finalizer.
   void Function(int)? _releaseCallback;
+
+  /// Registers the generated release callback for an owned handle.
+  ///
+  /// This is used by generated bridge code for `@NitroOwned` returns. Calling
+  /// [release] invokes the callback once, then clears it.
+  void attachReleaseCallback(void Function(int address) callback) {
+    _releaseCallback = callback;
+  }
 
   /// Manually release the native resource.
   ///

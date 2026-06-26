@@ -62,6 +62,13 @@ class RecordWriter {
     _length += 8;
   }
 
+  void writeInt64(int v) => writeInt(v);
+
+  void writeInt8(int v) {
+    _ensureCapacity(1);
+    _buffer[_length++] = v & 0xff;
+  }
+
   void writeInt32(int v) {
     _ensureCapacity(4);
     _data.setInt32(_length, v, Endian.little);
@@ -73,6 +80,8 @@ class RecordWriter {
     _data.setFloat64(_length, v, Endian.little);
     _length += 8;
   }
+
+  void writeFloat64(double v) => writeDouble(v);
 
   void writeBool(bool v) {
     _ensureCapacity(1);
@@ -240,6 +249,14 @@ class RecordReader {
     return v;
   }
 
+  int readInt64() => readInt();
+
+  int readInt8() {
+    final v = _bytes[_pos];
+    _pos += 1;
+    return v;
+  }
+
   int readInt32() {
     final v = _data.getInt32(_pos, Endian.little);
     _pos += 4;
@@ -251,6 +268,8 @@ class RecordReader {
     _pos += 8;
     return v;
   }
+
+  double readFloat64() => readDouble();
 
   bool readBool() => _bytes[_pos++] != 0;
 

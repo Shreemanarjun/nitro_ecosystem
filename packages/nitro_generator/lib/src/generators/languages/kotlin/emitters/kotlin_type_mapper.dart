@@ -13,12 +13,14 @@ class KotlinTypeMapper implements TypeMapper {
   final Set<String> enumNames;
   final Set<String> structNames;
   final Set<String> recordNames;
+  final Set<String> variantNames;
   final List<BridgeStruct> structs;
 
   KotlinTypeMapper({
     required this.enumNames,
     required this.structNames,
     required this.recordNames,
+    required this.variantNames,
     required this.structs,
   });
 
@@ -26,6 +28,7 @@ class KotlinTypeMapper implements TypeMapper {
     enumNames: spec.enums.map((e) => e.name).toSet(),
     structNames: spec.structs.map((s) => s.name).toSet(),
     recordNames: spec.recordTypes.map((r) => r.name).toSet(),
+    variantNames: spec.variants.map((v) => v.name).toSet(),
     structs: spec.structs,
   );
 
@@ -77,6 +80,7 @@ class KotlinTypeMapper implements TypeMapper {
     if (enumNames.contains(name)) return name;
     if (structNames.contains(name)) return name;
     if (recordNames.contains(name)) return name;
+    if (variantNames.contains(name)) return name;
     return 'Any?';
   }
 
@@ -138,6 +142,8 @@ class KotlinTypeMapper implements TypeMapper {
     if (p.type.isMap) return 'ByteArray';
     final isNullableRecord = p.type.isRecord && (p.type.isNullable || p.type.name.endsWith('?'));
     if (p.type.isRecord) return isNullableRecord ? 'ByteArray?' : 'ByteArray';
+    // @NitroVariant params arrive as ByteArray [4B len][1B tag][fields]
+    if (variantNames.contains(p.type.name.replaceFirst('?', ''))) return 'ByteArray';
 
     final isNullable = p.type.name.endsWith('?') || p.isOptional;
     if (!isNullable) {

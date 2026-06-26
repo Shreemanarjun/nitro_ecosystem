@@ -782,10 +782,17 @@ class SpecExtractor {
         );
       }
 
+      final isResult = resultChecker.hasAnnotationOf(m);
       DartType returnDartType = m.returnType;
       if ((isAsync || isNativeAsync) && returnDartType.isDartAsyncFuture) {
         final it = returnDartType as InterfaceType;
         if (it.typeArguments.isNotEmpty) returnDartType = it.typeArguments.first;
+      }
+      if (isResult && returnDartType is InterfaceType) {
+        final elName = returnDartType.element.name;
+        if (elName == 'NitroResultValue' && returnDartType.typeArguments.isNotEmpty) {
+          returnDartType = returnDartType.typeArguments.first;
+        }
       }
 
       return BridgeFunction(
@@ -803,7 +810,7 @@ class SpecExtractor {
         zeroCopyReturn: zeroCopyChecker.hasAnnotationOf(m),
         isOwned: ownedChecker.hasAnnotationOf(m),
         asyncTimeout: asyncTimeout,
-        isResult: resultChecker.hasAnnotationOf(m),
+        isResult: isResult,
         params: m.formalParameters.map((p) {
           return BridgeParam(
             name: p.name!,
