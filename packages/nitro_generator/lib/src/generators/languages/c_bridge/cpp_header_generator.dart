@@ -235,8 +235,8 @@ class CppHeaderGenerator {
       case 'void':
         return 'void';
       default:
-        // Map<String, T> bridges as a JSON string (same as const char*)
-        if (dartType.startsWith('Map<')) return 'const char*';
+        // Map<String, T> bridges as a length-prefixed binary buffer (same as @HybridRecord)
+        if (dartType.startsWith('Map<')) return 'uint8_t*';
         return 'void*';
     }
   }

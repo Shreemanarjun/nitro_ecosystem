@@ -759,11 +759,13 @@ class SpecExtractor {
       final itemDartType = retType.typeArguments.isNotEmpty ? retType.typeArguments.first : null;
 
       Backpressure backpressure = Backpressure.dropLatest;
+      int batchMaxSize = 64;
       final ann = streamChecker.firstAnnotationOf(m);
       if (ann != null) {
         final bpField = ann.getField('backpressure');
         final bpIndex = bpField?.getField('index')?.toIntValue() ?? 0;
         backpressure = Backpressure.values[bpIndex];
+        batchMaxSize = ann.getField('batchMaxSize')?.toIntValue() ?? 64;
       }
 
       final name = m.name!;
@@ -774,6 +776,7 @@ class SpecExtractor {
           releaseSymbol: '${ns}_release_${_toSnakeCase(name)}_stream',
           itemType: itemDartType != null ? _makeBridgeType(itemDartType, recordTypeNames, knownTypeNames: knownTypeNames, structTypeNames: structTypeNames) : BridgeType(name: 'dynamic'),
           backpressure: backpressure,
+          batchMaxSize: batchMaxSize,
           isMethodStyle: true,
           isAnnotated: ann != null,
         ),
@@ -786,11 +789,13 @@ class SpecExtractor {
       final itemDartType = retType.typeArguments.isNotEmpty ? retType.typeArguments.first : null;
 
       Backpressure backpressure = Backpressure.dropLatest;
+      int batchMaxSizeGetter = 64;
       final ann = streamChecker.firstAnnotationOf(ac);
       if (ann != null) {
         final bpField = ann.getField('backpressure');
         final bpIndex = bpField?.getField('index')?.toIntValue() ?? 0;
         backpressure = Backpressure.values[bpIndex];
+        batchMaxSizeGetter = ann.getField('batchMaxSize')?.toIntValue() ?? 64;
       }
 
       final name = ac.displayName;
@@ -801,6 +806,7 @@ class SpecExtractor {
           releaseSymbol: '${ns}_release_${_toSnakeCase(name)}_stream',
           itemType: itemDartType != null ? _makeBridgeType(itemDartType, recordTypeNames, knownTypeNames: knownTypeNames, structTypeNames: structTypeNames) : BridgeType(name: 'dynamic'),
           backpressure: backpressure,
+          batchMaxSize: batchMaxSizeGetter,
           isAnnotated: ann != null,
         ),
       );

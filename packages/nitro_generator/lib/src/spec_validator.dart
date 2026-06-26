@@ -689,7 +689,9 @@ class SpecValidator {
     final returnName = (callback.functionReturnType ?? 'void').replaceFirst('?', '');
     final enumNames = spec.enums.map((e) => e.name).toSet();
 
-    final supportedReturn = returnName == 'void' || returnName == 'int' || returnName == 'double' || returnName == 'bool' || enumNames.contains(returnName);
+    // String is now supported as a bidirectional callback return (#4 implementation).
+    final supportedReturn = returnName == 'void' || returnName == 'int' || returnName == 'double'
+        || returnName == 'bool' || returnName == 'String' || enumNames.contains(returnName);
     if (!supportedReturn) {
       issues.add(
         ValidationIssue(
@@ -697,7 +699,7 @@ class SpecValidator {
           code: 'UNSUPPORTED_FUNCTION_TYPE',
           message:
               '${spec.dartClassName}.${func.dartName}() — parameter "${param.name}" callback return type "$returnName" is not supported.',
-          hint: 'Callback returns support void, int, double, bool, and @HybridEnum. Use Future<T> or Stream<T> for object results.',
+          hint: 'Callback returns support void, int, double, bool, String, and @HybridEnum. Use Future<T> or Stream<T> for object results.',
         ),
       );
     }

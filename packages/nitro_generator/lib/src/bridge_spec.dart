@@ -342,6 +342,8 @@ class BridgeStream {
   final String releaseSymbol;
   final BridgeType itemType;
   final Backpressure backpressure;
+  /// Max items per batch when [backpressure] == [Backpressure.batch].
+  final int batchMaxSize;
   // true when declared as a method (`Stream<T> name()`), false for a getter.
   final bool isMethodStyle;
 
@@ -349,12 +351,15 @@ class BridgeStream {
   /// False means default backpressure (dropLatest) was used silently.
   final bool isAnnotated;
 
+  bool get isBatch => backpressure == Backpressure.batch;
+
   BridgeStream({
     required this.dartName,
     required this.registerSymbol,
     required this.releaseSymbol,
     required this.itemType,
     required this.backpressure,
+    this.batchMaxSize = 64,
     this.isMethodStyle = false,
     this.isAnnotated = true,
   });

@@ -609,8 +609,8 @@ class CppBridgeGenerator {
       case 'void':
         return 'void';
       default:
-        // Map<String, T> and other types that bridge as JSON/pointer use const char*
-        if (dartType.startsWith('Map<')) return 'const char*';
+        // Map<String, T> now bridges as binary uint8_t* (same as @HybridRecord)
+        if (dartType.startsWith('Map<')) return 'uint8_t*';
         return 'void*';
     }
   }
@@ -1074,7 +1074,7 @@ class CppBridgeGenerator {
       final base when structNames.contains(base) => 'L$libPkg/$base;',
       _ when zeroCopyReturn && returnType.isTypedData => 'Ljava/nio/ByteBuffer;',
       _ when returnType.isRecord && !returnType.isMap => '[B',  // binary record
-      _ when returnType.isMap => 'Ljava/lang/String;',          // JSON-encoded string
+      _ when returnType.isMap => '[B',                          // binary map (replaces JSON)
       _ when returnType.isFunction => 'J',
       _ => _jniSigType(returnType.name),
     };
@@ -1116,8 +1116,8 @@ class CppBridgeGenerator {
       return 'Ljava/nio/ByteBuffer;';
     }
     if (enumNames.contains(baseParamType)) return 'J';
-    if (param.type.isRecord && !param.type.isMap) return '[B';   // binary record
-    if (param.type.isMap) return 'Ljava/lang/String;';            // JSON-encoded string
+    if (param.type.isRecord && !param.type.isMap) return '[B';  // binary record
+    if (param.type.isMap) return '[B';                           // binary map (replaces JSON)
     // Callback / function-typed params are passed as a long (function pointer).
     if (param.type.isFunction) return 'J';
     // Nullable primitives use NitroNullable ByteArray encoding ([B).

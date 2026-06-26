@@ -8,8 +8,8 @@
 export 'src/annotations.dart';
 export 'src/nitro_config.dart';
 export 'src/hybrid_exception.dart';
-// dart:convert is available everywhere — needed for Map<String,T> JSON bridge.
-export 'dart:convert' show jsonDecode, jsonEncode;
+// dart:convert is available everywhere — needed for Map<String,T> binary bridge.
+export 'dart:convert' show jsonDecode, jsonEncode, utf8;
 
 // ── Native-only exports (dart:ffi, dart:io required) ─────────────────────────
 // On web these are replaced by the web stub so the package remains importable.

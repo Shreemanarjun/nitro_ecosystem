@@ -254,7 +254,7 @@ class KotlinGenerator {
       final isNullableDoubleReturn = retBaseName == 'double' && func.returnType.name.endsWith('?');
       // JniBridge _call methods expose primitive bridge types to JNI:
       // enums → Long (nativeValue), records → ByteArray (serialized binary),
-      // maps → String (JSON-encoded),
+      // maps → ByteArray (binary-encoded, replaces JSON for NaN/Inf/perf/precision),
       // nullable int?/double?/bool? → ByteArray (NitroNullable binary encoding),
       // else → actual type.
       final bridgeRetType = (isNullableBoolReturn || isNullableIntReturn || isNullableDoubleReturn)
@@ -265,7 +265,7 @@ class KotlinGenerator {
           // Nullable @HybridRecord returns ByteArray? (null when impl returns null).
           ? (func.returnType.name.endsWith('?') ? 'ByteArray?' : 'ByteArray')
           : isMap
-          ? 'String?'
+          ? 'ByteArray'  // binary map encoding
           : retType;
 
       // Identify optional-primitive params that need NitroNullable decoding.
@@ -301,7 +301,7 @@ class KotlinGenerator {
             }
             if (p.type.isFunction) {
               // Wrap Long function pointer in a Kotlin lambda.
-              return _emitCallbackLambda(p, enumNames, structNames: structNames, recordNames: recordNames);
+              return _emitCallbackLambda(p, enumNames, structNames: structNames, recordNames: recordNames, structs: spec.structs);
             }
             // Record params are deserialized from ByteArray — use decoded variable.
             if (p.type.isRecord && p.type.recordListItemType == null && !p.type.isMap) {
@@ -417,14 +417,40 @@ class KotlinGenerator {
           ? 'runBlocking { withTimeout(${func.asyncTimeout}L) { impl.${func.dartName}($callParamsResolved) } }'
           : 'runBlocking { impl.${func.dartName}($callParamsResolved) }';
       if (isMap) {
-        // Map<String, T>: JSON-decode input String, call impl, JSON-encode result.
+        // Map<String, T>: binary decode input ByteArray, call impl, binary encode result.
         final mapParamName = func.params.isNotEmpty ? func.params.first.name : 'value';
+        // Extract map value type from the return type annotation
+        final mapValueType = (() {
+          final m = RegExp(r'^Map<String,\s*(.+)>$').firstMatch(func.returnType.name);
+          return m?.group(1)?.trim() ?? 'Any?';
+        })();
         writer.line('        @Suppress("UNCHECKED_CAST")');
-        writer.line('        val _inputMap: Map<String, Any?> = run {');
-        writer.line('            val jo = org.json.JSONObject($mapParamName)');
-        writer.line('            val m = mutableMapOf<String, Any?>()');
-        writer.line('            for (k in jo.keys()) m[k] = jo.get(k)');
-        writer.line('            m');
+        // Binary map decode: [4B payloadLen][4B count][entries: [4B kLen][kBytes][1B tag][vBytes]]
+        // Tag values (must match Dart/Swift): 1=int64, 2=float64, 3=bool, 4=string
+        writer.line('        val _mapBuf = java.nio.ByteBuffer.wrap($mapParamName).order(java.nio.ByteOrder.LITTLE_ENDIAN)');
+        writer.line('        _mapBuf.position(4) // skip 4-byte payload length prefix');
+        writer.line('        val _mapCount = _mapBuf.int');
+        writer.line('        val _inputMap = mutableMapOf<String, Any?>()');
+        writer.line('        repeat(_mapCount) {');
+        writer.line('            val kLen = _mapBuf.int; val kBytes = ByteArray(kLen); _mapBuf.get(kBytes)');
+        writer.line('            val k = kBytes.toString(Charsets.UTF_8)');
+        // Skip the tag byte (typed maps have a fixed type, tag is always the same but must be consumed)
+        writer.line('            _mapBuf.get() // skip 1-byte type tag');
+        // Decode value based on known type
+        if (mapValueType == 'int' || mapValueType == 'Long') {
+          writer.line('            _inputMap[k] = _mapBuf.long');
+        } else if (mapValueType == 'double' || mapValueType == 'Double') {
+          writer.line('            _inputMap[k] = _mapBuf.double');
+        } else if (mapValueType == 'bool' || mapValueType == 'Boolean') {
+          writer.line('            _inputMap[k] = _mapBuf.get().toInt() != 0');
+        } else if (mapValueType == 'String') {
+          writer.line('            val vLen = _mapBuf.int; val vBytes = ByteArray(vLen); _mapBuf.get(vBytes)');
+          writer.line('            _inputMap[k] = vBytes.toString(Charsets.UTF_8)');
+        } else {
+          // Generic/record: decode as string (tag 4 already consumed)
+          writer.line('            val vLen = _mapBuf.int; val vBytes = ByteArray(vLen); _mapBuf.get(vBytes)');
+          writer.line('            _inputMap[k] = vBytes.toString(Charsets.UTF_8)');
+        }
         writer.line('        }');
         if (func.isAsync) {
           final rbMap = func.asyncTimeout != null
@@ -434,11 +460,40 @@ class KotlinGenerator {
         } else {
           writer.line('        val _result = impl.${func.dartName}(_inputMap)');
         }
-        writer.line('        if (_result == null) return null');
-        writer.line('        val _jo = org.json.JSONObject()');
         writer.line('        @Suppress("UNCHECKED_CAST")');
-        writer.line('        (_result as Map<String, Any?>).forEach { (k, v) -> _jo.put(k, v) }');
-        writer.line('        return _jo.toString()');
+        // Inline binary map encode
+        writer.line('        val _outMap = _result as? Map<String, Any?> ?: emptyMap()');
+        writer.line('        val _outBb = java.io.ByteArrayOutputStream()');
+        writer.line('        val _outBuf = java.nio.ByteBuffer.allocate(8).order(java.nio.ByteOrder.LITTLE_ENDIAN)');
+        writer.line('        fun _writeInt32(v: Int) { _outBuf.clear(); _outBuf.putInt(v); _outBb.write(_outBuf.array(), 0, 4) }');
+        writer.line('        fun _writeInt64(v: Long) { _outBuf.clear(); _outBuf.putLong(v); _outBb.write(_outBuf.array()) }');
+        writer.line('        fun _writeDouble(v: Double) { _outBuf.clear(); _outBuf.putDouble(v); _outBb.write(_outBuf.array()) }');
+        writer.line('        _writeInt32(_outMap.size)');
+        // Binary map encode: write [4B kLen][kBytes][1B tag][vBytes] per entry.
+        // Tags must match Dart/Swift format: 1=int64, 2=float64, 3=bool, 4=string.
+        writer.line('        for ((k, v) in _outMap) {');
+        writer.line('            val kb = k.toByteArray(Charsets.UTF_8); _writeInt32(kb.size); _outBb.write(kb)');
+        if (mapValueType == 'int' || mapValueType == 'Long') {
+          writer.line('            _outBb.write(1) // tag: int64');
+          writer.line('            _writeInt64(v as Long)');
+        } else if (mapValueType == 'double' || mapValueType == 'Double') {
+          writer.line('            _outBb.write(2) // tag: float64');
+          writer.line('            _writeDouble(v as Double)');
+        } else if (mapValueType == 'bool' || mapValueType == 'Boolean') {
+          writer.line('            _outBb.write(3) // tag: bool');
+          writer.line('            _outBb.write(if (v as Boolean) 1 else 0)');
+        } else if (mapValueType == 'String') {
+          writer.line('            _outBb.write(4) // tag: string');
+          writer.line('            val vb = (v as String).toByteArray(Charsets.UTF_8); _writeInt32(vb.size); _outBb.write(vb)');
+        } else {
+          writer.line('            _outBb.write(4) // tag: string (generic fallback)');
+          writer.line('            val vb = v.toString().toByteArray(Charsets.UTF_8); _writeInt32(vb.size); _outBb.write(vb)');
+        }
+        writer.line('        }');
+        writer.line('        val _payload = _outBb.toByteArray()');
+        writer.line('        val _lenBuf = java.nio.ByteBuffer.allocate(4).order(java.nio.ByteOrder.LITTLE_ENDIAN)');
+        writer.line('        _lenBuf.putInt(_payload.size)');
+        writer.line('        return _lenBuf.array() + _payload');
       } else if (isRecord) {
         // Fetch the result, then serialize to ByteArray for JNI
         if (func.isAsync) {
@@ -669,28 +724,56 @@ class KotlinGenerator {
     writer.blankLine();
 
     for (final stream in spec.streams) {
-      writer.line(
-        '    @JvmStatic external fun emit_${stream.dartName}(dartPort: Long, item: ${_toKotlinType(enumNames, structNames, recordNames, stream.itemType.name)}): Boolean',
-      );
+      final itemKotlinType = _toKotlinType(enumNames, structNames, recordNames, stream.itemType.name);
+      if (stream.isBatch) {
+        // Batch mode: accumulate up to batchMaxSize items, emit as LongArray.
+        writer.line('    @JvmStatic external fun emit_${stream.dartName}_batch(dartPort: Long, batch: LongArray): Boolean');
+      } else {
+        writer.line('    @JvmStatic external fun emit_${stream.dartName}(dartPort: Long, item: $itemKotlinType): Boolean');
+      }
       writer.blankLine();
-      writer.line(
-        '    @JvmStatic fun ${stream.registerSymbol}_call(dartPort: Long) {',
-      );
+      writer.line('    @JvmStatic fun ${stream.registerSymbol}_call(dartPort: Long) {');
       writer.line('        val impl = implementation ?: return');
-      writer.line(
-        '        _streamJobs[Pair("${stream.dartName}", dartPort)] = CoroutineScope(Dispatchers.Default).launch {',
-      );
-      writer.line('            impl.${stream.dartName}.collect { item -> ');
-      writer.line('                if (!emit_${stream.dartName}(dartPort, item)) {');
-      writer.line('                    _streamJobs.remove(Pair("${stream.dartName}", dartPort))?.cancel()');
-      writer.line('                    return@collect');
-      writer.line('                }');
-      writer.line('            }');
+      writer.line('        _streamJobs[Pair("${stream.dartName}", dartPort)] = CoroutineScope(Dispatchers.Default).launch {');
+      if (stream.isBatch) {
+        final batchMax = stream.batchMaxSize;
+        final itemBase = stream.itemType.name.replaceFirst('?', '');
+        writer.line('            val _buf = ArrayList<Long>($batchMax)');
+        writer.line('            fun _flush() {');
+        writer.line('                if (_buf.isEmpty()) return');
+        writer.line('                val arr = LongArray(_buf.size + 1); arr[0] = _buf.size.toLong()');
+        writer.line('                _buf.forEachIndexed { i, v -> arr[i + 1] = v }');
+        writer.line('                _buf.clear()');
+        writer.line('                emit_${stream.dartName}_batch(dartPort, arr)');
+        writer.line('            }');
+        // Periodic flush so partial batches (< batchMax items) are delivered when
+        // the flow is a hot source (MutableSharedFlow etc.) that never completes.
+        // delay() throws CancellationException when the job is cancelled — no need for isActive check.
+        writer.line('            val _flushJob = launch { while (true) { kotlinx.coroutines.delay(10); _flush() } }');
+        writer.line('            impl.${stream.dartName}.collect { item ->');
+        // Encode item as Long (raw bits for double, 1/0 for bool, direct for int)
+        if (itemBase == 'double') {
+          writer.line('                _buf.add(java.lang.Double.doubleToRawLongBits(item))');
+        } else if (itemBase == 'bool') {
+          writer.line('                _buf.add(if (item) 1L else 0L)');
+        } else {
+          writer.line('                _buf.add(item.toLong())');
+        }
+        writer.line('                if (_buf.size >= $batchMax) _flush()');
+        writer.line('            }');
+        writer.line('            _flushJob.cancel()');
+        writer.line('            _flush()');
+      } else {
+        writer.line('            impl.${stream.dartName}.collect { item -> ');
+        writer.line('                if (!emit_${stream.dartName}(dartPort, item)) {');
+        writer.line('                    _streamJobs.remove(Pair("${stream.dartName}", dartPort))?.cancel()');
+        writer.line('                    return@collect');
+        writer.line('                }');
+        writer.line('            }');
+      }
       writer.line('        }');
       writer.line('    }');
-      writer.line(
-        '    @JvmStatic fun ${stream.releaseSymbol}_call(dartPort: Long) {',
-      );
+      writer.line('    @JvmStatic fun ${stream.releaseSymbol}_call(dartPort: Long) {');
       writer.line('        _streamJobs.remove(Pair("${stream.dartName}", dartPort))?.cancel()');
       writer.line('    }');
     }
@@ -706,12 +789,18 @@ class KotlinGenerator {
         final nativeName = '_invoke_${p.name}';
         if (!callbackNativeMethods.add(nativeName)) continue;
         final cbParams = p.type.functionParams;
-        // Signature uses type-specific JVM types so the JNI bridge and
-        // Kotlin compiler agree on the JVM method descriptor. All-Long was
-        // wrong for Double/Boolean params (mismatched descriptors → NSME).
         final paramDecl = StringBuffer('callbackPtr: Long');
         for (var i = 0; i < cbParams.length; i++) {
-          paramDecl.write(', arg$i: ${_callbackParamToKotlinJni(cbParams[i], structNames: structNames, recordNames: recordNames)}');
+          final base = cbParams[i].name.replaceFirst('?', '');
+          final struct = spec.structs.where((s) => s.name == base).firstOrNull;
+          if (struct != null && _isExpandableStruct(struct)) {
+            // Expand struct fields to individual Long params → fires NativeCallable synchronously.
+            for (final f in struct.fields) {
+              paramDecl.write(', arg${i}_${f.name}: Long');
+            }
+          } else {
+            paramDecl.write(', arg$i: ${_callbackParamToKotlinJni(cbParams[i], structNames: structNames, recordNames: recordNames)}');
+          }
         }
         // For bidirectional callbacks (non-void return), declare the JNI return type.
         final cbReturnType = p.type.functionReturnType;
@@ -851,7 +940,8 @@ class KotlinGenerator {
     // Callback / function-typed params are passed as Long (function pointer) via JNI.
     if (p.type.isFunction) return 'Long';
     // Map<String, T> params are JSON-encoded strings (Ljava/lang/String;), not ByteArray.
-    if (p.type.isMap) return 'String';
+    // Maps now use binary encoding → ByteArray ([B]) same as @HybridRecord.
+    if (p.type.isMap) return 'ByteArray';
     // Record params (List<T> and @HybridRecord) are serialized as ByteArray ([B]) in the C++ bridge.
     // Nullable record params use ByteArray? — C passes null jbyteArray for null values.
     final isNullableRecord = p.type.isRecord && (p.type.isNullable || p.type.name.endsWith('?'));
@@ -998,7 +1088,7 @@ class KotlinGenerator {
   /// ```kotlin
   /// { p0: TorchState -> _invoke_onCallback(onCallbackPtr, p0.nativeValue) }
   /// ```
-  static String _emitCallbackLambda(BridgeParam p, Set<String> enumNames, {Set<String>? structNames, Set<String>? recordNames}) {
+  static String _emitCallbackLambda(BridgeParam p, Set<String> enumNames, {Set<String>? structNames, Set<String>? recordNames, List<BridgeStruct>? structs}) {
     final cbParams = p.type.functionParams;
     final nativeMethodName = '_invoke_${p.name}';
 
@@ -1013,18 +1103,24 @@ class KotlinGenerator {
         })
         .join(', ');
 
-    // Native method args: type-specific conversions to match the JNI signature.
-    // • bool   → 1L / 0L (encoded as Long for synchronous NativeCallable fast-path)
-    // • double → java.lang.Double.doubleToRawLongBits(p) (encoded as Long)
-    // • Enums    → .nativeValue (Long)
-    // • Records  → .encode() (ByteArray, length-prefixed by encode())
-    // • Structs  → pass the data class directly (jobject)
-    // • Primitives (int, String?) → pass as-is
     final nativeArgs = <String>[p.name];
     for (var i = 0; i < cbParams.length; i++) {
       final cbP = cbParams[i];
       final base = cbP.name.replaceFirst('?', '');
-      if (base == 'bool') {
+      final struct = structs?.where((s) => s.name == base).firstOrNull;
+      if (struct != null && _isExpandableStruct(struct)) {
+        // Expand struct fields → individual Longs for synchronous NativeCallable.listener.
+        for (final f in struct.fields) {
+          final fBase = f.type.name.replaceFirst('?', '');
+          if (fBase == 'double') {
+            nativeArgs.add('java.lang.Double.doubleToRawLongBits(p$i.${f.name})');
+          } else if (fBase == 'bool') {
+            nativeArgs.add('if (p$i.${f.name}) 1L else 0L');
+          } else {
+            nativeArgs.add('p$i.${f.name}.toLong()');
+          }
+        }
+      } else if (base == 'bool') {
         nativeArgs.add('if (p$i) 1L else 0L');
       } else if (base == 'double') {
         nativeArgs.add('java.lang.Double.doubleToRawLongBits(p$i)');
@@ -1039,5 +1135,12 @@ class KotlinGenerator {
 
     final lambdaBody = '$nativeMethodName(${nativeArgs.join(', ')})';
     return '{ ${lambdaParams.isEmpty ? '' : '$lambdaParams -> '}$lambdaBody }';
+  }
+
+  /// Returns true when all struct fields are numeric (int/double/bool) — can be
+  /// expanded to individual Long params for synchronous NativeCallable.listener.
+  static bool _isExpandableStruct(BridgeStruct st) {
+    const numeric = {'int', 'double', 'bool'};
+    return st.fields.every((f) => numeric.contains(f.type.name.replaceFirst('?', '')) && !f.type.isTypedData);
   }
 }

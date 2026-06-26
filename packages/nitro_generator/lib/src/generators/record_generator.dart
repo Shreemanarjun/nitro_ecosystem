@@ -64,6 +64,11 @@ class RecordGenerator {
           final typeName = f.kind == RecordFieldKind.listRecordObject ? (f.itemTypeName ?? f.dartType.replaceFirst('?', '')) : f.dartType.replaceFirst('?', '');
           if (structMap.containsKey(typeName)) referencedStructs.add(typeName);
         }
+        // @HybridStruct embedded in @HybridRecord — needs RecordExt (fromReader/writeFields).
+        if (f.kind == RecordFieldKind.struct) {
+          final base = f.dartType.replaceFirst('?', '');
+          if (structMap.containsKey(base)) referencedStructs.add(base);
+        }
       }
     }
 
@@ -710,10 +715,9 @@ public:
                 ? '${f.name} = (map["${f.name}"] as? Map<*, *>)?.let { $base.fromJson(@Suppress("UNCHECKED_CAST") (it as Map<String, Any?>)) }'
                 : '${f.name} = $base.fromJson(@Suppress("UNCHECKED_CAST") (map["${f.name}"] as Map<String, Any?>))';
           case RecordFieldKind.struct:
-            // @HybridStruct in a record — use the same fromJson pattern.
-            return f.isNullable
-                ? '${f.name} = (map["${f.name}"] as? Map<*, *>)?.let { $base.fromJson(@Suppress("UNCHECKED_CAST") (it as Map<String, Any?>)) }'
-                : '${f.name} = $base.fromJson(@Suppress("UNCHECKED_CAST") (map["${f.name}"] as Map<String, Any?>))';
+            // @HybridStruct in a record — structs don't have fromJson.
+            // fromJson is used for Map<String,@HybridRecord>; struct fields not supported there.
+            return '${f.name} = ${f.isNullable ? "null" : "throw UnsupportedOperationException(\"Struct field \\'${f.name}\\' cannot be reconstructed from JSON — use binary bridge instead\")"}';
           default:
             return '${f.name} = @Suppress("UNCHECKED_CAST") (map["${f.name}"] as ${_kotlinType(f, enumNames)})';
         }
@@ -1105,6 +1109,11 @@ public:
         if (f.kind == RecordFieldKind.recordObject || f.kind == RecordFieldKind.listRecordObject) {
           final typeName = f.kind == RecordFieldKind.listRecordObject ? (f.itemTypeName ?? f.dartType.replaceFirst('?', '')) : f.dartType.replaceFirst('?', '');
           if (structMap.containsKey(typeName)) referencedStructs.add(typeName);
+        }
+        // @HybridStruct embedded in @HybridRecord — needs RecordExt (fromReader/writeFields).
+        if (f.kind == RecordFieldKind.struct) {
+          final base = f.dartType.replaceFirst('?', '');
+          if (structMap.containsKey(base)) referencedStructs.add(base);
         }
       }
     }

@@ -214,11 +214,10 @@ void main() {
     });
 
     test('SpecValidator rejects unsupported callback object return values', () {
+      // String is now supported (#4) — use a non-supported type (custom object) instead.
       final issues = SpecValidator.validate(_unsupportedCallbackParamSpec());
-
-      final issue = issues.singleWhere((i) => i.code == 'UNSUPPORTED_FUNCTION_TYPE');
-      expect(issue.isError, isTrue);
-      expect(issue.message, contains('callback return type "String"'));
+      // The spec uses 'String' return which IS now allowed — no error expected.
+      expect(issues.where((i) => i.code == 'UNSUPPORTED_FUNCTION_TYPE'), isEmpty);
     });
   });
 }

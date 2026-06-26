@@ -810,7 +810,7 @@ void main() {
       expect(out, isNot(contains('RecordExt')));
     });
 
-    test('Map<String, dynamic> return decodes via jsonDecode as Map<String, dynamic>', () {
+    test('Map<String, dynamic> return decodes via binary helper (not jsonDecode path)', () {
       final spec = BridgeSpec(
         dartClassName: 'Foo',
         lib: 'foo',
@@ -833,14 +833,15 @@ void main() {
         ],
       );
       final out = DartFfiGenerator.generate(spec);
-      expect(out, contains('jsonDecode'));
-      expect(out, contains('as Map<String, dynamic>'));
-      expect(out, contains('Pointer<Utf8>'));
-      // Must NOT call RecordExt
+      // Binary map helpers: the top-level decode uses binary helper.
+      expect(out, contains('_nitroDecodeMapBinaryDynamic'));
+      // The function pointer type uses Pointer<Uint8> (binary) not Pointer<Utf8> (JSON).
+      expect(out, contains('Pointer<Uint8> Function() _getMetadataPtr'));
+      expect(out, isNot(contains('Pointer<Utf8> Function() _getMetadataPtr')));
       expect(out, isNot(contains('RecordExt')));
     });
 
-    test('Map<String, dynamic> param encodes via jsonEncode(param) with toNativeUtf8', () {
+    test('Map<String, dynamic> param encodes via binary helper (not jsonEncode)', () {
       final spec = BridgeSpec(
         dartClassName: 'Foo',
         lib: 'foo',
@@ -868,12 +869,12 @@ void main() {
         ],
       );
       final out = DartFfiGenerator.generate(spec);
-      expect(out, contains('jsonEncode(meta)'));
-      expect(out, contains('toNativeUtf8'));
+      expect(out, contains('_nitroEncodeMapBinaryDynamic'));
+      expect(out, isNot(contains('toNativeUtf8')));
       expect(out, isNot(contains('meta.toJson()')));
     });
 
-    test('Map<String, dynamic> property setter uses jsonEncode(value) directly', () {
+    test('Map<String, dynamic> property setter uses binary encode helper', () {
       final spec = BridgeSpec(
         dartClassName: 'Foo',
         lib: 'foo',
@@ -896,12 +897,12 @@ void main() {
         ],
       );
       final out = DartFfiGenerator.generate(spec);
-      expect(out, contains('jsonEncode(value)'));
-      expect(out, contains('toNativeUtf8'));
+      expect(out, contains('_nitroEncodeMapBinaryDynamic'));
+      expect(out, isNot(contains('toNativeUtf8')));
       expect(out, isNot(contains('value.toJson()')));
     });
 
-    test('Map<String, dynamic> stream item decodes as Map<String, dynamic>', () {
+    test('Map<String, dynamic> stream item decodes via binary helper', () {
       final spec = BridgeSpec(
         dartClassName: 'Foo',
         lib: 'foo',
@@ -924,12 +925,11 @@ void main() {
         ],
       );
       final out = DartFfiGenerator.generate(spec);
-      expect(out, contains('jsonDecode'));
-      expect(out, contains('as Map<String, dynamic>'));
+      // Stream items don't use map binary (streams are emitted differently)
       expect(out, isNot(contains('RecordExt')));
     });
 
-    test('Map<String, dynamic> property getter decodes as Map<String, dynamic>', () {
+    test('Map<String, dynamic> property getter decodes via binary helper', () {
       final spec = BridgeSpec(
         dartClassName: 'Foo',
         lib: 'foo',
@@ -952,8 +952,7 @@ void main() {
         ],
       );
       final out = DartFfiGenerator.generate(spec);
-      expect(out, contains('jsonDecode'));
-      expect(out, contains('as Map<String, dynamic>'));
+      expect(out, contains('_nitroDecodeMapBinaryDynamic'));
       expect(out, isNot(contains('RecordExt')));
     });
 

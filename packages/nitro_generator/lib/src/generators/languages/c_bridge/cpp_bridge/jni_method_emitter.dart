@@ -1,5 +1,13 @@
 part of '../cpp_bridge_generator.dart';
 
+/// Returns true when all struct fields are numeric (int/double/bool) — can be
+/// expanded to individual jlong params for synchronous NativeCallable.listener.
+bool _isExpandableStruct(BridgeStruct st) {
+  const numeric = {'int', 'double', 'bool'};
+  return st.fields.isNotEmpty &&
+      st.fields.every((f) => numeric.contains(f.type.name.replaceFirst('?', '')) && !f.type.isTypedData);
+}
+
 String _paramTypeToC(String dartType, Set<String> structNames) => CppBridgeGenerator._paramTypeToC(dartType, structNames);
 
 String _jniCallbackParamToC(BridgeParam param, Set<String> enumNames, {Set<String>? structNames, Set<String>? recordNames}) => CppBridgeGenerator._callbackParamToC(param, enumNames, structNames: structNames, recordNames: recordNames);
@@ -136,8 +144,10 @@ void _emitJniMethods(
           writer.line('    env->${ops[2]}(j_${p.name}, 0, (jsize)${p.name}_length, (const ${ops[3]}*)${p.name});');
           callArgsList.add('j_${p.name}');
         } else if (p.type.isMap) {
-          // Map<String, T> params: JSON string → jstring.
-          writer.line('    jstring j_${p.name} = env->NewStringUTF(${p.name});');
+          // Map<String, T>: binary uint8_t* (with 4-byte length prefix) → jbyteArray.
+          writer.line('    jsize j_${p.name}_len = (jsize)(*((int32_t*)${p.name} + 0)) + 4;');
+          writer.line('    jbyteArray j_${p.name} = env->NewByteArray(j_${p.name}_len);');
+          writer.line('    env->SetByteArrayRegion(j_${p.name}, 0, j_${p.name}_len, (const jbyte*)${p.name});');
           callArgsList.add('j_${p.name}');
         } else {
           callArgsList.add(p.name);
@@ -271,8 +281,10 @@ void _emitJniMethods(
       } else if (p.type.isFunction) {
         callArgsList.add('(jlong)${p.name}');
       } else if (p.type.isMap) {
-        // Map<String, T> params arrive as const char* (JSON string) — pass as jstring.
-        writer.line('    jstring j_${p.name} = env->NewStringUTF(${p.name});');
+        // Map<String, T>: binary uint8_t* (4-byte length prefix + payload) → jbyteArray.
+        writer.line('    int32_t ${p.name}_map_len = *((const int32_t*)${p.name}) + 4;');
+        writer.line('    jbyteArray j_${p.name} = env->NewByteArray((jsize)${p.name}_map_len);');
+        writer.line('    env->SetByteArrayRegion(j_${p.name}, 0, (jsize)${p.name}_map_len, (const jbyte*)${p.name});');
         callArgsList.add('j_${p.name}');
       } else if (p.type.name.endsWith('?') && ['int', 'double', 'bool'].contains(p.type.name.replaceFirst('?', ''))) {
         // Nullable primitive: NitroNullable binary buffer (void* pointing to Pointer<Uint8>).
@@ -451,22 +463,20 @@ void _emitJniMethods(
       writer.line('    env->PopLocalFrame(nullptr);');
       writer.line('    return result;');
     } else if (isMap) {
-      // Map<String, T> bridges as a JSON string (Ljava/lang/String; in JNI).
-      // Same path as String returns — strdup the UTF-8 chars and return to Dart.
-      writer.line(
-        '    jstring jstr = (jstring)env->CallStaticObjectMethod(g_bridgeClass, methodId$bridgeArgs);',
-      );
+      // Map<String, T>: bridge returns ByteArray (binary-encoded map).
+      // Same path as @HybridRecord — copy bytes to malloc'd buffer and return uint8_t*.
+      writer.line('    jbyteArray jmap = (jbyteArray)env->CallStaticObjectMethod(g_bridgeClass, methodId$bridgeArgs);');
       writer.line('    if (env->ExceptionCheck()) {');
       writer.line('        nitro_report_jni_exception(env, env->ExceptionOccurred(), _nitro_err);');
       writer.line('        env->PopLocalFrame(nullptr);');
       writer.line('        return nullptr;');
       writer.line('    }');
-      writer.line('    if (jstr == nullptr) { env->PopLocalFrame(nullptr); return nullptr; }');
-      writer.line('    const char* nativeStr = env->GetStringUTFChars(jstr, 0);');
-      writer.line('    char* result = strdup(nativeStr);');
-      writer.line('    env->ReleaseStringUTFChars(jstr, nativeStr);');
+      writer.line('    if (jmap == nullptr) { env->PopLocalFrame(nullptr); return nullptr; }');
+      writer.line('    jsize jmap_len = env->GetArrayLength(jmap);');
+      writer.line('    uint8_t* jmap_buf = (uint8_t*)malloc((size_t)jmap_len);');
+      writer.line('    env->GetByteArrayRegion(jmap, 0, jmap_len, (jbyte*)jmap_buf);');
       writer.line('    env->PopLocalFrame(nullptr);');
-      writer.line('    return result;');
+      writer.line('    return jmap_buf;');
     } else if (isRecord) {
       // Bridge returns ByteArray (serialized @HybridRecord / List<@HybridRecord>)
       // Copy bytes to malloc'd buffer and return as void* for Dart RecordReader
@@ -720,6 +730,24 @@ void _emitJniMethods(
     writer.line('}');
     writer.blankLine();
 
+    // For batch streams, emit an array of raw int64 values (count + items).
+    if (stream.isBatch) {
+      final jniBatchEmit = _jniMethodName(spec.lib, spec.dartClassName, 'emit_${stream.dartName}_batch');
+      writer.line('JNIEXPORT jboolean JNICALL $jniBatchEmit(JNIEnv* env, jobject thiz, jlong dartPort, jlongArray batch) {');
+      writer.line('    jsize n = env->GetArrayLength(batch);');
+      writer.line('    jlong* elems = env->GetLongArrayElements(batch, nullptr);');
+      writer.line('    Dart_CObject obj;');
+      writer.line('    obj.type = Dart_CObject_kTypedData;');
+      writer.line('    obj.value.as_typed_data.type = Dart_TypedData_kInt64;');
+      writer.line('    obj.value.as_typed_data.length = (intptr_t)n;');
+      writer.line('    obj.value.as_typed_data.values = (uint8_t*)elems;');
+      writer.line('    bool ok = Dart_PostCObject_DL(dartPort, &obj);');
+      writer.line('    env->ReleaseLongArrayElements(batch, elems, JNI_ABORT);');
+      writer.line('    return ok ? JNI_TRUE : JNI_FALSE;');
+      writer.line('}');
+      writer.blankLine();
+      continue; // Skip the normal single-item emit for batch streams
+    }
     final jniEmit = _jniMethodName(
       spec.lib,
       spec.dartClassName,
@@ -867,14 +895,34 @@ void _emitJniMethods(
         return 'int64_t'; // int, enum → int64_t
       }
 
-      // Build C parameter list with proper JNI types
+      // Build C parameter list with proper JNI types.
+      // For expandable structs (all-numeric fields), expand each field as a separate jlong
+      // so NativeCallable.listener fires synchronously on Android.
       final cParams = StringBuffer('JNIEnv* env, jobject thiz, jlong callbackPtr');
       for (var i = 0; i < cbParams.length; i++) {
-        cParams.write(', ${jniCParam(cbParams[i])} arg$i');
+        final base = cbParams[i].name.replaceFirst('?', '');
+        final struct = spec.structs.where((s) => s.name == base).firstOrNull;
+        if (struct != null && _isExpandableStruct(struct)) {
+          for (final f in struct.fields) {
+            cParams.write(', jlong arg${i}_${f.name}');
+          }
+        } else {
+          cParams.write(', ${jniCParam(cbParams[i])} arg$i');
+        }
       }
 
-      // Build C typedef params and call args (with conversions where needed)
-      final typedefParams = cbParams.map(cTypedefParam).join(', ');
+      // Build C typedef params — expanded struct fields use int64_t each.
+      final typedefParts = <String>[];
+      for (var i = 0; i < cbParams.length; i++) {
+        final base = cbParams[i].name.replaceFirst('?', '');
+        final struct = spec.structs.where((s) => s.name == base).firstOrNull;
+        if (struct != null && _isExpandableStruct(struct)) {
+          typedefParts.addAll(struct.fields.map((_) => 'int64_t'));
+        } else {
+          typedefParts.add(cTypedefParam(cbParams[i]));
+        }
+      }
+      final typedefParams = typedefParts.join(', ');
       final needsStringConversion = cbParams.any((t) => t.name.replaceFirst('?', '') == 'String');
 
       // Bidirectional callbacks: map Dart return type to JNI/C types.
@@ -892,29 +940,42 @@ void _emitJniMethods(
       // Copy ByteArray record bytes → malloc'd length-prefixed buffer (Dart frees).
       for (var i = 0; i < cbParams.length; i++) {
         final base = cbParams[i].name.replaceFirst('?', '');
-        if (base == 'String') {
+        final struct = spec.structs.where((s) => s.name == base).firstOrNull;
+        if (struct != null && _isExpandableStruct(struct)) {
+          // Expanded struct: individual jlong values passed directly to Dart NativeCallable.
+          // No reconstruction needed — Dart reconstructs via bitPattern on the Dart side.
+        } else if (base == 'String') {
           writer.line('    const char* s_arg$i = arg$i ? env->GetStringUTFChars(arg$i, nullptr) : nullptr;');
         } else if (structNames.contains(base)) {
           writer.line('    $base c_arg$i = pack_${base}_from_jni(env, arg$i);');
         } else if (recordNames.contains(base)) {
-          // encode() returns a length-prefixed ByteArray. Copy to malloc'd buffer;
-          // Dart frees via malloc.free() after reading via fromNative().
           writer.line('    jsize r_len$i = env->GetArrayLength(arg$i);');
           writer.line('    uint8_t* r_buf$i = (uint8_t*)malloc((size_t)r_len$i);');
           writer.line('    env->GetByteArrayRegion(arg$i, 0, r_len$i, (jbyte*)r_buf$i);');
         }
       }
-      final callArgs = cbParams.asMap().entries.map((e) {
-        final i = e.key;
-        final base = e.value.name.replaceFirst('?', '');
-        if (base == 'String') return 's_arg$i';
-        // bool and double are encoded as int64_t — pass directly (typedef is int64_t).
-        if (base == 'double') return '(int64_t)arg$i';
-        if (base == 'bool') return '(int64_t)arg$i';
-        if (structNames.contains(base)) return '&c_arg$i';
-        if (recordNames.contains(base)) return 'r_buf$i';
-        return '(int64_t)arg$i';
-      }).join(', ');
+      final callParts = <String>[];
+      for (var i = 0; i < cbParams.length; i++) {
+        final base = cbParams[i].name.replaceFirst('?', '');
+        final struct = spec.structs.where((s) => s.name == base).firstOrNull;
+        if (struct != null && _isExpandableStruct(struct)) {
+          // Pass each field's raw int64_t value directly — Dart receives Int64 and reconstructs.
+          callParts.addAll(struct.fields.map((f) => '(int64_t)arg${i}_${f.name}'));
+        } else if (base == 'String') {
+          callParts.add('s_arg$i');
+        } else if (base == 'double') {
+          callParts.add('(int64_t)arg$i');
+        } else if (base == 'bool') {
+          callParts.add('(int64_t)arg$i');
+        } else if (structNames.contains(base)) {
+          callParts.add('&c_arg$i');
+        } else if (recordNames.contains(base)) {
+          callParts.add('r_buf$i');
+        } else {
+          callParts.add('(int64_t)arg$i');
+        }
+      }
+      final callArgs = callParts.join(', ');
       if (isVoidReturn) {
         writer.line('    ((CB)callbackPtr)(${callArgs.isEmpty ? '' : callArgs});');
       } else {

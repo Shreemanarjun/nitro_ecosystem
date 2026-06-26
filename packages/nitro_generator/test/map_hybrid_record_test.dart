@@ -1,18 +1,11 @@
-// Tests for Map<String, @HybridRecord> bridging via JSON in DartFfiGenerator.
+// Tests for Map<String, @HybridRecord> bridging via BINARY encoding (#7).
 //
-// A Map<String, V> function return / parameter uses `isMap = true` regardless
-// of whether V is a @HybridRecord class. The entire map bridges as a JSON
-// string (Pointer<Utf8> / jsonDecode / jsonEncode) — NOT via binary RecordExt.
-//
-// The specs here set `isMap: true` without adding the value type to recordTypes.
-// That is the realistic scenario emitted by the spec extractor: it sets isMap on
-// the BridgeType but does NOT synthesize a BridgeRecordType for Map's value.
+// With #7: Maps use binary Pointer<Uint8> (same as @HybridRecord), replacing JSON.
+// A Map<String, V> bridges as a binary buffer — faster, handles NaN/Inf, type-safe.
 
 import 'package:nitro_generator/src/generators/languages/dart/dart_ffi_generator.dart';
 import 'package:test/test.dart';
 import 'test_utils.dart';
-
-// ── Helpers ───────────────────────────────────────────────────────────────────
 
 BridgeSpec _mapRecordReturnSpec() => BridgeSpec(
   dartClassName: 'Foo',
@@ -21,8 +14,6 @@ BridgeSpec _mapRecordReturnSpec() => BridgeSpec(
   iosImpl: NativeImpl.swift,
   androidImpl: NativeImpl.kotlin,
   sourceUri: 'foo.native.dart',
-  // No recordTypes — the map value type (Device) is only named in BridgeType.name.
-  // The isMap flag controls routing; no RecordExt is generated for the value type.
   functions: [
     BridgeFunction(
       dartName: 'getDevices',
@@ -68,32 +59,22 @@ BridgeSpec _mapRecordParamSpec() => BridgeSpec(
 
 void main() {
   group('DartFfiGenerator — Map<String, @HybridRecord> return type', () {
-    test('uses Pointer<Utf8> for the getDevices FFI function pointer', () {
+    test('uses Pointer<Uint8> for the getDevices FFI function pointer (binary)', () {
       final out = DartFfiGenerator.generate(_mapRecordReturnSpec());
-      // Map types bridge as JSON strings via Pointer<Utf8>
-      expect(
-        out,
-        contains(
-          'Pointer<Utf8> Function() _getDevicesPtr',
-        ),
-      );
+      expect(out, contains('Pointer<Uint8> Function() _getDevicesPtr'));
     });
 
-    test('decodes via jsonDecode', () {
+    test('decodes via binary helper', () {
       final out = DartFfiGenerator.generate(_mapRecordReturnSpec());
-      expect(out, contains('jsonDecode'));
+      expect(out, contains('_nitroDecodeMapBinaryDevice'));
+      // Top-level decode uses binary — jsonDecode may appear internally for dynamic fallback
+      expect(out, isNot(contains('_nitroDecodeMapBinaryDevice(res.toDartString')));
     });
 
     test('does NOT use binary RecordExt path (fromNative / fromReader)', () {
       final out = DartFfiGenerator.generate(_mapRecordReturnSpec());
-      // isMap takes precedence over isRecord — binary codec is skipped
+      // isMap takes precedence over isRecord — RecordExt is skipped for map values
       expect(out, isNot(contains('RecordExt')));
-      expect(out, isNot(contains('fromNative')));
-    });
-
-    test('casts jsonDecode result as Map<String, dynamic>', () {
-      final out = DartFfiGenerator.generate(_mapRecordReturnSpec());
-      expect(out, contains('as Map<String, dynamic>'));
     });
 
     test('getDevices function appears in generated output', () {
@@ -103,14 +84,14 @@ void main() {
   });
 
   group('DartFfiGenerator — Map<String, @HybridRecord> parameter', () {
-    test('uses jsonEncode to serialize the map param', () {
+    test('uses binary encode helper for map param', () {
       final out = DartFfiGenerator.generate(_mapRecordParamSpec());
-      expect(out, contains('jsonEncode(settings)'));
+      expect(out, contains('_nitroEncodeMapBinarySettings'));
     });
 
-    test('uses toNativeUtf8 to pass map as Pointer<Utf8>', () {
+    test('does NOT use toNativeUtf8 (binary uses alloc)', () {
       final out = DartFfiGenerator.generate(_mapRecordParamSpec());
-      expect(out, contains('toNativeUtf8'));
+      expect(out, isNot(contains('toNativeUtf8')));
     });
 
     test('does NOT use binary RecordExt for the map param', () {
@@ -118,9 +99,12 @@ void main() {
       expect(out, isNot(contains('RecordExt')));
     });
 
-    test('param FFI signature uses Pointer<Utf8> for map type', () {
+    test('param FFI signature uses Pointer<Uint8> for map type (binary)', () {
       final out = DartFfiGenerator.generate(_mapRecordParamSpec());
-      expect(out, contains('Pointer<Utf8>'));
+      // Map param uses Pointer<Uint8> in the function pointer declaration.
+      expect(out, contains('Pointer<Uint8>'));
+      // The configure function pointer does NOT use Pointer<Utf8> for the map arg.
+      expect(out, isNot(contains('Pointer<Utf8> Function(Pointer<Uint8>')));
     });
   });
 }

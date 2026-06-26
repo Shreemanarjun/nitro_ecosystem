@@ -49,6 +49,56 @@ class SwiftGenerator {
     final swiftRecords = RecordGenerator.generateSwift(spec);
     if (swiftRecords.isNotEmpty) writer.raw(swiftRecords);
 
+    // Emit binary map helpers when any map types are used.
+    final hasMapTypes = spec.functions.any((f) => f.returnType.isMap || f.params.any((p) => p.type.isMap))
+        || spec.properties.any((p) => p.type.isMap);
+    if (hasMapTypes) {
+      writer.line('// Binary map encode/decode — [4B payload_len][4B count][entries: [4B kLen][kBytes][1B tag][vBytes]]');
+      writer.line('// Type tags: 1=int64, 2=float64, 3=bool, 4=string');
+      writer.line('private func _nitroEncodeMapBinary(_ m: [String: Any]) -> UnsafeMutablePointer<UInt8>? {');
+      writer.line('    var payload = Data()');
+      // Use raw strings (r'...') for lines containing Swift's $0 closure shorthand.
+      writer.line(r"    func writeLE32(_ v: Int32) { var lv = v.littleEndian; payload.append(contentsOf: withUnsafeBytes(of: &lv) { Data($0) }) }");
+      writer.line(r"    func writeLE64(_ v: Int64) { var lv = v.littleEndian; payload.append(contentsOf: withUnsafeBytes(of: &lv) { Data($0) }) }");
+      writer.line('    writeLE32(Int32(m.count))');
+      writer.line('    for (k, v) in m {');
+      writer.line('        let kb = k.data(using: .utf8)!; writeLE32(Int32(kb.count)); payload.append(kb)');
+      writer.line('        if let iv = v as? Int64 { payload.append(1); writeLE64(iv) }');
+      writer.line('        else if let dv = v as? Double { payload.append(2); writeLE64(Int64(bitPattern: dv.bitPattern)) }');
+      writer.line('        else if let bv = v as? Bool { payload.append(3); payload.append(bv ? 1 : 0) }');
+      writer.line(r'        else { let sv = "\(v)".data(using: .utf8)!; payload.append(4); writeLE32(Int32(sv.count)); payload.append(sv) }');
+      writer.line('    }');
+      writer.line('    var lenLE = Int32(payload.count).littleEndian');
+      writer.line('    let total = 4 + payload.count');
+      writer.line('    guard let buf = malloc(total) else { return nil }');
+      writer.line(r"    withUnsafeBytes(of: &lenLE) { memcpy(buf, $0.baseAddress!, 4) }");
+      writer.line(r"    payload.withUnsafeBytes { memcpy(buf.advanced(by: 4), $0.baseAddress!, payload.count) }");
+      writer.line('    return buf.assumingMemoryBound(to: UInt8.self)');
+      writer.line('}');
+      writer.line('private func _nitroDecodeMapBinary(_ ptr: UnsafeMutablePointer<UInt8>) -> [String: Any] {');
+      // loadUnaligned avoids the Swift debug-mode alignment assertion:
+      // after a variable-length key, pos is rarely on a 4- or 8-byte boundary.
+      writer.line('    let payLen = Int(UnsafeRawPointer(ptr).loadUnaligned(as: UInt32.self).littleEndian)');
+      writer.line('    let data = Data(bytes: ptr.advanced(by: 4), count: payLen)');
+      writer.line('    var pos = 0');
+      writer.line(r"    func readLE32() -> Int { let v = data[pos..<(pos+4)].withUnsafeBytes { Int($0.loadUnaligned(as: UInt32.self).littleEndian) }; pos += 4; return v }");
+      writer.line(r"    func readLE64() -> Int64 { let v = data[pos..<(pos+8)].withUnsafeBytes { Int64(bitPattern: $0.loadUnaligned(as: UInt64.self).littleEndian) }; pos += 8; return v }");
+      writer.line('    let count = readLE32(); var result = [String: Any]()');
+      writer.line('    for _ in 0..<count {');
+      writer.line('        let kLen = readLE32(); let k = String(data: data[pos..<(pos+kLen)], encoding: .utf8)!; pos += kLen');
+      writer.line('        let tag = data[pos]; pos += 1');
+      writer.line('        switch tag {');
+      writer.line('        case 1: result[k] = readLE64()');
+      writer.line('        case 2: result[k] = Double(bitPattern: UInt64(bitPattern: readLE64()))');
+      writer.line('        case 3: result[k] = data[pos] != 0; pos += 1');
+      writer.line('        default: let vLen = readLE32(); result[k] = String(data: data[pos..<(pos+vLen)], encoding: .utf8); pos += vLen');
+      writer.line('        }');
+      writer.line('    }');
+      writer.line('    return result');
+      writer.line('}');
+      writer.blankLine();
+    }
+
     if (spec.functions.any((f) => f.returnType.isTypedData)) {
       writer.line('private func _nitroCopyTypedDataReturn(_ bytes: UnsafeRawBufferPointer) -> UnsafeMutablePointer<UInt8>? {');
       writer.line('    let headerSize = MemoryLayout<Int64>.size');
@@ -159,6 +209,11 @@ class SwiftGenerator {
       writer.line(
         '    public static var _${stream.dartName}Cancellables = [Int64: AnyCancellable]()',
       );
+      if (stream.isBatch) {
+        writer.line(
+          '    public static var _${stream.dartName}FlushTimers: [Int64: DispatchSourceTimer] = [:]',
+        );
+      }
     }
 
     writer.line('}');
@@ -643,16 +698,15 @@ class SwiftGenerator {
           '    return strdup(${spec.dartClassName}Registry.impl?.${func.dartName}($callArgs) ?? "")',
         );
       } else if (isMap) {
-        // Map<String, T>: JSON-decode the const char* input, call impl, JSON-encode result → const char*.
-        // The impl declares Any -> Any (type-erased for JSON bridge).
-        writer.line('    guard let impl = ${spec.dartClassName}Registry.impl else { return strdup("{}") }');
-        writer.line('    guard let jsonInput = ${func.params.firstOrNull?.name} else { return strdup("{}") }');
-        writer.line('    guard let inputData = String(cString: jsonInput).data(using: .utf8),');
-        writer.line('          let inputMap = try? JSONSerialization.jsonObject(with: inputData) else { return strdup("{}") }');
+        // Map<String, T>: binary decode → call impl → binary encode.
+        // Wire: [4B payload_len][4B count][entries: [4B kLen][kBytes][vBytes]]
+        final mapParam = func.params.firstOrNull?.name ?? 'value';
+        writer.line('    guard let impl = ${spec.dartClassName}Registry.impl else { return nil }');
+        writer.line('    guard let _rawPtr = $mapParam else { return nil }');
+        writer.line('    let inputMap = _nitroDecodeMapBinary(_rawPtr.assumingMemoryBound(to: UInt8.self))');
         writer.line('    let result = impl.${func.dartName}(value: inputMap)');
-        writer.line('    guard let outputData = try? JSONSerialization.data(withJSONObject: result),');
-        writer.line('          let outputStr = String(data: outputData, encoding: .utf8) else { return strdup("{}") }');
-        writer.line('    return strdup(outputStr)');
+        writer.line('    guard let resultMap = result as? [String: Any] else { return nil }');
+        writer.line('    return _nitroEncodeMapBinary(resultMap)');
       } else if (isRecord) {
         // Explicit impl guard to avoid Struct?? double-optional chaining.
         writer.line('    guard let impl = ${spec.dartClassName}Registry.impl else { return nil }');
@@ -874,6 +928,58 @@ class SwiftGenerator {
       final isRecordItem = stream.itemType.isRecord;
       final isEnumItem = spec.enums.any((en) => en.name == itemName);
       final isBoolItem = itemName == 'bool';
+      if (stream.isBatch) {
+        // Batch stream: accumulate items into a buffer, flush as [count, item0, item1, ...]
+        // array to Dart via the C++ _emit_xxx_batch_to_dart function (Dart_CObject_kArray).
+        // A DispatchSourceTimer fires every 10 ms to flush any partial last batch.
+        final batchMax = stream.batchMaxSize;
+        final itemBase = stream.itemType.name.replaceFirst('?', '');
+        writer.line('@_cdecl("_${spec.namespace}_register_${stream.dartName}_stream")');
+        writer.line('public func _${spec.namespace}_register_${stream.dartName}_stream(');
+        writer.line('    _ dartPort: Int64,');
+        writer.line('    _ emitBatch: @convention(c) (Int64, UnsafeMutablePointer<Int64>?, Int32) -> Bool');
+        writer.line(') {');
+        writer.line('    let _lock = NSLock()');
+        writer.line('    var _buf = [Int64]()');
+        writer.line('    _buf.reserveCapacity($batchMax)');
+        writer.line('    func _flush() {');
+        writer.line('        _lock.lock()');
+        writer.line('        guard !_buf.isEmpty else { _lock.unlock(); return }');
+        writer.line('        var arr = _buf; _buf.removeAll(keepingCapacity: true)');
+        writer.line('        _lock.unlock()');
+        writer.line('        let count = Int32(arr.count)');
+        writer.line(r'        _ = arr.withUnsafeMutableBufferPointer { emitBatch(dartPort, $0.baseAddress, count) }');
+        writer.line('    }');
+        writer.line('    let _timer = DispatchSource.makeTimerSource(queue: .global())');
+        writer.line('    _timer.schedule(deadline: .now() + .milliseconds(10), repeating: .milliseconds(10))');
+        writer.line('    _timer.setEventHandler { _flush() }');
+        writer.line('    _timer.resume()');
+        writer.line('    ${spec.dartClassName}Registry._${stream.dartName}FlushTimers[dartPort] = _timer');
+        writer.line('    ${spec.dartClassName}Registry._${stream.dartName}Cancellables[dartPort] =');
+        writer.line('        ${spec.dartClassName}Registry.impl?.${stream.dartName}.sink { item in');
+        writer.line('            _lock.lock()');
+        if (itemBase == 'double') {
+          writer.line('            _buf.append(Int64(bitPattern: item.bitPattern))');
+        } else if (itemBase == 'bool') {
+          writer.line('            _buf.append(item ? 1 : 0)');
+        } else {
+          writer.line('            _buf.append(item as! Int64)');
+        }
+        writer.line('            let needsFlush = _buf.count >= $batchMax');
+        writer.line('            _lock.unlock()');
+        writer.line('            if needsFlush { _flush() }');
+        writer.line('        }');
+        writer.line('}');
+        writer.blankLine();
+        writer.line('@_cdecl("_${spec.namespace}_release_${stream.dartName}_stream")');
+        writer.line('public func _${spec.namespace}_release_${stream.dartName}_stream(_ dartPort: Int64) {');
+        writer.line('    ${spec.dartClassName}Registry._${stream.dartName}FlushTimers[dartPort]?.cancel()');
+        writer.line('    ${spec.dartClassName}Registry._${stream.dartName}FlushTimers.removeValue(forKey: dartPort)');
+        writer.line('    ${spec.dartClassName}Registry._${stream.dartName}Cancellables[dartPort]?.cancel()');
+        writer.line('    ${spec.dartClassName}Registry._${stream.dartName}Cancellables.removeValue(forKey: dartPort)');
+        writer.line('}');
+        continue;
+      }
       writer.line('@_cdecl("_${spec.namespace}_register_${stream.dartName}_stream")');
       writer.line('public func _${spec.namespace}_register_${stream.dartName}_stream(');
       writer.line('    _ dartPort: Int64,');
@@ -1113,17 +1219,33 @@ class SwiftGenerator {
   /// in a `@_cdecl` stub. Uses type-specific C ABI types so the Swift compiler
   /// allocates args in the correct registers (FP for doubles, GP for integers).
   static String _toCDeclCallbackType(BridgeType cbType, {BridgeSpec? spec}) {
-    final paramList = cbType.functionParams.map((t) => _callbackParamToCDeclSwift(t, spec: spec)).join(', ');
-    // Bidirectional callbacks: map Dart return type to @convention(c) C ABI type.
+    // For expandable structs (all-numeric fields), expand to individual Int64 params
+    // so @convention(c) uses GP registers → NativeCallable.listener fires synchronously.
+    final paramParts = <String>[];
+    for (final t in cbType.functionParams) {
+      final base = t.name.replaceFirst('?', '');
+      final struct = spec?.structs.where((s) => s.name == base).firstOrNull;
+      if (struct != null && _isExpandableCallbackStructSwift(struct)) {
+        paramParts.addAll(struct.fields.map((_) => 'Int64'));
+      } else {
+        paramParts.add(_callbackParamToCDeclSwift(t, spec: spec));
+      }
+    }
     final retDart = cbType.functionReturnType;
     final retSwift = switch (retDart) {
       null || 'void' => 'Void',
-      'String' => 'UnsafeMutablePointer<CChar>?', // strdup'd result
-      'double' => 'Int64',  // IEEE 754 bits (GP register)
-      'bool'   => 'Int64',  // 0/1
-      _        => 'Int64',  // int, enum → Int64
+      'String' => 'UnsafeMutablePointer<CChar>?',
+      'double' => 'Int64',
+      'bool'   => 'Int64',
+      _        => 'Int64',
     };
-    return '@convention(c) ($paramList) -> $retSwift';
+    return '@convention(c) (${paramParts.join(', ')}) -> $retSwift';
+  }
+
+  static bool _isExpandableCallbackStructSwift(BridgeStruct st) {
+    const numeric = {'int', 'double', 'bool'};
+    return st.fields.isNotEmpty &&
+        st.fields.every((f) => numeric.contains(f.type.name.replaceFirst('?', '')) && !f.type.isTypedData);
   }
 
   /// Maps a single callback parameter to its Swift `@convention(c)` C ABI type.
@@ -1169,54 +1291,70 @@ class SwiftGenerator {
     if (params.isEmpty) {
       return '{ $cbName() }';
     }
-    final argNames = List.generate(params.length, (i) => 'arg$i');
-    final argDecl = argNames.join(', ');
-    // Build per-arg conversions. Struct args need a named shadow variable so that
-    // `&shadow` is valid (points to a live stack slot) when the C callback runs.
-    // Non-struct conversions are inline expressions in the call args list.
-    // Struct args need a shadow variable so the C struct layout is correct.
-    // We track (index, shadowVarName) so the call can be wrapped in
-    // withUnsafePointer(to: &shadow) — this avoids the Swift "dangling pointer"
-    // warning that UnsafeRawPointer(&localVar) triggers.
-    final shadowDecls = <String>[];                    // pre-call var decls
-    final structShadowIndices = <int>[];               // indices that use withUnsafePointer
-    final callArgsList = params.asMap().entries.map((e) {
-      final i = e.key;
-      final pt = e.value;
-      final argVar = argNames[i];
+    // Build closure arg declarations and call arg list.
+    // Expandable structs are split into individual Int64 args — no shadow pointer needed,
+    // fires NativeCallable.listener synchronously on Android.
+    final allArgDecls = <String>[];        // closure param declarations
+    final shadowDecls = <String>[];        // var _s$i decls for non-expandable structs
+    final structShadowIndices = <int>[];   // indices for withUnsafePointer wrapping
+    final callArgsList = <String>[];
+
+    for (var i = 0; i < params.length; i++) {
+      final pt = params[i];
       final base = pt.name.replaceFirst('?', '');
-      final isEnum = spec.enums.any((en) => en.name == base);
-      if (isEnum) return '$argVar.rawValue';
-      if (base == 'String') return '($argVar as NSString).utf8String';
-      final isStruct = spec.structs.any((s) => s.name == base);
-      if (isStruct) {
-        // Shadow var gives a stable address; withUnsafePointer (built below)
-        // ensures the pointer is valid for exactly the callback's lifetime.
-        shadowDecls.add('var _s$i = _${base}C.fromSwift($argVar)');
-        structShadowIndices.add(i);
-        return '__sp$i';   // placeholder replaced by withUnsafePointer nesting
+      final expandStruct = spec.structs.where((s) => s.name == base).firstOrNull;
+      if (expandStruct != null && _isExpandableCallbackStructSwift(expandStruct)) {
+        // The closure is called by Swift impl with a Swift struct; it must expand the
+        // struct's fields to individual Int64 args before calling the C function pointer.
+        final argVar = 'arg$i';
+        allArgDecls.add(argVar);
+        for (final f in expandStruct.fields) {
+          final fBase = f.type.name.replaceFirst('?', '');
+          if (fBase == 'double') {
+            callArgsList.add('Int64(bitPattern: $argVar.${f.name}.bitPattern)');
+          } else if (fBase == 'bool') {
+            callArgsList.add('$argVar.${f.name} ? 1 : 0');
+          } else {
+            callArgsList.add('$argVar.${f.name}');
+          }
+        }
+      } else {
+        final argVar = 'arg$i';
+        allArgDecls.add(argVar);
+        final isEnum = spec.enums.any((en) => en.name == base);
+        if (isEnum) { callArgsList.add('$argVar.rawValue'); continue; }
+        if (base == 'String') { callArgsList.add('($argVar as NSString).utf8String'); continue; }
+        final isNonExpandStruct = spec.structs.any((s) => s.name == base);
+        if (isNonExpandStruct) {
+          shadowDecls.add('var _s$i = _${base}C.fromSwift($argVar)');
+          structShadowIndices.add(i);
+          callArgsList.add('__sp$i');
+          continue;
+        }
+        final isRecord = spec.recordTypes.any((r) => r.name == base);
+        if (isRecord) { callArgsList.add('$argVar.toNative()'); continue; }
+        if (base == 'double') { callArgsList.add('Int64(bitPattern: ${argVar}.bitPattern)'); continue; }
+        callArgsList.add(argVar);
       }
-      final isRecord = spec.recordTypes.any((r) => r.name == base);
-      if (isRecord) return '$argVar.toNative()';
-      if (base == 'double') return 'Int64(bitPattern: ${argVar}.bitPattern)';
-      return argVar;
-    }).toList();
+    }
+    final argDecl = allArgDecls.join(', ');
 
     // Build the call expression with bidirectional return handling.
     final retDart = p.type.functionReturnType;
     final needsReturn = retDart != null && retDart != 'void';
-    String callExpr = '$cbName(${callArgsList.join(', ')})';
+    String callExpr = '$cbName(${callArgsList.join(', ')})'; // callArgsList from loop above
     String bodyCall;
     if (!needsReturn) {
       bodyCall = callExpr;
     } else if (retDart == 'double') {
-      // double → raw bits in Int64 (GP register, matches NativeCallable<Int64 Function(...)>)
-      bodyCall = 'Int64(bitPattern: ($callExpr).bitPattern)';
+      // C func ptr returns Int64 (double bit pattern) → convert to Swift Double for the impl
+      bodyCall = 'Double(bitPattern: UInt64(bitPattern: $callExpr))';
     } else if (retDart == 'String') {
-      // String → strdup'd UnsafeMutablePointer<CChar>? (Dart frees via malloc.free)
-      bodyCall = '{ let _s = $callExpr; return _s.withCString { strdup(\$0) } }()';
+      // C func ptr returns UnsafeMutablePointer<CChar>? (malloc'd) → convert to Swift String
+      bodyCall = '{ let _cs = $callExpr; let _str = _cs.map { String(cString: \$0) } ?? ""; _cs.map { free(\$0) }; return _str }()';
     } else if (retDart == 'bool') {
-      bodyCall = '($callExpr) ? 1 : 0';
+      // C func ptr returns Int8 (0/nonzero) → convert to Swift Bool for the impl
+      bodyCall = '($callExpr) != 0';
     } else {
       bodyCall = callExpr;
     }
@@ -1234,7 +1372,11 @@ class SwiftGenerator {
     final closureBody = shadowDecls.isEmpty
         ? innerBody
         : '${shadowDecls.join('; ')}; $innerBody';
-    return '{ $argDecl in $closureBody }';
+    // Swift closures require parentheses around the param list when any param has an
+    // explicit type annotation (e.g. `(x: Int64) in` not `x: Int64 in`).
+    final hasTypedParams = allArgDecls.any((d) => d.contains(': '));
+    final paramList = hasTypedParams ? '($argDecl)' : argDecl;
+    return '{ $paramList in $closureBody }';
   }
 
   /// Return type for a `@_cdecl` function — must be a C-ABI-compatible type.
@@ -1254,7 +1396,8 @@ class SwiftGenerator {
     if (name == 'bool') return 'Int8';
     if (name == 'String') return 'UnsafeMutablePointer<CChar>?';
     // Map<String, T>: JSON-encoded — returns strdup'd C string, same as String.
-    if (name.startsWith('Map<') || func.returnType.isMap) return 'UnsafeMutablePointer<CChar>?';
+    // Maps now use binary encoding → UnsafeMutablePointer<UInt8>? (same as @HybridRecord)
+    if (name.startsWith('Map<') || func.returnType.isMap) return 'UnsafeMutablePointer<UInt8>?';
     if (BridgeType(name: name).isTypedData) return 'UnsafeMutablePointer<UInt8>?';
     if (spec.structs.any((st) => st.name == name)) {
       return 'UnsafeMutableRawPointer?';
@@ -1283,7 +1426,8 @@ class SwiftGenerator {
     if (typeName.endsWith('?') && name == 'double') return 'UnsafeMutableRawPointer?';
     if (name == 'bool') return 'Int8';
     // Map<String, T> is JSON-encoded — passes as a C string (const char*), NOT as a binary buffer.
-    if (name.startsWith('Map<')) return 'UnsafePointer<CChar>?';
+    // Maps use binary encoding → UnsafeMutableRawPointer? (4-byte len prefix + payload)
+    if (name.startsWith('Map<')) return 'UnsafeMutableRawPointer?';
     if (spec.recordTypes.any((rt) => rt.name == name) || name.startsWith('List<')) {
       return 'UnsafeMutableRawPointer?';
     }

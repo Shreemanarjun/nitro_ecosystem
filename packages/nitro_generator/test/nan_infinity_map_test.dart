@@ -79,35 +79,28 @@ BridgeSpec _nonDoubleMapSpec() => BridgeSpec(
 );
 
 void main() {
-  group('DartFfiGenerator — Map<String, double> NaN/Infinity support (#3)', () {
-    test('return type: uses _nitroDecodeDoubleMap for Map<String, double>', () {
+  group('DartFfiGenerator — Map<String, double> NaN/Infinity support (#7 binary encoding)', () {
+    // With binary map encoding (#7), NaN/Infinity are encoded as IEEE 754 float64
+    // natively — no sentinel strings needed. The old JSON+sentinel approach is gone.
+
+    test('return type: uses binary decode helper for Map<String, double>', () {
       final out = DartFfiGenerator.generate(_doubleMapReturnSpec());
-      expect(out, contains('_nitroDecodeDoubleMap'));
+      expect(out, contains('_nitroDecodeMapBinaryDouble'));
     });
 
-    test('return type: emits _nitroDecodeDoubleMap helper function', () {
+    test('return type: emits binary map helper function (not old sentinel helper)', () {
       final out = DartFfiGenerator.generate(_doubleMapReturnSpec());
-      expect(out, contains('Map<String, double> _nitroDecodeDoubleMap'));
+      expect(out, contains('_nitroDecodeMapBinaryDouble'));
+      // Old sentinel helpers are gone — binary handles NaN/Inf natively.
+      expect(out, isNot(contains('_nitroDecodeDoubleMap')));
+      expect(out, isNot(contains("'__NaN__'")));
     });
 
-    test('return type: emits _nitroEncodeDoubleMap helper function', () {
+    test('return type: function pointer uses Pointer<Uint8> not Pointer<Utf8> (binary)', () {
       final out = DartFfiGenerator.generate(_doubleMapReturnSpec());
-      expect(out, contains('String _nitroEncodeDoubleMap'));
-    });
-
-    test('return type: sentinel __NaN__ appears in decode helper', () {
-      final out = DartFfiGenerator.generate(_doubleMapReturnSpec());
-      expect(out, contains("'__NaN__'"));
-    });
-
-    test('return type: sentinel __Inf__ appears in decode helper', () {
-      final out = DartFfiGenerator.generate(_doubleMapReturnSpec());
-      expect(out, contains("'__Inf__'"));
-    });
-
-    test('return type: sentinel __NInf__ appears in decode helper', () {
-      final out = DartFfiGenerator.generate(_doubleMapReturnSpec());
-      expect(out, contains("'__NInf__'"));
+      // The map-specific function pointer uses Pointer<Uint8> (binary), not Pointer<Utf8> (JSON).
+      expect(out, contains('Pointer<Uint8> Function() _getScoresPtr'));
+      expect(out, isNot(contains('Pointer<Utf8> Function() _getScoresPtr')));
     });
 
     test('return type: does NOT use plain .cast<String, double>()', () {
@@ -115,14 +108,19 @@ void main() {
       expect(out, isNot(contains('.cast<String, double>()')));
     });
 
-    test('param type: uses _nitroEncodeDoubleMap for Map<String, double> param', () {
-      final out = DartFfiGenerator.generate(_doubleMapParamSpec());
-      expect(out, contains('_nitroEncodeDoubleMap(weights)'));
+    test('return type: does NOT use jsonDecode', () {
+      final out = DartFfiGenerator.generate(_doubleMapReturnSpec());
+      expect(out, isNot(contains('jsonDecode')));
     });
 
-    test('param type: uses toNativeUtf8 after _nitroEncodeDoubleMap', () {
+    test('param type: uses binary encode helper for Map<String, double>', () {
       final out = DartFfiGenerator.generate(_doubleMapParamSpec());
-      expect(out, contains('_nitroEncodeDoubleMap(weights).toNativeUtf8'));
+      expect(out, contains('_nitroEncodeMapBinaryDouble'));
+    });
+
+    test('param type: does NOT use toNativeUtf8 (binary uses alloc + Uint8)', () {
+      final out = DartFfiGenerator.generate(_doubleMapParamSpec());
+      expect(out, isNot(contains('toNativeUtf8')));
     });
 
     test('param type: does NOT use plain jsonEncode for Map<String, double>', () {
@@ -130,35 +128,22 @@ void main() {
       expect(out, isNot(contains('jsonEncode(weights)')));
     });
 
-    test('non-double map: does not emit double map helpers for Map<String, String>', () {
+    test('non-double map: emits binary helpers for Map<String, String> (not double)', () {
       final out = DartFfiGenerator.generate(_nonDoubleMapSpec());
+      expect(out, contains('_nitroEncodeMapBinaryString'));
+      // Not the double-specific ones
+      expect(out, isNot(contains('_nitroEncodeMapBinaryDouble')));
       expect(out, isNot(contains('_nitroEncodeDoubleMap')));
-      expect(out, isNot(contains('_nitroDecodeDoubleMap')));
     });
 
-    test('decode helper uses double.nan for __NaN__', () {
+    test('binary decode helper uses getFloat64 for NaN/Inf-safe float decoding', () {
       final out = DartFfiGenerator.generate(_doubleMapReturnSpec());
-      expect(out, contains('double.nan'));
+      expect(out, contains('getFloat64'));
     });
 
-    test('decode helper uses double.infinity for __Inf__', () {
-      final out = DartFfiGenerator.generate(_doubleMapReturnSpec());
-      expect(out, contains('double.infinity'));
-    });
-
-    test('decode helper uses double.negativeInfinity for __NInf__', () {
-      final out = DartFfiGenerator.generate(_doubleMapReturnSpec());
-      expect(out, contains('double.negativeInfinity'));
-    });
-
-    test('encode helper uses v.isNaN for NaN detection', () {
-      final out = DartFfiGenerator.generate(_doubleMapReturnSpec());
-      expect(out, contains('v.isNaN'));
-    });
-
-    test('encode helper uses v.isInfinite for Infinity detection', () {
-      final out = DartFfiGenerator.generate(_doubleMapReturnSpec());
-      expect(out, contains('v.isInfinite'));
+    test('binary encode helper uses setFloat64 for NaN/Inf-safe float encoding', () {
+      final out = DartFfiGenerator.generate(_doubleMapParamSpec());
+      expect(out, contains('setFloat64'));
     });
   });
 }

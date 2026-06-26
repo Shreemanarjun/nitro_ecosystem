@@ -368,38 +368,47 @@ void main() {
       expect(SpecValidator.validate(spec).where((i) => i.isError), isEmpty);
     });
 
-    test('C++ JNI → jobject param + pack_*_from_jni + const StructName* in typedef', () {
+    // SensorReading {double value, int ts} — all-numeric → EXPANDED for synchronous NativeCallable.
+    test('C++ JNI → expanded jlong fields (not jobject) for synchronous NativeCallable', () {
       final out = CppBridgeGenerator.generate(
         _spec(cbParams: [BridgeType(name: 'SensorReading')], structs: [_readingStruct]),
       );
-      expect(out, contains('jlong callbackPtr, jobject arg0'));
-      expect(out, contains('typedef void (*CB)(const SensorReading*);'));
-      expect(out, contains('SensorReading c_arg0 = pack_SensorReading_from_jni(env, arg0);'));
-      expect(out, contains('((CB)callbackPtr)(&c_arg0);'));
+      // Fields are expanded: jlong arg0_value, jlong arg0_ts — not jobject arg0.
+      expect(out, contains('jlong callbackPtr, jlong arg0_value, jlong arg0_ts'));
+      // C typedef uses int64_t per expanded field (2 fields = 2 int64_t params).
+      expect(out, contains('typedef void (*CB)(int64_t, int64_t);'));
+      // Fields passed as raw int64_t to Dart — no struct reconstruction in C++.
+      expect(out, contains('(int64_t)arg0_value'));
+      expect(out, contains('(int64_t)arg0_ts'));
+      // The _invoke_ function does NOT use jobject arg0 for the struct.
+      expect(out, isNot(contains('jobject arg0')));
     });
 
-    test('Kotlin _invoke_ → struct data class param type', () {
+    test('Kotlin _invoke_ → expanded Long params (not SensorReading)', () {
       final out = KotlinGenerator.generate(
         _spec(cbParams: [BridgeType(name: 'SensorReading')], structs: [_readingStruct]),
       );
-      expect(out, contains('external fun _invoke_callback(callbackPtr: Long, arg0: SensorReading)'));
-      expect(out, isNot(contains('arg0: Long')));
+      // External fun has individual Long params for each struct field.
+      expect(out, contains('external fun _invoke_callback(callbackPtr: Long, arg0_value: Long, arg0_ts: Long)'));
+      expect(out, isNot(contains('arg0: SensorReading')));
     });
 
-    test('Kotlin lambda → passes data class directly (no nativeValue)', () {
+    test('Kotlin lambda → encodes fields as Long (doubleToRawLongBits for double)', () {
       final out = KotlinGenerator.generate(
         _spec(cbParams: [BridgeType(name: 'SensorReading')], structs: [_readingStruct]),
       );
-      expect(out, contains('_invoke_callback(callback, p0)'));
-      expect(out, isNot(contains('p0.nativeValue')));
+      expect(out, contains('java.lang.Double.doubleToRawLongBits(p0.value)'));
+      expect(out, contains('p0.ts.toLong()'));
+      expect(out, isNot(contains('_invoke_callback(callback, p0)')));
     });
 
-    test('Swift @convention(c) → UnsafeRawPointer? for struct param', () {
+    test('Swift @convention(c) → (Int64, Int64) for synchronous NativeCallable', () {
       final out = SwiftGenerator.generate(
         _spec(cbParams: [BridgeType(name: 'SensorReading')], structs: [_readingStruct]),
       );
-      expect(out, contains('@convention(c) (UnsafeRawPointer?) -> Void'));
-      expect(out, isNot(contains('@convention(c) (Int64) -> Void')));
+      // Expanded to individual Int64 params — fires synchronously!
+      expect(out, contains('@convention(c) (Int64, Int64) -> Void'));
+      expect(out, isNot(contains('UnsafeRawPointer?')));
     });
 
     test('Swift protocol → idiomatic Swift struct type in callback', () {
@@ -409,28 +418,30 @@ void main() {
       expect(out, contains('callback: @escaping (SensorReading) -> Void'));
     });
 
-    test('Swift wrapper → shadow struct + withUnsafePointer (no dangling-pointer warning)', () {
+    test('Swift wrapper → reconstructs struct from Int64 fields (no shadow pointer needed)', () {
       final out = SwiftGenerator.generate(
         _spec(cbParams: [BridgeType(name: 'SensorReading')], structs: [_readingStruct]),
       );
-      // Shadow var still declared for the C-layout conversion.
-      expect(out, contains('var _s0 = _SensorReadingC.fromSwift(arg0)'));
-      // withUnsafePointer with explicit named parameter ensures the address is valid.
-      expect(out, contains('withUnsafePointer(to: &_s0) { _ptr0 in'));
-      expect(out, contains('UnsafeRawPointer(_ptr0)'));
-      // Old pattern that causes the warning must NOT appear.
-      expect(out, isNot(contains('UnsafeRawPointer(&_s0)')));
+      // Closure receives individual Int64 args and reconstructs Swift struct.
+      expect(out, contains('arg0_value'));
+      expect(out, contains('Double(bitPattern: UInt64(bitPattern: arg0_value))'));
+      // No shadow var or withUnsafePointer needed for expandable structs.
+      expect(out, isNot(contains('var _s0 = _SensorReadingC.fromSwift')));
     });
 
-    test('Dart FFI → Void Function(Pointer<Void>), casts to StructFfi', () {
+    test('Dart FFI → Void Function(Int64, Int64) — synchronous NativeCallable path', () {
       final out = DartFfiGenerator.generate(
         _spec(cbParams: [BridgeType(name: 'SensorReading')], structs: [_readingStruct]),
       );
-      expect(out, contains('NativeCallable<Void Function(Pointer<Void>)>'));
-      expect(out, contains('arg0.cast<SensorReadingFfi>().ref.toDart()'));
+      // Expanded Int64 params → NativeCallable.listener fires synchronously on Android.
+      expect(out, contains('NativeCallable<Void Function(Int64, Int64)>'));
+      // Struct reconstructed from raw bit fields.
+      expect(out, contains('SensorReading('));
+      // NativeCallable signature does NOT use Pointer<Void> for expanded struct.
+      expect(out, isNot(contains('NativeCallable<Void Function(Pointer<Void>)>')));
     });
 
-    test('mixed struct + primitive → correct types for all positions', () {
+    test('mixed struct + primitive → expanded Int64 for struct fields + int64_t for primitives', () {
       final out = CppBridgeGenerator.generate(
         _spec(
           cbParams: [
@@ -441,11 +452,9 @@ void main() {
           structs: [_readingStruct],
         ),
       );
-      // bool uses jlong/int64_t for NativeCallable<Int64> ABI match.
-      expect(out, contains('jlong callbackPtr, jobject arg0, jlong arg1, jlong arg2'));
-      expect(out, contains('typedef void (*CB)(const SensorReading*, int64_t, int64_t);'));
-      expect(out, contains('SensorReading c_arg0 = pack_SensorReading_from_jni(env, arg0);'));
-      expect(out, contains('(int64_t)arg2'));
+      // SensorReading expands to 2 jlong fields, then int and bool as jlong each.
+      expect(out, contains('jlong callbackPtr, jlong arg0_value, jlong arg0_ts, jlong arg1, jlong arg2'));
+      expect(out, contains('typedef void (*CB)(int64_t, int64_t, int64_t, int64_t);'));
     });
   });
 
