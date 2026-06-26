@@ -418,13 +418,16 @@ void main() {
       expect(out, contains('callback: @escaping (SensorReading) -> Void'));
     });
 
-    test('Swift wrapper → reconstructs struct from Int64 fields (no shadow pointer needed)', () {
+    test('Swift wrapper → expands struct fields to Int64 args for C function pointer (no shadow pointer needed)', () {
       final out = SwiftGenerator.generate(
         _spec(cbParams: [BridgeType(name: 'SensorReading')], structs: [_readingStruct]),
       );
-      // Closure receives individual Int64 args and reconstructs Swift struct.
-      expect(out, contains('arg0_value'));
-      expect(out, contains('Double(bitPattern: UInt64(bitPattern: arg0_value))'));
+      // Closure receives the Swift struct as a single param (inferred from context).
+      expect(out, contains('arg0'));
+      // Double field is expanded to Int64 bit pattern for the C function pointer call.
+      expect(out, contains('Int64(bitPattern: arg0.value.bitPattern)'));
+      // Int64 field is passed through directly.
+      expect(out, contains('arg0.ts'));
       // No shadow var or withUnsafePointer needed for expandable structs.
       expect(out, isNot(contains('var _s0 = _SensorReadingC.fromSwift')));
     });
