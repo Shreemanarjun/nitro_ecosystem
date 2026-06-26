@@ -509,9 +509,12 @@ class SwiftFunctionEmitter {
       writer.line('    } catch {');
       writer.line('        return _nitroEncodeResultError(error)');
       writer.line('    }');
+    } else if (func.returnType.isNativeHandle) {
+      // @NitroOwned: impl returns UnsafeMutableRawPointer? directly.
+      writer.line('    guard let impl = ${spec.dartClassName}Registry.impl else { return nil }');
+      writer.line('    return impl.${func.dartName}($callArgs)');
     } else if (isVariantRet) {
       // @NitroVariant return: encode as [4B len][1B tag][fields] using NitroRecordWriter.
-      final vn = func.returnType.name.replaceFirst('?', '');
       writer.line('    guard let impl = ${spec.dartClassName}Registry.impl else { return nil }');
       writer.line('    let _vResult = impl.${func.dartName}($callArgs)');
       writer.line('    let _vw = NitroRecordWriter()');

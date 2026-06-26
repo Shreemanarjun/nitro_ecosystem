@@ -329,10 +329,10 @@ void main() {
       expect(out, contains('void* mod_get_printers'));
     });
 
-    test('CppBridge (pure-C++ path): NitroCppBuffer _res + return (void*)_res.data', () {
+    test('CppBridge (pure-C++ path): NitroCppBuffer _res + return (uint8_t*)_res.data', () {
       final out = CppBridgeGenerator.generate(cppSpec);
       expect(out, contains('NitroCppBuffer _res = g_impl->getPrinters()'));
-      expect(out, contains('return (void*)_res.data'));
+      expect(out, contains('return (uint8_t*)_res.data'));
     });
 
     test('CppBridge (pure-C++ path): does NOT use malloc(sizeof(Printer))', () {
@@ -390,10 +390,10 @@ void main() {
       expect(out, contains('ByteArray'));
     });
 
-    test('CppBridge (pure-C++ path): NitroCppBuffer _res + return (void*)_res.data', () {
+    test('CppBridge (pure-C++ path): NitroCppBuffer _res + return (uint8_t*)_res.data', () {
       final out = CppBridgeGenerator.generate(cppSpec);
       expect(out, contains('NitroCppBuffer _res = g_impl->getJob()'));
-      expect(out, contains('return (void*)_res.data'));
+      expect(out, contains('return (uint8_t*)_res.data'));
     });
 
     test('CppInterface: getJob returns NitroCppBuffer', () {
@@ -434,7 +434,7 @@ void main() {
     test('CppBridge (pure-C++ path): NitroCppBuffer pattern for list record return', () {
       final out = CppBridgeGenerator.generate(cppSpec);
       expect(out, contains('NitroCppBuffer _res = g_impl->getJobs()'));
-      expect(out, contains('return (void*)_res.data'));
+      expect(out, contains('return (uint8_t*)_res.data'));
     });
 
     test('CppInterface: getJobs returns NitroCppBuffer', () {
@@ -489,7 +489,7 @@ void main() {
     test('CppBridge (pure-C++ path): NitroCppBuffer pattern', () {
       final out = CppBridgeGenerator.generate(cppSpec);
       expect(out, contains('NitroCppBuffer _res = g_impl->getSettings()'));
-      expect(out, contains('return (void*)_res.data'));
+      expect(out, contains('return (uint8_t*)_res.data'));
     });
 
     test('CppInterface: getSettings returns NitroCppBuffer', () {

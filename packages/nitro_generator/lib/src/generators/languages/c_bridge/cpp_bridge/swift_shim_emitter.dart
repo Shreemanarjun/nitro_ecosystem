@@ -17,9 +17,10 @@ void _emitSwiftBridgeSection(
     writer.line('}');
     writer.blankLine();
   }
-
   for (final func in spec.functions) {
-    final isEnum = enumNames.contains(func.returnType.name.replaceFirst('?', ''));
+    final retBase = func.returnType.name.replaceFirst('?', '');
+    final isEnum = enumNames.contains(retBase);
+    final isVariantRet = spec.isVariantName(retBase);
     final paramParts = <String>[];
     final callParamParts = <String>[];
     for (final p in func.params) {
@@ -58,10 +59,11 @@ void _emitSwiftBridgeSection(
     }
 
     // Nullable primitives (int?/double?/bool?) use NitroNullable binary → uint8_t*.
-    final retBase = func.returnType.name.replaceFirst('?', '');
     final isNullablePrimRet = (func.returnType.isNullable || func.returnType.name.endsWith('?')) &&
         (retBase == 'int' || retBase == 'double' || retBase == 'bool');
     final cReturnType = func.isResult
+        ? 'uint8_t*'
+        : isVariantRet
         ? 'uint8_t*'
         : isNullablePrimRet
         ? 'uint8_t*'

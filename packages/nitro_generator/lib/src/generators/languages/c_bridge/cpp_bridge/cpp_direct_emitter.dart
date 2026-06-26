@@ -45,6 +45,7 @@ String _generateCppDirect(BridgeSpec spec) {
   final recordNames = spec.recordTypes.map((r) => r.name).toSet();
   final enumNames = spec.enums.map((e) => e.name).toSet();
   final structNames = spec.structs.map((st) => st.name).toSet();
+  final variantNames = spec.variants.map((v) => v.name).toSet();
 
   // Platform guard: scope compilation to only the targeted platforms.
   //   __APPLE__   — covers both iOS and macOS (clang always defines this on Apple targets)
@@ -284,6 +285,7 @@ String _generateCppDirect(BridgeSpec spec) {
     // Use func.returnType.isRecord so that List<@HybridStruct T>, List<@HybridRecord T>,
     // and bare @HybridRecord all map to NitroCppBuffer (binary-encoded buffer return).
     final isRecordRet = func.returnType.isRecord;
+    final isVariantRet = variantNames.contains(func.returnType.name.replaceFirst('?', ''));
     final isNativeHandleRet = func.returnType.isNativeHandle;
     final isZeroCopyTypedDataRet = func.zeroCopyReturn && func.returnType.isTypedData;
     // Nullable primitives (int?/double?/bool?) use NitroNullable binary → uint8_t*.
@@ -291,6 +293,8 @@ String _generateCppDirect(BridgeSpec spec) {
     final isNullablePrimRet = (func.returnType.isNullable || func.returnType.name.endsWith('?')) &&
         (retBase == 'int' || retBase == 'double' || retBase == 'bool');
     final cRet = isNullablePrimRet
+        ? 'uint8_t*'
+        : isVariantRet
         ? 'uint8_t*'
         : isEnumRet
         ? 'int64_t'
@@ -309,6 +313,7 @@ String _generateCppDirect(BridgeSpec spec) {
       }
       final isStructParam = structNames.contains(p.type.name.replaceFirst('?', ''));
       final isRecordParam = p.type.isRecord;
+      final isVariantParam = variantNames.contains(p.type.name.replaceFirst('?', ''));
       final isEnumParam = enumNames.contains(p.type.name.replaceFirst('?', ''));
       // Nullable primitives (int?/double?/bool?) use NitroNullable binary → void*.
       final paramPrimBase = p.type.name.replaceFirst('?', '');
@@ -318,7 +323,7 @@ String _generateCppDirect(BridgeSpec spec) {
           ? 'void*'
           : isEnumParam
               ? 'int64_t'
-              : ((isStructParam || isRecordParam || p.type.isNativeHandle) ? 'void*' : _typeToC(p.type.name));
+              : ((isStructParam || isRecordParam || isVariantParam || p.type.isNativeHandle) ? 'void*' : _typeToC(p.type.name));
       paramParts.add('$cType ${p.name}');
       if (p.type.isTypedData) paramParts.add('int64_t ${p.name}_length');
     }
@@ -362,7 +367,7 @@ String _generateCppDirect(BridgeSpec spec) {
         callArgs.add('std::string(${p.name})');
       } else if (structNames.contains(base)) {
         callArgs.add('*static_cast<const $base*>(${p.name})');
-      } else if (p.type.isRecord) {
+      } else if (p.type.isRecord || variantNames.contains(base)) {
         if (p.type.isNullable) {
           writer.line('        NitroCppBuffer _buf_${p.name} = { nullptr, 0 };');
           writer.line('        if (${p.name} != nullptr) {');
@@ -401,9 +406,9 @@ String _generateCppDirect(BridgeSpec spec) {
       writer.line('        $stName* _ptr = ($stName*)malloc(sizeof($stName));');
       writer.line('        *_ptr = _res;');
       writer.line('        return _ptr;');
-    } else if (isRecordRet) {
+    } else if (isRecordRet || isVariantRet) {
       writer.line('        NitroCppBuffer _res = g_impl->${func.dartName}($callArgStr);');
-      writer.line('        return (void*)_res.data;');
+      writer.line('        return (uint8_t*)_res.data;');
     } else if (isZeroCopyTypedDataRet) {
       writer.line('        NitroCppBuffer _res = g_impl->${func.dartName}($callArgStr);');
       writer.line('        if (_res.size > (size_t)INT64_MAX || (_res.size > 0 && _res.data == nullptr)) {');

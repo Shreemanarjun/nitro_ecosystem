@@ -80,6 +80,8 @@ class SwiftTypeMapper implements TypeMapper {
           baseType = name;
         } else if (_recordNames.contains(name)) {
           baseType = name;
+        } else if (_variantNames.contains(name)) {
+          baseType = name;
         } else if (name.startsWith('List<')) {
           final itemType = name.substring(5, name.length - 1);
           baseType = '[${swiftType(itemType)}]';

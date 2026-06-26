@@ -49,6 +49,7 @@ class SwiftGenerator {
       writer.line('import ${spec.dartClassName}Cpp');
     }
     writer.blankLine();
+    _emitSwiftEncodableProtocol(writer);
 
     final swiftEnums = EnumGenerator.generateSwift(spec);
     if (swiftEnums.isNotEmpty) writer.raw(swiftEnums);
@@ -172,6 +173,13 @@ class SwiftGenerator {
     writer.blankLine();
   }
 
+  static void _emitSwiftEncodableProtocol(CodeWriter writer) {
+    writer.line('public protocol NitroEncodable {');
+    writer.line('    func toNative() -> UnsafeMutablePointer<UInt8>?');
+    writer.line('}');
+    writer.blankLine();
+  }
+
   /// Emits only enum/struct/record declarations — no protocol, registry, or @_cdecl stubs.
   static String _generateTypeOnly(BridgeSpec spec) {
     final nodes = <CodeNode>[
@@ -179,6 +187,9 @@ class SwiftGenerator {
       const CodeLine('import Foundation'),
       const BlankLine(),
     ];
+    final protocolWriter = CodeWriter();
+    _emitSwiftEncodableProtocol(protocolWriter);
+    nodes.add(CodeSnippet(protocolWriter.toString()));
 
     final swiftEnums = EnumGenerator.generateSwift(spec);
     if (swiftEnums.isNotEmpty) nodes.add(CodeSnippet(swiftEnums));

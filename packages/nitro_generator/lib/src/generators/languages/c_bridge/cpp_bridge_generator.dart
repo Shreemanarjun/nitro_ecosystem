@@ -108,6 +108,26 @@ class CppBridgeGenerator {
     writer.line('}');
     writer.blankLine();
 
+    // ── @NitroOwned release functions ────────────────────────────────────────────
+    // Emitted globally (before platform guards) so the symbol exists on ALL platforms.
+    // On Android, the handle is a jlong from Kotlin — Kotlin GC manages lifecycle (no-op).
+    // On Apple/Desktop, the handle is from UnsafeMutableRawPointer.allocate (system malloc).
+    final ownedFuncs = spec.functions.where((f) => f.isOwned && f.returnType.isNativeHandle).toList();
+    if (ownedFuncs.isNotEmpty) {
+      writer.line('extern "C" {');
+      for (final f in ownedFuncs) {
+        writer.line('NITRO_EXPORT void ${f.cSymbol}_release(void* handle) {');
+        writer.line('#ifdef __ANDROID__');
+        writer.line('    (void)handle;');
+        writer.line('#else');
+        writer.line('    if (handle) { free(handle); }');
+        writer.line('#endif');
+        writer.line('}');
+      }
+      writer.line('}');
+      writer.blankLine();
+    }
+
     // ── Struct release functions (used by NativeFinalizer in Dart proxy classes) ──
     if (spec.structs.isNotEmpty) {
       writer.line('extern "C" {');

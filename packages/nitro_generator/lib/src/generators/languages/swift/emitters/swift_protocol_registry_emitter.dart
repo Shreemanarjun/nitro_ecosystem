@@ -27,6 +27,8 @@ for (final func in spec.functions) {
     writer.line(
       '    func ${func.dartName}($params) async throws -> $retType',
     );
+  } else if (func.isResult) {
+    writer.line('    func ${func.dartName}($params) throws -> $retType');
   } else {
     writer.line('    func ${func.dartName}($params) -> $retType');
   }

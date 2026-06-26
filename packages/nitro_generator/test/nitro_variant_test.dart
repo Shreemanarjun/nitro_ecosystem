@@ -7,13 +7,12 @@
 //   - SpecValidator E014 (empty variants, >10 cases)
 //   - BridgeSpec.isVariantName O(1) lookup
 
-import 'package:nitro_generator/src/bridge_spec.dart';
+import 'package:nitro_generator/src/generators/languages/c_bridge/cpp_bridge_generator.dart';
 import 'package:nitro_generator/src/generators/languages/cpp_native/cpp_interface_generator.dart';
 import 'package:nitro_generator/src/generators/languages/dart/dart_ffi_generator.dart';
 import 'package:nitro_generator/src/generators/languages/kotlin/kotlin_generator.dart';
 import 'package:nitro_generator/src/generators/languages/swift/swift_generator.dart';
 import 'package:nitro_generator/src/generators/variant_generator.dart';
-import 'package:nitro_generator/src/spec_validator.dart';
 import 'package:test/test.dart';
 import 'test_utils.dart';
 
@@ -62,6 +61,33 @@ BridgeSpec _typeOnlyVariantSpec() => BridgeSpec(
   variants: [_filterVariant()],
   isTypeOnly: true,
 );
+
+BridgeSpec _variantMethodSpec({NativeImpl iosImpl = NativeImpl.swift, NativeImpl androidImpl = NativeImpl.kotlin}) =>
+    BridgeSpec(
+      dartClassName: 'Filter',
+      lib: 'mylib',
+      namespace: 'mylib',
+      iosImpl: iosImpl,
+      macosImpl: iosImpl,
+      androidImpl: androidImpl,
+      sourceUri: 'filter.native.dart',
+      variants: [_filterVariant()],
+      functions: [
+        BridgeFunction(
+          dartName: 'process',
+          cSymbol: 'mylib_process',
+          isAsync: false,
+          isNativeAsync: false,
+          returnType: BridgeType(name: 'FilterResult', isRecord: false, isFunction: false),
+          params: [
+            BridgeParam(
+              name: 'input',
+              type: BridgeType(name: 'FilterResult', isRecord: false, isFunction: false),
+            ),
+          ],
+        ),
+      ],
+    );
 
 // ── Tests ─────────────────────────────────────────────────────────────────────
 
@@ -198,11 +224,12 @@ void main() {
 
     test('emits writeFields with switch on self', () {
       final code = SwiftGenerator.generate(_typeOnlyVariantSpec());
-      expect(code, contains('func writeFields(to w: RecordWriter)'));
+      expect(code, contains('func writeFields(to w: NitroRecordWriter)'));
       expect(code, contains('case .accepted'));
       expect(code, contains('case .rejected'));
-      expect(code, contains('w.writeInt8(0)'));
-      expect(code, contains('w.writeInt8(1)'));
+      expect(code, contains('w.bytes.append(UInt8(0))'));
+      expect(code, contains('w.bytes.append(UInt8(1))'));
+      expect(code, contains('func toNative() -> UnsafeMutablePointer<UInt8>?'));
     });
   });
 
@@ -338,6 +365,191 @@ void main() {
       // type-only → not a hasCppImpl spec, returns placeholder
       final out = CppInterfaceGenerator.generate(typeOnly);
       expect(out, contains('Not applicable'));
+    });
+  });
+
+  group('CppBridgeGenerator — @NitroVariant', () {
+    test('Swift shim uses uint8_t* for variant return to match the C header', () {
+      final out = CppBridgeGenerator.generate(_variantMethodSpec());
+
+      expect(out, contains('extern uint8_t* _mylib_call_process(void* input);'));
+      expect(out, contains('uint8_t* mylib_process(void* input, NitroError* _nitro_err) {'));
+      expect(out, isNot(contains('void* mylib_process(void* input, NitroError* _nitro_err) {')));
+    });
+
+    test('direct C++ bridge treats variant params and returns as NitroCppBuffer', () {
+      final out = CppBridgeGenerator.generate(
+        _variantMethodSpec(iosImpl: NativeImpl.cpp, androidImpl: NativeImpl.cpp),
+      );
+
+      expect(out, contains('uint8_t* mylib_process(void* input, NitroError* _nitro_err) {'));
+      expect(
+        out,
+        contains('NitroCppBuffer _buf_input = { (const uint8_t*)input + 4, (size_t)*(int32_t*)input };'),
+      );
+      expect(out, contains('NitroCppBuffer _res = g_impl->process(_buf_input);'));
+      expect(out, contains('return (uint8_t*)_res.data;'));
+    });
+  });
+
+  // ── Swift protocol — variant and @NitroResult regression guards ───────────
+
+  group('SwiftGenerator — protocol signatures', () {
+    test('variant method param/return uses concrete variant type, not Any', () {
+      final out = SwiftGenerator.generate(_variantMethodSpec());
+      // Protocol must use FilterResult, never Any.
+      expect(out, contains('func process(input: FilterResult) -> FilterResult'));
+      expect(out, isNot(contains('func process(input: Any)')));
+    });
+
+    test('@NitroResult method in protocol uses throws + inner return type', () {
+      final spec = BridgeSpec(
+        dartClassName: 'Calc',
+        lib: 'calc',
+        namespace: 'calc',
+        iosImpl: NativeImpl.swift,
+        sourceUri: 'calc.native.dart',
+        functions: [
+          BridgeFunction(
+            dartName: 'safeDiv',
+            cSymbol: 'calc_safe_div',
+            isAsync: false,
+            isResult: true,
+            returnType: BridgeType(name: 'double'),
+            params: [
+              BridgeParam(name: 'a', type: BridgeType(name: 'double')),
+              BridgeParam(name: 'b', type: BridgeType(name: 'double')),
+            ],
+          ),
+        ],
+      );
+      final out = SwiftGenerator.generate(spec);
+      expect(out, contains('func safeDiv(a: Double, b: Double) throws -> Double'));
+      expect(out, isNot(contains('func safeDiv(a: Double, b: Double) -> Double\n')));
+    });
+
+    test('@NitroResult<String> method in protocol uses throws -> String', () {
+      final spec = BridgeSpec(
+        dartClassName: 'Validator',
+        lib: 'validator',
+        namespace: 'validator',
+        iosImpl: NativeImpl.swift,
+        sourceUri: 'validator.native.dart',
+        functions: [
+          BridgeFunction(
+            dartName: 'validateLabel',
+            cSymbol: 'validator_validate_label',
+            isAsync: false,
+            isResult: true,
+            returnType: BridgeType(name: 'String'),
+            params: [BridgeParam(name: 'label', type: BridgeType(name: 'String'))],
+          ),
+        ],
+      );
+      final out = SwiftGenerator.generate(spec);
+      expect(out, contains('func validateLabel(label: String) throws -> String'));
+    });
+
+    test('@NitroOwned method in protocol uses UnsafeMutableRawPointer? return', () {
+      final spec = BridgeSpec(
+        dartClassName: 'Alloc',
+        lib: 'alloc',
+        namespace: 'alloc',
+        iosImpl: NativeImpl.swift,
+        sourceUri: 'alloc.native.dart',
+        functions: [
+          BridgeFunction(
+            dartName: 'acquireBuffer',
+            cSymbol: 'alloc_acquire_buffer',
+            isAsync: false,
+            isOwned: true,
+            returnType: BridgeType(name: 'NativeHandle<Void>', isNativeHandle: true, nativeHandleTypeParam: 'Void'),
+            params: [BridgeParam(name: 'size', type: BridgeType(name: 'int'))],
+          ),
+        ],
+      );
+      final out = SwiftGenerator.generate(spec);
+      expect(out, contains('func acquireBuffer(size: Int64) -> UnsafeMutableRawPointer?'));
+    });
+
+    test('@NitroOwned bridge stub guard uses return nil, not return ()', () {
+      // Regression: isNativeHandle path must emit `return nil` for early-return guard,
+      // not `return ()` (void), which would fail Swift compilation.
+      final spec = BridgeSpec(
+        dartClassName: 'Alloc',
+        lib: 'alloc',
+        namespace: 'alloc',
+        iosImpl: NativeImpl.swift,
+        sourceUri: 'alloc.native.dart',
+        functions: [
+          BridgeFunction(
+            dartName: 'acquireBuffer',
+            cSymbol: 'alloc_acquire_buffer',
+            isAsync: false,
+            isOwned: true,
+            returnType: BridgeType(name: 'NativeHandle<Void>', isNativeHandle: true, nativeHandleTypeParam: 'Void'),
+            params: [BridgeParam(name: 'size', type: BridgeType(name: 'int'))],
+          ),
+        ],
+      );
+      final out = SwiftGenerator.generate(spec);
+      // The guard must use `return nil` not `return ()`.
+      expect(out, contains('guard let impl = AllocRegistry.impl else { return nil }'));
+      expect(out, isNot(contains('else { return () }')));
+      // Bridge stub directly delegates to impl.
+      expect(out, contains('return impl.acquireBuffer(size: size)'));
+    });
+  });
+
+  group('CppBridgeGenerator — @NitroOwned release symbol', () {
+    BridgeSpec _ownedSpec() => BridgeSpec(
+      dartClassName: 'Alloc',
+      lib: 'alloc',
+      namespace: 'alloc',
+      iosImpl: NativeImpl.swift,
+      sourceUri: 'alloc.native.dart',
+      functions: [
+        BridgeFunction(
+          dartName: 'acquireBuffer',
+          cSymbol: 'alloc_acquire_buffer',
+          isAsync: false,
+          isOwned: true,
+          returnType: BridgeType(name: 'NativeHandle<Void>', isNativeHandle: true, nativeHandleTypeParam: 'Void'),
+          params: [BridgeParam(name: 'size', type: BridgeType(name: 'int'))],
+        ),
+      ],
+    );
+
+    test('generates _release symbol for @NitroOwned function', () {
+      final out = CppBridgeGenerator.generate(_ownedSpec());
+      expect(out, contains('void alloc_acquire_buffer_release(void* handle)'));
+    });
+
+    test('_release frees pointer on non-Android via #ifdef __ANDROID__ guard', () {
+      final out = CppBridgeGenerator.generate(_ownedSpec());
+      // Global section uses #ifdef __ANDROID__ to select no-op vs free().
+      expect(out, contains('#ifdef __ANDROID__'));
+      expect(out, contains('(void)handle;'));
+      expect(out, contains('if (handle) { free(handle); }'));
+    });
+
+    test('_release is in the global section (before platform guards)', () {
+      final out = CppBridgeGenerator.generate(_ownedSpec());
+      // The _release must appear BEFORE any #ifdef __ANDROID__ platform guard
+      // so Android compiles it in the no-op branch and Apple in the free() branch.
+      final releasePos = out.indexOf('alloc_acquire_buffer_release');
+      final androidGuardPos = out.indexOf('#ifdef __ANDROID__');
+      // _release should appear before or at the same level as the first platform guard.
+      expect(releasePos, lessThan(androidGuardPos == -1 ? out.length : androidGuardPos + 1));
+    });
+
+    test('_release symbol matches header declaration (cSymbol + _release)', () {
+      // Regression: the released symbol name must equal the C call symbol + "_release"
+      // so Dart's dlsym lookup finds it at runtime.
+      final out = CppBridgeGenerator.generate(_ownedSpec());
+      expect(out, contains('alloc_acquire_buffer_release'));
+      // Must NOT use a wrong/generic name.
+      expect(out, isNot(contains('void _release(')));
     });
   });
 }
