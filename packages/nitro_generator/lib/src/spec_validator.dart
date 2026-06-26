@@ -225,6 +225,9 @@ class SpecValidator {
       // isMap is only set by the extractor for Map<String, V>; a bare Map<K,V>
       // with a non-String key falls through here and needs a specific hint.
       if (func.returnType.name.startsWith('Map<') && !func.returnType.isMap) {
+        final rawValueType = func.returnType.name.contains(',')
+            ? func.returnType.name.split(',').last.trim().replaceFirst('>', '')
+            : 'V';
         issues.add(
           ValidationIssue(
             severity: ValidationSeverity.error,
@@ -232,7 +235,23 @@ class SpecValidator {
             message:
                 '${spec.dartClassName}.${func.dartName}() — return type "${func.returnType.name}" uses a non-String Map key. '
                 'Only Map<String, V> is supported.',
-            hint: 'Change the key type to String: Map<String, ${func.returnType.name.contains(',') ? func.returnType.name.split(',').last.trim().replaceFirst('>', '') : 'V'}>.',
+            hint: 'Change the key type to String: Map<String, $rawValueType>. '
+                'If you need an integer key, encode it as a String: myMap[key.toString()].',
+          ),
+        );
+      }
+
+      // E003: Nested Map (Map<String, Map<…>>) is not supported — the binary
+      // encoder only handles flat Map<String, scalar/record> values.
+      if (func.returnType.isMap && func.returnType.name.contains('Map<String, Map<')) {
+        issues.add(
+          ValidationIssue(
+            severity: ValidationSeverity.error,
+            code: 'E003',
+            message:
+                '${spec.dartClassName}.${func.dartName}() — nested Map return type "${func.returnType.name}" is not supported. '
+                'The binary map encoder only handles flat Map<String, V> values.',
+            hint: 'Flatten the structure, or annotate a wrapper class with @HybridRecord and return that instead.',
           ),
         );
       }
@@ -316,7 +335,9 @@ class SpecValidator {
             severity: ValidationSeverity.error,
             code: 'INVALID_ZERO_COPY_RETURN',
             message: '${spec.dartClassName}.${func.dartName}() — @zeroCopy return is not supported with @NitroNativeAsync.',
-            hint: 'Use a synchronous or @NitroAsync method for zero-copy TypedData returns.',
+            hint: 'Workaround: make a synchronous @zeroCopy method that does the work, '
+                'then wrap it in a @nitroAsync method that calls it on a background isolate. '
+                'Or switch to @nitroAsync and return a regular Uint8List (one copy, safe).',
           ),
         );
       }
@@ -358,6 +379,50 @@ class SpecValidator {
         );
       }
 
+      // W006: Map<String, @HybridRecord> return type — Kotlin generates Any? for
+      // map values, so the value type is not enforced on Android at runtime.
+      if (func.returnType.isMap && func.returnType.name.contains('@HybridRecord')) {
+        issues.add(
+          ValidationIssue(
+            severity: ValidationSeverity.warning,
+            code: 'W006',
+            message:
+                '${spec.dartClassName}.${func.dartName}() — Map<String, @HybridRecord> return type is not type-safe on Android. '
+                'Kotlin generates Any? for map values, bypassing JVM type-checking.',
+            hint: 'This works at runtime but provides no compile-time type safety in the Kotlin layer. '
+                'Consider returning a @HybridRecord wrapper with a named list/map field for stronger typing.',
+          ),
+        );
+      }
+
+      // E007/E008: Map<String, @HybridEnum or @HybridStruct> — the binary map encoder
+      // does not know the concrete type, so values are JSON-encoded via jsonEncode(v).
+      // @HybridEnum and @HybridStruct have no toJson(), causing a runtime crash.
+      if (func.returnType.isMap) {
+        final mapMatch = RegExp(r'^Map<String,\s*(.+)>$').firstMatch(func.returnType.name);
+        final valueType = mapMatch?.group(1)?.trim() ?? '';
+        final isEnumVal = spec.enums.any((e) => e.name == valueType);
+        final isStructVal = spec.structs.any((s) => s.name == valueType);
+        if (isEnumVal) {
+          issues.add(ValidationIssue(
+            severity: ValidationSeverity.error,
+            code: 'E007',
+            message: '${spec.dartClassName}.${func.dartName}() — Map<String, @HybridEnum> value type "$valueType" is not supported. '
+                'The binary encoder cannot JSON-encode enum values.',
+            hint: 'Return Map<String, int> using the enum\'s rawValue, then decode on the caller side: '
+                'result.map((k, v) => MapEntry(k, v.to$valueType())).',
+          ));
+        } else if (isStructVal) {
+          issues.add(ValidationIssue(
+            severity: ValidationSeverity.error,
+            code: 'E008',
+            message: '${spec.dartClassName}.${func.dartName}() — Map<String, @HybridStruct> value type "$valueType" is not supported. '
+                'The binary encoder cannot JSON-encode struct values.',
+            hint: 'Return List<$valueType> instead (struct values as a list), or annotate a wrapper @HybridRecord.',
+          ));
+        }
+      }
+
       // E002: @nitroAsync on a non-Future return type.
       // Void is permitted (fire-and-forget async); any other non-Future type is invalid.
       if (func.isAsync && func.returnType.name != 'void' && !func.returnType.isFuture) {
@@ -389,9 +454,45 @@ class SpecValidator {
               message:
                   '${spec.dartClassName}.${func.dartName}() — parameter "${param.name}" type "${param.type.name}" uses a non-String Map key. '
                   'Only Map<String, V> is supported.',
-              hint: 'Change the key type to String.',
+              hint: 'Change the key type to String. If you need an integer key, encode it as a String: myMap[key.toString()].',
             ),
           );
+        }
+
+        // E003: Nested Map parameter.
+        if (param.type.isMap && param.type.name.contains('Map<String, Map<')) {
+          issues.add(
+            ValidationIssue(
+              severity: ValidationSeverity.error,
+              code: 'E003',
+              message:
+                  '${spec.dartClassName}.${func.dartName}() — parameter "${param.name}" uses nested Map type "${param.type.name}", which is not supported.',
+              hint: 'Flatten the structure, or annotate a wrapper class with @HybridRecord and pass that instead.',
+            ),
+          );
+        }
+
+        // E007/E008: Map<String, @HybridEnum or @HybridStruct> parameter — same encoding limitation as return.
+        if (param.type.isMap) {
+          final mapMatch = RegExp(r'^Map<String,\s*(.+)>$').firstMatch(param.type.name);
+          final valueType = mapMatch?.group(1)?.trim() ?? '';
+          final isEnumVal = spec.enums.any((e) => e.name == valueType);
+          final isStructVal = spec.structs.any((s) => s.name == valueType);
+          if (isEnumVal) {
+            issues.add(ValidationIssue(
+              severity: ValidationSeverity.error,
+              code: 'E007',
+              message: '${spec.dartClassName}.${func.dartName}() — parameter "${param.name}" Map<String, @HybridEnum> value type "$valueType" is not supported.',
+              hint: 'Use Map<String, int> with rawValues and decode on the callee side.',
+            ));
+          } else if (isStructVal) {
+            issues.add(ValidationIssue(
+              severity: ValidationSeverity.error,
+              code: 'E008',
+              message: '${spec.dartClassName}.${func.dartName}() — parameter "${param.name}" Map<String, @HybridStruct> value type "$valueType" is not supported.',
+              hint: 'Use List<$valueType> or a @HybridRecord wrapper instead.',
+            ));
+          }
         }
 
         final pName = param.type.name.replaceFirst('?', '');
@@ -473,6 +574,26 @@ class SpecValidator {
     // ── Properties ─────────────────────────────────────────────────────────
     for (final prop in spec.properties) {
       final pName = prop.type.name.replaceFirst('?', '');
+
+      // E004: Stream<T> as a property type is not supported. The property bridge
+      // generates a C getter/setter — it cannot register a Dart port for streaming.
+      // Stream properties should be declared as a getter on the @NitroModule directly.
+      if (prop.type.isStream || pName.startsWith('Stream<')) {
+        issues.add(
+          ValidationIssue(
+            severity: ValidationSeverity.error,
+            code: 'E004',
+            message:
+                '${spec.dartClassName}.${prop.dartName} — Stream<T> cannot be a property type. '
+                'The property bridge generates a C getter/setter, which cannot handle async streams.',
+            hint:
+                'Declare a getter `Stream<T> get ${prop.dartName}` directly on the abstract class '
+                '(not annotated with @NitroProperty). The generator treats un-annotated Stream getters as streams automatically.',
+          ),
+        );
+        continue;
+      }
+
       // void property type generates invalid C++ (void getter returns void — illegal).
       if (pName == 'void') {
         issues.add(
@@ -526,6 +647,19 @@ class SpecValidator {
 
     // ── Streams ────────────────────────────────────────────────────────────
     for (final stream in spec.streams) {
+      // E009: Nullable stream item types are not supported. The emit functions use
+      // sentinel values (nullptr / 0) for null, but Dart stream unpack lambdas do not
+      // have a consistent null-decode path for all item types.
+      if (stream.itemType.isNullable || stream.itemType.name.endsWith('?')) {
+        issues.add(ValidationIssue(
+          severity: ValidationSeverity.error,
+          code: 'E009',
+          message: '${spec.dartClassName}.${stream.dartName} — nullable stream item type "${stream.itemType.name}" is not supported.',
+          hint: 'Use a non-nullable item type. If you need to signal "no value", use a sentinel in the item type '
+              '(e.g. a @HybridRecord with an optional field, or emit a special value like -1).',
+        ));
+      }
+
       final iName = stream.itemType.name.replaceFirst('?', '');
       if (!_isKnownType(iName, knownTypes) && !_isKnownType(stream.itemType.name, knownTypes)) {
         issues.add(
@@ -564,6 +698,59 @@ class SpecValidator {
             hint:
                 'Add @NitroStream(backpressure: Backpressure.dropLatest) (or your preferred mode) '
                 'to explicitly configure stream backpressure.',
+          ),
+        );
+      }
+
+      // E005: Backpressure.batch is only supported for numeric (int, double, bool)
+      // stream items. The batch protocol packs items into a native Int64 array;
+      // String/enum/struct/record items cannot be represented that way.
+      if (stream.isBatch) {
+        const _batchSupportedTypes = {'int', 'double', 'bool'};
+        if (!_batchSupportedTypes.contains(iName)) {
+          issues.add(
+            ValidationIssue(
+              severity: ValidationSeverity.error,
+              code: 'E005',
+              message:
+                  '${spec.dartClassName}.${stream.dartName} — Backpressure.batch is not supported for stream item type "$iName". '
+                  'Only int, double, and bool streams can use batch mode.',
+              hint:
+                  'Change the stream item type to int, double, or bool, or switch to '
+                  'Backpressure.dropLatest / Backpressure.dropOldest.',
+            ),
+          );
+        }
+
+        // E006: batchMaxSize must be a positive integer.
+        if (stream.batchMaxSize <= 0) {
+          issues.add(
+            ValidationIssue(
+              severity: ValidationSeverity.error,
+              code: 'E006',
+              message:
+                  '${spec.dartClassName}.${stream.dartName} — batchMaxSize must be > 0, got ${stream.batchMaxSize}.',
+              hint: 'Set batchMaxSize to a positive integer (e.g. 64).',
+            ),
+          );
+        }
+
+        // W005: Warn when @HybridRecord appears as a Map value type — Kotlin generates
+        // Any? for the map value, so runtime type checks are not enforced on Android.
+        // The map works but is not type-safe in the JVM layer.
+      }
+
+      // W005: Map<String, @HybridRecord> on Android generates Any? for values.
+      // The binary map encoder/decoder is typed only on the Dart side; Kotlin passes Any?.
+      if (iName == 'Map' && stream.itemType.isMap) {
+        issues.add(
+          ValidationIssue(
+            severity: ValidationSeverity.warning,
+            code: 'W005',
+            message:
+                '${spec.dartClassName}.${stream.dartName} — Map<String, @HybridRecord> stream item type is not type-safe on Android. '
+                'Kotlin generates Any? for the map value.',
+            hint: 'This works at runtime but bypasses Kotlin type-checking. Consider using @HybridRecord directly.',
           ),
         );
       }

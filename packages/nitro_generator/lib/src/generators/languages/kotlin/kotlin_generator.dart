@@ -550,7 +550,9 @@ class KotlinGenerator {
               'double' => 'putDouble',
               _ => 'putLong',
             };
-            writer.line('        result.forEach { buf.$putMethod(it) }');
+            // bool is encoded as Long (0L/1L); Boolean needs explicit conversion.
+            final encodeExpr = itemTypeName == 'bool' ? 'if (it) 1L else 0L' : 'it';
+            writer.line('        result.forEach { buf.$putMethod($encodeExpr) }');
             writer.line('        return buf.array()');
           } else {
             // Variable-length strings

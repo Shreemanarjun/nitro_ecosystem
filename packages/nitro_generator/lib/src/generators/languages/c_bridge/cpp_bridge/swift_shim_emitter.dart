@@ -203,6 +203,15 @@ void _emitSwiftBridgeSection(
     } else if (isStruct || isRecord) {
       writer.line('    obj.type = Dart_CObject_kInt64;');
       writer.line('    obj.value.as_int64 = (intptr_t)item;');
+    } else if (stream.itemType.name == 'String') {
+      // String items: post kString when non-null, kNull for nullptr.
+      // Dart_PostCObject_DL copies the string, so item (const char*) need not outlive the call.
+      writer.line('    if (item != nullptr) {');
+      writer.line('        obj.type = Dart_CObject_kString;');
+      writer.line('        obj.value.as_string = const_cast<char*>(item);');
+      writer.line('    } else {');
+      writer.line('        obj.type = Dart_CObject_kNull;');
+      writer.line('    }');
     } else {
       writer.line('    obj.type = Dart_CObject_kNull;');
     }

@@ -812,6 +812,20 @@ void _emitJniMethods(
       writer.line('    env->DeleteLocalRef(encoded);');
       writer.line('    obj.type = Dart_CObject_kInt64;');
       writer.line('    obj.value.as_int64 = (intptr_t)buf;');
+    } else if (stream.itemType.name == 'String') {
+      // String stream: post kString. Dart_PostCObject_DL copies the string internally,
+      // so we can release the JNI reference immediately after. Post inline and return early
+      // to avoid the cleanup block that follows (which has no work to do for String).
+      writer.line('    if (item == nullptr) { obj.type = Dart_CObject_kNull; }');
+      writer.line('    else {');
+      writer.line('        const char* _cStr = env->GetStringUTFChars(item, nullptr);');
+      writer.line('        if (_cStr == nullptr) return JNI_FALSE;');
+      writer.line('        obj.type = Dart_CObject_kString;');
+      writer.line('        obj.value.as_string = const_cast<char*>(_cStr);');
+      writer.line('        bool _ok = Dart_PostCObject_DL(dartPort, &obj);');
+      writer.line('        env->ReleaseStringUTFChars(item, _cStr);');
+      writer.line('        return _ok ? JNI_TRUE : JNI_FALSE;');
+      writer.line('    }');
     } else if (enumNames.contains(stream.itemType.name.replaceFirst('?', ''))) {
       writer.line('    // item is a jobject (Kotlin enum). Extract its nativeValue Long field.');
       writer.line('    jclass enumCls = env->GetObjectClass(item);');

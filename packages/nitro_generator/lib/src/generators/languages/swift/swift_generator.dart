@@ -963,7 +963,8 @@ class SwiftGenerator {
         } else if (itemBase == 'bool') {
           writer.line('            _buf.append(item ? 1 : 0)');
         } else {
-          writer.line('            _buf.append(item as! Int64)');
+          // item is already Int64 from AnyPublisher<Int64, Never>; no cast needed.
+          writer.line('            _buf.append(item)');
         }
         writer.line('            let needsFlush = _buf.count >= $batchMax');
         writer.line('            _lock.unlock()');
@@ -1015,6 +1016,14 @@ class SwiftGenerator {
       } else if (isBoolItem) {
         writer.line('            if !emitCb(dartPort, Int8(item ? 1 : 0)) {');
         writer.line('                ${spec.dartClassName}Registry._${stream.dartName}Cancellables.removeValue(forKey: dartPort)?.cancel()');
+        writer.line('            }');
+      } else if (itemName == 'String') {
+        // String items: use withCString so the pointer is valid for the duration of emitCb.
+        // The C++ shim calls Dart_PostCObject_DL(kString) which copies the string internally.
+        writer.line('            item.withCString { ptr in');
+        writer.line('                if !emitCb(dartPort, UnsafeMutablePointer(mutating: ptr)) {');
+        writer.line('                    ${spec.dartClassName}Registry._${stream.dartName}Cancellables.removeValue(forKey: dartPort)?.cancel()');
+        writer.line('                }');
         writer.line('            }');
       } else if (stream.itemType.isTypedData && stream.itemType.isNullable) {
         // Nullable TypedData stream: emit pointer or 0 for nil.
