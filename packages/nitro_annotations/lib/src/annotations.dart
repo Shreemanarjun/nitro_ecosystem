@@ -379,3 +379,29 @@ class NitroVariant {
 
 /// Const shorthand for [@NitroVariant].
 const nitroVariant = NitroVariant();
+
+/// Marks a method's return type as a discriminated success/error result.
+///
+/// When a method is annotated with `@NitroResult()`, the native implementation
+/// can signal failure by writing an error tag + message instead of a value.
+/// Dart receives a [NitroResultValue] sealed type — either [NitroOk<T>] or
+/// [NitroErr] — without throwing an exception.
+///
+/// Wire format: `[1B tag: 0=ok, 1=err][payload]`
+/// - tag 0 (ok): record-codec bytes for T
+/// - tag 1 (err): 4B string length + UTF-8 error message
+///
+/// The method's Dart return type must be `Future<NitroResultValue<T>>` or
+/// `NitroResultValue<T>` (with @nitroAsync / @NitroNativeAsync as appropriate).
+///
+/// Example:
+/// ```dart
+/// @NitroResult()
+/// Future<NitroResultValue<String>> login(String user, String password);
+/// ```
+class NitroResult {
+  const NitroResult();
+}
+
+/// Const shorthand for [@NitroResult].
+const nitroResult = NitroResult();

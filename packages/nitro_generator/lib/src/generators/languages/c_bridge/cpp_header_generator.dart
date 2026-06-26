@@ -93,25 +93,21 @@ class CppHeaderGenerator {
     if (spec.functions.isNotEmpty) {
       nodes.add(const CodeLine('// Methods'));
       for (final func in spec.functions) {
-        final isEnumRet = spec.enums.any(
-          (en) => en.name == func.returnType.name.replaceFirst('?', ''),
-        );
+        final isEnumRet = spec.isEnumName(func.returnType.name.replaceFirst('?', ''));
         final paramParts = <String>[];
         for (final p in func.params) {
           if (p.type.isFunction) {
             paramParts.add(_callbackParamToC(p, spec));
             continue;
           }
-          final isStructParam = spec.structs.any(
-            (st) => st.name == p.type.name.replaceFirst('?', ''),
-          );
+          final isStructParam = spec.isStructName(p.type.name.replaceFirst('?', ''));
           // Nullable primitives (int?/double?/bool?) use NitroNullable binary encoding:
           // [1B hasValue][nB value] passed as void* (matches the JNI [B ByteArray transport).
           final paramBase = p.type.name.replaceFirst('?', '');
           final isNullablePrim = (p.type.isNullable || p.type.name.endsWith('?')) &&
               (paramBase == 'int' || paramBase == 'double' || paramBase == 'bool');
           // Enum params use int64_t (rawValue).
-          final isEnumParam = spec.enums.any((en) => en.name == paramBase);
+          final isEnumParam = spec.isEnumName(paramBase);
           final cType = isNullablePrim
               ? 'void*'
               : isEnumParam
@@ -153,9 +149,7 @@ class CppHeaderGenerator {
     if (spec.properties.isNotEmpty) {
       nodes.add(const CodeLine('// Properties'));
       for (final prop in spec.properties) {
-        final isEnumProp = spec.enums.any(
-          (en) => en.name == prop.type.name.replaceFirst('?', ''),
-        );
+        final isEnumProp = spec.isEnumName(prop.type.name.replaceFirst('?', ''));
         // Nullable primitive properties: getter returns uint8_t*, setter takes void*.
         final propBase = prop.type.name.replaceFirst('?', '');
         final isNullablePrimProp = (prop.type.isNullable || prop.type.name.endsWith('?')) &&
@@ -254,11 +248,11 @@ class CppHeaderGenerator {
       return _pointerToC(bridgeType!.pointerInnerType);
     }
     final name = dartType.replaceFirst('?', '');
-    if (spec.enums.any((en) => en.name == name)) return 'int64_t';
+    if (spec.isEnumName(name)) return 'int64_t';
     // @HybridStruct callback params use void* — matches both JNI and Swift paths.
     // The platform bridges cast internally; a typed const T* would conflict across
     // the #ifdef __ANDROID__ / #elif __APPLE__ compile branches.
-    if (spec.structs.any((s) => s.name == name)) return 'void*';
+    if (spec.isStructName(name)) return 'void*';
     return _typeToC(name);
   }
 

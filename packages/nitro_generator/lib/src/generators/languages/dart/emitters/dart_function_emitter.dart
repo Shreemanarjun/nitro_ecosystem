@@ -7,7 +7,7 @@ for (final func in spec.functions) {
   final needsArena = func.params.any(
     (p) {
       final baseName = p.type.name.replaceFirst('?', '');
-      return p.type.isTypedData || p.type.name == 'String' || p.type.name == 'String?' || p.type.isRecord || spec.structs.any((st) => st.name == baseName) || p.type.name == 'int?' || p.type.name == 'double?' || p.type.name == 'bool?';
+      return p.type.isTypedData || p.type.name == 'String' || p.type.name == 'String?' || p.type.isRecord || spec.isStructName(baseName) || p.type.name == 'int?' || p.type.name == 'double?' || p.type.name == 'bool?';
     },
   );
 
@@ -32,15 +32,15 @@ for (final func in spec.functions) {
         if (t == 'String?') {
           return ['${p.name} != null ? ${p.name}.toNativeUtf8(allocator: arena) : nullptr'];
         }
-        if (spec.structs.any((st) => st.name == t)) {
+        if (spec.isStructName(t)) {
           return ['${p.name}.toNative(arena).cast<Void>()'];
         }
         final tBase = t.replaceFirst('?', '');
-        if (t.endsWith('?') && spec.structs.any((st) => st.name == tBase)) {
+        if (t.endsWith('?') && spec.isStructName(tBase)) {
           return ['${p.name} != null ? ${p.name}.toNative(arena).cast<Void>() : nullptr'];
         }
         // Enum (including nullable enum: TcStatus? uses -1 as null sentinel)
-        if (spec.enums.any((en) => en.name == tBase)) {
+        if (spec.isEnumName(tBase)) {
           if (t.endsWith('?')) {
             return ['${p.name} == null ? -1 : ${p.name}.nativeValue'];
           }
@@ -61,9 +61,11 @@ for (final func in spec.functions) {
   // NativeHandle<T>: the declared Dart return type is NativeHandle<T>
   // but the FFI function pointer returns Pointer<Void>.
   final nativeHandleTypeParam = func.returnType.nativeHandleTypeParam ?? 'Void';
-  final effectiveDartReturnName = func.returnType.isNativeHandle
-      ? 'NativeHandle<$nativeHandleTypeParam>'
-      : func.returnType.name;
+  final effectiveDartReturnName = func.isResult
+      ? 'NitroResultValue<${func.returnType.name}>'
+      : func.returnType.isNativeHandle
+          ? 'NativeHandle<$nativeHandleTypeParam>'
+          : func.returnType.name;
   final returnType = (func.isAsync || func.isNativeAsync)
       ? 'Future<$effectiveDartReturnName>'
       : effectiveDartReturnName;
@@ -97,7 +99,7 @@ for (final func in spec.functions) {
           if (t == 'bool?') return 'NitroNullableBool.fromNullable(${p.name}).toNative(arena)';
           if (t == 'bool') return '${p.name} ? 1 : 0';
           // Nullable enum: TcStatus? → -1 for null, rawValue otherwise
-          if (spec.enums.any((en) => en.name == tBase)) {
+          if (spec.isEnumName(tBase)) {
             return t.endsWith('?')
                 ? '${p.name} == null ? -1 : ${p.name}.nativeValue'
                 : '${p.name}.nativeValue';
@@ -140,6 +142,23 @@ for (final func in spec.functions) {
             isOwned: func.isOwned,
             nativeHandleTypeParam: nativeHandleTypeParam);
       }
+    }
+  } else if (func.isResult) {
+    // ── @NitroResult sync path ────────────────────────────────────────────
+    // C function returns Pointer<Uint8>: [1B tag: 0=ok, 1=err][record payload].
+    // Errors are communicated through the tag, not the error slot.
+    final mnArg = ", methodName: '${func.dartName}'";
+    final syncArgs = callArgs.isEmpty ? '_nitroErr' : '$callArgs, _nitroErr';
+    if (needsArena) {
+      writer.line('    return NitroRuntime.callSync(() => withArena((arena) {');
+      writer.line('      final res = _${func.dartName}Ptr($syncArgs);');
+      _emitResultDecode(writer, func.returnType, 'res', '      ', spec);
+      writer.line('    })$mnArg);');
+    } else {
+      writer.line('    return NitroRuntime.callSync(() {');
+      writer.line('      final res = _${func.dartName}Ptr(_nitroErr);');
+      _emitResultDecode(writer, func.returnType, 'res', '      ', spec);
+      writer.line('    }$mnArg);');
     }
   } else {
     // ── Synchronous path — wrapped in callSync for logging + slow-call detection ──

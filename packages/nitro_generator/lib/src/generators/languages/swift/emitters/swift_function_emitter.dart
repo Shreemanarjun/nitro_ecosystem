@@ -38,15 +38,15 @@ class SwiftFunctionEmitter {
 
     final callArgs = _buildCallArgs(func, spec, mapper);
 
-    final isStruct         = spec.structs.any((st) => st.name == func.returnType.name.replaceFirst('?', ''));
-    final isRecord         = spec.recordTypes.any((rt) => rt.name == func.returnType.name.replaceFirst('?', ''));
+    final isStruct         = spec.isStructName(func.returnType.name.replaceFirst('?', ''));
+    final isRecord         = spec.isRecordName(func.returnType.name.replaceFirst('?', ''));
     final isMap            = func.returnType.isMap;
     final isRecordList     = func.returnType.name.startsWith('List<');
     final isBool           = mapper.cdeclReturnType(func) == 'Int8';
     final isVoid           = func.returnType.name == 'void';
     final isString         = func.returnType.name.replaceFirst('?', '') == 'String';
     final isTypedDataReturn = func.returnType.isTypedData;
-    final isEnumRet        = spec.enums.any((en) => en.name == func.returnType.name.replaceFirst('?', ''));
+    final isEnumRet        = spec.isEnumName(func.returnType.name.replaceFirst('?', ''));
 
     if (func.isNativeAsync) {
       _emitNativeAsync(writer, func, spec, params, stringParams, typedListParams, isVoid: func.returnType.name == 'void');
@@ -88,21 +88,21 @@ class SwiftFunctionEmitter {
       if (p.type.isTypedData) return '${p.name}: ${p.name}Arr';
       if (p.type.isRecord && p.type.name.startsWith('List<')) return '${p.name}: ${p.name}Decoded';
       if (p.type.isFunction) return '${p.name}: ${mapper.callbackWrapper(p)}';
-      if (spec.structs.any((st) => st.name == p.type.name.replaceFirst('?', ''))) {
+      if (spec.isStructName(p.type.name.replaceFirst('?', ''))) {
         final sn  = p.type.name.replaceFirst('?', '');
         final opt = p.type.name.endsWith('?');
         return opt
             ? '${p.name}: ${p.name}.map { \$0.assumingMemoryBound(to: _${sn}C.self).pointee.toSwift() }'
             : '${p.name}: ${p.name}!.assumingMemoryBound(to: _${sn}C.self).pointee.toSwift()';
       }
-      if (spec.recordTypes.any((rt) => rt.name == p.type.name.replaceFirst('?', ''))) {
+      if (spec.isRecordName(p.type.name.replaceFirst('?', ''))) {
         final rn  = p.type.name.replaceFirst('?', '');
         final opt = p.type.name.endsWith('?') || p.type.isNullable;
         return opt
             ? '${p.name}: ${p.name}.map { $rn.fromNative(\$0.assumingMemoryBound(to: UInt8.self)) }'
             : '${p.name}: $rn.fromNative(${p.name}!.assumingMemoryBound(to: UInt8.self))';
       }
-      final isEnum = spec.enums.any((en) => en.name == p.type.name.replaceFirst('?', ''));
+      final isEnum = spec.isEnumName(p.type.name.replaceFirst('?', ''));
       if (isEnum) {
         final en  = p.type.name.replaceFirst('?', '');
         final opt = p.type.name.endsWith('?');
@@ -178,7 +178,7 @@ class SwiftFunctionEmitter {
     // Build call args for native async (no struct/record conversions — not supported)
     final callArgs = func.params.map((p) {
       final isStr  = p.type.name == 'String' || p.type.name == 'String?';
-      final isEnum = spec.enums.any((en) => en.name == p.type.name.replaceFirst('?', ''));
+      final isEnum = spec.isEnumName(p.type.name.replaceFirst('?', ''));
       if (isStr) return '${p.name}: ${p.name}Str';
       if (p.type.name == 'int?')    return '${p.name}: NitroNullableInt.fromNative(${p.name}!.assumingMemoryBound(to: UInt8.self)).nullable';
       if (p.type.name == 'double?') return '${p.name}: NitroNullableDouble.fromNative(${p.name}!.assumingMemoryBound(to: UInt8.self)).nullable';
@@ -223,7 +223,7 @@ class SwiftFunctionEmitter {
       final isDouble  = retName == 'double';
       final isNullDbl = retName == 'double?';
       final isNullInt = retName == 'int?';
-      final isEnum    = spec.enums.any((e) => e.name == retName);
+      final isEnum    = spec.isEnumName(retName);
       if (isDouble) {
         writer.line('        let _result = (try? await impl.${func.dartName}($callArgs)) ?? 0.0');
         writer.line('        var _obj = Dart_CObject()');

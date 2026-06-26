@@ -12,7 +12,11 @@ part 'emitters/dart_function_emitter.dart';
 part 'emitters/dart_property_emitter.dart';
 part 'emitters/dart_stream_emitter.dart';
 part 'emitters/dart_map_factory_emitter.dart';
-part 'emitters/dart_ffi_helpers.dart';
+part 'emitters/dart_type_ffi_mapper.dart';
+part 'emitters/dart_map_encode_helpers.dart';
+part 'emitters/dart_record_ffi_helpers.dart';
+part 'emitters/dart_async_helpers.dart';
+part 'emitters/dart_callback_helpers.dart';
 
 /// Record types shipped in package:nitro that define their own codec methods.
 /// For these types the generator skips the *RecordExt extension and calls

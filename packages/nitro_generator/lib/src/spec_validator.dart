@@ -401,8 +401,8 @@ class SpecValidator {
       if (func.returnType.isMap) {
         final mapMatch = RegExp(r'^Map<String,\s*(.+)>$').firstMatch(func.returnType.name);
         final valueType = mapMatch?.group(1)?.trim() ?? '';
-        final isEnumVal = spec.enums.any((e) => e.name == valueType);
-        final isStructVal = spec.structs.any((s) => s.name == valueType);
+        final isEnumVal = spec.isEnumName(valueType);
+        final isStructVal = spec.isStructName(valueType);
         if (isEnumVal) {
           issues.add(ValidationIssue(
             severity: ValidationSeverity.error,
@@ -476,8 +476,8 @@ class SpecValidator {
         if (param.type.isMap) {
           final mapMatch = RegExp(r'^Map<String,\s*(.+)>$').firstMatch(param.type.name);
           final valueType = mapMatch?.group(1)?.trim() ?? '';
-          final isEnumVal = spec.enums.any((e) => e.name == valueType);
-          final isStructVal = spec.structs.any((s) => s.name == valueType);
+          final isEnumVal = spec.isEnumName(valueType);
+          final isStructVal = spec.isStructName(valueType);
           if (isEnumVal) {
             issues.add(ValidationIssue(
               severity: ValidationSeverity.error,
@@ -800,6 +800,28 @@ class SpecValidator {
       }
     }
 
+    // ── E015: @NitroResult validation ─────────────────────────────────────
+    for (final func in spec.functions) {
+      if (!func.isResult) continue;
+      if (func.isAsync || func.isNativeAsync) {
+        issues.add(ValidationIssue(
+          severity: ValidationSeverity.error,
+          code: 'E015',
+          message: '${func.dartName}() — @NitroResult cannot be combined with @nitroAsync / @NitroNativeAsync.',
+          hint: 'Remove @nitroAsync (or @NitroNativeAsync) from ${func.dartName}. '
+              '@NitroResult methods are always synchronous on the Dart side.',
+        ));
+      }
+      if (func.returnType.name == 'void') {
+        issues.add(ValidationIssue(
+          severity: ValidationSeverity.error,
+          code: 'E015',
+          message: '${func.dartName}() — @NitroResult cannot wrap void return type.',
+          hint: 'Use a non-void return type or remove @NitroResult if you only need error propagation.',
+        ));
+      }
+    }
+
     // ── Structs ────────────────────────────────────────────────────────────
     for (final st in spec.structs) {
       for (final field in st.fields) {
@@ -844,7 +866,7 @@ class SpecValidator {
     // Build adjacency: structName → names of other structs referenced by fields.
     final adj = <String, List<String>>{};
     for (final st in spec.structs) {
-      adj[st.name] = st.fields.map((f) => f.type.name.replaceFirst('?', '')).where((t) => spec.structs.any((s) => s.name == t)).toList();
+      adj[st.name] = st.fields.map((f) => f.type.name.replaceFirst('?', '')).where(spec.isStructName).toList();
     }
 
     // 0 = unvisited, 1 = in DFS stack, 2 = fully processed.

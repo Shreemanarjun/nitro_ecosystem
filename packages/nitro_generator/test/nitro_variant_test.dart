@@ -8,6 +8,7 @@
 //   - BridgeSpec.isVariantName O(1) lookup
 
 import 'package:nitro_generator/src/bridge_spec.dart';
+import 'package:nitro_generator/src/generators/languages/cpp_native/cpp_interface_generator.dart';
 import 'package:nitro_generator/src/generators/languages/dart/dart_ffi_generator.dart';
 import 'package:nitro_generator/src/generators/languages/kotlin/kotlin_generator.dart';
 import 'package:nitro_generator/src/generators/languages/swift/swift_generator.dart';
@@ -257,6 +258,86 @@ void main() {
       );
       final result = SpecValidator.validate(spec);
       expect(result.where((i) => i.code == 'E014'), isEmpty);
+    });
+  });
+
+  // ── C++ variant codegen (S4-P1) ─────────────────────────────────────────────
+
+  group('CppInterfaceGenerator — @NitroVariant', () {
+    late BridgeSpec cppSpec;
+    late String cppOutput;
+
+    setUp(() {
+      cppSpec = BridgeSpec(
+        dartClassName: 'Filter',
+        lib: 'mylib',
+        namespace: 'mylib',
+        iosImpl: NativeImpl.cpp,
+        androidImpl: NativeImpl.cpp,
+        sourceUri: 'filter.native.dart',
+        variants: [_filterVariant()],
+        functions: [
+          BridgeFunction(
+            dartName: 'process',
+            cSymbol: 'mylib_process',
+            isAsync: false,
+            isNativeAsync: false,
+            returnType: BridgeType(name: 'FilterResult', isRecord: false, isFunction: false),
+            params: [
+              BridgeParam(
+                name: 'input',
+                type: BridgeType(name: 'FilterResult', isRecord: false, isFunction: false),
+              ),
+            ],
+          ),
+        ],
+      );
+      cppOutput = CppInterfaceGenerator.generate(cppSpec);
+    });
+
+    test('includes <variant> header', () {
+      expect(cppOutput, contains('#include <variant>'));
+    });
+
+    test('emits FilterAccepted struct with id field', () {
+      expect(cppOutput, contains('struct FilterAccepted {'));
+      expect(cppOutput, contains('std::string id;'));
+    });
+
+    test('emits FilterRejected as unit struct', () {
+      expect(cppOutput, contains('struct FilterRejected {};'));
+    });
+
+    test('emits std::variant<> typedef', () {
+      expect(cppOutput, contains('using FilterResult = std::variant<FilterAccepted, FilterRejected>;'));
+    });
+
+    test('emits nitro_decode_FilterResult function', () {
+      expect(cppOutput, contains('inline FilterResult nitro_decode_FilterResult(NitroCppBuffer buf)'));
+      expect(cppOutput, contains('case 0:')); // FilterAccepted tag
+      expect(cppOutput, contains('case 1:')); // FilterRejected tag (actually no — only 2 cases so tag 0 and implicit)
+    });
+
+    test('emits nitro_encode_FilterResult function', () {
+      expect(cppOutput, contains('inline std::pair<uint8_t*, size_t> nitro_encode_FilterResult'));
+      expect(cppOutput, contains('std::visit'));
+    });
+
+    test('variant parameter in method uses NitroCppBuffer', () {
+      expect(cppOutput, contains('virtual NitroCppBuffer process(NitroCppBuffer input) = 0;'));
+    });
+
+    test('variant type-only spec generates no abstract class', () {
+      final typeOnly = BridgeSpec(
+        dartClassName: '',
+        lib: 'foo',
+        namespace: '',
+        sourceUri: 'foo.native.dart',
+        variants: [_filterVariant()],
+      );
+      // type-only → not a hasCppImpl spec, returns placeholder
+      final out = CppInterfaceGenerator.generate(typeOnly);
+      expect(out, contains('Not applicable'));
     });
   });
 }

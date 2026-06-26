@@ -49,11 +49,9 @@ ReturnKind classifyReturn(BridgeType returnType, BridgeSpec spec) {
   return ReturnKind.primitive;
 }
 
-bool isStructType(String baseName, BridgeSpec spec) =>
-    spec.structs.any((st) => st.name == baseName);
+bool isStructType(String baseName, BridgeSpec spec) => spec.isStructName(baseName);
 
-bool isEnumType(String baseName, BridgeSpec spec) =>
-    spec.enums.any((en) => en.name == baseName);
+bool isEnumType(String baseName, BridgeSpec spec) => spec.isEnumName(baseName);
 
 // ── Transport type for callAsync<T> ───────────────────────────────────────
 

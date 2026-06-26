@@ -12,9 +12,9 @@ class SwiftStreamEmitter {
   ) {
     final cType    = mapper.swiftCType(stream.itemType.name);
     final itemName = stream.itemType.name.replaceFirst('?', '');
-    final isStructItem = spec.structs.any((st) => st.name == itemName);
+    final isStructItem = spec.isStructName(itemName);
     final isRecordItem = stream.itemType.isRecord;
-    final isEnumItem   = spec.enums.any((en) => en.name == itemName);
+    final isEnumItem   = spec.isEnumName(itemName);
     final isBoolItem   = itemName == 'bool';
 
     if (stream.isBatch) {

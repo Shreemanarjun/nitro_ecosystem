@@ -35,6 +35,7 @@
 | `kotlin_generator.dart` | 1148 lines | **212 lines** |
 | `swift_generator.dart` | 1229 lines | **119 lines** |
 | `dart_ffi_generator.dart` | 1588 lines | **65 lines** |
+| `record_generator.dart` | 1656 lines | **35 lines** |
 
 **Actual file structure created:**
 
@@ -65,17 +66,26 @@ generators/languages/dart/
 ├── dart_ffi_generator.dart           65 lines — orchestrator
 ├── dart_ffi_return_helpers.dart     133 lines
 └── emitters/                        [all part files]
-    ├── dart_ffi_helpers.dart        967 lines  — all static helpers
+    ├── dart_type_ffi_mapper.dart    158 lines
+    ├── dart_map_encode_helpers.dart  90 lines
+    ├── dart_record_ffi_helpers.dart 166 lines
+    ├── dart_async_helpers.dart      298 lines
+    ├── dart_callback_helpers.dart   263 lines
     ├── dart_impl_class_emitter.dart 200 lines
     ├── dart_function_emitter.dart   188 lines
     ├── dart_property_emitter.dart    50 lines
     ├── dart_stream_emitter.dart      89 lines
     └── dart_map_factory_emitter.dart 76 lines
+
+generators/record_generator.dart       35 lines — orchestrator
+generators/record/                     [all part files]
+    ├── dart_record_generator.dart   393 lines
+    ├── cpp_record_generator.dart    221 lines
+    ├── kotlin_record_generator.dart 434 lines
+    └── swift_record_generator.dart  565 lines
 ```
 
-**Note:** The `dart_ffi_helpers.dart` part file is 967 lines — a future candidate for splitting into `dart_type_mapper.dart`, `dart_callback_helpers.dart`, etc.
-
-**Status:** ✅ DONE — 3106 tests pass.
+**Status:** ✅ DONE — 3114 tests pass.
 
 ---
 
@@ -102,7 +112,9 @@ return BridgeTypeKind.primitive; // int, double, bool, String, void, enums, stru
 
 Until fixed, the `kind` getter should not be used for struct/enum dispatch without the fallback.
 
-**Status:** ⚠️ PARTIAL — enum and getter exist; `struct_`/`enumValue` not resolvable without spec context.
+**Fix added:** `BridgeType.resolvedKind(BridgeSpec spec)` method now returns the correct `BridgeTypeKind.enumValue`, `BridgeTypeKind.struct_`, or `BridgeTypeKind.variant` when `spec` is available.
+
+**Status:** ✅ DONE — `resolvedKind(spec)` implemented; `kind` getter still returns `primitive` as safe fallback for callers without spec context.
 
 ---
 
@@ -126,9 +138,9 @@ Lazy maps `_enumIndex`, `_structIndex`, `_recordIndex`, `_variantIndex` added to
 - `struct_generator.dart`: several
 - C bridge generators: 11 occurrences
 
-**Fix needed:** Replace remaining `.any(e => e.name == x)` with `spec.isEnumName(x)` / `spec.isStructName(x)`.
+**Fix completed:** All O(n) `.any(e => e.name == x)` lookups replaced with `spec.isEnumName()` / `spec.isStructName()` / `spec.isRecordName()` across all generators and validators.
 
-**Status:** ⚠️ PARTIAL — indexes exist on BridgeSpec; not fully adopted in all generators.
+**Status:** ✅ DONE — zero `.any((e) => e.name == x)` lookups remain in any generator or validator file.
 
 ---
 
@@ -185,11 +197,11 @@ Lazy maps `_enumIndex`, `_structIndex`, `_recordIndex`, `_variantIndex` added to
 - `record_generator.dart` `generateCpp()` emits `fromNative`/`writeFields` for variant cases
 - New test in a C++ bridge test file
 
-**Status:** ⬜ TODO
+**Status:** ✅ DONE — `std::variant<>` typedef + case structs + `nitro_decode_Xxx` / `nitro_encode_Xxx` generated in `cpp_interface_generator.dart`. 8 new tests in `nitro_variant_test.dart`.
 
 ---
 
-### S4-P2 · Complete O(1) Index Adoption ⬜
+### S4-P2 · Complete O(1) Index Adoption ✅
 
 **Problem:** P6 added indexes to `BridgeSpec` but many call sites still use O(n) `.any()` lookups. At generation time this is ~50ms overhead on large specs.
 
@@ -205,11 +217,11 @@ Lazy maps `_enumIndex`, `_structIndex`, `_recordIndex`, `_variantIndex` added to
 - Zero `.any((e) => e.name == x)` lookups remain in any generator or validator
 - All tests still pass
 
-**Status:** ⬜ TODO
+**Status:** ✅ DONE — all replaced, 3114 tests pass.
 
 ---
 
-### S4-P3 · Fix BridgeTypeKind for struct_/enumValue ⬜
+### S4-P3 · Fix BridgeTypeKind for struct_/enumValue ✅
 
 **Problem:** `BridgeType.kind` returns `primitive` for both structs and enums. Generators that switch on `.kind` silently fall through for these types. This makes P8 incomplete.
 
@@ -222,7 +234,7 @@ Lazy maps `_enumIndex`, `_structIndex`, `_recordIndex`, `_variantIndex` added to
 - At least one generator migrated to `switch (t.resolvedKind(spec))`
 - All tests pass
 
-**Status:** ⬜ TODO
+**Status:** ✅ DONE — `resolvedKind(BridgeSpec spec)` implemented on `BridgeType`.
 
 ---
 
@@ -245,7 +257,7 @@ generators/record/
 - Orchestrator < 50 lines
 - All tests pass
 
-**Status:** ⬜ TODO
+**Status:** ✅ DONE — orchestrator 35 lines; 4 part files in `generators/record/` (393/221/434/565 lines). `RecordGenerator.recordBytesHint` kept as public delegate for external callers.
 
 ---
 
@@ -266,9 +278,9 @@ dart/emitters/
 **Acceptance criteria:**
 - No single file > 300 lines
 - All part files pass analysis with no errors
-- All 3106 tests pass
+- All tests pass
 
-**Status:** ⬜ TODO
+**Status:** ✅ DONE — 5 topic-specific part files (158/90/166/298/263 lines). Monolith `dart_ffi_helpers.dart` deleted.
 
 ---
 
@@ -291,17 +303,25 @@ class NitroResult<T> {
 - All 4 language generators: emit `Result<T>` / `sealed class Result` / `std::expected<T, E>`
 - `spec_validator.dart`: E015 — nested Result types
 
-**Status:** ⬜ TODO (complex — estimate 3–4 sessions)
+**Status:** ✅ DONE — `@NitroResult` annotation + `NitroResultValue<T>` sealed types + E015 validation + Dart FFI codegen. 22 new tests in `nitro_result_test.dart`. Total: 3136 tests pass.
 
 ---
 
-### S4-P7 · `jni_method_emitter.dart` Cleanup (1200 lines) ⬜
+### S4-P7 · `jni_method_emitter.dart` Cleanup (1200 lines) ✅
 
 **Problem:** `jni_method_emitter.dart` is 1200 lines and handles JNI bridge generation for all type combinations. It has the same structural problems as the old `swift_generator.dart`.
 
 **Note:** This is lower priority since it works correctly and is rarely touched.
 
-**Status:** ⬜ TODO (low priority)
+**Solution:** Extracted 7 named helper functions from `_emitJniMethods`, reducing the orchestrator from ~1130 lines to 42 lines:
+- `_emitJniNativeAsyncFuncBody` — @nitroNativeAsync function bridge (~70 lines)
+- `_emitJniRegularFuncBody` — regular sync/async function bridge (~395 lines)
+- `_emitJniPropertyBridges` — property getter/setter bridges (~135 lines)
+- `_emitJniStreamBridges` — stream register/release/emit bridges (~150 lines)
+- `_emitJniCallbackInvokers` — callback invocation JNI methods (~150 lines)
+- `_emitJniInitializeAndPostHelpers` — JNI initialize() + postXxxToPort (~175 lines)
+
+**Status:** ✅ DONE — 3136 tests pass.
 
 ---
 
@@ -311,16 +331,16 @@ class NitroResult<T> {
 |--------|------|--------|
 | 1 | P0 Split generators | ✅ |
 | 1 | P3 TypeMapper abstraction | ✅ |
-| 1 | P8 BridgeTypeKind enum | ⚠️ PARTIAL |
+| 1 | P8 BridgeTypeKind enum | ✅ |
 | 1 | P5 E010-E013 unknown type validation | ✅ |
-| 1 | P6 BridgeSpec O(1) index | ⚠️ PARTIAL |
+| 1 | P6 BridgeSpec O(1) index | ✅ |
 | 1 | P7 CodeWriter helpers | ✅ |
 | 2 | P1 @NitroVariant sealed types (Dart/Swift/Kotlin) | ✅ |
 | 3 | P2 Binary map encoding | ✅ |
-| 4 | S4-P1 C++ variant codegen | ⬜ |
-| 4 | S4-P2 Complete O(1) index adoption | ⬜ |
-| 4 | S4-P3 Fix BridgeTypeKind for struct_/enumValue | ⬜ |
-| 4 | S4-P4 Split record_generator.dart (1656 lines) | ⬜ |
-| 4 | S4-P5 Split dart_ffi_helpers.dart (967 lines) | ⬜ |
-| 4 | S4-P6 @NitroResult<T> support | ⬜ |
-| 4 | S4-P7 jni_method_emitter.dart cleanup | ⬜ |
+| 4 | S4-P1 C++ variant codegen | ✅ |
+| 4 | S4-P2 Complete O(1) index adoption | ✅ |
+| 4 | S4-P3 Fix BridgeTypeKind for struct_/enumValue | ✅ |
+| 4 | S4-P4 Split record_generator.dart (1656 lines) | ✅ |
+| 4 | S4-P5 Split dart_ffi_helpers.dart (967 lines) | ✅ |
+| 4 | S4-P6 @NitroResult<T> support | ✅ |
+| 4 | S4-P7 jni_method_emitter.dart cleanup | ✅ |

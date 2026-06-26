@@ -209,7 +209,22 @@ class BridgeType {
       return BridgeTypeKind.record;
     }
     if (isTypedData)          return BridgeTypeKind.typedData;
-    return BridgeTypeKind.primitive; // int, double, bool, String, void, enums, structs
+    return BridgeTypeKind.primitive; // int, double, bool, String, void — NOT enum/struct
+  }
+
+  /// Like [kind] but resolves `primitive` into [BridgeTypeKind.enumValue] or
+  /// [BridgeTypeKind.struct_] when the type name is registered in [spec].
+  ///
+  /// Requires a [BridgeSpec] because enum/struct membership is a spec-level
+  /// concept — the type name alone is ambiguous (could be an external class).
+  BridgeTypeKind resolvedKind(BridgeSpec spec) {
+    final k = kind;
+    if (k != BridgeTypeKind.primitive) return k;
+    final bare = name.endsWith('?') ? name.substring(0, name.length - 1) : name;
+    if (spec.isEnumName(bare))   return BridgeTypeKind.enumValue;
+    if (spec.isStructName(bare)) return BridgeTypeKind.struct_;
+    if (spec.isVariantName(bare)) return BridgeTypeKind.variant;
+    return BridgeTypeKind.primitive;
   }
 
   /// True when the type is a Dart TypedData (Uint8List, Float32List, etc.)
@@ -362,6 +377,15 @@ class BridgeFunction {
   /// Only meaningful when [isAsync] is true.
   final int? asyncTimeout;
 
+  /// True when the method is annotated with `@NitroResult()`.
+  ///
+  /// The native implementation can write either a success payload or an error
+  /// string. The Dart return type is wrapped in [NitroResultValue<T>] — either
+  /// [NitroOk<T>] (success) or [NitroErr] (native-side failure).
+  ///
+  /// Wire format: `[1B tag: 0=ok, 1=err][payload]`
+  final bool isResult;
+
   BridgeFunction({
     required this.dartName,
     required this.cSymbol,
@@ -373,6 +397,7 @@ class BridgeFunction {
     this.lineNumber,
     this.isOwned = false,
     this.asyncTimeout,
+    this.isResult = false,
   });
 }
 

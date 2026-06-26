@@ -756,6 +756,7 @@ class SpecExtractor {
     const nativeAsyncChecker = TypeChecker.fromUrl('package:nitro_annotations/src/annotations.dart#NitroNativeAsync');
     const zeroCopyChecker = TypeChecker.fromUrl('package:nitro_annotations/src/annotations.dart#ZeroCopy');
     const ownedChecker = TypeChecker.fromUrl('package:nitro_annotations/src/annotations.dart#NitroOwned');
+    const resultChecker = TypeChecker.fromUrl('package:nitro_annotations/src/annotations.dart#NitroResult');
 
     return methods.map((m) {
       final isAsync = asyncChecker.hasAnnotationOf(m);
@@ -802,6 +803,7 @@ class SpecExtractor {
         zeroCopyReturn: zeroCopyChecker.hasAnnotationOf(m),
         isOwned: ownedChecker.hasAnnotationOf(m),
         asyncTimeout: asyncTimeout,
+        isResult: resultChecker.hasAnnotationOf(m),
         params: m.formalParameters.map((p) {
           return BridgeParam(
             name: p.name!,

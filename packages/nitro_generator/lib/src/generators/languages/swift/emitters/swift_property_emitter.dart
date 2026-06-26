@@ -20,7 +20,7 @@ class SwiftPropertyEmitter {
     final isString = propTypeName == 'String' || propTypeName == 'String?';
 
     if (prop.hasGetter) {
-      final isEnumProp = spec.enums.any((en) => en.name == propTypeBase);
+      final isEnumProp = spec.isEnumName(propTypeBase);
       final getRetType = isString
           ? 'UnsafeMutablePointer<CChar>?'
           : isBool && isNullableProp
@@ -61,8 +61,8 @@ class SwiftPropertyEmitter {
     }
 
     if (prop.hasSetter) {
-      final isEnumProp  = spec.enums.any((en) => en.name == propTypeBase);
-      final isStructProp = spec.structs.any((st) => st.name == propTypeBase);
+      final isEnumProp  = spec.isEnumName(propTypeBase);
+      final isStructProp = spec.isStructName(propTypeBase);
       final setParamType = isBool && isNullableProp
           ? 'UnsafeMutableRawPointer?'
           : isBool

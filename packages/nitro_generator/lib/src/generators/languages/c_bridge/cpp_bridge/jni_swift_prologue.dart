@@ -52,7 +52,7 @@ void _emitJniSwiftPrologue(
   final zeroCopyStreamStructs = spec.streams
       .where((st2) => structNames.contains(st2.itemType.name.replaceFirst('?', '')))
       .map((st2) => st2.itemType.name.replaceFirst('?', ''))
-      .where((name) => spec.structs.any((st3) => st3.name == name && st3.fields.any((f) => f.zeroCopy)))
+      .where((name) { final st = spec.structByName(name); return st != null && st.fields.any((f) => f.zeroCopy); })
       .toSet();
   if (zeroCopyStreamStructs.isNotEmpty) {
     writer.line('#include <unordered_map>');

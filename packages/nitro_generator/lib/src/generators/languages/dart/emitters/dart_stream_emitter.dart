@@ -8,7 +8,7 @@ for (final stream in spec.streams) {
   final cap = _cap(stream.dartName);
   final itemType = stream.itemType.name;
   final isRecord = stream.itemType.isRecord;
-  final isStruct = spec.structs.any((st) => st.name == itemType);
+  final isStruct = spec.isStructName(itemType);
 
   final String unpackExpr;
   final String streamItemType;
@@ -26,7 +26,7 @@ for (final stream in spec.streams) {
     final nullAction = stream.itemType.isNullable ? 'return null' : "throw StateError('Received null event on non-nullable stream ${stream.dartName}')";
     unpackExpr = '(message) { if (message == null) { $nullAction; } return ${itemType}Proxy(Pointer<${itemType}Ffi>.fromAddress(message as int)); }';
     streamItemType = itemType;
-  } else if (spec.enums.any((e) => e.name == itemType)) {
+  } else if (spec.isEnumName(itemType)) {
     // Enum stream: convert int to enum via generated extension
     unpackExpr = '(message) => (message as int).to$itemType()';
     streamItemType = itemType;

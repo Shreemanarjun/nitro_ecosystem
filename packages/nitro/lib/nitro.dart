@@ -6,6 +6,7 @@
 // Android, macOS, Windows, Linux) and false on web.
 
 export 'src/annotations.dart';
+export 'src/nitro_result.dart';
 export 'src/nitro_config.dart';
 export 'src/hybrid_exception.dart';
 // dart:convert is available everywhere — needed for Map<String,T> binary bridge.
