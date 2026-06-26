@@ -634,6 +634,107 @@ void main() {
       expect(out, contains('flagsDecoded.add(if (itemBuf.get().toInt() != 0) 1L else 0L)'));
       expect(out, isNot(contains('repeat(flagsCount) { flagsDecoded.add(flagsBuf.getLong()) }')));
     });
+
+    test('Kotlin: List<bool> return encodes flat primitive payload', () {
+      final boolSpec = _swiftKotlinSpec([
+        _fn(
+          'echoFlags',
+          BridgeType(
+            name: 'List<bool>',
+            isRecord: true,
+            recordListItemType: 'bool',
+            recordListItemIsPrimitive: true,
+          ),
+        ),
+      ]);
+      final out = KotlinGenerator.generate(boolSpec);
+      expect(out, contains('val payloadSize = 4 + 1 * count'));
+      expect(out, contains('buf.putInt(count)'));
+      expect(out, contains('result.forEach { buf.put((if (it) 1 else 0).toByte()) }'));
+      expect(out, isNot(contains('var offsetPos = 4 + 8L * result.size')));
+      expect(out, isNot(contains('offsets.forEach { payloadBuf.putLong(it) }')));
+      expect(out, isNot(contains('result.forEach { buf.putLong(if (it) 1L else 0L) }')));
+    });
+
+    test('Kotlin: enum-return callback converts JNI Long back to enum', () {
+      final statusSpec = BridgeSpec(
+        dartClassName: 'Mod',
+        lib: 'mod',
+        namespace: 'mod',
+        iosImpl: NativeImpl.swift,
+        androidImpl: NativeImpl.kotlin,
+        sourceUri: 'mod.native.dart',
+        enums: [
+          BridgeEnum(
+            name: 'TcStatus',
+            startValue: 0,
+            values: ['ok', 'warning', 'error'],
+          ),
+        ],
+        functions: [
+          _fn(
+            'onStatusTransform',
+            BridgeType(name: 'void'),
+            params: [
+              BridgeParam(
+                name: 'statusCb',
+                type: BridgeType(
+                  name: 'TcStatus Function(int)',
+                  isFunction: true,
+                  functionReturnType: 'TcStatus',
+                  functionParams: [BridgeType(name: 'int')],
+                ),
+              ),
+            ],
+          ),
+        ],
+      );
+      final out = KotlinGenerator.generate(statusSpec);
+      expect(out, contains('@JvmStatic external fun _invoke_statusCb(callbackPtr: Long, arg0: Long): Long'));
+      expect(out, contains('impl.onStatusTransform({ p0: Long -> TcStatus.fromNative(_invoke_statusCb(statusCb, p0)) })'));
+      expect(out, isNot(contains('_invoke_statusCb(callbackPtr: Long, arg0: Long): TcStatus')));
+    });
+
+    test('Swift: enum-return callback converts raw Int64 back to enum', () {
+      final statusSpec = BridgeSpec(
+        dartClassName: 'Mod',
+        lib: 'mod',
+        namespace: 'mod',
+        iosImpl: NativeImpl.swift,
+        androidImpl: NativeImpl.kotlin,
+        sourceUri: 'mod.native.dart',
+        enums: [
+          BridgeEnum(
+            name: 'TcStatus',
+            startValue: 0,
+            values: ['ok', 'warning', 'error'],
+          ),
+        ],
+        functions: [
+          _fn(
+            'onStatusTransform',
+            BridgeType(name: 'void'),
+            params: [
+              BridgeParam(
+                name: 'statusCb',
+                type: BridgeType(
+                  name: 'TcStatus Function(int)',
+                  isFunction: true,
+                  functionReturnType: 'TcStatus',
+                  functionParams: [BridgeType(name: 'int')],
+                ),
+              ),
+            ],
+          ),
+        ],
+      );
+      final out = SwiftGenerator.generate(statusSpec);
+      expect(
+        out,
+        contains('ModRegistry.impl?.onStatusTransform(statusCb: { arg0 in TcStatus(rawValue: statusCb(arg0))! })'),
+      );
+      expect(out, isNot(contains('statusCb: { arg0 in statusCb(arg0) }')));
+    });
   });
 
   // ── §10: Property returning List<@HybridStruct T> ─────────────────────────

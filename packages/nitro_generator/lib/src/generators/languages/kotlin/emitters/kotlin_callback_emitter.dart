@@ -32,9 +32,7 @@ class KotlinCallbackEmitter {
         }
 
         final cbReturnType = p.type.functionReturnType;
-        final kotlinReturn = (cbReturnType != null && cbReturnType != 'void')
-            ? ': ${mapper.type(cbReturnType)}'
-            : '';
+        final kotlinReturn = (cbReturnType != null && cbReturnType != 'void') ? ': ${mapper.callbackReturnJniType(cbReturnType)}' : '';
 
         writer.line('    @JvmStatic external fun $nativeName($paramDecl)$kotlinReturn');
       }

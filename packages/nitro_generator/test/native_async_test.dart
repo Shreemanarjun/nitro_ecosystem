@@ -716,6 +716,12 @@ void main() {
       expect(out, contains('Dart_CObject_kInt64'));
       expect(out, contains('as_int64'));
     });
+
+    test('bool param converts Int8 ABI value to Swift Bool', () {
+      final out = SwiftGenerator.generate(_nativeAsyncBoolSpec());
+      expect(out, contains('impl.check(flag: flag != 0)'));
+      expect(out, isNot(contains('impl.check(flag: flag)')));
+    });
   });
 
   // ── KotlinGenerator — additional return types ─────────────────────────────────

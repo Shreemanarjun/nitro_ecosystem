@@ -37,6 +37,7 @@ class KotlinGenerator {
       writer.line('import kotlinx.coroutines.flow.Flow');
       writer.line('import kotlinx.coroutines.launch');
       writer.line('import kotlinx.coroutines.CoroutineScope');
+      writer.line('import kotlinx.coroutines.CoroutineStart');
       writer.line('import kotlinx.coroutines.Dispatchers');
     }
     if (hasAsyncFunctions) writer.line('import kotlinx.coroutines.runBlocking');
@@ -61,8 +62,7 @@ class KotlinGenerator {
     writer.line(' * Keep mutable state thread-safe or marshal work onto your own dispatcher.');
     writer.line(' */');
     writer.line('interface Hybrid${spec.dartClassName}Spec {');
-    writer.line(
-        '    val applicationContext: Context get() = ${spec.dartClassName}JniBridge.applicationContext');
+    writer.line('    val applicationContext: Context get() = ${spec.dartClassName}JniBridge.applicationContext');
     writer.line('    val activity: Activity? get() = ${spec.dartClassName}JniBridge.activity');
     writer.blankLine();
     writer.line('    // Optional lifecycle hooks — override only what you need.');
@@ -77,9 +77,7 @@ class KotlinGenerator {
         writer.line('    // source: ${spec.sourceUri.split('/').last}:${func.lineNumber}');
       }
       final retType = mapper.functionRetType(func);
-      final params = func.params
-          .map((p) => '${p.name}: ${mapper.paramType(p)}')
-          .join(', ');
+      final params = func.params.map((p) => '${p.name}: ${mapper.paramType(p)}').join(', ');
       final suspend = (func.isAsync || func.isNativeAsync) ? 'suspend ' : '';
       writer.line('    ${suspend}fun ${func.dartName}($params): $retType');
     }
@@ -106,8 +104,7 @@ class KotlinGenerator {
     writer.line('object ${spec.dartClassName}JniBridge {');
     writer.line('    private var implementation: Hybrid${spec.dartClassName}Spec? = null');
     if (hasAsyncFunctions) {
-      writer.line(
-          '    private val _asyncExecutor = java.util.concurrent.Executors.newCachedThreadPool()');
+      writer.line('    private val _asyncExecutor = java.util.concurrent.Executors.newCachedThreadPool()');
     }
     writer.blankLine();
     writer.line('    lateinit var applicationContext: Context');
@@ -164,8 +161,7 @@ class KotlinGenerator {
 
     // ── Stream registration / external emit declarations ───────────────────
     if (hasStreams) {
-      writer.line(
-          '    private val _streamJobs = java.util.concurrent.ConcurrentHashMap<Pair<String, Long>, kotlinx.coroutines.Job>()');
+      writer.line('    private val _streamJobs = java.util.concurrent.ConcurrentHashMap<Pair<String, Long>, kotlinx.coroutines.Job>()');
       writer.blankLine();
     }
 

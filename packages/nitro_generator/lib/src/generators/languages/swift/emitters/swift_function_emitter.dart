@@ -207,11 +207,13 @@ class SwiftFunctionEmitter {
     final callArgs = func.params
         .map((p) {
           final isStr = p.type.name == 'String' || p.type.name == 'String?';
+          final isBool = p.type.name == 'bool' || p.type.name == 'bool?';
           final isEnum = spec.isEnumName(p.type.name.replaceFirst('?', ''));
           if (isStr) return '${p.name}: ${p.name}Str';
           if (p.type.name == 'int?') return '${p.name}: NitroNullableInt.fromNative(${p.name}!.assumingMemoryBound(to: UInt8.self)).nullable';
           if (p.type.name == 'double?') return '${p.name}: NitroNullableDouble.fromNative(${p.name}!.assumingMemoryBound(to: UInt8.self)).nullable';
           if (p.type.name == 'bool?') return '${p.name}: NitroNullableBool.fromNative(${p.name}!.assumingMemoryBound(to: UInt8.self)).nullable';
+          if (isBool) return '${p.name}: ${p.name} != 0';
           if (isEnum) {
             final en = p.type.name.replaceFirst('?', '');
             final opt = p.type.name.endsWith('?');

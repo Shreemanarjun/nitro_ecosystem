@@ -29,31 +29,49 @@ class SwiftTypeMapper implements TypeMapper {
     if (bridgeType != null && bridgeType.isFunction) {
       final returnType = bridgeType.functionReturnType ?? 'Void';
       final params = bridgeType.functionParams;
-      final paramList = params
-          .asMap()
-          .entries
-          .map((e) => '_: ${swiftType(e.value.name, bridgeType: e.value)}')
-          .join(', ');
+      final paramList = params.asMap().entries.map((e) => '_: ${swiftType(e.value.name, bridgeType: e.value)}').join(', ');
       return '($paramList) -> ${swiftType(returnType)}';
     }
 
     String baseType;
     switch (name) {
-      case 'int':      baseType = 'Int64';   break;
-      case 'double':   baseType = 'Double';  break;
-      case 'bool':     baseType = 'Bool';    break;
-      case 'String':   baseType = 'String';  break;
-      case 'void':     baseType = 'Void';    break;
+      case 'int':
+        baseType = 'Int64';
+        break;
+      case 'double':
+        baseType = 'Double';
+        break;
+      case 'bool':
+        baseType = 'Bool';
+        break;
+      case 'String':
+        baseType = 'String';
+        break;
+      case 'void':
+        baseType = 'Void';
+        break;
       case 'Uint8List':
-      case 'Int8List': baseType = 'Data';    break;
+      case 'Int8List':
+        baseType = 'Data';
+        break;
       case 'Int16List':
-      case 'Uint16List': baseType = '[Int16]'; break;
+      case 'Uint16List':
+        baseType = '[Int16]';
+        break;
       case 'Int32List':
-      case 'Uint32List': baseType = '[Int32]'; break;
-      case 'Float32List': baseType = '[Float]'; break;
-      case 'Float64List': baseType = '[Double]'; break;
+      case 'Uint32List':
+        baseType = '[Int32]';
+        break;
+      case 'Float32List':
+        baseType = '[Float]';
+        break;
+      case 'Float64List':
+        baseType = '[Double]';
+        break;
       case 'Int64List':
-      case 'Uint64List': baseType = '[Int64]'; break;
+      case 'Uint64List':
+        baseType = '[Int64]';
+        break;
       default:
         if (_enumNames.contains(name)) {
           baseType = name;
@@ -75,21 +93,35 @@ class SwiftTypeMapper implements TypeMapper {
   String swiftCType(String t, {bool isZeroCopy = false}) {
     final name = t.replaceFirst('?', '');
     switch (name) {
-      case 'int':      return 'Int64';
-      case 'double':   return 'Double';
-      case 'bool':     return 'Int8';
-      case 'String':   return 'UnsafeMutablePointer<Int8>?';
-      case 'void':     return 'Void';
-      case 'Uint8List': return 'UnsafeMutablePointer<UInt8>?';
-      case 'Int8List':  return 'UnsafeMutablePointer<Int8>?';
-      case 'Int16List': return 'UnsafeMutablePointer<Int16>?';
-      case 'Uint16List': return 'UnsafeMutablePointer<UInt16>?';
-      case 'Int32List': return 'UnsafeMutablePointer<Int32>?';
-      case 'Uint32List': return 'UnsafeMutablePointer<UInt32>?';
-      case 'Float32List': return isZeroCopy ? 'UnsafeMutablePointer<Float>?' : '[Float]';
-      case 'Float64List': return isZeroCopy ? 'UnsafeMutablePointer<Double>?' : '[Double]';
+      case 'int':
+        return 'Int64';
+      case 'double':
+        return 'Double';
+      case 'bool':
+        return 'Int8';
+      case 'String':
+        return 'UnsafeMutablePointer<Int8>?';
+      case 'void':
+        return 'Void';
+      case 'Uint8List':
+        return 'UnsafeMutablePointer<UInt8>?';
+      case 'Int8List':
+        return 'UnsafeMutablePointer<Int8>?';
+      case 'Int16List':
+        return 'UnsafeMutablePointer<Int16>?';
+      case 'Uint16List':
+        return 'UnsafeMutablePointer<UInt16>?';
+      case 'Int32List':
+        return 'UnsafeMutablePointer<Int32>?';
+      case 'Uint32List':
+        return 'UnsafeMutablePointer<UInt32>?';
+      case 'Float32List':
+        return isZeroCopy ? 'UnsafeMutablePointer<Float>?' : '[Float]';
+      case 'Float64List':
+        return isZeroCopy ? 'UnsafeMutablePointer<Double>?' : '[Double]';
       case 'Int64List':
-      case 'Uint64List': return isZeroCopy ? 'UnsafeMutablePointer<Int64>?' : '[Int64]';
+      case 'Uint64List':
+        return isZeroCopy ? 'UnsafeMutablePointer<Int64>?' : '[Int64]';
       default:
         if (_enumNames.contains(name)) return 'Int64';
         if (_structNames.contains(name)) return 'UnsafeMutableRawPointer?';
@@ -107,8 +139,7 @@ class SwiftTypeMapper implements TypeMapper {
     if (func.returnType.isNativeHandle) return 'UnsafeMutableRawPointer?';
     final name = func.returnType.name.replaceFirst('?', '');
     if (name == 'void') return 'Void';
-    if (func.returnType.name == 'int?' || func.returnType.name == 'double?' ||
-        func.returnType.name == 'bool?') return 'UnsafeMutablePointer<UInt8>?';
+    if (func.returnType.name == 'int?' || func.returnType.name == 'double?' || func.returnType.name == 'bool?') return 'UnsafeMutablePointer<UInt8>?';
     if (name == 'bool') return 'Int8';
     if (name == 'String') return 'UnsafeMutablePointer<CChar>?';
     if (name.startsWith('Map<') || func.returnType.isMap) return 'UnsafeMutablePointer<UInt8>?';
@@ -170,10 +201,14 @@ class SwiftTypeMapper implements TypeMapper {
   String callbackParamCDecl(BridgeType t) {
     final base = t.name.replaceFirst('?', '');
     switch (base) {
-      case 'int':    return 'Int64';
-      case 'double': return 'Int64'; // GP register (not FP)
-      case 'bool':   return 'Bool';
-      case 'String': return 'UnsafePointer<CChar>?';
+      case 'int':
+        return 'Int64';
+      case 'double':
+        return 'Int64'; // GP register (not FP)
+      case 'bool':
+        return 'Bool';
+      case 'String':
+        return 'UnsafePointer<CChar>?';
       default:
         if (_structNames.contains(base)) return 'UnsafeRawPointer?';
         if (_recordNames.contains(base)) return 'UnsafeMutablePointer<UInt8>?';
@@ -185,8 +220,7 @@ class SwiftTypeMapper implements TypeMapper {
   /// individual `Int64` params for synchronous `NativeCallable.listener`.
   bool isExpandableCallbackStruct(BridgeStruct st) {
     const numeric = {'int', 'double', 'bool'};
-    return st.fields.isNotEmpty &&
-        st.fields.every((f) => numeric.contains(f.type.name.replaceFirst('?', '')) && !f.type.isTypedData);
+    return st.fields.isNotEmpty && st.fields.every((f) => numeric.contains(f.type.name.replaceFirst('?', '')) && !f.type.isTypedData);
   }
 
   /// Swift closure that adapts protocol-level args to C function-pointer args.
@@ -222,8 +256,14 @@ class SwiftTypeMapper implements TypeMapper {
         final argVar = 'arg$i';
         allArgDecls.add(argVar);
         final isEnum = _enumNames.contains(base);
-        if (isEnum) { callArgsList.add('$argVar.rawValue'); continue; }
-        if (base == 'String') { callArgsList.add('($argVar as NSString).utf8String'); continue; }
+        if (isEnum) {
+          callArgsList.add('$argVar.rawValue');
+          continue;
+        }
+        if (base == 'String') {
+          callArgsList.add('($argVar as NSString).utf8String');
+          continue;
+        }
         final isNonExpandStruct = _structNames.contains(base);
         if (isNonExpandStruct) {
           shadowDecls.add('var _s$i = _${base}C.fromSwift($argVar)');
@@ -232,8 +272,14 @@ class SwiftTypeMapper implements TypeMapper {
           continue;
         }
         final isRecord = _recordNames.contains(base);
-        if (isRecord) { callArgsList.add('$argVar.toNative()'); continue; }
-        if (base == 'double') { callArgsList.add('Int64(bitPattern: ${argVar}.bitPattern)'); continue; }
+        if (isRecord) {
+          callArgsList.add('$argVar.toNative()');
+          continue;
+        }
+        if (base == 'double') {
+          callArgsList.add('Int64(bitPattern: $argVar.bitPattern)');
+          continue;
+        }
         callArgsList.add(argVar);
       }
     }
@@ -241,6 +287,7 @@ class SwiftTypeMapper implements TypeMapper {
 
     final retDart = p.type.functionReturnType;
     final needsReturn = retDart != null && retDart != 'void';
+    final retName = retDart?.replaceFirst('?', '') ?? 'void';
     String callExpr = '$cbName(${callArgsList.join(', ')})';
     String bodyCall;
     if (!needsReturn) {
@@ -251,6 +298,8 @@ class SwiftTypeMapper implements TypeMapper {
       bodyCall = '{ let _cs = $callExpr; let _str = _cs.map { String(cString: \$0) } ?? ""; _cs.map { free(\$0) }; return _str }()';
     } else if (retDart == 'bool') {
       bodyCall = '($callExpr) != 0';
+    } else if (_enumNames.contains(retName)) {
+      bodyCall = '$retName(rawValue: $callExpr)!';
     } else {
       bodyCall = callExpr;
     }
@@ -261,9 +310,7 @@ class SwiftTypeMapper implements TypeMapper {
       innerBody = 'withUnsafePointer(to: &_s$i) { _ptr$i in $replaced }';
     }
 
-    final closureBody = shadowDecls.isEmpty
-        ? innerBody
-        : '${shadowDecls.join('; ')}; $innerBody';
+    final closureBody = shadowDecls.isEmpty ? innerBody : '${shadowDecls.join('; ')}; $innerBody';
     final hasTypedParams = allArgDecls.any((d) => d.contains(': '));
     final paramList = hasTypedParams ? '($argDecl)' : argDecl;
     return '{ $paramList in $closureBody }';
@@ -276,10 +323,14 @@ class SwiftTypeMapper implements TypeMapper {
     final isNullable = t.endsWith('?');
     final name = t.replaceFirst('?', '');
     switch (name) {
-      case 'int':    return isNullable ? 'nil' : '0';
-      case 'double': return isNullable ? 'nil' : '0.0';
-      case 'bool':   return isNullable ? 'nil' : '0';
-      case 'String': return 'strdup("")';
+      case 'int':
+        return isNullable ? 'nil' : '0';
+      case 'double':
+        return isNullable ? 'nil' : '0.0';
+      case 'bool':
+        return isNullable ? 'nil' : '0';
+      case 'String':
+        return 'strdup("")';
       default:
         if (_enumNames.contains(name)) return isNullable ? '-1' : '0';
         if (_structNames.contains(name)) return 'nil';
@@ -297,18 +348,14 @@ class SwiftTypeMapper implements TypeMapper {
   // ── TypeMapper interface ─────────────────────────────────────────────────────
 
   @override
-  String forSwift(BridgeType t, {bool forCDecl = false}) =>
-      forCDecl ? cdeclParamType(t.name, bridgeType: t) : swiftType(t.name, bridgeType: t);
+  String forSwift(BridgeType t, {bool forCDecl = false}) => forCDecl ? cdeclParamType(t.name, bridgeType: t) : swiftType(t.name, bridgeType: t);
 
   @override
-  String forKotlin(BridgeType t, {bool forParam = false}) =>
-      throw UnimplementedError('SwiftTypeMapper does not map Kotlin types');
+  String forKotlin(BridgeType t, {bool forParam = false}) => throw UnimplementedError('SwiftTypeMapper does not map Kotlin types');
 
   @override
-  String forDart(BridgeType t, {bool forNative = false}) =>
-      throw UnimplementedError('SwiftTypeMapper does not map Dart FFI types');
+  String forDart(BridgeType t, {bool forNative = false}) => throw UnimplementedError('SwiftTypeMapper does not map Dart FFI types');
 
   @override
-  String forC(BridgeType t) =>
-      throw UnimplementedError('SwiftTypeMapper does not map C types');
+  String forC(BridgeType t) => throw UnimplementedError('SwiftTypeMapper does not map C types');
 }

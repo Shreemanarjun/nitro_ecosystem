@@ -122,6 +122,12 @@ void main() {
       expect(out, contains('hub_register_safe_stream'));
       expect(out, contains('hub_register_buffered_stream'));
     });
+
+    test('collector starts undispatched so immediate native emits are not missed', () {
+      final out = KotlinGenerator.generate(_streamSpec(Backpressure.block));
+      expect(out, contains('import kotlinx.coroutines.CoroutineStart'));
+      expect(out, contains('launch(start = CoroutineStart.UNDISPATCHED)'));
+    });
   });
 
   group('SwiftGenerator — stream backpressure', () {

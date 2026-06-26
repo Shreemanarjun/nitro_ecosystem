@@ -220,8 +220,24 @@ class KotlinTypeMapper implements TypeMapper {
       }
     }
 
-    final body = '$nativeMethodName(${nativeArgs.join(', ')})';
+    final invocation = '$nativeMethodName(${nativeArgs.join(', ')})';
+    final returnType = (p.type.functionReturnType ?? 'void').replaceFirst('?', '');
+    final body = switch (returnType) {
+      'void' => invocation,
+      'bool' => '$invocation != 0L',
+      'double' => 'java.lang.Double.longBitsToDouble($invocation)',
+      'String' => invocation,
+      final t when enumNames.contains(t) => '$t.fromNative($invocation)',
+      _ => invocation,
+    };
     return '{ ${lambdaParams.isEmpty ? '' : '$lambdaParams -> '}$body }';
+  }
+
+  String callbackReturnJniType(String? dartType) {
+    final base = (dartType ?? 'void').replaceFirst('?', '');
+    if (base == 'void') return 'Unit';
+    if (base == 'String') return 'String';
+    return 'Long';
   }
 
   /// Returns `true` when all struct fields are numeric (int/double/bool),

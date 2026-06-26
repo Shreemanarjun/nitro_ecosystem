@@ -342,10 +342,10 @@ class KotlinFunctionEmitter {
     writer.line('            val kb = k.toByteArray(Charsets.UTF_8); _writeInt32(kb.size); _outBb.write(kb)');
     if (mapValueType == 'int' || mapValueType == 'Long') {
       writer.line('            _outBb.write(1) // tag: int64');
-      writer.line('            _writeInt64(v as Long)');
+      writer.line('            _writeInt64((v as Number).toLong())');
     } else if (mapValueType == 'double' || mapValueType == 'Double') {
       writer.line('            _outBb.write(2) // tag: float64');
-      writer.line('            _writeDouble(v as Double)');
+      writer.line('            _writeDouble((v as Number).toDouble())');
     } else if (mapValueType == 'bool' || mapValueType == 'Boolean') {
       writer.line('            _outBb.write(3) // tag: bool');
       writer.line('            _outBb.write(if (v as Boolean) 1 else 0)');
@@ -404,27 +404,7 @@ class KotlinFunctionEmitter {
       writer.line('        return lenBuf.array() + payload');
     } else if (func.returnType.recordListItemIsPrimitive) {
       final itemTypeName = func.returnType.recordListItemType!;
-      final itemSize = switch (itemTypeName) {
-        'int' => 8,
-        'double' => 8,
-        'String' => -1,
-        _ => 8,
-      };
-      if (itemSize > 0) {
-        writer.line('        val count = result.size');
-        writer.line('        val payloadSize = 4 + $itemSize * count');
-        writer.line('        val buf = java.nio.ByteBuffer.allocate(4 + payloadSize).order(java.nio.ByteOrder.LITTLE_ENDIAN)');
-        writer.line('        buf.putInt(payloadSize)');
-        writer.line('        buf.putInt(count)');
-        final putMethod = switch (itemTypeName) {
-          'int' => 'putLong',
-          'double' => 'putDouble',
-          _ => 'putLong',
-        };
-        final encodeExpr = itemTypeName == 'bool' ? 'if (it) 1L else 0L' : 'it';
-        writer.line('        result.forEach { buf.$putMethod($encodeExpr) }');
-        writer.line('        return buf.array()');
-      } else {
+      if (itemTypeName == 'String') {
         writer.line('        val baos = java.io.ByteArrayOutputStream()');
         writer.line('        val lenBuf = java.nio.ByteBuffer.allocate(4).order(java.nio.ByteOrder.LITTLE_ENDIAN)');
         writer.line('        val strLenBuf = java.nio.ByteBuffer.allocate(4).order(java.nio.ByteOrder.LITTLE_ENDIAN)');
@@ -436,6 +416,22 @@ class KotlinFunctionEmitter {
         writer.line('        baos.write(lenBuf.array())');
         writer.line('        for (item in items) { strLenBuf.clear(); strLenBuf.putInt(item.size); strLenBuf.flip(); baos.write(strLenBuf.array()); baos.write(item) }');
         writer.line('        return baos.toByteArray()');
+      } else {
+        final itemSize = itemTypeName == 'bool' ? 1 : 8;
+        final putMethod = switch (itemTypeName) {
+          'int' => 'putLong',
+          'double' => 'putDouble',
+          'bool' => 'put',
+          _ => 'putLong',
+        };
+        final encodeExpr = itemTypeName == 'bool' ? '(if (it) 1 else 0).toByte()' : 'it';
+        writer.line('        val count = result.size');
+        writer.line('        val payloadSize = 4 + $itemSize * count');
+        writer.line('        val buf = java.nio.ByteBuffer.allocate(4 + payloadSize).order(java.nio.ByteOrder.LITTLE_ENDIAN)');
+        writer.line('        buf.putInt(payloadSize)');
+        writer.line('        buf.putInt(count)');
+        writer.line('        result.forEach { buf.$putMethod($encodeExpr) }');
+        writer.line('        return buf.array()');
       }
     } else {
       // Single @HybridRecord
