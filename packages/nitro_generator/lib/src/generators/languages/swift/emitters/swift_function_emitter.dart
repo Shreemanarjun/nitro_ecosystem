@@ -21,32 +21,34 @@ class SwiftFunctionEmitter {
 
     final cRetType = mapper.cdeclReturnType(func);
 
-    final params = func.params.expand((p) {
-      if (p.type.isFunction) {
-        return ['_ ${p.name}: ${mapper.cdeclCallbackType(p.type)}'];
-      }
-      final t = mapper.cdeclParamType(p.type.name, bridgeType: p.type);
-      if (p.type.isTypedData) {
-        return ['_ ${p.name}: $t', '_ ${p.name}_length: Int64'];
-      }
-      return ['_ ${p.name}: $t'];
-    }).join(', ');
+    final params = func.params
+        .expand((p) {
+          if (p.type.isFunction) {
+            return ['_ ${p.name}: ${mapper.cdeclCallbackType(p.type)}'];
+          }
+          final t = mapper.cdeclParamType(p.type.name, bridgeType: p.type);
+          if (p.type.isTypedData) {
+            return ['_ ${p.name}: $t', '_ ${p.name}_length: Int64'];
+          }
+          return ['_ ${p.name}: $t'];
+        })
+        .join(', ');
 
-    final stringParams     = func.params.where((p) => p.type.name == 'String' || p.type.name == 'String?').toList();
-    final typedListParams  = func.params.where((p) => p.type.isTypedData).toList();
+    final stringParams = func.params.where((p) => p.type.name == 'String' || p.type.name == 'String?').toList();
+    final typedListParams = func.params.where((p) => p.type.isTypedData).toList();
     final recordListParams = func.params.where((p) => p.type.isRecord && p.type.name.startsWith('List<')).toList();
 
     final callArgs = _buildCallArgs(func, spec, mapper);
 
-    final isStruct         = spec.isStructName(func.returnType.name.replaceFirst('?', ''));
-    final isRecord         = spec.isRecordName(func.returnType.name.replaceFirst('?', ''));
-    final isMap            = func.returnType.isMap;
-    final isRecordList     = func.returnType.name.startsWith('List<');
-    final isBool           = mapper.cdeclReturnType(func) == 'Int8';
-    final isVoid           = func.returnType.name == 'void';
-    final isString         = func.returnType.name.replaceFirst('?', '') == 'String';
+    final isStruct = spec.isStructName(func.returnType.name.replaceFirst('?', ''));
+    final isRecord = spec.isRecordName(func.returnType.name.replaceFirst('?', ''));
+    final isMap = func.returnType.isMap;
+    final isRecordList = func.returnType.name.startsWith('List<');
+    final isBool = mapper.cdeclReturnType(func) == 'Int8';
+    final isVoid = func.returnType.name == 'void';
+    final isString = func.returnType.name.replaceFirst('?', '') == 'String';
     final isTypedDataReturn = func.returnType.isTypedData;
-    final isEnumRet        = spec.isEnumName(func.returnType.name.replaceFirst('?', ''));
+    final isEnumRet = spec.isEnumName(func.returnType.name.replaceFirst('?', ''));
 
     if (func.isNativeAsync) {
       _emitNativeAsync(writer, func, spec, params, stringParams, typedListParams, isVoid: func.returnType.name == 'void');
@@ -59,15 +61,39 @@ class SwiftFunctionEmitter {
     _emitParamConversions(writer, stringParams, typedListParams, recordListParams, func);
 
     if (func.isAsync) {
-      _emitAsync(writer, func, spec, callArgs, mapper,
-          isStruct: isStruct, isRecord: isRecord, isRecordList: isRecordList,
-          isBool: isBool, isVoid: isVoid, isString: isString,
-          isTypedDataReturn: isTypedDataReturn, isEnumRet: isEnumRet, isMap: isMap);
+      _emitAsync(
+        writer,
+        func,
+        spec,
+        callArgs,
+        mapper,
+        isStruct: isStruct,
+        isRecord: isRecord,
+        isRecordList: isRecordList,
+        isBool: isBool,
+        isVoid: isVoid,
+        isString: isString,
+        isTypedDataReturn: isTypedDataReturn,
+        isEnumRet: isEnumRet,
+        isMap: isMap,
+      );
     } else {
-      _emitSync(writer, func, spec, callArgs, mapper,
-          isStruct: isStruct, isRecord: isRecord, isRecordList: isRecordList,
-          isBool: isBool, isVoid: isVoid, isString: isString,
-          isTypedDataReturn: isTypedDataReturn, isEnumRet: isEnumRet, isMap: isMap);
+      _emitSync(
+        writer,
+        func,
+        spec,
+        callArgs,
+        mapper,
+        isStruct: isStruct,
+        isRecord: isRecord,
+        isRecordList: isRecordList,
+        isBool: isBool,
+        isVoid: isVoid,
+        isString: isString,
+        isTypedDataReturn: isTypedDataReturn,
+        isEnumRet: isEnumRet,
+        isMap: isMap,
+      );
     }
 
     writer.line('}');
@@ -77,39 +103,37 @@ class SwiftFunctionEmitter {
   // ── param call-arg mapping ─────────────────────────────────────────────────
 
   static String _buildCallArgs(BridgeFunction func, BridgeSpec spec, SwiftTypeMapper mapper) {
-    return func.params.map((p) {
-      final isStr = p.type.name == 'String' || p.type.name == 'String?';
-      final isBool = p.type.name == 'bool' || p.type.name == 'bool?';
-      if (isStr) return '${p.name}: ${p.name}Str';
-      if (p.type.name == 'int?')    return '${p.name}: NitroNullableInt.fromNative(${p.name}!.assumingMemoryBound(to: UInt8.self)).nullable';
-      if (p.type.name == 'double?') return '${p.name}: NitroNullableDouble.fromNative(${p.name}!.assumingMemoryBound(to: UInt8.self)).nullable';
-      if (p.type.name == 'bool?')   return '${p.name}: NitroNullableBool.fromNative(${p.name}!.assumingMemoryBound(to: UInt8.self)).nullable';
-      if (isBool) return '${p.name}: ${p.name} != 0';
-      if (p.type.isTypedData) return '${p.name}: ${p.name}Arr';
-      if (p.type.isRecord && p.type.name.startsWith('List<')) return '${p.name}: ${p.name}Decoded';
-      if (p.type.isFunction) return '${p.name}: ${mapper.callbackWrapper(p)}';
-      if (spec.isStructName(p.type.name.replaceFirst('?', ''))) {
-        final sn  = p.type.name.replaceFirst('?', '');
-        final opt = p.type.name.endsWith('?');
-        return opt
-            ? '${p.name}: ${p.name}.map { \$0.assumingMemoryBound(to: _${sn}C.self).pointee.toSwift() }'
-            : '${p.name}: ${p.name}!.assumingMemoryBound(to: _${sn}C.self).pointee.toSwift()';
-      }
-      if (spec.isRecordName(p.type.name.replaceFirst('?', ''))) {
-        final rn  = p.type.name.replaceFirst('?', '');
-        final opt = p.type.name.endsWith('?') || p.type.isNullable;
-        return opt
-            ? '${p.name}: ${p.name}.map { $rn.fromNative(\$0.assumingMemoryBound(to: UInt8.self)) }'
-            : '${p.name}: $rn.fromNative(${p.name}!.assumingMemoryBound(to: UInt8.self))';
-      }
-      final isEnum = spec.isEnumName(p.type.name.replaceFirst('?', ''));
-      if (isEnum) {
-        final en  = p.type.name.replaceFirst('?', '');
-        final opt = p.type.name.endsWith('?');
-        return opt ? '${p.name}: $en(rawValue: ${p.name})' : '${p.name}: $en(rawValue: ${p.name})!';
-      }
-      return '${p.name}: ${p.name}';
-    }).join(', ');
+    return func.params
+        .map((p) {
+          final isStr = p.type.name == 'String' || p.type.name == 'String?';
+          final isBool = p.type.name == 'bool' || p.type.name == 'bool?';
+          if (isStr) return '${p.name}: ${p.name}Str';
+          if (p.type.name == 'int?') return '${p.name}: NitroNullableInt.fromNative(${p.name}!.assumingMemoryBound(to: UInt8.self)).nullable';
+          if (p.type.name == 'double?') return '${p.name}: NitroNullableDouble.fromNative(${p.name}!.assumingMemoryBound(to: UInt8.self)).nullable';
+          if (p.type.name == 'bool?') return '${p.name}: NitroNullableBool.fromNative(${p.name}!.assumingMemoryBound(to: UInt8.self)).nullable';
+          if (isBool) return '${p.name}: ${p.name} != 0';
+          if (p.type.isTypedData) return '${p.name}: ${p.name}Arr';
+          if (p.type.isRecord && p.type.name.startsWith('List<')) return '${p.name}: ${p.name}Decoded';
+          if (p.type.isFunction) return '${p.name}: ${mapper.callbackWrapper(p)}';
+          if (spec.isStructName(p.type.name.replaceFirst('?', ''))) {
+            final sn = p.type.name.replaceFirst('?', '');
+            final opt = p.type.name.endsWith('?');
+            return opt ? '${p.name}: ${p.name}.map { \$0.assumingMemoryBound(to: _${sn}C.self).pointee.toSwift() }' : '${p.name}: ${p.name}!.assumingMemoryBound(to: _${sn}C.self).pointee.toSwift()';
+          }
+          if (spec.isRecordName(p.type.name.replaceFirst('?', ''))) {
+            final rn = p.type.name.replaceFirst('?', '');
+            final opt = p.type.name.endsWith('?') || p.type.isNullable;
+            return opt ? '${p.name}: ${p.name}.map { $rn.fromNative(\$0.assumingMemoryBound(to: UInt8.self)) }' : '${p.name}: $rn.fromNative(${p.name}!.assumingMemoryBound(to: UInt8.self))';
+          }
+          final isEnum = spec.isEnumName(p.type.name.replaceFirst('?', ''));
+          if (isEnum) {
+            final en = p.type.name.replaceFirst('?', '');
+            final opt = p.type.name.endsWith('?');
+            return opt ? '${p.name}: $en(rawValue: ${p.name})' : '${p.name}: $en(rawValue: ${p.name})!';
+          }
+          return '${p.name}: ${p.name}';
+        })
+        .join(', ');
   }
 
   // ── param conversions (top of func body) ─────────────────────────────────
@@ -140,9 +164,9 @@ class SwiftFunctionEmitter {
         final base = itemType.replaceAll('?', '');
         final readCall = switch (base) {
           'double' => 'r.readDouble()',
-          'bool'   => 'r.readBool()',
+          'bool' => 'r.readBool()',
           'String' => 'r.readString()',
-          _        => 'r.readInt()',
+          _ => 'r.readInt()',
         };
         writer.line('    let ${p.name}Decoded = ${p.name}Ptr.map { NitroRecordReader.decodeIndexedList(\$0) { r in $readCall } } ?? []');
       } else {
@@ -165,7 +189,11 @@ class SwiftFunctionEmitter {
     writer.line('@_cdecl("_${spec.namespace}_call_${func.dartName}")');
     writer.line('public func _${spec.namespace}_call_${func.dartName}($params${params.isNotEmpty ? ", " : ""}_ dartPort: Int64) {');
     for (final p in stringParams) {
-      writer.line('    let ${p.name}Str = ${p.name} != nil ? String(cString: ${p.name}!) : ""');
+      if (p.type.name == 'String?') {
+        writer.line('    let ${p.name}Str = ${p.name}.map { String(cString: \$0) }');
+      } else {
+        writer.line('    let ${p.name}Str = ${p.name} != nil ? String(cString: ${p.name}!) : ""');
+      }
     }
     for (final p in typedListParams) {
       final isData = p.type.name.startsWith('Uint8List') || p.type.name.startsWith('Int8List');
@@ -176,20 +204,22 @@ class SwiftFunctionEmitter {
       }
     }
     // Build call args for native async (no struct/record conversions — not supported)
-    final callArgs = func.params.map((p) {
-      final isStr  = p.type.name == 'String' || p.type.name == 'String?';
-      final isEnum = spec.isEnumName(p.type.name.replaceFirst('?', ''));
-      if (isStr) return '${p.name}: ${p.name}Str';
-      if (p.type.name == 'int?')    return '${p.name}: NitroNullableInt.fromNative(${p.name}!.assumingMemoryBound(to: UInt8.self)).nullable';
-      if (p.type.name == 'double?') return '${p.name}: NitroNullableDouble.fromNative(${p.name}!.assumingMemoryBound(to: UInt8.self)).nullable';
-      if (p.type.name == 'bool?')   return '${p.name}: NitroNullableBool.fromNative(${p.name}!.assumingMemoryBound(to: UInt8.self)).nullable';
-      if (isEnum) {
-        final en  = p.type.name.replaceFirst('?', '');
-        final opt = p.type.name.endsWith('?');
-        return opt ? '${p.name}: $en(rawValue: ${p.name})' : '${p.name}: $en(rawValue: ${p.name})!';
-      }
-      return '${p.name}: ${p.name}';
-    }).join(', ');
+    final callArgs = func.params
+        .map((p) {
+          final isStr = p.type.name == 'String' || p.type.name == 'String?';
+          final isEnum = spec.isEnumName(p.type.name.replaceFirst('?', ''));
+          if (isStr) return '${p.name}: ${p.name}Str';
+          if (p.type.name == 'int?') return '${p.name}: NitroNullableInt.fromNative(${p.name}!.assumingMemoryBound(to: UInt8.self)).nullable';
+          if (p.type.name == 'double?') return '${p.name}: NitroNullableDouble.fromNative(${p.name}!.assumingMemoryBound(to: UInt8.self)).nullable';
+          if (p.type.name == 'bool?') return '${p.name}: NitroNullableBool.fromNative(${p.name}!.assumingMemoryBound(to: UInt8.self)).nullable';
+          if (isEnum) {
+            final en = p.type.name.replaceFirst('?', '');
+            final opt = p.type.name.endsWith('?');
+            return opt ? '${p.name}: $en(rawValue: ${p.name})' : '${p.name}: $en(rawValue: ${p.name})!';
+          }
+          return '${p.name}: ${p.name}';
+        })
+        .join(', ');
 
     writer.line('    guard let impl = ${spec.dartClassName}Registry.impl else {');
     writer.line('        var _null = Dart_CObject()');
@@ -200,6 +230,8 @@ class SwiftFunctionEmitter {
     writer.line('    Task.detached {');
 
     final retName = func.returnType.name;
+    final retBaseName = retName.replaceFirst('?', '');
+    final isNullableRet = func.returnType.isNullable || retName.endsWith('?');
     if (isVoid) {
       writer.line('        try? await impl.${func.dartName}($callArgs)');
       writer.line('        var _null = Dart_CObject()');
@@ -213,17 +245,43 @@ class SwiftFunctionEmitter {
       writer.line('            _obj.value.as_string = cStr');
       writer.line('            Dart_PostCObject_DL(dartPort, &_obj)');
       writer.line('        }');
+    } else if (retName == 'String?') {
+      writer.line('        let _result = try? await impl.${func.dartName}($callArgs)');
+      writer.line('        guard let _value = _result ?? nil else {');
+      writer.line('            var _null = Dart_CObject()');
+      writer.line('            _null.type = Dart_CObject_kNull');
+      writer.line('            Dart_PostCObject_DL(dartPort, &_null)');
+      writer.line('            return');
+      writer.line('        }');
+      writer.line('        _value.withCString { cStr in');
+      writer.line('            var _obj = Dart_CObject()');
+      writer.line('            _obj.type = Dart_CObject_kString');
+      writer.line('            _obj.value.as_string = cStr');
+      writer.line('            Dart_PostCObject_DL(dartPort, &_obj)');
+      writer.line('        }');
     } else if (retName == 'bool') {
       writer.line('        let _result = (try? await impl.${func.dartName}($callArgs)) ?? false');
       writer.line('        var _obj = Dart_CObject()');
       writer.line('        _obj.type = Dart_CObject_kBool');
       writer.line('        _obj.value.as_bool = _result');
       writer.line('        Dart_PostCObject_DL(dartPort, &_obj)');
+    } else if (retName == 'bool?') {
+      writer.line('        let _result = try? await impl.${func.dartName}($callArgs)');
+      writer.line('        guard let _value = _result ?? nil else {');
+      writer.line('            var _null = Dart_CObject()');
+      writer.line('            _null.type = Dart_CObject_kNull');
+      writer.line('            Dart_PostCObject_DL(dartPort, &_null)');
+      writer.line('            return');
+      writer.line('        }');
+      writer.line('        var _obj = Dart_CObject()');
+      writer.line('        _obj.type = Dart_CObject_kBool');
+      writer.line('        _obj.value.as_bool = _value');
+      writer.line('        Dart_PostCObject_DL(dartPort, &_obj)');
     } else {
-      final isDouble  = retName == 'double';
+      final isDouble = retName == 'double';
       final isNullDbl = retName == 'double?';
       final isNullInt = retName == 'int?';
-      final isEnum    = spec.isEnumName(retName);
+      final isEnum = spec.isEnumName(retBaseName);
       if (isDouble) {
         writer.line('        let _result = (try? await impl.${func.dartName}($callArgs)) ?? 0.0');
         writer.line('        var _obj = Dart_CObject()');
@@ -240,7 +298,11 @@ class SwiftFunctionEmitter {
         writer.line('        _obj.type = Dart_CObject_kInt64');
         writer.line('        _obj.value.as_int64 = _result');
       } else if (isEnum) {
-        writer.line('        let _result = (try? await impl.${func.dartName}($callArgs))?.rawValue ?? 0');
+        if (isNullableRet) {
+          writer.line('        let _result = (try? await impl.${func.dartName}($callArgs))?.rawValue ?? -1');
+        } else {
+          writer.line('        let _result = (try? await impl.${func.dartName}($callArgs))?.rawValue ?? 0');
+        }
         writer.line('        var _obj = Dart_CObject()');
         writer.line('        _obj.type = Dart_CObject_kInt64');
         writer.line('        _obj.value.as_int64 = Int64(_result)');
@@ -368,14 +430,14 @@ class SwiftFunctionEmitter {
       }
     } else {
       final swiftRetType = mapper.swiftType(func.returnType.name);
-      final defaultVal   = mapper.defaultCDeclValue(func.returnType.name);
+      final defaultVal = mapper.defaultCDeclValue(func.returnType.name);
       writer.line('    guard let impl = ${spec.dartClassName}Registry.impl else { return $defaultVal }');
       writer.line('    let sema = DispatchSemaphore(value: 0)');
       final resultType = switch (func.returnType.name) {
-        'int?'    => 'Int64?',
+        'int?' => 'Int64?',
         'double?' => 'Double?',
-        'bool?'   => 'Bool?',
-        _         => swiftRetType.endsWith('?') ? swiftRetType : '$swiftRetType?',
+        'bool?' => 'Bool?',
+        _ => swiftRetType.endsWith('?') ? swiftRetType : '$swiftRetType?',
       };
       writer.line('    var result: $resultType = nil');
       writer.line('    Task.detached {');
@@ -392,8 +454,12 @@ class SwiftFunctionEmitter {
       } else if (func.returnType.name == 'bool?') {
         writer.line('    return NitroNullableBool.fromNullable(result).toNative()');
       } else if (func.returnType.isNullable) {
-        final base        = func.returnType.name.replaceFirst('?', '');
-        final nullSentinel = base == 'int' ? 'Int64.min' : base == 'double' ? 'Double.nan' : defaultVal;
+        final base = func.returnType.name.replaceFirst('?', '');
+        final nullSentinel = base == 'int'
+            ? 'Int64.min'
+            : base == 'double'
+            ? 'Double.nan'
+            : defaultVal;
         writer.line('    return result ?? $nullSentinel');
       } else {
         writer.line('    return result ?? $defaultVal');
@@ -498,9 +564,9 @@ class SwiftFunctionEmitter {
       final base = itemType.replaceAll('?', '');
       final writeCall = switch (base) {
         'double' => 'writeDouble(e)',
-        'bool'   => 'writeBool(e)',
+        'bool' => 'writeBool(e)',
         'String' => 'writeString(e)',
-        _        => 'writeInt(e)',
+        _ => 'writeInt(e)',
       };
       writer.line('    return NitroRecordWriter.encodeList(r) { w, e in w.$writeCall }.map { UnsafeMutableRawPointer(\$0) }');
     } else {

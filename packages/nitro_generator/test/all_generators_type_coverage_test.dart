@@ -599,6 +599,41 @@ void main() {
       expect(out, contains('NitroRecordReader.decodeIndexedList'));
       expect(out, contains('Printer.fromReader'));
     });
+
+    test('Kotlin: list param decodes each item from the indexed offset table', () {
+      final out = KotlinGenerator.generate(spec);
+      expect(out, contains('val printersOffsets = LongArray(printersCount) { printersBuf.getLong() }'));
+      expect(out, contains('for (printersOffset in printersOffsets)'));
+      expect(out, contains('java.nio.ByteBuffer.wrap(printers, 4 + printersOffset.toInt()'));
+      expect(out, contains('Printer.decodeFrom(itemBuf)'));
+      expect(out, isNot(contains('repeat(printersCount) { printersBuf.getLong() } // skip offsets')));
+    });
+
+    test('Kotlin: List<bool> param reads bool items from indexed offsets', () {
+      final boolSpec = _swiftKotlinSpec([
+        _fn(
+          'submitFlags',
+          BridgeType(name: 'void'),
+          params: [
+            BridgeParam(
+              name: 'flags',
+              type: BridgeType(
+                name: 'List<bool>',
+                isRecord: true,
+                recordListItemType: 'bool',
+                recordListItemIsPrimitive: true,
+              ),
+            ),
+          ],
+        ),
+      ]);
+      final out = KotlinGenerator.generate(boolSpec);
+      expect(out, contains('val flagsOffsets = LongArray(flagsCount) { flagsBuf.getLong() }'));
+      expect(out, contains('for (flagsOffset in flagsOffsets)'));
+      expect(out, contains('java.nio.ByteBuffer.wrap(flags, 4 + flagsOffset.toInt()'));
+      expect(out, contains('flagsDecoded.add(if (itemBuf.get().toInt() != 0) 1L else 0L)'));
+      expect(out, isNot(contains('repeat(flagsCount) { flagsDecoded.add(flagsBuf.getLong()) }')));
+    });
   });
 
   // ── §10: Property returning List<@HybridStruct T> ─────────────────────────

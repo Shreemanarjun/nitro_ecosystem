@@ -262,46 +262,40 @@ void main() {
     });
   });
 
-  // ── @NitroNativeAsync open type — no naked nullable suffix ────────────────
+  // ── @NitroNativeAsync open type ───────────────────────────────────────────
 
-  group('DartFfiGenerator — @NitroNativeAsync openType (no nullable suffix)', () {
-    // NativeAsync still uses sentinel values (posted via Dart_PostCObject_DL).
-    // The @nitroAsync async path uses NitroNullable (Pointer<Uint8>) but NativeAsync doesn't.
-    test('int? uses int transport type for NativeAsync (sentinel based)', () {
+  group('DartFfiGenerator — @NitroNativeAsync openType is API result type', () {
+    // NativeAsync still uses sentinel values in the raw port message, but
+    // openNativeAsync<T> is the unpacked Future<T> API type.
+    test('int? uses nullable int API type', () {
       final out = DartFfiGenerator.generate(_asyncNullableSpec());
-      // NativeAsync: openNativeAsync<int> for int? — NOT openNativeAsync<int?>
-      expect(out, contains('openNativeAsync<int>'));
-      expect(out, isNot(contains('openNativeAsync<int?>')));
+      expect(out, contains('openNativeAsync<int?>'));
     });
 
-    test('double? uses double transport type for NativeAsync (sentinel based)', () {
+    test('double? uses nullable double API type', () {
       final out = DartFfiGenerator.generate(_asyncNullableSpec());
-      expect(out, contains('openNativeAsync<double>'));
-      expect(out, isNot(contains('openNativeAsync<double?>')));
+      expect(out, contains('openNativeAsync<double?>'));
     });
 
-    test('bool? transport type for NativeAsync', () {
+    test('bool? uses nullable bool API type', () {
       final out = DartFfiGenerator.generate(_asyncNullableSpec());
-      // bool can use bool or int internally — both are valid
-      expect(out, isNot(contains('openNativeAsync<bool?>')));
+      expect(out, contains('openNativeAsync<bool?>'));
     });
 
-    test('String? uses nullable String transport type', () {
+    test('String? uses nullable String API type', () {
       final out = DartFfiGenerator.generate(_asyncNullableSpec());
       expect(out, contains('openNativeAsync<String?>'));
       expect(out, isNot(contains('openNativeAsync<Pointer<Utf8>>')));
     });
 
-    test('enum uses int transport type', () {
+    test('enum uses enum API type', () {
       final out = DartFfiGenerator.generate(_asyncNullableWithEnumSpec());
-      // Enum is transmitted as int rawValue
-      expect(out, contains('openNativeAsync<int>'));
+      expect(out, contains('openNativeAsync<Color>'));
     });
 
-    test('struct uses Pointer<Void> transport type', () {
+    test('struct uses struct API type', () {
       final out = DartFfiGenerator.generate(_asyncNullableWithStructSpec());
-      // Struct is transmitted as pointer to heap allocation
-      expect(out, contains('openNativeAsync<Pointer<Void>>'));
+      expect(out, contains('openNativeAsync<User>'));
     });
 
     test('non-nullable int uses int transport type', () {

@@ -49,20 +49,10 @@ void _emitNativeAsyncBody(
 /// The Dart type parameter for openNativeAsync`<T>` for this function.
 String _nativeAsyncOpenType(BridgeFunction func, BridgeSpec spec) {
   final rt = func.returnType.name;
-  // For the openNativeAsync<T> type param, strip the nullable suffix — the
-  // native post mechanism uses sentinel values (−1 / NaN / nullptr) for null,
-  // not Dart null, so the transport type is always non-nullable.
-  final rtBase = rt.replaceFirst('?', '');
-  final isNullable = func.returnType.isNullable || rt.endsWith('?');
+  // openNativeAsync<T> returns the unpacked Dart API type. The raw transport
+  // shape (kInt64, kDouble, pointer address, etc.) is handled inside `unpack`.
   if (rt == 'void') return 'void';
-  if (rtBase == 'bool') return 'bool';
-  if (rtBase == 'String') return isNullable ? 'String?' : 'String';
-  if (func.returnType.isRecord) return 'Pointer<Uint8>';
-  if (spec.isStructName(rtBase)) return 'Pointer<Void>';
-  if (spec.isEnumName(rtBase)) return 'int';
-  if (rtBase == 'int') return 'int';
-  if (rtBase == 'double') return 'double';
-  return rtBase;
+  return rt;
 }
 
 /// Returns the unpack lambda expression for a @NitroNativeAsync method.

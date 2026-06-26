@@ -23,11 +23,11 @@ class KotlinTypeMapper implements TypeMapper {
   });
 
   factory KotlinTypeMapper.fromSpec(BridgeSpec spec) => KotlinTypeMapper(
-        enumNames: spec.enums.map((e) => e.name).toSet(),
-        structNames: spec.structs.map((s) => s.name).toSet(),
-        recordNames: spec.recordTypes.map((r) => r.name).toSet(),
-        structs: spec.structs,
-      );
+    enumNames: spec.enums.map((e) => e.name).toSet(),
+    structNames: spec.structs.map((s) => s.name).toSet(),
+    recordNames: spec.recordTypes.map((r) => r.name).toSet(),
+    structs: spec.structs,
+  );
 
   // ── Core type → Kotlin string ───────────────────────────────────────────────
 
@@ -42,30 +42,37 @@ class KotlinTypeMapper implements TypeMapper {
     if (bridgeType != null && bridgeType.isFunction) {
       final returnType = bridgeType.functionReturnType ?? 'Unit';
       final params = bridgeType.functionParams;
-      final paramList = params
-          .asMap()
-          .entries
-          .map((e) => 'p${e.key}: ${type(e.value.name)}')
-          .join(', ');
+      final paramList = params.asMap().entries.map((e) => 'p${e.key}: ${type(e.value.name)}').join(', ');
       return '($paramList) -> ${type(returnType)}';
     }
 
     switch (name) {
-      case 'int':      return 'Long';
-      case 'double':   return 'Double';
-      case 'bool':     return 'Boolean';
-      case 'String':   return 'String';
-      case 'void':     return 'Unit';
+      case 'int':
+        return 'Long';
+      case 'double':
+        return 'Double';
+      case 'bool':
+        return 'Boolean';
+      case 'String':
+        return 'String';
+      case 'void':
+        return 'Unit';
       case 'Uint8List':
-      case 'Int8List': return 'ByteArray';
+      case 'Int8List':
+        return 'ByteArray';
       case 'Int16List':
-      case 'Uint16List': return 'ShortArray';
+      case 'Uint16List':
+        return 'ShortArray';
       case 'Int32List':
-      case 'Uint32List': return 'IntArray';
-      case 'Float32List': return 'FloatArray';
-      case 'Float64List': return 'DoubleArray';
+      case 'Uint32List':
+        return 'IntArray';
+      case 'Float32List':
+        return 'FloatArray';
+      case 'Float64List':
+        return 'DoubleArray';
       case 'Int64List':
-      case 'Uint64List': return 'LongArray';
+      case 'Uint64List':
+        return 'LongArray';
     }
     if (enumNames.contains(name)) return name;
     if (structNames.contains(name)) return name;
@@ -93,11 +100,10 @@ class KotlinTypeMapper implements TypeMapper {
     final base = type(t.name);
     final isNullable = t.name.endsWith('?');
     final baseName = t.name.replaceFirst('?', '');
-    if (isNullable && baseName == 'bool')   return 'Boolean?';
-    if (isNullable && baseName == 'int')    return 'Long?';
+    if (isNullable && baseName == 'bool') return 'Boolean?';
+    if (isNullable && baseName == 'int') return 'Long?';
     if (isNullable && baseName == 'double') return 'Double?';
-    final isPrimitive = const {'String'}.contains(baseName);
-    if (isNullable && !isPrimitive && !base.endsWith('?')) return '$base?';
+    if (isNullable && !base.endsWith('?')) return '$base?';
     return base;
   }
 
@@ -129,9 +135,9 @@ class KotlinTypeMapper implements TypeMapper {
   /// Kotlin promotes it automatically when forwarding to the interface.
   String bridgeParamType(BridgeParam p) {
     if (p.type.isFunction) return 'Long';
-    if (p.type.isMap)      return 'ByteArray';
+    if (p.type.isMap) return 'ByteArray';
     final isNullableRecord = p.type.isRecord && (p.type.isNullable || p.type.name.endsWith('?'));
-    if (p.type.isRecord)   return isNullableRecord ? 'ByteArray?' : 'ByteArray';
+    if (p.type.isRecord) return isNullableRecord ? 'ByteArray?' : 'ByteArray';
 
     final isNullable = p.type.name.endsWith('?') || p.isOptional;
     if (!isNullable) {
@@ -164,12 +170,15 @@ class KotlinTypeMapper implements TypeMapper {
   String callbackParamJni(BridgeType t) {
     final base = t.name.replaceFirst('?', '');
     switch (base) {
-      case 'double': return 'Long';  // IEEE 754 bits via doubleToRawLongBits
-      case 'bool':   return 'Long';  // 1L (true) or 0L (false)
-      case 'String': return 'String?';
+      case 'double':
+        return 'Long'; // IEEE 754 bits via doubleToRawLongBits
+      case 'bool':
+        return 'Long'; // 1L (true) or 0L (false)
+      case 'String':
+        return 'String?';
       default:
-        if (structNames.contains(base))  return base;       // data class
-        if (recordNames.contains(base))  return 'ByteArray'; // serialised record
+        if (structNames.contains(base)) return base; // data class
+        if (recordNames.contains(base)) return 'ByteArray'; // serialised record
         return 'Long'; // int, enum rawValue → Long
     }
   }
@@ -180,11 +189,7 @@ class KotlinTypeMapper implements TypeMapper {
     final cbParams = p.type.functionParams;
     final nativeMethodName = '_invoke_${p.name}';
 
-    final lambdaParams = cbParams
-        .asMap()
-        .entries
-        .map((e) => 'p${e.key}: ${type(e.value.name)}')
-        .join(', ');
+    final lambdaParams = cbParams.asMap().entries.map((e) => 'p${e.key}: ${type(e.value.name)}').join(', ');
 
     final nativeArgs = <String>[p.name];
     for (var i = 0; i < cbParams.length; i++) {
@@ -224,8 +229,7 @@ class KotlinTypeMapper implements TypeMapper {
   /// for the synchronous NativeCallable.listener fast-path.
   bool isExpandableStruct(BridgeStruct st) {
     const numeric = {'int', 'double', 'bool'};
-    return st.fields.every(
-        (f) => numeric.contains(f.type.name.replaceFirst('?', '')) && !f.type.isTypedData);
+    return st.fields.every((f) => numeric.contains(f.type.name.replaceFirst('?', '')) && !f.type.isTypedData);
   }
 
   /// Wraps [body] in a `runBlocking { withTimeout(N) { ... } }` block when
@@ -240,18 +244,14 @@ class KotlinTypeMapper implements TypeMapper {
   // ── TypeMapper interface ─────────────────────────────────────────────────────
 
   @override
-  String forKotlin(BridgeType t, {bool forParam = false}) =>
-      forParam ? bridgeParamType(BridgeParam(name: '', type: t)) : type(t.name, bridgeType: t);
+  String forKotlin(BridgeType t, {bool forParam = false}) => forParam ? bridgeParamType(BridgeParam(name: '', type: t)) : type(t.name, bridgeType: t);
 
   @override
-  String forSwift(BridgeType t, {bool forCDecl = false}) =>
-      throw UnimplementedError('KotlinTypeMapper does not map Swift types');
+  String forSwift(BridgeType t, {bool forCDecl = false}) => throw UnimplementedError('KotlinTypeMapper does not map Swift types');
 
   @override
-  String forDart(BridgeType t, {bool forNative = false}) =>
-      throw UnimplementedError('KotlinTypeMapper does not map Dart FFI types');
+  String forDart(BridgeType t, {bool forNative = false}) => throw UnimplementedError('KotlinTypeMapper does not map Dart FFI types');
 
   @override
-  String forC(BridgeType t) =>
-      throw UnimplementedError('KotlinTypeMapper does not map C types');
+  String forC(BridgeType t) => throw UnimplementedError('KotlinTypeMapper does not map C types');
 }

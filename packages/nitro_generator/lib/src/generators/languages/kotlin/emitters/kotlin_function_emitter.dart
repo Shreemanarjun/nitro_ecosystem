@@ -21,9 +21,7 @@ class KotlinFunctionEmitter {
     }
 
     final retType = mapper.functionRetType(func);
-    final bridgeParamsDecl = func.params
-        .map((p) => '${p.name}: ${mapper.bridgeParamType(p)}')
-        .join(', ');
+    final bridgeParamsDecl = func.params.map((p) => '${p.name}: ${mapper.bridgeParamType(p)}').join(', ');
 
     if (func.isNativeAsync) {
       _emitNativeAsync(writer, func, spec, mapper, retType, bridgeParamsDecl);
@@ -37,8 +35,7 @@ class KotlinFunctionEmitter {
     final isNullableEnum = isEnum && func.returnType.name.endsWith('?');
     final isRecord = func.returnType.isRecord && !func.returnType.isMap;
     final isMap = func.returnType.isMap;
-    final isListRecord =
-        isRecord && func.returnType.recordListItemType != null && !func.returnType.recordListItemIsPrimitive;
+    final isListRecord = isRecord && func.returnType.recordListItemType != null && !func.returnType.recordListItemIsPrimitive;
     final isNullableBoolReturn = retBaseName == 'bool' && func.returnType.name.endsWith('?');
     final isNullableIntReturn = retBaseName == 'int' && func.returnType.name.endsWith('?');
     final isNullableDoubleReturn = retBaseName == 'double' && func.returnType.name.endsWith('?');
@@ -61,22 +58,23 @@ class KotlinFunctionEmitter {
     }).toList();
 
     // Resolve call params — decode enums, records, callbacks, nullable prims.
-    final callParams = func.params.map((p) {
-      final baseName = p.type.name.replaceFirst('?', '');
-      final isNull = p.type.name.endsWith('?') || p.isOptional;
-      if (isNull && (baseName == 'int' || baseName == 'bool' || baseName == 'double')) {
-        return '${p.name}Arg';
-      }
-      if (isNull && mapper.enumNames.contains(baseName)) return '${p.name}Arg';
-      if (mapper.enumNames.contains(baseName)) return '$baseName.fromNative(${p.name})';
-      if (p.type.isFunction) return mapper.callbackLambda(p);
-      if (p.type.isRecord && !p.type.isMap) return '${p.name}Decoded';
-      return p.name;
-    }).join(', ');
+    final callParams = func.params
+        .map((p) {
+          final baseName = p.type.name.replaceFirst('?', '');
+          final isNull = p.type.name.endsWith('?') || p.isOptional;
+          if (isNull && (baseName == 'int' || baseName == 'bool' || baseName == 'double')) {
+            return '${p.name}Arg';
+          }
+          if (isNull && mapper.enumNames.contains(baseName)) return '${p.name}Arg';
+          if (mapper.enumNames.contains(baseName)) return '$baseName.fromNative(${p.name})';
+          if (p.type.isFunction) return mapper.callbackLambda(p);
+          if (p.type.isRecord && !p.type.isMap) return '${p.name}Decoded';
+          return p.name;
+        })
+        .join(', ');
 
     writer.line('    @JvmStatic fun ${func.dartName}_call($bridgeParamsDecl): $bridgeRetType {');
-    writer.line(
-        '        val impl = implementation ?: throw IllegalStateException("${spec.dartClassName} not registered")');
+    writer.line('        val impl = implementation ?: throw IllegalStateException("${spec.dartClassName} not registered")');
 
     // Decode nullable primitive params from NitroNullable ByteArray.
     for (final p in optPrimParams) {
@@ -112,11 +110,9 @@ class KotlinFunctionEmitter {
     } else if (isRecord) {
       _emitRecordBody(writer, func, spec, isListRecord, callParams, rb);
     } else if (func.isAsync) {
-      _emitAsyncBody(writer, func, isEnum, isNullableEnum, isNullableBoolReturn,
-          isNullableIntReturn, isNullableDoubleReturn, rb);
+      _emitAsyncBody(writer, func, isEnum, isNullableEnum, isNullableBoolReturn, isNullableIntReturn, isNullableDoubleReturn, rb);
     } else {
-      _emitSyncBody(writer, func, isUnit, isEnum, isNullableEnum, isNullableBoolReturn,
-          isNullableIntReturn, isNullableDoubleReturn, callParams);
+      _emitSyncBody(writer, func, isUnit, isEnum, isNullableEnum, isNullableBoolReturn, isNullableIntReturn, isNullableDoubleReturn, callParams);
     }
 
     writer.line('    }');
@@ -133,7 +129,9 @@ class KotlinFunctionEmitter {
     String bridgeParamsDecl,
   ) {
     final isUnit = retType == 'Unit';
-    final isEnum = mapper.enumNames.contains(func.returnType.name);
+    final retBaseName = func.returnType.name.replaceFirst('?', '');
+    final isEnum = mapper.enumNames.contains(retBaseName);
+    final isNullableReturn = func.returnType.name.endsWith('?') || func.returnType.isNullable;
     final portParam = bridgeParamsDecl.isEmpty ? 'dartPort: Long' : '$bridgeParamsDecl, dartPort: Long';
 
     final optPrims = func.params.where((p) {
@@ -142,11 +140,13 @@ class KotlinFunctionEmitter {
       return isNull && (bn == 'int' || bn == 'bool' || bn == 'double');
     }).toList();
 
-    final callParams = func.params.map((p) {
-      final bn = p.type.name.replaceFirst('?', '');
-      final isNull = p.type.name.endsWith('?') || p.isOptional;
-      return (isNull && (bn == 'int' || bn == 'bool' || bn == 'double')) ? '${p.name}Arg' : p.name;
-    }).join(', ');
+    final callParams = func.params
+        .map((p) {
+          final bn = p.type.name.replaceFirst('?', '');
+          final isNull = p.type.name.endsWith('?') || p.isOptional;
+          return (isNull && (bn == 'int' || bn == 'bool' || bn == 'double')) ? '${p.name}Arg' : p.name;
+        })
+        .join(', ');
 
     writer.line('    @JvmStatic fun ${func.dartName}_call($portParam) {');
     writer.line('        val impl = implementation ?: run {');
@@ -166,28 +166,48 @@ class KotlinFunctionEmitter {
     }
 
     writer.line('        _asyncExecutor.execute {');
+    writer.line('            try {');
     if (isUnit) {
       writer.line('            runBlocking { impl.${func.dartName}($callParams) }');
       writer.line('            postNullToPort(dartPort)');
     } else if (isEnum) {
       writer.line('            val result = runBlocking { impl.${func.dartName}($callParams) }');
-      writer.line('            postInt64ToPort(dartPort, result.nativeValue)');
+      if (isNullableReturn) {
+        writer.line('            if (result == null) postInt64ToPort(dartPort, -1L) else postInt64ToPort(dartPort, result.nativeValue)');
+      } else {
+        writer.line('            postInt64ToPort(dartPort, result.nativeValue)');
+      }
     } else if (retType == 'String') {
       writer.line('            val result = runBlocking { impl.${func.dartName}($callParams) }');
       writer.line('            postStringToPort(dartPort, result)');
+    } else if (retType == 'String?') {
+      writer.line('            val result = runBlocking { impl.${func.dartName}($callParams) }');
+      writer.line('            if (result == null) postNullToPort(dartPort) else postStringToPort(dartPort, result)');
     } else if (retType == 'Boolean') {
       writer.line('            val result = runBlocking { impl.${func.dartName}($callParams) }');
       writer.line('            postBoolToPort(dartPort, result)');
+    } else if (retType == 'Boolean?') {
+      writer.line('            val result = runBlocking { impl.${func.dartName}($callParams) }');
+      writer.line('            if (result == null) postNullToPort(dartPort) else postBoolToPort(dartPort, result)');
     } else if (retType == 'Long' || retType == 'Int') {
       writer.line('            val result = runBlocking { impl.${func.dartName}($callParams) }');
       writer.line('            postInt64ToPort(dartPort, result.toLong())');
+    } else if (retType == 'Long?' || retType == 'Int?') {
+      writer.line('            val result = runBlocking { impl.${func.dartName}($callParams) }');
+      writer.line('            postInt64ToPort(dartPort, result?.toLong() ?: Long.MIN_VALUE)');
     } else if (retType == 'Double') {
       writer.line('            val result = runBlocking { impl.${func.dartName}($callParams) }');
       writer.line('            postDoubleToPort(dartPort, result)');
+    } else if (retType == 'Double?') {
+      writer.line('            val result = runBlocking { impl.${func.dartName}($callParams) }');
+      writer.line('            postDoubleToPort(dartPort, result ?: Double.NaN)');
     } else {
       writer.line('            runBlocking { impl.${func.dartName}($callParams) }');
       writer.line('            postNullToPort(dartPort)');
     }
+    writer.line('            } catch (_: Throwable) {');
+    writer.line('                postNullToPort(dartPort)');
+    writer.line('            }');
     writer.line('        }');
     writer.line('    }');
   }
@@ -204,28 +224,27 @@ class KotlinFunctionEmitter {
         final isNullableRec = p.type.isNullable || p.type.name.endsWith('?');
         if (isNullableRec) {
           writer.line('        val ${p.name}Decoded: $recordName? = if (${p.name} == null) null else {');
-          writer.line(
-              '            val _buf = java.nio.ByteBuffer.wrap(${p.name}).order(java.nio.ByteOrder.LITTLE_ENDIAN)');
+          writer.line('            val _buf = java.nio.ByteBuffer.wrap(${p.name}).order(java.nio.ByteOrder.LITTLE_ENDIAN)');
           writer.line('            _buf.getInt() // skip 4-byte prefix');
           writer.line('            $recordName.decodeFrom(_buf)');
           writer.line('        }');
         } else {
-          writer.line(
-              '        val ${p.name}Buf = java.nio.ByteBuffer.wrap(${p.name}).order(java.nio.ByteOrder.LITTLE_ENDIAN)');
+          writer.line('        val ${p.name}Buf = java.nio.ByteBuffer.wrap(${p.name}).order(java.nio.ByteOrder.LITTLE_ENDIAN)');
           writer.line('        ${p.name}Buf.getInt() // skip Dart 4-byte outer length prefix');
           writer.line('        val ${p.name}Decoded = $recordName.decodeFrom(${p.name}Buf)');
         }
       } else if (!p.type.recordListItemIsPrimitive) {
         // List<@HybridRecord>
         final itemType = p.type.recordListItemType!;
-        writer.line(
-            '        val ${p.name}Buf = java.nio.ByteBuffer.wrap(${p.name}).order(java.nio.ByteOrder.LITTLE_ENDIAN)');
+        writer.line('        val ${p.name}Buf = java.nio.ByteBuffer.wrap(${p.name}).order(java.nio.ByteOrder.LITTLE_ENDIAN)');
         writer.line('        ${p.name}Buf.getInt() // skip outer length');
         writer.line('        val ${p.name}Count = ${p.name}Buf.getInt()');
-        writer.line('        repeat(${p.name}Count) { ${p.name}Buf.getLong() } // skip offsets');
+        writer.line('        val ${p.name}Offsets = LongArray(${p.name}Count) { ${p.name}Buf.getLong() }');
         writer.line('        val ${p.name}Decoded = mutableListOf<$itemType>()');
-        writer.line(
-            '        repeat(${p.name}Count) { ${p.name}Decoded.add($itemType.decodeFrom(${p.name}Buf)) }');
+        writer.line('        for (${p.name}Offset in ${p.name}Offsets) {');
+        writer.line('            val itemBuf = java.nio.ByteBuffer.wrap(${p.name}, 4 + ${p.name}Offset.toInt(), ${p.name}.size - 4 - ${p.name}Offset.toInt()).order(java.nio.ByteOrder.LITTLE_ENDIAN)');
+        writer.line('            ${p.name}Decoded.add($itemType.decodeFrom(itemBuf))');
+        writer.line('        }');
       } else {
         // List<primitive>
         final itemType = p.type.recordListItemType!;
@@ -235,27 +254,34 @@ class KotlinFunctionEmitter {
           'String' => 'ArrayList<String>',
           _ => 'ArrayList<Any>',
         };
-        writer.line(
-            '        val ${p.name}Buf = java.nio.ByteBuffer.wrap(${p.name}).order(java.nio.ByteOrder.LITTLE_ENDIAN)');
+        writer.line('        val ${p.name}Buf = java.nio.ByteBuffer.wrap(${p.name}).order(java.nio.ByteOrder.LITTLE_ENDIAN)');
         writer.line('        ${p.name}Buf.getInt() // skip outer length');
         writer.line('        val ${p.name}Count = ${p.name}Buf.getInt()');
-        writer.line('        repeat(${p.name}Count) { ${p.name}Buf.getLong() } // skip offsets');
+        writer.line('        val ${p.name}Offsets = LongArray(${p.name}Count) { ${p.name}Buf.getLong() }');
         writer.line('        val ${p.name}Decoded = $listKtType()');
         if (itemType == 'String') {
-          writer.line('        repeat(${p.name}Count) {');
-          writer.line('            val len = ${p.name}Buf.getInt()');
+          writer.line('        for (${p.name}Offset in ${p.name}Offsets) {');
+          writer.line('            val itemBuf = java.nio.ByteBuffer.wrap(${p.name}, 4 + ${p.name}Offset.toInt(), ${p.name}.size - 4 - ${p.name}Offset.toInt()).order(java.nio.ByteOrder.LITTLE_ENDIAN)');
+          writer.line('            val len = itemBuf.getInt()');
           writer.line('            val strBytes = ByteArray(len)');
-          writer.line('            ${p.name}Buf.get(strBytes)');
+          writer.line('            itemBuf.get(strBytes)');
           writer.line('            ${p.name}Decoded.add(strBytes.toString(Charsets.UTF_8))');
           writer.line('        }');
         } else {
           final readMethod = switch (itemType) {
             'int' => 'getLong',
             'double' => 'getDouble',
+            'bool' => 'get',
             _ => 'getLong',
           };
-          writer.line(
-              '        repeat(${p.name}Count) { ${p.name}Decoded.add(${p.name}Buf.$readMethod()) }');
+          writer.line('        for (${p.name}Offset in ${p.name}Offsets) {');
+          writer.line('            val itemBuf = java.nio.ByteBuffer.wrap(${p.name}, 4 + ${p.name}Offset.toInt(), ${p.name}.size - 4 - ${p.name}Offset.toInt()).order(java.nio.ByteOrder.LITTLE_ENDIAN)');
+          if (itemType == 'bool') {
+            writer.line('            ${p.name}Decoded.add(if (itemBuf.get().toInt() != 0) 1L else 0L)');
+          } else {
+            writer.line('            ${p.name}Decoded.add(itemBuf.$readMethod())');
+          }
+          writer.line('        }');
         }
       }
     }
@@ -277,14 +303,12 @@ class KotlinFunctionEmitter {
     })();
 
     writer.line('        @Suppress("UNCHECKED_CAST")');
-    writer.line(
-        '        val _mapBuf = java.nio.ByteBuffer.wrap($mapParam).order(java.nio.ByteOrder.LITTLE_ENDIAN)');
+    writer.line('        val _mapBuf = java.nio.ByteBuffer.wrap($mapParam).order(java.nio.ByteOrder.LITTLE_ENDIAN)');
     writer.line('        _mapBuf.position(4) // skip 4-byte payload length prefix');
     writer.line('        val _mapCount = _mapBuf.int');
     writer.line('        val _inputMap = mutableMapOf<String, Any?>()');
     writer.line('        repeat(_mapCount) {');
-    writer.line(
-        '            val kLen = _mapBuf.int; val kBytes = ByteArray(kLen); _mapBuf.get(kBytes)');
+    writer.line('            val kLen = _mapBuf.int; val kBytes = ByteArray(kLen); _mapBuf.get(kBytes)');
     writer.line('            val k = kBytes.toString(Charsets.UTF_8)');
     writer.line('            _mapBuf.get() // skip 1-byte type tag');
     if (mapValueType == 'int' || mapValueType == 'Long') {
@@ -294,16 +318,14 @@ class KotlinFunctionEmitter {
     } else if (mapValueType == 'bool' || mapValueType == 'Boolean') {
       writer.line('            _inputMap[k] = _mapBuf.get().toInt() != 0');
     } else {
-      writer.line(
-          '            val vLen = _mapBuf.int; val vBytes = ByteArray(vLen); _mapBuf.get(vBytes)');
+      writer.line('            val vLen = _mapBuf.int; val vBytes = ByteArray(vLen); _mapBuf.get(vBytes)');
       writer.line('            _inputMap[k] = vBytes.toString(Charsets.UTF_8)');
     }
     writer.line('        }');
 
     if (func.isAsync) {
       final rb = KotlinTypeMapper.runBlockingCall(func, 'impl.${func.dartName}(_inputMap)');
-      writer.line(
-          '        val _result = _asyncExecutor.submit(java.util.concurrent.Callable { $rb }).get()');
+      writer.line('        val _result = _asyncExecutor.submit(java.util.concurrent.Callable { $rb }).get()');
     } else {
       writer.line('        val _result = impl.${func.dartName}(_inputMap)');
     }
@@ -311,14 +333,10 @@ class KotlinFunctionEmitter {
     writer.line('        @Suppress("UNCHECKED_CAST")');
     writer.line('        val _outMap = _result as? Map<String, Any?> ?: emptyMap()');
     writer.line('        val _outBb = java.io.ByteArrayOutputStream()');
-    writer.line(
-        '        val _outBuf = java.nio.ByteBuffer.allocate(8).order(java.nio.ByteOrder.LITTLE_ENDIAN)');
-    writer.line(
-        '        fun _writeInt32(v: Int) { _outBuf.clear(); _outBuf.putInt(v); _outBb.write(_outBuf.array(), 0, 4) }');
-    writer.line(
-        '        fun _writeInt64(v: Long) { _outBuf.clear(); _outBuf.putLong(v); _outBb.write(_outBuf.array()) }');
-    writer.line(
-        '        fun _writeDouble(v: Double) { _outBuf.clear(); _outBuf.putDouble(v); _outBb.write(_outBuf.array()) }');
+    writer.line('        val _outBuf = java.nio.ByteBuffer.allocate(8).order(java.nio.ByteOrder.LITTLE_ENDIAN)');
+    writer.line('        fun _writeInt32(v: Int) { _outBuf.clear(); _outBuf.putInt(v); _outBb.write(_outBuf.array(), 0, 4) }');
+    writer.line('        fun _writeInt64(v: Long) { _outBuf.clear(); _outBuf.putLong(v); _outBb.write(_outBuf.array()) }');
+    writer.line('        fun _writeDouble(v: Double) { _outBuf.clear(); _outBuf.putDouble(v); _outBb.write(_outBuf.array()) }');
     writer.line('        _writeInt32(_outMap.size)');
     writer.line('        for ((k, v) in _outMap) {');
     writer.line('            val kb = k.toByteArray(Charsets.UTF_8); _writeInt32(kb.size); _outBb.write(kb)');
@@ -333,17 +351,14 @@ class KotlinFunctionEmitter {
       writer.line('            _outBb.write(if (v as Boolean) 1 else 0)');
     } else if (mapValueType == 'String') {
       writer.line('            _outBb.write(4) // tag: string');
-      writer.line(
-          '            val vb = (v as String).toByteArray(Charsets.UTF_8); _writeInt32(vb.size); _outBb.write(vb)');
+      writer.line('            val vb = (v as String).toByteArray(Charsets.UTF_8); _writeInt32(vb.size); _outBb.write(vb)');
     } else {
       writer.line('            _outBb.write(4) // tag: string (generic fallback)');
-      writer.line(
-          '            val vb = v.toString().toByteArray(Charsets.UTF_8); _writeInt32(vb.size); _outBb.write(vb)');
+      writer.line('            val vb = v.toString().toByteArray(Charsets.UTF_8); _writeInt32(vb.size); _outBb.write(vb)');
     }
     writer.line('        }');
     writer.line('        val _payload = _outBb.toByteArray()');
-    writer.line(
-        '        val _lenBuf = java.nio.ByteBuffer.allocate(4).order(java.nio.ByteOrder.LITTLE_ENDIAN)');
+    writer.line('        val _lenBuf = java.nio.ByteBuffer.allocate(4).order(java.nio.ByteOrder.LITTLE_ENDIAN)');
     writer.line('        _lenBuf.putInt(_payload.size)');
     writer.line('        return _lenBuf.array() + _payload');
   }
@@ -359,8 +374,7 @@ class KotlinFunctionEmitter {
     String rb,
   ) {
     if (func.isAsync) {
-      writer.line(
-          '        val result = _asyncExecutor.submit(java.util.concurrent.Callable { $rb }).get()');
+      writer.line('        val result = _asyncExecutor.submit(java.util.concurrent.Callable { $rb }).get()');
     } else {
       writer.line('        val result = impl.${func.dartName}($callParams)');
     }
@@ -370,8 +384,7 @@ class KotlinFunctionEmitter {
       final itemRt = spec.recordTypes.where((rt) => rt.name == itemTypeName).firstOrNull;
       final hint = itemRt != null ? RecordGenerator.recordBytesHint(itemRt) : 64;
       writer.line('        val itemBufs = ArrayList<ByteArray>(result.size)');
-      writer.line(
-          '        val tmpBuf = java.nio.ByteBuffer.allocate(8).order(java.nio.ByteOrder.LITTLE_ENDIAN)');
+      writer.line('        val tmpBuf = java.nio.ByteBuffer.allocate(8).order(java.nio.ByteOrder.LITTLE_ENDIAN)');
       writer.line('        for (item in result) {');
       writer.line('            val tmpOut = java.io.ByteArrayOutputStream($hint)');
       writer.line('            item.writeFieldsTo(tmpOut, tmpBuf)');
@@ -380,26 +393,27 @@ class KotlinFunctionEmitter {
       writer.line('        // payload = [4B count][8B × n offsets][item bytes...]');
       writer.line('        var offsetPos = 4 + 8L * result.size  // start of item data in payload');
       writer.line('        val offsets = LongArray(result.size)');
-      writer.line(
-          '        for (i in result.indices) { offsets[i] = offsetPos; offsetPos += itemBufs[i].size }');
-      writer.line(
-          '        val payloadBuf = java.nio.ByteBuffer.allocate(offsetPos.toInt()).order(java.nio.ByteOrder.LITTLE_ENDIAN)');
+      writer.line('        for (i in result.indices) { offsets[i] = offsetPos; offsetPos += itemBufs[i].size }');
+      writer.line('        val payloadBuf = java.nio.ByteBuffer.allocate(offsetPos.toInt()).order(java.nio.ByteOrder.LITTLE_ENDIAN)');
       writer.line('        payloadBuf.putInt(result.size)');
       writer.line('        offsets.forEach { payloadBuf.putLong(it) }');
       writer.line('        itemBufs.forEach { payloadBuf.put(it) }');
       writer.line('        val payload = payloadBuf.array()');
-      writer.line(
-          '        val lenBuf = java.nio.ByteBuffer.allocate(4).order(java.nio.ByteOrder.LITTLE_ENDIAN)');
+      writer.line('        val lenBuf = java.nio.ByteBuffer.allocate(4).order(java.nio.ByteOrder.LITTLE_ENDIAN)');
       writer.line('        lenBuf.putInt(payload.size)');
       writer.line('        return lenBuf.array() + payload');
     } else if (func.returnType.recordListItemIsPrimitive) {
       final itemTypeName = func.returnType.recordListItemType!;
-      final itemSize = switch (itemTypeName) { 'int' => 8, 'double' => 8, 'String' => -1, _ => 8 };
+      final itemSize = switch (itemTypeName) {
+        'int' => 8,
+        'double' => 8,
+        'String' => -1,
+        _ => 8,
+      };
       if (itemSize > 0) {
         writer.line('        val count = result.size');
         writer.line('        val payloadSize = 4 + $itemSize * count');
-        writer.line(
-            '        val buf = java.nio.ByteBuffer.allocate(4 + payloadSize).order(java.nio.ByteOrder.LITTLE_ENDIAN)');
+        writer.line('        val buf = java.nio.ByteBuffer.allocate(4 + payloadSize).order(java.nio.ByteOrder.LITTLE_ENDIAN)');
         writer.line('        buf.putInt(payloadSize)');
         writer.line('        buf.putInt(count)');
         final putMethod = switch (itemTypeName) {
@@ -412,18 +426,15 @@ class KotlinFunctionEmitter {
         writer.line('        return buf.array()');
       } else {
         writer.line('        val baos = java.io.ByteArrayOutputStream()');
-        writer.line(
-            '        val lenBuf = java.nio.ByteBuffer.allocate(4).order(java.nio.ByteOrder.LITTLE_ENDIAN)');
-        writer.line(
-            '        val strLenBuf = java.nio.ByteBuffer.allocate(4).order(java.nio.ByteOrder.LITTLE_ENDIAN)');
+        writer.line('        val lenBuf = java.nio.ByteBuffer.allocate(4).order(java.nio.ByteOrder.LITTLE_ENDIAN)');
+        writer.line('        val strLenBuf = java.nio.ByteBuffer.allocate(4).order(java.nio.ByteOrder.LITTLE_ENDIAN)');
         writer.line('        val items = result.map { it.toByteArray(Charsets.UTF_8) }');
         writer.line('        val payloadSize = 4 + items.sumOf { 4 + it.size }');
         writer.line('        lenBuf.putInt(payloadSize)');
         writer.line('        baos.write(lenBuf.array())');
         writer.line('        lenBuf.clear(); lenBuf.putInt(items.size); lenBuf.flip()');
         writer.line('        baos.write(lenBuf.array())');
-        writer.line(
-            '        for (item in items) { strLenBuf.clear(); strLenBuf.putInt(item.size); strLenBuf.flip(); baos.write(strLenBuf.array()); baos.write(item) }');
+        writer.line('        for (item in items) { strLenBuf.clear(); strLenBuf.putInt(item.size); strLenBuf.flip(); baos.write(strLenBuf.array()); baos.write(item) }');
         writer.line('        return baos.toByteArray()');
       }
     } else {
@@ -450,12 +461,10 @@ class KotlinFunctionEmitter {
   ) {
     if (isEnum) {
       if (isNullableEnum) {
-        writer.line(
-            '        val _enumResult = _asyncExecutor.submit(java.util.concurrent.Callable { $rb }).get()');
+        writer.line('        val _enumResult = _asyncExecutor.submit(java.util.concurrent.Callable { $rb }).get()');
         writer.line('        return if (_enumResult == null) -1L else _enumResult.nativeValue');
       } else {
-        writer.line(
-            '        return _asyncExecutor.submit(java.util.concurrent.Callable { $rb }).get().nativeValue');
+        writer.line('        return _asyncExecutor.submit(java.util.concurrent.Callable { $rb }).get().nativeValue');
       }
     } else if (isNullableBool) {
       writer.line('        val _boolResult = _asyncExecutor.submit(java.util.concurrent.Callable {');
@@ -463,12 +472,10 @@ class KotlinFunctionEmitter {
       writer.line('        }).get()');
       writer.line('        return NitroNullableBool(_boolResult).encode()');
     } else if (isNullableInt) {
-      writer.line(
-          '        val _intResult = _asyncExecutor.submit(java.util.concurrent.Callable { $rb }).get()');
+      writer.line('        val _intResult = _asyncExecutor.submit(java.util.concurrent.Callable { $rb }).get()');
       writer.line('        return NitroNullableInt(_intResult).encode()');
     } else if (isNullableDouble) {
-      writer.line(
-          '        val _doubleResult = _asyncExecutor.submit(java.util.concurrent.Callable { $rb }).get()');
+      writer.line('        val _doubleResult = _asyncExecutor.submit(java.util.concurrent.Callable { $rb }).get()');
       writer.line('        return NitroNullableDouble(_doubleResult).encode()');
     } else {
       writer.line('        return _asyncExecutor.submit(java.util.concurrent.Callable {');
