@@ -44,9 +44,7 @@ class SwiftVariantEmitter {
         if (c.isUnit) {
           writer.line('case ${c.label}');
         } else {
-          final params = c.fields
-              .map((f) => '${f.name}: ${_fieldSwiftType(f, mapper)}')
-              .join(', ');
+          final params = c.fields.map((f) => '${f.name}: ${_fieldSwiftType(f, mapper)}').join(', ');
           writer.line('case ${c.label}($params)');
         }
       }
@@ -64,9 +62,7 @@ class SwiftVariantEmitter {
           if (c.isUnit) {
             writer.line('case $i: return .${c.label}');
           } else {
-            final args = c.fields
-                .map((f) => '${f.name}: ${_fieldReadExpr(f, mapper)}')
-                .join(', ');
+            final args = c.fields.map((f) => '${f.name}: ${_fieldReadExpr(f, mapper)}').join(', ');
             writer.line('case $i: return .${c.label}($args)');
           }
         }
@@ -116,29 +112,37 @@ class SwiftVariantEmitter {
   // ── Type helpers ──────────────────────────────────────────────────────────────
 
   static String _fieldSwiftType(BridgeRecordField f, SwiftTypeMapper mapper) {
-    final base     = f.dartType.replaceFirst('?', '');
+    final base = f.dartType.replaceFirst('?', '');
     final optional = f.isNullable ? '?' : '';
     return switch (f.kind) {
-      RecordFieldKind.primitive        => '${mapper.swiftType(base)}$optional',
-      RecordFieldKind.enumValue        => '$base$optional',
-      RecordFieldKind.struct           => '$base$optional',
-      RecordFieldKind.recordObject     => '$base$optional',
-      RecordFieldKind.listPrimitive    => '[${mapper.swiftType(f.itemTypeName ?? 'int')}]$optional',
+      RecordFieldKind.primitive => '${mapper.swiftType(base)}$optional',
+      RecordFieldKind.enumValue => '$base$optional',
+      RecordFieldKind.struct => '$base$optional',
+      RecordFieldKind.recordObject => '$base$optional',
+      RecordFieldKind.listPrimitive => '[${mapper.swiftType(f.itemTypeName ?? 'int')}]$optional',
       RecordFieldKind.listRecordObject => '[${f.itemTypeName ?? base}]$optional',
-      _                                => 'String$optional',
+      _ => 'String$optional',
     };
   }
 
   static String _fieldReadExpr(BridgeRecordField f, SwiftTypeMapper mapper) {
     final base = f.dartType.replaceFirst('?', '');
+    if (f.isNullable) {
+      final nonNull = BridgeRecordField(
+        name: f.name,
+        dartType: base,
+        kind: f.kind,
+        itemTypeName: f.itemTypeName,
+      );
+      return 'r.readBool() ? ${_fieldReadExpr(nonNull, mapper)} : nil';
+    }
     return switch (f.kind) {
-      RecordFieldKind.primitive when base == 'int'    => 'r.readInt()',
+      RecordFieldKind.primitive when base == 'int' => 'r.readInt()',
       RecordFieldKind.primitive when base == 'double' => 'r.readDouble()',
-      RecordFieldKind.primitive when base == 'bool'   => 'r.readBool()',
-      RecordFieldKind.primitive                        => 'r.readString()',
-      RecordFieldKind.enumValue                        => '$base(rawValue: r.readInt())!',
-      RecordFieldKind.struct || RecordFieldKind.recordObject
-                                                       => '$base.fromReader(r)',
+      RecordFieldKind.primitive when base == 'bool' => 'r.readBool()',
+      RecordFieldKind.primitive => 'r.readString()',
+      RecordFieldKind.enumValue => '$base(rawValue: r.readInt())!',
+      RecordFieldKind.struct || RecordFieldKind.recordObject => '$base.fromReader(r)',
       RecordFieldKind.listPrimitive => () {
         final item = f.itemTypeName ?? 'int';
         return '(0..<Int(r.readInt32())).map { _ in ${_primitiveRead(item)} }';
@@ -152,38 +156,43 @@ class SwiftVariantEmitter {
   }
 
   static String _primitiveRead(String t) => switch (t) {
-    'int'    => 'r.readInt()',
+    'int' => 'r.readInt()',
     'double' => 'r.readDouble()',
-    'bool'   => 'r.readBool()',
+    'bool' => 'r.readBool()',
     'String' => 'r.readString()',
-    _        => 'r.readInt()',
+    _ => 'r.readInt()',
   };
 
   static String _fieldWriteStmt(BridgeRecordField f, SwiftTypeMapper mapper) {
-    final name = f.name;
+    if (f.isNullable) {
+      return 'w.writeBool(${f.name} != nil); if let value = ${f.name} { ${_fieldWriteExpr(f, mapper, 'value')} }';
+    }
+    return _fieldWriteExpr(f, mapper, f.name);
+  }
+
+  static String _fieldWriteExpr(BridgeRecordField f, SwiftTypeMapper mapper, String expr) {
     final base = f.dartType.replaceFirst('?', '');
     return switch (f.kind) {
-      RecordFieldKind.primitive when base == 'int'    => 'w.writeInt($name)',
-      RecordFieldKind.primitive when base == 'double' => 'w.writeDouble($name)',
-      RecordFieldKind.primitive when base == 'bool'   => 'w.writeBool($name)',
-      RecordFieldKind.primitive                        => 'w.writeString($name)',
-      RecordFieldKind.enumValue                        => 'w.writeInt($name.rawValue)',
-      RecordFieldKind.struct || RecordFieldKind.recordObject
-                                                       => '$name.writeFields(to: w)',
+      RecordFieldKind.primitive when base == 'int' => 'w.writeInt($expr)',
+      RecordFieldKind.primitive when base == 'double' => 'w.writeDouble($expr)',
+      RecordFieldKind.primitive when base == 'bool' => 'w.writeBool($expr)',
+      RecordFieldKind.primitive => 'w.writeString($expr)',
+      RecordFieldKind.enumValue => 'w.writeInt($expr.rawValue)',
+      RecordFieldKind.struct || RecordFieldKind.recordObject => '$expr.writeFields(w)',
       RecordFieldKind.listPrimitive => () {
         final item = f.itemTypeName ?? 'int';
-        return 'w.writeInt32(Int32($name.count)); $name.forEach { ${_primitiveWriteExpr(item, r'$0')} }';
+        return 'w.writeInt32(Int32($expr.count)); $expr.forEach { ${_primitiveWriteExpr(item, r'$0')} }';
       }(),
-      RecordFieldKind.listRecordObject => 'w.writeInt32(Int32($name.count)); $name.forEach { \$0.writeFields(to: w) }',
-      _                                => 'w.writeString($name)',
+      RecordFieldKind.listRecordObject => 'w.writeInt32(Int32($expr.count)); $expr.forEach { \$0.writeFields(w) }',
+      _ => 'w.writeString($expr)',
     };
   }
 
   static String _primitiveWriteExpr(String t, String varName) => switch (t) {
-    'int'    => 'w.writeInt($varName)',
+    'int' => 'w.writeInt($varName)',
     'double' => 'w.writeDouble($varName)',
-    'bool'   => 'w.writeBool($varName)',
+    'bool' => 'w.writeBool($varName)',
     'String' => 'w.writeString($varName)',
-    _        => 'w.writeInt($varName)',
+    _ => 'w.writeInt($varName)',
   };
 }

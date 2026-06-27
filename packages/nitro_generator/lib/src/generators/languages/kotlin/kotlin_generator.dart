@@ -210,7 +210,7 @@ class KotlinGenerator {
   }) {
     if (hasVariantBridge) {
       writer.line('/** Minimal RecordReader for @NitroVariant bridge decode. */');
-      writer.line('class RecordReader(private val buf: java.nio.ByteBuffer) {');
+      writer.line('class RecordReader(val buf: java.nio.ByteBuffer) {');
       writer.line('    fun readInt8(): Byte = buf.get()');
       writer.line('    fun readInt32(): Int = buf.int');
       writer.line('    fun readInt64(): Long = buf.long');
@@ -226,8 +226,8 @@ class KotlinGenerator {
       writer.blankLine();
       writer.line('/** Minimal RecordWriter for @NitroVariant bridge encode. */');
       writer.line('class RecordWriter {');
-      writer.line('    private val out = java.io.ByteArrayOutputStream()');
-      writer.line('    private val tmp = java.nio.ByteBuffer.allocate(8).order(java.nio.ByteOrder.LITTLE_ENDIAN)');
+      writer.line('    val out = java.io.ByteArrayOutputStream()');
+      writer.line('    val tmp = java.nio.ByteBuffer.allocate(8).order(java.nio.ByteOrder.LITTLE_ENDIAN)');
       writer.line('    fun writeInt8(v: Byte) { out.write(v.toInt()) }');
       writer.line('    fun writeInt32(v: Int) { tmp.clear(); tmp.putInt(v); out.write(tmp.array(), 0, 4) }');
       writer.line('    fun writeInt64(v: Long) { tmp.clear(); tmp.putLong(v); out.write(tmp.array(), 0, 8) }');

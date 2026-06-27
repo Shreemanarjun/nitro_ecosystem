@@ -119,7 +119,7 @@ class KotlinVariantEmitter {
       RecordFieldKind.enumValue => '$base$nullable',
       RecordFieldKind.struct => '$base$nullable',
       RecordFieldKind.recordObject => '$base$nullable',
-      RecordFieldKind.listPrimitive => 'List<${mapper.type(f.itemTypeName ?? 'int')}?>$nullable',
+      RecordFieldKind.listPrimitive => 'List<${mapper.type(f.itemTypeName ?? 'int')}>$nullable',
       RecordFieldKind.listRecordObject => 'List<${f.itemTypeName ?? base}>$nullable',
       _ => 'String$nullable',
     };
@@ -127,20 +127,29 @@ class KotlinVariantEmitter {
 
   static String _fieldReadExpr(BridgeRecordField f, KotlinTypeMapper mapper) {
     final base = f.dartType.replaceFirst('?', '');
+    if (f.isNullable) {
+      final nonNull = BridgeRecordField(
+        name: f.name,
+        dartType: base,
+        kind: f.kind,
+        itemTypeName: f.itemTypeName,
+      );
+      return 'if (r.readBool()) ${_fieldReadExpr(nonNull, mapper)} else null';
+    }
     return switch (f.kind) {
       RecordFieldKind.primitive when base == 'int' => 'r.readInt64()',
       RecordFieldKind.primitive when base == 'double' => 'r.readFloat64()',
-      RecordFieldKind.primitive when base == 'bool' => 'r.readInt8() != 0.toByte()',
+      RecordFieldKind.primitive when base == 'bool' => 'r.readBool()',
       RecordFieldKind.primitive => 'r.readString()',
       RecordFieldKind.enumValue => '$base.fromNative(r.readInt64())',
-      RecordFieldKind.struct || RecordFieldKind.recordObject => '$base.fromReader(r)',
+      RecordFieldKind.struct || RecordFieldKind.recordObject => '$base.decodeFrom(r.buf)',
       RecordFieldKind.listPrimitive => () {
         final item = f.itemTypeName ?? 'int';
         return 'List(r.readInt32()) { ${_primitiveRead(item)} }';
       }(),
       RecordFieldKind.listRecordObject => () {
         final item = f.itemTypeName ?? base;
-        return 'List(r.readInt32()) { $item.fromReader(r) }';
+        return 'List(r.readInt32()) { $item.decodeFrom(r.buf) }';
       }(),
       _ => 'r.readString()',
     };
@@ -149,34 +158,40 @@ class KotlinVariantEmitter {
   static String _primitiveRead(String t) => switch (t) {
     'int' => 'r.readInt64()',
     'double' => 'r.readFloat64()',
-    'bool' => 'r.readInt8() != 0.toByte()',
+    'bool' => 'r.readBool()',
     'String' => 'r.readString()',
     _ => 'r.readInt64()',
   };
 
   static String _fieldWriteStmt(BridgeRecordField f, KotlinTypeMapper mapper) {
-    final name = f.name;
+    if (f.isNullable) {
+      return 'w.writeBool(${f.name} != null); ${f.name}?.let { ${_fieldWriteExpr(f, mapper, 'it')} }';
+    }
+    return _fieldWriteExpr(f, mapper, f.name);
+  }
+
+  static String _fieldWriteExpr(BridgeRecordField f, KotlinTypeMapper mapper, String expr) {
     final base = f.dartType.replaceFirst('?', '');
     return switch (f.kind) {
-      RecordFieldKind.primitive when base == 'int' => 'w.writeInt64($name)',
-      RecordFieldKind.primitive when base == 'double' => 'w.writeFloat64($name)',
-      RecordFieldKind.primitive when base == 'bool' => 'w.writeInt8(if ($name) 1 else 0)',
-      RecordFieldKind.primitive => 'w.writeString($name)',
-      RecordFieldKind.enumValue => 'w.writeInt64($name.nativeValue)',
-      RecordFieldKind.struct || RecordFieldKind.recordObject => '$name.writeFields(w)',
+      RecordFieldKind.primitive when base == 'int' => 'w.writeInt64($expr)',
+      RecordFieldKind.primitive when base == 'double' => 'w.writeFloat64($expr)',
+      RecordFieldKind.primitive when base == 'bool' => 'w.writeBool($expr)',
+      RecordFieldKind.primitive => 'w.writeString($expr)',
+      RecordFieldKind.enumValue => 'w.writeInt64($expr.nativeValue)',
+      RecordFieldKind.struct || RecordFieldKind.recordObject => '$expr.writeFieldsTo(w.out, w.tmp)',
       RecordFieldKind.listPrimitive => () {
         final item = f.itemTypeName ?? 'int';
-        return 'w.writeInt32($name.size); $name.forEach { ${_primitiveWriteExpr(item, 'it')} }';
+        return 'w.writeInt32($expr.size); $expr.forEach { ${_primitiveWriteExpr(item, 'it')} }';
       }(),
-      RecordFieldKind.listRecordObject => 'w.writeInt32($name.size); $name.forEach { it.writeFields(w) }',
-      _ => 'w.writeString($name)',
+      RecordFieldKind.listRecordObject => 'w.writeInt32($expr.size); $expr.forEach { it.writeFieldsTo(w.out, w.tmp) }',
+      _ => 'w.writeString($expr)',
     };
   }
 
   static String _primitiveWriteExpr(String t, String varName) => switch (t) {
     'int' => 'w.writeInt64($varName)',
     'double' => 'w.writeFloat64($varName)',
-    'bool' => 'w.writeInt8(if ($varName) 1 else 0)',
+    'bool' => 'w.writeBool($varName)',
     'String' => 'w.writeString($varName)',
     _ => 'w.writeInt64($varName)',
   };

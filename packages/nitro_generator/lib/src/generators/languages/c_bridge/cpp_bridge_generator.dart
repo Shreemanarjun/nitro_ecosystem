@@ -51,12 +51,18 @@ class CppBridgeGenerator {
   }) {
     final writer = CodeWriter();
     final headerName = '${spec.lib.replaceAll('-', '_')}.bridge.g.h';
+    final hasApple = spec.targetsIos || spec.targetsMacos;
 
     writer.raw(generatedFileHeader('//', sourceUri: spec.sourceUri));
     writer.line('#include <stdint.h>');
     writer.line('#include <stdbool.h>');
     writer.line('#include <string.h>');
     writer.line('#include <stdlib.h>');
+    if (hasApple) {
+      writer.line('#if defined(__APPLE__)');
+      writer.line('#import <Foundation/Foundation.h>');
+      writer.line('#endif');
+    }
     // C++ standard headers needed when any Apple platform uses NativeImpl.cpp.
     if (iosIsCpp || macosIsCpp) {
       writer.line('#include <string>');
@@ -403,8 +409,8 @@ class CppBridgeGenerator {
           final cType = isNullableBool
               ? 'int32_t'
               : isEnumParam
-                  ? 'int64_t'
-                  : ((isStructParam || isRecordParam) ? 'void*' : _typeToC(p.type.name));
+              ? 'int64_t'
+              : ((isStructParam || isRecordParam) ? 'void*' : _typeToC(p.type.name));
           paramParts.add('$cType ${p.name}');
         }
         if (p.type.isTypedData) paramParts.add('int64_t ${p.name}_length');
@@ -1097,15 +1103,15 @@ class CppBridgeGenerator {
     // @NitroVariant: Kotlin returns ByteArray [4B len][1B tag][fields] → '[B'
     final isVariantRet = variantNames.contains(baseRetType);
     final returnSig = switch (baseRetType) {
-      _ when isVariantRet => '[B',        // @NitroVariant ByteArray
-      _ when isNullableIntRet => '[B',    // NitroNullableInt ByteArray
+      _ when isVariantRet => '[B', // @NitroVariant ByteArray
+      _ when isNullableIntRet => '[B', // NitroNullableInt ByteArray
       _ when isNullableDoubleRet => '[B', // NitroNullableDouble ByteArray
-      _ when isNullableBoolRet => '[B',   // NitroNullableBool ByteArray
+      _ when isNullableBoolRet => '[B', // NitroNullableBool ByteArray
       final base when enumNames.contains(base) => 'J',
       final base when structNames.contains(base) => 'L$libPkg/$base;',
       _ when zeroCopyReturn && returnType.isTypedData => 'Ljava/nio/ByteBuffer;',
-      _ when returnType.isRecord && !returnType.isMap => '[B',  // binary record
-      _ when returnType.isMap => '[B',                          // binary map (replaces JSON)
+      _ when returnType.isRecord && !returnType.isMap => '[B', // binary record
+      _ when returnType.isMap => '[B', // binary map (replaces JSON)
       _ when returnType.isFunction => 'J',
       _ => _jniSigType(returnType.name),
     };
@@ -1148,8 +1154,8 @@ class CppBridgeGenerator {
       return 'Ljava/nio/ByteBuffer;';
     }
     if (enumNames.contains(baseParamType)) return 'J';
-    if (param.type.isRecord && !param.type.isMap) return '[B';  // binary record
-    if (param.type.isMap) return '[B';                           // binary map (replaces JSON)
+    if (param.type.isRecord && !param.type.isMap) return '[B'; // binary record
+    if (param.type.isMap) return '[B'; // binary map (replaces JSON)
     // @NitroVariant params: encoded as ByteArray [4B len][1B tag][fields]
     if (variantNames.contains(baseParamType)) return '[B';
     // Callback / function-typed params are passed as a long (function pointer).
