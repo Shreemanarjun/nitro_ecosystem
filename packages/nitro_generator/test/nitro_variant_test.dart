@@ -62,32 +62,60 @@ BridgeSpec _typeOnlyVariantSpec() => BridgeSpec(
   isTypeOnly: true,
 );
 
-BridgeSpec _variantMethodSpec({NativeImpl iosImpl = NativeImpl.swift, NativeImpl androidImpl = NativeImpl.kotlin}) =>
-    BridgeSpec(
-      dartClassName: 'Filter',
-      lib: 'mylib',
-      namespace: 'mylib',
-      iosImpl: iosImpl,
-      macosImpl: iosImpl,
-      androidImpl: androidImpl,
-      sourceUri: 'filter.native.dart',
-      variants: [_filterVariant()],
-      functions: [
-        BridgeFunction(
-          dartName: 'process',
-          cSymbol: 'mylib_process',
-          isAsync: false,
-          isNativeAsync: false,
-          returnType: BridgeType(name: 'FilterResult', isRecord: false, isFunction: false),
-          params: [
-            BridgeParam(
-              name: 'input',
-              type: BridgeType(name: 'FilterResult', isRecord: false, isFunction: false),
+BridgeSpec _typeOnlyVariantEnumSpec() => BridgeSpec(
+  dartClassName: '',
+  lib: 'foo',
+  namespace: '',
+  sourceUri: 'foo.native.dart',
+  enums: [
+    BridgeEnum(name: 'Quality', startValue: 10, values: ['low', 'normal', 'high']),
+  ],
+  variants: [
+    BridgeVariant(
+      name: 'QualityEvent',
+      cases: [
+        BridgeVariantCase(
+          name: 'QualityChanged',
+          label: 'changed',
+          fields: [
+            BridgeRecordField(
+              name: 'quality',
+              dartType: 'Quality',
+              kind: RecordFieldKind.enumValue,
             ),
           ],
         ),
       ],
-    );
+    ),
+  ],
+  isTypeOnly: true,
+);
+
+BridgeSpec _variantMethodSpec({NativeImpl iosImpl = NativeImpl.swift, NativeImpl androidImpl = NativeImpl.kotlin}) => BridgeSpec(
+  dartClassName: 'Filter',
+  lib: 'mylib',
+  namespace: 'mylib',
+  iosImpl: iosImpl,
+  macosImpl: iosImpl,
+  androidImpl: androidImpl,
+  sourceUri: 'filter.native.dart',
+  variants: [_filterVariant()],
+  functions: [
+    BridgeFunction(
+      dartName: 'process',
+      cSymbol: 'mylib_process',
+      isAsync: false,
+      isNativeAsync: false,
+      returnType: BridgeType(name: 'FilterResult', isRecord: false, isFunction: false),
+      params: [
+        BridgeParam(
+          name: 'input',
+          type: BridgeType(name: 'FilterResult', isRecord: false, isFunction: false),
+        ),
+      ],
+    ),
+  ],
+);
 
 // ── Tests ─────────────────────────────────────────────────────────────────────
 
@@ -113,8 +141,15 @@ void main() {
         namespace: '',
         sourceUri: 'foo.native.dart',
         variants: [
-          BridgeVariant(name: 'A', cases: [BridgeVariantCase(name: 'AX', label: 'x', fields: [])]),
-          BridgeVariant(name: 'B', cases: [BridgeVariantCase(name: 'BY', label: 'y', fields: [])], isImported: true),
+          BridgeVariant(
+            name: 'A',
+            cases: [BridgeVariantCase(name: 'AX', label: 'x', fields: [])],
+          ),
+          BridgeVariant(
+            name: 'B',
+            cases: [BridgeVariantCase(name: 'BY', label: 'y', fields: [])],
+            isImported: true,
+          ),
         ],
         isTypeOnly: true,
       );
@@ -205,6 +240,14 @@ void main() {
       expect(code, contains('w.writeInt8(0)'));
       expect(code, contains('w.writeInt8(1)'));
     });
+
+    test('enum fields decode and encode nativeValue, not ordinal', () {
+      final code = KotlinGenerator.generate(_typeOnlyVariantEnumSpec());
+      expect(code, contains('quality = Quality.fromNative(r.readInt64())'));
+      expect(code, contains('w.writeInt64(quality.nativeValue)'));
+      expect(code, isNot(contains('quality.ordinal.toLong()')));
+      expect(code, isNot(contains('it.ordinal == r.readInt64().toInt()')));
+    });
   });
 
   group('SwiftGenerator — @NitroVariant type-only', () {
@@ -243,8 +286,7 @@ void main() {
         variants: [BridgeVariant(name: 'Empty', cases: [])],
       );
       final result = SpecValidator.validate(spec);
-      expect(result.any((i) => i.code == 'E014'), isTrue,
-          reason: 'E014 expected for empty variant');
+      expect(result.any((i) => i.code == 'E014'), isTrue, reason: 'E014 expected for empty variant');
     });
 
     test('E014 error when variant has more than 10 cases', () {
@@ -417,8 +459,14 @@ void main() {
             isResult: true,
             returnType: BridgeType(name: 'double'),
             params: [
-              BridgeParam(name: 'a', type: BridgeType(name: 'double')),
-              BridgeParam(name: 'b', type: BridgeType(name: 'double')),
+              BridgeParam(
+                name: 'a',
+                type: BridgeType(name: 'double'),
+              ),
+              BridgeParam(
+                name: 'b',
+                type: BridgeType(name: 'double'),
+              ),
             ],
           ),
         ],
@@ -442,7 +490,12 @@ void main() {
             isAsync: false,
             isResult: true,
             returnType: BridgeType(name: 'String'),
-            params: [BridgeParam(name: 'label', type: BridgeType(name: 'String'))],
+            params: [
+              BridgeParam(
+                name: 'label',
+                type: BridgeType(name: 'String'),
+              ),
+            ],
           ),
         ],
       );
@@ -464,7 +517,12 @@ void main() {
             isAsync: false,
             isOwned: true,
             returnType: BridgeType(name: 'NativeHandle<Void>', isNativeHandle: true, nativeHandleTypeParam: 'Void'),
-            params: [BridgeParam(name: 'size', type: BridgeType(name: 'int'))],
+            params: [
+              BridgeParam(
+                name: 'size',
+                type: BridgeType(name: 'int'),
+              ),
+            ],
           ),
         ],
       );
@@ -488,7 +546,12 @@ void main() {
             isAsync: false,
             isOwned: true,
             returnType: BridgeType(name: 'NativeHandle<Void>', isNativeHandle: true, nativeHandleTypeParam: 'Void'),
-            params: [BridgeParam(name: 'size', type: BridgeType(name: 'int'))],
+            params: [
+              BridgeParam(
+                name: 'size',
+                type: BridgeType(name: 'int'),
+              ),
+            ],
           ),
         ],
       );
@@ -520,8 +583,14 @@ void main() {
           isResult: true,
           returnType: BridgeType(name: 'double', isFuture: !isNativeAsync),
           params: [
-            BridgeParam(name: 'a', type: BridgeType(name: 'double')),
-            BridgeParam(name: 'b', type: BridgeType(name: 'double')),
+            BridgeParam(
+              name: 'a',
+              type: BridgeType(name: 'double'),
+            ),
+            BridgeParam(
+              name: 'b',
+              type: BridgeType(name: 'double'),
+            ),
           ],
         ),
       ],
@@ -529,14 +598,12 @@ void main() {
 
     test('@NitroResult + @nitroAsync no longer produces E015', () {
       final issues = SpecValidator.validate(asyncResultSpec());
-      expect(issues.where((i) => i.code == 'E015'), isEmpty,
-          reason: '@nitroAsync is now allowed with @NitroResult');
+      expect(issues.where((i) => i.code == 'E015'), isEmpty, reason: '@nitroAsync is now allowed with @NitroResult');
     });
 
     test('@NitroResult + @NitroNativeAsync still produces E015', () {
       final issues = SpecValidator.validate(asyncResultSpec(isNativeAsync: true));
-      expect(issues.any((i) => i.code == 'E015'), isTrue,
-          reason: 'NativeAsync cannot encode NitroResultValue buffers via Dart_PostCObject_DL');
+      expect(issues.any((i) => i.code == 'E015'), isTrue, reason: 'NativeAsync cannot encode NitroResultValue buffers via Dart_PostCObject_DL');
     });
 
     test('@NitroResult + @nitroAsync message no longer mentions @nitroAsync', () {
@@ -562,7 +629,12 @@ void main() {
           isAsync: true,
           isOwned: true,
           returnType: BridgeType(name: 'NativeHandle<Void>', isNativeHandle: true, nativeHandleTypeParam: 'Void', isFuture: true),
-          params: [BridgeParam(name: 'size', type: BridgeType(name: 'int'))],
+          params: [
+            BridgeParam(
+              name: 'size',
+              type: BridgeType(name: 'int'),
+            ),
+          ],
         ),
       ],
     );
@@ -581,8 +653,14 @@ void main() {
           isResult: true,
           returnType: BridgeType(name: 'double', isFuture: true),
           params: [
-            BridgeParam(name: 'a', type: BridgeType(name: 'double')),
-            BridgeParam(name: 'b', type: BridgeType(name: 'double')),
+            BridgeParam(
+              name: 'a',
+              type: BridgeType(name: 'double'),
+            ),
+            BridgeParam(
+              name: 'b',
+              type: BridgeType(name: 'double'),
+            ),
           ],
         ),
       ],
@@ -601,7 +679,12 @@ void main() {
           cSymbol: 'mylib_async_process',
           isAsync: true,
           returnType: BridgeType(name: 'FilterResult', isFuture: true),
-          params: [BridgeParam(name: 'input', type: BridgeType(name: 'FilterResult'))],
+          params: [
+            BridgeParam(
+              name: 'input',
+              type: BridgeType(name: 'FilterResult'),
+            ),
+          ],
         ),
       ],
     );
@@ -671,8 +754,14 @@ void main() {
           isResult: true,
           returnType: BridgeType(name: 'double', isFuture: true),
           params: [
-            BridgeParam(name: 'a', type: BridgeType(name: 'double')),
-            BridgeParam(name: 'b', type: BridgeType(name: 'double')),
+            BridgeParam(
+              name: 'a',
+              type: BridgeType(name: 'double'),
+            ),
+            BridgeParam(
+              name: 'b',
+              type: BridgeType(name: 'double'),
+            ),
           ],
         ),
       ],
@@ -691,7 +780,12 @@ void main() {
           cSymbol: 'mylib_async_process',
           isAsync: true,
           returnType: BridgeType(name: 'FilterResult', isFuture: true),
-          params: [BridgeParam(name: 'input', type: BridgeType(name: 'FilterResult'))],
+          params: [
+            BridgeParam(
+              name: 'input',
+              type: BridgeType(name: 'FilterResult'),
+            ),
+          ],
         ),
       ],
     );
@@ -709,7 +803,12 @@ void main() {
           isAsync: true,
           isOwned: true,
           returnType: BridgeType(name: 'NativeHandle<Void>', isNativeHandle: true, nativeHandleTypeParam: 'Void', isFuture: true),
-          params: [BridgeParam(name: 'size', type: BridgeType(name: 'int'))],
+          params: [
+            BridgeParam(
+              name: 'size',
+              type: BridgeType(name: 'int'),
+            ),
+          ],
         ),
       ],
     );
@@ -771,7 +870,12 @@ void main() {
           isAsync: false,
           isOwned: true,
           returnType: BridgeType(name: 'NativeHandle<Void>', isNativeHandle: true, nativeHandleTypeParam: 'Void'),
-          params: [BridgeParam(name: 'size', type: BridgeType(name: 'int'))],
+          params: [
+            BridgeParam(
+              name: 'size',
+              type: BridgeType(name: 'int'),
+            ),
+          ],
         ),
       ],
     );

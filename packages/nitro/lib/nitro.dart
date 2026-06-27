@@ -11,37 +11,31 @@ export 'src/nitro_config.dart';
 export 'src/hybrid_exception.dart';
 // dart:convert is available everywhere — needed for Map<String,T> binary bridge.
 export 'dart:convert' show jsonDecode, jsonEncode, utf8;
+// Generated part files share the spec file imports; re-export typed_data so
+// helper code can use Int64List, ByteData, and friends without extra imports.
+export 'dart:typed_data';
 
 // ── Native-only exports (dart:ffi, dart:io required) ─────────────────────────
 // On web these are replaced by the web stub so the package remains importable.
 
-export 'src/nitro_runtime.dart'
-    if (dart.library.js_interop) 'src/nitro_runtime_web.dart';
+export 'src/nitro_runtime.dart' if (dart.library.js_interop) 'src/nitro_runtime_web.dart';
 
-export 'src/hybrid_object_base.dart'
-    if (dart.library.js_interop) 'src/hybrid_object_base.dart';
+export 'src/hybrid_object_base.dart' if (dart.library.js_interop) 'src/hybrid_object_base.dart';
 
-export 'src/isolate_pool.dart'
-    if (dart.library.js_interop) 'src/isolate_pool.dart';
+export 'src/isolate_pool.dart' if (dart.library.js_interop) 'src/isolate_pool.dart';
 
-export 'src/native_handle.dart'
-    if (dart.library.js_interop) 'src/native_handle.dart';
+export 'src/native_handle.dart' if (dart.library.js_interop) 'src/native_handle.dart';
 
-export 'src/ffi_utils.dart'
-    if (dart.library.js_interop) 'src/ffi_utils.dart';
+export 'src/ffi_utils.dart' if (dart.library.js_interop) 'src/ffi_utils.dart';
 
-export 'src/record_codec.dart'
-    if (dart.library.js_interop) 'src/record_codec.dart';
+export 'src/record_codec.dart' if (dart.library.js_interop) 'src/record_codec.dart';
 
 // ── Collision-free nullable primitive types ────────────────────────────────────
 // NitroNullableInt, NitroNullableDouble, NitroNullableBool — binary null flag,
 // no sentinel collisions, identical behavior on all platforms.
-export 'src/nitro_nullable.dart'
-    if (dart.library.js_interop) 'src/nitro_nullable.dart';
+export 'src/nitro_nullable.dart' if (dart.library.js_interop) 'src/nitro_nullable.dart';
 
 // dart:ffi — unavailable on web; web code uses dart:js_interop instead.
-export 'dart:ffi'
-    if (dart.library.js_interop) 'src/ffi_stub.dart';
+export 'dart:ffi' if (dart.library.js_interop) 'src/ffi_stub.dart';
 
-export 'package:ffi/ffi.dart'
-    if (dart.library.js_interop) 'src/ffi_stub.dart';
+export 'package:ffi/ffi.dart' if (dart.library.js_interop) 'src/ffi_stub.dart';

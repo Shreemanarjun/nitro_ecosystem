@@ -254,11 +254,11 @@ class KotlinTypeMapper implements TypeMapper {
     return st.fields.every((f) => numeric.contains(f.type.name.replaceFirst('?', '')) && !f.type.isTypedData);
   }
 
-  /// Wraps [body] in a `runBlocking { withTimeout(N) { ... } }` block when
+  /// Wraps [body] in a `runBlocking { kotlinx.coroutines.withTimeout(N) { ... } }` block when
   /// the function has an [BridgeFunction.asyncTimeout], otherwise just [body].
   static String runBlockingCall(BridgeFunction func, String body) {
     if (func.asyncTimeout != null) {
-      return 'runBlocking { withTimeout(${func.asyncTimeout}L) { $body } }';
+      return 'runBlocking { kotlinx.coroutines.withTimeout(${func.asyncTimeout}L) { $body } }';
     }
     return 'runBlocking { $body }';
   }

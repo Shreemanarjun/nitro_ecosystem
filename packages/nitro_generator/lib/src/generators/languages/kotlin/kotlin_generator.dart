@@ -24,7 +24,6 @@ class KotlinGenerator {
     final hasStreams = spec.streams.isNotEmpty;
     final hasBatchStreams = spec.streams.any((s) => s.isBatch);
     final hasAsyncFunctions = spec.functions.any((f) => f.isAsync || f.isNativeAsync);
-    final hasTimeoutFunctions = spec.functions.any((f) => f.isAsync && f.asyncTimeout != null);
     final hasNativeAsync = spec.functions.any((f) => f.isNativeAsync);
 
     // ── File header & imports ──────────────────────────────────────────────
@@ -43,7 +42,6 @@ class KotlinGenerator {
       if (hasBatchStreams) writer.line('import kotlinx.coroutines.sync.withLock');
     }
     if (hasAsyncFunctions) writer.line('import kotlinx.coroutines.runBlocking');
-    if (hasTimeoutFunctions) writer.line('import kotlinx.coroutines.withTimeout');
     writer.blankLine();
 
     // ── Type declarations (enums / structs / records / variants) ──────────────────────
