@@ -1,10 +1,8 @@
 name: nitro_annotations
-description: >
-  Annotations package for Nitro Modules (Nitrogen).
-  Provides the @NitroModule, @HybridRecord, and other annotations used by the nitro_generator.
-version: 0.4.5
+description: "Pure-Dart annotations and enums for the Nitrogen ecosystem. Zero dependencies — compatible with Flutter, Dart Server, and CLI."
 homepage: https://nitro.shreeman.dev
-repository: https://github.com/Shreemanarjun/nitro_ecosystem
+repository: https://github.com/Shreemanarjun/nitro_ecosystem/tree/main/packages/nitro_annotations
+version: 0.4.6
 
 environment:
   sdk: ^3.11.3

@@ -1,3 +1,7 @@
+## 0.4.6
+
+- **New Annotations** — Added generation support for `@NitroVariant`, `@NitroResult`, `@nitroNativeAsync`, `@zeroCopy`, and `@NitroOwned`.
+
 ## 0.4.5
 
 - **Fixed: `@NitroOwned` Swift bridge emits `return nil` instead of `return ()`** — `_emitSyncBody` in `swift_function_emitter.dart` now checks `isNativeHandle` before the `isVoid` branch. Previously a `NativeHandle<T>`-returning function fell through to the `void` default and emitted `return ()`, causing a compile-time type error (`cannot convert '()' to 'UnsafeMutableRawPointer'`).
