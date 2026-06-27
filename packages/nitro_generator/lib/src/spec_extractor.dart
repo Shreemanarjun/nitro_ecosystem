@@ -179,7 +179,7 @@ class SpecExtractor {
     // The Dart RecordExt extension is suppressed separately in record_generator.dart
     // via _nitroLibraryRecordTypes, because the Dart codec already lives on the
     // class itself in package:nitro/src/nitro_nullable.dart.
-    final _builtinNitroRecords = <BridgeRecordType>[
+    final builtinNitroRecords = <BridgeRecordType>[
       BridgeRecordType(name: 'NitroNullableInt', fields: [
         BridgeRecordField(name: 'hasValue', dartType: 'bool', kind: RecordFieldKind.primitive),
         BridgeRecordField(name: 'value',    dartType: 'int',  kind: RecordFieldKind.primitive),
@@ -193,7 +193,7 @@ class SpecExtractor {
         BridgeRecordField(name: 'value',    dartType: 'bool', kind: RecordFieldKind.primitive),
       ]),
     ];
-    final allRecordTypes = [...localRecordTypes, ...imported.records, ..._builtinNitroRecords];
+    final allRecordTypes = [...localRecordTypes, ...imported.records, ...builtinNitroRecords];
     final allStructs = [...localStructs, ...imported.structs];
     final allEnums = [...localEnums, ...imported.enums];
     final allVariants = [...localVariants, ...imported.variants];
@@ -459,10 +459,10 @@ class SpecExtractor {
 
     // Include built-in library record types (NitroNullableInt etc.) so that
     // fields whose type is a built-in record get RecordFieldKind.recordObject.
-    const _builtinLibraryRecordNames = {
+    const builtinLibraryRecordNames = {
       'NitroNullableInt', 'NitroNullableDouble', 'NitroNullableBool',
     };
-    final recordTypeNames = {...recordClasses.map((c) => c.name!), ..._builtinLibraryRecordNames};
+    final recordTypeNames = {...recordClasses.map((c) => c.name!), ...builtinLibraryRecordNames};
     final structTypeNames = structClasses.map((entry) => entry.cls.name!).toSet();
     final enumTypeNames   = enumClasses.map((entry) => entry.cls.name!).toSet();
 

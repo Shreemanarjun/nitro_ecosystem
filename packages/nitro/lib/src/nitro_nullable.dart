@@ -1,6 +1,4 @@
 import 'dart:ffi';
-import 'dart:typed_data';
-import 'package:ffi/ffi.dart';
 import 'record_codec.dart';
 
 // ── NitroNullable<T> — collision-free nullable primitive types ────────────────

@@ -217,7 +217,7 @@ void _emitResultDecode(
     writer.line('${i2}return NitroOk($valueExpr);');
   }
 
-  writer.line('${indent}} finally {');
+  writer.line('$indent} finally {');
   writer.line('$indent  malloc.free($resVar);');
   writer.line('$indent}');
 }

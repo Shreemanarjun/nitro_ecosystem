@@ -741,7 +741,7 @@ void main() {
   // ── E007: Map<String, @HybridEnum> ─────────────────────────────────────────
 
   group('E007 — Map<String, @HybridEnum> return/param', () {
-    BridgeSpec _mapEnumFn({bool isReturn = true}) {
+    BridgeSpec mapEnumFn({bool isReturn = true}) {
       final enumSpec = BridgeEnum(name: 'State', startValue: 0, values: ['ok', 'err']);
       final mapType = BridgeType(name: 'Map<String, State>', isMap: true, isRecord: true);
       return BridgeSpec(
@@ -766,13 +766,13 @@ void main() {
     }
 
     test('Map<String, @HybridEnum> return type emits E007', () {
-      final issues = SpecValidator.validate(_mapEnumFn(isReturn: true));
+      final issues = SpecValidator.validate(mapEnumFn(isReturn: true));
       expect(issues.any((i) => i.code == 'E007' && i.isError), isTrue,
           reason: 'Map<String, @HybridEnum> return must be rejected with E007');
     });
 
     test('Map<String, @HybridEnum> parameter type emits E007', () {
-      final issues = SpecValidator.validate(_mapEnumFn(isReturn: false));
+      final issues = SpecValidator.validate(mapEnumFn(isReturn: false));
       expect(issues.any((i) => i.code == 'E007' && i.isError), isTrue,
           reason: 'Map<String, @HybridEnum> param must be rejected with E007');
     });
@@ -788,7 +788,7 @@ void main() {
   // ── E008: Map<String, @HybridStruct> ───────────────────────────────────────
 
   group('E008 — Map<String, @HybridStruct> return/param', () {
-    BridgeSpec _mapStructFn({bool isReturn = true}) {
+    BridgeSpec mapStructFn({bool isReturn = true}) {
       final structSpec = BridgeStruct(name: 'Point', packed: false, fields: [
         BridgeField(name: 'x', type: BridgeType(name: 'double'), isNamed: true),
         BridgeField(name: 'y', type: BridgeType(name: 'double'), isNamed: true),
@@ -816,13 +816,13 @@ void main() {
     }
 
     test('Map<String, @HybridStruct> return type emits E008', () {
-      final issues = SpecValidator.validate(_mapStructFn(isReturn: true));
+      final issues = SpecValidator.validate(mapStructFn(isReturn: true));
       expect(issues.any((i) => i.code == 'E008' && i.isError), isTrue,
           reason: 'Map<String, @HybridStruct> return must be rejected with E008');
     });
 
     test('Map<String, @HybridStruct> parameter type emits E008', () {
-      final issues = SpecValidator.validate(_mapStructFn(isReturn: false));
+      final issues = SpecValidator.validate(mapStructFn(isReturn: false));
       expect(issues.any((i) => i.code == 'E008' && i.isError), isTrue,
           reason: 'Map<String, @HybridStruct> param must be rejected with E008');
     });

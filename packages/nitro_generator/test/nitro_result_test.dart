@@ -8,16 +8,14 @@
 //   - E015 validation: cannot combine with @NitroNativeAsync (but @nitroAsync is now allowed)
 //   - E015 validation: cannot wrap void return type
 
-import 'package:nitro_generator/src/bridge_spec.dart';
 import 'package:nitro_generator/src/generators/languages/c_bridge/cpp_bridge_generator.dart';
 import 'package:nitro_generator/src/generators/languages/dart/dart_ffi_generator.dart';
-import 'package:nitro_generator/src/spec_validator.dart';
 import 'package:test/test.dart';
 import 'test_utils.dart';
 
 // ── Fixture specs ─────────────────────────────────────────────────────────────
 
-/// Spec with a @NitroResult<String> synchronous method.
+/// Spec with a `@NitroResult<String>` synchronous method.
 BridgeSpec _resultStringSpec() => BridgeSpec(
   dartClassName: 'Auth',
   lib: 'auth',
@@ -40,7 +38,7 @@ BridgeSpec _resultStringSpec() => BridgeSpec(
   ],
 );
 
-/// Spec with a @NitroResult<int> synchronous method (no arena params).
+/// Spec with a `@NitroResult<int>` synchronous method (no arena params).
 BridgeSpec _resultIntSpec() => BridgeSpec(
   dartClassName: 'Counter',
   lib: 'counter',
@@ -62,7 +60,7 @@ BridgeSpec _resultIntSpec() => BridgeSpec(
   ],
 );
 
-/// Spec with a @NitroResult<bool> synchronous method (no arena params).
+/// Spec with a `@NitroResult<bool>` synchronous method (no arena params).
 BridgeSpec _resultBoolSpec() => BridgeSpec(
   dartClassName: 'Gate',
   lib: 'gate',
@@ -102,7 +100,7 @@ BridgeFunction _resultVoidFunc() => BridgeFunction(
   isResult: true,
 );
 
-/// Spec with a @NitroResult<double> synchronous method (no params, no arena).
+/// Spec with a `@NitroResult<double>` synchronous method (no params, no arena).
 BridgeSpec _resultDoubleSpec() => BridgeSpec(
   dartClassName: 'Sensor',
   lib: 'sensor',
@@ -122,7 +120,7 @@ BridgeSpec _resultDoubleSpec() => BridgeSpec(
   ],
 );
 
-/// Spec with a @NitroResult<Severity> enum return — needs enum in spec.
+/// Spec with a `@NitroResult<Severity>` enum return — needs enum in spec.
 BridgeSpec _resultEnumSpec() => BridgeSpec(
   dartClassName: 'Logger',
   lib: 'logger',
@@ -147,7 +145,7 @@ BridgeSpec _resultEnumSpec() => BridgeSpec(
   ],
 );
 
-/// Spec with a @NitroResult<Vec3> struct return — needs struct in spec.
+/// Spec with a `@NitroResult<Vec3>` struct return — needs struct in spec.
 BridgeSpec _resultStructSpec() => BridgeSpec(
   dartClassName: 'Physics',
   lib: 'physics',
@@ -180,7 +178,7 @@ BridgeSpec _resultStructSpec() => BridgeSpec(
   ],
 );
 
-/// Spec with a @NitroResult<Profile> record return — needs record in spec.
+/// Spec with a `@NitroResult<Profile>` record return — needs record in spec.
 BridgeSpec _resultRecordSpec() => BridgeSpec(
   dartClassName: 'Database',
   lib: 'database',

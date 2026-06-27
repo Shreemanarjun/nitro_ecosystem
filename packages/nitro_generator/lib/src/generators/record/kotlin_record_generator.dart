@@ -52,8 +52,8 @@ String _generateKotlinRecords(BridgeSpec spec) {
           return '${f.name} = map["${f.name}"] as String';
         case RecordFieldKind.enumValue:
           return f.isNullable
-              ? '${f.name} = (map["${f.name}"] as Long?)?.let { ${base}.fromNative(it) }'
-              : '${f.name} = ${base}.fromNative(map["${f.name}"] as Long)';
+              ? '${f.name} = (map["${f.name}"] as Long?)?.let { $base.fromNative(it) }'
+              : '${f.name} = $base.fromNative(map["${f.name}"] as Long)';
         case RecordFieldKind.recordObject:
           // @Suppress must be on the EXPRESSION, not on the named argument itself.
           return f.isNullable
@@ -69,7 +69,7 @@ String _generateKotlinRecords(BridgeSpec spec) {
     }).join(',\n                ');
     s.writeln('        @Suppress("UNCHECKED_CAST")');
     s.writeln('        @JvmStatic fun fromJson(map: Map<String, Any?>): ${rt.name} = ${rt.name}(');
-    s.writeln('                ${companionFromJsonFields}');
+    s.writeln('                $companionFromJsonFields');
     s.writeln('        )');
     // Thread-local encode buffers (#8 perf): avoid per-call ByteArrayOutputStream allocation.
     s.writeln('        // Thread-local encode buffers — avoids allocation per bridge call.');
@@ -105,7 +105,6 @@ String _generateKotlinRecords(BridgeSpec spec) {
 
     // --- encode to ByteArray (with 4-byte length prefix) ---
     // Thread-local buffers avoid per-call ByteArrayOutputStream/ByteBuffer allocation (#8 perf).
-    final capacity = _recordBytesHint(rt);
     s.writeln('    fun encode(): ByteArray {');
     s.writeln('        val out = _tlsOut.get()!!.also { it.reset() }');
     s.writeln('        val buf = _tlsBuf.get()!!');
@@ -121,7 +120,6 @@ String _generateKotlinRecords(BridgeSpec spec) {
     // Allows Kotlin bridge to serialize/deserialize when used as Map values.
     s.writeln('    // --- toJson/fromJson for Map<String, ${rt.name}> support ---');
     final toJsonFields = rt.fields.map((f) {
-      final base = f.dartType.replaceFirst('?', '');
       switch (f.kind) {
         case RecordFieldKind.enumValue:
           return f.isNullable

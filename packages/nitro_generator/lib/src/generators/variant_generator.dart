@@ -173,7 +173,7 @@ class VariantGenerator {
         s.line('${indent}writer.writeInt($name.index);');
       case RecordFieldKind.struct:
       case RecordFieldKind.recordObject:
-        s.line('${indent}$name.writeFields(writer);');
+        s.line('$indent$name.writeFields(writer);');
       case RecordFieldKind.listPrimitive:
         final item = f.itemTypeName ?? 'int';
         s.line('${indent}writer.writeInt32($name.length);');

@@ -132,7 +132,7 @@ class SwiftFunctionEmitter {
             // @NitroVariant param: decode from [4B len][1B tag][fields] buffer.
             // NitroRecordReader skips the 4-byte prefix internally.
             final vn = p.type.name.replaceFirst('?', '');
-            return '${p.name}: ${vn}.fromReader(NitroRecordReader(ptr: ${p.name}!.assumingMemoryBound(to: UInt8.self)))';
+            return '${p.name}: $vn.fromReader(NitroRecordReader(ptr: ${p.name}!.assumingMemoryBound(to: UInt8.self)))';
           }
           final isEnum = spec.isEnumName(p.type.name.replaceFirst('?', ''));
           if (isEnum) {

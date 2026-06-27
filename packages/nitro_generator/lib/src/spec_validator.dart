@@ -709,8 +709,8 @@ class SpecValidator {
       // stream items. The batch protocol packs items into a native Int64 array;
       // String/enum/struct/record items cannot be represented that way.
       if (stream.isBatch) {
-        const _batchSupportedTypes = {'int', 'double', 'bool'};
-        if (!_batchSupportedTypes.contains(iName)) {
+        const batchSupportedTypes = {'int', 'double', 'bool'};
+        if (!batchSupportedTypes.contains(iName)) {
           issues.add(
             ValidationIssue(
               severity: ValidationSeverity.error,

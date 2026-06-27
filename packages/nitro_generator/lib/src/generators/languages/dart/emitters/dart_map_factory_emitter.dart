@@ -8,7 +8,7 @@ writer.blankLine();
 final mapValueTypes = <String>{};
 for (final func in spec.functions) {
   _collectMapValueTypes(func.returnType, mapValueTypes);
-  for (final p in func.params) _collectMapValueTypes(p.type, mapValueTypes);
+  for (final p in func.params) { _collectMapValueTypes(p.type, mapValueTypes); }
 }
 for (final prop in spec.properties) {
   _collectMapValueTypes(prop.type, mapValueTypes);

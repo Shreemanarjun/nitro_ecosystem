@@ -325,13 +325,6 @@ void _writeFieldStmt(CodeWriter s, BridgeRecordField f) {
   }
 }
 
-/// Write expression for a TypedData field to a RecordWriter.
-/// All TypedData types are stored as [4B byte_length][element_bytes].
-String _typedDataWriteCall(String base, String expr) {
-  final toBytes = base == 'Uint8List' ? expr : '$expr.buffer.asUint8List()';
-  return 'writeBlob($toBytes)';
-}
-
 void _writePrimitiveStmt(
   CodeWriter s,
   String dartType,

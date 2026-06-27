@@ -132,14 +132,14 @@ class KotlinVariantEmitter {
       RecordFieldKind.primitive                        => 'r.readString()',
       RecordFieldKind.enumValue                        => '$base.entries.first { it.ordinal == r.readInt64().toInt() }',
       RecordFieldKind.struct || RecordFieldKind.recordObject
-                                                       => '${base}.fromReader(r)',
+                                                       => '$base.fromReader(r)',
       RecordFieldKind.listPrimitive => () {
         final item = f.itemTypeName ?? 'int';
         return 'List(r.readInt32()) { ${_primitiveRead(item)} }';
       }(),
       RecordFieldKind.listRecordObject => () {
         final item = f.itemTypeName ?? base;
-        return 'List(r.readInt32()) { ${item}.fromReader(r) }';
+        return 'List(r.readInt32()) { $item.fromReader(r) }';
       }(),
       _ => 'r.readString()',
     };

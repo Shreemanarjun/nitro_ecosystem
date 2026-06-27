@@ -1120,13 +1120,13 @@ void _emitJniInitializeAndPostHelpers(
   writer.line('        // NEXT GetStaticMethodID with a pending exception aborts the JVM on');
   writer.line('        // Android >= API 26 (strict JNI mode). Clearing after each failure');
   writer.line('        // lets the remaining lookups proceed and logs the missing method.');
-  final _initVariantNames = spec.variants.map((v) => v.name).toSet();
+  final initVariantNames = spec.variants.map((v) => v.name).toSet();
   for (final func in spec.functions) {
     final String jniSig;
     if (func.isNativeAsync) {
       jniSig = _jniNativeAsyncSig(func.params, enumNames, structNames, libPkg);
     } else {
-      jniSig = _jniSig(func.params, func.returnType, enumNames, structNames, libPkg, zeroCopyReturn: func.zeroCopyReturn, isResult: func.isResult, variantNames: _initVariantNames);
+      jniSig = _jniSig(func.params, func.returnType, enumNames, structNames, libPkg, zeroCopyReturn: func.zeroCopyReturn, isResult: func.isResult, variantNames: initVariantNames);
     }
     writer.line('        g_mid_${func.dartName}_call = env->GetStaticMethodID(g_bridgeClass, "${func.dartName}_call", "$jniSig");');
     writer.line('        if (!g_mid_${func.dartName}_call && env->ExceptionCheck()) { env->ExceptionClear(); LOGE("Method not found: ${func.dartName}_call sig=$jniSig"); }');

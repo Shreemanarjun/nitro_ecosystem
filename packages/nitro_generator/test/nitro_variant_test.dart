@@ -504,7 +504,7 @@ void main() {
   // ── Async combinations (@nitroAsync + NitroOwned / NitroResult / NitroVariant) ──
 
   group('SpecValidator — @NitroResult + async', () {
-    BridgeSpec _asyncResultSpec({bool isNativeAsync = false}) => BridgeSpec(
+    BridgeSpec asyncResultSpec({bool isNativeAsync = false}) => BridgeSpec(
       dartClassName: 'Calc',
       lib: 'calc',
       namespace: 'calc',
@@ -528,20 +528,20 @@ void main() {
     );
 
     test('@NitroResult + @nitroAsync no longer produces E015', () {
-      final issues = SpecValidator.validate(_asyncResultSpec());
+      final issues = SpecValidator.validate(asyncResultSpec());
       expect(issues.where((i) => i.code == 'E015'), isEmpty,
           reason: '@nitroAsync is now allowed with @NitroResult');
     });
 
     test('@NitroResult + @NitroNativeAsync still produces E015', () {
-      final issues = SpecValidator.validate(_asyncResultSpec(isNativeAsync: true));
+      final issues = SpecValidator.validate(asyncResultSpec(isNativeAsync: true));
       expect(issues.any((i) => i.code == 'E015'), isTrue,
           reason: 'NativeAsync cannot encode NitroResultValue buffers via Dart_PostCObject_DL');
     });
 
     test('@NitroResult + @nitroAsync message no longer mentions @nitroAsync', () {
       // Regression: old message told users to "remove @nitroAsync" — should not say that now.
-      final issues = SpecValidator.validate(_asyncResultSpec(isNativeAsync: true));
+      final issues = SpecValidator.validate(asyncResultSpec(isNativeAsync: true));
       final e015 = issues.firstWhere((i) => i.code == 'E015', orElse: () => throw 'no E015');
       expect(e015.message, isNot(contains('@nitroAsync')));
       expect(e015.message, contains('@NitroNativeAsync'));
@@ -549,7 +549,7 @@ void main() {
   });
 
   group('SwiftGenerator — @nitroAsync + annotation combos', () {
-    BridgeSpec _asyncOwnedSpec() => BridgeSpec(
+    BridgeSpec asyncOwnedSpec() => BridgeSpec(
       dartClassName: 'Alloc',
       lib: 'alloc',
       namespace: 'alloc',
@@ -567,7 +567,7 @@ void main() {
       ],
     );
 
-    BridgeSpec _asyncResultSpec() => BridgeSpec(
+    BridgeSpec asyncResultSpec() => BridgeSpec(
       dartClassName: 'Calc',
       lib: 'calc',
       namespace: 'calc',
@@ -588,7 +588,7 @@ void main() {
       ],
     );
 
-    BridgeSpec _asyncVariantSpec() => BridgeSpec(
+    BridgeSpec asyncVariantSpec() => BridgeSpec(
       dartClassName: 'Filter',
       lib: 'mylib',
       namespace: 'mylib',
@@ -607,7 +607,7 @@ void main() {
     );
 
     test('@nitroAsync @NitroOwned uses DispatchSemaphore + _ownedPtr', () {
-      final out = SwiftGenerator.generate(_asyncOwnedSpec());
+      final out = SwiftGenerator.generate(asyncOwnedSpec());
       expect(out, contains('DispatchSemaphore'));
       expect(out, contains('var _ownedPtr: UnsafeMutableRawPointer? = nil'));
       expect(out, contains('try? await impl.acquireBuffer(size: size)'));
@@ -615,7 +615,7 @@ void main() {
     });
 
     test('@nitroAsync @NitroOwned does not emit `return ()` or `return impl.method()` directly', () {
-      final out = SwiftGenerator.generate(_asyncOwnedSpec());
+      final out = SwiftGenerator.generate(asyncOwnedSpec());
       // Must NOT call impl directly on the calling thread.
       expect(out, isNot(contains('return impl.acquireBuffer')));
       // Must NOT fall through to void/default path.
@@ -623,7 +623,7 @@ void main() {
     });
 
     test('@nitroAsync @NitroResult uses DispatchSemaphore + try/catch + encode', () {
-      final out = SwiftGenerator.generate(_asyncResultSpec());
+      final out = SwiftGenerator.generate(asyncResultSpec());
       expect(out, contains('DispatchSemaphore'));
       expect(out, contains('var _nitroOk: Double? = nil'));
       expect(out, contains('var _nitroErr: Error? = nil'));
@@ -634,13 +634,13 @@ void main() {
     });
 
     test('@nitroAsync @NitroResult does not call impl synchronously', () {
-      final out = SwiftGenerator.generate(_asyncResultSpec());
+      final out = SwiftGenerator.generate(asyncResultSpec());
       // Must not have a direct synchronous try/do without sema.
       expect(out, isNot(contains('let result = try impl.asyncSafeDiv')));
     });
 
     test('@nitroAsync @NitroVariant uses DispatchSemaphore + NitroRecordWriter', () {
-      final out = SwiftGenerator.generate(_asyncVariantSpec());
+      final out = SwiftGenerator.generate(asyncVariantSpec());
       expect(out, contains('DispatchSemaphore'));
       expect(out, contains('var _vResult: FilterResult? = nil'));
       expect(out, contains('try? await impl.asyncProcess'));
@@ -651,13 +651,13 @@ void main() {
     });
 
     test('@nitroAsync @NitroVariant does not call impl synchronously', () {
-      final out = SwiftGenerator.generate(_asyncVariantSpec());
+      final out = SwiftGenerator.generate(asyncVariantSpec());
       expect(out, isNot(contains('let _vResult = impl.asyncProcess')));
     });
   });
 
   group('KotlinGenerator — @nitroAsync + annotation combos', () {
-    BridgeSpec _asyncResultSpec() => BridgeSpec(
+    BridgeSpec asyncResultSpec() => BridgeSpec(
       dartClassName: 'Calc',
       lib: 'calc',
       namespace: 'calc',
@@ -678,7 +678,7 @@ void main() {
       ],
     );
 
-    BridgeSpec _asyncVariantSpec() => BridgeSpec(
+    BridgeSpec asyncVariantSpec() => BridgeSpec(
       dartClassName: 'Filter',
       lib: 'mylib',
       namespace: 'mylib',
@@ -696,7 +696,7 @@ void main() {
       ],
     );
 
-    BridgeSpec _asyncOwnedSpec() => BridgeSpec(
+    BridgeSpec asyncOwnedSpec() => BridgeSpec(
       dartClassName: 'Alloc',
       lib: 'alloc',
       namespace: 'alloc',
@@ -715,41 +715,41 @@ void main() {
     );
 
     test('@nitroAsync @NitroResult uses _asyncExecutor.submit with runBlocking', () {
-      final out = KotlinGenerator.generate(_asyncResultSpec());
+      final out = KotlinGenerator.generate(asyncResultSpec());
       expect(out, contains('_asyncExecutor.submit'));
       expect(out, contains('runBlocking { impl.asyncSafeDiv(a, b) }'));
     });
 
     test('@nitroAsync @NitroResult encodes ok and err paths', () {
-      final out = KotlinGenerator.generate(_asyncResultSpec());
+      final out = KotlinGenerator.generate(asyncResultSpec());
       expect(out, contains('nitroEncodeResultFloat64(_result)'));
       expect(out, contains('nitroEncodeResultError(_e.message'));
     });
 
     test('@nitroAsync @NitroResult does not call impl synchronously', () {
-      final out = KotlinGenerator.generate(_asyncResultSpec());
+      final out = KotlinGenerator.generate(asyncResultSpec());
       expect(out, isNot(contains('val _result = impl.asyncSafeDiv')));
     });
 
     test('@nitroAsync @NitroVariant uses _asyncExecutor.submit with runBlocking', () {
-      final out = KotlinGenerator.generate(_asyncVariantSpec());
+      final out = KotlinGenerator.generate(asyncVariantSpec());
       expect(out, contains('_asyncExecutor.submit'));
       expect(out, contains('runBlocking { impl.asyncProcess('));
     });
 
     test('@nitroAsync @NitroVariant still encodes via RecordWriter + writeFields', () {
-      final out = KotlinGenerator.generate(_asyncVariantSpec());
+      final out = KotlinGenerator.generate(asyncVariantSpec());
       expect(out, contains('RecordWriter()'));
       expect(out, contains('_vResult.writeFields(_vw)'));
     });
 
     test('@nitroAsync @NitroVariant does not call impl synchronously', () {
-      final out = KotlinGenerator.generate(_asyncVariantSpec());
+      final out = KotlinGenerator.generate(asyncVariantSpec());
       expect(out, isNot(contains('val _vResult = impl.asyncProcess')));
     });
 
     test('@nitroAsync @NitroOwned uses _asyncExecutor.submit and returns Long', () {
-      final out = KotlinGenerator.generate(_asyncOwnedSpec());
+      final out = KotlinGenerator.generate(asyncOwnedSpec());
       expect(out, contains('_asyncExecutor.submit'));
       expect(out, contains('runBlocking { impl.asyncAcquireBuffer(size) }'));
       // JNI bridge return type is Long (jlong handle).
@@ -758,7 +758,7 @@ void main() {
   });
 
   group('CppBridgeGenerator — @NitroOwned release symbol', () {
-    BridgeSpec _ownedSpec() => BridgeSpec(
+    BridgeSpec ownedSpec() => BridgeSpec(
       dartClassName: 'Alloc',
       lib: 'alloc',
       namespace: 'alloc',
@@ -777,12 +777,12 @@ void main() {
     );
 
     test('generates _release symbol for @NitroOwned function', () {
-      final out = CppBridgeGenerator.generate(_ownedSpec());
+      final out = CppBridgeGenerator.generate(ownedSpec());
       expect(out, contains('void alloc_acquire_buffer_release(void* handle)'));
     });
 
     test('_release frees pointer on non-Android via #ifdef __ANDROID__ guard', () {
-      final out = CppBridgeGenerator.generate(_ownedSpec());
+      final out = CppBridgeGenerator.generate(ownedSpec());
       // Global section uses #ifdef __ANDROID__ to select no-op vs free().
       expect(out, contains('#ifdef __ANDROID__'));
       expect(out, contains('(void)handle;'));
@@ -790,7 +790,7 @@ void main() {
     });
 
     test('_release is in the global section (before platform guards)', () {
-      final out = CppBridgeGenerator.generate(_ownedSpec());
+      final out = CppBridgeGenerator.generate(ownedSpec());
       // The _release must appear BEFORE any #ifdef __ANDROID__ platform guard
       // so Android compiles it in the no-op branch and Apple in the free() branch.
       final releasePos = out.indexOf('alloc_acquire_buffer_release');
@@ -802,7 +802,7 @@ void main() {
     test('_release symbol matches header declaration (cSymbol + _release)', () {
       // Regression: the released symbol name must equal the C call symbol + "_release"
       // so Dart's dlsym lookup finds it at runtime.
-      final out = CppBridgeGenerator.generate(_ownedSpec());
+      final out = CppBridgeGenerator.generate(ownedSpec());
       expect(out, contains('alloc_acquire_buffer_release'));
       // Must NOT use a wrong/generic name.
       expect(out, isNot(contains('void _release(')));

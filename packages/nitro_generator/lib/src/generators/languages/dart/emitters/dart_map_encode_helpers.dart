@@ -85,6 +85,4 @@ void _emitMapBinaryHelpers(CodeWriter writer, String vt, BridgeSpec spec) {
   writer.blankLine();
 }
 
-// Keep for backward compat — no longer used (binary helpers replace JSON helpers)
-bool _hasDoubleMapType(BridgeSpec spec) => false;
 

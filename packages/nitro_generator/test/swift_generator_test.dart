@@ -466,7 +466,7 @@ void main() {
     // ── Nullable bool parameter encoding ─────────────────────────────────────
 
     group('nullable bool parameter — @_cdecl stub', () {
-      BridgeSpec _boolParamSpec({bool nullable = false}) => BridgeSpec(
+      BridgeSpec boolParamSpec({bool nullable = false}) => BridgeSpec(
         dartClassName: 'Mod',
         lib: 'mod',
         namespace: 'mod',
@@ -490,14 +490,14 @@ void main() {
       );
 
       test('non-nullable bool param uses Int8', () {
-        final out = SwiftGenerator.generate(_boolParamSpec(nullable: false));
+        final out = SwiftGenerator.generate(boolParamSpec(nullable: false));
         expect(out, contains('_ flag: Int8'));
         expect(out, isNot(contains('_ flag: Int32')));
         expect(out, contains('flag: flag != 0'));
       });
 
       test('nullable bool? param uses UnsafeMutableRawPointer? for NitroNullable', () {
-        final out = SwiftGenerator.generate(_boolParamSpec(nullable: true));
+        final out = SwiftGenerator.generate(boolParamSpec(nullable: true));
         // C bridge sends NitroNullable binary buffer (Pointer<Uint8>) for bool?.
         expect(out, contains('_ flag: UnsafeMutableRawPointer?'));
         expect(out, isNot(contains('_ flag: Int32')));
@@ -510,7 +510,7 @@ void main() {
     // ── Async nullable return sentinels ───────────────────────────────────────
 
     group('async nullable return sentinels', () {
-      BridgeSpec _asyncNullableSpec(String returnType) => BridgeSpec(
+      BridgeSpec asyncNullableSpec(String returnType) => BridgeSpec(
         dartClassName: 'Mod',
         lib: 'mod',
         namespace: 'mod',
@@ -529,19 +529,19 @@ void main() {
       );
 
       test('async nullable int? returns -1 for nil (Dart sentinel)', () {
-        final out = SwiftGenerator.generate(_asyncNullableSpec('int'));
+        final out = SwiftGenerator.generate(asyncNullableSpec('int'));
         expect(out, contains('return result ?? Int64.min'));
         expect(out, isNot(contains('return result ?? 0\n')));
       });
 
       test('async nullable double? returns Double.nan for nil (Dart sentinel)', () {
-        final out = SwiftGenerator.generate(_asyncNullableSpec('double'));
+        final out = SwiftGenerator.generate(asyncNullableSpec('double'));
         expect(out, contains('return result ?? Double.nan'));
         expect(out, isNot(contains('return result ?? 0.0')));
       });
 
       test('async nullable bool? returns -1 for nil and 1/0 for true/false', () {
-        final out = SwiftGenerator.generate(_asyncNullableSpec('bool'));
+        final out = SwiftGenerator.generate(asyncNullableSpec('bool'));
         expect(out, contains('guard let b = result else { return -1 }'));
         expect(out, contains('return b ? 1 : 0'));
         // Must not fall back to false-default path.
@@ -552,7 +552,7 @@ void main() {
     // ── List param decoding (indexed format) ──────────────────────────────────
 
     group('list param decoding uses decodeIndexedList', () {
-      BridgeSpec _listParamSpec(String listType, {List<BridgeRecordType> recordTypes = const []}) => BridgeSpec(
+      BridgeSpec listParamSpec(String listType, {List<BridgeRecordType> recordTypes = const []}) => BridgeSpec(
         dartClassName: 'Mod',
         lib: 'mod',
         namespace: 'mod',
@@ -577,23 +577,23 @@ void main() {
       );
 
       test('List<int> param uses decodeIndexedList to skip offset table', () {
-        final out = SwiftGenerator.generate(_listParamSpec('List<int>'));
+        final out = SwiftGenerator.generate(listParamSpec('List<int>'));
         expect(out, contains('NitroRecordReader.decodeIndexedList'));
         expect(out, isNot(contains('NitroRecordReader.decodeList')));
       });
 
       test('List<double> param uses decodeIndexedList', () {
-        final out = SwiftGenerator.generate(_listParamSpec('List<double>'));
+        final out = SwiftGenerator.generate(listParamSpec('List<double>'));
         expect(out, contains('NitroRecordReader.decodeIndexedList'));
       });
 
       test('List<String> param uses decodeIndexedList', () {
-        final out = SwiftGenerator.generate(_listParamSpec('List<String>'));
+        final out = SwiftGenerator.generate(listParamSpec('List<String>'));
         expect(out, contains('NitroRecordReader.decodeIndexedList'));
       });
 
       test('List<@HybridRecord> param uses decodeIndexedList', () {
-        final out = SwiftGenerator.generate(_listParamSpec(
+        final out = SwiftGenerator.generate(listParamSpec(
           'List<Config>',
           recordTypes: [
             BridgeRecordType(
