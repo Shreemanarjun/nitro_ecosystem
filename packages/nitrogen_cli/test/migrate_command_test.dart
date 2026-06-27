@@ -41,6 +41,13 @@ Directory _scaffoldModern({bool withIos = true, bool withMacos = false}) {
   return root;
 }
 
+Future<void> _pumpUntil(dynamic tester, bool Function() predicate) async {
+  for (var i = 0; i < 20; i++) {
+    if (predicate()) return;
+    await tester.pump();
+  }
+}
+
 void main() {
   // ── MigrationResult ────────────────────────────────────────────────────────
 
@@ -339,7 +346,9 @@ void main() {
     });
 
     tearDown(() {
-      try { Directory.current = savedCwd; } catch (_) {}
+      try {
+        Directory.current = savedCwd;
+      } catch (_) {}
       if (tmp.existsSync()) tmp.deleteSync(recursive: true);
     });
 
@@ -369,9 +378,10 @@ void main() {
 
         // Confirm migration
         await tester.sendKey(LogicalKey.keyY);
-        await tester.pump();
-        await tester.pump();
-        await tester.pump();
+        await _pumpUntil(
+          tester,
+          () => File(p.join(tmp.path, 'ios', 'my_plugin', 'Package.swift')).existsSync(),
+        );
       });
 
       // Package.swift should be at nested path
@@ -412,9 +422,10 @@ void main() {
         await tester.pump();
         await tester.pump();
         await tester.sendKey(LogicalKey.keyY);
-        await tester.pump();
-        await tester.pump();
-        await tester.pump();
+        await _pumpUntil(
+          tester,
+          () => Directory(p.join(tmp.path, 'ios', 'my_plugin', 'Sources', 'MyPluginCpp')).existsSync(),
+        );
       });
 
       expect(
@@ -451,9 +462,7 @@ void main() {
         await tester.pump();
         await tester.pump();
         await tester.sendKey(LogicalKey.keyY);
-        await tester.pump();
-        await tester.pump();
-        await tester.pump();
+        await _pumpUntil(tester, () => result.success);
       });
 
       expect(result.migratedPlatforms, contains('ios'));
