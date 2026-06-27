@@ -165,7 +165,7 @@ class VariantGenerator {
       s.line('${indent}writer.writeBool($name != null);');
       s.line('${indent}if ($name != null) {');
       s.line('$indent  ${_fieldWriteStmtForExpr(base, name, f.kind, f.itemTypeName)}');
-      s.line('${indent}}');
+      s.line('$indent}');
       return;
     }
 
