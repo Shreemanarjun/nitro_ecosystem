@@ -36,7 +36,7 @@
 14. [Incremental Generation](#14-incremental-generation)
 15. [Developer Experience Improvements](#15-developer-experience-improvements)
 16. [Implementation Roadmap](#16-implementation-roadmap)
-17. [Appendix A: Workarounds for Current Bugs](#appendix-a-workarounds-for-current-bugs)
+17. [Appendix A: Historical Workarounds](#appendix-a-historical-workarounds)
 18. [Appendix B: Files Affected Per Plugin](#appendix-b-files-affected-per-plugin)
 
 ---
@@ -384,7 +384,18 @@ Reference table showing the exact generated symbol for every Dart type.
 
 ## 5. Generator Correctness — P0 Bugs
 
+### ✅ DONE 2026-06-21 — Callback type correctness (T12-T16)
+
+**Fixed:**
+- **JNI `ExceptionClear()` guards** (T12): `initialize()` now clears pending exceptions after every `GetStaticMethodID` failure to prevent cascading JVM abort on Android ≥ API 26. `nitro_printing.bridge.g.cpp` (39 guards) and `nitro_torch.bridge.g.cpp` (11 guards) regenerated.
+- **Swift callback wrapper direction** (T13): `_toSwiftCallbackWrapper` was generating `EnumType(rawValue: arg0)` (converts Int64→Enum, passing Enum where Int64 expected). Fixed to `arg0.rawValue` (Enum→Int64).
+- **Callback param type specificity** (T14-T16): All callback params now use type-specific JNI/Kotlin/Swift types instead of `Long`/`jlong`/`Int64` for everything. Full table in §8.5.
+
+---
+
 ### 5.1 Default value propagation (`int`, `double`, `bool`, `String`)
+
+> **Status: ⬜ OPEN — not yet fixed**
 
 **Root cause:** `BridgeParam` has no `defaultLiteral: String?` field.
 The `spec_extractor.dart` reads the param type and name but discards
@@ -615,8 +626,8 @@ Each subsection lists the **target test file**, **existing coverage**, and
 | `Future<int>` async | `Future<int>` | ✓ |
 | `Future<double>` async | `Future<double>` | ✓ |
 | `Future<String>` async | `Future<String>` | ✓ |
-| `Future<Uint8List>` async | `Future<Uint8List>` | need test |
-| `Future<@HybridStruct>` async | `Future<Foo>` | need test |
+| `Future<Uint8List>` async | `Future<Uint8List>` | ✓ (`dart_ffi_param_return_test`) |
+| `Future<@HybridStruct>` async | `Future<Foo>` | ✓ (`dart_ffi_param_return_test`) |
 | `Future<@HybridEnum>` async | `Future<Foo>` | ✓ (dart_ffi_generator_test) |
 | `Future<List<@HybridRecord>>` async | `Future<List<Foo>>` | ✓ (dart_ffi_generator_record_test) |
 | `@HybridEnum` sync | `Foo` | ✓ |
@@ -804,6 +815,24 @@ for (final (typeName, _) in typedDataVariants) {
 ### 8.5 CppBridgeGenerator / CppHeaderGenerator
 
 **Files:** `cpp_bridge_generator_test.dart`, `cpp_header_generator_test.dart`, `cpp_bridge_types_test.dart`
+
+#### ✅ DONE 2026-06-21 — `callback_param_types_test.dart` (51 tests)
+
+All callback parameter types now generate correct code across C++, Kotlin, Swift, and Dart FFI generators:
+
+| Dart callback param | C++ JNI | Kotlin `_invoke_` | Swift `@convention(c)` | Dart NativeCallable | Status |
+|---|---|---|---|---|---|
+| `int` | `jlong` → `int64_t` | `Long` | `Int64` | `Void Function(Int64)` | ✅ |
+| `double` | `jdouble` → `double` | `Double` | `Double` | `Void Function(Double)` | ✅ |
+| `bool` | `jboolean` → `bool` | `Boolean` | `Bool` | `Void Function(Int8)` | ✅ |
+| `String` | `jstring`+`GetStringUTFChars` → `const char*` | `String?` | `UnsafePointer<CChar>?` | `Void Function(Pointer<Utf8>)` | ✅ |
+| `@HybridEnum` | `jlong`(nativeValue) → `int64_t` | `Long`(nativeValue) | `Int64`(rawValue) | `Void Function(Int64)` | ✅ |
+| `@HybridStruct` | `jobject`→`pack_from_jni`→`const S*` | data class | `UnsafeRawPointer?` (shadow var) | `Void Function(Pointer<Void>)` | ✅ |
+| `@HybridRecord` | `jbyteArray`→malloc→`const uint8_t*` | `ByteArray`(.encode()) | `UnsafeMutablePointer<UInt8>?`(.toNative()) | `Void Function(Pointer<Uint8>)`+free | ✅ |
+
+Also fixed:
+- **ExceptionClear guards**: All `GetStaticMethodID` calls in generated `initialize()` now have `if (!g_mid_xxx && env->ExceptionCheck()) { env->ExceptionClear(); LOGE(...); }` guards to prevent cascading JVM abort on Android ≥ API 26.
+- **Swift callback wrapper bug**: `_toSwiftCallbackWrapper` was generating `EnumType(rawValue: arg0)` (wrong direction) instead of `arg0.rawValue`.
 
 #### ✅ DONE 2026-05-23 — `cpp_bridge_types_test.dart` (40 tests)
 
@@ -1407,6 +1436,11 @@ nitro generate --watch
 4. Update `cache.json` after generation.
 5. `--clean` / `nitro clean` deletes `cache.json` to force full regen.
 
+**Status:** ✅ Implemented 2026-06-20. `nitrogen generate` stores SHA-256
+spec hashes in `.dart_tool/nitro/cache.json`, passes changed specs into
+build-runner build filters, skips generation when hashes and outputs match,
+and clears stale build-runner locks without deleting `asset_graph.json`.
+
 | Scenario | Full regen | Incremental |
 |---|---|---|
 | 1 spec changed out of 7 | 7× cost | 1× cost |
@@ -1496,7 +1530,17 @@ nitro generate --verbose
 | Same for enum defaults (Bug 5.2) | ✅ **DONE** 2026-05-23 | `dart_ffi_param_return_test.dart` Bug 5.2 group (3 tests) |
 | Validation emits W001 when `defaultLiteral` is null on non-nullable optional param | ✅ **DONE** 2026-05-22 | 7 W001 tests in `spec_validator_test` pass |
 | All new spec helpers in `test_utils.dart` added (§9) | ✅ **DONE** 2026-05-23 | `typedDataCppMappings`, `streamSpec`, `specWithDefaultlessIntNamedParam`, `specWithEnumNamedParam` added |
-| All P0 missing tests from §8.1–8.3 added | 🔲 Partial | test suite green |
+| All P0 missing tests from §8.1–8.3 added | ✅ **DONE** 2026-06-19 | full generator suite green (`2654` passing) |
+| Callback param type correctness (all 7 types: int/double/bool/String/enum/struct/record) across C++, Kotlin, Swift, Dart FFI | ✅ **DONE** 2026-06-21 | `callback_param_types_test.dart` (51 tests); all 4 generators emit type-specific JNI/C types |
+| JNI `ExceptionClear()` guard after each `GetStaticMethodID` in generated `initialize()` | ✅ **DONE** 2026-06-21 | nitro_printing (39 guards) + nitro_torch (11 guards); prevents Android ≥ API 26 SIGABRT on method ID lookup failure |
+| Swift `_toSwiftCallbackWrapper` enum direction fix (`EnumType(rawValue: arg)` → `arg.rawValue`) | ✅ **DONE** 2026-06-21 | `callback_type_test.dart` covers; iOS builds without `Cannot convert TorchState to Int64` |
+| Generator test suite | ✅ **DONE** 2026-06-21 | **2822 tests** passing |
+| Curly braces in all generated C++ `if`-statements | ✅ **DONE** 2026-06-21 | 19 bare ifs wrapped in `{ }` across `cpp_bridge_generator.dart`, `cpp_direct_emitter.dart`, `jni_method_emitter.dart`, `jni_swift_prologue.dart` |
+| `NativeHandle<T>` + `@NitroOwned` — NH1–NH12 | ✅ **DONE** 2026-06-21 | Full 5-generator implementation + 20 tests in `native_handle_test.dart`; doc at `doc/advanced/native_handle.md` |
+| ZeroCopyBuffer stress test (TC3) | ✅ **DONE** 2026-06-21 | `zero_copy_buffer_stress_test.dart` — 19 tests, all 9 variants, 10k cycles |
+| IsolatePool 1,000-concurrent dispatch (TC4) | ✅ **DONE** 2026-06-21 | 3 new stress tests in `isolate_pool_test.dart`; 1,000 concurrent + 1,000 with errors + 4-pool cross-contamination |
+| Spec roundtrip all platform combos (TC5) | ✅ **DONE** 2026-06-21 | `spec_roundtrip_test.dart` — 42 tests, exhaustive matrix |
+| Documentation DC1–DC5 | ✅ **DONE** 2026-06-21 | Migration guide, Windows/Linux build guides, memory management, async guide, C++ testing guide |
 
 ### Phase 2 — P1: Type completeness
 
@@ -1507,11 +1551,23 @@ nitro generate --verbose
 | All 10 TypedData variant tests — C++ | ✅ **DONE** 2026-05-22 | `cpp_type_mapping_test` (35 tests) |
 | All stream item types tested (§3.10) — Swift + Kotlin | ✅ **DONE** 2026-05-22 | `stream_all_types_test` (27 tests) |
 | All property types tested (§3.11) — Swift + Kotlin + C++ | ✅ **DONE** 2026-05-22 | `property_all_types_test` (42 tests) |
-| Async return types fully tested (§3.9) — Swift + Kotlin + Dart | ✅ **DONE** 2026-05-22 | `async_return_types_test` (28 tests) |
+| Async return types fully tested (§3.9) — Swift + Kotlin + Dart | ✅ **DONE** 2026-06-19 | `async_return_types_test`, `dart_ffi_param_return_test`, `swift_typed_data_async_test`; async TypedData returns now verify decode/copy/free path |
 | Nullable param/return types tested — Swift + Kotlin | ✅ **DONE** 2026-05-22 | Sections 3–4 of `type_mapping_swift/kotlin_test` |
 | Struct with every field type variant (§3.5) | ✅ **DONE** 2026-05-23 | `struct_field_types_test.dart` kitchen-sink covers all types in Swift/Kotlin/C++ |
 | Record with every field type variant (§3.6) | ✅ **DONE** 2026-05-23 | `record_field_types_test.dart` (56 tests): bool/double/Uint8List/List<T>/Swift boilerplate |
 | Source-map comments emitted in all generators | ✅ **DONE** 2026-05-23 | `source_map_comments_test.dart` (13 tests); Swift/Kotlin/C++ emit `// source: file:line` when lineNumber non-null |
+
+### Phase 2.5 — P1: Generator facade architecture
+
+| Task | Status | Done when |
+|---|---|---|
+| Move native generators from flat files into language folders | ✅ **DONE** 2026-06-19 | `generators/languages/{dart,kotlin,swift,c_bridge,cpp_native,cmake}/` owns language-specific generators |
+| Add facade/model layer for generator isolation and future language support | ✅ **DONE** 2026-06-19 | `native_generator_facade.dart`, `native_generator_model.dart`, and per-language `*_generator_bundle.dart` files |
+| Add typed writer/model for generated code assembly | ✅ **DONE** 2026-06-19 | `code_writer.dart` with `CodeNode`, `CodeFile`, `CodeLine`, `CodeBlock`, `CodeWriter` |
+| Remove raw `StringBuffer(` usage from generator emitters | ✅ **DONE** 2026-06-20 | `rg "StringBuffer\\(" packages/nitro_generator/lib/src/generators` only matches `code_writer.dart` internals |
+| Fix required `BridgeFunction(isAsync: ...)` constructor fallout in existing tests | ✅ **DONE** 2026-06-19 | full generator suite compiles and passes |
+| Add tests for facade and typed writer isolation | ✅ **DONE** 2026-06-19 | `code_writer_test.dart`, `native_generator_facade_test.dart` |
+| Verify generator suite after architecture move | ✅ **DONE** 2026-06-19 | direct Dart SDK test run: `2654: All tests passed!` |
 
 ### Phase 3 — P1: CLI modes
 
@@ -1519,9 +1575,9 @@ nitro generate --verbose
 |---|---|---|
 | `nitro generate --no-ui` headless mode | ✅ **DONE** 2026-05-23 | `[nitro]` prefix lines, no ANSI; `generate_command.dart` |
 | TTY auto-detection | ✅ **DONE** 2026-05-23 | `_headless` getter checks `!stdout.hasTerminal`; auto-activates in CI |
-| `--check` mode | 🔲 TODO | exit code 3 when stale |
+| `--check` mode | ✅ **DONE** 2026-06-20 | exit code 3 when stale |
 | `--fail-on-warn` flag | ✅ **DONE** 2026-05-23 | exit code 2 on `[WARNING]` lines; `runStreamingInspected` in `ui.dart` |
-| `--dry-run` flag | 🔲 TODO | no files written, paths listed |
+| `--dry-run` flag | ✅ **DONE** 2026-06-20 | no files written, paths listed |
 
 ### Phase 4 — P1: Validation pass
 
@@ -1549,10 +1605,10 @@ nitro generate --verbose
 
 | Task | Status | Done when |
 |---|---|---|
-| Content-hash incremental generation | 🔲 TODO | only changed spec regenerated |
+| Content-hash incremental generation | ✅ **DONE** 2026-06-20 | SHA-256 cache in `.dart_tool/nitro/cache.json`; only changed specs regenerated; no-change runs skip; build_runner asset graph preserved |
 | `nitro clean` command | ✅ **DONE** 2026-05-23 | `clean_command.dart`; deletes `*.g.dart`, `*.bridge.g.swift`, `*.bridge.g.kt`, `Hybrid*.hpp/cpp`, `*.bridge.g.h`, build_runner lock+graph |
-| `--targets` partial generation | 🔲 TODO | only specified platforms emitted |
-| `--watch` with 250ms debounce | 🔲 TODO | triggers correctly on single file save |
+| `--targets` partial generation | ✅ **DONE** 2026-06-20 | only specified targets emitted |
+| `--watch` with 250ms debounce | ✅ **DONE** 2026-06-20 | triggers correctly on single file save |
 
 ### Phase 7 — P3: Developer tools
 
@@ -1565,9 +1621,10 @@ nitro generate --verbose
 
 ---
 
-## Appendix A: Workarounds for Current Bugs
+## Appendix A: Historical Workarounds
 
-Until Phase 1 is complete, use these patterns in spec files.
+Phase 1 default-literal bugs are fixed. Keep these patterns only as fallback
+guidance for older generated code or projects pinned to an older Nitro version.
 
 ### Optional param with int/double/bool default → nullable
 
@@ -1652,6 +1709,47 @@ Future<bool> setMetadata(String metaJson);   // caller: jsonEncode(map)
 | `typed_list_bridge_test.dart` | TypedData in bridge |
 | `edge_cases_test.dart` | Empty spec, no-function spec, etc. |
 
+### New tests added 2026-06-19 (architecture/facade; suite: 2654 passing — 0 failures)
+
+| Test file | What it covers |
+|---|---|
+| `code_writer_test.dart` | Typed code writer primitives: lines, blank lines, raw snippets, blocks, and file assembly |
+| `native_generator_facade_test.dart` | Facade/bundle dispatch and language-target isolation for generated native outputs |
+| Existing generator tests updated | `BridgeFunction(isAsync: ...)` required constructor argument added across helpers/tests; all existing generator coverage compiles |
+
+### New tests added 2026-06-19 (performance/correctness; focused suites green)
+
+| Test file | What it covers |
+|---|---|
+| `build_yaml_drift_test.dart` | `build.yaml` output extensions stay in sync with the canonical builder extension map, including C++ native/mock/test outputs |
+| `build_versions_test.dart` | CLI scaffold/link templates emit platform/build versions from centralized `BuildVersions` constants and scan `packages/nitrogen_cli/lib` for hardcoded version drift |
+| `dart_ffi_param_return_test.dart` | Async `Uint8List` and `Float32List` returns decode from a malloc-owned `[int64 byteLength][payload]` envelope and free native memory |
+| `swift_typed_data_async_test.dart` | Swift async/sync TypedData returns allocate the same C-`malloc` length-prefixed envelope for Dart |
+| `cpp_bridge_types_test.dart` | JNI TypedData returns copy JVM primitive arrays into the length-prefixed envelope |
+| `record_field_types_test.dart` | `@HybridEnum` fields and `List<@HybridEnum>` fields inside `@HybridRecord` encode as native values and decode back to enums across Dart/Kotlin/Swift/C++ record serializers |
+| `cpp_bridge_generator_test.dart` | Nullable `@HybridStruct` params in direct/Apple C++ bridges emit a `nitro_report_error` null guard before pointer dereference |
+| `generator_metadata_test.dart` | All generator families emit shared `nitro_generator: 0.4.4` stale-generation metadata, CMake uses `#` comments, and the metadata version matches `pubspec.yaml` |
+| `jni_perf_test.dart` | Assert-gated `NitroRuntime.checkError`, cached JNI IDs, arena lifetime, contextual JNI `LOGE`, typed `callAsync<T>`, TypedData null guards, and unknown JNI type failure |
+| `kotlin_generator_test.dart` | Conditional coroutine imports: sync-only bridges omit coroutine APIs, async bridges import `runBlocking`, and stream bridges import Flow/launch scope APIs |
+
+### New tests added 2026-06-20 (zero-copy TypedData returns)
+
+| Test file | What it covers |
+|---|---|
+| `dart_ffi_generator_test.dart` | Method-level `@zeroCopy` TypedData returns decode from `[int64 byteLength][int64 dataAddress][int64 owner]` and attach the native release symbol as a typed-list finalizer |
+| `kotlin_generator_test.dart` | Zero-copy TypedData returns use `java.nio.ByteBuffer` in both the Kotlin implementation interface and JNI bridge method |
+| `cpp_bridge_generator_test.dart` | JNI zero-copy TypedData returns use `GetDirectBufferAddress`/GlobalRef retention instead of `GetByteArrayRegion` |
+| `cpp_header_generator_test.dart` | Generated C headers declare `${lib}_release_typed_data_return` for Dart finalizer lookup |
+| `swift_generator_test.dart` | Swift emits the same three-word native envelope for zero-copy TypedData return views |
+| `cpp_interface_generator_test.dart` / `cpp_mock_generator_test.dart` | NativeImpl.cpp zero-copy TypedData returns use `NitroCppBuffer` so the C++ ABI carries pointer + length |
+| `spec_validator_test.dart` | Naked TypedData returns remain invalid unless method-level `@zeroCopy` is present; Kotlin/Swift/C++ zero-copy return specs validate cleanly |
+| `lazy_record_list_test.dart` | `RecordWriter` growable buffer and `RecordReader` in-place scalar/string decode performance guards |
+| `link_command_test.dart` | Contextual errors for malformed `package_config.json` while resolving Nitro native paths |
+| `spec_extractor_error_test.dart` | `SpecParseException` carries source/cause context and `spec_extractor.dart` has no silent `catch (_)` swallow path |
+| `packages/nitro/test/isolate_pool_test.dart` | IsolatePool min-heap least-busy scheduling, call-id routing, dispose behavior, and concurrent dispatch stress coverage |
+| `packages/nitro/test/call_sync_test.dart` | `NitroRuntime.checkSupportedPlatform` accepts the current platform and throws an actionable unsupported-platform error before dylib loading |
+| `dart_ffi_generator_test.dart` | Generated Dart FFI implementations route library loading through `NitroRuntime.loadLibForTargets(...)` with the full platform target matrix |
+
 ### New tests added 2026-05-23 (total: ~119 new tests; suite: 1991 passing — 0 failures)
 
 | Test file | Tests | What it covers |
@@ -1675,6 +1773,53 @@ Future<bool> setMetadata(String metaJson);   // caller: jsonEncode(map)
 
 ---
 
-*Plan authored 2026-05-22. Updated 2026-05-23 with Phase 1/2/4 progress.
+### New tests added 2026-06-26 — `@NitroOwned` / `@NitroVariant` / `@NitroResult` regression guards (suite: **3200 passing**)
+
+| Test file | Tests added | What it covers |
+|---|---|---|
+| `nitro_variant_test.dart` | +7 | `@NitroVariant` protocol uses concrete type not `Any`; `@NitroResult` uses `throws -> T`; `@NitroOwned` guard emits `return nil` not `return ()`; `_release` symbol generation, `free()` correctness, global-section placement, symbol name contract |
+| `all_generators_type_coverage_test.dart` | regression | Updated 4 stale `(void*)` → `(uint8_t*)` assertions after C++ bridge cast fix |
+
+#### `@NitroOwned` — `_release` symbol fix (2026-06-26)
+
+**Problem:** The generator declared `${cSymbol}_release` in the C header but never emitted an implementation. `dlsym` failed at runtime with "undefined symbol" on both macOS (`dlsym: symbol not found`) and Android (`undefined symbol`).
+
+**Root cause:** `_emitSwiftBridgeSection` and `_emitAppleCppDispatch` had no `_release` emission. The symbol was inside `#elif __APPLE__` so Android never compiled it.
+
+**Fix in `cpp_bridge_generator.dart`:** Emit `_release` in the **global section** (before any `#ifdef __ANDROID__` platform guard), with an internal `#ifdef __ANDROID__` guard selecting the right body:
+
+```cpp
+extern "C" {
+NITRO_EXPORT void ${cSymbol}_release(void* handle) {
+#ifdef __ANDROID__
+    (void)handle;           // jlong from Kotlin — Kotlin GC manages lifecycle
+#else
+    if (handle) { free(handle); }   // malloc from UnsafeMutableRawPointer.allocate
+#endif
+}
+}
+```
+
+This ensures the symbol exists in the `.so`/`.dylib`/`.framework` on every platform.
+
+#### `@NitroOwned` Swift bridge guard fix (2026-06-26)
+
+**Problem:** `_emitSyncBody` in `swift_function_emitter.dart` had no branch for `func.returnType.isNativeHandle`. It fell to `else` → `defaultCDeclValue('void')` → `return ()`, which is invalid in a `UnsafeMutableRawPointer?`-returning function.
+
+**Fix:** Added `isNativeHandle` branch before `isVariantRet`/`isVoid`:
+```dart
+} else if (func.returnType.isNativeHandle) {
+  writer.line('    guard let impl = ${spec.dartClassName}Registry.impl else { return nil }');
+  writer.line('    return impl.${func.dartName}($callArgs)');
+}
+```
+
+#### Test runner — all platforms (2026-06-26)
+
+`scripts/run_tests.sh` updated to support `macos`, `ios`, `android`, `linux`, `windows`, and `all` modes. Each platform is availability-gated (host OS check + device discovery). The `regen()` function syncs all four platform directories (Swift bridge + ObjC++ bridge for iOS and macOS) after every `build_runner` run. Tests confirmed passing on macOS, iOS, and Android.
+
+---
+
+*Plan authored 2026-05-22. Updated 2026-06-26 with `@NitroOwned`/`@NitroVariant`/`@NitroResult` fixes and 3200-test milestone.
 Ground-truthed against `packages/nitro_generator/` source.
 Revisit §4 Type Mapping tables after each Nitro generator release.*

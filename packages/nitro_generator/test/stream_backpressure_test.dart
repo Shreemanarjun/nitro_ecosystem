@@ -1,8 +1,8 @@
 // Tests that all three Backpressure enum values flow correctly through
 // the DartFfiGenerator, KotlinGenerator, and SwiftGenerator outputs.
-import 'package:nitro_generator/src/generators/dart_ffi_generator.dart';
-import 'package:nitro_generator/src/generators/kotlin_generator.dart';
-import 'package:nitro_generator/src/generators/swift_generator.dart';
+import 'package:nitro_generator/src/generators/languages/dart/dart_ffi_generator.dart';
+import 'package:nitro_generator/src/generators/languages/kotlin/kotlin_generator.dart';
+import 'package:nitro_generator/src/generators/languages/swift/swift_generator.dart';
 import 'package:test/test.dart';
 import 'test_utils.dart';
 
@@ -121,6 +121,12 @@ void main() {
       expect(out, contains('hub_register_fast_stream'));
       expect(out, contains('hub_register_safe_stream'));
       expect(out, contains('hub_register_buffered_stream'));
+    });
+
+    test('collector starts undispatched so immediate native emits are not missed', () {
+      final out = KotlinGenerator.generate(_streamSpec(Backpressure.block));
+      expect(out, contains('import kotlinx.coroutines.CoroutineStart'));
+      expect(out, contains('launch(start = CoroutineStart.UNDISPATCHED)'));
     });
   });
 

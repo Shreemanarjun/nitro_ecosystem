@@ -1,0 +1,75 @@
+# CI — Generator unit tests + runtime tests
+#
+# Runs the full nitro_generator test suite (2900+ tests) and the nitro runtime
+# tests (100 tests) on every push and pull request. These tests run on Ubuntu
+# for speed and cover all generators, callback types, S8 out-param ABI, web
+# bridge, NativeHandle, and all platform combinations.
+
+name: Generator & Runtime CI
+
+on:
+  push:
+    branches: [main, 'refactor-*', 'feature-*']
+  pull_request:
+    branches: [main]
+
+jobs:
+  generator:
+    name: nitro_generator tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      # Resolve the full workspace from the root so every member is available.
+      # Running pub get from a sub-package would fail because the root
+      # pubspec.yaml declares workspace members that CI must be able to locate.
+      - name: Get workspace dependencies
+        run: flutter pub get
+
+      - name: Run nitro_generator tests
+        run: flutter test --reporter expanded
+        working-directory: packages/nitro_generator
+
+  runtime:
+    name: nitro runtime tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: Get workspace dependencies
+        run: flutter pub get
+
+      - name: Run nitro runtime tests
+        run: flutter test --reporter expanded
+        working-directory: packages/nitro
+
+  build-yaml-drift:
+    name: build.yaml drift check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: Get workspace dependencies
+        run: flutter pub get
+
+      - name: Verify build.yaml matches build_extensions
+        run: flutter test test/build_yaml_drift_test.dart
+        working-directory: packages/nitro_generator

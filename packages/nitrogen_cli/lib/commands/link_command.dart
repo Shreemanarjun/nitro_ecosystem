@@ -10,6 +10,7 @@ import '../templates/cpp_stubs.dart' as t;
 import '../templates/forwarder_templates.dart';
 import '../templates/swift_templates.dart' as st;
 import '../templates/cmake_templates.dart' as ct;
+import '../templates/build_versions.dart';
 import 'spm_utils.dart' as spm;
 
 // ── Package-level helpers (also used in tests) ─────────────────────────────
@@ -41,7 +42,11 @@ String resolveNitroNativePath(String pluginDir) {
             }
           }
         }
-      } catch (_) {}
+      } on FormatException catch (e) {
+        throw StateError('Failed to parse ${configFile.path} while resolving the nitro native path: ${e.message}');
+      } on FileSystemException catch (e) {
+        throw StateError('Failed to read ${configFile.path} while resolving the nitro native path: ${e.message}');
+      }
     }
     final parent = searchDir.parent;
     if (parent.path == searchDir.path) break;
@@ -52,15 +57,9 @@ String resolveNitroNativePath(String pluginDir) {
   );
 }
 
-bool nitroNativePathExists(String cmakeNitroNative, String srcDir) {
-  final resolved = cmakeNitroNative.replaceAll(
-    r'${CMAKE_CURRENT_SOURCE_DIR}',
-    srcDir,
-  );
-  return File(p.join(resolved, 'dart_api_dl.h')).existsSync();
-}
-
-// dartApiDlForwarderContent is imported from '../templates/native_headers.dart'.
+const String _srcLocalNitroNativeCmakePath = ct.localNitroNativeCmakePath;
+const String _desktopLocalNitroNativeCmakePath = r'${CMAKE_CURRENT_SOURCE_DIR}/../src/native';
+const String _linkSpecChecksumPrefix = '# NITRO_LINK_SPEC_CHECKSUM ';
 
 String? extractLibNameFromSpec(File specFile) {
   final content = specFile.readAsStringSync();
@@ -261,6 +260,54 @@ List<ModuleInfo> discoverModuleInfos(
     }
   }
   return modules;
+}
+
+String computeLinkSpecChecksum({String baseDir = '.'}) {
+  final libDir = Directory(p.join(baseDir, 'lib'));
+  if (!libDir.existsSync()) return _fnv64Hex('no-lib');
+
+  final specs = libDir.listSync(recursive: true).whereType<File>().where((f) => f.path.endsWith('.native.dart')).toList()
+    ..sort((a, b) => p.relative(a.path, from: baseDir).compareTo(p.relative(b.path, from: baseDir)));
+
+  if (specs.isEmpty) return _fnv64Hex('no-specs');
+
+  final parts = <String>[];
+  for (final spec in specs) {
+    parts
+      ..add(p.relative(spec.path, from: baseDir))
+      ..add(spec.readAsStringSync());
+  }
+  return _fnv64Hex(parts.join('\n--- nitro spec ---\n'));
+}
+
+String _fnv64Hex(String input) {
+  final mask = BigInt.parse('ffffffffffffffff', radix: 16);
+  final prime = BigInt.parse('100000001b3', radix: 16);
+  var hash = BigInt.parse('cbf29ce484222325', radix: 16);
+  for (final unit in input.codeUnits) {
+    hash = hash ^ BigInt.from(unit);
+    hash = (hash * prime) & mask;
+  }
+  return hash.toRadixString(16).padLeft(16, '0');
+}
+
+({String content, bool modified}) _stampLinkSpecChecksum(String content, String checksum) {
+  final line = '$_linkSpecChecksumPrefix$checksum';
+  final regex = RegExp(r'^# NITRO_LINK_SPEC_CHECKSUM .*$', multiLine: true);
+  final match = regex.firstMatch(content);
+  if (match != null) {
+    if (match.group(0) == line) return (content: content, modified: false);
+    return (content: content.replaceFirst(regex, line), modified: true);
+  }
+
+  final nitroNativeLine = RegExp(r'^set\(NITRO_NATIVE "[^"]+"\)$', multiLine: true);
+  if (nitroNativeLine.hasMatch(content)) {
+    return (
+      content: content.replaceFirstMapped(nitroNativeLine, (m) => '${m.group(0)}\n$line'),
+      modified: true,
+    );
+  }
+  return (content: '$line\n$content', modified: true);
 }
 
 // Keep legacy signature for external callers
@@ -914,6 +961,9 @@ class _LinkViewState extends State<LinkView> {
 
 void createSharedHeaders(String nitroNativePath, {String baseDir = '.'}) {
   Directory(p.join(baseDir, 'src')).createSync(recursive: true);
+  final localNativeDir = Directory(p.join(baseDir, 'src', 'native'));
+  localNativeDir.createSync(recursive: true);
+  Directory(p.join(localNativeDir.path, 'internal')).createSync(recursive: true);
   final srcFile = File(p.join(nitroNativePath, 'nitro.h'));
 
   // If the source nitro.h is missing the required macros, update it first.
@@ -928,12 +978,22 @@ void createSharedHeaders(String nitroNativePath, {String baseDir = '.'}) {
       srcFile.createSync(recursive: true);
       srcFile.writeAsStringSync(nitroHContent);
     } catch (_) {
-      // Might not have write access to pub-cache; that's fine, we'll write to the local project.
+      // Might not have write access to the installed package; that's fine,
+      // we'll write to the local project.
     }
   }
 
   // Always write the correct content to the local project directories.
   File(p.join(baseDir, 'src', 'nitro.h')).writeAsStringSync(nitroHContent);
+  File(p.join(localNativeDir.path, 'nitro.h')).writeAsStringSync(nitroHContent);
+  for (final headerName in ['dart_api_dl.h', 'dart_api.h', 'dart_native_api.h', 'dart_version.h']) {
+    final src = File(p.join(nitroNativePath, headerName));
+    if (src.existsSync()) src.copySync(p.join(localNativeDir.path, headerName));
+  }
+  final implHeader = File(p.join(nitroNativePath, 'internal', 'dart_api_dl_impl.h'));
+  if (implHeader.existsSync()) {
+    implHeader.copySync(p.join(localNativeDir.path, 'internal', 'dart_api_dl_impl.h'));
+  }
   if (Directory(p.join(baseDir, 'ios', 'Classes')).existsSync()) {
     File(
       p.join(baseDir, 'ios', 'Classes', 'nitro.h'),
@@ -946,7 +1006,7 @@ void createSharedHeaders(String nitroNativePath, {String baseDir = '.'}) {
   }
   File(
     p.join(baseDir, 'src', 'dart_api_dl.c'),
-  ).writeAsStringSync(dartApiDlForwarderContent(nitroNativePath));
+  ).writeAsStringSync(bundledDartApiDlContent);
 
   // Also populate any existing SPM C++ target include/ dirs (nested layout:
   // {platform}/<pluginName>/Sources/<ClassName>Cpp/include/).
@@ -993,8 +1053,10 @@ void linkCMake(
   }
   var content = cmakeFile.readAsStringSync();
   bool modified = false;
-  const defaultCmakeNitro = r'${CMAKE_CURRENT_SOURCE_DIR}/../../packages/nitro/src/native';
-  final desiredNitroValue = nitroNativePathExists(defaultCmakeNitro, p.join(baseDir, 'src')) ? defaultCmakeNitro : nitroNativePath.replaceAll(r'\', '/');
+  final stamp = _stampLinkSpecChecksum(content, computeLinkSpecChecksum(baseDir: baseDir));
+  content = stamp.content;
+  modified = modified || stamp.modified;
+  const desiredNitroValue = _srcLocalNitroNativeCmakePath;
   final nitroNativeSetLine = 'set(NITRO_NATIVE "$desiredNitroValue")';
   if (!content.contains('NITRO_NATIVE')) {
     content = '$nitroNativeSetLine\n\n$content';
@@ -1003,7 +1065,7 @@ void linkCMake(
     final staleMatch = RegExp(
       r'set\(NITRO_NATIVE\s+"([^"]+)"\)',
     ).firstMatch(content);
-    if (staleMatch != null && !nitroNativePathExists(staleMatch.group(1)!, p.join(baseDir, 'src')) && staleMatch.group(1) != desiredNitroValue) {
+    if (staleMatch != null && staleMatch.group(1) != desiredNitroValue) {
       content = content.replaceFirst(staleMatch.group(0)!, nitroNativeSetLine);
       modified = true;
     }
@@ -1012,7 +1074,7 @@ void linkCMake(
     // Inject C++17 standard after the project() declaration.
     content = content.replaceFirstMapped(
       RegExp(r'project\([^)]+\)\s*\n'),
-      (m) => '${m.group(0)!}\nset(CMAKE_CXX_STANDARD 17)\nset(CMAKE_CXX_STANDARD_REQUIRED ON)\n',
+      (m) => '${m.group(0)!}\nset(CMAKE_CXX_STANDARD ${BuildVersions.cmakeCxxStandard})\nset(CMAKE_CXX_STANDARD_REQUIRED ON)\n',
     );
     modified = true;
   }
@@ -1104,22 +1166,16 @@ void generateCMake(
   String baseDir = '.',
   List<ModuleInfo>? moduleInfos,
 }) {
-  final nitroValue =
-      nitroNativePathExists(
-        r'${CMAKE_CURRENT_SOURCE_DIR}/../../packages/nitro/src/native',
-        p.join(baseDir, 'src'),
-      )
-      ? r'${CMAKE_CURRENT_SOURCE_DIR}/../../packages/nitro/src/native'
-      : nitroNativePath.replaceAll(r'\', '/');
-
   final infos = moduleInfos?.map((m) => (lib: m.lib, module: m.module, isNativeCpp: m.isNativeCpp, isAndroidCpp: m.isAndroidCpp)).toList();
+  final linkChecksum = computeLinkSpecChecksum(baseDir: baseDir);
 
   File(p.join(baseDir, 'src', 'CMakeLists.txt')).writeAsStringSync(
     ct.generateCMakeContent(
       pluginName,
       moduleLibs,
-      nitroValue,
+      _srcLocalNitroNativeCmakePath,
       moduleInfos: infos,
+      linkChecksum: linkChecksum,
     ),
   );
 }
@@ -1265,17 +1321,17 @@ void linkPodspec(
       modified = true;
     }
   }
-  if (!content.contains("s.swift_version = '5.9'")) {
+  if (!content.contains("s.swift_version = '${BuildVersions.podSwiftVersion}'")) {
     content = content.replaceFirst(
       RegExp(r"s\.swift_version\s*=\s*'.+?'"),
-      "s.swift_version = '5.9'",
+      "s.swift_version = '${BuildVersions.podSwiftVersion}'",
     );
     modified = true;
   }
-  if (!content.contains("s.platform = :ios, '13.0'")) {
+  if (!content.contains("s.platform = :ios, '${BuildVersions.iosDeployment}.0'")) {
     content = content.replaceFirst(
       RegExp(r"s\.platform\s*=\s*:ios,\s*'.+?'"),
-      "s.platform = :ios, '13.0'",
+      "s.platform = :ios, '${BuildVersions.iosDeployment}.0'",
     );
     modified = true;
   }
@@ -1314,10 +1370,10 @@ void linkPodspec(
     );
     modified = true;
   }
-  if (!content.contains("'CLANG_CXX_LANGUAGE_STANDARD'") && !content.contains('c++17')) {
+  if (!content.contains("'CLANG_CXX_LANGUAGE_STANDARD'") && !content.contains(BuildVersions.podCxxStandard)) {
     content = content.replaceFirst(
       's.pod_target_xcconfig = {',
-      "s.pod_target_xcconfig = {\n    'CLANG_CXX_LANGUAGE_STANDARD' => 'c++17',",
+      "s.pod_target_xcconfig = {\n    'CLANG_CXX_LANGUAGE_STANDARD' => '${BuildVersions.podCxxStandard}',",
     );
     modified = true;
   }
@@ -1442,24 +1498,25 @@ void linkMacosPodspec(
       modified = true;
     }
   }
-  if (!content.contains("s.swift_version = '5.9'")) {
+  if (!content.contains("s.swift_version = '${BuildVersions.podSwiftVersion}'")) {
     content = content.replaceFirst(
       RegExp(r"s\.swift_version\s*=\s*'.+?'"),
-      "s.swift_version = '5.9'",
+      "s.swift_version = '${BuildVersions.podSwiftVersion}'",
     );
     modified = true;
   }
-  if (!content.contains("s.platform = :osx, '10.15'")) {
+  final macosDeployment = BuildVersions.macosDeployment.replaceAll('_', '.');
+  if (!content.contains("s.platform = :osx, '$macosDeployment'")) {
     if (RegExp(r"s\.platform\s*=\s*:osx").hasMatch(content)) {
       content = content.replaceFirst(
         RegExp(r"s\.platform\s*=\s*:osx,\s*'.+?'"),
-        "s.platform = :osx, '10.15'",
+        "s.platform = :osx, '$macosDeployment'",
       );
     } else {
       // Insert platform line after the spec name line
       content = content.replaceFirst(
         RegExp(r"(s\.name\s*=.+\n)"),
-        r"$1  s.platform = :osx, '10.15'\n",
+        "\$1  s.platform = :osx, '$macosDeployment'\n",
       );
     }
     modified = true;
@@ -1498,10 +1555,10 @@ void linkMacosPodspec(
     );
     modified = true;
   }
-  if (!content.contains("'CLANG_CXX_LANGUAGE_STANDARD'") && !content.contains('c++17')) {
+  if (!content.contains("'CLANG_CXX_LANGUAGE_STANDARD'") && !content.contains(BuildVersions.podCxxStandard)) {
     content = content.replaceFirst(
       's.pod_target_xcconfig = {',
-      "s.pod_target_xcconfig = {\n    'CLANG_CXX_LANGUAGE_STANDARD' => 'c++17',",
+      "s.pod_target_xcconfig = {\n    'CLANG_CXX_LANGUAGE_STANDARD' => '${BuildVersions.podCxxStandard}',",
     );
     modified = true;
   }
@@ -1908,8 +1965,8 @@ void _syncCppModuleSourcesToSpm(
 
     // Copy nitro API headers and dart_api_dl.c into the SPM C++ target.
     // Always write the canonical nitroHContent (with NITRO_ERROR_DEFINED guard)
-    // directly rather than copying from packages/nitro/src/native/nitro.h, which
-    // lacks the guard. Using different copies with inconsistent guards causes a
+    // directly rather than copying from the installed nitro package, which may
+    // lack the guard. Using different copies with inconsistent guards causes a
     // "Typedef redefinition" error when both are included in the same TU.
     File(p.join(includeDir.path, 'nitro.h')).writeAsStringSync(nitroHContent);
     for (final headerName in ['dart_api_dl.h', 'dart_api.h', 'dart_native_api.h', 'dart_version.h']) {
@@ -2348,10 +2405,21 @@ void _linkDesktopCMake(
   var content = cmakeFile.readAsStringSync();
   bool modified = false;
 
-  final desiredNitroValue = nitroNativePath.replaceAll(r'\', '/');
+  const desiredNitroValue = _desktopLocalNitroNativeCmakePath;
   if (!content.contains('NITRO_NATIVE')) {
     content = 'set(NITRO_NATIVE "$desiredNitroValue")\n\n$content';
     modified = true;
+  } else {
+    final staleMatch = RegExp(
+      r'set\(NITRO_NATIVE\s+"([^"]+)"\)',
+    ).firstMatch(content);
+    if (staleMatch != null && staleMatch.group(1) != desiredNitroValue) {
+      content = content.replaceFirst(
+        staleMatch.group(0)!,
+        'set(NITRO_NATIVE "$desiredNitroValue")',
+      );
+      modified = true;
+    }
   }
 
   // Desktop CMake templates use `${PLUGIN_NAME}` (a CMake variable) as the
@@ -2495,7 +2563,7 @@ void linkAndroid(
     // Fix ndkVersion = android.ndkVersion → hardcoded version for standalone builds.
     content = content.replaceAll(
       'ndkVersion = android.ndkVersion',
-      'ndkVersion = "27.0.12077973"',
+      'ndkVersion = "${BuildVersions.androidNdk}"',
     );
     // Collapse sequences of 3+ blank lines to a single blank line (cosmetic cleanup).
     content = content.replaceAll(RegExp(r'\n{3,}'), '\n\n');
@@ -2563,14 +2631,14 @@ void linkAndroid(
     }
   }
 
-  // 2. Ensure kotlinOptions { jvmTarget = "17" } for correct bytecode target.
+  // 2. Ensure kotlinOptions has the expected JVM target for correct bytecode.
   if (!content.contains('kotlinOptions')) {
     final androidMatch = RegExp(r'\bandroid\s*\{').firstMatch(content);
     if (androidMatch != null) {
       content = content.replaceRange(
         androidMatch.end,
         androidMatch.end,
-        '\n    kotlinOptions { jvmTarget = "17" }',
+        '\n    kotlinOptions { jvmTarget = "${BuildVersions.androidJvmTarget}" }',
       );
       modified = true;
     }
@@ -2682,8 +2750,9 @@ void linkClangd(
     ..writeln('CompileFlags:')
     ..writeln('  Add:')
     ..writeln('    - -I\${PWD}/src')
+    ..writeln('    - -I\${PWD}/src/native')
     ..writeln('    - -I\${PWD}/lib/src/generated/cpp')
-    ..writeln('    - -I\${PWD}/../packages/nitro/src/native');
+    ..writeln('    - -I\${PWD}/src/native/internal');
 
   // For C++ modules also expose the test/ directory so IDEs resolve mock headers
   if (moduleInfos != null && moduleInfos.any((m) => m.isCpp)) {

@@ -1,6 +1,6 @@
 // Tests for RecordGenerator.generateCpp and the CppInterfaceGenerator
 // integration of @HybridRecord C++ decoders with null bounds checking (§3.3).
-import 'package:nitro_generator/src/generators/cpp_interface_generator.dart';
+import 'package:nitro_generator/src/generators/languages/cpp_native/cpp_interface_generator.dart';
 import 'package:nitro_generator/src/generators/record_generator.dart';
 import 'package:test/test.dart';
 import 'test_utils.dart';

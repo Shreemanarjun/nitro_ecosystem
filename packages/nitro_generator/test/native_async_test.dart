@@ -2,11 +2,11 @@
 //
 // Covers all four generators (Dart FFI, C++ bridge, C++ interface, Kotlin,
 // Swift) to ensure the correct code patterns are emitted for each return type.
-import 'package:nitro_generator/src/generators/cpp_bridge_generator.dart';
-import 'package:nitro_generator/src/generators/cpp_interface_generator.dart';
-import 'package:nitro_generator/src/generators/dart_ffi_generator.dart';
-import 'package:nitro_generator/src/generators/kotlin_generator.dart';
-import 'package:nitro_generator/src/generators/swift_generator.dart';
+import 'package:nitro_generator/src/generators/languages/c_bridge/cpp_bridge_generator.dart';
+import 'package:nitro_generator/src/generators/languages/cpp_native/cpp_interface_generator.dart';
+import 'package:nitro_generator/src/generators/languages/dart/dart_ffi_generator.dart';
+import 'package:nitro_generator/src/generators/languages/kotlin/kotlin_generator.dart';
+import 'package:nitro_generator/src/generators/languages/swift/swift_generator.dart';
 import 'package:test/test.dart';
 import 'test_utils.dart';
 
@@ -54,6 +54,30 @@ BridgeSpec _nativeAsyncStringSpec() => BridgeSpec(
         BridgeParam(
           name: 'query',
           type: BridgeType(name: 'String'),
+        ),
+      ],
+    ),
+  ],
+);
+
+BridgeSpec _nativeAsyncNullableStringSpec() => BridgeSpec(
+  dartClassName: 'MaybeFetcher',
+  lib: 'maybe_fetcher',
+  namespace: 'maybe_fetcher',
+  iosImpl: NativeImpl.swift,
+  androidImpl: NativeImpl.kotlin,
+  sourceUri: 'maybe_fetcher.native.dart',
+  functions: [
+    BridgeFunction(
+      dartName: 'fetchMaybe',
+      cSymbol: 'maybe_fetcher_fetch_maybe',
+      isAsync: false,
+      isNativeAsync: true,
+      returnType: BridgeType(name: 'String?', isNullable: true),
+      params: [
+        BridgeParam(
+          name: 'query',
+          type: BridgeType(name: 'String?', isNullable: true),
         ),
       ],
     ),
@@ -318,6 +342,19 @@ void main() {
     test('String return: unpack casts raw to String (kString delivery)', () {
       final out = DartFfiGenerator.generate(_nativeAsyncStringSpec());
       expect(out, contains('(raw) => raw as String'));
+    });
+
+    test('String return: openNativeAsync uses String transport type', () {
+      final out = DartFfiGenerator.generate(_nativeAsyncStringSpec());
+      expect(out, contains('NitroRuntime.openNativeAsync<String>'));
+      expect(out, isNot(contains('NitroRuntime.openNativeAsync<Pointer<Utf8>>')));
+    });
+
+    test('nullable String return: openNativeAsync uses nullable API type', () {
+      final out = DartFfiGenerator.generate(_nativeAsyncNullableStringSpec());
+      expect(out, contains('NitroRuntime.openNativeAsync<String?>'));
+      expect(out, contains('(raw) => raw as String?'));
+      expect(out, isNot(contains('NitroRuntime.openNativeAsync<Pointer<Utf8>>')));
     });
 
     test('void return: unpack is _ => {}', () {
@@ -587,6 +624,12 @@ void main() {
       expect(out, contains('(raw) => (raw as int).toMode()'));
     });
 
+    test('enum return: openNativeAsync uses enum API type', () {
+      final out = DartFfiGenerator.generate(_nativeAsyncEnumReturnSpec());
+      expect(out, contains('NitroRuntime.openNativeAsync<Mode>'));
+      expect(out, isNot(contains('NitroRuntime.openNativeAsync<int>')));
+    });
+
     test('enum return: method signature is Future<Mode>', () {
       final out = DartFfiGenerator.generate(_nativeAsyncEnumReturnSpec());
       expect(out, contains('Future<Mode> getMode()'));
@@ -640,6 +683,18 @@ void main() {
       expect(out, contains('withCString'));
     });
 
+    test('nullable String return: posts kNull or kString', () {
+      final out = SwiftGenerator.generate(_nativeAsyncNullableStringSpec());
+      expect(out, contains('guard let _value = _result ?? nil else'));
+      expect(out, contains('Dart_CObject_kNull'));
+      expect(out, contains('Dart_CObject_kString'));
+    });
+
+    test('nullable String param: preserves nil instead of empty string', () {
+      final out = SwiftGenerator.generate(_nativeAsyncNullableStringSpec());
+      expect(out, contains(r'let queryStr = query.map { String(cString: $0) }'));
+    });
+
     test('no-params stub: signature has no comma before _ dartPort', () {
       final out = SwiftGenerator.generate(_nativeAsyncVoidSpec());
       // namespace = 'worker' → _worker_call_doWork
@@ -661,6 +716,12 @@ void main() {
       expect(out, contains('Dart_CObject_kInt64'));
       expect(out, contains('as_int64'));
     });
+
+    test('bool param converts Int8 ABI value to Swift Bool', () {
+      final out = SwiftGenerator.generate(_nativeAsyncBoolSpec());
+      expect(out, contains('impl.check(flag: flag != 0)'));
+      expect(out, isNot(contains('impl.check(flag: flag)')));
+    });
   });
 
   // ── KotlinGenerator — additional return types ─────────────────────────────────
@@ -679,6 +740,21 @@ void main() {
     test('uses runBlocking inside _asyncExecutor.execute body', () {
       final out = KotlinGenerator.generate(_nativeAsyncIntSpec());
       expect(out, contains('runBlocking {'));
+    });
+
+    test('executor catches thrown native async work and completes port', () {
+      final out = KotlinGenerator.generate(_nativeAsyncIntSpec());
+      expect(out, contains('} catch (_: Throwable) {'));
+      expect(out, contains('postNullToPort(dartPort)'));
+    });
+
+    test('nullable String return: posts null or string to port', () {
+      final out = KotlinGenerator.generate(_nativeAsyncNullableStringSpec());
+      expect(out, contains('suspend fun fetchMaybe(query: String?): String?'));
+      expect(
+        out,
+        contains('if (result == null) postNullToPort(dartPort) else postStringToPort(dartPort, result)'),
+      );
     });
   });
 
@@ -816,6 +892,22 @@ void main() {
       expect(out, contains('(jlong)dart_port'));
     });
 
+    test('Android C function reports native async JNI exceptions without out-param slot', () {
+      final out = CppBridgeGenerator.generate(jniNativeAsyncSpec('String'));
+      final start = out.indexOf('void fetcher_fetch(');
+      expect(start, isNonNegative);
+      final end = out.indexOf('\n}', start);
+      expect(end, isNonNegative);
+      final body = out.substring(start, end);
+      expect(body, contains('nitro_report_jni_exception(env, env->ExceptionOccurred(), nullptr);'));
+      expect(body, isNot(contains('_nitro_err')));
+    });
+
+    test('Android/iOS bridge emits one extern C close per platform section', () {
+      final out = CppBridgeGenerator.generate(jniNativeAsyncSpec('String'));
+      expect(RegExp(r'} // extern "C"').allMatches(out), hasLength(2));
+    });
+
     test('postNullToPort JNIEXPORT is emitted for specs with @NitroNativeAsync', () {
       final out = CppBridgeGenerator.generate(jniNativeAsyncSpec('String'));
       expect(out, contains('JNIEXPORT void JNICALL Java_nitro_fetcher_1module_FetcherJniBridge_postNullToPort'));
@@ -825,7 +917,9 @@ void main() {
       final out = CppBridgeGenerator.generate(jniNativeAsyncSpec('String'));
       expect(out, contains('JNIEXPORT void JNICALL Java_nitro_fetcher_1module_FetcherJniBridge_postStringToPort'));
       expect(out, contains('GetStringUTFChars'));
+      expect(out, contains('if (value == nullptr)'));
       expect(out, contains('Dart_CObject_kString'));
+      expect(out, contains('Dart_CObject_kNull'));
       expect(out, contains('Dart_PostCObject_DL'));
     });
 

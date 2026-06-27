@@ -84,6 +84,15 @@ class NitroConfig {
   /// emits a [NitroLogLevel.warning] log.  Set to `0` to disable.
   int slowCallThresholdUs = 16000; // 16 ms ≈ one frame at 60 fps
 
+  // ── Timeline tracing ─────────────────────────────────────────────────────
+
+  /// When `true`, [NitroRuntime] wraps bridge calls in `dart:developer`
+  /// timeline spans so DevTools can attribute native bridge cost per method.
+  ///
+  /// Defaults to `false`; enable only while profiling to keep production's
+  /// default bridge path free of timeline instrumentation overhead.
+  bool timelineTracingEnabled = false;
+
   // ── Enable / Disable shortcuts ────────────────────────────────────────────
 
   /// Enables Nitro logging in one call.
@@ -130,6 +139,7 @@ class NitroConfig {
     logHandler = _defaultLog;
     isolatePoolSize = 1;
     slowCallThresholdUs = 16000;
+    timelineTracingEnabled = false;
   }
 }
 

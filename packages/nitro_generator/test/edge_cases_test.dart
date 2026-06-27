@@ -36,9 +36,9 @@
 
 import 'package:nitro_annotations/nitro_annotations.dart';
 import 'package:nitro_generator/src/bridge_spec.dart';
-import 'package:nitro_generator/src/generators/cpp_bridge_generator.dart';
-import 'package:nitro_generator/src/generators/dart_ffi_generator.dart';
-import 'package:nitro_generator/src/generators/kotlin_generator.dart';
+import 'package:nitro_generator/src/generators/languages/c_bridge/cpp_bridge_generator.dart';
+import 'package:nitro_generator/src/generators/languages/dart/dart_ffi_generator.dart';
+import 'package:nitro_generator/src/generators/languages/kotlin/kotlin_generator.dart';
 import 'package:nitro_generator/src/generators/record_generator.dart';
 import 'package:test/test.dart';
 
@@ -566,7 +566,8 @@ void main() {
     test('record return does NOT use CallStaticDoubleMethod or CallStaticLongMethod', () {
       final out = CppBridgeGenerator.generate(singleRecordSpec());
       // Isolate the getDevice function body (up to next function)
-      final idx = out.indexOf('camera_module_get_device(void)');
+      // S8: @nitroAsync functions do NOT take NitroError* — they use TLS error mechanism.
+      final idx = out.indexOf('camera_module_get_device()');
       final body = out.substring(idx, idx + 600);
       expect(body, isNot(contains('CallStaticDoubleMethod')));
       expect(body, isNot(contains('CallStaticLongMethod')));
@@ -666,7 +667,7 @@ void main() {
       // The early-return for env == nullptr must return nullptr, not ""
       expect(
         out,
-        contains('if (env == nullptr) return nullptr;'),
+        contains('if (env == nullptr) { return nullptr; }'),
         reason: 'returning a static literal "" would crash toDartStringWithFree',
       );
       expect(out, isNot(contains('if (env == nullptr) return ""')));
@@ -778,22 +779,19 @@ void main() {
       expect(out, isNot(contains('fun getAvailableDevices_call(): List<CameraDevice>')));
     });
 
-    test('_call serialises list count into countBuf before items', () {
+    test('_call serialises list as indexed format (count + offsets + items)', () {
+      // Wire format must match Dart LazyRecordList / encodeIndexedList:
+      // [4B outer_len] [4B count] [8B×n offsets] [item bytes...]
       final out = KotlinGenerator.generate(recordListSpec());
-      expect(out, contains('countBuf.putInt(result.size)'));
-      expect(out, contains('out.write(countBuf.array())'));
+      expect(out, contains('payloadBuf.putInt(result.size)'));  // count
+      expect(out, contains('offsets.forEach { payloadBuf.putLong(it) }'));  // offsets
+      expect(out, contains('itemBufs.forEach { payloadBuf.put(it) }'));  // items
     });
 
-    test('_call writes each item via writeFieldsTo (not encode())', () {
-      // Using encode() would prepend a per-item 4-byte length prefix, breaking
-      // the wire format expected by RecordReader.decodeList on the Dart side.
+    test('_call writes each item via writeFieldsTo into separate buffer', () {
       final out = KotlinGenerator.generate(recordListSpec());
-      expect(out, contains('result.forEach { it.writeFieldsTo(out, buf) }'));
-      expect(
-        out,
-        isNot(contains('result.forEach { out.write(it.encode()) }')),
-        reason: 'encode() adds a per-item length prefix which is not expected by the reader',
-      );
+      expect(out, contains('item.writeFieldsTo(tmpOut, tmpBuf)'));
+      expect(out, contains('itemBufs.add(tmpOut.toByteArray())'));
     });
 
     test('_call wraps payload with 4-byte length prefix via lenBuf', () {
@@ -802,10 +800,10 @@ void main() {
       expect(out, contains('return lenBuf.array() + payload'));
     });
 
-    test('_call uses pre-sized ByteArrayOutputStream for list serialisation', () {
+    test('_call uses indexed offset table so Dart LazyRecordList can random-access', () {
       final out = KotlinGenerator.generate(recordListSpec());
-      // Must use a pre-sized stream; exact size depends on record fields
-      expect(out, contains('val out = java.io.ByteArrayOutputStream(result.size *'));
+      expect(out, contains('val offsets = LongArray(result.size)'));
+      expect(out, contains('val itemBufs = ArrayList<ByteArray>'));
     });
 
     test('interface return type is List<CameraDevice> (not ByteArray)', () {
@@ -1098,7 +1096,7 @@ void main() {
       final cpp = CppBridgeGenerator.generate(_syncRecordSpec());
       expect(
         cpp,
-        isNot(contains('nitro_report_jni_exception(env, env->ExceptionOccurred()); env->ExceptionClear()')),
+        isNot(contains('nitro_report_jni_exception(env, env->ExceptionOccurred(), _nitro_err); env->ExceptionClear()')),
         reason: 'ExceptionClear() is already called inside nitro_report_jni_exception — no need to repeat it',
       );
     });
@@ -1132,10 +1130,10 @@ void main() {
       final cpp = CppBridgeGenerator.generate(spec);
       expect(
         cpp,
-        isNot(contains('nitro_report_jni_exception(env, env->ExceptionOccurred()); env->ExceptionClear(); return')),
+        isNot(contains('nitro_report_jni_exception(env, env->ExceptionOccurred(), _nitro_err); env->ExceptionClear(); return')),
       );
       // The ExceptionCheck + report + return pattern must still be present.
-      expect(cpp, contains('nitro_report_jni_exception(env, env->ExceptionOccurred());'));
+      expect(cpp, contains('nitro_report_jni_exception(env, env->ExceptionOccurred(), _nitro_err);'));
       expect(cpp, contains('return 0.0;'));
     });
   });

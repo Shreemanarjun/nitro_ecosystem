@@ -6,11 +6,11 @@
 
 import 'package:nitro_annotations/nitro_annotations.dart';
 import 'package:nitro_generator/src/bridge_spec.dart';
-import 'package:nitro_generator/src/generators/cpp_bridge_generator.dart';
-import 'package:nitro_generator/src/generators/cpp_interface_generator.dart';
-import 'package:nitro_generator/src/generators/dart_ffi_generator.dart';
-import 'package:nitro_generator/src/generators/kotlin_generator.dart';
-import 'package:nitro_generator/src/generators/swift_generator.dart';
+import 'package:nitro_generator/src/generators/languages/c_bridge/cpp_bridge_generator.dart';
+import 'package:nitro_generator/src/generators/languages/cpp_native/cpp_interface_generator.dart';
+import 'package:nitro_generator/src/generators/languages/dart/dart_ffi_generator.dart';
+import 'package:nitro_generator/src/generators/languages/kotlin/kotlin_generator.dart';
+import 'package:nitro_generator/src/generators/languages/swift/swift_generator.dart';
 import 'package:test/test.dart';
 
 // ── Shared spec helpers ───────────────────────────────────────────────────────
@@ -535,14 +535,17 @@ void main() {
     late String out;
     setUpAll(() => out = DartFfiGenerator.generate(_benchmarkSpec()));
 
-    test('loads library benchmark', () {
-      expect(out, contains("NitroRuntime.loadLib('benchmark')"));
+    test('loads library benchmark through platform target gate', () {
+      expect(out, contains("NitroRuntime.loadLibForTargets('benchmark',"));
+      expect(out, contains('ios: true,'));
+      expect(out, contains('android: true,'));
+      expect(out, contains('macos: false,'));
     });
 
     test('add uses asFunction(isLeaf: true) with correct symbol', () {
       // Primitive sync methods use leaf binding for safepoint-free calls.
       expect(out, contains("('benchmark_add')"));
-      expect(out, contains('.asFunction<double Function(double, double)>(isLeaf: true)'));
+      expect(out, contains('.asFunction<double Function(double, double, Pointer<NitroErrorFfi>)>(isLeaf: true)'));
     });
 
     test('addFast uses lookup + asFunction with isLeaf: true', () {
@@ -551,11 +554,11 @@ void main() {
     });
 
     test('sendLargeBuffer lookup includes Int64 length param', () {
-      expect(out, contains('Int64 Function(Pointer<Uint8>, Int64)'));
+      expect(out, contains('Int64 Function(Pointer<Uint8>, Int64, Pointer<NitroErrorFfi>)'));
     });
 
     test('sendLargeBuffer call site passes buffer and buffer.length', () {
-      expect(out, contains('_sendLargeBufferPtr(buffer.toPointer(arena), buffer.length)'));
+      expect(out, contains('_sendLargeBufferPtr(buffer.toPointer(arena), buffer.length, _nitroErr)'));
     });
 
     test('computeStats uses NitroRuntime.callAsync (async HybridRecord)', () {
@@ -648,15 +651,16 @@ void main() {
     });
 
     test('computeStats returns void* (NitroCppBuffer wrapped)', () {
+      // @nitroAsync functions do NOT take NitroError* — they use TLS error mechanism.
       expect(out, contains('void* benchmark_cpp_compute_stats(int64_t iterations)'));
     });
 
     test('sendLargeBufferFast has uint8_t* + int64_t length', () {
-      expect(out, contains('int64_t benchmark_cpp_send_large_buffer_fast(uint8_t* buffer, int64_t buffer_length)'));
+      expect(out, contains('int64_t benchmark_cpp_send_large_buffer_fast(uint8_t* buffer, int64_t buffer_length, NitroError* _nitro_err)'));
     });
 
     test('sendLargeBufferUnsafe Pointer<Uint8> param passes as void*', () {
-      expect(out, contains('int64_t benchmark_cpp_send_large_buffer_unsafe(void* ptr, int64_t length)'));
+      expect(out, contains('int64_t benchmark_cpp_send_large_buffer_unsafe(void* ptr, int64_t length, NitroError* _nitro_err)'));
     });
 
     test('stream ports use plain int64_t storage (written once at startup)', () {
@@ -671,6 +675,12 @@ void main() {
 
     test('stream emit reads port via direct variable access', () {
       expect(out, contains('int64_t port = g_port_dataStream;'));
+    });
+
+    test('stream emit clears stored port when Dart post fails', () {
+      expect(out, contains('if (!Dart_PostCObject_DL(port, &obj)) {'));
+      expect(out, contains('g_port_dataStream = 0;'));
+      expect(out, contains('return;'));
     });
 
     test('addFast skips error check (isFast path)', () {

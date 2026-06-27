@@ -5,7 +5,7 @@
 //   Section 2: Future<Uint8List> async C bridge stub (DispatchSemaphore pattern)
 //   Section 3: Synchronous TypedData return protocol signature
 
-import 'package:nitro_generator/src/generators/swift_generator.dart';
+import 'package:nitro_generator/src/generators/languages/swift/swift_generator.dart';
 import 'package:test/test.dart';
 import 'test_utils.dart';
 
@@ -111,6 +111,20 @@ void main() {
     test('Future<Uint8List> async stub signals semaphore after await', () {
       final out = SwiftGenerator.generate(_asyncTypedDataSpec('Uint8List'));
       expect(out, contains('sema.signal()'));
+    });
+
+    test('Future<Uint8List> async stub returns malloc-owned length-prefixed buffer', () {
+      final out = SwiftGenerator.generate(_asyncTypedDataSpec('Uint8List'));
+      expect(out, contains('private func _nitroCopyTypedDataReturn(_ bytes: UnsafeRawBufferPointer)'));
+      expect(out, contains('raw.storeBytes(of: Int64(byteLength), as: Int64.self)'));
+      expect(out, contains('memcpy(raw.advanced(by: headerSize), base, byteLength)'));
+      expect(out, contains('return r.withUnsafeBytes { _nitroCopyTypedDataReturn(\$0) }'));
+    });
+
+    test('Future<Float32List> async stub copies array return as bytes', () {
+      final out = SwiftGenerator.generate(_asyncTypedDataSpec('Float32List'));
+      expect(out, contains('var result: [Float]?'));
+      expect(out, contains('return _nitroCopyTypedDataArrayReturn(r)'));
     });
   });
 

@@ -183,6 +183,76 @@ cache invalidation).
 
 ---
 
+## Zero-copy `@HybridStruct` field ownership
+
+`@HybridStruct(zeroCopy: [...])` fields expose native memory to Dart as a typed
+list view. The view is intentionally not a copy: reading it in Dart reads the
+same backing memory that Kotlin, Swift, or C++ provided.
+
+Generated struct stream proxies split ownership into two pieces:
+
+| Resource | Owner | Release path |
+|---|---|---|
+| Generated C struct shell | Dart proxy | Generated `*_release_<Struct>()` symbol via `NativeFinalizer` |
+| Zero-copy field backing buffer | Native implementation | Implementation must keep it valid until the proxy is released |
+| Non-zero-copy copied buffers | Generated bridge | Generated release symbol frees them |
+
+This means native code **must not free or mutate a zero-copy field buffer while
+Dart may still read the proxy**. The buffer must remain valid until one of these
+happens:
+
+- the generated proxy is garbage-collected and its `NativeFinalizer` calls the
+  generated release symbol;
+- Dart calls `toDartAndRelease()` to copy the value and release the proxy
+  immediately;
+- the stream or method contract guarantees that Dart has finished reading the
+  proxy before native reuses the buffer.
+
+On Android, generated stream bridges keep a JNI `GlobalRef` for zero-copy struct
+items so the Java/Kotlin object that owns the `ByteBuffer` stays alive until the
+Dart proxy is released. On Swift and C++ direct paths, the implementation owns
+the backing memory lifetime and should use reference counting, a buffer pool with
+explicit handoff, or immutable buffers that outlive the Dart proxy.
+
+If the native side cannot guarantee that lifetime, do not mark the field
+zero-copy. Let Nitro copy the field instead; the generated release symbol then
+owns and frees the copied buffer safely.
+
+## Zero-copy TypedData return ownership
+
+Annotating a method that returns `Uint8List`, `Float32List`, or another Dart
+TypedData type with `@zeroCopy` opts into a native-owned return contract. Dart
+receives a typed-list view over native memory instead of a copied list.
+
+Generated bridges return a small native envelope:
+
+| Word | Meaning |
+|---|---|
+| `byteLength` | Number of bytes visible to Dart |
+| `dataAddress` | Address of the native payload |
+| `owner` | Optional native owner retained by the bridge |
+
+Dart attaches `${lib}_release_typed_data_return` to the returned typed list via
+`Pointer.asTypedList(..., finalizer: ...)`. When the typed list is collected,
+the generated release symbol frees the envelope and releases any bridge-retained
+owner.
+
+Platform ownership rules:
+
+| Native path | Implementation return type | Lifetime rule |
+|---|---|---|
+| Kotlin/JNI | direct `java.nio.ByteBuffer` | Bridge keeps a JNI `GlobalRef` to the returned buffer until Dart GC releases the typed list |
+| Swift | `Data` / typed array | Bridge creates a native envelope with staged bytes and frees it from the generated finalizer |
+| NativeImpl.cpp | `NitroCppBuffer { data, size }` | C++ implementation owns `data` and must keep it valid while Dart may use the returned typed list |
+
+For C++, prefer immutable storage, reference-counted buffers, or a buffer pool
+whose reuse is coordinated with Dart ownership. If the implementation cannot
+guarantee that returned memory remains valid, do not use `@zeroCopy`; return a
+copied TypedData wrapper or a struct/native handle with explicit ownership
+instead.
+
+---
+
 ## Pattern 2 — NativeCallable.listener
 
 A `NativeCallable` turns a Dart function into a C function pointer that native
@@ -366,3 +436,37 @@ setting the flag.
 > (e.g., when a single async result needs to be delivered from a native thread
 > without a port). If you add such a callback in your plugin, use
 > `NativeCallable.listener`.
+
+---
+
+## Thread-safety contract for native implementations
+
+Nitro does not serialize calls into Kotlin, Swift, or C++ implementations by
+default. Two Dart isolates can call the same module concurrently, and those calls
+may arrive on different native threads:
+
+- Android calls may enter Kotlin through different JNI-attached threads.
+- Swift calls may arrive on any native thread used by the bridge or the
+  implementation's async/stream machinery.
+- C++ direct calls can run concurrently if the Dart side calls from multiple
+  isolates.
+
+This is intentional. Generated locks would add overhead to every bridge call and
+would still not know the correct synchronization boundary for each plugin. The
+native implementation owns its state and must choose the right strategy.
+
+Use one of these patterns when the implementation has mutable shared state:
+
+| Platform | Pattern |
+|---|---|
+| Kotlin | Guard shared state with `Mutex`, `ReentrantLock`, `@Synchronized`, or marshal work onto a single `CoroutineDispatcher`. |
+| Swift | Use an `actor`, serial `DispatchQueue`, lock, or `MainActor` when UI-bound state is involved. |
+| C++ | Use `std::mutex`, atomics, immutable state, or a single-thread executor owned by the implementation. |
+
+Do not assume calls happen on the Flutter UI isolate thread. If a native method
+updates UI state, marshal explicitly to the platform UI thread first.
+
+Generated Kotlin interfaces and Swift protocols include this warning so plugin
+authors see the contract where they implement the module. Nitro keeps the bridge
+fast and predictable; implementations provide synchronization only where their
+own state requires it.

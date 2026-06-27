@@ -215,7 +215,7 @@ void main() {
   // ══════════════════════════════════════════════════════════════════════════
   // §5  SpecFromSource — optional-primitive sentinel via generator output
   // ══════════════════════════════════════════════════════════════════════════
-  group('§5 SpecFromSource — sentinel encoding via generators', () {
+  group('§5 SpecFromSource — NitroNullable encoding via generators', () {
     specTest(
       'int? sentinel in Dart and Kotlin',
       _src('''
@@ -223,9 +223,9 @@ void main() {
           Future<void> work({int? timeout});
         }
       '''),
-      dart: BridgeChecks(has: ['timeout ?? -1']),
+      dart: BridgeChecks(has: ['NitroNullableInt.fromNullable(timeout).toNative(arena)']),
       kotlin: BridgeChecks(
-        has: ['val timeoutArg: Long? = if (timeout < 0L) null else timeout'],
+        has: ['val timeoutArg: Long? = NitroNullableInt.decode(timeout).nullable'],
         before: [('val timeoutArg', 'impl.work(')],
       ),
       skip: {Lang.cpp},
@@ -238,8 +238,8 @@ void main() {
           Future<void> measure({double? scale});
         }
       '''),
-      dart: BridgeChecks(has: ['scale ?? double.nan']),
-      kotlin: BridgeChecks(has: ['val scaleArg: Double? = if (scale.isNaN()) null else scale']),
+      dart: BridgeChecks(has: ['NitroNullableDouble.fromNullable(scale).toNative(arena)']),
+      kotlin: BridgeChecks(has: ['val scaleArg: Double? = NitroNullableDouble.decode(scale).nullable']),
       skip: {Lang.cpp},
     );
 
@@ -250,8 +250,8 @@ void main() {
           Future<void> toggle({bool? enabled});
         }
       '''),
-      dart: BridgeChecks(has: ['enabled == null ? -1 : (enabled! ? 1 : 0)']),
-      kotlin: BridgeChecks(has: ['val enabledArg: Boolean? = if (enabled.toInt() < 0) null else enabled']),
+      dart: BridgeChecks(has: ['NitroNullableBool.fromNullable(enabled).toNative(arena)']),
+      kotlin: BridgeChecks(has: ['val enabledArg: Boolean? = NitroNullableBool.decode(enabled).nullable']),
       skip: {Lang.cpp},
     );
 
@@ -541,7 +541,7 @@ void main() {
           void ping();
         }
       '''),
-      dart: BridgeChecks(hasNot: ['timeout ?? -1']),
+      dart: BridgeChecks(hasNot: ['timeout ?? -9223372036854775808']),
       kotlin: BridgeChecks(hasNot: ['Long?']),
       skip: {Lang.cpp},
     );

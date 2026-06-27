@@ -1,6 +1,6 @@
 import 'package:nitro_annotations/nitro_annotations.dart';
 import 'package:nitro_generator/src/bridge_spec.dart';
-import 'package:nitro_generator/src/generators/cpp_bridge_generator.dart';
+import 'package:nitro_generator/src/generators/languages/c_bridge/cpp_bridge_generator.dart';
 import 'package:test/test.dart';
 
 // ── Shared spec builders ─────────────────────────────────────────────────────
@@ -94,6 +94,38 @@ void main() {
     });
   });
 
+  group('CppBridgeGenerator — TypedData return (JNI path)', () {
+    test('Uint8List return copies JVM array into length-prefixed malloc buffer', () {
+      final spec = _jniFuncSpec(
+        dartName: 'download',
+        returnType: BridgeType(name: 'Uint8List'),
+        params: const [],
+      );
+      final out = CppBridgeGenerator.generate(spec);
+
+      expect(out, contains('uint8_t* mod_download(NitroError* _nitro_err)'));
+      expect(out, contains('jbyteArray jarr = (jbyteArray)env->CallStaticObjectMethod'));
+      expect(out, contains('size_t byteLen = (size_t)len * sizeof(uint8_t);'));
+      expect(out, contains('uint8_t* result = (uint8_t*)malloc(byteLen + sizeof(int64_t));'));
+      expect(out, contains('*((int64_t*)result) = (int64_t)byteLen;'));
+      expect(out, contains('env->GetByteArrayRegion(jarr, 0, len, (jbyte*)(result + sizeof(int64_t)));'));
+    });
+
+    test('Float32List return preserves byte length and float payload', () {
+      final spec = _jniFuncSpec(
+        dartName: 'samples',
+        returnType: BridgeType(name: 'Float32List'),
+        params: const [],
+      );
+      final out = CppBridgeGenerator.generate(spec);
+
+      expect(out, contains('uint8_t* mod_samples(NitroError* _nitro_err)'));
+      expect(out, contains('jfloatArray jarr = (jfloatArray)env->CallStaticObjectMethod'));
+      expect(out, contains('size_t byteLen = (size_t)len * sizeof(float);'));
+      expect(out, contains('env->GetFloatArrayRegion(jarr, 0, len, (jfloat*)(result + sizeof(int64_t)));'));
+    });
+  });
+
   // ── §8.5.2 Uint8List param (C++ direct path) ────────────────────────────
 
   group('CppBridgeGenerator — Uint8List param (C++ direct path)', () {
@@ -131,6 +163,46 @@ void main() {
     });
   });
 
+  group('CppBridgeGenerator — zero-copy TypedData return (C++ direct path)', () {
+    BridgeSpec specFor(String typeName) => BridgeSpec(
+      dartClassName: 'Mod',
+      lib: 'mod',
+      namespace: 'mod',
+      iosImpl: NativeImpl.cpp,
+      androidImpl: NativeImpl.cpp,
+      sourceUri: 'mod.native.dart',
+      functions: [
+        BridgeFunction(
+          dartName: 'snapshot',
+          cSymbol: 'mod_snapshot',
+          isAsync: false,
+          returnType: BridgeType(name: typeName),
+          zeroCopyReturn: true,
+          params: [],
+        ),
+      ],
+    );
+
+    test('Uint8List return wraps NitroCppBuffer in finalizer envelope', () {
+      final code = CppBridgeGenerator.generate(specFor('Uint8List'));
+
+      expect(code, contains('uint8_t* mod_snapshot(NitroError* _nitro_err)'));
+      expect(code, contains('NitroCppBuffer _res = g_impl->snapshot();'));
+      expect(code, contains('int64_t* _env = (int64_t*)malloc(sizeof(int64_t) * 3);'));
+      expect(code, contains('_env[0] = (int64_t)_res.size;'));
+      expect(code, contains('_env[1] = (int64_t)(intptr_t)(_res.data != nullptr ? _res.data : (const uint8_t*)_env);'));
+      expect(code, contains('_env[2] = 0;'));
+      expect(code, contains('return (uint8_t*)_env;'));
+    });
+
+    test('Float32List return still exposes uint8_t envelope pointer at C ABI', () {
+      final code = CppBridgeGenerator.generate(specFor('Float32List'));
+
+      expect(code, contains('uint8_t* mod_snapshot(NitroError* _nitro_err)'));
+      expect(code, isNot(contains('float* mod_snapshot(NitroError* _nitro_err)')));
+    });
+  });
+
   // ── §8.5.3 Float32List param marshalling (JNI path) ─────────────────────
 
   group('CppBridgeGenerator — Float32List param (JNI path)', () {
@@ -160,6 +232,58 @@ void main() {
 
     test('JNI path copies floats via SetFloatArrayRegion', () {
       expect(code, contains('SetFloatArrayRegion'));
+    });
+  });
+
+  group('CppBridgeGenerator — zero-copy TypedData param (JNI path)', () {
+    BridgeSpec zeroCopySpec(String typeName, {String returnType = 'void'}) => _jniFuncSpec(
+      dartName: 'processZeroCopy',
+      returnType: BridgeType(name: returnType),
+      params: [
+        BridgeParam(
+          name: 'samples',
+          type: BridgeType(name: typeName),
+          zeroCopy: true,
+        ),
+      ],
+    );
+
+    test('Float32List param bridges as direct ByteBuffer without JVM array copy', () {
+      final code = CppBridgeGenerator.generate(zeroCopySpec('Float32List'));
+      expect(code, contains('Ljava/nio/ByteBuffer;'));
+      expect(code, contains('int64_t samples_byte_length = samples_length * (int64_t)sizeof(float);'));
+      expect(code, contains('jobject j_samples = env->NewDirectByteBuffer(samples, samples_byte_length);'));
+      expect(code, contains('CallStaticVoidMethod(g_bridgeClass, methodId, j_samples)'));
+      expect(code, isNot(contains('NewFloatArray')));
+      expect(code, isNot(contains('SetFloatArrayRegion')));
+    });
+
+    test('Uint8List param uses byte count without widening copy', () {
+      final code = CppBridgeGenerator.generate(zeroCopySpec('Uint8List'));
+      expect(code, contains('int64_t samples_byte_length = samples_length * (int64_t)sizeof(uint8_t);'));
+      expect(code, contains('jobject j_samples = env->NewDirectByteBuffer(samples, samples_byte_length);'));
+      expect(code, isNot(contains('NewByteArray')));
+      expect(code, isNot(contains('SetByteArrayRegion')));
+    });
+
+    test('non-null param guards negative length, null pointer, overflow, and ByteBuffer creation', () {
+      final code = CppBridgeGenerator.generate(zeroCopySpec('Float32List'));
+      expect(code, contains('if (samples_length < 0)'));
+      expect(code, contains('if (samples == nullptr)'));
+      expect(code, contains('if (samples_length > INT64_MAX / (int64_t)sizeof(float))'));
+      expect(code, contains('if (j_samples == nullptr)'));
+      expect(code, contains('samples: TypedData byte length overflow'));
+    });
+
+    test('nullable param allows null only for empty buffers', () {
+      final code = CppBridgeGenerator.generate(zeroCopySpec('Float32List?'));
+      expect(code, contains('if (samples == nullptr && samples_length > 0)'));
+      expect(code, contains('if (j_samples == nullptr && samples_byte_length > 0)'));
+    });
+
+    test('non-void return guard returns the correct default value', () {
+      final code = CppBridgeGenerator.generate(zeroCopySpec('Float32List', returnType: 'double'));
+      expect(code, contains('return 0.0;'));
     });
   });
 

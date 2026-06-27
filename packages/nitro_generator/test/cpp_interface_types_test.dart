@@ -8,7 +8,7 @@
 //   Section 5: Pointer<Int32> param
 //   Section 6: Properties — getter-only and getter+setter
 
-import 'package:nitro_generator/src/generators/cpp_interface_generator.dart';
+import 'package:nitro_generator/src/generators/languages/cpp_native/cpp_interface_generator.dart';
 import 'package:test/test.dart';
 import 'test_utils.dart';
 

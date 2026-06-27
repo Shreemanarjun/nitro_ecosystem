@@ -302,31 +302,33 @@ class CppTypeMappings {
     Set<String> structNames,
     String libPkg,
   ) {
-    final sb = StringBuffer();
-    sb.write('(');
-    for (final p in params) {
+    final paramSig = params.map((p) {
       if (structNames.contains(p.type.name)) {
         // Struct params are passed as the Kotlin data class object
-        sb.write('L$libPkg/${p.type.name};');
-      } else if (p.zeroCopy && p.type.isTypedData) {
-        // Zero-copy TypedData params bridge as java.nio.ByteBuffer (direct)
-        sb.write('Ljava/nio/ByteBuffer;');
-      } else {
-        sb.write(jniSigType(p.type.name));
+        return 'L$libPkg/${p.type.name};';
       }
-    }
-    sb.write(')');
+      if (p.zeroCopy && p.type.isTypedData) {
+        // Zero-copy TypedData params bridge as java.nio.ByteBuffer (direct)
+        return 'Ljava/nio/ByteBuffer;';
+      }
+      return jniSigType(p.type.name);
+    }).join();
+
     // Enum return type: bridge returns Long
-    if (enumNames.contains(returnType.name)) {
-      sb.write('J');
-    } else if (structNames.contains(returnType.name)) {
-      sb.write('L$libPkg/${returnType.name};');
-    } else if (returnType.isRecord && !returnType.isMap) {
-      // @HybridRecord / List<@HybridRecord>: bridge returns ByteArray ("[B")
-      sb.write('[B');
-    } else {
-      sb.write(jniSigType(returnType.name));
+    String returnSig() {
+      if (enumNames.contains(returnType.name)) {
+        return 'J';
+      }
+      if (structNames.contains(returnType.name)) {
+        return 'L$libPkg/${returnType.name};';
+      }
+      if (returnType.isRecord && !returnType.isMap) {
+        // @HybridRecord / List<@HybridRecord>: bridge returns ByteArray ("[B")
+        return '[B';
+      }
+      return jniSigType(returnType.name);
     }
-    return sb.toString();
+
+    return '($paramSig)${returnSig()}';
   }
 }

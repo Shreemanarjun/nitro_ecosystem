@@ -354,6 +354,26 @@ abstract class MyModule extends HybridObject {
       // .dart_tool/../relative/nitro/src/native -> <tmp>/relative/nitro/src/native
       expect(path, equals(p.normalize(p.join(tmp.path, 'relative', 'nitro', 'src', 'native'))));
     });
+
+    test('throws contextual error when package_config.json is malformed', () {
+      final dotTool = Directory(p.join(tmp.path, '.dart_tool'))..createSync();
+      final config = File(p.join(dotTool.path, 'package_config.json'))..writeAsStringSync('{ not json');
+
+      expect(
+        () => resolveNitroNativePath(tmp.path),
+        throwsA(
+          isA<StateError>().having(
+            (error) => error.message,
+            'message',
+            allOf(
+              contains('Failed to parse'),
+              contains(config.path),
+              contains('nitro native path'),
+            ),
+          ),
+        ),
+      );
+    });
   });
 
   // ── linkCppImplStubs ──────────────────────────────────────────────────────────
@@ -911,7 +931,7 @@ target_include_directories(my_plugin PRIVATE "\${CMAKE_CURRENT_SOURCE_DIR}")
       linkCMake('my_plugin', ['my_plugin', 'other_lib'], '/path/to/nitro/native', baseDir: tmp.path);
 
       final content = cmake.readAsStringSync();
-      expect(content, contains('set(NITRO_NATIVE "/path/to/nitro/native")'));
+      expect(content, contains(r'set(NITRO_NATIVE "${CMAKE_CURRENT_SOURCE_DIR}/native")'));
       expect(content, contains('add_library(other_lib SHARED'));
       expect(content, contains('dart_api_dl.c'));
     });
@@ -1053,6 +1073,24 @@ target_include_directories(my_plugin PRIVATE "\${CMAKE_CURRENT_SOURCE_DIR}")
       expect(content, contains('#define NITRO_ERROR_DEFINED'));
       expect(content, contains('} NitroError;'));
       expect(content, contains('#endif'));
+    });
+
+    test('createSharedHeaders writes bundled dart_api_dl.c and local native headers', () {
+      final nitroNative = Directory(p.join(tmp.path, 'nitro_native'))..createSync();
+      Directory(p.join(nitroNative.path, 'internal')).createSync();
+      for (final header in ['dart_api_dl.h', 'dart_api.h', 'dart_native_api.h', 'dart_version.h']) {
+        File(p.join(nitroNative.path, header)).writeAsStringSync('// $header\n');
+      }
+      File(p.join(nitroNative.path, 'internal', 'dart_api_dl_impl.h')).writeAsStringSync('// impl\n');
+
+      createSharedHeaders(nitroNative.path, baseDir: tmp.path);
+
+      final dartApiDl = File(p.join(tmp.path, 'src', 'dart_api_dl.c')).readAsStringSync();
+      expect(dartApiDl, contains('Bundled by nitrogen'));
+      expect(dartApiDl, isNot(contains(nitroNative.path)));
+      expect(dartApiDl, isNot(contains('#include "${nitroNative.path}')));
+      expect(File(p.join(tmp.path, 'src', 'native', 'dart_api_dl.h')).existsSync(), isTrue);
+      expect(File(p.join(tmp.path, 'src', 'native', 'internal', 'dart_api_dl_impl.h')).existsSync(), isTrue);
     });
 
     test('cleanRedundantIncludes removes bridge imports', () {
@@ -1450,7 +1488,7 @@ target_include_directories(\${PLUGIN_NAME} PUBLIC
       final cmake = writeWinCmake(tmp, minimalWinCmake);
       linkWindows('my_plugin', ['my_plugin'], '/nitro/native', baseDir: tmp.path);
       final content = cmake.readAsStringSync();
-      expect(content, contains('set(NITRO_NATIVE "/nitro/native")'));
+      expect(content, contains(r'set(NITRO_NATIVE "${CMAKE_CURRENT_SOURCE_DIR}/../src/native")'));
       // Must appear before the cmake_minimum_required line
       expect(content.indexOf('NITRO_NATIVE'), lessThan(content.indexOf('cmake_minimum')));
     });
@@ -1461,6 +1499,7 @@ target_include_directories(\${PLUGIN_NAME} PUBLIC
       final content = cmake.readAsStringSync();
       // set(NITRO_NATIVE) must appear exactly once (not injected again)
       expect('set(NITRO_NATIVE'.allMatches(content).length, equals(1));
+      expect(content, contains(r'set(NITRO_NATIVE "${CMAKE_CURRENT_SOURCE_DIR}/../src/native")'));
     });
 
     test('injects dart_api_dl.c into add_library target', () {
@@ -1525,7 +1564,7 @@ target_include_directories(\${PLUGIN_NAME} PUBLIC
       final cmake = writeLinuxCmake(tmp, minimalLinuxCmake);
       linkLinux('my_plugin', ['my_plugin'], '/nitro/native', baseDir: tmp.path);
       final content = cmake.readAsStringSync();
-      expect(content, contains('set(NITRO_NATIVE "/nitro/native")'));
+      expect(content, contains(r'set(NITRO_NATIVE "${CMAKE_CURRENT_SOURCE_DIR}/../src/native")'));
     });
 
     test('injects dart_api_dl.c into add_library target', () {

@@ -1,0 +1,337 @@
+import '../../../bridge_spec.dart';
+import '../../code_writer.dart';
+import '../../generator_metadata.dart';
+
+/// Generates two test-support files for `NativeImpl.cpp` modules:
+///
+/// * `*.mock.g.h`    — GoogleMock header (`Mock${ClassName}` class).
+/// * `*.test.g.cpp`  — Test-starter file with a smoke test + commented examples.
+///
+/// These are only meaningful when `spec.hasCppImpl == true`.
+class CppMockGenerator {
+  // ── Mock header ─────────────────────────────────────────────────────────────
+
+  static String generateMockHeader(BridgeSpec spec) {
+    if (!spec.hasCppImpl) {
+      return '// Not applicable: NativeImpl is not cpp for this module.\n';
+    }
+
+    final libStem = spec.lib.replaceAll('-', '_');
+    final className = spec.dartClassName;
+    final headerGuard = '${libStem.toUpperCase()}_MOCK_G_H';
+    final ifaceHeader = '$libStem.native.g.h';
+
+    final enumNames = spec.enums.map((e) => e.name).toSet();
+    final structNames = spec.structs.map((st) => st.name).toSet();
+    final recordNames = spec.recordTypes.map((r) => r.name).toSet();
+
+    final classBody = <CodeNode>[
+      const CodeLine('public:'),
+    ];
+
+    for (final func in spec.functions) {
+      // Use isRecord so that List<@HybridStruct T>, List<@HybridRecord T>, and bare @HybridRecord all map to NitroCppBuffer.
+      final retCpp = func.returnType.isRecord ? 'NitroCppBuffer' : _cppReturnType(func.returnType.name, enumNames, structNames, recordNames);
+      final params = _mockParams(func.params, enumNames, structNames, recordNames);
+      final paramStr = params.join(', ');
+      classBody.add(CodeLine('MOCK_METHOD($retCpp, ${func.dartName}, ($paramStr), (override));'));
+    }
+
+    for (final prop in spec.properties) {
+      final cppType = _cppScalarType(prop.type.name, enumNames, structNames, recordNames);
+      if (prop.hasGetter) {
+        classBody.add(CodeLine('MOCK_METHOD($cppType, get_${prop.dartName}, (), (const, override));'));
+      }
+      if (prop.hasSetter) {
+        final paramType = _cppParamType(prop.type.name, enumNames, structNames, recordNames);
+        classBody.add(CodeLine('MOCK_METHOD(void, set_${prop.dartName}, ($paramType), (override));'));
+      }
+    }
+
+    return CodeFile([
+      CodeSnippet(generatedFileHeader('//', sourceUri: spec.sourceUri)),
+      CodeLine('// GoogleMock stub for $className — use in unit tests.'),
+      const CodeLine('#pragma once'),
+      CodeLine('#ifndef $headerGuard'),
+      CodeLine('#define $headerGuard'),
+      const BlankLine(),
+      const CodeLine('#include <gmock/gmock.h>'),
+      CodeLine('#include "$ifaceHeader"'),
+      const BlankLine(),
+      CodeBlock(
+        header: 'class Mock$className : public Hybrid$className {',
+        body: classBody,
+        footer: '};',
+      ),
+      const BlankLine(),
+      CodeLine('#endif // $headerGuard'),
+    ]).render(indentText: '    ');
+  }
+
+  // ── Test starter ────────────────────────────────────────────────────────────
+
+  static String generateTestStarter(BridgeSpec spec) {
+    if (!spec.hasCppImpl) {
+      return '// Not applicable: NativeImpl is not cpp for this module.\n';
+    }
+
+    final libStem = spec.lib.replaceAll('-', '_');
+    final className = spec.dartClassName;
+    final mockHeader = '$libStem.mock.g.h';
+
+    final nodes = <CodeNode>[
+      CodeSnippet(generatedFileHeader('//', sourceUri: spec.sourceUri)),
+      const CodeLine('// Do not edit the generated smoke-test section.'),
+      const CodeLine('// Add your own TEST() cases below the generated smoke test.'),
+      const CodeLine('//'),
+      CodeLine('// Build:  cmake --build <build-dir> --target ${libStem}_test'),
+      CodeLine('// Run:    ./<build-dir>/${libStem}_test'),
+      const CodeLine('#include <gtest/gtest.h>'),
+      CodeLine('#include "$mockHeader"'),
+      const BlankLine(),
+      const CodeLine('// ── Smoke test ───────────────────────────────────────────────────────────────'),
+      const CodeLine('// Verifies that registration and the mock wiring work correctly.'),
+      CodeBlock(
+        header: 'TEST(${className}Test, SmokeTest) {',
+        body: [
+          CodeLine('Mock$className mock;'),
+          CodeLine('${libStem}_register_impl(&mock);'),
+          CodeLine('ASSERT_NE(${libStem}_get_impl(), nullptr);'),
+          CodeLine('${libStem}_register_impl(nullptr);'),
+          CodeLine('ASSERT_EQ(${libStem}_get_impl(), nullptr);'),
+        ],
+        footer: '}',
+      ),
+      const BlankLine(),
+      const CodeLine('// ── Your tests go here ───────────────────────────────────────────────────────'),
+    ];
+
+    // Generate commented example for the first method (if any)
+    if (spec.functions.isNotEmpty) {
+      final f = spec.functions.first;
+      final enumNames = spec.enums.map((e) => e.name).toSet();
+      final structNames = spec.structs.map((st) => st.name).toSet();
+      final recordNames = spec.recordTypes.map((r) => r.name).toSet();
+      final retCpp = f.returnType.isRecord ? 'NitroCppBuffer' : _cppReturnType(f.returnType.name, enumNames, structNames, recordNames);
+      final exampleRet = _exampleReturnValue(f.returnType.name, retCpp);
+      final exampleArgs = f.params
+          .map((p) {
+            return _exampleArgValue(p.type.name, enumNames, structNames, recordNames);
+          })
+          .join(', ');
+
+      nodes.addAll([
+        const CodeLine('//'),
+        const CodeLine('// Example:'),
+        CodeLine('// TEST(${className}Test, ${_capitalize(f.dartName)}) {'),
+        CodeLine('//     Mock$className mock;'),
+        CodeLine('//     ${libStem}_register_impl(&mock);'),
+      ]);
+      if (f.returnType.name != 'void') {
+        nodes.addAll([
+          CodeLine('//     EXPECT_CALL(mock, ${f.dartName}($exampleArgs))'),
+          CodeLine('//         .WillOnce(::testing::Return($exampleRet));'),
+          CodeLine('//     auto result = ${f.cSymbol}(${_cExampleArgs(f.params, enumNames, structNames, recordNames)});'),
+          const CodeLine('//     // Assert on result ...'),
+        ]);
+      } else {
+        nodes.addAll([
+          CodeLine('//     EXPECT_CALL(mock, ${f.dartName}($exampleArgs)).Times(1);'),
+          CodeLine('//     ${f.cSymbol}(${_cExampleArgs(f.params, enumNames, structNames, recordNames)});'),
+        ]);
+      }
+      nodes.addAll([
+        CodeLine('//     ${libStem}_register_impl(nullptr);'),
+        const CodeLine('// }'),
+      ]);
+    }
+
+    nodes.addAll([
+      const BlankLine(),
+      const CodeBlock(
+        header: 'int main(int argc, char** argv) {',
+        body: [
+          CodeLine('testing::InitGoogleTest(&argc, argv);'),
+          CodeLine('return RUN_ALL_TESTS();'),
+        ],
+        footer: '}',
+      ),
+    ]);
+
+    return CodeFile(nodes).render(indentText: '    ');
+  }
+
+  // ── Type helpers ─────────────────────────────────────────────────────────
+
+  static String _cppReturnType(
+    String dartType,
+    Set<String> enumNames,
+    Set<String> structNames,
+    Set<String> recordNames,
+  ) {
+    final base = dartType.replaceFirst('?', '');
+    if (base == 'void') return 'void';
+    if (base == 'String') return 'std::string';
+    if (enumNames.contains(base)) return base;
+    if (structNames.contains(base)) return base;
+    if (recordNames.contains(base)) return 'NitroCppBuffer';
+    if (_isTypedData(base)) return 'NitroCppBuffer';
+    return _primitiveType(base);
+  }
+
+  static String _cppScalarType(
+    String dartType,
+    Set<String> enumNames,
+    Set<String> structNames,
+    Set<String> recordNames,
+  ) => _cppReturnType(dartType, enumNames, structNames, recordNames);
+
+  static String _cppParamType(
+    String dartType,
+    Set<String> enumNames,
+    Set<String> structNames,
+    Set<String> recordNames,
+  ) {
+    final base = dartType.replaceFirst('?', '');
+    if (base == 'String') return 'const std::string&';
+    if (enumNames.contains(base)) return base;
+    if (structNames.contains(base)) return 'const $base&';
+    if (recordNames.contains(base)) return 'NitroCppBuffer';
+    if (_isTypedData(base)) return '${_typedDataPtr(base)}, size_t';
+    return _primitiveType(base);
+  }
+
+  static List<String> _mockParams(
+    List<BridgeParam> params,
+    Set<String> enumNames,
+    Set<String> structNames,
+    Set<String> recordNames,
+  ) {
+    final parts = <String>[];
+    for (final p in params) {
+      final base = p.type.name.replaceFirst('?', '');
+      if (_isTypedData(base)) {
+        parts.add('${_typedDataPtr(base)} ${p.name}');
+        parts.add('size_t ${p.name}_length');
+      } else if (base == 'String') {
+        parts.add('const std::string& ${p.name}');
+      } else if (structNames.contains(base)) {
+        parts.add('const $base& ${p.name}');
+      } else if (enumNames.contains(base)) {
+        parts.add('$base ${p.name}');
+      } else if (p.type.isRecord) {
+        parts.add('NitroCppBuffer ${p.name}');
+      } else {
+        parts.add('${_primitiveType(base)} ${p.name}');
+      }
+    }
+    return parts;
+  }
+
+  static String _exampleReturnValue(String dartType, String cppType) {
+    switch (dartType.replaceFirst('?', '')) {
+      case 'int':
+        return '0';
+      case 'double':
+        return '0.0';
+      case 'bool':
+        return 'false';
+      case 'String':
+        return '"example"';
+      case 'void':
+        return '';
+      default:
+        return '{}';
+    }
+  }
+
+  static String _exampleArgValue(
+    String dartType,
+    Set<String> enumNames,
+    Set<String> structNames,
+    Set<String> recordNames,
+  ) {
+    final base = dartType.replaceFirst('?', '');
+    if (base == 'int') return '::testing::An<int64_t>()';
+    if (base == 'double') return '::testing::An<double>()';
+    if (base == 'bool') return '::testing::An<bool>()';
+    if (base == 'String') return '::testing::An<const std::string&>()';
+    return '::testing::_';
+  }
+
+  static String _cExampleArgs(
+    List<BridgeParam> params,
+    Set<String> enumNames,
+    Set<String> structNames,
+    Set<String> recordNames,
+  ) {
+    return params
+        .map((p) {
+          final base = p.type.name.replaceFirst('?', '');
+          if (base == 'int') return '0';
+          if (base == 'double') return '0.0';
+          if (base == 'bool') return 'false';
+          if (base == 'String') return '"example"';
+          return 'nullptr';
+        })
+        .join(', ');
+  }
+
+  static bool _isTypedData(String base) {
+    const td = {
+      'Uint8List',
+      'Int8List',
+      'Int16List',
+      'Int32List',
+      'Uint16List',
+      'Uint32List',
+      'Float32List',
+      'Float64List',
+      'Int64List',
+      'Uint64List',
+    };
+    return td.contains(base);
+  }
+
+  static String _typedDataPtr(String base) {
+    switch (base) {
+      case 'Uint8List':
+        return 'const uint8_t*';
+      case 'Int8List':
+        return 'const int8_t*';
+      case 'Int16List':
+        return 'const int16_t*';
+      case 'Uint16List':
+        return 'const uint16_t*';
+      case 'Int32List':
+        return 'const int32_t*';
+      case 'Uint32List':
+        return 'const uint32_t*';
+      case 'Float32List':
+        return 'const float*';
+      case 'Float64List':
+        return 'const double*';
+      case 'Int64List':
+        return 'const int64_t*';
+      case 'Uint64List':
+        return 'const uint64_t*';
+      default:
+        return 'const uint8_t*';
+    }
+  }
+
+  static String _primitiveType(String base) {
+    switch (base) {
+      case 'int':
+        return 'int64_t';
+      case 'double':
+        return 'double';
+      case 'bool':
+        return 'bool';
+      default:
+        return 'void*';
+    }
+  }
+
+  static String _capitalize(String s) => s.isEmpty ? s : s[0].toUpperCase() + s.substring(1);
+}

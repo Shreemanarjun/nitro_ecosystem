@@ -6,6 +6,7 @@ import 'package:nitrogen_cli/version.dart';
 import 'link_command.dart' show isCppModule, isNativeCppModule;
 import 'spm_utils.dart';
 import '../ui.dart';
+import '../templates/build_versions.dart';
 
 // ── Data model ────────────────────────────────────────────────────────────────
 
@@ -416,6 +417,40 @@ class DoctorCommand extends Command {
       s.checks.add(DoctorCheck(DoctorStatus.info, label));
     }
 
+    void checkFilePermissions(
+      DoctorSection section,
+      FileSystemEntity entity,
+      String label, {
+      bool requireRead = true,
+      bool requireWrite = true,
+    }) {
+      try {
+        final stat = entity.statSync();
+        const readBits = 0x124; // owner/group/other read: 0400 | 0040 | 0004
+        const writeBits = 0x92; // owner/group/other write: 0200 | 0020 | 0002
+        if (requireRead && (stat.mode & readBits) == 0) {
+          warn(
+            section,
+            '$label is not readable',
+            hint: 'Fix permissions before running nitrogen link/doctor: chmod u+r ${p.relative(entity.path, from: root!.path)}',
+          );
+        }
+        if (requireWrite && (stat.mode & writeBits) == 0) {
+          warn(
+            section,
+            '$label is not writable',
+            hint: 'Fix permissions before running nitrogen link: chmod u+w ${p.relative(entity.path, from: root!.path)}',
+          );
+        }
+      } on FileSystemException catch (e) {
+        warn(
+          section,
+          'Could not inspect permissions for $label',
+          hint: e.message,
+        );
+      }
+    }
+
     // ── System Toolchain ────────────────────────────────────────────────────────
     final sysSec = DoctorSection('System Toolchain');
     sections.add(sysSec);
@@ -468,6 +503,76 @@ class DoctorCommand extends Command {
       }
     } catch (_) {
       warn(sysSec, 'Java not found', hint: 'Install JDK 17+');
+    }
+
+    // ── PX15: Windows / Linux toolchain checks ─────────────────────────────
+    // Only run on the platform where Windows/Linux builds are performed.
+
+    // CMake — required for any desktop C++ target (Windows, Linux, macOS)
+    try {
+      final cmakeResult = Process.runSync('cmake', ['--version']);
+      if (cmakeResult.exitCode == 0) {
+        final ver = cmakeResult.stdout.toString().split('\n').first;
+        ok(sysSec, 'cmake: $ver');
+      } else {
+        warn(sysSec, 'cmake not found',
+            hint: Platform.isWindows
+                ? 'Install CMake: winget install Kitware.CMake'
+                : Platform.isLinux
+                    ? 'Install cmake: apt install cmake  (or equivalent)'
+                    : 'Install CMake from cmake.org');
+      }
+    } catch (_) {
+      warn(sysSec, 'cmake not found',
+          hint: Platform.isWindows
+              ? 'Install CMake: winget install Kitware.CMake'
+              : 'Install cmake from cmake.org or your package manager');
+    }
+
+    if (Platform.isWindows) {
+      // MSVC (Visual C++) — check for cl.exe
+      final clPath = _findOnPath('cl.exe');
+      if (clPath != null) {
+        ok(sysSec, 'MSVC (cl.exe) found at $clPath');
+      } else {
+        err(sysSec, 'MSVC (cl.exe) not found',
+            hint: 'Install Visual Studio Build Tools 2019+ and ensure '
+                'the "Desktop development with C++" workload is selected. '
+                'Run from a Developer Command Prompt for VS.');
+      }
+      // Windows SDK
+      final sdkDir = Platform.environment['WINDOWSSDKDIR'];
+      if (sdkDir != null && Directory(sdkDir).existsSync()) {
+        ok(sysSec, 'Windows SDK at $sdkDir');
+      } else {
+        warn(sysSec, 'WINDOWSSDKDIR not set',
+            hint: 'Install the Windows SDK from Visual Studio Installer');
+      }
+    }
+
+    if (Platform.isLinux) {
+      // GCC or Clang (PX15: check for g++ or clang++)
+      final hasGcc = _runVersionCheck('g++');
+      final hasClang = _runVersionCheck('clang++');
+      if (hasGcc != null) {
+        ok(sysSec, 'g++ found: $hasGcc');
+      } else if (hasClang != null) {
+        ok(sysSec, 'clang++ found: $hasClang');
+      } else {
+        err(sysSec, 'No C++ compiler found (g++ / clang++)',
+            hint: 'Install build tools: apt install build-essential  '
+                'or: apt install clang');
+      }
+      // libpthread & libdl (required by Nitro native modules on Linux)
+      final pthreadOk = File('/usr/lib/libpthread.so').existsSync() ||
+          File('/usr/lib/x86_64-linux-gnu/libpthread.so').existsSync() ||
+          File('/usr/lib/aarch64-linux-gnu/libpthread.so').existsSync();
+      if (pthreadOk) {
+        ok(sysSec, 'libpthread available');
+      } else {
+        warn(sysSec, 'libpthread not detected in standard paths',
+            hint: 'Ensure libpthread-dev is installed: apt install libpthread-stubs0-dev');
+      }
     }
 
     final pubSec = DoctorSection('pubspec.yaml');
@@ -669,6 +774,7 @@ class DoctorCommand extends Command {
     if (!cmakeFile.existsSync()) {
       err(cmakeSec, 'src/CMakeLists.txt not found', hint: 'Run: nitrogen link');
     } else {
+      checkFilePermissions(cmakeSec, cmakeFile, 'src/CMakeLists.txt');
       final cmake = cmakeFile.readAsStringSync();
       // Check for redundant includes in nearby C++ files
       final srcDir = Directory(p.join(root.path, 'src'));
@@ -776,7 +882,7 @@ class DoctorCommand extends Command {
         if (g.contains('kotlinOptions')) {
           ok(androidSec, 'kotlinOptions block present');
         } else {
-          err(androidSec, 'kotlinOptions block missing', hint: 'Add: kotlinOptions { jvmTarget = "17" }');
+          err(androidSec, 'kotlinOptions block missing', hint: 'Add: kotlinOptions { jvmTarget = "${BuildVersions.androidJvmTarget}" }');
         }
         if (g.contains('generated/kotlin')) {
           ok(androidSec, 'generated/kotlin sourceSets entry present');
@@ -805,6 +911,11 @@ class DoctorCommand extends Command {
       if (pluginFiles.isEmpty) {
         err(androidSec, 'No Plugin.kt found', hint: 'Run: nitrogen init');
       } else {
+        checkFilePermissions(
+          androidSec,
+          pluginFiles.first,
+          p.relative(pluginFiles.first.path, from: root.path),
+        );
         final kt = pluginFiles.first.readAsStringSync();
         // Only check System.loadLibrary for non-cpp specs (cpp libs are also loaded but that's fine)
         for (final spec in specs) {
@@ -877,6 +988,11 @@ class DoctorCommand extends Command {
       if (podFiles.isEmpty) {
         err(iosSec, 'No .podspec found in ios/', hint: 'Run: nitrogen init');
       } else {
+        checkFilePermissions(
+          iosSec,
+          podFiles.first,
+          p.relative(podFiles.first.path, from: root.path),
+        );
         final pod = podFiles.first.readAsStringSync();
         final podName = p.basename(podFiles.first.path);
         if (pod.contains("s.dependency 'nitro'")) {
@@ -889,17 +1005,21 @@ class DoctorCommand extends Command {
         } else {
           err(iosSec, 'HEADER_SEARCH_PATHS missing in $podName', hint: 'Run: nitrogen link');
         }
-        if (pod.contains('c++17')) {
-          ok(iosSec, 'CLANG_CXX_LANGUAGE_STANDARD = c++17');
+        if (pod.contains(BuildVersions.podCxxStandard)) {
+          ok(iosSec, 'CLANG_CXX_LANGUAGE_STANDARD = ${BuildVersions.podCxxStandard}');
         } else {
-          warn(iosSec, 'CLANG_CXX_LANGUAGE_STANDARD not set to c++17', hint: "Set: 'CLANG_CXX_LANGUAGE_STANDARD' => 'c++17' in pod_target_xcconfig");
+          warn(
+            iosSec,
+            'CLANG_CXX_LANGUAGE_STANDARD not set to ${BuildVersions.podCxxStandard}',
+            hint: "Set: 'CLANG_CXX_LANGUAGE_STANDARD' => '${BuildVersions.podCxxStandard}' in pod_target_xcconfig",
+          );
         }
         if (!allSpecsCpp) {
           // swift_version only relevant when Swift bridges are used
-          if (pod.contains("swift_version = '5.9'") || pod.contains("swift_version = '6")) {
-            ok(iosSec, 'swift_version ≥ 5.9');
+          if (pod.contains("swift_version = '${BuildVersions.podSwiftVersion}'") || pod.contains("swift_version = '6")) {
+            ok(iosSec, 'swift_version >= ${BuildVersions.podSwiftVersion}');
           } else {
-            warn(iosSec, 'swift_version may be too old', hint: "Set: s.swift_version = '5.9'");
+            warn(iosSec, 'swift_version may be too old', hint: "Set: s.swift_version = '${BuildVersions.podSwiftVersion}'");
           }
         }
 
@@ -1039,10 +1159,14 @@ class DoctorCommand extends Command {
         } else {
           err(iosSec, 'Package.swift: $cppTargetName target missing', hint: 'Run: nitrogen init  (re-creates Package.swift with the correct C++ target)');
         }
-        if (pkgSwift.contains('c++17') || pkgSwift.contains('-std=c++17')) {
-          ok(iosSec, 'Package.swift: cxxSettings -std=c++17 present');
+        if (pkgSwift.contains(BuildVersions.podCxxStandard) || pkgSwift.contains(BuildVersions.spmCxxFlag)) {
+          ok(iosSec, 'Package.swift: cxxSettings ${BuildVersions.spmCxxFlag} present');
         } else {
-          warn(iosSec, 'Package.swift: -std=c++17 missing in cxxSettings', hint: 'Add .unsafeFlags(["-std=c++17"]) to the $cppTargetName cxxSettings');
+          warn(
+            iosSec,
+            'Package.swift: ${BuildVersions.spmCxxFlag} missing in cxxSettings',
+            hint: 'Add .unsafeFlags(["${BuildVersions.spmCxxFlag}"]) to the $cppTargetName cxxSettings',
+          );
         }
         if (pkgSwift.contains('publicHeadersPath')) {
           ok(iosSec, 'Package.swift: publicHeadersPath configured for $cppTargetName');
@@ -1112,6 +1236,11 @@ class DoctorCommand extends Command {
       if (podFiles.isEmpty) {
         err(macosSec, 'No .podspec found in macos/', hint: 'Run: nitrogen init');
       } else {
+        checkFilePermissions(
+          macosSec,
+          podFiles.first,
+          p.relative(podFiles.first.path, from: root.path),
+        );
         final pod = podFiles.first.readAsStringSync();
         final podName = p.basename(podFiles.first.path);
         if (pod.contains("s.dependency 'nitro'")) {
@@ -1124,10 +1253,14 @@ class DoctorCommand extends Command {
         } else {
           err(macosSec, 'HEADER_SEARCH_PATHS missing in $podName', hint: 'Run: nitrogen link');
         }
-        if (pod.contains('c++17')) {
-          ok(macosSec, 'CLANG_CXX_LANGUAGE_STANDARD = c++17');
+        if (pod.contains(BuildVersions.podCxxStandard)) {
+          ok(macosSec, 'CLANG_CXX_LANGUAGE_STANDARD = ${BuildVersions.podCxxStandard}');
         } else {
-          warn(macosSec, 'CLANG_CXX_LANGUAGE_STANDARD not set to c++17', hint: "Set: 'CLANG_CXX_LANGUAGE_STANDARD' => 'c++17' in pod_target_xcconfig");
+          warn(
+            macosSec,
+            'CLANG_CXX_LANGUAGE_STANDARD not set to ${BuildVersions.podCxxStandard}',
+            hint: "Set: 'CLANG_CXX_LANGUAGE_STANDARD' => '${BuildVersions.podCxxStandard}' in pod_target_xcconfig",
+          );
         }
         if (pod.contains('lib/src/generated/cpp') && pod.contains('src/native')) {
           ok(macosSec, 'Comprehensive HEADER_SEARCH_PATHS in podspec');
@@ -1243,10 +1376,14 @@ class DoctorCommand extends Command {
         } else {
           err(macosSec, 'Package.swift: $cppTargetName target missing', hint: 'Run: nitrogen init  (re-creates Package.swift with the correct C++ target)');
         }
-        if (pkgSwift.contains('c++17') || pkgSwift.contains('-std=c++17')) {
-          ok(macosSec, 'Package.swift: cxxSettings -std=c++17 present');
+        if (pkgSwift.contains(BuildVersions.podCxxStandard) || pkgSwift.contains(BuildVersions.spmCxxFlag)) {
+          ok(macosSec, 'Package.swift: cxxSettings ${BuildVersions.spmCxxFlag} present');
         } else {
-          warn(macosSec, 'Package.swift: -std=c++17 missing in cxxSettings', hint: 'Add .unsafeFlags(["-std=c++17"]) to the $cppTargetName cxxSettings');
+          warn(
+            macosSec,
+            'Package.swift: ${BuildVersions.spmCxxFlag} missing in cxxSettings',
+            hint: 'Add .unsafeFlags(["${BuildVersions.spmCxxFlag}"]) to the $cppTargetName cxxSettings',
+          );
         }
         if (pkgSwift.contains('publicHeadersPath')) {
           ok(macosSec, 'Package.swift: publicHeadersPath configured for $cppTargetName');
@@ -1329,6 +1466,7 @@ class DoctorCommand extends Command {
       if (!cmakeFile.existsSync()) {
         err(winSec, 'windows/CMakeLists.txt not found', hint: 'Run: nitrogen link');
       } else {
+        checkFilePermissions(winSec, cmakeFile, 'windows/CMakeLists.txt');
         final cmake = cmakeFile.readAsStringSync();
         final sharedSrc = usesSharedSrc(cmake);
         // For NITRO_NATIVE, check both the platform file and src/CMakeLists.
@@ -1369,6 +1507,7 @@ class DoctorCommand extends Command {
       if (!cmakeFile.existsSync()) {
         err(linuxSec, 'linux/CMakeLists.txt not found', hint: 'Run: nitrogen link');
       } else {
+        checkFilePermissions(linuxSec, cmakeFile, 'linux/CMakeLists.txt');
         final cmake = cmakeFile.readAsStringSync();
         final sharedSrc = usesSharedSrc(cmake);
         if (cmake.contains('NITRO_NATIVE') || (sharedSrc && srcCmakeContent.contains('NITRO_NATIVE'))) {
@@ -1437,6 +1576,20 @@ class DoctorCommand extends Command {
         } else {
           info(cppSec, 'Run: nitrogen link (adds generated/cpp/test/ to .clangd for IDE mock support)');
         }
+      }
+    }
+
+    final podfiles = [
+      File(p.join(root.path, 'ios', 'Podfile')),
+      File(p.join(root.path, 'macos', 'Podfile')),
+    ].where((f) => f.existsSync()).toList();
+    if (podfiles.isNotEmpty) {
+      final podsSec = DoctorSection('CocoaPods Permissions');
+      sections.add(podsSec);
+      for (final podfile in podfiles) {
+        final rel = p.relative(podfile.path, from: root.path);
+        checkFilePermissions(podsSec, podfile, rel);
+        ok(podsSec, '$rel present');
       }
     }
 
@@ -1634,6 +1787,33 @@ class DoctorCommand extends Command {
 }
 
 String _toPascalCase(String lib) => lib.split(RegExp(r'[_\-]')).map((w) => w.isEmpty ? '' : w[0].toUpperCase() + w.substring(1)).join('');
+
+// ── PX15 helpers ───────────────────────────────────────────────────────────
+
+/// Returns the full path of [exe] if it is on PATH, null otherwise.
+String? _findOnPath(String exe) {
+  try {
+    final r = Process.runSync('where', [exe]);
+    if (r.exitCode == 0) {
+      return r.stdout.toString().trim().split('\n').first.trim();
+    }
+  } catch (_) {}
+  return null;
+}
+
+/// Runs [exe] --version and returns the first line of stdout/stderr, or null.
+String? _runVersionCheck(String exe) {
+  try {
+    final r = Process.runSync(exe, ['--version']);
+    if (r.exitCode == 0) {
+      final out = r.stdout.toString().trim();
+      final err = r.stderr.toString().trim();
+      final text = out.isNotEmpty ? out : err;
+      return text.split('\n').first.trim();
+    }
+  } catch (_) {}
+  return null;
+}
 
 /// Returns true when Android uses a Kotlin JNI bridge (not C++).
 /// A .bridge.g.kt file is needed iff Android is NOT using AndroidNativeImpl.cpp.

@@ -5,6 +5,9 @@
 /// to find, review, and update independently.
 library;
 
+import 'build_versions.dart';
+import 'cmake_templates.dart' show localNitroNativeCmakePath;
+
 // ── C / C++ / CMake templates ─────────────────────────────────────────────────
 
 String pluginCppTemplate(String pluginName) =>
@@ -21,12 +24,12 @@ extern "C" {
 
 String cmakeListsTemplate(String pluginName) =>
     '''
-cmake_minimum_required(VERSION 3.10)
+cmake_minimum_required(VERSION ${BuildVersions.cmakeMinimum})
 project(${pluginName}_library VERSION 0.0.1 LANGUAGES C CXX)
 
-set(CMAKE_CXX_STANDARD 17)
+set(CMAKE_CXX_STANDARD ${BuildVersions.cmakeCxxStandard})
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
-set(NITRO_NATIVE "\${CMAKE_CURRENT_SOURCE_DIR}/../../packages/nitro/src/native")
+set(NITRO_NATIVE "$localNitroNativeCmakePath")
 set(GENERATED_CPP "\${CMAKE_CURRENT_SOURCE_DIR}/../lib/src/generated/cpp")
 
 add_library($pluginName SHARED
@@ -116,7 +119,8 @@ public class ${className}Impl: NSObject, Hybrid${className}Protocol {
 
 /// Generates the SPM [Package.swift] for [pluginName].
 ///
-/// [platformSpec] is e.g. `'iOS(.v13)'` or `'macOS(.v10_15)'`.
+/// [platformSpec] is e.g. [BuildVersions.iosPlatformSpec] or
+/// [BuildVersions.macosPlatformSpec].
 /// [isMacos] switches the Xcode flag path between iOS and macOS conventions.
 String packageSwiftTemplate(
   String pluginName,
@@ -125,7 +129,7 @@ String packageSwiftTemplate(
   bool isMacos = false,
 }) {
   return '''
-// swift-tools-version: 5.9
+// swift-tools-version: ${BuildVersions.swiftTools}
 import PackageDescription
 
 let package = Package(
@@ -147,7 +151,7 @@ let package = Package(
             publicHeadersPath: "include",
             cxxSettings: [
                 .headerSearchPath("include"),
-                .unsafeFlags(["-std=c++17"])
+                .unsafeFlags(["${BuildVersions.spmCxxFlag}"])
             ]
         ),
         // Swift implementation + generated bridge.
@@ -174,7 +178,10 @@ String androidBuildGradleTemplate(String org, String pluginName) =>
     '''
 plugins {
     id "com.android.library"
-    id "org.jetbrains.kotlin.android"
+    // Flutter's build infrastructure applies KGP automatically (built-in Kotlin).
+    // Do NOT add "org.jetbrains.kotlin.android" here — it triggers a deprecation
+    // warning and will break in future Flutter versions.
+    // See: https://docs.flutter.dev/release/breaking-changes/migrate-to-built-in-kotlin
 }
 
 group = "$org.$pluginName"
@@ -182,21 +189,21 @@ version = "1.0"
 
 android {
     namespace = "$org.$pluginName"
-    compileSdk = 36
-    ndkVersion = "27.0.12077973"
+    compileSdk = ${BuildVersions.androidCompileSdk}
+    ndkVersion = "${BuildVersions.androidNdk}"
 
     externalNativeBuild {
         cmake { path = "../src/CMakeLists.txt" }
     }
 
     compileOptions {
-        sourceCompatibility = JavaVersion.VERSION_17
-        targetCompatibility = JavaVersion.VERSION_17
+        sourceCompatibility = JavaVersion.${BuildVersions.androidJavaVersion}
+        targetCompatibility = JavaVersion.${BuildVersions.androidJavaVersion}
     }
 
-    kotlinOptions { jvmTarget = "17" }
+    kotlinOptions { jvmTarget = "${BuildVersions.androidJvmTarget}" }
 
-    defaultConfig { minSdk = 24 }
+    defaultConfig { minSdk = ${BuildVersions.androidMinSdk} }
 
     sourceSets {
         main {
@@ -208,8 +215,8 @@ android {
 }
 
 dependencies {
-    implementation "org.jetbrains.kotlinx:kotlinx-coroutines-android:1.7.3"
-    implementation "org.jetbrains.kotlinx:kotlinx-coroutines-core:1.7.3"
+    implementation "org.jetbrains.kotlinx:kotlinx-coroutines-android:${BuildVersions.kotlinCoroutines}"
+    implementation "org.jetbrains.kotlinx:kotlinx-coroutines-core:${BuildVersions.kotlinCoroutines}"
 }
 ''';
 

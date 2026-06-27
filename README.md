@@ -204,6 +204,24 @@ TypedData params expand to `pointer + size_t length` in the C++ interface.
 - **`@HybridStruct`** — packed C struct, zero-copy across FFI boundary
 - **`@HybridEnum`** — enum mapped to `int64_t` at the C boundary
 - **`@HybridRecord`** — compact binary-encoded type (no JSON), for infrequent complex transfers
+- **`@NitroVariant`** — discriminated union (sealed class); wire format: `[4B len][1B tag][fields]`; Swift enum + `fromReader`/`writeFields`, Kotlin sealed class; protocol methods use the concrete variant type (not `Any`)
+- **`@NitroOwned`** — raw pointer return via `NativeHandle<T>`; Dart wraps in a `NativeFinalizer`; native bridge emits a `_release` C symbol in the global section (before platform guards) so both Apple and Android link correctly
+
+### Result types
+- **`@NitroResult<T>`** — method-level annotation; Dart returns `NitroResultValue<T>` (`NitroOk<T>` / `NitroErr`); wire: `[1B tag][payload]`; Swift protocol uses `throws -> T`
+
+```dart
+// lib/src/math.native.dart
+@NitroResult<double>()
+double safeDiv(double a, double b);  // throws on divide-by-zero in Swift/Kotlin
+
+// Dart usage:
+final result = await myModule.safeDiv(10, 0);
+switch (result) {
+  case NitroOk(:final value): print(value);
+  case NitroErr(:final message): print('Error: $message');
+}
+```
 
 ### Async & Streams
 - **`@nitroAsync`** — offloads synchronous native call to a background thread

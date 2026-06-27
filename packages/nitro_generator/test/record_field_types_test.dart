@@ -60,6 +60,32 @@ BridgeSpec _listPrimFieldSpec(String itemType, String fieldName) => BridgeSpec(
   ],
 );
 
+BridgeSpec _enumRecordFieldSpec() => BridgeSpec(
+  dartClassName: 'Mod',
+  lib: 'mod',
+  namespace: 'mod',
+  iosImpl: NativeImpl.swift,
+  androidImpl: NativeImpl.kotlin,
+  sourceUri: 'mod.native.dart',
+  enums: [
+    BridgeEnum(name: 'Quality', values: ['draft', 'normal', 'high'], startValue: 10),
+  ],
+  recordTypes: [
+    BridgeRecordType(
+      name: 'PrintJob',
+      fields: [
+        BridgeRecordField(name: 'quality', dartType: 'Quality', kind: RecordFieldKind.enumValue),
+        BridgeRecordField(
+          name: 'history',
+          dartType: 'List<Quality>',
+          kind: RecordFieldKind.listEnumValue,
+          itemTypeName: 'Quality',
+        ),
+      ],
+    ),
+  ],
+);
+
 // ── Section 1: bool field ─────────────────────────────────────────────────────
 
 void main() {
@@ -104,6 +130,50 @@ void main() {
     test('Swift writeFields emits writer.writeBool(enabled)', () {
       final out = RecordGenerator.generateSwift(spec, emitBoilerplate: false);
       expect(out, contains('writer.writeBool(enabled)'));
+    });
+  });
+
+  group('RecordGenerator — @HybridEnum fields in @HybridRecord', () {
+    final spec = _enumRecordFieldSpec();
+
+    test('Dart fromReader converts native int to enum', () {
+      final out = RecordGenerator.generateDartExtensions(spec);
+      expect(out, contains('quality: r.readInt().toQuality()'));
+      expect(out, contains('history: List.generate(r.readInt32(), (_) => r.readInt().toQuality())'));
+    });
+
+    test('Dart writeFields writes enum nativeValue', () {
+      final out = RecordGenerator.generateDartExtensions(spec);
+      expect(out, contains('writer.writeInt(quality.nativeValue)'));
+      expect(out, contains('for (final e in history) { writer.writeInt(e.nativeValue); }'));
+    });
+
+    test('Kotlin record uses enum type and nativeValue codec', () {
+      final out = RecordGenerator.generateKotlin(spec);
+      expect(out, contains('val quality: Quality'));
+      expect(out, contains('val history: List<Quality>'));
+      expect(out, contains('val quality = Quality.fromNative(buf.long)'));
+      expect(out, contains('val history = (0 until buf.int).map { Quality.fromNative(buf.long) }'));
+      expect(out, contains('writeInt(quality.nativeValue)'));
+      expect(out, contains('history.forEach { e -> writeInt(e.nativeValue) }'));
+    });
+
+    test('Swift record uses enum type and rawValue codec', () {
+      final out = RecordGenerator.generateSwift(spec, emitBoilerplate: false);
+      expect(out, contains('public var quality: Quality'));
+      expect(out, contains('public var history: [Quality]'));
+      expect(out, contains('quality: Quality(rawValue: r.readInt())!'));
+      expect(out, contains('history: (0..<Int(r.readInt32())).map { _ in Quality(rawValue: r.readInt())! }'));
+      expect(out, contains('writer.writeInt(quality.rawValue)'));
+      expect(out, contains('for e in history { writer.writeInt(e.rawValue) }'));
+    });
+
+    test('C++ record stores enum type and casts from wire int', () {
+      final out = RecordGenerator.generateCpp(spec);
+      expect(out, contains('Quality quality;'));
+      expect(out, contains('std::vector<Quality> history;'));
+      expect(out, contains('_obj.quality = static_cast<Quality>(_r.readInt());'));
+      expect(out, contains('_obj.history.push_back(static_cast<Quality>(_r.readInt()));'));
     });
   });
 

@@ -1,13 +1,15 @@
-import 'package:nitro_generator/src/generators/swift_generator.dart';
+import 'package:nitro_generator/src/generators/languages/swift/swift_generator.dart';
+import 'package:nitro_generator/src/generators/generator_metadata.dart';
 import 'package:nitro_generator/src/generators/record_generator.dart';
 import 'package:test/test.dart';
 import 'test_utils.dart';
 
 void main() {
   group('NitroAr Regression Tests', () {
-    test('Swift: generated bridge has version 0.3.5', () {
+    test('Swift: generated bridge has nitro_generator version metadata', () {
       final out = SwiftGenerator.generate(simpleSpec());
-      expect(out, contains('// Generator version: 0.3.5'));
+      expect(out, contains('// nitro_generator: $nitroGeneratorVersion'));
+      expect(out, isNot(contains('// Generator version: 0.3.5')));
     });
 
     test('Swift: async bool return uses correct Int8 casting', () {
@@ -61,7 +63,8 @@ void main() {
       );
       final out = SwiftGenerator.generate(spec);
       // Verify that records in streams are converted to native pointers
-      expect(out, contains('emitCb(dartPort, item.toNative())'));
+      expect(out, contains('let raw = item.toNative()'));
+      expect(out, contains('emitCb(dartPort, raw)'));
     });
 
     test('Swift: structs referenced in record fields get fromReader/writeFields extensions', () {

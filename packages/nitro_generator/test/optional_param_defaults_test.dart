@@ -14,7 +14,7 @@
 //   Section 3: Non-nullable named params — documents Bug 5.1 behavior
 //   Section 4: Multiple mixed params — valid combinations
 
-import 'package:nitro_generator/src/generators/dart_ffi_generator.dart';
+import 'package:nitro_generator/src/generators/languages/dart/dart_ffi_generator.dart';
 import 'package:test/test.dart';
 import 'test_utils.dart';
 

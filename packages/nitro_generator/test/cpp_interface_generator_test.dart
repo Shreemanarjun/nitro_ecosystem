@@ -1,4 +1,4 @@
-import 'package:nitro_generator/src/generators/cpp_interface_generator.dart';
+import 'package:nitro_generator/src/generators/languages/cpp_native/cpp_interface_generator.dart';
 import 'package:test/test.dart';
 import 'test_utils.dart';
 
@@ -60,6 +60,30 @@ void main() {
       final out = CppInterfaceGenerator.generate(spec);
       expect(out, contains('const uint8_t* data'));
       expect(out, contains('size_t data_length'));
+    });
+
+    test('TypedData return uses NitroCppBuffer for length-aware zero-copy ABI', () {
+      final spec = BridgeSpec(
+        dartClassName: 'Buffers',
+        lib: 'buffers',
+        namespace: 'buf',
+        iosImpl: NativeImpl.cpp,
+        androidImpl: NativeImpl.cpp,
+        sourceUri: 'buffers.native.dart',
+        functions: [
+          BridgeFunction(
+            dartName: 'snapshot',
+            cSymbol: 'buffers_snapshot',
+            isAsync: false,
+            returnType: BridgeType(name: 'Uint8List'),
+            zeroCopyReturn: true,
+            params: [],
+          ),
+        ],
+      );
+      final out = CppInterfaceGenerator.generate(spec);
+      expect(out, contains('virtual NitroCppBuffer snapshot() = 0;'));
+      expect(out, contains('For @zeroCopy returns, native code must keep data alive while Dart uses it.'));
     });
 
     test('struct param uses const T& reference', () {

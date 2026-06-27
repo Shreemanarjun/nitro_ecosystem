@@ -17,9 +17,9 @@
 
 import 'package:nitro_annotations/nitro_annotations.dart' show NativeImpl, Backpressure;
 import 'package:nitro_generator/src/bridge_spec.dart';
-import 'package:nitro_generator/src/generators/cpp_bridge_generator.dart';
-import 'package:nitro_generator/src/generators/dart_ffi_generator.dart';
-import 'package:nitro_generator/src/generators/kotlin_generator.dart';
+import 'package:nitro_generator/src/generators/languages/c_bridge/cpp_bridge_generator.dart';
+import 'package:nitro_generator/src/generators/languages/dart/dart_ffi_generator.dart';
+import 'package:nitro_generator/src/generators/languages/kotlin/kotlin_generator.dart';
 import 'package:nitro_generator/src/generators/record_generator.dart';
 import 'package:test/test.dart';
 
@@ -405,6 +405,22 @@ void main() {
       final count = 'env->GetStaticMethodID(g_bridgeClass, "stream_mod_register_temperature_call"'.allMatches(cpp).length;
       expect(count, equals(1), reason: 'Only once in JNI_OnLoad');
     });
+
+    test('JNI stream emit returns false when Dart port is dead', () {
+      final cpp = CppBridgeGenerator.generate(_specWithStreams());
+      expect(cpp, contains('JNIEXPORT jboolean JNICALL'));
+      expect(cpp, contains('StreamModJniBridge_emit_1temperature'));
+      expect(cpp, contains('if (!Dart_PostCObject_DL(dartPort, &obj)) {'));
+      expect(cpp, contains('return JNI_FALSE;'));
+      expect(cpp, contains('return JNI_TRUE;'));
+    });
+
+    test('Swift stream shim callback returns Dart post success', () {
+      final cpp = CppBridgeGenerator.generate(_specWithStreams());
+      expect(cpp, contains('bool _emit_temperature_to_dart(int64_t dartPort, double item)'));
+      expect(cpp, contains('return Dart_PostCObject_DL(dartPort, &obj);'));
+      expect(cpp, contains('bool (*emitCb)(int64_t, double)'));
+    });
   });
 
   // ── Fix 1d: Struct class + ctor + field ID caching ───────────────────────────
@@ -627,7 +643,7 @@ void main() {
     test('list _call uses result.size * perItemHint + 8 as initial capacity', () {
       final kotlin = KotlinGenerator.generate(_specWithRecords());
       // SensorReading hint = 52; list path: result.size * 52 + 8
-      expect(kotlin, contains('java.io.ByteArrayOutputStream(result.size * 52 + 8)'));
+      expect(kotlin, contains('val tmpOut = java.io.ByteArrayOutputStream(52)'));
     });
 
     test('list _call does NOT use bare ByteArrayOutputStream() with no capacity', () {
@@ -670,7 +686,7 @@ void main() {
         ],
       );
       final kotlin = KotlinGenerator.generate(spec);
-      expect(kotlin, contains('java.io.ByteArrayOutputStream(result.size * 24 + 8)'));
+      expect(kotlin, contains('val tmpOut = java.io.ByteArrayOutputStream(24)'));
     });
   });
 
@@ -1696,6 +1712,86 @@ void main() {
       expect(cpp, contains('"DualFrame.chroma: TypedData pointer is null"'));
       expect(cpp, contains('jobject dbuf_luma = env->NewDirectByteBuffer'));
       expect(cpp, contains('jobject dbuf_chroma = env->NewDirectByteBuffer'));
+    });
+  });
+
+  group('DartFfiGenerator — P3: assert-gated sync error checks', () {
+    test('non-leaf sync function checks native error state only inside assert', () {
+      final spec = BridgeSpec(
+        dartClassName: 'ErrorCheckMod',
+        lib: 'error_check_mod',
+        namespace: 'error_check_mod',
+        iosImpl: NativeImpl.swift,
+        androidImpl: NativeImpl.kotlin,
+        sourceUri: 'error_check.native.dart',
+        functions: [
+          BridgeFunction(
+            dartName: 'setName',
+            cSymbol: 'error_check_mod_set_name',
+            isAsync: false,
+            returnType: BridgeType(name: 'void'),
+            params: [
+              BridgeParam(
+                name: 'name',
+                type: BridgeType(name: 'String'),
+              ),
+            ],
+          ),
+        ],
+      );
+
+      final out = DartFfiGenerator.generate(spec);
+      final bodyStart = out.indexOf('void setName(');
+      final bodyEnd = out.indexOf('\n  }', bodyStart);
+      final body = out.substring(bodyStart, bodyEnd);
+
+      expect(
+        body,
+        contains('NitroRuntime.throwIfOutParamError(_nitroErr);'),
+      );
+      expect(
+        body,
+        isNot(contains('\n      NitroRuntime.checkError(_getErrorPtr, _clearErrorPtr);\n')),
+        reason: 'release builds should erase the checkError call with the surrounding assert',
+      );
+    });
+  });
+
+  group('CppBridgeGenerator — G8: unknown JNI types fail fast', () {
+    test('unknown param type throws StateError instead of Object JNI descriptor', () {
+      final spec = BridgeSpec(
+        dartClassName: 'UnknownTypeMod',
+        lib: 'unknown_type_mod',
+        namespace: 'unknown_type_mod',
+        iosImpl: NativeImpl.swift,
+        androidImpl: NativeImpl.kotlin,
+        sourceUri: 'unknown.native.dart',
+        functions: [
+          BridgeFunction(
+            dartName: 'send',
+            cSymbol: 'unknown_type_mod_send',
+            isAsync: false,
+            returnType: BridgeType(name: 'void'),
+            params: [
+              BridgeParam(
+                name: 'value',
+                type: BridgeType(name: 'MysteryType'),
+              ),
+            ],
+          ),
+        ],
+      );
+
+      expect(
+        () => CppBridgeGenerator.generate(spec),
+        throwsA(
+          isA<StateError>().having(
+            (error) => error.message,
+            'message',
+            contains('Unknown JNI signature type "MysteryType"'),
+          ),
+        ),
+      );
     });
   });
 }

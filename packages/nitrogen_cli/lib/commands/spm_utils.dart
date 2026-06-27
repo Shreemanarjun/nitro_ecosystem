@@ -6,6 +6,7 @@ library;
 
 import 'dart:io';
 import 'package:path/path.dart' as p;
+import '../templates/build_versions.dart';
 
 /// Result of SPM detection for a plugin.
 class SpmStatus {
@@ -162,11 +163,11 @@ PackageSwiftValidation validatePackageSwift(String path, String platform) {
   if (!content.contains('swift-tools-version:')) {
     issues.add('$platform/Package.swift missing swift-tools-version');
   } else if (!RegExp(r'swift-tools-version:\s*5\.[9]').hasMatch(content) && !RegExp(r'swift-tools-version:\s*[6-9]').hasMatch(content)) {
-    warnings.add('$platform/Package.swift should use swift-tools-version: 5.9 or later');
+    warnings.add('$platform/Package.swift should use swift-tools-version: ${BuildVersions.swiftTools} or later');
   }
 
   // Check platform version
-  final expectedPlatform = platform == 'ios' ? '.iOS(.v13)' : '.macOS(.v10_15)';
+  final expectedPlatform = platform == 'ios' ? '.${BuildVersions.iosPlatformSpec}' : '.${BuildVersions.macosPlatformSpec}';
   if (!content.contains('.iOS(') && !content.contains('.macOS(')) {
     issues.add('$platform/Package.swift missing platforms declaration');
   }

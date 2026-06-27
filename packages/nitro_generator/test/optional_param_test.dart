@@ -3,7 +3,7 @@
 // Covers the pattern:
 //   @nitroAsync
 //   Future<void> startCapture(int sampleRate, {String? outputFile});
-import 'package:nitro_generator/src/generators/dart_ffi_generator.dart';
+import 'package:nitro_generator/src/generators/languages/dart/dart_ffi_generator.dart';
 import 'package:test/test.dart';
 import 'test_utils.dart';
 
@@ -76,7 +76,7 @@ void main() {
 
     test('nullable String? arg uses null-check with nullptr fallback', () {
       final out = DartFfiGenerator.generate(_optionalStringParamSpec());
-      expect(out, contains('outputFile != null ? outputFile!.toNativeUtf8(allocator: arena) : nullptr'));
+      expect(out, contains('outputFile != null ? outputFile.toNativeUtf8(allocator: arena) : nullptr'));
     });
 
     test('nullable String? param triggers arena allocation', () {

@@ -1,4 +1,6 @@
+import 'dart:async';
 import 'dart:io';
+
 import 'package:args/command_runner.dart';
 import 'package:path/path.dart' as p;
 import 'package:watcher/watcher.dart';
@@ -75,11 +77,35 @@ class WatchCommand extends Command {
     _log('performing initial bridge sync...');
     syncBridgeFiles(root.path);
 
-    // 3. Start the watcher for .native.dart file additions/removals
-    // (This acts as a backup, but build_runner handles the generation itself)
+    // 3. Start the watcher for .native.dart file additions/removals.
+    // build_runner handles content changes, while this debounced backup keeps
+    // platform link files in sync when specs are added, removed, or renamed.
+    final specDebouncer = NativeSpecChangeDebouncer(
+      delay: const Duration(milliseconds: 250),
+      onReady: (paths) async {
+        _log('native spec change detected — syncing bridge files...');
+        try {
+          syncBridgeFiles(root.path);
+          _log('sync successful.');
+        } catch (e) {
+          if (_headless) {
+            stderr.writeln('[nitro:error] sync failed: $e');
+          } else {
+            stdout.writeln(red('  ✘ Sync failed: $e'));
+          }
+        }
+      },
+      onError: (error, _) {
+        if (_headless) {
+          stderr.writeln('[nitro:error] sync failed: $error');
+        } else {
+          stdout.writeln(red('  ✘ Sync failed: $error'));
+        }
+      },
+    );
     final specWatcher = DirectoryWatcher(root.path);
     specWatcher.events.listen((event) {
-      // Just logging or reacting to file-system level changes
+      specDebouncer.schedule(event.path);
     });
 
     // 4. Run build_runner watch and pipe output
@@ -117,5 +143,43 @@ class WatchCommand extends Command {
         }
       }
     }
+  }
+}
+
+class NativeSpecChangeDebouncer {
+  NativeSpecChangeDebouncer({
+    required this.delay,
+    required this.onReady,
+    this.onError,
+  });
+
+  final Duration delay;
+  final FutureOr<void> Function(List<String> paths) onReady;
+  final void Function(Object error, StackTrace stackTrace)? onError;
+
+  final Set<String> _pendingPaths = <String>{};
+  Timer? _timer;
+
+  bool schedule(String path) {
+    if (!path.endsWith('.native.dart')) return false;
+    _pendingPaths.add(path);
+    _timer?.cancel();
+    _timer = Timer(delay, _flush);
+    return true;
+  }
+
+  void dispose() {
+    _timer?.cancel();
+    _timer = null;
+    _pendingPaths.clear();
+  }
+
+  void _flush() {
+    final paths = _pendingPaths.toList()..sort();
+    _pendingPaths.clear();
+    _timer = null;
+    Future<void>.sync(() => onReady(paths)).catchError((Object error, StackTrace stackTrace) {
+      onError?.call(error, stackTrace);
+    });
   }
 }

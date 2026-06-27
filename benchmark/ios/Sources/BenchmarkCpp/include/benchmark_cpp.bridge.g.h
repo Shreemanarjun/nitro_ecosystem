@@ -5,8 +5,25 @@
 #include <stdint.h>
 #include <stdbool.h>
 #include <stdlib.h>
-#include "nitro.h"
 
+#ifndef NITRO_EXPORT
+#  if defined(_WIN32)
+#    define NITRO_EXPORT __declspec(dllexport)
+#  else
+#    define NITRO_EXPORT __attribute__((visibility("default"))) __attribute__((used))
+#  endif
+#endif
+
+#ifndef NITRO_ERROR_DEFINED
+#define NITRO_ERROR_DEFINED
+typedef struct {
+  int8_t hasError;
+  const char* name;
+  const char* message;
+  const char* code;
+  const char* stackTrace;
+} NitroError;
+#endif
 
 // --- Structs ---
 #ifndef NITRO_STRUCT_BENCHMARKPOINT_DEFINED

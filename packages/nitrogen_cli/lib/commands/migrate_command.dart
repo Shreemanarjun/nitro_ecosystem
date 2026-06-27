@@ -11,6 +11,7 @@ import 'package:path/path.dart' as p;
 import '../ui.dart';
 // findNitroProjectRoot is provided by ../ui.dart (already imported below)
 import 'spm_utils.dart';
+import '../templates/build_versions.dart';
 import '../templates/scaffold_templates.dart' show packageSwiftTemplate;
 
 // ── Migration Result ──────────────────────────────────────────────────────────
@@ -261,7 +262,7 @@ class _MigrateViewState extends State<MigrateView> {
     final iosDir = Directory(p.join(baseDir, 'ios'));
     if (iosDir.existsSync() && !status.iosHasSpm) {
       try {
-        _createPackageSwift(iosDir.path, pluginName, className, 'iOS(.v13)');
+        _createPackageSwift(iosDir.path, pluginName, className, BuildVersions.iosPlatformSpec);
         component.result.migratedPlatforms.add('ios');
         _setDone(_kStepIosPackage, detail: 'Created ios/$pluginName/Package.swift (nested layout)');
       } catch (e) {
@@ -279,7 +280,7 @@ class _MigrateViewState extends State<MigrateView> {
     final macosDir = Directory(p.join(baseDir, 'macos'));
     if (macosDir.existsSync() && !status.macosHasSpm) {
       try {
-        _createPackageSwift(macosDir.path, pluginName, className, 'macOS(.v10_15)', isMacos: true);
+        _createPackageSwift(macosDir.path, pluginName, className, BuildVersions.macosPlatformSpec, isMacos: true);
         component.result.migratedPlatforms.add('macos');
         _setDone(_kStepMacosPackage, detail: 'Created macos/$pluginName/Package.swift (nested layout)');
       } catch (e) {
@@ -757,7 +758,7 @@ class MigrateCommand extends Command {
     final iosDir = Directory(p.join(baseDir, 'ios'));
     if (iosDir.existsSync() && !spmStatus.iosHasSpm) {
       log('creating iOS Package.swift...');
-      _createPackageSwiftHeadless(iosDir.path, pluginName, className, 'iOS(.v13)');
+      _createPackageSwiftHeadless(iosDir.path, pluginName, className, BuildVersions.iosPlatformSpec);
       createSpmSourcesStructure(baseDir, 'ios', className, pluginName);
       migratedPlatforms.add('ios');
     } else {
@@ -768,7 +769,7 @@ class MigrateCommand extends Command {
     final macosDir = Directory(p.join(baseDir, 'macos'));
     if (macosDir.existsSync() && !spmStatus.macosHasSpm) {
       log('creating macOS Package.swift...');
-      _createPackageSwiftHeadless(macosDir.path, pluginName, className, 'macOS(.v10_15)', isMacos: true);
+      _createPackageSwiftHeadless(macosDir.path, pluginName, className, BuildVersions.macosPlatformSpec, isMacos: true);
       createSpmSourcesStructure(baseDir, 'macos', className, pluginName);
       migratedPlatforms.add('macos');
     } else {

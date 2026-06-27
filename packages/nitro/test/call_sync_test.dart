@@ -8,6 +8,8 @@
 ///   - fast-path (no allocation) when logging is fully disabled
 library;
 
+import 'dart:io';
+
 import 'package:nitro/nitro.dart';
 import 'package:test/test.dart';
 
@@ -27,6 +29,140 @@ void main() {
   }
 
   // ── Fast-path: logging disabled ───────────────────────────────────────────
+
+  group('ABI version check', () {
+    test('accepts the current ABI version', () {
+      expect(
+        () => NitroRuntime.checkAbiVersion(
+          'camera',
+          () => NitroRuntime.expectedAbiVersion,
+        ),
+        returnsNormally,
+      );
+    });
+
+    test('throws actionable error when the ABI symbol is missing', () {
+      expect(
+        () => NitroRuntime.checkAbiVersion(
+          'camera',
+          () => throw ArgumentError('Symbol not found'),
+        ),
+        throwsA(
+          isA<StateError>()
+              .having((e) => e.message, 'message', contains('camera: Nitro ABI version check failed'))
+              .having((e) => e.message, 'message', contains('nitrogen generate'))
+              .having((e) => e.message, 'message', contains('nitrogen link')),
+        ),
+      );
+    });
+
+    test('throws actionable error when the ABI version mismatches', () {
+      expect(
+        () => NitroRuntime.checkAbiVersion('camera', () => 0),
+        throwsA(
+          isA<StateError>()
+              .having((e) => e.message, 'message', contains('camera: Nitro ABI version mismatch'))
+              .having((e) => e.message, 'message', contains('expects ${NitroRuntime.expectedAbiVersion}'))
+              .having((e) => e.message, 'message', contains('reports 0'))
+              .having((e) => e.message, 'message', contains('nitrogen generate'))
+              .having((e) => e.message, 'message', contains('nitrogen link')),
+        ),
+      );
+    });
+  });
+
+  group('bridge checksum check', () {
+    test('accepts matching generated checksums', () {
+      expect(
+        () => NitroRuntime.checkLinkChecksum('camera', 'abc123', () => 'abc123'),
+        returnsNormally,
+      );
+    });
+
+    test('throws actionable error when the checksum symbol is missing', () {
+      expect(
+        () => NitroRuntime.checkLinkChecksum(
+          'camera',
+          'abc123',
+          () => throw ArgumentError('Symbol not found'),
+        ),
+        throwsA(
+          isA<StateError>()
+              .having((e) => e.message, 'message', contains('camera: Nitro bridge checksum check failed'))
+              .having((e) => e.message, 'message', contains('nitrogen generate'))
+              .having((e) => e.message, 'message', contains('nitrogen link')),
+        ),
+      );
+    });
+
+    test('throws actionable error when the checksum mismatches', () {
+      expect(
+        () => NitroRuntime.checkLinkChecksum('camera', 'abc123', () => 'def456'),
+        throwsA(
+          isA<StateError>()
+              .having((e) => e.message, 'message', contains('camera: Nitro bridge checksum mismatch'))
+              .having((e) => e.message, 'message', contains('expects abc123'))
+              .having((e) => e.message, 'message', contains('reports def456'))
+              .having((e) => e.message, 'message', contains('nitrogen generate'))
+              .having((e) => e.message, 'message', contains('nitrogen link')),
+        ),
+      );
+    });
+  });
+
+  group('loadLib — cache', () {
+    test('platform target check accepts the current platform', () {
+      expect(
+        () => NitroRuntime.checkSupportedPlatform(
+          'camera',
+          ios: Platform.isIOS,
+          android: Platform.isAndroid,
+          macos: Platform.isMacOS,
+          windows: Platform.isWindows,
+          linux: Platform.isLinux,
+          web: false,
+        ),
+        returnsNormally,
+      );
+    });
+
+    test('platform target check throws actionable UnsupportedError', () {
+      expect(
+        () => NitroRuntime.checkSupportedPlatform(
+          'camera',
+          ios: false,
+          android: false,
+          macos: false,
+          windows: false,
+          linux: false,
+          web: true,
+        ),
+        throwsA(
+          isA<UnsupportedError>()
+              .having((e) => e.message, 'message', contains('camera: this generated Nitro module does not target'))
+              .having((e) => e.message, 'message', contains('Targeted platforms: Web'))
+              .having((e) => e.message, 'message', contains('nitrogen generate'))
+              .having((e) => e.message, 'message', contains('nitrogen link')),
+        ),
+      );
+    });
+
+    test(
+      'loads a native library once per name',
+      () {
+        NitroConfig.instance.logLevel = NitroLogLevel.verbose;
+        final logs = captureLogs(() {
+          final first = NitroRuntime.loadLib('nitro_runtime_cache_test');
+          final second = NitroRuntime.loadLib('nitro_runtime_cache_test');
+          expect(identical(first, second), isTrue);
+        });
+
+        final loadLogs = logs.where((l) => l.$2 == 'loadLib' && l.$3.contains('Loading native lib')).toList();
+        expect(loadLogs, hasLength(1));
+      },
+      skip: !(Platform.isMacOS || Platform.isIOS) ? 'loadLib requires a real platform library outside Apple process() platforms.' : false,
+    );
+  });
 
   group('callSync — fast path (logLevel.none)', () {
     test('returns the value without any logging', () {

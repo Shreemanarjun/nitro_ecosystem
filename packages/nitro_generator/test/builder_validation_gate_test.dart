@@ -12,9 +12,9 @@
 // BuildStep (which would require a full build_runner integration harness).
 import 'package:nitro_annotations/nitro_annotations.dart';
 import 'package:nitro_generator/src/bridge_spec.dart';
-import 'package:nitro_generator/src/generators/dart_ffi_generator.dart';
-import 'package:nitro_generator/src/generators/swift_generator.dart';
-import 'package:nitro_generator/src/generators/kotlin_generator.dart';
+import 'package:nitro_generator/src/generators/languages/dart/dart_ffi_generator.dart';
+import 'package:nitro_generator/src/generators/languages/swift/swift_generator.dart';
+import 'package:nitro_generator/src/generators/languages/kotlin/kotlin_generator.dart';
 import 'package:nitro_generator/src/spec_validator.dart';
 import 'package:test/test.dart';
 

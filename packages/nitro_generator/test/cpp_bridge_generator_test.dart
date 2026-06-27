@@ -1,4 +1,4 @@
-import 'package:nitro_generator/src/generators/cpp_bridge_generator.dart';
+import 'package:nitro_generator/src/generators/languages/c_bridge/cpp_bridge_generator.dart';
 import 'package:test/test.dart';
 import 'test_utils.dart';
 
@@ -8,6 +8,53 @@ void main() {
       final out = CppBridgeGenerator.generate(simpleSpec());
       expect(out, contains('NITRO_EXPORT intptr_t my_camera_init_dart_api_dl(void* data)'));
       expect(out, contains('Dart_InitializeApiDL(data)'));
+    });
+
+    test('emits ABI version symbol', () {
+      final out = CppBridgeGenerator.generate(simpleSpec());
+      expect(
+        out,
+        contains('NITRO_EXPORT uint32_t my_camera_nitro_abi_version(void)'),
+      );
+      expect(out, contains('return 1;'));
+    });
+
+    test('emits bridge checksum symbol', () {
+      final out = CppBridgeGenerator.generate(simpleSpec());
+      expect(
+        out,
+        contains('NITRO_EXPORT const char* my_camera_nitro_bridge_checksum(void)'),
+      );
+      expect(out, matches(RegExp(r'return "[0-9a-f]{16}";')));
+    });
+
+    test('zero-copy TypedData JNI return wraps direct ByteBuffer without array copy', () {
+      final out = CppBridgeGenerator.generate(
+        BridgeSpec(
+          dartClassName: 'Dsp',
+          lib: 'dsp',
+          namespace: 'dsp',
+          androidImpl: NativeImpl.kotlin,
+          sourceUri: 'dsp.native.dart',
+          functions: [
+            BridgeFunction(
+              dartName: 'snapshot',
+              cSymbol: 'dsp_snapshot',
+              isAsync: false,
+              returnType: BridgeType(name: 'Uint8List'),
+              zeroCopyReturn: true,
+              params: [],
+            ),
+          ],
+        ),
+      );
+
+      expect(out, contains('GetStaticMethodID(g_bridgeClass, "snapshot_call", "()Ljava/nio/ByteBuffer;")'));
+      expect(out, contains('void* data = env->GetDirectBufferAddress(jbuf);'));
+      expect(out, contains('jobject owner = env->NewGlobalRef(jbuf);'));
+      expect(out, contains('result[1] = (int64_t)(intptr_t)(data != nullptr ? data : result);'));
+      expect(out, contains('NITRO_EXPORT void dsp_release_typed_data_return(void* ptr)'));
+      expect(out, isNot(contains('GetByteArrayRegion(jarr')));
     });
 
     test('emits JNI_OnLoad with correct lib name', () {
@@ -92,25 +139,25 @@ void main() {
         ],
       );
       final out = CppBridgeGenerator.generate(spec);
-      expect(out, contains('void my_camera_do_something(void)'));
-      expect(out, contains('if (env == nullptr) return;\n'));
+      expect(out, contains('void my_camera_do_something(NitroError* _nitro_err)'));
+      expect(out, contains('if (env == nullptr) { return; }\n'));
       expect(out, contains('if (methodId == nullptr) { LOGE("Method not found: doSomething_call sig=()V"); return; }'));
     });
 
     test('enum return uses int64_t and CallStaticLongMethod', () {
       final out = CppBridgeGenerator.generate(enumSpec());
-      expect(out, contains('int64_t complex_module_get_status(void)'));
+      expect(out, contains('int64_t complex_module_get_status(NitroError* _nitro_err)'));
       expect(out, contains('CallStaticLongMethod'));
     });
 
     test('property getter emitted', () {
       final out = CppBridgeGenerator.generate(enumSpec());
-      expect(out, contains('double complex_module_get_battery_level(void)'));
+      expect(out, contains('double complex_module_get_battery_level(NitroError* _nitro_err)'));
     });
 
     test('property setter emitted', () {
       final out = CppBridgeGenerator.generate(enumSpec());
-      expect(out, contains('void complex_module_set_config(const char* value)'));
+      expect(out, contains('void complex_module_set_config(const char* value, NitroError* _nitro_err)'));
     });
     test('JNI cleanup is emitted for object arguments', () {
       final spec = BridgeSpec(
@@ -227,7 +274,7 @@ void main() {
       final out = CppBridgeGenerator.generate(spec);
       expect(out, contains('void test_lib_release_User(void* ptr)'));
       expect(out, contains('User* st_ptr = (User*)ptr;'));
-      expect(out, contains('if (st_ptr->name) free((void*)st_ptr->name);'));
+      expect(out, contains('if (st_ptr->name) { free((void*)st_ptr->name); }'));
     });
   });
 
@@ -520,6 +567,16 @@ void main() {
       final count = 'my_camera_clear_error()'.allMatches(out).length;
       expect(count, greaterThanOrEqualTo(2));
     });
+
+    test('error slot is thread-local for JNI and Swift bridge calls', () {
+      final out = CppBridgeGenerator.generate(simpleSpec());
+      expect(
+        out,
+        contains('static thread_local NitroError g_nitro_error'),
+        reason: 'concurrent calls on separate native threads must not share error state',
+      );
+      expect(out, contains('NitroError* my_camera_get_error() { return &g_nitro_error; }'));
+    });
   });
 
   group('CppBridgeGenerator (cpp direct path) — edge cases', () {
@@ -543,6 +600,24 @@ void main() {
       );
       final out = CppBridgeGenerator.generate(spec);
       expect(out, contains('return false'));
+    });
+
+    test('emits ABI version symbol for cpp direct path', () {
+      final out = CppBridgeGenerator.generate(cppSpec());
+      expect(
+        out,
+        contains('NITRO_EXPORT uint32_t math_nitro_abi_version(void)'),
+      );
+      expect(out, contains('return 1;'));
+    });
+
+    test('emits bridge checksum symbol for cpp direct path', () {
+      final out = CppBridgeGenerator.generate(cppSpec());
+      expect(
+        out,
+        contains('NITRO_EXPORT const char* math_nitro_bridge_checksum(void)'),
+      );
+      expect(out, matches(RegExp(r'return "[0-9a-f]{16}";')));
     });
 
     test('int return type has correct default (0)', () {
@@ -578,12 +653,22 @@ void main() {
       expect(out, contains('std::string(name)'));
     });
 
-    test('clear_error is called before each cpp direct function', () {
+    test('S8: NitroError* out-param slot reset before each cpp direct function', () {
       final out = CppBridgeGenerator.generate(cppSpec());
-      // libStem = spec.lib = 'math', so symbol is math_clear_error()
-      final count = 'math_clear_error()'.allMatches(out).length;
-      // add() + greet() + get_precision() + set_precision() = at least 4
+      // S8: each sync function resets the out-param slot instead of calling clear_error().
+      // add() + greet() + get_precision() + set_precision() = at least 4 resets.
+      final count = 'if (_nitro_err) { _nitro_err->hasError = 0; }'.allMatches(out).length;
       expect(count, greaterThanOrEqualTo(4));
+    });
+
+    test('error slot is thread-local for cpp direct calls', () {
+      final out = CppBridgeGenerator.generate(cppSpec());
+      expect(
+        out,
+        contains('static thread_local NitroError g_nitro_error'),
+        reason: 'C++ direct calls may run on different native threads',
+      );
+      expect(out, contains('NitroError* math_get_error() { return &g_nitro_error; }'));
     });
 
     test('enum return uses static_cast<int64_t>', () {
@@ -655,7 +740,82 @@ void main() {
       expect(out, contains('NativeImpl: cpp'));
     });
 
-    group('nullable primitive return types call JNI method (not just return 0)', () {
+    group('nullable @HybridStruct param null guard', () {
+      BridgeSpec nullableStructCppSpec({
+        NativeImpl iosImpl = NativeImpl.cpp,
+        NativeImpl androidImpl = NativeImpl.cpp,
+        String returnType = 'int',
+      }) => BridgeSpec(
+        dartClassName: 'Mod',
+        lib: 'mod',
+        namespace: 'mod',
+        iosImpl: iosImpl,
+        androidImpl: androidImpl,
+        sourceUri: 'mod.native.dart',
+        structs: [
+          BridgeStruct(
+            name: 'Foo',
+            packed: false,
+            fields: [
+              BridgeField(
+                name: 'x',
+                type: BridgeType(name: 'double'),
+              ),
+            ],
+          ),
+        ],
+        functions: [
+          BridgeFunction(
+            dartName: 'fn',
+            cSymbol: 'mod_fn',
+            isAsync: false,
+            returnType: BridgeType(name: returnType),
+            params: [
+              BridgeParam(
+                name: 'x',
+                type: BridgeType(name: 'Foo?', isNullable: true),
+              ),
+            ],
+          ),
+        ],
+      );
+
+      test('direct C++ bridge reports error before dereferencing nullable struct', () {
+        final out = CppBridgeGenerator.generate(nullableStructCppSpec());
+        final guard = out.indexOf('if (x == nullptr) {');
+        final deref = out.indexOf('*static_cast<const Foo*>(x)');
+
+        expect(guard, isNot(-1));
+        expect(out, contains('nitro_report_error("NullPointerException", "Parameter x for fn cannot be null.", nullptr, nullptr);'));
+        expect(out, contains('return 0;'));
+        expect(deref, isNot(-1));
+        expect(guard, lessThan(deref));
+      });
+
+      test('direct C++ void return guard returns without a value', () {
+        final out = CppBridgeGenerator.generate(
+          nullableStructCppSpec(returnType: 'void'),
+        );
+        expect(out, contains('if (x == nullptr) {\n        nitro_report_error("NullPointerException", "Parameter x for fn cannot be null.", nullptr, nullptr);\n        return;\n    }'));
+      });
+
+      test('Apple C++ dispatch reports error before dereferencing nullable struct', () {
+        final out = CppBridgeGenerator.generate(
+          nullableStructCppSpec(androidImpl: NativeImpl.kotlin),
+        );
+        final appleStart = out.indexOf('#elif __APPLE__');
+        final guard = out.indexOf('if (x == nullptr) {', appleStart);
+        final deref = out.indexOf('*static_cast<const Foo*>(x)', appleStart);
+
+        expect(appleStart, isNot(-1));
+        expect(guard, isNot(-1));
+        expect(deref, isNot(-1));
+        expect(guard, lessThan(deref));
+        expect(out.substring(appleStart), contains('return 0;'));
+      });
+    });
+
+    group('nullable primitive return types call JNI method (NitroNullable ByteArray)', () {
       BridgeSpec nullableReturnSpec(String returnTypeName) => BridgeSpec(
         dartClassName: 'MyModule',
         lib: 'my_module',
@@ -674,19 +834,25 @@ void main() {
         ],
       );
 
-      test('int? return calls CallStaticLongMethod', () {
+      test('int? return calls CallStaticObjectMethod (NitroNullable ByteArray)', () {
         final out = CppBridgeGenerator.generate(nullableReturnSpec('int?'));
-        expect(out, contains('CallStaticLongMethod'), reason: 'int? must call CallStaticLongMethod, not just return 0');
+        // int? now uses NitroNullableInt binary encoding (ByteArray) — CallStaticObjectMethod
+        expect(out, contains('CallStaticObjectMethod'), reason: 'int? must call CallStaticObjectMethod for NitroNullable ByteArray');
+        expect(out, contains('uint8_t*'), reason: 'int? return type should be uint8_t*');
       });
 
-      test('double? return calls CallStaticDoubleMethod', () {
+      test('double? return calls CallStaticObjectMethod (NitroNullable ByteArray)', () {
         final out = CppBridgeGenerator.generate(nullableReturnSpec('double?'));
-        expect(out, contains('CallStaticDoubleMethod'), reason: 'double? must call CallStaticDoubleMethod');
+        // double? now uses NitroNullableDouble binary encoding (ByteArray)
+        expect(out, contains('CallStaticObjectMethod'), reason: 'double? must call CallStaticObjectMethod for NitroNullable ByteArray');
+        expect(out, contains('uint8_t*'), reason: 'double? return type should be uint8_t*');
       });
 
-      test('bool? return calls CallStaticBooleanMethod', () {
+      test('bool? return calls CallStaticObjectMethod (NitroNullable ByteArray)', () {
         final out = CppBridgeGenerator.generate(nullableReturnSpec('bool?'));
-        expect(out, contains('CallStaticBooleanMethod'), reason: 'bool? must call CallStaticBooleanMethod');
+        // bool? now uses NitroNullableBool binary encoding (ByteArray) — no more Int 3-state.
+        expect(out, contains('CallStaticObjectMethod'), reason: 'bool? must call CallStaticObjectMethod for NitroNullable ByteArray');
+        expect(out, contains('uint8_t*'), reason: 'bool? return type should be uint8_t*');
       });
 
       test('String? return calls CallStaticObjectMethod', () {
@@ -694,22 +860,25 @@ void main() {
         expect(out, contains('CallStaticObjectMethod'), reason: 'String? must call CallStaticObjectMethod');
       });
 
-      test('int? return has same JNI call pattern as int return', () {
+      test('int? return uses ByteArray encoding (not same as int scalar)', () {
         final nullable = CppBridgeGenerator.generate(nullableReturnSpec('int?'));
         final nonNullable = CppBridgeGenerator.generate(nullableReturnSpec('int'));
         String extractAndroidBlock(String src) {
           final start = src.indexOf('#ifdef __ANDROID__');
-          final end = src.indexOf('#endif // __ANDROID__');
-          return end > start ? src.substring(start, end) : src;
+          final end = src.indexOf('#elif __APPLE__');
+          return (start != -1 && end > start) ? src.substring(start, end) : src;
         }
 
+        // int? now uses ByteArray (GetByteArrayRegion) not scalar (CallStaticLongMethod).
         expect(
           extractAndroidBlock(nullable),
-          contains('CallStaticLongMethod'),
+          contains('CallStaticObjectMethod'),
+          reason: 'int? uses ByteArray (NitroNullable) not Long',
         );
         expect(
           extractAndroidBlock(nonNullable),
           contains('CallStaticLongMethod'),
+          reason: 'int (non-nullable) still uses Long',
         );
       });
     });

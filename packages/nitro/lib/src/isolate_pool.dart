@@ -95,7 +95,7 @@ class _PendingCall {
 /// one worker from blocking the next task that would have landed there via
 /// round-robin.
 class IsolatePool {
-  IsolatePool._(this._workers, ReceivePort replyPort) : _inflight = List.filled(_workers.length, 0) {
+  IsolatePool._(this._workers, ReceivePort replyPort) : _inflight = List.filled(_workers.length, 0), _workerHeap = List.generate(_workers.length, (i) => i), _heapPositions = List.generate(_workers.length, (i) => i) {
     _replyPort = replyPort;
     replyPort.listen(_onReply);
   }
@@ -104,6 +104,12 @@ class IsolatePool {
 
   /// In-flight call count per worker, index-parallel with [_workers].
   final List<int> _inflight;
+
+  /// Binary min-heap of worker indices ordered by in-flight count.
+  final List<int> _workerHeap;
+
+  /// Heap position per worker index, used to repair priority in O(log N).
+  final List<int> _heapPositions;
 
   late final ReceivePort _replyPort;
 
@@ -143,6 +149,7 @@ class IsolatePool {
     final pending = _pending.remove(msg.callId);
     if (pending == null) return; // already disposed or duplicate (shouldn't happen)
     _inflight[pending.workerIdx]--;
+    _siftUp(_heapPositions[pending.workerIdx]);
     // Completer.sync() means this fires the registered .then() handler
     // directly in this microtask rather than scheduling a new one.
     pending.completer.complete(msg);
@@ -151,11 +158,57 @@ class IsolatePool {
   // ── Scheduling ────────────────────────────────────────────────────────────
 
   int _leastBusyIndex() {
-    var best = 0;
-    for (var i = 1; i < _inflight.length; i++) {
-      if (_inflight[i] < _inflight[best]) best = i;
+    return _workerHeap.first;
+  }
+
+  bool _hasHigherPriority(int leftWorker, int rightWorker) {
+    final leftInflight = _inflight[leftWorker];
+    final rightInflight = _inflight[rightWorker];
+    if (leftInflight != rightInflight) {
+      return leftInflight < rightInflight;
     }
-    return best;
+    return leftWorker < rightWorker;
+  }
+
+  void _swapHeap(int a, int b) {
+    final leftWorker = _workerHeap[a];
+    final rightWorker = _workerHeap[b];
+    _workerHeap[a] = rightWorker;
+    _workerHeap[b] = leftWorker;
+    _heapPositions[leftWorker] = b;
+    _heapPositions[rightWorker] = a;
+  }
+
+  void _siftUp(int pos) {
+    var child = pos;
+    while (child > 0) {
+      final parent = (child - 1) >> 1;
+      if (!_hasHigherPriority(_workerHeap[child], _workerHeap[parent])) {
+        break;
+      }
+      _swapHeap(child, parent);
+      child = parent;
+    }
+  }
+
+  void _siftDown(int pos) {
+    var parent = pos;
+    while (true) {
+      final left = parent * 2 + 1;
+      final right = left + 1;
+      var best = parent;
+
+      if (left < _workerHeap.length && _hasHigherPriority(_workerHeap[left], _workerHeap[best])) {
+        best = left;
+      }
+      if (right < _workerHeap.length && _hasHigherPriority(_workerHeap[right], _workerHeap[best])) {
+        best = right;
+      }
+      if (best == parent) break;
+
+      _swapHeap(parent, best);
+      parent = best;
+    }
   }
 
   // ── Dispatch ──────────────────────────────────────────────────────────────
@@ -181,6 +234,7 @@ class IsolatePool {
 
     final workerIdx = _leastBusyIndex();
     _inflight[workerIdx]++;
+    _siftDown(_heapPositions[workerIdx]);
     _pending[callId] = _PendingCall(completer, workerIdx);
 
     _workers[workerIdx].send(
@@ -209,6 +263,8 @@ class IsolatePool {
       w.send(null); // null signals graceful shutdown to the worker
     }
     _workers.clear();
+    _workerHeap.clear();
+    _heapPositions.clear();
 
     // Complete all pending calls with a cancellation error so awaiting code
     // doesn't hang indefinitely.

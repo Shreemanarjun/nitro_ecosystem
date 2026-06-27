@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:developer' as developer;
 import 'dart:ffi';
 import 'dart:io';
 import 'dart:isolate';
@@ -36,32 +37,141 @@ void _log(
 /// The runtime is called only by generated code.
 /// Plugin authors and app developers interact with [NitroConfig] instead.
 class NitroRuntime {
+  static const int expectedAbiVersion = 1;
+
   static final Map<String, DynamicLibrary> _libCache = {};
   static IsolatePool? _pool;
   static bool _poolReady = false;
 
+  static String _timelineLabel(String tag) => 'Nitro.$tag';
+
   // ── Library loading ──────────────────────────────────────────────────────
 
   static DynamicLibrary loadLib(String libName) {
-    if (_libCache.containsKey(libName)) return _libCache[libName]!;
+    return _libCache.putIfAbsent(libName, () {
+      _log(NitroLogLevel.verbose, 'loadLib', 'Loading native lib: $libName');
+      final sw = Stopwatch()..start();
+      late DynamicLibrary lib;
+      if (Platform.isIOS || Platform.isMacOS) {
+        lib = DynamicLibrary.process();
+      } else if (Platform.isAndroid) {
+        lib = DynamicLibrary.open('lib$libName.so');
+      } else if (Platform.isWindows) {
+        lib = DynamicLibrary.open('$libName.dll');
+      } else {
+        lib = DynamicLibrary.open('lib$libName.so');
+      }
 
-    _log(NitroLogLevel.verbose, 'loadLib', 'Loading native lib: $libName');
-    final sw = Stopwatch()..start();
-    late DynamicLibrary lib;
-    if (Platform.isIOS || Platform.isMacOS) {
-      lib = DynamicLibrary.process();
-    } else if (Platform.isAndroid) {
-      lib = DynamicLibrary.open('lib$libName.so');
-    } else if (Platform.isWindows) {
-      lib = DynamicLibrary.open('$libName.dll');
-    } else {
-      lib = DynamicLibrary.open('lib$libName.so');
+      sw.stop();
+      _log(NitroLogLevel.verbose, 'loadLib', 'Loaded: $libName in ${sw.elapsedMicroseconds} µs');
+      return lib;
+    });
+  }
+
+  static DynamicLibrary loadLibForTargets(
+    String libName, {
+    required bool ios,
+    required bool android,
+    required bool macos,
+    required bool windows,
+    required bool linux,
+    required bool web,
+  }) {
+    checkSupportedPlatform(
+      libName,
+      ios: ios,
+      android: android,
+      macos: macos,
+      windows: windows,
+      linux: linux,
+      web: web,
+    );
+    return loadLib(libName);
+  }
+
+  static void checkSupportedPlatform(
+    String libName, {
+    required bool ios,
+    required bool android,
+    required bool macos,
+    required bool windows,
+    required bool linux,
+    required bool web,
+  }) {
+    final isSupported = (ios && Platform.isIOS) || (android && Platform.isAndroid) || (macos && Platform.isMacOS) || (windows && Platform.isWindows) || (linux && Platform.isLinux);
+    if (isSupported) return;
+
+    final targets = <String>[
+      if (ios) 'iOS',
+      if (android) 'Android',
+      if (macos) 'macOS',
+      if (windows) 'Windows',
+      if (linux) 'Linux',
+      if (web) 'Web',
+    ].join(', ');
+    throw UnsupportedError(
+      '$libName: this generated Nitro module does not target '
+      '${_currentPlatformName()}. Targeted platforms: '
+      '${targets.isEmpty ? 'none' : targets}. Update @NitroModule platform '
+      'targets, regenerate with `nitrogen generate`, run `nitrogen link`, '
+      'and rebuild the app.',
+    );
+  }
+
+  static String _currentPlatformName() {
+    if (Platform.isIOS) return 'iOS';
+    if (Platform.isAndroid) return 'Android';
+    if (Platform.isMacOS) return 'macOS';
+    if (Platform.isWindows) return 'Windows';
+    if (Platform.isLinux) return 'Linux';
+    if (Platform.isFuchsia) return 'Fuchsia';
+    return Platform.operatingSystem;
+  }
+
+  static void checkAbiVersion(String libName, int Function() readVersion) {
+    late final int actual;
+    try {
+      actual = readVersion();
+    } catch (error) {
+      throw StateError(
+        '$libName: Nitro ABI version check failed. Run `nitrogen generate` '
+        'and `nitrogen link` so the generated Dart and native bridge code '
+        'come from the same Nitro toolchain. Details: $error',
+      );
     }
 
-    _libCache[libName] = lib;
-    sw.stop();
-    _log(NitroLogLevel.verbose, 'loadLib', 'Loaded: $libName in ${sw.elapsedMicroseconds} µs');
-    return lib;
+    if (actual != expectedAbiVersion) {
+      throw StateError(
+        '$libName: Nitro ABI version mismatch. Dart runtime expects '
+        '$expectedAbiVersion but the native bridge reports $actual. Run '
+        '`nitrogen generate` and `nitrogen link`, then rebuild the app.',
+      );
+    }
+  }
+
+  static void checkLinkChecksum(
+    String libName,
+    String expectedChecksum,
+    String Function() readChecksum,
+  ) {
+    late final String actual;
+    try {
+      actual = readChecksum();
+    } catch (error) {
+      throw StateError(
+        '$libName: Nitro bridge checksum check failed. Run `nitrogen generate` '
+        'and `nitrogen link` so the generated Dart and native bridge code are '
+        'compiled into the same native library. Details: $error',
+      );
+    }
+
+    if (actual != expectedChecksum) {
+      throw StateError(
+        '$libName: Nitro bridge checksum mismatch. Dart expects '
+        '$expectedChecksum but the native bridge reports $actual. Run '
+        '`nitrogen generate` and `nitrogen link`, then rebuild the app.',
+      );
+    }
   }
 
   // ── Lifecycle logging ────────────────────────────────────────────────────
@@ -107,6 +217,68 @@ class NitroRuntime {
     }
   }
 
+  // ── S8: Out-param error checking ─────────────────────────────────────────
+  //
+  // S8 eliminates the two-call `get_error()` + `clear_error()` round-trip from
+  // every synchronous bridge call. Instead, each generated C function receives
+  // a `NitroError*` out-parameter and writes error information directly into it.
+  // Dart allocates ONE `NitroErrorFfi` struct per module instance (in the
+  // constructor) and passes it to every sync call. Since each `_NitroXxxImpl`
+  // lives in a single Dart isolate, the slot is never accessed concurrently.
+  //
+  // Benefits vs the old TLS-slot approach:
+  //   • Debug mode:   3 FFI calls → 1 FFI call  (-2 per sync method)
+  //   • Release mode: errors are NOW ALWAYS checked (assert-gate removed)
+  //   • No heap allocation per call — struct is pre-allocated in constructor
+
+  /// Checks an S8-style out-parameter error slot.
+  ///
+  /// If [errPtr.ref.hasError] is non-zero the method reads the C-owned string
+  /// fields (copying them into Dart [String]s), frees the native memory, resets
+  /// the slot for the next call, and throws a [HybridException].
+  ///
+  /// This is a no-op when there is no error — optimised to a single byte read.
+  static void throwIfOutParamError(Pointer<NitroErrorFfi> errPtr) {
+    if (errPtr.ref.hasError == 0) return;
+    // Copy C-owned strings into Dart before freeing native memory.
+    final name = errPtr.ref.name != nullptr
+        ? errPtr.ref.name.toDartString()
+        : 'NativeException';
+    final message = errPtr.ref.message != nullptr
+        ? errPtr.ref.message.toDartString()
+        : 'An unknown native exception occurred.';
+    final code = errPtr.ref.code != nullptr
+        ? errPtr.ref.code.toDartString()
+        : null;
+    final stack = errPtr.ref.stackTrace != nullptr
+        ? errPtr.ref.stackTrace.toDartString()
+        : null;
+    // Free native-heap strings (strdup'd by the C bridge) and reset the slot.
+    if (errPtr.ref.name != nullptr) {
+      malloc.free(errPtr.ref.name);
+      errPtr.ref.name = nullptr;
+    }
+    if (errPtr.ref.message != nullptr) {
+      malloc.free(errPtr.ref.message);
+      errPtr.ref.message = nullptr;
+    }
+    if (errPtr.ref.code != nullptr) {
+      malloc.free(errPtr.ref.code);
+      errPtr.ref.code = nullptr;
+    }
+    if (errPtr.ref.stackTrace != nullptr) {
+      malloc.free(errPtr.ref.stackTrace);
+      errPtr.ref.stackTrace = nullptr;
+    }
+    errPtr.ref.hasError = 0;
+    throw HybridException(
+      name: name,
+      message: message,
+      code: code,
+      stackTrace: stack,
+    );
+  }
+
   // ── Synchronous call ─────────────────────────────────────────────────────
 
   /// Calls a native function synchronously, with logging and slow-call
@@ -135,15 +307,17 @@ class NitroRuntime {
   static T callSync<T>(T Function() call, {String methodName = ''}) {
     final cfg = NitroConfig.instance;
     final effective = cfg.effectiveLogLevel;
+    final traceTimeline = cfg.timelineTracingEnabled;
 
     // Fast path: logging is fully disabled.
-    if (effective == NitroLogLevel.none) return call();
+    if (effective == NitroLogLevel.none && !traceTimeline) return call();
 
     final tag = methodName.isEmpty ? 'callSync' : 'callSync($methodName)';
     final sw = (effective == NitroLogLevel.verbose || cfg.slowCallThresholdUs > 0) ? (Stopwatch()..start()) : null;
 
     _log(NitroLogLevel.verbose, tag, 'calling');
 
+    if (traceTimeline) developer.Timeline.startSync(_timelineLabel(tag));
     try {
       final result = call();
       if (sw != null) {
@@ -162,6 +336,8 @@ class NitroRuntime {
     } catch (e, st) {
       _log(NitroLogLevel.error, tag, 'threw: $e', e, st);
       rethrow;
+    } finally {
+      if (traceTimeline) developer.Timeline.finishSync();
     }
   }
 
@@ -186,46 +362,52 @@ class NitroRuntime {
     final cfg = NitroConfig.instance;
     final poolSize = cfg.isolatePoolSize;
     final effective = cfg.effectiveLogLevel;
+    final traceTimeline = cfg.timelineTracingEnabled;
     // Only pay for timing when there's somewhere to send the result.
     final sw = effective != NitroLogLevel.none && (effective == NitroLogLevel.verbose || cfg.slowCallThresholdUs > 0) ? (Stopwatch()..start()) : null;
 
     final tag = methodName.isEmpty ? 'callAsync' : 'callAsync($methodName)';
 
-    final T result;
-    if (poolSize <= 0 || !_poolReady) {
-      // Legacy: spawn a fresh isolate per call.
-      _log(NitroLogLevel.verbose, tag, 'dispatching via Isolate.run');
-      result = await Isolate.run(() {
-        final res = Function.apply(fn, args) as T;
-        if (getError != null && clearError != null) {
-          checkError(getError.asFunction(), clearError.asFunction());
-        }
-        return res;
-      });
-    } else {
-      _log(NitroLogLevel.verbose, tag, 'dispatching via pool (size=$poolSize)');
-      result = await _pool!.dispatch<T>(
-        fn,
-        args,
-        getError: getError,
-        clearError: clearError,
-      );
-    }
-
-    if (sw != null) {
-      sw.stop();
-      final us = sw.elapsedMicroseconds;
-      _log(NitroLogLevel.verbose, tag, 'completed in $us µs');
-      if (cfg.slowCallThresholdUs > 0 && us > cfg.slowCallThresholdUs) {
-        _log(
-          NitroLogLevel.warning,
-          tag,
-          'slow call: $us µs exceeded threshold of ${cfg.slowCallThresholdUs} µs',
+    if (traceTimeline) developer.Timeline.startSync(_timelineLabel(tag));
+    try {
+      final T result;
+      if (poolSize <= 0 || !_poolReady) {
+        // Legacy: spawn a fresh isolate per call.
+        _log(NitroLogLevel.verbose, tag, 'dispatching via Isolate.run');
+        result = await Isolate.run(() {
+          final res = Function.apply(fn, args) as T;
+          if (getError != null && clearError != null) {
+            checkError(getError.asFunction(), clearError.asFunction());
+          }
+          return res;
+        });
+      } else {
+        _log(NitroLogLevel.verbose, tag, 'dispatching via pool (size=$poolSize)');
+        result = await _pool!.dispatch<T>(
+          fn,
+          args,
+          getError: getError,
+          clearError: clearError,
         );
       }
-    }
 
-    return result;
+      if (sw != null) {
+        sw.stop();
+        final us = sw.elapsedMicroseconds;
+        _log(NitroLogLevel.verbose, tag, 'completed in $us µs');
+        if (cfg.slowCallThresholdUs > 0 && us > cfg.slowCallThresholdUs) {
+          _log(
+            NitroLogLevel.warning,
+            tag,
+            'slow call: $us µs exceeded threshold of ${cfg.slowCallThresholdUs} µs',
+          );
+        }
+      }
+
+      return result;
+    } finally {
+      if (traceTimeline) developer.Timeline.finishSync();
+    }
   }
 
   // ── Native-async (zero-hop) ──────────────────────────────────────────────
@@ -248,34 +430,46 @@ class NitroRuntime {
     final cfg = NitroConfig.instance;
     final effective = cfg.effectiveLogLevel;
     final tag = methodName.isEmpty ? 'nativeAsync' : 'nativeAsync($methodName)';
+    final traceTimeline = cfg.timelineTracingEnabled;
 
     final sw = effective != NitroLogLevel.none && (effective == NitroLogLevel.verbose || cfg.slowCallThresholdUs > 0) ? (Stopwatch()..start()) : null;
 
     _log(NitroLogLevel.verbose, tag, 'calling');
 
     final port = ReceivePort();
-    call(port.sendPort.nativePort);
-    return port.first.then((raw) {
+    if (traceTimeline) developer.Timeline.startSync(_timelineLabel(tag));
+    try {
+      call(port.sendPort.nativePort);
+    } catch (_) {
       port.close();
-      if (sw != null) {
-        sw.stop();
-        final us = sw.elapsedMicroseconds;
-        _log(NitroLogLevel.verbose, tag, 'completed in $us µs');
-        if (cfg.slowCallThresholdUs > 0 && us > cfg.slowCallThresholdUs) {
-          _log(
-            NitroLogLevel.warning,
-            tag,
-            'slow call: $us µs exceeded threshold of ${cfg.slowCallThresholdUs} µs',
-          );
-        }
-      }
-      try {
-        return unpack(raw);
-      } catch (e, st) {
-        _log(NitroLogLevel.error, tag, 'threw during unpack: $e', e, st);
-        rethrow;
-      }
-    });
+      if (traceTimeline) developer.Timeline.finishSync();
+      rethrow;
+    }
+    return port.first
+        .then((raw) {
+          port.close();
+          if (sw != null) {
+            sw.stop();
+            final us = sw.elapsedMicroseconds;
+            _log(NitroLogLevel.verbose, tag, 'completed in $us µs');
+            if (cfg.slowCallThresholdUs > 0 && us > cfg.slowCallThresholdUs) {
+              _log(
+                NitroLogLevel.warning,
+                tag,
+                'slow call: $us µs exceeded threshold of ${cfg.slowCallThresholdUs} µs',
+              );
+            }
+          }
+          try {
+            return unpack(raw);
+          } catch (e, st) {
+            _log(NitroLogLevel.error, tag, 'threw during unpack: $e', e, st);
+            rethrow;
+          }
+        })
+        .whenComplete(() {
+          if (traceTimeline) developer.Timeline.finishSync();
+        });
   }
 
   // ── Stream ───────────────────────────────────────────────────────────────

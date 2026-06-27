@@ -91,6 +91,17 @@ class CleanCommand extends Command {
       }
     }
 
+    deleteIncrementalGenerationCache(
+      projectDir.path,
+      onDeleted: (rel) {
+        if (headless) {
+          stdout.writeln('[nitro:clean] deleted $rel');
+        } else {
+          stdout.writeln('  ${red('−')} $rel');
+        }
+      },
+    );
+
     if (headless) {
       stdout.writeln('[nitro] $deleted generated file(s) removed');
     } else {
@@ -103,4 +114,12 @@ class CleanCommand extends Command {
       stdout.writeln('');
     }
   }
+}
+
+bool deleteIncrementalGenerationCache(String projectRoot, {void Function(String relativePath)? onDeleted}) {
+  final nitroCache = File(p.join(projectRoot, '.dart_tool', 'nitro', 'cache.json'));
+  if (!nitroCache.existsSync()) return false;
+  nitroCache.deleteSync();
+  onDeleted?.call(p.relative(nitroCache.path, from: projectRoot));
+  return true;
 }

@@ -128,7 +128,85 @@ abstract class ${spec.name[0].toUpperCase()}${spec.name.substring(1)} extends Hy
 
 DoctorViewResult _run(Directory root) => DoctorCommand().performChecks(root: root);
 
+void _chmod(File file, String mode) {
+  if (Platform.isWindows) return;
+  final result = Process.runSync('chmod', [mode, file.path]);
+  if (result.exitCode != 0) {
+    throw StateError('chmod $mode ${file.path} failed: ${result.stderr}');
+  }
+}
+
 void main() {
+  group('Permission checks', () {
+    test('warns when src/CMakeLists.txt is not writable', () {
+      final tmp = _scaffold();
+      final cmake = File(p.join(tmp.path, 'src', 'CMakeLists.txt'));
+      _chmod(cmake, '0444');
+      addTearDown(() {
+        _chmod(cmake, '0644');
+        tmp.deleteSync(recursive: true);
+      });
+
+      final result = _run(tmp);
+      final sec = result.sections.firstWhere((s) => s.title == 'CMakeLists.txt');
+      expect(
+        sec.checks.any((c) => c.status == DoctorStatus.warn && c.label == 'src/CMakeLists.txt is not writable'),
+        isTrue,
+      );
+    });
+
+    test('warns when Android Plugin.kt is not writable', () {
+      final tmp = _scaffold();
+      final pluginKt = File(p.join(tmp.path, 'android', 'src', 'main', 'kotlin', 'com', 'example', 'MyPlugin.kt'));
+      _chmod(pluginKt, '0444');
+      addTearDown(() {
+        _chmod(pluginKt, '0644');
+        tmp.deleteSync(recursive: true);
+      });
+
+      final result = _run(tmp);
+      final sec = result.sections.firstWhere((s) => s.title == 'Android');
+      expect(
+        sec.checks.any((c) => c.status == DoctorStatus.warn && c.label.endsWith('Plugin.kt is not writable')),
+        isTrue,
+      );
+    });
+
+    test('warns when iOS podspec is not writable', () {
+      final tmp = _scaffold();
+      final podspec = File(p.join(tmp.path, 'ios', 'my_plugin.podspec'));
+      _chmod(podspec, '0444');
+      addTearDown(() {
+        _chmod(podspec, '0644');
+        tmp.deleteSync(recursive: true);
+      });
+
+      final result = _run(tmp);
+      final sec = result.sections.firstWhere((s) => s.title == 'iOS');
+      expect(
+        sec.checks.any((c) => c.status == DoctorStatus.warn && c.label == 'ios/my_plugin.podspec is not writable'),
+        isTrue,
+      );
+    });
+
+    test('warns when Podfile is not writable', () {
+      final tmp = _scaffold();
+      final podfile = File(p.join(tmp.path, 'ios', 'Podfile'))..writeAsStringSync('platform :ios, "13.0"\n');
+      _chmod(podfile, '0444');
+      addTearDown(() {
+        _chmod(podfile, '0644');
+        tmp.deleteSync(recursive: true);
+      });
+
+      final result = _run(tmp);
+      final sec = result.sections.firstWhere((s) => s.title == 'CocoaPods Permissions');
+      expect(
+        sec.checks.any((c) => c.status == DoctorStatus.warn && c.label == 'ios/Podfile is not writable'),
+        isTrue,
+      );
+    });
+  });
+
   // ── nitro.h ─────────────────────────────────────────────────────────────────
 
   group('iOS — nitro.h', () {

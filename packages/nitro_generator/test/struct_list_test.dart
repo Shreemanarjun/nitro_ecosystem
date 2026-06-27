@@ -8,10 +8,10 @@
 //   5. Kotlin generator produces ByteArray return + result.forEach { it.writeFieldsTo(out, buf) }
 //   6. Property getter returning List<@HybridStruct T> is handled correctly (Dart + RecordExt)
 
-import 'package:nitro_generator/src/generators/dart_ffi_generator.dart';
-import 'package:nitro_generator/src/generators/kotlin_generator.dart';
+import 'package:nitro_generator/src/generators/languages/dart/dart_ffi_generator.dart';
+import 'package:nitro_generator/src/generators/languages/kotlin/kotlin_generator.dart';
 import 'package:nitro_generator/src/generators/record_generator.dart';
-import 'package:nitro_generator/src/generators/swift_generator.dart';
+import 'package:nitro_generator/src/generators/languages/swift/swift_generator.dart';
 import 'package:test/test.dart';
 import 'test_utils.dart';
 
@@ -205,7 +205,7 @@ void main() {
     test('FFI function pointer uses Pointer<Uint8> type for the list return', () {
       final out = DartFfiGenerator.generate(_structListReturnSpec());
       // Should use Pointer<Uint8> (record path) for the getPrinters function pointer
-      expect(out, contains('Pointer<Uint8> Function()'));
+      expect(out, contains('Pointer<Uint8> Function(Pointer<NitroErrorFfi>)'));
       // Should NOT use Pointer<Void> in the function pointer lookup for getPrinters
       expect(out, isNot(contains("lookupFunction<Pointer<Void> Function(), Pointer<Void> Function()>('print_module_get_printers')")));
     });
@@ -344,12 +344,12 @@ void main() {
 
     test('sync _call uses result.forEach { it.writeFieldsTo(out, buf) }', () {
       final out = KotlinGenerator.generate(_structListReturnSpec());
-      expect(out, contains('result.forEach { it.writeFieldsTo(out, buf) }'));
+      expect(out, contains('item.writeFieldsTo(tmpOut, tmpBuf)'));
     });
 
     test('sync _call encodes list with 4-byte count prefix', () {
       final out = KotlinGenerator.generate(_structListReturnSpec());
-      expect(out, contains('countBuf.putInt(result.size)'));
+      expect(out, contains('payloadBuf.putInt(result.size)'));
     });
 
     test('interface declares fun getPrinters(): List<Printer>', () {

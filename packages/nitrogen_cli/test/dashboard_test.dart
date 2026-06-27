@@ -34,7 +34,8 @@ void main() {
     test('renders sidebar when multiple projects are found', () async {
       scaffoldMonorepo();
 
-      final prevDir = Directory.current;
+      String? prevDir;
+      try { prevDir = Directory.current.path; } catch (_) {}
       Directory.current = temp;
 
       try {
@@ -52,14 +53,17 @@ void main() {
           expect(tester.terminalState, containsText('two'));
         });
       } finally {
-        Directory.current = prevDir;
+        if (prevDir != null) {
+          try { Directory.current = prevDir; } catch (_) {}
+        }
       }
     });
 
     test('switching projects via arrows updates header', () async {
       scaffoldMonorepo();
 
-      final prevDir = Directory.current;
+      String? prevDir;
+      try { prevDir = Directory.current.path; } catch (_) {}
       Directory.current = temp;
 
       try {
@@ -85,14 +89,17 @@ void main() {
           expect(tester.terminalState, containsText('Active: two'));
         });
       } finally {
-        Directory.current = prevDir;
+        if (prevDir != null) {
+          try { Directory.current = prevDir; } catch (_) {}
+        }
       }
     });
 
     test('tab cycles focus between Projects and Menu', () async {
       scaffoldMonorepo();
 
-      final prevDir = Directory.current;
+      String? prevDir;
+      try { prevDir = Directory.current.path; } catch (_) {}
       Directory.current = temp;
 
       try {
@@ -121,7 +128,9 @@ void main() {
           expect(tester.terminalState, containsText('❯ Initialize'));
         });
       } finally {
-        Directory.current = prevDir;
+        if (prevDir != null) {
+          try { Directory.current = prevDir; } catch (_) {}
+        }
       }
     });
 

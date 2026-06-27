@@ -1,6 +1,6 @@
-import 'package:nitro_generator/src/generators/dart_ffi_generator.dart';
+import 'package:nitro_generator/src/generators/languages/dart/dart_ffi_generator.dart';
 import 'package:nitro_generator/src/generators/struct_generator.dart';
-import 'package:nitro_generator/src/generators/cpp_bridge_generator.dart';
+import 'package:nitro_generator/src/generators/languages/c_bridge/cpp_bridge_generator.dart';
 import 'package:test/test.dart';
 import 'test_utils.dart';
 
@@ -56,6 +56,22 @@ void main() {
     test('proxy constructor calls _finalizer!.attach()', () {
       final out = StructGenerator.generateDartProxies(structStreamSpec());
       expect(out, contains('_finalizer!.attach(this, _native.cast(), detach: this)'));
+    });
+
+    test('proxy documents zero-copy ownership contract', () {
+      final out = StructGenerator.generateDartProxies(structStreamSpec());
+      expect(
+        out,
+        contains('this proxy owns the generated struct shell'),
+      );
+      expect(
+        out,
+        contains('field buffers remain owned by the native implementation'),
+      );
+      expect(
+        out,
+        contains('do not free zero-copy field buffers while the proxy may be read'),
+      );
     });
 
     test('proxy constructor calls super with zero defaults', () {
@@ -259,7 +275,7 @@ void main() {
 
     test('release function guards against null pointer', () {
       final out = CppBridgeGenerator.generate(cppStreamStructSpec());
-      expect(out, contains('if (!ptr) return;'));
+      expect(out, contains('if (!ptr) { return; }'));
     });
 
     test('release function is inside extern "C" block', () {
@@ -269,6 +285,42 @@ void main() {
       final closingPos = out.indexOf('} // extern "C"');
       expect(releasePos, greaterThan(externCPos));
       expect(releasePos, lessThan(closingPos));
+    });
+
+    test('C++ direct release function does not free zero-copy field buffers', () {
+      final spec = BridgeSpec(
+        dartClassName: 'Video',
+        lib: 'video',
+        namespace: 'video_module',
+        iosImpl: NativeImpl.cpp,
+        androidImpl: NativeImpl.cpp,
+        sourceUri: 'video.native.dart',
+        structs: [
+          BridgeStruct(
+            name: 'Frame',
+            packed: false,
+            fields: [
+              BridgeField(
+                name: 'pixels',
+                type: BridgeType(name: 'Uint8List'),
+                zeroCopy: true,
+              ),
+              BridgeField(
+                name: 'pixelsLength',
+                type: BridgeType(name: 'int'),
+              ),
+            ],
+          ),
+        ],
+      );
+      final out = CppBridgeGenerator.generate(spec);
+      final releaseIdx = out.indexOf('video_release_Frame');
+      final releaseBlock = out.substring(
+        releaseIdx,
+        (releaseIdx + 500).clamp(0, out.length),
+      );
+      expect(releaseBlock, contains('free(ptr)'));
+      expect(releaseBlock, isNot(contains('free(st_ptr->pixels)')));
     });
 
     test('release function NOT generated when spec has no structs', () {
@@ -289,8 +341,16 @@ void main() {
       expect(releaseIdx, greaterThan(0));
       final end = (releaseIdx + 200).clamp(0, out.length);
       final releaseBlock = out.substring(releaseIdx, end);
-      expect(releaseBlock, contains('if (!ptr) return;'));
+      expect(releaseBlock, contains('if (!ptr) { return; }'));
       expect(releaseBlock, contains('free(ptr)'));
+    });
+
+    test('JNI+Swift release function does not free zero-copy field buffers', () {
+      final out = CppBridgeGenerator.generate(structStreamSpec());
+      final releaseIdx = out.indexOf('my_camera_release_CameraFrame');
+      final platformGuardIdx = out.indexOf('#ifdef __ANDROID__');
+      final releaseBlock = out.substring(releaseIdx, platformGuardIdx);
+      expect(releaseBlock, isNot(contains('free(st_ptr->data)')));
     });
 
     test('multiple structs each get a release function', () {

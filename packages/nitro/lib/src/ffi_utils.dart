@@ -73,6 +73,22 @@ extension NitroFloat64ListExtension on Float64List {
   }
 }
 
+extension NitroInt64ListExtension on Int64List {
+  Pointer<Int64> toPointer(Arena arena) {
+    final ptr = arena<Int64>(length);
+    ptr.asTypedList(length).setAll(0, this);
+    return ptr;
+  }
+}
+
+extension NitroUint64ListExtension on Uint64List {
+  Pointer<Uint64> toPointer(Arena arena) {
+    final ptr = arena<Uint64>(length);
+    ptr.asTypedList(length).setAll(0, this);
+    return ptr;
+  }
+}
+
 extension NitroStringExtension on String {
   Pointer<Utf8> toPointer(Arena arena) {
     return toNativeUtf8(allocator: arena);

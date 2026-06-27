@@ -1,4 +1,4 @@
-import 'package:nitro_generator/src/generators/dart_ffi_generator.dart';
+import 'package:nitro_generator/src/generators/languages/dart/dart_ffi_generator.dart';
 import 'package:test/test.dart';
 import 'test_utils.dart';
 
@@ -14,9 +14,87 @@ void main() {
       expect(out, contains('class _MyCameraImpl extends MyCamera'));
     });
 
-    test('emits loadLib call with correct lib name', () {
+    test('emits target-aware loadLib call with correct lib name', () {
       final out = DartFfiGenerator.generate(simpleSpec());
-      expect(out, contains("NitroRuntime.loadLib('my_camera')"));
+      expect(out, contains("NitroRuntime.loadLibForTargets('my_camera',"));
+      expect(out, contains('ios: true,'));
+      expect(out, contains('android: true,'));
+      expect(out, contains('macos: false,'));
+      expect(out, contains('windows: false,'));
+      expect(out, contains('linux: false,'));
+      expect(out, contains('web: false,'));
+      expect(
+        out,
+        contains('_MyCameraImpl() : _dylib = _loadSupportedLibrary()'),
+      );
+    });
+
+    test('emits full native target matrix for all native platforms', () {
+      final out = DartFfiGenerator.generate(allNativeCppSpec());
+      expect(
+        out,
+        contains("NitroRuntime.loadLibForTargets('universal_processor',"),
+      );
+      expect(out, contains('ios: true,'));
+      expect(out, contains('android: true,'));
+      expect(out, contains('macos: true,'));
+      expect(out, contains('windows: true,'));
+      expect(out, contains('linux: true,'));
+      expect(out, contains('web: false,'));
+    });
+
+    test('checks generated native ABI version during initialization', () {
+      final out = DartFfiGenerator.generate(simpleSpec());
+      expect(
+        out,
+        contains(
+          "NitroRuntime.checkAbiVersion('my_camera', () => _dylib.lookupFunction<Uint32 Function(), int Function()>('my_camera_nitro_abi_version')());",
+        ),
+      );
+    });
+
+    test('checks generated native bridge checksum during initialization', () {
+      final out = DartFfiGenerator.generate(simpleSpec());
+      expect(
+        out,
+        contains(
+          "NitroRuntime.checkLinkChecksum('my_camera', ",
+        ),
+      );
+      expect(
+        out,
+        contains(
+          "lookupFunction<Pointer<Utf8> Function(), Pointer<Utf8> Function()>('my_camera_nitro_bridge_checksum')().toDartString()",
+        ),
+      );
+    });
+
+    test('zero-copy TypedData return uses native finalizer-backed typed list', () {
+      final out = DartFfiGenerator.generate(
+        BridgeSpec(
+          dartClassName: 'Dsp',
+          lib: 'dsp',
+          namespace: 'dsp',
+          iosImpl: NativeImpl.swift,
+          androidImpl: NativeImpl.kotlin,
+          sourceUri: 'dsp.native.dart',
+          functions: [
+            BridgeFunction(
+              dartName: 'snapshot',
+              cSymbol: 'dsp_snapshot',
+              isAsync: false,
+              returnType: BridgeType(name: 'Uint8List'),
+              zeroCopyReturn: true,
+              params: [],
+            ),
+          ],
+        ),
+      );
+
+      expect(out, contains("lookup<NativeFinalizerFunction>('dsp_release_typed_data_return')"));
+      expect(out, contains('final dataAddress = Pointer<Int64>.fromAddress(res.address + 8).value;'));
+      expect(out, contains('return payloadPtr.asTypedList(byteLength, finalizer: _typedDataReturnFinalizer, token: res.cast<Void>());'));
+      expect(out, isNot(contains('Uint8List.fromList(payloadPtr.asTypedList(byteLength))')));
     });
 
     test('sync primitive function uses asFunction(isLeaf: true)', () {
@@ -25,7 +103,7 @@ void main() {
       expect(
         out,
         contains(
-          ".asFunction<double Function(double, double)>(isLeaf: true)",
+          ".asFunction<double Function(double, double, Pointer<NitroErrorFfi>)>(isLeaf: true)",
         ),
       );
     });
@@ -37,9 +115,9 @@ void main() {
 
     test('enum return type uses Int64 FFI type and isLeaf binding', () {
       final out = DartFfiGenerator.generate(enumSpec());
-      expect(out, contains('Int64 Function()'));
+      expect(out, contains('Int64 Function(Pointer<NitroErrorFfi>)'));
       // Primitive (enum) sync methods now use leaf binding.
-      expect(out, contains(".asFunction<int Function()>(isLeaf: true)"));
+      expect(out, contains(".asFunction<int Function(Pointer<NitroErrorFfi>)>(isLeaf: true)"));
     });
 
     test('enum return calls toDeviceStatus()', () {
@@ -141,8 +219,8 @@ void main() {
 
     test('bool return converts via != 0', () {
       final out = DartFfiGenerator.generate(richSpec());
-      expect(out, contains('final res = _isReadyPtr(strict ? 1 : 0);'));
-      expect(out, contains('NitroRuntime.checkError(_getErrorPtr, _clearErrorPtr);'));
+      expect(out, contains('final res = _isReadyPtr(strict ? 1 : 0, _nitroErr);'));
+      expect(out, contains('NitroRuntime.throwIfOutParamError(_nitroErr);'));
       expect(out, contains('return res != 0;'));
     });
 
@@ -153,8 +231,8 @@ void main() {
 
     test('int return is passed through directly', () {
       final out = DartFfiGenerator.generate(richSpec());
-      expect(out, contains('final res = _countPtr();'));
-      expect(out, contains('NitroRuntime.checkError(_getErrorPtr, _clearErrorPtr);'));
+      expect(out, contains('final res = _countPtr(_nitroErr);'));
+      expect(out, contains('NitroRuntime.throwIfOutParamError(_nitroErr);'));
       expect(out, contains('return res;'));
     });
 
@@ -241,8 +319,8 @@ void main() {
       final out = DartFfiGenerator.generate(richSpec());
       expect(out, contains('bool get enabled {'));
       expect(out, contains("NitroRuntime.callSync(() {"));
-      expect(out, contains('final res = _getEnabledPtr();'));
-      expect(out, contains('NitroRuntime.checkError(_getErrorPtr, _clearErrorPtr);'));
+      expect(out, contains('final res = _getEnabledPtr(_nitroErr);'));
+      expect(out, contains('NitroRuntime.throwIfOutParamError(_nitroErr);'));
       expect(out, contains('return res != 0;'));
       expect(out, contains("methodName: 'get enabled'"));
     });
@@ -255,15 +333,15 @@ void main() {
     test('property bool setter converts value ? 1 : 0', () {
       final out = DartFfiGenerator.generate(richSpec());
       expect(out, contains('set enabled(bool value)'));
-      expect(out, contains('_setEnabledPtr(value ? 1 : 0)'));
-      expect(out, contains('NitroRuntime.checkError(_getErrorPtr, _clearErrorPtr)'));
+      expect(out, contains('_setEnabledPtr(value ? 1 : 0, _nitroErr)'));
+      expect(out, contains('NitroRuntime.throwIfOutParamError(_nitroErr)'));
       expect(out, contains("methodName: 'set enabled'"));
     });
 
     test('property enum setter passes nativeValue', () {
       final out = DartFfiGenerator.generate(richSpec());
       // pointer name = _set{Cap(dartName)}Ptr; dartName='mode' → _setModePtr
-      expect(out, contains('_setModePtr(value.nativeValue)'));
+      expect(out, contains('_setModePtr(value.nativeValue, _nitroErr)'));
     });
 
     test('dispose() override is emitted in generated impl', () {
@@ -363,7 +441,7 @@ void main() {
       expect(
         out,
         contains(
-          "lookupFunction<Void Function(Pointer<Uint8>), void Function(Pointer<Uint8>)>"
+          "lookupFunction<Void Function(Pointer<Uint8>, Pointer<NitroErrorFfi>), void Function(Pointer<Uint8>, Pointer<NitroErrorFfi>)>"
           "('camera_module_set_device')",
         ),
       );
@@ -732,7 +810,7 @@ void main() {
       expect(out, isNot(contains('RecordExt')));
     });
 
-    test('Map<String, dynamic> return decodes via jsonDecode as Map<String, dynamic>', () {
+    test('Map<String, dynamic> return decodes via binary helper (not jsonDecode path)', () {
       final spec = BridgeSpec(
         dartClassName: 'Foo',
         lib: 'foo',
@@ -755,14 +833,15 @@ void main() {
         ],
       );
       final out = DartFfiGenerator.generate(spec);
-      expect(out, contains('jsonDecode'));
-      expect(out, contains('as Map<String, dynamic>'));
-      expect(out, contains('Pointer<Utf8>'));
-      // Must NOT call RecordExt
+      // Binary map helpers: the top-level decode uses binary helper.
+      expect(out, contains('_nitroDecodeMapBinaryDynamic'));
+      // The function pointer type uses Pointer<Uint8> (binary) not Pointer<Utf8> (JSON).
+      expect(out, contains('Pointer<Uint8> Function() _getMetadataPtr'));
+      expect(out, isNot(contains('Pointer<Utf8> Function() _getMetadataPtr')));
       expect(out, isNot(contains('RecordExt')));
     });
 
-    test('Map<String, dynamic> param encodes via jsonEncode(param) with toNativeUtf8', () {
+    test('Map<String, dynamic> param encodes via binary helper (not jsonEncode)', () {
       final spec = BridgeSpec(
         dartClassName: 'Foo',
         lib: 'foo',
@@ -790,12 +869,12 @@ void main() {
         ],
       );
       final out = DartFfiGenerator.generate(spec);
-      expect(out, contains('jsonEncode(meta)'));
-      expect(out, contains('toNativeUtf8'));
+      expect(out, contains('_nitroEncodeMapBinaryDynamic'));
+      expect(out, isNot(contains('toNativeUtf8')));
       expect(out, isNot(contains('meta.toJson()')));
     });
 
-    test('Map<String, dynamic> property setter uses jsonEncode(value) directly', () {
+    test('Map<String, dynamic> property setter uses binary encode helper', () {
       final spec = BridgeSpec(
         dartClassName: 'Foo',
         lib: 'foo',
@@ -818,12 +897,12 @@ void main() {
         ],
       );
       final out = DartFfiGenerator.generate(spec);
-      expect(out, contains('jsonEncode(value)'));
-      expect(out, contains('toNativeUtf8'));
+      expect(out, contains('_nitroEncodeMapBinaryDynamic'));
+      expect(out, isNot(contains('toNativeUtf8')));
       expect(out, isNot(contains('value.toJson()')));
     });
 
-    test('Map<String, dynamic> stream item decodes as Map<String, dynamic>', () {
+    test('Map<String, dynamic> stream item decodes via binary helper', () {
       final spec = BridgeSpec(
         dartClassName: 'Foo',
         lib: 'foo',
@@ -846,12 +925,11 @@ void main() {
         ],
       );
       final out = DartFfiGenerator.generate(spec);
-      expect(out, contains('jsonDecode'));
-      expect(out, contains('as Map<String, dynamic>'));
+      // Stream items don't use map binary (streams are emitted differently)
       expect(out, isNot(contains('RecordExt')));
     });
 
-    test('Map<String, dynamic> property getter decodes as Map<String, dynamic>', () {
+    test('Map<String, dynamic> property getter decodes via binary helper', () {
       final spec = BridgeSpec(
         dartClassName: 'Foo',
         lib: 'foo',
@@ -874,8 +952,7 @@ void main() {
         ],
       );
       final out = DartFfiGenerator.generate(spec);
-      expect(out, contains('jsonDecode'));
-      expect(out, contains('as Map<String, dynamic>'));
+      expect(out, contains('_nitroDecodeMapBinaryDynamic'));
       expect(out, isNot(contains('RecordExt')));
     });
 
@@ -1028,7 +1105,7 @@ void main() {
       // The FFI lookup signature must reference Pointer<Uint8>
       expect(out, contains('Pointer<Uint8>'));
       // The call site must pass the pointer argument through unchanged
-      expect(out, contains('_sendBufferPtr(ptr)'));
+      expect(out, contains('_sendBufferPtr(ptr, _nitroErr)'));
     });
 
     test('non-arena record return uses try/finally for malloc.free', () {

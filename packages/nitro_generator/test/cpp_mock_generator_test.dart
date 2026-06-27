@@ -1,4 +1,4 @@
-import 'package:nitro_generator/src/generators/cpp_mock_generator.dart';
+import 'package:nitro_generator/src/generators/languages/cpp_native/cpp_mock_generator.dart';
 import 'package:test/test.dart';
 import 'test_utils.dart';
 
@@ -87,6 +87,31 @@ void main() {
     test('cppEnumSpec generates MOCK_METHOD with enum return', () {
       final out = CppMockGenerator.generateMockHeader(cppEnumSpec());
       expect(out, contains('MOCK_METHOD(SensorMode, getMode'));
+    });
+
+    test('zero-copy TypedData return mocks as NitroCppBuffer', () {
+      final out = CppMockGenerator.generateMockHeader(
+        BridgeSpec(
+          dartClassName: 'Buffers',
+          lib: 'buffers',
+          namespace: 'buf',
+          iosImpl: NativeImpl.cpp,
+          androidImpl: NativeImpl.cpp,
+          sourceUri: 'buffers.native.dart',
+          functions: [
+            BridgeFunction(
+              dartName: 'snapshot',
+              cSymbol: 'buffers_snapshot',
+              isAsync: false,
+              returnType: BridgeType(name: 'Uint8List'),
+              zeroCopyReturn: true,
+              params: [],
+            ),
+          ],
+        ),
+      );
+
+      expect(out, contains('MOCK_METHOD(NitroCppBuffer, snapshot, (), (override));'));
     });
 
     test('cppStreamSpec generates mock extending HybridLidar', () {

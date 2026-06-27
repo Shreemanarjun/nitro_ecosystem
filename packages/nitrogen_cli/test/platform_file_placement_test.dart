@@ -614,7 +614,8 @@ android {
     test('linkWindows injects NITRO_NATIVE into CMakeLists.txt', () {
       linkWindows('my_plugin', ['my_plugin'], '/path/to/nitro/native', baseDir: root.path);
       final cmake = File(p.join(root.path, 'windows', 'CMakeLists.txt')).readAsStringSync();
-      expect(cmake, contains('set(NITRO_NATIVE "/path/to/nitro/native")'));
+      expect(cmake, contains(r'set(NITRO_NATIVE "${CMAKE_CURRENT_SOURCE_DIR}/../src/native")'));
+      expect(cmake, isNot(contains('/path/to/nitro/native')));
     });
 
     test('linkWindows adds bridge .cpp to add_library target', () {
@@ -743,7 +744,8 @@ android {
     test('linkLinux injects NITRO_NATIVE into CMakeLists.txt', () {
       linkLinux('my_plugin', ['my_plugin'], '/path/to/nitro/native', baseDir: root.path);
       final cmake = File(p.join(root.path, 'linux', 'CMakeLists.txt')).readAsStringSync();
-      expect(cmake, contains('set(NITRO_NATIVE "/path/to/nitro/native")'));
+      expect(cmake, contains(r'set(NITRO_NATIVE "${CMAKE_CURRENT_SOURCE_DIR}/../src/native")'));
+      expect(cmake, isNot(contains('/path/to/nitro/native')));
     });
 
     test('linkLinux adds bridge .cpp to add_library target', () {
@@ -812,6 +814,15 @@ android {
       expect(cmake, contains('dbghelp'));
     });
 
+    test('generated CMakeLists includes spec checksum stamp', () {
+      final root = _scaffoldPlugin(tmp, 'my_plugin', platforms: []);
+      _writeSwiftKotlinSpec(root, 'my_plugin');
+      generateCMake('my_plugin', ['my_plugin'], '/path/to/nitro/native', baseDir: root.path);
+      final cmake = File(p.join(root.path, 'src', 'CMakeLists.txt')).readAsStringSync();
+      final checksum = computeLinkSpecChecksum(baseDir: root.path);
+      expect(cmake, contains('# NITRO_LINK_SPEC_CHECKSUM $checksum'));
+    });
+
     test('linkCMake injects CMAKE_CXX_STANDARD 17 into existing CMakeLists without it', () {
       final root = _scaffoldPlugin(tmp, 'my_plugin', platforms: []);
       final cmake = File(p.join(root.path, 'src', 'CMakeLists.txt'));
@@ -825,6 +836,33 @@ target_include_directories(my_plugin PRIVATE "\${CMAKE_CURRENT_SOURCE_DIR}")
       linkCMake('my_plugin', ['my_plugin'], '/path/to/nitro/native', baseDir: root.path);
       final content = cmake.readAsStringSync();
       expect(content, contains('CMAKE_CXX_STANDARD 17'));
+    });
+
+    test('linkCMake adds and refreshes spec checksum stamp in existing CMakeLists', () {
+      final root = _scaffoldPlugin(tmp, 'my_plugin', platforms: []);
+      _writeSwiftKotlinSpec(root, 'my_plugin');
+      final cmake = File(p.join(root.path, 'src', 'CMakeLists.txt'));
+      cmake.writeAsStringSync('''
+cmake_minimum_required(VERSION 3.10)
+project(my_plugin_library VERSION 0.0.1 LANGUAGES C CXX)
+set(NITRO_NATIVE "\${CMAKE_CURRENT_SOURCE_DIR}/native")
+
+add_library(my_plugin SHARED "my_plugin.cpp")
+target_include_directories(my_plugin PRIVATE "\${CMAKE_CURRENT_SOURCE_DIR}")
+''');
+      linkCMake('my_plugin', ['my_plugin'], '/path/to/nitro/native', baseDir: root.path);
+      final firstChecksum = computeLinkSpecChecksum(baseDir: root.path);
+      final firstContent = cmake.readAsStringSync();
+      expect(firstContent, contains('# NITRO_LINK_SPEC_CHECKSUM $firstChecksum'));
+
+      final spec = File(p.join(root.path, 'lib', 'src', 'my_plugin.native.dart'));
+      spec.writeAsStringSync('${spec.readAsStringSync()}\n// changed\n');
+      linkCMake('my_plugin', ['my_plugin'], '/path/to/nitro/native', baseDir: root.path);
+      final secondChecksum = computeLinkSpecChecksum(baseDir: root.path);
+      final secondContent = cmake.readAsStringSync();
+      expect(secondChecksum, isNot(firstChecksum));
+      expect(secondContent, contains('# NITRO_LINK_SPEC_CHECKSUM $secondChecksum'));
+      expect(RegExp(r'# NITRO_LINK_SPEC_CHECKSUM ').allMatches(secondContent), hasLength(1));
     });
   });
 
