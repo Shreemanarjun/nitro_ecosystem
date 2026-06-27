@@ -1,3 +1,7 @@
+# 0.4.6
+
+- **New Annotations** — Added `@NitroVariant`, `@NitroResult`, `@nitroNativeAsync`, `@zeroCopy`, and `@NitroOwned`.
+
 # 0.4.5
 
 - **Ecosystem sync** — Aligned with `nitro`, `nitro_generator`, and `nitrogen_cli` 0.4.5.

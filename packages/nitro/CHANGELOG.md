@@ -1,3 +1,7 @@
+## 0.4.6
+
+- **Ecosystem sync** — Updated annotations and generator support.
+
 ## 0.4.5
 
 - **Ecosystem sync** — Aligned with `nitro_annotations`, `nitro_generator`, and `nitrogen_cli` 0.4.5.
