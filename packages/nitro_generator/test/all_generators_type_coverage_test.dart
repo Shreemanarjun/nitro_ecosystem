@@ -13,6 +13,7 @@
 //
 // §12: Batch stream (Backpressure.batch) — Kotlin mutex-guarded _buf
 // §13: String-returning callbacks — no exceptionalReturn for Pointer returns
+// §14: Nullable @NitroVariant case fields — presence flags across Dart/Kotlin/Swift
 
 import 'package:nitro_generator/src/generators/languages/c_bridge/cpp_bridge_generator.dart';
 import 'package:nitro_generator/src/generators/languages/cpp_native/cpp_interface_generator.dart';
@@ -70,6 +71,80 @@ BridgeSpec _stringCallbackReturnSpec() => BridgeSpec(
             functionReturnType: 'String',
             functionParams: [BridgeType(name: 'int')],
           ),
+        ),
+      ],
+    ),
+  ],
+);
+
+// ── §14 helpers ───────────────────────────────────────────────────────────────
+
+BridgeSpec _nullableVariantCoverageSpec() => BridgeSpec(
+  dartClassName: 'VariantMod',
+  lib: 'variant_mod',
+  namespace: 'variant_mod',
+  iosImpl: NativeImpl.swift,
+  androidImpl: NativeImpl.kotlin,
+  sourceUri: 'variant_mod.native.dart',
+  enums: [
+    BridgeEnum(name: 'VariantQuality', startValue: 10, values: ['low', 'high']),
+  ],
+  recordTypes: [
+    BridgeRecordType(
+      name: 'VariantPayload',
+      fields: [
+        BridgeRecordField(name: 'id', dartType: 'String', kind: RecordFieldKind.primitive),
+      ],
+    ),
+  ],
+  variants: [
+    BridgeVariant(
+      name: 'VariantEvent',
+      cases: [
+        BridgeVariantCase(
+          name: 'VariantChanged',
+          label: 'changed',
+          fields: [
+            BridgeRecordField(
+              name: 'count',
+              dartType: 'int?',
+              kind: RecordFieldKind.primitive,
+              isNullable: true,
+            ),
+            BridgeRecordField(
+              name: 'quality',
+              dartType: 'VariantQuality?',
+              kind: RecordFieldKind.enumValue,
+              isNullable: true,
+            ),
+            BridgeRecordField(
+              name: 'payload',
+              dartType: 'VariantPayload?',
+              kind: RecordFieldKind.recordObject,
+              isNullable: true,
+            ),
+            BridgeRecordField(
+              name: 'samples',
+              dartType: 'List<int>?',
+              kind: RecordFieldKind.listPrimitive,
+              itemTypeName: 'int',
+              isNullable: true,
+            ),
+          ],
+        ),
+      ],
+    ),
+  ],
+  functions: [
+    BridgeFunction(
+      dartName: 'echoVariant',
+      cSymbol: 'variant_mod_echo_variant',
+      isAsync: false,
+      returnType: BridgeType(name: 'VariantEvent'),
+      params: [
+        BridgeParam(
+          name: 'input',
+          type: BridgeType(name: 'VariantEvent'),
         ),
       ],
     ),
@@ -1167,6 +1242,60 @@ void main() {
     test('Dart FFI: callback cache key uses function + param name', () {
       final out = DartFfiGenerator.generate(_stringCallbackReturnSpec());
       expect(out, contains("('process.formatter', callback)"), reason: 'cache key is (functionName.paramName, callback) for deduplication');
+    });
+  });
+
+  // ── §14: Nullable @NitroVariant case fields ─────────────────────────────────
+
+  group('Nullable @NitroVariant case fields — type coverage', () {
+    final spec = _nullableVariantCoverageSpec();
+
+    test('Dart FFI: generated variant codec writes presence flags and non-null payloads', () {
+      final out = DartFfiGenerator.generate(spec);
+      expect(out, contains('extension VariantEventVariantExt on VariantEvent'));
+      expect(out, contains('writer.writeBool(count != null);'));
+      expect(out, contains('writer.writeInt(count)'));
+      expect(out, contains('writer.writeBool(quality != null);'));
+      expect(out, contains('writer.writeInt(quality.index)'));
+      expect(out, contains('writer.writeBool(payload != null);'));
+      expect(out, contains('payload.writeFields(writer);'));
+      expect(out, contains('writer.writeBool(samples != null);'));
+      expect(out, contains('writer.writeInt32(samples.length); for (final e in samples)'));
+    });
+
+    test('Kotlin: nullable variant fields decode with readBool presence flags', () {
+      final out = KotlinGenerator.generate(spec);
+      expect(out, contains('data class VariantChanged(val count: Long?, val quality: VariantQuality?, val payload: VariantPayload?, val samples: List<Long>?)'));
+      expect(out, contains('class RecordReader(val buf: java.nio.ByteBuffer)'));
+      expect(out, contains('count = if (r.readBool()) r.readInt64() else null'));
+      expect(out, contains('quality = if (r.readBool()) VariantQuality.fromNative(r.readInt64()) else null'));
+      expect(out, contains('payload = if (r.readBool()) VariantPayload.decodeFrom(r.buf) else null'));
+      expect(out, contains('samples = if (r.readBool()) List(r.readInt32()) { r.readInt64() } else null'));
+    });
+
+    test('Kotlin: nullable variant fields encode with safe calls', () {
+      final out = KotlinGenerator.generate(spec);
+      expect(out, contains('val out = java.io.ByteArrayOutputStream()'));
+      expect(out, contains('val tmp = java.nio.ByteBuffer.allocate(8).order(java.nio.ByteOrder.LITTLE_ENDIAN)'));
+      expect(out, contains('w.writeBool(count != null); count?.let { w.writeInt64(it) }'));
+      expect(out, contains('w.writeBool(quality != null); quality?.let { w.writeInt64(it.nativeValue) }'));
+      expect(out, contains('w.writeBool(payload != null); payload?.let { it.writeFieldsTo(w.out, w.tmp) }'));
+      expect(out, contains('w.writeBool(samples != null); samples?.let { w.writeInt32(it.size); it.forEach { w.writeInt64(it) } }'));
+      expect(out, isNot(contains('quality.nativeValue')), reason: 'nullable enum must use ?.let before nativeValue');
+      expect(out, isNot(contains('payload.writeFields(w)')), reason: 'nullable record must use ?.let before writeFields');
+      expect(out, isNot(contains('it.writeFields(w)')), reason: 'nullable record must use writeFieldsTo with RecordWriter buffers');
+      expect(out, isNot(contains('w.writeInt64(count)')), reason: 'nullable primitive must not be passed as Long?');
+    });
+
+    test('Swift: nullable variant associated values use presence flags', () {
+      final out = SwiftGenerator.generate(spec);
+      expect(out, contains('case changed(count: Int64?, quality: VariantQuality?, payload: VariantPayload?, samples: [Int64]?)'));
+      expect(out, contains('count: r.readBool() ? r.readInt() : nil'));
+      expect(out, contains('quality: r.readBool() ? VariantQuality(rawValue: r.readInt())! : nil'));
+      expect(out, contains('payload: r.readBool() ? VariantPayload.fromReader(r) : nil'));
+      expect(out, contains('samples: r.readBool() ? (0..<Int(r.readInt32())).map { _ in r.readInt() } : nil'));
+      expect(out, contains('w.writeBool(quality != nil); if let value = quality { w.writeInt(value.rawValue) }'));
+      expect(out, contains('w.writeBool(payload != nil); if let value = payload { value.writeFields(w) }'));
     });
   });
 }

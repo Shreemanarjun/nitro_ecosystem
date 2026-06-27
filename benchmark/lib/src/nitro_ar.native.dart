@@ -1,5 +1,4 @@
 import 'package:nitro/nitro.dart';
-import 'dart:typed_data';
 
 part 'nitro_ar.g.dart';
 

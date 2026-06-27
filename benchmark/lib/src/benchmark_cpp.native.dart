@@ -1,4 +1,3 @@
-import 'dart:typed_data';
 import 'package:nitro/nitro.dart';
 
 part 'benchmark_cpp.g.dart';

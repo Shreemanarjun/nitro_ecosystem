@@ -53,29 +53,29 @@ void main() {
       expect(out, isNot(contains('withTimeout')));
     });
 
-    test('with timeout: emits withTimeout import', () {
+    test('with timeout: does not need withTimeout import', () {
       final out = KotlinGenerator.generate(_asyncTimeoutSpec(timeout: 5000));
-      expect(out, contains('import kotlinx.coroutines.withTimeout'));
+      expect(out, isNot(contains('import kotlinx.coroutines.withTimeout')));
     });
 
     test('with timeout: wraps coroutine in withTimeout', () {
       final out = KotlinGenerator.generate(_asyncTimeoutSpec(timeout: 5000));
-      expect(out, contains('withTimeout(5000L)'));
+      expect(out, contains('kotlinx.coroutines.withTimeout(5000L)'));
     });
 
     test('with timeout: includes the method call inside withTimeout', () {
       final out = KotlinGenerator.generate(_asyncTimeoutSpec(timeout: 5000));
-      expect(out, contains('withTimeout(5000L) { impl.fetchData() }'));
+      expect(out, contains('kotlinx.coroutines.withTimeout(5000L) { impl.fetchData() }'));
     });
 
     test('with timeout: still uses runBlocking wrapping withTimeout', () {
       final out = KotlinGenerator.generate(_asyncTimeoutSpec(timeout: 5000));
-      expect(out, contains('runBlocking { withTimeout(5000L)'));
+      expect(out, contains('runBlocking { kotlinx.coroutines.withTimeout(5000L)'));
     });
 
     test('with timeout 1000ms: uses correct timeout value', () {
       final out = KotlinGenerator.generate(_asyncTimeoutSpec(timeout: 1000));
-      expect(out, contains('withTimeout(1000L)'));
+      expect(out, contains('kotlinx.coroutines.withTimeout(1000L)'));
     });
 
     test('without timeout: no withTimeout import', () {

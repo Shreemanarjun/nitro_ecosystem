@@ -62,32 +62,117 @@ BridgeSpec _typeOnlyVariantSpec() => BridgeSpec(
   isTypeOnly: true,
 );
 
-BridgeSpec _variantMethodSpec({NativeImpl iosImpl = NativeImpl.swift, NativeImpl androidImpl = NativeImpl.kotlin}) =>
-    BridgeSpec(
-      dartClassName: 'Filter',
-      lib: 'mylib',
-      namespace: 'mylib',
-      iosImpl: iosImpl,
-      macosImpl: iosImpl,
-      androidImpl: androidImpl,
-      sourceUri: 'filter.native.dart',
-      variants: [_filterVariant()],
-      functions: [
-        BridgeFunction(
-          dartName: 'process',
-          cSymbol: 'mylib_process',
-          isAsync: false,
-          isNativeAsync: false,
-          returnType: BridgeType(name: 'FilterResult', isRecord: false, isFunction: false),
-          params: [
-            BridgeParam(
-              name: 'input',
-              type: BridgeType(name: 'FilterResult', isRecord: false, isFunction: false),
+BridgeSpec _typeOnlyVariantEnumSpec() => BridgeSpec(
+  dartClassName: '',
+  lib: 'foo',
+  namespace: '',
+  sourceUri: 'foo.native.dart',
+  enums: [
+    BridgeEnum(name: 'Quality', startValue: 10, values: ['low', 'normal', 'high']),
+  ],
+  variants: [
+    BridgeVariant(
+      name: 'QualityEvent',
+      cases: [
+        BridgeVariantCase(
+          name: 'QualityChanged',
+          label: 'changed',
+          fields: [
+            BridgeRecordField(
+              name: 'quality',
+              dartType: 'Quality',
+              kind: RecordFieldKind.enumValue,
             ),
           ],
         ),
       ],
-    );
+    ),
+  ],
+  isTypeOnly: true,
+);
+
+BridgeSpec _typeOnlyNullableVariantSpec() => BridgeSpec(
+  dartClassName: '',
+  lib: 'foo',
+  namespace: '',
+  sourceUri: 'foo.native.dart',
+  enums: [
+    BridgeEnum(name: 'Quality', startValue: 10, values: ['low', 'normal', 'high']),
+  ],
+  recordTypes: [
+    BridgeRecordType(
+      name: 'Payload',
+      fields: [
+        BridgeRecordField(name: 'id', dartType: 'String', kind: RecordFieldKind.primitive),
+      ],
+    ),
+  ],
+  variants: [
+    BridgeVariant(
+      name: 'NullableEvent',
+      cases: [
+        BridgeVariantCase(
+          name: 'NullableChanged',
+          label: 'changed',
+          fields: [
+            BridgeRecordField(
+              name: 'count',
+              dartType: 'int?',
+              kind: RecordFieldKind.primitive,
+              isNullable: true,
+            ),
+            BridgeRecordField(
+              name: 'quality',
+              dartType: 'Quality?',
+              kind: RecordFieldKind.enumValue,
+              isNullable: true,
+            ),
+            BridgeRecordField(
+              name: 'payload',
+              dartType: 'Payload?',
+              kind: RecordFieldKind.recordObject,
+              isNullable: true,
+            ),
+            BridgeRecordField(
+              name: 'samples',
+              dartType: 'List<int>?',
+              kind: RecordFieldKind.listPrimitive,
+              itemTypeName: 'int',
+              isNullable: true,
+            ),
+          ],
+        ),
+      ],
+    ),
+  ],
+  isTypeOnly: true,
+);
+
+BridgeSpec _variantMethodSpec({NativeImpl iosImpl = NativeImpl.swift, NativeImpl androidImpl = NativeImpl.kotlin}) => BridgeSpec(
+  dartClassName: 'Filter',
+  lib: 'mylib',
+  namespace: 'mylib',
+  iosImpl: iosImpl,
+  macosImpl: iosImpl,
+  androidImpl: androidImpl,
+  sourceUri: 'filter.native.dart',
+  variants: [_filterVariant()],
+  functions: [
+    BridgeFunction(
+      dartName: 'process',
+      cSymbol: 'mylib_process',
+      isAsync: false,
+      isNativeAsync: false,
+      returnType: BridgeType(name: 'FilterResult', isRecord: false, isFunction: false),
+      params: [
+        BridgeParam(
+          name: 'input',
+          type: BridgeType(name: 'FilterResult', isRecord: false, isFunction: false),
+        ),
+      ],
+    ),
+  ],
+);
 
 // ── Tests ─────────────────────────────────────────────────────────────────────
 
@@ -113,8 +198,15 @@ void main() {
         namespace: '',
         sourceUri: 'foo.native.dart',
         variants: [
-          BridgeVariant(name: 'A', cases: [BridgeVariantCase(name: 'AX', label: 'x', fields: [])]),
-          BridgeVariant(name: 'B', cases: [BridgeVariantCase(name: 'BY', label: 'y', fields: [])], isImported: true),
+          BridgeVariant(
+            name: 'A',
+            cases: [BridgeVariantCase(name: 'AX', label: 'x', fields: [])],
+          ),
+          BridgeVariant(
+            name: 'B',
+            cases: [BridgeVariantCase(name: 'BY', label: 'y', fields: [])],
+            isImported: true,
+          ),
         ],
         isTypeOnly: true,
       );
@@ -205,6 +297,14 @@ void main() {
       expect(code, contains('w.writeInt8(0)'));
       expect(code, contains('w.writeInt8(1)'));
     });
+
+    test('enum fields decode and encode nativeValue, not ordinal', () {
+      final code = KotlinGenerator.generate(_typeOnlyVariantEnumSpec());
+      expect(code, contains('quality = Quality.fromNative(r.readInt64())'));
+      expect(code, contains('w.writeInt64(quality.nativeValue)'));
+      expect(code, isNot(contains('quality.ordinal.toLong()')));
+      expect(code, isNot(contains('it.ordinal == r.readInt64().toInt()')));
+    });
   });
 
   group('SwiftGenerator — @NitroVariant type-only', () {
@@ -243,8 +343,7 @@ void main() {
         variants: [BridgeVariant(name: 'Empty', cases: [])],
       );
       final result = SpecValidator.validate(spec);
-      expect(result.any((i) => i.code == 'E014'), isTrue,
-          reason: 'E014 expected for empty variant');
+      expect(result.any((i) => i.code == 'E014'), isTrue, reason: 'E014 expected for empty variant');
     });
 
     test('E014 error when variant has more than 10 cases', () {
@@ -285,6 +384,59 @@ void main() {
       );
       final result = SpecValidator.validate(spec);
       expect(result.where((i) => i.code == 'E014'), isEmpty);
+    });
+  });
+
+  group('@NitroVariant nullable case fields', () {
+    test('Dart writes a presence flag before nullable field payloads', () {
+      final code = VariantGenerator.generateDartExtensions(_typeOnlyNullableVariantSpec());
+      expect(code, contains('writer.writeBool(count != null);'));
+      expect(code, contains('writer.writeInt(count)'));
+      expect(code, contains('writer.writeBool(quality != null);'));
+      expect(code, contains('writer.writeInt(quality.index)'));
+      expect(code, contains('writer.writeBool(payload != null);'));
+      expect(code, contains('payload.writeFields(writer);'));
+      expect(code, contains('writer.writeBool(samples != null);'));
+      expect(code, contains('writer.writeInt32(samples.length); for (final e in samples)'));
+    });
+
+    test('Kotlin reads nullable fields using presence flags', () {
+      final code = KotlinGenerator.generate(_typeOnlyNullableVariantSpec());
+      expect(code, contains('val count: Long?'));
+      expect(code, contains('val quality: Quality?'));
+      expect(code, contains('val payload: Payload?'));
+      expect(code, contains('val samples: List<Long>?'));
+      expect(code, contains('count = if (r.readBool()) r.readInt64() else null'));
+      expect(code, contains('quality = if (r.readBool()) Quality.fromNative(r.readInt64()) else null'));
+      expect(code, contains('payload = if (r.readBool()) Payload.decodeFrom(r.buf) else null'));
+      expect(code, contains('samples = if (r.readBool()) List(r.readInt32()) { r.readInt64() } else null'));
+    });
+
+    test('Kotlin writes nullable fields without dereferencing nullable receivers', () {
+      final code = KotlinGenerator.generate(_typeOnlyNullableVariantSpec());
+      expect(code, contains('w.writeBool(count != null); count?.let { w.writeInt64(it) }'));
+      expect(code, contains('w.writeBool(quality != null); quality?.let { w.writeInt64(it.nativeValue) }'));
+      expect(code, contains('w.writeBool(payload != null); payload?.let { it.writeFieldsTo(w.out, w.tmp) }'));
+      expect(code, contains('w.writeBool(samples != null); samples?.let { w.writeInt32(it.size); it.forEach { w.writeInt64(it) } }'));
+      expect(code, isNot(contains('quality.nativeValue')));
+      expect(code, isNot(contains('payload.writeFields(w)')));
+      expect(code, isNot(contains('it.writeFields(w)')));
+    });
+
+    test('Swift reads and writes nullable fields using presence flags', () {
+      final code = SwiftGenerator.generate(_typeOnlyNullableVariantSpec());
+      expect(code, contains('case changed(count: Int64?, quality: Quality?, payload: Payload?, samples: [Int64]?)'));
+      expect(code, contains('count: r.readBool() ? r.readInt() : nil'));
+      expect(code, contains('quality: r.readBool() ? Quality(rawValue: r.readInt())! : nil'));
+      expect(code, contains('payload: r.readBool() ? Payload.fromReader(r) : nil'));
+      expect(code, contains('samples: r.readBool() ? (0..<Int(r.readInt32())).map { _ in r.readInt() } : nil'));
+      expect(code, contains('w.writeBool(quality != nil); if let value = quality { w.writeInt(value.rawValue) }'));
+      expect(code, contains('w.writeBool(payload != nil); if let value = payload { value.writeFields(w) }'));
+    });
+
+    test('SpecValidator allows nullable variant fields', () {
+      final result = SpecValidator.validate(_typeOnlyNullableVariantSpec());
+      expect(result.where((i) => i.code == 'E016'), isEmpty);
     });
   });
 
@@ -417,8 +569,14 @@ void main() {
             isResult: true,
             returnType: BridgeType(name: 'double'),
             params: [
-              BridgeParam(name: 'a', type: BridgeType(name: 'double')),
-              BridgeParam(name: 'b', type: BridgeType(name: 'double')),
+              BridgeParam(
+                name: 'a',
+                type: BridgeType(name: 'double'),
+              ),
+              BridgeParam(
+                name: 'b',
+                type: BridgeType(name: 'double'),
+              ),
             ],
           ),
         ],
@@ -442,7 +600,12 @@ void main() {
             isAsync: false,
             isResult: true,
             returnType: BridgeType(name: 'String'),
-            params: [BridgeParam(name: 'label', type: BridgeType(name: 'String'))],
+            params: [
+              BridgeParam(
+                name: 'label',
+                type: BridgeType(name: 'String'),
+              ),
+            ],
           ),
         ],
       );
@@ -464,7 +627,12 @@ void main() {
             isAsync: false,
             isOwned: true,
             returnType: BridgeType(name: 'NativeHandle<Void>', isNativeHandle: true, nativeHandleTypeParam: 'Void'),
-            params: [BridgeParam(name: 'size', type: BridgeType(name: 'int'))],
+            params: [
+              BridgeParam(
+                name: 'size',
+                type: BridgeType(name: 'int'),
+              ),
+            ],
           ),
         ],
       );
@@ -488,7 +656,12 @@ void main() {
             isAsync: false,
             isOwned: true,
             returnType: BridgeType(name: 'NativeHandle<Void>', isNativeHandle: true, nativeHandleTypeParam: 'Void'),
-            params: [BridgeParam(name: 'size', type: BridgeType(name: 'int'))],
+            params: [
+              BridgeParam(
+                name: 'size',
+                type: BridgeType(name: 'int'),
+              ),
+            ],
           ),
         ],
       );
@@ -520,8 +693,14 @@ void main() {
           isResult: true,
           returnType: BridgeType(name: 'double', isFuture: !isNativeAsync),
           params: [
-            BridgeParam(name: 'a', type: BridgeType(name: 'double')),
-            BridgeParam(name: 'b', type: BridgeType(name: 'double')),
+            BridgeParam(
+              name: 'a',
+              type: BridgeType(name: 'double'),
+            ),
+            BridgeParam(
+              name: 'b',
+              type: BridgeType(name: 'double'),
+            ),
           ],
         ),
       ],
@@ -529,14 +708,12 @@ void main() {
 
     test('@NitroResult + @nitroAsync no longer produces E015', () {
       final issues = SpecValidator.validate(asyncResultSpec());
-      expect(issues.where((i) => i.code == 'E015'), isEmpty,
-          reason: '@nitroAsync is now allowed with @NitroResult');
+      expect(issues.where((i) => i.code == 'E015'), isEmpty, reason: '@nitroAsync is now allowed with @NitroResult');
     });
 
     test('@NitroResult + @NitroNativeAsync still produces E015', () {
       final issues = SpecValidator.validate(asyncResultSpec(isNativeAsync: true));
-      expect(issues.any((i) => i.code == 'E015'), isTrue,
-          reason: 'NativeAsync cannot encode NitroResultValue buffers via Dart_PostCObject_DL');
+      expect(issues.any((i) => i.code == 'E015'), isTrue, reason: 'NativeAsync cannot encode NitroResultValue buffers via Dart_PostCObject_DL');
     });
 
     test('@NitroResult + @nitroAsync message no longer mentions @nitroAsync', () {
@@ -562,7 +739,12 @@ void main() {
           isAsync: true,
           isOwned: true,
           returnType: BridgeType(name: 'NativeHandle<Void>', isNativeHandle: true, nativeHandleTypeParam: 'Void', isFuture: true),
-          params: [BridgeParam(name: 'size', type: BridgeType(name: 'int'))],
+          params: [
+            BridgeParam(
+              name: 'size',
+              type: BridgeType(name: 'int'),
+            ),
+          ],
         ),
       ],
     );
@@ -581,8 +763,14 @@ void main() {
           isResult: true,
           returnType: BridgeType(name: 'double', isFuture: true),
           params: [
-            BridgeParam(name: 'a', type: BridgeType(name: 'double')),
-            BridgeParam(name: 'b', type: BridgeType(name: 'double')),
+            BridgeParam(
+              name: 'a',
+              type: BridgeType(name: 'double'),
+            ),
+            BridgeParam(
+              name: 'b',
+              type: BridgeType(name: 'double'),
+            ),
           ],
         ),
       ],
@@ -601,7 +789,12 @@ void main() {
           cSymbol: 'mylib_async_process',
           isAsync: true,
           returnType: BridgeType(name: 'FilterResult', isFuture: true),
-          params: [BridgeParam(name: 'input', type: BridgeType(name: 'FilterResult'))],
+          params: [
+            BridgeParam(
+              name: 'input',
+              type: BridgeType(name: 'FilterResult'),
+            ),
+          ],
         ),
       ],
     );
@@ -671,8 +864,14 @@ void main() {
           isResult: true,
           returnType: BridgeType(name: 'double', isFuture: true),
           params: [
-            BridgeParam(name: 'a', type: BridgeType(name: 'double')),
-            BridgeParam(name: 'b', type: BridgeType(name: 'double')),
+            BridgeParam(
+              name: 'a',
+              type: BridgeType(name: 'double'),
+            ),
+            BridgeParam(
+              name: 'b',
+              type: BridgeType(name: 'double'),
+            ),
           ],
         ),
       ],
@@ -691,7 +890,12 @@ void main() {
           cSymbol: 'mylib_async_process',
           isAsync: true,
           returnType: BridgeType(name: 'FilterResult', isFuture: true),
-          params: [BridgeParam(name: 'input', type: BridgeType(name: 'FilterResult'))],
+          params: [
+            BridgeParam(
+              name: 'input',
+              type: BridgeType(name: 'FilterResult'),
+            ),
+          ],
         ),
       ],
     );
@@ -709,7 +913,12 @@ void main() {
           isAsync: true,
           isOwned: true,
           returnType: BridgeType(name: 'NativeHandle<Void>', isNativeHandle: true, nativeHandleTypeParam: 'Void', isFuture: true),
-          params: [BridgeParam(name: 'size', type: BridgeType(name: 'int'))],
+          params: [
+            BridgeParam(
+              name: 'size',
+              type: BridgeType(name: 'int'),
+            ),
+          ],
         ),
       ],
     );
@@ -771,7 +980,12 @@ void main() {
           isAsync: false,
           isOwned: true,
           returnType: BridgeType(name: 'NativeHandle<Void>', isNativeHandle: true, nativeHandleTypeParam: 'Void'),
-          params: [BridgeParam(name: 'size', type: BridgeType(name: 'int'))],
+          params: [
+            BridgeParam(
+              name: 'size',
+              type: BridgeType(name: 'int'),
+            ),
+          ],
         ),
       ],
     );

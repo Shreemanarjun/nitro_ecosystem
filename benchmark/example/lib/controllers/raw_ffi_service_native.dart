@@ -3,7 +3,6 @@
 // never import dart:ffi directly, allowing the same controller source to
 // compile on web (where the web stub above is used instead).
 
-import 'dart:typed_data';
 import 'package:nitro/nitro.dart';
 
 class RawFfiService {

@@ -2,6 +2,32 @@ import 'package:nitro_generator/src/generators/languages/swift/swift_generator.d
 import 'package:test/test.dart';
 import 'test_utils.dart';
 
+BridgeSpec _recordSwiftSpec() => BridgeSpec(
+  dartClassName: 'Mod',
+  lib: 'mod',
+  namespace: 'mod',
+  iosImpl: NativeImpl.swift,
+  androidImpl: NativeImpl.kotlin,
+  sourceUri: 'mod.native.dart',
+  recordTypes: [
+    BridgeRecordType(
+      name: 'Reading',
+      fields: [
+        BridgeRecordField(name: 'v', dartType: 'double', kind: RecordFieldKind.primitive),
+      ],
+    ),
+  ],
+  functions: [
+    BridgeFunction(
+      dartName: 'get',
+      cSymbol: 'mod_get',
+      isAsync: false,
+      returnType: BridgeType(name: 'Reading', isRecord: true),
+      params: [],
+    ),
+  ],
+);
+
 void main() {
   group('SwiftGenerator', () {
     test('emits import Foundation and Combine', () {
@@ -593,17 +619,19 @@ void main() {
       });
 
       test('List<@HybridRecord> param uses decodeIndexedList', () {
-        final out = SwiftGenerator.generate(listParamSpec(
-          'List<Config>',
-          recordTypes: [
-            BridgeRecordType(
-              name: 'Config',
-              fields: [
-                BridgeRecordField(name: 'value', dartType: 'int', kind: RecordFieldKind.primitive),
-              ],
-            ),
-          ],
-        ));
+        final out = SwiftGenerator.generate(
+          listParamSpec(
+            'List<Config>',
+            recordTypes: [
+              BridgeRecordType(
+                name: 'Config',
+                fields: [
+                  BridgeRecordField(name: 'value', dartType: 'int', kind: RecordFieldKind.primitive),
+                ],
+              ),
+            ],
+          ),
+        );
         expect(out, contains('NitroRecordReader.decodeIndexedList'));
       });
     });
@@ -612,37 +640,25 @@ void main() {
 
     test('generated Swift bridge includes decodeIndexedList in NitroRecordReader', () {
       // Any spec with a record type triggers boilerplate emission.
-      final spec = BridgeSpec(
-        dartClassName: 'Mod',
-        lib: 'mod',
-        namespace: 'mod',
-        iosImpl: NativeImpl.swift,
-        androidImpl: NativeImpl.kotlin,
-        sourceUri: 'mod.native.dart',
-        recordTypes: [
-          BridgeRecordType(
-            name: 'Reading',
-            fields: [
-              BridgeRecordField(name: 'v', dartType: 'double', kind: RecordFieldKind.primitive),
-            ],
-          ),
-        ],
-        functions: [
-          BridgeFunction(
-            dartName: 'get',
-            cSymbol: 'mod_get',
-            isAsync: false,
-            returnType: BridgeType(name: 'Reading', isRecord: true),
-            params: [],
-          ),
-        ],
-      );
       // decodeIndexedList is emitted in the NitroRecordReader boilerplate from record_generator.
       // Check via CppBridgeGenerator which embeds the Swift boilerplate in the Apple section.
       // For SwiftGenerator, the boilerplate is emitted by RecordGenerator.generateSwift.
-      final out = SwiftGenerator.generate(spec);
+      final out = SwiftGenerator.generate(_recordSwiftSpec());
       expect(out, contains('decodeIndexedList'));
       expect(out, contains('r.pos += Int(count) * 8'));
+    });
+
+    test('NitroRecordReader avoids aligned load(as:) for packed payload scalars', () {
+      final out = SwiftGenerator.generate(_recordSwiftSpec());
+      final readerStart = out.indexOf('public class NitroRecordReader');
+      expect(readerStart, isNonNegative);
+      final reader = out.substring(readerStart);
+
+      expect(reader, contains('memcpy(&v, bytes.advanced(by: pos), 8)'));
+      expect(reader, contains('memcpy(&v, bytes.advanced(by: pos), 4)'));
+      expect(reader, isNot(contains('.load(as: Int64.self)')));
+      expect(reader, isNot(contains('.load(as: Int32.self)')));
+      expect(reader, isNot(contains('.load(as: UInt64.self)')));
     });
   });
 }

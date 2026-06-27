@@ -1,6 +1,6 @@
 # nitro 🚀
 
-**Zero-overhead native bindings for Flutter.** `nitro` is the runtime layer of the Nitrogen SDK — it provides the base classes, annotations, and Dart-side runtime primitives that make type-safe, zero-copy FFI plugins possible on iOS and Android with zero method-channel overhead.
+**Zero-overhead native bindings for Flutter.** `nitro` is the runtime layer of the Nitrogen SDK — it provides the base classes, annotations, and Dart-side runtime primitives that make type-safe, zero-copy FFI plugins possible on iOS, Android, macOS, Windows, Linux, and Web with no method-channel overhead.
 
 > **This package is the runtime dependency.** Plugin authors add it to their `pubspec.yaml`. App developers pull it in transitively through any Nitrogen-powered plugin. The code generator lives in [`nitro_generator`](https://pub.dev/packages/nitro_generator) and the CLI in [`nitrogen_cli`](https://pub.dev/packages/nitrogen_cli).
 
@@ -39,7 +39,7 @@ In your plugin's `pubspec.yaml`:
 
 ```yaml
 dependencies:
-  nitro: ^0.2.2
+  nitro: ^0.4.5
 ```
 
 Then run:
@@ -62,9 +62,9 @@ import 'package:nitro/nitro.dart';
 
 part 'math.g.dart';  // ← generated
 
-@NitroModule(ios: NativeImpl.swift, android: NativeImpl.kotlin)
+@NitroModule(ios: AppleNativeImpl.swift, android: AndroidNativeImpl.kotlin)
 abstract class Math extends HybridObject {
-  static final Math instance = _MathImpl(NitroRuntime.loadLib('math'));
+  static final Math instance = _MathImpl();
 
   // Synchronous FFI call — executes in < 1 µs
   double add(double a, double b);
@@ -79,12 +79,33 @@ abstract class Math extends HybridObject {
 
 | Annotation | Where | Effect |
 |---|---|---|
-| `@NitroModule(ios:, android:)` | class | Marks an abstract class as a Nitrogen module spec |
+| `@NitroModule(...)` | class | Marks an abstract class as a Nitrogen module spec |
 | `@nitroAsync` | method | Generated code dispatches call to a background isolate |
 | `@NitroStream(backpressure:)` | getter | Streams native events to Dart via `Dart_PostCObject` |
 | `@HybridStruct(zeroCopy:)` | class | Turns a Dart class into a C-struct with optional zero-copy fields |
 | `@HybridEnum(startValue:)` | enum | Maps a Dart enum to a C `int32_t` enum |
-| `@ZeroCopy` | parameter | Marks any `TypedData` param as a raw native pointer (no copy) |
+| `@zeroCopy` | parameter | Marks a `TypedData` param as a raw native pointer (no copy) |
+
+Use explicit per-platform implementation constants for new specs:
+
+```dart
+@NitroModule(
+  lib: 'camera',
+  ios: AppleNativeImpl.swift,
+  android: AndroidNativeImpl.kotlin,
+  macos: AppleNativeImpl.swift,
+  windows: WindowsNativeImpl.cpp,
+  linux: LinuxNativeImpl.cpp,
+  web: WebNativeImpl.wasm,
+)
+abstract class Camera extends HybridObject {
+  static final Camera instance = _CameraImpl();
+
+  bool isAvailable();
+}
+```
+
+`NativeImpl.swift`, `NativeImpl.kotlin`, `NativeImpl.cpp`, and `NativeImpl.wasm` remain available as backward-compatible shorthand, but the platform-specific constants make invalid combinations visible in code review.
 
 When a native method returns a large buffer (e.g. camera frame or audio samples), mark the class with `@HybridStruct` and list the `TypedData` fields that should be zero-copy:
 
@@ -106,9 +127,9 @@ The generator produces a `final class _CameraFrameFfi extends Struct` with corre
 ### 4. `@NitroStream` — native → Dart streaming
 
 ```dart
-@NitroModule(ios: NativeImpl.swift, android: NativeImpl.kotlin)
+@NitroModule(ios: AppleNativeImpl.swift, android: AndroidNativeImpl.kotlin)
 abstract class Camera extends HybridObject {
-  static final Camera instance = _CameraImpl(NitroRuntime.loadLib('camera'));
+  static final Camera instance = _CameraImpl();
 
   @NitroStream(backpressure: Backpressure.dropLatest)
   Stream<CameraFrame> get frames;  // 30fps camera frames, zero-copy
@@ -122,6 +143,7 @@ abstract class Camera extends HybridObject {
 | `Backpressure.dropLatest` | Drop new item if Dart hasn't consumed yet — best for sensors/camera |
 | `Backpressure.block` | Block the native thread until Dart consumes |
 | `Backpressure.bufferDrop` | Ring buffer — oldest item dropped when full |
+| `Backpressure.batch` | Accumulate items before one bridge crossing |
 
 ### 5. Zero-copy proxy streaming for `@HybridStruct`
 
@@ -217,9 +239,9 @@ class ImageBuffer {
   ImageBuffer(this.data, this.stride, this.width, this.height);
 }
 
-@NitroModule(ios: NativeImpl.swift, android: NativeImpl.kotlin)
+@NitroModule(ios: AppleNativeImpl.swift, android: AndroidNativeImpl.kotlin)
 abstract class MyPlugin extends HybridObject {
-  static final MyPlugin instance = _MyPluginImpl(NitroRuntime.loadLib('my_plugin'));
+  static final MyPlugin instance = _MyPluginImpl();
 
   int add(int a, int b);
 
@@ -234,7 +256,7 @@ abstract class MyPlugin extends HybridObject {
 Then run the generator (from your plugin root):
 
 ```sh
-dart pub global run nitrogen_cli:nitrogen generate
+nitrogen generate
 ```
 
 ### 2. `android/.../MyPluginImpl.kt` (Kotlin implementation)

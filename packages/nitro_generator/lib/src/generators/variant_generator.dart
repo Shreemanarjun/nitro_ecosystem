@@ -17,7 +17,7 @@ class VariantGenerator {
     final localVariants = spec.localVariants;
     if (localVariants.isEmpty) return '';
 
-    final enumNames   = spec.enums.map((e) => e.name).toSet();
+    final enumNames = spec.enums.map((e) => e.name).toSet();
     final structNames = spec.structs.map((s) => s.name).toSet();
 
     final s = CodeWriter();
@@ -141,11 +141,11 @@ class VariantGenerator {
   }
 
   static String _primitiveRead(String t) => switch (t) {
-    'int'    => 'r.readInt()',
+    'int' => 'r.readInt()',
     'double' => 'r.readDouble()',
-    'bool'   => 'r.readBool()',
+    'bool' => 'r.readBool()',
     'String' => 'r.readString()',
-    _        => 'r.readInt()',
+    _ => 'r.readInt()',
   };
 
   // ── Field write statement ─────────────────────────────────────────────────────
@@ -157,48 +157,45 @@ class VariantGenerator {
     Set<String> structNames, {
     String indent = '    ',
   }) {
-    final name    = f.name;
-    final base    = f.dartType.replaceFirst('?', '');
+    final name = f.name;
+    final base = f.dartType.replaceFirst('?', '');
     final nullable = f.isNullable;
 
     if (nullable) {
-      s.line('${indent}if ($name != null) { writer.writeBool(true); ${_primitiveWriteStmt(base, name, f.kind, f.itemTypeName)} } else { writer.writeBool(false); }');
+      s.line('${indent}writer.writeBool($name != null);');
+      s.line('${indent}if ($name != null) {');
+      s.line('$indent  ${_fieldWriteStmtForExpr(base, name, f.kind, f.itemTypeName)}');
+      s.line('$indent}');
       return;
     }
 
-    switch (f.kind) {
+    s.line('$indent${_fieldWriteStmtForExpr(base, name, f.kind, f.itemTypeName)}');
+  }
+
+  static String _fieldWriteStmtForExpr(String base, String expr, RecordFieldKind kind, String? itemType) {
+    switch (kind) {
       case RecordFieldKind.primitive:
-        s.line('$indent${_primitiveWriteExpr(base, name)};');
+        return '${_primitiveWriteExpr(base, expr)};';
       case RecordFieldKind.enumValue:
-        s.line('${indent}writer.writeInt($name.index);');
+        return 'writer.writeInt($expr.index);';
       case RecordFieldKind.struct:
       case RecordFieldKind.recordObject:
-        s.line('$indent$name.writeFields(writer);');
+        return '$expr.writeFields(writer);';
       case RecordFieldKind.listPrimitive:
-        final item = f.itemTypeName ?? 'int';
-        s.line('${indent}writer.writeInt32($name.length);');
-        s.line('${indent}for (final e in $name) { ${_primitiveWriteExpr(item, 'e')}; }');
+        final item = itemType ?? 'int';
+        return 'writer.writeInt32($expr.length); for (final e in $expr) { ${_primitiveWriteExpr(item, 'e')}; }';
       case RecordFieldKind.listRecordObject:
-        s.line('${indent}writer.writeInt32($name.length);');
-        s.line('${indent}for (final e in $name) { e.writeFields(writer); }');
+        return 'writer.writeInt32($expr.length); for (final e in $expr) { e.writeFields(writer); }';
       default:
-        s.line('${indent}writer.writeString($name);');
+        return 'writer.writeString($expr);';
     }
   }
 
-  static String _primitiveWriteStmt(String base, String varName, RecordFieldKind kind, String? itemType) {
-    return switch (kind) {
-      RecordFieldKind.primitive => '${_primitiveWriteExpr(base, varName)};',
-      RecordFieldKind.enumValue => 'writer.writeInt($varName.index);',
-      _                        => 'writer.writeString($varName);',
-    };
-  }
-
   static String _primitiveWriteExpr(String t, String varName) => switch (t) {
-    'int'    => 'writer.writeInt($varName)',
+    'int' => 'writer.writeInt($varName)',
     'double' => 'writer.writeDouble($varName)',
-    'bool'   => 'writer.writeBool($varName)',
+    'bool' => 'writer.writeBool($varName)',
     'String' => 'writer.writeString($varName)',
-    _        => 'writer.writeInt($varName)',
+    _ => 'writer.writeInt($varName)',
   };
 }

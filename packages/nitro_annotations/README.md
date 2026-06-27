@@ -10,28 +10,41 @@ This package is used by `nitro_generator` to generate high-performance FFI bridg
 
 ### `@NitroModule`
 
-Marks a class as a native module. The `ios` and `android` parameters select the implementation strategy for each platform:
+Marks a class as a native module. The parameters select the implementation strategy for each platform using sealed platform types:
 
 ```dart
 // Swift (iOS) + Kotlin (Android) — platform-specific APIs
-@NitroModule(lib: 'camera', ios: NativeImpl.swift, android: NativeImpl.kotlin)
-abstract class Camera extends HybridObject { ... }
+@NitroModule(
+  lib: 'camera',
+  ios: AppleNativeImpl.swift,
+  android: AndroidNativeImpl.kotlin,
+)
+abstract class Camera extends HybridObject {
+  bool isAvailable();
+}
 
 // Direct C++ on both platforms — shared logic, ~1µs latency
-@NitroModule(lib: 'math', ios: NativeImpl.cpp, android: NativeImpl.cpp)
-abstract class Math extends HybridObject { ... }
+@NitroModule(
+  lib: 'math',
+  ios: AppleNativeImpl.cpp,
+  android: AndroidNativeImpl.cpp,
+  macos: AppleNativeImpl.cpp,
+  windows: WindowsNativeImpl.cpp,
+  linux: LinuxNativeImpl.cpp,
+)
+abstract class Math extends HybridObject {
+  double add(double a, double b);
+}
 ```
 
-| `NativeImpl` | Generated bridge | When to use |
+| Implementation Constant | Generated bridge | When to use |
 |---|---|---|
-| `NativeImpl.swift` | Swift `@_cdecl` bridge | iOS platform APIs (AVFoundation, CoreBluetooth, …) |
-| `NativeImpl.kotlin` | Kotlin JNI bridge | Android platform APIs (Camera2, BLE, …) |
-| `NativeImpl.cpp` | Direct C++ virtual dispatch (no JNI/Swift) | Pure computation, shared C++ libs, maximum performance |
+| `AppleNativeImpl.swift` | Swift `@_cdecl` bridge | iOS/macOS platform APIs |
+| `AndroidNativeImpl.kotlin` | Kotlin JNI bridge | Android platform APIs |
+| `*NativeImpl.cpp` | Direct C++ virtual dispatch | Pure computation, shared C++ libs, maximum performance, Windows, Linux |
+| `WebNativeImpl.wasm` | WASM/JS interop bridge | Web targets |
 
-When **both** platforms use `NativeImpl.cpp`, the generator also produces:
-- `*.native.g.h` — abstract `HybridX` C++ class to subclass
-- `*.mock.g.h` — GoogleMock `MockX` class for unit tests
-- `*.test.g.cpp` — test starter with smoke test
+*(Note: `NativeImpl.*` is supported as a backward-compatible shorthand)*
 
 ### `@HybridStruct`
 
@@ -60,8 +73,6 @@ class UserProfile {
 }
 ```
 
-Wire format: `[4-byte length][fields in declaration order, little-endian]`.
-
 ### `@HybridEnum`
 
 Maps a Dart enum to an `int64_t` at the C boundary.
@@ -71,17 +82,50 @@ Maps a Dart enum to an `int64_t` at the C boundary.
 enum DeviceStatus { idle, busy, error }
 ```
 
-### `@nitroAsync`
+### `@NitroVariant`
 
+Marks a Dart sealed class as a discriminated union type (sum type / tagged union).
+
+```dart
+@NitroVariant()
+sealed class FilterResult { const FilterResult(); }
+
+class FilterAccepted extends FilterResult {
+  final String id;
+  const FilterAccepted({required this.id});
+}
+class FilterRejected extends FilterResult { const FilterRejected(); }
+```
+
+### Async Execution
+
+**`@nitroAsync`**
 Offloads a synchronous native call to a background thread, returning a `Future`.
-
 ```dart
 @nitroAsync
 Future<String> fetchData(String url);
 ```
 
-### `@NitroStream`
+**`@nitroNativeAsync`**
+Uses the zero-hop native-async path. Dart passes its native port ID to the bridge, and the native implementation runs its own async work and posts back the result.
+```dart
+@nitroNativeAsync
+Future<String> fetchDataNative(String url);
+```
 
+### Result Types
+
+**`@NitroResult`**
+Marks a method's return type as a discriminated success/error result. The method's return type must be `Future<NitroResultValue<T>>` or `NitroResultValue<T>`.
+
+```dart
+@nitroResult
+Future<NitroResultValue<String>> login(String user, String password);
+```
+
+### Streams
+
+**`@NitroStream`**
 Configures a native-to-Dart event stream with built-in backpressure.
 
 ```dart
@@ -91,10 +135,24 @@ Stream<SensorData> get sensorStream;
 
 **Backpressure strategies:**
 - `Backpressure.dropLatest` — drop the newest item if the consumer is behind
-- `Backpressure.dropOldest` — drop the oldest buffered item
+- `Backpressure.bufferDrop` — ring buffer; oldest item dropped
 - `Backpressure.block` — block the emitter until the consumer catches up
+- `Backpressure.batch` — accumulate items before a single bridge crossing
 
-For `NativeImpl.cpp` modules, streams are emitted via `emit_<name>(item)` helpers defined on the `HybridX` class — callable from any C++ thread.
+### Advanced Data Ownership
+
+**`@zeroCopy`**
+Marks a `Uint8List` param as zero-copy (passed as raw pointer, callee must not retain).
+```dart
+void processPixels(@zeroCopy Uint8List data);
+```
+
+**`@nitroOwned`**
+Marks that the native side heap-allocates the returned `NativeHandle` and Dart takes ownership, releasing it automatically.
+```dart
+@nitroOwned
+NativeHandle<Void> acquireFrame();
+```
 
 ## Integration
 
