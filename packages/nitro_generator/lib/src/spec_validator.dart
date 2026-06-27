@@ -806,13 +806,17 @@ class SpecValidator {
     // ── E015: @NitroResult validation ─────────────────────────────────────
     for (final func in spec.functions) {
       if (!func.isResult) continue;
-      if (func.isAsync || func.isNativeAsync) {
+      // @nitroAsync is allowed: bridge dispatches on a background thread and
+      // Dart receives Future<NitroResultValue<T>>. @NitroNativeAsync is blocked
+      // because Dart_PostCObject_DL only supports primitive CObject types and
+      // cannot encode a NitroResultValue buffer.
+      if (func.isNativeAsync) {
         issues.add(ValidationIssue(
           severity: ValidationSeverity.error,
           code: 'E015',
-          message: '${func.dartName}() — @NitroResult cannot be combined with @nitroAsync / @NitroNativeAsync.',
-          hint: 'Remove @nitroAsync (or @NitroNativeAsync) from ${func.dartName}. '
-              '@NitroResult methods are always synchronous on the Dart side.',
+          message: '${func.dartName}() — @NitroResult cannot be combined with @NitroNativeAsync.',
+          hint: 'Remove @NitroNativeAsync from ${func.dartName}. '
+              'For an async @NitroResult method use @nitroAsync instead.',
         ));
       }
       if (func.returnType.name == 'void') {

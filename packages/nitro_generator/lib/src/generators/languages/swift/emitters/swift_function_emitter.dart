@@ -349,6 +349,61 @@ class SwiftFunctionEmitter {
     required bool isEnumRet,
     required bool isMap,
   }) {
+    // @NitroOwned async: allocate on a background thread, return the raw ptr.
+    if (func.returnType.isNativeHandle) {
+      writer.line('    guard let impl = ${spec.dartClassName}Registry.impl else { return nil }');
+      writer.line('    let sema = DispatchSemaphore(value: 0)');
+      writer.line('    var _ownedPtr: UnsafeMutableRawPointer? = nil');
+      writer.line('    Task.detached {');
+      writer.line('        _ownedPtr = try? await impl.${func.dartName}($callArgs)');
+      writer.line('        sema.signal()');
+      writer.line('    }');
+      writer.line('    sema.wait()');
+      writer.line('    return _ownedPtr');
+      return;
+    }
+
+    // @NitroResult async: call the throwing impl on a background thread then
+    // encode the outcome into the [1B tag][payload] wire format.
+    if (func.isResult) {
+      final retName = func.returnType.name.replaceFirst('?', '');
+      final swiftRetType = mapper.swiftType(retName);
+      final encodeHelper = _nitroResultEncodeHelper(retName, spec);
+      writer.line('    guard let impl = ${spec.dartClassName}Registry.impl else { return nil }');
+      writer.line('    let sema = DispatchSemaphore(value: 0)');
+      writer.line('    var _nitroOk: $swiftRetType? = nil');
+      writer.line('    var _nitroErr: Error? = nil');
+      writer.line('    Task.detached {');
+      writer.line('        do { _nitroOk = try await impl.${func.dartName}($callArgs) }');
+      writer.line('        catch { _nitroErr = error }');
+      writer.line('        sema.signal()');
+      writer.line('    }');
+      writer.line('    sema.wait()');
+      writer.line('    if let _e = _nitroErr { return _nitroEncodeResultError(_e) }');
+      writer.line('    guard let _ok = _nitroOk else { return nil }');
+      writer.line('    return $encodeHelper(_ok)');
+      return;
+    }
+
+    // @NitroVariant async: dispatch on background thread, encode the result.
+    final isVariantRet = spec.isVariantName(func.returnType.name.replaceFirst('?', ''));
+    if (isVariantRet) {
+      final variantName = func.returnType.name.replaceFirst('?', '');
+      writer.line('    guard let impl = ${spec.dartClassName}Registry.impl else { return nil }');
+      writer.line('    let sema = DispatchSemaphore(value: 0)');
+      writer.line('    var _vResult: $variantName? = nil');
+      writer.line('    Task.detached {');
+      writer.line('        _vResult = try? await impl.${func.dartName}($callArgs)');
+      writer.line('        sema.signal()');
+      writer.line('    }');
+      writer.line('    sema.wait()');
+      writer.line('    guard let _vr = _vResult else { return nil }');
+      writer.line('    let _vw = NitroRecordWriter()');
+      writer.line('    _vr.writeFields(to: _vw)');
+      writer.line('    return _vw.toNative().map { UnsafeMutablePointer(\$0) }');
+      return;
+    }
+
     if (isStruct) {
       final retStructName = func.returnType.name.replaceFirst('?', '');
       writer.line('    guard let impl = ${spec.dartClassName}Registry.impl else { return nil }');

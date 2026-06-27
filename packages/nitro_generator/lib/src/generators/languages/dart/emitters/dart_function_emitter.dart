@@ -123,7 +123,23 @@ void _emitFunctionImpls(CodeWriter writer, BridgeSpec spec) {
 
       final errArgs = "getError: _getErrorNativePtr, clearError: _clearErrorNativePtr, methodName: '${func.dartName}'";
 
-      if (needsArena) {
+      // ── @NitroResult async: C returns Pointer<Uint8> tagged buffer ────────
+      // The bridge always returns [1B tag: 0=ok, 1=err][payload]. We receive
+      // it via callAsync<Pointer<Uint8>> then decode exactly like the sync path.
+      if (func.isResult) {
+        if (needsArena) {
+          writer.line('    final arena = Arena();');
+          writer.line('    try {');
+          writer.line('      final res = await NitroRuntime.callAsync<Pointer<Uint8>>(_${func.dartName}Ptr, [$callArgs], $errArgs);');
+          _emitResultDecode(writer, resultReturnType, 'res', '      ', spec);
+          writer.line('    } finally {');
+          writer.line('      arena.releaseAll();');
+          writer.line('    }');
+        } else {
+          writer.line('    final res = await NitroRuntime.callAsync<Pointer<Uint8>>(_${func.dartName}Ptr, [$plainCallArgs], $errArgs);');
+          _emitResultDecode(writer, resultReturnType, 'res', '    ', spec);
+        }
+      } else if (needsArena) {
         // needsArena path: wrap in try/finally to release arena allocations.
         final asyncResVar = _asyncResVarName(returnKind);
         writer.line('    final arena = Arena();');

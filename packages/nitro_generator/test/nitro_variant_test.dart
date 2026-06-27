@@ -501,6 +501,262 @@ void main() {
     });
   });
 
+  // ── Async combinations (@nitroAsync + NitroOwned / NitroResult / NitroVariant) ──
+
+  group('SpecValidator — @NitroResult + async', () {
+    BridgeSpec _asyncResultSpec({bool isNativeAsync = false}) => BridgeSpec(
+      dartClassName: 'Calc',
+      lib: 'calc',
+      namespace: 'calc',
+      iosImpl: NativeImpl.swift,
+      androidImpl: NativeImpl.kotlin,
+      sourceUri: 'calc.native.dart',
+      functions: [
+        BridgeFunction(
+          dartName: 'asyncSafeDiv',
+          cSymbol: 'calc_async_safe_div',
+          isAsync: !isNativeAsync,
+          isNativeAsync: isNativeAsync,
+          isResult: true,
+          returnType: BridgeType(name: 'double', isFuture: !isNativeAsync),
+          params: [
+            BridgeParam(name: 'a', type: BridgeType(name: 'double')),
+            BridgeParam(name: 'b', type: BridgeType(name: 'double')),
+          ],
+        ),
+      ],
+    );
+
+    test('@NitroResult + @nitroAsync no longer produces E015', () {
+      final issues = SpecValidator.validate(_asyncResultSpec());
+      expect(issues.where((i) => i.code == 'E015'), isEmpty,
+          reason: '@nitroAsync is now allowed with @NitroResult');
+    });
+
+    test('@NitroResult + @NitroNativeAsync still produces E015', () {
+      final issues = SpecValidator.validate(_asyncResultSpec(isNativeAsync: true));
+      expect(issues.any((i) => i.code == 'E015'), isTrue,
+          reason: 'NativeAsync cannot encode NitroResultValue buffers via Dart_PostCObject_DL');
+    });
+
+    test('@NitroResult + @nitroAsync message no longer mentions @nitroAsync', () {
+      // Regression: old message told users to "remove @nitroAsync" — should not say that now.
+      final issues = SpecValidator.validate(_asyncResultSpec(isNativeAsync: true));
+      final e015 = issues.firstWhere((i) => i.code == 'E015', orElse: () => throw 'no E015');
+      expect(e015.message, isNot(contains('@nitroAsync')));
+      expect(e015.message, contains('@NitroNativeAsync'));
+    });
+  });
+
+  group('SwiftGenerator — @nitroAsync + annotation combos', () {
+    BridgeSpec _asyncOwnedSpec() => BridgeSpec(
+      dartClassName: 'Alloc',
+      lib: 'alloc',
+      namespace: 'alloc',
+      iosImpl: NativeImpl.swift,
+      sourceUri: 'alloc.native.dart',
+      functions: [
+        BridgeFunction(
+          dartName: 'acquireBuffer',
+          cSymbol: 'alloc_acquire_buffer',
+          isAsync: true,
+          isOwned: true,
+          returnType: BridgeType(name: 'NativeHandle<Void>', isNativeHandle: true, nativeHandleTypeParam: 'Void', isFuture: true),
+          params: [BridgeParam(name: 'size', type: BridgeType(name: 'int'))],
+        ),
+      ],
+    );
+
+    BridgeSpec _asyncResultSpec() => BridgeSpec(
+      dartClassName: 'Calc',
+      lib: 'calc',
+      namespace: 'calc',
+      iosImpl: NativeImpl.swift,
+      sourceUri: 'calc.native.dart',
+      functions: [
+        BridgeFunction(
+          dartName: 'asyncSafeDiv',
+          cSymbol: 'calc_async_safe_div',
+          isAsync: true,
+          isResult: true,
+          returnType: BridgeType(name: 'double', isFuture: true),
+          params: [
+            BridgeParam(name: 'a', type: BridgeType(name: 'double')),
+            BridgeParam(name: 'b', type: BridgeType(name: 'double')),
+          ],
+        ),
+      ],
+    );
+
+    BridgeSpec _asyncVariantSpec() => BridgeSpec(
+      dartClassName: 'Filter',
+      lib: 'mylib',
+      namespace: 'mylib',
+      iosImpl: NativeImpl.swift,
+      sourceUri: 'filter.native.dart',
+      variants: [_filterVariant()],
+      functions: [
+        BridgeFunction(
+          dartName: 'asyncProcess',
+          cSymbol: 'mylib_async_process',
+          isAsync: true,
+          returnType: BridgeType(name: 'FilterResult', isFuture: true),
+          params: [BridgeParam(name: 'input', type: BridgeType(name: 'FilterResult'))],
+        ),
+      ],
+    );
+
+    test('@nitroAsync @NitroOwned uses DispatchSemaphore + _ownedPtr', () {
+      final out = SwiftGenerator.generate(_asyncOwnedSpec());
+      expect(out, contains('DispatchSemaphore'));
+      expect(out, contains('var _ownedPtr: UnsafeMutableRawPointer? = nil'));
+      expect(out, contains('try? await impl.acquireBuffer(size: size)'));
+      expect(out, contains('return _ownedPtr'));
+    });
+
+    test('@nitroAsync @NitroOwned does not emit `return ()` or `return impl.method()` directly', () {
+      final out = SwiftGenerator.generate(_asyncOwnedSpec());
+      // Must NOT call impl directly on the calling thread.
+      expect(out, isNot(contains('return impl.acquireBuffer')));
+      // Must NOT fall through to void/default path.
+      expect(out, isNot(contains('else { return () }')));
+    });
+
+    test('@nitroAsync @NitroResult uses DispatchSemaphore + try/catch + encode', () {
+      final out = SwiftGenerator.generate(_asyncResultSpec());
+      expect(out, contains('DispatchSemaphore'));
+      expect(out, contains('var _nitroOk: Double? = nil'));
+      expect(out, contains('var _nitroErr: Error? = nil'));
+      expect(out, contains('do { _nitroOk = try await impl.asyncSafeDiv(a: a, b: b) }'));
+      expect(out, contains('catch { _nitroErr = error }'));
+      expect(out, contains('_nitroEncodeResultError'));
+      expect(out, contains('_nitroEncodeResultFloat64'));
+    });
+
+    test('@nitroAsync @NitroResult does not call impl synchronously', () {
+      final out = SwiftGenerator.generate(_asyncResultSpec());
+      // Must not have a direct synchronous try/do without sema.
+      expect(out, isNot(contains('let result = try impl.asyncSafeDiv')));
+    });
+
+    test('@nitroAsync @NitroVariant uses DispatchSemaphore + NitroRecordWriter', () {
+      final out = SwiftGenerator.generate(_asyncVariantSpec());
+      expect(out, contains('DispatchSemaphore'));
+      expect(out, contains('var _vResult: FilterResult? = nil'));
+      expect(out, contains('try? await impl.asyncProcess'));
+      expect(out, contains('guard let _vr = _vResult else { return nil }'));
+      expect(out, contains('NitroRecordWriter()'));
+      expect(out, contains('_vr.writeFields(to: _vw)'));
+      expect(out, contains('_vw.toNative().map { UnsafeMutablePointer'));
+    });
+
+    test('@nitroAsync @NitroVariant does not call impl synchronously', () {
+      final out = SwiftGenerator.generate(_asyncVariantSpec());
+      expect(out, isNot(contains('let _vResult = impl.asyncProcess')));
+    });
+  });
+
+  group('KotlinGenerator — @nitroAsync + annotation combos', () {
+    BridgeSpec _asyncResultSpec() => BridgeSpec(
+      dartClassName: 'Calc',
+      lib: 'calc',
+      namespace: 'calc',
+      androidImpl: NativeImpl.kotlin,
+      sourceUri: 'calc.native.dart',
+      functions: [
+        BridgeFunction(
+          dartName: 'asyncSafeDiv',
+          cSymbol: 'calc_async_safe_div',
+          isAsync: true,
+          isResult: true,
+          returnType: BridgeType(name: 'double', isFuture: true),
+          params: [
+            BridgeParam(name: 'a', type: BridgeType(name: 'double')),
+            BridgeParam(name: 'b', type: BridgeType(name: 'double')),
+          ],
+        ),
+      ],
+    );
+
+    BridgeSpec _asyncVariantSpec() => BridgeSpec(
+      dartClassName: 'Filter',
+      lib: 'mylib',
+      namespace: 'mylib',
+      androidImpl: NativeImpl.kotlin,
+      sourceUri: 'filter.native.dart',
+      variants: [_filterVariant()],
+      functions: [
+        BridgeFunction(
+          dartName: 'asyncProcess',
+          cSymbol: 'mylib_async_process',
+          isAsync: true,
+          returnType: BridgeType(name: 'FilterResult', isFuture: true),
+          params: [BridgeParam(name: 'input', type: BridgeType(name: 'FilterResult'))],
+        ),
+      ],
+    );
+
+    BridgeSpec _asyncOwnedSpec() => BridgeSpec(
+      dartClassName: 'Alloc',
+      lib: 'alloc',
+      namespace: 'alloc',
+      androidImpl: NativeImpl.kotlin,
+      sourceUri: 'alloc.native.dart',
+      functions: [
+        BridgeFunction(
+          dartName: 'asyncAcquireBuffer',
+          cSymbol: 'alloc_async_acquire_buffer',
+          isAsync: true,
+          isOwned: true,
+          returnType: BridgeType(name: 'NativeHandle<Void>', isNativeHandle: true, nativeHandleTypeParam: 'Void', isFuture: true),
+          params: [BridgeParam(name: 'size', type: BridgeType(name: 'int'))],
+        ),
+      ],
+    );
+
+    test('@nitroAsync @NitroResult uses _asyncExecutor.submit with runBlocking', () {
+      final out = KotlinGenerator.generate(_asyncResultSpec());
+      expect(out, contains('_asyncExecutor.submit'));
+      expect(out, contains('runBlocking { impl.asyncSafeDiv(a, b) }'));
+    });
+
+    test('@nitroAsync @NitroResult encodes ok and err paths', () {
+      final out = KotlinGenerator.generate(_asyncResultSpec());
+      expect(out, contains('nitroEncodeResultFloat64(_result)'));
+      expect(out, contains('nitroEncodeResultError(_e.message'));
+    });
+
+    test('@nitroAsync @NitroResult does not call impl synchronously', () {
+      final out = KotlinGenerator.generate(_asyncResultSpec());
+      expect(out, isNot(contains('val _result = impl.asyncSafeDiv')));
+    });
+
+    test('@nitroAsync @NitroVariant uses _asyncExecutor.submit with runBlocking', () {
+      final out = KotlinGenerator.generate(_asyncVariantSpec());
+      expect(out, contains('_asyncExecutor.submit'));
+      expect(out, contains('runBlocking { impl.asyncProcess('));
+    });
+
+    test('@nitroAsync @NitroVariant still encodes via RecordWriter + writeFields', () {
+      final out = KotlinGenerator.generate(_asyncVariantSpec());
+      expect(out, contains('RecordWriter()'));
+      expect(out, contains('_vResult.writeFields(_vw)'));
+    });
+
+    test('@nitroAsync @NitroVariant does not call impl synchronously', () {
+      final out = KotlinGenerator.generate(_asyncVariantSpec());
+      expect(out, isNot(contains('val _vResult = impl.asyncProcess')));
+    });
+
+    test('@nitroAsync @NitroOwned uses _asyncExecutor.submit and returns Long', () {
+      final out = KotlinGenerator.generate(_asyncOwnedSpec());
+      expect(out, contains('_asyncExecutor.submit'));
+      expect(out, contains('runBlocking { impl.asyncAcquireBuffer(size) }'));
+      // JNI bridge return type is Long (jlong handle).
+      expect(out, contains('asyncAcquireBuffer_call(size: Long): Long'));
+    });
+  });
+
   group('CppBridgeGenerator — @NitroOwned release symbol', () {
     BridgeSpec _ownedSpec() => BridgeSpec(
       dartClassName: 'Alloc',

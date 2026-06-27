@@ -1773,6 +1773,53 @@ Future<bool> setMetadata(String metaJson);   // caller: jsonEncode(map)
 
 ---
 
-*Plan authored 2026-05-22. Updated 2026-06-19 with Phase 2.5 generator facade architecture and latest passing suite count.
+### New tests added 2026-06-26 — `@NitroOwned` / `@NitroVariant` / `@NitroResult` regression guards (suite: **3200 passing**)
+
+| Test file | Tests added | What it covers |
+|---|---|---|
+| `nitro_variant_test.dart` | +7 | `@NitroVariant` protocol uses concrete type not `Any`; `@NitroResult` uses `throws -> T`; `@NitroOwned` guard emits `return nil` not `return ()`; `_release` symbol generation, `free()` correctness, global-section placement, symbol name contract |
+| `all_generators_type_coverage_test.dart` | regression | Updated 4 stale `(void*)` → `(uint8_t*)` assertions after C++ bridge cast fix |
+
+#### `@NitroOwned` — `_release` symbol fix (2026-06-26)
+
+**Problem:** The generator declared `${cSymbol}_release` in the C header but never emitted an implementation. `dlsym` failed at runtime with "undefined symbol" on both macOS (`dlsym: symbol not found`) and Android (`undefined symbol`).
+
+**Root cause:** `_emitSwiftBridgeSection` and `_emitAppleCppDispatch` had no `_release` emission. The symbol was inside `#elif __APPLE__` so Android never compiled it.
+
+**Fix in `cpp_bridge_generator.dart`:** Emit `_release` in the **global section** (before any `#ifdef __ANDROID__` platform guard), with an internal `#ifdef __ANDROID__` guard selecting the right body:
+
+```cpp
+extern "C" {
+NITRO_EXPORT void ${cSymbol}_release(void* handle) {
+#ifdef __ANDROID__
+    (void)handle;           // jlong from Kotlin — Kotlin GC manages lifecycle
+#else
+    if (handle) { free(handle); }   // malloc from UnsafeMutableRawPointer.allocate
+#endif
+}
+}
+```
+
+This ensures the symbol exists in the `.so`/`.dylib`/`.framework` on every platform.
+
+#### `@NitroOwned` Swift bridge guard fix (2026-06-26)
+
+**Problem:** `_emitSyncBody` in `swift_function_emitter.dart` had no branch for `func.returnType.isNativeHandle`. It fell to `else` → `defaultCDeclValue('void')` → `return ()`, which is invalid in a `UnsafeMutableRawPointer?`-returning function.
+
+**Fix:** Added `isNativeHandle` branch before `isVariantRet`/`isVoid`:
+```dart
+} else if (func.returnType.isNativeHandle) {
+  writer.line('    guard let impl = ${spec.dartClassName}Registry.impl else { return nil }');
+  writer.line('    return impl.${func.dartName}($callArgs)');
+}
+```
+
+#### Test runner — all platforms (2026-06-26)
+
+`scripts/run_tests.sh` updated to support `macos`, `ios`, `android`, `linux`, `windows`, and `all` modes. Each platform is availability-gated (host OS check + device discovery). The `regen()` function syncs all four platform directories (Swift bridge + ObjC++ bridge for iOS and macOS) after every `build_runner` run. Tests confirmed passing on macOS, iOS, and Android.
+
+---
+
+*Plan authored 2026-05-22. Updated 2026-06-26 with `@NitroOwned`/`@NitroVariant`/`@NitroResult` fixes and 3200-test milestone.
 Ground-truthed against `packages/nitro_generator/` source.
 Revisit §4 Type Mapping tables after each Nitro generator release.*

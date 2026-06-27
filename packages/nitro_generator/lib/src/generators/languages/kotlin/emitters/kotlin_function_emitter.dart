@@ -515,10 +515,14 @@ class KotlinFunctionEmitter {
     String callParams,
   ) {
     final retBaseName = func.returnType.name.replaceFirst('?', '');
-    writer.line('        return try {');
-    writer.line('            val _result = impl.${func.dartName}($callParams)');
-    // Encode success value based on type
     final encodeExpr = _kotlinResultEncodeOk(retBaseName, mapper);
+    writer.line('        return try {');
+    if (func.isAsync) {
+      final rb = KotlinTypeMapper.runBlockingCall(func, 'impl.${func.dartName}($callParams)');
+      writer.line('            val _result = _asyncExecutor.submit(java.util.concurrent.Callable { $rb }).get()');
+    } else {
+      writer.line('            val _result = impl.${func.dartName}($callParams)');
+    }
     writer.line('            $encodeExpr');
     writer.line('        } catch (_e: Throwable) {');
     writer.line('            nitroEncodeResultError(_e.message ?: "Unknown error")');
@@ -545,7 +549,12 @@ class KotlinFunctionEmitter {
     String retBaseName,
     String callParams,
   ) {
-    writer.line('        val _vResult = impl.${func.dartName}($callParams)');
+    if (func.isAsync) {
+      final rb = KotlinTypeMapper.runBlockingCall(func, 'impl.${func.dartName}($callParams)');
+      writer.line('        val _vResult = _asyncExecutor.submit(java.util.concurrent.Callable { $rb }).get()');
+    } else {
+      writer.line('        val _vResult = impl.${func.dartName}($callParams)');
+    }
     writer.line('        val _vw = RecordWriter()');
     writer.line('        _vResult.writeFields(_vw)');
     writer.line('        val _vPayload = _vw.toByteArray()');
