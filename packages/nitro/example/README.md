@@ -1,17 +1,56 @@
-# nitro_example
+# nitro example
 
-Demonstrates how to use the nitro plugin.
+Small Flutter app that exercises a generated Nitro module from Dart.
 
-## Getting Started
+## What it demonstrates
 
-This project is a starting point for a Flutter application.
+- A `.native.dart` spec in `lib/src/math.native.dart`
+- A generated Dart binding in `lib/src/math.g.dart`
+- Swift and Kotlin bridge output under `lib/src/generated/`
+- Synchronous methods, `@nitroAsync`, getters/setters, `@zeroCopy`, and `@NitroStream`
 
-A few resources to get you started if this is your first Flutter project:
+## Spec shape
 
-- [Learn Flutter](https://docs.flutter.dev/get-started/learn-flutter)
-- [Write your first Flutter app](https://docs.flutter.dev/get-started/codelab)
-- [Flutter learning resources](https://docs.flutter.dev/reference/learning-resources)
+```dart
+import 'package:nitro/nitro.dart';
 
-For help getting started with Flutter development, view the
-[online documentation](https://docs.flutter.dev/), which offers tutorials,
-samples, guidance on mobile development, and a full API reference.
+part 'math.g.dart';
+
+@HybridEnum(startValue: 1)
+enum Rounding { floor, ceil, round }
+
+@NitroModule(ios: AppleNativeImpl.swift, android: AndroidNativeImpl.kotlin)
+abstract class Math extends HybridObject {
+  static final Math instance = _MathImpl();
+
+  double add(double a, double b);
+
+  @nitroAsync
+  Future<double> multiply(double a, double b);
+
+  void processBuffer(@zeroCopy Uint8List data);
+
+  double get scaleFactor;
+
+  int get precision;
+  set precision(int value);
+
+  @NitroStream(backpressure: Backpressure.dropLatest)
+  Stream<double> get updates;
+}
+```
+
+`package:nitro/nitro.dart` exports `dart:typed_data`, so generated part files and specs can use typed-data classes such as `Uint8List`, `ByteData`, and `Int64List`.
+
+## Run locally
+
+From this directory:
+
+```sh
+flutter pub get
+nitrogen generate
+nitrogen link
+flutter run
+```
+
+Use `nitrogen generate --no-ui --fail-on-warn` in CI to regenerate bindings and fail when spec validation warnings are present.

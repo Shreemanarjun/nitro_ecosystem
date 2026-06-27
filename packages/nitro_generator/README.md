@@ -4,8 +4,8 @@ A high-performance code generator for **Nitro Modules** (Nitrogen). Converts `.n
 
 ## Features
 
-- **Three implementation paths**: Swift (`@_cdecl`), Kotlin (JNI), or direct C++ virtual dispatch — chosen per-module via `@NitroModule(ios:, android:)`.
-- **NativeImpl.cpp**: generates an abstract C++ interface (`HybridX`), a direct virtual-dispatch bridge (no JNI/Swift), GoogleMock stubs, and a test starter — everything needed to implement and test in pure C++.
+- **Three implementation paths**: Swift (`@_cdecl`), Kotlin (JNI), or direct C++ virtual dispatch — chosen per-module via `@NitroModule(...)`.
+- **Direct C++ modules**: generate an abstract C++ interface (`HybridX`), a direct virtual-dispatch bridge (no JNI/Swift), GoogleMock stubs, and a test starter — everything needed to implement and test in pure C++.
 - **Type-safe**: strict Dart-to-native type mapping with validation before generation.
 - **Zero-copy structs**: `@HybridStruct` passes packed C structs directly across the FFI boundary.
 - **Binary records**: `@HybridRecord` uses a compact little-endian binary protocol (no JSON) for complex infrequent data.
@@ -22,13 +22,34 @@ A high-performance code generator for **Nitro Modules** (Nitrogen). Converts `.n
 2. Choose the implementation path:
 
 ```dart
+import 'package:nitro/nitro.dart';
+
 // Swift/Kotlin (platform-specific APIs)
-@NitroModule(lib: 'camera', ios: NativeImpl.swift, android: NativeImpl.kotlin)
-abstract class Camera extends HybridObject { ... }
+@NitroModule(
+  lib: 'camera',
+  ios: AppleNativeImpl.swift,
+  android: AndroidNativeImpl.kotlin,
+)
+abstract class Camera extends HybridObject {
+  static final Camera instance = _CameraImpl();
+
+  bool isAvailable();
+}
 
 // Direct C++ (shared logic, max performance)
-@NitroModule(lib: 'math', ios: NativeImpl.cpp, android: NativeImpl.cpp)
-abstract class Math extends HybridObject { ... }
+@NitroModule(
+  lib: 'math',
+  ios: AppleNativeImpl.cpp,
+  android: AndroidNativeImpl.cpp,
+  macos: AppleNativeImpl.cpp,
+  windows: WindowsNativeImpl.cpp,
+  linux: LinuxNativeImpl.cpp,
+)
+abstract class Math extends HybridObject {
+  static final Math instance = _MathImpl();
+
+  double add(double a, double b);
+}
 ```
 
 3. Run the generator:
@@ -52,7 +73,7 @@ nitrogen generate
 | `lib/src/generated/cpp/*.bridge.g.cpp` | C++ JNI & Apple bridge |
 | `lib/src/generated/cmake/*.CMakeLists.g.txt` | CMake include fragment |
 
-### NativeImpl.cpp path (additional outputs)
+### Direct C++ path (additional outputs)
 
 | File | Description |
 |---|---|
@@ -60,14 +81,16 @@ nitrogen generate
 | `lib/src/generated/cpp/test/*.mock.g.h` | GoogleMock `MockX` class for unit tests |
 | `lib/src/generated/cpp/test/*.test.g.cpp` | Test starter with smoke test + `main()` |
 
-For cpp modules, `.bridge.g.cpp` uses direct virtual dispatch (`g_impl->method()`) instead of JNI/Swift, and `.bridge.g.kt` / `.bridge.g.swift` contain a "Not applicable" placeholder.
+For C++ modules, `.bridge.g.cpp` uses direct virtual dispatch (`g_impl->method()`) instead of JNI/Swift, and `.bridge.g.kt` / `.bridge.g.swift` contain a "Not applicable" placeholder.
 
-## NativeImpl.cpp — Quick Start
+## Direct C++ — Quick Start
 
 ```dart
 // spec
-@NitroModule(lib: 'math', ios: NativeImpl.cpp, android: NativeImpl.cpp)
+@NitroModule(lib: 'math', ios: AppleNativeImpl.cpp, android: AndroidNativeImpl.cpp)
 abstract class Math extends HybridObject {
+  static final Math instance = _MathImpl();
+
   double add(double a, double b);
   String greet(String name);
   int get precision;
@@ -140,7 +163,9 @@ Generated Dart FFI:
 
 ```dart
 // .g.dart  — callers get the default, no wrapper needed
-void print(String text, {PrintQuality quality = PrintQuality.normal, int copies = 1}) { ... }
+void print(String text, {PrintQuality quality = PrintQuality.normal, int copies = 1}) {
+  // Generated FFI body.
+}
 ```
 
 Enum, `int`, `double`, `bool`, and `String` default literals are all supported.
@@ -162,8 +187,10 @@ class Reading { final double value; final int timestamp; }
 // sensor.native.dart
 import 'enums.native.dart';   // import the type file
 
-@NitroModule(lib: 'sensor', ios: NativeImpl.swift, android: NativeImpl.kotlin)
-abstract class Sensor {
+@NitroModule(lib: 'sensor', ios: AppleNativeImpl.swift, android: AndroidNativeImpl.kotlin)
+abstract class Sensor extends HybridObject {
+  static final Sensor instance = _SensorImpl();
+
   DeviceStatus getStatus();
   Reading getReading();
 }
@@ -195,7 +222,9 @@ Every generated method includes a comment linking back to its spec origin:
 
 ```swift
 // source: sensor.native.dart:12
-public func getStatus() -> DeviceStatus { ... }
+public func getStatus() -> DeviceStatus {
+    return .idle
+}
 ```
 
 ```kotlin

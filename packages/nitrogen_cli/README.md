@@ -120,16 +120,16 @@ nitrogen generate --fail-on-warn
 | Output | Description |
 |---|---|
 | `lib/src/*.g.dart` | Dart FFI implementation |
-| `lib/src/generated/kotlin/*.bridge.g.kt` | Kotlin JNI bridge (`NativeImpl.kotlin`) |
-| `lib/src/generated/swift/*.bridge.g.swift` | Swift `@_cdecl` bridge (`NativeImpl.swift`) |
+| `lib/src/generated/kotlin/*.bridge.g.kt` | Kotlin JNI bridge (`AndroidNativeImpl.kotlin`) |
+| `lib/src/generated/swift/*.bridge.g.swift` | Swift `@_cdecl` bridge (`AppleNativeImpl.swift`) |
 | `lib/src/generated/cpp/*.bridge.g.h` | C header (all modes) |
 | `lib/src/generated/cpp/*.bridge.g.cpp` | C++ bridge (all modes) |
 | `lib/src/generated/cmake/*.CMakeLists.g.txt` | CMake fragment (all modes) |
-| `lib/src/generated/cpp/*.native.g.h` | Abstract C++ interface (`NativeImpl.cpp`) |
-| `lib/src/generated/cpp/test/*.mock.g.h` | GoogleMock stub (`NativeImpl.cpp`) |
-| `lib/src/generated/cpp/test/*.test.g.cpp` | Test starter (`NativeImpl.cpp`) |
+| `lib/src/generated/cpp/*.native.g.h` | Abstract C++ interface (`*NativeImpl.cpp`) |
+| `lib/src/generated/cpp/test/*.mock.g.h` | GoogleMock stub (`*NativeImpl.cpp`) |
+| `lib/src/generated/cpp/test/*.test.g.cpp` | Test starter (`*NativeImpl.cpp`) |
 
-**NativeImpl.cpp awareness:** `.bridge.g.swift` files that contain only a "Not applicable" placeholder are never copied to `ios/Classes/`. Instead, the generated `.native.g.h` headers are synced there so Clang can resolve them during iOS builds.
+**Direct C++ awareness:** `.bridge.g.swift` files that contain only a "Not applicable" placeholder are never copied to `ios/Classes/`. Instead, the generated `.native.g.h` headers are synced there so Clang can resolve them during iOS builds.
 
 After generation, `nitrogen generate` also runs `pod install` in any `ios/` directory it finds.
 
@@ -203,11 +203,11 @@ nitrogen doctor --no-ui   # headless, one line per check
 | **Android** | `kotlin-android`, `kotlinOptions`, `generated/kotlin` sourceSets, `System.loadLibrary`, `JniBridge.register` |
 | **iOS** | `.podspec` headers/C++17, Swift version, `dart_api_dl.c`, `nitro.h`, `NITRO_EXPORT`, `.bridge.g.mm` count |
 | **macOS** | `.podspec` headers/C++17, Swift version, `dart_api_dl.c`, `nitro.h`, `NITRO_EXPORT`, `.bridge.g.mm` count, Swift plugin registration |
-| **NativeImpl.cpp** *(cpp modules only)* | `${lib}_register_impl` wired up, `.clangd` includes test dir |
+| **Direct C++ modules** | `${lib}_register_impl` wired up, `.clangd` includes test dir |
 
-**NativeImpl.cpp awareness:**
+**Direct C++ awareness:**
 
-- Android: when all specs use `NativeImpl.cpp`, Kotlin JNI bridge checks are shown as `ℹ info` (not required) instead of errors.
+- Android: when all specs use direct C++, Kotlin JNI bridge checks are shown as `ℹ info` (not required) instead of errors.
 - iOS: Registry.register check skipped; checks for `.native.g.h` headers in `ios/Classes/` instead; no `.bridge.g.mm` warning.
 - Generated files: `.bridge.g.kt` / `.bridge.g.swift` shown as `ℹ info` (placeholder) for cpp modules; `.native.g.h`, `.mock.g.h`, `.test.g.cpp` checked as required outputs.
 
@@ -238,7 +238,7 @@ nitrogen migrate --no-ui      # headless, skips interactive confirmation
 
 | Flag | Default | Description |
 |---|---|---|
-| `--backup` | `true` | Create a `.nitrogen_backup_<ts>/` snapshot before migrating |
+| `--[no-]backup` | `true` | Create a `.nitrogen_backup_<ts>/` snapshot before migrating |
 | `--dry-run` | `false` | Show what would change without writing any files |
 | `--no-ui` | `false` | Headless plain-text output (skips confirmation prompt) |
 
@@ -247,7 +247,7 @@ nitrogen migrate --no-ui      # headless, skips interactive confirmation
 1. Optionally backs up existing `ios/*.podspec` and `example/ios/Podfile`
 2. Creates `ios/<name>/Package.swift` (Flutter 3.41+ nested SPM layout)
 3. Creates `macos/<name>/Package.swift` when `macos/` exists
-4. Runs `pod deintegrate` + `pod install` in the example app
+4. Leaves CocoaPods cleanup/linking to `nitrogen link`, so you can inspect the generated SPM files first
 
 ---
 
@@ -328,33 +328,67 @@ nitrogen open --no-ui     # headless
 
 ## Platform Targeting
 
-Each platform is configured independently via the `@NitroModule` annotation. All three platforms can be mixed and matched:
+Each platform is configured independently via the `@NitroModule` annotation. New specs should use the explicit platform constants:
 
 ```dart
 // iOS + Android Swift/Kotlin, macOS via direct C++
-@NitroModule(lib: 'sensor', ios: NativeImpl.swift, android: NativeImpl.kotlin, macos: NativeImpl.cpp)
-abstract class SensorModule extends HybridObject { ... }
+@NitroModule(
+  lib: 'sensor',
+  ios: AppleNativeImpl.swift,
+  android: AndroidNativeImpl.kotlin,
+  macos: AppleNativeImpl.cpp,
+)
+abstract class SensorModule extends HybridObject {
+  static final SensorModule instance = _SensorModuleImpl();
 
-// All three platforms using direct C++ (same implementation everywhere)
-@NitroModule(lib: 'math', ios: NativeImpl.cpp, android: NativeImpl.cpp, macos: NativeImpl.cpp)
-abstract class Math extends HybridObject { ... }
+  bool isReady();
+}
+
+// Shared direct C++ implementation everywhere native C++ is supported
+@NitroModule(
+  lib: 'math',
+  ios: AppleNativeImpl.cpp,
+  android: AndroidNativeImpl.cpp,
+  macos: AppleNativeImpl.cpp,
+  windows: WindowsNativeImpl.cpp,
+  linux: LinuxNativeImpl.cpp,
+)
+abstract class Math extends HybridObject {
+  static final Math instance = _MathImpl();
+
+  double add(double a, double b);
+}
 
 // iOS + macOS Swift, Android Kotlin
-@NitroModule(lib: 'plugin', ios: NativeImpl.swift, android: NativeImpl.kotlin, macos: NativeImpl.swift)
-abstract class MyPlugin extends HybridObject { ... }
+@NitroModule(
+  lib: 'plugin',
+  ios: AppleNativeImpl.swift,
+  android: AndroidNativeImpl.kotlin,
+  macos: AppleNativeImpl.swift,
+)
+abstract class MyPlugin extends HybridObject {
+  static final MyPlugin instance = _MyPluginImpl();
+
+  String platformVersion();
+}
 ```
 
-> **Note:** `macos: NativeImpl.kotlin` is not valid — Kotlin is not a native macOS language. The generator will emit an `INVALID_MACOS_IMPL` error at build time.
+`NativeImpl.*` remains available as backward-compatible shorthand. The explicit constants are clearer because invalid combinations, such as Kotlin on macOS, are rejected by Dart's type system before generation.
 
 ---
 
-## NativeImpl.cpp Workflow
+## Direct C++ Workflow
 
 For plugins where both platforms use direct C++:
 
 ```dart
 // lib/src/math.native.dart
-@NitroModule(lib: 'math', ios: NativeImpl.cpp, android: NativeImpl.cpp, macos: NativeImpl.cpp)
+@NitroModule(
+  lib: 'math',
+  ios: AppleNativeImpl.cpp,
+  android: AndroidNativeImpl.cpp,
+  macos: AppleNativeImpl.cpp,
+)
 abstract class Math extends HybridObject {
   static final Math instance = _MathImpl();
   double add(double a, double b);
@@ -408,7 +442,12 @@ class SensorData {
   const SensorData({required this.temperature, required this.humidity});
 }
 
-@NitroModule(lib: 'sensor', ios: NativeImpl.swift, android: NativeImpl.kotlin, macos: NativeImpl.swift)
+@NitroModule(
+  lib: 'sensor',
+  ios: AppleNativeImpl.swift,
+  android: AndroidNativeImpl.kotlin,
+  macos: AppleNativeImpl.swift,
+)
 abstract class SensorModule extends HybridObject {
   static final SensorModule instance = _SensorModuleImpl();
 
