@@ -5,8 +5,8 @@ import 'package:test/test.dart';
 
 String _specExtractorSource() {
   final packageRoot = File('lib/src/spec_extractor.dart');
-  if (packageRoot.existsSync()) return packageRoot.readAsStringSync();
-  return File('packages/nitro_generator/lib/src/spec_extractor.dart').readAsStringSync();
+  final source = packageRoot.existsSync() ? packageRoot.readAsStringSync() : File('packages/nitro_generator/lib/src/spec_extractor.dart').readAsStringSync();
+  return source.replaceAll('\r\n', '\n');
 }
 
 void main() {
