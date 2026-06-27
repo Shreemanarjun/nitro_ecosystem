@@ -22,6 +22,7 @@ class KotlinGenerator {
     final writer = CodeWriter();
     final mapper = KotlinTypeMapper.fromSpec(spec);
     final hasStreams = spec.streams.isNotEmpty;
+    final hasBatchStreams = spec.streams.any((s) => s.isBatch);
     final hasAsyncFunctions = spec.functions.any((f) => f.isAsync || f.isNativeAsync);
     final hasTimeoutFunctions = spec.functions.any((f) => f.isAsync && f.asyncTimeout != null);
     final hasNativeAsync = spec.functions.any((f) => f.isNativeAsync);
@@ -39,6 +40,7 @@ class KotlinGenerator {
       writer.line('import kotlinx.coroutines.CoroutineScope');
       writer.line('import kotlinx.coroutines.CoroutineStart');
       writer.line('import kotlinx.coroutines.Dispatchers');
+      if (hasBatchStreams) writer.line('import kotlinx.coroutines.sync.withLock');
     }
     if (hasAsyncFunctions) writer.line('import kotlinx.coroutines.runBlocking');
     if (hasTimeoutFunctions) writer.line('import kotlinx.coroutines.withTimeout');

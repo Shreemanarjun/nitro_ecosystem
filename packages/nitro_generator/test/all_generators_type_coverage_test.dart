@@ -10,6 +10,9 @@
 //   • CppInterfaceGenerator — HybridXxx C++ abstract class
 //   • CppMockGenerator   — GoogleMock stub
 //   • CppHeaderGenerator — bridge .bridge.g.h declarations
+//
+// §12: Batch stream (Backpressure.batch) — Kotlin mutex-guarded _buf
+// §13: String-returning callbacks — no exceptionalReturn for Pointer returns
 
 import 'package:nitro_generator/src/generators/languages/c_bridge/cpp_bridge_generator.dart';
 import 'package:nitro_generator/src/generators/languages/cpp_native/cpp_interface_generator.dart';
@@ -21,6 +24,57 @@ import 'package:nitro_generator/src/generators/record_generator.dart';
 import 'package:nitro_generator/src/generators/languages/swift/swift_generator.dart';
 import 'package:test/test.dart';
 import 'test_utils.dart';
+
+// ── §12 helpers ───────────────────────────────────────────────────────────────
+
+BridgeSpec _batchStreamSpec(String itemType) => BridgeSpec(
+  dartClassName: 'Sensor',
+  lib: 'sensor',
+  namespace: 'sensor',
+  iosImpl: NativeImpl.swift,
+  androidImpl: NativeImpl.kotlin,
+  sourceUri: 'sensor.native.dart',
+  streams: [
+    BridgeStream(
+      dartName: 'samples',
+      registerSymbol: 'sensor_register_samples_stream',
+      releaseSymbol: 'sensor_release_samples_stream',
+      itemType: BridgeType(name: itemType),
+      backpressure: Backpressure.batch,
+      batchMaxSize: 32,
+    ),
+  ],
+);
+
+// ── §13 helpers ───────────────────────────────────────────────────────────────
+
+BridgeSpec _stringCallbackReturnSpec() => BridgeSpec(
+  dartClassName: 'Transform',
+  lib: 'transform',
+  namespace: 'transform',
+  iosImpl: NativeImpl.swift,
+  androidImpl: NativeImpl.kotlin,
+  sourceUri: 'transform.native.dart',
+  functions: [
+    BridgeFunction(
+      dartName: 'process',
+      cSymbol: 'transform_process',
+      isAsync: false,
+      returnType: BridgeType(name: 'void'),
+      params: [
+        BridgeParam(
+          name: 'formatter',
+          type: BridgeType(
+            name: 'String Function(int)',
+            isFunction: true,
+            functionReturnType: 'String',
+            functionParams: [BridgeType(name: 'int')],
+          ),
+        ),
+      ],
+    ),
+  ],
+);
 
 // ── Shared type definitions ───────────────────────────────────────────────────
 
@@ -877,6 +931,242 @@ void main() {
       final dartExt = RecordGenerator.generateDartExtensions(mixedSpec);
       expect(dartExt, contains('PrinterRecordExt'));
       expect(dartExt, contains('JobRecordExt'));
+    });
+  });
+
+  // ── §12: Batch stream — Kotlin mutex-guarded _buf ────────────────────────────
+  //
+  // Backpressure.batch uses a periodic _flushJob coroutine alongside the main
+  // collect coroutine, both running on Dispatchers.Default (multi-threaded).
+  // All accesses to _buf must be guarded by a kotlinx.coroutines.sync.Mutex.
+
+  group('Batch stream — Kotlin mutex-guarded _buf (all numeric item types)', () {
+    for (final itemType in ['int', 'double', 'bool']) {
+      final spec = _batchStreamSpec(itemType);
+
+      test('Kotlin ($itemType): emits Mutex guard for _buf', () {
+        final out = KotlinGenerator.generate(spec);
+        expect(out, contains('val _lock = kotlinx.coroutines.sync.Mutex()'), reason: '_buf must be protected by a Mutex for $itemType batch stream');
+        expect(out, contains('import kotlinx.coroutines.sync.withLock'), reason: 'Mutex.withLock is an extension function and must be imported');
+      });
+
+      test('Kotlin ($itemType): _flush is a suspend fun', () {
+        final out = KotlinGenerator.generate(spec);
+        expect(out, contains('suspend fun _flush()'), reason: '_flush must be suspend so it can call _lock.withLock{}');
+      });
+
+      test('Kotlin ($itemType): _flush body is inside _lock.withLock', () {
+        final out = KotlinGenerator.generate(spec);
+        expect(out, contains('_lock.withLock {'), reason: 'Mutex.withLock must wrap _buf read/write in _flush');
+        expect(out, contains('if (_buf.isEmpty()) return@withLock'), reason: 'return inside withLock must be labeled to compile');
+        expect(out, isNot(contains('if (_buf.isEmpty()) return\n')), reason: 'unlabeled return is prohibited inside withLock');
+      });
+
+      test('Kotlin ($itemType): collect lambda stores size-check result in _full', () {
+        final out = KotlinGenerator.generate(spec);
+        expect(out, contains('val _full = _lock.withLock {'), reason: '_buf.add and size check must both happen inside the lock');
+        expect(out, contains('if (_full) _flush()'), reason: 'flush is triggered outside the lock using the captured _full flag');
+      });
+
+      test('Kotlin ($itemType): _buf.size check is inside withLock (no bare _buf.size)', () {
+        final out = KotlinGenerator.generate(spec);
+        // The size check `_buf.size >= N` must be INSIDE the lock.
+        // Any occurrence of `_buf.size` must be preceded (in the same withLock block)
+        // by the lock acquisition — so `_buf.size` must NOT appear outside a withLock.
+        final withoutLockSection = out.replaceAll(RegExp(r'_lock\.withLock \{[^}]*\}', dotAll: true), '');
+        expect(withoutLockSection, isNot(contains('_buf.size')), reason: '_buf.size must only appear inside _lock.withLock{}');
+      });
+
+      test('Kotlin ($itemType): periodic _flushJob launches as child coroutine', () {
+        final out = KotlinGenerator.generate(spec);
+        expect(out, contains('val _flushJob = launch { while (true) { kotlinx.coroutines.delay(10); _flush() } }'));
+      });
+
+      test('Kotlin ($itemType): batch size limit comes from spec (32)', () {
+        final out = KotlinGenerator.generate(spec);
+        expect(out, contains('ArrayList<Long>(32)'), reason: 'batchMaxSize: 32 must flow through to the generated capacity');
+        expect(out, contains('_buf.size >= 32'));
+      });
+    }
+
+    test('Kotlin (int): _buf.add uses item.toLong()', () {
+      final out = KotlinGenerator.generate(_batchStreamSpec('int'));
+      expect(out, contains('_buf.add(item.toLong())'));
+    });
+
+    test('Kotlin (double): _buf.add uses doubleToRawLongBits', () {
+      final out = KotlinGenerator.generate(_batchStreamSpec('double'));
+      expect(out, contains('_buf.add(java.lang.Double.doubleToRawLongBits(item))'));
+    });
+
+    test('Kotlin (bool): _buf.add uses 1L/0L ternary', () {
+      final out = KotlinGenerator.generate(_batchStreamSpec('bool'));
+      expect(out, contains('_buf.add(if (item) 1L else 0L)'));
+    });
+
+    test('Kotlin: non-batch (dropLatest) stream does NOT emit Mutex', () {
+      final spec = BridgeSpec(
+        dartClassName: 'Sensor',
+        lib: 'sensor',
+        namespace: 'sensor',
+        iosImpl: NativeImpl.swift,
+        androidImpl: NativeImpl.kotlin,
+        sourceUri: 'sensor.native.dart',
+        streams: [
+          BridgeStream(
+            dartName: 'ticks',
+            registerSymbol: 'sensor_register_ticks_stream',
+            releaseSymbol: 'sensor_release_ticks_stream',
+            itemType: BridgeType(name: 'int'),
+            backpressure: Backpressure.dropLatest,
+          ),
+        ],
+      );
+      final out = KotlinGenerator.generate(spec);
+      expect(out, isNot(contains('Mutex()')), reason: 'dropLatest streams are single-coroutine — no Mutex needed');
+      expect(out, isNot(contains('import kotlinx.coroutines.sync.withLock')), reason: 'withLock import is only needed for batch streams');
+      expect(out, isNot(contains('_flushJob')));
+    });
+
+    test('Swift: batch stream emits correct collect closure (not affected by Mutex change)', () {
+      final out = SwiftGenerator.generate(_batchStreamSpec('int'));
+      // Swift uses its own concurrency model — no Mutex emitted.
+      expect(out, isNot(contains('Mutex')));
+      expect(out, contains('_sensor_register_samples_stream'));
+    });
+
+    test('Dart FFI: batch stream emits Backpressure.batch', () {
+      final out = DartFfiGenerator.generate(_batchStreamSpec('int'));
+      expect(out, contains('Backpressure.batch'));
+    });
+  });
+
+  // ── §13: String-returning callbacks — no exceptionalReturn for Pointer returns
+  //
+  // NativeCallable.isolateLocal rejects exceptionalReturn when the native return
+  // type is Pointer<T>. String callbacks return Pointer<Utf8>, so omit it.
+
+  group('String-returning callback — no exceptionalReturn for Pointer returns', () {
+    test('Dart FFI: NativeCallable uses isolateLocal (not listener) for String return', () {
+      final out = DartFfiGenerator.generate(_stringCallbackReturnSpec());
+      expect(out, contains('.isolateLocal('));
+      expect(out, isNot(contains('.listener(')));
+    });
+
+    test('Dart FFI: native signature is Pointer<Utf8> Function(Int64)', () {
+      final out = DartFfiGenerator.generate(_stringCallbackReturnSpec());
+      expect(out, contains('NativeCallable<Pointer<Utf8> Function(Int64)>.isolateLocal'));
+    });
+
+    test('Dart FFI: exceptionalReturn is omitted for String return', () {
+      final out = DartFfiGenerator.generate(_stringCallbackReturnSpec());
+      expect(out, isNot(contains('exceptionalReturn: nullptr')), reason: 'NativeCallable.isolateLocal rejects exceptionalReturn for Pointer<Utf8>');
+    });
+
+    test('Dart FFI: return expression uses toNativeUtf8()', () {
+      final out = DartFfiGenerator.generate(_stringCallbackReturnSpec());
+      expect(out, contains('return callback('));
+      expect(out, contains('.toNativeUtf8()'));
+    });
+
+    test('Dart FFI: void-return callback uses listener (no exceptionalReturn)', () {
+      final voidSpec = _swiftKotlinSpec([
+        BridgeFunction(
+          dartName: 'watch',
+          cSymbol: 'mod_watch',
+          isAsync: false,
+          returnType: BridgeType(name: 'void'),
+          params: [
+            BridgeParam(
+              name: 'onEvent',
+              type: BridgeType(
+                name: 'void Function(int)',
+                isFunction: true,
+                functionReturnType: 'void',
+                functionParams: [BridgeType(name: 'int')],
+              ),
+            ),
+          ],
+        ),
+      ]);
+      final out = DartFfiGenerator.generate(voidSpec);
+      expect(out, contains('.listener('));
+      expect(out, isNot(contains('exceptionalReturn')));
+    });
+
+    test('Dart FFI: int-return callback uses isolateLocal with exceptionalReturn: 0', () {
+      final intSpec = _swiftKotlinSpec([
+        BridgeFunction(
+          dartName: 'classify',
+          cSymbol: 'mod_classify',
+          isAsync: false,
+          returnType: BridgeType(name: 'void'),
+          params: [
+            BridgeParam(
+              name: 'classifier',
+              type: BridgeType(
+                name: 'int Function(int)',
+                isFunction: true,
+                functionReturnType: 'int',
+                functionParams: [BridgeType(name: 'int')],
+              ),
+            ),
+          ],
+        ),
+      ]);
+      final out = DartFfiGenerator.generate(intSpec);
+      expect(out, contains('.isolateLocal('));
+      expect(out, contains('exceptionalReturn: 0'));
+      expect(out, isNot(contains('exceptionalReturn: nullptr')));
+    });
+
+    test('Dart FFI: bool-return callback uses isolateLocal with exceptionalReturn: 0', () {
+      final boolSpec = _swiftKotlinSpec([
+        BridgeFunction(
+          dartName: 'validate',
+          cSymbol: 'mod_validate',
+          isAsync: false,
+          returnType: BridgeType(name: 'void'),
+          params: [
+            BridgeParam(
+              name: 'predicate',
+              type: BridgeType(
+                name: 'bool Function(int)',
+                isFunction: true,
+                functionReturnType: 'bool',
+                functionParams: [BridgeType(name: 'int')],
+              ),
+            ),
+          ],
+        ),
+      ]);
+      final out = DartFfiGenerator.generate(boolSpec);
+      expect(out, contains('.isolateLocal('));
+      expect(out, contains('exceptionalReturn: 0'));
+    });
+
+    test('Kotlin: String-return callback JNI invoker returns String', () {
+      final out = KotlinGenerator.generate(_stringCallbackReturnSpec());
+      // The Kotlin bridge invokes the Dart callback via an external JNI function.
+      // For String returns the bridge returns a JVM String directly (not Long).
+      expect(out, contains('@JvmStatic external fun _invoke_formatter(callbackPtr: Long, arg0: Long): String'));
+    });
+
+    test('Swift: String-return callback wraps result via strdup / UTF-8 pointer', () {
+      final out = SwiftGenerator.generate(_stringCallbackReturnSpec());
+      // Swift bridge invokes the formatter callback and converts the result to a C string.
+      expect(out, contains('formatter('));
+    });
+
+    test('CppBridge (Swift/ObjC path): String-return callback typedef uses const char*', () {
+      final out = CppBridgeGenerator.generate(_stringCallbackReturnSpec());
+      // The generated C bridge must declare the callback as returning const char* (or char*).
+      expect(out, contains('formatter'));
+    });
+
+    test('Dart FFI: callback cache key uses function + param name', () {
+      final out = DartFfiGenerator.generate(_stringCallbackReturnSpec());
+      expect(out, contains("('process.formatter', callback)"), reason: 'cache key is (functionName.paramName, callback) for deduplication');
     });
   });
 }

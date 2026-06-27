@@ -34,25 +34,34 @@ class KotlinStreamEmitter {
   static void _emitBatchCollect(CodeWriter writer, BridgeStream stream) {
     final batchMax = stream.batchMaxSize;
     final itemBase = stream.itemType.name.replaceFirst('?', '');
+    // _buf is accessed from both the collect coroutine and the periodic _flushJob,
+    // both of which run on Dispatchers.Default (multi-threaded). A Mutex serialises
+    // all reads and writes to prevent ConcurrentModificationException.
     writer.line('            val _buf = ArrayList<Long>($batchMax)');
-    writer.line('            fun _flush() {');
-    writer.line('                if (_buf.isEmpty()) return');
-    writer.line('                val arr = LongArray(_buf.size + 1); arr[0] = _buf.size.toLong()');
-    writer.line('                _buf.forEachIndexed { i, v -> arr[i + 1] = v }');
-    writer.line('                _buf.clear()');
-    writer.line('                emit_${stream.dartName}_batch(dartPort, arr)');
+    writer.line('            val _lock = kotlinx.coroutines.sync.Mutex()');
+    writer.line('            suspend fun _flush() {');
+    writer.line('                _lock.withLock {');
+    writer.line('                    if (_buf.isEmpty()) return@withLock');
+    writer.line('                    val arr = LongArray(_buf.size + 1); arr[0] = _buf.size.toLong()');
+    writer.line('                    _buf.forEachIndexed { i, v -> arr[i + 1] = v }');
+    writer.line('                    _buf.clear()');
+    writer.line('                    emit_${stream.dartName}_batch(dartPort, arr)');
+    writer.line('                }');
     writer.line('            }');
     // Periodic flush for hot sources (MutableSharedFlow etc.) that never complete.
     writer.line('            val _flushJob = launch { while (true) { kotlinx.coroutines.delay(10); _flush() } }');
     writer.line('            impl.${stream.dartName}.collect { item ->');
+    writer.line('                val _full = _lock.withLock {');
     if (itemBase == 'double') {
-      writer.line('                _buf.add(java.lang.Double.doubleToRawLongBits(item))');
+      writer.line('                    _buf.add(java.lang.Double.doubleToRawLongBits(item))');
     } else if (itemBase == 'bool') {
-      writer.line('                _buf.add(if (item) 1L else 0L)');
+      writer.line('                    _buf.add(if (item) 1L else 0L)');
     } else {
-      writer.line('                _buf.add(item.toLong())');
+      writer.line('                    _buf.add(item.toLong())');
     }
-    writer.line('                if (_buf.size >= $batchMax) _flush()');
+    writer.line('                    _buf.size >= $batchMax');
+    writer.line('                }');
+    writer.line('                if (_full) _flush()');
     writer.line('            }');
     writer.line('            _flushJob.cancel()');
     writer.line('            _flush()');

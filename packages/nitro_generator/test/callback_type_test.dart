@@ -142,6 +142,49 @@ void main() {
       expect(out, contains('exceptionalReturn: 0'));
     });
 
+    test('DartFfiGenerator omits exceptionalReturn for String-returning callbacks', () {
+      final out = DartFfiGenerator.generate(_unsupportedCallbackParamSpec());
+      // String maps to Pointer<Utf8>; NativeCallable.isolateLocal rejects
+      // exceptionalReturn for pointer return types.
+      expect(out, contains('NativeCallable<Pointer<Utf8> Function(Int64)>.isolateLocal'));
+      expect(out, isNot(contains('exceptionalReturn: nullptr')));
+    });
+
+    test('DartFfiGenerator omits exceptionalReturn for zero-arg String callbacks', () {
+      final out = DartFfiGenerator.generate(_zeroArgStringCallbackReturnSpec());
+
+      expect(out, contains('NativeCallable<Pointer<Utf8> Function()>.isolateLocal(()'));
+      expect(out, contains('return callback().toNativeUtf8();'));
+      expect(out, isNot(contains('exceptionalReturn: nullptr')));
+    });
+
+    test('DartFfiGenerator returns nullptr for nullable String callback result', () {
+      final out = DartFfiGenerator.generate(_nullableStringCallbackReturnSpec());
+
+      expect(out, contains('String? Function(int)'));
+      expect(out, contains('final _value = callback(arg0);'));
+      expect(out, contains('return _value == null ? nullptr : _value.toNativeUtf8();'));
+      expect(out, isNot(contains('exceptionalReturn: nullptr')));
+    });
+
+    test('DartFfiGenerator keeps primitive exceptionalReturn in mixed callback spec', () {
+      final out = DartFfiGenerator.generate(_mixedCallbackReturnSpec());
+
+      expect(out, contains('NativeCallable<Pointer<Utf8> Function(Int64)>.isolateLocal'));
+      expect(out, contains('NativeCallable<Int64 Function(Int64)>.isolateLocal'));
+      expect(out, contains('exceptionalReturn: 0'));
+      expect(out, isNot(contains('exceptionalReturn: nullptr')));
+    });
+
+    test('DartFfiGenerator keeps exceptionalReturn for enum-returning callbacks', () {
+      final out = DartFfiGenerator.generate(_enumCallbackReturnSpec());
+
+      expect(out, contains('NativeCallable<Int64 Function(Int64)>.isolateLocal'));
+      expect(out, contains('return callback(arg0).nativeValue;'));
+      expect(out, contains('exceptionalReturn: 0'));
+      expect(out, isNot(contains('exceptionalReturn: nullptr')));
+    });
+
     test('CppHeaderGenerator emits real function pointer callback parameters', () {
       final out = CppHeaderGenerator.generate(_callbackParamSpec());
 
@@ -426,6 +469,142 @@ BridgeSpec _unsupportedCallbackParamSpec() {
               name: 'String Function(int)',
               isFunction: true,
               functionReturnType: 'String',
+              functionParams: [BridgeType(name: 'int')],
+            ),
+          ),
+        ],
+      ),
+    ],
+  );
+}
+
+BridgeSpec _zeroArgStringCallbackReturnSpec() {
+  return BridgeSpec(
+    dartClassName: 'Camera',
+    lib: 'camera',
+    namespace: 'camera',
+    androidImpl: NativeImpl.kotlin,
+    sourceUri: 'camera.native.dart',
+    functions: [
+      BridgeFunction(
+        dartName: 'label',
+        cSymbol: 'camera_label',
+        isAsync: false,
+        returnType: BridgeType(name: 'void'),
+        params: [
+          BridgeParam(
+            name: 'formatter',
+            type: BridgeType(
+              name: 'String Function()',
+              isFunction: true,
+              functionReturnType: 'String',
+              functionParams: [],
+            ),
+          ),
+        ],
+      ),
+    ],
+  );
+}
+
+BridgeSpec _nullableStringCallbackReturnSpec() {
+  return BridgeSpec(
+    dartClassName: 'Camera',
+    lib: 'camera',
+    namespace: 'camera',
+    androidImpl: NativeImpl.kotlin,
+    sourceUri: 'camera.native.dart',
+    functions: [
+      BridgeFunction(
+        dartName: 'optionalLabel',
+        cSymbol: 'camera_optional_label',
+        isAsync: false,
+        returnType: BridgeType(name: 'void'),
+        params: [
+          BridgeParam(
+            name: 'formatter',
+            type: BridgeType(
+              name: 'String? Function(int)',
+              isFunction: true,
+              functionReturnType: 'String?',
+              functionParams: [BridgeType(name: 'int')],
+            ),
+          ),
+        ],
+      ),
+    ],
+  );
+}
+
+BridgeSpec _mixedCallbackReturnSpec() {
+  return BridgeSpec(
+    dartClassName: 'Camera',
+    lib: 'camera',
+    namespace: 'camera',
+    androidImpl: NativeImpl.kotlin,
+    sourceUri: 'camera.native.dart',
+    functions: [
+      BridgeFunction(
+        dartName: 'stringTransform',
+        cSymbol: 'camera_string_transform',
+        isAsync: false,
+        returnType: BridgeType(name: 'void'),
+        params: [
+          BridgeParam(
+            name: 'formatter',
+            type: BridgeType(
+              name: 'String Function(int)',
+              isFunction: true,
+              functionReturnType: 'String',
+              functionParams: [BridgeType(name: 'int')],
+            ),
+          ),
+        ],
+      ),
+      BridgeFunction(
+        dartName: 'intTransform',
+        cSymbol: 'camera_int_transform',
+        isAsync: false,
+        returnType: BridgeType(name: 'void'),
+        params: [
+          BridgeParam(
+            name: 'mapper',
+            type: BridgeType(
+              name: 'int Function(int)',
+              isFunction: true,
+              functionReturnType: 'int',
+              functionParams: [BridgeType(name: 'int')],
+            ),
+          ),
+        ],
+      ),
+    ],
+  );
+}
+
+BridgeSpec _enumCallbackReturnSpec() {
+  return BridgeSpec(
+    dartClassName: 'Torch',
+    lib: 'torch',
+    namespace: 'torch',
+    androidImpl: NativeImpl.kotlin,
+    sourceUri: 'torch.native.dart',
+    enums: [
+      BridgeEnum(name: 'TorchState', startValue: 0, values: ['off', 'on']),
+    ],
+    functions: [
+      BridgeFunction(
+        dartName: 'mapState',
+        cSymbol: 'torch_map_state',
+        isAsync: false,
+        returnType: BridgeType(name: 'void'),
+        params: [
+          BridgeParam(
+            name: 'mapper',
+            type: BridgeType(
+              name: 'TorchState Function(int)',
+              isFunction: true,
+              functionReturnType: 'TorchState',
               functionParams: [BridgeType(name: 'int')],
             ),
           ),

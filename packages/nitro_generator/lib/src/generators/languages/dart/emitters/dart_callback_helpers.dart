@@ -34,9 +34,7 @@ void _assertSupportedCallbackType(
   final callback = param.type;
   final returnName = (callback.functionReturnType ?? 'void').replaceFirst('?', '');
   // String is now supported as bidirectional callback return type (#4).
-  if (returnName != 'void' && returnName != 'int' && returnName != 'double'
-      && returnName != 'bool' && returnName != 'String'
-      && !spec.isEnumName(returnName)) {
+  if (returnName != 'void' && returnName != 'int' && returnName != 'double' && returnName != 'bool' && returnName != 'String' && !spec.isEnumName(returnName)) {
     throw UnsupportedError(
       '${spec.dartClassName}.${func.dartName}() parameter "${param.name}" has callback return type "$returnName", which is not supported. Callback returns currently support void, int, double, bool, String, and @HybridEnum.',
     );
@@ -142,8 +140,7 @@ String _callbackNativeSignature(BridgeType callbackType, BridgeSpec spec) {
 /// expanded to individual Int64 params for synchronous NativeCallable.listener.
 bool _isExpandableCallbackStruct(BridgeStruct st) {
   const numeric = {'int', 'double', 'bool'};
-  return st.fields.isNotEmpty &&
-      st.fields.every((f) => numeric.contains(f.type.name.replaceFirst('?', '')) && !f.type.isTypedData);
+  return st.fields.isNotEmpty && st.fields.every((f) => numeric.contains(f.type.name.replaceFirst('?', '')) && !f.type.isTypedData);
 }
 
 String _callbackDartType(BridgeType callbackType, BridgeSpec spec, {required bool nullable}) {
@@ -158,7 +155,7 @@ String _callbackReturnToFFI(String dartType, BridgeSpec spec) {
   if (name == 'void') return 'Void';
   if (name == 'int') return 'Int64';
   if (name == 'double') return 'Int64'; // raw bits, same GP-register path as int
-  if (name == 'bool') return 'Int64';   // 0/1 via GP register
+  if (name == 'bool') return 'Int64'; // 0/1 via GP register
   if (name == 'String') return 'Pointer<Utf8>'; // strdup'd from native
   if (spec.isEnumName(name)) return 'Int64';
   return 'Void';
@@ -203,7 +200,7 @@ String _callbackParamToDartFFI(BridgeType type, BridgeSpec spec) {
   final name = type.name.replaceFirst('?', '');
   if (name == 'int') return 'int';
   if (name == 'double') return 'int'; // received as Int64 (IEEE 754 bits)
-  if (name == 'bool') return 'int';   // received as Int64 (1 = true, 0 = false)
+  if (name == 'bool') return 'int'; // received as Int64 (1 = true, 0 = false)
   if (name == 'String') return 'Pointer<Utf8>';
   if (spec.isEnumName(name)) return 'int';
   if (spec.isStructName(name)) return 'Pointer<Void>';
@@ -219,17 +216,19 @@ String _callbackInvocationArgs(BridgeType callbackType, BridgeSpec spec) {
     final struct = spec.structs.where((s) => s.name == name).firstOrNull;
     if (struct != null && _isExpandableCallbackStruct(struct)) {
       // Reconstruct struct from individual Int64 field args (synchronous path).
-      final fieldExprs = struct.fields.map((f) {
-        final fBase = f.type.name.replaceFirst('?', '');
-        final argName = 'arg$i${_cap(f.name)}'; // camelCase: arg0X, arg0Y, arg0Z
-        if (fBase == 'double') {
-          return '${f.name}: Int64List.fromList([$argName]).buffer.asFloat64List()[0]';
-        } else if (fBase == 'bool') {
-          return '${f.name}: $argName != 0';
-        } else {
-          return '${f.name}: $argName';
-        }
-      }).join(', ');
+      final fieldExprs = struct.fields
+          .map((f) {
+            final fBase = f.type.name.replaceFirst('?', '');
+            final argName = 'arg$i${_cap(f.name)}'; // camelCase: arg0X, arg0Y, arg0Z
+            if (fBase == 'double') {
+              return '${f.name}: Int64List.fromList([$argName]).buffer.asFloat64List()[0]';
+            } else if (fBase == 'bool') {
+              return '${f.name}: $argName != 0';
+            } else {
+              return '${f.name}: $argName';
+            }
+          })
+          .join(', ');
       args.add('$name($fieldExprs)');
     } else if (name == 'bool') {
       args.add('arg$i != 0');
@@ -257,7 +256,12 @@ String? _callbackReturnExpression(BridgeType callbackType, BridgeSpec spec, Stri
   if (returnName == 'double') return 'Float64List.fromList([$invocation]).buffer.asInt64List()[0]';
   if (returnName == 'bool') return '$invocation ? 1 : 0';
   // String → strdup'd pointer; native will call free() on it
-  if (returnName == 'String') return '$invocation.toNativeUtf8()';
+  if (returnName == 'String') {
+    if ((callbackType.functionReturnType ?? '').contains('?')) {
+      return '(() { final _value = $invocation; return _value == null ? nullptr : _value.toNativeUtf8(); })()';
+    }
+    return '$invocation.toNativeUtf8()';
+  }
   if (spec.isEnumName(returnName)) return '$invocation.nativeValue';
   return invocation;
 }
