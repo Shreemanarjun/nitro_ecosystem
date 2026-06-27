@@ -5,7 +5,7 @@
 //   - Dart FFI return type: NitroResultValue<T>
 //   - Dart FFI method pointer uses Pointer<Uint8> (same as record wire type)
 //   - Tag-based decode emitted for sync @NitroResult methods
-//   - E015 validation: cannot combine with @nitroAsync / @NitroNativeAsync
+//   - E015 validation: cannot combine with @NitroNativeAsync (but @nitroAsync is now allowed)
 //   - E015 validation: cannot wrap void return type
 
 import 'package:nitro_generator/src/bridge_spec.dart';
@@ -82,7 +82,7 @@ BridgeSpec _resultBoolSpec() => BridgeSpec(
   ],
 );
 
-/// @NitroResult combined with @nitroAsync — invalid (E015).
+/// @NitroResult combined with @nitroAsync — now valid (no E015 since the session fix).
 BridgeFunction _resultAsyncFunc() => BridgeFunction(
   dartName: 'asyncLogin',
   cSymbol: 'auth_async_login',
@@ -346,7 +346,7 @@ void main() {
   // ── SpecValidator E015 ────────────────────────────────────────────────────────
 
   group('SpecValidator — E015 (@NitroResult constraints)', () {
-    test('E015 when @NitroResult combined with isAsync', () {
+    test('no E015 when @NitroResult combined with @nitroAsync', () {
       final spec = BridgeSpec(
         dartClassName: 'Auth',
         lib: 'auth',
@@ -357,8 +357,8 @@ void main() {
       final issues = SpecValidator.validate(spec);
       expect(
         issues.any((i) => i.code == 'E015'),
-        isTrue,
-        reason: 'E015 expected for @NitroResult + isAsync',
+        isFalse,
+        reason: '@nitroAsync + @NitroResult is now allowed — no E015',
       );
     });
 
@@ -430,7 +430,17 @@ void main() {
         lib: 'auth',
         namespace: 'auth',
         sourceUri: 'auth.native.dart',
-        functions: [_resultAsyncFunc()],
+        functions: [
+          BridgeFunction(
+            dartName: 'asyncLogin',
+            cSymbol: 'auth_async_login',
+            isAsync: false,
+            isNativeAsync: true,
+            returnType: BridgeType(name: 'String'),
+            params: [],
+            isResult: true,
+          ),
+        ],
       );
       final issues = SpecValidator.validate(spec);
       final e015 = issues.firstWhere((i) => i.code == 'E015', orElse: () => throw Exception('No E015'));
