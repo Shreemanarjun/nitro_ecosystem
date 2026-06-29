@@ -99,7 +99,7 @@ void main() {
     test('return type: function pointer uses Pointer<Uint8> not Pointer<Utf8> (binary)', () {
       final out = DartFfiGenerator.generate(_doubleMapReturnSpec());
       // The map-specific function pointer uses Pointer<Uint8> (binary), not Pointer<Utf8> (JSON).
-      expect(out, contains('Pointer<Uint8> Function() _getScoresPtr'));
+      expect(out, contains('Pointer<Uint8> Function(int) _getScoresPtr'));
       expect(out, isNot(contains('Pointer<Utf8> Function() _getScoresPtr')));
     });
 
@@ -120,7 +120,11 @@ void main() {
 
     test('param type: does NOT use toNativeUtf8 (binary uses alloc + Uint8)', () {
       final out = DartFfiGenerator.generate(_doubleMapParamSpec());
-      expect(out, isNot(contains('toNativeUtf8')));
+      // toNativeUtf8 appears in the _init constructor for the instance key; check only the setWeights body.
+      final setIdx = out.indexOf('_setWeightsPtr(');
+      expect(setIdx, isNot(-1), reason: 'setWeights method call not found');
+      final methodBody = out.substring(setIdx, setIdx + 300);
+      expect(methodBody, isNot(contains('toNativeUtf8')));
     });
 
     test('param type: does NOT use plain jsonEncode for Map<String, double>', () {

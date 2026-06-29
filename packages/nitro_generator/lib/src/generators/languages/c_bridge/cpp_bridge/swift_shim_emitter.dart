@@ -21,35 +21,45 @@ void _emitSwiftBridgeSection(
     final retBase = func.returnType.name.replaceFirst('?', '');
     final isEnum = enumNames.contains(retBase);
     final isVariantRet = spec.isVariantName(retBase);
-    final paramParts = <String>[];
+    // instanceId is the first param for API consistency with the JNI path; Swift ignores it.
+    final paramParts = <String>['int64_t instanceId'];
+    // externParamParts: typed params for the Swift @_cdecl extern declaration (no instanceId).
+    final externParamParts = <String>[];
+    // callParamParts: just names for calling the Swift extern.
     final callParamParts = <String>[];
     for (final p in func.params) {
       if (p.type.isFunction) {
-        paramParts.add(CppBridgeGenerator._callbackParamToC(p, enumNames));
+        final cbType = CppBridgeGenerator._callbackParamToC(p, enumNames);
+        paramParts.add(cbType);
+        externParamParts.add(cbType);
       } else {
         final isEnumParam = enumNames.contains(p.type.name.replaceFirst('?', ''));
-        // Nullable primitives (int?/double?/bool?) use NitroNullable binary → void*.
-        final pBase = p.type.name.replaceFirst('?', '');
-        final isNullablePrim = (p.type.isNullable || p.type.name.endsWith('?')) &&
-            (pBase == 'int' || pBase == 'double' || pBase == 'bool');
-        final cType = isNullablePrim
-            ? 'void*'
-            : (isEnumParam ? 'int64_t' : CppBridgeGenerator._paramTypeToC(p.type.name, structNames));
+        // Nullable primitives: raw byte pointer (matches Swift UnsafeMutablePointer<UInt8>? @_cdecl param).
+        String cType;
+        if (p.type.name == 'int?' || p.type.name == 'double?' || p.type.name == 'bool?') {
+          cType = 'const uint8_t*';
+        } else {
+          cType = isEnumParam ? 'int64_t' : CppBridgeGenerator._paramTypeToC(p.type.name, structNames);
+        }
         paramParts.add('$cType ${p.name}');
+        externParamParts.add('$cType ${p.name}');
       }
       callParamParts.add(p.name);
       if (p.type.isTypedData) {
         paramParts.add('int64_t ${p.name}_length');
+        externParamParts.add('int64_t ${p.name}_length');
         callParamParts.add('${p.name}_length');
       }
     }
 
     if (func.isNativeAsync) {
       paramParts.add('int64_t dart_port');
+      externParamParts.add('int64_t dart_port');
       callParamParts.add('dart_port');
       final params = paramParts.join(', ');
+      final externParams = externParamParts.join(', ');
       final callParams = callParamParts.join(', ');
-      writer.line('extern void _${spec.namespace}_call_${func.dartName}(${params.isEmpty ? 'void' : params});');
+      writer.line('extern void _${spec.namespace}_call_${func.dartName}(${externParams.isEmpty ? 'void' : externParams});');
       writer.line('void ${func.cSymbol}($params) {');
       writer.line('    ${libStem}_clear_error();');
       writer.line('    _${spec.namespace}_call_${func.dartName}($callParams);');
@@ -58,14 +68,16 @@ void _emitSwiftBridgeSection(
       continue;
     }
 
-    // Nullable primitives (int?/double?/bool?) use NitroNullable binary → uint8_t*.
-    final isNullablePrimRet = (func.returnType.isNullable || func.returnType.name.endsWith('?')) &&
-        (retBase == 'int' || retBase == 'double' || retBase == 'bool');
+    // Nullable prim returns: raw byte pointer (matches Swift UnsafeMutablePointer<UInt8>? @_cdecl return).
     final cReturnType = func.isResult
         ? 'uint8_t*'
         : isVariantRet
         ? 'uint8_t*'
-        : isNullablePrimRet
+        : func.returnType.name == 'int?'
+        ? 'uint8_t*'
+        : func.returnType.name == 'double?'
+        ? 'uint8_t*'
+        : func.returnType.name == 'bool?'
         ? 'uint8_t*'
         : isEnum
         ? 'int64_t'
@@ -77,9 +89,9 @@ void _emitSwiftBridgeSection(
     final paramsWithErr = func.isAsync
         ? paramParts.join(', ')
         : [...paramParts, 'NitroError* _nitro_err'].join(', ');
-    final params = paramParts.join(', ');
+    final externParams = externParamParts.join(', ');
     final callParams = callParamParts.join(', ');
-    writer.line('extern $cReturnType _${spec.namespace}_call_${func.dartName}(${params.isEmpty ? 'void' : params});');
+    writer.line('extern $cReturnType _${spec.namespace}_call_${func.dartName}(${externParams.isEmpty ? 'void' : externParams});');
     writer.line('$cReturnType ${func.cSymbol}($paramsWithErr) {');
     if (func.isAsync) {
       // @nitroAsync uses old TLS get_error/clear_error — declare _nitro_err as null
@@ -124,16 +136,23 @@ void _emitSwiftBridgeSection(
 
   for (final prop in spec.properties) {
     final isEnum = enumNames.contains(prop.type.name);
-    final propPrimBase = prop.type.name.replaceFirst('?', '');
-    final isNullablePrimProp = (prop.type.isNullable || prop.type.name.endsWith('?')) &&
-        (propPrimBase == 'int' || propPrimBase == 'double' || propPrimBase == 'bool');
-    // Nullable primitives use NitroNullable binary: getter→uint8_t*, setter→void*.
-    final cType = isNullablePrimProp ? 'uint8_t*' : (isEnum ? 'int64_t' : CppBridgeGenerator._typeToC(prop.type.name));
-    final setterCType = isNullablePrimProp ? 'void*' : (isEnum ? 'int64_t' : CppBridgeGenerator._typeToC(prop.type.name));
+    // Property getter: nullable prim returns struct by value; setter receives typed pointer.
+    String cType;
+    String setterCType;
+    if (!isEnum) {
+      switch (prop.type.name) {
+        case 'int?':    cType = 'uint8_t*'; setterCType = 'const uint8_t*'; break;
+        case 'double?': cType = 'uint8_t*'; setterCType = 'const uint8_t*'; break;
+        case 'bool?':   cType = 'uint8_t*'; setterCType = 'const uint8_t*'; break;
+        default: cType = CppBridgeGenerator._typeToC(prop.type.name); setterCType = cType;
+      }
+    } else {
+      cType = 'int64_t'; setterCType = 'int64_t';
+    }
     if (prop.hasGetter) {
       writer.line('extern $cType _${spec.namespace}_call_get_${prop.dartName}(void);');
-      // S8: getter receives NitroError* out-param.
-      writer.line('$cType ${prop.getSymbol}(NitroError* _nitro_err) {');
+      // S8: getter receives NitroError* out-param; instanceId for API consistency (Point 13).
+      writer.line('$cType ${prop.getSymbol}(int64_t instanceId, NitroError* _nitro_err) {');
       writer.line('    if (_nitro_err) { _nitro_err->hasError = 0; }');
       writer.line('    return _${spec.namespace}_call_get_${prop.dartName}();');
       writer.line('}');
@@ -141,8 +160,8 @@ void _emitSwiftBridgeSection(
     }
     if (prop.hasSetter) {
       writer.line('extern void _${spec.namespace}_call_set_${prop.dartName}($setterCType value);');
-      // S8: setter receives NitroError* out-param.
-      writer.line('void ${prop.setSymbol}($setterCType value, NitroError* _nitro_err) {');
+      // S8: setter receives NitroError* out-param; instanceId for API consistency (Point 13).
+      writer.line('void ${prop.setSymbol}(int64_t instanceId, $setterCType value, NitroError* _nitro_err) {');
       writer.line('    if (_nitro_err) { _nitro_err->hasError = 0; }');
       writer.line('    _${spec.namespace}_call_set_${prop.dartName}(value);');
       writer.line('}');
@@ -151,10 +170,29 @@ void _emitSwiftBridgeSection(
   }
 
   for (final stream in spec.streams) {
-    final isStruct = structNames.contains(stream.itemType.name);
+    final isNullable = stream.itemType.isNullable;
+    final itemName = stream.itemType.name.replaceFirst('?', '');
+    final isStruct = structNames.contains(itemName);
     final isRecord = stream.itemType.isRecord;
-    final isEnum = enumNames.contains(stream.itemType.name);
-    final itemCType = (isStruct || isRecord) ? 'void*' : CppBridgeGenerator._typeToC(stream.itemType.name);
+    final isEnum = enumNames.contains(itemName);
+
+    // For nullable scalar types (int?, double?, bool?, enum?), use pointer types so
+    // Swift can pass nil for null items. The C emit function checks nullptr → kNull.
+    // String? already uses const char* (nullable by design).
+    final String itemCType;
+    if (isNullable && itemName == 'int') {
+      itemCType = 'const int64_t*';
+    } else if (isNullable && itemName == 'double') {
+      itemCType = 'const double*';
+    } else if (isNullable && itemName == 'bool') {
+      itemCType = 'const int8_t*';
+    } else if (isNullable && isEnum) {
+      itemCType = 'const int64_t*';
+    } else if (isStruct || isRecord) {
+      itemCType = 'void*';
+    } else {
+      itemCType = CppBridgeGenerator._typeToC(stream.itemType.name);
+    }
 
     if (stream.isBatch) {
       // Batch streams use an array emit: Swift accumulates items into a buffer,
@@ -177,7 +215,7 @@ void _emitSwiftBridgeSection(
       writer.line('}');
       writer.blankLine();
       writer.line('extern void _${spec.namespace}_register_${stream.dartName}_stream(int64_t dartPort, bool (*emitBatch)(int64_t, const int64_t*, int32_t));');
-      writer.line('void ${stream.registerSymbol}(int64_t dart_port) {');
+      writer.line('void ${stream.registerSymbol}(int64_t instanceId, int64_t dart_port) {');
       writer.line('    _${spec.namespace}_register_${stream.dartName}_stream(dart_port, _emit_${stream.dartName}_batch_to_dart);');
       writer.line('}');
       writer.line('extern void _${spec.namespace}_release_${stream.dartName}_stream(int64_t dart_port);');
@@ -190,7 +228,17 @@ void _emitSwiftBridgeSection(
 
     writer.line('bool _emit_${stream.dartName}_to_dart(int64_t dartPort, $itemCType item) {');
     writer.line('    Dart_CObject obj;');
-    if (stream.itemType.name == 'double') {
+    if (isNullable && (itemName == 'int' || isEnum)) {
+      // Nullable int/enum: pointer to int64_t, nullptr = null.
+      writer.line('    if (item == nullptr) { obj.type = Dart_CObject_kNull; }');
+      writer.line('    else { obj.type = Dart_CObject_kInt64; obj.value.as_int64 = *item; }');
+    } else if (isNullable && itemName == 'double') {
+      writer.line('    if (item == nullptr) { obj.type = Dart_CObject_kNull; }');
+      writer.line('    else { obj.type = Dart_CObject_kDouble; obj.value.as_double = *item; }');
+    } else if (isNullable && itemName == 'bool') {
+      writer.line('    if (item == nullptr) { obj.type = Dart_CObject_kNull; }');
+      writer.line('    else { obj.type = Dart_CObject_kInt64; obj.value.as_int64 = *item ? 1 : 0; }');
+    } else if (stream.itemType.name == 'double') {
       writer.line('    obj.type = Dart_CObject_kDouble;');
       writer.line('    obj.value.as_double = item;');
     } else if (stream.itemType.name == 'int') {
@@ -207,7 +255,7 @@ void _emitSwiftBridgeSection(
     } else if (isStruct || isRecord) {
       writer.line('    obj.type = Dart_CObject_kInt64;');
       writer.line('    obj.value.as_int64 = (intptr_t)item;');
-    } else if (stream.itemType.name == 'String') {
+    } else if (stream.itemType.name == 'String' || stream.itemType.name == 'String?') {
       // String items: post kString when non-null, kNull for nullptr.
       // Dart_PostCObject_DL copies the string, so item (const char*) need not outlive the call.
       writer.line('    if (item != nullptr) {');
@@ -223,7 +271,7 @@ void _emitSwiftBridgeSection(
     writer.line('}');
     writer.blankLine();
     writer.line('extern void _${spec.namespace}_register_${stream.dartName}_stream(int64_t dartPort, bool (*emitCb)(int64_t, $itemCType));');
-    writer.line('void ${stream.registerSymbol}(int64_t dart_port) {');
+    writer.line('void ${stream.registerSymbol}(int64_t instanceId, int64_t dart_port) {');
     writer.line('    _${spec.namespace}_register_${stream.dartName}_stream(dart_port, _emit_${stream.dartName}_to_dart);');
     writer.line('}');
     writer.line('extern void _${spec.namespace}_release_${stream.dartName}_stream(int64_t dart_port);');
@@ -232,6 +280,14 @@ void _emitSwiftBridgeSection(
     writer.line('}');
     writer.blankLine();
   }
+
+  // Swift/iOS single-instance path: create_instance returns a monotonic id (instanceId
+  // is unused by Swift, but must be consistent with what Dart stored). destroy_instance
+  // is a no-op — Swift manages its own lifetime via ARC.
+  writer.line('static int64_t ${libStem}_g_next_instance_id = 0;');
+  writer.line('NITRO_EXPORT int64_t ${libStem}_create_instance(const char* key) { (void)key; return ${libStem}_g_next_instance_id++; }');
+  writer.line('NITRO_EXPORT void ${libStem}_destroy_instance(int64_t instanceId) { (void)instanceId; }');
+  writer.blankLine();
 
   writer.line('} // extern "C"');
 }

@@ -173,9 +173,9 @@ void main() {
     });
   });
 
-  // ── E005: Backpressure.batch with non-numeric types ───────────────────────────
+  // ── E005: Backpressure.batch — int/double/bool/String/@HybridEnum supported ──
 
-  group('E005 — Backpressure.batch only for int/double/bool', () {
+  group('E005 — Backpressure.batch now supports int/double/bool/String/@HybridEnum', () {
     test('batch int stream is valid (no E005)', () {
       final spec = _stream(itemTypeName: 'int', backpressure: Backpressure.batch);
       expect(SpecValidator.validate(spec).any((i) => i.code == 'E005'), isFalse);
@@ -191,14 +191,14 @@ void main() {
       expect(SpecValidator.validate(spec).any((i) => i.code == 'E005'), isFalse);
     });
 
-    test('batch String stream emits E005 error', () {
+    test('batch String stream is now valid (no E005)', () {
+      // String batch uses a separate Array<String> wire format — now supported.
       final spec = _stream(itemTypeName: 'String', backpressure: Backpressure.batch);
-      final issues = SpecValidator.validate(spec);
-      expect(issues.any((i) => i.code == 'E005' && i.isError), isTrue,
-          reason: 'Backpressure.batch on String streams must be rejected — batch protocol uses Int64 array');
+      expect(SpecValidator.validate(spec).any((i) => i.code == 'E005'), isFalse,
+          reason: 'String batch uses Array<String> wire format — now supported');
     });
 
-    test('batch @HybridRecord stream emits E005 error', () {
+    test('batch @HybridRecord stream still emits E005 error', () {
       final spec = BridgeSpec(
         dartClassName: 'Mod',
         lib: 'mod',
@@ -222,10 +222,10 @@ void main() {
       );
       final issues = SpecValidator.validate(spec);
       expect(issues.any((i) => i.code == 'E005' && i.isError), isTrue,
-          reason: 'Backpressure.batch on @HybridRecord streams must be rejected');
+          reason: 'Backpressure.batch on @HybridRecord streams is still unsupported');
     });
 
-    test('batch enum stream emits E005 error', () {
+    test('batch enum stream is now valid (no E005)', () {
       final spec = BridgeSpec(
         dartClassName: 'Mod',
         lib: 'mod',
@@ -248,12 +248,33 @@ void main() {
         ],
       );
       final issues = SpecValidator.validate(spec);
-      expect(issues.any((i) => i.code == 'E005' && i.isError), isTrue,
-          reason: 'Backpressure.batch on enum streams must be rejected');
+      expect(issues.any((i) => i.code == 'E005'), isFalse,
+          reason: 'Backpressure.batch on @HybridEnum streams is now supported via rawValue Int64 packing');
     });
 
     test('E005 hint mentions dropLatest / dropOldest as alternatives', () {
-      final spec = _stream(itemTypeName: 'String', backpressure: Backpressure.batch);
+      // Use @HybridRecord which still emits E005
+      final spec = BridgeSpec(
+        dartClassName: 'Mod',
+        lib: 'mod',
+        namespace: 'mod',
+        iosImpl: NativeImpl.swift,
+        androidImpl: NativeImpl.kotlin,
+        sourceUri: 'mod.native.dart',
+        recordTypes: [BridgeRecordType(name: 'Event', fields: [])],
+        streams: [
+          BridgeStream(
+            dartName: 'events',
+            registerSymbol: 'mod_register_events_stream',
+            releaseSymbol: 'mod_release_events_stream',
+            isMethodStyle: false,
+            isAnnotated: true,
+            backpressure: Backpressure.batch,
+            batchMaxSize: 64,
+            itemType: BridgeType(name: 'Event', isRecord: true),
+          ),
+        ],
+      );
       final issues = SpecValidator.validate(spec);
       final e5 = issues.firstWhere((i) => i.code == 'E005');
       expect(e5.hint, contains('dropLatest'));
@@ -564,7 +585,7 @@ void main() {
       );
       final out = SwiftGenerator.generate(spec);
       // Wrapper calls C ptr; C returns malloc'd char*; wrapper converts to Swift String + frees.
-      expect(out, contains('String(cString:'));
+      expect(out, contains('_nitroStringFromCString('));
       expect(out, contains('free('));
     });
 
@@ -738,9 +759,10 @@ void main() {
     });
   });
 
-  // ── E007: Map<String, @HybridEnum> ─────────────────────────────────────────
+  // ── E007: Map<String, @HybridEnum> — now SUPPORTED (Gap 2) ─────────────────
+  // E007 was removed: enum map values are encoded as tag 1 + int64 rawValue.
 
-  group('E007 — Map<String, @HybridEnum> return/param', () {
+  group('E007 removed — Map<String, @HybridEnum> now valid', () {
     BridgeSpec mapEnumFn({bool isReturn = true}) {
       final enumSpec = BridgeEnum(name: 'State', startValue: 0, values: ['ok', 'err']);
       final mapType = BridgeType(name: 'Map<String, State>', isMap: true, isRecord: true);
@@ -765,19 +787,19 @@ void main() {
       );
     }
 
-    test('Map<String, @HybridEnum> return type emits E007', () {
+    test('Map<String, @HybridEnum> return type does NOT emit E007', () {
       final issues = SpecValidator.validate(mapEnumFn(isReturn: true));
-      expect(issues.any((i) => i.code == 'E007' && i.isError), isTrue,
-          reason: 'Map<String, @HybridEnum> return must be rejected with E007');
+      expect(issues.any((i) => i.code == 'E007'), isFalse,
+          reason: 'Map<String, @HybridEnum> return is now supported — enum encoded as int64 rawValue');
     });
 
-    test('Map<String, @HybridEnum> parameter type emits E007', () {
+    test('Map<String, @HybridEnum> parameter type does NOT emit E007', () {
       final issues = SpecValidator.validate(mapEnumFn(isReturn: false));
-      expect(issues.any((i) => i.code == 'E007' && i.isError), isTrue,
-          reason: 'Map<String, @HybridEnum> param must be rejected with E007');
+      expect(issues.any((i) => i.code == 'E007'), isFalse,
+          reason: 'Map<String, @HybridEnum> param is now supported — enum decoded from int64 rawValue');
     });
 
-    test('Map<String, int> does NOT emit E007', () {
+    test('Map<String, int> has no issues', () {
       final spec = _fn(returnTypeName: 'Map<String, int>', isMap: true, isRecord: true);
       final issues = SpecValidator.validate(spec);
       expect(issues.any((i) => i.code == 'E007'), isFalse,
@@ -835,42 +857,45 @@ void main() {
     });
   });
 
-  // ── E009: Nullable stream items ─────────────────────────────────────────────
+  // ── E009: Nullable stream items — now SUPPORTED ───────────────────────────────
+  // E009 was removed: nullable stream items are fully supported. Native posts
+  // Dart_CObject_kNull when the item is null; the Dart unpack lambda checks
+  // `message == null` before decoding.
 
-  group('E009 — nullable stream item type', () {
-    test('Stream<int?> emits E009', () {
+  group('E009 removed — nullable stream items are now valid', () {
+    test('Stream<int?> does NOT emit E009', () {
       final spec = _stream(itemTypeName: 'int?');
       final issues = SpecValidator.validate(spec);
-      expect(issues.any((i) => i.code == 'E009' && i.isError), isTrue,
-          reason: 'Nullable stream item type must be rejected with E009');
+      expect(issues.any((i) => i.code == 'E009'), isFalse,
+          reason: 'Nullable int? stream is now supported — E009 was removed');
     });
 
-    test('Stream<String?> emits E009', () {
+    test('Stream<String?> does NOT emit E009', () {
       final spec = _stream(itemTypeName: 'String?');
       final issues = SpecValidator.validate(spec);
-      expect(issues.any((i) => i.code == 'E009' && i.isError), isTrue,
-          reason: 'Nullable string stream item must be rejected');
+      expect(issues.any((i) => i.code == 'E009'), isFalse,
+          reason: 'Nullable String? stream is now supported');
     });
 
-    test('Stream<double?> emits E009', () {
+    test('Stream<double?> does NOT emit E009', () {
       final spec = _stream(itemTypeName: 'double?');
       final issues = SpecValidator.validate(spec);
-      expect(issues.any((i) => i.code == 'E009' && i.isError), isTrue,
-          reason: 'Nullable double stream item must be rejected');
+      expect(issues.any((i) => i.code == 'E009'), isFalse,
+          reason: 'Nullable double? stream is now supported');
     });
 
-    test('Stream<int> (non-nullable) does NOT emit E009', () {
+    test('Stream<int> (non-nullable) has no issues', () {
       final spec = _stream(itemTypeName: 'int');
       final issues = SpecValidator.validate(spec);
       expect(issues.any((i) => i.code == 'E009'), isFalse,
           reason: 'Non-nullable int stream is valid');
     });
 
-    test('Stream<String> (non-nullable) does NOT emit E009', () {
+    test('Stream<String> (non-nullable) has no issues', () {
       final spec = _stream(itemTypeName: 'String');
       final issues = SpecValidator.validate(spec);
       expect(issues.any((i) => i.code == 'E009'), isFalse,
-          reason: 'Non-nullable string stream is valid');
+          reason: 'Non-nullable String stream is valid');
     });
   });
 

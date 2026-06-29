@@ -81,6 +81,18 @@ class KotlinTypeMapper implements TypeMapper {
     if (structNames.contains(name)) return name;
     if (recordNames.contains(name)) return name;
     if (variantNames.contains(name)) return name;
+    // Typed generic collections — parse value/item type for type-safe Kotlin interfaces.
+    if (name.startsWith('List<') && name.endsWith('>')) {
+      final inner = name.substring(5, name.length - 1).trim();
+      return 'List<${type(inner)}>';
+    }
+    if (name.startsWith('Map<') && name.endsWith('>')) {
+      final m = RegExp(r'^Map<String,\s*(.+)>$').firstMatch(name);
+      if (m != null) {
+        final valueType = m.group(1)!.trim();
+        return 'Map<String, ${type(valueType)}>';
+      }
+    }
     return 'Any?';
   }
 
@@ -92,6 +104,7 @@ class KotlinTypeMapper implements TypeMapper {
   /// `@HybridRecord` → class name, nullable primitives → nullable Kotlin types.
   String retType(BridgeType t) {
     if (t.isNativeHandle) return 'Long';
+    if (t.isAnyMap) return 'Map<String, Any?>';
     if (t.isRecord && !t.isMap) {
       if (t.recordListItemType != null && !t.recordListItemIsPrimitive) {
         return 'List<${t.recordListItemType}>';
@@ -139,6 +152,7 @@ class KotlinTypeMapper implements TypeMapper {
   /// Kotlin promotes it automatically when forwarding to the interface.
   String bridgeParamType(BridgeParam p) {
     if (p.type.isFunction) return 'Long';
+    if (p.type.isAnyMap) return 'ByteArray';
     if (p.type.isMap) return 'ByteArray';
     final isNullableRecord = p.type.isRecord && (p.type.isNullable || p.type.name.endsWith('?'));
     if (p.type.isRecord) return isNullableRecord ? 'ByteArray?' : 'ByteArray';

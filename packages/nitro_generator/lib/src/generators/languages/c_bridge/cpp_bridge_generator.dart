@@ -68,6 +68,11 @@ class CppBridgeGenerator {
       writer.line('#include <string>');
       writer.line('#include <stdexcept>');
     }
+    final hasCallbacks = spec.functions.any((f) => f.params.any((p) => p.type.isFunction));
+    if (hasCallbacks) {
+      writer.line('#include <mutex>');
+      writer.line('#include <unordered_map>');
+    }
     writer.line('#include "dart_api_dl.h"');
     writer.line('#include "$headerName"');
     writer.blankLine();
@@ -122,12 +127,12 @@ class CppBridgeGenerator {
     if (ownedFuncs.isNotEmpty) {
       writer.line('extern "C" {');
       for (final f in ownedFuncs) {
+        // On all platforms the handle is a real malloc'd pointer:
+        //   Android: allocated via sun.misc.Unsafe.allocateMemory (ART calls malloc internally).
+        //   Apple:   allocated via UnsafeMutableRawPointer.allocate.
+        // Both are freed with free().
         writer.line('NITRO_EXPORT void ${f.cSymbol}_release(void* handle) {');
-        writer.line('#ifdef __ANDROID__');
-        writer.line('    (void)handle;');
-        writer.line('#else');
         writer.line('    if (handle) { free(handle); }');
-        writer.line('#endif');
         writer.line('}');
       }
       writer.line('}');
@@ -159,6 +164,23 @@ class CppBridgeGenerator {
         writer.line('    free(ptr);');
         writer.line('}');
       }
+      writer.line('}');
+      writer.blankLine();
+    }
+
+    // ── Callback release infrastructure ─────────────────────────────────────────
+    // Global map: callbackPtr → Dart release port. Dart registers via
+    // ${libStem}_registerCallbackRelease(); Kotlin calls _release_* JNI methods
+    // which post to the port, signalling Dart to close the NativeCallable.
+    if (hasCallbacks) {
+      writer.line('static std::mutex g_cb_release_mtx;');
+      writer.line('static std::unordered_map<int64_t, Dart_Port> g_cb_release_ports;');
+      writer.blankLine();
+      writer.line('extern "C" {');
+      writer.line('NITRO_EXPORT void ${libStem}_registerCallbackRelease(int64_t callbackPtr, int64_t releasePort) {');
+      writer.line('    std::lock_guard<std::mutex> _lk(g_cb_release_mtx);');
+      writer.line('    g_cb_release_ports[callbackPtr] = (Dart_Port)releasePort;');
+      writer.line('}');
       writer.line('}');
       writer.blankLine();
     }
@@ -323,10 +345,18 @@ class CppBridgeGenerator {
         'nullptr, nullptr)';
 
     writer.line('static Hybrid$className* g_impl = nullptr;');
+    // For the Apple/C++ single-instance path, create_instance always returns 0 and
+    // destroy_instance is a no-op. g_impl is the single shared implementation set
+    // by the NativeImpl.cpp constructor via xxx_register_impl().
+    writer.line('static int64_t g_next_instance_id = 0;');
     writer.blankLine();
     writer.line('extern "C" {');
     writer.line('void ${libStem}_register_impl(Hybrid$className* impl) { g_impl = impl; }');
     writer.line('Hybrid$className* ${libStem}_get_impl() { return g_impl; }');
+    // create_instance: single-instance path — always assigns id 0 for the singleton.
+    writer.line('NITRO_EXPORT int64_t ${libStem}_create_instance(const char* key) { (void)key; return g_next_instance_id++; }');
+    // destroy_instance: no-op on Apple/C++ path (NativeImpl.cpp manages its own lifetime).
+    writer.line('NITRO_EXPORT void ${libStem}_destroy_instance(int64_t instanceId) { (void)instanceId; }');
     if (spec.functions.any((f) => f.zeroCopyReturn && f.returnType.isTypedData)) {
       writer.line('NITRO_EXPORT void ${libStem}_release_typed_data_return(void* ptr) {');
       writer.line('    if (!ptr) { return; }');
@@ -338,7 +368,8 @@ class CppBridgeGenerator {
 
     for (final func in spec.functions) {
       if (func.isNativeAsync) {
-        final paramParts = <String>[];
+        // instanceId is included for API consistency with the JNI path; g_impl ignores it.
+        final paramParts = <String>['int64_t instanceId'];
         for (final p in func.params) {
           final isStructParam = structNames.contains(p.type.name.replaceFirst('?', ''));
           final isRecordParam = recordNames.contains(p.type.name.replaceFirst('?', ''));
@@ -390,13 +421,18 @@ class CppBridgeGenerator {
       final isStructRet = structNames.contains(func.returnType.name.replaceFirst('?', ''));
       final isRecordRet = func.returnType.isRecord;
       final isZeroCopyTypedDataRet = func.zeroCopyReturn && func.returnType.isTypedData;
+      // Nullable prim returns: malloc'd uint8_t* pointer (Dart casts to Pointer<NitroOptXxx> and frees).
       final cRet = isEnumRet
           ? 'int64_t'
+          : func.returnType.name == 'int?' ? 'uint8_t*'
+          : func.returnType.name == 'double?' ? 'uint8_t*'
+          : func.returnType.name == 'bool?' ? 'uint8_t*'
           : func.returnType.isTypedData
           ? 'uint8_t*'
           : _typeToC(func.returnType.name);
       final dflt = _defaultValue(cRet);
-      final paramParts = <String>[];
+      // instanceId is included for API consistency with the JNI path; g_impl ignores it.
+      final paramParts = <String>['int64_t instanceId'];
       for (final p in func.params) {
         final isStructParam = structNames.contains(p.type.name.replaceFirst('?', ''));
         final isRecordParam = p.type.isRecord;
@@ -404,18 +440,19 @@ class CppBridgeGenerator {
         if (p.type.isFunction) {
           paramParts.add(_callbackParamToC(p, enumNames, structNames: structNames, recordNames: recordNames));
         } else {
-          // Nullable bool uses int32_t (jint) to preserve the -1 sentinel for null.
-          final isNullableBool = p.type.isNullable && p.type.name.replaceFirst('?', '') == 'bool';
-          final cType = isNullableBool
-              ? 'int32_t'
-              : isEnumParam
+          // Nullable prims use const uint8_t* (raw byte pointer via NitroOptXxx layout).
+          final cType = isEnumParam
               ? 'int64_t'
               : ((isStructParam || isRecordParam) ? 'void*' : _typeToC(p.type.name));
           paramParts.add('$cType ${p.name}');
         }
         if (p.type.isTypedData) paramParts.add('int64_t ${p.name}_length');
       }
-      final paramsDecl = paramParts.isEmpty ? 'void' : paramParts.join(', ');
+      // S8: sync functions also receive NitroError* out-param for consistency with the JNI path.
+      if (!func.isAsync) {
+        paramParts.add('NitroError* _nitro_err');
+      }
+      final paramsDecl = paramParts.join(', ');
 
       writer.line('$cRet ${func.cSymbol}($paramsDecl) {');
       writer.line('    ${libStem}_clear_error();');
@@ -435,7 +472,16 @@ class CppBridgeGenerator {
       final callArgs = <String>[];
       for (final p in func.params) {
         final base = p.type.name.replaceFirst('?', '');
-        if (base == 'String') {
+        if (p.type.name == 'int?') {
+          writer.line('        std::optional<int64_t> _opt_${p.name} = (${p.name} == nullptr || ${p.name}[0] == 0) ? std::nullopt : std::make_optional(*reinterpret_cast<const int64_t*>(${p.name} + 1));');
+          callArgs.add('_opt_${p.name}');
+        } else if (p.type.name == 'double?') {
+          writer.line('        std::optional<double> _opt_${p.name} = (${p.name} == nullptr || ${p.name}[0] == 0) ? std::nullopt : std::make_optional(*reinterpret_cast<const double*>(${p.name} + 1));');
+          callArgs.add('_opt_${p.name}');
+        } else if (p.type.name == 'bool?') {
+          writer.line('        std::optional<bool> _opt_${p.name} = (${p.name} == nullptr || ${p.name}[0] == 0) ? std::nullopt : std::make_optional(${p.name}[1] != 0);');
+          callArgs.add('_opt_${p.name}');
+        } else if (base == 'String') {
           callArgs.add('std::string(${p.name})');
         } else if (structNames.contains(base)) {
           callArgs.add('*static_cast<const $base*>(${p.name})');
@@ -475,6 +521,24 @@ class CppBridgeGenerator {
         writer.line('        $stName* _ptr = ($stName*)malloc(sizeof($stName));');
         writer.line('        *_ptr = _res;');
         writer.line('        return _ptr;');
+      } else if (func.returnType.name == 'int?') {
+        writer.line('        std::optional<int64_t> _opt = g_impl->${func.dartName}($callArgStr);');
+        writer.line('        uint8_t* _res = (uint8_t*)malloc(9);');
+        writer.line('        _res[0] = _opt.has_value() ? 1 : 0;');
+        writer.line('        if (_opt.has_value()) { *reinterpret_cast<int64_t*>(_res + 1) = _opt.value(); }');
+        writer.line('        return _res;');
+      } else if (func.returnType.name == 'double?') {
+        writer.line('        std::optional<double> _opt = g_impl->${func.dartName}($callArgStr);');
+        writer.line('        uint8_t* _res = (uint8_t*)malloc(9);');
+        writer.line('        _res[0] = _opt.has_value() ? 1 : 0;');
+        writer.line('        if (_opt.has_value()) { *reinterpret_cast<double*>(_res + 1) = _opt.value(); }');
+        writer.line('        return _res;');
+      } else if (func.returnType.name == 'bool?') {
+        writer.line('        std::optional<bool> _opt = g_impl->${func.dartName}($callArgStr);');
+        writer.line('        uint8_t* _res = (uint8_t*)malloc(2);');
+        writer.line('        _res[0] = _opt.has_value() ? 1 : 0;');
+        writer.line('        _res[1] = (_opt.has_value() && _opt.value()) ? 1 : 0;');
+        writer.line('        return _res;');
       } else if (isRecordRet) {
         writer.line('        NitroCppBuffer _res = g_impl->${func.dartName}($callArgStr);');
         writer.line('        return (void*)_res.data;');
@@ -509,9 +573,15 @@ class CppBridgeGenerator {
 
     for (final prop in spec.properties) {
       final isEnum = enumNames.contains(prop.type.name.replaceFirst('?', ''));
-      final cType = isEnum ? 'int64_t' : _typeToC(prop.type.name);
+      // Property getter: nullable prim returns uint8_t* pointer (malloc'd, Dart frees).
+      final cType = isEnum ? 'int64_t'
+          : prop.type.name == 'int?' ? 'uint8_t*'
+          : prop.type.name == 'double?' ? 'uint8_t*'
+          : prop.type.name == 'bool?' ? 'uint8_t*'
+          : _typeToC(prop.type.name);
       if (prop.hasGetter) {
-        writer.line('$cType ${prop.getSymbol}(void) {');
+        // instanceId is included for API consistency with the JNI path; g_impl ignores it.
+        writer.line('$cType ${prop.getSymbol}(int64_t instanceId, NitroError* _nitro_err) {');
         writer.line('    ${libStem}_clear_error();');
         writer.line('    if (!g_impl) { $notInit; return ${_defaultValue(cType)}; }');
         writer.line('    try {');
@@ -520,6 +590,24 @@ class CppBridgeGenerator {
           writer.line('        return strdup(_res.c_str());');
         } else if (isEnum) {
           writer.line('        return static_cast<int64_t>(g_impl->get_${prop.dartName}());');
+        } else if (prop.type.name == 'int?') {
+          writer.line('        std::optional<int64_t> _opt = g_impl->get_${prop.dartName}();');
+          writer.line('        uint8_t* _res = (uint8_t*)malloc(9);');
+          writer.line('        _res[0] = _opt.has_value() ? 1 : 0;');
+          writer.line('        if (_opt.has_value()) { *reinterpret_cast<int64_t*>(_res + 1) = _opt.value(); }');
+          writer.line('        return _res;');
+        } else if (prop.type.name == 'double?') {
+          writer.line('        std::optional<double> _opt = g_impl->get_${prop.dartName}();');
+          writer.line('        uint8_t* _res = (uint8_t*)malloc(9);');
+          writer.line('        _res[0] = _opt.has_value() ? 1 : 0;');
+          writer.line('        if (_opt.has_value()) { *reinterpret_cast<double*>(_res + 1) = _opt.value(); }');
+          writer.line('        return _res;');
+        } else if (prop.type.name == 'bool?') {
+          writer.line('        std::optional<bool> _opt = g_impl->get_${prop.dartName}();');
+          writer.line('        uint8_t* _res = (uint8_t*)malloc(2);');
+          writer.line('        _res[0] = _opt.has_value() ? 1 : 0;');
+          writer.line('        _res[1] = (_opt.has_value() && _opt.value()) ? 1 : 0;');
+          writer.line('        return _res;');
         } else if (recordNames.contains(prop.type.name.replaceFirst('?', ''))) {
           writer.line('        NitroCppBuffer _res = g_impl->get_${prop.dartName}();');
           writer.line('        return (void*)_res.data;');
@@ -542,8 +630,12 @@ class CppBridgeGenerator {
       if (prop.hasSetter) {
         final isStructParam = structNames.contains(prop.type.name.replaceFirst('?', ''));
         final isRecordParam = recordNames.contains(prop.type.name.replaceFirst('?', ''));
-        final paramCType = (isEnum || isStructParam || isRecordParam) ? (isEnum ? 'int64_t' : 'void*') : _typeToC(prop.type.name);
-        writer.line('void ${prop.setSymbol}($paramCType value) {');
+        final isNullablePrimSetter = prop.type.name == 'int?' || prop.type.name == 'double?' || prop.type.name == 'bool?';
+        final paramCType = isNullablePrimSetter
+            ? 'const uint8_t*'
+            : (isEnum || isStructParam || isRecordParam) ? (isEnum ? 'int64_t' : 'void*') : _typeToC(prop.type.name);
+        // instanceId is included for API consistency with the JNI path; g_impl ignores it.
+        writer.line('void ${prop.setSymbol}(int64_t instanceId, $paramCType value, NitroError* _nitro_err) {');
         writer.line('    ${libStem}_clear_error();');
         writer.line('    if (!g_impl) { $notInit; return; }');
         writer.line('    try {');
@@ -565,6 +657,12 @@ class CppBridgeGenerator {
             writer.line('        NitroCppBuffer _buf = { (const uint8_t*)value + 4, (size_t)*(int32_t*)value };');
             writer.line('        g_impl->set_${prop.dartName}(_buf);');
           }
+        } else if (prop.type.name == 'int?') {
+          writer.line('        g_impl->set_${prop.dartName}(value == nullptr || value[0] == 0 ? std::nullopt : std::make_optional(*reinterpret_cast<const int64_t*>(value + 1)));');
+        } else if (prop.type.name == 'double?') {
+          writer.line('        g_impl->set_${prop.dartName}(value == nullptr || value[0] == 0 ? std::nullopt : std::make_optional(*reinterpret_cast<const double*>(value + 1)));');
+        } else if (prop.type.name == 'bool?') {
+          writer.line('        g_impl->set_${prop.dartName}(value == nullptr || value[0] == 0 ? std::nullopt : std::make_optional(value[1] != 0));');
         } else if (isStructParam) {
           final stName = prop.type.name.replaceFirst('?', '');
           if (_isNullableStructType(prop.type, structNames)) {
@@ -589,7 +687,8 @@ class CppBridgeGenerator {
     }
 
     for (final stream in spec.streams) {
-      writer.line('void ${stream.registerSymbol}(int64_t dart_port) {');
+      // instanceId is included for API consistency with the JNI path; g_port is keyed by dartName.
+      writer.line('void ${stream.registerSymbol}(int64_t instanceId, int64_t dart_port) {');
       writer.line('    g_port_${stream.dartName} = dart_port;');
       writer.line('}');
       writer.line('void ${stream.releaseSymbol}(int64_t dart_port) {');
@@ -603,6 +702,10 @@ class CppBridgeGenerator {
 
   static String _typeToC(String dartType, {bool isNativeHandle = false}) {
     if (isNativeHandle) return 'void*'; // NativeHandle<T> is always void*
+    // Nullable primitives → raw byte pointers (matches Dart Pointer<NitroOptXxx> ABI).
+    if (dartType == 'int?') return 'const uint8_t*';
+    if (dartType == 'double?') return 'const uint8_t*';
+    if (dartType == 'bool?') return 'const uint8_t*';
     switch (dartType.replaceFirst('?', '')) {
       case 'int':
         return 'int64_t';
@@ -830,6 +933,13 @@ class CppBridgeGenerator {
         return 'false';
       case 'const char*':
         return 'nullptr';
+      // NitroOpt* value types: zero-initialized struct (hasValue=0 means null).
+      case 'NitroOptInt64':
+        return 'NitroOptInt64{}';
+      case 'NitroOptFloat64':
+        return 'NitroOptFloat64{}';
+      case 'NitroOptBool':
+        return 'NitroOptBool{}';
       default:
         return 'nullptr';
     }
@@ -1090,7 +1200,8 @@ class CppBridgeGenerator {
     bool isResult = false,
     Set<String> variantNames = const {},
   }) {
-    final paramSig = params.map((p) => _jniParamSig(p, enumNames, structNames, libPkg, variantNames: variantNames)).join();
+    // 'J' prefix for instanceId (Point 13 per-instance dispatch).
+    final paramSig = 'J${params.map((p) => _jniParamSig(p, enumNames, structNames, libPkg, variantNames: variantNames)).join()}';
     // @NitroResult: Kotlin returns ByteArray [1B tag][payload] → '[B'
     if (isResult) return '($paramSig)[B';
     // Enum return type: bridge returns Long.
@@ -1111,6 +1222,7 @@ class CppBridgeGenerator {
       final base when structNames.contains(base) => 'L$libPkg/$base;',
       _ when zeroCopyReturn && returnType.isTypedData => 'Ljava/nio/ByteBuffer;',
       _ when returnType.isRecord && !returnType.isMap => '[B', // binary record
+      _ when returnType.isAnyMap => '[B', // NitroAnyMap: type-tagged binary
       _ when returnType.isMap => '[B', // binary map (replaces JSON)
       _ when returnType.isFunction => 'J',
       _ => _jniSigType(returnType.name),
@@ -1134,7 +1246,8 @@ class CppBridgeGenerator {
           ),
         )
         .join();
-    return '(${paramSig}J)V';
+    // 'J' prefix for instanceId, then params, then 'J' for dartPort (Point 13).
+    return '(J${paramSig}J)V';
   }
 
   static String _jniParamSig(
@@ -1155,6 +1268,7 @@ class CppBridgeGenerator {
     }
     if (enumNames.contains(baseParamType)) return 'J';
     if (param.type.isRecord && !param.type.isMap) return '[B'; // binary record
+    if (param.type.isAnyMap) return '[B'; // NitroAnyMap: type-tagged binary
     if (param.type.isMap) return '[B'; // binary map (replaces JSON)
     // @NitroVariant params: encoded as ByteArray [4B len][1B tag][fields]
     if (variantNames.contains(baseParamType)) return '[B';

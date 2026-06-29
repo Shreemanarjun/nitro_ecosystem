@@ -1,12 +1,12 @@
-// Tests for the NitroNullable JNI bridge-param type encoding.
+// Tests for the NitroOpt* JNI bridge-param type encoding.
 //
-// NitroNullable: int?/double?/bool? params now use binary ByteArray encoding
-// ([B JVM descriptor) instead of sentinel primitive values.
-// Wire format: [1B hasValue][nB value] — zero sentinel collisions.
+// NitroOpt*: int?/double?/bool? params use packed struct ByteArray encoding
+// ([B JVM descriptor) — no RecordWriter 4-byte prefix, fixed size.
+// Wire format: [1B hasValue][N bytes value] — zero overhead.
 //
 // This replaces the old sentinel approach:
 //   OLD: int? → Long (J), sentinel Int64.min for null
-//   NEW: int? → ByteArray ([B), NitroNullableInt binary
+//   NEW: int? → ByteArray ([B), NitroOptInt64 packed struct (9 bytes)
 //
 // Scenarios covered:
 //   §1  nullable int?   param in sync  _call  → ByteArray (not Long)
@@ -136,47 +136,47 @@ final _isOptionalIntParam = BridgeParam(
 // ── §1 nullable int? in sync _call ───────────────────────────────────────────
 
 void main() {
-  group('§1 nullable int? param — sync _call uses ByteArray (NitroNullable)', () {
+  group('§1 nullable int? param — sync _call uses ByteArray (NitroOpt*)', () {
     late String out;
     setUpAll(() => out = KotlinGenerator.generate(_syncSpec(params: [_nullableIntParam])));
 
-    test('_call signature uses ByteArray (NitroNullable binary)', () {
-      expect(out, contains('fun fn_call(timeout: ByteArray): Boolean'));
+    test('_call signature uses ByteArray (NitroOpt* packed struct)', () {
+      expect(out, contains('fun fn_call(instanceId: Long, timeout: ByteArray): Boolean'));
     });
 
     test('interface uses Long? (nullable for Kotlin impl)', () {
       expect(out, contains('fun fn(timeout: Long?): Boolean'));
     });
 
-    test('_call body decodes NitroNullableInt before calling impl', () {
-      expect(out, contains('val timeoutArg: Long? = NitroNullableInt.decode(timeout).nullable'));
+    test('_call body decodes NitroOptInt64 before calling impl', () {
+      expect(out, contains('val timeoutArg: Long? = NitroOptInt64.decode(timeout).nullable'));
       expect(out, contains('impl.fn(timeoutArg)'));
     });
 
     test('_call does NOT declare Long or Long? for timeout', () {
-      // The _call line must have ByteArray — not Long/Long?
+      // The _call line must have ByteArray — not Long/Long? (instanceId: Long is expected but not the param)
       final callLine = out.split('\n').where((l) => l.contains('fn_call')).first;
       expect(callLine, contains('ByteArray'));
-      expect(callLine, isNot(contains('Long')));
+      expect(callLine, isNot(contains('timeout: Long')));
     });
   });
 
   // ── §2 nullable bool? in sync _call ─────────────────────────────────────────
 
-  group('§2 nullable bool? param — sync _call uses ByteArray (NitroNullable)', () {
+  group('§2 nullable bool? param — sync _call uses ByteArray (NitroOpt*)', () {
     late String out;
     setUpAll(() => out = KotlinGenerator.generate(_syncSpec(params: [_nullableBoolParam])));
 
-    test('_call signature uses ByteArray (NitroNullableBool binary)', () {
-      expect(out, contains('fun fn_call(flag: ByteArray): Boolean'));
+    test('_call signature uses ByteArray (NitroOptBool packed struct)', () {
+      expect(out, contains('fun fn_call(instanceId: Long, flag: ByteArray): Boolean'));
     });
 
     test('interface uses Boolean? (nullable for Kotlin impl)', () {
       expect(out, contains('fun fn(flag: Boolean?): Boolean'));
     });
 
-    test('_call body decodes NitroNullableBool', () {
-      expect(out, contains('NitroNullableBool.decode(flag).nullable'));
+    test('_call body decodes NitroOptBool', () {
+      expect(out, contains('NitroOptBool.decode(flag).nullable'));
     });
 
     test('_call does NOT declare Boolean param for flag', () {
@@ -191,20 +191,20 @@ void main() {
 
   // ── §3 nullable double? in sync _call ───────────────────────────────────────
 
-  group('§3 nullable double? param — sync _call uses ByteArray (NitroNullable)', () {
+  group('§3 nullable double? param — sync _call uses ByteArray (NitroOpt*)', () {
     late String out;
     setUpAll(() => out = KotlinGenerator.generate(_syncSpec(params: [_nullableDoubleParam])));
 
-    test('_call signature uses ByteArray (NitroNullableDouble binary)', () {
-      expect(out, contains('fun fn_call(scale: ByteArray): Boolean'));
+    test('_call signature uses ByteArray (NitroOptFloat64 packed struct)', () {
+      expect(out, contains('fun fn_call(instanceId: Long, scale: ByteArray): Boolean'));
     });
 
     test('interface uses Double? (nullable for Kotlin impl)', () {
       expect(out, contains('fun fn(scale: Double?): Boolean'));
     });
 
-    test('_call body decodes NitroNullableDouble', () {
-      expect(out, contains('NitroNullableDouble.decode(scale).nullable'));
+    test('_call body decodes NitroOptFloat64', () {
+      expect(out, contains('NitroOptFloat64.decode(scale).nullable'));
     });
 
     test('_call does NOT declare Double or Double? for scale', () {
@@ -216,20 +216,20 @@ void main() {
 
   // ── §4 nullable params in async @nitroAsync _call ───────────────────────────
 
-  group('§4 nullable int? param — async _call uses ByteArray (NitroNullable)', () {
+  group('§4 nullable int? param — async _call uses ByteArray (NitroOpt*)', () {
     late String out;
     setUpAll(() => out = KotlinGenerator.generate(_asyncSpec(params: [_nullableIntParam])));
 
-    test('async _call signature uses ByteArray (NitroNullable)', () {
-      expect(out, contains('fun fn_call(timeout: ByteArray): Boolean'));
+    test('async _call signature uses ByteArray (NitroOpt*)', () {
+      expect(out, contains('fun fn_call(instanceId: Long, timeout: ByteArray): Boolean'));
     });
 
     test('async interface uses Long? (suspend fun)', () {
       expect(out, contains('suspend fun fn(timeout: Long?): Boolean'));
     });
 
-    test('async _call uses runBlocking with NitroNullable decode', () {
-      expect(out, contains('val timeoutArg: Long? = NitroNullableInt.decode(timeout).nullable'));
+    test('async _call uses runBlocking with NitroOpt* decode', () {
+      expect(out, contains('val timeoutArg: Long? = NitroOptInt64.decode(timeout).nullable'));
       expect(out, contains('runBlocking { impl.fn(timeoutArg) }'));
       expect(out, contains('_asyncExecutor.submit'));
     });
@@ -254,15 +254,15 @@ void main() {
     );
 
     test('@NitroNativeAsync _call appends dartPort and uses ByteArray for int?', () {
-      expect(out, contains('fun fn_call(printerId: String, timeout: ByteArray, dartPort: Long)'));
+      expect(out, contains('fun fn_call(instanceId: Long, printerId: String, timeout: ByteArray, dartPort: Long)'));
     });
 
     test('@NitroNativeAsync interface uses Long? for int? param', () {
       expect(out, contains('suspend fun fn(printerId: String, timeout: Long?): Boolean'));
     });
 
-    test('@NitroNativeAsync _call body decodes NitroNullableInt before calling impl', () {
-      expect(out, contains('val timeoutArg: Long? = NitroNullableInt.decode(timeout).nullable'));
+    test('@NitroNativeAsync _call body decodes NitroOptInt64 before calling impl', () {
+      expect(out, contains('val timeoutArg: Long? = NitroOptInt64.decode(timeout).nullable'));
       expect(out, contains('impl.fn(printerId, timeoutArg)'));
     });
   });
@@ -303,7 +303,7 @@ void main() {
     );
 
     test('non-null int param stays Long in _call', () {
-      expect(out, contains('fun fn_call(count: Long, enabled: Boolean, id: String): Boolean'));
+      expect(out, contains('fun fn_call(instanceId: Long, count: Long, enabled: Boolean, id: String): Boolean'));
     });
 
     test('non-null int param stays Long in interface', () {
@@ -318,7 +318,7 @@ void main() {
     setUpAll(() => out = KotlinGenerator.generate(_syncSpec(params: [_nullableStringParam])));
 
     test('_call keeps String? for nullable String (JNI can pass null objects)', () {
-      expect(out, contains('fun fn_call(label: String?): Boolean'));
+      expect(out, contains('fun fn_call(instanceId: Long, label: String?): Boolean'));
     });
 
     test('interface also uses String?', () {
@@ -343,7 +343,7 @@ void main() {
 
     test('_call keeps Config? for nullable struct param', () {
       final out = KotlinGenerator.generate(structSpec);
-      expect(out, contains('fun fn_call(settings: Config?): Boolean'));
+      expect(out, contains('fun fn_call(instanceId: Long, settings: Config?): Boolean'));
     });
 
     test('interface also uses Config?', () {
@@ -358,8 +358,8 @@ void main() {
     late String out;
     setUpAll(() => out = KotlinGenerator.generate(_syncSpec(params: [_isOptionalIntParam])));
 
-    test('_call uses ByteArray (NitroNullable) when isOptional=true on int param', () {
-      expect(out, contains('fun fn_call(limit: ByteArray): Boolean'));
+    test('_call uses ByteArray (NitroOpt*) when isOptional=true on int param', () {
+      expect(out, contains('fun fn_call(instanceId: Long, limit: ByteArray): Boolean'));
     });
 
     test('interface uses Long? when isOptional=true on int param', () {
@@ -384,8 +384,8 @@ void main() {
     );
 
     test('_call uses correct types for each param', () {
-      // id: String (non-null), timeout: ByteArray (NitroNullable for int?), label: String? (ref type)
-      expect(out, contains('fun fn_call(id: String, timeout: ByteArray, label: String?): Boolean'));
+      // id: String (non-null), timeout: ByteArray (NitroOpt* for int?), label: String? (ref type)
+      expect(out, contains('fun fn_call(instanceId: Long, id: String, timeout: ByteArray, label: String?): Boolean'));
     });
 
     test('interface uses correct nullable for each param', () {
@@ -395,8 +395,8 @@ void main() {
 
   // ── §12 C++ JNI sig is still primitive (no regression) ──────────────────────
 
-  group('§12 C++ JNI descriptor uses [B for int?/bool?/double? params (NitroNullable)', () {
-    test('int? param → [B in GetStaticMethodID signature (NitroNullable ByteArray)', () {
+  group('§12 C++ JNI descriptor uses [B for int?/bool?/double? params (NitroOpt*)', () {
+    test('int? param → [B in GetStaticMethodID signature (NitroOpt* ByteArray)', () {
       final spec = BridgeSpec(
         dartClassName: 'Mod',
         lib: 'mod',
@@ -426,12 +426,12 @@ void main() {
         ],
       );
       final out = CppBridgeGenerator.generate(spec);
-      // Must contain [B (ByteArray) descriptor for int? param (NitroNullable)
-      expect(out, contains('(Ljava/lang/String;[B)Z'));
+      // Must contain [B (ByteArray) descriptor for int? param (NitroOpt*); J prefix for instanceId
+      expect(out, contains('(JLjava/lang/String;[B)Z'));
       expect(out, isNot(contains('Ljava/lang/Long;')));
     });
 
-    test('bool? param → [B in GetStaticMethodID signature (NitroNullable)', () {
+    test('bool? param → [B in GetStaticMethodID signature (NitroOpt*)', () {
       final spec = BridgeSpec(
         dartClassName: 'Mod',
         lib: 'mod',
@@ -457,12 +457,12 @@ void main() {
         ],
       );
       final out = CppBridgeGenerator.generate(spec);
-      // bool? uses [B (ByteArray) for NitroNullableBool
-      expect(out, contains('([B)V'));
+      // bool? uses [B (ByteArray) for NitroOptBool; J prefix for instanceId
+      expect(out, contains('(J[B)V'));
       expect(out, isNot(contains('Ljava/lang/Boolean;')));
     });
 
-    test('double? param → [B in GetStaticMethodID signature (NitroNullable)', () {
+    test('double? param → [B in GetStaticMethodID signature (NitroOpt*)', () {
       final spec = BridgeSpec(
         dartClassName: 'Mod',
         lib: 'mod',
@@ -488,8 +488,8 @@ void main() {
         ],
       );
       final out = CppBridgeGenerator.generate(spec);
-      // double? uses [B (ByteArray) for NitroNullableDouble
-      expect(out, contains('([B)V'));
+      // double? uses [B (ByteArray) for NitroOptFloat64; J prefix for instanceId
+      expect(out, contains('(J[B)V'));
       expect(out, isNot(contains('Ljava/lang/Double;')));
     });
 
@@ -519,7 +519,7 @@ void main() {
         ],
       );
       final out = CppBridgeGenerator.generate(spec);
-      expect(out, contains('(Ljava/lang/String;)V'));
+      expect(out, contains('(JLjava/lang/String;)V'));
     });
   });
 
@@ -559,7 +559,7 @@ void main() {
       expect(cppOut, isNotEmpty);
     });
 
-    test('int? param: C++ bridge uses void* for NitroNullable buffer', () {
+    test('int? param: C++ bridge uses const NitroOptInt64* typed pointer', () {
       final spec = BridgeSpec(
         dartClassName: 'Mod',
         lib: 'mod',
@@ -585,9 +585,9 @@ void main() {
         ],
       );
       final cppOut = CppBridgeGenerator.generate(spec);
-      // C++ function signature uses void* (NitroNullable buffer pointer) for optional int?
-      expect(cppOut, contains('void* timeout'));
-      // C++ JNI descriptor uses [B (ByteArray) for NitroNullable
+      // C++ function signature uses raw const uint8_t* pointer for optional int?
+      expect(cppOut, contains('const uint8_t* timeout'));
+      // C++ JNI descriptor uses [B (ByteArray) for NitroOpt*
       expect(cppOut, contains('[B)'));
     });
 
@@ -601,8 +601,8 @@ void main() {
         ],
       );
       final out = KotlinGenerator.generate(spec);
-      // _call: all nullable primitives use ByteArray (NitroNullable), String? stays nullable
-      expect(out, contains('fun fn_call(timeout: ByteArray, flag: ByteArray, scale: ByteArray, label: String?): Boolean'));
+      // _call: all nullable primitives use ByteArray (NitroOpt*), String? stays nullable
+      expect(out, contains('fun fn_call(instanceId: Long, timeout: ByteArray, flag: ByteArray, scale: ByteArray, label: String?): Boolean'));
       // interface: all nullable
       expect(out, contains('fun fn(timeout: Long?, flag: Boolean?, scale: Double?, label: String?): Boolean'));
     });

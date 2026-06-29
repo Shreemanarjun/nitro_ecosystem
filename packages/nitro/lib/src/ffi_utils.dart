@@ -98,10 +98,45 @@ extension NitroStringExtension on String {
 extension NitroPointerExtension on Pointer<Utf8> {
   String toDartStringWithFree() {
     if (address == 0) return '';
-    final str = toDartString();
+    // dart:convert's utf8.decode strips a leading U+FEFF (BOM) per the Unicode
+    // standard. Strings crossing the FFI bridge are raw data — not text streams
+    // — so we must preserve all bytes including U+FEFF. We bypass utf8.decode
+    // and decode the bytes directly into code points via String.fromCharCodes.
+    int len = 0;
+    while (cast<Uint8>().elementAt(len).value != 0) len++;
+    final str = _decodeUtf8NoBomStrip(cast<Uint8>().asTypedList(len));
     malloc.free(this);
     return str;
   }
+}
+
+// Decodes UTF-8 bytes to a Dart String without stripping leading U+FEFF.
+// dart:convert's Utf8Decoder treats a leading BOM (U+FEFF / 0xEF 0xBB 0xBF)
+// as a stream signature and drops it. Bridge strings are raw data, not streams.
+String _decodeUtf8NoBomStrip(Uint8List bytes) {
+  if (bytes.isEmpty) return '';
+  final codePoints = <int>[];
+  var i = 0;
+  while (i < bytes.length) {
+    final b = bytes[i];
+    if (b & 0x80 == 0) {
+      codePoints.add(b);
+      i++;
+    } else if ((b & 0xE0) == 0xC0 && i + 1 < bytes.length) {
+      codePoints.add(((b & 0x1F) << 6) | (bytes[i + 1] & 0x3F));
+      i += 2;
+    } else if ((b & 0xF0) == 0xE0 && i + 2 < bytes.length) {
+      codePoints.add(((b & 0x0F) << 12) | ((bytes[i + 1] & 0x3F) << 6) | (bytes[i + 2] & 0x3F));
+      i += 3;
+    } else if ((b & 0xF8) == 0xF0 && i + 3 < bytes.length) {
+      codePoints.add(((b & 0x07) << 18) | ((bytes[i + 1] & 0x3F) << 12) | ((bytes[i + 2] & 0x3F) << 6) | (bytes[i + 3] & 0x3F));
+      i += 4;
+    } else {
+      codePoints.add(0xFFFD); // Unicode replacement character for malformed bytes
+      i++;
+    }
+  }
+  return String.fromCharCodes(codePoints);
 }
 
 /// A wrapper for native memory owned by C/Swift/Kotlin, mapped directly into

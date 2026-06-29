@@ -55,6 +55,7 @@ String _typeSig(BridgeType type) {
     type.pointerInnerType ?? '',
     type.recordListItemType ?? '',
     type.recordListItemIsPrimitive,
+    type.isAnyMap,
     type.isMap,
     type.isFunction,
     type.functionReturnType ?? '',

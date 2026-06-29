@@ -30,10 +30,25 @@ export 'src/ffi_utils.dart' if (dart.library.js_interop) 'src/ffi_utils.dart';
 
 export 'src/record_codec.dart' if (dart.library.js_interop) 'src/record_codec.dart';
 
-// ── Collision-free nullable primitive types ────────────────────────────────────
-// NitroNullableInt, NitroNullableDouble, NitroNullableBool — binary null flag,
-// no sentinel collisions, identical behavior on all platforms.
+// ── Collision-free nullable primitive types + FFI codec abstractions ──────────
+// NitroNullableInt/Double/Bool — binary null flag, no sentinel collisions.
+// NitroOptInt64/Float64/Bool — @Packed C-ABI structs (std::optional<T> equivalent).
+// NitroOptArena — Arena extension for zero-cost nullable prim encoding.
+// NitroFfiCodec<T> / NitroIntCodec etc. — JSIConverter<T> equivalent.
 export 'src/nitro_nullable.dart' if (dart.library.js_interop) 'src/nitro_nullable.dart';
+
+export 'src/nitro_ffi_codec.dart' if (dart.library.js_interop) 'src/nitro_ffi_codec.dart';
+
+// ── NitroAnyValue / NitroAnyMap — heterogeneous type-safe bridge map ──────────
+// Mirrors RN Nitro's AnyValue variant + AnyMap class.
+// NitroAnyValue: sealed Dart class (null|bool|int|double|String|List|Map).
+// NitroAnyMap: typed string-keyed map with binary wire codec.
+export 'src/nitro_any_value.dart' if (dart.library.js_interop) 'src/nitro_any_value.dart';
+
+// ── NitroPromise<T> — composable async primitive ──────────────────────────────
+// Mirrors RN Nitro's Promise<T> C++ class.
+// .resolve()/.reject(), addOnResolvedListener(), .then<R>(), .andThen<R>().
+export 'src/nitro_promise.dart';
 
 // dart:ffi — unavailable on web; web code uses dart:js_interop instead.
 export 'dart:ffi' if (dart.library.js_interop) 'src/ffi_stub.dart';

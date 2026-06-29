@@ -38,11 +38,15 @@ class SwiftPropertyEmitter {
       writer.line('public func _${spec.namespace}_call_get_${prop.dartName}() -> $getRetType {');
       if (isString && isNullableProp) {
         writer.line('    guard let v = ${spec.dartClassName}Registry.impl?.${prop.dartName} else { return nil }');
-        writer.line('    return strdup(v)');
+        writer.line('    return _nitroStringToCString(v)');
       } else if (isString) {
-        writer.line('    return strdup(${spec.dartClassName}Registry.impl?.${prop.dartName} ?? "")');
+        writer.line('    return _nitroStringToCString(${spec.dartClassName}Registry.impl?.${prop.dartName} ?? "")');
       } else if (isBool && isNullableProp) {
-        writer.line('    return NitroNullableBool.fromNullable(${spec.dartClassName}Registry.impl?.${prop.dartName}).toNative()');
+        writer.line('    let _v_b = ${spec.dartClassName}Registry.impl?.${prop.dartName}');
+        writer.line('    let _p_b = UnsafeMutablePointer<UInt8>.allocate(capacity: 2)');
+        writer.line('    _p_b[0] = _v_b != nil ? 1 : 0');
+        writer.line('    _p_b[1] = _v_b == true ? 1 : 0');
+        writer.line('    return _p_b');
       } else if (isBool) {
         writer.line('    return ${spec.dartClassName}Registry.impl?.${prop.dartName} == true ? 1 : 0');
       } else if (isEnumProp && isNullableProp) {
@@ -50,9 +54,17 @@ class SwiftPropertyEmitter {
       } else if (isEnumProp) {
         writer.line('    return ${spec.dartClassName}Registry.impl?.${prop.dartName}.rawValue ?? ${mapper.defaultCDeclValue(propTypeName)}');
       } else if (isNullableProp && isDouble) {
-        writer.line('    return NitroNullableDouble.fromNullable(${spec.dartClassName}Registry.impl?.${prop.dartName}).toNative()');
+        writer.line('    let _v_d = ${spec.dartClassName}Registry.impl?.${prop.dartName}');
+        writer.line('    let _p_d = UnsafeMutablePointer<UInt8>.allocate(capacity: 9)');
+        writer.line('    _p_d[0] = _v_d != nil ? 1 : 0');
+        writer.line('    if let _dv = _v_d { Swift.withUnsafeBytes(of: _dv) { UnsafeMutableRawPointer(_p_d + 1).copyMemory(from: \$0.baseAddress!, byteCount: 8) } }');
+        writer.line('    return _p_d');
       } else if (isNullableProp && isInt) {
-        writer.line('    return NitroNullableInt.fromNullable(${spec.dartClassName}Registry.impl?.${prop.dartName}).toNative()');
+        writer.line('    let _v_i = ${spec.dartClassName}Registry.impl?.${prop.dartName}');
+        writer.line('    let _p_i = UnsafeMutablePointer<UInt8>.allocate(capacity: 9)');
+        writer.line('    _p_i[0] = _v_i != nil ? 1 : 0');
+        writer.line('    if let _iv = _v_i { Swift.withUnsafeBytes(of: _iv) { UnsafeMutableRawPointer(_p_i + 1).copyMemory(from: \$0.baseAddress!, byteCount: 8) } }');
+        writer.line('    return _p_i');
       } else {
         writer.line('    return ${spec.dartClassName}Registry.impl?.${prop.dartName} ?? ${mapper.defaultCDeclValue(propTypeName)}');
       }
@@ -64,7 +76,7 @@ class SwiftPropertyEmitter {
       final isEnumProp  = spec.isEnumName(propTypeBase);
       final isStructProp = spec.isStructName(propTypeBase);
       final setParamType = isBool && isNullableProp
-          ? 'UnsafeMutableRawPointer?'
+          ? 'UnsafeMutablePointer<UInt8>?'
           : isBool
           ? 'Int8'
           : isString
@@ -74,20 +86,21 @@ class SwiftPropertyEmitter {
           : isStructProp
           ? 'UnsafeRawPointer?'
           : (isNullableProp && isDouble)
-          ? 'UnsafeMutableRawPointer?'
+          ? 'UnsafeMutablePointer<UInt8>?'
           : (isNullableProp && isInt)
-          ? 'UnsafeMutableRawPointer?'
+          ? 'UnsafeMutablePointer<UInt8>?'
           : swiftType;
       writer.line('@_cdecl("_${spec.namespace}_call_set_${prop.dartName}")');
       writer.line('public func _${spec.namespace}_call_set_${prop.dartName}(_ value: $setParamType) {');
       if (isBool && isNullableProp) {
-        writer.line('    if let v = value { ${spec.dartClassName}Registry.impl?.${prop.dartName} = NitroNullableBool.fromNative(v.assumingMemoryBound(to: UInt8.self)).nullable }');
+        writer.line('    guard let v = value else { ${spec.dartClassName}Registry.impl?.${prop.dartName} = nil; return }');
+        writer.line('    ${spec.dartClassName}Registry.impl?.${prop.dartName} = v[0] != 0 ? v[1] != 0 : nil');
       } else if (isBool) {
         writer.line('    ${spec.dartClassName}Registry.impl?.${prop.dartName} = value != 0');
       } else if (isString && isNullableProp) {
-        writer.line('    ${spec.dartClassName}Registry.impl?.${prop.dartName} = value != nil ? String(cString: value!) : nil');
+        writer.line('    ${spec.dartClassName}Registry.impl?.${prop.dartName} = _nitroStringOptFromCString(value)');
       } else if (isString) {
-        writer.line('    ${spec.dartClassName}Registry.impl?.${prop.dartName} = value != nil ? String(cString: value!) : ""');
+        writer.line('    ${spec.dartClassName}Registry.impl?.${prop.dartName} = _nitroStringFromCString(value)');
       } else if (isEnumProp && isNullableProp) {
         writer.line('    if value == -1 { ${spec.dartClassName}Registry.impl?.${prop.dartName} = nil; return }');
         writer.line('    if let actualValue = $propTypeBase(rawValue: value) {');
@@ -102,9 +115,15 @@ class SwiftPropertyEmitter {
         writer.line('        ${spec.dartClassName}Registry.impl?.${prop.dartName} = v.assumingMemoryBound(to: _${propTypeBase}C.self).pointee.toSwift()');
         writer.line('    }');
       } else if (isNullableProp && isDouble) {
-        writer.line('    if let v = value { ${spec.dartClassName}Registry.impl?.${prop.dartName} = NitroNullableDouble.fromNative(v.assumingMemoryBound(to: UInt8.self)).nullable }');
+        writer.line('    guard let v = value else { ${spec.dartClassName}Registry.impl?.${prop.dartName} = nil; return }');
+        writer.line('    if v[0] == 0 { ${spec.dartClassName}Registry.impl?.${prop.dartName} = nil; return }');
+        writer.line('    var _vd: Double = 0; Swift.withUnsafeMutableBytes(of: &_vd) { \$0.baseAddress!.copyMemory(from: UnsafeRawPointer(v + 1), byteCount: 8) }');
+        writer.line('    ${spec.dartClassName}Registry.impl?.${prop.dartName} = _vd');
       } else if (isNullableProp && isInt) {
-        writer.line('    if let v = value { ${spec.dartClassName}Registry.impl?.${prop.dartName} = NitroNullableInt.fromNative(v.assumingMemoryBound(to: UInt8.self)).nullable }');
+        writer.line('    guard let v = value else { ${spec.dartClassName}Registry.impl?.${prop.dartName} = nil; return }');
+        writer.line('    if v[0] == 0 { ${spec.dartClassName}Registry.impl?.${prop.dartName} = nil; return }');
+        writer.line('    var _vi: Int64 = 0; Swift.withUnsafeMutableBytes(of: &_vi) { \$0.baseAddress!.copyMemory(from: UnsafeRawPointer(v + 1), byteCount: 8) }');
+        writer.line('    ${spec.dartClassName}Registry.impl?.${prop.dartName} = _vi');
       } else {
         writer.line('    ${spec.dartClassName}Registry.impl?.${prop.dartName} = value');
       }

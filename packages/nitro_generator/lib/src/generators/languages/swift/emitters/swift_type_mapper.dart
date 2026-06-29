@@ -144,7 +144,9 @@ class SwiftTypeMapper implements TypeMapper {
     if (func.isResult) return 'UnsafeMutablePointer<UInt8>?';
     final name = func.returnType.name.replaceFirst('?', '');
     if (name == 'void') return 'Void';
-    if (func.returnType.name == 'int?' || func.returnType.name == 'double?' || func.returnType.name == 'bool?') return 'UnsafeMutablePointer<UInt8>?';
+    if (func.returnType.name == 'int?') return 'UnsafeMutablePointer<UInt8>?';
+    if (func.returnType.name == 'double?') return 'UnsafeMutablePointer<UInt8>?';
+    if (func.returnType.name == 'bool?') return 'UnsafeMutablePointer<UInt8>?';
     if (name == 'bool') return 'Int8';
     if (name == 'String') return 'UnsafeMutablePointer<CChar>?';
     if (name.startsWith('Map<') || func.returnType.isMap) return 'UnsafeMutablePointer<UInt8>?';
@@ -162,9 +164,9 @@ class SwiftTypeMapper implements TypeMapper {
     if (bridgeType?.isNativeHandle == true) return 'UnsafeMutableRawPointer?';
     final name = typeName.replaceFirst('?', '');
     if (name == 'String') return 'UnsafePointer<CChar>?';
-    if (typeName.endsWith('?') && name == 'bool') return 'UnsafeMutableRawPointer?';
-    if (typeName.endsWith('?') && name == 'int') return 'UnsafeMutableRawPointer?';
-    if (typeName.endsWith('?') && name == 'double') return 'UnsafeMutableRawPointer?';
+    if (typeName.endsWith('?') && name == 'bool') return 'UnsafeMutablePointer<UInt8>?';
+    if (typeName.endsWith('?') && name == 'int') return 'UnsafeMutablePointer<UInt8>?';
+    if (typeName.endsWith('?') && name == 'double') return 'UnsafeMutablePointer<UInt8>?';
     if (name == 'bool') return 'Int8';
     if (name.startsWith('Map<')) return 'UnsafeMutableRawPointer?';
     if (_recordNames.contains(name) || name.startsWith('List<')) return 'UnsafeMutableRawPointer?';
@@ -304,7 +306,7 @@ class SwiftTypeMapper implements TypeMapper {
     } else if (retDart == 'double') {
       bodyCall = 'Double(bitPattern: UInt64(bitPattern: $callExpr))';
     } else if (retDart == 'String') {
-      bodyCall = '{ let _cs = $callExpr; let _str = _cs.map { String(cString: \$0) } ?? ""; _cs.map { free(\$0) }; return _str }()';
+      bodyCall = '{ let _cs = $callExpr; let _str = _nitroStringFromCString(_cs); _cs.map { free(\$0) }; return _str }()';
     } else if (retDart == 'bool') {
       bodyCall = '($callExpr) != 0';
     } else if (_enumNames.contains(retName)) {
@@ -339,11 +341,11 @@ class SwiftTypeMapper implements TypeMapper {
       case 'bool':
         return isNullable ? 'nil' : '0';
       case 'String':
-        return 'strdup("")';
+        return '_nitroStringToCString("")';
       default:
         if (_enumNames.contains(name)) return isNullable ? '-1' : '0';
         if (_structNames.contains(name)) return 'nil';
-        if (name.startsWith('Map<')) return 'strdup("{}")';
+        if (name.startsWith('Map<')) return '_nitroStringToCString("{}")';
         return '()';
     }
   }

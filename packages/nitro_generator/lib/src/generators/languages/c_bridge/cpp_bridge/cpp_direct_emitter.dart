@@ -123,9 +123,14 @@ String _generateCppDirect(BridgeSpec spec) {
   writer.line('// and is read-only during concurrent bridge calls — no std::atomic needed.');
   writer.line('static Hybrid$className* g_impl = nullptr;');
   writer.blankLine();
+  writer.line('static int64_t g_next_instance_id = 0;');
+  writer.blankLine();
   writer.line('extern "C" {');
   writer.line('void ${libStem}_register_impl(Hybrid$className* impl) { g_impl = impl; }');
   writer.line('Hybrid$className* ${libStem}_get_impl() { return g_impl; }');
+  // Pure C++ single-instance path: create_instance returns a monotonic id; destroy is no-op.
+  writer.line('NITRO_EXPORT int64_t ${libStem}_create_instance(const char* key) { (void)key; return g_next_instance_id++; }');
+  writer.line('NITRO_EXPORT void ${libStem}_destroy_instance(int64_t instanceId) { (void)instanceId; }');
   writer.line('}');
   writer.blankLine();
 
@@ -221,7 +226,8 @@ String _generateCppDirect(BridgeSpec spec) {
       // The C function returns void and delegates to the impl, passing the
       // Dart port so the impl can post the result via Dart_PostCObject_DL.
       // No error slot is used — implementations must post errors via the port.
-      final paramParts = <String>[];
+      // instanceId is included for API consistency with the JNI path; g_impl ignores it.
+      final paramParts = <String>['int64_t instanceId'];
       for (final p in func.params) {
         if (p.type.isFunction) {
           paramParts.add(_callbackParamToC(p, enumNames, structNames: structNames, recordNames: recordNames));
@@ -305,7 +311,8 @@ String _generateCppDirect(BridgeSpec spec) {
         : _typeToC(func.returnType.name);
     final dflt = _defaultValue(cRet);
 
-    final paramParts = <String>[];
+    // instanceId is included for API consistency with the JNI path; g_impl ignores it.
+    final paramParts = <String>['int64_t instanceId'];
     for (final p in func.params) {
       if (p.type.isFunction) {
         paramParts.add(_callbackParamToC(p, enumNames, structNames: structNames, recordNames: recordNames));
@@ -453,8 +460,8 @@ String _generateCppDirect(BridgeSpec spec) {
     final cType = isNullablePrimProp ? 'uint8_t*' : (isEnum ? 'int64_t' : _typeToC(prop.type.name));
 
     if (prop.hasGetter) {
-      // S8: property getter also receives the NitroError* out-param.
-      writer.line('$cType ${prop.getSymbol}(NitroError* _nitro_err) {');
+      // S8: property getter also receives the NitroError* out-param; instanceId for API consistency.
+      writer.line('$cType ${prop.getSymbol}(int64_t instanceId, NitroError* _nitro_err) {');
       writer.line('    if (_nitro_err) { _nitro_err->hasError = 0; }');
       writer.line('    if (!g_impl) { $notInit; return ${_defaultValue(cType)}; }');
       writer.line('    try {');
@@ -490,8 +497,8 @@ String _generateCppDirect(BridgeSpec spec) {
       final paramCType = isNullablePrimProp
           ? 'void*'
           : (isEnum || isStructParam || isRecordParam) ? (isEnum ? 'int64_t' : 'void*') : _typeToC(prop.type.name);
-      // S8: property setter also receives the NitroError* out-param.
-      writer.line('void ${prop.setSymbol}($paramCType value, NitroError* _nitro_err) {');
+      // S8: property setter also receives the NitroError* out-param; instanceId for API consistency.
+      writer.line('void ${prop.setSymbol}(int64_t instanceId, $paramCType value, NitroError* _nitro_err) {');
       writer.line('    if (_nitro_err) { _nitro_err->hasError = 0; }');
       writer.line('    if (!g_impl) { $notInit; return; }');
       writer.line('    try {');
@@ -538,7 +545,7 @@ String _generateCppDirect(BridgeSpec spec) {
 
   // ── Streams ──────────────────────────────────────────────────────────────
   for (final stream in spec.streams) {
-    writer.line('void ${stream.registerSymbol}(int64_t dart_port) {');
+    writer.line('void ${stream.registerSymbol}(int64_t instanceId, int64_t dart_port) {');
     writer.line('    g_port_${stream.dartName} = dart_port;');
     writer.line('}');
     writer.line('void ${stream.releaseSymbol}(int64_t dart_port) {');

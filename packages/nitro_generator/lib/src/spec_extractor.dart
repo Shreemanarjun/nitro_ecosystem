@@ -192,6 +192,21 @@ class SpecExtractor {
         BridgeRecordField(name: 'hasValue', dartType: 'bool', kind: RecordFieldKind.primitive),
         BridgeRecordField(name: 'value',    dartType: 'bool', kind: RecordFieldKind.primitive),
       ]),
+      // NitroOpt* — packed 2-field structs for nullable primitive bridge transport.
+      // Wire: [1B hasValue][N bytes value] — NO RecordWriter 4-byte length prefix.
+      // Used for int?/double?/bool? params and returns in all bridge generators.
+      BridgeRecordType(name: 'NitroOptInt64', fields: [
+        BridgeRecordField(name: 'hasValue', dartType: 'bool', kind: RecordFieldKind.primitive),
+        BridgeRecordField(name: 'value',    dartType: 'int',  kind: RecordFieldKind.primitive),
+      ]),
+      BridgeRecordType(name: 'NitroOptFloat64', fields: [
+        BridgeRecordField(name: 'hasValue', dartType: 'bool',   kind: RecordFieldKind.primitive),
+        BridgeRecordField(name: 'value',    dartType: 'double', kind: RecordFieldKind.primitive),
+      ]),
+      BridgeRecordType(name: 'NitroOptBool', fields: [
+        BridgeRecordField(name: 'hasValue', dartType: 'bool', kind: RecordFieldKind.primitive),
+        BridgeRecordField(name: 'value',    dartType: 'bool', kind: RecordFieldKind.primitive),
+      ]),
     ];
     final allRecordTypes = [...localRecordTypes, ...imported.records, ...builtinNitroRecords];
     final allStructs = [...localStructs, ...imported.structs];
@@ -461,6 +476,7 @@ class SpecExtractor {
     // fields whose type is a built-in record get RecordFieldKind.recordObject.
     const builtinLibraryRecordNames = {
       'NitroNullableInt', 'NitroNullableDouble', 'NitroNullableBool',
+      'NitroOptInt64', 'NitroOptFloat64', 'NitroOptBool',
     };
     final recordTypeNames = {...recordClasses.map((c) => c.name!), ...builtinLibraryRecordNames};
     final structTypeNames = structClasses.map((entry) => entry.cls.name!).toSet();
@@ -692,6 +708,16 @@ class SpecExtractor {
             isFuture: isFuture,
           );
         }
+      }
+
+      // NitroAnyMap — heterogeneous typed map (RN Nitro AnyMap equivalent)
+      if (elName == 'NitroAnyMap') {
+        return BridgeType(
+          name: 'NitroAnyMap',
+          isAnyMap: true,
+          isNullable: isNullable,
+          isFuture: isFuture,
+        );
       }
 
       // Map<String, T> — JSON object bridge

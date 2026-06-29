@@ -214,7 +214,7 @@ void main() {
   group('KotlinGenerator — Stream register and release _call stubs', () {
     test('register _call stub emitted', () {
       final out = KotlinGenerator.generate(_streamSpec(itemType: 'int'));
-      expect(out, contains('fun mod_register_events_call(dartPort: Long)'));
+      expect(out, contains('fun mod_register_events_call(instanceId: Long, dartPort: Long)'));
     });
 
     test('release _call stub emitted', () {

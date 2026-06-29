@@ -562,7 +562,9 @@ void main() {
     test('_streamJobs is still Pair<String, Long> keyed (not just Long)', () {
       final kotlin = KotlinGenerator.generate(_specWithStreams());
       expect(kotlin, contains('ConcurrentHashMap<Pair<String, Long>'));
-      expect(kotlin, isNot(contains('ConcurrentHashMap<Long')));
+      // _streamJobs key must be Pair<String,Long>, not bare Long
+      final streamJobsLine = kotlin.split('\n').where((l) => l.contains('_streamJobs')).firstOrNull ?? '';
+      expect(streamJobsLine, isNot(contains('ConcurrentHashMap<Long')));
     });
 
     test('register and release still use Pair(streamName, dartPort) key', () {
@@ -768,9 +770,9 @@ void main() {
       // Interface: strong type
       expect(kt, contains('var status: Status'));
       // Bridge getter: Long (primitive bridge type for JNI)
-      expect(kt, contains('fun enum_prop_mod_get_status_call(): Long'));
+      expect(kt, contains('fun enum_prop_mod_get_status_call(instanceId: Long): Long'));
       // Bridge setter: Long
-      expect(kt, contains('fun enum_prop_mod_set_status_call(value: Long)'));
+      expect(kt, contains('fun enum_prop_mod_set_status_call(instanceId: Long, value: Long)'));
     });
 
     test('stream item type resolves correctly for enum stream', () {
@@ -1348,8 +1350,8 @@ void main() {
 
     test('function LOGE includes the JNI signature, not just the name', () {
       final cpp = CppBridgeGenerator.generate(_specWithFunctions());
-      // (DD)D — two doubles → double
-      expect(cpp, contains('multiply_call sig=(DD)D"'));
+      // (JDD)D — instanceId (J) + two doubles → double
+      expect(cpp, contains('multiply_call sig=(JDD)D"'));
     });
 
     test('second function LOGE uses its own name', () {
@@ -1357,19 +1359,19 @@ void main() {
       expect(cpp, contains('LOGE("Method not found: fetchData_call sig='));
     });
 
-    test('property getter LOGE includes getSymbol and sig=()J', () {
+    test('property getter LOGE includes getSymbol and sig=(J)J', () {
       final cpp = CppBridgeGenerator.generate(_specWithProperties());
-      expect(cpp, contains('LOGE("Method not found: prop_mod_get_count_call sig=()J"'));
+      expect(cpp, contains('LOGE("Method not found: prop_mod_get_count_call sig=(J)J"'));
     });
 
-    test('property setter LOGE includes setSymbol and sig=(J)V', () {
+    test('property setter LOGE includes setSymbol and sig=(JJ)V', () {
       final cpp = CppBridgeGenerator.generate(_specWithProperties());
-      expect(cpp, contains('LOGE("Method not found: prop_mod_set_count_call sig=(J)V"'));
+      expect(cpp, contains('LOGE("Method not found: prop_mod_set_count_call sig=(JJ)V"'));
     });
 
-    test('stream register LOGE includes registerSymbol and sig=(J)V', () {
+    test('stream register LOGE includes registerSymbol and sig=(JJ)V', () {
       final cpp = CppBridgeGenerator.generate(_specWithStreams());
-      expect(cpp, contains('LOGE("Method not found: stream_mod_register_temperature_call sig=(J)V"'));
+      expect(cpp, contains('LOGE("Method not found: stream_mod_register_temperature_call sig=(JJ)V"'));
     });
 
     test('stream release LOGE includes releaseSymbol and sig=(J)V', () {
@@ -1387,7 +1389,7 @@ void main() {
 
     test('second stream also gets LOGE for both register and release', () {
       final cpp = CppBridgeGenerator.generate(_specWithStreams());
-      expect(cpp, contains('LOGE("Method not found: stream_mod_register_pressure_call sig=(J)V"'));
+      expect(cpp, contains('LOGE("Method not found: stream_mod_register_pressure_call sig=(JJ)V"'));
       expect(cpp, contains('LOGE("Method not found: stream_mod_release_pressure_call sig=(J)V"'));
     });
   });

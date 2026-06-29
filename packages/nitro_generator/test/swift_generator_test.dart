@@ -255,7 +255,7 @@ void main() {
         ],
       );
       final out = SwiftGenerator.generate(spec);
-      expect(out, contains('let pathStr = path != nil ? String(cString: path!) : ""'));
+      expect(out, contains('let pathStr = _nitroStringFromCString(path)'));
       expect(out, contains('path: pathStr'));
     });
 
@@ -297,10 +297,12 @@ void main() {
         expect(out, contains('return result ? 1 : 0'));
       });
 
-      test('nullable String? return uses strdup with empty string default', () {
+      test('nullable String? return returns nil for null (not empty string)', () {
         final out = SwiftGenerator.generate(nullableSpec('String'));
-        expect(out, contains('return strdup('));
-        expect(out, contains('?? ""'));
+        // Correct: nil result → return nil (nullptr to Dart), not empty string.
+        expect(out, contains('guard let _s ='));
+        expect(out, contains('return _nitroStringToCString(_s)'));
+        expect(out, isNot(contains('?? ""')));
       });
 
       test('nullable enum? return uses optional chaining with rawValue ?? 0', () {
@@ -522,14 +524,15 @@ void main() {
         expect(out, contains('flag: flag != 0'));
       });
 
-      test('nullable bool? param uses UnsafeMutableRawPointer? for NitroNullable', () {
+      test('nullable bool? param uses UnsafeMutablePointer<UInt8>? for raw byte pointer', () {
         final out = SwiftGenerator.generate(boolParamSpec(nullable: true));
-        // C bridge sends NitroNullable binary buffer (Pointer<Uint8>) for bool?.
-        expect(out, contains('_ flag: UnsafeMutableRawPointer?'));
+        // C bridge sends const uint8_t* (raw byte pointer, byte[0]=hasValue, byte[1]=value).
+        expect(out, contains('_ flag: UnsafeMutablePointer<UInt8>?'));
         expect(out, isNot(contains('_ flag: Int32')));
         expect(out, isNot(contains('_ flag: Int8')));
-        // Call arg decodes NitroNullableBool binary.
-        expect(out, contains('NitroNullableBool.fromNative'));
+        // Call arg decodes via subscript byte access ([0]=hasValue, [1]=value).
+        expect(out, contains('[0] != 0'));
+        expect(out, isNot(contains('withMemoryRebound')));
       });
     });
 

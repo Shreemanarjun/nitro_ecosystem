@@ -38,6 +38,7 @@ ReturnKind classifyReturn(BridgeType returnType, BridgeSpec spec) {
   final base = isNullable ? rt.replaceFirst('?', '') : rt;
 
   if (rt == 'void') return ReturnKind.voidType;
+  if (returnType.isAnyMap) return ReturnKind.record; // NitroAnyMap: same wire as @HybridRecord
   if (returnType.isRecord) return ReturnKind.record;
   if (returnType.isTypedData) return ReturnKind.typedData;
   if (returnType.isNativeHandle) return ReturnKind.nativeHandle;
@@ -59,11 +60,8 @@ bool isEnumType(String baseName, BridgeSpec spec) => spec.isEnumName(baseName);
 
 /// The Dart type that [callAsync]`<T>` resolves with for the given return type.
 ///
-/// Nullable sentinel variants use the same transport as non-nullable:
-///   - `bool?`   → `int`          (sentinel −1/0/1)
-///   - `String?` → `Pointer<Utf8>`(sentinel nullptr)
-///   - `int?`    → `int`          (sentinel −1)
-///   - `double?` → `double`       (sentinel NaN)
+/// @nitroAsync nullable prims use typed Pointer<`NitroOptXxx`> — the C function
+/// allocates the struct and returns the pointer; Dart decodes and frees.
 String callAsyncTransportType(BridgeType returnType, BridgeSpec spec) {
   final kind = classifyReturn(returnType, spec);
   switch (kind) {
@@ -74,11 +72,11 @@ String callAsyncTransportType(BridgeType returnType, BridgeSpec spec) {
     case ReturnKind.nativeHandle:return 'Pointer<Void>';
     case ReturnKind.enumType:    return 'int';
     case ReturnKind.boolNonNull: return 'int';           // bool→Int8
-    case ReturnKind.boolNullable:return 'Pointer<Uint8>'; // NitroNullable binary
+    case ReturnKind.boolNullable:return 'Pointer<NitroOptBool>';
     case ReturnKind.stringNonNull:  return 'Pointer<Utf8>';
     case ReturnKind.stringNullable: return 'Pointer<Utf8>';
-    case ReturnKind.intNullable:    return 'Pointer<Uint8>'; // NitroNullable binary
-    case ReturnKind.doubleNullable: return 'Pointer<Uint8>'; // NitroNullable binary
+    case ReturnKind.intNullable:    return 'Pointer<NitroOptInt64>';
+    case ReturnKind.doubleNullable: return 'Pointer<NitroOptFloat64>';
     case ReturnKind.variant:        return 'Pointer<Uint8>'; // variant binary [4B len][tag][fields]
     case ReturnKind.primitive:      return returnType.name; // int or double
   }
@@ -109,6 +107,7 @@ String callAsyncTransportType(BridgeType returnType, BridgeSpec spec) {
 
   // @HybridRecord — caller should use _encodeRecordParam from DartFfiGenerator
   // for full fidelity; this covers the common toNative() path.
+  if (type.isAnyMap) return (expr: '$varName.toNative($allocator)', needsArena: true);
   if (type.isRecord) return (expr: '$varName.toNative($allocator)', needsArena: true);
 
   // @HybridStruct
@@ -119,14 +118,14 @@ String callAsyncTransportType(BridgeType returnType, BridgeSpec spec) {
 
   // bool
   if (rt == 'bool') return (expr: '$varName ? 1 : 0', needsArena: false);
-  // bool? — NitroNullable binary encoding
-  if (rt == 'bool?') return (expr: 'NitroNullableBool.fromNullable($varName).toNative($allocator)', needsArena: true);
+  // bool? — NitroOptBool packed struct via Arena
+  if (rt == 'bool?') return (expr: '$allocator.packBool($varName)', needsArena: true);
 
-  // int? — NitroNullable binary encoding (zero collision)
-  if (rt == 'int?') return (expr: 'NitroNullableInt.fromNullable($varName).toNative($allocator)', needsArena: true);
+  // int? — NitroOptInt64 packed struct via Arena
+  if (rt == 'int?') return (expr: '$allocator.packInt($varName)', needsArena: true);
 
-  // double? — NitroNullable binary encoding
-  if (rt == 'double?') return (expr: 'NitroNullableDouble.fromNullable($varName).toNative($allocator)', needsArena: true);
+  // double? — NitroOptFloat64 packed struct via Arena
+  if (rt == 'double?') return (expr: '$allocator.packDouble($varName)', needsArena: true);
 
   // int, double, or any remaining primitive
   return (expr: varName, needsArena: false);

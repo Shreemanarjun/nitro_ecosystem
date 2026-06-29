@@ -25,7 +25,7 @@ void main() {
       expect(out, contains('web: false,'));
       expect(
         out,
-        contains('_MyCameraImpl() : _dylib = _loadSupportedLibrary()'),
+        contains("_MyCameraImpl._init(this._instanceKey) : _dylib = _loadSupportedLibrary()"),
       );
     });
 
@@ -103,7 +103,7 @@ void main() {
       expect(
         out,
         contains(
-          ".asFunction<double Function(double, double, Pointer<NitroErrorFfi>)>(isLeaf: true)",
+          ".asFunction<double Function(int, double, double, Pointer<NitroErrorFfi>)>(isLeaf: true)",
         ),
       );
     });
@@ -115,9 +115,9 @@ void main() {
 
     test('enum return type uses Int64 FFI type and isLeaf binding', () {
       final out = DartFfiGenerator.generate(enumSpec());
-      expect(out, contains('Int64 Function(Pointer<NitroErrorFfi>)'));
+      expect(out, contains('Int64 Function(Int64, Pointer<NitroErrorFfi>)'));
       // Primitive (enum) sync methods now use leaf binding.
-      expect(out, contains(".asFunction<int Function(Pointer<NitroErrorFfi>)>(isLeaf: true)"));
+      expect(out, contains(".asFunction<int Function(int, Pointer<NitroErrorFfi>)>(isLeaf: true)"));
     });
 
     test('enum return calls toDeviceStatus()', () {
@@ -130,7 +130,7 @@ void main() {
       expect(
         out,
         contains(
-          "lookupFunction<Void Function(Int64), void Function(int)>('my_camera_register_frames_stream')",
+          "lookupFunction<Void Function(Int64, Int64), void Function(int, int)>('my_camera_register_frames_stream')",
         ),
       );
       expect(
@@ -219,7 +219,7 @@ void main() {
 
     test('bool return converts via != 0', () {
       final out = DartFfiGenerator.generate(richSpec());
-      expect(out, contains('final res = _isReadyPtr(strict ? 1 : 0, _nitroErr);'));
+      expect(out, contains('final res = _isReadyPtr(_instanceId, strict ? 1 : 0, _nitroErr);'));
       expect(out, contains('NitroRuntime.throwIfOutParamError(_nitroErr);'));
       expect(out, contains('return res != 0;'));
     });
@@ -231,7 +231,7 @@ void main() {
 
     test('int return is passed through directly', () {
       final out = DartFfiGenerator.generate(richSpec());
-      expect(out, contains('final res = _countPtr(_nitroErr);'));
+      expect(out, contains('final res = _countPtr(_instanceId, _nitroErr);'));
       expect(out, contains('NitroRuntime.throwIfOutParamError(_nitroErr);'));
       expect(out, contains('return res;'));
     });
@@ -319,7 +319,7 @@ void main() {
       final out = DartFfiGenerator.generate(richSpec());
       expect(out, contains('bool get enabled {'));
       expect(out, contains("NitroRuntime.callSync(() {"));
-      expect(out, contains('final res = _getEnabledPtr(_nitroErr);'));
+      expect(out, contains('final res = _getEnabledPtr(_instanceId, _nitroErr);'));
       expect(out, contains('NitroRuntime.throwIfOutParamError(_nitroErr);'));
       expect(out, contains('return res != 0;'));
       expect(out, contains("methodName: 'get enabled'"));
@@ -333,7 +333,7 @@ void main() {
     test('property bool setter converts value ? 1 : 0', () {
       final out = DartFfiGenerator.generate(richSpec());
       expect(out, contains('set enabled(bool value)'));
-      expect(out, contains('_setEnabledPtr(value ? 1 : 0, _nitroErr)'));
+      expect(out, contains('_setEnabledPtr(_instanceId, value ? 1 : 0, _nitroErr)'));
       expect(out, contains('NitroRuntime.throwIfOutParamError(_nitroErr)'));
       expect(out, contains("methodName: 'set enabled'"));
     });
@@ -341,7 +341,7 @@ void main() {
     test('property enum setter passes nativeValue', () {
       final out = DartFfiGenerator.generate(richSpec());
       // pointer name = _set{Cap(dartName)}Ptr; dartName='mode' → _setModePtr
-      expect(out, contains('_setModePtr(value.nativeValue, _nitroErr)'));
+      expect(out, contains('_setModePtr(_instanceId, value.nativeValue, _nitroErr)'));
     });
 
     test('dispose() override is emitted in generated impl', () {
@@ -430,7 +430,7 @@ void main() {
       expect(
         out,
         contains(
-          "lookupFunction<Pointer<Uint8> Function(), Pointer<Uint8> Function()>"
+          "lookupFunction<Pointer<Uint8> Function(Int64), Pointer<Uint8> Function(int)>"
           "('camera_module_get_device')",
         ),
       );
@@ -441,7 +441,7 @@ void main() {
       expect(
         out,
         contains(
-          "lookupFunction<Void Function(Pointer<Uint8>, Pointer<NitroErrorFfi>), void Function(Pointer<Uint8>, Pointer<NitroErrorFfi>)>"
+          "lookupFunction<Void Function(Int64, Pointer<Uint8>, Pointer<NitroErrorFfi>), void Function(int, Pointer<Uint8>, Pointer<NitroErrorFfi>)>"
           "('camera_module_set_device')",
         ),
       );
@@ -836,7 +836,7 @@ void main() {
       // Binary map helpers: the top-level decode uses binary helper.
       expect(out, contains('_nitroDecodeMapBinaryDynamic'));
       // The function pointer type uses Pointer<Uint8> (binary) not Pointer<Utf8> (JSON).
-      expect(out, contains('Pointer<Uint8> Function() _getMetadataPtr'));
+      expect(out, contains('Pointer<Uint8> Function(int) _getMetadataPtr'));
       expect(out, isNot(contains('Pointer<Utf8> Function() _getMetadataPtr')));
       expect(out, isNot(contains('RecordExt')));
     });
@@ -870,7 +870,11 @@ void main() {
       );
       final out = DartFfiGenerator.generate(spec);
       expect(out, contains('_nitroEncodeMapBinaryDynamic'));
-      expect(out, isNot(contains('toNativeUtf8')));
+      // toNativeUtf8 may appear in the _init constructor for the key; check only the method body.
+      final metaIdx = out.indexOf('_setMetadataPtr(');
+      expect(metaIdx, isNot(-1), reason: 'method call not found');
+      final methodBody = out.substring(metaIdx, metaIdx + 200);
+      expect(methodBody, isNot(contains('toNativeUtf8')));
       expect(out, isNot(contains('meta.toJson()')));
     });
 
@@ -898,7 +902,11 @@ void main() {
       );
       final out = DartFfiGenerator.generate(spec);
       expect(out, contains('_nitroEncodeMapBinaryDynamic'));
-      expect(out, isNot(contains('toNativeUtf8')));
+      // toNativeUtf8 may appear in the _init constructor; check only setter body.
+      final setIdx = out.indexOf('set metadata(');
+      expect(setIdx, isNot(-1), reason: 'setter not found');
+      final setterBody = out.substring(setIdx, setIdx + 300);
+      expect(setterBody, isNot(contains('toNativeUtf8')));
       expect(out, isNot(contains('value.toJson()')));
     });
 
@@ -1105,7 +1113,7 @@ void main() {
       // The FFI lookup signature must reference Pointer<Uint8>
       expect(out, contains('Pointer<Uint8>'));
       // The call site must pass the pointer argument through unchanged
-      expect(out, contains('_sendBufferPtr(ptr, _nitroErr)'));
+      expect(out, contains('_sendBufferPtr(_instanceId, ptr, _nitroErr)'));
     });
 
     test('non-arena record return uses try/finally for malloc.free', () {

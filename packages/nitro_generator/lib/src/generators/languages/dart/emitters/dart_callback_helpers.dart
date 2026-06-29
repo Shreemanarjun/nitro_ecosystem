@@ -33,16 +33,16 @@ void _assertSupportedCallbackType(
 ) {
   final callback = param.type;
   final returnName = (callback.functionReturnType ?? 'void').replaceFirst('?', '');
-  // String is now supported as bidirectional callback return type (#4).
+  // Nullable primitive returns use sentinel encoding; all types below are supported.
   if (returnName != 'void' && returnName != 'int' && returnName != 'double' && returnName != 'bool' && returnName != 'String' && !spec.isEnumName(returnName)) {
     throw UnsupportedError(
-      '${spec.dartClassName}.${func.dartName}() parameter "${param.name}" has callback return type "$returnName", which is not supported. Callback returns currently support void, int, double, bool, String, and @HybridEnum.',
+      '${spec.dartClassName}.${func.dartName}() parameter "${param.name}" has callback return type "$returnName", which is not supported. Callback returns currently support void, int, double, bool, String, and @HybridEnum (and their nullable variants).',
     );
   }
   for (final callbackParam in callback.functionParams) {
     if (!_isSupportedCallbackParam(callbackParam, spec)) {
       throw UnsupportedError(
-        '${spec.dartClassName}.${func.dartName}() parameter "${param.name}" has callback parameter type "${callbackParam.name}", which is not supported. Callback parameters currently support int, double, bool, String, Pointer<T>, and @HybridEnum.',
+        '${spec.dartClassName}.${func.dartName}() parameter "${param.name}" has callback parameter type "${callbackParam.name}", which is not supported. Callback parameters currently support int, double, bool, String, Pointer<T>, and @HybridEnum (and their nullable variants).',
       );
     }
   }
@@ -61,6 +61,8 @@ bool _isSupportedCallbackParam(BridgeType type, BridgeSpec spec) {
 void _emitCallbackHelpers(CodeWriter writer, BridgeSpec spec) {
   writer.line('  // Native callback handles are cached so native code can retain');
   writer.line('  // callback pointers safely until this HybridObject is disposed.');
+  writer.line('  // _callbackReleasePort receives callbackPtr int64 values when Kotlin');
+  writer.line('  // calls _release_*, which closes the corresponding NativeCallable.');
   for (final func in spec.functions) {
     for (final param in func.params.where((p) => p.type.isFunction)) {
       final helperName = _callbackHelperName(func, param);
@@ -71,18 +73,24 @@ void _emitCallbackHelpers(CodeWriter writer, BridgeSpec spec) {
       final exceptionalArg = exceptionalReturn == null ? '' : ', exceptionalReturn: $exceptionalReturn';
       writer.line('  NativeCallable<$nativeSig> $helperName($dartType callback) {');
       writer.line("    final key = ('${func.dartName}.${param.name}', callback);");
-      writer.line('    return _nativeCallbackCache.putIfAbsent(key, () {');
-      writer.line('      return NativeCallable<$nativeSig>.$callbackFactory((${_callbackWrapperParams(param.type, spec)}) {');
+      writer.line('    if (_nativeCallbackCache.containsKey(key)) {');
+      writer.line('      return _nativeCallbackCache[key]! as NativeCallable<$nativeSig>;');
+      writer.line('    }');
+      writer.line('    final nc = NativeCallable<$nativeSig>.$callbackFactory((${_callbackWrapperParams(param.type, spec)}) {');
       final invocationArgs = _callbackInvocationArgs(param.type, spec);
       final callbackInvocation = 'callback($invocationArgs)';
       final returnExpr = _callbackReturnExpression(param.type, spec, callbackInvocation);
       if (returnExpr == null) {
-        writer.line('        $callbackInvocation;');
+        writer.line('      $callbackInvocation;');
       } else {
-        writer.line('        return $returnExpr;');
+        writer.line('      return $returnExpr;');
       }
-      writer.line('      }$exceptionalArg);');
-      writer.line('    }) as NativeCallable<$nativeSig>;');
+      writer.line('    }$exceptionalArg);');
+      writer.line('    _nativeCallbackCache[key] = nc;');
+      writer.line('    final ptr = nc.nativeFunction.address;');
+      writer.line('    _callbackPtrToKey[ptr] = key;');
+      writer.line('    _registerCallbackReleasePtr(ptr, _callbackReleasePort.sendPort.nativePort);');
+      writer.line('    return nc;');
       writer.line('  }');
       writer.blankLine();
     }
@@ -95,14 +103,16 @@ String _callbackFactory(BridgeType callbackType) {
 }
 
 String? _callbackExceptionalReturn(BridgeType callbackType, BridgeSpec spec) {
-  final returnName = (callbackType.functionReturnType ?? 'void').replaceFirst('?', '');
+  final rawRet = callbackType.functionReturnType ?? 'void';
+  final isNullableRet = rawRet.endsWith('?');
+  final returnName = rawRet.replaceFirst('?', '');
   if (returnName == 'void') return null;
-  // double now encodes as Int64 raw bits → exceptionalReturn must be int 0, not 0.0.
-  if (returnName == 'double') return '0';
-  if (returnName == 'bool') return '0';
-  if (returnName == 'int' || spec.isEnumName(returnName)) return '0';
+  // Nullable returns use sentinel values for the exceptional return.
+  if (returnName == 'double') return isNullableRet ? '0x7FF8000000000000' : '0';
+  if (returnName == 'bool') return isNullableRet ? '-1' : '0';
+  if (returnName == 'int') return isNullableRet ? '-9223372036854775808' : '0';
+  if (spec.isEnumName(returnName)) return isNullableRet ? '-1' : '0';
   // String returns Pointer<Utf8> — isolateLocal doesn't allow exceptionalReturn for Pointer types.
-  // Let exceptions propagate naturally; the caller handles errors via NitroError*.
   if (returnName == 'String') return null;
   return null;
 }
@@ -212,6 +222,7 @@ String _callbackInvocationArgs(BridgeType callbackType, BridgeSpec spec) {
   final args = <String>[];
   for (var i = 0; i < callbackType.functionParams.length; i++) {
     final type = callbackType.functionParams[i];
+    final isNullable = type.name.endsWith('?');
     final name = type.name.replaceFirst('?', '');
     final struct = spec.structs.where((s) => s.name == name).firstOrNull;
     if (struct != null && _isExpandableCallbackStruct(struct)) {
@@ -231,17 +242,40 @@ String _callbackInvocationArgs(BridgeType callbackType, BridgeSpec spec) {
           .join(', ');
       args.add('$name($fieldExprs)');
     } else if (name == 'bool') {
-      args.add('arg$i != 0');
+      // Nullable bool: -1 sentinel → null; 0/1 → bool.
+      if (isNullable) {
+        args.add('arg$i == -1 ? null : arg$i != 0');
+      } else {
+        args.add('arg$i != 0');
+      }
     } else if (name == 'double') {
-      args.add('Int64List.fromList([arg$i]).buffer.asFloat64List()[0]');
+      // Nullable double: NaN bits sentinel (0x7FF8000000000000) → null.
+      if (isNullable) {
+        args.add('arg$i == 0x7FF8000000000000 ? null : Int64List.fromList([arg$i]).buffer.asFloat64List()[0]');
+      } else {
+        args.add('Int64List.fromList([arg$i]).buffer.asFloat64List()[0]');
+      }
     } else if (name == 'String') {
-      args.add('arg$i.toDartString()');
+      // Nullable String: nullptr → null.
+      if (isNullable) {
+        args.add('arg$i == nullptr ? null : arg$i.toDartString()');
+      } else {
+        args.add('arg$i.toDartString()');
+      }
     } else if (spec.isEnumName(name)) {
-      args.add('arg$i.to$name()');
+      // Nullable enum: -1 sentinel → null.
+      if (isNullable) {
+        args.add('arg$i == -1 ? null : arg$i.to$name()');
+      } else {
+        args.add('arg$i.to$name()');
+      }
     } else if (spec.isStructName(name)) {
       args.add('arg$i.cast<${name}Ffi>().ref.toDart()');
     } else if (spec.isRecordName(name)) {
       args.add('(() { final _r = $name.fromNative(arg$i); malloc.free(arg$i); return _r; })()');
+    } else if (name == 'int' && isNullable) {
+      // Nullable int: Int64.min sentinel → null.
+      args.add('arg$i == -9223372036854775808 ? null : arg$i');
     } else {
       args.add('arg$i');
     }
@@ -250,18 +284,42 @@ String _callbackInvocationArgs(BridgeType callbackType, BridgeSpec spec) {
 }
 
 String? _callbackReturnExpression(BridgeType callbackType, BridgeSpec spec, String invocation) {
-  final returnName = (callbackType.functionReturnType ?? 'void').replaceFirst('?', '');
+  final rawRet = callbackType.functionReturnType ?? 'void';
+  final isNullableRet = rawRet.endsWith('?');
+  final returnName = rawRet.replaceFirst('?', '');
   if (returnName == 'void') return null;
   // double → raw IEEE 754 bits as Int64 (GP register, NativeCallable sync path)
-  if (returnName == 'double') return 'Float64List.fromList([$invocation]).buffer.asInt64List()[0]';
-  if (returnName == 'bool') return '$invocation ? 1 : 0';
+  // Nullable double: null → NaN bits sentinel (0x7FF8000000000000).
+  if (returnName == 'double') {
+    if (isNullableRet) {
+      return '(() { final _v = $invocation; return _v == null ? 0x7FF8000000000000 : Float64List.fromList([_v]).buffer.asInt64List()[0]; })()';
+    }
+    return 'Float64List.fromList([$invocation]).buffer.asInt64List()[0]';
+  }
+  // Nullable bool: null → -1 sentinel.
+  if (returnName == 'bool') {
+    if (isNullableRet) {
+      return '(() { final _v = $invocation; return _v == null ? -1 : (_v ? 1 : 0); })()';
+    }
+    return '$invocation ? 1 : 0';
+  }
   // String → strdup'd pointer; native will call free() on it
   if (returnName == 'String') {
-    if ((callbackType.functionReturnType ?? '').contains('?')) {
+    if (isNullableRet) {
       return '(() { final _value = $invocation; return _value == null ? nullptr : _value.toNativeUtf8(); })()';
     }
     return '$invocation.toNativeUtf8()';
   }
-  if (spec.isEnumName(returnName)) return '$invocation.nativeValue';
+  // Nullable enum: null → -1 sentinel.
+  if (spec.isEnumName(returnName)) {
+    if (isNullableRet) {
+      return '(() { final _v = $invocation; return _v == null ? -1 : _v.nativeValue; })()';
+    }
+    return '$invocation.nativeValue';
+  }
+  // Nullable int: null → Int64.min sentinel.
+  if (returnName == 'int' && isNullableRet) {
+    return '($invocation) ?? -9223372036854775808';
+  }
   return invocation;
 }

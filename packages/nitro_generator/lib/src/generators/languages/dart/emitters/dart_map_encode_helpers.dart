@@ -15,6 +15,7 @@ String _mapTypeSuffix(String vt) {
 
 void _emitMapBinaryHelpers(CodeWriter writer, String vt, BridgeSpec spec) {
   final suffix = _mapTypeSuffix(vt);
+  final isEnum = spec.isEnumName(vt);
   // Encode helper: Map<String, VT> → length-prefixed binary Pointer<Uint8>
   // Use camelCase function names to satisfy Dart lint.
   writer.line('Pointer<Uint8> _nitroEncodeMapBinary$suffix(Map<String, $vt> m, Allocator alloc) {');
@@ -28,6 +29,9 @@ void _emitMapBinaryHelpers(CodeWriter writer, String vt, BridgeSpec spec) {
   } else if (vt == 'String') {
     writer.line('    bb.addByte(4); final vb = utf8.encode(v as String); h.setInt32(0, vb.length, Endian.little);');
     writer.line('    bb.add(h.buffer.asUint8List(0, 4)); bb.add(vb);');
+  } else if (isEnum) {
+    // @HybridEnum: encode rawValue as tag 1 (int64). Same on-wire format as Map<String,int>.
+    writer.line('    bb.addByte(1); h.setInt64(0, (v as $vt).nativeValue, Endian.little); bb.add(h.buffer.asUint8List(0, 8));');
   } else {
     // dynamic/record: encode as JSON string with tag 4
     writer.line('    bb.addByte(4); final vb = utf8.encode(jsonEncode(v)); h.setInt32(0, vb.length, Endian.little);');
@@ -66,6 +70,10 @@ void _emitMapBinaryHelpers(CodeWriter writer, String vt, BridgeSpec spec) {
     writer.line('    pos += 1; // skip type tag (always 4=string for Map<String,String>)');
     writer.line('    final vLen = bd.getInt32(pos, Endian.little); pos += 4;');
     writer.line('    final v = utf8.decode(bd.buffer.asUint8List(pos, vLen)); pos += vLen;');
+  } else if (isEnum) {
+    // @HybridEnum: decode tag 1 int64 rawValue → enum via generated .toEnumName() extension.
+    writer.line('    pos += 1; // skip type tag (always 1=int64 for Map<String,$vt>)');
+    writer.line('    final v = bd.getInt64(pos, Endian.little).to$vt(); pos += 8;');
   } else {
     // dynamic: dispatch on tag to decode the right type
     writer.line('    final tag = bd.getUint8(pos); pos += 1;');

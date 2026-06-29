@@ -21,7 +21,8 @@ class KotlinFunctionEmitter {
     }
 
     final retType = mapper.functionRetType(func);
-    final bridgeParamsDecl = func.params.map((p) => '${p.name}: ${mapper.bridgeParamType(p)}').join(', ');
+    // instanceId is the first param for per-instance dispatch (Point 13).
+    final bridgeParamsDecl = ['instanceId: Long', ...func.params.map((p) => '${p.name}: ${mapper.bridgeParamType(p)}')].join(', ');
 
     if (func.isNativeAsync) {
       _emitNativeAsync(writer, func, spec, mapper, retType, bridgeParamsDecl);
@@ -35,6 +36,7 @@ class KotlinFunctionEmitter {
     final isNullableEnum = isEnum && func.returnType.name.endsWith('?');
     final isRecord = func.returnType.isRecord && !func.returnType.isMap;
     final isMap = func.returnType.isMap;
+    final isAnyMap = func.returnType.isAnyMap;
     final isListRecord = isRecord && func.returnType.recordListItemType != null && !func.returnType.recordListItemIsPrimitive;
     final isNullableBoolReturn = retBaseName == 'bool' && func.returnType.name.endsWith('?');
     final isNullableIntReturn = retBaseName == 'int' && func.returnType.name.endsWith('?');
@@ -51,6 +53,8 @@ class KotlinFunctionEmitter {
         ? 'Long'
         : isRecord
         ? (func.returnType.name.endsWith('?') ? 'ByteArray?' : 'ByteArray')
+        : isAnyMap
+        ? 'ByteArray'  // NitroAnyMap: type-tagged binary (same wire as @HybridRecord)
         : isMap
         ? 'ByteArray'
         : retType;
@@ -80,20 +84,17 @@ class KotlinFunctionEmitter {
         .join(', ');
 
     writer.line('    @JvmStatic fun ${func.dartName}_call($bridgeParamsDecl): $bridgeRetType {');
-    writer.line('        val impl = implementation ?: throw IllegalStateException("${spec.dartClassName} not registered")');
+    writer.line('        val impl = _implementations[instanceId] ?: throw IllegalStateException("${spec.dartClassName} instance \$instanceId not registered")');
 
-    // Decode nullable primitive params from NitroNullable ByteArray.
+    // Decode nullable primitive params from NitroOpt* ByteArray ([1B hasValue][N bytes value]).
     for (final p in optPrimParams) {
       final bn = p.type.name.replaceFirst('?', '');
       if (bn == 'int') {
-        writer.line('        // Dart layer sends NitroNullableInt (ByteArray) for ${p.name}.');
-        writer.line('        val ${p.name}Arg: Long? = NitroNullableInt.decode(${p.name}).nullable');
+        writer.line('        val ${p.name}Arg: Long? = NitroOptInt64.decode(${p.name}).nullable');
       } else if (bn == 'bool') {
-        writer.line('        // Dart layer sends NitroNullableBool (ByteArray) for ${p.name}.');
-        writer.line('        val ${p.name}Arg: Boolean? = NitroNullableBool.decode(${p.name}).nullable');
+        writer.line('        val ${p.name}Arg: Boolean? = NitroOptBool.decode(${p.name}).nullable');
       } else if (bn == 'double') {
-        writer.line('        // Dart layer sends NitroNullableDouble (ByteArray) for ${p.name}.');
-        writer.line('        val ${p.name}Arg: Double? = NitroNullableDouble.decode(${p.name}).nullable');
+        writer.line('        val ${p.name}Arg: Double? = NitroOptFloat64.decode(${p.name}).nullable');
       }
     }
     // Decode nullable enum params from Long sentinel (-1 = null).
@@ -115,6 +116,8 @@ class KotlinFunctionEmitter {
       _emitResultBody(writer, func, mapper, callParams);
     } else if (isVariantReturn) {
       _emitVariantReturnBody(writer, func, retBaseName, callParams);
+    } else if (isAnyMap) {
+      _emitAnyMapBody(writer, func, callParams);
     } else if (isMap) {
       _emitMapBody(writer, func, spec, mapper, callParams);
     } else if (isRecord) {
@@ -142,7 +145,8 @@ class KotlinFunctionEmitter {
     final retBaseName = func.returnType.name.replaceFirst('?', '');
     final isEnum = mapper.enumNames.contains(retBaseName);
     final isNullableReturn = func.returnType.name.endsWith('?') || func.returnType.isNullable;
-    final portParam = bridgeParamsDecl.isEmpty ? 'dartPort: Long' : '$bridgeParamsDecl, dartPort: Long';
+    // instanceId is prepended; bridgeParamsDecl already includes it.
+    final portParam = '$bridgeParamsDecl, dartPort: Long';
 
     final optPrims = func.params.where((p) {
       final bn = p.type.name.replaceFirst('?', '');
@@ -159,7 +163,7 @@ class KotlinFunctionEmitter {
         .join(', ');
 
     writer.line('    @JvmStatic fun ${func.dartName}_call($portParam) {');
-    writer.line('        val impl = implementation ?: run {');
+    writer.line('        val impl = _implementations[instanceId] ?: run {');
     writer.line('            postNullToPort(dartPort)');
     writer.line('            return');
     writer.line('        }');
@@ -167,11 +171,11 @@ class KotlinFunctionEmitter {
     for (final p in optPrims) {
       final bn = p.type.name.replaceFirst('?', '');
       if (bn == 'int') {
-        writer.line('        val ${p.name}Arg: Long? = NitroNullableInt.decode(${p.name}).nullable');
+        writer.line('        val ${p.name}Arg: Long? = NitroOptInt64.decode(${p.name}).nullable');
       } else if (bn == 'bool') {
-        writer.line('        val ${p.name}Arg: Boolean? = NitroNullableBool.decode(${p.name}).nullable');
+        writer.line('        val ${p.name}Arg: Boolean? = NitroOptBool.decode(${p.name}).nullable');
       } else if (bn == 'double') {
-        writer.line('        val ${p.name}Arg: Double? = NitroNullableDouble.decode(${p.name}).nullable');
+        writer.line('        val ${p.name}Arg: Double? = NitroOptFloat64.decode(${p.name}).nullable');
       }
     }
 
@@ -273,6 +277,7 @@ class KotlinFunctionEmitter {
           'int' => 'ArrayList<Long>',
           'double' => 'ArrayList<Double>',
           'String' => 'ArrayList<String>',
+          'bool' => 'ArrayList<Boolean>',
           _ => 'ArrayList<Any>',
         };
         writer.line('        val ${p.name}Buf = java.nio.ByteBuffer.wrap(${p.name}).order(java.nio.ByteOrder.LITTLE_ENDIAN)');
@@ -298,7 +303,7 @@ class KotlinFunctionEmitter {
           writer.line('        for (${p.name}Offset in ${p.name}Offsets) {');
           writer.line('            val itemBuf = java.nio.ByteBuffer.wrap(${p.name}, 4 + ${p.name}Offset.toInt(), ${p.name}.size - 4 - ${p.name}Offset.toInt()).order(java.nio.ByteOrder.LITTLE_ENDIAN)');
           if (itemType == 'bool') {
-            writer.line('            ${p.name}Decoded.add(if (itemBuf.get().toInt() != 0) 1L else 0L)');
+            writer.line('            ${p.name}Decoded.add(itemBuf.get().toInt() != 0)');
           } else {
             writer.line('            ${p.name}Decoded.add(itemBuf.$readMethod())');
           }
@@ -306,6 +311,47 @@ class KotlinFunctionEmitter {
         }
       }
     }
+  }
+
+  // ── NitroAnyMap body ──────────────────────────────────────────────────────────
+
+  static void _emitAnyMapBody(
+    CodeWriter writer,
+    BridgeFunction func,
+    String callParams,
+  ) {
+    // Decode input param (if any) from NitroAnyMap ByteArray.
+    final anyMapParam = func.params.firstWhere(
+      (p) => p.type.isAnyMap,
+      orElse: () => func.params.isNotEmpty ? func.params.first : BridgeParam(name: '', type: BridgeType(name: 'NitroAnyMap', isAnyMap: true)),
+    );
+    final paramName = anyMapParam.name;
+
+    if (func.params.any((p) => p.type.isAnyMap)) {
+      writer.line('        val ${paramName}Decoded: Map<String, Any?> = NitroAnyMapCodec.decode($paramName)');
+    }
+
+    // Resolve actual call params — replace the anymap param with decoded version.
+    final resolvedCallParams = func.params.map((p) {
+      if (p.type.isAnyMap) return '${p.name}Decoded';
+      return p.name;
+    }).join(', ');
+
+    if (func.isAsync) {
+      final rb = KotlinTypeMapper.runBlockingCall(func, 'impl.${func.dartName}($resolvedCallParams)');
+      writer.line('        val _result = _asyncExecutor.submit(java.util.concurrent.Callable { $rb }).get()');
+    } else {
+      writer.line('        val _result = impl.${func.dartName}($resolvedCallParams)');
+    }
+
+    // Encode result as NitroAnyMap ByteArray.
+    if (func.returnType.name == 'void' || func.returnType.name == 'Unit') {
+      writer.line('    }');
+      return;
+    }
+    writer.line('        @Suppress("UNCHECKED_CAST")');
+    writer.line('        val _outMap = _result as? Map<String, Any?> ?: emptyMap()');
+    writer.line('        return NitroAnyMapCodec.encode(_outMap)');
   }
 
   // ── Map body ─────────────────────────────────────────────────────────────────
@@ -322,12 +368,34 @@ class KotlinFunctionEmitter {
       final m = RegExp(r'^Map<String,\s*(.+)>$').firstMatch(func.returnType.name);
       return m?.group(1)?.trim() ?? 'Any?';
     })();
+    // Use the INPUT param's value type for the input map (may differ from return type).
+    final inputMapValueType = (() {
+      if (func.params.isNotEmpty && func.params.first.type.isMap) {
+        final m = RegExp(r'^Map<String,\s*(.+)>$').firstMatch(func.params.first.type.name);
+        return m?.group(1)?.trim() ?? mapValueType;
+      }
+      return mapValueType;
+    })();
+    final isInputEnum = spec.isEnumName(inputMapValueType);
+    final isOutputEnum = spec.isEnumName(mapValueType);
+    final inputKtValueType = switch (inputMapValueType) {
+      'int' => 'Long',
+      'double' => 'Double',
+      'bool' => 'Boolean',
+      'String' => 'String',
+      _ when isInputEnum => inputMapValueType,
+      _ => 'Any?',
+    };
+    final useTypedInput = inputKtValueType != 'Any?';
 
-    writer.line('        @Suppress("UNCHECKED_CAST")');
     writer.line('        val _mapBuf = java.nio.ByteBuffer.wrap($mapParam).order(java.nio.ByteOrder.LITTLE_ENDIAN)');
     writer.line('        _mapBuf.position(4) // skip 4-byte payload length prefix');
     writer.line('        val _mapCount = _mapBuf.int');
-    writer.line('        val _inputMap = mutableMapOf<String, Any?>()');
+    if (useTypedInput) {
+      writer.line('        val _inputMap = mutableMapOf<String, $inputKtValueType>()');
+    } else {
+      writer.line('        val _inputMap = mutableMapOf<String, Any?>()');
+    }
     writer.line('        repeat(_mapCount) {');
     writer.line('            val kLen = _mapBuf.int; val kBytes = ByteArray(kLen); _mapBuf.get(kBytes)');
     writer.line('            val k = kBytes.toString(Charsets.UTF_8)');
@@ -338,6 +406,9 @@ class KotlinFunctionEmitter {
       writer.line('            _inputMap[k] = _mapBuf.double');
     } else if (mapValueType == 'bool' || mapValueType == 'Boolean') {
       writer.line('            _inputMap[k] = _mapBuf.get().toInt() != 0');
+    } else if (isInputEnum) {
+      // @HybridEnum: decode Int64 rawValue → enum via fromNative companion factory.
+      writer.line('            _inputMap[k] = $inputMapValueType.fromNative(_mapBuf.long)');
     } else {
       writer.line('            val vLen = _mapBuf.int; val vBytes = ByteArray(vLen); _mapBuf.get(vBytes)');
       writer.line('            _inputMap[k] = vBytes.toString(Charsets.UTF_8)');
@@ -351,8 +422,21 @@ class KotlinFunctionEmitter {
       writer.line('        val _result = impl.${func.dartName}(_inputMap)');
     }
 
-    writer.line('        @Suppress("UNCHECKED_CAST")');
-    writer.line('        val _outMap = _result as? Map<String, Any?> ?: emptyMap()');
+    final outKtValueType = switch (mapValueType) {
+      'int' => 'Long',
+      'double' => 'Double',
+      'bool' => 'Boolean',
+      'String' => 'String',
+      _ when isOutputEnum => mapValueType,
+      _ => 'Any?',
+    };
+    if (outKtValueType != 'Any?') {
+      writer.line('        @Suppress("UNCHECKED_CAST")');
+      writer.line('        val _outMap = _result as? Map<String, $outKtValueType> ?: emptyMap()');
+    } else {
+      writer.line('        @Suppress("UNCHECKED_CAST")');
+      writer.line('        val _outMap = _result as? Map<String, Any?> ?: emptyMap()');
+    }
     writer.line('        val _outBb = java.io.ByteArrayOutputStream()');
     writer.line('        val _outBuf = java.nio.ByteBuffer.allocate(8).order(java.nio.ByteOrder.LITTLE_ENDIAN)');
     writer.line('        fun _writeInt32(v: Int) { _outBuf.clear(); _outBuf.putInt(v); _outBb.write(_outBuf.array(), 0, 4) }');
@@ -363,18 +447,23 @@ class KotlinFunctionEmitter {
     writer.line('            val kb = k.toByteArray(Charsets.UTF_8); _writeInt32(kb.size); _outBb.write(kb)');
     if (mapValueType == 'int' || mapValueType == 'Long') {
       writer.line('            _outBb.write(1) // tag: int64');
-      writer.line('            _writeInt64((v as Number).toLong())');
+      writer.line('            _writeInt64(v)');
     } else if (mapValueType == 'double' || mapValueType == 'Double') {
       writer.line('            _outBb.write(2) // tag: float64');
-      writer.line('            _writeDouble((v as Number).toDouble())');
+      writer.line('            _writeDouble(v)');
     } else if (mapValueType == 'bool' || mapValueType == 'Boolean') {
       writer.line('            _outBb.write(3) // tag: bool');
-      writer.line('            _outBb.write(if (v as Boolean) 1 else 0)');
+      writer.line('            _outBb.write(if (v) 1 else 0)');
     } else if (mapValueType == 'String') {
       writer.line('            _outBb.write(4) // tag: string');
-      writer.line('            val vb = (v as String).toByteArray(Charsets.UTF_8); _writeInt32(vb.size); _outBb.write(vb)');
+      writer.line('            val vb = v.toByteArray(Charsets.UTF_8); _writeInt32(vb.size); _outBb.write(vb)');
+    } else if (isOutputEnum) {
+      // @HybridEnum: encode rawValue as tag 1 (int64). Mirrors Dart/Swift encoding.
+      writer.line('            _outBb.write(1) // tag: int64 (enum rawValue)');
+      writer.line('            _writeInt64((v as $mapValueType).nativeValue)');
     } else {
       writer.line('            _outBb.write(4) // tag: string (generic fallback)');
+      writer.line('            @Suppress("UNCHECKED_CAST")');
       writer.line('            val vb = v.toString().toByteArray(Charsets.UTF_8); _writeInt32(vb.size); _outBb.write(vb)');
     }
     writer.line('        }');
@@ -487,13 +576,13 @@ class KotlinFunctionEmitter {
       writer.line('        val _boolResult = _asyncExecutor.submit(java.util.concurrent.Callable {');
       writer.line('            $rb');
       writer.line('        }).get()');
-      writer.line('        return NitroNullableBool(_boolResult).encode()');
+      writer.line('        return NitroOptBool(_boolResult).encode()');
     } else if (isNullableInt) {
       writer.line('        val _intResult = _asyncExecutor.submit(java.util.concurrent.Callable { $rb }).get()');
-      writer.line('        return NitroNullableInt(_intResult).encode()');
+      writer.line('        return NitroOptInt64(_intResult).encode()');
     } else if (isNullableDouble) {
       writer.line('        val _doubleResult = _asyncExecutor.submit(java.util.concurrent.Callable { $rb }).get()');
-      writer.line('        return NitroNullableDouble(_doubleResult).encode()');
+      writer.line('        return NitroOptFloat64(_doubleResult).encode()');
     } else {
       writer.line('        return _asyncExecutor.submit(java.util.concurrent.Callable {');
       writer.line('            $rb');
@@ -588,13 +677,13 @@ class KotlinFunctionEmitter {
       }
     } else if (isNullableBool) {
       writer.line('        val _boolResult = impl.${func.dartName}($callParams)');
-      writer.line('        return NitroNullableBool(_boolResult).encode()');
+      writer.line('        return NitroOptBool(_boolResult).encode()');
     } else if (isNullableInt) {
       writer.line('        val _intResult = impl.${func.dartName}($callParams)');
-      writer.line('        return NitroNullableInt(_intResult).encode()');
+      writer.line('        return NitroOptInt64(_intResult).encode()');
     } else if (isNullableDouble) {
       writer.line('        val _doubleResult = impl.${func.dartName}($callParams)');
-      writer.line('        return NitroNullableDouble(_doubleResult).encode()');
+      writer.line('        return NitroOptFloat64(_doubleResult).encode()');
     } else {
       writer.line('        return impl.${func.dartName}($callParams)');
     }

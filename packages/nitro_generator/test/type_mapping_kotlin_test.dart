@@ -279,7 +279,7 @@ void main() {
     test('enum JniBridge _call returns Long (bridge primitive), param stays enum type', () {
       final out = KotlinGenerator.generate(_enumFnSpec('Status'));
       // Enum params in _call keep the enum type; only the return type is bridged to Long.
-      expect(out, contains('fun fn_call(mode: Long): Long'));
+      expect(out, contains('fun fn_call(instanceId: Long, mode: Long): Long'));
     });
 
     test('enum read-write property uses var', () {
@@ -469,6 +469,118 @@ void main() {
       );
       final out = KotlinGenerator.generate(spec);
       expect(out, contains('suspend fun getQuality(): Quality'));
+    });
+  });
+
+  // ── Section 9-A: Map<String, T> typed interface (Point 4) ─────────────────
+
+  group('KotlinGenerator — Map<String, T> interface uses typed Map not Any? (Point 4)', () {
+    BridgeSpec mapSpec(String dartValueType) => BridgeSpec(
+      dartClassName: 'Echo',
+      lib: 'echo',
+      namespace: 'echo',
+      androidImpl: NativeImpl.kotlin,
+      sourceUri: 'echo.native.dart',
+      functions: [
+        BridgeFunction(
+          dartName: 'echo',
+          cSymbol: 'echo_echo',
+          isAsync: false,
+          returnType: BridgeType(name: 'Map<String, $dartValueType>', isRecord: true, isMap: true),
+          params: [
+            BridgeParam(
+              name: 'input',
+              type: BridgeType(name: 'Map<String, $dartValueType>', isRecord: true, isMap: true),
+            ),
+          ],
+        ),
+      ],
+    );
+
+    test('Map<String, int> → interface uses Map<String, Long>', () {
+      final out = KotlinGenerator.generate(mapSpec('int'));
+      expect(out, contains('Map<String, Long>'));
+      expect(out, isNot(contains('fun echo(input: Any?): Any?')));
+    });
+
+    test('Map<String, double> → interface uses Map<String, Double>', () {
+      final out = KotlinGenerator.generate(mapSpec('double'));
+      expect(out, contains('Map<String, Double>'));
+    });
+
+    test('Map<String, bool> → interface uses Map<String, Boolean>', () {
+      final out = KotlinGenerator.generate(mapSpec('bool'));
+      expect(out, contains('Map<String, Boolean>'));
+    });
+
+    test('Map<String, String> → interface uses Map<String, String>', () {
+      final out = KotlinGenerator.generate(mapSpec('String'));
+      expect(out, contains('Map<String, String>'));
+    });
+
+    test('Map<String, int> → _inputMap is mutableMapOf<String, Long> (no Any?)', () {
+      final out = KotlinGenerator.generate(mapSpec('int'));
+      expect(out, contains('mutableMapOf<String, Long>()'));
+      expect(out, isNot(contains('mutableMapOf<String, Any?>()')));
+    });
+
+    test('Map<String, int> → output cast uses Map<String, Long> (no Any?)', () {
+      final out = KotlinGenerator.generate(mapSpec('int'));
+      expect(out, contains('as? Map<String, Long>'));
+      expect(out, isNot(contains('as? Map<String, Any?>')));
+    });
+
+    test('Map<String, int> → output write uses typed v directly (no (v as Number))', () {
+      final out = KotlinGenerator.generate(mapSpec('int'));
+      expect(out, isNot(contains('(v as Number)')));
+      expect(out, isNot(contains('(v as Boolean)')));
+    });
+  });
+
+  // ── Section 9-B: List<T> typed interface (Point 4) ───────────────────────
+
+  group('KotlinGenerator — List<T> interface uses typed List not Any? (Point 4)', () {
+    BridgeSpec listSpec(String dartItemType) => BridgeSpec(
+      dartClassName: 'Echo',
+      lib: 'echo',
+      namespace: 'echo',
+      androidImpl: NativeImpl.kotlin,
+      sourceUri: 'echo.native.dart',
+      functions: [
+        BridgeFunction(
+          dartName: 'echo',
+          cSymbol: 'echo_echo',
+          isAsync: false,
+          returnType: BridgeType(name: 'List<$dartItemType>', isRecord: true),
+          params: [
+            BridgeParam(
+              name: 'input',
+              type: BridgeType(name: 'List<$dartItemType>', isRecord: true),
+            ),
+          ],
+        ),
+      ],
+    );
+
+    test('List<int> → interface uses List<Long> (not Any?)', () {
+      final out = KotlinGenerator.generate(listSpec('int'));
+      expect(out, contains('List<Long>'));
+      expect(out, isNot(contains('fun echo(input: Any?): Any?')));
+    });
+
+    test('List<double> → interface uses List<Double>', () {
+      final out = KotlinGenerator.generate(listSpec('double'));
+      expect(out, contains('List<Double>'));
+    });
+
+    test('List<bool> → interface uses List<Boolean>', () {
+      final out = KotlinGenerator.generate(listSpec('bool'));
+      expect(out, contains('List<Boolean>'));
+    });
+
+    test('List<String> → interface uses List<String>', () {
+      final out = KotlinGenerator.generate(listSpec('String'));
+      expect(out, contains('List<String>'));
     });
   });
 

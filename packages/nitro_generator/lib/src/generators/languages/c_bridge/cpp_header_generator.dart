@@ -41,6 +41,19 @@ class CppHeaderGenerator {
       ),
       CodeLine('#endif'),
       BlankLine(),
+      // NitroOpt* — packed 2-field structs for nullable primitive transport.
+      // Wire: [1 byte hasValue][N bytes value]. Struct size is fixed, so no
+      // RecordWriter length prefix is needed. #pragma pack ensures identical
+      // layout across MSVC, GCC, and Clang on all target platforms.
+      CodeLine('#ifndef NITRO_OPT_DEFINED'),
+      CodeLine('#define NITRO_OPT_DEFINED'),
+      CodeLine('#pragma pack(push, 1)'),
+      CodeLine('typedef struct { uint8_t hasValue; int64_t  value; } NitroOptInt64;'),
+      CodeLine('typedef struct { uint8_t hasValue; double   value; } NitroOptFloat64;'),
+      CodeLine('typedef struct { uint8_t hasValue; uint8_t  value; } NitroOptBool;'),
+      CodeLine('#pragma pack(pop)'),
+      CodeLine('#endif'),
+      BlankLine(),
     ]);
 
     // Include headers for types imported from other .native.dart files.
@@ -75,6 +88,11 @@ class CppHeaderGenerator {
       CodeLine('NITRO_EXPORT intptr_t ${libStem}_init_dart_api_dl(void* data);'),
       CodeLine('NITRO_EXPORT NitroError* ${libStem}_get_error(void);'),
       CodeLine('NITRO_EXPORT void ${libStem}_clear_error(void);'),
+      // Instance lifecycle: Dart calls create_instance on first getInstance(key),
+      // native side invokes the registered factory and returns the int64 instanceId.
+      // destroy_instance is called from dispose() to release the native impl.
+      CodeLine('NITRO_EXPORT int64_t ${libStem}_create_instance(const char* key);'),
+      CodeLine('NITRO_EXPORT void ${libStem}_destroy_instance(int64_t instanceId);'),
       if (spec.functions.any((f) => f.zeroCopyReturn && f.returnType.isTypedData))
         CodeLine('NITRO_EXPORT void ${libStem}_release_typed_data_return(void* ptr);'),
       // @NitroOwned: emit a _release symbol for each owned NativeHandle function.
@@ -94,25 +112,24 @@ class CppHeaderGenerator {
       nodes.add(const CodeLine('// Methods'));
       for (final func in spec.functions) {
         final isEnumRet = spec.isEnumName(func.returnType.name.replaceFirst('?', ''));
-        final paramParts = <String>[];
+        // instanceId is the first parameter for all bridge functions (Point 13 multi-instance).
+        final paramParts = <String>['int64_t instanceId'];
         for (final p in func.params) {
           if (p.type.isFunction) {
             paramParts.add(_callbackParamToC(p, spec));
             continue;
           }
           final isStructParam = spec.isStructName(p.type.name.replaceFirst('?', ''));
-          // Nullable primitives (int?/double?/bool?) use NitroNullable binary encoding:
-          // [1B hasValue][nB value] passed as void* (matches the JNI [B ByteArray transport).
+          // Nullable primitives: raw byte pointer (matches Swift UnsafeMutablePointer<UInt8>? @_cdecl).
           final paramBase = p.type.name.replaceFirst('?', '');
-          final isNullablePrim = (p.type.isNullable || p.type.name.endsWith('?')) &&
-              (paramBase == 'int' || paramBase == 'double' || paramBase == 'bool');
           // Enum params use int64_t (rawValue).
           final isEnumParam = spec.isEnumName(paramBase);
-          final cType = isNullablePrim
-              ? 'void*'
-              : isEnumParam
-              ? 'int64_t'
-              : ((isStructParam || p.type.isNativeHandle) ? 'void*' : _typeToC(p.type.name));
+          String cType;
+          if (p.type.name == 'int?' || p.type.name == 'double?' || p.type.name == 'bool?') {
+            cType = 'const uint8_t*';
+          } else {
+            cType = isEnumParam ? 'int64_t' : ((isStructParam || p.type.isNativeHandle) ? 'void*' : _typeToC(p.type.name));
+          }
           paramParts.add('$cType ${p.name}');
           if (p.type.isTypedData) paramParts.add('int64_t ${p.name}_length');
         }
@@ -127,10 +144,8 @@ class CppHeaderGenerator {
           if (!func.isAsync) {
             paramParts.add('NitroError* _nitro_err');
           }
-          // Nullable primitives use NitroNullable binary → uint8_t* return.
+          // Sync nullable prim returns: NitroOpt* struct by value (no pointer, no malloc).
           final retBase = func.returnType.name.replaceFirst('?', '');
-          final isNullablePrimRet = (func.returnType.isNullable || func.returnType.name.endsWith('?')) &&
-              (retBase == 'int' || retBase == 'double' || retBase == 'bool');
           // @NitroResult: C returns uint8_t* [1B tag][payload].
           // @NitroVariant: C returns uint8_t* [4B len][1B tag][fields].
           final isVariantRet = spec.isVariantName(retBase);
@@ -138,7 +153,11 @@ class CppHeaderGenerator {
               ? 'uint8_t*'
               : isVariantRet
               ? 'uint8_t*'
-              : isNullablePrimRet
+              : func.returnType.name == 'int?'
+              ? 'uint8_t*'
+              : func.returnType.name == 'double?'
+              ? 'uint8_t*'
+              : func.returnType.name == 'bool?'
               ? 'uint8_t*'
               : isEnumRet
               ? 'int64_t'
@@ -157,18 +176,25 @@ class CppHeaderGenerator {
       nodes.add(const CodeLine('// Properties'));
       for (final prop in spec.properties) {
         final isEnumProp = spec.isEnumName(prop.type.name.replaceFirst('?', ''));
-        // Nullable primitive properties: getter returns uint8_t*, setter takes void*.
-        final propBase = prop.type.name.replaceFirst('?', '');
-        final isNullablePrimProp = (prop.type.isNullable || prop.type.name.endsWith('?')) &&
-            (propBase == 'int' || propBase == 'double' || propBase == 'bool');
-        final getterRet = isNullablePrimProp ? 'uint8_t*' : (isEnumProp ? 'int64_t' : _typeToC(prop.type.name));
-        final setterParam = isNullablePrimProp ? 'void*' : (isEnumProp ? 'int64_t' : _typeToC(prop.type.name));
-        // S8: property accessors also receive NitroError* out-param.
+        // Property: nullable prim getter returns uint8_t* pointer; setter takes const uint8_t*.
+        final String getterRet;
+        final String setterParam;
+        if (!isEnumProp) {
+          switch (prop.type.name) {
+            case 'int?':    getterRet = 'uint8_t*'; setterParam = 'const uint8_t*'; break;
+            case 'double?': getterRet = 'uint8_t*'; setterParam = 'const uint8_t*'; break;
+            case 'bool?':   getterRet = 'uint8_t*'; setterParam = 'const uint8_t*'; break;
+            default: getterRet = _typeToC(prop.type.name); setterParam = getterRet;
+          }
+        } else {
+          getterRet = 'int64_t'; setterParam = 'int64_t';
+        }
+        // S8: property accessors also receive NitroError* out-param; instanceId for dispatch (Point 13).
         if (prop.hasGetter) {
-          nodes.add(CodeLine('NITRO_EXPORT $getterRet ${prop.getSymbol}(NitroError* _nitro_err);'));
+          nodes.add(CodeLine('NITRO_EXPORT $getterRet ${prop.getSymbol}(int64_t instanceId, NitroError* _nitro_err);'));
         }
         if (prop.hasSetter) {
-          nodes.add(CodeLine('NITRO_EXPORT void ${prop.setSymbol}($setterParam value, NitroError* _nitro_err);'));
+          nodes.add(CodeLine('NITRO_EXPORT void ${prop.setSymbol}(int64_t instanceId, $setterParam value, NitroError* _nitro_err);'));
         }
       }
       nodes.add(const BlankLine());
@@ -179,7 +205,7 @@ class CppHeaderGenerator {
       nodes.add(const CodeLine('// Streams'));
       for (final stream in spec.streams) {
         nodes.add(CodeLine('// Stream<${stream.itemType.name}> ${stream.dartName}'));
-        nodes.add(CodeLine('NITRO_EXPORT void ${stream.registerSymbol}(int64_t dart_port);'));
+        nodes.add(CodeLine('NITRO_EXPORT void ${stream.registerSymbol}(int64_t instanceId, int64_t dart_port);'));
         nodes.add(CodeLine('NITRO_EXPORT void ${stream.releaseSymbol}(int64_t dart_port);'));
       }
       nodes.add(const BlankLine());
@@ -236,8 +262,8 @@ class CppHeaderGenerator {
       case 'void':
         return 'void';
       default:
-        // Map<String, T> bridges as a length-prefixed binary buffer (same as @HybridRecord)
-        if (dartType.startsWith('Map<')) return 'uint8_t*';
+        // NitroAnyMap and Map<String, T> both bridge as length-prefixed binary buffers.
+        if (dartType == 'NitroAnyMap' || dartType.startsWith('Map<')) return 'uint8_t*';
         return 'void*';
     }
   }

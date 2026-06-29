@@ -13,7 +13,7 @@ for (final prop in spec.properties) {
     writer.line('  $rt get ${prop.dartName} {');
     writer.line('    checkDisposed();');
     writer.line("    return NitroRuntime.callSync(() {");
-    writer.line('      final res = _get${cap}Ptr(_nitroErr);');
+    writer.line('      final res = _get${cap}Ptr(_instanceId, _nitroErr);');
     writer.line(_assertCheckError('      '));
     _emitReturnDecode(writer, prop.type, 'res', '      ', spec);
     writer.line("    }, methodName: 'get ${prop.dartName}');");
@@ -27,7 +27,7 @@ for (final prop in spec.properties) {
       final encodeExpr = _encodeRecordParam(prop.type, 'value', 'arena');
       writer.line('  set ${prop.dartName}($rt value) {');
       writer.line('    checkDisposed();');
-      writer.line("    NitroRuntime.callSync<void>(() => withArena((arena) { _set${cap}Ptr($encodeExpr, _nitroErr); ${_inlineCheckError()} }), methodName: 'set ${prop.dartName}');");
+      writer.line("    NitroRuntime.callSync<void>(() => withArena((arena) { _set${cap}Ptr(_instanceId, $encodeExpr, _nitroErr); ${_inlineCheckError()} }), methodName: 'set ${prop.dartName}');");
       writer.line('  }');
     } else {
       // All other types: encodePropertyValue covers String, bool, int?, double?,
@@ -35,11 +35,11 @@ for (final prop in spec.properties) {
       final encoded = encodePropertyValue(prop.type, spec, 'value', 'arena');
       if (encoded.needsArena) {
         writer.line(
-          "  set ${prop.dartName}($rt value) { checkDisposed(); NitroRuntime.callSync<void>(() => withArena((arena) { _set${cap}Ptr(${encoded.expr}, _nitroErr); ${_inlineCheckError()} }), methodName: 'set ${prop.dartName}'); }",
+          "  set ${prop.dartName}($rt value) { checkDisposed(); NitroRuntime.callSync<void>(() => withArena((arena) { _set${cap}Ptr(_instanceId, ${encoded.expr}, _nitroErr); ${_inlineCheckError()} }), methodName: 'set ${prop.dartName}'); }",
         );
       } else {
         writer.line(
-          "  set ${prop.dartName}($rt value) { checkDisposed(); NitroRuntime.callSync<void>(() { _set${cap}Ptr(${encoded.expr}, _nitroErr); ${_inlineCheckError()} }, methodName: 'set ${prop.dartName}'); }",
+          "  set ${prop.dartName}($rt value) { checkDisposed(); NitroRuntime.callSync<void>(() { _set${cap}Ptr(_instanceId, ${encoded.expr}, _nitroErr); ${_inlineCheckError()} }, methodName: 'set ${prop.dartName}'); }",
         );
       }
     }

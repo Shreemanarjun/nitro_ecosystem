@@ -108,7 +108,7 @@ void main() {
         hasNot: ['int? ping', 'return null'],
       ),
       kotlin: BridgeChecks(
-        has: ['fun ping(): Unit', 'fun ping_call(): Unit', 'impl.ping()'],
+        has: ['fun ping(): Unit', 'fun ping_call(instanceId: Long): Unit', 'impl.ping()'],
         hasNot: ['return impl.ping()'],
       ),
       swift: BridgeChecks(
@@ -128,11 +128,11 @@ void main() {
         'int return — Dart: int; Kotlin: Long non-nullable; Swift: Int64 direct',
         src,
         dart: BridgeChecks(
-          has: ['int getCount()', 'Int64 Function(Pointer<NitroErrorFfi>)'],
+          has: ['int getCount()', 'Int64 Function(Int64, Pointer<NitroErrorFfi>)'],
           hasNot: ['int? getCount'],
         ),
         kotlin: BridgeChecks(
-          has: ['fun getCount(): Long', 'fun getCount_call(): Long', 'return impl.getCount()'],
+          has: ['fun getCount(): Long', 'fun getCount_call(instanceId: Long): Long', 'return impl.getCount()'],
           hasNot: ['Long?'],
         ),
         swift: BridgeChecks(
@@ -149,11 +149,11 @@ void main() {
         'double return — Dart: double; Kotlin: Double; Swift: Double direct',
         src,
         dart: BridgeChecks(
-          has: ['double getRatio()', 'Double Function(Pointer<NitroErrorFfi>)'],
+          has: ['double getRatio()', 'Double Function(Int64, Pointer<NitroErrorFfi>)'],
           hasNot: ['double? getRatio'],
         ),
         kotlin: BridgeChecks(
-          has: ['fun getRatio(): Double', 'fun getRatio_call(): Double', 'return impl.getRatio()'],
+          has: ['fun getRatio(): Double', 'fun getRatio_call(instanceId: Long): Double', 'return impl.getRatio()'],
           hasNot: ['Double?'],
         ),
         swift: BridgeChecks(
@@ -169,13 +169,13 @@ void main() {
         'bool return — Dart: bool; Kotlin: Boolean; Swift: Int8 (0/1)',
         src,
         dart: BridgeChecks(
-          has: ['bool isReady()', 'Int8 Function(Pointer<NitroErrorFfi>)'],
+          has: ['bool isReady()', 'Int8 Function(Int64, Pointer<NitroErrorFfi>)'],
           hasNot: ['bool? isReady'],
         ),
         kotlin: BridgeChecks(
           has: [
             'fun isReady(): Boolean',
-            'fun isReady_call(): Boolean',
+            'fun isReady_call(instanceId: Long): Boolean',
             'return impl.isReady()',
           ],
           hasNot: ['Boolean?'],
@@ -197,11 +197,11 @@ void main() {
           hasNot: ['String? getName'],
         ),
         kotlin: BridgeChecks(
-          has: ['fun getName(): String', 'fun getName_call(): String', 'return impl.getName()'],
+          has: ['fun getName(): String', 'fun getName_call(instanceId: Long): String', 'return impl.getName()'],
           hasNot: ['String?'],
         ),
         swift: BridgeChecks(
-          has: ['-> UnsafeMutablePointer<CChar>', 'strdup(', 'impl?.getName()'],
+          has: ['-> UnsafeMutablePointer<CChar>', '_nitroStringToCString(', 'impl?.getName()'],
         ),
       );
     });
@@ -214,18 +214,18 @@ void main() {
     group('int?', () {
       final src = _src('  int? getCount();');
       specTest(
-        'int? return — Dart: int?; Kotlin: ByteArray (NitroNullable); Swift: NitroNullableInt',
+        'int? return — Dart: int?; Kotlin: ByteArray (NitroOpt*); Swift: raw UInt8 pointer',
         src,
         dart: BridgeChecks(
-          has: ['int? getCount()', 'Pointer<Uint8> Function(Pointer<NitroErrorFfi>)'],
-          hasNot: ['int getCount()'],
+          has: ['int? getCount()', 'Pointer<NitroOptInt64> Function(Int64, Pointer<NitroErrorFfi>)', 'malloc.free'],
+          hasNot: ['int getCount()', 'NitroOptInt64 Function(Int64'],
         ),
         kotlin: BridgeChecks(
-          has: ['fun getCount(): Long?', 'fun getCount_call(): ByteArray', 'NitroNullableInt'],
+          has: ['fun getCount(): Long?', 'fun getCount_call(instanceId: Long): ByteArray', 'NitroOptInt64'],
         ),
         swift: BridgeChecks(
-          has: ['NitroNullableInt', 'UnsafeMutablePointer<UInt8>'],
-          hasNot: ['Int64.min'],
+          has: ['allocate(capacity: 9)', 'copyMemory', 'UnsafeMutablePointer<UInt8>?'],
+          hasNot: ['Int64.min', 'withMemoryRebound'],
         ),
       );
     });
@@ -233,18 +233,18 @@ void main() {
     group('double?', () {
       final src = _src('  double? getRatio();');
       specTest(
-        'double? return — Dart: double?; Kotlin: ByteArray (NitroNullable); Swift: NitroNullableDouble',
+        'double? return — Dart: double?; Kotlin: ByteArray (NitroOpt*); Swift: byte-safe copyMemory encode',
         src,
         dart: BridgeChecks(
-          has: ['double? getRatio()', 'Pointer<Uint8> Function(Pointer<NitroErrorFfi>)'],
-          hasNot: ['double getRatio()'],
+          has: ['double? getRatio()', 'Pointer<NitroOptFloat64> Function(Int64, Pointer<NitroErrorFfi>)', 'malloc.free'],
+          hasNot: ['double getRatio()', 'NitroOptFloat64 Function(Int64'],
         ),
         kotlin: BridgeChecks(
-          has: ['fun getRatio(): Double?', 'fun getRatio_call(): ByteArray', 'NitroNullableDouble'],
+          has: ['fun getRatio(): Double?', 'fun getRatio_call(instanceId: Long): ByteArray', 'NitroOptFloat64'],
         ),
         swift: BridgeChecks(
-          has: ['NitroNullableDouble', 'UnsafeMutablePointer<UInt8>'],
-          hasNot: ['Double.nan'],
+          has: ['allocate(capacity: 9)', 'copyMemory', 'UnsafeMutablePointer<UInt8>?'],
+          hasNot: ['Double.nan', 'withMemoryRebound'],
         ),
       );
     });
@@ -252,19 +252,20 @@ void main() {
     group('bool?', () {
       final src = _src('  bool? isReady();');
       specTest(
-        'bool? return — Dart: bool?; Kotlin: ByteArray (NitroNullable); Swift: NitroNullableBool',
+        'bool? return — Dart: bool?; Kotlin: ByteArray (NitroOpt*); Swift: byte-safe encode',
         src,
         dart: BridgeChecks(
-          has: ['bool? isReady()', 'Pointer<Uint8> Function(Pointer<NitroErrorFfi>)'],
-          hasNot: ['bool isReady()'],
+          has: ['bool? isReady()', 'Pointer<NitroOptBool> Function(Int64, Pointer<NitroErrorFfi>)', 'malloc.free'],
+          hasNot: ['bool isReady()', 'NitroOptBool Function(Int64'],
         ),
         kotlin: BridgeChecks(
           // bool? interface uses Boolean? so impls can return null.
-          // bool? _call uses ByteArray (NitroNullable binary encoding).
-          has: ['fun isReady(): Boolean?', 'fun isReady_call(): ByteArray', 'NitroNullableBool'],
+          // bool? _call uses ByteArray (NitroOpt* packed struct encoding).
+          has: ['fun isReady(): Boolean?', 'fun isReady_call(instanceId: Long): ByteArray', 'NitroOptBool'],
         ),
         swift: BridgeChecks(
-          has: ['NitroNullableBool', 'UnsafeMutablePointer<UInt8>'],
+          has: ['allocate(capacity: 2)', 'UnsafeMutablePointer<UInt8>?'],
+          hasNot: ['withMemoryRebound'],
         ),
       );
     });
@@ -280,10 +281,10 @@ void main() {
         ),
         kotlin: BridgeChecks(
           // Kotlin generator strips ? from String returns — JNI null reference serves as null signal
-          has: ['fun getName(): String', 'fun getName_call(): String'],
+          has: ['fun getName(): String', 'fun getName_call(instanceId: Long): String'],
         ),
         swift: BridgeChecks(
-          has: ['-> UnsafeMutablePointer<CChar>', 'strdup('],
+          has: ['-> UnsafeMutablePointer<CChar>', '_nitroStringToCString('],
         ),
       );
     });
@@ -306,7 +307,7 @@ void main() {
           // Interface returns enum; _call bridge exposes Long (nativeValue)
           has: [
             'fun getStatus(): Status',
-            'fun getStatus_call(): Long',
+            'fun getStatus_call(instanceId: Long): Long',
             'return impl.getStatus().nativeValue',
           ],
         ),
@@ -329,7 +330,7 @@ void main() {
         ),
         kotlin: BridgeChecks(
           // enum params in _call keep Kotlin enum type (not Long); direct pass-through
-          has: ['setStatus_call(s: Long)', 'impl.setStatus(Status.fromNative(s))'],
+          has: ['setStatus_call(instanceId: Long, s: Long)', 'impl.setStatus(Status.fromNative(s))'],
         ),
         swift: BridgeChecks(
           // @_cdecl receives Int64 for enum params
@@ -354,7 +355,7 @@ void main() {
         ),
         kotlin: BridgeChecks(
           // Nullable enum loses ?; _call returns Status (not Long — isEnum check fails for 'Status?')
-          has: ['fun getStatus(): Status?', 'fun getStatus_call(): Long'],
+          has: ['fun getStatus(): Status?', 'fun getStatus_call(instanceId: Long): Long'],
         ),
         swift: BridgeChecks(
           // -1 is the null sentinel for nullable enum (Dart decodes res == -1 as null).
@@ -474,7 +475,7 @@ void main() {
       ('double', 'Future<double>', 'Double', 'Double'),
       ('bool', 'Future<bool>', 'Boolean', 'Bool'),
       ('String', 'Future<String>', 'String', 'String'),
-      ('int?', 'Future<int?>', 'Long?', 'NitroNullableInt'), // NitroNullable binary
+      ('int?', 'Future<int?>', 'Long?', 'copyMemory'), // byte-safe copyMemory encode
     ]) {
       specTest(
         'Future<$dartType> — Dart async; Kotlin: $kotlinRet; Swift: $swiftPat',
@@ -495,47 +496,47 @@ void main() {
   // ══════════════════════════════════════════════════════════════════════════
   // §9  Nullable primitive parameters — full cross-bridge sentinel check
   // ══════════════════════════════════════════════════════════════════════════
-  group('§9 Nullable primitive parameters — NitroNullable round-trip', () {
-    for (final (dartType, dartEncoding, kotlinCallType, kotlinDecode, swiftDecode) in [
+  group('§9 Nullable primitive parameters — NitroOpt* packed struct round-trip', () {
+    for (final (dartType, dartEncoding, kotlinCallType, kotlinDecode, swiftParamType) in [
       (
         'int?',
-        'NitroNullableInt.fromNullable(value).toNative(arena)',
+        'arena.packInt(value)',
         'ByteArray',
-        'NitroNullableInt.decode(value).nullable',
-        'NitroNullableInt',
+        'NitroOptInt64.decode(value).nullable',
+        'UnsafeMutablePointer<UInt8>?',
       ),
       (
         'double?',
-        'NitroNullableDouble.fromNullable(value).toNative(arena)',
+        'arena.packDouble(value)',
         'ByteArray',
-        'NitroNullableDouble.decode(value).nullable',
-        'NitroNullableDouble',
+        'NitroOptFloat64.decode(value).nullable',
+        'UnsafeMutablePointer<UInt8>?',
       ),
       (
         'bool?',
-        'NitroNullableBool.fromNullable(value).toNative(arena)',
+        'arena.packBool(value)',
         'ByteArray',
-        'NitroNullableBool.decode(value).nullable',
-        'NitroNullableBool',
+        'NitroOptBool.decode(value).nullable',
+        'UnsafeMutablePointer<UInt8>?',
       ),
     ]) {
       specTest(
-        '$dartType param — Dart NitroNullable: $dartEncoding; Kotlin ByteArray _call; Swift NitroNullable decode',
+        '$dartType param — Dart NitroOpt*: $dartEncoding; Kotlin ByteArray _call; Swift raw byte decode',
         _src('  void process($dartType value);'),
         dart: BridgeChecks(has: [dartEncoding]),
         kotlin: BridgeChecks(
           has: [
             // _call receives ByteArray (JVM descriptor [B)
-            '_call(value: $kotlinCallType)',
-            // NitroNullable decode before forwarding to interface
+            '_call(instanceId: Long, value: $kotlinCallType)',
+            // NitroOpt* decode before forwarding to interface
             kotlinDecode,
           ],
           // interface keeps nullable
           hasNot: ['fun process(value: $kotlinCallType)'],
         ),
         swift: BridgeChecks(
-          // Swift @_cdecl receives UnsafeMutableRawPointer? and uses NitroNullable.fromNative
-          has: [swiftDecode],
+          // Swift @_cdecl receives UnsafeMutablePointer<UInt8>? (raw byte pointer).
+          has: [swiftParamType],
         ),
       );
     }
@@ -549,7 +550,7 @@ void main() {
         hasNot: ['msg ?? -9223372036854775808', 'msg ?? double'],
       ),
       kotlin: BridgeChecks(
-        has: ['send_call(msg: String?)', 'fun send(msg: String?)'],
+        has: ['send_call(instanceId: Long, msg: String?)', 'fun send(msg: String?)'],
         hasNot: ['msgArg'],
       ),
       swift: BridgeChecks(
@@ -575,7 +576,7 @@ void main() {
           hasNot: ['value ?? ', 'value == null'],
         ),
         kotlin: BridgeChecks(
-          has: ['set_call(value: $kotlinType)', 'fun set(value: $kotlinType)'],
+          has: ['set_call(instanceId: Long, value: $kotlinType)', 'fun set(value: $kotlinType)'],
           hasNot: ['valueArg'],
         ),
         swift: BridgeChecks(
@@ -595,10 +596,10 @@ void main() {
       ('double', 'CallStaticDoubleMethod', 'double'),
       ('bool', 'CallStaticBooleanMethod', 'int8_t'),
       ('String', 'CallStaticObjectMethod', 'const char*'),
-      // Nullable — NitroNullable: returns ByteArray → copy to uint8_t*
-      ('int?', 'CallStaticObjectMethod', 'uint8_t*'),   // NitroNullableInt
-      ('double?', 'CallStaticObjectMethod', 'uint8_t*'), // NitroNullableDouble
-      ('bool?', 'CallStaticObjectMethod', 'uint8_t*'),   // NitroNullableBool
+      // Nullable — NitroOpt*: Kotlin returns ByteArray → malloc uint8_t*, copy bytes, return pointer
+      ('int?', 'CallStaticObjectMethod', 'uint8_t*'),   // malloc'd pointer to NitroOptInt64 bytes
+      ('double?', 'CallStaticObjectMethod', 'uint8_t*'), // malloc'd pointer to NitroOptFloat64 bytes
+      ('bool?', 'CallStaticObjectMethod', 'uint8_t*'),   // malloc'd pointer to NitroOptBool bytes
       ('String?', 'CallStaticObjectMethod', 'const char*'),
     ]) {
       test('$returnType return → C type $cType, JNI: $jniCall', () {
@@ -665,7 +666,7 @@ void main() {
       final androidStart = out.indexOf('#ifdef __ANDROID__');
       final appleStart = out.indexOf('#elif __APPLE__');
       final androidBlock = (androidStart != -1 && appleStart != -1) ? out.substring(androidStart, appleStart) : out;
-      // Must call the JNI method (NitroNullable uses CallStaticObjectMethod for ByteArray), not silently return 0
+      // Must call the JNI method (NitroOpt* uses CallStaticObjectMethod for ByteArray), not silently return 0
       expect(androidBlock, contains('CallStaticObjectMethod'), reason: 'int? must call CallStaticObjectMethod — old bug returned 0 silently');
     });
   });
@@ -749,10 +750,10 @@ void main() {
       dart: BridgeChecks(
         has: [
           'name.toNativeUtf8', // String → pointer
-          'NitroNullableInt.fromNullable(limit).toNative(arena)', // int? → NitroNullable
-          'NitroNullableDouble.fromNullable(threshold).toNative(arena)', // double? → NitroNullable
-          'NitroNullableBool.fromNullable(verbose).toNative(arena)', // bool? → NitroNullable
-          'flag ? 1 : 0', // bool (non-nullable) → 0/1 no sentinel
+          'arena.packInt(limit)', // int? → NitroOptInt64 packed struct
+          'arena.packDouble(threshold)', // double? → NitroOptFloat64 packed struct
+          'arena.packBool(verbose)', // bool? → NitroOptBool packed struct
+          'flag ? 1 : 0', // bool (non-nullable) → 0/1
         ],
         hasNot: [
           'count ?? ',
@@ -763,14 +764,14 @@ void main() {
       ),
       kotlin: BridgeChecks(
         has: [
-          // _call uses ByteArray for optional primitives (NitroNullable JVM descriptor [B)
-          'doAll_call(name: String, count: Long, ratio: Double, flag: Boolean, label: String?, limit: ByteArray, threshold: ByteArray, verbose: ByteArray)',
+          // _call uses ByteArray for optional primitives (NitroOpt* packed struct, JVM descriptor [B)
+          'doAll_call(instanceId: Long, name: String, count: Long, ratio: Double, flag: Boolean, label: String?, limit: ByteArray, threshold: ByteArray, verbose: ByteArray)',
           // Interface preserves nullable types
           'fun doAll(name: String, count: Long, ratio: Double, flag: Boolean, label: String?, limit: Long?, threshold: Double?, verbose: Boolean?)',
-          // NitroNullable decodes for optional primitives
-          'val limitArg: Long? = NitroNullableInt.decode(limit).nullable',
-          'val thresholdArg: Double? = NitroNullableDouble.decode(threshold).nullable',
-          'val verboseArg: Boolean? = NitroNullableBool.decode(verbose).nullable',
+          // NitroOpt* decodes for optional primitives
+          'val limitArg: Long? = NitroOptInt64.decode(limit).nullable',
+          'val thresholdArg: Double? = NitroOptFloat64.decode(threshold).nullable',
+          'val verboseArg: Boolean? = NitroOptBool.decode(verbose).nullable',
           // Non-optional primitives and String? forwarded raw
           'impl.doAll(name, count, ratio, flag, label, limitArg, thresholdArg, verboseArg)',
         ],
@@ -789,9 +790,9 @@ void main() {
           '_ ratio: Double',
           '_ flag: Int8',
           '_ label: UnsafePointer<CChar>?',
-          '_ limit: UnsafeMutableRawPointer?', // optional int? — NitroNullable buffer
-          '_ threshold: UnsafeMutableRawPointer?', // optional double? — NitroNullable buffer
-          '_ verbose: UnsafeMutableRawPointer?', // optional bool? — NitroNullable buffer
+          '_ limit: UnsafeMutablePointer<UInt8>?', // optional int? — raw byte pointer
+          '_ threshold: UnsafeMutablePointer<UInt8>?', // optional double? — raw byte pointer
+          '_ verbose: UnsafeMutablePointer<UInt8>?', // optional bool? — raw byte pointer
         ],
       ),
     );

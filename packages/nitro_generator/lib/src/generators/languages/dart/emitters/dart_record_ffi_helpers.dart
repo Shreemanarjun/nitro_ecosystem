@@ -1,6 +1,10 @@
 part of '../dart_ffi_generator.dart';
 
 String _decodeRecordExpr(BridgeType type, String ptrVar) {
+  if (type.isAnyMap) {
+    // NitroAnyMap — type-tagged binary codec (mirrors RN Nitro AnyMap).
+    return 'NitroAnyMap.fromNative($ptrVar)';
+  }
   if (type.isMap) {
     // Binary map decoding — resolves NaN/Infinity, int64 precision, perf issues.
     // ptrVar is Pointer<Uint8> (4-byte length prefix + binary payload).
@@ -131,6 +135,10 @@ String _primitiveWriterCall(String item) {
 }
 
 String _encodeRecordParam(BridgeType type, String varName, String allocator) {
+  if (type.isAnyMap) {
+    // NitroAnyMap — type-tagged binary codec (mirrors RN Nitro AnyMap).
+    return '$varName.toNative($allocator)';
+  }
   if (type.isMap) {
     // Maps use binary encoding — resolves NaN/Infinity, int64 precision, and perf issues.
     final mapMatch = RegExp(r'^Map<String,\s*(.+)>$').firstMatch(type.name);

@@ -34,21 +34,20 @@ class KotlinPropertyEmitter {
     }
 
     if (prop.hasGetter) {
-      // Uses CodeWriter.block() to emit '@JvmStatic fun ... { ... }' cleanly.
-      writer.line('    @JvmStatic fun ${prop.getSymbol}_call(): $bridgeKt {');
+      writer.line('    @JvmStatic fun ${prop.getSymbol}_call(instanceId: Long): $bridgeKt {');
       writer.line(
-          '        val impl = implementation ?: throw IllegalStateException("$dartClassName not registered")');
+          '        val impl = _implementations[instanceId] ?: throw IllegalStateException("$dartClassName instance \$instanceId not registered")');
       if (isNullableEnum) {
         writer.line('        val _propVal = impl.${prop.dartName}');
         writer.line('        return if (_propVal == null) -1L else _propVal.nativeValue');
       } else if (isEnum) {
         writer.line('        return impl.${prop.dartName}.nativeValue');
       } else if (isNullableInt) {
-        writer.line('        return NitroNullableInt(impl.${prop.dartName}).encode()');
+        writer.line('        return NitroOptInt64(impl.${prop.dartName}).encode()');
       } else if (isNullableDouble) {
-        writer.line('        return NitroNullableDouble(impl.${prop.dartName}).encode()');
+        writer.line('        return NitroOptFloat64(impl.${prop.dartName}).encode()');
       } else if (isNullableBool) {
-        writer.line('        return NitroNullableBool(impl.${prop.dartName}).encode()');
+        writer.line('        return NitroOptBool(impl.${prop.dartName}).encode()');
       } else {
         writer.line('        return impl.${prop.dartName}');
       }
@@ -56,20 +55,20 @@ class KotlinPropertyEmitter {
     }
 
     if (prop.hasSetter) {
-      writer.line('    @JvmStatic fun ${prop.setSymbol}_call(value: $bridgeKt) {');
+      writer.line('    @JvmStatic fun ${prop.setSymbol}_call(instanceId: Long, value: $bridgeKt) {');
       writer.line(
-          '        val impl = implementation ?: throw IllegalStateException("$dartClassName not registered")');
+          '        val impl = _implementations[instanceId] ?: throw IllegalStateException("$dartClassName instance \$instanceId not registered")');
       if (isNullableEnum) {
         writer.line(
             '        impl.${prop.dartName} = if (value < 0L) null else $propBaseName.fromNative(value)');
       } else if (isEnum) {
         writer.line('        impl.${prop.dartName} = $propBaseName.fromNative(value)');
       } else if (isNullableInt) {
-        writer.line('        impl.${prop.dartName} = NitroNullableInt.decode(value).nullable');
+        writer.line('        impl.${prop.dartName} = NitroOptInt64.decode(value).nullable');
       } else if (isNullableDouble) {
-        writer.line('        impl.${prop.dartName} = NitroNullableDouble.decode(value).nullable');
+        writer.line('        impl.${prop.dartName} = NitroOptFloat64.decode(value).nullable');
       } else if (isNullableBool) {
-        writer.line('        impl.${prop.dartName} = NitroNullableBool.decode(value).nullable');
+        writer.line('        impl.${prop.dartName} = NitroOptBool.decode(value).nullable');
       } else {
         writer.line('        impl.${prop.dartName} = value');
       }

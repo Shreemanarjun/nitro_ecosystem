@@ -19,12 +19,15 @@ part 'emitters/dart_async_helpers.dart';
 part 'emitters/dart_callback_helpers.dart';
 
 /// Record types shipped in package:nitro that define their own codec methods.
-/// For these types the generator skips the *RecordExt extension and calls
-/// the class methods directly (e.g. NitroNullableInt.fromNative).
+/// For these types the generator skips the *RecordExt extension.
 const _nitroLibraryRecordTypes = {
   'NitroNullableInt',
   'NitroNullableDouble',
   'NitroNullableBool',
+  // NitroOpt* are Dart FFI Struct subclasses — no RecordExt needed.
+  'NitroOptInt64',
+  'NitroOptFloat64',
+  'NitroOptBool',
 };
 
 

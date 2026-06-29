@@ -27,15 +27,27 @@ for (final stream in spec.streams) {
     unpackExpr = '(message) { if (message == null) { $nullAction; } return ${itemType}Proxy(Pointer<${itemType}Ffi>.fromAddress(message as int)); }';
     streamItemType = itemType;
   } else if (spec.isEnumName(itemType)) {
-    // Enum stream: convert int to enum via generated extension
-    unpackExpr = '(message) => (message as int).to$itemType()';
+    // Enum stream: convert int to enum via generated extension.
+    // For nullable: native posts kNull for null items → message is null.
+    if (stream.itemType.isNullable) {
+      unpackExpr = '(message) => message == null ? null : (message as int).to$itemType()';
+    } else {
+      unpackExpr = '(message) => (message as int).to$itemType()';
+    }
     streamItemType = itemType;
   } else if (itemType == 'bool') {
     // Native posts kInt64 (0/1) for bool streams — kBool is unreliable on Android.
-    unpackExpr = '(message) => (message as int) != 0';
+    // For nullable: native posts kNull for null → message is null.
+    if (stream.itemType.isNullable) {
+      unpackExpr = '(message) => message == null ? null : (message as int) != 0';
+    } else {
+      unpackExpr = '(message) => (message as int) != 0';
+    }
     streamItemType = 'bool';
   } else {
-    unpackExpr = '(message) => message as $itemType';
+    // int?, double?, String?: native posts kNull for null, typed value otherwise.
+    // `message as T?` handles both null and the concrete Dart type.
+    unpackExpr = '(message) => message as $itemType${stream.itemType.isNullable ? '?' : ''}';
     streamItemType = itemType;
   }
 
@@ -45,11 +57,20 @@ for (final stream in spec.streams) {
       : 'Stream<$streamItemType${stream.itemType.isNullable ? '?' : ''}> get ${stream.dartName}';
   writer.line('  $streamSig {');
   writer.line('    checkDisposed();');
-  if (stream.isBatch) {
-    // Batch mode: native emits Int64List batches [count, item0, item1, ...]
-    // Dart unpacks each batch into individual stream items via asyncExpand.
+  if (stream.isBatch && itemType == 'String') {
+    // String batch: native sends Dart_CObject_kArray of kStrings → List<dynamic>.
+    writer.line('    return NitroRuntime.openStream<List<dynamic>>(');
+    writer.line('      register: (port) => _register${cap}Ptr(_instanceId, port),');
+    writer.line('      unpack: (message) => message as List<dynamic>,');
+    writer.line('      release: (port) => _release${cap}Ptr(port),');
+    writer.line('      backpressure: Backpressure.batch,');
+    writer.line('    ).asyncExpand((batch) {');
+    writer.line('      return Stream.fromIterable(batch.cast<String>());');
+    writer.line('    });');
+  } else if (stream.isBatch) {
+    // Numeric batch: native emits Int64List [count, item0, item1, ...].
     writer.line('    return NitroRuntime.openStream<List<int>>(');
-    writer.line('      register: (port) => _register${cap}Ptr(port),');
+    writer.line('      register: (port) => _register${cap}Ptr(_instanceId, port),');
     // Dart_CObject_kArray arrives as List<dynamic>; .cast<int>() lazy-reifies it.
     writer.line('      unpack: (message) => (message as List).cast<int>(),');
     writer.line('      release: (port) => _release${cap}Ptr(port),');
@@ -63,6 +84,9 @@ for (final stream in spec.streams) {
       writer.line('      return Stream.fromIterable([for (var i = 1; i <= count; i++) Int64List.fromList([batch[i]]).buffer.asFloat64List()[0]]);');
     } else if (itemType == 'bool') {
       writer.line('      return Stream.fromIterable([for (var i = 1; i <= count; i++) batch[i] != 0]);');
+    } else if (spec.isEnumName(itemType)) {
+      // Enum batch: items packed as Int64 rawValues → decode to enum via extension.
+      writer.line('      return Stream.fromIterable([for (var i = 1; i <= count; i++) batch[i].to$itemType()]);');
     } else {
       writer.line('      return Stream.fromIterable([for (var i = 1; i <= count; i++) batch[i] as $itemType]);');
     }
@@ -72,7 +96,7 @@ for (final stream in spec.streams) {
     // is attached correctly, but the return is implicitly upcast to Stream<value>.
     final openType = isStruct ? '${itemType}Proxy${stream.itemType.isNullable ? '?' : ''}' : '$streamItemType${stream.itemType.isNullable ? '?' : ''}';
     writer.line('    return NitroRuntime.openStream<$openType>(');
-    writer.line('      register: (port) => _register${cap}Ptr(port),');
+    writer.line('      register: (port) => _register${cap}Ptr(_instanceId, port),');
     writer.line('      unpack: $unpackExpr,');
     writer.line('      release: (port) => _release${cap}Ptr(port),');
     writer.line(

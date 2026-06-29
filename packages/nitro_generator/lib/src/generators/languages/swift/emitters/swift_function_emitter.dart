@@ -111,9 +111,10 @@ class SwiftFunctionEmitter {
           final isStr = p.type.name == 'String' || p.type.name == 'String?';
           final isBool = p.type.name == 'bool' || p.type.name == 'bool?';
           if (isStr) return '${p.name}: ${p.name}Str';
-          if (p.type.name == 'int?') return '${p.name}: NitroNullableInt.fromNative(${p.name}!.assumingMemoryBound(to: UInt8.self)).nullable';
-          if (p.type.name == 'double?') return '${p.name}: NitroNullableDouble.fromNative(${p.name}!.assumingMemoryBound(to: UInt8.self)).nullable';
-          if (p.type.name == 'bool?') return '${p.name}: NitroNullableBool.fromNative(${p.name}!.assumingMemoryBound(to: UInt8.self)).nullable';
+          // Byte-safe decode: byte[0]=hasValue; bytes[1..8]=value via copyMemory (avoids withMemoryRebound alignment crash).
+          if (p.type.name == 'int?') return '${p.name}: { guard let _p = ${p.name}, _p[0] != 0 else { return nil }; var _rv: Int64 = 0; Swift.withUnsafeMutableBytes(of: &_rv) { \$0.baseAddress!.copyMemory(from: UnsafeRawPointer(_p + 1), byteCount: 8) }; return _rv }()';
+          if (p.type.name == 'double?') return '${p.name}: { guard let _p = ${p.name}, _p[0] != 0 else { return nil }; var _rv: Double = 0; Swift.withUnsafeMutableBytes(of: &_rv) { \$0.baseAddress!.copyMemory(from: UnsafeRawPointer(_p + 1), byteCount: 8) }; return _rv }()';
+          if (p.type.name == 'bool?') return '${p.name}: { guard let _p = ${p.name}, _p[0] != 0 else { return nil }; return _p[1] != 0 }()';
           if (isBool) return '${p.name}: ${p.name} != 0';
           if (p.type.isTypedData) return '${p.name}: ${p.name}Arr';
           if (p.type.isRecord && p.type.name.startsWith('List<')) return '${p.name}: ${p.name}Decoded';
@@ -155,7 +156,11 @@ class SwiftFunctionEmitter {
     BridgeFunction func,
   ) {
     for (final p in stringParams) {
-      writer.line('    let ${p.name}Str = ${p.name} != nil ? String(cString: ${p.name}!) : ""');
+      if (p.type.name == 'String?') {
+        writer.line('    let ${p.name}Str: String? = _nitroStringOptFromCString(${p.name})');
+      } else {
+        writer.line('    let ${p.name}Str = _nitroStringFromCString(${p.name})');
+      }
     }
     for (final p in typedListParams) {
       final isData = p.type.name.startsWith('Uint8List') || p.type.name.startsWith('Int8List');
@@ -199,9 +204,9 @@ class SwiftFunctionEmitter {
     writer.line('public func _${spec.namespace}_call_${func.dartName}($params${params.isNotEmpty ? ", " : ""}_ dartPort: Int64) {');
     for (final p in stringParams) {
       if (p.type.name == 'String?') {
-        writer.line('    let ${p.name}Str = ${p.name}.map { String(cString: \$0) }');
+        writer.line('    let ${p.name}Str: String? = _nitroStringOptFromCString(${p.name})');
       } else {
-        writer.line('    let ${p.name}Str = ${p.name} != nil ? String(cString: ${p.name}!) : ""');
+        writer.line('    let ${p.name}Str = _nitroStringFromCString(${p.name})');
       }
     }
     for (final p in typedListParams) {
@@ -219,9 +224,10 @@ class SwiftFunctionEmitter {
           final isBool = p.type.name == 'bool' || p.type.name == 'bool?';
           final isEnum = spec.isEnumName(p.type.name.replaceFirst('?', ''));
           if (isStr) return '${p.name}: ${p.name}Str';
-          if (p.type.name == 'int?') return '${p.name}: NitroNullableInt.fromNative(${p.name}!.assumingMemoryBound(to: UInt8.self)).nullable';
-          if (p.type.name == 'double?') return '${p.name}: NitroNullableDouble.fromNative(${p.name}!.assumingMemoryBound(to: UInt8.self)).nullable';
-          if (p.type.name == 'bool?') return '${p.name}: NitroNullableBool.fromNative(${p.name}!.assumingMemoryBound(to: UInt8.self)).nullable';
+          // Byte-safe decode (native async — copyMemory avoids withMemoryRebound alignment crash).
+          if (p.type.name == 'int?') return '${p.name}: { guard let _p = ${p.name}, _p[0] != 0 else { return nil }; var _rv: Int64 = 0; Swift.withUnsafeMutableBytes(of: &_rv) { \$0.baseAddress!.copyMemory(from: UnsafeRawPointer(_p + 1), byteCount: 8) }; return _rv }()';
+          if (p.type.name == 'double?') return '${p.name}: { guard let _p = ${p.name}, _p[0] != 0 else { return nil }; var _rv: Double = 0; Swift.withUnsafeMutableBytes(of: &_rv) { \$0.baseAddress!.copyMemory(from: UnsafeRawPointer(_p + 1), byteCount: 8) }; return _rv }()';
+          if (p.type.name == 'bool?') return '${p.name}: { guard let _p = ${p.name}, _p[0] != 0 else { return nil }; return _p[1] != 0 }()';
           if (isBool) return '${p.name}: ${p.name} != 0';
           if (isEnum) {
             final en = p.type.name.replaceFirst('?', '');
@@ -333,6 +339,15 @@ class SwiftFunctionEmitter {
 
   // ── async (DispatchSemaphore) ─────────────────────────────────────────────
 
+  // Timeout for @NitroAsync(timeout: N) is enforced on the Dart side via
+  // Future.timeout() — NOT here. NSException.raise() cannot safely escape a
+  // @_cdecl frame called from C/Dart-FFI (the exception hits a C frame with no
+  // ObjC handler and the runtime calls abort()). Dart-side timeout is clean and
+  // platform-agnostic; the background Task still runs to completion (acceptable).
+  static void _emitSemaWait(CodeWriter writer, BridgeFunction func) {
+    writer.line('    sema.wait()');
+  }
+
   static void _emitAsync(
     CodeWriter writer,
     BridgeFunction func,
@@ -358,7 +373,7 @@ class SwiftFunctionEmitter {
       writer.line('        _ownedPtr = try? await impl.${func.dartName}($callArgs)');
       writer.line('        sema.signal()');
       writer.line('    }');
-      writer.line('    sema.wait()');
+      _emitSemaWait(writer, func);
       writer.line('    return _ownedPtr');
       return;
     }
@@ -378,7 +393,7 @@ class SwiftFunctionEmitter {
       writer.line('        catch { _nitroErr = error }');
       writer.line('        sema.signal()');
       writer.line('    }');
-      writer.line('    sema.wait()');
+      _emitSemaWait(writer, func);
       writer.line('    if let _e = _nitroErr { return _nitroEncodeResultError(_e) }');
       writer.line('    guard let _ok = _nitroOk else { return nil }');
       writer.line('    return $encodeHelper(_ok)');
@@ -396,7 +411,7 @@ class SwiftFunctionEmitter {
       writer.line('        _vResult = try? await impl.${func.dartName}($callArgs)');
       writer.line('        sema.signal()');
       writer.line('    }');
-      writer.line('    sema.wait()');
+      _emitSemaWait(writer, func);
       writer.line('    guard let _vr = _vResult else { return nil }');
       writer.line('    let _vw = NitroRecordWriter()');
       writer.line('    _vr.writeFields(to: _vw)');
@@ -413,7 +428,7 @@ class SwiftFunctionEmitter {
       writer.line('        result = try? await impl.${func.dartName}($callArgs)');
       writer.line('        sema.signal()');
       writer.line('    }');
-      writer.line('    sema.wait()');
+      _emitSemaWait(writer, func);
       writer.line('    guard let r = result else { return nil }');
       writer.line('    let ptr = UnsafeMutablePointer<_${retStructName}C>.allocate(capacity: 1)');
       writer.line('    ptr.initialize(to: _${retStructName}C.fromSwift(r))');
@@ -427,22 +442,22 @@ class SwiftFunctionEmitter {
       writer.line('        catch { _thrownError = error }');
       writer.line('        sema.signal()');
       writer.line('    }');
-      writer.line('    sema.wait()');
+      _emitSemaWait(writer, func);
       writer.line('    if let _e = _thrownError {');
       writer.line('        NSException(name: NSExceptionName((_e as NSError).domain),');
       writer.line('                    reason: (_e as NSError).localizedDescription,');
       writer.line('                    userInfo: nil).raise()');
       writer.line('    }');
     } else if (isString) {
-      writer.line('    guard let impl = ${spec.dartClassName}Registry.impl else { return strdup("") }');
+      writer.line('    guard let impl = ${spec.dartClassName}Registry.impl else { return _nitroStringToCString("") }');
       writer.line('    let sema = DispatchSemaphore(value: 0)');
       writer.line('    var result = ""');
       writer.line('    Task.detached {');
       writer.line('        result = (try? await impl.${func.dartName}($callArgs)) ?? ""');
       writer.line('        sema.signal()');
       writer.line('    }');
-      writer.line('    sema.wait()');
-      writer.line('    return strdup(result)');
+      _emitSemaWait(writer, func);
+      writer.line('    return _nitroStringToCString(result)');
     } else if (isRecord) {
       writer.line('    guard let impl = ${spec.dartClassName}Registry.impl else { return nil }');
       writer.line('    let sema = DispatchSemaphore(value: 0)');
@@ -451,7 +466,7 @@ class SwiftFunctionEmitter {
       writer.line('        result = try? await impl.${func.dartName}($callArgs)');
       writer.line('        sema.signal()');
       writer.line('    }');
-      writer.line('    sema.wait()');
+      _emitSemaWait(writer, func);
       writer.line('    return result?.toNative().map { UnsafeMutableRawPointer(\$0) }');
     } else if (isRecordList) {
       final swiftRetType = mapper.swiftType(func.returnType.name);
@@ -463,7 +478,7 @@ class SwiftFunctionEmitter {
       writer.line('        result = try? await impl.${func.dartName}($callArgs)');
       writer.line('        sema.signal()');
       writer.line('    }');
-      writer.line('    sema.wait()');
+      _emitSemaWait(writer, func);
       writer.line('    guard let r = result else { return nil }');
       _emitRecordListEncode(writer, func.returnType.name);
     } else if (isTypedDataReturn) {
@@ -475,7 +490,7 @@ class SwiftFunctionEmitter {
       writer.line('        result = try? await impl.${func.dartName}($callArgs)');
       writer.line('        sema.signal()');
       writer.line('    }');
-      writer.line('    sema.wait()');
+      _emitSemaWait(writer, func);
       writer.line('    guard let r = result else { return nil }');
       _emitTypedDataReturn(writer, func);
     } else if (isBool) {
@@ -487,7 +502,7 @@ class SwiftFunctionEmitter {
       writer.line('        result = try? await impl.${func.dartName}($callArgs)');
       writer.line('        sema.signal()');
       writer.line('    }');
-      writer.line('    sema.wait()');
+      _emitSemaWait(writer, func);
       if (func.returnType.isNullable) {
         writer.line('    guard let b = result else { return -1 }');
         writer.line('    return b ? 1 : 0');
@@ -510,15 +525,25 @@ class SwiftFunctionEmitter {
       writer.line('        result = try? await impl.${func.dartName}($callArgs)');
       writer.line('        sema.signal()');
       writer.line('    }');
-      writer.line('    sema.wait()');
+      _emitSemaWait(writer, func);
       if (isEnumRet) {
         writer.line('    return result?.rawValue ?? $defaultVal');
       } else if (func.returnType.name == 'int?') {
-        writer.line('    return NitroNullableInt.fromNullable(result).toNative()');
+        // Byte-safe encode: byte[0]=hasValue, bytes[1..8]=Int64 via copyMemory (avoids alignment crash).
+        writer.line('    let _out_i = UnsafeMutablePointer<UInt8>.allocate(capacity: 9)');
+        writer.line('    _out_i[0] = result != nil ? 1 : 0');
+        writer.line('    if let _v = result { Swift.withUnsafeBytes(of: _v) { UnsafeMutableRawPointer(_out_i + 1).copyMemory(from: \$0.baseAddress!, byteCount: 8) } }');
+        writer.line('    return _out_i');
       } else if (func.returnType.name == 'double?') {
-        writer.line('    return NitroNullableDouble.fromNullable(result).toNative()');
+        writer.line('    let _out_d = UnsafeMutablePointer<UInt8>.allocate(capacity: 9)');
+        writer.line('    _out_d[0] = result != nil ? 1 : 0');
+        writer.line('    if let _v = result { Swift.withUnsafeBytes(of: _v) { UnsafeMutableRawPointer(_out_d + 1).copyMemory(from: \$0.baseAddress!, byteCount: 8) } }');
+        writer.line('    return _out_d');
       } else if (func.returnType.name == 'bool?') {
-        writer.line('    return NitroNullableBool.fromNullable(result).toNative()');
+        writer.line('    let _out_b = UnsafeMutablePointer<UInt8>.allocate(capacity: 2)');
+        writer.line('    _out_b[0] = result != nil ? 1 : 0');
+        writer.line('    _out_b[1] = result == true ? 1 : 0');
+        writer.line('    return _out_b');
       } else if (func.returnType.isNullable) {
         final base = func.returnType.name.replaceFirst('?', '');
         final nullSentinel = base == 'int'
@@ -596,14 +621,41 @@ class SwiftFunctionEmitter {
       writer.line('    ptr.initialize(to: _${sn}C.fromSwift(result))');
       writer.line('    return UnsafeMutableRawPointer(ptr)');
     } else if (isString) {
-      writer.line('    return strdup(${spec.dartClassName}Registry.impl?.${func.dartName}($callArgs) ?? "")');
+      if (func.returnType.isNullable) {
+        // String?: nil → return nullptr so Dart sees null, not empty string.
+        writer.line('    guard let _s = ${spec.dartClassName}Registry.impl?.${func.dartName}($callArgs) else { return nil }');
+        writer.line('    return _nitroStringToCString(_s)');
+      } else {
+        writer.line('    return _nitroStringToCString(${spec.dartClassName}Registry.impl?.${func.dartName}($callArgs) ?? "")');
+      }
     } else if (isMap) {
       final mapParam = func.params.firstOrNull?.name ?? 'value';
+      // Determine map value type from the function's return type.
+      final mapRetMatch = RegExp(r'^Map<String,\s*(.+)>$').firstMatch(func.returnType.name);
+      final mapValType = mapRetMatch?.group(1)?.trim() ?? '';
+      final isEnumMapVal = spec.isEnumName(mapValType);
+      // Determine input map value type (may differ from return type for transform functions).
+      final mapInMatch = func.params.isNotEmpty && func.params.first.type.isMap
+          ? RegExp(r'^Map<String,\s*(.+)>$').firstMatch(func.params.first.type.name)
+          : null;
+      final mapInValType = mapInMatch?.group(1)?.trim() ?? mapValType;
+      final isEnumMapIn = spec.isEnumName(mapInValType);
       writer.line('    guard let impl = ${spec.dartClassName}Registry.impl else { return nil }');
       writer.line('    guard let _rawPtr = $mapParam else { return nil }');
-      writer.line('    let inputMap = _nitroDecodeMapBinary(_rawPtr.assumingMemoryBound(to: UInt8.self))');
+      writer.line('    let _rawMap = _nitroDecodeMapBinary(_rawPtr.assumingMemoryBound(to: UInt8.self))');
+      if (isEnumMapIn) {
+        // Decode Int64 rawValues from [String: Any] → typed [String: EnumName]
+        writer.line('    let inputMap: [String: $mapInValType] = _rawMap.compactMapValues { $mapInValType(rawValue: \$0 as! Int64) }');
+      } else {
+        writer.line('    let inputMap = _rawMap');
+      }
       writer.line('    let result = impl.${func.dartName}(value: inputMap)');
-      writer.line('    guard let resultMap = result as? [String: Any] else { return nil }');
+      if (isEnumMapVal) {
+        // Encode typed [String: EnumName] → [String: Any] with rawValue Int64 for _nitroEncodeMapBinary
+        writer.line('    let resultMap: [String: Any] = (result as? [String: $mapValType] ?? [:]).mapValues { \$0.rawValue as Any }');
+      } else {
+        writer.line('    guard let resultMap = result as? [String: Any] else { return nil }');
+      }
       writer.line('    return _nitroEncodeMapBinary(resultMap)');
     } else if (isRecord) {
       writer.line('    guard let impl = ${spec.dartClassName}Registry.impl else { return nil }');
@@ -619,17 +671,27 @@ class SwiftFunctionEmitter {
       writer.line('    guard let r = ${spec.dartClassName}Registry.impl?.${func.dartName}($callArgs) else { return nil }');
       _emitTypedDataReturn(writer, func);
     } else if (func.returnType.name == 'int?') {
+      // Byte-safe encode: byte[0]=hasValue, bytes[1..8]=Int64 via copyMemory (avoids alignment crash).
       writer.line('    guard let impl = ${spec.dartClassName}Registry.impl else { return nil }');
       writer.line('    let _ni_result = impl.${func.dartName}($callArgs)');
-      writer.line('    return NitroNullableInt.fromNullable(_ni_result).toNative()');
+      writer.line('    let _out_ni = UnsafeMutablePointer<UInt8>.allocate(capacity: 9)');
+      writer.line('    _out_ni[0] = _ni_result != nil ? 1 : 0');
+      writer.line('    if let _v = _ni_result { Swift.withUnsafeBytes(of: _v) { UnsafeMutableRawPointer(_out_ni + 1).copyMemory(from: \$0.baseAddress!, byteCount: 8) } }');
+      writer.line('    return _out_ni');
     } else if (func.returnType.name == 'double?') {
       writer.line('    guard let impl = ${spec.dartClassName}Registry.impl else { return nil }');
       writer.line('    let _nd_result = impl.${func.dartName}($callArgs)');
-      writer.line('    return NitroNullableDouble.fromNullable(_nd_result).toNative()');
+      writer.line('    let _out_nd = UnsafeMutablePointer<UInt8>.allocate(capacity: 9)');
+      writer.line('    _out_nd[0] = _nd_result != nil ? 1 : 0');
+      writer.line('    if let _v = _nd_result { Swift.withUnsafeBytes(of: _v) { UnsafeMutableRawPointer(_out_nd + 1).copyMemory(from: \$0.baseAddress!, byteCount: 8) } }');
+      writer.line('    return _out_nd');
     } else if (func.returnType.name == 'bool?') {
       writer.line('    guard let impl = ${spec.dartClassName}Registry.impl else { return nil }');
       writer.line('    let _nb_result = impl.${func.dartName}($callArgs)');
-      writer.line('    return NitroNullableBool.fromNullable(_nb_result).toNative()');
+      writer.line('    let _out_nb = UnsafeMutablePointer<UInt8>.allocate(capacity: 2)');
+      writer.line('    _out_nb[0] = _nb_result != nil ? 1 : 0');
+      writer.line('    _out_nb[1] = _nb_result == true ? 1 : 0');
+      writer.line('    return _out_nb');
     } else {
       final defaultVal = mapper.defaultCDeclValue(func.returnType.name);
       writer.line('    guard let impl = ${spec.dartClassName}Registry.impl else { return $defaultVal }');

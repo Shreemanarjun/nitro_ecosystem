@@ -14,6 +14,7 @@ enum BridgeTypeKind {
   primitiveList,  // List<int|double|bool|String>
   typedData,      // Uint8List, Float64List, etc.
   map,            // Map<String, T>
+  anyMap,         // NitroAnyMap — heterogeneous typed map (RN Nitro AnyMap equiv.)
   function_,      // T Function(...) — callback
   nativeHandle,   // NativeHandle<T> — opaque raw pointer
   pointer,        // Pointer<T> — explicit FFI pointer
@@ -180,6 +181,10 @@ class BridgeType {
   /// True when the type is `Map<String, V>` — bridges as a JSON object string.
   final bool isMap;
 
+  /// True when the type is `NitroAnyMap` — bridges as a type-tagged binary buffer.
+  /// Like [isMap] but uses the full [NitroAnyValue] variant codec instead of JSON.
+  final bool isAnyMap;
+
   /// The type name with the nullable `?` suffix stripped.
   /// `'int?'.baseName == 'int'`, `'String'.baseName == 'String'`.
   /// Always strips a trailing `?` regardless of the [isNullable] field —
@@ -199,6 +204,7 @@ class BridgeType {
     if (isFunction)           return BridgeTypeKind.function_;
     if (isStream)             return BridgeTypeKind.stream;
     if (isFuture)             return BridgeTypeKind.future;
+    if (isAnyMap)             return BridgeTypeKind.anyMap;
     if (isMap)                return BridgeTypeKind.map;
     if (isRecord) {
       if (recordListItemType != null) {
@@ -269,6 +275,7 @@ class BridgeType {
     this.recordListItemType,
     this.recordListItemIsPrimitive = false,
     this.isMap = false,
+    this.isAnyMap = false,
     this.isFunction = false,
     this.functionReturnType,
     this.functionParams = const [],

@@ -398,29 +398,18 @@ class SpecValidator {
         );
       }
 
-      // E007/E008: Map<String, @HybridEnum or @HybridStruct> — the binary map encoder
-      // does not know the concrete type, so values are JSON-encoded via jsonEncode(v).
-      // @HybridEnum and @HybridStruct have no toJson(), causing a runtime crash.
+      // E008: Map<String, @HybridStruct> — not supported; struct has no binary map encoding.
+      // @HybridEnum is now supported (Gap 2): encoded as tag 1 + int64 rawValue.
       if (func.returnType.isMap) {
         final mapMatch = RegExp(r'^Map<String,\s*(.+)>$').firstMatch(func.returnType.name);
         final valueType = mapMatch?.group(1)?.trim() ?? '';
-        final isEnumVal = spec.isEnumName(valueType);
         final isStructVal = spec.isStructName(valueType);
-        if (isEnumVal) {
-          issues.add(ValidationIssue(
-            severity: ValidationSeverity.error,
-            code: 'E007',
-            message: '${spec.dartClassName}.${func.dartName}() — Map<String, @HybridEnum> value type "$valueType" is not supported. '
-                'The binary encoder cannot JSON-encode enum values.',
-            hint: 'Return Map<String, int> using the enum\'s rawValue, then decode on the caller side: '
-                'result.map((k, v) => MapEntry(k, v.to$valueType())).',
-          ));
-        } else if (isStructVal) {
+        if (isStructVal) {
           issues.add(ValidationIssue(
             severity: ValidationSeverity.error,
             code: 'E008',
             message: '${spec.dartClassName}.${func.dartName}() — Map<String, @HybridStruct> value type "$valueType" is not supported. '
-                'The binary encoder cannot JSON-encode struct values.',
+                'The binary encoder cannot encode struct values in maps.',
             hint: 'Return List<$valueType> instead (struct values as a list), or annotate a wrapper @HybridRecord.',
           ));
         }
@@ -475,20 +464,13 @@ class SpecValidator {
           );
         }
 
-        // E007/E008: Map<String, @HybridEnum or @HybridStruct> parameter — same encoding limitation as return.
+        // E008: Map<String, @HybridStruct> parameter — not supported.
+        // @HybridEnum is now supported (Gap 2): decoded from tag 1 + int64 rawValue.
         if (param.type.isMap) {
           final mapMatch = RegExp(r'^Map<String,\s*(.+)>$').firstMatch(param.type.name);
           final valueType = mapMatch?.group(1)?.trim() ?? '';
-          final isEnumVal = spec.isEnumName(valueType);
           final isStructVal = spec.isStructName(valueType);
-          if (isEnumVal) {
-            issues.add(ValidationIssue(
-              severity: ValidationSeverity.error,
-              code: 'E007',
-              message: '${spec.dartClassName}.${func.dartName}() — parameter "${param.name}" Map<String, @HybridEnum> value type "$valueType" is not supported.',
-              hint: 'Use Map<String, int> with rawValues and decode on the callee side.',
-            ));
-          } else if (isStructVal) {
+          if (isStructVal) {
             issues.add(ValidationIssue(
               severity: ValidationSeverity.error,
               code: 'E008',
@@ -650,18 +632,11 @@ class SpecValidator {
 
     // ── Streams ────────────────────────────────────────────────────────────
     for (final stream in spec.streams) {
-      // E009: Nullable stream item types are not supported. The emit functions use
-      // sentinel values (nullptr / 0) for null, but Dart stream unpack lambdas do not
-      // have a consistent null-decode path for all item types.
-      if (stream.itemType.isNullable || stream.itemType.name.endsWith('?')) {
-        issues.add(ValidationIssue(
-          severity: ValidationSeverity.error,
-          code: 'E009',
-          message: '${spec.dartClassName}.${stream.dartName} — nullable stream item type "${stream.itemType.name}" is not supported.',
-          hint: 'Use a non-nullable item type. If you need to signal "no value", use a sentinel in the item type '
-              '(e.g. a @HybridRecord with an optional field, or emit a special value like -1).',
-        ));
-      }
+      // E009 removed: nullable stream item types are now fully supported.
+      // Native posts Dart_CObject_kNull when the item is null; Dart's unpack
+      // lambda checks `message == null` before decoding the value.
+      // Supported nullable types: int?, double?, bool?, String?, @HybridEnum?,
+      // @HybridStruct?, @HybridRecord?  (TypedData? remains unsupported — E012).
 
       final iName = stream.itemType.name.replaceFirst('?', '');
       if (!_isKnownType(iName, knownTypes) && !_isKnownType(stream.itemType.name, knownTypes)) {
@@ -705,22 +680,24 @@ class SpecValidator {
         );
       }
 
-      // E005: Backpressure.batch is only supported for numeric (int, double, bool)
-      // stream items. The batch protocol packs items into a native Int64 array;
-      // String/enum/struct/record items cannot be represented that way.
+      // E005: Backpressure.batch supports int, double, bool, and @HybridEnum.
+      // String uses a separate Array<String> wire format.
+      // @HybridStruct and @HybridRecord cannot be batch-packed into Int64 arrays.
       if (stream.isBatch) {
-        const batchSupportedTypes = {'int', 'double', 'bool'};
-        if (!batchSupportedTypes.contains(iName)) {
+        final enumNames = spec.enums.map((e) => e.name).toSet();
+        final isBatchSupported = const {'int', 'double', 'bool', 'String'}.contains(iName) ||
+            enumNames.contains(iName);
+        if (!isBatchSupported) {
           issues.add(
             ValidationIssue(
               severity: ValidationSeverity.error,
               code: 'E005',
               message:
                   '${spec.dartClassName}.${stream.dartName} — Backpressure.batch is not supported for stream item type "$iName". '
-                  'Only int, double, and bool streams can use batch mode.',
+                  'Batch mode supports: int, double, bool, String, and @HybridEnum.',
               hint:
-                  'Change the stream item type to int, double, or bool, or switch to '
-                  'Backpressure.dropLatest / Backpressure.dropOldest.',
+                  'Change the stream item type to int, double, bool, String, or @HybridEnum, '
+                  'or switch to Backpressure.dropLatest / Backpressure.dropOldest.',
             ),
           );
         }
