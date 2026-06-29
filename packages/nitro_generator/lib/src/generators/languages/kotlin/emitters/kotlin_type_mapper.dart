@@ -107,7 +107,8 @@ class KotlinTypeMapper implements TypeMapper {
     if (t.isAnyMap) return 'Map<String, Any?>';
     if (t.isRecord && !t.isMap) {
       if (t.recordListItemType != null && !t.recordListItemIsPrimitive) {
-        return 'List<${t.recordListItemType}>';
+        final nullSuffix = t.recordListItemIsNullable ? '?' : '';
+        return 'List<${t.recordListItemType}$nullSuffix>';
       }
       if (t.recordListItemType != null && t.recordListItemIsPrimitive) {
         return 'List<${type(t.recordListItemType!)}>';
@@ -210,12 +211,23 @@ class KotlinTypeMapper implements TypeMapper {
     final cbParams = p.type.functionParams;
     final nativeMethodName = '_invoke_${p.name}';
 
-    final lambdaParams = cbParams.asMap().entries.map((e) => 'p${e.key}: ${type(e.value.name)}').join(', ');
+    // For nullable int/double/bool, use nullable Kotlin types (Long?, Double?, Boolean?).
+    String _lambdaParamType(BridgeType cbP) {
+      final base = cbP.name.replaceFirst('?', '');
+      final isNullable = cbP.name.endsWith('?');
+      if (isNullable && (base == 'int' || base == 'double' || base == 'bool')) {
+        return '${type(base)}?';
+      }
+      return type(cbP.name);
+    }
+
+    final lambdaParams = cbParams.asMap().entries.map((e) => 'p${e.key}: ${_lambdaParamType(e.value)}').join(', ');
 
     final nativeArgs = <String>[p.name];
     for (var i = 0; i < cbParams.length; i++) {
       final cbP = cbParams[i];
       final base = cbP.name.replaceFirst('?', '');
+      final isNullable = cbP.name.endsWith('?');
       final struct = structs.where((s) => s.name == base).firstOrNull;
       if (struct != null && isExpandableStruct(struct)) {
         for (final f in struct.fields) {
@@ -228,6 +240,16 @@ class KotlinTypeMapper implements TypeMapper {
             nativeArgs.add('p$i.${f.name}.toLong()');
           }
         }
+      } else if (isNullable && base == 'int') {
+        // Nullable int: two-arg (isNull flag, value) to avoid Int64.min sentinel corruption.
+        nativeArgs.add('if (p$i == null) 1L else 0L');
+        nativeArgs.add('p$i ?: 0L');
+      } else if (isNullable && base == 'double') {
+        nativeArgs.add('if (p$i == null) 1L else 0L');
+        nativeArgs.add('if (p$i != null) java.lang.Double.doubleToRawLongBits(p$i) else 0L');
+      } else if (isNullable && base == 'bool') {
+        nativeArgs.add('if (p$i == null) 1L else 0L');
+        nativeArgs.add('if (p$i == true) 1L else 0L');
       } else if (base == 'bool') {
         nativeArgs.add('if (p$i) 1L else 0L');
       } else if (base == 'double') {
@@ -251,6 +273,12 @@ class KotlinTypeMapper implements TypeMapper {
       'double' => 'java.lang.Double.longBitsToDouble($invocation)',
       'String' => invocation,
       final t when enumNames.contains(t) => '$t.fromNative($invocation)',
+      // @HybridRecord return: C JNI returns ByteArray with [4B len][payload]; skip prefix and decode.
+      final t when recordNames.contains(t) =>
+        'run { val _b = $invocation; val _bb = java.nio.ByteBuffer.wrap(_b).order(java.nio.ByteOrder.LITTLE_ENDIAN); _bb.getInt(); $t.decodeFrom(_bb) }',
+      // @NitroVariant return: same wire format; decode via fromReader.
+      final t when variantNames.contains(t) =>
+        'run { val _b = $invocation; val _bb = java.nio.ByteBuffer.wrap(_b).order(java.nio.ByteOrder.LITTLE_ENDIAN); _bb.getInt(); $t.fromReader(RecordReader(_bb)) }',
       _ => invocation,
     };
     return '{ ${lambdaParams.isEmpty ? '' : '$lambdaParams -> '}$body }';
@@ -260,6 +288,8 @@ class KotlinTypeMapper implements TypeMapper {
     final base = (dartType ?? 'void').replaceFirst('?', '');
     if (base == 'void') return 'Unit';
     if (base == 'String') return 'String';
+    // @HybridRecord / @NitroVariant: C JNI invoker returns jbyteArray (encoded bytes).
+    if (recordNames.contains(base) || variantNames.contains(base)) return 'ByteArray';
     return 'Long';
   }
 

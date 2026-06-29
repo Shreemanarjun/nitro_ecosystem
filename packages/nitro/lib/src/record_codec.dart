@@ -145,6 +145,26 @@ class RecordWriter {
     Allocator alloc,
   ) => encodeList(items, writeItem, alloc);
 
+  /// Encodes a list of nullable items.
+  ///
+  /// Wire format: `[4B count][for each: 1B hasValue][item bytes (only if hasValue)]`
+  ///
+  /// Used for `List<@HybridEnum?>` and `List<@NitroVariant?>`.
+  /// Counterpart: [RecordReader.decodeNullableList].
+  static Pointer<Uint8> encodeNullableList<T>(
+    List<T?> items,
+    void Function(RecordWriter w, T item) writeItem,
+    Allocator alloc,
+  ) {
+    final w = RecordWriter();
+    w.writeInt32(items.length);
+    for (final e in items) {
+      w.writeBool(e != null);
+      if (e != null) writeItem(w, e);
+    }
+    return w.toNative(alloc);
+  }
+
   // ── Indexed list encoding ────────────────────────────────────────────────
   //
   // Wire format (payload — after the outer 4-byte length prefix):
@@ -309,6 +329,23 @@ class RecordReader {
     Pointer<Uint8> ptr,
     T Function(RecordReader r) readItem,
   ) => decodeList(ptr, readItem);
+
+  /// Decodes a list of nullable items.
+  ///
+  /// Wire format: `[4B count][for each: 1B hasValue][item bytes (only if hasValue)]`
+  ///
+  /// Counterpart: [RecordWriter.encodeNullableList].
+  static List<T?> decodeNullableList<T>(
+    Pointer<Uint8> ptr,
+    T Function(RecordReader r) readItem,
+  ) {
+    final r = RecordReader.fromNative(ptr);
+    final count = r.readInt32();
+    return List.generate(count, (_) {
+      final hasValue = r.readBool();
+      return hasValue ? readItem(r) : null;
+    });
+  }
 }
 
 // ── LazyRecordList ────────────────────────────────────────────────────────────

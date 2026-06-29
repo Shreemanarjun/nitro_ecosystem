@@ -345,17 +345,19 @@ void main() {
 
   group('Gap 4 — Callback nullable primitive params', () {
     group('Dart FFI — nullable int? callback param', () {
-      test('uses Int64.min sentinel for null (arg == -9223372036854775808)', () {
+      test('uses two-param (isNull, value) approach — no sentinel corruption', () {
         final code = DartFfiGenerator.generate(_callbackNullableSpec());
-        expect(code, contains('-9223372036854775808'));
-        expect(code, contains('arg0 == -9223372036854775808 ? null : arg0'));
+        // Two Int64 params: isNull flag + value bits (no Int64.min sentinel)
+        expect(code, contains('Void Function(Int64, Int64)'));
+        expect(code, contains('arg0Null != 0 ? null : arg0Val'));
       });
     });
 
     group('Dart FFI — nullable bool? callback param', () {
-      test('uses -1 sentinel for null (arg == -1)', () {
+      test('uses two-param (isNull, value) approach — no sentinel corruption', () {
         final code = DartFfiGenerator.generate(_callbackNullableSpec());
-        expect(code, contains('arg0 == -1 ? null : arg0 != 0'));
+        // Two Int64 params: isNull flag + value bits (no -1 sentinel)
+        expect(code, contains('arg0Null != 0 ? null : arg0Val != 0'));
       });
     });
 

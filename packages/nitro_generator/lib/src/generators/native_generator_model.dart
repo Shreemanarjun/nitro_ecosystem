@@ -10,6 +10,7 @@ enum NativeGeneratorTarget {
   cppInterface,
   cppMockHeader,
   cppTestStarter,
+  cppImplStarter,
   webBridge, // PX18: dart:js_interop @JS() bridge for NativeImpl.wasm
 }
 

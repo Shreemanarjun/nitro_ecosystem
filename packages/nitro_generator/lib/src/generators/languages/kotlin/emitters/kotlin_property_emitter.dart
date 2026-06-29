@@ -18,6 +18,7 @@ class KotlinPropertyEmitter {
     final isNullableInt = propBaseName == 'int' && isNullableProp;
     final isNullableDouble = propBaseName == 'double' && isNullableProp;
     final isNullableBool = propBaseName == 'bool' && isNullableProp;
+    final isVariant = mapper.variantNames.contains(propBaseName);
 
     // _call bridge type must match the JVM descriptor expected by C++ GetStaticMethodID.
     final String bridgeKt;
@@ -29,6 +30,8 @@ class KotlinPropertyEmitter {
       bridgeKt = 'ByteArray';
     } else if (isNullableBool) {
       bridgeKt = 'ByteArray';
+    } else if (isVariant) {
+      bridgeKt = 'ByteArray'; // [4B len][1B tag][fields]
     } else {
       bridgeKt = mapper.propertyType(propTypeName);
     }
@@ -48,6 +51,15 @@ class KotlinPropertyEmitter {
         writer.line('        return NitroOptFloat64(impl.${prop.dartName}).encode()');
       } else if (isNullableBool) {
         writer.line('        return NitroOptBool(impl.${prop.dartName}).encode()');
+      } else if (isVariant) {
+        writer.line('        val _vResult = impl.${prop.dartName}');
+        writer.line('        val _vw = RecordWriter()');
+        writer.line('        _vResult.writeFields(_vw)');
+        writer.line('        val _vPayload = _vw.toByteArray()');
+        writer.line('        val _vBuf = java.nio.ByteBuffer.allocate(4 + _vPayload.size).order(java.nio.ByteOrder.LITTLE_ENDIAN)');
+        writer.line('        _vBuf.putInt(_vPayload.size)');
+        writer.line('        _vBuf.put(_vPayload)');
+        writer.line('        return _vBuf.array()');
       } else {
         writer.line('        return impl.${prop.dartName}');
       }
@@ -69,6 +81,11 @@ class KotlinPropertyEmitter {
         writer.line('        impl.${prop.dartName} = NitroOptFloat64.decode(value).nullable');
       } else if (isNullableBool) {
         writer.line('        impl.${prop.dartName} = NitroOptBool.decode(value).nullable');
+      } else if (isVariant) {
+        writer.line('        val valueBuf = java.nio.ByteBuffer.wrap(value).order(java.nio.ByteOrder.LITTLE_ENDIAN)');
+        writer.line('        valueBuf.getInt() // skip 4-byte length prefix');
+        writer.line('        val valueDecoded = $propBaseName.fromReader(RecordReader(valueBuf))');
+        writer.line('        impl.${prop.dartName} = valueDecoded');
       } else {
         writer.line('        impl.${prop.dartName} = value');
       }

@@ -65,45 +65,99 @@ class SwiftStreamEmitter {
   static void _emitBatch(CodeWriter writer, BridgeStream stream, BridgeSpec spec) {
     final batchMax  = stream.batchMaxSize;
     final itemBase  = stream.itemType.name.replaceFirst('?', '');
-    writer.line('@_cdecl("_${spec.namespace}_register_${stream.dartName}_stream")');
-    writer.line('public func _${spec.namespace}_register_${stream.dartName}_stream(');
-    writer.line('    _ dartPort: Int64,');
-    writer.line('    _ emitBatch: @convention(c) (Int64, UnsafeMutablePointer<Int64>?, Int32) -> Bool');
-    writer.line(') {');
-    writer.line('    let _lock = NSLock()');
-    writer.line('    var _buf = [Int64]()');
-    writer.line('    _buf.reserveCapacity($batchMax)');
-    writer.line('    func _flush() {');
-    writer.line('        _lock.lock()');
-    writer.line('        guard !_buf.isEmpty else { _lock.unlock(); return }');
-    writer.line('        var arr = _buf; _buf.removeAll(keepingCapacity: true)');
-    writer.line('        _lock.unlock()');
-    writer.line('        let count = Int32(arr.count)');
-    writer.line(r'        _ = arr.withUnsafeMutableBufferPointer { emitBatch(dartPort, $0.baseAddress, count) }');
-    writer.line('    }');
-    writer.line('    let _timer = DispatchSource.makeTimerSource(queue: .global())');
-    writer.line('    _timer.schedule(deadline: .now() + .milliseconds(10), repeating: .milliseconds(10))');
-    writer.line('    _timer.setEventHandler { _flush() }');
-    writer.line('    _timer.resume()');
-    writer.line('    ${spec.dartClassName}Registry._${stream.dartName}FlushTimers[dartPort] = _timer');
-    writer.line('    ${spec.dartClassName}Registry._${stream.dartName}Cancellables[dartPort] =');
-    writer.line('        ${spec.dartClassName}Registry.impl?.${stream.dartName}.sink { item in');
-    writer.line('            _lock.lock()');
-    if (itemBase == 'double') {
-      writer.line('            _buf.append(Int64(bitPattern: item.bitPattern))');
-    } else if (itemBase == 'bool') {
-      writer.line('            _buf.append(item ? 1 : 0)');
-    } else if (spec.isEnumName(itemBase)) {
-      // Enum batch: pack enum rawValue into the Int64 batch buffer.
-      writer.line('            _buf.append(item.rawValue)');
+    final isRecordBatch  = stream.itemType.isRecord;
+    final isVariantBatch = spec.isVariantName(itemBase);
+
+    if (isRecordBatch || isVariantBatch) {
+      // Record/variant batches: accumulate each item's raw field bytes, flush as kTypedData.
+      // Wire format: [4B outer_len][4B count][item0 bytes...][itemN bytes...]
+      // Dart decodes with: RecordReader.decodeList(ptr, (r) => SomeTypeExt.fromReader(r))
+      final writeFieldsCall = isVariantBatch ? 'item.writeFields(to: _iw)' : 'item.writeFields(_iw)';
+      writer.line('@_cdecl("_${spec.namespace}_register_${stream.dartName}_stream")');
+      writer.line('public func _${spec.namespace}_register_${stream.dartName}_stream(');
+      writer.line('    _ dartPort: Int64,');
+      writer.line('    _ emitBatch: @convention(c) (Int64, UnsafeMutablePointer<UInt8>?, Int32) -> Bool');
+      writer.line(') {');
+      writer.line('    let _lock = NSLock()');
+      writer.line('    var _itemBytes = [[UInt8]]()');
+      writer.line('    _itemBytes.reserveCapacity($batchMax)');
+      writer.line('    func _flush() {');
+      writer.line('        _lock.lock()');
+      writer.line('        guard !_itemBytes.isEmpty else { _lock.unlock(); return }');
+      writer.line('        var items = _itemBytes; _itemBytes.removeAll(keepingCapacity: true)');
+      writer.line('        _lock.unlock()');
+      writer.line('        let totalItemBytes = items.reduce(0) { \$0 + \$1.count }');
+      writer.line('        var batch = [UInt8]()');
+      writer.line('        batch.reserveCapacity(8 + totalItemBytes)');
+      writer.line('        func appendLE32(_ v: Int32) {');
+      writer.line('            let u = UInt32(bitPattern: v)');
+      writer.line('            batch += [UInt8(u & 0xFF), UInt8((u >> 8) & 0xFF), UInt8((u >> 16) & 0xFF), UInt8((u >> 24) & 0xFF)]');
+      writer.line('        }');
+      writer.line('        appendLE32(Int32(4 + totalItemBytes))');
+      writer.line('        appendLE32(Int32(items.count))');
+      writer.line('        items.forEach { batch += \$0 }');
+      writer.line('        let ptr = UnsafeMutablePointer<UInt8>.allocate(capacity: batch.count)');
+      writer.line('        ptr.initialize(from: batch, count: batch.count)');
+      writer.line('        _ = emitBatch(dartPort, ptr, Int32(batch.count))');
+      writer.line('        ptr.deallocate()');
+      writer.line('    }');
+      writer.line('    let _timer = DispatchSource.makeTimerSource(queue: .global())');
+      writer.line('    _timer.schedule(deadline: .now() + .milliseconds(10), repeating: .milliseconds(10))');
+      writer.line('    _timer.setEventHandler { _flush() }');
+      writer.line('    _timer.resume()');
+      writer.line('    ${spec.dartClassName}Registry._${stream.dartName}FlushTimers[dartPort] = _timer');
+      writer.line('    ${spec.dartClassName}Registry._${stream.dartName}Cancellables[dartPort] =');
+      writer.line('        ${spec.dartClassName}Registry.impl?.${stream.dartName}.sink { item in');
+      writer.line('            let _iw = NitroRecordWriter()');
+      writer.line('            $writeFieldsCall');
+      writer.line('            _lock.lock()');
+      writer.line('            _itemBytes.append(_iw.bytes)');
+      writer.line('            let needsFlush = _itemBytes.count >= $batchMax');
+      writer.line('            _lock.unlock()');
+      writer.line('            if needsFlush { _flush() }');
+      writer.line('        }');
+      writer.line('}');
     } else {
-      writer.line('            _buf.append(item)');
+      // Numeric/enum batch: accumulate Int64 values, flush as kArray.
+      writer.line('@_cdecl("_${spec.namespace}_register_${stream.dartName}_stream")');
+      writer.line('public func _${spec.namespace}_register_${stream.dartName}_stream(');
+      writer.line('    _ dartPort: Int64,');
+      writer.line('    _ emitBatch: @convention(c) (Int64, UnsafeMutablePointer<Int64>?, Int32) -> Bool');
+      writer.line(') {');
+      writer.line('    let _lock = NSLock()');
+      writer.line('    var _buf = [Int64]()');
+      writer.line('    _buf.reserveCapacity($batchMax)');
+      writer.line('    func _flush() {');
+      writer.line('        _lock.lock()');
+      writer.line('        guard !_buf.isEmpty else { _lock.unlock(); return }');
+      writer.line('        var arr = _buf; _buf.removeAll(keepingCapacity: true)');
+      writer.line('        _lock.unlock()');
+      writer.line('        let count = Int32(arr.count)');
+      writer.line(r'        _ = arr.withUnsafeMutableBufferPointer { emitBatch(dartPort, $0.baseAddress, count) }');
+      writer.line('    }');
+      writer.line('    let _timer = DispatchSource.makeTimerSource(queue: .global())');
+      writer.line('    _timer.schedule(deadline: .now() + .milliseconds(10), repeating: .milliseconds(10))');
+      writer.line('    _timer.setEventHandler { _flush() }');
+      writer.line('    _timer.resume()');
+      writer.line('    ${spec.dartClassName}Registry._${stream.dartName}FlushTimers[dartPort] = _timer');
+      writer.line('    ${spec.dartClassName}Registry._${stream.dartName}Cancellables[dartPort] =');
+      writer.line('        ${spec.dartClassName}Registry.impl?.${stream.dartName}.sink { item in');
+      writer.line('            _lock.lock()');
+      if (itemBase == 'double') {
+        writer.line('            _buf.append(Int64(bitPattern: item.bitPattern))');
+      } else if (itemBase == 'bool') {
+        writer.line('            _buf.append(item ? 1 : 0)');
+      } else if (spec.isEnumName(itemBase)) {
+        writer.line('            _buf.append(item.rawValue)');
+      } else {
+        writer.line('            _buf.append(item)');
+      }
+      writer.line('            let needsFlush = _buf.count >= $batchMax');
+      writer.line('            _lock.unlock()');
+      writer.line('            if needsFlush { _flush() }');
+      writer.line('        }');
+      writer.line('}');
     }
-    writer.line('            let needsFlush = _buf.count >= $batchMax');
-    writer.line('            _lock.unlock()');
-    writer.line('            if needsFlush { _flush() }');
-    writer.line('        }');
-    writer.line('}');
     writer.blankLine();
     writer.line('@_cdecl("_${spec.namespace}_release_${stream.dartName}_stream")');
     writer.line('public func _${spec.namespace}_release_${stream.dartName}_stream(_ dartPort: Int64) {');

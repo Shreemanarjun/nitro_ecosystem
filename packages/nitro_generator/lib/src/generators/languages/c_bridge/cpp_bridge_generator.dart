@@ -578,11 +578,13 @@ class CppBridgeGenerator {
 
     for (final prop in spec.properties) {
       final isEnum = enumNames.contains(prop.type.name.replaceFirst('?', ''));
-      // Property getter: nullable prim returns uint8_t* pointer (malloc'd, Dart frees).
+      final isVariantProp = variantNames.contains(prop.type.name.replaceFirst('?', ''));
+      // Property getter: nullable prim/variant returns uint8_t* pointer (malloc'd, Dart frees).
       final cType = isEnum ? 'int64_t'
           : prop.type.name == 'int?' ? 'uint8_t*'
           : prop.type.name == 'double?' ? 'uint8_t*'
           : prop.type.name == 'bool?' ? 'uint8_t*'
+          : isVariantProp ? 'uint8_t*'
           : _typeToC(prop.type.name);
       if (prop.hasGetter) {
         // instanceId is included for API consistency with the JNI path; g_impl ignores it.
@@ -613,6 +615,9 @@ class CppBridgeGenerator {
           writer.line('        _res[0] = _opt.has_value() ? 1 : 0;');
           writer.line('        _res[1] = (_opt.has_value() && _opt.value()) ? 1 : 0;');
           writer.line('        return _res;');
+        } else if (isVariantProp) {
+          writer.line('        NitroCppBuffer _res = g_impl->get_${prop.dartName}();');
+          writer.line('        return _res.data;');
         } else if (recordNames.contains(prop.type.name.replaceFirst('?', ''))) {
           writer.line('        NitroCppBuffer _res = g_impl->get_${prop.dartName}();');
           writer.line('        return (void*)_res.data;');
@@ -638,6 +643,8 @@ class CppBridgeGenerator {
         final isNullablePrimSetter = prop.type.name == 'int?' || prop.type.name == 'double?' || prop.type.name == 'bool?';
         final paramCType = isNullablePrimSetter
             ? 'const uint8_t*'
+            : isVariantProp
+            ? 'const uint8_t*'
             : (isEnum || isStructParam || isRecordParam) ? (isEnum ? 'int64_t' : 'void*') : _typeToC(prop.type.name);
         // instanceId is included for API consistency with the JNI path; g_impl ignores it.
         writer.line('void ${prop.setSymbol}(int64_t instanceId, $paramCType value, NitroError* _nitro_err) {');
@@ -649,7 +656,7 @@ class CppBridgeGenerator {
         } else if (isEnum) {
           final enumName = prop.type.name.replaceFirst('?', '');
           writer.line('        g_impl->set_${prop.dartName}(static_cast<$enumName>(value));');
-        } else if (isRecordParam) {
+        } else if (isVariantProp || isRecordParam) {
           final opt = prop.type.name.endsWith('?');
           if (opt) {
             writer.line('        NitroCppBuffer _buf = { nullptr, 0 };');
@@ -659,7 +666,7 @@ class CppBridgeGenerator {
             writer.line('        }');
             writer.line('        g_impl->set_${prop.dartName}(_buf);');
           } else {
-            writer.line('        NitroCppBuffer _buf = { (const uint8_t*)value + 4, (size_t)*(int32_t*)value };');
+            writer.line('        NitroCppBuffer _buf = { value + 4, (size_t)*(int32_t*)value };');
             writer.line('        g_impl->set_${prop.dartName}(_buf);');
           }
         } else if (prop.type.name == 'int?') {
@@ -752,8 +759,19 @@ class CppBridgeGenerator {
   static String _callbackParamToC(BridgeParam param, Set<String> enumNames, {Set<String>? structNames, Set<String>? recordNames, Set<String>? variantNames}) {
     final callback = param.type;
     final ret = _callbackTypeToC(callback.functionReturnType ?? 'void', enumNames, structNames: structNames, recordNames: recordNames);
-    final params = callback.functionParams.map((p) => _callbackTypeToC(p.name, enumNames, bridgeType: p, structNames: structNames, recordNames: recordNames)).join(', ');
-    final paramStr = params.isEmpty ? 'void' : params;
+    // Nullable int/double/bool expand to two int64_t params (isNull + value) to avoid sentinels.
+    final paramParts = <String>[];
+    for (final p in callback.functionParams) {
+      final base = p.name.replaceFirst('?', '');
+      final isNullable = p.name.endsWith('?');
+      if (isNullable && (base == 'int' || base == 'double' || base == 'bool')) {
+        paramParts.add('int64_t'); // isNull flag
+        paramParts.add('int64_t'); // value bits
+      } else {
+        paramParts.add(_callbackTypeToC(p.name, enumNames, bridgeType: p, structNames: structNames, recordNames: recordNames));
+      }
+    }
+    final paramStr = paramParts.isEmpty ? 'void' : paramParts.join(', ');
     return '$ret (*${param.name})($paramStr)';
   }
 

@@ -135,19 +135,23 @@ void _emitSwiftBridgeSection(
   }
 
   for (final prop in spec.properties) {
-    final isEnum = enumNames.contains(prop.type.name);
-    // Property getter: nullable prim returns struct by value; setter receives typed pointer.
+    final propBase = prop.type.name.replaceFirst('?', '');
+    final isEnum = enumNames.contains(propBase);
+    final isVariantProp = spec.isVariantName(propBase);
+    // Property getter: nullable prim/variant returns pointer; setter receives typed pointer.
     String cType;
     String setterCType;
-    if (!isEnum) {
+    if (isEnum) {
+      cType = 'int64_t'; setterCType = 'int64_t';
+    } else if (isVariantProp) {
+      cType = 'uint8_t*'; setterCType = 'const uint8_t*';
+    } else {
       switch (prop.type.name) {
         case 'int?':    cType = 'uint8_t*'; setterCType = 'const uint8_t*'; break;
         case 'double?': cType = 'uint8_t*'; setterCType = 'const uint8_t*'; break;
         case 'bool?':   cType = 'uint8_t*'; setterCType = 'const uint8_t*'; break;
         default: cType = CppBridgeGenerator._typeToC(prop.type.name); setterCType = cType;
       }
-    } else {
-      cType = 'int64_t'; setterCType = 'int64_t';
     }
     if (prop.hasGetter) {
       writer.line('extern $cType _${spec.namespace}_call_get_${prop.dartName}(void);');
@@ -196,29 +200,45 @@ void _emitSwiftBridgeSection(
     }
 
     if (stream.isBatch) {
-      // Batch streams use an array emit: Swift accumulates items into a buffer,
-      // then calls emitBatch(dartPort, items, count) which posts a Dart_CObject_kArray
-      // so Dart receives a List<int> containing [count, item0, item1, ...].
-      writer.line('bool _emit_${stream.dartName}_batch_to_dart(int64_t dartPort, const int64_t* items, int32_t count) {');
-      writer.line('    const int32_t total = count + 1;');
-      writer.line('    Dart_CObject* objs = (Dart_CObject*)malloc((size_t)total * sizeof(Dart_CObject));');
-      writer.line('    Dart_CObject** ptrs = (Dart_CObject**)malloc((size_t)total * sizeof(Dart_CObject*));');
-      writer.line('    if (!objs || !ptrs) { free(objs); free(ptrs); return false; }');
-      writer.line('    objs[0].type = Dart_CObject_kInt64; objs[0].value.as_int64 = (int64_t)count; ptrs[0] = &objs[0];');
-      writer.line('    for (int32_t i = 0; i < count; i++) {');
-      writer.line('        objs[i+1].type = Dart_CObject_kInt64; objs[i+1].value.as_int64 = items[i]; ptrs[i+1] = &objs[i+1];');
-      writer.line('    }');
-      writer.line('    Dart_CObject arr; arr.type = Dart_CObject_kArray;');
-      writer.line('    arr.value.as_array.length = (intptr_t)total; arr.value.as_array.values = ptrs;');
-      writer.line('    bool result = Dart_PostCObject_DL(dartPort, &arr);');
-      writer.line('    free(objs); free(ptrs);');
-      writer.line('    return result;');
-      writer.line('}');
-      writer.blankLine();
-      writer.line('extern void _${spec.namespace}_register_${stream.dartName}_stream(int64_t dartPort, bool (*emitBatch)(int64_t, const int64_t*, int32_t));');
-      writer.line('void ${stream.registerSymbol}(int64_t instanceId, int64_t dart_port) {');
-      writer.line('    _${spec.namespace}_register_${stream.dartName}_stream(dart_port, _emit_${stream.dartName}_batch_to_dart);');
-      writer.line('}');
+      if (isRecord || isVariant) {
+        // Record/variant batches: Swift emits [4B outer_len][4B count][item bytes...] as kTypedData/kUint8.
+        // Dart receives Uint8List and decodes with RecordReader.decodeList.
+        writer.line('bool _emit_${stream.dartName}_bytes_batch_to_dart(int64_t dartPort, const uint8_t* bytes, int32_t len) {');
+        writer.line('    Dart_CObject obj;');
+        writer.line('    obj.type = Dart_CObject_kTypedData;');
+        writer.line('    obj.value.as_typed_data.type = Dart_TypedData_kUint8;');
+        writer.line('    obj.value.as_typed_data.length = (intptr_t)len;');
+        writer.line('    obj.value.as_typed_data.values = (uint8_t*)bytes;');
+        writer.line('    return Dart_PostCObject_DL(dartPort, &obj);');
+        writer.line('}');
+        writer.blankLine();
+        writer.line('extern void _${spec.namespace}_register_${stream.dartName}_stream(int64_t dartPort, bool (*emitBatch)(int64_t, const uint8_t*, int32_t));');
+        writer.line('void ${stream.registerSymbol}(int64_t instanceId, int64_t dart_port) {');
+        writer.line('    _${spec.namespace}_register_${stream.dartName}_stream(dart_port, _emit_${stream.dartName}_bytes_batch_to_dart);');
+        writer.line('}');
+      } else {
+        // Numeric batches: [count, item0, item1, ...] as Dart_CObject_kArray of kInt64.
+        writer.line('bool _emit_${stream.dartName}_batch_to_dart(int64_t dartPort, const int64_t* items, int32_t count) {');
+        writer.line('    const int32_t total = count + 1;');
+        writer.line('    Dart_CObject* objs = (Dart_CObject*)malloc((size_t)total * sizeof(Dart_CObject));');
+        writer.line('    Dart_CObject** ptrs = (Dart_CObject**)malloc((size_t)total * sizeof(Dart_CObject*));');
+        writer.line('    if (!objs || !ptrs) { free(objs); free(ptrs); return false; }');
+        writer.line('    objs[0].type = Dart_CObject_kInt64; objs[0].value.as_int64 = (int64_t)count; ptrs[0] = &objs[0];');
+        writer.line('    for (int32_t i = 0; i < count; i++) {');
+        writer.line('        objs[i+1].type = Dart_CObject_kInt64; objs[i+1].value.as_int64 = items[i]; ptrs[i+1] = &objs[i+1];');
+        writer.line('    }');
+        writer.line('    Dart_CObject arr; arr.type = Dart_CObject_kArray;');
+        writer.line('    arr.value.as_array.length = (intptr_t)total; arr.value.as_array.values = ptrs;');
+        writer.line('    bool result = Dart_PostCObject_DL(dartPort, &arr);');
+        writer.line('    free(objs); free(ptrs);');
+        writer.line('    return result;');
+        writer.line('}');
+        writer.blankLine();
+        writer.line('extern void _${spec.namespace}_register_${stream.dartName}_stream(int64_t dartPort, bool (*emitBatch)(int64_t, const int64_t*, int32_t));');
+        writer.line('void ${stream.registerSymbol}(int64_t instanceId, int64_t dart_port) {');
+        writer.line('    _${spec.namespace}_register_${stream.dartName}_stream(dart_port, _emit_${stream.dartName}_batch_to_dart);');
+        writer.line('}');
+      }
       writer.line('extern void _${spec.namespace}_release_${stream.dartName}_stream(int64_t dart_port);');
       writer.line('void ${stream.releaseSymbol}(int64_t dart_port) {');
       writer.line('    _${spec.namespace}_release_${stream.dartName}_stream(dart_port);');

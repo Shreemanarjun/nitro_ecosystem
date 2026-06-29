@@ -18,10 +18,13 @@ class SwiftPropertyEmitter {
     final isDouble = propTypeBase == 'double';
     final isInt = propTypeBase == 'int';
     final isString = propTypeName == 'String' || propTypeName == 'String?';
+    final isVariantProp = spec.isVariantName(propTypeBase);
 
     if (prop.hasGetter) {
       final isEnumProp = spec.isEnumName(propTypeBase);
-      final getRetType = isString
+      final getRetType = isVariantProp
+          ? 'UnsafeMutablePointer<UInt8>?'
+          : isString
           ? 'UnsafeMutablePointer<CChar>?'
           : isBool && isNullableProp
           ? 'UnsafeMutablePointer<UInt8>?'
@@ -36,7 +39,12 @@ class SwiftPropertyEmitter {
           : swiftType;
       writer.line('@_cdecl("_${spec.namespace}_call_get_${prop.dartName}")');
       writer.line('public func _${spec.namespace}_call_get_${prop.dartName}() -> $getRetType {');
-      if (isString && isNullableProp) {
+      if (isVariantProp) {
+        writer.line('    guard let _vImpl = ${spec.dartClassName}Registry.impl else { return nil }');
+        writer.line('    let _vw = NitroRecordWriter()');
+        writer.line('    _vImpl.${prop.dartName}.writeFields(to: _vw)');
+        writer.line('    return _vw.toNative().map { UnsafeMutablePointer(\$0) }');
+      } else if (isString && isNullableProp) {
         writer.line('    guard let v = ${spec.dartClassName}Registry.impl?.${prop.dartName} else { return nil }');
         writer.line('    return _nitroStringToCString(v)');
       } else if (isString) {
@@ -75,7 +83,9 @@ class SwiftPropertyEmitter {
     if (prop.hasSetter) {
       final isEnumProp  = spec.isEnumName(propTypeBase);
       final isStructProp = spec.isStructName(propTypeBase);
-      final setParamType = isBool && isNullableProp
+      final setParamType = isVariantProp
+          ? 'UnsafePointer<UInt8>?'
+          : isBool && isNullableProp
           ? 'UnsafeMutablePointer<UInt8>?'
           : isBool
           ? 'Int8'
@@ -92,7 +102,10 @@ class SwiftPropertyEmitter {
           : swiftType;
       writer.line('@_cdecl("_${spec.namespace}_call_set_${prop.dartName}")');
       writer.line('public func _${spec.namespace}_call_set_${prop.dartName}(_ value: $setParamType) {');
-      if (isBool && isNullableProp) {
+      if (isVariantProp) {
+        writer.line('    guard let v = value else { return }');
+        writer.line('    ${spec.dartClassName}Registry.impl?.${prop.dartName} = $propTypeBase.fromReader(NitroRecordReader(ptr: UnsafeMutablePointer(mutating: v)))');
+      } else if (isBool && isNullableProp) {
         writer.line('    guard let v = value else { ${spec.dartClassName}Registry.impl?.${prop.dartName} = nil; return }');
         writer.line('    ${spec.dartClassName}Registry.impl?.${prop.dartName} = v[0] != 0 ? v[1] != 0 : nil');
       } else if (isBool) {

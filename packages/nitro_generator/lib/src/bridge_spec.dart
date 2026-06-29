@@ -188,6 +188,11 @@ class BridgeType {
   /// [recordListItemType] holds the variant class name.
   final bool isVariantList;
 
+  /// True when the list item type is nullable (e.g. `List<Status?>` or `List<GestureEvent?>`).
+  /// Only meaningful when [isEnumList] or [isVariantList] is true.
+  /// Nullable items use presence-flag wire format: [1B hasValue][value (if hasValue)].
+  final bool recordListItemIsNullable;
+
   /// True when the type is `Map<String, V>` — bridges as a JSON object string.
   final bool isMap;
 
@@ -288,6 +293,7 @@ class BridgeType {
     this.recordListItemIsPrimitive = false,
     this.isEnumList = false,
     this.isVariantList = false,
+    this.recordListItemIsNullable = false,
     this.isMap = false,
     this.isAnyMap = false,
     this.isFunction = false,

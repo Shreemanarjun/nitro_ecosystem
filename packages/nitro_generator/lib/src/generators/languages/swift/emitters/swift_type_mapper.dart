@@ -193,17 +193,25 @@ class SwiftTypeMapper implements TypeMapper {
     final paramParts = <String>[];
     for (final t in cbType.functionParams) {
       final base = t.name.replaceFirst('?', '');
+      final isNullable = t.name.endsWith('?');
       final struct = spec.structs.where((s) => s.name == base).firstOrNull;
       if (struct != null && isExpandableCallbackStruct(struct)) {
         paramParts.addAll(struct.fields.map((_) => 'Int64'));
+      } else if (isNullable && (base == 'int' || base == 'double' || base == 'bool')) {
+        // Nullable primitives: two Int64 params (isNull flag + value bits).
+        paramParts.add('Int64'); // isNull: 0 = has value, non-zero = null
+        paramParts.add('Int64'); // value bits (valid when isNull == 0)
       } else {
         paramParts.add(callbackParamCDecl(t));
       }
     }
     final retDart = cbType.functionReturnType;
-    final retSwift = switch (retDart) {
-      null || 'void' => 'Void',
+    final retBase = retDart?.replaceFirst('?', '') ?? 'void';
+    final retSwift = switch (retBase) {
+      'void' when retDart == null || retDart == 'void' => 'Void',
       'String' => 'UnsafeMutablePointer<CChar>?',
+      _ when _recordNames.contains(retBase) || _variantNames.contains(retBase) =>
+        'UnsafeMutablePointer<UInt8>?', // [4B len][payload] malloc'd by Dart
       _ => 'Int64',
     };
     return '@convention(c) (${paramParts.join(', ')}) -> $retSwift';
@@ -251,6 +259,7 @@ class SwiftTypeMapper implements TypeMapper {
     for (var i = 0; i < params.length; i++) {
       final pt = params[i];
       final base = pt.name.replaceFirst('?', '');
+      final isNullable = pt.name.endsWith('?');
       final expandStruct = spec.structs.where((s) => s.name == base).firstOrNull;
       if (expandStruct != null && isExpandableCallbackStruct(expandStruct)) {
         final argVar = 'arg$i';
@@ -265,6 +274,21 @@ class SwiftTypeMapper implements TypeMapper {
             callArgsList.add('$argVar.${f.name}');
           }
         }
+      } else if (isNullable && base == 'int') {
+        // Nullable int: two C params (isNull: Int64, valueBits: Int64) → Swift Int64?
+        allArgDecls.add('arg${i}Null');
+        allArgDecls.add('arg${i}Val');
+        callArgsList.add('(arg${i}Null != 0) ? nil : arg${i}Val');
+      } else if (isNullable && base == 'double') {
+        // Nullable double: two C params → Swift Double?
+        allArgDecls.add('arg${i}Null');
+        allArgDecls.add('arg${i}Val');
+        callArgsList.add('(arg${i}Null != 0) ? nil : Double(bitPattern: UInt64(bitPattern: arg${i}Val))');
+      } else if (isNullable && base == 'bool') {
+        // Nullable bool: two C params → Swift Bool?
+        allArgDecls.add('arg${i}Null');
+        allArgDecls.add('arg${i}Val');
+        callArgsList.add('(arg${i}Null != 0) ? nil : (arg${i}Val != 0)');
       } else {
         final argVar = 'arg$i';
         allArgDecls.add(argVar);
@@ -305,6 +329,7 @@ class SwiftTypeMapper implements TypeMapper {
 
     final retDart = p.type.functionReturnType;
     final needsReturn = retDart != null && retDart != 'void';
+    final isNullableRet = retDart?.endsWith('?') ?? false;
     final retName = retDart?.replaceFirst('?', '') ?? 'void';
     String callExpr = '$cbName(${callArgsList.join(', ')})';
     String bodyCall;
@@ -318,6 +343,14 @@ class SwiftTypeMapper implements TypeMapper {
       bodyCall = '($callExpr) != 0';
     } else if (_enumNames.contains(retName)) {
       bodyCall = '$retName(rawValue: $callExpr)!';
+    } else if (_recordNames.contains(retName) || _variantNames.contains(retName)) {
+      // @HybridRecord / @NitroVariant: Dart returns malloc'd [4B len][payload].
+      // Swift receives UnsafeMutablePointer<UInt8>?; decode and free.
+      if (isNullableRet) {
+        bodyCall = '{ let _p = $callExpr; guard let _pp = _p else { return nil }; let _r = $retName.fromNative(_pp); free(_pp); return _r }()';
+      } else {
+        bodyCall = '{ let _p = $callExpr!; let _r = $retName.fromNative(_p); free(_p); return _r }()';
+      }
     } else {
       bodyCall = callExpr;
     }

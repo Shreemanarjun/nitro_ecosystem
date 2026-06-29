@@ -103,7 +103,9 @@ extension NitroPointerExtension on Pointer<Utf8> {
     // — so we must preserve all bytes including U+FEFF. We bypass utf8.decode
     // and decode the bytes directly into code points via String.fromCharCodes.
     int len = 0;
-    while (cast<Uint8>().elementAt(len).value != 0) len++;
+    while (cast<Uint8>().elementAt(len).value != 0) {
+      len++;
+    }
     final str = _decodeUtf8NoBomStrip(cast<Uint8>().asTypedList(len));
     malloc.free(this);
     return str;

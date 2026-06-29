@@ -198,7 +198,7 @@ void main() {
           reason: 'String batch uses Array<String> wire format — now supported');
     });
 
-    test('batch @HybridRecord stream still emits E005 error', () {
+    test('batch @HybridRecord stream is now valid (no E005)', () {
       final spec = BridgeSpec(
         dartClassName: 'Mod',
         lib: 'mod',
@@ -221,8 +221,35 @@ void main() {
         ],
       );
       final issues = SpecValidator.validate(spec);
+      expect(issues.any((i) => i.code == 'E005'), isFalse,
+          reason: 'Backpressure.batch on @HybridRecord streams is now supported (L3)');
+    });
+
+    test('batch @HybridStruct stream still emits E005 error', () {
+      final spec = BridgeSpec(
+        dartClassName: 'Mod',
+        lib: 'mod',
+        namespace: 'mod',
+        iosImpl: NativeImpl.swift,
+        androidImpl: NativeImpl.kotlin,
+        sourceUri: 'mod.native.dart',
+        structs: [BridgeStruct(name: 'Point', packed: false, fields: [])],
+        streams: [
+          BridgeStream(
+            dartName: 'points',
+            registerSymbol: 'mod_register_points_stream',
+            releaseSymbol: 'mod_release_points_stream',
+            isMethodStyle: false,
+            isAnnotated: true,
+            backpressure: Backpressure.batch,
+            batchMaxSize: 64,
+            itemType: BridgeType(name: 'Point'),
+          ),
+        ],
+      );
+      final issues = SpecValidator.validate(spec);
       expect(issues.any((i) => i.code == 'E005' && i.isError), isTrue,
-          reason: 'Backpressure.batch on @HybridRecord streams is still unsupported');
+          reason: 'Backpressure.batch on @HybridStruct streams is still unsupported');
     });
 
     test('batch enum stream is now valid (no E005)', () {
@@ -253,7 +280,7 @@ void main() {
     });
 
     test('E005 hint mentions dropLatest / dropOldest as alternatives', () {
-      // Use @HybridRecord which still emits E005
+      // Use @HybridStruct which still emits E005 (structs have no encode()).
       final spec = BridgeSpec(
         dartClassName: 'Mod',
         lib: 'mod',
@@ -261,17 +288,17 @@ void main() {
         iosImpl: NativeImpl.swift,
         androidImpl: NativeImpl.kotlin,
         sourceUri: 'mod.native.dart',
-        recordTypes: [BridgeRecordType(name: 'Event', fields: [])],
+        structs: [BridgeStruct(name: 'Point', packed: false, fields: [])],
         streams: [
           BridgeStream(
-            dartName: 'events',
-            registerSymbol: 'mod_register_events_stream',
-            releaseSymbol: 'mod_release_events_stream',
+            dartName: 'points',
+            registerSymbol: 'mod_register_points_stream',
+            releaseSymbol: 'mod_release_points_stream',
             isMethodStyle: false,
             isAnnotated: true,
             backpressure: Backpressure.batch,
             batchMaxSize: 64,
-            itemType: BridgeType(name: 'Event', isRecord: true),
+            itemType: BridgeType(name: 'Point'),
           ),
         ],
       );

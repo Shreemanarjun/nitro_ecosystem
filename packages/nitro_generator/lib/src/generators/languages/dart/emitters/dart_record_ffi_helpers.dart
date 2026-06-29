@@ -12,14 +12,22 @@ String _decodeRecordExpr(BridgeType type, String ptrVar) {
     final valueType = mapMatch?.group(1)?.trim() ?? 'dynamic';
     return '_nitroDecodeMapBinary${_mapTypeSuffix(valueType)}($ptrVar)';
   }
-  // List<@HybridEnum>: [4B len][4B count][8B×N nativeValues] — non-indexed sequential
+  // List<@HybridEnum> — [4B len][4B count][8B×N nativeValues]
+  // List<@HybridEnum?> — [4B len][4B count][1B hasValue][8B nativeValue]×N
   if (type.isEnumList) {
     final item = type.recordListItemType!;
+    if (type.recordListItemIsNullable) {
+      return 'RecordReader.decodeNullableList($ptrVar, (r) => r.readInt().to$item())';
+    }
     return 'RecordReader.decodeList($ptrVar, (r) => r.readInt().to$item())';
   }
-  // List<@NitroVariant>: [4B len][4B count][tag+fields×N sequential] — non-indexed
+  // List<@NitroVariant> — [4B len][4B count][tag+fields×N]
+  // List<@NitroVariant?> — [4B len][4B count][1B hasValue][tag+fields]×N
   if (type.isVariantList) {
     final item = type.recordListItemType!;
+    if (type.recordListItemIsNullable) {
+      return 'RecordReader.decodeNullableList($ptrVar, (r) => ${item}VariantExt.fromReader(r))';
+    }
     return 'RecordReader.decodeList($ptrVar, (r) => ${item}VariantExt.fromReader(r))';
   }
   final item = type.recordListItemType;
@@ -155,12 +163,18 @@ String _encodeRecordParam(BridgeType type, String varName, String allocator) {
     final valueType = mapMatch?.group(1)?.trim() ?? 'dynamic';
     return '_nitroEncodeMapBinary${_mapTypeSuffix(valueType)}($varName, $allocator)';
   }
-  // List<@HybridEnum>: non-indexed sequential [4B len][4B count][8B×N nativeValues]
+  // List<@HybridEnum> / List<@HybridEnum?> — sequential, [4B count][8B×N] or [4B count][1B+8B×N]
   if (type.isEnumList) {
+    if (type.recordListItemIsNullable) {
+      return 'RecordWriter.encodeNullableList($varName, (w, e) => w.writeInt(e.nativeValue), $allocator)';
+    }
     return 'RecordWriter.encodeList($varName, (w, e) => w.writeInt(e.nativeValue), $allocator)';
   }
-  // List<@NitroVariant>: non-indexed sequential [4B len][4B count][tag+fields×N]
+  // List<@NitroVariant> / List<@NitroVariant?> — sequential, [4B count][tag+fields×N] or [4B count][1B+tag+fields×N]
   if (type.isVariantList) {
+    if (type.recordListItemIsNullable) {
+      return 'RecordWriter.encodeNullableList($varName, (w, v) => v.writeFields(w), $allocator)';
+    }
     return 'RecordWriter.encodeList($varName, (w, v) => v.writeFields(w), $allocator)';
   }
   final item = type.recordListItemType;

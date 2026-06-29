@@ -172,16 +172,24 @@ class SwiftFunctionEmitter {
     }
     for (final p in recordListParams) {
       writer.line('    let ${p.name}Ptr = ${p.name}?.assumingMemoryBound(to: UInt8.self)');
-      // List<@HybridEnum>: non-indexed sequential [4B len][4B count][8B×N]
+      // List<@HybridEnum> / List<@HybridEnum?>
       if (p.type.isEnumList) {
         final itemType = p.type.recordListItemType!;
-        writer.line('    let ${p.name}Decoded = ${p.name}Ptr.map { NitroRecordReader.decodeList(\$0) { r in $itemType(rawValue: r.readInt())! } } ?? []');
+        if (p.type.recordListItemIsNullable) {
+          writer.line('    let ${p.name}Decoded = ${p.name}Ptr.map { NitroRecordReader.decodeNullableList(\$0) { r in $itemType(rawValue: r.readInt())! } } ?? []');
+        } else {
+          writer.line('    let ${p.name}Decoded = ${p.name}Ptr.map { NitroRecordReader.decodeList(\$0) { r in $itemType(rawValue: r.readInt())! } } ?? []');
+        }
         continue;
       }
-      // List<@NitroVariant>: non-indexed sequential [4B len][4B count][tag+fields×N]
+      // List<@NitroVariant> / List<@NitroVariant?>
       if (p.type.isVariantList) {
         final itemType = p.type.recordListItemType!;
-        writer.line('    let ${p.name}Decoded = ${p.name}Ptr.map { NitroRecordReader.decodeList(\$0) { r in $itemType.fromReader(r) } } ?? []');
+        if (p.type.recordListItemIsNullable) {
+          writer.line('    let ${p.name}Decoded = ${p.name}Ptr.map { NitroRecordReader.decodeNullableList(\$0) { r in $itemType.fromReader(r) } } ?? []');
+        } else {
+          writer.line('    let ${p.name}Decoded = ${p.name}Ptr.map { NitroRecordReader.decodeList(\$0) { r in $itemType.fromReader(r) } } ?? []');
+        }
         continue;
       }
       final itemType = p.type.name.substring(5, p.type.name.length - 1);
@@ -646,18 +654,40 @@ class SwiftFunctionEmitter {
       final mapRetMatch = RegExp(r'^Map<String,\s*(.+)>$').firstMatch(func.returnType.name);
       final mapValType = mapRetMatch?.group(1)?.trim() ?? '';
       final isEnumMapVal = spec.isEnumName(mapValType);
+      final isRecordMapVal = spec.recordTypes.any((r) => r.name == mapValType);
+      final isVariantMapVal = spec.isVariantName(mapValType);
       // Determine input map value type (may differ from return type for transform functions).
       final mapInMatch = func.params.isNotEmpty && func.params.first.type.isMap
           ? RegExp(r'^Map<String,\s*(.+)>$').firstMatch(func.params.first.type.name)
           : null;
       final mapInValType = mapInMatch?.group(1)?.trim() ?? mapValType;
       final isEnumMapIn = spec.isEnumName(mapInValType);
+      final isRecordMapIn = spec.recordTypes.any((r) => r.name == mapInValType);
+      final isVariantMapIn = spec.isVariantName(mapInValType);
       writer.line('    guard let impl = ${spec.dartClassName}Registry.impl else { return nil }');
       writer.line('    guard let _rawPtr = $mapParam else { return nil }');
       writer.line('    let _rawMap = _nitroDecodeMapBinary(_rawPtr.assumingMemoryBound(to: UInt8.self))');
       if (isEnumMapIn) {
         // Decode Int64 rawValues from [String: Any] → typed [String: EnumName]
         writer.line('    let inputMap: [String: $mapInValType] = _rawMap.compactMapValues { $mapInValType(rawValue: \$0 as! Int64) }');
+      } else if (isRecordMapIn) {
+        // Decode Data blobs → typed [String: RecordType] via fromNative
+        writer.line('    let inputMap: [String: $mapInValType] = _rawMap.compactMapValues { raw in');
+        writer.line('        guard let blob = raw as? Data else { return nil }');
+        writer.line('        return blob.withUnsafeBytes { buf in');
+        writer.line('            guard let base = buf.baseAddress else { return nil }');
+        writer.line('            return $mapInValType.fromNative(UnsafeMutablePointer(mutating: base.assumingMemoryBound(to: UInt8.self)))');
+        writer.line('        }');
+        writer.line('    }');
+      } else if (isVariantMapIn) {
+        // Decode Data blobs → typed [String: VariantType] via fromReader (no fromNative for variants)
+        writer.line('    let inputMap: [String: $mapInValType] = _rawMap.compactMapValues { raw in');
+        writer.line('        guard let blob = raw as? Data else { return nil }');
+        writer.line('        return blob.withUnsafeBytes { buf in');
+        writer.line('            guard let base = buf.baseAddress else { return nil }');
+        writer.line('            return $mapInValType.fromReader(NitroRecordReader(ptr: UnsafeMutablePointer(mutating: base.assumingMemoryBound(to: UInt8.self))))');
+        writer.line('        }');
+        writer.line('    }');
       } else {
         writer.line('    let inputMap = _rawMap');
       }
@@ -665,6 +695,14 @@ class SwiftFunctionEmitter {
       if (isEnumMapVal) {
         // Encode typed [String: EnumName] → [String: Any] with rawValue Int64 for _nitroEncodeMapBinary
         writer.line('    let resultMap: [String: Any] = (result as? [String: $mapValType] ?? [:]).mapValues { \$0.rawValue as Any }');
+      } else if (isRecordMapVal || isVariantMapVal) {
+        // Encode typed [String: RecordType/VariantType] → [String: Any] with Data blobs (tag 5)
+        writer.line('    guard let typedResult = result as? [String: $mapValType] else { return nil }');
+        writer.line('    let resultMap: [String: Any] = typedResult.compactMapValues { v in');
+        writer.line('        guard let ptr = v.toNative() else { return nil }');
+        writer.line('        let len = Int(UnsafeRawPointer(ptr).loadUnaligned(as: UInt32.self).littleEndian) + 4');
+        writer.line('        let blob = Data(bytes: ptr, count: len); free(ptr); return blob as Any');
+        writer.line('    }');
       } else {
         writer.line('    guard let resultMap = result as? [String: Any] else { return nil }');
       }
@@ -739,14 +777,22 @@ class SwiftFunctionEmitter {
   // ── shared return helpers ─────────────────────────────────────────────────
 
   static void _emitRecordListEncode(CodeWriter writer, BridgeType returnType) {
-    // List<@HybridEnum>: non-indexed sequential [4B len][4B count][8B×N rawValues]
+    // List<@HybridEnum> / List<@HybridEnum?>
     if (returnType.isEnumList) {
-      writer.line('    return NitroRecordWriter.encodeList(r) { w, e in w.writeInt(Int64(e.rawValue)) }.map { UnsafeMutableRawPointer(\$0) }');
+      if (returnType.recordListItemIsNullable) {
+        writer.line('    return NitroRecordWriter.encodeNullableList(r) { w, e in w.writeInt(Int64(e.rawValue)) }.map { UnsafeMutableRawPointer(\$0) }');
+      } else {
+        writer.line('    return NitroRecordWriter.encodeList(r) { w, e in w.writeInt(Int64(e.rawValue)) }.map { UnsafeMutableRawPointer(\$0) }');
+      }
       return;
     }
-    // List<@NitroVariant>: non-indexed sequential [4B len][4B count][tag+fields×N]
+    // List<@NitroVariant> / List<@NitroVariant?>
     if (returnType.isVariantList) {
-      writer.line('    return NitroRecordWriter.encodeList(r) { w, e in e.writeFields(to: w) }.map { UnsafeMutableRawPointer(\$0) }');
+      if (returnType.recordListItemIsNullable) {
+        writer.line('    return NitroRecordWriter.encodeNullableList(r) { w, e in e.writeFields(to: w) }.map { UnsafeMutableRawPointer(\$0) }');
+      } else {
+        writer.line('    return NitroRecordWriter.encodeList(r) { w, e in e.writeFields(to: w) }.map { UnsafeMutableRawPointer(\$0) }');
+      }
       return;
     }
     final returnTypeName = returnType.name;

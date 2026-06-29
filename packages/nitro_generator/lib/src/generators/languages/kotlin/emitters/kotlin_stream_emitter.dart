@@ -7,8 +7,13 @@ import 'kotlin_type_mapper.dart';
 class KotlinStreamEmitter {
   static void emit(CodeWriter writer, BridgeStream stream, KotlinTypeMapper mapper) {
     if (stream.isBatch) {
+      final batchBase = stream.itemType.name.replaceFirst('?', '');
+      final isBatchRecord = mapper.recordNames.contains(batchBase);
+      final isBatchVariant = mapper.variantNames.contains(batchBase);
       if (stream.itemType.name == 'String') {
         writer.line('    @JvmStatic external fun emit_${stream.dartName}_string_batch(dartPort: Long, batch: Array<String>): Boolean');
+      } else if (isBatchRecord || isBatchVariant) {
+        writer.line('    @JvmStatic external fun emit_${stream.dartName}_bytes_batch(dartPort: Long, batch: ByteArray): Boolean');
       } else {
         writer.line('    @JvmStatic external fun emit_${stream.dartName}_batch(dartPort: Long, batch: LongArray): Boolean');
       }
@@ -21,8 +26,16 @@ class KotlinStreamEmitter {
       final String itemKt;
       if (isNullable && (base == 'int' || base == 'double' || base == 'bool')) {
         itemKt = '${mapper.type(base)}?';
-      } else if (mapper.variantNames.contains(base)) {
-        itemKt = 'ByteArray';
+      } else if (isNullable && mapper.enumNames.contains(base)) {
+        // Nullable enum → boxed jobject so null can be passed to JNI.
+        itemKt = '${mapper.type(base)}?';
+      } else if (isNullable && base == 'String') {
+        // Nullable String → String? so null can be passed to JNI.
+        itemKt = 'String?';
+      } else if (mapper.variantNames.contains(base) || mapper.recordNames.contains(base)) {
+        // Variant and @HybridRecord items: Kotlin calls .encode() before emitting.
+        // Nullable record/variant → ByteArray? so null can pass through to C as nullptr.
+        itemKt = isNullable ? 'ByteArray?' : 'ByteArray';
       } else {
         itemKt = mapper.type(stream.itemType.name);
       }
@@ -37,7 +50,13 @@ class KotlinStreamEmitter {
     if (stream.isBatch && stream.itemType.name == 'String') {
       _emitStringBatchCollect(writer, stream);
     } else if (stream.isBatch) {
-      _emitBatchCollect(writer, stream, mapper);
+      final batchBaseType = stream.itemType.name.replaceFirst('?', '');
+      final isBatchRecordOrVariant = mapper.recordNames.contains(batchBaseType) || mapper.variantNames.contains(batchBaseType);
+      if (isBatchRecordOrVariant) {
+        _emitRecordVariantBatchCollect(writer, stream, mapper);
+      } else {
+        _emitBatchCollect(writer, stream, mapper);
+      }
     } else if (stream.isBufferDrop) {
       _emitBufferDropCollect(writer, stream, mapper);
     } else if (stream.isBlock) {
@@ -124,7 +143,8 @@ class KotlinStreamEmitter {
     final bufferCap = stream.batchMaxSize;
     final base = stream.itemType.name.replaceFirst('?', '');
     final isVariant = mapper.variantNames.contains(base);
-    final itemExpr = isVariant ? 'item.encode()' : 'item';
+    final isRecord = mapper.recordNames.contains(base);
+    final itemExpr = (isVariant || isRecord) ? 'item${stream.itemType.isNullable ? '?' : ''}.encode()' : 'item';
     writer.line('            impl.${stream.dartName}');
     writer.line('                .buffer(capacity = $bufferCap, onBufferOverflow = kotlinx.coroutines.channels.BufferOverflow.DROP_OLDEST)');
     writer.line('                .collect { item ->');
@@ -142,7 +162,8 @@ class KotlinStreamEmitter {
     final bufferCap = stream.batchMaxSize;
     final base = stream.itemType.name.replaceFirst('?', '');
     final isVariant = mapper.variantNames.contains(base);
-    final itemExpr = isVariant ? 'item.encode()' : 'item';
+    final isRecord = mapper.recordNames.contains(base);
+    final itemExpr = (isVariant || isRecord) ? 'item${stream.itemType.isNullable ? '?' : ''}.encode()' : 'item';
     writer.line('            impl.${stream.dartName}');
     writer.line('                .buffer(capacity = $bufferCap)');
     writer.line('                .collect { item ->');
@@ -153,13 +174,48 @@ class KotlinStreamEmitter {
     writer.line('                }');
   }
 
+  /// Record/variant batch: accumulates each item's raw field bytes in [ArrayList<ByteArray>].
+  /// Flush produces [4B outer_len][4B count][item0 bytes...][itemN bytes...] posted as ByteArray.
+  /// Dart receives Uint8List via kTypedData and decodes with RecordReader.decodeList.
+  static void _emitRecordVariantBatchCollect(CodeWriter writer, BridgeStream stream, KotlinTypeMapper mapper) {
+    final batchMax = stream.batchMaxSize;
+    writer.line('            val _buf = ArrayList<ByteArray>($batchMax)');
+    writer.line('            val _lock = kotlinx.coroutines.sync.Mutex()');
+    writer.line('            suspend fun _flush() {');
+    writer.line('                _lock.withLock {');
+    writer.line('                    if (_buf.isEmpty()) return@withLock');
+    writer.line('                    val totalBytes = _buf.sumOf { it.size }');
+    writer.line('                    val _out = java.io.ByteArrayOutputStream(8 + totalBytes)');
+    writer.line('                    val _tmp = java.nio.ByteBuffer.allocate(4).order(java.nio.ByteOrder.LITTLE_ENDIAN)');
+    writer.line('                    _tmp.putInt(4 + totalBytes); _out.write(_tmp.array()); _tmp.clear()');
+    writer.line('                    _tmp.putInt(_buf.size); _out.write(_tmp.array())');
+    writer.line('                    _buf.forEach { _out.write(it) }');
+    writer.line('                    _buf.clear()');
+    writer.line('                    emit_${stream.dartName}_bytes_batch(dartPort, _out.toByteArray())');
+    writer.line('                }');
+    writer.line('            }');
+    writer.line('            val _flushJob = launch { while (true) { kotlinx.coroutines.delay(10); _flush() } }');
+    writer.line('            impl.${stream.dartName}.collect { item ->');
+    writer.line('                val _full = _lock.withLock {');
+    writer.line('                    val _iw = RecordWriter()');
+    writer.line('                    item.writeFields(_iw)');
+    writer.line('                    _buf.add(_iw.toByteArray())');
+    writer.line('                    _buf.size >= $batchMax');
+    writer.line('                }');
+    writer.line('                if (_full) _flush()');
+    writer.line('            }');
+    writer.line('            _flushJob.cancel()');
+    writer.line('            _flush()');
+  }
+
   static void _emitDropLatestCollect(CodeWriter writer, BridgeStream stream, KotlinTypeMapper mapper) {
     // Nullable primitives (Long?, Double?, Boolean?) auto-box in Kotlin and arrive
     // at the C JNI bridge as jobject — the C layer checks nullptr and posts kNull.
-    // Variant items are encoded to ByteArray before emit.
+    // Variant and @HybridRecord items are encoded to ByteArray before emit.
     final base = stream.itemType.name.replaceFirst('?', '');
     final isVariant = mapper.variantNames.contains(base);
-    final itemExpr = isVariant ? 'item.encode()' : 'item';
+    final isRecord = mapper.recordNames.contains(base);
+    final itemExpr = (isVariant || isRecord) ? 'item${stream.itemType.isNullable ? '?' : ''}.encode()' : 'item';
     writer.line('            impl.${stream.dartName}.collect { item -> ');
     writer.line('                if (!emit_${stream.dartName}(dartPort, $itemExpr)) {');
     writer.line('                    _streamJobs.remove(Pair("${stream.dartName}", dartPort))?.cancel()');

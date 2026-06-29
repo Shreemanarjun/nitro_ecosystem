@@ -686,6 +686,7 @@ class SpecExtractor {
       if (elName == 'List' && type.typeArguments.isNotEmpty) {
         final itemType = type.typeArguments.first;
         final itemName = itemType.getDisplayString(withNullability: false);
+        final itemIsNullable = itemType.nullabilitySuffix == NullabilitySuffix.question;
         if (enumTypeNames.contains(itemName)) {
           return BridgeType(
             name: displayName,
@@ -693,6 +694,7 @@ class SpecExtractor {
             isNullable: isNullable,
             recordListItemType: itemName,
             isEnumList: true,
+            recordListItemIsNullable: itemIsNullable,
             isFuture: isFuture,
           );
         }
@@ -703,6 +705,7 @@ class SpecExtractor {
             isNullable: isNullable,
             recordListItemType: itemName,
             isVariantList: true,
+            recordListItemIsNullable: itemIsNullable,
             isFuture: isFuture,
           );
         }

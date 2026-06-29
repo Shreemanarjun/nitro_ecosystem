@@ -34,9 +34,9 @@ void _assertSupportedCallbackType(
   final callback = param.type;
   final returnName = (callback.functionReturnType ?? 'void').replaceFirst('?', '');
   // Nullable primitive returns use sentinel encoding; all types below are supported.
-  if (returnName != 'void' && returnName != 'int' && returnName != 'double' && returnName != 'bool' && returnName != 'String' && !spec.isEnumName(returnName)) {
+  if (returnName != 'void' && returnName != 'int' && returnName != 'double' && returnName != 'bool' && returnName != 'String' && !spec.isEnumName(returnName) && !spec.isRecordName(returnName) && !spec.isVariantName(returnName)) {
     throw UnsupportedError(
-      '${spec.dartClassName}.${func.dartName}() parameter "${param.name}" has callback return type "$returnName", which is not supported. Callback returns currently support void, int, double, bool, String, and @HybridEnum (and their nullable variants).',
+      '${spec.dartClassName}.${func.dartName}() parameter "${param.name}" has callback return type "$returnName", which is not supported. Callback returns currently support void, int, double, bool, String, @HybridEnum, @HybridRecord, and @NitroVariant (and their nullable variants).',
     );
   }
   for (final callbackParam in callback.functionParams) {
@@ -115,6 +115,9 @@ String? _callbackExceptionalReturn(BridgeType callbackType, BridgeSpec spec) {
   if (spec.isEnumName(returnName)) return isNullableRet ? '-1' : '0';
   // String returns Pointer<Utf8> — isolateLocal doesn't allow exceptionalReturn for Pointer types.
   if (returnName == 'String') return null;
+  // @HybridRecord / @NitroVariant return Pointer<Uint8> — nullptr is the default exceptional return.
+  if (spec.isRecordName(returnName)) return null;
+  if (spec.isVariantName(returnName)) return null;
   return null;
 }
 
@@ -134,12 +137,17 @@ String _callbackHelperName(BridgeFunction func, BridgeParam param) {
 String _callbackNativeSignature(BridgeType callbackType, BridgeSpec spec) {
   final ret = _callbackReturnToFFI(callbackType.functionReturnType ?? 'void', spec);
   // Expandable structs become multiple Int64 params (one per field) for synchronous NativeCallable.
+  // Nullable int/double/bool expand to TWO Int64 params: (isNull, valueBits) to avoid sentinels.
   final paramsList = <String>[];
   for (final p in callbackType.functionParams) {
     final base = p.name.replaceFirst('?', '');
+    final isNullable = p.name.endsWith('?');
     final struct = spec.structs.where((s) => s.name == base).firstOrNull;
     if (struct != null && _isExpandableCallbackStruct(struct)) {
       paramsList.addAll(struct.fields.map((_) => 'Int64'));
+    } else if (isNullable && (base == 'int' || base == 'double' || base == 'bool')) {
+      paramsList.add('Int64'); // isNull: 0 = has value, non-zero = null
+      paramsList.add('Int64'); // value bits (valid when isNull == 0)
     } else {
       paramsList.add(_callbackParamToFFI(p, spec));
     }
@@ -169,6 +177,9 @@ String _callbackReturnToFFI(String dartType, BridgeSpec spec) {
   if (name == 'bool') return 'Int64'; // 0/1 via GP register
   if (name == 'String') return 'Pointer<Utf8>'; // strdup'd from native
   if (spec.isEnumName(name)) return 'Int64';
+  // @HybridRecord / @NitroVariant: Dart encodes to malloc'd [4B len][payload] buffer.
+  if (spec.isRecordName(name)) return 'Pointer<Uint8>';
+  if (spec.isVariantName(name)) return 'Pointer<Uint8>';
   return 'Void';
 }
 
@@ -194,12 +205,16 @@ String _callbackWrapperParams(BridgeType callbackType, BridgeSpec spec) {
   for (var i = 0; i < callbackType.functionParams.length; i++) {
     final type = callbackType.functionParams[i];
     final base = type.name.replaceFirst('?', '');
+    final isNullable = type.name.endsWith('?');
     final struct = spec.structs.where((s) => s.name == base).firstOrNull;
     if (struct != null && _isExpandableCallbackStruct(struct)) {
       // Use camelCase names (arg0X not arg0_x) to satisfy Dart lint.
       for (final f in struct.fields) {
         parts.add('int arg$i${_cap(f.name)}');
       }
+    } else if (isNullable && (base == 'int' || base == 'double' || base == 'bool')) {
+      parts.add('int arg${i}Null'); // 0 = has value, non-zero = null
+      parts.add('int arg${i}Val');  // value bits (valid when arg${i}Null == 0)
     } else {
       parts.add('${_callbackParamToDartFFI(type, spec)} arg$i');
     }
@@ -245,18 +260,18 @@ String _callbackInvocationArgs(BridgeType callbackType, BridgeSpec spec) {
           .join(', ');
       args.add('$name($fieldExprs)');
     } else if (name == 'bool') {
-      // Nullable bool: -1 sentinel → null; 0/1 → bool.
+      // Nullable bool: two-param (arg${i}Null, arg${i}Val) → null or bool.
       if (isNullable) {
-        args.add('arg$i == -1 ? null : arg$i != 0');
+        args.add('arg${i}Null != 0 ? null : arg${i}Val != 0');
       } else {
-        args.add('arg$i != 0');
+        args.add('arg${i} != 0');
       }
     } else if (name == 'double') {
-      // Nullable double: NaN bits sentinel (0x7FF8000000000000) → null.
+      // Nullable double: two-param (arg${i}Null, arg${i}Val bits) → null or double.
       if (isNullable) {
-        args.add('arg$i == 0x7FF8000000000000 ? null : Int64List.fromList([arg$i]).buffer.asFloat64List()[0]');
+        args.add('arg${i}Null != 0 ? null : Int64List.fromList([arg${i}Val]).buffer.asFloat64List()[0]');
       } else {
-        args.add('Int64List.fromList([arg$i]).buffer.asFloat64List()[0]');
+        args.add('Int64List.fromList([arg${i}]).buffer.asFloat64List()[0]');
       }
     } else if (name == 'String') {
       // Nullable String: nullptr → null.
@@ -285,8 +300,8 @@ String _callbackInvocationArgs(BridgeType callbackType, BridgeSpec spec) {
         args.add('(() { final _v = ${name}VariantExt.fromNative(arg$i); malloc.free(arg$i); return _v; })()');
       }
     } else if (name == 'int' && isNullable) {
-      // Nullable int: Int64.min sentinel → null.
-      args.add('arg$i == -9223372036854775808 ? null : arg$i');
+      // Nullable int: two-param (arg${i}Null, arg${i}Val) → null or int value.
+      args.add('arg${i}Null != 0 ? null : arg${i}Val');
     } else {
       args.add('arg$i');
     }
@@ -331,6 +346,20 @@ String? _callbackReturnExpression(BridgeType callbackType, BridgeSpec spec, Stri
   // Nullable int: null → Int64.min sentinel.
   if (returnName == 'int' && isNullableRet) {
     return '($invocation) ?? -9223372036854775808';
+  }
+  // @HybridRecord return: Dart encodes to malloc'd [4B len][payload] bytes; native frees.
+  if (spec.isRecordName(returnName)) {
+    if (isNullableRet) {
+      return '(() { final _v = $invocation; return _v == null ? nullptr : _v.toNative(malloc); })()';
+    }
+    return '$invocation.toNative(malloc)';
+  }
+  // @NitroVariant return: same wire format as record.
+  if (spec.isVariantName(returnName)) {
+    if (isNullableRet) {
+      return '(() { final _v = $invocation; return _v == null ? nullptr : _v.toNative(malloc); })()';
+    }
+    return '$invocation.toNative(malloc)';
   }
   return invocation;
 }

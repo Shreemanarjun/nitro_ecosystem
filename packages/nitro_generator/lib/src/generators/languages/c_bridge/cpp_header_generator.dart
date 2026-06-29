@@ -144,7 +144,7 @@ class CppHeaderGenerator {
           if (!func.isAsync) {
             paramParts.add('NitroError* _nitro_err');
           }
-          // Sync nullable prim returns: NitroOpt* struct by value (no pointer, no malloc).
+          // Sync nullable prim returns: uint8_t* pointer (Dart re-interprets as Pointer<NitroOptXxx>).
           final retBase = func.returnType.name.replaceFirst('?', '');
           // @NitroResult: C returns uint8_t* [1B tag][payload].
           // @NitroVariant: C returns uint8_t* [4B len][1B tag][fields].
@@ -175,16 +175,25 @@ class CppHeaderGenerator {
     if (spec.properties.isNotEmpty) {
       nodes.add(const CodeLine('// Properties'));
       for (final prop in spec.properties) {
-        final isEnumProp = spec.isEnumName(prop.type.name.replaceFirst('?', ''));
-        // Property: nullable prim getter returns uint8_t* pointer; setter takes const uint8_t*.
+        final bare = prop.type.name.replaceFirst('?', '');
+        final isEnumProp = spec.isEnumName(bare);
+        // Property: nullable prim / @HybridRecord / @NitroVariant → uint8_t*;
+        // enum → int64_t; everything else via _typeToC.
         final String getterRet;
         final String setterParam;
         if (!isEnumProp) {
+          final isRecordOrVariantProp =
+              prop.type.isRecord || spec.isRecordName(bare) || spec.isVariantName(bare);
           switch (prop.type.name) {
             case 'int?':    getterRet = 'uint8_t*'; setterParam = 'const uint8_t*'; break;
             case 'double?': getterRet = 'uint8_t*'; setterParam = 'const uint8_t*'; break;
             case 'bool?':   getterRet = 'uint8_t*'; setterParam = 'const uint8_t*'; break;
-            default: getterRet = _typeToC(prop.type.name); setterParam = getterRet;
+            default:
+              if (isRecordOrVariantProp) {
+                getterRet = 'uint8_t*'; setterParam = 'const uint8_t*';
+              } else {
+                getterRet = _typeToC(prop.type.name); setterParam = getterRet;
+              }
           }
         } else {
           getterRet = 'int64_t'; setterParam = 'int64_t';

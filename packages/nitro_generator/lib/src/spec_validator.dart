@@ -417,22 +417,6 @@ class SpecValidator {
         );
       }
 
-      // W006: Map<String, @HybridRecord> return type — Kotlin generates Any? for
-      // map values, so the value type is not enforced on Android at runtime.
-      if (func.returnType.isMap && func.returnType.name.contains('@HybridRecord')) {
-        issues.add(
-          ValidationIssue(
-            severity: ValidationSeverity.warning,
-            code: 'W006',
-            message:
-                '${spec.dartClassName}.${func.dartName}() — Map<String, @HybridRecord> return type is not type-safe on Android. '
-                'Kotlin generates Any? for map values, bypassing JVM type-checking.',
-            hint: 'This works at runtime but provides no compile-time type safety in the Kotlin layer. '
-                'Consider returning a @HybridRecord wrapper with a named list/map field for stronger typing.',
-          ),
-        );
-      }
-
       // E008: Map<String, @HybridStruct> — not supported; struct has no binary map encoding.
       // @HybridEnum is now supported (Gap 2): encoded as tag 1 + int64 rawValue.
       if (func.returnType.isMap) {
@@ -715,13 +699,16 @@ class SpecValidator {
         );
       }
 
-      // E005: Backpressure.batch supports int, double, bool, and @HybridEnum.
-      // String uses a separate Array<String> wire format.
-      // @HybridStruct and @HybridRecord cannot be batch-packed into Int64 arrays.
+      // E005: Backpressure.batch supports int, double, bool, String, @HybridEnum,
+      // @HybridRecord, and @NitroVariant. @HybridStruct cannot be batched (no encode()).
       if (stream.isBatch) {
         final enumNames = spec.enums.map((e) => e.name).toSet();
+        final recordNames = spec.recordTypes.map((r) => r.name).toSet();
+        final variantNames = spec.variants.map((v) => v.name).toSet();
         final isBatchSupported = const {'int', 'double', 'bool', 'String'}.contains(iName) ||
-            enumNames.contains(iName);
+            enumNames.contains(iName) ||
+            recordNames.contains(iName) ||
+            variantNames.contains(iName);
         if (!isBatchSupported) {
           issues.add(
             ValidationIssue(
@@ -729,9 +716,9 @@ class SpecValidator {
               code: 'E005',
               message:
                   '${spec.dartClassName}.${stream.dartName} — Backpressure.batch is not supported for stream item type "$iName". '
-                  'Batch mode supports: int, double, bool, String, and @HybridEnum.',
+                  'Batch mode supports: int, double, bool, String, @HybridEnum, @HybridRecord, and @NitroVariant.',
               hint:
-                  'Change the stream item type to int, double, bool, String, or @HybridEnum, '
+                  'Change the stream item type to int, double, bool, String, @HybridEnum, @HybridRecord, or @NitroVariant, '
                   'or switch to Backpressure.dropLatest / Backpressure.dropOldest.',
             ),
           );
@@ -961,9 +948,12 @@ class SpecValidator {
     final returnName = (callback.functionReturnType ?? 'void').replaceFirst('?', '');
     final enumNames = spec.enums.map((e) => e.name).toSet();
 
-    // String is now supported as a bidirectional callback return (#4 implementation).
+    final recordNames = spec.recordTypes.map((r) => r.name).toSet();
+    final variantNames = spec.variants.map((v) => v.name).toSet();
+    // Supported callback return types: primitives, enums, @HybridRecord, @NitroVariant.
     final supportedReturn = returnName == 'void' || returnName == 'int' || returnName == 'double'
-        || returnName == 'bool' || returnName == 'String' || enumNames.contains(returnName);
+        || returnName == 'bool' || returnName == 'String' || enumNames.contains(returnName)
+        || recordNames.contains(returnName) || variantNames.contains(returnName);
     if (!supportedReturn) {
       issues.add(
         ValidationIssue(
@@ -971,7 +961,7 @@ class SpecValidator {
           code: 'UNSUPPORTED_FUNCTION_TYPE',
           message:
               '${spec.dartClassName}.${func.dartName}() — parameter "${param.name}" callback return type "$returnName" is not supported.',
-          hint: 'Callback returns support void, int, double, bool, String, and @HybridEnum. Use Future<T> or Stream<T> for object results.',
+          hint: 'Callback returns support void, int, double, bool, String, @HybridEnum, @HybridRecord, and @NitroVariant.',
         ),
       );
     }

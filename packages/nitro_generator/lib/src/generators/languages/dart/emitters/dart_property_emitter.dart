@@ -8,6 +8,8 @@ for (final prop in spec.properties) {
   final rt = prop.type.name;
   final isRecordProp = prop.type.isRecord;
 
+  final isVariantProp = spec.isVariantName(prop.type.name.replaceFirst('?', ''));
+
   if (prop.hasGetter) {
     writer.line('  @override');
     writer.line('  $rt get ${prop.dartName} {');
@@ -22,7 +24,7 @@ for (final prop in spec.properties) {
 
   if (prop.hasSetter) {
     writer.line('  @override');
-    if (isRecordProp) {
+    if (isRecordProp || isVariantProp) {
       // @HybridRecord properties use _encodeRecordParam for full Map/List fidelity.
       final encodeExpr = _encodeRecordParam(prop.type, 'value', 'arena');
       writer.line('  set ${prop.dartName}($rt value) {');
