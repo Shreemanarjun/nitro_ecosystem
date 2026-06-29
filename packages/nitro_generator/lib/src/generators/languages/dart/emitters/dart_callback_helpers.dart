@@ -34,7 +34,7 @@ void _assertSupportedCallbackType(
   final callback = param.type;
   final returnName = (callback.functionReturnType ?? 'void').replaceFirst('?', '');
   // Nullable primitive returns use sentinel encoding; all types below are supported.
-  if (returnName != 'void' && returnName != 'int' && returnName != 'double' && returnName != 'bool' && returnName != 'String' && !spec.isEnumName(returnName) && !spec.isRecordName(returnName) && !spec.isVariantName(returnName)) {
+  if (returnName != 'void' && returnName != 'int' && returnName != 'double' && returnName != 'bool' && returnName != 'String' && returnName != 'DateTime' && !spec.isEnumName(returnName) && !spec.isRecordName(returnName) && !spec.isVariantName(returnName)) {
     throw UnsupportedError(
       '${spec.dartClassName}.${func.dartName}() parameter "${param.name}" has callback return type "$returnName", which is not supported. Callback returns currently support void, int, double, bool, String, @HybridEnum, @HybridRecord, and @NitroVariant (and their nullable variants).',
     );
@@ -51,7 +51,7 @@ void _assertSupportedCallbackType(
 bool _isSupportedCallbackParam(BridgeType type, BridgeSpec spec) {
   if (type.isPointer) return true;
   final name = type.name.replaceFirst('?', '');
-  if (name == 'int' || name == 'double' || name == 'bool' || name == 'String') return true;
+  if (name == 'int' || name == 'double' || name == 'bool' || name == 'String' || name == 'DateTime') return true;
   if (spec.isEnumName(name)) return true;
   if (spec.isStructName(name)) return true;
   if (spec.isRecordName(name)) return true;
@@ -112,6 +112,7 @@ String? _callbackExceptionalReturn(BridgeType callbackType, BridgeSpec spec) {
   if (returnName == 'double') return isNullableRet ? '0x7FF8000000000000' : '0';
   if (returnName == 'bool') return isNullableRet ? '-1' : '0';
   if (returnName == 'int') return isNullableRet ? '-9223372036854775808' : '0';
+  if (returnName == 'DateTime') return isNullableRet ? '-9223372036854775808' : '0';
   if (spec.isEnumName(returnName)) return isNullableRet ? '-1' : '0';
   // String returns Pointer<Utf8> — isolateLocal doesn't allow exceptionalReturn for Pointer types.
   if (returnName == 'String') return null;
@@ -145,7 +146,7 @@ String _callbackNativeSignature(BridgeType callbackType, BridgeSpec spec) {
     final struct = spec.structs.where((s) => s.name == base).firstOrNull;
     if (struct != null && _isExpandableCallbackStruct(struct)) {
       paramsList.addAll(struct.fields.map((_) => 'Int64'));
-    } else if (isNullable && (base == 'int' || base == 'double' || base == 'bool')) {
+    } else if (isNullable && (base == 'int' || base == 'double' || base == 'bool' || base == 'DateTime')) {
       paramsList.add('Int64'); // isNull: 0 = has value, non-zero = null
       paramsList.add('Int64'); // value bits (valid when isNull == 0)
     } else {
@@ -173,6 +174,7 @@ String _callbackReturnToFFI(String dartType, BridgeSpec spec) {
   final name = dartType.replaceFirst('?', '');
   if (name == 'void') return 'Void';
   if (name == 'int') return 'Int64';
+  if (name == 'DateTime') return 'Int64';
   if (name == 'double') return 'Int64'; // raw bits, same GP-register path as int
   if (name == 'bool') return 'Int64'; // 0/1 via GP register
   if (name == 'String') return 'Pointer<Utf8>'; // strdup'd from native
@@ -187,6 +189,7 @@ String _callbackParamToFFI(BridgeType type, BridgeSpec spec) {
   if (type.isPointer) return 'Pointer<${type.pointerInnerType ?? 'Void'}>';
   final name = type.name.replaceFirst('?', '');
   if (name == 'int') return 'Int64';
+  if (name == 'DateTime') return 'Int64';
   // bool and double are routed through Int64 on Android to ensure NativeCallable.listener
   // fires synchronously (only Int64/Long has the synchronous fast-path on Android).
   // The C JNI invoker encodes bool as 1L/0L and double as raw IEEE 754 bits.
@@ -212,7 +215,7 @@ String _callbackWrapperParams(BridgeType callbackType, BridgeSpec spec) {
       for (final f in struct.fields) {
         parts.add('int arg$i${_cap(f.name)}');
       }
-    } else if (isNullable && (base == 'int' || base == 'double' || base == 'bool')) {
+    } else if (isNullable && (base == 'int' || base == 'double' || base == 'bool' || base == 'DateTime')) {
       parts.add('int arg${i}Null'); // 0 = has value, non-zero = null
       parts.add('int arg${i}Val');  // value bits (valid when arg${i}Null == 0)
     } else {
@@ -226,6 +229,7 @@ String _callbackParamToDartFFI(BridgeType type, BridgeSpec spec) {
   if (type.isPointer) return 'Pointer<${type.pointerInnerType ?? 'Void'}>';
   final name = type.name.replaceFirst('?', '');
   if (name == 'int') return 'int';
+  if (name == 'DateTime') return 'int';
   if (name == 'double') return 'int'; // received as Int64 (IEEE 754 bits)
   if (name == 'bool') return 'int'; // received as Int64 (1 = true, 0 = false)
   if (name == 'String') return 'Pointer<Utf8>';
@@ -302,6 +306,12 @@ String _callbackInvocationArgs(BridgeType callbackType, BridgeSpec spec) {
     } else if (name == 'int' && isNullable) {
       // Nullable int: two-param (arg${i}Null, arg${i}Val) → null or int value.
       args.add('arg${i}Null != 0 ? null : arg${i}Val');
+    } else if (name == 'DateTime') {
+      if (isNullable) {
+        args.add('arg${i}Null != 0 ? null : DateTime.fromMillisecondsSinceEpoch(arg${i}Val)');
+      } else {
+        args.add('DateTime.fromMillisecondsSinceEpoch(arg$i)');
+      }
     } else {
       args.add('arg$i');
     }
@@ -346,6 +356,13 @@ String? _callbackReturnExpression(BridgeType callbackType, BridgeSpec spec, Stri
   // Nullable int: null → Int64.min sentinel.
   if (returnName == 'int' && isNullableRet) {
     return '($invocation) ?? -9223372036854775808';
+  }
+  // DateTime / DateTime?: encode to ms-since-epoch Int64.
+  if (returnName == 'DateTime') {
+    if (isNullableRet) {
+      return '(() { final _v = $invocation; return _v == null ? -9223372036854775808 : _v.millisecondsSinceEpoch; })()';
+    }
+    return '$invocation.millisecondsSinceEpoch';
   }
   // @HybridRecord return: Dart encodes to malloc'd [4B len][payload] bytes; native frees.
   if (spec.isRecordName(returnName)) {

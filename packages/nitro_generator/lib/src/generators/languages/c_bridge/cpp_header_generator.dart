@@ -125,7 +125,7 @@ class CppHeaderGenerator {
           // Enum params use int64_t (rawValue).
           final isEnumParam = spec.isEnumName(paramBase);
           String cType;
-          if (p.type.name == 'int?' || p.type.name == 'double?' || p.type.name == 'bool?') {
+          if (p.type.name == 'int?' || p.type.name == 'double?' || p.type.name == 'bool?' || p.type.name == 'DateTime?') {
             cType = 'const uint8_t*';
           } else {
             cType = isEnumParam ? 'int64_t' : ((isStructParam || p.type.isNativeHandle) ? 'void*' : _typeToC(p.type.name));
@@ -158,6 +158,8 @@ class CppHeaderGenerator {
               : func.returnType.name == 'double?'
               ? 'uint8_t*'
               : func.returnType.name == 'bool?'
+              ? 'uint8_t*'
+              : func.returnType.name == 'DateTime?'
               ? 'uint8_t*'
               : isEnumRet
               ? 'int64_t'
@@ -241,6 +243,8 @@ class CppHeaderGenerator {
   static String _typeToC(String dartType) {
     switch (dartType.replaceFirst('?', '')) {
       case 'int':
+        return 'int64_t';
+      case 'DateTime':
         return 'int64_t';
       case 'double':
         return 'double';

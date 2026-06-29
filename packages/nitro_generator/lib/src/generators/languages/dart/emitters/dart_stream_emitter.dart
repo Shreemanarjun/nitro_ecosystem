@@ -60,6 +60,13 @@ for (final stream in spec.streams) {
       unpackExpr = '(message) => (message as int) != 0';
     }
     streamItemType = 'bool';
+  } else if (baseItemType == 'DateTime') {
+    if (stream.itemType.isNullable) {
+      unpackExpr = '(message) => message == null ? null : DateTime.fromMillisecondsSinceEpoch(message as int)';
+    } else {
+      unpackExpr = '(message) => DateTime.fromMillisecondsSinceEpoch(message as int)';
+    }
+    streamItemType = 'DateTime';
   } else {
     // int, double, String (and nullable variants): native posts kNull for null.
     // `message as T?` handles both null and the concrete Dart type.

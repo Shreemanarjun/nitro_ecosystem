@@ -32,6 +32,8 @@ void _emitNativeAsyncBody(
           if (t == 'int?') return 'arena.packInt(${p.name})';
           if (t == 'double?') return 'arena.packDouble(${p.name})';
           if (t == 'bool?') return 'arena.packBool(${p.name})';
+          if (t == 'DateTime') return '${p.name}.millisecondsSinceEpoch';
+          if (t == 'DateTime?') return 'arena.packInt(${p.name}?.millisecondsSinceEpoch)';
           return p.name;
         })
         .join(', ');
@@ -126,6 +128,14 @@ String _nativeAsyncUnpack(BridgeFunction func, BridgeSpec spec) {
       return '(raw) { final ptr = Pointer<NitroOptFloat64>.fromAddress(raw as int); final v = ptr.decoded; malloc.free(ptr); return v; }';
     }
     return '(raw) => raw as double';
+  }
+
+  // DateTime / DateTime?  — non-null: posts kInt64 ms; nullable: posts kInt64 (pointer address to NitroOptInt64)
+  if (rtBase == 'DateTime') {
+    if (isNullable) {
+      return '(raw) { final ptr = Pointer<NitroOptInt64>.fromAddress(raw as int); final ms = ptr.decoded; malloc.free(ptr); return ms != null ? DateTime.fromMillisecondsSinceEpoch(ms) : null; }';
+    }
+    return '(raw) => DateTime.fromMillisecondsSinceEpoch(raw as int)';
   }
 
   // Fallthrough: unknown type — cast directly (should not normally occur).
@@ -246,6 +256,10 @@ void _emitReturnDecode(
       writer.line('$indent  malloc.free($resVar);');
       writer.line('$indent}');
       writer.line('${indent}return _variant;');
+    case ReturnKind.dateTime:
+      writer.line('${indent}return DateTime.fromMillisecondsSinceEpoch($resVar);');
+    case ReturnKind.dateTimeNullable:
+      writer.line('${indent}final _msResult = $resVar.decoded; malloc.free($resVar); return _msResult != null ? DateTime.fromMillisecondsSinceEpoch(_msResult) : null;');
     case ReturnKind.primitive:
       writer.line('${indent}return $resVar;');
   }
@@ -260,6 +274,7 @@ String _asyncResVarName(ReturnKind kind) => switch (kind) {
   ReturnKind.intNullable => 'optPtr',
   ReturnKind.doubleNullable => 'optPtr',
   ReturnKind.boolNullable => 'optPtr',
+  ReturnKind.dateTimeNullable => 'optPtr',
   _ => 'res',
 };
 

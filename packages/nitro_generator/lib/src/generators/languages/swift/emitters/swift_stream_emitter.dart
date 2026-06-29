@@ -30,6 +30,8 @@ class SwiftStreamEmitter {
       cType = 'UnsafePointer<Int8>?';
     } else if (isNullable && isEnumItem) {
       cType = 'UnsafePointer<Int64>?';
+    } else if (isNullable && itemName == 'DateTime') {
+      cType = 'UnsafePointer<Int64>?';
     } else if (isVariantItem) {
       cType = 'UnsafeMutablePointer<UInt8>?';
     } else {
@@ -372,6 +374,17 @@ class SwiftStreamEmitter {
         writer.line('${indent}item.withCString { ptr in');
         writer.line('$indent    if !emitCb(dartPort, UnsafeMutablePointer(mutating: ptr)) { $cancel }');
         writer.line('$indent}');
+      }
+    } else if (itemName == 'DateTime') {
+      if (isNullable) {
+        writer.line('${indent}if let v = item {');
+        writer.line('$indent    var _ms = Int64(v.timeIntervalSince1970 * 1000)');
+        writer.line('$indent    if !emitCb(dartPort, &_ms) { $cancel }');
+        writer.line('${indent}} else {');
+        writer.line('$indent    if !emitCb(dartPort, nil) { $cancel }');
+        writer.line('$indent}');
+      } else {
+        writer.line('${indent}if !emitCb(dartPort, Int64(item.timeIntervalSince1970 * 1000)) { $cancel }');
       }
     } else if (stream.itemType.isTypedData && stream.itemType.isNullable) {
       writer.line(r'${indent}let _ptr: Int64 = item.map { d in d.withUnsafeBytes { Int64(bitPattern: UInt64(UInt(bitPattern: $0.baseAddress))) } } ?? 0');

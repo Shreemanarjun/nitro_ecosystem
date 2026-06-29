@@ -24,7 +24,8 @@ class KotlinStreamEmitter {
       final isNullable = stream.itemType.isNullable;
       final base = stream.itemType.name.replaceFirst('?', '');
       final String itemKt;
-      if (isNullable && (base == 'int' || base == 'double' || base == 'bool')) {
+      if (isNullable && (base == 'int' || base == 'double' || base == 'bool' || base == 'DateTime')) {
+        // DateTime? uses the same Long? wire as int? (ms-since-epoch boxed Long).
         itemKt = '${mapper.type(base)}?';
       } else if (isNullable && mapper.enumNames.contains(base)) {
         // Nullable enum → boxed jobject so null can be passed to JNI.

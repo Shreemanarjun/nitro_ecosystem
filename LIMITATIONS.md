@@ -1,6 +1,6 @@
 # Flutter Nitro — Limitations & Current Status
 
-Comparison against React Native Nitro as the reference implementation.
+Comparison against React Native Nitro (`packages/react-native-nitro-modules`) as the reference implementation.  
 Last updated: 2026-06-29. Generator unit tests: 3853. macOS integration tests: 594.
 
 ---
@@ -14,6 +14,40 @@ Last updated: 2026-06-29. Generator unit tests: 3853. macOS integration tests: 5
 | 🚧 | In progress |
 | ❌ | Not implemented |
 | ⚠️ | Partial / platform-specific constraint |
+
+---
+
+## RN Nitro Feature Parity Map
+
+| RN Nitro feature | Flutter Nitro equivalent | Status |
+|-----------------|--------------------------|--------|
+| `number` (`double`/`int`/`float`) | `int`, `double` | ✅ |
+| `boolean` | `bool` | ✅ |
+| `string` | `String` | ✅ |
+| `bigint` (Int64) | `int` (Int64 wire) | ✅ |
+| `bigint` (UInt64) | — | ❌ L13 |
+| `T \| undefined` → `std::optional<T>` | `T?` → `NitroOptXxx` structs | ✅ |
+| `T[]` → `std::vector<T>` | `List<T>` | ✅ |
+| `Record<string, T>` → `std::unordered_map` | `Map<String, T>` | ✅ |
+| `[A, B, C]` → `std::tuple<A, B, C>` | — | ❌ L12 |
+| `A \| B \| C` → `std::variant<A,B,C>` | `@NitroVariant` | ✅ |
+| `Date` → `std::chrono::time_point` | — | ❌ L11 |
+| `ArrayBuffer` → `jsi::MutableBuffer` | `Uint8List` / TypedData | ✅ (via TypedData) |
+| `AnyMap` → heterogeneous typed map | `NitroAnyMap` / `NitroAnyValue` | ✅ |
+| `HybridObject<Platforms>` | `NativeImpl.swift` / `.kotlin` / `.cpp` | ✅ |
+| `AnyHybridObject` (untyped ref) | — | ❌ L14 |
+| `BoxedHybridObject<T>` (cross-runtime) | — | ❌ L15 |
+| `CustomType<T>` + `JSIConverter<T>` | `NitroFfiCodec<T>` (partial) | ⚠️ L16 |
+| `Promise<T>` | `Future<T>` / `@nitroAsync` / `NitroPromise<T>` | ✅ |
+| Streams / Observables | `Stream<T>` via `@NitroStream` | ✅ (Flutter advantage) |
+| `Sync<T>` callback tag | All callbacks are sync (NativeCallable) | ✅ (implicit) |
+| Enum types | `@HybridEnum` | ✅ |
+| Struct/record types | `@HybridStruct` + `@HybridRecord` | ✅ |
+| Typed binary buffers | TypedData (`Uint8List` etc.) | ✅ |
+| `HybridView` (native React component) | — (different paradigm) | N/A |
+| Error handling via exceptions | `@NitroResult<T>` / `NitroError*` | ✅ (+ extra) |
+| iOS + Android + macOS platforms | iOS + Android + macOS + Windows + Linux | ✅ (+ more) |
+| Web | W007 warning, stub only | ⚠️ L8 |
 
 ---
 
@@ -45,6 +79,7 @@ Last updated: 2026-06-29. Generator unit tests: 3853. macOS integration tests: 5
 - `Uint8List`, `Int8List`, `Int16List`, `Int32List`, `Uint16List`, `Uint32List`
 - `Float32List`, `Float64List`, `Int64List`, `Uint64List`
 - Passed as `pointer + byte_length`; optional `@zeroCopy` on `@HybridStruct` fields
+- *Covers RN Nitro's `ArrayBuffer` use case for binary data transport*
 
 ### Async & Streams
 - `Future<T>` with `@nitroAsync` — isolate dispatch, optional timeout
@@ -74,89 +109,122 @@ Last updated: 2026-06-29. Generator unit tests: 3853. macOS integration tests: 5
 
 ### Special Types
 - `NativeHandle<T>` / `@NitroOwned` — opaque pointer with automatic `NativeFinalizer` cleanup
-- `NitroAnyMap` / `NitroAnyValue` — heterogeneous typed map (7-case binary union)
+- `NitroAnyMap` / `NitroAnyValue` — heterogeneous typed map (7-case binary union; covers RN Nitro's `AnyMap`)
 - `NitroPromise<T>` — multi-subscriber observable; `.then`, `.andThen`, `.catchError`, `.all`, `.race`
 - `NitroFfiCodec<T>` — user-extensible codec for custom optional types
 
-### Flutter-Specific Advantages (no RN Nitro equivalent)
-- `Backpressure.block/bufferDrop/batch` — RN Nitro has no native backpressure
-- `@NitroNativeAsync` — RN Nitro uses Promise<T> from native thread
-- `@NitroResult<T>` — RN Nitro uses JS exceptions
-- Zero-copy `@HybridStruct` stream proxy — lazy field access with `NativeFinalizer`
-- Non-contiguous `@HybridEnum` values — RN Nitro uses contiguous integers
+### Flutter-Specific Advantages over RN Nitro
+- **`Stream<T>` with backpressure** — RN Nitro has **no built-in streaming**; all streaming requires custom callbacks or polling
+- **`Backpressure.block/bufferDrop/batch`** — RN Nitro has no native backpressure mechanism
+- **`@NitroNativeAsync`** — `Dart_PostCObject_DL` direct post; RN Nitro always hops through JSI thread
+- **`@NitroResult<T>`** — typed discriminated result; RN Nitro uses JS exception propagation
+- **`@HybridStruct`** — zero-copy POD struct bridge with lazy proxy streams; RN Nitro has no equivalent (uses `Record<string,T>` or `CustomType`)
+- **`@HybridRecord`** — binary-encoded type with offset-table decode; more efficient than JSI property access
+- **Non-contiguous `@HybridEnum` values** — RN Nitro enums must be 0-based contiguous integers
+- **Desktop (Windows/Linux) generator** — `.impl.g.cpp` editable C++ starter; RN Nitro targets mobile only
+- **Four stream backpressure modes** — unique to Flutter Nitro
 
 ---
 
-## Known Limitations
+## Known Limitations (Resolved ✅)
 
 ### L1 — `Stream<@HybridRecord>` ✅
 **Status:** Fully implemented and tested. Both non-nullable `Stream<R>` and nullable `Stream<R?>` are supported.  
 **Wire format:** Kotlin calls `.encode()` → passes `ByteArray` (or `ByteArray?` for nullable) to JNI → C reads `GetByteArrayRegion` → `malloc` buffer → posts `kInt64` address → Dart `Pointer<Uint8>.fromAddress` → `RecordExt.fromNative(rawPtr)` → `malloc.free(rawPtr)`. Same pattern as `Stream<@NitroVariant>`.  
-**Tests:** §23 (12 unit tests, non-nullable), §24 (8 unit tests, nullable) in `all_generators_type_coverage_test.dart`; 20 integration tests in `type_coverage_generator_test.dart`.  
+**Tests:** §23 (12 unit tests, non-nullable), §24 (8 unit tests, nullable); 20 integration tests.  
 **Merged:** 2026-06-29.
 
 ### L2 — Nested `@HybridStruct` fields ✅
 **Status:** Fully implemented and tested. Struct fields can have another `@HybridStruct` as their type.  
 **Wire format:** Nested struct is embedded as a typed pointer (`Pointer<NestedFfi>`) in the outer C shadow struct. Dart proxy reads via `.ref.toDart()`, assignment via `.toNative(arena)`.  
-**Tests:** `test/nested_struct_test.dart` (39 tests) in `nitro_generator`.  
-**Note:** Marked as limitation in error — implementation predates LIMITATIONS.md creation.
+**Tests:** `test/nested_struct_test.dart` (39 tests).
 
 ### L3 — `Backpressure.batch` for `@HybridRecord` and `@NitroVariant` ✅
-**Status:** Fully implemented and tested. `@HybridRecord` and `@NitroVariant` batch streams are now supported. E005 updated to allow both types.  
-**Wire format:** Native accumulates each item's raw field bytes (`writeFields(w).bytes`); flushes `[4B outer_len][4B count][item bytes×N]` as `kTypedData/kUint8`. Dart receives `Uint8List`, copies to `malloc`, decodes with `RecordReader.decodeList(ptr, (r) => TypeExt.fromReader(r))`, then frees. `@HybridStruct` still triggers E005 (no `encode()` method).  
-**Tests:** §28 (19 tests, @HybridRecord batch), §29 (7 tests, @NitroVariant batch), §30 (4 contrast tests) in `record_variant_batch_test.dart`.  
+**Status:** Fully implemented and tested.  
+**Wire format:** Native accumulates raw field bytes; flushes `[4B outer_len][4B count][item bytes×N]` as `kTypedData/kUint8`. Dart decodes with `RecordReader.decodeList`. `@HybridStruct` still triggers E005.  
+**Tests:** §28–§30 (30 unit tests) in `record_variant_batch_test.dart`.  
 **Merged:** 2026-06-29.
 
 ### L4 — `Map<String, @HybridRecord>` / `Map<String, @NitroVariant>` ✅
-**Status:** Fully implemented and tested on macOS (§L4a + §L4b, 12 integration tests). W006 warning removed.  
-**Wire format:** `[4B payload_len][4B count][for each: 4B key_len][key bytes][1B tag=5][4B blob_len][blob bytes]`. Blob = `record.encode()` = `[4B payload_len][field bytes]` (or `[4B payload_len][1B variant_tag][fields]`). Tags 1–4 unchanged (int64, float64, bool, string).  
-- **Dart decode:** reads tag 5 → allocates Pointer, calls `XxxRecordExt.fromNative(ptr)` / `XxxVariantExt.fromNative(ptr)`, frees.  
-- **Kotlin:** encode via `v.encode()`; decode via `decodeFrom(ByteBuffer)` (records) / `fromReader(RecordReader)` (variants).  
-- **Swift:** `_nitroDecodeMapBinary` stores tag 5 as `Data`; caller uses `TypeName.fromNative(ptr)` (NOT `TypeNameRecordExt.fromNative` — that's the Dart extension naming, not Swift).  
-- **Void-return functions** with map params handled in Kotlin (routing fix).  
-**Bugs fixed during integration:**  
-- `cpp_header_generator.dart`: `@NitroVariant` / `@HybridRecord` property getters/setters now emit `uint8_t*` / `const uint8_t*` (was falling through to `void*`).  
-- `swift_function_emitter.dart`: Map record decode used `TcConfigRecordExt.fromNative()` (Dart naming) instead of `TcConfig.fromNative()` (Swift naming).  
-- `swift_property_emitter.dart`: Variant property setter cast `UnsafePointer<UInt8>` → `UnsafeMutablePointer(mutating:)` for `NitroRecordReader`.  
-**Tests:** §31–§38 (49 unit tests) in `map_record_variant_test.dart`; §L4a + §L4b (12 integration tests).  
+**Status:** Fully implemented and tested on macOS. W006 warning removed.  
+**Wire format:** `[4B payload_len][4B count][per entry: 4B key_len][key bytes][1B tag=5][4B blob_len][blob bytes]`. Tags 1–4 = int64/float64/bool/string; tag 5 = binary record/variant blob.  
+**Key bug fixes (found during integration):** `cpp_header_generator.dart` was emitting `void*` for `@NitroVariant`/`@HybridRecord` properties (now `uint8_t*`); Swift map emitter used Dart extension naming `TcConfigRecordExt.fromNative` instead of `TcConfig.fromNative`; variant property setter needed `UnsafeMutablePointer(mutating:)` cast.  
+**Tests:** §31–§38 (49 unit tests); §L4a + §L4b (12 integration tests).  
 **Merged:** 2026-06-29.
 
 ### L5 — `List<@HybridEnum?>` / `List<@NitroVariant?>` nullable items ✅
-**Status:** Fully implemented and tested. Nullable items in enum and variant lists are supported.  
-**Wire format:** `[4B payload_len][4B count][for each: 1B hasValue][item bytes (only if hasValue)]`. Non-nullable lists unchanged. New `BridgeType.recordListItemIsNullable` flag controls which format to use.  
-**Tests:** §25 (10 tests, enum nullable), §26 (10 tests, variant nullable), §27 (4 contrast tests) in `nullable_list_items_test.dart`.  
+**Status:** Fully implemented and tested.  
+**Wire format:** `[4B payload_len][4B count][per item: 1B hasValue][item bytes if hasValue]`.  
+**Tests:** §25–§27 (24 unit tests) in `nullable_list_items_test.dart`.  
 **Merged:** 2026-06-29.
 
-### L6 — `@HybridStruct` as callback return ⚠️
-**Status:** Unsafe — intentionally not supported.  
-**Limitation reason:** `NativeCallable` (used for callbacks) has no `Arena` lifetime. Returning a heap-allocated struct pointer from a callback would require the caller to free it, which is not tracked. Would need an explicit ownership protocol.  
-**Workaround:** Wrap struct fields in a `@HybridRecord` (which uses `malloc` + known ownership).
-
-### L7 — `TypedData?` (nullable typed arrays) ⚠️
-**Status:** Excluded — documented design constraint.  
-**Limitation reason:** TypedData uses two FFI parameters (pointer + length). Nullable would require a third "hasValue" param, complicating all callsites.  
-**Workaround:** Use `Uint8List` (non-nullable) and an empty list for the "no data" case, or wrap in a `@HybridRecord`.
-
-### L8 — Web / WASM ⚠️
-**Status:** Partial. W007 warning emitted when `webImpl` is set and streams or `@NitroNativeAsync` functions are declared.  
-**Limitation reason:** `Dart_PostCObject_DL` and FFI structs are not available on the web. Streams and native-async functions throw `UnsupportedError` at runtime.  
-**Workaround:** Guard with `kIsWeb` check, or provide a web-specific stub implementation.
-
 ### L9 — Desktop (macOS / Windows / Linux) ✅
-**Status:** Fully implemented. Generator now produces a concrete C++ implementation starter (`.impl.g.cpp`) for `NativeImpl.cpp` modules.  
-**Generated files for `NativeImpl.cpp` modules:**
-- `.native.g.h` — abstract `Hybrid${ClassName}` C++ interface (pure-virtual methods/properties/streams)
-- `.impl.g.cpp` — **one-time editable starter** — concrete `${ClassName}Impl : public Hybrid${ClassName}` with `throw std::runtime_error("Not implemented: ...")` stubs; Nitrogen does NOT overwrite it after first generation
-- `.bridge.g.h` / `.bridge.g.cpp` — C FFI bridge with `${lib}_register_impl` / `${lib}_get_impl` registration API
-- `.mock.g.h` / `.test.g.cpp` — GoogleMock stub and test starter  
-**Desktop registration:** Call `${lib}_register_impl(&myImpl)` from `RegisterWithRegistrar` (Windows/Linux Flutter plugin) or from the macOS plugin's `registerWithRegistrar:`.  
+**Status:** Fully implemented. Generator produces a concrete C++ implementation starter (`.impl.g.cpp`) for `NativeImpl.cpp` modules.  
+**Generated files:** `.native.g.h` (abstract interface), `.impl.g.cpp` (one-time editable starter with `throw std::runtime_error` stubs), `.bridge.g.h/.cpp` (C FFI bridge), `.mock.g.h/.test.g.cpp` (GoogleMock).  
 **Tests:** §39–§42 (25 tests) in `cpp_impl_generator_test.dart`.  
 **Merged:** 2026-06-29.
 
+---
+
+## Known Limitations (Open)
+
+### L6 — `@HybridStruct` as callback return ⚠️
+**Status:** Unsafe — intentionally not supported.  
+**Reason:** `NativeCallable` has no `Arena` lifetime. Returning a heap-allocated struct pointer from a callback has no tracked owner to free it.  
+**Workaround:** Wrap struct fields in a `@HybridRecord` (malloc + known ownership).
+
+### L7 — `TypedData?` (nullable typed arrays) ⚠️
+**Status:** Excluded — documented design constraint.  
+**Reason:** TypedData uses two FFI params (pointer + length). Nullable would require a third "hasValue" param, complicating all callsites.  
+**Workaround:** Non-nullable `Uint8List` + empty list for the "no data" case, or wrap in `@HybridRecord`.
+
+### L8 — Web / WASM ⚠️
+**Status:** Partial. W007 warning emitted when `webImpl` is set and streams or `@NitroNativeAsync` functions are declared.  
+**Reason:** `Dart_PostCObject_DL` and FFI structs are unavailable on web. Streams and native-async functions throw `UnsupportedError` at runtime.  
+**Note:** RN Nitro also has no web support — web throws an error there too.  
+**Workaround:** Guard with `kIsWeb`, or provide a web-specific stub implementation.
+
 ### L10 — `Map<String, @HybridStruct>` ❌
-**Status:** E008. Same restriction as L4 but for structs.  
-**Limitation reason:** Struct values are `void*` pointers; the map encoder has no ownership protocol for pointer-valued entries.  
-**Workaround:** Use `List<TheStruct>` with a separate keys list, or use a `@HybridRecord` with struct fields.
+**Status:** E008 — intentionally blocked.  
+**Reason:** Struct values are `void*` pointers; the map encoder has no ownership protocol for pointer-valued entries.  
+**Workaround:** `List<TheStruct>` + separate key list, or a `@HybridRecord` with struct fields.
+
+### L11 — `DateTime` bridge type ❌
+**Status:** Not implemented. RN Nitro maps JS `Date` ↔ `std::chrono::system_clock::time_point`.  
+**Flutter Nitro gap:** No native `DateTime` type in the spec DSL. The generator has no `DateTime` → timestamp codec.  
+**Workaround:** Use `int` (milliseconds since epoch) and convert on both sides manually. This is semantically equivalent but requires the user to add boilerplate.  
+**Implementation path:** Add `DateTime` as a recognised type in `dart_type_ffi_mapper.dart` (maps to `Int64`); emit `DateTime.fromMillisecondsSinceEpoch(x)` decode / `.millisecondsSinceEpoch` encode in generated Dart; add `int64_t` pass-through on the C/Kotlin/Swift side.
+
+### L12 — Tuple types `(A, B, C)` ❌
+**Status:** Not implemented. RN Nitro maps JS `[A, B, C]` ↔ `std::tuple<A, B, C>`.  
+**Flutter Nitro gap:** No anonymous fixed-arity product type. The spec DSL has no tuple syntax.  
+**Workaround:** Define a `@HybridRecord` with named fields — structurally identical but requires a name.  
+**Note:** Tuples in RN Nitro are rarely used in practice (records/objects are more idiomatic). Low priority.
+
+### L13 — `uint64_t` scalar parameter type ❌
+**Status:** Not implemented. RN Nitro maps JS `bigint (UInt64)` ↔ `uint64_t`.  
+**Flutter Nitro gap:** `int` in Dart is `int64_t` (signed). There is no `UInt64` scalar type for function params/returns. `Uint64List` exists for typed data buffers but not for individual values.  
+**Workaround:** Pass as `int` and reinterpret bits; or use `Uint64List` with a single element.  
+**Implementation path:** Add `uint64` as a recognised type; map to `Dart_TypedData_kUint64` on the Dart side and `uint64_t` on the C side. Swift: `UInt64`; Kotlin: `Long` (same bits, reinterpreted).
+
+### L14 — `AnyHybridObject` (untyped hybrid object reference) ❌
+**Status:** Not implemented. RN Nitro supports passing any `HybridObject` without knowing its concrete type.  
+**Flutter Nitro gap:** All hybrid object references are typed at the spec level (`NativeImpl.swift` etc.). There is no "pass an opaque native object" mechanism.  
+**Use case:** Plugin APIs that accept or return another plugin's native object without a shared type contract.  
+**Workaround:** Use `NativeHandle<T>` / `@NitroOwned` for opaque pointer passing.  
+**Implementation path:** Add an `AnyNativeImpl` wrapper type that erases the concrete type and passes a raw `void*` / `int64_t` instanceId.
+
+### L15 — `BoxedHybridObject<T>` (cross-isolate object boxing) ❌
+**Status:** Not implemented. RN Nitro supports boxing a `HybridObject` in one JSI runtime and unboxing it in another (for Reanimated worklets / dedicated threads).  
+**Flutter Nitro gap:** Dart isolates have a completely different memory model. A native impl registered in isolate A is not accessible from isolate B.  
+**Note:** This is a fundamental paradigm difference, not just a missing feature. In Flutter, cross-isolate communication is typically done via `SendPort`/`ReceivePort` with serialisable messages.  
+**Workaround:** Keep all native calls in the main isolate; use `compute()` or isolate `spawn()` for pure Dart computation and ferry results back.
+
+### L16 — `CustomType<T>` full generator integration ⚠️
+**Status:** Partial. `NitroFfiCodec<T>` runtime exists; generator integration is not wired up.  
+**Flutter Nitro gap:** In RN Nitro, specialising `JSIConverter<MyType>` lets the codegen automatically use `MyType` anywhere in a spec. In Flutter Nitro, `NitroFfiCodec<T>` defines the encode/decode logic but the generator doesn't recognise arbitrary `MyType` names in `.native.dart` specs — it will emit an E010 unknown type error.  
+**Workaround:** Use `@HybridRecord` or `@NitroVariant` to model the custom type within the existing type system.  
+**Implementation path:** Add a `@NitroCustomType(codec: MyCodec())` annotation; extend `spec_extractor.dart` to register the codec; emit `codec.encode(v, arena)` / `codec.decode(res)` in the generator where the type appears.
 
 ---
 
@@ -171,7 +239,7 @@ Last updated: 2026-06-29. Generator unit tests: 3853. macOS integration tests: 5
 | E005 | `Backpressure.batch` limited to primitives + `@HybridEnum` | Complex batch items (L3) |
 | E006 | `batchMaxSize` must be > 0 | Invalid batch config |
 | E008 | Map values must be primitives, `@HybridEnum`, `@HybridRecord`, or `@NitroVariant` | Complex map values (L10: `@HybridStruct`) |
-| E010 | Unknown type reference | Unrecognised param/return type |
+| E010 | Unknown type reference | Unrecognised param/return type (L16: custom types) |
 | E011 | Unknown stream item type | `@HybridRecord` streams (L1) |
 | E012 | Unknown property type | Unrecognised property type |
 | E013 | Unknown `@HybridRecord` field type | Unresolved field reference |
@@ -181,11 +249,17 @@ Last updated: 2026-06-29. Generator unit tests: 3853. macOS integration tests: 5
 
 ---
 
-## Open Limitations (remaining work)
+## Open Limitations Summary
 
-| # | Limitation | Priority |
-|---|-----------|---------|
-| L6 | `@HybridStruct` as callback return — unsafe (no Arena in NativeCallable) | Low — workaround: use `@HybridRecord` |
-| L7 | `TypedData?` (nullable typed arrays) — two-param FFI makes optional transport ambiguous | Low — workaround: non-nullable + empty list |
-| L8 | Web / WASM — streams and `@NitroNativeAsync` throw at runtime | Medium — needs Dart-web-native alternative |
-| L10 | `Map<String, @HybridStruct>` — struct pointer ownership not tracked in map encoder | Low — workaround: use `List<TheStruct>` |
+| # | Limitation | RN Nitro parity? | Priority |
+|---|-----------|------------------|---------|
+| L6 | `@HybridStruct` as callback return — unsafe (no Arena) | N/A (RN uses JSI, no Arena) | Low |
+| L7 | `TypedData?` — two-param FFI makes nullable ambiguous | N/A | Low |
+| L8 | Web / WASM — streams + `@NitroNativeAsync` unsupported | Same in RN | Medium |
+| L10 | `Map<String, @HybridStruct>` — no pointer ownership in map encoder | N/A | Low |
+| L11 | `DateTime` bridge type | **Gap vs RN** (`Date ↔ time_point`) | Medium |
+| L12 | Tuple types `(A, B, C)` | **Gap vs RN** (`[A,B,C] ↔ std::tuple`) | Low |
+| L13 | `uint64_t` scalar | **Gap vs RN** (`bigint UInt64`) | Low |
+| L14 | `AnyHybridObject` (untyped object ref) | **Gap vs RN** | Low |
+| L15 | `BoxedHybridObject` / cross-isolate boxing | **Gap vs RN** (paradigm difference) | Very Low |
+| L16 | `CustomType<T>` generator integration | **Gap vs RN** (`JSIConverter<T>` auto-recognized) | Medium |

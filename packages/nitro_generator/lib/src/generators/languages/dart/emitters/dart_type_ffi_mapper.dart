@@ -81,8 +81,11 @@ String _typeToFFI(BridgeType bt, BridgeSpec spec) {
   if (bt.name == 'int?') return 'Pointer<NitroOptInt64>';
   if (bt.name == 'double?') return 'Pointer<NitroOptFloat64>';
   if (bt.name == 'bool?') return 'Pointer<NitroOptBool>';
+  if (bt.name == 'DateTime?') return 'Pointer<NitroOptInt64>';
   switch (name) {
     case 'int':
+      return 'Int64';
+    case 'DateTime':
       return 'Int64';
     case 'double':
       return 'Double';
@@ -135,8 +138,11 @@ String _typeToDartFFI(BridgeType bt, BridgeSpec spec) {
   if (bt.name == 'int?') return 'Pointer<NitroOptInt64>';
   if (bt.name == 'double?') return 'Pointer<NitroOptFloat64>';
   if (bt.name == 'bool?') return 'Pointer<NitroOptBool>';
+  if (bt.name == 'DateTime?') return 'Pointer<NitroOptInt64>';
   switch (name) {
     case 'int':
+      return 'int';
+    case 'DateTime':
       return 'int';
     case 'double':
       return 'double';

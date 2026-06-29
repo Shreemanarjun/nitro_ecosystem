@@ -13,6 +13,7 @@
 import 'package:nitro_generator/src/generators/languages/swift/swift_generator.dart';
 import 'package:nitro_generator/src/generators/languages/kotlin/kotlin_generator.dart';
 import 'package:nitro_generator/src/generators/languages/cpp_native/cpp_interface_generator.dart';
+import 'package:nitro_generator/src/generators/languages/c_bridge/cpp_bridge_generator.dart';
 import 'package:test/test.dart';
 import 'test_utils.dart';
 
@@ -402,6 +403,84 @@ void main() {
       expect(out, contains('var count: Long'));
       expect(out, contains('val name: String'));
       expect(out, contains('var active: Boolean'));
+    });
+  });
+
+  // ── Section 7: JNI bridge property getter/setter regression tests ─────────
+  //
+  // These guard against bugs where DateTime and DateTime? properties were
+  // silently falling through the dispatch chain and returning 0 / using the
+  // wrong JNI signature.
+
+  BridgeSpec _jniBridgePropSpec(String dartType) => BridgeSpec(
+    dartClassName: 'Mod',
+    lib: 'mod',
+    namespace: 'mod',
+    iosImpl: NativeImpl.swift,
+    androidImpl: NativeImpl.kotlin,
+    sourceUri: 'mod.native.dart',
+    properties: [
+      BridgeProperty(
+        dartName: 'ts',
+        type: BridgeType(name: dartType),
+        getSymbol: 'mod_get_ts',
+        setSymbol: 'mod_set_ts',
+        hasGetter: true,
+        hasSetter: true,
+      ),
+    ],
+  );
+
+  group('CppBridgeGenerator — DateTime property JNI getter', () {
+    test('DateTime getter calls CallStaticLongMethod', () {
+      final out = CppBridgeGenerator.generate(_jniBridgePropSpec('DateTime'));
+      expect(out, contains('CallStaticLongMethod'));
+    });
+
+    test('DateTime getter uses (J)J JNI signature', () {
+      final out = CppBridgeGenerator.generate(_jniBridgePropSpec('DateTime'));
+      expect(out, contains('sig=(J)J'));
+    });
+
+    test('DateTime getter returns int64_t result', () {
+      final out = CppBridgeGenerator.generate(_jniBridgePropSpec('DateTime'));
+      // Should cast to int64_t and return — not fall through to _defaultValue (0/nullptr)
+      expect(out, contains('(int64_t)env->CallStaticLongMethod'));
+    });
+  });
+
+  group('CppBridgeGenerator — DateTime? property JNI getter', () {
+    test('DateTime? getter uses (J)[B JNI signature (ByteArray transport)', () {
+      final out = CppBridgeGenerator.generate(_jniBridgePropSpec('DateTime?'));
+      expect(out, contains('sig=(J)[B'));
+    });
+
+    test('DateTime? getter allocates NitroOptInt64 and copies bytes', () {
+      final out = CppBridgeGenerator.generate(_jniBridgePropSpec('DateTime?'));
+      expect(out, contains('sizeof(NitroOptInt64)'));
+      expect(out, contains('GetByteArrayRegion'));
+    });
+
+    test('DateTime? getter returns uint8_t* pointer', () {
+      final out = CppBridgeGenerator.generate(_jniBridgePropSpec('DateTime?'));
+      expect(out, contains('uint8_t* mod_get_ts'));
+    });
+  });
+
+  group('CppBridgeGenerator — DateTime? property JNI setter', () {
+    test('DateTime? setter uses (J[B)V JNI signature', () {
+      final out = CppBridgeGenerator.generate(_jniBridgePropSpec('DateTime?'));
+      expect(out, contains('sig=(J[B)V'));
+    });
+
+    test('DateTime? setter wraps value in NewByteArray with NitroOptInt64 size', () {
+      final out = CppBridgeGenerator.generate(_jniBridgePropSpec('DateTime?'));
+      expect(out, contains('NewByteArray((jsize)sizeof(NitroOptInt64))'));
+    });
+
+    test('DateTime? setter passes ByteArray to CallStaticVoidMethod', () {
+      final out = CppBridgeGenerator.generate(_jniBridgePropSpec('DateTime?'));
+      expect(out, contains('SetByteArrayRegion'));
     });
   });
 }

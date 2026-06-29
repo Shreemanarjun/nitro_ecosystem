@@ -52,6 +52,8 @@ class KotlinTypeMapper implements TypeMapper {
     switch (name) {
       case 'int':
         return 'Long';
+      case 'DateTime':
+        return 'Long';
       case 'double':
         return 'Double';
       case 'bool':
@@ -121,6 +123,7 @@ class KotlinTypeMapper implements TypeMapper {
     if (isNullable && baseName == 'bool') return 'Boolean?';
     if (isNullable && baseName == 'int') return 'Long?';
     if (isNullable && baseName == 'double') return 'Double?';
+    if (isNullable && baseName == 'DateTime') return 'Long?';
     if (isNullable && !base.endsWith('?')) return '$base?';
     return base;
   }
@@ -170,7 +173,7 @@ class KotlinTypeMapper implements TypeMapper {
 
     final baseName = p.type.name.replaceFirst('?', '');
     // Nullable primitives use NitroNullable ByteArray ([B) for JVM descriptor compatibility.
-    if (baseName == 'int' || baseName == 'bool' || baseName == 'double') return 'ByteArray';
+    if (baseName == 'int' || baseName == 'bool' || baseName == 'double' || baseName == 'DateTime') return 'ByteArray';
     if (enumNames.contains(baseName)) return 'Long';
     return '${type(baseName)}?';
   }

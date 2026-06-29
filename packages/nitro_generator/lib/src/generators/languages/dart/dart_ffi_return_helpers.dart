@@ -25,6 +25,8 @@ enum ReturnKind {
   doubleNullable,
   variant,  // @NitroVariant sealed class — encoded as [4B len][1B tag][fields]
   primitive, // int (non-null), double (non-null) — pass through unchanged
+  dateTime,         // DateTime (non-null) — wire: Int64 ms epoch
+  dateTimeNullable, // DateTime? — wire: Pointer<NitroOptInt64>
 }
 
 ReturnKind classifyReturn(BridgeType returnType, BridgeSpec spec) {
@@ -49,6 +51,7 @@ ReturnKind classifyReturn(BridgeType returnType, BridgeSpec spec) {
   if (base == 'String') return isNullable ? ReturnKind.stringNullable : ReturnKind.stringNonNull;
   if (base == 'int' && isNullable) return ReturnKind.intNullable;
   if (base == 'double' && isNullable) return ReturnKind.doubleNullable;
+  if (base == 'DateTime') return isNullable ? ReturnKind.dateTimeNullable : ReturnKind.dateTime;
   return ReturnKind.primitive;
 }
 
@@ -79,6 +82,8 @@ String callAsyncTransportType(BridgeType returnType, BridgeSpec spec) {
     case ReturnKind.doubleNullable: return 'Pointer<NitroOptFloat64>';
     case ReturnKind.variant:        return 'Pointer<Uint8>'; // variant binary [4B len][tag][fields]
     case ReturnKind.primitive:      return returnType.name; // int or double
+    case ReturnKind.dateTime:      return 'int';
+    case ReturnKind.dateTimeNullable: return 'Pointer<NitroOptInt64>';
   }
 }
 
@@ -126,6 +131,10 @@ String callAsyncTransportType(BridgeType returnType, BridgeSpec spec) {
 
   // double? — NitroOptFloat64 packed struct via Arena
   if (rt == 'double?') return (expr: '$allocator.packDouble($varName)', needsArena: true);
+
+  // DateTime / DateTime?
+  if (rt == 'DateTime') return (expr: '$varName.millisecondsSinceEpoch', needsArena: false);
+  if (rt == 'DateTime?') return (expr: '$allocator.packInt($varName?.millisecondsSinceEpoch)', needsArena: true);
 
   // int, double, or any remaining primitive
   return (expr: varName, needsArena: false);

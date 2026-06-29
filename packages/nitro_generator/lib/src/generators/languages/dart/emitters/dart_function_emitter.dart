@@ -4,21 +4,21 @@ part of '../dart_ffi_generator.dart';
 void _emitFunctionImpls(CodeWriter writer, BridgeSpec spec) {
   // ── Method implementations ───────────────────────────────────────────────
   for (final func in spec.functions) {
-    final needsArena = func.params.any(
-      (p) {
-        final baseName = p.type.name.replaceFirst('?', '');
-        return p.type.isTypedData ||
-            p.type.name == 'String' ||
-            p.type.name == 'String?' ||
-            p.type.isRecord ||
-            p.type.isAnyMap ||
-            spec.isStructName(baseName) ||
-            spec.isVariantName(baseName) ||
-            p.type.name == 'int?' ||
-            p.type.name == 'double?' ||
-            p.type.name == 'bool?';
-      },
-    );
+    // A parameter needs an Arena when it must be stack-allocated for the FFI
+    // call: strings, records, structs, variants, nullable primitives (NitroOpt*
+    // structs), TypedData (pointer+length pair), and maps.
+    // classifyBridgeItem() is the canonical classifier — adding a new nullable
+    // type only requires updating BridgeItemKind, not every needsArena check.
+    final needsArena = func.params.any((p) {
+      if (p.type.isAnyMap) return true; // maps are not classified by BridgeItemKind
+      final kind = classifyBridgeItem(p.type, spec);
+      return kind.isStringKind ||
+          kind.isRecordKind ||
+          kind.isStructKind ||
+          kind.isVariantKind ||
+          kind.isNullablePrimitive ||
+          p.type.isTypedData;
+    });
 
     final callArgs = func.params
         .expand((p) {
@@ -61,6 +61,8 @@ void _emitFunctionImpls(CodeWriter writer, BridgeSpec spec) {
             return ['${p.name}.nativeValue'];
           }
           if (t == 'bool') return ['${p.name} ? 1 : 0'];
+          if (t == 'DateTime') return ['${p.name}.millisecondsSinceEpoch'];
+          if (t == 'DateTime?') return ['arena.packInt(${p.name}?.millisecondsSinceEpoch)'];
           // Optional primitives: NitroOpt* packed struct encoding via Arena.
           if (t == 'int?') return ['arena.packInt(${p.name})'];
           if (t == 'double?') return ['arena.packDouble(${p.name})'];
@@ -106,6 +108,7 @@ void _emitFunctionImpls(CodeWriter writer, BridgeSpec spec) {
             final t = p.type.name;
             final tBase = p.type.baseName;
             if (t == 'bool') return '${p.name} ? 1 : 0';
+            if (t == 'DateTime') return '${p.name}.millisecondsSinceEpoch';
             // Nullable enum: TcStatus? → -1 for null, rawValue otherwise
             if (spec.isEnumName(tBase)) {
               return t.endsWith('?') ? '${p.name} == null ? -1 : ${p.name}.nativeValue' : '${p.name}.nativeValue';

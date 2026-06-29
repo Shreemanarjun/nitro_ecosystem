@@ -18,13 +18,15 @@ class KotlinPropertyEmitter {
     final isNullableInt = propBaseName == 'int' && isNullableProp;
     final isNullableDouble = propBaseName == 'double' && isNullableProp;
     final isNullableBool = propBaseName == 'bool' && isNullableProp;
+    // DateTime? uses the same NitroOptInt64 ByteArray wire as int?.
+    final isNullableDateTime = propBaseName == 'DateTime' && isNullableProp;
     final isVariant = mapper.variantNames.contains(propBaseName);
 
     // _call bridge type must match the JVM descriptor expected by C++ GetStaticMethodID.
     final String bridgeKt;
     if (isEnum) {
       bridgeKt = 'Long';
-    } else if (isNullableInt) {
+    } else if (isNullableInt || isNullableDateTime) {
       bridgeKt = 'ByteArray';
     } else if (isNullableDouble) {
       bridgeKt = 'ByteArray';
@@ -45,7 +47,7 @@ class KotlinPropertyEmitter {
         writer.line('        return if (_propVal == null) -1L else _propVal.nativeValue');
       } else if (isEnum) {
         writer.line('        return impl.${prop.dartName}.nativeValue');
-      } else if (isNullableInt) {
+      } else if (isNullableInt || isNullableDateTime) {
         writer.line('        return NitroOptInt64(impl.${prop.dartName}).encode()');
       } else if (isNullableDouble) {
         writer.line('        return NitroOptFloat64(impl.${prop.dartName}).encode()');
@@ -75,7 +77,7 @@ class KotlinPropertyEmitter {
             '        impl.${prop.dartName} = if (value < 0L) null else $propBaseName.fromNative(value)');
       } else if (isEnum) {
         writer.line('        impl.${prop.dartName} = $propBaseName.fromNative(value)');
-      } else if (isNullableInt) {
+      } else if (isNullableInt || isNullableDateTime) {
         writer.line('        impl.${prop.dartName} = NitroOptInt64.decode(value).nullable');
       } else if (isNullableDouble) {
         writer.line('        impl.${prop.dartName} = NitroOptFloat64.decode(value).nullable');

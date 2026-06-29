@@ -39,6 +39,9 @@ class SwiftTypeMapper implements TypeMapper {
       case 'int':
         baseType = 'Int64';
         break;
+      case 'DateTime':
+        baseType = 'Date';
+        break;
       case 'double':
         baseType = 'Double';
         break;
@@ -98,6 +101,8 @@ class SwiftTypeMapper implements TypeMapper {
     switch (name) {
       case 'int':
         return 'Int64';
+      case 'DateTime':
+        return 'Int64';
       case 'double':
         return 'Double';
       case 'bool':
@@ -148,6 +153,8 @@ class SwiftTypeMapper implements TypeMapper {
     if (func.returnType.name == 'int?') return 'UnsafeMutablePointer<UInt8>?';
     if (func.returnType.name == 'double?') return 'UnsafeMutablePointer<UInt8>?';
     if (func.returnType.name == 'bool?') return 'UnsafeMutablePointer<UInt8>?';
+    if (func.returnType.name == 'DateTime?') return 'UnsafeMutablePointer<UInt8>?';
+    if (name == 'DateTime') return 'Int64';
     if (name == 'bool') return 'Int8';
     if (name == 'String') return 'UnsafeMutablePointer<CChar>?';
     if (name.startsWith('Map<') || func.returnType.isMap) return 'UnsafeMutablePointer<UInt8>?';
@@ -168,6 +175,8 @@ class SwiftTypeMapper implements TypeMapper {
     if (typeName.endsWith('?') && name == 'bool') return 'UnsafeMutablePointer<UInt8>?';
     if (typeName.endsWith('?') && name == 'int') return 'UnsafeMutablePointer<UInt8>?';
     if (typeName.endsWith('?') && name == 'double') return 'UnsafeMutablePointer<UInt8>?';
+    if (typeName.endsWith('?') && name == 'DateTime') return 'UnsafeMutablePointer<UInt8>?';
+    if (name == 'DateTime') return 'Int64';
     if (name == 'bool') return 'Int8';
     if (name.startsWith('Map<')) return 'UnsafeMutableRawPointer?';
     if (_recordNames.contains(name) || name.startsWith('List<')) return 'UnsafeMutableRawPointer?';
@@ -197,8 +206,9 @@ class SwiftTypeMapper implements TypeMapper {
       final struct = spec.structs.where((s) => s.name == base).firstOrNull;
       if (struct != null && isExpandableCallbackStruct(struct)) {
         paramParts.addAll(struct.fields.map((_) => 'Int64'));
-      } else if (isNullable && (base == 'int' || base == 'double' || base == 'bool')) {
+      } else if (isNullable && (base == 'int' || base == 'double' || base == 'bool' || base == 'DateTime')) {
         // Nullable primitives: two Int64 params (isNull flag + value bits).
+        // DateTime? uses the same Int64 wire as int? (ms-since-epoch).
         paramParts.add('Int64'); // isNull: 0 = has value, non-zero = null
         paramParts.add('Int64'); // value bits (valid when isNull == 0)
       } else {
@@ -222,6 +232,8 @@ class SwiftTypeMapper implements TypeMapper {
     final base = t.name.replaceFirst('?', '');
     switch (base) {
       case 'int':
+        return 'Int64';
+      case 'DateTime':
         return 'Int64';
       case 'double':
         return 'Int64'; // GP register (not FP)
@@ -375,6 +387,8 @@ class SwiftTypeMapper implements TypeMapper {
     final name = t.replaceFirst('?', '');
     switch (name) {
       case 'int':
+        return isNullable ? 'nil' : '0';
+      case 'DateTime':
         return isNullable ? 'nil' : '0';
       case 'double':
         return isNullable ? 'nil' : '0.0';

@@ -36,7 +36,7 @@ void _emitSwiftBridgeSection(
         final isEnumParam = enumNames.contains(p.type.name.replaceFirst('?', ''));
         // Nullable primitives: raw byte pointer (matches Swift UnsafeMutablePointer<UInt8>? @_cdecl param).
         String cType;
-        if (p.type.name == 'int?' || p.type.name == 'double?' || p.type.name == 'bool?') {
+        if (p.type.name == 'int?' || p.type.name == 'double?' || p.type.name == 'bool?' || p.type.name == 'DateTime?') {
           cType = 'const uint8_t*';
         } else {
           cType = isEnumParam ? 'int64_t' : CppBridgeGenerator._paramTypeToC(p.type.name, structNames);
@@ -78,6 +78,8 @@ void _emitSwiftBridgeSection(
         : func.returnType.name == 'double?'
         ? 'uint8_t*'
         : func.returnType.name == 'bool?'
+        ? 'uint8_t*'
+        : func.returnType.name == 'DateTime?'
         ? 'uint8_t*'
         : isEnum
         ? 'int64_t'

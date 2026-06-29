@@ -41,7 +41,7 @@ class KotlinFunctionEmitter {
     final isVariantListReturn = func.returnType.isVariantList;
     final isListRecord = isRecord && func.returnType.recordListItemType != null && !func.returnType.recordListItemIsPrimitive && !isEnumListReturn && !isVariantListReturn;
     final isNullableBoolReturn = retBaseName == 'bool' && func.returnType.name.endsWith('?');
-    final isNullableIntReturn = retBaseName == 'int' && func.returnType.name.endsWith('?');
+    final isNullableIntReturn = (retBaseName == 'int' || retBaseName == 'DateTime') && func.returnType.name.endsWith('?');
     final isNullableDoubleReturn = retBaseName == 'double' && func.returnType.name.endsWith('?');
     final isVariantReturn = mapper.variantNames.contains(retBaseName);
 
@@ -69,7 +69,7 @@ class KotlinFunctionEmitter {
     final optPrimParams = func.params.where((p) {
       final bn = p.type.name.replaceFirst('?', '');
       final isNull = p.type.name.endsWith('?') || p.isOptional;
-      return isNull && (bn == 'int' || bn == 'bool' || bn == 'double');
+      return isNull && (bn == 'int' || bn == 'bool' || bn == 'double' || bn == 'DateTime');
     }).toList();
 
     // Resolve call params — decode enums, records, variants, callbacks, nullable prims.
@@ -77,7 +77,7 @@ class KotlinFunctionEmitter {
         .map((p) {
           final baseName = p.type.name.replaceFirst('?', '');
           final isNull = p.type.name.endsWith('?') || p.isOptional;
-          if (isNull && (baseName == 'int' || baseName == 'bool' || baseName == 'double')) {
+          if (isNull && (baseName == 'int' || baseName == 'bool' || baseName == 'double' || baseName == 'DateTime')) {
             return '${p.name}Arg';
           }
           if (isNull && mapper.enumNames.contains(baseName)) return '${p.name}Arg';
@@ -101,6 +101,8 @@ class KotlinFunctionEmitter {
         writer.line('        val ${p.name}Arg: Boolean? = NitroOptBool.decode(${p.name}).nullable');
       } else if (bn == 'double') {
         writer.line('        val ${p.name}Arg: Double? = NitroOptFloat64.decode(${p.name}).nullable');
+      } else if (bn == 'DateTime') {
+        writer.line('        val ${p.name}Arg: Long? = NitroOptInt64.decode(${p.name}).nullable');
       }
     }
     // Decode nullable enum params from Long sentinel (-1 = null).
@@ -161,14 +163,14 @@ class KotlinFunctionEmitter {
     final optPrims = func.params.where((p) {
       final bn = p.type.name.replaceFirst('?', '');
       final isNull = p.type.name.endsWith('?') || p.isOptional;
-      return isNull && (bn == 'int' || bn == 'bool' || bn == 'double');
+      return isNull && (bn == 'int' || bn == 'bool' || bn == 'double' || bn == 'DateTime');
     }).toList();
 
     final callParams = func.params
         .map((p) {
           final bn = p.type.name.replaceFirst('?', '');
           final isNull = p.type.name.endsWith('?') || p.isOptional;
-          return (isNull && (bn == 'int' || bn == 'bool' || bn == 'double')) ? '${p.name}Arg' : p.name;
+          return (isNull && (bn == 'int' || bn == 'bool' || bn == 'double' || bn == 'DateTime')) ? '${p.name}Arg' : p.name;
         })
         .join(', ');
 
@@ -186,6 +188,8 @@ class KotlinFunctionEmitter {
         writer.line('        val ${p.name}Arg: Boolean? = NitroOptBool.decode(${p.name}).nullable');
       } else if (bn == 'double') {
         writer.line('        val ${p.name}Arg: Double? = NitroOptFloat64.decode(${p.name}).nullable');
+      } else if (bn == 'DateTime') {
+        writer.line('        val ${p.name}Arg: Long? = NitroOptInt64.decode(${p.name}).nullable');
       }
     }
 

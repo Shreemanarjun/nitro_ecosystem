@@ -1,3 +1,4 @@
+import '../../../bridge_item_kind.dart';
 import '../../../bridge_spec.dart';
 import '../../code_writer.dart';
 import '../../enum_generator.dart';

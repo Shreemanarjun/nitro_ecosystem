@@ -53,6 +53,8 @@ class SpecValidator {
     'double?',
     'bool?',
     'String?',
+    'DateTime',
+    'DateTime?',
     'Uint8List?',
     'Int8List?',
     'Int16List?',

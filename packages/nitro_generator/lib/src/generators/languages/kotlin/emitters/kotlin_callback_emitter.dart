@@ -27,8 +27,9 @@ class KotlinCallbackEmitter {
             for (final f in struct.fields) {
               paramDecl.write(', arg${i}_${f.name}: Long');
             }
-          } else if (isNullable && (base == 'int' || base == 'double' || base == 'bool')) {
+          } else if (isNullable && (base == 'int' || base == 'double' || base == 'bool' || base == 'DateTime')) {
             // Nullable primitives: two Long params (isNull flag + value bits).
+            // DateTime? uses the same Long wire as int? (ms-since-epoch).
             paramDecl.write(', arg${i}Null: Long, arg${i}Val: Long');
           } else {
             paramDecl.write(', arg$i: ${mapper.callbackParamJni(cbParams[i])}');

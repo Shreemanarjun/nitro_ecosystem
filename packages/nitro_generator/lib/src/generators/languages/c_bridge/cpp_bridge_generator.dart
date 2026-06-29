@@ -1,5 +1,6 @@
 import 'package:nitro_annotations/nitro_annotations.dart' show CppImpl;
 
+import '../../../bridge_item_kind.dart';
 import '../../../bridge_spec.dart';
 import '../../code_writer.dart';
 import '../../generator_metadata.dart';
@@ -432,6 +433,7 @@ class CppBridgeGenerator {
           : func.returnType.name == 'int?' ? 'uint8_t*'
           : func.returnType.name == 'double?' ? 'uint8_t*'
           : func.returnType.name == 'bool?' ? 'uint8_t*'
+          : func.returnType.name == 'DateTime?' ? 'uint8_t*'
           : func.returnType.isTypedData
           ? 'uint8_t*'
           : _typeToC(func.returnType.name);
@@ -584,6 +586,7 @@ class CppBridgeGenerator {
           : prop.type.name == 'int?' ? 'uint8_t*'
           : prop.type.name == 'double?' ? 'uint8_t*'
           : prop.type.name == 'bool?' ? 'uint8_t*'
+          : prop.type.name == 'DateTime?' ? 'uint8_t*'
           : isVariantProp ? 'uint8_t*'
           : _typeToC(prop.type.name);
       if (prop.hasGetter) {
@@ -615,6 +618,12 @@ class CppBridgeGenerator {
           writer.line('        _res[0] = _opt.has_value() ? 1 : 0;');
           writer.line('        _res[1] = (_opt.has_value() && _opt.value()) ? 1 : 0;');
           writer.line('        return _res;');
+        } else if (prop.type.name == 'DateTime?') {
+          writer.line('        std::optional<int64_t> _opt = g_impl->get_${prop.dartName}();');
+          writer.line('        uint8_t* _res = (uint8_t*)malloc(9);');
+          writer.line('        _res[0] = _opt.has_value() ? 1 : 0;');
+          writer.line('        if (_opt.has_value()) { *reinterpret_cast<int64_t*>(_res + 1) = _opt.value(); }');
+          writer.line('        return _res;');
         } else if (isVariantProp) {
           writer.line('        NitroCppBuffer _res = g_impl->get_${prop.dartName}();');
           writer.line('        return _res.data;');
@@ -640,7 +649,7 @@ class CppBridgeGenerator {
       if (prop.hasSetter) {
         final isStructParam = structNames.contains(prop.type.name.replaceFirst('?', ''));
         final isRecordParam = recordNames.contains(prop.type.name.replaceFirst('?', ''));
-        final isNullablePrimSetter = prop.type.name == 'int?' || prop.type.name == 'double?' || prop.type.name == 'bool?';
+        final isNullablePrimSetter = prop.type.name == 'int?' || prop.type.name == 'double?' || prop.type.name == 'bool?' || prop.type.name == 'DateTime?';
         final paramCType = isNullablePrimSetter
             ? 'const uint8_t*'
             : isVariantProp
@@ -718,8 +727,11 @@ class CppBridgeGenerator {
     if (dartType == 'int?') return 'const uint8_t*';
     if (dartType == 'double?') return 'const uint8_t*';
     if (dartType == 'bool?') return 'const uint8_t*';
+    if (dartType == 'DateTime?') return 'const uint8_t*';
     switch (dartType.replaceFirst('?', '')) {
       case 'int':
+        return 'int64_t';
+      case 'DateTime':
         return 'int64_t';
       case 'double':
         return 'double';
@@ -976,6 +988,7 @@ class CppBridgeGenerator {
     if (base.startsWith('NativeHandle<')) return 'J';
     switch (base) {
       case 'int':
+      case 'DateTime':
         return 'J';
       case 'double':
         return 'D';
@@ -1235,7 +1248,7 @@ class CppBridgeGenerator {
     final baseRetType = returnType.name.replaceFirst('?', '');
     final isNullableBoolRet = baseRetType == 'bool' && returnType.name.endsWith('?');
     // Nullable primitives now return ByteArray (NitroNullable binary encoding).
-    final isNullableIntRet = baseRetType == 'int' && returnType.name.endsWith('?');
+    final isNullableIntRet = (baseRetType == 'int' || baseRetType == 'DateTime') && returnType.name.endsWith('?');
     final isNullableDoubleRet = baseRetType == 'double' && returnType.name.endsWith('?');
     // @NitroVariant: Kotlin returns ByteArray [4B len][1B tag][fields] → '[B'
     final isVariantRet = variantNames.contains(baseRetType);
@@ -1304,8 +1317,9 @@ class CppBridgeGenerator {
     if (param.type.isNullable && baseParamType == 'int') return '[B';
     if (param.type.isNullable && baseParamType == 'double') return '[B';
     if (param.type.isNullable && baseParamType == 'bool') return '[B';
+    if (param.type.isNullable && baseParamType == 'DateTime') return '[B';
     // Also handle '?' suffix in type name
-    if (param.type.name.endsWith('?') && (baseParamType == 'int' || baseParamType == 'double' || baseParamType == 'bool')) return '[B';
+    if (param.type.name.endsWith('?') && (baseParamType == 'int' || baseParamType == 'double' || baseParamType == 'bool' || baseParamType == 'DateTime')) return '[B';
     return _jniSigType(param.type.name);
   }
 }
