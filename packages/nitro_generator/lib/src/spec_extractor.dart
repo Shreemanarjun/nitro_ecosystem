@@ -88,12 +88,14 @@ class _ExtractedTypes {
   final List<BridgeStruct> structs;
   final List<BridgeRecordType> records;
   final List<BridgeVariant> variants;
+  final List<BridgeCustomType> customTypes;
 
   const _ExtractedTypes({
     required this.enums,
     required this.structs,
     required this.records,
     this.variants = const [],
+    this.customTypes = const [],
   });
 }
 
@@ -167,6 +169,7 @@ class SpecExtractor {
     final localStructs = localTypes.structs;
     final localEnums = localTypes.enums;
     final localVariants = localTypes.variants;
+    final localCustomTypes = localTypes.customTypes;
 
     // Also scan directly imported libraries for shared type annotations.
     // Types found in imported .native.dart files are marked isImported: true so
@@ -212,12 +215,14 @@ class SpecExtractor {
     final allStructs = [...localStructs, ...imported.structs];
     final allEnums = [...localEnums, ...imported.enums];
     final allVariants = [...localVariants, ...imported.variants];
+    final allCustomTypes = [...localCustomTypes];
 
     final recordTypeNames = allRecordTypes.map((r) => r.name).toSet();
     final structNames = allStructs.map((s) => s.name).toSet();
     final enumNames = allEnums.map((e) => e.name).toSet();
     final variantNames = allVariants.map((v) => v.name).toSet();
-    final knownTypeNames = {...structNames, ...enumNames, ...recordTypeNames, ...variantNames};
+    final customTypeNames = allCustomTypes.map((c) => c.name).toSet();
+    final knownTypeNames = {...structNames, ...enumNames, ...recordTypeNames, ...variantNames, ...customTypeNames};
 
     final members = _ModuleMembers.from(element);
     final (:properties, :streams) = _extractPropertiesAndStreams(members, ns, recordTypeNames, knownTypeNames, structTypeNames: structNames, enumTypeNames: enumNames, variantTypeNames: variantNames);
@@ -239,6 +244,7 @@ class SpecExtractor {
       enums: allEnums,
       recordTypes: allRecordTypes,
       variants: allVariants,
+      customTypes: allCustomTypes,
       importedTypeFiles: imported.cppIncludes,
     );
   }
@@ -440,15 +446,17 @@ class SpecExtractor {
   // ─── @HybridRecord / @NitroVariant ───────────────────────────────────────────
 
   static _ExtractedTypes _extractAnnotatedTypes(LibraryReader library) {
-    const recordChecker  = TypeChecker.fromUrl('package:nitro_annotations/src/annotations.dart#HybridRecord');
-    const structChecker  = TypeChecker.fromUrl('package:nitro_annotations/src/annotations.dart#HybridStruct');
-    const enumChecker    = TypeChecker.fromUrl('package:nitro_annotations/src/annotations.dart#HybridEnum');
-    const variantChecker = TypeChecker.fromUrl('package:nitro_annotations/src/annotations.dart#NitroVariant');
+    const recordChecker      = TypeChecker.fromUrl('package:nitro_annotations/src/annotations.dart#HybridRecord');
+    const structChecker      = TypeChecker.fromUrl('package:nitro_annotations/src/annotations.dart#HybridStruct');
+    const enumChecker        = TypeChecker.fromUrl('package:nitro_annotations/src/annotations.dart#HybridEnum');
+    const variantChecker     = TypeChecker.fromUrl('package:nitro_annotations/src/annotations.dart#NitroVariant');
+    const customTypeChecker  = TypeChecker.fromUrl('package:nitro_annotations/src/annotations.dart#NitroCustomType');
 
     final recordClasses  = <ClassElement>[];
     final structClasses  = <({ClassElement cls, ConstantReader annotation})>[];
     final enumClasses    = <({EnumElement cls, ConstantReader annotation})>[];
     final variantClasses = <ClassElement>[];
+    final customTypeClasses = <({ClassElement cls, ConstantReader annotation})>[];
 
     for (final cls in library.classes) {
       if (recordChecker.hasAnnotationOf(cls)) {
@@ -462,6 +470,11 @@ class SpecExtractor {
 
       if (variantChecker.hasAnnotationOf(cls)) {
         variantClasses.add(cls);
+      }
+
+      final customTypeAnnotation = customTypeChecker.firstAnnotationOf(cls);
+      if (customTypeAnnotation != null) {
+        customTypeClasses.add((cls: cls, annotation: ConstantReader(customTypeAnnotation)));
       }
     }
 
@@ -487,6 +500,16 @@ class SpecExtractor {
       structs:  structClasses.map((entry) => _buildStruct(entry.cls, entry.annotation)).toList(),
       enums:    enumClasses.map((entry)   => _buildEnum(entry.cls, entry.annotation)).toList(),
       variants: variantClasses.map((cls)  => _buildVariant(cls, library, recordTypeNames, structTypeNames, enumTypeNames)).toList(),
+      customTypes: customTypeClasses.map((entry) {
+        final codecType = entry.annotation.read('codec').typeValue;
+        final codecClass = codecType.element!.name!;
+        final encodedSize = entry.annotation.read('encodedSize').intValue;
+        return BridgeCustomType(
+          name: entry.cls.name!,
+          codecClass: codecClass,
+          encodedSize: encodedSize,
+        );
+      }).toList(),
     );
   }
 
@@ -763,6 +786,16 @@ class SpecExtractor {
       // Direct @HybridRecord class
       if (recordTypeNames.contains(elName)) {
         return BridgeType(name: displayName, isRecord: true, isNullable: isNullable, isFuture: isFuture);
+      }
+
+      // AnyNativeObject — opaque int64_t instance ID (RN Nitro AnyHybridObject)
+      if (elName == 'AnyNativeObject') {
+        return BridgeType(
+          name: displayName,
+          isAnyNativeObject: true,
+          isNullable: isNullable,
+          isFuture: isFuture,
+        );
       }
 
       // NativeHandle<T> — raw opaque pointer, zero codec overhead

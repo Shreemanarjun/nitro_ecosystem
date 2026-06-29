@@ -34,7 +34,8 @@ String _jniSig(
   bool zeroCopyReturn = false,
   bool isResult = false,
   Set<String> variantNames = const {},
-}) => CppBridgeGenerator._jniSig(params, returnType, enumNames, structNames, libPkg, zeroCopyReturn: zeroCopyReturn, isResult: isResult, variantNames: variantNames);
+  Set<String> customTypeNames = const {},
+}) => CppBridgeGenerator._jniSig(params, returnType, enumNames, structNames, libPkg, zeroCopyReturn: zeroCopyReturn, isResult: isResult, variantNames: variantNames, customTypeNames: customTypeNames);
 
 String _typedDataElementSizeExpr(String dartType) => CppBridgeGenerator._typedDataElementSizeExpr(dartType);
 
@@ -171,12 +172,20 @@ void _emitJniRegularFuncBody(
   // into a malloc-owned [int64 byte length][payload bytes] envelope.
   final retBase = func.returnType.name.replaceFirst('?', '');
   final isVariantReturn = spec.isVariantName(retBase);
+  final isAnyNativeObjectReturn = func.returnType.isAnyNativeObject;
+  final isCustomTypeReturn = spec.isCustomTypeName(retBase);
   // Nullable prim returns: malloc'd uint8_t* pointer (Dart casts to Pointer<NitroOptXxx> and frees).
   final cReturnType = func.isResult
+      ? 'uint8_t*'
+      : isAnyNativeObjectReturn
+      ? 'int64_t'
+      : isCustomTypeReturn
       ? 'uint8_t*'
       : isVariantReturn
       ? 'uint8_t*'
       : func.returnType.name == 'int?'
+      ? 'uint8_t*'
+      : func.returnType.name == 'uint64?'
       ? 'uint8_t*'
       : func.returnType.name == 'double?'
       ? 'uint8_t*'
@@ -203,7 +212,11 @@ void _emitJniRegularFuncBody(
     final isEnumParam = enumNames.contains(paramBase);
     // Nullable primitives: raw byte pointer (Dart passes Pointer<NitroOptXxx> = uint8_t*).
     String cParamType;
-    if (p.type.name == 'int?' || p.type.name == 'double?' || p.type.name == 'bool?' || p.type.name == 'DateTime?') {
+    if (p.type.isAnyNativeObject) {
+      cParamType = 'int64_t'; // AnyNativeObject (nullable uses -1 sentinel)
+    } else if (spec.isCustomTypeName(paramBase)) {
+      cParamType = 'const uint8_t*'; // @NitroCustomType byte buffer
+    } else if (p.type.name == 'int?' || p.type.name == 'double?' || p.type.name == 'bool?' || p.type.name == 'DateTime?') {
       cParamType = 'const uint8_t*';
     } else {
       cParamType = isEnumParam ? 'int64_t' : _paramTypeToC(p.type.name, structNames);
@@ -240,7 +253,8 @@ void _emitJniRegularFuncBody(
   }
   writer.line('    jmethodID methodId = g_mid_${func.dartName}_call;');
   final variantNames = spec.variants.map((v) => v.name).toSet();
-  final jniSigForLog = _jniSig(func.params, func.returnType, enumNames, structNames, libPkg, zeroCopyReturn: func.zeroCopyReturn, isResult: func.isResult, variantNames: variantNames);
+  final customTypeNames = spec.customTypes.map((c) => c.name).toSet();
+  final jniSigForLog = _jniSig(func.params, func.returnType, enumNames, structNames, libPkg, zeroCopyReturn: func.zeroCopyReturn, isResult: func.isResult, variantNames: variantNames, customTypeNames: customTypeNames);
   if (func.returnType.name == 'void') {
     writer.line('    if (methodId == nullptr) { LOGE("Method not found: ${func.dartName}_call sig=$jniSigForLog"); return; }');
   } else {
@@ -290,6 +304,23 @@ void _emitJniRegularFuncBody(
       callArgsList.add('j_${p.name}');
     } else if (p.type.isNativeHandle) {
       callArgsList.add('(jlong)${p.name}');
+    } else if (p.type.isAnyNativeObject) {
+      // AnyNativeObject: pass as Long; nullable: -1 sentinel for null
+      callArgsList.add('(jlong)${p.name}');
+    } else if (spec.isCustomTypeName(p.type.name.replaceFirst('?', ''))) {
+      // @NitroCustomType: encode raw bytes as ByteArray
+      final ct = spec.customTypeByName(p.type.name.replaceFirst('?', ''))!;
+      if (p.type.isNullable || p.type.name.endsWith('?')) {
+        writer.line('    jbyteArray j_${p.name} = nullptr;');
+        writer.line('    if (${p.name} != nullptr) {');
+        writer.line('        j_${p.name} = env->NewByteArray((jsize)${ct.encodedSize});');
+        writer.line('        env->SetByteArrayRegion(j_${p.name}, 0, (jsize)${ct.encodedSize}, (const jbyte*)${p.name});');
+        writer.line('    }');
+      } else {
+        writer.line('    jbyteArray j_${p.name} = env->NewByteArray((jsize)${ct.encodedSize});');
+        writer.line('    env->SetByteArrayRegion(j_${p.name}, 0, (jsize)${ct.encodedSize}, (const jbyte*)${p.name});');
+      }
+      callArgsList.add('j_${p.name}');
     } else if (p.type.isFunction) {
       callArgsList.add('(jlong)${p.name}');
     } else if (p.type.isAnyMap || p.type.isMap) {
@@ -376,6 +407,30 @@ void _emitJniRegularFuncBody(
     writer.line('    }');
     writer.line('    env->PopLocalFrame(nullptr);');
     writer.line('    return reinterpret_cast<void*>(res);');
+  } else if (isAnyNativeObjectReturn) {
+    // AnyNativeObject: Kotlin returns Long (instanceId); nullable: -1 = null sentinel
+    writer.line('    int64_t res = env->CallStaticLongMethod(g_bridgeClass, methodId$bridgeArgs);');
+    writer.line('    if (env->ExceptionCheck()) {');
+    writer.line('        nitro_report_jni_exception(env, env->ExceptionOccurred(), _nitro_err);');
+    writer.line('        env->PopLocalFrame(nullptr);');
+    writer.line('        return ${func.returnType.isNullable ? "-1" : "0"};');
+    writer.line('    }');
+    writer.line('    env->PopLocalFrame(nullptr);');
+    writer.line('    return res;');
+  } else if (isCustomTypeReturn) {
+    // @NitroCustomType: Kotlin returns ByteArray (user-encoded bytes); C mallocs and copies
+    writer.line('    jbyteArray jarr_ct = (jbyteArray)env->CallStaticObjectMethod(g_bridgeClass, methodId$bridgeArgs);');
+    writer.line('    if (env->ExceptionCheck()) {');
+    writer.line('        nitro_report_jni_exception(env, env->ExceptionOccurred(), _nitro_err);');
+    writer.line('        env->PopLocalFrame(nullptr);');
+    writer.line('        return nullptr;');
+    writer.line('    }');
+    writer.line('    if (jarr_ct == nullptr) { env->PopLocalFrame(nullptr); return nullptr; }');
+    writer.line('    jsize ct_len = env->GetArrayLength(jarr_ct);');
+    writer.line('    uint8_t* ct_buf = (uint8_t*)malloc((size_t)ct_len);');
+    writer.line('    env->GetByteArrayRegion(jarr_ct, 0, ct_len, (jbyte*)ct_buf);');
+    writer.line('    env->PopLocalFrame(nullptr);');
+    writer.line('    return ct_buf;');
   } else if (func.returnType.name == 'double') {
     writer.line(
       '    double res = env->CallStaticDoubleMethod(g_bridgeClass, methodId$bridgeArgs);',
@@ -400,6 +455,31 @@ void _emitJniRegularFuncBody(
     writer.line('    env->GetByteArrayRegion(jarr_nd, 0, (jsize)sizeof(NitroOptFloat64), (jbyte*)nd_result);');
     writer.line('    env->PopLocalFrame(nullptr);');
     writer.line('    return nd_result;');
+  } else if (func.returnType.name == 'uint64') {
+    // uint64: Kotlin returns Long (jlong); cast to uint64_t preserves all bits.
+    writer.line(
+      '    uint64_t res = (uint64_t)env->CallStaticLongMethod(g_bridgeClass, methodId$bridgeArgs);',
+    );
+    writer.line('    if (env->ExceptionCheck()) {');
+    writer.line('        nitro_report_jni_exception(env, env->ExceptionOccurred(), _nitro_err);');
+    writer.line('        env->PopLocalFrame(nullptr);');
+    writer.line('        return 0;');
+    writer.line('    }');
+    writer.line('    env->PopLocalFrame(nullptr);');
+    writer.line('    return res;');
+  } else if (func.returnType.name == 'uint64?') {
+    // uint64? — same JNI as int? — Kotlin returns NitroOptInt64 ByteArray (same bit layout).
+    writer.line('    jbyteArray jarr_nu = (jbyteArray)env->CallStaticObjectMethod(g_bridgeClass, methodId$bridgeArgs);');
+    writer.line('    if (env->ExceptionCheck()) {');
+    writer.line('        nitro_report_jni_exception(env, env->ExceptionOccurred(), _nitro_err);');
+    writer.line('        env->PopLocalFrame(nullptr);');
+    writer.line('        return nullptr;');
+    writer.line('    }');
+    writer.line('    if (jarr_nu == nullptr) { env->PopLocalFrame(nullptr); return nullptr; }');
+    writer.line('    uint8_t* nu_result = (uint8_t*)malloc((size_t)sizeof(NitroOptInt64));');
+    writer.line('    env->GetByteArrayRegion(jarr_nu, 0, (jsize)sizeof(NitroOptInt64), (jbyte*)nu_result);');
+    writer.line('    env->PopLocalFrame(nullptr);');
+    writer.line('    return nu_result;');
   } else if (func.returnType.name == 'int') {
     writer.line(
       '    int64_t res = env->CallStaticLongMethod(g_bridgeClass, methodId$bridgeArgs);',
@@ -975,6 +1055,7 @@ void _emitJniStreamBridges(
       BridgeItemKind.doubleNullable ||
       BridgeItemKind.boolNullable ||
       BridgeItemKind.dateTimeNullable ||
+      BridgeItemKind.uint64Nullable ||
       BridgeItemKind.hybridEnumNullable => 'jobject',
       BridgeItemKind.hybridRecord ||
       BridgeItemKind.hybridRecordNullable ||
@@ -991,10 +1072,11 @@ void _emitJniStreamBridges(
         writer.line('    obj.type = Dart_CObject_kDouble;');
         writer.line('    obj.value.as_double = item;');
 
-      case BridgeItemKind.int_ || BridgeItemKind.dateTime:
-        // DateTime uses the same int64_t wire as int (ms since epoch).
+      case BridgeItemKind.int_ || BridgeItemKind.dateTime || BridgeItemKind.uint64_:
+        // DateTime and uint64 use the same int64_t/kInt64 wire as int.
+        // For uint64_, the bit pattern is preserved; Dart int holds the raw bits.
         writer.line('    obj.type = Dart_CObject_kInt64;');
-        writer.line('    obj.value.as_int64 = item;');
+        writer.line('    obj.value.as_int64 = (int64_t)item;');
 
       case BridgeItemKind.bool_:
         // Use kInt64 (0/1) instead of kBool: Dart_PostCObject_DL with kBool
@@ -1021,9 +1103,9 @@ void _emitJniStreamBridges(
         writer.line('        obj.value.as_int64 = env->CallBooleanMethod(item, _mid) ? 1 : 0;');
         writer.line('    }');
 
-      case BridgeItemKind.intNullable || BridgeItemKind.dateTimeNullable:
-        // Nullable Long / nullable DateTime: jobject (java.lang.Long), nullptr = null.
-        // DateTime? shares the same Long wire as int?.
+      case BridgeItemKind.intNullable || BridgeItemKind.dateTimeNullable || BridgeItemKind.uint64Nullable:
+        // Nullable Long / nullable DateTime / nullable uint64: jobject (java.lang.Long), nullptr = null.
+        // All share the same Long wire; uint64? bits are preserved as int64_t.
         writer.line('    if (item == nullptr) { obj.type = Dart_CObject_kNull; }');
         writer.line('    else {');
         writer.line('        jmethodID _mid = env->GetMethodID(env->GetObjectClass(item), "longValue", "()J");');
@@ -1422,12 +1504,13 @@ void _emitJniInitializeAndPostHelpers(
   writer.line('        g_mid_destroy_instance_call = env->GetStaticMethodID(g_bridgeClass, "destroy_instance_call", "(J)V");');
   writer.line('        if (!g_mid_destroy_instance_call && env->ExceptionCheck()) { env->ExceptionClear(); LOGE("Method not found: destroy_instance_call sig=(J)V"); }');
   final initVariantNames = spec.variants.map((v) => v.name).toSet();
+  final initCustomTypeNames = spec.customTypes.map((c) => c.name).toSet();
   for (final func in spec.functions) {
     final String jniSig;
     if (func.isNativeAsync) {
       jniSig = _jniNativeAsyncSig(func.params, enumNames, structNames, libPkg);
     } else {
-      jniSig = _jniSig(func.params, func.returnType, enumNames, structNames, libPkg, zeroCopyReturn: func.zeroCopyReturn, isResult: func.isResult, variantNames: initVariantNames);
+      jniSig = _jniSig(func.params, func.returnType, enumNames, structNames, libPkg, zeroCopyReturn: func.zeroCopyReturn, isResult: func.isResult, variantNames: initVariantNames, customTypeNames: initCustomTypeNames);
     }
     writer.line('        g_mid_${func.dartName}_call = env->GetStaticMethodID(g_bridgeClass, "${func.dartName}_call", "$jniSig");');
     writer.line('        if (!g_mid_${func.dartName}_call && env->ExceptionCheck()) { env->ExceptionClear(); LOGE("Method not found: ${func.dartName}_call sig=$jniSig"); }');
@@ -1438,14 +1521,16 @@ void _emitJniInitializeAndPostHelpers(
     if (prop.hasGetter) {
       final isNullablePrimPropInit = prop.type.name == 'int?' || prop.type.name == 'double?' || prop.type.name == 'bool?';
       // Nullable primitives and variants use [B (ByteArray) encoding; 'J' prefix for instanceId.
-      final jniRetSig = isNullablePrimPropInit ? '[B' : isEnum ? 'J' : isVariantPropInit ? '[B' : _jniSigType(prop.type.name);
+      final isCustomTypePropGet = initCustomTypeNames.contains(prop.type.name.replaceFirst('?', ''));
+      final jniRetSig = isNullablePrimPropInit ? '[B' : isEnum ? 'J' : isVariantPropInit ? '[B' : isCustomTypePropGet ? '[B' : _jniSigType(prop.type.name);
       writer.line('        g_mid_${prop.getSymbol}_call = env->GetStaticMethodID(g_bridgeClass, "${prop.getSymbol}_call", "(J)$jniRetSig");');
       writer.line('        if (!g_mid_${prop.getSymbol}_call && env->ExceptionCheck()) { env->ExceptionClear(); LOGE("Method not found: ${prop.getSymbol}_call sig=(J)$jniRetSig"); }');
     }
     if (prop.hasSetter) {
       final isNullablePrimPropInit2 = prop.type.name == 'int?' || prop.type.name == 'double?' || prop.type.name == 'bool?';
       // Nullable primitives and variants use [B (ByteArray) encoding; 'J' prefix for instanceId.
-      final jniParamSig = isNullablePrimPropInit2 ? '[B' : isEnum ? 'J' : isVariantPropInit ? '[B' : _jniSigType(prop.type.name);
+      final isCustomTypePropSet = initCustomTypeNames.contains(prop.type.name.replaceFirst('?', ''));
+      final jniParamSig = isNullablePrimPropInit2 ? '[B' : isEnum ? 'J' : isVariantPropInit ? '[B' : isCustomTypePropSet ? '[B' : _jniSigType(prop.type.name);
       writer.line('        g_mid_${prop.setSymbol}_call = env->GetStaticMethodID(g_bridgeClass, "${prop.setSymbol}_call", "(J$jniParamSig)V");');
       writer.line('        if (!g_mid_${prop.setSymbol}_call && env->ExceptionCheck()) { env->ExceptionClear(); LOGE("Method not found: ${prop.setSymbol}_call sig=(J$jniParamSig)V"); }');
     }

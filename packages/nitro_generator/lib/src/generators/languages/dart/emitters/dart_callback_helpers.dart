@@ -34,9 +34,9 @@ void _assertSupportedCallbackType(
   final callback = param.type;
   final returnName = (callback.functionReturnType ?? 'void').replaceFirst('?', '');
   // Nullable primitive returns use sentinel encoding; all types below are supported.
-  if (returnName != 'void' && returnName != 'int' && returnName != 'double' && returnName != 'bool' && returnName != 'String' && returnName != 'DateTime' && !spec.isEnumName(returnName) && !spec.isRecordName(returnName) && !spec.isVariantName(returnName)) {
+  if (returnName != 'void' && returnName != 'int' && returnName != 'uint64' && returnName != 'double' && returnName != 'bool' && returnName != 'String' && returnName != 'DateTime' && returnName != 'AnyNativeObject' && !spec.isEnumName(returnName) && !spec.isRecordName(returnName) && !spec.isVariantName(returnName)) {
     throw UnsupportedError(
-      '${spec.dartClassName}.${func.dartName}() parameter "${param.name}" has callback return type "$returnName", which is not supported. Callback returns currently support void, int, double, bool, String, @HybridEnum, @HybridRecord, and @NitroVariant (and their nullable variants).',
+      '${spec.dartClassName}.${func.dartName}() parameter "${param.name}" has callback return type "$returnName", which is not supported. Callback returns currently support void, int, double, bool, String, AnyNativeObject, @HybridEnum, @HybridRecord, and @NitroVariant (and their nullable variants).',
     );
   }
   for (final callbackParam in callback.functionParams) {
@@ -50,8 +50,9 @@ void _assertSupportedCallbackType(
 
 bool _isSupportedCallbackParam(BridgeType type, BridgeSpec spec) {
   if (type.isPointer) return true;
+  if (type.isAnyNativeObject) return true;
   final name = type.name.replaceFirst('?', '');
-  if (name == 'int' || name == 'double' || name == 'bool' || name == 'String' || name == 'DateTime') return true;
+  if (name == 'int' || name == 'uint64' || name == 'double' || name == 'bool' || name == 'String' || name == 'DateTime' || name == 'AnyNativeObject') return true;
   if (spec.isEnumName(name)) return true;
   if (spec.isStructName(name)) return true;
   if (spec.isRecordName(name)) return true;
@@ -111,7 +112,9 @@ String? _callbackExceptionalReturn(BridgeType callbackType, BridgeSpec spec) {
   // Nullable returns use sentinel values for the exceptional return.
   if (returnName == 'double') return isNullableRet ? '0x7FF8000000000000' : '0';
   if (returnName == 'bool') return isNullableRet ? '-1' : '0';
+  if (returnName == 'AnyNativeObject') return isNullableRet ? '-1' : '0';
   if (returnName == 'int') return isNullableRet ? '-9223372036854775808' : '0';
+  if (returnName == 'uint64') return isNullableRet ? '-9223372036854775808' : '0';
   if (returnName == 'DateTime') return isNullableRet ? '-9223372036854775808' : '0';
   if (spec.isEnumName(returnName)) return isNullableRet ? '-1' : '0';
   // String returns Pointer<Utf8> — isolateLocal doesn't allow exceptionalReturn for Pointer types.
@@ -146,7 +149,7 @@ String _callbackNativeSignature(BridgeType callbackType, BridgeSpec spec) {
     final struct = spec.structs.where((s) => s.name == base).firstOrNull;
     if (struct != null && _isExpandableCallbackStruct(struct)) {
       paramsList.addAll(struct.fields.map((_) => 'Int64'));
-    } else if (isNullable && (base == 'int' || base == 'double' || base == 'bool' || base == 'DateTime')) {
+    } else if (isNullable && (base == 'int' || base == 'uint64' || base == 'double' || base == 'bool' || base == 'DateTime')) {
       paramsList.add('Int64'); // isNull: 0 = has value, non-zero = null
       paramsList.add('Int64'); // value bits (valid when isNull == 0)
     } else {
@@ -174,10 +177,12 @@ String _callbackReturnToFFI(String dartType, BridgeSpec spec) {
   final name = dartType.replaceFirst('?', '');
   if (name == 'void') return 'Void';
   if (name == 'int') return 'Int64';
+  if (name == 'uint64') return 'Int64'; // same GP register width; Dart int holds bits
   if (name == 'DateTime') return 'Int64';
   if (name == 'double') return 'Int64'; // raw bits, same GP-register path as int
   if (name == 'bool') return 'Int64'; // 0/1 via GP register
   if (name == 'String') return 'Pointer<Utf8>'; // strdup'd from native
+  if (name == 'AnyNativeObject') return 'Int64'; // raw instanceId, -1 for null
   if (spec.isEnumName(name)) return 'Int64';
   // @HybridRecord / @NitroVariant: Dart encodes to malloc'd [4B len][payload] buffer.
   if (spec.isRecordName(name)) return 'Pointer<Uint8>';
@@ -187,8 +192,11 @@ String _callbackReturnToFFI(String dartType, BridgeSpec spec) {
 
 String _callbackParamToFFI(BridgeType type, BridgeSpec spec) {
   if (type.isPointer) return 'Pointer<${type.pointerInnerType ?? 'Void'}>';
+  if (type.isAnyNativeObject) return 'Int64'; // raw instanceId, -1 null sentinel for nullable
   final name = type.name.replaceFirst('?', '');
+  if (name == 'AnyNativeObject') return 'Int64';
   if (name == 'int') return 'Int64';
+  if (name == 'uint64') return 'Int64'; // same GP register; bits preserved
   if (name == 'DateTime') return 'Int64';
   // bool and double are routed through Int64 on Android to ensure NativeCallable.listener
   // fires synchronously (only Int64/Long has the synchronous fast-path on Android).
@@ -215,7 +223,7 @@ String _callbackWrapperParams(BridgeType callbackType, BridgeSpec spec) {
       for (final f in struct.fields) {
         parts.add('int arg$i${_cap(f.name)}');
       }
-    } else if (isNullable && (base == 'int' || base == 'double' || base == 'bool' || base == 'DateTime')) {
+    } else if (isNullable && (base == 'int' || base == 'uint64' || base == 'double' || base == 'bool' || base == 'DateTime')) {
       parts.add('int arg${i}Null'); // 0 = has value, non-zero = null
       parts.add('int arg${i}Val');  // value bits (valid when arg${i}Null == 0)
     } else {
@@ -228,7 +236,9 @@ String _callbackWrapperParams(BridgeType callbackType, BridgeSpec spec) {
 String _callbackParamToDartFFI(BridgeType type, BridgeSpec spec) {
   if (type.isPointer) return 'Pointer<${type.pointerInnerType ?? 'Void'}>';
   final name = type.name.replaceFirst('?', '');
+  if (name == 'AnyNativeObject') return 'int'; // instanceId as Int64
   if (name == 'int') return 'int';
+  if (name == 'uint64') return 'int'; // same GP register; bits preserved
   if (name == 'DateTime') return 'int';
   if (name == 'double') return 'int'; // received as Int64 (IEEE 754 bits)
   if (name == 'bool') return 'int'; // received as Int64 (1 = true, 0 = false)
@@ -303,9 +313,24 @@ String _callbackInvocationArgs(BridgeType callbackType, BridgeSpec spec) {
       } else {
         args.add('(() { final _v = ${name}VariantExt.fromNative(arg$i); malloc.free(arg$i); return _v; })()');
       }
+    } else if (type.isAnyNativeObject || name == 'AnyNativeObject') {
+      // AnyNativeObject: single Int64 param; -1 is the null sentinel for nullable.
+      if (isNullable) {
+        args.add('arg$i == -1 ? null : AnyNativeObject(arg$i)');
+      } else {
+        args.add('AnyNativeObject(arg$i)');
+      }
     } else if (name == 'int' && isNullable) {
       // Nullable int: two-param (arg${i}Null, arg${i}Val) → null or int value.
       args.add('arg${i}Null != 0 ? null : arg${i}Val');
+    } else if (name == 'uint64') {
+      // uint64: Dart int holds raw bits; same GP register path as int.
+      // Nullable uint64: two-param (isNull, valueBits).
+      if (isNullable) {
+        args.add('arg${i}Null != 0 ? null : arg${i}Val');
+      } else {
+        args.add('arg$i');
+      }
     } else if (name == 'DateTime') {
       if (isNullable) {
         args.add('arg${i}Null != 0 ? null : DateTime.fromMillisecondsSinceEpoch(arg${i}Val)');
@@ -353,8 +378,20 @@ String? _callbackReturnExpression(BridgeType callbackType, BridgeSpec spec, Stri
     }
     return '$invocation.nativeValue';
   }
+  // AnyNativeObject: return raw instanceId; nullable uses -1 sentinel.
+  if (returnName == 'AnyNativeObject') {
+    if (isNullableRet) {
+      return '(() { final _v = $invocation; return _v == null ? -1 : _v.instanceId; })()';
+    }
+    return '$invocation.instanceId';
+  }
   // Nullable int: null → Int64.min sentinel.
   if (returnName == 'int' && isNullableRet) {
+    return '($invocation) ?? -9223372036854775808';
+  }
+  // uint64: Dart int holds raw bits; same GP-register path as int.
+  // Nullable uint64: null → Int64.min sentinel (same bit pattern as int?).
+  if (returnName == 'uint64' && isNullableRet) {
     return '($invocation) ?? -9223372036854775808';
   }
   // DateTime / DateTime?: encode to ms-since-epoch Int64.

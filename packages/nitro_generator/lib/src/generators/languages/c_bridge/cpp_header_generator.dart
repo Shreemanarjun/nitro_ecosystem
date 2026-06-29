@@ -125,7 +125,11 @@ class CppHeaderGenerator {
           // Enum params use int64_t (rawValue).
           final isEnumParam = spec.isEnumName(paramBase);
           String cType;
-          if (p.type.name == 'int?' || p.type.name == 'double?' || p.type.name == 'bool?' || p.type.name == 'DateTime?') {
+          if (p.type.isAnyNativeObject) {
+            cType = 'int64_t'; // AnyNativeObject / AnyNativeObject? — opaque instance id
+          } else if (spec.isCustomTypeName(paramBase)) {
+            cType = 'const uint8_t*'; // @NitroCustomType — user-codec byte buffer
+          } else if (p.type.name == 'int?' || p.type.name == 'uint64?' || p.type.name == 'double?' || p.type.name == 'bool?' || p.type.name == 'DateTime?') {
             cType = 'const uint8_t*';
           } else {
             cType = isEnumParam ? 'int64_t' : ((isStructParam || p.type.isNativeHandle) ? 'void*' : _typeToC(p.type.name));
@@ -149,11 +153,18 @@ class CppHeaderGenerator {
           // @NitroResult: C returns uint8_t* [1B tag][payload].
           // @NitroVariant: C returns uint8_t* [4B len][1B tag][fields].
           final isVariantRet = spec.isVariantName(retBase);
+          final isCustomTypeRet = spec.isCustomTypeName(retBase);
           final ret = func.isResult
               ? 'uint8_t*'
               : isVariantRet
               ? 'uint8_t*'
+              : func.returnType.isAnyNativeObject
+              ? 'int64_t'
+              : isCustomTypeRet
+              ? 'uint8_t*'
               : func.returnType.name == 'int?'
+              ? 'uint8_t*'
+              : func.returnType.name == 'uint64?'
               ? 'uint8_t*'
               : func.returnType.name == 'double?'
               ? 'uint8_t*'
@@ -186,16 +197,24 @@ class CppHeaderGenerator {
         if (!isEnumProp) {
           final isRecordOrVariantProp =
               prop.type.isRecord || spec.isRecordName(bare) || spec.isVariantName(bare);
-          switch (prop.type.name) {
-            case 'int?':    getterRet = 'uint8_t*'; setterParam = 'const uint8_t*'; break;
-            case 'double?': getterRet = 'uint8_t*'; setterParam = 'const uint8_t*'; break;
-            case 'bool?':   getterRet = 'uint8_t*'; setterParam = 'const uint8_t*'; break;
-            default:
-              if (isRecordOrVariantProp) {
-                getterRet = 'uint8_t*'; setterParam = 'const uint8_t*';
-              } else {
-                getterRet = _typeToC(prop.type.name); setterParam = getterRet;
-              }
+          final isCustomTypeProp = spec.isCustomTypeName(bare);
+          if (prop.type.isAnyNativeObject) {
+            getterRet = 'int64_t'; setterParam = 'int64_t';
+          } else if (isCustomTypeProp) {
+            getterRet = 'uint8_t*'; setterParam = 'const uint8_t*';
+          } else {
+            switch (prop.type.name) {
+              case 'int?':    getterRet = 'uint8_t*'; setterParam = 'const uint8_t*'; break;
+              case 'uint64?': getterRet = 'uint8_t*'; setterParam = 'const uint8_t*'; break;
+              case 'double?': getterRet = 'uint8_t*'; setterParam = 'const uint8_t*'; break;
+              case 'bool?':   getterRet = 'uint8_t*'; setterParam = 'const uint8_t*'; break;
+              default:
+                if (isRecordOrVariantProp) {
+                  getterRet = 'uint8_t*'; setterParam = 'const uint8_t*';
+                } else {
+                  getterRet = _typeToC(prop.type.name); setterParam = getterRet;
+                }
+            }
           }
         } else {
           getterRet = 'int64_t'; setterParam = 'int64_t';
@@ -244,6 +263,8 @@ class CppHeaderGenerator {
     switch (dartType.replaceFirst('?', '')) {
       case 'int':
         return 'int64_t';
+      case 'uint64':
+        return 'uint64_t';
       case 'DateTime':
         return 'int64_t';
       case 'double':
@@ -274,6 +295,8 @@ class CppHeaderGenerator {
         return 'uint64_t*';
       case 'void':
         return 'void';
+      case 'AnyNativeObject':
+        return 'int64_t';
       default:
         // NitroAnyMap and Map<String, T> both bridge as length-prefixed binary buffers.
         if (dartType == 'NitroAnyMap' || dartType.startsWith('Map<')) return 'uint8_t*';

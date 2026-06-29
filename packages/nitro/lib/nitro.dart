@@ -45,6 +45,11 @@ export 'src/nitro_ffi_codec.dart' if (dart.library.js_interop) 'src/nitro_ffi_co
 // NitroAnyMap: typed string-keyed map with binary wire codec.
 export 'src/nitro_any_value.dart' if (dart.library.js_interop) 'src/nitro_any_value.dart';
 
+// ── AnyNativeObject — opaque native impl ref (RN Nitro AnyHybridObject equiv.) ─
+export 'src/any_native_object.dart';
+// ── NitroInstanceRegistry — Dart-side resolve<T> for AnyNativeObject refs ────
+export 'src/nitro_instance_registry.dart';
+
 // ── NitroPromise<T> — composable async primitive ──────────────────────────────
 // Mirrors RN Nitro's Promise<T> C++ class.
 // .resolve()/.reject(), addOnResolvedListener(), .then<R>(), .andThen<R>().

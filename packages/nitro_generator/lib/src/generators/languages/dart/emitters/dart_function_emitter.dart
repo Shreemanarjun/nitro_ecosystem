@@ -11,6 +11,7 @@ void _emitFunctionImpls(CodeWriter writer, BridgeSpec spec) {
     // type only requires updating BridgeItemKind, not every needsArena check.
     final needsArena = func.params.any((p) {
       if (p.type.isAnyMap) return true; // maps are not classified by BridgeItemKind
+      if (spec.isCustomTypeName(p.type.baseName)) return true; // custom type codec encode needs arena
       final kind = classifyBridgeItem(p.type, spec);
       return kind.isStringKind ||
           kind.isRecordKind ||
@@ -63,10 +64,23 @@ void _emitFunctionImpls(CodeWriter writer, BridgeSpec spec) {
           if (t == 'bool') return ['${p.name} ? 1 : 0'];
           if (t == 'DateTime') return ['${p.name}.millisecondsSinceEpoch'];
           if (t == 'DateTime?') return ['arena.packInt(${p.name}?.millisecondsSinceEpoch)'];
+          // AnyNativeObject: encode as instanceId; nullable uses -1 sentinel.
+          if (p.type.isAnyNativeObject) {
+            if (t.endsWith('?')) return ['${p.name}?.instanceId ?? -1'];
+            return ['${p.name}.instanceId'];
+          }
+          // @NitroCustomType: encode via user codec.
+          final tBaseCustom = t.replaceFirst('?', '');
+          if (spec.isCustomTypeName(tBaseCustom)) {
+            final ct = spec.customTypeByName(tBaseCustom)!;
+            return ['const ${ct.codecClass}().encode(${p.name}, arena)'];
+          }
           // Optional primitives: NitroOpt* packed struct encoding via Arena.
           if (t == 'int?') return ['arena.packInt(${p.name})'];
           if (t == 'double?') return ['arena.packDouble(${p.name})'];
           if (t == 'bool?') return ['arena.packBool(${p.name})'];
+          // uint64? reuses NitroOptInt64 struct (same 9-byte layout; bits preserved as int).
+          if (t == 'uint64?') return ['arena.packInt(${p.name})'];
           return [p.name];
         })
         .join(', ');

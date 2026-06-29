@@ -26,6 +26,7 @@ class SwiftTypeMapper implements TypeMapper {
     final name = t.replaceFirst('?', '');
     final isOptional = t.endsWith('?');
     if (bridgeType?.isNativeHandle == true) return 'UnsafeMutableRawPointer?';
+    if (bridgeType?.isAnyNativeObject == true) return isOptional ? 'Int64?' : 'Int64';
 
     if (bridgeType != null && bridgeType.isFunction) {
       final returnType = bridgeType.functionReturnType ?? 'Void';
@@ -38,6 +39,9 @@ class SwiftTypeMapper implements TypeMapper {
     switch (name) {
       case 'int':
         baseType = 'Int64';
+        break;
+      case 'uint64':
+        baseType = 'UInt64';
         break;
       case 'DateTime':
         baseType = 'Date';
@@ -85,6 +89,8 @@ class SwiftTypeMapper implements TypeMapper {
           baseType = name;
         } else if (_variantNames.contains(name)) {
           baseType = name;
+        } else if (spec.isCustomTypeName(name)) {
+          baseType = '[UInt8]';
         } else if (name.startsWith('List<')) {
           final itemType = name.substring(5, name.length - 1);
           baseType = '[${swiftType(itemType)}]';
@@ -101,6 +107,8 @@ class SwiftTypeMapper implements TypeMapper {
     switch (name) {
       case 'int':
         return 'Int64';
+      case 'uint64':
+        return 'UInt64';
       case 'DateTime':
         return 'Int64';
       case 'double':
@@ -132,11 +140,13 @@ class SwiftTypeMapper implements TypeMapper {
         return isZeroCopy ? 'UnsafeMutablePointer<Int64>?' : '[Int64]';
       default:
         if (_enumNames.contains(name)) return 'Int64';
+        if (name == 'AnyNativeObject') return 'Int64';
         if (_structNames.contains(name)) return 'UnsafeMutableRawPointer?';
         if (_recordNames.contains(name) || name.startsWith('List<')) {
           return 'UnsafeMutablePointer<UInt8>?';
         }
         if (_variantNames.contains(name)) return 'UnsafeMutablePointer<UInt8>?';
+        if (spec.isCustomTypeName(name)) return 'UnsafeMutablePointer<UInt8>?';
         return 'Any?';
     }
   }
@@ -146,11 +156,16 @@ class SwiftTypeMapper implements TypeMapper {
   /// C-ABI return type for a `@_cdecl` function bridge.
   String cdeclReturnType(BridgeFunction func) {
     if (func.returnType.isNativeHandle) return 'UnsafeMutableRawPointer?';
+    if (func.returnType.isAnyNativeObject) {
+      return func.returnType.isNullable ? 'Int64' : 'Int64';
+    }
     // @NitroResult: C returns UnsafeMutablePointer<UInt8>? [1B tag][payload].
     if (func.isResult) return 'UnsafeMutablePointer<UInt8>?';
     final name = func.returnType.name.replaceFirst('?', '');
+    if (spec.isCustomTypeName(name)) return 'UnsafeMutablePointer<UInt8>?';
     if (name == 'void') return 'Void';
     if (func.returnType.name == 'int?') return 'UnsafeMutablePointer<UInt8>?';
+    if (func.returnType.name == 'uint64?') return 'UnsafeMutablePointer<UInt8>?';
     if (func.returnType.name == 'double?') return 'UnsafeMutablePointer<UInt8>?';
     if (func.returnType.name == 'bool?') return 'UnsafeMutablePointer<UInt8>?';
     if (func.returnType.name == 'DateTime?') return 'UnsafeMutablePointer<UInt8>?';
@@ -170,10 +185,13 @@ class SwiftTypeMapper implements TypeMapper {
   /// C-ABI parameter type for a `@_cdecl` function bridge.
   String cdeclParamType(String typeName, {BridgeType? bridgeType}) {
     if (bridgeType?.isNativeHandle == true) return 'UnsafeMutableRawPointer?';
+    if (bridgeType?.isAnyNativeObject == true) return 'Int64';
     final name = typeName.replaceFirst('?', '');
+    if (spec.isCustomTypeName(name)) return 'UnsafeMutablePointer<UInt8>?';
     if (name == 'String') return 'UnsafePointer<CChar>?';
     if (typeName.endsWith('?') && name == 'bool') return 'UnsafeMutablePointer<UInt8>?';
     if (typeName.endsWith('?') && name == 'int') return 'UnsafeMutablePointer<UInt8>?';
+    if (typeName.endsWith('?') && name == 'uint64') return 'UnsafeMutablePointer<UInt8>?';
     if (typeName.endsWith('?') && name == 'double') return 'UnsafeMutablePointer<UInt8>?';
     if (typeName.endsWith('?') && name == 'DateTime') return 'UnsafeMutablePointer<UInt8>?';
     if (name == 'DateTime') return 'Int64';
@@ -233,6 +251,8 @@ class SwiftTypeMapper implements TypeMapper {
     switch (base) {
       case 'int':
         return 'Int64';
+      case 'uint64':
+        return 'UInt64';
       case 'DateTime':
         return 'Int64';
       case 'double':
@@ -387,6 +407,8 @@ class SwiftTypeMapper implements TypeMapper {
     final name = t.replaceFirst('?', '');
     switch (name) {
       case 'int':
+        return isNullable ? 'nil' : '0';
+      case 'uint64':
         return isNullable ? 'nil' : '0';
       case 'DateTime':
         return isNullable ? 'nil' : '0';

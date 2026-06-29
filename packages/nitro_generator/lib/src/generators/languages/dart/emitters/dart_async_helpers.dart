@@ -138,6 +138,22 @@ String _nativeAsyncUnpack(BridgeFunction func, BridgeSpec spec) {
     return '(raw) => DateTime.fromMillisecondsSinceEpoch(raw as int)';
   }
 
+  // AnyNativeObject — posts kInt64 instanceId; nullable uses -1 sentinel
+  if (rtBase == 'AnyNativeObject' || func.returnType.isAnyNativeObject) {
+    return isNullable
+        ? '(raw) { final id = raw as int; return id == -1 ? null : AnyNativeObject(id); }'
+        : '(raw) => AnyNativeObject(raw as int)';
+  }
+
+  // @NitroCustomType — posts kInt64 (pointer to Uint8 buffer)
+  if (spec.isCustomTypeName(rtBase)) {
+    final ct = spec.customTypeByName(rtBase)!;
+    if (isNullable) {
+      return '(raw) { final rawPtr = Pointer<Uint8>.fromAddress(raw as int); if (rawPtr == nullptr) return null; try { return const ${ct.codecClass}().decode(rawPtr); } finally { malloc.free(rawPtr); } }';
+    }
+    return '(raw) { final rawPtr = Pointer<Uint8>.fromAddress(raw as int); try { return const ${ct.codecClass}().decode(rawPtr)!; } finally { malloc.free(rawPtr); } }';
+  }
+
   // Fallthrough: unknown type — cast directly (should not normally occur).
   return '(raw) => raw as $rt';
 }
@@ -260,6 +276,38 @@ void _emitReturnDecode(
       writer.line('${indent}return DateTime.fromMillisecondsSinceEpoch($resVar);');
     case ReturnKind.dateTimeNullable:
       writer.line('${indent}final _msResult = $resVar.decoded; malloc.free($resVar); return _msResult != null ? DateTime.fromMillisecondsSinceEpoch(_msResult) : null;');
+    case ReturnKind.anyNativeObject:
+      writer.line('${indent}return AnyNativeObject($resVar);');
+    case ReturnKind.anyNativeObjectNullable:
+      writer.line('${indent}return $resVar == -1 ? null : AnyNativeObject($resVar);');
+    case ReturnKind.customType:
+      final ctName = base;
+      final ct = spec.customTypeByName(ctName)!;
+      writer.line('${indent}if ($resVar == nullptr) throw StateError(\'$ctName returned null\');');
+      writer.line('${indent}final _ctResult;');
+      writer.line('${indent}try {');
+      writer.line('$indent  _ctResult = const ${ct.codecClass}().decode($resVar)!;');
+      writer.line('$indent} finally {');
+      writer.line('$indent  malloc.free($resVar);');
+      writer.line('$indent}');
+      writer.line('${indent}return _ctResult;');
+    case ReturnKind.customTypeNullable:
+      final ctNameN = base;
+      final ctN = spec.customTypeByName(ctNameN)!;
+      writer.line('${indent}if ($resVar == nullptr) return null;');
+      writer.line('${indent}final _ctNResult;');
+      writer.line('${indent}try {');
+      writer.line('$indent  _ctNResult = const ${ctN.codecClass}().decode($resVar);');
+      writer.line('$indent} finally {');
+      writer.line('$indent  malloc.free($resVar);');
+      writer.line('$indent}');
+      writer.line('${indent}return _ctNResult;');
+    case ReturnKind.uint64:
+      // uint64 is represented as Dart int (bits preserved); raw Uint64 FFI value passes through.
+      writer.line('${indent}return $resVar;');
+    case ReturnKind.uint64Nullable:
+      // uint64? reuses NitroOptInt64 struct (same 9-byte layout); int? result = raw bits.
+      writer.line('${indent}final _u64Result = $resVar.decoded; malloc.free($resVar); return _u64Result;');
     case ReturnKind.primitive:
       writer.line('${indent}return $resVar;');
   }
@@ -271,10 +319,13 @@ String _asyncResVarName(ReturnKind kind) => switch (kind) {
   ReturnKind.record => 'rawPtr',
   ReturnKind.typedData => 'rawPtr',
   ReturnKind.struct => 'rawPtr',
+  ReturnKind.customType => 'rawPtr',
+  ReturnKind.customTypeNullable => 'rawPtr',
   ReturnKind.intNullable => 'optPtr',
   ReturnKind.doubleNullable => 'optPtr',
   ReturnKind.boolNullable => 'optPtr',
   ReturnKind.dateTimeNullable => 'optPtr',
+  ReturnKind.uint64Nullable => 'optPtr',
   _ => 'res',
 };
 
@@ -288,11 +339,14 @@ String _assertCheckError(String indent) => '$indent${_inlineCheckError()}';
 /// object creation on the call boundary.
 bool _isPrimitiveType(BridgeType bt, BridgeSpec spec) {
   if (bt.isRecord || bt.isTypedData || bt.isPointer || bt.isFunction || bt.isNativeHandle) return false;
+  // Custom types always go as Pointer<Uint8> — not scalar.
+  if (spec.isCustomTypeName(bt.baseName)) return false;
   final name = bt.name.replaceFirst('?', '');
   if (name == 'String' || name == 'void') return false;
   if (spec.isStructName(name)) return false;
   // Nullable primitives now use NitroNullable (Pointer<Uint8>) — not scalars.
   if (bt.name == 'int?' || bt.name == 'double?' || bt.name == 'bool?') return false;
+  // AnyNativeObject — scalar Int64 wire (non-null and nullable both use Int64).
   // int, double, bool, and known enums are all FFI scalars.
   return true;
 }

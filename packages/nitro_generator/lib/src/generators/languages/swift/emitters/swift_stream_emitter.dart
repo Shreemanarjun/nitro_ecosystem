@@ -22,7 +22,10 @@ class SwiftStreamEmitter {
     // uses a pointer type so Swift can pass nil for null items. The C shim checks
     // nullptr and posts Dart_CObject_kNull.
     final String cType;
-    if (isNullable && itemName == 'int') {
+    if (stream.itemType.isAnyNativeObject && isNullable) {
+      // Nullable AnyNativeObject: pointer to Int64 so nil can signal null.
+      cType = 'UnsafePointer<Int64>?';
+    } else if (isNullable && itemName == 'int') {
       cType = 'UnsafePointer<Int64>?';
     } else if (isNullable && itemName == 'double') {
       cType = 'UnsafePointer<Double>?';

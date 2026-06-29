@@ -18,11 +18,14 @@ enum BridgeTypeKind {
   map,            // Map<String, T>
   anyMap,         // NitroAnyMap — heterogeneous typed map (RN Nitro AnyMap equiv.)
   function_,      // T Function(...) — callback
-  nativeHandle,   // NativeHandle<T> — opaque raw pointer
-  pointer,        // Pointer<T> — explicit FFI pointer
-  stream,         // Stream<T>
-  future,         // Future<T>
-  variant,        // @NitroVariant (Sprint 2, reserved)
+  nativeHandle,      // NativeHandle<T> — opaque raw pointer
+  pointer,           // Pointer<T> — explicit FFI pointer
+  stream,            // Stream<T>
+  future,            // Future<T>
+  variant,           // @NitroVariant sealed class
+  anyNativeObject,   // AnyNativeObject — opaque int64_t instance ID (RN Nitro AnyHybridObject)
+  customType,        // @NitroCustomType — user-codec uint8_t* type (RN Nitro CustomType<T>)
+  tuple,             // @NitroTuple positional record — Dart 3 (A, B, C) — same wire as @HybridRecord
 }
 
 class BridgeSpec {
@@ -93,6 +96,7 @@ class BridgeSpec {
   final List<BridgeProperty> properties;
   final List<BridgeRecordType> recordTypes;
   final List<BridgeVariant> variants;
+  final List<BridgeCustomType> customTypes;
 
   /// True when this spec was extracted from a type-only `.native.dart` file
   /// (no `@NitroModule` annotation). Generators emit only type declarations,
@@ -116,20 +120,23 @@ class BridgeSpec {
   // Generators historically use `spec.enums.any(e => e.name == name)` in tight
   // loops — O(n) per lookup, O(m×n) total. These lazily-built maps provide
   // O(1) lookup and are computed at most once per BridgeSpec instance.
-  late final Map<String, BridgeEnum>       _enumIndex    = { for (final e in enums)    e.name: e };
-  late final Map<String, BridgeStruct>     _structIndex  = { for (final s in structs)  s.name: s };
-  late final Map<String, BridgeRecordType> _recordIndex  = { for (final r in recordTypes) r.name: r };
-  late final Map<String, BridgeVariant>    _variantIndex = { for (final v in variants) v.name: v };
+  late final Map<String, BridgeEnum>       _enumIndex       = { for (final e in enums)       e.name: e };
+  late final Map<String, BridgeStruct>     _structIndex     = { for (final s in structs)     s.name: s };
+  late final Map<String, BridgeRecordType> _recordIndex     = { for (final r in recordTypes) r.name: r };
+  late final Map<String, BridgeVariant>    _variantIndex    = { for (final v in variants)    v.name: v };
+  late final Map<String, BridgeCustomType> _customTypeIndex = { for (final c in customTypes) c.name: c };
 
-  BridgeEnum?       enumByName(String n)    => _enumIndex[n];
-  BridgeStruct?     structByName(String n)  => _structIndex[n];
-  BridgeRecordType? recordByName(String n)  => _recordIndex[n];
-  BridgeVariant?    variantByName(String n) => _variantIndex[n];
+  BridgeEnum?       enumByName(String n)       => _enumIndex[n];
+  BridgeStruct?     structByName(String n)     => _structIndex[n];
+  BridgeRecordType? recordByName(String n)     => _recordIndex[n];
+  BridgeVariant?    variantByName(String n)    => _variantIndex[n];
+  BridgeCustomType? customTypeByName(String n) => _customTypeIndex[n];
 
-  bool isEnumName(String n)    => _enumIndex.containsKey(n);
-  bool isStructName(String n)  => _structIndex.containsKey(n);
-  bool isRecordName(String n)  => _recordIndex.containsKey(n);
-  bool isVariantName(String n) => _variantIndex.containsKey(n);
+  bool isEnumName(String n)       => _enumIndex.containsKey(n);
+  bool isStructName(String n)     => _structIndex.containsKey(n);
+  bool isRecordName(String n)     => _recordIndex.containsKey(n);
+  bool isVariantName(String n)    => _variantIndex.containsKey(n);
+  bool isCustomTypeName(String n) => _customTypeIndex.containsKey(n);
 
   BridgeSpec({
     required this.dartClassName,
@@ -149,6 +156,7 @@ class BridgeSpec {
     this.properties = const [],
     this.recordTypes = const [],
     this.variants = const [],
+    this.customTypes = const [],
     this.isTypeOnly = false,
     this.importedTypeFiles = const [],
   });
@@ -200,6 +208,12 @@ class BridgeType {
   /// Like [isMap] but uses the full [NitroAnyValue] variant codec instead of JSON.
   final bool isAnyMap;
 
+  /// True when this type is a `@NitroTuple` positional record typedef.
+  /// Wire format is identical to @HybridRecord (4B length prefix + sequential fields).
+  /// Dart type is a positional record `(T1, T2, ...)` accessed via `$1`, `$2`, etc.
+  /// [isRecord] is also true for tuples — all existing record guards apply.
+  final bool isTuple;
+
   /// The type name with the nullable `?` suffix stripped.
   /// `'int?'.baseName == 'int'`, `'String'.baseName == 'String'`.
   /// Always strips a trailing `?` regardless of the [isNullable] field —
@@ -214,6 +228,7 @@ class BridgeType {
   /// name sets (BridgeType itself has no access to the spec).
   /// For enum/struct disambiguation, see [KotlinTypeMapper.type] and [SwiftTypeMapper.swiftType].
   BridgeTypeKind get kind {
+    if (isAnyNativeObject)    return BridgeTypeKind.anyNativeObject;
     if (isNativeHandle)       return BridgeTypeKind.nativeHandle;
     if (isPointer)            return BridgeTypeKind.pointer;
     if (isFunction)           return BridgeTypeKind.function_;
@@ -221,6 +236,7 @@ class BridgeType {
     if (isFuture)             return BridgeTypeKind.future;
     if (isAnyMap)             return BridgeTypeKind.anyMap;
     if (isMap)                return BridgeTypeKind.map;
+    if (isTuple)              return BridgeTypeKind.tuple;
     if (isRecord) {
       if (isEnumList)    return BridgeTypeKind.enumList;
       if (isVariantList) return BridgeTypeKind.variantList;
@@ -244,9 +260,10 @@ class BridgeType {
     final k = kind;
     if (k != BridgeTypeKind.primitive) return k;
     final bare = name.endsWith('?') ? name.substring(0, name.length - 1) : name;
-    if (spec.isEnumName(bare))   return BridgeTypeKind.enumValue;
-    if (spec.isStructName(bare)) return BridgeTypeKind.struct_;
-    if (spec.isVariantName(bare)) return BridgeTypeKind.variant;
+    if (spec.isEnumName(bare))       return BridgeTypeKind.enumValue;
+    if (spec.isStructName(bare))     return BridgeTypeKind.struct_;
+    if (spec.isVariantName(bare))    return BridgeTypeKind.variant;
+    if (spec.isCustomTypeName(bare)) return BridgeTypeKind.customType;
     return BridgeTypeKind.primitive;
   }
 
@@ -281,6 +298,11 @@ class BridgeType {
   /// Used for documentation only; the wire format is always `void*` / `Long`.
   final String? nativeHandleTypeParam;
 
+  /// True when this type is `AnyNativeObject` — an opaque `int64_t` instance ID
+  /// referencing any registered native implementation. RN Nitro equivalent:
+  /// `AnyHybridObject`. Wire: same as `int64_t`; nullable uses `-1` as null sentinel.
+  final bool isAnyNativeObject;
+
   BridgeType({
     required this.name,
     this.isNullable = false,
@@ -296,11 +318,35 @@ class BridgeType {
     this.recordListItemIsNullable = false,
     this.isMap = false,
     this.isAnyMap = false,
+    this.isTuple = false,
     this.isFunction = false,
     this.functionReturnType,
     this.functionParams = const [],
     this.isNativeHandle = false,
     this.nativeHandleTypeParam,
+    this.isAnyNativeObject = false,
+  });
+}
+
+/// A user-defined type registered with [@NitroCustomType] and encoded via a
+/// [NitroFfiCodec] subclass. The generator emits `const [codecClass]().encode()`
+/// / `.decode()` on the Dart side; native sides see raw `ByteArray` /
+/// `UnsafePointer<UInt8>?` / `uint8_t*`.
+class BridgeCustomType {
+  /// Dart type name as it appears in the spec file (e.g. `'Color'`).
+  final String name;
+  /// Name of the [NitroFfiCodec] subclass (e.g. `'ColorCodec'`).
+  final String codecClass;
+  /// Byte length of the encoded representation — must equal `codec.encodedSize`.
+  final int encodedSize;
+  /// True when this type was imported from another `.native.dart` file.
+  final bool isImported;
+
+  const BridgeCustomType({
+    required this.name,
+    required this.codecClass,
+    required this.encodedSize,
+    this.isImported = false,
   });
 }
 
@@ -567,7 +613,13 @@ class BridgeRecordType {
   /// Generators skip re-declaring it — it appears in the other file's bridge.
   final bool isImported;
 
-  BridgeRecordType({required this.name, required this.fields, this.isImported = false});
+  /// True when this is a `@NitroTuple` positional record typedef.
+  /// Fields are named `field0`, `field1`, ... (positional, not semantic).
+  /// Dart encode/decode uses standalone free functions (not extension methods)
+  /// since Dart typedefs cannot have extension methods.
+  final bool isTuple;
+
+  BridgeRecordType({required this.name, required this.fields, this.isImported = false, this.isTuple = false});
 }
 
 // ── @NitroVariant ─────────────────────────────────────────────────────────────

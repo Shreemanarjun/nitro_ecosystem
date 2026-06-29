@@ -27,6 +27,12 @@ enum ReturnKind {
   primitive, // int (non-null), double (non-null) — pass through unchanged
   dateTime,         // DateTime (non-null) — wire: Int64 ms epoch
   dateTimeNullable, // DateTime? — wire: Pointer<NitroOptInt64>
+  anyNativeObject,         // AnyNativeObject (non-null) — wire: Int64 instanceId
+  anyNativeObjectNullable, // AnyNativeObject? — wire: Int64, -1 = null sentinel
+  customType,         // @NitroCustomType (non-null) — wire: Pointer<Uint8>
+  customTypeNullable, // @NitroCustomType? — wire: Pointer<Uint8>, nullptr = null
+  uint64,         // uint64 (non-null) — wire: Uint64 (bit-reinterp of int64_t); Dart int
+  uint64Nullable, // uint64? — wire: Pointer<NitroOptInt64> (same layout); Dart int?
 }
 
 ReturnKind classifyReturn(BridgeType returnType, BridgeSpec spec) {
@@ -44,6 +50,8 @@ ReturnKind classifyReturn(BridgeType returnType, BridgeSpec spec) {
   if (returnType.isRecord) return ReturnKind.record;
   if (returnType.isTypedData) return ReturnKind.typedData;
   if (returnType.isNativeHandle) return ReturnKind.nativeHandle;
+  if (returnType.isAnyNativeObject) return isNullable ? ReturnKind.anyNativeObjectNullable : ReturnKind.anyNativeObject;
+  if (spec.isCustomTypeName(base)) return isNullable ? ReturnKind.customTypeNullable : ReturnKind.customType;
   if (isEnumType(base, spec)) return ReturnKind.enumType;
   if (isStructType(base, spec)) return ReturnKind.struct;
   if (spec.isVariantName(base)) return ReturnKind.variant;
@@ -52,6 +60,7 @@ ReturnKind classifyReturn(BridgeType returnType, BridgeSpec spec) {
   if (base == 'int' && isNullable) return ReturnKind.intNullable;
   if (base == 'double' && isNullable) return ReturnKind.doubleNullable;
   if (base == 'DateTime') return isNullable ? ReturnKind.dateTimeNullable : ReturnKind.dateTime;
+  if (base == 'uint64') return isNullable ? ReturnKind.uint64Nullable : ReturnKind.uint64;
   return ReturnKind.primitive;
 }
 
@@ -84,6 +93,12 @@ String callAsyncTransportType(BridgeType returnType, BridgeSpec spec) {
     case ReturnKind.primitive:      return returnType.name; // int or double
     case ReturnKind.dateTime:      return 'int';
     case ReturnKind.dateTimeNullable: return 'Pointer<NitroOptInt64>';
+    case ReturnKind.anyNativeObject:         return 'int';
+    case ReturnKind.anyNativeObjectNullable: return 'int'; // -1 = null sentinel
+    case ReturnKind.customType:         return 'Pointer<Uint8>';
+    case ReturnKind.customTypeNullable: return 'Pointer<Uint8>'; // nullptr = null
+    case ReturnKind.uint64:         return 'int';
+    case ReturnKind.uint64Nullable: return 'Pointer<NitroOptInt64>';
   }
 }
 
@@ -110,6 +125,19 @@ String callAsyncTransportType(BridgeType returnType, BridgeSpec spec) {
   // TypedData
   if (type.isTypedData) return (expr: '$varName.toPointer($allocator)', needsArena: true);
 
+  // AnyNativeObject / AnyNativeObject? — encode as raw instanceId (Int64)
+  if (type.isAnyNativeObject) {
+    if (rt.endsWith('?')) return (expr: '$varName?.instanceId ?? -1', needsArena: false);
+    return (expr: '$varName.instanceId', needsArena: false);
+  }
+
+  // @NitroCustomType — use codec encode
+  final bareCustom = type.baseName;
+  if (spec.isCustomTypeName(bareCustom)) {
+    final ct = spec.customTypeByName(bareCustom)!;
+    return (expr: 'const ${ct.codecClass}().encode($varName, $allocator)', needsArena: true);
+  }
+
   // @HybridRecord — caller should use _encodeRecordParam from DartFfiGenerator
   // for full fidelity; this covers the common toNative() path.
   if (type.isAnyMap) return (expr: '$varName.toNative($allocator)', needsArena: true);
@@ -128,6 +156,9 @@ String callAsyncTransportType(BridgeType returnType, BridgeSpec spec) {
 
   // int? — NitroOptInt64 packed struct via Arena
   if (rt == 'int?') return (expr: '$allocator.packInt($varName)', needsArena: true);
+
+  // uint64? — same NitroOptInt64 struct (bit-compatible with uint64_t); Dart int holds the bits
+  if (rt == 'uint64?') return (expr: '$allocator.packInt($varName)', needsArena: true);
 
   // double? — NitroOptFloat64 packed struct via Arena
   if (rt == 'double?') return (expr: '$allocator.packDouble($varName)', needsArena: true);

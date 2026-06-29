@@ -1,7 +1,7 @@
 # Flutter Nitro — Limitations & Current Status
 
 Comparison against React Native Nitro (`packages/react-native-nitro-modules`) as the reference implementation.  
-Last updated: 2026-06-29. Generator unit tests: 3866. macOS integration tests: 601.
+Last updated: 2026-06-29. Generator unit tests: 3982. macOS integration tests: 601.
 
 ---
 
@@ -25,19 +25,19 @@ Last updated: 2026-06-29. Generator unit tests: 3866. macOS integration tests: 6
 | `boolean` | `bool` | ✅ |
 | `string` | `String` | ✅ |
 | `bigint` (Int64) | `int` (Int64 wire) | ✅ |
-| `bigint` (UInt64) | — | ❌ L13 |
+| `bigint` (UInt64) | `uint64` (same bits; Dart `int`, C `uint64_t`, Kotlin `Long`, Swift `UInt64`) | ✅ L13 |
 | `T \| undefined` → `std::optional<T>` | `T?` → `NitroOptXxx` structs | ✅ |
 | `T[]` → `std::vector<T>` | `List<T>` | ✅ |
 | `Record<string, T>` → `std::unordered_map` | `Map<String, T>` | ✅ |
-| `[A, B, C]` → `std::tuple<A, B, C>` | — | ❌ L12 |
+| `[A, B, C]` → `std::tuple<A, B, C>` | `@NitroTuple` typedef `(A, B, C)` — positional record, same binary wire as @HybridRecord | ✅ L12 |
 | `A \| B \| C` → `std::variant<A,B,C>` | `@NitroVariant` | ✅ |
 | `Date` → `std::chrono::time_point` | `DateTime` → `int64_t` ms-epoch | ✅ L11 |
 | `ArrayBuffer` → `jsi::MutableBuffer` | `Uint8List` / TypedData | ✅ (via TypedData) |
 | `AnyMap` → heterogeneous typed map | `NitroAnyMap` / `NitroAnyValue` | ✅ |
 | `HybridObject<Platforms>` | `NativeImpl.swift` / `.kotlin` / `.cpp` | ✅ |
-| `AnyHybridObject` (untyped ref) | — | ❌ L14 |
-| `BoxedHybridObject<T>` (cross-runtime) | — | ❌ L15 |
-| `CustomType<T>` + `JSIConverter<T>` | `NitroFfiCodec<T>` (partial) | ⚠️ L16 |
+| `AnyHybridObject` (untyped ref) | `AnyNativeObject` → `int64_t` instanceId | ✅ L14 |
+| `BoxedHybridObject<T>` (cross-runtime) | — (Dart isolate paradigm difference) | N/A L15 |
+| `CustomType<T>` + `JSIConverter<T>` | `@NitroCustomType(codec:)` + `NitroFfiCodec<T>` | ✅ L16 |
 | `Promise<T>` | `Future<T>` / `@nitroAsync` / `NitroPromise<T>` | ✅ |
 | Streams / Observables | `Stream<T>` via `@NitroStream` | ✅ (Flutter advantage) |
 | `Sync<T>` callback tag | All callbacks are sync (NativeCallable) | ✅ (implicit) |
@@ -54,8 +54,8 @@ Last updated: 2026-06-29. Generator unit tests: 3866. macOS integration tests: 6
 ## Fully Supported (✅)
 
 ### Primitives & Nullables
-- `int`, `double`, `bool`, `String`, `void`, `DateTime` — all transports (sync, async, callback, stream, property)
-- `int?`, `double?`, `bool?`, `DateTime?` — `NitroOptXxx` @Packed(1) structs; two-param callback approach
+- `int`, `double`, `bool`, `String`, `void`, `DateTime`, `uint64` — all transports (sync, async, callback, stream, property)
+- `int?`, `double?`, `bool?`, `DateTime?`, `uint64?` — `NitroOptXxx` @Packed(1) structs; two-param callback approach
 - `String?` — `nullptr` sentinel throughout
 
 ### Value Types
@@ -92,12 +92,15 @@ Last updated: 2026-06-29. Generator unit tests: 3866. macOS integration tests: 6
 - `Stream<@HybridStruct>` — zero-copy proxy stream
 - `Stream<@NitroVariant>` — binary-encoded stream items
 - `Stream<@HybridRecord>` — binary-encoded record stream (Kotlin `.encode()` → `ByteArray` → JNI → `kInt64` address → Dart `fromNative` + `malloc.free`)
-- `Stream<T?>` nullable items — `int?`, `double?`, `bool?`, `String?`, `@HybridEnum?`, `@NitroVariant?`, `@HybridStruct?`, `@HybridRecord?`
+- `Stream<AnyNativeObject>` — non-null items post `kInt64` instanceId; decoded as `AnyNativeObject(message as int)`
+- `Stream<T?>` nullable items — `int?`, `uint64?`, `double?`, `bool?`, `String?`, `@HybridEnum?`, `@NitroVariant?`, `@HybridStruct?`, `@HybridRecord?`, `AnyNativeObject?` (nullable posts `kNull`; Kotlin `Long?`; Swift nullable pointer)
+- `Stream<uint64>` / `Stream<uint64?>` — non-null posts `kInt64` (bit-reinterpreted); nullable posts `kNull`; Dart unpack: `message as int`
 
 ### Callbacks
 - `T Function(...)` as function parameter — full recursive type support
 - Callback nullable primitive params (`int?`, `double?`, `bool?`) — two-param (isNull, value)
-- Callback returns: `void`, `int`, `double`, `bool`, `String`, `@HybridEnum`, `@HybridRecord`, `@NitroVariant`
+- Callback params: `AnyNativeObject` (non-null, decoded as `AnyNativeObject(arg)`) and `AnyNativeObject?` (nullable, `-1` null sentinel)
+- Callback returns: `void`, `int`, `double`, `bool`, `String`, `@HybridEnum`, `@HybridRecord`, `@NitroVariant`, `AnyNativeObject` (encoded as `.instanceId`; `-1` for null)
 
 ### Properties
 - Getters and setters for all primitive types, enums, records, structs, variants
@@ -111,7 +114,8 @@ Last updated: 2026-06-29. Generator unit tests: 3866. macOS integration tests: 6
 - `NativeHandle<T>` / `@NitroOwned` — opaque pointer with automatic `NativeFinalizer` cleanup
 - `NitroAnyMap` / `NitroAnyValue` — heterogeneous typed map (7-case binary union; covers RN Nitro's `AnyMap`)
 - `NitroPromise<T>` — multi-subscriber observable; `.then`, `.andThen`, `.catchError`, `.all`, `.race`
-- `NitroFfiCodec<T>` — user-extensible codec for custom optional types
+- `NitroFfiCodec<T>` + `@NitroCustomType` — user-extensible codec for custom types; generator emits `codec.encode()/decode()` automatically
+- `AnyNativeObject` — opaque untyped native object reference via `int64_t` instanceId; nullable uses `-1` sentinel; every generated impl exposes `asAnyNativeObject` getter; `FooNativeRef` extension on abstract class delegates without cast; `NitroInstanceRegistry.register/unregister` wired into generated constructor/dispose for GC-safe typed downcast via `NitroInstanceRegistry.resolve<T>(ref)`
 
 ### Flutter-Specific Advantages over RN Nitro
 - **`Stream<T>` with backpressure** — RN Nitro has **no built-in streaming**; all streaming requires custom callbacks or polling
@@ -202,36 +206,72 @@ Last updated: 2026-06-29. Generator unit tests: 3866. macOS integration tests: 6
 **Reason:** Struct values are `void*` pointers; the map encoder has no ownership protocol for pointer-valued entries.  
 **Workaround:** `List<TheStruct>` + separate key list, or a `@HybridRecord` with struct fields.
 
-### L12 — Tuple types `(A, B, C)` ❌
-**Status:** Not implemented. RN Nitro maps JS `[A, B, C]` ↔ `std::tuple<A, B, C>`.  
-**Flutter Nitro gap:** No anonymous fixed-arity product type. The spec DSL has no tuple syntax.  
-**Workaround:** Define a `@HybridRecord` with named fields — structurally identical but requires a name.  
-**Note:** Tuples in RN Nitro are rarely used in practice (records/objects are more idiomatic). Low priority.
+### L12 — Tuple types `(A, B, C)` ✅
+**Status:** Implemented. Annotate a Dart 3 positional record typedef with `@NitroTuple()` — same binary wire format as `@HybridRecord` (4B length prefix + sequential fields).  
+**Dart type:** `(T1, T2, T3)` positional record, accessed via `$1`, `$2`, `$3`.  
+**Wire format:** Identical to `@HybridRecord` — sequential field encoding, `uint8_t*` / `void*` on C boundary.  
+**Generator output:**
+- Dart: standalone free functions `_nitroDecode_<Name>` / `_nitroDecodeNullable_<Name>` / `_nitroEncode_<Name>` (typedef cannot have extension methods)
+- Kotlin: `data class <Name>(val field0: T0, val field1: T1, ...)` with `decode`/`encode` helpers
+- Swift: `struct <Name>` with `fromNative`/`toNative` helpers (identical to @HybridRecord codegen)
+- C: `void*` parameter/return (same as @HybridRecord)
 
-### L13 — `uint64_t` scalar parameter type ❌
-**Status:** Not implemented. RN Nitro maps JS `bigint (UInt64)` ↔ `uint64_t`.  
-**Flutter Nitro gap:** `int` in Dart is `int64_t` (signed). There is no `UInt64` scalar type for function params/returns. `Uint64List` exists for typed data buffers but not for individual values.  
-**Workaround:** Pass as `int` and reinterpret bits; or use `Uint64List` with a single element.  
-**Implementation path:** Add `uint64` as a recognised type; map to `Dart_TypedData_kUint64` on the Dart side and `uint64_t` on the C side. Swift: `UInt64`; Kotlin: `Long` (same bits, reinterpreted).
+**Example:**
+```dart
+@NitroTuple()
+typedef MyPair = (int, String);
 
-### L14 — `AnyHybridObject` (untyped hybrid object reference) ❌
-**Status:** Not implemented. RN Nitro supports passing any `HybridObject` without knowing its concrete type.  
-**Flutter Nitro gap:** All hybrid object references are typed at the spec level (`NativeImpl.swift` etc.). There is no "pass an opaque native object" mechanism.  
-**Use case:** Plugin APIs that accept or return another plugin's native object without a shared type contract.  
-**Workaround:** Use `NativeHandle<T>` / `@NitroOwned` for opaque pointer passing.  
-**Implementation path:** Add an `AnyNativeImpl` wrapper type that erases the concrete type and passes a raw `void*` / `int64_t` instanceId.
+@NitroModule(...)
+abstract class Counter {
+  MyPair getPair();
+  void setPair(MyPair v);
+}
+```
 
-### L15 — `BoxedHybridObject<T>` (cross-isolate object boxing) ❌
-**Status:** Not implemented. RN Nitro supports boxing a `HybridObject` in one JSI runtime and unboxing it in another (for Reanimated worklets / dedicated threads).  
-**Flutter Nitro gap:** Dart isolates have a completely different memory model. A native impl registered in isolate A is not accessible from isolate B.  
-**Note:** This is a fundamental paradigm difference, not just a missing feature. In Flutter, cross-isolate communication is typically done via `SendPort`/`ReceivePort` with serialisable messages.  
-**Workaround:** Keep all native calls in the main isolate; use `compute()` or isolate `spawn()` for pure Dart computation and ferry results back.
+**Remaining:** `spec_extractor.dart` wiring for `@NitroTuple` on typedefs (requires `analyzer` AST traversal for Dart 3 record types). Generator is fully functional when `BridgeRecordType(isTuple: true, ...)` is provided directly.  
+**Tests:** 33 unit tests in `test/tuple_type_test.dart`.  
+**Merged:** 2026-06-29.
 
-### L16 — `CustomType<T>` full generator integration ⚠️
-**Status:** Partial. `NitroFfiCodec<T>` runtime exists; generator integration is not wired up.  
-**Flutter Nitro gap:** In RN Nitro, specialising `JSIConverter<MyType>` lets the codegen automatically use `MyType` anywhere in a spec. In Flutter Nitro, `NitroFfiCodec<T>` defines the encode/decode logic but the generator doesn't recognise arbitrary `MyType` names in `.native.dart` specs — it will emit an E010 unknown type error.  
-**Workaround:** Use `@HybridRecord` or `@NitroVariant` to model the custom type within the existing type system.  
-**Implementation path:** Add a `@NitroCustomType(codec: MyCodec())` annotation; extend `spec_extractor.dart` to register the codec; emit `codec.encode(v, arena)` / `codec.decode(res)` in the generator where the type appears.
+### L13 — `uint64_t` scalar parameter type ✅
+**Status:** Fully implemented. Dart type `uint64` maps to `uint64_t` (C), `UInt64` (Swift), `Long` (Kotlin JVM — same bits), `Uint64` FFI / `int` Dart.  
+**Wire format:**
+- Non-null `uint64` → `uint64_t` / `UInt64` / `jlong` (bit-reinterpretation; values > 2^63-1 appear negative in Dart `int` but bits are preserved)
+- `uint64?` → reuses `NitroOptInt64` 9-byte packed struct `[1B hasValue][8B uint64_t bits]` (same layout as `int?`; bit-compatible)
+- All transports: sync param/return, `@nitroAsync`, callback param/return, stream item (`Stream<uint64>` / `Stream<uint64?>`), property getter/setter  
+
+**Tests:** 24 unit tests in `test/uint64_type_test.dart` covering Dart FFI types, C header types, Kotlin interface, JNI bridge sig, stream emit, and async transport.  
+**Merged:** 2026-06-29.
+
+### L14 — `AnyHybridObject` (untyped hybrid object reference) ✅
+**Status:** Fully implemented as `AnyNativeObject`.  
+**Wire format:** `int64_t` instanceId (non-null); `-1` null sentinel for `AnyNativeObject?`. Every generated impl class exposes `AnyNativeObject get asAnyNativeObject => AnyNativeObject(_instanceId)` to vend a type-erased reference.  
+**Kotlin:** `Long` / `Long?`; JNI `CallStaticLongMethod`. **Swift:** `Int64` in `@_cdecl` function; `-1` for null. **C:** `int64_t`.  
+**All transports:** sync function param/return, async, property, nullable, callback param/return, stream item.  
+**Improvements (2026-06-29):**
+- `assert(instanceId >= 0)` guard in `AnyNativeObject` const constructor — catches negative IDs at debug time
+- `FooNativeRef` extension emitted on the abstract class so callers use `foo.asAnyNativeObject` without an `as _FooImpl` cast
+- `NitroInstanceRegistry.register(_instanceId, this)` in constructor + `unregister` in `dispose()` — enables `NitroInstanceRegistry.resolve<Foo>(ref)` typed downcast with no native roundtrip; backed by `WeakReference` + `Finalizer` for GC safety
+- `Stream<AnyNativeObject>` / `Stream<AnyNativeObject?>` — Dart decodes `kInt64` as `AnyNativeObject(message as int)`; Kotlin `Long`/`Long?`; Swift `Int64`/`UnsafePointer<Int64>?`
+- Callback param: `AnyNativeObject` decoded as `AnyNativeObject(arg0)`; nullable `arg0 == -1 ? null : AnyNativeObject(arg0)`
+- Callback return: encoded as `.instanceId`; nullable `_v == null ? -1 : _v.instanceId`; exceptional returns `0` / `-1`
+- `spec_validator.dart` now accepts `AnyNativeObject` in both callback param and return type whitelists  
+
+**Tests:** 41 unit tests in `test/any_native_object_test.dart`; 32 integration tests in `nitro_type_coverage`.  
+**Merged:** 2026-06-29.
+
+### L15 — `BoxedHybridObject<T>` (cross-isolate object boxing) N/A
+**Status:** Not implementable — paradigm difference, not a missing feature.  
+**Reason:** RN Nitro's `BoxedHybridObject<T>` boxes a JSI `HybridObject` for use in a different JSI runtime (e.g., Reanimated worklets). Dart isolates have entirely separate heaps; a native impl registered in isolate A cannot be referenced by isolate B because the instanceId registry is isolate-local.  
+**Workaround:** Keep all native calls in the main isolate; use `compute()` / isolate `spawn()` for pure Dart work, ferrying serialisable data back. For shared state, use `NativeHandle<T>` to pass a raw native pointer that both isolates can use via platform channel.
+
+### L16 — `CustomType<T>` generator integration ✅
+**Status:** Fully implemented.  
+**How it works:** Annotate a Dart class with `@NitroCustomType(codec: MyCodec(), encodedSize: N)`. The generator detects the annotation in `spec_extractor.dart`, registers the type name in `BridgeSpec.customTypes`, and emits `const MyCodec().encode(v, arena)` for params and `const MyCodec().decode(res)` for returns.  
+**Wire format:** `Pointer<Uint8>` / `ByteArray` (identical to `@HybridRecord`). Params use the codec's `encodedSize` for `NewByteArray`; returns use `GetArrayLength` then `GetByteArrayRegion`.  
+**User API:** Subclass `NitroFfiCodec<T>` and implement `encodedSize`, `encode(T? value, Arena alloc) → Pointer<Uint8>`, `decode(Pointer<Uint8> ptr) → T?`. Kotlin protocol receives/returns `ByteArray`; Swift protocol receives/returns `[UInt8]`.  
+**Parallel to RN Nitro:** `JSIConverter<MyType>` specialisation — same pattern, different ABI.  
+**Tests:** 18 unit tests in `test/nitro_custom_type_test.dart`.  
+**Merged:** 2026-06-29.
 
 ---
 
@@ -264,8 +304,5 @@ Last updated: 2026-06-29. Generator unit tests: 3866. macOS integration tests: 6
 | L7 | `TypedData?` — two-param FFI makes nullable ambiguous | N/A | Low |
 | L8 | Web / WASM — streams + `@NitroNativeAsync` unsupported | Same in RN | Medium |
 | L10 | `Map<String, @HybridStruct>` — no pointer ownership in map encoder | N/A | Low |
-| L12 | Tuple types `(A, B, C)` | **Gap vs RN** (`[A,B,C] ↔ std::tuple`) | Low |
-| L13 | `uint64_t` scalar | **Gap vs RN** (`bigint UInt64`) | Low |
-| L14 | `AnyHybridObject` (untyped object ref) | **Gap vs RN** | Low |
-| L15 | `BoxedHybridObject` / cross-isolate boxing | **Gap vs RN** (paradigm difference) | Very Low |
-| L16 | `CustomType<T>` generator integration | **Gap vs RN** (`JSIConverter<T>` auto-recognized) | Medium |
+| ~~L12~~ | ~~Tuple types `(A, B, C)`~~ | ~~**Gap vs RN**~~ | ✅ Done |
+| ~~L13~~ | ~~`uint64_t` scalar~~ | ~~**Gap vs RN**~~ | ✅ Done |

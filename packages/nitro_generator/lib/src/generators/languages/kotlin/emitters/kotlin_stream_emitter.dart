@@ -24,8 +24,11 @@ class KotlinStreamEmitter {
       final isNullable = stream.itemType.isNullable;
       final base = stream.itemType.name.replaceFirst('?', '');
       final String itemKt;
-      if (isNullable && (base == 'int' || base == 'double' || base == 'bool' || base == 'DateTime')) {
-        // DateTime? uses the same Long? wire as int? (ms-since-epoch boxed Long).
+      if (isNullable && stream.itemType.isAnyNativeObject) {
+        // Nullable AnyNativeObject: boxed Long? so null can be passed to JNI.
+        itemKt = 'Long?';
+      } else if (isNullable && (base == 'int' || base == 'uint64' || base == 'double' || base == 'bool' || base == 'DateTime')) {
+        // DateTime? and uint64? use the same Long? wire as int?.
         itemKt = '${mapper.type(base)}?';
       } else if (isNullable && mapper.enumNames.contains(base)) {
         // Nullable enum → boxed jobject so null can be passed to JNI.
@@ -38,7 +41,7 @@ class KotlinStreamEmitter {
         // Nullable record/variant → ByteArray? so null can pass through to C as nullptr.
         itemKt = isNullable ? 'ByteArray?' : 'ByteArray';
       } else {
-        itemKt = mapper.type(stream.itemType.name);
+        itemKt = mapper.type(stream.itemType.name, bridgeType: stream.itemType);
       }
       writer.line('    @JvmStatic external fun emit_${stream.dartName}(dartPort: Long, item: $itemKt): Boolean');
     }

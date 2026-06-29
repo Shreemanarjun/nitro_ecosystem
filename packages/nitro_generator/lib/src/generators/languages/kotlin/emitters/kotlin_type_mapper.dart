@@ -14,6 +14,7 @@ class KotlinTypeMapper implements TypeMapper {
   final Set<String> structNames;
   final Set<String> recordNames;
   final Set<String> variantNames;
+  final Set<String> customTypeNames;
   final List<BridgeStruct> structs;
 
   KotlinTypeMapper({
@@ -22,6 +23,7 @@ class KotlinTypeMapper implements TypeMapper {
     required this.recordNames,
     required this.variantNames,
     required this.structs,
+    this.customTypeNames = const {},
   });
 
   factory KotlinTypeMapper.fromSpec(BridgeSpec spec) => KotlinTypeMapper(
@@ -29,6 +31,7 @@ class KotlinTypeMapper implements TypeMapper {
     structNames: spec.structs.map((s) => s.name).toSet(),
     recordNames: spec.recordTypes.map((r) => r.name).toSet(),
     variantNames: spec.variants.map((v) => v.name).toSet(),
+    customTypeNames: spec.customTypes.map((c) => c.name).toSet(),
     structs: spec.structs,
   );
 
@@ -40,6 +43,7 @@ class KotlinTypeMapper implements TypeMapper {
   /// Returns `'Any?'` for unrecognised types.
   String type(String t, {BridgeType? bridgeType}) {
     if (bridgeType?.isNativeHandle == true) return 'Long';
+    if (bridgeType?.isAnyNativeObject == true) return 'Long';
     final name = t.replaceFirst('?', '');
 
     if (bridgeType != null && bridgeType.isFunction) {
@@ -51,6 +55,9 @@ class KotlinTypeMapper implements TypeMapper {
 
     switch (name) {
       case 'int':
+        return 'Long';
+      case 'uint64':
+        // JVM has no unsigned 64-bit primitive; Long holds the same bits.
         return 'Long';
       case 'DateTime':
         return 'Long';
@@ -83,6 +90,7 @@ class KotlinTypeMapper implements TypeMapper {
     if (structNames.contains(name)) return name;
     if (recordNames.contains(name)) return name;
     if (variantNames.contains(name)) return name;
+    if (customTypeNames.contains(name)) return 'ByteArray';
     // Typed generic collections — parse value/item type for type-safe Kotlin interfaces.
     if (name.startsWith('List<') && name.endsWith('>')) {
       final inner = name.substring(5, name.length - 1).trim();
@@ -106,6 +114,13 @@ class KotlinTypeMapper implements TypeMapper {
   /// `@HybridRecord` → class name, nullable primitives → nullable Kotlin types.
   String retType(BridgeType t) {
     if (t.isNativeHandle) return 'Long';
+    if (t.isAnyNativeObject) {
+      return t.isNullable ? 'Long?' : 'Long';
+    }
+    final bareCustom = t.name.replaceFirst('?', '');
+    if (customTypeNames.contains(bareCustom)) {
+      return t.isNullable ? 'ByteArray?' : 'ByteArray';
+    }
     if (t.isAnyMap) return 'Map<String, Any?>';
     if (t.isRecord && !t.isMap) {
       if (t.recordListItemType != null && !t.recordListItemIsPrimitive) {
@@ -122,6 +137,7 @@ class KotlinTypeMapper implements TypeMapper {
     final baseName = t.name.replaceFirst('?', '');
     if (isNullable && baseName == 'bool') return 'Boolean?';
     if (isNullable && baseName == 'int') return 'Long?';
+    if (isNullable && baseName == 'uint64') return 'Long?';
     if (isNullable && baseName == 'double') return 'Double?';
     if (isNullable && baseName == 'DateTime') return 'Long?';
     if (isNullable && !base.endsWith('?')) return '$base?';
@@ -156,6 +172,11 @@ class KotlinTypeMapper implements TypeMapper {
   /// Kotlin promotes it automatically when forwarding to the interface.
   String bridgeParamType(BridgeParam p) {
     if (p.type.isFunction) return 'Long';
+    if (p.type.isAnyNativeObject) {
+      return p.type.isNullable ? 'Long' : 'Long';
+    }
+    final bareCustom = p.type.name.replaceFirst('?', '');
+    if (customTypeNames.contains(bareCustom)) return 'ByteArray';
     if (p.type.isAnyMap) return 'ByteArray';
     if (p.type.isMap) return 'ByteArray';
     final isNullableRecord = p.type.isRecord && (p.type.isNullable || p.type.name.endsWith('?'));
@@ -173,7 +194,8 @@ class KotlinTypeMapper implements TypeMapper {
 
     final baseName = p.type.name.replaceFirst('?', '');
     // Nullable primitives use NitroNullable ByteArray ([B) for JVM descriptor compatibility.
-    if (baseName == 'int' || baseName == 'bool' || baseName == 'double' || baseName == 'DateTime') return 'ByteArray';
+    // uint64? reuses NitroOptInt64 byte encoding (same 9-byte layout; bits preserved as Long).
+    if (baseName == 'int' || baseName == 'uint64' || baseName == 'bool' || baseName == 'double' || baseName == 'DateTime') return 'ByteArray';
     if (enumNames.contains(baseName)) return 'Long';
     return '${type(baseName)}?';
   }

@@ -1,6 +1,14 @@
 part of '../dart_ffi_generator.dart';
 
 String _decodeRecordExpr(BridgeType type, String ptrVar) {
+  // @NitroTuple: standalone free function (can't extend a typedef).
+  if (type.isTuple) {
+    final rt = type.name.endsWith('?') ? type.name.substring(0, type.name.length - 1) : type.name;
+    if (type.isNullable || type.name.endsWith('?')) {
+      return '_nitroDecodeNullable_$rt($ptrVar)';
+    }
+    return '_nitroDecode_$rt($ptrVar)';
+  }
   if (type.isAnyMap) {
     // NitroAnyMap — type-tagged binary codec (mirrors RN Nitro AnyMap).
     return 'NitroAnyMap.fromNative($ptrVar)';
@@ -153,6 +161,14 @@ String _primitiveWriterCall(String item) {
 }
 
 String _encodeRecordParam(BridgeType type, String varName, String allocator) {
+  // @NitroTuple: standalone free function (can't extend a typedef).
+  if (type.isTuple) {
+    final rt = type.name.endsWith('?') ? type.name.substring(0, type.name.length - 1) : type.name;
+    if (type.isNullable || type.name.endsWith('?')) {
+      return '$varName != null ? _nitroEncode_$rt($varName!, $allocator) : nullptr';
+    }
+    return '_nitroEncode_$rt($varName, $allocator)';
+  }
   if (type.isAnyMap) {
     // NitroAnyMap — type-tagged binary codec (mirrors RN Nitro AnyMap).
     return '$varName.toNative($allocator)';

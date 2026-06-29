@@ -103,6 +103,7 @@ writer.line('      }');
 writer.line('    } finally {');
 writer.line('      calloc.free(_keyPtr);');
 writer.line('    }');
+writer.line('    NitroInstanceRegistry.register(_instanceId, this);');
 writer.line('    initSw.stop();');
 writer.line("    NitroRuntime.logLifecycle('init(${spec.lib})', 'initialized in \${initSw.elapsedMicroseconds} µs (instanceId=\$_instanceId)');");
 writer.line('  }');
@@ -234,6 +235,7 @@ writer.line("    NitroRuntime.logLifecycle('dispose(${spec.lib})', 'disposing (i
 writer.line('    _destroyInstancePtr(_instanceId);');
 // Remove from registry so future getInstance(key) creates a fresh instance.
 writer.line('    _instances.remove(_instanceKey);');
+writer.line('    NitroInstanceRegistry.unregister(_instanceId, this);');
 if (hasCallbacks) {
   writer.line('    for (final callback in _nativeCallbackCache.values) {');
   writer.line('      callback.close();');
@@ -250,8 +252,25 @@ writer.line("    NitroRuntime.logLifecycle('dispose(${spec.lib})', 'disposed');"
 writer.line('  }');
 writer.blankLine();
 
+// ── asAnyNativeObject getter ──────────────────────────────────────────────
+// Exposes this impl as an opaque AnyNativeObject reference. Other plugins
+// can pass it across the bridge without knowing the concrete type — same as
+// RN Nitro's AnyHybridObject / jsi::Object reference semantics.
+writer.line('  /// Opaque reference to this native impl — pass to other plugins via AnyNativeObject.');
+writer.line('  AnyNativeObject get asAnyNativeObject => AnyNativeObject(_instanceId);');
+writer.blankLine();
+
 if (hasCallbacks) {
   _emitCallbackHelpers(writer, spec);
 }
 
+}
+
+/// Emits a `${ClassName}NativeRef` extension on the abstract class so that
+/// callers holding the public type can access [asAnyNativeObject] without casting.
+void _emitNativeRefExtension(CodeWriter writer, BridgeSpec spec) {
+writer.line('extension ${spec.dartClassName}NativeRef on ${spec.dartClassName} {');
+writer.line('  AnyNativeObject get asAnyNativeObject => (this as _${spec.dartClassName}Impl).asAnyNativeObject;');
+writer.line('}');
+writer.blankLine();
 }

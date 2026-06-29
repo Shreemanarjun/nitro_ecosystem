@@ -69,6 +69,7 @@ class DartFfiGenerator {
     _emitPropertyImpls(writer, spec);
     _emitStreamImpls(writer, spec);
     _emitMapAndFactory(writer, spec);
+    _emitNativeRefExtension(writer, spec);
     return writer.toString();
   }
 }

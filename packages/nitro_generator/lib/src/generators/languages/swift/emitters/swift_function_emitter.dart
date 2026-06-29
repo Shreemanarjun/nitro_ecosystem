@@ -137,6 +137,16 @@ class SwiftFunctionEmitter {
             final vn = p.type.name.replaceFirst('?', '');
             return '${p.name}: $vn.fromReader(NitroRecordReader(ptr: ${p.name}!.assumingMemoryBound(to: UInt8.self)))';
           }
+          if (p.type.isAnyNativeObject) {
+            // AnyNativeObject: raw Int64 instanceId; nullable: -1 = null
+            final opt = p.type.isNullable || p.type.name.endsWith('?');
+            return opt ? '${p.name}: ${p.name} == -1 ? nil : ${p.name}' : '${p.name}: ${p.name}';
+          }
+          final customBase = p.type.name.replaceFirst('?', '');
+          if (spec.isCustomTypeName(customBase)) {
+            // @NitroCustomType: pass raw UnsafeMutablePointer<UInt8>? to impl
+            return '${p.name}: ${p.name}';
+          }
           final isEnum = spec.isEnumName(p.type.name.replaceFirst('?', ''));
           if (isEnum) {
             final en = p.type.name.replaceFirst('?', '');
@@ -253,6 +263,12 @@ class SwiftFunctionEmitter {
           if (p.type.name == 'DateTime') return '${p.name}: Date(timeIntervalSince1970: Double(${p.name})/1000.0)';
           if (p.type.name == 'DateTime?') return '${p.name}: { guard let _p = ${p.name}, _p[0] != 0 else { return nil }; var _rv: Int64 = 0; Swift.withUnsafeMutableBytes(of: &_rv) { \$0.baseAddress!.copyMemory(from: UnsafeRawPointer(_p + 1), byteCount: 8) }; return Date(timeIntervalSince1970: Double(_rv)/1000.0) }()';
           if (isBool) return '${p.name}: ${p.name} != 0';
+          if (p.type.isAnyNativeObject) {
+            final opt = p.type.isNullable || p.type.name.endsWith('?');
+            return opt ? '${p.name}: ${p.name} == -1 ? nil : ${p.name}' : '${p.name}: ${p.name}';
+          }
+          final customBaseA = p.type.name.replaceFirst('?', '');
+          if (spec.isCustomTypeName(customBaseA)) return '${p.name}: ${p.name}';
           if (isEnum) {
             final en = p.type.name.replaceFirst('?', '');
             final opt = p.type.name.endsWith('?');
@@ -744,6 +760,28 @@ class SwiftFunctionEmitter {
     } else if (isTypedDataReturn) {
       writer.line('    guard let r = ${spec.dartClassName}Registry.impl?.${func.dartName}($callArgs) else { return nil }');
       _emitTypedDataReturn(writer, func);
+    } else if (func.returnType.isAnyNativeObject) {
+      // AnyNativeObject: impl returns Int64 instanceId; nullable: -1 = null
+      if (func.returnType.isNullable) {
+        writer.line('    guard let impl = ${spec.dartClassName}Registry.impl else { return -1 }');
+        writer.line('    let _id = impl.${func.dartName}($callArgs); return _id ?? -1');
+      } else {
+        writer.line('    guard let impl = ${spec.dartClassName}Registry.impl else { return 0 }');
+        writer.line('    return impl.${func.dartName}($callArgs)');
+      }
+    } else if (spec.isCustomTypeName(func.returnType.baseName)) {
+      // @NitroCustomType: impl returns [UInt8]? (encoded bytes); bridge copies to malloc'd buffer
+      final ct = spec.customTypeByName(func.returnType.baseName)!;
+      if (func.returnType.isNullable) {
+        writer.line('    guard let impl = ${spec.dartClassName}Registry.impl else { return nil }');
+        writer.line('    guard let _bytes = impl.${func.dartName}($callArgs) else { return nil }');
+      } else {
+        writer.line('    guard let impl = ${spec.dartClassName}Registry.impl else { return nil }');
+        writer.line('    let _bytes = impl.${func.dartName}($callArgs)');
+      }
+      writer.line('    let _ct_ptr = UnsafeMutablePointer<UInt8>.allocate(capacity: ${ct.encodedSize})');
+      writer.line('    _bytes.withUnsafeBytes { UnsafeMutableRawPointer(_ct_ptr).copyMemory(from: \$0.baseAddress!, byteCount: ${ct.encodedSize}) }');
+      writer.line('    return _ct_ptr');
     } else if (func.returnType.name == 'DateTime') {
       writer.line('    guard let impl = ${spec.dartClassName}Registry.impl else { return 0 }');
       writer.line('    return Int64(impl.${func.dartName}($callArgs).timeIntervalSince1970 * 1000)');

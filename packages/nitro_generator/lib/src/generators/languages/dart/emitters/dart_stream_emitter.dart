@@ -42,6 +42,15 @@ for (final stream in spec.streams) {
         'try { return ${baseItemType}VariantExt.fromNative(rawPtr); } '
         'finally { malloc.free(rawPtr); } }';
     streamItemType = baseItemType;
+  } else if (stream.itemType.isAnyNativeObject) {
+    // AnyNativeObject stream: native posts kInt64 instance ID.
+    // For nullable: native posts kNull → message is null.
+    if (stream.itemType.isNullable) {
+      unpackExpr = '(message) => message == null ? null : AnyNativeObject(message as int)';
+    } else {
+      unpackExpr = '(message) => AnyNativeObject(message as int)';
+    }
+    streamItemType = 'AnyNativeObject';
   } else if (spec.isEnumName(baseItemType)) {
     // Enum stream: convert int to enum via generated extension.
     // For nullable: native posts kNull for null items → message is null.
@@ -51,6 +60,15 @@ for (final stream in spec.streams) {
       unpackExpr = '(message) => (message as int).to$baseItemType()';
     }
     streamItemType = baseItemType;
+  } else if (baseItemType == 'uint64') {
+    // uint64 stream: native posts kInt64; Dart int holds the same bits.
+    // For nullable: native posts kNull → message is null.
+    if (stream.itemType.isNullable) {
+      unpackExpr = '(message) => message == null ? null : message as int';
+    } else {
+      unpackExpr = '(message) => message as int';
+    }
+    streamItemType = 'int';
   } else if (baseItemType == 'bool') {
     // Native posts kInt64 (0/1) for bool streams — kBool is unreliable on Android.
     // For nullable: native posts kNull for null → message is null.

@@ -4,9 +4,12 @@ String _generateDartRecordExtensions(BridgeSpec spec) {
   // Exclude built-in library types: their Dart codec is already on the class
   // in package:nitro/src/nitro_nullable.dart; generating an extension would
   // duplicate methods and cause "already defined" compile errors.
-  final localRecords = spec.localRecordTypes
+  final allLocalRecords = spec.localRecordTypes
       .where((r) => !_nitroLibraryRecordTypes.contains(r.name))
       .toList();
+  // Tuples emit standalone free functions; named records emit extension methods.
+  final localTuples = allLocalRecords.where((r) => r.isTuple).toList();
+  final localRecords = allLocalRecords.where((r) => !r.isTuple).toList();
 
   // Compute referencedStructs before the early-return so that modules with
   // NO @HybridRecord types (localRecords.isEmpty) but with List<@HybridStruct T>
@@ -61,7 +64,7 @@ String _generateDartRecordExtensions(BridgeSpec spec) {
     collectNestedDart(name);
   }
 
-  if (localRecords.isEmpty && referencedStructs.isEmpty) return '';
+  if (localRecords.isEmpty && localTuples.isEmpty && referencedStructs.isEmpty) return '';
 
   final s = CodeWriter();
   s.writeln(
@@ -145,7 +148,107 @@ String _generateDartRecordExtensions(BridgeSpec spec) {
     s.writeln();
   }
 
+  // ── @NitroTuple free functions ────────────────────────────────────────────
+  // Dart 3 typedefs cannot have extension methods, so tuples get standalone
+  // free functions: _nitroDecode_<Name>, _nitroDecodeNullable_<Name>,
+  // _nitroEncode_<Name>. Called from _decodeRecordExpr / _encodeRecordParam.
+  for (final rt in localTuples) {
+    s.writeln('// --- @NitroTuple encode/decode for ${rt.name} ---');
+
+    // Build the inline Dart 3 tuple type string from fields, e.g. "(int, String)".
+    final fieldTypes = rt.fields.map((f) {
+      if (f.isNullable) return '${f.dartType.replaceFirst("?", "")}?';
+      return f.dartType;
+    }).join(', ');
+    final tupleType = '(${fieldTypes})';
+
+    // ── _nitroDecode_<Name> ──
+    s.writeln('$tupleType _nitroDecode_${rt.name}(Pointer<Uint8> ptr) {');
+    s.writeln('  final r = RecordReader.fromNative(ptr);');
+    final fieldExprs = rt.fields.map((f) => _readExpr(f)).join(', ');
+    s.writeln('  return ($fieldExprs);');
+    s.writeln('}');
+    s.writeln();
+
+    // ── _nitroDecodeNullable_<Name> ──
+    s.writeln('$tupleType? _nitroDecodeNullable_${rt.name}(Pointer<Uint8> ptr) {');
+    s.writeln('  if (ptr == nullptr) return null;');
+    s.writeln('  return _nitroDecode_${rt.name}(ptr);');
+    s.writeln('}');
+    s.writeln();
+
+    // ── _nitroEncode_<Name> ──
+    s.writeln('Pointer<Uint8> _nitroEncode_${rt.name}($tupleType v, Allocator alloc) {');
+    s.writeln('  final writer = RecordWriter();');
+    for (var i = 0; i < rt.fields.length; i++) {
+      _writeTupleFieldStmt(s, rt.fields[i], i + 1);
+    }
+    s.writeln('  return writer.toNative(alloc);');
+    s.writeln('}');
+    s.writeln();
+  }
+
   return s.toString();
+}
+
+// ── @NitroTuple write statement helpers ────────────────────────────────────
+// Like _writeFieldStmt but accesses tuple fields via v.$N positional accessors.
+
+void _writeTupleFieldStmt(CodeWriter s, BridgeRecordField f, int index) {
+  final accessor = 'v.\$$index';
+  switch (f.kind) {
+    case RecordFieldKind.primitive:
+      _writePrimitiveStmt(s, f.dartType, accessor);
+      break;
+    case RecordFieldKind.enumValue:
+      if (f.isNullable) {
+        s.writeln('  writer.writeNullTag($accessor == null);');
+        s.writeln('  if ($accessor != null) { writer.writeInt($accessor!.nativeValue); }');
+      } else {
+        s.writeln('  writer.writeInt($accessor.nativeValue);');
+      }
+      break;
+    case RecordFieldKind.recordObject:
+      if (f.isNullable) {
+        s.writeln('  writer.writeNullTag($accessor == null);');
+        s.writeln('  if ($accessor != null) { $accessor!.writeFields(writer); }');
+      } else {
+        s.writeln('  $accessor.writeFields(writer);');
+      }
+      break;
+    case RecordFieldKind.listPrimitive:
+      final item = f.itemTypeName ?? 'dynamic';
+      final writeCall = _primitiveWriteCall(item, 'e');
+      s.writeln('  writer.writeInt32($accessor.length);');
+      s.writeln('  for (final e in $accessor) { writer.$writeCall; }');
+      break;
+    case RecordFieldKind.listEnumValue:
+      s.writeln('  writer.writeInt32($accessor.length);');
+      s.writeln('  for (final e in $accessor) { writer.writeInt(e.nativeValue); }');
+      break;
+    case RecordFieldKind.listRecordObject:
+      s.writeln('  writer.writeInt32($accessor.length);');
+      s.writeln('  for (final e in $accessor) { e.writeFields(writer); }');
+      break;
+    case RecordFieldKind.typedData:
+      final base = f.dartType.replaceFirst('?', '');
+      final toBytes = base == 'Uint8List' ? accessor : '$accessor.buffer.asUint8List()';
+      if (f.isNullable) {
+        s.writeln('  writer.writeNullTag($accessor == null);');
+        s.writeln('  if ($accessor != null) { writer.writeBlob($toBytes!); }');
+      } else {
+        s.writeln('  writer.writeBlob($toBytes);');
+      }
+      break;
+    case RecordFieldKind.struct:
+      if (f.isNullable) {
+        s.writeln('  writer.writeNullTag($accessor == null);');
+        s.writeln('  $accessor?.writeFields(writer);');
+      } else {
+        s.writeln('  $accessor.writeFields(writer);');
+      }
+      break;
+  }
 }
 
 // ── Read expression helpers ─────────────────────────────────────────────

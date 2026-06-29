@@ -38,12 +38,15 @@ enum BridgeItemKind {
   dateTime,
   void_,
 
+  uint64_,
+
   // ── Nullable scalar primitives ───────────────────────────────────────────
   intNullable,
   doubleNullable,
   boolNullable,
   stringNullable,
   dateTimeNullable,
+  uint64Nullable,
 
   // ── User-defined types ───────────────────────────────────────────────────
   hybridEnum,
@@ -70,6 +73,7 @@ extension BridgeItemKindX on BridgeItemKind {
     BridgeItemKind.boolNullable ||
     BridgeItemKind.stringNullable ||
     BridgeItemKind.dateTimeNullable ||
+    BridgeItemKind.uint64Nullable ||
     BridgeItemKind.hybridEnumNullable ||
     BridgeItemKind.hybridStructNullable ||
     BridgeItemKind.hybridRecordNullable ||
@@ -82,7 +86,8 @@ extension BridgeItemKindX on BridgeItemKind {
     BridgeItemKind.intNullable ||
     BridgeItemKind.doubleNullable ||
     BridgeItemKind.boolNullable ||
-    BridgeItemKind.dateTimeNullable => true,
+    BridgeItemKind.dateTimeNullable ||
+    BridgeItemKind.uint64Nullable => true,
     _ => false,
   };
 
@@ -151,6 +156,7 @@ BridgeItemKind classifyBridgeItem(BridgeType type, BridgeSpec spec) {
     'bool'     => isNullable ? BridgeItemKind.boolNullable     : BridgeItemKind.bool_,
     'String'   => isNullable ? BridgeItemKind.stringNullable   : BridgeItemKind.string,
     'DateTime' => isNullable ? BridgeItemKind.dateTimeNullable : BridgeItemKind.dateTime,
+    'uint64'   => isNullable ? BridgeItemKind.uint64Nullable   : BridgeItemKind.uint64_,
     'void'     => BridgeItemKind.void_,
     _          => BridgeItemKind.other,
   };

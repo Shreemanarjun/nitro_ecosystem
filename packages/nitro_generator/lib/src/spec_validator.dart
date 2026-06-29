@@ -55,6 +55,10 @@ class SpecValidator {
     'String?',
     'DateTime',
     'DateTime?',
+    'uint64',
+    'uint64?',
+    'AnyNativeObject',
+    'AnyNativeObject?',
     'Uint8List?',
     'Int8List?',
     'Int16List?',
@@ -237,12 +241,14 @@ class SpecValidator {
     final structNames = spec.structs.map((s) => s.name).toSet();
     final recordNames = spec.recordTypes.map((r) => r.name).toSet();
     final variantNames = spec.variants.map((v) => v.name).toSet();
+    final customTypeNames = spec.customTypes.map((c) => c.name).toSet();
     final knownTypes = {
       ..._knownPrimitives,
       ...enumNames,
       ...structNames,
       ...recordNames,
       ...variantNames,
+      ...customTypeNames,
     };
 
     // ── Functions ──────────────────────────────────────────────────────────
@@ -707,7 +713,7 @@ class SpecValidator {
         final enumNames = spec.enums.map((e) => e.name).toSet();
         final recordNames = spec.recordTypes.map((r) => r.name).toSet();
         final variantNames = spec.variants.map((v) => v.name).toSet();
-        final isBatchSupported = const {'int', 'double', 'bool', 'String'}.contains(iName) ||
+        final isBatchSupported = const {'int', 'double', 'bool', 'String', 'uint64'}.contains(iName) ||
             enumNames.contains(iName) ||
             recordNames.contains(iName) ||
             variantNames.contains(iName);
@@ -952,10 +958,10 @@ class SpecValidator {
 
     final recordNames = spec.recordTypes.map((r) => r.name).toSet();
     final variantNames = spec.variants.map((v) => v.name).toSet();
-    // Supported callback return types: primitives, enums, @HybridRecord, @NitroVariant.
+    // Supported callback return types: primitives, AnyNativeObject, enums, @HybridRecord, @NitroVariant.
     final supportedReturn = returnName == 'void' || returnName == 'int' || returnName == 'double'
-        || returnName == 'bool' || returnName == 'String' || enumNames.contains(returnName)
-        || recordNames.contains(returnName) || variantNames.contains(returnName);
+        || returnName == 'bool' || returnName == 'String' || returnName == 'AnyNativeObject' || returnName == 'uint64'
+        || enumNames.contains(returnName) || recordNames.contains(returnName) || variantNames.contains(returnName);
     if (!supportedReturn) {
       issues.add(
         ValidationIssue(
@@ -973,8 +979,8 @@ class SpecValidator {
       final structNames = spec.structs.map((s) => s.name).toSet();
       final recordNames = spec.recordTypes.map((r) => r.name).toSet();
       final variantNames = spec.variants.map((v) => v.name).toSet();
-      final supportedParam = callbackParam.isPointer ||
-          name == 'int' || name == 'double' || name == 'bool' || name == 'String' ||
+      final supportedParam = callbackParam.isPointer || callbackParam.isAnyNativeObject ||
+          name == 'int' || name == 'double' || name == 'bool' || name == 'String' || name == 'AnyNativeObject' || name == 'uint64' ||
           enumNames.contains(name) ||
           structNames.contains(name) ||
           recordNames.contains(name) ||

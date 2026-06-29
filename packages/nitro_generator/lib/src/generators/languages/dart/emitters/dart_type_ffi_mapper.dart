@@ -75,16 +75,24 @@ String _typeToFFI(BridgeType bt, BridgeSpec spec) {
     return 'Pointer<${bt.pointerInnerType}>';
   }
   if (bt.isNativeHandle) return 'Pointer<Void>';
+  if (bt.isAnyNativeObject) return 'Int64';
   final name = bt.name.replaceFirst('?', '');
+  if (spec.isCustomTypeName(name)) return 'Pointer<Uint8>';
   if (spec.isVariantName(name)) return 'Pointer<Uint8>';
   // Nullable primitives: typed Pointer<NitroOptXxx> (struct layout, full value domain).
   if (bt.name == 'int?') return 'Pointer<NitroOptInt64>';
   if (bt.name == 'double?') return 'Pointer<NitroOptFloat64>';
   if (bt.name == 'bool?') return 'Pointer<NitroOptBool>';
   if (bt.name == 'DateTime?') return 'Pointer<NitroOptInt64>';
+  // AnyNativeObject? uses -1 as null sentinel; wire type is still Int64.
+  if (bt.name == 'AnyNativeObject?') return 'Int64';
+  // uint64? uses the same NitroOptInt64 struct (bits identical, different C signedness).
+  if (bt.name == 'uint64?') return 'Pointer<NitroOptInt64>';
   switch (name) {
     case 'int':
       return 'Int64';
+    case 'uint64':
+      return 'Uint64';
     case 'DateTime':
       return 'Int64';
     case 'double':
@@ -132,15 +140,21 @@ String _typeToDartFFI(BridgeType bt, BridgeSpec spec) {
     return 'Pointer<${bt.pointerInnerType}>';
   }
   if (bt.isNativeHandle) return 'Pointer<Void>';
+  if (bt.isAnyNativeObject) return 'int';
   final name = bt.name.replaceFirst('?', '');
+  if (spec.isCustomTypeName(name)) return 'Pointer<Uint8>';
   if (spec.isVariantName(name)) return 'Pointer<Uint8>';
   // Nullable primitives: typed Pointer<NitroOptXxx> for async/param paths.
   if (bt.name == 'int?') return 'Pointer<NitroOptInt64>';
   if (bt.name == 'double?') return 'Pointer<NitroOptFloat64>';
   if (bt.name == 'bool?') return 'Pointer<NitroOptBool>';
   if (bt.name == 'DateTime?') return 'Pointer<NitroOptInt64>';
+  if (bt.name == 'AnyNativeObject?') return 'int';
+  if (bt.name == 'uint64?') return 'Pointer<NitroOptInt64>';
   switch (name) {
     case 'int':
+      return 'int';
+    case 'uint64':
       return 'int';
     case 'DateTime':
       return 'int';

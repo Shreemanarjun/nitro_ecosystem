@@ -387,7 +387,15 @@ class CppBridgeGenerator {
         final callArgs = <String>[];
         for (final p in func.params) {
           final base = p.type.name.replaceFirst('?', '');
-          if (base == 'String') {
+          if (p.type.isAnyNativeObject) {
+            if (p.type.isNullable) {
+              callArgs.add('${p.name} == -1 ? std::optional<int64_t>(std::nullopt) : std::make_optional<int64_t>(${p.name})');
+            } else {
+              callArgs.add(p.name);
+            }
+          } else if (spec.isCustomTypeName(base)) {
+            callArgs.add(p.name);
+          } else if (base == 'String') {
             callArgs.add('std::string(${p.name})');
           } else if (structNames.contains(base)) {
             callArgs.add('*static_cast<const $base*>(${p.name})');
@@ -426,8 +434,14 @@ class CppBridgeGenerator {
       final isStructRet = structNames.contains(func.returnType.name.replaceFirst('?', ''));
       final isRecordRet = func.returnType.isRecord;
       final isZeroCopyTypedDataRet = func.zeroCopyReturn && func.returnType.isTypedData;
+      final retBase = func.returnType.name.replaceFirst('?', '');
+      final isCustomTypeRet = spec.isCustomTypeName(retBase);
       // Nullable prim returns: malloc'd uint8_t* pointer (Dart casts to Pointer<NitroOptXxx> and frees).
-      final cRet = isEnumRet
+      final cRet = func.returnType.isAnyNativeObject
+          ? 'int64_t'
+          : isCustomTypeRet
+          ? 'uint8_t*'
+          : isEnumRet
           ? 'int64_t'
           : func.returnType.name == 'int?' ? 'uint8_t*'
           : func.returnType.name == 'double?' ? 'uint8_t*'
@@ -506,6 +520,16 @@ class CppBridgeGenerator {
         } else if (p.type.isTypedData) {
           callArgs.add(p.name);
           callArgs.add('static_cast<size_t>(${p.name}_length)');
+        } else if (p.type.isAnyNativeObject) {
+          // AnyNativeObject: pass raw instanceId; nullable: -1 = null sentinel
+          if (p.type.isNullable) {
+            callArgs.add('${p.name} == -1 ? std::optional<int64_t>(std::nullopt) : std::make_optional<int64_t>(${p.name})');
+          } else {
+            callArgs.add(p.name);
+          }
+        } else if (spec.isCustomTypeName(base)) {
+          // @NitroCustomType: pass raw byte buffer pointer (user's native codec decodes)
+          callArgs.add(p.name);
         } else if (enumNames.contains(base)) {
           callArgs.add('static_cast<$base>(${p.name})');
         } else {
@@ -545,6 +569,23 @@ class CppBridgeGenerator {
         writer.line('        _res[0] = _opt.has_value() ? 1 : 0;');
         writer.line('        _res[1] = (_opt.has_value() && _opt.value()) ? 1 : 0;');
         writer.line('        return _res;');
+      } else if (func.returnType.isAnyNativeObject) {
+        if (func.returnType.isNullable) {
+          writer.line('        std::optional<int64_t> _optId = g_impl->${func.dartName}($callArgStr);');
+          writer.line('        return _optId.has_value() ? _optId.value() : -1LL;');
+        } else {
+          writer.line('        return g_impl->${func.dartName}($callArgStr);');
+        }
+      } else if (isCustomTypeRet) {
+        final ct = spec.customTypeByName(retBase)!;
+        if (func.returnType.isNullable) {
+          writer.line('        uint8_t* _res = g_impl->${func.dartName}($callArgStr);');
+          writer.line('        return _res; // nullptr = null from native');
+        } else {
+          writer.line('        uint8_t* _res = g_impl->${func.dartName}($callArgStr);');
+          writer.line('        if (_res == nullptr) { nitro_report_error("TypeError", "${func.dartName}: ${ct.name} must not return null", nullptr, nullptr); return nullptr; }');
+          writer.line('        return _res;');
+        }
       } else if (isRecordRet) {
         writer.line('        NitroCppBuffer _res = g_impl->${func.dartName}($callArgStr);');
         writer.line('        return (void*)_res.data;');
@@ -722,14 +763,18 @@ class CppBridgeGenerator {
 
   static String _typeToC(String dartType, {bool isNativeHandle = false}) {
     if (isNativeHandle) return 'void*'; // NativeHandle<T> is always void*
+    if (dartType == 'AnyNativeObject' || dartType == 'AnyNativeObject?') return 'int64_t';
     // Nullable primitives → raw byte pointers (matches Dart Pointer<NitroOptXxx> ABI).
     if (dartType == 'int?') return 'const uint8_t*';
+    if (dartType == 'uint64?') return 'const uint8_t*';
     if (dartType == 'double?') return 'const uint8_t*';
     if (dartType == 'bool?') return 'const uint8_t*';
     if (dartType == 'DateTime?') return 'const uint8_t*';
     switch (dartType.replaceFirst('?', '')) {
       case 'int':
         return 'int64_t';
+      case 'uint64':
+        return 'uint64_t';
       case 'DateTime':
         return 'int64_t';
       case 'double':
@@ -987,6 +1032,7 @@ class CppBridgeGenerator {
     if (base.startsWith('NativeHandle<')) return 'J';
     switch (base) {
       case 'int':
+      case 'uint64':
       case 'DateTime':
         return 'J';
       case 'double':
@@ -1027,6 +1073,7 @@ class CppBridgeGenerator {
     if (base.startsWith('NativeHandle<')) return 'jlong';
     switch (base) {
       case 'int':
+      case 'uint64':
         return 'jlong';
       case 'double':
         return 'jdouble';
@@ -1046,6 +1093,7 @@ class CppBridgeGenerator {
   static String _jniCast(String t) {
     switch (t.replaceFirst('?', '')) {
       case 'int':
+      case 'uint64':
         return 'jlong';
       case 'double':
         return 'jdouble';
@@ -1237,9 +1285,10 @@ class CppBridgeGenerator {
     bool zeroCopyReturn = false,
     bool isResult = false,
     Set<String> variantNames = const {},
+    Set<String> customTypeNames = const {},
   }) {
     // 'J' prefix for instanceId (Point 13 per-instance dispatch).
-    final paramSig = 'J${params.map((p) => _jniParamSig(p, enumNames, structNames, libPkg, variantNames: variantNames)).join()}';
+    final paramSig = 'J${params.map((p) => _jniParamSig(p, enumNames, structNames, libPkg, variantNames: variantNames, customTypeNames: customTypeNames)).join()}';
     // @NitroResult: Kotlin returns ByteArray [1B tag][payload] → '[B'
     if (isResult) return '($paramSig)[B';
     // Enum return type: bridge returns Long.
@@ -1256,6 +1305,8 @@ class CppBridgeGenerator {
       _ when isNullableIntRet => '[B', // NitroNullableInt ByteArray
       _ when isNullableDoubleRet => '[B', // NitroNullableDouble ByteArray
       _ when isNullableBoolRet => '[B', // NitroNullableBool ByteArray
+      _ when returnType.isAnyNativeObject => 'J', // AnyNativeObject → Long
+      final base when customTypeNames.contains(base) => '[B', // @NitroCustomType → ByteArray
       final base when enumNames.contains(base) => 'J',
       final base when structNames.contains(base) => 'L$libPkg/$base;',
       _ when zeroCopyReturn && returnType.isTypedData => 'Ljava/nio/ByteBuffer;',
@@ -1294,6 +1345,7 @@ class CppBridgeGenerator {
     Set<String> structNames,
     String libPkg, {
     Set<String> variantNames = const {},
+    Set<String> customTypeNames = const {},
   }) {
     final baseParamType = param.type.name.replaceFirst('?', '');
     if (structNames.contains(baseParamType)) {
@@ -1305,6 +1357,8 @@ class CppBridgeGenerator {
       return 'Ljava/nio/ByteBuffer;';
     }
     if (enumNames.contains(baseParamType)) return 'J';
+    if (param.type.isAnyNativeObject) return 'J'; // AnyNativeObject → Long
+    if (customTypeNames.contains(baseParamType)) return '[B'; // @NitroCustomType → ByteArray
     if (param.type.isRecord && !param.type.isMap) return '[B'; // binary record
     if (param.type.isAnyMap) return '[B'; // NitroAnyMap: type-tagged binary
     if (param.type.isMap) return '[B'; // binary map (replaces JSON)

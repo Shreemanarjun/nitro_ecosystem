@@ -36,7 +36,7 @@ void _emitSwiftBridgeSection(
         final isEnumParam = enumNames.contains(p.type.name.replaceFirst('?', ''));
         // Nullable primitives: raw byte pointer (matches Swift UnsafeMutablePointer<UInt8>? @_cdecl param).
         String cType;
-        if (p.type.name == 'int?' || p.type.name == 'double?' || p.type.name == 'bool?' || p.type.name == 'DateTime?') {
+        if (p.type.name == 'int?' || p.type.name == 'uint64?' || p.type.name == 'double?' || p.type.name == 'bool?' || p.type.name == 'DateTime?') {
           cType = 'const uint8_t*';
         } else {
           cType = isEnumParam ? 'int64_t' : CppBridgeGenerator._paramTypeToC(p.type.name, structNames);
@@ -74,6 +74,8 @@ void _emitSwiftBridgeSection(
         : isVariantRet
         ? 'uint8_t*'
         : func.returnType.name == 'int?'
+        ? 'uint8_t*'
+        : func.returnType.name == 'uint64?'
         ? 'uint8_t*'
         : func.returnType.name == 'double?'
         ? 'uint8_t*'
@@ -150,6 +152,7 @@ void _emitSwiftBridgeSection(
     } else {
       switch (prop.type.name) {
         case 'int?':    cType = 'uint8_t*'; setterCType = 'const uint8_t*'; break;
+        case 'uint64?': cType = 'uint8_t*'; setterCType = 'const uint8_t*'; break;
         case 'double?': cType = 'uint8_t*'; setterCType = 'const uint8_t*'; break;
         case 'bool?':   cType = 'uint8_t*'; setterCType = 'const uint8_t*'; break;
         default: cType = CppBridgeGenerator._typeToC(prop.type.name); setterCType = cType;
@@ -189,6 +192,8 @@ void _emitSwiftBridgeSection(
     final String itemCType;
     if (isNullable && itemName == 'int') {
       itemCType = 'const int64_t*';
+    } else if (isNullable && itemName == 'uint64') {
+      itemCType = 'const uint64_t*';
     } else if (isNullable && itemName == 'double') {
       itemCType = 'const double*';
     } else if (isNullable && itemName == 'bool') {
@@ -255,6 +260,10 @@ void _emitSwiftBridgeSection(
       // Nullable int/enum: pointer to int64_t, nullptr = null.
       writer.line('    if (item == nullptr) { obj.type = Dart_CObject_kNull; }');
       writer.line('    else { obj.type = Dart_CObject_kInt64; obj.value.as_int64 = *item; }');
+    } else if (isNullable && itemName == 'uint64') {
+      // Nullable uint64: pointer to uint64_t, nullptr = null; post as kInt64 (same bits).
+      writer.line('    if (item == nullptr) { obj.type = Dart_CObject_kNull; }');
+      writer.line('    else { obj.type = Dart_CObject_kInt64; obj.value.as_int64 = (int64_t)*item; }');
     } else if (isNullable && itemName == 'double') {
       writer.line('    if (item == nullptr) { obj.type = Dart_CObject_kNull; }');
       writer.line('    else { obj.type = Dart_CObject_kDouble; obj.value.as_double = *item; }');
@@ -264,7 +273,7 @@ void _emitSwiftBridgeSection(
     } else if (stream.itemType.name == 'double') {
       writer.line('    obj.type = Dart_CObject_kDouble;');
       writer.line('    obj.value.as_double = item;');
-    } else if (stream.itemType.name == 'int') {
+    } else if (stream.itemType.name == 'int' || stream.itemType.name == 'uint64') {
       writer.line('    obj.type = Dart_CObject_kInt64;');
       writer.line('    obj.value.as_int64 = (int64_t)item;');
     } else if (stream.itemType.name == 'bool') {
