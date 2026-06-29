@@ -1,3 +1,8 @@
+## 0.5.0
+
+- **Fixed: `ReceivePort` available in generated `part` files without extra imports** — `nitro.dart` now re-exports `ReceivePort` and `SendPort` from `dart:isolate` (conditionally, with a web stub). Generated `.g.dart` files are `part of` the user's spec file and cannot have their own `import` directives; they use `ReceivePort` for the callback-release port. Previously, specs that used callbacks required an explicit `import 'dart:isolate'` in the spec file.
+- **New: `lib/src/isolate_stub.dart`** — Web stub for `ReceivePort`/`SendPort` used by the conditional `dart:isolate` re-export.
+
 ## 0.4.6
 
 - **Ecosystem sync** — Updated annotations and generator support.

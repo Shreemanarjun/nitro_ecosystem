@@ -1,3 +1,11 @@
+## 0.5.0
+
+- **Fixed: Nullable callback return types silently stripped of `?`** — `spec_extractor.dart` called `returnType.getDisplayString(withNullability: false)` for function (callback) types, silently dropping `?` from nullable return types. This caused three downstream bugs: (1) the generated helper accepted `T Function()` instead of `T? Function()`, producing a type mismatch at the call site; (2) `isNullableRet` was always `false` in `_callbackExceptionalReturn`, so all nullable callback returns used the wrong exceptional-return sentinel (e.g. `0` instead of `-1` for `AnyNativeObject?`); (3) `_callbackReturnExpression` never generated the null-guard wrapper for nullable returns, causing a `Null check operator used on a null value` crash at runtime. Fixed by changing to `getDisplayString()` (nullability preserved).
+- **Fixed: Unused local variable `isNullable` warnings** — Removed dead `isNullable` variable declarations in `dart_callback_helpers.dart` (two sites) and `kotlin_callback_emitter.dart` where the variable was computed but never read (the `isNullableNitroPrim` check on the `BridgeType` was used directly instead).
+- **Fixed: Local variable lint `no_leading_underscores_for_local_identifiers`** — Renamed `_isOptPrim` → `isOptPrim` and `_isOptPrimNA` → `isOptPrimNA` in `kotlin_function_emitter.dart`.
+- **Fixed: Unnecessary string interpolation braces lint** — `'(${fieldTypes})'` → `'($fieldTypes)'` in `dart_record_generator.dart`.
+- **Fixed: Unused/redundant imports in test** — Removed shadowed `bridge_spec.dart` import and unused `cpp_bridge_generator.dart` import from `tuple_type_test.dart`.
+
 ## 0.4.6
 
 - **New Annotations** — Added generation support for `@NitroVariant`, `@NitroResult`, `@nitroNativeAsync`, `@zeroCopy`, and `@NitroOwned`.
