@@ -346,9 +346,9 @@ void main() {
       expect(result.any((i) => i.code == 'E014'), isTrue, reason: 'E014 expected for empty variant');
     });
 
-    test('E014 error when variant has more than 10 cases', () {
+    test('E014 error when variant has more than 255 cases', () {
       final manyCases = List.generate(
-        11,
+        256,
         (i) => BridgeVariantCase(name: 'Case$i', label: 'case$i', fields: []),
       );
       final spec = BridgeSpec(
@@ -360,8 +360,8 @@ void main() {
       );
       final result = SpecValidator.validate(spec);
       final e014 = result.where((i) => i.code == 'E014').toList();
-      expect(e014, isNotEmpty, reason: 'E014 expected for >10 cases');
-      expect(e014.first.message, contains('11 cases'));
+      expect(e014, isNotEmpty, reason: 'E014 expected for >255 cases');
+      expect(e014.first.message, contains('256 cases'));
     });
 
     test('no E014 for valid variant (2 cases)', () {
@@ -370,7 +370,23 @@ void main() {
       expect(result.where((i) => i.code == 'E014'), isEmpty);
     });
 
-    test('no E014 for variant with exactly 10 cases', () {
+    test('no E014 for variant with exactly 255 cases', () {
+      final maxCases = List.generate(
+        255,
+        (i) => BridgeVariantCase(name: 'Case$i', label: 'case$i', fields: []),
+      );
+      final spec = BridgeSpec(
+        dartClassName: 'Foo',
+        lib: 'foo',
+        namespace: 'foo',
+        sourceUri: 'foo.native.dart',
+        variants: [BridgeVariant(name: 'Max', cases: maxCases)],
+      );
+      final result = SpecValidator.validate(spec);
+      expect(result.where((i) => i.code == 'E014'), isEmpty);
+    });
+
+    test('no E014 for variant with exactly 10 cases (was old limit, now allowed)', () {
       final tenCases = List.generate(
         10,
         (i) => BridgeVariantCase(name: 'Case$i', label: 'case$i', fields: []),

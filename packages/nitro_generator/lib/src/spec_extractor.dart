@@ -220,7 +220,7 @@ class SpecExtractor {
     final knownTypeNames = {...structNames, ...enumNames, ...recordTypeNames, ...variantNames};
 
     final members = _ModuleMembers.from(element);
-    final (:properties, :streams) = _extractPropertiesAndStreams(members, ns, recordTypeNames, knownTypeNames, structTypeNames: structNames);
+    final (:properties, :streams) = _extractPropertiesAndStreams(members, ns, recordTypeNames, knownTypeNames, structTypeNames: structNames, enumTypeNames: enumNames, variantTypeNames: variantNames);
     return BridgeSpec(
       dartClassName: element.name!,
       lib: libName,
@@ -232,7 +232,7 @@ class SpecExtractor {
       linuxImpl: linuxImpl,
       webImpl: webImpl,
       sourceUri: sourcePath,
-      functions: _extractFunctions(members.functions, ns, recordTypeNames, knownTypeNames, structTypeNames: structNames),
+      functions: _extractFunctions(members.functions, ns, recordTypeNames, knownTypeNames, structTypeNames: structNames, enumTypeNames: enumNames, variantTypeNames: variantNames),
       properties: properties,
       streams: streams,
       structs: allStructs,
@@ -634,6 +634,8 @@ class SpecExtractor {
   /// - `@HybridRecord` class  → `isRecord: true`
   /// - `List<@HybridRecord T>` → `isRecord: true, recordListItemType: T`
   /// - `List<@HybridStruct T>` → `isRecord: true, recordListItemType: T`
+  /// - `List<@HybridEnum T>`  → `isRecord: true, isEnumList: true, recordListItemType: T`
+  /// - `List<@NitroVariant T>`→ `isRecord: true, isVariantList: true, recordListItemType: T`
   /// - `List<primitive T>`    → `isRecord: true, recordListItemType: T, recordListItemIsPrimitive: true`
   /// - `Map<String, T>`       → `isRecord: true, isMap: true`
   static BridgeType _makeBridgeType(
@@ -642,6 +644,8 @@ class SpecExtractor {
     bool isFuture = false,
     Set<String> knownTypeNames = const {},
     Set<String> structTypeNames = const {},
+    Set<String> enumTypeNames = const {},
+    Set<String> variantTypeNames = const {},
   }) {
     final displayName = type.getDisplayString();
     final isNullable = type.nullabilitySuffix == NullabilitySuffix.question;
@@ -659,6 +663,8 @@ class SpecExtractor {
             recordTypeNames,
             knownTypeNames: knownTypeNames,
             structTypeNames: structTypeNames,
+            enumTypeNames: enumTypeNames,
+            variantTypeNames: variantTypeNames,
           ),
         );
       }
@@ -676,10 +682,30 @@ class SpecExtractor {
     if (type is InterfaceType) {
       final elName = type.element.name;
 
-      // List<T> — record, struct, or primitive items
+      // List<T> — enum, variant, record, struct, or primitive items
       if (elName == 'List' && type.typeArguments.isNotEmpty) {
         final itemType = type.typeArguments.first;
         final itemName = itemType.getDisplayString(withNullability: false);
+        if (enumTypeNames.contains(itemName)) {
+          return BridgeType(
+            name: displayName,
+            isRecord: true,
+            isNullable: isNullable,
+            recordListItemType: itemName,
+            isEnumList: true,
+            isFuture: isFuture,
+          );
+        }
+        if (variantTypeNames.contains(itemName)) {
+          return BridgeType(
+            name: displayName,
+            isRecord: true,
+            isNullable: isNullable,
+            recordListItemType: itemName,
+            isVariantList: true,
+            isFuture: isFuture,
+          );
+        }
         if (recordTypeNames.contains(itemName)) {
           return BridgeType(
             name: displayName,
@@ -777,6 +803,8 @@ class SpecExtractor {
     Set<String> recordTypeNames,
     Set<String> knownTypeNames, {
     Set<String> structTypeNames = const {},
+    Set<String> enumTypeNames = const {},
+    Set<String> variantTypeNames = const {},
   }) {
     const asyncChecker = TypeChecker.fromUrl('package:nitro_annotations/src/annotations.dart#NitroAsync');
     const nativeAsyncChecker = TypeChecker.fromUrl('package:nitro_annotations/src/annotations.dart#NitroNativeAsync');
@@ -832,6 +860,8 @@ class SpecExtractor {
           isFuture: isAsync || isNativeAsync,
           knownTypeNames: knownTypeNames,
           structTypeNames: structTypeNames,
+          enumTypeNames: enumTypeNames,
+          variantTypeNames: variantTypeNames,
         ),
         zeroCopyReturn: zeroCopyChecker.hasAnnotationOf(m),
         isOwned: ownedChecker.hasAnnotationOf(m),
@@ -840,7 +870,7 @@ class SpecExtractor {
         params: m.formalParameters.map((p) {
           return BridgeParam(
             name: p.name!,
-            type: _makeBridgeType(p.type, recordTypeNames, knownTypeNames: knownTypeNames, structTypeNames: structTypeNames),
+            type: _makeBridgeType(p.type, recordTypeNames, knownTypeNames: knownTypeNames, structTypeNames: structTypeNames, enumTypeNames: enumTypeNames, variantTypeNames: variantTypeNames),
             zeroCopy: zeroCopyChecker.hasAnnotationOf(p),
             isNamed: p.isNamed,
             isOptional: p.isOptional,
@@ -860,6 +890,8 @@ class SpecExtractor {
     Set<String> recordTypeNames,
     Set<String> knownTypeNames, {
     Set<String> structTypeNames = const {},
+    Set<String> enumTypeNames = const {},
+    Set<String> variantTypeNames = const {},
   }) {
     const streamChecker = TypeChecker.fromUrl('package:nitro_annotations/src/annotations.dart#NitroStream');
 
@@ -888,7 +920,7 @@ class SpecExtractor {
           dartName: name,
           registerSymbol: '${ns}_register_${_toSnakeCase(name)}_stream',
           releaseSymbol: '${ns}_release_${_toSnakeCase(name)}_stream',
-          itemType: itemDartType != null ? _makeBridgeType(itemDartType, recordTypeNames, knownTypeNames: knownTypeNames, structTypeNames: structTypeNames) : BridgeType(name: 'dynamic'),
+          itemType: itemDartType != null ? _makeBridgeType(itemDartType, recordTypeNames, knownTypeNames: knownTypeNames, structTypeNames: structTypeNames, enumTypeNames: enumTypeNames, variantTypeNames: variantTypeNames) : BridgeType(name: 'dynamic'),
           backpressure: backpressure,
           batchMaxSize: batchMaxSize,
           isMethodStyle: true,
@@ -918,7 +950,7 @@ class SpecExtractor {
           dartName: name,
           registerSymbol: '${ns}_register_${_toSnakeCase(name)}_stream',
           releaseSymbol: '${ns}_release_${_toSnakeCase(name)}_stream',
-          itemType: itemDartType != null ? _makeBridgeType(itemDartType, recordTypeNames, knownTypeNames: knownTypeNames, structTypeNames: structTypeNames) : BridgeType(name: 'dynamic'),
+          itemType: itemDartType != null ? _makeBridgeType(itemDartType, recordTypeNames, knownTypeNames: knownTypeNames, structTypeNames: structTypeNames, enumTypeNames: enumTypeNames, variantTypeNames: variantTypeNames) : BridgeType(name: 'dynamic'),
           backpressure: backpressure,
           batchMaxSize: batchMaxSizeGetter,
           isAnnotated: ann != null,
@@ -951,7 +983,7 @@ class SpecExtractor {
       final dartType = e['dartType'] as DartType;
       return BridgeProperty(
         dartName: name,
-        type: _makeBridgeType(dartType, recordTypeNames, knownTypeNames: knownTypeNames, structTypeNames: structTypeNames),
+        type: _makeBridgeType(dartType, recordTypeNames, knownTypeNames: knownTypeNames, structTypeNames: structTypeNames, enumTypeNames: enumTypeNames, variantTypeNames: variantTypeNames),
         getSymbol: '${ns}_get_${_toSnakeCase(name)}',
         setSymbol: '${ns}_set_${_toSnakeCase(name)}',
         hasGetter: e['getter'] as bool,

@@ -37,7 +37,9 @@ class KotlinFunctionEmitter {
     final isRecord = func.returnType.isRecord && !func.returnType.isMap;
     final isMap = func.returnType.isMap;
     final isAnyMap = func.returnType.isAnyMap;
-    final isListRecord = isRecord && func.returnType.recordListItemType != null && !func.returnType.recordListItemIsPrimitive;
+    final isEnumListReturn = func.returnType.isEnumList;
+    final isVariantListReturn = func.returnType.isVariantList;
+    final isListRecord = isRecord && func.returnType.recordListItemType != null && !func.returnType.recordListItemIsPrimitive && !isEnumListReturn && !isVariantListReturn;
     final isNullableBoolReturn = retBaseName == 'bool' && func.returnType.name.endsWith('?');
     final isNullableIntReturn = retBaseName == 'int' && func.returnType.name.endsWith('?');
     final isNullableDoubleReturn = retBaseName == 'double' && func.returnType.name.endsWith('?');
@@ -47,6 +49,10 @@ class KotlinFunctionEmitter {
         ? 'ByteArray'  // @NitroResult: [1B tag][record payload]
         : isVariantReturn
         ? 'ByteArray'  // @NitroVariant: [4B len][1B tag][fields]
+        : isEnumListReturn
+        ? 'ByteArray'  // List<@HybridEnum>: [4B len][4B count][8B×N]
+        : isVariantListReturn
+        ? 'ByteArray'  // List<@NitroVariant>: [4B len][4B count][tag+fields×N]
         : (isNullableBoolReturn || isNullableIntReturn || isNullableDoubleReturn)
         ? 'ByteArray'
         : isEnum
@@ -116,6 +122,10 @@ class KotlinFunctionEmitter {
       _emitResultBody(writer, func, mapper, callParams);
     } else if (isVariantReturn) {
       _emitVariantReturnBody(writer, func, retBaseName, callParams);
+    } else if (isEnumListReturn) {
+      _emitEnumListBody(writer, func, callParams);
+    } else if (isVariantListReturn) {
+      _emitVariantListBody(writer, func, callParams);
     } else if (isAnyMap) {
       _emitAnyMapBody(writer, func, callParams);
     } else if (isMap) {
@@ -243,6 +253,28 @@ class KotlinFunctionEmitter {
     for (final p in func.params) {
       if (!p.type.isRecord || p.type.isMap) continue;
 
+      // List<@HybridEnum>: [4B payload_len][4B count][8B×N nativeValues]
+      if (p.type.isEnumList) {
+        final itemType = p.type.recordListItemType!;
+        writer.line('        val ${p.name}Buf = java.nio.ByteBuffer.wrap(${p.name}).order(java.nio.ByteOrder.LITTLE_ENDIAN)');
+        writer.line('        ${p.name}Buf.getInt() // skip 4B payload_len');
+        writer.line('        val ${p.name}Count = ${p.name}Buf.getInt()');
+        writer.line('        val ${p.name}Decoded = mutableListOf<$itemType>()');
+        writer.line('        repeat(${p.name}Count) { ${p.name}Decoded.add($itemType.fromNative(${p.name}Buf.getLong())) }');
+        continue;
+      }
+      // List<@NitroVariant>: [4B payload_len][4B count][tag+fields×N]
+      if (p.type.isVariantList) {
+        final itemType = p.type.recordListItemType!;
+        writer.line('        val ${p.name}Buf = java.nio.ByteBuffer.wrap(${p.name}).order(java.nio.ByteOrder.LITTLE_ENDIAN)');
+        writer.line('        ${p.name}Buf.getInt() // skip 4B payload_len');
+        writer.line('        val ${p.name}Count = ${p.name}Buf.getInt()');
+        writer.line('        val ${p.name}Decoded = mutableListOf<$itemType>()');
+        writer.line('        val ${p.name}Rdr = RecordReader(${p.name}Buf)');
+        writer.line('        repeat(${p.name}Count) { ${p.name}Decoded.add($itemType.fromReader(${p.name}Rdr)) }');
+        continue;
+      }
+
       if (p.type.recordListItemType == null) {
         // Single @HybridRecord param
         final recordName = p.type.name.replaceFirst('?', '');
@@ -311,6 +343,55 @@ class KotlinFunctionEmitter {
         }
       }
     }
+  }
+
+  // ── List<@HybridEnum> return body ─────────────────────────────────────────────
+
+  static void _emitEnumListBody(
+    CodeWriter writer,
+    BridgeFunction func,
+    String callParams,
+  ) {
+    if (func.isAsync) {
+      final rb = KotlinTypeMapper.runBlockingCall(func, 'impl.${func.dartName}($callParams)');
+      writer.line('        val result = _asyncExecutor.submit(java.util.concurrent.Callable { $rb }).get()');
+    } else {
+      writer.line('        val result = impl.${func.dartName}($callParams)');
+    }
+    writer.line('        val count = result.size');
+    writer.line('        val payloadSize = 4 + 8 * count');
+    writer.line('        val buf = java.nio.ByteBuffer.allocate(4 + payloadSize).order(java.nio.ByteOrder.LITTLE_ENDIAN)');
+    writer.line('        buf.putInt(payloadSize)');
+    writer.line('        buf.putInt(count)');
+    writer.line('        result.forEach { buf.putLong(it.nativeValue) }');
+    writer.line('        return buf.array()');
+  }
+
+  // ── List<@NitroVariant> return body ───────────────────────────────────────────
+
+  static void _emitVariantListBody(
+    CodeWriter writer,
+    BridgeFunction func,
+    String callParams,
+  ) {
+    if (func.isAsync) {
+      final rb = KotlinTypeMapper.runBlockingCall(func, 'impl.${func.dartName}($callParams)');
+      writer.line('        val result = _asyncExecutor.submit(java.util.concurrent.Callable { $rb }).get()');
+    } else {
+      writer.line('        val result = impl.${func.dartName}($callParams)');
+    }
+    writer.line('        val _itemBytes = result.map { item ->' );
+    writer.line('            val _iw = RecordWriter(); item.writeFields(_iw); _iw.toByteArray()');
+    writer.line('        }');
+    writer.line('        val _payloadSize = 4 + _itemBytes.sumOf { it.size }');
+    writer.line('        val _payloadBuf = java.nio.ByteBuffer.allocate(_payloadSize).order(java.nio.ByteOrder.LITTLE_ENDIAN)');
+    writer.line('        _payloadBuf.putInt(result.size)');
+    writer.line('        _itemBytes.forEach { _payloadBuf.put(it) }');
+    writer.line('        val _payload = _payloadBuf.array()');
+    writer.line('        val _buf = java.nio.ByteBuffer.allocate(4 + _payloadSize).order(java.nio.ByteOrder.LITTLE_ENDIAN)');
+    writer.line('        _buf.putInt(_payloadSize)');
+    writer.line('        _buf.put(_payload)');
+    writer.line('        return _buf.array()');
   }
 
   // ── NitroAnyMap body ──────────────────────────────────────────────────────────

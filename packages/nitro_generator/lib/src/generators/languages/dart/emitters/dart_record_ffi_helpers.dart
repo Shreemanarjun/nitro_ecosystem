@@ -12,6 +12,16 @@ String _decodeRecordExpr(BridgeType type, String ptrVar) {
     final valueType = mapMatch?.group(1)?.trim() ?? 'dynamic';
     return '_nitroDecodeMapBinary${_mapTypeSuffix(valueType)}($ptrVar)';
   }
+  // List<@HybridEnum>: [4B len][4B count][8B×N nativeValues] — non-indexed sequential
+  if (type.isEnumList) {
+    final item = type.recordListItemType!;
+    return 'RecordReader.decodeList($ptrVar, (r) => r.readInt().to$item())';
+  }
+  // List<@NitroVariant>: [4B len][4B count][tag+fields×N sequential] — non-indexed
+  if (type.isVariantList) {
+    final item = type.recordListItemType!;
+    return 'RecordReader.decodeList($ptrVar, (r) => ${item}VariantExt.fromReader(r))';
+  }
   final item = type.recordListItemType;
   if (item != null) {
     if (type.recordListItemIsPrimitive) {
@@ -144,6 +154,14 @@ String _encodeRecordParam(BridgeType type, String varName, String allocator) {
     final mapMatch = RegExp(r'^Map<String,\s*(.+)>$').firstMatch(type.name);
     final valueType = mapMatch?.group(1)?.trim() ?? 'dynamic';
     return '_nitroEncodeMapBinary${_mapTypeSuffix(valueType)}($varName, $allocator)';
+  }
+  // List<@HybridEnum>: non-indexed sequential [4B len][4B count][8B×N nativeValues]
+  if (type.isEnumList) {
+    return 'RecordWriter.encodeList($varName, (w, e) => w.writeInt(e.nativeValue), $allocator)';
+  }
+  // List<@NitroVariant>: non-indexed sequential [4B len][4B count][tag+fields×N]
+  if (type.isVariantList) {
+    return 'RecordWriter.encodeList($varName, (w, v) => v.writeFields(w), $allocator)';
   }
   final item = type.recordListItemType;
   if (item != null) {

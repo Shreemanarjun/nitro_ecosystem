@@ -805,12 +805,12 @@ class SpecValidator {
           message: '${variant.name} — @NitroVariant has no cases.',
           hint: 'Add at least one concrete subclass of ${variant.name}.',
         ));
-      } else if (variant.cases.length > 10) {
+      } else if (variant.cases.length > 255) {
         issues.add(ValidationIssue(
           severity: ValidationSeverity.error,
           code: 'E014',
-          message: '${variant.name} — @NitroVariant has ${variant.cases.length} cases (max 10).',
-          hint: 'Split "${variant.name}" into multiple variant types, each with ≤ 10 cases.',
+          message: '${variant.name} — @NitroVariant has ${variant.cases.length} cases (max 255).',
+          hint: 'Split "${variant.name}" into multiple variant types, each with ≤ 255 cases.',
         ));
       }
     }

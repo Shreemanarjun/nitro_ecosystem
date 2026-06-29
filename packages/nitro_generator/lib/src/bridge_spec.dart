@@ -12,6 +12,8 @@ enum BridgeTypeKind {
   record,         // @HybridRecord (binary codec, single instance)
   recordList,     // List<@HybridRecord>
   primitiveList,  // List<int|double|bool|String>
+  enumList,       // List<@HybridEnum> — [4B len][4B count][8B×N nativeValues]
+  variantList,    // List<@NitroVariant> — [4B len][4B count][sequential tag+fields]
   typedData,      // Uint8List, Float64List, etc.
   map,            // Map<String, T>
   anyMap,         // NitroAnyMap — heterogeneous typed map (RN Nitro AnyMap equiv.)
@@ -178,6 +180,14 @@ class BridgeType {
   /// String) rather than a @HybridRecord class.
   final bool recordListItemIsPrimitive;
 
+  /// True when the type is `List<@HybridEnum>` — encoded as [4B len][4B count][8B×N nativeValues].
+  /// [recordListItemType] holds the enum class name.
+  final bool isEnumList;
+
+  /// True when the type is `List<@NitroVariant>` — encoded as [4B len][4B count][sequential tag+fields].
+  /// [recordListItemType] holds the variant class name.
+  final bool isVariantList;
+
   /// True when the type is `Map<String, V>` — bridges as a JSON object string.
   final bool isMap;
 
@@ -207,6 +217,8 @@ class BridgeType {
     if (isAnyMap)             return BridgeTypeKind.anyMap;
     if (isMap)                return BridgeTypeKind.map;
     if (isRecord) {
+      if (isEnumList)    return BridgeTypeKind.enumList;
+      if (isVariantList) return BridgeTypeKind.variantList;
       if (recordListItemType != null) {
         return recordListItemIsPrimitive
             ? BridgeTypeKind.primitiveList
@@ -274,6 +286,8 @@ class BridgeType {
     this.pointerInnerType,
     this.recordListItemType,
     this.recordListItemIsPrimitive = false,
+    this.isEnumList = false,
+    this.isVariantList = false,
     this.isMap = false,
     this.isAnyMap = false,
     this.isFunction = false,

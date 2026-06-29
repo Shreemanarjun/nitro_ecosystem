@@ -171,9 +171,21 @@ class SwiftFunctionEmitter {
       }
     }
     for (final p in recordListParams) {
+      writer.line('    let ${p.name}Ptr = ${p.name}?.assumingMemoryBound(to: UInt8.self)');
+      // List<@HybridEnum>: non-indexed sequential [4B len][4B count][8B×N]
+      if (p.type.isEnumList) {
+        final itemType = p.type.recordListItemType!;
+        writer.line('    let ${p.name}Decoded = ${p.name}Ptr.map { NitroRecordReader.decodeList(\$0) { r in $itemType(rawValue: r.readInt())! } } ?? []');
+        continue;
+      }
+      // List<@NitroVariant>: non-indexed sequential [4B len][4B count][tag+fields×N]
+      if (p.type.isVariantList) {
+        final itemType = p.type.recordListItemType!;
+        writer.line('    let ${p.name}Decoded = ${p.name}Ptr.map { NitroRecordReader.decodeList(\$0) { r in $itemType.fromReader(r) } } ?? []');
+        continue;
+      }
       final itemType = p.type.name.substring(5, p.type.name.length - 1);
       final isPrim = ['int', 'double', 'bool', 'String'].contains(itemType.replaceAll('?', ''));
-      writer.line('    let ${p.name}Ptr = ${p.name}?.assumingMemoryBound(to: UInt8.self)');
       if (isPrim) {
         final base = itemType.replaceAll('?', '');
         final readCall = switch (base) {
@@ -480,7 +492,7 @@ class SwiftFunctionEmitter {
       writer.line('    }');
       _emitSemaWait(writer, func);
       writer.line('    guard let r = result else { return nil }');
-      _emitRecordListEncode(writer, func.returnType.name);
+      _emitRecordListEncode(writer, func.returnType);
     } else if (isTypedDataReturn) {
       final swiftRetType = mapper.swiftType(func.returnType.name);
       writer.line('    guard let impl = ${spec.dartClassName}Registry.impl else { return nil }');
@@ -666,7 +678,7 @@ class SwiftFunctionEmitter {
       }
     } else if (isRecordList) {
       writer.line('    guard let r = ${spec.dartClassName}Registry.impl?.${func.dartName}($callArgs) else { return nil }');
-      _emitRecordListEncode(writer, func.returnType.name);
+      _emitRecordListEncode(writer, func.returnType);
     } else if (isTypedDataReturn) {
       writer.line('    guard let r = ${spec.dartClassName}Registry.impl?.${func.dartName}($callArgs) else { return nil }');
       _emitTypedDataReturn(writer, func);
@@ -726,7 +738,18 @@ class SwiftFunctionEmitter {
 
   // ── shared return helpers ─────────────────────────────────────────────────
 
-  static void _emitRecordListEncode(CodeWriter writer, String returnTypeName) {
+  static void _emitRecordListEncode(CodeWriter writer, BridgeType returnType) {
+    // List<@HybridEnum>: non-indexed sequential [4B len][4B count][8B×N rawValues]
+    if (returnType.isEnumList) {
+      writer.line('    return NitroRecordWriter.encodeList(r) { w, e in w.writeInt(Int64(e.rawValue)) }.map { UnsafeMutableRawPointer(\$0) }');
+      return;
+    }
+    // List<@NitroVariant>: non-indexed sequential [4B len][4B count][tag+fields×N]
+    if (returnType.isVariantList) {
+      writer.line('    return NitroRecordWriter.encodeList(r) { w, e in e.writeFields(to: w) }.map { UnsafeMutableRawPointer(\$0) }');
+      return;
+    }
+    final returnTypeName = returnType.name;
     final itemType = returnTypeName.substring(5, returnTypeName.length - 1);
     final isPrim = ['int', 'double', 'bool', 'String'].contains(itemType.replaceAll('?', ''));
     if (isPrim) {

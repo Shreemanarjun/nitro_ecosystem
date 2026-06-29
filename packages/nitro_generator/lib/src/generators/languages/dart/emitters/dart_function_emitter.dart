@@ -236,6 +236,8 @@ BridgeType _nitroResultInnerType(BridgeType returnType) {
     pointerInnerType: returnType.pointerInnerType,
     recordListItemType: returnType.recordListItemType,
     recordListItemIsPrimitive: returnType.recordListItemIsPrimitive,
+    isEnumList: returnType.isEnumList,
+    isVariantList: returnType.isVariantList,
     isMap: returnType.isMap,
     isAnyMap: returnType.isAnyMap,
     isFunction: returnType.isFunction,
