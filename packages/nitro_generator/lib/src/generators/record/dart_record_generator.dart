@@ -160,7 +160,7 @@ String _generateDartRecordExtensions(BridgeSpec spec) {
       if (f.isNullable) return '${f.dartType.replaceFirst("?", "")}?';
       return f.dartType;
     }).join(', ');
-    final tupleType = '(${fieldTypes})';
+    final tupleType = '($fieldTypes)';
 
     // ── _nitroDecode_<Name> ──
     s.writeln('$tupleType _nitroDecode_${rt.name}(Pointer<Uint8> ptr) {');

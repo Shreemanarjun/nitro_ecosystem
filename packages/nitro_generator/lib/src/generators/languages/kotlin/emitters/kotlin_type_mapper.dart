@@ -195,7 +195,8 @@ class KotlinTypeMapper implements TypeMapper {
     final baseName = p.type.name.replaceFirst('?', '');
     // Nullable primitives use NitroNullable ByteArray ([B) for JVM descriptor compatibility.
     // uint64? reuses NitroOptInt64 byte encoding (same 9-byte layout; bits preserved as Long).
-    if (baseName == 'int' || baseName == 'uint64' || baseName == 'bool' || baseName == 'double' || baseName == 'DateTime') return 'ByteArray';
+    // Also covers isOptional=true params whose type name lacks '?' (same ByteArray encoding).
+    if (p.type.isNullableNitroPrim || BridgeType.nitroPrimBases.contains(baseName)) return 'ByteArray';
     if (enumNames.contains(baseName)) return 'Long';
     return '${type(baseName)}?';
   }

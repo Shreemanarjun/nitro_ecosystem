@@ -753,7 +753,7 @@ class SpecExtractor {
     // Handle function types (callbacks)
     if (type is FunctionType) {
       final returnType = type.returnType;
-      final returnTypeName = returnType.getDisplayString(withNullability: false);
+      final returnTypeName = returnType.getDisplayString();
       final params = <BridgeType>[];
 
       for (final param in type.formalParameters) {

@@ -21,15 +21,13 @@ class KotlinCallbackEmitter {
 
         for (var i = 0; i < cbParams.length; i++) {
           final base = cbParams[i].name.replaceFirst('?', '');
-          final isNullable = cbParams[i].name.endsWith('?');
           final struct = spec.structs.where((s) => s.name == base).firstOrNull;
           if (struct != null && mapper.isExpandableStruct(struct)) {
             for (final f in struct.fields) {
               paramDecl.write(', arg${i}_${f.name}: Long');
             }
-          } else if (isNullable && (base == 'int' || base == 'double' || base == 'bool' || base == 'DateTime')) {
+          } else if (cbParams[i].isNullableNitroPrim) {
             // Nullable primitives: two Long params (isNull flag + value bits).
-            // DateTime? uses the same Long wire as int? (ms-since-epoch).
             paramDecl.write(', arg${i}Null: Long, arg${i}Val: Long');
           } else {
             paramDecl.write(', arg$i: ${mapper.callbackParamJni(cbParams[i])}');

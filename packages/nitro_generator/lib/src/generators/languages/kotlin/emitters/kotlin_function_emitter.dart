@@ -65,21 +65,19 @@ class KotlinFunctionEmitter {
         ? 'ByteArray'
         : retType;
 
+    bool isOptPrim(BridgeParam p) =>
+        p.type.isNullableNitroPrim ||
+        (p.isOptional && BridgeType.nitroPrimBases.contains(p.type.baseName));
+
     // Optional-primitive params that need NitroNullable ByteArray decoding.
-    final optPrimParams = func.params.where((p) {
-      final bn = p.type.name.replaceFirst('?', '');
-      final isNull = p.type.name.endsWith('?') || p.isOptional;
-      return isNull && (bn == 'int' || bn == 'uint64' || bn == 'bool' || bn == 'double' || bn == 'DateTime');
-    }).toList();
+    final optPrimParams = func.params.where(isOptPrim).toList();
 
     // Resolve call params — decode enums, records, variants, callbacks, nullable prims.
     final callParams = func.params
         .map((p) {
           final baseName = p.type.name.replaceFirst('?', '');
           final isNull = p.type.name.endsWith('?') || p.isOptional;
-          if (isNull && (baseName == 'int' || baseName == 'uint64' || baseName == 'bool' || baseName == 'double' || baseName == 'DateTime')) {
-            return '${p.name}Arg';
-          }
+          if (isOptPrim(p)) return '${p.name}Arg';
           if (isNull && mapper.enumNames.contains(baseName)) return '${p.name}Arg';
           if (mapper.enumNames.contains(baseName)) return '$baseName.fromNative(${p.name})';
           if (p.type.isFunction) return mapper.callbackLambda(p);
@@ -162,18 +160,14 @@ class KotlinFunctionEmitter {
     // instanceId is prepended; bridgeParamsDecl already includes it.
     final portParam = '$bridgeParamsDecl, dartPort: Long';
 
-    final optPrims = func.params.where((p) {
-      final bn = p.type.name.replaceFirst('?', '');
-      final isNull = p.type.name.endsWith('?') || p.isOptional;
-      return isNull && (bn == 'int' || bn == 'uint64' || bn == 'bool' || bn == 'double' || bn == 'DateTime');
-    }).toList();
+    bool isOptPrimNA(BridgeParam p) =>
+        p.type.isNullableNitroPrim ||
+        (p.isOptional && BridgeType.nitroPrimBases.contains(p.type.baseName));
+
+    final optPrims = func.params.where(isOptPrimNA).toList();
 
     final callParams = func.params
-        .map((p) {
-          final bn = p.type.name.replaceFirst('?', '');
-          final isNull = p.type.name.endsWith('?') || p.isOptional;
-          return (isNull && (bn == 'int' || bn == 'uint64' || bn == 'bool' || bn == 'double' || bn == 'DateTime')) ? '${p.name}Arg' : p.name;
-        })
+        .map((p) => isOptPrimNA(p) ? '${p.name}Arg' : p.name)
         .join(', ');
 
     writer.line('    @JvmStatic fun ${func.dartName}_call($portParam) {');

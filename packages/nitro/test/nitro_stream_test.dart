@@ -1,5 +1,4 @@
 import 'dart:async';
-import 'dart:isolate';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:nitro/nitro.dart';

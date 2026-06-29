@@ -27,7 +27,7 @@ class KotlinStreamEmitter {
       if (isNullable && stream.itemType.isAnyNativeObject) {
         // Nullable AnyNativeObject: boxed Long? so null can be passed to JNI.
         itemKt = 'Long?';
-      } else if (isNullable && (base == 'int' || base == 'uint64' || base == 'double' || base == 'bool' || base == 'DateTime')) {
+      } else if (stream.itemType.isNullableNitroPrim) {
         // DateTime? and uint64? use the same Long? wire as int?.
         itemKt = '${mapper.type(base)}?';
       } else if (isNullable && mapper.enumNames.contains(base)) {

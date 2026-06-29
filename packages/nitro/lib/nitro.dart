@@ -55,6 +55,10 @@ export 'src/nitro_instance_registry.dart';
 // .resolve()/.reject(), addOnResolvedListener(), .then<R>(), .andThen<R>().
 export 'src/nitro_promise.dart';
 
+// dart:isolate — ReceivePort/SendPort used by generated callback-release ports.
+// Conditionally excluded on web where dart:isolate is unavailable.
+export 'dart:isolate' if (dart.library.js_interop) 'src/isolate_stub.dart' show ReceivePort, SendPort;
+
 // dart:ffi — unavailable on web; web code uses dart:js_interop instead.
 export 'dart:ffi' if (dart.library.js_interop) 'src/ffi_stub.dart';
 

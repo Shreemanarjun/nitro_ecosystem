@@ -1296,17 +1296,11 @@ class CppBridgeGenerator {
     // Enum return type: bridge returns Long.
     // Nullable bool?: bridge returns Int (I) with -1=null/0=false/1=true.
     final baseRetType = returnType.name.replaceFirst('?', '');
-    final isNullableBoolRet = baseRetType == 'bool' && returnType.name.endsWith('?');
-    // Nullable primitives now return ByteArray (NitroNullable binary encoding).
-    final isNullableIntRet = (baseRetType == 'int' || baseRetType == 'uint64' || baseRetType == 'DateTime') && returnType.name.endsWith('?');
-    final isNullableDoubleRet = baseRetType == 'double' && returnType.name.endsWith('?');
     // @NitroVariant: Kotlin returns ByteArray [4B len][1B tag][fields] → '[B'
     final isVariantRet = variantNames.contains(baseRetType);
     final returnSig = switch (baseRetType) {
       _ when isVariantRet => '[B', // @NitroVariant ByteArray
-      _ when isNullableIntRet => '[B', // NitroNullableInt ByteArray
-      _ when isNullableDoubleRet => '[B', // NitroNullableDouble ByteArray
-      _ when isNullableBoolRet => '[B', // NitroNullableBool ByteArray
+      _ when returnType.isNullableNitroPrim => '[B', // nullable prim ByteArray
       _ when returnType.isAnyNativeObject => 'J', // AnyNativeObject → Long
       final base when customTypeNames.contains(base) => '[B', // @NitroCustomType → ByteArray
       final base when enumNames.contains(base) => 'J',
@@ -1369,13 +1363,7 @@ class CppBridgeGenerator {
     // Callback / function-typed params are passed as a long (function pointer).
     if (param.type.isFunction) return 'J';
     // Nullable primitives use NitroNullable ByteArray encoding ([B).
-    if (param.type.isNullable && baseParamType == 'int') return '[B';
-    if (param.type.isNullable && baseParamType == 'uint64') return '[B';
-    if (param.type.isNullable && baseParamType == 'double') return '[B';
-    if (param.type.isNullable && baseParamType == 'bool') return '[B';
-    if (param.type.isNullable && baseParamType == 'DateTime') return '[B';
-    // Also handle '?' suffix in type name
-    if (param.type.name.endsWith('?') && (baseParamType == 'int' || baseParamType == 'uint64' || baseParamType == 'double' || baseParamType == 'bool' || baseParamType == 'DateTime')) return '[B';
+    if (param.type.isNullableNitroPrim) return '[B';
     return _jniSigType(param.type.name);
   }
 }

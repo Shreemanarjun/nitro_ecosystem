@@ -216,7 +216,7 @@ void _emitJniRegularFuncBody(
       cParamType = 'int64_t'; // AnyNativeObject (nullable uses -1 sentinel)
     } else if (spec.isCustomTypeName(paramBase)) {
       cParamType = 'const uint8_t*'; // @NitroCustomType byte buffer
-    } else if (p.type.name == 'int?' || p.type.name == 'uint64?' || p.type.name == 'double?' || p.type.name == 'bool?' || p.type.name == 'DateTime?') {
+    } else if (p.type.isNullableNitroPrim) {
       cParamType = 'const uint8_t*';
     } else {
       cParamType = isEnumParam ? 'int64_t' : _paramTypeToC(p.type.name, structNames);
@@ -329,7 +329,7 @@ void _emitJniRegularFuncBody(
       writer.line('    jbyteArray j_${p.name} = env->NewByteArray((jsize)${p.name}_map_len);');
       writer.line('    env->SetByteArrayRegion(j_${p.name}, 0, (jsize)${p.name}_map_len, (const jbyte*)${p.name});');
       callArgsList.add('j_${p.name}');
-    } else if (p.type.name.endsWith('?') && ['int', 'uint64', 'double', 'bool', 'DateTime'].contains(p.type.name.replaceFirst('?', ''))) {
+    } else if (p.type.isNullableNitroPrim) {
       // Nullable primitive: NitroOpt* struct pointer — [1B hasValue][N bytes value].
       // No length prefix; the struct size is fixed. Pass raw bytes to Kotlin as ByteArray.
       final structSize = p.type.name == 'bool?' ? 'sizeof(NitroOptBool)' : 'sizeof(NitroOptInt64)';

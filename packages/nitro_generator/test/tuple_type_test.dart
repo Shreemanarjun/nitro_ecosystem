@@ -10,11 +10,9 @@
 //   - Nullable tuple: nullptr sentinel
 //   - Params: _nitroEncode_ called from call sites
 
-import 'package:nitro_generator/src/bridge_spec.dart';
 import 'package:nitro_generator/src/generators/languages/dart/dart_ffi_generator.dart';
 import 'package:nitro_generator/src/generators/languages/kotlin/kotlin_generator.dart';
 import 'package:nitro_generator/src/generators/languages/c_bridge/cpp_header_generator.dart';
-import 'package:nitro_generator/src/generators/languages/c_bridge/cpp_bridge_generator.dart';
 import 'package:nitro_generator/src/generators/record_generator.dart';
 import 'package:test/test.dart';
 import 'test_utils.dart';

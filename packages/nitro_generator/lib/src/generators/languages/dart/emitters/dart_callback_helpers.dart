@@ -145,11 +145,10 @@ String _callbackNativeSignature(BridgeType callbackType, BridgeSpec spec) {
   final paramsList = <String>[];
   for (final p in callbackType.functionParams) {
     final base = p.name.replaceFirst('?', '');
-    final isNullable = p.name.endsWith('?');
     final struct = spec.structs.where((s) => s.name == base).firstOrNull;
     if (struct != null && _isExpandableCallbackStruct(struct)) {
       paramsList.addAll(struct.fields.map((_) => 'Int64'));
-    } else if (isNullable && (base == 'int' || base == 'uint64' || base == 'double' || base == 'bool' || base == 'DateTime')) {
+    } else if (p.isNullableNitroPrim) {
       paramsList.add('Int64'); // isNull: 0 = has value, non-zero = null
       paramsList.add('Int64'); // value bits (valid when isNull == 0)
     } else {
@@ -216,14 +215,13 @@ String _callbackWrapperParams(BridgeType callbackType, BridgeSpec spec) {
   for (var i = 0; i < callbackType.functionParams.length; i++) {
     final type = callbackType.functionParams[i];
     final base = type.name.replaceFirst('?', '');
-    final isNullable = type.name.endsWith('?');
     final struct = spec.structs.where((s) => s.name == base).firstOrNull;
     if (struct != null && _isExpandableCallbackStruct(struct)) {
       // Use camelCase names (arg0X not arg0_x) to satisfy Dart lint.
       for (final f in struct.fields) {
         parts.add('int arg$i${_cap(f.name)}');
       }
-    } else if (isNullable && (base == 'int' || base == 'uint64' || base == 'double' || base == 'bool' || base == 'DateTime')) {
+    } else if (type.isNullableNitroPrim) {
       parts.add('int arg${i}Null'); // 0 = has value, non-zero = null
       parts.add('int arg${i}Val');  // value bits (valid when arg${i}Null == 0)
     } else {

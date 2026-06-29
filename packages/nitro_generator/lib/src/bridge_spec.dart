@@ -221,6 +221,20 @@ class BridgeType {
   /// where [isNullable] may default to `false` even when the name ends with `?`.
   String get baseName => name.endsWith('?') ? name.substring(0, name.length - 1) : name;
 
+  /// True when this is a nullable NitroBridge primitive that crosses the C/JNI
+  /// boundary as a NitroOpt* struct (ByteArray in Kotlin, uint8_t* in C).
+  ///
+  /// Covers: int?, uint64?, double?, bool?, DateTime?.
+  /// Use this instead of ad-hoc `['int', 'double', ...].contains(baseName)`
+  /// checks in emitters — the authoritative list lives here so adding a new
+  /// numeric type (e.g. float32?) requires one change, not eight.
+  ///
+  /// NOTE: does not cover `isOptional=true` params whose type name lacks `?`.
+  /// Emitters that also handle [BridgeParam.isOptional] should check
+  /// `p.type.isNullableNitroPrim || (p.isOptional && BridgeType.nitroPrimBases.contains(p.type.baseName))`.
+  static const nitroPrimBases = {'int', 'uint64', 'double', 'bool', 'DateTime'};
+  bool get isNullableNitroPrim => name.endsWith('?') && nitroPrimBases.contains(baseName);
+
   /// Discriminated kind — use in switch instead of chained boolean checks.
   ///
   /// Derived purely from the existing flag fields so no existing code breaks.

@@ -19,6 +19,8 @@ workspace:
   - benchmark
   - benchmark/example
   - test_projects/packages/nitro_type_coverage
+  - test_projects/testing_project
+  - test_projects/testing_project/example
 dependency_overrides:
   matcher: 0.12.20
   test_api: 0.7.12

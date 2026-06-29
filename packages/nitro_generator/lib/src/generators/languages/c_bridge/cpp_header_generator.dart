@@ -129,7 +129,7 @@ class CppHeaderGenerator {
             cType = 'int64_t'; // AnyNativeObject / AnyNativeObject? — opaque instance id
           } else if (spec.isCustomTypeName(paramBase)) {
             cType = 'const uint8_t*'; // @NitroCustomType — user-codec byte buffer
-          } else if (p.type.name == 'int?' || p.type.name == 'uint64?' || p.type.name == 'double?' || p.type.name == 'bool?' || p.type.name == 'DateTime?') {
+          } else if (p.type.isNullableNitroPrim) {
             cType = 'const uint8_t*';
           } else {
             cType = isEnumParam ? 'int64_t' : ((isStructParam || p.type.isNativeHandle) ? 'void*' : _typeToC(p.type.name));
