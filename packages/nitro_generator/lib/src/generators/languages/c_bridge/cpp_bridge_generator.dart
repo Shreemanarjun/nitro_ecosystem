@@ -84,6 +84,7 @@ class CppBridgeGenerator {
     // generation loops (functions × enums, params × structs, etc.).
     final enumNames = spec.enums.map((e) => e.name).toSet();
     final structNames = spec.structs.map((s) => s.name).toSet();
+    final variantNames = spec.variants.map((v) => v.name).toSet();
     writer.line('extern "C" {');
     writer.line('NITRO_EXPORT uint32_t ${libStem}_nitro_abi_version(void) {');
     writer.line('    return 1;');
@@ -278,6 +279,7 @@ class CppBridgeGenerator {
     final className = spec.dartClassName;
     final ifaceHeader = '$libStem.native.g.h';
     final recordNames = spec.recordTypes.map((r) => r.name).toSet();
+    final variantNames = spec.variants.map((v) => v.name).toSet();
 
     writer.line('#include "$ifaceHeader"');
     writer.blankLine();
@@ -291,6 +293,7 @@ class CppBridgeGenerator {
       final isStruct = structNames.contains(stream.itemType.name.replaceFirst('?', ''));
       final isRecord = stream.itemType.isRecord;
       final isEnum = enumNames.contains(stream.itemType.name.replaceFirst('?', ''));
+      final isVariantStream = variantNames.contains(stream.itemType.name.replaceFirst('?', ''));
       final itemCpp = _cppScalarType(stream.itemType.name, enumNames, structNames);
       writer.line('void Hybrid$className::emit_${stream.dartName}($itemCpp item) {');
       writer.line('    int64_t port = g_port_${stream.dartName};');
@@ -320,7 +323,9 @@ class CppBridgeGenerator {
         writer.line('    *st_ptr = item;');
         writer.line('    obj.type = Dart_CObject_kInt64;');
         writer.line('    obj.value.as_int64 = (intptr_t)st_ptr;');
-      } else if (isRecord) {
+      } else if (isRecord || isVariantStream) {
+        // Record/variant: item is a pointer to serialized bytes; post address as kInt64.
+        // Dart frees after decode via malloc.free.
         writer.line('    obj.type = Dart_CObject_kInt64;');
         writer.line('    obj.value.as_int64 = (intptr_t)item;');
       } else {
@@ -330,7 +335,7 @@ class CppBridgeGenerator {
       writer.line('        g_port_${stream.dartName} = 0;');
       if (isStruct) {
         writer.line('        free(st_ptr);');
-      } else if (isRecord) {
+      } else if (isRecord || isVariantStream) {
         writer.line('        free(item);');
       }
       writer.line('        return;');
@@ -438,7 +443,7 @@ class CppBridgeGenerator {
         final isRecordParam = p.type.isRecord;
         final isEnumParam = enumNames.contains(p.type.name.replaceFirst('?', ''));
         if (p.type.isFunction) {
-          paramParts.add(_callbackParamToC(p, enumNames, structNames: structNames, recordNames: recordNames));
+          paramParts.add(_callbackParamToC(p, enumNames, structNames: structNames, recordNames: recordNames, variantNames: variantNames));
         } else {
           // Nullable prims use const uint8_t* (raw byte pointer via NitroOptXxx layout).
           final cType = isEnumParam
@@ -744,7 +749,7 @@ class CppBridgeGenerator {
     }
   }
 
-  static String _callbackParamToC(BridgeParam param, Set<String> enumNames, {Set<String>? structNames, Set<String>? recordNames}) {
+  static String _callbackParamToC(BridgeParam param, Set<String> enumNames, {Set<String>? structNames, Set<String>? recordNames, Set<String>? variantNames}) {
     final callback = param.type;
     final ret = _callbackTypeToC(callback.functionReturnType ?? 'void', enumNames, structNames: structNames, recordNames: recordNames);
     final params = callback.functionParams.map((p) => _callbackTypeToC(p.name, enumNames, bridgeType: p, structNames: structNames, recordNames: recordNames)).join(', ');
@@ -761,6 +766,9 @@ class CppBridgeGenerator {
     // @HybridStruct callback params use void* — uniform across JNI and Swift paths.
     if (structNames?.contains(base) == true) return 'void*';
     if (recordNames?.contains(base) == true) return 'const uint8_t*'; // length-prefixed buffer
+    // @NitroVariant callback params: void* at the public C API level; the JNI body
+    // typedef-casts to (const uint8_t*) and Swift uses @convention(c) (UnsafeMutablePointer<UInt8>?).
+    // Both are ABI-compatible with void* on all Nitro target platforms.
     return _typeToC(base);
   }
 

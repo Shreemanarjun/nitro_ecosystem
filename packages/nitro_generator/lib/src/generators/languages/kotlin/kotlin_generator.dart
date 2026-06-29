@@ -40,6 +40,8 @@ class KotlinGenerator {
       writer.line('import kotlinx.coroutines.CoroutineStart');
       writer.line('import kotlinx.coroutines.Dispatchers');
       if (hasBatchStreams) writer.line('import kotlinx.coroutines.sync.withLock');
+      final hasBufferedStreams = spec.streams.any((s) => s.isBufferDrop || s.isBlock);
+      if (hasBufferedStreams) writer.line('import kotlinx.coroutines.flow.buffer');
     }
     if (hasAsyncFunctions) writer.line('import kotlinx.coroutines.runBlocking');
     writer.blankLine();
@@ -58,9 +60,10 @@ class KotlinGenerator {
     // Also emit RecordReader/RecordWriter helper classes needed by variant encode/decode.
     final hasVariants = spec.localVariants.isNotEmpty;
     final hasVariantBridge = spec.functions.any((f) {
-      final ret = f.returnType.name.replaceFirst('?', '');
-      return spec.isVariantName(ret) || f.params.any((p) => spec.isVariantName(p.type.name.replaceFirst('?', '')));
-    });
+          final ret = f.returnType.name.replaceFirst('?', '');
+          return spec.isVariantName(ret) || f.params.any((p) => spec.isVariantName(p.type.name.replaceFirst('?', '')));
+        }) ||
+        spec.streams.any((s) => spec.isVariantName(s.itemType.name.replaceFirst('?', '')));
     if (hasVariants) {
       final varWriter = CodeWriter();
       for (final variant in spec.localVariants) {

@@ -15,11 +15,14 @@ class KotlinStreamEmitter {
     } else {
       // For nullable primitive types, Kotlin boxed types (Long?, Double?, Boolean?) map to
       // JNI jobject — the C bridge checks for nullptr to post kNull to the Dart port.
+      // Variant items are encoded as ByteArray (same wire format as records).
       final isNullable = stream.itemType.isNullable;
       final base = stream.itemType.name.replaceFirst('?', '');
       final String itemKt;
       if (isNullable && (base == 'int' || base == 'double' || base == 'bool')) {
         itemKt = '${mapper.type(base)}?';
+      } else if (mapper.variantNames.contains(base)) {
+        itemKt = 'ByteArray';
       } else {
         itemKt = mapper.type(stream.itemType.name);
       }
@@ -35,8 +38,12 @@ class KotlinStreamEmitter {
       _emitStringBatchCollect(writer, stream);
     } else if (stream.isBatch) {
       _emitBatchCollect(writer, stream, mapper);
+    } else if (stream.isBufferDrop) {
+      _emitBufferDropCollect(writer, stream, mapper);
+    } else if (stream.isBlock) {
+      _emitBlockCollect(writer, stream, mapper);
     } else {
-      _emitDropLatestCollect(writer, stream);
+      _emitDropLatestCollect(writer, stream, mapper);
     }
 
     writer.line('        }');
@@ -111,12 +118,50 @@ class KotlinStreamEmitter {
     writer.line('            _flush()');
   }
 
-  static void _emitDropLatestCollect(CodeWriter writer, BridgeStream stream) {
+  /// Backpressure.bufferDrop: ring buffer of [batchMaxSize] items; oldest item is
+  /// dropped when the buffer is full. Uses Kotlin Flow's BufferOverflow.DROP_OLDEST.
+  static void _emitBufferDropCollect(CodeWriter writer, BridgeStream stream, KotlinTypeMapper mapper) {
+    final bufferCap = stream.batchMaxSize;
+    final base = stream.itemType.name.replaceFirst('?', '');
+    final isVariant = mapper.variantNames.contains(base);
+    final itemExpr = isVariant ? 'item.encode()' : 'item';
+    writer.line('            impl.${stream.dartName}');
+    writer.line('                .buffer(capacity = $bufferCap, onBufferOverflow = kotlinx.coroutines.channels.BufferOverflow.DROP_OLDEST)');
+    writer.line('                .collect { item ->');
+    writer.line('                    if (!emit_${stream.dartName}(dartPort, $itemExpr)) {');
+    writer.line('                        _streamJobs.remove(Pair("${stream.dartName}", dartPort))?.cancel()');
+    writer.line('                        return@collect');
+    writer.line('                    }');
+    writer.line('                }');
+  }
+
+  /// Backpressure.block: bounded buffer of [batchMaxSize] items with SUSPEND overflow.
+  /// When the buffer is full, the upstream producer coroutine is suspended until
+  /// a slot is available — providing true backpressure without data loss.
+  static void _emitBlockCollect(CodeWriter writer, BridgeStream stream, KotlinTypeMapper mapper) {
+    final bufferCap = stream.batchMaxSize;
+    final base = stream.itemType.name.replaceFirst('?', '');
+    final isVariant = mapper.variantNames.contains(base);
+    final itemExpr = isVariant ? 'item.encode()' : 'item';
+    writer.line('            impl.${stream.dartName}');
+    writer.line('                .buffer(capacity = $bufferCap)');
+    writer.line('                .collect { item ->');
+    writer.line('                    if (!emit_${stream.dartName}(dartPort, $itemExpr)) {');
+    writer.line('                        _streamJobs.remove(Pair("${stream.dartName}", dartPort))?.cancel()');
+    writer.line('                        return@collect');
+    writer.line('                    }');
+    writer.line('                }');
+  }
+
+  static void _emitDropLatestCollect(CodeWriter writer, BridgeStream stream, KotlinTypeMapper mapper) {
     // Nullable primitives (Long?, Double?, Boolean?) auto-box in Kotlin and arrive
     // at the C JNI bridge as jobject — the C layer checks nullptr and posts kNull.
-    // Non-nullable and enum/struct/record items work unchanged.
+    // Variant items are encoded to ByteArray before emit.
+    final base = stream.itemType.name.replaceFirst('?', '');
+    final isVariant = mapper.variantNames.contains(base);
+    final itemExpr = isVariant ? 'item.encode()' : 'item';
     writer.line('            impl.${stream.dartName}.collect { item -> ');
-    writer.line('                if (!emit_${stream.dartName}(dartPort, item)) {');
+    writer.line('                if (!emit_${stream.dartName}(dartPort, $itemExpr)) {');
     writer.line('                    _streamJobs.remove(Pair("${stream.dartName}", dartPort))?.cancel()');
     writer.line('                    return@collect');
     writer.line('                }');

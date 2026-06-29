@@ -175,6 +175,7 @@ void _emitSwiftBridgeSection(
     final isStruct = structNames.contains(itemName);
     final isRecord = stream.itemType.isRecord;
     final isEnum = enumNames.contains(itemName);
+    final isVariant = spec.isVariantName(itemName);
 
     // For nullable scalar types (int?, double?, bool?, enum?), use pointer types so
     // Swift can pass nil for null items. The C emit function checks nullptr → kNull.
@@ -188,7 +189,7 @@ void _emitSwiftBridgeSection(
       itemCType = 'const int8_t*';
     } else if (isNullable && isEnum) {
       itemCType = 'const int64_t*';
-    } else if (isStruct || isRecord) {
+    } else if (isStruct || isRecord || isVariant) {
       itemCType = 'void*';
     } else {
       itemCType = CppBridgeGenerator._typeToC(stream.itemType.name);
@@ -252,7 +253,8 @@ void _emitSwiftBridgeSection(
     } else if (isEnum) {
       writer.line('    obj.type = Dart_CObject_kInt64;');
       writer.line('    obj.value.as_int64 = (int64_t)item;');
-    } else if (isStruct || isRecord) {
+    } else if (isStruct || isRecord || isVariant) {
+      // Pointer (struct/record/variant bytes) — post address as kInt64; Dart frees after decode.
       writer.line('    obj.type = Dart_CObject_kInt64;');
       writer.line('    obj.value.as_int64 = (intptr_t)item;');
     } else if (stream.itemType.name == 'String' || stream.itemType.name == 'String?') {

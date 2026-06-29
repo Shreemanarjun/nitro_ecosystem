@@ -773,6 +773,7 @@ void _emitJniStreamBridges(
   Set<String> structNames,
 ) {
   // ── Streams ───────────────────────────────────────────────────────────────
+  final variantNames = spec.variants.map((v) => v.name).toSet();
   for (final stream in spec.streams) {
     final isStruct = structNames.contains(stream.itemType.name);
     // JNI name: "nitro" + "_" + "{lib}_module" (with internal _ → _1)
@@ -856,10 +857,12 @@ void _emitJniStreamBridges(
     );
     // Nullable primitive items (int?, double?, bool?) use jobject (boxed JVM type)
     // so Kotlin can pass null. The C bridge checks item == nullptr → posts kNull.
+    // Variant items arrive as jbyteArray (Kotlin calls item.encode() before emitting).
     final isNullable = stream.itemType.isNullable;
     final itemBase = stream.itemType.name.replaceFirst('?', '');
     final isNullablePrim = isNullable && (itemBase == 'int' || itemBase == 'double' || itemBase == 'bool');
-    final jniItemType = isNullablePrim ? 'jobject' : _jniSigTypeC(stream.itemType.name);
+    final isVariantItem = variantNames.contains(itemBase);
+    final jniItemType = isNullablePrim ? 'jobject' : isVariantItem ? 'jbyteArray' : _jniSigTypeC(stream.itemType.name);
     writer.line(
       'JNIEXPORT jboolean JNICALL $jniEmit(JNIEnv* env, jobject thiz, jlong dartPort, $jniItemType item) {',
     );
@@ -943,6 +946,16 @@ void _emitJniStreamBridges(
       writer.line('    env->DeleteLocalRef(encoded);');
       writer.line('    obj.type = Dart_CObject_kInt64;');
       writer.line('    obj.value.as_int64 = (intptr_t)buf;');
+    } else if (variantNames.contains(stream.itemType.name.replaceFirst('?', ''))) {
+      // @NitroVariant stream item: Kotlin passes ByteArray (item.encode()).
+      // Copy to malloc'd native buffer and send pointer as kInt64.
+      // Dart decodes via VariantExt.fromNative(ptr) and frees with malloc.free.
+      writer.line('    // item is ByteArray from TcEvent.encode()');
+      writer.line('    jsize len = env->GetArrayLength(item);');
+      writer.line('    uint8_t* buf = (uint8_t*)malloc((size_t)len);');
+      writer.line('    env->GetByteArrayRegion(item, 0, len, (jbyte*)buf);');
+      writer.line('    obj.type = Dart_CObject_kInt64;');
+      writer.line('    obj.value.as_int64 = (intptr_t)buf;');
     } else if (stream.itemType.name == 'String') {
       // String stream: post kString. Dart_PostCObject_DL copies the string internally,
       // so we can release the JNI reference immediately after. Post inline and return early
@@ -1015,8 +1028,9 @@ void _emitJniCallbackInvokers(
   BridgeSpec spec,
   Set<String> enumNames,
   Set<String> structNames,
-  Set<String> recordNames,
-) {
+  Set<String> recordNames, {
+  Set<String> variantNames = const {},
+}) {
   // ── Native callback invoker methods ────────────────────────────────────────
   // These are called from Kotlin to invoke C function pointers (callbacks).
   // For each function-typed parameter across all bridge functions, emit a JNI
@@ -1048,6 +1062,7 @@ void _emitJniCallbackInvokers(
         if (base == 'String') return 'jstring';
         if (structNames.contains(base)) return 'jobject'; // Kotlin data class
         if (recordNames.contains(base)) return 'jbyteArray'; // serialized ByteArray
+        if (variantNames.contains(base)) return 'jbyteArray'; // encoded variant [4B len][tag][fields]
         return 'jlong'; // int, enum → jlong
       }
 
@@ -1060,6 +1075,7 @@ void _emitJniCallbackInvokers(
         if (base == 'String') return 'const char*';
         if (structNames.contains(base)) return 'const $base*';
         if (recordNames.contains(base)) return 'const uint8_t*'; // length-prefixed buffer
+        if (variantNames.contains(base)) return 'const uint8_t*'; // length-prefixed variant bytes
         return 'int64_t'; // int, enum → int64_t
       }
 
@@ -1120,6 +1136,10 @@ void _emitJniCallbackInvokers(
           writer.line('    jsize r_len$i = env->GetArrayLength(arg$i);');
           writer.line('    uint8_t* r_buf$i = (uint8_t*)malloc((size_t)r_len$i);');
           writer.line('    env->GetByteArrayRegion(arg$i, 0, r_len$i, (jbyte*)r_buf$i);');
+        } else if (variantNames.contains(base)) {
+          writer.line('    jsize v_len$i = env->GetArrayLength(arg$i);');
+          writer.line('    uint8_t* v_buf$i = (uint8_t*)malloc((size_t)v_len$i);');
+          writer.line('    env->GetByteArrayRegion(arg$i, 0, v_len$i, (jbyte*)v_buf$i);');
         }
       }
       final callParts = <String>[];
@@ -1139,6 +1159,8 @@ void _emitJniCallbackInvokers(
           callParts.add('&c_arg$i');
         } else if (recordNames.contains(base)) {
           callParts.add('r_buf$i');
+        } else if (variantNames.contains(base)) {
+          callParts.add('v_buf$i');
         } else {
           callParts.add('(int64_t)arg$i');
         }
@@ -1454,7 +1476,8 @@ void _emitJniMethods(
 
   _emitJniPropertyBridges(writer, spec, enumNames, structNames);
   _emitJniStreamBridges(writer, spec, enumNames, structNames);
-  _emitJniCallbackInvokers(writer, spec, enumNames, structNames, recordNames);
+  final variantNames = spec.variants.map((v) => v.name).toSet();
+  _emitJniCallbackInvokers(writer, spec, enumNames, structNames, recordNames, variantNames: variantNames);
   _emitJniInitializeAndPostHelpers(writer, spec, libStem, libPkg, enumNames, structNames, recordNames);
 
   writer.line('} // extern "C"');

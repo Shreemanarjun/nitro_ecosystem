@@ -199,6 +199,7 @@ class KotlinTypeMapper implements TypeMapper {
       default:
         if (structNames.contains(base)) return base; // data class
         if (recordNames.contains(base)) return 'ByteArray'; // serialised record
+        if (variantNames.contains(base)) return 'ByteArray'; // encoded variant bytes
         return 'Long'; // int, enum rawValue → Long
     }
   }
@@ -234,6 +235,8 @@ class KotlinTypeMapper implements TypeMapper {
       } else if (enumNames.contains(base)) {
         nativeArgs.add('p$i.nativeValue');
       } else if (recordNames.contains(base)) {
+        nativeArgs.add('p$i.encode()');
+      } else if (variantNames.contains(base)) {
         nativeArgs.add('p$i.encode()');
       } else {
         nativeArgs.add('p$i');

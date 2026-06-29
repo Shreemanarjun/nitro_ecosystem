@@ -673,7 +673,7 @@ void main() {
       );
     });
 
-    test('three backpressure variants on separate streams: all valid', () {
+    test('dropLatest backpressure is valid (no errors)', () {
       final spec = BridgeSpec(
         dartClassName: 'Foo',
         lib: 'foo',
@@ -689,6 +689,20 @@ void main() {
             itemType: BridgeType(name: 'double'),
             backpressure: Backpressure.dropLatest,
           ),
+        ],
+      );
+      expect(SpecValidator.validate(spec).where((i) => i.isError), isEmpty);
+    });
+
+    test('Backpressure.block is valid (implemented in Kotlin/Swift generators)', () {
+      final spec = BridgeSpec(
+        dartClassName: 'Foo',
+        lib: 'foo',
+        namespace: 'foo',
+        iosImpl: NativeImpl.swift,
+        androidImpl: NativeImpl.kotlin,
+        sourceUri: 'foo.native.dart',
+        streams: [
           BridgeStream(
             dartName: 'block',
             registerSymbol: 'foo_register_block_stream',
@@ -696,6 +710,20 @@ void main() {
             itemType: BridgeType(name: 'double'),
             backpressure: Backpressure.block,
           ),
+        ],
+      );
+      expect(SpecValidator.validate(spec).where((i) => i.isError), isEmpty);
+    });
+
+    test('Backpressure.bufferDrop is valid (implemented in Kotlin/Swift generators)', () {
+      final spec = BridgeSpec(
+        dartClassName: 'Foo',
+        lib: 'foo',
+        namespace: 'foo',
+        iosImpl: NativeImpl.swift,
+        androidImpl: NativeImpl.kotlin,
+        sourceUri: 'foo.native.dart',
+        streams: [
           BridgeStream(
             dartName: 'buffer',
             registerSymbol: 'foo_register_buffer_stream',

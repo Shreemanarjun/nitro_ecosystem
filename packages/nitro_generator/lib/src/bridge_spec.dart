@@ -334,6 +334,12 @@ class BridgeEnum {
   final int startValue;
   final List<String> values;
 
+  /// Optional explicit native integer values for each enum case.
+  /// When set, `rawValues[i]` is the wire value for `values[i]` — allows
+  /// non-contiguous mappings (e.g. OS enums with gaps like 0, 50, 100).
+  /// When null, values are contiguous starting at [startValue].
+  final List<int>? rawValues;
+
   /// True when this enum is defined in another `.native.dart` file and imported
   /// into the current module. Generators use [localEnums] to skip re-declaring
   /// imported types — they already appear in the other file's bridge output.
@@ -343,8 +349,16 @@ class BridgeEnum {
     required this.name,
     required this.startValue,
     required this.values,
+    this.rawValues,
     this.isImported = false,
-  });
+  }) : assert(rawValues == null || rawValues.length == values.length,
+             'rawValues.length must equal values.length');
+
+  /// Returns the native integer value for the enum case at [index].
+  int nativeValueAt(int index) {
+    if (rawValues != null) return rawValues![index];
+    return startValue + index;
+  }
 }
 
 class BridgeFunction {
@@ -453,6 +467,8 @@ class BridgeStream {
   final bool isAnnotated;
 
   bool get isBatch => backpressure == Backpressure.batch;
+  bool get isBufferDrop => backpressure == Backpressure.bufferDrop;
+  bool get isBlock => backpressure == Backpressure.block;
 
   BridgeStream({
     required this.dartName,

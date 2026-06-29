@@ -12,6 +12,7 @@ for (final stream in spec.streams) {
 
   final String unpackExpr;
   final String streamItemType;
+  final bool isVariant = spec.isVariantName(itemType);
 
   if (isRecord) {
     final decodeExpr = _decodeRecordExpr(stream.itemType, 'rawPtr');
@@ -25,6 +26,17 @@ for (final stream in spec.streams) {
     // covariant generics — no .map() or eager field copy required.
     final nullAction = stream.itemType.isNullable ? 'return null' : "throw StateError('Received null event on non-nullable stream ${stream.dartName}')";
     unpackExpr = '(message) { if (message == null) { $nullAction; } return ${itemType}Proxy(Pointer<${itemType}Ffi>.fromAddress(message as int)); }';
+    streamItemType = itemType;
+  } else if (isVariant) {
+    // @NitroVariant stream: native posts address of [4B len][1B tag][fields] binary blob.
+    // Dart calls VariantExt.fromNative to decode then frees the allocation.
+    final nullAction = stream.itemType.isNullable
+        ? 'return null'
+        : "throw StateError('Received null event on non-nullable stream ${stream.dartName}')";
+    unpackExpr = '(message) { if (message == null) { $nullAction; } '
+        'final rawPtr = Pointer<Uint8>.fromAddress(message as int); '
+        'try { return ${itemType}VariantExt.fromNative(rawPtr); } '
+        'finally { malloc.free(rawPtr); } }';
     streamItemType = itemType;
   } else if (spec.isEnumName(itemType)) {
     // Enum stream: convert int to enum via generated extension.

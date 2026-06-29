@@ -55,6 +55,7 @@ bool _isSupportedCallbackParam(BridgeType type, BridgeSpec spec) {
   if (spec.isEnumName(name)) return true;
   if (spec.isStructName(name)) return true;
   if (spec.isRecordName(name)) return true;
+  if (spec.isVariantName(name)) return true;
   return false;
 }
 
@@ -184,6 +185,7 @@ String _callbackParamToFFI(BridgeType type, BridgeSpec spec) {
   if (spec.isEnumName(name)) return 'Int64';
   if (spec.isStructName(name)) return 'Pointer<Void>';
   if (spec.isRecordName(name)) return 'Pointer<Uint8>';
+  if (spec.isVariantName(name)) return 'Pointer<Uint8>';
   return 'Pointer<Void>';
 }
 
@@ -215,6 +217,7 @@ String _callbackParamToDartFFI(BridgeType type, BridgeSpec spec) {
   if (spec.isEnumName(name)) return 'int';
   if (spec.isStructName(name)) return 'Pointer<Void>';
   if (spec.isRecordName(name)) return 'Pointer<Uint8>';
+  if (spec.isVariantName(name)) return 'Pointer<Uint8>';
   return 'Pointer<Void>';
 }
 
@@ -273,6 +276,14 @@ String _callbackInvocationArgs(BridgeType callbackType, BridgeSpec spec) {
       args.add('arg$i.cast<${name}Ffi>().ref.toDart()');
     } else if (spec.isRecordName(name)) {
       args.add('(() { final _r = $name.fromNative(arg$i); malloc.free(arg$i); return _r; })()');
+    } else if (spec.isVariantName(name)) {
+      // @NitroVariant callback param: native passes Pointer<Uint8> = [4B len][tag][fields].
+      // Dart decodes via VariantExt.fromNative and frees the allocation.
+      if (isNullable) {
+        args.add('arg$i == nullptr ? null : (() { final _v = ${name}VariantExt.fromNative(arg$i); malloc.free(arg$i); return _v; })()');
+      } else {
+        args.add('(() { final _v = ${name}VariantExt.fromNative(arg$i); malloc.free(arg$i); return _v; })()');
+      }
     } else if (name == 'int' && isNullable) {
       // Nullable int: Int64.min sentinel → null.
       args.add('arg$i == -9223372036854775808 ? null : arg$i');

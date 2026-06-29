@@ -196,6 +196,41 @@ class SpecValidator {
       );
     }
 
+    // W007: Web target with streams or @NitroNativeAsync — these throw UnsupportedError
+    // at runtime because the web bridge generator does not implement them.
+    if (spec.webImpl != null) {
+      if (spec.streams.isNotEmpty) {
+        issues.add(
+          ValidationIssue(
+            severity: ValidationSeverity.warning,
+            code: 'W007',
+            message:
+                '${spec.dartClassName}: ${spec.streams.length} stream(s) declared but the web '
+                'bridge does not support Stream<T>. Calling stream getters on web will throw '
+                'UnsupportedError at runtime.',
+            hint:
+                'Guard stream usage with `if (!kIsWeb)` or provide a web-specific stub. '
+                'Consider using a polling function instead for web.',
+          ),
+        );
+      }
+      final hasNativeAsync = spec.functions.any((f) => f.isNativeAsync);
+      if (hasNativeAsync) {
+        issues.add(
+          ValidationIssue(
+            severity: ValidationSeverity.warning,
+            code: 'W007',
+            message:
+                '${spec.dartClassName}: @NitroNativeAsync method(s) declared but the web '
+                'bridge does not support NativeAsync. Calling these methods on web will throw '
+                'UnsupportedError at runtime.',
+            hint:
+                'Guard @NitroNativeAsync methods with `if (!kIsWeb)` or use @nitroAsync instead.',
+          ),
+        );
+      }
+    }
+
     final enumNames = spec.enums.map((e) => e.name).toSet();
     final structNames = spec.structs.map((s) => s.name).toSet();
     final recordNames = spec.recordTypes.map((r) => r.name).toSet();
@@ -945,11 +980,13 @@ class SpecValidator {
       final name = callbackParam.name.replaceFirst('?', '');
       final structNames = spec.structs.map((s) => s.name).toSet();
       final recordNames = spec.recordTypes.map((r) => r.name).toSet();
+      final variantNames = spec.variants.map((v) => v.name).toSet();
       final supportedParam = callbackParam.isPointer ||
           name == 'int' || name == 'double' || name == 'bool' || name == 'String' ||
           enumNames.contains(name) ||
           structNames.contains(name) ||
-          recordNames.contains(name);
+          recordNames.contains(name) ||
+          variantNames.contains(name);
       if (!supportedParam) {
         issues.add(
           ValidationIssue(
@@ -957,7 +994,7 @@ class SpecValidator {
             code: 'UNSUPPORTED_FUNCTION_TYPE',
             message:
                 '${spec.dartClassName}.${func.dartName}() — parameter "${param.name}" callback parameter type "${callbackParam.name}" is not supported.',
-            hint: 'Callback parameters support int, double, bool, String, Pointer<T>, @HybridEnum, @HybridStruct, and @HybridRecord.',
+            hint: 'Callback parameters support int, double, bool, String, Pointer<T>, @HybridEnum, @HybridStruct, @HybridRecord, and @NitroVariant.',
           ),
         );
       }

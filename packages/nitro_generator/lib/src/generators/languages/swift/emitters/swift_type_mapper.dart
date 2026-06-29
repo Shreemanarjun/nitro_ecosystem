@@ -131,6 +131,7 @@ class SwiftTypeMapper implements TypeMapper {
         if (_recordNames.contains(name) || name.startsWith('List<')) {
           return 'UnsafeMutablePointer<UInt8>?';
         }
+        if (_variantNames.contains(name)) return 'UnsafeMutablePointer<UInt8>?';
         return 'Any?';
     }
   }
@@ -223,6 +224,7 @@ class SwiftTypeMapper implements TypeMapper {
       default:
         if (_structNames.contains(base)) return 'UnsafeRawPointer?';
         if (_recordNames.contains(base)) return 'UnsafeMutablePointer<UInt8>?';
+        if (_variantNames.contains(base)) return 'UnsafeMutablePointer<UInt8>?'; // encoded [4B len][tag][fields]
         return 'Int64'; // enum rawValue
     }
   }
@@ -284,6 +286,11 @@ class SwiftTypeMapper implements TypeMapper {
         }
         final isRecord = _recordNames.contains(base);
         if (isRecord) {
+          callArgsList.add('$argVar.toNative()');
+          continue;
+        }
+        final isVariant = _variantNames.contains(base);
+        if (isVariant) {
           callArgsList.add('$argVar.toNative()');
           continue;
         }

@@ -241,7 +241,21 @@ class HybridStruct {
 
 class HybridEnum {
   final int startValue; // first case value, default 0
-  const HybridEnum({this.startValue = 0});
+
+  /// Optional explicit native integer value for each enum case.
+  /// When set, `nativeValues[i]` is the wire integer for the i-th enum case —
+  /// allowing non-contiguous mappings (e.g. OS enums with gaps like 0, 50, 100).
+  /// Length must match the number of enum cases.
+  /// When null, values are contiguous starting at [startValue].
+  ///
+  /// Example:
+  /// ```dart
+  /// @HybridEnum(nativeValues: [0, 50, 100])
+  /// enum Quality { low, medium, high }
+  /// ```
+  final List<int>? nativeValues;
+
+  const HybridEnum({this.startValue = 0, this.nativeValues});
 }
 
 // Makes a method async. Return type must be Future<T>.

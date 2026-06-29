@@ -1045,10 +1045,27 @@ class SpecExtractor {
 
   static BridgeEnum _buildEnum(EnumElement cls, ConstantReader annotation) {
     final startValue = annotation.read('startValue').literalValue as int? ?? 0;
+    final enumValues = cls.fields.where((f) => f.isEnumConstant).map((f) => f.name!).toList();
+
+    // Read optional nativeValues list from @HybridEnum(nativeValues: [0, 50, 100]).
+    List<int>? rawValues;
+    try {
+      final nativeValuesReader = annotation.read('nativeValues');
+      if (!nativeValuesReader.isNull) {
+        final list = nativeValuesReader.listValue;
+        rawValues = list.map((e) => e.toIntValue() ?? 0).toList();
+      }
+    } on ArgumentError {
+      // nativeValues field absent in older annotations — fall back to startValue.
+    } on StateError {
+      // nativeValues field absent in older annotations — fall back to startValue.
+    }
+
     return BridgeEnum(
       name: cls.name!,
       startValue: startValue,
-      values: cls.fields.where((f) => f.isEnumConstant).map((f) => f.name!).toList(),
+      values: enumValues,
+      rawValues: rawValues,
     );
   }
 
