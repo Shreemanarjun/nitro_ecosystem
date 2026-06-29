@@ -208,7 +208,8 @@ Before emitting any code, the generator validates the spec and reports issues wi
 | Code | Severity | Condition |
 |---|---|---|
 | **E001** | Error | `Map<K, V>` where `K` is not `String` — only `Map<String, V>` is supported |
-| **E002** | Error | `isAsync: true` on a function whose return type is not `void` or `Future<T>` |
+| **E002** | Error | `@nitroAsync` / `@nitroNativeAsync` on a function whose return type is not `Future<T>` |
+| **E014** | Error | `@NitroVariant` sealed class exceeds 255 cases |
 | **W001** | Warning | Non-nullable `int`/`double`/`bool` named param with no `defaultLiteral` — callers must always pass it |
 | **W002** | Warning | Non-nullable `@HybridEnum` named param with no default |
 | **W003** | Warning | Non-nullable `@HybridStruct` named param with no default |
@@ -247,10 +248,16 @@ This makes it easy to navigate from generated native code back to the Dart spec.
 | `double` | `double` | `double` |
 | `bool` | `bool` | `int8_t` |
 | `String` | `std::string` / `const std::string&` | `const char*` |
+| `int?` | `std::optional<int64_t>` | `NitroOptInt64` (9-byte packed struct) |
+| `double?` | `std::optional<double>` | `NitroOptFloat64` (9-byte packed struct) |
+| `bool?` | `std::optional<bool>` | `NitroOptBool` (2-byte packed struct) |
+| `String?` | `const char*` (null = absent) | `const char*` |
 | `Uint8List` | `const uint8_t* buf, size_t buf_length` | `uint8_t*, int64_t` |
-| `MyEnum` | `MyEnum` (C enum) | `int64_t` |
-| `MyStruct` | `const MyStruct&` (param) / `MyStruct` (return) | `void*` |
-| `MyRecord` | `NitroCppBuffer` | `void*, int64_t` |
+| `@HybridEnum MyEnum` | `MyEnum` (C enum) | `int64_t` |
+| `@HybridStruct MyStruct` | `const MyStruct&` (param) / `MyStruct` (return) | `void*` |
+| `@HybridRecord MyRecord` | `NitroCppBuffer` | `void*, int64_t` |
+| `@NitroVariant MyVariant` | `NitroCppBuffer` | `void*, int64_t` |
+| `@NitroTuple MyTuple` | `NitroCppBuffer` | `void*, int64_t` |
 | `Stream<T>` | `emit_name(T item)` helper | register/release port |
 
 ## Documentation

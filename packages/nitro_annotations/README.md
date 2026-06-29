@@ -139,6 +139,22 @@ Stream<SensorData> get sensorStream;
 - `Backpressure.block` — block the emitter until the consumer catches up
 - `Backpressure.batch` — accumulate items before a single bridge crossing
 
+### Tuple Types
+
+**`@NitroTuple`**
+Marks a Dart 3 positional record `typedef` as a named tuple type. Fields are accessed via `$1`, `$2`, etc. in Dart. Kotlin receives a `data class`; Swift receives a `struct`.
+```dart
+@NitroTuple()
+typedef Coordinate = (double, double);
+
+@NitroTuple()
+typedef TaggedValue = (String, int);
+
+// Usage:
+final pos = module.getCoordinate();
+print('${pos.$1}, ${pos.$2}');
+```
+
 ### Advanced Data Ownership
 
 **`@zeroCopy`**
@@ -147,11 +163,35 @@ Marks a `Uint8List` param as zero-copy (passed as raw pointer, callee must not r
 void processPixels(@zeroCopy Uint8List data);
 ```
 
-**`@nitroOwned`**
+**`@NitroOwned`**
 Marks that the native side heap-allocates the returned `NativeHandle` and Dart takes ownership, releasing it automatically.
 ```dart
-@nitroOwned
+@NitroOwned
 NativeHandle<Void> acquireFrame();
+```
+
+### Custom Types
+
+**`@NitroCustomType`**
+Registers a Dart class as a custom FFI bridge type. The generator emits typed `encode`/`decode` calls at every call site. Equivalent to `JSIConverter<T>` specialisation in React Native Nitro.
+
+```dart
+class RgbaCodec extends NitroFfiCodec<Color> {
+  const RgbaCodec();
+  @override int get encodedSize => 5; // 1B hasValue + 4B RGBA
+  @override Pointer<Uint8> encode(Color? v, Arena alloc) { ... }
+  @override Color? decode(Pointer<Uint8> ptr) { ... }
+}
+
+@NitroCustomType(codec: RgbaCodec, encodedSize: 5)
+class Color {
+  final int r, g, b, a;
+  const Color(this.r, this.g, this.b, this.a);
+}
+
+// Can now appear in any spec as a method param or return type:
+Color? getTintColor();
+void setTintColor(Color? color);
 ```
 
 ## Integration
