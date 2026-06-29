@@ -222,10 +222,11 @@ class SpecExtractor {
     final enumNames = allEnums.map((e) => e.name).toSet();
     final variantNames = allVariants.map((v) => v.name).toSet();
     final customTypeNames = allCustomTypes.map((c) => c.name).toSet();
+    final tupleTypeNames = allRecordTypes.where((r) => r.isTuple).map((r) => r.name).toSet();
     final knownTypeNames = {...structNames, ...enumNames, ...recordTypeNames, ...variantNames, ...customTypeNames};
 
     final members = _ModuleMembers.from(element);
-    final (:properties, :streams) = _extractPropertiesAndStreams(members, ns, recordTypeNames, knownTypeNames, structTypeNames: structNames, enumTypeNames: enumNames, variantTypeNames: variantNames);
+    final (:properties, :streams) = _extractPropertiesAndStreams(members, ns, recordTypeNames, knownTypeNames, structTypeNames: structNames, enumTypeNames: enumNames, variantTypeNames: variantNames, tupleTypeNames: tupleTypeNames);
     return BridgeSpec(
       dartClassName: element.name!,
       lib: libName,
@@ -237,7 +238,7 @@ class SpecExtractor {
       linuxImpl: linuxImpl,
       webImpl: webImpl,
       sourceUri: sourcePath,
-      functions: _extractFunctions(members.functions, ns, recordTypeNames, knownTypeNames, structTypeNames: structNames, enumTypeNames: enumNames, variantTypeNames: variantNames),
+      functions: _extractFunctions(members.functions, ns, recordTypeNames, knownTypeNames, structTypeNames: structNames, enumTypeNames: enumNames, variantTypeNames: variantNames, tupleTypeNames: tupleTypeNames),
       properties: properties,
       streams: streams,
       structs: allStructs,
@@ -314,6 +315,7 @@ class SpecExtractor {
           (r) => BridgeRecordType(
             name: r.name,
             fields: r.fields,
+            isTuple: r.isTuple,
             isImported: isNativeFile,
           ),
         ),
@@ -451,12 +453,14 @@ class SpecExtractor {
     const enumChecker        = TypeChecker.fromUrl('package:nitro_annotations/src/annotations.dart#HybridEnum');
     const variantChecker     = TypeChecker.fromUrl('package:nitro_annotations/src/annotations.dart#NitroVariant');
     const customTypeChecker  = TypeChecker.fromUrl('package:nitro_annotations/src/annotations.dart#NitroCustomType');
+    const tupleChecker       = TypeChecker.fromUrl('package:nitro_annotations/src/annotations.dart#NitroTuple');
 
     final recordClasses  = <ClassElement>[];
     final structClasses  = <({ClassElement cls, ConstantReader annotation})>[];
     final enumClasses    = <({EnumElement cls, ConstantReader annotation})>[];
     final variantClasses = <ClassElement>[];
     final customTypeClasses = <({ClassElement cls, ConstantReader annotation})>[];
+    final tupleAliases   = <TypeAliasElement>[];
 
     for (final cls in library.classes) {
       if (recordChecker.hasAnnotationOf(cls)) {
@@ -485,6 +489,13 @@ class SpecExtractor {
       }
     }
 
+    // L12: scan type aliases for @NitroTuple — `typedef MyPair = (int, String)`
+    for (final alias in library.element.typeAliases) {
+      if (tupleChecker.hasAnnotationOf(alias)) {
+        tupleAliases.add(alias);
+      }
+    }
+
     // Include built-in library record types (NitroNullableInt etc.) so that
     // fields whose type is a built-in record get RecordFieldKind.recordObject.
     const builtinLibraryRecordNames = {
@@ -495,8 +506,14 @@ class SpecExtractor {
     final structTypeNames = structClasses.map((entry) => entry.cls.name!).toSet();
     final enumTypeNames   = enumClasses.map((entry) => entry.cls.name!).toSet();
 
+    final tupleRecords = tupleAliases
+        .map((alias) => _buildTupleRecord(alias, recordTypeNames, structTypeNames, enumTypeNames))
+        .toList();
     return _ExtractedTypes(
-      records:  recordClasses.map((cls)   => _buildRecordType(cls, recordTypeNames, structTypeNames, enumTypeNames)).toList(),
+      records: [
+        ...recordClasses.map((cls) => _buildRecordType(cls, recordTypeNames, structTypeNames, enumTypeNames)),
+        ...tupleRecords,
+      ],
       structs:  structClasses.map((entry) => _buildStruct(entry.cls, entry.annotation)).toList(),
       enums:    enumClasses.map((entry)   => _buildEnum(entry.cls, entry.annotation)).toList(),
       variants: variantClasses.map((cls)  => _buildVariant(cls, library, recordTypeNames, structTypeNames, enumTypeNames)).toList(),
@@ -587,6 +604,37 @@ class SpecExtractor {
     return BridgeRecordType(name: cls.name!, fields: fields);
   }
 
+  /// Builds a [BridgeRecordType] with `isTuple: true` from a `@NitroTuple`-annotated
+  /// type alias. The aliased type must be a Dart 3 positional record `(A, B, ...)`.
+  /// Fields are named `field0`, `field1`, etc., matching the generator convention.
+  static BridgeRecordType _buildTupleRecord(
+    TypeAliasElement alias,
+    Set<String> recordTypeNames,
+    Set<String> structTypeNames,
+    Set<String> enumTypeNames,
+  ) {
+    final aliasedType = alias.aliasedType;
+    if (aliasedType is! RecordType) {
+      throw SpecParseException(
+        '@NitroTuple requires a positional record typedef, '
+        'e.g. `typedef ${alias.name} = (int, String)`. '
+        'Got: ${aliasedType.getDisplayString()}.',
+      );
+    }
+    final fields = <BridgeRecordField>[];
+    for (var i = 0; i < aliasedType.positionalFields.length; i++) {
+      final fieldType = aliasedType.positionalFields[i].type;
+      final isNullable = fieldType.nullabilitySuffix == NullabilitySuffix.question;
+      fields.add(BridgeRecordField(
+        name: 'field$i',
+        dartType: fieldType.getDisplayString(),
+        kind: _recordFieldKind(fieldType, recordTypeNames, structTypeNames, enumTypeNames),
+        isNullable: isNullable,
+      ));
+    }
+    return BridgeRecordType(name: alias.name!, isTuple: true, fields: fields);
+  }
+
   static RecordFieldKind _recordFieldKind(
     DartType type,
     Set<String> recordTypeNames, [
@@ -669,9 +717,38 @@ class SpecExtractor {
     Set<String> structTypeNames = const {},
     Set<String> enumTypeNames = const {},
     Set<String> variantTypeNames = const {},
+    Set<String> tupleTypeNames = const {},
   }) {
     final displayName = type.getDisplayString();
     final isNullable = type.nullabilitySuffix == NullabilitySuffix.question;
+
+    // ── Type alias early checks ──────────────────────────────────────────────
+    // Inspect alias metadata before InterfaceType dispatch so that named type
+    // aliases (e.g. `typedef uint64 = int`) are handled before the underlying
+    // primitive type swallows them.
+    final aliasName = type.alias?.element.name;
+
+    // L13: uint64 — lowercase alias for unsigned 64-bit int (mirrors C uint64_t).
+    if (aliasName == 'uint64' || displayName == 'uint64' || displayName == 'uint64?') {
+      return BridgeType(name: isNullable ? 'uint64?' : 'uint64', isNullable: isNullable, isFuture: isFuture);
+    }
+
+    // L12: @NitroTuple positional record typedefs.
+    if (tupleTypeNames.isNotEmpty) {
+      final baseName = aliasName ??
+          (isNullable && displayName.endsWith('?')
+              ? displayName.substring(0, displayName.length - 1)
+              : displayName);
+      if (tupleTypeNames.contains(baseName)) {
+        return BridgeType(
+          name: isNullable ? '$baseName?' : baseName,
+          isRecord: true,
+          isTuple: true,
+          isNullable: isNullable,
+          isFuture: isFuture,
+        );
+      }
+    }
 
     // Handle function types (callbacks)
     if (type is FunctionType) {
@@ -841,6 +918,7 @@ class SpecExtractor {
     Set<String> structTypeNames = const {},
     Set<String> enumTypeNames = const {},
     Set<String> variantTypeNames = const {},
+    Set<String> tupleTypeNames = const {},
   }) {
     const asyncChecker = TypeChecker.fromUrl('package:nitro_annotations/src/annotations.dart#NitroAsync');
     const nativeAsyncChecker = TypeChecker.fromUrl('package:nitro_annotations/src/annotations.dart#NitroNativeAsync');
@@ -898,6 +976,7 @@ class SpecExtractor {
           structTypeNames: structTypeNames,
           enumTypeNames: enumTypeNames,
           variantTypeNames: variantTypeNames,
+          tupleTypeNames: tupleTypeNames,
         ),
         zeroCopyReturn: zeroCopyChecker.hasAnnotationOf(m),
         isOwned: ownedChecker.hasAnnotationOf(m),
@@ -906,7 +985,7 @@ class SpecExtractor {
         params: m.formalParameters.map((p) {
           return BridgeParam(
             name: p.name!,
-            type: _makeBridgeType(p.type, recordTypeNames, knownTypeNames: knownTypeNames, structTypeNames: structTypeNames, enumTypeNames: enumTypeNames, variantTypeNames: variantTypeNames),
+            type: _makeBridgeType(p.type, recordTypeNames, knownTypeNames: knownTypeNames, structTypeNames: structTypeNames, enumTypeNames: enumTypeNames, variantTypeNames: variantTypeNames, tupleTypeNames: tupleTypeNames),
             zeroCopy: zeroCopyChecker.hasAnnotationOf(p),
             isNamed: p.isNamed,
             isOptional: p.isOptional,
@@ -928,6 +1007,7 @@ class SpecExtractor {
     Set<String> structTypeNames = const {},
     Set<String> enumTypeNames = const {},
     Set<String> variantTypeNames = const {},
+    Set<String> tupleTypeNames = const {},
   }) {
     const streamChecker = TypeChecker.fromUrl('package:nitro_annotations/src/annotations.dart#NitroStream');
 
@@ -956,7 +1036,7 @@ class SpecExtractor {
           dartName: name,
           registerSymbol: '${ns}_register_${_toSnakeCase(name)}_stream',
           releaseSymbol: '${ns}_release_${_toSnakeCase(name)}_stream',
-          itemType: itemDartType != null ? _makeBridgeType(itemDartType, recordTypeNames, knownTypeNames: knownTypeNames, structTypeNames: structTypeNames, enumTypeNames: enumTypeNames, variantTypeNames: variantTypeNames) : BridgeType(name: 'dynamic'),
+          itemType: itemDartType != null ? _makeBridgeType(itemDartType, recordTypeNames, knownTypeNames: knownTypeNames, structTypeNames: structTypeNames, enumTypeNames: enumTypeNames, variantTypeNames: variantTypeNames, tupleTypeNames: tupleTypeNames) : BridgeType(name: 'dynamic'),
           backpressure: backpressure,
           batchMaxSize: batchMaxSize,
           isMethodStyle: true,
@@ -986,7 +1066,7 @@ class SpecExtractor {
           dartName: name,
           registerSymbol: '${ns}_register_${_toSnakeCase(name)}_stream',
           releaseSymbol: '${ns}_release_${_toSnakeCase(name)}_stream',
-          itemType: itemDartType != null ? _makeBridgeType(itemDartType, recordTypeNames, knownTypeNames: knownTypeNames, structTypeNames: structTypeNames, enumTypeNames: enumTypeNames, variantTypeNames: variantTypeNames) : BridgeType(name: 'dynamic'),
+          itemType: itemDartType != null ? _makeBridgeType(itemDartType, recordTypeNames, knownTypeNames: knownTypeNames, structTypeNames: structTypeNames, enumTypeNames: enumTypeNames, variantTypeNames: variantTypeNames, tupleTypeNames: tupleTypeNames) : BridgeType(name: 'dynamic'),
           backpressure: backpressure,
           batchMaxSize: batchMaxSizeGetter,
           isAnnotated: ann != null,
@@ -1019,7 +1099,7 @@ class SpecExtractor {
       final dartType = e['dartType'] as DartType;
       return BridgeProperty(
         dartName: name,
-        type: _makeBridgeType(dartType, recordTypeNames, knownTypeNames: knownTypeNames, structTypeNames: structTypeNames, enumTypeNames: enumTypeNames, variantTypeNames: variantTypeNames),
+        type: _makeBridgeType(dartType, recordTypeNames, knownTypeNames: knownTypeNames, structTypeNames: structTypeNames, enumTypeNames: enumTypeNames, variantTypeNames: variantTypeNames, tupleTypeNames: tupleTypeNames),
         getSymbol: '${ns}_get_${_toSnakeCase(name)}',
         setSymbol: '${ns}_set_${_toSnakeCase(name)}',
         hasGetter: e['getter'] as bool,

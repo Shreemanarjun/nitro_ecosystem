@@ -27,6 +27,8 @@ class SwiftStreamEmitter {
       cType = 'UnsafePointer<Int64>?';
     } else if (isNullable && itemName == 'int') {
       cType = 'UnsafePointer<Int64>?';
+    } else if (isNullable && itemName == 'uint64') {
+      cType = 'UnsafePointer<UInt64>?';
     } else if (isNullable && itemName == 'double') {
       cType = 'UnsafePointer<Double>?';
     } else if (isNullable && isBoolItem) {

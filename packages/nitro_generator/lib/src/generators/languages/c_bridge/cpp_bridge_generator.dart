@@ -1009,6 +1009,8 @@ class CppBridgeGenerator {
     switch (cType) {
       case 'int64_t':
         return '0';
+      case 'uint64_t':
+        return '0';
       case 'double':
         return '0.0';
       case 'int8_t':
@@ -1296,7 +1298,7 @@ class CppBridgeGenerator {
     final baseRetType = returnType.name.replaceFirst('?', '');
     final isNullableBoolRet = baseRetType == 'bool' && returnType.name.endsWith('?');
     // Nullable primitives now return ByteArray (NitroNullable binary encoding).
-    final isNullableIntRet = (baseRetType == 'int' || baseRetType == 'DateTime') && returnType.name.endsWith('?');
+    final isNullableIntRet = (baseRetType == 'int' || baseRetType == 'uint64' || baseRetType == 'DateTime') && returnType.name.endsWith('?');
     final isNullableDoubleRet = baseRetType == 'double' && returnType.name.endsWith('?');
     // @NitroVariant: Kotlin returns ByteArray [4B len][1B tag][fields] → '[B'
     final isVariantRet = variantNames.contains(baseRetType);
@@ -1368,11 +1370,12 @@ class CppBridgeGenerator {
     if (param.type.isFunction) return 'J';
     // Nullable primitives use NitroNullable ByteArray encoding ([B).
     if (param.type.isNullable && baseParamType == 'int') return '[B';
+    if (param.type.isNullable && baseParamType == 'uint64') return '[B';
     if (param.type.isNullable && baseParamType == 'double') return '[B';
     if (param.type.isNullable && baseParamType == 'bool') return '[B';
     if (param.type.isNullable && baseParamType == 'DateTime') return '[B';
     // Also handle '?' suffix in type name
-    if (param.type.name.endsWith('?') && (baseParamType == 'int' || baseParamType == 'double' || baseParamType == 'bool' || baseParamType == 'DateTime')) return '[B';
+    if (param.type.name.endsWith('?') && (baseParamType == 'int' || baseParamType == 'uint64' || baseParamType == 'double' || baseParamType == 'bool' || baseParamType == 'DateTime')) return '[B';
     return _jniSigType(param.type.name);
   }
 }

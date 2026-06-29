@@ -163,9 +163,10 @@ String _primitiveWriterCall(String item) {
 String _encodeRecordParam(BridgeType type, String varName, String allocator) {
   // @NitroTuple: standalone free function (can't extend a typedef).
   if (type.isTuple) {
-    final rt = type.name.endsWith('?') ? type.name.substring(0, type.name.length - 1) : type.name;
-    if (type.isNullable || type.name.endsWith('?')) {
-      return '$varName != null ? _nitroEncode_$rt($varName!, $allocator) : nullptr';
+    final rt = type.baseName;
+    if (type.isNullable) {
+      // Flow analysis promotes varName to non-null inside the true branch — no !.
+      return '$varName != null ? _nitroEncode_$rt($varName, $allocator) : nullptr';
     }
     return '_nitroEncode_$rt($varName, $allocator)';
   }

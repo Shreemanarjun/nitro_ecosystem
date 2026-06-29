@@ -113,6 +113,7 @@ class SwiftFunctionEmitter {
           if (isStr) return '${p.name}: ${p.name}Str';
           // Byte-safe decode: byte[0]=hasValue; bytes[1..8]=value via copyMemory (avoids withMemoryRebound alignment crash).
           if (p.type.name == 'int?') return '${p.name}: { guard let _p = ${p.name}, _p[0] != 0 else { return nil }; var _rv: Int64 = 0; Swift.withUnsafeMutableBytes(of: &_rv) { \$0.baseAddress!.copyMemory(from: UnsafeRawPointer(_p + 1), byteCount: 8) }; return _rv }()';
+          if (p.type.name == 'uint64?') return '${p.name}: { guard let _p = ${p.name}, _p[0] != 0 else { return nil }; var _rv: UInt64 = 0; Swift.withUnsafeMutableBytes(of: &_rv) { \$0.baseAddress!.copyMemory(from: UnsafeRawPointer(_p + 1), byteCount: 8) }; return _rv }()';
           if (p.type.name == 'double?') return '${p.name}: { guard let _p = ${p.name}, _p[0] != 0 else { return nil }; var _rv: Double = 0; Swift.withUnsafeMutableBytes(of: &_rv) { \$0.baseAddress!.copyMemory(from: UnsafeRawPointer(_p + 1), byteCount: 8) }; return _rv }()';
           if (p.type.name == 'bool?') return '${p.name}: { guard let _p = ${p.name}, _p[0] != 0 else { return nil }; return _p[1] != 0 }()';
           if (p.type.name == 'DateTime') return '${p.name}: Date(timeIntervalSince1970: Double(${p.name})/1000.0)';
@@ -258,6 +259,7 @@ class SwiftFunctionEmitter {
           if (isStr) return '${p.name}: ${p.name}Str';
           // Byte-safe decode (native async — copyMemory avoids withMemoryRebound alignment crash).
           if (p.type.name == 'int?') return '${p.name}: { guard let _p = ${p.name}, _p[0] != 0 else { return nil }; var _rv: Int64 = 0; Swift.withUnsafeMutableBytes(of: &_rv) { \$0.baseAddress!.copyMemory(from: UnsafeRawPointer(_p + 1), byteCount: 8) }; return _rv }()';
+          if (p.type.name == 'uint64?') return '${p.name}: { guard let _p = ${p.name}, _p[0] != 0 else { return nil }; var _rv: UInt64 = 0; Swift.withUnsafeMutableBytes(of: &_rv) { \$0.baseAddress!.copyMemory(from: UnsafeRawPointer(_p + 1), byteCount: 8) }; return _rv }()';
           if (p.type.name == 'double?') return '${p.name}: { guard let _p = ${p.name}, _p[0] != 0 else { return nil }; var _rv: Double = 0; Swift.withUnsafeMutableBytes(of: &_rv) { \$0.baseAddress!.copyMemory(from: UnsafeRawPointer(_p + 1), byteCount: 8) }; return _rv }()';
           if (p.type.name == 'bool?') return '${p.name}: { guard let _p = ${p.name}, _p[0] != 0 else { return nil }; return _p[1] != 0 }()';
           if (p.type.name == 'DateTime') return '${p.name}: Date(timeIntervalSince1970: Double(${p.name})/1000.0)';
@@ -569,6 +571,7 @@ class SwiftFunctionEmitter {
       writer.line('    let sema = DispatchSemaphore(value: 0)');
       final resultType = switch (func.returnType.name) {
         'int?' => 'Int64?',
+        'uint64?' => 'UInt64?',
         'double?' => 'Double?',
         'bool?' => 'Bool?',
         _ => swiftRetType.endsWith('?') ? swiftRetType : '$swiftRetType?',
@@ -604,6 +607,11 @@ class SwiftFunctionEmitter {
         writer.line('    _out_b[0] = result != nil ? 1 : 0');
         writer.line('    _out_b[1] = result == true ? 1 : 0');
         writer.line('    return _out_b');
+      } else if (func.returnType.name == 'uint64?') {
+        writer.line('    let _out_nu = UnsafeMutablePointer<UInt8>.allocate(capacity: 9)');
+        writer.line('    _out_nu[0] = result != nil ? 1 : 0');
+        writer.line('    if let _v = result { Swift.withUnsafeBytes(of: _v) { UnsafeMutableRawPointer(_out_nu + 1).copyMemory(from: \$0.baseAddress!, byteCount: 8) } }');
+        writer.line('    return _out_nu');
       } else if (func.returnType.isNullable) {
         final base = func.returnType.name.replaceFirst('?', '');
         final nullSentinel = base == 'int'
@@ -814,6 +822,13 @@ class SwiftFunctionEmitter {
       writer.line('    _out_nb[0] = _nb_result != nil ? 1 : 0');
       writer.line('    _out_nb[1] = _nb_result == true ? 1 : 0');
       writer.line('    return _out_nb');
+    } else if (func.returnType.name == 'uint64?') {
+      writer.line('    guard let impl = ${spec.dartClassName}Registry.impl else { return nil }');
+      writer.line('    let _nu_result = impl.${func.dartName}($callArgs)');
+      writer.line('    let _out_nu = UnsafeMutablePointer<UInt8>.allocate(capacity: 9)');
+      writer.line('    _out_nu[0] = _nu_result != nil ? 1 : 0');
+      writer.line('    if let _v = _nu_result { Swift.withUnsafeBytes(of: _v) { UnsafeMutableRawPointer(_out_nu + 1).copyMemory(from: \$0.baseAddress!, byteCount: 8) } }');
+      writer.line('    return _out_nu');
     } else {
       final defaultVal = mapper.defaultCDeclValue(func.returnType.name);
       writer.line('    guard let impl = ${spec.dartClassName}Registry.impl else { return $defaultVal }');
