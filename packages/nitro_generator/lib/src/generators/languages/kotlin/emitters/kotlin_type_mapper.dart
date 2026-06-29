@@ -215,7 +215,7 @@ class KotlinTypeMapper implements TypeMapper {
     final nativeMethodName = '_invoke_${p.name}';
 
     // For nullable int/double/bool, use nullable Kotlin types (Long?, Double?, Boolean?).
-    String _lambdaParamType(BridgeType cbP) {
+    String lambdaParamType(BridgeType cbP) {
       final base = cbP.name.replaceFirst('?', '');
       final isNullable = cbP.name.endsWith('?');
       if (isNullable && (base == 'int' || base == 'double' || base == 'bool')) {
@@ -224,7 +224,7 @@ class KotlinTypeMapper implements TypeMapper {
       return type(cbP.name);
     }
 
-    final lambdaParams = cbParams.asMap().entries.map((e) => 'p${e.key}: ${_lambdaParamType(e.value)}').join(', ');
+    final lambdaParams = cbParams.asMap().entries.map((e) => 'p${e.key}: ${lambdaParamType(e.value)}').join(', ');
 
     final nativeArgs = <String>[p.name];
     for (var i = 0; i < cbParams.length; i++) {

@@ -4,7 +4,6 @@
 import 'package:nitro_generator/src/generators/languages/dart/dart_ffi_generator.dart';
 import 'package:nitro_generator/src/generators/languages/kotlin/kotlin_generator.dart';
 import 'package:nitro_generator/src/generators/languages/swift/swift_generator.dart';
-import 'package:nitro_generator/src/spec_validator.dart';
 import 'package:test/test.dart';
 import 'test_utils.dart';
 
@@ -196,7 +195,7 @@ void main() {
   // ── Cross-mode: all three modes produce distinct code ─────────────────────
 
   group('Backpressure modes produce distinct Kotlin code', () {
-    BridgeSpec _specWith(Backpressure mode) => BridgeSpec(
+    BridgeSpec specWith(Backpressure mode) => BridgeSpec(
           dartClassName: 'Hub',
           lib: 'hub',
           namespace: 'hub',
@@ -216,34 +215,34 @@ void main() {
         );
 
     test('dropLatest has no .buffer() call in Kotlin', () {
-      final code = KotlinGenerator.generate(_specWith(Backpressure.dropLatest));
+      final code = KotlinGenerator.generate(specWith(Backpressure.dropLatest));
       expect(code, isNot(contains('.buffer(')));
     });
 
     test('bufferDrop has .buffer(DROP_OLDEST) in Kotlin', () {
-      final code = KotlinGenerator.generate(_specWith(Backpressure.bufferDrop));
+      final code = KotlinGenerator.generate(specWith(Backpressure.bufferDrop));
       expect(code, contains('DROP_OLDEST'));
     });
 
     test('block has .buffer() without DROP_OLDEST in Kotlin', () {
-      final code = KotlinGenerator.generate(_specWith(Backpressure.block));
+      final code = KotlinGenerator.generate(specWith(Backpressure.block));
       expect(code, contains('.buffer(capacity = '));
       expect(code, isNot(contains('DROP_OLDEST')));
     });
 
     test('dropLatest has no .buffer() Combine operator in Swift', () {
-      final code = SwiftGenerator.generate(_specWith(Backpressure.dropLatest));
+      final code = SwiftGenerator.generate(specWith(Backpressure.dropLatest));
       // dropLatest goes directly to .sink without .buffer
       expect(code, isNot(contains('whenFull:')));
     });
 
     test('bufferDrop has .dropOldest in Swift', () {
-      final code = SwiftGenerator.generate(_specWith(Backpressure.bufferDrop));
+      final code = SwiftGenerator.generate(specWith(Backpressure.bufferDrop));
       expect(code, contains('dropOldest'));
     });
 
     test('block has .dropNewest + serial queue in Swift', () {
-      final code = SwiftGenerator.generate(_specWith(Backpressure.block));
+      final code = SwiftGenerator.generate(specWith(Backpressure.block));
       expect(code, contains('dropNewest'));
       expect(code, contains('receive(on: _serialQ)'));
     });
@@ -252,7 +251,7 @@ void main() {
   // ── Gap 13 + 17: Kotlin variant callback + stream fixes ──────────────────
 
   group('Gap 13 — Kotlin variant callback parameter (ByteArray, not Long)', () {
-    BridgeSpec _variantCallbackSpec() {
+    BridgeSpec variantCallbackSpec() {
       final variant = BridgeVariant(
         name: 'UIEvent',
         cases: [
@@ -292,13 +291,13 @@ void main() {
     }
 
     test('_invoke_handler external fun uses ByteArray, not Long', () {
-      final code = KotlinGenerator.generate(_variantCallbackSpec());
+      final code = KotlinGenerator.generate(variantCallbackSpec());
       expect(code, contains('external fun _invoke_handler(callbackPtr: Long, arg0: ByteArray)'),
           reason: 'variant callback param must be ByteArray (encoded bytes), not Long');
     });
 
     test('callbackLambda encodes variant with .encode()', () {
-      final code = KotlinGenerator.generate(_variantCallbackSpec());
+      final code = KotlinGenerator.generate(variantCallbackSpec());
       expect(code, contains('p0.encode()'),
           reason: 'variant callback lambda must call encode() before passing to _invoke_handler');
     });
@@ -341,7 +340,7 @@ void main() {
   });
 
   group('Gap 17 — Kotlin variant Stream item (ByteArray emit + encode)', () {
-    BridgeSpec _variantStreamSpec() {
+    BridgeSpec variantStreamSpec() {
       final variant = BridgeVariant(
         name: 'UIEvent',
         cases: [
@@ -372,19 +371,19 @@ void main() {
     }
 
     test('emit_eventStream JNI extern uses ByteArray, not UIEvent', () {
-      final code = KotlinGenerator.generate(_variantStreamSpec());
+      final code = KotlinGenerator.generate(variantStreamSpec());
       expect(code, contains('external fun emit_eventStream(dartPort: Long, item: ByteArray): Boolean'),
           reason: 'variant stream item must be encoded as ByteArray before crossing JNI');
     });
 
     test('stream collect encodes item with .encode() before emit', () {
-      final code = KotlinGenerator.generate(_variantStreamSpec());
+      final code = KotlinGenerator.generate(variantStreamSpec());
       expect(code, contains('item.encode()'),
           reason: 'variant stream collect must encode item to ByteArray before emitting');
     });
 
     test('variant stream RecordReader/RecordWriter helpers are emitted', () {
-      final code = KotlinGenerator.generate(_variantStreamSpec());
+      final code = KotlinGenerator.generate(variantStreamSpec());
       expect(code, anyOf(contains('RecordWriter'), contains('RecordReader')),
           reason: 'variant encode/decode needs RecordReader/RecordWriter bridge helpers');
     });

@@ -268,14 +268,14 @@ String _callbackInvocationArgs(BridgeType callbackType, BridgeSpec spec) {
       if (isNullable) {
         args.add('arg${i}Null != 0 ? null : arg${i}Val != 0');
       } else {
-        args.add('arg${i} != 0');
+        args.add('arg$i != 0');
       }
     } else if (name == 'double') {
       // Nullable double: two-param (arg${i}Null, arg${i}Val bits) → null or double.
       if (isNullable) {
         args.add('arg${i}Null != 0 ? null : Int64List.fromList([arg${i}Val]).buffer.asFloat64List()[0]');
       } else {
-        args.add('Int64List.fromList([arg${i}]).buffer.asFloat64List()[0]');
+        args.add('Int64List.fromList([arg$i]).buffer.asFloat64List()[0]');
       }
     } else if (name == 'String') {
       // Nullable String: nullptr → null.

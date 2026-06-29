@@ -1802,7 +1802,7 @@ void main() {
   // ── §19: Item 4 — typed Pointer<NitroOptXxx> for nullable prim sync returns ─
 
   group('§19: Item 4 — typed Pointer<NitroOptXxx> nullable prim returns', () {
-    BridgeSpec _nullablePrimReturnSpec(String returnType) => BridgeSpec(
+    BridgeSpec nullablePrimReturnSpec(String returnType) => BridgeSpec(
       dartClassName: 'Counter',
       lib: 'counter',
       namespace: 'counter',
@@ -1821,42 +1821,42 @@ void main() {
     );
 
     test('Dart FFI (int?): FFI type uses Pointer<NitroOptInt64>', () {
-      final out = DartFfiGenerator.generate(_nullablePrimReturnSpec('int?'));
+      final out = DartFfiGenerator.generate(nullablePrimReturnSpec('int?'));
       expect(out, contains('Pointer<NitroOptInt64>'));
     });
 
     test('Dart FFI (int?): decode uses .decoded + malloc.free', () {
-      final out = DartFfiGenerator.generate(_nullablePrimReturnSpec('int?'));
+      final out = DartFfiGenerator.generate(nullablePrimReturnSpec('int?'));
       // Sync path uses 'res' variable; async would use 'optPtr'.
       expect(out, contains('.decoded'));
       expect(out, contains('malloc.free('));
     });
 
     test('Dart FFI (double?): FFI type uses Pointer<NitroOptFloat64>', () {
-      final out = DartFfiGenerator.generate(_nullablePrimReturnSpec('double?'));
+      final out = DartFfiGenerator.generate(nullablePrimReturnSpec('double?'));
       expect(out, contains('Pointer<NitroOptFloat64>'));
     });
 
     test('Dart FFI (double?): decode uses .decoded + malloc.free', () {
-      final out = DartFfiGenerator.generate(_nullablePrimReturnSpec('double?'));
+      final out = DartFfiGenerator.generate(nullablePrimReturnSpec('double?'));
       expect(out, contains('.decoded'));
       expect(out, contains('malloc.free('));
     });
 
     test('Dart FFI (bool?): FFI type uses Pointer<NitroOptBool>', () {
-      final out = DartFfiGenerator.generate(_nullablePrimReturnSpec('bool?'));
+      final out = DartFfiGenerator.generate(nullablePrimReturnSpec('bool?'));
       expect(out, contains('Pointer<NitroOptBool>'));
     });
 
     test('Dart FFI (bool?): decode uses .decoded + malloc.free', () {
-      final out = DartFfiGenerator.generate(_nullablePrimReturnSpec('bool?'));
+      final out = DartFfiGenerator.generate(nullablePrimReturnSpec('bool?'));
       expect(out, contains('.decoded'));
       expect(out, contains('malloc.free('));
     });
 
     test('Spec validator: int?/double?/bool? sync return has no errors', () {
       for (final t in ['int?', 'double?', 'bool?']) {
-        final issues = SpecValidator.validate(_nullablePrimReturnSpec(t));
+        final issues = SpecValidator.validate(nullablePrimReturnSpec(t));
         expect(issues.where((i) => i.isError).isEmpty, isTrue,
           reason: '$t return should have no errors');
       }
@@ -1866,7 +1866,7 @@ void main() {
   // ── §20: Item 5 — @HybridRecord and @NitroVariant as callback return types ──
 
   group('§20: Item 5 — @HybridRecord / @NitroVariant callback returns', () {
-    final _kCbJobRecord = BridgeRecordType(
+    final kCbJobRecord = BridgeRecordType(
       name: 'Job',
       fields: [
         BridgeRecordField(name: 'id', dartType: 'int', kind: RecordFieldKind.primitive),
@@ -1874,14 +1874,14 @@ void main() {
       ],
     );
 
-    BridgeSpec _recordCallbackReturnSpec() => BridgeSpec(
+    BridgeSpec recordCallbackReturnSpec() => BridgeSpec(
       dartClassName: 'Scheduler',
       lib: 'scheduler',
       namespace: 'scheduler',
       iosImpl: NativeImpl.swift,
       androidImpl: NativeImpl.kotlin,
       sourceUri: 'scheduler.native.dart',
-      recordTypes: [_kCbJobRecord],
+      recordTypes: [kCbJobRecord],
       functions: [
         BridgeFunction(
           dartName: 'transform',
@@ -1905,7 +1905,7 @@ void main() {
       ],
     );
 
-    BridgeSpec _variantCallbackReturnSpec() => BridgeSpec(
+    BridgeSpec variantCallbackReturnSpec() => BridgeSpec(
       dartClassName: 'EventBus',
       lib: 'event_bus',
       namespace: 'event_bus',
@@ -1946,79 +1946,79 @@ void main() {
     );
 
     test('Dart FFI (@HybridRecord return): NativeCallable uses Pointer<Uint8> return', () {
-      final out = DartFfiGenerator.generate(_recordCallbackReturnSpec());
+      final out = DartFfiGenerator.generate(recordCallbackReturnSpec());
       // Callback NativeCallable return type is Pointer<Uint8>
       expect(out, contains('Pointer<Uint8> Function('));
     });
 
     test('Dart FFI (@HybridRecord return): wrapper calls .toNative(malloc)', () {
-      final out = DartFfiGenerator.generate(_recordCallbackReturnSpec());
+      final out = DartFfiGenerator.generate(recordCallbackReturnSpec());
       expect(out, contains('toNative(malloc)'));
     });
 
     test('Dart FFI (@HybridRecord return): uses isolateLocal (not listener)', () {
-      final out = DartFfiGenerator.generate(_recordCallbackReturnSpec());
+      final out = DartFfiGenerator.generate(recordCallbackReturnSpec());
       expect(out, contains('.isolateLocal('));
       expect(out, isNot(contains('.listener(')));
     });
 
     test('Dart FFI (@NitroVariant return): NativeCallable uses Pointer<Uint8> return', () {
-      final out = DartFfiGenerator.generate(_variantCallbackReturnSpec());
+      final out = DartFfiGenerator.generate(variantCallbackReturnSpec());
       expect(out, contains('Pointer<Uint8> Function('));
     });
 
     test('Dart FFI (@NitroVariant return): wrapper calls .toNative(malloc)', () {
-      final out = DartFfiGenerator.generate(_variantCallbackReturnSpec());
+      final out = DartFfiGenerator.generate(variantCallbackReturnSpec());
       expect(out, contains('toNative(malloc)'));
     });
 
     test('Kotlin (@HybridRecord return): _invoke_cb declared as: ByteArray', () {
-      final out = KotlinGenerator.generate(_recordCallbackReturnSpec());
+      final out = KotlinGenerator.generate(recordCallbackReturnSpec());
       expect(out, contains('external fun _invoke_cb(callbackPtr: Long'));
       expect(out, contains(': ByteArray'));
     });
 
     test('Kotlin (@HybridRecord return): lambda decodes ByteArray via run { ... decodeFrom(...) }', () {
-      final out = KotlinGenerator.generate(_recordCallbackReturnSpec());
+      final out = KotlinGenerator.generate(recordCallbackReturnSpec());
       expect(out, contains('decodeFrom'));
       expect(out, contains('getInt()'));
     });
 
     test('Kotlin (@NitroVariant return): _invoke_cb declared as: ByteArray', () {
-      final out = KotlinGenerator.generate(_variantCallbackReturnSpec());
+      final out = KotlinGenerator.generate(variantCallbackReturnSpec());
       expect(out, contains(': ByteArray'));
     });
 
     test('C bridge (@HybridRecord return): JNI invoker returns jbyteArray', () {
-      final out = CppBridgeGenerator.generate(_recordCallbackReturnSpec());
+      final out = CppBridgeGenerator.generate(recordCallbackReturnSpec());
       expect(out, contains('JNIEXPORT jbyteArray JNICALL'));
     });
 
     test('C bridge (@HybridRecord return): reads 4-byte prefix + NewByteArray + free', () {
-      final out = CppBridgeGenerator.generate(_recordCallbackReturnSpec());
+      final out = CppBridgeGenerator.generate(recordCallbackReturnSpec());
       expect(out, contains('memcpy(&_plen, _ret, 4)'));
       expect(out, contains('NewByteArray'));
       expect(out, contains('free(_ret)'));
     });
 
     test('Swift (@HybridRecord return): cdecl callback type uses UnsafeMutablePointer<UInt8>?', () {
-      final out = SwiftGenerator.generate(_recordCallbackReturnSpec());
+      final out = SwiftGenerator.generate(recordCallbackReturnSpec());
       expect(out, contains('UnsafeMutablePointer<UInt8>?'));
     });
 
     test('Swift (@HybridRecord return): wrapper calls fromNative + free', () {
-      final out = SwiftGenerator.generate(_recordCallbackReturnSpec());
+      final out = SwiftGenerator.generate(recordCallbackReturnSpec());
       expect(out, contains('fromNative'));
       expect(out, contains('free('));
     });
 
     test('Spec validator: @HybridRecord callback return has no errors', () {
-      final issues = SpecValidator.validate(_recordCallbackReturnSpec());
+      final issues = SpecValidator.validate(recordCallbackReturnSpec());
       expect(issues.where((i) => i.isError).isEmpty, isTrue);
     });
 
     test('Spec validator: @NitroVariant callback return has no errors', () {
-      final issues = SpecValidator.validate(_variantCallbackReturnSpec());
+      final issues = SpecValidator.validate(variantCallbackReturnSpec());
       expect(issues.where((i) => i.isError).isEmpty, isTrue);
     });
   });

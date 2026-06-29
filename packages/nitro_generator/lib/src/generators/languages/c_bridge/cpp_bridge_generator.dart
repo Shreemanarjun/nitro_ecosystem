@@ -85,7 +85,6 @@ class CppBridgeGenerator {
     // generation loops (functions × enums, params × structs, etc.).
     final enumNames = spec.enums.map((e) => e.name).toSet();
     final structNames = spec.structs.map((s) => s.name).toSet();
-    final variantNames = spec.variants.map((v) => v.name).toSet();
     writer.line('extern "C" {');
     writer.line('NITRO_EXPORT uint32_t ${libStem}_nitro_abi_version(void) {');
     writer.line('    return 1;');

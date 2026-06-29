@@ -1,7 +1,7 @@
 # Flutter Nitro — Limitations & Current Status
 
 Comparison against React Native Nitro (`packages/react-native-nitro-modules`) as the reference implementation.  
-Last updated: 2026-06-29. Generator unit tests: 3853. macOS integration tests: 594.
+Last updated: 2026-06-29. Generator unit tests: 3866. macOS integration tests: 601.
 
 ---
 
@@ -31,7 +31,7 @@ Last updated: 2026-06-29. Generator unit tests: 3853. macOS integration tests: 5
 | `Record<string, T>` → `std::unordered_map` | `Map<String, T>` | ✅ |
 | `[A, B, C]` → `std::tuple<A, B, C>` | — | ❌ L12 |
 | `A \| B \| C` → `std::variant<A,B,C>` | `@NitroVariant` | ✅ |
-| `Date` → `std::chrono::time_point` | — | ❌ L11 |
+| `Date` → `std::chrono::time_point` | `DateTime` → `int64_t` ms-epoch | ✅ L11 |
 | `ArrayBuffer` → `jsi::MutableBuffer` | `Uint8List` / TypedData | ✅ (via TypedData) |
 | `AnyMap` → heterogeneous typed map | `NitroAnyMap` / `NitroAnyValue` | ✅ |
 | `HybridObject<Platforms>` | `NativeImpl.swift` / `.kotlin` / `.cpp` | ✅ |
@@ -54,8 +54,8 @@ Last updated: 2026-06-29. Generator unit tests: 3853. macOS integration tests: 5
 ## Fully Supported (✅)
 
 ### Primitives & Nullables
-- `int`, `double`, `bool`, `String`, `void` — all transports (sync, async, callback, stream, property)
-- `int?`, `double?`, `bool?` — `NitroOptXxx` @Packed(1) structs; two-param callback approach
+- `int`, `double`, `bool`, `String`, `void`, `DateTime` — all transports (sync, async, callback, stream, property)
+- `int?`, `double?`, `bool?`, `DateTime?` — `NitroOptXxx` @Packed(1) structs; two-param callback approach
 - `String?` — `nullptr` sentinel throughout
 
 ### Value Types
@@ -164,6 +164,19 @@ Last updated: 2026-06-29. Generator unit tests: 3853. macOS integration tests: 5
 **Tests:** §39–§42 (25 tests) in `cpp_impl_generator_test.dart`.  
 **Merged:** 2026-06-29.
 
+### L11 — `DateTime` bridge type ✅
+**Status:** Fully implemented. RN Nitro maps JS `Date` ↔ `std::chrono::system_clock::time_point` via JSI; Flutter Nitro maps `DateTime` ↔ `int64_t` milliseconds-since-epoch.  
+**Wire format:**
+- Non-null `DateTime` → `int64_t` (same wire as `int`); Dart encodes `.millisecondsSinceEpoch`, decodes `DateTime.fromMillisecondsSinceEpoch()`
+- `DateTime?` → `Pointer<NitroOptInt64>` 9-byte packed struct `[1B hasValue][8B Int64]` (same wire as `int?`)
+- Swift: `Date` ↔ `Int64` via `Int64(v.timeIntervalSince1970 * 1000)` / `Date(timeIntervalSince1970: Double(v)/1000.0)`
+- Kotlin: `Long` (non-null), `NitroOptInt64.decode(byteArray).nullable` (nullable)
+- All transports: sync, `@nitroAsync`, `@NitroNativeAsync`, callback param/return, stream item, property getter/setter  
+
+**Gap vs RN Nitro:** RN Nitro preserves sub-millisecond precision via `time_point` nanoseconds. Flutter Nitro is millisecond-precision (matches `DateTime` resolution). No practical difference for API use cases.  
+**Tests:** §L11 (7 unit + 7 integration tests): `echoDateTime` (4 cases: epoch 0, UTC timestamp, negative ms, large positive) + `echoNullableDateTime` (3 cases: null, non-null, epoch-0 disambiguation).  
+**Merged:** 2026-06-29.
+
 ---
 
 ## Known Limitations (Open)
@@ -188,12 +201,6 @@ Last updated: 2026-06-29. Generator unit tests: 3853. macOS integration tests: 5
 **Status:** E008 — intentionally blocked.  
 **Reason:** Struct values are `void*` pointers; the map encoder has no ownership protocol for pointer-valued entries.  
 **Workaround:** `List<TheStruct>` + separate key list, or a `@HybridRecord` with struct fields.
-
-### L11 — `DateTime` bridge type ❌
-**Status:** Not implemented. RN Nitro maps JS `Date` ↔ `std::chrono::system_clock::time_point`.  
-**Flutter Nitro gap:** No native `DateTime` type in the spec DSL. The generator has no `DateTime` → timestamp codec.  
-**Workaround:** Use `int` (milliseconds since epoch) and convert on both sides manually. This is semantically equivalent but requires the user to add boilerplate.  
-**Implementation path:** Add `DateTime` as a recognised type in `dart_type_ffi_mapper.dart` (maps to `Int64`); emit `DateTime.fromMillisecondsSinceEpoch(x)` decode / `.millisecondsSinceEpoch` encode in generated Dart; add `int64_t` pass-through on the C/Kotlin/Swift side.
 
 ### L12 — Tuple types `(A, B, C)` ❌
 **Status:** Not implemented. RN Nitro maps JS `[A, B, C]` ↔ `std::tuple<A, B, C>`.  
@@ -257,7 +264,6 @@ Last updated: 2026-06-29. Generator unit tests: 3853. macOS integration tests: 5
 | L7 | `TypedData?` — two-param FFI makes nullable ambiguous | N/A | Low |
 | L8 | Web / WASM — streams + `@NitroNativeAsync` unsupported | Same in RN | Medium |
 | L10 | `Map<String, @HybridStruct>` — no pointer ownership in map encoder | N/A | Low |
-| L11 | `DateTime` bridge type | **Gap vs RN** (`Date ↔ time_point`) | Medium |
 | L12 | Tuple types `(A, B, C)` | **Gap vs RN** (`[A,B,C] ↔ std::tuple`) | Low |
 | L13 | `uint64_t` scalar | **Gap vs RN** (`bigint UInt64`) | Low |
 | L14 | `AnyHybridObject` (untyped object ref) | **Gap vs RN** | Low |

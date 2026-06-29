@@ -1,6 +1,5 @@
 import '../../../bridge_spec.dart';
 import '../../code_writer.dart';
-import '../../generator_metadata.dart';
 
 /// Generates `*.impl.g.cpp` — a concrete C++ implementation starter for
 /// desktop targets (`NativeImpl.cpp`).
@@ -274,7 +273,6 @@ class CppImplGenerator {
   }
 
   /// Returns a commented placeholder return expression for non-void methods,
-  /// so the TODO comment shows the user what type they need to return.
   static String? _placeholderReturn(String cppType) {
     switch (cppType) {
       case 'int64_t':

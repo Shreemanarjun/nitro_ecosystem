@@ -6,7 +6,7 @@
 ///   [4B payload_len][4B count][for each: 1B hasValue][tag+fields (only if hasValue)]
 library;
 
-import 'package:nitro_annotations/nitro_annotations.dart' show NativeImpl, Backpressure;
+import 'package:nitro_annotations/nitro_annotations.dart' show NativeImpl;
 import 'package:nitro_generator/src/bridge_spec.dart';
 import 'package:nitro_generator/src/generators/languages/dart/dart_ffi_generator.dart';
 import 'package:nitro_generator/src/generators/languages/kotlin/kotlin_generator.dart';

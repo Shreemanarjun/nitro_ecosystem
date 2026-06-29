@@ -14,8 +14,6 @@
 import 'dart:ffi';
 import 'package:ffi/ffi.dart';
 import 'package:nitro/src/nitro_any_value.dart';
-import 'package:nitro_annotations/nitro_annotations.dart';
-import 'package:nitro_generator/src/bridge_spec.dart';
 import 'package:nitro_generator/src/generators/languages/dart/dart_ffi_generator.dart';
 import 'package:nitro_generator/src/generators/languages/kotlin/kotlin_generator.dart';
 import 'package:test/test.dart';
@@ -255,7 +253,9 @@ void main() {
         // must copy before arena frees
         final len = ptr.cast<Int32>().value + 4;
         final copy = malloc<Uint8>(len);
-        for (var i = 0; i < len; i++) copy[i] = ptr[i];
+        for (var i = 0; i < len; i++) {
+          copy[i] = ptr[i];
+        }
         result = NitroAnyMap.fromNative(copy);
         malloc.free(copy);
       });

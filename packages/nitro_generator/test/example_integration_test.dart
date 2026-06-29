@@ -18,12 +18,9 @@
 // §D  SensorMod — multiple streams, nullable types, callbacks
 // §E  EdgeMod — edge cases across all generators
 
-import 'package:nitro_annotations/nitro_annotations.dart';
-import 'package:nitro_generator/src/bridge_spec.dart';
 import 'package:nitro_generator/src/generators/languages/dart/dart_ffi_generator.dart';
 import 'package:nitro_generator/src/generators/languages/kotlin/kotlin_generator.dart';
 import 'package:nitro_generator/src/generators/languages/swift/swift_generator.dart';
-import 'package:nitro_generator/src/generators/languages/c_bridge/cpp_bridge_generator.dart';
 import 'package:nitro_generator/src/generators/languages/c_bridge/cpp_header_generator.dart';
 import 'package:test/test.dart';
 import 'spec_from_source.dart';
@@ -171,7 +168,7 @@ void main() {
   // §B  MediaMod — TypedData, @HybridRecord stats, struct stream
   // ══════════════════════════════════════════════════════════════════════════════
 
-  final _mediaSrc = _src('''
+  final mediaSrc = _src('''
     @HybridStruct(packed: true)
     class VideoFrame {
       int width;
@@ -215,14 +212,14 @@ void main() {
   group('§B MediaMod — TypedData + @HybridRecord + struct stream', () {
     specTest(
       'all method names present in all generators',
-      _mediaSrc,
+      mediaSrc,
       all: BridgeChecks(has: ['uploadFrame', 'processChunk', 'encode', 'applyStats', 'getLatestFrame', 'queueFrame']),
       skip: {Lang.cpp},
     );
 
     specTest(
       'Dart uses Pointer<Uint8> + Int64 length for Uint8List params',
-      _mediaSrc,
+      mediaSrc,
       dart: BridgeChecks(
         has: ['Pointer<Uint8>', 'pixels.length'],
         hasNot: ['List<int>'],
@@ -232,14 +229,14 @@ void main() {
 
     specTest(
       'Kotlin encode is suspend fun returning EncodeStats',
-      _mediaSrc,
+      mediaSrc,
       kotlin: BridgeChecks(has: ['suspend fun encode(codec: String']),
       skip: {Lang.cpp},
     );
 
     specTest(
       'EncodeStats Kotlin data class has all four fields',
-      _mediaSrc,
+      mediaSrc,
       kotlin: BridgeChecks(
         has: ['data class EncodeStats(', 'val frameCount', 'val avgBitrate', 'val peakBitrate', 'val codec'],
       ),
@@ -248,7 +245,7 @@ void main() {
 
     specTest(
       'EncodeStats has decode() and encode() methods in Kotlin',
-      _mediaSrc,
+      mediaSrc,
       kotlin: BridgeChecks(
         has: ['fun decode(bytes: ByteArray): EncodeStats', 'fun encode(): ByteArray'],
       ),
@@ -257,21 +254,21 @@ void main() {
 
     specTest(
       'VideoFrame struct data class in Kotlin',
-      _mediaSrc,
+      mediaSrc,
       kotlin: BridgeChecks(has: ['data class VideoFrame(val width: Long, val height: Long, val timestampMs: Long)']),
       skip: {Lang.cpp},
     );
 
     specTest(
       'Swift encode is async throws returning EncodeStats',
-      _mediaSrc,
+      mediaSrc,
       swift: BridgeChecks(has: ['async throws -> EncodeStats']),
       skip: {Lang.cpp},
     );
 
     specTest(
       'frames stream emitted for VideoFrame struct item',
-      _mediaSrc,
+      mediaSrc,
       dart: BridgeChecks(has: ['Stream<VideoFrame> get frames']),
       kotlin: BridgeChecks(has: ['frames']),
       skip: {Lang.cpp},
@@ -279,7 +276,7 @@ void main() {
 
     specTest(
       'targetBitrate optional int? param uses packInt in Dart',
-      _mediaSrc,
+      mediaSrc,
       dart: BridgeChecks(has: ['arena.packInt(targetBitrate)']),
       skip: {Lang.cpp},
     );
@@ -289,7 +286,7 @@ void main() {
   // §C  SettingsMod — @HybridRecord, NitroAnyMap param + return
   // ══════════════════════════════════════════════════════════════════════════════
 
-  final _settingsSrc = _src('''
+  final settingsSrc = _src('''
     @HybridRecord
     class AppConfig {
       String theme;
@@ -325,49 +322,49 @@ void main() {
   group('§C SettingsMod — @HybridRecord + NitroAnyMap', () {
     specTest(
       'all method names present in Dart',
-      _settingsSrc,
+      settingsSrc,
       dart: BridgeChecks(has: ['getConfig', 'applyConfig', 'mergeConfig', 'getAll', 'setAll', 'query', 'buildFromMap']),
       skip: {Lang.cpp},
     );
 
     specTest(
       'AppConfig record data class in Kotlin has all fields',
-      _settingsSrc,
+      settingsSrc,
       kotlin: BridgeChecks(has: ['data class AppConfig(', 'val theme: String', 'val darkMode: Boolean', 'val maxRetries: Long']),
       skip: {Lang.cpp},
     );
 
     specTest(
       'NitroAnyMap param encoded with toNative(arena) in Dart',
-      _settingsSrc,
+      settingsSrc,
       dart: BridgeChecks(has: ['toNative(arena)']),
       skip: {Lang.cpp},
     );
 
     specTest(
       'NitroAnyMap return decoded with NitroAnyMap.fromNative in Dart',
-      _settingsSrc,
+      settingsSrc,
       dart: BridgeChecks(has: ['NitroAnyMap.fromNative(']),
       skip: {Lang.cpp},
     );
 
     specTest(
       'Kotlin bridge uses NitroAnyMapCodec for setAll param',
-      _settingsSrc,
+      settingsSrc,
       kotlin: BridgeChecks(has: ['NitroAnyMapCodec']),
       skip: {Lang.cpp},
     );
 
     specTest(
       'NitroAnyMapCodec object emitted in Kotlin bridge',
-      _settingsSrc,
+      settingsSrc,
       kotlin: BridgeChecks(has: ['private object NitroAnyMapCodec']),
       skip: {Lang.cpp},
     );
 
     specTest(
       'Kotlin NitroAnyMapCodec includes all 7 AnyValue type tags',
-      _settingsSrc,
+      settingsSrc,
       kotlin: BridgeChecks(
         has: ['ANY_NULL', 'ANY_BOOL', 'ANY_INT', 'ANY_DOUBLE', 'ANY_STRING', 'ANY_LIST', 'ANY_OBJECT'],
       ),
@@ -376,21 +373,21 @@ void main() {
 
     specTest(
       'Kotlin getAll bridge method returns ByteArray for NitroAnyMap',
-      _settingsSrc,
+      settingsSrc,
       kotlin: BridgeChecks(has: ['fun getAll_call(instanceId: Long): ByteArray']),
       skip: {Lang.cpp},
     );
 
     specTest(
       'Kotlin setAll bridge method takes ByteArray for NitroAnyMap',
-      _settingsSrc,
+      settingsSrc,
       kotlin: BridgeChecks(has: ['fun setAll_call(instanceId: Long, map: ByteArray)']),
       skip: {Lang.cpp},
     );
 
     specTest(
       'NitroAnyMap does not use JSON library types (Gson, JSONObject) in output',
-      _settingsSrc,
+      settingsSrc,
       dart: BridgeChecks(hasNot: ['jsonEncode', 'jsonDecode']),
       kotlin: BridgeChecks(hasNot: ['Gson', 'JSONObject', 'org.json']),
       skip: {Lang.cpp},
@@ -398,7 +395,7 @@ void main() {
 
     specTest(
       'currentTheme and isDarkMode properties emitted',
-      _settingsSrc,
+      settingsSrc,
       dart: BridgeChecks(has: ['String get currentTheme', 'bool get isDarkMode']),
       kotlin: BridgeChecks(has: ['currentTheme', 'isDarkMode']),
       skip: {Lang.cpp},
@@ -409,7 +406,7 @@ void main() {
   // §D  SensorMod — multiple streams, nullable types, callbacks
   // ══════════════════════════════════════════════════════════════════════════════
 
-  final _sensorSrc = _src('''
+  final sensorSrc = _src('''
     @HybridEnum(startValue: 0)
     enum SensorStatus { offline, online, error }
 
@@ -467,7 +464,7 @@ void main() {
   group('§D SensorMod — multiple streams + nullable + callbacks', () {
     specTest(
       'all method names present in Dart',
-      _sensorSrc,
+      sensorSrc,
       dart: BridgeChecks(
         has: ['getTemperature', 'getHumidity', 'getLastTimestamp', 'getStatus', 'calibrate', 'snapshot', 'onReadingAvailable'],
       ),
@@ -476,14 +473,14 @@ void main() {
 
     specTest(
       'SensorStatus enum in all bridge outputs',
-      _sensorSrc,
+      sensorSrc,
       all: BridgeChecks(has: ['SensorStatus']),
       skip: {Lang.cpp},
     );
 
     specTest(
       '4 streams emitted: temperature, humidity, readings, status',
-      _sensorSrc,
+      sensorSrc,
       dart: BridgeChecks(has: [
         'Stream<double> get temperature',
         'Stream<double> get humidity',
@@ -496,56 +493,56 @@ void main() {
 
     specTest(
       'Stream<SensorReading> uses struct-pointer unpack in Dart',
-      _sensorSrc,
+      sensorSrc,
       dart: BridgeChecks(has: ['Pointer<SensorReadingFfi>.fromAddress(message as int)']),
       skip: {Lang.cpp},
     );
 
     specTest(
       'Stream<double> temperature uses direct cast unpack',
-      _sensorSrc,
+      sensorSrc,
       dart: BridgeChecks(has: ['message as double']),
       skip: {Lang.cpp},
     );
 
     specTest(
       'Kotlin SensorReading struct data class present',
-      _sensorSrc,
+      sensorSrc,
       kotlin: BridgeChecks(has: ['data class SensorReading(val temperature: Double, val humidity: Double, val timestampMs: Long)']),
       skip: {Lang.cpp},
     );
 
     specTest(
       'CalibrationData record has decode/encode in Kotlin',
-      _sensorSrc,
+      sensorSrc,
       kotlin: BridgeChecks(has: ['fun decode(bytes: ByteArray): CalibrationData', 'fun encode(): ByteArray']),
       skip: {Lang.cpp},
     );
 
     specTest(
       'nullable double? return uses NitroOptFloat64 struct in Dart',
-      _sensorSrc,
+      sensorSrc,
       dart: BridgeChecks(has: ['NitroOptFloat64']),
       skip: {Lang.cpp},
     );
 
     specTest(
       'nullable int? return uses NitroOptInt64 struct in Dart',
-      _sensorSrc,
+      sensorSrc,
       dart: BridgeChecks(has: ['NitroOptInt64']),
       skip: {Lang.cpp},
     );
 
     specTest(
       'Swift has async throws for snapshot',
-      _sensorSrc,
+      sensorSrc,
       swift: BridgeChecks(has: ['func snapshot()']),
       skip: {Lang.cpp},
     );
 
     specTest(
       'isConnected and sensorId properties emitted',
-      _sensorSrc,
+      sensorSrc,
       dart: BridgeChecks(has: ['bool get isConnected', 'String get sensorId']),
       kotlin: BridgeChecks(has: ['isConnected', 'sensorId']),
       skip: {Lang.cpp},

@@ -8,7 +8,6 @@ import 'package:nitro_generator/src/generators/languages/dart/dart_ffi_generator
 import 'package:nitro_generator/src/generators/languages/kotlin/kotlin_generator.dart';
 import 'package:nitro_generator/src/generators/languages/swift/swift_generator.dart';
 import 'package:nitro_generator/src/generators/enum_generator.dart';
-import 'package:nitro_generator/src/spec_validator.dart';
 import 'package:test/test.dart';
 import 'test_utils.dart';
 

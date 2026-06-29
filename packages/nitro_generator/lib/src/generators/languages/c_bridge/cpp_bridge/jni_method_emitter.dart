@@ -808,7 +808,7 @@ void _emitJniPropertyBridges(
         case BridgeItemKind.hybridStruct:
           // Non-nullable struct: convert C shadow struct to JVM object via unpack helper.
           final stName = prop.type.name;
-          writer.line('    jobject jval = unpack_${stName}_to_jni(env, (const ${stName}*)value);');
+          writer.line('    jobject jval = unpack_${stName}_to_jni(env, (const $stName*)value);');
           writer.line('    env->CallStaticVoidMethod(g_bridgeClass, methodId, (jlong)instanceId, jval);');
 
         case BridgeItemKind.bool_:
@@ -858,7 +858,6 @@ void _emitJniStreamBridges(
   Set<String> structNames,
 ) {
   // ── Streams ───────────────────────────────────────────────────────────────
-  final variantNames = spec.variants.map((v) => v.name).toSet();
   for (final stream in spec.streams) {
     // JNI name: "nitro" + "_" + "{lib}_module" (with internal _ → _1)
     // e.g. nitro.my_camera_module → nitro_my_1camera_1module (NOT nitro_1my_1camera_1module)

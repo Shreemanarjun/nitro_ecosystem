@@ -236,7 +236,7 @@ class SwiftStreamEmitter {
     writer.line(') {');
     // block: bounded buffer + serial delivery queue. The serial queue processes one item
     // at a time; if the queue is saturated, Combine backs off demand to the publisher.
-    writer.line('    let _serialQ = DispatchQueue(label: "com.nitro.block.${stream.dartName}.\(dartPort)", qos: .userInteractive)');
+    writer.line('    let _serialQ = DispatchQueue(label: "com.nitro.block.${stream.dartName}.(dartPort)", qos: .userInteractive)');
     writer.line('    ${spec.dartClassName}Registry._${stream.dartName}Cancellables[dartPort] =');
     writer.line('        ${spec.dartClassName}Registry.impl?.${stream.dartName}');
     writer.line('            .buffer(size: $bufferCap, prefetch: .byRequest, whenFull: .dropNewest)');
@@ -323,7 +323,7 @@ class SwiftStreamEmitter {
       if (isNullable) {
         writer.line('${indent}guard let item = item else {');
         writer.line('$indent    if !emitCb(dartPort, nil) { $cancel }');
-        writer.line('${indent}    return');
+        writer.line('$indent    return');
         writer.line('$indent}');
       }
       writer.line('${indent}let ptr = UnsafeMutablePointer<_${itemName}C>.allocate(capacity: 1)');
@@ -338,7 +338,7 @@ class SwiftStreamEmitter {
         writer.line('${indent}if let v = item {');
         writer.line('$indent    var _rv = v.rawValue');
         writer.line('$indent    if !emitCb(dartPort, &_rv) { $cancel }');
-        writer.line('${indent}} else {');
+        writer.line('$indent} else {');
         writer.line('$indent    if !emitCb(dartPort, nil) { $cancel }');
         writer.line('$indent}');
       } else {
@@ -355,7 +355,7 @@ class SwiftStreamEmitter {
         writer.line('${indent}if let v = item {');
         writer.line('$indent    var _bv: Int8 = v ? 1 : 0');
         writer.line('$indent    if !emitCb(dartPort, &_bv) { $cancel }');
-        writer.line('${indent}} else {');
+        writer.line('$indent} else {');
         writer.line('$indent    if !emitCb(dartPort, nil) { $cancel }');
         writer.line('$indent}');
       } else {
@@ -367,7 +367,7 @@ class SwiftStreamEmitter {
         writer.line('$indent    s.withCString { ptr in');
         writer.line('$indent        if !emitCb(dartPort, UnsafeMutablePointer(mutating: ptr)) { $cancel }');
         writer.line('$indent    }');
-        writer.line('${indent}} else {');
+        writer.line('$indent} else {');
         writer.line('$indent    if !emitCb(dartPort, nil) { $cancel }');
         writer.line('$indent}');
       } else {
@@ -380,7 +380,7 @@ class SwiftStreamEmitter {
         writer.line('${indent}if let v = item {');
         writer.line('$indent    var _ms = Int64(v.timeIntervalSince1970 * 1000)');
         writer.line('$indent    if !emitCb(dartPort, &_ms) { $cancel }');
-        writer.line('${indent}} else {');
+        writer.line('$indent} else {');
         writer.line('$indent    if !emitCb(dartPort, nil) { $cancel }');
         writer.line('$indent}');
       } else {
@@ -394,7 +394,7 @@ class SwiftStreamEmitter {
       writer.line('${indent}if let v = item {');
       writer.line('$indent    var _v = v');
       writer.line('$indent    if !emitCb(dartPort, &_v) { $cancel }');
-      writer.line('${indent}} else {');
+      writer.line('$indent} else {');
       writer.line('$indent    if !emitCb(dartPort, nil) { $cancel }');
       writer.line('$indent}');
     } else {
