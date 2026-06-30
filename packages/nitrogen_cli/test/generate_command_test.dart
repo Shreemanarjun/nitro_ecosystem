@@ -7,23 +7,13 @@ import 'package:test/test.dart';
 
 void main() {
   group('GenerateCommand planning modes', () {
-    String? savedCwd;
     late Directory tempDir;
 
     setUp(() {
-      try {
-        savedCwd = Directory.current.path;
-      } catch (_) {}
       tempDir = Directory.systemTemp.createTempSync('nitrogen_generate_dry_run_');
-      Directory.current = tempDir;
     });
 
     tearDown(() {
-      if (savedCwd != null) {
-        try {
-          Directory.current = savedCwd!;
-        } catch (_) {}
-      }
       if (tempDir.existsSync()) {
         tempDir.deleteSync(recursive: true);
       }
@@ -34,7 +24,7 @@ void main() {
       final command = _TestGenerateCommand();
       final runner = CommandRunner<void>('nitrogen', 'test')..addCommand(command);
 
-      await runner.run(['generate', '--dry-run', '--no-ui']);
+      await runner.run(['generate', '--dry-run', '--no-ui', '--directory=${tempDir.path}']);
 
       expect(command.exitCode, 0);
       expect(Directory(p.join(tempDir.path, '.dart_tool')).existsSync(), isFalse);
@@ -47,7 +37,7 @@ void main() {
       final command = _TestGenerateCommand();
       final runner = CommandRunner<void>('nitrogen', 'test')..addCommand(command);
 
-      await runner.run(['generate', '--check', '--no-ui']);
+      await runner.run(['generate', '--check', '--no-ui', '--directory=${tempDir.path}']);
 
       expect(command.exitCode, 3);
       expect(Directory(p.join(tempDir.path, '.dart_tool')).existsSync(), isFalse);
@@ -66,7 +56,7 @@ void main() {
       final command = _TestGenerateCommand();
       final runner = CommandRunner<void>('nitrogen', 'test')..addCommand(command);
 
-      await runner.run(['generate', '--check', '--no-ui']);
+      await runner.run(['generate', '--check', '--no-ui', '--directory=${tempDir.path}']);
 
       expect(command.exitCode, 0);
     });
@@ -82,7 +72,7 @@ void main() {
       final command = _TestGenerateCommand();
       final runner = CommandRunner<void>('nitrogen', 'test')..addCommand(command);
 
-      await runner.run(['generate', '--check', '--targets=dart', '--no-ui']);
+      await runner.run(['generate', '--check', '--targets=dart', '--no-ui', '--directory=${tempDir.path}']);
 
       expect(command.exitCode, 0);
       expect(Directory(p.join(tempDir.path, 'lib', 'src', 'generated')).existsSync(), isFalse);
@@ -93,7 +83,7 @@ void main() {
       final command = _TestGenerateCommand();
       final runner = CommandRunner<void>('nitrogen', 'test')..addCommand(command);
 
-      await runner.run(['generate', '--check', '--targets=swift', '--no-ui']);
+      await runner.run(['generate', '--check', '--targets=swift', '--no-ui', '--directory=${tempDir.path}']);
 
       expect(command.exitCode, 3);
     });
@@ -103,7 +93,7 @@ void main() {
       final command = _TestGenerateCommand();
       final runner = CommandRunner<void>('nitrogen', 'test')..addCommand(command);
 
-      await runner.run(['generate', '--check', '--targets=bogus', '--no-ui']);
+      await runner.run(['generate', '--check', '--targets=bogus', '--no-ui', '--directory=${tempDir.path}']);
 
       expect(command.exitCode, 1);
     });

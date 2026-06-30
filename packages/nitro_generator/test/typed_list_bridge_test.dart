@@ -224,7 +224,7 @@ void main() {
       expect(
         out,
         contains(
-          'void* verification_module_process_floats(float* inputs, int64_t inputs_length, NitroError* _nitro_err)',
+          'void* verification_module_process_floats(int64_t instanceId, float* inputs, int64_t inputs_length, NitroError* _nitro_err)',
         ),
       );
     });
@@ -246,7 +246,7 @@ void main() {
       expect(
         out,
         contains(
-          'verification_module_process_floats(float* inputs, int64_t inputs_length, NitroError* _nitro_err)',
+          'verification_module_process_floats(int64_t instanceId, float* inputs, int64_t inputs_length, NitroError* _nitro_err)',
         ),
       );
     });
@@ -278,7 +278,7 @@ void main() {
       // The lookup signature must be: Pointer<Void> Function(Pointer<Float>, Int64)
       expect(
         out,
-        contains('Pointer<Void> Function(Pointer<Float>, Int64, Pointer<NitroErrorFfi>)'),
+        contains('Pointer<Void> Function(Int64, Pointer<Float>, Int64, Pointer<NitroErrorFfi>)'),
         reason: 'native FFI type must include Int64 for the length',
       );
     });
@@ -287,7 +287,7 @@ void main() {
       final out = DartFfiGenerator.generate(_floatSpec());
       expect(
         out,
-        contains('Pointer<Void> Function(Pointer<Float>, int, Pointer<NitroErrorFfi>)'),
+        contains('Pointer<Void> Function(int, Pointer<Float>, int, Pointer<NitroErrorFfi>)'),
         reason: 'Dart FFI type must include int for the length',
       );
     });
@@ -296,24 +296,24 @@ void main() {
       final out = DartFfiGenerator.generate(_floatSpec());
       expect(
         out,
-        contains('_processFloatsPtr(inputs.toPointer(arena), inputs.length, _nitroErr)'),
+        contains('_processFloatsPtr(_instanceId, inputs.toPointer(arena), inputs.length, _nitroErr)'),
         reason: 'Dart call must pass .length alongside the pointer',
       );
     });
 
     test('Uint8List lookup includes Int64 length', () {
       final out = DartFfiGenerator.generate(_multiTypedListSpec());
-      expect(out, contains('Void Function(Pointer<Uint8>, Int64, Pointer<NitroErrorFfi>)'));
+      expect(out, contains('Void Function(Int64, Pointer<Uint8>, Int64, Pointer<NitroErrorFfi>)'));
     });
 
     test('Float64List lookup includes Int64 length', () {
       final out = DartFfiGenerator.generate(_multiTypedListSpec());
-      expect(out, contains('Void Function(Pointer<Double>, Int64, Pointer<NitroErrorFfi>)'));
+      expect(out, contains('Void Function(Int64, Pointer<Double>, Int64, Pointer<NitroErrorFfi>)'));
     });
 
     test('Int32List lookup includes Int64 length', () {
       final out = DartFfiGenerator.generate(_multiTypedListSpec());
-      expect(out, contains('Void Function(Pointer<Int32>, Int64, Pointer<NitroErrorFfi>)'));
+      expect(out, contains('Void Function(Int64, Pointer<Int32>, Int64, Pointer<NitroErrorFfi>)'));
     });
 
     test('non-typed-list params do not get an extra Int64 in the lookup', () {
@@ -323,7 +323,7 @@ void main() {
       expect(
         out,
         contains(
-          'Double Function(Pointer<Utf8>, Pointer<Float>, Int64, Double, Pointer<NitroErrorFfi>)',
+          'Double Function(Int64, Pointer<Utf8>, Pointer<Float>, Int64, Double, Pointer<NitroErrorFfi>)',
         ),
       );
     });
@@ -332,7 +332,7 @@ void main() {
       final out = DartFfiGenerator.generate(_mixedParamSpec());
       expect(
         out,
-        contains('_processPtr(label.toNativeUtf8(allocator: arena), data.toPointer(arena), data.length, scale, _nitroErr)'),
+        contains('_processPtr(_instanceId, label.toNativeUtf8(allocator: arena), data.toPointer(arena), data.length, scale, _nitroErr)'),
       );
     });
   });

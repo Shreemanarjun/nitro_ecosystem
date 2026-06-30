@@ -43,6 +43,12 @@ enum NitroCommand {
     '/migrate',
     'Detects CocoaPods setup and migrates to Flutter 3.41+ SPM layout automatically.',
   ),
+  clean(
+    'Clean',
+    'Delete all generated files and caches.',
+    '/clean',
+    'Removes all .g.dart, bridge, CMake, and Swift generated files plus build_runner and incremental caches.',
+  ),
   openCode(
     'Open in VS Code',
     'Open project in VS Code.',

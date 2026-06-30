@@ -346,9 +346,9 @@ void main() {
       expect(result.any((i) => i.code == 'E014'), isTrue, reason: 'E014 expected for empty variant');
     });
 
-    test('E014 error when variant has more than 10 cases', () {
+    test('E014 error when variant has more than 255 cases', () {
       final manyCases = List.generate(
-        11,
+        256,
         (i) => BridgeVariantCase(name: 'Case$i', label: 'case$i', fields: []),
       );
       final spec = BridgeSpec(
@@ -360,8 +360,8 @@ void main() {
       );
       final result = SpecValidator.validate(spec);
       final e014 = result.where((i) => i.code == 'E014').toList();
-      expect(e014, isNotEmpty, reason: 'E014 expected for >10 cases');
-      expect(e014.first.message, contains('11 cases'));
+      expect(e014, isNotEmpty, reason: 'E014 expected for >255 cases');
+      expect(e014.first.message, contains('256 cases'));
     });
 
     test('no E014 for valid variant (2 cases)', () {
@@ -370,7 +370,23 @@ void main() {
       expect(result.where((i) => i.code == 'E014'), isEmpty);
     });
 
-    test('no E014 for variant with exactly 10 cases', () {
+    test('no E014 for variant with exactly 255 cases', () {
+      final maxCases = List.generate(
+        255,
+        (i) => BridgeVariantCase(name: 'Case$i', label: 'case$i', fields: []),
+      );
+      final spec = BridgeSpec(
+        dartClassName: 'Foo',
+        lib: 'foo',
+        namespace: 'foo',
+        sourceUri: 'foo.native.dart',
+        variants: [BridgeVariant(name: 'Max', cases: maxCases)],
+      );
+      final result = SpecValidator.validate(spec);
+      expect(result.where((i) => i.code == 'E014'), isEmpty);
+    });
+
+    test('no E014 for variant with exactly 10 cases (was old limit, now allowed)', () {
       final tenCases = List.generate(
         10,
         (i) => BridgeVariantCase(name: 'Case$i', label: 'case$i', fields: []),
@@ -525,8 +541,8 @@ void main() {
       final out = CppBridgeGenerator.generate(_variantMethodSpec());
 
       expect(out, contains('extern uint8_t* _mylib_call_process(void* input);'));
-      expect(out, contains('uint8_t* mylib_process(void* input, NitroError* _nitro_err) {'));
-      expect(out, isNot(contains('void* mylib_process(void* input, NitroError* _nitro_err) {')));
+      expect(out, contains('uint8_t* mylib_process(int64_t instanceId, void* input, NitroError* _nitro_err) {'));
+      expect(out, isNot(contains('void* mylib_process(int64_t instanceId, void* input, NitroError* _nitro_err) {')));
     });
 
     test('direct C++ bridge treats variant params and returns as NitroCppBuffer', () {
@@ -534,7 +550,7 @@ void main() {
         _variantMethodSpec(iosImpl: NativeImpl.cpp, androidImpl: NativeImpl.cpp),
       );
 
-      expect(out, contains('uint8_t* mylib_process(void* input, NitroError* _nitro_err) {'));
+      expect(out, contains('uint8_t* mylib_process(int64_t instanceId, void* input, NitroError* _nitro_err) {'));
       expect(
         out,
         contains('NitroCppBuffer _buf_input = { (const uint8_t*)input + 4, (size_t)*(int32_t*)input };'),
@@ -962,7 +978,7 @@ void main() {
       expect(out, contains('_asyncExecutor.submit'));
       expect(out, contains('runBlocking { impl.asyncAcquireBuffer(size) }'));
       // JNI bridge return type is Long (jlong handle).
-      expect(out, contains('asyncAcquireBuffer_call(size: Long): Long'));
+      expect(out, contains('asyncAcquireBuffer_call(instanceId: Long, size: Long): Long'));
     });
   });
 
@@ -995,21 +1011,19 @@ void main() {
       expect(out, contains('void alloc_acquire_buffer_release(void* handle)'));
     });
 
-    test('_release frees pointer on non-Android via #ifdef __ANDROID__ guard', () {
+    test('_release calls free(handle) on all platforms (Point 8 fix — no Android no-op)', () {
       final out = CppBridgeGenerator.generate(ownedSpec());
-      // Global section uses #ifdef __ANDROID__ to select no-op vs free().
-      expect(out, contains('#ifdef __ANDROID__'));
-      expect(out, contains('(void)handle;'));
+      // After Point 8 fix: Android uses real malloc pointers (sun.misc.Unsafe.allocateMemory),
+      // so _release always calls free() regardless of platform.
       expect(out, contains('if (handle) { free(handle); }'));
+      expect(out, isNot(contains('(void)handle;')));
     });
 
     test('_release is in the global section (before platform guards)', () {
       final out = CppBridgeGenerator.generate(ownedSpec());
-      // The _release must appear BEFORE any #ifdef __ANDROID__ platform guard
-      // so Android compiles it in the no-op branch and Apple in the free() branch.
+      // The _release must appear BEFORE any #ifdef __ANDROID__ platform guard.
       final releasePos = out.indexOf('alloc_acquire_buffer_release');
       final androidGuardPos = out.indexOf('#ifdef __ANDROID__');
-      // _release should appear before or at the same level as the first platform guard.
       expect(releasePos, lessThan(androidGuardPos == -1 ? out.length : androidGuardPos + 1));
     });
 

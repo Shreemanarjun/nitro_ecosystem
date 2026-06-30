@@ -11,6 +11,10 @@ const _nitroLibraryRecordTypes = {
   'NitroNullableInt',
   'NitroNullableDouble',
   'NitroNullableBool',
+  // NitroOpt* packed structs (Dart FFI Struct subclasses from package:nitro)
+  'NitroOptInt64',
+  'NitroOptFloat64',
+  'NitroOptBool',
 };
 
 /// Generates binary encode/decode extension methods for @HybridRecord types.

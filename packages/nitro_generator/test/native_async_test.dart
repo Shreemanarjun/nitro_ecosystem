@@ -249,24 +249,24 @@ void main() {
       final out = DartFfiGenerator.generate(_nativeAsyncIntSpec());
       expect(
         out,
-        contains('Void Function(Int64, Int64)'),
+        contains('Void Function(Int64, Int64, Int64)'),
         reason: 'native-async wrapper returns void and takes (param, dart_port)',
       );
     });
 
-    test('int return: Dart callable type is void Function(int, int)', () {
+    test('int return: Dart callable type is void Function(int, int, int)', () {
       final out = DartFfiGenerator.generate(_nativeAsyncIntSpec());
-      expect(out, contains('void Function(int, int)'));
+      expect(out, contains('void Function(int, int, int)'));
     });
 
     test('String return: FFI type is Void Function(Pointer<Utf8>, Int64)', () {
       final out = DartFfiGenerator.generate(_nativeAsyncStringSpec());
-      expect(out, contains('Void Function(Pointer<Utf8>, Int64)'));
+      expect(out, contains('Void Function(Int64, Pointer<Utf8>, Int64)'));
     });
 
-    test('void return: FFI type is Void Function(Int64) — only dart_port', () {
+    test('void return: FFI type is Void Function(Int64, Int64) — instanceId + dart_port', () {
       final out = DartFfiGenerator.generate(_nativeAsyncVoidSpec());
-      expect(out, contains('Void Function(Int64)'));
+      expect(out, contains('Void Function(Int64, Int64)'));
     });
 
     // ── No isLeaf ─────────────────────────────────────────────────────────────
@@ -398,7 +398,7 @@ void main() {
     test('mixed spec: nativeCompute pointer is Void Function(Int64, Int64)', () {
       final out = DartFfiGenerator.generate(_mixedSpec());
       // nativeCompute takes one int param + dart_port
-      expect(out, contains('Void Function(Int64, Int64)'));
+      expect(out, contains('Void Function(Int64, Int64, Int64)'));
     });
   });
 
@@ -471,15 +471,15 @@ void main() {
   group('KotlinGenerator — @NitroNativeAsync', () {
     test('_call method accepts extra dartPort: Long parameter', () {
       final out = KotlinGenerator.generate(_nativeAsyncIntSpec());
-      expect(out, contains('compute_call(x: Long, dartPort: Long)'));
+      expect(out, contains('compute_call(instanceId: Long, x: Long, dartPort: Long)'));
     });
 
     test('_call method returns Unit (void), not the Dart return type', () {
       final out = KotlinGenerator.generate(_nativeAsyncIntSpec());
       // The wrapper accepts (params, dartPort) and returns Unit implicitly —
       // it must NOT declare ): Long { (that would be a non-void return type).
-      expect(out, contains('fun compute_call('));
-      final callLine = out.split('\n').firstWhere((l) => l.contains('compute_call('), orElse: () => '');
+      expect(out, contains('fun compute_call(instanceId: Long, '));
+      final callLine = out.split('\n').firstWhere((l) => l.contains('compute_call(instanceId: Long, '), orElse: () => '');
       // Closing paren followed by ): Long would indicate a Long return type.
       expect(callLine, isNot(contains('): Long')));
     });
@@ -540,8 +540,8 @@ void main() {
 
     test('mixed spec: regular @JvmStatic fun still emitted for non-native-async', () {
       final out = KotlinGenerator.generate(_mixedSpec());
-      expect(out, contains('fun syncAdd_call('));
-      expect(out, contains('fun asyncFetch_call('));
+      expect(out, contains('fun syncAdd_call(instanceId: Long, '));
+      expect(out, contains('fun asyncFetch_call(instanceId: Long)'));
     });
   });
 
@@ -637,13 +637,13 @@ void main() {
 
     test('bool param: FFI type includes Int8 for the bool parameter', () {
       final out = DartFfiGenerator.generate(_nativeAsyncBoolSpec());
-      // bool flag -> Int8, plus dart_port -> Int64
-      expect(out, contains('Void Function(Int8, Int64)'));
+      // instanceId -> Int64, bool flag -> Int8, dart_port -> Int64
+      expect(out, contains('Void Function(Int64, Int8, Int64)'));
     });
 
     test('bool param: Dart callable type uses int for bool parameter', () {
       final out = DartFfiGenerator.generate(_nativeAsyncBoolSpec());
-      expect(out, contains('void Function(int, int)'));
+      expect(out, contains('void Function(int, int, int)'));
     });
 
     test('String param: arena call arg uses toNativeUtf8(allocator: arena)', () {
@@ -651,9 +651,9 @@ void main() {
       expect(out, contains('query.toNativeUtf8(allocator: arena)'));
     });
 
-    test('no-params void: call lambda is _doWorkPtr(port) without leading comma', () {
+    test('no-params void: call lambda is _doWorkPtr(_instanceId, port)', () {
       final out = DartFfiGenerator.generate(_nativeAsyncVoidSpec());
-      expect(out, contains('_doWorkPtr(port)'));
+      expect(out, contains('_doWorkPtr(_instanceId, port)'));
       expect(out, isNot(contains('_doWorkPtr(, port)')));
     });
   });
@@ -692,7 +692,7 @@ void main() {
 
     test('nullable String param: preserves nil instead of empty string', () {
       final out = SwiftGenerator.generate(_nativeAsyncNullableStringSpec());
-      expect(out, contains(r'let queryStr = query.map { String(cString: $0) }'));
+      expect(out, contains('let queryStr: String? = _nitroStringOptFromCString(query)'));
     });
 
     test('no-params stub: signature has no comma before _ dartPort', () {
@@ -876,14 +876,14 @@ void main() {
   );
 
   group('CppBridgeGenerator — Android JNI @NitroNativeAsync', () {
-    test('JNI_OnLoad caches method with (params + J)V signature for native async', () {
+    test('JNI_OnLoad caches method with (instanceId + params + J)V signature for native async', () {
       final out = CppBridgeGenerator.generate(jniNativeAsyncSpec('String'));
-      expect(out, contains('"(Ljava/lang/String;J)V"'));
+      expect(out, contains('"(JLjava/lang/String;J)V"'));
     });
 
-    test('Android C function is void with dart_port param', () {
+    test('Android C function is void with instanceId and dart_port params', () {
       final out = CppBridgeGenerator.generate(jniNativeAsyncSpec('String'));
-      expect(out, contains('void fetcher_fetch(const char* key, int64_t dart_port)'));
+      expect(out, contains('void fetcher_fetch(int64_t instanceId, const char* key, int64_t dart_port)'));
     });
 
     test('Android C function calls CallStaticVoidMethod with jlong dart_port', () {
@@ -950,7 +950,7 @@ void main() {
     test('Apple section for @NitroNativeAsync emits void + dart_port signature', () {
       final out = CppBridgeGenerator.generate(jniNativeAsyncSpec('String'));
       // The Apple #elif section should have void func(params, int64_t dart_port)
-      expect(out, contains('void fetcher_fetch(const char* key, int64_t dart_port)'));
+      expect(out, contains('void fetcher_fetch(int64_t instanceId, const char* key, int64_t dart_port)'));
       // And should declare the Swift extern as void too
       expect(out, contains('extern void _fetcher_call_fetch('));
     });

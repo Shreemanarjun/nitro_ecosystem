@@ -1,3 +1,4 @@
+import '../../../bridge_item_kind.dart';
 import '../../../bridge_spec.dart';
 import '../../code_writer.dart';
 import '../../enum_generator.dart';
@@ -19,12 +20,15 @@ part 'emitters/dart_async_helpers.dart';
 part 'emitters/dart_callback_helpers.dart';
 
 /// Record types shipped in package:nitro that define their own codec methods.
-/// For these types the generator skips the *RecordExt extension and calls
-/// the class methods directly (e.g. NitroNullableInt.fromNative).
+/// For these types the generator skips the *RecordExt extension.
 const _nitroLibraryRecordTypes = {
   'NitroNullableInt',
   'NitroNullableDouble',
   'NitroNullableBool',
+  // NitroOpt* are Dart FFI Struct subclasses — no RecordExt needed.
+  'NitroOptInt64',
+  'NitroOptFloat64',
+  'NitroOptBool',
 };
 
 
@@ -34,7 +38,7 @@ class DartFfiGenerator {
 
     final writer = CodeWriter();
     writer.raw(generatedFileHeader('//', sourceUri: spec.sourceUri));
-    writer.line('// ignore_for_file: no_leading_underscores_for_local_identifiers, prefer_typing_uninitialized_variables');
+    writer.line('// ignore_for_file: no_leading_underscores_for_local_identifiers, prefer_typing_uninitialized_variables, non_constant_identifier_names');
     writer.line("part of '${spec.sourceUri.split('/').last}';");
     writer.blankLine();
 
@@ -65,6 +69,7 @@ class DartFfiGenerator {
     _emitPropertyImpls(writer, spec);
     _emitStreamImpls(writer, spec);
     _emitMapAndFactory(writer, spec);
+    _emitNativeRefExtension(writer, spec);
     return writer.toString();
   }
 }

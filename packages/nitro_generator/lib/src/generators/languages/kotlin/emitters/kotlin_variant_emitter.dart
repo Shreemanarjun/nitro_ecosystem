@@ -104,6 +104,22 @@ class KotlinVariantEmitter {
         writer.line('}');
       });
       writer.line('}');
+
+      writer.blank();
+
+      // ── encode ────────────────────────────────────────────────────────────────
+      // Produces [4B length (little-endian)][tag byte][field bytes] so that
+      // RecordReader.fromNative(ptr) on the Dart side can decode it correctly.
+      writer.line('fun encode(): ByteArray {');
+      writer.indent(() {
+        writer.line('val w = RecordWriter()');
+        writer.line('writeFields(w)');
+        writer.line('val payload = w.toByteArray()');
+        writer.line('val lenBuf = java.nio.ByteBuffer.allocate(4).order(java.nio.ByteOrder.LITTLE_ENDIAN)');
+        writer.line('lenBuf.putInt(payload.size)');
+        writer.line('return lenBuf.array() + payload');
+      });
+      writer.line('}');
     });
     writer.line('}');
     writer.blank();

@@ -1,12 +1,12 @@
 // Tests for the nullable return branches in dart_ffi_generator.dart:
 //
-//   1. Async @nitroAsync return path: nullable types use NitroNullable binary decoding.
+//   1. Async @nitroAsync return path: nullable types use NitroOptional<T> decode.
 //   2. _nativeAsyncOpenType: returns the correct transport type (no naked nullable).
 //   3. _nativeAsyncUnpack: correct unpack lambda for every nullable type + struct? + enum?.
 //      (NativeAsync still uses sentinel values via Dart_PostCObject_DL)
-//   4. callAsyncType: bool?/int?/double? use Pointer<Uint8> transport (NitroNullable).
+//   4. callAsyncType: bool?/int?/double? use Pointer<NitroOptXxx> transport (packed struct).
 //
-// Sync and @nitroAsync nullable returns now use NitroNullable binary encoding.
+// Sync and @nitroAsync nullable returns now use NitroOptional<T> decode.
 // @NitroNativeAsync still uses sentinel values (posted via Dart_PostCObject_DL).
 
 import 'package:nitro_annotations/nitro_annotations.dart';
@@ -222,20 +222,23 @@ void main() {
   // ── @nitroAsync nullable return decoding ──────────────────────────────────
 
   group('DartFfiGenerator — @nitroAsync nullable return decoding', () {
-    test('int? return: decodes via NitroNullableInt.fromNative (binary encoding)', () {
+    test('int? return: decodes via typed pointer .decoded + malloc.free', () {
       final out = DartFfiGenerator.generate(_asyncNullableSpec());
-      // Must decode using NitroNullable binary format (var name is 'res' for async path)
-      expect(out, contains('NitroNullableInt.fromNative(res).nullable'));
+      expect(out, contains('Pointer<NitroOptInt64>'));
+      expect(out, contains('.decoded'));
+      expect(out, contains('malloc.free'));
     });
 
-    test('double? return: decodes via NitroNullableDouble.fromNative', () {
+    test('double? return: decodes via typed pointer .decoded + malloc.free', () {
       final out = DartFfiGenerator.generate(_asyncNullableSpec());
-      expect(out, contains('NitroNullableDouble.fromNative(res).nullable'));
+      expect(out, contains('Pointer<NitroOptFloat64>'));
+      expect(out, contains('.decoded'));
     });
 
-    test('bool? return: decodes via NitroNullableBool.fromNative', () {
+    test('bool? return: decodes via typed pointer .decoded + malloc.free', () {
       final out = DartFfiGenerator.generate(_asyncNullableSpec());
-      expect(out, contains('NitroNullableBool.fromNative(res).nullable'));
+      expect(out, contains('Pointer<NitroOptBool>'));
+      expect(out, contains('.decoded'));
     });
 
     test('String? return: checks nullptr before toDartStringWithFree', () {
@@ -313,11 +316,11 @@ void main() {
   // ── @NitroNativeAsync unpack lambdas ──────────────────────────────────────
 
   group('DartFfiGenerator — @NitroNativeAsync unpack lambda correctness', () {
-    // NativeAsync unpack uses sentinel (Int64.min/NaN) since Dart_PostCObject_DL posts primitives.
-    test('int? unpack: sentinel Int64.min → null (NativeAsync only)', () {
+    // NativeAsync unpack: nullable prims use typed pointer path (malloc on C, decode+free on Dart).
+    test('int? unpack: posts address, Dart decodes via Pointer<NitroOptInt64>.fromAddress', () {
       final out = DartFfiGenerator.generate(_asyncNullableSpec());
-      // Unpack for nativeNullableInt should check v == Int64.min
-      expect(out, contains('v == -9223372036854775808 ? null : v'));
+      expect(out, contains('Pointer<NitroOptInt64>.fromAddress'));
+      expect(out, contains('ptr.decoded'));
     });
 
     test('String? unpack casts posted kString/kNull to String?', () {
@@ -325,9 +328,9 @@ void main() {
       expect(out, contains('(raw) => raw as String?'));
     });
 
-    test('double? unpack: NaN → null (NativeAsync only)', () {
+    test('double? unpack: posts address, Dart decodes via Pointer<NitroOptFloat64>.fromAddress', () {
       final out = DartFfiGenerator.generate(_asyncNullableSpec());
-      expect(out, contains('v.isNaN ? null : v'));
+      expect(out, contains('Pointer<NitroOptFloat64>.fromAddress'));
     });
 
     test('bool? unpack: null if no value posted', () {
@@ -411,14 +414,23 @@ void main() {
       ],
     );
 
-    test('sync int? return: NitroNullableInt decode present', () {
-      expect(DartFfiGenerator.generate(syncNullable()), contains('NitroNullableInt.fromNative(res).nullable'));
+    test('sync int? return: Pointer<NitroOptInt64>, .decoded extension, malloc.free', () {
+      final out = DartFfiGenerator.generate(syncNullable());
+      expect(out, contains('Pointer<NitroOptInt64> Function('));
+      expect(out, contains('.decoded'));
+      expect(out, contains('malloc.free('));
     });
-    test('sync double? return: NitroNullableDouble decode present', () {
-      expect(DartFfiGenerator.generate(syncNullable()), contains('NitroNullableDouble.fromNative(res).nullable'));
+    test('sync double? return: Pointer<NitroOptFloat64>, .decoded extension, malloc.free', () {
+      final out = DartFfiGenerator.generate(syncNullable());
+      expect(out, contains('Pointer<NitroOptFloat64> Function('));
+      expect(out, contains('.decoded'));
+      expect(out, contains('malloc.free('));
     });
-    test('sync bool? return: NitroNullableBool decode present', () {
-      expect(DartFfiGenerator.generate(syncNullable()), contains('NitroNullableBool.fromNative(res).nullable'));
+    test('sync bool? return: Pointer<NitroOptBool>, .decoded extension, malloc.free', () {
+      final out = DartFfiGenerator.generate(syncNullable());
+      expect(out, contains('Pointer<NitroOptBool> Function('));
+      expect(out, contains('.decoded'));
+      expect(out, contains('malloc.free('));
     });
     test('sync String? return: nullptr check present', () {
       final out = DartFfiGenerator.generate(syncNullable());

@@ -11,6 +11,7 @@ builders:
         - 'lib/{{dir}}/generated/cpp/{{file}}.bridge.g.cpp'
         - 'lib/{{dir}}/generated/cmake/{{file}}.CMakeLists.g.txt'
         - 'lib/{{dir}}/generated/cpp/{{file}}.native.g.h'
+        - 'lib/{{dir}}/generated/cpp/{{file}}.impl.g.cpp'
         - 'lib/{{dir}}/generated/cpp/test/{{file}}.mock.g.h'
         - 'lib/{{dir}}/generated/cpp/test/{{file}}.test.g.cpp'
         - 'lib/{{dir}}/generated/web/{{file}}.web.bridge.g.dart'

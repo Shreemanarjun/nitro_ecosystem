@@ -23,11 +23,13 @@ String _cap(String name) => name[0].toUpperCase() + name.substring(1);
 String _toNativeType(BridgeFunction func, BridgeSpec spec) {
   // NativeAsync: C function returns void and takes an extra Int64 dart_port.
   // @NitroResult: C function always returns Pointer<Uint8> (tagged buffer).
+  // Nullable prims: C returns uint8_t* pointer (malloc'd); Dart receives Pointer<NitroOptXxx>.
   final ret = func.isNativeAsync ? 'Void'
       : func.isResult ? 'Pointer<Uint8>'
       : _typeToFFI(func.returnType, spec);
   final effectiveRet = func.returnType.isTypedData ? 'Pointer<Uint8>' : ret;
   final params = [
+    'Int64', // instanceId (Point 13 per-instance dispatch)
     ...func.params.expand((p) {
       if (p.type.isTypedData) return [_typeToFFI(p.type, spec), 'Int64'];
       return [_typeToFFI(p.type, spec)];
@@ -43,11 +45,13 @@ String _toNativeType(BridgeFunction func, BridgeSpec spec) {
 String _toDartType(BridgeFunction func, BridgeSpec spec) {
   // NativeAsync: Dart callable returns void and takes an extra int dart_port.
   // @NitroResult: Dart callable returns Pointer<Uint8> (tagged result buffer).
+  // Nullable prims: C returns uint8_t* pointer; Dart receives Pointer<NitroOptXxx>.
   final ret = func.isNativeAsync ? 'void'
       : func.isResult ? 'Pointer<Uint8>'
       : _typeToDartFFI(func.returnType, spec);
   final effectiveRet = func.returnType.isTypedData ? 'Pointer<Uint8>' : ret;
   final params = [
+    'int', // instanceId (Point 13 per-instance dispatch)
     ...func.params.expand((p) {
       if (p.type.isTypedData) return [_typeToDartFFI(p.type, spec), 'int'];
       return [_typeToDartFFI(p.type, spec)];
@@ -63,20 +67,33 @@ String _typeToFFI(BridgeType bt, BridgeSpec spec) {
   if (bt.isFunction) {
     return 'Pointer<NativeFunction<${_callbackNativeSignature(bt, spec)}>>';
   }
-  if (bt.isRecord) {
-    // Maps use binary encoding → same Pointer<Uint8> wire as @HybridRecord.
+  if (bt.isAnyMap || bt.isRecord) {
+    // NitroAnyMap and Maps use binary encoding → same Pointer<Uint8> wire as @HybridRecord.
     return 'Pointer<Uint8>';
   }
   if (bt.isPointer) {
     return 'Pointer<${bt.pointerInnerType}>';
   }
   if (bt.isNativeHandle) return 'Pointer<Void>';
+  if (bt.isAnyNativeObject) return 'Int64';
   final name = bt.name.replaceFirst('?', '');
+  if (spec.isCustomTypeName(name)) return 'Pointer<Uint8>';
   if (spec.isVariantName(name)) return 'Pointer<Uint8>';
-  // Nullable primitives: NitroNullable binary encoding → Pointer<Uint8>
-  if (bt.name == 'int?' || bt.name == 'double?' || bt.name == 'bool?') return 'Pointer<Uint8>';
+  // Nullable primitives: typed Pointer<NitroOptXxx> (struct layout, full value domain).
+  if (bt.name == 'int?') return 'Pointer<NitroOptInt64>';
+  if (bt.name == 'double?') return 'Pointer<NitroOptFloat64>';
+  if (bt.name == 'bool?') return 'Pointer<NitroOptBool>';
+  if (bt.name == 'DateTime?') return 'Pointer<NitroOptInt64>';
+  // AnyNativeObject? uses -1 as null sentinel; wire type is still Int64.
+  if (bt.name == 'AnyNativeObject?') return 'Int64';
+  // uint64? uses the same NitroOptInt64 struct (bits identical, different C signedness).
+  if (bt.name == 'uint64?') return 'Pointer<NitroOptInt64>';
   switch (name) {
     case 'int':
+      return 'Int64';
+    case 'uint64':
+      return 'Uint64';
+    case 'DateTime':
       return 'Int64';
     case 'double':
       return 'Double';
@@ -115,20 +132,31 @@ String _typeToDartFFI(BridgeType bt, BridgeSpec spec) {
   if (bt.isFunction) {
     return 'Pointer<NativeFunction<${_callbackNativeSignature(bt, spec)}>>';
   }
-  if (bt.isRecord) {
-    // Maps use binary encoding → same Pointer<Uint8> wire as @HybridRecord.
+  if (bt.isAnyMap || bt.isRecord) {
+    // NitroAnyMap and Maps use binary encoding → same Pointer<Uint8> wire as @HybridRecord.
     return 'Pointer<Uint8>';
   }
   if (bt.isPointer) {
     return 'Pointer<${bt.pointerInnerType}>';
   }
   if (bt.isNativeHandle) return 'Pointer<Void>';
+  if (bt.isAnyNativeObject) return 'int';
   final name = bt.name.replaceFirst('?', '');
+  if (spec.isCustomTypeName(name)) return 'Pointer<Uint8>';
   if (spec.isVariantName(name)) return 'Pointer<Uint8>';
-  // Nullable primitives: NitroNullable binary encoding → Pointer<Uint8>
-  if (bt.name == 'int?' || bt.name == 'double?' || bt.name == 'bool?') return 'Pointer<Uint8>';
+  // Nullable primitives: typed Pointer<NitroOptXxx> for async/param paths.
+  if (bt.name == 'int?') return 'Pointer<NitroOptInt64>';
+  if (bt.name == 'double?') return 'Pointer<NitroOptFloat64>';
+  if (bt.name == 'bool?') return 'Pointer<NitroOptBool>';
+  if (bt.name == 'DateTime?') return 'Pointer<NitroOptInt64>';
+  if (bt.name == 'AnyNativeObject?') return 'int';
+  if (bt.name == 'uint64?') return 'Pointer<NitroOptInt64>';
   switch (name) {
     case 'int':
+      return 'int';
+    case 'uint64':
+      return 'int';
+    case 'DateTime':
       return 'int';
     case 'double':
       return 'double';

@@ -94,7 +94,7 @@ void main() {
 
     test('JniBridge _call for enum returns Long', () {
       final out = KotlinGenerator.generate(enumSpec());
-      expect(out, contains('fun getStatus_call(): Long'));
+      expect(out, contains('fun getStatus_call(instanceId: Long): Long'));
       expect(out, contains('.nativeValue'));
     });
 
@@ -142,7 +142,7 @@ void main() {
       final out = KotlinGenerator.generate(structStreamSpec());
       expect(
         out,
-        contains('fun my_camera_register_frames_stream_call(dartPort: Long)'),
+        contains('fun my_camera_register_frames_stream_call(instanceId: Long, dartPort: Long)'),
       );
     });
 
@@ -184,7 +184,7 @@ void main() {
       );
 
       expect(out, contains('fun process(samples: java.nio.ByteBuffer)'));
-      expect(out, contains('fun process_call(samples: java.nio.ByteBuffer)'));
+      expect(out, contains('fun process_call(instanceId: Long, samples: java.nio.ByteBuffer)'));
       expect(out, isNot(contains('samples: FloatArray')));
     });
 
@@ -211,7 +211,7 @@ void main() {
       );
 
       expect(out, contains('fun snapshot(): java.nio.ByteBuffer'));
-      expect(out, contains('fun snapshot_call(): java.nio.ByteBuffer'));
+      expect(out, contains('fun snapshot_call(instanceId: Long): java.nio.ByteBuffer'));
       expect(out, isNot(contains('fun snapshot(): ByteArray')));
     });
   });
@@ -334,12 +334,12 @@ void main() {
 
     test('JniBridge _call for record param uses real class name', () {
       final out = KotlinGenerator.generate(singleRecordSpec());
-      expect(out, contains('fun setDevice_call(device: ByteArray)'));
+      expect(out, contains('fun setDevice_call(instanceId: Long, device: ByteArray)'));
     });
 
     test('JniBridge _call for record return uses ByteArray', () {
       final out = KotlinGenerator.generate(singleRecordSpec());
-      expect(out, contains('fun getDevice_call(): ByteArray'));
+      expect(out, contains('fun getDevice_call(instanceId: Long): ByteArray'));
     });
 
     test('RecordGenerator.generateKotlin returns empty when no records', () {

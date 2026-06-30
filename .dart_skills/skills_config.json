@@ -1,0 +1,51 @@
+{
+  "version": 1,
+  "installations": {
+    "claude": {
+      "flutter": {
+        "skills": [
+          {
+            "name": "flutter-implement-json-serialization",
+            "installedAt": "2026-06-28T16:02:09.207747Z"
+          },
+          {
+            "name": "flutter-add-widget-test",
+            "installedAt": "2026-06-28T16:02:09.208877Z"
+          },
+          {
+            "name": "flutter-use-http-package",
+            "installedAt": "2026-06-28T16:02:09.210110Z"
+          },
+          {
+            "name": "flutter-build-responsive-layout",
+            "installedAt": "2026-06-28T16:02:09.211062Z"
+          },
+          {
+            "name": "flutter-apply-architecture-best-practices",
+            "installedAt": "2026-06-28T16:02:09.212709Z"
+          },
+          {
+            "name": "flutter-add-widget-preview",
+            "installedAt": "2026-06-28T16:02:09.214170Z"
+          },
+          {
+            "name": "flutter-setup-declarative-routing",
+            "installedAt": "2026-06-28T16:02:09.215345Z"
+          },
+          {
+            "name": "flutter-fix-layout-issues",
+            "installedAt": "2026-06-28T16:02:09.216336Z"
+          },
+          {
+            "name": "flutter-add-integration-test",
+            "installedAt": "2026-06-28T16:02:09.217342Z"
+          },
+          {
+            "name": "flutter-setup-localization",
+            "installedAt": "2026-06-28T16:02:09.218663Z"
+          }
+        ]
+      }
+    }
+  }
+}

@@ -459,6 +459,18 @@ public class NitroRecordWriter {
       for item in items { writeItem(w, item) }
       return w.toNative()
   }
+  /// Encodes a list of nullable items.
+  /// Wire format: [4B count][for each: 1B hasValue][item bytes (only if hasValue)]
+  /// Counterpart: NitroRecordReader.decodeNullableList / Dart RecordReader.decodeNullableList.
+  public static func encodeNullableList<T>(_ items: [T?], writeItem: (NitroRecordWriter, T) -> Void) -> UnsafeMutablePointer<UInt8>? {
+      let w = NitroRecordWriter()
+      w.writeInt32(Int32(items.count))
+      for item in items {
+          w.writeBool(item != nil)
+          if let v = item { writeItem(w, v) }
+      }
+      return w.toNative()
+  }
   /// Encodes a list with a per-item byte-offset table for O(1) random access.
   /// Wire format (payload after outer 4B length prefix):
   ///   [int32 count][int64 × count offsets from payload start][item bytes...]
@@ -548,6 +560,19 @@ public class NitroRecordReader {
       var items: [T] = []
       for _ in 0..<count {
           items.append(readItem(r))
+      }
+      return items
+  }
+  /// Decodes a list of nullable items.
+  /// Wire format: [4B count][for each: 1B hasValue][item bytes (only if hasValue)]
+  /// Counterpart: NitroRecordWriter.encodeNullableList / Dart RecordWriter.encodeNullableList.
+  public static func decodeNullableList<T>(_ ptr: UnsafeMutablePointer<UInt8>, readItem: (NitroRecordReader) -> T) -> [T?] {
+      let r = NitroRecordReader(ptr: ptr)
+      let count = r.readInt32()
+      var items: [T?] = []
+      for _ in 0..<count {
+          let hasValue = r.readBool()
+          items.append(hasValue ? readItem(r) : nil)
       }
       return items
   }

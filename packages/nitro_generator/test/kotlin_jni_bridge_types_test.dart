@@ -56,9 +56,9 @@ void main() {
   // ── Section 1: Sync _call return types ──────────────────────────────────────
 
   group('KotlinGenerator — sync JniBridge _call return type: bool', () {
-    test('bool sync return → fun fn_call(): Boolean (not Long)', () {
+    test('bool sync return → fun fn_call(instanceId: Long): Boolean (not Long)', () {
       final out = KotlinGenerator.generate(_syncReturnSpec('bool'));
-      expect(out, contains('fun fn_call(): Boolean'));
+      expect(out, contains('fun fn_call(instanceId: Long): Boolean'));
     });
 
     test('bool sync _call returns impl.fn() directly (no nativeValue)', () {
@@ -70,14 +70,14 @@ void main() {
 
     test('bool sync _call does NOT return Long', () {
       final out = KotlinGenerator.generate(_syncReturnSpec('bool'));
-      expect(out, isNot(contains('fun fn_call(): Long')));
+      expect(out, isNot(contains('fun fn_call(instanceId: Long): Long')));
     });
   });
 
   group('KotlinGenerator — sync JniBridge _call return type: String', () {
-    test('String sync return → fun fn_call(): String', () {
+    test('String sync return → fun fn_call(instanceId: Long): String', () {
       final out = KotlinGenerator.generate(_syncReturnSpec('String'));
-      expect(out, contains('fun fn_call(): String'));
+      expect(out, contains('fun fn_call(instanceId: Long): String'));
     });
 
     test('String sync _call returns impl.fn() directly', () {
@@ -87,9 +87,9 @@ void main() {
   });
 
   group('KotlinGenerator — sync JniBridge _call return type: double', () {
-    test('double sync return → fun fn_call(): Double', () {
+    test('double sync return → fun fn_call(instanceId: Long): Double', () {
       final out = KotlinGenerator.generate(_syncReturnSpec('double'));
-      expect(out, contains('fun fn_call(): Double'));
+      expect(out, contains('fun fn_call(instanceId: Long): Double'));
     });
 
     test('double sync _call returns impl.fn() directly', () {
@@ -99,16 +99,16 @@ void main() {
   });
 
   group('KotlinGenerator — sync JniBridge _call return type: int', () {
-    test('int sync return → fun fn_call(): Long', () {
+    test('int sync return → fun fn_call(instanceId: Long): Long', () {
       final out = KotlinGenerator.generate(_syncReturnSpec('int'));
-      expect(out, contains('fun fn_call(): Long'));
+      expect(out, contains('fun fn_call(instanceId: Long): Long'));
     });
   });
 
   group('KotlinGenerator — sync JniBridge _call return type: void', () {
-    test('void sync _call → fun fn_call(): Unit', () {
+    test('void sync _call → fun fn_call(instanceId: Long): Unit', () {
       final out = KotlinGenerator.generate(_syncReturnSpec('void'));
-      expect(out, contains('fun fn_call(): Unit'));
+      expect(out, contains('fun fn_call(instanceId: Long): Unit'));
     });
 
     test('void sync _call body calls impl.fn() without return', () {
@@ -120,9 +120,9 @@ void main() {
   // ── Section 2: Async _call return types ──────────────────────────────────────
 
   group('KotlinGenerator — async JniBridge _call return type: bool', () {
-    test('async bool → fun fn_call(): Boolean', () {
+    test('async bool → fun fn_call(instanceId: Long): Boolean', () {
       final out = KotlinGenerator.generate(_asyncReturnSpec('bool'));
-      expect(out, contains('fun fn_call(): Boolean'));
+      expect(out, contains('fun fn_call(instanceId: Long): Boolean'));
     });
 
     test('async bool _call uses runBlocking', () {
@@ -143,9 +143,9 @@ void main() {
   });
 
   group('KotlinGenerator — async JniBridge _call return type: double', () {
-    test('async double → fun fn_call(): Double', () {
+    test('async double → fun fn_call(instanceId: Long): Double', () {
       final out = KotlinGenerator.generate(_asyncReturnSpec('double'));
-      expect(out, contains('fun fn_call(): Double'));
+      expect(out, contains('fun fn_call(instanceId: Long): Double'));
     });
 
     test('async double _call uses runBlocking', () {
@@ -155,9 +155,9 @@ void main() {
   });
 
   group('KotlinGenerator — async JniBridge _call return type: String', () {
-    test('async String → fun fn_call(): String', () {
+    test('async String → fun fn_call(instanceId: Long): String', () {
       final out = KotlinGenerator.generate(_asyncReturnSpec('String'));
-      expect(out, contains('fun fn_call(): String'));
+      expect(out, contains('fun fn_call(instanceId: Long): String'));
     });
 
     test('async String _call uses runBlocking', () {
@@ -174,11 +174,11 @@ void main() {
   // ── Section 3: Async _call enum → Long via nativeValue ──────────────────────
 
   group('KotlinGenerator — async JniBridge _call return type: enum', () {
-    test('async enum → fun fn_call(): Long (bridged via nativeValue)', () {
+    test('async enum → fun fn_call(instanceId: Long): Long (bridged via nativeValue)', () {
       final out = KotlinGenerator.generate(
         _asyncReturnSpec('Priority', enums: _kPriorityEnum),
       );
-      expect(out, contains('fun fn_call(): Long'));
+      expect(out, contains('fun fn_call(instanceId: Long): Long'));
     });
 
     test('async enum _call returns .nativeValue from runBlocking result', () {
@@ -207,9 +207,9 @@ void main() {
   // ── Section 4: _call void async ──────────────────────────────────────────────
 
   group('KotlinGenerator — async JniBridge _call return type: void', () {
-    test('async void → fun fn_call(): Unit', () {
+    test('async void → fun fn_call(instanceId: Long): Unit', () {
       final out = KotlinGenerator.generate(_asyncReturnSpec('void'));
-      expect(out, contains('fun fn_call(): Unit'));
+      expect(out, contains('fun fn_call(instanceId: Long): Unit'));
     });
 
     test('async void _call uses runBlocking without return statement', () {

@@ -39,7 +39,7 @@ In your plugin's `pubspec.yaml`:
 
 ```yaml
 dependencies:
-  nitro: ^0.4.6
+  nitro: ^0.5.0
 ```
 
 Then run:
@@ -80,11 +80,18 @@ abstract class Math extends HybridObject {
 | Annotation | Where | Effect |
 |---|---|---|
 | `@NitroModule(...)` | class | Marks an abstract class as a Nitrogen module spec |
-| `@nitroAsync` | method | Generated code dispatches call to a background isolate |
-| `@NitroStream(backpressure:)` | getter | Streams native events to Dart via `Dart_PostCObject` |
-| `@HybridStruct(zeroCopy:)` | class | Turns a Dart class into a C-struct with optional zero-copy fields |
-| `@HybridEnum(startValue:)` | enum | Maps a Dart enum to a C `int32_t` enum |
-| `@zeroCopy` | parameter | Marks a `TypedData` param as a raw native pointer (no copy) |
+| `@HybridEnum(startValue:, nativeValues:)` | enum | Maps a Dart enum to `int64_t`; use `nativeValues` for non-contiguous OS enums |
+| `@HybridStruct(packed:, zeroCopy:)` | class | Packed C struct — zero-copy across FFI; hot-path numeric data |
+| `@HybridRecord()` | class | Binary-encoded type; supports strings, lists, nullables, nested records |
+| `@NitroVariant()` | sealed class | Discriminated union (tagged union); each subclass is one variant case |
+| `@NitroTuple()` | typedef | Named positional record; fields accessed via `$1`, `$2`, … |
+| `@nitroAsync` | method | Offloads call to a background isolate; overhead ~930 µs |
+| `@nitroNativeAsync` | method | Native side posts result via `Dart_PostCObject_DL`; overhead ~146 µs |
+| `@NitroStream(backpressure:)` | getter | Streams native events to Dart via `Dart_PostCObject_DL` |
+| `@NitroResult()` | method | Return type becomes `NitroResultValue<T>` (`NitroOk<T>` or `NitroErr`) |
+| `@zeroCopy` | parameter | Marks a `TypedData` param as a raw native pointer (callee must not retain) |
+| `@NitroOwned` | method | `NativeHandle` return; Dart takes ownership; `NativeFinalizer` calls `_release` |
+| `@NitroCustomType(codec:, encodedSize:)` | class | User-defined FFI codec; generator emits `codec.encode/decode` at every call site |
 
 Use explicit per-platform implementation constants for new specs:
 
@@ -336,16 +343,55 @@ public class MyPluginPlugin: NSObject, FlutterPlugin {
 
 ## Type mapping reference
 
-| Dart type | C type | Kotlin type | Swift type |
+### Primitives
+
+| Dart | C | Kotlin | Swift |
 |---|---|---|---|
 | `int` | `int64_t` | `Long` | `Int64` |
 | `double` | `double` | `Double` | `Double` |
 | `bool` | `int8_t` | `Boolean` | `Bool` |
 | `String` | `const char*` | `String` | `String` |
-| `Uint8List`, `Float32List`, ... | `T*` + `int64_t len` | `ByteArray`, `FloatArray`, ... | `Data`, `[Float]`, ... |
-| `TypedData` + `zeroCopy` | `T*` | `java.nio.ByteBuffer` | `UnsafeMutablePointer<T>?` |
-| `Future<T>` | N/A | `suspend fun` | `async throws` |
-| `Stream<T>` | SendPort reg. | `Flow<T>` | `AnyPublisher<T, Never>` |
+| `void` | `void` | `Unit` | `Void` |
+
+### Nullable primitives (0.5.0+)
+
+Bridged as `@Packed(1)` C structs — same layout as C++ `std::optional<T>`. No sentinels, no heap allocation on sync paths.
+
+| Dart | C struct | Size |
+|---|---|---|
+| `int?` | `NitroOptInt64 { uint8_t hasValue; int64_t value; }` | 9 B |
+| `double?` | `NitroOptFloat64 { uint8_t hasValue; double value; }` | 9 B |
+| `bool?` | `NitroOptBool { uint8_t hasValue; uint8_t value; }` | 2 B |
+| `String?` | `const char*` (null = absent) | pointer |
+
+### Buffers & collections
+
+| Dart | C | Kotlin | Swift |
+|---|---|---|---|
+| `Uint8List`, `Float32List`, ... | `T* + int64_t len` | `ByteArray`, `FloatArray`, ... | `UnsafeMutablePointer<T>?, Int64` |
+| `TypedData` + `@zeroCopy` | `T*` (raw pin) | `java.nio.ByteBuffer` | `UnsafeMutablePointer<T>?` |
+| `List<primitive>` | `uint8_t*` (record codec) | `List<T>` | `[T]` |
+| `Map<String, T>` | JSON (`const char*`) | `Map<String, T>` | `[String: T]` |
+
+### Custom types
+
+| Dart | C | Kotlin | Swift |
+|---|---|---|---|
+| `@HybridEnum` | `int64_t` | `Long` | `Int64` |
+| `@HybridStruct` | `void*` (packed struct) | `ByteArray` | `UnsafePointer<T>?` |
+| `@HybridRecord` | `uint8_t*, int64_t len` | `ByteArray` | `UnsafePointer<UInt8>?` |
+| `@NitroVariant` | `uint8_t*, int64_t len` | `ByteArray` | `UnsafePointer<UInt8>?` |
+| `@NitroTuple` | `uint8_t*, int64_t len` | `ByteArray` | `UnsafePointer<UInt8>?` |
+| `NativeHandle<Void>` | `void*` | `Long` | `Int64` |
+
+### Async & stream
+
+| Dart | Kotlin | Swift |
+|---|---|---|
+| `@nitroAsync Future<T>` | `suspend fun` | `async throws` |
+| `@nitroNativeAsync Future<T>` | fun with `Long port` | func with `Int64 port` |
+| `@NitroResult() Future<NitroResultValue<T>>` | `suspend fun` → throws | `async throws -> T` |
+| `@NitroStream Stream<T>` | `Flow<T>` | `AnyPublisher<T, Never>` |
 
 ---
 
@@ -364,6 +410,96 @@ nitro_ecosystem/
     ├── android/                    ← Kotlin implementation
     └── ios/                        ← Swift implementation
 ```
+
+---
+
+## Special runtime types
+
+### `AnyNativeObject` / `NitroAnyValue` / `NitroAnyMap`
+
+For bridging dynamic / untyped data:
+
+```dart
+// Spec:
+AnyNativeObject? getHandle();
+NitroAnyMap getConfig();
+```
+
+| Type | Description |
+|---|---|
+| `AnyNativeObject` | Opaque native pointer stored as `int64_t`. Use `@NitroOwned` when Dart takes ownership. |
+| `NitroAnyValue` | Dynamic variant: null / bool / int / double / String / List / Map. Equivalent to a JSON value. |
+| `NitroAnyMap` | Typedef for `Map<String, NitroAnyValue>`. Equivalent to a JSON object. |
+
+```dart
+// Dart usage:
+final config = module.getConfig();  // NitroAnyMap
+final name = config['appName']?.asString;
+final version = config['buildNumber']?.asInt;
+```
+
+> Prefer `@HybridRecord` when the schema is known — it is significantly faster than `NitroAnyMap`.
+
+### `NitroPromise<T>`
+
+A Dart-side future that the native side can resolve or reject. It wraps a `ReceivePort` and exposes a `.future` property:
+
+```dart
+// Generated for @nitroNativeAsync methods — you rarely use NitroPromise directly.
+// Available for advanced patterns where native code needs to hold a Dart future reference.
+final promise = NitroPromise<String>();
+nativeLayer.doWork(promise.port.nativePort);
+final result = await promise.future;
+```
+
+---
+
+## Special Notes
+
+### `dart:isolate` not needed for callback specs (0.5.0+)
+
+Generated `.g.dart` files are `part of` the user's spec file and cannot have their own `import` directives. Before 0.5.0, specs that used callbacks (methods with function parameters) required `import 'dart:isolate'` because generated code uses `ReceivePort` for callback-release ports.
+
+As of 0.5.0, `package:nitro/nitro.dart` re-exports `ReceivePort` and `SendPort` conditionally (with a web stub). Remove any manual `import 'dart:isolate'` from spec files:
+
+```dart
+// ❌ Before 0.5.0:
+import 'dart:isolate';
+import 'package:nitro/nitro.dart';
+part 'my_module.g.dart';
+
+// ✅ 0.5.0+:
+import 'package:nitro/nitro.dart';
+part 'my_module.g.dart';
+```
+
+### Nullable callback parameters use sentinels
+
+`NativeCallable` function pointers (used for Dart callbacks passed to native) have no `Arena` lifetime in the callback body. `int?`, `double?`, and `bool?` callback parameters therefore use sentinel values (`Int64.min`, NaN bits, `-1`) rather than `NitroOptXxx` structs. To pass the full value range for these types, wrap them in a `@HybridRecord`:
+
+```dart
+@HybridRecord()
+class MaybeCount { final int? value; const MaybeCount({this.value}); }
+
+// Callback can now receive full int? range:
+void onResult(MaybeCount result);
+```
+
+### `@zeroCopy` — callee must not retain
+
+Buffers marked `@zeroCopy` point to pinned Dart managed memory. The native implementation must complete all work on the buffer **within the function call** — storing the pointer for use after the call returns causes undefined behaviour (the GC may move or free the buffer).
+
+---
+
+## Known Limitations
+
+| ID | Limitation | Workaround |
+|---|---|---|
+| L6 | `@HybridStruct` / `@HybridRecord` cannot be **returned** from a callback parameter (function type). | Return `void` from callback; use a reverse method call or `Stream`. |
+| L7 | `TypedData?` (nullable `Uint8List`, etc.) is not supported. The two-param C ABI (pointer + length) makes optional transport ambiguous. | Wrap in `@HybridRecord`: `class MaybeBuffer { final Uint8List? data; }` |
+| L8 | Web (`WebNativeImpl.wasm`) — `dart:ffi` is unavailable. `ReceivePort`/`SendPort` are stubs. Streams and callbacks throw `UnsupportedError` on web. | Guard platform-specific code; use `@HybridRecord` or `NitroAnyMap` for data transfer on web. |
+| L10 | `Map<String, @HybridStruct>` is not supported. | Use `Map<String, @HybridRecord>` instead. |
+| L12 | `@NitroVariant` as a callback return type is not supported. | Return `void`; use a separate method or stream. |
 
 ---
 

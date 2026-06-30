@@ -241,7 +241,21 @@ class HybridStruct {
 
 class HybridEnum {
   final int startValue; // first case value, default 0
-  const HybridEnum({this.startValue = 0});
+
+  /// Optional explicit native integer value for each enum case.
+  /// When set, `nativeValues[i]` is the wire integer for the i-th enum case —
+  /// allowing non-contiguous mappings (e.g. OS enums with gaps like 0, 50, 100).
+  /// Length must match the number of enum cases.
+  /// When null, values are contiguous starting at [startValue].
+  ///
+  /// Example:
+  /// ```dart
+  /// @HybridEnum(nativeValues: [0, 50, 100])
+  /// enum Quality { low, medium, high }
+  /// ```
+  final List<int>? nativeValues;
+
+  const HybridEnum({this.startValue = 0, this.nativeValues});
 }
 
 // Makes a method async. Return type must be Future<T>.
@@ -377,6 +391,36 @@ class NitroVariant {
   const NitroVariant();
 }
 
+/// Marks a Dart 3 positional record typedef as a named tuple type.
+///
+/// Annotate a `typedef` whose aliased type is a Dart 3 positional record
+/// `(T1, T2, ...)`. The generator emits encode/decode helpers that bridge
+/// the positional record across the C FFI boundary using the same binary
+/// codec as [@HybridRecord] — sequential field writes with a 4-byte length
+/// prefix. Fields are accessed via `$1`, `$2`, ... on the Dart side.
+///
+/// Wire format: `[4B len][field1 bytes][field2 bytes]...` (same as @HybridRecord)
+///
+/// Dart:    `(T1, T2, ...)` positional record
+/// C:       `uint8_t*` (same as @HybridRecord)
+/// Kotlin:  `data class Name(val field0: T0, val field1: T1, ...)`
+/// Swift:   `struct Name { var field0: T0; var field1: T1; ... }`
+///
+/// Example:
+/// ```dart
+/// @NitroTuple()
+/// typedef MyPair = (int, String);
+///
+/// @NitroModule(...)
+/// abstract class Counter {
+///   MyPair getPair();
+///   void setPair(MyPair v);
+/// }
+/// ```
+class NitroTuple {
+  const NitroTuple();
+}
+
 /// Const shorthand for [@NitroVariant].
 const nitroVariant = NitroVariant();
 
@@ -405,3 +449,38 @@ class NitroResult {
 
 /// Const shorthand for [@NitroResult].
 const nitroResult = NitroResult();
+
+/// Registers a Dart class as a custom FFI bridge type encoded by a [NitroFfiCodec].
+///
+/// Equivalent to RN Nitro's `JSIConverter<T>` specialisation — lets the
+/// generator recognise [T] anywhere in a spec and emit typed `encode`/`decode`
+/// calls on the Dart side. Native implementations (Kotlin/Swift) receive and
+/// return raw `ByteArray` / `UnsafePointer<UInt8>?` bytes that the codec
+/// produces, so each native language needs its own companion decoder.
+///
+/// [codec] is the [NitroFfiCodec] subclass used for Dart-side encoding.
+/// [encodedSize] must equal `codec.encodedSize` — the generator embeds it in
+/// the C bridge to size JNI arrays for parameter passing.
+///
+/// Example:
+/// ```dart
+/// class ColorCodec extends NitroFfiCodec<Color> {
+///   const ColorCodec();
+///   @override int get encodedSize => 5; // 1B flag + 4B RGBA
+///   @override Pointer<Uint8> encode(Color? v, Arena alloc) { ... }
+///   @override Color? decode(Pointer<Uint8> ptr) { ... }
+/// }
+///
+/// @NitroCustomType(codec: ColorCodec, encodedSize: 5)
+/// class Color {
+///   final int r, g, b, a;
+///   const Color(this.r, this.g, this.b, this.a);
+/// }
+/// ```
+class NitroCustomType {
+  /// The [NitroFfiCodec] subclass that handles Dart-side encode/decode.
+  final Type codec;
+  /// Byte count produced by [codec].encode — must equal `codec.encodedSize`.
+  final int encodedSize;
+  const NitroCustomType({required this.codec, required this.encodedSize});
+}

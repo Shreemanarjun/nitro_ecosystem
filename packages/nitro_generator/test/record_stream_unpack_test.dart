@@ -677,12 +677,13 @@ void main() {
     );
 
     test(
-      'JNI emit function calls encode() to get jbyteArray',
+      'JNI emit function receives ByteArray (Kotlin calls encode() before emit)',
       () {
         final out = CppBridgeGenerator.generate(_primitiveDoubleListStreamSpec());
-        expect(out, contains('jbyteArray encoded'));
-        expect(out, contains('g_mid_PackageBoxes_encode'));
-        expect(out, contains('CallObjectMethod(item, g_mid_PackageBoxes_encode)'));
+        // Kotlin now calls item.encode() and passes the ByteArray directly;
+        // C receives jbyteArray and reads the bytes — no JNI encode() reflection.
+        expect(out, contains('jbyteArray item'));
+        expect(out, contains('GetByteArrayRegion(item'));
       },
     );
 
@@ -712,10 +713,11 @@ void main() {
     );
 
     test(
-      'JNI emit function deletes local ref to encoded array',
+      'JNI emit function allocates buffer from jbyteArray and frees on failed emit',
       () {
         final out = CppBridgeGenerator.generate(_primitiveDoubleListStreamSpec());
-        expect(out, contains('DeleteLocalRef(encoded)'));
+        expect(out, contains('uint8_t* buf = (uint8_t*)malloc'));
+        expect(out, contains('free(buf)'));
       },
     );
 

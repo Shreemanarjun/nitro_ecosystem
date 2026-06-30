@@ -6,7 +6,7 @@ final hasMapTypes = spec.functions.any((f) => f.returnType.isMap || f.params.any
     || spec.properties.any((p) => p.type.isMap);
 if (hasMapTypes) {
   writer.line('// Binary map encode/decode — [4B payload_len][4B count][entries: [4B kLen][kBytes][1B tag][vBytes]]');
-  writer.line('// Type tags: 1=int64, 2=float64, 3=bool, 4=string');
+  writer.line('// Type tags: 1=int64, 2=float64, 3=bool, 4=string, 5=binary record/variant blob');
   writer.line('private func _nitroEncodeMapBinary(_ m: [String: Any]) -> UnsafeMutablePointer<UInt8>? {');
   writer.line('    var payload = Data()');
   // Use raw strings (r'...') for lines containing Swift's $0 closure shorthand.
@@ -18,6 +18,7 @@ if (hasMapTypes) {
   writer.line('        if let iv = v as? Int64 { payload.append(1); writeLE64(iv) }');
   writer.line('        else if let dv = v as? Double { payload.append(2); writeLE64(Int64(bitPattern: dv.bitPattern)) }');
   writer.line('        else if let bv = v as? Bool { payload.append(3); payload.append(bv ? 1 : 0) }');
+  writer.line('        else if let blob = v as? Data { payload.append(5); writeLE32(Int32(blob.count)); payload.append(blob) }');
   writer.line(r'        else { let sv = "\(v)".data(using: .utf8)!; payload.append(4); writeLE32(Int32(sv.count)); payload.append(sv) }');
   writer.line('    }');
   writer.line('    var lenLE = Int32(payload.count).littleEndian');
@@ -43,6 +44,8 @@ if (hasMapTypes) {
   writer.line('        case 1: result[k] = readLE64()');
   writer.line('        case 2: result[k] = Double(bitPattern: UInt64(bitPattern: readLE64()))');
   writer.line('        case 3: result[k] = data[pos] != 0; pos += 1');
+  // tag 5 = binary record/variant blob — store as Data for type-specific caller to decode
+  writer.line('        case 5: let bLen = readLE32(); result[k] = Data(data[pos..<(pos+bLen)]); pos += bLen');
   writer.line('        default: let vLen = readLE32(); result[k] = String(data: data[pos..<(pos+vLen)], encoding: .utf8); pos += vLen');
   writer.line('        }');
   writer.line('    }');

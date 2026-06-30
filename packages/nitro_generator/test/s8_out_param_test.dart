@@ -112,28 +112,28 @@ void main() {
   group('S8 — C header NitroError* out-param', () {
     test('sync function with params: NitroError* appended', () {
       final out = CppHeaderGenerator.generate(_syncSpec());
-      expect(out, contains('NITRO_EXPORT double sensor_read(int64_t channel, NitroError* _nitro_err);'));
+      expect(out, contains('NITRO_EXPORT double sensor_read(int64_t instanceId, int64_t channel, NitroError* _nitro_err);'));
     });
 
     test('sync void function (no params): NitroError* is the only param', () {
       final out = CppHeaderGenerator.generate(_syncSpec());
-      expect(out, contains('NITRO_EXPORT void sensor_reset(NitroError* _nitro_err);'));
+      expect(out, contains('NITRO_EXPORT void sensor_reset(int64_t instanceId, NitroError* _nitro_err);'));
     });
 
     test('@NitroNativeAsync function does NOT receive NitroError* — uses dart_port', () {
       final out = CppHeaderGenerator.generate(_syncSpec());
-      expect(out, contains('sensor_capture(int64_t dart_port)'));
-      expect(out, isNot(contains('sensor_capture(int64_t dart_port, NitroError*')));
+      expect(out, contains('sensor_capture(int64_t instanceId, int64_t dart_port)'));
+      expect(out, isNot(contains('sensor_capture(int64_t instanceId, int64_t dart_port, NitroError*')));
     });
 
     test('property getter: NitroError* appended', () {
       final out = CppHeaderGenerator.generate(_syncSpec());
-      expect(out, contains('NITRO_EXPORT int64_t sensor_get_rate(NitroError* _nitro_err);'));
+      expect(out, contains('NITRO_EXPORT int64_t sensor_get_rate(int64_t instanceId, NitroError* _nitro_err);'));
     });
 
     test('property setter: NitroError* appended after value param', () {
       final out = CppHeaderGenerator.generate(_syncSpec());
-      expect(out, contains('NITRO_EXPORT void sensor_set_rate(int64_t value, NitroError* _nitro_err);'));
+      expect(out, contains('NITRO_EXPORT void sensor_set_rate(int64_t instanceId, int64_t value, NitroError* _nitro_err);'));
     });
 
     test('infrastructure functions remain (void) — ABI version, checksum', () {
@@ -199,25 +199,32 @@ void main() {
       expect(out, contains('calloc.free(_nitroErr);'));
     });
 
+    test('dispose() guards against double-free with isDisposed check', () {
+      final out = DartFfiGenerator.generate(_syncSpec());
+      // Ensure the generated dispose() has an early-return guard so calling
+      // dispose() twice does not double-free _nitroErr (malloc crash on macOS).
+      expect(out, contains('if (isDisposed) return;'));
+    });
+
     test('sync returning function: FFI type includes Pointer<NitroErrorFfi>', () {
       final out = DartFfiGenerator.generate(_syncSpec());
-      expect(out, contains('Double Function(Int64, Pointer<NitroErrorFfi>)'));
+      expect(out, contains('Double Function(Int64, Int64, Pointer<NitroErrorFfi>)'));
     });
 
     test('sync void function: FFI type includes only Pointer<NitroErrorFfi>', () {
       final out = DartFfiGenerator.generate(_syncSpec());
-      // Void Function(Pointer<NitroErrorFfi>) but NOT Void Function() alone
-      expect(out, contains('Void Function(Pointer<NitroErrorFfi>)'));
+      // Void Function(Int64, Pointer<NitroErrorFfi>) but NOT Void Function() alone
+      expect(out, contains('Void Function(Int64, Pointer<NitroErrorFfi>)'));
     });
 
     test('sync call site appends _nitroErr as last arg', () {
       final out = DartFfiGenerator.generate(_syncSpec());
-      expect(out, contains('_readPtr(channel, _nitroErr)'));
+      expect(out, contains('_readPtr(_instanceId, channel, _nitroErr)'));
     });
 
     test('void sync call site passes _nitroErr', () {
       final out = DartFfiGenerator.generate(_syncSpec());
-      expect(out, contains('_resetPtr(_nitroErr)'));
+      expect(out, contains('_resetPtr(_instanceId, _nitroErr)'));
     });
 
     test('error check uses throwIfOutParamError (not assert-gated checkError)', () {
@@ -241,12 +248,12 @@ void main() {
 
     test('property getter FFI type includes Pointer<NitroErrorFfi>', () {
       final out = DartFfiGenerator.generate(_syncSpec());
-      expect(out, contains('Pointer<NitroErrorFfi>) _getRatePtr'));
+      expect(out, contains('int, Pointer<NitroErrorFfi>) _getRatePtr'));
     });
 
     test('property getter call passes _nitroErr', () {
       final out = DartFfiGenerator.generate(_syncSpec());
-      expect(out, contains('_getRatePtr(_nitroErr)'));
+      expect(out, contains('_getRatePtr(_instanceId, _nitroErr)'));
     });
 
     test('property setter call passes value AND _nitroErr', () {

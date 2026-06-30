@@ -70,7 +70,7 @@ void main() {
         ),
       );
 
-      expect(out, contains('NITRO_EXPORT uint8_t* dsp_samples(NitroError* _nitro_err);'));
+      expect(out, contains('NITRO_EXPORT uint8_t* dsp_samples(int64_t instanceId, NitroError* _nitro_err);'));
       expect(out, isNot(contains('NITRO_EXPORT float* dsp_samples(void);')));
     });
 
@@ -83,6 +83,67 @@ void main() {
     test('emits struct release functions', () {
       final out = CppHeaderGenerator.generate(structStreamSpec());
       expect(out, contains('NITRO_EXPORT void my_camera_release_CameraFrame(void* ptr);'));
+    });
+
+    test('@NitroVariant property getter uses uint8_t* not void*', () {
+      final spec = BridgeSpec(
+        dartClassName: 'Dispatcher',
+        lib: 'dispatcher',
+        namespace: 'dispatcher',
+        androidImpl: NativeImpl.kotlin,
+        sourceUri: 'dispatcher.native.dart',
+        variants: [
+          BridgeVariant(
+            name: 'ActionEvent',
+            cases: [
+              BridgeVariantCase(name: 'Tap', label: 'tap', fields: []),
+            ],
+          ),
+        ],
+        properties: [
+          BridgeProperty(
+            dartName: 'currentAction',
+            type: BridgeType(name: 'ActionEvent'),
+            getSymbol: 'dispatcher_get_currentAction',
+            setSymbol: 'dispatcher_set_currentAction',
+            hasGetter: true,
+            hasSetter: true,
+          ),
+        ],
+      );
+      final out = CppHeaderGenerator.generate(spec);
+      expect(out, contains('NITRO_EXPORT uint8_t* dispatcher_get_currentAction('));
+      expect(out, contains('NITRO_EXPORT void dispatcher_set_currentAction(int64_t instanceId, const uint8_t* value,'));
+      expect(out, isNot(contains('void* dispatcher_get_currentAction')));
+    });
+
+    test('@HybridRecord property getter uses uint8_t* not void*', () {
+      final spec = BridgeSpec(
+        dartClassName: 'Settings',
+        lib: 'settings',
+        namespace: 'settings',
+        androidImpl: NativeImpl.kotlin,
+        sourceUri: 'settings.native.dart',
+        recordTypes: [
+          BridgeRecordType(
+            name: 'Config',
+            fields: [BridgeRecordField(name: 'name', dartType: 'String', kind: RecordFieldKind.primitive)],
+          ),
+        ],
+        properties: [
+          BridgeProperty(
+            dartName: 'config',
+            type: BridgeType(name: 'Config'),
+            getSymbol: 'settings_get_config',
+            setSymbol: 'settings_set_config',
+            hasGetter: true,
+            hasSetter: true,
+          ),
+        ],
+      );
+      final out = CppHeaderGenerator.generate(spec);
+      expect(out, contains('NITRO_EXPORT uint8_t* settings_get_config('));
+      expect(out, contains('NITRO_EXPORT void settings_set_config(int64_t instanceId, const uint8_t* value,'));
     });
   });
 }

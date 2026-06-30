@@ -4,25 +4,27 @@ part of '../dart_ffi_generator.dart';
 void _emitFunctionImpls(CodeWriter writer, BridgeSpec spec) {
   // ── Method implementations ───────────────────────────────────────────────
   for (final func in spec.functions) {
-    final needsArena = func.params.any(
-      (p) {
-        final baseName = p.type.name.replaceFirst('?', '');
-        return p.type.isTypedData ||
-            p.type.name == 'String' ||
-            p.type.name == 'String?' ||
-            p.type.isRecord ||
-            spec.isStructName(baseName) ||
-            spec.isVariantName(baseName) ||
-            p.type.name == 'int?' ||
-            p.type.name == 'double?' ||
-            p.type.name == 'bool?';
-      },
-    );
+    // A parameter needs an Arena when it must be stack-allocated for the FFI
+    // call: strings, records, structs, variants, nullable primitives (NitroOpt*
+    // structs), TypedData (pointer+length pair), and maps.
+    // classifyBridgeItem() is the canonical classifier — adding a new nullable
+    // type only requires updating BridgeItemKind, not every needsArena check.
+    final needsArena = func.params.any((p) {
+      if (p.type.isAnyMap) return true; // maps are not classified by BridgeItemKind
+      if (spec.isCustomTypeName(p.type.baseName)) return true; // custom type codec encode needs arena
+      final kind = classifyBridgeItem(p.type, spec);
+      return kind.isStringKind ||
+          kind.isRecordKind ||
+          kind.isStructKind ||
+          kind.isVariantKind ||
+          kind.isNullablePrimitive ||
+          p.type.isTypedData;
+    });
 
     final callArgs = func.params
         .expand((p) {
           final t = p.type.name;
-          if (p.type.isRecord) {
+          if (p.type.isAnyMap || p.type.isRecord) {
             return [_encodeRecordParam(p.type, p.name, 'arena')];
           }
           // @NitroVariant param: encode as [4B len][1B tag][fields] using toNative(alloc).
@@ -60,14 +62,29 @@ void _emitFunctionImpls(CodeWriter writer, BridgeSpec spec) {
             return ['${p.name}.nativeValue'];
           }
           if (t == 'bool') return ['${p.name} ? 1 : 0'];
-          // Optional primitives: use NitroNullable binary encoding for zero-collision transport.
-          // Wire format: [1B hasValue][nB value] — no sentinel collisions.
-          if (t == 'int?') return ['NitroNullableInt.fromNullable(${p.name}).toNative(arena)'];
-          if (t == 'double?') return ['NitroNullableDouble.fromNullable(${p.name}).toNative(arena)'];
-          if (t == 'bool?') return ['NitroNullableBool.fromNullable(${p.name}).toNative(arena)'];
+          if (t == 'DateTime') return ['${p.name}.millisecondsSinceEpoch'];
+          if (t == 'DateTime?') return ['arena.packInt(${p.name}?.millisecondsSinceEpoch)'];
+          // AnyNativeObject: encode as instanceId; nullable uses -1 sentinel.
+          if (p.type.isAnyNativeObject) {
+            if (t.endsWith('?')) return ['${p.name}?.instanceId ?? -1'];
+            return ['${p.name}.instanceId'];
+          }
+          // @NitroCustomType: encode via user codec.
+          final tBaseCustom = t.replaceFirst('?', '');
+          if (spec.isCustomTypeName(tBaseCustom)) {
+            final ct = spec.customTypeByName(tBaseCustom)!;
+            return ['const ${ct.codecClass}().encode(${p.name}, arena)'];
+          }
+          // Optional primitives: NitroOpt* packed struct encoding via Arena.
+          if (t == 'int?') return ['arena.packInt(${p.name})'];
+          if (t == 'double?') return ['arena.packDouble(${p.name})'];
+          if (t == 'bool?') return ['arena.packBool(${p.name})'];
+          // uint64? reuses NitroOptInt64 struct (same 9-byte layout; bits preserved as int).
+          if (t == 'uint64?') return ['arena.packInt(${p.name})'];
           return [p.name];
         })
         .join(', ');
+    final instancedCallArgs = callArgs.isEmpty ? '_instanceId' : '_instanceId, $callArgs';
 
     // For NativeAsync, the return type annotation is Future<T> but asyncMod is
     // left empty (no `async` keyword) — the method returns an already-Future.
@@ -95,7 +112,7 @@ void _emitFunctionImpls(CodeWriter writer, BridgeSpec spec) {
     final returnKind = classifyReturn(func.returnType, spec);
 
     if (func.isNativeAsync) {
-      _emitNativeAsyncBody(writer, func, spec, callArgs, needsArena);
+      _emitNativeAsyncBody(writer, func, spec, instancedCallArgs, needsArena);
     } else if (func.isAsync) {
       // plainCallArgs: used when no arena is needed. Apply the same optional-primitive
       // sentinel encoding as callArgs so that int?/bool?/double? are never passed as null.
@@ -104,12 +121,8 @@ void _emitFunctionImpls(CodeWriter writer, BridgeSpec spec) {
           .map((p) {
             final t = p.type.name;
             final tBase = p.type.baseName;
-            // NOTE: int?/double?/bool? now use NitroNullable — they need an arena.
-            // The outer needsArena check already includes them so this path is fine.
-            if (t == 'int?') return 'NitroNullableInt.fromNullable(${p.name}).toNative(arena)';
-            if (t == 'double?') return 'NitroNullableDouble.fromNullable(${p.name}).toNative(arena)';
-            if (t == 'bool?') return 'NitroNullableBool.fromNullable(${p.name}).toNative(arena)';
             if (t == 'bool') return '${p.name} ? 1 : 0';
+            if (t == 'DateTime') return '${p.name}.millisecondsSinceEpoch';
             // Nullable enum: TcStatus? → -1 for null, rawValue otherwise
             if (spec.isEnumName(tBase)) {
               return t.endsWith('?') ? '${p.name} == null ? -1 : ${p.name}.nativeValue' : '${p.name}.nativeValue';
@@ -118,10 +131,18 @@ void _emitFunctionImpls(CodeWriter writer, BridgeSpec spec) {
             return p.name;
           })
           .join(', ');
+      final instancedPlainCallArgs = plainCallArgs.isEmpty ? '_instanceId' : '_instanceId, $plainCallArgs';
 
       final callAsyncType = callAsyncTransportType(func.returnType, spec);
 
       final errArgs = "getError: _getErrorNativePtr, clearError: _clearErrorNativePtr, methodName: '${func.dartName}'";
+
+      // @NitroAsync(timeout: N) — Dart-side Future.timeout() is the safe cross-
+      // platform mechanism. Swift NSException.raise() in a @_cdecl frame is unsafe
+      // (escapes into C frames → abort()); Kotlin withTimeout is kept for Android.
+      final tox = func.asyncTimeout == null
+          ? ''
+          : ".timeout(const Duration(milliseconds: ${func.asyncTimeout!}), onTimeout: () => throw HybridException(name: 'NitroAsyncTimeout', message: '${func.dartName} timed out after ${func.asyncTimeout!}ms'))";
 
       // ── @NitroResult async: C returns Pointer<Uint8> tagged buffer ────────
       // The bridge always returns [1B tag: 0=ok, 1=err][payload]. We receive
@@ -130,13 +151,13 @@ void _emitFunctionImpls(CodeWriter writer, BridgeSpec spec) {
         if (needsArena) {
           writer.line('    final arena = Arena();');
           writer.line('    try {');
-          writer.line('      final res = await NitroRuntime.callAsync<Pointer<Uint8>>(_${func.dartName}Ptr, [$callArgs], $errArgs);');
+          writer.line('      final res = await NitroRuntime.callAsync<Pointer<Uint8>>(_${func.dartName}Ptr, [$instancedCallArgs], $errArgs)$tox;');
           _emitResultDecode(writer, resultReturnType, 'res', '      ', spec);
           writer.line('    } finally {');
           writer.line('      arena.releaseAll();');
           writer.line('    }');
         } else {
-          writer.line('    final res = await NitroRuntime.callAsync<Pointer<Uint8>>(_${func.dartName}Ptr, [$plainCallArgs], $errArgs);');
+          writer.line('    final res = await NitroRuntime.callAsync<Pointer<Uint8>>(_${func.dartName}Ptr, [$instancedPlainCallArgs], $errArgs)$tox;');
           _emitResultDecode(writer, resultReturnType, 'res', '    ', spec);
         }
       } else if (needsArena) {
@@ -146,9 +167,9 @@ void _emitFunctionImpls(CodeWriter writer, BridgeSpec spec) {
         writer.line('    try {');
         if (returnKind == ReturnKind.voidType) {
           // void return: don't assign to a variable — it's unused and warns.
-          writer.line('      await NitroRuntime.callAsync<$callAsyncType>(_${func.dartName}Ptr, [$callArgs], $errArgs);');
+          writer.line('      await NitroRuntime.callAsync<$callAsyncType>(_${func.dartName}Ptr, [$instancedCallArgs], $errArgs)$tox;');
         } else {
-          writer.line('      final $asyncResVar = await NitroRuntime.callAsync<$callAsyncType>(_${func.dartName}Ptr, [$callArgs], $errArgs);');
+          writer.line('      final $asyncResVar = await NitroRuntime.callAsync<$callAsyncType>(_${func.dartName}Ptr, [$instancedCallArgs], $errArgs)$tox;');
           _emitReturnDecode(writer, func.returnType, asyncResVar, '      ', spec, zeroCopy: func.zeroCopyReturn, dartName: func.dartName, isOwned: func.isOwned, nativeHandleTypeParam: nativeHandleTypeParam);
         }
         writer.line('    } finally {');
@@ -156,10 +177,10 @@ void _emitFunctionImpls(CodeWriter writer, BridgeSpec spec) {
         writer.line('    }');
       } else {
         if (returnKind == ReturnKind.voidType) {
-          writer.line('    await NitroRuntime.callAsync<$callAsyncType>(_${func.dartName}Ptr, [$plainCallArgs], $errArgs);');
+          writer.line('    await NitroRuntime.callAsync<$callAsyncType>(_${func.dartName}Ptr, [$instancedPlainCallArgs], $errArgs)$tox;');
         } else {
           final asyncResVar = _asyncResVarName(returnKind);
-          writer.line('    final $asyncResVar = await NitroRuntime.callAsync<$callAsyncType>(_${func.dartName}Ptr, [$plainCallArgs], $errArgs);');
+          writer.line('    final $asyncResVar = await NitroRuntime.callAsync<$callAsyncType>(_${func.dartName}Ptr, [$instancedPlainCallArgs], $errArgs)$tox;');
           _emitReturnDecode(writer, func.returnType, asyncResVar, '    ', spec, zeroCopy: func.zeroCopyReturn, dartName: func.dartName, isOwned: func.isOwned, nativeHandleTypeParam: nativeHandleTypeParam);
         }
       }
@@ -168,7 +189,7 @@ void _emitFunctionImpls(CodeWriter writer, BridgeSpec spec) {
       // C function returns Pointer<Uint8>: [1B tag: 0=ok, 1=err][record payload].
       // Errors are communicated through the tag, not the error slot.
       final mnArg = ", methodName: '${func.dartName}'";
-      final syncArgs = callArgs.isEmpty ? '_nitroErr' : '$callArgs, _nitroErr';
+      final syncArgs = '$instancedCallArgs, _nitroErr';
       if (needsArena) {
         writer.line('    return NitroRuntime.callSync(() => withArena((arena) {');
         writer.line('      final res = _${func.dartName}Ptr($syncArgs);');
@@ -185,7 +206,7 @@ void _emitFunctionImpls(CodeWriter writer, BridgeSpec spec) {
       final mnArg = ", methodName: '${func.dartName}'";
       // S8: append the pre-allocated error slot as the last argument so the C
       // bridge can write error info directly without a separate get_error() call.
-      final syncArgs = callArgs.isEmpty ? '_nitroErr' : '$callArgs, _nitroErr';
+      final syncArgs = '$instancedCallArgs, _nitroErr';
       if (needsArena) {
         // callSync wraps withArena so timing covers arena allocation + native call.
         writer.line('    return NitroRuntime.callSync(() => withArena((arena) {');
@@ -232,7 +253,10 @@ BridgeType _nitroResultInnerType(BridgeType returnType) {
     pointerInnerType: returnType.pointerInnerType,
     recordListItemType: returnType.recordListItemType,
     recordListItemIsPrimitive: returnType.recordListItemIsPrimitive,
+    isEnumList: returnType.isEnumList,
+    isVariantList: returnType.isVariantList,
     isMap: returnType.isMap,
+    isAnyMap: returnType.isAnyMap,
     isFunction: returnType.isFunction,
     functionReturnType: returnType.functionReturnType,
     functionParams: returnType.functionParams,

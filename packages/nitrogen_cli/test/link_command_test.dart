@@ -895,6 +895,140 @@ end
         reason: 'bridge.g.mm must be written even when bridge.g.cpp does not exist yet',
       );
     });
+
+    // ── Multi-spec Swift plugin: additional Swift module .mm wrappers ─────────
+    //
+    // When a Flutter plugin has multiple @NitroModule specs and all use Swift
+    // (isCpp: false), each spec generates a ${lib}.bridge.g.cpp that defines
+    // C symbols like ${lib}_init_dart_api_dl.  SPM compiles only files in
+    // Sources/<PluginCpp>/, so a .mm wrapper must exist for every module.
+    // Without it, the app crashes at runtime:
+    //   "Failed to lookup symbol 'nitro_ui_init_dart_api_dl': symbol not found"
+
+    test('multi-spec Swift: 2nd Swift module gets .bridge.g.mm in SPM Cpp target', () {
+      scaffoldSpm('my_plugin');
+      // src/my_plugin.cpp makes hasCContent=true so the Cpp target is populated.
+      Directory(p.join(tmp.path, 'src')).createSync(recursive: true);
+      File(p.join(tmp.path, 'src', 'my_plugin.cpp')).writeAsStringSync('// stub');
+      // Scaffold bridge cpp for the additional Swift module.
+      final genCpp = Directory(p.join(tmp.path, 'lib', 'src', 'generated', 'cpp'))..createSync(recursive: true);
+      File(p.join(genCpp.path, 'nitro_ui.bridge.g.cpp')).writeAsStringSync('// bridge');
+
+      linkPodspec(
+        'my_plugin',
+        ['my_plugin', 'nitro_ui'],
+        baseDir: tmp.path,
+        moduleInfos: [
+          const ModuleInfo(lib: 'my_plugin', module: 'MyPlugin', isCpp: false),
+          const ModuleInfo(lib: 'nitro_ui', module: 'NitroUi', isCpp: false),
+        ],
+      );
+
+      expect(
+        File(p.join(tmp.path, 'ios', 'Sources', 'MyPluginCpp', 'nitro_ui.bridge.g.mm')).existsSync(),
+        isTrue,
+        reason: 'Swift module nitro_ui must have a .mm wrapper so SPM links nitro_ui_init_dart_api_dl',
+      );
+    });
+
+    test('multi-spec Swift: 3-spec plugin writes .mm for all non-plugin modules', () {
+      scaffoldSpm('my_plugin');
+      Directory(p.join(tmp.path, 'src')).createSync(recursive: true);
+      File(p.join(tmp.path, 'src', 'my_plugin.cpp')).writeAsStringSync('// stub');
+      final genCpp = Directory(p.join(tmp.path, 'lib', 'src', 'generated', 'cpp'))..createSync(recursive: true);
+      File(p.join(genCpp.path, 'nitro_ui.bridge.g.cpp')).writeAsStringSync('// bridge');
+      File(p.join(genCpp.path, 'nitro_system.bridge.g.cpp')).writeAsStringSync('// bridge');
+
+      linkPodspec(
+        'my_plugin',
+        ['my_plugin', 'nitro_ui', 'nitro_system'],
+        baseDir: tmp.path,
+        moduleInfos: [
+          const ModuleInfo(lib: 'my_plugin', module: 'MyPlugin', isCpp: false),
+          const ModuleInfo(lib: 'nitro_ui', module: 'NitroUi', isCpp: false),
+          const ModuleInfo(lib: 'nitro_system', module: 'NitroSystem', isCpp: false),
+        ],
+      );
+
+      final spmDir = p.join(tmp.path, 'ios', 'Sources', 'MyPluginCpp');
+      expect(File(p.join(spmDir, 'nitro_ui.bridge.g.mm')).existsSync(), isTrue);
+      expect(File(p.join(spmDir, 'nitro_system.bridge.g.mm')).existsSync(), isTrue);
+      // The main plugin bridge is also present (written unconditionally).
+      expect(File(p.join(spmDir, 'my_plugin.bridge.g.mm')).existsSync(), isTrue);
+    });
+
+    test('multi-spec Swift: .mm uses relative path to generated bridge .cpp', () {
+      scaffoldSpm('my_plugin');
+      Directory(p.join(tmp.path, 'src')).createSync(recursive: true);
+      File(p.join(tmp.path, 'src', 'my_plugin.cpp')).writeAsStringSync('// stub');
+      final genCpp = Directory(p.join(tmp.path, 'lib', 'src', 'generated', 'cpp'))..createSync(recursive: true);
+      File(p.join(genCpp.path, 'nitro_ui.bridge.g.cpp')).writeAsStringSync('// bridge');
+
+      linkPodspec(
+        'my_plugin',
+        ['my_plugin', 'nitro_ui'],
+        baseDir: tmp.path,
+        moduleInfos: [
+          const ModuleInfo(lib: 'my_plugin', module: 'MyPlugin', isCpp: false),
+          const ModuleInfo(lib: 'nitro_ui', module: 'NitroUi', isCpp: false),
+        ],
+      );
+
+      final content = File(
+        p.join(tmp.path, 'ios', 'Sources', 'MyPluginCpp', 'nitro_ui.bridge.g.mm'),
+      ).readAsStringSync();
+      expect(content, contains('nitro_ui.bridge.g.cpp'), reason: 'must reference the correct bridge file');
+      expect(content, contains('../'), reason: 'path must be relative, not absolute');
+      expect(content, isNot(contains(tmp.path)), reason: 'must not embed absolute filesystem path');
+    });
+
+    test('multi-spec Swift: .mm written even when bridge.g.cpp does not exist yet', () {
+      scaffoldSpm('my_plugin');
+      Directory(p.join(tmp.path, 'src')).createSync(recursive: true);
+      File(p.join(tmp.path, 'src', 'my_plugin.cpp')).writeAsStringSync('// stub');
+      // Intentionally do NOT create nitro_ui.bridge.g.cpp — simulates link-before-generate.
+
+      linkPodspec(
+        'my_plugin',
+        ['my_plugin', 'nitro_ui'],
+        baseDir: tmp.path,
+        moduleInfos: [
+          const ModuleInfo(lib: 'my_plugin', module: 'MyPlugin', isCpp: false),
+          const ModuleInfo(lib: 'nitro_ui', module: 'NitroUi', isCpp: false),
+        ],
+      );
+
+      expect(
+        File(p.join(tmp.path, 'ios', 'Sources', 'MyPluginCpp', 'nitro_ui.bridge.g.mm')).existsSync(),
+        isTrue,
+        reason: '.mm forwarder must exist even before nitrogen generate has run',
+      );
+    });
+
+    test('multi-spec Swift: macOS SPM target also gets .mm wrappers for additional modules', () {
+      // ensureMacosPackageSwift is what triggers _syncCppModuleSourcesToSpm for macOS.
+      // (linkMacosPodspec does not call it — see link_command.dart line 3019-3020.)
+      final pascal = 'MyPlugin';
+      Directory(p.join(tmp.path, 'macos', 'Sources', '${pascal}Cpp')).createSync(recursive: true);
+      File(p.join(tmp.path, 'macos', 'Package.swift')).writeAsStringSync('// existing');
+      Directory(p.join(tmp.path, 'src')).createSync(recursive: true);
+      File(p.join(tmp.path, 'src', 'my_plugin.cpp')).writeAsStringSync('// stub');
+
+      ensureMacosPackageSwift(
+        'my_plugin',
+        baseDir: tmp.path,
+        moduleInfos: [
+          const ModuleInfo(lib: 'my_plugin', module: 'MyPlugin', isCpp: false),
+          const ModuleInfo(lib: 'nitro_ui', module: 'NitroUi', isCpp: false),
+        ],
+      );
+
+      expect(
+        File(p.join(tmp.path, 'macos', 'Sources', '${pascal}Cpp', 'nitro_ui.bridge.g.mm')).existsSync(),
+        isTrue,
+        reason: 'macOS SPM Cpp target must also get .mm wrappers for additional Swift modules',
+      );
+    });
   });
 
   group('LinkCommand Content Generation', () {

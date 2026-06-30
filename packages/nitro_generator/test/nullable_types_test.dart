@@ -4,6 +4,7 @@
 // RecordGenerator generates nullable fields correctly in Dart and Kotlin.
 import 'package:nitro_generator/src/generators/languages/cpp_native/cpp_interface_generator.dart';
 import 'package:nitro_generator/src/generators/languages/dart/dart_ffi_generator.dart';
+import 'package:nitro_generator/src/generators/languages/kotlin/kotlin_generator.dart';
 import 'package:nitro_generator/src/generators/record_generator.dart';
 import 'package:test/test.dart';
 import 'test_utils.dart';
@@ -207,6 +208,32 @@ void main() {
     test('double? return type appears as double? in generated Dart method', () {
       final out = DartFfiGenerator.generate(_dartNullableReturnSpec('double?'));
       expect(out, contains('double? getValue()'));
+    });
+  });
+
+  group('KotlinGenerator — nullable String? interface (Point 11)', () {
+    test('String? return type in Kotlin interface uses String? not String', () {
+      final spec = BridgeSpec(
+        dartClassName: 'Echo',
+        lib: 'echo',
+        namespace: 'echo',
+        androidImpl: NativeImpl.kotlin,
+        sourceUri: 'echo.native.dart',
+        functions: [
+          BridgeFunction(
+            dartName: 'echoNullableString',
+            cSymbol: 'echo_echo_nullable_string',
+            isAsync: false,
+            returnType: BridgeType(name: 'String?'),
+            params: [BridgeParam(name: 'value', type: BridgeType(name: 'String?'))],
+          ),
+        ],
+      );
+      final out = KotlinGenerator.generate(spec);
+      // Interface method must declare String? return so null can propagate.
+      expect(out, contains('fun echoNullableString(value: String?): String?'));
+      // Must NOT collapse to non-nullable String return.
+      expect(out, isNot(contains('fun echoNullableString(value: String?): String\n')));
     });
   });
 

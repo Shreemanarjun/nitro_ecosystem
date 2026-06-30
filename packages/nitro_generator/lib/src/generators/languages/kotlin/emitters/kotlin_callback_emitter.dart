@@ -14,7 +14,7 @@ class KotlinCallbackEmitter {
       for (final p in func.params) {
         if (!p.type.isFunction) continue;
         final nativeName = '_invoke_${p.name}';
-        if (!emitted.add(nativeName)) continue;
+        if (emitted.contains(nativeName)) continue;
 
         final cbParams = p.type.functionParams;
         final paramDecl = StringBuffer('callbackPtr: Long');
@@ -26,6 +26,9 @@ class KotlinCallbackEmitter {
             for (final f in struct.fields) {
               paramDecl.write(', arg${i}_${f.name}: Long');
             }
+          } else if (cbParams[i].isNullableNitroPrim) {
+            // Nullable primitives: two Long params (isNull flag + value bits).
+            paramDecl.write(', arg${i}Null: Long, arg${i}Val: Long');
           } else {
             paramDecl.write(', arg$i: ${mapper.callbackParamJni(cbParams[i])}');
           }
@@ -34,7 +37,15 @@ class KotlinCallbackEmitter {
         final cbReturnType = p.type.functionReturnType;
         final kotlinReturn = (cbReturnType != null && cbReturnType != 'void') ? ': ${mapper.callbackReturnJniType(cbReturnType)}' : '';
 
+        emitted.add(nativeName);
         writer.line('    @JvmStatic external fun $nativeName($paramDecl)$kotlinReturn');
+        // Per-callback release: posts callbackPtr to the Dart release port so
+        // Dart can close the NativeCallable. Port was registered by Dart via
+        // the NITRO_EXPORT ${libStem}_registerCallbackRelease C function.
+        final releaseName = '_release_${p.name}';
+        if (emitted.add(releaseName)) {
+          writer.line('    @JvmStatic external fun $releaseName(callbackPtr: Long)');
+        }
       }
     }
   }

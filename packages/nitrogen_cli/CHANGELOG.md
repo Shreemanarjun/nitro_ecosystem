@@ -1,3 +1,13 @@
+## 0.5.1
+
+- **Fixed: Multi-spec Swift plugin — runtime `symbol not found` crash** — `_syncCppModuleSourcesToSpm` now creates a `${lib}.bridge.g.mm` forwarder in the SPM `<PluginName>Cpp` target for every non-plugin Swift module. Previously only C++ modules got per-module wrappers; the `allCppModules.isEmpty` guard skipped all per-module work for pure-Swift plugins, so 2nd and 3rd specs (e.g. `nitro_ui`, `nitro_system`) were never compiled into the binary. Result: `dlsym('nitro_ui_init_dart_api_dl'): symbol not found` crash on first use. Applies to both iOS and macOS SPM targets.
+- **Fixed: Multi-spec Swift plugin — `invalid redeclaration` compile error** — `_syncSwiftBridgesToClasses` now strips the shared public-type preamble (`NitroEncodable`, `NitroNullableInt`, `NitroRecordWriter`, etc.) from the 2nd and subsequent bridge `.swift` files before writing them to `ios/Classes/`, `macos/Classes/`, and SPM `Sources/<ClassName>/` directories. All bridge files compile into the same Swift module; duplicate `public` declarations cause a Swift compiler `invalid redeclaration` error. The first file (alphabetically) retains the full preamble; later files keep only their file-private string helpers and spec-specific protocol/registry/stubs.
+- **New: `stripSharedSwiftPreamble(String content)`** — Exported top-level function implementing the preamble-stripping logic, enabling direct unit testing without filesystem scaffolding.
+
+## 0.5.0
+
+- **Ecosystem sync** — Aligned with `nitro`, `nitro_annotations`, and `nitro_generator` 0.5.0.
+
 ## 0.4.6
 
 - **Ecosystem sync** — Aligned with `nitro`, `nitro_annotations`, and `nitro_generator` 0.4.6.

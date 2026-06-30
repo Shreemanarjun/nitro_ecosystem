@@ -409,15 +409,15 @@ void main() {
     });
 
     test('computeStats_call bridge method returns ByteArray (HybridRecord)', () {
-      expect(out, contains('fun computeStats_call(iterations: Long): ByteArray'));
+      expect(out, contains('fun computeStats_call(instanceId: Long, iterations: Long): ByteArray'));
     });
 
     test('sendLargeBuffer_call bridge method returns Long', () {
-      expect(out, contains('fun sendLargeBuffer_call(buffer: ByteArray): Long'));
+      expect(out, contains('fun sendLargeBuffer_call(instanceId: Long, buffer: ByteArray): Long'));
     });
 
     test('data stream register bridge method emitted', () {
-      expect(out, contains('fun benchmark_register_data_stream_stream_call(dartPort: Long)'));
+      expect(out, contains('fun benchmark_register_data_stream_stream_call(instanceId: Long, dartPort: Long)'));
     });
 
     test('BenchmarkStats record data class has all four fields', () {
@@ -472,20 +472,25 @@ void main() {
       expect(out, contains('var activity: Activity? = null'));
     });
 
-    test('register calls onAttached after initialize', () {
-      expect(out, contains('fun register(impl: HybridBenchmarkSpec, context: Context)'));
+    test('registerFactory stores factory and calls initialize', () {
+      expect(out, contains('fun registerFactory(factory: () -> HybridBenchmarkSpec, context: Context)'));
       expect(out, contains('applicationContext = context'));
-      expect(out, contains('impl.onAttached()'));
+      expect(out, contains('_factory = factory'));
     });
 
-    test('JniBridge has onDetached, onActivityAttached, onActivityDetached', () {
-      expect(out, contains('fun onDetached()'));
-      expect(out, contains('implementation?.onDetached()'));
+    test('create_instance_call calls factory() and stores impl, destroy removes it', () {
+      expect(out, contains('fun create_instance_call(key: String): Long'));
+      expect(out, contains('val impl = factory()'));
+      expect(out, contains('fun destroy_instance_call(instanceId: Long)'));
+      expect(out, contains('_implementations.remove(instanceId)?.onDetached()'));
+    });
+
+    test('JniBridge has onActivityAttached, onActivityDetached', () {
       expect(out, contains('fun onActivityAttached(newActivity: Activity)'));
       expect(out, contains('activity = newActivity'));
-      expect(out, contains('implementation?.onActivityAttached(newActivity)'));
+      expect(out, contains('_implementations.values.forEach { it.onActivityAttached(newActivity) }'));
       expect(out, contains('fun onActivityDetached()'));
-      expect(out, contains('implementation?.onActivityDetached()'));
+      expect(out, contains('_implementations.values.forEach { it.onActivityDetached() }'));
     });
   });
 
@@ -545,7 +550,7 @@ void main() {
     test('add uses asFunction(isLeaf: true) with correct symbol', () {
       // Primitive sync methods use leaf binding for safepoint-free calls.
       expect(out, contains("('benchmark_add')"));
-      expect(out, contains('.asFunction<double Function(double, double, Pointer<NitroErrorFfi>)>(isLeaf: true)'));
+      expect(out, contains('.asFunction<double Function(int, double, double, Pointer<NitroErrorFfi>)>(isLeaf: true)'));
     });
 
     test('addFast uses lookup + asFunction with isLeaf: true', () {
@@ -554,11 +559,11 @@ void main() {
     });
 
     test('sendLargeBuffer lookup includes Int64 length param', () {
-      expect(out, contains('Int64 Function(Pointer<Uint8>, Int64, Pointer<NitroErrorFfi>)'));
+      expect(out, contains('Int64 Function(Int64, Pointer<Uint8>, Int64, Pointer<NitroErrorFfi>)'));
     });
 
     test('sendLargeBuffer call site passes buffer and buffer.length', () {
-      expect(out, contains('_sendLargeBufferPtr(buffer.toPointer(arena), buffer.length, _nitroErr)'));
+      expect(out, contains('_sendLargeBufferPtr(_instanceId, buffer.toPointer(arena), buffer.length, _nitroErr)'));
     });
 
     test('computeStats uses NitroRuntime.callAsync (async HybridRecord)', () {
@@ -652,15 +657,15 @@ void main() {
 
     test('computeStats returns void* (NitroCppBuffer wrapped)', () {
       // @nitroAsync functions do NOT take NitroError* — they use TLS error mechanism.
-      expect(out, contains('void* benchmark_cpp_compute_stats(int64_t iterations)'));
+      expect(out, contains('void* benchmark_cpp_compute_stats(int64_t instanceId, int64_t iterations)'));
     });
 
     test('sendLargeBufferFast has uint8_t* + int64_t length', () {
-      expect(out, contains('int64_t benchmark_cpp_send_large_buffer_fast(uint8_t* buffer, int64_t buffer_length, NitroError* _nitro_err)'));
+      expect(out, contains('int64_t benchmark_cpp_send_large_buffer_fast(int64_t instanceId, uint8_t* buffer, int64_t buffer_length, NitroError* _nitro_err)'));
     });
 
     test('sendLargeBufferUnsafe Pointer<Uint8> param passes as void*', () {
-      expect(out, contains('int64_t benchmark_cpp_send_large_buffer_unsafe(void* ptr, int64_t length, NitroError* _nitro_err)'));
+      expect(out, contains('int64_t benchmark_cpp_send_large_buffer_unsafe(int64_t instanceId, void* ptr, int64_t length, NitroError* _nitro_err)'));
     });
 
     test('stream ports use plain int64_t storage (written once at startup)', () {
@@ -670,7 +675,7 @@ void main() {
     });
 
     test('dataStream register function signature', () {
-      expect(out, contains('void benchmark_cpp_register_data_stream_stream(int64_t dart_port)'));
+      expect(out, contains('void benchmark_cpp_register_data_stream_stream(int64_t instanceId, int64_t dart_port)'));
     });
 
     test('stream emit reads port via direct variable access', () {

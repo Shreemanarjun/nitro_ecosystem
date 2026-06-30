@@ -1,36 +1,33 @@
 // Comprehensive tests ensuring ALL parameter type combinations generate
 // correct code in both the Dart FFI generator and Kotlin generator.
 //
-// The optional-primitive sentinel pattern:
-//   Dart callArgs  → sentinel value when null (int?→-1, double?→nan, bool?→-1)
-//   Kotlin _call   → sentinel-to-null conversion before forwarding to interface
+// The optional-primitive NitroOptional<T> pattern (zero-cost packed transport):
+//   Dart callArgs  → arena.packOptionalInt/Double/Bool(v) — Pointer<Uint8> packed
+//   Dart decode    → NitroOptional.decodeInt/Double/Bool(res).nullable
+//   Kotlin _call   → NitroOptInt64/Float64/Bool.decode(bytes).nullable (inline class)
+//   C bridge       → const NitroOptXxx* typed pointer (no length prefix)
+//   Swift bridge   → UnsafeMutablePointer<NitroOptXxx>? with .pointee access
 //
-// Sentinels:
-//   int?    → `?? Int64.min`              (Kotlin: == Long.MIN_VALUE → null)
-//   double? → `?? double.nan`                (Kotlin: isNaN → null)
-//   bool?   → `== null ? -1 : (v! ? 1 : 0)` (Kotlin: .toInt() < 0 → null)
+// Wire format: [1B hasValue][N bytes value] — NO RecordWriter 4-byte prefix.
+// Sizes: NitroOptional<int>=9B, NitroOptional<double>=9B, NitroOptional<bool>=2B
 //
-// All other types (String, String?, struct, struct?, enum, bool, int, double)
-// are handled correctly without sentinels.
-//
-// §1-§3  Dart: optional-primitive sentinels (table-driven per type)
-// §4     Dart: non-optional primitives — no sentinel
-// §5     Dart: String / String? — pointers, not sentinel
+// §1-§3  Dart: NitroOptional<T> packed encoding (table-driven per type)
+// §4     Dart: non-optional primitives — no NitroOpt*
+// §5     Dart: String / String? — pointers, not NitroOpt*
 // §6     Dart: struct / struct? — pointer / null-guarded
 // §7     Dart: enum — nativeValue
 // §8     Dart: mixed params
-// §9     Dart: @NitroNativeAsync — sentinels still applied
+// §9     Dart: @NitroNativeAsync — NitroOpt* still applied
 // §10    Kotlin: _call param types (JVM descriptors)
-// §11    Kotlin: sentinel-to-null conversions in _call body
+// §11    Kotlin: NitroOpt* decode in _call body
 // §12    Kotlin: interface keeps nullable types
-// §13    Kotlin: @NitroNativeAsync sentinel-to-null
+// §13    Kotlin: @NitroNativeAsync NitroOpt* decode
 // §14    Kotlin: mixed params — only optional-primitives unwrapped
-// §15    Sentinel round-trip logic (pure Dart unit tests)
+// §15    NitroOpt* round-trip logic (pure Dart unit tests)
 // §16    isOptional flag treated same as nullable type suffix
 
 import 'package:test/test.dart';
 import 'package:nitro_annotations/nitro_annotations.dart';
-import 'package:nitro/src/nitro_nullable.dart';
 import 'package:nitro_generator/src/generators/languages/dart/dart_ffi_generator.dart';
 import 'package:nitro_generator/src/generators/languages/kotlin/kotlin_generator.dart';
 import 'package:nitro_generator/src/bridge_spec.dart';
@@ -175,37 +172,32 @@ const _optPrimCases = [
   (
     type: 'int?',
     param: 'timeout',
-    dartSentinel: 'NitroNullableInt.fromNullable(timeout).toNative(arena)',
+    dartSentinel: 'arena.packInt(timeout)',
     kotlinCallType: 'ByteArray',
-    kotlinConversion: 'val timeoutArg: Long? = NitroNullableInt.decode(timeout).nullable',
+    kotlinConversion: 'val timeoutArg: Long? = NitroOptInt64.decode(timeout).nullable',
     kotlinInterfaceType: 'Long?',
   ),
   (
     type: 'double?',
     param: 'scale',
-    dartSentinel: 'NitroNullableDouble.fromNullable(scale).toNative(arena)',
+    dartSentinel: 'arena.packDouble(scale)',
     kotlinCallType: 'ByteArray',
-    kotlinConversion: 'val scaleArg: Double? = NitroNullableDouble.decode(scale).nullable',
+    kotlinConversion: 'val scaleArg: Double? = NitroOptFloat64.decode(scale).nullable',
     kotlinInterfaceType: 'Double?',
   ),
   (
     type: 'bool?',
     param: 'enabled',
-    dartSentinel: 'NitroNullableBool.fromNullable(enabled).toNative(arena)',
+    dartSentinel: 'arena.packBool(enabled)',
     kotlinCallType: 'ByteArray',
-    kotlinConversion: 'val enabledArg: Boolean? = NitroNullableBool.decode(enabled).nullable',
+    kotlinConversion: 'val enabledArg: Boolean? = NitroOptBool.decode(enabled).nullable',
     kotlinInterfaceType: 'Boolean?',
   ),
 ];
 
-// ─── §15 NitroNullable round-trip helpers ──────────────────────────────────────
-// These test the NitroNullable encoding/decoding round-trip.
-// NitroNullable uses binary format: [1B hasValue][nB value]
-
-// Test that fromNullable preserves all values including sentinels
-NitroNullableInt _encodeNullableInt(int? v) => NitroNullableInt.fromNullable(v);
-NitroNullableDouble _encodeNullableDouble(double? v) => NitroNullableDouble.fromNullable(v);
-NitroNullableBool _encodeNullableBool(bool? v) => NitroNullableBool.fromNullable(v);
+// ─── §15 NitroOptional<T> round-trip helpers ──────────────────────────────────
+// Wire format: [1B hasValue][N bytes value] — no length prefix.
+// NitroOptional<T> encodes via NitroOptionalAllocator; decoded via static methods.
 
 // ─── Tests ───────────────────────────────────────────────────────────────────
 
@@ -215,13 +207,13 @@ void main() {
   // ══════════════════════════════════════════════════════════════════════════
   group('§1-§3 Dart FFI — optional-primitive sentinels', () {
     for (final c in _optPrimCases) {
-      test('async ${c.type} → uses NitroNullable (${c.dartSentinel})', () {
+      test('async ${c.type} → uses NitroOptional<T> packed encoding (${c.dartSentinel})', () {
         _checkDartFfi(
           _asyncSpec(funcName: 'fn', params: [_p(c.param, c.type)]),
           has: [c.dartSentinel],
         );
       });
-      test('sync ${c.type} → uses NitroNullable (${c.dartSentinel})', () {
+      test('sync ${c.type} → uses NitroOptional<T> packed encoding (${c.dartSentinel})', () {
         _checkDartFfi(
           _syncSpec(funcName: 'fn', params: [_p(c.param, c.type)]),
           has: [c.dartSentinel],
@@ -230,18 +222,18 @@ void main() {
     }
 
     // Extra int? edge cases
-    test('named int? uses NitroNullableInt.fromNullable(limit).toNative(arena)', () {
+    test('named int? uses arena.packInt(limit)', () {
       _checkDartFfi(
         _asyncSpec(funcName: 'fn', params: [_p('limit', 'int?', isNamed: true)]),
-        has: ['NitroNullableInt.fromNullable(limit).toNative(arena)'],
+        has: ['arena.packInt(limit)'],
       );
     });
-    test('multiple int? params each get NitroNullable encoding', () {
+    test('multiple int? params each get NitroOptional<int> encoding', () {
       _checkDartFfi(
         _asyncSpec(funcName: 'fn', params: [_p('a', 'int?'), _p('b', 'int?')]),
         has: [
-          'NitroNullableInt.fromNullable(a).toNative(arena)',
-          'NitroNullableInt.fromNullable(b).toNative(arena)',
+          'arena.packInt(a)',
+          'arena.packInt(b)',
         ],
       );
     });
@@ -368,9 +360,9 @@ void main() {
         ),
         has: [
           'id.toNativeUtf8',
-          'NitroNullableInt.fromNullable(timeout).toNative(arena)',
-          'NitroNullableDouble.fromNullable(scale).toNative(arena)',
-          'NitroNullableBool.fromNullable(verbose).toNative(arena)',
+          'arena.packInt(timeout)',
+          'arena.packDouble(scale)',
+          'arena.packBool(verbose)',
           'enabled ? 1 : 0',
           'count',
         ],
@@ -380,7 +372,7 @@ void main() {
   });
 
   // ══════════════════════════════════════════════════════════════════════════
-  // §9  Dart FFI: @NitroNativeAsync — sentinels applied in callArgs
+  // §9  Dart FFI: @NitroNativeAsync — NitroOptional<T> encoding applied in callArgs
   // ══════════════════════════════════════════════════════════════════════════
   group('§9 Dart FFI — @NitroNativeAsync optional primitives', () {
     for (final c in _optPrimCases) {
@@ -393,7 +385,7 @@ void main() {
     }
   });
   // NOTE: NativeAsync uses Dart_PostCObject_DL on native side which posts primitives directly.
-  // The NitroNullable encoding only applies to the FFI call bridge (not NativeAsync result posting).
+  // The NitroOptional<T> packed encoding only applies to the FFI call bridge (not NativeAsync result posting).
 
   // ══════════════════════════════════════════════════════════════════════════
   // §10  Kotlin: _call bridge param types (JVM descriptors)
@@ -404,7 +396,7 @@ void main() {
       test('${c.type} → ${c.kotlinCallType} in _call', () {
         _checkKotlin(
           _asyncSpec(funcName: 'fn', params: [_p(c.param, c.type)]),
-          has: ['fn_call(${c.param}: ${c.kotlinCallType})'],
+          has: ['fn_call(instanceId: Long, ${c.param}: ${c.kotlinCallType})'],
         );
       });
     }
@@ -413,7 +405,7 @@ void main() {
     test('String? stays String? in _call', () {
       _checkKotlin(
         _asyncSpec(funcName: 'send', params: [_p('msg', 'String?')]),
-        has: ['send_call(msg: String?)'],
+        has: ['send_call(instanceId: Long, msg: String?)'],
       );
     });
 
@@ -426,7 +418,7 @@ void main() {
       test('non-optional $type stays $jvmType in _call', () {
         _checkKotlin(
           _asyncSpec(funcName: 'fn', params: [_p(param, type)]),
-          has: ['fn_call($param: $jvmType)'],
+          has: ['fn_call(instanceId: Long, $param: $jvmType)'],
         );
       });
     }
@@ -435,10 +427,10 @@ void main() {
   // ══════════════════════════════════════════════════════════════════════════
   // §11  Kotlin: sentinel-to-null conversions in _call body
   // ══════════════════════════════════════════════════════════════════════════
-  group('§11 Kotlin — _call body sentinel-to-null conversions', () {
-    // Optional primitives → Arg local with sentinel check, forwarded to impl
+  group('§11 Kotlin — _call body NitroOpt* decode', () {
+    // Optional primitives → Arg local via NitroOpt* decode, forwarded to impl
     for (final c in _optPrimCases) {
-      test('${c.type} emits NitroNullable decode Arg local + impl call', () {
+      test('${c.type} emits NitroOpt* decode Arg local + impl call', () {
         _checkKotlin(
           _asyncSpec(funcName: 'fn', params: [_p(c.param, c.type)]),
           has: [c.kotlinConversion, 'impl.fn(${c.param}Arg)'],
@@ -456,11 +448,11 @@ void main() {
       });
     }
 
-    // Sync variant applies same sentinel pattern
-    test('sync int? emits NitroNullableInt decode', () {
+    // Sync variant applies same NitroOptional pattern
+    test('sync int? emits NitroOptInt64 decode', () {
       _checkKotlin(
         _syncSpec(funcName: 'fn', params: [_p('timeout', 'int?')]),
-        has: ['val timeoutArg: Long? = NitroNullableInt.decode(timeout).nullable'],
+        has: ['val timeoutArg: Long? = NitroOptInt64.decode(timeout).nullable'],
       );
     });
   });
@@ -482,8 +474,8 @@ void main() {
   // ══════════════════════════════════════════════════════════════════════════
   // §13  Kotlin @NitroNativeAsync — sentinel-to-null before execute block
   // ══════════════════════════════════════════════════════════════════════════
-  group('§13 Kotlin — @NitroNativeAsync sentinel-to-null', () {
-    test('NativeAsync int? emits NitroNullableInt decode before _asyncExecutor.execute', () {
+  group('§13 Kotlin — @NitroNativeAsync NitroOptInt64 decode', () {
+    test('NativeAsync int? emits NitroOptInt64 decode before _asyncExecutor.execute', () {
       final out = _kotlin(
         _nativeAsyncSpec(
           funcName: 'fetchAsync',
@@ -491,14 +483,14 @@ void main() {
           returnType: 'int',
         ),
       );
-      final decodeIdx = out.indexOf('val timeoutArg: Long? = NitroNullableInt.decode(timeout).nullable');
+      final decodeIdx = out.indexOf('val timeoutArg: Long? = NitroOptInt64.decode(timeout).nullable');
       final executeIdx = out.indexOf('_asyncExecutor.execute');
-      expect(decodeIdx, greaterThan(-1), reason: 'NitroNullable decode must be emitted');
+      expect(decodeIdx, greaterThan(-1), reason: 'NitroOptInt64 decode must be emitted');
       expect(decodeIdx, lessThan(executeIdx), reason: 'decode must be computed before the execute block');
       expect(out, contains('impl.fetchAsync(timeoutArg)'));
     });
 
-    test('NativeAsync double? emits NitroNullableDouble decode', () {
+    test('NativeAsync double? emits NitroOptFloat64 decode', () {
       _checkKotlin(
         _nativeAsyncSpec(
           funcName: 'computeAsync',
@@ -506,13 +498,13 @@ void main() {
           returnType: 'double',
         ),
         has: [
-          'val factorArg: Double? = NitroNullableDouble.decode(factor).nullable',
+          'val factorArg: Double? = NitroOptFloat64.decode(factor).nullable',
           'impl.computeAsync(factorArg)',
         ],
       );
     });
 
-    test('NativeAsync bool? emits NitroNullableBool decode', () {
+    test('NativeAsync bool? emits NitroOptBool decode', () {
       _checkKotlin(
         _nativeAsyncSpec(
           funcName: 'toggleAsync',
@@ -520,13 +512,13 @@ void main() {
           returnType: 'bool',
         ),
         has: [
-          'val flagArg: Boolean? = NitroNullableBool.decode(flag).nullable',
+          'val flagArg: Boolean? = NitroOptBool.decode(flag).nullable',
           'impl.toggleAsync(flagArg)',
         ],
       );
     });
 
-    test('NativeAsync without optional primitives: no sentinel emitted', () {
+    test('NativeAsync without optional primitives: no NitroOptXxx emitted', () {
       _checkKotlin(
         _nativeAsyncSpec(
           funcName: 'pureAsync',
@@ -555,9 +547,9 @@ void main() {
           ],
         ),
         has: [
-          'val timeoutArg: Long? = NitroNullableInt.decode(timeout).nullable',
-          'val scaleArg: Double? = NitroNullableDouble.decode(scale).nullable',
-          'val verboseArg: Boolean? = NitroNullableBool.decode(verbose).nullable',
+          'val timeoutArg: Long? = NitroOptInt64.decode(timeout).nullable',
+          'val scaleArg: Double? = NitroOptFloat64.decode(scale).nullable',
+          'val verboseArg: Boolean? = NitroOptBool.decode(verbose).nullable',
           'impl.doAll(id, timeoutArg, scaleArg, verboseArg, flag, count)',
         ],
         hasNot: ['flagArg', 'countArg', 'idArg'],
@@ -566,31 +558,58 @@ void main() {
   });
 
   // ══════════════════════════════════════════════════════════════════════════
-  // §15  Sentinel round-trip logic (pure Dart unit tests)
+  // §15  NitroOptional<T> generator output — FFI type assertions
   // ══════════════════════════════════════════════════════════════════════════
-  group('§15 NitroNullable round-trip — Dart class tests', () {
-    // NitroNullable encoding preserves all values including Int64.min
-    test('int? null → NitroNullableInt with hasValue=false', () => expect(_encodeNullableInt(null).hasValue, isFalse));
-    test('int? 30 → NitroNullableInt with value=30', () => expect(_encodeNullableInt(30).nullable, equals(30)));
-    test('int? 0 → NitroNullableInt with value=0 (zero is valid)', () => expect(_encodeNullableInt(0).nullable, equals(0)));
-    test('int? Int64.min → representable (no collision!)', () => expect(_encodeNullableInt(-9223372036854775808).nullable, equals(-9223372036854775808)));
-    test('int? -1 → representable (no collision!)', () => expect(_encodeNullableInt(-1).nullable, equals(-1)));
-
-    test('double? null → NitroNullableDouble with hasValue=false', () => expect(_encodeNullableDouble(null).hasValue, isFalse));
-    test('double? 3.14 → NitroNullableDouble with value=3.14', () => expect(_encodeNullableDouble(3.14).nullable, equals(3.14)));
-    test('double? 0.0 → NitroNullableDouble with value=0.0', () => expect(_encodeNullableDouble(0.0).nullable, equals(0.0)));
-    test('double? NaN → representable (no collision!)', () => expect(_encodeNullableDouble(double.nan).nullable!.isNaN, isTrue));
-
-    test('bool? null → NitroNullableBool with hasValue=false', () => expect(_encodeNullableBool(null).hasValue, isFalse));
-    test('bool? true → NitroNullableBool with value=true', () => expect(_encodeNullableBool(true).nullable, isTrue));
-    test('bool? false → NitroNullableBool with value=false', () => expect(_encodeNullableBool(false).nullable, isFalse));
+  group('§15 NitroOptional<T> generator output — FFI type assertions', () {
+    test('int? param → Pointer<NitroOptInt64> (typed struct pointer) in generated Dart', () {
+      final out = DartFfiGenerator.generate(
+        _asyncSpec(funcName: 'fn', params: [_p('v', 'int?')]),
+      );
+      expect(out, contains('Pointer<NitroOptInt64>'));
+      expect(out, contains('packInt('));
+    });
+    test('double? param → Pointer<NitroOptFloat64> (typed struct pointer) in generated Dart', () {
+      final out = DartFfiGenerator.generate(
+        _asyncSpec(funcName: 'fn', params: [_p('v', 'double?')]),
+      );
+      expect(out, contains('Pointer<NitroOptFloat64>'));
+      expect(out, contains('packDouble('));
+    });
+    test('bool? param → Pointer<NitroOptBool> (typed struct pointer) in generated Dart', () {
+      final out = DartFfiGenerator.generate(
+        _asyncSpec(funcName: 'fn', params: [_p('v', 'bool?')]),
+      );
+      expect(out, contains('Pointer<NitroOptBool>'));
+      expect(out, contains('packBool('));
+    });
+    test('int? return (@nitroAsync) → Pointer<NitroOptInt64> + .decoded in generated Dart', () {
+      final out = DartFfiGenerator.generate(
+        _asyncSpec(funcName: 'fn', params: [], returnType: 'int?'),
+      );
+      expect(out, contains('Pointer<NitroOptInt64>'));
+      expect(out, contains('.decoded'));
+    });
+    test('double? return (@nitroAsync) → Pointer<NitroOptFloat64> + .decoded in generated Dart', () {
+      final out = DartFfiGenerator.generate(
+        _asyncSpec(funcName: 'fn', params: [], returnType: 'double?'),
+      );
+      expect(out, contains('Pointer<NitroOptFloat64>'));
+      expect(out, contains('.decoded'));
+    });
+    test('bool? return (@nitroAsync) → Pointer<NitroOptBool> + .decoded in generated Dart', () {
+      final out = DartFfiGenerator.generate(
+        _asyncSpec(funcName: 'fn', params: [], returnType: 'bool?'),
+      );
+      expect(out, contains('Pointer<NitroOptBool>'));
+      expect(out, contains('.decoded'));
+    });
   });
 
   // ══════════════════════════════════════════════════════════════════════════
   // §16  isOptional flag — same treatment as nullable type suffix
   // ══════════════════════════════════════════════════════════════════════════
   group('§16 isOptional flag — treated same as nullable suffix', () {
-    test('Dart: isOptional int? → NitroNullableInt encoding', () {
+    test('Dart: isOptional int? → arena.packOptionalInt encoding', () {
       _checkDartFfi(
         _asyncSpec(
           funcName: 'retry',
@@ -598,11 +617,11 @@ void main() {
             _p('retries', 'int?', isNamed: true, isOptional: true, defaultLiteral: '3'),
           ],
         ),
-        has: ['NitroNullableInt.fromNullable(retries).toNative(arena)'],
+        has: ['arena.packInt(retries)'],
       );
     });
 
-    test('Kotlin: isOptional int? → NitroNullableInt decode', () {
+    test('Kotlin: isOptional int? → NitroOptInt64 decode', () {
       _checkKotlin(
         _asyncSpec(
           funcName: 'retry',
@@ -610,11 +629,11 @@ void main() {
             _p('retries', 'int?', isNamed: true, isOptional: true, defaultLiteral: '3'),
           ],
         ),
-        has: ['val retriesArg: Long? = NitroNullableInt.decode(retries).nullable'],
+        has: ['val retriesArg: Long? = NitroOptInt64.decode(retries).nullable'],
       );
     });
 
-    test('Dart: isOptional double? → NitroNullableDouble encoding', () {
+    test('Dart: isOptional double? → arena.packOptionalDouble encoding', () {
       _checkDartFfi(
         _asyncSpec(
           funcName: 'check',
@@ -622,11 +641,11 @@ void main() {
             _p('threshold', 'double?', isNamed: true, isOptional: true),
           ],
         ),
-        has: ['NitroNullableDouble.fromNullable(threshold).toNative(arena)'],
+        has: ['arena.packDouble(threshold)'],
       );
     });
 
-    test('Kotlin: isOptional double? → NitroNullableDouble decode', () {
+    test('Kotlin: isOptional double? → NitroOptFloat64 decode', () {
       _checkKotlin(
         _asyncSpec(
           funcName: 'check',
@@ -634,7 +653,7 @@ void main() {
             _p('threshold', 'double?', isNamed: true, isOptional: true),
           ],
         ),
-        has: ['val thresholdArg: Double? = NitroNullableDouble.decode(threshold).nullable'],
+        has: ['val thresholdArg: Double? = NitroOptFloat64.decode(threshold).nullable'],
       );
     });
   });

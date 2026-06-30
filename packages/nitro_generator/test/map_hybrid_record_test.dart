@@ -61,7 +61,7 @@ void main() {
   group('DartFfiGenerator — Map<String, @HybridRecord> return type', () {
     test('uses Pointer<Uint8> for the getDevices FFI function pointer (binary)', () {
       final out = DartFfiGenerator.generate(_mapRecordReturnSpec());
-      expect(out, contains('Pointer<Uint8> Function() _getDevicesPtr'));
+      expect(out, contains('Pointer<Uint8> Function(int) _getDevicesPtr'));
     });
 
     test('decodes via binary helper', () {
@@ -91,7 +91,11 @@ void main() {
 
     test('does NOT use toNativeUtf8 (binary uses alloc)', () {
       final out = DartFfiGenerator.generate(_mapRecordParamSpec());
-      expect(out, isNot(contains('toNativeUtf8')));
+      // toNativeUtf8 appears in the _init constructor for the instance key; check only the configure method body.
+      final configIdx = out.indexOf('_configurePtr(');
+      expect(configIdx, isNot(-1), reason: 'configure method call not found');
+      final methodBody = out.substring(configIdx, configIdx + 300);
+      expect(methodBody, isNot(contains('toNativeUtf8')));
     });
 
     test('does NOT use binary RecordExt for the map param', () {

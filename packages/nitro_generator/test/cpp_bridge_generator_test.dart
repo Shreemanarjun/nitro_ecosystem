@@ -49,7 +49,7 @@ void main() {
         ),
       );
 
-      expect(out, contains('GetStaticMethodID(g_bridgeClass, "snapshot_call", "()Ljava/nio/ByteBuffer;")'));
+      expect(out, contains('GetStaticMethodID(g_bridgeClass, "snapshot_call", "(J)Ljava/nio/ByteBuffer;")'));
       expect(out, contains('void* data = env->GetDirectBufferAddress(jbuf);'));
       expect(out, contains('jobject owner = env->NewGlobalRef(jbuf);'));
       expect(out, contains('result[1] = (int64_t)(intptr_t)(data != nullptr ? data : result);'));
@@ -139,25 +139,25 @@ void main() {
         ],
       );
       final out = CppBridgeGenerator.generate(spec);
-      expect(out, contains('void my_camera_do_something(NitroError* _nitro_err)'));
+      expect(out, contains('void my_camera_do_something(int64_t instanceId, NitroError* _nitro_err)'));
       expect(out, contains('if (env == nullptr) { return; }\n'));
-      expect(out, contains('if (methodId == nullptr) { LOGE("Method not found: doSomething_call sig=()V"); return; }'));
+      expect(out, contains('if (methodId == nullptr) { LOGE("Method not found: doSomething_call sig=(J)V"); return; }'));
     });
 
     test('enum return uses int64_t and CallStaticLongMethod', () {
       final out = CppBridgeGenerator.generate(enumSpec());
-      expect(out, contains('int64_t complex_module_get_status(NitroError* _nitro_err)'));
+      expect(out, contains('int64_t complex_module_get_status(int64_t instanceId, NitroError* _nitro_err)'));
       expect(out, contains('CallStaticLongMethod'));
     });
 
     test('property getter emitted', () {
       final out = CppBridgeGenerator.generate(enumSpec());
-      expect(out, contains('double complex_module_get_battery_level(NitroError* _nitro_err)'));
+      expect(out, contains('double complex_module_get_battery_level(int64_t instanceId, NitroError* _nitro_err)'));
     });
 
     test('property setter emitted', () {
       final out = CppBridgeGenerator.generate(enumSpec());
-      expect(out, contains('void complex_module_set_config(const char* value, NitroError* _nitro_err)'));
+      expect(out, contains('void complex_module_set_config(int64_t instanceId, const char* value, NitroError* _nitro_err)'));
     });
     test('JNI cleanup is emitted for object arguments', () {
       final spec = BridgeSpec(
@@ -705,7 +705,7 @@ void main() {
     test('stream register/release functions are emitted in cpp path', () {
       final out = CppBridgeGenerator.generate(cppStreamSpec());
       // Symbols come from stream.registerSymbol / stream.releaseSymbol directly
-      expect(out, contains('void lidar_register_points_stream(int64_t dart_port)'));
+      expect(out, contains('void lidar_register_points_stream(int64_t instanceId, int64_t dart_port)'));
       expect(out, contains('void lidar_release_points_stream(int64_t dart_port)'));
     });
 
@@ -834,25 +834,25 @@ void main() {
         ],
       );
 
-      test('int? return calls CallStaticObjectMethod (NitroNullable ByteArray)', () {
+      test('int? return calls CallStaticObjectMethod + returns NitroOptInt64 by value', () {
         final out = CppBridgeGenerator.generate(nullableReturnSpec('int?'));
-        // int? now uses NitroNullableInt binary encoding (ByteArray) — CallStaticObjectMethod
-        expect(out, contains('CallStaticObjectMethod'), reason: 'int? must call CallStaticObjectMethod for NitroNullable ByteArray');
-        expect(out, contains('uint8_t*'), reason: 'int? return type should be uint8_t*');
+        // int? uses ByteArray (Kotlin returns bytes) → C copies to stack struct, returns by value.
+        expect(out, contains('CallStaticObjectMethod'), reason: 'int? must call CallStaticObjectMethod for ByteArray');
+        expect(out, contains('NitroOptInt64'), reason: 'int? return type should be NitroOptInt64 (struct by value)');
       });
 
-      test('double? return calls CallStaticObjectMethod (NitroNullable ByteArray)', () {
+      test('double? return calls CallStaticObjectMethod + returns NitroOptFloat64 by value', () {
         final out = CppBridgeGenerator.generate(nullableReturnSpec('double?'));
-        // double? now uses NitroNullableDouble binary encoding (ByteArray)
-        expect(out, contains('CallStaticObjectMethod'), reason: 'double? must call CallStaticObjectMethod for NitroNullable ByteArray');
-        expect(out, contains('uint8_t*'), reason: 'double? return type should be uint8_t*');
+        // double? uses ByteArray (Kotlin returns bytes) → C copies to stack struct, returns by value.
+        expect(out, contains('CallStaticObjectMethod'), reason: 'double? must call CallStaticObjectMethod for ByteArray');
+        expect(out, contains('NitroOptFloat64'), reason: 'double? return type should be NitroOptFloat64 (struct by value)');
       });
 
-      test('bool? return calls CallStaticObjectMethod (NitroNullable ByteArray)', () {
+      test('bool? return calls CallStaticObjectMethod + returns NitroOptBool by value', () {
         final out = CppBridgeGenerator.generate(nullableReturnSpec('bool?'));
-        // bool? now uses NitroNullableBool binary encoding (ByteArray) — no more Int 3-state.
-        expect(out, contains('CallStaticObjectMethod'), reason: 'bool? must call CallStaticObjectMethod for NitroNullable ByteArray');
-        expect(out, contains('uint8_t*'), reason: 'bool? return type should be uint8_t*');
+        // bool? uses ByteArray (Kotlin returns bytes) → C copies to stack struct, returns by value.
+        expect(out, contains('CallStaticObjectMethod'), reason: 'bool? must call CallStaticObjectMethod for ByteArray');
+        expect(out, contains('NitroOptBool'), reason: 'bool? return type should be NitroOptBool (struct by value)');
       });
 
       test('String? return calls CallStaticObjectMethod', () {

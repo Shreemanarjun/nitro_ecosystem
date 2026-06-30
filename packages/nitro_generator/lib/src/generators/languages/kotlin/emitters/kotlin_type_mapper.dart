@@ -14,6 +14,7 @@ class KotlinTypeMapper implements TypeMapper {
   final Set<String> structNames;
   final Set<String> recordNames;
   final Set<String> variantNames;
+  final Set<String> customTypeNames;
   final List<BridgeStruct> structs;
 
   KotlinTypeMapper({
@@ -22,6 +23,7 @@ class KotlinTypeMapper implements TypeMapper {
     required this.recordNames,
     required this.variantNames,
     required this.structs,
+    this.customTypeNames = const {},
   });
 
   factory KotlinTypeMapper.fromSpec(BridgeSpec spec) => KotlinTypeMapper(
@@ -29,6 +31,7 @@ class KotlinTypeMapper implements TypeMapper {
     structNames: spec.structs.map((s) => s.name).toSet(),
     recordNames: spec.recordTypes.map((r) => r.name).toSet(),
     variantNames: spec.variants.map((v) => v.name).toSet(),
+    customTypeNames: spec.customTypes.map((c) => c.name).toSet(),
     structs: spec.structs,
   );
 
@@ -40,6 +43,7 @@ class KotlinTypeMapper implements TypeMapper {
   /// Returns `'Any?'` for unrecognised types.
   String type(String t, {BridgeType? bridgeType}) {
     if (bridgeType?.isNativeHandle == true) return 'Long';
+    if (bridgeType?.isAnyNativeObject == true) return 'Long';
     final name = t.replaceFirst('?', '');
 
     if (bridgeType != null && bridgeType.isFunction) {
@@ -51,6 +55,11 @@ class KotlinTypeMapper implements TypeMapper {
 
     switch (name) {
       case 'int':
+        return 'Long';
+      case 'uint64':
+        // JVM has no unsigned 64-bit primitive; Long holds the same bits.
+        return 'Long';
+      case 'DateTime':
         return 'Long';
       case 'double':
         return 'Double';
@@ -81,6 +90,19 @@ class KotlinTypeMapper implements TypeMapper {
     if (structNames.contains(name)) return name;
     if (recordNames.contains(name)) return name;
     if (variantNames.contains(name)) return name;
+    if (customTypeNames.contains(name)) return 'ByteArray';
+    // Typed generic collections — parse value/item type for type-safe Kotlin interfaces.
+    if (name.startsWith('List<') && name.endsWith('>')) {
+      final inner = name.substring(5, name.length - 1).trim();
+      return 'List<${type(inner)}>';
+    }
+    if (name.startsWith('Map<') && name.endsWith('>')) {
+      final m = RegExp(r'^Map<String,\s*(.+)>$').firstMatch(name);
+      if (m != null) {
+        final valueType = m.group(1)!.trim();
+        return 'Map<String, ${type(valueType)}>';
+      }
+    }
     return 'Any?';
   }
 
@@ -92,9 +114,18 @@ class KotlinTypeMapper implements TypeMapper {
   /// `@HybridRecord` → class name, nullable primitives → nullable Kotlin types.
   String retType(BridgeType t) {
     if (t.isNativeHandle) return 'Long';
+    if (t.isAnyNativeObject) {
+      return t.isNullable ? 'Long?' : 'Long';
+    }
+    final bareCustom = t.name.replaceFirst('?', '');
+    if (customTypeNames.contains(bareCustom)) {
+      return t.isNullable ? 'ByteArray?' : 'ByteArray';
+    }
+    if (t.isAnyMap) return 'Map<String, Any?>';
     if (t.isRecord && !t.isMap) {
       if (t.recordListItemType != null && !t.recordListItemIsPrimitive) {
-        return 'List<${t.recordListItemType}>';
+        final nullSuffix = t.recordListItemIsNullable ? '?' : '';
+        return 'List<${t.recordListItemType}$nullSuffix>';
       }
       if (t.recordListItemType != null && t.recordListItemIsPrimitive) {
         return 'List<${type(t.recordListItemType!)}>';
@@ -106,7 +137,9 @@ class KotlinTypeMapper implements TypeMapper {
     final baseName = t.name.replaceFirst('?', '');
     if (isNullable && baseName == 'bool') return 'Boolean?';
     if (isNullable && baseName == 'int') return 'Long?';
+    if (isNullable && baseName == 'uint64') return 'Long?';
     if (isNullable && baseName == 'double') return 'Double?';
+    if (isNullable && baseName == 'DateTime') return 'Long?';
     if (isNullable && !base.endsWith('?')) return '$base?';
     return base;
   }
@@ -139,6 +172,12 @@ class KotlinTypeMapper implements TypeMapper {
   /// Kotlin promotes it automatically when forwarding to the interface.
   String bridgeParamType(BridgeParam p) {
     if (p.type.isFunction) return 'Long';
+    if (p.type.isAnyNativeObject) {
+      return p.type.isNullable ? 'Long' : 'Long';
+    }
+    final bareCustom = p.type.name.replaceFirst('?', '');
+    if (customTypeNames.contains(bareCustom)) return 'ByteArray';
+    if (p.type.isAnyMap) return 'ByteArray';
     if (p.type.isMap) return 'ByteArray';
     final isNullableRecord = p.type.isRecord && (p.type.isNullable || p.type.name.endsWith('?'));
     if (p.type.isRecord) return isNullableRecord ? 'ByteArray?' : 'ByteArray';
@@ -155,7 +194,9 @@ class KotlinTypeMapper implements TypeMapper {
 
     final baseName = p.type.name.replaceFirst('?', '');
     // Nullable primitives use NitroNullable ByteArray ([B) for JVM descriptor compatibility.
-    if (baseName == 'int' || baseName == 'bool' || baseName == 'double') return 'ByteArray';
+    // uint64? reuses NitroOptInt64 byte encoding (same 9-byte layout; bits preserved as Long).
+    // Also covers isOptional=true params whose type name lacks '?' (same ByteArray encoding).
+    if (p.type.isNullableNitroPrim || BridgeType.nitroPrimBases.contains(baseName)) return 'ByteArray';
     if (enumNames.contains(baseName)) return 'Long';
     return '${type(baseName)}?';
   }
@@ -185,6 +226,7 @@ class KotlinTypeMapper implements TypeMapper {
       default:
         if (structNames.contains(base)) return base; // data class
         if (recordNames.contains(base)) return 'ByteArray'; // serialised record
+        if (variantNames.contains(base)) return 'ByteArray'; // encoded variant bytes
         return 'Long'; // int, enum rawValue → Long
     }
   }
@@ -195,12 +237,23 @@ class KotlinTypeMapper implements TypeMapper {
     final cbParams = p.type.functionParams;
     final nativeMethodName = '_invoke_${p.name}';
 
-    final lambdaParams = cbParams.asMap().entries.map((e) => 'p${e.key}: ${type(e.value.name)}').join(', ');
+    // For nullable int/double/bool, use nullable Kotlin types (Long?, Double?, Boolean?).
+    String lambdaParamType(BridgeType cbP) {
+      final base = cbP.name.replaceFirst('?', '');
+      final isNullable = cbP.name.endsWith('?');
+      if (isNullable && (base == 'int' || base == 'double' || base == 'bool')) {
+        return '${type(base)}?';
+      }
+      return type(cbP.name);
+    }
+
+    final lambdaParams = cbParams.asMap().entries.map((e) => 'p${e.key}: ${lambdaParamType(e.value)}').join(', ');
 
     final nativeArgs = <String>[p.name];
     for (var i = 0; i < cbParams.length; i++) {
       final cbP = cbParams[i];
       final base = cbP.name.replaceFirst('?', '');
+      final isNullable = cbP.name.endsWith('?');
       final struct = structs.where((s) => s.name == base).firstOrNull;
       if (struct != null && isExpandableStruct(struct)) {
         for (final f in struct.fields) {
@@ -213,6 +266,16 @@ class KotlinTypeMapper implements TypeMapper {
             nativeArgs.add('p$i.${f.name}.toLong()');
           }
         }
+      } else if (isNullable && base == 'int') {
+        // Nullable int: two-arg (isNull flag, value) to avoid Int64.min sentinel corruption.
+        nativeArgs.add('if (p$i == null) 1L else 0L');
+        nativeArgs.add('p$i ?: 0L');
+      } else if (isNullable && base == 'double') {
+        nativeArgs.add('if (p$i == null) 1L else 0L');
+        nativeArgs.add('if (p$i != null) java.lang.Double.doubleToRawLongBits(p$i) else 0L');
+      } else if (isNullable && base == 'bool') {
+        nativeArgs.add('if (p$i == null) 1L else 0L');
+        nativeArgs.add('if (p$i == true) 1L else 0L');
       } else if (base == 'bool') {
         nativeArgs.add('if (p$i) 1L else 0L');
       } else if (base == 'double') {
@@ -220,6 +283,8 @@ class KotlinTypeMapper implements TypeMapper {
       } else if (enumNames.contains(base)) {
         nativeArgs.add('p$i.nativeValue');
       } else if (recordNames.contains(base)) {
+        nativeArgs.add('p$i.encode()');
+      } else if (variantNames.contains(base)) {
         nativeArgs.add('p$i.encode()');
       } else {
         nativeArgs.add('p$i');
@@ -234,6 +299,12 @@ class KotlinTypeMapper implements TypeMapper {
       'double' => 'java.lang.Double.longBitsToDouble($invocation)',
       'String' => invocation,
       final t when enumNames.contains(t) => '$t.fromNative($invocation)',
+      // @HybridRecord return: C JNI returns ByteArray with [4B len][payload]; skip prefix and decode.
+      final t when recordNames.contains(t) =>
+        'run { val _b = $invocation; val _bb = java.nio.ByteBuffer.wrap(_b).order(java.nio.ByteOrder.LITTLE_ENDIAN); _bb.getInt(); $t.decodeFrom(_bb) }',
+      // @NitroVariant return: same wire format; decode via fromReader.
+      final t when variantNames.contains(t) =>
+        'run { val _b = $invocation; val _bb = java.nio.ByteBuffer.wrap(_b).order(java.nio.ByteOrder.LITTLE_ENDIAN); _bb.getInt(); $t.fromReader(RecordReader(_bb)) }',
       _ => invocation,
     };
     return '{ ${lambdaParams.isEmpty ? '' : '$lambdaParams -> '}$body }';
@@ -243,6 +314,8 @@ class KotlinTypeMapper implements TypeMapper {
     final base = (dartType ?? 'void').replaceFirst('?', '');
     if (base == 'void') return 'Unit';
     if (base == 'String') return 'String';
+    // @HybridRecord / @NitroVariant: C JNI invoker returns jbyteArray (encoded bytes).
+    if (recordNames.contains(base) || variantNames.contains(base)) return 'ByteArray';
     return 'Long';
   }
 

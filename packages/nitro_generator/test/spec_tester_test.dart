@@ -215,7 +215,7 @@ void main() {
   // ══════════════════════════════════════════════════════════════════════════
   // §5  SpecFromSource — optional-primitive sentinel via generator output
   // ══════════════════════════════════════════════════════════════════════════
-  group('§5 SpecFromSource — NitroNullable encoding via generators', () {
+  group('§5 SpecFromSource — NitroOpt* encoding via generators', () {
     specTest(
       'int? sentinel in Dart and Kotlin',
       _src('''
@@ -223,9 +223,9 @@ void main() {
           Future<void> work({int? timeout});
         }
       '''),
-      dart: BridgeChecks(has: ['NitroNullableInt.fromNullable(timeout).toNative(arena)']),
+      dart: BridgeChecks(has: ['arena.packInt(timeout)']),
       kotlin: BridgeChecks(
-        has: ['val timeoutArg: Long? = NitroNullableInt.decode(timeout).nullable'],
+        has: ['val timeoutArg: Long? = NitroOptInt64.decode(timeout).nullable'],
         before: [('val timeoutArg', 'impl.work(')],
       ),
       skip: {Lang.cpp},
@@ -238,8 +238,8 @@ void main() {
           Future<void> measure({double? scale});
         }
       '''),
-      dart: BridgeChecks(has: ['NitroNullableDouble.fromNullable(scale).toNative(arena)']),
-      kotlin: BridgeChecks(has: ['val scaleArg: Double? = NitroNullableDouble.decode(scale).nullable']),
+      dart: BridgeChecks(has: ['arena.packDouble(scale)']),
+      kotlin: BridgeChecks(has: ['val scaleArg: Double? = NitroOptFloat64.decode(scale).nullable']),
       skip: {Lang.cpp},
     );
 
@@ -250,8 +250,8 @@ void main() {
           Future<void> toggle({bool? enabled});
         }
       '''),
-      dart: BridgeChecks(has: ['NitroNullableBool.fromNullable(enabled).toNative(arena)']),
-      kotlin: BridgeChecks(has: ['val enabledArg: Boolean? = NitroNullableBool.decode(enabled).nullable']),
+      dart: BridgeChecks(has: ['arena.packBool(enabled)']),
+      kotlin: BridgeChecks(has: ['val enabledArg: Boolean? = NitroOptBool.decode(enabled).nullable']),
       skip: {Lang.cpp},
     );
 

@@ -1,6 +1,6 @@
 import '../bridge_spec.dart';
 
-const nitroGeneratorVersion = '0.4.6';
+const nitroGeneratorVersion = '0.5.1';
 
 String generatedFileHeader(String commentPrefix, {required String sourceUri}) {
   final sourceName = sourceUri.split('/').last;
@@ -55,6 +55,7 @@ String _typeSig(BridgeType type) {
     type.pointerInnerType ?? '',
     type.recordListItemType ?? '',
     type.recordListItemIsPrimitive,
+    type.isAnyMap,
     type.isMap,
     type.isFunction,
     type.functionReturnType ?? '',

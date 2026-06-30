@@ -32,8 +32,10 @@ class SpecFromSource {
   static BridgeSpec _fromUnit(CompilationUnit unit, String sourceUri) {
     final enums = _extractEnums(unit);
     final structs = _extractStructs(unit);
+    final records = _extractRecords(unit, enums, structs);
     final enumNames = enums.map((e) => e.name).toSet();
     final structNames = structs.map((s) => s.name).toSet();
+    final recordNames = records.map((r) => r.name).toSet();
 
     // Look for @NitroModule class first; fall back to first abstract class.
     ClassDeclaration? moduleClass;
@@ -121,7 +123,7 @@ class SpecFromSource {
     for (final member in (moduleClass.body as BlockClassBody).members) {
       if (member is! MethodDeclaration) continue;
       if (!member.isAbstract) continue;
-      _processMember(member, ns, enumNames, structNames, functions, propMap, streams);
+      _processMember(member, ns, enumNames, structNames, recordNames, functions, propMap, streams);
     }
 
     // Flush property map → list (preserving insertion order).
@@ -154,6 +156,7 @@ class SpecFromSource {
       streams: streams,
       enums: enums,
       structs: structs,
+      recordTypes: records,
     );
   }
 
@@ -164,6 +167,7 @@ class SpecFromSource {
     String ns,
     Set<String> enumNames,
     Set<String> structNames,
+    Set<String> recordNames,
     List<BridgeFunction> functions,
     Map<String, _PropEntry> propMap,
     List<BridgeStream> streams,
@@ -189,12 +193,13 @@ class SpecFromSource {
     final baseRetSrc = retSrc.replaceAll('?', '').trim();
     if (baseRetSrc.startsWith('Stream<') || baseRetSrc == 'Stream') {
       final itemType = _genericArg(retSrc) ?? 'dynamic';
+      final itemBase = itemType.replaceAll('?', '');
       streams.add(
         BridgeStream(
           dartName: name,
           registerSymbol: '${ns}_register_${_toSnakeCase(name)}_stream',
           releaseSymbol: '${ns}_release_${_toSnakeCase(name)}_stream',
-          itemType: BridgeType(name: itemType),
+          itemType: _makeType(itemType, itemBase, enumNames, structNames, recordNames),
           backpressure: Backpressure.dropLatest,
         ),
       );
@@ -207,8 +212,11 @@ class SpecFromSource {
 
     final isFuture = retSrc.startsWith('Future<') || isAsync || isNativeAsync;
     final effectiveReturn = isFuture ? (_genericArg(retSrc) ?? 'void') : retSrc;
+    final effectiveBase = effectiveReturn.replaceAll('?', '');
 
-    final params = m.parameters?.parameters.map(_extractParam).toList() ?? [];
+    final params = m.parameters?.parameters
+        .map((p) => _extractParam(p, enumNames, structNames, recordNames))
+        .toList() ?? [];
 
     functions.add(
       BridgeFunction(
@@ -216,15 +224,41 @@ class SpecFromSource {
         cSymbol: '${ns}_${_toSnakeCase(name)}',
         isAsync: isAsync,
         isNativeAsync: isNativeAsync,
-        returnType: BridgeType(name: effectiveReturn, isFuture: isFuture, isNullable: effectiveReturn.endsWith('?')),
+        returnType: _makeType(effectiveReturn, effectiveBase, enumNames, structNames, recordNames,
+            isFuture: isFuture),
         params: params,
       ),
     );
   }
 
+  /// Builds a [BridgeType] from a type name string, setting `isAnyMap`, `isRecord`,
+  /// etc. based on known type sets.
+  static BridgeType _makeType(
+    String typeSrc,
+    String typeBase,
+    Set<String> enumNames,
+    Set<String> structNames,
+    Set<String> recordNames, {
+    bool isFuture = false,
+  }) {
+    final isNullable = typeSrc.endsWith('?');
+    if (typeBase == 'NitroAnyMap') {
+      return BridgeType(name: 'NitroAnyMap', isAnyMap: true, isNullable: isNullable, isFuture: isFuture);
+    }
+    if (recordNames.contains(typeBase)) {
+      return BridgeType(name: typeSrc, isRecord: true, isNullable: isNullable, isFuture: isFuture);
+    }
+    return BridgeType(name: typeSrc, isNullable: isNullable, isFuture: isFuture);
+  }
+
   // ─── Parameter extraction ─────────────────────────────────────────────────
 
-  static BridgeParam _extractParam(FormalParameter p) {
+  static BridgeParam _extractParam(
+    FormalParameter p,
+    Set<String> enumNames,
+    Set<String> structNames,
+    Set<String> recordNames,
+  ) {
     String typeSrc = 'dynamic';
     String? defaultValue;
 
@@ -238,9 +272,10 @@ class SpecFromSource {
       typeSrc = inner.type?.toSource() ?? 'dynamic';
     }
 
+    final typeBase = typeSrc.replaceAll('?', '');
     return BridgeParam(
       name: p.name?.lexeme ?? '',
-      type: BridgeType(name: typeSrc, isNullable: typeSrc.endsWith('?')),
+      type: _makeType(typeSrc, typeBase, enumNames, structNames, recordNames),
       isNamed: p.isNamed,
       isOptional: p.isOptional,
       defaultLiteral: defaultValue,
@@ -290,6 +325,62 @@ class SpecFromSource {
       result.add(BridgeStruct(name: decl.namePart.typeName.lexeme, packed: packed, fields: fields));
     }
     return result;
+  }
+
+  // ─── Record extraction ────────────────────────────────────────────────────
+
+  static List<BridgeRecordType> _extractRecords(
+    CompilationUnit unit,
+    List<BridgeEnum> enums,
+    List<BridgeStruct> structs,
+  ) {
+    final enumNames = enums.map((e) => e.name).toSet();
+    final structNames = structs.map((s) => s.name).toSet();
+    final result = <BridgeRecordType>[];
+    for (final decl in unit.declarations) {
+      if (decl is! ClassDeclaration) continue;
+      if (!decl.metadata.any((a) => _annName(a) == 'HybridRecord')) continue;
+      final fields = <BridgeRecordField>[];
+      for (final member in (decl.body as BlockClassBody).members) {
+        if (member is! FieldDeclaration || member.isStatic) continue;
+        final typeSrc = member.fields.type?.toSource() ?? 'dynamic';
+        final typeBase = typeSrc.replaceAll('?', '');
+        final isNullable = typeSrc.endsWith('?');
+        final kind = _recordFieldKind(typeBase, typeSrc, enumNames, structNames);
+        final itemType = typeBase.startsWith('List<') ? _genericArg(typeBase) : null;
+        for (final v in member.fields.variables) {
+          fields.add(BridgeRecordField(
+            name: v.name.lexeme,
+            dartType: typeSrc,
+            kind: kind,
+            itemTypeName: itemType,
+            isNullable: isNullable,
+          ));
+        }
+      }
+      result.add(BridgeRecordType(name: decl.namePart.typeName.lexeme, fields: fields));
+    }
+    return result;
+  }
+
+  static RecordFieldKind _recordFieldKind(
+    String typeBase,
+    String typeSrc,
+    Set<String> enumNames,
+    Set<String> structNames,
+  ) {
+    if (enumNames.contains(typeBase)) return RecordFieldKind.enumValue;
+    if (structNames.contains(typeBase)) return RecordFieldKind.struct;
+    if (typeBase.startsWith('List<')) {
+      final item = _genericArg(typeBase) ?? '';
+      if (enumNames.contains(item)) return RecordFieldKind.listEnumValue;
+      if (const {'int', 'double', 'bool', 'String'}.contains(item)) return RecordFieldKind.listPrimitive;
+      return RecordFieldKind.listRecordObject;
+    }
+    if (const {'Uint8List', 'Int8List', 'Int16List', 'Int32List', 'Int64List', 'Float32List', 'Float64List'}.contains(typeBase)) {
+      return RecordFieldKind.typedData;
+    }
+    return RecordFieldKind.primitive;
   }
 
   // ─── AST helpers ──────────────────────────────────────────────────────────

@@ -1,14 +1,16 @@
-// Stream item type tests for SwiftGenerator and KotlinGenerator.
+// Stream item type tests for SwiftGenerator, KotlinGenerator and CppBridgeGenerator.
 //
 // Verifies that every Stream<T> item type maps to the correct native type in:
 //   - Swift protocol:    AnyPublisher<T, Never>
 //   - Swift @_cdecl:    correct C-ABI callback param type
 //   - Kotlin interface: Flow<T>
+//   - C JNI emit:       correct CObject type for nullable items
 //
-//   Item types covered: bool, int, double, String, Uint8List, @HybridEnum, @HybridStruct
+//   Item types covered: bool, int, double, String, String?, Uint8List, @HybridEnum, @HybridStruct
 
 import 'package:nitro_generator/src/generators/languages/swift/swift_generator.dart';
 import 'package:nitro_generator/src/generators/languages/kotlin/kotlin_generator.dart';
+import 'package:nitro_generator/src/generators/languages/c_bridge/cpp_bridge_generator.dart';
 import 'package:test/test.dart';
 import 'test_utils.dart';
 
@@ -209,17 +211,122 @@ void main() {
     });
   });
 
+  // ── Kotlin: nullable prim streams ────────────────────────────────────────
+
+  group('KotlinGenerator — Stream<int?> (optCounterStream) emit', () {
+    late String kotlinCode;
+    setUp(() {
+      kotlinCode = KotlinGenerator.generate(BridgeSpec(
+        dartClassName: 'Mod',
+        lib: 'mod',
+        namespace: 'mod',
+        iosImpl: NativeImpl.swift,
+        androidImpl: NativeImpl.kotlin,
+        sourceUri: 'mod.native.dart',
+        enums: [],
+        structs: [],
+        streams: [
+          BridgeStream(
+            dartName: 'optCounterStream',
+            itemType: BridgeType(name: 'int?'),
+            registerSymbol: 'mod_register_optCounterStream',
+            releaseSymbol: 'mod_release_optCounterStream',
+            backpressure: Backpressure.dropLatest,
+          ),
+        ],
+      ));
+    });
+
+    test('optCounterStream: Kotlin emit declares item: Long?', () {
+      final idx = kotlinCode.indexOf('emit_optCounterStream');
+      expect(idx, isNot(-1));
+      final end = (idx + 200).clamp(0, kotlinCode.length);
+      final section = kotlinCode.substring(idx, end);
+      expect(section, contains('item: Long?'));
+    });
+
+    test('emits Flow<Long?> in interface', () {
+      expect(kotlinCode, contains('Flow<Long?>'));
+    });
+  });
+
+  group('KotlinGenerator — Stream<double?> emit', () {
+    test('declares item: Double?', () {
+      final out = KotlinGenerator.generate(_streamSpec(itemType: 'double?'));
+      expect(out, contains('item: Double?'));
+    });
+
+    test('emits Flow<Double?> in interface', () {
+      final out = KotlinGenerator.generate(_streamSpec(itemType: 'double?'));
+      expect(out, contains('Flow<Double?>'));
+    });
+  });
+
+  group('KotlinGenerator — Stream<bool?> emit', () {
+    test('declares item: Boolean?', () {
+      final out = KotlinGenerator.generate(_streamSpec(itemType: 'bool?'));
+      expect(out, contains('item: Boolean?'));
+    });
+
+    test('emits Flow<Boolean?> in interface', () {
+      final out = KotlinGenerator.generate(_streamSpec(itemType: 'bool?'));
+      expect(out, contains('Flow<Boolean?>'));
+    });
+  });
+
+  group('KotlinGenerator — Stream<String?> emit', () {
+    test('declares item: String?', () {
+      final out = KotlinGenerator.generate(_streamSpec(itemType: 'String?'));
+      expect(out, contains('item: String?'));
+    });
+
+    test('emits Flow<String?> in interface', () {
+      final out = KotlinGenerator.generate(_streamSpec(itemType: 'String?'));
+      expect(out, contains('Flow<String?>'));
+    });
+  });
+
   // ── Kotlin: register/release stubs emitted ───────────────────────────────
 
   group('KotlinGenerator — Stream register and release _call stubs', () {
     test('register _call stub emitted', () {
       final out = KotlinGenerator.generate(_streamSpec(itemType: 'int'));
-      expect(out, contains('fun mod_register_events_call(dartPort: Long)'));
+      expect(out, contains('fun mod_register_events_call(instanceId: Long, dartPort: Long)'));
     });
 
     test('release _call stub emitted', () {
       final out = KotlinGenerator.generate(_streamSpec(itemType: 'int'));
       expect(out, contains('fun mod_release_events_call(dartPort: Long)'));
+    });
+  });
+
+  // ── C bridge JNI emit: Stream<String?> posts kString for non-null, kNull for null ─────────
+  //
+  // Regression test for a bug where Stream<String?> fell through to the else-kNull branch
+  // in jni_method_emitter.dart because the condition only matched 'String', not 'String?'.
+  // Result: all items (including non-null strings) were posted as kNull on Android.
+
+  group('CppBridgeGenerator — Stream<String?> JNI emit', () {
+    late String out;
+    setUp(() {
+      out = CppBridgeGenerator.generate(_streamSpec(itemType: 'String?'));
+    });
+
+    test('emit function takes jstring item', () {
+      expect(out, contains('jstring item'));
+    });
+
+    test('null item → kNull (item == nullptr check)', () {
+      expect(out, contains('if (item == nullptr) { obj.type = Dart_CObject_kNull; }'));
+    });
+
+    test('non-null item → GetStringUTFChars + kString', () {
+      expect(out, contains('GetStringUTFChars'));
+      expect(out, contains('Dart_CObject_kString'));
+    });
+
+    test('non-null path releases JNI reference', () {
+      expect(out, contains('ReleaseStringUTFChars'));
     });
   });
 }

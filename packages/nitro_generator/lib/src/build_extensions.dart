@@ -13,6 +13,7 @@ const Map<String, List<String>> nitroBuilderExtensions = {
     'lib/{{dir}}/generated/cmake/{{file}}.CMakeLists.g.txt',
     // NativeImpl.cpp — direct C++ implementation support
     'lib/{{dir}}/generated/cpp/{{file}}.native.g.h',
+    'lib/{{dir}}/generated/cpp/{{file}}.impl.g.cpp',
     'lib/{{dir}}/generated/cpp/test/{{file}}.mock.g.h',
     'lib/{{dir}}/generated/cpp/test/{{file}}.test.g.cpp',
     // PX18: NativeImpl.wasm — dart:js_interop bridge for web targets

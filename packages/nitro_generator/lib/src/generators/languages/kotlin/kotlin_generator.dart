@@ -40,6 +40,8 @@ class KotlinGenerator {
       writer.line('import kotlinx.coroutines.CoroutineStart');
       writer.line('import kotlinx.coroutines.Dispatchers');
       if (hasBatchStreams) writer.line('import kotlinx.coroutines.sync.withLock');
+      final hasBufferedStreams = spec.streams.any((s) => s.isBufferDrop || s.isBlock);
+      if (hasBufferedStreams) writer.line('import kotlinx.coroutines.flow.buffer');
     }
     if (hasAsyncFunctions) writer.line('import kotlinx.coroutines.runBlocking');
     writer.blankLine();
@@ -58,9 +60,10 @@ class KotlinGenerator {
     // Also emit RecordReader/RecordWriter helper classes needed by variant encode/decode.
     final hasVariants = spec.localVariants.isNotEmpty;
     final hasVariantBridge = spec.functions.any((f) {
-      final ret = f.returnType.name.replaceFirst('?', '');
-      return spec.isVariantName(ret) || f.params.any((p) => spec.isVariantName(p.type.name.replaceFirst('?', '')));
-    });
+          final ret = f.returnType.name.replaceFirst('?', '');
+          return spec.isVariantName(ret) || f.params.any((p) => spec.isVariantName(p.type.name.replaceFirst('?', '')));
+        }) ||
+        spec.streams.any((s) => spec.isVariantName(s.itemType.name.replaceFirst('?', '')));
     if (hasVariants) {
       final varWriter = CodeWriter();
       for (final variant in spec.localVariants) {
@@ -72,6 +75,13 @@ class KotlinGenerator {
     final hasResultFunctions = spec.functions.any((f) => f.isResult);
     if (hasVariantBridge || hasResultFunctions) {
       _emitKotlinBridgeHelpers(writer, hasVariantBridge: hasVariantBridge, hasResult: hasResultFunctions);
+    }
+
+    // Emit NitroAnyMap binary codec helper when any function uses NitroAnyMap.
+    final hasAnyMap = spec.functions.any((f) =>
+        f.returnType.isAnyMap || f.params.any((p) => p.type.isAnyMap));
+    if (hasAnyMap) {
+      _emitKotlinAnyMapHelper(writer);
     }
 
     // ── Interface ──────────────────────────────────────────────────────────
@@ -113,7 +123,9 @@ class KotlinGenerator {
 
     for (final stream in spec.streams) {
       final itemType = mapper.type(stream.itemType.name, bridgeType: stream.itemType);
-      writer.line('    val ${stream.dartName}: Flow<$itemType>');
+      final isNullable = stream.itemType.isNullable || stream.itemType.name.endsWith('?');
+      final nullable = isNullable ? '?' : '';
+      writer.line('    val ${stream.dartName}: Flow<$itemType$nullable>');
     }
 
     writer.line('}');
@@ -122,7 +134,15 @@ class KotlinGenerator {
     // ── JNI Bridge object ──────────────────────────────────────────────────
     writer.line('@Keep');
     writer.line('object ${spec.dartClassName}JniBridge {');
-    writer.line('    private var implementation: Hybrid${spec.dartClassName}Spec? = null');
+    // Factory pattern (like RN Nitro's HybridObjectRegistry):
+    //   registerFactory { -> Impl() }  — called once at plugin startup (type-level)
+    //   create_instance_call(key)      — called by Dart on first getInstance(key)
+    //   destroy_instance_call(id)      — called by Dart from dispose()
+    //
+    // All JNI _call methods use Long instanceId for zero per-call overhead.
+    writer.line('    private val _implementations = java.util.concurrent.ConcurrentHashMap<Long, Hybrid${spec.dartClassName}Spec>()');
+    writer.line('    private val _idCounter = java.util.concurrent.atomic.AtomicLong(0)');
+    writer.line('    private var _factory: (() -> Hybrid${spec.dartClassName}Spec)? = null');
     if (hasAsyncFunctions) {
       writer.line('    private val _asyncExecutor = java.util.concurrent.Executors.newCachedThreadPool()');
     }
@@ -135,27 +155,41 @@ class KotlinGenerator {
     writer.blankLine();
     writer.line('    @JvmStatic external fun initialize(bridgeClass: Class<*>)');
     writer.blankLine();
-    writer.line('    fun register(impl: Hybrid${spec.dartClassName}Spec, context: Context) {');
+    // registerFactory: called once at plugin startup. Equivalent to
+    // HybridObjectRegistry::registerHybridObjectConstructor in RN Nitro.
+    writer.line('    fun registerFactory(factory: () -> Hybrid${spec.dartClassName}Spec, context: Context) {');
     writer.line('        applicationContext = context');
-    writer.line('        implementation = impl');
-    writer.line('        initialize(this::class.java)');
-    writer.line('        impl.onAttached()');
+    writer.line('        _factory = factory');
+    writer.line('        if (_implementations.isEmpty()) { initialize(this::class.java) }');
     writer.line('    }');
     writer.blankLine();
-    writer.line('    fun onDetached() {');
-    writer.line('        implementation?.onDetached()');
-    writer.line('        activity = null');
-    writer.line('        implementation = null');
+    // create_instance_call: invoked via JNI when Dart calls getInstance(key) for the first time.
+    // Creates a new impl via the factory, assigns a unique Long id, and returns it to Dart.
+    writer.line('    @JvmStatic');
+    writer.line('    fun create_instance_call(key: String): Long {');
+    writer.line('        val factory = _factory ?: throw IllegalStateException(');
+    writer.line('            "${spec.dartClassName}: no factory registered. Call registerFactory() in onAttachedToEngine().")');
+    writer.line('        val id = _idCounter.getAndIncrement()');
+    writer.line('        val impl = factory()');
+    writer.line('        _implementations[id] = impl');
+    writer.line('        impl.onAttached()');
+    writer.line('        return id');
+    writer.line('    }');
+    writer.blankLine();
+    // destroy_instance_call: invoked via JNI from Dart dispose(). Removes and detaches impl.
+    writer.line('    @JvmStatic');
+    writer.line('    fun destroy_instance_call(instanceId: Long) {');
+    writer.line('        _implementations.remove(instanceId)?.onDetached()');
     writer.line('    }');
     writer.blankLine();
     writer.line('    fun onActivityAttached(newActivity: Activity) {');
     writer.line('        activity = newActivity');
-    writer.line('        implementation?.onActivityAttached(newActivity)');
+    writer.line('        _implementations.values.forEach { it.onActivityAttached(newActivity) }');
     writer.line('    }');
     writer.blankLine();
     writer.line('    fun onActivityDetached() {');
     writer.line('        activity = null');
-    writer.line('        implementation?.onActivityDetached()');
+    writer.line('        _implementations.values.forEach { it.onActivityDetached() }');
     writer.line('    }');
     writer.blankLine();
 
@@ -292,6 +326,79 @@ class KotlinGenerator {
       writer.line('}');
       writer.blankLine();
     }
+  }
+
+  /// Emits the NitroAnyMap inline binary codec object for Kotlin bridge files.
+  ///
+  /// This object handles the full recursive AnyValue variant type:
+  /// null, bool, int64, float64, string, array, object.
+  static void _emitKotlinAnyMapHelper(CodeWriter writer) {
+    writer.line('/** NitroAnyMap binary codec — generated by Nitrogen. */');
+    writer.line('private object NitroAnyMapCodec {');
+    writer.line('    private const val ANY_NULL: Byte = 0');
+    writer.line('    private const val ANY_BOOL: Byte = 1');
+    writer.line('    private const val ANY_INT: Byte = 2');
+    writer.line('    private const val ANY_DOUBLE: Byte = 3');
+    writer.line('    private const val ANY_STRING: Byte = 4');
+    writer.line('    private const val ANY_LIST: Byte = 5');
+    writer.line('    private const val ANY_OBJECT: Byte = 6');
+    writer.blankLine();
+    writer.line('    fun encode(map: Map<String, Any?>): ByteArray {');
+    writer.line('        val payload = java.io.ByteArrayOutputStream()');
+    writer.line('        val buf = java.io.DataOutputStream(payload)');
+    writer.line('        writeInt32LE(buf, map.size)');
+    writer.line('        for ((k, v) in map) { writeStr(buf, k); writeValue(buf, v) }');
+    writer.line('        val payloadBytes = payload.toByteArray()');
+    writer.line('        val result = java.io.ByteArrayOutputStream(4 + payloadBytes.size)');
+    writer.line('        val header = java.io.DataOutputStream(result)');
+    writer.line('        writeInt32LE(header, payloadBytes.size)');
+    writer.line('        result.write(payloadBytes)');
+    writer.line('        return result.toByteArray()');
+    writer.line('    }');
+    writer.blankLine();
+    writer.line('    fun decode(bytes: ByteArray): Map<String, Any?> {');
+    writer.line('        val buf = java.nio.ByteBuffer.wrap(bytes).order(java.nio.ByteOrder.LITTLE_ENDIAN)');
+    writer.line('        buf.position(4) // skip outer 4-byte length prefix');
+    writer.line('        return readMap(buf)');
+    writer.line('    }');
+    writer.blankLine();
+    writer.line('    private fun writeValue(out: java.io.DataOutputStream, v: Any?) { when (v) {');
+    writer.line('        null -> out.writeByte(ANY_NULL.toInt())');
+    writer.line('        is Boolean -> { out.writeByte(ANY_BOOL.toInt()); out.writeByte(if (v) 1 else 0) }');
+    writer.line('        is Long -> { out.writeByte(ANY_INT.toInt()); writeInt64LE(out, v) }');
+    writer.line('        is Int -> { out.writeByte(ANY_INT.toInt()); writeInt64LE(out, v.toLong()) }');
+    writer.line('        is Double -> { out.writeByte(ANY_DOUBLE.toInt()); writeDoubleLE(out, v) }');
+    writer.line('        is Float -> { out.writeByte(ANY_DOUBLE.toInt()); writeDoubleLE(out, v.toDouble()) }');
+    writer.line('        is String -> { out.writeByte(ANY_STRING.toInt()); writeStr(out, v) }');
+    writer.line('        is List<*> -> { out.writeByte(ANY_LIST.toInt()); writeInt32LE(out, v.size); v.forEach { writeValue(out, it) } }');
+    writer.line('        is Map<*, *> -> { out.writeByte(ANY_OBJECT.toInt()); writeInt32LE(out, v.size); v.forEach { (k, vv) -> writeStr(out, k.toString()); writeValue(out, vv) } }');
+    writer.line('        else -> throw IllegalArgumentException("Cannot encode \$v as NitroAnyValue") } }');
+    writer.blankLine();
+    writer.line('    private fun readValue(buf: java.nio.ByteBuffer): Any? = when (buf.get()) {');
+    writer.line('        ANY_NULL -> null');
+    writer.line('        ANY_BOOL -> buf.get().toInt() != 0');
+    writer.line('        ANY_INT -> buf.long');
+    writer.line('        ANY_DOUBLE -> buf.double');
+    writer.line('        ANY_STRING -> readStr(buf)');
+    writer.line('        ANY_LIST -> (0 until buf.int).map { readValue(buf) }');
+    writer.line('        ANY_OBJECT -> readMap(buf)');
+    writer.line('        else -> throw IllegalArgumentException("Unknown NitroAnyValue tag") }');
+    writer.blankLine();
+    writer.line('    private fun readMap(buf: java.nio.ByteBuffer): Map<String, Any?> =');
+    writer.line('        (0 until buf.int).associate { readStr(buf) to readValue(buf) }');
+    writer.blankLine();
+    writer.line('    private fun writeStr(out: java.io.DataOutputStream, s: String) {');
+    writer.line('        val b = s.toByteArray(Charsets.UTF_8); writeInt32LE(out, b.size); out.write(b) }');
+    writer.line('    private fun readStr(buf: java.nio.ByteBuffer): String {');
+    writer.line('        val len = buf.int; val b = ByteArray(len); buf.get(b); return b.toString(Charsets.UTF_8) }');
+    writer.line('    private fun writeInt32LE(out: java.io.DataOutputStream, v: Int) {');
+    writer.line('        out.write(v and 0xFF); out.write((v shr 8) and 0xFF); out.write((v shr 16) and 0xFF); out.write((v shr 24) and 0xFF) }');
+    writer.line('    private fun writeInt64LE(out: java.io.DataOutputStream, v: Long) {');
+    writer.line('        (0..7).forEach { out.write(((v shr (it * 8)) and 0xFF).toInt()) } }');
+    writer.line('    private fun writeDoubleLE(out: java.io.DataOutputStream, v: Double) =');
+    writer.line('        writeInt64LE(out, java.lang.Double.doubleToRawLongBits(v))');
+    writer.line('}');
+    writer.blankLine();
   }
 
   static String _generateTypeOnly(BridgeSpec spec) {

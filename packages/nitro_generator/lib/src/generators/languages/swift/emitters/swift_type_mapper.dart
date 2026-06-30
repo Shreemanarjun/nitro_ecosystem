@@ -26,6 +26,7 @@ class SwiftTypeMapper implements TypeMapper {
     final name = t.replaceFirst('?', '');
     final isOptional = t.endsWith('?');
     if (bridgeType?.isNativeHandle == true) return 'UnsafeMutableRawPointer?';
+    if (bridgeType?.isAnyNativeObject == true) return isOptional ? 'Int64?' : 'Int64';
 
     if (bridgeType != null && bridgeType.isFunction) {
       final returnType = bridgeType.functionReturnType ?? 'Void';
@@ -38,6 +39,12 @@ class SwiftTypeMapper implements TypeMapper {
     switch (name) {
       case 'int':
         baseType = 'Int64';
+        break;
+      case 'uint64':
+        baseType = 'UInt64';
+        break;
+      case 'DateTime':
+        baseType = 'Date';
         break;
       case 'double':
         baseType = 'Double';
@@ -82,6 +89,8 @@ class SwiftTypeMapper implements TypeMapper {
           baseType = name;
         } else if (_variantNames.contains(name)) {
           baseType = name;
+        } else if (spec.isCustomTypeName(name)) {
+          baseType = '[UInt8]';
         } else if (name.startsWith('List<')) {
           final itemType = name.substring(5, name.length - 1);
           baseType = '[${swiftType(itemType)}]';
@@ -97,6 +106,10 @@ class SwiftTypeMapper implements TypeMapper {
     final name = t.replaceFirst('?', '');
     switch (name) {
       case 'int':
+        return 'Int64';
+      case 'uint64':
+        return 'UInt64';
+      case 'DateTime':
         return 'Int64';
       case 'double':
         return 'Double';
@@ -127,10 +140,13 @@ class SwiftTypeMapper implements TypeMapper {
         return isZeroCopy ? 'UnsafeMutablePointer<Int64>?' : '[Int64]';
       default:
         if (_enumNames.contains(name)) return 'Int64';
+        if (name == 'AnyNativeObject') return 'Int64';
         if (_structNames.contains(name)) return 'UnsafeMutableRawPointer?';
         if (_recordNames.contains(name) || name.startsWith('List<')) {
           return 'UnsafeMutablePointer<UInt8>?';
         }
+        if (_variantNames.contains(name)) return 'UnsafeMutablePointer<UInt8>?';
+        if (spec.isCustomTypeName(name)) return 'UnsafeMutablePointer<UInt8>?';
         return 'Any?';
     }
   }
@@ -140,11 +156,20 @@ class SwiftTypeMapper implements TypeMapper {
   /// C-ABI return type for a `@_cdecl` function bridge.
   String cdeclReturnType(BridgeFunction func) {
     if (func.returnType.isNativeHandle) return 'UnsafeMutableRawPointer?';
+    if (func.returnType.isAnyNativeObject) {
+      return func.returnType.isNullable ? 'Int64' : 'Int64';
+    }
     // @NitroResult: C returns UnsafeMutablePointer<UInt8>? [1B tag][payload].
     if (func.isResult) return 'UnsafeMutablePointer<UInt8>?';
     final name = func.returnType.name.replaceFirst('?', '');
+    if (spec.isCustomTypeName(name)) return 'UnsafeMutablePointer<UInt8>?';
     if (name == 'void') return 'Void';
-    if (func.returnType.name == 'int?' || func.returnType.name == 'double?' || func.returnType.name == 'bool?') return 'UnsafeMutablePointer<UInt8>?';
+    if (func.returnType.name == 'int?') return 'UnsafeMutablePointer<UInt8>?';
+    if (func.returnType.name == 'uint64?') return 'UnsafeMutablePointer<UInt8>?';
+    if (func.returnType.name == 'double?') return 'UnsafeMutablePointer<UInt8>?';
+    if (func.returnType.name == 'bool?') return 'UnsafeMutablePointer<UInt8>?';
+    if (func.returnType.name == 'DateTime?') return 'UnsafeMutablePointer<UInt8>?';
+    if (name == 'DateTime') return 'Int64';
     if (name == 'bool') return 'Int8';
     if (name == 'String') return 'UnsafeMutablePointer<CChar>?';
     if (name.startsWith('Map<') || func.returnType.isMap) return 'UnsafeMutablePointer<UInt8>?';
@@ -160,11 +185,16 @@ class SwiftTypeMapper implements TypeMapper {
   /// C-ABI parameter type for a `@_cdecl` function bridge.
   String cdeclParamType(String typeName, {BridgeType? bridgeType}) {
     if (bridgeType?.isNativeHandle == true) return 'UnsafeMutableRawPointer?';
+    if (bridgeType?.isAnyNativeObject == true) return 'Int64';
     final name = typeName.replaceFirst('?', '');
+    if (spec.isCustomTypeName(name)) return 'UnsafeMutablePointer<UInt8>?';
     if (name == 'String') return 'UnsafePointer<CChar>?';
-    if (typeName.endsWith('?') && name == 'bool') return 'UnsafeMutableRawPointer?';
-    if (typeName.endsWith('?') && name == 'int') return 'UnsafeMutableRawPointer?';
-    if (typeName.endsWith('?') && name == 'double') return 'UnsafeMutableRawPointer?';
+    if (typeName.endsWith('?') && name == 'bool') return 'UnsafeMutablePointer<UInt8>?';
+    if (typeName.endsWith('?') && name == 'int') return 'UnsafeMutablePointer<UInt8>?';
+    if (typeName.endsWith('?') && name == 'uint64') return 'UnsafeMutablePointer<UInt8>?';
+    if (typeName.endsWith('?') && name == 'double') return 'UnsafeMutablePointer<UInt8>?';
+    if (typeName.endsWith('?') && name == 'DateTime') return 'UnsafeMutablePointer<UInt8>?';
+    if (name == 'DateTime') return 'Int64';
     if (name == 'bool') return 'Int8';
     if (name.startsWith('Map<')) return 'UnsafeMutableRawPointer?';
     if (_recordNames.contains(name) || name.startsWith('List<')) return 'UnsafeMutableRawPointer?';
@@ -190,17 +220,26 @@ class SwiftTypeMapper implements TypeMapper {
     final paramParts = <String>[];
     for (final t in cbType.functionParams) {
       final base = t.name.replaceFirst('?', '');
+      final isNullable = t.name.endsWith('?');
       final struct = spec.structs.where((s) => s.name == base).firstOrNull;
       if (struct != null && isExpandableCallbackStruct(struct)) {
         paramParts.addAll(struct.fields.map((_) => 'Int64'));
+      } else if (isNullable && (base == 'int' || base == 'double' || base == 'bool' || base == 'DateTime')) {
+        // Nullable primitives: two Int64 params (isNull flag + value bits).
+        // DateTime? uses the same Int64 wire as int? (ms-since-epoch).
+        paramParts.add('Int64'); // isNull: 0 = has value, non-zero = null
+        paramParts.add('Int64'); // value bits (valid when isNull == 0)
       } else {
         paramParts.add(callbackParamCDecl(t));
       }
     }
     final retDart = cbType.functionReturnType;
-    final retSwift = switch (retDart) {
-      null || 'void' => 'Void',
+    final retBase = retDart?.replaceFirst('?', '') ?? 'void';
+    final retSwift = switch (retBase) {
+      'void' when retDart == null || retDart == 'void' => 'Void',
       'String' => 'UnsafeMutablePointer<CChar>?',
+      _ when _recordNames.contains(retBase) || _variantNames.contains(retBase) =>
+        'UnsafeMutablePointer<UInt8>?', // [4B len][payload] malloc'd by Dart
       _ => 'Int64',
     };
     return '@convention(c) (${paramParts.join(', ')}) -> $retSwift';
@@ -212,6 +251,10 @@ class SwiftTypeMapper implements TypeMapper {
     switch (base) {
       case 'int':
         return 'Int64';
+      case 'uint64':
+        return 'UInt64';
+      case 'DateTime':
+        return 'Int64';
       case 'double':
         return 'Int64'; // GP register (not FP)
       case 'bool':
@@ -221,6 +264,7 @@ class SwiftTypeMapper implements TypeMapper {
       default:
         if (_structNames.contains(base)) return 'UnsafeRawPointer?';
         if (_recordNames.contains(base)) return 'UnsafeMutablePointer<UInt8>?';
+        if (_variantNames.contains(base)) return 'UnsafeMutablePointer<UInt8>?'; // encoded [4B len][tag][fields]
         return 'Int64'; // enum rawValue
     }
   }
@@ -247,6 +291,7 @@ class SwiftTypeMapper implements TypeMapper {
     for (var i = 0; i < params.length; i++) {
       final pt = params[i];
       final base = pt.name.replaceFirst('?', '');
+      final isNullable = pt.name.endsWith('?');
       final expandStruct = spec.structs.where((s) => s.name == base).firstOrNull;
       if (expandStruct != null && isExpandableCallbackStruct(expandStruct)) {
         final argVar = 'arg$i';
@@ -261,6 +306,21 @@ class SwiftTypeMapper implements TypeMapper {
             callArgsList.add('$argVar.${f.name}');
           }
         }
+      } else if (isNullable && base == 'int') {
+        // Nullable int: two C params (isNull: Int64, valueBits: Int64) → Swift Int64?
+        allArgDecls.add('arg${i}Null');
+        allArgDecls.add('arg${i}Val');
+        callArgsList.add('(arg${i}Null != 0) ? nil : arg${i}Val');
+      } else if (isNullable && base == 'double') {
+        // Nullable double: two C params → Swift Double?
+        allArgDecls.add('arg${i}Null');
+        allArgDecls.add('arg${i}Val');
+        callArgsList.add('(arg${i}Null != 0) ? nil : Double(bitPattern: UInt64(bitPattern: arg${i}Val))');
+      } else if (isNullable && base == 'bool') {
+        // Nullable bool: two C params → Swift Bool?
+        allArgDecls.add('arg${i}Null');
+        allArgDecls.add('arg${i}Val');
+        callArgsList.add('(arg${i}Null != 0) ? nil : (arg${i}Val != 0)');
       } else {
         final argVar = 'arg$i';
         allArgDecls.add(argVar);
@@ -285,6 +345,11 @@ class SwiftTypeMapper implements TypeMapper {
           callArgsList.add('$argVar.toNative()');
           continue;
         }
+        final isVariant = _variantNames.contains(base);
+        if (isVariant) {
+          callArgsList.add('$argVar.toNative()');
+          continue;
+        }
         if (base == 'double') {
           callArgsList.add('Int64(bitPattern: $argVar.bitPattern)');
           continue;
@@ -296,6 +361,7 @@ class SwiftTypeMapper implements TypeMapper {
 
     final retDart = p.type.functionReturnType;
     final needsReturn = retDart != null && retDart != 'void';
+    final isNullableRet = retDart?.endsWith('?') ?? false;
     final retName = retDart?.replaceFirst('?', '') ?? 'void';
     String callExpr = '$cbName(${callArgsList.join(', ')})';
     String bodyCall;
@@ -304,11 +370,19 @@ class SwiftTypeMapper implements TypeMapper {
     } else if (retDart == 'double') {
       bodyCall = 'Double(bitPattern: UInt64(bitPattern: $callExpr))';
     } else if (retDart == 'String') {
-      bodyCall = '{ let _cs = $callExpr; let _str = _cs.map { String(cString: \$0) } ?? ""; _cs.map { free(\$0) }; return _str }()';
+      bodyCall = '{ let _cs = $callExpr; let _str = _nitroStringFromCString(_cs); _cs.map { free(\$0) }; return _str }()';
     } else if (retDart == 'bool') {
       bodyCall = '($callExpr) != 0';
     } else if (_enumNames.contains(retName)) {
       bodyCall = '$retName(rawValue: $callExpr)!';
+    } else if (_recordNames.contains(retName) || _variantNames.contains(retName)) {
+      // @HybridRecord / @NitroVariant: Dart returns malloc'd [4B len][payload].
+      // Swift receives UnsafeMutablePointer<UInt8>?; decode and free.
+      if (isNullableRet) {
+        bodyCall = '{ let _p = $callExpr; guard let _pp = _p else { return nil }; let _r = $retName.fromNative(_pp); free(_pp); return _r }()';
+      } else {
+        bodyCall = '{ let _p = $callExpr!; let _r = $retName.fromNative(_p); free(_p); return _r }()';
+      }
     } else {
       bodyCall = callExpr;
     }
@@ -334,16 +408,20 @@ class SwiftTypeMapper implements TypeMapper {
     switch (name) {
       case 'int':
         return isNullable ? 'nil' : '0';
+      case 'uint64':
+        return isNullable ? 'nil' : '0';
+      case 'DateTime':
+        return isNullable ? 'nil' : '0';
       case 'double':
         return isNullable ? 'nil' : '0.0';
       case 'bool':
         return isNullable ? 'nil' : '0';
       case 'String':
-        return 'strdup("")';
+        return '_nitroStringToCString("")';
       default:
         if (_enumNames.contains(name)) return isNullable ? '-1' : '0';
         if (_structNames.contains(name)) return 'nil';
-        if (name.startsWith('Map<')) return 'strdup("{}")';
+        if (name.startsWith('Map<')) return '_nitroStringToCString("{}")';
         return '()';
     }
   }

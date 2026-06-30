@@ -502,12 +502,14 @@ void main() {
 
     test('_call does NOT return Long for a bool return', () {
       // Long is only used for enum-typed returns (nativeValue). bool stays Boolean.
+      // Search for isReady_call specifically to avoid matching create_instance_call which returns Long.
       final callSection = () {
-        final idx = code.indexOf('_call');
+        final idx = code.indexOf('isReady_call');
         if (idx < 0) return '';
         return code.substring(idx, (idx + 200).clamp(0, code.length));
       }();
-      expect(callSection, isNot(contains(': Long')));
+      // Return type should not be Long (it's Boolean); parameter `instanceId: Long` is expected.
+      expect(callSection, isNot(contains('): Long')));
     });
 
     test('isReady appears in the Kotlin output', () {

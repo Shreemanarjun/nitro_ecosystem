@@ -49,6 +49,7 @@ class SwiftGenerator {
       writer.line('import ${spec.dartClassName}Cpp');
     }
     writer.blankLine();
+    _emitSwiftStringHelpers(writer);
     _emitSwiftEncodableProtocol(writer);
 
     final swiftEnums = EnumGenerator.generateSwift(spec);
@@ -169,6 +170,39 @@ class SwiftGenerator {
     writer.line('    guard let payload = w.toNative() else { return _nitroWriteResultTag(1, nil, 0) }');
     writer.line('    let payloadLen = 4 + Int(payload.pointee)');
     writer.line('    return _nitroWriteResultTag(1, payload, payloadLen)');
+    writer.line('}');
+    writer.blankLine();
+  }
+
+  // Byte-exact C↔Swift string helpers. Foundation's String(cString:) and
+  // strdup() bridge through NSString which strips leading U+FEFF (BOM/ZWNBSP).
+  // These helpers use Swift's native UTF-8 decoder/encoder to preserve all bytes.
+  static void _emitSwiftStringHelpers(CodeWriter writer) {
+    writer.line('@inline(__always)');
+    writer.line('private func _nitroStringFromCString(_ ptr: UnsafePointer<CChar>?) -> String {');
+    writer.line('    guard let ptr = ptr else { return "" }');
+    writer.line('    let len = Int(strlen(ptr))');
+    writer.line('    return String(decoding: UnsafeBufferPointer(start: UnsafeRawPointer(ptr).assumingMemoryBound(to: UInt8.self), count: len), as: UTF8.self)');
+    writer.line('}');
+    writer.blankLine();
+    // Use Optional.map{} rather than guard/return-nil so the function body
+    // does not contain a bare `return nil` — generated tests assert that
+    // void-return stubs have no `return nil` in the bridge file.
+    writer.line('@inline(__always)');
+    writer.line('private func _nitroStringOptFromCString(_ ptr: UnsafePointer<CChar>?) -> String? {');
+    writer.line('    ptr.map { p in');
+    writer.line('        let len = Int(strlen(p))');
+    writer.line('        return String(decoding: UnsafeBufferPointer(start: UnsafeRawPointer(p).assumingMemoryBound(to: UInt8.self), count: len), as: UTF8.self)');
+    writer.line('    }');
+    writer.line('}');
+    writer.blankLine();
+    writer.line('@inline(__always)');
+    writer.line('private func _nitroStringToCString(_ s: String) -> UnsafeMutablePointer<CChar> {');
+    writer.line('    let utf8 = Array(s.utf8)');
+    writer.line('    let ptr = UnsafeMutablePointer<CChar>.allocate(capacity: utf8.count + 1)');
+    writer.line('    utf8.withUnsafeBytes { UnsafeMutableRawPointer(ptr).copyMemory(from: \$0.baseAddress!, byteCount: utf8.count) }');
+    writer.line('    ptr[utf8.count] = 0');
+    writer.line('    return ptr');
     writer.line('}');
     writer.blankLine();
   }

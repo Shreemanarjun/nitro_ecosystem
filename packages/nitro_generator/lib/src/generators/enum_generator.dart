@@ -13,13 +13,36 @@ class EnumGenerator {
     s.writeln();
     for (final e in enums) {
       s.writeln('extension ${e.name}NativeExt on ${e.name} {');
-      s.writeln('  int get nativeValue => index + ${e.startValue};');
+      if (e.rawValues != null) {
+        // Non-contiguous: switch on each case to its explicit native value.
+        s.writeln('  int get nativeValue {');
+        s.writeln('    switch (this) {');
+        for (var i = 0; i < e.values.length; i++) {
+          s.writeln('      case ${e.name}.${e.values[i]}: return ${e.rawValues![i]};');
+        }
+        s.writeln('    }');
+        s.writeln('  }');
+      } else {
+        s.writeln('  int get nativeValue => index + ${e.startValue};');
+      }
       s.writeln('}');
       s.writeln();
       s.writeln('extension ${e.name}FromNativeExt on int {');
-      s.writeln(
-        '  ${e.name} to${e.name}() => ${e.name}.values[this - ${e.startValue}];',
-      );
+      if (e.rawValues != null) {
+        // Non-contiguous: switch on each native value back to enum case.
+        s.writeln('  ${e.name} to${e.name}() {');
+        s.writeln('    switch (this) {');
+        for (var i = 0; i < e.values.length; i++) {
+          s.writeln('      case ${e.rawValues![i]}: return ${e.name}.${e.values[i]};');
+        }
+        s.writeln("      default: throw ArgumentError('Unknown ${e.name} native value: \$this');");
+        s.writeln('    }');
+        s.writeln('  }');
+      } else {
+        s.writeln(
+          '  ${e.name} to${e.name}() => ${e.name}.values[this - ${e.startValue}];',
+        );
+      }
       s.writeln('}');
       s.writeln();
     }
@@ -34,10 +57,9 @@ class EnumGenerator {
     s.writeln('// --- Enums ---');
     for (final e in enums) {
       s.writeln('typedef enum {');
-      var val = e.startValue;
-      for (final v in e.values) {
+      for (var i = 0; i < e.values.length; i++) {
         s.writeln(
-          '  ${e.name.toUpperCase()}_${_toScreamingSnake(v)} = ${val++},',
+          '  ${e.name.toUpperCase()}_${_toScreamingSnake(e.values[i])} = ${e.nativeValueAt(i)},',
         );
       }
       s.writeln('} ${e.name};');
@@ -55,10 +77,9 @@ class EnumGenerator {
     for (final e in enums) {
       s.writeln('@Keep');
       s.writeln('enum class ${e.name}(val nativeValue: Long) {');
-      var val = e.startValue;
       for (var i = 0; i < e.values.length; i++) {
         final comma = i < e.values.length - 1 ? ',' : ';';
-        s.writeln('  ${e.values[i].toUpperCase()}(${val++})$comma');
+        s.writeln('  ${e.values[i].toUpperCase()}(${e.nativeValueAt(i)})$comma');
       }
       s.writeln();
       s.writeln('  companion object {');
@@ -80,9 +101,8 @@ class EnumGenerator {
     s.writeln('// --- Enums ---');
     for (final e in enums) {
       s.writeln('public enum ${e.name}: Int64 {');
-      var val = e.startValue;
-      for (final v in e.values) {
-        s.writeln('  case $v = ${val++}');
+      for (var i = 0; i < e.values.length; i++) {
+        s.writeln('  case ${e.values[i]} = ${e.nativeValueAt(i)}');
       }
       s.writeln('}');
       s.writeln();

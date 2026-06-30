@@ -503,8 +503,8 @@ void main() {
       // GetStaticMethodID call for getDevice_call must use "[B" as return sig
       expect(
         out,
-        contains('"getDevice_call", "()[B"'),
-        reason: '"[B" is the JNI descriptor for byte[]',
+        contains('"getDevice_call", "(J)[B"'),
+        reason: '"[B" is the JNI descriptor for byte[]; (J) prefix for instanceId',
       );
     });
 
@@ -560,14 +560,14 @@ void main() {
 
     test('List<@HybridRecord> return also uses [B JNI descriptor', () {
       final out = CppBridgeGenerator.generate(recordListSpec());
-      expect(out, contains('"getAvailableDevices_call", "()[B"'));
+      expect(out, contains('"getAvailableDevices_call", "(J)[B"'));
     });
 
     test('record return does NOT use CallStaticDoubleMethod or CallStaticLongMethod', () {
       final out = CppBridgeGenerator.generate(singleRecordSpec());
       // Isolate the getDevice function body (up to next function)
       // S8: @nitroAsync functions do NOT take NitroError* — they use TLS error mechanism.
-      final idx = out.indexOf('camera_module_get_device()');
+      final idx = out.indexOf('camera_module_get_device(');
       final body = out.substring(idx, idx + 600);
       expect(body, isNot(contains('CallStaticDoubleMethod')));
       expect(body, isNot(contains('CallStaticLongMethod')));
@@ -769,14 +769,14 @@ void main() {
       final out = KotlinGenerator.generate(recordListSpec());
       expect(
         out,
-        contains('fun getAvailableDevices_call(): ByteArray'),
+        contains('fun getAvailableDevices_call(instanceId: Long): ByteArray'),
         reason: 'must serialize to ByteArray so JNI can pass it to C as jbyteArray',
       );
     });
 
     test('_call does NOT return List<CameraDevice> (would not pass JNI boundary)', () {
       final out = KotlinGenerator.generate(recordListSpec());
-      expect(out, isNot(contains('fun getAvailableDevices_call(): List<CameraDevice>')));
+      expect(out, isNot(contains('fun getAvailableDevices_call(instanceId: Long): List<CameraDevice>')));
     });
 
     test('_call serialises list as indexed format (count + offsets + items)', () {
@@ -1015,9 +1015,9 @@ void main() {
       test('$type param: CallStaticVoidMethod passes j_inputs (not raw pointer)', () {
         final cpp = CppBridgeGenerator.generate(specWithParam(type));
         // The JNI call must pass j_inputs (the jarray), not the raw C pointer.
-        expect(cpp, contains('CallStaticVoidMethod(g_bridgeClass, methodId, j_inputs)'), reason: '$type must pass j_inputs to JNI call, not raw C pointer');
+        expect(cpp, contains('CallStaticVoidMethod(g_bridgeClass, methodId, (jlong)instanceId, j_inputs)'), reason: '$type must pass instanceId then j_inputs to JNI call, not raw C pointer');
         // Regression guard: raw pointer must NOT be passed directly.
-        expect(cpp, isNot(contains('CallStaticVoidMethod(g_bridgeClass, methodId, inputs)')), reason: '$type raw pointer must not be passed as JNI arg');
+        expect(cpp, isNot(contains('CallStaticVoidMethod(g_bridgeClass, methodId, (jlong)instanceId, inputs)')), reason: '$type raw pointer must not be passed as JNI arg');
       });
     }
   });

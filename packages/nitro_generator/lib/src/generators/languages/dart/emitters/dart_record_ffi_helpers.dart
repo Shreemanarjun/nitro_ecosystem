@@ -1,12 +1,42 @@
 part of '../dart_ffi_generator.dart';
 
 String _decodeRecordExpr(BridgeType type, String ptrVar) {
+  // @NitroTuple: standalone free function (can't extend a typedef).
+  if (type.isTuple) {
+    final rt = type.name.endsWith('?') ? type.name.substring(0, type.name.length - 1) : type.name;
+    if (type.isNullable || type.name.endsWith('?')) {
+      return '_nitroDecodeNullable_$rt($ptrVar)';
+    }
+    return '_nitroDecode_$rt($ptrVar)';
+  }
+  if (type.isAnyMap) {
+    // NitroAnyMap — type-tagged binary codec (mirrors RN Nitro AnyMap).
+    return 'NitroAnyMap.fromNative($ptrVar)';
+  }
   if (type.isMap) {
     // Binary map decoding — resolves NaN/Infinity, int64 precision, perf issues.
     // ptrVar is Pointer<Uint8> (4-byte length prefix + binary payload).
     final mapMatch = RegExp(r'^Map<String,\s*(.+)>$').firstMatch(type.name);
     final valueType = mapMatch?.group(1)?.trim() ?? 'dynamic';
     return '_nitroDecodeMapBinary${_mapTypeSuffix(valueType)}($ptrVar)';
+  }
+  // List<@HybridEnum> — [4B len][4B count][8B×N nativeValues]
+  // List<@HybridEnum?> — [4B len][4B count][1B hasValue][8B nativeValue]×N
+  if (type.isEnumList) {
+    final item = type.recordListItemType!;
+    if (type.recordListItemIsNullable) {
+      return 'RecordReader.decodeNullableList($ptrVar, (r) => r.readInt().to$item())';
+    }
+    return 'RecordReader.decodeList($ptrVar, (r) => r.readInt().to$item())';
+  }
+  // List<@NitroVariant> — [4B len][4B count][tag+fields×N]
+  // List<@NitroVariant?> — [4B len][4B count][1B hasValue][tag+fields]×N
+  if (type.isVariantList) {
+    final item = type.recordListItemType!;
+    if (type.recordListItemIsNullable) {
+      return 'RecordReader.decodeNullableList($ptrVar, (r) => ${item}VariantExt.fromReader(r))';
+    }
+    return 'RecordReader.decodeList($ptrVar, (r) => ${item}VariantExt.fromReader(r))';
   }
   final item = type.recordListItemType;
   if (item != null) {
@@ -131,11 +161,38 @@ String _primitiveWriterCall(String item) {
 }
 
 String _encodeRecordParam(BridgeType type, String varName, String allocator) {
+  // @NitroTuple: standalone free function (can't extend a typedef).
+  if (type.isTuple) {
+    final rt = type.baseName;
+    if (type.isNullable) {
+      // Flow analysis promotes varName to non-null inside the true branch — no !.
+      return '$varName != null ? _nitroEncode_$rt($varName, $allocator) : nullptr';
+    }
+    return '_nitroEncode_$rt($varName, $allocator)';
+  }
+  if (type.isAnyMap) {
+    // NitroAnyMap — type-tagged binary codec (mirrors RN Nitro AnyMap).
+    return '$varName.toNative($allocator)';
+  }
   if (type.isMap) {
     // Maps use binary encoding — resolves NaN/Infinity, int64 precision, and perf issues.
     final mapMatch = RegExp(r'^Map<String,\s*(.+)>$').firstMatch(type.name);
     final valueType = mapMatch?.group(1)?.trim() ?? 'dynamic';
     return '_nitroEncodeMapBinary${_mapTypeSuffix(valueType)}($varName, $allocator)';
+  }
+  // List<@HybridEnum> / List<@HybridEnum?> — sequential, [4B count][8B×N] or [4B count][1B+8B×N]
+  if (type.isEnumList) {
+    if (type.recordListItemIsNullable) {
+      return 'RecordWriter.encodeNullableList($varName, (w, e) => w.writeInt(e.nativeValue), $allocator)';
+    }
+    return 'RecordWriter.encodeList($varName, (w, e) => w.writeInt(e.nativeValue), $allocator)';
+  }
+  // List<@NitroVariant> / List<@NitroVariant?> — sequential, [4B count][tag+fields×N] or [4B count][1B+tag+fields×N]
+  if (type.isVariantList) {
+    if (type.recordListItemIsNullable) {
+      return 'RecordWriter.encodeNullableList($varName, (w, v) => v.writeFields(w), $allocator)';
+    }
+    return 'RecordWriter.encodeList($varName, (w, v) => v.writeFields(w), $allocator)';
   }
   final item = type.recordListItemType;
   if (item != null) {

@@ -14,6 +14,10 @@
 // §12: Batch stream (Backpressure.batch) — Kotlin mutex-guarded _buf
 // §13: String-returning callbacks — no exceptionalReturn for Pointer returns
 // §14: Nullable @NitroVariant case fields — presence flags across Dart/Kotlin/Swift
+// §15: Gap 1 — Stream<T?> nullable stream items (all generators)
+// §16: Gap 2 — Map<String, @HybridEnum> (all generators)
+// §17: Gap 3 — Backpressure.batch for @HybridEnum (all generators)
+// §18: Gap 4 — Callback nullable primitive params (Dart FFI)
 
 import 'package:nitro_generator/src/generators/languages/c_bridge/cpp_bridge_generator.dart';
 import 'package:nitro_generator/src/generators/languages/cpp_native/cpp_interface_generator.dart';
@@ -151,6 +155,265 @@ BridgeSpec _nullableVariantCoverageSpec() => BridgeSpec(
   ],
 );
 
+// ── §21–§24 helpers ──────────────────────────────────────────────────────────
+
+final _kModeVariant = BridgeVariant(
+  name: 'Mode',
+  cases: [
+    BridgeVariantCase(name: 'ModeAuto', label: 'auto', fields: []),
+    BridgeVariantCase(
+      name: 'ModeManual',
+      label: 'manual',
+      fields: [BridgeRecordField(name: 'speed', dartType: 'int', kind: RecordFieldKind.primitive)],
+    ),
+  ],
+);
+
+BridgeSpec _variantPropSpec() => BridgeSpec(
+  dartClassName: 'Ctrl',
+  lib: 'ctrl',
+  namespace: 'ctrl',
+  iosImpl: NativeImpl.swift,
+  androidImpl: NativeImpl.kotlin,
+  sourceUri: 'ctrl.native.dart',
+  variants: [_kModeVariant],
+  properties: [
+    BridgeProperty(
+      dartName: 'mode',
+      type: BridgeType(name: 'Mode'),
+      getSymbol: 'ctrl_get_mode',
+      setSymbol: 'ctrl_set_mode',
+      hasGetter: true,
+      hasSetter: true,
+    ),
+  ],
+);
+
+final _kPacketStruct = BridgeStruct(
+  name: 'Packet',
+  packed: false,
+  fields: [
+    BridgeField(name: 'id', type: BridgeType(name: 'int')),
+    BridgeField(name: 'data', type: BridgeType(name: 'String')),
+  ],
+);
+
+BridgeSpec _nullableStructStreamSpec() => BridgeSpec(
+  dartClassName: 'Srv',
+  lib: 'srv',
+  namespace: 'srv',
+  iosImpl: NativeImpl.swift,
+  androidImpl: NativeImpl.kotlin,
+  sourceUri: 'srv.native.dart',
+  structs: [_kPacketStruct],
+  streams: [
+    BridgeStream(
+      dartName: 'packets',
+      registerSymbol: 'srv_register_packets_stream',
+      releaseSymbol: 'srv_release_packets_stream',
+      itemType: BridgeType(name: 'Packet', isNullable: true),
+      backpressure: Backpressure.dropLatest,
+    ),
+  ],
+);
+
+// ── §23–§24 helpers ──────────────────────────────────────────────────────────
+
+final _kTcEventRecord = BridgeRecordType(
+  name: 'TcEvent',
+  fields: [
+    BridgeRecordField(name: 'id', dartType: 'int', kind: RecordFieldKind.primitive),
+    BridgeRecordField(name: 'tag', dartType: 'String', kind: RecordFieldKind.primitive),
+  ],
+);
+
+BridgeSpec _recordStreamSpec({bool nullable = false}) => BridgeSpec(
+  dartClassName: 'EventHub',
+  lib: 'event_hub',
+  namespace: 'event_hub',
+  iosImpl: NativeImpl.swift,
+  androidImpl: NativeImpl.kotlin,
+  sourceUri: 'event_hub.native.dart',
+  recordTypes: [_kTcEventRecord],
+  streams: [
+    BridgeStream(
+      dartName: 'events',
+      registerSymbol: 'event_hub_register_events_stream',
+      releaseSymbol: 'event_hub_release_events_stream',
+      itemType: BridgeType(
+        name: nullable ? 'TcEvent?' : 'TcEvent',
+        isRecord: true,
+        isNullable: nullable,
+      ),
+      backpressure: Backpressure.dropLatest,
+    ),
+  ],
+);
+
+// ── §15–§18 helpers ──────────────────────────────────────────────────────────
+
+BridgeSpec _nullableStreamCoverageSpec(String bareItemType) {
+  return BridgeSpec(
+    dartClassName: 'Sensor',
+    lib: 'sensor',
+    namespace: 'sensor',
+    iosImpl: NativeImpl.swift,
+    androidImpl: NativeImpl.kotlin,
+    sourceUri: 'sensor.native.dart',
+    enums: [BridgeEnum(name: 'Level', startValue: 0, values: ['low', 'mid', 'high'])],
+    streams: [
+      BridgeStream(
+        dartName: 'readings',
+        registerSymbol: 'sensor_register_readings_stream',
+        releaseSymbol: 'sensor_release_readings_stream',
+        itemType: BridgeType(name: bareItemType, isNullable: true),
+        backpressure: Backpressure.dropLatest,
+      ),
+    ],
+  );
+}
+
+BridgeSpec _enumMapCoverageSpec() => BridgeSpec(
+  dartClassName: 'Router',
+  lib: 'router',
+  namespace: 'router',
+  iosImpl: NativeImpl.swift,
+  androidImpl: NativeImpl.kotlin,
+  sourceUri: 'router.native.dart',
+  enums: [BridgeEnum(name: 'Route', startValue: 0, values: ['home', 'detail', 'settings'])],
+  functions: [
+    BridgeFunction(
+      dartName: 'getRoutes',
+      cSymbol: 'router_get_routes',
+      isAsync: false,
+      returnType: BridgeType(name: 'Map<String, Route>', isMap: true, isRecord: true),
+      params: [
+        BridgeParam(
+          name: 'input',
+          type: BridgeType(name: 'Map<String, Route>', isMap: true, isRecord: true),
+        ),
+      ],
+    ),
+  ],
+);
+
+BridgeSpec _enumBatchCoverageSpec() => BridgeSpec(
+  dartClassName: 'Monitor',
+  lib: 'monitor',
+  namespace: 'monitor',
+  iosImpl: NativeImpl.swift,
+  androidImpl: NativeImpl.kotlin,
+  sourceUri: 'monitor.native.dart',
+  enums: [BridgeEnum(name: 'Signal', startValue: 0, values: ['idle', 'active', 'error'])],
+  streams: [
+    BridgeStream(
+      dartName: 'signals',
+      registerSymbol: 'monitor_register_signals_stream',
+      releaseSymbol: 'monitor_release_signals_stream',
+      itemType: BridgeType(name: 'Signal'),
+      backpressure: Backpressure.batch,
+      batchMaxSize: 16,
+    ),
+  ],
+);
+
+BridgeSpec _callbackNullableCoverageSpec() => BridgeSpec(
+  dartClassName: 'Processor',
+  lib: 'processor',
+  namespace: 'processor',
+  iosImpl: NativeImpl.swift,
+  androidImpl: NativeImpl.kotlin,
+  sourceUri: 'processor.native.dart',
+  enums: [BridgeEnum(name: 'Quality', startValue: 0, values: ['low', 'high'])],
+  functions: [
+    BridgeFunction(
+      dartName: 'onNullableInt',
+      cSymbol: 'processor_on_nullable_int',
+      isAsync: false,
+      returnType: BridgeType(name: 'void'),
+      params: [
+        BridgeParam(
+          name: 'cb',
+          type: BridgeType(
+            name: 'void Function(int?)',
+            isFunction: true,
+            functionReturnType: 'void',
+            functionParams: [BridgeType(name: 'int?')],
+          ),
+        ),
+      ],
+    ),
+    BridgeFunction(
+      dartName: 'onNullableBool',
+      cSymbol: 'processor_on_nullable_bool',
+      isAsync: false,
+      returnType: BridgeType(name: 'void'),
+      params: [
+        BridgeParam(
+          name: 'cb',
+          type: BridgeType(
+            name: 'void Function(bool?)',
+            isFunction: true,
+            functionReturnType: 'void',
+            functionParams: [BridgeType(name: 'bool?')],
+          ),
+        ),
+      ],
+    ),
+    BridgeFunction(
+      dartName: 'onNullableDouble',
+      cSymbol: 'processor_on_nullable_double',
+      isAsync: false,
+      returnType: BridgeType(name: 'void'),
+      params: [
+        BridgeParam(
+          name: 'cb',
+          type: BridgeType(
+            name: 'void Function(double?)',
+            isFunction: true,
+            functionReturnType: 'void',
+            functionParams: [BridgeType(name: 'double?')],
+          ),
+        ),
+      ],
+    ),
+    BridgeFunction(
+      dartName: 'onNullableEnum',
+      cSymbol: 'processor_on_nullable_enum',
+      isAsync: false,
+      returnType: BridgeType(name: 'void'),
+      params: [
+        BridgeParam(
+          name: 'cb',
+          type: BridgeType(
+            name: 'void Function(Quality?)',
+            isFunction: true,
+            functionReturnType: 'void',
+            functionParams: [BridgeType(name: 'Quality?')],
+          ),
+        ),
+      ],
+    ),
+    BridgeFunction(
+      dartName: 'onNullableString',
+      cSymbol: 'processor_on_nullable_string',
+      isAsync: false,
+      returnType: BridgeType(name: 'void'),
+      params: [
+        BridgeParam(
+          name: 'cb',
+          type: BridgeType(
+            name: 'void Function(String?)',
+            isFunction: true,
+            functionReturnType: 'void',
+            functionParams: [BridgeType(name: 'String?')],
+          ),
+        ),
+      ],
+    ),
+  ],
+);
+
 // ── Shared type definitions ───────────────────────────────────────────────────
 
 final _kPrinterStruct = BridgeStruct(
@@ -272,17 +535,17 @@ void main() {
 
     test('Kotlin: reset_call returns Unit', () {
       final out = KotlinGenerator.generate(spec);
-      expect(out, contains('fun reset_call()'));
+      expect(out, contains('fun reset_call(instanceId: Long)'));
     });
 
     test('CppBridge (Swift path): void mod_reset(void)', () {
       final out = CppBridgeGenerator.generate(spec);
-      expect(out, contains('void mod_reset(NitroError* _nitro_err)'));
+      expect(out, contains('void mod_reset(int64_t instanceId, NitroError* _nitro_err)'));
     });
 
     test('CppBridge (pure-C++ path): void mod_reset(void)', () {
       final out = CppBridgeGenerator.generate(cppSpec);
-      expect(out, contains('void mod_reset(NitroError* _nitro_err)'));
+      expect(out, contains('void mod_reset(int64_t instanceId, NitroError* _nitro_err)'));
     });
 
     test('CppInterface: virtual void reset() = 0', () {
@@ -297,7 +560,7 @@ void main() {
 
     test('CppHeader: NITRO_EXPORT void mod_reset(void)', () {
       final out = CppHeaderGenerator.generate(spec);
-      expect(out, contains('void mod_reset(NitroError* _nitro_err)'));
+      expect(out, contains('void mod_reset(int64_t instanceId, NitroError* _nitro_err)'));
     });
   });
 
@@ -395,7 +658,7 @@ void main() {
 
     test('Dart FFI: FFI pointer uses Pointer<Uint8> (not Pointer<Void>)', () {
       final out = DartFfiGenerator.generate(spec);
-      expect(out, contains("Pointer<Uint8> Function(Pointer<NitroErrorFfi>) _getPrintersPtr"));
+      expect(out, contains("Pointer<Uint8> Function(int, Pointer<NitroErrorFfi>) _getPrintersPtr"));
       expect(out, isNot(contains("Pointer<Void> Function() _getPrintersPtr")));
     });
 
@@ -437,7 +700,7 @@ void main() {
 
     test('Kotlin: getPrinters_call returns ByteArray', () {
       final out = KotlinGenerator.generate(spec);
-      expect(out, contains('fun getPrinters_call(): ByteArray'));
+      expect(out, contains('fun getPrinters_call(instanceId: Long): ByteArray'));
     });
 
     test('Kotlin: result.forEach { it.writeFieldsTo(out, buf) }', () {
@@ -760,7 +1023,7 @@ void main() {
       expect(out, contains('val flagsOffsets = LongArray(flagsCount) { flagsBuf.getLong() }'));
       expect(out, contains('for (flagsOffset in flagsOffsets)'));
       expect(out, contains('java.nio.ByteBuffer.wrap(flags, 4 + flagsOffset.toInt()'));
-      expect(out, contains('flagsDecoded.add(if (itemBuf.get().toInt() != 0) 1L else 0L)'));
+      expect(out, contains('flagsDecoded.add(itemBuf.get().toInt() != 0)'));
       expect(out, isNot(contains('repeat(flagsCount) { flagsDecoded.add(flagsBuf.getLong()) }')));
     });
 
@@ -986,11 +1249,11 @@ void main() {
 
     test('Kotlin: all 6 _call methods generated', () {
       final out = KotlinGenerator.generate(mixedSpec);
-      expect(out, contains('fun reset_call()'));
-      expect(out, contains('fun getCount_call()'));
-      expect(out, contains('fun getPrinters_call(): ByteArray'));
-      expect(out, contains('fun getJob_call(): ByteArray'));
-      expect(out, contains('fun getJobs_call(): ByteArray'));
+      expect(out, contains('fun reset_call(instanceId: Long)'));
+      expect(out, contains('fun getCount_call(instanceId: Long)'));
+      expect(out, contains('fun getPrinters_call(instanceId: Long): ByteArray'));
+      expect(out, contains('fun getJob_call(instanceId: Long): ByteArray'));
+      expect(out, contains('fun getJobs_call(instanceId: Long): ByteArray'));
     });
 
     test('Swift: all 6 _call functions generated', () {
@@ -1296,6 +1559,754 @@ void main() {
       expect(out, contains('samples: r.readBool() ? (0..<Int(r.readInt32())).map { _ in r.readInt() } : nil'));
       expect(out, contains('w.writeBool(quality != nil); if let value = quality { w.writeInt(value.rawValue) }'));
       expect(out, contains('w.writeBool(payload != nil); if let value = payload { value.writeFields(w) }'));
+    });
+  });
+
+  // ── §15: Gap 1 — Stream<T?> nullable stream items ────────────────────────
+
+  group('§15: Gap 1 — Stream<T?> nullable stream items', () {
+    for (final bareType in ['int', 'double', 'String']) {
+      test('Dart FFI ($bareType?): nullable stream uses $bareType? cast', () {
+        final out = DartFfiGenerator.generate(_nullableStreamCoverageSpec(bareType));
+        expect(out, contains('message as $bareType?'), reason: 'null passes through as $bareType? cast');
+        expect(out, contains('Stream<$bareType?>'));
+      });
+    }
+
+    test('Dart FFI (bool?): nullable stream uses null check + int-to-bool decode', () {
+      final out = DartFfiGenerator.generate(_nullableStreamCoverageSpec('bool'));
+      expect(out, contains('message == null ? null : (message as int) != 0'));
+      expect(out, contains('Stream<bool?>'));
+    });
+
+    test('Dart FFI (Level?): nullable enum stream uses null check + .toLevel()', () {
+      final out = DartFfiGenerator.generate(_nullableStreamCoverageSpec('Level'));
+      expect(out, contains('message == null ? null'));
+      expect(out, contains('.toLevel()'));
+      expect(out, contains('Stream<Level?>'));
+    });
+
+    test('Swift (int?): nullable stream uses UnsafePointer<Int64>? emit type', () {
+      final out = SwiftGenerator.generate(_nullableStreamCoverageSpec('int'));
+      expect(out, contains('UnsafePointer<Int64>?'));
+    });
+
+    test('Swift (bool?): nullable stream uses UnsafePointer<Int8>? emit type', () {
+      final out = SwiftGenerator.generate(_nullableStreamCoverageSpec('bool'));
+      expect(out, contains('UnsafePointer<Int8>?'));
+      expect(out, contains('var _bv: Int8 = v ? 1 : 0'));
+    });
+
+    test('Swift (Level?): nullable enum stream uses UnsafePointer<Int64>? and rawValue', () {
+      final out = SwiftGenerator.generate(_nullableStreamCoverageSpec('Level'));
+      expect(out, contains('UnsafePointer<Int64>?'));
+      expect(out, contains('var _rv = v.rawValue'));
+    });
+
+    test('Swift (int?): nil-posting path present in sink', () {
+      final out = SwiftGenerator.generate(_nullableStreamCoverageSpec('int'));
+      expect(out, contains('if let v = item'));
+      expect(out, contains('emitCb(dartPort, nil)'));
+    });
+
+    test('Kotlin (int?): nullable stream emits Long? external decl', () {
+      final out = KotlinGenerator.generate(_nullableStreamCoverageSpec('int'));
+      expect(out, contains('Long?'));
+    });
+
+    test('Kotlin (bool?): nullable stream emits Boolean? external decl', () {
+      final out = KotlinGenerator.generate(_nullableStreamCoverageSpec('bool'));
+      expect(out, contains('Boolean?'));
+    });
+
+    test('C bridge (int?): nullable stream emits jobject + kNull path', () {
+      final out = CppBridgeGenerator.generate(_nullableStreamCoverageSpec('int'));
+      expect(out, contains('jobject'));
+      expect(out, contains('Dart_CObject_kNull'));
+    });
+
+    test('Spec validator: no E009 for nullable stream items', () {
+      for (final bareType in ['int', 'double', 'bool', 'String', 'Level']) {
+        final issues = SpecValidator.validate(_nullableStreamCoverageSpec(bareType));
+        expect(
+          issues.any((i) => i.code == 'E009'),
+          isFalse,
+          reason: 'Stream<$bareType?> must be valid (E009 was removed)',
+        );
+      }
+    });
+  });
+
+  // ── §16: Gap 2 — Map<String, @HybridEnum> ────────────────────────────────
+
+  group('§16: Gap 2 — Map<String, @HybridEnum>', () {
+    test('Spec validator: no E007 for Map<String, @HybridEnum>', () {
+      final issues = SpecValidator.validate(_enumMapCoverageSpec());
+      expect(issues.any((i) => i.code == 'E007'), isFalse);
+    });
+
+    test('Dart FFI: emits binary encode/decode helpers for enum map', () {
+      final out = DartFfiGenerator.generate(_enumMapCoverageSpec());
+      expect(out, contains('_nitroEncodeMapBinaryRoute'));
+      expect(out, contains('_nitroDecodeMapBinaryRoute'));
+    });
+
+    test('Dart FFI: encoder uses .nativeValue (tag 1 = int64) for enum', () {
+      final out = DartFfiGenerator.generate(_enumMapCoverageSpec());
+      expect(out, contains('bb.addByte(1)'));
+      expect(out, contains('.nativeValue'));
+    });
+
+    test('Dart FFI: decoder uses .toRoute() extension to convert int64', () {
+      final out = DartFfiGenerator.generate(_enumMapCoverageSpec());
+      expect(out, contains('.toRoute()'));
+    });
+
+    test('Kotlin: input map decodes enum with Route.fromNative', () {
+      final out = KotlinGenerator.generate(_enumMapCoverageSpec());
+      expect(out, contains('Route.fromNative'));
+    });
+
+    test('Kotlin: output map encodes enum with tag 1 + .nativeValue', () {
+      final out = KotlinGenerator.generate(_enumMapCoverageSpec());
+      expect(out, contains('_outBb.write(1)'));
+      expect(out, contains('nativeValue'));
+    });
+
+    test('Swift: input map uses compactMapValues + Route(rawValue:)', () {
+      final out = SwiftGenerator.generate(_enumMapCoverageSpec());
+      expect(out, contains('compactMapValues'));
+      expect(out, contains('Route(rawValue:'));
+    });
+
+    test('Swift: output map uses mapValues + .rawValue as Any', () {
+      final out = SwiftGenerator.generate(_enumMapCoverageSpec());
+      expect(out, contains('mapValues'));
+      expect(out, contains('.rawValue'));
+    });
+  });
+
+  // ── §17: Gap 3 — Backpressure.batch for @HybridEnum ─────────────────────
+
+  group('§17: Gap 3 — Backpressure.batch for @HybridEnum', () {
+    test('Spec validator: no E005 for batch stream with enum item type', () {
+      final issues = SpecValidator.validate(_enumBatchCoverageSpec());
+      expect(issues.any((i) => i.code == 'E005'), isFalse);
+    });
+
+    test('Dart FFI: batch enum stream decodes via .toSignal() extension', () {
+      final out = DartFfiGenerator.generate(_enumBatchCoverageSpec());
+      expect(out, contains('.toSignal()'));
+      expect(out, contains('Backpressure.batch'));
+    });
+
+    test('Kotlin: batch enum stream uses item.nativeValue in _buf.add', () {
+      final out = KotlinGenerator.generate(_enumBatchCoverageSpec());
+      expect(out, contains('nativeValue'));
+    });
+
+    test('Kotlin: batch enum stream uses ArrayList<Long> (rawValue encoding)', () {
+      final out = KotlinGenerator.generate(_enumBatchCoverageSpec());
+      expect(out, contains('ArrayList<Long>'));
+    });
+
+    test('Swift: batch enum stream appends item.rawValue to buffer', () {
+      final out = SwiftGenerator.generate(_enumBatchCoverageSpec());
+      expect(out, contains('item.rawValue'));
+    });
+
+    test('Kotlin: enum batch shares Mutex+flush pattern from numeric batch', () {
+      final out = KotlinGenerator.generate(_enumBatchCoverageSpec());
+      expect(out, contains('val _lock = kotlinx.coroutines.sync.Mutex()'));
+      expect(out, contains('suspend fun _flush()'));
+    });
+  });
+
+  // ── §18: Gap 4 — Callback nullable primitive params ──────────────────────
+
+  group('§18: Gap 4 — Callback nullable primitive params', () {
+    test('Dart FFI (int?): two-param (isNull, value) — no sentinel corruption', () {
+      final out = DartFfiGenerator.generate(_callbackNullableCoverageSpec());
+      // Two Int64 params eliminate the Int64.min sentinel corruption risk.
+      expect(out, contains('Void Function(Int64, Int64)'));
+      expect(out, contains('arg0Null != 0 ? null : arg0Val'));
+    });
+
+    test('Dart FFI (bool?): two-param (isNull, value) — no sentinel corruption', () {
+      final out = DartFfiGenerator.generate(_callbackNullableCoverageSpec());
+      expect(out, contains('arg0Null != 0 ? null : arg0Val != 0'));
+    });
+
+    test('Dart FFI (double?): two-param (isNull, valueBits) — no NaN sentinel', () {
+      final out = DartFfiGenerator.generate(_callbackNullableCoverageSpec());
+      // Two Int64 params; second holds IEEE 754 bits when isNull == 0.
+      expect(out, contains('arg0Null != 0 ? null : Int64List.fromList([arg0Val]).buffer.asFloat64List()[0]'));
+    });
+
+    test('Dart FFI (Quality?): sentinel -1 → null, otherwise → .toQuality()', () {
+      final out = DartFfiGenerator.generate(_callbackNullableCoverageSpec());
+      expect(out, contains('arg0 == -1 ? null'));
+      expect(out, contains('.toQuality()'));
+    });
+
+    test('Dart FFI (String?): nullptr → null, otherwise .toDartString()', () {
+      final out = DartFfiGenerator.generate(_callbackNullableCoverageSpec());
+      expect(out, contains('arg0 == nullptr ? null : arg0.toDartString()'));
+    });
+
+    test('Spec validator: all nullable callback param types are valid (no errors)', () {
+      final issues = SpecValidator.validate(_callbackNullableCoverageSpec());
+      expect(issues.where((i) => i.isError).isEmpty, isTrue);
+    });
+
+    test('Dart FFI: NativeCallable uses two Int64 params for nullable int (isNull + value)', () {
+      final out = DartFfiGenerator.generate(_callbackNullableCoverageSpec());
+      // Nullable int params now use two Int64 params: (isNull flag, value bits).
+      expect(out, contains('Void Function(Int64, Int64)'));
+    });
+
+    test('Dart FFI: exceptional return for int? callback uses Int64.min', () {
+      final intNullableReturnSpec = BridgeSpec(
+        dartClassName: 'Processor',
+        lib: 'processor',
+        namespace: 'processor',
+        iosImpl: NativeImpl.swift,
+        androidImpl: NativeImpl.kotlin,
+        sourceUri: 'processor.native.dart',
+        functions: [
+          BridgeFunction(
+            dartName: 'query',
+            cSymbol: 'processor_query',
+            isAsync: false,
+            returnType: BridgeType(name: 'void'),
+            params: [
+              BridgeParam(
+                name: 'cb',
+                type: BridgeType(
+                  name: 'int? Function()',
+                  isFunction: true,
+                  functionReturnType: 'int?',
+                  functionParams: [],
+                ),
+              ),
+            ],
+          ),
+        ],
+      );
+      final out = DartFfiGenerator.generate(intNullableReturnSpec);
+      // exceptionalReturn for int? uses Int64.min sentinel
+      expect(out, contains('-9223372036854775808'));
+    });
+  });
+
+  // ── §19: Item 4 — typed Pointer<NitroOptXxx> for nullable prim sync returns ─
+
+  group('§19: Item 4 — typed Pointer<NitroOptXxx> nullable prim returns', () {
+    BridgeSpec nullablePrimReturnSpec(String returnType) => BridgeSpec(
+      dartClassName: 'Counter',
+      lib: 'counter',
+      namespace: 'counter',
+      iosImpl: NativeImpl.swift,
+      androidImpl: NativeImpl.kotlin,
+      sourceUri: 'counter.native.dart',
+      functions: [
+        BridgeFunction(
+          dartName: 'getCount',
+          cSymbol: 'counter_get_count',
+          isAsync: false,
+          returnType: BridgeType(name: returnType, isNullable: true),
+          params: [],
+        ),
+      ],
+    );
+
+    test('Dart FFI (int?): FFI type uses Pointer<NitroOptInt64>', () {
+      final out = DartFfiGenerator.generate(nullablePrimReturnSpec('int?'));
+      expect(out, contains('Pointer<NitroOptInt64>'));
+    });
+
+    test('Dart FFI (int?): decode uses .decoded + malloc.free', () {
+      final out = DartFfiGenerator.generate(nullablePrimReturnSpec('int?'));
+      // Sync path uses 'res' variable; async would use 'optPtr'.
+      expect(out, contains('.decoded'));
+      expect(out, contains('malloc.free('));
+    });
+
+    test('Dart FFI (double?): FFI type uses Pointer<NitroOptFloat64>', () {
+      final out = DartFfiGenerator.generate(nullablePrimReturnSpec('double?'));
+      expect(out, contains('Pointer<NitroOptFloat64>'));
+    });
+
+    test('Dart FFI (double?): decode uses .decoded + malloc.free', () {
+      final out = DartFfiGenerator.generate(nullablePrimReturnSpec('double?'));
+      expect(out, contains('.decoded'));
+      expect(out, contains('malloc.free('));
+    });
+
+    test('Dart FFI (bool?): FFI type uses Pointer<NitroOptBool>', () {
+      final out = DartFfiGenerator.generate(nullablePrimReturnSpec('bool?'));
+      expect(out, contains('Pointer<NitroOptBool>'));
+    });
+
+    test('Dart FFI (bool?): decode uses .decoded + malloc.free', () {
+      final out = DartFfiGenerator.generate(nullablePrimReturnSpec('bool?'));
+      expect(out, contains('.decoded'));
+      expect(out, contains('malloc.free('));
+    });
+
+    test('Spec validator: int?/double?/bool? sync return has no errors', () {
+      for (final t in ['int?', 'double?', 'bool?']) {
+        final issues = SpecValidator.validate(nullablePrimReturnSpec(t));
+        expect(issues.where((i) => i.isError).isEmpty, isTrue,
+          reason: '$t return should have no errors');
+      }
+    });
+  });
+
+  // ── §20: Item 5 — @HybridRecord and @NitroVariant as callback return types ──
+
+  group('§20: Item 5 — @HybridRecord / @NitroVariant callback returns', () {
+    final kCbJobRecord = BridgeRecordType(
+      name: 'Job',
+      fields: [
+        BridgeRecordField(name: 'id', dartType: 'int', kind: RecordFieldKind.primitive),
+        BridgeRecordField(name: 'name', dartType: 'String', kind: RecordFieldKind.primitive),
+      ],
+    );
+
+    BridgeSpec recordCallbackReturnSpec() => BridgeSpec(
+      dartClassName: 'Scheduler',
+      lib: 'scheduler',
+      namespace: 'scheduler',
+      iosImpl: NativeImpl.swift,
+      androidImpl: NativeImpl.kotlin,
+      sourceUri: 'scheduler.native.dart',
+      recordTypes: [kCbJobRecord],
+      functions: [
+        BridgeFunction(
+          dartName: 'transform',
+          cSymbol: 'scheduler_transform',
+          isAsync: false,
+          returnType: BridgeType(name: 'void'),
+          params: [
+            BridgeParam(
+              name: 'cb',
+              type: BridgeType(
+                name: 'Job Function(Job)',
+                isFunction: true,
+                functionReturnType: 'Job',
+                functionParams: [
+                  BridgeType(name: 'Job', isRecord: true),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ],
+    );
+
+    BridgeSpec variantCallbackReturnSpec() => BridgeSpec(
+      dartClassName: 'EventBus',
+      lib: 'event_bus',
+      namespace: 'event_bus',
+      iosImpl: NativeImpl.swift,
+      androidImpl: NativeImpl.kotlin,
+      sourceUri: 'event_bus.native.dart',
+      variants: [
+        BridgeVariant(name: 'Event', cases: [
+          BridgeVariantCase(name: 'EventClick', label: 'click', fields: [
+            BridgeRecordField(name: 'x', dartType: 'int', kind: RecordFieldKind.primitive),
+          ]),
+          BridgeVariantCase(name: 'EventScroll', label: 'scroll', fields: [
+            BridgeRecordField(name: 'delta', dartType: 'double', kind: RecordFieldKind.primitive),
+          ]),
+        ]),
+      ],
+      functions: [
+        BridgeFunction(
+          dartName: 'process',
+          cSymbol: 'event_bus_process',
+          isAsync: false,
+          returnType: BridgeType(name: 'void'),
+          params: [
+            BridgeParam(
+              name: 'cb',
+              type: BridgeType(
+                name: 'Event Function(Event)',
+                isFunction: true,
+                functionReturnType: 'Event',
+                functionParams: [
+                  BridgeType(name: 'Event'),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ],
+    );
+
+    test('Dart FFI (@HybridRecord return): NativeCallable uses Pointer<Uint8> return', () {
+      final out = DartFfiGenerator.generate(recordCallbackReturnSpec());
+      // Callback NativeCallable return type is Pointer<Uint8>
+      expect(out, contains('Pointer<Uint8> Function('));
+    });
+
+    test('Dart FFI (@HybridRecord return): wrapper calls .toNative(malloc)', () {
+      final out = DartFfiGenerator.generate(recordCallbackReturnSpec());
+      expect(out, contains('toNative(malloc)'));
+    });
+
+    test('Dart FFI (@HybridRecord return): uses isolateLocal (not listener)', () {
+      final out = DartFfiGenerator.generate(recordCallbackReturnSpec());
+      expect(out, contains('.isolateLocal('));
+      expect(out, isNot(contains('.listener(')));
+    });
+
+    test('Dart FFI (@NitroVariant return): NativeCallable uses Pointer<Uint8> return', () {
+      final out = DartFfiGenerator.generate(variantCallbackReturnSpec());
+      expect(out, contains('Pointer<Uint8> Function('));
+    });
+
+    test('Dart FFI (@NitroVariant return): wrapper calls .toNative(malloc)', () {
+      final out = DartFfiGenerator.generate(variantCallbackReturnSpec());
+      expect(out, contains('toNative(malloc)'));
+    });
+
+    test('Kotlin (@HybridRecord return): _invoke_cb declared as: ByteArray', () {
+      final out = KotlinGenerator.generate(recordCallbackReturnSpec());
+      expect(out, contains('external fun _invoke_cb(callbackPtr: Long'));
+      expect(out, contains(': ByteArray'));
+    });
+
+    test('Kotlin (@HybridRecord return): lambda decodes ByteArray via run { ... decodeFrom(...) }', () {
+      final out = KotlinGenerator.generate(recordCallbackReturnSpec());
+      expect(out, contains('decodeFrom'));
+      expect(out, contains('getInt()'));
+    });
+
+    test('Kotlin (@NitroVariant return): _invoke_cb declared as: ByteArray', () {
+      final out = KotlinGenerator.generate(variantCallbackReturnSpec());
+      expect(out, contains(': ByteArray'));
+    });
+
+    test('C bridge (@HybridRecord return): JNI invoker returns jbyteArray', () {
+      final out = CppBridgeGenerator.generate(recordCallbackReturnSpec());
+      expect(out, contains('JNIEXPORT jbyteArray JNICALL'));
+    });
+
+    test('C bridge (@HybridRecord return): reads 4-byte prefix + NewByteArray + free', () {
+      final out = CppBridgeGenerator.generate(recordCallbackReturnSpec());
+      expect(out, contains('memcpy(&_plen, _ret, 4)'));
+      expect(out, contains('NewByteArray'));
+      expect(out, contains('free(_ret)'));
+    });
+
+    test('Swift (@HybridRecord return): cdecl callback type uses UnsafeMutablePointer<UInt8>?', () {
+      final out = SwiftGenerator.generate(recordCallbackReturnSpec());
+      expect(out, contains('UnsafeMutablePointer<UInt8>?'));
+    });
+
+    test('Swift (@HybridRecord return): wrapper calls fromNative + free', () {
+      final out = SwiftGenerator.generate(recordCallbackReturnSpec());
+      expect(out, contains('fromNative'));
+      expect(out, contains('free('));
+    });
+
+    test('Spec validator: @HybridRecord callback return has no errors', () {
+      final issues = SpecValidator.validate(recordCallbackReturnSpec());
+      expect(issues.where((i) => i.isError).isEmpty, isTrue);
+    });
+
+    test('Spec validator: @NitroVariant callback return has no errors', () {
+      final issues = SpecValidator.validate(variantCallbackReturnSpec());
+      expect(issues.where((i) => i.isError).isEmpty, isTrue);
+    });
+  });
+
+  // ── §21: Item 3 — @NitroVariant as a property type ───────────────────────
+
+  group('§21: Item 3 — @NitroVariant property getter + setter', () {
+    group('Dart FFI', () {
+      test('@NitroVariant getter: lookupFunction uses Pointer<Uint8> return', () {
+        final out = DartFfiGenerator.generate(_variantPropSpec());
+        expect(out, contains('Pointer<Uint8> Function(int, Pointer<NitroErrorFfi>) _getModePtr'));
+      });
+
+      test('@NitroVariant getter: decodes via ModeVariantExt.fromNative(res)', () {
+        final out = DartFfiGenerator.generate(_variantPropSpec());
+        expect(out, contains('ModeVariantExt.fromNative(res)'));
+      });
+
+      test('@NitroVariant getter: frees pointer via malloc.free(res)', () {
+        final out = DartFfiGenerator.generate(_variantPropSpec());
+        expect(out, contains('malloc.free(res)'));
+      });
+
+      test('@NitroVariant setter: encodes via value.toNative(arena)', () {
+        final out = DartFfiGenerator.generate(_variantPropSpec());
+        expect(out, contains('value.toNative(arena)'));
+      });
+
+      test('@NitroVariant setter: calls _setModePtr with Pointer<Uint8>', () {
+        final out = DartFfiGenerator.generate(_variantPropSpec());
+        expect(out, contains('_setModePtr(_instanceId, value.toNative(arena)'));
+      });
+    });
+
+    group('Kotlin', () {
+      test('@NitroVariant getter bridge: ctrl_get_mode_call returns ByteArray', () {
+        final out = KotlinGenerator.generate(_variantPropSpec());
+        expect(out, contains('fun ctrl_get_mode_call(instanceId: Long): ByteArray'));
+      });
+
+      test('@NitroVariant getter bridge: encodes via writeFields + ByteBuffer length prefix', () {
+        final out = KotlinGenerator.generate(_variantPropSpec());
+        expect(out, contains('_vResult.writeFields(_vw)'));
+        expect(out, contains('_vBuf.putInt(_vPayload.size)'));
+      });
+
+      test('@NitroVariant setter bridge: ctrl_set_mode_call takes ByteArray', () {
+        final out = KotlinGenerator.generate(_variantPropSpec());
+        expect(out, contains('fun ctrl_set_mode_call(instanceId: Long, value: ByteArray)'));
+      });
+
+      test('@NitroVariant setter bridge: decodes via Mode.fromReader after skipping length', () {
+        final out = KotlinGenerator.generate(_variantPropSpec());
+        expect(out, contains('valueBuf.getInt() // skip 4-byte length prefix'));
+        expect(out, contains('Mode.fromReader(RecordReader(valueBuf))'));
+      });
+
+      test('@NitroVariant interface declares Mode property (var — has setter)', () {
+        final out = KotlinGenerator.generate(_variantPropSpec());
+        expect(out, contains('var mode: Mode'));
+      });
+    });
+
+    group('Swift', () {
+      test('@NitroVariant getter: @_cdecl returns UnsafeMutablePointer<UInt8>?', () {
+        final out = SwiftGenerator.generate(_variantPropSpec());
+        expect(out, contains('@_cdecl("_ctrl_call_get_mode")'));
+        expect(out, contains('-> UnsafeMutablePointer<UInt8>?'));
+      });
+
+      test('@NitroVariant getter: encodes via writeFields + toNative', () {
+        final out = SwiftGenerator.generate(_variantPropSpec());
+        expect(out, contains('_vImpl.mode.writeFields(to: _vw)'));
+        expect(out, contains('_vw.toNative().map'));
+      });
+
+      test('@NitroVariant protocol: mode property declared', () {
+        final out = SwiftGenerator.generate(_variantPropSpec());
+        expect(out, contains('var mode: Mode'));
+      });
+    });
+
+    test('Spec validator: no errors for @NitroVariant property', () {
+      final issues = SpecValidator.validate(_variantPropSpec());
+      expect(issues.where((i) => i.isError), isEmpty);
+    });
+  });
+
+  // ── §22: Item 6 — nullable @HybridStruct stream items ────────────────────
+
+  group('§22: Item 6 — nullable @HybridStruct stream items', () {
+    group('Dart FFI', () {
+      test('Stream<Packet?> getter returns Stream<Packet?>', () {
+        final out = DartFfiGenerator.generate(_nullableStructStreamSpec());
+        expect(out, contains('Stream<Packet?> get packets'));
+      });
+
+      test('openStream typed as PacketProxy? (nullable proxy)', () {
+        final out = DartFfiGenerator.generate(_nullableStructStreamSpec());
+        expect(out, contains('NitroRuntime.openStream<PacketProxy?>'));
+      });
+
+      test('unpack: null message returns null (nullable path)', () {
+        final out = DartFfiGenerator.generate(_nullableStructStreamSpec());
+        expect(out, contains('if (message == null) { return null; }'));
+      });
+
+      test('unpack: non-null message creates PacketProxy from address', () {
+        final out = DartFfiGenerator.generate(_nullableStructStreamSpec());
+        expect(out, contains('PacketProxy(Pointer<PacketFfi>.fromAddress(message as int))'));
+      });
+
+      test('PacketProxy zero-copy proxy generated for struct', () {
+        final out = DartFfiGenerator.generate(_nullableStructStreamSpec());
+        expect(out, contains('final class PacketProxy extends Packet implements Finalizable'));
+      });
+    });
+
+    group('Kotlin', () {
+      test('Kotlin interface Flow<Packet?> with nullable type', () {
+        final out = KotlinGenerator.generate(_nullableStructStreamSpec());
+        expect(out, contains('val packets: Flow<Packet?>'));
+      });
+    });
+
+    test('Spec validator: no errors for nullable @HybridStruct stream', () {
+      final issues = SpecValidator.validate(_nullableStructStreamSpec());
+      expect(issues.where((i) => i.isError), isEmpty);
+    });
+  });
+
+  // ── §23: L1 — Stream<@HybridRecord> (non-nullable) ───────────────────────
+  group('§23: L1 — Stream<@HybridRecord> non-nullable', () {
+    group('Dart FFI', () {
+      test('Stream getter returns Stream<TcEvent>', () {
+        final out = DartFfiGenerator.generate(_recordStreamSpec());
+        expect(out, contains('Stream<TcEvent> get events'));
+      });
+
+      test('openStream typed as TcEvent (non-nullable)', () {
+        final out = DartFfiGenerator.generate(_recordStreamSpec());
+        expect(out, contains('NitroRuntime.openStream<TcEvent>'));
+      });
+
+      test('unpack decodes via TcEventRecordExt.fromNative', () {
+        final out = DartFfiGenerator.generate(_recordStreamSpec());
+        expect(out, contains('TcEventRecordExt.fromNative(rawPtr)'));
+      });
+
+      test('unpack reads pointer from message address', () {
+        final out = DartFfiGenerator.generate(_recordStreamSpec());
+        expect(out, contains('Pointer<Uint8>.fromAddress(message as int)'));
+      });
+
+      test('unpack frees the native buffer after decode', () {
+        final out = DartFfiGenerator.generate(_recordStreamSpec());
+        expect(out, contains('malloc.free(rawPtr)'));
+      });
+
+      test('unpack throws StateError for null message (non-nullable)', () {
+        final out = DartFfiGenerator.generate(_recordStreamSpec());
+        expect(out, contains("throw StateError('Received null event on non-nullable stream events')"));
+      });
+    });
+
+    group('Kotlin', () {
+      test('Kotlin interface uses Flow<TcEvent> (non-nullable)', () {
+        final out = KotlinGenerator.generate(_recordStreamSpec());
+        expect(out, contains('val events: Flow<TcEvent>'));
+      });
+
+      test('JNI emit function uses ByteArray (not the record class directly)', () {
+        final out = KotlinGenerator.generate(_recordStreamSpec());
+        expect(out, contains('external fun emit_events(dartPort: Long, item: ByteArray): Boolean'));
+      });
+
+      test('collect calls item.encode() before emitting', () {
+        final out = KotlinGenerator.generate(_recordStreamSpec());
+        expect(out, contains('emit_events(dartPort, item.encode())'));
+      });
+
+      test('register stream _call bridges to impl coroutine', () {
+        final out = KotlinGenerator.generate(_recordStreamSpec());
+        expect(out, contains('event_hub_register_events_stream_call(instanceId: Long, dartPort: Long)'));
+      });
+    });
+
+    group('Swift', () {
+      test('emitCb parameter uses UnsafeMutablePointer<UInt8>? (record wire type)', () {
+        final out = SwiftGenerator.generate(_recordStreamSpec());
+        expect(out, contains('_ emitCb: @convention(c) (Int64, UnsafeMutablePointer<UInt8>?) -> Bool'));
+      });
+
+      test('sink body calls item.toNative() to serialize', () {
+        final out = SwiftGenerator.generate(_recordStreamSpec());
+        expect(out, contains('let raw = item.toNative()'));
+      });
+
+      test('emit posts raw pointer via emitCb', () {
+        final out = SwiftGenerator.generate(_recordStreamSpec());
+        expect(out, contains('if !emitCb(dartPort, raw)'));
+      });
+
+      test('frees native buffer when emit returns false', () {
+        final out = SwiftGenerator.generate(_recordStreamSpec());
+        expect(out, contains('if let raw { free(UnsafeMutableRawPointer(raw)) }'));
+      });
+    });
+
+    group('C JNI bridge', () {
+      test('JNI emit function signature uses jbyteArray (not jobject)', () {
+        final out = CppBridgeGenerator.generate(_recordStreamSpec());
+        expect(out, contains('jlong dartPort, jbyteArray item)'));
+      });
+
+      test('C copies jbyteArray bytes to malloc\'d buffer', () {
+        final out = CppBridgeGenerator.generate(_recordStreamSpec());
+        expect(out, contains('env->GetByteArrayRegion(item, 0, len, (jbyte*)buf)'));
+      });
+
+      test('C posts buffer address as kInt64', () {
+        final out = CppBridgeGenerator.generate(_recordStreamSpec());
+        expect(out, contains('obj.value.as_int64 = (intptr_t)buf'));
+      });
+    });
+
+    test('Spec validator: no errors for Stream<@HybridRecord>', () {
+      final issues = SpecValidator.validate(_recordStreamSpec());
+      expect(issues.where((i) => i.isError), isEmpty);
+    });
+  });
+
+  // ── §24: L1 edge — Stream<@HybridRecord?> nullable record stream ──────────
+  group('§24: L1 edge — Stream<@HybridRecord?> nullable', () {
+    group('Dart FFI', () {
+      test('Stream getter returns Stream<TcEvent?> (nullable)', () {
+        final out = DartFfiGenerator.generate(_recordStreamSpec(nullable: true));
+        expect(out, contains('Stream<TcEvent?> get events'));
+      });
+
+      test('openStream typed as TcEvent? (nullable)', () {
+        final out = DartFfiGenerator.generate(_recordStreamSpec(nullable: true));
+        expect(out, contains('NitroRuntime.openStream<TcEvent?>'));
+      });
+
+      test('unpack returns null for null message (nullable)', () {
+        final out = DartFfiGenerator.generate(_recordStreamSpec(nullable: true));
+        expect(out, contains('if (message == null) { return null; }'));
+      });
+
+      test('unpack still decodes non-null via fromNative', () {
+        final out = DartFfiGenerator.generate(_recordStreamSpec(nullable: true));
+        expect(out, contains('TcEventRecordExt.fromNative(rawPtr)'));
+      });
+    });
+
+    group('Kotlin', () {
+      test('Kotlin Flow type is nullable Flow<TcEvent?>', () {
+        final out = KotlinGenerator.generate(_recordStreamSpec(nullable: true));
+        expect(out, contains('val events: Flow<TcEvent?>'));
+      });
+
+      test('JNI emit function uses ByteArray? (nullable ByteArray)', () {
+        final out = KotlinGenerator.generate(_recordStreamSpec(nullable: true));
+        expect(out, contains('external fun emit_events(dartPort: Long, item: ByteArray?): Boolean'));
+      });
+
+      test('collect calls item?.encode() (null-safe encode)', () {
+        final out = KotlinGenerator.generate(_recordStreamSpec(nullable: true));
+        expect(out, contains('emit_events(dartPort, item?.encode())'));
+      });
+    });
+
+    group('C JNI bridge', () {
+      test('C JNI bridge handles null jbyteArray → kNull', () {
+        final out = CppBridgeGenerator.generate(_recordStreamSpec(nullable: true));
+        expect(out, contains('if (item == nullptr) { obj.type = Dart_CObject_kNull; }'));
+      });
+
+      test('C copies non-null jbyteArray to malloc\'d buffer', () {
+        final out = CppBridgeGenerator.generate(_recordStreamSpec(nullable: true));
+        expect(out, contains('env->GetByteArrayRegion(item, 0, len, (jbyte*)buf)'));
+      });
+    });
+
+    test('Spec validator: no errors for nullable Stream<@HybridRecord?>', () {
+      final issues = SpecValidator.validate(_recordStreamSpec(nullable: true));
+      expect(issues.where((i) => i.isError), isEmpty);
     });
   });
 }

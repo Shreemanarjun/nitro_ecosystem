@@ -14,13 +14,15 @@ import 'package:nocterm/nocterm.dart';
 /// Searches for a Nitro project root. Checks the current directory first,
 /// then direct subdirectories. Returns the Directory if a pubspec.yaml
 /// containing 'nitro' is found.
-Directory? findNitroProjectRoot() {
-  // 1. Check current directory
-  if (_isNitroRoot(Directory.current)) return Directory.current;
+Directory? findNitroProjectRoot({String? startDir}) {
+  final root = startDir != null ? Directory(startDir) : Directory.current;
+
+  // 1. Check root directory
+  if (_isNitroRoot(root)) return root;
 
   // 2. Check direct subdirectories (common in monorepos or after init)
   try {
-    for (final entity in Directory.current.listSync()) {
+    for (final entity in root.listSync()) {
       if (entity is Directory && _isNitroRoot(entity)) {
         return entity;
       }

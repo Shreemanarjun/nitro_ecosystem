@@ -16,6 +16,7 @@ void main() {
       expect(facade.targetForOutputPath('lib/src/generated/cpp/camera.bridge.g.cpp'), NativeGeneratorTarget.cppBridge);
       expect(facade.targetForOutputPath('lib/src/generated/cmake/camera.CMakeLists.g.txt'), NativeGeneratorTarget.cmake);
       expect(facade.targetForOutputPath('lib/src/generated/cpp/camera.native.g.h'), NativeGeneratorTarget.cppInterface);
+      expect(facade.targetForOutputPath('lib/src/generated/cpp/camera.impl.g.cpp'), NativeGeneratorTarget.cppImplStarter);
       expect(facade.targetForOutputPath('lib/src/generated/cpp/test/camera.mock.g.h'), NativeGeneratorTarget.cppMockHeader);
       expect(facade.targetForOutputPath('lib/src/generated/cpp/test/camera.test.g.cpp'), NativeGeneratorTarget.cppTestStarter);
       // PX18: web bridge
@@ -89,6 +90,7 @@ void main() {
         facade.bundleFor(NativeGeneratorLanguage.cppNative)?.generators.map((generator) => generator.target),
         [
           NativeGeneratorTarget.cppInterface,
+          NativeGeneratorTarget.cppImplStarter,
           NativeGeneratorTarget.cppMockHeader,
           NativeGeneratorTarget.cppTestStarter,
         ],

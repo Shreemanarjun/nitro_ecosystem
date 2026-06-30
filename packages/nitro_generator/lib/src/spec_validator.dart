@@ -53,6 +53,12 @@ class SpecValidator {
     'double?',
     'bool?',
     'String?',
+    'DateTime',
+    'DateTime?',
+    'uint64',
+    'uint64?',
+    'AnyNativeObject',
+    'AnyNativeObject?',
     'Uint8List?',
     'Int8List?',
     'Int16List?',
@@ -196,16 +202,53 @@ class SpecValidator {
       );
     }
 
+    // W007: Web target with streams or @NitroNativeAsync — these throw UnsupportedError
+    // at runtime because the web bridge generator does not implement them.
+    if (spec.webImpl != null) {
+      if (spec.streams.isNotEmpty) {
+        issues.add(
+          ValidationIssue(
+            severity: ValidationSeverity.warning,
+            code: 'W007',
+            message:
+                '${spec.dartClassName}: ${spec.streams.length} stream(s) declared but the web '
+                'bridge does not support Stream<T>. Calling stream getters on web will throw '
+                'UnsupportedError at runtime.',
+            hint:
+                'Guard stream usage with `if (!kIsWeb)` or provide a web-specific stub. '
+                'Consider using a polling function instead for web.',
+          ),
+        );
+      }
+      final hasNativeAsync = spec.functions.any((f) => f.isNativeAsync);
+      if (hasNativeAsync) {
+        issues.add(
+          ValidationIssue(
+            severity: ValidationSeverity.warning,
+            code: 'W007',
+            message:
+                '${spec.dartClassName}: @NitroNativeAsync method(s) declared but the web '
+                'bridge does not support NativeAsync. Calling these methods on web will throw '
+                'UnsupportedError at runtime.',
+            hint:
+                'Guard @NitroNativeAsync methods with `if (!kIsWeb)` or use @nitroAsync instead.',
+          ),
+        );
+      }
+    }
+
     final enumNames = spec.enums.map((e) => e.name).toSet();
     final structNames = spec.structs.map((s) => s.name).toSet();
     final recordNames = spec.recordTypes.map((r) => r.name).toSet();
     final variantNames = spec.variants.map((v) => v.name).toSet();
+    final customTypeNames = spec.customTypes.map((c) => c.name).toSet();
     final knownTypes = {
       ..._knownPrimitives,
       ...enumNames,
       ...structNames,
       ...recordNames,
       ...variantNames,
+      ...customTypeNames,
     };
 
     // ── Functions ──────────────────────────────────────────────────────────
@@ -382,45 +425,18 @@ class SpecValidator {
         );
       }
 
-      // W006: Map<String, @HybridRecord> return type — Kotlin generates Any? for
-      // map values, so the value type is not enforced on Android at runtime.
-      if (func.returnType.isMap && func.returnType.name.contains('@HybridRecord')) {
-        issues.add(
-          ValidationIssue(
-            severity: ValidationSeverity.warning,
-            code: 'W006',
-            message:
-                '${spec.dartClassName}.${func.dartName}() — Map<String, @HybridRecord> return type is not type-safe on Android. '
-                'Kotlin generates Any? for map values, bypassing JVM type-checking.',
-            hint: 'This works at runtime but provides no compile-time type safety in the Kotlin layer. '
-                'Consider returning a @HybridRecord wrapper with a named list/map field for stronger typing.',
-          ),
-        );
-      }
-
-      // E007/E008: Map<String, @HybridEnum or @HybridStruct> — the binary map encoder
-      // does not know the concrete type, so values are JSON-encoded via jsonEncode(v).
-      // @HybridEnum and @HybridStruct have no toJson(), causing a runtime crash.
+      // E008: Map<String, @HybridStruct> — not supported; struct has no binary map encoding.
+      // @HybridEnum is now supported (Gap 2): encoded as tag 1 + int64 rawValue.
       if (func.returnType.isMap) {
         final mapMatch = RegExp(r'^Map<String,\s*(.+)>$').firstMatch(func.returnType.name);
         final valueType = mapMatch?.group(1)?.trim() ?? '';
-        final isEnumVal = spec.isEnumName(valueType);
         final isStructVal = spec.isStructName(valueType);
-        if (isEnumVal) {
-          issues.add(ValidationIssue(
-            severity: ValidationSeverity.error,
-            code: 'E007',
-            message: '${spec.dartClassName}.${func.dartName}() — Map<String, @HybridEnum> value type "$valueType" is not supported. '
-                'The binary encoder cannot JSON-encode enum values.',
-            hint: 'Return Map<String, int> using the enum\'s rawValue, then decode on the caller side: '
-                'result.map((k, v) => MapEntry(k, v.to$valueType())).',
-          ));
-        } else if (isStructVal) {
+        if (isStructVal) {
           issues.add(ValidationIssue(
             severity: ValidationSeverity.error,
             code: 'E008',
             message: '${spec.dartClassName}.${func.dartName}() — Map<String, @HybridStruct> value type "$valueType" is not supported. '
-                'The binary encoder cannot JSON-encode struct values.',
+                'The binary encoder cannot encode struct values in maps.',
             hint: 'Return List<$valueType> instead (struct values as a list), or annotate a wrapper @HybridRecord.',
           ));
         }
@@ -475,20 +491,13 @@ class SpecValidator {
           );
         }
 
-        // E007/E008: Map<String, @HybridEnum or @HybridStruct> parameter — same encoding limitation as return.
+        // E008: Map<String, @HybridStruct> parameter — not supported.
+        // @HybridEnum is now supported (Gap 2): decoded from tag 1 + int64 rawValue.
         if (param.type.isMap) {
           final mapMatch = RegExp(r'^Map<String,\s*(.+)>$').firstMatch(param.type.name);
           final valueType = mapMatch?.group(1)?.trim() ?? '';
-          final isEnumVal = spec.isEnumName(valueType);
           final isStructVal = spec.isStructName(valueType);
-          if (isEnumVal) {
-            issues.add(ValidationIssue(
-              severity: ValidationSeverity.error,
-              code: 'E007',
-              message: '${spec.dartClassName}.${func.dartName}() — parameter "${param.name}" Map<String, @HybridEnum> value type "$valueType" is not supported.',
-              hint: 'Use Map<String, int> with rawValues and decode on the callee side.',
-            ));
-          } else if (isStructVal) {
+          if (isStructVal) {
             issues.add(ValidationIssue(
               severity: ValidationSeverity.error,
               code: 'E008',
@@ -650,18 +659,11 @@ class SpecValidator {
 
     // ── Streams ────────────────────────────────────────────────────────────
     for (final stream in spec.streams) {
-      // E009: Nullable stream item types are not supported. The emit functions use
-      // sentinel values (nullptr / 0) for null, but Dart stream unpack lambdas do not
-      // have a consistent null-decode path for all item types.
-      if (stream.itemType.isNullable || stream.itemType.name.endsWith('?')) {
-        issues.add(ValidationIssue(
-          severity: ValidationSeverity.error,
-          code: 'E009',
-          message: '${spec.dartClassName}.${stream.dartName} — nullable stream item type "${stream.itemType.name}" is not supported.',
-          hint: 'Use a non-nullable item type. If you need to signal "no value", use a sentinel in the item type '
-              '(e.g. a @HybridRecord with an optional field, or emit a special value like -1).',
-        ));
-      }
+      // E009 removed: nullable stream item types are now fully supported.
+      // Native posts Dart_CObject_kNull when the item is null; Dart's unpack
+      // lambda checks `message == null` before decoding the value.
+      // Supported nullable types: int?, double?, bool?, String?, @HybridEnum?,
+      // @HybridStruct?, @HybridRecord?  (TypedData? remains unsupported — E012).
 
       final iName = stream.itemType.name.replaceFirst('?', '');
       if (!_isKnownType(iName, knownTypes) && !_isKnownType(stream.itemType.name, knownTypes)) {
@@ -705,22 +707,27 @@ class SpecValidator {
         );
       }
 
-      // E005: Backpressure.batch is only supported for numeric (int, double, bool)
-      // stream items. The batch protocol packs items into a native Int64 array;
-      // String/enum/struct/record items cannot be represented that way.
+      // E005: Backpressure.batch supports int, double, bool, String, @HybridEnum,
+      // @HybridRecord, and @NitroVariant. @HybridStruct cannot be batched (no encode()).
       if (stream.isBatch) {
-        const batchSupportedTypes = {'int', 'double', 'bool'};
-        if (!batchSupportedTypes.contains(iName)) {
+        final enumNames = spec.enums.map((e) => e.name).toSet();
+        final recordNames = spec.recordTypes.map((r) => r.name).toSet();
+        final variantNames = spec.variants.map((v) => v.name).toSet();
+        final isBatchSupported = const {'int', 'double', 'bool', 'String', 'uint64'}.contains(iName) ||
+            enumNames.contains(iName) ||
+            recordNames.contains(iName) ||
+            variantNames.contains(iName);
+        if (!isBatchSupported) {
           issues.add(
             ValidationIssue(
               severity: ValidationSeverity.error,
               code: 'E005',
               message:
                   '${spec.dartClassName}.${stream.dartName} — Backpressure.batch is not supported for stream item type "$iName". '
-                  'Only int, double, and bool streams can use batch mode.',
+                  'Batch mode supports: int, double, bool, String, @HybridEnum, @HybridRecord, and @NitroVariant.',
               hint:
-                  'Change the stream item type to int, double, or bool, or switch to '
-                  'Backpressure.dropLatest / Backpressure.dropOldest.',
+                  'Change the stream item type to int, double, bool, String, @HybridEnum, @HybridRecord, or @NitroVariant, '
+                  'or switch to Backpressure.dropLatest / Backpressure.dropOldest.',
             ),
           );
         }
@@ -793,12 +800,12 @@ class SpecValidator {
           message: '${variant.name} — @NitroVariant has no cases.',
           hint: 'Add at least one concrete subclass of ${variant.name}.',
         ));
-      } else if (variant.cases.length > 10) {
+      } else if (variant.cases.length > 255) {
         issues.add(ValidationIssue(
           severity: ValidationSeverity.error,
           code: 'E014',
-          message: '${variant.name} — @NitroVariant has ${variant.cases.length} cases (max 10).',
-          hint: 'Split "${variant.name}" into multiple variant types, each with ≤ 10 cases.',
+          message: '${variant.name} — @NitroVariant has ${variant.cases.length} cases (max 255).',
+          hint: 'Split "${variant.name}" into multiple variant types, each with ≤ 255 cases.',
         ));
       }
     }
@@ -949,9 +956,12 @@ class SpecValidator {
     final returnName = (callback.functionReturnType ?? 'void').replaceFirst('?', '');
     final enumNames = spec.enums.map((e) => e.name).toSet();
 
-    // String is now supported as a bidirectional callback return (#4 implementation).
+    final recordNames = spec.recordTypes.map((r) => r.name).toSet();
+    final variantNames = spec.variants.map((v) => v.name).toSet();
+    // Supported callback return types: primitives, AnyNativeObject, enums, @HybridRecord, @NitroVariant.
     final supportedReturn = returnName == 'void' || returnName == 'int' || returnName == 'double'
-        || returnName == 'bool' || returnName == 'String' || enumNames.contains(returnName);
+        || returnName == 'bool' || returnName == 'String' || returnName == 'AnyNativeObject' || returnName == 'uint64'
+        || enumNames.contains(returnName) || recordNames.contains(returnName) || variantNames.contains(returnName);
     if (!supportedReturn) {
       issues.add(
         ValidationIssue(
@@ -959,7 +969,7 @@ class SpecValidator {
           code: 'UNSUPPORTED_FUNCTION_TYPE',
           message:
               '${spec.dartClassName}.${func.dartName}() — parameter "${param.name}" callback return type "$returnName" is not supported.',
-          hint: 'Callback returns support void, int, double, bool, String, and @HybridEnum. Use Future<T> or Stream<T> for object results.',
+          hint: 'Callback returns support void, int, double, bool, String, @HybridEnum, @HybridRecord, and @NitroVariant.',
         ),
       );
     }
@@ -968,11 +978,13 @@ class SpecValidator {
       final name = callbackParam.name.replaceFirst('?', '');
       final structNames = spec.structs.map((s) => s.name).toSet();
       final recordNames = spec.recordTypes.map((r) => r.name).toSet();
-      final supportedParam = callbackParam.isPointer ||
-          name == 'int' || name == 'double' || name == 'bool' || name == 'String' ||
+      final variantNames = spec.variants.map((v) => v.name).toSet();
+      final supportedParam = callbackParam.isPointer || callbackParam.isAnyNativeObject ||
+          name == 'int' || name == 'double' || name == 'bool' || name == 'String' || name == 'AnyNativeObject' || name == 'uint64' ||
           enumNames.contains(name) ||
           structNames.contains(name) ||
-          recordNames.contains(name);
+          recordNames.contains(name) ||
+          variantNames.contains(name);
       if (!supportedParam) {
         issues.add(
           ValidationIssue(
@@ -980,7 +992,7 @@ class SpecValidator {
             code: 'UNSUPPORTED_FUNCTION_TYPE',
             message:
                 '${spec.dartClassName}.${func.dartName}() — parameter "${param.name}" callback parameter type "${callbackParam.name}" is not supported.',
-            hint: 'Callback parameters support int, double, bool, String, Pointer<T>, @HybridEnum, @HybridStruct, and @HybridRecord.',
+            hint: 'Callback parameters support int, double, bool, String, Pointer<T>, @HybridEnum, @HybridStruct, @HybridRecord, and @NitroVariant.',
           ),
         );
       }

@@ -483,7 +483,7 @@ void main() {
     test('uses tagged uint8_t* ABI for Swift _cdecl wrapper', () {
       final code = CppBridgeGenerator.generate(_resultDoubleSpec());
       expect(code, contains('extern uint8_t* _sensor_call_readTemperature(void);'));
-      expect(code, contains('uint8_t* sensor_read_temperature(NitroError* _nitro_err)'));
+      expect(code, contains('uint8_t* sensor_read_temperature(int64_t instanceId, NitroError* _nitro_err)'));
     });
   });
 
@@ -493,8 +493,8 @@ void main() {
 
     test('scalar param `by` is forwarded to FFI pointer call', () {
       // Regression: no-arena path previously emitted _incrementPtr(_nitroErr)
-      // dropping all params. Fixed: must emit _incrementPtr(by, _nitroErr).
-      expect(code, contains('_incrementPtr(by, _nitroErr)'));
+      // dropping all params. Fixed: must emit _incrementPtr(_instanceId, by, _nitroErr).
+      expect(code, contains('_incrementPtr(_instanceId, by, _nitroErr)'));
     });
   });
 

@@ -226,8 +226,8 @@ void main() {
 
     test('proxy _init call appears inside the impl constructor body', () {
       final out = DartFfiGenerator.generate(structStreamSpec());
-      // The constructor body ends with '}' before the first 'late final'
-      final ctorStart = out.indexOf('_MyCameraImpl()');
+      // Named constructor _init body ends with '}' before the first 'late final'
+      final ctorStart = out.indexOf('_MyCameraImpl._init(');
       final firstLate = out.indexOf('  late final', ctorStart);
       final initCall = out.indexOf('CameraFrameProxy._init(_dylib)', ctorStart);
       expect(initCall, greaterThan(ctorStart));

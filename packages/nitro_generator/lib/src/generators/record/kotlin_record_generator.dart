@@ -29,9 +29,12 @@ String _generateKotlinRecords(BridgeSpec spec) {
     final ctorArgs = rt.fields.map((f) => f.name).join(', ');
     s.writeln('            return ${rt.name}($ctorArgs)');
     s.writeln('        }');
+    final isNitroOpt = rt.name == 'NitroOptInt64' || rt.name == 'NitroOptFloat64' || rt.name == 'NitroOptBool';
     s.writeln('        @JvmStatic fun decode(bytes: ByteArray): ${rt.name} {');
     s.writeln('            val buf = java.nio.ByteBuffer.wrap(bytes).order(java.nio.ByteOrder.LITTLE_ENDIAN)');
+    if (!isNitroOpt) {
     s.writeln('            buf.position(4) // skip 4-byte length prefix');
+    }
     s.writeln('            return decodeFrom(buf)');
     s.writeln('        }');
     // --- fromJson() for Map<String, ${rt.name}> support (#2) ---
@@ -76,8 +79,7 @@ String _generateKotlinRecords(BridgeSpec spec) {
     s.writeln('        val _tlsOut = ThreadLocal.withInitial { java.io.ByteArrayOutputStream(${_recordBytesHint(rt)}) }');
     s.writeln('        val _tlsBuf = ThreadLocal.withInitial { java.nio.ByteBuffer.allocate(8).order(java.nio.ByteOrder.LITTLE_ENDIAN) }');
     s.writeln('    }');
-    // ── Built-in NitroNullable types: add nullable getter + single-arg constructor ──
-    // These are used by the bridge to wrap/unwrap nullable primitives without sentinels.
+    // ── Built-in NitroNullable types: nullable getter + single-arg constructor ──
     if (rt.name == 'NitroNullableInt') {
       s.writeln('    constructor(v: Long?) : this(v != null, v ?: 0L)');
       s.writeln('    val nullable: Long? get() = if (hasValue) value else null');
@@ -85,6 +87,18 @@ String _generateKotlinRecords(BridgeSpec spec) {
       s.writeln('    constructor(v: Double?) : this(v != null, v ?: 0.0)');
       s.writeln('    val nullable: Double? get() = if (hasValue) value else null');
     } else if (rt.name == 'NitroNullableBool') {
+      s.writeln('    constructor(v: Boolean?) : this(v != null, v ?: false)');
+      s.writeln('    val nullable: Boolean? get() = if (hasValue) value else null');
+    }
+    // ── NitroOpt* packed types: nullable getter + single-arg constructor ──
+    // These use [1B hasValue][N bytes value] with NO 4-byte length prefix.
+    if (rt.name == 'NitroOptInt64') {
+      s.writeln('    constructor(v: Long?) : this(v != null, v ?: 0L)');
+      s.writeln('    val nullable: Long? get() = if (hasValue) value else null');
+    } else if (rt.name == 'NitroOptFloat64') {
+      s.writeln('    constructor(v: Double?) : this(v != null, v ?: 0.0)');
+      s.writeln('    val nullable: Double? get() = if (hasValue) value else null');
+    } else if (rt.name == 'NitroOptBool') {
       s.writeln('    constructor(v: Boolean?) : this(v != null, v ?: false)');
       s.writeln('    val nullable: Boolean? get() = if (hasValue) value else null');
     }
@@ -103,6 +117,17 @@ String _generateKotlinRecords(BridgeSpec spec) {
     s.writeln('    }');
     s.writeln();
 
+    // NitroOpt* encode: NO 4-byte length prefix — fixed-size [1B hasValue][N bytes value].
+    final isNitroOptEncode = rt.name == 'NitroOptInt64' || rt.name == 'NitroOptFloat64' || rt.name == 'NitroOptBool';
+    if (isNitroOptEncode) {
+      // Override decode(bytes) to NOT skip 4 bytes — bytes are the raw struct.
+      s.writeln('    fun encode(): ByteArray {');
+      s.writeln('        val out = _tlsOut.get()!!.also { it.reset() }');
+      s.writeln('        val buf = _tlsBuf.get()!!');
+      s.writeln('        writeFieldsTo(out, buf)');
+      s.writeln('        return out.toByteArray()  // NO 4-byte length prefix');
+      s.writeln('    }');
+    } else {
     // --- encode to ByteArray (with 4-byte length prefix) ---
     // Thread-local buffers avoid per-call ByteArrayOutputStream/ByteBuffer allocation (#8 perf).
     s.writeln('    fun encode(): ByteArray {');
@@ -114,6 +139,7 @@ String _generateKotlinRecords(BridgeSpec spec) {
     s.writeln('        lenBuf.putInt(payload.size)');
     s.writeln('        return lenBuf.array() + payload');
     s.writeln('    }');
+    }
     s.writeln();
 
     // --- toJson() / fromJson() for Map<String, @HybridRecord> support (#2) ---

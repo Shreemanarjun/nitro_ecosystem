@@ -19,6 +19,10 @@ void _emitJniSwiftPrologue(
   writer.line('// ── Cached JNI IDs (initialized once in JNI_OnLoad, safe to use from any thread) ──');
   writer.line('static jmethodID g_exc_getName = nullptr;');
   writer.line('static jmethodID g_exc_getMessage = nullptr;');
+  // Instance lifecycle: create_instance_call(String key): Long  → "(Ljava/lang/String;)J"
+  //                     destroy_instance_call(Long instanceId)   → "(J)V"
+  writer.line('static jmethodID g_mid_create_instance_call = nullptr;');
+  writer.line('static jmethodID g_mid_destroy_instance_call = nullptr;');
   for (final func in spec.functions) {
     writer.line('static jmethodID g_mid_${func.dartName}_call = nullptr;');
   }

@@ -174,6 +174,22 @@ Future<void> _runTui() async {
               );
             },
           ),
+          // CLEAN
+          route<CommandRoute>(
+            path: '/clean',
+            parse: (_) => const CommandRoute(NitroCommand.clean),
+            builder: (context, _) {
+              final info = getProjectInfo();
+              return ProcessView(
+                title: 'Nitrogen Clean',
+                executable: '/bin/sh',
+                workingDirectory: info?.directory.path,
+                killOnDispose: false,
+                args: const ['-c', 'nitrogen clean --no-ui'],
+              );
+            },
+          ),
+
           // WATCH (Streaming View)
           // Same kill-first pattern. killOnDispose ensures the watcher process
           // is terminated when the user presses ESC / Back. watchMode suppresses

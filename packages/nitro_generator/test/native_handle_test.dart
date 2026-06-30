@@ -116,7 +116,7 @@ void main() {
   group('CppHeaderGenerator — NativeHandle', () {
     test('borrow: method declaration uses void* return, no _release symbol', () {
       final out = CppHeaderGenerator.generate(_borrowSpec());
-      expect(out, contains('void* camera_peek_frame(NitroError* _nitro_err);'));
+      expect(out, contains('void* camera_peek_frame(int64_t instanceId, NitroError* _nitro_err);'));
       expect(out, isNot(contains('camera_peek_frame_release')));
     });
 
@@ -145,7 +145,7 @@ void main() {
         ],
       );
       final out = CppHeaderGenerator.generate(paramSpec);
-      expect(out, contains('void camera_process_frame(void* handle, NitroError* _nitro_err);'));
+      expect(out, contains('void camera_process_frame(int64_t instanceId, void* handle, NitroError* _nitro_err);'));
     });
   });
 
@@ -178,6 +178,33 @@ void main() {
     });
   });
 
+  // ── C++ bridge — @NitroOwned _release (Point 8) ────────────────────────────
+  group('CppBridgeGenerator — @NitroOwned _release calls free() on all platforms (Point 8)', () {
+    test('_release function calls free(handle) — not a no-op on Android', () {
+      final out = CppBridgeGenerator.generate(_ownedSpec());
+      expect(out, contains('if (handle) { free(handle); }'),
+          reason: '_release must free() the handle on all platforms');
+    });
+
+    test('_release function does NOT have the Android no-op (void)handle', () {
+      final out = CppBridgeGenerator.generate(_ownedSpec());
+      expect(out, isNot(contains('(void)handle')),
+          reason: 'Android no-op was removed; ART Unsafe.allocateMemory returns real malloc pointers');
+    });
+
+    test('_release function body has no platform ifdefs (uniform free on all platforms)', () {
+      final out = CppBridgeGenerator.generate(_ownedSpec());
+      // The _release block must not contain a platform-conditional no-op.
+      // Extract just the _release function body to avoid false matches from
+      // the JNI methods section which legitimately uses #ifdef __ANDROID__.
+      final releaseStart = out.indexOf('camera_acquire_frame_release');
+      final releaseEnd = out.indexOf('\n}', releaseStart) + 2;
+      final releaseBlock = out.substring(releaseStart, releaseEnd);
+      expect(releaseBlock, isNot(contains('(void)handle')));
+      expect(releaseBlock, contains('free(handle)'));
+    });
+  });
+
   // ── C++ bridge (direct path) ─────────────────────────────────────────────────
   group('CppBridgeGenerator — NativeHandle', () {
     test('borrow: bridge returns void* directly, no finalizer', () {
@@ -198,19 +225,19 @@ void main() {
         ],
       );
       final out = CppBridgeGenerator.generate(cppSpec);
-      expect(out, contains('void* camera_peek_frame(NitroError* _nitro_err)'));
+      expect(out, contains('void* camera_peek_frame(int64_t instanceId, NitroError* _nitro_err)'));
       expect(out, contains('return g_impl->peekFrame('));
     });
 
     test('NativeHandle param: void* pass-through to C++ impl', () {
       final out = CppBridgeGenerator.generate(_paramSpec());
-      expect(out, contains('void camera_process_frame(void* handle, NitroError* _nitro_err)'));
+      expect(out, contains('void camera_process_frame(int64_t instanceId, void* handle, NitroError* _nitro_err)'));
       expect(out, contains('g_impl->processFrame(handle)'));
     });
 
     test('Android JNI signature maps NativeHandle return to long', () {
       final out = CppBridgeGenerator.generate(_borrowSpec());
-      expect(out, contains('()J'));
+      expect(out, contains('(J)J')); // (J) = instanceId param, J = jlong return
       expect(out, contains('jlong'));
     });
   });

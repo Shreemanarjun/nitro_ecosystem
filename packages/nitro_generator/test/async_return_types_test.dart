@@ -122,9 +122,9 @@ void main() {
       expect(out, contains('return result'));
     });
 
-    test('Future<String> stub malloc-copies result via strdup', () {
+    test('Future<String> stub copies result via _nitroStringToCString (byte-exact, no BOM strip)', () {
       final out = SwiftGenerator.generate(_asyncSpec('String'));
-      expect(out, contains('strdup(result)'));
+      expect(out, contains('_nitroStringToCString(result)'));
     });
 
     test('Future<@HybridStruct> stub allocates C shadow pointer', () {
