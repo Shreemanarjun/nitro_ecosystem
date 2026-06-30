@@ -63,6 +63,12 @@ class GenerateCommand extends Command {
         abbr: 'v',
         negatable: false,
         help: 'Show per-phase timing breakdown.',
+      )
+      ..addOption(
+        'directory',
+        abbr: 'C',
+        help: 'Project root directory (default: current directory).',
+        hide: true,
       );
   }
 
@@ -111,7 +117,8 @@ class GenerateCommand extends Command {
     final targets = _parseTargets(argResults!['targets'] as String?);
     if (targets == null) return 1;
 
-    final projectDir = findNitroProjectRoot();
+    final startDir = argResults!['directory'] as String?;
+    final projectDir = findNitroProjectRoot(startDir: startDir);
     if (projectDir == null) {
       _logError('No Nitro project found in . or its subdirectories (must have nitro dependency in pubspec.yaml).');
       return 1;

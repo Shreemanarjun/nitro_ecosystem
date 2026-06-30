@@ -338,23 +338,16 @@ void main() {
 
   group('migration filesystem outcomes — nested layout', () {
     late Directory tmp;
-    late String savedCwd;
 
     setUp(() {
-      savedCwd = Directory.current.path;
       tmp = _scaffoldLegacy(withIos: true);
     });
 
     tearDown(() {
-      try {
-        Directory.current = savedCwd;
-      } catch (_) {}
       if (tmp.existsSync()) tmp.deleteSync(recursive: true);
     });
 
     test('creates ios/<pluginName>/Package.swift in nested layout', () async {
-      Directory.current = tmp;
-
       final spmStatus = detectSpmStatus(tmp.path);
       final result = MigrationResult();
 
@@ -367,16 +360,16 @@ void main() {
               pluginName: 'my_plugin',
               result: result,
               spmStatus: spmStatus,
-              createBackup: false, // skip backup for speed
+              baseDir: tmp.path,
+              createBackup: false,
               onExit: () {},
             ),
           ),
         );
 
         await tester.pump();
-        await tester.pump(); // state: confirmation shown
+        await tester.pump();
 
-        // Confirm migration
         await tester.sendKey(LogicalKey.keyY);
         await _pumpUntil(
           tester,
@@ -400,8 +393,6 @@ void main() {
     });
 
     test('creates Sources directory structure inside nested package dir', () async {
-      Directory.current = tmp;
-
       final spmStatus = detectSpmStatus(tmp.path);
 
       await testNocterm('migration sources', (tester) async {
@@ -413,6 +404,7 @@ void main() {
               pluginName: 'my_plugin',
               result: MigrationResult(),
               spmStatus: spmStatus,
+              baseDir: tmp.path,
               createBackup: false,
               onExit: () {},
             ),
@@ -439,8 +431,6 @@ void main() {
     });
 
     test('result.migratedPlatforms contains "ios" after migration', () async {
-      Directory.current = tmp;
-
       final spmStatus = detectSpmStatus(tmp.path);
       final result = MigrationResult();
 
@@ -453,6 +443,7 @@ void main() {
               pluginName: 'my_plugin',
               result: result,
               spmStatus: spmStatus,
+              baseDir: tmp.path,
               createBackup: false,
               onExit: () {},
             ),

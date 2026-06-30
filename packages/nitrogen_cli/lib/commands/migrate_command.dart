@@ -106,6 +106,7 @@ class MigrateView extends StatefulComponent {
     required this.pluginName,
     required this.result,
     required this.spmStatus,
+    this.baseDir,
     this.createBackup = true,
     this.onExit,
     super.key,
@@ -114,6 +115,8 @@ class MigrateView extends StatefulComponent {
   final String pluginName;
   final MigrationResult result;
   final SpmStatus spmStatus;
+  /// Override the working directory for migration. Defaults to [Directory.current.path].
+  final String? baseDir;
   final bool createBackup;
   final VoidCallback? onExit;
 
@@ -237,7 +240,7 @@ class _MigrateViewState extends State<MigrateView> {
   Future<void> _runMigration() async {
     setState(() => _needsConfirmation = false);
 
-    final baseDir = Directory.current.path;
+    final baseDir = component.baseDir ?? Directory.current.path;
     final pluginName = component.pluginName;
     final className = toPascalCase(pluginName);
     final status = component.spmStatus;
