@@ -279,6 +279,39 @@ void syncBridgeFiles(String workingDirectory, {String platform = 'ios'}) {
 
 String toPascalCase(String s) => s.split(RegExp(r'[_\-]')).map((w) => w.isEmpty ? '' : w[0].toUpperCase() + w.substring(1)).join('');
 
+/// Strips the shared public-type preamble from a Swift bridge file.
+///
+/// When multiple specs compile into the same Swift module each generated
+/// `.bridge.g.swift` file starts with shared declarations (`NitroEncodable`,
+/// `NitroNullableInt`, `NitroRecordWriter`, …).  Keeping those in 2nd+ files
+/// causes an `invalid redeclaration` Swift compiler error.  This function
+/// removes everything from the `public protocol NitroEncodable` line up to
+/// (but not including) the `/**` doc-comment that begins the spec-specific
+/// protocol, leaving only the file-private string helpers and the
+/// spec-specific protocol/registry/stubs.
+String stripSharedSwiftPreamble(String content) {
+  final lines = content.split('\n');
+  final result = <String>[];
+  var inSharedBlock = false;
+
+  for (final line in lines) {
+    if (!inSharedBlock && line.startsWith('public protocol NitroEncodable')) {
+      inSharedBlock = true;
+      continue;
+    }
+    if (inSharedBlock) {
+      if (line.startsWith('/**')) {
+        inSharedBlock = false;
+        result.add(line);
+      }
+      continue;
+    }
+    result.add(line);
+  }
+
+  return result.join('\n');
+}
+
 /// Returns a map of {lib → moduleName} for modules where Apple platforms
 /// (ios or macos) use a direct C++ implementation (AppleNativeImpl.cpp).
 /// These need their HybridXxx.cpp impl file copied to ios/Classes/ or macos/Classes/

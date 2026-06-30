@@ -11,7 +11,7 @@
 // macos/Classes/, and SPM Sources/<ClassName>/ directories.
 import 'dart:io';
 
-import 'package:nitrogen_cli/commands/generate_command.dart' show stripSharedSwiftPreamble;
+import 'package:nitrogen_cli/utils.dart' show stripSharedSwiftPreamble;
 import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
 

@@ -1198,9 +1198,19 @@ void _copySwiftBridgesToClasses(
     p.join(baseDir, 'lib', 'src', 'generated', 'swift'),
   );
   if (!swiftGenDir.existsSync()) return;
-  for (final file in swiftGenDir.listSync().whereType<File>()) {
-    if (p.basename(file.path).endsWith('.bridge.g.swift')) {
-      file.copySync(p.join(classesDir.path, p.basename(file.path)));
+  final bridgeFiles = swiftGenDir
+      .listSync()
+      .whereType<File>()
+      .where((f) => p.basename(f.path).endsWith('.bridge.g.swift'))
+      .toList()
+    ..sort((a, b) => p.basename(a.path).compareTo(p.basename(b.path)));
+  for (var i = 0; i < bridgeFiles.length; i++) {
+    final file = bridgeFiles[i];
+    final dest = p.join(classesDir.path, p.basename(file.path));
+    if (i == 0 || bridgeFiles.length == 1) {
+      file.copySync(dest);
+    } else {
+      File(dest).writeAsStringSync(stripSharedSwiftPreamble(file.readAsStringSync()));
     }
   }
 }
@@ -1215,7 +1225,12 @@ void _copySwiftBridgesToClasses(
 void _syncSwiftBridgesToSpmSources(String baseDir) {
   final swiftGenDir = Directory(p.join(baseDir, 'lib', 'src', 'generated', 'swift'));
   if (!swiftGenDir.existsSync()) return;
-  final generatedBridges = swiftGenDir.listSync().whereType<File>().where((f) => p.basename(f.path).endsWith('.bridge.g.swift')).toList();
+  final generatedBridges = swiftGenDir
+      .listSync()
+      .whereType<File>()
+      .where((f) => p.basename(f.path).endsWith('.bridge.g.swift'))
+      .toList()
+    ..sort((a, b) => p.basename(a.path).compareTo(p.basename(b.path)));
   if (generatedBridges.isEmpty) return;
 
   final spmStatus = spm.detectSpmStatus(baseDir);
@@ -1233,9 +1248,14 @@ void _syncSwiftBridgesToSpmSources(String baseDir) {
     for (final entry in sourcesDir.listSync().whereType<Directory>()) {
       // Only copy into Swift targets (skip C/C++ targets whose names end in Cpp)
       if (entry.path.endsWith('Cpp')) continue;
-      for (final bridge in generatedBridges) {
+      for (var i = 0; i < generatedBridges.length; i++) {
+        final bridge = generatedBridges[i];
         final dest = p.join(entry.path, p.basename(bridge.path));
-        bridge.copySync(dest);
+        if (i == 0 || generatedBridges.length == 1) {
+          bridge.copySync(dest);
+        } else {
+          File(dest).writeAsStringSync(stripSharedSwiftPreamble(bridge.readAsStringSync()));
+        }
       }
     }
   }
@@ -2038,11 +2058,19 @@ void _syncCppModuleSourcesToSpm(
     //     Written unconditionally (same as the main bridge above) so the forwarder
     //     exists even when `nitrogen link` runs before `nitrogen generate`.
     if (moduleInfos != null) {
-      final allCppLibs = allCppModules.map((m) => m.lib).toSet();
+      // Only skip modules that use a C++ native implementation on THIS Apple
+      // platform (ios/macos). Modules that are C++ on Windows/Linux but Swift
+      // on ios/macos still need the .bridge.g.mm forwarder so SPM links the
+      // $lib_init_dart_api_dl symbol into the binary.
+      final appleCppLibs = (platform == 'ios'
+              ? moduleInfos.where((m) => m.iosIsCpp)
+              : moduleInfos.where((m) => m.macosIsCpp))
+          .map((m) => m.lib)
+          .toSet();
       for (final m in moduleInfos) {
         final lib = m.lib;
         if (lib == pluginName) continue; // main bridge already written above
-        if (allCppLibs.contains(lib)) continue; // C++ modules are handled in the loop below
+        if (appleCppLibs.contains(lib)) continue; // Apple C++ modules handle their own bridge
         final bridgeCppPath = p.join(
           baseDir,
           'lib',
@@ -2131,11 +2159,13 @@ void _syncCppModuleSourcesToSpm(
           hSrc.copySync(p.join(includeDir.path, bridgeHeader));
         }
       } else {
-        // ── Remove stale forwarders for non-Apple C++ modules ─────────────────
-        // e.g. benchmark is windows: WindowsNativeImpl.cpp only — no iOS impl.
-        // IMPORTANT: never delete $pluginName.bridge.g.mm — that is the main
-        // plugin bridge written unconditionally above, not a per-module forwarder.
-        if (lib != pluginName && bridgeMm.existsSync()) bridgeMm.deleteSync();
+        // ── Remove stale impl forwarder for non-Apple-C++ modules ─────────────
+        // e.g. a module with `windows: WindowsNativeImpl.cpp, ios: NativeImpl.swift`
+        // should NOT get a HybridXxx.cpp forwarder on Apple — only the bridge mm.
+        // NEVER delete the bridge.g.mm: every module's bridge.g.cpp defines
+        // ${lib}_init_dart_api_dl, which must be compiled into the SPM binary
+        // even for Swift-backed modules. Deleting it causes a symbol-not-found
+        // crash at runtime on any second/third spec in a multi-spec plugin.
         if (implForwarder.existsSync()) implForwarder.deleteSync();
       }
     }

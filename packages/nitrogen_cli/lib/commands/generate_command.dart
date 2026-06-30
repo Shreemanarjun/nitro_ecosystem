@@ -6,7 +6,7 @@ import 'package:crypto/crypto.dart';
 import 'package:path/path.dart' as p;
 
 import '../ui.dart';
-import '../utils.dart' show killBuildRunner;
+import '../utils.dart' show killBuildRunner, stripSharedSwiftPreamble;
 import 'link_command.dart'
     show
         cleanRedundantIncludes,
@@ -693,29 +693,6 @@ class GenerateCommand extends Command {
 ///
 /// Safe to apply when no shared block is present (e.g. already stripped or a
 /// file that never had it): returns [content] unchanged.
-String stripSharedSwiftPreamble(String content) {
-  final lines = content.split('\n');
-  final result = <String>[];
-  var inSharedBlock = false;
-
-  for (final line in lines) {
-    if (!inSharedBlock && line.startsWith('public protocol NitroEncodable')) {
-      inSharedBlock = true;
-      continue;
-    }
-    if (inSharedBlock) {
-      // Resume at the `/**` doc-comment that precedes the spec-specific protocol.
-      if (line.startsWith('/**')) {
-        inSharedBlock = false;
-        result.add(line);
-      }
-      continue;
-    }
-    result.add(line);
-  }
-
-  return result.join('\n');
-}
 
 class _GeneratedFileIssue {
   const _GeneratedFileIssue(this.kind, this.path);

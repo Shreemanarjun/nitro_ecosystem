@@ -2295,6 +2295,147 @@ end
 
       expect(forwarder.existsSync(), isTrue, reason: 'Apple cpp forwarder must be kept');
     });
+
+    // ── Multi-spec mixed-platform: bridge mm forwarder for Swift-on-Apple ──
+    //
+    // Regression tests for the bug where a module with `ios: NativeImpl.swift`
+    // but `windows: WindowsNativeImpl.cpp` was incorrectly classified as
+    // "non-Apple" by the stale cleanup loop, causing its bridge.g.mm forwarder
+    // to be deleted. This makes `${lib}_init_dart_api_dl` missing from the SPM
+    // binary, causing a symbol-not-found crash at runtime on the 2nd/3rd spec.
+
+    test('bridge.g.mm is created for a Swift-on-iOS module that is C++ on Windows', () {
+      scaffoldSpmFull('nitro_view');
+
+      // Bridge file in generated/cpp for nitro_system (Swift on iOS, C++ on Windows)
+      final genCpp = Directory(p.join(tmp.path, 'lib', 'src', 'generated', 'cpp'))..createSync(recursive: true);
+      File(p.join(genCpp.path, 'nitro_system.bridge.g.cpp')).writeAsStringSync('// bridge');
+      File(p.join(genCpp.path, 'nitro_system.bridge.g.h')).writeAsStringSync('// header');
+
+      // Spec: ios=Swift, windows=C++. isCpp=true but iosIsCpp=false.
+      final specDir = Directory(p.join(tmp.path, 'lib', 'src'))..createSync(recursive: true);
+      File(p.join(specDir.path, 'nitro_system.native.dart')).writeAsStringSync(
+        "@NitroModule(lib: 'nitro_system', ios: NativeImpl.swift, windows: WindowsNativeImpl.cpp)\n"
+        'abstract class NitroSystem extends HybridObject {}\n',
+      );
+
+      linkPodspec(
+        'nitro_view',
+        ['nitro_view', 'nitro_system'],
+        baseDir: tmp.path,
+        moduleInfos: [const ModuleInfo(lib: 'nitro_system', module: 'NitroSystem', isCpp: true, iosIsCpp: false)],
+      );
+
+      final cppDir = p.join(tmp.path, 'ios', 'Sources', 'NitroViewCpp');
+      expect(
+        File(p.join(cppDir, 'nitro_system.bridge.g.mm')).existsSync(),
+        isTrue,
+        reason: 'nitro_system is Swift on iOS — its bridge.g.mm must be compiled into the SPM binary to define nitro_system_init_dart_api_dl',
+      );
+    });
+
+    test('bridge.g.mm is NOT deleted by stale cleanup for Swift-on-iOS module', () {
+      scaffoldSpmFull('nitro_view');
+
+      // Pre-plant the bridge mm (as if a previous link run created it).
+      final cppDir = Directory(p.join(tmp.path, 'ios', 'Sources', 'NitroViewCpp'));
+      final bridgeMm = File(p.join(cppDir.path, 'nitro_ui.bridge.g.mm'))..writeAsStringSync('// pre-existing mm');
+
+      final genCpp = Directory(p.join(tmp.path, 'lib', 'src', 'generated', 'cpp'))..createSync(recursive: true);
+      File(p.join(genCpp.path, 'nitro_ui.bridge.g.cpp')).writeAsStringSync('// bridge');
+      File(p.join(genCpp.path, 'nitro_ui.bridge.g.h')).writeAsStringSync('// header');
+
+      final specDir = Directory(p.join(tmp.path, 'lib', 'src'))..createSync(recursive: true);
+      File(p.join(specDir.path, 'nitro_ui.native.dart')).writeAsStringSync(
+        "@NitroModule(lib: 'nitro_ui', ios: NativeImpl.swift, linux: LinuxNativeImpl.cpp)\n"
+        'abstract class NitroUI extends HybridObject {}\n',
+      );
+
+      linkPodspec(
+        'nitro_view',
+        ['nitro_view', 'nitro_ui'],
+        baseDir: tmp.path,
+        moduleInfos: [const ModuleInfo(lib: 'nitro_ui', module: 'NitroUI', isCpp: true, iosIsCpp: false)],
+      );
+
+      expect(
+        bridgeMm.existsSync(),
+        isTrue,
+        reason: 'bridge.g.mm must NOT be deleted: it provides nitro_ui_init_dart_api_dl for the SPM binary',
+      );
+    });
+
+    test('Hybrid*.cpp impl forwarder IS removed for Swift-on-iOS module (no Apple C++ impl)', () {
+      scaffoldSpmFull('nitro_view');
+
+      // A stale HybridNitroSystem.cpp that somehow ended up in the Cpp target.
+      final cppDir = Directory(p.join(tmp.path, 'ios', 'Sources', 'NitroViewCpp'));
+      final staleImpl = File(p.join(cppDir.path, 'HybridNitroSystem.cpp'))..writeAsStringSync('// stale impl');
+
+      final genCpp = Directory(p.join(tmp.path, 'lib', 'src', 'generated', 'cpp'))..createSync(recursive: true);
+      File(p.join(genCpp.path, 'nitro_system.bridge.g.cpp')).writeAsStringSync('// bridge');
+      File(p.join(genCpp.path, 'nitro_system.bridge.g.h')).writeAsStringSync('// header');
+
+      final specDir = Directory(p.join(tmp.path, 'lib', 'src'))..createSync(recursive: true);
+      File(p.join(specDir.path, 'nitro_system.native.dart')).writeAsStringSync(
+        "@NitroModule(lib: 'nitro_system', ios: NativeImpl.swift, windows: WindowsNativeImpl.cpp)\n"
+        'abstract class NitroSystem extends HybridObject {}\n',
+      );
+
+      linkPodspec(
+        'nitro_view',
+        ['nitro_view', 'nitro_system'],
+        baseDir: tmp.path,
+        moduleInfos: [const ModuleInfo(lib: 'nitro_system', module: 'NitroSystem', isCpp: true, iosIsCpp: false)],
+      );
+
+      expect(
+        staleImpl.existsSync(),
+        isFalse,
+        reason: 'HybridNitroSystem.cpp must be removed: nitro_system uses Swift on iOS, not C++',
+      );
+    });
+
+    test('three-spec plugin: all three bridge.g.mm forwarders created (nitro_system+nitro_ui+nitro_view)', () {
+      // This is the full nitro_view scenario: 3 specs, all Swift on iOS,
+      // nitro_system and nitro_ui are also C++ on Windows/Linux.
+      scaffoldSpmFull('nitro_view');
+
+      final genCpp = Directory(p.join(tmp.path, 'lib', 'src', 'generated', 'cpp'))..createSync(recursive: true);
+      for (final lib in ['nitro_system', 'nitro_ui', 'nitro_view']) {
+        File(p.join(genCpp.path, '$lib.bridge.g.cpp')).writeAsStringSync('// bridge');
+      }
+
+      final specDir = Directory(p.join(tmp.path, 'lib', 'src'))..createSync(recursive: true);
+      File(p.join(specDir.path, 'nitro_system.native.dart')).writeAsStringSync(
+        "@NitroModule(lib: 'nitro_system', ios: NativeImpl.swift, windows: WindowsNativeImpl.cpp)\n"
+        'abstract class NitroSystem extends HybridObject {}\n',
+      );
+      File(p.join(specDir.path, 'nitro_ui.native.dart')).writeAsStringSync(
+        "@NitroModule(lib: 'nitro_ui', ios: NativeImpl.swift, linux: LinuxNativeImpl.cpp)\n"
+        'abstract class NitroUI extends HybridObject {}\n',
+      );
+
+      linkPodspec(
+        'nitro_view',
+        ['nitro_view', 'nitro_system', 'nitro_ui'],
+        baseDir: tmp.path,
+        moduleInfos: [
+          const ModuleInfo(lib: 'nitro_system', module: 'NitroSystem', isCpp: true, iosIsCpp: false),
+          const ModuleInfo(lib: 'nitro_ui', module: 'NitroUI', isCpp: true, iosIsCpp: false),
+        ],
+      );
+
+      final cppDir = p.join(tmp.path, 'ios', 'Sources', 'NitroViewCpp');
+      // nitro_view.bridge.g.mm is written unconditionally by the main plugin bridge.
+      for (final lib in ['nitro_view', 'nitro_system', 'nitro_ui']) {
+        expect(
+          File(p.join(cppDir, '$lib.bridge.g.mm')).existsSync(),
+          isTrue,
+          reason: '$lib.bridge.g.mm must exist so ${lib}_init_dart_api_dl is defined in the SPM binary',
+        );
+      }
+    });
   });
 
   // ── _syncSwiftPluginToSpm — Swift plugin sync to SPM target ────────────

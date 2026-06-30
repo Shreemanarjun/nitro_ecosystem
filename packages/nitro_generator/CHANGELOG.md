@@ -1,3 +1,7 @@
+## 0.5.3
+
+- **Ecosystem sync** — Aligned with `nitrogen_cli` 0.5.3.
+
 ## 0.5.2
 
 - **Ecosystem sync** — Aligned with `nitrogen_cli` 0.5.2.
