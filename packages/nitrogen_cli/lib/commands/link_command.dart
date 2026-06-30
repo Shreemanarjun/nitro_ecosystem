@@ -2028,6 +2028,36 @@ void _syncCppModuleSourcesToSpm(
       );
     }
 
+    // 2a. Additional Swift-backed module bridges.
+    //     Every spec generates a ${lib}.bridge.g.cpp that defines C symbols like
+    //     ${lib}_init_dart_api_dl. SPM only compiles files in Sources/<ClassName>Cpp/,
+    //     so each module needs a .mm wrapper that #includes the generated .cpp so that
+    //     SPM links those symbols into the binary.
+    //     Without this, a multi-spec Swift plugin crashes at runtime:
+    //       "Failed to lookup symbol 'nitro_ui_init_dart_api_dl': symbol not found"
+    //     Written unconditionally (same as the main bridge above) so the forwarder
+    //     exists even when `nitrogen link` runs before `nitrogen generate`.
+    if (moduleInfos != null) {
+      final allCppLibs = allCppModules.map((m) => m.lib).toSet();
+      for (final m in moduleInfos) {
+        final lib = m.lib;
+        if (lib == pluginName) continue; // main bridge already written above
+        if (allCppLibs.contains(lib)) continue; // C++ modules are handled in the loop below
+        final bridgeCppPath = p.join(
+          baseDir,
+          'lib',
+          'src',
+          'generated',
+          'cpp',
+          '$lib.bridge.g.cpp',
+        );
+        final relBridge = p.relative(bridgeCppPath, from: cppTargetDir.path).replaceAll(r'\', '/');
+        File(p.join(cppTargetDir.path, '$lib.bridge.g.mm')).writeAsStringSync(
+          managedBridgeMmForwarder(relBridge),
+        );
+      }
+    }
+
     // Skip module-specific C++ bridge linking when no C++ modules exist.
     if (allCppModules.isEmpty) continue;
 

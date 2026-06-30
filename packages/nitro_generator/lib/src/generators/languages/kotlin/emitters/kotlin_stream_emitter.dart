@@ -21,14 +21,14 @@ class KotlinStreamEmitter {
       // For nullable primitive types, Kotlin boxed types (Long?, Double?, Boolean?) map to
       // JNI jobject — the C bridge checks for nullptr to post kNull to the Dart port.
       // Variant items are encoded as ByteArray (same wire format as records).
-      final isNullable = stream.itemType.isNullable;
+      final isNullable = stream.itemType.isNullable || stream.itemType.name.endsWith('?');
       final base = stream.itemType.name.replaceFirst('?', '');
       final String itemKt;
       if (isNullable && stream.itemType.isAnyNativeObject) {
         // Nullable AnyNativeObject: boxed Long? so null can be passed to JNI.
         itemKt = 'Long?';
-      } else if (stream.itemType.isNullableNitroPrim) {
-        // DateTime? and uint64? use the same Long? wire as int?.
+      } else if (isNullable && BridgeType.nitroPrimBases.contains(base)) {
+        // Nullable prim (int?, double?, bool?, DateTime?, uint64?): boxed Kotlin type.
         itemKt = '${mapper.type(base)}?';
       } else if (isNullable && mapper.enumNames.contains(base)) {
         // Nullable enum → boxed jobject so null can be passed to JNI.

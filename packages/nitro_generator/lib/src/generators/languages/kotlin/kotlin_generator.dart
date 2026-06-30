@@ -123,7 +123,8 @@ class KotlinGenerator {
 
     for (final stream in spec.streams) {
       final itemType = mapper.type(stream.itemType.name, bridgeType: stream.itemType);
-      final nullable = stream.itemType.isNullable ? '?' : '';
+      final isNullable = stream.itemType.isNullable || stream.itemType.name.endsWith('?');
+      final nullable = isNullable ? '?' : '';
       writer.line('    val ${stream.dartName}: Flow<$itemType$nullable>');
     }
 

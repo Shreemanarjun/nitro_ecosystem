@@ -211,6 +211,81 @@ void main() {
     });
   });
 
+  // ── Kotlin: nullable prim streams ────────────────────────────────────────
+
+  group('KotlinGenerator — Stream<int?> (optCounterStream) emit', () {
+    late String kotlinCode;
+    setUp(() {
+      kotlinCode = KotlinGenerator.generate(BridgeSpec(
+        dartClassName: 'Mod',
+        lib: 'mod',
+        namespace: 'mod',
+        iosImpl: NativeImpl.swift,
+        androidImpl: NativeImpl.kotlin,
+        sourceUri: 'mod.native.dart',
+        enums: [],
+        structs: [],
+        streams: [
+          BridgeStream(
+            dartName: 'optCounterStream',
+            itemType: BridgeType(name: 'int?'),
+            registerSymbol: 'mod_register_optCounterStream',
+            releaseSymbol: 'mod_release_optCounterStream',
+            backpressure: Backpressure.dropLatest,
+          ),
+        ],
+      ));
+    });
+
+    test('optCounterStream: Kotlin emit declares item: Long?', () {
+      final idx = kotlinCode.indexOf('emit_optCounterStream');
+      expect(idx, isNot(-1));
+      final end = (idx + 200).clamp(0, kotlinCode.length);
+      final section = kotlinCode.substring(idx, end);
+      expect(section, contains('item: Long?'));
+    });
+
+    test('emits Flow<Long?> in interface', () {
+      expect(kotlinCode, contains('Flow<Long?>'));
+    });
+  });
+
+  group('KotlinGenerator — Stream<double?> emit', () {
+    test('declares item: Double?', () {
+      final out = KotlinGenerator.generate(_streamSpec(itemType: 'double?'));
+      expect(out, contains('item: Double?'));
+    });
+
+    test('emits Flow<Double?> in interface', () {
+      final out = KotlinGenerator.generate(_streamSpec(itemType: 'double?'));
+      expect(out, contains('Flow<Double?>'));
+    });
+  });
+
+  group('KotlinGenerator — Stream<bool?> emit', () {
+    test('declares item: Boolean?', () {
+      final out = KotlinGenerator.generate(_streamSpec(itemType: 'bool?'));
+      expect(out, contains('item: Boolean?'));
+    });
+
+    test('emits Flow<Boolean?> in interface', () {
+      final out = KotlinGenerator.generate(_streamSpec(itemType: 'bool?'));
+      expect(out, contains('Flow<Boolean?>'));
+    });
+  });
+
+  group('KotlinGenerator — Stream<String?> emit', () {
+    test('declares item: String?', () {
+      final out = KotlinGenerator.generate(_streamSpec(itemType: 'String?'));
+      expect(out, contains('item: String?'));
+    });
+
+    test('emits Flow<String?> in interface', () {
+      final out = KotlinGenerator.generate(_streamSpec(itemType: 'String?'));
+      expect(out, contains('Flow<String?>'));
+    });
+  });
+
   // ── Kotlin: register/release stubs emitted ───────────────────────────────
 
   group('KotlinGenerator — Stream register and release _call stubs', () {

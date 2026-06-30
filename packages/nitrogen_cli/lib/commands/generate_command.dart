@@ -548,6 +548,12 @@ class GenerateCommand extends Command {
   /// in the same module scope as the other Swift plugin files, resolving
   /// "Cannot find X in scope" errors.
   ///
+  /// When multiple bridge files exist (multi-spec plugin), the shared type
+  /// preamble (NitroEncodable, NitroNullableInt, NitroRecordWriter, etc.) is
+  /// stripped from all but the first bridge file to prevent Swift
+  /// "invalid redeclaration" errors when all files are compiled into the same
+  /// Swift module.
+  ///
   /// Also ensures the podspec `source_files` only uses `'Classes/**/*'` (not
   /// the outer lib glob) to prevent duplicate-symbol errors.
   ///
@@ -559,7 +565,8 @@ class GenerateCommand extends Command {
       return;
     }
 
-    final bridgeFiles = swiftGenDir.listSync().whereType<File>().where((f) => p.basename(f.path).endsWith('.bridge.g.swift')).toList();
+    final bridgeFiles = swiftGenDir.listSync().whereType<File>().where((f) => p.basename(f.path).endsWith('.bridge.g.swift')).toList()
+      ..sort((a, b) => p.basename(a.path).compareTo(p.basename(b.path)));
     if (bridgeFiles.isEmpty) {
       _healCppIncludes(projectRoot);
       return;
@@ -572,9 +579,17 @@ class GenerateCommand extends Command {
         final classesDir = Directory(p.join(projectRoot, '$prefix$platform', 'Classes'));
         if (!classesDir.existsSync()) continue;
 
-        // Copy each bridge file into Classes/.
-        for (final bridge in bridgeFiles) {
-          bridge.copySync(p.join(classesDir.path, p.basename(bridge.path)));
+        // When multiple specs share one module, only the first bridge file gets
+        // the full shared-type preamble. Subsequent files have it stripped so
+        // the Swift compiler doesn't see duplicate public type declarations.
+        for (var i = 0; i < bridgeFiles.length; i++) {
+          final bridge = bridgeFiles[i];
+          final dest = p.join(classesDir.path, p.basename(bridge.path));
+          if (i == 0 || bridgeFiles.length == 1) {
+            bridge.copySync(dest);
+          } else {
+            _copyBridgeSwiftWithoutSharedPreamble(bridge, dest);
+          }
         }
 
         // Ensure the podspec does NOT have the outer ../lib/src/generated/swift glob
@@ -588,11 +603,57 @@ class GenerateCommand extends Command {
               .replaceAll("'../lib/src/generated/swift/**/*.swift'", "'Classes/**/*'");
           if (fixed != spec) podspecFile.writeAsStringSync(fixed);
         }
+
+        // Also sync to SPM Sources/ directory if it exists (Flutter 3.41+ nested layout).
+        _syncBridgesToSpmSources(projectRoot, prefix, platform, bridgeFiles);
       }
     }
 
     _healCppIncludes(projectRoot);
   }
+
+  /// Copies a bridge Swift file to [dest] but omits the shared public type
+  /// declarations that are already defined in the first bridge file.
+  void _copyBridgeSwiftWithoutSharedPreamble(File source, String dest) {
+    File(dest).writeAsStringSync(stripSharedSwiftPreamble(source.readAsStringSync()));
+  }
+
+  /// Syncs bridge Swift files into the SPM Sources directory for a platform,
+  /// applying the same shared-preamble stripping for files beyond the first.
+  void _syncBridgesToSpmSources(
+    String projectRoot,
+    String prefix,
+    String platform,
+    List<File> bridgeFiles,
+  ) {
+    final pluginName = _readPluginName(projectRoot);
+    final className = _toPascalCase(pluginName);
+
+    // Support both flat (ios/Sources/<Class>/) and nested (ios/<name>/Sources/<Class>/).
+    final platformRoot = p.join(projectRoot, '$prefix$platform');
+    final candidates = [
+      p.join(platformRoot, pluginName, 'Sources', className),
+      p.join(platformRoot, 'Sources', className),
+    ];
+
+    for (final dir in candidates) {
+      final sourcesDir = Directory(dir);
+      if (!sourcesDir.existsSync()) continue;
+
+      for (var i = 0; i < bridgeFiles.length; i++) {
+        final bridge = bridgeFiles[i];
+        final dest = p.join(dir, p.basename(bridge.path));
+        if (i == 0 || bridgeFiles.length == 1) {
+          bridge.copySync(dest);
+        } else {
+          _copyBridgeSwiftWithoutSharedPreamble(bridge, dest);
+        }
+      }
+    }
+  }
+
+  static String _toPascalCase(String name) =>
+      name.split(RegExp(r'[_\-]')).map((w) => w.isEmpty ? '' : '${w[0].toUpperCase()}${w.substring(1)}').join('');
 
   /// Heals any redundant `#include` lines in the main `src/` folder.
   void _healCppIncludes(String projectRoot) {
@@ -603,6 +664,48 @@ class GenerateCommand extends Command {
       }
     }
   }
+}
+
+/// Strips the shared public type declarations from a Swift bridge file's content.
+///
+/// When multiple Nitro specs are compiled into the same Swift module, each
+/// generated `*.bridge.g.swift` contains identical declarations for shared
+/// types (`NitroEncodable`, `NitroNullableInt`, `NitroRecordWriter`, etc.).
+/// Having these in more than one file causes "invalid redeclaration" errors.
+///
+/// This function keeps the file-private string helpers (lines before
+/// `public protocol NitroEncodable`) and the spec-specific protocol + bridge
+/// stubs (everything from the first `/**` doc-comment onward), but drops
+/// the shared-type block in between.
+///
+/// The first bridge file in the module should NOT be stripped — it provides
+/// the shared types for the entire module. Only 2nd and subsequent files need
+/// this treatment.
+///
+/// Safe to apply when no shared block is present (e.g. already stripped or a
+/// file that never had it): returns [content] unchanged.
+String stripSharedSwiftPreamble(String content) {
+  final lines = content.split('\n');
+  final result = <String>[];
+  var inSharedBlock = false;
+
+  for (final line in lines) {
+    if (!inSharedBlock && line.startsWith('public protocol NitroEncodable')) {
+      inSharedBlock = true;
+      continue;
+    }
+    if (inSharedBlock) {
+      // Resume at the `/**` doc-comment that precedes the spec-specific protocol.
+      if (line.startsWith('/**')) {
+        inSharedBlock = false;
+        result.add(line);
+      }
+      continue;
+    }
+    result.add(line);
+  }
+
+  return result.join('\n');
 }
 
 class _GeneratedFileIssue {
