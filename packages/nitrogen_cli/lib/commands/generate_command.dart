@@ -272,7 +272,6 @@ class GenerateCommand extends Command {
 
     final nitroNativePath = resolveNitroNativePath(projectDir.path);
     createSharedHeaders(nitroNativePath, baseDir: projectDir.path);
-    _syncSwiftBridgesToClasses(projectDir.path);
 
     // ── nitrogen link (auto) ─────────────────────────────────────────────────
     // Automatically run the patching logic (build.gradle, Plugin.kt, etc.)
@@ -305,6 +304,9 @@ class GenerateCommand extends Command {
         purgeStaleCppSwiftRegistrations(moduleInfos.where((m) => appleCppLibs.contains(m.lib)).toList(), platform: 'macos', baseDir: projectDir.path);
       }
     }
+    // Strip shared preamble from 2nd+ bridge files AFTER linkSwift* copies them
+    // to Classes/. linkSwiftPlugin copies without stripping; this pass corrects that.
+    _syncSwiftBridgesToClasses(projectDir.path);
 
     // Patch Android
     if (Directory(p.join(projectDir.path, 'android')).existsSync()) {

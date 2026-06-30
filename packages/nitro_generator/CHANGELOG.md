@@ -1,3 +1,7 @@
+## 0.5.2
+
+- **Ecosystem sync** — Aligned with `nitrogen_cli` 0.5.2.
+
 ## 0.5.1
 
 - **New: Generator structural invariant tests for multi-spec Swift deduplication** — `swift_bridge_dedup_invariants_test.dart` (15 tests) verifies that generated Swift bridge files always conform to the structural contract relied upon by `nitrogen_cli`'s `stripSharedSwiftPreamble`: `NitroEncodable` is always emitted, it precedes the `/**` doc-comment that marks the spec-specific boundary, the declaration is unindented (so `line.startsWith(...)` matching works), and the preamble is correctly stripped across 2- and 3-spec plugins.

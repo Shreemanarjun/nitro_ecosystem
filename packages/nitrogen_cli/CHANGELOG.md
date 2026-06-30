@@ -1,3 +1,7 @@
+## 0.5.2
+
+- **Fixed: Multi-spec Swift plugin — `invalid redeclaration` persists after `nitrogen generate`** — `_syncSwiftBridgesToClasses` (which strips the shared preamble from 2nd+ bridge files) was called before `linkSwiftPlugin` / `linkMacosSwiftPlugin`. Those link functions copy bridge files into `ios/Classes/` and `macos/Classes/` without stripping, overwriting the correctly-stripped copies. The sync is now called after both link functions so it always gets the last write, guaranteeing `NitroEncodable` and companion types are declared exactly once per module.
+
 ## 0.5.1
 
 - **Fixed: Multi-spec Swift plugin — runtime `symbol not found` crash** — `_syncCppModuleSourcesToSpm` now creates a `${lib}.bridge.g.mm` forwarder in the SPM `<PluginName>Cpp` target for every non-plugin Swift module. Previously only C++ modules got per-module wrappers; the `allCppModules.isEmpty` guard skipped all per-module work for pure-Swift plugins, so 2nd and 3rd specs (e.g. `nitro_ui`, `nitro_system`) were never compiled into the binary. Result: `dlsym('nitro_ui_init_dart_api_dl'): symbol not found` crash on first use. Applies to both iOS and macOS SPM targets.
