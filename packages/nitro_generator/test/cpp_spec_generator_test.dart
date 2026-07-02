@@ -5,7 +5,7 @@ import 'package:test/test.dart';
 
 void main() {
   group('CppSpecGenerator', () {
-    BridgeSpec _makeCounterSpec({
+    BridgeSpec makeCounterSpec({
       List<BridgeFunction> functions = const [],
       List<BridgeProperty> properties = const [],
       List<BridgeEnum> enums = const [],
@@ -25,17 +25,17 @@ void main() {
         );
 
     test('generates a non-empty string', () {
-      final out = CppSpecGenerator.generate(_makeCounterSpec());
+      final out = CppSpecGenerator.generate(makeCounterSpec());
       expect(out, isNotEmpty);
     });
 
     test('contains #pragma once', () {
-      final out = CppSpecGenerator.generate(_makeCounterSpec());
+      final out = CppSpecGenerator.generate(makeCounterSpec());
       expect(out, contains('#pragma once'));
     });
 
     test('contains standard C++ includes', () {
-      final out = CppSpecGenerator.generate(_makeCounterSpec());
+      final out = CppSpecGenerator.generate(makeCounterSpec());
       expect(out, contains('#include <cstdint>'));
       expect(out, contains('#include <functional>'));
       expect(out, contains('#include <memory>'));
@@ -45,25 +45,25 @@ void main() {
     });
 
     test('class name is {ClassName}Spec', () {
-      final out = CppSpecGenerator.generate(_makeCounterSpec());
+      final out = CppSpecGenerator.generate(makeCounterSpec());
       expect(out, contains('class CounterSpec'));
     });
 
     test('has virtual destructor and lifecycle hooks', () {
-      final out = CppSpecGenerator.generate(_makeCounterSpec());
+      final out = CppSpecGenerator.generate(makeCounterSpec());
       expect(out, contains('virtual ~CounterSpec() = default;'));
       expect(out, contains('virtual void onCreate() {}'));
       expect(out, contains('virtual void onDestroy() {}'));
     });
 
     test('emits registry helpers', () {
-      final out = CppSpecGenerator.generate(_makeCounterSpec());
+      final out = CppSpecGenerator.generate(makeCounterSpec());
       expect(out, contains('void register_counter(std::shared_ptr<CounterSpec> impl);'));
       expect(out, contains('std::shared_ptr<CounterSpec> get_counter(int64_t instanceId);'));
     });
 
     test('emits namespace nitro', () {
-      final out = CppSpecGenerator.generate(_makeCounterSpec());
+      final out = CppSpecGenerator.generate(makeCounterSpec());
       expect(out, contains('namespace nitro {'));
       expect(out, contains('} // namespace nitro'));
     });
@@ -71,7 +71,7 @@ void main() {
     // ── Type mapping tests ──────────────────────────────────────────────
 
     test('int32 param maps to int32_t', () {
-      final spec = _makeCounterSpec(
+      final spec = makeCounterSpec(
         functions: [
           BridgeFunction(
             dartName: 'add',
@@ -87,7 +87,7 @@ void main() {
     });
 
     test('float return maps to float', () {
-      final spec = _makeCounterSpec(
+      final spec = makeCounterSpec(
         functions: [
           BridgeFunction(
             dartName: 'ratio',
@@ -103,7 +103,7 @@ void main() {
     });
 
     test('String return maps to std::string', () {
-      final spec = _makeCounterSpec(
+      final spec = makeCounterSpec(
         functions: [
           BridgeFunction(
             dartName: 'label',
@@ -119,7 +119,7 @@ void main() {
     });
 
     test('int? return maps to std::optional<int64_t>', () {
-      final spec = _makeCounterSpec(
+      final spec = makeCounterSpec(
         functions: [
           BridgeFunction(
             dartName: 'maybeCount',
@@ -135,7 +135,7 @@ void main() {
     });
 
     test('bool maps to bool', () {
-      final spec = _makeCounterSpec(
+      final spec = makeCounterSpec(
         functions: [
           BridgeFunction(
             dartName: 'isReady',
@@ -151,7 +151,7 @@ void main() {
     });
 
     test('double maps to double', () {
-      final spec = _makeCounterSpec(
+      final spec = makeCounterSpec(
         functions: [
           BridgeFunction(
             dartName: 'value',
@@ -167,7 +167,7 @@ void main() {
     });
 
     test('Uint8List maps to std::vector<uint8_t>', () {
-      final spec = _makeCounterSpec(
+      final spec = makeCounterSpec(
         functions: [
           BridgeFunction(
             dartName: 'getData',
@@ -183,7 +183,7 @@ void main() {
     });
 
     test('@HybridEnum forward-declares enum class E : int64_t', () {
-      final spec = _makeCounterSpec(
+      final spec = makeCounterSpec(
         enums: [
           BridgeEnum(name: 'Status', startValue: 0, values: ['ok', 'error']),
         ],
@@ -202,7 +202,7 @@ void main() {
     });
 
     test('enum type in method signature uses enum name directly', () {
-      final spec = _makeCounterSpec(
+      final spec = makeCounterSpec(
         enums: [
           BridgeEnum(name: 'Mode', startValue: 0, values: ['fast', 'slow']),
         ],
@@ -221,7 +221,7 @@ void main() {
     });
 
     test('void-returning function is pure virtual = 0', () {
-      final spec = _makeCounterSpec(
+      final spec = makeCounterSpec(
         functions: [
           BridgeFunction(
             dartName: 'reset',
@@ -237,7 +237,7 @@ void main() {
     });
 
     test('property with getter emits get{Name}() = 0', () {
-      final spec = _makeCounterSpec(
+      final spec = makeCounterSpec(
         properties: [
           BridgeProperty(
             dartName: 'count',
@@ -253,7 +253,7 @@ void main() {
     });
 
     test('property with setter emits setName(type value) = 0', () {
-      final spec = _makeCounterSpec(
+      final spec = makeCounterSpec(
         properties: [
           BridgeProperty(
             dartName: 'count',
@@ -270,7 +270,7 @@ void main() {
     });
 
     test('@NitroVariant emits using alias with std::variant', () {
-      final spec = _makeCounterSpec(
+      final spec = makeCounterSpec(
         variants: [
           BridgeVariant(
             name: 'CounterEvent',
@@ -300,7 +300,7 @@ void main() {
     });
 
     test('null variant case generates std::monostate in alias', () {
-      final spec = _makeCounterSpec(
+      final spec = makeCounterSpec(
         variants: [
           BridgeVariant(
             name: 'NullableEvent',
@@ -337,7 +337,7 @@ void main() {
     });
 
     test('DateTime maps to int64_t', () {
-      final spec = _makeCounterSpec(
+      final spec = makeCounterSpec(
         functions: [
           BridgeFunction(
             dartName: 'timestamp',
@@ -353,7 +353,7 @@ void main() {
     });
 
     test('uint64 maps to uint64_t', () {
-      final spec = _makeCounterSpec(
+      final spec = makeCounterSpec(
         functions: [
           BridgeFunction(
             dartName: 'bigNumber',
@@ -369,7 +369,7 @@ void main() {
     });
 
     test('List<String> param maps to std::vector<std::string>', () {
-      final spec = _makeCounterSpec(
+      final spec = makeCounterSpec(
         functions: [
           BridgeFunction(
             dartName: 'process',
@@ -390,7 +390,7 @@ void main() {
     });
 
     test('AnyNativeObject maps to int64_t', () {
-      final spec = _makeCounterSpec(
+      final spec = makeCounterSpec(
         functions: [
           BridgeFunction(
             dartName: 'getHandle',

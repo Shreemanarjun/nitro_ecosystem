@@ -270,8 +270,8 @@ class CppInterfaceGenerator {
 
   // ── Type helpers (C++ style) ─────────────────────────────────────────────
 
-  /// C++ return type — mirrors RN Nitro's JSIConverter<T> type mapping.
-  /// Nullable types use std::optional<T> (zero-cost tagged union, like std::optional).
+  /// C++ return type — mirrors RN Nitro's `JSIConverter<T>` type mapping.
+  /// Nullable types use `std::optional<T>` (zero-cost tagged union, like std::optional).
   /// Records/Lists/Maps return NitroCppBuffer (binary codec — same as RN Nitro's toJSI).
   static String _cppReturnType(
     BridgeType bt,
@@ -316,7 +316,7 @@ class CppInterfaceGenerator {
     return _primitiveType(base);
   }
 
-  /// C++ const-ref param type — nullable types use std::optional<T>.
+  /// C++ const-ref param type — nullable types use `std::optional<T>`.
   static String _cppParamType(
     BridgeType bt,
     Set<String> enumNames,
@@ -391,7 +391,7 @@ class CppInterfaceGenerator {
 
   /// Build the full parameter list for a method signature.
   /// TypedData types expand to two params: pointer + length.
-  /// Nullable types use std::optional<T>. Callbacks use std::function<R(Args...)>.
+  /// Nullable types use `std::optional<T>`. Callbacks use `std::function<R(Args...)>`.
   static List<String> _cppMethodParams(
     List<BridgeParam> params,
     Set<String> enumNames,
@@ -564,7 +564,7 @@ class CppInterfaceGenerator {
     }
   }
 
-  /// Callback param as std::function<R(Args...)> — mirrors RN Nitro's JSIConverter<std::function<>>.
+  /// Callback param as `std::function<R(Args...)>` — mirrors RN Nitro's `JSIConverter<std::function<>>`.
   /// Caller can safely capture lambdas, unlike raw function pointers.
   static String _cppCallbackParam(BridgeParam param, Set<String> enumNames) {
     final callback = param.type;

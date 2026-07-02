@@ -62,8 +62,8 @@ ReturnKind classifyReturn(BridgeType returnType, BridgeSpec spec) {
   if (base == 'DateTime') return isNullable ? ReturnKind.dateTimeNullable : ReturnKind.dateTime;
   if (base == 'uint64') return isNullable ? ReturnKind.uint64Nullable : ReturnKind.uint64;
   // Narrow integer nullable types share NitroOptInt64 decode path.
-  const _narrowIntTypes = {'int8', 'int16', 'int32', 'uint8', 'uint16', 'uint32', 'intptr', 'size'};
-  if (_narrowIntTypes.contains(base) && isNullable) return ReturnKind.intNullable;
+  const narrowIntTypes = {'int8', 'int16', 'int32', 'uint8', 'uint16', 'uint32', 'intptr', 'size'};
+  if (narrowIntTypes.contains(base) && isNullable) return ReturnKind.intNullable;
   if (base == 'float' && isNullable) return ReturnKind.doubleNullable;
   return ReturnKind.primitive;
 }

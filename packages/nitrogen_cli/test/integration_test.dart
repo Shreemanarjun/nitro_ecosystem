@@ -1463,7 +1463,7 @@ class TestingProjectPlugin : FlutterPlugin {
   // These tests verify that nitrogen generate + nitrogen link produce the
   // correct per-spec, per-platform output files.
 
-  String? _multiSpecSkip() {
+  String? multiSpecSkip() {
     if (!_fixture.existsSync()) return 'test_projects/testing_project not found';
     final hasCpp = File(p.join(_fixture.path, 'lib', 'src', 'generated', 'cpp', 'testing_cpp.bridge.g.h')).existsSync();
     final hasMixed = File(p.join(_fixture.path, 'lib', 'src', 'generated', 'swift', 'testing_mixed.bridge.g.swift')).existsSync();
@@ -1474,7 +1474,7 @@ class TestingProjectPlugin : FlutterPlugin {
   }
 
   group('multi-spec generate — testing_cpp (NativeImpl.cpp all platforms)',
-      skip: _multiSpecSkip(), () {
+      skip: multiSpecSkip(), () {
     test('testing_cpp.bridge.g.h exists with C bridge functions', () {
       final h = File(p.join(_fixture.path, 'lib', 'src', 'generated', 'cpp', 'testing_cpp.bridge.g.h'));
       expect(h.existsSync(), isTrue);
@@ -1537,7 +1537,7 @@ class TestingProjectPlugin : FlutterPlugin {
   });
 
   group('multi-spec generate — testing_mixed (Swift/Kotlin/C++ per platform)',
-      skip: _multiSpecSkip(), () {
+      skip: multiSpecSkip(), () {
     test('testing_mixed.bridge.g.swift has @_cdecl stubs (iOS is Swift)', () {
       final swift = File(p.join(_fixture.path, 'lib', 'src', 'generated', 'swift', 'testing_mixed.bridge.g.swift'));
       expect(swift.existsSync(), isTrue);
@@ -1583,7 +1583,7 @@ class TestingProjectPlugin : FlutterPlugin {
   });
 
   group('multi-spec link — all 3 specs wired into plugin entry points',
-      skip: _multiSpecSkip(), () {
+      skip: multiSpecSkip(), () {
     test('iOS Plugin.swift registers all Swift modules (testing_project + testing_mixed)', () {
       final swift = File(p.join(_fixture.path, 'ios', 'testing_project', 'Sources', 'TestingProject', 'SwiftTestingProjectPlugin.swift'));
       expect(swift.existsSync(), isTrue);

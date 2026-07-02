@@ -91,7 +91,7 @@ String _typeToFFI(BridgeType bt, BridgeSpec spec) {
   // Narrow integer nullable types reuse NitroOptInt64 (same 9-byte wire layout).
   if (bt.name == 'int8?' || bt.name == 'int16?' || bt.name == 'int32?' ||
       bt.name == 'uint8?' || bt.name == 'uint16?' || bt.name == 'uint32?' ||
-      bt.name == 'intptr?' || bt.name == 'size?') return 'Pointer<NitroOptInt64>';
+      bt.name == 'intptr?' || bt.name == 'size?') { return 'Pointer<NitroOptInt64>'; }
   if (bt.name == 'float?') return 'Pointer<NitroOptFloat64>';
   switch (name) {
     case 'int':
@@ -168,7 +168,7 @@ String _typeToDartFFI(BridgeType bt, BridgeSpec spec) {
   // Narrow integer nullable types reuse NitroOptInt64 (same 9-byte wire layout).
   if (bt.name == 'int8?' || bt.name == 'int16?' || bt.name == 'int32?' ||
       bt.name == 'uint8?' || bt.name == 'uint16?' || bt.name == 'uint32?' ||
-      bt.name == 'intptr?' || bt.name == 'size?') return 'Pointer<NitroOptInt64>';
+      bt.name == 'intptr?' || bt.name == 'size?') { return 'Pointer<NitroOptInt64>'; }
   if (bt.name == 'float?') return 'Pointer<NitroOptFloat64>';
   switch (name) {
     case 'int':

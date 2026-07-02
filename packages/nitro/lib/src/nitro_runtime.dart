@@ -49,7 +49,7 @@ class NitroRuntime {
 
   static String _timelineLabel(String tag) => 'Nitro.$tag';
 
-  /// True on iOS and macOS — used by generated code to select @Native<F> direct
+  /// True on iOS and macOS — used by generated code to select `@Native<F>` direct
   /// dispatch vs function-pointer dispatch. Generated part files cannot import
   /// dart:io directly, so this bridges the Platform check.
   static final bool useNativeBindings = Platform.isIOS || Platform.isMacOS;

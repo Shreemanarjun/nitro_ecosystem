@@ -1042,7 +1042,7 @@ void main() {
   /// A prim-only variant: every case is either unit or has exactly one
   /// non-nullable int/double/bool field. The generator should emit a dart:ffi
   /// Union + a zero-copy fromNative instead of going through RecordReader.
-  BridgeVariant _primOnlyVariant() => BridgeVariant(
+  BridgeVariant primOnlyVariant() => BridgeVariant(
     name: 'PrimResult',
     cases: [
       BridgeVariantCase(
@@ -1086,18 +1086,18 @@ void main() {
     ],
   );
 
-  BridgeSpec _primOnlyVariantSpec() => BridgeSpec(
+  BridgeSpec primOnlyVariantSpec() => BridgeSpec(
     dartClassName: '',
     lib: 'prim',
     namespace: '',
     sourceUri: 'prim.native.dart',
-    variants: [_primOnlyVariant()],
+    variants: [primOnlyVariant()],
     isTypeOnly: true,
   );
 
   group('Finding 8 — @Native Union optimization for prim-only @NitroVariant', () {
     test('prim-only variant emits Union payload type before extension', () {
-      final code = VariantGenerator.generateDartExtensions(_primOnlyVariantSpec());
+      final code = VariantGenerator.generateDartExtensions(primOnlyVariantSpec());
       expect(code, contains('final class _PrimResultPayload extends Union'));
       // Union must appear BEFORE the extension
       final unionPos = code.indexOf('_PrimResultPayload extends Union');
@@ -1106,14 +1106,14 @@ void main() {
     });
 
     test('prim-only Union has @Int64 asInt, @Double asDouble, @Uint8 asBool fields', () {
-      final code = VariantGenerator.generateDartExtensions(_primOnlyVariantSpec());
+      final code = VariantGenerator.generateDartExtensions(primOnlyVariantSpec());
       expect(code, contains('@Int64() external int asInt;'));
       expect(code, contains('@Double() external double asDouble;'));
       expect(code, contains('@Uint8() external int asBool;'));
     });
 
     test('prim-only fromNative uses pointer cast instead of RecordReader', () {
-      final code = VariantGenerator.generateDartExtensions(_primOnlyVariantSpec());
+      final code = VariantGenerator.generateDartExtensions(primOnlyVariantSpec());
       expect(code, contains('(ptr + 1).cast<_PrimResultPayload>().ref'));
       // The optimized path does NOT call fromReader
       final fromNativeStart = code.indexOf('static PrimResult fromNative(Pointer<Uint8> ptr)');
@@ -1123,27 +1123,27 @@ void main() {
     });
 
     test('prim-only fromNative reads int via p.asInt', () {
-      final code = VariantGenerator.generateDartExtensions(_primOnlyVariantSpec());
+      final code = VariantGenerator.generateDartExtensions(primOnlyVariantSpec());
       expect(code, contains('PrimInt(value: p.asInt)'));
     });
 
     test('prim-only fromNative reads double via p.asDouble', () {
-      final code = VariantGenerator.generateDartExtensions(_primOnlyVariantSpec());
+      final code = VariantGenerator.generateDartExtensions(primOnlyVariantSpec());
       expect(code, contains('PrimDouble(amount: p.asDouble)'));
     });
 
     test('prim-only fromNative reads bool via p.asBool != 0', () {
-      final code = VariantGenerator.generateDartExtensions(_primOnlyVariantSpec());
+      final code = VariantGenerator.generateDartExtensions(primOnlyVariantSpec());
       expect(code, contains('PrimBool(flag: p.asBool != 0)'));
     });
 
     test('prim-only fromNative emits unit case correctly', () {
-      final code = VariantGenerator.generateDartExtensions(_primOnlyVariantSpec());
+      final code = VariantGenerator.generateDartExtensions(primOnlyVariantSpec());
       expect(code, contains('3 => PrimUnit()'));
     });
 
     test('prim-only fromReader is still emitted (used for list deserialization)', () {
-      final code = VariantGenerator.generateDartExtensions(_primOnlyVariantSpec());
+      final code = VariantGenerator.generateDartExtensions(primOnlyVariantSpec());
       expect(code, contains('static PrimResult fromReader(RecordReader r)'));
       // fromReader still uses readInt8() tag
       expect(code, contains('r.readInt8()'));
@@ -1167,7 +1167,7 @@ void main() {
     });
 
     test('prim-only writeFields and toNative are unchanged', () {
-      final code = VariantGenerator.generateDartExtensions(_primOnlyVariantSpec());
+      final code = VariantGenerator.generateDartExtensions(primOnlyVariantSpec());
       expect(code, contains('void writeFields(RecordWriter writer)'));
       expect(code, contains('Pointer<Uint8> toNative(Allocator alloc)'));
     });

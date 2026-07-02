@@ -2109,7 +2109,7 @@ let package = Package(name: "my_plugin", targets: [
     /// [swiftTarget] controls the Swift target name in Package.swift.
     /// [hasSwiftDir] controls whether Sources/MyPlugin/ directory exists.
     /// [hasSwiftBridge] controls whether Sources/MyPlugin/my_plugin.bridge.g.swift exists.
-    Directory _nestedSpmScaffold({
+    Directory nestedSpmScaffold({
       String swiftTarget = 'my_plugin',
       bool hasSwiftDir = true,
       bool hasSwiftBridge = true,
@@ -2156,7 +2156,7 @@ let package = Package(name: "my_plugin", targets: [
 
     test('ok when Package.swift declares Swift target by plugin name', () {
       if (!Platform.isMacOS) return;
-      final tmp = _nestedSpmScaffold();
+      final tmp = nestedSpmScaffold();
       addTearDown(() => tmp.deleteSync(recursive: true));
 
       final result = _run(tmp);
@@ -2215,7 +2215,7 @@ let package = Package(name: "my_plugin", targets: [
 
     test('ok when Sources/MyPlugin/ directory present', () {
       if (!Platform.isMacOS) return;
-      final tmp = _nestedSpmScaffold();
+      final tmp = nestedSpmScaffold();
       addTearDown(() => tmp.deleteSync(recursive: true));
 
       final result = _run(tmp);
@@ -2229,7 +2229,7 @@ let package = Package(name: "my_plugin", targets: [
 
     test('warning when Sources/MyPlugin/ directory missing (with spec)', () {
       if (!Platform.isMacOS) return;
-      final tmp = _nestedSpmScaffold(hasSwiftDir: false, hasSwiftBridge: false);
+      final tmp = nestedSpmScaffold(hasSwiftDir: false, hasSwiftBridge: false);
       addTearDown(() => tmp.deleteSync(recursive: true));
 
       final result = _run(tmp);
@@ -2248,7 +2248,7 @@ let package = Package(name: "my_plugin", targets: [
 
     test('ok when bridge.g.swift present in Sources/MyPlugin/', () {
       if (!Platform.isMacOS) return;
-      final tmp = _nestedSpmScaffold();
+      final tmp = nestedSpmScaffold();
       addTearDown(() => tmp.deleteSync(recursive: true));
 
       final result = _run(tmp);
@@ -2262,7 +2262,7 @@ let package = Package(name: "my_plugin", targets: [
 
     test('error when bridge.g.swift missing from Sources/MyPlugin/ (with spec)', () {
       if (!Platform.isMacOS) return;
-      final tmp = _nestedSpmScaffold(hasSwiftBridge: false);
+      final tmp = nestedSpmScaffold(hasSwiftBridge: false);
       addTearDown(() => tmp.deleteSync(recursive: true));
 
       final result = _run(tmp);

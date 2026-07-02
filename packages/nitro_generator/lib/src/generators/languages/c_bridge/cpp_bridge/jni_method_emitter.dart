@@ -183,7 +183,7 @@ void _emitJniRegularFuncBody(
   final isAnyNativeObjectReturn = func.returnType.isAnyNativeObject;
   final isCustomTypeReturn = spec.isCustomTypeName(retBase);
   // Nullable prim returns: malloc'd uint8_t* pointer (Dart casts to Pointer<NitroOptXxx> and frees).
-  const _narrowIntNullables = {'int8?', 'int16?', 'int32?', 'uint8?', 'uint16?', 'uint32?', 'intptr?', 'size?'};
+  const narrowIntNullables = {'int8?', 'int16?', 'int32?', 'uint8?', 'uint16?', 'uint32?', 'intptr?', 'size?'};
   final cReturnType = func.isResult
       ? 'uint8_t*'
       : isAnyNativeObjectReturn
@@ -202,7 +202,7 @@ void _emitJniRegularFuncBody(
       ? 'uint8_t*'
       : func.returnType.name == 'DateTime?'
       ? 'uint8_t*'
-      : _narrowIntNullables.contains(func.returnType.name)
+      : narrowIntNullables.contains(func.returnType.name)
       ? 'uint8_t*'
       : func.returnType.name == 'float?'
       ? 'uint8_t*'
@@ -542,7 +542,7 @@ void _emitJniRegularFuncBody(
     writer.line('    env->GetByteArrayRegion(jarr_nd_, 0, (jsize)sizeof(NitroOptInt64), (jbyte*)nd_result);');
     writer.line('    env->PopLocalFrame(nullptr);');
     writer.line('    return nd_result;');
-  } else if (_narrowIntNullables.contains(func.returnType.name)) {
+  } else if (narrowIntNullables.contains(func.returnType.name)) {
     // Narrow integer nullable (int8?, int32?, intptr?, etc.) — same as int? (NitroOptInt64 ByteArray).
     writer.line('    jbyteArray jarr_nn = (jbyteArray)env->CallStaticObjectMethod(g_bridgeClass, methodId$bridgeArgs);');
     writer.line('    if (env->ExceptionCheck()) {');

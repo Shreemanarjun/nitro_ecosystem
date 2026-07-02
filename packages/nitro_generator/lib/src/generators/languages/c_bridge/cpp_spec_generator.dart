@@ -61,7 +61,7 @@ class CppSpecGenerator {
     w.line('/// Implement this to provide a native C++ backend without JNI or Swift overhead.');
     w.line('///');
     w.line('/// Registration (call from your factory):');
-    w.line('///   nitro::register_${libStem}(std::make_shared<My${className}Impl>());');
+    w.line('///   nitro::register_$libStem(std::make_shared<My${className}Impl>());');
     w.line('///');
     w.line('/// Dart lifecycle:');
     w.line('///   create_instance → onCreate()');
@@ -107,8 +107,8 @@ class CppSpecGenerator {
     w.blankLine();
 
     // ── Registry helpers ─────────────────────────────────────────────────
-    w.line('void register_${libStem}(std::shared_ptr<${className}Spec> impl);');
-    w.line('std::shared_ptr<${className}Spec> get_${libStem}(int64_t instanceId);');
+    w.line('void register_$libStem(std::shared_ptr<${className}Spec> impl);');
+    w.line('std::shared_ptr<${className}Spec> get_$libStem(int64_t instanceId);');
     w.blankLine();
 
     w.line('} // namespace nitro');

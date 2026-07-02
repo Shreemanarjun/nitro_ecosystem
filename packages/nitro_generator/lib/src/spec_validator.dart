@@ -278,9 +278,9 @@ class SpecValidator {
             ? func.returnType.name.split(',').last.trim().replaceFirst('>', '')
             : 'V';
         // Allow integer key types and enum key types (Gap #3).
-        final _intKeyTypes = const {'int', 'int8', 'int16', 'int32', 'int64', 'uint8', 'uint16', 'uint32', 'uint64'};
+        const intKeyTypes = {'int', 'int8', 'int16', 'int32', 'int64', 'uint8', 'uint16', 'uint32', 'uint64'};
         final isAllowedKey = keyType != null &&
-            (_intKeyTypes.contains(keyType) || enumNames.contains(keyType));
+            (intKeyTypes.contains(keyType) || enumNames.contains(keyType));
         if (!isAllowedKey) {
           issues.add(
             ValidationIssue(
@@ -477,9 +477,9 @@ class SpecValidator {
         // E001: Map<K, V> where K is not String, int, or a known @HybridEnum.
         if (param.type.name.startsWith('Map<') && !param.type.isMap) {
           final keyType = BridgeType.extractMapKeyType(param.type.name);
-          final _intKeyTypes2 = const {'int', 'int8', 'int16', 'int32', 'int64', 'uint8', 'uint16', 'uint32', 'uint64'};
+          const intKeyTypes2 = {'int', 'int8', 'int16', 'int32', 'int64', 'uint8', 'uint16', 'uint32', 'uint64'};
           final isAllowedParamKey = keyType != null &&
-              (_intKeyTypes2.contains(keyType) || enumNames.contains(keyType));
+              (intKeyTypes2.contains(keyType) || enumNames.contains(keyType));
           if (!isAllowedParamKey) {
             issues.add(
               ValidationIssue(
@@ -940,21 +940,6 @@ class SpecValidator {
       if (state[name] == 0) dfs(name, [name]);
     }
     return issues;
-  }
-
-  /// Collects all base type names (with '?' stripped) referenced by functions and properties.
-  static Set<String> _collectAllBridgeTypeNames(BridgeSpec spec) {
-    final names = <String>{};
-    for (final func in spec.functions) {
-      names.add(func.returnType.name.replaceFirst('?', ''));
-      for (final p in func.params) {
-        names.add(p.type.name.replaceFirst('?', ''));
-      }
-    }
-    for (final prop in spec.properties) {
-      names.add(prop.type.name.replaceFirst('?', ''));
-    }
-    return names;
   }
 
   static bool _isKnownType(String typeName, Set<String> knownTypes) {

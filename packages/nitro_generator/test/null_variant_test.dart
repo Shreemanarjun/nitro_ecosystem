@@ -12,7 +12,7 @@ import 'package:test/test.dart';
 ///   • An `encodeNullable` static is added to handle null encoding
 void main() {
   group('Null variant case (Gap #5)', () {
-    BridgeSpec _nullableVariantSpec({String nullCaseName = 'null'}) => BridgeSpec(
+    BridgeSpec nullableVariantSpec({String nullCaseName = 'null'}) => BridgeSpec(
           dartClassName: 'Filter',
           lib: 'filter',
           namespace: 'filter',
@@ -38,44 +38,44 @@ void main() {
         );
 
     test('generates extension code for a variant with a null case', () {
-      final out = VariantGenerator.generateDartExtensions(_nullableVariantSpec());
+      final out = VariantGenerator.generateDartExtensions(nullableVariantSpec());
       expect(out, isNotEmpty);
     });
 
     test('fromNative return type is nullable (VariantName?)', () {
-      final out = VariantGenerator.generateDartExtensions(_nullableVariantSpec());
+      final out = VariantGenerator.generateDartExtensions(nullableVariantSpec());
       expect(out, contains('static FilterEvent? fromNative('));
     });
 
     test('fromReader return type is nullable (VariantName?)', () {
-      final out = VariantGenerator.generateDartExtensions(_nullableVariantSpec());
+      final out = VariantGenerator.generateDartExtensions(nullableVariantSpec());
       expect(out, contains('static FilterEvent? fromReader('));
     });
 
     test('null tag decodes to Dart null in fromReader switch', () {
-      final out = VariantGenerator.generateDartExtensions(_nullableVariantSpec());
+      final out = VariantGenerator.generateDartExtensions(nullableVariantSpec());
       // The null case is at index 1 (second case), so tag 1 → null.
       expect(out, contains('1 => null,'));
     });
 
     test('non-null case still decodes normally', () {
-      final out = VariantGenerator.generateDartExtensions(_nullableVariantSpec());
+      final out = VariantGenerator.generateDartExtensions(nullableVariantSpec());
       expect(out, contains('0 => FilterAccepted(),'));
     });
 
     test('encodeNullable static is emitted', () {
-      final out = VariantGenerator.generateDartExtensions(_nullableVariantSpec());
+      final out = VariantGenerator.generateDartExtensions(nullableVariantSpec());
       expect(out, contains('static Pointer<Uint8> encodeNullable(FilterEvent? value, Allocator alloc)'));
     });
 
     test('encodeNullable writes null tag when value is null', () {
-      final out = VariantGenerator.generateDartExtensions(_nullableVariantSpec());
+      final out = VariantGenerator.generateDartExtensions(nullableVariantSpec());
       // null case is at tag index 1
       expect(out, contains('writer.writeInt8(1);'));
     });
 
     test('encodeNullable delegates to writeFields for non-null', () {
-      final out = VariantGenerator.generateDartExtensions(_nullableVariantSpec());
+      final out = VariantGenerator.generateDartExtensions(nullableVariantSpec());
       expect(out, contains('value.writeFields(writer);'));
     });
 
@@ -105,7 +105,7 @@ void main() {
 
     test('null case name is case-insensitive (NULL, Null)', () {
       for (final name in ['NULL', 'Null']) {
-        final out = VariantGenerator.generateDartExtensions(_nullableVariantSpec(nullCaseName: name));
+        final out = VariantGenerator.generateDartExtensions(nullableVariantSpec(nullCaseName: name));
         expect(out, contains('FilterEvent?'), reason: 'Failed for null case name: $name');
         expect(out, contains('=> null,'), reason: 'Failed for null case name: $name');
       }
@@ -135,13 +135,13 @@ void main() {
     });
 
     test('toNative is still emitted for non-null encoding', () {
-      final out = VariantGenerator.generateDartExtensions(_nullableVariantSpec());
+      final out = VariantGenerator.generateDartExtensions(nullableVariantSpec());
       expect(out, contains('Pointer<Uint8> toNative(Allocator alloc)'));
     });
 
     test('writeFields does not include a switch case for the null marker', () {
       // The null case has no Dart class, so writeFields has no switch arm for it.
-      final out = VariantGenerator.generateDartExtensions(_nullableVariantSpec());
+      final out = VariantGenerator.generateDartExtensions(nullableVariantSpec());
       // Only FilterAccepted should appear in writeFields
       expect(out, contains('case FilterAccepted():'));
       // There should NOT be a 'case null():' line (invalid Dart)

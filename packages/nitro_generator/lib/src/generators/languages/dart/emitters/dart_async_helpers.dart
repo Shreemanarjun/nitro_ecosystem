@@ -365,7 +365,7 @@ bool _isPrimitiveType(BridgeType bt, BridgeSpec spec) {
 }
 
 /// Returns true when the param type is a nullable primitive (int?, double?, bool?)
-/// that should use Struct.create<NitroOptXxx>() + .address on leaf calls.
+/// that should use `Struct.create<NitroOptXxx>()` + .address on leaf calls.
 bool _isLeafNullableParam(BridgeType bt) =>
     bt.name == 'int?' || bt.name == 'double?' || bt.name == 'bool?' ||
     bt.name == 'uint64?' || bt.name == 'DateTime?';
@@ -390,7 +390,7 @@ bool _isLeafCandidate(BridgeFunction func, BridgeSpec spec) {
 
 /// Returns true when this function qualifies for the Struct.create optimization:
 /// sync, leaf-eligible, and has at least one nullable prim param whose encoding
-/// would otherwise require an Arena. These functions use Struct.create<NitroOptXxx>()
+/// would otherwise require an Arena. These functions use `Struct.create<NitroOptXxx>()`
 /// + .address instead — zero C heap allocation per call.
 bool _isLeafStructCreate(BridgeFunction func, BridgeSpec spec) =>
     _isLeafCandidate(func, spec) &&
@@ -439,12 +439,12 @@ bool _isLeafStructCreate(BridgeFunction func, BridgeSpec spec) =>
 
 // ── Finding 1: @Native<F> leaf binding helpers ────────────────────────────────
 
-/// Returns the FFI type string for a leaf sync param in @Native<F> declarations.
+/// Returns the FFI type string for a leaf sync param in `@Native<F>` declarations.
 /// Delegates directly to [_typeToFFI] — nullable prim params already map to
-/// Pointer<NitroOptXxx> there.
+/// `Pointer<NitroOptXxx>` there.
 String _leafParamFfiType(BridgeType bt, BridgeSpec spec) => _typeToFFI(bt, spec);
 
-/// Returns the Dart callable type string for a leaf sync param in @Native<F>
+/// Returns the Dart callable type string for a leaf sync param in `@Native<F>`
 /// declarations.  Delegates to [_typeToDartFFI].
 String _leafParamDartType(BridgeType bt, BridgeSpec spec) => _typeToDartFFI(bt, spec);
 

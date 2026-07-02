@@ -1237,7 +1237,7 @@ void _syncSwiftBridgesToSpmSources(String baseDir) {
   // NitroRecordWriter, etc.) — they rely on another bridge in the module to
   // provide it.  Sort bridges that DEFINE NitroEncodable first so the
   // verbatim-copied first file always contains the shared preamble.
-  final hasPreamble = (File f) => f.readAsStringSync().contains('\npublic protocol NitroEncodable');
+  bool hasPreamble(File f) => f.readAsStringSync().contains('\npublic protocol NitroEncodable');
   final generatedBridges = [
     ...allBridges.where(hasPreamble),
     ...allBridges.where((f) => !hasPreamble(f)),
