@@ -430,9 +430,9 @@ void main() {
       expect(out, contains('Dart_PostCObject_DL(dart_port, &_err)'));
     });
 
-    test('delegates to g_impl->process() passing dart_port as last arg', () {
+    test('delegates to _impl->process() passing dart_port as last arg', () {
       final out = CppBridgeGenerator.generate(_cppOnlyNativeAsyncSpec());
-      expect(out, contains('g_impl->process('));
+      expect(out, contains('_impl->process('));
       expect(out, contains('dart_port)'));
     });
 
@@ -635,15 +635,15 @@ void main() {
       expect(out, contains('Future<Mode> getMode()'));
     });
 
-    test('bool param: FFI type includes Int8 for the bool parameter', () {
+    test('bool param: FFI type includes Bool for the bool parameter', () {
       final out = DartFfiGenerator.generate(_nativeAsyncBoolSpec());
-      // instanceId -> Int64, bool flag -> Int8, dart_port -> Int64
-      expect(out, contains('Void Function(Int64, Int8, Int64)'));
+      // instanceId -> Int64, bool flag -> Bool, dart_port -> Int64
+      expect(out, contains('Void Function(Int64, Bool, Int64)'));
     });
 
-    test('bool param: Dart callable type uses int for bool parameter', () {
+    test('bool param: Dart callable type uses bool for bool parameter', () {
       final out = DartFfiGenerator.generate(_nativeAsyncBoolSpec());
-      expect(out, contains('void Function(int, int, int)'));
+      expect(out, contains('void Function(int, bool, int)'));
     });
 
     test('String param: arena call arg uses toNativeUtf8(allocator: arena)', () {
@@ -953,6 +953,391 @@ void main() {
       expect(out, contains('void fetcher_fetch(int64_t instanceId, const char* key, int64_t dart_port)'));
       // And should declare the Swift extern as void too
       expect(out, contains('extern void _fetcher_call_fetch('));
+    });
+  });
+
+  // ── CppBridgeGenerator — Android/Linux dlfcn.h ───────────────────────────
+
+  group('CppBridgeGenerator — #include <dlfcn.h> for Android/Linux builds', () {
+    // enable_native_bindings uses Dl_info, dladdr, dlopen, RTLD_* which require
+    // <dlfcn.h> on Android and Linux. Without it, builds fail with:
+    //   unknown type name 'Dl_info'
+    //   identifier 'RTLD_LAZY' undeclared
+
+    test('generated C++ bridge contains conditional dlfcn.h include', () {
+      final out = CppBridgeGenerator.generate(jniNativeAsyncSpec('int'));
+      expect(out, contains('#include <dlfcn.h>'));
+    });
+
+    test('dlfcn.h include is guarded for Android/Linux only', () {
+      final out = CppBridgeGenerator.generate(jniNativeAsyncSpec('int'));
+      expect(out, contains('#if defined(__ANDROID__) || defined(__linux__)'));
+    });
+  });
+
+  // ── CppBridgeGenerator — bool? param type regression guard ───────────────
+
+  group('CppBridgeGenerator — bool? param uses const uint8_t*, not int32_t', () {
+    // Regression guard: a stale _paramTypeToC override previously returned
+    // int32_t for bool? params, causing a conflicting-type error when the JNI
+    // section (int32_t) and iOS section (const uint8_t*) declared the same
+    // C function with different signatures.
+
+    BridgeSpec boolNullableParamSpec() => BridgeSpec(
+      dartClassName: 'Checker',
+      lib: 'checker',
+      namespace: 'checker',
+      iosImpl: NativeImpl.swift,
+      androidImpl: NativeImpl.kotlin,
+      sourceUri: 'checker.native.dart',
+      functions: [
+        BridgeFunction(
+          dartName: 'checkMaybe',
+          cSymbol: 'checker_check_maybe',
+          isAsync: false,
+          isNativeAsync: true,
+          returnType: BridgeType(name: 'bool'),
+          params: [
+            BridgeParam(
+              name: 'flag',
+              type: BridgeType(name: 'bool?'),
+              isNamed: true,
+              isOptional: true,
+            ),
+          ],
+        ),
+      ],
+    );
+
+    test('bool? NativeAsync param uses const uint8_t* in both JNI and iOS sections', () {
+      final out = CppBridgeGenerator.generate(boolNullableParamSpec());
+      // All occurrences of the function C signature must use const uint8_t*
+      final matches = RegExp(r'checker_check_maybe\([^)]+\)').allMatches(out);
+      for (final m in matches) {
+        expect(m.group(0), contains('uint8_t'));
+        expect(m.group(0), isNot(contains('int32_t')));
+      }
+    });
+
+    test('bool? NativeAsync param: no int32_t anywhere in generated bridge', () {
+      final out = CppBridgeGenerator.generate(boolNullableParamSpec());
+      // int32_t was the stale sentinel type — must not appear
+      expect(out, isNot(contains('int32_t flag')));
+      expect(out, isNot(contains('int32_t value')));
+    });
+  });
+
+  // ── CppBridgeGenerator — NativeAsync nullable prim params → jbyteArray ───
+
+  group('CppBridgeGenerator — @NitroNativeAsync nullable prim params wrapped as jbyteArray', () {
+    // Kotlin NativeAsync bridge expects ByteArray ([B JNI) for nullable prim params.
+    // The C++ bridge must create a jbyteArray from the raw const uint8_t* pointer
+    // before calling CallStaticVoidMethod, otherwise JNI crashes.
+
+    BridgeSpec nullableIntParamNativeAsyncSpec() => BridgeSpec(
+      dartClassName: 'Printer',
+      lib: 'printer',
+      namespace: 'printer',
+      iosImpl: NativeImpl.swift,
+      androidImpl: NativeImpl.kotlin,
+      sourceUri: 'printer.native.dart',
+      functions: [
+        BridgeFunction(
+          dartName: 'print',
+          cSymbol: 'printer_print',
+          isAsync: false,
+          isNativeAsync: true,
+          returnType: BridgeType(name: 'bool'),
+          params: [
+            BridgeParam(
+              name: 'value',
+              type: BridgeType(name: 'int?'),
+              isNamed: true,
+              isOptional: true,
+            ),
+          ],
+        ),
+      ],
+    );
+
+    BridgeSpec nullableBoolParamNativeAsyncSpec() => BridgeSpec(
+      dartClassName: 'Toggle',
+      lib: 'toggle',
+      namespace: 'toggle',
+      iosImpl: NativeImpl.swift,
+      androidImpl: NativeImpl.kotlin,
+      sourceUri: 'toggle.native.dart',
+      functions: [
+        BridgeFunction(
+          dartName: 'toggle',
+          cSymbol: 'toggle_toggle',
+          isAsync: false,
+          isNativeAsync: true,
+          returnType: BridgeType(name: 'void'),
+          params: [
+            BridgeParam(
+              name: 'flag',
+              type: BridgeType(name: 'bool?'),
+              isNamed: true,
+              isOptional: true,
+            ),
+          ],
+        ),
+      ],
+    );
+
+    test('int? NativeAsync param: C++ JNI wraps pointer in 9-byte jbyteArray', () {
+      final out = CppBridgeGenerator.generate(nullableIntParamNativeAsyncSpec());
+      // Must create a jbyteArray of 9 bytes for NitroOptInt64
+      expect(out, contains('env->NewByteArray(9)'));
+      // Must copy from the const uint8_t* pointer into the jbyteArray
+      expect(out, contains('SetByteArrayRegion'));
+      // Must NOT pass raw pointer as the JNI argument
+      expect(out, isNot(contains('(jlong)value')));
+    });
+
+    test('bool? NativeAsync param: C++ JNI wraps pointer in 2-byte jbyteArray', () {
+      final out = CppBridgeGenerator.generate(nullableBoolParamNativeAsyncSpec());
+      // Must create a jbyteArray of 2 bytes for NitroOptBool
+      expect(out, contains('env->NewByteArray(2)'));
+      expect(out, contains('SetByteArrayRegion'));
+    });
+
+    test('int? NativeAsync param: JNI descriptor uses [B (ByteArray)', () {
+      final out = CppBridgeGenerator.generate(nullableIntParamNativeAsyncSpec());
+      // The JNI signature for (instanceId: Long, value: ByteArray, dartPort: Long) -> void
+      expect(out, contains('(J[BJ)V'));
+    });
+  });
+
+  // ── CppBridgeGenerator — postOptXxxToPort JNIEXPORT helpers ─────────────
+
+  group('CppBridgeGenerator — postOptXxxToPort JNIEXPORT helpers for nullable prim returns', () {
+    // When @NitroNativeAsync returns int?/double?/bool?, the Kotlin side calls
+    // postOptInt64ToPort/postOptFloat64ToPort/postOptBoolToPort. These helpers
+    // malloc a NitroOptXxx buffer, fill it, and post the address as kInt64.
+    // Dart decodes via Pointer<NitroOptXxx>.fromAddress(raw as int) and frees.
+
+    BridgeSpec nullableIntReturnNativeAsyncSpec() => BridgeSpec(
+      dartClassName: 'Scanner',
+      lib: 'scanner',
+      namespace: 'scanner',
+      iosImpl: NativeImpl.swift,
+      androidImpl: NativeImpl.kotlin,
+      sourceUri: 'scanner.native.dart',
+      functions: [
+        BridgeFunction(
+          dartName: 'scan',
+          cSymbol: 'scanner_scan',
+          isAsync: false,
+          isNativeAsync: true,
+          returnType: BridgeType(name: 'int?'),
+          params: [],
+        ),
+      ],
+    );
+
+    BridgeSpec nullableDoubleReturnNativeAsyncSpec() => BridgeSpec(
+      dartClassName: 'Sensor',
+      lib: 'sensor',
+      namespace: 'sensor',
+      iosImpl: NativeImpl.swift,
+      androidImpl: NativeImpl.kotlin,
+      sourceUri: 'sensor.native.dart',
+      functions: [
+        BridgeFunction(
+          dartName: 'read',
+          cSymbol: 'sensor_read',
+          isAsync: false,
+          isNativeAsync: true,
+          returnType: BridgeType(name: 'double?'),
+          params: [],
+        ),
+      ],
+    );
+
+    BridgeSpec nullableBoolReturnNativeAsyncSpec() => BridgeSpec(
+      dartClassName: 'Validator',
+      lib: 'validator',
+      namespace: 'validator',
+      iosImpl: NativeImpl.swift,
+      androidImpl: NativeImpl.kotlin,
+      sourceUri: 'validator.native.dart',
+      functions: [
+        BridgeFunction(
+          dartName: 'validate',
+          cSymbol: 'validator_validate',
+          isAsync: false,
+          isNativeAsync: true,
+          returnType: BridgeType(name: 'bool?'),
+          params: [],
+        ),
+      ],
+    );
+
+    test('int? return: postOptInt64ToPort JNIEXPORT emitted', () {
+      final out = CppBridgeGenerator.generate(nullableIntReturnNativeAsyncSpec());
+      expect(out, contains('postOptInt64ToPort'));
+    });
+
+    test('int? return: postOptInt64ToPort mallocs 9 bytes for NitroOptInt64', () {
+      final out = CppBridgeGenerator.generate(nullableIntReturnNativeAsyncSpec());
+      expect(out, contains('malloc(9)'));
+    });
+
+    test('int? return: postOptInt64ToPort posts address as Dart_CObject_kInt64', () {
+      final out = CppBridgeGenerator.generate(nullableIntReturnNativeAsyncSpec());
+      // Posts the native buffer address — Dart decodes via fromAddress
+      expect(out, contains('Dart_CObject_kInt64'));
+      expect(out, contains('(int64_t)(uintptr_t)buf'));
+    });
+
+    test('double? return: postOptFloat64ToPort JNIEXPORT emitted', () {
+      final out = CppBridgeGenerator.generate(nullableDoubleReturnNativeAsyncSpec());
+      expect(out, contains('postOptFloat64ToPort'));
+    });
+
+    test('double? return: postOptFloat64ToPort mallocs 9 bytes for NitroOptFloat64', () {
+      final out = CppBridgeGenerator.generate(nullableDoubleReturnNativeAsyncSpec());
+      expect(out, contains('malloc(9)'));
+    });
+
+    test('bool? return: postOptBoolToPort JNIEXPORT emitted', () {
+      final out = CppBridgeGenerator.generate(nullableBoolReturnNativeAsyncSpec());
+      expect(out, contains('postOptBoolToPort'));
+    });
+
+    test('bool? return: postOptBoolToPort mallocs 2 bytes for NitroOptBool', () {
+      final out = CppBridgeGenerator.generate(nullableBoolReturnNativeAsyncSpec());
+      expect(out, contains('malloc(2)'));
+    });
+  });
+
+  // ── KotlinGenerator — @NitroNativeAsync nullable prim returns ────────────
+
+  group('KotlinGenerator — @NitroNativeAsync nullable prim returns use postOptXxxToPort', () {
+    // Regression guard: old code used sentinel values for nullable prim returns:
+    //   Long? → postInt64ToPort(port, result?.toLong() ?: Long.MIN_VALUE)
+    //   Double? → postDoubleToPort(port, result ?: Double.NaN)
+    //   Boolean? → if (result == null) postNullToPort(port) else postBoolToPort(port, result)
+    //
+    // Dart's NativeAsync unpack now expects a malloc'd NitroOptXxx pointer (kInt64 address),
+    // not sentinel values. The new helpers postOptInt64ToPort/Float64ToPort/BoolToPort
+    // allocate the struct on native heap and post the address.
+
+    BridgeSpec nullableIntReturnSpec() => BridgeSpec(
+      dartClassName: 'Scanner',
+      lib: 'scanner',
+      namespace: 'scanner',
+      iosImpl: NativeImpl.swift,
+      androidImpl: NativeImpl.kotlin,
+      sourceUri: 'scanner.native.dart',
+      functions: [
+        BridgeFunction(
+          dartName: 'scan',
+          cSymbol: 'scanner_scan',
+          isAsync: false,
+          isNativeAsync: true,
+          returnType: BridgeType(name: 'int?'),
+          params: [],
+        ),
+      ],
+    );
+
+    BridgeSpec nullableDoubleReturnSpec() => BridgeSpec(
+      dartClassName: 'Sensor',
+      lib: 'sensor',
+      namespace: 'sensor',
+      iosImpl: NativeImpl.swift,
+      androidImpl: NativeImpl.kotlin,
+      sourceUri: 'sensor.native.dart',
+      functions: [
+        BridgeFunction(
+          dartName: 'read',
+          cSymbol: 'sensor_read',
+          isAsync: false,
+          isNativeAsync: true,
+          returnType: BridgeType(name: 'double?'),
+          params: [],
+        ),
+      ],
+    );
+
+    BridgeSpec nullableBoolReturnSpec() => BridgeSpec(
+      dartClassName: 'Validator',
+      lib: 'validator',
+      namespace: 'validator',
+      iosImpl: NativeImpl.swift,
+      androidImpl: NativeImpl.kotlin,
+      sourceUri: 'validator.native.dart',
+      functions: [
+        BridgeFunction(
+          dartName: 'validate',
+          cSymbol: 'validator_validate',
+          isAsync: false,
+          isNativeAsync: true,
+          returnType: BridgeType(name: 'bool?'),
+          params: [],
+        ),
+      ],
+    );
+
+    test('int? return: uses postOptInt64ToPort (pointer approach)', () {
+      final out = KotlinGenerator.generate(nullableIntReturnSpec());
+      expect(out, contains('postOptInt64ToPort(dartPort,'));
+    });
+
+    test('int? return: does NOT use Long.MIN_VALUE sentinel (old approach)', () {
+      final out = KotlinGenerator.generate(nullableIntReturnSpec());
+      expect(out, isNot(contains('Long.MIN_VALUE')));
+    });
+
+    test('int? return: passes result != null as hasValue flag', () {
+      final out = KotlinGenerator.generate(nullableIntReturnSpec());
+      expect(out, contains('result != null'));
+    });
+
+    test('double? return: uses postOptFloat64ToPort (pointer approach)', () {
+      final out = KotlinGenerator.generate(nullableDoubleReturnSpec());
+      expect(out, contains('postOptFloat64ToPort(dartPort,'));
+    });
+
+    test('double? return: does NOT use Double.NaN sentinel (old approach)', () {
+      final out = KotlinGenerator.generate(nullableDoubleReturnSpec());
+      expect(out, isNot(contains('Double.NaN')));
+    });
+
+    test('bool? return: uses postOptBoolToPort (pointer approach)', () {
+      final out = KotlinGenerator.generate(nullableBoolReturnSpec());
+      expect(out, contains('postOptBoolToPort(dartPort,'));
+    });
+
+    test('bool? return: does NOT use if-null postNullToPort/postBoolToPort pair (old approach)', () {
+      // Old: if (result == null) postNullToPort(dartPort) else postBoolToPort(dartPort, result)
+      final out = KotlinGenerator.generate(nullableBoolReturnSpec());
+      expect(out, isNot(contains('if (result == null) postNullToPort')));
+    });
+
+    test('non-nullable bool return: still uses postBoolToPort (unchanged)', () {
+      final out = KotlinGenerator.generate(_nativeAsyncBoolSpec());
+      expect(out, contains('postBoolToPort(dartPort,'));
+    });
+
+    test('non-nullable int return: still uses postInt64ToPort (unchanged)', () {
+      final out = KotlinGenerator.generate(_nativeAsyncIntSpec());
+      expect(out, contains('postInt64ToPort(dartPort,'));
+    });
+
+    test('postOptXxxToPort helpers declared as external JvmStatic', () {
+      final out = KotlinGenerator.generate(nullableIntReturnSpec());
+      expect(out, contains('@JvmStatic external fun postOptInt64ToPort(dartPort: Long, value: Long, hasValue: Boolean)'));
+      expect(out, contains('@JvmStatic external fun postOptFloat64ToPort(dartPort: Long, value: Double, hasValue: Boolean)'));
+      expect(out, contains('@JvmStatic external fun postOptBoolToPort(dartPort: Long, value: Boolean, hasValue: Boolean)'));
+    });
+
+    test('postOptXxxToPort NOT declared for specs with no @NitroNativeAsync', () {
+      final out = KotlinGenerator.generate(simpleSpec());
+      expect(out, isNot(contains('postOptInt64ToPort')));
     });
   });
 }

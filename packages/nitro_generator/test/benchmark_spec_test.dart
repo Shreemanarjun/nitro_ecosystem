@@ -558,8 +558,9 @@ void main() {
       expect(out, contains('isLeaf: true'));
     });
 
-    test('sendLargeBuffer lookup includes Int64 length param', () {
-      expect(out, contains('Int64 Function(Int64, Pointer<Uint8>, Int64, Pointer<NitroErrorFfi>)'));
+    test('sendLargeBuffer lookup includes Size length param', () {
+      // TypedData length uses Size (= size_t) not Int64 — correct for 64/32-bit portability
+      expect(out, contains('Int64 Function(Int64, Pointer<Uint8>, Size, Pointer<NitroErrorFfi>)'));
     });
 
     test('sendLargeBuffer call site passes buffer and buffer.length', () {
@@ -651,8 +652,8 @@ void main() {
     late String out;
     setUpAll(() => out = CppBridgeGenerator.generate(_benchmarkCppSpec()));
 
-    test('uses g_impl->add for virtual dispatch', () {
-      expect(out, contains('g_impl->add(a, b)'));
+    test('uses _impl->add for virtual dispatch', () {
+      expect(out, contains('_impl->add(a, b)'));
     });
 
     test('computeStats returns void* (NitroCppBuffer wrapped)', () {
@@ -660,8 +661,8 @@ void main() {
       expect(out, contains('void* benchmark_cpp_compute_stats(int64_t instanceId, int64_t iterations)'));
     });
 
-    test('sendLargeBufferFast has uint8_t* + int64_t length', () {
-      expect(out, contains('int64_t benchmark_cpp_send_large_buffer_fast(int64_t instanceId, uint8_t* buffer, int64_t buffer_length, NitroError* _nitro_err)'));
+    test('sendLargeBufferFast has uint8_t* + size_t length', () {
+      expect(out, contains('int64_t benchmark_cpp_send_large_buffer_fast(int64_t instanceId, uint8_t* buffer, size_t buffer_length, NitroError* _nitro_err)'));
     });
 
     test('sendLargeBufferUnsafe Pointer<Uint8> param passes as void*', () {

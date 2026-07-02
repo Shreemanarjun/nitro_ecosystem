@@ -213,20 +213,23 @@ class KotlinFunctionEmitter {
       writer.line('            val result = runBlocking { impl.${func.dartName}($callParams) }');
       writer.line('            postBoolToPort(dartPort, result)');
     } else if (retType == 'Boolean?') {
+      // bool? NativeAsync: post pointer to NitroOptBool (2 bytes); Dart decodes via fromAddress.
       writer.line('            val result = runBlocking { impl.${func.dartName}($callParams) }');
-      writer.line('            if (result == null) postNullToPort(dartPort) else postBoolToPort(dartPort, result)');
+      writer.line('            postOptBoolToPort(dartPort, result ?: false, result != null)');
     } else if (retType == 'Long' || retType == 'Int') {
       writer.line('            val result = runBlocking { impl.${func.dartName}($callParams) }');
       writer.line('            postInt64ToPort(dartPort, result.toLong())');
     } else if (retType == 'Long?' || retType == 'Int?') {
+      // Long?/Int? NativeAsync: post pointer to NitroOptInt64 (9 bytes); Dart decodes via fromAddress.
       writer.line('            val result = runBlocking { impl.${func.dartName}($callParams) }');
-      writer.line('            postInt64ToPort(dartPort, result?.toLong() ?: Long.MIN_VALUE)');
+      writer.line('            postOptInt64ToPort(dartPort, result?.toLong() ?: 0L, result != null)');
     } else if (retType == 'Double') {
       writer.line('            val result = runBlocking { impl.${func.dartName}($callParams) }');
       writer.line('            postDoubleToPort(dartPort, result)');
     } else if (retType == 'Double?') {
+      // Double? NativeAsync: post pointer to NitroOptFloat64 (9 bytes); Dart decodes via fromAddress.
       writer.line('            val result = runBlocking { impl.${func.dartName}($callParams) }');
-      writer.line('            postDoubleToPort(dartPort, result ?: Double.NaN)');
+      writer.line('            postOptFloat64ToPort(dartPort, result ?: 0.0, result != null)');
     } else {
       writer.line('            runBlocking { impl.${func.dartName}($callParams) }');
       writer.line('            postNullToPort(dartPort)');

@@ -169,8 +169,8 @@ void main() {
         'bool return — Dart: bool; Kotlin: Boolean; Swift: Int8 (0/1)',
         src,
         dart: BridgeChecks(
-          has: ['bool isReady()', 'Int8 Function(Int64, Pointer<NitroErrorFfi>)'],
-          hasNot: ['bool? isReady'],
+          has: ['bool isReady()', 'Bool Function(Int64, Pointer<NitroErrorFfi>)'],
+          hasNot: ['bool? isReady', 'Int8 Function(Int64'],
         ),
         kotlin: BridgeChecks(
           has: [
@@ -497,7 +497,7 @@ void main() {
   // §9  Nullable primitive parameters — full cross-bridge sentinel check
   // ══════════════════════════════════════════════════════════════════════════
   group('§9 Nullable primitive parameters — NitroOpt* packed struct round-trip', () {
-    for (final (dartType, dartEncoding, kotlinCallType, kotlinDecode, swiftParamType) in [
+    for (final (dartType, dartPackExpr, kotlinCallType, kotlinDecode, swiftParamType) in [
       (
         'int?',
         'arena.packInt(value)',
@@ -521,9 +521,9 @@ void main() {
       ),
     ]) {
       specTest(
-        '$dartType param — Dart NitroOpt*: $dartEncoding; Kotlin ByteArray _call; Swift raw byte decode',
+        '$dartType param — Dart NitroOpt*: $dartPackExpr; Kotlin ByteArray _call; Swift raw byte decode',
         _src('  void process($dartType value);'),
-        dart: BridgeChecks(has: [dartEncoding]),
+        dart: BridgeChecks(has: [dartPackExpr, 'withArena'], hasNot: ['Struct.create<NitroOpt']),
         kotlin: BridgeChecks(
           has: [
             // _call receives ByteArray (JVM descriptor [B)
@@ -750,16 +750,17 @@ void main() {
       dart: BridgeChecks(
         has: [
           'name.toNativeUtf8', // String → pointer
-          'arena.packInt(limit)', // int? → NitroOptInt64 packed struct
+          'arena.packInt(limit)', // int? → NitroOptInt64 packed struct (arena; fn is not leaf due to String)
           'arena.packDouble(threshold)', // double? → NitroOptFloat64 packed struct
           'arena.packBool(verbose)', // bool? → NitroOptBool packed struct
-          'flag ? 1 : 0', // bool (non-nullable) → 0/1
+          // bool (non-nullable): Bool FFI type — passed directly, no ternary
         ],
         hasNot: [
           'count ?? ',
           'ratio ?? ',
           'flag ?? ',
           'name ?? ',
+          'flag ? 1 : 0', // bool is now Bool FFI — passed directly, not as ternary int
         ],
       ),
       kotlin: BridgeChecks(

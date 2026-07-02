@@ -81,7 +81,7 @@ void _emitJniNativeAsyncFuncBody(
   final paramsDeclParts = <String>['int64_t instanceId'];
   for (final p in func.params) {
     paramsDeclParts.add('${_paramTypeToC(p.type.name, structNames)} ${p.name}');
-    if (p.type.isTypedData) paramsDeclParts.add('int64_t ${p.name}_length');
+    if (p.type.isTypedData) paramsDeclParts.add('size_t ${p.name}_length');
   }
   paramsDeclParts.add('int64_t dart_port');
   final paramsDecl = paramsDeclParts.join(', ');
@@ -133,6 +133,14 @@ void _emitJniNativeAsyncFuncBody(
       writer.line('    jbyteArray j_${p.name} = env->NewByteArray(j_${p.name}_len);');
       writer.line('    env->SetByteArrayRegion(j_${p.name}, 0, j_${p.name}_len, (const jbyte*)${p.name});');
       callArgsList.add('j_${p.name}');
+    } else if (p.type.isNullableNitroPrim) {
+      // Nullable prim param: Dart sends a packed NitroOptXxx struct as const uint8_t*.
+      // Wrap in jbyteArray (Kotlin ByteArray) to pass over JNI.
+      // bool? uses 2-byte NitroOptBool; all other nullable prims use 9-byte layout.
+      final sz = p.type.name == 'bool?' ? 2 : 9;
+      writer.line('    jbyteArray j_${p.name} = env->NewByteArray($sz);');
+      writer.line('    if (${p.name} != nullptr) { env->SetByteArrayRegion(j_${p.name}, 0, $sz, (const jbyte*)${p.name}); }');
+      callArgsList.add('j_${p.name}');
     } else {
       callArgsList.add(p.name);
     }
@@ -175,6 +183,7 @@ void _emitJniRegularFuncBody(
   final isAnyNativeObjectReturn = func.returnType.isAnyNativeObject;
   final isCustomTypeReturn = spec.isCustomTypeName(retBase);
   // Nullable prim returns: malloc'd uint8_t* pointer (Dart casts to Pointer<NitroOptXxx> and frees).
+  const _narrowIntNullables = {'int8?', 'int16?', 'int32?', 'uint8?', 'uint16?', 'uint32?', 'intptr?', 'size?'};
   final cReturnType = func.isResult
       ? 'uint8_t*'
       : isAnyNativeObjectReturn
@@ -192,6 +201,10 @@ void _emitJniRegularFuncBody(
       : func.returnType.name == 'bool?'
       ? 'uint8_t*'
       : func.returnType.name == 'DateTime?'
+      ? 'uint8_t*'
+      : _narrowIntNullables.contains(func.returnType.name)
+      ? 'uint8_t*'
+      : func.returnType.name == 'float?'
       ? 'uint8_t*'
       : isEnum
       ? 'int64_t'
@@ -222,7 +235,7 @@ void _emitJniRegularFuncBody(
       cParamType = isEnumParam ? 'int64_t' : _paramTypeToC(p.type.name, structNames);
     }
     paramsDeclParts.add('$cParamType ${p.name}');
-    if (p.type.isTypedData) paramsDeclParts.add('int64_t ${p.name}_length');
+    if (p.type.isTypedData) paramsDeclParts.add('size_t ${p.name}_length');
   }
   // S8: SYNC functions take NitroError* as the last parameter.
   // @nitroAsync functions use the old TLS get_error/clear_error mechanism —
@@ -529,6 +542,96 @@ void _emitJniRegularFuncBody(
     writer.line('    env->GetByteArrayRegion(jarr_nd_, 0, (jsize)sizeof(NitroOptInt64), (jbyte*)nd_result);');
     writer.line('    env->PopLocalFrame(nullptr);');
     writer.line('    return nd_result;');
+  } else if (_narrowIntNullables.contains(func.returnType.name)) {
+    // Narrow integer nullable (int8?, int32?, intptr?, etc.) — same as int? (NitroOptInt64 ByteArray).
+    writer.line('    jbyteArray jarr_nn = (jbyteArray)env->CallStaticObjectMethod(g_bridgeClass, methodId$bridgeArgs);');
+    writer.line('    if (env->ExceptionCheck()) {');
+    writer.line('        nitro_report_jni_exception(env, env->ExceptionOccurred(), _nitro_err);');
+    writer.line('        env->PopLocalFrame(nullptr);');
+    writer.line('        return nullptr;');
+    writer.line('    }');
+    writer.line('    if (jarr_nn == nullptr) { env->PopLocalFrame(nullptr); return nullptr; }');
+    writer.line('    uint8_t* nn_result = (uint8_t*)malloc((size_t)sizeof(NitroOptInt64));');
+    writer.line('    env->GetByteArrayRegion(jarr_nn, 0, (jsize)sizeof(NitroOptInt64), (jbyte*)nn_result);');
+    writer.line('    env->PopLocalFrame(nullptr);');
+    writer.line('    return nn_result;');
+  } else if (func.returnType.name == 'float?') {
+    // float? — same JNI as double? — Kotlin returns NitroOptFloat64 ByteArray.
+    writer.line('    jbyteArray jarr_nf = (jbyteArray)env->CallStaticObjectMethod(g_bridgeClass, methodId$bridgeArgs);');
+    writer.line('    if (env->ExceptionCheck()) {');
+    writer.line('        nitro_report_jni_exception(env, env->ExceptionOccurred(), _nitro_err);');
+    writer.line('        env->PopLocalFrame(nullptr);');
+    writer.line('        return nullptr;');
+    writer.line('    }');
+    writer.line('    if (jarr_nf == nullptr) { env->PopLocalFrame(nullptr); return nullptr; }');
+    writer.line('    uint8_t* nf_result = (uint8_t*)malloc((size_t)sizeof(NitroOptFloat64));');
+    writer.line('    env->GetByteArrayRegion(jarr_nf, 0, (jsize)sizeof(NitroOptFloat64), (jbyte*)nf_result);');
+    writer.line('    env->PopLocalFrame(nullptr);');
+    writer.line('    return nf_result;');
+  } else if (func.returnType.name == 'float') {
+    // float: Kotlin returns Float (jfloat); C returns float.
+    writer.line(
+      '    float res = env->CallStaticFloatMethod(g_bridgeClass, methodId$bridgeArgs);',
+    );
+    writer.line('    if (env->ExceptionCheck()) {');
+    writer.line('        nitro_report_jni_exception(env, env->ExceptionOccurred(), _nitro_err);');
+    writer.line('        env->PopLocalFrame(nullptr);');
+    writer.line('        return 0.0f;');
+    writer.line('    }');
+    writer.line('    env->PopLocalFrame(nullptr);');
+    writer.line('    return res;');
+  } else if (func.returnType.name == 'int8' || func.returnType.name == 'uint8') {
+    // int8 / uint8: Kotlin returns Byte (jbyte); C returns int8_t / uint8_t.
+    final cCast = func.returnType.name == 'uint8' ? 'uint8_t' : 'int8_t';
+    writer.line(
+      '    $cCast res = ($cCast)env->CallStaticByteMethod(g_bridgeClass, methodId$bridgeArgs);',
+    );
+    writer.line('    if (env->ExceptionCheck()) {');
+    writer.line('        nitro_report_jni_exception(env, env->ExceptionOccurred(), _nitro_err);');
+    writer.line('        env->PopLocalFrame(nullptr);');
+    writer.line('        return 0;');
+    writer.line('    }');
+    writer.line('    env->PopLocalFrame(nullptr);');
+    writer.line('    return res;');
+  } else if (func.returnType.name == 'int16' || func.returnType.name == 'uint16') {
+    // int16 / uint16: Kotlin returns Short (jshort); C returns int16_t / uint16_t.
+    final cCast = func.returnType.name == 'uint16' ? 'uint16_t' : 'int16_t';
+    writer.line(
+      '    $cCast res = ($cCast)env->CallStaticShortMethod(g_bridgeClass, methodId$bridgeArgs);',
+    );
+    writer.line('    if (env->ExceptionCheck()) {');
+    writer.line('        nitro_report_jni_exception(env, env->ExceptionOccurred(), _nitro_err);');
+    writer.line('        env->PopLocalFrame(nullptr);');
+    writer.line('        return 0;');
+    writer.line('    }');
+    writer.line('    env->PopLocalFrame(nullptr);');
+    writer.line('    return res;');
+  } else if (func.returnType.name == 'int32' || func.returnType.name == 'uint32') {
+    // int32 / uint32: Kotlin returns Int (jint); C returns int32_t / uint32_t.
+    final cCast = func.returnType.name == 'uint32' ? 'uint32_t' : 'int32_t';
+    writer.line(
+      '    $cCast res = ($cCast)env->CallStaticIntMethod(g_bridgeClass, methodId$bridgeArgs);',
+    );
+    writer.line('    if (env->ExceptionCheck()) {');
+    writer.line('        nitro_report_jni_exception(env, env->ExceptionOccurred(), _nitro_err);');
+    writer.line('        env->PopLocalFrame(nullptr);');
+    writer.line('        return 0;');
+    writer.line('    }');
+    writer.line('    env->PopLocalFrame(nullptr);');
+    writer.line('    return res;');
+  } else if (func.returnType.name == 'intptr' || func.returnType.name == 'size') {
+    // intptr / size: Kotlin returns Long (jlong); C returns intptr_t / size_t.
+    final cCast = func.returnType.name == 'size' ? 'size_t' : 'intptr_t';
+    writer.line(
+      '    $cCast res = ($cCast)env->CallStaticLongMethod(g_bridgeClass, methodId$bridgeArgs);',
+    );
+    writer.line('    if (env->ExceptionCheck()) {');
+    writer.line('        nitro_report_jni_exception(env, env->ExceptionOccurred(), _nitro_err);');
+    writer.line('        env->PopLocalFrame(nullptr);');
+    writer.line('        return 0;');
+    writer.line('    }');
+    writer.line('    env->PopLocalFrame(nullptr);');
+    writer.line('    return res;');
   } else if (func.returnType.name == 'bool') {
     // Non-nullable bool: use CallStaticBooleanMethod (()Z).
     writer.line(
@@ -1663,6 +1766,50 @@ void _emitJniInitializeAndPostHelpers(
     writer.line('    obj.value.as_string = const_cast<char*>(cStr);');
     writer.line('    Dart_PostCObject_DL((Dart_Port)dartPort, &obj);');
     writer.line('    env->ReleaseStringUTFChars(value, cStr);');
+    writer.line('}');
+    writer.blankLine();
+
+    // postOptXxxToPort — nullable prim NativeAsync return helpers.
+    // Allocates a packed NitroOptXxx struct on the native heap (9 bytes for int64/float64,
+    // 2 bytes for bool), fills hasValue + value, posts address as kInt64.
+    // Dart side decodes via Pointer<NitroOptXxx>.fromAddress(raw as int) and frees.
+    final jniPostOptInt64  = _jniMethodName(spec.lib, spec.dartClassName, 'postOptInt64ToPort');
+    final jniPostOptFloat64 = _jniMethodName(spec.lib, spec.dartClassName, 'postOptFloat64ToPort');
+    final jniPostOptBool   = _jniMethodName(spec.lib, spec.dartClassName, 'postOptBoolToPort');
+
+    // postOptInt64ToPort: int? / uint64? / DateTime? NativeAsync returns
+    writer.line('JNIEXPORT void JNICALL $jniPostOptInt64(JNIEnv*, jclass, jlong dartPort, jlong value, jboolean hasValue) {');
+    writer.line('    uint8_t* buf = (uint8_t*)malloc(9);');
+    writer.line('    buf[0] = hasValue ? 1 : 0;');
+    writer.line('    if (hasValue) { memcpy(buf + 1, &value, 8); }');
+    writer.line('    Dart_CObject obj;');
+    writer.line('    obj.type = Dart_CObject_kInt64;');
+    writer.line('    obj.value.as_int64 = (int64_t)(uintptr_t)buf;');
+    writer.line('    Dart_PostCObject_DL((Dart_Port)dartPort, &obj);');
+    writer.line('}');
+    writer.blankLine();
+
+    // postOptFloat64ToPort: double? NativeAsync returns
+    writer.line('JNIEXPORT void JNICALL $jniPostOptFloat64(JNIEnv*, jclass, jlong dartPort, jdouble value, jboolean hasValue) {');
+    writer.line('    uint8_t* buf = (uint8_t*)malloc(9);');
+    writer.line('    buf[0] = hasValue ? 1 : 0;');
+    writer.line('    if (hasValue) { memcpy(buf + 1, &value, 8); }');
+    writer.line('    Dart_CObject obj;');
+    writer.line('    obj.type = Dart_CObject_kInt64;');
+    writer.line('    obj.value.as_int64 = (int64_t)(uintptr_t)buf;');
+    writer.line('    Dart_PostCObject_DL((Dart_Port)dartPort, &obj);');
+    writer.line('}');
+    writer.blankLine();
+
+    // postOptBoolToPort: bool? NativeAsync returns (2-byte NitroOptBool)
+    writer.line('JNIEXPORT void JNICALL $jniPostOptBool(JNIEnv*, jclass, jlong dartPort, jboolean value, jboolean hasValue) {');
+    writer.line('    uint8_t* buf = (uint8_t*)malloc(2);');
+    writer.line('    buf[0] = hasValue ? 1 : 0;');
+    writer.line('    buf[1] = value ? 1 : 0;');
+    writer.line('    Dart_CObject obj;');
+    writer.line('    obj.type = Dart_CObject_kInt64;');
+    writer.line('    obj.value.as_int64 = (int64_t)(uintptr_t)buf;');
+    writer.line('    Dart_PostCObject_DL((Dart_Port)dartPort, &obj);');
     writer.line('}');
     writer.blankLine();
   }

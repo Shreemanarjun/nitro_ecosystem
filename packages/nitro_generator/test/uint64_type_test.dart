@@ -90,11 +90,13 @@ void main() {
       expect(dart, contains('Uint64'));
     });
 
-    test('uint64? param: packed via arena.packInt', () {
+    test('uint64? param: sync uses arena.packInt (NitroOptInt64 encoding)', () {
+      // uint64? maps to NitroOptInt64 (same 9-byte wire format as int?).
       final dart = DartFfiGenerator.generate(_spec('void', params: [
         BridgeParam(name: 'val', type: BridgeType(name: 'uint64?', isNullable: true)),
       ]));
       expect(dart, contains('arena.packInt(val)'));
+      expect(dart, contains('withArena'));
     });
   });
 

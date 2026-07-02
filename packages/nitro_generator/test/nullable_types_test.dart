@@ -88,43 +88,43 @@ BridgeSpec _recordSpec(List<BridgeRecordField> fields) => BridgeSpec(
 );
 
 void main() {
-  group('CppInterfaceGenerator — nullable type names strip ?', () {
-    test('String? return strips ? → std::string', () {
+  group('CppInterfaceGenerator — nullable types use std::optional<T> (RN Nitro parity)', () {
+    test('String? return → std::optional<std::string>', () {
       final out = CppInterfaceGenerator.generate(_nullableReturnSpec('String?'));
-      expect(out, contains('virtual std::string getValue() = 0;'));
+      expect(out, contains('virtual std::optional<std::string> getValue() = 0;'));
     });
 
-    test('int? return strips ? → int64_t', () {
+    test('int? return → std::optional<int64_t>', () {
       final out = CppInterfaceGenerator.generate(_nullableReturnSpec('int?'));
-      expect(out, contains('virtual int64_t getValue() = 0;'));
+      expect(out, contains('virtual std::optional<int64_t> getValue() = 0;'));
     });
 
-    test('double? return strips ? → double', () {
+    test('double? return → std::optional<double>', () {
       final out = CppInterfaceGenerator.generate(_nullableReturnSpec('double?'));
-      expect(out, contains('virtual double getValue() = 0;'));
+      expect(out, contains('virtual std::optional<double> getValue() = 0;'));
     });
 
-    test('bool? return strips ? → bool', () {
+    test('bool? return → std::optional<bool>', () {
       final out = CppInterfaceGenerator.generate(_nullableReturnSpec('bool?'));
-      expect(out, contains('virtual bool getValue() = 0;'));
+      expect(out, contains('virtual std::optional<bool> getValue() = 0;'));
     });
 
-    test('String? param strips ? → const std::string&', () {
+    test('String? param → const std::optional<std::string>& val', () {
       final out = CppInterfaceGenerator.generate(_nullableParamSpec('String?'));
-      expect(out, contains('virtual void setValue(const std::string& val) = 0;'));
+      expect(out, contains('virtual void setValue(const std::optional<std::string>& val) = 0;'));
     });
 
-    test('int? param strips ? → int64_t', () {
+    test('int? param → std::optional<int64_t> val', () {
       final out = CppInterfaceGenerator.generate(_nullableParamSpec('int?'));
-      expect(out, contains('virtual void setValue(int64_t val) = 0;'));
+      expect(out, contains('virtual void setValue(std::optional<int64_t> val) = 0;'));
     });
 
-    test('double? param strips ? → double', () {
+    test('double? param → std::optional<double> val', () {
       final out = CppInterfaceGenerator.generate(_nullableParamSpec('double?'));
-      expect(out, contains('virtual void setValue(double val) = 0;'));
+      expect(out, contains('virtual void setValue(std::optional<double> val) = 0;'));
     });
 
-    test('nullable struct param strips ? → const StructName&', () {
+    test('nullable struct param → const std::optional<StructName>& f', () {
       final spec = BridgeSpec(
         dartClassName: 'Mod',
         lib: 'mod',
@@ -160,10 +160,10 @@ void main() {
         ],
       );
       final out = CppInterfaceGenerator.generate(spec);
-      expect(out, contains('virtual void push(const Frame& f) = 0;'));
+      expect(out, contains('virtual void push(const std::optional<Frame>& f) = 0;'));
     });
 
-    test('nullable enum param strips ? → enum type', () {
+    test('nullable enum param → std::optional<EnumName> m', () {
       final spec = BridgeSpec(
         dartClassName: 'Mod',
         lib: 'mod',
@@ -190,7 +190,7 @@ void main() {
         ],
       );
       final out = CppInterfaceGenerator.generate(spec);
-      expect(out, contains('virtual void setMode(Mode m) = 0;'));
+      expect(out, contains('virtual void setMode(std::optional<Mode> m) = 0;'));
     });
   });
 
@@ -401,9 +401,9 @@ void main() {
       expect(bt.isNullable, isTrue);
     });
 
-    test('BridgeType name with ? is stripped by CppInterfaceGenerator', () {
+    test('BridgeType name with ? becomes std::optional<T> in CppInterfaceGenerator', () {
       final out = CppInterfaceGenerator.generate(_nullableReturnSpec('int?'));
-      expect(out, contains('virtual int64_t getValue() = 0;'));
+      expect(out, contains('virtual std::optional<int64_t> getValue() = 0;'));
       expect(out, isNot(contains('int?')));
     });
   });

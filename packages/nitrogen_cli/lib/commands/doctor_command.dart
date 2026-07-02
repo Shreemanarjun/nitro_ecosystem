@@ -874,10 +874,18 @@ class DoctorCommand extends Command {
         err(androidSec, 'android/build.gradle not found');
       } else {
         final g = gradle.readAsStringSync();
+        // Accept either the classic apply-plugin syntax or the modern approach
+        // where Flutter's build infrastructure provides KGP automatically.
+        // The modern approach is preferred since Flutter 3.x deprecated explicit
+        // KGP in plugin build files (produces a Flutter deprecation warning).
         if (g.contains('"kotlin-android"') || g.contains("'kotlin-android'")) {
           ok(androidSec, 'kotlin-android plugin applied');
+        } else if (g.contains('kotlinOptions') || g.contains('kotlin.srcDirs')) {
+          // Flutter's built-in KGP is active — Kotlin is configured without the
+          // explicit apply plugin line (intentional per Flutter migration guide).
+          ok(androidSec, 'Kotlin configured via Flutter built-in KGP (modern approach)');
         } else {
-          err(androidSec, 'kotlin-android plugin missing', hint: 'Add: apply plugin: "kotlin-android"');
+          err(androidSec, 'kotlin-android plugin missing', hint: 'Add: apply plugin: "kotlin-android"  or use Flutter built-in KGP (kotlinOptions block)');
         }
         if (g.contains('kotlinOptions')) {
           ok(androidSec, 'kotlinOptions block present');
@@ -927,9 +935,12 @@ class DoctorCommand extends Command {
             err(androidSec, 'System.loadLibrary("$lib") missing', hint: 'Run: nitrogen link');
           }
         }
-        // JniBridge.register only needed for non-cpp specs
+        // JniBridge.register / registerFactory only needed for non-cpp specs.
+        // Accept both forms:
+        //   register(impl)           — simple single-instance pattern
+        //   registerFactory({...})   — factory pattern for multi-instance support
         if (hasAnyNonCppSpec) {
-          if (kt.contains('JniBridge.register(')) {
+          if (kt.contains('JniBridge.register(') || kt.contains('JniBridge.registerFactory(')) {
             ok(androidSec, 'JniBridge.register(...) call present');
           } else {
             warn(androidSec, 'JniBridge.register(...) not found in Plugin.kt', hint: 'Add register call in onAttachedToEngine');
@@ -1223,6 +1234,39 @@ class DoctorCommand extends Command {
         } else if (specs.isNotEmpty) {
           warn(iosSec, 'SPM Sources/$cppTargetName/ directory not found', hint: 'Run: nitrogen link  (creates the SPM C++ target with bridge forwarders)');
         }
+
+        // ── Swift target completeness (nested-SPM gap fix) ───────────────────
+        // The Package.swift must also declare a Swift target (named <pluginName>)
+        // that depends on the C++ target and the FlutterFramework. Its sources
+        // live in Sources/<PascalCaseName>/ and must include the generated
+        // <pluginName>.bridge.g.swift file so Swift can call the C ABI.
+        final isSwift = specs.isEmpty || _isAppleSwiftModule(specs.first);
+        if (isSwift) {
+          final swiftDirName = _toPascalCase(pluginName);
+          final spmSwiftDir = Directory(p.join(packageRoot, 'Sources', swiftDirName));
+
+          // Look for the Swift target declaration specifically (not just the Package name).
+          // The target name must appear as name: "<plugin>" inside a .target(...) call.
+          // Swift Package.swift uses double-quoted names; check for target name: "<plugin>".
+          final hasSwiftTarget = RegExp(r'\.target\s*\(\s*name\s*:\s*"' + RegExp.escape(pluginName) + r'"').hasMatch(pkgSwift);
+          if (hasSwiftTarget) {
+            ok(iosSec, 'Package.swift: $pluginName Swift target defined');
+          } else {
+            warn(iosSec, 'Package.swift: $pluginName Swift target missing', hint: 'Run: nitrogen init  (re-creates Package.swift with the correct Swift target)');
+          }
+
+          if (spmSwiftDir.existsSync()) {
+            ok(iosSec, 'SPM Sources/$swiftDirName/ directory present');
+            final swiftBridge = File(p.join(spmSwiftDir.path, '$pluginName.bridge.g.swift'));
+            if (swiftBridge.existsSync()) {
+              ok(iosSec, 'SPM Sources/$swiftDirName/$pluginName.bridge.g.swift present');
+            } else if (specs.isNotEmpty) {
+              err(iosSec, 'Missing $pluginName.bridge.g.swift in SPM Sources/$swiftDirName/', hint: 'Run: nitrogen link  (copies generated bridge to the SPM Swift target)');
+            }
+          } else if (specs.isNotEmpty) {
+            warn(iosSec, 'SPM Sources/$swiftDirName/ directory not found', hint: 'Run: nitrogen link  (creates SPM Swift target directory with bridge)');
+          }
+        }
       }
     }
 
@@ -1439,6 +1483,32 @@ class DoctorCommand extends Command {
           }
         } else if (specs.isNotEmpty) {
           warn(macosSec, 'SPM Sources/$cppTargetName/ directory not found', hint: 'Run: nitrogen link  (creates the SPM C++ target with bridge forwarders)');
+        }
+
+        // ── Swift target completeness (nested-SPM gap fix) ───────────────────
+        final isMacosSwift = specs.isEmpty || _isAppleSwiftModule(specs.first);
+        if (isMacosSwift) {
+          final swiftDirName = _toPascalCase(pluginName);
+          final spmSwiftDir = Directory(p.join(packageRoot, 'Sources', swiftDirName));
+
+          final hasMacosSwiftTarget = RegExp(r'\.target\s*\(\s*name\s*:\s*"' + RegExp.escape(pluginName) + r'"').hasMatch(pkgSwift);
+          if (hasMacosSwiftTarget) {
+            ok(macosSec, 'Package.swift: $pluginName Swift target defined');
+          } else {
+            warn(macosSec, 'Package.swift: $pluginName Swift target missing', hint: 'Run: nitrogen init  (re-creates Package.swift with the correct Swift target)');
+          }
+
+          if (spmSwiftDir.existsSync()) {
+            ok(macosSec, 'SPM Sources/$swiftDirName/ directory present');
+            final swiftBridge = File(p.join(spmSwiftDir.path, '$pluginName.bridge.g.swift'));
+            if (swiftBridge.existsSync()) {
+              ok(macosSec, 'SPM Sources/$swiftDirName/$pluginName.bridge.g.swift present');
+            } else if (specs.isNotEmpty) {
+              err(macosSec, 'Missing $pluginName.bridge.g.swift in SPM Sources/$swiftDirName/', hint: 'Run: nitrogen link  (copies generated bridge to the SPM Swift target)');
+            }
+          } else if (specs.isNotEmpty) {
+            warn(macosSec, 'SPM Sources/$swiftDirName/ directory not found', hint: 'Run: nitrogen link  (creates SPM Swift target directory with bridge)');
+          }
         }
       }
     }

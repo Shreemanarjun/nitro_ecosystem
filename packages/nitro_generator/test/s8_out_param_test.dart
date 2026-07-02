@@ -191,12 +191,13 @@ void main() {
   group('S8 — Dart FFI generator out-param wiring', () {
     test('_nitroErr pre-allocated slot in class field', () {
       final out = DartFfiGenerator.generate(_syncSpec());
-      expect(out, contains('final Pointer<NitroErrorFfi> _nitroErr = calloc<NitroErrorFfi>();'));
+      // malloc<NitroErrorFfi>() — uninitialized is fine since C overwrites the slot
+      expect(out, contains('final Pointer<NitroErrorFfi> _nitroErr = malloc<NitroErrorFfi>();'));
     });
 
     test('dispose() frees _nitroErr slot', () {
       final out = DartFfiGenerator.generate(_syncSpec());
-      expect(out, contains('calloc.free(_nitroErr);'));
+      expect(out, contains('malloc.free(_nitroErr);'));
     });
 
     test('dispose() guards against double-free with isDisposed check', () {

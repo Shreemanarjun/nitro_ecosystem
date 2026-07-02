@@ -723,7 +723,7 @@ void main() {
 
     test('CppBridge (pure-C++ path): NitroCppBuffer _res + return (uint8_t*)_res.data', () {
       final out = CppBridgeGenerator.generate(cppSpec);
-      expect(out, contains('NitroCppBuffer _res = g_impl->getPrinters()'));
+      expect(out, contains('NitroCppBuffer _res = _impl->getPrinters()'));
       expect(out, contains('return (uint8_t*)_res.data'));
     });
 
@@ -784,7 +784,7 @@ void main() {
 
     test('CppBridge (pure-C++ path): NitroCppBuffer _res + return (uint8_t*)_res.data', () {
       final out = CppBridgeGenerator.generate(cppSpec);
-      expect(out, contains('NitroCppBuffer _res = g_impl->getJob()'));
+      expect(out, contains('NitroCppBuffer _res = _impl->getJob()'));
       expect(out, contains('return (uint8_t*)_res.data'));
     });
 
@@ -825,7 +825,7 @@ void main() {
 
     test('CppBridge (pure-C++ path): NitroCppBuffer pattern for list record return', () {
       final out = CppBridgeGenerator.generate(cppSpec);
-      expect(out, contains('NitroCppBuffer _res = g_impl->getJobs()'));
+      expect(out, contains('NitroCppBuffer _res = _impl->getJobs()'));
       expect(out, contains('return (uint8_t*)_res.data'));
     });
 
@@ -880,7 +880,7 @@ void main() {
 
     test('CppBridge (pure-C++ path): NitroCppBuffer pattern', () {
       final out = CppBridgeGenerator.generate(cppSpec);
-      expect(out, contains('NitroCppBuffer _res = g_impl->getSettings()'));
+      expect(out, contains('NitroCppBuffer _res = _impl->getSettings()'));
       expect(out, contains('return (uint8_t*)_res.data'));
     });
 
@@ -1227,11 +1227,11 @@ void main() {
     test('CppBridge (pure-C++): all record-return methods use NitroCppBuffer pattern', () {
       final out = CppBridgeGenerator.generate(mixedCppSpec);
       // List<Printer>
-      expect(out, contains('NitroCppBuffer _res = g_impl->getPrinters()'));
+      expect(out, contains('NitroCppBuffer _res = _impl->getPrinters()'));
       // Job
-      expect(out, contains('NitroCppBuffer _res = g_impl->getJob()'));
+      expect(out, contains('NitroCppBuffer _res = _impl->getJob()'));
       // List<Job>
-      expect(out, contains('NitroCppBuffer _res = g_impl->getJobs()'));
+      expect(out, contains('NitroCppBuffer _res = _impl->getJobs()'));
     });
 
     test('CppBridge (pure-C++): Printer single return uses malloc not NitroCppBuffer', () {

@@ -135,7 +135,7 @@ class CppHeaderGenerator {
             cType = isEnumParam ? 'int64_t' : ((isStructParam || p.type.isNativeHandle) ? 'void*' : _typeToC(p.type.name));
           }
           paramParts.add('$cType ${p.name}');
-          if (p.type.isTypedData) paramParts.add('int64_t ${p.name}_length');
+          if (p.type.isTypedData) paramParts.add('size_t ${p.name}_length'); // matches Dart FFI Size type
         }
         // @NitroNativeAsync: C entry point is always void + extra dart_port param.
         if (func.isNativeAsync) {
@@ -297,6 +297,24 @@ class CppHeaderGenerator {
         return 'void';
       case 'AnyNativeObject':
         return 'int64_t';
+      case 'int8':
+        return 'int8_t';
+      case 'int16':
+        return 'int16_t';
+      case 'int32':
+        return 'int32_t';
+      case 'uint8':
+        return 'uint8_t';
+      case 'uint16':
+        return 'uint16_t';
+      case 'uint32':
+        return 'uint32_t';
+      case 'float':
+        return 'float';
+      case 'intptr':
+        return 'intptr_t';
+      case 'size':
+        return 'size_t';
       default:
         // NitroAnyMap and Map<String, T> both bridge as length-prefixed binary buffers.
         if (dartType == 'NitroAnyMap' || dartType.startsWith('Map<')) return 'uint8_t*';

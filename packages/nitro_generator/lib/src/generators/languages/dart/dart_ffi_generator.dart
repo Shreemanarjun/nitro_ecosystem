@@ -33,6 +33,27 @@ const _nitroLibraryRecordTypes = {
 
 
 class DartFfiGenerator {
+  /// Generates and returns the Dart source for a pair of int-key map
+  /// encode/decode helpers (Gap #3).
+  ///
+  /// Exposed publicly for unit testing; normally invoked internally by
+  /// [generate] via [_emitMapAndFactory].
+  ///
+  /// Example:
+  /// ```dart
+  /// final src = DartFfiGenerator.generateIntKeyMapHelpers('int', 'String', spec);
+  /// expect(src, contains('setInt64'));   // 8-byte key for `int`
+  /// ```
+  static String generateIntKeyMapHelpers(
+    String keyType,
+    String valueType,
+    BridgeSpec spec,
+  ) {
+    final w = CodeWriter();
+    _emitIntKeyMapBinaryHelpers(w, keyType, valueType, spec);
+    return w.toString();
+  }
+
   static String generate(BridgeSpec spec) {
     _assertSupportedFunctionTypes(spec);
 
@@ -63,6 +84,8 @@ class DartFfiGenerator {
     // Type-only files have no bridge implementation — only type declarations.
     if (spec.isTypeOnly) return writer.toString();
 
+    // Finding 1: top-level @Native<F> declarations for AOT-optimized leaf calls.
+    _emitNativeBindingDeclarations(writer, spec);
 
     _emitImplClassSetup(writer, spec);
     _emitFunctionImpls(writer, spec);

@@ -207,16 +207,17 @@ void main() {
   // ══════════════════════════════════════════════════════════════════════════
   group('§1-§3 Dart FFI — optional-primitive sentinels', () {
     for (final c in _optPrimCases) {
-      test('async ${c.type} → uses NitroOptional<T> packed encoding (${c.dartSentinel})', () {
+      test('async ${c.type} → uses arena packed encoding (${c.dartSentinel})', () {
+        // @nitroAsync functions are NOT leaf-eligible; use Arena for nullable prim params.
         _checkDartFfi(
           _asyncSpec(funcName: 'fn', params: [_p(c.param, c.type)]),
           has: [c.dartSentinel],
         );
       });
-      test('sync ${c.type} → uses NitroOptional<T> packed encoding (${c.dartSentinel})', () {
+      test('sync ${c.type} → uses arena.pack* encoding (${c.dartSentinel})', () {
         _checkDartFfi(
           _syncSpec(funcName: 'fn', params: [_p(c.param, c.type)]),
-          has: [c.dartSentinel],
+          has: [c.dartSentinel, 'withArena'],
         );
       });
     }
@@ -258,11 +259,11 @@ void main() {
       );
     });
 
-    test('bool uses ? 1 : 0, not sentinel', () {
+    test('bool uses Bool FFI type — passed directly, no ternary', () {
+      // Bool FFI type maps bool directly; no ? 1 : 0 conversion or null sentinel
       _checkDartFfi(
         _asyncSpec(funcName: 'fn', params: [_p('flag', 'bool')]),
-        has: ['flag ? 1 : 0'],
-        hasNot: ['flag == null'],
+        hasNot: ['flag ? 1 : 0', 'flag == null'],
       );
     });
   });
@@ -363,10 +364,11 @@ void main() {
           'arena.packInt(timeout)',
           'arena.packDouble(scale)',
           'arena.packBool(verbose)',
-          'enabled ? 1 : 0',
+          'enabled', // non-nullable bool: Bool FFI type, passed directly
           'count',
         ],
-        hasNot: ['count ?? ', 'enabled ?? '],
+        // Bool FFI passes enabled directly — no ternary or null sentinel
+        hasNot: ['count ?? ', 'enabled ?? ', 'enabled ? 1 : 0'],
       );
     });
   });

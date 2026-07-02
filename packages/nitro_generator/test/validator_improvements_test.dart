@@ -375,15 +375,17 @@ void main() {
   // ── E001 improved hint ────────────────────────────────────────────────────────
 
   group('E001 improved hint — non-String Map keys', () {
-    test('Map<int, V> return emits E001 with integer-encoding hint', () {
+    // Gap #3: int and @HybridEnum keys are now supported natively.
+    // Only truly unsupported key types (bool, float, arbitrary class) still
+    // trigger E001. Tests updated to reflect the new allowed set.
+    test('Map<int, V> return does NOT emit E001 (int key natively supported — Gap #3)', () {
       final spec = _fn(returnTypeName: 'Map<int, String>');
       final issues = SpecValidator.validate(spec);
-      final e1 = issues.firstWhere((i) => i.code == 'E001', orElse: () => throw 'no E001');
-      expect(e1.hint, contains('toString()'),
-          reason: 'Hint should suggest encoding int key as String');
+      expect(issues.any((i) => i.code == 'E001'), isFalse,
+          reason: 'Map<int,V> is now supported via binary int-key wire format');
     });
 
-    test('Map<int, V> parameter emits E001 with integer-encoding hint', () {
+    test('Map<int, V> parameter does NOT emit E001 (int key natively supported — Gap #3)', () {
       final spec = _fn(
         returnTypeName: 'void',
         params: [
@@ -394,8 +396,15 @@ void main() {
         ],
       );
       final issues = SpecValidator.validate(spec);
-      final e1 = issues.firstWhere((i) => i.code == 'E001', orElse: () => throw 'no E001');
-      expect(e1.hint, contains('toString()'));
+      expect(issues.any((i) => i.code == 'E001'), isFalse,
+          reason: 'Map<int,V> params are now supported');
+    });
+
+    test('Map<bool, V> return still emits E001 (bool key is unsupported)', () {
+      final spec = _fn(returnTypeName: 'Map<bool, String>');
+      final issues = SpecValidator.validate(spec);
+      expect(issues.any((i) => i.code == 'E001'), isTrue,
+          reason: 'bool is not a valid map key type');
     });
 
     test('Map<String, V> does NOT emit E001', () {

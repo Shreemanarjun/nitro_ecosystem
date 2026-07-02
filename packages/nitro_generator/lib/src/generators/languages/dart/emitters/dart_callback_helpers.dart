@@ -300,9 +300,17 @@ String _callbackInvocationArgs(BridgeType callbackType, BridgeSpec spec) {
         args.add('arg$i.to$name()');
       }
     } else if (spec.isStructName(name)) {
-      args.add('arg$i.cast<${name}Ffi>().ref.toDart()');
+      if (isNullable) {
+        args.add('arg$i == nullptr ? null : arg$i.cast<${name}Ffi>().ref.toDart()');
+      } else {
+        args.add('arg$i.cast<${name}Ffi>().ref.toDart()');
+      }
     } else if (spec.isRecordName(name)) {
-      args.add('(() { final _r = $name.fromNative(arg$i); malloc.free(arg$i); return _r; })()');
+      if (isNullable) {
+        args.add('arg$i == nullptr ? null : (() { final _r = $name.fromNative(arg$i); malloc.free(arg$i); return _r; })()');
+      } else {
+        args.add('(() { final _r = $name.fromNative(arg$i); malloc.free(arg$i); return _r; })()');
+      }
     } else if (spec.isVariantName(name)) {
       // @NitroVariant callback param: native passes Pointer<Uint8> = [4B len][tag][fields].
       // Dart decodes via VariantExt.fromNative and frees the allocation.

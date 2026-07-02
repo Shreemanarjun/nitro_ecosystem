@@ -57,6 +57,8 @@ class SpecValidator {
     'DateTime?',
     'uint64',
     'uint64?',
+    'int8', 'int16', 'int32', 'uint8', 'uint16', 'uint32', 'float', 'intptr', 'size',
+    'int8?', 'int16?', 'int32?', 'uint8?', 'uint16?', 'uint32?', 'float?', 'intptr?', 'size?',
     'AnyNativeObject',
     'AnyNativeObject?',
     'Uint8List?',
@@ -237,6 +239,7 @@ class SpecValidator {
       }
     }
 
+
     final enumNames = spec.enums.map((e) => e.name).toSet();
     final structNames = spec.structs.map((s) => s.name).toSet();
     final recordNames = spec.recordTypes.map((r) => r.name).toSet();
@@ -266,24 +269,31 @@ class SpecValidator {
         );
       }
 
-      // E001: Map<K, V> where K is not String.
+      // E001: Map<K, V> where K is not String, int, or a known @HybridEnum.
       // isMap is only set by the extractor for Map<String, V>; a bare Map<K,V>
       // with a non-String key falls through here and needs a specific hint.
       if (func.returnType.name.startsWith('Map<') && !func.returnType.isMap) {
+        final keyType = BridgeType.extractMapKeyType(func.returnType.name);
         final rawValueType = func.returnType.name.contains(',')
             ? func.returnType.name.split(',').last.trim().replaceFirst('>', '')
             : 'V';
-        issues.add(
-          ValidationIssue(
-            severity: ValidationSeverity.error,
-            code: 'E001',
-            message:
-                '${spec.dartClassName}.${func.dartName}() — return type "${func.returnType.name}" uses a non-String Map key. '
-                'Only Map<String, V> is supported.',
-            hint: 'Change the key type to String: Map<String, $rawValueType>. '
-                'If you need an integer key, encode it as a String: myMap[key.toString()].',
-          ),
-        );
+        // Allow integer key types and enum key types (Gap #3).
+        final _intKeyTypes = const {'int', 'int8', 'int16', 'int32', 'int64', 'uint8', 'uint16', 'uint32', 'uint64'};
+        final isAllowedKey = keyType != null &&
+            (_intKeyTypes.contains(keyType) || enumNames.contains(keyType));
+        if (!isAllowedKey) {
+          issues.add(
+            ValidationIssue(
+              severity: ValidationSeverity.error,
+              code: 'E001',
+              message:
+                  '${spec.dartClassName}.${func.dartName}() — return type "${func.returnType.name}" uses a non-String Map key. '
+                  'Only Map<String, V>, Map<int, V>, and Map<@HybridEnum, V> are supported.',
+              hint: 'Change the key type to String, int, or a @HybridEnum. '
+                  'If you need a string key, use Map<String, $rawValueType>.',
+            ),
+          );
+        }
       }
 
       // E003: Nested Map (Map<String, Map<…>>) is not supported — the binary
@@ -464,18 +474,24 @@ class SpecValidator {
           continue;
         }
 
-        // E001: Map<K, V> where K is not String.
+        // E001: Map<K, V> where K is not String, int, or a known @HybridEnum.
         if (param.type.name.startsWith('Map<') && !param.type.isMap) {
-          issues.add(
-            ValidationIssue(
-              severity: ValidationSeverity.error,
-              code: 'E001',
-              message:
-                  '${spec.dartClassName}.${func.dartName}() — parameter "${param.name}" type "${param.type.name}" uses a non-String Map key. '
-                  'Only Map<String, V> is supported.',
-              hint: 'Change the key type to String. If you need an integer key, encode it as a String: myMap[key.toString()].',
-            ),
-          );
+          final keyType = BridgeType.extractMapKeyType(param.type.name);
+          final _intKeyTypes2 = const {'int', 'int8', 'int16', 'int32', 'int64', 'uint8', 'uint16', 'uint32', 'uint64'};
+          final isAllowedParamKey = keyType != null &&
+              (_intKeyTypes2.contains(keyType) || enumNames.contains(keyType));
+          if (!isAllowedParamKey) {
+            issues.add(
+              ValidationIssue(
+                severity: ValidationSeverity.error,
+                code: 'E001',
+                message:
+                    '${spec.dartClassName}.${func.dartName}() — parameter "${param.name}" type "${param.type.name}" uses a non-String Map key. '
+                    'Only Map<String, V>, Map<int, V>, and Map<@HybridEnum, V> are supported.',
+                hint: 'Change the key type to String, int, or a @HybridEnum.',
+              ),
+            );
+          }
         }
 
         // E003: Nested Map parameter.
@@ -924,6 +940,21 @@ class SpecValidator {
       if (state[name] == 0) dfs(name, [name]);
     }
     return issues;
+  }
+
+  /// Collects all base type names (with '?' stripped) referenced by functions and properties.
+  static Set<String> _collectAllBridgeTypeNames(BridgeSpec spec) {
+    final names = <String>{};
+    for (final func in spec.functions) {
+      names.add(func.returnType.name.replaceFirst('?', ''));
+      for (final p in func.params) {
+        names.add(p.type.name.replaceFirst('?', ''));
+      }
+    }
+    for (final prop in spec.properties) {
+      names.add(prop.type.name.replaceFirst('?', ''));
+    }
+    return names;
   }
 
   static bool _isKnownType(String typeName, Set<String> knownTypes) {

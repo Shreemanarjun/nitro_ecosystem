@@ -29,7 +29,7 @@ class CppTypeMappings {
       case 'double':
         return 'double';
       case 'bool':
-        return 'int8_t';
+        return '_Bool'; // C99 _Bool; same 1-byte ABI as int8_t on ARM64/x86_64 — ObjC-representable in Swift @_cdecl
       case 'String':
         return 'const char*';
       case 'Uint8List':
@@ -100,7 +100,7 @@ class CppTypeMappings {
         return '0';
       case 'double':
         return '0.0';
-      case 'int8_t':
+      case '_Bool':
         return 'false';
       case 'const char*':
         return 'nullptr';

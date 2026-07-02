@@ -6,8 +6,12 @@ import '../../record_generator.dart';
 /// Generates `*.native.g.h` — the abstract C++ class that the user implements
 /// when `@NitroModule(ios: NativeImpl.cpp, android: NativeImpl.cpp)` is used.
 ///
-/// The user subclasses `Hybrid${ClassName}` and registers their instance via
-/// `${lib}_register_impl(&myImpl)` during plugin initialisation.
+/// Architecture mirrors React Native Nitro's HybridXxxSpec pattern:
+///   - `Hybrid${ClassName}` abstract class with pure-virtual methods
+///   - `std::optional<T>` for nullable types (not raw pointers)
+///   - `std::function<R(Args...)>` for callbacks (not raw function pointers)
+///   - `shared_ptr<Hybrid${ClassName}>` factory for multi-instance support
+///   - `NitroRecordWriter` / `NitroRecordReader` for binary codec
 class CppInterfaceGenerator {
   static String generate(BridgeSpec spec) {
     if (!spec.hasCppImpl) {
@@ -22,17 +26,23 @@ class CppInterfaceGenerator {
       CodeSnippet(generatedFileHeader('//', sourceUri: spec.sourceUri)),
       const CodeLine('//'),
       CodeLine('// Abstract C++ interface for $className.'),
-      CodeLine(
-        '// Subclass Hybrid$className and register via ${libStem}_register_impl().',
-      ),
+      CodeLine('// Mirrors RN Nitro\'s HybridXxxSpec pattern — pure-virtual C++ with stdlib types.'),
+      CodeLine('// 1. Subclass Hybrid$className and implement all pure-virtual methods.'),
+      CodeLine('// 2. Register via ${libStem}_register_factory() (multi-instance) or'),
+      CodeLine('//    ${libStem}_register_impl() (single-instance legacy API).'),
       const CodeLine('#pragma once'),
       CodeLine('#ifndef $headerGuard'),
       CodeLine('#define $headerGuard'),
       const BlankLine(),
       const CodeLine('#include <stdint.h>'),
       const CodeLine('#include <stddef.h>'),
+      const CodeLine('#include <cstring>'),
+      const CodeLine('#include <functional>'),
+      const CodeLine('#include <memory>'),
+      const CodeLine('#include <optional>'),
       const CodeLine('#include <string>'),
       const CodeLine('#include <stdexcept>'),
+      const CodeLine('#include <vector>'),
     ];
 
     final enumNames = spec.enums.map((e) => e.name).toSet();
@@ -44,10 +54,7 @@ class CppInterfaceGenerator {
 
     if (spec.recordTypes.isNotEmpty || spec.variants.isNotEmpty) {
       nodes.addAll(const [
-        CodeLine('#include <cstring>'),
-        CodeLine('#include <optional>'),
         CodeLine('#include <variant>'),
-        CodeLine('#include <vector>'),
       ]);
     }
     nodes.addAll([
@@ -55,20 +62,43 @@ class CppInterfaceGenerator {
       const BlankLine(),
     ]);
 
-    // NitroCppBuffer — lightweight view for @HybridRecord payloads and
-    // @zeroCopy TypedData returns.
+    // NitroCppBuffer — lightweight read-only view (mirrors RN Nitro's ArrayBuffer concept).
+    // NitroRecordWriter — binary encoder for @HybridRecord return values.
+    // NitroRecordReader — binary decoder for @HybridRecord parameter values.
     nodes.addAll(const [
-      CodeLine(
-        '/// Lightweight read-only view over a binary payload.',
-      ),
-      CodeLine(
-        '/// For @zeroCopy returns, native code must keep data alive while Dart uses it.',
-      ),
+      CodeLine('/// Lightweight read-only view over a binary payload.'),
+      CodeLine('/// For @zeroCopy returns, native code must keep data alive while Dart uses it.'),
       CodeBlock(
         header: 'struct NitroCppBuffer {',
         body: [
           CodeLine('const uint8_t* data;'),
           CodeLine('size_t size;'),
+        ],
+        footer: '};',
+      ),
+      BlankLine(),
+      CodeLine('/// Binary encoder for @HybridRecord / @NitroVariant return values.'),
+      CodeLine('/// Mirrors RN Nitro\'s NitroRecordWriter — build then call toNative().'),
+      CodeBlock(
+        header: 'struct NitroRecordWriter {',
+        body: [
+          CodeLine('std::vector<uint8_t> _buf;'),
+          CodeLine('NitroRecordWriter() { _buf.reserve(64); }'),
+          CodeLine('void writeInt(int64_t v) { _buf.insert(_buf.end(), reinterpret_cast<const uint8_t*>(&v), reinterpret_cast<const uint8_t*>(&v) + 8); }'),
+          CodeLine('void writeInt32(int32_t v) { _buf.insert(_buf.end(), reinterpret_cast<const uint8_t*>(&v), reinterpret_cast<const uint8_t*>(&v) + 4); }'),
+          CodeLine('void writeDouble(double v) { _buf.insert(_buf.end(), reinterpret_cast<const uint8_t*>(&v), reinterpret_cast<const uint8_t*>(&v) + 8); }'),
+          CodeLine('void writeBool(bool v) { _buf.push_back(v ? 1 : 0); }'),
+          CodeLine('void writeString(const std::string& s) { int32_t n = (int32_t)s.size(); writeInt32(n); _buf.insert(_buf.end(), s.begin(), s.end()); }'),
+          CodeLine('/// Returns heap-allocated [4B length][payload]. Caller must ::free().'),
+          CodeLine('uint8_t* toNative() const {'),
+          CodeLine('    int32_t payloadLen = (int32_t)_buf.size();'),
+          CodeLine('    uint8_t* out = (uint8_t*)::malloc(sizeof(int32_t) + (size_t)payloadLen);'),
+          CodeLine('    if (!out) return nullptr;'),
+          CodeLine('    ::memcpy(out, &payloadLen, sizeof(int32_t));'),
+          CodeLine('    if (payloadLen > 0) ::memcpy(out + sizeof(int32_t), _buf.data(), (size_t)payloadLen);'),
+          CodeLine('    return out;'),
+          CodeLine('}'),
+          CodeLine('NitroCppBuffer toBuffer() const { return { _buf.data(), _buf.size() }; }'),
         ],
         footer: '};',
       ),
@@ -188,24 +218,48 @@ class CppInterfaceGenerator {
     ]);
 
     // ── Registration API ─────────────────────────────────────────────────────
+    // Two registration modes (mirrors RN Nitro's HybridObjectRegistry):
+    //   1. Factory mode (recommended): register_factory() enables multiple instances.
+    //      Dart calls create_instance(key) → factory is invoked → shared_ptr stored.
+    //   2. Legacy mode: register_impl() registers a single raw-pointer instance.
+    //      Kept for backward compatibility; create_instance() returns a fixed id (0).
+    //
+    // Layout follows the standard mixed C/C++ header pattern:
+    //   • Factory typedef (#ifdef __cplusplus — uses C++ types)
+    //   • C function declarations (in extern "C" block for C++ consumers)
+    //   • C++-only inline typed helper (after extern "C" closing brace)
     nodes.addAll([
+      // C++ factory typedef — must be OUTSIDE extern "C" (uses std::function<>)
       const CodeLine('#ifdef __cplusplus'),
-      const CodeLine('extern "C" {'),
+      CodeLine('/// Factory function type — mirrors RN Nitro\'s HybridObjectRegistry constructor fn.'),
+      CodeLine('/// Takes the instance key (from Dart\'s getInstance(key)) and returns a shared_ptr.'),
+      CodeLine('using Hybrid${className}Factory = std::function<std::shared_ptr<Hybrid$className>(const std::string&)>;'),
       const CodeLine('#endif'),
       const BlankLine(),
-      const CodeLine(
-        '/// Register your C++ implementation. Call once during plugin/app init.',
-      ),
-      const CodeLine('/// Pass nullptr to unregister (e.g. in teardown).'),
+      // C function declarations — wrapped in extern "C" for C++ consumers.
+      // In plain C, this block is just regular declarations (no name mangling).
+      const CodeLine('#ifdef __cplusplus'),
+      CodeLine('extern "C" {'),
+      const CodeLine('#endif'),
+      const BlankLine(),
+      CodeLine('/// Register a factory function (recommended — enables multiple instances).'),
+      CodeLine('/// Called from create_instance() each time Dart requests a new object.'),
+      CodeLine('void ${libStem}_register_factory(void* factory_fn_ptr);'),
+      const BlankLine(),
+      CodeLine('/// Register a single raw-pointer implementation (legacy single-instance API).'),
+      CodeLine('/// Use register_factory() instead for new code.'),
       CodeLine('void ${libStem}_register_impl(Hybrid$className* impl);'),
       const BlankLine(),
-      const CodeLine(
-        '/// Return the currently registered implementation (may be nullptr).',
-      ),
+      CodeLine('/// Return the registered raw-pointer impl, or nullptr (legacy API).'),
       CodeLine('Hybrid$className* ${libStem}_get_impl(void);'),
       const BlankLine(),
       const CodeLine('#ifdef __cplusplus'),
-      const CodeLine('}'),
+      CodeLine('} // end extern "C"'),
+      const BlankLine(),
+      CodeLine('/// C++-only typed factory registration — preferred over the C void* variant.'),
+      CodeLine('inline void ${libStem}_register_factory_typed(Hybrid${className}Factory factory) {'),
+      CodeLine('    ${libStem}_register_factory(static_cast<void*>(&factory));'),
+      CodeLine('}'),
       const CodeLine('#endif'),
       const BlankLine(),
       CodeLine('#endif // $headerGuard'),
@@ -216,9 +270,9 @@ class CppInterfaceGenerator {
 
   // ── Type helpers (C++ style) ─────────────────────────────────────────────
 
-  /// C++ return type. Primitives → scalar; String → std::string;
-  /// Struct → by-value; Enum → enum typedef; Record/List/Map and TypedData
-  /// returns → NitroCppBuffer.
+  /// C++ return type — mirrors RN Nitro's JSIConverter<T> type mapping.
+  /// Nullable types use std::optional<T> (zero-cost tagged union, like std::optional).
+  /// Records/Lists/Maps return NitroCppBuffer (binary codec — same as RN Nitro's toJSI).
   static String _cppReturnType(
     BridgeType bt,
     Set<String> enumNames,
@@ -242,8 +296,18 @@ class CppInterfaceGenerator {
       final prim = _primitiveType(innerBase);
       return prim == 'void*' ? 'void*' : '$prim*';
     }
+    final isNullable = bt.isNullable || bt.name.endsWith('?');
     final base = bt.name.replaceFirst('?', '');
     if (base == 'void') return 'void';
+    // Nullable types → std::optional<T> (mirrors RN Nitro JSIConverter<std::optional<T>>)
+    if (isNullable) {
+      if (base == 'String') return 'std::optional<std::string>';
+      if (enumNames.contains(base)) return 'std::optional<$base>';
+      if (structNames.contains(base)) return 'std::optional<$base>';
+      if (recordNames.contains(base)) return 'NitroCppBuffer'; // nullable record: empty buffer = null
+      final prim = _primitiveType(base);
+      if (prim != 'void*') return 'std::optional<$prim>';
+    }
     if (base == 'String') return 'std::string';
     if (enumNames.contains(base)) return base;
     if (structNames.contains(base)) return base;
@@ -252,7 +316,7 @@ class CppInterfaceGenerator {
     return _primitiveType(base);
   }
 
-  /// C++ const-ref param type for setters / scalar positions.
+  /// C++ const-ref param type — nullable types use std::optional<T>.
   static String _cppParamType(
     BridgeType bt,
     Set<String> enumNames,
@@ -275,7 +339,17 @@ class CppInterfaceGenerator {
       final prim = _primitiveType(innerBase);
       return prim == 'void*' ? 'void*' : '$prim*';
     }
+    final isNullable = bt.isNullable || bt.name.endsWith('?');
     final base = bt.name.replaceFirst('?', '');
+    // Nullable types → std::optional<T> (const ref for non-trivial types)
+    if (isNullable) {
+      if (base == 'String') return 'const std::optional<std::string>&';
+      if (enumNames.contains(base)) return 'std::optional<$base>';
+      if (structNames.contains(base)) return 'const std::optional<$base>&';
+      if (recordNames.contains(base)) return 'NitroCppBuffer'; // empty = null
+      final prim = _primitiveType(base);
+      if (prim != 'void*') return 'std::optional<$prim>';
+    }
     if (base == 'String') return 'const std::string&';
     if (enumNames.contains(base)) return base;
     if (structNames.contains(base)) return 'const $base&';
@@ -317,6 +391,7 @@ class CppInterfaceGenerator {
 
   /// Build the full parameter list for a method signature.
   /// TypedData types expand to two params: pointer + length.
+  /// Nullable types use std::optional<T>. Callbacks use std::function<R(Args...)>.
   static List<String> _cppMethodParams(
     List<BridgeParam> params,
     Set<String> enumNames,
@@ -326,6 +401,7 @@ class CppInterfaceGenerator {
     final parts = <String>[];
     for (final p in params) {
       if (p.type.isFunction) {
+        // std::function<R(Args...)> mirrors RN Nitro's JSIConverter<std::function<>>
         parts.add(_cppCallbackParam(p, enumNames));
         continue;
       }
@@ -357,10 +433,25 @@ class CppInterfaceGenerator {
         }
         continue;
       }
+      final isNullable = p.type.isNullable || p.type.name.endsWith('?');
       final base = p.type.name.replaceFirst('?', '');
       if (_isTypedData(base)) {
         parts.add('${_typedDataPtr(base)} ${p.name}');
         parts.add('size_t ${p.name}_length');
+      } else if (isNullable) {
+        // std::optional<T> for nullable params
+        if (base == 'String') {
+          parts.add('const std::optional<std::string>& ${p.name}');
+        } else if (structNames.contains(base)) {
+          parts.add('const std::optional<$base>& ${p.name}');
+        } else if (enumNames.contains(base)) {
+          parts.add('std::optional<$base> ${p.name}');
+        } else if (recordNames.contains(base)) {
+          parts.add('NitroCppBuffer ${p.name}'); // empty buffer = null
+        } else {
+          final prim = _primitiveType(base);
+          parts.add('${prim != 'void*' ? 'std::optional<$prim>' : 'void*'} ${p.name}');
+        }
       } else if (base == 'String') {
         parts.add('const std::string& ${p.name}');
       } else if (structNames.contains(base)) {
@@ -428,6 +519,25 @@ class CppInterfaceGenerator {
         return 'double';
       case 'bool':
         return 'bool';
+      // Narrow scalar types (added for RN Nitro parity)
+      case 'int8':
+        return 'int8_t';
+      case 'int16':
+        return 'int16_t';
+      case 'int32':
+        return 'int32_t';
+      case 'uint8':
+        return 'uint8_t';
+      case 'uint16':
+        return 'uint16_t';
+      case 'uint32':
+        return 'uint32_t';
+      case 'float':
+        return 'float';
+      case 'intptr':
+        return 'intptr_t';
+      case 'size':
+        return 'size_t';
       // FFI-style inner types used in Pointer<T>
       case 'Uint8':
         return 'uint8_t';
@@ -454,12 +564,13 @@ class CppInterfaceGenerator {
     }
   }
 
+  /// Callback param as std::function<R(Args...)> — mirrors RN Nitro's JSIConverter<std::function<>>.
+  /// Caller can safely capture lambdas, unlike raw function pointers.
   static String _cppCallbackParam(BridgeParam param, Set<String> enumNames) {
     final callback = param.type;
     final ret = _cppCallbackType(callback.functionReturnType ?? 'void', enumNames);
-    final params = callback.functionParams.map((p) => _cppCallbackType(p.name, enumNames, bridgeType: p)).join(', ');
-    final paramStr = params.isEmpty ? 'void' : params;
-    return '$ret (*${param.name})($paramStr)';
+    final paramTypes = callback.functionParams.map((p) => _cppCallbackType(p.name, enumNames, bridgeType: p)).join(', ');
+    return 'std::function<$ret($paramTypes)> ${param.name}';
   }
 
   static String _cppCallbackType(String dartType, Set<String> enumNames, {BridgeType? bridgeType}) {

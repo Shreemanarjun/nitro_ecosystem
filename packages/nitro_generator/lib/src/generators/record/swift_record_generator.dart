@@ -3,7 +3,12 @@ part of '../record_generator.dart';
 // ── Native generators ───────────────────────────────────────────────────
 
 String _generateSwiftRecords(BridgeSpec spec, {bool emitBoilerplate = true}) {
-  final localRecords = spec.localRecordTypes;
+  // NativeImpl.cpp bridge files use emitBoilerplate:false — shared library types
+  // (NitroNullableInt, NitroOptInt64, etc.) are provided by the non-cpp bridge in
+  // the same Swift module. Skip them here to avoid "invalid redeclaration" errors.
+  final localRecords = emitBoilerplate
+      ? spec.localRecordTypes
+      : spec.localRecordTypes.where((r) => !_nitroLibraryRecordTypes.contains(r.name)).toList();
 
   // ── fromReader/writeFields extensions for plain structs embedded in records ──
   // The Dart side generates RecordExt for HybridStructs; we mirror this for Swift.

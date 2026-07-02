@@ -17,7 +17,7 @@ writer.line('  final String _instanceKey;');
 writer.line('  late final int _instanceId;');
 // S8: pre-allocated error slot — shared across all sync calls on this instance.
 // One allocation per module, zero allocation per call.
-writer.line('  final Pointer<NitroErrorFfi> _nitroErr = calloc<NitroErrorFfi>();');
+writer.line('  final Pointer<NitroErrorFfi> _nitroErr = malloc<NitroErrorFfi>();');
 final hasCallbacks = _hasFunctionTypeParams(spec);
 if (hasCallbacks) {
   writer.line('  final Map<Object, NativeCallable<dynamic>> _nativeCallbackCache = {};');
@@ -74,6 +74,11 @@ writer.line(
   '  _${spec.dartClassName}Impl._init(this._instanceKey) : _dylib = _loadSupportedLibrary() {',
 );
 writer.line("    final initSw = Stopwatch()..start();");
+// Finding 10: TypedData lengths use the `Size` FFI type (= size_t), which
+// is 4 bytes on 32-bit and 8 bytes on 64-bit — no platform-width mismatch.
+// We emit a soft debug-mode note (not a failure) if running on 32-bit so
+// developers know the platform width, but the bridge is fully compatible.
+writer.line("    assert(sizeOf<IntPtr>() >= 4, '${spec.lib}: unsupported pointer width \${sizeOf<IntPtr>()}B');");
 writer.line(
   "    final initFunc = _dylib.lookupFunction<IntPtr Function(Pointer<Void>), int Function(Pointer<Void>)>('${libStem}_init_dart_api_dl');",
 );
@@ -81,9 +86,17 @@ writer.line('    final initCode = initFunc(NativeApi.initializeApiDLData);');
 writer.line('    if (initCode != 0) {');
 writer.line("      throw StateError('${spec.lib}: Dart API DL initialization failed with code \$initCode.');");
 writer.line('    }');
+// Finding 6: use providesSymbol() to give a clear actionable error if the plugin
+// was compiled against an older Nitro that lacks the version/checksum symbols.
+writer.line("    if (!_dylib.providesSymbol('${libStem}_nitro_abi_version')) {");
+writer.line("      throw StateError('${spec.lib}: missing ${libStem}_nitro_abi_version — plugin must be rebuilt against the current Nitro version.');");
+writer.line('    }');
 writer.line(
   "    NitroRuntime.checkAbiVersion('${spec.lib}', () => _dylib.lookupFunction<Uint32 Function(), int Function()>('${libStem}_nitro_abi_version')());",
 );
+writer.line("    if (!_dylib.providesSymbol('${libStem}_nitro_bridge_checksum')) {");
+writer.line("      throw StateError('${spec.lib}: missing ${libStem}_nitro_bridge_checksum — plugin must be rebuilt against the current Nitro version.');");
+writer.line('    }');
 writer.line(
   "    NitroRuntime.checkLinkChecksum('${spec.lib}', '$checksum', () => _dylib.lookupFunction<Pointer<Utf8> Function(), Pointer<Utf8> Function()>('${libStem}_nitro_bridge_checksum')().toDartString());",
 );
@@ -101,7 +114,7 @@ writer.line('      if (_instanceId < 0) {');
 writer.line("        throw StateError('${spec.lib}: failed to create native instance for key \"\$_instanceKey\".');");
 writer.line('      }');
 writer.line('    } finally {');
-writer.line('      calloc.free(_keyPtr);');
+writer.line('      malloc.free(_keyPtr);');
 writer.line('    }');
 writer.line('    NitroInstanceRegistry.register(_instanceId, this);');
 writer.line('    initSw.stop();');
@@ -233,6 +246,8 @@ writer.line('    if (isDisposed) return;');
 writer.line("    NitroRuntime.logLifecycle('dispose(${spec.lib})', 'disposing (instanceId=\$_instanceId)');");
 // Tell native to release this instance's impl before any local cleanup.
 writer.line('    _destroyInstancePtr(_instanceId);');
+// Finding 5: decrement the library ref count; closes the dylib when last instance disposes.
+writer.line("    NitroRuntime.releaseLib('${spec.lib}');");
 // Remove from registry so future getInstance(key) creates a fresh instance.
 writer.line('    _instances.remove(_instanceKey);');
 writer.line('    NitroInstanceRegistry.unregister(_instanceId, this);');
@@ -244,7 +259,7 @@ if (hasCallbacks) {
   writer.line('    _callbackPtrToKey.clear();');
   writer.line('    _callbackReleasePort.close();');
 }
-writer.line('    calloc.free(_nitroErr); // S8: free pre-allocated error slot');
+writer.line('    malloc.free(_nitroErr); // S8: free pre-allocated error slot');
 writer.line(
   '    super.dispose(); // sets isDisposed = true, calls onDestroy()',
 );

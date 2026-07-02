@@ -200,6 +200,11 @@ class KotlinGenerator {
       writer.line('    @JvmStatic external fun postDoubleToPort(dartPort: Long, value: Double)');
       writer.line('    @JvmStatic external fun postBoolToPort(dartPort: Long, value: Boolean)');
       writer.line('    @JvmStatic external fun postStringToPort(dartPort: Long, value: String)');
+      writer.line('    // Nullable prim helpers: malloc NitroOptXxx on native heap, post address as kInt64.');
+      writer.line('    // Dart decodes via Pointer<NitroOptXxx>.fromAddress and frees with malloc.free.');
+      writer.line('    @JvmStatic external fun postOptInt64ToPort(dartPort: Long, value: Long, hasValue: Boolean)');
+      writer.line('    @JvmStatic external fun postOptFloat64ToPort(dartPort: Long, value: Double, hasValue: Boolean)');
+      writer.line('    @JvmStatic external fun postOptBoolToPort(dartPort: Long, value: Boolean, hasValue: Boolean)');
       writer.blankLine();
     }
 

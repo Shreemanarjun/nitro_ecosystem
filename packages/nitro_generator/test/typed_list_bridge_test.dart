@@ -155,12 +155,12 @@ void main() {
   // ── CppHeaderGenerator ─────────────────────────────────────────────────────
 
   group('CppHeaderGenerator — typed-list length param', () {
-    test('Float32List param gets a companion int64_t <name>_length param', () {
+    test('Float32List param gets a companion size_t <name>_length param', () {
       final out = CppHeaderGenerator.generate(_floatSpec());
       expect(
         out,
-        contains('float* inputs, int64_t inputs_length'),
-        reason: 'C header must declare the pointer AND a length param',
+        contains('float* inputs, size_t inputs_length'),
+        reason: 'C header must declare the pointer AND a size_t length param (matches size_t on native)',
       );
     });
 
@@ -174,19 +174,19 @@ void main() {
       );
     });
 
-    test('Uint8List param gets uint8_t* + int64_t length', () {
+    test('Uint8List param gets uint8_t* + size_t length', () {
       final out = CppHeaderGenerator.generate(_multiTypedListSpec());
-      expect(out, contains('uint8_t* data, int64_t data_length'));
+      expect(out, contains('uint8_t* data, size_t data_length'));
     });
 
-    test('Float64List param gets double* + int64_t length', () {
+    test('Float64List param gets double* + size_t length', () {
       final out = CppHeaderGenerator.generate(_multiTypedListSpec());
-      expect(out, contains('double* samples, int64_t samples_length'));
+      expect(out, contains('double* samples, size_t samples_length'));
     });
 
-    test('Int32List param gets int32_t* + int64_t length', () {
+    test('Int32List param gets int32_t* + size_t length', () {
       final out = CppHeaderGenerator.generate(_multiTypedListSpec());
-      expect(out, contains('int32_t* values, int64_t values_length'));
+      expect(out, contains('int32_t* values, size_t values_length'));
     });
 
     test('non-typed-list params are not given a length companion', () {
@@ -201,7 +201,7 @@ void main() {
       final out = CppHeaderGenerator.generate(_mixedParamSpec());
       expect(
         out,
-        contains('const char* label, float* data, int64_t data_length, double scale'),
+        contains('const char* label, float* data, size_t data_length, double scale'),
       );
     });
   });
@@ -214,7 +214,7 @@ void main() {
       // namespace = 'verification_module' → _verification_module_call_processFloats
       expect(
         out,
-        contains('extern void* _verification_module_call_processFloats(float* inputs, int64_t inputs_length)'),
+        contains('extern void* _verification_module_call_processFloats(float* inputs, size_t inputs_length)'),
         reason: 'extern C declaration must forward the length to Swift',
       );
     });
@@ -224,7 +224,7 @@ void main() {
       expect(
         out,
         contains(
-          'void* verification_module_process_floats(int64_t instanceId, float* inputs, int64_t inputs_length, NitroError* _nitro_err)',
+          'void* verification_module_process_floats(int64_t instanceId, float* inputs, size_t inputs_length, NitroError* _nitro_err)',
         ),
       );
     });
@@ -246,7 +246,7 @@ void main() {
       expect(
         out,
         contains(
-          'verification_module_process_floats(int64_t instanceId, float* inputs, int64_t inputs_length, NitroError* _nitro_err)',
+          'verification_module_process_floats(int64_t instanceId, float* inputs, size_t inputs_length, NitroError* _nitro_err)',
         ),
       );
     });
@@ -254,7 +254,7 @@ void main() {
     test('Uint8List extern includes data_length', () {
       final out = CppBridgeGenerator.generate(_multiTypedListSpec());
       // namespace = 'buf_module' → _buf_module_call_writeBytes
-      expect(out, contains('extern void _buf_module_call_writeBytes(uint8_t* data, int64_t data_length)'));
+      expect(out, contains('extern void _buf_module_call_writeBytes(uint8_t* data, size_t data_length)'));
     });
 
     test('mixed spec: only data param gets length, not label or scale', () {
@@ -273,13 +273,13 @@ void main() {
   // ── DartFfiGenerator ───────────────────────────────────────────────────────
 
   group('DartFfiGenerator — typed-list length in function pointer & call', () {
-    test('lookupFunction native type includes Int64 after Pointer<Float>', () {
+    test('lookupFunction native type includes Size after Pointer<Float>', () {
       final out = DartFfiGenerator.generate(_floatSpec());
-      // The lookup signature must be: Pointer<Void> Function(Pointer<Float>, Int64)
+      // Size maps to size_t on native — correct for TypedData lengths on all platforms
       expect(
         out,
-        contains('Pointer<Void> Function(Int64, Pointer<Float>, Int64, Pointer<NitroErrorFfi>)'),
-        reason: 'native FFI type must include Int64 for the length',
+        contains('Pointer<Void> Function(Int64, Pointer<Float>, Size, Pointer<NitroErrorFfi>)'),
+        reason: 'native FFI type must include Size (= size_t) for the length',
       );
     });
 
@@ -301,29 +301,29 @@ void main() {
       );
     });
 
-    test('Uint8List lookup includes Int64 length', () {
+    test('Uint8List lookup includes Size length', () {
       final out = DartFfiGenerator.generate(_multiTypedListSpec());
-      expect(out, contains('Void Function(Int64, Pointer<Uint8>, Int64, Pointer<NitroErrorFfi>)'));
+      expect(out, contains('Void Function(Int64, Pointer<Uint8>, Size, Pointer<NitroErrorFfi>)'));
     });
 
-    test('Float64List lookup includes Int64 length', () {
+    test('Float64List lookup includes Size length', () {
       final out = DartFfiGenerator.generate(_multiTypedListSpec());
-      expect(out, contains('Void Function(Int64, Pointer<Double>, Int64, Pointer<NitroErrorFfi>)'));
+      expect(out, contains('Void Function(Int64, Pointer<Double>, Size, Pointer<NitroErrorFfi>)'));
     });
 
-    test('Int32List lookup includes Int64 length', () {
+    test('Int32List lookup includes Size length', () {
       final out = DartFfiGenerator.generate(_multiTypedListSpec());
-      expect(out, contains('Void Function(Int64, Pointer<Int32>, Int64, Pointer<NitroErrorFfi>)'));
+      expect(out, contains('Void Function(Int64, Pointer<Int32>, Size, Pointer<NitroErrorFfi>)'));
     });
 
-    test('non-typed-list params do not get an extra Int64 in the lookup', () {
+    test('non-typed-list params do not get an extra Size in the lookup', () {
       final out = DartFfiGenerator.generate(_mixedParamSpec());
       // label (String) → Pointer<Utf8>; scale (double) → Double
-      // The signature must be exactly: Double Function(Pointer<Utf8>, Pointer<Float>, Int64, Double)
+      // The signature must be exactly: Double Function(Int64, Pointer<Utf8>, Pointer<Float>, Size, Double, ...)
       expect(
         out,
         contains(
-          'Double Function(Int64, Pointer<Utf8>, Pointer<Float>, Int64, Double, Pointer<NitroErrorFfi>)',
+          'Double Function(Int64, Pointer<Utf8>, Pointer<Float>, Size, Double, Pointer<NitroErrorFfi>)',
         ),
       );
     });

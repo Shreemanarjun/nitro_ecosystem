@@ -61,6 +61,10 @@ ReturnKind classifyReturn(BridgeType returnType, BridgeSpec spec) {
   if (base == 'double' && isNullable) return ReturnKind.doubleNullable;
   if (base == 'DateTime') return isNullable ? ReturnKind.dateTimeNullable : ReturnKind.dateTime;
   if (base == 'uint64') return isNullable ? ReturnKind.uint64Nullable : ReturnKind.uint64;
+  // Narrow integer nullable types share NitroOptInt64 decode path.
+  const _narrowIntTypes = {'int8', 'int16', 'int32', 'uint8', 'uint16', 'uint32', 'intptr', 'size'};
+  if (_narrowIntTypes.contains(base) && isNullable) return ReturnKind.intNullable;
+  if (base == 'float' && isNullable) return ReturnKind.doubleNullable;
   return ReturnKind.primitive;
 }
 
@@ -83,14 +87,16 @@ String callAsyncTransportType(BridgeType returnType, BridgeSpec spec) {
     case ReturnKind.struct:      return 'Pointer<Void>';
     case ReturnKind.nativeHandle:return 'Pointer<Void>';
     case ReturnKind.enumType:    return 'int';
-    case ReturnKind.boolNonNull: return 'int';           // bool→Int8
+    case ReturnKind.boolNonNull: return 'bool';           // Bool FFI type → Dart bool
     case ReturnKind.boolNullable:return 'Pointer<NitroOptBool>';
     case ReturnKind.stringNonNull:  return 'Pointer<Utf8>';
     case ReturnKind.stringNullable: return 'Pointer<Utf8>';
     case ReturnKind.intNullable:    return 'Pointer<NitroOptInt64>';
     case ReturnKind.doubleNullable: return 'Pointer<NitroOptFloat64>';
     case ReturnKind.variant:        return 'Pointer<Uint8>'; // variant binary [4B len][tag][fields]
-    case ReturnKind.primitive:      return returnType.name; // int or double
+    case ReturnKind.primitive:
+      // float → double transport; all other scalars (int8, int32, intptr, etc.) → int
+      return (returnType.name == 'double' || returnType.name == 'float') ? 'double' : 'int';
     case ReturnKind.dateTime:      return 'int';
     case ReturnKind.dateTimeNullable: return 'Pointer<NitroOptInt64>';
     case ReturnKind.anyNativeObject:         return 'int';
@@ -149,8 +155,8 @@ String callAsyncTransportType(BridgeType returnType, BridgeSpec spec) {
   // Enum
   if (isEnumType(base, spec)) return (expr: '$varName.nativeValue', needsArena: false);
 
-  // bool
-  if (rt == 'bool') return (expr: '$varName ? 1 : 0', needsArena: false);
+  // bool — Bool FFI type maps directly; no ? 1 : 0 conversion needed
+  if (rt == 'bool') return (expr: varName, needsArena: false);
   // bool? — NitroOptBool packed struct via Arena
   if (rt == 'bool?') return (expr: '$allocator.packBool($varName)', needsArena: true);
 

@@ -151,9 +151,11 @@ BridgeSpec _mapParamSpec(String mapTypeName, {bool isMap = false}) => BridgeSpec
 
 void main() {
   group('SpecValidator — E001: Map<K,V> with non-String key', () {
-    test('Map<int, String> return type emits E001 error', () {
+    // Gap #3: int and enum keys are now allowed — only unsupported types (bool,
+    // float, double, arbitrary class) still trigger E001.
+    test('Map<int, String> return type does NOT emit E001 (int key allowed — Gap #3)', () {
       final issues = SpecValidator.validate(_mapReturnSpec('Map<int, String>'));
-      expect(issues.any((i) => i.code == 'E001' && i.isError), isTrue);
+      expect(issues.any((i) => i.code == 'E001' && i.isError), isFalse);
     });
 
     test('Map<bool, String> return type emits E001 error', () {
@@ -161,19 +163,19 @@ void main() {
       expect(issues.any((i) => i.code == 'E001' && i.isError), isTrue);
     });
 
-    test('Map<int, String> parameter emits E001 error', () {
+    test('Map<int, String> parameter does NOT emit E001 (int key allowed — Gap #3)', () {
       final issues = SpecValidator.validate(_mapParamSpec('Map<int, String>'));
-      expect(issues.any((i) => i.code == 'E001' && i.isError), isTrue);
+      expect(issues.any((i) => i.code == 'E001' && i.isError), isFalse);
     });
 
-    test('E001 message includes the bad type name', () {
-      final issues = SpecValidator.validate(_mapReturnSpec('Map<int, String>'));
+    test('E001 message includes the bad type name (bool key)', () {
+      final issues = SpecValidator.validate(_mapReturnSpec('Map<bool, String>'));
       final e = issues.firstWhere((i) => i.code == 'E001');
-      expect(e.message, contains('Map<int, String>'));
+      expect(e.message, contains('Map<bool, String>'));
     });
 
-    test('E001 hint mentions String key', () {
-      final issues = SpecValidator.validate(_mapReturnSpec('Map<int, String>'));
+    test('E001 hint mentions String key (bool key triggers E001)', () {
+      final issues = SpecValidator.validate(_mapReturnSpec('Map<bool, String>'));
       final e = issues.firstWhere((i) => i.code == 'E001');
       expect(e.hint, isNotNull);
       expect(e.hint, contains('String'));

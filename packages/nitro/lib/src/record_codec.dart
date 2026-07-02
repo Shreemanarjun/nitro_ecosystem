@@ -384,8 +384,11 @@ final class LazyRecordList<T> extends ListBase<T> implements Finalizable {
     this._offsets,
     this._readItem,
     this._cache,
+    int byteLen,
   ) {
-    _finalizer.attach(this, _ptr.cast(), detach: this);
+    // externalSize hints the GC about native bytes owned by this list so it
+    // schedules collection before native memory balloons (dart:ffi @Since('3.4')).
+    _finalizer.attach(this, _ptr.cast(), detach: this, externalSize: byteLen);
   }
 
   /// Decodes the offset table from [ptr] and returns a lazy list.
@@ -398,12 +401,16 @@ final class LazyRecordList<T> extends ListBase<T> implements Finalizable {
     final r = RecordReader.fromNative(ptr);
     final count = r.readInt32();
     final offsets = List<int>.generate(count, (_) => r.readInt(), growable: false);
+    // Buffer layout: [4B payload-length prefix][payload bytes].
+    // Read the prefix to give the GC an accurate native-size hint.
+    final totalBytes = 4 + ByteData.view(ptr.asTypedList(4).buffer).getInt32(0, Endian.little);
     return LazyRecordList<T>._(
       ptr,
       count,
       offsets,
       readItem,
       List<T?>.filled(count, null),
+      totalBytes,
     );
   }
 

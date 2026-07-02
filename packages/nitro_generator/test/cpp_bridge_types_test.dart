@@ -77,8 +77,8 @@ void main() {
       expect(code, contains('uint8_t*'));
     });
 
-    test('C declaration has int64_t data_length param', () {
-      expect(code, contains('int64_t data_length'));
+    test('C declaration has size_t data_length param', () {
+      expect(code, contains('size_t data_length'));
     });
 
     test('JNI path creates jbyteArray from uint8_t* buffer', () {
@@ -145,12 +145,12 @@ void main() {
       expect(code, contains('uint8_t*'));
     });
 
-    test('C++ direct declaration has int64_t data_length param', () {
-      expect(code, contains('int64_t data_length'));
+    test('C++ direct declaration has size_t data_length param', () {
+      expect(code, contains('size_t data_length'));
     });
 
     test('C++ direct call passes data pointer to g_impl', () {
-      expect(code, contains('g_impl->upload('));
+      expect(code, contains('_impl->upload('));
       expect(code, contains('data'));
     });
 
@@ -187,7 +187,7 @@ void main() {
       final code = CppBridgeGenerator.generate(specFor('Uint8List'));
 
       expect(code, contains('uint8_t* mod_snapshot(int64_t instanceId, NitroError* _nitro_err)'));
-      expect(code, contains('NitroCppBuffer _res = g_impl->snapshot();'));
+      expect(code, contains('NitroCppBuffer _res = _impl->snapshot();'));
       expect(code, contains('int64_t* _env = (int64_t*)malloc(sizeof(int64_t) * 3);'));
       expect(code, contains('_env[0] = (int64_t)_res.size;'));
       expect(code, contains('_env[1] = (int64_t)(intptr_t)(_res.data != nullptr ? _res.data : (const uint8_t*)_env);'));
@@ -222,8 +222,8 @@ void main() {
       expect(code, contains('float*'));
     });
 
-    test('C declaration has int64_t samples_length param', () {
-      expect(code, contains('int64_t samples_length'));
+    test('C declaration has size_t samples_length param', () {
+      expect(code, contains('size_t samples_length'));
     });
 
     test('JNI path creates jfloatArray', () {
@@ -306,12 +306,12 @@ void main() {
       expect(code, contains('float*'));
     });
 
-    test('C++ direct has int64_t samples_length', () {
-      expect(code, contains('int64_t samples_length'));
+    test('C++ direct has size_t samples_length', () {
+      expect(code, contains('size_t samples_length'));
     });
 
     test('C++ direct passes samples and length to g_impl', () {
-      expect(code, contains('g_impl->processSamples('));
+      expect(code, contains('_impl->processSamples('));
       expect(code, contains('samples_length'));
     });
   });
@@ -407,7 +407,7 @@ void main() {
     });
 
     test('@NitroNativeAsync in cpp direct calls g_impl with dart_port', () {
-      expect(code, contains('g_impl->computeAsync('));
+      expect(code, contains('_impl->computeAsync('));
       expect(code, contains('dart_port'));
     });
 
@@ -455,8 +455,8 @@ void main() {
       expect(code, contains('quality'));
     });
 
-    test('g_impl->setQuality is called with the cast param', () {
-      expect(code, contains('g_impl->setQuality('));
+    test('_impl->setQuality is called with the cast param', () {
+      expect(code, contains('_impl->setQuality('));
     });
   });
 
@@ -527,7 +527,7 @@ void main() {
         );
         final out = CppBridgeGenerator.generate(spec);
         expect(out, contains(cType), reason: '$dartType should map to $cType');
-        expect(out, contains('int64_t buf_length'));
+        expect(out, contains('size_t buf_length'));
       });
     }
   });
@@ -555,7 +555,7 @@ void main() {
       );
       final code = CppBridgeGenerator.generate(spec);
       expect(code, contains('mod_connect'));
-      expect(code, contains('g_impl->connect()'));
+      expect(code, contains('_impl->connect()'));
     });
 
     test('@nitroAsync String return uses strdup pattern', () {
@@ -578,7 +578,7 @@ void main() {
       );
       final code = CppBridgeGenerator.generate(spec);
       expect(code, contains('strdup'));
-      expect(code, contains('g_impl->fetchName()'));
+      expect(code, contains('_impl->fetchName()'));
     });
   });
 }

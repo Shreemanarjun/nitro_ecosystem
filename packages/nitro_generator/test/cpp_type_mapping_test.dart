@@ -164,33 +164,33 @@ void main() {
     });
   });
 
-  // ── Section 3: Nullable types — ? stripped in C++ ────────────────────────
+  // ── Section 3: Nullable types — std::optional<T> in C++ (RN Nitro parity) ─
 
-  group('CppInterfaceGenerator — nullable types strip ? in C++', () {
-    test('int? param → int64_t count (? stripped)', () {
+  group('CppInterfaceGenerator — nullable types use std::optional<T> in C++', () {
+    test('int? param → std::optional<int64_t> count', () {
       final out = CppInterfaceGenerator.generate(_fnSpec('void', [_p('int?', 'count')]));
-      expect(out, contains('int64_t count'));
+      expect(out, contains('std::optional<int64_t> count'));
       expect(out, isNot(contains('int64_t?')));
     });
 
-    test('bool? param → bool flag (? stripped)', () {
+    test('bool? param → std::optional<bool> flag', () {
       final out = CppInterfaceGenerator.generate(_fnSpec('void', [_p('bool?', 'flag')]));
-      expect(out, contains('bool flag'));
+      expect(out, contains('std::optional<bool> flag'));
     });
 
-    test('double? param → double value (? stripped)', () {
+    test('double? param → std::optional<double> value', () {
       final out = CppInterfaceGenerator.generate(_fnSpec('void', [_p('double?', 'value')]));
-      expect(out, contains('double value'));
+      expect(out, contains('std::optional<double> value'));
     });
 
-    test('String? param → const std::string& text (? stripped)', () {
+    test('String? param → const std::optional<std::string>& text', () {
       final out = CppInterfaceGenerator.generate(_fnSpec('void', [_p('String?', 'text')]));
-      expect(out, contains('const std::string& text'));
+      expect(out, contains('const std::optional<std::string>& text'));
     });
 
-    test('int? return → virtual int64_t fn() (? stripped)', () {
+    test('int? return → virtual std::optional<int64_t> fn()', () {
       final out = CppInterfaceGenerator.generate(_fnSpec('int?', []));
-      expect(out, contains('virtual int64_t fn()'));
+      expect(out, contains('virtual std::optional<int64_t> fn()'));
     });
   });
 
@@ -216,7 +216,7 @@ void main() {
       expect(out, contains('virtual Status fn(Status mode)'));
     });
 
-    test('nullable enum? param strips ? → EnumName mode', () {
+    test('nullable enum? param → std::optional<EnumName> mode (RN Nitro parity)', () {
       final spec = _fnSpec(
         'void',
         [_p('Status?', 'mode')],
@@ -225,7 +225,7 @@ void main() {
         ],
       );
       final out = CppInterfaceGenerator.generate(spec);
-      expect(out, contains('Status mode'));
+      expect(out, contains('std::optional<Status> mode'));
     });
   });
 
@@ -259,7 +259,7 @@ void main() {
       expect(out, contains('virtual Point fn(const Point& src)'));
     });
 
-    test('nullable struct? param strips ? → const StructName& src', () {
+    test('nullable struct? param → const std::optional<StructName>& src (RN Nitro parity)', () {
       final spec = _fnSpec(
         'void',
         [_p('Point?', 'src')],
@@ -277,7 +277,7 @@ void main() {
         ],
       );
       final out = CppInterfaceGenerator.generate(spec);
-      expect(out, contains('const Point& src'));
+      expect(out, contains('const std::optional<Point>& src'));
     });
   });
 

@@ -387,7 +387,7 @@ void main() {
     // These tests verify the codec class exists in the nitro package.
     // Since the file is pre-existing, we just check the generator imports
     // reference the right types.
-    test('Spec with nullable int params generates code using NitroOptInt64', () {
+    test('Spec with nullable int params generates code using arena.packInt', () {
       final spec = BridgeSpec(
         dartClassName: 'Mod',
         lib: 'mod',
@@ -408,11 +408,11 @@ void main() {
         ],
       );
       final code = DartFfiGenerator.generate(spec);
-      // Nullable int param uses NitroOptInt64 via arena.packInt
-      expect(code, contains('packInt'));
+      expect(code, contains('arena.packInt(x)'));
+      expect(code, contains('withArena'));
     });
 
-    test('Spec with nullable double param uses packDouble', () {
+    test('Spec with nullable double param uses arena.packDouble', () {
       final spec = BridgeSpec(
         dartClassName: 'Mod',
         lib: 'mod',
@@ -433,7 +433,8 @@ void main() {
         ],
       );
       final code = DartFfiGenerator.generate(spec);
-      expect(code, contains('packDouble'));
+      expect(code, contains('arena.packDouble(x)'));
+      expect(code, contains('withArena'));
     });
   });
 }

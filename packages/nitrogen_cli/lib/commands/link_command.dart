@@ -1225,13 +1225,23 @@ void _copySwiftBridgesToClasses(
 void _syncSwiftBridgesToSpmSources(String baseDir) {
   final swiftGenDir = Directory(p.join(baseDir, 'lib', 'src', 'generated', 'swift'));
   if (!swiftGenDir.existsSync()) return;
-  final generatedBridges = swiftGenDir
+  final allBridges = swiftGenDir
       .listSync()
       .whereType<File>()
       .where((f) => p.basename(f.path).endsWith('.bridge.g.swift'))
       .toList()
     ..sort((a, b) => p.basename(a.path).compareTo(p.basename(b.path)));
-  if (generatedBridges.isEmpty) return;
+  if (allBridges.isEmpty) return;
+
+  // NativeImpl.cpp bridge files omit the shared preamble (NitroEncodable,
+  // NitroRecordWriter, etc.) — they rely on another bridge in the module to
+  // provide it.  Sort bridges that DEFINE NitroEncodable first so the
+  // verbatim-copied first file always contains the shared preamble.
+  final hasPreamble = (File f) => f.readAsStringSync().contains('\npublic protocol NitroEncodable');
+  final generatedBridges = [
+    ...allBridges.where(hasPreamble),
+    ...allBridges.where((f) => !hasPreamble(f)),
+  ];
 
   final spmStatus = spm.detectSpmStatus(baseDir);
 

@@ -69,6 +69,15 @@ class KotlinTypeMapper implements TypeMapper {
         return 'String';
       case 'void':
         return 'Unit';
+      case 'int8': return 'Byte';
+      case 'int16': return 'Short';
+      case 'int32': return 'Int';
+      case 'uint8': return 'Byte';   // unsigned bits preserved in signed Byte
+      case 'uint16': return 'Short'; // unsigned bits preserved in signed Short
+      case 'uint32': return 'Int';   // unsigned bits preserved in signed Int
+      case 'float': return 'Float';
+      case 'intptr': return 'Long';
+      case 'size': return 'Long';
       case 'Uint8List':
       case 'Int8List':
         return 'ByteArray';

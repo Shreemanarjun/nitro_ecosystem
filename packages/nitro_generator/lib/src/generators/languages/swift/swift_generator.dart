@@ -9,6 +9,7 @@ import 'emitters/swift_function_emitter.dart';
 import 'emitters/swift_property_emitter.dart';
 import 'emitters/swift_stream_emitter.dart';
 import 'emitters/swift_type_mapper.dart';
+import 'emitters/swift_type_mapper_extended.dart';
 import 'emitters/swift_variant_emitter.dart';
 
 part 'emitters/swift_protocol_registry_emitter.dart';
@@ -38,7 +39,7 @@ class SwiftGenerator {
     }
 
     final writer = CodeWriter();
-    final mapper = SwiftTypeMapper(spec);
+    final mapper = SwiftTypeMapperExtended(spec);
     writer.raw(generatedFileHeader('//', sourceUri: spec.sourceUri));
     writer.line('import Foundation');
     writer.line('import Combine');
@@ -235,7 +236,7 @@ class SwiftGenerator {
     if (swiftRecords.isNotEmpty) nodes.add(CodeSnippet(swiftRecords));
 
     if (spec.localVariants.isNotEmpty) {
-      final mapper = SwiftTypeMapper(spec);
+      final mapper = SwiftTypeMapperExtended(spec);
       final varWriter = CodeWriter();
       for (final variant in spec.localVariants) {
         SwiftVariantEmitter.emit(varWriter, variant, mapper);

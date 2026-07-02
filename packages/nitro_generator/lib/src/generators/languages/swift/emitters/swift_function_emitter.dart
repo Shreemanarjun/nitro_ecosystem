@@ -250,20 +250,23 @@ class SwiftFunctionEmitter {
         writer.line('    let ${p.name}Arr = ${p.name}.map { Array(UnsafeBufferPointer(start: \$0, count: Int(${p.name}_length))) } ?? []');
       }
     }
-    // Build call args for native async (no struct/record conversions — not supported)
+    // Build call args for native async (no struct/record conversions — not supported).
+    // Nullable prim/DateTime pointer params use pre-decoded locals (${p.name}_dec) so the
+    // Arena pointer is read synchronously before Task.detached — the Dart Arena is freed
+    // immediately after the C function returns, before the Swift Task runs.
     final callArgs = func.params
         .map((p) {
           final isStr = p.type.name == 'String' || p.type.name == 'String?';
           final isBool = p.type.name == 'bool' || p.type.name == 'bool?';
           final isEnum = spec.isEnumName(p.type.name.replaceFirst('?', ''));
           if (isStr) return '${p.name}: ${p.name}Str';
-          // Byte-safe decode (native async — copyMemory avoids withMemoryRebound alignment crash).
-          if (p.type.name == 'int?') return '${p.name}: { guard let _p = ${p.name}, _p[0] != 0 else { return nil }; var _rv: Int64 = 0; Swift.withUnsafeMutableBytes(of: &_rv) { \$0.baseAddress!.copyMemory(from: UnsafeRawPointer(_p + 1), byteCount: 8) }; return _rv }()';
-          if (p.type.name == 'uint64?') return '${p.name}: { guard let _p = ${p.name}, _p[0] != 0 else { return nil }; var _rv: UInt64 = 0; Swift.withUnsafeMutableBytes(of: &_rv) { \$0.baseAddress!.copyMemory(from: UnsafeRawPointer(_p + 1), byteCount: 8) }; return _rv }()';
-          if (p.type.name == 'double?') return '${p.name}: { guard let _p = ${p.name}, _p[0] != 0 else { return nil }; var _rv: Double = 0; Swift.withUnsafeMutableBytes(of: &_rv) { \$0.baseAddress!.copyMemory(from: UnsafeRawPointer(_p + 1), byteCount: 8) }; return _rv }()';
-          if (p.type.name == 'bool?') return '${p.name}: { guard let _p = ${p.name}, _p[0] != 0 else { return nil }; return _p[1] != 0 }()';
+          // Use pre-decoded locals (emitted before Task.detached) for pointer params.
+          if (p.type.name == 'int?') return '${p.name}: ${p.name}_dec';
+          if (p.type.name == 'uint64?') return '${p.name}: ${p.name}_dec';
+          if (p.type.name == 'double?') return '${p.name}: ${p.name}_dec';
+          if (p.type.name == 'bool?') return '${p.name}: ${p.name}_dec';
           if (p.type.name == 'DateTime') return '${p.name}: Date(timeIntervalSince1970: Double(${p.name})/1000.0)';
-          if (p.type.name == 'DateTime?') return '${p.name}: { guard let _p = ${p.name}, _p[0] != 0 else { return nil }; var _rv: Int64 = 0; Swift.withUnsafeMutableBytes(of: &_rv) { \$0.baseAddress!.copyMemory(from: UnsafeRawPointer(_p + 1), byteCount: 8) }; return Date(timeIntervalSince1970: Double(_rv)/1000.0) }()';
+          if (p.type.name == 'DateTime?') return '${p.name}: ${p.name}_dec';
           if (isBool) return '${p.name}: ${p.name} != 0';
           if (p.type.isAnyNativeObject) {
             final opt = p.type.isNullable || p.type.name.endsWith('?');
@@ -286,6 +289,22 @@ class SwiftFunctionEmitter {
     writer.line('        Dart_PostCObject_DL(dartPort, &_null)');
     writer.line('        return');
     writer.line('    }');
+    // Pre-decode nullable prim/DateTime pointer params BEFORE Task.detached.
+    // The Dart Arena holding these pointers is freed synchronously after the C fn returns,
+    // before Task.detached runs. Copying to Swift typed locals here keeps values alive.
+    for (final p in func.params) {
+      if (p.type.name == 'int?') {
+        writer.line('    let ${p.name}_dec: Int64? = { guard let _p = ${p.name}, _p[0] != 0 else { return nil }; var _rv: Int64 = 0; Swift.withUnsafeMutableBytes(of: &_rv) { \$0.baseAddress!.copyMemory(from: UnsafeRawPointer(_p + 1), byteCount: 8) }; return _rv }()');
+      } else if (p.type.name == 'uint64?') {
+        writer.line('    let ${p.name}_dec: UInt64? = { guard let _p = ${p.name}, _p[0] != 0 else { return nil }; var _rv: UInt64 = 0; Swift.withUnsafeMutableBytes(of: &_rv) { \$0.baseAddress!.copyMemory(from: UnsafeRawPointer(_p + 1), byteCount: 8) }; return _rv }()');
+      } else if (p.type.name == 'double?') {
+        writer.line('    let ${p.name}_dec: Double? = { guard let _p = ${p.name}, _p[0] != 0 else { return nil }; var _rv: Double = 0; Swift.withUnsafeMutableBytes(of: &_rv) { \$0.baseAddress!.copyMemory(from: UnsafeRawPointer(_p + 1), byteCount: 8) }; return _rv }()');
+      } else if (p.type.name == 'bool?') {
+        writer.line('    let ${p.name}_dec: Bool? = { guard let _p = ${p.name}, _p[0] != 0 else { return nil }; return _p[1] != 0 }()');
+      } else if (p.type.name == 'DateTime?') {
+        writer.line('    let ${p.name}_dec: Date? = { guard let _p = ${p.name}, _p[0] != 0 else { return nil }; var _rv: Int64 = 0; Swift.withUnsafeMutableBytes(of: &_rv) { \$0.baseAddress!.copyMemory(from: UnsafeRawPointer(_p + 1), byteCount: 8) }; return Date(timeIntervalSince1970: Double(_rv)/1000.0) }()');
+      }
+    }
     writer.line('    Task.detached {');
 
     final retName = func.returnType.name;
@@ -325,16 +344,14 @@ class SwiftFunctionEmitter {
       writer.line('        _obj.value.as_bool = _result');
       writer.line('        Dart_PostCObject_DL(dartPort, &_obj)');
     } else if (retName == 'bool?') {
+      // Pointer approach: malloc NitroOptBool (2B), post address as kInt64. Dart frees.
       writer.line('        let _result = try? await impl.${func.dartName}($callArgs)');
-      writer.line('        guard let _value = _result ?? nil else {');
-      writer.line('            var _null = Dart_CObject()');
-      writer.line('            _null.type = Dart_CObject_kNull');
-      writer.line('            Dart_PostCObject_DL(dartPort, &_null)');
-      writer.line('            return');
-      writer.line('        }');
+      writer.line('        let _out_nb = UnsafeMutablePointer<UInt8>.allocate(capacity: 2)');
+      writer.line('        _out_nb[0] = (_result ?? nil) != nil ? 1 : 0');
+      writer.line('        _out_nb[1] = (_result ?? nil) == true ? 1 : 0');
       writer.line('        var _obj = Dart_CObject()');
-      writer.line('        _obj.type = Dart_CObject_kBool');
-      writer.line('        _obj.value.as_bool = _value');
+      writer.line('        _obj.type = Dart_CObject_kInt64');
+      writer.line('        _obj.value.as_int64 = Int64(bitPattern: UInt64(UInt(bitPattern: _out_nb)))');
       writer.line('        Dart_PostCObject_DL(dartPort, &_obj)');
     } else {
       final isDouble = retName == 'double';
@@ -347,15 +364,23 @@ class SwiftFunctionEmitter {
         writer.line('        _obj.type = Dart_CObject_kDouble');
         writer.line('        _obj.value.as_double = _result');
       } else if (isNullDbl) {
-        writer.line('        let _result = ((try? await impl.${func.dartName}($callArgs)) ?? nil) ?? Double.nan');
-        writer.line('        var _obj = Dart_CObject()');
-        writer.line('        _obj.type = Dart_CObject_kDouble');
-        writer.line('        _obj.value.as_double = _result');
-      } else if (isNullInt) {
-        writer.line('        let _result = ((try? await impl.${func.dartName}($callArgs)) ?? nil) ?? Int64.min');
+        // Pointer approach: malloc NitroOptFloat64 (9B), post address as kInt64. Dart frees.
+        writer.line('        let _result = ((try? await impl.${func.dartName}($callArgs)) ?? nil)');
+        writer.line('        let _out_nf = UnsafeMutablePointer<UInt8>.allocate(capacity: 9)');
+        writer.line('        _out_nf[0] = _result != nil ? 1 : 0');
+        writer.line('        if let _v = _result { Swift.withUnsafeBytes(of: _v) { UnsafeMutableRawPointer(_out_nf + 1).copyMemory(from: \$0.baseAddress!, byteCount: 8) } }');
         writer.line('        var _obj = Dart_CObject()');
         writer.line('        _obj.type = Dart_CObject_kInt64');
-        writer.line('        _obj.value.as_int64 = _result');
+        writer.line('        _obj.value.as_int64 = Int64(bitPattern: UInt64(UInt(bitPattern: _out_nf)))');
+      } else if (isNullInt) {
+        // Pointer approach: malloc NitroOptInt64 (9B), post address as kInt64. Dart frees.
+        writer.line('        let _result = ((try? await impl.${func.dartName}($callArgs)) ?? nil)');
+        writer.line('        let _out_ni = UnsafeMutablePointer<UInt8>.allocate(capacity: 9)');
+        writer.line('        _out_ni[0] = _result != nil ? 1 : 0');
+        writer.line('        if let _v = _result { Swift.withUnsafeBytes(of: _v) { UnsafeMutableRawPointer(_out_ni + 1).copyMemory(from: \$0.baseAddress!, byteCount: 8) } }');
+        writer.line('        var _obj = Dart_CObject()');
+        writer.line('        _obj.type = Dart_CObject_kInt64');
+        writer.line('        _obj.value.as_int64 = Int64(bitPattern: UInt64(UInt(bitPattern: _out_ni)))');
       } else if (retName == 'DateTime') {
         writer.line('        let _result = (try? await impl.${func.dartName}($callArgs)) ?? Date(timeIntervalSince1970: 0)');
         writer.line('        var _obj = Dart_CObject()');

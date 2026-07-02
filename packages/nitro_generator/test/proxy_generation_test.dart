@@ -55,7 +55,7 @@ void main() {
 
     test('proxy constructor calls _finalizer!.attach()', () {
       final out = StructGenerator.generateDartProxies(structStreamSpec());
-      expect(out, contains('_finalizer!.attach(this, _native.cast(), detach: this)'));
+      expect(out, contains('_finalizer!.attach(this, _native.cast(), detach: this, externalSize: 512)'));
     });
 
     test('proxy documents zero-copy ownership contract', () {

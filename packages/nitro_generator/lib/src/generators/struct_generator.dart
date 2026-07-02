@@ -204,7 +204,7 @@ class StructGenerator {
       s.writeln('  /// and do not free zero-copy field buffers while the proxy may be read.');
       s.writeln('  ${st.name}Proxy(this._native) : super($superArgs) {');
       s.writeln("    assert(_finalizer != null, '${st.name}Proxy._init() was not called. Ensure the Nitro impl class constructor ran before creating proxies.');");
-      s.writeln('    _finalizer!.attach(this, _native.cast(), detach: this);');
+      s.writeln('    _finalizer!.attach(this, _native.cast(), detach: this, externalSize: 512);');
       s.writeln('  }');
       s.writeln();
       s.writeln('  // @override lazy getters — read native memory on demand, zero allocation.');

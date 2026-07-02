@@ -454,6 +454,110 @@ void main() {
     });
   });
 
+  // ── Android — modern Kotlin (Flutter built-in KGP) ───────────────────────────
+
+  group('Android — Kotlin configured via Flutter built-in KGP (no explicit apply plugin)', () {
+    // Flutter 3.x deprecated explicit KGP in plugin build files. Plugins that
+    // omit "apply plugin: kotlin-android" and rely on Flutter's built-in mechanism
+    // should NOT be flagged as errors — they are using the recommended modern approach.
+
+    test('ok when kotlinOptions present without explicit kotlin-android plugin', () {
+      final tmp = _scaffold();
+      addTearDown(() => tmp.deleteSync(recursive: true));
+
+      // Overwrite build.gradle: modern style — no apply plugin, but kotlinOptions present
+      File(p.join(tmp.path, 'android', 'build.gradle')).writeAsStringSync('''
+plugins {
+    id "com.android.library"
+}
+android {
+    kotlinOptions { jvmTarget = "17" }
+    sourceSets { main { kotlin.srcDirs += "src/generated/kotlin" } }
+}
+dependencies {
+    implementation "org.jetbrains.kotlinx:kotlinx-coroutines-core:1.7.0"
+}
+''');
+
+      final result = _run(tmp);
+      final androidSec = result.sections.firstWhere((s) => s.title == 'Android');
+      expect(
+        androidSec.checks.any((c) => c.status == DoctorStatus.ok && c.label.toLowerCase().contains('kotlin')),
+        isTrue,
+        reason: 'Modern Flutter built-in KGP approach should be accepted without error',
+      );
+      expect(
+        androidSec.checks.any((c) => c.status == DoctorStatus.error && c.label.contains('kotlin-android')),
+        isFalse,
+        reason: 'Should not error when kotlinOptions is present (Flutter built-in KGP)',
+      );
+    });
+
+    test('error when neither kotlin-android nor kotlinOptions nor kotlin.srcDirs present', () {
+      final tmp = _scaffold();
+      addTearDown(() => tmp.deleteSync(recursive: true));
+
+      // Use java.srcDirs instead of kotlin.srcDirs — no Kotlin config at all.
+      File(p.join(tmp.path, 'android', 'build.gradle')).writeAsStringSync('''
+plugins {
+    id "com.android.library"
+}
+android {
+    sourceSets { main { java.srcDirs += "src/generated/kotlin" } }
+}
+dependencies {
+    implementation "org.jetbrains.kotlinx:kotlinx-coroutines-core:1.7.0"
+}
+''');
+
+      final result = _run(tmp);
+      final androidSec = result.sections.firstWhere((s) => s.title == 'Android');
+      expect(
+        androidSec.checks.any((c) => c.status == DoctorStatus.error && c.label.contains('kotlin-android')),
+        isTrue,
+        reason: 'Should error when no Kotlin configuration is found',
+      );
+    });
+  });
+
+  group('Android — JniBridge.registerFactory accepted as valid register pattern', () {
+    // Plugins using the multi-instance factory pattern call registerFactory(...)
+    // instead of register(...). Both must be accepted.
+
+    test('ok when Plugin.kt calls registerFactory instead of register', () {
+      final tmp = _scaffold(mmBridges: ['my_plugin.bridge.g.mm']);
+      addTearDown(() => tmp.deleteSync(recursive: true));
+
+      final specDir = Directory(p.join(tmp.path, 'lib', 'src'))..createSync(recursive: true);
+      File(p.join(specDir.path, 'my_plugin.native.dart')).writeAsStringSync(
+        '@NitroModule(lib: "my_plugin", ios: NativeImpl.swift, android: NativeImpl.kotlin)',
+      );
+
+      final ktFile = Directory(p.join(tmp.path, 'android', 'src', 'main', 'kotlin', 'com', 'example')).listSync().whereType<File>().first;
+      ktFile.writeAsStringSync('''
+class MyPlugin {
+  fun onAttachedToEngine() {
+    System.loadLibrary("my_plugin")
+    MyJniBridge.registerFactory({ MyPluginImpl() }, context)
+  }
+}
+''');
+
+      final result = _run(tmp);
+      final androidSec = result.sections.firstWhere((s) => s.title == 'Android');
+      expect(
+        androidSec.checks.any((c) => c.status == DoctorStatus.ok && c.label.contains('JniBridge.register')),
+        isTrue,
+        reason: 'registerFactory(...) must be accepted as a valid JniBridge registration call',
+      );
+      expect(
+        androidSec.checks.any((c) => c.status == DoctorStatus.warn && c.label.contains('JniBridge.register')),
+        isFalse,
+        reason: 'Should not warn when registerFactory is used',
+      );
+    });
+  });
+
   // ── NativeImpl.cpp — iOS section ─────────────────────────────────────────────
 
   group('iOS — NativeImpl.cpp', () {
@@ -1989,6 +2093,225 @@ let package = Package(name: "my_plugin", targets: [
       expect(status.hasCocoaPods, isTrue);
       expect(status.hasSpm, isFalse);
       expect(status.isLegacy, isTrue);
+    });
+  });
+
+  // ── Nested-SPM Swift target gap checks ─────────────────────────────────────
+  //
+  // The doctor must verify the Swift target in the nested SPM layout, not just
+  // the C++ target. These checks were missing before (the "nested-SPM gap"):
+  //   1. Package.swift declares the Swift target (named <plugin_name>)
+  //   2. Sources/<PascalCase>/ directory exists
+  //   3. Sources/<PascalCase>/<plugin_name>.bridge.g.swift is present
+
+  group('iOS — nested SPM Swift target completeness', () {
+    /// Build a temp directory with a nested SPM layout (ios/my_plugin/Package.swift).
+    /// [swiftTarget] controls the Swift target name in Package.swift.
+    /// [hasSwiftDir] controls whether Sources/MyPlugin/ directory exists.
+    /// [hasSwiftBridge] controls whether Sources/MyPlugin/my_plugin.bridge.g.swift exists.
+    Directory _nestedSpmScaffold({
+      String swiftTarget = 'my_plugin',
+      bool hasSwiftDir = true,
+      bool hasSwiftBridge = true,
+      bool includeSpec = true,
+    }) {
+      final tmp = _scaffold(withIos: true);
+      // Add a nested Package.swift with or without the Swift target
+      final pkgDir = Directory(p.join(tmp.path, 'ios', 'my_plugin'))..createSync(recursive: true);
+      final pkgContent = '// swift-tools-version: 5.9\n'
+          'import PackageDescription\n'
+          'let package = Package(\n'
+          '  name: "my_plugin",\n'
+          '  targets: [\n'
+          '    .target(name: "MyPluginCpp", path: "Sources/MyPluginCpp", publicHeadersPath: "include", cxxSettings: [.unsafeFlags(["-std=c++17"])]),\n'
+          '    .target(name: "${swiftTarget == 'my_plugin' ? 'my_plugin' : 'MISSING'}", path: "Sources/MyPlugin"),\n'
+          '  ]\n'
+          ')';
+      File(p.join(pkgDir.path, 'Package.swift')).writeAsStringSync(pkgContent);
+
+      // C++ Sources dir (needed to pass existing checks)
+      final cppDir = Directory(p.join(pkgDir.path, 'Sources', 'MyPluginCpp'))..createSync(recursive: true);
+      File(p.join(cppDir.path, 'my_plugin.bridge.g.mm')).writeAsStringSync('// mm bridge');
+      File(p.join(cppDir.path, 'dart_api_dl.c')).writeAsStringSync('void Dart_InitializeApiDL() {}');
+      File(p.join(cppDir.path, 'my_plugin.cpp')).writeAsStringSync('// forwarder');
+      Directory(p.join(cppDir.path, 'include')).createSync();
+      File(p.join(cppDir.path, 'include', 'nitro.h')).writeAsStringSync('#define NITRO_EXPORT');
+
+      if (hasSwiftDir) {
+        final swiftDir = Directory(p.join(pkgDir.path, 'Sources', 'MyPlugin'))..createSync(recursive: true);
+        if (hasSwiftBridge) {
+          File(p.join(swiftDir.path, 'my_plugin.bridge.g.swift')).writeAsStringSync('// generated bridge');
+        }
+      }
+
+      if (includeSpec) {
+        final libDir = Directory(p.join(tmp.path, 'lib', 'src'))..createSync(recursive: true);
+        File(p.join(libDir.path, 'my_plugin.native.dart')).writeAsStringSync(
+          'import \'package:nitro/nitro.dart\';\n@NitroModule(lib: "my_plugin", ios: NativeImpl.swift, android: NativeImpl.kotlin)\nabstract class MyPlugin extends HybridObject {}',
+        );
+      }
+
+      return tmp;
+    }
+
+    test('ok when Package.swift declares Swift target by plugin name', () {
+      if (!Platform.isMacOS) return;
+      final tmp = _nestedSpmScaffold();
+      addTearDown(() => tmp.deleteSync(recursive: true));
+
+      final result = _run(tmp);
+      final iosSec = result.sections.firstWhere((s) => s.title == 'iOS');
+      expect(
+        iosSec.checks.any((c) => c.status == DoctorStatus.ok && c.label.contains('my_plugin') && c.label.contains('Swift target')),
+        isTrue,
+        reason: 'Should report ok when Package.swift declares the Swift target',
+      );
+    });
+
+    test('warning when Package.swift missing Swift target', () {
+      if (!Platform.isMacOS) return;
+      // Use a Package.swift that only has CppTarget, no Swift target name matching plugin name
+      final tmp = _scaffold(withIos: true);
+      addTearDown(() => tmp.deleteSync(recursive: true));
+
+      final pkgDir = Directory(p.join(tmp.path, 'ios', 'my_plugin'))..createSync(recursive: true);
+      // Package.swift with WRONG swift target name (doesn't match plugin name)
+      File(p.join(pkgDir.path, 'Package.swift')).writeAsStringSync(
+        '// swift-tools-version: 5.9\n'
+        'import PackageDescription\n'
+        'let package = Package(\n'
+        '  name: "my_plugin",\n'
+        '  targets: [\n'
+        '    .target(name: "MyPluginCpp", path: "Sources/MyPluginCpp", publicHeadersPath: "include", cxxSettings: [.unsafeFlags(["-std=c++17"])]),\n'
+        '    .target(name: "WrongTarget", path: "Sources/MyPlugin"),\n'
+        '  ]\n'
+        ')',
+      );
+      final cppDir = Directory(p.join(pkgDir.path, 'Sources', 'MyPluginCpp'))..createSync(recursive: true);
+      File(p.join(cppDir.path, 'my_plugin.bridge.g.mm')).writeAsStringSync('// mm');
+      File(p.join(cppDir.path, 'dart_api_dl.c')).writeAsStringSync('void Dart_InitializeApiDL() {}');
+      File(p.join(cppDir.path, 'my_plugin.cpp')).writeAsStringSync('// forwarder');
+      Directory(p.join(cppDir.path, 'include')).createSync();
+      File(p.join(cppDir.path, 'include', 'nitro.h')).writeAsStringSync('#define NITRO_EXPORT');
+
+      final specDir = Directory(p.join(tmp.path, 'lib', 'src'))..createSync(recursive: true);
+      File(p.join(specDir.path, 'my_plugin.native.dart')).writeAsStringSync(
+        'import \'package:nitro/nitro.dart\';\n@NitroModule(lib: "my_plugin", ios: NativeImpl.swift)\nabstract class MyPlugin extends HybridObject {}',
+      );
+
+      final result = _run(tmp);
+      final iosSec = result.sections.firstWhere((s) => s.title == 'iOS');
+      expect(
+        iosSec.checks.any((c) => c.status == DoctorStatus.warn && c.label.contains('my_plugin') && c.label.contains('Swift target')),
+        isTrue,
+        reason: 'Should warn when Package.swift is missing the correct Swift target name',
+      );
+      expect(
+        iosSec.checks.any((c) => c.hint != null && c.hint!.contains('nitrogen init')),
+        isTrue,
+        reason: 'Hint should suggest nitrogen init',
+      );
+    });
+
+    test('ok when Sources/MyPlugin/ directory present', () {
+      if (!Platform.isMacOS) return;
+      final tmp = _nestedSpmScaffold();
+      addTearDown(() => tmp.deleteSync(recursive: true));
+
+      final result = _run(tmp);
+      final iosSec = result.sections.firstWhere((s) => s.title == 'iOS');
+      expect(
+        iosSec.checks.any((c) => c.status == DoctorStatus.ok && c.label.contains('Sources/MyPlugin/') && c.label.contains('directory')),
+        isTrue,
+        reason: 'Should report ok when SPM Swift sources directory exists',
+      );
+    });
+
+    test('warning when Sources/MyPlugin/ directory missing (with spec)', () {
+      if (!Platform.isMacOS) return;
+      final tmp = _nestedSpmScaffold(hasSwiftDir: false, hasSwiftBridge: false);
+      addTearDown(() => tmp.deleteSync(recursive: true));
+
+      final result = _run(tmp);
+      final iosSec = result.sections.firstWhere((s) => s.title == 'iOS');
+      expect(
+        iosSec.checks.any((c) => c.status == DoctorStatus.warn && c.label.contains('Sources/MyPlugin') && c.label.contains('not found')),
+        isTrue,
+        reason: 'Should warn when SPM Swift sources directory is missing',
+      );
+      expect(
+        iosSec.checks.any((c) => c.hint != null && c.hint!.contains('nitrogen link')),
+        isTrue,
+        reason: 'Hint should suggest nitrogen link',
+      );
+    });
+
+    test('ok when bridge.g.swift present in Sources/MyPlugin/', () {
+      if (!Platform.isMacOS) return;
+      final tmp = _nestedSpmScaffold();
+      addTearDown(() => tmp.deleteSync(recursive: true));
+
+      final result = _run(tmp);
+      final iosSec = result.sections.firstWhere((s) => s.title == 'iOS');
+      expect(
+        iosSec.checks.any((c) => c.status == DoctorStatus.ok && c.label.contains('bridge.g.swift') && c.label.contains('Sources/MyPlugin')),
+        isTrue,
+        reason: 'Should report ok when bridge.g.swift is in the SPM Swift target directory',
+      );
+    });
+
+    test('error when bridge.g.swift missing from Sources/MyPlugin/ (with spec)', () {
+      if (!Platform.isMacOS) return;
+      final tmp = _nestedSpmScaffold(hasSwiftBridge: false);
+      addTearDown(() => tmp.deleteSync(recursive: true));
+
+      final result = _run(tmp);
+      final iosSec = result.sections.firstWhere((s) => s.title == 'iOS');
+      expect(
+        iosSec.checks.any(
+          (c) => c.status == DoctorStatus.error && c.label.contains('bridge.g.swift') && c.label.contains('Sources/MyPlugin'),
+        ),
+        isTrue,
+        reason: 'Should error when bridge.g.swift is missing from SPM Swift target directory',
+      );
+      expect(
+        iosSec.checks.any((c) => c.hint != null && c.hint!.contains('nitrogen link')),
+        isTrue,
+        reason: 'Hint should suggest nitrogen link to copy the generated bridge',
+      );
+    });
+
+    test('Swift target checks skipped for NativeImpl.cpp modules', () {
+      if (!Platform.isMacOS) return;
+      // A C++-only spec (ios AND macos both .cpp) should skip Swift target checks.
+      final tmp = _scaffold(withIos: true);
+      addTearDown(() => tmp.deleteSync(recursive: true));
+      // Write a spec with all Apple platforms set to NativeImpl.cpp
+      final specDir = Directory(p.join(tmp.path, 'lib', 'src'))..createSync(recursive: true);
+      File(p.join(specDir.path, 'my_plugin.native.dart')).writeAsStringSync(
+        'import \'package:nitro/nitro.dart\';\n'
+        '@NitroModule(lib: "my_plugin", ios: NativeImpl.cpp, macos: NativeImpl.cpp, android: NativeImpl.cpp)\n'
+        'abstract class MyPlugin extends HybridObject {}',
+      );
+
+      final pkgDir = Directory(p.join(tmp.path, 'ios', 'my_plugin'))..createSync(recursive: true);
+      File(p.join(pkgDir.path, 'Package.swift')).writeAsStringSync(
+        '// swift-tools-version: 5.9\nlet package = Package(name: "my_plugin")',
+      );
+      final cppDir = Directory(p.join(pkgDir.path, 'Sources', 'MyPluginCpp'))..createSync(recursive: true);
+      File(p.join(cppDir.path, 'dart_api_dl.c')).writeAsStringSync('void Dart_InitializeApiDL() {}');
+      File(p.join(cppDir.path, 'my_plugin.cpp')).writeAsStringSync('// forwarder');
+      Directory(p.join(cppDir.path, 'include')).createSync();
+      File(p.join(cppDir.path, 'include', 'nitro.h')).writeAsStringSync('#define NITRO_EXPORT');
+
+      final result = _run(tmp);
+      final iosSec = result.sections.firstWhere((s) => s.title == 'iOS');
+      // No Swift target check should fire for C++ modules
+      expect(
+        iosSec.checks.any((c) => c.label.contains('Swift target')),
+        isFalse,
+        reason: 'Swift target checks must be skipped for NativeImpl.cpp modules',
+      );
     });
   });
 }

@@ -474,9 +474,10 @@ void main() {
   group('DartFfiGenerator — non-nullable bool param (§7)', () {
     final code = DartFfiGenerator.generate(_nonNullableBoolParamSpec());
 
-    test('non-nullable bool converts to int via ternary (? 1 : 0)', () {
-      // bool → 1/0 conversion for the C call
-      expect(code, anyOf(contains('? 1 : 0'), contains('active ? 1 : 0')));
+    test('non-nullable bool uses Bool FFI type — passed directly (no ternary)', () {
+      // Bool FFI type: bool maps directly, no int conversion needed
+      expect(code, isNot(anyOf(contains('? 1 : 0'), contains('active ? 1 : 0'))));
+      expect(code, contains('setActive'));
     });
 
     test('non-nullable bool does NOT use nullable sentinel (-1)', () {
@@ -569,8 +570,9 @@ void main() {
       expect(code, isNot(contains('_pingPtr(a, b')));
     });
 
-    test('bool return converts via res != 0', () {
-      expect(code, contains('res != 0'));
+    test('async bool return uses callAsync<bool> (Bool FFI type returns Dart bool)', () {
+      // @nitroAsync bool: Bool FFI type → Dart bool; callAsync<bool> avoids int cast error.
+      expect(code, contains('callAsync<bool>'));
     });
   });
 

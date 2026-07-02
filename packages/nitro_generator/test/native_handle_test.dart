@@ -226,13 +226,13 @@ void main() {
       );
       final out = CppBridgeGenerator.generate(cppSpec);
       expect(out, contains('void* camera_peek_frame(int64_t instanceId, NitroError* _nitro_err)'));
-      expect(out, contains('return g_impl->peekFrame('));
+      expect(out, contains('return _impl->peekFrame('));
     });
 
     test('NativeHandle param: void* pass-through to C++ impl', () {
       final out = CppBridgeGenerator.generate(_paramSpec());
       expect(out, contains('void camera_process_frame(int64_t instanceId, void* handle, NitroError* _nitro_err)'));
-      expect(out, contains('g_impl->processFrame(handle)'));
+      expect(out, contains('_impl->processFrame(handle)'));
     });
 
     test('Android JNI signature maps NativeHandle return to long', () {

@@ -217,16 +217,21 @@ void main() {
       expect(out, contains('malloc.free(structPtr);'));
     });
 
-    test('bool return converts via != 0', () {
+    test('bool return uses Bool FFI type — passed/returned directly', () {
       final out = DartFfiGenerator.generate(richSpec());
-      expect(out, contains('final res = _isReadyPtr(_instanceId, strict ? 1 : 0, _nitroErr);'));
+      // Bool FFI type: strict is passed as-is (no ternary), res returned as-is (no != 0)
+      expect(out, contains('final res = _isReadyPtr(_instanceId, strict, _nitroErr);'));
       expect(out, contains('NitroRuntime.throwIfOutParamError(_nitroErr);'));
-      expect(out, contains('return res != 0;'));
+      expect(out, contains('return res;'));
+      expect(out, isNot(contains('strict ? 1 : 0')));
+      expect(out, isNot(contains('return res != 0;')));
     });
 
-    test('bool param passes value ? 1 : 0', () {
+    test('bool param uses Bool FFI type — no ternary conversion', () {
       final out = DartFfiGenerator.generate(richSpec());
-      expect(out, contains('strict ? 1 : 0'));
+      // Bool FFI type maps bool directly; no integer conversion needed
+      expect(out, contains('_isReadyPtr(_instanceId, strict, _nitroErr)'));
+      expect(out, isNot(contains('strict ? 1 : 0')));
     });
 
     test('int return is passed through directly', () {
@@ -315,13 +320,15 @@ void main() {
       expect(out, contains('set enabled('));
     });
 
-    test('property bool getter converts != 0', () {
+    test('property bool getter uses Bool FFI — returns directly', () {
       final out = DartFfiGenerator.generate(richSpec());
       expect(out, contains('bool get enabled {'));
       expect(out, contains("NitroRuntime.callSync(() {"));
       expect(out, contains('final res = _getEnabledPtr(_instanceId, _nitroErr);'));
       expect(out, contains('NitroRuntime.throwIfOutParamError(_nitroErr);'));
-      expect(out, contains('return res != 0;'));
+      // Bool FFI type: res is already bool, return directly (no != 0 conversion)
+      expect(out, contains('return res;'));
+      expect(out, isNot(contains('return res != 0;')));
       expect(out, contains("methodName: 'get enabled'"));
     });
 
@@ -330,10 +337,12 @@ void main() {
       expect(out, contains('.toSensorMode()'));
     });
 
-    test('property bool setter converts value ? 1 : 0', () {
+    test('property bool setter uses Bool FFI — passes value directly', () {
       final out = DartFfiGenerator.generate(richSpec());
       expect(out, contains('set enabled(bool value)'));
-      expect(out, contains('_setEnabledPtr(_instanceId, value ? 1 : 0, _nitroErr)'));
+      // Bool FFI type: value is passed as-is, no ternary ? 1 : 0
+      expect(out, contains('_setEnabledPtr(_instanceId, value, _nitroErr)'));
+      expect(out, isNot(contains('value ? 1 : 0')));
       expect(out, contains('NitroRuntime.throwIfOutParamError(_nitroErr)'));
       expect(out, contains("methodName: 'set enabled'"));
     });

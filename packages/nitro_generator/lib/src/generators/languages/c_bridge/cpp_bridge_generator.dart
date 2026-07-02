@@ -64,6 +64,10 @@ class CppBridgeGenerator {
       writer.line('#import <Foundation/Foundation.h>');
       writer.line('#endif');
     }
+    // dlfcn.h provides Dl_info/dladdr/dlopen used by enable_native_bindings on Android/Linux.
+    writer.line('#if defined(__ANDROID__) || defined(__linux__)');
+    writer.line('#include <dlfcn.h>');
+    writer.line('#endif');
     // C++ standard headers needed when any Apple platform uses NativeImpl.cpp.
     if (iosIsCpp || macosIsCpp) {
       writer.line('#include <string>');
@@ -165,6 +169,41 @@ class CppBridgeGenerator {
         writer.line('    free(ptr);');
         writer.line('}');
       }
+      writer.line('}');
+      writer.blankLine();
+    }
+
+    // ── Finding 1: enable_native_bindings (Android/Linux only) ──────────────────
+    // Promotes the already-loaded native library to process-wide symbol visibility
+    // (RTLD_GLOBAL) so that @Native<F>() Dart bindings can resolve via
+    // DynamicLibrary.process() on Android/Linux.
+    // On iOS/macOS the library is statically linked — symbols are already visible,
+    // so this function is a no-op (the #if guard excludes all code).
+    // Emitted whenever the spec has sync functions that may qualify for @Native<F>
+    // leaf bindings. Call once from Kotlin plugin init after System.loadLibrary().
+    final hasSyncFunctions = spec.functions.any((f) => !f.isAsync && !f.isNativeAsync);
+    if (hasSyncFunctions) {
+      writer.line('#if defined(__ANDROID__) || defined(__linux__)');
+      writer.line('static void* _${libStem}_lib_h = nullptr;');
+      writer.line('#endif');
+      writer.blankLine();
+      writer.line('extern "C" {');
+      writer.line('// Finding 1: promotes this native library to process-wide visibility so that');
+      writer.line('// @Native<F>() Dart bindings resolve via DynamicLibrary.process() on Android/Linux.');
+      writer.line('// On iOS/macOS this is a no-op — symbols are already in the process namespace');
+      writer.line('// via static linking.  Call once from the Kotlin/Swift plugin init.');
+      writer.line('NITRO_EXPORT void ${libStem}_enable_native_bindings(void) {');
+      writer.line('#if defined(__ANDROID__) || defined(__linux__)');
+      writer.line('    if (!_${libStem}_lib_h) {');
+      writer.line('        Dl_info info;');
+      writer.line('        if (dladdr((void*)${libStem}_enable_native_bindings, &info) && info.dli_fname) {');
+      writer.line('            // RTLD_GLOBAL | RTLD_NOLOAD promotes already-loaded lib to global namespace');
+      writer.line('            // without re-loading it, making symbols available to DynamicLibrary.process().');
+      writer.line('            _${libStem}_lib_h = dlopen(info.dli_fname, RTLD_LAZY | RTLD_GLOBAL | RTLD_NOLOAD);');
+      writer.line('        }');
+      writer.line('    }');
+      writer.line('#endif');
+      writer.line('}');
       writer.line('}');
       writer.blankLine();
     }
@@ -380,7 +419,7 @@ class CppBridgeGenerator {
           final isRecordParam = recordNames.contains(p.type.name.replaceFirst('?', ''));
           final isEnumParam = enumNames.contains(p.type.name.replaceFirst('?', ''));
           paramParts.add('${(isStructParam || isRecordParam) ? 'void*' : (isEnumParam ? 'int64_t' : _typeToC(p.type.name))} ${p.name}');
-          if (p.type.isTypedData) paramParts.add('int64_t ${p.name}_length');
+          if (p.type.isTypedData) paramParts.add('size_t ${p.name}_length'); // matches Dart FFI Size type
         }
         paramParts.add('int64_t dart_port');
         final paramsDecl = paramParts.join(', ');
@@ -466,7 +505,7 @@ class CppBridgeGenerator {
               : ((isStructParam || isRecordParam) ? 'void*' : _typeToC(p.type.name));
           paramParts.add('$cType ${p.name}');
         }
-        if (p.type.isTypedData) paramParts.add('int64_t ${p.name}_length');
+        if (p.type.isTypedData) paramParts.add('size_t ${p.name}_length'); // matches Dart FFI Size type
       }
       // S8: sync functions also receive NitroError* out-param for consistency with the JNI path.
       if (!func.isAsync) {
@@ -881,10 +920,6 @@ class CppBridgeGenerator {
     if (structNames.contains(dartType.replaceFirst('?', ''))) {
       return 'void*';
     }
-    // Nullable bool uses int32_t (jint) to preserve the -1 sentinel for null.
-    if (dartType.endsWith('?') && dartType.replaceFirst('?', '') == 'bool') {
-      return 'int32_t';
-    }
     return _typeToC(dartType);
   }
 
@@ -1014,7 +1049,18 @@ class CppBridgeGenerator {
       case 'double':
         return '0.0';
       case 'int8_t':
-        return 'false';
+        return 'false'; // used by both bool (explicitly) and int8 (0 == false in C)
+      case 'int16_t':
+      case 'int32_t':
+      case 'uint8_t':
+      case 'uint16_t':
+      case 'uint32_t':
+        return '0';
+      case 'intptr_t':
+      case 'size_t':
+        return '0';
+      case 'float':
+        return '0.0f';
       case 'const char*':
         return 'nullptr';
       // NitroOpt* value types: zero-initialized struct (hasValue=0 means null).
@@ -1063,6 +1109,15 @@ class CppBridgeGenerator {
       case 'Int64List':
       case 'Uint64List':
         return '[J'; // LongArray
+      case 'int8':
+      case 'uint8': return 'B';   // jbyte
+      case 'int16':
+      case 'uint16': return 'S';  // jshort
+      case 'int32':
+      case 'uint32': return 'I';  // jint
+      case 'float': return 'F';   // jfloat
+      case 'intptr':
+      case 'size': return 'J';    // jlong (64-bit for both)
       default:
         throw StateError(
           'Unknown JNI signature type "$t". Add @HybridStruct/@HybridEnum metadata or a typed-data mapping before generating the C bridge.',
@@ -1087,6 +1142,15 @@ class CppBridgeGenerator {
         return 'void';
       case 'Uint8List':
         return 'jobject';
+      case 'int8':
+      case 'uint8': return 'jbyte';
+      case 'int16':
+      case 'uint16': return 'jshort';
+      case 'int32':
+      case 'uint32': return 'jint';
+      case 'float': return 'jfloat';
+      case 'intptr':
+      case 'size': return 'jlong';
       default:
         return 'jobject';
     }
@@ -1101,6 +1165,15 @@ class CppBridgeGenerator {
         return 'jdouble';
       case 'bool':
         return 'jboolean';
+      case 'int8':
+      case 'uint8': return 'jbyte';
+      case 'int16':
+      case 'uint16': return 'jshort';
+      case 'int32':
+      case 'uint32': return 'jint';
+      case 'float': return 'jfloat';
+      case 'intptr':
+      case 'size': return 'jlong';
       default:
         return 'jobject';
     }

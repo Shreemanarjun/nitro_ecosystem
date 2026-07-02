@@ -1,3 +1,9 @@
+## 0.5.4
+
+- **Fixed: `cpp_record_generator.dart` — library record types excluded from C++ forward declarations** — Types in `_nitroLibraryRecordTypes` (`NitroOptInt64`, `NitroOptFloat64`, `NitroOptBool`, `NitroNullableInt`, `NitroNullableDouble`, `NitroNullableBool`) are now filtered out before generating C++ struct forward declarations and definitions. These types are provided as C anonymous typedefs in the generated `bridge.g.h`; re-declaring them as named C++ structs caused a compilation error in multi-spec plugins.
+- **Fixed: `swift_record_generator.dart` — library record types skipped in `NativeImpl.cpp` bridges** — When `emitBoilerplate: false` (cpp module bridge path), library record type struct definitions are now omitted. This prevents `NitroNullableInt` and similar types from being defined twice in the same Swift SPM module when a plugin contains both a Swift-backed and a C++-backed spec.
+- **Fixed: `cpp_direct_emitter.dart` — Meyers' Singleton prevents static initialization order fiasco** — All C++ registry globals (`g_instances`, `g_instances_mtx`, `g_next_instance_id`, `g_factory`) are now generated as function-local statics accessed via wrapper functions. This guarantees thread-safe initialization before first use, preventing the SIOF crash (`std::__next_prime` abort) that occurred when `__attribute__((constructor))` callbacks fired before the globals were initialized.
+
 ## 0.5.3
 
 - **Ecosystem sync** — Aligned with `nitrogen_cli` 0.5.3.

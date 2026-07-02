@@ -191,14 +191,17 @@ void main() {
       expect(out, contains('NITRO_EXPORT void camera_watch(int64_t instanceId, void (*onEvent)(int64_t), NitroError* _nitro_err);'));
     });
 
-    test('C++ interface and bridge preserve callback function pointer ABI', () {
+    test('C++ interface uses std::function<>, bridge C extern keeps raw fn ptr ABI', () {
       final spec = _cppCallbackParamSpec();
       final iface = CppInterfaceGenerator.generate(spec);
       final bridge = CppBridgeGenerator.generate(spec);
 
-      expect(iface, contains('virtual void watch(void (*onEvent)(int64_t)) = 0;'));
+      // Abstract class uses std::function<> (mirrors RN Nitro's JSIConverter<std::function<>>).
+      expect(iface, contains('std::function<void(int64_t)> onEvent'));
+      // C extern declaration (bridge ABI) keeps raw fn ptr for C linkage.
       expect(bridge, contains('void camera_watch(int64_t instanceId, void (*onEvent)(int64_t), NitroError* _nitro_err)'));
-      expect(bridge, contains('g_impl->watch(onEvent);'));
+      // std::function<> accepts raw fn ptr implicitly — no wrapper needed.
+      expect(bridge, contains('_impl->watch(onEvent);'));
       expect(bridge, isNot(contains('void* onEvent')));
     });
 

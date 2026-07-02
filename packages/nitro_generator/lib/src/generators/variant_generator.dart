@@ -31,6 +31,33 @@ class VariantGenerator {
     return s.toString();
   }
 
+  /// Returns true when the variant has a case whose name is literally `'null'`
+  /// (case-insensitive). This makes the variant nullable — `fromNative` /
+  /// `fromReader` return `VariantName?` and the null-tag decodes to Dart `null`.
+  static bool _hasNullCase(BridgeVariant variant) =>
+      variant.cases.any((c) => c.name.toLowerCase() == 'null');
+
+  /// Returns the 0-based tag index assigned to the null-marker case, or -1.
+  static int _nullCaseTag(BridgeVariant variant) =>
+      variant.cases.indexWhere((c) => c.name.toLowerCase() == 'null');
+
+  /// Returns true when the variant's decode can be optimized with a dart:ffi Union
+  /// (all cases: unit or exactly one non-nullable primitive field int/double/bool).
+  /// This enables zero-copy payload reads via direct pointer cast — no RecordReader.
+  ///
+  /// Variants with a null case are excluded from the optimization — returning
+  /// `null` from a zero-copy union path is not supported.
+  static bool _isPrimOnlyVariant(BridgeVariant variant) =>
+      !_hasNullCase(variant) &&
+      variant.cases.every((c) =>
+          c.isUnit ||
+          (c.fields.length == 1 &&
+           c.fields[0].kind == RecordFieldKind.primitive &&
+           !c.fields[0].isNullable &&
+           (c.fields[0].dartType == 'int' ||
+            c.fields[0].dartType == 'double' ||
+            c.fields[0].dartType == 'bool')));
+
   static void _emitVariantExt(
     CodeWriter s,
     BridgeVariant variant,
@@ -38,19 +65,69 @@ class VariantGenerator {
     Set<String> structNames,
   ) {
     final name = variant.name;
+    final hasNull = _hasNullCase(variant);
+    final nullTag = _nullCaseTag(variant);
+    final isPrimOnly = _isPrimOnlyVariant(variant);
+
+    // The return type is nullable when there is a null-marker case.
+    final returnType = hasNull ? '$name?' : name;
+
+    // Finding 8: For prim-only variants (no null case), emit a dart:ffi Union before
+    // the extension to allow zero-copy payload reads via pointer cast.
+    if (isPrimOnly) {
+      s.line('final class _${name}Payload extends Union {');
+      s.line('  @Int64() external int asInt;');
+      s.line('  @Double() external double asDouble;');
+      s.line('  @Uint8() external int asBool;');
+      s.line('}');
+      s.blank();
+    }
+
     s.line('extension ${name}VariantExt on $name {');
 
     // ── fromNative ────────────────────────────────────────────────────────────
-    s.line('  static $name fromNative(Pointer<Uint8> ptr) =>');
-    s.line('      fromReader(RecordReader.fromNative(ptr));');
+    if (isPrimOnly) {
+      // Zero-copy decode: direct pointer cast instead of RecordReader allocation.
+      // Wire format: [1B tag][payload bytes] — Union covers int(8B), double(8B), bool(1B).
+      s.line('  static $returnType fromNative(Pointer<Uint8> ptr) {');
+      s.line('    final tag = ptr[0];');
+      s.line('    final p = (ptr + 1).cast<_${name}Payload>().ref;');
+      s.line('    return switch (tag) {');
+      for (var i = 0; i < variant.cases.length; i++) {
+        final c = variant.cases[i];
+        if (c.isUnit) {
+          s.line('      $i => ${c.name}(),');
+        } else {
+          final f = c.fields[0];
+          final readExpr = switch (f.dartType) {
+            'int' => 'p.asInt',
+            'double' => 'p.asDouble',
+            'bool' => 'p.asBool != 0',
+            _ => 'p.asInt',
+          };
+          s.line('      $i => ${c.name}(${f.name}: $readExpr),');
+        }
+      }
+      s.line("      _ => throw ArgumentError('Unknown $name tag: \$tag'),");
+      s.line('    };');
+      s.line('  }');
+    } else {
+      s.line('  static $returnType fromNative(Pointer<Uint8> ptr) =>');
+      s.line('      fromReader(RecordReader.fromNative(ptr));');
+    }
     s.blank();
 
     // ── fromReader ────────────────────────────────────────────────────────────
-    s.line('  static $name fromReader(RecordReader r) {');
+    s.line('  static $returnType fromReader(RecordReader r) {');
     s.line('    final tag = r.readInt8();');
     s.line('    return switch (tag) {');
     for (var i = 0; i < variant.cases.length; i++) {
       final c = variant.cases[i];
+      // null-marker case decodes to Dart null
+      if (c.name.toLowerCase() == 'null') {
+        s.line('      $i => null,');
+        continue;
+      }
       if (c.isUnit) {
         s.line('      $i => ${c.name}(),');
       } else {
@@ -64,10 +141,13 @@ class VariantGenerator {
     s.blank();
 
     // ── writeFields ───────────────────────────────────────────────────────────
+    // The null case is not a real Dart class — it is encoded via encodeNullable.
+    // writeFields is only called on non-null instances, so the null tag is excluded.
     s.line('  void writeFields(RecordWriter writer) {');
     s.line('    switch (this) {');
     for (var i = 0; i < variant.cases.length; i++) {
       final c = variant.cases[i];
+      if (c.name.toLowerCase() == 'null') continue; // no class named 'null'
       if (c.isUnit) {
         s.line('      case ${c.name}():');
         s.line('        writer.writeInt8($i);');
@@ -90,6 +170,22 @@ class VariantGenerator {
     s.line('    writeFields(writer);');
     s.line('    return writer.toNative(alloc);');
     s.line('  }');
+
+    // ── encodeNullable (only when a null case exists) ─────────────────────────
+    // Writes tag=$nullTag with zero payload bytes when [value] is null;
+    // delegates to [writeFields] otherwise.
+    if (hasNull) {
+      s.blank();
+      s.line('  static Pointer<Uint8> encodeNullable($name? value, Allocator alloc) {');
+      s.line('    final writer = RecordWriter();');
+      s.line('    if (value == null) {');
+      s.line('      writer.writeInt8($nullTag);');
+      s.line('    } else {');
+      s.line('      value.writeFields(writer);');
+      s.line('    }');
+      s.line('    return writer.toNative(alloc);');
+      s.line('  }');
+    }
 
     s.line('}');
     s.blank();

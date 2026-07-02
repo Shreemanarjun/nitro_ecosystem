@@ -254,9 +254,10 @@ void main() {
       expect(out, contains('getInt')); // non-nullable: raw int
     });
 
-    test('bool (non-nullable) return: res != 0 decode', () {
+    test('bool (non-nullable) async return: callAsync<bool> and direct return', () {
+      // Bool FFI type → Dart bool; callAsync<bool> avoids int-cast error.
       final out = DartFfiGenerator.generate(_asyncNullableSpec());
-      expect(out, contains('return res != 0;'));
+      expect(out, contains('callAsync<bool>'));
     });
 
     test('String (non-nullable) return: toDartStringWithFree without null check', () {

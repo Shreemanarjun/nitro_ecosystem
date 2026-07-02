@@ -128,7 +128,8 @@ void main() {
 
     test('_init frees the key Utf8 pointer', () {
       final out = DartFfiGenerator.generate(_spec());
-      expect(out, contains('calloc.free(_keyPtr)'));
+      // malloc (not calloc) is used for Utf8 key pointer — uninitialized is fine
+      expect(out, contains('malloc.free(_keyPtr)'));
     });
 
     test('dispose() calls _destroyInstancePtr before removing from _instances', () {

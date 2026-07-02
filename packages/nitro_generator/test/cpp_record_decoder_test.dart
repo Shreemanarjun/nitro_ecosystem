@@ -359,11 +359,14 @@ void main() {
       expect(out, contains('#include <vector>'));
     });
 
-    test('does NOT include <cstring>/<optional>/<vector> when no records', () {
+    test('always includes <cstring>/<optional>/<vector> (RN Nitro parity — unconditional stdlib headers)', () {
+      // Always-included mirrors RN Nitro's HybridXxxSpec.hpp pattern:
+      // all stdlib headers present even when no records/variants exist,
+      // so user implementations can use std::optional<T> and std::vector<T> freely.
       final out = CppInterfaceGenerator.generate(_noRecordSpec());
-      expect(out, isNot(contains('#include <cstring>')));
-      expect(out, isNot(contains('#include <optional>')));
-      expect(out, isNot(contains('#include <vector>')));
+      expect(out, contains('#include <cstring>'));
+      expect(out, contains('#include <optional>'));
+      expect(out, contains('#include <vector>'));
     });
 
     test('record decoder appears before the Hybrid class definition', () {

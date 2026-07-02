@@ -46,8 +46,8 @@ void _emitSwiftBridgeSection(
       }
       callParamParts.add(p.name);
       if (p.type.isTypedData) {
-        paramParts.add('int64_t ${p.name}_length');
-        externParamParts.add('int64_t ${p.name}_length');
+        paramParts.add('size_t ${p.name}_length');
+        externParamParts.add('size_t ${p.name}_length');
         callParamParts.add('${p.name}_length');
       }
     }

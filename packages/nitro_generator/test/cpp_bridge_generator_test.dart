@@ -323,7 +323,7 @@ void main() {
 
     test('method calls g_impl virtual method', () {
       final out = CppBridgeGenerator.generate(cppSpec());
-      expect(out, contains('g_impl->add('));
+      expect(out, contains('_impl->add('));
     });
 
     test('NotInitialized guard present', () {
@@ -644,7 +644,7 @@ void main() {
 
     test('String return uses strdup on std::string result', () {
       final out = CppBridgeGenerator.generate(cppSpec());
-      expect(out, contains('std::string _res = g_impl->greet('));
+      expect(out, contains('std::string _res = _impl->greet('));
       expect(out, contains('return strdup(_res.c_str())'));
     });
 
@@ -673,7 +673,7 @@ void main() {
 
     test('enum return uses static_cast<int64_t>', () {
       final out = CppBridgeGenerator.generate(cppEnumSpec());
-      expect(out, contains('static_cast<int64_t>(g_impl->getMode())'));
+      expect(out, contains('static_cast<int64_t>(_impl->getMode())'));
     });
 
     test('enum property getter uses static_cast<int64_t>', () {
@@ -699,7 +699,7 @@ void main() {
         ],
       );
       final out = CppBridgeGenerator.generate(spec);
-      expect(out, contains('static_cast<int64_t>(g_impl->get_mode())'));
+      expect(out, contains('static_cast<int64_t>(_impl->get_mode())'));
     });
 
     test('stream register/release functions are emitted in cpp path', () {

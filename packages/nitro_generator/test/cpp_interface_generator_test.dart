@@ -149,7 +149,11 @@ void main() {
 
     test('registration API wrapped in extern C guard', () {
       final out = CppInterfaceGenerator.generate(cppSpec());
+      // Factory typedef is outside extern "C" (uses C++ types).
+      expect(out, contains('using HybridMathFactory = std::function<std::shared_ptr<HybridMath>'));
+      // C function declarations are wrapped in extern "C".
       expect(out, contains('#ifdef __cplusplus\nextern "C" {'));
+      expect(out, contains('void math_register_factory(void* factory_fn_ptr);'));
     });
 
     test('List<T> with isRecord=true maps to NitroCppBuffer', () {

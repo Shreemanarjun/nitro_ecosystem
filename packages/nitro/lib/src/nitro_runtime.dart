@@ -40,14 +40,24 @@ class NitroRuntime {
   static const int expectedAbiVersion = 1;
 
   static final Map<String, DynamicLibrary> _libCache = {};
+  // Reference count per library name — incremented on first load, decremented
+  // in releaseLib(). When it reaches 0 the library is closed and removed from
+  // the cache so the next loadLib() call reloads it from disk.
+  static final Map<String, int> _libRefCount = {};
   static IsolatePool? _pool;
   static bool _poolReady = false;
 
   static String _timelineLabel(String tag) => 'Nitro.$tag';
 
+  /// True on iOS and macOS — used by generated code to select @Native<F> direct
+  /// dispatch vs function-pointer dispatch. Generated part files cannot import
+  /// dart:io directly, so this bridges the Platform check.
+  static final bool useNativeBindings = Platform.isIOS || Platform.isMacOS;
+
   // ── Library loading ──────────────────────────────────────────────────────
 
   static DynamicLibrary loadLib(String libName) {
+    _libRefCount[libName] = (_libRefCount[libName] ?? 0) + 1;
     return _libCache.putIfAbsent(libName, () {
       _log(NitroLogLevel.verbose, 'loadLib', 'Loading native lib: $libName');
       final sw = Stopwatch()..start();
@@ -66,6 +76,27 @@ class NitroRuntime {
       _log(NitroLogLevel.verbose, 'loadLib', 'Loaded: $libName in ${sw.elapsedMicroseconds} µs');
       return lib;
     });
+  }
+
+  /// Decrements the reference count for [libName]. When it reaches zero the
+  /// library is closed (unmapped from process memory on Android/Linux/Windows)
+  /// and removed from the cache. Safe to call from [dispose()].
+  ///
+  /// On iOS/macOS [DynamicLibrary.process()] is used — close() is a no-op but
+  /// harmless. The cache entry is still removed so the next [loadLib()] call
+  /// resets the ref count cleanly.
+  static void releaseLib(String libName) {
+    final count = _libRefCount[libName];
+    if (count == null || count <= 0) return;
+    final next = count - 1;
+    if (next == 0) {
+      _libRefCount.remove(libName);
+      final lib = _libCache.remove(libName);
+      lib?.close();
+      _log(NitroLogLevel.verbose, 'releaseLib', 'Released native lib: $libName');
+    } else {
+      _libRefCount[libName] = next;
+    }
   }
 
   static DynamicLibrary loadLibForTargets(

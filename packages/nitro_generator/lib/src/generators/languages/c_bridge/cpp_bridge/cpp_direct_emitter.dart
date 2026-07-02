@@ -110,27 +110,70 @@ String _generateCppDirect(BridgeSpec spec) {
   writer.line('}');
   writer.blankLine();
 
-  // Implementation registry.
-  // Thread-safety contract: register_impl() MUST be called (and complete)
-  // before any concurrent native call can reach get_impl().  In practice this
-  // is guaranteed because registration always happens in an
-  // __attribute__((constructor)) which runs synchronously at DSO load —
-  // before Dart's isolate threads can invoke any bridge function.
-  // We intentionally do NOT use std::atomic here: the pointer is written
-  // exactly once at startup and never mutated during concurrent use, so a
-  // plain load is safe and avoids seq_cst memory barriers on every hot call.
-  writer.line('// g_impl is written once during DSO load (see __attribute__((constructor)))');
-  writer.line('// and is read-only during concurrent bridge calls — no std::atomic needed.');
-  writer.line('static Hybrid$className* g_impl = nullptr;');
+  // ── Multi-instance registry (mirrors RN Nitro's HybridObjectRegistry) ────
+  // g_instances maps instanceId → shared_ptr<Hybrid$className>.
+  // Factory mode (recommended): register_factory() → create_instance() calls it.
+  // Legacy mode: register_impl() wraps raw ptr with no-op deleter at slot 0.
+  writer.line('#include <atomic>');
+  writer.line('#include <memory>');
+  writer.line('#include <mutex>');
+  writer.line('#include <unordered_map>');
   writer.blankLine();
-  writer.line('static int64_t g_next_instance_id = 0;');
+  // Meyers' Singleton for the registry — guarantees thread-safe init before
+  // first use even when __attribute__((constructor)) fires early.
+  writer.line('using Hybrid${className}Factory = std::function<std::shared_ptr<Hybrid$className>(const std::string&)>;');
+  writer.line('static std::unordered_map<int64_t, std::shared_ptr<Hybrid$className>>& _g_instances() {');
+  writer.line('    static std::unordered_map<int64_t, std::shared_ptr<Hybrid$className>> m;');
+  writer.line('    return m;');
+  writer.line('}');
+  writer.line('static std::mutex& _g_instances_mtx() {');
+  writer.line('    static std::mutex m;');
+  writer.line('    return m;');
+  writer.line('}');
+  writer.line('static std::atomic<int64_t>& _g_next_instance_id() {');
+  writer.line('    static std::atomic<int64_t> id{1};');
+  writer.line('    return id;');
+  writer.line('}');
+  writer.line('static Hybrid${className}Factory& _g_factory() {');
+  writer.line('    static Hybrid${className}Factory f;');
+  writer.line('    return f;');
+  writer.line('}');
+  writer.blankLine();
+  writer.line('static std::shared_ptr<Hybrid$className> _nitro_get_instance(int64_t id) {');
+  writer.line('    std::lock_guard<std::mutex> _lk(_g_instances_mtx());');
+  writer.line('    auto it = _g_instances().find(id);');
+  writer.line('    return it != _g_instances().end() ? it->second : nullptr;');
+  writer.line('}');
   writer.blankLine();
   writer.line('extern "C" {');
-  writer.line('void ${libStem}_register_impl(Hybrid$className* impl) { g_impl = impl; }');
-  writer.line('Hybrid$className* ${libStem}_get_impl() { return g_impl; }');
-  // Pure C++ single-instance path: create_instance returns a monotonic id; destroy is no-op.
-  writer.line('NITRO_EXPORT int64_t ${libStem}_create_instance(const char* key) { (void)key; return g_next_instance_id++; }');
-  writer.line('NITRO_EXPORT void ${libStem}_destroy_instance(int64_t instanceId) { (void)instanceId; }');
+  writer.line('void ${libStem}_register_factory(void* fn) {');
+  writer.line('    _g_factory() = *static_cast<Hybrid${className}Factory*>(fn);');
+  writer.line('}');
+  writer.line('void ${libStem}_register_impl(Hybrid$className* impl) {');
+  writer.line('    std::lock_guard<std::mutex> _lk(_g_instances_mtx());');
+  writer.line('    if (impl) _g_instances()[0] = std::shared_ptr<Hybrid$className>(impl, [](Hybrid$className*){});');
+  writer.line('    else _g_instances().erase(0);');
+  writer.line('}');
+  writer.line('Hybrid$className* ${libStem}_get_impl() {');
+  writer.line('    auto ptr = _nitro_get_instance(0);');
+  writer.line('    return ptr ? ptr.get() : nullptr;');
+  writer.line('}');
+  writer.line('NITRO_EXPORT int64_t ${libStem}_create_instance(const char* key) {');
+  writer.line('    if (_g_factory()) {');
+  writer.line('        auto inst = _g_factory()(key ? key : "");');
+  writer.line('        if (!inst) return -1;');
+  writer.line('        std::lock_guard<std::mutex> _lk(_g_instances_mtx());');
+  writer.line('        int64_t id = ++_g_next_instance_id();');
+  writer.line('        _g_instances()[id] = std::move(inst);');
+  writer.line('        return id;');
+  writer.line('    }');
+  writer.line('    // Legacy: no factory registered — return 0 (single global impl slot)');
+  writer.line('    return 0;');
+  writer.line('}');
+  writer.line('NITRO_EXPORT void ${libStem}_destroy_instance(int64_t instanceId) {');
+  writer.line('    std::lock_guard<std::mutex> _lk(_g_instances_mtx());');
+  writer.line('    _g_instances().erase(instanceId);');
+  writer.line('}');
   writer.line('}');
   writer.blankLine();
 
@@ -210,11 +253,12 @@ String _generateCppDirect(BridgeSpec spec) {
   writer.line('}');
   writer.blankLine();
 
-  // Guard snippet used in every exported function
+  // Guard snippet + instance lookup emitted in every exported function.
   // S8: writes to _nitro_err out-param instead of the TLS slot.
+  // g_impl guard is replaced by per-function instance lookup from g_instances.
   final notInit =
       '_nitro_out_err(_nitro_err, "NotInitialized", '
-      '"No C++ implementation registered. Call ${libStem}_register_impl() first.")';
+      '"No C++ implementation registered. Call ${libStem}_register_factory() or ${libStem}_register_impl().")';
 
   writer.line('extern "C" {');
   writer.blankLine();
@@ -237,7 +281,7 @@ String _generateCppDirect(BridgeSpec spec) {
         final isRecordParam = recordNames.contains(p.type.name.replaceFirst('?', ''));
         final isEnumParam = enumNames.contains(p.type.name.replaceFirst('?', ''));
         paramParts.add('${(isStructParam || isRecordParam || p.type.isNativeHandle) ? 'void*' : (isEnumParam ? 'int64_t' : _typeToC(p.type.name))} ${p.name}');
-        if (p.type.isTypedData) paramParts.add('int64_t ${p.name}_length');
+        if (p.type.isTypedData) paramParts.add('size_t ${p.name}_length');
       }
       paramParts.add('int64_t dart_port');
       final paramsDecl = paramParts.join(', ');
@@ -267,7 +311,8 @@ String _generateCppDirect(BridgeSpec spec) {
       final callArgStr = callArgs.join(', ');
 
       writer.line('void ${func.cSymbol}($paramsDecl) {');
-      writer.line('    if (!g_impl) {');
+      writer.line('    auto _impl = _nitro_get_instance(instanceId);');
+      writer.line('    if (!_impl) {');
       writer.line('        Dart_CObject _err = { Dart_CObject_kNull };');
       writer.line('        Dart_PostCObject_DL(dart_port, &_err);');
       writer.line('        return;');
@@ -279,7 +324,7 @@ String _generateCppDirect(BridgeSpec spec) {
         func.dartName,
         'return;',
       );
-      writer.line('    g_impl->${func.dartName}($callArgStr);');
+      writer.line('    _impl->${func.dartName}($callArgStr);');
       writer.line('}');
       writer.blankLine();
       continue;
@@ -332,7 +377,7 @@ String _generateCppDirect(BridgeSpec spec) {
               ? 'int64_t'
               : ((isStructParam || isRecordParam || isVariantParam || p.type.isNativeHandle) ? 'void*' : _typeToC(p.type.name));
       paramParts.add('$cType ${p.name}');
-      if (p.type.isTypedData) paramParts.add('int64_t ${p.name}_length');
+      if (p.type.isTypedData) paramParts.add('size_t ${p.name}_length');
     }
     // S8: only SYNC functions take NitroError* out-param.
     // @nitroAsync functions use TLS get_error/clear_error — no NitroError* in signature.
@@ -343,17 +388,16 @@ String _generateCppDirect(BridgeSpec spec) {
 
     writer.line('$cRet ${func.cSymbol}($paramsDecl) {');
     if (func.isAsync) {
-      // @nitroAsync uses old TLS get_error/clear_error — declare _nitro_err as null
-      // local so _nitro_out_err calls compile (errors go to TLS instead).
       writer.line('    NitroError* _nitro_err = nullptr; // async: errors use TLS not out-param');
     } else {
-      // S8: sync functions reset the out-param error slot before each call.
       writer.line('    if (_nitro_err) { _nitro_err->hasError = 0; }  // S8: clear slot');
     }
+    // Instance lookup (multi-instance support — mirrors RN Nitro's HybridObjectRegistry)
+    writer.line('    auto _impl = _nitro_get_instance(instanceId);');
     if (func.returnType.name == 'void') {
-      writer.line('    if (!g_impl) { $notInit; return; }');
+      writer.line('    if (!_impl) { $notInit; return; }');
     } else {
-      writer.line('    if (!g_impl) { $notInit; return $dflt; }');
+      writer.line('    if (!_impl) { $notInit; return $dflt; }');
     }
     _emitNullableStructParamGuards(
       writer,
@@ -364,12 +408,34 @@ String _generateCppDirect(BridgeSpec spec) {
     );
     writer.line('    try {');
 
-    // Build call args (C → C++ types)
+    // Build call args (C → C++ types).
+    // Nullable primitives are marshalled from NitroOptXxx binary to std::optional<T>.
+    // Callbacks are wrapped from raw C fn ptr to std::function<>.
     final callArgs = <String>[];
     for (final p in func.params) {
+      final isNullableParam = p.type.isNullable || p.type.name.endsWith('?');
       final base = p.type.name.replaceFirst('?', '');
       if (p.type.isFunction) {
+        // std::function<R(Args...)> in the abstract class accepts raw C fn ptrs implicitly.
+        // C++ constructs the std::function from the raw pointer at the call site.
         callArgs.add(p.name);
+      } else if (isNullableParam && (base == 'int' || base == 'double' || base == 'bool')) {
+        // Unmarshal NitroOpt binary → std::optional<T>
+        final nitroType = base == 'int' ? 'NitroOptInt64' : base == 'double' ? 'NitroOptFloat64' : 'NitroOptBool';
+        final cppType = base == 'int' ? 'int64_t' : base == 'double' ? 'double' : 'bool';
+        writer.line('        std::optional<$cppType> _opt_${p.name};');
+        writer.line('        if (${p.name} != nullptr) {');
+        writer.line('            auto* _s = static_cast<const $nitroType*>(${p.name});');
+        if (base == 'bool') {
+          writer.line('            if (_s->hasValue) _opt_${p.name} = _s->value != 0;');
+        } else {
+          writer.line('            if (_s->hasValue) _opt_${p.name} = _s->value;');
+        }
+        writer.line('        }');
+        callArgs.add('_opt_${p.name}');
+      } else if (isNullableParam && base == 'String') {
+        writer.line('        std::optional<std::string> _opt_${p.name} = ${p.name} ? std::optional<std::string>(std::string(${p.name})) : std::nullopt;');
+        callArgs.add('_opt_${p.name}');
       } else if (base == 'String') {
         callArgs.add('std::string(${p.name})');
       } else if (structNames.contains(base)) {
@@ -398,26 +464,39 @@ String _generateCppDirect(BridgeSpec spec) {
     final callArgStr = callArgs.join(', ');
 
     if (func.returnType.name == 'void') {
-      writer.line('        g_impl->${func.dartName}($callArgStr);');
+      writer.line('        _impl->${func.dartName}($callArgStr);');
     } else if (isNativeHandleRet) {
-      // NativeHandle<T>: impl returns void*. Pass through directly.
-      writer.line('        return g_impl->${func.dartName}($callArgStr);');
+      writer.line('        return _impl->${func.dartName}($callArgStr);');
+    } else if (isNullablePrimRet) {
+      // Marshal std::optional<T> → NitroOptXxx binary (heap-allocated, freed by Dart).
+      final nitroType = retBase == 'int' ? 'NitroOptInt64' : retBase == 'double' ? 'NitroOptFloat64' : 'NitroOptBool';
+      writer.line('        auto _opt = _impl->${func.dartName}($callArgStr);');
+      writer.line('        auto* _out = ($nitroType*)malloc(sizeof($nitroType));');
+      writer.line('        if (!_out) return nullptr;');
+      if (retBase == 'bool') {
+        writer.line('        _out->hasValue = _opt.has_value() ? 1 : 0;');
+        writer.line('        _out->value    = _opt.has_value() ? (_opt.value() ? 1 : 0) : 0;');
+      } else {
+        writer.line('        _out->hasValue = _opt.has_value() ? 1 : 0;');
+        writer.line('        _out->value    = _opt.value_or(0);');
+      }
+      writer.line('        return (uint8_t*)_out;');
     } else if (func.returnType.name == 'String') {
-      writer.line('        std::string _res = g_impl->${func.dartName}($callArgStr);');
+      writer.line('        std::string _res = _impl->${func.dartName}($callArgStr);');
       writer.line('        return strdup(_res.c_str());');
     } else if (isEnumRet) {
-      writer.line('        return static_cast<int64_t>(g_impl->${func.dartName}($callArgStr));');
+      writer.line('        return static_cast<int64_t>(_impl->${func.dartName}($callArgStr));');
     } else if (isStructRet) {
       final stName = func.returnType.name.replaceFirst('?', '');
-      writer.line('        $stName _res = g_impl->${func.dartName}($callArgStr);');
+      writer.line('        $stName _res = _impl->${func.dartName}($callArgStr);');
       writer.line('        $stName* _ptr = ($stName*)malloc(sizeof($stName));');
       writer.line('        *_ptr = _res;');
       writer.line('        return _ptr;');
     } else if (isRecordRet || isVariantRet) {
-      writer.line('        NitroCppBuffer _res = g_impl->${func.dartName}($callArgStr);');
+      writer.line('        NitroCppBuffer _res = _impl->${func.dartName}($callArgStr);');
       writer.line('        return (uint8_t*)_res.data;');
     } else if (isZeroCopyTypedDataRet) {
-      writer.line('        NitroCppBuffer _res = g_impl->${func.dartName}($callArgStr);');
+      writer.line('        NitroCppBuffer _res = _impl->${func.dartName}($callArgStr);');
       writer.line('        if (_res.size > (size_t)INT64_MAX || (_res.size > 0 && _res.data == nullptr)) {');
       writer.line('            nitro_report_error("ArgumentError", "${func.dartName}: @zeroCopy return buffer has invalid data/size", nullptr, nullptr);');
       writer.line('            return nullptr;');
@@ -432,7 +511,7 @@ String _generateCppDirect(BridgeSpec spec) {
       writer.line('        _env[2] = 0;');
       writer.line('        return (uint8_t*)_env;');
     } else {
-      writer.line('        return g_impl->${func.dartName}($callArgStr);');
+      writer.line('        return _impl->${func.dartName}($callArgStr);');
     }
 
     writer.line('    } catch (const std::exception& e) {');
@@ -460,27 +539,41 @@ String _generateCppDirect(BridgeSpec spec) {
     final cType = isNullablePrimProp ? 'uint8_t*' : (isEnum ? 'int64_t' : _typeToC(prop.type.name));
 
     if (prop.hasGetter) {
-      // S8: property getter also receives the NitroError* out-param; instanceId for API consistency.
       writer.line('$cType ${prop.getSymbol}(int64_t instanceId, NitroError* _nitro_err) {');
-      writer.line('    if (_nitro_err) { _nitro_err->hasError = 0; }');
-      writer.line('    if (!g_impl) { $notInit; return ${_defaultValue(cType)}; }');
+      writer.line('    if (_nitro_err) { _nitro_err->hasError = 0; }  // S8: clear slot');
+      writer.line('    auto _impl = _nitro_get_instance(instanceId);');
+      writer.line('    if (!_impl) { $notInit; return ${_defaultValue(cType)}; }');
       writer.line('    try {');
       if (prop.type.name == 'String') {
-        writer.line('        std::string _res = g_impl->get_${prop.dartName}();');
+        writer.line('        std::string _res = _impl->get_${prop.dartName}();');
         writer.line('        return strdup(_res.c_str());');
       } else if (isEnum) {
-        writer.line('        return static_cast<int64_t>(g_impl->get_${prop.dartName}());');
+        writer.line('        return static_cast<int64_t>(_impl->get_${prop.dartName}());');
+      } else if (isNullablePrimProp) {
+        // Marshal std::optional<T> → NitroOptXxx binary
+        final nitroType = propPrimBase == 'int' ? 'NitroOptInt64' : propPrimBase == 'double' ? 'NitroOptFloat64' : 'NitroOptBool';
+        writer.line('        auto _opt = _impl->get_${prop.dartName}();');
+        writer.line('        auto* _out = ($nitroType*)malloc(sizeof($nitroType));');
+        writer.line('        if (!_out) return nullptr;');
+        if (propPrimBase == 'bool') {
+          writer.line('        _out->hasValue = _opt.has_value() ? 1 : 0;');
+          writer.line('        _out->value    = _opt.has_value() ? (_opt.value() ? 1 : 0) : 0;');
+        } else {
+          writer.line('        _out->hasValue = _opt.has_value() ? 1 : 0;');
+          writer.line('        _out->value    = _opt.value_or(0);');
+        }
+        writer.line('        return (uint8_t*)_out;');
       } else if (recordNames.contains(prop.type.name.replaceFirst('?', ''))) {
-        writer.line('        NitroCppBuffer _res = g_impl->get_${prop.dartName}();');
+        writer.line('        NitroCppBuffer _res = _impl->get_${prop.dartName}();');
         writer.line('        return (void*)_res.data;');
       } else if (structNames.contains(prop.type.name.replaceFirst('?', ''))) {
         final stName = prop.type.name.replaceFirst('?', '');
-        writer.line('        $stName _res = g_impl->get_${prop.dartName}();');
+        writer.line('        $stName _res = _impl->get_${prop.dartName}();');
         writer.line('        $stName* _ptr = ($stName*)malloc(sizeof($stName));');
         writer.line('        *_ptr = _res;');
         writer.line('        return _ptr;');
       } else {
-        writer.line('        return g_impl->get_${prop.dartName}();');
+        writer.line('        return _impl->get_${prop.dartName}();');
       }
       writer.line('    } catch (const std::exception& e) {');
       writer.line('        _nitro_out_err(_nitro_err, "CppException", e.what());');
@@ -493,20 +586,26 @@ String _generateCppDirect(BridgeSpec spec) {
     if (prop.hasSetter) {
       final isStructParam = structNames.contains(prop.type.name.replaceFirst('?', ''));
       final isRecordParam = recordNames.contains(prop.type.name.replaceFirst('?', ''));
-      // Nullable primitive setters use void* (NitroNullable binary buffer).
       final paramCType = isNullablePrimProp
           ? 'void*'
           : (isEnum || isStructParam || isRecordParam) ? (isEnum ? 'int64_t' : 'void*') : _typeToC(prop.type.name);
-      // S8: property setter also receives the NitroError* out-param; instanceId for API consistency.
       writer.line('void ${prop.setSymbol}(int64_t instanceId, $paramCType value, NitroError* _nitro_err) {');
       writer.line('    if (_nitro_err) { _nitro_err->hasError = 0; }');
-      writer.line('    if (!g_impl) { $notInit; return; }');
+      writer.line('    auto _impl = _nitro_get_instance(instanceId);');
+      writer.line('    if (!_impl) { $notInit; return; }');
       writer.line('    try {');
-      if (prop.type.name == 'String') {
-        writer.line('        g_impl->set_${prop.dartName}(std::string(value));');
+      if (isNullablePrimProp) {
+        // Unmarshal void* NitroOpt binary → std::optional<T>
+        final nitroType = propPrimBase == 'int' ? 'NitroOptInt64' : propPrimBase == 'double' ? 'NitroOptFloat64' : 'NitroOptBool';
+        final cppType = propPrimBase == 'int' ? 'int64_t' : propPrimBase == 'double' ? 'double' : 'bool';
+        writer.line('        std::optional<$cppType> _opt;');
+        writer.line('        if (value) { auto* _s = static_cast<const $nitroType*>(value); if (_s->hasValue) _opt = ${propPrimBase == 'bool' ? '_s->value != 0' : '_s->value'}; }');
+        writer.line('        _impl->set_${prop.dartName}(_opt);');
+      } else if (prop.type.name == 'String') {
+        writer.line('        _impl->set_${prop.dartName}(std::string(value));');
       } else if (isEnum) {
         final enumName = prop.type.name.replaceFirst('?', '');
-        writer.line('        g_impl->set_${prop.dartName}(static_cast<$enumName>(value));');
+        writer.line('        _impl->set_${prop.dartName}(static_cast<$enumName>(value));');
       } else if (isRecordParam) {
         final opt = prop.type.name.endsWith('?');
         if (opt) {
@@ -515,10 +614,10 @@ String _generateCppDirect(BridgeSpec spec) {
           writer.line('            _buf.data = (const uint8_t*)value + 4;');
           writer.line('            _buf.size = (size_t)*(int32_t*)value;');
           writer.line('        }');
-          writer.line('        g_impl->set_${prop.dartName}(_buf);');
+          writer.line('        _impl->set_${prop.dartName}(_buf);');
         } else {
           writer.line('        NitroCppBuffer _buf = { (const uint8_t*)value + 4, (size_t)*(int32_t*)value };');
-          writer.line('        g_impl->set_${prop.dartName}(_buf);');
+          writer.line('        _impl->set_${prop.dartName}(_buf);');
         }
       } else if (isStructParam) {
         final stName = prop.type.name.replaceFirst('?', '');
@@ -531,9 +630,9 @@ String _generateCppDirect(BridgeSpec spec) {
             indent: '        ',
           );
         }
-        writer.line('        g_impl->set_${prop.dartName}(*static_cast<const $stName*>(value));');
+        writer.line('        _impl->set_${prop.dartName}(*static_cast<const $stName*>(value));');
       } else {
-        writer.line('        g_impl->set_${prop.dartName}(value);');
+        writer.line('        _impl->set_${prop.dartName}(value);');
       }
       writer.line('    } catch (const std::exception& e) {');
       writer.line('        _nitro_out_err(_nitro_err, "CppException", e.what());');

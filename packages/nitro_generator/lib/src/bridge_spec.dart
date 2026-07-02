@@ -221,6 +221,21 @@ class BridgeType {
   /// where [isNullable] may default to `false` even when the name ends with `?`.
   String get baseName => name.endsWith('?') ? name.substring(0, name.length - 1) : name;
 
+  /// Extracts the key type from a `Map<K, V>` type name string.
+  ///
+  /// Returns the key type name (e.g. `'int'`, `'int32'`, `'Status'`) or `null`
+  /// when [typeName] does not match the `Map<K, V>` pattern.
+  ///
+  /// Callers use this to detect non-String key types:
+  /// ```dart
+  /// final key = BridgeType.extractMapKeyType(type.name);
+  /// if (key != null && key != 'String') { /* int or enum key */ }
+  /// ```
+  static String? extractMapKeyType(String typeName) {
+    final m = RegExp(r'^Map<(\w+)\s*,').firstMatch(typeName);
+    return m?.group(1)?.trim();
+  }
+
   /// True when this is a nullable NitroBridge primitive that crosses the C/JNI
   /// boundary as a NitroOpt* struct (ByteArray in Kotlin, uint8_t* in C).
   ///
