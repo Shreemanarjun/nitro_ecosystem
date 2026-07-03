@@ -42,9 +42,25 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
-cd "$EXAMPLE_DIR"
-
 echo "── nitro bench: device=$DEVICE mode=$MODE gate=$GATE ${BUILD_FLAG:-(debug)} ──"
+
+# Regenerate + relink the benchmark plugin from the workspace CLI before
+# building. This makes the run independent of the committed generated/synced
+# files — a stale global `nitrogen` binary or an outdated commit can otherwise
+# leave broken bridge copies in SPM Sources/ (seen: an old fixed-window Swift
+# preamble strip deleting spec struct declarations → CI compile failure).
+NITROGEN="$SCRIPT_DIR/../../packages/nitrogen_cli/bin/nitrogen.dart"
+if [[ -f "$NITROGEN" ]]; then
+  echo "── regenerating bridges with workspace nitrogen ──"
+  (
+    cd "$SCRIPT_DIR/.."
+    rm -f .dart_tool/nitro/cache.json
+    dart run "$NITROGEN" generate --no-ui
+    dart run "$NITROGEN" link --no-ui
+  )
+fi
+
+cd "$EXAMPLE_DIR"
 
 flutter drive $BUILD_FLAG \
   --driver=test_driver/integration_test.dart \

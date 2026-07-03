@@ -6,7 +6,7 @@ import 'package:crypto/crypto.dart';
 import 'package:path/path.dart' as p;
 
 import '../ui.dart';
-import '../utils.dart' show killBuildRunner, stripSharedSwiftPreamble;
+import '../utils.dart' show dedupeSharedSwiftDecls, killBuildRunner;
 import 'link_command.dart'
     show
         cleanRedundantIncludes,
@@ -574,12 +574,29 @@ class GenerateCommand extends Command {
       return;
     }
 
-    final bridgeFiles = swiftGenDir.listSync().whereType<File>().where((f) => p.basename(f.path).endsWith('.bridge.g.swift')).toList()
+    final allBridges = swiftGenDir.listSync().whereType<File>().where((f) => p.basename(f.path).endsWith('.bridge.g.swift')).toList()
       ..sort((a, b) => p.basename(a.path).compareTo(p.basename(b.path)));
-    if (bridgeFiles.isEmpty) {
+    if (allBridges.isEmpty) {
       _healCppIncludes(projectRoot);
       return;
     }
+
+    // The shared preamble is emitted PIECEWISE per spec (a record-only spec
+    // has NitroRecordWriter/Reader but no NitroEncodable), so sort bridges
+    // that define shared declarations first and dedup cumulatively — the same
+    // policy as link_command. The old fixed-window strip deleted spec-owned
+    // struct declarations whenever the window's end marker came after them.
+    bool hasPreamble(File f) {
+      final content = f.readAsStringSync();
+      return content.contains('\npublic protocol NitroEncodable') ||
+          content.contains('\npublic class NitroRecordWriter') ||
+          content.contains('\npublic class NitroRecordReader');
+    }
+
+    final bridgeFiles = [
+      ...allBridges.where(hasPreamble),
+      ...allBridges.where((f) => !hasPreamble(f)),
+    ];
 
     final pluginName = _readPluginName(projectRoot);
 
@@ -588,17 +605,14 @@ class GenerateCommand extends Command {
         final classesDir = Directory(p.join(projectRoot, '$prefix$platform', 'Classes'));
         if (!classesDir.existsSync()) continue;
 
-        // When multiple specs share one module, only the first bridge file gets
-        // the full shared-type preamble. Subsequent files have it stripped so
-        // the Swift compiler doesn't see duplicate public type declarations.
-        for (var i = 0; i < bridgeFiles.length; i++) {
-          final bridge = bridgeFiles[i];
+        // Cumulative dedup: one set per Classes dir (one Swift module) —
+        // shared declarations appear exactly once across all bridge files.
+        final definedDecls = <String>{};
+        for (final bridge in bridgeFiles) {
           final dest = p.join(classesDir.path, p.basename(bridge.path));
-          if (i == 0 || bridgeFiles.length == 1) {
-            bridge.copySync(dest);
-          } else {
-            _copyBridgeSwiftWithoutSharedPreamble(bridge, dest);
-          }
+          File(dest).writeAsStringSync(
+            dedupeSharedSwiftDecls(bridge.readAsStringSync(), definedDecls),
+          );
         }
 
         // Ensure the podspec does NOT have the outer ../lib/src/generated/swift glob
@@ -619,12 +633,6 @@ class GenerateCommand extends Command {
     }
 
     _healCppIncludes(projectRoot);
-  }
-
-  /// Copies a bridge Swift file to [dest] but omits the shared public type
-  /// declarations that are already defined in the first bridge file.
-  void _copyBridgeSwiftWithoutSharedPreamble(File source, String dest) {
-    File(dest).writeAsStringSync(stripSharedSwiftPreamble(source.readAsStringSync()));
   }
 
   /// Syncs bridge Swift files into the SPM Sources directory for a platform,
@@ -649,14 +657,13 @@ class GenerateCommand extends Command {
       final sourcesDir = Directory(dir);
       if (!sourcesDir.existsSync()) continue;
 
-      for (var i = 0; i < bridgeFiles.length; i++) {
-        final bridge = bridgeFiles[i];
+      // One dedup set per Sources dir — each is its own Swift module.
+      final definedDecls = <String>{};
+      for (final bridge in bridgeFiles) {
         final dest = p.join(dir, p.basename(bridge.path));
-        if (i == 0 || bridgeFiles.length == 1) {
-          bridge.copySync(dest);
-        } else {
-          _copyBridgeSwiftWithoutSharedPreamble(bridge, dest);
-        }
+        File(dest).writeAsStringSync(
+          dedupeSharedSwiftDecls(bridge.readAsStringSync(), definedDecls),
+        );
       }
     }
   }
@@ -674,25 +681,6 @@ class GenerateCommand extends Command {
     }
   }
 }
-
-/// Strips the shared public type declarations from a Swift bridge file's content.
-///
-/// When multiple Nitro specs are compiled into the same Swift module, each
-/// generated `*.bridge.g.swift` contains identical declarations for shared
-/// types (`NitroEncodable`, `NitroNullableInt`, `NitroRecordWriter`, etc.).
-/// Having these in more than one file causes "invalid redeclaration" errors.
-///
-/// This function keeps the file-private string helpers (lines before
-/// `public protocol NitroEncodable`) and the spec-specific protocol + bridge
-/// stubs (everything from the first `/**` doc-comment onward), but drops
-/// the shared-type block in between.
-///
-/// The first bridge file in the module should NOT be stripped — it provides
-/// the shared types for the entire module. Only 2nd and subsequent files need
-/// this treatment.
-///
-/// Safe to apply when no shared block is present (e.g. already stripped or a
-/// file that never had it): returns [content] unchanged.
 
 class _GeneratedFileIssue {
   const _GeneratedFileIssue(this.kind, this.path);
