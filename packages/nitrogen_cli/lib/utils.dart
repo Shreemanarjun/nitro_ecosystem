@@ -312,6 +312,69 @@ String stripSharedSwiftPreamble(String content) {
   return result.join('\n');
 }
 
+/// Top-level declarations that generated Swift bridge files may share.
+/// Matches the opening line of each declaration block.
+final RegExp _sharedSwiftDeclRe = RegExp(
+  r'^public (?:protocol|class|struct) '
+  r'(NitroEncodable|NitroRecordWriter|NitroRecordReader'
+  r'|NitroNullable\w+|NitroOpt\w+)\b',
+);
+
+/// Removes top-level shared declarations already defined by an earlier bridge
+/// file compiled into the same Swift module, tracking what has been seen
+/// cumulatively in [alreadyDefined] (caller keeps one set per module).
+///
+/// Unlike [stripSharedSwiftPreamble] — which removes a fixed window starting
+/// at `public protocol NitroEncodable` — this handles bridges that carry any
+/// SUBSET of the shared declarations. A record-only spec, for example, emits
+/// `NitroRecordWriter`/`NitroRecordReader` but no `NitroEncodable`; two such
+/// bridges in one SPM target would otherwise collide with
+/// "'NitroRecordWriter' is ambiguous for type lookup".
+///
+/// The first file processed passes through unchanged (nothing is in
+/// [alreadyDefined] yet) and registers its declarations; later files keep only
+/// declarations not yet seen.
+String dedupeSharedSwiftDecls(String content, Set<String> alreadyDefined) {
+  final lines = content.split('\n');
+  final result = <String>[];
+  var i = 0;
+  while (i < lines.length) {
+    final line = lines[i];
+    final match = _sharedSwiftDeclRe.firstMatch(line);
+    if (match == null) {
+      result.add(line);
+      i++;
+      continue;
+    }
+    final declName = match.group(1)!;
+    if (alreadyDefined.add(declName)) {
+      // First definition in this module — keep it (block body is copied by
+      // the normal flow since its lines don't match the declaration regex).
+      result.add(line);
+      i++;
+      continue;
+    }
+    // Duplicate — skip the whole brace-balanced block.
+    var depth = 0;
+    var seenOpen = false;
+    while (i < lines.length) {
+      for (final ch in lines[i].codeUnits) {
+        if (ch == 0x7B) {
+          depth++;
+          seenOpen = true;
+        } else if (ch == 0x7D) {
+          depth--;
+        }
+      }
+      i++;
+      if (seenOpen && depth <= 0) break;
+    }
+    // Swallow one trailing blank line so the output stays tidy.
+    if (i < lines.length && lines[i].trim().isEmpty) i++;
+  }
+  return result.join('\n');
+}
+
 /// Returns a map of {lib → moduleName} for modules where Apple platforms
 /// (ios or macos) use a direct C++ implementation (AppleNativeImpl.cpp).
 /// These need their HybridXxx.cpp impl file copied to ios/Classes/ or macos/Classes/

@@ -50,16 +50,14 @@ class BenchmarkStats {
 /// All methods perform the same work as their native counterparts but
 /// entirely in Dart — no JNI or @_cdecl overhead. Benchmark results on
 /// web therefore reflect pure Dart dispatch cost, not native bridge cost.
+/// Mirrors the trimmed native spec: add/addFast/getGreeting/sendLargeBuffer
+/// only — struct/record/stream benchmarks live on [BenchmarkCpp].
 abstract class Benchmark {
   static final Benchmark instance = _BenchmarkWebImpl();
 
   double add(double a, double b);
   double addFast(double a, double b);
   String getGreeting(String name);
-  BenchmarkPoint scalePoint(BenchmarkPoint point, double factor);
-  Future<BenchmarkStats> computeStats(int iterations);
-  Stream<BenchmarkPoint> get dataStream;
-  Stream<BenchmarkBox> get boxStream;
   int sendLargeBuffer(Uint8List buffer);
 
   void dispose() {}
@@ -74,44 +72,6 @@ class _BenchmarkWebImpl extends Benchmark {
 
   @override
   String getGreeting(String name) => 'Hello, $name!';
-
-  @override
-  BenchmarkPoint scalePoint(BenchmarkPoint point, double factor) =>
-      BenchmarkPoint(x: point.x * factor, y: point.y * factor);
-
-  @override
-  Future<BenchmarkStats> computeStats(int iterations) async {
-    final times = <double>[];
-    for (var i = 0; i < iterations; i++) {
-      final sw = Stopwatch()..start();
-      add(i.toDouble(), i.toDouble());
-      sw.stop();
-      times.add(sw.elapsedMicroseconds.toDouble());
-    }
-    final mean = times.reduce((a, b) => a + b) / times.length;
-    return BenchmarkStats(
-      count: iterations,
-      meanUs: mean,
-      minUs: times.reduce((a, b) => a < b ? a : b),
-      maxUs: times.reduce((a, b) => a > b ? a : b),
-    );
-  }
-
-  @override
-  Stream<BenchmarkPoint> get dataStream => Stream.periodic(
-    const Duration(microseconds: 100),
-    (i) => BenchmarkPoint(x: i.toDouble() * 0.001, y: i.toDouble() * 0.001),
-  );
-
-  @override
-  Stream<BenchmarkBox> get boxStream => Stream.periodic(
-    const Duration(microseconds: 100),
-    (i) => BenchmarkBox(
-      color: 0xFF0000FF + (i % 256),
-      width: 50.0 + (i % 100),
-      height: 50.0 + (i % 100),
-    ),
-  );
 
   @override
   int sendLargeBuffer(Uint8List buffer) {

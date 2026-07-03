@@ -113,6 +113,70 @@ The app has two tabs:
 
 ---
 
+## Automated runs & regression gate
+
+The headless harness (`example/lib/harness/bench_harness.dart`) measures every
+bridge tier — raw FFI floor, Nitro leaf/checked/Swift-Kotlin paths,
+MethodChannel — plus string, struct, `@nitroAsync` record, and 16–64 MiB
+buffer-throughput cases, with warmup + batch timing + median-of-K-samples
+methodology.
+
+```sh
+# Quick relative-gated run on macOS (default)
+tool/bench.sh
+
+# Full run on a connected Android device
+tool/bench.sh -d <device-id> --mode full
+
+# Record this machine's numbers as the new baseline
+tool/bench.sh --mode full --update-baseline
+```
+
+The script drives `integration_test/benchmark_regression_test.dart` in
+profile mode, prints a markdown results table, and archives the JSON report
+to `benchmark/results/<platform>-<mode>.json`.
+
+### Two-level regression gate
+
+| Gate (`NITRO_BENCH_GATE`) | What it enforces | Where to use |
+|---|---|---|
+| `relative` (default) | Machine-independent invariants: Nitro leaf ≤ 2.5× raw FFI + 1µs budget · Nitro checked ≤ 4× raw FFI + 1.5µs budget · Nitro ≥ 5× faster than MethodChannel | CI on shared runners |
+| `all` | The above **plus** absolute µs vs the checked-in `example/assets/baselines/<platform>.json` (±35% tolerance, `NITRO_BENCH_TOLERANCE_PCT`) | Dedicated hardware |
+| `none` | Nothing — measure and report only | Exploration |
+
+The invariants are `ratio × rawFFI + absolute overhead budget` because the raw
+FFI floor is ~15ns on Apple Silicon — Nitro's healthy fixed dispatch cost
+(~0.3µs: instance lookup + error slot) would fail any pure ratio. The gates
+only trip on real architectural regressions — a binding losing `isLeaf`, an
+accidental allocation, or an async hop in the call path — which each add ≥1µs
+on any machine.
+
+### Sample automated run (macOS, Apple M4 Pro, profile, quick mode)
+
+| Case | Median | vs MethodChannel |
+|---|---|---|
+| Raw FFI (leaf) | 0.014 µs | 1961× faster |
+| Nitro C++ (checked) | 0.266 µs | 104× faster |
+| Nitro Swift | 0.269 µs | 103× faster |
+| Nitro C++ (leaf) | 0.283 µs | 98× faster |
+| Nitro zero-copy struct | 0.408 µs | 68× faster |
+| Nitro String round-trip | 0.660 µs | 42× faster |
+| MethodChannel | 27.6 µs | 1.0× |
+| Nitro @nitroAsync + record | 30.2 µs | isolate-hop bound |
+
+| Throughput (16 MiB/op) | MB/s |
+|---|---|
+| MethodChannel buffer copy | 3,559 |
+| Nitro pinned buffer (leaf) | 30,671 |
+| Nitro unsafe pointer | ~25,000,000 † |
+
+> † no pinning, no copy — pure dispatch; the payload is never touched.
+
+CI: `.github/workflows/ci_benchmark.yml` runs the relative-gated quick suite
+on every push to `main` and publishes the results table to the job summary.
+
+---
+
 ## Package structure
 
 ```

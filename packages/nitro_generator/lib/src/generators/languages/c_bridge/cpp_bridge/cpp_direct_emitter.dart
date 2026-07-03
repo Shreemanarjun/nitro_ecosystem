@@ -457,6 +457,32 @@ String _generateCppDirect(BridgeSpec spec) {
         callArgs.add('static_cast<size_t>(${p.name}_length)');
       } else if (enumNames.contains(base)) {
         callArgs.add('static_cast<$base>(${p.name})');
+      } else if (p.type.isPointer) {
+        // The C signature declares raw pointer params as void*, but the C++
+        // abstract interface types them (Pointer<Uint8> → uint8_t*). Cast so
+        // the generated call site compiles against the generated interface.
+        final innerBase = p.type.pointerInnerType?.replaceFirst('?', '');
+        const primPointerMap = {
+          'Uint8': 'uint8_t',
+          'Int8': 'int8_t',
+          'Uint16': 'uint16_t',
+          'Int16': 'int16_t',
+          'Uint32': 'uint32_t',
+          'Int32': 'int32_t',
+          'Uint64': 'uint64_t',
+          'Int64': 'int64_t',
+          'Float': 'float',
+          'Double': 'double',
+        };
+        final prim = innerBase == null ? null : primPointerMap[innerBase];
+        if (prim != null) {
+          callArgs.add('static_cast<$prim*>(${p.name})');
+        } else if (innerBase != null &&
+            (enumNames.contains(innerBase) || structNames.contains(innerBase))) {
+          callArgs.add('static_cast<$innerBase*>(${p.name})');
+        } else {
+          callArgs.add(p.name); // Pointer<Void> / opaque — void* matches
+        }
       } else {
         callArgs.add(p.name);
       }

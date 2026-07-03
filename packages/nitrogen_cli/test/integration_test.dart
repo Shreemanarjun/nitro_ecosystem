@@ -514,7 +514,9 @@ void main() {
       final content = kt.readAsStringSync();
       expect(content, contains('TestingProjectJniBridge'));
       expect(content, contains('System.loadLibrary("testing_project")'));
-      expect(content, contains('TestingProjectJniBridge.register('));
+      // Multi-instance C++ registry pattern: the plugin registers a FACTORY
+      // (one impl per Dart-side instance), not a single shared impl.
+      expect(content, contains('TestingProjectJniBridge.registerFactory('));
     });
 
     test('lib/src/testing_project.native.dart has @NitroModule annotation', () {

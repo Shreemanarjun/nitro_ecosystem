@@ -1,0 +1,75 @@
+# CI — Cross-bridge performance regression gate (S7-P2)
+#
+# Runs the benchmark suite (raw FFI vs Nitro paths vs MethodChannel) on the
+# macOS desktop embedder and enforces machine-independent bridge-tier ratios:
+#   * Nitro leaf call stays within 2.5× of the raw FFI floor
+#   * Nitro checked call stays within 4× of the raw FFI floor
+#   * Nitro stays ≥5× faster than MethodChannel
+#
+# Absolute-µs baselines are NOT gated here — shared runners are too noisy.
+# Record/gate those on dedicated hardware via:
+#   benchmark/tool/bench.sh --mode full --gate all
+#
+# Trigger: push to main + manual dispatch (not PRs — a full macOS desktop
+# build per PR is slow, and the ratio gate on main catches regressions
+# before release).
+
+name: Benchmark (macOS) CI
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'packages/**'
+      - 'benchmark/**'
+      - '.github/workflows/ci_benchmark.yml'
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: 'Iteration scale'
+        type: choice
+        options: [quick, full]
+        default: quick
+
+jobs:
+  bench-macos:
+    name: macOS — FFI vs Nitro vs MethodChannel
+    runs-on: macos-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: Enable macOS desktop
+        run: flutter config --enable-macos-desktop
+
+      - name: Get workspace dependencies
+        run: flutter pub get
+
+      - name: Run benchmark with relative regression gate
+        run: >
+          bash benchmark/tool/bench.sh -d macos
+          --mode ${{ github.event.inputs.mode || 'quick' }}
+          --gate relative
+
+      - name: Publish results to job summary
+        if: always()
+        run: |
+          if [ -f benchmark/example/build/integration_response_data.json ]; then
+            dart run benchmark/tool/format_report.dart \
+              benchmark/example/build/integration_response_data.json \
+              >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      - name: Upload report artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: benchmark-report-macos
+          path: benchmark/results/
+          if-no-files-found: ignore

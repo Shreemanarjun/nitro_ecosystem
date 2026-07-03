@@ -172,11 +172,18 @@ void main() {
 
   // ── Fix #3: Web bridge isPointer/isNativeHandle ───────────────────────────
   group('Edge case: Web bridge NativeHandle type', () {
-    test('NativeHandle return emits JSNumber (pointer address)', () {
+    test('NativeHandle return emits a throw-stub, not a JS external', () {
       final out = WebBridgeGenerator.generate(_webPointerSpec());
-      // cSymbol = 'raw_get_handle', Dart id = '_raw_get_handle_js'
-      expect(out, contains('JSNumber _raw_get_handle_js'));
-      expect(out, contains("@JS('raw_get_handle')"));
+      // Raw pointers (and NativeHandle, which wraps one) have no runtime
+      // representation on web — Pointer.fromAddress does not exist there, so
+      // the old JSNumber-address external could never compile. The impl
+      // throws UnsupportedError instead and no @JS() external is emitted.
+      expect(out, isNot(contains('_raw_get_handle_js')));
+      expect(out, isNot(contains("@JS('raw_get_handle')")));
+      expect(
+        out,
+        contains('raw Pointer parameters/returns do not exist on web'),
+      );
     });
 
     test('NativeHandle impl method is generated in web class', () {

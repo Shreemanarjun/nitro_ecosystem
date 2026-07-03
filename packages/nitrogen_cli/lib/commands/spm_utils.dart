@@ -88,18 +88,21 @@ SpmStatus detectSpmStatus(String baseDir) {
 /// Finds `Package.swift` inside a platform directory.
 ///
 /// Checks both:
-///   - Flat layout: `ios/Package.swift`
 ///   - Nested layout (Flutter 3.41+): `ios/<name>/Package.swift`
+///   - Flat layout: `ios/Package.swift`
+///
+/// The nested layout is checked FIRST because it is the only layout the
+/// Flutter tool actually builds (`<platform>/<plugin_name>/Package.swift`).
+/// When a plugin carries a stale flat `Package.swift` alongside the nested
+/// one, preferring the flat path would make `nitrogen link` sync bridge
+/// forwarders into a Sources/ tree Xcode never compiles, while the built
+/// (nested) tree keeps stale relative includes and fails the build.
 ///
 /// Returns the path to the first found `Package.swift`, or `null` if none.
 String? _findPackageSwift(Directory platformDir) {
   if (!platformDir.existsSync()) return null;
 
-  // 1. Flat layout: ios/Package.swift
-  final flat = File(p.join(platformDir.path, 'Package.swift'));
-  if (flat.existsSync()) return flat.path;
-
-  // 2. Nested layout: ios/<name>/Package.swift (Flutter 3.41+)
+  // 1. Nested layout: ios/<name>/Package.swift (Flutter 3.41+)
   // Only consider directories whose names match Dart pub package naming
   // (lowercase letters, digits, underscores). This skips Flutter infrastructure
   // dirs like FlutterFramework, Classes, Flutter, etc. which may contain
@@ -114,6 +117,10 @@ String? _findPackageSwift(Directory platformDir) {
       }
     }
   } catch (_) {}
+
+  // 2. Flat layout: ios/Package.swift (legacy — doctor suggests migrating)
+  final flat = File(p.join(platformDir.path, 'Package.swift'));
+  if (flat.existsSync()) return flat.path;
 
   return null;
 }

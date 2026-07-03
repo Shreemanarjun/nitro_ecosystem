@@ -1,0 +1,132 @@
+{
+  "schema": 1,
+  "platform": "macos",
+  "buildMode": "profile",
+  "mode": "quick",
+  "timestampMs": 1783021833363,
+  "cases": {
+    "raw_ffi_add": {
+      "label": "Raw FFI (leaf)",
+      "kind": "latency",
+      "iterations": 20000,
+      "samples": 5,
+      "medianUs": 0.01275,
+      "meanUs": 0.01457,
+      "minUs": 0.00835,
+      "p95Us": 0.02201
+    },
+    "nitro_leaf_add": {
+      "label": "Nitro C++ (leaf)",
+      "kind": "latency",
+      "iterations": 20000,
+      "samples": 5,
+      "medianUs": 0.2786,
+      "meanUs": 0.28053000000000006,
+      "minUs": 0.27465,
+      "p95Us": 0.28878
+    },
+    "nitro_cpp_add": {
+      "label": "Nitro C++ (checked)",
+      "kind": "latency",
+      "iterations": 20000,
+      "samples": 5,
+      "medianUs": 0.2698,
+      "meanUs": 0.27174000000000004,
+      "minUs": 0.26495,
+      "p95Us": 0.27839
+    },
+    "nitro_platform_add": {
+      "label": "Nitro Swift/Kotlin",
+      "kind": "latency",
+      "iterations": 20000,
+      "samples": 5,
+      "medianUs": 0.2643,
+      "meanUs": 0.2661,
+      "minUs": 0.26045,
+      "p95Us": 0.27431999999999995
+    },
+    "method_channel_add": {
+      "label": "MethodChannel",
+      "kind": "latency",
+      "iterations": 500,
+      "samples": 5,
+      "medianUs": 28.278,
+      "meanUs": 28.1504,
+      "minUs": 27.056,
+      "p95Us": 29.4812
+    },
+    "nitro_string_roundtrip": {
+      "label": "Nitro String round-trip",
+      "kind": "latency",
+      "iterations": 20000,
+      "samples": 5,
+      "medianUs": 0.66125,
+      "meanUs": 0.66281,
+      "minUs": 0.64785,
+      "p95Us": 0.67728
+    },
+    "nitro_struct_roundtrip": {
+      "label": "Nitro zero-copy struct",
+      "kind": "latency",
+      "iterations": 20000,
+      "samples": 5,
+      "medianUs": 0.4164,
+      "meanUs": 0.41969,
+      "minUs": 0.41285,
+      "p95Us": 0.43212
+    },
+    "nitro_async_record": {
+      "label": "Nitro @nitroAsync + record",
+      "kind": "latency",
+      "iterations": 500,
+      "samples": 5,
+      "medianUs": 29.83,
+      "meanUs": 30.203999999999997,
+      "minUs": 28.898,
+      "p95Us": 31.747600000000002
+    },
+    "channel_buffer": {
+      "label": "MethodChannel buffer copy",
+      "kind": "throughput",
+      "iterations": 3,
+      "samples": 5,
+      "medianUs": 3918.3333333333335,
+      "meanUs": 4051.6,
+      "minUs": 3904.3333333333335,
+      "p95Us": 4296.0,
+      "bytesPerOp": 16777216,
+      "mbPerSec": 4281.722501063377
+    },
+    "nitro_buffer_pinned": {
+      "label": "Nitro pinned buffer (leaf)",
+      "kind": "throughput",
+      "iterations": 3,
+      "samples": 5,
+      "medianUs": 586.3333333333334,
+      "meanUs": 592.6,
+      "minUs": 578.6666666666666,
+      "p95Us": 618.5333333333333,
+      "bytesPerOp": 16777216,
+      "mbPerSec": 28613.785105173392
+    },
+    "nitro_buffer_unsafe": {
+      "label": "Nitro unsafe pointer",
+      "kind": "throughput",
+      "iterations": 3,
+      "samples": 5,
+      "medianUs": 0.6666666666666666,
+      "meanUs": 0.7333333333333332,
+      "minUs": 0.6666666666666666,
+      "p95Us": 0.9333333333333333,
+      "bytesPerOp": 16777216,
+      "mbPerSec": 25165824.0
+    }
+  },
+  "derived": {
+    "nitro_leaf_over_raw_ffi": 21.850980392156867,
+    "nitro_cpp_over_raw_ffi": 21.16078431372549,
+    "nitro_platform_over_raw_ffi": 20.729411764705883,
+    "method_channel_over_nitro_cpp": 104.81097108969607,
+    "method_channel_over_nitro_leaf": 101.50035893754486
+  }
+}

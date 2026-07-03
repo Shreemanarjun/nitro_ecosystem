@@ -101,7 +101,28 @@ void main() {
     test('emits @JS() library annotation when web is targeted', () {
       final out = WebBridgeGenerator.generate(_webSpec());
       expect(out, contains('@JS()'));
-      expect(out, contains('library nitro_math_web;'));
+      // Unnamed library directive — a name would trip unnecessary_library_name.
+      expect(out, contains('library;'));
+    });
+
+    test('imports the spec library two levels up (not the .g.dart part file)', () {
+      final out = WebBridgeGenerator.generate(_webSpec());
+      // The web bridge is emitted to lib/<dir>/generated/web/, so the spec is
+      // always ../../<spec>.native.dart. Importing the .g.dart part is invalid
+      // (part files cannot be imported) and was the old broken behaviour.
+      expect(out, contains("import '../../"));
+      expect(out, contains('.native.dart\';'));
+      expect(out, isNot(contains("import 'math.g.dart';")));
+    });
+
+    test('does not emit FFI struct/record codegen into the web file', () {
+      final out = WebBridgeGenerator.generate(_webSpec());
+      // @Packed/Struct/Pointer/Arena/RecordWriter don't exist on web — the
+      // nitro web stub deliberately provides no dart:ffi surface.
+      expect(out, isNot(contains('@Packed')));
+      expect(out, isNot(contains('extends Struct')));
+      expect(out, isNot(contains('Arena')));
+      expect(out, isNot(contains('RecordWriter')));
     });
 
     test('imports dart:js_interop', () {

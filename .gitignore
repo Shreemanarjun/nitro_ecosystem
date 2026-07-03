@@ -38,3 +38,7 @@ packages/nitro_generator/test_output.txt
 # Temporary test projects created by nitrogen init for local verification.
 # These are throwaway sandboxes — never commit them.
 test_projects/
+
+# Per-run benchmark reports (archived by benchmark/tool/bench.sh).
+# Baselines ARE committed — they live in benchmark/example/assets/baselines/.
+benchmark/results/

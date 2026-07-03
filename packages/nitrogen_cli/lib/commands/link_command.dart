@@ -1204,14 +1204,16 @@ void _copySwiftBridgesToClasses(
       .where((f) => p.basename(f.path).endsWith('.bridge.g.swift'))
       .toList()
     ..sort((a, b) => p.basename(a.path).compareTo(p.basename(b.path)));
-  for (var i = 0; i < bridgeFiles.length; i++) {
-    final file = bridgeFiles[i];
+  // Cumulative dedup: the shared preamble is emitted piecewise per spec (a
+  // record-only spec has NitroRecordWriter/Reader but no NitroEncodable), so
+  // track which declarations the module has already seen instead of assuming
+  // the first file carries the full preamble.
+  final definedDecls = <String>{};
+  for (final file in bridgeFiles) {
     final dest = p.join(classesDir.path, p.basename(file.path));
-    if (i == 0 || bridgeFiles.length == 1) {
-      file.copySync(dest);
-    } else {
-      File(dest).writeAsStringSync(stripSharedSwiftPreamble(file.readAsStringSync()));
-    }
+    File(dest).writeAsStringSync(
+      dedupeSharedSwiftDecls(file.readAsStringSync(), definedDecls),
+    );
   }
 }
 
@@ -1235,9 +1237,17 @@ void _syncSwiftBridgesToSpmSources(String baseDir) {
 
   // NativeImpl.cpp bridge files omit the shared preamble (NitroEncodable,
   // NitroRecordWriter, etc.) — they rely on another bridge in the module to
-  // provide it.  Sort bridges that DEFINE NitroEncodable first so the
-  // verbatim-copied first file always contains the shared preamble.
-  bool hasPreamble(File f) => f.readAsStringSync().contains('\npublic protocol NitroEncodable');
+  // provide it.  Sort bridges that DEFINE shared declarations first so the
+  // first file processed contains the preamble. The preamble is emitted
+  // piecewise per spec (a record-only spec has NitroRecordWriter/Reader but
+  // no NitroEncodable), so check for any shared marker, not just the protocol.
+  bool hasPreamble(File f) {
+    final content = f.readAsStringSync();
+    return content.contains('\npublic protocol NitroEncodable') ||
+        content.contains('\npublic class NitroRecordWriter') ||
+        content.contains('\npublic class NitroRecordReader');
+  }
+
   final generatedBridges = [
     ...allBridges.where(hasPreamble),
     ...allBridges.where((f) => !hasPreamble(f)),
@@ -1258,14 +1268,14 @@ void _syncSwiftBridgesToSpmSources(String baseDir) {
     for (final entry in sourcesDir.listSync().whereType<Directory>()) {
       // Only copy into Swift targets (skip C/C++ targets whose names end in Cpp)
       if (entry.path.endsWith('Cpp')) continue;
-      for (var i = 0; i < generatedBridges.length; i++) {
-        final bridge = generatedBridges[i];
+      // One dedup set per SPM target — each target is its own Swift module,
+      // so shared declarations must appear exactly once per target.
+      final definedDecls = <String>{};
+      for (final bridge in generatedBridges) {
         final dest = p.join(entry.path, p.basename(bridge.path));
-        if (i == 0 || generatedBridges.length == 1) {
-          bridge.copySync(dest);
-        } else {
-          File(dest).writeAsStringSync(stripSharedSwiftPreamble(bridge.readAsStringSync()));
-        }
+        File(dest).writeAsStringSync(
+          dedupeSharedSwiftDecls(bridge.readAsStringSync(), definedDecls),
+        );
       }
     }
   }

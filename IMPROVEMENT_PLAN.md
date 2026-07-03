@@ -2,7 +2,11 @@
 
 > Derived from a deep comparison with the React Native Nitro reference implementation
 > at `/Users/shreemanarjunsahu/Documents/GitHub/nitro`.
-> Created: 2026-06-26 · Last audited: 2026-06-26
+> Created: 2026-06-26 · Last audited: 2026-07-02
+>
+> Sprints 1–4 are complete (see below). Sprints 5–9 added 2026-07-02 after the
+> 0.5.4 release: full RN Nitro parity achieved (L11–L16 closed, L15 N/A), so the
+> plan shifts from feature parity to hygiene, performance, DX, and adoption.
 
 ---
 
@@ -325,6 +329,151 @@ class NitroResult<T> {
 
 ---
 
+## Sprint 5 — Correctness & Release Hygiene
+
+> Goal: zero known-failing tests, releases that cannot desync, CI that catches
+> platform-specific regressions before users do. All items are small; do first.
+
+### S5-P1 · Fix the one known-failing CLI test 🔴 ⬜
+
+**Problem:** `nitrogen init — testing_project fixture structure › android Kotlin Plugin.kt uses JniBridge and registers impl` fails (verified 2026-07-02, 760/761 pass). The assertion expects `TestingProjectJniBridge.register(` but the generated plugin calls `registerFactory(`.
+
+**Fix:** Decide which is canonical. The generator's `registerFactory(` is the current runtime contract, so update the test assertion — unless the fixture predates the factory pattern and other docs still say `register(`, in which case sweep those too.
+
+**Acceptance:** `dart test` in `packages/nitrogen_cli` is 761/761 green.
+
+### S5-P2 · Single source of truth for the version 🔴 ⬜
+
+**Problem:** `nitroGeneratorVersion` in `generator_metadata.dart` is hand-edited and must match 4 pubspecs. The 0.5.3→0.5.4 bump shipped a CI failure because the constant lagged the pubspec (caught only by `generator_metadata_test.dart`).
+
+**Fix:** A `tool/release.dart` script that takes the new version once and rewrites: 4 × `pubspec.yaml`, 4 × `CHANGELOG.md` headers (prompting for entries), and `generator_metadata.dart`. Keep the existing test as the CI backstop.
+
+**Acceptance:** One command performs a full version bump; running the test suite immediately after passes.
+
+### S5-P3 · CI platform matrix ⬜
+
+**Problem:** Generator/CLI unit tests run in CI, but device verification is manual on macOS. Windows/Linux desktop codegen (L9) and Android JNI paths have no automated end-to-end coverage.
+
+**Fix, in priority order:**
+1. Linux + Windows CI runners for the 4159 generator unit tests (cheap, catches path/newline bugs).
+2. An Android emulator job running `nitro_type_coverage` integration tests.
+3. A macOS runner job for the multi-spec `testing_project` fixture (`nitrogen generate && flutter test integration_test`).
+
+**Acceptance:** A PR that breaks JNI or desktop codegen fails CI without manual device testing.
+
+### S5-P4 · Codec fuzz tests ⬜
+
+**Problem:** The binary wire formats (`RecordReader`/`RecordWriter`, variant tags, map tag-5 blobs, `NitroAnyValue`) are covered by example-based tests only. Malformed/truncated buffers from a buggy native impl should fail loudly, not corrupt memory.
+
+**Fix:** Property-based round-trip tests (random field shapes, lengths, nesting) plus truncated-buffer decode tests asserting a clean throw. Pure Dart, fast, no device needed.
+
+**Acceptance:** ≥1 fuzz suite for records, variants, maps, and `NitroAnyValue`; truncation never reads out of bounds.
+
+---
+
+## Sprint 6 — Web Story (L8)
+
+> The only remaining functional gap with user impact. Streams and
+> `@NitroNativeAsync` currently throw `UnsupportedError` on web (W007).
+
+### S6-P0 · Web bridge generator emits compilable code ✅ (analyzer-clean; compile blocked on S6-P1 groundwork)
+
+**Shipped 2026-07-03:** `web_bridge_generator.dart` previously emitted files with ~50 analyzer errors for struct/record-bearing specs: it imported the spec's `.g.dart` **part file** (invalid) at a wrong relative path, pasted FFI codegen (`@Packed`/`Struct`/`Pointer`/`Arena`/`RecordWriter`) that the nitro web stub deliberately does not provide, and called nonexistent `Type.fromJson` codecs. Now:
+- imports the spec library itself (`../../<spec>.native.dart` — output layout is fixed by build.yaml), plus exactly one source of `jsonEncode`/`Uint8List` (avoiding the `package:nitro` vs `dart:convert` ambiguity),
+- structs/records cross as JSON strings with **inline** field-list marshalling (no fromJson dependency),
+- functions with raw `Pointer`/`NativeHandle` signatures get honest `UnsupportedError` stubs (no `@JS` external) — `Pointer.fromAddress` can never exist on web,
+- benchmark package: `dart analyze lib` went from 87 issues (~50 errors) to 0.
+
+**Remaining architectural gap (this is S6-P1/P2):** the generated file still cannot COMPILE for a real web target because the spec library's FFI `.g.dart` part references `dart:ffi` types that don't resolve on web. True web support needs the abstract class emitted into a platform-neutral library with conditional impl imports.
+
+### S6-P1 · Web streams via JS interop ⬜
+
+**Design:** On web there is no `Dart_PostCObject_DL`, but there is also no isolate boundary to cross — the JS impl can invoke a Dart closure directly. Generate, in `web_bridge_generator.dart`: a JS-interop subscription API (`registerXxxStream(JSFunction onItem)`), a Dart `StreamController` wired to it, and teardown on `cancel()`. Backpressure modes degrade gracefully: document that `block` is unavailable on web (single-threaded), map `bufferDrop`/`dropLatest`/`batch` onto controller-side buffering.
+
+**Acceptance:** `Stream<primitive>` and `Stream<String>` work in a `flutter test --platform chrome` suite; W007 narrows to only the genuinely unsupported combinations.
+
+### S6-P2 · Web `@NitroNativeAsync` → Promise fallback ⬜
+
+**Design:** `@NitroNativeAsync` exists to skip the isolate hop — meaningless on web. Instead of throwing, generate a fallback that awaits the JS `Promise` from the web impl directly. Same Dart signature, no user code change.
+
+**Acceptance:** A spec with `@NitroNativeAsync` functions compiles and runs on web; the annotation is a no-op optimization hint there.
+
+### S6-P3 · Decide-and-document the intentional exclusions ⬜
+
+L6 (`@HybridStruct` callback return), L7 (`TypedData?`), L10 (`Map<String, @HybridStruct>`) stay excluded — each has a sound ownership/ABI reason and a documented workaround. Action: promote the workarounds from LIMITATIONS.md into the user docs (`doc/`) with copy-paste examples, and make validator errors E005/E008 link to them.
+
+---
+
+## Sprint 7 — Performance
+
+### S7-P1 · Struct-by-value returns for nullable primitives ⬜
+
+**Problem:** Sync functions returning `int?`/`double?`/`bool?` transport a pointer to a `NitroOptXxx` struct (malloc on native, free on Dart). C++ returns `std::optional<T>` by value on the stack; we can match it — Dart FFI supports struct-by-value returns.
+
+**Fix:** For sync returns only: C signature `NitroOptInt64 f(...)` instead of `NitroOptInt64* f(...)`; Dart decodes via a `.decoded` extension with zero allocation. Params and async paths keep pointers (arena / posted address). Detailed design exists in the archived plan `~/.claude/plans/velvet-chasing-hammock.md` (Parts 2–6).
+
+**Acceptance:** Zero malloc/free in the sync nullable-prim hot path; benchmark shows the delta; all transports still round-trip on device.
+
+### S7-P2 · Benchmark automation & regression gate ✅
+
+**Problem:** `benchmark/` exists but results are point-in-time (F7 baseline: 1.5 µs sync call). Nothing catches a perf regression at PR time.
+
+**Shipped (2026-07-03):**
+- `benchmark/example/lib/harness/bench_harness.dart` — headless suite: raw FFI floor, Nitro leaf/checked/Swift-Kotlin, MethodChannel, string/struct/`@nitroAsync`-record latency + 16–64 MiB buffer throughput. Warmup + batch timing + median-of-K methodology.
+- `integration_test/benchmark_regression_test.dart` — two-level gate: `relative` (machine-independent bridge ratios: leaf ≤ 2.5× raw FFI, checked ≤ 4×, Nitro ≥ 5× faster than MethodChannel — CI-safe) and `all` (absolute µs vs `example/assets/baselines/<platform>.json`, ±35% tolerance).
+- `tool/bench.sh` + `tool/format_report.dart` — one-command run: `flutter drive --profile`, markdown table, JSON archived to `benchmark/results/`, `--update-baseline` to re-record.
+- `.github/workflows/ci_benchmark.yml` — relative-gated quick suite on every push to main, results table in the job summary.
+- **Bugs fixed along the way** (all found by getting the benchmark app to build under SPM — the automation doubles as an end-to-end canary):
+  1. `spm_utils.dart` `_findPackageSwift` preferred the flat `macos/Package.swift` over the nested `macos/<plugin>/Package.swift` when both exist — `nitrogen link` synced bridge forwarders into a Sources/ tree Xcode never builds, and the built tree kept stale relative includes. Nested is now checked first (the only layout the Flutter tool builds).
+  2. `stripSharedSwiftPreamble` assumed the shared Swift preamble always starts at `public protocol NitroEncodable` — but the preamble is emitted PIECEWISE per spec (record-only specs carry only `NitroRecordWriter`/`Reader`; nullable-prim specs add `NitroOpt*`). Two record-only bridges in one SPM target → "'NitroRecordWriter' is ambiguous". New cumulative `dedupeSharedSwiftDecls(content, alreadyDefined)` block-level dedup in `utils.dart`; both sync sites migrated; 6 new tests.
+  3. `struct_generator.dart` emitted `_XxxC.fromSwiftPtr(...)` for NESTED `@HybridStruct` fields but never generated the `fromSwiftPtr` helper — Swift bridges with nested structs never compiled. Helper now emitted alongside `fromSwift`.
+  4. `cpp_direct_emitter.dart` forwarded `Pointer<Uint8>` params as `void*` to a C++ interface typed `uint8_t*` (generated-vs-generated compile error). Call sites now `static_cast` raw-pointer params to the interface's typed pointer.
+  5. Benchmark package: `benchmark.native.dart` (Swift/Kotlin) redeclared `BenchmarkPoint`/`Box`/`Stats` already declared by `benchmark_cpp.native.dart` — same-named public types from two specs collide in the single plugin Swift module. Swift spec trimmed to its purpose (dispatch-tier measurement). **Follow-up (validator):** emit a warning when two specs in one package declare the same type name and any Apple platform is targeted.
+
+### S7-P3 · Generator scale profiling ⬜
+
+**Problem:** Codegen time on large specs (50–100 modules, deep record graphs) is unmeasured. The O(1) index work (S4-P2) removed known hot spots, but there's no budget.
+
+**Fix:** Synthetic large-spec generation test with a wall-clock budget (e.g., 100 modules < 5 s); profile and fix if exceeded.
+
+---
+
+## Sprint 8 — Developer Experience
+
+### S8-P1 · `nitrogen watch` ⬜
+
+File-watcher mode: on change to any `*.native.dart` spec, re-run generate (and link when bridges change), print a compact diff of regenerated files. Pairs with hot reload for a tight native-dev loop.
+
+### S8-P2 · Diagnostics that teach ⬜
+
+Every `SpecValidator` error/warning (E001–E015, W001–W007) gets: a stable docs URL printed with the error, a "did you mean" suggestion where applicable (e.g., E010 unknown type → closest known type name), and a `nitrogen doctor --explain E008` mode.
+
+### S8-P3 · Published docs site ⬜
+
+`doc/` has getting-started, consuming, lifecycle, platforms, migration guides — but only in-repo. Publish to GitHub Pages (or docs.page): guides + dartdoc API reference + the validator error code reference (linkable from S8-P2) + LIMITATIONS as a living page.
+
+### S8-P4 · Spec templates ⬜
+
+`nitrogen init --template <name>` scaffolds a complete working spec + impl for common shapes: `sensor-stream` (stream + backpressure), `crypto` (TypedData zero-copy), `device-info` (sync props), `media` (async + records + callbacks). Each template is CI-tested so they never rot.
+
+---
+
+## Sprint 9 — Ecosystem & Adoption
+
+### S9-P1 · First-party plugin showcase ⬜
+
+Polish and publish the flagship plugins to pub.dev with 160/160 pana scores: `nitro_battery` (simplest possible example), `nitro_torch`, `nitro_view` (PlatformView + FFI hybrid), `nitro_camera` (the stress test: streams, GL, recording — Android preview aspect-ratio fix in progress). Each README links back to the generator docs. These are the proof that the toolchain scales from hello-world to a camera stack.
+
+### S9-P2 · Migration guide: method channels → Nitro ⬜
+
+`doc/migration/` exists; expand into a step-by-step with a real before/after plugin (pick a popular method-channel plugin shape), including the perf table from S7-P2. This is the highest-leverage adoption document.
+
+### S9-P3 · Comparison positioning page ⬜
+
+One honest page: Nitro vs method channels vs pigeon vs ffigen vs RN Nitro — feature matrix (streams, backpressure, zero-copy, desktop, codegen safety) + measured numbers. LIMITATIONS.md already has the RN Nitro half; add the Flutter-native alternatives.
+
+---
+
 ## Tracking
 
 | Sprint | Item | Status |
@@ -344,3 +493,20 @@ class NitroResult<T> {
 | 4 | S4-P5 Split dart_ffi_helpers.dart (967 lines) | ✅ |
 | 4 | S4-P6 @NitroResult<T> support | ✅ |
 | 4 | S4-P7 jni_method_emitter.dart cleanup | ✅ |
+| 5 | S5-P1 Fix failing CLI test (registerFactory assertion) | ✅ |
+| 5 | S5-P2 Version single source of truth (`tool/release.dart`) | ⬜ |
+| 5 | S5-P3 CI platform matrix (Linux/Windows/Android emulator) | ⬜ |
+| 5 | S5-P4 Binary codec fuzz tests | ⬜ |
+| 6 | S6-P1 Web streams via JS interop | ⬜ |
+| 6 | S6-P2 Web @NitroNativeAsync → Promise fallback | ⬜ |
+| 6 | S6-P3 Document intentional exclusions (L6/L7/L10) | ⬜ |
+| 7 | S7-P1 Struct-by-value nullable-prim sync returns | ⬜ |
+| 7 | S7-P2 Benchmark automation + regression gate | ✅ |
+| 7 | S7-P3 Generator scale profiling | ⬜ |
+| 8 | S8-P1 `nitrogen watch` | ⬜ |
+| 8 | S8-P2 Diagnostics with docs links + `--explain` | ⬜ |
+| 8 | S8-P3 Published docs site | ⬜ |
+| 8 | S8-P4 Spec templates (`init --template`) | ⬜ |
+| 9 | S9-P1 First-party plugin showcase on pub.dev | ⬜ |
+| 9 | S9-P2 Method-channel → Nitro migration guide | ⬜ |
+| 9 | S9-P3 Comparison positioning page | ⬜ |

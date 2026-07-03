@@ -1,9 +1,6 @@
 import '../../../bridge_spec.dart';
 import '../../code_writer.dart';
-import '../../enum_generator.dart';
 import '../../generator_metadata.dart';
-import '../../record_generator.dart';
-import '../../struct_generator.dart';
 
 /// PX18 — Web bridge generator.
 ///
@@ -46,23 +43,56 @@ class WebBridgeGenerator {
     final writer = CodeWriter();
     writer.raw(generatedFileHeader('//', sourceUri: spec.sourceUri));
 
+    final specFile = spec.sourceUri.split('/').last;
+
+    if (spec.isTypeOnly) {
+      writer.line('// Type-only spec — types come from the spec library;');
+      writer.line('// nothing to bind on web.');
+      return writer.toString();
+    }
+
     // This is a standalone library (not a part file) because dart:js_interop
     // @JS() declarations must be at library scope, not inside part files.
     writer.line('@JS()');
-    writer.line("library nitro_${spec.lib.replaceAll('-', '_')}_web;");
+    writer.line('library;');
     writer.blankLine();
-    writer.line('import \'dart:js_interop\';');
-    // dart:convert needed for JSON-encoded Map<String,V> params
-    if (spec.functions.any((f) => f.returnType.isMap || f.params.any((p) => p.type.isMap))) {
-      writer.line('import \'dart:convert\';');
+    // Externals keep the C symbol's snake_case (matching WASM exports); casts
+    // are kept for safety even where the external's type already matches.
+    writer.line('// ignore_for_file: non_constant_identifier_names, unnecessary_cast');
+    writer.blankLine();
+    writer.line("import 'dart:js_interop';");
+
+    bool typeUsesJson(BridgeType t) =>
+        t.isMap ||
+        t.isRecord ||
+        spec.structs.any((s) => s.name == t.name.replaceFirst('?', '')) ||
+        spec.recordTypes.any((r) => r.name == t.name.replaceFirst('?', ''));
+    bool anySignature(bool Function(BridgeType t) test) =>
+        spec.functions.any((f) =>
+            test(f.returnType) || f.params.any((p) => test(p.type))) ||
+        spec.properties.any((p) => test(p.type));
+    final usesJson = anySignature(typeUsesJson);
+    final usesTypedData = anySignature((t) => t.isTypedData);
+    final usesPointer =
+        anySignature((t) => t.isPointer || t.isNativeHandle);
+
+    // package:nitro re-exports dart:convert (jsonEncode/jsonDecode) and
+    // dart:typed_data, and on native provides the Pointer types that appear
+    // in raw-pointer signatures — importing BOTH nitro and dart:convert would
+    // make jsonDecode ambiguous, so import exactly one source of each.
+    if (usesPointer) {
+      writer.line("import 'package:nitro/nitro.dart';");
+    } else {
+      if (usesJson) writer.line("import 'dart:convert';");
+      if (usesTypedData) writer.line("import 'dart:typed_data';");
     }
     writer.blankLine();
 
-    // Import the spec file to get the abstract class and types
-    final specFile = spec.sourceUri.split('/').last;
-    writer.line("// Import the abstract class and type extensions from the spec.");
-    writer.line("// ignore: unused_import");
-    writer.line("import '${specFile.replaceAll('.native.dart', '.g.dart')}';");
+    // The spec library declares the abstract class, enums, structs, records,
+    // and (via its .g.dart part) their extensions. The web bridge is emitted
+    // to lib/<dir>/generated/web/, so the spec is always two levels up.
+    writer.line('// The spec library: abstract class + data types.');
+    writer.line("import '../../$specFile';");
     writer.blankLine();
 
     final libStem = spec.lib.replaceAll('-', '_');
@@ -70,18 +100,13 @@ class WebBridgeGenerator {
     final structNames = spec.structs.map((s) => s.name).toSet();
     final recordNames = spec.recordTypes.map((r) => r.name).toSet();
 
-    // ── Enum + struct extensions (same as FFI generator for type compat) ─────
-    final enumExt = EnumGenerator.generateDartExtensions(spec);
-    if (enumExt.isNotEmpty) {
-      writer.line('// Type extensions (shared with native path)');
-      writer.raw(enumExt);
-    }
-    final structExt = StructGenerator.generateDartExtensions(spec);
-    if (structExt.isNotEmpty) writer.raw(structExt);
-    final recordExt = RecordGenerator.generateDartExtensions(spec);
-    if (recordExt.isNotEmpty) writer.raw(recordExt);
-
-    if (spec.isTypeOnly) return writer.toString();
+    // Functions whose signatures use raw pointers cannot be bridged on web —
+    // there is no Pointer runtime representation. They get throw-stubs and
+    // no @JS() external.
+    bool funcUsesPointer(BridgeFunction f) =>
+        f.returnType.isPointer ||
+        f.returnType.isNativeHandle ||
+        f.params.any((p) => p.type.isPointer || p.type.isNativeHandle);
 
     // ── @JS() external declarations ──────────────────────────────────────────
     writer.line('// ── @JS() external declarations — map to WASM module exports ─');
@@ -93,25 +118,20 @@ class WebBridgeGenerator {
         // available in WASM. Emit a throw-stub instead.
         continue;
       }
+      if (funcUsesPointer(func)) {
+        // Raw pointers don't exist on web — the impl throws; no external.
+        continue;
+      }
       // Use func.cSymbol (C snake_case) for the WASM export name.
       // The WASM module exports symbols by their C name, not Dart camelCase.
       // Dart identifier uses the same snake_case name with a _js suffix.
       final jsSym = func.cSymbol; // e.g. 'config_get_settings'
       final jsDartId = '_${jsSym}_js'; // e.g. '_config_get_settings_js'
-      if (func.isAsync) {
-        // Async functions: WASM calls are synchronous; wrap in Future.
-        final jsParams = _jsFuncParams(func.params, enumNames, structNames, recordNames);
-        final jsRet = _jsReturnType(func.returnType, enumNames, structNames, recordNames);
-        writer.line('@JS(\'$jsSym\')');
-        writer.line('external $jsRet $jsDartId($jsParams);');
-        writer.blankLine();
-      } else {
-        final jsParams = _jsFuncParams(func.params, enumNames, structNames, recordNames);
-        final jsRet = _jsReturnType(func.returnType, enumNames, structNames, recordNames);
-        writer.line('@JS(\'$jsSym\')');
-        writer.line('external $jsRet $jsDartId($jsParams);');
-        writer.blankLine();
-      }
+      final jsParams = _jsFuncParams(func.params, enumNames, structNames, recordNames);
+      final jsRet = _jsReturnType(func.returnType, enumNames, structNames, recordNames);
+      writer.line('@JS(\'$jsSym\')');
+      writer.line('external $jsRet $jsDartId($jsParams);');
+      writer.blankLine();
     }
 
     for (final prop in spec.properties) {
@@ -153,27 +173,35 @@ class WebBridgeGenerator {
         writer.line('  $retType ${func.dartName}($params) {');
         writer.line("    throw UnsupportedError('${func.dartName}: @NitroNativeAsync is not supported on web. Use @nitroAsync instead.');");
         writer.line('  }');
+      } else if (funcUsesPointer(func)) {
+        final retType = func.isAsync
+            ? 'Future<${func.returnType.name}>'
+            : func.returnType.name;
+        final params = func.params.map((p) => '${p.type.name} ${p.name}').join(', ');
+        writer.line('  $retType ${func.dartName}($params) {');
+        writer.line("    throw UnsupportedError('${func.dartName}: raw Pointer parameters/returns do not exist on web.');");
+        writer.line('  }');
       } else if (func.isAsync) {
         final retType = 'Future<${func.returnType.name}>';
         final params = func.params.map((p) => '${p.type.name} ${p.name}').join(', ');
-        final callArgs = func.params.map((p) => _dartToJs(p.type, p.name, enumNames)).join(', ');
+        final callArgs = func.params.map((p) => _dartToJs(spec, p.type, p.name, enumNames)).join(', ');
         // Use cSymbol-derived identifier to match the @JS() external above
         final jsId = '_${func.cSymbol}_js';
         final jsCall = '$jsId($callArgs)';
         writer.line('  $retType ${func.dartName}($params) async {');
-        writer.line('    final _result = $jsCall;');
-        writer.line('    return ${_jsTodart(func.returnType, '_result', enumNames, structNames, recordNames)};');
+        writer.line('    final result = $jsCall;');
+        writer.line('    return ${_jsTodart(spec, func.returnType, 'result', enumNames, structNames, recordNames)};');
         writer.line('  }');
       } else {
         final retType = func.returnType.name;
         final params = func.params.map((p) => '${p.type.name} ${p.name}').join(', ');
-        final callArgs = func.params.map((p) => _dartToJs(p.type, p.name, enumNames)).join(', ');
+        final callArgs = func.params.map((p) => _dartToJs(spec, p.type, p.name, enumNames)).join(', ');
         final jsId = '_${func.cSymbol}_js';
         final jsCall = '$jsId($callArgs)';
         if (retType == 'void') {
           writer.line('  void ${func.dartName}($params) { $jsCall; }');
         } else {
-          final conv = _jsTodart(func.returnType, jsCall, enumNames, structNames, recordNames);
+          final conv = _jsTodart(spec, func.returnType, jsCall, enumNames, structNames, recordNames);
           writer.line('  $retType ${func.dartName}($params) => $conv;');
         }
       }
@@ -186,12 +214,12 @@ class WebBridgeGenerator {
       if (prop.hasGetter) {
         writer.line('  @override');
         final jsCall = '_${libStem}_get_${prop.dartName}_js()';
-        final conv = _jsTodart(prop.type, jsCall, enumNames, structNames, recordNames);
+        final conv = _jsTodart(spec, prop.type, jsCall, enumNames, structNames, recordNames);
         writer.line('  $rt get ${prop.dartName} => $conv;');
       }
       if (prop.hasSetter) {
         writer.line('  @override');
-        final jsArg = _dartToJs(prop.type, 'value', enumNames);
+        final jsArg = _dartToJs(spec, prop.type, 'value', enumNames);
         writer.line('  set ${prop.dartName}($rt value) { _${libStem}_set_${prop.dartName}_js($jsArg); }');
       }
       writer.blankLine();
@@ -278,11 +306,11 @@ class WebBridgeGenerator {
     if (bt.isPointer || bt.isNativeHandle) return 'JSNumber'; // pointer as numeric address
     if (bt.isFunction) return 'JSFunction'; // callback as JS function
     if (enumNames.contains(name)) return 'JSNumber'; // enum as rawValue
-    if (structNames.contains(name)) return 'JSObject'; // struct as JS object
-    // Map<String,V>: JSON-encoded on native → JS string on web (not binary buffer)
+    // Struct / @HybridRecord / Map<String,V>: JSON string on web. There is no
+    // FFI binary codec in JS; both sides speak jsonEncode/jsonDecode.
+    if (structNames.contains(name)) return 'JSString';
     if (bt.isMap) return 'JSString';
-    // @HybridRecord and List<@HybridRecord>: binary-encoded buffer
-    if (bt.isRecord || recordNames.contains(name)) return 'JSArrayBuffer';
+    if (bt.isRecord || recordNames.contains(name)) return 'JSString';
     return 'JSAny?';
   }
 
@@ -297,8 +325,25 @@ class WebBridgeGenerator {
     }).join(', ');
   }
 
+  /// (fieldName, dartType) pairs for a struct or record type, or null when
+  /// [typeName] is neither.
+  static List<(String, String)>? _jsonFields(BridgeSpec spec, String typeName) {
+    for (final st in spec.structs) {
+      if (st.name == typeName) {
+        return [for (final f in st.fields) (f.name, f.type.name)];
+      }
+    }
+    for (final r in spec.recordTypes) {
+      if (r.name == typeName) {
+        return [for (final f in r.fields) (f.name, f.dartType)];
+      }
+    }
+    return null;
+  }
+
   /// Dart value → JS value for passing to @JS() functions.
-  static String _dartToJs(BridgeType bt, String varName, Set<String> enumNames) {
+  static String _dartToJs(
+      BridgeSpec spec, BridgeType bt, String varName, Set<String> enumNames) {
     final name = bt.name.replaceFirst('?', '');
     if (name == 'int' || name == 'double') return '$varName.toJS';
     if (name == 'bool') return '$varName.toJS';
@@ -309,13 +354,41 @@ class WebBridgeGenerator {
     if (enumNames.contains(name)) return '$varName.nativeValue.toJS';
     // Map<String,V>: JSON-encode to string, match JSString on JS side
     if (bt.isMap) return 'jsonEncode($varName).toJS';
-    // Struct / Record: JSON-encode for web interop
+    // Struct / Record: spec classes have no toJson — build the map inline
+    // from the field list the generator already knows.
+    final fields = _jsonFields(spec, name);
+    if (fields != null) {
+      final entries = fields.map((f) {
+        final (fname, ftype) = f;
+        final base = ftype.replaceFirst('?', '');
+        final value = enumNames.contains(base)
+            ? '$varName.$fname.nativeValue'
+            : '$varName.$fname';
+        return "'$fname': $value";
+      }).join(', ');
+      return 'jsonEncode({$entries}).toJS';
+    }
     return 'jsonEncode($varName).toJS';
   }
 
+  /// Constructor argument that pulls field [fname] of Dart type [ftype] out
+  /// of a decoded JSON map named `m`.
+  static String _jsonCtorArg(String fname, String ftype, Set<String> enumNames) {
+    final base = ftype.replaceFirst('?', '');
+    return switch (base) {
+      'int' => "$fname: (m['$fname'] as num).toInt()",
+      'double' => "$fname: (m['$fname'] as num).toDouble()",
+      'bool' => "$fname: m['$fname'] as bool",
+      'String' => "$fname: m['$fname'] as String",
+      _ when enumNames.contains(base) =>
+        "$fname: ((m['$fname'] as num).toInt()).to$base()",
+      _ => "$fname: m['$fname'] as $ftype",
+    };
+  }
+
   /// JS value → Dart value after calling @JS() function.
-  static String _jsTodart(BridgeType bt, String expr, Set<String> enumNames,
-      Set<String> structNames, Set<String> recordNames) {
+  static String _jsTodart(BridgeSpec spec, BridgeType bt, String expr,
+      Set<String> enumNames, Set<String> structNames, Set<String> recordNames) {
     final name = bt.name.replaceFirst('?', '');
     if (name == 'int') return '($expr as JSNumber).toDartInt';
     if (name == 'double') return '($expr as JSNumber).toDartDouble';
@@ -333,7 +406,15 @@ class WebBridgeGenerator {
       return '(($expr as JSNumber).toDartInt).to$name()';
     }
     if (structNames.contains(name) || recordNames.contains(name)) {
-      return '$name.fromJson(jsonDecode(($expr as JSString).toDart) as Map<String, dynamic>)';
+      // Spec classes have no fromJson — construct inline from the decoded map.
+      final fields = _jsonFields(spec, name);
+      if (fields != null) {
+        final args = fields
+            .map((f) => _jsonCtorArg(f.$1, f.$2, enumNames))
+            .join(', ');
+        return '((Map<String, dynamic> m) => $name($args))'
+            '(jsonDecode(($expr as JSString).toDart) as Map<String, dynamic>)';
+      }
     }
     return '($expr as JSAny?)';
   }

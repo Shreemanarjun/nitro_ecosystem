@@ -612,6 +612,16 @@ class StructGenerator {
       s.writeln('  }');
       s.writeln();
 
+      // fromSwiftPtr: heap-allocated shadow for NESTED struct fields — the
+      // outer C shadow stores nested structs as UnsafeMutablePointer<_XxxC>?,
+      // and _swiftFromSwiftExpr emits `_XxxC.fromSwiftPtr(s.field)` for them.
+      s.writeln('  static func fromSwiftPtr(_ s: ${st.name}) -> UnsafeMutablePointer<_${st.name}C> {');
+      s.writeln('    let p = UnsafeMutablePointer<_${st.name}C>.allocate(capacity: 1)');
+      s.writeln('    p.initialize(to: fromSwift(s))');
+      s.writeln('    return p');
+      s.writeln('  }');
+      s.writeln();
+
       // toSwift: convert C shadow → user-facing struct (for received params)
       s.writeln('  func toSwift() -> ${st.name} {');
       // Pre-compute any typed-data arrays

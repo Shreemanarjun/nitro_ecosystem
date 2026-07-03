@@ -5,7 +5,7 @@ project(benchmark_library VERSION 0.0.1 LANGUAGES C CXX)
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(NITRO_NATIVE "${CMAKE_CURRENT_SOURCE_DIR}/native")
-# NITRO_LINK_SPEC_CHECKSUM f72950ed84b3396a
+# NITRO_LINK_SPEC_CHECKSUM 08d1711329bf4f40
 set(GENERATED_CPP "${CMAKE_CURRENT_SOURCE_DIR}/../lib/src/generated/cpp")
 
 # ── Swift/Kotlin bridge (NativeImpl.swift / NativeImpl.kotlin) ────────────────
