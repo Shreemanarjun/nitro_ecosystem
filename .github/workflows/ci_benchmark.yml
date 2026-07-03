@@ -115,6 +115,13 @@ jobs:
           --mode ${{ github.event.inputs.mode || 'quick' }}
           --gate relative
 
+      - name: Probe native module libs (diagnose crash)
+        if: failure()
+        run: |
+          BUNDLE=benchmark/example/build/linux/x64/profile/bundle/lib
+          ls -la "$BUNDLE" 2>/dev/null || echo "bundle lib dir missing"
+          dart benchmark/tool/probe_desktop.dart "$BUNDLE" || true
+
       - name: Publish analysis to job summary
         if: always()
         run: |
@@ -161,6 +168,14 @@ jobs:
           bash benchmark/tool/bench.sh -d windows
           --mode ${{ github.event.inputs.mode || 'quick' }}
           --gate relative
+
+      - name: Probe native module libs (diagnose crash)
+        if: failure()
+        shell: bash
+        run: |
+          BUNDLE=benchmark/example/build/windows/x64/runner/Profile
+          ls -la "$BUNDLE" 2>/dev/null || echo "bundle dir missing"
+          dart benchmark/tool/probe_desktop.dart "$BUNDLE" || true
 
       - name: Publish analysis to job summary
         if: always()

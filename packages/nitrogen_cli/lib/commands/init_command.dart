@@ -242,7 +242,7 @@ class _InitViewState extends State<InitView> {
       '--platforms=$platformsArg',
       '--org=$org',
       pluginName,
-    ]);
+    ], runInShell: Platform.isWindows);
     if (createResult.exitCode != 0) {
       _setFailed(_kStepCreate, 'flutter create failed: ${createResult.stderr}');
       setState(() => _finished = true);
@@ -317,13 +317,13 @@ class _InitViewState extends State<InitView> {
     }
     _updatePubspec(pluginName, className, org, platforms: platforms, nitroVersion: nitroVersion, nitroGeneratorVersion: nitroGeneratorVersion);
     if (usePubAdd) {
-      await Process.run('flutter', ['pub', 'add', 'nitro'], workingDirectory: pluginName);
-      await Process.run('flutter', ['pub', 'add', '--dev', 'nitro_generator'], workingDirectory: pluginName);
+      await Process.run('flutter', ['pub', 'add', 'nitro'], workingDirectory: pluginName, runInShell: Platform.isWindows);
+      await Process.run('flutter', ['pub', 'add', '--dev', 'nitro_generator'], workingDirectory: pluginName, runInShell: Platform.isWindows);
       _setDone(_kStepPubspec, detail: 'nitro, nitro_generator added via flutter pub add');
     } else {
       // pubspec was updated without running pub add — run pub get so
       // .dart_tool/package_config.json is created before path resolution.
-      await Process.run('flutter', ['pub', 'get'], workingDirectory: pluginName);
+      await Process.run('flutter', ['pub', 'get'], workingDirectory: pluginName, runInShell: Platform.isWindows);
       _setDone(_kStepPubspec, detail: 'nitro $nitroVersion, nitro_generator $nitroGeneratorVersion added');
     }
 
@@ -1306,7 +1306,7 @@ class InitCommand extends Command {
       '--platforms=$platformsArg',
       '--org=$org',
       pluginName,
-    ]);
+    ], runInShell: Platform.isWindows);
     if (createResult.exitCode != 0) {
       logErr('flutter create failed: ${createResult.stderr}');
       exit(1);
@@ -1363,11 +1363,11 @@ class InitCommand extends Command {
     }
     dummy.updatePubspec(nitroVersion: nitroVersion, nitroGeneratorVersion: nitroGeneratorVersion);
     if (usePubAdd) {
-      await Process.run('flutter', ['pub', 'add', 'nitro'], workingDirectory: pluginName);
-      await Process.run('flutter', ['pub', 'add', '--dev', 'nitro_generator'], workingDirectory: pluginName);
+      await Process.run('flutter', ['pub', 'add', 'nitro'], workingDirectory: pluginName, runInShell: Platform.isWindows);
+      await Process.run('flutter', ['pub', 'add', '--dev', 'nitro_generator'], workingDirectory: pluginName, runInShell: Platform.isWindows);
       log('nitro, nitro_generator added via flutter pub add');
     } else {
-      await Process.run('flutter', ['pub', 'get'], workingDirectory: pluginName);
+      await Process.run('flutter', ['pub', 'get'], workingDirectory: pluginName, runInShell: Platform.isWindows);
       log('nitro $nitroVersion, nitro_generator $nitroGeneratorVersion added');
     }
 
