@@ -72,16 +72,24 @@ void main() {
       if (_gate == 'none') return;
 
       // ── Relative gate: machine-independent bridge-tier invariants ────────
-      double medianOf(String id) {
+      // Core Nitro cases are mandatory on every platform — a skipped core
+      // case means the bridge itself is broken there. Optional tiers
+      // (MethodChannel handler, platform bridge) may be absent per platform;
+      // their gates auto-skip.
+      double requiredMedian(String id) {
         final r = report.caseById(id);
         expect(r, isNotNull, reason: 'benchmark case $id did not run');
-        return r!.stats.medianUs;
+        expect(r!.skipReason, isNull,
+            reason: 'core case $id was skipped: ${r.skipReason}');
+        return r.stats!.medianUs;
       }
 
-      final rawFfi = medianOf('raw_ffi_add');
-      final leaf = medianOf('nitro_leaf_add');
-      final cpp = medianOf('nitro_cpp_add');
-      final channel = medianOf('method_channel_add');
+      double? optionalMedian(String id) => report.caseById(id)?.stats?.medianUs;
+
+      final rawFfi = requiredMedian('raw_ffi_add');
+      final leaf = requiredMedian('nitro_leaf_add');
+      final cpp = requiredMedian('nitro_cpp_add');
+      final channel = optionalMedian('method_channel_add');
 
       expect(rawFfi, greaterThan(0), reason: 'raw FFI floor measured as 0 µs');
       expect(
@@ -99,15 +107,17 @@ void main() {
             '(cpp=${cpp.toStringAsFixed(3)}µs, '
             'rawFfi=${rawFfi.toStringAsFixed(3)}µs).',
       );
-      expect(
-        channel / cpp,
-        greaterThanOrEqualTo(_minChannelOverCpp),
-        reason: 'Nitro should be ≥${_minChannelOverCpp.toStringAsFixed(0)}× '
-            'faster than MethodChannel but measured only '
-            '${(channel / cpp).toStringAsFixed(1)}× '
-            '(cpp=${cpp.toStringAsFixed(3)}µs, '
-            'channel=${channel.toStringAsFixed(3)}µs).',
-      );
+      if (channel != null) {
+        expect(
+          channel / cpp,
+          greaterThanOrEqualTo(_minChannelOverCpp),
+          reason: 'Nitro should be ≥${_minChannelOverCpp.toStringAsFixed(0)}× '
+              'faster than MethodChannel but measured only '
+              '${(channel / cpp).toStringAsFixed(1)}× '
+              '(cpp=${cpp.toStringAsFixed(3)}µs, '
+              'channel=${channel.toStringAsFixed(3)}µs).',
+        );
+      }
 
       // ── Absolute gate: compare vs the checked-in platform baseline ───────
       if (_gate == 'all') {
@@ -122,15 +132,17 @@ void main() {
         final factor = 1 + _tolerancePct / 100;
         for (final r
             in report.results.where((r) => r.kind == BenchKind.latency)) {
+          final stats = r.stats;
+          if (stats == null) continue; // skipped on this platform
           final base = baseCases[r.id] as Map<String, dynamic>?;
-          if (base == null) continue; // new case since baseline was recorded
-          final baseMedian = (base['medianUs'] as num).toDouble();
+          final baseMedian = (base?['medianUs'] as num?)?.toDouble();
+          if (baseMedian == null) continue; // new/skipped case in baseline
           expect(
-            r.stats.medianUs,
+            stats.medianUs,
             // +0.05µs cushion so near-zero cases aren't gated on timer noise.
             lessThanOrEqualTo(baseMedian * factor + 0.05),
             reason: '${r.id} regressed vs baseline: '
-                '${r.stats.medianUs.toStringAsFixed(3)}µs > '
+                '${stats.medianUs.toStringAsFixed(3)}µs > '
                 '${baseMedian.toStringAsFixed(3)}µs '
                 '+$_tolerancePct% tolerance',
           );

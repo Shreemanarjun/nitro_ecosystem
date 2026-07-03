@@ -16,6 +16,20 @@ class BenchmarkImpl(private val context: Context) : HybridBenchmarkSpec {
 
     override fun getGreeting(name: String): String = "Hello, $name!"
 
+    override fun hashBuffer(data: ByteArray, rounds: Long): Long {
+        // Reference workload: FNV-1a 64-bit — identical algorithm to the
+        // MethodChannel handler (same language, different bridge) and to
+        // src/nitro_workload.h; Long multiplication wraps mod 2^64.
+        var hash = -3750763034362895579L // 0xcbf29ce484222325
+        for (r in 0 until rounds) {
+            for (b in data) {
+                hash = hash xor (b.toLong() and 0xFF)
+                hash *= 1099511628211L // 0x100000001b3
+            }
+        }
+        return hash
+    }
+
     override fun sendLargeBuffer(buffer: ByteArray): Long {
         var sum = 0
         // Access memory to prevent optimization

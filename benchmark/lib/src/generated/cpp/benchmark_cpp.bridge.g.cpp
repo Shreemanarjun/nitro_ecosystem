@@ -17,7 +17,7 @@ NITRO_EXPORT uint32_t benchmark_cpp_nitro_abi_version(void) {
     return 1;
 }
 NITRO_EXPORT const char* benchmark_cpp_nitro_bridge_checksum(void) {
-    return "4b4f1e9aec64f2bb";
+    return "c32d3a6793909c97";
 }
 NITRO_EXPORT intptr_t benchmark_cpp_init_dart_api_dl(void* data) {
     return Dart_InitializeApiDL(data);
@@ -196,6 +196,21 @@ const char* benchmark_cpp_get_greeting(int64_t instanceId, const char* name, Nit
     } catch (...) {
         _nitro_out_err(_nitro_err, "CppException", "Unknown C++ exception");
         return nullptr;
+    }
+}
+
+int64_t benchmark_cpp_hash_buffer(int64_t instanceId, uint8_t* data, size_t data_length, int64_t rounds, NitroError* _nitro_err) {
+    if (_nitro_err) { _nitro_err->hasError = 0; }  // S8: clear slot
+    auto _impl = _nitro_get_instance(instanceId);
+    if (!_impl) { _nitro_out_err(_nitro_err, "NotInitialized", "No C++ implementation registered. Call benchmark_cpp_register_factory() or benchmark_cpp_register_impl()."); return 0; }
+    try {
+        return _impl->hashBuffer(data, static_cast<size_t>(data_length), rounds);
+    } catch (const std::exception& e) {
+        _nitro_out_err(_nitro_err, "CppException", e.what());
+        return 0;
+    } catch (...) {
+        _nitro_out_err(_nitro_err, "CppException", "Unknown C++ exception");
+        return 0;
     }
 }
 

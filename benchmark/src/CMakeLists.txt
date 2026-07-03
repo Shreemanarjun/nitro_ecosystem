@@ -5,7 +5,7 @@ project(benchmark_library VERSION 0.0.1 LANGUAGES C CXX)
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(NITRO_NATIVE "${CMAKE_CURRENT_SOURCE_DIR}/native")
-# NITRO_LINK_SPEC_CHECKSUM 08d1711329bf4f40
+# NITRO_LINK_SPEC_CHECKSUM bce1d73b4f689702
 set(GENERATED_CPP "${CMAKE_CURRENT_SOURCE_DIR}/../lib/src/generated/cpp")
 
 # ── Swift/Kotlin bridge (NativeImpl.swift / NativeImpl.kotlin) ────────────────
@@ -16,6 +16,9 @@ add_library(benchmark SHARED
   "dart_api_dl.c"
 )
 
+if(NOT ANDROID)
+  target_sources(benchmark PRIVATE "HybridBenchmark.cpp")
+endif()
 target_include_directories(benchmark PRIVATE
   "${CMAKE_CURRENT_SOURCE_DIR}"
   "${GENERATED_CPP}"
@@ -27,6 +30,10 @@ target_compile_definitions(benchmark PUBLIC DART_SHARED_LIB)
 if(ANDROID)
   target_link_libraries(benchmark PRIVATE android log)
   target_link_options(benchmark PRIVATE "-Wl,-z,max-page-size=16384")
+elseif(WIN32)
+  target_link_libraries(benchmark PRIVATE dbghelp)
+elseif(UNIX AND NOT APPLE)
+  target_link_libraries(benchmark PRIVATE dl pthread)
 endif()
 
 # ── Direct C++ dispatch (NativeImpl.cpp) ─────────────────────────────────────
@@ -49,6 +56,10 @@ target_compile_definitions(benchmark_cpp PUBLIC DART_SHARED_LIB)
 if(ANDROID)
   target_link_libraries(benchmark_cpp PRIVATE android log)
   target_link_options(benchmark_cpp PRIVATE "-Wl,-z,max-page-size=16384")
+elseif(WIN32)
+  target_link_libraries(benchmark_cpp PRIVATE dbghelp)
+elseif(UNIX AND NOT APPLE)
+  target_link_libraries(benchmark_cpp PRIVATE dl pthread)
 endif()
 
 add_library(nitro_ar SHARED

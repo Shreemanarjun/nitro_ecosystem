@@ -446,17 +446,19 @@ interface HybridBenchmarkCppSpec {
     fun addFast(a: Double, b: Double): Double
     // source: benchmark_cpp.native.dart:143
     fun getGreeting(name: String): String
-    // source: benchmark_cpp.native.dart:148
+    // source: benchmark_cpp.native.dart:150
+    fun hashBuffer(data: ByteArray, rounds: Long): Long
+    // source: benchmark_cpp.native.dart:155
     fun scalePoint(point: BenchmarkPoint, factor: Double): BenchmarkPoint
-    // source: benchmark_cpp.native.dart:157
+    // source: benchmark_cpp.native.dart:164
     suspend fun computeStats(iterations: Long): BenchmarkStats
-    // source: benchmark_cpp.native.dart:193
+    // source: benchmark_cpp.native.dart:200
     fun sendLargeBufferFast(buffer: ByteArray): Long
-    // source: benchmark_cpp.native.dart:199
+    // source: benchmark_cpp.native.dart:206
     fun sendLargeBufferNoop(buffer: ByteArray): Long
-    // source: benchmark_cpp.native.dart:202
-    fun sendLargeBufferNoopFast(buffer: ByteArray): Long
     // source: benchmark_cpp.native.dart:209
+    fun sendLargeBufferNoopFast(buffer: ByteArray): Long
+    // source: benchmark_cpp.native.dart:216
     fun sendLargeBufferUnsafe(ptr: Any?, length: Long): Long
     val dataStream: Flow<BenchmarkPoint>
     val boxStream: Flow<BenchmarkBox>
@@ -524,33 +526,38 @@ object BenchmarkCppJniBridge {
         val impl = _implementations[instanceId] ?: throw IllegalStateException("BenchmarkCpp instance $instanceId not registered")
         return impl.getGreeting(name)
     }
-    // source: benchmark_cpp.native.dart:148
+    // source: benchmark_cpp.native.dart:150
+    @JvmStatic fun hashBuffer_call(instanceId: Long, data: ByteArray, rounds: Long): Long {
+        val impl = _implementations[instanceId] ?: throw IllegalStateException("BenchmarkCpp instance $instanceId not registered")
+        return impl.hashBuffer(data, rounds)
+    }
+    // source: benchmark_cpp.native.dart:155
     @JvmStatic fun scalePoint_call(instanceId: Long, point: BenchmarkPoint, factor: Double): BenchmarkPoint {
         val impl = _implementations[instanceId] ?: throw IllegalStateException("BenchmarkCpp instance $instanceId not registered")
         return impl.scalePoint(point, factor)
     }
-    // source: benchmark_cpp.native.dart:157
+    // source: benchmark_cpp.native.dart:164
     @JvmStatic fun computeStats_call(instanceId: Long, iterations: Long): ByteArray {
         val impl = _implementations[instanceId] ?: throw IllegalStateException("BenchmarkCpp instance $instanceId not registered")
         val result = _asyncExecutor.submit(java.util.concurrent.Callable { runBlocking { impl.computeStats(iterations) } }).get()
         return result.encode()
     }
-    // source: benchmark_cpp.native.dart:193
+    // source: benchmark_cpp.native.dart:200
     @JvmStatic fun sendLargeBufferFast_call(instanceId: Long, buffer: ByteArray): Long {
         val impl = _implementations[instanceId] ?: throw IllegalStateException("BenchmarkCpp instance $instanceId not registered")
         return impl.sendLargeBufferFast(buffer)
     }
-    // source: benchmark_cpp.native.dart:199
+    // source: benchmark_cpp.native.dart:206
     @JvmStatic fun sendLargeBufferNoop_call(instanceId: Long, buffer: ByteArray): Long {
         val impl = _implementations[instanceId] ?: throw IllegalStateException("BenchmarkCpp instance $instanceId not registered")
         return impl.sendLargeBufferNoop(buffer)
     }
-    // source: benchmark_cpp.native.dart:202
+    // source: benchmark_cpp.native.dart:209
     @JvmStatic fun sendLargeBufferNoopFast_call(instanceId: Long, buffer: ByteArray): Long {
         val impl = _implementations[instanceId] ?: throw IllegalStateException("BenchmarkCpp instance $instanceId not registered")
         return impl.sendLargeBufferNoopFast(buffer)
     }
-    // source: benchmark_cpp.native.dart:209
+    // source: benchmark_cpp.native.dart:216
     @JvmStatic fun sendLargeBufferUnsafe_call(instanceId: Long, ptr: Any?, length: Long): Long {
         val impl = _implementations[instanceId] ?: throw IllegalStateException("BenchmarkCpp instance $instanceId not registered")
         return impl.sendLargeBufferUnsafe(ptr, length)

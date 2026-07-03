@@ -19,7 +19,7 @@ NITRO_EXPORT uint32_t benchmark_nitro_abi_version(void) {
     return 1;
 }
 NITRO_EXPORT const char* benchmark_nitro_bridge_checksum(void) {
-    return "b0c8d24ef0fb4fc5";
+    return "c96f9e44329f6aca";
 }
 NITRO_EXPORT intptr_t benchmark_init_dart_api_dl(void* data) {
     return Dart_InitializeApiDL(data);
@@ -86,6 +86,7 @@ static jmethodID g_mid_destroy_instance_call = nullptr;
 static jmethodID g_mid_add_call = nullptr;
 static jmethodID g_mid_addFast_call = nullptr;
 static jmethodID g_mid_getGreeting_call = nullptr;
+static jmethodID g_mid_hashBuffer_call = nullptr;
 static jmethodID g_mid_sendLargeBuffer_call = nullptr;
 
 
@@ -256,6 +257,27 @@ const char* benchmark_get_greeting(int64_t instanceId, const char* name, NitroEr
     return result;
 }
 
+int64_t benchmark_hash_buffer(int64_t instanceId, uint8_t* data, size_t data_length, int64_t rounds, NitroError* _nitro_err) {
+    if (_nitro_err) { _nitro_err->hasError = 0; }  // S8: clear slot
+    JNIEnv* env = GetEnv();
+    if (env == nullptr) { return 0; }
+    jmethodID methodId = g_mid_hashBuffer_call;
+    if (methodId == nullptr) { LOGE("Method not found: hashBuffer_call sig=(J[BJ)J"); return 0; }
+
+    benchmark_clear_error();
+    if (env->PushLocalFrame(16) != 0) { return 0; }
+    jbyteArray j_data = env->NewByteArray((jsize)data_length);
+    env->SetByteArrayRegion(j_data, 0, (jsize)data_length, (const jbyte*)data);
+    int64_t res = env->CallStaticLongMethod(g_bridgeClass, methodId, (jlong)instanceId, j_data, rounds);
+    if (env->ExceptionCheck()) {
+        nitro_report_jni_exception(env, env->ExceptionOccurred(), _nitro_err);
+        env->PopLocalFrame(nullptr);
+        return 0;
+    }
+    env->PopLocalFrame(nullptr);
+    return res;
+}
+
 int64_t benchmark_send_large_buffer(int64_t instanceId, uint8_t* buffer, size_t buffer_length, NitroError* _nitro_err) {
     if (_nitro_err) { _nitro_err->hasError = 0; }  // S8: clear slot
     JNIEnv* env = GetEnv();
@@ -302,6 +324,8 @@ JNIEXPORT void JNICALL Java_nitro_benchmark_1module_BenchmarkJniBridge_initializ
         if (!g_mid_addFast_call && env->ExceptionCheck()) { env->ExceptionClear(); LOGE("Method not found: addFast_call sig=(JDD)D"); }
         g_mid_getGreeting_call = env->GetStaticMethodID(g_bridgeClass, "getGreeting_call", "(JLjava/lang/String;)Ljava/lang/String;");
         if (!g_mid_getGreeting_call && env->ExceptionCheck()) { env->ExceptionClear(); LOGE("Method not found: getGreeting_call sig=(JLjava/lang/String;)Ljava/lang/String;"); }
+        g_mid_hashBuffer_call = env->GetStaticMethodID(g_bridgeClass, "hashBuffer_call", "(J[BJ)J");
+        if (!g_mid_hashBuffer_call && env->ExceptionCheck()) { env->ExceptionClear(); LOGE("Method not found: hashBuffer_call sig=(J[BJ)J"); }
         g_mid_sendLargeBuffer_call = env->GetStaticMethodID(g_bridgeClass, "sendLargeBuffer_call", "(J[B)J");
         if (!g_mid_sendLargeBuffer_call && env->ExceptionCheck()) { env->ExceptionClear(); LOGE("Method not found: sendLargeBuffer_call sig=(J[B)J"); }
     }
@@ -386,6 +410,31 @@ const char* benchmark_get_greeting(int64_t instanceId, const char* name, NitroEr
 #endif
 }
 
+extern int64_t _benchmark_call_hashBuffer(uint8_t* data, size_t data_length, int64_t rounds);
+int64_t benchmark_hash_buffer(int64_t instanceId, uint8_t* data, size_t data_length, int64_t rounds, NitroError* _nitro_err) {
+    if (_nitro_err) { _nitro_err->hasError = 0; }
+#ifdef __OBJC__
+    @try {
+        return _benchmark_call_hashBuffer(data, data_length, rounds);
+    } @catch (NSException* e) {
+        if (_nitro_err) {
+            // sync: write exception to out-param error slot.
+            _nitro_err->hasError = 1;
+            _nitro_err->name    = strdup([e.name UTF8String]);
+            _nitro_err->message = strdup([e.reason UTF8String]);
+            _nitro_err->code = nullptr;
+            _nitro_err->stackTrace = nullptr;
+        } else {
+            // async: _nitro_err is null — route exception to TLS slot.
+            nitro_report_error([e.name UTF8String], [e.reason UTF8String], nullptr, nullptr);
+        }
+        return 0;
+    }
+#else
+    return _benchmark_call_hashBuffer(data, data_length, rounds);
+#endif
+}
+
 extern int64_t _benchmark_call_sendLargeBuffer(uint8_t* buffer, size_t buffer_length);
 int64_t benchmark_send_large_buffer(int64_t instanceId, uint8_t* buffer, size_t buffer_length, NitroError* _nitro_err) {
     if (_nitro_err) { _nitro_err->hasError = 0; }
@@ -416,7 +465,7 @@ NITRO_EXPORT int64_t benchmark_create_instance(const char* key) { (void)key; ret
 NITRO_EXPORT void benchmark_destroy_instance(int64_t instanceId) { (void)instanceId; }
 
 } // extern "C"
-#elif defined(_WIN32)  // Windows/Linux: NativeImpl.cpp — direct C++ dispatch
+#elif defined(_WIN32) || defined(__linux__)  // Windows/Linux: NativeImpl.cpp — direct C++ dispatch
 #include "benchmark.native.g.h"
 
 static HybridBenchmark* g_impl = nullptr;
@@ -468,6 +517,20 @@ const char* benchmark_get_greeting(int64_t instanceId, const char* name, NitroEr
     } catch (...) {
         nitro_report_error("CppException", "Unknown C++ exception", nullptr, nullptr);
         return nullptr;
+    }
+}
+
+int64_t benchmark_hash_buffer(int64_t instanceId, uint8_t* data, size_t data_length, int64_t rounds, NitroError* _nitro_err) {
+    benchmark_clear_error();
+    if (!g_impl) { nitro_report_error("NotInitialized", "No C++ implementation registered. Call benchmark_register_impl() first.", nullptr, nullptr); return 0; }
+    try {
+        return g_impl->hashBuffer(data, static_cast<size_t>(data_length), rounds);
+    } catch (const std::exception& e) {
+        nitro_report_error("CppException", e.what(), nullptr, nullptr);
+        return 0;
+    } catch (...) {
+        nitro_report_error("CppException", "Unknown C++ exception", nullptr, nullptr);
+        return 0;
     }
 }
 

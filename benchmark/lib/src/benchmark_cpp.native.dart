@@ -142,6 +142,13 @@ abstract class BenchmarkCpp extends HybridObject {
   /// overhead. Returns `"Hello, <name>!"` from C++.
   String getGreeting(String name);
 
+  /// Reference workload: FNV-1a 64-bit hash over [data], repeated [rounds]
+  /// times (see `src/nitro_workload.h`). Every bridge tier and platform
+  /// implements the exact same algorithm and must return the same bits — the
+  /// benchmark harness verifies agreement before timing, so the cross-bridge
+  /// comparison provably measures identical work.
+  int hashBuffer(Uint8List data, int rounds);
+
   /// Sync zero-copy struct param + return. Passes [point] as a raw C pointer
   /// and receives a new malloc'd struct back. Measures struct-passing overhead
   /// without any primitive-only fast path.

@@ -132,9 +132,56 @@ tool/bench.sh -d <device-id> --mode full
 tool/bench.sh --mode full --update-baseline
 ```
 
-The script drives `integration_test/benchmark_regression_test.dart` in
-profile mode, prints a markdown results table, and archives the JSON report
-to `benchmark/results/<platform>-<mode>.json`.
+The script regenerates the bridges, drives
+`integration_test/benchmark_regression_test.dart` in profile mode, prints a
+markdown **analysis** (per-tier overhead, calls-per-frame budget, Δ vs the
+recorded baseline, practical guidance, cross-platform matrix), and archives
+the JSON report to `benchmark/results/<platform>-<mode>.json`.
+
+### Platform matrix
+
+The same harness runs on all six targets. Cases whose bridge tier doesn't
+exist on a platform are auto-skipped and reported as such; the core
+Nitro-vs-raw-FFI gates stay mandatory everywhere.
+
+| Platform | How to run | Notes |
+|---|---|---|
+| macOS | `tool/bench.sh -d macos` | Reference platform; baseline recorded |
+| Android | `tool/bench.sh -d <device-id>` | Physical device required for `--profile`; Kotlin/JNI + C++ + channel tiers |
+| iOS | `tool/bench.sh -d <device-id>` | Physical device required for `--profile` (simulators only support `--debug`) |
+| Windows | `tool/bench.sh -d windows` | C++ tiers + MethodChannel (MSVC plugin); CI: `bench-windows` job |
+| Linux | `xvfb-run -a tool/bench.sh -d linux` | C++ tiers + MethodChannel (GTK plugin); CI: `bench-linux` job |
+| Web | — | No FFI on web; the in-app dashboard's pure-Dart stub is the only comparison |
+
+On Windows/Linux the "platform bridge" tier is the direct C++ implementation
+(there is no Swift/Kotlin); all three Nitro module libraries are built by the
+plugin's CMake via the shared `src/` tree and bundled next to the executable.
+
+### The reference workload — provably identical work on every tier
+
+Trivial `add(a, b)` calls measure pure dispatch. For a fair "real work"
+comparison the suite also runs **FNV-1a 64-bit** (`hashBuffer(data, rounds)`,
+1 KiB × 16 rounds) on every bridge tier:
+
+| Tier | Where the algorithm runs |
+|---|---|
+| Raw FFI | `fnv1a_hash` C export (`src/nitro_workload.h`) |
+| Nitro C++ | `HybridBenchmarkCpp::hashBuffer` — same C routine |
+| Nitro platform bridge | Kotlin (Android) / Swift (Apple) / C++ (desktop) — same algorithm, same language as the channel handler |
+| MethodChannel | The platform handler — Kotlin / Swift / MSVC C++ / GTK C++ |
+
+FNV-1a was chosen because it is a handful of lines that are trivially
+identical in C, C++, Kotlin, Swift, and Dart (64-bit multiplication wraps mod
+2^64 in all of them), strictly sequential and CPU-bound (nothing for a smart
+compiler to elide), and **self-verifying** — before timing anything, the
+harness calls every tier once and asserts all hashes are bit-identical. A
+run where any tier disagrees fails outright, so published numbers always
+compare the exact same computation.
+
+Pairing matters: on Android the channel handler and the Nitro platform
+bridge both run the *Kotlin* implementation — comparing those two isolates
+pure bridge cost with the language held constant. `Nitro C++` vs `Raw FFI`
+does the same for the C tier.
 
 ### Two-level regression gate
 

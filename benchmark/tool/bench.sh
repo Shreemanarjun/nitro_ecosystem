@@ -75,7 +75,10 @@ if [[ ! -f "$RESPONSE" ]]; then
   exit 1
 fi
 
-FORMAT_ARGS=("$RESPONSE" --out-dir "$RESULTS_DIR")
+# --baselines-dir: format_report resolves <dir>/<platform>.json itself from
+# the report's platform field, enabling the Δ-vs-baseline analysis columns.
+FORMAT_ARGS=("$RESPONSE" --out-dir "$RESULTS_DIR" --compare-dir "$RESULTS_DIR" \
+  --baselines-dir "$BASELINES_DIR")
 if [[ "$UPDATE_BASELINE" == "1" ]]; then
   FORMAT_ARGS+=(--update-baseline "$BASELINES_DIR")
 fi

@@ -14,6 +14,7 @@ class MockBenchmark : public HybridBenchmark {
     MOCK_METHOD(double, add, (double a, double b), (override));
     MOCK_METHOD(double, addFast, (double a, double b), (override));
     MOCK_METHOD(std::string, getGreeting, (const std::string& name), (override));
+    MOCK_METHOD(int64_t, hashBuffer, (const uint8_t* data, size_t data_length, int64_t rounds), (override));
     MOCK_METHOD(int64_t, sendLargeBuffer, (const uint8_t* buffer, size_t buffer_length), (override));
 };
 

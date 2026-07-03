@@ -424,13 +424,15 @@ public class NitroRecordReader {
  * Keep mutable state thread-safe or marshal work onto your own queue/actor.
  */
 public protocol HybridBenchmarkProtocol: AnyObject {
-    // source: benchmark.native.dart:23
+    // source: benchmark.native.dart:24
     func add(a: Double, b: Double) -> Double
-    // source: benchmark.native.dart:26
+    // source: benchmark.native.dart:27
     func addFast(a: Double, b: Double) -> Double
-    // source: benchmark.native.dart:29
+    // source: benchmark.native.dart:30
     func getGreeting(name: String) -> String
-    // source: benchmark.native.dart:32
+    // source: benchmark.native.dart:37
+    func hashBuffer(data: Data, rounds: Int64) -> Int64
+    // source: benchmark.native.dart:40
     func sendLargeBuffer(buffer: Data) -> Int64
 }
 
@@ -444,28 +446,36 @@ public class BenchmarkRegistry {
 
 // MARK: - C bridge stubs — exported as C symbols called by the generated .cpp shim
 
-// source: benchmark.native.dart:23
+// source: benchmark.native.dart:24
 @_cdecl("_benchmark_call_add")
 public func _benchmark_call_add(_ a: Double, _ b: Double) -> Double {
     guard let impl = BenchmarkRegistry.impl else { return 0.0 }
     return impl.add(a: a, b: b)
 }
 
-// source: benchmark.native.dart:26
+// source: benchmark.native.dart:27
 @_cdecl("_benchmark_call_addFast")
 public func _benchmark_call_addFast(_ a: Double, _ b: Double) -> Double {
     guard let impl = BenchmarkRegistry.impl else { return 0.0 }
     return impl.addFast(a: a, b: b)
 }
 
-// source: benchmark.native.dart:29
+// source: benchmark.native.dart:30
 @_cdecl("_benchmark_call_getGreeting")
 public func _benchmark_call_getGreeting(_ name: UnsafePointer<CChar>?) -> UnsafeMutablePointer<CChar>? {
     let nameStr = _nitroStringFromCString(name)
     return _nitroStringToCString(BenchmarkRegistry.impl?.getGreeting(name: nameStr) ?? "")
 }
 
-// source: benchmark.native.dart:32
+// source: benchmark.native.dart:37
+@_cdecl("_benchmark_call_hashBuffer")
+public func _benchmark_call_hashBuffer(_ data: UnsafeMutablePointer<UInt8>?, _ data_length: Int64, _ rounds: Int64) -> Int64 {
+    let dataArr = data.map { Data(bytes: $0, count: Int(data_length)) } ?? Data()
+    guard let impl = BenchmarkRegistry.impl else { return 0 }
+    return impl.hashBuffer(data: dataArr, rounds: rounds)
+}
+
+// source: benchmark.native.dart:40
 @_cdecl("_benchmark_call_sendLargeBuffer")
 public func _benchmark_call_sendLargeBuffer(_ buffer: UnsafeMutablePointer<UInt8>?, _ buffer_length: Int64) -> Int64 {
     let bufferArr = buffer.map { Data(bytes: $0, count: Int(buffer_length)) } ?? Data()

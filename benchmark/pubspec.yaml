@@ -55,6 +55,10 @@ flutter:
         pluginClass: SwiftBenchmarkPlugin
       macos:
         pluginClass: BenchmarkPlugin
+      windows:
+        pluginClass: BenchmarkPluginCApi
+      linux:
+        pluginClass: BenchmarkPlugin
       web:
         # Pure-Dart stub implementation — no native bridge on web.
         # Results serve as a baseline "pure Dart dispatch" reference.

@@ -1,4 +1,5 @@
 #include "../lib/src/generated/cpp/benchmark_cpp.native.g.h"
+#include "nitro_workload.h"
 
 #include <string>
 #include <chrono>
@@ -144,6 +145,14 @@ public:
         return static_cast<int64_t>(buffer_length);
     }
 
+    int64_t hashBuffer(const uint8_t* data, size_t data_length,
+                       int64_t rounds) override {
+        // Reference workload: FNV-1a 64-bit — the same C routine every other
+        // tier runs (src/nitro_workload.h); results must be bit-identical.
+        return static_cast<int64_t>(
+            nitro_bench_fnv1a(data, static_cast<int64_t>(data_length), rounds));
+    }
+
 private:
     std::thread _streamThread;
     std::atomic<bool> _running;
@@ -151,7 +160,18 @@ private:
 
 static HybridBenchmarkCppImpl g_benchmark_cpp_impl;
 
+// Auto-register on shared library load — no manual init call needed.
+#if defined(_WIN32)
+// MSVC lacks __attribute__((constructor)); use a static object instead.
+namespace {
+  struct _AutoRegisterBenchmarkCpp {
+    _AutoRegisterBenchmarkCpp() { benchmark_cpp_register_impl(&g_benchmark_cpp_impl); }
+  };
+  _AutoRegisterBenchmarkCpp _auto_register_benchmark_cpp;
+}
+#else
 __attribute__((constructor))
 static void benchmark_cpp_auto_register() {
     benchmark_cpp_register_impl(&g_benchmark_cpp_impl);
 }
+#endif

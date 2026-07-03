@@ -53,6 +53,7 @@ NITRO_EXPORT void benchmark_destroy_instance(int64_t instanceId);
 NITRO_EXPORT double benchmark_add(int64_t instanceId, double a, double b, NitroError* _nitro_err);
 NITRO_EXPORT double benchmark_add_fast(int64_t instanceId, double a, double b, NitroError* _nitro_err);
 NITRO_EXPORT const char* benchmark_get_greeting(int64_t instanceId, const char* name, NitroError* _nitro_err);
+NITRO_EXPORT int64_t benchmark_hash_buffer(int64_t instanceId, uint8_t* data, size_t data_length, int64_t rounds, NitroError* _nitro_err);
 NITRO_EXPORT int64_t benchmark_send_large_buffer(int64_t instanceId, uint8_t* buffer, size_t buffer_length, NitroError* _nitro_err);
 
 #ifdef __cplusplus

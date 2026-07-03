@@ -57,12 +57,14 @@ jobs:
           --mode ${{ github.event.inputs.mode || 'quick' }}
           --gate relative
 
-      - name: Publish results to job summary
+      - name: Publish analysis to job summary
         if: always()
         run: |
           if [ -f benchmark/example/build/integration_response_data.json ]; then
             dart run benchmark/tool/format_report.dart \
               benchmark/example/build/integration_response_data.json \
+              --baselines-dir benchmark/example/assets/baselines \
+              --compare-dir benchmark/results \
               >> "$GITHUB_STEP_SUMMARY"
           fi
 
@@ -71,5 +73,111 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: benchmark-report-macos
+          path: benchmark/results/
+          if-no-files-found: ignore
+
+  # ── Desktop C++ tiers: Linux (GTK) and Windows (MSVC) ─────────────────────
+  # These run the same harness — MethodChannel and platform-bridge cases that
+  # a platform doesn't implement are auto-skipped and reported as such, while
+  # the core Nitro-vs-raw-FFI gates stay mandatory everywhere.
+
+  bench-linux:
+    name: Linux — FFI vs Nitro vs MethodChannel
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    # Newly wired platform — observe before making it required.
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Linux desktop build deps
+        run: |
+          sudo apt-get update -q
+          sudo apt-get install -y --no-install-recommends \
+            clang cmake ninja-build pkg-config libgtk-3-dev \
+            liblzma-dev xvfb
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: Enable Linux desktop
+        run: flutter config --enable-linux-desktop
+
+      - name: Get workspace dependencies
+        run: flutter pub get
+
+      - name: Run benchmark with relative regression gate (headless)
+        run: >
+          xvfb-run -a bash benchmark/tool/bench.sh -d linux
+          --mode ${{ github.event.inputs.mode || 'quick' }}
+          --gate relative
+
+      - name: Publish analysis to job summary
+        if: always()
+        run: |
+          if [ -f benchmark/example/build/integration_response_data.json ]; then
+            dart run benchmark/tool/format_report.dart \
+              benchmark/example/build/integration_response_data.json \
+              --baselines-dir benchmark/example/assets/baselines \
+              --compare-dir benchmark/results \
+              >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      - name: Upload report artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: benchmark-report-linux
+          path: benchmark/results/
+          if-no-files-found: ignore
+
+  bench-windows:
+    name: Windows — FFI vs Nitro vs MethodChannel
+    runs-on: windows-latest
+    timeout-minutes: 45
+    # Newly wired platform — observe before making it required.
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: Enable Windows desktop
+        run: flutter config --enable-windows-desktop
+
+      - name: Get workspace dependencies
+        run: flutter pub get
+
+      - name: Run benchmark with relative regression gate
+        shell: bash
+        run: >
+          bash benchmark/tool/bench.sh -d windows
+          --mode ${{ github.event.inputs.mode || 'quick' }}
+          --gate relative
+
+      - name: Publish analysis to job summary
+        if: always()
+        shell: bash
+        run: |
+          if [ -f benchmark/example/build/integration_response_data.json ]; then
+            dart run benchmark/tool/format_report.dart \
+              benchmark/example/build/integration_response_data.json \
+              --baselines-dir benchmark/example/assets/baselines \
+              --compare-dir benchmark/results \
+              >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      - name: Upload report artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: benchmark-report-windows
           path: benchmark/results/
           if-no-files-found: ignore

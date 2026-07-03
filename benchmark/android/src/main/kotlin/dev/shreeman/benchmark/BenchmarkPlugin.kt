@@ -39,6 +39,21 @@ class BenchmarkPlugin : FlutterPlugin {
                         }
                         result.success(buffer?.size ?: 0)
                     }
+                    "hashBuffer" -> {
+                        // Reference workload: FNV-1a 64-bit — identical to
+                        // src/nitro_workload.h; Long multiplication wraps
+                        // mod 2^64, matching C uint64_t bit-for-bit.
+                        val data = call.argument<ByteArray>("data") ?: ByteArray(0)
+                        val rounds = call.argument<Int>("rounds") ?: 1
+                        var hash = -3750763034362895579L // 0xcbf29ce484222325
+                        for (r in 0 until rounds) {
+                            for (b in data) {
+                                hash = hash xor (b.toLong() and 0xFF)
+                                hash *= 1099511628211L // 0x100000001b3
+                            }
+                        }
+                        result.success(hash)
+                    }
                     else -> result.notImplemented()
                 }
             } catch (e: Exception) {

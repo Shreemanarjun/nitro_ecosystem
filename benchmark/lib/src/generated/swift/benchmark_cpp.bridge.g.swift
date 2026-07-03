@@ -132,6 +132,7 @@ public protocol HybridBenchmarkCppProtocol: AnyObject {
     func add(a: Double, b: Double) -> Double
     func addFast(a: Double, b: Double) -> Double
     func getGreeting(name: String) -> String
+    func hashBuffer(data: Data, rounds: Int64) -> Int64
     func scalePoint(point: BenchmarkPoint, factor: Double) -> BenchmarkPoint
     func computeStats(iterations: Int64) async throws -> BenchmarkStats
     func sendLargeBufferFast(buffer: Data) -> Int64

@@ -58,9 +58,26 @@ abstract class Benchmark {
   double add(double a, double b);
   double addFast(double a, double b);
   String getGreeting(String name);
+  int hashBuffer(Uint8List data, int rounds);
   int sendLargeBuffer(Uint8List buffer);
 
   void dispose() {}
+}
+
+/// Reference workload (FNV-1a 64-bit) in pure Dart.
+///
+/// NOTE: on web, Dart ints are JS doubles — the 64-bit multiply does NOT wrap
+/// exactly, so the web hash diverges from native. Web is a dispatch-cost
+/// baseline only; cross-tier hash verification is native-only.
+int _fnv1aWeb(Uint8List data, int rounds) {
+  var hash = 0xcbf29ce484222325;
+  for (var r = 0; r < rounds; r++) {
+    for (var i = 0; i < data.length; i++) {
+      hash ^= data[i];
+      hash *= 0x100000001b3;
+    }
+  }
+  return hash;
 }
 
 class _BenchmarkWebImpl extends Benchmark {
@@ -72,6 +89,9 @@ class _BenchmarkWebImpl extends Benchmark {
 
   @override
   String getGreeting(String name) => 'Hello, $name!';
+
+  @override
+  int hashBuffer(Uint8List data, int rounds) => _fnv1aWeb(data, rounds);
 
   @override
   int sendLargeBuffer(Uint8List buffer) {
@@ -96,6 +116,7 @@ abstract class BenchmarkCpp {
   double add(double a, double b);
   double addFast(double a, double b);
   String getGreeting(String name);
+  int hashBuffer(Uint8List data, int rounds);
   BenchmarkPoint scalePoint(BenchmarkPoint point, double factor);
   Future<BenchmarkStats> computeStats(int iterations);
   Stream<BenchmarkPoint> get dataStream;
@@ -116,6 +137,9 @@ class _BenchmarkCppWebImpl extends BenchmarkCpp {
 
   @override
   String getGreeting(String name) => 'Hello, $name!';
+
+  @override
+  int hashBuffer(Uint8List data, int rounds) => _fnv1aWeb(data, rounds);
 
   @override
   BenchmarkPoint scalePoint(BenchmarkPoint point, double factor) =>

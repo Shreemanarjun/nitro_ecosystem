@@ -39,6 +39,12 @@ public:
         // return "";
     }
 
+    int64_t hashBuffer(const uint8_t* data, size_t data_length, int64_t rounds) override {
+        // TODO: implement hashBuffer
+        throw std::runtime_error("Not implemented: hashBuffer");
+        // return 0;
+    }
+
     int64_t sendLargeBuffer(const uint8_t* buffer, size_t buffer_length) override {
         // TODO: implement sendLargeBuffer
         throw std::runtime_error("Not implemented: sendLargeBuffer");

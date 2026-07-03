@@ -15,6 +15,7 @@ part 'benchmark.g.dart';
   android: AndroidNativeImpl.kotlin,
   macos: AppleNativeImpl.swift,
   windows: WindowsNativeImpl.cpp,
+  linux: LinuxNativeImpl.cpp,
 )
 abstract class Benchmark extends HybridObject {
   static final Benchmark instance = _BenchmarkImpl();
@@ -27,6 +28,13 @@ abstract class Benchmark extends HybridObject {
 
   /// Sync string round-trip — measures string conversion overhead.
   String getGreeting(String name);
+
+  /// Reference workload: FNV-1a 64-bit hash (see `src/nitro_workload.h`),
+  /// implemented in the SAME platform language as the MethodChannel handler
+  /// (Kotlin on Android, Swift on Apple, C++ on desktop). Comparing this
+  /// against the channel's `hashBuffer` isolates pure bridge cost with the
+  /// implementation language held constant.
+  int hashBuffer(Uint8List data, int rounds);
 
   /// High-bandwidth test — pushes up to 4GB zero-copy buffers.
   int sendLargeBuffer(Uint8List buffer);

@@ -23,6 +23,13 @@ external JSNumber _benchmark_cpp_add_fast_js(JSNumber a, JSNumber b);
 @JS('benchmark_cpp_get_greeting')
 external JSString _benchmark_cpp_get_greeting_js(JSString name);
 
+@JS('benchmark_cpp_hash_buffer')
+external JSNumber _benchmark_cpp_hash_buffer_js(
+  JSArrayBuffer data,
+  JSNumber dataLength,
+  JSNumber rounds,
+);
+
 @JS('benchmark_cpp_scale_point')
 external JSString _benchmark_cpp_scale_point_js(
   JSString point,
@@ -66,6 +73,16 @@ final class _BenchmarkCppWebImpl extends BenchmarkCpp {
   @override
   String getGreeting(String name) =>
       (_benchmark_cpp_get_greeting_js(name.toJS) as JSString).toDart;
+
+  @override
+  int hashBuffer(Uint8List data, int rounds) =>
+      (_benchmark_cpp_hash_buffer_js(
+                data.buffer.toJS,
+                data.lengthInBytes.toJS,
+                rounds.toJS,
+              )
+              as JSNumber)
+          .toDartInt;
 
   @override
   BenchmarkPoint scalePoint(BenchmarkPoint point, double factor) =>

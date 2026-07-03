@@ -61,13 +61,15 @@ public:
     virtual ~HybridBenchmark() = default;
 
     // ── Methods ──────────────────────────────────────────────────────────
-    // source: benchmark.native.dart:23
+    // source: benchmark.native.dart:24
     virtual double add(double a, double b) = 0;
-    // source: benchmark.native.dart:26
+    // source: benchmark.native.dart:27
     virtual double addFast(double a, double b) = 0;
-    // source: benchmark.native.dart:29
+    // source: benchmark.native.dart:30
     virtual std::string getGreeting(const std::string& name) = 0;
-    // source: benchmark.native.dart:32
+    // source: benchmark.native.dart:37
+    virtual int64_t hashBuffer(const uint8_t* data, size_t data_length, int64_t rounds) = 0;
+    // source: benchmark.native.dart:40
     virtual int64_t sendLargeBuffer(const uint8_t* buffer, size_t buffer_length) = 0;
 
 protected:

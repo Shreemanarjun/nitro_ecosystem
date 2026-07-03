@@ -137,17 +137,19 @@ public:
     virtual double addFast(double a, double b) = 0;
     // source: benchmark_cpp.native.dart:143
     virtual std::string getGreeting(const std::string& name) = 0;
-    // source: benchmark_cpp.native.dart:148
+    // source: benchmark_cpp.native.dart:150
+    virtual int64_t hashBuffer(const uint8_t* data, size_t data_length, int64_t rounds) = 0;
+    // source: benchmark_cpp.native.dart:155
     virtual BenchmarkPoint scalePoint(const BenchmarkPoint& point, double factor) = 0;
-    // source: benchmark_cpp.native.dart:157
+    // source: benchmark_cpp.native.dart:164
     virtual NitroCppBuffer computeStats(int64_t iterations) = 0;
-    // source: benchmark_cpp.native.dart:193
+    // source: benchmark_cpp.native.dart:200
     virtual int64_t sendLargeBufferFast(const uint8_t* buffer, size_t buffer_length) = 0;
-    // source: benchmark_cpp.native.dart:199
+    // source: benchmark_cpp.native.dart:206
     virtual int64_t sendLargeBufferNoop(const uint8_t* buffer, size_t buffer_length) = 0;
-    // source: benchmark_cpp.native.dart:202
-    virtual int64_t sendLargeBufferNoopFast(const uint8_t* buffer, size_t buffer_length) = 0;
     // source: benchmark_cpp.native.dart:209
+    virtual int64_t sendLargeBufferNoopFast(const uint8_t* buffer, size_t buffer_length) = 0;
+    // source: benchmark_cpp.native.dart:216
     virtual int64_t sendLargeBufferUnsafe(uint8_t* ptr, int64_t length) = 0;
 
     // ── Streams ──────────────────────────────────────────────────────────

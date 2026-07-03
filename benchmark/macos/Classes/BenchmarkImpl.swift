@@ -19,6 +19,23 @@ public class BenchmarkImpl: NSObject, HybridBenchmarkProtocol {
         return "Hello, \(name)!"
     }
 
+    public func hashBuffer(data: Data, rounds: Int64) -> Int64 {
+        // Reference workload: FNV-1a 64-bit — identical algorithm to the
+        // MethodChannel handler (same language, different bridge) and to
+        // src/nitro_workload.h. &* wraps mod 2^64, matching C uint64_t.
+        var hash: UInt64 = 0xcbf29ce484222325
+        data.withUnsafeBytes { (ptr: UnsafeRawBufferPointer) in
+            let bytes = ptr.bindMemory(to: UInt8.self)
+            for _ in 0..<rounds {
+                for i in 0..<bytes.count {
+                    hash ^= UInt64(bytes[i])
+                    hash = hash &* 0x100000001b3
+                }
+            }
+        }
+        return Int64(bitPattern: hash)
+    }
+
     public func sendLargeBuffer(buffer: Data) -> Int64 {
         var sum: UInt8 = 0
         // Access memory to prevent optimization

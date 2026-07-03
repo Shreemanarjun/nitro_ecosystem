@@ -313,13 +313,15 @@ interface HybridBenchmarkSpec {
     fun onActivityAttached(activity: Activity) {}
     fun onActivityDetached() {}
 
-    // source: benchmark.native.dart:23
+    // source: benchmark.native.dart:24
     fun add(a: Double, b: Double): Double
-    // source: benchmark.native.dart:26
+    // source: benchmark.native.dart:27
     fun addFast(a: Double, b: Double): Double
-    // source: benchmark.native.dart:29
+    // source: benchmark.native.dart:30
     fun getGreeting(name: String): String
-    // source: benchmark.native.dart:32
+    // source: benchmark.native.dart:37
+    fun hashBuffer(data: ByteArray, rounds: Long): Long
+    // source: benchmark.native.dart:40
     fun sendLargeBuffer(buffer: ByteArray): Long
 }
 
@@ -369,22 +371,27 @@ object BenchmarkJniBridge {
         _implementations.values.forEach { it.onActivityDetached() }
     }
 
-    // source: benchmark.native.dart:23
+    // source: benchmark.native.dart:24
     @JvmStatic fun add_call(instanceId: Long, a: Double, b: Double): Double {
         val impl = _implementations[instanceId] ?: throw IllegalStateException("Benchmark instance $instanceId not registered")
         return impl.add(a, b)
     }
-    // source: benchmark.native.dart:26
+    // source: benchmark.native.dart:27
     @JvmStatic fun addFast_call(instanceId: Long, a: Double, b: Double): Double {
         val impl = _implementations[instanceId] ?: throw IllegalStateException("Benchmark instance $instanceId not registered")
         return impl.addFast(a, b)
     }
-    // source: benchmark.native.dart:29
+    // source: benchmark.native.dart:30
     @JvmStatic fun getGreeting_call(instanceId: Long, name: String): String {
         val impl = _implementations[instanceId] ?: throw IllegalStateException("Benchmark instance $instanceId not registered")
         return impl.getGreeting(name)
     }
-    // source: benchmark.native.dart:32
+    // source: benchmark.native.dart:37
+    @JvmStatic fun hashBuffer_call(instanceId: Long, data: ByteArray, rounds: Long): Long {
+        val impl = _implementations[instanceId] ?: throw IllegalStateException("Benchmark instance $instanceId not registered")
+        return impl.hashBuffer(data, rounds)
+    }
+    // source: benchmark.native.dart:40
     @JvmStatic fun sendLargeBuffer_call(instanceId: Long, buffer: ByteArray): Long {
         val impl = _implementations[instanceId] ?: throw IllegalStateException("Benchmark instance $instanceId not registered")
         return impl.sendLargeBuffer(buffer)

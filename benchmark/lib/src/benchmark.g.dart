@@ -18,7 +18,7 @@ class _BenchmarkImpl extends Benchmark {
       android: true,
       macos: true,
       windows: true,
-      linux: false,
+      linux: true,
       web: false,
     );
   }
@@ -62,7 +62,7 @@ class _BenchmarkImpl extends Benchmark {
     }
     NitroRuntime.checkLinkChecksum(
       'benchmark',
-      'b0c8d24ef0fb4fc5',
+      'c96f9e44329f6aca',
       () => _dylib
           .lookupFunction<Pointer<Utf8> Function(), Pointer<Utf8> Function()>(
             'benchmark_nitro_bridge_checksum',
@@ -123,6 +123,18 @@ class _BenchmarkImpl extends Benchmark {
         Pointer<Utf8> Function(Int64, Pointer<Utf8>, Pointer<NitroErrorFfi>),
         Pointer<Utf8> Function(int, Pointer<Utf8>, Pointer<NitroErrorFfi>)
       >('benchmark_get_greeting');
+  late final int Function(int, Pointer<Uint8>, int, int, Pointer<NitroErrorFfi>)
+  _hashBufferPtr = _dylib
+      .lookupFunction<
+        Int64 Function(
+          Int64,
+          Pointer<Uint8>,
+          Size,
+          Int64,
+          Pointer<NitroErrorFfi>,
+        ),
+        int Function(int, Pointer<Uint8>, int, int, Pointer<NitroErrorFfi>)
+      >('benchmark_hash_buffer');
   late final int Function(int, Pointer<Uint8>, int, Pointer<NitroErrorFfi>)
   _sendLargeBufferPtr = _dylib
       .lookupFunction<
@@ -193,6 +205,25 @@ class _BenchmarkImpl extends Benchmark {
         return res.toDartStringWithFree();
       }),
       methodName: 'getGreeting',
+    );
+  }
+
+  @override
+  int hashBuffer(Uint8List data, int rounds) {
+    checkDisposed();
+    return NitroRuntime.callSync(
+      () => withArena((arena) {
+        final res = _hashBufferPtr(
+          _instanceId,
+          data.toPointer(arena),
+          data.length,
+          rounds,
+          _nitroErr,
+        );
+        NitroRuntime.throwIfOutParamError(_nitroErr);
+        return res;
+      }),
+      methodName: 'hashBuffer',
     );
   }
 

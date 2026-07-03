@@ -25,6 +25,23 @@ public class BenchmarkPlugin: NSObject, FlutterPlugin {
         return
       }
       result(Int64(bufferArray.data.count))
+    } else if call.method == "hashBuffer" {
+      // Reference workload: FNV-1a 64-bit — identical to
+      // src/nitro_workload.h; &* wraps mod 2^64, matching C uint64_t.
+      let args = call.arguments as? [String: Any]
+      let data = (args?["data"] as? FlutterStandardTypedData)?.data ?? Data()
+      let rounds = args?["rounds"] as? Int ?? 1
+      var hash: UInt64 = 0xcbf29ce484222325
+      data.withUnsafeBytes { (ptr: UnsafeRawBufferPointer) in
+        let bytes = ptr.bindMemory(to: UInt8.self)
+        for _ in 0..<rounds {
+          for i in 0..<bytes.count {
+            hash ^= UInt64(bytes[i])
+            hash = hash &* 0x100000001b3
+          }
+        }
+      }
+      result(Int64(bitPattern: hash))
     } else {
       result(FlutterMethodNotImplemented)
     }
