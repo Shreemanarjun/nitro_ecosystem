@@ -361,6 +361,10 @@ class NitroResult<T> {
 
 **Acceptance:** A PR that breaks JNI or desktop codegen fails CI without manual device testing.
 
+### S5-P3b · Consolidate duplicated scaffold templates ⬜
+
+`nitrogen_cli` has TWO `scaffold_templates.dart` files: `lib/templates/` (used by init/migrate) and `lib/commands/` (a drifted duplicate that only the tests import). The 2026-07-05 registerFactory migration had to patch both, and the template unit tests were green against code the CLI never executes. Merge into `lib/templates/`, repoint the tests, delete the duplicate.
+
 ### S5-P4 · Codec fuzz tests ⬜
 
 **Problem:** The binary wire formats (`RecordReader`/`RecordWriter`, variant tags, map tag-5 blobs, `NitroAnyValue`) are covered by example-based tests only. Malformed/truncated buffers from a buggy native impl should fail loudly, not corrupt memory.

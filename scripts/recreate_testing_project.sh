@@ -95,26 +95,61 @@ with open(pubspec_path) as f:
     content = f.read()
 
 # Replace published version refs with local path deps
-content = re.sub(r'(\s+nitro:\s*)\^[\d.]+', f'\g<1>\n    path: {nitro_path}', content)
-content = re.sub(r'(\s+nitro_generator:\s*)\^[\d.]+', f'\g<1>\n    path: {gen_path}', content)
-content = re.sub(r'(\s+nitro_annotations:\s*)\^[\d.]+', f'\g<1>\n    path: {ann_path}', content)
+content = re.sub(r'(\s+nitro:\s*)\^[\d.]+', rf'\g<1>\n    path: {nitro_path}', content)
+content = re.sub(r'(\s+nitro_generator:\s*)\^[\d.]+', rf'\g<1>\n    path: {gen_path}', content)
+content = re.sub(r'(\s+nitro_annotations:\s*)\^[\d.]+', rf'\g<1>\n    path: {ann_path}', content)
 
-# Add dependency_overrides if not already present
-if 'dependency_overrides:' not in content:
-    content += f'\ndependency_overrides:\n'
-    content += f'  nitro:\n    path: {nitro_path}\n'
-    content += f'  nitro_generator:\n    path: {gen_path}\n'
-    content += f'  nitro_annotations:\n    path: {ann_path}\n'
+# NOTE: no dependency_overrides — pub workspaces forbid overriding workspace
+# members ("Cannot override workspace packages"). The path deps above plus
+# `resolution: workspace` already resolve to the monorepo packages.
 
-# Ensure workspace resolution
+# Ensure workspace resolution. Anchor on publish_to: when present; the
+# current nitrogen init template has no publish_to line, so fall back to
+# inserting right after name: — without this the workspace pub get fails
+# and the script dies before generation.
 if 'resolution: workspace' not in content:
-    content = content.replace('publish_to:', 'resolution: workspace\npublish_to:', 1)
+    if 'publish_to:' in content:
+        content = content.replace('publish_to:', 'resolution: workspace\npublish_to:', 1)
+    else:
+        lines = content.split('\n')
+        for i, line in enumerate(lines):
+            if line.startswith('name:'):
+                lines.insert(i + 1, 'resolution: workspace')
+                break
+        content = '\n'.join(lines)
 
 with open(pubspec_path, 'w') as f:
     f.write(content)
 print(f'  ✔ {pubspec_path} patched')
 PYEOF
-echo "  ✔ pubspec patched"
+
+# The example app is ALSO listed in the workspace root, so it needs
+# `resolution: workspace` too — without it the workspace-wide `pub get`
+# fails ("does not have `resolution: workspace`") and this script dies
+# before generation ever runs, leaving the fixture without .g.dart files.
+EXAMPLE_PUBSPEC="$PLUGIN_DIR/example/pubspec.yaml"
+if [ -f "$EXAMPLE_PUBSPEC" ] && ! grep -q 'resolution: workspace' "$EXAMPLE_PUBSPEC"; then
+  python3 - "$EXAMPLE_PUBSPEC" << 'PYEOF'
+import sys
+path = sys.argv[1]
+with open(path) as f:
+    content = f.read()
+if 'publish_to:' in content:
+    content = content.replace('publish_to:', 'resolution: workspace\npublish_to:', 1)
+else:
+    # Insert after the name: line
+    lines = content.split('\n')
+    for i, line in enumerate(lines):
+        if line.startswith('name:'):
+            lines.insert(i + 1, 'resolution: workspace')
+            break
+    content = '\n'.join(lines)
+with open(path, 'w') as f:
+    f.write(content)
+print(f'  ✔ {path} patched (resolution: workspace)')
+PYEOF
+fi
+echo "  ✔ pubspecs patched"
 
 # ── 3. Write the 3 native specs ───────────────────────────────────────────────
 echo "▶ Step 4/7: Writing multi-spec native files..."
@@ -216,11 +251,23 @@ cd "$REPO_ROOT"
 echo "  ✔ pub get done"
 
 # ── 6. nitrogen generate ──────────────────────────────────────────────────────
-echo "▶ Step 6/7: build_runner (nitrogen generate)..."
+# Use the nitrogen CLI (NOT raw build_runner): `dart run build_runner` refuses
+# to run in a Flutter package, and the old `flutter pub run` fallback has been
+# removed from current Flutter — both legs failed silently here before. The
+# CLI drives flutter pub get + build_runner correctly and verifies outputs.
+echo "▶ Step 6/7: nitrogen generate..."
 cd "$PLUGIN_DIR"
-"$DART" run build_runner build --delete-conflicting-outputs 2>/dev/null || \
-"$FLUTTER" pub run build_runner build --delete-conflicting-outputs
-echo "  ✔ generate done"
+rm -f .dart_tool/nitro/cache.json  # force full regeneration of the fixture
+"$DART" run "$CLI_DIR/bin/nitrogen.dart" generate --no-ui
+# Fail loudly if generation did not produce the part files — a silent gap here
+# surfaces later as "Target of URI hasn't been generated" in the IDE.
+for spec in testing_project testing_cpp testing_mixed; do
+  if [ ! -f "$PLUGIN_DIR/lib/src/$spec.g.dart" ]; then
+    echo "❌  $spec.g.dart was not generated"
+    exit 1
+  fi
+done
+echo "  ✔ generate done (3 .g.dart part files verified)"
 
 # ── 7. nitrogen link ──────────────────────────────────────────────────────────
 echo "▶ Step 7/7: nitrogen link..."

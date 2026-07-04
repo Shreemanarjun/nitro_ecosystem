@@ -230,9 +230,10 @@ class ${className}Plugin : FlutterPlugin {
     }
 
     override fun onAttachedToEngine(binding: FlutterPlugin.FlutterPluginBinding) {
-        ${className}JniBridge.register(
-            ${className}Impl(binding.applicationContext)
-        )
+        // registerFactory: one impl per Dart-side instance (multi-instance
+        // registry). The old single-instance register(impl) API no longer
+        // exists on the generated JniBridge.
+        ${className}JniBridge.registerFactory({ ${className}Impl(binding.applicationContext) }, binding.applicationContext)
     }
 
     override fun onDetachedFromEngine(binding: FlutterPlugin.FlutterPluginBinding) {}

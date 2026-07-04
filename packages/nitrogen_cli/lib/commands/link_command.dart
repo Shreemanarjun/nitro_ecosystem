@@ -2372,10 +2372,17 @@ void linkKotlinPlugin(
     // If we inject XxxImpl() when XxxImpl(context: Context) is required, the
     // call compiles but crashes at runtime — pass binding.applicationContext.
     final implArg = _detectKotlinImplArg(impl, baseDir: baseDir);
-    final registerCall = '$reg.register($impl($implArg))';
+    // registerFactory (lambda + Context) — the generated JniBridge's only
+    // registration API since the multi-instance registry landed; the old
+    // register(impl) overload no longer exists and would not compile.
+    final registerCall =
+        '$reg.registerFactory({ $impl($implArg) }, binding.applicationContext)';
     if (!content.contains('$reg.register')) {
+      // Anchor after the last existing registration (either legacy
+      // register(...) or registerFactory({...}, ctx) — both end-of-line forms).
       final match = RegExp(
-        r'\w+JniBridge\.register\(.*?\)\)',
+        r'\w+JniBridge\.register\w*\(.*\)$',
+        multiLine: true,
       ).allMatches(content);
       if (match.isNotEmpty) {
         // Append after the last existing JniBridge.register() call.
@@ -2444,10 +2451,10 @@ void purgeStaleCppKotlinRegistrations(
   bool modified = false;
 
   for (final m in cppModules) {
-    // Match: <Module>JniBridge.register(<anything>)
+    // Match: <Module>JniBridge.register(<anything>) OR .registerFactory(...)
     // The line may have leading whitespace and optional trailing comment.
     final stalePattern = RegExp(
-      r'[ \t]*' + RegExp.escape('${m.module}JniBridge') + r'\.register\(.*\)[ \t]*\r?\n?',
+      r'[ \t]*' + RegExp.escape('${m.module}JniBridge') + r'\.register\w*\(.*\)[ \t]*\r?\n?',
     );
     if (stalePattern.hasMatch(content)) {
       content = content.replaceAll(stalePattern, '');
@@ -2565,6 +2572,32 @@ void _linkDesktopCMake(
   if (modified) cmakeFile.writeAsStringSync(content);
 }
 
+/// Removes the first block matching [opener] (a pattern ending at the block's
+/// opening `{`) together with its ENTIRE brace-balanced body and a trailing
+/// newline. Returns [content] unchanged when no match is found or the braces
+/// never balance (malformed input is left alone rather than half-deleted).
+String _removeBraceBalancedBlock(String content, RegExp opener) {
+  final match = opener.firstMatch(content);
+  if (match == null) return content;
+  var depth = 0;
+  for (var i = match.end - 1; i < content.length; i++) {
+    final ch = content.codeUnitAt(i);
+    if (ch == 0x7B) depth++; // {
+    if (ch == 0x7D) depth--; // }
+    if (depth == 0) {
+      var end = i + 1;
+      // Swallow trailing whitespace up to and including one newline.
+      while (end < content.length &&
+          (content.codeUnitAt(end) == 0x20 || content.codeUnitAt(end) == 0x09)) {
+        end++;
+      }
+      if (end < content.length && content.codeUnitAt(end) == 0x0A) end++;
+      return content.replaceRange(match.start, end, '');
+    }
+  }
+  return content; // unbalanced — do not touch
+}
+
 /// Configures `android/build.gradle` (or `.kts`) so the generated Kotlin bridge
 /// files in `lib/src/generated/kotlin/` are compiled as part of the Android build.
 ///
@@ -2597,15 +2630,16 @@ void linkAndroid(
   //    because `kotlin-android` alias is not resolvable without the classpath in
   //    the consuming app's settings.gradle. Modern Flutter apps use `plugins {}`.
   if (content.contains('apply plugin: "kotlin-android"') || content.contains("apply plugin: 'kotlin-android'")) {
-    // Remove the entire buildscript block if present.
-    content = content.replaceAll(
-      RegExp(r'\bbuildscript\s*\{[^}]*\{[^}]*\}[^}]*\}\s*\n?', dotAll: true),
-      '',
-    );
-    // Remove rootProject.allprojects block.
-    content = content.replaceAll(
-      RegExp(r'\brootProject\.allprojects\s*\{[^}]*\}\s*\n?', dotAll: true),
-      '',
+    // Remove the entire buildscript block if present. Must be brace-BALANCED:
+    // the old one-nested-block regex left orphan `}` lines behind whenever
+    // buildscript contained more than one inner block (repositories +
+    // dependencies), corrupting the gradle file ("Unexpected input: '}'").
+    content = _removeBraceBalancedBlock(content, RegExp(r'\bbuildscript\s*\{'));
+    // Remove rootProject.allprojects block (same brace-balanced treatment —
+    // it commonly holds a nested repositories{} block).
+    content = _removeBraceBalancedBlock(
+      content,
+      RegExp(r'\brootProject\.allprojects\s*\{'),
     );
     // Replace apply plugin lines with plugins{} block.
     content = content.replaceAll(
@@ -2890,7 +2924,9 @@ List<ManagedContentIssue> detectManagedContentIssues({String baseDir = '.'}) {
         ).firstMatch(specFile.readAsStringSync());
         final moduleName = moduleMatch?.group(1) ?? _toPascalCase(stem);
         final importLine = 'import nitro.${lib}_module.${moduleName}JniBridge';
-        final registerCall = '${moduleName}JniBridge.register(';
+        // Accept both the current registerFactory({...}, ctx) API and the
+        // legacy register(impl) form (paren-less prefix matches both).
+        final registerCall = '${moduleName}JniBridge.register';
         if (!kt.contains(importLine)) {
           issues.add(
             ManagedContentIssue(
@@ -2903,7 +2939,7 @@ List<ManagedContentIssue> detectManagedContentIssues({String baseDir = '.'}) {
           issues.add(
             ManagedContentIssue(
               file: ktPath,
-              description: 'Missing registration: ${moduleName}JniBridge.register(${moduleName}Impl(...))',
+              description: 'Missing registration: ${moduleName}JniBridge.registerFactory({ ${moduleName}Impl(...) }, context)',
             ),
           );
         }

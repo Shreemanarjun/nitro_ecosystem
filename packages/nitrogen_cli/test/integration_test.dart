@@ -378,7 +378,9 @@ void main() {
       expect(out, contains('package $org.$name'));
       expect(out, contains('${className}JniBridge'));
       expect(out, contains('System.loadLibrary("$name")'));
-      expect(out, contains('${className}JniBridge.register('));
+      // registerFactory is the JniBridge's only registration API since the
+      // multi-instance registry - plain register(impl) no longer compiles.
+      expect(out, contains('${className}JniBridge.registerFactory('));
     });
 
     test('androidImplKtTemplate implements the spec interface', () {
@@ -1051,7 +1053,7 @@ class TestingProjectPlugin : FlutterPlugin {
 
       final content = pluginFile.readAsStringSync();
       expect(content, contains('TestingProjectJniBridge'));
-      expect(content, contains('TestingProjectJniBridge.register('));
+      expect(content, contains('TestingProjectJniBridge.registerFactory('));
     });
 
     test('linkKotlinLoadLibraries injects System.loadLibrary when missing', () {
@@ -1449,7 +1451,8 @@ class TestingProjectPlugin : FlutterPlugin {
       );
 
       final kt = File(p.join(tmp.path, 'android', 'src', 'main', 'kotlin', 'com', 'example', 'my_plugin', 'MyPluginPlugin.kt'));
-      expect(kt.readAsStringSync(), contains('MyPluginJniBridge.register('));
+      // Paren-less prefix: matches registerFactory( — the current API.
+      expect(kt.readAsStringSync(), contains('MyPluginJniBridge.register'));
     });
   });
 

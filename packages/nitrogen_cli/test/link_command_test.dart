@@ -2107,7 +2107,9 @@ class TestPlugin : FlutterPlugin {
 
       final content = plugin.readAsStringSync();
       expect(content, contains('import nitro.math_module.MathJniBridge'));
-      expect(content, contains('MathJniBridge.register(MathImpl())'));
+      // registerFactory is the JniBridge's only registration API since the
+      // multi-instance registry landed.
+      expect(content, contains('MathJniBridge.registerFactory({ MathImpl() }, binding.applicationContext)'));
     });
 
     test('injects register() with binding.applicationContext when impl takes Context', () {
@@ -2134,7 +2136,7 @@ class TestPlugin : FlutterPlugin {
 
       final plugin = File(p.join(ktImplDir.path, 'TestPlugin.kt'));
       final content = plugin.readAsStringSync();
-      expect(content, contains('MathJniBridge.register(MathImpl(binding.applicationContext))'));
+      expect(content, contains('MathJniBridge.registerFactory({ MathImpl(binding.applicationContext) }, binding.applicationContext)'));
     });
 
     test('adds missing import when register() call already exists', () {

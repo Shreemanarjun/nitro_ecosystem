@@ -6,10 +6,6 @@ plugins {
 group = "dev.shreeman.benchmark"
 version = "1.0"
 
-}
-
-}
-
 android {
     namespace = "dev.shreeman.benchmark"
     compileSdk = 36

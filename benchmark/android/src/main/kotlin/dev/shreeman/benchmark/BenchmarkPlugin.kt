@@ -10,12 +10,19 @@ class BenchmarkPlugin : FlutterPlugin {
         init {
             System.loadLibrary("benchmark")
             System.loadLibrary("benchmark_cpp")
+            // Required before NitroArJniBridge.registerFactory — its JNI
+            // initialize() lives in libnitro_ar.so; without this the load
+            // fails with UnsatisfiedLinkError inside onAttachedToEngine,
+            // which also kills the MethodChannel registration below it.
+            System.loadLibrary("nitro_ar")
         }
     }
 
     override fun onAttachedToEngine(binding: FlutterPlugin.FlutterPluginBinding) {
-        BenchmarkJniBridge.register(BenchmarkImpl(binding.applicationContext))
-        NitroArJniBridge.register(NitroArImpl())
+        // registerFactory: one impl per Dart-side instance (multi-instance
+        // registry) — the old register(impl) API no longer exists.
+        BenchmarkJniBridge.registerFactory({ BenchmarkImpl(binding.applicationContext) }, binding.applicationContext)
+        NitroArJniBridge.registerFactory({ NitroArImpl() }, binding.applicationContext)
 
         val channel = io.flutter.plugin.common.MethodChannel(
             binding.binaryMessenger,
