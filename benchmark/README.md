@@ -144,14 +144,21 @@ The same harness runs on all six targets. Cases whose bridge tier doesn't
 exist on a platform are auto-skipped and reported as such; the core
 Nitro-vs-raw-FFI gates stay mandatory everywhere.
 
-| Platform | How to run | Notes |
-|---|---|---|
-| macOS | `tool/bench.sh -d macos` | Reference platform; baseline recorded |
-| Android | `tool/bench.sh -d <device-id>` | Physical device required for `--profile`; Kotlin/JNI + C++ + channel tiers |
-| iOS | `tool/bench.sh -d <device-id>` | Physical device required for `--profile` (simulators only support `--debug`) |
-| Windows | `tool/bench.sh -d windows` | C++ tiers + MethodChannel (MSVC plugin); CI: `bench-windows` job |
-| Linux | `xvfb-run -a tool/bench.sh -d linux` | C++ tiers + MethodChannel (GTK plugin); CI: `bench-linux` job |
-| Web | — | No FFI on web; the in-app dashboard's pure-Dart stub is the only comparison |
+| Platform | How to run | CI job | Notes |
+|---|---|---|---|
+| macOS | `tool/bench.sh -d macos` | `bench-macos` (gated) | Reference platform; baseline recorded |
+| Linux | `xvfb-run -a tool/bench.sh -d linux` | `bench-linux` (gated) | C++ tiers + GTK MethodChannel |
+| Windows | `tool/bench.sh -d windows` | `bench-windows` (gated) | C++ tiers + MSVC MethodChannel |
+| Android | `tool/bench.sh -d <device-id>` | `bench-android` (emulator, functional) | Physical device required for `--profile` numbers |
+| iOS | `tool/bench.sh -d <device-id>` | `bench-ios` (simulator, functional) | Physical device required for `--profile` numbers |
+| Web | — | — | No FFI on web; the in-app dashboard's pure-Dart stub is the only comparison |
+
+The mobile CI legs run emulator/simulator **debug** builds with `--gate none`:
+profile mode is impossible there, so they verify functionality — every tier
+runs and all tiers must return the identical FNV-1a workload hash (a
+mismatch fails the run regardless of gate mode). Their numbers appear in the
+cross-platform matrix labelled `(debug)` and must not be read against
+profile columns.
 
 On Windows/Linux the "platform bridge" tier is the direct C++ implementation
 (there is no Swift/Kotlin); all three Nitro module libraries are built by the

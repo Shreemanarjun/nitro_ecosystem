@@ -141,6 +141,122 @@ jobs:
           path: benchmark/results/
           if-no-files-found: ignore
 
+  # ── Mobile: Android emulator + iOS simulator ───────────────────────────────
+  # Emulators/simulators cannot run profile builds, so these legs are
+  # FUNCTIONAL verification (debug, --gate none): every bridge tier must run
+  # and all tiers must return the identical FNV-1a workload hash — a mismatch
+  # fails the run inside the harness regardless of the gate setting. Real
+  # performance numbers come from physical devices:
+  #   benchmark/tool/bench.sh -d <device-id> --mode full --update-baseline
+
+  bench-android:
+    name: Android (emulator) — functional verification
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    # Newly wired platform — observe before making it required.
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Enable KVM group perms
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: Get workspace dependencies
+        run: flutter pub get
+
+      - name: Run benchmark on emulator (debug, functional + hash verification)
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 34
+          arch: x86_64
+          disable-animations: true
+          emulator-options: -no-snapshot -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim
+          script: bash benchmark/tool/bench.sh -d emulator-5554 --debug --gate none --mode quick
+
+      - name: Publish analysis to job summary
+        if: always()
+        run: |
+          if [ -f benchmark/example/build/integration_response_data.json ]; then
+            dart run benchmark/tool/format_report.dart \
+              benchmark/example/build/integration_response_data.json \
+              --compare-dir benchmark/results \
+              >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      - name: Upload report artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: benchmark-report-android
+          path: benchmark/results/
+          if-no-files-found: ignore
+
+  bench-ios:
+    name: iOS (simulator) — functional verification
+    runs-on: macos-latest
+    timeout-minutes: 45
+    # Newly wired platform — observe before making it required.
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: Get workspace dependencies
+        run: flutter pub get
+
+      - name: Boot iOS simulator
+        id: sim
+        run: |
+          UDID=$(xcrun simctl list devices available --json | python3 -c "
+          import json, sys
+          data = json.load(sys.stdin)['devices']
+          for runtime, devices in sorted(data.items(), reverse=True):
+              if 'iOS' not in runtime: continue
+              for d in devices:
+                  if d.get('isAvailable') and 'iPhone' in d['name']:
+                      print(d['udid']); raise SystemExit
+          ")
+          echo "udid=$UDID" >> "$GITHUB_OUTPUT"
+          xcrun simctl boot "$UDID" || true
+          xcrun simctl bootstatus "$UDID" -b
+
+      - name: Run benchmark on simulator (debug, functional + hash verification)
+        run: >
+          bash benchmark/tool/bench.sh -d ${{ steps.sim.outputs.udid }}
+          --debug --gate none --mode quick
+
+      - name: Publish analysis to job summary
+        if: always()
+        run: |
+          if [ -f benchmark/example/build/integration_response_data.json ]; then
+            dart run benchmark/tool/format_report.dart \
+              benchmark/example/build/integration_response_data.json \
+              --compare-dir benchmark/results \
+              >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      - name: Upload report artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: benchmark-report-ios
+          path: benchmark/results/
+          if-no-files-found: ignore
+
   bench-windows:
     name: Windows — FFI vs Nitro vs MethodChannel
     runs-on: windows-latest

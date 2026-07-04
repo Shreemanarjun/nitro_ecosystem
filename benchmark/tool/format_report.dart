@@ -304,17 +304,23 @@ void main(List<String> args) {
 
   // ── Cross-platform matrix ──────────────────────────────────────────────────
   if (compareDir != null && Directory(compareDir).existsSync()) {
-    final others = <String, Map<String, dynamic>>{}; // platform → cases
+    final others = <String, Map<String, dynamic>>{}; // column label → cases
     for (final f in Directory(compareDir).listSync().whereType<File>()) {
       if (!f.path.endsWith('.json')) continue;
       try {
         final r = jsonDecode(f.readAsStringSync()) as Map<String, dynamic>;
         final p = r['platform'] as String?;
         final c = r['cases'] as Map<String, dynamic>?;
-        if (p != null && c != null) others[p] = c;
+        final bm = r['buildMode'] as String?;
+        // Label debug/emulator runs — their absolute numbers are functional
+        // smoke only and must not be read against profile columns.
+        if (p != null && c != null) {
+          others[bm == null || bm == 'profile' ? p : '$p ($bm)'] = c;
+        }
       } catch (_) {}
     }
-    others[platform] = cases; // current run wins for its own platform
+    others[buildMode == 'profile' ? platform : '$platform ($buildMode)'] =
+        cases; // current run wins for its own platform
     if (others.length > 1) {
       final platforms = others.keys.toList()..sort();
       final caseIds = <String>{
