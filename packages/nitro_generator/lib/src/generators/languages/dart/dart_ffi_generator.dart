@@ -84,9 +84,6 @@ class DartFfiGenerator {
     // Type-only files have no bridge implementation — only type declarations.
     if (spec.isTypeOnly) return writer.toString();
 
-    // Finding 1: top-level @Native<F> declarations for AOT-optimized leaf calls.
-    _emitNativeBindingDeclarations(writer, spec);
-
     _emitImplClassSetup(writer, spec);
     _emitFunctionImpls(writer, spec);
     _emitPropertyImpls(writer, spec);

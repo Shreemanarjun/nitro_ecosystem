@@ -347,9 +347,9 @@ String _assertCheckError(String indent) => '$indent${_inlineCheckError()}';
 /// a known enum) — types that require no arena allocation and no Dart heap
 /// object creation on the call boundary.
 ///
-/// Nullable primitives (int?, double?, bool?) also qualify here because
-/// [_isLeafNullableParam] handles them via Struct.create<`NitroOptXxx`>() which
-/// allocates on the Dart GC heap rather than the C heap — zero malloc per call.
+/// Nullable primitives (int?, double?, bool?) also qualify here — their
+/// `Pointer<NitroOptXxx>` transport is arena-packed by the caller, which is
+/// compatible with an `isLeaf: true` binding (no Dart API use in the C body).
 bool _isPrimitiveType(BridgeType bt, BridgeSpec spec) {
   if (bt.isRecord || bt.isTypedData || bt.isPointer || bt.isFunction || bt.isNativeHandle) return false;
   // Custom types always go as Pointer<Uint8> — not scalar.
@@ -357,18 +357,11 @@ bool _isPrimitiveType(BridgeType bt, BridgeSpec spec) {
   final name = bt.name.replaceFirst('?', '');
   if (name == 'String' || name == 'void') return false;
   if (spec.isStructName(name)) return false;
-  // Nullable primitives use Struct.create<NitroOptXxx>() + .address for leaf calls — no C heap alloc.
-  // They still count as "primitive-like" for leaf detection purposes.
+  // Nullable primitives count as "primitive-like" for leaf detection purposes.
   // AnyNativeObject — scalar Int64 wire (non-null and nullable both use Int64).
   // int, double, bool, and known enums are all FFI scalars.
   return true;
 }
-
-/// Returns true when the param type is a nullable primitive (int?, double?, bool?)
-/// that should use `Struct.create<NitroOptXxx>()` + .address on leaf calls.
-bool _isLeafNullableParam(BridgeType bt) =>
-    bt.name == 'int?' || bt.name == 'double?' || bt.name == 'bool?' ||
-    bt.name == 'uint64?' || bt.name == 'DateTime?';
 
 /// Returns true when the function pointer should be bound with `isLeaf: true`.
 ///
@@ -388,125 +381,3 @@ bool _isLeafCandidate(BridgeFunction func, BridgeSpec spec) {
   return func.params.every((p) => _isPrimitiveType(p.type, spec));
 }
 
-/// Returns true when this function qualifies for the Struct.create optimization:
-/// sync, leaf-eligible, and has at least one nullable prim param whose encoding
-/// would otherwise require an Arena. These functions use `Struct.create<NitroOptXxx>()`
-/// + .address instead — zero C heap allocation per call.
-bool _isLeafStructCreate(BridgeFunction func, BridgeSpec spec) =>
-    _isLeafCandidate(func, spec) &&
-    func.params.any((p) => _isLeafNullableParam(p.type));
-
-/// Builds Struct.create setup statements and call args for a leaf-struct-create function.
-/// Returns (setup: list of `final _lsN = ...` statements, args: call arg expressions).
-/// [indent] is prepended to each setup statement.
-({List<String> setup, List<String> args}) buildLeafStructCreateArgs(
-  List<BridgeParam> params,
-  BridgeSpec spec,
-  String indent,
-) {
-  final setup = <String>[];
-  final args = <String>[];
-  var idx = 0;
-  for (final p in params) {
-    final t = p.type.name;
-    final tBase = t.replaceFirst('?', '');
-    if (_isLeafNullableParam(p.type)) {
-      final v = '_ls${idx++}_${p.name}';
-      if (t == 'int?' || t == 'uint64?') {
-        setup.add('${indent}final $v = Struct.create<NitroOptInt64>()..hasValue = ${p.name} != null ? 1 : 0..value = ${p.name} ?? 0;');
-      } else if (t == 'DateTime?') {
-        setup.add('${indent}final $v = Struct.create<NitroOptInt64>()..hasValue = ${p.name} != null ? 1 : 0..value = ${p.name}?.millisecondsSinceEpoch ?? 0;');
-      } else if (t == 'double?') {
-        setup.add('${indent}final $v = Struct.create<NitroOptFloat64>()..hasValue = ${p.name} != null ? 1 : 0..value = ${p.name} ?? 0.0;');
-      } else if (t == 'bool?') {
-        setup.add('${indent}final $v = Struct.create<NitroOptBool>()..hasValue = ${p.name} != null ? 1 : 0..value = ${p.name} == true ? 1 : 0;');
-      }
-      args.add('$v.address');
-    } else if (spec.isEnumName(tBase)) {
-      args.add(t.endsWith('?') ? '${p.name} == null ? -1 : ${p.name}.nativeValue' : '${p.name}.nativeValue');
-    } else if (t == 'bool') {
-      args.add(p.name);
-    } else if (t == 'DateTime') {
-      args.add('${p.name}.millisecondsSinceEpoch');
-    } else if (p.type.isAnyNativeObject) {
-      args.add(t.endsWith('?') ? '${p.name}?.instanceId ?? -1' : '${p.name}.instanceId');
-    } else {
-      args.add(p.name);
-    }
-  }
-  return (setup: setup, args: args);
-}
-
-// ── Finding 1: @Native<F> leaf binding helpers ────────────────────────────────
-
-/// Returns the FFI type string for a leaf sync param in `@Native<F>` declarations.
-/// Delegates directly to [_typeToFFI] — nullable prim params already map to
-/// `Pointer<NitroOptXxx>` there.
-String _leafParamFfiType(BridgeType bt, BridgeSpec spec) => _typeToFFI(bt, spec);
-
-/// Returns the Dart callable type string for a leaf sync param in `@Native<F>`
-/// declarations.  Delegates to [_typeToDartFFI].
-String _leafParamDartType(BridgeType bt, BridgeSpec spec) => _typeToDartFFI(bt, spec);
-
-/// Returns the FFI return type for a @Native leaf function declaration.
-String _leafReturnFfiType(BridgeType rt, BridgeSpec spec) => _typeToFFI(rt, spec);
-
-/// Returns the Dart return type for a @Native leaf function declaration.
-String _leafReturnDartType(BridgeType rt, BridgeSpec spec) => _typeToDartFFI(rt, spec);
-
-/// Emits top-level `@Native<F>(symbol: ..., isLeaf: true)` external function
-/// declarations for all leaf struct-create functions in [spec].
-///
-/// These allow the Dart AOT compiler to issue a direct C function call (not a
-/// function-pointer dispatch) on iOS/macOS where the native library is statically
-/// linked and all symbols are already in the process namespace.
-///
-/// On Android the function-pointer fallback (_${func.dartName}Ptr) is used instead
-/// (controlled by `_nitroNativeBindings` in the impl class).
-void _emitNativeBindingDeclarations(CodeWriter writer, BridgeSpec spec) {
-  final libStem = spec.lib.replaceAll('-', '_');
-  final leafFuncs = spec.functions.where((f) => _isLeafStructCreate(f, spec)).toList();
-  if (leafFuncs.isEmpty) return;
-
-  writer.line('// ── @Native<F> leaf bindings — AOT-optimized direct C calls ──────────');
-  writer.line('// iOS/macOS: resolve via DynamicLibrary.process() (static linking).');
-  writer.line('// Android: call ${libStem}_enable_native_bindings() from Kotlin init.');
-  for (final func in leafFuncs) {
-    // Build FFI type sig: ReturnFFI Function(Int64, [ParamFFIs], Pointer<NitroErrorFfi>)
-    final ffiParamList = [
-      'Int64',
-      ...func.params.map((p) => _leafParamFfiType(p.type, spec)),
-      'Pointer<NitroErrorFfi>',
-    ].join(', ');
-    final ffiReturn = _leafReturnFfiType(func.returnType, spec);
-    final ffiSig = '$ffiReturn Function($ffiParamList)';
-
-    // Build Dart external param list with numbered names (_id, _p0, _p1, ..., _err)
-    final dartParamParts = <String>['int _id'];
-    for (var i = 0; i < func.params.length; i++) {
-      dartParamParts.add('${_leafParamDartType(func.params[i].type, spec)} _p$i');
-    }
-    dartParamParts.add('Pointer<NitroErrorFfi> _err');
-    final dartParams = dartParamParts.join(', ');
-    final dartReturn = _leafReturnDartType(func.returnType, spec);
-
-    writer.line("@Native<$ffiSig>(symbol: '${func.cSymbol}', isLeaf: true)");
-    writer.line('external $dartReturn _n_${func.cSymbol}($dartParams);');
-    writer.blankLine();
-  }
-}
-
-/// Returns the Struct.create expression for a single nullable-prim property setter value.
-/// Pass [varName] as the Dart variable to encode (typically 'value').
-String buildSingleStructCreateArg(BridgeType type, String varName) {
-  final t = type.name;
-  if (t == 'int?' || t == 'uint64?') {
-    return 'Struct.create<NitroOptInt64>()..hasValue = $varName != null ? 1 : 0..value = $varName ?? 0';
-  } else if (t == 'DateTime?') {
-    return 'Struct.create<NitroOptInt64>()..hasValue = $varName != null ? 1 : 0..value = $varName?.millisecondsSinceEpoch ?? 0';
-  } else if (t == 'double?') {
-    return 'Struct.create<NitroOptFloat64>()..hasValue = $varName != null ? 1 : 0..value = $varName ?? 0.0';
-  } else {
-    return 'Struct.create<NitroOptBool>()..hasValue = $varName != null ? 1 : 0..value = $varName == true ? 1 : 0';
-  }
-}
