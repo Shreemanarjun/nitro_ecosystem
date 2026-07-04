@@ -17,7 +17,11 @@ writer.line('  final String _instanceKey;');
 writer.line('  late final int _instanceId;');
 // S8: pre-allocated error slot — shared across all sync calls on this instance.
 // One allocation per module, zero allocation per call.
-writer.line('  final Pointer<NitroErrorFfi> _nitroErr = malloc<NitroErrorFfi>();');
+// calloc, NOT malloc: the slot must start zeroed (hasError = 0). A native
+// bridge path that forgets to write the out-param would otherwise leave Dart
+// reading garbage — nonzero hasError with wild char* fields segfaults inside
+// throwIfOutParamError (seen on the Windows/Linux mixed-spec desktop bridge).
+writer.line('  final Pointer<NitroErrorFfi> _nitroErr = calloc<NitroErrorFfi>();');
 final hasCallbacks = _hasFunctionTypeParams(spec);
 if (hasCallbacks) {
   writer.line('  final Map<Object, NativeCallable<dynamic>> _nativeCallbackCache = {};');
@@ -259,7 +263,7 @@ if (hasCallbacks) {
   writer.line('    _callbackPtrToKey.clear();');
   writer.line('    _callbackReleasePort.close();');
 }
-writer.line('    malloc.free(_nitroErr); // S8: free pre-allocated error slot');
+writer.line('    calloc.free(_nitroErr); // S8: free pre-allocated error slot');
 writer.line(
   '    super.dispose(); // sets isDisposed = true, calls onDestroy()',
 );

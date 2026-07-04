@@ -14,6 +14,10 @@
 #include "dart_api_dl.h"
 #include "benchmark.bridge.g.h"
 
+#if defined(_MSC_VER) && !defined(strdup)
+#define strdup _strdup
+#endif
+
 extern "C" {
 NITRO_EXPORT uint32_t benchmark_nitro_abi_version(void) {
     return 1;
@@ -468,6 +472,17 @@ NITRO_EXPORT void benchmark_destroy_instance(int64_t instanceId) { (void)instanc
 #elif defined(_WIN32) || defined(__linux__)  // Windows/Linux: NativeImpl.cpp — direct C++ dispatch
 #include "benchmark.native.g.h"
 
+static void _nitro_desktop_err(NitroError* _out, const char* _name, const char* _message) {
+    nitro_report_error(_name, _message, nullptr, nullptr);
+    if (_out) {
+        _out->hasError = 1;
+        _out->name = _name ? strdup(_name) : nullptr;
+        _out->message = _message ? strdup(_message) : nullptr;
+        _out->code = nullptr;
+        _out->stackTrace = nullptr;
+    }
+}
+
 static HybridBenchmark* g_impl = nullptr;
 static int64_t g_next_instance_id = 0;
 
@@ -479,71 +494,76 @@ NITRO_EXPORT void benchmark_destroy_instance(int64_t instanceId) { (void)instanc
 
 double benchmark_add(int64_t instanceId, double a, double b, NitroError* _nitro_err) {
     benchmark_clear_error();
-    if (!g_impl) { nitro_report_error("NotInitialized", "No C++ implementation registered. Call benchmark_register_impl() first.", nullptr, nullptr); return 0.0; }
+    if (_nitro_err) { _nitro_err->hasError = 0; }  // S8: clear slot
+    if (!g_impl) { _nitro_desktop_err(_nitro_err, "NotInitialized", "No C++ implementation registered. Call benchmark_register_impl() first."); return 0.0; }
     try {
         return g_impl->add(a, b);
     } catch (const std::exception& e) {
-        nitro_report_error("CppException", e.what(), nullptr, nullptr);
+        _nitro_desktop_err(_nitro_err, "CppException", e.what());
         return 0.0;
     } catch (...) {
-        nitro_report_error("CppException", "Unknown C++ exception", nullptr, nullptr);
+        _nitro_desktop_err(_nitro_err, "CppException", "Unknown C++ exception");
         return 0.0;
     }
 }
 
 double benchmark_add_fast(int64_t instanceId, double a, double b, NitroError* _nitro_err) {
     benchmark_clear_error();
-    if (!g_impl) { nitro_report_error("NotInitialized", "No C++ implementation registered. Call benchmark_register_impl() first.", nullptr, nullptr); return 0.0; }
+    if (_nitro_err) { _nitro_err->hasError = 0; }  // S8: clear slot
+    if (!g_impl) { _nitro_desktop_err(_nitro_err, "NotInitialized", "No C++ implementation registered. Call benchmark_register_impl() first."); return 0.0; }
     try {
         return g_impl->addFast(a, b);
     } catch (const std::exception& e) {
-        nitro_report_error("CppException", e.what(), nullptr, nullptr);
+        _nitro_desktop_err(_nitro_err, "CppException", e.what());
         return 0.0;
     } catch (...) {
-        nitro_report_error("CppException", "Unknown C++ exception", nullptr, nullptr);
+        _nitro_desktop_err(_nitro_err, "CppException", "Unknown C++ exception");
         return 0.0;
     }
 }
 
 const char* benchmark_get_greeting(int64_t instanceId, const char* name, NitroError* _nitro_err) {
     benchmark_clear_error();
-    if (!g_impl) { nitro_report_error("NotInitialized", "No C++ implementation registered. Call benchmark_register_impl() first.", nullptr, nullptr); return nullptr; }
+    if (_nitro_err) { _nitro_err->hasError = 0; }  // S8: clear slot
+    if (!g_impl) { _nitro_desktop_err(_nitro_err, "NotInitialized", "No C++ implementation registered. Call benchmark_register_impl() first."); return nullptr; }
     try {
         std::string _res = g_impl->getGreeting(std::string(name));
         return strdup(_res.c_str());
     } catch (const std::exception& e) {
-        nitro_report_error("CppException", e.what(), nullptr, nullptr);
+        _nitro_desktop_err(_nitro_err, "CppException", e.what());
         return nullptr;
     } catch (...) {
-        nitro_report_error("CppException", "Unknown C++ exception", nullptr, nullptr);
+        _nitro_desktop_err(_nitro_err, "CppException", "Unknown C++ exception");
         return nullptr;
     }
 }
 
 int64_t benchmark_hash_buffer(int64_t instanceId, uint8_t* data, size_t data_length, int64_t rounds, NitroError* _nitro_err) {
     benchmark_clear_error();
-    if (!g_impl) { nitro_report_error("NotInitialized", "No C++ implementation registered. Call benchmark_register_impl() first.", nullptr, nullptr); return 0; }
+    if (_nitro_err) { _nitro_err->hasError = 0; }  // S8: clear slot
+    if (!g_impl) { _nitro_desktop_err(_nitro_err, "NotInitialized", "No C++ implementation registered. Call benchmark_register_impl() first."); return 0; }
     try {
         return g_impl->hashBuffer(data, static_cast<size_t>(data_length), rounds);
     } catch (const std::exception& e) {
-        nitro_report_error("CppException", e.what(), nullptr, nullptr);
+        _nitro_desktop_err(_nitro_err, "CppException", e.what());
         return 0;
     } catch (...) {
-        nitro_report_error("CppException", "Unknown C++ exception", nullptr, nullptr);
+        _nitro_desktop_err(_nitro_err, "CppException", "Unknown C++ exception");
         return 0;
     }
 }
 
 int64_t benchmark_send_large_buffer(int64_t instanceId, uint8_t* buffer, size_t buffer_length, NitroError* _nitro_err) {
     benchmark_clear_error();
-    if (!g_impl) { nitro_report_error("NotInitialized", "No C++ implementation registered. Call benchmark_register_impl() first.", nullptr, nullptr); return 0; }
+    if (_nitro_err) { _nitro_err->hasError = 0; }  // S8: clear slot
+    if (!g_impl) { _nitro_desktop_err(_nitro_err, "NotInitialized", "No C++ implementation registered. Call benchmark_register_impl() first."); return 0; }
     try {
         return g_impl->sendLargeBuffer(buffer, static_cast<size_t>(buffer_length));
     } catch (const std::exception& e) {
-        nitro_report_error("CppException", e.what(), nullptr, nullptr);
+        _nitro_desktop_err(_nitro_err, "CppException", e.what());
         return 0;
     } catch (...) {
-        nitro_report_error("CppException", "Unknown C++ exception", nullptr, nullptr);
+        _nitro_desktop_err(_nitro_err, "CppException", "Unknown C++ exception");
         return 0;
     }
 }

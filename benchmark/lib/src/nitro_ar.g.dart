@@ -617,7 +617,7 @@ class _NitroArImpl extends NitroAr {
   static final _instances = <String, _NitroArImpl>{};
   final String _instanceKey;
   late final int _instanceId;
-  final Pointer<NitroErrorFfi> _nitroErr = malloc<NitroErrorFfi>();
+  final Pointer<NitroErrorFfi> _nitroErr = calloc<NitroErrorFfi>();
 
   static DynamicLibrary _loadSupportedLibrary() {
     return NitroRuntime.loadLibForTargets(
@@ -839,7 +839,7 @@ class _NitroArImpl extends NitroAr {
     NitroRuntime.releaseLib('nitro_ar');
     _instances.remove(_instanceKey);
     NitroInstanceRegistry.unregister(_instanceId, this);
-    malloc.free(_nitroErr); // S8: free pre-allocated error slot
+    calloc.free(_nitroErr); // S8: free pre-allocated error slot
     super.dispose(); // sets isDisposed = true, calls onDestroy()
     NitroRuntime.logLifecycle('dispose(nitro_ar)', 'disposed');
   }

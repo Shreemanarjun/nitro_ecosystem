@@ -81,6 +81,11 @@ class CppBridgeGenerator {
     writer.line('#include "dart_api_dl.h"');
     writer.line('#include "$headerName"');
     writer.blankLine();
+    // MSVC deprecates the POSIX name (warning C4996); _strdup is identical.
+    writer.line('#if defined(_MSC_VER) && !defined(strdup)');
+    writer.line('#define strdup _strdup');
+    writer.line('#endif');
+    writer.blankLine();
 
     final libStem = spec.lib.replaceAll('-', '_');
     final libPkg = 'nitro/${libStem}_module';
@@ -387,7 +392,25 @@ class CppBridgeGenerator {
         'nitro_report_error("NotInitialized", '
         '"No C++ implementation registered. Call ${libStem}_register_impl() first.", '
         'nullptr, nullptr)';
+    // S8: sync functions report through the NitroError* out-param — that is
+    // the ONLY slot the generated Dart reads (throwIfOutParamError). The TLS
+    // slot is kept in sync for the legacy get_error() accessor. Fields are
+    // strdup'd; Dart frees them after copying (see throwIfOutParamError).
+    final notInitOut =
+        '_nitro_desktop_err(_nitro_err, "NotInitialized", '
+        '"No C++ implementation registered. Call ${libStem}_register_impl() first.")';
 
+    writer.line('static void _nitro_desktop_err(NitroError* _out, const char* _name, const char* _message) {');
+    writer.line('    nitro_report_error(_name, _message, nullptr, nullptr);');
+    writer.line('    if (_out) {');
+    writer.line('        _out->hasError = 1;');
+    writer.line('        _out->name = _name ? strdup(_name) : nullptr;');
+    writer.line('        _out->message = _message ? strdup(_message) : nullptr;');
+    writer.line('        _out->code = nullptr;');
+    writer.line('        _out->stackTrace = nullptr;');
+    writer.line('    }');
+    writer.line('}');
+    writer.blankLine();
     writer.line('static Hybrid$className* g_impl = nullptr;');
     // For the Apple/C++ single-instance path, create_instance always returns 0 and
     // destroy_instance is a no-op. g_impl is the single shared implementation set
@@ -515,10 +538,16 @@ class CppBridgeGenerator {
 
       writer.line('$cRet ${func.cSymbol}($paramsDecl) {');
       writer.line('    ${libStem}_clear_error();');
+      if (!func.isAsync) {
+        // S8: the Dart-side slot is what throwIfOutParamError reads — clear
+        // it on entry (the slot is calloc'd, but never rely on that alone).
+        writer.line('    if (_nitro_err) { _nitro_err->hasError = 0; }  // S8: clear slot');
+      }
+      final funcNotInit = func.isAsync ? notInit : notInitOut;
       if (func.returnType.name == 'void') {
-        writer.line('    if (!g_impl) { $notInit; return; }');
+        writer.line('    if (!g_impl) { $funcNotInit; return; }');
       } else {
-        writer.line('    if (!g_impl) { $notInit; return $dflt; }');
+        writer.line('    if (!g_impl) { $funcNotInit; return $dflt; }');
       }
       _emitNullableStructParamGuards(
         writer,
@@ -647,10 +676,14 @@ class CppBridgeGenerator {
         writer.line('        return g_impl->${func.dartName}($callArgStr);');
       }
       writer.line('    } catch (const std::exception& e) {');
-      writer.line('        nitro_report_error("CppException", e.what(), nullptr, nullptr);');
+      writer.line(func.isAsync
+          ? '        nitro_report_error("CppException", e.what(), nullptr, nullptr);'
+          : '        _nitro_desktop_err(_nitro_err, "CppException", e.what());');
       if (func.returnType.name != 'void') writer.line('        return $dflt;');
       writer.line('    } catch (...) {');
-      writer.line('        nitro_report_error("CppException", "Unknown C++ exception", nullptr, nullptr);');
+      writer.line(func.isAsync
+          ? '        nitro_report_error("CppException", "Unknown C++ exception", nullptr, nullptr);'
+          : '        _nitro_desktop_err(_nitro_err, "CppException", "Unknown C++ exception");');
       if (func.returnType.name != 'void') writer.line('        return $dflt;');
       writer.line('    }');
       writer.line('}');
@@ -672,7 +705,8 @@ class CppBridgeGenerator {
         // instanceId is included for API consistency with the JNI path; g_impl ignores it.
         writer.line('$cType ${prop.getSymbol}(int64_t instanceId, NitroError* _nitro_err) {');
         writer.line('    ${libStem}_clear_error();');
-        writer.line('    if (!g_impl) { $notInit; return ${_defaultValue(cType)}; }');
+        writer.line('    if (_nitro_err) { _nitro_err->hasError = 0; }  // S8: clear slot');
+        writer.line('    if (!g_impl) { $notInitOut; return ${_defaultValue(cType)}; }');
         writer.line('    try {');
         if (prop.type.name == 'String') {
           writer.line('        std::string _res = g_impl->get_${prop.dartName}();');
@@ -719,7 +753,7 @@ class CppBridgeGenerator {
           writer.line('        return g_impl->get_${prop.dartName}();');
         }
         writer.line('    } catch (const std::exception& e) {');
-        writer.line('        nitro_report_error("CppException", e.what(), nullptr, nullptr);');
+        writer.line('        _nitro_desktop_err(_nitro_err, "CppException", e.what());');
         writer.line('        return ${_defaultValue(cType)};');
         writer.line('    }');
         writer.line('}');
@@ -737,7 +771,8 @@ class CppBridgeGenerator {
         // instanceId is included for API consistency with the JNI path; g_impl ignores it.
         writer.line('void ${prop.setSymbol}(int64_t instanceId, $paramCType value, NitroError* _nitro_err) {');
         writer.line('    ${libStem}_clear_error();');
-        writer.line('    if (!g_impl) { $notInit; return; }');
+        writer.line('    if (_nitro_err) { _nitro_err->hasError = 0; }  // S8: clear slot');
+        writer.line('    if (!g_impl) { $notInitOut; return; }');
         writer.line('    try {');
         if (prop.type.name == 'String') {
           writer.line('        g_impl->set_${prop.dartName}(std::string(value));');
@@ -779,7 +814,7 @@ class CppBridgeGenerator {
           writer.line('        g_impl->set_${prop.dartName}(value);');
         }
         writer.line('    } catch (const std::exception& e) {');
-        writer.line('        nitro_report_error("CppException", e.what(), nullptr, nullptr);');
+        writer.line('        _nitro_desktop_err(_nitro_err, "CppException", e.what());');
         writer.line('    }');
         writer.line('}');
         writer.blankLine();

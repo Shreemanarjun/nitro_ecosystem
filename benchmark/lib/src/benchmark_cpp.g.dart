@@ -215,7 +215,7 @@ class _BenchmarkCppImpl extends BenchmarkCpp {
   static final _instances = <String, _BenchmarkCppImpl>{};
   final String _instanceKey;
   late final int _instanceId;
-  final Pointer<NitroErrorFfi> _nitroErr = malloc<NitroErrorFfi>();
+  final Pointer<NitroErrorFfi> _nitroErr = calloc<NitroErrorFfi>();
 
   static DynamicLibrary _loadSupportedLibrary() {
     assert(
@@ -451,7 +451,7 @@ class _BenchmarkCppImpl extends BenchmarkCpp {
     NitroRuntime.releaseLib('benchmark_cpp');
     _instances.remove(_instanceKey);
     NitroInstanceRegistry.unregister(_instanceId, this);
-    malloc.free(_nitroErr); // S8: free pre-allocated error slot
+    calloc.free(_nitroErr); // S8: free pre-allocated error slot
     super.dispose(); // sets isDisposed = true, calls onDestroy()
     NitroRuntime.logLifecycle('dispose(benchmark_cpp)', 'disposed');
   }

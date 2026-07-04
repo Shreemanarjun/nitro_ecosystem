@@ -14,6 +14,10 @@
 #include "dart_api_dl.h"
 #include "nitro_ar.bridge.g.h"
 
+#if defined(_MSC_VER) && !defined(strdup)
+#define strdup _strdup
+#endif
+
 extern "C" {
 NITRO_EXPORT uint32_t nitro_ar_nitro_abi_version(void) {
     return 1;

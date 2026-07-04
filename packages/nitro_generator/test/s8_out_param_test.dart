@@ -189,15 +189,20 @@ void main() {
 
   // ── Dart FFI generator ────────────────────────────────────────────────────
   group('S8 — Dart FFI generator out-param wiring', () {
-    test('_nitroErr pre-allocated slot in class field', () {
+    test('_nitroErr pre-allocated slot in class field is ZEROED (calloc)', () {
       final out = DartFfiGenerator.generate(_syncSpec());
-      // malloc<NitroErrorFfi>() — uninitialized is fine since C overwrites the slot
-      expect(out, contains('final Pointer<NitroErrorFfi> _nitroErr = malloc<NitroErrorFfi>();'));
+      // calloc, NOT malloc: "C overwrites the slot" is exactly the assumption
+      // that broke — a bridge path that forgets the S8 write leaves Dart
+      // reading garbage hasError + wild char* fields → segfault (seen on the
+      // Windows/Linux mixed-spec desktop bridge). Zeroed memory means a
+      // forgotten write degrades to "no error", never a crash.
+      expect(out, contains('final Pointer<NitroErrorFfi> _nitroErr = calloc<NitroErrorFfi>();'));
+      expect(out, isNot(contains('_nitroErr = malloc<NitroErrorFfi>()')));
     });
 
     test('dispose() frees _nitroErr slot', () {
       final out = DartFfiGenerator.generate(_syncSpec());
-      expect(out, contains('malloc.free(_nitroErr);'));
+      expect(out, contains('calloc.free(_nitroErr);'));
     });
 
     test('dispose() guards against double-free with isDisposed check', () {
