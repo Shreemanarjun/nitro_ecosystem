@@ -99,56 +99,19 @@ content = re.sub(r'(\s+nitro:\s*)\^[\d.]+', rf'\g<1>\n    path: {nitro_path}', c
 content = re.sub(r'(\s+nitro_generator:\s*)\^[\d.]+', rf'\g<1>\n    path: {gen_path}', content)
 content = re.sub(r'(\s+nitro_annotations:\s*)\^[\d.]+', rf'\g<1>\n    path: {ann_path}', content)
 
-# NOTE: no dependency_overrides — pub workspaces forbid overriding workspace
-# members ("Cannot override workspace packages"). The path deps above plus
-# `resolution: workspace` already resolve to the monorepo packages.
+# NOTE: no dependency_overrides — the path deps above already resolve to the
+# monorepo packages for standalone resolution.
 
-# Ensure workspace resolution. Anchor on publish_to: when present; the
-# current nitrogen init template has no publish_to line, so fall back to
-# inserting right after name: — without this the workspace pub get fails
-# and the script dies before generation.
-if 'resolution: workspace' not in content:
-    if 'publish_to:' in content:
-        content = content.replace('publish_to:', 'resolution: workspace\npublish_to:', 1)
-    else:
-        lines = content.split('\n')
-        for i, line in enumerate(lines):
-            if line.startswith('name:'):
-                lines.insert(i + 1, 'resolution: workspace')
-                break
-        content = '\n'.join(lines)
+# NOTE: deliberately NO `resolution: workspace` and NO workspace-root entry.
+# test_projects/ is gitignored — a committed workspace member that does not
+# exist on CI breaks every `pub get` there ("No workspace packages matching").
+# The fixture resolves standalone via the path deps above.
 
 with open(pubspec_path, 'w') as f:
     f.write(content)
 print(f'  ✔ {pubspec_path} patched')
 PYEOF
 
-# The example app is ALSO listed in the workspace root, so it needs
-# `resolution: workspace` too — without it the workspace-wide `pub get`
-# fails ("does not have `resolution: workspace`") and this script dies
-# before generation ever runs, leaving the fixture without .g.dart files.
-EXAMPLE_PUBSPEC="$PLUGIN_DIR/example/pubspec.yaml"
-if [ -f "$EXAMPLE_PUBSPEC" ] && ! grep -q 'resolution: workspace' "$EXAMPLE_PUBSPEC"; then
-  python3 - "$EXAMPLE_PUBSPEC" << 'PYEOF'
-import sys
-path = sys.argv[1]
-with open(path) as f:
-    content = f.read()
-if 'publish_to:' in content:
-    content = content.replace('publish_to:', 'resolution: workspace\npublish_to:', 1)
-else:
-    # Insert after the name: line
-    lines = content.split('\n')
-    for i, line in enumerate(lines):
-        if line.startswith('name:'):
-            lines.insert(i + 1, 'resolution: workspace')
-            break
-    content = '\n'.join(lines)
-with open(path, 'w') as f:
-    f.write(content)
-print(f'  ✔ {path} patched (resolution: workspace)')
-PYEOF
-fi
 echo "  ✔ pubspecs patched"
 
 # ── 3. Write the 3 native specs ───────────────────────────────────────────────
@@ -231,22 +194,9 @@ DARTEOF
 
 echo "  ✔ 3 native specs written"
 
-# ── 4. Add testing_project to workspace root ──────────────────────────────────
-echo "▶ Step 4b: Ensuring workspace includes testing_project..."
-WORKSPACE_PUBSPEC="$REPO_ROOT/pubspec.yaml"
-if ! grep -q "test_projects/testing_project$" "$WORKSPACE_PUBSPEC"; then
-  # Add both plugin and example to workspace
-  sed -i '' '/- benchmark\/example/a\
-  - test_projects/testing_project\
-  - test_projects/testing_project/example' "$WORKSPACE_PUBSPEC"
-  echo "  ✔ added to workspace"
-else
-  echo "  ✔ already in workspace"
-fi
-
 # ── 5. dart pub get ───────────────────────────────────────────────────────────
-echo "▶ Step 5/7: dart pub get (workspace)..."
-cd "$REPO_ROOT"
+echo "▶ Step 5/7: dart pub get (fixture, standalone)..."
+cd "$PLUGIN_DIR"
 "$DART" pub get
 echo "  ✔ pub get done"
 
