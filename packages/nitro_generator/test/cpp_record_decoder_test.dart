@@ -131,30 +131,31 @@ void main() {
     });
   });
 
-  group('RecordGenerator.generateCpp — NitroRecordReader', () {
+  group('cppRecordReaderDefinition — NitroRecordReader', () {
+    // The reader definition moved out of generateCpp into a shared const so
+    // CppInterfaceGenerator can emit it once for records, variants, AND
+    // struct codecs (a variants-only spec still needs the reader).
+    const out = cppRecordReaderDefinition;
+
     test('emits NitroRecordReader struct', () {
-      final out = RecordGenerator.generateCpp(_primitiveRecordSpec());
       expect(out, contains('struct NitroRecordReader'));
     });
 
     test('readNullTag has explicit bounds check before byte access', () {
-      final out = RecordGenerator.generateCpp(_primitiveRecordSpec());
       // Search for the method definition (not the comment that also mentions readNullTag)
-      final methodDecl = 'bool readNullTag()';
+      const methodDecl = 'bool readNullTag()';
       final methodIdx = out.indexOf(methodDecl);
       expect(methodIdx, isNot(-1), reason: 'readNullTag method must be defined');
-      final methodBody = out.substring(methodIdx, out.indexOf('\n    }', methodIdx) + 6);
+      final methodBody = out.substring(methodIdx, out.indexOf('\n  }', methodIdx) + 4);
       expect(methodBody, contains('_offset + 1 > _size'), reason: 'bounds check must compare offset+1 against size');
       expect(methodBody, contains('throw std::runtime_error'));
     });
 
     test('readNullTag throws a std::runtime_error on out-of-bounds', () {
-      final out = RecordGenerator.generateCpp(_primitiveRecordSpec());
       expect(out, contains('throw std::runtime_error("NitroRecordReader: null tag read past end of buffer")'));
     });
 
     test('other read methods use _require() helper (not open-coded check)', () {
-      final out = RecordGenerator.generateCpp(_primitiveRecordSpec());
       // readInt / readDouble / readBool / readString use _require(n)
       expect(out, contains('_require(8)')); // readInt + readDouble
       expect(out, contains('_require(1)')); // readBool
@@ -163,8 +164,16 @@ void main() {
     });
 
     test('reader is constructible from NitroCppBuffer', () {
-      final out = RecordGenerator.generateCpp(_primitiveRecordSpec());
       expect(out, contains('explicit NitroRecordReader(NitroCppBuffer buf)'));
+    });
+
+    test('interface generator emits the reader before record structs', () {
+      final iface = CppInterfaceGenerator.generate(_primitiveRecordSpec());
+      final readerIdx = iface.indexOf('struct NitroRecordReader');
+      final recordIdx = iface.indexOf('struct CameraDevice {');
+      expect(readerIdx, isNot(-1));
+      expect(recordIdx, isNot(-1));
+      expect(readerIdx, lessThan(recordIdx));
     });
   });
 
@@ -175,11 +184,13 @@ void main() {
       expect(out, contains('struct Region;'));
     });
 
-    test('forward declaration appears before the NitroRecordReader definition', () {
+    test('forward declarations appear before the struct definitions', () {
       final out = RecordGenerator.generateCpp(_nestedRecordSpec());
       final fwdIdx = out.indexOf('struct Point;');
-      final readerIdx = out.indexOf('struct NitroRecordReader');
-      expect(fwdIdx, lessThan(readerIdx));
+      final defIdx = out.indexOf('struct Point {');
+      expect(fwdIdx, isNot(-1));
+      expect(defIdx, isNot(-1));
+      expect(fwdIdx, lessThan(defIdx));
     });
   });
 

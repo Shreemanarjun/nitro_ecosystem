@@ -420,7 +420,9 @@ void main() {
     });
 
     test('C++ reader has readBytes method', () {
-      expect(cpp, contains('void readBytes(uint8_t* dst, size_t n)'));
+      // Reader definition lives in the shared cppRecordReaderDefinition const
+      // (emitted once by CppInterfaceGenerator, not per-record output).
+      expect(cppRecordReaderDefinition, contains('void readBytes(uint8_t* dst, size_t n)'));
     });
 
     test('bytes field read uses readBytes', () {

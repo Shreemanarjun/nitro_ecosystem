@@ -1,3 +1,25 @@
+## 0.5.5
+
+Desktop C++ (`NativeImpl.cpp` on Windows/Linux) repair release. The desktop
+path had never been compiled end-to-end; wiring the full `nitro_type_coverage`
+suite through it (with CI) surfaced and fixed the following. **No breaking
+changes for published users** — the Kotlin, Swift, JNI, and Dart outputs are
+byte-identical (modulo source-line comments); only the desktop C++ artifacts
+(`*.native.g.h`, the desktop dispatch in `bridge.g.cpp`, `*.impl.g.cpp`)
+changed, and no shipped plugin has a non-stub desktop implementation.
+
+- **Fixed: `@NitroVariant` C++ decoder emitted invalid C++** — `auto x = *reinterpret_cast<...>(ptr), ptr += 8;` does not parse. The codec is rewritten on `NitroRecordReader`/`NitroRecordWriter`, now wire-correct for nullable fields (presence flags), enum fields (Dart `enum.index` — per-enum `nitro_<Enum>_fromIndex/toIndex` helpers are generated), inline record fields, `List<T>` fields, and TypedData fields. `nitro_encode_<V>` is now writer-based, with a `nitro_<V>_to_native` convenience for method returns.
+- **Fixed: header/bridge/starter type-mapping drift** — `*.native.g.h`, the desktop dispatch, and `*.impl.g.cpp` were generated from three separate, diverged type mappings (mismatched `emit_*` signatures, raw function pointers vs `std::function`, `void*` vs typed buffers). All C++ artifacts now share `CppInterfaceGenerator`'s public type helpers.
+- **Fixed: nullable property getters could not represent null** — `double?` getters returned plain `double`; they now return `std::optional<T>` end-to-end (getter, setter, dispatch encode).
+- **Fixed: stream emitters posting `kNull` instead of values** — String, uint64, and all nullable-item streams now post real values (`kString`, `kInt64`, `kDouble`) with `kNull` reserved for `std::nullopt`. Record/variant `emit_*` now take non-owning payload views and the bridge copies into a malloc'd length-prefixed block. Batch streams post the `[count, items…]` kArray shape Dart expects.
+- **Fixed: desktop dispatch gaps** — nullable String/enum/struct params and returns (previously crashed on null or failed to compile), `DateTime?`/`uint64?` NitroOpt handling, `Map<String, T>` ABI mismatch (`uint8_t*` vs `void*`), variant returns, `@NitroResult` blob encoding (`[1B tag][4B len][payload]`, impl signals errors by throwing), and `@NitroNativeAsync` nullable-primitive parameter decoding.
+- **Fixed: callback ABI wrapping** — the desktop dispatch now adapts raw Dart `NativeCallable` function pointers (everything routed through Int64 registers: double bits, bool 0/1, flattened structs, malloc'd variant blobs, malloc'd Utf8 returns) into clean impl-facing `std::function` signatures (`std::function<std::string(int64_t)>`, `std::function<void(const TcPoint&)>`, …).
+- **Fixed: struct-in-record C++ decode** — `@HybridStruct` fields inside records called a non-existent `T::fromReader` on plain C typedefs; free-function codecs (`nitro_<Struct>_fromReader/encodeInto`) are now generated.
+- **Added: C++ record encoders** — every generated record struct now has `encodeInto(NitroRecordWriter&)` and `toNativeBuffer()` (mirroring `fromReader`/`fromNative`), so desktop impls can construct records without hand-rolling the wire format. `NitroNullableInt/Double/Bool` C++ structs are now emitted (they exist as library types on other platforms but had no C++ definition). Record structs are emitted in dependency order (by-value embedding compiles).
+- **Added: `NitroRecordReader.readInt8` / `NitroRecordWriter.writeInt8/writeBytes/toNativeBuffer`** — required by the variant codec and blob helpers.
+- **Fixed: `uint64`/`DateTime` mapped to `void*` in the C++ interface** — now `uint64_t` and `int64_t` (ms-epoch) respectively.
+- **Changed (cosmetic, no behavior change): instance-key Utf8 pointer now allocated and freed with `calloc`** instead of `malloc` — `_instanceKey.toNativeUtf8(allocator: calloc)` + `calloc.free(_keyPtr)`. Note for anyone auditing this: `package:ffi`'s `malloc.free`/`calloc.free` both resolve to the same OS-level free (`CoTaskMemFree` on Windows, `free()` elsewhere) regardless of which allocator produced the pointer, so the prior `malloc`/`malloc.free` pairing was never a bug — this is a style-only change (zero-initialized allocation as defense in depth).
+
 ## 0.5.4
 
 - **Fixed: `cpp_record_generator.dart` — library record types excluded from C++ forward declarations** — Types in `_nitroLibraryRecordTypes` (`NitroOptInt64`, `NitroOptFloat64`, `NitroOptBool`, `NitroNullableInt`, `NitroNullableDouble`, `NitroNullableBool`) are now filtered out before generating C++ struct forward declarations and definitions. These types are provided as C anonymous typedefs in the generated `bridge.g.h`; re-declaring them as named C++ structs caused a compilation error in multi-spec plugins.

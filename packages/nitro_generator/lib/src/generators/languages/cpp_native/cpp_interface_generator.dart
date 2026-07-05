@@ -60,6 +60,12 @@ class CppInterfaceGenerator {
     nodes.addAll([
       CodeLine('#include "$bridgeHeader"'),
       const BlankLine(),
+      // MSVC deprecates the POSIX strdup name; _strdup is identical. The
+      // struct codecs below strdup String fields, so the shim lives here too.
+      const CodeLine('#if defined(_MSC_VER) && !defined(strdup)'),
+      const CodeLine('#define strdup _strdup'),
+      const CodeLine('#endif'),
+      const BlankLine(),
     ]);
 
     // NitroCppBuffer — lightweight read-only view (mirrors RN Nitro's ArrayBuffer concept).
@@ -86,9 +92,11 @@ class CppInterfaceGenerator {
           CodeLine('NitroRecordWriter() { _buf.reserve(64); }'),
           CodeLine('void writeInt(int64_t v) { _buf.insert(_buf.end(), reinterpret_cast<const uint8_t*>(&v), reinterpret_cast<const uint8_t*>(&v) + 8); }'),
           CodeLine('void writeInt32(int32_t v) { _buf.insert(_buf.end(), reinterpret_cast<const uint8_t*>(&v), reinterpret_cast<const uint8_t*>(&v) + 4); }'),
+          CodeLine('void writeInt8(int8_t v) { _buf.push_back(static_cast<uint8_t>(v)); }'),
           CodeLine('void writeDouble(double v) { _buf.insert(_buf.end(), reinterpret_cast<const uint8_t*>(&v), reinterpret_cast<const uint8_t*>(&v) + 8); }'),
           CodeLine('void writeBool(bool v) { _buf.push_back(v ? 1 : 0); }'),
           CodeLine('void writeString(const std::string& s) { int32_t n = (int32_t)s.size(); writeInt32(n); _buf.insert(_buf.end(), s.begin(), s.end()); }'),
+          CodeLine('void writeBytes(const uint8_t* data, size_t n) { if (data && n) _buf.insert(_buf.end(), data, data + n); }'),
           CodeLine('/// Returns heap-allocated [4B length][payload]. Caller must ::free().'),
           CodeLine('uint8_t* toNative() const {'),
           CodeLine('    int32_t payloadLen = (int32_t)_buf.size();'),
@@ -98,14 +106,30 @@ class CppInterfaceGenerator {
           CodeLine('    if (payloadLen > 0) ::memcpy(out + sizeof(int32_t), _buf.data(), (size_t)payloadLen);'),
           CodeLine('    return out;'),
           CodeLine('}'),
+          CodeLine('/// Non-owning view of the payload (no length prefix). Valid while this writer lives.'),
           CodeLine('NitroCppBuffer toBuffer() const { return { _buf.data(), _buf.size() }; }'),
+          CodeLine('/// Heap-allocated [4B length][payload] wrapped in a buffer whose size'),
+          CodeLine('/// includes the prefix. Use as the return value of record/variant methods:'),
+          CodeLine('/// ownership transfers to Dart (Dart frees it after decoding).'),
+          CodeLine('NitroCppBuffer toNativeBuffer() const { return { toNative(), sizeof(int32_t) + _buf.size() }; }'),
         ],
         footer: '};',
       ),
       BlankLine(),
     ]);
 
-    // @HybridRecord C++ structs with bounds-checked decoder (§3.3)
+    // Bounds-checked reader — required by struct codecs, records, and variants.
+    final needsReader = spec.recordTypes.isNotEmpty || spec.variants.isNotEmpty || spec.structs.isNotEmpty;
+    if (needsReader) {
+      nodes.add(CodeSnippet(cppRecordReaderDefinition));
+      nodes.add(const BlankLine());
+    }
+
+    // @HybridStruct free-function codecs (structs are plain C typedefs — no members).
+    final structCodecs = generateCppStructCodecs(spec);
+    if (structCodecs.isNotEmpty) nodes.add(CodeSnippet(structCodecs));
+
+    // @HybridRecord C++ structs with bounds-checked decoder (§3.3) + encoder.
     final cppRecords = RecordGenerator.generateCpp(spec);
     if (cppRecords.isNotEmpty) nodes.add(CodeSnippet(cppRecords));
 
@@ -172,7 +196,9 @@ class CppInterfaceGenerator {
         ),
       );
       for (final prop in spec.properties) {
-        final cppType = _cppScalarType(prop.type, enumNames, structNames, recordNames);
+        // Nullable-aware: `double?` getter returns std::optional<double> — the
+        // bridge encodes std::nullopt as the null wire value (NitroOpt blob).
+        final cppType = _cppReturnType(prop.type, enumNames, structNames, recordNames);
         if (prop.hasGetter) {
           nodes.add(
             CodeLine('    virtual $cppType get_${prop.dartName}() const = 0;'),
@@ -201,7 +227,10 @@ class CppInterfaceGenerator {
         ),
       ]);
       for (final stream in spec.streams) {
-        final itemCpp = _cppScalarType(stream.itemType, enumNames, structNames, recordNames);
+        // Nullable-aware: Stream<int?> emits std::optional<int64_t> — the bridge
+        // posts kNull for std::nullopt. Record/variant items are NitroCppBuffer
+        // payload views (no length prefix); the bridge copies before posting.
+        final itemCpp = _cppReturnType(stream.itemType, enumNames, structNames, recordNames);
         nodes.add(
           CodeLine('    /// Emit a value on the ${stream.dartName} stream.'),
         );
@@ -269,6 +298,34 @@ class CppInterfaceGenerator {
   }
 
   // ── Type helpers (C++ style) ─────────────────────────────────────────────
+
+  /// Public alias of [_cppReturnType] for other generators (bridge dispatch,
+  /// impl starter, mocks) so all C++ artifacts share ONE type mapping.
+  static String cppReturnTypeFor(
+    BridgeType bt,
+    Set<String> enumNames,
+    Set<String> structNames,
+    Set<String> recordNames,
+  ) =>
+      _cppReturnType(bt, enumNames, structNames, recordNames);
+
+  /// Public alias of [_cppMethodParams] — full impl-facing parameter list.
+  static List<String> cppMethodParamsFor(
+    List<BridgeParam> params,
+    Set<String> enumNames,
+    Set<String> structNames,
+    Set<String> recordNames,
+  ) =>
+      _cppMethodParams(params, enumNames, structNames, recordNames);
+
+  /// Public alias of [_cppParamType] — impl-facing type of a single param.
+  static String cppParamTypeFor(
+    BridgeType bt,
+    Set<String> enumNames,
+    Set<String> structNames,
+    Set<String> recordNames,
+  ) =>
+      _cppParamType(bt, enumNames, structNames, recordNames);
 
   /// C++ return type — mirrors RN Nitro's `JSIConverter<T>` type mapping.
   /// Nullable types use `std::optional<T>` (zero-cost tagged union, like std::optional).
@@ -358,37 +415,6 @@ class CppInterfaceGenerator {
     return _primitiveType(base);
   }
 
-  /// Scalar C++ type (for return types, property types, and stream item types).
-  static String _cppScalarType(
-    BridgeType bt,
-    Set<String> enumNames,
-    Set<String> structNames,
-    Set<String> recordNames,
-  ) {
-    // NativeHandle<T>: pass raw opaque pointer.
-    if (bt.isNativeHandle) return 'void*';
-    // isRecord covers bare @HybridRecord, List<T>, and Map<K,V>.
-    if (bt.isRecord) return 'NitroCppBuffer';
-    if (bt.isPointer) {
-      final inner = bt.pointerInnerType;
-      if (inner == null) return 'void*';
-      final innerBase = inner.replaceFirst('?', '');
-      if (innerBase == 'void' || innerBase == 'Void') return 'void*';
-      if (innerBase == 'String') return 'std::string*';
-      if (enumNames.contains(innerBase)) return '$innerBase*';
-      if (structNames.contains(innerBase)) return '$innerBase*';
-      if (recordNames.contains(innerBase)) return 'NitroCppBuffer*';
-      final prim = _primitiveType(innerBase);
-      return prim == 'void*' ? 'void*' : '$prim*';
-    }
-    final base = bt.name.replaceFirst('?', '');
-    if (base == 'String') return 'std::string';
-    if (enumNames.contains(base)) return base;
-    if (structNames.contains(base)) return base;
-    if (recordNames.contains(base)) return 'NitroCppBuffer';
-    return _primitiveType(base);
-  }
-
   /// Build the full parameter list for a method signature.
   /// TypedData types expand to two params: pointer + length.
   /// Nullable types use `std::optional<T>`. Callbacks use `std::function<R(Args...)>`.
@@ -402,7 +428,7 @@ class CppInterfaceGenerator {
     for (final p in params) {
       if (p.type.isFunction) {
         // std::function<R(Args...)> mirrors RN Nitro's JSIConverter<std::function<>>
-        parts.add(_cppCallbackParam(p, enumNames));
+        parts.add(cppCallbackParam(p, enumNames, structNames, recordNames));
         continue;
       }
       // isRecord covers bare @HybridRecord, List<T>, and Map<K,V>.
@@ -515,6 +541,13 @@ class CppInterfaceGenerator {
       // Dart primitive names
       case 'int':
         return 'int64_t';
+      case 'int64':
+        return 'int64_t';
+      case 'uint64':
+        return 'uint64_t';
+      // DateTime bridges as int64 milliseconds-since-epoch (L11).
+      case 'DateTime':
+        return 'int64_t';
       case 'double':
         return 'double';
       case 'bool':
@@ -566,14 +599,43 @@ class CppInterfaceGenerator {
 
   /// Callback param as `std::function<R(Args...)>` — mirrors RN Nitro's `JSIConverter<std::function<>>`.
   /// Caller can safely capture lambdas, unlike raw function pointers.
-  static String _cppCallbackParam(BridgeParam param, Set<String> enumNames) {
+  ///
+  /// These are the IMPL-FACING types; the bridge (`cpp_bridge_generator.dart`)
+  /// wraps the raw Dart NativeCallable ABI (everything routed through Int64
+  /// GP registers, doubles as raw bits, strings as malloc'd Utf8 pointers)
+  /// into these clean signatures. Keep both sides in sync.
+  static String cppCallbackParam(
+    BridgeParam param,
+    Set<String> enumNames,
+    Set<String> structNames,
+    Set<String> recordNames,
+  ) {
     final callback = param.type;
-    final ret = _cppCallbackType(callback.functionReturnType ?? 'void', enumNames);
-    final paramTypes = callback.functionParams.map((p) => _cppCallbackType(p.name, enumNames, bridgeType: p)).join(', ');
+    final ret = cppCallbackReturnType(callback.functionReturnType ?? 'void', enumNames);
+    final paramTypes = callback.functionParams
+        .map((p) => cppCallbackParamType(p.name, enumNames, structNames, recordNames, bridgeType: p))
+        .join(', ');
     return 'std::function<$ret($paramTypes)> ${param.name}';
   }
 
-  static String _cppCallbackType(String dartType, Set<String> enumNames, {BridgeType? bridgeType}) {
+  /// Return type of a callback as seen by the C++ impl.
+  static String cppCallbackReturnType(String dartType, Set<String> enumNames) {
+    final base = dartType.replaceFirst('?', '');
+    if (base == 'void') return 'void';
+    if (enumNames.contains(base)) return base;
+    if (base == 'bool') return 'bool';
+    if (base == 'String') return 'std::string';
+    return _primitiveType(base);
+  }
+
+  /// Parameter type of a callback as seen by the C++ impl.
+  static String cppCallbackParamType(
+    String dartType,
+    Set<String> enumNames,
+    Set<String> structNames,
+    Set<String> recordNames, {
+    BridgeType? bridgeType,
+  }) {
     if (bridgeType?.isPointer == true) {
       final inner = bridgeType!.pointerInnerType;
       if (inner == null || inner == 'Void' || inner == 'void') return 'void*';
@@ -583,9 +645,11 @@ class CppInterfaceGenerator {
     }
     final base = dartType.replaceFirst('?', '');
     if (base == 'void') return 'void';
-    if (enumNames.contains(base)) return 'int64_t';
-    if (base == 'bool') return 'int8_t';
-    if (base == 'String') return 'const char*';
+    if (enumNames.contains(base)) return base;
+    if (structNames.contains(base)) return 'const $base&';
+    if (recordNames.contains(base)) return 'NitroCppBuffer';
+    if (base == 'bool') return 'bool';
+    if (base == 'String') return 'const std::string&';
     return _primitiveType(base);
   }
 
@@ -593,7 +657,12 @@ class CppInterfaceGenerator {
   /// `nitro_decode_Xxx` / `nitro_encode_Xxx` free functions for every
   /// `@NitroVariant` type in the spec.
   ///
-  /// Wire format: `[1B tag 0..N][optional field bytes — NitroRecordReader order]`
+  /// Wire format mirrors the Dart `<V>VariantExt.writeFields` exactly:
+  /// `[1B tag 0..N][fields in declaration order]` where each nullable field is
+  /// preceded by a 1-byte presence flag (1 = present), enum fields are written
+  /// as their case INDEX (not nativeValue — matches Dart `enum.index`), record
+  /// fields are written inline via `writeFields`, and `List<prim>` fields are
+  /// `[4B count][items]`.
   static String _generateCppVariants(BridgeSpec spec) {
     final localVariants = spec.localVariants;
     if (localVariants.isEmpty) return '';
@@ -603,6 +672,36 @@ class CppInterfaceGenerator {
 
     s.writeln('// @NitroVariant C++ structs and codecs (generated by Nitrogen)');
 
+    // ── Enum index helpers (variant enum fields use Dart's enum.index) ──────
+    final variantEnums = <String>{};
+    for (final variant in localVariants) {
+      for (final c in variant.cases) {
+        for (final f in c.fields) {
+          final base = f.dartType.replaceFirst('?', '');
+          if (enumNames.contains(base)) variantEnums.add(base);
+          final item = f.itemTypeName;
+          if (item != null && enumNames.contains(item)) variantEnums.add(item);
+        }
+      }
+    }
+    for (final enumName in variantEnums) {
+      final e = spec.enums.firstWhere((x) => x.name == enumName);
+      final values = e.rawValues ?? List<int>.generate(e.values.length, (i) => e.startValue + i);
+      final n = values.length;
+      final list = values.join(', ');
+      s.writeln('// Dart variant fields encode enums by case index (enum.index), not nativeValue.');
+      s.writeln('inline $enumName nitro_${enumName}_fromIndex(int64_t i) {');
+      s.writeln('    static const int64_t _v[$n] = { $list };');
+      s.writeln('    return static_cast<$enumName>((i >= 0 && i < $n) ? _v[i] : _v[0]);');
+      s.writeln('}');
+      s.writeln('inline int64_t nitro_${enumName}_toIndex($enumName x) {');
+      s.writeln('    static const int64_t _v[$n] = { $list };');
+      s.writeln('    for (int64_t i = 0; i < $n; i++) { if (_v[i] == (int64_t)x) return i; }');
+      s.writeln('    return 0;');
+      s.writeln('}');
+    }
+    if (variantEnums.isNotEmpty) s.writeln();
+
     for (final variant in localVariants) {
       // ── Case structs ──────────────────────────────────────────────────────
       for (final c in variant.cases) {
@@ -611,7 +710,7 @@ class CppInterfaceGenerator {
         } else {
           s.writeln('struct ${c.name} {');
           for (final f in c.fields) {
-            final cType = _variantFieldCppType(f.dartType, enumNames);
+            final cType = _variantFieldCppType(f, enumNames);
             s.writeln('    $cType ${f.name};');
           }
           s.writeln('};');
@@ -625,10 +724,10 @@ class CppInterfaceGenerator {
       s.writeln();
 
       // ── nitro_decode_Xxx ──────────────────────────────────────────────────
+      s.writeln('/// Decodes a ${variant.name} from a wire payload view (no 4-byte length prefix).');
       s.writeln('inline ${variant.name} nitro_decode_${variant.name}(NitroCppBuffer buf) {');
-      s.writeln('    const uint8_t* ptr = buf.data;');
-      s.writeln('    if (!ptr || buf.size < 1) throw std::runtime_error("${variant.name}: empty buffer");');
-      s.writeln('    int8_t tag = static_cast<int8_t>(*ptr++);');
+      s.writeln('    NitroRecordReader _r(buf);');
+      s.writeln('    int8_t tag = _r.readInt8();');
       s.writeln('    switch (tag) {');
       for (var i = 0; i < variant.cases.length; i++) {
         final c = variant.cases[i];
@@ -636,13 +735,11 @@ class CppInterfaceGenerator {
         if (c.isUnit) {
           s.writeln('        return ${c.name}{};');
         } else {
-          // Read fields in order (same as Dart RecordReader — no length prefix for variants)
+          s.writeln('        ${c.name} _c{};');
           for (final f in c.fields) {
-            final readExpr = _variantFieldCppRead(f.dartType, enumNames);
-            s.writeln('        auto ${f.name} = $readExpr;');
+            _emitVariantFieldRead(s, f, enumNames, '        ');
           }
-          final args = c.fields.map((f) => '.${f.name} = ${f.name}').join(', ');
-          s.writeln('        return ${c.name}{$args};');
+          s.writeln('        return _c;');
         }
         s.writeln('    }');
       }
@@ -652,30 +749,29 @@ class CppInterfaceGenerator {
       s.writeln();
 
       // ── nitro_encode_Xxx ──────────────────────────────────────────────────
-      s.writeln('// Note: nitro_encode_${variant.name} returns heap-allocated bytes.');
-      s.writeln('// Caller must free with ::free(). Prefer returning NitroCppBuffer from C++ impl');
-      s.writeln('// and calling nitro_encode_${variant.name}() before returning to Dart.');
-      s.writeln('inline std::pair<uint8_t*, size_t> nitro_encode_${variant.name}(const ${variant.name}& v) {');
-      s.writeln('    std::vector<uint8_t> buf;');
-      s.writeln('    buf.reserve(16);');
-      s.writeln('    std::visit([&](auto&& c) {');
+      s.writeln('/// Appends the wire payload (tag + fields, no length prefix) to [w].');
+      s.writeln('inline void nitro_encode_${variant.name}(const ${variant.name}& v, NitroRecordWriter& w) {');
+      s.writeln('    std::visit([&w](auto&& c) {');
       s.writeln('        using T = std::decay_t<decltype(c)>;');
+      s.writeln('        (void)c;');
       for (var i = 0; i < variant.cases.length; i++) {
         final c = variant.cases[i];
         s.writeln('        if constexpr (std::is_same_v<T, ${c.name}>) {');
-        s.writeln('            buf.push_back($i); // tag');
+        s.writeln('            w.writeInt8($i); // tag');
         for (final f in c.fields) {
-          final writeStmts = _variantFieldCppWrite(f.dartType, 'c.${f.name}', enumNames);
-          for (final stmt in writeStmts) {
-            s.writeln('            $stmt');
-          }
+          _emitVariantFieldWrite(s, f, 'c.${f.name}', enumNames, '            ');
         }
         s.writeln('        }');
       }
       s.writeln('    }, v);');
-      s.writeln('    uint8_t* out = static_cast<uint8_t*>(::malloc(buf.size()));');
-      s.writeln('    ::memcpy(out, buf.data(), buf.size());');
-      s.writeln('    return {out, buf.size()};');
+      s.writeln('}');
+      s.writeln();
+      s.writeln('/// Heap-allocated [4B length][payload] block for returning a ${variant.name}');
+      s.writeln('/// to Dart (method returns / property getters). Ownership transfers to Dart.');
+      s.writeln('inline NitroCppBuffer nitro_${variant.name}_to_native(const ${variant.name}& v) {');
+      s.writeln('    NitroRecordWriter _w;');
+      s.writeln('    nitro_encode_${variant.name}(v, _w);');
+      s.writeln('    return _w.toNativeBuffer();');
       s.writeln('}');
       s.writeln();
     }
@@ -683,35 +779,160 @@ class CppInterfaceGenerator {
     return s.toString();
   }
 
-  static String _variantFieldCppType(String dartType, Set<String> enumNames) {
-    final base = dartType.replaceFirst('?', '');
-    if (base == 'String') return 'std::string';
-    if (base == 'bool') return 'bool';
-    if (base == 'double') return 'double';
-    if (base == 'int') return 'int64_t';
-    if (enumNames.contains(base)) return 'int64_t'; // enum raw value
-    return 'int64_t'; // fallback
+  static String _variantFieldCppType(BridgeRecordField f, Set<String> enumNames) {
+    final base = f.dartType.replaceFirst('?', '');
+    String core;
+    switch (f.kind) {
+      case RecordFieldKind.primitive:
+        core = base == 'String'
+            ? 'std::string'
+            : base == 'bool'
+                ? 'bool'
+                : base == 'double'
+                    ? 'double'
+                    : 'int64_t';
+      case RecordFieldKind.enumValue:
+        core = enumNames.contains(base) ? base : 'int64_t';
+      case RecordFieldKind.recordObject:
+      case RecordFieldKind.struct:
+        core = base;
+      case RecordFieldKind.listPrimitive:
+        final item = f.itemTypeName ?? 'int';
+        core = 'std::vector<${item == 'String' ? 'std::string' : item == 'double' ? 'double' : item == 'bool' ? 'bool' : 'int64_t'}>';
+      case RecordFieldKind.listEnumValue:
+        final item = f.itemTypeName ?? 'int';
+        core = 'std::vector<${enumNames.contains(item) ? item : 'int64_t'}>';
+      case RecordFieldKind.listRecordObject:
+        core = 'std::vector<${f.itemTypeName}>';
+      case RecordFieldKind.typedData:
+        core = 'std::vector<uint8_t>';
+    }
+    return f.isNullable ? 'std::optional<$core>' : core;
   }
 
-  static String _variantFieldCppRead(String dartType, Set<String> enumNames) {
-    final base = dartType.replaceFirst('?', '');
-    if (base == 'int') return '*reinterpret_cast<const int64_t*>(ptr), ptr += 8';
-    if (base == 'double') return '*reinterpret_cast<const double*>(ptr), ptr += 8';
-    if (base == 'bool') return 'static_cast<bool>(*ptr++), 0';
-    if (enumNames.contains(base)) return '*reinterpret_cast<const int64_t*>(ptr), ptr += 8';
-    return '*reinterpret_cast<const int64_t*>(ptr), ptr += 8';
+  /// Emits statements reading one variant field into `_c.<name>`.
+  static void _emitVariantFieldRead(
+    CodeWriter s,
+    BridgeRecordField f,
+    Set<String> enumNames,
+    String indent,
+  ) {
+    final base = f.dartType.replaceFirst('?', '');
+    String readCore() {
+      switch (f.kind) {
+        case RecordFieldKind.primitive:
+          if (base == 'String') return '_r.readString()';
+          if (base == 'bool') return '_r.readBool()';
+          if (base == 'double') return '_r.readDouble()';
+          return '_r.readInt()';
+        case RecordFieldKind.enumValue:
+          return enumNames.contains(base) ? 'nitro_${base}_fromIndex(_r.readInt())' : '_r.readInt()';
+        case RecordFieldKind.recordObject:
+        case RecordFieldKind.struct:
+          return '$base::fromReader(_r)';
+        default:
+          return '';
+      }
+    }
+
+    switch (f.kind) {
+      case RecordFieldKind.primitive:
+      case RecordFieldKind.enumValue:
+      case RecordFieldKind.recordObject:
+      case RecordFieldKind.struct:
+        if (f.isNullable) {
+          s.writeln('${indent}if (_r.readBool()) { _c.${f.name} = ${readCore()}; }');
+        } else {
+          s.writeln('${indent}_c.${f.name} = ${readCore()};');
+        }
+      case RecordFieldKind.listPrimitive:
+      case RecordFieldKind.listEnumValue:
+      case RecordFieldKind.listRecordObject:
+        final item = f.itemTypeName ?? 'int';
+        String itemRead;
+        if (f.kind == RecordFieldKind.listRecordObject) {
+          itemRead = '$item::fromReader(_r)';
+        } else if (f.kind == RecordFieldKind.listEnumValue && enumNames.contains(item)) {
+          itemRead = 'nitro_${item}_fromIndex(_r.readInt())';
+        } else if (item == 'String') {
+          itemRead = '_r.readString()';
+        } else if (item == 'double') {
+          itemRead = '_r.readDouble()';
+        } else if (item == 'bool') {
+          itemRead = '_r.readBool()';
+        } else {
+          itemRead = '_r.readInt()';
+        }
+        final body =
+            '{ int32_t _n = _r.readInt32(); auto& _vec = ${f.isNullable ? '_c.${f.name}.emplace()' : '_c.${f.name}'}; _vec.reserve((size_t)_n); for (int32_t _i = 0; _i < _n; _i++) _vec.push_back($itemRead); }';
+        if (f.isNullable) {
+          s.writeln('${indent}if (_r.readBool()) $body');
+        } else {
+          s.writeln('$indent$body');
+        }
+      case RecordFieldKind.typedData:
+        final body =
+            '{ int32_t _n = _r.readInt32(); auto& _vec = ${f.isNullable ? '_c.${f.name}.emplace()' : '_c.${f.name}'}; _vec.resize((size_t)_n); _r.readBytes(_vec.data(), (size_t)_n); }';
+        if (f.isNullable) {
+          s.writeln('${indent}if (_r.readBool()) $body');
+        } else {
+          s.writeln('$indent$body');
+        }
+    }
   }
 
-  static List<String> _variantFieldCppWrite(String dartType, String expr, Set<String> enumNames) {
-    final base = dartType.replaceFirst('?', '');
-    if (base == 'bool') {
-      return ['buf.push_back($expr ? 1 : 0);'];
+  /// Emits statements writing one variant field from [expr].
+  static void _emitVariantFieldWrite(
+    CodeWriter s,
+    BridgeRecordField f,
+    String expr,
+    Set<String> enumNames,
+    String indent,
+  ) {
+    final base = f.dartType.replaceFirst('?', '');
+    // For nullable fields, [v] below is the unwrapped value.
+    final v = f.isNullable ? '(*$expr)' : expr;
+    String writeCore() {
+      switch (f.kind) {
+        case RecordFieldKind.primitive:
+          if (base == 'String') return 'w.writeString($v);';
+          if (base == 'bool') return 'w.writeBool($v);';
+          if (base == 'double') return 'w.writeDouble($v);';
+          return 'w.writeInt($v);';
+        case RecordFieldKind.enumValue:
+          return enumNames.contains(base) ? 'w.writeInt(nitro_${base}_toIndex($v));' : 'w.writeInt($v);';
+        case RecordFieldKind.recordObject:
+        case RecordFieldKind.struct:
+          return '$v.encodeInto(w);';
+        case RecordFieldKind.listPrimitive:
+        case RecordFieldKind.listEnumValue:
+        case RecordFieldKind.listRecordObject:
+          final item = f.itemTypeName ?? 'int';
+          String itemWrite;
+          if (f.kind == RecordFieldKind.listRecordObject) {
+            itemWrite = '_e.encodeInto(w);';
+          } else if (f.kind == RecordFieldKind.listEnumValue && enumNames.contains(item)) {
+            itemWrite = 'w.writeInt(nitro_${item}_toIndex(_e));';
+          } else if (item == 'String') {
+            itemWrite = 'w.writeString(_e);';
+          } else if (item == 'double') {
+            itemWrite = 'w.writeDouble(_e);';
+          } else if (item == 'bool') {
+            itemWrite = 'w.writeBool(_e);';
+          } else {
+            itemWrite = 'w.writeInt(_e);';
+          }
+          return '{ w.writeInt32((int32_t)$v.size()); for (const auto& _e : $v) { $itemWrite } }';
+        case RecordFieldKind.typedData:
+          return '{ w.writeInt32((int32_t)$v.size()); w.writeBytes($v.data(), $v.size()); }';
+      }
     }
-    if (base == 'int' || base == 'double' || enumNames.contains(base)) {
-      return [
-        '{ auto _v = $expr; buf.insert(buf.end(), reinterpret_cast<const uint8_t*>(&_v), reinterpret_cast<const uint8_t*>(&_v) + 8); }',
-      ];
+
+    if (f.isNullable) {
+      s.writeln('${indent}w.writeBool($expr.has_value());');
+      s.writeln('${indent}if ($expr.has_value()) { ${writeCore()} }');
+    } else {
+      s.writeln('$indent${writeCore()}');
     }
-    return ['{ auto _v = $expr; buf.insert(buf.end(), reinterpret_cast<const uint8_t*>(&_v), reinterpret_cast<const uint8_t*>(&_v) + 8); }'];
   }
 }

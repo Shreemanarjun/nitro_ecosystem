@@ -514,8 +514,10 @@ void main() {
     });
 
     test('emits nitro_encode_FilterResult function', () {
-      expect(cppOutput, contains('inline std::pair<uint8_t*, size_t> nitro_encode_FilterResult'));
+      expect(cppOutput, contains('inline void nitro_encode_FilterResult(const FilterResult& v, NitroRecordWriter& w)'));
       expect(cppOutput, contains('std::visit'));
+      // Convenience wrapper for method returns: malloc'd [4B len][payload].
+      expect(cppOutput, contains('inline NitroCppBuffer nitro_FilterResult_to_native(const FilterResult& v)'));
     });
 
     test('variant parameter in method uses NitroCppBuffer', () {

@@ -8,6 +8,15 @@
 //   2. Add this file to your CMakeLists.txt (target_sources).
 //   3. Call benchmark_cpp_register_impl(&myImpl) during plugin/app init.
 //   4. Call benchmark_cpp_register_impl(nullptr) in teardown.
+//
+// Ownership conventions:
+//   • Record/variant/tuple RETURNS: return writer.toNativeBuffer() (or
+//     nitro_<Variant>_to_native) — a malloc'd [4B len][payload] block that
+//     Dart frees after decoding. Returning a view of a local buffer dangles.
+//   • Record/variant PARAMS and emit_* stream items are non-owning payload
+//     views (no length prefix) — copy if you need them after the call.
+//   • @zeroCopy TypedData returns are NOT copied by the bridge: the pointed-to
+//     bytes must stay alive until Dart is done (e.g. store them in a member).
 
 #include "benchmark_cpp.native.g.h"
 #include <stdexcept>

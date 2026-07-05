@@ -4,6 +4,7 @@ import '../../../bridge_item_kind.dart';
 import '../../../bridge_spec.dart';
 import '../../code_writer.dart';
 import '../../generator_metadata.dart';
+import '../cpp_native/cpp_interface_generator.dart';
 
 part 'cpp_bridge/swift_shim_emitter.dart';
 part 'cpp_bridge/cpp_direct_emitter.dart';
@@ -31,14 +32,6 @@ class CppBridgeGenerator {
   }
 
   // ── Helpers shared between both paths ────────────────────────────────────
-
-  static String _cppScalarType(String dartType, Set<String> enumNames, Set<String> structNames) {
-    final base = dartType.replaceFirst('?', '');
-    if (base == 'String') return 'std::string';
-    if (enumNames.contains(base)) return base;
-    if (structNames.contains(base)) return base;
-    return _typeToC(base);
-  }
 
   // ── Legacy JNI+Swift path (NativeImpl.kotlin / NativeImpl.swift) ───────────
 
@@ -333,60 +326,7 @@ class CppBridgeGenerator {
     }
     if (spec.streams.isNotEmpty) writer.blankLine();
 
-    for (final stream in spec.streams) {
-      final isStruct = structNames.contains(stream.itemType.name.replaceFirst('?', ''));
-      final isRecord = stream.itemType.isRecord;
-      final isEnum = enumNames.contains(stream.itemType.name.replaceFirst('?', ''));
-      final isVariantStream = variantNames.contains(stream.itemType.name.replaceFirst('?', ''));
-      final itemCpp = _cppScalarType(stream.itemType.name, enumNames, structNames);
-      writer.line('void Hybrid$className::emit_${stream.dartName}($itemCpp item) {');
-      writer.line('    int64_t port = g_port_${stream.dartName};');
-      writer.line('    if (port == 0) { return; }');
-
-      if (isStruct) {
-        final stName = stream.itemType.name.replaceFirst('?', '');
-        writer.line('    $stName* st_ptr = nullptr;');
-      }
-      writer.line('    Dart_CObject obj;');
-      if (stream.itemType.name == 'double') {
-        writer.line('    obj.type = Dart_CObject_kDouble;');
-        writer.line('    obj.value.as_double = item;');
-      } else if (stream.itemType.name == 'int') {
-        writer.line('    obj.type = Dart_CObject_kInt64;');
-        writer.line('    obj.value.as_int64 = item;');
-      } else if (stream.itemType.name == 'bool') {
-        // Use kInt64 (0/1) — kBool is unreliable on some Android versions.
-        writer.line('    obj.type = Dart_CObject_kInt64;');
-        writer.line('    obj.value.as_int64 = item ? 1 : 0;');
-      } else if (isEnum) {
-        writer.line('    obj.type = Dart_CObject_kInt64;');
-        writer.line('    obj.value.as_int64 = static_cast<int64_t>(item);');
-      } else if (isStruct) {
-        final stName = stream.itemType.name.replaceFirst('?', '');
-        writer.line('    st_ptr = ($stName*)malloc(sizeof($stName));');
-        writer.line('    *st_ptr = item;');
-        writer.line('    obj.type = Dart_CObject_kInt64;');
-        writer.line('    obj.value.as_int64 = (intptr_t)st_ptr;');
-      } else if (isRecord || isVariantStream) {
-        // Record/variant: item is a pointer to serialized bytes; post address as kInt64.
-        // Dart frees after decode via malloc.free.
-        writer.line('    obj.type = Dart_CObject_kInt64;');
-        writer.line('    obj.value.as_int64 = (intptr_t)item;');
-      } else {
-        writer.line('    obj.type = Dart_CObject_kNull;');
-      }
-      writer.line('    if (!Dart_PostCObject_DL(port, &obj)) {');
-      writer.line('        g_port_${stream.dartName} = 0;');
-      if (isStruct) {
-        writer.line('        free(st_ptr);');
-      } else if (isRecord || isVariantStream) {
-        writer.line('        free(item);');
-      }
-      writer.line('        return;');
-      writer.line('    }');
-      writer.line('}');
-      writer.blankLine();
-    }
+    _emitCppStreamEmitters(writer, spec, className, enumNames, structNames, variantNames);
 
     final notInit =
         'nitro_report_error("NotInitialized", '
@@ -411,6 +351,26 @@ class CppBridgeGenerator {
     writer.line('    }');
     writer.line('}');
     writer.blankLine();
+
+    if (spec.functions.any((f) => f.isResult)) {
+      // @NitroResult wire blob: [1B tag (0=ok, 1=err)][4B len][RecordWriter payload].
+      // Dart reads res[0] then RecordReader.fromNative(res + 1), and frees res.
+      writer.line('static uint8_t* _nitro_desktop_result_blob(uint8_t _tag, const NitroRecordWriter& _w) {');
+      writer.line('    int32_t _len = (int32_t)_w._buf.size();');
+      writer.line('    uint8_t* _out = (uint8_t*)malloc((size_t)(1 + 4 + _len));');
+      writer.line('    if (!_out) { return nullptr; }');
+      writer.line('    _out[0] = _tag;');
+      writer.line('    memcpy(_out + 1, &_len, 4);');
+      writer.line('    if (_len > 0) { memcpy(_out + 5, _w._buf.data(), (size_t)_len); }');
+      writer.line('    return _out;');
+      writer.line('}');
+      writer.line('static uint8_t* _nitro_desktop_result_err(const char* _msg) {');
+      writer.line('    NitroRecordWriter _w;');
+      writer.line('    _w.writeString(_msg ? std::string(_msg) : std::string());');
+      writer.line('    return _nitro_desktop_result_blob(1, _w);');
+      writer.line('}');
+      writer.blankLine();
+    }
     writer.line('static Hybrid$className* g_impl = nullptr;');
     // For the Apple/C++ single-instance path, create_instance always returns 0 and
     // destroy_instance is a no-op. g_impl is the single shared implementation set
@@ -441,7 +401,9 @@ class CppBridgeGenerator {
           final isStructParam = structNames.contains(p.type.name.replaceFirst('?', ''));
           final isRecordParam = recordNames.contains(p.type.name.replaceFirst('?', ''));
           final isEnumParam = enumNames.contains(p.type.name.replaceFirst('?', ''));
-          paramParts.add('${(isStructParam || isRecordParam) ? 'void*' : (isEnumParam ? 'int64_t' : _typeToC(p.type.name))} ${p.name}');
+          // Maps stay on _typeToC (uint8_t*) — matches the bridge.g.h declaration.
+          final isMapParam = p.type.name.startsWith('Map<');
+          paramParts.add('${(isStructParam || (isRecordParam && !isMapParam)) ? 'void*' : (isEnumParam ? 'int64_t' : _typeToC(p.type.name))} ${p.name}');
           if (p.type.isTypedData) paramParts.add('size_t ${p.name}_length'); // matches Dart FFI Size type
         }
         paramParts.add('int64_t dart_port');
@@ -449,6 +411,7 @@ class CppBridgeGenerator {
         final callArgs = <String>[];
         for (final p in func.params) {
           final base = p.type.name.replaceFirst('?', '');
+          final isNullableParam = p.type.isNullable || p.type.name.endsWith('?');
           if (p.type.isAnyNativeObject) {
             if (p.type.isNullable) {
               callArgs.add('${p.name} == -1 ? std::optional<int64_t>(std::nullopt) : std::make_optional<int64_t>(${p.name})');
@@ -457,17 +420,37 @@ class CppBridgeGenerator {
             }
           } else if (spec.isCustomTypeName(base)) {
             callArgs.add(p.name);
+          } else if (p.type.name == 'int?' || p.type.name == 'DateTime?') {
+            callArgs.add('(${p.name} == nullptr || ${p.name}[0] == 0) ? std::optional<int64_t>(std::nullopt) : std::make_optional(*reinterpret_cast<const int64_t*>(${p.name} + 1))');
+          } else if (p.type.name == 'uint64?') {
+            callArgs.add('(${p.name} == nullptr || ${p.name}[0] == 0) ? std::optional<uint64_t>(std::nullopt) : std::make_optional(*reinterpret_cast<const uint64_t*>(${p.name} + 1))');
+          } else if (p.type.name == 'double?') {
+            callArgs.add('(${p.name} == nullptr || ${p.name}[0] == 0) ? std::optional<double>(std::nullopt) : std::make_optional(*reinterpret_cast<const double*>(${p.name} + 1))');
+          } else if (p.type.name == 'bool?') {
+            callArgs.add('(${p.name} == nullptr || ${p.name}[0] == 0) ? std::optional<bool>(std::nullopt) : std::make_optional(${p.name}[1] != 0)');
           } else if (base == 'String') {
-            callArgs.add('std::string(${p.name})');
+            if (isNullableParam) {
+              callArgs.add('${p.name} == nullptr ? std::optional<std::string>(std::nullopt) : std::make_optional(std::string(${p.name}))');
+            } else {
+              callArgs.add('std::string(${p.name})');
+            }
           } else if (structNames.contains(base)) {
-            callArgs.add('*static_cast<const $base*>(${p.name})');
-          } else if (recordNames.contains(base)) {
+            if (isNullableParam) {
+              callArgs.add('${p.name} == nullptr ? std::optional<$base>(std::nullopt) : std::make_optional(*static_cast<const $base*>(${p.name}))');
+            } else {
+              callArgs.add('*static_cast<const $base*>(${p.name})');
+            }
+          } else if (recordNames.contains(base) || variantNames.contains(base)) {
             callArgs.add('NitroCppBuffer{ (const uint8_t*)${p.name} + 4, (size_t)*(int32_t*)${p.name} }');
           } else if (p.type.isTypedData) {
             callArgs.add(p.name);
             callArgs.add('static_cast<size_t>(${p.name}_length)');
           } else if (enumNames.contains(base)) {
-            callArgs.add('static_cast<$base>(${p.name})');
+            if (isNullableParam) {
+              callArgs.add('${p.name} == -1 ? std::optional<$base>(std::nullopt) : std::make_optional(static_cast<$base>(${p.name}))');
+            } else {
+              callArgs.add('static_cast<$base>(${p.name})');
+            }
           } else {
             callArgs.add(p.name);
           }
@@ -479,29 +462,28 @@ class CppBridgeGenerator {
         writer.line('        Dart_PostCObject_DL(dart_port, &_err);');
         writer.line('        return;');
         writer.line('    }');
-        _emitNullableStructParamGuards(
-          writer,
-          func.params,
-          structNames,
-          func.dartName,
-          'return;',
-        );
         writer.line('    g_impl->${func.dartName}(${callArgs.join(', ')});');
         writer.line('}');
         writer.blankLine();
         continue;
       }
 
-      final isEnumRet = enumNames.contains(func.returnType.name.replaceFirst('?', ''));
-      final isStructRet = structNames.contains(func.returnType.name.replaceFirst('?', ''));
-      final isRecordRet = func.returnType.isRecord;
-      final isZeroCopyTypedDataRet = func.zeroCopyReturn && func.returnType.isTypedData;
       final retBase = func.returnType.name.replaceFirst('?', '');
+      final isEnumRet = enumNames.contains(retBase);
+      final isStructRet = structNames.contains(retBase);
+      final isVariantRet = variantNames.contains(retBase);
+      final isRecordRet = func.returnType.isRecord && !isVariantRet;
+      final isZeroCopyTypedDataRet = func.zeroCopyReturn && func.returnType.isTypedData;
       final isCustomTypeRet = spec.isCustomTypeName(retBase);
       // Nullable prim returns: malloc'd uint8_t* pointer (Dart casts to Pointer<NitroOptXxx> and frees).
-      final cRet = func.returnType.isAnyNativeObject
+      // @NitroResult returns: malloc'd [1B tag][4B len][payload] blob.
+      final cRet = func.isResult
+          ? 'uint8_t*'
+          : func.returnType.isAnyNativeObject
           ? 'int64_t'
           : isCustomTypeRet
+          ? 'uint8_t*'
+          : isVariantRet
           ? 'uint8_t*'
           : isEnumRet
           ? 'int64_t'
@@ -509,10 +491,14 @@ class CppBridgeGenerator {
           : func.returnType.name == 'double?' ? 'uint8_t*'
           : func.returnType.name == 'bool?' ? 'uint8_t*'
           : func.returnType.name == 'DateTime?' ? 'uint8_t*'
+          : func.returnType.name == 'uint64?' ? 'uint8_t*'
           : func.returnType.isTypedData
           ? 'uint8_t*'
           : _typeToC(func.returnType.name);
-      final dflt = _defaultValue(cRet);
+      // Result methods must never return nullptr — Dart reads res[0] unconditionally.
+      final dflt = func.isResult
+          ? '_nitro_desktop_result_err("native error")'
+          : _defaultValue(cRet);
       // instanceId is included for API consistency with the JNI path; g_impl ignores it.
       final paramParts = <String>['int64_t instanceId'];
       for (final p in func.params) {
@@ -523,9 +509,11 @@ class CppBridgeGenerator {
           paramParts.add(_callbackParamToC(p, enumNames, structNames: structNames, recordNames: recordNames, variantNames: variantNames));
         } else {
           // Nullable prims use const uint8_t* (raw byte pointer via NitroOptXxx layout).
+          // Maps stay on _typeToC (uint8_t*) — matches the bridge.g.h declaration.
+          final isMapParam = p.type.name.startsWith('Map<');
           final cType = isEnumParam
               ? 'int64_t'
-              : ((isStructParam || isRecordParam) ? 'void*' : _typeToC(p.type.name));
+              : ((isStructParam || (isRecordParam && !isMapParam)) ? 'void*' : _typeToC(p.type.name));
           paramParts.add('$cType ${p.name}');
         }
         if (p.type.isTypedData) paramParts.add('size_t ${p.name}_length'); // matches Dart FFI Size type
@@ -549,19 +537,20 @@ class CppBridgeGenerator {
       } else {
         writer.line('    if (!g_impl) { $funcNotInit; return $dflt; }');
       }
-      _emitNullableStructParamGuards(
-        writer,
-        func.params,
-        structNames,
-        func.dartName,
-        func.returnType.name == 'void' ? 'return;' : 'return $dflt;',
-      );
       writer.line('    try {');
       final callArgs = <String>[];
       for (final p in func.params) {
         final base = p.type.name.replaceFirst('?', '');
-        if (p.type.name == 'int?') {
+        final isNullableParam = p.type.isNullable || p.type.name.endsWith('?');
+        if (p.type.isFunction) {
+          callArgs.add(_emitDesktopCallbackWrapper(
+            writer, spec, p, enumNames, structNames, recordNames, variantNames,
+          ));
+        } else if (p.type.name == 'int?' || p.type.name == 'DateTime?') {
           writer.line('        std::optional<int64_t> _opt_${p.name} = (${p.name} == nullptr || ${p.name}[0] == 0) ? std::nullopt : std::make_optional(*reinterpret_cast<const int64_t*>(${p.name} + 1));');
+          callArgs.add('_opt_${p.name}');
+        } else if (p.type.name == 'uint64?') {
+          writer.line('        std::optional<uint64_t> _opt_${p.name} = (${p.name} == nullptr || ${p.name}[0] == 0) ? std::nullopt : std::make_optional(*reinterpret_cast<const uint64_t*>(${p.name} + 1));');
           callArgs.add('_opt_${p.name}');
         } else if (p.type.name == 'double?') {
           writer.line('        std::optional<double> _opt_${p.name} = (${p.name} == nullptr || ${p.name}[0] == 0) ? std::nullopt : std::make_optional(*reinterpret_cast<const double*>(${p.name} + 1));');
@@ -570,11 +559,20 @@ class CppBridgeGenerator {
           writer.line('        std::optional<bool> _opt_${p.name} = (${p.name} == nullptr || ${p.name}[0] == 0) ? std::nullopt : std::make_optional(${p.name}[1] != 0);');
           callArgs.add('_opt_${p.name}');
         } else if (base == 'String') {
-          callArgs.add('std::string(${p.name})');
+          if (isNullableParam) {
+            // Null Dart string arrives as nullptr — never construct std::string from it.
+            callArgs.add('${p.name} == nullptr ? std::optional<std::string>(std::nullopt) : std::make_optional(std::string(${p.name}))');
+          } else {
+            callArgs.add('std::string(${p.name})');
+          }
         } else if (structNames.contains(base)) {
-          callArgs.add('*static_cast<const $base*>(${p.name})');
-        } else if (p.type.isRecord) {
-          if (p.type.isNullable) {
+          if (isNullableParam) {
+            callArgs.add('${p.name} == nullptr ? std::optional<$base>(std::nullopt) : std::make_optional(*static_cast<const $base*>(${p.name}))');
+          } else {
+            callArgs.add('*static_cast<const $base*>(${p.name})');
+          }
+        } else if (p.type.isRecord || variantNames.contains(base)) {
+          if (isNullableParam) {
             writer.line('        NitroCppBuffer _buf_${p.name} = { nullptr, 0 };');
             writer.line('        if (${p.name} != nullptr) {');
             writer.line('            _buf_${p.name}.data = (const uint8_t*)${p.name} + 4;');
@@ -599,31 +597,80 @@ class CppBridgeGenerator {
           // @NitroCustomType: pass raw byte buffer pointer (user's native codec decodes)
           callArgs.add(p.name);
         } else if (enumNames.contains(base)) {
-          callArgs.add('static_cast<$base>(${p.name})');
+          if (isNullableParam) {
+            // Nullable enums use the -1 wire sentinel (never a valid nativeValue).
+            callArgs.add('${p.name} == -1 ? std::optional<$base>(std::nullopt) : std::make_optional(static_cast<$base>(${p.name}))');
+          } else {
+            callArgs.add('static_cast<$base>(${p.name})');
+          }
         } else {
           callArgs.add(p.name);
         }
       }
       final callArgStr = callArgs.join(', ');
 
-      if (func.returnType.name == 'void') {
+      final isNullableRet = func.returnType.isNullable || func.returnType.name.endsWith('?');
+      if (func.isResult) {
+        // @NitroResult: impl signals the error case by throwing; the ok value
+        // is wrapped in the [1B tag][4B len][payload] blob Dart expects.
+        if (retBase == 'double') {
+          writer.line('        double _val = g_impl->${func.dartName}($callArgStr);');
+          writer.line('        NitroRecordWriter _w;');
+          writer.line('        _w.writeDouble(_val);');
+        } else if (retBase == 'int') {
+          writer.line('        int64_t _val = g_impl->${func.dartName}($callArgStr);');
+          writer.line('        NitroRecordWriter _w;');
+          writer.line('        _w.writeInt(_val);');
+        } else if (retBase == 'bool') {
+          writer.line('        bool _val = g_impl->${func.dartName}($callArgStr);');
+          writer.line('        NitroRecordWriter _w;');
+          writer.line('        _w.writeBool(_val);');
+        } else {
+          writer.line('        std::string _val = g_impl->${func.dartName}($callArgStr);');
+          writer.line('        NitroRecordWriter _w;');
+          writer.line('        _w.writeString(_val);');
+        }
+        writer.line('        return _nitro_desktop_result_blob(0, _w);');
+      } else if (func.returnType.name == 'void') {
         writer.line('        g_impl->${func.dartName}($callArgStr);');
+      } else if (retBase == 'String' && isNullableRet) {
+        writer.line('        std::optional<std::string> _res = g_impl->${func.dartName}($callArgStr);');
+        writer.line('        return _res.has_value() ? strdup(_res->c_str()) : nullptr;');
       } else if (func.returnType.name == 'String') {
         writer.line('        std::string _res = g_impl->${func.dartName}($callArgStr);');
         writer.line('        return strdup(_res.c_str());');
+      } else if (isEnumRet && isNullableRet) {
+        writer.line('        std::optional<$retBase> _res = g_impl->${func.dartName}($callArgStr);');
+        writer.line('        return _res.has_value() ? static_cast<int64_t>(*_res) : -1LL;');
       } else if (isEnumRet) {
         writer.line('        return static_cast<int64_t>(g_impl->${func.dartName}($callArgStr));');
+      } else if (isStructRet && isNullableRet) {
+        writer.line('        std::optional<$retBase> _res = g_impl->${func.dartName}($callArgStr);');
+        writer.line('        if (!_res.has_value()) { return nullptr; }');
+        writer.line('        $retBase* _ptr = ($retBase*)malloc(sizeof($retBase));');
+        writer.line('        *_ptr = *_res;');
+        writer.line('        return _ptr;');
       } else if (isStructRet) {
         final stName = func.returnType.name.replaceFirst('?', '');
         writer.line('        $stName _res = g_impl->${func.dartName}($callArgStr);');
         writer.line('        $stName* _ptr = ($stName*)malloc(sizeof($stName));');
         writer.line('        *_ptr = _res;');
         writer.line('        return _ptr;');
-      } else if (func.returnType.name == 'int?') {
+      } else if (isVariantRet) {
+        // Impl returns a malloc'd [4B len][payload] block (toNativeBuffer / _to_native).
+        writer.line('        NitroCppBuffer _res = g_impl->${func.dartName}($callArgStr);');
+        writer.line('        return (uint8_t*)_res.data;');
+      } else if (func.returnType.name == 'int?' || func.returnType.name == 'DateTime?') {
         writer.line('        std::optional<int64_t> _opt = g_impl->${func.dartName}($callArgStr);');
         writer.line('        uint8_t* _res = (uint8_t*)malloc(9);');
         writer.line('        _res[0] = _opt.has_value() ? 1 : 0;');
         writer.line('        if (_opt.has_value()) { *reinterpret_cast<int64_t*>(_res + 1) = _opt.value(); }');
+        writer.line('        return _res;');
+      } else if (func.returnType.name == 'uint64?') {
+        writer.line('        std::optional<uint64_t> _opt = g_impl->${func.dartName}($callArgStr);');
+        writer.line('        uint8_t* _res = (uint8_t*)malloc(9);');
+        writer.line('        _res[0] = _opt.has_value() ? 1 : 0;');
+        writer.line('        if (_opt.has_value()) { *reinterpret_cast<uint64_t*>(_res + 1) = _opt.value(); }');
         writer.line('        return _res;');
       } else if (func.returnType.name == 'double?') {
         writer.line('        std::optional<double> _opt = g_impl->${func.dartName}($callArgStr);');
@@ -655,8 +702,10 @@ class CppBridgeGenerator {
           writer.line('        return _res;');
         }
       } else if (isRecordRet) {
+        // Impl returns a malloc'd [4B len][payload] block (toNativeBuffer);
+        // cast matches the declared C return type (void* records, uint8_t* maps).
         writer.line('        NitroCppBuffer _res = g_impl->${func.dartName}($callArgStr);');
-        writer.line('        return (void*)_res.data;');
+        writer.line('        return ($cRet)_res.data;');
       } else if (isZeroCopyTypedDataRet) {
         writer.line('        NitroCppBuffer _res = g_impl->${func.dartName}($callArgStr);');
         writer.line('        if (_res.size > (size_t)INT64_MAX || (_res.size > 0 && _res.data == nullptr)) {');
@@ -675,17 +724,27 @@ class CppBridgeGenerator {
       } else {
         writer.line('        return g_impl->${func.dartName}($callArgStr);');
       }
-      writer.line('    } catch (const std::exception& e) {');
-      writer.line(func.isAsync
-          ? '        nitro_report_error("CppException", e.what(), nullptr, nullptr);'
-          : '        _nitro_desktop_err(_nitro_err, "CppException", e.what());');
-      if (func.returnType.name != 'void') writer.line('        return $dflt;');
-      writer.line('    } catch (...) {');
-      writer.line(func.isAsync
-          ? '        nitro_report_error("CppException", "Unknown C++ exception", nullptr, nullptr);'
-          : '        _nitro_desktop_err(_nitro_err, "CppException", "Unknown C++ exception");');
-      if (func.returnType.name != 'void') writer.line('        return $dflt;');
-      writer.line('    }');
+      if (func.isResult) {
+        // @NitroResult: the thrown message becomes the NitroErr payload —
+        // Dart reads res[0] unconditionally, so never surface via NitroError.
+        writer.line('    } catch (const std::exception& e) {');
+        writer.line('        return _nitro_desktop_result_err(e.what());');
+        writer.line('    } catch (...) {');
+        writer.line('        return _nitro_desktop_result_err("Unknown C++ exception");');
+        writer.line('    }');
+      } else {
+        writer.line('    } catch (const std::exception& e) {');
+        writer.line(func.isAsync
+            ? '        nitro_report_error("CppException", e.what(), nullptr, nullptr);'
+            : '        _nitro_desktop_err(_nitro_err, "CppException", e.what());');
+        if (func.returnType.name != 'void') writer.line('        return $dflt;');
+        writer.line('    } catch (...) {');
+        writer.line(func.isAsync
+            ? '        nitro_report_error("CppException", "Unknown C++ exception", nullptr, nullptr);'
+            : '        _nitro_desktop_err(_nitro_err, "CppException", "Unknown C++ exception");');
+        if (func.returnType.name != 'void') writer.line('        return $dflt;');
+        writer.line('    }');
+      }
       writer.line('}');
       writer.blankLine();
     }
@@ -707,10 +766,18 @@ class CppBridgeGenerator {
         writer.line('    ${libStem}_clear_error();');
         writer.line('    if (_nitro_err) { _nitro_err->hasError = 0; }  // S8: clear slot');
         writer.line('    if (!g_impl) { $notInitOut; return ${_defaultValue(cType)}; }');
+        final isNullableProp = prop.type.isNullable || prop.type.name.endsWith('?');
         writer.line('    try {');
         if (prop.type.name == 'String') {
           writer.line('        std::string _res = g_impl->get_${prop.dartName}();');
           writer.line('        return strdup(_res.c_str());');
+        } else if (prop.type.name == 'String?') {
+          writer.line('        std::optional<std::string> _res = g_impl->get_${prop.dartName}();');
+          writer.line('        return _res.has_value() ? strdup(_res->c_str()) : nullptr;');
+        } else if (isEnum && isNullableProp) {
+          final enumName = prop.type.name.replaceFirst('?', '');
+          writer.line('        std::optional<$enumName> _res = g_impl->get_${prop.dartName}();');
+          writer.line('        return _res.has_value() ? static_cast<int64_t>(*_res) : -1LL;');
         } else if (isEnum) {
           writer.line('        return static_cast<int64_t>(g_impl->get_${prop.dartName}());');
         } else if (prop.type.name == 'int?') {
@@ -738,8 +805,9 @@ class CppBridgeGenerator {
           writer.line('        if (_opt.has_value()) { *reinterpret_cast<int64_t*>(_res + 1) = _opt.value(); }');
           writer.line('        return _res;');
         } else if (isVariantProp) {
+          // Impl returns a malloc'd [4B len][payload] block (toNativeBuffer).
           writer.line('        NitroCppBuffer _res = g_impl->get_${prop.dartName}();');
-          writer.line('        return _res.data;');
+          writer.line('        return (uint8_t*)_res.data;');
         } else if (recordNames.contains(prop.type.name.replaceFirst('?', ''))) {
           writer.line('        NitroCppBuffer _res = g_impl->get_${prop.dartName}();');
           writer.line('        return (void*)_res.data;');
@@ -762,7 +830,8 @@ class CppBridgeGenerator {
       if (prop.hasSetter) {
         final isStructParam = structNames.contains(prop.type.name.replaceFirst('?', ''));
         final isRecordParam = recordNames.contains(prop.type.name.replaceFirst('?', ''));
-        final isNullablePrimSetter = prop.type.name == 'int?' || prop.type.name == 'double?' || prop.type.name == 'bool?' || prop.type.name == 'DateTime?';
+        final isNullablePropSetter = prop.type.isNullable || prop.type.name.endsWith('?');
+        final isNullablePrimSetter = prop.type.name == 'int?' || prop.type.name == 'double?' || prop.type.name == 'bool?' || prop.type.name == 'DateTime?' || prop.type.name == 'uint64?';
         final paramCType = isNullablePrimSetter
             ? 'const uint8_t*'
             : isVariantProp
@@ -776,6 +845,11 @@ class CppBridgeGenerator {
         writer.line('    try {');
         if (prop.type.name == 'String') {
           writer.line('        g_impl->set_${prop.dartName}(std::string(value));');
+        } else if (prop.type.name == 'String?') {
+          writer.line('        g_impl->set_${prop.dartName}(value == nullptr ? std::optional<std::string>(std::nullopt) : std::make_optional(std::string(value)));');
+        } else if (isEnum && isNullablePropSetter) {
+          final enumName = prop.type.name.replaceFirst('?', '');
+          writer.line('        g_impl->set_${prop.dartName}(value == -1 ? std::optional<$enumName>(std::nullopt) : std::make_optional(static_cast<$enumName>(value)));');
         } else if (isEnum) {
           final enumName = prop.type.name.replaceFirst('?', '');
           writer.line('        g_impl->set_${prop.dartName}(static_cast<$enumName>(value));');
@@ -792,8 +866,10 @@ class CppBridgeGenerator {
             writer.line('        NitroCppBuffer _buf = { value + 4, (size_t)*(int32_t*)value };');
             writer.line('        g_impl->set_${prop.dartName}(_buf);');
           }
-        } else if (prop.type.name == 'int?') {
+        } else if (prop.type.name == 'int?' || prop.type.name == 'DateTime?') {
           writer.line('        g_impl->set_${prop.dartName}(value == nullptr || value[0] == 0 ? std::nullopt : std::make_optional(*reinterpret_cast<const int64_t*>(value + 1)));');
+        } else if (prop.type.name == 'uint64?') {
+          writer.line('        g_impl->set_${prop.dartName}(value == nullptr || value[0] == 0 ? std::nullopt : std::make_optional(*reinterpret_cast<const uint64_t*>(value + 1)));');
         } else if (prop.type.name == 'double?') {
           writer.line('        g_impl->set_${prop.dartName}(value == nullptr || value[0] == 0 ? std::nullopt : std::make_optional(*reinterpret_cast<const double*>(value + 1)));');
         } else if (prop.type.name == 'bool?') {
@@ -801,15 +877,10 @@ class CppBridgeGenerator {
         } else if (isStructParam) {
           final stName = prop.type.name.replaceFirst('?', '');
           if (_isNullableStructType(prop.type, structNames)) {
-            _emitNullableStructPointerGuard(
-              writer,
-              paramName: 'value',
-              ownerName: 'set_${prop.dartName}',
-              returnStatement: 'return;',
-              indent: '        ',
-            );
+            writer.line('        g_impl->set_${prop.dartName}(value == nullptr ? std::optional<$stName>(std::nullopt) : std::make_optional(*static_cast<const $stName*>(value)));');
+          } else {
+            writer.line('        g_impl->set_${prop.dartName}(*static_cast<const $stName*>(value));');
           }
-          writer.line('        g_impl->set_${prop.dartName}(*static_cast<const $stName*>(value));');
         } else {
           writer.line('        g_impl->set_${prop.dartName}(value);');
         }
@@ -833,6 +904,295 @@ class CppBridgeGenerator {
     }
 
     writer.line('} // extern "C"');
+  }
+
+  /// Emits a lambda that adapts a raw Dart NativeCallable function pointer to
+  /// the impl-facing `std::function<R(Args...)>` signature declared in
+  /// native.g.h, and returns the call-argument expression.
+  ///
+  /// The DECLARED C parameter type (from [_callbackParamToC]) is a documented
+  /// lie shared with the JNI/Swift paths — the true Dart-side ABI routes every
+  /// scalar through Int64 GP registers (doubles as raw bits, bools as 0/1,
+  /// enums as nativeValue), flattens expandable structs to one Int64 per field,
+  /// passes records/variants as malloc'd [4B len][payload] pointers that Dart
+  /// frees, and returns strings as malloc'd Utf8 pointers that native frees.
+  /// Mirrors `dart_callback_helpers.dart` — keep in sync.
+  static String _emitDesktopCallbackWrapper(
+    CodeWriter writer,
+    BridgeSpec spec,
+    BridgeParam p,
+    Set<String> enumNames,
+    Set<String> structNames,
+    Set<String> recordNames,
+    Set<String> variantNames,
+  ) {
+    final callback = p.type;
+    final retDart = callback.functionReturnType ?? 'void';
+    final retBase = retDart.replaceFirst('?', '');
+
+    // ── True ABI signature ──────────────────────────────────────────────────
+    String trueRet;
+    if (retBase == 'void') {
+      trueRet = 'void';
+    } else if (retBase == 'String') {
+      trueRet = 'const char*';
+    } else {
+      trueRet = 'int64_t'; // int, double (bits), bool, enum (nativeValue), DateTime, uint64
+    }
+
+    final trueParams = <String>[];
+    final implParams = <String>[];
+    final argConversions = <String>[];
+    final rawArgs = <String>[];
+    var supported = true;
+
+    for (var i = 0; i < callback.functionParams.length; i++) {
+      final cp = callback.functionParams[i];
+      final base = cp.name.replaceFirst('?', '');
+      final isNullableCp = cp.name.endsWith('?');
+      final implType = CppInterfaceGenerator.cppCallbackParamType(
+        cp.name, enumNames, structNames, recordNames.union(variantNames),
+        bridgeType: cp,
+      );
+      implParams.add('$implType _a$i');
+
+      if (isNullableCp && (base == 'int' || base == 'double' || base == 'bool')) {
+        // Nullable prims expand to (isNull, valueBits) — not yet mapped to the
+        // single-param impl signature. Fall back to the raw pointer.
+        supported = false;
+        break;
+      }
+      if (structNames.contains(base)) {
+        final st = spec.structs.firstWhere((s) => s.name == base);
+        final numericOnly = st.fields.every((f) {
+          final fb = f.type.name.replaceFirst('?', '');
+          return fb == 'int' || fb == 'double' || fb == 'bool';
+        });
+        if (!numericOnly) {
+          supported = false;
+          break;
+        }
+        for (final f in st.fields) {
+          final fb = f.type.name.replaceFirst('?', '');
+          trueParams.add('int64_t');
+          if (fb == 'double') {
+            argConversions.add('int64_t _b${i}_${f.name}; { double _d = _a$i.${f.name}; memcpy(&_b${i}_${f.name}, &_d, 8); }');
+            rawArgs.add('_b${i}_${f.name}');
+          } else if (fb == 'bool') {
+            rawArgs.add('(_a$i.${f.name} ? (int64_t)1 : (int64_t)0)');
+          } else {
+            rawArgs.add('(int64_t)_a$i.${f.name}');
+          }
+        }
+      } else if (recordNames.contains(base) || variantNames.contains(base) || cp.isRecord) {
+        trueParams.add('const uint8_t*');
+        // Malloc'd [4B len][payload]; ownership passes to Dart (frees after decode).
+        argConversions.add('uint8_t* _blob$i = (uint8_t*)malloc(4 + _a$i.size);');
+        argConversions.add('int32_t _bl$i = (int32_t)_a$i.size;');
+        argConversions.add('memcpy(_blob$i, &_bl$i, 4);');
+        argConversions.add('if (_a$i.size > 0) { memcpy(_blob$i + 4, _a$i.data, _a$i.size); }');
+        rawArgs.add('_blob$i');
+      } else if (base == 'double') {
+        trueParams.add('int64_t');
+        argConversions.add('int64_t _b$i; { double _d = _a$i; memcpy(&_b$i, &_d, 8); }');
+        rawArgs.add('_b$i');
+      } else if (base == 'bool') {
+        trueParams.add('int64_t');
+        rawArgs.add('(_a$i ? (int64_t)1 : (int64_t)0)');
+      } else if (enumNames.contains(base)) {
+        trueParams.add('int64_t');
+        rawArgs.add('static_cast<int64_t>(_a$i)');
+      } else if (base == 'int' || base == 'DateTime' || base == 'uint64') {
+        trueParams.add('int64_t');
+        rawArgs.add('(int64_t)_a$i');
+      } else {
+        supported = false;
+        break;
+      }
+    }
+
+    if (!supported) {
+      // Unmapped shape — pass the raw pointer through; std::function conversion
+      // will surface a compile error at the exact site if the shapes disagree.
+      return p.name;
+    }
+
+    final implRet = CppInterfaceGenerator.cppCallbackReturnType(retDart, enumNames);
+    final trueSig = '$trueRet (*)(${trueParams.isEmpty ? 'void' : trueParams.join(', ')})';
+    final rawName = '_rawfn_${p.name}';
+    final fnName = '_fn_${p.name}';
+
+    writer.line('        auto $rawName = reinterpret_cast<$trueSig>(${p.name});');
+    writer.line('        std::function<$implRet(${implParams.map((s) => s.substring(0, s.lastIndexOf(' '))).join(', ')})> $fnName =');
+    writer.line('            [$rawName](${implParams.join(', ')}) -> $implRet {');
+    for (final c in argConversions) {
+      writer.line('            $c');
+    }
+    final callExpr = '$rawName(${rawArgs.join(', ')})';
+    if (retBase == 'void') {
+      writer.line('            $callExpr;');
+    } else if (retBase == 'String') {
+      writer.line('            const char* _rp = $callExpr;');
+      writer.line('            std::string _rs = _rp ? std::string(_rp) : std::string();');
+      writer.line('            if (_rp) { free((void*)_rp); }');
+      writer.line('            return _rs;');
+    } else if (retBase == 'double') {
+      writer.line('            int64_t _rb = $callExpr;');
+      writer.line('            double _rd; memcpy(&_rd, &_rb, 8);');
+      writer.line('            return _rd;');
+    } else if (retBase == 'bool') {
+      writer.line('            return $callExpr != 0;');
+    } else if (enumNames.contains(retBase)) {
+      writer.line('            return static_cast<$retBase>($callExpr);');
+    } else {
+      writer.line('            return $callExpr;');
+    }
+    writer.line('            };');
+    return fnName;
+  }
+
+  /// Emits the `Hybrid<Class>::emit_*` stream definitions shared by the
+  /// mixed-platform desktop dispatch AND the all-platforms-C++ direct path
+  /// (cpp_direct_emitter.dart). Signatures come from CppInterfaceGenerator
+  /// so the definitions always match the declarations in *.native.g.h.
+  static void _emitCppStreamEmitters(
+    CodeWriter writer,
+    BridgeSpec spec,
+    String className,
+    Set<String> enumNames,
+    Set<String> structNames,
+    Set<String> variantNames,
+  ) {
+    // Shared batch-post helper (kArray of kInt64: [count, items...]) — same
+    // wire shape the JNI path uses; Dart's asyncExpand unpacks batch[0]=count.
+    final hasBatchStreams = spec.streams.any(
+      (st) =>
+          st.isBatch &&
+          const {'int', 'double', 'bool'}.contains(st.itemType.name.replaceFirst('?', '')),
+    );
+    if (hasBatchStreams) {
+      writer.line('static bool _nitro_desktop_post_batch(int64_t port, const int64_t* items, int32_t count) {');
+      writer.line('    const int32_t total = count + 1;');
+      writer.line('    Dart_CObject* objs = (Dart_CObject*)malloc((size_t)total * sizeof(Dart_CObject));');
+      writer.line('    Dart_CObject** ptrs = (Dart_CObject**)malloc((size_t)total * sizeof(Dart_CObject*));');
+      writer.line('    if (!objs || !ptrs) { free(objs); free(ptrs); return false; }');
+      writer.line('    objs[0].type = Dart_CObject_kInt64; objs[0].value.as_int64 = (int64_t)count; ptrs[0] = &objs[0];');
+      writer.line('    for (int32_t i = 0; i < count; i++) {');
+      writer.line('        objs[i+1].type = Dart_CObject_kInt64; objs[i+1].value.as_int64 = items[i]; ptrs[i+1] = &objs[i+1];');
+      writer.line('    }');
+      writer.line('    Dart_CObject arr; arr.type = Dart_CObject_kArray;');
+      writer.line('    arr.value.as_array.length = (intptr_t)total; arr.value.as_array.values = ptrs;');
+      writer.line('    bool ok = Dart_PostCObject_DL(port, &arr);');
+      writer.line('    free(objs); free(ptrs);');
+      writer.line('    return ok;');
+      writer.line('}');
+      writer.blankLine();
+    }
+
+    for (final stream in spec.streams) {
+      final base = stream.itemType.name.replaceFirst('?', '');
+      final isNullable = stream.itemType.isNullable || stream.itemType.name.endsWith('?');
+      final isStruct = structNames.contains(base);
+      final isVariantStream = variantNames.contains(base);
+      final isRecord = stream.itemType.isRecord || isVariantStream;
+      final isEnum = enumNames.contains(base);
+      // Signature must match the declaration in native.g.h exactly.
+      final itemCpp = CppInterfaceGenerator.cppReturnTypeFor(
+        stream.itemType,
+        enumNames,
+        structNames,
+        {...spec.recordTypes.map((r) => r.name), ...variantNames},
+      );
+      // Dart's batch unpack ([count, items...]) only exists for numeric items;
+      // batch-annotated String streams fall back to plain per-item posting.
+      final isBatchNumeric = stream.isBatch && const {'int', 'double', 'bool'}.contains(base);
+
+      writer.line('void Hybrid$className::emit_${stream.dartName}($itemCpp item) {');
+      writer.line('    int64_t port = g_port_${stream.dartName};');
+      writer.line('    if (port == 0) { return; }');
+
+      // Nullable items: post kNull for std::nullopt, else unwrap and fall through.
+      // (Nullable records/variants stay NitroCppBuffer — empty buffer means null.)
+      if (isNullable && !isRecord) {
+        writer.line('    if (!item.has_value()) {');
+        writer.line('        Dart_CObject _null_obj;');
+        writer.line('        _null_obj.type = Dart_CObject_kNull;');
+        writer.line('        if (!Dart_PostCObject_DL(port, &_null_obj)) { g_port_${stream.dartName} = 0; }');
+        writer.line('        return;');
+        writer.line('    }');
+      }
+      final v = (isNullable && !isRecord) ? '(*item)' : 'item';
+
+      if (isBatchNumeric) {
+        // Single-item batch — semantically identical; native-side accumulation
+        // is an optimization the desktop path does not need.
+        final bits = base == 'double'
+            ? 'int64_t _bits; { double _d = $v; memcpy(&_bits, &_d, 8); }'
+            : base == 'bool'
+                ? 'int64_t _bits = $v ? 1 : 0;'
+                : 'int64_t _bits = $v;';
+        writer.line('    $bits');
+        writer.line('    if (!_nitro_desktop_post_batch(port, &_bits, 1)) { g_port_${stream.dartName} = 0; }');
+        writer.line('}');
+        writer.blankLine();
+        continue;
+      }
+
+      if (isStruct) {
+        writer.line('    $base* st_ptr = nullptr;');
+      }
+      writer.line('    Dart_CObject obj;');
+      if (base == 'double') {
+        writer.line('    obj.type = Dart_CObject_kDouble;');
+        writer.line('    obj.value.as_double = $v;');
+      } else if (base == 'int' || base == 'DateTime') {
+        writer.line('    obj.type = Dart_CObject_kInt64;');
+        writer.line('    obj.value.as_int64 = $v;');
+      } else if (base == 'uint64') {
+        writer.line('    obj.type = Dart_CObject_kInt64;');
+        writer.line('    obj.value.as_int64 = (int64_t)$v;');
+      } else if (base == 'bool') {
+        // Use kInt64 (0/1) — kBool is unreliable on some Android versions.
+        writer.line('    obj.type = Dart_CObject_kInt64;');
+        writer.line('    obj.value.as_int64 = $v ? 1 : 0;');
+      } else if (base == 'String') {
+        writer.line('    obj.type = Dart_CObject_kString;');
+        writer.line('    obj.value.as_string = (char*)$v.c_str();');
+      } else if (isEnum) {
+        writer.line('    obj.type = Dart_CObject_kInt64;');
+        writer.line('    obj.value.as_int64 = static_cast<int64_t>($v);');
+      } else if (isStruct) {
+        writer.line('    st_ptr = ($base*)malloc(sizeof($base));');
+        writer.line('    if (!st_ptr) { return; }');
+        writer.line('    *st_ptr = $v;');
+        writer.line('    obj.type = Dart_CObject_kInt64;');
+        writer.line('    obj.value.as_int64 = (intptr_t)st_ptr;');
+      } else if (isRecord) {
+        // Record/variant: item is a non-owning payload view (no length prefix).
+        // Copy into a malloc'd [4B len][payload] block; Dart frees after decode.
+        writer.line('    uint8_t* _blob = (uint8_t*)malloc(4 + item.size);');
+        writer.line('    if (!_blob) { return; }');
+        writer.line('    int32_t _len = (int32_t)item.size;');
+        writer.line('    memcpy(_blob, &_len, 4);');
+        writer.line('    if (item.size > 0) { memcpy(_blob + 4, item.data, item.size); }');
+        writer.line('    obj.type = Dart_CObject_kInt64;');
+        writer.line('    obj.value.as_int64 = (intptr_t)_blob;');
+      } else {
+        writer.line('    obj.type = Dart_CObject_kNull;');
+      }
+      writer.line('    if (!Dart_PostCObject_DL(port, &obj)) {');
+      writer.line('        g_port_${stream.dartName} = 0;');
+      if (isStruct) {
+        writer.line('        free(st_ptr);');
+      } else if (isRecord) {
+        writer.line('        free(_blob);');
+      }
+      writer.line('        return;');
+      writer.line('    }');
+      writer.line('}');
+      writer.blankLine();
+    }
+
   }
 
   static String _typeToC(String dartType, {bool isNativeHandle = false}) {

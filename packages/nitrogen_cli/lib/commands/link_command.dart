@@ -208,6 +208,11 @@ class ModuleInfo {
   final bool isAndroidCpp;
   final bool iosIsCpp;
   final bool macosIsCpp;
+
+  /// True when `windows: NativeImpl.cpp` — the shared src/ stub is compiled on
+  /// Windows too (windows/CMakeLists.txt delegates to ../src), so the
+  /// auto-register guard must include _WIN32.
+  final bool windowsIsCpp;
   const ModuleInfo({
     required this.lib,
     required this.module,
@@ -216,6 +221,7 @@ class ModuleInfo {
     this.isAndroidCpp = false,
     this.iosIsCpp = false,
     this.macosIsCpp = false,
+    this.windowsIsCpp = false,
   });
   Map<String, String> toMap() => {'lib': lib, 'module': module};
 }
@@ -255,6 +261,7 @@ List<ModuleInfo> discoverModuleInfos(
           isAndroidCpp: analyzer.supportsAndroid,
           iosIsCpp: analyzer.supportsIosCpp,
           macosIsCpp: analyzer.supportsMacosCpp,
+          windowsIsCpp: analyzer.supportsWindows,
         ),
       );
     }
@@ -1325,6 +1332,7 @@ void linkCppImplStubs(List<ModuleInfo> moduleInfos, {String baseDir = '.'}) {
         isAndroidCpp: m.isAndroidCpp,
         iosIsCpp: m.iosIsCpp,
         macosIsCpp: m.macosIsCpp,
+        windowsIsCpp: m.windowsIsCpp,
       ),
     );
   }
@@ -2537,6 +2545,23 @@ void _linkDesktopCMake(
       );
       modified = true;
     }
+  }
+
+  if (usesSharedSrc) {
+    // Shared-src FFI plugins have no `${PLUGIN_NAME}` CMake target — the
+    // library target lives in ../src/CMakeLists.txt, which already carries the
+    // Nitro include directories. Appending target_include_directories on the
+    // undefined `${PLUGIN_NAME}` is a hard CMake configure error, so skip it —
+    // and remove the block if an earlier nitrogen version appended it.
+    final staleIncl = RegExp(
+      r'\n?target_include_directories\(\s*\$\{PLUGIN_NAME\}[^)]+\)\n?',
+    ).firstMatch(content);
+    if (staleIncl != null) {
+      content = content.replaceFirst(staleIncl.group(0)!, '\n');
+      modified = true;
+    }
+    if (modified) cmakeFile.writeAsStringSync(content);
+    return;
   }
 
   if (!content.contains(r'${NITRO_NATIVE}')) {

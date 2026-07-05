@@ -13,11 +13,18 @@ String autoRegisterPlatformGuard({
   required bool isAndroidCpp,
   required bool iosIsCpp,
   required bool macosIsCpp,
+  bool windowsIsCpp = false,
 }) {
-  // All apple + android/linux → no guard needed
-  if (isNativeCpp && macosIsCpp && iosIsCpp) return '';
+  // All apple + android/linux + windows → no guard needed
+  if (isNativeCpp && macosIsCpp && iosIsCpp && windowsIsCpp) return '';
 
   final conditions = <String>[];
+  if (windowsIsCpp) {
+    // windows/CMakeLists.txt delegates to the shared src/ directory, so the
+    // stub is compiled on Windows too — the guard must include _WIN32 or the
+    // impl silently never registers on Windows.
+    conditions.add('defined(_WIN32)');
+  }
   if (isNativeCpp) {
     // isNativeCpp is true when Android OR Linux (or both) use C++.
     // When only Linux uses C++ (isAndroidCpp is false), Android must be excluded:
@@ -52,12 +59,14 @@ String cppImplStubContent({
   bool isAndroidCpp = false,
   required bool iosIsCpp,
   required bool macosIsCpp,
+  bool windowsIsCpp = false,
 }) {
   final guard = autoRegisterPlatformGuard(
     isNativeCpp: isNativeCpp,
     isAndroidCpp: isAndroidCpp,
     iosIsCpp: iosIsCpp,
     macosIsCpp: macosIsCpp,
+    windowsIsCpp: windowsIsCpp,
   );
   final needsTargetConditionals = iosIsCpp || macosIsCpp;
 

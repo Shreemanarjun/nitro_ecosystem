@@ -111,14 +111,19 @@ for (final st in spec.structs) {
 }
 // Ask native side to create an impl for this key and return the assigned instanceId.
 // The pointer is accessed lazily on first use — _dylib is already set at this point.
-writer.line('    final _keyPtr = _instanceKey.toNativeUtf8();');
+// calloc on both ends (allocate + free) — zero-initialized as defense in
+// depth for the native key buffer. Functionally equivalent to malloc here:
+// package:ffi's malloc.free/calloc.free both resolve to the same underlying
+// free (CoTaskMemFree on Windows, libc free() elsewhere) regardless of which
+// allocator produced the pointer, so this is a style choice, not a bug fix.
+writer.line('    final _keyPtr = _instanceKey.toNativeUtf8(allocator: calloc);');
 writer.line('    try {');
 writer.line('      _instanceId = _createInstancePtr(_keyPtr);');
 writer.line('      if (_instanceId < 0) {');
 writer.line("        throw StateError('${spec.lib}: failed to create native instance for key \"\$_instanceKey\".');");
 writer.line('      }');
 writer.line('    } finally {');
-writer.line('      malloc.free(_keyPtr);');
+writer.line('      calloc.free(_keyPtr);');
 writer.line('    }');
 writer.line('    NitroInstanceRegistry.register(_instanceId, this);');
 writer.line('    initSw.stop();');

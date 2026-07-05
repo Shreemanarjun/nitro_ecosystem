@@ -1,3 +1,8 @@
+## 0.5.5
+
+- **Fixed: `nitrogen link` broke Linux/Windows FFI-plugin CMake configure** — for shared-src FFI plugins (`add_subdirectory(../src)`), link appended `target_include_directories(${PLUGIN_NAME} …)` where no `${PLUGIN_NAME}` target exists — a hard CMake configure error. The block is now skipped for shared-src plugins (the library target in `src/CMakeLists.txt` already carries the include dirs) and removed on re-link if an earlier version added it.
+- **Fixed: `src/Hybrid<Module>.cpp` stub never registered on Windows** — the auto-register `#if` guard omitted `_WIN32` for `windows: NativeImpl.cpp` modules (the MSVC branch was unreachably nested inside the Linux guard), so the impl silently never registered. `ModuleInfo` now carries `windowsIsCpp` and the guard includes `defined(_WIN32)`.
+
 ## 0.5.4
 
 - **Fixed: Multi-spec C++ plugin — `NitroOptInt64` typedef conflict in generated C++ bridge headers** — `cpp_record_generator.dart` now excludes the built-in library record types (`NitroOptInt64`, `NitroOptFloat64`, `NitroOptBool`, `NitroNullableInt`, `NitroNullableDouble`, `NitrNullableBool`) from C++ forward declarations and struct definitions. These types are already defined as anonymous C typedefs in the generated `bridge.g.h`; emitting a named `struct NitroOptInt64;` in the same compilation unit caused a hard compiler error (`definition of type 'NitroOptInt64' conflicts with typedef of the same name`).

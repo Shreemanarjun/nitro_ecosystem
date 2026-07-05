@@ -126,10 +126,14 @@ void main() {
       expect(out, contains('if (_instanceId < 0)'));
     });
 
-    test('_init frees the key Utf8 pointer', () {
+    test('_init allocates and frees the key Utf8 pointer with calloc', () {
       final out = DartFfiGenerator.generate(_spec());
-      // malloc (not calloc) is used for Utf8 key pointer — uninitialized is fine
-      expect(out, contains('malloc.free(_keyPtr)'));
+      // Both ends use calloc (allocate + free) — a style choice, not a
+      // correctness requirement: package:ffi's malloc.free/calloc.free both
+      // resolve to the same OS-level free regardless of which allocator
+      // produced the pointer, so mixing malloc/calloc here was never unsafe.
+      expect(out, contains('toNativeUtf8(allocator: calloc)'));
+      expect(out, contains('calloc.free(_keyPtr)'));
     });
 
     test('dispose() calls _destroyInstancePtr before removing from _instances', () {

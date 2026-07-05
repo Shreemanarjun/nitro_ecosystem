@@ -1,7 +1,5 @@
 part of '../cpp_bridge_generator.dart';
 
-String _cppScalarType(String dartType, Set<String> enumNames, Set<String> structNames) => CppBridgeGenerator._cppScalarType(dartType, enumNames, structNames);
-
 String _typeToC(String dartType) => CppBridgeGenerator._typeToC(dartType);
 
 String _callbackParamToC(BridgeParam param, Set<String> enumNames, {Set<String>? structNames, Set<String>? recordNames}) => CppBridgeGenerator._callbackParamToC(param, enumNames, structNames: structNames, recordNames: recordNames);
@@ -183,61 +181,13 @@ String _generateCppDirect(BridgeSpec spec) {
   }
   if (spec.streams.isNotEmpty) writer.blankLine();
 
-  // Stream emit helpers (called by user's C++ implementation)
-  for (final stream in spec.streams) {
-    final isStruct = structNames.contains(stream.itemType.name.replaceFirst('?', ''));
-    final isRecord = stream.itemType.isRecord;
-    final isEnum = enumNames.contains(stream.itemType.name.replaceFirst('?', ''));
-    final itemCpp = _cppScalarType(stream.itemType.name, enumNames, structNames);
-    writer.line('void Hybrid$className::emit_${stream.dartName}($itemCpp item) {');
-    writer.line('    int64_t port = g_port_${stream.dartName};');
-    writer.line('    if (port == 0) { return; }');
-
-    if (isStruct) {
-      final stName = stream.itemType.name.replaceFirst('?', '');
-      writer.line('    $stName* st_ptr = nullptr;');
-    }
-    writer.line('    Dart_CObject obj;');
-    if (stream.itemType.name == 'double') {
-      writer.line('    obj.type = Dart_CObject_kDouble;');
-      writer.line('    obj.value.as_double = item;');
-    } else if (stream.itemType.name == 'int') {
-      writer.line('    obj.type = Dart_CObject_kInt64;');
-      writer.line('    obj.value.as_int64 = item;');
-    } else if (stream.itemType.name == 'bool') {
-      // Use kInt64 (0/1) — kBool is unreliable on some Android versions.
-      writer.line('    obj.type = Dart_CObject_kInt64;');
-      writer.line('    obj.value.as_int64 = item ? 1 : 0;');
-    } else if (isEnum) {
-      writer.line('    obj.type = Dart_CObject_kInt64;');
-      writer.line('    obj.value.as_int64 = static_cast<int64_t>(item);');
-    } else if (isStruct) {
-      final stName = stream.itemType.name.replaceFirst('?', '');
-      writer.line('    st_ptr = ($stName*)malloc(sizeof($stName));');
-      writer.line('    *st_ptr = item;');
-      writer.line('    obj.type = Dart_CObject_kInt64;');
-      writer.line('    obj.value.as_int64 = (intptr_t)st_ptr;');
-    } else if (isRecord) {
-      // item is void* pointing to malloc'd encoded record bytes
-      // (wire format: [4-byte payload_len][payload]).
-      // Dart reads it via RecordReader.fromNative and frees with malloc.free.
-      writer.line('    obj.type = Dart_CObject_kInt64;');
-      writer.line('    obj.value.as_int64 = (intptr_t)item;');
-    } else {
-      writer.line('    obj.type = Dart_CObject_kNull;');
-    }
-    writer.line('    if (!Dart_PostCObject_DL(port, &obj)) {');
-    writer.line('        g_port_${stream.dartName} = 0;');
-    if (isStruct) {
-      writer.line('        free(st_ptr);');
-    } else if (isRecord) {
-      writer.line('        free(item);');
-    }
-    writer.line('        return;');
-    writer.line('    }');
-    writer.line('}');
-    writer.blankLine();
-  }
+  // Stream emit helpers (called by user's C++ implementation) — shared with
+  // the mixed-platform desktop dispatch so definitions always match the
+  // declarations in *.native.g.h (signatures via CppInterfaceGenerator).
+  CppBridgeGenerator._emitCppStreamEmitters(
+    writer, spec, className, enumNames, structNames,
+    spec.variants.map((v) => v.name).toSet(),
+  );
 
   // S8: helper that writes to the out-param error slot.
   // Keeps the generated catch blocks compact and consistent.

@@ -1,5 +1,6 @@
 import '../../../bridge_spec.dart';
 import '../../code_writer.dart';
+import 'cpp_interface_generator.dart';
 
 /// Generates `*.impl.g.cpp` — a concrete C++ implementation starter for
 /// desktop targets (`NativeImpl.cpp`).
@@ -10,6 +11,9 @@ import '../../code_writer.dart';
 ///
 /// The generated file subclasses `Hybrid${ClassName}` and stubs every
 /// method/property with `throw std::runtime_error("Not implemented: ...")`.
+///
+/// All signatures are produced by [CppInterfaceGenerator]'s type helpers so
+/// the starter can never drift from the abstract class in `*.native.g.h`.
 class CppImplGenerator {
   static String generate(BridgeSpec spec) {
     if (!spec.hasCppImpl) {
@@ -40,13 +44,18 @@ class CppImplGenerator {
     w.writeln('//   2. Add this file to your CMakeLists.txt (target_sources).');
     w.writeln('//   3. Call ${libStem}_register_impl(&myImpl) during plugin/app init.');
     w.writeln('//   4. Call ${libStem}_register_impl(nullptr) in teardown.');
+    w.writeln('//');
+    w.writeln('// Ownership conventions:');
+    w.writeln('//   • Record/variant/tuple RETURNS: return writer.toNativeBuffer() (or');
+    w.writeln('//     nitro_<Variant>_to_native) — a malloc\'d [4B len][payload] block that');
+    w.writeln('//     Dart frees after decoding. Returning a view of a local buffer dangles.');
+    w.writeln('//   • Record/variant PARAMS and emit_* stream items are non-owning payload');
+    w.writeln('//     views (no length prefix) — copy if you need them after the call.');
+    w.writeln('//   • @zeroCopy TypedData returns are NOT copied by the bridge: the pointed-to');
+    w.writeln('//     bytes must stay alive until Dart is done (e.g. store them in a member).');
     w.writeln('');
     w.writeln('#include "$ifaceHeader"');
-    if (spec.streams.isNotEmpty) {
-      w.writeln('#include <stdexcept>');
-    } else {
-      w.writeln('#include <stdexcept>');
-    }
+    w.writeln('#include <stdexcept>');
     w.writeln('');
     w.writeln('// ── Implementation ───────────────────────────────────────────────────────────');
     w.writeln('');
@@ -61,26 +70,26 @@ class CppImplGenerator {
       for (final func in spec.functions) {
         w.writeln('');
         if (func.isNativeAsync) {
-          final params = _methodParams(func.params, enumNames, structNames, recordNames);
-          params.add('int64_t dartPort');
+          final params = CppInterfaceGenerator.cppMethodParamsFor(
+            func.params, enumNames, structNames, recordNames,
+          )..add('int64_t dartPort');
           w.writeln('    void ${func.dartName}(${params.join(', ')}) override {');
-          w.writeln('        // TODO: post result via dart_post_cobject_DL(dartPort, ...)');
+          w.writeln('        // TODO: post result via Dart_PostCObject_DL(dartPort, ...)');
           w.writeln('        throw std::runtime_error("Not implemented: ${func.dartName}");');
           w.writeln('    }');
         } else {
-          final ret = _returnType(func.returnType, enumNames, structNames, recordNames);
-          final params = _methodParams(func.params, enumNames, structNames, recordNames);
+          final ret = CppInterfaceGenerator.cppReturnTypeFor(
+            func.returnType, enumNames, structNames, recordNames,
+          );
+          final params = CppInterfaceGenerator.cppMethodParamsFor(
+            func.params, enumNames, structNames, recordNames,
+          );
           w.writeln('    $ret ${func.dartName}(${params.join(', ')}) override {');
-          if (ret == 'void') {
-            w.writeln('        // TODO: implement ${func.dartName}');
-            w.writeln('        throw std::runtime_error("Not implemented: ${func.dartName}");');
-          } else {
-            final placeholder = _placeholderReturn(ret);
-            w.writeln('        // TODO: implement ${func.dartName}');
-            w.writeln('        throw std::runtime_error("Not implemented: ${func.dartName}");');
-            if (placeholder != null) {
-              w.writeln('        // return $placeholder;');
-            }
+          w.writeln('        // TODO: implement ${func.dartName}');
+          w.writeln('        throw std::runtime_error("Not implemented: ${func.dartName}");');
+          final placeholder = _placeholderReturn(ret);
+          if (placeholder != null) {
+            w.writeln('        // return $placeholder;');
           }
           w.writeln('    }');
         }
@@ -91,8 +100,10 @@ class CppImplGenerator {
       w.writeln('');
       w.writeln('    // ── Properties ───────────────────────────────────────────────────────────');
       for (final prop in spec.properties) {
-        final cppType = _scalarType(prop.type, enumNames, structNames, recordNames);
         if (prop.hasGetter) {
+          final cppType = CppInterfaceGenerator.cppReturnTypeFor(
+            prop.type, enumNames, structNames, recordNames,
+          );
           w.writeln('');
           w.writeln('    $cppType get_${prop.dartName}() const override {');
           w.writeln('        // TODO: implement get_${prop.dartName}');
@@ -100,7 +111,9 @@ class CppImplGenerator {
           w.writeln('    }');
         }
         if (prop.hasSetter) {
-          final paramType = _paramType(prop.type, enumNames, structNames, recordNames);
+          final paramType = CppInterfaceGenerator.cppParamTypeFor(
+            prop.type, enumNames, structNames, recordNames,
+          );
           w.writeln('');
           w.writeln('    void set_${prop.dartName}($paramType value) override {');
           w.writeln('        // TODO: implement set_${prop.dartName}');
@@ -118,7 +131,9 @@ class CppImplGenerator {
       w.writeln('    // Example — start emitting from a background thread:');
       w.writeln('    //');
       for (final stream in spec.streams) {
-        final itemCpp = _scalarType(stream.itemType, enumNames, structNames, recordNames);
+        final itemCpp = CppInterfaceGenerator.cppReturnTypeFor(
+          stream.itemType, enumNames, structNames, recordNames,
+        );
         w.writeln('    //   std::thread([this]{ emit_${stream.dartName}(/* $itemCpp value */); }).detach();');
       }
     }
@@ -146,136 +161,13 @@ class CppImplGenerator {
     return w.toString();
   }
 
-  // ── Type helpers ─────────────────────────────────────────────────────────
-
-  static String _returnType(
-    BridgeType bt,
-    Set<String> enumNames,
-    Set<String> structNames,
-    Set<String> recordNames,
-  ) {
-    if (bt.isNativeHandle) return 'void*';
-    if (bt.isRecord) return 'NitroCppBuffer';
-    if (bt.isPointer) return _pointerType(bt, enumNames, structNames, recordNames);
-    final base = bt.name.replaceFirst('?', '');
-    if (base == 'void') return 'void';
-    if (base == 'String') return 'std::string';
-    if (enumNames.contains(base)) return base;
-    if (structNames.contains(base)) return base;
-    if (recordNames.contains(base)) return 'NitroCppBuffer';
-    if (_isTypedData(base)) return 'NitroCppBuffer';
-    return _primitive(base);
-  }
-
-  static String _paramType(
-    BridgeType bt,
-    Set<String> enumNames,
-    Set<String> structNames,
-    Set<String> recordNames,
-  ) {
-    if (bt.isNativeHandle) return 'void*';
-    if (bt.isRecord) return 'NitroCppBuffer';
-    if (bt.isPointer) return _pointerType(bt, enumNames, structNames, recordNames);
-    final base = bt.name.replaceFirst('?', '');
-    if (base == 'String') return 'const std::string&';
-    if (enumNames.contains(base)) return base;
-    if (structNames.contains(base)) return 'const $base&';
-    if (recordNames.contains(base)) return 'NitroCppBuffer';
-    if (_isTypedData(base)) return _typedDataPtr(base);
-    return _primitive(base);
-  }
-
-  static String _scalarType(
-    BridgeType bt,
-    Set<String> enumNames,
-    Set<String> structNames,
-    Set<String> recordNames,
-  ) => _returnType(bt, enumNames, structNames, recordNames);
-
-  static String _pointerType(
-    BridgeType bt,
-    Set<String> enumNames,
-    Set<String> structNames,
-    Set<String> recordNames,
-  ) {
-    final inner = bt.pointerInnerType;
-    if (inner == null) return 'void*';
-    final innerBase = inner.replaceFirst('?', '');
-    if (innerBase == 'void' || innerBase == 'Void') return 'void*';
-    if (innerBase == 'String') return 'std::string*';
-    if (enumNames.contains(innerBase)) return '$innerBase*';
-    if (structNames.contains(innerBase)) return '$innerBase*';
-    if (recordNames.contains(innerBase)) return 'NitroCppBuffer*';
-    final prim = _primitive(innerBase);
-    return prim == 'void*' ? 'void*' : '$prim*';
-  }
-
-  static List<String> _methodParams(
-    List<BridgeParam> params,
-    Set<String> enumNames,
-    Set<String> structNames,
-    Set<String> recordNames,
-  ) {
-    final parts = <String>[];
-    for (final p in params) {
-      if (p.type.isFunction) {
-        parts.add(_callbackParam(p, enumNames));
-        continue;
-      }
-      if (p.type.isRecord) {
-        parts.add('NitroCppBuffer ${p.name}');
-        continue;
-      }
-      if (p.type.isPointer) {
-        parts.add('${_pointerType(p.type, enumNames, structNames, recordNames)} ${p.name}');
-        continue;
-      }
-      final base = p.type.name.replaceFirst('?', '');
-      if (_isTypedData(base)) {
-        parts.add('${_typedDataPtr(base)} ${p.name}');
-        parts.add('size_t ${p.name}_length');
-      } else if (base == 'String') {
-        parts.add('const std::string& ${p.name}');
-      } else if (structNames.contains(base)) {
-        parts.add('const $base& ${p.name}');
-      } else if (enumNames.contains(base)) {
-        parts.add('$base ${p.name}');
-      } else if (recordNames.contains(base)) {
-        parts.add('NitroCppBuffer ${p.name}');
-      } else {
-        parts.add('${_primitive(base)} ${p.name}');
-      }
-    }
-    return parts;
-  }
-
-  static String _callbackParam(BridgeParam param, Set<String> enumNames) {
-    final cb = param.type;
-    final ret = _cbType(cb.functionReturnType ?? 'void', enumNames);
-    final params = cb.functionParams.map((p) => _cbType(p.name, enumNames, bridgeType: p)).join(', ');
-    return '$ret (*${param.name})(${params.isEmpty ? 'void' : params})';
-  }
-
-  static String _cbType(String dartType, Set<String> enumNames, {BridgeType? bridgeType}) {
-    if (bridgeType?.isPointer == true) {
-      final inner = bridgeType!.pointerInnerType;
-      if (inner == null || inner == 'Void' || inner == 'void') return 'void*';
-      if (inner == 'Utf8' || inner == 'Char') return 'char*';
-      final prim = _primitive(inner.replaceFirst('?', ''));
-      return prim == 'void*' ? 'void*' : '$prim*';
-    }
-    final base = dartType.replaceFirst('?', '');
-    if (base == 'void') return 'void';
-    if (enumNames.contains(base)) return 'int64_t';
-    if (base == 'bool') return 'int8_t';
-    if (base == 'String') return 'const char*';
-    return _primitive(base);
-  }
-
-  /// Returns a commented placeholder return expression for non-void methods,
+  /// Returns a commented placeholder return expression for non-void methods.
   static String? _placeholderReturn(String cppType) {
     switch (cppType) {
+      case 'void':
+        return null;
       case 'int64_t':
+      case 'uint64_t':
         return '0';
       case 'double':
         return '0.0';
@@ -289,82 +181,7 @@ class CppImplGenerator {
         return 'nullptr';
     }
     if (cppType.endsWith('*')) return 'nullptr';
+    if (cppType.startsWith('std::optional<')) return 'std::nullopt';
     return null;
-  }
-
-  static bool _isTypedData(String base) {
-    const td = {
-      'Uint8List',
-      'Int8List',
-      'Int16List',
-      'Int32List',
-      'Uint16List',
-      'Uint32List',
-      'Float32List',
-      'Float64List',
-      'Int64List',
-      'Uint64List',
-    };
-    return td.contains(base);
-  }
-
-  static String _typedDataPtr(String base) {
-    switch (base) {
-      case 'Uint8List':
-        return 'const uint8_t*';
-      case 'Int8List':
-        return 'const int8_t*';
-      case 'Int16List':
-        return 'const int16_t*';
-      case 'Uint16List':
-        return 'const uint16_t*';
-      case 'Int32List':
-        return 'const int32_t*';
-      case 'Uint32List':
-        return 'const uint32_t*';
-      case 'Float32List':
-        return 'const float*';
-      case 'Float64List':
-        return 'const double*';
-      case 'Int64List':
-        return 'const int64_t*';
-      case 'Uint64List':
-        return 'const uint64_t*';
-      default:
-        return 'const uint8_t*';
-    }
-  }
-
-  static String _primitive(String base) {
-    switch (base) {
-      case 'int':
-        return 'int64_t';
-      case 'double':
-        return 'double';
-      case 'bool':
-        return 'bool';
-      case 'Uint8':
-        return 'uint8_t';
-      case 'Int8':
-        return 'int8_t';
-      case 'Int16':
-        return 'int16_t';
-      case 'Int32':
-        return 'int32_t';
-      case 'Uint16':
-        return 'uint16_t';
-      case 'Uint32':
-        return 'uint32_t';
-      case 'Float':
-        return 'float';
-      case 'Double':
-        return 'double';
-      case 'Int64':
-        return 'int64_t';
-      case 'Uint64':
-        return 'uint64_t';
-      default:
-        return 'void*';
-    }
   }
 }
