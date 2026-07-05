@@ -37,6 +37,13 @@ target_compile_definitions(${PLUGIN_NAME} PRIVATE FLUTTER_PLUGIN_IMPL)
 
 # Source include directories and library dependencies.
 
+# Exposes include/benchmark/benchmark_plugin.h to the example app's
+# generated_plugin_registrant.cc, which #includes it to call
+# BenchmarkPluginRegisterWithRegistrar(). Without this, the registrant fails
+# to compile with "benchmark/benchmark_plugin.h: file not found".
+target_include_directories(${PLUGIN_NAME} INTERFACE
+  "${CMAKE_CURRENT_SOURCE_DIR}/include")
+
 target_link_libraries(${PLUGIN_NAME} PRIVATE flutter)
 target_link_libraries(${PLUGIN_NAME} PRIVATE PkgConfig::GTK)
 

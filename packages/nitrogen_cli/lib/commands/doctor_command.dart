@@ -1520,6 +1520,12 @@ class DoctorCommand extends Command {
     // directly would produce false errors.
     bool usesSharedSrc(String cmake) => cmake.contains('add_subdirectory') && (cmake.contains('"../src"') || cmake.contains(r'"${CMAKE_CURRENT_SOURCE_DIR}/../src"'));
 
+    // Multi-spec plugins (e.g. several @NitroModule specs sharing one package)
+    // build their Nitro module libraries via the shared src/ subdirectory AND
+    // their own separate `<pkg>_plugin` registrant target. Detect that shape
+    // so we can verify its public include/ dir is exposed — see below.
+    bool hasOwnPluginTarget(String cmake) => RegExp(r'add_library\(\s*\$\{PLUGIN_NAME\}').hasMatch(cmake);
+
     // When the platform CMakeLists delegates to src/, check src/CMakeLists.txt
     // as the authoritative source of truth for dart_api_dl.c / bridge.g.cpp.
     final srcCmake = File(p.join(root.path, 'src', 'CMakeLists.txt'));
@@ -1563,6 +1569,21 @@ class DoctorCommand extends Command {
             warn(winSec, '$lib.bridge.g.cpp not linked in windows/CMakeLists.txt', hint: 'Run: nitrogen link');
           }
         }
+        // Multi-spec plugins with their own registrant target must expose
+        // include/ via INTERFACE, or generated_plugin_registrant.cc in the
+        // example app fails with "Cannot open include file: '<pkg>/<pkg>_plugin...h'".
+        if (sharedSrc && hasOwnPluginTarget(cmake) && Directory(p.join(winDir.path, 'include')).existsSync()) {
+          final exposed = RegExp(r'target_include_directories\(\s*\$\{PLUGIN_NAME\}\s+INTERFACE[^)]*\/include').hasMatch(cmake);
+          if (exposed) {
+            ok(winSec, 'Registrant include/ dir exposed via target_include_directories(\${PLUGIN_NAME} INTERFACE ...)');
+          } else {
+            err(
+              winSec,
+              'Registrant include/ dir not exposed on \${PLUGIN_NAME} — generated_plugin_registrant.cc will fail to find the plugin header',
+              hint: 'Run: nitrogen link',
+            );
+          }
+        }
       }
     }
 
@@ -1599,6 +1620,21 @@ class DoctorCommand extends Command {
             ok(linuxSec, sharedSrc ? '$lib.bridge.g.cpp compiled via src/CMakeLists.txt' : '$lib.bridge.g.cpp linked in linux/CMakeLists.txt');
           } else {
             warn(linuxSec, '$lib.bridge.g.cpp not linked in linux/CMakeLists.txt', hint: 'Run: nitrogen link');
+          }
+        }
+        // Multi-spec plugins with their own registrant target must expose
+        // include/ via INTERFACE, or generated_plugin_registrant.cc in the
+        // example app fails with "fatal error: '<pkg>/<pkg>_plugin.h' file not found".
+        if (sharedSrc && hasOwnPluginTarget(cmake) && Directory(p.join(linuxDir.path, 'include')).existsSync()) {
+          final exposed = RegExp(r'target_include_directories\(\s*\$\{PLUGIN_NAME\}\s+INTERFACE[^)]*\/include').hasMatch(cmake);
+          if (exposed) {
+            ok(linuxSec, 'Registrant include/ dir exposed via target_include_directories(\${PLUGIN_NAME} INTERFACE ...)');
+          } else {
+            err(
+              linuxSec,
+              'Registrant include/ dir not exposed on \${PLUGIN_NAME} — generated_plugin_registrant.cc will fail to find the plugin header',
+              hint: 'Run: nitrogen link',
+            );
           }
         }
       }

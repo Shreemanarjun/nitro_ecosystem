@@ -1733,6 +1733,163 @@ target_include_directories(\${PLUGIN_NAME} PUBLIC
     });
   });
 
+  // ── shared-src desktop CMake — two distinct plugin shapes ───────────────────
+  //
+  // "Shared-src" plugins delegate their Nitro module libraries to ../src via
+  // add_subdirectory. That marker alone is ambiguous between two shapes:
+  //   1. Pure shared-src (single-spec FFI plugins, e.g. nitro_torch): the
+  //      Nitro module library IS the only target; `${PLUGIN_NAME}` is never
+  //      defined. Appending target_include_directories(${PLUGIN_NAME} ...) is
+  //      a hard CMake configure error ("target not found").
+  //   2. Multi-spec plugins (e.g. a package bundling several @NitroModule
+  //      specs, each becoming its own shared library, PLUS a separate
+  //      `<pkg>_plugin` registrant target, e.g. "benchmark_plugin.cc"):
+  //      `${PLUGIN_NAME}` IS a real target here. Its public include/ dir must
+  //      be exposed via INTERFACE, or the example app's
+  //      generated_plugin_registrant.cc fails to find `<pkg>/<pkg>_plugin.h`.
+  group('linkLinux / linkWindows — shared-src plugin shapes', () {
+    // Shape 1: pure shared-src, no separate plugin_class target (nitro_torch-style).
+    const pureSharedSrcCmake = '''cmake_minimum_required(VERSION 3.10)
+set(PROJECT_NAME "my_plugin")
+project(\${PROJECT_NAME} LANGUAGES CXX)
+
+add_subdirectory("\${CMAKE_CURRENT_SOURCE_DIR}/../src" "\${CMAKE_CURRENT_BINARY_DIR}/shared")
+
+set(my_plugin_bundled_libraries
+  \$<TARGET_FILE:my_plugin>
+  PARENT_SCOPE
+)
+''';
+
+    // Shape 2: multi-spec — shared src/ for module libs, PLUS its own
+    // registrant target (mirrors benchmark/linux/CMakeLists.txt exactly).
+    String multiSpecCmake({bool withStaleIncludeBlock = false}) => '''cmake_minimum_required(VERSION 3.10)
+set(PROJECT_NAME "my_plugin")
+project(\${PROJECT_NAME} LANGUAGES C CXX)
+
+set(PLUGIN_NAME "my_plugin_plugin")
+
+add_subdirectory("\${CMAKE_CURRENT_SOURCE_DIR}/../src" nitro_modules)
+
+add_library(\${PLUGIN_NAME} SHARED
+  "my_plugin_plugin.cc"
+)
+${withStaleIncludeBlock ? 'target_include_directories(\${PLUGIN_NAME} INTERFACE\n  "\${CMAKE_CURRENT_SOURCE_DIR}/include")\n' : ''}
+target_link_libraries(\${PLUGIN_NAME} PRIVATE flutter)
+
+set(my_plugin_bundled_libraries
+  \$<TARGET_FILE:my_plugin>
+  PARENT_SCOPE
+)
+''';
+
+    File writeCmake(Directory dir, String platform, String content) {
+      final platDir = Directory(p.join(dir.path, platform))..createSync(recursive: true);
+      final f = File(p.join(platDir.path, 'CMakeLists.txt'));
+      f.writeAsStringSync(content);
+      return f;
+    }
+
+    void makeIncludeDir(Directory dir, String platform) {
+      Directory(p.join(dir.path, platform, 'include', 'my_plugin')).createSync(recursive: true);
+    }
+
+    for (final platform in ['linux', 'windows']) {
+      void link() => platform == 'linux'
+          ? linkLinux('my_plugin', ['my_plugin'], '/nitro/native', baseDir: tmp.path)
+          : linkWindows('my_plugin', ['my_plugin'], '/nitro/native', baseDir: tmp.path);
+
+      group('($platform)', () {
+        test('shape 1 (pure shared-src, no own target): never adds target_include_directories(\${PLUGIN_NAME})', () {
+          final cmake = writeCmake(tmp, platform, pureSharedSrcCmake);
+          link();
+          final content = cmake.readAsStringSync();
+          expect(content, isNot(contains(r'target_include_directories(${PLUGIN_NAME}')));
+        });
+
+        test('shape 1: strips a stale target_include_directories(\${PLUGIN_NAME}) block left by an older nitrogen version', () {
+          final stale = '$pureSharedSrcCmake\ntarget_include_directories(\${PLUGIN_NAME} PRIVATE "\${NITRO_NATIVE}")\n';
+          final cmake = writeCmake(tmp, platform, stale);
+          link();
+          final content = cmake.readAsStringSync();
+          expect(content, isNot(contains(r'target_include_directories(${PLUGIN_NAME}')));
+        });
+
+        test('shape 2 (multi-spec, own target + include/ present): adds INTERFACE include_directories', () {
+          makeIncludeDir(tmp, platform);
+          final cmake = writeCmake(tmp, platform, multiSpecCmake());
+          link();
+          final content = cmake.readAsStringSync();
+          expect(content, contains(r'target_include_directories(${PLUGIN_NAME} INTERFACE'));
+          expect(content, contains(r'${CMAKE_CURRENT_SOURCE_DIR}/include'));
+        });
+
+        test('shape 2: added include_directories block appears after add_library(\${PLUGIN_NAME} ...)', () {
+          makeIncludeDir(tmp, platform);
+          final cmake = writeCmake(tmp, platform, multiSpecCmake());
+          link();
+          final content = cmake.readAsStringSync();
+          final addLibIdx = content.indexOf(r'add_library(${PLUGIN_NAME}');
+          final inclIdx = content.indexOf(r'target_include_directories(${PLUGIN_NAME} INTERFACE');
+          expect(addLibIdx, isNot(-1));
+          expect(inclIdx, isNot(-1));
+          expect(addLibIdx, lessThan(inclIdx));
+        });
+
+        test('shape 2: preserves an already-correct INTERFACE include_directories block unchanged', () {
+          // Compare after-first-link to after-second-link (not "never linked"
+          // vs "linked once") — the unrelated NITRO_NATIVE auto-injection also
+          // fires on the first call against this deliberately minimal fixture,
+          // same as every other idempotency test in this file.
+          makeIncludeDir(tmp, platform);
+          final cmake = writeCmake(tmp, platform, multiSpecCmake(withStaleIncludeBlock: true));
+          link();
+          final afterFirst = cmake.readAsStringSync();
+          expect('target_include_directories'.allMatches(afterFirst).length, equals(1), reason: 'the pre-existing correct block must not be duplicated on first link');
+          link();
+          final afterSecond = cmake.readAsStringSync();
+          expect(afterSecond, equals(afterFirst), reason: 'an already-correct block must not be touched or duplicated');
+        });
+
+        test('shape 2: does not add include_directories when include/ directory does not exist on disk', () {
+          // No makeIncludeDir() call — nothing to expose, so nothing should be added.
+          final cmake = writeCmake(tmp, platform, multiSpecCmake());
+          link();
+          final content = cmake.readAsStringSync();
+          expect(content, isNot(contains(r'target_include_directories(${PLUGIN_NAME}')));
+        });
+
+        test('shape 2: idempotent across repeated link runs', () {
+          makeIncludeDir(tmp, platform);
+          final cmake = writeCmake(tmp, platform, multiSpecCmake());
+          link();
+          final afterFirst = cmake.readAsStringSync();
+          link();
+          final afterSecond = cmake.readAsStringSync();
+          expect(afterFirst, equals(afterSecond));
+          expect('target_include_directories'.allMatches(afterSecond).length, equals(1));
+        });
+
+        test('shape 2: does not disturb an existing unrelated target_include_directories(\${PLUGIN_NAME} PRIVATE ...) block', () {
+          makeIncludeDir(tmp, platform);
+          const withPrivateBlock = '''cmake_minimum_required(VERSION 3.10)
+set(PLUGIN_NAME "my_plugin_plugin")
+add_subdirectory("\${CMAKE_CURRENT_SOURCE_DIR}/../src" nitro_modules)
+add_library(\${PLUGIN_NAME} SHARED "my_plugin_plugin.cc")
+target_include_directories(\${PLUGIN_NAME} PRIVATE "\${CMAKE_CURRENT_SOURCE_DIR}/internal")
+''';
+          final cmake = writeCmake(tmp, platform, withPrivateBlock);
+          link();
+          final content = cmake.readAsStringSync();
+          // The pre-existing PRIVATE block for internal headers must survive...
+          expect(content, contains(r'target_include_directories(${PLUGIN_NAME} PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/internal")'));
+          // ...alongside the newly-added INTERFACE block for the registrant header.
+          expect(content, contains(r'target_include_directories(${PLUGIN_NAME} INTERFACE'));
+        });
+      });
+    }
+  });
+
   // ── generateCMake cross-platform ────────────────────────────────────────────
 
   group('generateCMake — cross-platform link libraries', () {

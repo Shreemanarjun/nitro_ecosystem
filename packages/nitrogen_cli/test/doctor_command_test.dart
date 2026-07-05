@@ -1264,6 +1264,93 @@ $macosPlatformEntry
     });
   });
 
+  // ── Windows/Linux — multi-spec registrant include/ dir check ────────────────
+  //
+  // Covers the shape a plugin bundling several @NitroModule specs takes: it
+  // shares src/ for its Nitro module libraries (add_subdirectory) AND builds
+  // its own separate `<pkg>_plugin` registrant target. That target's public
+  // include/ dir must be exposed via INTERFACE, or the example app's
+  // generated_plugin_registrant.cc can't find `<pkg>/<pkg>_plugin.h`.
+
+  for (final platform in ['Windows', 'Linux']) {
+    group('$platform section — multi-spec registrant include/ dir', () {
+      Directory scaffoldMultiSpec({
+        bool withIncludeDir = true,
+        bool withInterfaceIncludeBlock = true,
+      }) {
+        final root = _scaffold(specs: [(name: 'math', isCpp: false)]);
+        final platDir = Directory(p.join(root.path, platform.toLowerCase()))..createSync();
+
+        if (withIncludeDir) {
+          Directory(p.join(platDir.path, 'include', 'my_plugin')).createSync(recursive: true);
+        }
+
+        final cmake = StringBuffer()
+          ..writeln('set(NITRO_NATIVE "/some/path")')
+          ..writeln('set(PLUGIN_NAME "my_plugin_plugin")')
+          ..writeln('add_subdirectory("\${CMAKE_CURRENT_SOURCE_DIR}/../src" nitro_modules)')
+          ..writeln('add_library(\${PLUGIN_NAME} SHARED "my_plugin_plugin.cc")');
+        if (withInterfaceIncludeBlock) {
+          cmake.writeln('target_include_directories(\${PLUGIN_NAME} INTERFACE "\${CMAKE_CURRENT_SOURCE_DIR}/include")');
+        }
+        File(p.join(platDir.path, 'CMakeLists.txt')).writeAsStringSync(cmake.toString());
+
+        return root;
+      }
+
+      test('ok when include/ dir is exposed via INTERFACE include_directories', () {
+        final root = scaffoldMultiSpec();
+        addTearDown(() => root.deleteSync(recursive: true));
+        final result = _run(root);
+        final sec = result.sections.firstWhere((s) => s.title == platform);
+        expect(
+          sec.checks.any((c) => c.status == DoctorStatus.ok && c.label.contains('Registrant include/ dir exposed')),
+          isTrue,
+        );
+      });
+
+      test('error with "Run: nitrogen link" hint when include/ dir exists but is not exposed', () {
+        final root = scaffoldMultiSpec(withInterfaceIncludeBlock: false);
+        addTearDown(() => root.deleteSync(recursive: true));
+        final result = _run(root);
+        final sec = result.sections.firstWhere((s) => s.title == platform);
+        final check = sec.checks.firstWhere(
+          (c) => c.status == DoctorStatus.error && c.label.contains('Registrant include/ dir not exposed'),
+        );
+        expect(check.hint, contains('nitrogen link'));
+      });
+
+      test('no check emitted when include/ directory does not exist on disk (nothing to expose)', () {
+        final root = scaffoldMultiSpec(withIncludeDir: false, withInterfaceIncludeBlock: false);
+        addTearDown(() => root.deleteSync(recursive: true));
+        final result = _run(root);
+        final sec = result.sections.firstWhere((s) => s.title == platform);
+        expect(
+          sec.checks.any((c) => c.label.contains('Registrant include/ dir')),
+          isFalse,
+        );
+      });
+
+      test('no check emitted for a single-spec shared-src plugin with no own registrant target', () {
+        // Pure shared-src shape (e.g. nitro_torch-style): no add_library(${PLUGIN_NAME}
+        // ...) at all — the multi-spec check must not apply here.
+        final root = _scaffold(specs: [(name: 'math', isCpp: false)]);
+        final platDir = Directory(p.join(root.path, platform.toLowerCase()))..createSync();
+        File(p.join(platDir.path, 'CMakeLists.txt')).writeAsStringSync('''
+set(NITRO_NATIVE "/some/path")
+add_subdirectory("\${CMAKE_CURRENT_SOURCE_DIR}/../src" "\${CMAKE_CURRENT_BINARY_DIR}/shared")
+''');
+        addTearDown(() => root.deleteSync(recursive: true));
+        final result = _run(root);
+        final sec = result.sections.firstWhere((s) => s.title == platform);
+        expect(
+          sec.checks.any((c) => c.label.contains('Registrant include/ dir')),
+          isFalse,
+        );
+      });
+    });
+  }
+
   // ── Android — java.srcDirs check (AGP 8.x) ───────────────────────────────────
 
   group('Android — java.srcDirs check', () {

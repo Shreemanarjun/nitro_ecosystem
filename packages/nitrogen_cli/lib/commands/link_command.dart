@@ -2548,16 +2548,46 @@ void _linkDesktopCMake(
   }
 
   if (usesSharedSrc) {
-    // Shared-src FFI plugins have no `${PLUGIN_NAME}` CMake target — the
-    // library target lives in ../src/CMakeLists.txt, which already carries the
-    // Nitro include directories. Appending target_include_directories on the
-    // undefined `${PLUGIN_NAME}` is a hard CMake configure error, so skip it —
-    // and remove the block if an earlier nitrogen version appended it.
-    final staleIncl = RegExp(
-      r'\n?target_include_directories\(\s*\$\{PLUGIN_NAME\}[^)]+\)\n?',
-    ).firstMatch(content);
-    if (staleIncl != null) {
-      content = content.replaceFirst(staleIncl.group(0)!, '\n');
+    // Two distinct shapes share the "add_subdirectory(../src)" marker:
+    //   1. Pure shared-src (single-spec FFI plugins, e.g. nitro_torch): the
+    //      Nitro module library IS the only target; `${PLUGIN_NAME}` is
+    //      undefined. Appending target_include_directories on it is a hard
+    //      CMake configure error — strip any such block and stop.
+    //   2. Multi-spec plugins (e.g. benchmark: benchmark/benchmark_cpp/nitro_ar
+    //      sharing src/, PLUS their own `benchmark_plugin.cc` registrant
+    //      target): `${PLUGIN_NAME}` IS a real target here, separate from the
+    //      shared Nitro module libraries. Its public `include/` dir must stay
+    //      exposed via INTERFACE so the example app's
+    //      generated_plugin_registrant.cc can find `<pkg>/<pkg>_plugin.h`.
+    final hasOwnPluginTarget = RegExp(r'add_library\(\s*\$\{PLUGIN_NAME\}').hasMatch(content);
+
+    if (!hasOwnPluginTarget) {
+      final staleIncl = RegExp(
+        r'\n?target_include_directories\(\s*\$\{PLUGIN_NAME\}[^)]+\)\n?',
+      ).firstMatch(content);
+      if (staleIncl != null) {
+        content = content.replaceFirst(staleIncl.group(0)!, '\n');
+        modified = true;
+      }
+      if (modified) cmakeFile.writeAsStringSync(content);
+      return;
+    }
+
+    // hasOwnPluginTarget: ensure the registrant's public include/ dir is
+    // exposed, without disturbing any other target_include_directories call
+    // (e.g. a PRIVATE block for internal Nitro headers) that may already exist.
+    final includeDirLiteral = r'${CMAKE_CURRENT_SOURCE_DIR}/include';
+    final hasIncludeDirExposed = RegExp(
+      r'target_include_directories\(\s*\$\{PLUGIN_NAME\}\s+INTERFACE[^)]*\/include',
+    ).hasMatch(content);
+    if (!hasIncludeDirExposed && Directory(p.join(baseDir, platform, 'include')).existsSync()) {
+      final addLibMatch = RegExp(r'add_library\(\s*\$\{PLUGIN_NAME\}[^)]*\)').firstMatch(content);
+      final block = '\ntarget_include_directories(\${PLUGIN_NAME} INTERFACE\n  "$includeDirLiteral")\n';
+      if (addLibMatch != null) {
+        content = content.replaceFirst(addLibMatch.group(0)!, '${addLibMatch.group(0)!}\n$block');
+      } else {
+        content += block;
+      }
       modified = true;
     }
     if (modified) cmakeFile.writeAsStringSync(content);

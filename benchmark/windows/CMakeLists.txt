@@ -39,6 +39,13 @@ target_compile_definitions(${PLUGIN_NAME} PRIVATE FLUTTER_PLUGIN_IMPL)
 
 # Source include directories and library dependencies.
 
+# Exposes include/benchmark/benchmark_plugin_c_api.h to the example app's
+# generated_plugin_registrant.cc, which #includes it to call
+# BenchmarkPluginCApiRegisterWithRegistrar(). Without this, the registrant
+# fails with "Cannot open include file: 'benchmark/benchmark_plugin_c_api.h'".
+target_include_directories(${PLUGIN_NAME} INTERFACE
+  "${CMAKE_CURRENT_SOURCE_DIR}/include")
+
 target_link_libraries(${PLUGIN_NAME} PRIVATE flutter flutter_wrapper_plugin)
 
 # Bundle the Nitro module libraries next to the executable so
