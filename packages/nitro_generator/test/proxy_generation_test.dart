@@ -347,9 +347,13 @@ void main() {
 
     test('JNI+Swift release function does not free zero-copy field buffers', () {
       final out = CppBridgeGenerator.generate(structStreamSpec());
+      // Bound the slice at the JNI platform section (the release functions sit
+      // in the shared section before it). Note a small inline
+      // `#ifdef __ANDROID__` guard (the zero-copy pin release) legally lives
+      // INSIDE the release function, so the first #ifdef is not a valid bound.
       final releaseIdx = out.indexOf('my_camera_release_CameraFrame');
-      final platformGuardIdx = out.indexOf('#ifdef __ANDROID__');
-      final releaseBlock = out.substring(releaseIdx, platformGuardIdx);
+      final platformSectionIdx = out.indexOf('#include <jni.h>');
+      final releaseBlock = out.substring(releaseIdx, platformSectionIdx);
       expect(releaseBlock, isNot(contains('free(st_ptr->data)')));
     });
 

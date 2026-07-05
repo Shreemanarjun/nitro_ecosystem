@@ -240,12 +240,38 @@ void main() {
 
     test('emits shared struct release functions', () {
       final out = CppBridgeGenerator.generate(structStreamSpec());
-      // Should find the release function before the platform guards
+      // Should find the release function before the platform sections (the
+      // JNI prologue starts with the <jni.h> include). A small inline
+      // `#ifdef __ANDROID__` guard (zero-copy pin declaration) may legally
+      // precede it inside the shared section.
       final releasePos = out.indexOf('void my_camera_release_CameraFrame(void* ptr)');
-      final androidPos = out.indexOf('#ifdef __ANDROID__');
+      final jniSectionPos = out.indexOf('#include <jni.h>');
       expect(releasePos, isNot(-1));
-      expect(androidPos, isNot(-1));
-      expect(releasePos, lessThan(androidPos), reason: 'Release function should be in the shared section before platform guards');
+      expect(jniSectionPos, isNot(-1));
+      expect(releasePos, lessThan(jniSectionPos), reason: 'Release function should be in the shared section before platform sections');
+    });
+
+    test('zero-copy stream struct release drops the JNI global-ref pin', () {
+      final out = CppBridgeGenerator.generate(structStreamSpec());
+      // The release function must erase the g_zero_copy_refs pin on Android:
+      // without it every delivered zero-copy stream item leaks one JNI global
+      // reference and ART aborts once the table overflows.
+      expect(
+        out,
+        contains(
+          'void my_camera_release_CameraFrame(void* ptr) {\n'
+          '    if (!ptr) { return; }\n'
+          '#ifdef __ANDROID__\n'
+          '    my_camera_zero_copy_release(ptr);\n'
+          '#endif\n',
+        ),
+      );
+      // The helper itself lives in the JNI section and must erase + delete.
+      final helperPos = out.indexOf('void my_camera_zero_copy_release(void* ptr) {');
+      expect(helperPos, isNot(-1));
+      final helperBody = out.substring(helperPos, out.indexOf('\n}', helperPos));
+      expect(helperBody, contains('g_zero_copy_refs.erase(it);'));
+      expect(helperBody, contains('env->DeleteGlobalRef(ref);'));
     });
 
     test('struct with string release frees field', () {

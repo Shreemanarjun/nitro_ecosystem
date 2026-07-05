@@ -144,10 +144,36 @@ class CppBridgeGenerator {
 
     // ── Struct release functions (used by NativeFinalizer in Dart proxy classes) ──
     if (spec.structs.isNotEmpty) {
+      // Structs that cross as ZERO-COPY stream items are pinned through a JNI
+      // global ref on Android (g_zero_copy_refs in the JNI prologue) so the JVM
+      // object backing the borrowed buffers stays alive while Dart reads them.
+      // Their release function must drop that pin: without it every delivered
+      // item leaks one global reference, and ART aborts the process once the
+      // global-reference table (51200 slots) fills — ~51k stream items.
+      final zeroCopyStreamStructNames = spec.streams
+          .where((s) => structNames.contains(s.itemType.name.replaceFirst('?', '')))
+          .map((s) => s.itemType.name.replaceFirst('?', ''))
+          .where((name) {
+            final st = spec.structByName(name);
+            return st != null && st.fields.any((f) => f.zeroCopy);
+          })
+          .toSet();
       writer.line('extern "C" {');
+      if (zeroCopyStreamStructNames.isNotEmpty) {
+        writer.line('#ifdef __ANDROID__');
+        writer.line('// Defined in the JNI section below: erases the g_zero_copy_refs pin for');
+        writer.line('// [ptr] and deletes the JNI global ref (see the JNI prologue).');
+        writer.line('void ${libStem}_zero_copy_release(void* ptr);');
+        writer.line('#endif');
+      }
       for (final st in spec.structs) {
         writer.line('void ${libStem}_release_${st.name}(void* ptr) {');
         writer.line('    if (!ptr) { return; }');
+        if (zeroCopyStreamStructNames.contains(st.name)) {
+          writer.line('#ifdef __ANDROID__');
+          writer.line('    ${libStem}_zero_copy_release(ptr);');
+          writer.line('#endif');
+        }
 
         final hasStrings = st.fields.any((f) => f.type.name == 'String');
         final hasNestedStructs = st.fields.any((f) => structNames.contains(f.type.name.replaceFirst('?', '')));

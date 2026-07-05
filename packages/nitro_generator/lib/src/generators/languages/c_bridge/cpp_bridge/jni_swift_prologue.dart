@@ -168,4 +168,30 @@ void _emitJniSwiftPrologue(
   writer.line('    return env;');
   writer.line('}');
   writer.blankLine();
+
+  if (zeroCopyStreamStructs.isNotEmpty) {
+    writer.line('// Erases the zero-copy pin for [ptr] (inserted by the stream emit path) and');
+    writer.line('// deletes the JNI global ref that kept the JVM object — and the direct');
+    writer.line('// ByteBuffers backing the borrowed @zeroCopy fields — alive while Dart read');
+    writer.line('// them. Called from the struct release function when the Dart NativeFinalizer');
+    writer.line('// fires; GetEnv() attaches that thread to the JVM on demand. Without this,');
+    writer.line('// every delivered zero-copy stream item leaked one global reference and ART');
+    writer.line("// aborts once its global-reference table (51200 slots) overflows.");
+    writer.line('void ${libStem}_zero_copy_release(void* ptr) {');
+    writer.line('    jobject ref = nullptr;');
+    writer.line('    {');
+    writer.line('        std::lock_guard<std::mutex> _lk(g_zero_copy_refs_mtx);');
+    writer.line('        auto it = g_zero_copy_refs.find(ptr);');
+    writer.line('        if (it != g_zero_copy_refs.end()) {');
+    writer.line('            ref = it->second;');
+    writer.line('            g_zero_copy_refs.erase(it);');
+    writer.line('        }');
+    writer.line('    }');
+    writer.line('    if (ref != nullptr) {');
+    writer.line('        JNIEnv* env = GetEnv();');
+    writer.line('        if (env != nullptr) { env->DeleteGlobalRef(ref); }');
+    writer.line('    }');
+    writer.line('}');
+    writer.blankLine();
+  }
 }
