@@ -2,7 +2,7 @@ name: nitro_generator
 description: >
   Code generator for Nitro Modules (Nitrogen).
   Converts *.native.dart specs to Dart FFI, Kotlin, Swift, and C++ bindings.
-version: 0.5.5
+version: 0.5.6
 homepage: https://nitro.shreeman.dev
 repository: https://github.com/Shreemanarjun/nitro_ecosystem
 issue_tracker: https://github.com/Shreemanarjun/nitro_ecosystem/issues

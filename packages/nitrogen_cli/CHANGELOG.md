@@ -1,3 +1,7 @@
+## 0.5.6
+
+- **Ecosystem sync** — Aligned with the 0.5.6 release. No changes to this package; the 0.5.6 fix (a JNI global-reference leak on Android zero-copy stream events that aborted the process after ~25 minutes of continuous streaming) is entirely in `nitro_generator`'s generated C++ bridge — see its changelog, and regenerate your plugin to pick it up.
+
 ## 0.5.5
 
 - **Fixed: `nitrogen link` broke Linux/Windows FFI-plugin CMake configure** — for shared-src FFI plugins (`add_subdirectory(../src)`), link appended `target_include_directories(${PLUGIN_NAME} …)` where no `${PLUGIN_NAME}` target exists — a hard CMake configure error. The block is now skipped for shared-src plugins (the library target in `src/CMakeLists.txt` already carries the include dirs) and removed on re-link if an earlier version added it.

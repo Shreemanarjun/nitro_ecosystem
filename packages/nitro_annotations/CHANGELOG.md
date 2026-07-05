@@ -1,3 +1,7 @@
+# 0.5.6
+
+- **Ecosystem sync** — Aligned with the 0.5.6 release. No changes to this package; the 0.5.6 fix (a JNI global-reference leak on Android zero-copy stream events that aborted the process after ~25 minutes of continuous streaming) is entirely in `nitro_generator`'s generated C++ bridge — see its changelog, and regenerate your plugin to pick it up.
+
 # 0.5.5
 
 - **Ecosystem sync** — Aligned with `nitro`, `nitro_generator`, and `nitrogen_cli` 0.5.5. No changes to this package; the 0.5.5 fixes are entirely in the desktop C++ (`NativeImpl.cpp` on Windows/Linux) generator path and the `nitrogen link`/`nitrogen doctor` CLI — see `nitro_generator`'s and `nitrogen_cli`'s changelogs for details.

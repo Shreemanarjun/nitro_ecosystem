@@ -1,3 +1,11 @@
+## 0.5.6
+
+Android zero-copy memory-leak fix. **No breaking changes** — regenerate your
+plugin (`dart run build_runner build`) to pick it up; the runtime packages are
+unchanged.
+
+- **Fixed: JNI global-reference leak on every zero-copy stream event (Android/Kotlin backends)** — for `@HybridStruct(zeroCopy: [...])` structs delivered through a `@NitroStream`, the generated C++ bridge pinned the backing Kotlin object with `NewGlobalRef` (stored in `g_zero_copy_refs`) so the borrowed buffer stays alive while Dart reads it — but the generated struct release function only `free()`d the C struct and never deleted the global ref. ART's global-reference table (51,200 slots) fills at the stream's frame rate and the process **aborts with `global reference table overflow` after ~25 minutes** of continuous streaming (measured with a 30 fps camera frame stream). The bridge now emits a `<libStem>_zero_copy_release` helper (declared in the JNI prologue) that erases the pinned ref, and the struct release function calls it before freeing. Covered by new `cpp_bridge_generator_test.dart` / `proxy_generation_test.dart` cases asserting the release path deletes the ref exactly once.
+
 ## 0.5.5
 
 Desktop C++ (`NativeImpl.cpp` on Windows/Linux) repair release. The desktop
