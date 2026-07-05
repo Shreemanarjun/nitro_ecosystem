@@ -1,3 +1,7 @@
+# 0.5.5
+
+- **Ecosystem sync** — Aligned with `nitro`, `nitro_generator`, and `nitrogen_cli` 0.5.5. No changes to this package; the 0.5.5 fixes are entirely in the desktop C++ (`NativeImpl.cpp` on Windows/Linux) generator path and the `nitrogen link`/`nitrogen doctor` CLI — see `nitro_generator`'s and `nitrogen_cli`'s changelogs for details.
+
 # 0.5.4
 
 - **Ecosystem sync** — Aligned with `nitro`, `nitro_generator`, and `nitrogen_cli` 0.5.4.
