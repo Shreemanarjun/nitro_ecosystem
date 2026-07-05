@@ -17,14 +17,24 @@ void main() {
         cSymbol: 'test_echo_int_map',
         isAsync: false,
         returnType: BridgeType(name: 'Map<int, String>'),
-        params: [BridgeParam(name: 'value', type: BridgeType(name: 'Map<int, String>'))],
+        params: [
+          BridgeParam(
+            name: 'value',
+            type: BridgeType(name: 'Map<int, String>'),
+          ),
+        ],
       ),
       BridgeFunction(
         dartName: 'echoInt32',
         cSymbol: 'test_echo_int32',
         isAsync: false,
         returnType: BridgeType(name: 'int32'),
-        params: [BridgeParam(name: 'value', type: BridgeType(name: 'int32'))],
+        params: [
+          BridgeParam(
+            name: 'value',
+            type: BridgeType(name: 'int32'),
+          ),
+        ],
       ),
     ],
   );

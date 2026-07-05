@@ -27,7 +27,12 @@ BridgeSpec _spec({bool swiftPath = false}) => BridgeSpec(
       cSymbol: 'counter_increment',
       isAsync: false,
       returnType: BridgeType(name: 'int'),
-      params: [BridgeParam(name: 'by', type: BridgeType(name: 'int'))],
+      params: [
+        BridgeParam(
+          name: 'by',
+          type: BridgeType(name: 'int'),
+        ),
+      ],
     ),
     BridgeFunction(
       dartName: 'reset',

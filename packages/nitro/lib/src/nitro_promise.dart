@@ -140,7 +140,12 @@ class NitroPromise<T> {
       // it here as a side-effect only — do NOT re-throw, which would create a
       // second unhandled future error.
       // ignore: unawaited_futures
-      _completer.future.then<void>((_) {}, onError: (Object e, StackTrace t) { listener(e, t); });
+      _completer.future.then<void>(
+        (_) {},
+        onError: (Object e, StackTrace t) {
+          listener(e, t);
+        },
+      );
     } else if (isPending) {
       _rejectedListeners.add(listener);
     }
@@ -223,8 +228,12 @@ class NitroPromise<T> {
   static NitroPromise<T> race<T>(List<NitroPromise<T>> promises) {
     final p = NitroPromise<T>();
     for (final pp in promises) {
-      pp.addOnResolvedListener((v) { if (p.isPending) p.resolve(v); });
-      pp.addOnRejectedListener((e, s) { if (p.isPending) p.reject(e, s); });
+      pp.addOnResolvedListener((v) {
+        if (p.isPending) p.resolve(v);
+      });
+      pp.addOnRejectedListener((e, s) {
+        if (p.isPending) p.reject(e, s);
+      });
     }
     return p;
   }

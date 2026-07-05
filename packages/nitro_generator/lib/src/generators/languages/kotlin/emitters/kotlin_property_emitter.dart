@@ -40,8 +40,7 @@ class KotlinPropertyEmitter {
 
     if (prop.hasGetter) {
       writer.line('    @JvmStatic fun ${prop.getSymbol}_call(instanceId: Long): $bridgeKt {');
-      writer.line(
-          '        val impl = _implementations[instanceId] ?: throw IllegalStateException("$dartClassName instance \$instanceId not registered")');
+      writer.line('        val impl = _implementations[instanceId] ?: throw IllegalStateException("$dartClassName instance \$instanceId not registered")');
       if (isNullableEnum) {
         writer.line('        val _propVal = impl.${prop.dartName}');
         writer.line('        return if (_propVal == null) -1L else _propVal.nativeValue');
@@ -70,11 +69,9 @@ class KotlinPropertyEmitter {
 
     if (prop.hasSetter) {
       writer.line('    @JvmStatic fun ${prop.setSymbol}_call(instanceId: Long, value: $bridgeKt) {');
-      writer.line(
-          '        val impl = _implementations[instanceId] ?: throw IllegalStateException("$dartClassName instance \$instanceId not registered")');
+      writer.line('        val impl = _implementations[instanceId] ?: throw IllegalStateException("$dartClassName instance \$instanceId not registered")');
       if (isNullableEnum) {
-        writer.line(
-            '        impl.${prop.dartName} = if (value < 0L) null else $propBaseName.fromNative(value)');
+        writer.line('        impl.${prop.dartName} = if (value < 0L) null else $propBaseName.fromNative(value)');
       } else if (isEnum) {
         writer.line('        impl.${prop.dartName} = $propBaseName.fromNative(value)');
       } else if (isNullableInt || isNullableDateTime) {

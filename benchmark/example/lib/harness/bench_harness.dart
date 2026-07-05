@@ -76,8 +76,7 @@ class BenchConfig {
     bufferIters: 5,
   );
 
-  static BenchConfig fromMode(String mode) =>
-      mode == 'full' ? full : quick;
+  static BenchConfig fromMode(String mode) => mode == 'full' ? full : quick;
 }
 
 class BenchStats {
@@ -88,10 +87,10 @@ class BenchStats {
   final List<double> samplesUs;
 
   BenchStats(this.samplesUs)
-      : medianUs = _percentile(samplesUs, 0.50),
-        meanUs = samplesUs.reduce((a, b) => a + b) / samplesUs.length,
-        minUs = samplesUs.reduce(math.min),
-        p95Us = _percentile(samplesUs, 0.95);
+    : medianUs = _percentile(samplesUs, 0.50),
+      meanUs = samplesUs.reduce((a, b) => a + b) / samplesUs.length,
+      minUs = samplesUs.reduce(math.min),
+      p95Us = _percentile(samplesUs, 0.95);
 
   static double _percentile(List<double> values, double p) {
     final sorted = [...values]..sort();
@@ -133,10 +132,10 @@ class BenchResult {
     required this.label,
     required this.kind,
     required String reason,
-  })  : iterations = 0,
-        stats = null,
-        bytesPerOp = null,
-        skipReason = reason;
+  }) : iterations = 0,
+       stats = null,
+       bytesPerOp = null,
+       skipReason = reason;
 
   bool get isSkipped => stats == null;
 
@@ -146,20 +145,20 @@ class BenchResult {
       : bytesPerOp! / stats!.medianUs;
 
   Map<String, Object?> toJson() => {
-        'label': label,
-        'kind': kind.name,
-        if (skipReason != null) 'skipped': skipReason,
-        if (stats != null) ...{
-          'iterations': iterations,
-          'samples': stats!.samplesUs.length,
-          'medianUs': stats!.medianUs,
-          'meanUs': stats!.meanUs,
-          'minUs': stats!.minUs,
-          'p95Us': stats!.p95Us,
-        },
-        if (bytesPerOp != null) 'bytesPerOp': bytesPerOp,
-        if (mbPerSec != null) 'mbPerSec': mbPerSec,
-      };
+    'label': label,
+    'kind': kind.name,
+    if (skipReason != null) 'skipped': skipReason,
+    if (stats != null) ...{
+      'iterations': iterations,
+      'samples': stats!.samplesUs.length,
+      'medianUs': stats!.medianUs,
+      'meanUs': stats!.meanUs,
+      'minUs': stats!.minUs,
+      'p95Us': stats!.p95Us,
+    },
+    if (bytesPerOp != null) 'bytesPerOp': bytesPerOp,
+    if (mbPerSec != null) 'mbPerSec': mbPerSec,
+  };
 }
 
 class BenchReport {
@@ -201,34 +200,39 @@ class BenchReport {
   /// Cross-bridge ratios — machine-independent, so these (not absolute µs)
   /// are what the CI regression gate enforces.
   Map<String, double?> get derived => {
-        'nitro_leaf_over_raw_ffi': _ratio('nitro_leaf_add', 'raw_ffi_add'),
-        'nitro_cpp_over_raw_ffi': _ratio('nitro_cpp_add', 'raw_ffi_add'),
-        'nitro_platform_over_raw_ffi':
-            _ratio('nitro_platform_add', 'raw_ffi_add'),
-        'method_channel_over_nitro_cpp':
-            _ratio('method_channel_add', 'nitro_cpp_add'),
-        'method_channel_over_nitro_leaf':
-            _ratio('method_channel_add', 'nitro_leaf_add'),
-      };
+    'nitro_leaf_over_raw_ffi': _ratio('nitro_leaf_add', 'raw_ffi_add'),
+    'nitro_cpp_over_raw_ffi': _ratio('nitro_cpp_add', 'raw_ffi_add'),
+    'nitro_platform_over_raw_ffi': _ratio('nitro_platform_add', 'raw_ffi_add'),
+    'method_channel_over_nitro_cpp': _ratio(
+      'method_channel_add',
+      'nitro_cpp_add',
+    ),
+    'method_channel_over_nitro_leaf': _ratio(
+      'method_channel_add',
+      'nitro_leaf_add',
+    ),
+  };
 
   Map<String, Object?> toJson() => {
-        'schema': schemaVersion,
-        'platform': platform,
-        'buildMode': buildMode,
-        'mode': config.mode,
-        'timestampMs': timestamp.millisecondsSinceEpoch,
-        if (verification != null) 'verification': verification,
-        'cases': {for (final r in results) r.id: r.toJson()},
-        'derived': derived,
-      };
+    'schema': schemaVersion,
+    'platform': platform,
+    'buildMode': buildMode,
+    'mode': config.mode,
+    'timestampMs': timestamp.millisecondsSinceEpoch,
+    if (verification != null) 'verification': verification,
+    'cases': {for (final r in results) r.id: r.toJson()},
+    'derived': derived,
+  };
 
   /// Human-readable summary printed to the device log.
   List<String> toTableLines() {
     final lines = <String>[];
     final rawFfi = caseById('raw_ffi_add')?.stats?.medianUs;
     final channel = caseById('method_channel_add')?.stats?.medianUs;
-    lines.add('── Nitro bridge benchmark ($platform, $buildMode, '
-        '${config.mode}) ──');
+    lines.add(
+      '── Nitro bridge benchmark ($platform, $buildMode, '
+      '${config.mode}) ──',
+    );
     for (final r in results.where((r) => r.kind == BenchKind.latency)) {
       final stats = r.stats;
       if (stats == null) {
@@ -241,9 +245,11 @@ class BenchReport {
       final vsChan = channel == null || stats.medianUs == 0
           ? ''
           : ' · ${(channel / stats.medianUs).toStringAsFixed(1)}× faster '
-              'than channel';
-      lines.add('  ${r.label.padRight(28)} '
-          '${stats.medianUs.toStringAsFixed(3).padLeft(10)} µs$vsFfi$vsChan');
+                'than channel';
+      lines.add(
+        '  ${r.label.padRight(28)} '
+        '${stats.medianUs.toStringAsFixed(3).padLeft(10)} µs$vsFfi$vsChan',
+      );
     }
     for (final r in results.where((r) => r.kind == BenchKind.throughput)) {
       final mb = r.mbPerSec;
@@ -251,9 +257,11 @@ class BenchReport {
         lines.add('  ${r.label.padRight(28)}    skipped — ${r.skipReason}');
         continue;
       }
-      lines.add('  ${r.label.padRight(28)} '
-          '${mb.toStringAsFixed(0).padLeft(10)} MB/s '
-          '(${(r.bytesPerOp! / (1024 * 1024)).toStringAsFixed(0)} MiB/op)');
+      lines.add(
+        '  ${r.label.padRight(28)} '
+        '${mb.toStringAsFixed(0).padLeft(10)} MB/s '
+        '(${(r.bytesPerOp! / (1024 * 1024)).toStringAsFixed(0)} MiB/op)',
+      );
     }
     return lines;
   }
@@ -263,7 +271,9 @@ class BenchReport {
 class BenchHarness {
   BenchHarness._();
 
-  static const _channel = MethodChannel('dev.shreeman.benchmark/method_channel');
+  static const _channel = MethodChannel(
+    'dev.shreeman.benchmark/method_channel',
+  );
 
   static String get _buildMode =>
       kReleaseMode ? 'release' : (kProfileMode ? 'profile' : 'debug');
@@ -277,9 +287,11 @@ class BenchHarness {
 
     // Raw FFI floor — resolved explicitly so a failed lookup is a hard error,
     // never a silent fall-back to pure Dart (which would corrupt every ratio).
-    final rawAdd = NitroRuntime.loadLib('benchmark_cpp').lookupFunction<
-        Double Function(Double, Double),
-        double Function(double, double)>('add_double', isLeaf: true);
+    final rawAdd = NitroRuntime.loadLib('benchmark_cpp')
+        .lookupFunction<
+          Double Function(Double, Double),
+          double Function(double, double)
+        >('add_double', isLeaf: true);
 
     // Keep results observable so the optimizer cannot elide any call.
     var sink = 0.0;
@@ -299,24 +311,28 @@ class BenchHarness {
           samples: config.samples,
           batch: batch,
         );
-        results.add(BenchResult(
-          id: id,
-          label: label,
-          kind: BenchKind.latency,
-          iterations: iters,
-          stats: stats,
-        ));
+        results.add(
+          BenchResult(
+            id: id,
+            label: label,
+            kind: BenchKind.latency,
+            iterations: iters,
+            stats: stats,
+          ),
+        );
       } catch (e) {
         // A bridge tier that doesn't exist on this platform (no MethodChannel
         // handler, no platform impl, …). Recorded so the report shape stays
         // comparable across platforms; the gate decides which cases are
         // mandatory — a skipped core case still fails the run there.
-        results.add(BenchResult.skipped(
-          id: id,
-          label: label,
-          kind: BenchKind.latency,
-          reason: '${e.runtimeType}: $e'.split('\n').first,
-        ));
+        results.add(
+          BenchResult.skipped(
+            id: id,
+            label: label,
+            kind: BenchKind.latency,
+            reason: '${e.runtimeType}: $e'.split('\n').first,
+          ),
+        );
       }
     }
 
@@ -328,19 +344,24 @@ class BenchHarness {
       }
     });
 
-    await latencyCase('nitro_leaf_add', 'Nitro C++ (leaf)', config.syncIters,
-        (n) {
+    await latencyCase('nitro_leaf_add', 'Nitro C++ (leaf)', config.syncIters, (
+      n,
+    ) {
       for (var i = 0; i < n; i++) {
         sink += cpp.addFast(1.0, i.toDouble());
       }
     });
 
-    await latencyCase('nitro_cpp_add', 'Nitro C++ (checked)', config.syncIters,
-        (n) {
-      for (var i = 0; i < n; i++) {
-        sink += cpp.add(1.0, i.toDouble());
-      }
-    });
+    await latencyCase(
+      'nitro_cpp_add',
+      'Nitro C++ (checked)',
+      config.syncIters,
+      (n) {
+        for (var i = 0; i < n; i++) {
+          sink += cpp.add(1.0, i.toDouble());
+        }
+      },
+    );
 
     final platformBridgeLabel = switch (Platform.operatingSystem) {
       'android' => 'Nitro Kotlin (JNI)',
@@ -348,47 +369,66 @@ class BenchHarness {
       _ => 'Nitro platform C++',
     };
     await latencyCase(
-        'nitro_platform_add', platformBridgeLabel, config.syncIters, (n) {
-      for (var i = 0; i < n; i++) {
-        sink += platformBridge.add(1.0, i.toDouble());
-      }
-    });
+      'nitro_platform_add',
+      platformBridgeLabel,
+      config.syncIters,
+      (n) {
+        for (var i = 0; i < n; i++) {
+          sink += platformBridge.add(1.0, i.toDouble());
+        }
+      },
+    );
 
     await latencyCase(
-        'method_channel_add', 'MethodChannel', config.asyncIters, (n) async {
-      for (var i = 0; i < n; i++) {
-        final v = await _channel
-            .invokeMethod<double>('add', {'a': 1.0, 'b': i.toDouble()});
-        sink += v ?? 0.0;
-      }
-    });
+      'method_channel_add',
+      'MethodChannel',
+      config.asyncIters,
+      (n) async {
+        for (var i = 0; i < n; i++) {
+          final v = await _channel.invokeMethod<double>('add', {
+            'a': 1.0,
+            'b': i.toDouble(),
+          });
+          sink += v ?? 0.0;
+        }
+      },
+    );
 
     // ── Latency: richer payloads through Nitro ──────────────────────────────
 
     await latencyCase(
-        'nitro_string_roundtrip', 'Nitro String round-trip', config.syncIters,
-        (n) {
-      for (var i = 0; i < n; i++) {
-        sink += cpp.getGreeting('bench').length.toDouble();
-      }
-    });
+      'nitro_string_roundtrip',
+      'Nitro String round-trip',
+      config.syncIters,
+      (n) {
+        for (var i = 0; i < n; i++) {
+          sink += cpp.getGreeting('bench').length.toDouble();
+        }
+      },
+    );
 
     await latencyCase(
-        'nitro_struct_roundtrip', 'Nitro zero-copy struct', config.syncIters,
-        (n) {
-      const pt = bench.BenchmarkPoint(x: 1.5, y: 2.5);
-      for (var i = 0; i < n; i++) {
-        sink += cpp.scalePoint(pt, 2.0).x;
-      }
-    });
+      'nitro_struct_roundtrip',
+      'Nitro zero-copy struct',
+      config.syncIters,
+      (n) {
+        const pt = bench.BenchmarkPoint(x: 1.5, y: 2.5);
+        for (var i = 0; i < n; i++) {
+          sink += cpp.scalePoint(pt, 2.0).x;
+        }
+      },
+    );
 
     await latencyCase(
-        'nitro_async_record', 'Nitro @nitroAsync + record', config.asyncIters,
-        (n) async {
-      for (var i = 0; i < n; i++) {
-        sink += (await cpp.computeStats(1)).meanUs;
-      }
-    });
+      'nitro_async_record',
+      'Nitro @nitroAsync + record',
+      config.asyncIters,
+      (n) async {
+        for (var i = 0; i < n; i++) {
+          sink += (await cpp.computeStats(1)).meanUs;
+        }
+      },
+    );
 
     // ── Latency: identical FNV-1a workload across every tier ────────────────
     // 1 KiB × 16 rounds ≈ 16k sequential byte-ops per call — real CPU work at
@@ -396,14 +436,19 @@ class BenchHarness {
     // exact same algorithm (src/nitro_workload.h); the verification below
     // fails the whole run if any tier's hash disagrees, so these timings are
     // provably comparing identical work — only the bridge differs.
-    final workload =
-        Uint8List.fromList(List<int>.generate(1024, (i) => (i * 31) & 0xFF));
+    final workload = Uint8List.fromList(
+      List<int>.generate(1024, (i) => (i * 31) & 0xFF),
+    );
     const workloadRounds = 16;
-    final rawFnv = NitroRuntime.loadLib('benchmark_cpp').lookupFunction<
-        Uint64 Function(Pointer<Uint8>, Int64, Int64),
-        int Function(Pointer<Uint8>, int, int)>('fnv1a_hash');
-    int rawFfiHash() => withArena((arena) =>
-        rawFnv(workload.toPointer(arena), workload.length, workloadRounds));
+    final rawFnv = NitroRuntime.loadLib('benchmark_cpp')
+        .lookupFunction<
+          Uint64 Function(Pointer<Uint8>, Int64, Int64),
+          int Function(Pointer<Uint8>, int, int)
+        >('fnv1a_hash');
+    int rawFfiHash() => withArena(
+      (arena) =>
+          rawFnv(workload.toPointer(arena), workload.length, workloadRounds),
+    );
 
     final verification = <String, Object?>{
       'workload': 'fnv1a-64 · 1 KiB × $workloadRounds rounds',
@@ -417,8 +462,10 @@ class BenchHarness {
       } catch (_) {}
       int? chanH;
       try {
-        chanH = await _channel.invokeMethod<int>(
-            'hashBuffer', {'data': workload, 'rounds': workloadRounds});
+        chanH = await _channel.invokeMethod<int>('hashBuffer', {
+          'data': workload,
+          'rounds': workloadRounds,
+        });
       } catch (_) {}
       verification['rawFfiHash'] = ffiH;
       verification['nitroCppHash'] = cppH;
@@ -430,40 +477,61 @@ class BenchHarness {
       verification['tiersVerified'] = hashes.length;
       if (!agree) {
         throw StateError(
-            'Cross-tier workload hash mismatch — the comparison would not '
-            'be measuring identical work: $verification');
+          'Cross-tier workload hash mismatch — the comparison would not '
+          'be measuring identical work: $verification',
+        );
       }
     }
 
     await latencyCase(
-        'raw_ffi_hash', 'Raw FFI + FNV-1a work', config.asyncIters, (n) {
-      for (var i = 0; i < n; i++) {
-        sink += rawFfiHash().toDouble();
-      }
-    });
+      'raw_ffi_hash',
+      'Raw FFI + FNV-1a work',
+      config.asyncIters,
+      (n) {
+        for (var i = 0; i < n; i++) {
+          sink += rawFfiHash().toDouble();
+        }
+      },
+    );
 
     await latencyCase(
-        'nitro_cpp_hash', 'Nitro C++ + FNV-1a work', config.asyncIters, (n) {
-      for (var i = 0; i < n; i++) {
-        sink += cpp.hashBuffer(workload, workloadRounds).toDouble();
-      }
-    });
+      'nitro_cpp_hash',
+      'Nitro C++ + FNV-1a work',
+      config.asyncIters,
+      (n) {
+        for (var i = 0; i < n; i++) {
+          sink += cpp.hashBuffer(workload, workloadRounds).toDouble();
+        }
+      },
+    );
 
-    await latencyCase('nitro_platform_hash',
-        '$platformBridgeLabel + FNV-1a work', config.asyncIters, (n) {
-      for (var i = 0; i < n; i++) {
-        sink += platformBridge.hashBuffer(workload, workloadRounds).toDouble();
-      }
-    });
+    await latencyCase(
+      'nitro_platform_hash',
+      '$platformBridgeLabel + FNV-1a work',
+      config.asyncIters,
+      (n) {
+        for (var i = 0; i < n; i++) {
+          sink += platformBridge
+              .hashBuffer(workload, workloadRounds)
+              .toDouble();
+        }
+      },
+    );
 
-    await latencyCase('channel_hash', 'MethodChannel + FNV-1a work',
-        config.asyncIters, (n) async {
-      for (var i = 0; i < n; i++) {
-        final v = await _channel.invokeMethod<int>(
-            'hashBuffer', {'data': workload, 'rounds': workloadRounds});
-        sink += (v ?? 0).toDouble();
-      }
-    });
+    await latencyCase(
+      'channel_hash',
+      'MethodChannel + FNV-1a work',
+      config.asyncIters,
+      (n) async {
+        for (var i = 0; i < n; i++) {
+          final v = await _channel.invokeMethod<int>('hashBuffer', {
+            'data': workload,
+            'rounds': workloadRounds,
+          });
+          sink += (v ?? 0).toDouble();
+        }
+      },
+    );
 
     // ── Throughput: 16–64 MiB buffer transport (informational) ─────────────
 
@@ -482,26 +550,31 @@ class BenchHarness {
           warmupIters: 1,
           batch: batch,
         );
-        results.add(BenchResult(
-          id: id,
-          label: label,
-          kind: BenchKind.throughput,
-          iterations: config.bufferIters,
-          stats: stats,
-          bytesPerOp: config.bufferBytes,
-        ));
+        results.add(
+          BenchResult(
+            id: id,
+            label: label,
+            kind: BenchKind.throughput,
+            iterations: config.bufferIters,
+            stats: stats,
+            bytesPerOp: config.bufferBytes,
+          ),
+        );
       } catch (e) {
-        results.add(BenchResult.skipped(
-          id: id,
-          label: label,
-          kind: BenchKind.throughput,
-          reason: '${e.runtimeType}: $e'.split('\n').first,
-        ));
+        results.add(
+          BenchResult.skipped(
+            id: id,
+            label: label,
+            kind: BenchKind.throughput,
+            reason: '${e.runtimeType}: $e'.split('\n').first,
+          ),
+        );
       }
     }
 
-    await throughputCase('channel_buffer', 'MethodChannel buffer copy',
-        (n) async {
+    await throughputCase('channel_buffer', 'MethodChannel buffer copy', (
+      n,
+    ) async {
       for (var i = 0; i < n; i++) {
         await _channel.invokeMethod<int>('sendLargeBuffer', buffer);
       }
@@ -510,20 +583,25 @@ class BenchHarness {
     // The "vanilla dart:ffi" way to send a Dart buffer: manually copy it into
     // arena-allocated native memory, call, free. The copy is the real cost of
     // hand-written FFI here — Nitro's pinned path below skips it entirely.
-    final rawSendNoop = NitroRuntime.loadLib('benchmark_cpp').lookupFunction<
-        Int64 Function(Pointer<Uint8>, Int64),
-        int Function(Pointer<Uint8>, int)>('send_large_buffer_noop');
+    final rawSendNoop = NitroRuntime.loadLib('benchmark_cpp')
+        .lookupFunction<
+          Int64 Function(Pointer<Uint8>, Int64),
+          int Function(Pointer<Uint8>, int)
+        >('send_large_buffer_noop');
     await throughputCase('raw_ffi_buffer', 'Raw FFI (manual copy)', (n) {
       for (var i = 0; i < n; i++) {
         withArena((arena) {
-          sink += rawSendNoop(buffer.toPointer(arena), buffer.length)
-              .toDouble();
+          sink += rawSendNoop(
+            buffer.toPointer(arena),
+            buffer.length,
+          ).toDouble();
         });
       }
     });
 
-    await throughputCase('nitro_buffer_pinned', 'Nitro pinned buffer (leaf)',
-        (n) {
+    await throughputCase('nitro_buffer_pinned', 'Nitro pinned buffer (leaf)', (
+      n,
+    ) {
       for (var i = 0; i < n; i++) {
         sink += cpp.sendLargeBufferNoopFast(buffer).toDouble();
       }

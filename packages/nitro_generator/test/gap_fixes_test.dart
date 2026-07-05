@@ -14,238 +14,243 @@ import 'test_utils.dart';
 // ── Gap 9 helpers ────────────────────────────────────────────────────────────
 
 BridgeSpec _nonContiguousEnumSpec() => BridgeSpec(
-      dartClassName: 'Brightness',
-      lib: 'brightness',
-      namespace: 'brightness',
-      iosImpl: NativeImpl.swift,
-      androidImpl: NativeImpl.kotlin,
-      sourceUri: 'brightness.native.dart',
-      // Quality: low=0, medium=50, high=100 — non-contiguous OS values
-      enums: [
-        BridgeEnum(
-          name: 'Quality',
-          startValue: 0,
-          values: ['low', 'medium', 'high'],
-          rawValues: [0, 50, 100],
+  dartClassName: 'Brightness',
+  lib: 'brightness',
+  namespace: 'brightness',
+  iosImpl: NativeImpl.swift,
+  androidImpl: NativeImpl.kotlin,
+  sourceUri: 'brightness.native.dart',
+  // Quality: low=0, medium=50, high=100 — non-contiguous OS values
+  enums: [
+    BridgeEnum(
+      name: 'Quality',
+      startValue: 0,
+      values: ['low', 'medium', 'high'],
+      rawValues: [0, 50, 100],
+    ),
+  ],
+  functions: [
+    BridgeFunction(
+      dartName: 'setQuality',
+      cSymbol: 'brightness_set_quality',
+      isAsync: false,
+      returnType: BridgeType(name: 'void'),
+      params: [
+        BridgeParam(
+          name: 'q',
+          type: BridgeType(name: 'Quality'),
         ),
       ],
-      functions: [
-        BridgeFunction(
-          dartName: 'setQuality',
-          cSymbol: 'brightness_set_quality',
-          isAsync: false,
-          returnType: BridgeType(name: 'void'),
-          params: [BridgeParam(name: 'q', type: BridgeType(name: 'Quality'))],
-        ),
-      ],
-    );
+    ),
+  ],
+);
 
 // ── Gap 13 helpers ───────────────────────────────────────────────────────────
 
 BridgeSpec _variantCallbackSpec() => BridgeSpec(
-      dartClassName: 'Processor',
-      lib: 'processor',
-      namespace: 'processor',
-      iosImpl: NativeImpl.swift,
-      androidImpl: NativeImpl.kotlin,
-      sourceUri: 'processor.native.dart',
-      variants: [
-        BridgeVariant(
-          name: 'Event',
-          cases: [
-            BridgeVariantCase(
-              name: 'EventClick',
-              label: 'click',
-              fields: [
-                BridgeRecordField(name: 'x', dartType: 'int', kind: RecordFieldKind.primitive),
-              ],
-            ),
-            BridgeVariantCase(
-              name: 'EventScroll',
-              label: 'scroll',
-              fields: [
-                BridgeRecordField(name: 'delta', dartType: 'double', kind: RecordFieldKind.primitive),
-              ],
-            ),
+  dartClassName: 'Processor',
+  lib: 'processor',
+  namespace: 'processor',
+  iosImpl: NativeImpl.swift,
+  androidImpl: NativeImpl.kotlin,
+  sourceUri: 'processor.native.dart',
+  variants: [
+    BridgeVariant(
+      name: 'Event',
+      cases: [
+        BridgeVariantCase(
+          name: 'EventClick',
+          label: 'click',
+          fields: [
+            BridgeRecordField(name: 'x', dartType: 'int', kind: RecordFieldKind.primitive),
+          ],
+        ),
+        BridgeVariantCase(
+          name: 'EventScroll',
+          label: 'scroll',
+          fields: [
+            BridgeRecordField(name: 'delta', dartType: 'double', kind: RecordFieldKind.primitive),
           ],
         ),
       ],
-      functions: [
-        BridgeFunction(
-          dartName: 'onEvent',
-          cSymbol: 'processor_on_event',
-          isAsync: false,
-          returnType: BridgeType(name: 'void'),
-          params: [
-            BridgeParam(
-              name: 'handler',
-              type: BridgeType(
-                name: 'void Function(Event)',
-                isFunction: true,
-                functionReturnType: 'void',
-                functionParams: [BridgeType(name: 'Event')],
-              ),
-            ),
-          ],
+    ),
+  ],
+  functions: [
+    BridgeFunction(
+      dartName: 'onEvent',
+      cSymbol: 'processor_on_event',
+      isAsync: false,
+      returnType: BridgeType(name: 'void'),
+      params: [
+        BridgeParam(
+          name: 'handler',
+          type: BridgeType(
+            name: 'void Function(Event)',
+            isFunction: true,
+            functionReturnType: 'void',
+            functionParams: [BridgeType(name: 'Event')],
+          ),
         ),
       ],
-    );
+    ),
+  ],
+);
 
 BridgeSpec _nullableVariantCallbackSpec() => BridgeSpec(
-      dartClassName: 'Processor',
-      lib: 'processor',
-      namespace: 'processor',
-      iosImpl: NativeImpl.swift,
-      androidImpl: NativeImpl.kotlin,
-      sourceUri: 'processor.native.dart',
-      variants: [
-        BridgeVariant(
-          name: 'Event',
-          cases: [
-            BridgeVariantCase(
-              name: 'EventTap',
-              label: 'tap',
-              fields: [
-                BridgeRecordField(name: 'x', dartType: 'int', kind: RecordFieldKind.primitive),
-              ],
-            ),
+  dartClassName: 'Processor',
+  lib: 'processor',
+  namespace: 'processor',
+  iosImpl: NativeImpl.swift,
+  androidImpl: NativeImpl.kotlin,
+  sourceUri: 'processor.native.dart',
+  variants: [
+    BridgeVariant(
+      name: 'Event',
+      cases: [
+        BridgeVariantCase(
+          name: 'EventTap',
+          label: 'tap',
+          fields: [
+            BridgeRecordField(name: 'x', dartType: 'int', kind: RecordFieldKind.primitive),
           ],
         ),
       ],
-      functions: [
-        BridgeFunction(
-          dartName: 'onOptEvent',
-          cSymbol: 'processor_on_opt_event',
-          isAsync: false,
-          returnType: BridgeType(name: 'void'),
-          params: [
-            BridgeParam(
-              name: 'handler',
-              type: BridgeType(
-                name: 'void Function(Event?)',
-                isFunction: true,
-                functionReturnType: 'void',
-                functionParams: [BridgeType(name: 'Event?')],
-              ),
-            ),
-          ],
+    ),
+  ],
+  functions: [
+    BridgeFunction(
+      dartName: 'onOptEvent',
+      cSymbol: 'processor_on_opt_event',
+      isAsync: false,
+      returnType: BridgeType(name: 'void'),
+      params: [
+        BridgeParam(
+          name: 'handler',
+          type: BridgeType(
+            name: 'void Function(Event?)',
+            isFunction: true,
+            functionReturnType: 'void',
+            functionParams: [BridgeType(name: 'Event?')],
+          ),
         ),
       ],
-    );
+    ),
+  ],
+);
 
 // ── Gap 17 helpers ───────────────────────────────────────────────────────────
 
 BridgeSpec _variantStreamSpec() => BridgeSpec(
-      dartClassName: 'Events',
-      lib: 'events',
-      namespace: 'events',
-      iosImpl: NativeImpl.swift,
-      androidImpl: NativeImpl.kotlin,
-      sourceUri: 'events.native.dart',
-      variants: [
-        BridgeVariant(
-          name: 'UIEvent',
-          cases: [
-            BridgeVariantCase(
-              name: 'UIEventTap',
-              label: 'tap',
-              fields: [
-                BridgeRecordField(name: 'x', dartType: 'int', kind: RecordFieldKind.primitive),
-              ],
-            ),
-            BridgeVariantCase(
-              name: 'UIEventSwipe',
-              label: 'swipe',
-              fields: [
-                BridgeRecordField(name: 'dir', dartType: 'String', kind: RecordFieldKind.primitive),
-              ],
-            ),
+  dartClassName: 'Events',
+  lib: 'events',
+  namespace: 'events',
+  iosImpl: NativeImpl.swift,
+  androidImpl: NativeImpl.kotlin,
+  sourceUri: 'events.native.dart',
+  variants: [
+    BridgeVariant(
+      name: 'UIEvent',
+      cases: [
+        BridgeVariantCase(
+          name: 'UIEventTap',
+          label: 'tap',
+          fields: [
+            BridgeRecordField(name: 'x', dartType: 'int', kind: RecordFieldKind.primitive),
+          ],
+        ),
+        BridgeVariantCase(
+          name: 'UIEventSwipe',
+          label: 'swipe',
+          fields: [
+            BridgeRecordField(name: 'dir', dartType: 'String', kind: RecordFieldKind.primitive),
           ],
         ),
       ],
-      streams: [
-        BridgeStream(
-          dartName: 'uiEvents',
-          registerSymbol: 'events_register_ui_events_stream',
-          releaseSymbol: 'events_release_ui_events_stream',
-          itemType: BridgeType(name: 'UIEvent'),
-          backpressure: Backpressure.dropLatest,
-        ),
-      ],
-    );
+    ),
+  ],
+  streams: [
+    BridgeStream(
+      dartName: 'uiEvents',
+      registerSymbol: 'events_register_ui_events_stream',
+      releaseSymbol: 'events_release_ui_events_stream',
+      itemType: BridgeType(name: 'UIEvent'),
+      backpressure: Backpressure.dropLatest,
+    ),
+  ],
+);
 
 BridgeSpec _nullableVariantStreamSpec() => BridgeSpec(
-      dartClassName: 'Events',
-      lib: 'events',
-      namespace: 'events',
-      iosImpl: NativeImpl.swift,
-      androidImpl: NativeImpl.kotlin,
-      sourceUri: 'events.native.dart',
-      variants: [
-        BridgeVariant(
-          name: 'UIEvent',
-          cases: [
-            BridgeVariantCase(
-              name: 'UIEventTap',
-              label: 'tap',
-              fields: [
-                BridgeRecordField(name: 'x', dartType: 'int', kind: RecordFieldKind.primitive),
-              ],
-            ),
+  dartClassName: 'Events',
+  lib: 'events',
+  namespace: 'events',
+  iosImpl: NativeImpl.swift,
+  androidImpl: NativeImpl.kotlin,
+  sourceUri: 'events.native.dart',
+  variants: [
+    BridgeVariant(
+      name: 'UIEvent',
+      cases: [
+        BridgeVariantCase(
+          name: 'UIEventTap',
+          label: 'tap',
+          fields: [
+            BridgeRecordField(name: 'x', dartType: 'int', kind: RecordFieldKind.primitive),
           ],
         ),
       ],
-      streams: [
-        BridgeStream(
-          dartName: 'uiEvents',
-          registerSymbol: 'events_register_ui_events_stream',
-          releaseSymbol: 'events_release_ui_events_stream',
-          itemType: BridgeType(name: 'UIEvent', isNullable: true),
-          backpressure: Backpressure.dropLatest,
-        ),
-      ],
-    );
+    ),
+  ],
+  streams: [
+    BridgeStream(
+      dartName: 'uiEvents',
+      registerSymbol: 'events_register_ui_events_stream',
+      releaseSymbol: 'events_release_ui_events_stream',
+      itemType: BridgeType(name: 'UIEvent', isNullable: true),
+      backpressure: Backpressure.dropLatest,
+    ),
+  ],
+);
 
 // ── Gap 18 helpers ───────────────────────────────────────────────────────────
 
 BridgeSpec _webStreamSpec() => BridgeSpec(
-      dartClassName: 'WebCounter',
-      lib: 'web_counter',
-      namespace: 'web_counter',
-      iosImpl: NativeImpl.swift,
-      androidImpl: NativeImpl.kotlin,
-      webImpl: NativeImpl.wasm,
-      sourceUri: 'web_counter.native.dart',
-      streams: [
-        BridgeStream(
-          dartName: 'ticks',
-          registerSymbol: 'web_counter_register_ticks_stream',
-          releaseSymbol: 'web_counter_release_ticks_stream',
-          itemType: BridgeType(name: 'int'),
-          backpressure: Backpressure.dropLatest,
-        ),
-      ],
-    );
+  dartClassName: 'WebCounter',
+  lib: 'web_counter',
+  namespace: 'web_counter',
+  iosImpl: NativeImpl.swift,
+  androidImpl: NativeImpl.kotlin,
+  webImpl: NativeImpl.wasm,
+  sourceUri: 'web_counter.native.dart',
+  streams: [
+    BridgeStream(
+      dartName: 'ticks',
+      registerSymbol: 'web_counter_register_ticks_stream',
+      releaseSymbol: 'web_counter_release_ticks_stream',
+      itemType: BridgeType(name: 'int'),
+      backpressure: Backpressure.dropLatest,
+    ),
+  ],
+);
 
 BridgeSpec _webNativeAsyncSpec() => BridgeSpec(
-      dartClassName: 'WebIO',
-      lib: 'web_io',
-      namespace: 'web_io',
-      iosImpl: NativeImpl.swift,
-      androidImpl: NativeImpl.kotlin,
-      webImpl: NativeImpl.wasm,
-      sourceUri: 'web_io.native.dart',
-      functions: [
-        BridgeFunction(
-          dartName: 'readAsync',
-          cSymbol: 'web_io_read_async',
-          isAsync: true,
-          isNativeAsync: true,
-          returnType: BridgeType(name: 'int', isFuture: true),
-          params: [],
-        ),
-      ],
-    );
+  dartClassName: 'WebIO',
+  lib: 'web_io',
+  namespace: 'web_io',
+  iosImpl: NativeImpl.swift,
+  androidImpl: NativeImpl.kotlin,
+  webImpl: NativeImpl.wasm,
+  sourceUri: 'web_io.native.dart',
+  functions: [
+    BridgeFunction(
+      dartName: 'readAsync',
+      cSymbol: 'web_io_read_async',
+      isAsync: true,
+      isNativeAsync: true,
+      returnType: BridgeType(name: 'int', isFuture: true),
+      params: [],
+    ),
+  ],
+);
 
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -344,8 +349,7 @@ void main() {
     group('SpecValidator', () {
       test('@NitroVariant callback param produces no validation errors', () {
         final issues = SpecValidator.validate(_variantCallbackSpec());
-        expect(issues.where((i) => i.isError), isEmpty,
-            reason: '@NitroVariant is now a supported callback parameter type');
+        expect(issues.where((i) => i.isError), isEmpty, reason: '@NitroVariant is now a supported callback parameter type');
       });
 
       test('nullable @NitroVariant callback param is also valid', () {
@@ -357,8 +361,7 @@ void main() {
     group('Dart FFI — @NitroVariant callback decode', () {
       test('Pointer<Uint8> FFI type for variant callback param', () {
         final code = DartFfiGenerator.generate(_variantCallbackSpec());
-        expect(code, contains('Pointer<Uint8>'),
-            reason: 'variant params arrive as [4B len][tag][fields] binary blob');
+        expect(code, contains('Pointer<Uint8>'), reason: 'variant params arrive as [4B len][tag][fields] binary blob');
       });
 
       test('EventVariantExt.fromNative() decode for non-nullable variant param', () {
@@ -431,8 +434,7 @@ void main() {
   group('Gap 18 — W007 web target with streams or NativeAsync', () {
     test('web target with streams emits W007 warning', () {
       final issues = SpecValidator.validate(_webStreamSpec());
-      expect(issues.any((i) => i.code == 'W007'), isTrue,
-          reason: 'streams on web throw UnsupportedError at runtime — warn the user');
+      expect(issues.any((i) => i.code == 'W007'), isTrue, reason: 'streams on web throw UnsupportedError at runtime — warn the user');
     });
 
     test('W007 is a warning (not an error)', () {

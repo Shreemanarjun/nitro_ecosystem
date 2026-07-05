@@ -71,7 +71,10 @@ class CppImplGenerator {
         w.writeln('');
         if (func.isNativeAsync) {
           final params = CppInterfaceGenerator.cppMethodParamsFor(
-            func.params, enumNames, structNames, recordNames,
+            func.params,
+            enumNames,
+            structNames,
+            recordNames,
           )..add('int64_t dartPort');
           w.writeln('    void ${func.dartName}(${params.join(', ')}) override {');
           w.writeln('        // TODO: post result via Dart_PostCObject_DL(dartPort, ...)');
@@ -79,10 +82,16 @@ class CppImplGenerator {
           w.writeln('    }');
         } else {
           final ret = CppInterfaceGenerator.cppReturnTypeFor(
-            func.returnType, enumNames, structNames, recordNames,
+            func.returnType,
+            enumNames,
+            structNames,
+            recordNames,
           );
           final params = CppInterfaceGenerator.cppMethodParamsFor(
-            func.params, enumNames, structNames, recordNames,
+            func.params,
+            enumNames,
+            structNames,
+            recordNames,
           );
           w.writeln('    $ret ${func.dartName}(${params.join(', ')}) override {');
           w.writeln('        // TODO: implement ${func.dartName}');
@@ -102,7 +111,10 @@ class CppImplGenerator {
       for (final prop in spec.properties) {
         if (prop.hasGetter) {
           final cppType = CppInterfaceGenerator.cppReturnTypeFor(
-            prop.type, enumNames, structNames, recordNames,
+            prop.type,
+            enumNames,
+            structNames,
+            recordNames,
           );
           w.writeln('');
           w.writeln('    $cppType get_${prop.dartName}() const override {');
@@ -112,7 +124,10 @@ class CppImplGenerator {
         }
         if (prop.hasSetter) {
           final paramType = CppInterfaceGenerator.cppParamTypeFor(
-            prop.type, enumNames, structNames, recordNames,
+            prop.type,
+            enumNames,
+            structNames,
+            recordNames,
           );
           w.writeln('');
           w.writeln('    void set_${prop.dartName}($paramType value) override {');
@@ -132,7 +147,10 @@ class CppImplGenerator {
       w.writeln('    //');
       for (final stream in spec.streams) {
         final itemCpp = CppInterfaceGenerator.cppReturnTypeFor(
-          stream.itemType, enumNames, structNames, recordNames,
+          stream.itemType,
+          enumNames,
+          structNames,
+          recordNames,
         );
         w.writeln('    //   std::thread([this]{ emit_${stream.dartName}(/* $itemCpp value */); }).detach();');
       }

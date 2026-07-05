@@ -1763,7 +1763,8 @@ set(my_plugin_bundled_libraries
 
     // Shape 2: multi-spec — shared src/ for module libs, PLUS its own
     // registrant target (mirrors benchmark/linux/CMakeLists.txt exactly).
-    String multiSpecCmake({bool withStaleIncludeBlock = false}) => '''cmake_minimum_required(VERSION 3.10)
+    String multiSpecCmake({bool withStaleIncludeBlock = false}) =>
+        '''cmake_minimum_required(VERSION 3.10)
 set(PROJECT_NAME "my_plugin")
 project(\${PROJECT_NAME} LANGUAGES C CXX)
 

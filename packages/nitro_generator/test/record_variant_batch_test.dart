@@ -18,74 +18,74 @@ import 'package:test/test.dart';
 // ── Fixtures ──────────────────────────────────────────────────────────────────
 
 BridgeRecordType _logEntry() => BridgeRecordType(
-      name: 'LogEntry',
-      fields: [
-        BridgeRecordField(name: 'level', dartType: 'int', kind: RecordFieldKind.primitive),
-        BridgeRecordField(name: 'message', dartType: 'String', kind: RecordFieldKind.primitive),
-      ],
-    );
+  name: 'LogEntry',
+  fields: [
+    BridgeRecordField(name: 'level', dartType: 'int', kind: RecordFieldKind.primitive),
+    BridgeRecordField(name: 'message', dartType: 'String', kind: RecordFieldKind.primitive),
+  ],
+);
 
 BridgeVariant _netEvent() => BridgeVariant(
-      name: 'NetEvent',
-      cases: [
-        BridgeVariantCase(
-          name: 'Connected',
-          label: 'connected',
-          fields: [],
-        ),
-        BridgeVariantCase(
-          name: 'DataReceived',
-          label: 'dataReceived',
-          fields: [
-            BridgeRecordField(name: 'bytes', dartType: 'int', kind: RecordFieldKind.primitive),
-          ],
-        ),
+  name: 'NetEvent',
+  cases: [
+    BridgeVariantCase(
+      name: 'Connected',
+      label: 'connected',
+      fields: [],
+    ),
+    BridgeVariantCase(
+      name: 'DataReceived',
+      label: 'dataReceived',
+      fields: [
+        BridgeRecordField(name: 'bytes', dartType: 'int', kind: RecordFieldKind.primitive),
       ],
-    );
+    ),
+  ],
+);
 
 BridgeSpec _recordBatchSpec() => BridgeSpec(
-      dartClassName: 'LogService',
-      lib: 'log_service',
-      namespace: 'log_service',
-      iosImpl: NativeImpl.swift,
-      androidImpl: NativeImpl.kotlin,
-      sourceUri: 'log_service.native.dart',
-      recordTypes: [_logEntry()],
-      streams: [
-        BridgeStream(
-          dartName: 'logStream',
-          registerSymbol: 'log_service_register_logStream_stream',
-          releaseSymbol: 'log_service_release_logStream_stream',
-          isMethodStyle: false,
-          isAnnotated: true,
-          backpressure: Backpressure.batch,
-          batchMaxSize: 32,
-          itemType: BridgeType(name: 'LogEntry', isRecord: true),
-        ),
-      ],
-    );
+  dartClassName: 'LogService',
+  lib: 'log_service',
+  namespace: 'log_service',
+  iosImpl: NativeImpl.swift,
+  androidImpl: NativeImpl.kotlin,
+  sourceUri: 'log_service.native.dart',
+  recordTypes: [_logEntry()],
+  streams: [
+    BridgeStream(
+      dartName: 'logStream',
+      registerSymbol: 'log_service_register_logStream_stream',
+      releaseSymbol: 'log_service_release_logStream_stream',
+      isMethodStyle: false,
+      isAnnotated: true,
+      backpressure: Backpressure.batch,
+      batchMaxSize: 32,
+      itemType: BridgeType(name: 'LogEntry', isRecord: true),
+    ),
+  ],
+);
 
 BridgeSpec _variantBatchSpec() => BridgeSpec(
-      dartClassName: 'NetMonitor',
-      lib: 'net_monitor',
-      namespace: 'net_monitor',
-      iosImpl: NativeImpl.swift,
-      androidImpl: NativeImpl.kotlin,
-      sourceUri: 'net_monitor.native.dart',
-      variants: [_netEvent()],
-      streams: [
-        BridgeStream(
-          dartName: 'events',
-          registerSymbol: 'net_monitor_register_events_stream',
-          releaseSymbol: 'net_monitor_release_events_stream',
-          isMethodStyle: false,
-          isAnnotated: true,
-          backpressure: Backpressure.batch,
-          batchMaxSize: 16,
-          itemType: BridgeType(name: 'NetEvent'),
-        ),
-      ],
-    );
+  dartClassName: 'NetMonitor',
+  lib: 'net_monitor',
+  namespace: 'net_monitor',
+  iosImpl: NativeImpl.swift,
+  androidImpl: NativeImpl.kotlin,
+  sourceUri: 'net_monitor.native.dart',
+  variants: [_netEvent()],
+  streams: [
+    BridgeStream(
+      dartName: 'events',
+      registerSymbol: 'net_monitor_register_events_stream',
+      releaseSymbol: 'net_monitor_release_events_stream',
+      isMethodStyle: false,
+      isAnnotated: true,
+      backpressure: Backpressure.batch,
+      batchMaxSize: 16,
+      itemType: BridgeType(name: 'NetEvent'),
+    ),
+  ],
+);
 
 void main() {
   // ── §28: L3 — Backpressure.batch for @HybridRecord ───────────────────────

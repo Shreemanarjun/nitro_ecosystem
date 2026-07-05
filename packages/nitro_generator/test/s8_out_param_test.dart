@@ -29,7 +29,12 @@ BridgeSpec _syncSpec() => BridgeSpec(
       cSymbol: 'sensor_read',
       isAsync: false,
       returnType: BridgeType(name: 'double'),
-      params: [BridgeParam(name: 'channel', type: BridgeType(name: 'int'))],
+      params: [
+        BridgeParam(
+          name: 'channel',
+          type: BridgeType(name: 'int'),
+        ),
+      ],
     ),
     BridgeFunction(
       dartName: 'reset',
@@ -72,8 +77,14 @@ BridgeSpec _cppSyncSpec() => BridgeSpec(
       isAsync: false,
       returnType: BridgeType(name: 'double'),
       params: [
-        BridgeParam(name: 'a', type: BridgeType(name: 'double')),
-        BridgeParam(name: 'b', type: BridgeType(name: 'double')),
+        BridgeParam(
+          name: 'a',
+          type: BridgeType(name: 'double'),
+        ),
+        BridgeParam(
+          name: 'b',
+          type: BridgeType(name: 'double'),
+        ),
       ],
     ),
     BridgeFunction(
@@ -97,8 +108,14 @@ BridgeSpec _structWithStringField() => BridgeSpec(
       name: 'DeviceInfo',
       packed: false,
       fields: [
-        BridgeField(name: 'id', type: BridgeType(name: 'String')),
-        BridgeField(name: 'level', type: BridgeType(name: 'double')),
+        BridgeField(
+          name: 'id',
+          type: BridgeType(name: 'String'),
+        ),
+        BridgeField(
+          name: 'level',
+          type: BridgeType(name: 'double'),
+        ),
       ],
     ),
   ],
@@ -295,9 +312,18 @@ void main() {
             name: 'Reading',
             packed: false,
             fields: [
-              BridgeField(name: 'value', type: BridgeType(name: 'double')),
-              BridgeField(name: 'ts', type: BridgeType(name: 'int')),
-              BridgeField(name: 'valid', type: BridgeType(name: 'bool')),
+              BridgeField(
+                name: 'value',
+                type: BridgeType(name: 'double'),
+              ),
+              BridgeField(
+                name: 'ts',
+                type: BridgeType(name: 'int'),
+              ),
+              BridgeField(
+                name: 'valid',
+                type: BridgeType(name: 'bool'),
+              ),
             ],
           ),
         ],
@@ -324,7 +350,12 @@ void main() {
           BridgeStruct(
             name: 'Header',
             packed: false,
-            fields: [BridgeField(name: 'value', type: BridgeType(name: 'String?'))],
+            fields: [
+              BridgeField(
+                name: 'value',
+                type: BridgeType(name: 'String?'),
+              ),
+            ],
           ),
         ],
         functions: [],
@@ -345,10 +376,22 @@ void main() {
             name: 'PrinterInfo',
             packed: false,
             fields: [
-              BridgeField(name: 'id', type: BridgeType(name: 'String')),
-              BridgeField(name: 'name', type: BridgeType(name: 'String')),
-              BridgeField(name: 'address', type: BridgeType(name: 'String')),
-              BridgeField(name: 'pages', type: BridgeType(name: 'int')),
+              BridgeField(
+                name: 'id',
+                type: BridgeType(name: 'String'),
+              ),
+              BridgeField(
+                name: 'name',
+                type: BridgeType(name: 'String'),
+              ),
+              BridgeField(
+                name: 'address',
+                type: BridgeType(name: 'String'),
+              ),
+              BridgeField(
+                name: 'pages',
+                type: BridgeType(name: 'int'),
+              ),
             ],
           ),
         ],

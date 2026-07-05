@@ -115,6 +115,7 @@ class MigrateView extends StatefulComponent {
   final String pluginName;
   final MigrationResult result;
   final SpmStatus spmStatus;
+
   /// Override the working directory for migration. Defaults to [Directory.current.path].
   final String? baseDir;
   final bool createBackup;

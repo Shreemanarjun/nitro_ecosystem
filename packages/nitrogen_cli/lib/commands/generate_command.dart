@@ -603,9 +603,7 @@ class GenerateCommand extends Command {
     // struct declarations whenever the window's end marker came after them.
     bool hasPreamble(File f) {
       final content = f.readAsStringSync();
-      return content.contains('\npublic protocol NitroEncodable') ||
-          content.contains('\npublic class NitroRecordWriter') ||
-          content.contains('\npublic class NitroRecordReader');
+      return content.contains('\npublic protocol NitroEncodable') || content.contains('\npublic class NitroRecordWriter') || content.contains('\npublic class NitroRecordReader');
     }
 
     final bridgeFiles = [
@@ -683,8 +681,7 @@ class GenerateCommand extends Command {
     }
   }
 
-  static String _toPascalCase(String name) =>
-      name.split(RegExp(r'[_\-]')).map((w) => w.isEmpty ? '' : '${w[0].toUpperCase()}${w.substring(1)}').join('');
+  static String _toPascalCase(String name) => name.split(RegExp(r'[_\-]')).map((w) => w.isEmpty ? '' : '${w[0].toUpperCase()}${w.substring(1)}').join('');
 
   /// Heals any redundant `#include` lines in the main `src/` folder.
   void _healCppIncludes(String projectRoot) {

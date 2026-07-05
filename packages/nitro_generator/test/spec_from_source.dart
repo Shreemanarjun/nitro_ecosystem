@@ -214,9 +214,7 @@ class SpecFromSource {
     final effectiveReturn = isFuture ? (_genericArg(retSrc) ?? 'void') : retSrc;
     final effectiveBase = effectiveReturn.replaceAll('?', '');
 
-    final params = m.parameters?.parameters
-        .map((p) => _extractParam(p, enumNames, structNames, recordNames))
-        .toList() ?? [];
+    final params = m.parameters?.parameters.map((p) => _extractParam(p, enumNames, structNames, recordNames)).toList() ?? [];
 
     functions.add(
       BridgeFunction(
@@ -224,8 +222,7 @@ class SpecFromSource {
         cSymbol: '${ns}_${_toSnakeCase(name)}',
         isAsync: isAsync,
         isNativeAsync: isNativeAsync,
-        returnType: _makeType(effectiveReturn, effectiveBase, enumNames, structNames, recordNames,
-            isFuture: isFuture),
+        returnType: _makeType(effectiveReturn, effectiveBase, enumNames, structNames, recordNames, isFuture: isFuture),
         params: params,
       ),
     );
@@ -349,13 +346,15 @@ class SpecFromSource {
         final kind = _recordFieldKind(typeBase, typeSrc, enumNames, structNames);
         final itemType = typeBase.startsWith('List<') ? _genericArg(typeBase) : null;
         for (final v in member.fields.variables) {
-          fields.add(BridgeRecordField(
-            name: v.name.lexeme,
-            dartType: typeSrc,
-            kind: kind,
-            itemTypeName: itemType,
-            isNullable: isNullable,
-          ));
+          fields.add(
+            BridgeRecordField(
+              name: v.name.lexeme,
+              dartType: typeSrc,
+              kind: kind,
+              itemTypeName: itemType,
+              isNullable: isNullable,
+            ),
+          );
         }
       }
       result.add(BridgeRecordType(name: decl.namePart.typeName.lexeme, fields: fields));

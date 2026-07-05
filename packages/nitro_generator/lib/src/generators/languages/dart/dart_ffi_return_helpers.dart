@@ -23,15 +23,15 @@ enum ReturnKind {
   stringNullable,
   intNullable,
   doubleNullable,
-  variant,  // @NitroVariant sealed class — encoded as [4B len][1B tag][fields]
+  variant, // @NitroVariant sealed class — encoded as [4B len][1B tag][fields]
   primitive, // int (non-null), double (non-null) — pass through unchanged
-  dateTime,         // DateTime (non-null) — wire: Int64 ms epoch
+  dateTime, // DateTime (non-null) — wire: Int64 ms epoch
   dateTimeNullable, // DateTime? — wire: Pointer<NitroOptInt64>
-  anyNativeObject,         // AnyNativeObject (non-null) — wire: Int64 instanceId
+  anyNativeObject, // AnyNativeObject (non-null) — wire: Int64 instanceId
   anyNativeObjectNullable, // AnyNativeObject? — wire: Int64, -1 = null sentinel
-  customType,         // @NitroCustomType (non-null) — wire: Pointer<Uint8>
+  customType, // @NitroCustomType (non-null) — wire: Pointer<Uint8>
   customTypeNullable, // @NitroCustomType? — wire: Pointer<Uint8>, nullptr = null
-  uint64,         // uint64 (non-null) — wire: Uint64 (bit-reinterp of int64_t); Dart int
+  uint64, // uint64 (non-null) — wire: Uint64 (bit-reinterp of int64_t); Dart int
   uint64Nullable, // uint64? — wire: Pointer<NitroOptInt64> (same layout); Dart int?
 }
 
@@ -81,30 +81,51 @@ bool isEnumType(String baseName, BridgeSpec spec) => spec.isEnumName(baseName);
 String callAsyncTransportType(BridgeType returnType, BridgeSpec spec) {
   final kind = classifyReturn(returnType, spec);
   switch (kind) {
-    case ReturnKind.voidType:    return 'void';
-    case ReturnKind.record:      return 'Pointer<Uint8>';
-    case ReturnKind.typedData:   return 'Pointer<Uint8>';
-    case ReturnKind.struct:      return 'Pointer<Void>';
-    case ReturnKind.nativeHandle:return 'Pointer<Void>';
-    case ReturnKind.enumType:    return 'int';
-    case ReturnKind.boolNonNull: return 'bool';           // Bool FFI type → Dart bool
-    case ReturnKind.boolNullable:return 'Pointer<NitroOptBool>';
-    case ReturnKind.stringNonNull:  return 'Pointer<Utf8>';
-    case ReturnKind.stringNullable: return 'Pointer<Utf8>';
-    case ReturnKind.intNullable:    return 'Pointer<NitroOptInt64>';
-    case ReturnKind.doubleNullable: return 'Pointer<NitroOptFloat64>';
-    case ReturnKind.variant:        return 'Pointer<Uint8>'; // variant binary [4B len][tag][fields]
+    case ReturnKind.voidType:
+      return 'void';
+    case ReturnKind.record:
+      return 'Pointer<Uint8>';
+    case ReturnKind.typedData:
+      return 'Pointer<Uint8>';
+    case ReturnKind.struct:
+      return 'Pointer<Void>';
+    case ReturnKind.nativeHandle:
+      return 'Pointer<Void>';
+    case ReturnKind.enumType:
+      return 'int';
+    case ReturnKind.boolNonNull:
+      return 'bool'; // Bool FFI type → Dart bool
+    case ReturnKind.boolNullable:
+      return 'Pointer<NitroOptBool>';
+    case ReturnKind.stringNonNull:
+      return 'Pointer<Utf8>';
+    case ReturnKind.stringNullable:
+      return 'Pointer<Utf8>';
+    case ReturnKind.intNullable:
+      return 'Pointer<NitroOptInt64>';
+    case ReturnKind.doubleNullable:
+      return 'Pointer<NitroOptFloat64>';
+    case ReturnKind.variant:
+      return 'Pointer<Uint8>'; // variant binary [4B len][tag][fields]
     case ReturnKind.primitive:
       // float → double transport; all other scalars (int8, int32, intptr, etc.) → int
       return (returnType.name == 'double' || returnType.name == 'float') ? 'double' : 'int';
-    case ReturnKind.dateTime:      return 'int';
-    case ReturnKind.dateTimeNullable: return 'Pointer<NitroOptInt64>';
-    case ReturnKind.anyNativeObject:         return 'int';
-    case ReturnKind.anyNativeObjectNullable: return 'int'; // -1 = null sentinel
-    case ReturnKind.customType:         return 'Pointer<Uint8>';
-    case ReturnKind.customTypeNullable: return 'Pointer<Uint8>'; // nullptr = null
-    case ReturnKind.uint64:         return 'int';
-    case ReturnKind.uint64Nullable: return 'Pointer<NitroOptInt64>';
+    case ReturnKind.dateTime:
+      return 'int';
+    case ReturnKind.dateTimeNullable:
+      return 'Pointer<NitroOptInt64>';
+    case ReturnKind.anyNativeObject:
+      return 'int';
+    case ReturnKind.anyNativeObjectNullable:
+      return 'int'; // -1 = null sentinel
+    case ReturnKind.customType:
+      return 'Pointer<Uint8>';
+    case ReturnKind.customTypeNullable:
+      return 'Pointer<Uint8>'; // nullptr = null
+    case ReturnKind.uint64:
+      return 'int';
+    case ReturnKind.uint64Nullable:
+      return 'Pointer<NitroOptInt64>';
   }
 }
 
@@ -176,4 +197,3 @@ String callAsyncTransportType(BridgeType returnType, BridgeSpec spec) {
   // int, double, or any remaining primitive
   return (expr: varName, needsArena: false);
 }
-

@@ -23,8 +23,7 @@ class AnyNativeObject {
   const AnyNativeObject(this.instanceId) : assert(instanceId >= 0, 'AnyNativeObject: instanceId must be ≥ 0; use null for absent objects');
 
   @override
-  bool operator ==(Object other) =>
-      other is AnyNativeObject && other.instanceId == instanceId;
+  bool operator ==(Object other) => other is AnyNativeObject && other.instanceId == instanceId;
 
   @override
   int get hashCode => instanceId.hashCode;

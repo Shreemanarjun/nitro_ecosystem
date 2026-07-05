@@ -51,24 +51,19 @@ class NitroNullableInt {
   const NitroNullableInt({required this.hasValue, required this.value});
 
   /// Wraps a Dart `int?` — null becomes `hasValue=false`.
-  factory NitroNullableInt.fromNullable(int? v) => v == null
-      ? const NitroNullableInt(hasValue: false, value: 0)
-      : NitroNullableInt(hasValue: true, value: v);
+  factory NitroNullableInt.fromNullable(int? v) => v == null ? const NitroNullableInt(hasValue: false, value: 0) : NitroNullableInt(hasValue: true, value: v);
 
   /// Null sentinel (hasValue=false).
-  static const NitroNullableInt nullValue =
-      NitroNullableInt(hasValue: false, value: 0);
+  static const NitroNullableInt nullValue = NitroNullableInt(hasValue: false, value: 0);
 
   /// Unwraps to a Dart `int?`.
   int? get nullable => hasValue ? value : null;
 
   // ── @HybridRecord binary codec ────────────────────────────────────────────
 
-  static NitroNullableInt fromNative(Pointer<Uint8> ptr) =>
-      fromReader(RecordReader.fromNative(ptr));
+  static NitroNullableInt fromNative(Pointer<Uint8> ptr) => fromReader(RecordReader.fromNative(ptr));
 
-  static NitroNullableInt fromReader(RecordReader r) =>
-      NitroNullableInt(hasValue: r.readBool(), value: r.readInt());
+  static NitroNullableInt fromReader(RecordReader r) => NitroNullableInt(hasValue: r.readBool(), value: r.readInt());
 
   void writeFields(RecordWriter writer) {
     writer.writeBool(hasValue);
@@ -82,14 +77,10 @@ class NitroNullableInt {
   }
 
   @override
-  String toString() =>
-      hasValue ? 'NitroNullableInt($value)' : 'NitroNullableInt(null)';
+  String toString() => hasValue ? 'NitroNullableInt($value)' : 'NitroNullableInt(null)';
 
   @override
-  bool operator ==(Object other) =>
-      other is NitroNullableInt &&
-      hasValue == other.hasValue &&
-      value == other.value;
+  bool operator ==(Object other) => other is NitroNullableInt && hasValue == other.hasValue && value == other.value;
 
   @override
   int get hashCode => Object.hash(hasValue, value);
@@ -109,20 +100,15 @@ class NitroNullableDouble {
 
   const NitroNullableDouble({required this.hasValue, required this.value});
 
-  factory NitroNullableDouble.fromNullable(double? v) => v == null
-      ? const NitroNullableDouble(hasValue: false, value: 0.0)
-      : NitroNullableDouble(hasValue: true, value: v);
+  factory NitroNullableDouble.fromNullable(double? v) => v == null ? const NitroNullableDouble(hasValue: false, value: 0.0) : NitroNullableDouble(hasValue: true, value: v);
 
-  static const NitroNullableDouble nullValue =
-      NitroNullableDouble(hasValue: false, value: 0.0);
+  static const NitroNullableDouble nullValue = NitroNullableDouble(hasValue: false, value: 0.0);
 
   double? get nullable => hasValue ? value : null;
 
-  static NitroNullableDouble fromNative(Pointer<Uint8> ptr) =>
-      fromReader(RecordReader.fromNative(ptr));
+  static NitroNullableDouble fromNative(Pointer<Uint8> ptr) => fromReader(RecordReader.fromNative(ptr));
 
-  static NitroNullableDouble fromReader(RecordReader r) =>
-      NitroNullableDouble(hasValue: r.readBool(), value: r.readDouble());
+  static NitroNullableDouble fromReader(RecordReader r) => NitroNullableDouble(hasValue: r.readBool(), value: r.readDouble());
 
   void writeFields(RecordWriter writer) {
     writer.writeBool(hasValue);
@@ -136,15 +122,10 @@ class NitroNullableDouble {
   }
 
   @override
-  String toString() => hasValue
-      ? 'NitroNullableDouble($value)'
-      : 'NitroNullableDouble(null)';
+  String toString() => hasValue ? 'NitroNullableDouble($value)' : 'NitroNullableDouble(null)';
 
   @override
-  bool operator ==(Object other) =>
-      other is NitroNullableDouble &&
-      hasValue == other.hasValue &&
-      value == other.value;
+  bool operator ==(Object other) => other is NitroNullableDouble && hasValue == other.hasValue && value == other.value;
 
   @override
   int get hashCode => Object.hash(hasValue, value);
@@ -164,20 +145,15 @@ class NitroNullableBool {
 
   const NitroNullableBool({required this.hasValue, required this.value});
 
-  factory NitroNullableBool.fromNullable(bool? v) => v == null
-      ? const NitroNullableBool(hasValue: false, value: false)
-      : NitroNullableBool(hasValue: true, value: v);
+  factory NitroNullableBool.fromNullable(bool? v) => v == null ? const NitroNullableBool(hasValue: false, value: false) : NitroNullableBool(hasValue: true, value: v);
 
-  static const NitroNullableBool nullValue =
-      NitroNullableBool(hasValue: false, value: false);
+  static const NitroNullableBool nullValue = NitroNullableBool(hasValue: false, value: false);
 
   bool? get nullable => hasValue ? value : null;
 
-  static NitroNullableBool fromNative(Pointer<Uint8> ptr) =>
-      fromReader(RecordReader.fromNative(ptr));
+  static NitroNullableBool fromNative(Pointer<Uint8> ptr) => fromReader(RecordReader.fromNative(ptr));
 
-  static NitroNullableBool fromReader(RecordReader r) =>
-      NitroNullableBool(hasValue: r.readBool(), value: r.readBool());
+  static NitroNullableBool fromReader(RecordReader r) => NitroNullableBool(hasValue: r.readBool(), value: r.readBool());
 
   void writeFields(RecordWriter writer) {
     writer.writeBool(hasValue);
@@ -191,14 +167,10 @@ class NitroNullableBool {
   }
 
   @override
-  String toString() =>
-      hasValue ? 'NitroNullableBool($value)' : 'NitroNullableBool(null)';
+  String toString() => hasValue ? 'NitroNullableBool($value)' : 'NitroNullableBool(null)';
 
   @override
-  bool operator ==(Object other) =>
-      other is NitroNullableBool &&
-      hasValue == other.hasValue &&
-      value == other.value;
+  bool operator ==(Object other) => other is NitroNullableBool && hasValue == other.hasValue && value == other.value;
 
   @override
   int get hashCode => Object.hash(hasValue, value);
@@ -213,8 +185,7 @@ extension IntNullableExt on int? {
 
 extension DoubleNullableExt on double? {
   /// Wraps as [NitroNullableDouble] for collision-free bridge transport.
-  NitroNullableDouble toNitroNullable() =>
-      NitroNullableDouble.fromNullable(this);
+  NitroNullableDouble toNitroNullable() => NitroNullableDouble.fromNullable(this);
 }
 
 extension BoolNullableExt on bool? {
@@ -250,22 +221,28 @@ extension NitroNullableBoolExt on NitroNullableBool {
 @Packed(1)
 base class NitroOptInt64 extends Struct {
   /// 1 = value present, 0 = null.
-  @Uint8() external int hasValue;
+  @Uint8()
+  external int hasValue;
 
   /// int64 payload; meaningful only when hasValue != 0.
-  @Int64() external int value;
+  @Int64()
+  external int value;
 }
 
 @Packed(1)
 base class NitroOptFloat64 extends Struct {
-  @Uint8() external int hasValue;
-  @Double() external double value;
+  @Uint8()
+  external int hasValue;
+  @Double()
+  external double value;
 }
 
 @Packed(1)
 base class NitroOptBool extends Struct {
-  @Uint8() external int hasValue;
-  @Uint8() external int value;
+  @Uint8()
+  external int hasValue;
+  @Uint8()
+  external int value;
 }
 
 // ── Value-type decode extensions (for sync struct-by-value returns) ───────────

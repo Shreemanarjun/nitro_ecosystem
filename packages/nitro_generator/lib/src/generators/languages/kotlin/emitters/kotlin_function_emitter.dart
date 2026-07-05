@@ -46,13 +46,13 @@ class KotlinFunctionEmitter {
     final isVariantReturn = mapper.variantNames.contains(retBaseName);
 
     final bridgeRetType = func.isResult
-        ? 'ByteArray'  // @NitroResult: [1B tag][record payload]
+        ? 'ByteArray' // @NitroResult: [1B tag][record payload]
         : isVariantReturn
-        ? 'ByteArray'  // @NitroVariant: [4B len][1B tag][fields]
+        ? 'ByteArray' // @NitroVariant: [4B len][1B tag][fields]
         : isEnumListReturn
-        ? 'ByteArray'  // List<@HybridEnum>: [4B len][4B count][8B×N]
+        ? 'ByteArray' // List<@HybridEnum>: [4B len][4B count][8B×N]
         : isVariantListReturn
-        ? 'ByteArray'  // List<@NitroVariant>: [4B len][4B count][tag+fields×N]
+        ? 'ByteArray' // List<@NitroVariant>: [4B len][4B count][tag+fields×N]
         : (isNullableBoolReturn || isNullableIntReturn || isNullableDoubleReturn)
         ? 'ByteArray'
         : isEnum
@@ -60,14 +60,12 @@ class KotlinFunctionEmitter {
         : isRecord
         ? (func.returnType.name.endsWith('?') ? 'ByteArray?' : 'ByteArray')
         : isAnyMap
-        ? 'ByteArray'  // NitroAnyMap: type-tagged binary (same wire as @HybridRecord)
+        ? 'ByteArray' // NitroAnyMap: type-tagged binary (same wire as @HybridRecord)
         : isMap && !isUnit
         ? 'ByteArray'
         : retType;
 
-    bool isOptPrim(BridgeParam p) =>
-        p.type.isNullableNitroPrim ||
-        (p.isOptional && BridgeType.nitroPrimBases.contains(p.type.baseName));
+    bool isOptPrim(BridgeParam p) => p.type.isNullableNitroPrim || (p.isOptional && BridgeType.nitroPrimBases.contains(p.type.baseName));
 
     // Optional-primitive params that need NitroNullable ByteArray decoding.
     final optPrimParams = func.params.where(isOptPrim).toList();
@@ -160,15 +158,11 @@ class KotlinFunctionEmitter {
     // instanceId is prepended; bridgeParamsDecl already includes it.
     final portParam = '$bridgeParamsDecl, dartPort: Long';
 
-    bool isOptPrimNA(BridgeParam p) =>
-        p.type.isNullableNitroPrim ||
-        (p.isOptional && BridgeType.nitroPrimBases.contains(p.type.baseName));
+    bool isOptPrimNA(BridgeParam p) => p.type.isNullableNitroPrim || (p.isOptional && BridgeType.nitroPrimBases.contains(p.type.baseName));
 
     final optPrims = func.params.where(isOptPrimNA).toList();
 
-    final callParams = func.params
-        .map((p) => isOptPrimNA(p) ? '${p.name}Arg' : p.name)
-        .join(', ');
+    final callParams = func.params.map((p) => isOptPrimNA(p) ? '${p.name}Arg' : p.name).join(', ');
 
     writer.line('    @JvmStatic fun ${func.dartName}_call($portParam) {');
     writer.line('        val impl = _implementations[instanceId] ?: run {');
@@ -414,7 +408,7 @@ class KotlinFunctionEmitter {
       writer.line('            else { val _iw = RecordWriter(); item.writeFields(_iw); byteArrayOf(1) + _iw.toByteArray() }');
       writer.line('        }');
     } else {
-      writer.line('        val _itemBytes = result.map { item ->' );
+      writer.line('        val _itemBytes = result.map { item ->');
       writer.line('            val _iw = RecordWriter(); item.writeFields(_iw); _iw.toByteArray()');
       writer.line('        }');
     }
@@ -439,7 +433,12 @@ class KotlinFunctionEmitter {
     // Decode input param (if any) from NitroAnyMap ByteArray.
     final anyMapParam = func.params.firstWhere(
       (p) => p.type.isAnyMap,
-      orElse: () => func.params.isNotEmpty ? func.params.first : BridgeParam(name: '', type: BridgeType(name: 'NitroAnyMap', isAnyMap: true)),
+      orElse: () => func.params.isNotEmpty
+          ? func.params.first
+          : BridgeParam(
+              name: '',
+              type: BridgeType(name: 'NitroAnyMap', isAnyMap: true),
+            ),
     );
     final paramName = anyMapParam.name;
 
@@ -448,10 +447,12 @@ class KotlinFunctionEmitter {
     }
 
     // Resolve actual call params — replace the anymap param with decoded version.
-    final resolvedCallParams = func.params.map((p) {
-      if (p.type.isAnyMap) return '${p.name}Decoded';
-      return p.name;
-    }).join(', ');
+    final resolvedCallParams = func.params
+        .map((p) {
+          if (p.type.isAnyMap) return '${p.name}Decoded';
+          return p.name;
+        })
+        .join(', ');
 
     if (func.isAsync) {
       final rb = KotlinTypeMapper.runBlockingCall(func, 'impl.${func.dartName}($resolvedCallParams)');
@@ -776,13 +777,17 @@ class KotlinFunctionEmitter {
 
   static String _kotlinResultEncodeOk(String retBaseName, KotlinTypeMapper mapper) {
     switch (retBaseName) {
-      case 'int': return 'nitroEncodeResultInt64(_result)';
-      case 'double': return 'nitroEncodeResultFloat64(_result)';
-      case 'bool': return 'nitroEncodeResultBool(_result)';
-      case 'String': return 'nitroEncodeResultString(_result)';
+      case 'int':
+        return 'nitroEncodeResultInt64(_result)';
+      case 'double':
+        return 'nitroEncodeResultFloat64(_result)';
+      case 'bool':
+        return 'nitroEncodeResultBool(_result)';
+      case 'String':
+        return 'nitroEncodeResultString(_result)';
       default:
         if (mapper.enumNames.contains(retBaseName)) return 'nitroEncodeResultInt64(_result.nativeValue)';
-        return 'nitroEncodeResultRecord(_result)';  // @HybridRecord / variant
+        return 'nitroEncodeResultRecord(_result)'; // @HybridRecord / variant
     }
   }
 

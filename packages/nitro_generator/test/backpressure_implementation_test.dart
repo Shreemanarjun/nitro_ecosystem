@@ -8,44 +8,44 @@ import 'package:test/test.dart';
 import 'test_utils.dart';
 
 BridgeSpec _bufferDropSpec({int capacity = 64}) => BridgeSpec(
-      dartClassName: 'Sensor',
-      lib: 'sensor',
-      namespace: 'sensor',
-      iosImpl: NativeImpl.swift,
-      androidImpl: NativeImpl.kotlin,
-      sourceUri: 'sensor.native.dart',
-      streams: [
-        BridgeStream(
-          dartName: 'data',
-          registerSymbol: 'sensor_register_data_stream',
-          releaseSymbol: 'sensor_release_data_stream',
-          itemType: BridgeType(name: 'double'),
-          backpressure: Backpressure.bufferDrop,
-          batchMaxSize: capacity,
-          isAnnotated: true,
-        ),
-      ],
-    );
+  dartClassName: 'Sensor',
+  lib: 'sensor',
+  namespace: 'sensor',
+  iosImpl: NativeImpl.swift,
+  androidImpl: NativeImpl.kotlin,
+  sourceUri: 'sensor.native.dart',
+  streams: [
+    BridgeStream(
+      dartName: 'data',
+      registerSymbol: 'sensor_register_data_stream',
+      releaseSymbol: 'sensor_release_data_stream',
+      itemType: BridgeType(name: 'double'),
+      backpressure: Backpressure.bufferDrop,
+      batchMaxSize: capacity,
+      isAnnotated: true,
+    ),
+  ],
+);
 
 BridgeSpec _blockSpec({int capacity = 32}) => BridgeSpec(
-      dartClassName: 'Sensor',
-      lib: 'sensor',
-      namespace: 'sensor',
-      iosImpl: NativeImpl.swift,
-      androidImpl: NativeImpl.kotlin,
-      sourceUri: 'sensor.native.dart',
-      streams: [
-        BridgeStream(
-          dartName: 'frames',
-          registerSymbol: 'sensor_register_frames_stream',
-          releaseSymbol: 'sensor_release_frames_stream',
-          itemType: BridgeType(name: 'int'),
-          backpressure: Backpressure.block,
-          batchMaxSize: capacity,
-          isAnnotated: true,
-        ),
-      ],
-    );
+  dartClassName: 'Sensor',
+  lib: 'sensor',
+  namespace: 'sensor',
+  iosImpl: NativeImpl.swift,
+  androidImpl: NativeImpl.kotlin,
+  sourceUri: 'sensor.native.dart',
+  streams: [
+    BridgeStream(
+      dartName: 'frames',
+      registerSymbol: 'sensor_register_frames_stream',
+      releaseSymbol: 'sensor_release_frames_stream',
+      itemType: BridgeType(name: 'int'),
+      backpressure: Backpressure.block,
+      batchMaxSize: capacity,
+      isAnnotated: true,
+    ),
+  ],
+);
 
 void main() {
   // ── Gap 10: Backpressure.bufferDrop ──────────────────────────────────────
@@ -54,8 +54,7 @@ void main() {
     group('SpecValidator', () {
       test('bufferDrop produces no validation errors', () {
         final issues = SpecValidator.validate(_bufferDropSpec());
-        expect(issues.where((i) => i.isError), isEmpty,
-            reason: 'bufferDrop is now implemented — no E016 error should be emitted');
+        expect(issues.where((i) => i.isError), isEmpty, reason: 'bufferDrop is now implemented — no E016 error should be emitted');
       });
 
       test('isBufferDrop getter on BridgeStream is true', () {
@@ -67,8 +66,7 @@ void main() {
     group('Kotlin generator — bufferDrop', () {
       test('emits .buffer() with DROP_OLDEST overflow strategy', () {
         final code = KotlinGenerator.generate(_bufferDropSpec());
-        expect(code, contains('BufferOverflow.DROP_OLDEST'),
-            reason: 'bufferDrop must use Kotlin coroutines DROP_OLDEST overflow');
+        expect(code, contains('BufferOverflow.DROP_OLDEST'), reason: 'bufferDrop must use Kotlin coroutines DROP_OLDEST overflow');
       });
 
       test('emits buffer capacity in Flow.buffer() call', () {
@@ -91,8 +89,7 @@ void main() {
     group('Swift generator — bufferDrop', () {
       test('emits .buffer() with whenFull: .dropOldest', () {
         final code = SwiftGenerator.generate(_bufferDropSpec());
-        expect(code, contains('whenFull: .dropOldest'),
-            reason: 'bufferDrop must use Combine .dropOldest buffer policy');
+        expect(code, contains('whenFull: .dropOldest'), reason: 'bufferDrop must use Combine .dropOldest buffer policy');
       });
 
       test('emits buffer capacity in .buffer(size:) call', () {
@@ -116,8 +113,7 @@ void main() {
     group('Dart FFI generator — bufferDrop', () {
       test('passes Backpressure.bufferDrop to openStream', () {
         final code = DartFfiGenerator.generate(_bufferDropSpec());
-        expect(code, contains('Backpressure.bufferDrop'),
-            reason: 'Dart side must record the actual backpressure mode for NitroRuntime');
+        expect(code, contains('Backpressure.bufferDrop'), reason: 'Dart side must record the actual backpressure mode for NitroRuntime');
       });
     });
   });
@@ -128,8 +124,7 @@ void main() {
     group('SpecValidator', () {
       test('block produces no validation errors', () {
         final issues = SpecValidator.validate(_blockSpec());
-        expect(issues.where((i) => i.isError), isEmpty,
-            reason: 'block is now implemented — no E017 error should be emitted');
+        expect(issues.where((i) => i.isError), isEmpty, reason: 'block is now implemented — no E017 error should be emitted');
       });
 
       test('isBlock getter on BridgeStream is true', () {
@@ -141,10 +136,8 @@ void main() {
     group('Kotlin generator — block', () {
       test('emits .buffer() without DROP_OLDEST (SUSPEND is the default)', () {
         final code = KotlinGenerator.generate(_blockSpec());
-        expect(code, contains('.buffer(capacity = '),
-            reason: 'block uses bounded buffer with SUSPEND overflow');
-        expect(code, isNot(contains('DROP_OLDEST')),
-            reason: 'block must not drop items — it suspends the producer');
+        expect(code, contains('.buffer(capacity = '), reason: 'block uses bounded buffer with SUSPEND overflow');
+        expect(code, isNot(contains('DROP_OLDEST')), reason: 'block must not drop items — it suspends the producer');
         expect(code, isNot(contains('DROP_LATEST')));
       });
 
@@ -162,10 +155,8 @@ void main() {
     group('Swift generator — block', () {
       test('emits .buffer() + .receive(on:) for serial delivery', () {
         final code = SwiftGenerator.generate(_blockSpec());
-        expect(code, contains('.buffer('),
-            reason: 'block needs a bounded buffer to limit in-flight items');
-        expect(code, contains('.receive(on: _serialQ)'),
-            reason: 'block uses serial DispatchQueue to rate-limit emissions');
+        expect(code, contains('.buffer('), reason: 'block needs a bounded buffer to limit in-flight items');
+        expect(code, contains('.receive(on: _serialQ)'), reason: 'block uses serial DispatchQueue to rate-limit emissions');
       });
 
       test('emits serial DispatchQueue for block mode', () {
@@ -196,23 +187,23 @@ void main() {
 
   group('Backpressure modes produce distinct Kotlin code', () {
     BridgeSpec specWith(Backpressure mode) => BridgeSpec(
-          dartClassName: 'Hub',
-          lib: 'hub',
-          namespace: 'hub',
-          iosImpl: NativeImpl.swift,
-          androidImpl: NativeImpl.kotlin,
-          sourceUri: 'hub.native.dart',
-          streams: [
-            BridgeStream(
-              dartName: 'events',
-              registerSymbol: 'hub_register_events_stream',
-              releaseSymbol: 'hub_release_events_stream',
-              itemType: BridgeType(name: 'int'),
-              backpressure: mode,
-              isAnnotated: true,
-            ),
-          ],
-        );
+      dartClassName: 'Hub',
+      lib: 'hub',
+      namespace: 'hub',
+      iosImpl: NativeImpl.swift,
+      androidImpl: NativeImpl.kotlin,
+      sourceUri: 'hub.native.dart',
+      streams: [
+        BridgeStream(
+          dartName: 'events',
+          registerSymbol: 'hub_register_events_stream',
+          releaseSymbol: 'hub_release_events_stream',
+          itemType: BridgeType(name: 'int'),
+          backpressure: mode,
+          isAnnotated: true,
+        ),
+      ],
+    );
 
     test('dropLatest has no .buffer() call in Kotlin', () {
       final code = KotlinGenerator.generate(specWith(Backpressure.dropLatest));
@@ -255,9 +246,13 @@ void main() {
       final variant = BridgeVariant(
         name: 'UIEvent',
         cases: [
-          BridgeVariantCase(name: 'UIEventTap', label: 'tap', fields: [
-            BridgeRecordField(name: 'x', dartType: 'int', kind: RecordFieldKind.primitive),
-          ]),
+          BridgeVariantCase(
+            name: 'UIEventTap',
+            label: 'tap',
+            fields: [
+              BridgeRecordField(name: 'x', dartType: 'int', kind: RecordFieldKind.primitive),
+            ],
+          ),
         ],
       );
       return BridgeSpec(
@@ -292,26 +287,22 @@ void main() {
 
     test('_invoke_handler external fun uses ByteArray, not Long', () {
       final code = KotlinGenerator.generate(variantCallbackSpec());
-      expect(code, contains('external fun _invoke_handler(callbackPtr: Long, arg0: ByteArray)'),
-          reason: 'variant callback param must be ByteArray (encoded bytes), not Long');
+      expect(code, contains('external fun _invoke_handler(callbackPtr: Long, arg0: ByteArray)'), reason: 'variant callback param must be ByteArray (encoded bytes), not Long');
     });
 
     test('callbackLambda encodes variant with .encode()', () {
       final code = KotlinGenerator.generate(variantCallbackSpec());
-      expect(code, contains('p0.encode()'),
-          reason: 'variant callback lambda must call encode() before passing to _invoke_handler');
+      expect(code, contains('p0.encode()'), reason: 'variant callback lambda must call encode() before passing to _invoke_handler');
     });
 
     test('Kotlin bridge imports kotlinx.coroutines.flow.buffer when bufferDrop present', () {
       final code = KotlinGenerator.generate(_bufferDropSpec());
-      expect(code, contains('import kotlinx.coroutines.flow.buffer'),
-          reason: '.buffer() extension requires this import');
+      expect(code, contains('import kotlinx.coroutines.flow.buffer'), reason: '.buffer() extension requires this import');
     });
 
     test('Kotlin bridge imports kotlinx.coroutines.flow.buffer when block present', () {
       final code = KotlinGenerator.generate(_blockSpec());
-      expect(code, contains('import kotlinx.coroutines.flow.buffer'),
-          reason: '.buffer() extension requires this import');
+      expect(code, contains('import kotlinx.coroutines.flow.buffer'), reason: '.buffer() extension requires this import');
     });
 
     test('Kotlin bridge does NOT import flow.buffer for dropLatest-only streams', () {
@@ -334,8 +325,7 @@ void main() {
         ],
       );
       final code = KotlinGenerator.generate(spec);
-      expect(code, isNot(contains('import kotlinx.coroutines.flow.buffer')),
-          reason: 'dropLatest streams do not use .buffer() and do not need the import');
+      expect(code, isNot(contains('import kotlinx.coroutines.flow.buffer')), reason: 'dropLatest streams do not use .buffer() and do not need the import');
     });
   });
 
@@ -344,9 +334,13 @@ void main() {
       final variant = BridgeVariant(
         name: 'UIEvent',
         cases: [
-          BridgeVariantCase(name: 'UIEventTap', label: 'tap', fields: [
-            BridgeRecordField(name: 'x', dartType: 'int', kind: RecordFieldKind.primitive),
-          ]),
+          BridgeVariantCase(
+            name: 'UIEventTap',
+            label: 'tap',
+            fields: [
+              BridgeRecordField(name: 'x', dartType: 'int', kind: RecordFieldKind.primitive),
+            ],
+          ),
         ],
       );
       return BridgeSpec(
@@ -372,20 +366,17 @@ void main() {
 
     test('emit_eventStream JNI extern uses ByteArray, not UIEvent', () {
       final code = KotlinGenerator.generate(variantStreamSpec());
-      expect(code, contains('external fun emit_eventStream(dartPort: Long, item: ByteArray): Boolean'),
-          reason: 'variant stream item must be encoded as ByteArray before crossing JNI');
+      expect(code, contains('external fun emit_eventStream(dartPort: Long, item: ByteArray): Boolean'), reason: 'variant stream item must be encoded as ByteArray before crossing JNI');
     });
 
     test('stream collect encodes item with .encode() before emit', () {
       final code = KotlinGenerator.generate(variantStreamSpec());
-      expect(code, contains('item.encode()'),
-          reason: 'variant stream collect must encode item to ByteArray before emitting');
+      expect(code, contains('item.encode()'), reason: 'variant stream collect must encode item to ByteArray before emitting');
     });
 
     test('variant stream RecordReader/RecordWriter helpers are emitted', () {
       final code = KotlinGenerator.generate(variantStreamSpec());
-      expect(code, anyOf(contains('RecordWriter'), contains('RecordReader')),
-          reason: 'variant encode/decode needs RecordReader/RecordWriter bridge helpers');
+      expect(code, anyOf(contains('RecordWriter'), contains('RecordReader')), reason: 'variant encode/decode needs RecordReader/RecordWriter bridge helpers');
     });
   });
 }

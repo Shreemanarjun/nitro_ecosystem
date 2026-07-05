@@ -17,45 +17,44 @@ import 'test_utils.dart';
 
 // ── Spec helpers ──────────────────────────────────────────────────────────────
 
-BridgeSpec _spec(String returnType, {List<BridgeParam> params = const []}) =>
-    BridgeSpec(
-      dartClassName: 'Counter',
-      lib: 'counter',
-      namespace: 'counter',
-      iosImpl: NativeImpl.swift,
-      androidImpl: NativeImpl.kotlin,
-      sourceUri: 'counter.native.dart',
-      functions: [
-        BridgeFunction(
-          dartName: 'getValue',
-          cSymbol: 'counter_getValue',
-          isAsync: false,
-          returnType: BridgeType(name: returnType),
-          params: params,
-        ),
-      ],
-    );
+BridgeSpec _spec(String returnType, {List<BridgeParam> params = const []}) => BridgeSpec(
+  dartClassName: 'Counter',
+  lib: 'counter',
+  namespace: 'counter',
+  iosImpl: NativeImpl.swift,
+  androidImpl: NativeImpl.kotlin,
+  sourceUri: 'counter.native.dart',
+  functions: [
+    BridgeFunction(
+      dartName: 'getValue',
+      cSymbol: 'counter_getValue',
+      isAsync: false,
+      returnType: BridgeType(name: returnType),
+      params: params,
+    ),
+  ],
+);
 
 BridgeSpec _streamSpec(String itemType) => BridgeSpec(
-      dartClassName: 'Counter',
-      lib: 'counter',
-      namespace: 'counter',
-      iosImpl: NativeImpl.swift,
-      androidImpl: NativeImpl.kotlin,
-      sourceUri: 'counter.native.dart',
-      streams: [
-        BridgeStream(
-          dartName: 'valueStream',
-          registerSymbol: 'counter_register_valueStream',
-          releaseSymbol: 'counter_release_valueStream',
-          backpressure: Backpressure.dropLatest,
-          itemType: BridgeType(
-            name: itemType,
-            isNullable: itemType.endsWith('?'),
-          ),
-        ),
-      ],
-    );
+  dartClassName: 'Counter',
+  lib: 'counter',
+  namespace: 'counter',
+  iosImpl: NativeImpl.swift,
+  androidImpl: NativeImpl.kotlin,
+  sourceUri: 'counter.native.dart',
+  streams: [
+    BridgeStream(
+      dartName: 'valueStream',
+      registerSymbol: 'counter_register_valueStream',
+      releaseSymbol: 'counter_release_valueStream',
+      backpressure: Backpressure.dropLatest,
+      itemType: BridgeType(
+        name: itemType,
+        isNullable: itemType.endsWith('?'),
+      ),
+    ),
+  ],
+);
 
 // ── Dart FFI ──────────────────────────────────────────────────────────────────
 
@@ -84,17 +83,33 @@ void main() {
     });
 
     test('uint64 param: native type is Uint64', () {
-      final dart = DartFfiGenerator.generate(_spec('void', params: [
-        BridgeParam(name: 'val', type: BridgeType(name: 'uint64')),
-      ]));
+      final dart = DartFfiGenerator.generate(
+        _spec(
+          'void',
+          params: [
+            BridgeParam(
+              name: 'val',
+              type: BridgeType(name: 'uint64'),
+            ),
+          ],
+        ),
+      );
       expect(dart, contains('Uint64'));
     });
 
     test('uint64? param: sync uses arena.packInt (NitroOptInt64 encoding)', () {
       // uint64? maps to NitroOptInt64 (same 9-byte wire format as int?).
-      final dart = DartFfiGenerator.generate(_spec('void', params: [
-        BridgeParam(name: 'val', type: BridgeType(name: 'uint64?', isNullable: true)),
-      ]));
+      final dart = DartFfiGenerator.generate(
+        _spec(
+          'void',
+          params: [
+            BridgeParam(
+              name: 'val',
+              type: BridgeType(name: 'uint64?', isNullable: true),
+            ),
+          ],
+        ),
+      );
       expect(dart, contains('arena.packInt(val)'));
       expect(dart, contains('withArena'));
     });
@@ -112,16 +127,32 @@ void main() {
     });
 
     test('uint64 param type is uint64_t', () {
-      final header = CppHeaderGenerator.generate(_spec('void', params: [
-        BridgeParam(name: 'v', type: BridgeType(name: 'uint64')),
-      ]));
+      final header = CppHeaderGenerator.generate(
+        _spec(
+          'void',
+          params: [
+            BridgeParam(
+              name: 'v',
+              type: BridgeType(name: 'uint64'),
+            ),
+          ],
+        ),
+      );
       expect(header, contains('uint64_t v'));
     });
 
     test('uint64? param type is const uint8_t*', () {
-      final header = CppHeaderGenerator.generate(_spec('void', params: [
-        BridgeParam(name: 'v', type: BridgeType(name: 'uint64?', isNullable: true)),
-      ]));
+      final header = CppHeaderGenerator.generate(
+        _spec(
+          'void',
+          params: [
+            BridgeParam(
+              name: 'v',
+              type: BridgeType(name: 'uint64?', isNullable: true),
+            ),
+          ],
+        ),
+      );
       expect(header, contains('const uint8_t* v'));
     });
   });
@@ -139,9 +170,17 @@ void main() {
     });
 
     test('uint64? bridge param: ByteArray', () {
-      final kotlin = KotlinGenerator.generate(_spec('void', params: [
-        BridgeParam(name: 'v', type: BridgeType(name: 'uint64?', isNullable: true)),
-      ]));
+      final kotlin = KotlinGenerator.generate(
+        _spec(
+          'void',
+          params: [
+            BridgeParam(
+              name: 'v',
+              type: BridgeType(name: 'uint64?', isNullable: true),
+            ),
+          ],
+        ),
+      );
       // bridgeParamType: ByteArray
       expect(kotlin, contains('ByteArray'));
     });
@@ -203,22 +242,22 @@ void main() {
 
   group('L13 uint64 — @nitroAsync return', () {
     BridgeSpec asyncSpec(String ret) => BridgeSpec(
-          dartClassName: 'Counter',
-          lib: 'counter',
-          namespace: 'counter',
-          iosImpl: NativeImpl.swift,
-          androidImpl: NativeImpl.kotlin,
-          sourceUri: 'counter.native.dart',
-          functions: [
-            BridgeFunction(
-              dartName: 'getAsync',
-              cSymbol: 'counter_getAsync',
-              isAsync: true,
-              returnType: BridgeType(name: ret, isNullable: ret.endsWith('?')),
-              params: [],
-            ),
-          ],
-        );
+      dartClassName: 'Counter',
+      lib: 'counter',
+      namespace: 'counter',
+      iosImpl: NativeImpl.swift,
+      androidImpl: NativeImpl.kotlin,
+      sourceUri: 'counter.native.dart',
+      functions: [
+        BridgeFunction(
+          dartName: 'getAsync',
+          cSymbol: 'counter_getAsync',
+          isAsync: true,
+          returnType: BridgeType(name: ret, isNullable: ret.endsWith('?')),
+          params: [],
+        ),
+      ],
+    );
 
     test('uint64 async return: callAsync<int>', () {
       final dart = DartFfiGenerator.generate(asyncSpec('uint64'));

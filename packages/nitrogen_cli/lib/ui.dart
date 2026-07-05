@@ -239,8 +239,7 @@ Future<({int exitCode, bool hadWarnings})> runStreamingInspected(
   // runInShell on Windows: `flutter`/`dart` resolve to .bat wrappers there,
   // which Process.start cannot spawn directly ("The system cannot find the
   // file specified"). The shell resolves them via PATHEXT.
-  final process = await Process.start(executable, args,
-      workingDirectory: workingDirectory, runInShell: Platform.isWindows);
+  final process = await Process.start(executable, args, workingDirectory: workingDirectory, runInShell: Platform.isWindows);
 
   StreamSubscription? sigintSub;
   StreamSubscription? sigtermSub;
@@ -283,9 +282,7 @@ Stream<String> streamProcess(String executable, List<String> args, {String? work
   controller.onListen = () async {
     try {
       // runInShell on Windows: flutter/dart are .bat wrappers there.
-      process = await Process.start(executable, args,
-          workingDirectory: workingDirectory,
-          runInShell: Platform.isWindows);
+      process = await Process.start(executable, args, workingDirectory: workingDirectory, runInShell: Platform.isWindows);
 
       if (!Platform.isWindows) {
         sigintSub = ProcessSignal.sigint.watch().listen((_) {

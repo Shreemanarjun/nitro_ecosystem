@@ -35,7 +35,9 @@ void main() {
       scaffoldMonorepo();
 
       String? prevDir;
-      try { prevDir = Directory.current.path; } catch (_) {}
+      try {
+        prevDir = Directory.current.path;
+      } catch (_) {}
       Directory.current = temp;
 
       try {
@@ -54,7 +56,9 @@ void main() {
         });
       } finally {
         if (prevDir != null) {
-          try { Directory.current = prevDir; } catch (_) {}
+          try {
+            Directory.current = prevDir;
+          } catch (_) {}
         }
       }
     });
@@ -63,7 +67,9 @@ void main() {
       scaffoldMonorepo();
 
       String? prevDir;
-      try { prevDir = Directory.current.path; } catch (_) {}
+      try {
+        prevDir = Directory.current.path;
+      } catch (_) {}
       Directory.current = temp;
 
       try {
@@ -90,7 +96,9 @@ void main() {
         });
       } finally {
         if (prevDir != null) {
-          try { Directory.current = prevDir; } catch (_) {}
+          try {
+            Directory.current = prevDir;
+          } catch (_) {}
         }
       }
     });
@@ -99,7 +107,9 @@ void main() {
       scaffoldMonorepo();
 
       String? prevDir;
-      try { prevDir = Directory.current.path; } catch (_) {}
+      try {
+        prevDir = Directory.current.path;
+      } catch (_) {}
       Directory.current = temp;
 
       try {
@@ -129,7 +139,9 @@ void main() {
         });
       } finally {
         if (prevDir != null) {
-          try { Directory.current = prevDir; } catch (_) {}
+          try {
+            Directory.current = prevDir;
+          } catch (_) {}
         }
       }
     });

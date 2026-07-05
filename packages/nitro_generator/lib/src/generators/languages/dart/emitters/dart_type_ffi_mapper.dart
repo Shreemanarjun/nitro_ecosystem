@@ -24,8 +24,10 @@ String _toNativeType(BridgeFunction func, BridgeSpec spec) {
   // NativeAsync: C function returns void and takes an extra Int64 dart_port.
   // @NitroResult: C function always returns Pointer<Uint8> (tagged buffer).
   // Nullable prims: C returns uint8_t* pointer (malloc'd); Dart receives Pointer<NitroOptXxx>.
-  final ret = func.isNativeAsync ? 'Void'
-      : func.isResult ? 'Pointer<Uint8>'
+  final ret = func.isNativeAsync
+      ? 'Void'
+      : func.isResult
+      ? 'Pointer<Uint8>'
       : _typeToFFI(func.returnType, spec);
   final effectiveRet = func.returnType.isTypedData ? 'Pointer<Uint8>' : ret;
   final params = [
@@ -46,8 +48,10 @@ String _toDartType(BridgeFunction func, BridgeSpec spec) {
   // NativeAsync: Dart callable returns void and takes an extra int dart_port.
   // @NitroResult: Dart callable returns Pointer<Uint8> (tagged result buffer).
   // Nullable prims: C returns uint8_t* pointer; Dart receives Pointer<NitroOptXxx>.
-  final ret = func.isNativeAsync ? 'void'
-      : func.isResult ? 'Pointer<Uint8>'
+  final ret = func.isNativeAsync
+      ? 'void'
+      : func.isResult
+      ? 'Pointer<Uint8>'
       : _typeToDartFFI(func.returnType, spec);
   final effectiveRet = func.returnType.isTypedData ? 'Pointer<Uint8>' : ret;
   final params = [
@@ -89,9 +93,9 @@ String _typeToFFI(BridgeType bt, BridgeSpec spec) {
   // uint64? uses the same NitroOptInt64 struct (bits identical, different C signedness).
   if (bt.name == 'uint64?') return 'Pointer<NitroOptInt64>';
   // Narrow integer nullable types reuse NitroOptInt64 (same 9-byte wire layout).
-  if (bt.name == 'int8?' || bt.name == 'int16?' || bt.name == 'int32?' ||
-      bt.name == 'uint8?' || bt.name == 'uint16?' || bt.name == 'uint32?' ||
-      bt.name == 'intptr?' || bt.name == 'size?') { return 'Pointer<NitroOptInt64>'; }
+  if (bt.name == 'int8?' || bt.name == 'int16?' || bt.name == 'int32?' || bt.name == 'uint8?' || bt.name == 'uint16?' || bt.name == 'uint32?' || bt.name == 'intptr?' || bt.name == 'size?') {
+    return 'Pointer<NitroOptInt64>';
+  }
   if (bt.name == 'float?') return 'Pointer<NitroOptFloat64>';
   switch (name) {
     case 'int':
@@ -128,15 +132,24 @@ String _typeToFFI(BridgeType bt, BridgeSpec spec) {
       return 'Pointer<Uint64>';
     case 'void':
       return 'Void';
-    case 'int8': return 'Int8';
-    case 'int16': return 'Int16';
-    case 'int32': return 'Int32';
-    case 'uint8': return 'Uint8';
-    case 'uint16': return 'Uint16';
-    case 'uint32': return 'Uint32';
-    case 'float': return 'Float';
-    case 'intptr': return 'IntPtr';
-    case 'size': return 'Size';
+    case 'int8':
+      return 'Int8';
+    case 'int16':
+      return 'Int16';
+    case 'int32':
+      return 'Int32';
+    case 'uint8':
+      return 'Uint8';
+    case 'uint16':
+      return 'Uint16';
+    case 'uint32':
+      return 'Uint32';
+    case 'float':
+      return 'Float';
+    case 'intptr':
+      return 'IntPtr';
+    case 'size':
+      return 'Size';
   }
   if (spec.isEnumName(name)) return 'Int64';
   return 'Pointer<Void>';
@@ -166,9 +179,9 @@ String _typeToDartFFI(BridgeType bt, BridgeSpec spec) {
   if (bt.name == 'AnyNativeObject?') return 'int';
   if (bt.name == 'uint64?') return 'Pointer<NitroOptInt64>';
   // Narrow integer nullable types reuse NitroOptInt64 (same 9-byte wire layout).
-  if (bt.name == 'int8?' || bt.name == 'int16?' || bt.name == 'int32?' ||
-      bt.name == 'uint8?' || bt.name == 'uint16?' || bt.name == 'uint32?' ||
-      bt.name == 'intptr?' || bt.name == 'size?') { return 'Pointer<NitroOptInt64>'; }
+  if (bt.name == 'int8?' || bt.name == 'int16?' || bt.name == 'int32?' || bt.name == 'uint8?' || bt.name == 'uint16?' || bt.name == 'uint32?' || bt.name == 'intptr?' || bt.name == 'size?') {
+    return 'Pointer<NitroOptInt64>';
+  }
   if (bt.name == 'float?') return 'Pointer<NitroOptFloat64>';
   switch (name) {
     case 'int':
@@ -212,12 +225,13 @@ String _typeToDartFFI(BridgeType bt, BridgeSpec spec) {
     case 'uint16':
     case 'uint32':
     case 'intptr':
-    case 'size': return 'int';
-    case 'float': return 'double';
+    case 'size':
+      return 'int';
+    case 'float':
+      return 'double';
   }
   if (spec.isEnumName(name)) return 'int';
   return 'Pointer<Void>';
 }
-
 
 /// Returns true when any function or property uses `Map<String, double>`.

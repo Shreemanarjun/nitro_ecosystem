@@ -193,8 +193,14 @@ final _kPacketStruct = BridgeStruct(
   name: 'Packet',
   packed: false,
   fields: [
-    BridgeField(name: 'id', type: BridgeType(name: 'int')),
-    BridgeField(name: 'data', type: BridgeType(name: 'String')),
+    BridgeField(
+      name: 'id',
+      type: BridgeType(name: 'int'),
+    ),
+    BridgeField(
+      name: 'data',
+      type: BridgeType(name: 'String'),
+    ),
   ],
 );
 
@@ -260,7 +266,9 @@ BridgeSpec _nullableStreamCoverageSpec(String bareItemType) {
     iosImpl: NativeImpl.swift,
     androidImpl: NativeImpl.kotlin,
     sourceUri: 'sensor.native.dart',
-    enums: [BridgeEnum(name: 'Level', startValue: 0, values: ['low', 'mid', 'high'])],
+    enums: [
+      BridgeEnum(name: 'Level', startValue: 0, values: ['low', 'mid', 'high']),
+    ],
     streams: [
       BridgeStream(
         dartName: 'readings',
@@ -280,7 +288,9 @@ BridgeSpec _enumMapCoverageSpec() => BridgeSpec(
   iosImpl: NativeImpl.swift,
   androidImpl: NativeImpl.kotlin,
   sourceUri: 'router.native.dart',
-  enums: [BridgeEnum(name: 'Route', startValue: 0, values: ['home', 'detail', 'settings'])],
+  enums: [
+    BridgeEnum(name: 'Route', startValue: 0, values: ['home', 'detail', 'settings']),
+  ],
   functions: [
     BridgeFunction(
       dartName: 'getRoutes',
@@ -304,7 +314,9 @@ BridgeSpec _enumBatchCoverageSpec() => BridgeSpec(
   iosImpl: NativeImpl.swift,
   androidImpl: NativeImpl.kotlin,
   sourceUri: 'monitor.native.dart',
-  enums: [BridgeEnum(name: 'Signal', startValue: 0, values: ['idle', 'active', 'error'])],
+  enums: [
+    BridgeEnum(name: 'Signal', startValue: 0, values: ['idle', 'active', 'error']),
+  ],
   streams: [
     BridgeStream(
       dartName: 'signals',
@@ -324,7 +336,9 @@ BridgeSpec _callbackNullableCoverageSpec() => BridgeSpec(
   iosImpl: NativeImpl.swift,
   androidImpl: NativeImpl.kotlin,
   sourceUri: 'processor.native.dart',
-  enums: [BridgeEnum(name: 'Quality', startValue: 0, values: ['low', 'high'])],
+  enums: [
+    BridgeEnum(name: 'Quality', startValue: 0, values: ['low', 'high']),
+  ],
   functions: [
     BridgeFunction(
       dartName: 'onNullableInt',
@@ -1857,8 +1871,7 @@ void main() {
     test('Spec validator: int?/double?/bool? sync return has no errors', () {
       for (final t in ['int?', 'double?', 'bool?']) {
         final issues = SpecValidator.validate(nullablePrimReturnSpec(t));
-        expect(issues.where((i) => i.isError).isEmpty, isTrue,
-          reason: '$t return should have no errors');
+        expect(issues.where((i) => i.isError).isEmpty, isTrue, reason: '$t return should have no errors');
       }
     });
   });
@@ -1913,14 +1926,25 @@ void main() {
       androidImpl: NativeImpl.kotlin,
       sourceUri: 'event_bus.native.dart',
       variants: [
-        BridgeVariant(name: 'Event', cases: [
-          BridgeVariantCase(name: 'EventClick', label: 'click', fields: [
-            BridgeRecordField(name: 'x', dartType: 'int', kind: RecordFieldKind.primitive),
-          ]),
-          BridgeVariantCase(name: 'EventScroll', label: 'scroll', fields: [
-            BridgeRecordField(name: 'delta', dartType: 'double', kind: RecordFieldKind.primitive),
-          ]),
-        ]),
+        BridgeVariant(
+          name: 'Event',
+          cases: [
+            BridgeVariantCase(
+              name: 'EventClick',
+              label: 'click',
+              fields: [
+                BridgeRecordField(name: 'x', dartType: 'int', kind: RecordFieldKind.primitive),
+              ],
+            ),
+            BridgeVariantCase(
+              name: 'EventScroll',
+              label: 'scroll',
+              fields: [
+                BridgeRecordField(name: 'delta', dartType: 'double', kind: RecordFieldKind.primitive),
+              ],
+            ),
+          ],
+        ),
       ],
       functions: [
         BridgeFunction(

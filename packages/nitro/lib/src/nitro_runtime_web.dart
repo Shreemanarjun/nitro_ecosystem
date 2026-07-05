@@ -14,9 +14,10 @@ export 'nitro_config.dart';
 
 /// Stub error factory — every method on the web stub throws this.
 UnsupportedError _webError(String method) => UnsupportedError(
-    'NitroRuntime.$method is not supported on web. '
-    'Web modules must use NativeImpl.wasm and a WASM/JS interop bridge. '
-    'Rebuild with the web target enabled and a WebBridgeGenerator output.');
+  'NitroRuntime.$method is not supported on web. '
+  'Web modules must use NativeImpl.wasm and a WASM/JS interop bridge. '
+  'Rebuild with the web target enabled and a WebBridgeGenerator output.',
+);
 
 // ignore_for_file: avoid_classes_with_only_static_members
 class NitroRuntime {
@@ -32,8 +33,7 @@ class NitroRuntime {
     required bool windows,
     required bool linux,
     required bool web,
-  }) =>
-      throw _webError('loadLibForTargets');
+  }) => throw _webError('loadLibForTargets');
 
   static void checkSupportedPlatform(
     String libName, {
@@ -43,48 +43,34 @@ class NitroRuntime {
     required bool windows,
     required bool linux,
     required bool web,
-  }) =>
-      throw _webError('checkSupportedPlatform');
+  }) => throw _webError('checkSupportedPlatform');
 
-  static T callSync<T>(T Function() fn, {required String methodName}) =>
-      throw _webError('callSync');
+  static T callSync<T>(T Function() fn, {required String methodName}) => throw _webError('callSync');
 
-  static Future<T> callAsync<T>(
-    dynamic fn,
-    List<dynamic> args,
-    {required dynamic getError,
-    required dynamic clearError,
-    required String methodName}
-  ) =>
-      throw _webError('callAsync');
+  static Future<T> callAsync<T>(dynamic fn, List<dynamic> args, {required dynamic getError, required dynamic clearError, required String methodName}) => throw _webError('callAsync');
 
   static Future<T> openNativeAsync<T>(
     T Function(dynamic) decoder,
     void Function(int dartPort) nativeCall, {
     required String methodName,
-  }) =>
-      throw _webError('openNativeAsync');
+  }) => throw _webError('openNativeAsync');
 
   static dynamic openStream(
     void Function(int dartPort) registerNative,
     void Function(int dartPort) releaseNative,
     dynamic decoder, {
     required String itemTypeName,
-  }) =>
-      throw _webError('openStream');
+  }) => throw _webError('openStream');
 
-  static void checkError(dynamic getError, dynamic clearError) =>
-      throw _webError('checkError');
+  static void checkError(dynamic getError, dynamic clearError) => throw _webError('checkError');
 
-  static void checkAbiVersion(String libName, dynamic versionFn) =>
-      throw _webError('checkAbiVersion');
+  static void checkAbiVersion(String libName, dynamic versionFn) => throw _webError('checkAbiVersion');
 
   static void checkLinkChecksum(
     String libName,
     String expectedChecksum,
     dynamic checksumFn,
-  ) =>
-      throw _webError('checkLinkChecksum');
+  ) => throw _webError('checkLinkChecksum');
 
   static void logLifecycle(String tag, String message) {
     // Best-effort: log on web without crashing

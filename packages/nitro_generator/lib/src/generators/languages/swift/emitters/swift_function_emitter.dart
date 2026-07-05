@@ -112,12 +112,20 @@ class SwiftFunctionEmitter {
           final isBool = p.type.name == 'bool' || p.type.name == 'bool?';
           if (isStr) return '${p.name}: ${p.name}Str';
           // Byte-safe decode: byte[0]=hasValue; bytes[1..8]=value via copyMemory (avoids withMemoryRebound alignment crash).
-          if (p.type.name == 'int?') return '${p.name}: { guard let _p = ${p.name}, _p[0] != 0 else { return nil }; var _rv: Int64 = 0; Swift.withUnsafeMutableBytes(of: &_rv) { \$0.baseAddress!.copyMemory(from: UnsafeRawPointer(_p + 1), byteCount: 8) }; return _rv }()';
-          if (p.type.name == 'uint64?') return '${p.name}: { guard let _p = ${p.name}, _p[0] != 0 else { return nil }; var _rv: UInt64 = 0; Swift.withUnsafeMutableBytes(of: &_rv) { \$0.baseAddress!.copyMemory(from: UnsafeRawPointer(_p + 1), byteCount: 8) }; return _rv }()';
-          if (p.type.name == 'double?') return '${p.name}: { guard let _p = ${p.name}, _p[0] != 0 else { return nil }; var _rv: Double = 0; Swift.withUnsafeMutableBytes(of: &_rv) { \$0.baseAddress!.copyMemory(from: UnsafeRawPointer(_p + 1), byteCount: 8) }; return _rv }()';
+          if (p.type.name == 'int?') {
+            return '${p.name}: { guard let _p = ${p.name}, _p[0] != 0 else { return nil }; var _rv: Int64 = 0; Swift.withUnsafeMutableBytes(of: &_rv) { \$0.baseAddress!.copyMemory(from: UnsafeRawPointer(_p + 1), byteCount: 8) }; return _rv }()';
+          }
+          if (p.type.name == 'uint64?') {
+            return '${p.name}: { guard let _p = ${p.name}, _p[0] != 0 else { return nil }; var _rv: UInt64 = 0; Swift.withUnsafeMutableBytes(of: &_rv) { \$0.baseAddress!.copyMemory(from: UnsafeRawPointer(_p + 1), byteCount: 8) }; return _rv }()';
+          }
+          if (p.type.name == 'double?') {
+            return '${p.name}: { guard let _p = ${p.name}, _p[0] != 0 else { return nil }; var _rv: Double = 0; Swift.withUnsafeMutableBytes(of: &_rv) { \$0.baseAddress!.copyMemory(from: UnsafeRawPointer(_p + 1), byteCount: 8) }; return _rv }()';
+          }
           if (p.type.name == 'bool?') return '${p.name}: { guard let _p = ${p.name}, _p[0] != 0 else { return nil }; return _p[1] != 0 }()';
           if (p.type.name == 'DateTime') return '${p.name}: Date(timeIntervalSince1970: Double(${p.name})/1000.0)';
-          if (p.type.name == 'DateTime?') return '${p.name}: { guard let _p = ${p.name}, _p[0] != 0 else { return nil }; var _rv: Int64 = 0; Swift.withUnsafeMutableBytes(of: &_rv) { \$0.baseAddress!.copyMemory(from: UnsafeRawPointer(_p + 1), byteCount: 8) }; return Date(timeIntervalSince1970: Double(_rv)/1000.0) }()';
+          if (p.type.name == 'DateTime?') {
+            return '${p.name}: { guard let _p = ${p.name}, _p[0] != 0 else { return nil }; var _rv: Int64 = 0; Swift.withUnsafeMutableBytes(of: &_rv) { \$0.baseAddress!.copyMemory(from: UnsafeRawPointer(_p + 1), byteCount: 8) }; return Date(timeIntervalSince1970: Double(_rv)/1000.0) }()';
+          }
           if (isBool) return '${p.name}: ${p.name} != 0';
           if (p.type.isTypedData) return '${p.name}: ${p.name}Arr';
           if (p.type.isRecord && p.type.name.startsWith('List<')) return '${p.name}: ${p.name}Decoded';
@@ -294,15 +302,23 @@ class SwiftFunctionEmitter {
     // before Task.detached runs. Copying to Swift typed locals here keeps values alive.
     for (final p in func.params) {
       if (p.type.name == 'int?') {
-        writer.line('    let ${p.name}_dec: Int64? = { guard let _p = ${p.name}, _p[0] != 0 else { return nil }; var _rv: Int64 = 0; Swift.withUnsafeMutableBytes(of: &_rv) { \$0.baseAddress!.copyMemory(from: UnsafeRawPointer(_p + 1), byteCount: 8) }; return _rv }()');
+        writer.line(
+          '    let ${p.name}_dec: Int64? = { guard let _p = ${p.name}, _p[0] != 0 else { return nil }; var _rv: Int64 = 0; Swift.withUnsafeMutableBytes(of: &_rv) { \$0.baseAddress!.copyMemory(from: UnsafeRawPointer(_p + 1), byteCount: 8) }; return _rv }()',
+        );
       } else if (p.type.name == 'uint64?') {
-        writer.line('    let ${p.name}_dec: UInt64? = { guard let _p = ${p.name}, _p[0] != 0 else { return nil }; var _rv: UInt64 = 0; Swift.withUnsafeMutableBytes(of: &_rv) { \$0.baseAddress!.copyMemory(from: UnsafeRawPointer(_p + 1), byteCount: 8) }; return _rv }()');
+        writer.line(
+          '    let ${p.name}_dec: UInt64? = { guard let _p = ${p.name}, _p[0] != 0 else { return nil }; var _rv: UInt64 = 0; Swift.withUnsafeMutableBytes(of: &_rv) { \$0.baseAddress!.copyMemory(from: UnsafeRawPointer(_p + 1), byteCount: 8) }; return _rv }()',
+        );
       } else if (p.type.name == 'double?') {
-        writer.line('    let ${p.name}_dec: Double? = { guard let _p = ${p.name}, _p[0] != 0 else { return nil }; var _rv: Double = 0; Swift.withUnsafeMutableBytes(of: &_rv) { \$0.baseAddress!.copyMemory(from: UnsafeRawPointer(_p + 1), byteCount: 8) }; return _rv }()');
+        writer.line(
+          '    let ${p.name}_dec: Double? = { guard let _p = ${p.name}, _p[0] != 0 else { return nil }; var _rv: Double = 0; Swift.withUnsafeMutableBytes(of: &_rv) { \$0.baseAddress!.copyMemory(from: UnsafeRawPointer(_p + 1), byteCount: 8) }; return _rv }()',
+        );
       } else if (p.type.name == 'bool?') {
         writer.line('    let ${p.name}_dec: Bool? = { guard let _p = ${p.name}, _p[0] != 0 else { return nil }; return _p[1] != 0 }()');
       } else if (p.type.name == 'DateTime?') {
-        writer.line('    let ${p.name}_dec: Date? = { guard let _p = ${p.name}, _p[0] != 0 else { return nil }; var _rv: Int64 = 0; Swift.withUnsafeMutableBytes(of: &_rv) { \$0.baseAddress!.copyMemory(from: UnsafeRawPointer(_p + 1), byteCount: 8) }; return Date(timeIntervalSince1970: Double(_rv)/1000.0) }()');
+        writer.line(
+          '    let ${p.name}_dec: Date? = { guard let _p = ${p.name}, _p[0] != 0 else { return nil }; var _rv: Int64 = 0; Swift.withUnsafeMutableBytes(of: &_rv) { \$0.baseAddress!.copyMemory(from: UnsafeRawPointer(_p + 1), byteCount: 8) }; return Date(timeIntervalSince1970: Double(_rv)/1000.0) }()',
+        );
       }
     }
     writer.line('    Task.detached {');
@@ -730,9 +746,7 @@ class SwiftFunctionEmitter {
       final isRecordMapVal = spec.recordTypes.any((r) => r.name == mapValType);
       final isVariantMapVal = spec.isVariantName(mapValType);
       // Determine input map value type (may differ from return type for transform functions).
-      final mapInMatch = func.params.isNotEmpty && func.params.first.type.isMap
-          ? RegExp(r'^Map<String,\s*(.+)>$').firstMatch(func.params.first.type.name)
-          : null;
+      final mapInMatch = func.params.isNotEmpty && func.params.first.type.isMap ? RegExp(r'^Map<String,\s*(.+)>$').firstMatch(func.params.first.type.name) : null;
       final mapInValType = mapInMatch?.group(1)?.trim() ?? mapValType;
       final isEnumMapIn = spec.isEnumName(mapInValType);
       final isRecordMapIn = spec.recordTypes.any((r) => r.name == mapInValType);
@@ -875,10 +889,14 @@ class SwiftFunctionEmitter {
   /// of the given [retName] type into the @NitroResult byte buffer.
   static String _nitroResultEncodeHelper(String retName, BridgeSpec spec) {
     switch (retName) {
-      case 'int':    return '_nitroEncodeResultInt64';
-      case 'double': return '_nitroEncodeResultFloat64';
-      case 'bool':   return '_nitroEncodeResultBool';
-      case 'String': return '_nitroEncodeResultString';
+      case 'int':
+        return '_nitroEncodeResultInt64';
+      case 'double':
+        return '_nitroEncodeResultFloat64';
+      case 'bool':
+        return '_nitroEncodeResultBool';
+      case 'String':
+        return '_nitroEncodeResultString';
       default:
         if (spec.isEnumName(retName)) return '_nitroEncodeResultInt64';
         // @HybridRecord or @HybridStruct or @NitroVariant: encode via record codec

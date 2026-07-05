@@ -31,7 +31,6 @@ const _nitroLibraryRecordTypes = {
   'NitroOptBool',
 };
 
-
 class DartFfiGenerator {
   /// Generates and returns the Dart source for a pair of int-key map
   /// encode/decode helpers (Gap #3).

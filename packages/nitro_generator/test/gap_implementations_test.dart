@@ -26,7 +26,9 @@ BridgeSpec _nullableStreamSpec(String itemTypeName) {
     iosImpl: NativeImpl.swift,
     androidImpl: NativeImpl.kotlin,
     sourceUri: 'events.native.dart',
-    enums: [BridgeEnum(name: 'Status', startValue: 0, values: ['ok', 'err'])],
+    enums: [
+      BridgeEnum(name: 'Status', startValue: 0, values: ['ok', 'err']),
+    ],
     streams: [
       BridgeStream(
         dartName: 'data',
@@ -46,7 +48,9 @@ BridgeSpec _enumMapSpec() => BridgeSpec(
   iosImpl: NativeImpl.swift,
   androidImpl: NativeImpl.kotlin,
   sourceUri: 'router.native.dart',
-  enums: [BridgeEnum(name: 'Route', startValue: 0, values: ['home', 'detail', 'settings'])],
+  enums: [
+    BridgeEnum(name: 'Route', startValue: 0, values: ['home', 'detail', 'settings']),
+  ],
   functions: [
     BridgeFunction(
       dartName: 'getRoutes',
@@ -70,7 +74,9 @@ BridgeSpec _enumBatchStreamSpec() => BridgeSpec(
   iosImpl: NativeImpl.swift,
   androidImpl: NativeImpl.kotlin,
   sourceUri: 'monitor.native.dart',
-  enums: [BridgeEnum(name: 'Signal', startValue: 0, values: ['idle', 'active', 'error'])],
+  enums: [
+    BridgeEnum(name: 'Signal', startValue: 0, values: ['idle', 'active', 'error']),
+  ],
   streams: [
     BridgeStream(
       dartName: 'signals',
@@ -90,7 +96,9 @@ BridgeSpec _callbackNullableSpec() => BridgeSpec(
   iosImpl: NativeImpl.swift,
   androidImpl: NativeImpl.kotlin,
   sourceUri: 'processor.native.dart',
-  enums: [BridgeEnum(name: 'Quality', startValue: 0, values: ['low', 'high'])],
+  enums: [
+    BridgeEnum(name: 'Quality', startValue: 0, values: ['low', 'high']),
+  ],
   functions: [
     BridgeFunction(
       dartName: 'process',
@@ -402,7 +410,10 @@ void main() {
             isAsync: false,
             returnType: BridgeType(name: 'void'),
             params: [
-              BridgeParam(name: 'x', type: BridgeType(name: 'int?')),
+              BridgeParam(
+                name: 'x',
+                type: BridgeType(name: 'int?'),
+              ),
             ],
           ),
         ],
@@ -427,7 +438,10 @@ void main() {
             isAsync: false,
             returnType: BridgeType(name: 'void'),
             params: [
-              BridgeParam(name: 'x', type: BridgeType(name: 'double?')),
+              BridgeParam(
+                name: 'x',
+                type: BridgeType(name: 'double?'),
+              ),
             ],
           ),
         ],

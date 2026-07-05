@@ -35,6 +35,5 @@ class NitroInstanceRegistry {
 
   /// Returns the registered instance for [ref] cast to [T], or null if not
   /// found, already disposed, or GC'd before this call.
-  static T? resolve<T extends Object>(AnyNativeObject ref) =>
-      _registry[ref.instanceId]?.target as T?;
+  static T? resolve<T extends Object>(AnyNativeObject ref) => _registry[ref.instanceId]?.target as T?;
 }

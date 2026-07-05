@@ -139,7 +139,10 @@ void main() {
             isAsync: false,
             returnType: BridgeType(name: 'void'),
             params: [
-              BridgeParam(name: 'handle', type: BridgeType(name: 'NativeHandle<Void>', isNativeHandle: true)),
+              BridgeParam(
+                name: 'handle',
+                type: BridgeType(name: 'NativeHandle<Void>', isNativeHandle: true),
+              ),
             ],
           ),
         ],
@@ -182,14 +185,12 @@ void main() {
   group('CppBridgeGenerator — @NitroOwned _release calls free() on all platforms (Point 8)', () {
     test('_release function calls free(handle) — not a no-op on Android', () {
       final out = CppBridgeGenerator.generate(_ownedSpec());
-      expect(out, contains('if (handle) { free(handle); }'),
-          reason: '_release must free() the handle on all platforms');
+      expect(out, contains('if (handle) { free(handle); }'), reason: '_release must free() the handle on all platforms');
     });
 
     test('_release function does NOT have the Android no-op (void)handle', () {
       final out = CppBridgeGenerator.generate(_ownedSpec());
-      expect(out, isNot(contains('(void)handle')),
-          reason: 'Android no-op was removed; ART Unsafe.allocateMemory returns real malloc pointers');
+      expect(out, isNot(contains('(void)handle')), reason: 'Android no-op was removed; ART Unsafe.allocateMemory returns real malloc pointers');
     });
 
     test('_release function body has no platform ifdefs (uniform free on all platforms)', () {

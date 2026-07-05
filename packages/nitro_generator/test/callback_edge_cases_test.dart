@@ -103,8 +103,14 @@ void main() {
         cSymbol: 'process',
         returnType: BridgeType(name: 'void'),
         params: [
-          BridgeParam(name: 'url', type: BridgeType(name: 'String')),
-          BridgeParam(name: 'timeout', type: BridgeType(name: 'int')),
+          BridgeParam(
+            name: 'url',
+            type: BridgeType(name: 'String'),
+          ),
+          BridgeParam(
+            name: 'timeout',
+            type: BridgeType(name: 'int'),
+          ),
           BridgeParam(name: 'onComplete', type: callbackType, isNamed: true),
         ],
         isAsync: false,
@@ -154,7 +160,10 @@ void main() {
         name: 'Function',
         isFunction: true,
         functionReturnType: 'double',
-        functionParams: [BridgeType(name: 'int'), BridgeType(name: 'int')],
+        functionParams: [
+          BridgeType(name: 'int'),
+          BridgeType(name: 'int'),
+        ],
       );
       final param = BridgeParam(
         name: 'calculator',
@@ -188,7 +197,10 @@ void main() {
         name: 'Function',
         isFunction: true,
         functionReturnType: 'void',
-        functionParams: [BridgeType(name: 'String'), BridgeType(name: 'int')],
+        functionParams: [
+          BridgeType(name: 'String'),
+          BridgeType(name: 'int'),
+        ],
       );
       final param = BridgeParam(
         name: 'handler',
@@ -480,7 +492,10 @@ void main() {
         cSymbol: 'fetch_data',
         returnType: BridgeType(name: 'void'),
         params: [
-          BridgeParam(name: 'url', type: BridgeType(name: 'String')),
+          BridgeParam(
+            name: 'url',
+            type: BridgeType(name: 'String'),
+          ),
           BridgeParam(name: 'onSuccess', type: onSuccess, isNamed: true),
           BridgeParam(name: 'onError', type: onError, isNamed: true),
         ],
@@ -504,7 +519,10 @@ void main() {
         cSymbol: 'download',
         returnType: BridgeType(name: 'void'),
         params: [
-          BridgeParam(name: 'url', type: BridgeType(name: 'String')),
+          BridgeParam(
+            name: 'url',
+            type: BridgeType(name: 'String'),
+          ),
           BridgeParam(name: 'onProgress', type: onProgress, isNamed: true),
         ],
         isAsync: false,
@@ -518,14 +536,20 @@ void main() {
         name: 'Function',
         isFunction: true,
         functionReturnType: 'void',
-        functionParams: [BridgeType(name: 'String'), BridgeType(name: 'String')],
+        functionParams: [
+          BridgeType(name: 'String'),
+          BridgeType(name: 'String'),
+        ],
       );
       final func = BridgeFunction(
         dartName: 'addEventListener',
         cSymbol: 'add_event_listener',
         returnType: BridgeType(name: 'void'),
         params: [
-          BridgeParam(name: 'eventType', type: BridgeType(name: 'String')),
+          BridgeParam(
+            name: 'eventType',
+            type: BridgeType(name: 'String'),
+          ),
           BridgeParam(name: 'onEvent', type: onEvent),
         ],
         isAsync: false,
@@ -546,7 +570,10 @@ void main() {
         cSymbol: 'validate',
         returnType: BridgeType(name: 'void'),
         params: [
-          BridgeParam(name: 'input', type: BridgeType(name: 'String')),
+          BridgeParam(
+            name: 'input',
+            type: BridgeType(name: 'String'),
+          ),
           BridgeParam(name: 'validator', type: validator),
         ],
         isAsync: false,

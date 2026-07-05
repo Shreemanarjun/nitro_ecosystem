@@ -309,9 +309,7 @@ void main() {
         // Even indices succeed, odd indices throw — all 1000 dispatched concurrently.
         final futures = List.generate(n, (i) {
           if (i.isOdd) {
-            return pool.dispatch<int>(_throws, ['e$i'])
-                .then<int>((_) => -1)
-                .onError<ArgumentError>((_, _) => -(i));
+            return pool.dispatch<int>(_throws, ['e$i']).then<int>((_) => -1).onError<ArgumentError>((_, _) => -(i));
           }
           return pool.dispatch<int>(_add, [i, 0]);
         });
@@ -336,15 +334,13 @@ void main() {
       try {
         final allFutures = [
           for (var p = 0; p < 4; p++)
-            for (var i = 0; i < perPool; i++)
-              pools[p].dispatch<int>(_add, [p * 1000 + i, 0]),
+            for (var i = 0; i < perPool; i++) pools[p].dispatch<int>(_add, [p * 1000 + i, 0]),
         ];
         final results = await Future.wait(allFutures);
         for (var p = 0; p < 4; p++) {
           for (var i = 0; i < perPool; i++) {
             final idx = p * perPool + i;
-            expect(results[idx], p * 1000 + i,
-                reason: 'pool $p task $i returned wrong value');
+            expect(results[idx], p * 1000 + i, reason: 'pool $p task $i returned wrong value');
           }
         }
       } finally {

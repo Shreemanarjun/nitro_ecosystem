@@ -60,8 +60,14 @@ final _readingStruct = BridgeStruct(
   name: 'SensorReading',
   packed: false,
   fields: [
-    BridgeField(name: 'value', type: BridgeType(name: 'double')),
-    BridgeField(name: 'ts', type: BridgeType(name: 'int')),
+    BridgeField(
+      name: 'value',
+      type: BridgeType(name: 'double'),
+    ),
+    BridgeField(
+      name: 'ts',
+      type: BridgeType(name: 'int'),
+    ),
   ],
 );
 
@@ -140,7 +146,10 @@ void main() {
 
     test('enum → jlong + int64_t (same as int)', () {
       final out = CppBridgeGenerator.generate(
-        _spec(cbParams: [BridgeType(name: 'DeviceState')], enums: [_stateEnum]),
+        _spec(
+          cbParams: [BridgeType(name: 'DeviceState')],
+          enums: [_stateEnum],
+        ),
       );
       expect(out, contains('jlong callbackPtr, jlong arg0'));
       expect(out, contains('typedef void (*CB)(int64_t);'));
@@ -170,7 +179,12 @@ void main() {
 
     test('no String params → no s_arg string conversion variables in _invoke_', () {
       final out = CppBridgeGenerator.generate(
-        _spec(cbParams: [BridgeType(name: 'int'), BridgeType(name: 'double')]),
+        _spec(
+          cbParams: [
+            BridgeType(name: 'int'),
+            BridgeType(name: 'double'),
+          ],
+        ),
       );
       // GetStringUTFChars/ReleaseStringUTFChars appear in the always-present JNI
       // exception reporter, but s_argN conversion variables are _invoke_-specific.
@@ -208,7 +222,10 @@ void main() {
 
     test('enum → Long', () {
       final out = KotlinGenerator.generate(
-        _spec(cbParams: [BridgeType(name: 'DeviceState')], enums: [_stateEnum]),
+        _spec(
+          cbParams: [BridgeType(name: 'DeviceState')],
+          enums: [_stateEnum],
+        ),
       );
       expect(out, contains('external fun _invoke_callback(callbackPtr: Long, arg0: Long)'));
     });
@@ -235,7 +252,10 @@ void main() {
 
     test('enum lambda arg → p0.nativeValue (converts to Long)', () {
       final out = KotlinGenerator.generate(
-        _spec(cbParams: [BridgeType(name: 'DeviceState')], enums: [_stateEnum]),
+        _spec(
+          cbParams: [BridgeType(name: 'DeviceState')],
+          enums: [_stateEnum],
+        ),
       );
       expect(out, contains('p0.nativeValue'));
     });
@@ -284,7 +304,10 @@ void main() {
 
     test('enum → Int64 in @convention(c), .rawValue in wrapper', () {
       final out = SwiftGenerator.generate(
-        _spec(cbParams: [BridgeType(name: 'DeviceState')], enums: [_stateEnum]),
+        _spec(
+          cbParams: [BridgeType(name: 'DeviceState')],
+          enums: [_stateEnum],
+        ),
       );
       expect(out, contains('@convention(c) (Int64) -> Void'));
       expect(out, contains('{ arg0 in callback(arg0.rawValue) }'));
@@ -293,7 +316,10 @@ void main() {
 
     test('enum protocol param is idiomatic Swift type (not Int64)', () {
       final out = SwiftGenerator.generate(
-        _spec(cbParams: [BridgeType(name: 'DeviceState')], enums: [_stateEnum]),
+        _spec(
+          cbParams: [BridgeType(name: 'DeviceState')],
+          enums: [_stateEnum],
+        ),
       );
       expect(out, contains('callback: @escaping (DeviceState) -> Void'));
     });
@@ -345,9 +371,12 @@ void main() {
         ),
       );
       // double arg1 is converted to Int64.bitPattern so it stays in GP registers.
-      expect(out, contains(
-        '{ arg0, arg1, arg2, arg3, arg4 in callback(arg0.rawValue, Int64(bitPattern: arg1.bitPattern), arg2, (arg3 as NSString).utf8String, arg4) }',
-      ));
+      expect(
+        out,
+        contains(
+          '{ arg0, arg1, arg2, arg3, arg4 in callback(arg0.rawValue, Int64(bitPattern: arg1.bitPattern), arg2, (arg3 as NSString).utf8String, arg4) }',
+        ),
+      );
     });
 
     test('empty callback → empty @convention(c) and wrapper calls directly', () {
@@ -371,7 +400,10 @@ void main() {
     // SensorReading {double value, int ts} — all-numeric → EXPANDED for synchronous NativeCallable.
     test('C++ JNI → expanded jlong fields (not jobject) for synchronous NativeCallable', () {
       final out = CppBridgeGenerator.generate(
-        _spec(cbParams: [BridgeType(name: 'SensorReading')], structs: [_readingStruct]),
+        _spec(
+          cbParams: [BridgeType(name: 'SensorReading')],
+          structs: [_readingStruct],
+        ),
       );
       // Fields are expanded: jlong arg0_value, jlong arg0_ts — not jobject arg0.
       expect(out, contains('jlong callbackPtr, jlong arg0_value, jlong arg0_ts'));
@@ -386,7 +418,10 @@ void main() {
 
     test('Kotlin _invoke_ → expanded Long params (not SensorReading)', () {
       final out = KotlinGenerator.generate(
-        _spec(cbParams: [BridgeType(name: 'SensorReading')], structs: [_readingStruct]),
+        _spec(
+          cbParams: [BridgeType(name: 'SensorReading')],
+          structs: [_readingStruct],
+        ),
       );
       // External fun has individual Long params for each struct field.
       expect(out, contains('external fun _invoke_callback(callbackPtr: Long, arg0_value: Long, arg0_ts: Long)'));
@@ -395,7 +430,10 @@ void main() {
 
     test('Kotlin lambda → encodes fields as Long (doubleToRawLongBits for double)', () {
       final out = KotlinGenerator.generate(
-        _spec(cbParams: [BridgeType(name: 'SensorReading')], structs: [_readingStruct]),
+        _spec(
+          cbParams: [BridgeType(name: 'SensorReading')],
+          structs: [_readingStruct],
+        ),
       );
       expect(out, contains('java.lang.Double.doubleToRawLongBits(p0.value)'));
       expect(out, contains('p0.ts.toLong()'));
@@ -404,7 +442,10 @@ void main() {
 
     test('Swift @convention(c) → (Int64, Int64) for synchronous NativeCallable', () {
       final out = SwiftGenerator.generate(
-        _spec(cbParams: [BridgeType(name: 'SensorReading')], structs: [_readingStruct]),
+        _spec(
+          cbParams: [BridgeType(name: 'SensorReading')],
+          structs: [_readingStruct],
+        ),
       );
       // Expanded to individual Int64 params — fires synchronously!
       expect(out, contains('@convention(c) (Int64, Int64) -> Void'));
@@ -413,14 +454,20 @@ void main() {
 
     test('Swift protocol → idiomatic Swift struct type in callback', () {
       final out = SwiftGenerator.generate(
-        _spec(cbParams: [BridgeType(name: 'SensorReading')], structs: [_readingStruct]),
+        _spec(
+          cbParams: [BridgeType(name: 'SensorReading')],
+          structs: [_readingStruct],
+        ),
       );
       expect(out, contains('callback: @escaping (SensorReading) -> Void'));
     });
 
     test('Swift wrapper → expands struct fields to Int64 args for C function pointer (no shadow pointer needed)', () {
       final out = SwiftGenerator.generate(
-        _spec(cbParams: [BridgeType(name: 'SensorReading')], structs: [_readingStruct]),
+        _spec(
+          cbParams: [BridgeType(name: 'SensorReading')],
+          structs: [_readingStruct],
+        ),
       );
       // Closure receives the Swift struct as a single param (inferred from context).
       expect(out, contains('arg0'));
@@ -434,7 +481,10 @@ void main() {
 
     test('Dart FFI → Void Function(Int64, Int64) — synchronous NativeCallable path', () {
       final out = DartFfiGenerator.generate(
-        _spec(cbParams: [BridgeType(name: 'SensorReading')], structs: [_readingStruct]),
+        _spec(
+          cbParams: [BridgeType(name: 'SensorReading')],
+          structs: [_readingStruct],
+        ),
       );
       // Expanded Int64 params → NativeCallable.listener fires synchronously on Android.
       expect(out, contains('NativeCallable<Void Function(Int64, Int64)>'));
@@ -587,7 +637,10 @@ void main() {
 
     test('enum → Void Function(Int64), converts to enum via toEnumType()', () {
       final out = DartFfiGenerator.generate(
-        _spec(cbParams: [BridgeType(name: 'DeviceState')], enums: [_stateEnum]),
+        _spec(
+          cbParams: [BridgeType(name: 'DeviceState')],
+          enums: [_stateEnum],
+        ),
       );
       expect(out, contains('NativeCallable<Void Function(Int64)>'));
       expect(out, contains('callback(arg0.toDeviceState());'));

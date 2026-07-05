@@ -30,8 +30,14 @@ BridgeSpec _resultStringSpec() => BridgeSpec(
       isAsync: false,
       returnType: BridgeType(name: 'String'),
       params: [
-        BridgeParam(name: 'user', type: BridgeType(name: 'String')),
-        BridgeParam(name: 'pass', type: BridgeType(name: 'String')),
+        BridgeParam(
+          name: 'user',
+          type: BridgeType(name: 'String'),
+        ),
+        BridgeParam(
+          name: 'pass',
+          type: BridgeType(name: 'String'),
+        ),
       ],
       isResult: true,
     ),
@@ -53,7 +59,10 @@ BridgeSpec _resultIntSpec() => BridgeSpec(
       isAsync: false,
       returnType: BridgeType(name: 'int'),
       params: [
-        BridgeParam(name: 'by', type: BridgeType(name: 'int')),
+        BridgeParam(
+          name: 'by',
+          type: BridgeType(name: 'int'),
+        ),
       ],
       isResult: true,
     ),
@@ -138,7 +147,10 @@ BridgeSpec _resultEnumSpec() => BridgeSpec(
       isAsync: false,
       returnType: BridgeType(name: 'Severity'),
       params: [
-        BridgeParam(name: 'code', type: BridgeType(name: 'int')),
+        BridgeParam(
+          name: 'code',
+          type: BridgeType(name: 'int'),
+        ),
       ],
       isResult: true,
     ),
@@ -158,9 +170,18 @@ BridgeSpec _resultStructSpec() => BridgeSpec(
       name: 'Vec3',
       packed: false,
       fields: [
-        BridgeField(name: 'x', type: BridgeType(name: 'double')),
-        BridgeField(name: 'y', type: BridgeType(name: 'double')),
-        BridgeField(name: 'z', type: BridgeType(name: 'double')),
+        BridgeField(
+          name: 'x',
+          type: BridgeType(name: 'double'),
+        ),
+        BridgeField(
+          name: 'y',
+          type: BridgeType(name: 'double'),
+        ),
+        BridgeField(
+          name: 'z',
+          type: BridgeType(name: 'double'),
+        ),
       ],
     ),
   ],
@@ -171,7 +192,10 @@ BridgeSpec _resultStructSpec() => BridgeSpec(
       isAsync: false,
       returnType: BridgeType(name: 'Vec3'),
       params: [
-        BridgeParam(name: 'v', type: BridgeType(name: 'Vec3')),
+        BridgeParam(
+          name: 'v',
+          type: BridgeType(name: 'Vec3'),
+        ),
       ],
       isResult: true,
     ),
@@ -202,7 +226,10 @@ BridgeSpec _resultRecordSpec() => BridgeSpec(
       isAsync: false,
       returnType: BridgeType(name: 'Profile', isRecord: true),
       params: [
-        BridgeParam(name: 'userId', type: BridgeType(name: 'int')),
+        BridgeParam(
+          name: 'userId',
+          type: BridgeType(name: 'int'),
+        ),
       ],
       isResult: true,
     ),

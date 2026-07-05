@@ -20,17 +20,13 @@ const _nitroLibraryRecordTypes = {
 /// Generates binary encode/decode extension methods for @HybridRecord types.
 /// Orchestrates language-specific generators in `record/`.
 class RecordGenerator {
-  static String generateDartExtensions(BridgeSpec spec) =>
-      _generateDartRecordExtensions(spec);
+  static String generateDartExtensions(BridgeSpec spec) => _generateDartRecordExtensions(spec);
 
-  static String generateCpp(BridgeSpec spec) =>
-      _generateCppRecords(spec);
+  static String generateCpp(BridgeSpec spec) => _generateCppRecords(spec);
 
-  static String generateKotlin(BridgeSpec spec) =>
-      _generateKotlinRecords(spec);
+  static String generateKotlin(BridgeSpec spec) => _generateKotlinRecords(spec);
 
-  static String generateSwift(BridgeSpec spec, {bool emitBoilerplate = true}) =>
-      _generateSwiftRecords(spec, emitBoilerplate: emitBoilerplate);
+  static String generateSwift(BridgeSpec spec, {bool emitBoilerplate = true}) => _generateSwiftRecords(spec, emitBoilerplate: emitBoilerplate);
 
   /// Returns a byte-size estimate for one serialized [BridgeRecordType] instance.
   /// Used by Kotlin generators to pre-size ByteArrayOutputStream buffers.

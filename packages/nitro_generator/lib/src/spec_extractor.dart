@@ -183,33 +183,51 @@ class SpecExtractor {
     // via _nitroLibraryRecordTypes, because the Dart codec already lives on the
     // class itself in package:nitro/src/nitro_nullable.dart.
     final builtinNitroRecords = <BridgeRecordType>[
-      BridgeRecordType(name: 'NitroNullableInt', fields: [
-        BridgeRecordField(name: 'hasValue', dartType: 'bool', kind: RecordFieldKind.primitive),
-        BridgeRecordField(name: 'value',    dartType: 'int',  kind: RecordFieldKind.primitive),
-      ]),
-      BridgeRecordType(name: 'NitroNullableDouble', fields: [
-        BridgeRecordField(name: 'hasValue', dartType: 'bool',   kind: RecordFieldKind.primitive),
-        BridgeRecordField(name: 'value',    dartType: 'double', kind: RecordFieldKind.primitive),
-      ]),
-      BridgeRecordType(name: 'NitroNullableBool', fields: [
-        BridgeRecordField(name: 'hasValue', dartType: 'bool', kind: RecordFieldKind.primitive),
-        BridgeRecordField(name: 'value',    dartType: 'bool', kind: RecordFieldKind.primitive),
-      ]),
+      BridgeRecordType(
+        name: 'NitroNullableInt',
+        fields: [
+          BridgeRecordField(name: 'hasValue', dartType: 'bool', kind: RecordFieldKind.primitive),
+          BridgeRecordField(name: 'value', dartType: 'int', kind: RecordFieldKind.primitive),
+        ],
+      ),
+      BridgeRecordType(
+        name: 'NitroNullableDouble',
+        fields: [
+          BridgeRecordField(name: 'hasValue', dartType: 'bool', kind: RecordFieldKind.primitive),
+          BridgeRecordField(name: 'value', dartType: 'double', kind: RecordFieldKind.primitive),
+        ],
+      ),
+      BridgeRecordType(
+        name: 'NitroNullableBool',
+        fields: [
+          BridgeRecordField(name: 'hasValue', dartType: 'bool', kind: RecordFieldKind.primitive),
+          BridgeRecordField(name: 'value', dartType: 'bool', kind: RecordFieldKind.primitive),
+        ],
+      ),
       // NitroOpt* — packed 2-field structs for nullable primitive bridge transport.
       // Wire: [1B hasValue][N bytes value] — NO RecordWriter 4-byte length prefix.
       // Used for int?/double?/bool? params and returns in all bridge generators.
-      BridgeRecordType(name: 'NitroOptInt64', fields: [
-        BridgeRecordField(name: 'hasValue', dartType: 'bool', kind: RecordFieldKind.primitive),
-        BridgeRecordField(name: 'value',    dartType: 'int',  kind: RecordFieldKind.primitive),
-      ]),
-      BridgeRecordType(name: 'NitroOptFloat64', fields: [
-        BridgeRecordField(name: 'hasValue', dartType: 'bool',   kind: RecordFieldKind.primitive),
-        BridgeRecordField(name: 'value',    dartType: 'double', kind: RecordFieldKind.primitive),
-      ]),
-      BridgeRecordType(name: 'NitroOptBool', fields: [
-        BridgeRecordField(name: 'hasValue', dartType: 'bool', kind: RecordFieldKind.primitive),
-        BridgeRecordField(name: 'value',    dartType: 'bool', kind: RecordFieldKind.primitive),
-      ]),
+      BridgeRecordType(
+        name: 'NitroOptInt64',
+        fields: [
+          BridgeRecordField(name: 'hasValue', dartType: 'bool', kind: RecordFieldKind.primitive),
+          BridgeRecordField(name: 'value', dartType: 'int', kind: RecordFieldKind.primitive),
+        ],
+      ),
+      BridgeRecordType(
+        name: 'NitroOptFloat64',
+        fields: [
+          BridgeRecordField(name: 'hasValue', dartType: 'bool', kind: RecordFieldKind.primitive),
+          BridgeRecordField(name: 'value', dartType: 'double', kind: RecordFieldKind.primitive),
+        ],
+      ),
+      BridgeRecordType(
+        name: 'NitroOptBool',
+        fields: [
+          BridgeRecordField(name: 'hasValue', dartType: 'bool', kind: RecordFieldKind.primitive),
+          BridgeRecordField(name: 'value', dartType: 'bool', kind: RecordFieldKind.primitive),
+        ],
+      ),
     ];
     final allRecordTypes = [...localRecordTypes, ...imported.records, ...builtinNitroRecords];
     final allStructs = [...localStructs, ...imported.structs];
@@ -226,7 +244,16 @@ class SpecExtractor {
     final knownTypeNames = {...structNames, ...enumNames, ...recordTypeNames, ...variantNames, ...customTypeNames};
 
     final members = _ModuleMembers.from(element);
-    final (:properties, :streams) = _extractPropertiesAndStreams(members, ns, recordTypeNames, knownTypeNames, structTypeNames: structNames, enumTypeNames: enumNames, variantTypeNames: variantNames, tupleTypeNames: tupleTypeNames);
+    final (:properties, :streams) = _extractPropertiesAndStreams(
+      members,
+      ns,
+      recordTypeNames,
+      knownTypeNames,
+      structTypeNames: structNames,
+      enumTypeNames: enumNames,
+      variantTypeNames: variantNames,
+      tupleTypeNames: tupleTypeNames,
+    );
     return BridgeSpec(
       dartClassName: element.name!,
       lib: libName,
@@ -448,19 +475,19 @@ class SpecExtractor {
   // ─── @HybridRecord / @NitroVariant ───────────────────────────────────────────
 
   static _ExtractedTypes _extractAnnotatedTypes(LibraryReader library) {
-    const recordChecker      = TypeChecker.fromUrl('package:nitro_annotations/src/annotations.dart#HybridRecord');
-    const structChecker      = TypeChecker.fromUrl('package:nitro_annotations/src/annotations.dart#HybridStruct');
-    const enumChecker        = TypeChecker.fromUrl('package:nitro_annotations/src/annotations.dart#HybridEnum');
-    const variantChecker     = TypeChecker.fromUrl('package:nitro_annotations/src/annotations.dart#NitroVariant');
-    const customTypeChecker  = TypeChecker.fromUrl('package:nitro_annotations/src/annotations.dart#NitroCustomType');
-    const tupleChecker       = TypeChecker.fromUrl('package:nitro_annotations/src/annotations.dart#NitroTuple');
+    const recordChecker = TypeChecker.fromUrl('package:nitro_annotations/src/annotations.dart#HybridRecord');
+    const structChecker = TypeChecker.fromUrl('package:nitro_annotations/src/annotations.dart#HybridStruct');
+    const enumChecker = TypeChecker.fromUrl('package:nitro_annotations/src/annotations.dart#HybridEnum');
+    const variantChecker = TypeChecker.fromUrl('package:nitro_annotations/src/annotations.dart#NitroVariant');
+    const customTypeChecker = TypeChecker.fromUrl('package:nitro_annotations/src/annotations.dart#NitroCustomType');
+    const tupleChecker = TypeChecker.fromUrl('package:nitro_annotations/src/annotations.dart#NitroTuple');
 
-    final recordClasses  = <ClassElement>[];
-    final structClasses  = <({ClassElement cls, ConstantReader annotation})>[];
-    final enumClasses    = <({EnumElement cls, ConstantReader annotation})>[];
+    final recordClasses = <ClassElement>[];
+    final structClasses = <({ClassElement cls, ConstantReader annotation})>[];
+    final enumClasses = <({EnumElement cls, ConstantReader annotation})>[];
     final variantClasses = <ClassElement>[];
     final customTypeClasses = <({ClassElement cls, ConstantReader annotation})>[];
-    final tupleAliases   = <TypeAliasElement>[];
+    final tupleAliases = <TypeAliasElement>[];
 
     for (final cls in library.classes) {
       if (recordChecker.hasAnnotationOf(cls)) {
@@ -499,24 +526,26 @@ class SpecExtractor {
     // Include built-in library record types (NitroNullableInt etc.) so that
     // fields whose type is a built-in record get RecordFieldKind.recordObject.
     const builtinLibraryRecordNames = {
-      'NitroNullableInt', 'NitroNullableDouble', 'NitroNullableBool',
-      'NitroOptInt64', 'NitroOptFloat64', 'NitroOptBool',
+      'NitroNullableInt',
+      'NitroNullableDouble',
+      'NitroNullableBool',
+      'NitroOptInt64',
+      'NitroOptFloat64',
+      'NitroOptBool',
     };
     final recordTypeNames = {...recordClasses.map((c) => c.name!), ...builtinLibraryRecordNames};
     final structTypeNames = structClasses.map((entry) => entry.cls.name!).toSet();
-    final enumTypeNames   = enumClasses.map((entry) => entry.cls.name!).toSet();
+    final enumTypeNames = enumClasses.map((entry) => entry.cls.name!).toSet();
 
-    final tupleRecords = tupleAliases
-        .map((alias) => _buildTupleRecord(alias, recordTypeNames, structTypeNames, enumTypeNames))
-        .toList();
+    final tupleRecords = tupleAliases.map((alias) => _buildTupleRecord(alias, recordTypeNames, structTypeNames, enumTypeNames)).toList();
     return _ExtractedTypes(
       records: [
         ...recordClasses.map((cls) => _buildRecordType(cls, recordTypeNames, structTypeNames, enumTypeNames)),
         ...tupleRecords,
       ],
-      structs:  structClasses.map((entry) => _buildStruct(entry.cls, entry.annotation)).toList(),
-      enums:    enumClasses.map((entry)   => _buildEnum(entry.cls, entry.annotation)).toList(),
-      variants: variantClasses.map((cls)  => _buildVariant(cls, library, recordTypeNames, structTypeNames, enumTypeNames)).toList(),
+      structs: structClasses.map((entry) => _buildStruct(entry.cls, entry.annotation)).toList(),
+      enums: enumClasses.map((entry) => _buildEnum(entry.cls, entry.annotation)).toList(),
+      variants: variantClasses.map((cls) => _buildVariant(cls, library, recordTypeNames, structTypeNames, enumTypeNames)).toList(),
       customTypes: customTypeClasses.map((entry) {
         final codecType = entry.annotation.read('codec').typeValue;
         final codecClass = codecType.element!.name!;
@@ -544,37 +573,28 @@ class SpecExtractor {
     final parentName = variantClass.name!;
 
     // Collect all concrete (non-abstract, non-sealed) subclasses in the same library.
-    final caseClasses = library.classes
-        .where((cls) => !cls.isAbstract && cls.supertype?.element.name == parentName)
-        .toList();
+    final caseClasses = library.classes.where((cls) => !cls.isAbstract && cls.supertype?.element.name == parentName).toList();
 
     final cases = <BridgeVariantCase>[];
     for (final cls in caseClasses) {
-      final fields = cls.fields
-          .where((f) => !f.isStatic && f.isOriginDeclaration)
-          .map((f) {
-            final displayType = f.type.getDisplayString();
-            final isNullable  = displayType.endsWith('?');
-            final kind = _recordFieldKind(f.type, recordTypeNames, structTypeNames, enumTypeNames);
-            final itemTypeName = _listItemTypeName(f.type);
-            return BridgeRecordField(
-              name: f.name!,
-              dartType: displayType,
-              kind: kind,
-              itemTypeName: itemTypeName,
-              isNullable: isNullable,
-            );
-          })
-          .toList();
+      final fields = cls.fields.where((f) => !f.isStatic && f.isOriginDeclaration).map((f) {
+        final displayType = f.type.getDisplayString();
+        final isNullable = displayType.endsWith('?');
+        final kind = _recordFieldKind(f.type, recordTypeNames, structTypeNames, enumTypeNames);
+        final itemTypeName = _listItemTypeName(f.type);
+        return BridgeRecordField(
+          name: f.name!,
+          dartType: displayType,
+          kind: kind,
+          itemTypeName: itemTypeName,
+          isNullable: isNullable,
+        );
+      }).toList();
 
       // label: 'FilterAccepted' → 'filterAccepted' (lowerCamelCase, strip parent prefix)
       final rawName = cls.name!;
-      final stripped = rawName.startsWith(parentName)
-          ? rawName.substring(parentName.length)
-          : rawName;
-      final label = stripped.isEmpty
-          ? rawName[0].toLowerCase() + rawName.substring(1)
-          : stripped[0].toLowerCase() + stripped.substring(1);
+      final stripped = rawName.startsWith(parentName) ? rawName.substring(parentName.length) : rawName;
+      final label = stripped.isEmpty ? rawName[0].toLowerCase() + rawName.substring(1) : stripped[0].toLowerCase() + stripped.substring(1);
 
       cases.add(BridgeVariantCase(name: rawName, label: label, fields: fields));
     }
@@ -625,12 +645,14 @@ class SpecExtractor {
     for (var i = 0; i < aliasedType.positionalFields.length; i++) {
       final fieldType = aliasedType.positionalFields[i].type;
       final isNullable = fieldType.nullabilitySuffix == NullabilitySuffix.question;
-      fields.add(BridgeRecordField(
-        name: 'field$i',
-        dartType: fieldType.getDisplayString(),
-        kind: _recordFieldKind(fieldType, recordTypeNames, structTypeNames, enumTypeNames),
-        isNullable: isNullable,
-      ));
+      fields.add(
+        BridgeRecordField(
+          name: 'field$i',
+          dartType: fieldType.getDisplayString(),
+          kind: _recordFieldKind(fieldType, recordTypeNames, structTypeNames, enumTypeNames),
+          isNullable: isNullable,
+        ),
+      );
     }
     return BridgeRecordType(name: alias.name!, isTuple: true, fields: fields);
   }
@@ -664,9 +686,16 @@ class SpecExtractor {
       }
       // TypedData — binary blob encoding: [4B element_count][element_bytes]
       const typedDataNames = {
-        'Uint8List', 'Int8List', 'Int16List', 'Uint16List',
-        'Int32List', 'Uint32List', 'Float32List',
-        'Int64List', 'Uint64List', 'Float64List',
+        'Uint8List',
+        'Int8List',
+        'Int16List',
+        'Uint16List',
+        'Int32List',
+        'Uint32List',
+        'Float32List',
+        'Int64List',
+        'Uint64List',
+        'Float64List',
       };
       if (typedDataNames.contains(type.element.name)) {
         return RecordFieldKind.typedData;
@@ -735,10 +764,7 @@ class SpecExtractor {
 
     // L12: @NitroTuple positional record typedefs.
     if (tupleTypeNames.isNotEmpty) {
-      final baseName = aliasName ??
-          (isNullable && displayName.endsWith('?')
-              ? displayName.substring(0, displayName.length - 1)
-              : displayName);
+      final baseName = aliasName ?? (isNullable && displayName.endsWith('?') ? displayName.substring(0, displayName.length - 1) : displayName);
       if (tupleTypeNames.contains(baseName)) {
         return BridgeType(
           name: isNullable ? '$baseName?' : baseName,
@@ -985,7 +1011,15 @@ class SpecExtractor {
         params: m.formalParameters.map((p) {
           return BridgeParam(
             name: p.name!,
-            type: _makeBridgeType(p.type, recordTypeNames, knownTypeNames: knownTypeNames, structTypeNames: structTypeNames, enumTypeNames: enumTypeNames, variantTypeNames: variantTypeNames, tupleTypeNames: tupleTypeNames),
+            type: _makeBridgeType(
+              p.type,
+              recordTypeNames,
+              knownTypeNames: knownTypeNames,
+              structTypeNames: structTypeNames,
+              enumTypeNames: enumTypeNames,
+              variantTypeNames: variantTypeNames,
+              tupleTypeNames: tupleTypeNames,
+            ),
             zeroCopy: zeroCopyChecker.hasAnnotationOf(p),
             isNamed: p.isNamed,
             isOptional: p.isOptional,
@@ -1036,7 +1070,17 @@ class SpecExtractor {
           dartName: name,
           registerSymbol: '${ns}_register_${_toSnakeCase(name)}_stream',
           releaseSymbol: '${ns}_release_${_toSnakeCase(name)}_stream',
-          itemType: itemDartType != null ? _makeBridgeType(itemDartType, recordTypeNames, knownTypeNames: knownTypeNames, structTypeNames: structTypeNames, enumTypeNames: enumTypeNames, variantTypeNames: variantTypeNames, tupleTypeNames: tupleTypeNames) : BridgeType(name: 'dynamic'),
+          itemType: itemDartType != null
+              ? _makeBridgeType(
+                  itemDartType,
+                  recordTypeNames,
+                  knownTypeNames: knownTypeNames,
+                  structTypeNames: structTypeNames,
+                  enumTypeNames: enumTypeNames,
+                  variantTypeNames: variantTypeNames,
+                  tupleTypeNames: tupleTypeNames,
+                )
+              : BridgeType(name: 'dynamic'),
           backpressure: backpressure,
           batchMaxSize: batchMaxSize,
           isMethodStyle: true,
@@ -1066,7 +1110,17 @@ class SpecExtractor {
           dartName: name,
           registerSymbol: '${ns}_register_${_toSnakeCase(name)}_stream',
           releaseSymbol: '${ns}_release_${_toSnakeCase(name)}_stream',
-          itemType: itemDartType != null ? _makeBridgeType(itemDartType, recordTypeNames, knownTypeNames: knownTypeNames, structTypeNames: structTypeNames, enumTypeNames: enumTypeNames, variantTypeNames: variantTypeNames, tupleTypeNames: tupleTypeNames) : BridgeType(name: 'dynamic'),
+          itemType: itemDartType != null
+              ? _makeBridgeType(
+                  itemDartType,
+                  recordTypeNames,
+                  knownTypeNames: knownTypeNames,
+                  structTypeNames: structTypeNames,
+                  enumTypeNames: enumTypeNames,
+                  variantTypeNames: variantTypeNames,
+                  tupleTypeNames: tupleTypeNames,
+                )
+              : BridgeType(name: 'dynamic'),
           backpressure: backpressure,
           batchMaxSize: batchMaxSizeGetter,
           isAnnotated: ann != null,
@@ -1099,7 +1153,15 @@ class SpecExtractor {
       final dartType = e['dartType'] as DartType;
       return BridgeProperty(
         dartName: name,
-        type: _makeBridgeType(dartType, recordTypeNames, knownTypeNames: knownTypeNames, structTypeNames: structTypeNames, enumTypeNames: enumTypeNames, variantTypeNames: variantTypeNames, tupleTypeNames: tupleTypeNames),
+        type: _makeBridgeType(
+          dartType,
+          recordTypeNames,
+          knownTypeNames: knownTypeNames,
+          structTypeNames: structTypeNames,
+          enumTypeNames: enumTypeNames,
+          variantTypeNames: variantTypeNames,
+          tupleTypeNames: tupleTypeNames,
+        ),
         getSymbol: '${ns}_get_${_toSnakeCase(name)}',
         setSymbol: '${ns}_set_${_toSnakeCase(name)}',
         hasGetter: e['getter'] as bool,

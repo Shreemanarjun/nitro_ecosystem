@@ -96,9 +96,7 @@ class CppSpecGenerator {
       w.line('  // ── Methods ─────────────────────────────────────────────');
       for (final func in funcs) {
         final ret = _dartToCpp(func.returnType, spec);
-        final paramStr = func.params
-            .map((p) => '${_dartToCpp(p.type, spec)} ${p.name}')
-            .join(', ');
+        final paramStr = func.params.map((p) => '${_dartToCpp(p.type, spec)} ${p.name}').join(', ');
         w.line('  virtual $ret ${func.dartName}($paramStr) = 0;');
       }
     }
@@ -123,14 +121,16 @@ class CppSpecGenerator {
     BridgeVariant variant,
     BridgeSpec spec,
   ) {
-    final caseTypes = variant.cases.map((c) {
-      // null case or unit case → std::monostate
-      if (c.name.toLowerCase() == 'null' || c.isUnit) return 'std::monostate';
-      if (c.fields.length == 1) return _recordFieldToCpp(c.fields[0], spec);
-      // Multi-field case — use monostate as a safe fallback (caller embeds
-      // full struct definitions separately if needed).
-      return 'std::monostate';
-    }).join(', ');
+    final caseTypes = variant.cases
+        .map((c) {
+          // null case or unit case → std::monostate
+          if (c.name.toLowerCase() == 'null' || c.isUnit) return 'std::monostate';
+          if (c.fields.length == 1) return _recordFieldToCpp(c.fields[0], spec);
+          // Multi-field case — use monostate as a safe fallback (caller embeds
+          // full struct definitions separately if needed).
+          return 'std::monostate';
+        })
+        .join(', ');
     w.line('using ${variant.name} = std::variant<$caseTypes>;');
     w.blankLine();
   }
@@ -191,31 +191,56 @@ class CppSpecGenerator {
     final bare = dartName.endsWith('?') ? dartName.substring(0, dartName.length - 1) : dartName;
 
     switch (bare) {
-      case 'void':        return 'void';
-      case 'bool':        return 'bool';
-      case 'int':         return 'int64_t';
-      case 'int8':        return 'int8_t';
-      case 'int16':       return 'int16_t';
-      case 'int32':       return 'int32_t';
-      case 'uint8':       return 'uint8_t';
-      case 'uint16':      return 'uint16_t';
-      case 'uint32':      return 'uint32_t';
-      case 'uint64':      return 'uint64_t';
-      case 'float':       return 'float';
-      case 'double':      return 'double';
-      case 'String':      return 'std::string';
-      case 'DateTime':    return 'int64_t';
-      case 'AnyNativeObject': return 'int64_t';
-      case 'Uint8List':   return 'std::vector<uint8_t>';
-      case 'Int8List':    return 'std::vector<int8_t>';
-      case 'Int16List':   return 'std::vector<int16_t>';
-      case 'Int32List':   return 'std::vector<int32_t>';
-      case 'Uint16List':  return 'std::vector<uint16_t>';
-      case 'Uint32List':  return 'std::vector<uint32_t>';
-      case 'Float32List': return 'std::vector<float>';
-      case 'Float64List': return 'std::vector<double>';
-      case 'Int64List':   return 'std::vector<int64_t>';
-      case 'Uint64List':  return 'std::vector<uint64_t>';
+      case 'void':
+        return 'void';
+      case 'bool':
+        return 'bool';
+      case 'int':
+        return 'int64_t';
+      case 'int8':
+        return 'int8_t';
+      case 'int16':
+        return 'int16_t';
+      case 'int32':
+        return 'int32_t';
+      case 'uint8':
+        return 'uint8_t';
+      case 'uint16':
+        return 'uint16_t';
+      case 'uint32':
+        return 'uint32_t';
+      case 'uint64':
+        return 'uint64_t';
+      case 'float':
+        return 'float';
+      case 'double':
+        return 'double';
+      case 'String':
+        return 'std::string';
+      case 'DateTime':
+        return 'int64_t';
+      case 'AnyNativeObject':
+        return 'int64_t';
+      case 'Uint8List':
+        return 'std::vector<uint8_t>';
+      case 'Int8List':
+        return 'std::vector<int8_t>';
+      case 'Int16List':
+        return 'std::vector<int16_t>';
+      case 'Int32List':
+        return 'std::vector<int32_t>';
+      case 'Uint16List':
+        return 'std::vector<uint16_t>';
+      case 'Uint32List':
+        return 'std::vector<uint32_t>';
+      case 'Float32List':
+        return 'std::vector<float>';
+      case 'Float64List':
+        return 'std::vector<double>';
+      case 'Int64List':
+        return 'std::vector<int64_t>';
+      case 'Uint64List':
+        return 'std::vector<uint64_t>';
     }
 
     // List<T>
@@ -235,15 +260,14 @@ class CppSpecGenerator {
     }
 
     // Spec-registered named types
-    if (spec.isEnumName(bare))       return bare;                    // enum class E : int64_t
-    if (spec.isStructName(bare))     return bare;                    // struct S
-    if (spec.isRecordName(bare))     return 'std::vector<uint8_t>'; // binary codec
-    if (spec.isVariantName(bare))    return bare;                    // using alias
+    if (spec.isEnumName(bare)) return bare; // enum class E : int64_t
+    if (spec.isStructName(bare)) return bare; // struct S
+    if (spec.isRecordName(bare)) return 'std::vector<uint8_t>'; // binary codec
+    if (spec.isVariantName(bare)) return bare; // using alias
     if (spec.isCustomTypeName(bare)) return 'std::vector<uint8_t>'; // user-codec binary
 
     return 'void*'; // unknown / opaque
   }
 
-  static String _capitalize(String s) =>
-      s.isEmpty ? s : s[0].toUpperCase() + s.substring(1);
+  static String _capitalize(String s) => s.isEmpty ? s : s[0].toUpperCase() + s.substring(1);
 }

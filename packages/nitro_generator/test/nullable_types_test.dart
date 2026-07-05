@@ -225,7 +225,12 @@ void main() {
             cSymbol: 'echo_echo_nullable_string',
             isAsync: false,
             returnType: BridgeType(name: 'String?'),
-            params: [BridgeParam(name: 'value', type: BridgeType(name: 'String?'))],
+            params: [
+              BridgeParam(
+                name: 'value',
+                type: BridgeType(name: 'String?'),
+              ),
+            ],
           ),
         ],
       );

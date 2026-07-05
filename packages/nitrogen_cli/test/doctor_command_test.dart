@@ -2205,7 +2205,8 @@ let package = Package(name: "my_plugin", targets: [
       final tmp = _scaffold(withIos: true);
       // Add a nested Package.swift with or without the Swift target
       final pkgDir = Directory(p.join(tmp.path, 'ios', 'my_plugin'))..createSync(recursive: true);
-      final pkgContent = '// swift-tools-version: 5.9\n'
+      final pkgContent =
+          '// swift-tools-version: 5.9\n'
           'import PackageDescription\n'
           'let package = Package(\n'
           '  name: "my_plugin",\n'

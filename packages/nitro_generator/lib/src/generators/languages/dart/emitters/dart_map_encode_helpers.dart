@@ -11,8 +11,15 @@ void _collectMapValueTypes(BridgeType t, Set<String> out) {
 
 /// Recognised integer key types (all map to Dart [int]).
 const _intKeyTypes = {
-  'int', 'int8', 'int16', 'int32', 'int64',
-  'uint8', 'uint16', 'uint32', 'uint64',
+  'int',
+  'int8',
+  'int16',
+  'int32',
+  'int64',
+  'uint8',
+  'uint16',
+  'uint32',
+  'uint64',
 };
 
 /// Collects (keyType, valueType) pairs from [t] when [t] is a `Map<K, V>` with
@@ -36,16 +43,22 @@ void _collectIntKeyMapTypes(
 /// Returns the number of bytes used to encode a key of [keyType] on the wire.
 int _intKeyByteSize(String keyType) {
   switch (keyType) {
-    case 'int8':  case 'uint8':  return 1;
-    case 'int16': case 'uint16': return 2;
-    case 'int32': case 'uint32': return 4;
-    default: return 8; // int, int64, uint64, and enums all use 8 bytes
+    case 'int8':
+    case 'uint8':
+      return 1;
+    case 'int16':
+    case 'uint16':
+      return 2;
+    case 'int32':
+    case 'uint32':
+      return 4;
+    default:
+      return 8; // int, int64, uint64, and enums all use 8 bytes
   }
 }
 
 /// Capitalises the first letter of [s] for use as a camelCase function suffix.
-String _intKeySuffix(String keyType) =>
-    keyType[0].toUpperCase() + keyType.substring(1);
+String _intKeySuffix(String keyType) => keyType[0].toUpperCase() + keyType.substring(1);
 
 /// Emits `_nitroEncodeIntKeyMapBinary{KS}{VS}` and
 /// `_nitroDecodeIntKeyMapBinary{KS}{VS}` helper functions for a
@@ -312,5 +325,3 @@ void _emitMapBinaryHelpers(CodeWriter writer, String vt, BridgeSpec spec) {
   writer.line('}');
   writer.blankLine();
 }
-
-

@@ -272,18 +272,10 @@ class NitroRuntime {
   static void throwIfOutParamError(Pointer<NitroErrorFfi> errPtr) {
     if (errPtr.ref.hasError == 0) return;
     // Copy C-owned strings into Dart before freeing native memory.
-    final name = errPtr.ref.name != nullptr
-        ? errPtr.ref.name.toDartString()
-        : 'NativeException';
-    final message = errPtr.ref.message != nullptr
-        ? errPtr.ref.message.toDartString()
-        : 'An unknown native exception occurred.';
-    final code = errPtr.ref.code != nullptr
-        ? errPtr.ref.code.toDartString()
-        : null;
-    final stack = errPtr.ref.stackTrace != nullptr
-        ? errPtr.ref.stackTrace.toDartString()
-        : null;
+    final name = errPtr.ref.name != nullptr ? errPtr.ref.name.toDartString() : 'NativeException';
+    final message = errPtr.ref.message != nullptr ? errPtr.ref.message.toDartString() : 'An unknown native exception occurred.';
+    final code = errPtr.ref.code != nullptr ? errPtr.ref.code.toDartString() : null;
+    final stack = errPtr.ref.stackTrace != nullptr ? errPtr.ref.stackTrace.toDartString() : null;
     // Free native-heap strings (strdup'd by the C bridge) and reset the slot.
     if (errPtr.ref.name != nullptr) {
       malloc.free(errPtr.ref.name);

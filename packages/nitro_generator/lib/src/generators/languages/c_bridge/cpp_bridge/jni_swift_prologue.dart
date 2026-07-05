@@ -53,11 +53,10 @@ void _emitJniSwiftPrologue(
     }
   }
   writer.blankLine();
-  final zeroCopyStreamStructs = spec.streams
-      .where((st2) => structNames.contains(st2.itemType.name.replaceFirst('?', '')))
-      .map((st2) => st2.itemType.name.replaceFirst('?', ''))
-      .where((name) { final st = spec.structByName(name); return st != null && st.fields.any((f) => f.zeroCopy); })
-      .toSet();
+  final zeroCopyStreamStructs = spec.streams.where((st2) => structNames.contains(st2.itemType.name.replaceFirst('?', ''))).map((st2) => st2.itemType.name.replaceFirst('?', '')).where((name) {
+    final st = spec.structByName(name);
+    return st != null && st.fields.any((f) => f.zeroCopy);
+  }).toSet();
   if (zeroCopyStreamStructs.isNotEmpty) {
     writer.line('#include <unordered_map>');
     writer.line('#include <mutex>');

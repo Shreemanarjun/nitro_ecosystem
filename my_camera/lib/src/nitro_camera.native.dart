@@ -1,4 +1,3 @@
-
 import 'package:nitro/nitro.dart';
 
 part 'nitro_camera.g.dart';

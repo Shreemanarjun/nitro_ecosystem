@@ -246,5 +246,4 @@ class SwiftGenerator {
 
     return CodeFile(nodes).render();
   }
-
 }

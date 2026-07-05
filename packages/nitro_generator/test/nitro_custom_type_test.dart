@@ -64,7 +64,10 @@ BridgeSpec _paramSpec() => BridgeSpec(
       isAsync: false,
       returnType: BridgeType(name: 'void'),
       params: [
-        BridgeParam(name: 'color', type: BridgeType(name: 'Color')),
+        BridgeParam(
+          name: 'color',
+          type: BridgeType(name: 'Color'),
+        ),
       ],
     ),
     BridgeFunction(
@@ -73,7 +76,10 @@ BridgeSpec _paramSpec() => BridgeSpec(
       isAsync: false,
       returnType: BridgeType(name: 'void'),
       params: [
-        BridgeParam(name: 'color', type: BridgeType(name: 'Color?', isNullable: true)),
+        BridgeParam(
+          name: 'color',
+          type: BridgeType(name: 'Color?', isNullable: true),
+        ),
       ],
     ),
   ],

@@ -845,12 +845,7 @@ void _emitJniPropertyBridges(
     // C return type for the getter (and const-qualified param type for the setter).
     // Nullable primitives and variants are transported as uint8_t* (ByteArray / NitroOpt*).
     final cType = switch (propKind) {
-      BridgeItemKind.intNullable ||
-      BridgeItemKind.doubleNullable ||
-      BridgeItemKind.boolNullable ||
-      BridgeItemKind.dateTimeNullable ||
-      BridgeItemKind.nitroVariant ||
-      BridgeItemKind.nitroVariantNullable => 'uint8_t*',
+      BridgeItemKind.intNullable || BridgeItemKind.doubleNullable || BridgeItemKind.boolNullable || BridgeItemKind.dateTimeNullable || BridgeItemKind.nitroVariant || BridgeItemKind.nitroVariantNullable => 'uint8_t*',
       BridgeItemKind.hybridEnum => 'int64_t',
       _ => _typeToC(prop.type.name),
     };
@@ -876,12 +871,7 @@ void _emitJniPropertyBridges(
       // Nullable prims + variants return ByteArray ([B). Enum returns long (J).
       final jniGetSig = switch (propKind) {
         BridgeItemKind.hybridEnum => '(J)J',
-        BridgeItemKind.intNullable ||
-        BridgeItemKind.doubleNullable ||
-        BridgeItemKind.boolNullable ||
-        BridgeItemKind.dateTimeNullable ||
-        BridgeItemKind.nitroVariant ||
-        BridgeItemKind.nitroVariantNullable => '(J)[B',
+        BridgeItemKind.intNullable || BridgeItemKind.doubleNullable || BridgeItemKind.boolNullable || BridgeItemKind.dateTimeNullable || BridgeItemKind.nitroVariant || BridgeItemKind.nitroVariantNullable => '(J)[B',
         _ => '(J)${_jniSigType(prop.type.name)}',
       };
       writer.line(
@@ -970,12 +960,7 @@ void _emitJniPropertyBridges(
       writer.line('    jmethodID methodId = g_mid_${prop.setSymbol}_call;');
       // JNI setter signature: (J<value>)V. DateTime? was previously missing [B here.
       final jniSetSig = switch (propKind) {
-        BridgeItemKind.intNullable ||
-        BridgeItemKind.doubleNullable ||
-        BridgeItemKind.boolNullable ||
-        BridgeItemKind.dateTimeNullable ||
-        BridgeItemKind.nitroVariant ||
-        BridgeItemKind.nitroVariantNullable => '(J[B)V',
+        BridgeItemKind.intNullable || BridgeItemKind.doubleNullable || BridgeItemKind.boolNullable || BridgeItemKind.dateTimeNullable || BridgeItemKind.nitroVariant || BridgeItemKind.nitroVariantNullable => '(J[B)V',
         BridgeItemKind.hybridEnum => '(JJ)V',
         _ => '(J${_jniSigType(prop.type.name)})V',
       };
@@ -1154,16 +1139,8 @@ void _emitJniStreamBridges(
     //  • Records and variants      → jbyteArray (Kotlin calls .encode())
     //  • All others                → _jniSigTypeC lookup (jstring, jlong, etc.)
     final jniItemType = switch (itemKind) {
-      BridgeItemKind.intNullable ||
-      BridgeItemKind.doubleNullable ||
-      BridgeItemKind.boolNullable ||
-      BridgeItemKind.dateTimeNullable ||
-      BridgeItemKind.uint64Nullable ||
-      BridgeItemKind.hybridEnumNullable => 'jobject',
-      BridgeItemKind.hybridRecord ||
-      BridgeItemKind.hybridRecordNullable ||
-      BridgeItemKind.nitroVariant ||
-      BridgeItemKind.nitroVariantNullable => 'jbyteArray',
+      BridgeItemKind.intNullable || BridgeItemKind.doubleNullable || BridgeItemKind.boolNullable || BridgeItemKind.dateTimeNullable || BridgeItemKind.uint64Nullable || BridgeItemKind.hybridEnumNullable => 'jobject',
+      BridgeItemKind.hybridRecord || BridgeItemKind.hybridRecordNullable || BridgeItemKind.nitroVariant || BridgeItemKind.nitroVariantNullable => 'jbyteArray',
       _ => _jniSigTypeC(stream.itemType.name),
     };
     writer.line(
@@ -1243,10 +1220,7 @@ void _emitJniStreamBridges(
           writer.line('    }');
         }
 
-      case BridgeItemKind.hybridRecord ||
-           BridgeItemKind.hybridRecordNullable ||
-           BridgeItemKind.nitroVariant ||
-           BridgeItemKind.nitroVariantNullable:
+      case BridgeItemKind.hybridRecord || BridgeItemKind.hybridRecordNullable || BridgeItemKind.nitroVariant || BridgeItemKind.nitroVariantNullable:
         // @HybridRecord and @NitroVariant: Kotlin calls .encode() → jbyteArray.
         // Nullable items arrive as nullptr → post kNull.
         // C copies bytes to a malloc'd native buffer and sends the pointer as kInt64.
@@ -1307,10 +1281,7 @@ void _emitJniStreamBridges(
         writer.line('        env->DeleteLocalRef(enumCls);');
         writer.line('    }');
 
-      case BridgeItemKind.typedData ||
-           BridgeItemKind.typedDataNullable ||
-           BridgeItemKind.void_ ||
-           BridgeItemKind.other:
+      case BridgeItemKind.typedData || BridgeItemKind.typedDataNullable || BridgeItemKind.void_ || BridgeItemKind.other:
         // Not valid as stream item types — emit null as a safe no-op.
         // Explicit cases so the compiler enforces exhaustiveness when new
         // BridgeItemKind values are added.
@@ -1447,14 +1418,20 @@ void _emitJniCallbackInvokers(
       final isRecordReturn = !isVoidReturn && !isStringReturn && recordNames.contains(retBase);
       final isVariantReturn = !isVoidReturn && !isStringReturn && variantNames.contains(retBase);
       // JNI return: void, jstring (String), jbyteArray (record/variant), jlong (primitives)
-      final cRetType = isVoidReturn ? 'void'
-          : isStringReturn ? 'jstring'
-          : (isRecordReturn || isVariantReturn) ? 'jbyteArray'
+      final cRetType = isVoidReturn
+          ? 'void'
+          : isStringReturn
+          ? 'jstring'
+          : (isRecordReturn || isVariantReturn)
+          ? 'jbyteArray'
           : 'jlong';
       // C typedef return: void, const char* (String), uint8_t* (record/variant bytes), int64_t (prims)
-      final cTypedefReturn = isVoidReturn ? 'void'
-          : isStringReturn ? 'const char*'
-          : (isRecordReturn || isVariantReturn) ? 'uint8_t*'
+      final cTypedefReturn = isVoidReturn
+          ? 'void'
+          : isStringReturn
+          ? 'const char*'
+          : (isRecordReturn || isVariantReturn)
+          ? 'uint8_t*'
           : 'int64_t';
 
       writer.line('JNIEXPORT $cRetType JNICALL $jniMethName($cParams) {');
@@ -1625,7 +1602,15 @@ void _emitJniInitializeAndPostHelpers(
       final isNullablePrimPropInit = prop.type.name == 'int?' || prop.type.name == 'double?' || prop.type.name == 'bool?';
       // Nullable primitives and variants use [B (ByteArray) encoding; 'J' prefix for instanceId.
       final isCustomTypePropGet = initCustomTypeNames.contains(prop.type.name.replaceFirst('?', ''));
-      final jniRetSig = isNullablePrimPropInit ? '[B' : isEnum ? 'J' : isVariantPropInit ? '[B' : isCustomTypePropGet ? '[B' : _jniSigType(prop.type.name);
+      final jniRetSig = isNullablePrimPropInit
+          ? '[B'
+          : isEnum
+          ? 'J'
+          : isVariantPropInit
+          ? '[B'
+          : isCustomTypePropGet
+          ? '[B'
+          : _jniSigType(prop.type.name);
       writer.line('        g_mid_${prop.getSymbol}_call = env->GetStaticMethodID(g_bridgeClass, "${prop.getSymbol}_call", "(J)$jniRetSig");');
       writer.line('        if (!g_mid_${prop.getSymbol}_call && env->ExceptionCheck()) { env->ExceptionClear(); LOGE("Method not found: ${prop.getSymbol}_call sig=(J)$jniRetSig"); }');
     }
@@ -1633,7 +1618,15 @@ void _emitJniInitializeAndPostHelpers(
       final isNullablePrimPropInit2 = prop.type.name == 'int?' || prop.type.name == 'double?' || prop.type.name == 'bool?';
       // Nullable primitives and variants use [B (ByteArray) encoding; 'J' prefix for instanceId.
       final isCustomTypePropSet = initCustomTypeNames.contains(prop.type.name.replaceFirst('?', ''));
-      final jniParamSig = isNullablePrimPropInit2 ? '[B' : isEnum ? 'J' : isVariantPropInit ? '[B' : isCustomTypePropSet ? '[B' : _jniSigType(prop.type.name);
+      final jniParamSig = isNullablePrimPropInit2
+          ? '[B'
+          : isEnum
+          ? 'J'
+          : isVariantPropInit
+          ? '[B'
+          : isCustomTypePropSet
+          ? '[B'
+          : _jniSigType(prop.type.name);
       writer.line('        g_mid_${prop.setSymbol}_call = env->GetStaticMethodID(g_bridgeClass, "${prop.setSymbol}_call", "(J$jniParamSig)V");');
       writer.line('        if (!g_mid_${prop.setSymbol}_call && env->ExceptionCheck()) { env->ExceptionClear(); LOGE("Method not found: ${prop.setSymbol}_call sig=(J$jniParamSig)V"); }');
     }
@@ -1773,9 +1766,9 @@ void _emitJniInitializeAndPostHelpers(
     // Allocates a packed NitroOptXxx struct on the native heap (9 bytes for int64/float64,
     // 2 bytes for bool), fills hasValue + value, posts address as kInt64.
     // Dart side decodes via Pointer<NitroOptXxx>.fromAddress(raw as int) and frees.
-    final jniPostOptInt64  = _jniMethodName(spec.lib, spec.dartClassName, 'postOptInt64ToPort');
+    final jniPostOptInt64 = _jniMethodName(spec.lib, spec.dartClassName, 'postOptInt64ToPort');
     final jniPostOptFloat64 = _jniMethodName(spec.lib, spec.dartClassName, 'postOptFloat64ToPort');
-    final jniPostOptBool   = _jniMethodName(spec.lib, spec.dartClassName, 'postOptBoolToPort');
+    final jniPostOptBool = _jniMethodName(spec.lib, spec.dartClassName, 'postOptBoolToPort');
 
     // postOptInt64ToPort: int? / uint64? / DateTime? NativeAsync returns
     writer.line('JNIEXPORT void JNICALL $jniPostOptInt64(JNIEnv*, jclass, jlong dartPort, jlong value, jboolean hasValue) {');

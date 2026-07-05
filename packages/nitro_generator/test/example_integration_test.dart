@@ -481,12 +481,14 @@ void main() {
     specTest(
       '4 streams emitted: temperature, humidity, readings, status',
       sensorSrc,
-      dart: BridgeChecks(has: [
-        'Stream<double> get temperature',
-        'Stream<double> get humidity',
-        'Stream<SensorReading> get readings',
-        'Stream<SensorStatus> get status',
-      ]),
+      dart: BridgeChecks(
+        has: [
+          'Stream<double> get temperature',
+          'Stream<double> get humidity',
+          'Stream<SensorReading> get readings',
+          'Stream<SensorStatus> get status',
+        ],
+      ),
       kotlin: BridgeChecks(has: ['temperature', 'humidity', 'readings', 'status']),
       skip: {Lang.cpp},
     );
@@ -583,8 +585,7 @@ void main() {
         }
       '''),
       dart: BridgeChecks(
-        has: ['a', 'b', 'c', 'x', 'y', 'label', 'flag',
-              'arena.packInt(optCount)', 'arena.packDouble(optScale)', 'arena.packBool(optVerbose)'],
+        has: ['a', 'b', 'c', 'x', 'y', 'label', 'flag', 'arena.packInt(optCount)', 'arena.packDouble(optScale)', 'arena.packBool(optVerbose)'],
       ),
       kotlin: BridgeChecks(
         has: ['NitroOptInt64.decode(optCount)', 'NitroOptFloat64.decode(optScale)', 'NitroOptBool.decode(optVerbose)'],
@@ -682,9 +683,7 @@ void main() {
         }
       '''),
       kotlin: BridgeChecks(
-        has: ['data class Vec2(val x: Double, val y: Double)',
-              'data class Vec3(val x: Double, val y: Double, val z: Double)',
-              'data class RGBA(val r: Long, val g: Long, val b: Long, val a: Long)'],
+        has: ['data class Vec2(val x: Double, val y: Double)', 'data class Vec3(val x: Double, val y: Double, val z: Double)', 'data class RGBA(val r: Long, val g: Long, val b: Long, val a: Long)'],
       ),
       skip: {Lang.cpp},
     );
@@ -713,12 +712,10 @@ void main() {
         }
       '''),
       dart: BridgeChecks(
-        has: ['arena.packInt(userId)', 'arena.packDouble(score)', 'arena.packBool(active)',
-              'NitroAnyMap.fromNative(', 'toNative(arena)'],
+        has: ['arena.packInt(userId)', 'arena.packDouble(score)', 'arena.packBool(active)', 'NitroAnyMap.fromNative(', 'toNative(arena)'],
       ),
       kotlin: BridgeChecks(
-        has: ['NitroAnyMapCodec', 'NitroOptInt64', 'NitroOptFloat64', 'NitroOptBool',
-              'data class UserProfile('],
+        has: ['NitroAnyMapCodec', 'NitroOptInt64', 'NitroOptFloat64', 'NitroOptBool', 'data class UserProfile('],
       ),
       skip: {Lang.cpp},
     );
@@ -792,9 +789,7 @@ void main() {
         }
       '''),
       cpp: BridgeChecks(
-        has: ['virtual double lerp(double a, double b, double t) = 0;',
-              'virtual void reset() = 0;',
-              'virtual std::string describe() = 0;'],
+        has: ['virtual double lerp(double a, double b, double t) = 0;', 'virtual void reset() = 0;', 'virtual std::string describe() = 0;'],
       ),
     );
 
@@ -995,8 +990,7 @@ void main() {
         }
       '''),
       kotlin: BridgeChecks(
-        has: ['suspend fun fetchAll(): Map<String, Any?>',
-              'NitroAnyMapCodec.encode'],
+        has: ['suspend fun fetchAll(): Map<String, Any?>', 'NitroAnyMapCodec.encode'],
       ),
       skip: {Lang.cpp},
     );
@@ -1010,8 +1004,7 @@ void main() {
         }
       '''),
       kotlin: BridgeChecks(
-        has: ['fun push_call(instanceId: Long, data: ByteArray)',
-              'fun pull_call(instanceId: Long): ByteArray'],
+        has: ['fun push_call(instanceId: Long, data: ByteArray)', 'fun pull_call(instanceId: Long): ByteArray'],
       ),
       skip: {Lang.cpp},
     );

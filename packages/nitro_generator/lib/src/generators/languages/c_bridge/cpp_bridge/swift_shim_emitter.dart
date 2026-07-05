@@ -90,9 +90,7 @@ void _emitSwiftBridgeSection(
         : CppBridgeGenerator._typeToC(func.returnType.name);
     // S8: add NitroError* out-param; the Swift @_cdecl stub does not use it,
     // but the C wrapper must accept and propagate it.
-    final paramsWithErr = func.isAsync
-        ? paramParts.join(', ')
-        : [...paramParts, 'NitroError* _nitro_err'].join(', ');
+    final paramsWithErr = func.isAsync ? paramParts.join(', ') : [...paramParts, 'NitroError* _nitro_err'].join(', ');
     final externParams = externParamParts.join(', ');
     final callParams = callParamParts.join(', ');
     writer.line('extern $cReturnType _${spec.namespace}_call_${func.dartName}(${externParams.isEmpty ? 'void' : externParams});');
@@ -146,16 +144,32 @@ void _emitSwiftBridgeSection(
     String cType;
     String setterCType;
     if (isEnum) {
-      cType = 'int64_t'; setterCType = 'int64_t';
+      cType = 'int64_t';
+      setterCType = 'int64_t';
     } else if (isVariantProp) {
-      cType = 'uint8_t*'; setterCType = 'const uint8_t*';
+      cType = 'uint8_t*';
+      setterCType = 'const uint8_t*';
     } else {
       switch (prop.type.name) {
-        case 'int?':    cType = 'uint8_t*'; setterCType = 'const uint8_t*'; break;
-        case 'uint64?': cType = 'uint8_t*'; setterCType = 'const uint8_t*'; break;
-        case 'double?': cType = 'uint8_t*'; setterCType = 'const uint8_t*'; break;
-        case 'bool?':   cType = 'uint8_t*'; setterCType = 'const uint8_t*'; break;
-        default: cType = CppBridgeGenerator._typeToC(prop.type.name); setterCType = cType;
+        case 'int?':
+          cType = 'uint8_t*';
+          setterCType = 'const uint8_t*';
+          break;
+        case 'uint64?':
+          cType = 'uint8_t*';
+          setterCType = 'const uint8_t*';
+          break;
+        case 'double?':
+          cType = 'uint8_t*';
+          setterCType = 'const uint8_t*';
+          break;
+        case 'bool?':
+          cType = 'uint8_t*';
+          setterCType = 'const uint8_t*';
+          break;
+        default:
+          cType = CppBridgeGenerator._typeToC(prop.type.name);
+          setterCType = cType;
       }
     }
     if (prop.hasGetter) {

@@ -216,25 +216,27 @@ void main() {
   group('KotlinGenerator — Stream<int?> (optCounterStream) emit', () {
     late String kotlinCode;
     setUp(() {
-      kotlinCode = KotlinGenerator.generate(BridgeSpec(
-        dartClassName: 'Mod',
-        lib: 'mod',
-        namespace: 'mod',
-        iosImpl: NativeImpl.swift,
-        androidImpl: NativeImpl.kotlin,
-        sourceUri: 'mod.native.dart',
-        enums: [],
-        structs: [],
-        streams: [
-          BridgeStream(
-            dartName: 'optCounterStream',
-            itemType: BridgeType(name: 'int?'),
-            registerSymbol: 'mod_register_optCounterStream',
-            releaseSymbol: 'mod_release_optCounterStream',
-            backpressure: Backpressure.dropLatest,
-          ),
-        ],
-      ));
+      kotlinCode = KotlinGenerator.generate(
+        BridgeSpec(
+          dartClassName: 'Mod',
+          lib: 'mod',
+          namespace: 'mod',
+          iosImpl: NativeImpl.swift,
+          androidImpl: NativeImpl.kotlin,
+          sourceUri: 'mod.native.dart',
+          enums: [],
+          structs: [],
+          streams: [
+            BridgeStream(
+              dartName: 'optCounterStream',
+              itemType: BridgeType(name: 'int?'),
+              registerSymbol: 'mod_register_optCounterStream',
+              releaseSymbol: 'mod_release_optCounterStream',
+              backpressure: Backpressure.dropLatest,
+            ),
+          ],
+        ),
+      );
     });
 
     test('optCounterStream: Kotlin emit declares item: Long?', () {

@@ -45,7 +45,9 @@ void main() {
     });
 
     test('double resolve is a no-op (first value wins)', () async {
-      final p = NitroPromise<int>()..resolve(1)..resolve(2);
+      final p = NitroPromise<int>()
+        ..resolve(1)
+        ..resolve(2);
       expect(await p.future, 1);
       expect(p.state, NitroPromiseState.resolved);
     });
@@ -53,17 +55,23 @@ void main() {
     test('double reject is a no-op (first error wins)', () async {
       final err1 = Exception('first');
       final err2 = Exception('second');
-      final p = NitroPromise<int>()..reject(err1)..reject(err2);
+      final p = NitroPromise<int>()
+        ..reject(err1)
+        ..reject(err2);
       await expectLater(p.future, throwsA(same(err1)));
     });
 
     test('resolve after reject is a no-op', () {
-      final p = NitroPromise<int>()..reject(Exception('fail'))..resolve(99);
+      final p = NitroPromise<int>()
+        ..reject(Exception('fail'))
+        ..resolve(99);
       expect(p.state, NitroPromiseState.rejected);
     });
 
     test('reject after resolve is a no-op', () {
-      final p = NitroPromise<int>()..resolve(5)..reject(Exception('too late'));
+      final p = NitroPromise<int>()
+        ..resolve(5)
+        ..reject(Exception('too late'));
       expect(p.state, NitroPromiseState.resolved);
     });
   });

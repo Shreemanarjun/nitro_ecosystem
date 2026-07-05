@@ -32,67 +32,83 @@ BridgeSpec _spec({
   NativeImpl? windows,
   NativeImpl? linux,
   NativeImpl? web,
-}) =>
-    BridgeSpec(
-      dartClassName: 'Roundtrip',
-      lib: 'roundtrip',
-      namespace: 'roundtrip',
-      sourceUri: 'roundtrip.native.dart',
-      iosImpl: ios,
-      androidImpl: android,
-      macosImpl: macos,
-      windowsImpl: windows,
-      linuxImpl: linux,
-      webImpl: web,
-      enums: [
-        BridgeEnum(name: 'Status', startValue: 0, values: ['idle', 'running', 'done']),
-      ],
-      structs: [
-        BridgeStruct(
-          name: 'Point',
-          packed: false,
-          fields: [
-            BridgeField(name: 'x', type: BridgeType(name: 'double')),
-            BridgeField(name: 'y', type: BridgeType(name: 'double')),
-          ],
+}) => BridgeSpec(
+  dartClassName: 'Roundtrip',
+  lib: 'roundtrip',
+  namespace: 'roundtrip',
+  sourceUri: 'roundtrip.native.dart',
+  iosImpl: ios,
+  androidImpl: android,
+  macosImpl: macos,
+  windowsImpl: windows,
+  linuxImpl: linux,
+  webImpl: web,
+  enums: [
+    BridgeEnum(name: 'Status', startValue: 0, values: ['idle', 'running', 'done']),
+  ],
+  structs: [
+    BridgeStruct(
+      name: 'Point',
+      packed: false,
+      fields: [
+        BridgeField(
+          name: 'x',
+          type: BridgeType(name: 'double'),
+        ),
+        BridgeField(
+          name: 'y',
+          type: BridgeType(name: 'double'),
         ),
       ],
-      functions: [
-        BridgeFunction(
-          dartName: 'add',
-          cSymbol: 'roundtrip_add',
-          isAsync: false,
-          returnType: BridgeType(name: 'double'),
-          params: [
-            BridgeParam(name: 'a', type: BridgeType(name: 'double')),
-            BridgeParam(name: 'b', type: BridgeType(name: 'double')),
-          ],
+    ),
+  ],
+  functions: [
+    BridgeFunction(
+      dartName: 'add',
+      cSymbol: 'roundtrip_add',
+      isAsync: false,
+      returnType: BridgeType(name: 'double'),
+      params: [
+        BridgeParam(
+          name: 'a',
+          type: BridgeType(name: 'double'),
         ),
-        BridgeFunction(
-          dartName: 'getStatus',
-          cSymbol: 'roundtrip_get_status',
-          isAsync: false,
-          returnType: BridgeType(name: 'Status'),
-          params: [],
-        ),
-        BridgeFunction(
-          dartName: 'describe',
-          cSymbol: 'roundtrip_describe',
-          isAsync: false,
-          returnType: BridgeType(name: 'String'),
-          params: [BridgeParam(name: 'p', type: BridgeType(name: 'Point'))],
+        BridgeParam(
+          name: 'b',
+          type: BridgeType(name: 'double'),
         ),
       ],
-      streams: [
-        BridgeStream(
-          dartName: 'onStatusChanged',
-          registerSymbol: 'roundtrip_register_on_status_changed_stream',
-          releaseSymbol: 'roundtrip_release_on_status_changed_stream',
-          itemType: BridgeType(name: 'Status'),
-          backpressure: Backpressure.dropLatest,
+    ),
+    BridgeFunction(
+      dartName: 'getStatus',
+      cSymbol: 'roundtrip_get_status',
+      isAsync: false,
+      returnType: BridgeType(name: 'Status'),
+      params: [],
+    ),
+    BridgeFunction(
+      dartName: 'describe',
+      cSymbol: 'roundtrip_describe',
+      isAsync: false,
+      returnType: BridgeType(name: 'String'),
+      params: [
+        BridgeParam(
+          name: 'p',
+          type: BridgeType(name: 'Point'),
         ),
       ],
-    );
+    ),
+  ],
+  streams: [
+    BridgeStream(
+      dartName: 'onStatusChanged',
+      registerSymbol: 'roundtrip_register_on_status_changed_stream',
+      releaseSymbol: 'roundtrip_release_on_status_changed_stream',
+      itemType: BridgeType(name: 'Status'),
+      backpressure: Backpressure.dropLatest,
+    ),
+  ],
+);
 
 /// All valid per-platform implementation values.
 const List<NativeImpl> _appleImpls = [NativeImpl.swift, NativeImpl.cpp];
@@ -105,8 +121,7 @@ void _assertRoundtrips(BridgeSpec spec, String label) {
   // 1. Validator must produce no errors.
   final issues = SpecValidator.validate(spec);
   final errors = issues.where((i) => i.isError).toList();
-  expect(errors, isEmpty,
-      reason: '$label: validator emitted ${errors.length} error(s): ${errors.map((e) => e.message).join('; ')}');
+  expect(errors, isEmpty, reason: '$label: validator emitted ${errors.length} error(s): ${errors.map((e) => e.message).join('; ')}');
 
   // 2. Dart FFI generator must not throw and must produce non-empty output.
   final dartOut = DartFfiGenerator.generate(spec);
@@ -183,21 +198,17 @@ void main() {
 
   // ── Multi-platform canonical combos ────────────────────────────────────────
   group('Multi-platform — iOS + Android + macOS', () {
-    test('swift + kotlin + swift', () => _assertRoundtrips(
-        _spec(ios: NativeImpl.swift, android: NativeImpl.kotlin, macos: NativeImpl.swift),
-        'ios:swift android:kotlin macos:swift'));
+    test('swift + kotlin + swift', () => _assertRoundtrips(_spec(ios: NativeImpl.swift, android: NativeImpl.kotlin, macos: NativeImpl.swift), 'ios:swift android:kotlin macos:swift'));
 
-    test('cpp + cpp + cpp (full native)', () => _assertRoundtrips(
-        _spec(ios: NativeImpl.cpp, android: NativeImpl.cpp, macos: NativeImpl.cpp),
-        'ios:cpp android:cpp macos:cpp'));
+    test('cpp + cpp + cpp (full native)', () => _assertRoundtrips(_spec(ios: NativeImpl.cpp, android: NativeImpl.cpp, macos: NativeImpl.cpp), 'ios:cpp android:cpp macos:cpp'));
 
-    test('swift + kotlin + cpp (mixed macOS)', () => _assertRoundtrips(
-        _spec(ios: NativeImpl.swift, android: NativeImpl.kotlin, macos: NativeImpl.cpp),
-        'ios:swift android:kotlin macos:cpp'));
+    test('swift + kotlin + cpp (mixed macOS)', () => _assertRoundtrips(_spec(ios: NativeImpl.swift, android: NativeImpl.kotlin, macos: NativeImpl.cpp), 'ios:swift android:kotlin macos:cpp'));
   });
 
   group('Full cross-platform specs', () {
-    test('swift + kotlin + swift + cpp + cpp (5 native platforms)', () => _assertRoundtrips(
+    test(
+      'swift + kotlin + swift + cpp + cpp (5 native platforms)',
+      () => _assertRoundtrips(
         _spec(
           ios: NativeImpl.swift,
           android: NativeImpl.kotlin,
@@ -205,7 +216,9 @@ void main() {
           windows: NativeImpl.cpp,
           linux: NativeImpl.cpp,
         ),
-        'all-native:swift+kotlin+swift+cpp+cpp'));
+        'all-native:swift+kotlin+swift+cpp+cpp',
+      ),
+    );
 
     test('cpp on all 5 native platforms (isCppImpl=true)', () {
       final spec = _spec(
@@ -215,12 +228,13 @@ void main() {
         windows: NativeImpl.cpp,
         linux: NativeImpl.cpp,
       );
-      expect(spec.isCppImpl, isTrue,
-          reason: 'All-cpp spec should report isCppImpl=true');
+      expect(spec.isCppImpl, isTrue, reason: 'All-cpp spec should report isCppImpl=true');
       _assertRoundtrips(spec, 'all-native:cpp');
     });
 
-    test('all 6 platforms: swift + kotlin + swift + cpp + cpp + wasm', () => _assertRoundtrips(
+    test(
+      'all 6 platforms: swift + kotlin + swift + cpp + cpp + wasm',
+      () => _assertRoundtrips(
         _spec(
           ios: NativeImpl.swift,
           android: NativeImpl.kotlin,
@@ -229,11 +243,11 @@ void main() {
           linux: NativeImpl.cpp,
           web: NativeImpl.wasm,
         ),
-        'all-6-platforms'));
+        'all-6-platforms',
+      ),
+    );
 
-    test('web + iOS swift (no android)', () => _assertRoundtrips(
-        _spec(ios: NativeImpl.swift, web: NativeImpl.wasm),
-        'ios:swift+web:wasm'));
+    test('web + iOS swift (no android)', () => _assertRoundtrips(_spec(ios: NativeImpl.swift, web: NativeImpl.wasm), 'ios:swift+web:wasm'));
   });
 
   // ── BridgeSpec flag consistency ─────────────────────────────────────────────

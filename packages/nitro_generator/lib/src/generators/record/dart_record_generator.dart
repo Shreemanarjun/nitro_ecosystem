@@ -4,9 +4,7 @@ String _generateDartRecordExtensions(BridgeSpec spec) {
   // Exclude built-in library types: their Dart codec is already on the class
   // in package:nitro/src/nitro_nullable.dart; generating an extension would
   // duplicate methods and cause "already defined" compile errors.
-  final allLocalRecords = spec.localRecordTypes
-      .where((r) => !_nitroLibraryRecordTypes.contains(r.name))
-      .toList();
+  final allLocalRecords = spec.localRecordTypes.where((r) => !_nitroLibraryRecordTypes.contains(r.name)).toList();
   // Tuples emit standalone free functions; named records emit extension methods.
   final localTuples = allLocalRecords.where((r) => r.isTuple).toList();
   final localRecords = allLocalRecords.where((r) => !r.isTuple).toList();
@@ -156,10 +154,12 @@ String _generateDartRecordExtensions(BridgeSpec spec) {
     s.writeln('// --- @NitroTuple encode/decode for ${rt.name} ---');
 
     // Build the inline Dart 3 tuple type string from fields, e.g. "(int, String)".
-    final fieldTypes = rt.fields.map((f) {
-      if (f.isNullable) return '${f.dartType.replaceFirst("?", "")}?';
-      return f.dartType;
-    }).join(', ');
+    final fieldTypes = rt.fields
+        .map((f) {
+          if (f.isNullable) return '${f.dartType.replaceFirst("?", "")}?';
+          return f.dartType;
+        })
+        .join(', ');
     final tupleType = '($fieldTypes)';
 
     // ── _nitroDecode_<Name> ──
@@ -269,9 +269,7 @@ String _readExpr(BridgeRecordField f) {
       final baseType = f.dartType.replaceFirst('?', '');
       // Built-in library types (NitroNullableInt etc.) define fromReader on the
       // class itself — call directly. All others use the generated RecordExt.
-      final readerCall = _nitroLibraryRecordTypes.contains(baseType)
-          ? '$baseType.fromReader(r)'
-          : '${baseType}RecordExt.fromReader(r)';
+      final readerCall = _nitroLibraryRecordTypes.contains(baseType) ? '$baseType.fromReader(r)' : '${baseType}RecordExt.fromReader(r)';
       if (f.isNullable) {
         return 'r.readNullTag() ? null : $readerCall';
       }
@@ -287,9 +285,7 @@ String _readExpr(BridgeRecordField f) {
 
     case RecordFieldKind.listRecordObject:
       final item = f.itemTypeName!;
-      final itemReaderCall = _nitroLibraryRecordTypes.contains(item)
-          ? '$item.fromReader(r)'
-          : '${item}RecordExt.fromReader(r)';
+      final itemReaderCall = _nitroLibraryRecordTypes.contains(item) ? '$item.fromReader(r)' : '${item}RecordExt.fromReader(r)';
       return 'List.generate(r.readInt32(), (_) => $itemReaderCall)';
 
     case RecordFieldKind.typedData:
@@ -314,17 +310,28 @@ String _readExpr(BridgeRecordField f) {
 /// Uint8List uses readBlob() directly; others use buffer view over readBlob().
 String _typedDataReadCall(String dartType) {
   switch (dartType) {
-    case 'Uint8List': return 'r.readBlob()';
-    case 'Int8List':  return 'Int8List.view(r.readBlob().buffer)';
-    case 'Int16List': return 'Int16List.view(r.readBlob().buffer)';
-    case 'Uint16List': return 'Uint16List.view(r.readBlob().buffer)';
-    case 'Int32List': return 'Int32List.view(r.readBlob().buffer)';
-    case 'Uint32List': return 'Uint32List.view(r.readBlob().buffer)';
-    case 'Int64List': return 'Int64List.view(r.readBlob().buffer)';
-    case 'Uint64List': return 'Uint64List.view(r.readBlob().buffer)';
-    case 'Float32List': return 'Float32List.view(r.readBlob().buffer)';
-    case 'Float64List': return 'Float64List.view(r.readBlob().buffer)';
-    default: return 'r.readBlob()';
+    case 'Uint8List':
+      return 'r.readBlob()';
+    case 'Int8List':
+      return 'Int8List.view(r.readBlob().buffer)';
+    case 'Int16List':
+      return 'Int16List.view(r.readBlob().buffer)';
+    case 'Uint16List':
+      return 'Uint16List.view(r.readBlob().buffer)';
+    case 'Int32List':
+      return 'Int32List.view(r.readBlob().buffer)';
+    case 'Uint32List':
+      return 'Uint32List.view(r.readBlob().buffer)';
+    case 'Int64List':
+      return 'Int64List.view(r.readBlob().buffer)';
+    case 'Uint64List':
+      return 'Uint64List.view(r.readBlob().buffer)';
+    case 'Float32List':
+      return 'Float32List.view(r.readBlob().buffer)';
+    case 'Float64List':
+      return 'Float64List.view(r.readBlob().buffer)';
+    default:
+      return 'r.readBlob()';
   }
 }
 
@@ -488,4 +495,3 @@ void _writeStructFieldStmt(
     _writePrimitiveStmt(s, f.type.name, f.name);
   }
 }
-

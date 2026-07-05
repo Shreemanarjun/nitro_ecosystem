@@ -11,8 +11,7 @@
 // macos/Classes/, and SPM Sources/<ClassName>/ directories.
 import 'dart:io';
 
-import 'package:nitrogen_cli/utils.dart'
-    show dedupeSharedSwiftDecls, stripSharedSwiftPreamble;
+import 'package:nitrogen_cli/utils.dart' show dedupeSharedSwiftDecls, stripSharedSwiftPreamble;
 import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
 
@@ -175,8 +174,7 @@ public protocol HybridNitroViewProtocol: AnyObject {
       );
     });
 
-    test('second full bridge loses all shared decls but keeps its protocol',
-        () {
+    test('second full bridge loses all shared decls but keeps its protocol', () {
       final defined = <String>{};
       dedupeSharedSwiftDecls(_fullBridge('nitro_view'), defined);
       final result = dedupeSharedSwiftDecls(_fullBridge('nitro_ui'), defined);
@@ -188,8 +186,7 @@ public protocol HybridNitroViewProtocol: AnyObject {
       expect(result, contains('public protocol HybridNitroUiProtocol'));
     });
 
-    test(
-        'two record-only bridges (no NitroEncodable) — the exact shape the '
+    test('two record-only bridges (no NitroEncodable) — the exact shape the '
         'fixed-window strip missed', () {
       final defined = <String>{};
       final first = dedupeSharedSwiftDecls(_recordOnlyBridge('alpha'), defined);
@@ -197,9 +194,13 @@ public protocol HybridNitroViewProtocol: AnyObject {
 
       // First keeps writer/reader; second must lose BOTH.
       expect(first, contains('public class NitroRecordWriter'));
-      expect(second, isNot(contains('public class NitroRecordWriter')),
-          reason: 'duplicate NitroRecordWriter causes "ambiguous for type '
-              'lookup" when compiled into one SPM target');
+      expect(
+        second,
+        isNot(contains('public class NitroRecordWriter')),
+        reason:
+            'duplicate NitroRecordWriter causes "ambiguous for type '
+            'lookup" when compiled into one SPM target',
+      );
       expect(second, isNot(contains('public class NitroRecordReader')));
       expect(second, contains('public protocol HybridBetaProtocol'));
     });
@@ -250,8 +251,7 @@ public protocol HybridNitroViewProtocol: AnyObject {
 
       final dest = File(p.join(tempDir.path, 'ios', 'Classes', 'nitro_view.bridge.g.swift'));
       expect(dest.existsSync(), isTrue);
-      expect(dest.readAsStringSync(), contains('public protocol NitroEncodable'),
-          reason: 'Single-spec plugin: first (and only) file must have full preamble');
+      expect(dest.readAsStringSync(), contains('public protocol NitroEncodable'), reason: 'Single-spec plugin: first (and only) file must have full preamble');
     });
 
     test('multi-spec: first bridge file (sorted alphabetically) retains shared preamble', () {
@@ -260,8 +260,7 @@ public protocol HybridNitroViewProtocol: AnyObject {
 
       // 'nitro_system' < 'nitro_ui' < 'nitro_view' alphabetically.
       final first = File(p.join(tempDir.path, 'ios', 'Classes', 'nitro_system.bridge.g.swift'));
-      expect(first.readAsStringSync(), contains('public protocol NitroEncodable'),
-          reason: 'First bridge file must carry the shared types for the module');
+      expect(first.readAsStringSync(), contains('public protocol NitroEncodable'), reason: 'First bridge file must carry the shared types for the module');
     });
 
     test('multi-spec: 2nd and 3rd bridge files have shared preamble stripped', () {
@@ -269,12 +268,9 @@ public protocol HybridNitroViewProtocol: AnyObject {
       _runSync(tempDir.path);
 
       for (final spec in ['nitro_ui', 'nitro_view']) {
-        final content = File(p.join(tempDir.path, 'ios', 'Classes', '$spec.bridge.g.swift'))
-            .readAsStringSync();
-        expect(content, isNot(contains('public protocol NitroEncodable')),
-            reason: '$spec must not redeclare NitroEncodable');
-        expect(content, isNot(contains('public class NitroRecordWriter')),
-            reason: '$spec must not redeclare NitroRecordWriter');
+        final content = File(p.join(tempDir.path, 'ios', 'Classes', '$spec.bridge.g.swift')).readAsStringSync();
+        expect(content, isNot(contains('public protocol NitroEncodable')), reason: '$spec must not redeclare NitroEncodable');
+        expect(content, isNot(contains('public class NitroRecordWriter')), reason: '$spec must not redeclare NitroRecordWriter');
       }
     });
 
@@ -283,10 +279,8 @@ public protocol HybridNitroViewProtocol: AnyObject {
       _runSync(tempDir.path);
 
       for (final spec in ['nitro_ui', 'nitro_view']) {
-        final content = File(p.join(tempDir.path, 'ios', 'Classes', '$spec.bridge.g.swift'))
-            .readAsStringSync();
-        expect(content, contains('public protocol Hybrid${_toPascal(spec)}Protocol'),
-            reason: '$spec: spec-specific protocol must survive stripping');
+        final content = File(p.join(tempDir.path, 'ios', 'Classes', '$spec.bridge.g.swift')).readAsStringSync();
+        expect(content, contains('public protocol Hybrid${_toPascal(spec)}Protocol'), reason: '$spec: spec-specific protocol must survive stripping');
       }
     });
 
@@ -296,15 +290,13 @@ public protocol HybridNitroViewProtocol: AnyObject {
 
       // First file in macos is full.
       expect(
-        File(p.join(tempDir.path, 'macos', 'Classes', 'nitro_system.bridge.g.swift'))
-            .readAsStringSync(),
+        File(p.join(tempDir.path, 'macos', 'Classes', 'nitro_system.bridge.g.swift')).readAsStringSync(),
         contains('public protocol NitroEncodable'),
       );
       // 2nd+ files in macos are stripped.
       for (final spec in ['nitro_ui', 'nitro_view']) {
         expect(
-          File(p.join(tempDir.path, 'macos', 'Classes', '$spec.bridge.g.swift'))
-              .readAsStringSync(),
+          File(p.join(tempDir.path, 'macos', 'Classes', '$spec.bridge.g.swift')).readAsStringSync(),
           isNot(contains('public protocol NitroEncodable')),
         );
       }
@@ -314,8 +306,7 @@ public protocol HybridNitroViewProtocol: AnyObject {
       _scaffoldPlugin(tempDir, specs: ['nitro_system', 'nitro_ui', 'nitro_view']);
 
       // Create SPM nested layout: ios/my_plugin/Sources/MyPlugin/
-      final spmSwiftDir = Directory(p.join(tempDir.path, 'ios', 'my_plugin', 'Sources', 'MyPlugin'))
-        ..createSync(recursive: true);
+      final spmSwiftDir = Directory(p.join(tempDir.path, 'ios', 'my_plugin', 'Sources', 'MyPlugin'))..createSync(recursive: true);
 
       _runSync(tempDir.path);
 
@@ -329,8 +320,7 @@ public protocol HybridNitroViewProtocol: AnyObject {
       for (final spec in ['nitro_ui', 'nitro_view']) {
         final f = File(p.join(spmSwiftDir.path, '$spec.bridge.g.swift'));
         expect(f.existsSync(), isTrue, reason: '$spec not found in SPM Sources/');
-        expect(f.readAsStringSync(), isNot(contains('public protocol NitroEncodable')),
-            reason: '$spec in SPM path must not redeclare NitroEncodable');
+        expect(f.readAsStringSync(), isNot(contains('public protocol NitroEncodable')), reason: '$spec in SPM path must not redeclare NitroEncodable');
       }
     });
 
@@ -338,8 +328,7 @@ public protocol HybridNitroViewProtocol: AnyObject {
       _scaffoldPlugin(tempDir, specs: ['nitro_system', 'nitro_ui', 'nitro_view']);
 
       // Flat layout: ios/Sources/MyPlugin/ (no plugin-name sub-directory).
-      final spmFlatDir = Directory(p.join(tempDir.path, 'ios', 'Sources', 'MyPlugin'))
-        ..createSync(recursive: true);
+      final spmFlatDir = Directory(p.join(tempDir.path, 'ios', 'Sources', 'MyPlugin'))..createSync(recursive: true);
 
       _runSync(tempDir.path);
 
@@ -356,14 +345,12 @@ public protocol HybridNitroViewProtocol: AnyObject {
       _runSync(tempDir.path);
 
       expect(
-        File(p.join(tempDir.path, 'ios', 'Classes', 'nitro_system.bridge.g.swift'))
-            .readAsStringSync(),
+        File(p.join(tempDir.path, 'ios', 'Classes', 'nitro_system.bridge.g.swift')).readAsStringSync(),
         contains('public protocol NitroEncodable'),
         reason: 'First of two: full preamble',
       );
       expect(
-        File(p.join(tempDir.path, 'ios', 'Classes', 'nitro_ui.bridge.g.swift'))
-            .readAsStringSync(),
+        File(p.join(tempDir.path, 'ios', 'Classes', 'nitro_ui.bridge.g.swift')).readAsStringSync(),
         isNot(contains('public protocol NitroEncodable')),
         reason: 'Second of two: stripped',
       );
@@ -373,16 +360,14 @@ public protocol HybridNitroViewProtocol: AnyObject {
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
-String _toPascal(String name) =>
-    name.split(RegExp(r'[_\-]')).map((w) => w.isEmpty ? '' : '${w[0].toUpperCase()}${w.substring(1)}').join('');
+String _toPascal(String name) => name.split(RegExp(r'[_\-]')).map((w) => w.isEmpty ? '' : '${w[0].toUpperCase()}${w.substring(1)}').join('');
 
 /// Scaffolds a minimal multi-spec plugin directory with bridge files in the
 /// generated swift directory and ios/Classes + macos/Classes directories.
 void _scaffoldPlugin(Directory root, {required List<String> specs}) {
   File(p.join(root.path, 'pubspec.yaml')).writeAsStringSync('name: my_plugin\nversion: 0.0.1\n');
 
-  final swiftGenDir = Directory(p.join(root.path, 'lib', 'src', 'generated', 'swift'))
-    ..createSync(recursive: true);
+  final swiftGenDir = Directory(p.join(root.path, 'lib', 'src', 'generated', 'swift'))..createSync(recursive: true);
   for (final spec in specs) {
     File(p.join(swiftGenDir.path, '$spec.bridge.g.swift')).writeAsStringSync(_fullBridge(spec));
   }
@@ -399,11 +384,7 @@ void _runSync(String projectRoot) {
   final swiftGenDir = Directory(p.join(projectRoot, 'lib', 'src', 'generated', 'swift'));
   if (!swiftGenDir.existsSync()) return;
 
-  final bridgeFiles = swiftGenDir
-      .listSync()
-      .whereType<File>()
-      .where((f) => f.path.endsWith('.bridge.g.swift'))
-      .toList()
+  final bridgeFiles = swiftGenDir.listSync().whereType<File>().where((f) => f.path.endsWith('.bridge.g.swift')).toList()
     ..sort((a, b) => p.basename(a.path).compareTo(p.basename(b.path)));
   if (bridgeFiles.isEmpty) return;
 
@@ -457,7 +438,8 @@ String _pluginName(String projectRoot) {
 // benchmark plugin's benchmark + nitro_ar specs).
 
 /// Bridge with ONLY the record writer/reader preamble — no NitroEncodable.
-String _recordOnlyBridge(String specName) => '''
+String _recordOnlyBridge(String specName) =>
+    '''
 // Generated by Nitrogen Modules. Do not edit.
 import Foundation
 

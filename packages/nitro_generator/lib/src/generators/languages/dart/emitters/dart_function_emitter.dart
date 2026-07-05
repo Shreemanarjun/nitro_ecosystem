@@ -14,12 +14,7 @@ void _emitFunctionImpls(CodeWriter writer, BridgeSpec spec) {
       if (p.type.isAnyMap) return true; // maps are not classified by BridgeItemKind
       if (spec.isCustomTypeName(p.type.baseName)) return true; // custom type codec encode needs arena
       final kind = classifyBridgeItem(p.type, spec);
-      return kind.isStringKind ||
-          kind.isRecordKind ||
-          kind.isStructKind ||
-          kind.isVariantKind ||
-          kind.isNullablePrimitive ||
-          p.type.isTypedData;
+      return kind.isStringKind || kind.isRecordKind || kind.isStructKind || kind.isVariantKind || kind.isNullablePrimitive || p.type.isTypedData;
     });
 
     final callArgs = func.params
@@ -171,7 +166,18 @@ void _emitFunctionImpls(CodeWriter writer, BridgeSpec spec) {
           writer.line('      await NitroRuntime.callAsync<$callAsyncType>(_${func.dartName}Ptr, [$instancedCallArgs], $errArgs)$tox;');
         } else {
           writer.line('      final $asyncResVar = await NitroRuntime.callAsync<$callAsyncType>(_${func.dartName}Ptr, [$instancedCallArgs], $errArgs)$tox;');
-          _emitReturnDecode(writer, func.returnType, asyncResVar, '      ', spec, zeroCopy: func.zeroCopyReturn, dartName: func.dartName, isOwned: func.isOwned, nativeHandleTypeParam: nativeHandleTypeParam, asyncBoolAsInt: false);
+          _emitReturnDecode(
+            writer,
+            func.returnType,
+            asyncResVar,
+            '      ',
+            spec,
+            zeroCopy: func.zeroCopyReturn,
+            dartName: func.dartName,
+            isOwned: func.isOwned,
+            nativeHandleTypeParam: nativeHandleTypeParam,
+            asyncBoolAsInt: false,
+          );
         }
         writer.line('    } finally {');
         writer.line('      arena.releaseAll();');
@@ -182,7 +188,18 @@ void _emitFunctionImpls(CodeWriter writer, BridgeSpec spec) {
         } else {
           final asyncResVar = _asyncResVarName(returnKind);
           writer.line('    final $asyncResVar = await NitroRuntime.callAsync<$callAsyncType>(_${func.dartName}Ptr, [$instancedPlainCallArgs], $errArgs)$tox;');
-          _emitReturnDecode(writer, func.returnType, asyncResVar, '    ', spec, zeroCopy: func.zeroCopyReturn, dartName: func.dartName, isOwned: func.isOwned, nativeHandleTypeParam: nativeHandleTypeParam, asyncBoolAsInt: false);
+          _emitReturnDecode(
+            writer,
+            func.returnType,
+            asyncResVar,
+            '    ',
+            spec,
+            zeroCopy: func.zeroCopyReturn,
+            dartName: func.dartName,
+            isOwned: func.isOwned,
+            nativeHandleTypeParam: nativeHandleTypeParam,
+            asyncBoolAsInt: false,
+          );
         }
       }
     } else if (func.isResult) {

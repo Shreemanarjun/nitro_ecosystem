@@ -14,53 +14,53 @@ import 'package:test/test.dart';
 
 /// Minimal spec with a scalar return — generates NitroEncodable but not record types.
 BridgeSpec _scalarSpec({String name = 'Camera', String lib = 'camera'}) => BridgeSpec(
-      dartClassName: name,
-      lib: lib,
-      namespace: lib,
-      iosImpl: NativeImpl.swift,
-      androidImpl: NativeImpl.kotlin,
-      sourceUri: '$lib.native.dart',
-      functions: [
-        BridgeFunction(
-          dartName: 'getValue',
-          cSymbol: '${lib}_get_value',
-          isAsync: false,
-          returnType: BridgeType(name: 'double'),
-          params: [],
-        ),
-      ],
-    );
+  dartClassName: name,
+  lib: lib,
+  namespace: lib,
+  iosImpl: NativeImpl.swift,
+  androidImpl: NativeImpl.kotlin,
+  sourceUri: '$lib.native.dart',
+  functions: [
+    BridgeFunction(
+      dartName: 'getValue',
+      cSymbol: '${lib}_get_value',
+      isAsync: false,
+      returnType: BridgeType(name: 'double'),
+      params: [],
+    ),
+  ],
+);
 
 /// Spec with a record return — generates NitroNullableInt, NitroRecordWriter, etc.
 BridgeSpec _recordSpec({String name = 'Data', String lib = 'data'}) => BridgeSpec(
-      dartClassName: name,
-      lib: lib,
-      namespace: lib,
-      iosImpl: NativeImpl.swift,
-      androidImpl: NativeImpl.kotlin,
-      sourceUri: '$lib.native.dart',
-      recordTypes: [
-        BridgeRecordType(
-          name: 'Reading',
-          fields: [
-            BridgeRecordField(
-              name: 'v',
-              dartType: 'double',
-              kind: RecordFieldKind.primitive,
-            ),
-          ],
+  dartClassName: name,
+  lib: lib,
+  namespace: lib,
+  iosImpl: NativeImpl.swift,
+  androidImpl: NativeImpl.kotlin,
+  sourceUri: '$lib.native.dart',
+  recordTypes: [
+    BridgeRecordType(
+      name: 'Reading',
+      fields: [
+        BridgeRecordField(
+          name: 'v',
+          dartType: 'double',
+          kind: RecordFieldKind.primitive,
         ),
       ],
-      functions: [
-        BridgeFunction(
-          dartName: 'read',
-          cSymbol: '${lib}_read',
-          isAsync: false,
-          returnType: BridgeType(name: 'Reading', isRecord: true),
-          params: [],
-        ),
-      ],
-    );
+    ),
+  ],
+  functions: [
+    BridgeFunction(
+      dartName: 'read',
+      cSymbol: '${lib}_read',
+      isAsync: false,
+      returnType: BridgeType(name: 'Reading', isRecord: true),
+      params: [],
+    ),
+  ],
+);
 
 void main() {
   group('SwiftGenerator — structural invariants for multi-spec deduplication', () {
@@ -102,8 +102,7 @@ void main() {
 
       expect(encodableIdx, greaterThan(-1), reason: 'NitroEncodable must be present');
       expect(hybridIdx, greaterThan(-1), reason: 'HybridCameraProtocol must be present');
-      expect(encodableIdx, lessThan(hybridIdx),
-          reason: 'Shared preamble must come before spec-specific content');
+      expect(encodableIdx, lessThan(hybridIdx), reason: 'Shared preamble must come before spec-specific content');
     });
 
     // ── /** doc-comment precedes the Hybrid protocol ───────────────────────
@@ -122,10 +121,8 @@ void main() {
         (l) => l.startsWith('/**'),
         hybridIdx,
       );
-      expect(docCommentIdx, greaterThan(-1),
-          reason: 'A /** doc-comment must appear before the Hybrid protocol');
-      expect(docCommentIdx, lessThan(hybridIdx),
-          reason: '/** must precede the protocol declaration');
+      expect(docCommentIdx, greaterThan(-1), reason: 'A /** doc-comment must appear before the Hybrid protocol');
+      expect(docCommentIdx, lessThan(hybridIdx), reason: '/** must precede the protocol declaration');
     });
 
     test('/** doc-comment is positioned between NitroEncodable and the Hybrid protocol', () {
@@ -135,10 +132,8 @@ void main() {
       final hybridIdx = out.indexOf('public protocol HybridCameraProtocol');
       final docCommentIdx = out.lastIndexOf('/**', hybridIdx);
 
-      expect(encodableIdx, lessThan(docCommentIdx),
-          reason: 'Shared block ends before the /** marker');
-      expect(docCommentIdx, lessThan(hybridIdx),
-          reason: '/** marker is between shared block and Hybrid protocol');
+      expect(encodableIdx, lessThan(docCommentIdx), reason: 'Shared block ends before the /** marker');
+      expect(docCommentIdx, lessThan(hybridIdx), reason: '/** marker is between shared block and Hybrid protocol');
     });
 
     // ── NitroEncodable line starts at column 0 ────────────────────────────
@@ -153,8 +148,7 @@ void main() {
         (l) => l.contains('public protocol NitroEncodable'),
         orElse: () => '',
       );
-      expect(encodableLine, startsWith('public protocol NitroEncodable'),
-          reason: 'Must not be indented — stripSharedSwiftPreamble matches line.startsWith(...)');
+      expect(encodableLine, startsWith('public protocol NitroEncodable'), reason: 'Must not be indented — stripSharedSwiftPreamble matches line.startsWith(...)');
     });
 
     // ── Private helpers come BEFORE the shared block ───────────────────────
@@ -166,8 +160,7 @@ void main() {
       final encodableIdx = out.indexOf('public protocol NitroEncodable');
 
       expect(helperIdx, greaterThan(-1), reason: 'String helpers must be present');
-      expect(helperIdx, lessThan(encodableIdx),
-          reason: 'Private helpers must precede the shared type declarations');
+      expect(helperIdx, lessThan(encodableIdx), reason: 'Private helpers must precede the shared type declarations');
     });
 
     // ── Spec-specific content is present ───────────────────────────────────
@@ -216,20 +209,16 @@ void main() {
         encodableCount += 'public protocol NitroEncodable'.allMatches(content).length;
       }
 
-      expect(encodableCount, equals(1),
-          reason: 'After stripping 2nd and 3rd files, NitroEncodable must appear exactly once');
+      expect(encodableCount, equals(1), reason: 'After stripping 2nd and 3rd files, NitroEncodable must appear exactly once');
     });
 
     test('stripped file still has its Hybrid protocol', () {
       final spec2 = SwiftGenerator.generate(_scalarSpec(name: 'NitroUI', lib: 'nitro_ui'));
       final stripped = _stripPreamble(spec2);
 
-      expect(stripped, isNot(contains('public protocol NitroEncodable')),
-          reason: 'Shared type must be gone');
-      expect(stripped, contains('public protocol HybridNitroUIProtocol'),
-          reason: 'Spec-specific protocol must survive stripping');
-      expect(stripped, contains('public class NitroUIRegistry'),
-          reason: 'Registry must survive stripping');
+      expect(stripped, isNot(contains('public protocol NitroEncodable')), reason: 'Shared type must be gone');
+      expect(stripped, contains('public protocol HybridNitroUIProtocol'), reason: 'Spec-specific protocol must survive stripping');
+      expect(stripped, contains('public class NitroUIRegistry'), reason: 'Registry must survive stripping');
     });
 
     test('stripping is idempotent when applied to already-stripped content', () {

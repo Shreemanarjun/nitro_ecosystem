@@ -59,7 +59,8 @@ class KotlinGenerator {
     // Emit @NitroVariant sealed class declarations in the bridge file.
     // Also emit RecordReader/RecordWriter helper classes needed by variant encode/decode.
     final hasVariants = spec.localVariants.isNotEmpty;
-    final hasVariantBridge = spec.functions.any((f) {
+    final hasVariantBridge =
+        spec.functions.any((f) {
           final ret = f.returnType.name.replaceFirst('?', '');
           return spec.isVariantName(ret) || f.params.any((p) => spec.isVariantName(p.type.name.replaceFirst('?', '')));
         }) ||
@@ -78,8 +79,7 @@ class KotlinGenerator {
     }
 
     // Emit NitroAnyMap binary codec helper when any function uses NitroAnyMap.
-    final hasAnyMap = spec.functions.any((f) =>
-        f.returnType.isAnyMap || f.params.any((p) => p.type.isAnyMap));
+    final hasAnyMap = spec.functions.any((f) => f.returnType.isAnyMap || f.params.any((p) => p.type.isAnyMap));
     if (hasAnyMap) {
       _emitKotlinAnyMapHelper(writer);
     }

@@ -212,8 +212,7 @@ void main() {
 String _findRepoRoot() {
   var dir = Directory.current;
   while (true) {
-    if (File('${dir.path}/pubspec.yaml').existsSync() &&
-        File('${dir.path}/pubspec.yaml').readAsStringSync().contains('workspace:')) {
+    if (File('${dir.path}/pubspec.yaml').existsSync() && File('${dir.path}/pubspec.yaml').readAsStringSync().contains('workspace:')) {
       return dir.path;
     }
     final parent = dir.parent;

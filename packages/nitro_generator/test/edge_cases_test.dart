@@ -783,9 +783,9 @@ void main() {
       // Wire format must match Dart LazyRecordList / encodeIndexedList:
       // [4B outer_len] [4B count] [8B×n offsets] [item bytes...]
       final out = KotlinGenerator.generate(recordListSpec());
-      expect(out, contains('payloadBuf.putInt(result.size)'));  // count
-      expect(out, contains('offsets.forEach { payloadBuf.putLong(it) }'));  // offsets
-      expect(out, contains('itemBufs.forEach { payloadBuf.put(it) }'));  // items
+      expect(out, contains('payloadBuf.putInt(result.size)')); // count
+      expect(out, contains('offsets.forEach { payloadBuf.putLong(it) }')); // offsets
+      expect(out, contains('itemBufs.forEach { payloadBuf.put(it) }')); // items
     });
 
     test('_call writes each item via writeFieldsTo into separate buffer', () {

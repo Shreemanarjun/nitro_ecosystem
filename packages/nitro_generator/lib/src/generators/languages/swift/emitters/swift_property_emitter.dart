@@ -81,7 +81,7 @@ class SwiftPropertyEmitter {
     }
 
     if (prop.hasSetter) {
-      final isEnumProp  = spec.isEnumName(propTypeBase);
+      final isEnumProp = spec.isEnumName(propTypeBase);
       final isStructProp = spec.isStructName(propTypeBase);
       final setParamType = isVariantProp
           ? 'UnsafePointer<UInt8>?'

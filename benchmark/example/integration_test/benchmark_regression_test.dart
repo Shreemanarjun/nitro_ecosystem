@@ -27,10 +27,14 @@ import 'package:benchmark_example/harness/bench_harness.dart';
 import 'package:benchmark_example/nitro_init_native.dart';
 
 const _mode = String.fromEnvironment('NITRO_BENCH_MODE', defaultValue: 'quick');
-const _gate =
-    String.fromEnvironment('NITRO_BENCH_GATE', defaultValue: 'relative');
-const _tolerancePct =
-    int.fromEnvironment('NITRO_BENCH_TOLERANCE_PCT', defaultValue: 35);
+const _gate = String.fromEnvironment(
+  'NITRO_BENCH_GATE',
+  defaultValue: 'relative',
+);
+const _tolerancePct = int.fromEnvironment(
+  'NITRO_BENCH_TOLERANCE_PCT',
+  defaultValue: 35,
+);
 
 // Cross-bridge invariants. Deliberately generous (typical measured values are
 // far better) so shared-runner noise never flakes the gate — these only trip
@@ -56,8 +60,11 @@ void main() {
     'cross-bridge benchmark: FFI vs Nitro vs MethodChannel',
     (tester) async {
       await initNitroRuntime();
-      expect(startupError, isNull,
-          reason: 'NitroRuntime failed to initialise: $startupError');
+      expect(
+        startupError,
+        isNull,
+        reason: 'NitroRuntime failed to initialise: $startupError',
+      );
 
       final report = await BenchHarness.run(
         config: BenchConfig.fromMode(_mode),
@@ -79,8 +86,11 @@ void main() {
       double requiredMedian(String id) {
         final r = report.caseById(id);
         expect(r, isNotNull, reason: 'benchmark case $id did not run');
-        expect(r!.skipReason, isNull,
-            reason: 'core case $id was skipped: ${r.skipReason}');
+        expect(
+          r!.skipReason,
+          isNull,
+          reason: 'core case $id was skipped: ${r.skipReason}',
+        );
         return r.stats!.medianUs;
       }
 
@@ -95,7 +105,8 @@ void main() {
       expect(
         leaf,
         lessThanOrEqualTo(rawFfi * _maxLeafOverRawFfi + _leafOverheadBudgetUs),
-        reason: 'Nitro leaf call drifted from the raw FFI floor '
+        reason:
+            'Nitro leaf call drifted from the raw FFI floor '
             '(leaf=${leaf.toStringAsFixed(3)}µs, '
             'rawFfi=${rawFfi.toStringAsFixed(3)}µs). '
             'Did a binding lose isLeaf or gain an allocation?',
@@ -103,7 +114,8 @@ void main() {
       expect(
         cpp,
         lessThanOrEqualTo(rawFfi * _maxCppOverRawFfi + _cppOverheadBudgetUs),
-        reason: 'Nitro checked call overhead vs raw FFI regressed '
+        reason:
+            'Nitro checked call overhead vs raw FFI regressed '
             '(cpp=${cpp.toStringAsFixed(3)}µs, '
             'rawFfi=${rawFfi.toStringAsFixed(3)}µs).',
       );
@@ -111,7 +123,8 @@ void main() {
         expect(
           channel / cpp,
           greaterThanOrEqualTo(_minChannelOverCpp),
-          reason: 'Nitro should be ≥${_minChannelOverCpp.toStringAsFixed(0)}× '
+          reason:
+              'Nitro should be ≥${_minChannelOverCpp.toStringAsFixed(0)}× '
               'faster than MethodChannel but measured only '
               '${(channel / cpp).toStringAsFixed(1)}× '
               '(cpp=${cpp.toStringAsFixed(3)}µs, '
@@ -123,15 +136,18 @@ void main() {
       if (_gate == 'all') {
         final baseline = await _loadBaseline(report.platform);
         if (baseline == null) {
-          debugPrint('[BenchHarness] no baseline for ${report.platform} — '
-              'absolute gate skipped. Seed one with: '
-              'tool/bench.sh --update-baseline');
+          debugPrint(
+            '[BenchHarness] no baseline for ${report.platform} — '
+            'absolute gate skipped. Seed one with: '
+            'tool/bench.sh --update-baseline',
+          );
           return;
         }
         final baseCases = baseline['cases'] as Map<String, dynamic>;
         final factor = 1 + _tolerancePct / 100;
-        for (final r
-            in report.results.where((r) => r.kind == BenchKind.latency)) {
+        for (final r in report.results.where(
+          (r) => r.kind == BenchKind.latency,
+        )) {
           final stats = r.stats;
           if (stats == null) continue; // skipped on this platform
           final base = baseCases[r.id] as Map<String, dynamic>?;
@@ -141,7 +157,8 @@ void main() {
             stats.medianUs,
             // +0.05µs cushion so near-zero cases aren't gated on timer noise.
             lessThanOrEqualTo(baseMedian * factor + 0.05),
-            reason: '${r.id} regressed vs baseline: '
+            reason:
+                '${r.id} regressed vs baseline: '
                 '${stats.medianUs.toStringAsFixed(3)}µs > '
                 '${baseMedian.toStringAsFixed(3)}µs '
                 '+$_tolerancePct% tolerance',

@@ -57,8 +57,24 @@ class SpecValidator {
     'DateTime?',
     'uint64',
     'uint64?',
-    'int8', 'int16', 'int32', 'uint8', 'uint16', 'uint32', 'float', 'intptr', 'size',
-    'int8?', 'int16?', 'int32?', 'uint8?', 'uint16?', 'uint32?', 'float?', 'intptr?', 'size?',
+    'int8',
+    'int16',
+    'int32',
+    'uint8',
+    'uint16',
+    'uint32',
+    'float',
+    'intptr',
+    'size',
+    'int8?',
+    'int16?',
+    'int32?',
+    'uint8?',
+    'uint16?',
+    'uint32?',
+    'float?',
+    'intptr?',
+    'size?',
     'AnyNativeObject',
     'AnyNativeObject?',
     'Uint8List?',
@@ -159,8 +175,7 @@ class SpecValidator {
           ValidationIssue(
             severity: ValidationSeverity.warning,
             code: 'STRUCT_STRING_FIELD',
-            message:
-                '${spec.dartClassName}: @HybridStruct "${st.name}" has String field(s): $names.',
+            message: '${spec.dartClassName}: @HybridStruct "${st.name}" has String field(s): $names.',
             hint:
                 'String fields are heap-copied (strdup/free) on every bridge call. '
                 'If this struct is on a hot path or carries large strings, '
@@ -182,8 +197,7 @@ class SpecValidator {
         ValidationIssue(
           severity: ValidationSeverity.warning,
           code: 'MISSING_ANDROID_TARGET',
-          message:
-              '${spec.dartClassName}: iOS/macOS is targeted but Android is not.',
+          message: '${spec.dartClassName}: iOS/macOS is targeted but Android is not.',
           hint:
               'Add `android: NativeImpl.kotlin` (or `.cpp`) to target Android. '
               'If Android is intentionally excluded, add @NitroModule(android: null) or suppress this warning.',
@@ -195,8 +209,7 @@ class SpecValidator {
         ValidationIssue(
           severity: ValidationSeverity.warning,
           code: 'MISSING_IOS_TARGET',
-          message:
-              '${spec.dartClassName}: Android is targeted but iOS/macOS is not.',
+          message: '${spec.dartClassName}: Android is targeted but iOS/macOS is not.',
           hint:
               'Add `ios: NativeImpl.swift` (or `.cpp`) to target Apple platforms. '
               'If iOS is intentionally excluded, add @NitroModule(ios: null) or suppress this warning.',
@@ -232,13 +245,11 @@ class SpecValidator {
                 '${spec.dartClassName}: @NitroNativeAsync method(s) declared but the web '
                 'bridge does not support NativeAsync. Calling these methods on web will throw '
                 'UnsupportedError at runtime.',
-            hint:
-                'Guard @NitroNativeAsync methods with `if (!kIsWeb)` or use @nitroAsync instead.',
+            hint: 'Guard @NitroNativeAsync methods with `if (!kIsWeb)` or use @nitroAsync instead.',
           ),
         );
       }
     }
-
 
     final enumNames = spec.enums.map((e) => e.name).toSet();
     final structNames = spec.structs.map((s) => s.name).toSet();
@@ -274,13 +285,10 @@ class SpecValidator {
       // with a non-String key falls through here and needs a specific hint.
       if (func.returnType.name.startsWith('Map<') && !func.returnType.isMap) {
         final keyType = BridgeType.extractMapKeyType(func.returnType.name);
-        final rawValueType = func.returnType.name.contains(',')
-            ? func.returnType.name.split(',').last.trim().replaceFirst('>', '')
-            : 'V';
+        final rawValueType = func.returnType.name.contains(',') ? func.returnType.name.split(',').last.trim().replaceFirst('>', '') : 'V';
         // Allow integer key types and enum key types (Gap #3).
         const intKeyTypes = {'int', 'int8', 'int16', 'int32', 'int64', 'uint8', 'uint16', 'uint32', 'uint64'};
-        final isAllowedKey = keyType != null &&
-            (intKeyTypes.contains(keyType) || enumNames.contains(keyType));
+        final isAllowedKey = keyType != null && (intKeyTypes.contains(keyType) || enumNames.contains(keyType));
         if (!isAllowedKey) {
           issues.add(
             ValidationIssue(
@@ -289,7 +297,8 @@ class SpecValidator {
               message:
                   '${spec.dartClassName}.${func.dartName}() — return type "${func.returnType.name}" uses a non-String Map key. '
                   'Only Map<String, V>, Map<int, V>, and Map<@HybridEnum, V> are supported.',
-              hint: 'Change the key type to String, int, or a @HybridEnum. '
+              hint:
+                  'Change the key type to String, int, or a @HybridEnum. '
                   'If you need a string key, use Map<String, $rawValueType>.',
             ),
           );
@@ -314,30 +323,36 @@ class SpecValidator {
       // @NitroOwned validation
       if (func.isOwned) {
         if (!func.returnType.isNativeHandle) {
-          issues.add(ValidationIssue(
-            severity: ValidationSeverity.error,
-            code: 'INVALID_OWNED',
-            message: '${spec.dartClassName}.${func.dartName}() — @NitroOwned requires a NativeHandle<T> return type, got "${func.returnType.name}".',
-            hint: 'Change the return type to NativeHandle<T>, or remove @NitroOwned.',
-          ));
+          issues.add(
+            ValidationIssue(
+              severity: ValidationSeverity.error,
+              code: 'INVALID_OWNED',
+              message: '${spec.dartClassName}.${func.dartName}() — @NitroOwned requires a NativeHandle<T> return type, got "${func.returnType.name}".',
+              hint: 'Change the return type to NativeHandle<T>, or remove @NitroOwned.',
+            ),
+          );
         }
         if (func.returnType.name == 'void') {
-          issues.add(ValidationIssue(
-            severity: ValidationSeverity.error,
-            code: 'INVALID_OWNED',
-            message: '${spec.dartClassName}.${func.dartName}() — @NitroOwned on a void return type has nothing to release.',
-            hint: 'Remove @NitroOwned or change the return type to NativeHandle<T>.',
-          ));
+          issues.add(
+            ValidationIssue(
+              severity: ValidationSeverity.error,
+              code: 'INVALID_OWNED',
+              message: '${spec.dartClassName}.${func.dartName}() — @NitroOwned on a void return type has nothing to release.',
+              hint: 'Remove @NitroOwned or change the return type to NativeHandle<T>.',
+            ),
+          );
         }
       }
       for (final p in func.params) {
         if (p.type.isNativeHandle && func.isOwned) {
-          issues.add(ValidationIssue(
-            severity: ValidationSeverity.error,
-            code: 'INVALID_OWNED',
-            message: '${spec.dartClassName}.${func.dartName}() — @NitroOwned applies only to return values, not parameter "${p.name}".',
-            hint: 'Remove @NitroOwned from the method. Ownership annotation is not applicable to parameters.',
-          ));
+          issues.add(
+            ValidationIssue(
+              severity: ValidationSeverity.error,
+              code: 'INVALID_OWNED',
+              message: '${spec.dartClassName}.${func.dartName}() — @NitroOwned applies only to return values, not parameter "${p.name}".',
+              hint: 'Remove @NitroOwned from the method. Ownership annotation is not applicable to parameters.',
+            ),
+          );
         }
       }
 
@@ -391,7 +406,8 @@ class SpecValidator {
             severity: ValidationSeverity.error,
             code: 'INVALID_ZERO_COPY_RETURN',
             message: '${spec.dartClassName}.${func.dartName}() — @zeroCopy return is not supported with @NitroNativeAsync.',
-            hint: 'Workaround: make a synchronous @zeroCopy method that does the work, '
+            hint:
+                'Workaround: make a synchronous @zeroCopy method that does the work, '
                 'then wrap it in a @nitroAsync method that calls it on a background isolate. '
                 'Or switch to @nitroAsync and return a regular Uint8List (one copy, safe).',
           ),
@@ -442,13 +458,16 @@ class SpecValidator {
         final valueType = mapMatch?.group(1)?.trim() ?? '';
         final isStructVal = spec.isStructName(valueType);
         if (isStructVal) {
-          issues.add(ValidationIssue(
-            severity: ValidationSeverity.error,
-            code: 'E008',
-            message: '${spec.dartClassName}.${func.dartName}() — Map<String, @HybridStruct> value type "$valueType" is not supported. '
-                'The binary encoder cannot encode struct values in maps.',
-            hint: 'Return List<$valueType> instead (struct values as a list), or annotate a wrapper @HybridRecord.',
-          ));
+          issues.add(
+            ValidationIssue(
+              severity: ValidationSeverity.error,
+              code: 'E008',
+              message:
+                  '${spec.dartClassName}.${func.dartName}() — Map<String, @HybridStruct> value type "$valueType" is not supported. '
+                  'The binary encoder cannot encode struct values in maps.',
+              hint: 'Return List<$valueType> instead (struct values as a list), or annotate a wrapper @HybridRecord.',
+            ),
+          );
         }
       }
 
@@ -478,8 +497,7 @@ class SpecValidator {
         if (param.type.name.startsWith('Map<') && !param.type.isMap) {
           final keyType = BridgeType.extractMapKeyType(param.type.name);
           const intKeyTypes2 = {'int', 'int8', 'int16', 'int32', 'int64', 'uint8', 'uint16', 'uint32', 'uint64'};
-          final isAllowedParamKey = keyType != null &&
-              (intKeyTypes2.contains(keyType) || enumNames.contains(keyType));
+          final isAllowedParamKey = keyType != null && (intKeyTypes2.contains(keyType) || enumNames.contains(keyType));
           if (!isAllowedParamKey) {
             issues.add(
               ValidationIssue(
@@ -500,8 +518,7 @@ class SpecValidator {
             ValidationIssue(
               severity: ValidationSeverity.error,
               code: 'E003',
-              message:
-                  '${spec.dartClassName}.${func.dartName}() — parameter "${param.name}" uses nested Map type "${param.type.name}", which is not supported.',
+              message: '${spec.dartClassName}.${func.dartName}() — parameter "${param.name}" uses nested Map type "${param.type.name}", which is not supported.',
               hint: 'Flatten the structure, or annotate a wrapper class with @HybridRecord and pass that instead.',
             ),
           );
@@ -514,12 +531,14 @@ class SpecValidator {
           final valueType = mapMatch?.group(1)?.trim() ?? '';
           final isStructVal = spec.isStructName(valueType);
           if (isStructVal) {
-            issues.add(ValidationIssue(
-              severity: ValidationSeverity.error,
-              code: 'E008',
-              message: '${spec.dartClassName}.${func.dartName}() — parameter "${param.name}" Map<String, @HybridStruct> value type "$valueType" is not supported.',
-              hint: 'Use List<$valueType> or a @HybridRecord wrapper instead.',
-            ));
+            issues.add(
+              ValidationIssue(
+                severity: ValidationSeverity.error,
+                code: 'E008',
+                message: '${spec.dartClassName}.${func.dartName}() — parameter "${param.name}" Map<String, @HybridStruct> value type "$valueType" is not supported.',
+                hint: 'Use List<$valueType> or a @HybridRecord wrapper instead.',
+              ),
+            );
           }
         }
 
@@ -628,8 +647,7 @@ class SpecValidator {
           ValidationIssue(
             severity: ValidationSeverity.error,
             code: 'INVALID_PROPERTY_TYPE',
-            message:
-                '${spec.dartClassName}.${prop.dartName} — property type "void" is not valid.',
+            message: '${spec.dartClassName}.${prop.dartName} — property type "void" is not valid.',
             hint: 'Properties must have a concrete return type. Use a method `void doX()` instead.',
           ),
         );
@@ -641,8 +659,7 @@ class SpecValidator {
             severity: ValidationSeverity.error,
             code: 'UNSUPPORTED_FUNCTION_TYPE',
             message: '${spec.dartClassName}.${prop.dartName} — property type "${prop.type.name}" is a function type, which is not a supported native ABI type.',
-            hint:
-                'Use a Stream<T> for event-like values, or expose explicit native register and release methods around a stable callback/token handle.',
+            hint: 'Use a Stream<T> for event-like values, or expose explicit native register and release methods around a stable callback/token handle.',
           ),
         );
         continue;
@@ -729,10 +746,7 @@ class SpecValidator {
         final enumNames = spec.enums.map((e) => e.name).toSet();
         final recordNames = spec.recordTypes.map((r) => r.name).toSet();
         final variantNames = spec.variants.map((v) => v.name).toSet();
-        final isBatchSupported = const {'int', 'double', 'bool', 'String', 'uint64'}.contains(iName) ||
-            enumNames.contains(iName) ||
-            recordNames.contains(iName) ||
-            variantNames.contains(iName);
+        final isBatchSupported = const {'int', 'double', 'bool', 'String', 'uint64'}.contains(iName) || enumNames.contains(iName) || recordNames.contains(iName) || variantNames.contains(iName);
         if (!isBatchSupported) {
           issues.add(
             ValidationIssue(
@@ -754,8 +768,7 @@ class SpecValidator {
             ValidationIssue(
               severity: ValidationSeverity.error,
               code: 'E006',
-              message:
-                  '${spec.dartClassName}.${stream.dartName} — batchMaxSize must be > 0, got ${stream.batchMaxSize}.',
+              message: '${spec.dartClassName}.${stream.dartName} — batchMaxSize must be > 0, got ${stream.batchMaxSize}.',
               hint: 'Set batchMaxSize to a positive integer (e.g. 64).',
             ),
           );
@@ -810,19 +823,23 @@ class SpecValidator {
     // ── E014: @NitroVariant case count ────────────────────────────────────
     for (final variant in spec.variants) {
       if (variant.cases.isEmpty) {
-        issues.add(ValidationIssue(
-          severity: ValidationSeverity.error,
-          code: 'E014',
-          message: '${variant.name} — @NitroVariant has no cases.',
-          hint: 'Add at least one concrete subclass of ${variant.name}.',
-        ));
+        issues.add(
+          ValidationIssue(
+            severity: ValidationSeverity.error,
+            code: 'E014',
+            message: '${variant.name} — @NitroVariant has no cases.',
+            hint: 'Add at least one concrete subclass of ${variant.name}.',
+          ),
+        );
       } else if (variant.cases.length > 255) {
-        issues.add(ValidationIssue(
-          severity: ValidationSeverity.error,
-          code: 'E014',
-          message: '${variant.name} — @NitroVariant has ${variant.cases.length} cases (max 255).',
-          hint: 'Split "${variant.name}" into multiple variant types, each with ≤ 255 cases.',
-        ));
+        issues.add(
+          ValidationIssue(
+            severity: ValidationSeverity.error,
+            code: 'E014',
+            message: '${variant.name} — @NitroVariant has ${variant.cases.length} cases (max 255).',
+            hint: 'Split "${variant.name}" into multiple variant types, each with ≤ 255 cases.',
+          ),
+        );
       }
     }
 
@@ -834,21 +851,26 @@ class SpecValidator {
       // because Dart_PostCObject_DL only supports primitive CObject types and
       // cannot encode a NitroResultValue buffer.
       if (func.isNativeAsync) {
-        issues.add(ValidationIssue(
-          severity: ValidationSeverity.error,
-          code: 'E015',
-          message: '${func.dartName}() — @NitroResult cannot be combined with @NitroNativeAsync.',
-          hint: 'Remove @NitroNativeAsync from ${func.dartName}. '
-              'For an async @NitroResult method use @nitroAsync instead.',
-        ));
+        issues.add(
+          ValidationIssue(
+            severity: ValidationSeverity.error,
+            code: 'E015',
+            message: '${func.dartName}() — @NitroResult cannot be combined with @NitroNativeAsync.',
+            hint:
+                'Remove @NitroNativeAsync from ${func.dartName}. '
+                'For an async @NitroResult method use @nitroAsync instead.',
+          ),
+        );
       }
       if (func.returnType.name == 'void') {
-        issues.add(ValidationIssue(
-          severity: ValidationSeverity.error,
-          code: 'E015',
-          message: '${func.dartName}() — @NitroResult cannot wrap void return type.',
-          hint: 'Use a non-void return type or remove @NitroResult if you only need error propagation.',
-        ));
+        issues.add(
+          ValidationIssue(
+            severity: ValidationSeverity.error,
+            code: 'E015',
+            message: '${func.dartName}() — @NitroResult cannot wrap void return type.',
+            hint: 'Use a non-void return type or remove @NitroResult if you only need error propagation.',
+          ),
+        );
       }
     }
 
@@ -975,16 +997,23 @@ class SpecValidator {
     final recordNames = spec.recordTypes.map((r) => r.name).toSet();
     final variantNames = spec.variants.map((v) => v.name).toSet();
     // Supported callback return types: primitives, AnyNativeObject, enums, @HybridRecord, @NitroVariant.
-    final supportedReturn = returnName == 'void' || returnName == 'int' || returnName == 'double'
-        || returnName == 'bool' || returnName == 'String' || returnName == 'AnyNativeObject' || returnName == 'uint64'
-        || enumNames.contains(returnName) || recordNames.contains(returnName) || variantNames.contains(returnName);
+    final supportedReturn =
+        returnName == 'void' ||
+        returnName == 'int' ||
+        returnName == 'double' ||
+        returnName == 'bool' ||
+        returnName == 'String' ||
+        returnName == 'AnyNativeObject' ||
+        returnName == 'uint64' ||
+        enumNames.contains(returnName) ||
+        recordNames.contains(returnName) ||
+        variantNames.contains(returnName);
     if (!supportedReturn) {
       issues.add(
         ValidationIssue(
           severity: ValidationSeverity.error,
           code: 'UNSUPPORTED_FUNCTION_TYPE',
-          message:
-              '${spec.dartClassName}.${func.dartName}() — parameter "${param.name}" callback return type "$returnName" is not supported.',
+          message: '${spec.dartClassName}.${func.dartName}() — parameter "${param.name}" callback return type "$returnName" is not supported.',
           hint: 'Callback returns support void, int, double, bool, String, @HybridEnum, @HybridRecord, and @NitroVariant.',
         ),
       );
@@ -995,8 +1024,15 @@ class SpecValidator {
       final structNames = spec.structs.map((s) => s.name).toSet();
       final recordNames = spec.recordTypes.map((r) => r.name).toSet();
       final variantNames = spec.variants.map((v) => v.name).toSet();
-      final supportedParam = callbackParam.isPointer || callbackParam.isAnyNativeObject ||
-          name == 'int' || name == 'double' || name == 'bool' || name == 'String' || name == 'AnyNativeObject' || name == 'uint64' ||
+      final supportedParam =
+          callbackParam.isPointer ||
+          callbackParam.isAnyNativeObject ||
+          name == 'int' ||
+          name == 'double' ||
+          name == 'bool' ||
+          name == 'String' ||
+          name == 'AnyNativeObject' ||
+          name == 'uint64' ||
           enumNames.contains(name) ||
           structNames.contains(name) ||
           recordNames.contains(name) ||
@@ -1006,8 +1042,7 @@ class SpecValidator {
           ValidationIssue(
             severity: ValidationSeverity.error,
             code: 'UNSUPPORTED_FUNCTION_TYPE',
-            message:
-                '${spec.dartClassName}.${func.dartName}() — parameter "${param.name}" callback parameter type "${callbackParam.name}" is not supported.',
+            message: '${spec.dartClassName}.${func.dartName}() — parameter "${param.name}" callback parameter type "${callbackParam.name}" is not supported.',
             hint: 'Callback parameters support int, double, bool, String, Pointer<T>, @HybridEnum, @HybridStruct, @HybridRecord, and @NitroVariant.',
           ),
         );

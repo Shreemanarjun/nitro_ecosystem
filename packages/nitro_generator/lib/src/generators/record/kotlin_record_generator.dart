@@ -33,43 +33,43 @@ String _generateKotlinRecords(BridgeSpec spec) {
     s.writeln('        @JvmStatic fun decode(bytes: ByteArray): ${rt.name} {');
     s.writeln('            val buf = java.nio.ByteBuffer.wrap(bytes).order(java.nio.ByteOrder.LITTLE_ENDIAN)');
     if (!isNitroOpt) {
-    s.writeln('            buf.position(4) // skip 4-byte length prefix');
+      s.writeln('            buf.position(4) // skip 4-byte length prefix');
     }
     s.writeln('            return decodeFrom(buf)');
     s.writeln('        }');
     // --- fromJson() for Map<String, ${rt.name}> support (#2) ---
-    final companionFromJsonFields = rt.fields.map((f) {
-      final base = f.dartType.replaceFirst('?', '');
-      switch (f.kind) {
-        case RecordFieldKind.primitive:
-          final kBase = f.dartType.replaceFirst('?', '');
-          if (f.isNullable) {
-            if (kBase == 'int') return '${f.name} = (map["${f.name}"] as Number?)?.toLong()';
-            if (kBase == 'double') return '${f.name} = (map["${f.name}"] as Number?)?.toDouble()';
-            if (kBase == 'bool') return '${f.name} = map["${f.name}"] as Boolean?';
-            return '${f.name} = map["${f.name}"] as String?';
+    final companionFromJsonFields = rt.fields
+        .map((f) {
+          final base = f.dartType.replaceFirst('?', '');
+          switch (f.kind) {
+            case RecordFieldKind.primitive:
+              final kBase = f.dartType.replaceFirst('?', '');
+              if (f.isNullable) {
+                if (kBase == 'int') return '${f.name} = (map["${f.name}"] as Number?)?.toLong()';
+                if (kBase == 'double') return '${f.name} = (map["${f.name}"] as Number?)?.toDouble()';
+                if (kBase == 'bool') return '${f.name} = map["${f.name}"] as Boolean?';
+                return '${f.name} = map["${f.name}"] as String?';
+              }
+              if (kBase == 'int') return '${f.name} = (map["${f.name}"] as Number).toLong()';
+              if (kBase == 'double') return '${f.name} = (map["${f.name}"] as Number).toDouble()';
+              if (kBase == 'bool') return '${f.name} = map["${f.name}"] as Boolean';
+              return '${f.name} = map["${f.name}"] as String';
+            case RecordFieldKind.enumValue:
+              return f.isNullable ? '${f.name} = (map["${f.name}"] as Long?)?.let { $base.fromNative(it) }' : '${f.name} = $base.fromNative(map["${f.name}"] as Long)';
+            case RecordFieldKind.recordObject:
+              // @Suppress must be on the EXPRESSION, not on the named argument itself.
+              return f.isNullable
+                  ? '${f.name} = (map["${f.name}"] as? Map<*, *>)?.let { $base.fromJson(@Suppress("UNCHECKED_CAST") (it as Map<String, Any?>)) }'
+                  : '${f.name} = $base.fromJson(@Suppress("UNCHECKED_CAST") (map["${f.name}"] as Map<String, Any?>))';
+            case RecordFieldKind.struct:
+              // @HybridStruct in a record — structs don't have fromJson.
+              // fromJson is used for Map<String,@HybridRecord>; struct fields not supported there.
+              return '${f.name} = ${f.isNullable ? "null" : "throw UnsupportedOperationException(\"Struct field \\'${f.name}\\' cannot be reconstructed from JSON — use binary bridge instead\")"}';
+            default:
+              return '${f.name} = @Suppress("UNCHECKED_CAST") (map["${f.name}"] as ${_kotlinType(f, enumNames)})';
           }
-          if (kBase == 'int') return '${f.name} = (map["${f.name}"] as Number).toLong()';
-          if (kBase == 'double') return '${f.name} = (map["${f.name}"] as Number).toDouble()';
-          if (kBase == 'bool') return '${f.name} = map["${f.name}"] as Boolean';
-          return '${f.name} = map["${f.name}"] as String';
-        case RecordFieldKind.enumValue:
-          return f.isNullable
-              ? '${f.name} = (map["${f.name}"] as Long?)?.let { $base.fromNative(it) }'
-              : '${f.name} = $base.fromNative(map["${f.name}"] as Long)';
-        case RecordFieldKind.recordObject:
-          // @Suppress must be on the EXPRESSION, not on the named argument itself.
-          return f.isNullable
-              ? '${f.name} = (map["${f.name}"] as? Map<*, *>)?.let { $base.fromJson(@Suppress("UNCHECKED_CAST") (it as Map<String, Any?>)) }'
-              : '${f.name} = $base.fromJson(@Suppress("UNCHECKED_CAST") (map["${f.name}"] as Map<String, Any?>))';
-        case RecordFieldKind.struct:
-          // @HybridStruct in a record — structs don't have fromJson.
-          // fromJson is used for Map<String,@HybridRecord>; struct fields not supported there.
-          return '${f.name} = ${f.isNullable ? "null" : "throw UnsupportedOperationException(\"Struct field \\'${f.name}\\' cannot be reconstructed from JSON — use binary bridge instead\")"}';
-        default:
-          return '${f.name} = @Suppress("UNCHECKED_CAST") (map["${f.name}"] as ${_kotlinType(f, enumNames)})';
-      }
-    }).join(',\n                ');
+        })
+        .join(',\n                ');
     s.writeln('        @Suppress("UNCHECKED_CAST")');
     s.writeln('        @JvmStatic fun fromJson(map: Map<String, Any?>): ${rt.name} = ${rt.name}(');
     s.writeln('                $companionFromJsonFields');
@@ -128,45 +128,43 @@ String _generateKotlinRecords(BridgeSpec spec) {
       s.writeln('        return out.toByteArray()  // NO 4-byte length prefix');
       s.writeln('    }');
     } else {
-    // --- encode to ByteArray (with 4-byte length prefix) ---
-    // Thread-local buffers avoid per-call ByteArrayOutputStream/ByteBuffer allocation (#8 perf).
-    s.writeln('    fun encode(): ByteArray {');
-    s.writeln('        val out = _tlsOut.get()!!.also { it.reset() }');
-    s.writeln('        val buf = _tlsBuf.get()!!');
-    s.writeln('        writeFieldsTo(out, buf)');
-    s.writeln('        val payload = out.toByteArray()');
-    s.writeln('        val lenBuf = java.nio.ByteBuffer.allocate(4).order(java.nio.ByteOrder.LITTLE_ENDIAN)');
-    s.writeln('        lenBuf.putInt(payload.size)');
-    s.writeln('        return lenBuf.array() + payload');
-    s.writeln('    }');
+      // --- encode to ByteArray (with 4-byte length prefix) ---
+      // Thread-local buffers avoid per-call ByteArrayOutputStream/ByteBuffer allocation (#8 perf).
+      s.writeln('    fun encode(): ByteArray {');
+      s.writeln('        val out = _tlsOut.get()!!.also { it.reset() }');
+      s.writeln('        val buf = _tlsBuf.get()!!');
+      s.writeln('        writeFieldsTo(out, buf)');
+      s.writeln('        val payload = out.toByteArray()');
+      s.writeln('        val lenBuf = java.nio.ByteBuffer.allocate(4).order(java.nio.ByteOrder.LITTLE_ENDIAN)');
+      s.writeln('        lenBuf.putInt(payload.size)');
+      s.writeln('        return lenBuf.array() + payload');
+      s.writeln('    }');
     }
     s.writeln();
 
     // --- toJson() / fromJson() for Map<String, @HybridRecord> support (#2) ---
     // Allows Kotlin bridge to serialize/deserialize when used as Map values.
     s.writeln('    // --- toJson/fromJson for Map<String, ${rt.name}> support ---');
-    final toJsonFields = rt.fields.map((f) {
-      switch (f.kind) {
-        case RecordFieldKind.enumValue:
-          return f.isNullable
-              ? '"${f.name}" to ${f.name}?.nativeValue'
-              : '"${f.name}" to ${f.name}.nativeValue';
-        case RecordFieldKind.recordObject:
-          return f.isNullable
-              ? '"${f.name}" to ${f.name}?.toJson()'
-              : '"${f.name}" to ${f.name}.toJson()';
-        case RecordFieldKind.listPrimitive:
-        case RecordFieldKind.listEnumValue:
-        case RecordFieldKind.listRecordObject:
-          return '"${f.name}" to ${f.name}';
-        case RecordFieldKind.typedData:
-          return '"${f.name}" to ${f.name}';
-        case RecordFieldKind.struct:
-          return '"${f.name}" to ${f.name}';
-        default: // primitive
-          return '"${f.name}" to ${f.name}';
-      }
-    }).join(', ');
+    final toJsonFields = rt.fields
+        .map((f) {
+          switch (f.kind) {
+            case RecordFieldKind.enumValue:
+              return f.isNullable ? '"${f.name}" to ${f.name}?.nativeValue' : '"${f.name}" to ${f.name}.nativeValue';
+            case RecordFieldKind.recordObject:
+              return f.isNullable ? '"${f.name}" to ${f.name}?.toJson()' : '"${f.name}" to ${f.name}.toJson()';
+            case RecordFieldKind.listPrimitive:
+            case RecordFieldKind.listEnumValue:
+            case RecordFieldKind.listRecordObject:
+              return '"${f.name}" to ${f.name}';
+            case RecordFieldKind.typedData:
+              return '"${f.name}" to ${f.name}';
+            case RecordFieldKind.struct:
+              return '"${f.name}" to ${f.name}';
+            default: // primitive
+              return '"${f.name}" to ${f.name}';
+          }
+        })
+        .join(', ');
     s.writeln('    fun toJson(): Map<String, Any?> = mapOf($toJsonFields)');
     s.writeln();
 
@@ -205,16 +203,23 @@ String _kotlinType(BridgeRecordField f, Set<String> enumNames) {
 String _kotlinTypedDataType(String dartType) {
   switch (dartType) {
     case 'Uint8List':
-    case 'Int8List':   return 'ByteArray';
+    case 'Int8List':
+      return 'ByteArray';
     case 'Int16List':
-    case 'Uint16List': return 'ShortArray';
+    case 'Uint16List':
+      return 'ShortArray';
     case 'Int32List':
-    case 'Uint32List': return 'IntArray';
+    case 'Uint32List':
+      return 'IntArray';
     case 'Int64List':
-    case 'Uint64List': return 'LongArray';
-    case 'Float32List': return 'FloatArray';
-    case 'Float64List': return 'DoubleArray';
-    default: return 'ByteArray';
+    case 'Uint64List':
+      return 'LongArray';
+    case 'Float32List':
+      return 'FloatArray';
+    case 'Float64List':
+      return 'DoubleArray';
+    default:
+      return 'ByteArray';
   }
 }
 
@@ -287,16 +292,23 @@ String _kotlinTypedDataRead(String dartType) {
   // Kotlin must divide by element size to get element count.
   switch (dartType) {
     case 'Uint8List':
-    case 'Int8List':   return '{ val _len = buf.int; val _b = ByteArray(_len); buf.get(_b); _b }()';
+    case 'Int8List':
+      return '{ val _len = buf.int; val _b = ByteArray(_len); buf.get(_b); _b }()';
     case 'Int16List':
-    case 'Uint16List': return '{ val _len = buf.int; ShortArray(_len / 2) { buf.short } }()';
+    case 'Uint16List':
+      return '{ val _len = buf.int; ShortArray(_len / 2) { buf.short } }()';
     case 'Int32List':
-    case 'Uint32List': return '{ val _len = buf.int; IntArray(_len / 4) { buf.int } }()';
+    case 'Uint32List':
+      return '{ val _len = buf.int; IntArray(_len / 4) { buf.int } }()';
     case 'Int64List':
-    case 'Uint64List': return '{ val _len = buf.int; LongArray(_len / 8) { buf.long } }()';
-    case 'Float32List': return '{ val _len = buf.int; FloatArray(_len / 4) { buf.float } }()';
-    case 'Float64List': return '{ val _len = buf.int; DoubleArray(_len / 8) { buf.double } }()';
-    default: return '{ val _len = buf.int; val _b = ByteArray(_len); buf.get(_b); _b }()';
+    case 'Uint64List':
+      return '{ val _len = buf.int; LongArray(_len / 8) { buf.long } }()';
+    case 'Float32List':
+      return '{ val _len = buf.int; FloatArray(_len / 4) { buf.float } }()';
+    case 'Float64List':
+      return '{ val _len = buf.int; DoubleArray(_len / 8) { buf.double } }()';
+    default:
+      return '{ val _len = buf.int; val _b = ByteArray(_len); buf.get(_b); _b }()';
   }
 }
 
@@ -385,16 +397,23 @@ String _kotlinTypedDataWrite(String dartType, String expr) {
   // Use `run { }` instead of `{ }()` to prevent Kotlin trailing-lambda misparse.
   switch (dartType) {
     case 'Uint8List':
-    case 'Int8List':   return 'run { writeInt32($expr.size); out.write($expr) }';
+    case 'Int8List':
+      return 'run { writeInt32($expr.size); out.write($expr) }';
     case 'Int16List':
-    case 'Uint16List': return 'run { writeInt32($expr.size * 2); $expr.forEach { e -> buf.clear(); buf.putShort(e); buf.flip(); out.write(buf.array(), 0, 2) } }';
+    case 'Uint16List':
+      return 'run { writeInt32($expr.size * 2); $expr.forEach { e -> buf.clear(); buf.putShort(e); buf.flip(); out.write(buf.array(), 0, 2) } }';
     case 'Int32List':
-    case 'Uint32List': return 'run { writeInt32($expr.size * 4); $expr.forEach { e -> buf.clear(); buf.putInt(e); buf.flip(); out.write(buf.array(), 0, 4) } }';
+    case 'Uint32List':
+      return 'run { writeInt32($expr.size * 4); $expr.forEach { e -> buf.clear(); buf.putInt(e); buf.flip(); out.write(buf.array(), 0, 4) } }';
     case 'Int64List':
-    case 'Uint64List': return 'run { writeInt32($expr.size * 8); $expr.forEach { e -> buf.clear(); buf.putLong(e); buf.flip(); out.write(buf.array(), 0, 8) } }';
-    case 'Float32List': return 'run { writeInt32($expr.size * 4); $expr.forEach { e -> buf.clear(); buf.putFloat(e); buf.flip(); out.write(buf.array(), 0, 4) } }';
-    case 'Float64List': return 'run { writeInt32($expr.size * 8); $expr.forEach { e -> buf.clear(); buf.putDouble(e); buf.flip(); out.write(buf.array(), 0, 8) } }';
-    default: return 'run { writeInt32($expr.size); out.write($expr) }';
+    case 'Uint64List':
+      return 'run { writeInt32($expr.size * 8); $expr.forEach { e -> buf.clear(); buf.putLong(e); buf.flip(); out.write(buf.array(), 0, 8) } }';
+    case 'Float32List':
+      return 'run { writeInt32($expr.size * 4); $expr.forEach { e -> buf.clear(); buf.putFloat(e); buf.flip(); out.write(buf.array(), 0, 4) } }';
+    case 'Float64List':
+      return 'run { writeInt32($expr.size * 8); $expr.forEach { e -> buf.clear(); buf.putDouble(e); buf.flip(); out.write(buf.array(), 0, 8) } }';
+    default:
+      return 'run { writeInt32($expr.size); out.write($expr) }';
   }
 }
 
@@ -457,4 +476,3 @@ int _recordBytesHint(BridgeRecordType rt) {
   }
   return total > 0 ? total : 32;
 }
-

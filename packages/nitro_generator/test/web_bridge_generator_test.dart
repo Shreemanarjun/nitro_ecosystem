@@ -31,8 +31,14 @@ BridgeSpec _webSpec() => BridgeSpec(
       isAsync: false,
       returnType: BridgeType(name: 'double'),
       params: [
-        BridgeParam(name: 'a', type: BridgeType(name: 'double')),
-        BridgeParam(name: 'b', type: BridgeType(name: 'double')),
+        BridgeParam(
+          name: 'a',
+          type: BridgeType(name: 'double'),
+        ),
+        BridgeParam(
+          name: 'b',
+          type: BridgeType(name: 'double'),
+        ),
       ],
     ),
     BridgeFunction(
@@ -40,7 +46,12 @@ BridgeSpec _webSpec() => BridgeSpec(
       cSymbol: 'math_greet',
       isAsync: false,
       returnType: BridgeType(name: 'String'),
-      params: [BridgeParam(name: 'name', type: BridgeType(name: 'String'))],
+      params: [
+        BridgeParam(
+          name: 'name',
+          type: BridgeType(name: 'String'),
+        ),
+      ],
     ),
     BridgeFunction(
       dartName: 'reset',
@@ -54,7 +65,12 @@ BridgeSpec _webSpec() => BridgeSpec(
       cSymbol: 'math_compute',
       isAsync: true,
       returnType: BridgeType(name: 'double'),
-      params: [BridgeParam(name: 'x', type: BridgeType(name: 'int'))],
+      params: [
+        BridgeParam(
+          name: 'x',
+          type: BridgeType(name: 'int'),
+        ),
+      ],
     ),
   ],
   properties: [
@@ -233,7 +249,9 @@ void main() {
         sourceUri: 'types.native.dart',
         isTypeOnly: true,
         functions: [],
-        enums: [BridgeEnum(name: 'Color', startValue: 0, values: ['red', 'green'])],
+        enums: [
+          BridgeEnum(name: 'Color', startValue: 0, values: ['red', 'green']),
+        ],
       );
       final out = WebBridgeGenerator.generate(typeOnlySpec);
       expect(out, isNot(contains('final class')));

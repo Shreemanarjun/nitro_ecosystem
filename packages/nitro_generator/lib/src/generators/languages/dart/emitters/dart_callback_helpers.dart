@@ -34,7 +34,17 @@ void _assertSupportedCallbackType(
   final callback = param.type;
   final returnName = (callback.functionReturnType ?? 'void').replaceFirst('?', '');
   // Nullable primitive returns use sentinel encoding; all types below are supported.
-  if (returnName != 'void' && returnName != 'int' && returnName != 'uint64' && returnName != 'double' && returnName != 'bool' && returnName != 'String' && returnName != 'DateTime' && returnName != 'AnyNativeObject' && !spec.isEnumName(returnName) && !spec.isRecordName(returnName) && !spec.isVariantName(returnName)) {
+  if (returnName != 'void' &&
+      returnName != 'int' &&
+      returnName != 'uint64' &&
+      returnName != 'double' &&
+      returnName != 'bool' &&
+      returnName != 'String' &&
+      returnName != 'DateTime' &&
+      returnName != 'AnyNativeObject' &&
+      !spec.isEnumName(returnName) &&
+      !spec.isRecordName(returnName) &&
+      !spec.isVariantName(returnName)) {
     throw UnsupportedError(
       '${spec.dartClassName}.${func.dartName}() parameter "${param.name}" has callback return type "$returnName", which is not supported. Callback returns currently support void, int, double, bool, String, AnyNativeObject, @HybridEnum, @HybridRecord, and @NitroVariant (and their nullable variants).',
     );
@@ -223,7 +233,7 @@ String _callbackWrapperParams(BridgeType callbackType, BridgeSpec spec) {
       }
     } else if (type.isNullableNitroPrim) {
       parts.add('int arg${i}Null'); // 0 = has value, non-zero = null
-      parts.add('int arg${i}Val');  // value bits (valid when arg${i}Null == 0)
+      parts.add('int arg${i}Val'); // value bits (valid when arg${i}Null == 0)
     } else {
       parts.add('${_callbackParamToDartFFI(type, spec)} arg$i');
     }

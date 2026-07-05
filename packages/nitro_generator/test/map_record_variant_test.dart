@@ -419,9 +419,17 @@ void main() {
         androidImpl: NativeImpl.kotlin,
         sourceUri: 'foo.native.dart',
         structs: [
-          BridgeStruct(name: 'Point', packed: false, fields: [
-            BridgeField(name: 'x', type: BridgeType(name: 'double'), isNamed: true),
-          ]),
+          BridgeStruct(
+            name: 'Point',
+            packed: false,
+            fields: [
+              BridgeField(
+                name: 'x',
+                type: BridgeType(name: 'double'),
+                isNamed: true,
+              ),
+            ],
+          ),
         ],
         functions: [
           BridgeFunction(

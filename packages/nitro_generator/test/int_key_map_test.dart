@@ -36,22 +36,22 @@ void main() {
 
   group('SpecValidator E001 — int-key map (Gap #3)', () {
     BridgeSpec mapSpec(BridgeType mapType) => BridgeSpec(
-          dartClassName: 'Cache',
-          lib: 'cache',
-          namespace: 'cache',
-          iosImpl: NativeImpl.swift,
-          androidImpl: NativeImpl.kotlin,
-          sourceUri: 'cache.native.dart',
-          functions: [
-            BridgeFunction(
-              dartName: 'getAll',
-              cSymbol: 'cache_get_all',
-              isAsync: false,
-              returnType: mapType,
-              params: [],
-            ),
-          ],
-        );
+      dartClassName: 'Cache',
+      lib: 'cache',
+      namespace: 'cache',
+      iosImpl: NativeImpl.swift,
+      androidImpl: NativeImpl.kotlin,
+      sourceUri: 'cache.native.dart',
+      functions: [
+        BridgeFunction(
+          dartName: 'getAll',
+          cSymbol: 'cache_get_all',
+          isAsync: false,
+          returnType: mapType,
+          params: [],
+        ),
+      ],
+    );
 
     test('E001 is NOT emitted for Map<int, String>', () {
       final issues = SpecValidator.validate(

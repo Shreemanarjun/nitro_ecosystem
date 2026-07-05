@@ -6,9 +6,13 @@ void main() {
   final filterVariant = BridgeVariant(
     name: 'FilterResult',
     cases: [
-      BridgeVariantCase(name: 'FilterAccepted', label: 'accepted', fields: [
-        BridgeRecordField(name: 'id', dartType: 'String', kind: RecordFieldKind.primitive),
-      ]),
+      BridgeVariantCase(
+        name: 'FilterAccepted',
+        label: 'accepted',
+        fields: [
+          BridgeRecordField(name: 'id', dartType: 'String', kind: RecordFieldKind.primitive),
+        ],
+      ),
       BridgeVariantCase(name: 'FilterRejected', label: 'rejected', fields: []),
     ],
   );

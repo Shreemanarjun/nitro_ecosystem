@@ -289,9 +289,13 @@ class NitroNativeAsync {
 // Only valid on abstract getters returning Stream<T>.
 class NitroStream {
   final Backpressure backpressure;
+
   /// Max items per batch when [backpressure] == [Backpressure.batch].
   final int batchMaxSize;
-  const NitroStream({this.backpressure = Backpressure.dropLatest, this.batchMaxSize = 64});
+  const NitroStream({
+    this.backpressure = Backpressure.dropLatest,
+    this.batchMaxSize = 64,
+  });
 }
 
 // Marks a Uint8List param as zero-copy (passed as raw ptr, callee must not retain).
@@ -302,9 +306,9 @@ class ZeroCopy {
 }
 
 enum Backpressure {
-  dropLatest,  // best for sensors/camera: stale frames are useless
-  block,       // block native thread until Dart consumes
-  bufferDrop,  // ring buffer; oldest item dropped when full
+  dropLatest, // best for sensors/camera: stale frames are useless
+  block, // block native thread until Dart consumes
+  bufferDrop, // ring buffer; oldest item dropped when full
   /// Accumulate up to [batchMaxSize] items before a single bridge crossing.
   /// Use for high-frequency primitive streams (IMU, audio samples).
   batch,
@@ -480,6 +484,7 @@ const nitroResult = NitroResult();
 class NitroCustomType {
   /// The [NitroFfiCodec] subclass that handles Dart-side encode/decode.
   final Type codec;
+
   /// Byte count produced by [codec].encode — must equal `codec.encodedSize`.
   final int encodedSize;
   const NitroCustomType({required this.codec, required this.encodedSize});

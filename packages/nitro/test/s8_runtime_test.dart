@@ -48,8 +48,7 @@ void main() {
     });
 
     test('exception carries correct name and message', () {
-      final ptr = _makeError(
-          hasError: 1, name: 'CppException', message: 'division by zero');
+      final ptr = _makeError(hasError: 1, name: 'CppException', message: 'division by zero');
       try {
         NitroRuntime.throwIfOutParamError(ptr);
         fail('should have thrown');
@@ -61,8 +60,7 @@ void main() {
     });
 
     test('exception carries optional code when provided', () {
-      final ptr = _makeError(
-          hasError: 1, name: 'E', message: 'm', code: 'ERR_404');
+      final ptr = _makeError(hasError: 1, name: 'E', message: 'm', code: 'ERR_404');
       try {
         NitroRuntime.throwIfOutParamError(ptr);
       } on HybridException catch (e) {
@@ -72,8 +70,7 @@ void main() {
     });
 
     test('exception carries optional stackTrace when provided', () {
-      final ptr = _makeError(
-          hasError: 1, name: 'E', message: 'm', stackTrace: 'at foo:42');
+      final ptr = _makeError(hasError: 1, name: 'E', message: 'm', stackTrace: 'at foo:42');
       try {
         NitroRuntime.throwIfOutParamError(ptr);
       } on HybridException catch (e) {
@@ -84,28 +81,36 @@ void main() {
 
     test('resets hasError to 0 after throwing', () {
       final ptr = _makeError(hasError: 1, name: 'E', message: 'msg');
-      try { NitroRuntime.throwIfOutParamError(ptr); } catch (_) {}
+      try {
+        NitroRuntime.throwIfOutParamError(ptr);
+      } catch (_) {}
       expect(ptr.ref.hasError, 0);
       calloc.free(ptr);
     });
 
     test('resets name pointer to nullptr after freeing', () {
       final ptr = _makeError(hasError: 1, name: 'E', message: 'msg');
-      try { NitroRuntime.throwIfOutParamError(ptr); } catch (_) {}
+      try {
+        NitroRuntime.throwIfOutParamError(ptr);
+      } catch (_) {}
       expect(ptr.ref.name, equals(nullptr));
       calloc.free(ptr);
     });
 
     test('resets message pointer to nullptr after freeing', () {
       final ptr = _makeError(hasError: 1, name: 'E', message: 'msg');
-      try { NitroRuntime.throwIfOutParamError(ptr); } catch (_) {}
+      try {
+        NitroRuntime.throwIfOutParamError(ptr);
+      } catch (_) {}
       expect(ptr.ref.message, equals(nullptr));
       calloc.free(ptr);
     });
 
     test('slot can be reused immediately after error (hasError reset)', () {
       final ptr = _makeError(hasError: 1, name: 'E', message: 'first');
-      try { NitroRuntime.throwIfOutParamError(ptr); } catch (_) {}
+      try {
+        NitroRuntime.throwIfOutParamError(ptr);
+      } catch (_) {}
       // Slot is now clean — reuse it for a second error
       ptr.ref.hasError = 1;
       ptr.ref.name = 'second'.toNativeUtf8();
@@ -170,8 +175,7 @@ void main() {
     });
 
     test('error with non-ASCII characters in message', () {
-      final ptr = _makeError(
-          hasError: 1, name: 'UnicodeError', message: 'Héllo Wörld — 日本語');
+      final ptr = _makeError(hasError: 1, name: 'UnicodeError', message: 'Héllo Wörld — 日本語');
       try {
         NitroRuntime.throwIfOutParamError(ptr);
       } on HybridException catch (e) {

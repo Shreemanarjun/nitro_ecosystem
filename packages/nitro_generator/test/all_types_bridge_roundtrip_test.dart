@@ -597,9 +597,9 @@ void main() {
       ('bool', 'CallStaticBooleanMethod', 'int8_t'),
       ('String', 'CallStaticObjectMethod', 'const char*'),
       // Nullable — NitroOpt*: Kotlin returns ByteArray → malloc uint8_t*, copy bytes, return pointer
-      ('int?', 'CallStaticObjectMethod', 'uint8_t*'),   // malloc'd pointer to NitroOptInt64 bytes
+      ('int?', 'CallStaticObjectMethod', 'uint8_t*'), // malloc'd pointer to NitroOptInt64 bytes
       ('double?', 'CallStaticObjectMethod', 'uint8_t*'), // malloc'd pointer to NitroOptFloat64 bytes
-      ('bool?', 'CallStaticObjectMethod', 'uint8_t*'),   // malloc'd pointer to NitroOptBool bytes
+      ('bool?', 'CallStaticObjectMethod', 'uint8_t*'), // malloc'd pointer to NitroOptBool bytes
       ('String?', 'CallStaticObjectMethod', 'const char*'),
     ]) {
       test('$returnType return → C type $cType, JNI: $jniCall', () {

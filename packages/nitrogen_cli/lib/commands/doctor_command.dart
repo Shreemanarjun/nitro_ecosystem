@@ -515,18 +515,18 @@ class DoctorCommand extends Command {
         final ver = cmakeResult.stdout.toString().split('\n').first;
         ok(sysSec, 'cmake: $ver');
       } else {
-        warn(sysSec, 'cmake not found',
-            hint: Platform.isWindows
-                ? 'Install CMake: winget install Kitware.CMake'
-                : Platform.isLinux
-                    ? 'Install cmake: apt install cmake  (or equivalent)'
-                    : 'Install CMake from cmake.org');
-      }
-    } catch (_) {
-      warn(sysSec, 'cmake not found',
+        warn(
+          sysSec,
+          'cmake not found',
           hint: Platform.isWindows
               ? 'Install CMake: winget install Kitware.CMake'
-              : 'Install cmake from cmake.org or your package manager');
+              : Platform.isLinux
+              ? 'Install cmake: apt install cmake  (or equivalent)'
+              : 'Install CMake from cmake.org',
+        );
+      }
+    } catch (_) {
+      warn(sysSec, 'cmake not found', hint: Platform.isWindows ? 'Install CMake: winget install Kitware.CMake' : 'Install cmake from cmake.org or your package manager');
     }
 
     if (Platform.isWindows) {
@@ -535,18 +535,21 @@ class DoctorCommand extends Command {
       if (clPath != null) {
         ok(sysSec, 'MSVC (cl.exe) found at $clPath');
       } else {
-        err(sysSec, 'MSVC (cl.exe) not found',
-            hint: 'Install Visual Studio Build Tools 2019+ and ensure '
-                'the "Desktop development with C++" workload is selected. '
-                'Run from a Developer Command Prompt for VS.');
+        err(
+          sysSec,
+          'MSVC (cl.exe) not found',
+          hint:
+              'Install Visual Studio Build Tools 2019+ and ensure '
+              'the "Desktop development with C++" workload is selected. '
+              'Run from a Developer Command Prompt for VS.',
+        );
       }
       // Windows SDK
       final sdkDir = Platform.environment['WINDOWSSDKDIR'];
       if (sdkDir != null && Directory(sdkDir).existsSync()) {
         ok(sysSec, 'Windows SDK at $sdkDir');
       } else {
-        warn(sysSec, 'WINDOWSSDKDIR not set',
-            hint: 'Install the Windows SDK from Visual Studio Installer');
+        warn(sysSec, 'WINDOWSSDKDIR not set', hint: 'Install the Windows SDK from Visual Studio Installer');
       }
     }
 
@@ -559,19 +562,23 @@ class DoctorCommand extends Command {
       } else if (hasClang != null) {
         ok(sysSec, 'clang++ found: $hasClang');
       } else {
-        err(sysSec, 'No C++ compiler found (g++ / clang++)',
-            hint: 'Install build tools: apt install build-essential  '
-                'or: apt install clang');
+        err(
+          sysSec,
+          'No C++ compiler found (g++ / clang++)',
+          hint:
+              'Install build tools: apt install build-essential  '
+              'or: apt install clang',
+        );
       }
       // libpthread & libdl (required by Nitro native modules on Linux)
-      final pthreadOk = File('/usr/lib/libpthread.so').existsSync() ||
+      final pthreadOk =
+          File('/usr/lib/libpthread.so').existsSync() ||
           File('/usr/lib/x86_64-linux-gnu/libpthread.so').existsSync() ||
           File('/usr/lib/aarch64-linux-gnu/libpthread.so').existsSync();
       if (pthreadOk) {
         ok(sysSec, 'libpthread available');
       } else {
-        warn(sysSec, 'libpthread not detected in standard paths',
-            hint: 'Ensure libpthread-dev is installed: apt install libpthread-stubs0-dev');
+        warn(sysSec, 'libpthread not detected in standard paths', hint: 'Ensure libpthread-dev is installed: apt install libpthread-stubs0-dev');
       }
     }
 
@@ -1784,18 +1791,16 @@ class DoctorCommand extends Command {
         'windows/flutter/ephemeral',
         'linux/flutter/ephemeral',
       ];
-      final present = exampleDir.existsSync()
-          ? hazardPaths.where((rel) => Directory(p.join(exampleDir.path, rel)).existsSync()).toList()
-          : <String>[];
+      final present = exampleDir.existsSync() ? hazardPaths.where((rel) => Directory(p.join(exampleDir.path, rel)).existsSync()).toList() : <String>[];
       if (present.isNotEmpty) {
         final buildSec = DoctorSection('build_runner');
         sections.add(buildSec);
         info(
           buildSec,
           'example/ has built native-platform ephemeral dirs present (${present.join(', ')}) — '
-              '`nitrogen generate` cleans these automatically each run. If you instead run '
-              '`dart run build_runner build`/`watch` directly and it hangs with no output, '
-              'delete these dirs — they always regenerate.',
+          '`nitrogen generate` cleans these automatically each run. If you instead run '
+          '`dart run build_runner build`/`watch` directly and it hangs with no output, '
+          'delete these dirs — they always regenerate.',
         );
       }
     }

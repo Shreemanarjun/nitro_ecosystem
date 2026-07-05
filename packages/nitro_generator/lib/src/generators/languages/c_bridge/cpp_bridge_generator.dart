@@ -150,14 +150,10 @@ class CppBridgeGenerator {
       // Their release function must drop that pin: without it every delivered
       // item leaks one global reference, and ART aborts the process once the
       // global-reference table (51200 slots) fills — ~51k stream items.
-      final zeroCopyStreamStructNames = spec.streams
-          .where((s) => structNames.contains(s.itemType.name.replaceFirst('?', '')))
-          .map((s) => s.itemType.name.replaceFirst('?', ''))
-          .where((name) {
-            final st = spec.structByName(name);
-            return st != null && st.fields.any((f) => f.zeroCopy);
-          })
-          .toSet();
+      final zeroCopyStreamStructNames = spec.streams.where((s) => structNames.contains(s.itemType.name.replaceFirst('?', ''))).map((s) => s.itemType.name.replaceFirst('?', '')).where((name) {
+        final st = spec.structByName(name);
+        return st != null && st.fields.any((f) => f.zeroCopy);
+      }).toSet();
       writer.line('extern "C" {');
       if (zeroCopyStreamStructNames.isNotEmpty) {
         writer.line('#ifdef __ANDROID__');
@@ -513,18 +509,21 @@ class CppBridgeGenerator {
           ? 'uint8_t*'
           : isEnumRet
           ? 'int64_t'
-          : func.returnType.name == 'int?' ? 'uint8_t*'
-          : func.returnType.name == 'double?' ? 'uint8_t*'
-          : func.returnType.name == 'bool?' ? 'uint8_t*'
-          : func.returnType.name == 'DateTime?' ? 'uint8_t*'
-          : func.returnType.name == 'uint64?' ? 'uint8_t*'
+          : func.returnType.name == 'int?'
+          ? 'uint8_t*'
+          : func.returnType.name == 'double?'
+          ? 'uint8_t*'
+          : func.returnType.name == 'bool?'
+          ? 'uint8_t*'
+          : func.returnType.name == 'DateTime?'
+          ? 'uint8_t*'
+          : func.returnType.name == 'uint64?'
+          ? 'uint8_t*'
           : func.returnType.isTypedData
           ? 'uint8_t*'
           : _typeToC(func.returnType.name);
       // Result methods must never return nullptr — Dart reads res[0] unconditionally.
-      final dflt = func.isResult
-          ? '_nitro_desktop_result_err("native error")'
-          : _defaultValue(cRet);
+      final dflt = func.isResult ? '_nitro_desktop_result_err("native error")' : _defaultValue(cRet);
       // instanceId is included for API consistency with the JNI path; g_impl ignores it.
       final paramParts = <String>['int64_t instanceId'];
       for (final p in func.params) {
@@ -537,9 +536,7 @@ class CppBridgeGenerator {
           // Nullable prims use const uint8_t* (raw byte pointer via NitroOptXxx layout).
           // Maps stay on _typeToC (uint8_t*) — matches the bridge.g.h declaration.
           final isMapParam = p.type.name.startsWith('Map<');
-          final cType = isEnumParam
-              ? 'int64_t'
-              : ((isStructParam || (isRecordParam && !isMapParam)) ? 'void*' : _typeToC(p.type.name));
+          final cType = isEnumParam ? 'int64_t' : ((isStructParam || (isRecordParam && !isMapParam)) ? 'void*' : _typeToC(p.type.name));
           paramParts.add('$cType ${p.name}');
         }
         if (p.type.isTypedData) paramParts.add('size_t ${p.name}_length'); // matches Dart FFI Size type
@@ -569,9 +566,17 @@ class CppBridgeGenerator {
         final base = p.type.name.replaceFirst('?', '');
         final isNullableParam = p.type.isNullable || p.type.name.endsWith('?');
         if (p.type.isFunction) {
-          callArgs.add(_emitDesktopCallbackWrapper(
-            writer, spec, p, enumNames, structNames, recordNames, variantNames,
-          ));
+          callArgs.add(
+            _emitDesktopCallbackWrapper(
+              writer,
+              spec,
+              p,
+              enumNames,
+              structNames,
+              recordNames,
+              variantNames,
+            ),
+          );
         } else if (p.type.name == 'int?' || p.type.name == 'DateTime?') {
           writer.line('        std::optional<int64_t> _opt_${p.name} = (${p.name} == nullptr || ${p.name}[0] == 0) ? std::nullopt : std::make_optional(*reinterpret_cast<const int64_t*>(${p.name} + 1));');
           callArgs.add('_opt_${p.name}');
@@ -760,14 +765,10 @@ class CppBridgeGenerator {
         writer.line('    }');
       } else {
         writer.line('    } catch (const std::exception& e) {');
-        writer.line(func.isAsync
-            ? '        nitro_report_error("CppException", e.what(), nullptr, nullptr);'
-            : '        _nitro_desktop_err(_nitro_err, "CppException", e.what());');
+        writer.line(func.isAsync ? '        nitro_report_error("CppException", e.what(), nullptr, nullptr);' : '        _nitro_desktop_err(_nitro_err, "CppException", e.what());');
         if (func.returnType.name != 'void') writer.line('        return $dflt;');
         writer.line('    } catch (...) {');
-        writer.line(func.isAsync
-            ? '        nitro_report_error("CppException", "Unknown C++ exception", nullptr, nullptr);'
-            : '        _nitro_desktop_err(_nitro_err, "CppException", "Unknown C++ exception");');
+        writer.line(func.isAsync ? '        nitro_report_error("CppException", "Unknown C++ exception", nullptr, nullptr);' : '        _nitro_desktop_err(_nitro_err, "CppException", "Unknown C++ exception");');
         if (func.returnType.name != 'void') writer.line('        return $dflt;');
         writer.line('    }');
       }
@@ -779,12 +780,18 @@ class CppBridgeGenerator {
       final isEnum = enumNames.contains(prop.type.name.replaceFirst('?', ''));
       final isVariantProp = variantNames.contains(prop.type.name.replaceFirst('?', ''));
       // Property getter: nullable prim/variant returns uint8_t* pointer (malloc'd, Dart frees).
-      final cType = isEnum ? 'int64_t'
-          : prop.type.name == 'int?' ? 'uint8_t*'
-          : prop.type.name == 'double?' ? 'uint8_t*'
-          : prop.type.name == 'bool?' ? 'uint8_t*'
-          : prop.type.name == 'DateTime?' ? 'uint8_t*'
-          : isVariantProp ? 'uint8_t*'
+      final cType = isEnum
+          ? 'int64_t'
+          : prop.type.name == 'int?'
+          ? 'uint8_t*'
+          : prop.type.name == 'double?'
+          ? 'uint8_t*'
+          : prop.type.name == 'bool?'
+          ? 'uint8_t*'
+          : prop.type.name == 'DateTime?'
+          ? 'uint8_t*'
+          : isVariantProp
+          ? 'uint8_t*'
           : _typeToC(prop.type.name);
       if (prop.hasGetter) {
         // instanceId is included for API consistency with the JNI path; g_impl ignores it.
@@ -862,7 +869,9 @@ class CppBridgeGenerator {
             ? 'const uint8_t*'
             : isVariantProp
             ? 'const uint8_t*'
-            : (isEnum || isStructParam || isRecordParam) ? (isEnum ? 'int64_t' : 'void*') : _typeToC(prop.type.name);
+            : (isEnum || isStructParam || isRecordParam)
+            ? (isEnum ? 'int64_t' : 'void*')
+            : _typeToC(prop.type.name);
         // instanceId is included for API consistency with the JNI path; g_impl ignores it.
         writer.line('void ${prop.setSymbol}(int64_t instanceId, $paramCType value, NitroError* _nitro_err) {');
         writer.line('    ${libStem}_clear_error();');
@@ -977,7 +986,10 @@ class CppBridgeGenerator {
       final base = cp.name.replaceFirst('?', '');
       final isNullableCp = cp.name.endsWith('?');
       final implType = CppInterfaceGenerator.cppCallbackParamType(
-        cp.name, enumNames, structNames, recordNames.union(variantNames),
+        cp.name,
+        enumNames,
+        structNames,
+        recordNames.union(variantNames),
         bridgeType: cp,
       );
       implParams.add('$implType _a$i');
@@ -1092,9 +1104,7 @@ class CppBridgeGenerator {
     // Shared batch-post helper (kArray of kInt64: [count, items...]) — same
     // wire shape the JNI path uses; Dart's asyncExpand unpacks batch[0]=count.
     final hasBatchStreams = spec.streams.any(
-      (st) =>
-          st.isBatch &&
-          const {'int', 'double', 'bool'}.contains(st.itemType.name.replaceFirst('?', '')),
+      (st) => st.isBatch && const {'int', 'double', 'bool'}.contains(st.itemType.name.replaceFirst('?', '')),
     );
     if (hasBatchStreams) {
       writer.line('static bool _nitro_desktop_post_batch(int64_t port, const int64_t* items, int32_t count) {');
@@ -1155,8 +1165,8 @@ class CppBridgeGenerator {
         final bits = base == 'double'
             ? 'int64_t _bits; { double _d = $v; memcpy(&_bits, &_d, 8); }'
             : base == 'bool'
-                ? 'int64_t _bits = $v ? 1 : 0;'
-                : 'int64_t _bits = $v;';
+            ? 'int64_t _bits = $v ? 1 : 0;'
+            : 'int64_t _bits = $v;';
         writer.line('    $bits');
         writer.line('    if (!_nitro_desktop_post_batch(port, &_bits, 1)) { g_port_${stream.dartName} = 0; }');
         writer.line('}');
@@ -1218,7 +1228,6 @@ class CppBridgeGenerator {
       writer.line('}');
       writer.blankLine();
     }
-
   }
 
   static String _typeToC(String dartType, {bool isNativeHandle = false}) {
@@ -1531,14 +1540,19 @@ class CppBridgeGenerator {
       case 'Uint64List':
         return '[J'; // LongArray
       case 'int8':
-      case 'uint8': return 'B';   // jbyte
+      case 'uint8':
+        return 'B'; // jbyte
       case 'int16':
-      case 'uint16': return 'S';  // jshort
+      case 'uint16':
+        return 'S'; // jshort
       case 'int32':
-      case 'uint32': return 'I';  // jint
-      case 'float': return 'F';   // jfloat
+      case 'uint32':
+        return 'I'; // jint
+      case 'float':
+        return 'F'; // jfloat
       case 'intptr':
-      case 'size': return 'J';    // jlong (64-bit for both)
+      case 'size':
+        return 'J'; // jlong (64-bit for both)
       default:
         throw StateError(
           'Unknown JNI signature type "$t". Add @HybridStruct/@HybridEnum metadata or a typed-data mapping before generating the C bridge.',
@@ -1564,14 +1578,19 @@ class CppBridgeGenerator {
       case 'Uint8List':
         return 'jobject';
       case 'int8':
-      case 'uint8': return 'jbyte';
+      case 'uint8':
+        return 'jbyte';
       case 'int16':
-      case 'uint16': return 'jshort';
+      case 'uint16':
+        return 'jshort';
       case 'int32':
-      case 'uint32': return 'jint';
-      case 'float': return 'jfloat';
+      case 'uint32':
+        return 'jint';
+      case 'float':
+        return 'jfloat';
       case 'intptr':
-      case 'size': return 'jlong';
+      case 'size':
+        return 'jlong';
       default:
         return 'jobject';
     }
@@ -1587,14 +1606,19 @@ class CppBridgeGenerator {
       case 'bool':
         return 'jboolean';
       case 'int8':
-      case 'uint8': return 'jbyte';
+      case 'uint8':
+        return 'jbyte';
       case 'int16':
-      case 'uint16': return 'jshort';
+      case 'uint16':
+        return 'jshort';
       case 'int32':
-      case 'uint32': return 'jint';
-      case 'float': return 'jfloat';
+      case 'uint32':
+        return 'jint';
+      case 'float':
+        return 'jfloat';
       case 'intptr':
-      case 'size': return 'jlong';
+      case 'size':
+        return 'jlong';
       default:
         return 'jobject';
     }

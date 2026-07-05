@@ -29,8 +29,7 @@ final class NitroOk<T extends Object?> extends NitroResultValue<T> {
   String toString() => 'NitroOk($value)';
 
   @override
-  bool operator ==(Object other) =>
-      other is NitroOk<T> && other.value == value;
+  bool operator ==(Object other) => other is NitroOk<T> && other.value == value;
 
   @override
   int get hashCode => Object.hash('NitroOk', value);
@@ -45,8 +44,7 @@ final class NitroErr<T extends Object?> extends NitroResultValue<T> {
   String toString() => 'NitroErr($message)';
 
   @override
-  bool operator ==(Object other) =>
-      other is NitroErr<T> && other.message == message;
+  bool operator ==(Object other) => other is NitroErr<T> && other.message == message;
 
   @override
   int get hashCode => Object.hash('NitroErr', message);

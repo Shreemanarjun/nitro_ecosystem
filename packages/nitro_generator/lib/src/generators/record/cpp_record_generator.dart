@@ -292,10 +292,10 @@ void _cppEmitFieldWrite(CodeWriter s, BridgeRecordField f, Set<String> enumNames
       core = base == 'String'
           ? 'w.writeString($v);'
           : base == 'double'
-              ? 'w.writeDouble($v);'
-              : base == 'bool'
-                  ? 'w.writeBool($v);'
-                  : 'w.writeInt($v);';
+          ? 'w.writeDouble($v);'
+          : base == 'bool'
+          ? 'w.writeBool($v);'
+          : 'w.writeInt($v);';
       break;
     case RecordFieldKind.enumValue:
       final base = f.dartType.replaceFirst('?', '');
@@ -311,10 +311,10 @@ void _cppEmitFieldWrite(CodeWriter s, BridgeRecordField f, Set<String> enumNames
       final itemWrite = item == 'String'
           ? 'w.writeString(_e);'
           : item == 'double'
-              ? 'w.writeDouble(_e);'
-              : item == 'bool'
-                  ? 'w.writeBool(_e);'
-                  : 'w.writeInt(_e);';
+          ? 'w.writeDouble(_e);'
+          : item == 'bool'
+          ? 'w.writeBool(_e);'
+          : 'w.writeInt(_e);';
       core = '{ w.writeInt32((int32_t)${f.name}.size()); for (const auto& _e : ${f.name}) { $itemWrite } }';
       break;
     case RecordFieldKind.listEnumValue:
@@ -333,9 +333,7 @@ void _cppEmitFieldWrite(CodeWriter s, BridgeRecordField f, Set<String> enumNames
       core = 'nitro_${base}_encodeInto($v, w);';
       break;
   }
-  final isListKind = f.kind == RecordFieldKind.listPrimitive ||
-      f.kind == RecordFieldKind.listEnumValue ||
-      f.kind == RecordFieldKind.listRecordObject;
+  final isListKind = f.kind == RecordFieldKind.listPrimitive || f.kind == RecordFieldKind.listEnumValue || f.kind == RecordFieldKind.listRecordObject;
   if (f.isNullable && !isListKind) {
     s.writeln('        w.writeBool(${f.name}.has_value());');
     s.writeln('        if (${f.name}.has_value()) { $core }');

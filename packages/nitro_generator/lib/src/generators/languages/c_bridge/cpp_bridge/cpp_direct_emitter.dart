@@ -2,7 +2,8 @@ part of '../cpp_bridge_generator.dart';
 
 String _typeToC(String dartType) => CppBridgeGenerator._typeToC(dartType);
 
-String _callbackParamToC(BridgeParam param, Set<String> enumNames, {Set<String>? structNames, Set<String>? recordNames}) => CppBridgeGenerator._callbackParamToC(param, enumNames, structNames: structNames, recordNames: recordNames);
+String _callbackParamToC(BridgeParam param, Set<String> enumNames, {Set<String>? structNames, Set<String>? recordNames}) =>
+    CppBridgeGenerator._callbackParamToC(param, enumNames, structNames: structNames, recordNames: recordNames);
 
 String _defaultValue(String cType) => CppBridgeGenerator._defaultValue(cType);
 
@@ -185,7 +186,11 @@ String _generateCppDirect(BridgeSpec spec) {
   // the mixed-platform desktop dispatch so definitions always match the
   // declarations in *.native.g.h (signatures via CppInterfaceGenerator).
   CppBridgeGenerator._emitCppStreamEmitters(
-    writer, spec, className, enumNames, structNames,
+    writer,
+    spec,
+    className,
+    enumNames,
+    structNames,
     spec.variants.map((v) => v.name).toSet(),
   );
 
@@ -291,8 +296,7 @@ String _generateCppDirect(BridgeSpec spec) {
     final isZeroCopyTypedDataRet = func.zeroCopyReturn && func.returnType.isTypedData;
     // Nullable primitives (int?/double?/bool?) use NitroNullable binary → uint8_t*.
     final retBase = func.returnType.name.replaceFirst('?', '');
-    final isNullablePrimRet = (func.returnType.isNullable || func.returnType.name.endsWith('?')) &&
-        (retBase == 'int' || retBase == 'double' || retBase == 'bool');
+    final isNullablePrimRet = (func.returnType.isNullable || func.returnType.name.endsWith('?')) && (retBase == 'int' || retBase == 'double' || retBase == 'bool');
     final cRet = isNullablePrimRet
         ? 'uint8_t*'
         : isVariantRet
@@ -319,13 +323,12 @@ String _generateCppDirect(BridgeSpec spec) {
       final isEnumParam = enumNames.contains(p.type.name.replaceFirst('?', ''));
       // Nullable primitives (int?/double?/bool?) use NitroNullable binary → void*.
       final paramPrimBase = p.type.name.replaceFirst('?', '');
-      final isNullablePrimParam = (p.type.isNullable || p.type.name.endsWith('?')) &&
-          (paramPrimBase == 'int' || paramPrimBase == 'double' || paramPrimBase == 'bool');
+      final isNullablePrimParam = (p.type.isNullable || p.type.name.endsWith('?')) && (paramPrimBase == 'int' || paramPrimBase == 'double' || paramPrimBase == 'bool');
       final cType = isNullablePrimParam
           ? 'void*'
           : isEnumParam
-              ? 'int64_t'
-              : ((isStructParam || isRecordParam || isVariantParam || p.type.isNativeHandle) ? 'void*' : _typeToC(p.type.name));
+          ? 'int64_t'
+          : ((isStructParam || isRecordParam || isVariantParam || p.type.isNativeHandle) ? 'void*' : _typeToC(p.type.name));
       paramParts.add('$cType ${p.name}');
       if (p.type.isTypedData) paramParts.add('size_t ${p.name}_length');
     }
@@ -371,8 +374,16 @@ String _generateCppDirect(BridgeSpec spec) {
         callArgs.add(p.name);
       } else if (isNullableParam && (base == 'int' || base == 'double' || base == 'bool')) {
         // Unmarshal NitroOpt binary → std::optional<T>
-        final nitroType = base == 'int' ? 'NitroOptInt64' : base == 'double' ? 'NitroOptFloat64' : 'NitroOptBool';
-        final cppType = base == 'int' ? 'int64_t' : base == 'double' ? 'double' : 'bool';
+        final nitroType = base == 'int'
+            ? 'NitroOptInt64'
+            : base == 'double'
+            ? 'NitroOptFloat64'
+            : 'NitroOptBool';
+        final cppType = base == 'int'
+            ? 'int64_t'
+            : base == 'double'
+            ? 'double'
+            : 'bool';
         writer.line('        std::optional<$cppType> _opt_${p.name};');
         writer.line('        if (${p.name} != nullptr) {');
         writer.line('            auto* _s = static_cast<const $nitroType*>(${p.name});');
@@ -427,8 +438,7 @@ String _generateCppDirect(BridgeSpec spec) {
         final prim = innerBase == null ? null : primPointerMap[innerBase];
         if (prim != null) {
           callArgs.add('static_cast<$prim*>(${p.name})');
-        } else if (innerBase != null &&
-            (enumNames.contains(innerBase) || structNames.contains(innerBase))) {
+        } else if (innerBase != null && (enumNames.contains(innerBase) || structNames.contains(innerBase))) {
           callArgs.add('static_cast<$innerBase*>(${p.name})');
         } else {
           callArgs.add(p.name); // Pointer<Void> / opaque — void* matches
@@ -445,7 +455,11 @@ String _generateCppDirect(BridgeSpec spec) {
       writer.line('        return _impl->${func.dartName}($callArgStr);');
     } else if (isNullablePrimRet) {
       // Marshal std::optional<T> → NitroOptXxx binary (heap-allocated, freed by Dart).
-      final nitroType = retBase == 'int' ? 'NitroOptInt64' : retBase == 'double' ? 'NitroOptFloat64' : 'NitroOptBool';
+      final nitroType = retBase == 'int'
+          ? 'NitroOptInt64'
+          : retBase == 'double'
+          ? 'NitroOptFloat64'
+          : 'NitroOptBool';
       writer.line('        auto _opt = _impl->${func.dartName}($callArgStr);');
       writer.line('        auto* _out = ($nitroType*)malloc(sizeof($nitroType));');
       writer.line('        if (!_out) return nullptr;');
@@ -509,8 +523,7 @@ String _generateCppDirect(BridgeSpec spec) {
   for (final prop in spec.properties) {
     final isEnum = enumNames.contains(prop.type.name.replaceFirst('?', ''));
     final propPrimBase = prop.type.name.replaceFirst('?', '');
-    final isNullablePrimProp = (prop.type.isNullable || prop.type.name.endsWith('?')) &&
-        (propPrimBase == 'int' || propPrimBase == 'double' || propPrimBase == 'bool');
+    final isNullablePrimProp = (prop.type.isNullable || prop.type.name.endsWith('?')) && (propPrimBase == 'int' || propPrimBase == 'double' || propPrimBase == 'bool');
     // Nullable primitives use NitroNullable binary → uint8_t* getter, void* setter.
     final cType = isNullablePrimProp ? 'uint8_t*' : (isEnum ? 'int64_t' : _typeToC(prop.type.name));
 
@@ -527,7 +540,11 @@ String _generateCppDirect(BridgeSpec spec) {
         writer.line('        return static_cast<int64_t>(_impl->get_${prop.dartName}());');
       } else if (isNullablePrimProp) {
         // Marshal std::optional<T> → NitroOptXxx binary
-        final nitroType = propPrimBase == 'int' ? 'NitroOptInt64' : propPrimBase == 'double' ? 'NitroOptFloat64' : 'NitroOptBool';
+        final nitroType = propPrimBase == 'int'
+            ? 'NitroOptInt64'
+            : propPrimBase == 'double'
+            ? 'NitroOptFloat64'
+            : 'NitroOptBool';
         writer.line('        auto _opt = _impl->get_${prop.dartName}();');
         writer.line('        auto* _out = ($nitroType*)malloc(sizeof($nitroType));');
         writer.line('        if (!_out) return nullptr;');
@@ -564,7 +581,9 @@ String _generateCppDirect(BridgeSpec spec) {
       final isRecordParam = recordNames.contains(prop.type.name.replaceFirst('?', ''));
       final paramCType = isNullablePrimProp
           ? 'void*'
-          : (isEnum || isStructParam || isRecordParam) ? (isEnum ? 'int64_t' : 'void*') : _typeToC(prop.type.name);
+          : (isEnum || isStructParam || isRecordParam)
+          ? (isEnum ? 'int64_t' : 'void*')
+          : _typeToC(prop.type.name);
       writer.line('void ${prop.setSymbol}(int64_t instanceId, $paramCType value, NitroError* _nitro_err) {');
       writer.line('    if (_nitro_err) { _nitro_err->hasError = 0; }');
       writer.line('    auto _impl = _nitro_get_instance(instanceId);');
@@ -572,8 +591,16 @@ String _generateCppDirect(BridgeSpec spec) {
       writer.line('    try {');
       if (isNullablePrimProp) {
         // Unmarshal void* NitroOpt binary → std::optional<T>
-        final nitroType = propPrimBase == 'int' ? 'NitroOptInt64' : propPrimBase == 'double' ? 'NitroOptFloat64' : 'NitroOptBool';
-        final cppType = propPrimBase == 'int' ? 'int64_t' : propPrimBase == 'double' ? 'double' : 'bool';
+        final nitroType = propPrimBase == 'int'
+            ? 'NitroOptInt64'
+            : propPrimBase == 'double'
+            ? 'NitroOptFloat64'
+            : 'NitroOptBool';
+        final cppType = propPrimBase == 'int'
+            ? 'int64_t'
+            : propPrimBase == 'double'
+            ? 'double'
+            : 'bool';
         writer.line('        std::optional<$cppType> _opt;');
         writer.line('        if (value) { auto* _s = static_cast<const $nitroType*>(value); if (_s->hasValue) _opt = ${propPrimBase == 'bool' ? '_s->value != 0' : '_s->value'}; }');
         writer.line('        _impl->set_${prop.dartName}(_opt);');

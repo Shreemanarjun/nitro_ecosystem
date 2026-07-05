@@ -152,7 +152,7 @@ packages:
       path: "../../packages/nitro"
       relative: true
     source: path
-    version: "0.5.3"
+    version: "0.5.6"
   nitro_annotations:
     dependency: transitive
     description:

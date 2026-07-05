@@ -11,12 +11,12 @@ class SwiftStreamEmitter {
     SwiftTypeMapper mapper,
   ) {
     final itemName = stream.itemType.name.replaceFirst('?', '');
-    final isStructItem  = spec.isStructName(itemName);
-    final isRecordItem  = stream.itemType.isRecord;
-    final isEnumItem    = spec.isEnumName(itemName);
-    final isBoolItem    = itemName == 'bool';
+    final isStructItem = spec.isStructName(itemName);
+    final isRecordItem = stream.itemType.isRecord;
+    final isEnumItem = spec.isEnumName(itemName);
+    final isBoolItem = itemName == 'bool';
     final isVariantItem = spec.isVariantName(itemName);
-    final isNullable    = stream.itemType.isNullable;
+    final isNullable = stream.itemType.isNullable;
 
     // For nullable scalar types (int?, double?, bool?, enum?), the emitCb callback
     // uses a pointer type so Swift can pass nil for null items. The C shim checks
@@ -46,33 +46,18 @@ class SwiftStreamEmitter {
     if (stream.isBatch) {
       _emitBatch(writer, stream, spec);
     } else if (stream.isBufferDrop) {
-      _emitBufferDrop(writer, stream, spec, cType, itemName,
-          isStructItem: isStructItem,
-          isRecordItem: isRecordItem,
-          isEnumItem: isEnumItem,
-          isBoolItem: isBoolItem,
-          isVariantItem: isVariantItem);
+      _emitBufferDrop(writer, stream, spec, cType, itemName, isStructItem: isStructItem, isRecordItem: isRecordItem, isEnumItem: isEnumItem, isBoolItem: isBoolItem, isVariantItem: isVariantItem);
     } else if (stream.isBlock) {
-      _emitBlock(writer, stream, spec, cType, itemName,
-          isStructItem: isStructItem,
-          isRecordItem: isRecordItem,
-          isEnumItem: isEnumItem,
-          isBoolItem: isBoolItem,
-          isVariantItem: isVariantItem);
+      _emitBlock(writer, stream, spec, cType, itemName, isStructItem: isStructItem, isRecordItem: isRecordItem, isEnumItem: isEnumItem, isBoolItem: isBoolItem, isVariantItem: isVariantItem);
     } else {
-      _emitDropLatest(writer, stream, spec, cType, itemName,
-          isStructItem: isStructItem,
-          isRecordItem: isRecordItem,
-          isEnumItem: isEnumItem,
-          isBoolItem: isBoolItem,
-          isVariantItem: isVariantItem);
+      _emitDropLatest(writer, stream, spec, cType, itemName, isStructItem: isStructItem, isRecordItem: isRecordItem, isEnumItem: isEnumItem, isBoolItem: isBoolItem, isVariantItem: isVariantItem);
     }
   }
 
   static void _emitBatch(CodeWriter writer, BridgeStream stream, BridgeSpec spec) {
-    final batchMax  = stream.batchMaxSize;
-    final itemBase  = stream.itemType.name.replaceFirst('?', '');
-    final isRecordBatch  = stream.itemType.isRecord;
+    final batchMax = stream.batchMaxSize;
+    final itemBase = stream.itemType.name.replaceFirst('?', '');
+    final isRecordBatch = stream.itemType.isRecord;
     final isVariantBatch = spec.isVariantName(itemBase);
 
     if (isRecordBatch || isVariantBatch) {
@@ -200,13 +185,7 @@ class SwiftStreamEmitter {
     writer.line('        ${spec.dartClassName}Registry.impl?.${stream.dartName}');
     writer.line('            .buffer(size: $bufferCap, prefetch: .byRequest, whenFull: .dropOldest)');
     writer.line('            .sink { item in');
-    _emitSinkBody(writer, stream, spec, itemName,
-        isStructItem: isStructItem,
-        isRecordItem: isRecordItem,
-        isEnumItem: isEnumItem,
-        isBoolItem: isBoolItem,
-        isVariantItem: isVariantItem,
-        indent: '                ');
+    _emitSinkBody(writer, stream, spec, itemName, isStructItem: isStructItem, isRecordItem: isRecordItem, isEnumItem: isEnumItem, isBoolItem: isBoolItem, isVariantItem: isVariantItem, indent: '                ');
     writer.line('        }');
     writer.line('}');
     writer.blankLine();
@@ -247,13 +226,7 @@ class SwiftStreamEmitter {
     writer.line('            .buffer(size: $bufferCap, prefetch: .byRequest, whenFull: .dropNewest)');
     writer.line('            .receive(on: _serialQ)');
     writer.line('            .sink { item in');
-    _emitSinkBody(writer, stream, spec, itemName,
-        isStructItem: isStructItem,
-        isRecordItem: isRecordItem,
-        isEnumItem: isEnumItem,
-        isBoolItem: isBoolItem,
-        isVariantItem: isVariantItem,
-        indent: '                ');
+    _emitSinkBody(writer, stream, spec, itemName, isStructItem: isStructItem, isRecordItem: isRecordItem, isEnumItem: isEnumItem, isBoolItem: isBoolItem, isVariantItem: isVariantItem, indent: '                ');
     writer.line('        }');
     writer.line('}');
     writer.blankLine();
@@ -283,13 +256,7 @@ class SwiftStreamEmitter {
     writer.line(') {');
     writer.line('    ${spec.dartClassName}Registry._${stream.dartName}Cancellables[dartPort] =');
     writer.line('        ${spec.dartClassName}Registry.impl?.${stream.dartName}.sink { item in');
-    _emitSinkBody(writer, stream, spec, itemName,
-        isStructItem: isStructItem,
-        isRecordItem: isRecordItem,
-        isEnumItem: isEnumItem,
-        isBoolItem: isBoolItem,
-        isVariantItem: isVariantItem,
-        indent: '            ');
+    _emitSinkBody(writer, stream, spec, itemName, isStructItem: isStructItem, isRecordItem: isRecordItem, isEnumItem: isEnumItem, isBoolItem: isBoolItem, isVariantItem: isVariantItem, indent: '            ');
     writer.line('        }');
     writer.line('}');
     writer.blankLine();

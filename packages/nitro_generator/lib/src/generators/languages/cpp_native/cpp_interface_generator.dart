@@ -306,8 +306,7 @@ class CppInterfaceGenerator {
     Set<String> enumNames,
     Set<String> structNames,
     Set<String> recordNames,
-  ) =>
-      _cppReturnType(bt, enumNames, structNames, recordNames);
+  ) => _cppReturnType(bt, enumNames, structNames, recordNames);
 
   /// Public alias of [_cppMethodParams] — full impl-facing parameter list.
   static List<String> cppMethodParamsFor(
@@ -315,8 +314,7 @@ class CppInterfaceGenerator {
     Set<String> enumNames,
     Set<String> structNames,
     Set<String> recordNames,
-  ) =>
-      _cppMethodParams(params, enumNames, structNames, recordNames);
+  ) => _cppMethodParams(params, enumNames, structNames, recordNames);
 
   /// Public alias of [_cppParamType] — impl-facing type of a single param.
   static String cppParamTypeFor(
@@ -324,8 +322,7 @@ class CppInterfaceGenerator {
     Set<String> enumNames,
     Set<String> structNames,
     Set<String> recordNames,
-  ) =>
-      _cppParamType(bt, enumNames, structNames, recordNames);
+  ) => _cppParamType(bt, enumNames, structNames, recordNames);
 
   /// C++ return type — mirrors RN Nitro's `JSIConverter<T>` type mapping.
   /// Nullable types use `std::optional<T>` (zero-cost tagged union, like std::optional).
@@ -612,9 +609,7 @@ class CppInterfaceGenerator {
   ) {
     final callback = param.type;
     final ret = cppCallbackReturnType(callback.functionReturnType ?? 'void', enumNames);
-    final paramTypes = callback.functionParams
-        .map((p) => cppCallbackParamType(p.name, enumNames, structNames, recordNames, bridgeType: p))
-        .join(', ');
+    final paramTypes = callback.functionParams.map((p) => cppCallbackParamType(p.name, enumNames, structNames, recordNames, bridgeType: p)).join(', ');
     return 'std::function<$ret($paramTypes)> ${param.name}';
   }
 
@@ -787,10 +782,10 @@ class CppInterfaceGenerator {
         core = base == 'String'
             ? 'std::string'
             : base == 'bool'
-                ? 'bool'
-                : base == 'double'
-                    ? 'double'
-                    : 'int64_t';
+            ? 'bool'
+            : base == 'double'
+            ? 'double'
+            : 'int64_t';
       case RecordFieldKind.enumValue:
         core = enumNames.contains(base) ? base : 'int64_t';
       case RecordFieldKind.recordObject:
@@ -798,7 +793,14 @@ class CppInterfaceGenerator {
         core = base;
       case RecordFieldKind.listPrimitive:
         final item = f.itemTypeName ?? 'int';
-        core = 'std::vector<${item == 'String' ? 'std::string' : item == 'double' ? 'double' : item == 'bool' ? 'bool' : 'int64_t'}>';
+        core =
+            'std::vector<${item == 'String'
+                ? 'std::string'
+                : item == 'double'
+                ? 'double'
+                : item == 'bool'
+                ? 'bool'
+                : 'int64_t'}>';
       case RecordFieldKind.listEnumValue:
         final item = f.itemTypeName ?? 'int';
         core = 'std::vector<${enumNames.contains(item) ? item : 'int64_t'}>';
@@ -863,16 +865,14 @@ class CppInterfaceGenerator {
         } else {
           itemRead = '_r.readInt()';
         }
-        final body =
-            '{ int32_t _n = _r.readInt32(); auto& _vec = ${f.isNullable ? '_c.${f.name}.emplace()' : '_c.${f.name}'}; _vec.reserve((size_t)_n); for (int32_t _i = 0; _i < _n; _i++) _vec.push_back($itemRead); }';
+        final body = '{ int32_t _n = _r.readInt32(); auto& _vec = ${f.isNullable ? '_c.${f.name}.emplace()' : '_c.${f.name}'}; _vec.reserve((size_t)_n); for (int32_t _i = 0; _i < _n; _i++) _vec.push_back($itemRead); }';
         if (f.isNullable) {
           s.writeln('${indent}if (_r.readBool()) $body');
         } else {
           s.writeln('$indent$body');
         }
       case RecordFieldKind.typedData:
-        final body =
-            '{ int32_t _n = _r.readInt32(); auto& _vec = ${f.isNullable ? '_c.${f.name}.emplace()' : '_c.${f.name}'}; _vec.resize((size_t)_n); _r.readBytes(_vec.data(), (size_t)_n); }';
+        final body = '{ int32_t _n = _r.readInt32(); auto& _vec = ${f.isNullable ? '_c.${f.name}.emplace()' : '_c.${f.name}'}; _vec.resize((size_t)_n); _r.readBytes(_vec.data(), (size_t)_n); }';
         if (f.isNullable) {
           s.writeln('${indent}if (_r.readBool()) $body');
         } else {

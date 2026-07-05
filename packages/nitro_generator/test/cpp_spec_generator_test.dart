@@ -10,19 +10,18 @@ void main() {
       List<BridgeProperty> properties = const [],
       List<BridgeEnum> enums = const [],
       List<BridgeVariant> variants = const [],
-    }) =>
-        BridgeSpec(
-          dartClassName: 'Counter',
-          lib: 'counter',
-          namespace: 'counter',
-          iosImpl: NativeImpl.cpp,
-          androidImpl: NativeImpl.cpp,
-          sourceUri: 'counter.native.dart',
-          functions: functions,
-          properties: properties,
-          enums: enums,
-          variants: variants,
-        );
+    }) => BridgeSpec(
+      dartClassName: 'Counter',
+      lib: 'counter',
+      namespace: 'counter',
+      iosImpl: NativeImpl.cpp,
+      androidImpl: NativeImpl.cpp,
+      sourceUri: 'counter.native.dart',
+      functions: functions,
+      properties: properties,
+      enums: enums,
+      variants: variants,
+    );
 
     test('generates a non-empty string', () {
       final out = CppSpecGenerator.generate(makeCounterSpec());
@@ -78,7 +77,12 @@ void main() {
             cSymbol: 'counter_add',
             isAsync: false,
             returnType: BridgeType(name: 'void'),
-            params: [BridgeParam(name: 'n', type: BridgeType(name: 'int32'))],
+            params: [
+              BridgeParam(
+                name: 'n',
+                type: BridgeType(name: 'int32'),
+              ),
+            ],
           ),
         ],
       );
@@ -212,7 +216,12 @@ void main() {
             cSymbol: 'counter_set_mode',
             isAsync: false,
             returnType: BridgeType(name: 'void'),
-            params: [BridgeParam(name: 'mode', type: BridgeType(name: 'Mode'))],
+            params: [
+              BridgeParam(
+                name: 'mode',
+                type: BridgeType(name: 'Mode'),
+              ),
+            ],
           ),
         ],
       );

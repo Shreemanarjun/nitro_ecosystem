@@ -19,83 +19,89 @@ import 'test_utils.dart';
 
 /// Creates a BridgeSpec with a single sync function returning [returnType].
 BridgeSpec _returnSpec(String returnType) => BridgeSpec(
-      dartClassName: 'Narrow',
-      lib: 'narrow',
-      namespace: 'narrow',
-      iosImpl: NativeImpl.cpp,
-      androidImpl: NativeImpl.kotlin,
-      sourceUri: 'narrow.native.dart',
-      functions: [
-        BridgeFunction(
-          dartName: 'getValue',
-          cSymbol: 'narrow_getValue',
-          isAsync: false,
-          returnType: BridgeType(name: returnType),
-          params: [],
-        ),
-      ],
-    );
+  dartClassName: 'Narrow',
+  lib: 'narrow',
+  namespace: 'narrow',
+  iosImpl: NativeImpl.cpp,
+  androidImpl: NativeImpl.kotlin,
+  sourceUri: 'narrow.native.dart',
+  functions: [
+    BridgeFunction(
+      dartName: 'getValue',
+      cSymbol: 'narrow_getValue',
+      isAsync: false,
+      returnType: BridgeType(name: returnType),
+      params: [],
+    ),
+  ],
+);
 
 /// Creates a BridgeSpec with a single sync function taking [paramType] as a param.
 BridgeSpec _paramSpec(String paramType) => BridgeSpec(
-      dartClassName: 'Narrow',
-      lib: 'narrow',
-      namespace: 'narrow',
-      iosImpl: NativeImpl.cpp,
-      androidImpl: NativeImpl.kotlin,
-      sourceUri: 'narrow.native.dart',
-      functions: [
-        BridgeFunction(
-          dartName: 'setValue',
-          cSymbol: 'narrow_setValue',
-          isAsync: false,
-          returnType: BridgeType(name: 'void'),
-          params: [
-            BridgeParam(name: 'val', type: BridgeType(name: paramType)),
-          ],
+  dartClassName: 'Narrow',
+  lib: 'narrow',
+  namespace: 'narrow',
+  iosImpl: NativeImpl.cpp,
+  androidImpl: NativeImpl.kotlin,
+  sourceUri: 'narrow.native.dart',
+  functions: [
+    BridgeFunction(
+      dartName: 'setValue',
+      cSymbol: 'narrow_setValue',
+      isAsync: false,
+      returnType: BridgeType(name: 'void'),
+      params: [
+        BridgeParam(
+          name: 'val',
+          type: BridgeType(name: paramType),
         ),
       ],
-    );
+    ),
+  ],
+);
 
 /// Creates a BridgeSpec with a single @nitroAsync function returning [returnType].
 BridgeSpec _asyncReturnSpec(String returnType) => BridgeSpec(
-      dartClassName: 'Narrow',
-      lib: 'narrow',
-      namespace: 'narrow',
-      iosImpl: NativeImpl.cpp,
-      androidImpl: NativeImpl.kotlin,
-      sourceUri: 'narrow.native.dart',
-      functions: [
-        BridgeFunction(
-          dartName: 'getAsync',
-          cSymbol: 'narrow_getAsync',
-          isAsync: true,
-          returnType: BridgeType(name: returnType, isNullable: returnType.endsWith('?')),
-          params: [],
-        ),
-      ],
-    );
+  dartClassName: 'Narrow',
+  lib: 'narrow',
+  namespace: 'narrow',
+  iosImpl: NativeImpl.cpp,
+  androidImpl: NativeImpl.kotlin,
+  sourceUri: 'narrow.native.dart',
+  functions: [
+    BridgeFunction(
+      dartName: 'getAsync',
+      cSymbol: 'narrow_getAsync',
+      isAsync: true,
+      returnType: BridgeType(name: returnType, isNullable: returnType.endsWith('?')),
+      params: [],
+    ),
+  ],
+);
 
 /// Creates a BridgeSpec with iosImpl=swift + narrow scalar types.
 BridgeSpec _swiftNarrowSpec({String returnType = 'int32', String paramType = 'int32'}) => BridgeSpec(
-      dartClassName: 'NarrowSwift',
-      lib: 'narrow_swift',
-      namespace: 'narrow_swift',
-      iosImpl: NativeImpl.swift,
-      androidImpl: NativeImpl.kotlin,
-      sourceUri: 'narrow_swift.native.dart',
-      functions: [
-        BridgeFunction(
-          dartName: 'getValue',
-          cSymbol: 'narrow_swift_getValue',
-          isAsync: false,
-          returnType: BridgeType(name: returnType),
-          params: [
-            BridgeParam(name: 'val', type: BridgeType(name: paramType)),
-          ],
+  dartClassName: 'NarrowSwift',
+  lib: 'narrow_swift',
+  namespace: 'narrow_swift',
+  iosImpl: NativeImpl.swift,
+  androidImpl: NativeImpl.kotlin,
+  sourceUri: 'narrow_swift.native.dart',
+  functions: [
+    BridgeFunction(
+      dartName: 'getValue',
+      cSymbol: 'narrow_swift_getValue',
+      isAsync: false,
+      returnType: BridgeType(name: returnType),
+      params: [
+        BridgeParam(
+          name: 'val',
+          type: BridgeType(name: paramType),
         ),
       ],
-    );
+    ),
+  ],
+);
 
 // ── int32 tests ───────────────────────────────────────────────────────────────
 

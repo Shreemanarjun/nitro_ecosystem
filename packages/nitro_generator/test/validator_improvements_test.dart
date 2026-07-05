@@ -103,15 +103,13 @@ void main() {
         isMap: true,
       );
       final issues = SpecValidator.validate(spec);
-      expect(issues.any((i) => i.code == 'E003' && i.isError), isTrue,
-          reason: 'Nested Map return type must be rejected');
+      expect(issues.any((i) => i.code == 'E003' && i.isError), isTrue, reason: 'Nested Map return type must be rejected');
     });
 
     test('return type Map<String, int> (flat) does NOT emit E003', () {
       final spec = _fn(returnTypeName: 'Map<String, int>', isMap: true, isRecord: true);
       final issues = SpecValidator.validate(spec);
-      expect(issues.any((i) => i.code == 'E003'), isFalse,
-          reason: 'Flat Map<String, V> is valid and must not trigger E003');
+      expect(issues.any((i) => i.code == 'E003'), isFalse, reason: 'Flat Map<String, V> is valid and must not trigger E003');
     });
 
     test('parameter Map<String, Map<String, String>> emits E003 error', () {
@@ -125,8 +123,7 @@ void main() {
         ],
       );
       final issues = SpecValidator.validate(spec);
-      expect(issues.any((i) => i.code == 'E003' && i.isError), isTrue,
-          reason: 'Nested Map parameter must be rejected');
+      expect(issues.any((i) => i.code == 'E003' && i.isError), isTrue, reason: 'Nested Map parameter must be rejected');
     });
 
     test('E003 hint mentions @HybridRecord wrapper as fix', () {
@@ -149,8 +146,7 @@ void main() {
     test('property type Stream<int> emits E004 error', () {
       final spec = _prop(typeName: 'Stream<int>', isStream: true);
       final issues = SpecValidator.validate(spec);
-      expect(issues.any((i) => i.code == 'E004' && i.isError), isTrue,
-          reason: 'Stream-typed property must be rejected');
+      expect(issues.any((i) => i.code == 'E004' && i.isError), isTrue, reason: 'Stream-typed property must be rejected');
     });
 
     test('property type int (non-stream) does NOT emit E004', () {
@@ -194,8 +190,7 @@ void main() {
     test('batch String stream is now valid (no E005)', () {
       // String batch uses a separate Array<String> wire format — now supported.
       final spec = _stream(itemTypeName: 'String', backpressure: Backpressure.batch);
-      expect(SpecValidator.validate(spec).any((i) => i.code == 'E005'), isFalse,
-          reason: 'String batch uses Array<String> wire format — now supported');
+      expect(SpecValidator.validate(spec).any((i) => i.code == 'E005'), isFalse, reason: 'String batch uses Array<String> wire format — now supported');
     });
 
     test('batch @HybridRecord stream is now valid (no E005)', () {
@@ -221,8 +216,7 @@ void main() {
         ],
       );
       final issues = SpecValidator.validate(spec);
-      expect(issues.any((i) => i.code == 'E005'), isFalse,
-          reason: 'Backpressure.batch on @HybridRecord streams is now supported (L3)');
+      expect(issues.any((i) => i.code == 'E005'), isFalse, reason: 'Backpressure.batch on @HybridRecord streams is now supported (L3)');
     });
 
     test('batch @HybridStruct stream still emits E005 error', () {
@@ -248,8 +242,7 @@ void main() {
         ],
       );
       final issues = SpecValidator.validate(spec);
-      expect(issues.any((i) => i.code == 'E005' && i.isError), isTrue,
-          reason: 'Backpressure.batch on @HybridStruct streams is still unsupported');
+      expect(issues.any((i) => i.code == 'E005' && i.isError), isTrue, reason: 'Backpressure.batch on @HybridStruct streams is still unsupported');
     });
 
     test('batch enum stream is now valid (no E005)', () {
@@ -260,7 +253,9 @@ void main() {
         iosImpl: NativeImpl.swift,
         androidImpl: NativeImpl.kotlin,
         sourceUri: 'mod.native.dart',
-        enums: [BridgeEnum(name: 'Status', startValue: 0, values: ['a', 'b'])],
+        enums: [
+          BridgeEnum(name: 'Status', startValue: 0, values: ['a', 'b']),
+        ],
         streams: [
           BridgeStream(
             dartName: 'statuses',
@@ -275,8 +270,7 @@ void main() {
         ],
       );
       final issues = SpecValidator.validate(spec);
-      expect(issues.any((i) => i.code == 'E005'), isFalse,
-          reason: 'Backpressure.batch on @HybridEnum streams is now supported via rawValue Int64 packing');
+      expect(issues.any((i) => i.code == 'E005'), isFalse, reason: 'Backpressure.batch on @HybridEnum streams is now supported via rawValue Int64 packing');
     });
 
     test('E005 hint mentions dropLatest / dropOldest as alternatives', () {
@@ -328,8 +322,7 @@ void main() {
         batchMaxSize: 0,
       );
       final issues = SpecValidator.validate(spec);
-      expect(issues.any((i) => i.code == 'E006' && i.isError), isTrue,
-          reason: 'batchMaxSize = 0 would cause the flush to fire on every item, not a batch');
+      expect(issues.any((i) => i.code == 'E006' && i.isError), isTrue, reason: 'batchMaxSize = 0 would cause the flush to fire on every item, not a batch');
     });
 
     test('batchMaxSize = -1 emits E006 error', () {
@@ -367,8 +360,7 @@ void main() {
         backpressure: Backpressure.dropLatest,
         batchMaxSize: 0,
       );
-      expect(SpecValidator.validate(spec).any((i) => i.code == 'E006'), isFalse,
-          reason: 'batchMaxSize is only relevant for Backpressure.batch');
+      expect(SpecValidator.validate(spec).any((i) => i.code == 'E006'), isFalse, reason: 'batchMaxSize is only relevant for Backpressure.batch');
     });
   });
 
@@ -381,8 +373,7 @@ void main() {
     test('Map<int, V> return does NOT emit E001 (int key natively supported — Gap #3)', () {
       final spec = _fn(returnTypeName: 'Map<int, String>');
       final issues = SpecValidator.validate(spec);
-      expect(issues.any((i) => i.code == 'E001'), isFalse,
-          reason: 'Map<int,V> is now supported via binary int-key wire format');
+      expect(issues.any((i) => i.code == 'E001'), isFalse, reason: 'Map<int,V> is now supported via binary int-key wire format');
     });
 
     test('Map<int, V> parameter does NOT emit E001 (int key natively supported — Gap #3)', () {
@@ -396,15 +387,13 @@ void main() {
         ],
       );
       final issues = SpecValidator.validate(spec);
-      expect(issues.any((i) => i.code == 'E001'), isFalse,
-          reason: 'Map<int,V> params are now supported');
+      expect(issues.any((i) => i.code == 'E001'), isFalse, reason: 'Map<int,V> params are now supported');
     });
 
     test('Map<bool, V> return still emits E001 (bool key is unsupported)', () {
       final spec = _fn(returnTypeName: 'Map<bool, String>');
       final issues = SpecValidator.validate(spec);
-      expect(issues.any((i) => i.code == 'E001'), isTrue,
-          reason: 'bool is not a valid map key type');
+      expect(issues.any((i) => i.code == 'E001'), isTrue, reason: 'bool is not a valid map key type');
     });
 
     test('Map<String, V> does NOT emit E001', () {
@@ -499,8 +488,7 @@ void main() {
       );
       final out = SwiftGenerator.generate(spec);
       // item is already Int64 from AnyPublisher<Int64, Never>; no force-cast needed.
-      expect(out, isNot(contains('item as! Int64')),
-          reason: 'Force-cast "as! Int64" generates a Swift compiler warning; use direct append instead');
+      expect(out, isNot(contains('item as! Int64')), reason: 'Force-cast "as! Int64" generates a Swift compiler warning; use direct append instead');
       expect(out, contains('_buf.append(item)'));
     });
 
@@ -825,21 +813,18 @@ void main() {
 
     test('Map<String, @HybridEnum> return type does NOT emit E007', () {
       final issues = SpecValidator.validate(mapEnumFn(isReturn: true));
-      expect(issues.any((i) => i.code == 'E007'), isFalse,
-          reason: 'Map<String, @HybridEnum> return is now supported — enum encoded as int64 rawValue');
+      expect(issues.any((i) => i.code == 'E007'), isFalse, reason: 'Map<String, @HybridEnum> return is now supported — enum encoded as int64 rawValue');
     });
 
     test('Map<String, @HybridEnum> parameter type does NOT emit E007', () {
       final issues = SpecValidator.validate(mapEnumFn(isReturn: false));
-      expect(issues.any((i) => i.code == 'E007'), isFalse,
-          reason: 'Map<String, @HybridEnum> param is now supported — enum decoded from int64 rawValue');
+      expect(issues.any((i) => i.code == 'E007'), isFalse, reason: 'Map<String, @HybridEnum> param is now supported — enum decoded from int64 rawValue');
     });
 
     test('Map<String, int> has no issues', () {
       final spec = _fn(returnTypeName: 'Map<String, int>', isMap: true, isRecord: true);
       final issues = SpecValidator.validate(spec);
-      expect(issues.any((i) => i.code == 'E007'), isFalse,
-          reason: 'Map<String, int> is a valid type');
+      expect(issues.any((i) => i.code == 'E007'), isFalse, reason: 'Map<String, int> is a valid type');
     });
   });
 
@@ -847,10 +832,22 @@ void main() {
 
   group('E008 — Map<String, @HybridStruct> return/param', () {
     BridgeSpec mapStructFn({bool isReturn = true}) {
-      final structSpec = BridgeStruct(name: 'Point', packed: false, fields: [
-        BridgeField(name: 'x', type: BridgeType(name: 'double'), isNamed: true),
-        BridgeField(name: 'y', type: BridgeType(name: 'double'), isNamed: true),
-      ]);
+      final structSpec = BridgeStruct(
+        name: 'Point',
+        packed: false,
+        fields: [
+          BridgeField(
+            name: 'x',
+            type: BridgeType(name: 'double'),
+            isNamed: true,
+          ),
+          BridgeField(
+            name: 'y',
+            type: BridgeType(name: 'double'),
+            isNamed: true,
+          ),
+        ],
+      );
       final mapType = BridgeType(name: 'Map<String, Point>', isMap: true, isRecord: true);
       return BridgeSpec(
         dartClassName: 'Mod',
@@ -875,21 +872,18 @@ void main() {
 
     test('Map<String, @HybridStruct> return type emits E008', () {
       final issues = SpecValidator.validate(mapStructFn(isReturn: true));
-      expect(issues.any((i) => i.code == 'E008' && i.isError), isTrue,
-          reason: 'Map<String, @HybridStruct> return must be rejected with E008');
+      expect(issues.any((i) => i.code == 'E008' && i.isError), isTrue, reason: 'Map<String, @HybridStruct> return must be rejected with E008');
     });
 
     test('Map<String, @HybridStruct> parameter type emits E008', () {
       final issues = SpecValidator.validate(mapStructFn(isReturn: false));
-      expect(issues.any((i) => i.code == 'E008' && i.isError), isTrue,
-          reason: 'Map<String, @HybridStruct> param must be rejected with E008');
+      expect(issues.any((i) => i.code == 'E008' && i.isError), isTrue, reason: 'Map<String, @HybridStruct> param must be rejected with E008');
     });
 
     test('Map<String, String> does NOT emit E008', () {
       final spec = _fn(returnTypeName: 'Map<String, String>', isMap: true, isRecord: true);
       final issues = SpecValidator.validate(spec);
-      expect(issues.any((i) => i.code == 'E008'), isFalse,
-          reason: 'Map<String, String> is a valid type');
+      expect(issues.any((i) => i.code == 'E008'), isFalse, reason: 'Map<String, String> is a valid type');
     });
   });
 
@@ -902,36 +896,31 @@ void main() {
     test('Stream<int?> does NOT emit E009', () {
       final spec = _stream(itemTypeName: 'int?');
       final issues = SpecValidator.validate(spec);
-      expect(issues.any((i) => i.code == 'E009'), isFalse,
-          reason: 'Nullable int? stream is now supported — E009 was removed');
+      expect(issues.any((i) => i.code == 'E009'), isFalse, reason: 'Nullable int? stream is now supported — E009 was removed');
     });
 
     test('Stream<String?> does NOT emit E009', () {
       final spec = _stream(itemTypeName: 'String?');
       final issues = SpecValidator.validate(spec);
-      expect(issues.any((i) => i.code == 'E009'), isFalse,
-          reason: 'Nullable String? stream is now supported');
+      expect(issues.any((i) => i.code == 'E009'), isFalse, reason: 'Nullable String? stream is now supported');
     });
 
     test('Stream<double?> does NOT emit E009', () {
       final spec = _stream(itemTypeName: 'double?');
       final issues = SpecValidator.validate(spec);
-      expect(issues.any((i) => i.code == 'E009'), isFalse,
-          reason: 'Nullable double? stream is now supported');
+      expect(issues.any((i) => i.code == 'E009'), isFalse, reason: 'Nullable double? stream is now supported');
     });
 
     test('Stream<int> (non-nullable) has no issues', () {
       final spec = _stream(itemTypeName: 'int');
       final issues = SpecValidator.validate(spec);
-      expect(issues.any((i) => i.code == 'E009'), isFalse,
-          reason: 'Non-nullable int stream is valid');
+      expect(issues.any((i) => i.code == 'E009'), isFalse, reason: 'Non-nullable int stream is valid');
     });
 
     test('Stream<String> (non-nullable) has no issues', () {
       final spec = _stream(itemTypeName: 'String');
       final issues = SpecValidator.validate(spec);
-      expect(issues.any((i) => i.code == 'E009'), isFalse,
-          reason: 'Non-nullable String stream is valid');
+      expect(issues.any((i) => i.code == 'E009'), isFalse, reason: 'Non-nullable String stream is valid');
     });
   });
 
@@ -960,12 +949,9 @@ void main() {
         ],
       );
       final out = SwiftGenerator.generate(spec);
-      expect(out, contains('withCString'),
-          reason: 'String stream items must use withCString closure');
-      expect(out, contains('UnsafeMutablePointer(mutating: ptr)'),
-          reason: 'C string pointer must be passed to emitCb');
-      expect(out, isNot(contains('emitCb(dartPort, item)')),
-          reason: 'Swift String cannot be directly passed as UnsafeMutablePointer<Int8>');
+      expect(out, contains('withCString'), reason: 'String stream items must use withCString closure');
+      expect(out, contains('UnsafeMutablePointer(mutating: ptr)'), reason: 'C string pointer must be passed to emitCb');
+      expect(out, isNot(contains('emitCb(dartPort, item)')), reason: 'Swift String cannot be directly passed as UnsafeMutablePointer<Int8>');
     });
   });
 }

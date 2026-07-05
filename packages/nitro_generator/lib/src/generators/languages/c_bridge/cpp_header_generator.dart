@@ -93,15 +93,11 @@ class CppHeaderGenerator {
       // destroy_instance is called from dispose() to release the native impl.
       CodeLine('NITRO_EXPORT int64_t ${libStem}_create_instance(const char* key);'),
       CodeLine('NITRO_EXPORT void ${libStem}_destroy_instance(int64_t instanceId);'),
-      if (spec.functions.any((f) => f.zeroCopyReturn && f.returnType.isTypedData))
-        CodeLine('NITRO_EXPORT void ${libStem}_release_typed_data_return(void* ptr);'),
+      if (spec.functions.any((f) => f.zeroCopyReturn && f.returnType.isTypedData)) CodeLine('NITRO_EXPORT void ${libStem}_release_typed_data_return(void* ptr);'),
       // @NitroOwned: emit a _release symbol for each owned NativeHandle function.
       // The user implements these to free the native heap allocation.
-      for (final f in spec.functions.where((f) => f.isOwned && f.returnType.isNativeHandle))
-        CodeLine('/// Release the handle returned by ${f.dartName}(). Called by Dart NativeFinalizer.')
-      ,
-      for (final f in spec.functions.where((f) => f.isOwned && f.returnType.isNativeHandle))
-        CodeLine('NITRO_EXPORT void ${f.cSymbol}_release(void* handle);'),
+      for (final f in spec.functions.where((f) => f.isOwned && f.returnType.isNativeHandle)) CodeLine('/// Release the handle returned by ${f.dartName}(). Called by Dart NativeFinalizer.'),
+      for (final f in spec.functions.where((f) => f.isOwned && f.returnType.isNativeHandle)) CodeLine('NITRO_EXPORT void ${f.cSymbol}_release(void* handle);'),
       const BlankLine(),
       const BlankLine(),
       const BlankLine(),
@@ -195,29 +191,45 @@ class CppHeaderGenerator {
         final String getterRet;
         final String setterParam;
         if (!isEnumProp) {
-          final isRecordOrVariantProp =
-              prop.type.isRecord || spec.isRecordName(bare) || spec.isVariantName(bare);
+          final isRecordOrVariantProp = prop.type.isRecord || spec.isRecordName(bare) || spec.isVariantName(bare);
           final isCustomTypeProp = spec.isCustomTypeName(bare);
           if (prop.type.isAnyNativeObject) {
-            getterRet = 'int64_t'; setterParam = 'int64_t';
+            getterRet = 'int64_t';
+            setterParam = 'int64_t';
           } else if (isCustomTypeProp) {
-            getterRet = 'uint8_t*'; setterParam = 'const uint8_t*';
+            getterRet = 'uint8_t*';
+            setterParam = 'const uint8_t*';
           } else {
             switch (prop.type.name) {
-              case 'int?':    getterRet = 'uint8_t*'; setterParam = 'const uint8_t*'; break;
-              case 'uint64?': getterRet = 'uint8_t*'; setterParam = 'const uint8_t*'; break;
-              case 'double?': getterRet = 'uint8_t*'; setterParam = 'const uint8_t*'; break;
-              case 'bool?':   getterRet = 'uint8_t*'; setterParam = 'const uint8_t*'; break;
+              case 'int?':
+                getterRet = 'uint8_t*';
+                setterParam = 'const uint8_t*';
+                break;
+              case 'uint64?':
+                getterRet = 'uint8_t*';
+                setterParam = 'const uint8_t*';
+                break;
+              case 'double?':
+                getterRet = 'uint8_t*';
+                setterParam = 'const uint8_t*';
+                break;
+              case 'bool?':
+                getterRet = 'uint8_t*';
+                setterParam = 'const uint8_t*';
+                break;
               default:
                 if (isRecordOrVariantProp) {
-                  getterRet = 'uint8_t*'; setterParam = 'const uint8_t*';
+                  getterRet = 'uint8_t*';
+                  setterParam = 'const uint8_t*';
                 } else {
-                  getterRet = _typeToC(prop.type.name); setterParam = getterRet;
+                  getterRet = _typeToC(prop.type.name);
+                  setterParam = getterRet;
                 }
             }
           }
         } else {
-          getterRet = 'int64_t'; setterParam = 'int64_t';
+          getterRet = 'int64_t';
+          setterParam = 'int64_t';
         }
         // S8: property accessors also receive NitroError* out-param; instanceId for dispatch (Point 13).
         if (prop.hasGetter) {

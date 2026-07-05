@@ -438,7 +438,12 @@ void main() {
             cSymbol: 'plain_mod_add',
             isAsync: false,
             returnType: BridgeType(name: 'int'),
-            params: [BridgeParam(name: 'a', type: BridgeType(name: 'int'))],
+            params: [
+              BridgeParam(
+                name: 'a',
+                type: BridgeType(name: 'int'),
+              ),
+            ],
           ),
         ],
       );

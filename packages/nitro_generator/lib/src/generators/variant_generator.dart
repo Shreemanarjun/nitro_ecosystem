@@ -34,12 +34,10 @@ class VariantGenerator {
   /// Returns true when the variant has a case whose name is literally `'null'`
   /// (case-insensitive). This makes the variant nullable — `fromNative` /
   /// `fromReader` return `VariantName?` and the null-tag decodes to Dart `null`.
-  static bool _hasNullCase(BridgeVariant variant) =>
-      variant.cases.any((c) => c.name.toLowerCase() == 'null');
+  static bool _hasNullCase(BridgeVariant variant) => variant.cases.any((c) => c.name.toLowerCase() == 'null');
 
   /// Returns the 0-based tag index assigned to the null-marker case, or -1.
-  static int _nullCaseTag(BridgeVariant variant) =>
-      variant.cases.indexWhere((c) => c.name.toLowerCase() == 'null');
+  static int _nullCaseTag(BridgeVariant variant) => variant.cases.indexWhere((c) => c.name.toLowerCase() == 'null');
 
   /// Returns true when the variant's decode can be optimized with a dart:ffi Union
   /// (all cases: unit or exactly one non-nullable primitive field int/double/bool).
@@ -49,14 +47,11 @@ class VariantGenerator {
   /// `null` from a zero-copy union path is not supported.
   static bool _isPrimOnlyVariant(BridgeVariant variant) =>
       !_hasNullCase(variant) &&
-      variant.cases.every((c) =>
-          c.isUnit ||
-          (c.fields.length == 1 &&
-           c.fields[0].kind == RecordFieldKind.primitive &&
-           !c.fields[0].isNullable &&
-           (c.fields[0].dartType == 'int' ||
-            c.fields[0].dartType == 'double' ||
-            c.fields[0].dartType == 'bool')));
+      variant.cases.every(
+        (c) =>
+            c.isUnit ||
+            (c.fields.length == 1 && c.fields[0].kind == RecordFieldKind.primitive && !c.fields[0].isNullable && (c.fields[0].dartType == 'int' || c.fields[0].dartType == 'double' || c.fields[0].dartType == 'bool')),
+      );
 
   static void _emitVariantExt(
     CodeWriter s,

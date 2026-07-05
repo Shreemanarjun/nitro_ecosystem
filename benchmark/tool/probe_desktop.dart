@@ -36,13 +36,17 @@ void main(List<String> args) {
     final lib = DynamicLibrary.open(path);
 
     step('  ${name}_init_dart_api_dl');
-    final init = lib.lookupFunction<IntPtr Function(Pointer<Void>),
-        int Function(Pointer<Void>)>('${name}_init_dart_api_dl');
+    final init = lib
+        .lookupFunction<
+          IntPtr Function(Pointer<Void>),
+          int Function(Pointer<Void>)
+        >('${name}_init_dart_api_dl');
     step('  init → ${init(NativeApi.initializeApiDLData)}');
 
     step('  ${name}_nitro_abi_version');
     final abi = lib.lookupFunction<Uint32 Function(), int Function()>(
-        '${name}_nitro_abi_version');
+      '${name}_nitro_abi_version',
+    );
     step('  abi → ${abi()}');
 
     if (!lib.providesSymbol('${name}_create_instance')) {
@@ -50,8 +54,11 @@ void main(List<String> args) {
       continue;
     }
     step('  ${name}_create_instance(null)');
-    final create = lib.lookupFunction<Int64 Function(Pointer<Void>),
-        int Function(Pointer<Void>)>('${name}_create_instance');
+    final create = lib
+        .lookupFunction<
+          Int64 Function(Pointer<Void>),
+          int Function(Pointer<Void>)
+        >('${name}_create_instance');
     final id = create(Pointer.fromAddress(0));
     step('  instanceId → $id');
 
@@ -61,11 +68,15 @@ void main(List<String> args) {
     final addSym = '${name}_add';
     if (lib.providesSymbol(addSym)) {
       step('  $addSym(2, 3)');
-      final add = lib.lookupFunction<
-          Double Function(Int64, Double, Double, Pointer<Void>),
-          double Function(int, double, double, Pointer<Void>)>(addSym);
+      final add = lib
+          .lookupFunction<
+            Double Function(Int64, Double, Double, Pointer<Void>),
+            double Function(int, double, double, Pointer<Void>)
+          >(addSym);
       final v = add(id, 2.0, 3.0, Pointer.fromAddress(0));
-      step('  $addSym → $v ${v == 5.0 ? "OK" : "WRONG (impl not registered?)"}');
+      step(
+        '  $addSym → $v ${v == 5.0 ? "OK" : "WRONG (impl not registered?)"}',
+      );
       // Call it in a tight loop — some crashes only appear after warm-up.
       step('  $addSym ×1000 loop');
       var acc = 0.0;

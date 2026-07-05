@@ -13,29 +13,29 @@ import 'package:test/test.dart';
 void main() {
   group('Null variant case (Gap #5)', () {
     BridgeSpec nullableVariantSpec({String nullCaseName = 'null'}) => BridgeSpec(
-          dartClassName: 'Filter',
-          lib: 'filter',
-          namespace: 'filter',
-          androidImpl: NativeImpl.kotlin,
-          sourceUri: 'filter.native.dart',
-          variants: [
-            BridgeVariant(
-              name: 'FilterEvent',
-              cases: [
-                BridgeVariantCase(
-                  name: 'FilterAccepted',
-                  label: 'accepted',
-                  fields: [],
-                ),
-                BridgeVariantCase(
-                  name: nullCaseName,
-                  label: nullCaseName,
-                  fields: [],
-                ),
-              ],
+      dartClassName: 'Filter',
+      lib: 'filter',
+      namespace: 'filter',
+      androidImpl: NativeImpl.kotlin,
+      sourceUri: 'filter.native.dart',
+      variants: [
+        BridgeVariant(
+          name: 'FilterEvent',
+          cases: [
+            BridgeVariantCase(
+              name: 'FilterAccepted',
+              label: 'accepted',
+              fields: [],
+            ),
+            BridgeVariantCase(
+              name: nullCaseName,
+              label: nullCaseName,
+              fields: [],
             ),
           ],
-        );
+        ),
+      ],
+    );
 
     test('generates extension code for a variant with a null case', () {
       final out = VariantGenerator.generateDartExtensions(nullableVariantSpec());

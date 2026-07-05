@@ -69,15 +69,24 @@ class KotlinTypeMapper implements TypeMapper {
         return 'String';
       case 'void':
         return 'Unit';
-      case 'int8': return 'Byte';
-      case 'int16': return 'Short';
-      case 'int32': return 'Int';
-      case 'uint8': return 'Byte';   // unsigned bits preserved in signed Byte
-      case 'uint16': return 'Short'; // unsigned bits preserved in signed Short
-      case 'uint32': return 'Int';   // unsigned bits preserved in signed Int
-      case 'float': return 'Float';
-      case 'intptr': return 'Long';
-      case 'size': return 'Long';
+      case 'int8':
+        return 'Byte';
+      case 'int16':
+        return 'Short';
+      case 'int32':
+        return 'Int';
+      case 'uint8':
+        return 'Byte'; // unsigned bits preserved in signed Byte
+      case 'uint16':
+        return 'Short'; // unsigned bits preserved in signed Short
+      case 'uint32':
+        return 'Int'; // unsigned bits preserved in signed Int
+      case 'float':
+        return 'Float';
+      case 'intptr':
+        return 'Long';
+      case 'size':
+        return 'Long';
       case 'Uint8List':
       case 'Int8List':
         return 'ByteArray';
@@ -309,11 +318,9 @@ class KotlinTypeMapper implements TypeMapper {
       'String' => invocation,
       final t when enumNames.contains(t) => '$t.fromNative($invocation)',
       // @HybridRecord return: C JNI returns ByteArray with [4B len][payload]; skip prefix and decode.
-      final t when recordNames.contains(t) =>
-        'run { val _b = $invocation; val _bb = java.nio.ByteBuffer.wrap(_b).order(java.nio.ByteOrder.LITTLE_ENDIAN); _bb.getInt(); $t.decodeFrom(_bb) }',
+      final t when recordNames.contains(t) => 'run { val _b = $invocation; val _bb = java.nio.ByteBuffer.wrap(_b).order(java.nio.ByteOrder.LITTLE_ENDIAN); _bb.getInt(); $t.decodeFrom(_bb) }',
       // @NitroVariant return: same wire format; decode via fromReader.
-      final t when variantNames.contains(t) =>
-        'run { val _b = $invocation; val _bb = java.nio.ByteBuffer.wrap(_b).order(java.nio.ByteOrder.LITTLE_ENDIAN); _bb.getInt(); $t.fromReader(RecordReader(_bb)) }',
+      final t when variantNames.contains(t) => 'run { val _b = $invocation; val _bb = java.nio.ByteBuffer.wrap(_b).order(java.nio.ByteOrder.LITTLE_ENDIAN); _bb.getInt(); $t.fromReader(RecordReader(_bb)) }',
       _ => invocation,
     };
     return '{ ${lambdaParams.isEmpty ? '' : '$lambdaParams -> '}$body }';

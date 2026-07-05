@@ -63,8 +63,7 @@ class NitroGeneratorBuilder implements Builder {
         final target = _nativeGenerators.targetForOutputPath(outId.path);
         if (target == null) continue;
 
-        if (target == NativeGeneratorTarget.dartFfi ||
-            target == NativeGeneratorTarget.webBridge) {
+        if (target == NativeGeneratorTarget.dartFfi || target == NativeGeneratorTarget.webBridge) {
           // Both Dart generators produce Dart code — format for readability.
           final rawCode = _nativeGenerators.generate(target, spec);
           String formattedCode;

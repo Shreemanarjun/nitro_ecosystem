@@ -13,8 +13,7 @@ class ReceivePort {
   Stream<dynamic> get first => throw UnsupportedError('ReceivePort not available on web');
   SendPort get sendPort => throw UnsupportedError('ReceivePort not available on web');
   void close() => throw UnsupportedError('ReceivePort not available on web');
-  void listen(void Function(dynamic) onData) =>
-      throw UnsupportedError('ReceivePort not available on web');
+  void listen(void Function(dynamic) onData) => throw UnsupportedError('ReceivePort not available on web');
 }
 
 class SendPort {

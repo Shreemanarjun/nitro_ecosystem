@@ -1205,11 +1205,7 @@ void _copySwiftBridgesToClasses(
     p.join(baseDir, 'lib', 'src', 'generated', 'swift'),
   );
   if (!swiftGenDir.existsSync()) return;
-  final bridgeFiles = swiftGenDir
-      .listSync()
-      .whereType<File>()
-      .where((f) => p.basename(f.path).endsWith('.bridge.g.swift'))
-      .toList()
+  final bridgeFiles = swiftGenDir.listSync().whereType<File>().where((f) => p.basename(f.path).endsWith('.bridge.g.swift')).toList()
     ..sort((a, b) => p.basename(a.path).compareTo(p.basename(b.path)));
   // Cumulative dedup: the shared preamble is emitted piecewise per spec (a
   // record-only spec has NitroRecordWriter/Reader but no NitroEncodable), so
@@ -1234,11 +1230,7 @@ void _copySwiftBridgesToClasses(
 void _syncSwiftBridgesToSpmSources(String baseDir) {
   final swiftGenDir = Directory(p.join(baseDir, 'lib', 'src', 'generated', 'swift'));
   if (!swiftGenDir.existsSync()) return;
-  final allBridges = swiftGenDir
-      .listSync()
-      .whereType<File>()
-      .where((f) => p.basename(f.path).endsWith('.bridge.g.swift'))
-      .toList()
+  final allBridges = swiftGenDir.listSync().whereType<File>().where((f) => p.basename(f.path).endsWith('.bridge.g.swift')).toList()
     ..sort((a, b) => p.basename(a.path).compareTo(p.basename(b.path)));
   if (allBridges.isEmpty) return;
 
@@ -1250,9 +1242,7 @@ void _syncSwiftBridgesToSpmSources(String baseDir) {
   // no NitroEncodable), so check for any shared marker, not just the protocol.
   bool hasPreamble(File f) {
     final content = f.readAsStringSync();
-    return content.contains('\npublic protocol NitroEncodable') ||
-        content.contains('\npublic class NitroRecordWriter') ||
-        content.contains('\npublic class NitroRecordReader');
+    return content.contains('\npublic protocol NitroEncodable') || content.contains('\npublic class NitroRecordWriter') || content.contains('\npublic class NitroRecordReader');
   }
 
   final generatedBridges = [
@@ -2090,11 +2080,7 @@ void _syncCppModuleSourcesToSpm(
       // platform (ios/macos). Modules that are C++ on Windows/Linux but Swift
       // on ios/macos still need the .bridge.g.mm forwarder so SPM links the
       // $lib_init_dart_api_dl symbol into the binary.
-      final appleCppLibs = (platform == 'ios'
-              ? moduleInfos.where((m) => m.iosIsCpp)
-              : moduleInfos.where((m) => m.macosIsCpp))
-          .map((m) => m.lib)
-          .toSet();
+      final appleCppLibs = (platform == 'ios' ? moduleInfos.where((m) => m.iosIsCpp) : moduleInfos.where((m) => m.macosIsCpp)).map((m) => m.lib).toSet();
       for (final m in moduleInfos) {
         final lib = m.lib;
         if (lib == pluginName) continue; // main bridge already written above
@@ -2383,8 +2369,7 @@ void linkKotlinPlugin(
     // registerFactory (lambda + Context) — the generated JniBridge's only
     // registration API since the multi-instance registry landed; the old
     // register(impl) overload no longer exists and would not compile.
-    final registerCall =
-        '$reg.registerFactory({ $impl($implArg) }, binding.applicationContext)';
+    final registerCall = '$reg.registerFactory({ $impl($implArg) }, binding.applicationContext)';
     if (!content.contains('$reg.register')) {
       // Anchor after the last existing registration (either legacy
       // register(...) or registerFactory({...}, ctx) — both end-of-line forms).
@@ -2642,8 +2627,7 @@ String _removeBraceBalancedBlock(String content, RegExp opener) {
     if (depth == 0) {
       var end = i + 1;
       // Swallow trailing whitespace up to and including one newline.
-      while (end < content.length &&
-          (content.codeUnitAt(end) == 0x20 || content.codeUnitAt(end) == 0x09)) {
+      while (end < content.length && (content.codeUnitAt(end) == 0x20 || content.codeUnitAt(end) == 0x09)) {
         end++;
       }
       if (end < content.length && content.codeUnitAt(end) == 0x0A) end++;

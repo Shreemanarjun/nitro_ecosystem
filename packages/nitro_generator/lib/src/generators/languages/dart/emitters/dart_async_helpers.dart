@@ -140,9 +140,7 @@ String _nativeAsyncUnpack(BridgeFunction func, BridgeSpec spec) {
 
   // AnyNativeObject — posts kInt64 instanceId; nullable uses -1 sentinel
   if (rtBase == 'AnyNativeObject' || func.returnType.isAnyNativeObject) {
-    return isNullable
-        ? '(raw) { final id = raw as int; return id == -1 ? null : AnyNativeObject(id); }'
-        : '(raw) => AnyNativeObject(raw as int)';
+    return isNullable ? '(raw) { final id = raw as int; return id == -1 ? null : AnyNativeObject(id); }' : '(raw) => AnyNativeObject(raw as int)';
   }
 
   // @NitroCustomType — posts kInt64 (pointer to Uint8 buffer)
@@ -380,4 +378,3 @@ bool _isLeafCandidate(BridgeFunction func, BridgeSpec spec) {
   if (!_isPrimitiveType(rt, spec) && rt.name != 'void') return false;
   return func.params.every((p) => _isPrimitiveType(p.type, spec));
 }
-

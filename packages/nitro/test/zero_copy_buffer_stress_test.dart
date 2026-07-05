@@ -8,7 +8,6 @@
 //   5. Mixed concurrent alloc + release without corruption.
 //   6. All nine buffer variants construct and release correctly.
 
-
 import 'package:nitro/nitro.dart';
 import 'package:test/test.dart';
 

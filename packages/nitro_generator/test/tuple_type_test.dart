@@ -21,76 +21,75 @@ import 'test_utils.dart';
 
 /// A BridgeRecordType representing `typedef MyPair = (int, String);`
 BridgeRecordType _myPair({bool isTuple = true}) => BridgeRecordType(
-      name: 'MyPair',
-      isTuple: isTuple,
-      fields: [
-        BridgeRecordField(
-          name: 'field0',
-          dartType: 'int',
-          kind: RecordFieldKind.primitive,
-        ),
-        BridgeRecordField(
-          name: 'field1',
-          dartType: 'String',
-          kind: RecordFieldKind.primitive,
-        ),
-      ],
-    );
+  name: 'MyPair',
+  isTuple: isTuple,
+  fields: [
+    BridgeRecordField(
+      name: 'field0',
+      dartType: 'int',
+      kind: RecordFieldKind.primitive,
+    ),
+    BridgeRecordField(
+      name: 'field1',
+      dartType: 'String',
+      kind: RecordFieldKind.primitive,
+    ),
+  ],
+);
 
 /// A 3-field tuple: `typedef MyTriple = (int, String, bool);`
 BridgeRecordType _myTriple() => BridgeRecordType(
-      name: 'MyTriple',
-      isTuple: true,
-      fields: [
-        BridgeRecordField(
-          name: 'field0',
-          dartType: 'int',
-          kind: RecordFieldKind.primitive,
-        ),
-        BridgeRecordField(
-          name: 'field1',
-          dartType: 'String',
-          kind: RecordFieldKind.primitive,
-        ),
-        BridgeRecordField(
-          name: 'field2',
-          dartType: 'bool',
-          kind: RecordFieldKind.primitive,
-        ),
-      ],
-    );
+  name: 'MyTriple',
+  isTuple: true,
+  fields: [
+    BridgeRecordField(
+      name: 'field0',
+      dartType: 'int',
+      kind: RecordFieldKind.primitive,
+    ),
+    BridgeRecordField(
+      name: 'field1',
+      dartType: 'String',
+      kind: RecordFieldKind.primitive,
+    ),
+    BridgeRecordField(
+      name: 'field2',
+      dartType: 'bool',
+      kind: RecordFieldKind.primitive,
+    ),
+  ],
+);
 
 BridgeType _tupleType(String name, {bool isNullable = false}) => BridgeType(
-      name: name,
-      isRecord: true,
-      isTuple: true,
-      isNullable: isNullable,
-    );
+  name: name,
+  isRecord: true,
+  isTuple: true,
+  isNullable: isNullable,
+);
 
-BridgeSpec _spec(String returnType, {List<BridgeParam> params = const [], bool isNullable = false}) =>
-    BridgeSpec(
-      dartClassName: 'Counter',
-      lib: 'counter',
-      namespace: 'counter',
-      iosImpl: NativeImpl.swift,
-      androidImpl: NativeImpl.kotlin,
-      sourceUri: 'counter.native.dart',
-      recordTypes: [_myPair(), _myTriple()],
-      functions: [
-        BridgeFunction(
-          dartName: 'getPair',
-          cSymbol: 'counter_getPair',
-          isAsync: false,
-          returnType: BridgeType(
-            name: returnType,
-            isRecord: returnType == 'MyPair' || returnType == 'MyPair?',
-            isTuple: returnType == 'MyPair' || returnType == 'MyPair?',
-            isNullable: isNullable,
-          ),
-          params: params,
-        ),
-      ],
-    );
+BridgeSpec _spec(String returnType, {List<BridgeParam> params = const [], bool isNullable = false}) => BridgeSpec(
+  dartClassName: 'Counter',
+  lib: 'counter',
+  namespace: 'counter',
+  iosImpl: NativeImpl.swift,
+  androidImpl: NativeImpl.kotlin,
+  sourceUri: 'counter.native.dart',
+  recordTypes: [_myPair(), _myTriple()],
+  functions: [
+    BridgeFunction(
+      dartName: 'getPair',
+      cSymbol: 'counter_getPair',
+      isAsync: false,
+      returnType: BridgeType(
+        name: returnType,
+        isRecord: returnType == 'MyPair' || returnType == 'MyPair?',
+        isTuple: returnType == 'MyPair' || returnType == 'MyPair?',
+        isNullable: isNullable,
+      ),
+      params: params,
+    ),
+  ],
+);
 
 // ── BridgeType.kind ───────────────────────────────────────────────────────────
 
@@ -328,23 +327,23 @@ void main() {
 
   group('L12 tuple — @nitroAsync return', () {
     BridgeSpec asyncSpec() => BridgeSpec(
-          dartClassName: 'Counter',
-          lib: 'counter',
-          namespace: 'counter',
-          iosImpl: NativeImpl.swift,
-          androidImpl: NativeImpl.kotlin,
-          sourceUri: 'counter.native.dart',
-          recordTypes: [_myPair()],
-          functions: [
-            BridgeFunction(
-              dartName: 'getPairAsync',
-              cSymbol: 'counter_getPairAsync',
-              isAsync: true,
-              returnType: _tupleType('MyPair'),
-              params: [],
-            ),
-          ],
-        );
+      dartClassName: 'Counter',
+      lib: 'counter',
+      namespace: 'counter',
+      iosImpl: NativeImpl.swift,
+      androidImpl: NativeImpl.kotlin,
+      sourceUri: 'counter.native.dart',
+      recordTypes: [_myPair()],
+      functions: [
+        BridgeFunction(
+          dartName: 'getPairAsync',
+          cSymbol: 'counter_getPairAsync',
+          isAsync: true,
+          returnType: _tupleType('MyPair'),
+          params: [],
+        ),
+      ],
+    );
 
     test('async tuple return: callAsync<Pointer<Uint8>>', () {
       final dart = DartFfiGenerator.generate(asyncSpec());

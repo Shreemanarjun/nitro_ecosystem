@@ -539,8 +539,7 @@ void main() {
       // The else branch (TLS path) must appear inside the @catch, before its closing }.
       final catchEnd = catchBlock.indexOf('\n}'); // end of the @catch {} body
       final reportIdx = catchBlock.indexOf('nitro_report_error');
-      expect(reportIdx < catchEnd, isTrue,
-          reason: 'nitro_report_error must be inside the @catch block');
+      expect(reportIdx < catchEnd, isTrue, reason: 'nitro_report_error must be inside the @catch block');
     });
 
     test('non-void function @catch block returns a default value after reporting', () {

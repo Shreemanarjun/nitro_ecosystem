@@ -83,28 +83,19 @@ extension BridgeItemKindX on BridgeItemKind {
   };
 
   bool get isNullablePrimitive => switch (this) {
-    BridgeItemKind.intNullable ||
-    BridgeItemKind.doubleNullable ||
-    BridgeItemKind.boolNullable ||
-    BridgeItemKind.dateTimeNullable ||
-    BridgeItemKind.uint64Nullable => true,
+    BridgeItemKind.intNullable || BridgeItemKind.doubleNullable || BridgeItemKind.boolNullable || BridgeItemKind.dateTimeNullable || BridgeItemKind.uint64Nullable => true,
     _ => false,
   };
 
-  bool get isStringKind =>
-      this == BridgeItemKind.string || this == BridgeItemKind.stringNullable;
+  bool get isStringKind => this == BridgeItemKind.string || this == BridgeItemKind.stringNullable;
 
-  bool get isEnumKind =>
-      this == BridgeItemKind.hybridEnum || this == BridgeItemKind.hybridEnumNullable;
+  bool get isEnumKind => this == BridgeItemKind.hybridEnum || this == BridgeItemKind.hybridEnumNullable;
 
-  bool get isStructKind =>
-      this == BridgeItemKind.hybridStruct || this == BridgeItemKind.hybridStructNullable;
+  bool get isStructKind => this == BridgeItemKind.hybridStruct || this == BridgeItemKind.hybridStructNullable;
 
-  bool get isRecordKind =>
-      this == BridgeItemKind.hybridRecord || this == BridgeItemKind.hybridRecordNullable;
+  bool get isRecordKind => this == BridgeItemKind.hybridRecord || this == BridgeItemKind.hybridRecordNullable;
 
-  bool get isVariantKind =>
-      this == BridgeItemKind.nitroVariant || this == BridgeItemKind.nitroVariantNullable;
+  bool get isVariantKind => this == BridgeItemKind.nitroVariant || this == BridgeItemKind.nitroVariantNullable;
 }
 
 /// Classify a [BridgeType] (stream item, property type, etc.) into its
@@ -124,9 +115,7 @@ BridgeItemKind classifyBridgeItem(BridgeType type, BridgeSpec spec) {
   // isNullable is derived from both the explicit flag and the '?' suffix to
   // handle BridgeType instances built in tests or by older extractor code.
   final isNullable = type.isNullable || type.name.endsWith('?');
-  final base = type.name.endsWith('?')
-      ? type.name.substring(0, type.name.length - 1)
-      : type.name;
+  final base = type.name.endsWith('?') ? type.name.substring(0, type.name.length - 1) : type.name;
 
   if (type.isTypedData) {
     return isNullable ? BridgeItemKind.typedDataNullable : BridgeItemKind.typedData;
@@ -151,13 +140,13 @@ BridgeItemKind classifyBridgeItem(BridgeType type, BridgeSpec spec) {
   }
 
   return switch (base) {
-    'int'      => isNullable ? BridgeItemKind.intNullable      : BridgeItemKind.int_,
-    'double'   => isNullable ? BridgeItemKind.doubleNullable   : BridgeItemKind.double_,
-    'bool'     => isNullable ? BridgeItemKind.boolNullable     : BridgeItemKind.bool_,
-    'String'   => isNullable ? BridgeItemKind.stringNullable   : BridgeItemKind.string,
+    'int' => isNullable ? BridgeItemKind.intNullable : BridgeItemKind.int_,
+    'double' => isNullable ? BridgeItemKind.doubleNullable : BridgeItemKind.double_,
+    'bool' => isNullable ? BridgeItemKind.boolNullable : BridgeItemKind.bool_,
+    'String' => isNullable ? BridgeItemKind.stringNullable : BridgeItemKind.string,
     'DateTime' => isNullable ? BridgeItemKind.dateTimeNullable : BridgeItemKind.dateTime,
-    'uint64'   => isNullable ? BridgeItemKind.uint64Nullable   : BridgeItemKind.uint64_,
-    'void'     => BridgeItemKind.void_,
-    _          => BridgeItemKind.other,
+    'uint64' => isNullable ? BridgeItemKind.uint64Nullable : BridgeItemKind.uint64_,
+    'void' => BridgeItemKind.void_,
+    _ => BridgeItemKind.other,
   };
 }

@@ -6,9 +6,7 @@ String _generateSwiftRecords(BridgeSpec spec, {bool emitBoilerplate = true}) {
   // NativeImpl.cpp bridge files use emitBoilerplate:false — shared library types
   // (NitroNullableInt, NitroOptInt64, etc.) are provided by the non-cpp bridge in
   // the same Swift module. Skip them here to avoid "invalid redeclaration" errors.
-  final localRecords = emitBoilerplate
-      ? spec.localRecordTypes
-      : spec.localRecordTypes.where((r) => !_nitroLibraryRecordTypes.contains(r.name)).toList();
+  final localRecords = emitBoilerplate ? spec.localRecordTypes : spec.localRecordTypes.where((r) => !_nitroLibraryRecordTypes.contains(r.name)).toList();
 
   // ── fromReader/writeFields extensions for plain structs embedded in records ──
   // The Dart side generates RecordExt for HybridStructs; we mirror this for Swift.
@@ -189,16 +187,23 @@ String _swiftType(BridgeRecordField f) {
 String _swiftTypedDataType(String dartType) {
   switch (dartType) {
     case 'Uint8List':
-    case 'Int8List':   return 'Data';
+    case 'Int8List':
+      return 'Data';
     case 'Int16List':
-    case 'Uint16List': return '[Int16]';
+    case 'Uint16List':
+      return '[Int16]';
     case 'Int32List':
-    case 'Uint32List': return '[Int32]';
+    case 'Uint32List':
+      return '[Int32]';
     case 'Int64List':
-    case 'Uint64List': return '[Int64]';
-    case 'Float32List': return '[Float]';
-    case 'Float64List': return '[Double]';
-    default: return 'Data';
+    case 'Uint64List':
+      return '[Int64]';
+    case 'Float32List':
+      return '[Float]';
+    case 'Float64List':
+      return '[Double]';
+    default:
+      return 'Data';
   }
 }
 
@@ -276,16 +281,23 @@ String _swiftTypedDataRead(String dartType) {
   const d0 = r'$0';
   switch (dartType) {
     case 'Uint8List':
-    case 'Int8List':   return 'r.readBlob()';
+    case 'Int8List':
+      return 'r.readBlob()';
     case 'Int16List':
-    case 'Uint16List': return '{ let d = r.readBlob(); return d.withUnsafeBytes { Array($d0.bindMemory(to: Int16.self)) } }()';
+    case 'Uint16List':
+      return '{ let d = r.readBlob(); return d.withUnsafeBytes { Array($d0.bindMemory(to: Int16.self)) } }()';
     case 'Int32List':
-    case 'Uint32List': return '{ let d = r.readBlob(); return d.withUnsafeBytes { Array($d0.bindMemory(to: Int32.self)) } }()';
+    case 'Uint32List':
+      return '{ let d = r.readBlob(); return d.withUnsafeBytes { Array($d0.bindMemory(to: Int32.self)) } }()';
     case 'Int64List':
-    case 'Uint64List': return '{ let d = r.readBlob(); return d.withUnsafeBytes { Array($d0.bindMemory(to: Int64.self)) } }()';
-    case 'Float32List': return '{ let d = r.readBlob(); return d.withUnsafeBytes { Array($d0.bindMemory(to: Float.self)) } }()';
-    case 'Float64List': return '{ let d = r.readBlob(); return d.withUnsafeBytes { Array($d0.bindMemory(to: Double.self)) } }()';
-    default: return 'r.readBlob()';
+    case 'Uint64List':
+      return '{ let d = r.readBlob(); return d.withUnsafeBytes { Array($d0.bindMemory(to: Int64.self)) } }()';
+    case 'Float32List':
+      return '{ let d = r.readBlob(); return d.withUnsafeBytes { Array($d0.bindMemory(to: Float.self)) } }()';
+    case 'Float64List':
+      return '{ let d = r.readBlob(); return d.withUnsafeBytes { Array($d0.bindMemory(to: Double.self)) } }()';
+    default:
+      return 'r.readBlob()';
   }
 }
 
@@ -353,16 +365,23 @@ void _swiftWriteStmt(CodeWriter s, BridgeRecordField f) {
 String _swiftTypedDataWrite(String dartType, String expr, String writer) {
   switch (dartType) {
     case 'Uint8List':
-    case 'Int8List':   return '$writer.writeBlob($expr)';
+    case 'Int8List':
+      return '$writer.writeBlob($expr)';
     case 'Int16List':
-    case 'Uint16List': return '$expr.withUnsafeBufferPointer { $writer.writeBlob(Data(buffer: \$0)) }';
+    case 'Uint16List':
+      return '$expr.withUnsafeBufferPointer { $writer.writeBlob(Data(buffer: \$0)) }';
     case 'Int32List':
-    case 'Uint32List': return '$expr.withUnsafeBufferPointer { $writer.writeBlob(Data(buffer: \$0)) }';
+    case 'Uint32List':
+      return '$expr.withUnsafeBufferPointer { $writer.writeBlob(Data(buffer: \$0)) }';
     case 'Int64List':
-    case 'Uint64List': return '$expr.withUnsafeBufferPointer { $writer.writeBlob(Data(buffer: \$0)) }';
-    case 'Float32List': return '$expr.withUnsafeBufferPointer { $writer.writeBlob(Data(buffer: \$0)) }';
-    case 'Float64List': return '$expr.withUnsafeBufferPointer { $writer.writeBlob(Data(buffer: \$0)) }';
-    default: return '$writer.writeBlob($expr)';
+    case 'Uint64List':
+      return '$expr.withUnsafeBufferPointer { $writer.writeBlob(Data(buffer: \$0)) }';
+    case 'Float32List':
+      return '$expr.withUnsafeBufferPointer { $writer.writeBlob(Data(buffer: \$0)) }';
+    case 'Float64List':
+      return '$expr.withUnsafeBufferPointer { $writer.writeBlob(Data(buffer: \$0)) }';
+    default:
+      return '$writer.writeBlob($expr)';
   }
 }
 

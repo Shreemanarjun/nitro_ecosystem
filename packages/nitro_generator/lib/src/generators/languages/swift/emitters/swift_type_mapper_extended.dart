@@ -5,23 +5,38 @@ import 'swift_type_mapper.dart';
 // Overrides handle them before calling super so swift_type_mapper.dart
 // needs no changes.
 const _narrowIntTypes = {
-  'int8', 'int16', 'int32', 'uint8', 'uint16', 'uint32', 'intptr', 'size',
+  'int8',
+  'int16',
+  'int32',
+  'uint8',
+  'uint16',
+  'uint32',
+  'intptr',
+  'size',
 };
 const _narrowAllTypes = {
-  'int8', 'int16', 'int32', 'uint8', 'uint16', 'uint32', 'float', 'intptr', 'size',
+  'int8',
+  'int16',
+  'int32',
+  'uint8',
+  'uint16',
+  'uint32',
+  'float',
+  'intptr',
+  'size',
 };
 
 String? _narrowSwiftType(String base) => switch (base) {
-  'int8'   => 'Int8',
-  'int16'  => 'Int16',
-  'int32'  => 'Int32',
-  'uint8'  => 'UInt8',
+  'int8' => 'Int8',
+  'int16' => 'Int16',
+  'int32' => 'Int32',
+  'uint8' => 'UInt8',
   'uint16' => 'UInt16',
   'uint32' => 'UInt32',
-  'float'  => 'Float',
+  'float' => 'Float',
   'intptr' => 'Int',
-  'size'   => 'Int',
-  _        => null,
+  'size' => 'Int',
+  _ => null,
 };
 
 class SwiftTypeMapperExtended extends SwiftTypeMapper {

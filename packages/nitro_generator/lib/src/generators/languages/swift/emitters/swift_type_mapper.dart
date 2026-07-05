@@ -238,8 +238,7 @@ class SwiftTypeMapper implements TypeMapper {
     final retSwift = switch (retBase) {
       'void' when retDart == null || retDart == 'void' => 'Void',
       'String' => 'UnsafeMutablePointer<CChar>?',
-      _ when _recordNames.contains(retBase) || _variantNames.contains(retBase) =>
-        'UnsafeMutablePointer<UInt8>?', // [4B len][payload] malloc'd by Dart
+      _ when _recordNames.contains(retBase) || _variantNames.contains(retBase) => 'UnsafeMutablePointer<UInt8>?', // [4B len][payload] malloc'd by Dart
       _ => 'Int64',
     };
     return '@convention(c) (${paramParts.join(', ')}) -> $retSwift';

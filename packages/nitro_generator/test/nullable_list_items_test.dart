@@ -17,105 +17,105 @@ import 'package:test/test.dart';
 // ── Shared test fixtures ───────────────────────────────────────────────────────
 
 BridgeEnum _brightnessEnum() => BridgeEnum(
-      name: 'BrightnessLevel',
-      startValue: 0,
-      values: ['low', 'medium', 'high'],
-      rawValues: [0, 50, 100],
-    );
+  name: 'BrightnessLevel',
+  startValue: 0,
+  values: ['low', 'medium', 'high'],
+  rawValues: [0, 50, 100],
+);
 
 BridgeVariant _gestureVariant() => BridgeVariant(
-      name: 'GestureEvent',
-      cases: [
-        BridgeVariantCase(
-          name: 'GestureTap',
-          label: 'tap',
-          fields: [
-            BridgeRecordField(name: 'x', dartType: 'int', kind: RecordFieldKind.primitive),
-          ],
-        ),
-        BridgeVariantCase(
-          name: 'GestureSwipe',
-          label: 'swipe',
-          fields: [
-            BridgeRecordField(name: 'velocity', dartType: 'double', kind: RecordFieldKind.primitive),
-          ],
-        ),
+  name: 'GestureEvent',
+  cases: [
+    BridgeVariantCase(
+      name: 'GestureTap',
+      label: 'tap',
+      fields: [
+        BridgeRecordField(name: 'x', dartType: 'int', kind: RecordFieldKind.primitive),
       ],
-    );
+    ),
+    BridgeVariantCase(
+      name: 'GestureSwipe',
+      label: 'swipe',
+      fields: [
+        BridgeRecordField(name: 'velocity', dartType: 'double', kind: RecordFieldKind.primitive),
+      ],
+    ),
+  ],
+);
 
 // Spec with nullable enum list param and return
 BridgeSpec _nullableEnumListSpec() => BridgeSpec(
-      dartClassName: 'ThemeManager',
-      lib: 'theme_manager',
-      namespace: 'theme_manager',
-      iosImpl: NativeImpl.swift,
-      androidImpl: NativeImpl.kotlin,
-      sourceUri: 'theme_manager.native.dart',
-      enums: [_brightnessEnum()],
-      functions: [
-        BridgeFunction(
-          dartName: 'filterBrightness',
-          cSymbol: 'theme_manager_filter_brightness',
-          isAsync: false,
-          returnType: BridgeType(
+  dartClassName: 'ThemeManager',
+  lib: 'theme_manager',
+  namespace: 'theme_manager',
+  iosImpl: NativeImpl.swift,
+  androidImpl: NativeImpl.kotlin,
+  sourceUri: 'theme_manager.native.dart',
+  enums: [_brightnessEnum()],
+  functions: [
+    BridgeFunction(
+      dartName: 'filterBrightness',
+      cSymbol: 'theme_manager_filter_brightness',
+      isAsync: false,
+      returnType: BridgeType(
+        name: 'List<BrightnessLevel?>',
+        isRecord: true,
+        isEnumList: true,
+        recordListItemType: 'BrightnessLevel',
+        recordListItemIsNullable: true,
+      ),
+      params: [
+        BridgeParam(
+          name: 'levels',
+          type: BridgeType(
             name: 'List<BrightnessLevel?>',
             isRecord: true,
             isEnumList: true,
             recordListItemType: 'BrightnessLevel',
             recordListItemIsNullable: true,
           ),
-          params: [
-            BridgeParam(
-              name: 'levels',
-              type: BridgeType(
-                name: 'List<BrightnessLevel?>',
-                isRecord: true,
-                isEnumList: true,
-                recordListItemType: 'BrightnessLevel',
-                recordListItemIsNullable: true,
-              ),
-            ),
-          ],
         ),
       ],
-    );
+    ),
+  ],
+);
 
 // Spec with nullable variant list param and return
 BridgeSpec _nullableVariantListSpec() => BridgeSpec(
-      dartClassName: 'GestureHub',
-      lib: 'gesture_hub',
-      namespace: 'gesture_hub',
-      iosImpl: NativeImpl.swift,
-      androidImpl: NativeImpl.kotlin,
-      sourceUri: 'gesture_hub.native.dart',
-      variants: [_gestureVariant()],
-      functions: [
-        BridgeFunction(
-          dartName: 'filterGestures',
-          cSymbol: 'gesture_hub_filter_gestures',
-          isAsync: false,
-          returnType: BridgeType(
+  dartClassName: 'GestureHub',
+  lib: 'gesture_hub',
+  namespace: 'gesture_hub',
+  iosImpl: NativeImpl.swift,
+  androidImpl: NativeImpl.kotlin,
+  sourceUri: 'gesture_hub.native.dart',
+  variants: [_gestureVariant()],
+  functions: [
+    BridgeFunction(
+      dartName: 'filterGestures',
+      cSymbol: 'gesture_hub_filter_gestures',
+      isAsync: false,
+      returnType: BridgeType(
+        name: 'List<GestureEvent?>',
+        isRecord: true,
+        isVariantList: true,
+        recordListItemType: 'GestureEvent',
+        recordListItemIsNullable: true,
+      ),
+      params: [
+        BridgeParam(
+          name: 'events',
+          type: BridgeType(
             name: 'List<GestureEvent?>',
             isRecord: true,
             isVariantList: true,
             recordListItemType: 'GestureEvent',
             recordListItemIsNullable: true,
           ),
-          params: [
-            BridgeParam(
-              name: 'events',
-              type: BridgeType(
-                name: 'List<GestureEvent?>',
-                isRecord: true,
-                isVariantList: true,
-                recordListItemType: 'GestureEvent',
-                recordListItemIsNullable: true,
-              ),
-            ),
-          ],
         ),
       ],
-    );
+    ),
+  ],
+);
 
 void main() {
   // ── §25: L5 — List<@HybridEnum?> nullable items ──────────────────────────

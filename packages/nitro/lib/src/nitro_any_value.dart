@@ -99,13 +99,13 @@ sealed class NitroAnyValue {
       _tagString => NitroAnyString(r.readString()),
       _tagList => NitroAnyList(List.generate(r.readInt32(), (_) => _read(r), growable: false)),
       _tagObject => () {
-          final n = r.readInt32();
-          final entries = <String, NitroAnyValue>{};
-          for (var i = 0; i < n; i++) {
-            entries[r.readString()] = _read(r);
-          }
-          return NitroAnyObject(entries);
-        }(),
+        final n = r.readInt32();
+        final entries = <String, NitroAnyValue>{};
+        for (var i = 0; i < n; i++) {
+          entries[r.readString()] = _read(r);
+        }
+        return NitroAnyObject(entries);
+      }(),
       _ => throw StateError('Unknown NitroAnyValue tag: $tag'),
     };
   }

@@ -217,8 +217,7 @@ void main() {
   group('Edge case: suffix matching longest-match', () {
     test('.web.bridge.g.dart resolves to webBridge target (not dartFfi)', () {
       final facade = NativeGeneratorFacade.defaults();
-      final target = facade.targetForOutputPath(
-          'lib/src/generated/web/math.web.bridge.g.dart');
+      final target = facade.targetForOutputPath('lib/src/generated/web/math.web.bridge.g.dart');
       expect(target, NativeGeneratorTarget.webBridge);
     });
 
@@ -230,8 +229,7 @@ void main() {
 
     test('ambiguous: .bridge.g.dart resolves to cppBridge (longer than .g.dart)', () {
       final facade = NativeGeneratorFacade.defaults();
-      final target = facade.targetForOutputPath(
-          'lib/src/generated/cpp/math.bridge.g.cpp');
+      final target = facade.targetForOutputPath('lib/src/generated/cpp/math.bridge.g.cpp');
       expect(target, NativeGeneratorTarget.cppBridge);
     });
 
