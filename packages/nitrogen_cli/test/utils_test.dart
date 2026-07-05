@@ -308,5 +308,83 @@ dependencies:
       expect(File(p.join(sourcesDir.path, 'my.bridge.g.swift')).existsSync(), isTrue);
       expect(File(p.join(sourcesDir.path, 'my.bridge.g.swift')).readAsStringSync(), equals('swift code'));
     });
+
+    // ── cleanEphemeralSymlinkCycles — build_runner hang prevention ─────────────
+    //
+    // Once example/ has been built for a native platform, CocoaPods/Flutter
+    // leaves example/{ios,macos}/.symlinks/plugins/<name> pointing back to the
+    // plugin root. build_runner's file-discovery walk follows symlinks with no
+    // cycle detection and recurses forever: <root> -> example -> ios ->
+    // .symlinks -> <root> -> ... — 100% CPU, no error, no timeout, ever.
+
+    group('cleanEphemeralSymlinkCycles', () {
+      test('removes example/ios/.symlinks (the actual cycle-causing symlink)', () async {
+        final symlinksDir = Directory(p.join(temp.path, 'example', 'ios', '.symlinks', 'plugins'))..createSync(recursive: true);
+        // Reproduce the exact real-world cycle: a symlink back to the plugin root.
+        Link(p.join(symlinksDir.path, 'my_plugin')).createSync(temp.path);
+
+        final removed = cleanEphemeralSymlinkCycles(temp.path);
+
+        expect(removed, contains(p.join('example', 'ios', '.symlinks')));
+        expect(Directory(p.join(temp.path, 'example', 'ios', '.symlinks')).existsSync(), isFalse);
+      });
+
+      test('removes all known ephemeral dirs across ios/macos/windows/linux', () async {
+        const relativePaths = [
+          'ios/.symlinks',
+          'ios/Flutter/ephemeral',
+          'macos/.symlinks',
+          'macos/Flutter/ephemeral',
+          'windows/flutter/ephemeral',
+          'linux/flutter/ephemeral',
+        ];
+        for (final rel in relativePaths) {
+          Directory(p.join(temp.path, 'example', rel)).createSync(recursive: true);
+        }
+
+        final removed = cleanEphemeralSymlinkCycles(temp.path);
+
+        expect(removed.length, equals(relativePaths.length));
+        for (final rel in relativePaths) {
+          expect(Directory(p.join(temp.path, 'example', rel)).existsSync(), isFalse, reason: '$rel should have been removed');
+        }
+      });
+
+      test('returns an empty list and does not throw when example/ does not exist', () {
+        expect(() => cleanEphemeralSymlinkCycles(temp.path), returnsNormally);
+        expect(cleanEphemeralSymlinkCycles(temp.path), isEmpty);
+      });
+
+      test('returns an empty list and does not throw when none of the ephemeral dirs exist', () {
+        Directory(p.join(temp.path, 'example')).createSync(recursive: true);
+        expect(cleanEphemeralSymlinkCycles(temp.path), isEmpty);
+      });
+
+      test('does not touch unrelated files under example/', () async {
+        final exampleDir = Directory(p.join(temp.path, 'example'))..createSync(recursive: true);
+        File(p.join(exampleDir.path, 'pubspec.yaml')).writeAsStringSync('name: my_plugin_example');
+        final libDir = Directory(p.join(exampleDir.path, 'lib'))..createSync(recursive: true);
+        File(p.join(libDir.path, 'main.dart')).writeAsStringSync('void main() {}');
+
+        // Plant the hazard alongside real source — only the hazard should go.
+        Directory(p.join(exampleDir.path, 'ios', '.symlinks')).createSync(recursive: true);
+
+        cleanEphemeralSymlinkCycles(temp.path);
+
+        expect(File(p.join(exampleDir.path, 'pubspec.yaml')).existsSync(), isTrue);
+        expect(File(p.join(libDir.path, 'main.dart')).existsSync(), isTrue);
+        expect(Directory(p.join(exampleDir.path, 'ios', '.symlinks')).existsSync(), isFalse);
+      });
+
+      test('is idempotent — a second call is a no-op after the first cleaned everything', () async {
+        Directory(p.join(temp.path, 'example', 'ios', '.symlinks')).createSync(recursive: true);
+
+        final firstRun = cleanEphemeralSymlinkCycles(temp.path);
+        expect(firstRun, isNotEmpty);
+
+        final secondRun = cleanEphemeralSymlinkCycles(temp.path);
+        expect(secondRun, isEmpty);
+      });
+    });
   });
 }

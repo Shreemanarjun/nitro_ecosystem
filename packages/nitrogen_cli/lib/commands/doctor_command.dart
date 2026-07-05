@@ -1763,6 +1763,43 @@ class DoctorCommand extends Command {
       }
     }
 
+    // ── build_runner symlink-cycle hazard ───────────────────────────────────
+    // Once example/'s native platforms have been built, CocoaPods/Flutter
+    // leaves example/{ios,macos}/.symlinks/plugins/<name> pointing straight
+    // back to the plugin root. `nitrogen generate` cleans this automatically
+    // before every run, but `dart run build_runner build`/`watch` invoked
+    // directly does not — and build_runner's file-discovery walk follows
+    // symlinks with no cycle detection, so it recurses forever with no error
+    // and no timeout (confirmed via a stack sample of a hung process: 100% of
+    // time in dart:io's AsyncDirectoryLister). Existence alone isn't broken —
+    // it's only a problem for direct build_runner invocations — so this is
+    // reported as info, not a warning/error.
+    {
+      final exampleDir = Directory(p.join(root.path, 'example'));
+      const hazardPaths = [
+        'ios/.symlinks',
+        'ios/Flutter/ephemeral',
+        'macos/.symlinks',
+        'macos/Flutter/ephemeral',
+        'windows/flutter/ephemeral',
+        'linux/flutter/ephemeral',
+      ];
+      final present = exampleDir.existsSync()
+          ? hazardPaths.where((rel) => Directory(p.join(exampleDir.path, rel)).existsSync()).toList()
+          : <String>[];
+      if (present.isNotEmpty) {
+        final buildSec = DoctorSection('build_runner');
+        sections.add(buildSec);
+        info(
+          buildSec,
+          'example/ has built native-platform ephemeral dirs present (${present.join(', ')}) — '
+              '`nitrogen generate` cleans these automatically each run. If you instead run '
+              '`dart run build_runner build`/`watch` directly and it hangs with no output, '
+              'delete these dirs — they always regenerate.',
+        );
+      }
+    }
+
     return DoctorViewResult(
       pluginName: pluginName,
       sections: sections,

@@ -1,6 +1,8 @@
 ## 0.5.6
 
-- **Ecosystem sync** — Aligned with the 0.5.6 release. No changes to this package; the 0.5.6 fix (a JNI global-reference leak on Android zero-copy stream events that aborted the process after ~25 minutes of continuous streaming) is entirely in `nitro_generator`'s generated C++ bridge — see its changelog, and regenerate your plugin to pick it up.
+- **Fixed: `nitrogen generate` could hang forever with zero output or error** — once `example/`'s iOS/macOS/Windows/Linux platforms have been built at least once, standard CocoaPods/Flutter tooling leaves `example/{ios,macos}/.symlinks/plugins/<name>` (and equivalents) pointing straight back to the plugin root. `build_runner`'s initial file-discovery walk follows symlinks with no cycle detection, so it recurses forever — `<root> -> example -> ios -> .symlinks -> <root> -> ...` — burning 100% CPU with no error, no timeout, and no log output (confirmed via a stack sample of a hung process: 100% of time inside `dart:io`'s `AsyncDirectoryLister`). `nitrogen generate` now removes these known-safe-to-delete ephemeral directories before every `build_runner` invocation (they always regenerate from `flutter pub get`/`pod install`), so this can no longer happen through the documented workflow.
+- **Added: `nitrogen doctor` now flags this hazard** for anyone running `dart run build_runner build`/`watch` directly (bypassing `nitrogen generate`, which isn't protected by the fix above) — reports which ephemeral dirs are present with guidance to delete them if a direct build_runner invocation ever hangs.
+- **Ecosystem sync** — Aligned with the 0.5.6 release. `nitro_generator`'s JNI global-reference leak fix (Android zero-copy stream events aborting the process after ~25 minutes of continuous streaming) is entirely in its generated C++ bridge — see its changelog, and regenerate your plugin to pick it up.
 
 ## 0.5.5
 

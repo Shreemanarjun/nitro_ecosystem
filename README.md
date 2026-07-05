@@ -1,8 +1,30 @@
 # Nitrogen — Zero-overhead FFI Plugins for Flutter
 
+[![nitro](https://img.shields.io/pub/v/nitro?label=nitro)](https://pub.dev/packages/nitro)
+[![nitro_annotations](https://img.shields.io/pub/v/nitro_annotations?label=nitro_annotations)](https://pub.dev/packages/nitro_annotations)
+[![nitro_generator](https://img.shields.io/pub/v/nitro_generator?label=nitro_generator)](https://pub.dev/packages/nitro_generator)
+[![nitrogen_cli](https://img.shields.io/pub/v/nitrogen_cli?label=nitrogen_cli)](https://pub.dev/packages/nitrogen_cli)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+
 Write one `.native.dart` spec file. Get type-safe Kotlin, Swift, **or C++** — all generated.
 
 No method channels. No manual FFI. No boilerplate.
+
+📖 **Full docs, live examples, and API reference: [nitro.shreeman.dev](https://nitro.shreeman.dev)**
+
+---
+
+## Why Nitrogen?
+
+| | Method Channel | Manual FFI | **Nitrogen** |
+|---|---|---|---|
+| Call overhead | ~107 µs | ~0 µs (floor) | **~0.26 µs (macOS) – ~2.1 µs (Android)** |
+| Type safety | stringly-typed | hand-written, error-prone | **generated from one Dart spec, strict** |
+| Async | ✅ | manual isolates | **✅ generated (`@nitroAsync` / `@nitroNativeAsync`)** |
+| Streams + backpressure | ✅ slow | manual `SendPort` plumbing | **✅ zero-copy, 4 backpressure strategies** |
+| Zero-copy buffers | ❌ | manual `Pointer<T>` | **✅ `@HybridStruct(zeroCopy: [...])`, `@zeroCopy`** |
+| Desktop (Windows/Linux) | method channel only | manual FFI | **✅ same spec, direct C++** |
+| Code you write | a lot, on every platform | enormous, unsafe | **3 files: spec + Kotlin impl + Swift impl (or 1 C++ impl)** |
 
 ---
 
@@ -18,16 +40,30 @@ No method channels. No manual FFI. No boilerplate.
 ```yaml
 # pubspec.yaml
 dependencies:
-  nitro: ^0.5.0
+  nitro: ^0.5.6
 
 dev_dependencies:
-  nitro_generator: ^0.5.0
+  nitro_generator: ^0.5.6
   build_runner: ^2.4.0
 ```
 
 ```sh
 dart pub global activate nitrogen_cli  # one-time
 ```
+
+### Requirements
+
+| Tool | Minimum version |
+|---|---|
+| Flutter SDK | 3.22.0+ |
+| Dart SDK | 3.3.0+ |
+| Android NDK | 26.1+ (r26b) |
+| Kotlin | 1.9.0+ |
+| iOS Deployment Target | 13.0+ |
+| Swift | 5.9+ (Xcode 15+) |
+| Xcode | 15.0+ |
+| Windows (desktop C++) | Visual Studio 2022 + CMake 3.14+ |
+| Linux (desktop C++) | GCC/Clang + CMake 3.10+ |
 
 ---
 
@@ -101,6 +137,19 @@ nitrogen doctor  # health-check every layer
 ```dart
 final sum = Math.instance.add(3.14, 2.71);
 print(Math.instance.greet('World')); // "Hello, World"
+```
+
+### Or: the interactive dashboard
+
+Running `nitrogen` with no arguments launches a TUI dashboard covering every command above (`init`, `generate`, `watch`, `link`, `doctor`, `migrate`, `clean`, `update`) with live progress, plus one-click **Open in VS Code** / **Open in Antigravity** buttons:
+
+![Nitrogen Dashboard](https://zmozkivkhopoeutpnnum.supabase.co/storage/v1/object/public/images/nitro_cli.png)
+
+Every command also works headlessly for CI — pass `--no-ui`, or just pipe the output (non-TTY auto-detects and switches to plain-text `[nitro]`/`[nitro:warn]`/`[nitro:error]` logging):
+
+```sh
+nitrogen generate --no-ui --fail-on-warn   # exit 2 on spec warnings
+nitrogen doctor --no-ui                    # exit 1 on any health-check error
 ```
 
 ---
@@ -333,6 +382,27 @@ Stream<double> get audioSamples;
 | `Backpressure.bufferDrop` | Ring buffer; oldest item dropped when full | Logging, monitoring — prefer recent, tolerate loss |
 | `Backpressure.block` | Block the emitter until Dart consumes | Reliable delivery, emitter is interruptible |
 | `Backpressure.batch` | Accumulate up to `batchMaxSize` before one bridge crossing | High-frequency primitives (IMU, audio samples) |
+
+#### Zero-copy proxy streaming for `@HybridStruct` items
+
+When a `@NitroStream` item type is a `@HybridStruct`, the generator emits a **proxy class** that extends the value type and reads every field lazily from native heap memory — no fields are copied until accessed, and a `NativeFinalizer` frees the native struct automatically on GC:
+
+```dart
+// Declared type is unchanged — Stream<SensorReading>, not some proxy type.
+sensorModule.sensorStream.listen((reading) {
+  // reading is SensorReadingProxy at runtime (IS-A SensorReading).
+  // Reading a field is a single native-heap load — zero allocation.
+  print(reading.temperature); // → native heap load, no copy, no malloc
+
+  // Need an immutable copy that outlives this callback?
+  final snapshot = (reading as SensorReadingProxy).toDartAndRelease();
+});
+```
+
+| Approach | Field read | Allocation per item | Memory management |
+|---|---|---|---|
+| Eager `.toDart()` on arrival | All fields copied upfront | 1 Dart object | Manual `malloc.free` in unpack |
+| **Zero-copy proxy (default)** | **Lazy — only accessed fields** | **0 extra allocations** | **`NativeFinalizer` on GC** |
 
 ### `@NitroResult` — method-level error return
 
@@ -603,6 +673,19 @@ Use `NitroAnyMap` (a typedef for `Map<String, NitroAnyValue>`) when the native s
 | **Nitrogen (Swift/Kotlin)** | **2.1 µs** | **51×** |
 | **Nitrogen (Direct C++)** | **1.7 µs** | **64×** |
 
+### Call latency (macOS, Apple Silicon, profile build)
+
+Measured against a raw `dart:ffi` leaf call as the theoretical floor — the entire delta is codegen safety (instance registry, error slot, typed marshalling), not JIT/AOT noise:
+
+| Bridge | Latency | vs raw FFI | vs Method Channel |
+|---|---|---|---|
+| Raw FFI (leaf) | 0.011 µs | 1.0× (floor) | 2318× faster |
+| **Nitrogen (Direct C++)** | **0.272 µs** | 23.6× | **98× faster** |
+| **Nitrogen (Swift)** | **0.261 µs** | 22.7× | **102× faster** |
+| Method Channel | 26.7 µs | 2318× | 1× |
+
+At 60 fps, that's **~63,000** Nitrogen calls per frame budget vs **~625** for a method channel — 101× more headroom for per-frame native work (sensors, codecs, game state).
+
 ### Async overhead
 
 | Annotation | Overhead | Mechanism |
@@ -610,13 +693,22 @@ Use `NitroAnyMap` (a typedef for `Map<String, NitroAnyValue>`) when the native s
 | `@nitroAsync` | ~930 µs | Dart isolate pool dispatch |
 | `@nitroNativeAsync` | ~146 µs | Native `Dart_PostCObject_DL` |
 
-### High-bandwidth throughput (1 GB `@zeroCopy Uint8List`)
+### High-bandwidth throughput (1 GB `@zeroCopy Uint8List`, Android)
 
 | Bridge | Time | Throughput |
 |---|---|---|
 | Method Channel | ~117 ms | ~854 MB/s |
 | Nitrogen (Swift/Kotlin) | ~59 ms | ~1,676 MB/s |
 | Nitrogen (Direct C++) | ~8 ms | ~11,792 MB/s |
+
+### High-bandwidth throughput (16 MiB `@zeroCopy Uint8List`, macOS)
+
+| Bridge | Bandwidth | vs Method Channel |
+|---|---|---|
+| Method Channel (copies every byte) | 4,623 MB/s | 1× |
+| Nitrogen pinned buffer (zero-copy) | 31,876 MB/s | **6.9× bandwidth** |
+
+The gap is the copy itself: Method Channel always serializes the buffer; Nitrogen pins the Dart-managed memory and hands native code a direct pointer — no copy, regardless of payload size.
 
 ---
 
@@ -653,21 +745,6 @@ import 'dart:isolate';
 // ✅ 0.5.0+ — not needed; covered by package:nitro/nitro.dart
 import 'package:nitro/nitro.dart';
 part 'my_spec.g.dart';
-```
-
-### `@HybridStruct` stream items use zero-copy proxies
-
-When a `@NitroStream` item type is a `@HybridStruct`, Nitrogen generates a **proxy class** that extends the value type and reads fields lazily from native heap memory. No fields are copied until accessed:
-
-```dart
-// Stream<SensorReading> — spec type unchanged
-sensorModule.sensorStream.listen((reading) {
-  // reading is SensorReadingProxy at runtime — reads from native heap
-  print(reading.temperature); // → native heap load, zero allocation
-});
-
-// Need a copy to outlive the current scope?
-final snapshot = (reading as SensorReadingProxy).toDartAndRelease();
 ```
 
 ### `@HybridRecord` wire format
@@ -711,17 +788,19 @@ typedef struct __attribute__((packed)) { uint8_t hasValue; uint8_t  value; } Nit
 ## CLI Reference
 
 ```sh
+nitrogen              # no args → interactive TUI dashboard
 nitrogen init    [--name <name>] [--org <id>] [--platforms <list>]
-nitrogen generate [--no-ui] [--fail-on-warn]
+nitrogen generate [--no-ui] [--fail-on-warn] [--check] [--dry-run] [--targets <list>]
 nitrogen link    [--yes] [--no-ui]
 nitrogen doctor  [--no-ui]
 nitrogen watch   [--no-ui]
 nitrogen clean
 nitrogen migrate [--dry-run] [--no-backup]
 nitrogen update
+nitrogen open    [--editor code|antigravity]
 ```
 
-See [`packages/nitrogen_cli/README.md`](packages/nitrogen_cli/README.md) for full flag documentation and CI examples.
+Every command accepts `--no-ui` for CI (auto-enabled when stdout isn't a TTY). See [`packages/nitrogen_cli/README.md`](packages/nitrogen_cli/README.md) for full flag documentation and CI examples.
 
 ---
 

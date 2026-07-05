@@ -6,7 +6,7 @@ import 'package:crypto/crypto.dart';
 import 'package:path/path.dart' as p;
 
 import '../ui.dart';
-import '../utils.dart' show dedupeSharedSwiftDecls, killBuildRunner;
+import '../utils.dart' show cleanEphemeralSymlinkCycles, dedupeSharedSwiftDecls, killBuildRunner;
 import 'link_command.dart'
     show
         cleanRedundantIncludes,
@@ -211,6 +211,21 @@ class GenerateCommand extends Command {
     // asset graph lets build_runner preserve its own incremental cache while
     // still clearing stale locks from crashed processes.
     deleteBuildRunnerLock(projectDir.path);
+
+    // See cleanEphemeralSymlinkCycles doc comment: once example/ has been
+    // built for a native platform, a symlink there points back to the plugin
+    // root, and build_runner's file-discovery walk recurses forever — no
+    // error, no timeout, just silent 100% CPU. Removing it here protects
+    // every `nitrogen generate` run, not just the first one on a clean checkout.
+    final removedCycles = cleanEphemeralSymlinkCycles(projectDir.path);
+    if (removedCycles.isNotEmpty) {
+      final msg = 'Removed ephemeral build artifacts that can hang build_runner (${removedCycles.join(', ')})';
+      if (_headless) {
+        stdout.writeln('[nitro] $msg');
+      } else {
+        stdout.writeln(gray('  › $msg'));
+      }
+    }
 
     _log('build_runner build …');
     if (!_headless) stdout.writeln('');

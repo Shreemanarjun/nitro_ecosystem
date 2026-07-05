@@ -103,6 +103,56 @@ Future<int> killBuildRunner({String? workingDirectory}) async {
   return killed;
 }
 
+/// Removes ephemeral CocoaPods/Flutter symlink trees under `example/` that can
+/// make `build_runner build` hang forever with no error output and no CPU-idle
+/// signal (it looks identical to a slow build, just one that never finishes).
+///
+/// Once `example/`'s iOS/macOS platforms have been built at least once,
+/// Flutter/CocoaPods leaves behind `example/{ios,macos}/.symlinks/plugins/<name>`
+/// — a symlink that points STRAIGHT BACK to the plugin root (this is normal,
+/// expected tooling behavior, not a bug in the user's project). `build_runner`'s
+/// initial file-discovery walk follows symlinks by default with no cycle
+/// detection, so from that point on every `build_runner build` invocation
+/// recurses forever: `<root> -> example -> ios -> .symlinks -> <root> -> ...`,
+/// burning CPU/memory indefinitely. Confirmed via a stack sample of a hung
+/// process: 100% of time spent inside `dart:io`'s `AsyncDirectoryLister`.
+///
+/// These directories are always safe to delete — they are gitignored by every
+/// standard Flutter project template and get recreated automatically by the
+/// next `flutter pub get` / `pod install` / platform build. This only removes
+/// KNOWN, FIXED paths (never a recursive scan) — a general "walk the tree
+/// looking for cyclic symlinks" checker would risk hitting the very same
+/// infinite loop it's trying to detect.
+///
+/// Returns the list of directories that were actually removed (empty if none
+/// existed — the common case on a fresh checkout or before any platform build).
+List<String> cleanEphemeralSymlinkCycles(String projectRoot) {
+  final removed = <String>[];
+  final exampleDir = Directory(p.join(projectRoot, 'example'));
+  if (!exampleDir.existsSync()) return removed;
+
+  const relativePaths = [
+    'ios/.symlinks',
+    'ios/Flutter/ephemeral',
+    'macos/.symlinks',
+    'macos/Flutter/ephemeral',
+    'windows/flutter/ephemeral',
+    'linux/flutter/ephemeral',
+  ];
+  for (final rel in relativePaths) {
+    final dir = Directory(p.join(exampleDir.path, rel));
+    if (!dir.existsSync()) continue;
+    try {
+      dir.deleteSync(recursive: true);
+      removed.add(p.join('example', rel));
+    } catch (_) {
+      // Best-effort — a locked file here shouldn't block generation; the
+      // existing cycle (if any) will just persist for this run.
+    }
+  }
+  return removed;
+}
+
 List<ProjectInfo> getAllProjects({Directory? baseDir}) {
   final List<ProjectInfo> projects = [];
   final root = baseDir ?? Directory.current;

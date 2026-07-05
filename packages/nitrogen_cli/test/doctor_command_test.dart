@@ -2401,4 +2401,64 @@ let package = Package(name: "my_plugin", targets: [
       );
     });
   });
+
+  // ── build_runner section — symlink-cycle hazard ─────────────────────────────
+  //
+  // example/{ios,macos}/.symlinks (created by CocoaPods/Flutter once the
+  // example app has been built for a native platform) points straight back to
+  // the plugin root. `nitrogen generate` cleans it automatically, but a user
+  // running `dart run build_runner build`/`watch` directly gets no such
+  // protection and build_runner's file-discovery walk recurses forever with
+  // no error output. `doctor` surfaces this as an info-level heads-up.
+
+  group('build_runner section — symlink-cycle hazard', () {
+    test('no section emitted when example/ does not exist', () {
+      final root = _scaffold();
+      addTearDown(() => root.deleteSync(recursive: true));
+      final result = _run(root);
+      expect(result.sections.any((s) => s.title == 'build_runner'), isFalse);
+    });
+
+    test('no section emitted when example/ exists but has no ephemeral dirs', () {
+      final root = _scaffold();
+      Directory(p.join(root.path, 'example')).createSync(recursive: true);
+      addTearDown(() => root.deleteSync(recursive: true));
+      final result = _run(root);
+      expect(result.sections.any((s) => s.title == 'build_runner'), isFalse);
+    });
+
+    test('info reported when example/ios/.symlinks is present', () {
+      final root = _scaffold();
+      Directory(p.join(root.path, 'example', 'ios', '.symlinks')).createSync(recursive: true);
+      addTearDown(() => root.deleteSync(recursive: true));
+      final result = _run(root);
+      final sec = result.sections.firstWhere((s) => s.title == 'build_runner');
+      final check = sec.checks.single;
+      expect(check.status, equals(DoctorStatus.info));
+      expect(check.label, contains('ios/.symlinks'));
+      expect(check.label, contains('nitrogen generate'));
+    });
+
+    test('info reported when example/windows/flutter/ephemeral is present', () {
+      final root = _scaffold();
+      Directory(p.join(root.path, 'example', 'windows', 'flutter', 'ephemeral')).createSync(recursive: true);
+      addTearDown(() => root.deleteSync(recursive: true));
+      final result = _run(root);
+      final sec = result.sections.firstWhere((s) => s.title == 'build_runner');
+      expect(sec.checks.single.status, equals(DoctorStatus.info));
+      expect(sec.checks.single.label, contains('windows/flutter/ephemeral'));
+    });
+
+    test('lists every present hazard path in a single check', () {
+      final root = _scaffold();
+      Directory(p.join(root.path, 'example', 'ios', '.symlinks')).createSync(recursive: true);
+      Directory(p.join(root.path, 'example', 'macos', 'Flutter', 'ephemeral')).createSync(recursive: true);
+      addTearDown(() => root.deleteSync(recursive: true));
+      final result = _run(root);
+      final sec = result.sections.firstWhere((s) => s.title == 'build_runner');
+      final label = sec.checks.single.label;
+      expect(label, contains('ios/.symlinks'));
+      expect(label, contains('macos/Flutter/ephemeral'));
+    });
+  });
 }
