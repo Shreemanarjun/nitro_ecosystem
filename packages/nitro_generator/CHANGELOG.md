@@ -1,3 +1,14 @@
+## 0.5.7
+
+Callback `NativeCallable` memory-leak fix. **No breaking changes** — regenerate
+your plugin (`dart run build_runner build`) to pick it up; only the
+generator's output changes, plus one small runtime addition
+(`NitroRuntime.deferredClose`, used internally by generated code — not
+something you call directly).
+
+- **Fixed: every callback-typed parameter leaked a `NativeCallable` on every re-registration (Android, iOS, and desktop C++)** — a callback setter (e.g. `module.onDeviceFound((event) { ... })`) cached its native callback keyed by `(paramName, closure)`; since idiomatic Flutter code almost always passes a fresh closure literal, the cache key never matched a previous entry, so a new `NativeCallable` was allocated and never released on every single call. The generated cache is now a per-`(methodName.paramName)` slot: re-registering replaces the slot and closes the previous `NativeCallable` via the new `NitroRuntime.deferredClose` runtime helper (deferred to a microtask, after native has synchronously switched to the new function pointer). The old Kotlin/JNI-only `_release_$paramName` mechanism — declared but never actually invoked by any generated code — has been removed rather than completed on Swift/direct-C++, since replace-on-reassign leaves no gap for it to fill. A new `E016` validation error rejects a callback param on a plain `@NitroAsync` method (the registering call would run on a different isolate, breaking the ordering guarantee `deferredClose` relies on); `@NitroNativeAsync` and sync methods are unaffected. Covered by rewritten `callback_release_test.dart` and updated `callback_type_test.dart` assertions.
+- **`benchmark` package: added a `@nitroNativeAsync` benchmark case and a CI regression gate for both async paths** — there was previously no benchmark coverage for `@nitroNativeAsync` at all. See `nitro`'s changelog for the corrected async performance figures this surfaced.
+
 ## 0.5.6
 
 Android zero-copy memory-leak fix. **No breaking changes** — regenerate your

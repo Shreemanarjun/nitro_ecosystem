@@ -1,3 +1,8 @@
+## 0.5.7
+
+- **Doc fix** — Corrected stale "~930 µs / ~146 µs" async overhead figures in this README with real measured numbers (macOS: `@nitroAsync` ~28 µs, `@nitroNativeAsync` ~27 µs, both near method-channel parity). No functional changes to this package.
+- **Ecosystem sync** — Aligned with `nitro_generator` 0.5.7's callback `NativeCallable` leak fix — see its changelog, and regenerate your plugin to pick it up.
+
 ## 0.5.6
 
 - **Fixed: `nitrogen generate` could hang forever with zero output or error** — once `example/`'s iOS/macOS/Windows/Linux platforms have been built at least once, standard CocoaPods/Flutter tooling leaves `example/{ios,macos}/.symlinks/plugins/<name>` (and equivalents) pointing straight back to the plugin root. `build_runner`'s initial file-discovery walk follows symlinks with no cycle detection, so it recurses forever — `<root> -> example -> ios -> .symlinks -> <root> -> ...` — burning 100% CPU with no error, no timeout, and no log output (confirmed via a stack sample of a hung process: 100% of time inside `dart:io`'s `AsyncDirectoryLister`). `nitrogen generate` now removes these known-safe-to-delete ephemeral directories before every `build_runner` invocation (they always regenerate from `flutter pub get`/`pod install`), so this can no longer happen through the documented workflow.

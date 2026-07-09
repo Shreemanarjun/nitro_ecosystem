@@ -586,11 +586,11 @@ abstract class SensorModule extends HybridObject {
   DeviceInfo? findDevice(String id);
   int? getLastErrorCode();
 
-  // Async — background isolate (~930 µs overhead)
+  // Async — background isolate (~28 µs overhead on macOS)
   @nitroAsync
   Future<List<DeviceInfo>> scanDevices();
 
-  // Native async — native posts result (~146 µs overhead)
+  // Native async — native posts result (~27 µs overhead on macOS, no isolate hop)
   @nitroNativeAsync
   Future<String> connectDevice(String deviceId);
 
@@ -710,10 +710,10 @@ part 'my_module.g.dart';
 
 ### Async overhead comparison
 
-| Annotation | Overhead | Mechanism | When to use |
-|---|---|---|---|
-| `@nitroAsync` | ~930 µs | Dart isolate pool | Native API that blocks; no native async support |
-| `@nitroNativeAsync` | ~146 µs | `Dart_PostCObject_DL` | Native already has async (coroutines, Swift async) |
+| Annotation | Overhead (macOS) | vs Method Channel (26.8 µs) | Mechanism | When to use |
+|---|---|---|---|---|
+| `@nitroAsync` | ~28 µs | ~1.05× (slightly slower) | Persistent-worker isolate pool | Native API that blocks; no native async support |
+| `@nitroNativeAsync` | ~27 µs | ~1.0× (parity) | `Dart_PostCObject_DL`, no isolate hop | Native already has async (coroutines, Swift async) |
 
 ### Known limitations
 

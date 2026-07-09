@@ -121,10 +121,10 @@ void main() {
     test('DartFfiGenerator emits typed NativeCallable cache and pointer argument', () {
       final out = DartFfiGenerator.generate(_callbackParamSpec());
 
-      expect(out, contains('final Map<Object, NativeCallable<dynamic>> _nativeCallbackCache = {};'));
+      expect(out, contains('final Map<String, NativeCallable<dynamic>> _nativeCallbackCache = {};'));
       expect(out, contains('void Function(int, Pointer<NativeFunction<Void Function(Int64)>>, Pointer<NitroErrorFfi>) _watchPtr'));
       expect(out, contains('NativeCallable<Void Function(Int64)> _nativeCallbackWatchOnEvent(void Function(int) callback)'));
-      expect(out, contains("final key = ('watch.onEvent', callback);"));
+      expect(out, contains("const key = 'watch.onEvent';"));
       expect(out, contains('NativeCallable<Void Function(Int64)>.listener((int arg0)'));
       expect(out, contains('callback(arg0);'));
       expect(out, contains('_watchPtr(_instanceId, _nativeCallbackWatchOnEvent(onEvent).nativeFunction, _nitroErr);'));
@@ -266,6 +266,59 @@ void main() {
       expect(issues.where((i) => i.code == 'UNSUPPORTED_FUNCTION_TYPE'), isEmpty);
     });
   });
+
+  group('SpecValidator — E016 (callback param on @NitroAsync)', () {
+    test('E016 error when a callback param is on a plain @NitroAsync method', () {
+      final issues = SpecValidator.validate(_asyncCallbackParamSpec(isAsync: true, isNativeAsync: false));
+      expect(issues.any((i) => i.code == 'E016'), isTrue, reason: 'callback param + @NitroAsync should be rejected');
+    });
+
+    test('E016 hint mentions @NitroNativeAsync as the alternative', () {
+      final issues = SpecValidator.validate(_asyncCallbackParamSpec(isAsync: true, isNativeAsync: false));
+      final e016 = issues.firstWhere((i) => i.code == 'E016');
+      expect(e016.hint, contains('NitroNativeAsync'));
+    });
+
+    test('no E016 when the same callback param is on a @NitroNativeAsync method', () {
+      final issues = SpecValidator.validate(_asyncCallbackParamSpec(isAsync: true, isNativeAsync: true));
+      expect(issues.where((i) => i.code == 'E016'), isEmpty);
+    });
+
+    test('no E016 when the callback param is on a plain sync method', () {
+      final issues = SpecValidator.validate(_asyncCallbackParamSpec(isAsync: false, isNativeAsync: false));
+      expect(issues.where((i) => i.code == 'E016'), isEmpty);
+    });
+  });
+}
+
+BridgeSpec _asyncCallbackParamSpec({required bool isAsync, required bool isNativeAsync}) {
+  return BridgeSpec(
+    dartClassName: 'Scanner',
+    lib: 'scanner',
+    namespace: 'scanner',
+    androidImpl: NativeImpl.kotlin,
+    sourceUri: 'scanner.native.dart',
+    functions: [
+      BridgeFunction(
+        dartName: 'onFound',
+        cSymbol: 'scanner_on_found',
+        isAsync: isAsync,
+        isNativeAsync: isNativeAsync,
+        returnType: BridgeType(name: isAsync ? 'Future<void>' : 'void'),
+        params: [
+          BridgeParam(
+            name: 'callback',
+            type: BridgeType(
+              name: 'void Function(int)',
+              isFunction: true,
+              functionReturnType: 'void',
+              functionParams: [BridgeType(name: 'int')],
+            ),
+          ),
+        ],
+      ),
+    ],
+  );
 }
 
 BridgeSpec _callbackParamSpec() {

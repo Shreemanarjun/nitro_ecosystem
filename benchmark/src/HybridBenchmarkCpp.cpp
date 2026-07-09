@@ -1,5 +1,6 @@
 #include "../lib/src/generated/cpp/benchmark_cpp.native.g.h"
 #include "nitro_workload.h"
+#include "dart_api_dl.h"
 
 #include <string>
 #include <chrono>
@@ -9,10 +10,32 @@
 #include <thread>
 #include <atomic>
 #include <cmath>
+#include <mutex>
+#include <condition_variable>
+#include <queue>
+#include <functional>
 
 class HybridBenchmarkCppImpl final : public HybridBenchmarkCpp {
 public:
-    HybridBenchmarkCppImpl() : _running(true) {
+    HybridBenchmarkCppImpl() : _running(true), _asyncWorkerRunning(true) {
+        // Persistent worker thread for computeStatsNative — reused across
+        // calls (not spawned per call) so the @nitroAsync vs @nitroNativeAsync
+        // benchmark comparison measures dispatch overhead, not OS thread
+        // creation cost.
+        _asyncWorkerThread = std::thread([this]() {
+            while (true) {
+                std::function<void()> task;
+                {
+                    std::unique_lock<std::mutex> lk(_asyncQueueMtx);
+                    _asyncQueueCv.wait(lk, [this]() { return !_asyncQueue.empty() || !_asyncWorkerRunning; });
+                    if (!_asyncWorkerRunning && _asyncQueue.empty()) return;
+                    task = std::move(_asyncQueue.front());
+                    _asyncQueue.pop();
+                }
+                task();
+            }
+        });
+
         _streamThread = std::thread([this]() {
             double angle = 0;
             auto nextTick = std::chrono::steady_clock::now();
@@ -48,6 +71,14 @@ public:
         if (_streamThread.joinable()) {
             _streamThread.join();
         }
+        {
+            std::lock_guard<std::mutex> lk(_asyncQueueMtx);
+            _asyncWorkerRunning = false;
+        }
+        _asyncQueueCv.notify_one();
+        if (_asyncWorkerThread.joinable()) {
+            _asyncWorkerThread.join();
+        }
     }
 
     // ── Sync primitive — baseline C++ dispatch overhead ───────────────────────
@@ -71,6 +102,74 @@ public:
 
     // ── Async @HybridRecord — measures Future + binary-record round-trip ──────
     NitroCppBuffer computeStats(int64_t iterations) override {
+        return computeStatsBuffer(iterations);
+    }
+
+    // ── Native-async twin of computeStats — same computation, dispatched via
+    // a persistent worker thread + Dart_PostCObject_DL instead of the isolate
+    // pool. See computeStatsBuffer() for the shared, byte-identical logic.
+    void computeStatsNative(int64_t iterations, int64_t dartPort) override {
+        {
+            std::lock_guard<std::mutex> lk(_asyncQueueMtx);
+            _asyncQueue.push([this, iterations, dartPort]() {
+                NitroCppBuffer buf = computeStatsBuffer(iterations);
+                Dart_CObject obj;
+                if (buf.data == nullptr) {
+                    obj.type = Dart_CObject_kNull;
+                } else {
+                    obj.type = Dart_CObject_kInt64;
+                    obj.value.as_int64 = reinterpret_cast<intptr_t>(buf.data);
+                }
+                Dart_PostCObject_DL(dartPort, &obj);
+            });
+        }
+        _asyncQueueCv.notify_one();
+    }
+
+    int64_t sendLargeBufferFast(const uint8_t* buffer, size_t buffer_length) override {
+        if (!buffer || buffer_length == 0) return 0;
+
+        uint64_t sum = 0;
+        // Sample every 4KB page using 8-byte reads.
+        // Use memcpy to avoid undefined behaviour on architectures requiring aligned access.
+        for (size_t i = 0; i < buffer_length; i += 4096) {
+            uint64_t word = 0;
+            memcpy(&word, buffer + i, sizeof(word));
+            sum += word;
+        }
+
+        // Return a representation of work done to prevent DCE
+        return static_cast<int64_t>(sum == 0 ? buffer_length : buffer_length + 1);
+    }
+
+    int64_t sendLargeBufferNoop(const uint8_t* buffer, size_t buffer_length) override {
+        // Return immediately to measure pure dispatch overhead (NO checksum loop).
+        return static_cast<int64_t>(buffer_length);
+    }
+
+    int64_t sendLargeBufferNoopFast(const uint8_t* buffer, size_t buffer_length) override {
+        // Absolute floor: No-op leaf call.
+        return static_cast<int64_t>(buffer_length);
+    }
+
+    int64_t sendLargeBufferUnsafe(uint8_t* buffer, int64_t buffer_length) override {
+        // Bypasses pinning cost — matches Raw FFI theoretical performance.
+        return static_cast<int64_t>(buffer_length);
+    }
+
+    int64_t hashBuffer(const uint8_t* data, size_t data_length,
+                       int64_t rounds) override {
+        // Reference workload: FNV-1a 64-bit — the same C routine every other
+        // tier runs (src/nitro_workload.h); results must be bit-identical.
+        return static_cast<int64_t>(
+            nitro_bench_fnv1a(data, static_cast<int64_t>(data_length), rounds));
+    }
+
+private:
+    // Shared by computeStats (sync) and computeStatsNative (native-async) so
+    // both paths run byte-identical computation and encoding — only the
+    // dispatch mechanism differs between the two benchmark cases.
+    NitroCppBuffer computeStatsBuffer(int64_t iterations) {
         if (iterations <= 0) iterations = 1;
 
         using Clock = std::chrono::high_resolution_clock;
@@ -114,48 +213,15 @@ public:
         return {buf, static_cast<size_t>(kTotalSize)};
     }
 
-    int64_t sendLargeBufferFast(const uint8_t* buffer, size_t buffer_length) override {
-        if (!buffer || buffer_length == 0) return 0;
-
-        uint64_t sum = 0;
-        // Sample every 4KB page using 8-byte reads.
-        // Use memcpy to avoid undefined behaviour on architectures requiring aligned access.
-        for (size_t i = 0; i < buffer_length; i += 4096) {
-            uint64_t word = 0;
-            memcpy(&word, buffer + i, sizeof(word));
-            sum += word;
-        }
-
-        // Return a representation of work done to prevent DCE
-        return static_cast<int64_t>(sum == 0 ? buffer_length : buffer_length + 1);
-    }
-
-    int64_t sendLargeBufferNoop(const uint8_t* buffer, size_t buffer_length) override {
-        // Return immediately to measure pure dispatch overhead (NO checksum loop).
-        return static_cast<int64_t>(buffer_length);
-    }
-
-    int64_t sendLargeBufferNoopFast(const uint8_t* buffer, size_t buffer_length) override {
-        // Absolute floor: No-op leaf call.
-        return static_cast<int64_t>(buffer_length);
-    }
-
-    int64_t sendLargeBufferUnsafe(uint8_t* buffer, int64_t buffer_length) override {
-        // Bypasses pinning cost — matches Raw FFI theoretical performance.
-        return static_cast<int64_t>(buffer_length);
-    }
-
-    int64_t hashBuffer(const uint8_t* data, size_t data_length,
-                       int64_t rounds) override {
-        // Reference workload: FNV-1a 64-bit — the same C routine every other
-        // tier runs (src/nitro_workload.h); results must be bit-identical.
-        return static_cast<int64_t>(
-            nitro_bench_fnv1a(data, static_cast<int64_t>(data_length), rounds));
-    }
-
-private:
     std::thread _streamThread;
     std::atomic<bool> _running;
+
+    // Persistent worker + task queue backing computeStatsNative().
+    std::thread _asyncWorkerThread;
+    std::mutex _asyncQueueMtx;
+    std::condition_variable _asyncQueueCv;
+    std::queue<std::function<void()>> _asyncQueue;
+    bool _asyncWorkerRunning;
 };
 
 static HybridBenchmarkCppImpl g_benchmark_cpp_impl;

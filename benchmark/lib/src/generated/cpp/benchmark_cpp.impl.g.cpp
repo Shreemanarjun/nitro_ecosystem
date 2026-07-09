@@ -65,6 +65,11 @@ public:
         // return { nullptr, 0 };
     }
 
+    void computeStatsNative(int64_t iterations, int64_t dartPort) override {
+        // TODO: post result via Dart_PostCObject_DL(dartPort, ...)
+        throw std::runtime_error("Not implemented: computeStatsNative");
+    }
+
     int64_t sendLargeBufferFast(const uint8_t* buffer, size_t buffer_length) override {
         // TODO: implement sendLargeBufferFast
         throw std::runtime_error("Not implemented: sendLargeBufferFast");

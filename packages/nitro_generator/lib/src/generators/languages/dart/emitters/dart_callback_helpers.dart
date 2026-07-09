@@ -71,10 +71,11 @@ bool _isSupportedCallbackParam(BridgeType type, BridgeSpec spec) {
 }
 
 void _emitCallbackHelpers(CodeWriter writer, BridgeSpec spec) {
-  writer.line('  // Native callback handles are cached so native code can retain');
-  writer.line('  // callback pointers safely until this HybridObject is disposed.');
-  writer.line('  // _callbackReleasePort receives callbackPtr int64 values when Kotlin');
-  writer.line('  // calls _release_*, which closes the corresponding NativeCallable.');
+  writer.line('  // Each callback-typed parameter has exactly one active NativeCallable');
+  writer.line('  // slot, keyed by "methodName.paramName". Re-registering (calling the');
+  writer.line('  // setter again with a fresh closure) replaces the slot and schedules');
+  writer.line('  // the previous NativeCallable to close on the next microtask, once');
+  writer.line('  // native has synchronously switched over to the new function pointer.');
   for (final func in spec.functions) {
     for (final param in func.params.where((p) => p.type.isFunction)) {
       final helperName = _callbackHelperName(func, param);
@@ -84,10 +85,7 @@ void _emitCallbackHelpers(CodeWriter writer, BridgeSpec spec) {
       final exceptionalReturn = _callbackExceptionalReturn(param.type, spec);
       final exceptionalArg = exceptionalReturn == null ? '' : ', exceptionalReturn: $exceptionalReturn';
       writer.line('  NativeCallable<$nativeSig> $helperName($dartType callback) {');
-      writer.line("    final key = ('${func.dartName}.${param.name}', callback);");
-      writer.line('    if (_nativeCallbackCache.containsKey(key)) {');
-      writer.line('      return _nativeCallbackCache[key]! as NativeCallable<$nativeSig>;');
-      writer.line('    }');
+      writer.line("    const key = '${func.dartName}.${param.name}';");
       writer.line('    final nc = NativeCallable<$nativeSig>.$callbackFactory((${_callbackWrapperParams(param.type, spec)}) {');
       final invocationArgs = _callbackInvocationArgs(param.type, spec);
       final callbackInvocation = 'callback($invocationArgs)';
@@ -98,10 +96,9 @@ void _emitCallbackHelpers(CodeWriter writer, BridgeSpec spec) {
         writer.line('      return $returnExpr;');
       }
       writer.line('    }$exceptionalArg);');
+      writer.line('    final old = _nativeCallbackCache[key];');
       writer.line('    _nativeCallbackCache[key] = nc;');
-      writer.line('    final ptr = nc.nativeFunction.address;');
-      writer.line('    _callbackPtrToKey[ptr] = key;');
-      writer.line('    _registerCallbackReleasePtr(ptr, _callbackReleasePort.sendPort.nativePort);');
+      writer.line('    NitroRuntime.deferredClose(old);');
       writer.line('    return nc;');
       writer.line('  }');
       writer.blankLine();

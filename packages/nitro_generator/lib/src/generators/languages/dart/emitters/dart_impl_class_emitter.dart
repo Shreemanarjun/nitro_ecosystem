@@ -24,16 +24,9 @@ void _emitImplClassSetup(CodeWriter writer, BridgeSpec spec) {
   writer.line('  final Pointer<NitroErrorFfi> _nitroErr = calloc<NitroErrorFfi>();');
   final hasCallbacks = _hasFunctionTypeParams(spec);
   if (hasCallbacks) {
-    writer.line('  final Map<Object, NativeCallable<dynamic>> _nativeCallbackCache = {};');
-    // Reverse map: callbackPtr → cache key — used by _callbackReleasePort to close the right NC.
-    writer.line('  final Map<int, Object> _callbackPtrToKey = {};');
-    // Single shared port that receives callbackPtr int64 values when Kotlin calls _release_*.
-    writer.line('  late final ReceivePort _callbackReleasePort = ReceivePort()..listen((msg) {');
-    writer.line('    if (msg is int) {');
-    writer.line('      final key = _callbackPtrToKey.remove(msg);');
-    writer.line('      if (key != null) _nativeCallbackCache.remove(key)?.close();');
-    writer.line('    }');
-    writer.line('  });');
+    // One NativeCallable slot per "methodName.paramName", replaced (not
+    // accumulated) on every re-registration — see _emitCallbackHelpers.
+    writer.line('  final Map<String, NativeCallable<dynamic>> _nativeCallbackCache = {};');
   }
   final hasZeroCopyTypedDataReturn = spec.functions.any((f) => f.zeroCopyReturn && f.returnType.isTypedData);
   if (hasZeroCopyTypedDataReturn) {
@@ -206,13 +199,6 @@ void _emitImplClassSetup(CodeWriter writer, BridgeSpec spec) {
     }
   }
 
-  // ── Callback release registration pointer ───────────────────────────────
-  if (hasCallbacks) {
-    writer.line(
-      "  late final void Function(int, int) _registerCallbackReleasePtr = _dylib.lookupFunction<Void Function(Int64, Int64), void Function(int, int)>('${libStem}_registerCallbackRelease');",
-    );
-  }
-
   // ── Stream register/release pointers ────────────────────────────────────
   for (final stream in spec.streams) {
     final cap = _cap(stream.dartName);
@@ -267,8 +253,6 @@ void _emitImplClassSetup(CodeWriter writer, BridgeSpec spec) {
     writer.line('      callback.close();');
     writer.line('    }');
     writer.line('    _nativeCallbackCache.clear();');
-    writer.line('    _callbackPtrToKey.clear();');
-    writer.line('    _callbackReleasePort.close();');
   }
   writer.line('    calloc.free(_nitroErr); // S8: free pre-allocated error slot');
   writer.line(

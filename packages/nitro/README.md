@@ -85,8 +85,8 @@ abstract class Math extends HybridObject {
 | `@HybridRecord()` | class | Binary-encoded type; supports strings, lists, nullables, nested records |
 | `@NitroVariant()` | sealed class | Discriminated union (tagged union); each subclass is one variant case |
 | `@NitroTuple()` | typedef | Named positional record; fields accessed via `$1`, `$2`, … |
-| `@nitroAsync` | method | Offloads call to a background isolate; overhead ~930 µs |
-| `@nitroNativeAsync` | method | Native side posts result via `Dart_PostCObject_DL`; overhead ~146 µs |
+| `@nitroAsync` | method | Offloads call to a background isolate; overhead ~28 µs on macOS |
+| `@nitroNativeAsync` | method | Native side posts result via `Dart_PostCObject_DL`; overhead ~27 µs on macOS (no isolate hop) |
 | `@NitroStream(backpressure:)` | getter | Streams native events to Dart via `Dart_PostCObject_DL` |
 | `@NitroResult()` | method | Return type becomes `NitroResultValue<T>` (`NitroOk<T>` or `NitroErr`) |
 | `@zeroCopy` | parameter | Marks a `TypedData` param as a raw native pointer (callee must not retain) |

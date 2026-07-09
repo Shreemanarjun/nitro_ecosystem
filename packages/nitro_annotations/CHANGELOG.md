@@ -1,3 +1,8 @@
+# 0.5.7
+
+- **Doc fix** — Corrected a stale doc-comment on `@nitroNativeAsync` quoting the long-outdated "~930 µs → ~146 µs" async overhead figures; see `nitro`'s changelog for the corrected, measured numbers. No functional changes to this package.
+- **Ecosystem sync** — Aligned with `nitro_generator` 0.5.7's callback `NativeCallable` leak fix — see its changelog, and regenerate your plugin to pick it up.
+
 # 0.5.6
 
 - **Ecosystem sync** — Aligned with the 0.5.6 release. No changes to this package; the 0.5.6 fix (a JNI global-reference leak on Android zero-copy stream events that aborted the process after ~25 minutes of continuous streaming) is entirely in `nitro_generator`'s generated C++ bridge — see its changelog, and regenerate your plugin to pick it up.

@@ -1518,7 +1518,7 @@ void main() {
 
     test('Dart FFI: callback cache key uses function + param name', () {
       final out = DartFfiGenerator.generate(_stringCallbackReturnSpec());
-      expect(out, contains("('process.formatter', callback)"), reason: 'cache key is (functionName.paramName, callback) for deduplication');
+      expect(out, contains("const key = 'process.formatter';"), reason: 'cache key is a per-(functionName.paramName) slot, replaced on reassignment');
     });
   });
 
