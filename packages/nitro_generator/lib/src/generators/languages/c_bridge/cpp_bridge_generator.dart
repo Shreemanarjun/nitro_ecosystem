@@ -66,11 +66,6 @@ class CppBridgeGenerator {
       writer.line('#include <string>');
       writer.line('#include <stdexcept>');
     }
-    final hasCallbacks = spec.functions.any((f) => f.params.any((p) => p.type.isFunction));
-    if (hasCallbacks) {
-      writer.line('#include <mutex>');
-      writer.line('#include <unordered_map>');
-    }
     writer.line('#include "dart_api_dl.h"');
     writer.line('#include "$headerName"');
     writer.blankLine();
@@ -227,23 +222,6 @@ class CppBridgeGenerator {
       writer.line('        }');
       writer.line('    }');
       writer.line('#endif');
-      writer.line('}');
-      writer.line('}');
-      writer.blankLine();
-    }
-
-    // ── Callback release infrastructure ─────────────────────────────────────────
-    // Global map: callbackPtr → Dart release port. Dart registers via
-    // ${libStem}_registerCallbackRelease(); Kotlin calls _release_* JNI methods
-    // which post to the port, signalling Dart to close the NativeCallable.
-    if (hasCallbacks) {
-      writer.line('static std::mutex g_cb_release_mtx;');
-      writer.line('static std::unordered_map<int64_t, Dart_Port> g_cb_release_ports;');
-      writer.blankLine();
-      writer.line('extern "C" {');
-      writer.line('NITRO_EXPORT void ${libStem}_registerCallbackRelease(int64_t callbackPtr, int64_t releasePort) {');
-      writer.line('    std::lock_guard<std::mutex> _lk(g_cb_release_mtx);');
-      writer.line('    g_cb_release_ports[callbackPtr] = (Dart_Port)releasePort;');
       writer.line('}');
       writer.line('}');
       writer.blankLine();

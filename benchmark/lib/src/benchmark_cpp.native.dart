@@ -163,6 +163,15 @@ abstract class BenchmarkCpp extends HybridObject {
   @nitroAsync
   Future<BenchmarkStats> computeStats(int iterations);
 
+  /// Zero-hop native-async twin of [computeStats] — identical payload and
+  /// identical native computation (the exact same stats-computation helper),
+  /// but dispatched via `Dart_PostCObject_DL` from a persistent native worker
+  /// thread instead of the Dart isolate pool. Exists purely to make the
+  /// `@nitroAsync` vs `@nitroNativeAsync` dispatch-overhead comparison
+  /// apples-to-apples in the benchmark harness.
+  @nitroNativeAsync
+  Future<BenchmarkStats> computeStatsNative(int iterations);
+
   /// Continuous stream of zero-copy [BenchmarkPoint] structs.
   ///
   /// Each item is delivered as a [BenchmarkPointProxy] at runtime — a proxy

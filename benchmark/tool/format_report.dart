@@ -199,6 +199,7 @@ void main(List<String> args) {
   final leaf = medianOf(cases, 'nitro_leaf_add');
   final cpp = medianOf(cases, 'nitro_cpp_add');
   final asyncRec = medianOf(cases, 'nitro_async_record');
+  final nativeAsyncRec = medianOf(cases, 'nitro_native_async_record');
   final struct = medianOf(cases, 'nitro_struct_roundtrip');
 
   if (cpp != null && channel != null) {
@@ -216,12 +217,24 @@ void main(List<String> args) {
   }
   if (asyncRec != null && channel != null) {
     final ratio = asyncRec / channel;
+    final comparison = ratio > 1.5
+        ? 'the isolate hop dominates'
+        : 'the persistent worker pool keeps dispatch overhead low';
     out.writeln(
         '- **Sync vs async:** `@nitroAsync` (${asyncRec.toStringAsFixed(1)} µs) '
         'costs about ${ratio.toStringAsFixed(1)}× a MethodChannel round-trip — '
-        'the isolate hop dominates. Prefer sync calls or `@NitroNativeAsync` '
-        'for latency-critical paths; reserve `@nitroAsync` for work that '
-        'genuinely blocks.');
+        '$comparison. Prefer sync calls for latency-critical paths; use '
+        '`@NitroNativeAsync` when native already owns its own async work, '
+        'and `@nitroAsync` for a native call that genuinely blocks.');
+  }
+  if (nativeAsyncRec != null && channel != null) {
+    final ratio = nativeAsyncRec / channel;
+    out.writeln(
+        '- **Native async:** `@nitroNativeAsync` '
+        '(${nativeAsyncRec.toStringAsFixed(1)} µs) costs about '
+        '${ratio.toStringAsFixed(1)}× a MethodChannel round-trip — no Dart '
+        'isolate is spawned, so this is close to the raw cost of the native '
+        'call itself plus one `Dart_PostCObject_DL` post.');
   }
   if (struct != null && channel != null) {
     out.writeln(

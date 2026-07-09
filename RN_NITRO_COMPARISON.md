@@ -126,23 +126,23 @@ Promise<T>::async(fn)
 ### Flutter Nitro
 
 ```
-@nitroAsync        → IsolatePool (least-busy worker, binary min-heap) → ~930 µs
-@NitroNativeAsync  → Dart_PostCObject_DL (native-driven)              → ~146 µs
+@nitroAsync        → IsolatePool (least-busy worker, binary min-heap) → ~28 µs (macOS)
+@NitroNativeAsync  → Dart_PostCObject_DL (native-driven)              → ~27 µs (macOS)
 
 Stream<T>          → @NitroStream → ReceivePort → Dart_PostCObject_DL per item
   Backpressure: dropLatest / block / bufferDrop / batch
 ```
 
 - Four async patterns: `@nitroAsync`, `@NitroNativeAsync`, `NitroPromise<T>` (Dart-only), `@NitroResult<T>`
-- `@NitroNativeAsync` is ~5× faster because native drives its own async — no isolate spawn
+- `@NitroNativeAsync` skips the isolate hop entirely because native drives its own async — the two mechanisms are close in raw latency (both dominated by the message round-trip / native work), but `@NitroNativeAsync` has one fewer moving part
 - Built-in streaming with 4 backpressure modes — the single largest gap vs RN Nitro
 - `IsolatePool` uses a **shared single reply port** and **least-busy scheduling** — zero per-call port creation overhead
 
-| Annotation | Mechanism | Overhead | When to Use |
+| Annotation | Mechanism | Overhead (macOS) | When to Use |
 |---|---|---|---|
-| `@nitroAsync` | IsolatePool dispatch → worker isolate → FFI | ~930 µs | Native function is blocking; want Dart isolate isolation |
-| `@NitroAsync(timeout: N)` | Same + timeout | ~930 µs | Blocking call with deadline |
-| `@nitroNativeAsync` | `ReceivePort.nativePort` → `Dart_PostCObject_DL` | ~146 µs | Native already manages its own async (Swift async, Kotlin coroutine, C++ thread pool) |
+| `@nitroAsync` | IsolatePool dispatch → worker isolate → FFI | ~28 µs | Native function is blocking; want Dart isolate isolation |
+| `@NitroAsync(timeout: N)` | Same + timeout | ~28 µs | Blocking call with deadline |
+| `@nitroNativeAsync` | `ReceivePort.nativePort` → `Dart_PostCObject_DL` | ~27 µs | Native already manages its own async (Swift async, Kotlin coroutine, C++ thread pool) |
 | `NitroPromise<T>` | Dart `Completer<T>` wrapper | negligible | Composable async primitives in user code; not a bridge annotation |
 | `@NitroResult<T>` | Sync or async; discriminated success/error tagged buffer | — | Error signaling without exceptions |
 
@@ -241,7 +241,7 @@ Key difference: Flutter Nitro's generator is a `build_runner` builder — `flutt
 
 1. **`Stream<T>` with 4 backpressure modes** — the single largest gap in RN Nitro. `dropLatest`, `block`, `bufferDrop`, `batch`. Batch mode reduces bridge crossing cost to 1 per N items for high-frequency sensors.
 
-2. **`@NitroNativeAsync`** (~146 µs): Native drives its own async via `Dart_PostCObject_DL`. No Dart isolate spawn. ~5× faster than `@nitroAsync`. Composable with Swift `async`, Kotlin coroutines, C++ thread pools.
+2. **`@NitroNativeAsync`** (~27 µs on macOS): Native drives its own async via `Dart_PostCObject_DL`. No Dart isolate spawn — one fewer moving part than `@nitroAsync` (~28 µs), and no worker-pool contention under concurrent load. Composable with Swift `async`, Kotlin coroutines, C++ thread pools.
 
 3. **`@HybridRecord`**: Binary-encoded rich types with arbitrary nesting, nullable fields, `List<T>`, embedded structs. RN Nitro has no equivalent — only C++ POD structs or custom `JSIConverter<T>`.
 
@@ -278,8 +278,8 @@ Key difference: Flutter Nitro's generator is a `build_runner` builder — `flutt
 | Sync primitive call | JSI dispatch + C++ virtual | FFI + C ABI + optional JNI | RN (fewer layers on iOS) |
 | Nullable param | Stack `optional<T>` — zero malloc | `Pointer<NitroOptXxx>` — Arena alloc | RN |
 | Nullable return | Stack value — zero malloc | `Pointer<NitroOptXxx>` (plan: struct-by-value) | RN (until plan implemented) |
-| Async (isolate) | N/A | IsolatePool ~930 µs | Flutter (has a mechanism) |
-| Async (native-driven) | CallInvoker ~1 JS turn | `Dart_PostCObject_DL` ~146 µs | Flutter |
+| Async (isolate) | N/A | IsolatePool ~28 µs (macOS) | Flutter (has a mechanism) |
+| Async (native-driven) | CallInvoker ~1 JS turn | `Dart_PostCObject_DL` ~27 µs (macOS) | Flutter |
 | Stream (per item) | N/A (callbacks only) | `Dart_PostCObject_DL` per item | Flutter (unique feature) |
 | Stream batch | N/A | 1 bridge crossing per N items | Flutter |
 | Vector/List copy | `std::vector<T>` — full copy | `LazyRecordList<T>` — decode-on-demand | Flutter for records/variants |
@@ -306,7 +306,7 @@ Key difference: Flutter Nitro's generator is a `build_runner` builder — `flutt
 
 **Flutter Nitro's strengths** are **richer runtime semantics**:
 - Native streaming with 4 backpressure modes (the biggest functional gap in RN Nitro)
-- `@NitroNativeAsync` for native-driven async at 146 µs (~5× faster than isolate path)
+- `@NitroNativeAsync` for native-driven async at ~27 µs on macOS, no isolate hop
 - `@HybridRecord` binary codec for rich structured data without C++ POD constraints
 - `LazyRecordList<T>` O(1) access to native lists with decode-on-demand
 - All 10 TypedData variants (not just ArrayBuffer)

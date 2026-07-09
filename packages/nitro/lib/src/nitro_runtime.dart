@@ -372,6 +372,24 @@ class NitroRuntime {
     }
   }
 
+  // ── Callback lifecycle ────────────────────────────────────────────────────
+
+  /// Closes a replaced callback [NativeCallable] on the next microtask turn.
+  ///
+  /// Generated callback-setter helpers call this whenever a callback-typed
+  /// parameter slot already holds a previously-registered [NativeCallable] at
+  /// the moment a new one is created (i.e. the setter was invoked again with
+  /// a fresh closure — the common idiomatic-Flutter pattern). [old] must not
+  /// be closed until native has switched over to the *new* function pointer,
+  /// which happens synchronously inside the FFI call that immediately follows
+  /// the helper on the same call stack — scheduling the close on a microtask
+  /// guarantees it runs only after that call has returned. No-op if [old] is
+  /// `null` (first registration).
+  static void deferredClose(NativeCallable<dynamic>? old) {
+    if (old == null) return;
+    scheduleMicrotask(old.close);
+  }
+
   // ── Async call via isolate pool ──────────────────────────────────────────
 
   /// Calls a native function on a background isolate.

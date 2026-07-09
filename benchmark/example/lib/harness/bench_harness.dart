@@ -209,6 +209,10 @@ class BenchReport {
             _ratio('method_channel_add', 'nitro_cpp_add'),
         'method_channel_over_nitro_leaf':
             _ratio('method_channel_add', 'nitro_leaf_add'),
+        'nitro_async_over_channel':
+            _ratio('nitro_async_record', 'method_channel_add'),
+        'nitro_native_async_over_channel':
+            _ratio('nitro_native_async_record', 'method_channel_add'),
       };
 
   Map<String, Object?> toJson() => {
@@ -387,6 +391,19 @@ class BenchHarness {
         (n) async {
       for (var i = 0; i < n; i++) {
         sink += (await cpp.computeStats(1)).meanUs;
+      }
+    });
+
+    // Zero-hop native-async twin of the case above — same payload, same
+    // native computation (see HybridBenchmarkCpp::computeStatsBuffer), but
+    // dispatched via Dart_PostCObject_DL from a persistent native worker
+    // thread instead of the Dart isolate pool. Apples-to-apples comparison
+    // of @nitroAsync vs @nitroNativeAsync dispatch overhead.
+    await latencyCase(
+        'nitro_native_async_record', 'Nitro @nitroNativeAsync + record',
+        config.asyncIters, (n) async {
+      for (var i = 0; i < n; i++) {
+        sink += (await cpp.computeStatsNative(1)).meanUs;
       }
     });
 

@@ -1545,22 +1545,6 @@ void _emitJniCallbackInvokers(
       }
       writer.line('}');
       writer.blankLine();
-
-      // Per-callback release: posts the callbackPtr int64 to the stored Dart release port,
-      // which triggers the Dart bridge to close the corresponding NativeCallable.
-      final releaseJniName = _jniMethodName(spec.lib, spec.dartClassName, '_release_${p.name}');
-      if (callbackNativeImpls.add('_release_${p.name}')) {
-        writer.line('JNIEXPORT void JNICALL $releaseJniName(JNIEnv*, jobject, jlong callbackPtr) {');
-        writer.line('    std::lock_guard<std::mutex> _lk(g_cb_release_mtx);');
-        writer.line('    auto it = g_cb_release_ports.find(callbackPtr);');
-        writer.line('    if (it != g_cb_release_ports.end()) {');
-        writer.line('        Dart_CObject msg; msg.type = Dart_CObject_kInt64; msg.value.as_int64 = callbackPtr;');
-        writer.line('        Dart_PostCObject_DL(it->second, &msg);');
-        writer.line('        g_cb_release_ports.erase(it);');
-        writer.line('    }');
-        writer.line('}');
-        writer.blankLine();
-      }
     }
   }
 }

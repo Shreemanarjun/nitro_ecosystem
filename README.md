@@ -316,7 +316,7 @@ print('${mid.$1}, ${mid.$2}'); // "2.0, 3.0"
 
 ### `@nitroAsync` — background-thread dispatch
 
-Offloads a synchronous native call to Nitrogen's pre-warmed isolate pool and returns a `Future`. Overhead: **~930 µs** (isolate dispatch round-trip).
+Offloads a synchronous native call to Nitrogen's pre-warmed isolate pool and returns a `Future`. Overhead: **~28 µs** on macOS (persistent-worker isolate dispatch — roughly at parity with a method channel round-trip; see [Performance](#performance)).
 
 ```dart
 @nitroAsync
@@ -329,7 +329,7 @@ Future<Uint8List> fetchData(String url);
 
 ### `@nitroNativeAsync` — zero-hop native async
 
-The native side runs its own async work (Swift `async/await`, Kotlin coroutine, C++ thread pool) and calls `Dart_PostCObject_DL` to post the result directly. Dart opens a `ReceivePort` and awaits it — no Dart isolate is spawned. Overhead: **~146 µs** (6× faster than `@nitroAsync`).
+The native side runs its own async work (Swift `async/await`, Kotlin coroutine, C++ thread pool) and calls `Dart_PostCObject_DL` to post the result directly. Dart opens a `ReceivePort` and awaits it — no Dart isolate is spawned. Overhead: **~27 µs** on macOS — no isolate hop, so no dispatch overhead beyond the native call itself.
 
 ```dart
 @nitroNativeAsync
@@ -360,7 +360,7 @@ override fun fetchDataNative(url: String, port: Long) {
 }
 ```
 
-> **Use `@nitroNativeAsync` when:** the native side already has async infrastructure (coroutines, Swift async, thread pool) and you want to avoid the ~800 µs isolate dispatch overhead.
+> **Use `@nitroNativeAsync` when:** the native side already has async infrastructure (coroutines, Swift async, thread pool) — it skips the isolate hop entirely. `@nitroAsync` exists for the opposite case: a blocking native call with no async infrastructure of its own, dispatched off the main isolate via a persistent worker pool.
 
 ### `@NitroStream` — native-to-Dart event stream
 
@@ -686,12 +686,15 @@ Measured against a raw `dart:ffi` leaf call as the theoretical floor — the ent
 
 At 60 fps, that's **~63,000** Nitrogen calls per frame budget vs **~625** for a method channel — 101× more headroom for per-frame native work (sensors, codecs, game state).
 
-### Async overhead
+### Async overhead (macOS, `computeStats`/`computeStatsNative` benchmark cases)
 
-| Annotation | Overhead | Mechanism |
-|---|---|---|
-| `@nitroAsync` | ~930 µs | Dart isolate pool dispatch |
-| `@nitroNativeAsync` | ~146 µs | Native `Dart_PostCObject_DL` |
+| Annotation | Latency | vs Method Channel | Mechanism |
+|---|---|---|---|
+| Method Channel | 26.8 µs | 1× | — |
+| `@nitroAsync` | ~28 µs | ~1.05× (slightly slower) | Persistent-worker isolate pool dispatch |
+| `@nitroNativeAsync` | ~27 µs | ~1.0× (parity) | Native `Dart_PostCObject_DL`, no isolate hop |
+
+`@nitroAsync`'s isolate pool was rewritten to use a persistent reply port and least-busy worker scheduling (no per-call `ReceivePort` allocation) — current overhead is dominated by the inherent cost of an isolate message round-trip, not by pool bookkeeping. `@nitroNativeAsync` skips that hop entirely because native already owns the async work; use it whenever the native side has its own async infrastructure (coroutines, Swift `async`, a thread pool). Use `@nitroAsync` for the opposite case — a *blocking* native call that just needs to run off the main isolate.
 
 ### High-bandwidth throughput (1 GB `@zeroCopy Uint8List`, Android)
 

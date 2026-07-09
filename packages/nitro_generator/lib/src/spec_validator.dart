@@ -972,6 +972,24 @@ class SpecValidator {
     final returnName = (callback.functionReturnType ?? 'void').replaceFirst('?', '');
     final enumNames = spec.enums.map((e) => e.name).toSet();
 
+    // E016: callback param on a plain @NitroAsync (non-native-async) method.
+    // The registering FFI call is dispatched onto a different isolate via
+    // callAsync, so the calling isolate can't guarantee native has switched
+    // to the new callback pointer before NitroRuntime.deferredClose runs.
+    if (func.isAsync && !func.isNativeAsync) {
+      issues.add(
+        ValidationIssue(
+          severity: ValidationSeverity.error,
+          code: 'E016',
+          message: '${spec.dartClassName}.${func.dartName}() — parameter "${param.name}" is a callback type, '
+              'which is not supported on @NitroAsync methods.',
+          hint: 'Callback replacement relies on the native registration call being synchronous on the calling '
+              'isolate. Remove @NitroAsync from ${func.dartName}() (registering a callback pointer is normally '
+              'cheap), or use @NitroNativeAsync if native must register it off the calling thread.',
+        ),
+      );
+    }
+
     final recordNames = spec.recordTypes.map((r) => r.name).toSet();
     final variantNames = spec.variants.map((v) => v.name).toSet();
     // Supported callback return types: primitives, AnyNativeObject, enums, @HybridRecord, @NitroVariant.

@@ -277,7 +277,10 @@ class NitroAsync {
 // native implementation runs its own async work (coroutine, Task, thread pool)
 // and calls Dart_PostCObject_DL when done.
 //
-// Cut async overhead from ~930 µs (@nitroAsync) to ~146 µs.
+// Skips the isolate hop entirely (@nitroAsync's dispatch is ~28 µs on macOS,
+// roughly at parity with a method channel round-trip; @nitroNativeAsync is
+// ~27 µs since there's no isolate to dispatch to — the win is architectural,
+// not a fixed-cost difference between the two mechanisms).
 // Cannot be combined with @nitroAsync on the same method.
 const nitroNativeAsync = NitroNativeAsync();
 

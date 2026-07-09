@@ -1,10 +1,13 @@
 ## 0.5.6
 
-Android zero-copy memory-leak fix. **No breaking changes** — regenerate your
-plugin (`dart run build_runner build`) to pick it up; the runtime packages are
-unchanged.
+Memory-leak fixes: Android zero-copy stream global refs, and a cross-platform
+callback `NativeCallable` leak. **No breaking changes** — regenerate your
+plugin (`dart run build_runner build`) to pick it up; only the generator's
+output changes, plus one small runtime addition (`NitroRuntime.deferredClose`,
+used internally by generated code — not something you call directly).
 
 - **Fixed: JNI global-reference leak on every zero-copy stream event (Android/Kotlin backends)** — for `@HybridStruct(zeroCopy: [...])` structs delivered through a `@NitroStream`, the generated C++ bridge pinned the backing Kotlin object with `NewGlobalRef` (stored in `g_zero_copy_refs`) so the borrowed buffer stays alive while Dart reads it — but the generated struct release function only `free()`d the C struct and never deleted the global ref. ART's global-reference table (51,200 slots) fills at the stream's frame rate and the process **aborts with `global reference table overflow` after ~25 minutes** of continuous streaming (measured with a 30 fps camera frame stream). The bridge now emits a `<libStem>_zero_copy_release` helper (declared in the JNI prologue) that erases the pinned ref, and the struct release function calls it before freeing. Covered by new `cpp_bridge_generator_test.dart` / `proxy_generation_test.dart` cases asserting the release path deletes the ref exactly once.
+- **Fixed: every callback-typed parameter leaked a `NativeCallable` on every re-registration (Android, iOS, and desktop C++)** — a callback setter (e.g. `module.onDeviceFound((event) { ... })`) cached its native callback keyed by `(paramName, closure)`; since idiomatic Flutter code almost always passes a fresh closure literal, the cache key never matched a previous entry, so a new `NativeCallable` was allocated and never released on every single call. The generated cache is now a per-`(methodName.paramName)` slot: re-registering replaces the slot and closes the previous `NativeCallable` via the new `NitroRuntime.deferredClose` runtime helper (deferred to a microtask, after native has synchronously switched to the new function pointer). The old Kotlin/JNI-only `_release_$paramName` mechanism — declared but never actually invoked by any generated code — has been removed rather than completed on Swift/direct-C++, since replace-on-reassign leaves no gap for it to fill. A new `E016` validation error rejects a callback param on a plain `@NitroAsync` method (the registering call would run on a different isolate, breaking the ordering guarantee `deferredClose` relies on); `@NitroNativeAsync` and sync methods are unaffected. Covered by rewritten `callback_release_test.dart` and updated `callback_type_test.dart` assertions.
 
 ## 0.5.5
 

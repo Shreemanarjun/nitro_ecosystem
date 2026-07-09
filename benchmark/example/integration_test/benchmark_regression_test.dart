@@ -49,6 +49,15 @@ const _maxCppOverRawFfi = 4.0;
 const _cppOverheadBudgetUs = 1.5;
 const _minChannelOverCpp = 5.0; //   typical 50–100×
 
+// @nitroAsync / @nitroNativeAsync vs MethodChannel. Generous on purpose —
+// current measured ratio is ≈1.0 on macOS (isolate-pool dispatch is at
+// parity with a channel round-trip); this only trips on a real regression
+// class (the persistent IsolatePool reverting to per-call ReceivePort /
+// Isolate.spawn, an accidental extra allocation, or a lost fast path).
+const _maxAsyncOverChannel = 3.0; //   ratio term
+const _asyncOverheadBudgetUs = 50.0; // absolute budget — async has more
+//                                      scheduler/GC jitter than a sync call
+
 void main() {
   final binding = IntegrationTestWidgetsFlutterBinding.ensureInitialized();
 
@@ -117,6 +126,29 @@ void main() {
               '(cpp=${cpp.toStringAsFixed(3)}µs, '
               'channel=${channel.toStringAsFixed(3)}µs).',
         );
+
+        final asyncRecord = optionalMedian('nitro_async_record');
+        if (asyncRecord != null) {
+          expect(
+            asyncRecord,
+            lessThanOrEqualTo(channel * _maxAsyncOverChannel + _asyncOverheadBudgetUs),
+            reason: '@nitroAsync dispatch overhead regressed vs MethodChannel '
+                '(async=${asyncRecord.toStringAsFixed(1)}µs, '
+                'channel=${channel.toStringAsFixed(1)}µs). Did the persistent '
+                'IsolatePool regress to per-call ReceivePort/Isolate.spawn?',
+          );
+        }
+
+        final nativeAsyncRecord = optionalMedian('nitro_native_async_record');
+        if (nativeAsyncRecord != null) {
+          expect(
+            nativeAsyncRecord,
+            lessThanOrEqualTo(channel * _maxAsyncOverChannel + _asyncOverheadBudgetUs),
+            reason: '@nitroNativeAsync dispatch overhead regressed vs '
+                'MethodChannel (nativeAsync=${nativeAsyncRecord.toStringAsFixed(1)}µs, '
+                'channel=${channel.toStringAsFixed(1)}µs).',
+          );
+        }
       }
 
       // ── Absolute gate: compare vs the checked-in platform baseline ───────

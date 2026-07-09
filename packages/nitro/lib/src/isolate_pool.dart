@@ -39,6 +39,14 @@ void _workerMain(_WorkerInit init) {
   final inbox = ReceivePort();
   init.handshake.send(inbox.sendPort); // handshake complete
 
+  // getError/clearError are the same two per-instance pointers on every
+  // dispatch for a given module — .asFunction() rebinds a fresh Dart closure
+  // around an unchanged Pointer each time it's called, which is redundant
+  // per-call work. Cache the bound closures by pointer address instead of
+  // rebinding on every message.
+  final errorFnCache = <int, Pointer<NitroErrorFfi> Function()>{};
+  final clearFnCache = <int, void Function()>{};
+
   inbox.listen((dynamic msg) {
     if (msg == null) {
       // Graceful shutdown signal sent by IsolatePool.dispose().
@@ -49,10 +57,9 @@ void _workerMain(_WorkerInit init) {
       try {
         final result = Function.apply(msg.fn, msg.args);
         if (msg.getError != null && msg.clearError != null) {
-          NitroRuntime.checkError(
-            msg.getError!.asFunction(),
-            msg.clearError!.asFunction(),
-          );
+          final getErrorFn = errorFnCache.putIfAbsent(msg.getError!.address, () => msg.getError!.asFunction());
+          final clearErrorFn = clearFnCache.putIfAbsent(msg.clearError!.address, () => msg.clearError!.asFunction());
+          NitroRuntime.checkError(getErrorFn, clearErrorFn);
         }
         init.poolReply.send(_CallResponse(callId: msg.callId, result: result));
       } catch (e, st) {
