@@ -108,7 +108,10 @@ public:
     // ── Native-async twin of computeStats — same computation, dispatched via
     // a persistent worker thread + Dart_PostCObject_DL instead of the isolate
     // pool. See computeStatsBuffer() for the shared, byte-identical logic.
-    void computeStatsNative(int64_t iterations, int64_t dartPort) override {
+    // _nitro_err is unused here — this benchmark case has no error path — but
+    // must stay in the signature to match the (generated) pure-virtual
+    // declaration in benchmark_cpp.native.g.h.
+    void computeStatsNative(int64_t iterations, NitroError* /*_nitro_err*/, int64_t dartPort) override {
         {
             std::lock_guard<std::mutex> lk(_asyncQueueMtx);
             _asyncQueue.push([this, iterations, dartPort]() {

@@ -75,8 +75,11 @@ class CppImplGenerator {
             enumNames,
             structNames,
             recordNames,
-          )..add('int64_t dartPort');
+          )
+            ..add('NitroError* _nitro_err')
+            ..add('int64_t dartPort');
           w.writeln('    void ${func.dartName}(${params.join(', ')}) override {');
+          w.writeln('        // TODO: on error, populate _nitro_err (hasError/name/message via strdup) before posting.');
           w.writeln('        // TODO: post result via Dart_PostCObject_DL(dartPort, ...)');
           w.writeln('        throw std::runtime_error("Not implemented: ${func.dartName}");');
           w.writeln('    }');

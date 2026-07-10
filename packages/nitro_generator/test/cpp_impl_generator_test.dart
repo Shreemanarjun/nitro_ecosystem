@@ -1,8 +1,46 @@
 import 'package:nitro_generator/src/generators/languages/cpp_native/cpp_impl_generator.dart';
+import 'package:nitro_generator/src/generators/languages/cpp_native/cpp_interface_generator.dart';
 import 'package:test/test.dart';
 import 'test_utils.dart';
 
+BridgeSpec _cppNativeAsyncSpec() => BridgeSpec(
+  dartClassName: 'Sensor',
+  lib: 'sensor',
+  namespace: 'sensor_module',
+  iosImpl: NativeImpl.cpp,
+  androidImpl: NativeImpl.cpp,
+  sourceUri: 'sensor.native.dart',
+  functions: [
+    BridgeFunction(
+      dartName: 'capture',
+      cSymbol: 'sensor_capture',
+      isAsync: false,
+      isNativeAsync: true,
+      returnType: BridgeType(name: 'void'),
+      params: [
+        BridgeParam(name: 'durationMs', type: BridgeType(name: 'int')),
+      ],
+    ),
+  ],
+);
+
 void main() {
+  // Regression: the starter's override signature and the interface's
+  // pure-virtual declaration are emitted by two separate generators — a scaffolded
+  // project would fail to compile ("does not override any base class methods")
+  // if they drift, exactly like the CI-caught mismatch between the interface
+  // and the cpp_direct_emitter.dart call site.
+  group('CppImplGenerator — @NitroNativeAsync starter matches the interface', () {
+    test('override signature includes NitroError* before dartPort, matching the pure-virtual declaration', () {
+      final spec = _cppNativeAsyncSpec();
+      final implOut = CppImplGenerator.generate(spec);
+      final ifaceOut = CppInterfaceGenerator.generate(spec);
+      expect(implOut, contains('void capture(int64_t durationMs, NitroError* _nitro_err, int64_t dartPort) override {'));
+      expect(ifaceOut, contains('virtual void capture(int64_t durationMs, NitroError* _nitro_err, int64_t dartPort) = 0;'));
+    });
+  });
+
+
   group('§39 CppImplGenerator — basic', () {
     test('§39.1 generates concrete class extending HybridMath', () {
       final out = CppImplGenerator.generate(cppSpec());

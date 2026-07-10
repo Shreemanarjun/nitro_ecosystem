@@ -169,9 +169,14 @@ class CppInterfaceGenerator {
           );
         }
         if (func.isNativeAsync) {
-          // @NitroNativeAsync: impl returns void and accepts dart_port so it can
-          // post the result directly via Dart_PostCObject_DL from any thread.
+          // @NitroNativeAsync: impl returns void and accepts a NitroError*
+          // out-param (fresh-per-call, unlike sync's instance-owned slot —
+          // see NitroRuntime.throwIfOutParamErrorAndFree) plus dart_port so
+          // it can post the result directly via Dart_PostCObject_DL from any
+          // thread. Order must match the call site in cpp_direct_emitter.dart
+          // / cpp_bridge_generator.dart's Apple-C++-direct dispatch.
           final params = _cppMethodParams(func.params, enumNames, structNames, recordNames);
+          params.add('NitroError* _nitro_err');
           params.add('int64_t dartPort');
           nodes.add(
             CodeLine('    virtual void ${func.dartName}(${params.join(', ')}) = 0;'),

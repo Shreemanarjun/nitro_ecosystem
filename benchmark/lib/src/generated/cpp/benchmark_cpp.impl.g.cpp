@@ -65,7 +65,8 @@ public:
         // return { nullptr, 0 };
     }
 
-    void computeStatsNative(int64_t iterations, int64_t dartPort) override {
+    void computeStatsNative(int64_t iterations, NitroError* _nitro_err, int64_t dartPort) override {
+        // TODO: on error, populate _nitro_err (hasError/name/message via strdup) before posting.
         // TODO: post result via Dart_PostCObject_DL(dartPort, ...)
         throw std::runtime_error("Not implemented: computeStatsNative");
     }

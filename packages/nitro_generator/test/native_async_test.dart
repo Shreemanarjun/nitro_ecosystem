@@ -883,14 +883,35 @@ void main() {
       expect(out, contains('virtual void process('));
     });
 
-    test('pure-virtual method has int64_t dartPort as last param', () {
+    test('pure-virtual method has NitroError* before int64_t dartPort as the last two params', () {
       final out = CppInterfaceGenerator.generate(_cppOnlyNativeAsyncSpec());
+      expect(out, contains('NitroError* _nitro_err'));
       expect(out, contains('int64_t dartPort'));
     });
 
     test('pure-virtual is = 0 (must be overridden)', () {
       final out = CppInterfaceGenerator.generate(_cppOnlyNativeAsyncSpec());
-      expect(out, contains('virtual void process(int64_t value, int64_t dartPort) = 0;'));
+      expect(out, contains('virtual void process(int64_t value, NitroError* _nitro_err, int64_t dartPort) = 0;'));
+    });
+
+    // Regression: the interface's pure-virtual declaration and the call site
+    // in cpp_direct_emitter.dart/cpp_bridge_generator.dart's Apple-C++-direct
+    // dispatch are emitted by three SEPARATE generators — nothing enforces
+    // they agree except this test. A CI build across every desktop platform
+    // (benchmark's `computeStatsNative`) broke because the call site was
+    // updated to pass `_nitro_err, dart_port` while this interface still
+    // declared only `dartPort` — "too many arguments to function call".
+    test('pure-virtual param count matches the cpp_direct_emitter.dart call site exactly', () {
+      final spec = _cppOnlyNativeAsyncSpec();
+      final ifaceOut = CppInterfaceGenerator.generate(spec);
+      final bridgeOut = CppBridgeGenerator.generate(spec);
+      final ifaceDecl = ifaceOut.substring(ifaceOut.indexOf('virtual void process('), ifaceOut.indexOf(') = 0;') + 6);
+      final ifaceParamCount = ifaceDecl.split(',').length;
+      final callIdx = bridgeOut.indexOf('_impl->process(');
+      expect(callIdx, greaterThan(-1));
+      final callSite = bridgeOut.substring(callIdx, bridgeOut.indexOf(');', callIdx) + 1);
+      final callParamCount = callSite.substring(callSite.indexOf('(') + 1, callSite.lastIndexOf(')')).split(',').length;
+      expect(callParamCount, ifaceParamCount, reason: 'call-site arg count must equal the interface\'s declared param count: iface="$ifaceDecl" call="$callSite"');
     });
   });
 
