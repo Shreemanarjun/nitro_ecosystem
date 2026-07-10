@@ -406,6 +406,7 @@ class CppBridgeGenerator {
           paramParts.add('${(isStructParam || (isRecordParam && !isMapParam)) ? 'void*' : (isEnumParam ? 'int64_t' : _typeToC(p.type.name))} ${p.name}');
           if (p.type.isTypedData) paramParts.add('size_t ${p.name}_length'); // matches Dart FFI Size type
         }
+        paramParts.add('NitroError* _nitro_err');
         paramParts.add('int64_t dart_port');
         final paramsDecl = paramParts.join(', ');
         final callArgs = <String>[];
@@ -455,14 +456,27 @@ class CppBridgeGenerator {
             callArgs.add(p.name);
           }
         }
+        callArgs.add('_nitro_err');
         callArgs.add('dart_port');
         writer.line('void ${func.cSymbol}($paramsDecl) {');
+        writer.line('    if (_nitro_err) { _nitro_err->hasError = 0; }');
         writer.line('    if (!g_impl) {');
+        writer.line('        _nitro_desktop_err(_nitro_err, "NotInitialized", "No C++ implementation registered.");');
         writer.line('        Dart_CObject _err = { Dart_CObject_kNull };');
         writer.line('        Dart_PostCObject_DL(dart_port, &_err);');
         writer.line('        return;');
         writer.line('    }');
-        writer.line('    g_impl->${func.dartName}(${callArgs.join(', ')});');
+        writer.line('    try {');
+        writer.line('        g_impl->${func.dartName}(${callArgs.join(', ')});');
+        writer.line('    } catch (const std::exception& e) {');
+        writer.line('        _nitro_desktop_err(_nitro_err, "CppException", e.what());');
+        writer.line('        Dart_CObject _err = { Dart_CObject_kNull };');
+        writer.line('        Dart_PostCObject_DL(dart_port, &_err);');
+        writer.line('    } catch (...) {');
+        writer.line('        _nitro_desktop_err(_nitro_err, "CppException", "Unknown C++ exception");');
+        writer.line('        Dart_CObject _err = { Dart_CObject_kNull };');
+        writer.line('        Dart_PostCObject_DL(dart_port, &_err);');
+        writer.line('    }');
         writer.line('}');
         writer.blankLine();
         continue;
@@ -1837,8 +1851,9 @@ class CppBridgeGenerator {
           ),
         )
         .join();
-    // 'J' prefix for instanceId, then params, then 'J' for dartPort (Point 13).
-    return '(J${paramSig}J)V';
+    // 'J' prefix for instanceId, then params, then 'J' for the error-struct
+    // address (errPtr), then 'J' for dartPort (Point 13).
+    return '(J${paramSig}JJ)V';
   }
 
   static String _jniParamSig(

@@ -226,6 +226,10 @@ class KotlinGenerator {
         writer.line('    // convention as postBytesToPort above.');
         writer.line('    @JvmStatic external fun post${sn}ToPort(dartPort: Long, value: $sn?)');
       }
+      writer.line('    // Writes a thrown exception\'s name/message into the fresh-per-call');
+      writer.line('    // NitroError* whose address Dart passed as errPtr, before the trampoline');
+      writer.line('    // still posts exactly one message so the port fires either way.');
+      writer.line('    @JvmStatic external fun reportNativeAsyncError(errPtr: Long, name: String, message: String)');
       writer.blankLine();
     }
 

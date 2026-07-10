@@ -137,10 +137,14 @@ void main() {
       expect(out, contains('NITRO_EXPORT void sensor_reset(int64_t instanceId, NitroError* _nitro_err);'));
     });
 
-    test('@NitroNativeAsync function does NOT receive NitroError* — uses dart_port', () {
+    test('@NitroNativeAsync function DOES receive a fresh-per-call NitroError*, before dart_port', () {
       final out = CppHeaderGenerator.generate(_syncSpec());
-      expect(out, contains('sensor_capture(int64_t instanceId, int64_t dart_port)'));
-      expect(out, isNot(contains('sensor_capture(int64_t instanceId, int64_t dart_port, NitroError*')));
+      // Unlike sync's one instance-owned slot, native-async calls aren't
+      // serialized (multiple can be in flight concurrently on the same
+      // instance), so it gets a NitroError* too — Dart allocates a fresh
+      // struct per call instead of reusing an instance field. See
+      // NitroRuntime.throwIfOutParamErrorAndFree.
+      expect(out, contains('sensor_capture(int64_t instanceId, NitroError* _nitro_err, int64_t dart_port)'));
     });
 
     test('property getter: NitroError* appended', () {
@@ -256,17 +260,15 @@ void main() {
       expect(out, isNot(contains('NitroRuntime.checkError(_getErrorPtr')));
     });
 
-    test('@NitroNativeAsync function body does NOT use _nitroErr in the native call', () {
+    test('@NitroNativeAsync function body DOES use a fresh-per-call _nitroErr in the native call', () {
       final out = DartFfiGenerator.generate(_syncSpec());
-      // Locate the capturePtr call and verify it uses dart_port, not _nitroErr
-      final idx = out.indexOf('_capturePtr(');
-      if (idx == -1) {
-        // NativeAsync uses a different call pattern (via callAsync/openNativeAsync)
-        expect(out, contains('sensor_capture'));
-      } else {
-        final callSite = out.substring(idx, idx + 100);
-        expect(callSite, isNot(contains('_nitroErr')));
-      }
+      // Unlike sync's instance-owned _nitroErr field, native-async allocates
+      // a fresh calloc'd slot right before the call (calls aren't serialized,
+      // so they can't share one instance-owned slot) and checks+frees it
+      // inside the wrapped unpack closure, before decoding raw.
+      expect(out, contains('final _nitroErr = calloc<NitroErrorFfi>();'));
+      expect(out, contains('_capturePtr(_instanceId, _nitroErr, port)'));
+      expect(out, contains('NitroRuntime.throwIfOutParamErrorAndFree(_nitroErr);'));
     });
 
     test('property getter FFI type includes Pointer<NitroErrorFfi>', () {

@@ -1,3 +1,8 @@
+## 0.5.9
+
+- **Added: `NitroRuntime.throwIfOutParamErrorAndFree`** — checks and frees a fresh-per-call `NitroErrorFfi` out-param slot, throwing a `HybridException` if it carries an error. Used internally by `nitro_generator`'s regenerated `@nitroNativeAsync` call sites to propagate a thrown native exception back to Dart, which previously was silently discarded (a `Future<void>` native-async method's thrown exception was completely invisible — the call always "succeeded"). Differs from the existing `throwIfOutParamError` (used by sync calls, which reuse one instance-owned slot safe only because sync calls on an isolate are serialized): native-async calls aren't serialized, so each call gets its own `calloc`'d struct, and this variant also frees the struct itself either way (the sync variant doesn't, since the instance-owned slot outlives every call). Not typically called directly by plugin authors.
+- **Ecosystem sync** — Aligned with `nitro_generator` 0.5.9's `@nitroNativeAsync` error-propagation fix. See `nitro_generator`'s changelog, and regenerate your plugin to pick it up.
+
 ## 0.5.8
 
 - **Ecosystem sync** — Aligned with `nitro_generator` 0.5.8's `@nitroNativeAsync` fixes (`Map<String,V>`/`NitroAnyMap` params on Kotlin and Swift, bare `@HybridStruct` returns on Kotlin, and `NitroAnyMap` support on Swift). No functional changes to this package — see `nitro_generator`'s changelog, and regenerate your plugin to pick it up.

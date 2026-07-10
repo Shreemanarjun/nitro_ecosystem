@@ -167,8 +167,8 @@ void main() {
     test('stream register', () {
       expect(DartFfiGenerator.generate(_spec()), contains('_registerUpdatesPtr(_instanceId, port)'));
     });
-    test('NativeAsync: instanceId before dart_port', () {
-      expect(DartFfiGenerator.generate(_spec()), contains('_fetchDataPtr(_instanceId, port)'));
+    test('NativeAsync: instanceId before error slot before dart_port', () {
+      expect(DartFfiGenerator.generate(_spec()), contains('_fetchDataPtr(_instanceId, _nitroErr, port)'));
     });
   });
 

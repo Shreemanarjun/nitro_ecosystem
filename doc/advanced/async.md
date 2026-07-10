@@ -126,34 +126,49 @@ abstract class AudioCapture extends HybridObject {
 
 ### Error handling
 
-`@NitroNativeAsync` does not use the `NitroError` slot. On error, native posts `Dart_CObject_kNull`. The `Future` resolves to `null` / throws `StateError` depending on the return type.
+`@NitroNativeAsync` propagates a thrown exception back to Dart as a real `HybridException`, mirroring the `NitroError*` out-param mechanism the sync/`@nitroAsync` paths already use (see `nitro_generator`'s S8 mechanism) — with one difference: since native-async calls aren't serialized (several can be in flight concurrently on the same instance), Dart allocates a **fresh** `NitroErrorFfi` struct per call instead of reusing one instance-owned slot.
 
-For rich errors, post an error via a second port or use `@nitroAsync` instead.
+On **Kotlin** and **Swift**, this is fully automatic — if your `suspend fun`/`async throws func` implementation throws, the generated trampoline catches it and reports the exception's name and message; Dart's `Future` rejects with a `HybridException` instead of silently completing with `null`/a default value.
+
+On the **C++ desktop-direct** path (`NativeImpl.cpp` on Windows/Linux, or macOS via `NativeImpl.cpp`), the framework doesn't own your async completion thread — the generated wrapper only catches a *synchronous* throw from your method (before it returns). If your implementation does real work on a background thread, you're responsible for populating the `NitroError*` parameter yourself before posting, exactly like `Dart_PostCObject_DL`/`dart_port` posting is already your responsibility (see the C++ example below).
 
 ### Native implementation pattern
 
-**Swift:**
+**Swift** — write a normal `async throws` function; the generator handles dispatch, posting, and error reporting:
 ```swift
-func captureAudio(durationMs: Int64, dartPort: Int64) {
-    Task.detached {
-        let audio = await self.recordFor(ms: durationMs)
-        let buf = audio.toNative()
-        var obj = Dart_CObject()
-        obj.type = Dart_CObject_kInt64
-        obj.value.as_int64 = Int64(bitPattern: UInt64(UInt(bitPattern: buf)))
-        Dart_PostCObject_DL(dartPort, &obj)
-    }
+func captureAudio(durationMs: Int64) async throws -> Data {
+    return try await recordFor(ms: durationMs) // a thrown error is caught and reported to Dart automatically
 }
 ```
 
-**Kotlin:**
+**Kotlin** — write a normal `suspend fun`; same automatic dispatch/posting/error-reporting:
 ```kotlin
-override suspend fun captureAudio(durationMs: Long, dartPort: Long): Unit {
-    _asyncExecutor.submit {
-        val bytes = recordFor(durationMs)
-        // post via JNI helper
-        postBytesToPort(dartPort, bytes)
-    }
+override suspend fun captureAudio(durationMs: Long): Uint8List {
+    return recordFor(durationMs) // a thrown exception is caught and reported to Dart automatically
+}
+```
+
+**C++ (desktop-direct, `NativeImpl.cpp`)** — the generated wrapper passes `dart_port` *and* `NitroError* _nitro_err` straight through; you're responsible for both posting the result and reporting errors from your own async completion:
+```cpp
+void captureAudio(int64_t durationMs, NitroError* _nitro_err, int64_t dart_port) {
+    std::thread([=]() {
+        try {
+            auto audio = recordFor(durationMs);
+            auto buf = audio.toNative();
+            Dart_CObject obj;
+            obj.type = Dart_CObject_kInt64;
+            obj.value.as_int64 = (int64_t)(uintptr_t)buf;
+            Dart_PostCObject_DL(dart_port, &obj);
+        } catch (const std::exception& e) {
+            if (_nitro_err) {
+                _nitro_err->hasError = 1;
+                _nitro_err->name = strdup("CppException");
+                _nitro_err->message = strdup(e.what());
+            }
+            Dart_CObject obj = { Dart_CObject_kNull };
+            Dart_PostCObject_DL(dart_port, &obj);
+        }
+    }).detach();
 }
 ```
 

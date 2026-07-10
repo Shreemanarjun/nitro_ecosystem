@@ -1,3 +1,7 @@
+## 0.5.9
+
+- **Ecosystem sync** — Aligned with `nitro_generator` 0.5.9's `@nitroNativeAsync` error-propagation fix. No functional changes to this package — see `nitro_generator`'s changelog, and regenerate your plugin to pick it up.
+
 ## 0.5.8
 
 - **Ecosystem sync** — Aligned with `nitro_generator` 0.5.8's `@nitroNativeAsync` fixes (`Map<String,V>`/`NitroAnyMap` params on Kotlin and Swift, bare `@HybridStruct` returns on Kotlin, and `NitroAnyMap` support on Swift). No functional changes to this package — see `nitro_generator`'s changelog, and regenerate your plugin to pick it up.

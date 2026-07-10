@@ -221,10 +221,17 @@ String _generateCppDirect(BridgeSpec spec) {
   // ── Methods ──────────────────────────────────────────────────────────────
   for (final func in spec.functions) {
     if (func.isNativeAsync) {
-      // ── @NitroNativeAsync — void wrapper with dart_port param ────────────
+      // ── @NitroNativeAsync — void wrapper with dart_port + error-slot params ──
       // The C function returns void and delegates to the impl, passing the
-      // Dart port so the impl can post the result via Dart_PostCObject_DL.
-      // No error slot is used — implementations must post errors via the port.
+      // Dart port so the impl can post the result via Dart_PostCObject_DL, and
+      // a fresh-per-call NitroError* the impl's own background completion code
+      // can populate before posting (see NitroRuntime.throwIfOutParamErrorAndFree
+      // on the Dart side — unlike sync's one instance-owned slot, native-async
+      // calls aren't serialized so each call gets its own struct). The try/catch
+      // below only catches SYNCHRONOUS setup exceptions (thrown before this
+      // function returns) — the framework doesn't own the impl's async thread
+      // here, so truly-async completion errors remain the impl's responsibility
+      // to report via _nitro_err, exactly like dart_port posting already is.
       // instanceId is included for API consistency with the JNI path; g_impl ignores it.
       final paramParts = <String>['int64_t instanceId'];
       for (final p in func.params) {
@@ -238,6 +245,7 @@ String _generateCppDirect(BridgeSpec spec) {
         paramParts.add('${(isStructParam || isRecordParam || p.type.isNativeHandle) ? 'void*' : (isEnumParam ? 'int64_t' : _typeToC(p.type.name))} ${p.name}');
         if (p.type.isTypedData) paramParts.add('size_t ${p.name}_length');
       }
+      paramParts.add('NitroError* _nitro_err');
       paramParts.add('int64_t dart_port');
       final paramsDecl = paramParts.join(', ');
 
@@ -262,12 +270,15 @@ String _generateCppDirect(BridgeSpec spec) {
           callArgs.add(p.name);
         }
       }
+      callArgs.add('_nitro_err');
       callArgs.add('dart_port');
       final callArgStr = callArgs.join(', ');
 
       writer.line('void ${func.cSymbol}($paramsDecl) {');
+      writer.line('    if (_nitro_err) { _nitro_err->hasError = 0; }');
       writer.line('    auto _impl = _nitro_get_instance(instanceId);');
       writer.line('    if (!_impl) {');
+      writer.line('        _nitro_out_err(_nitro_err, "NotInitialized", "No C++ implementation registered.");');
       writer.line('        Dart_CObject _err = { Dart_CObject_kNull };');
       writer.line('        Dart_PostCObject_DL(dart_port, &_err);');
       writer.line('        return;');
@@ -279,7 +290,17 @@ String _generateCppDirect(BridgeSpec spec) {
         func.dartName,
         'return;',
       );
-      writer.line('    _impl->${func.dartName}($callArgStr);');
+      writer.line('    try {');
+      writer.line('        _impl->${func.dartName}($callArgStr);');
+      writer.line('    } catch (const std::exception& e) {');
+      writer.line('        _nitro_out_err(_nitro_err, "CppException", e.what());');
+      writer.line('        Dart_CObject _err = { Dart_CObject_kNull };');
+      writer.line('        Dart_PostCObject_DL(dart_port, &_err);');
+      writer.line('    } catch (...) {');
+      writer.line('        _nitro_out_err(_nitro_err, "CppException", "Unknown C++ exception");');
+      writer.line('        Dart_CObject _err = { Dart_CObject_kNull };');
+      writer.line('        Dart_PostCObject_DL(dart_port, &_err);');
+      writer.line('    }');
       writer.line('}');
       writer.blankLine();
       continue;

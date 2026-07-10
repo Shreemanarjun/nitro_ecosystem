@@ -179,8 +179,12 @@ class KotlinFunctionEmitter {
     final isStructReturn = mapper.structNames.contains(retBaseName);
     final isRecord = func.returnType.isRecord && !func.returnType.isMap;
     final isListRecord = isRecord && func.returnType.recordListItemType != null && !func.returnType.recordListItemIsPrimitive && !func.returnType.isEnumList && !func.returnType.isVariantList;
-    // instanceId is prepended; bridgeParamsDecl already includes it.
-    final portParam = '$bridgeParamsDecl, dartPort: Long';
+    // instanceId is prepended; bridgeParamsDecl already includes it. errPtr is
+    // the address of a fresh-per-call NitroError* Dart allocated (see
+    // NitroRuntime.throwIfOutParamErrorAndFree) — unlike sync's one
+    // instance-owned slot, native-async calls aren't serialized so each call
+    // gets its own struct.
+    final portParam = '$bridgeParamsDecl, errPtr: Long, dartPort: Long';
 
     bool isOptPrimNA(BridgeParam p) => p.type.isNullableNitroPrim || (p.isOptional && BridgeType.nitroPrimBases.contains(p.type.baseName));
 
@@ -190,6 +194,7 @@ class KotlinFunctionEmitter {
 
     writer.line('    @JvmStatic fun ${func.dartName}_call($portParam) {');
     writer.line('        val impl = _implementations[instanceId] ?: run {');
+    writer.line('            reportNativeAsyncError(errPtr, "IllegalStateException", "No implementation registered for instance")');
     writer.line('            postNullToPort(dartPort)');
     writer.line('            return');
     writer.line('        }');
@@ -353,7 +358,8 @@ class KotlinFunctionEmitter {
       writer.line('            runBlocking { impl.${func.dartName}($callParams) }');
       writer.line('            postNullToPort(dartPort)');
     }
-    writer.line('            } catch (_: Throwable) {');
+    writer.line('            } catch (e: Throwable) {');
+    writer.line('                reportNativeAsyncError(errPtr, e.javaClass.simpleName, e.message ?: "An unknown native exception occurred.")');
     writer.line('                postNullToPort(dartPort)');
     writer.line('            }');
     writer.line('        }');

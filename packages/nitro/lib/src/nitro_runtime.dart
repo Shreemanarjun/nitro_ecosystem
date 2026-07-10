@@ -302,6 +302,37 @@ class NitroRuntime {
     );
   }
 
+  /// Checks and frees a [NitroErrorFfi] slot allocated fresh for a single
+  /// call — used by `@nitroNativeAsync`, where (unlike sync's one
+  /// instance-owned, isolate-serialized slot) multiple calls can be in
+  /// flight concurrently on the same instance, so each call gets its own
+  /// `calloc`'d struct instead of sharing one.
+  ///
+  /// If [errPtr.ref.hasError] is non-zero, reads the C-owned string fields,
+  /// frees them, frees [errPtr] itself, and throws a [HybridException]. If
+  /// there is no error, frees [errPtr] and returns normally.
+  static void throwIfOutParamErrorAndFree(Pointer<NitroErrorFfi> errPtr) {
+    if (errPtr.ref.hasError == 0) {
+      calloc.free(errPtr);
+      return;
+    }
+    final name = errPtr.ref.name != nullptr ? errPtr.ref.name.toDartString() : 'NativeException';
+    final message = errPtr.ref.message != nullptr ? errPtr.ref.message.toDartString() : 'An unknown native exception occurred.';
+    final code = errPtr.ref.code != nullptr ? errPtr.ref.code.toDartString() : null;
+    final stack = errPtr.ref.stackTrace != nullptr ? errPtr.ref.stackTrace.toDartString() : null;
+    if (errPtr.ref.name != nullptr) malloc.free(errPtr.ref.name);
+    if (errPtr.ref.message != nullptr) malloc.free(errPtr.ref.message);
+    if (errPtr.ref.code != nullptr) malloc.free(errPtr.ref.code);
+    if (errPtr.ref.stackTrace != nullptr) malloc.free(errPtr.ref.stackTrace);
+    calloc.free(errPtr);
+    throw HybridException(
+      name: name,
+      message: message,
+      code: code,
+      stackTrace: stack,
+    );
+  }
+
   // ── Synchronous call ─────────────────────────────────────────────────────
 
   /// Calls a native function synchronously, with logging and slow-call

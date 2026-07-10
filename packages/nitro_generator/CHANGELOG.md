@@ -1,3 +1,20 @@
+## 0.5.9
+
+Real error propagation for `@nitroNativeAsync` — previously a thrown native
+exception was silently discarded and the `Future` resolved successfully with
+`null` (invisible for `Future<void>` methods entirely: `expect(call(),
+throwsA(...))` would fail because the call never threw at all — the
+native-async unpack for `void` is literally `(_) {}`, ignoring the posted
+value). **Breaking for hand-authored C++ desktop (`NativeImpl.cpp`)
+native-async implementations only** — see the entry below; Kotlin/Swift/Dart
+callers need no source changes, just a regenerate.
+
+- **`@nitroNativeAsync` now propagates thrown exceptions to Dart as a real `HybridException`, instead of silently discarding them** — previously, the Kotlin trampoline's `catch (_: Throwable) { postNullToPort(dartPort) }` and Swift's per-branch `try? await impl.fn(...)` both swallowed a thrown exception and posted a "successful" null/default value. Mirrors the `NitroError*` out-param mechanism sync/`@nitroAsync` already use (see `NitroRuntime.throwIfOutParamError`), but with one difference: native-async calls aren't serialized (several can be in flight concurrently on the same instance), so Dart now allocates a **fresh** `NitroErrorFfi` struct per call — via the new `NitroRuntime.throwIfOutParamErrorAndFree` (in the `nitro` package) — rather than reusing sync's one instance-owned slot. The struct's address is threaded through every native-async signature as a new `NitroError* _nitro_err` param, right before the existing trailing `dart_port` param.
+  - **Kotlin**: the shared catch block (and the impl-not-found early-exit) now call a new JNI-exported `reportNativeAsyncError(errPtr, name, message)` before posting, which `strdup`s the exception's class name/message into the struct.
+  - **Swift**: every native-async return branch's `try? await impl.fn(...)` (+ its type-specific `?? default` collapsing a throw into a fake success value) is now `try await impl.fn(...)` inside a shared `do { ... } catch { ... }` wrapping the whole dispatch chain — a throw now writes into the error struct via the new `errPtr: Int64` `@_cdecl` param and posts `Dart_CObject_kNull`, instead of silently substituting a default value.
+  - **C++ desktop-direct (`NativeImpl.cpp` on Windows/Linux, and macOS-via-C++)** — **breaking**: the generated wrapper now takes a `NitroError* _nitro_err` param and forwards it to your implementation method (after your declared params, before `dart_port`), and wraps the synchronous portion of the call in `try`/`catch` so at least setup-time exceptions are caught automatically. The framework doesn't own your async completion thread on this path, though — truly-async errors still require your own background code to populate `_nitro_err` before posting, exactly like `dart_port` posting is already your responsibility. Existing hand-written/starter-generated native-async C++ impl methods need a trailing `NitroError*` parameter added; regenerate to pick up the updated starter template.
+  - Covered by 19 new tests across `native_async_test.dart` (Kotlin/Swift/C++-JNI/C++-desktop-direct/Apple-C++-direct/Dart-FFI) plus a new unit-test group for `NitroRuntime.throwIfOutParamErrorAndFree` in the `nitro` package. Two pre-existing `s8_out_param_test.dart` tests that asserted native-async does *not* receive a `NitroError*` were inverted — that was the exact gap this closes. Verified end-to-end on Android, iOS, and macOS via `nitro_type_coverage`'s `§69` integration test (a `throwNativeNativeAsync` method whose impl throws now correctly rejects with `HybridException` on all three platforms, matching the original bug report).
+
 ## 0.5.8
 
 Closes every `@nitroNativeAsync` gap left deferred by 0.5.7 — `Map<String,V>`/

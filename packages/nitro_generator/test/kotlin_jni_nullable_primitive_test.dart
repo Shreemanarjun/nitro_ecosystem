@@ -253,8 +253,8 @@ void main() {
       ),
     );
 
-    test('@NitroNativeAsync _call appends dartPort and uses ByteArray for int?', () {
-      expect(out, contains('fun fn_call(instanceId: Long, printerId: String, timeout: ByteArray, dartPort: Long)'));
+    test('@NitroNativeAsync _call appends errPtr + dartPort and uses ByteArray for int?', () {
+      expect(out, contains('fun fn_call(instanceId: Long, printerId: String, timeout: ByteArray, errPtr: Long, dartPort: Long)'));
     });
 
     test('@NitroNativeAsync interface uses Long? for int? param', () {

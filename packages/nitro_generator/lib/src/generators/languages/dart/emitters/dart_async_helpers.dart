@@ -9,13 +9,20 @@ void _emitNativeAsyncBody(
 ) {
   final unpack = _nativeAsyncUnpack(func, spec);
   final openType = _nativeAsyncOpenType(func, spec);
+  // Fresh-per-call error slot — unlike sync's one instance-owned slot,
+  // native-async calls aren't serialized (multiple can be in flight
+  // concurrently on the same instance), so each call gets its own struct.
+  // Checked (and freed) inside the wrapped unpack closure, before the raw
+  // posted value is ever decoded — see NitroRuntime.throwIfOutParamErrorAndFree.
+  final wrappedUnpack = '(raw) { NitroRuntime.throwIfOutParamErrorAndFree(_nitroErr); return ($unpack)(raw); }';
 
   if (needsArena) {
     writer.line('    final arena = Arena();');
+    writer.line('    final _nitroErr = calloc<NitroErrorFfi>();');
     writer.line('    try {');
     writer.line('      return NitroRuntime.openNativeAsync<$openType>(');
-    writer.line('        call: (port) => _${func.dartName}Ptr($callArgs, port),');
-    writer.line('        unpack: $unpack,');
+    writer.line('        call: (port) => _${func.dartName}Ptr($callArgs, _nitroErr, port),');
+    writer.line('        unpack: $wrappedUnpack,');
     writer.line("        methodName: '${func.dartName}',");
     writer.line('      );');
     writer.line('    } finally {');
@@ -49,9 +56,10 @@ void _emitNativeAsyncBody(
         .join(', ');
     final allCallArgs = plainCallArgs.isEmpty ? '_instanceId' : '_instanceId, $plainCallArgs';
 
+    writer.line('    final _nitroErr = calloc<NitroErrorFfi>();');
     writer.line('    return NitroRuntime.openNativeAsync<$openType>(');
-    writer.line('      call: (port) => _${func.dartName}Ptr($allCallArgs, port),');
-    writer.line('      unpack: $unpack,');
+    writer.line('      call: (port) => _${func.dartName}Ptr($allCallArgs, _nitroErr, port),');
+    writer.line('      unpack: $wrappedUnpack,');
     writer.line("      methodName: '${func.dartName}',");
     writer.line('    );');
   }

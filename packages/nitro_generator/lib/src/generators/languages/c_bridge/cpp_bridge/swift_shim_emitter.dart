@@ -53,8 +53,17 @@ void _emitSwiftBridgeSection(
     }
 
     if (func.isNativeAsync) {
+      // NitroError* is a fresh-per-call slot Dart allocated (see
+      // NitroRuntime.throwIfOutParamErrorAndFree) — pure passthrough here,
+      // no @try/@catch: this wrapper returns before Swift's Task.detached
+      // body runs, so it structurally can't catch anything the impl throws
+      // asynchronously. Swift's own do/catch (in the @_cdecl function this
+      // calls) writes into the struct directly via its address.
+      paramParts.add('NitroError* _nitro_err');
       paramParts.add('int64_t dart_port');
+      externParamParts.add('int64_t err_ptr');
       externParamParts.add('int64_t dart_port');
+      callParamParts.add('(int64_t)(uintptr_t)_nitro_err');
       callParamParts.add('dart_port');
       final params = paramParts.join(', ');
       final externParams = externParamParts.join(', ');

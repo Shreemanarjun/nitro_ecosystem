@@ -184,4 +184,92 @@ void main() {
       calloc.free(ptr);
     });
   });
+
+  // ── @nitroNativeAsync: fresh-per-call error slot ──────────────────────────
+  //
+  // Unlike throwIfOutParamError above (checked against ONE instance-owned
+  // slot, safe only because sync calls on a single isolate are serialized),
+  // throwIfOutParamErrorAndFree is used for @nitroNativeAsync, where multiple
+  // calls can be in flight concurrently on the same instance — so Dart
+  // allocates a FRESH struct per call and this helper also frees the struct
+  // itself (not just its string fields), either way.
+  group('NitroRuntime.throwIfOutParamErrorAndFree', () {
+    test('no-op when hasError == 0 — frees the struct and returns normally', () {
+      final ptr = calloc<NitroErrorFfi>();
+      ptr.ref.hasError = 0;
+      expect(() => NitroRuntime.throwIfOutParamErrorAndFree(ptr), returnsNormally);
+      // Not asserting on ptr.ref after this — the struct itself is freed,
+      // so touching it would be a use-after-free.
+    });
+
+    test('throws HybridException when hasError != 0', () {
+      final ptr = _makeError(hasError: 1, name: 'TestError', message: 'bang');
+      expect(
+        () => NitroRuntime.throwIfOutParamErrorAndFree(ptr),
+        throwsA(isA<HybridException>()),
+      );
+    });
+
+    test('exception carries correct name and message', () {
+      final ptr = _makeError(hasError: 1, name: 'CppException', message: 'division by zero');
+      try {
+        NitroRuntime.throwIfOutParamErrorAndFree(ptr);
+        fail('should have thrown');
+      } on HybridException catch (e) {
+        expect(e.name, 'CppException');
+        expect(e.message, 'division by zero');
+      }
+    });
+
+    test('exception carries optional code and stackTrace when provided', () {
+      final ptr = _makeError(hasError: 1, name: 'E', message: 'm', code: 'ERR_404', stackTrace: 'at foo:42');
+      try {
+        NitroRuntime.throwIfOutParamErrorAndFree(ptr);
+      } on HybridException catch (e) {
+        expect(e.code, 'ERR_404');
+        expect(e.stackTrace, 'at foo:42');
+      }
+    });
+
+    test('null name/message use fallback strings', () {
+      final ptr = _makeError(hasError: 1);
+      try {
+        NitroRuntime.throwIfOutParamErrorAndFree(ptr);
+      } on HybridException catch (e) {
+        expect(e.name, 'NativeException');
+        expect(e.message, isNotEmpty);
+      }
+    });
+
+    test('code/stackTrace == nullptr → exception fields are null', () {
+      final ptr = _makeError(hasError: 1, name: 'E', message: 'm');
+      try {
+        NitroRuntime.throwIfOutParamErrorAndFree(ptr);
+      } on HybridException catch (e) {
+        expect(e.code, isNull);
+        expect(e.stackTrace, isNull);
+      }
+    });
+
+    test('two independently-allocated slots do not interfere with each other', () {
+      // Simulates two concurrent @nitroNativeAsync calls on the same
+      // instance, each with its own fresh struct — the scenario the
+      // shared-slot sync helper above cannot safely handle.
+      final ptrA = _makeError(hasError: 1, name: 'ErrorA', message: 'first call failed');
+      final ptrB = _makeError(hasError: 0);
+      expect(
+        () => NitroRuntime.throwIfOutParamErrorAndFree(ptrA),
+        throwsA(isA<HybridException>().having((e) => e.name, 'name', 'ErrorA')),
+      );
+      expect(() => NitroRuntime.throwIfOutParamErrorAndFree(ptrB), returnsNormally);
+    });
+
+    test('1000 rapid fresh-struct no-error calls all free cleanly', () {
+      for (var i = 0; i < 1000; i++) {
+        final ptr = calloc<NitroErrorFfi>();
+        ptr.ref.hasError = 0;
+        expect(() => NitroRuntime.throwIfOutParamErrorAndFree(ptr), returnsNormally);
+      }
+    });
+  });
 }

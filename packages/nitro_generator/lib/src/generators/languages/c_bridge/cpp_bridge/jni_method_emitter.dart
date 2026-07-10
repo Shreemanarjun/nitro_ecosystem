@@ -104,6 +104,7 @@ void _emitJniNativeAsyncFuncBody(
     paramsDeclParts.add('$cParamType ${p.name}');
     if (p.type.isTypedData) paramsDeclParts.add('size_t ${p.name}_length');
   }
+  paramsDeclParts.add('NitroError* _nitro_err');
   paramsDeclParts.add('int64_t dart_port');
   final paramsDecl = paramsDeclParts.join(', ');
   final variantNames = spec.variants.map((v) => v.name).toSet();
@@ -220,6 +221,7 @@ void _emitJniNativeAsyncFuncBody(
       callArgsList.add(p.name);
     }
   }
+  callArgsList.add('(jlong)(uintptr_t)_nitro_err');
   callArgsList.add('(jlong)dart_port');
   final callArgs = callArgsList.join(', ');
   writer.line('    env->CallStaticVoidMethod(g_bridgeClass, methodId, $callArgs);');
@@ -1915,6 +1917,36 @@ void _emitJniInitializeAndPostHelpers(
       writer.line('}');
       writer.blankLine();
     }
+
+    // reportNativeAsyncError: writes a thrown Kotlin exception's name/message
+    // into the fresh-per-call NitroError* whose address Dart passed down as
+    // errPtr (see NitroRuntime.throwIfOutParamErrorAndFree). Called from the
+    // native-async trampoline's catch block BEFORE it posts, so the port
+    // still fires exactly once either way — Dart checks hasError first and
+    // throws before ever decoding the posted value.
+    final jniReportError = _jniMethodName(spec.lib, spec.dartClassName, 'reportNativeAsyncError');
+    writer.line('JNIEXPORT void JNICALL $jniReportError(JNIEnv* env, jclass, jlong errPtr, jstring name, jstring message) {');
+    writer.line('    NitroError* err = (NitroError*)(uintptr_t)errPtr;');
+    writer.line('    if (err == nullptr) { return; }');
+    writer.line('    err->hasError = 1;');
+    writer.line('    if (name != nullptr) {');
+    writer.line('        const char* cName = env->GetStringUTFChars(name, nullptr);');
+    writer.line('        err->name = strdup(cName);');
+    writer.line('        env->ReleaseStringUTFChars(name, cName);');
+    writer.line('    } else {');
+    writer.line('        err->name = strdup("NativeException");');
+    writer.line('    }');
+    writer.line('    if (message != nullptr) {');
+    writer.line('        const char* cMsg = env->GetStringUTFChars(message, nullptr);');
+    writer.line('        err->message = strdup(cMsg);');
+    writer.line('        env->ReleaseStringUTFChars(message, cMsg);');
+    writer.line('    } else {');
+    writer.line('        err->message = strdup("An unknown native exception occurred.");');
+    writer.line('    }');
+    writer.line('    err->code = nullptr;');
+    writer.line('    err->stackTrace = nullptr;');
+    writer.line('}');
+    writer.blankLine();
   }
 }
 

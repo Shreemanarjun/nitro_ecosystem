@@ -668,28 +668,28 @@ void main() {
   group('DartFfiGenerator — @NitroNativeAsync', () {
     // ── Function pointer ──────────────────────────────────────────────────────
 
-    test('int return: FFI type is Void Function(Int64, Int64) with dart_port', () {
+    test('int return: FFI type is Void Function(Int64, Int64, Pointer<NitroErrorFfi>, Int64) with error slot + dart_port', () {
       final out = DartFfiGenerator.generate(_nativeAsyncIntSpec());
       expect(
         out,
-        contains('Void Function(Int64, Int64, Int64)'),
-        reason: 'native-async wrapper returns void and takes (param, dart_port)',
+        contains('Void Function(Int64, Int64, Pointer<NitroErrorFfi>, Int64)'),
+        reason: 'native-async wrapper returns void and takes (param, fresh-per-call error slot, dart_port)',
       );
     });
 
-    test('int return: Dart callable type is void Function(int, int, int)', () {
+    test('int return: Dart callable type is void Function(int, int, Pointer<NitroErrorFfi>, int)', () {
       final out = DartFfiGenerator.generate(_nativeAsyncIntSpec());
-      expect(out, contains('void Function(int, int, int)'));
+      expect(out, contains('void Function(int, int, Pointer<NitroErrorFfi>, int)'));
     });
 
-    test('String return: FFI type is Void Function(Pointer<Utf8>, Int64)', () {
+    test('String return: FFI type is Void Function(Pointer<Utf8>, Pointer<NitroErrorFfi>, Int64)', () {
       final out = DartFfiGenerator.generate(_nativeAsyncStringSpec());
-      expect(out, contains('Void Function(Int64, Pointer<Utf8>, Int64)'));
+      expect(out, contains('Void Function(Int64, Pointer<Utf8>, Pointer<NitroErrorFfi>, Int64)'));
     });
 
-    test('void return: FFI type is Void Function(Int64, Int64) — instanceId + dart_port', () {
+    test('void return: FFI type is Void Function(Int64, Pointer<NitroErrorFfi>, Int64) — instanceId + error slot + dart_port', () {
       final out = DartFfiGenerator.generate(_nativeAsyncVoidSpec());
-      expect(out, contains('Void Function(Int64, Int64)'));
+      expect(out, contains('Void Function(Int64, Pointer<NitroErrorFfi>, Int64)'));
     });
 
     // ── No isLeaf ─────────────────────────────────────────────────────────────
@@ -818,10 +818,10 @@ void main() {
       expect(out, contains('NitroRuntime.openNativeAsync'));
     });
 
-    test('mixed spec: nativeCompute pointer is Void Function(Int64, Int64)', () {
+    test('mixed spec: nativeCompute pointer is Void Function(Int64, Int64, Pointer<NitroErrorFfi>, Int64)', () {
       final out = DartFfiGenerator.generate(_mixedSpec());
-      // nativeCompute takes one int param + dart_port
-      expect(out, contains('Void Function(Int64, Int64, Int64)'));
+      // nativeCompute takes one int param + fresh-per-call error slot + dart_port
+      expect(out, contains('Void Function(Int64, Int64, Pointer<NitroErrorFfi>, Int64)'));
     });
   });
 
@@ -859,14 +859,19 @@ void main() {
       expect(out, contains('dart_port)'));
     });
 
-    test('wrapper has no try/catch (impl is responsible for posting errors)', () {
+    test('wrapper has a NitroError* param and wraps the impl call in try/catch for synchronous setup throws', () {
       final out = CppBridgeGenerator.generate(_cppOnlyNativeAsyncSpec());
-      // The NativeAsync wrapper should NOT have a try/catch — the native impl
-      // posts errors via the port itself.
+      // Catches SYNCHRONOUS setup exceptions only — the framework doesn't own
+      // the impl's async completion thread here, so truly-async errors remain
+      // the impl's own responsibility to report via _nitro_err before posting,
+      // exactly like dart_port posting already is.
+      expect(out, contains('void engine_process(int64_t instanceId, int64_t value, NitroError* _nitro_err, int64_t dart_port)'));
       final wrapperSection = out.substring(out.indexOf('void engine_process('));
       final nextFn = wrapperSection.indexOf('\n\n');
       final wrapper = nextFn > 0 ? wrapperSection.substring(0, nextFn) : wrapperSection;
-      expect(wrapper, isNot(contains('catch')));
+      expect(wrapper, contains('} catch (const std::exception& e) {'));
+      expect(wrapper, contains('_nitro_out_err(_nitro_err, "CppException", e.what());'));
+      expect(wrapper, contains('} catch (...) {'));
     });
   });
 
@@ -892,9 +897,9 @@ void main() {
   // ── KotlinGenerator ──────────────────────────────────────────────────────
 
   group('KotlinGenerator — @NitroNativeAsync', () {
-    test('_call method accepts extra dartPort: Long parameter', () {
+    test('_call method accepts extra errPtr: Long and dartPort: Long parameters', () {
       final out = KotlinGenerator.generate(_nativeAsyncIntSpec());
-      expect(out, contains('compute_call(instanceId: Long, x: Long, dartPort: Long)'));
+      expect(out, contains('compute_call(instanceId: Long, x: Long, errPtr: Long, dartPort: Long)'));
     });
 
     test('_call method returns Unit (void), not the Dart return type', () {
@@ -1240,12 +1245,13 @@ void main() {
 
     test('nullable record return: still posts kInt64, never Dart_CObject_kNull for the record value', () {
       final out = SwiftGenerator.generate(_nativeAsyncNullableRecordSpec());
-      // Scope to the Task.detached { ... } body only — the unrelated
-      // impl-not-found guard above it legitimately posts Dart_CObject_kNull
-      // for the "no impl registered" case, which this assertion isn't about.
-      final detachedStart = out.indexOf('Task.detached {');
-      final stubEnd = out.indexOf('\n}', detachedStart);
-      final stub = out.substring(detachedStart, stubEnd);
+      // Scope to the `do { ... }` success block only — the unrelated
+      // impl-not-found guard above it, and the shared `catch` block below it
+      // (added for error propagation), both legitimately post
+      // Dart_CObject_kNull for their own cases, which this assertion isn't about.
+      final doStart = out.indexOf('do {');
+      final stubEnd = out.indexOf('} catch {', doStart);
+      final stub = out.substring(doStart, stubEnd);
       expect(stub, contains('Dart_CObject_kInt64'));
       // A nil record posts address 0 via the same kInt64 branch — no separate
       // kNull post for the "no value" case (that would break Dart's `raw as
@@ -1366,51 +1372,55 @@ void main() {
   group('SwiftGenerator — @NitroNativeAsync return decoding', () {
     test('bare @NitroVariant return: encoded via NitroRecordWriter, not the generic Int64 coercion', () {
       final out = SwiftGenerator.generate(_nativeAsyncReturnsSpec());
-      expect(out, contains('let _vResult = try? await impl.getGesture()'));
+      // A throw now exits to the shared catch (see errPtr tests), so this
+      // branch declares a plain `try await` — no more `try?`/`?? 0` collapsing
+      // a legitimate value with a swallowed error.
+      expect(out, contains('let _vResult: GestureEvent? = try await impl.getGesture()'));
       expect(out, contains('_vr.writeFields(to: _vw)'));
-      expect(out, isNot(contains('(try? await impl.getGesture()) ?? 0')));
+      expect(out, isNot(contains('try? await impl.getGesture()')));
     });
 
     test('Map<String,V> return: encoded via _nitroEncodeMapBinary, not the generic Int64 coercion', () {
       final out = SwiftGenerator.generate(_nativeAsyncReturnsSpec());
-      expect(out, contains('let _result = try? await impl.getCounts()'));
+      expect(out, contains('let _result: Any? = try await impl.getCounts()'));
       expect(out, contains('_nitroEncodeMapBinary(_resultMap)'));
-      expect(out, isNot(contains('(try? await impl.getCounts()) ?? 0')));
+      expect(out, isNot(contains('try? await impl.getCounts()')));
     });
 
     test('@NitroCustomType return: fixed-size malloced copy, not the generic Int64 coercion', () {
       final out = SwiftGenerator.generate(_nativeAsyncReturnsSpec());
-      expect(out, contains('let _result = try? await impl.getColor()'));
+      expect(out, contains('let _result: [UInt8]? = try await impl.getColor()'));
       expect(out, contains('UnsafeMutablePointer<UInt8>.allocate(capacity: 5)'));
-      expect(out, isNot(contains('(try? await impl.getColor()) ?? 0')));
+      expect(out, isNot(contains('try? await impl.getColor()')));
     });
 
     test('bare @HybridStruct return: encoded via _PointC.fromSwift, not the generic Int64 coercion', () {
       final out = SwiftGenerator.generate(_nativeAsyncReturnsSpec());
-      expect(out, contains('let _result = try? await impl.getPoint()'));
+      expect(out, contains('let _result: Point? = try await impl.getPoint()'));
       expect(out, contains('_PointC.fromSwift(r)'));
-      expect(out, isNot(contains('(try? await impl.getPoint()) ?? 0')));
+      expect(out, isNot(contains('try? await impl.getPoint()')));
     });
 
     test('uint64? return: pointer-encode preserves nil, does not collapse to 0', () {
       final out = SwiftGenerator.generate(_nativeAsyncReturnsSpec());
-      expect(out, contains('let _result = ((try? await impl.getBigNumberMaybe()) ?? nil)'));
+      expect(out, contains('let _result = try await impl.getBigNumberMaybe()'));
       expect(out, contains('_out_nu[0] = _result != nil ? 1 : 0'));
       // The bug: collapsing straight to `?? 0` loses the "was it null" bit.
-      expect(out, isNot(contains('(try? await impl.getBigNumberMaybe()) ?? 0')));
+      // A throw now exits to the shared catch instead of collapsing to a value at all.
+      expect(out, isNot(contains('try? await impl.getBigNumberMaybe()')));
     });
 
     test('nullable AnyNativeObject return: -1 sentinel, not the generic 0 fallback', () {
       final out = SwiftGenerator.generate(_nativeAsyncReturnsSpec());
-      expect(out, contains('let _result = (try? await impl.getObjectMaybe()) ?? nil'));
+      expect(out, contains('let _result = try await impl.getObjectMaybe()'));
       expect(out, contains('_obj.value.as_int64 = _result ?? -1'));
     });
 
     test('NitroAnyMap return: encoded via the new _nitroEncodeAnyMapBinary codec (Swift had no AnyMap codec at all before this)', () {
       final out = SwiftGenerator.generate(_nativeAsyncReturnsSpec());
-      expect(out, contains('let _result = try? await impl.getAnyMap()'));
+      expect(out, contains('let _result: Any? = try await impl.getAnyMap()'));
       expect(out, contains('_nitroEncodeAnyMapBinary(_resultMap)'));
-      expect(out, isNot(contains('(try? await impl.getAnyMap()) ?? 0')));
+      expect(out, isNot(contains('try? await impl.getAnyMap()')));
     });
 
     test('NitroAnyMap codec: recursive AnyValue read/write helpers are emitted', () {
@@ -1497,7 +1507,7 @@ void main() {
 
     test('enum param: C declaration is int64_t, not void* (void* cast of the -1 sentinel is implementation-defined)', () {
       final out = CppBridgeGenerator.generate(_nativeAsyncParamsSpec());
-      expect(out, contains('void param_recorder_set_mode(int64_t instanceId, int64_t mode, int64_t dart_port)'));
+      expect(out, contains('void param_recorder_set_mode(int64_t instanceId, int64_t mode, NitroError* _nitro_err, int64_t dart_port)'));
     });
 
     test('returns spec (variant/map/struct/customtype returns): generation does not throw', () {
@@ -1603,13 +1613,13 @@ void main() {
 
     test('bool param: FFI type includes Bool for the bool parameter', () {
       final out = DartFfiGenerator.generate(_nativeAsyncBoolSpec());
-      // instanceId -> Int64, bool flag -> Bool, dart_port -> Int64
-      expect(out, contains('Void Function(Int64, Bool, Int64)'));
+      // instanceId -> Int64, bool flag -> Bool, error slot -> Pointer<NitroErrorFfi>, dart_port -> Int64
+      expect(out, contains('Void Function(Int64, Bool, Pointer<NitroErrorFfi>, Int64)'));
     });
 
     test('bool param: Dart callable type uses bool for bool parameter', () {
       final out = DartFfiGenerator.generate(_nativeAsyncBoolSpec());
-      expect(out, contains('void Function(int, bool, int)'));
+      expect(out, contains('void Function(int, bool, Pointer<NitroErrorFfi>, int)'));
     });
 
     test('String param: arena call arg uses toNativeUtf8(allocator: arena)', () {
@@ -1617,10 +1627,9 @@ void main() {
       expect(out, contains('query.toNativeUtf8(allocator: arena)'));
     });
 
-    test('no-params void: call lambda is _doWorkPtr(_instanceId, port)', () {
+    test('no-params void: call lambda is _doWorkPtr(_instanceId, _nitroErr, port)', () {
       final out = DartFfiGenerator.generate(_nativeAsyncVoidSpec());
-      expect(out, contains('_doWorkPtr(_instanceId, port)'));
-      expect(out, isNot(contains('_doWorkPtr(, port)')));
+      expect(out, contains('_doWorkPtr(_instanceId, _nitroErr, port)'));
     });
   });
 
@@ -1661,11 +1670,11 @@ void main() {
       expect(out, contains('let queryStr: String? = _nitroStringOptFromCString(query)'));
     });
 
-    test('no-params stub: signature has no comma before _ dartPort', () {
+    test('no-params stub: signature has no comma before _ errPtr', () {
       final out = SwiftGenerator.generate(_nativeAsyncVoidSpec());
       // namespace = 'worker' → _worker_call_doWork
-      expect(out, contains('public func _worker_call_doWork(_ dartPort: Int64)'));
-      expect(out, isNot(contains('(, _ dartPort')));
+      expect(out, contains('public func _worker_call_doWork(_ errPtr: Int64, _ dartPort: Int64)'));
+      expect(out, isNot(contains('(, _ errPtr')));
     });
 
     test('null guard: posts kNull to dartPort before Task when impl is nil', () {
@@ -1678,7 +1687,11 @@ void main() {
 
     test('enum return: posts via kInt64 using .rawValue', () {
       final out = SwiftGenerator.generate(_nativeAsyncEnumReturnSpec());
-      expect(out, contains('?.rawValue ?? 0'));
+      // Non-nullable enum return: no more `?? 0` fallback — a throw now exits
+      // to the shared catch instead of collapsing to a value that could be a
+      // legitimate rawValue.
+      expect(out, contains('let _resultEnum = try await impl.getMode()'));
+      expect(out, contains('let _result = _resultEnum.rawValue'));
       expect(out, contains('Dart_CObject_kInt64'));
       expect(out, contains('as_int64'));
     });
@@ -1708,9 +1721,10 @@ void main() {
       expect(out, contains('runBlocking {'));
     });
 
-    test('executor catches thrown native async work and completes port', () {
+    test('executor catches thrown native async work, reports it, and completes port', () {
       final out = KotlinGenerator.generate(_nativeAsyncIntSpec());
-      expect(out, contains('} catch (_: Throwable) {'));
+      expect(out, contains('} catch (e: Throwable) {'));
+      expect(out, contains('reportNativeAsyncError(errPtr, e.javaClass.simpleName, e.message ?: "An unknown native exception occurred.")'));
       expect(out, contains('postNullToPort(dartPort)'));
     });
 
@@ -1842,14 +1856,14 @@ void main() {
   );
 
   group('CppBridgeGenerator — Android JNI @NitroNativeAsync', () {
-    test('JNI_OnLoad caches method with (instanceId + params + J)V signature for native async', () {
+    test('JNI_OnLoad caches method with (instanceId + params + errPtr + dartPort)V signature for native async', () {
       final out = CppBridgeGenerator.generate(jniNativeAsyncSpec('String'));
-      expect(out, contains('"(JLjava/lang/String;J)V"'));
+      expect(out, contains('"(JLjava/lang/String;JJ)V"'));
     });
 
-    test('Android C function is void with instanceId and dart_port params', () {
+    test('Android C function is void with instanceId, error slot, and dart_port params', () {
       final out = CppBridgeGenerator.generate(jniNativeAsyncSpec('String'));
-      expect(out, contains('void fetcher_fetch(int64_t instanceId, const char* key, int64_t dart_port)'));
+      expect(out, contains('void fetcher_fetch(int64_t instanceId, const char* key, NitroError* _nitro_err, int64_t dart_port)'));
     });
 
     test('Android C function calls CallStaticVoidMethod with jlong dart_port', () {
@@ -1858,15 +1872,22 @@ void main() {
       expect(out, contains('(jlong)dart_port'));
     });
 
-    test('Android C function reports native async JNI exceptions without out-param slot', () {
+    test('Android C function\'s JNI exception check still routes to TLS (nullptr), not the errPtr out-param', () {
       final out = CppBridgeGenerator.generate(jniNativeAsyncSpec('String'));
+      // _nitro_err DOES now appear in this function (as a param, threaded down
+      // to Kotlin as errPtr so the Kotlin-side catch block can report a
+      // business-logic exception) — but the JNI-level ExceptionCheck() here
+      // guards only the SYNCHRONOUS arg-marshalling code that runs before
+      // Kotlin's _asyncExecutor.execute{} is scheduled, so it still can't use
+      // the out-param (passing nullptr routes it to the TLS slot instead,
+      // same as before).
       final start = out.indexOf('void fetcher_fetch(');
       expect(start, isNonNegative);
       final end = out.indexOf('\n}', start);
       expect(end, isNonNegative);
       final body = out.substring(start, end);
+      expect(body, contains('NitroError* _nitro_err'));
       expect(body, contains('nitro_report_jni_exception(env, env->ExceptionOccurred(), nullptr);'));
-      expect(body, isNot(contains('_nitro_err')));
     });
 
     test('Android/iOS bridge emits one extern C close per platform section', () {
@@ -1913,10 +1934,10 @@ void main() {
       expect(out, isNot(contains('postStringToPort')));
     });
 
-    test('Apple section for @NitroNativeAsync emits void + dart_port signature', () {
+    test('Apple section for @NitroNativeAsync emits void + error slot + dart_port signature', () {
       final out = CppBridgeGenerator.generate(jniNativeAsyncSpec('String'));
-      // The Apple #elif section should have void func(params, int64_t dart_port)
-      expect(out, contains('void fetcher_fetch(int64_t instanceId, const char* key, int64_t dart_port)'));
+      // The Apple #elif section should have void func(params, NitroError*, int64_t dart_port)
+      expect(out, contains('void fetcher_fetch(int64_t instanceId, const char* key, NitroError* _nitro_err, int64_t dart_port)'));
       // And should declare the Swift extern as void too
       expect(out, contains('extern void _fetcher_call_fetch('));
     });
@@ -2071,8 +2092,8 @@ void main() {
 
     test('int? NativeAsync param: JNI descriptor uses [B (ByteArray)', () {
       final out = CppBridgeGenerator.generate(nullableIntParamNativeAsyncSpec());
-      // The JNI signature for (instanceId: Long, value: ByteArray, dartPort: Long) -> void
-      expect(out, contains('(J[BJ)V'));
+      // The JNI signature for (instanceId: Long, value: ByteArray, errPtr: Long, dartPort: Long) -> void
+      expect(out, contains('(J[BJJ)V'));
     });
   });
 
@@ -2304,6 +2325,173 @@ void main() {
     test('postOptXxxToPort NOT declared for specs with no @NitroNativeAsync', () {
       final out = KotlinGenerator.generate(simpleSpec());
       expect(out, isNot(contains('postOptInt64ToPort')));
+    });
+  });
+
+  // ── @NitroNativeAsync error propagation ───────────────────────────────────
+  //
+  // Real error propagation for @nitroNativeAsync — previously a thrown native
+  // exception was silently discarded and Dart received a "successful" null
+  // (invisible for Future<void> methods entirely, since the native-async
+  // unpack for void is `(_) {}` — the posted value is never even inspected).
+  // Mirrors the S8 out-param mechanism sync/@nitroAsync already use, but with
+  // a FRESH NitroErrorFfi struct allocated per call (not the one instance-
+  // owned slot sync reuses) since native-async calls aren't serialized.
+
+  group('KotlinGenerator — @NitroNativeAsync error propagation', () {
+    test('reportNativeAsyncError declared as external JvmStatic alongside the post*ToPort family', () {
+      final out = KotlinGenerator.generate(_nativeAsyncIntSpec());
+      expect(out, contains('@JvmStatic external fun reportNativeAsyncError(errPtr: Long, name: String, message: String)'));
+    });
+
+    test('_call method threads errPtr: Long before dartPort: Long', () {
+      final out = KotlinGenerator.generate(_nativeAsyncIntSpec());
+      expect(out, contains('compute_call(instanceId: Long, x: Long, errPtr: Long, dartPort: Long)'));
+    });
+
+    test('impl-not-found early exit reports an error before posting null', () {
+      final out = KotlinGenerator.generate(_nativeAsyncIntSpec());
+      final idx = out.indexOf('_implementations[instanceId]');
+      final guard = out.substring(idx, out.indexOf('}', idx) + 1);
+      expect(guard, contains('reportNativeAsyncError(errPtr, "IllegalStateException", "No implementation registered for instance")'));
+      expect(guard, contains('postNullToPort(dartPort)'));
+    });
+
+    test('catch block reports the thrown exception before posting null', () {
+      final out = KotlinGenerator.generate(_nativeAsyncIntSpec());
+      expect(out, contains('} catch (e: Throwable) {'));
+      expect(out, contains('reportNativeAsyncError(errPtr, e.javaClass.simpleName, e.message ?: "An unknown native exception occurred.")'));
+      expect(out, contains('postNullToPort(dartPort)'));
+    });
+  });
+
+  group('CppBridgeGenerator — @NitroNativeAsync error propagation (JNI)', () {
+    test('JNI signature gains a second trailing J for the error-struct address', () {
+      final out = CppBridgeGenerator.generate(_nativeAsyncIntSpec());
+      expect(out, contains('"(JJJJ)V"'));
+    });
+
+    test('C bridge function threads NitroError* before dart_port and forwards it as a jlong', () {
+      final out = CppBridgeGenerator.generate(_nativeAsyncIntSpec());
+      expect(out, contains('void compute_compute(int64_t instanceId, int64_t x, NitroError* _nitro_err, int64_t dart_port)'));
+      expect(out, contains('(jlong)(uintptr_t)_nitro_err'));
+    });
+
+    test('reportNativeAsyncError JNIEXPORT reconstructs the NitroError* and strdups both jstrings', () {
+      final out = CppBridgeGenerator.generate(_nativeAsyncIntSpec());
+      final idx = out.indexOf('reportNativeAsyncError(JNIEnv* env, jclass, jlong errPtr, jstring name, jstring message)');
+      expect(idx, greaterThan(-1));
+      final body = out.substring(idx, out.indexOf('\n}', idx));
+      expect(body, contains('NitroError* err = (NitroError*)(uintptr_t)errPtr;'));
+      expect(body, contains('if (err == nullptr) { return; }'));
+      expect(body, contains('err->hasError = 1;'));
+      expect(body, contains('GetStringUTFChars(name, nullptr)'));
+      expect(body, contains('err->name = strdup(cName);'));
+      expect(body, contains('GetStringUTFChars(message, nullptr)'));
+      expect(body, contains('err->message = strdup(cMsg);'));
+    });
+  });
+
+  group('CppBridgeGenerator — @NitroNativeAsync error propagation (Apple-C++-direct, mixed platforms)', () {
+    // androidImpl: kotlin + iosImpl: cpp — exercises the embedded
+    // _emitAppleCppDispatch path in cpp_bridge_generator.dart, a DIFFERENT
+    // code path from the pure-C++-everywhere cpp_direct_emitter.dart tested
+    // above (e.g. CppBridgeGenerator — @NitroNativeAsync (direct C++ path)).
+    BridgeSpec mixedSpec() => BridgeSpec(
+      dartClassName: 'Mixed',
+      lib: 'mixed',
+      namespace: 'mixed',
+      iosImpl: NativeImpl.cpp,
+      androidImpl: NativeImpl.kotlin,
+      sourceUri: 'mixed.native.dart',
+      functions: [
+        BridgeFunction(
+          dartName: 'doStuff',
+          cSymbol: 'mixed_do_stuff',
+          isAsync: false,
+          isNativeAsync: true,
+          returnType: BridgeType(name: 'void'),
+          params: [BridgeParam(name: 'x', type: BridgeType(name: 'int'))],
+        ),
+      ],
+    );
+
+    test('Apple section wraps the impl call in try/catch and threads NitroError* through', () {
+      final out = CppBridgeGenerator.generate(mixedSpec());
+      // Two definitions of mixed_do_stuff exist (Android JNI + Apple C++
+      // direct) under separate #ifdef branches — the Apple one is the LAST
+      // occurrence and is the only one with `g_impl->doStuff(`.
+      final idx = out.lastIndexOf('void mixed_do_stuff(');
+      final body = out.substring(idx, out.indexOf('\n}', idx));
+      expect(body, contains('void mixed_do_stuff(int64_t instanceId, int64_t x, NitroError* _nitro_err, int64_t dart_port) {'));
+      expect(body, contains('if (_nitro_err) { _nitro_err->hasError = 0; }'));
+      expect(body, contains('try {'));
+      expect(body, contains('g_impl->doStuff(x, _nitro_err, dart_port);'));
+      expect(body, contains('} catch (const std::exception& e) {'));
+      expect(body, contains('_nitro_desktop_err(_nitro_err, "CppException", e.what());'));
+      expect(body, contains('} catch (...) {'));
+    });
+  });
+
+  group('SwiftGenerator — @NitroNativeAsync error propagation', () {
+    test('@_cdecl signature gains a trailing errPtr: Int64 before dartPort: Int64', () {
+      final out = SwiftGenerator.generate(_nativeAsyncIntSpec());
+      expect(out, contains('public func _compute_call_compute(_ x: Int64, _ errPtr: Int64, _ dartPort: Int64) {'));
+    });
+
+    test('errPtr is reconstructed into an UnsafeMutablePointer<NitroError>?', () {
+      final out = SwiftGenerator.generate(_nativeAsyncIntSpec());
+      // init?(bitPattern:) is already failable — no `?` after the type name,
+      // or Swift tries (and fails) to resolve a nonexistent
+      // Optional<T>.init(bitPattern:).
+      expect(out, contains('let _errPtr = UnsafeMutablePointer<NitroError>(bitPattern: UInt(bitPattern: Int(errPtr)))'));
+    });
+
+    test('dispatch chain is wrapped in do/catch — a throw no longer collapses to a default value', () {
+      final out = SwiftGenerator.generate(_nativeAsyncIntSpec());
+      expect(out, contains('        do {'));
+      expect(out, isNot(contains('try? await impl.compute')));
+      expect(out, contains('try await impl.compute'));
+    });
+
+    test('shared catch writes name/message into the error struct, then still posts exactly one message', () {
+      final out = SwiftGenerator.generate(_nativeAsyncIntSpec());
+      final idx = out.indexOf('} catch {');
+      expect(idx, greaterThan(-1));
+      final body = out.substring(idx, out.indexOf('\n    }\n}', idx));
+      expect(body, contains('if let _errPtr = _errPtr {'));
+      expect(body, contains('let _nsErr = error as NSError'));
+      expect(body, contains('_errPtr.pointee.hasError = 1'));
+      // Explicit UnsafePointer(_:) conversion — strdup returns a mutable
+      // pointer but NitroError's fields are the immutable UnsafePointer<CChar>?.
+      expect(body, contains('_errPtr.pointee.name = UnsafePointer(strdup(_nsErr.domain))'));
+      expect(body, contains('_errPtr.pointee.message = UnsafePointer(strdup(_nsErr.localizedDescription))'));
+      expect(body, contains('_null.type = Dart_CObject_kNull'));
+      expect(body, contains('Dart_PostCObject_DL(dartPort, &_null)'));
+    });
+
+    test('ObjC++ wrapper (emitted by CppBridgeGenerator) passes err_ptr through with no @try/@catch (returns before Task.detached runs)', () {
+      final out = CppBridgeGenerator.generate(_nativeAsyncIntSpec());
+      expect(out, contains('extern void _compute_call_compute(int64_t x, int64_t err_ptr, int64_t dart_port);'));
+      expect(out, contains('void compute_compute(int64_t instanceId, int64_t x, NitroError* _nitro_err, int64_t dart_port) {'));
+      expect(out, contains('_compute_call_compute(x, (int64_t)(uintptr_t)_nitro_err, dart_port);'));
+    });
+  });
+
+  group('DartFfiGenerator — @NitroNativeAsync error propagation', () {
+    test('a fresh NitroErrorFfi struct is allocated per call, not the instance field', () {
+      final out = DartFfiGenerator.generate(_nativeAsyncIntSpec());
+      expect(out, contains('final _nitroErr = calloc<NitroErrorFfi>();'));
+    });
+
+    test('the error slot is passed into the native call right before the port', () {
+      final out = DartFfiGenerator.generate(_nativeAsyncIntSpec());
+      expect(out, contains('_computePtr(_instanceId, x, _nitroErr, port)'));
+    });
+
+    test('unpack checks and frees the error slot before decoding the posted value', () {
+      final out = DartFfiGenerator.generate(_nativeAsyncIntSpec());
+      expect(out, contains('unpack: (raw) { NitroRuntime.throwIfOutParamErrorAndFree(_nitroErr); return'));
     });
   });
 }

@@ -133,8 +133,11 @@ class CppHeaderGenerator {
           paramParts.add('$cType ${p.name}');
           if (p.type.isTypedData) paramParts.add('size_t ${p.name}_length'); // matches Dart FFI Size type
         }
-        // @NitroNativeAsync: C entry point is always void + extra dart_port param.
+        // @NitroNativeAsync: C entry point is always void + a NitroError* out-param
+        // (fresh-per-call, unlike sync's instance-owned slot — see NitroRuntime.
+        // throwIfOutParamErrorAndFree) followed by the extra dart_port param.
         if (func.isNativeAsync) {
+          paramParts.add('NitroError* _nitro_err');
           paramParts.add('int64_t dart_port');
           final paramStr = paramParts.join(', ');
           nodes.add(CodeLine('NITRO_EXPORT void ${func.cSymbol}($paramStr);'));

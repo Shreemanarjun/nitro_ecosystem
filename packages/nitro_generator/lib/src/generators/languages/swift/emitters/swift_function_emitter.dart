@@ -271,7 +271,16 @@ class SwiftFunctionEmitter {
     required bool isCustomTypeReturn,
   }) {
     writer.line('@_cdecl("_${spec.namespace}_call_${func.dartName}")');
-    writer.line('public func _${spec.namespace}_call_${func.dartName}($params${params.isNotEmpty ? ", " : ""}_ dartPort: Int64) {');
+    writer.line('public func _${spec.namespace}_call_${func.dartName}($params${params.isNotEmpty ? ", " : ""}_ errPtr: Int64, _ dartPort: Int64) {');
+    // Fresh-per-call NitroError* whose address Dart passed as errPtr (see
+    // NitroRuntime.throwIfOutParamErrorAndFree) — unlike sync's one
+    // instance-owned slot, native-async calls aren't serialized so each call
+    // gets its own struct.
+    // UnsafeMutablePointer<T>.init?(bitPattern:) is already failable — it
+    // returns UnsafeMutablePointer<T>? on its own; adding a `?` after the
+    // type name here would instead try (and fail) to resolve a nonexistent
+    // Optional(bitPattern:) initializer.
+    writer.line('    let _errPtr = UnsafeMutablePointer<NitroError>(bitPattern: UInt(bitPattern: Int(errPtr)))');
     for (final p in stringParams) {
       if (p.type.name == 'String?') {
         writer.line('    let ${p.name}Str: String? = _nitroStringOptFromCString(${p.name})');
@@ -404,17 +413,18 @@ class SwiftFunctionEmitter {
     // since native-async already emits their equivalent loops itself, above.
     _emitParamConversions(writer, [], [], recordListParams, func);
     writer.line('    Task.detached {');
+    writer.line('        do {');
 
     final retName = func.returnType.name;
     final retBaseName = retName.replaceFirst('?', '');
     final isNullableRet = func.returnType.isNullable || retName.endsWith('?');
     if (isVoid) {
-      writer.line('        try? await impl.${func.dartName}($callArgs)');
+      writer.line('        try await impl.${func.dartName}($callArgs)');
       writer.line('        var _null = Dart_CObject()');
       writer.line('        _null.type = Dart_CObject_kNull');
       writer.line('        Dart_PostCObject_DL(dartPort, &_null)');
     } else if (retName == 'String') {
-      writer.line('        let _result = (try? await impl.${func.dartName}($callArgs)) ?? ""');
+      writer.line('        let _result = try await impl.${func.dartName}($callArgs)');
       writer.line('        _result.withCString { cStr in');
       writer.line('            var _obj = Dart_CObject()');
       writer.line('            _obj.type = Dart_CObject_kString');
@@ -422,7 +432,7 @@ class SwiftFunctionEmitter {
       writer.line('            Dart_PostCObject_DL(dartPort, &_obj)');
       writer.line('        }');
     } else if (retName == 'String?') {
-      writer.line('        let _result = try? await impl.${func.dartName}($callArgs)');
+      writer.line('        let _result = try await impl.${func.dartName}($callArgs)');
       writer.line('        guard let _value = _result ?? nil else {');
       writer.line('            var _null = Dart_CObject()');
       writer.line('            _null.type = Dart_CObject_kNull');
@@ -436,14 +446,14 @@ class SwiftFunctionEmitter {
       writer.line('            Dart_PostCObject_DL(dartPort, &_obj)');
       writer.line('        }');
     } else if (retName == 'bool') {
-      writer.line('        let _result = (try? await impl.${func.dartName}($callArgs)) ?? false');
+      writer.line('        let _result = try await impl.${func.dartName}($callArgs)');
       writer.line('        var _obj = Dart_CObject()');
       writer.line('        _obj.type = Dart_CObject_kBool');
       writer.line('        _obj.value.as_bool = _result');
       writer.line('        Dart_PostCObject_DL(dartPort, &_obj)');
     } else if (retName == 'bool?') {
       // Pointer approach: malloc NitroOptBool (2B), post address as kInt64. Dart frees.
-      writer.line('        let _result = try? await impl.${func.dartName}($callArgs)');
+      writer.line('        let _result = try await impl.${func.dartName}($callArgs)');
       writer.line('        let _out_nb = UnsafeMutablePointer<UInt8>.allocate(capacity: 2)');
       writer.line('        _out_nb[0] = (_result ?? nil) != nil ? 1 : 0');
       writer.line('        _out_nb[1] = (_result ?? nil) == true ? 1 : 0');
@@ -459,13 +469,13 @@ class SwiftFunctionEmitter {
       final isAnyNativeObjectReturn = func.returnType.isAnyNativeObject;
       final isEnum = spec.isEnumName(retBaseName);
       if (isDouble) {
-        writer.line('        let _result = (try? await impl.${func.dartName}($callArgs)) ?? 0.0');
+        writer.line('        let _result = try await impl.${func.dartName}($callArgs)');
         writer.line('        var _obj = Dart_CObject()');
         writer.line('        _obj.type = Dart_CObject_kDouble');
         writer.line('        _obj.value.as_double = _result');
       } else if (isNullDbl) {
         // Pointer approach: malloc NitroOptFloat64 (9B), post address as kInt64. Dart frees.
-        writer.line('        let _result = ((try? await impl.${func.dartName}($callArgs)) ?? nil)');
+        writer.line('        let _result = try await impl.${func.dartName}($callArgs)');
         writer.line('        let _out_nf = UnsafeMutablePointer<UInt8>.allocate(capacity: 9)');
         writer.line('        _out_nf[0] = _result != nil ? 1 : 0');
         writer.line('        if let _v = _result { Swift.withUnsafeBytes(of: _v) { UnsafeMutableRawPointer(_out_nf + 1).copyMemory(from: \$0.baseAddress!, byteCount: 8) } }');
@@ -474,7 +484,7 @@ class SwiftFunctionEmitter {
         writer.line('        _obj.value.as_int64 = Int64(bitPattern: UInt64(UInt(bitPattern: _out_nf)))');
       } else if (isNullInt) {
         // Pointer approach: malloc NitroOptInt64 (9B), post address as kInt64. Dart frees.
-        writer.line('        let _result = ((try? await impl.${func.dartName}($callArgs)) ?? nil)');
+        writer.line('        let _result = try await impl.${func.dartName}($callArgs)');
         writer.line('        let _out_ni = UnsafeMutablePointer<UInt8>.allocate(capacity: 9)');
         writer.line('        _out_ni[0] = _result != nil ? 1 : 0');
         writer.line('        if let _v = _result { Swift.withUnsafeBytes(of: _v) { UnsafeMutableRawPointer(_out_ni + 1).copyMemory(from: \$0.baseAddress!, byteCount: 8) } }');
@@ -487,7 +497,7 @@ class SwiftFunctionEmitter {
         // (0 is a valid uint64 value), not a compile failure, since it
         // compiles fine either way. Pointer approach matches int?/double?
         // above so nil is distinguishable from an actual 0.
-        writer.line('        let _result = ((try? await impl.${func.dartName}($callArgs)) ?? nil)');
+        writer.line('        let _result = try await impl.${func.dartName}($callArgs)');
         writer.line('        let _out_nu = UnsafeMutablePointer<UInt8>.allocate(capacity: 9)');
         writer.line('        _out_nu[0] = _result != nil ? 1 : 0');
         writer.line('        if let _v = _result { Swift.withUnsafeBytes(of: _v) { UnsafeMutableRawPointer(_out_nu + 1).copyMemory(from: \$0.baseAddress!, byteCount: 8) } }');
@@ -500,17 +510,17 @@ class SwiftFunctionEmitter {
         // silently wrong (0 is a valid instanceId), not a compile failure.
         // -1 matches the sentinel convention AnyNativeObject params and the
         // sync-path return already use.
-        writer.line('        let _result = (try? await impl.${func.dartName}($callArgs)) ?? nil');
+        writer.line('        let _result = try await impl.${func.dartName}($callArgs)');
         writer.line('        var _obj = Dart_CObject()');
         writer.line('        _obj.type = Dart_CObject_kInt64');
         writer.line('        _obj.value.as_int64 = _result ?? -1');
       } else if (retName == 'DateTime') {
-        writer.line('        let _result = (try? await impl.${func.dartName}($callArgs)) ?? Date(timeIntervalSince1970: 0)');
+        writer.line('        let _result = try await impl.${func.dartName}($callArgs)');
         writer.line('        var _obj = Dart_CObject()');
         writer.line('        _obj.type = Dart_CObject_kInt64');
         writer.line('        _obj.value.as_int64 = Int64(_result.timeIntervalSince1970 * 1000)');
       } else if (retName == 'DateTime?') {
-        writer.line('        let _result = ((try? await impl.${func.dartName}($callArgs)) ?? nil)');
+        writer.line('        let _result = try await impl.${func.dartName}($callArgs)');
         writer.line('        let _out_ndt = UnsafeMutablePointer<UInt8>.allocate(capacity: 9)');
         writer.line('        _out_ndt[0] = _result != nil ? 1 : 0');
         writer.line('        if let _v = _result { Swift.withUnsafeBytes(of: Int64(_v.timeIntervalSince1970 * 1000)) { UnsafeMutableRawPointer(_out_ndt + 1).copyMemory(from: \$0.baseAddress!, byteCount: 8) } }');
@@ -518,10 +528,11 @@ class SwiftFunctionEmitter {
         writer.line('        _obj.type = Dart_CObject_kInt64');
         writer.line('        _obj.value.as_int64 = Int64(bitPattern: UInt64(UInt(bitPattern: _out_ndt)))');
       } else if (isEnum) {
+        writer.line('        let _resultEnum = try await impl.${func.dartName}($callArgs)');
         if (isNullableRet) {
-          writer.line('        let _result = (try? await impl.${func.dartName}($callArgs))?.rawValue ?? -1');
+          writer.line('        let _result = _resultEnum?.rawValue ?? -1');
         } else {
-          writer.line('        let _result = (try? await impl.${func.dartName}($callArgs))?.rawValue ?? 0');
+          writer.line('        let _result = _resultEnum.rawValue');
         }
         writer.line('        var _obj = Dart_CObject()');
         writer.line('        _obj.type = Dart_CObject_kInt64');
@@ -532,7 +543,7 @@ class SwiftFunctionEmitter {
         // compile failure. Mirrors the sync path's NitroRecordWriter encoding,
         // then posts the pointer as kInt64 (a thrown/absent result posts
         // address 0, matching the isRecord convention above).
-        writer.line('        let _vResult = try? await impl.${func.dartName}($callArgs)');
+        writer.line('        let _vResult: $retBaseName? = try await impl.${func.dartName}($callArgs)');
         writer.line('        let _recPtr: UnsafeMutablePointer<UInt8>? = (_vResult ?? nil).flatMap { _vr -> UnsafeMutablePointer<UInt8>? in');
         writer.line('            let _vw = NitroRecordWriter()');
         writer.line('            _vr.writeFields(to: _vw)');
@@ -546,7 +557,7 @@ class SwiftFunctionEmitter {
         // — compile failure (a struct doesn't coerce to Int64). Mirrors the
         // sync path's _${sn}C.fromSwift(...) malloc'd-copy encoding.
         final sn = func.returnType.name.replaceFirst('?', '');
-        writer.line('        let _result = try? await impl.${func.dartName}($callArgs)');
+        writer.line('        let _result: $sn? = try await impl.${func.dartName}($callArgs)');
         writer.line('        let _recPtr: UnsafeMutableRawPointer? = (_result ?? nil).map { r -> UnsafeMutableRawPointer in');
         writer.line('            let ptr = UnsafeMutablePointer<_${sn}C>.allocate(capacity: 1)');
         writer.line('            ptr.initialize(to: _${sn}C.fromSwift(r))');
@@ -560,7 +571,7 @@ class SwiftFunctionEmitter {
         // compile failure. Now implemented via _nitroEncodeAnyMapBinary
         // (a new codec — NitroAnyMap had no encode/decode path anywhere in
         // the Swift emitter until now, sync included).
-        writer.line('        let _result = try? await impl.${func.dartName}($callArgs)');
+        writer.line('        let _result: Any? = try await impl.${func.dartName}($callArgs)');
         writer.line('        let _resultMap = ((_result ?? nil) as? [String: Any]) ?? [:]');
         writer.line('        let _recPtr = _nitroEncodeAnyMapBinary(_resultMap)');
         writer.line('        var _obj = Dart_CObject()');
@@ -572,7 +583,7 @@ class SwiftFunctionEmitter {
         // convertible). Mirrors the sync path's _nitroEncodeMapBinary
         // encoding — return-only, does not decode a map *parameter* (see the
         // Kotlin isMapReturn dispatch branch's identical scope note).
-        writer.line('        let _result = try? await impl.${func.dartName}($callArgs)');
+        writer.line('        let _result: Any? = try await impl.${func.dartName}($callArgs)');
         _emitNativeAsyncMapEncode(writer, func, spec);
         writer.line('        var _obj = Dart_CObject()');
         writer.line('        _obj.type = Dart_CObject_kInt64');
@@ -582,7 +593,7 @@ class SwiftFunctionEmitter {
         // to the generic else — compile failure (Data/[Int16]/etc. aren't
         // Int64-convertible). Mirrors the sync path's _nitroCopyTypedData*
         // helpers, which already return UnsafeMutablePointer<UInt8>?.
-        writer.line('        let _result = (try? await impl.${func.dartName}($callArgs)) ?? nil');
+        writer.line('        let _result: ${mapper.swiftType('$retBaseName?')} = try await impl.${func.dartName}($callArgs)');
         if (SwiftTypeMapper.isDataBackedTypedData(func.returnType.name)) {
           final helper = func.zeroCopyReturn ? '_nitroMakeZeroCopyTypedDataReturn' : '_nitroCopyTypedDataReturn';
           writer.line('        let _recPtr = _result?.withUnsafeBytes { $helper(\$0) } ?? nil');
@@ -599,7 +610,7 @@ class SwiftFunctionEmitter {
         // sync path's fixed-size malloc'd-copy encoding (custom types have a
         // known, agreed encodedSize — no length prefix, unlike records).
         final ct = spec.customTypeByName(func.returnType.baseName)!;
-        writer.line('        let _result = try? await impl.${func.dartName}($callArgs)');
+        writer.line('        let _result: [UInt8]? = try await impl.${func.dartName}($callArgs)');
         writer.line('        let _recPtr: UnsafeMutablePointer<UInt8>? = (_result ?? nil).map { _bytes -> UnsafeMutablePointer<UInt8> in');
         writer.line('            let _ct_ptr = UnsafeMutablePointer<UInt8>.allocate(capacity: ${ct.encodedSize})');
         writer.line('            _bytes.withUnsafeBytes { UnsafeMutableRawPointer(_ct_ptr).copyMemory(from: \$0.baseAddress!, byteCount: ${ct.encodedSize}) }');
@@ -614,7 +625,7 @@ class SwiftFunctionEmitter {
         // result (nullable record with no value, or a thrown impl call) posts
         // address 0 (nullptr) — NOT Dart_CObject_kNull — matching how the Dart
         // unpack for nullable records always expects a pointer-typed kInt64.
-        writer.line('        let _result = try? await impl.${func.dartName}($callArgs)');
+        writer.line('        let _result: $retBaseName? = try await impl.${func.dartName}($callArgs)');
         writer.line('        let _recPtr = (_result ?? nil)?.toNative()');
         writer.line('        var _obj = Dart_CObject()');
         writer.line('        _obj.type = Dart_CObject_kInt64');
@@ -623,13 +634,13 @@ class SwiftFunctionEmitter {
         // List<T> NativeAsync (record / enum / variant / primitive items): encode
         // via the same NitroRecordWriter helpers the sync/@nitroAsync path uses,
         // then post the pointer as kInt64 (empty/absent list posts address 0).
-        writer.line('        let _result = (try? await impl.${func.dartName}($callArgs)) ?? []');
+        writer.line('        let _result = try await impl.${func.dartName}($callArgs)');
         _emitNativeAsyncRecordListEncode(writer, func.returnType);
         writer.line('        var _obj = Dart_CObject()');
         writer.line('        _obj.type = Dart_CObject_kInt64');
         writer.line('        _obj.value.as_int64 = _recPtr != nil ? Int64(bitPattern: UInt64(UInt(bitPattern: _recPtr!))) : 0');
       } else {
-        writer.line('        let _result = (try? await impl.${func.dartName}($callArgs)) ?? 0');
+        writer.line('        let _result = try await impl.${func.dartName}($callArgs)');
         writer.line('        var _obj = Dart_CObject()');
         writer.line('        _obj.type = Dart_CObject_kInt64');
         writer.line('        _obj.value.as_int64 = Int64(_result)');
@@ -637,6 +648,21 @@ class SwiftFunctionEmitter {
       writer.line('        Dart_PostCObject_DL(dartPort, &_obj)');
     }
 
+    writer.line('        } catch {');
+    writer.line('            if let _errPtr = _errPtr {');
+    writer.line('                let _nsErr = error as NSError');
+    writer.line('                _errPtr.pointee.hasError = 1');
+    // NitroError.name/.message are `const char*` in C, bridged to Swift as
+    // UnsafePointer<CChar>? (immutable) — strdup returns UnsafeMutablePointer<CChar>?,
+    // which needs the explicit failable UnsafePointer(_:) conversion (Swift
+    // does not implicitly convert mutable->immutable pointers on assignment).
+    writer.line('                _errPtr.pointee.name = UnsafePointer(strdup(_nsErr.domain))');
+    writer.line('                _errPtr.pointee.message = UnsafePointer(strdup(_nsErr.localizedDescription))');
+    writer.line('            }');
+    writer.line('            var _null = Dart_CObject()');
+    writer.line('            _null.type = Dart_CObject_kNull');
+    writer.line('            Dart_PostCObject_DL(dartPort, &_null)');
+    writer.line('        }');
     writer.line('    }');
     writer.line('}');
     writer.blankLine();
