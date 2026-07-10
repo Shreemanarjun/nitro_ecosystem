@@ -1815,8 +1815,10 @@ class CppBridgeGenerator {
     List<BridgeParam> params,
     Set<String> enumNames,
     Set<String> structNames,
-    String libPkg,
-  ) {
+    String libPkg, {
+    Set<String> variantNames = const {},
+    Set<String> customTypeNames = const {},
+  }) {
     final paramSig = params
         .map(
           (p) => _jniParamSig(
@@ -1824,6 +1826,8 @@ class CppBridgeGenerator {
             enumNames,
             structNames,
             libPkg,
+            variantNames: variantNames,
+            customTypeNames: customTypeNames,
           ),
         )
         .join();

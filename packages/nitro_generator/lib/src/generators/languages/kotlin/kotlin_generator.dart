@@ -205,6 +205,12 @@ class KotlinGenerator {
       writer.line('    @JvmStatic external fun postOptInt64ToPort(dartPort: Long, value: Long, hasValue: Boolean)');
       writer.line('    @JvmStatic external fun postOptFloat64ToPort(dartPort: Long, value: Double, hasValue: Boolean)');
       writer.line('    @JvmStatic external fun postOptBoolToPort(dartPort: Long, value: Boolean, hasValue: Boolean)');
+      writer.line('    // Record/list-record helper: malloc a [4B len][payload] native buffer, copy');
+      writer.line('    // value into it, post the address as kInt64. Dart decodes via Pointer<Uint8>.');
+      writer.line('    // null posts address 0 (nullptr) — NOT Dart_CObject_kNull — matching how');
+      writer.line('    // nullable record returns are decoded elsewhere (a pointer-typed kInt64,');
+      writer.line('    // never a bare kNull CObject).');
+      writer.line('    @JvmStatic external fun postBytesToPort(dartPort: Long, value: ByteArray?)');
       writer.blankLine();
     }
 

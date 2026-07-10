@@ -22,8 +22,10 @@ String _jniNativeAsyncSig(
   List<BridgeParam> params,
   Set<String> enumNames,
   Set<String> structNames,
-  String libPkg,
-) => CppBridgeGenerator._jniNativeAsyncSig(params, enumNames, structNames, libPkg);
+  String libPkg, {
+  Set<String> variantNames = const {},
+  Set<String> customTypeNames = const {},
+}) => CppBridgeGenerator._jniNativeAsyncSig(params, enumNames, structNames, libPkg, variantNames: variantNames, customTypeNames: customTypeNames);
 
 String _jniSig(
   List<BridgeParam> params,
@@ -80,12 +82,33 @@ void _emitJniNativeAsyncFuncBody(
   // instanceId is the first C param for per-instance dispatch (Point 13).
   final paramsDeclParts = <String>['int64_t instanceId'];
   for (final p in func.params) {
-    paramsDeclParts.add('${_paramTypeToC(p.type.name, structNames)} ${p.name}');
+    if (p.type.isFunction) {
+      paramsDeclParts.add(_jniCallbackParamToC(p, enumNames, structNames: structNames, recordNames: recordNames));
+      continue;
+    }
+    // Mirrors _emitJniRegularFuncBody's declaration loop: enum params must be
+    // int64_t (rawValue), not void* — void* cast of the -1 null sentinel is
+    // implementation-defined and may not equal int64_t -1 on some compilers.
+    final paramBase = p.type.name.replaceFirst('?', '');
+    final isEnumParam = enumNames.contains(paramBase);
+    final String cParamType;
+    if (p.type.isAnyNativeObject) {
+      cParamType = 'int64_t';
+    } else if (spec.isCustomTypeName(paramBase)) {
+      cParamType = 'const uint8_t*';
+    } else if (p.type.isNullableNitroPrim) {
+      cParamType = 'const uint8_t*';
+    } else {
+      cParamType = isEnumParam ? 'int64_t' : _paramTypeToC(p.type.name, structNames);
+    }
+    paramsDeclParts.add('$cParamType ${p.name}');
     if (p.type.isTypedData) paramsDeclParts.add('size_t ${p.name}_length');
   }
   paramsDeclParts.add('int64_t dart_port');
   final paramsDecl = paramsDeclParts.join(', ');
-  final jniNativeAsyncSig = _jniNativeAsyncSig(func.params, enumNames, structNames, libPkg);
+  final variantNames = spec.variants.map((v) => v.name).toSet();
+  final customTypeNames = spec.customTypes.map((c) => c.name).toSet();
+  final jniNativeAsyncSig = _jniNativeAsyncSig(func.params, enumNames, structNames, libPkg, variantNames: variantNames, customTypeNames: customTypeNames);
 
   writer.line('void ${func.cSymbol}($paramsDecl) {');
   writer.line('    JNIEnv* env = GetEnv();');
@@ -127,8 +150,30 @@ void _emitJniNativeAsyncFuncBody(
       writer.line('    ${ops[0]} j_${p.name} = env->${ops[1]}((jsize)${p.name}_length);');
       writer.line('    env->${ops[2]}(j_${p.name}, 0, (jsize)${p.name}_length, (const ${ops[3]}*)${p.name});');
       callArgsList.add('j_${p.name}');
-    } else if (p.type.isMap) {
-      // Map<String, T>: binary uint8_t* (with 4-byte length prefix) → jbyteArray.
+    } else if (p.type.isNativeHandle) {
+      callArgsList.add('(jlong)${p.name}');
+    } else if (p.type.isAnyNativeObject) {
+      // AnyNativeObject: pass as Long; nullable: -1 sentinel for null.
+      callArgsList.add('(jlong)${p.name}');
+    } else if (spec.isCustomTypeName(pt.replaceFirst('?', ''))) {
+      // @NitroCustomType: encode raw bytes as ByteArray — mirrors
+      // _emitJniRegularFuncBody's equivalent branch.
+      final ct = spec.customTypeByName(pt.replaceFirst('?', ''))!;
+      if (p.type.isNullable || pt.endsWith('?')) {
+        writer.line('    jbyteArray j_${p.name} = nullptr;');
+        writer.line('    if (${p.name} != nullptr) {');
+        writer.line('        j_${p.name} = env->NewByteArray((jsize)${ct.encodedSize});');
+        writer.line('        env->SetByteArrayRegion(j_${p.name}, 0, (jsize)${ct.encodedSize}, (const jbyte*)${p.name});');
+        writer.line('    }');
+      } else {
+        writer.line('    jbyteArray j_${p.name} = env->NewByteArray((jsize)${ct.encodedSize});');
+        writer.line('    env->SetByteArrayRegion(j_${p.name}, 0, (jsize)${ct.encodedSize}, (const jbyte*)${p.name});');
+      }
+      callArgsList.add('j_${p.name}');
+    } else if (p.type.isFunction) {
+      callArgsList.add('(jlong)${p.name}');
+    } else if (p.type.isAnyMap || p.type.isMap) {
+      // NitroAnyMap / Map<String, T>: binary uint8_t* (with 4-byte length prefix) → jbyteArray.
       writer.line('    jsize j_${p.name}_len = (jsize)(*((int32_t*)${p.name} + 0)) + 4;');
       writer.line('    jbyteArray j_${p.name} = env->NewByteArray(j_${p.name}_len);');
       writer.line('    env->SetByteArrayRegion(j_${p.name}, 0, j_${p.name}_len, (const jbyte*)${p.name});');
@@ -140,6 +185,36 @@ void _emitJniNativeAsyncFuncBody(
       final sz = p.type.name == 'bool?' ? 2 : 9;
       writer.line('    jbyteArray j_${p.name} = env->NewByteArray($sz);');
       writer.line('    if (${p.name} != nullptr) { env->SetByteArrayRegion(j_${p.name}, 0, $sz, (const jbyte*)${p.name}); }');
+      callArgsList.add('j_${p.name}');
+    } else if (p.type.isRecord) {
+      // @HybridRecord / @NitroTuple / List<@HybridRecord/@HybridEnum/@NitroVariant/
+      // primitive> params arrive as void* (Dart Pointer<Uint8>), format
+      // [4-byte payload_len][payload_bytes] — mirrors _emitJniRegularFuncBody's
+      // equivalent branch (previously missing here: these params were passed
+      // as a raw pointer where the JNI method signature expects a jbyteArray).
+      final isNullableRecord = p.type.isNullable || pt.endsWith('?');
+      if (isNullableRecord) {
+        writer.line('    jbyteArray j_${p.name} = nullptr;');
+        writer.line('    if (${p.name} != nullptr) {');
+        writer.line('        int32_t ${p.name}_payload_len = *((const int32_t*)${p.name});');
+        writer.line('        int32_t ${p.name}_total = ${p.name}_payload_len + 4;');
+        writer.line('        j_${p.name} = env->NewByteArray((jsize)${p.name}_total);');
+        writer.line('        env->SetByteArrayRegion(j_${p.name}, 0, (jsize)${p.name}_total, (const jbyte*)${p.name});');
+        writer.line('    }');
+      } else {
+        writer.line('    int32_t ${p.name}_payload_len = *((const int32_t*)${p.name});');
+        writer.line('    int32_t ${p.name}_total = ${p.name}_payload_len + 4;');
+        writer.line('    jbyteArray j_${p.name} = env->NewByteArray((jsize)${p.name}_total);');
+        writer.line('    env->SetByteArrayRegion(j_${p.name}, 0, (jsize)${p.name}_total, (const jbyte*)${p.name});');
+      }
+      callArgsList.add('j_${p.name}');
+    } else if (spec.isVariantName(pt.replaceFirst('?', ''))) {
+      // @NitroVariant param: same wire format as @HybridRecord — mirrors
+      // _emitJniRegularFuncBody's equivalent branch.
+      writer.line('    int32_t ${p.name}_var_len = *((const int32_t*)${p.name});');
+      writer.line('    int32_t ${p.name}_var_total = ${p.name}_var_len + 4;');
+      writer.line('    jbyteArray j_${p.name} = env->NewByteArray((jsize)${p.name}_var_total);');
+      writer.line('    env->SetByteArrayRegion(j_${p.name}, 0, (jsize)${p.name}_var_total, (const jbyte*)${p.name});');
       callArgsList.add('j_${p.name}');
     } else {
       callArgsList.add(p.name);
@@ -1572,7 +1647,7 @@ void _emitJniInitializeAndPostHelpers(
   for (final func in spec.functions) {
     final String jniSig;
     if (func.isNativeAsync) {
-      jniSig = _jniNativeAsyncSig(func.params, enumNames, structNames, libPkg);
+      jniSig = _jniNativeAsyncSig(func.params, enumNames, structNames, libPkg, variantNames: initVariantNames, customTypeNames: initCustomTypeNames);
     } else {
       jniSig = _jniSig(func.params, func.returnType, enumNames, structNames, libPkg, zeroCopyReturn: func.zeroCopyReturn, isResult: func.isResult, variantNames: initVariantNames, customTypeNames: initCustomTypeNames);
     }
@@ -1786,6 +1861,29 @@ void _emitJniInitializeAndPostHelpers(
     writer.line('    Dart_CObject obj;');
     writer.line('    obj.type = Dart_CObject_kInt64;');
     writer.line('    obj.value.as_int64 = (int64_t)(uintptr_t)buf;');
+    writer.line('    Dart_PostCObject_DL((Dart_Port)dartPort, &obj);');
+    writer.line('}');
+    writer.blankLine();
+
+    // postBytesToPort: @HybridRecord / list-record NativeAsync returns.
+    // Copies the Kotlin-encoded [4B len][payload] ByteArray into a malloc'd
+    // native buffer (mirrors the sync-path record-return copy) and posts its
+    // address as kInt64 — Dart decodes via Pointer<Uint8>.fromAddress and frees.
+    // A null ByteArray (nullable record with no value) posts address 0
+    // (nullptr) as kInt64 — NOT Dart_CObject_kNull — matching how the Dart
+    // unpack for nullable records always expects a pointer-typed kInt64.
+    final jniPostBytes = _jniMethodName(spec.lib, spec.dartClassName, 'postBytesToPort');
+    writer.line('JNIEXPORT void JNICALL $jniPostBytes(JNIEnv* env, jclass, jlong dartPort, jbyteArray value) {');
+    writer.line('    Dart_CObject obj;');
+    writer.line('    obj.type = Dart_CObject_kInt64;');
+    writer.line('    if (value == nullptr) {');
+    writer.line('        obj.value.as_int64 = 0;');
+    writer.line('    } else {');
+    writer.line('        jsize len = env->GetArrayLength(value);');
+    writer.line('        uint8_t* buf = (uint8_t*)malloc(len);');
+    writer.line('        env->GetByteArrayRegion(value, 0, len, (jbyte*)buf);');
+    writer.line('        obj.value.as_int64 = (int64_t)(uintptr_t)buf;');
+    writer.line('    }');
     writer.line('    Dart_PostCObject_DL((Dart_Port)dartPort, &obj);');
     writer.line('}');
     writer.blankLine();

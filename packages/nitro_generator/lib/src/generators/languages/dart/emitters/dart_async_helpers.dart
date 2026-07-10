@@ -25,7 +25,17 @@ void _emitNativeAsyncBody(
     final plainCallArgs = func.params
         .map((p) {
           final t = p.type.name;
-          if (spec.isEnumName(t)) return '${p.name}.nativeValue';
+          final tBase = t.replaceFirst('?', '');
+          // Enum (including nullable enum: TcStatus? uses -1 as null sentinel) —
+          // mirrors dart_function_emitter.dart's arena-needed callArgs. Bare
+          // spec.isEnumName(t) (without stripping '?') never matches a nullable
+          // enum's name, so the raw enum object fell through to the final
+          // `return p.name;` below — a Dart FFI type mismatch at the call site
+          // (`TcStatus?` passed where the native function pointer expects `int`).
+          if (spec.isEnumName(tBase)) {
+            if (t.endsWith('?')) return '${p.name} == null ? -1 : ${p.name}.nativeValue';
+            return '${p.name}.nativeValue';
+          }
           if (t == 'bool') return p.name; // Bool FFI type — pass directly
           if (p.type.isFunction) return _callbackArgExpr(func, p);
           // Optional primitives: NitroOpt* packed struct encoding via Arena.
@@ -101,6 +111,15 @@ String _nativeAsyncUnpack(BridgeFunction func, BridgeSpec spec) {
     return '(raw) { final rawPtr = Pointer<Uint8>.fromAddress(raw as int); try { return $decodeExpr; } finally { malloc.free(rawPtr); } }';
   }
 
+  // Bare @NitroVariant  — native posts kInt64 (pointer to [4B len][1B tag][fields]).
+  // Mirrors ReturnKind.variant's sync/async decode (dart_async_helpers.dart
+  // _emitReturnDecode) — previously unhandled here, so it fell through to the
+  // generic `raw as $rt` cast below, which throws (raw is the pointer address,
+  // not a TcEvent instance).
+  if (spec.isVariantName(rtBase)) {
+    return '(raw) { final rawPtr = Pointer<Uint8>.fromAddress(raw as int); try { return ${rtBase}VariantExt.fromNative(rawPtr); } finally { malloc.free(rawPtr); } }';
+  }
+
   // @HybridStruct  — native posts kInt64 (pointer to heap struct)
   if (spec.isStructName(rtBase)) {
     if (isNullable) {
@@ -116,6 +135,18 @@ String _nativeAsyncUnpack(BridgeFunction func, BridgeSpec spec) {
 
   // int / int?  — non-null: posts kInt64 scalar; nullable: posts kInt64 (pointer address to NitroOptInt64)
   if (rtBase == 'int') {
+    if (isNullable) {
+      return '(raw) { final ptr = Pointer<NitroOptInt64>.fromAddress(raw as int); final v = ptr.decoded; malloc.free(ptr); return v; }';
+    }
+    return '(raw) => raw as int';
+  }
+
+  // uint64 / uint64?  — reuses the NitroOptInt64 wire layout (same 9-byte
+  // packed struct as int?; bit pattern is preserved). Previously unhandled
+  // here, so nullable uint64? fell through to the generic `raw as $rt` cast
+  // below — which "succeeded" (uint64? is just int? under the hood) but
+  // silently returned the raw pointer address instead of decoding it.
+  if (rtBase == 'uint64') {
     if (isNullable) {
       return '(raw) { final ptr = Pointer<NitroOptInt64>.fromAddress(raw as int); final v = ptr.decoded; malloc.free(ptr); return v; }';
     }

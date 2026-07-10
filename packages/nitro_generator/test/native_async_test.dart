@@ -215,6 +215,391 @@ BridgeSpec _nativeAsyncEnumReturnSpec() => BridgeSpec(
   ],
 );
 
+/// Regression spec for the record-return NativeAsync codegen gap: the Kotlin
+/// and Swift trampolines used to discard the impl's result and always post
+/// null instead of encoding the record — see stopVideoRecording-style bug.
+BridgeSpec _nativeAsyncRecordSpec() => BridgeSpec(
+  dartClassName: 'Recorder',
+  lib: 'recorder',
+  namespace: 'recorder',
+  iosImpl: NativeImpl.swift,
+  androidImpl: NativeImpl.kotlin,
+  sourceUri: 'recorder.native.dart',
+  recordTypes: [
+    BridgeRecordType(
+      name: 'RecordingResult',
+      fields: [
+        BridgeRecordField(name: 'path', dartType: 'String', kind: RecordFieldKind.primitive),
+        BridgeRecordField(name: 'durationMs', dartType: 'int', kind: RecordFieldKind.primitive),
+      ],
+    ),
+  ],
+  functions: [
+    BridgeFunction(
+      dartName: 'stopVideoRecording',
+      cSymbol: 'recorder_stop_video_recording',
+      isAsync: false,
+      isNativeAsync: true,
+      returnType: BridgeType(name: 'RecordingResult', isRecord: true),
+      params: [
+        BridgeParam(
+          name: 'textureId',
+          type: BridgeType(name: 'int'),
+        ),
+      ],
+    ),
+  ],
+);
+
+/// Same as [_nativeAsyncRecordSpec] but with a nullable record return —
+/// exercises the "post address 0, not Dart_CObject_kNull" convention.
+BridgeSpec _nativeAsyncNullableRecordSpec() => BridgeSpec(
+  dartClassName: 'Recorder',
+  lib: 'recorder',
+  namespace: 'recorder',
+  iosImpl: NativeImpl.swift,
+  androidImpl: NativeImpl.kotlin,
+  sourceUri: 'recorder.native.dart',
+  recordTypes: [
+    BridgeRecordType(
+      name: 'RecordingResult',
+      fields: [
+        BridgeRecordField(name: 'path', dartType: 'String', kind: RecordFieldKind.primitive),
+        BridgeRecordField(name: 'durationMs', dartType: 'int', kind: RecordFieldKind.primitive),
+      ],
+    ),
+  ],
+  functions: [
+    BridgeFunction(
+      dartName: 'stopVideoRecording',
+      cSymbol: 'recorder_stop_video_recording',
+      isAsync: false,
+      isNativeAsync: true,
+      returnType: BridgeType(name: 'RecordingResult?', isRecord: true, isNullable: true),
+      params: [
+        BridgeParam(
+          name: 'textureId',
+          type: BridgeType(name: 'int'),
+        ),
+      ],
+    ),
+  ],
+);
+
+/// Regression spec for the native-async parameter-decoding gap: on both
+/// Kotlin and Swift, `@NitroNativeAsync`'s trampoline only decoded
+/// nullable-primitive params — every other category (enum, record, variant,
+/// list-of-those, callback) was forwarded as its raw undecoded bridge value,
+/// which fails to compile against the impl's typed parameter. One function
+/// per param category, all void-returning so the return path (already
+/// covered elsewhere) isn't a variable here.
+BridgeSpec _nativeAsyncParamsSpec() => BridgeSpec(
+  dartClassName: 'ParamRecorder',
+  lib: 'param_recorder',
+  namespace: 'param_recorder',
+  iosImpl: NativeImpl.swift,
+  androidImpl: NativeImpl.kotlin,
+  sourceUri: 'param_recorder.native.dart',
+  enums: [
+    BridgeEnum(name: 'Mode', startValue: 0, values: ['idle', 'running', 'error']),
+  ],
+  recordTypes: [
+    BridgeRecordType(
+      name: 'RecordingResult',
+      fields: [
+        BridgeRecordField(name: 'path', dartType: 'String', kind: RecordFieldKind.primitive),
+        BridgeRecordField(name: 'durationMs', dartType: 'int', kind: RecordFieldKind.primitive),
+      ],
+    ),
+  ],
+  variants: [
+    BridgeVariant(
+      name: 'GestureEvent',
+      cases: [
+        BridgeVariantCase(
+          name: 'GestureTap',
+          label: 'tap',
+          fields: [
+            BridgeRecordField(name: 'x', dartType: 'double', kind: RecordFieldKind.primitive),
+          ],
+        ),
+      ],
+    ),
+  ],
+  functions: [
+    // enum param — non-nullable.
+    BridgeFunction(
+      dartName: 'setMode',
+      cSymbol: 'param_recorder_set_mode',
+      isAsync: false,
+      isNativeAsync: true,
+      returnType: BridgeType(name: 'void'),
+      params: [BridgeParam(name: 'mode', type: BridgeType(name: 'Mode'))],
+    ),
+    // enum param — nullable (-1 sentinel decode).
+    BridgeFunction(
+      dartName: 'setModeMaybe',
+      cSymbol: 'param_recorder_set_mode_maybe',
+      isAsync: false,
+      isNativeAsync: true,
+      returnType: BridgeType(name: 'void'),
+      params: [BridgeParam(name: 'mode', type: BridgeType(name: 'Mode?', isNullable: true))],
+    ),
+    // single @HybridRecord param — non-nullable. (@NitroTuple params share
+    // this exact isRecord-flag codegen path, with no additional
+    // special-casing anywhere in either emitter, so this test doubles as
+    // tuple-param coverage.)
+    BridgeFunction(
+      dartName: 'saveRecording',
+      cSymbol: 'param_recorder_save_recording',
+      isAsync: false,
+      isNativeAsync: true,
+      returnType: BridgeType(name: 'void'),
+      params: [BridgeParam(name: 'result', type: BridgeType(name: 'RecordingResult', isRecord: true))],
+    ),
+    // single @HybridRecord param — nullable.
+    BridgeFunction(
+      dartName: 'saveRecordingMaybe',
+      cSymbol: 'param_recorder_save_recording_maybe',
+      isAsync: false,
+      isNativeAsync: true,
+      returnType: BridgeType(name: 'void'),
+      params: [
+        BridgeParam(
+          name: 'result',
+          type: BridgeType(name: 'RecordingResult?', isRecord: true, isNullable: true),
+        ),
+      ],
+    ),
+    // @NitroVariant param.
+    BridgeFunction(
+      dartName: 'handleGesture',
+      cSymbol: 'param_recorder_handle_gesture',
+      isAsync: false,
+      isNativeAsync: true,
+      returnType: BridgeType(name: 'void'),
+      params: [BridgeParam(name: 'event', type: BridgeType(name: 'GestureEvent'))],
+    ),
+    // List<@HybridRecord> param.
+    BridgeFunction(
+      dartName: 'saveRecordings',
+      cSymbol: 'param_recorder_save_recordings',
+      isAsync: false,
+      isNativeAsync: true,
+      returnType: BridgeType(name: 'void'),
+      params: [
+        BridgeParam(
+          name: 'results',
+          type: BridgeType(name: 'List<RecordingResult>', isRecord: true, recordListItemType: 'RecordingResult'),
+        ),
+      ],
+    ),
+    // List<@HybridEnum> param.
+    BridgeFunction(
+      dartName: 'setModes',
+      cSymbol: 'param_recorder_set_modes',
+      isAsync: false,
+      isNativeAsync: true,
+      returnType: BridgeType(name: 'void'),
+      params: [
+        BridgeParam(
+          name: 'modes',
+          type: BridgeType(name: 'List<Mode>', isRecord: true, isEnumList: true, recordListItemType: 'Mode'),
+        ),
+      ],
+    ),
+    // List<@NitroVariant> param.
+    BridgeFunction(
+      dartName: 'handleGestures',
+      cSymbol: 'param_recorder_handle_gestures',
+      isAsync: false,
+      isNativeAsync: true,
+      returnType: BridgeType(name: 'void'),
+      params: [
+        BridgeParam(
+          name: 'events',
+          type: BridgeType(name: 'List<GestureEvent>', isRecord: true, isVariantList: true, recordListItemType: 'GestureEvent'),
+        ),
+      ],
+    ),
+    // List<primitive> param.
+    BridgeFunction(
+      dartName: 'setValues',
+      cSymbol: 'param_recorder_set_values',
+      isAsync: false,
+      isNativeAsync: true,
+      returnType: BridgeType(name: 'void'),
+      params: [
+        BridgeParam(
+          name: 'values',
+          type: BridgeType(name: 'List<int>', isRecord: true, recordListItemType: 'int', recordListItemIsPrimitive: true),
+        ),
+      ],
+    ),
+    // TypedData param — the decoded ${p.name}Arr local was already built
+    // (Swift) before this fix but never referenced at the call site (dead
+    // code); the raw pointer was forwarded instead.
+    BridgeFunction(
+      dartName: 'uploadFrame',
+      cSymbol: 'param_recorder_upload_frame',
+      isAsync: false,
+      isNativeAsync: true,
+      returnType: BridgeType(name: 'void'),
+      params: [BridgeParam(name: 'frame', type: BridgeType(name: 'Uint8List'))],
+    ),
+    // Callback/function param.
+    BridgeFunction(
+      dartName: 'onProgress',
+      cSymbol: 'param_recorder_on_progress',
+      isAsync: false,
+      isNativeAsync: true,
+      returnType: BridgeType(name: 'void'),
+      params: [
+        BridgeParam(
+          name: 'callback',
+          type: BridgeType(
+            name: 'void Function(int)',
+            isFunction: true,
+            functionReturnType: 'void',
+            functionParams: [BridgeType(name: 'int')],
+          ),
+        ),
+      ],
+    ),
+  ],
+);
+
+/// Regression spec for the native-async return-type dispatch gap: an audit
+/// following the record-return fix found the same "no dedicated branch, falls
+/// to a generic primitive-shaped fallback" pattern affecting several more
+/// return categories on both platforms — plus a fresh regression the record
+/// fix itself introduced for List<@HybridEnum>/List<@NitroVariant> returns.
+/// NitroAnyMap is deliberately NOT included for Swift — it has no working
+/// return-encode path anywhere in the Swift emitter (sync or @nitroAsync
+/// either), a pre-existing, broader bug unrelated to native-async.
+BridgeSpec _nativeAsyncReturnsSpec() => BridgeSpec(
+  dartClassName: 'ReturnsRecorder',
+  lib: 'returns_recorder',
+  namespace: 'returns_recorder',
+  iosImpl: NativeImpl.swift,
+  androidImpl: NativeImpl.kotlin,
+  sourceUri: 'returns_recorder.native.dart',
+  enums: [
+    BridgeEnum(name: 'Mode', startValue: 0, values: ['idle', 'running', 'error']),
+  ],
+  variants: [
+    BridgeVariant(
+      name: 'GestureEvent',
+      cases: [
+        BridgeVariantCase(
+          name: 'GestureTap',
+          label: 'tap',
+          fields: [BridgeRecordField(name: 'x', dartType: 'double', kind: RecordFieldKind.primitive)],
+        ),
+      ],
+    ),
+  ],
+  customTypes: [
+    BridgeCustomType(name: 'Color', codecClass: 'ColorCodec', encodedSize: 5),
+  ],
+  structs: [
+    BridgeStruct(
+      name: 'Point',
+      packed: false,
+      fields: [
+        BridgeField(name: 'x', type: BridgeType(name: 'int')),
+        BridgeField(name: 'y', type: BridgeType(name: 'int')),
+      ],
+    ),
+  ],
+  functions: [
+    // Bare @NitroVariant return.
+    BridgeFunction(
+      dartName: 'getGesture',
+      cSymbol: 'returns_recorder_get_gesture',
+      isAsync: false,
+      isNativeAsync: true,
+      returnType: BridgeType(name: 'GestureEvent'),
+      params: [],
+    ),
+    // Map<String,V> return.
+    BridgeFunction(
+      dartName: 'getCounts',
+      cSymbol: 'returns_recorder_get_counts',
+      isAsync: false,
+      isNativeAsync: true,
+      returnType: BridgeType(name: 'Map<String, int>', isMap: true, isRecord: true),
+      params: [],
+    ),
+    // NitroAnyMap return — Kotlin only (see spec doc comment).
+    BridgeFunction(
+      dartName: 'getAnyMap',
+      cSymbol: 'returns_recorder_get_any_map',
+      isAsync: false,
+      isNativeAsync: true,
+      returnType: BridgeType(name: 'NitroAnyMap', isAnyMap: true),
+      params: [],
+    ),
+    // @NitroCustomType return.
+    BridgeFunction(
+      dartName: 'getColor',
+      cSymbol: 'returns_recorder_get_color',
+      isAsync: false,
+      isNativeAsync: true,
+      returnType: BridgeType(name: 'Color'),
+      params: [],
+    ),
+    // Bare @HybridStruct return — Swift only (Kotlin has no wire-format
+    // primitive for struct returns yet; remains a deferred, known gap).
+    BridgeFunction(
+      dartName: 'getPoint',
+      cSymbol: 'returns_recorder_get_point',
+      isAsync: false,
+      isNativeAsync: true,
+      returnType: BridgeType(name: 'Point'),
+      params: [],
+    ),
+    // uint64? return — Swift only (silent nil-collapses-to-0 bug).
+    BridgeFunction(
+      dartName: 'getBigNumberMaybe',
+      cSymbol: 'returns_recorder_get_big_number_maybe',
+      isAsync: false,
+      isNativeAsync: true,
+      returnType: BridgeType(name: 'uint64?', isNullable: true),
+      params: [],
+    ),
+    // Nullable AnyNativeObject return — Swift only (silent 0-vs-null bug).
+    BridgeFunction(
+      dartName: 'getObjectMaybe',
+      cSymbol: 'returns_recorder_get_object_maybe',
+      isAsync: false,
+      isNativeAsync: true,
+      returnType: BridgeType(name: 'AnyNativeObject?', isAnyNativeObject: true, isNullable: true),
+      params: [],
+    ),
+    // List<@HybridEnum> return — Kotlin regression (this fix's own earlier
+    // record-return fix accidentally broke this by routing it into the
+    // single-record fallback, calling `.encode()` on a Kotlin List).
+    BridgeFunction(
+      dartName: 'getModes',
+      cSymbol: 'returns_recorder_get_modes',
+      isAsync: false,
+      isNativeAsync: true,
+      returnType: BridgeType(name: 'List<Mode>', isRecord: true, isEnumList: true, recordListItemType: 'Mode'),
+      params: [],
+    ),
+    // List<@NitroVariant> return — same regression as getModes above.
+    BridgeFunction(
+      dartName: 'getGestures',
+      cSymbol: 'returns_recorder_get_gestures',
+      isAsync: false,
+      isNativeAsync: true,
+      returnType: BridgeType(name: 'List<GestureEvent>', isRecord: true, isVariantList: true, recordListItemType: 'GestureEvent'),
+      params: [],
+    ),
+  ],
+);
+
 BridgeSpec _cppOnlyNativeAsyncSpec() => BridgeSpec(
   dartClassName: 'Engine',
   lib: 'engine',
@@ -543,6 +928,177 @@ void main() {
       expect(out, contains('fun syncAdd_call(instanceId: Long, '));
       expect(out, contains('fun asyncFetch_call(instanceId: Long)'));
     });
+
+    // ── Regression: @HybridRecord return used to be silently discarded ──────
+    // (the trampoline called runBlocking, threw away the result, and always
+    // posted null — see stopVideoRecording bug).
+
+    test('record return: captures runBlocking result instead of discarding it', () {
+      final out = KotlinGenerator.generate(_nativeAsyncRecordSpec());
+      // The old bug's exact shape: call impl, discard, always post null.
+      expect(out, isNot(contains('runBlocking { impl.stopVideoRecording(textureId) }\n            postNullToPort(dartPort)')));
+      expect(out, contains('val result = runBlocking { impl.stopVideoRecording(textureId) }'));
+    });
+
+    test('record return: encodes via .encode() and posts via postBytesToPort', () {
+      final out = KotlinGenerator.generate(_nativeAsyncRecordSpec());
+      expect(out, contains('val _bytes = result.encode()'));
+      expect(out, contains('postBytesToPort(dartPort, _bytes)'));
+    });
+
+    test('nullable record return: encodes via ?.encode(), still non-branching post', () {
+      final out = KotlinGenerator.generate(_nativeAsyncNullableRecordSpec());
+      expect(out, contains('val _bytes = result?.encode()'));
+      expect(out, contains('postBytesToPort(dartPort, _bytes)'));
+      // Must NOT branch on the record being null with postNullToPort — that
+      // reintroduces the exact bug this fix exists for (Dart's unpack always
+      // does `raw as int`). Assert the encode and post lines are adjacent
+      // (no intervening `if (_bytes == null)` branch). Note: the unrelated
+      // impl-not-found guard and the catch-all exception handler both
+      // legitimately call postNullToPort elsewhere in the same stub — this
+      // is not a blanket absence check.
+      expect(out, isNot(contains('if (_bytes == null)')));
+      expect(
+        out,
+        contains('val _bytes = result?.encode()\n            postBytesToPort(dartPort, _bytes)'),
+      );
+    });
+
+    test('postBytesToPort is declared as external JvmStatic accepting a nullable ByteArray', () {
+      final out = KotlinGenerator.generate(_nativeAsyncRecordSpec());
+      expect(out, contains('@JvmStatic external fun postBytesToPort(dartPort: Long, value: ByteArray?)'));
+    });
+  });
+
+  // ── KotlinGenerator param-decoding gap ────────────────────────────────────
+  //
+  // Regression: @NitroNativeAsync's own callParams builder only decoded
+  // nullable-primitive params — every other category (enum, record, variant,
+  // list-of-those, callback) was forwarded as its raw undecoded bridge value
+  // (a Kotlin type mismatch against the impl's typed parameter — compile
+  // failure). Each assertion below embeds the specific method/variable name,
+  // so — unlike the record-return tests' first attempt — these can't collide
+  // with unrelated legitimate code elsewhere in the same generated file.
+
+  group('KotlinGenerator — @NitroNativeAsync param decoding', () {
+    test('non-nullable enum param: decoded via Mode.fromNative(...)', () {
+      final out = KotlinGenerator.generate(_nativeAsyncParamsSpec());
+      expect(out, contains('impl.setMode(Mode.fromNative(mode))'));
+      expect(out, isNot(contains('impl.setMode(mode)')));
+    });
+
+    test('nullable enum param: -1 sentinel decode into modeArg', () {
+      final out = KotlinGenerator.generate(_nativeAsyncParamsSpec());
+      expect(out, contains('val modeArg: Mode? = if (mode < 0L) null else Mode.fromNative(mode)'));
+      expect(out, contains('impl.setModeMaybe(modeArg)'));
+    });
+
+    test('non-nullable @HybridRecord param: decoded via decodeFrom before the call', () {
+      final out = KotlinGenerator.generate(_nativeAsyncParamsSpec());
+      expect(out, contains('val resultDecoded = RecordingResult.decodeFrom(resultBuf)'));
+      expect(out, contains('impl.saveRecording(resultDecoded)'));
+      expect(out, isNot(contains('impl.saveRecording(result)')));
+    });
+
+    test('nullable @HybridRecord param: null-checked decode into resultDecoded', () {
+      final out = KotlinGenerator.generate(_nativeAsyncParamsSpec());
+      expect(out, contains('val resultDecoded: RecordingResult? = if (result == null) null else {'));
+      expect(out, contains('impl.saveRecordingMaybe(resultDecoded)'));
+    });
+
+    test('@NitroVariant param: decoded via fromReader before the call', () {
+      final out = KotlinGenerator.generate(_nativeAsyncParamsSpec());
+      expect(out, contains('val eventDecoded = GestureEvent.fromReader(RecordReader(eventBuf))'));
+      expect(out, contains('impl.handleGesture(eventDecoded)'));
+      expect(out, isNot(contains('impl.handleGesture(event)')));
+    });
+
+    test('List<@HybridRecord> param: decoded into resultsDecoded before the call', () {
+      final out = KotlinGenerator.generate(_nativeAsyncParamsSpec());
+      expect(out, contains('val resultsDecoded = mutableListOf<RecordingResult>()'));
+      expect(out, contains('impl.saveRecordings(resultsDecoded)'));
+      expect(out, isNot(contains('impl.saveRecordings(results)')));
+    });
+
+    test('List<@HybridEnum> param: decoded into modesDecoded before the call', () {
+      final out = KotlinGenerator.generate(_nativeAsyncParamsSpec());
+      expect(out, contains('val modesDecoded = mutableListOf<Mode>()'));
+      expect(out, contains('impl.setModes(modesDecoded)'));
+      expect(out, isNot(contains('impl.setModes(modes)')));
+    });
+
+    test('List<@NitroVariant> param: decoded into eventsDecoded before the call', () {
+      final out = KotlinGenerator.generate(_nativeAsyncParamsSpec());
+      expect(out, contains('val eventsDecoded = mutableListOf<GestureEvent>()'));
+      expect(out, contains('impl.handleGestures(eventsDecoded)'));
+      expect(out, isNot(contains('impl.handleGestures(events)')));
+    });
+
+    test('List<primitive> param: decoded into valuesDecoded before the call', () {
+      final out = KotlinGenerator.generate(_nativeAsyncParamsSpec());
+      expect(out, contains('val valuesDecoded = ArrayList<Long>()'));
+      expect(out, contains('impl.setValues(valuesDecoded)'));
+      expect(out, isNot(contains('impl.setValues(values)')));
+    });
+
+    test('callback param: wrapped via the _invoke_* JNI lambda, not forwarded as a raw Long', () {
+      final out = KotlinGenerator.generate(_nativeAsyncParamsSpec());
+      expect(out, contains('_invoke_callback(callback,'));
+      expect(out, isNot(contains('impl.onProgress(callback)')));
+    });
+  });
+
+  // ── KotlinGenerator return-type dispatch gap ──────────────────────────────
+  //
+  // Regression: the record-return fix's dispatch chain still had no branch
+  // for several other return categories (they fell to the generic discard +
+  // postNullToPort), and its own isRecord routing accidentally broke
+  // List<@HybridEnum>/List<@NitroVariant> returns (`.encode()` on a Kotlin
+  // List — compile error). Each assertion embeds the specific method name so
+  // it can't collide with unrelated code elsewhere in the file.
+
+  group('KotlinGenerator — @NitroNativeAsync return decoding', () {
+    test('bare @NitroVariant return: encoded via RecordWriter, posted via postBytesToPort', () {
+      final out = KotlinGenerator.generate(_nativeAsyncReturnsSpec());
+      expect(out, contains('val _vResult = runBlocking { impl.getGesture() }'));
+      expect(out, contains('_vResult.writeFields(_vw)'));
+      expect(out, isNot(contains('runBlocking { impl.getGesture() }\n            postNullToPort(dartPort)')));
+    });
+
+    test('Map<String,V> return: encoded via the binary map wire format, not discarded', () {
+      final out = KotlinGenerator.generate(_nativeAsyncReturnsSpec());
+      expect(out, contains('val result = runBlocking { impl.getCounts() }'));
+      expect(out, contains('val _outMap = result as? Map<String, Long> ?: emptyMap()'));
+      expect(out, isNot(contains('runBlocking { impl.getCounts() }\n            postNullToPort(dartPort)')));
+    });
+
+    test('NitroAnyMap return: encoded via NitroAnyMapCodec, not discarded', () {
+      final out = KotlinGenerator.generate(_nativeAsyncReturnsSpec());
+      expect(out, contains('val result = runBlocking { impl.getAnyMap() }'));
+      expect(out, contains('postBytesToPort(dartPort, NitroAnyMapCodec.encode(_outMap))'));
+    });
+
+    test('@NitroCustomType return: impl\'s own ByteArray is posted directly, not discarded', () {
+      final out = KotlinGenerator.generate(_nativeAsyncReturnsSpec());
+      expect(out, contains('val result = runBlocking { impl.getColor() }'));
+      expect(out, contains('postBytesToPort(dartPort, result)'));
+    });
+
+    test('List<@HybridEnum> return: encodes the list, does NOT call .encode() on it', () {
+      final out = KotlinGenerator.generate(_nativeAsyncReturnsSpec());
+      expect(out, contains('val result = runBlocking { impl.getModes() }'));
+      expect(out, contains('result.forEach { buf.putLong(it.nativeValue) }'));
+      // The regression: routing into the single-record fallback produced
+      // `result.encode()`, which isn't a member of Kotlin's List type.
+      expect(out, isNot(contains('result.encode()')));
+    });
+
+    test('List<@NitroVariant> return: encodes the list via RecordWriter per item', () {
+      final out = KotlinGenerator.generate(_nativeAsyncReturnsSpec());
+      expect(out, contains('val result = runBlocking { impl.getGestures() }'));
+      expect(out, contains('item.writeFields(_iw)'));
+      expect(out, isNot(contains('result.encode()')));
+    });
   });
 
   // ── SwiftGenerator ───────────────────────────────────────────────────────
@@ -595,6 +1151,272 @@ void main() {
     test('stub does NOT call sema.wait() — no thread blocking', () {
       final out = SwiftGenerator.generate(_nativeAsyncIntSpec());
       expect(out, isNot(contains('sema.wait()')));
+    });
+
+    // ── Regression: @HybridRecord return used to be coerced through the
+    // generic Int64 `else` branch (`(try? await ...) ?? 0`), which does not
+    // type-check for a record struct and is broken in the same way as the
+    // Kotlin discard-and-always-null bug.
+
+    test('record return: encodes via .toNative(), not the generic Int64 coercion', () {
+      final out = SwiftGenerator.generate(_nativeAsyncRecordSpec());
+      expect(out, contains('.toNative()'));
+      expect(out, isNot(contains('(try? await impl.stopVideoRecording(textureId: textureId)) ?? 0')));
+    });
+
+    test('record return: posts the encoded pointer as kInt64', () {
+      final out = SwiftGenerator.generate(_nativeAsyncRecordSpec());
+      final stubStart = out.indexOf('_recorder_call_stopVideoRecording');
+      final stub = out.substring(stubStart);
+      expect(stub, contains('Dart_CObject_kInt64'));
+      expect(stub, contains('_recPtr'));
+    });
+
+    test('nullable record return: still posts kInt64, never Dart_CObject_kNull for the record value', () {
+      final out = SwiftGenerator.generate(_nativeAsyncNullableRecordSpec());
+      // Scope to the Task.detached { ... } body only — the unrelated
+      // impl-not-found guard above it legitimately posts Dart_CObject_kNull
+      // for the "no impl registered" case, which this assertion isn't about.
+      final detachedStart = out.indexOf('Task.detached {');
+      final stubEnd = out.indexOf('\n}', detachedStart);
+      final stub = out.substring(detachedStart, stubEnd);
+      expect(stub, contains('Dart_CObject_kInt64'));
+      // A nil record posts address 0 via the same kInt64 branch — no separate
+      // kNull post for the "no value" case (that would break Dart's `raw as
+      // int` unpack for nullable records).
+      expect(stub, isNot(contains('Dart_CObject_kNull')));
+    });
+  });
+
+  // ── SwiftGenerator param-decoding gap ─────────────────────────────────────
+  //
+  // Regression: @NitroNativeAsync's own callArgs closure had no branch for
+  // callbacks, TypedData, records, tuples, variants, structs, or lists of
+  // any of those — they fell to the generic `'${p.name}: ${p.name}'`,
+  // forwarding a raw pointer/function-pointer where a decoded Swift value
+  // was expected (compile failure). Non-nullable and nullable enum params
+  // were already handled correctly before this fix; covered here as
+  // regression coverage since they had zero test coverage previously.
+
+  group('SwiftGenerator — @NitroNativeAsync param decoding', () {
+    test('non-nullable enum param: Mode(rawValue: mode)!', () {
+      final out = SwiftGenerator.generate(_nativeAsyncParamsSpec());
+      expect(out, contains('impl.setMode(mode: Mode(rawValue: mode)!)'));
+    });
+
+    test('nullable enum param: Mode(rawValue: mode), no force-unwrap', () {
+      final out = SwiftGenerator.generate(_nativeAsyncParamsSpec());
+      expect(out, contains('impl.setModeMaybe(mode: Mode(rawValue: mode))'));
+    });
+
+    test('non-nullable @HybridRecord param: pre-decoded via fromNative before Task.detached', () {
+      final out = SwiftGenerator.generate(_nativeAsyncParamsSpec());
+      expect(out, contains('let result_dec = RecordingResult.fromNative(result!.assumingMemoryBound(to: UInt8.self))'));
+      expect(out, contains('impl.saveRecording(result: result_dec)'));
+      expect(out, isNot(contains('impl.saveRecording(result: result)')));
+    });
+
+    test('nullable @HybridRecord param: pre-decoded via .map { fromNative }', () {
+      final out = SwiftGenerator.generate(_nativeAsyncParamsSpec());
+      expect(out, contains('let result_dec = result.map { RecordingResult.fromNative(\$0.assumingMemoryBound(to: UInt8.self)) }'));
+      expect(out, contains('impl.saveRecordingMaybe(result: result_dec)'));
+    });
+
+    test('@NitroVariant param: pre-decoded via fromReader before Task.detached', () {
+      final out = SwiftGenerator.generate(_nativeAsyncParamsSpec());
+      expect(
+        out,
+        contains('let event_dec = GestureEvent.fromReader(NitroRecordReader(ptr: event!.assumingMemoryBound(to: UInt8.self)))'),
+      );
+      expect(out, contains('impl.handleGesture(event: event_dec)'));
+      expect(out, isNot(contains('impl.handleGesture(event: event)')));
+    });
+
+    test('List<@HybridRecord> param: decoded via NitroRecordReader.decodeIndexedList + fromReader', () {
+      final out = SwiftGenerator.generate(_nativeAsyncParamsSpec());
+      expect(out, contains('NitroRecordReader.decodeIndexedList'));
+      expect(out, contains('RecordingResult.fromReader'));
+      expect(out, contains('impl.saveRecordings(results: resultsDecoded)'));
+      expect(out, isNot(contains('impl.saveRecordings(results: results)')));
+    });
+
+    test('List<@HybridEnum> param: decoded via NitroRecordReader.decodeList', () {
+      final out = SwiftGenerator.generate(_nativeAsyncParamsSpec());
+      expect(out, contains('Mode(rawValue: r.readInt())'));
+      expect(out, contains('impl.setModes(modes: modesDecoded)'));
+      expect(out, isNot(contains('impl.setModes(modes: modes)')));
+    });
+
+    test('List<@NitroVariant> param: decoded via NitroRecordReader.decodeList + fromReader', () {
+      final out = SwiftGenerator.generate(_nativeAsyncParamsSpec());
+      expect(out, contains('GestureEvent.fromReader(r)'));
+      expect(out, contains('impl.handleGestures(events: eventsDecoded)'));
+      expect(out, isNot(contains('impl.handleGestures(events: events)')));
+    });
+
+    test('List<primitive> param: decoded via NitroRecordReader.decodeIndexedList', () {
+      final out = SwiftGenerator.generate(_nativeAsyncParamsSpec());
+      expect(out, contains('impl.setValues(values: valuesDecoded)'));
+      expect(out, isNot(contains('impl.setValues(values: values)')));
+    });
+
+    test('callback param: wrapped via callbackWrapper, not forwarded as a raw function pointer', () {
+      final out = SwiftGenerator.generate(_nativeAsyncParamsSpec());
+      expect(out, contains('callback(arg0)'));
+      expect(out, isNot(contains('callback: callback')));
+    });
+
+    test('TypedData param: frameArr local is referenced at the call site (was dead code before this fix)', () {
+      final out = SwiftGenerator.generate(_nativeAsyncParamsSpec());
+      expect(out, contains('let frameArr = frame.map { Data(bytes: \$0, count: Int(frame_length)) } ?? Data()'));
+      expect(out, contains('impl.uploadFrame(frame: frameArr)'));
+      expect(out, isNot(contains('impl.uploadFrame(frame: frame)')));
+    });
+  });
+
+  // ── SwiftGenerator return-type dispatch gap ───────────────────────────────
+  //
+  // Regression: these categories all fell to the generic `(try? await ...)
+  // ?? 0` / `Int64(_result)` fallback, which doesn't type-check against a
+  // non-Int64-convertible Swift value (compile failure) — except uint64? and
+  // nullable AnyNativeObject, which DO compile via the fallback but silently
+  // collapse "no value" to 0 instead of a distinguishable sentinel.
+
+  group('SwiftGenerator — @NitroNativeAsync return decoding', () {
+    test('bare @NitroVariant return: encoded via NitroRecordWriter, not the generic Int64 coercion', () {
+      final out = SwiftGenerator.generate(_nativeAsyncReturnsSpec());
+      expect(out, contains('let _vResult = try? await impl.getGesture()'));
+      expect(out, contains('_vr.writeFields(to: _vw)'));
+      expect(out, isNot(contains('(try? await impl.getGesture()) ?? 0')));
+    });
+
+    test('Map<String,V> return: encoded via _nitroEncodeMapBinary, not the generic Int64 coercion', () {
+      final out = SwiftGenerator.generate(_nativeAsyncReturnsSpec());
+      expect(out, contains('let _result = try? await impl.getCounts()'));
+      expect(out, contains('_nitroEncodeMapBinary(_resultMap)'));
+      expect(out, isNot(contains('(try? await impl.getCounts()) ?? 0')));
+    });
+
+    test('@NitroCustomType return: fixed-size malloced copy, not the generic Int64 coercion', () {
+      final out = SwiftGenerator.generate(_nativeAsyncReturnsSpec());
+      expect(out, contains('let _result = try? await impl.getColor()'));
+      expect(out, contains('UnsafeMutablePointer<UInt8>.allocate(capacity: 5)'));
+      expect(out, isNot(contains('(try? await impl.getColor()) ?? 0')));
+    });
+
+    test('bare @HybridStruct return: encoded via _PointC.fromSwift, not the generic Int64 coercion', () {
+      final out = SwiftGenerator.generate(_nativeAsyncReturnsSpec());
+      expect(out, contains('let _result = try? await impl.getPoint()'));
+      expect(out, contains('_PointC.fromSwift(r)'));
+      expect(out, isNot(contains('(try? await impl.getPoint()) ?? 0')));
+    });
+
+    test('uint64? return: pointer-encode preserves nil, does not collapse to 0', () {
+      final out = SwiftGenerator.generate(_nativeAsyncReturnsSpec());
+      expect(out, contains('let _result = ((try? await impl.getBigNumberMaybe()) ?? nil)'));
+      expect(out, contains('_out_nu[0] = _result != nil ? 1 : 0'));
+      // The bug: collapsing straight to `?? 0` loses the "was it null" bit.
+      expect(out, isNot(contains('(try? await impl.getBigNumberMaybe()) ?? 0')));
+    });
+
+    test('nullable AnyNativeObject return: -1 sentinel, not the generic 0 fallback', () {
+      final out = SwiftGenerator.generate(_nativeAsyncReturnsSpec());
+      expect(out, contains('let _result = (try? await impl.getObjectMaybe()) ?? nil'));
+      expect(out, contains('_obj.value.as_int64 = _result ?? -1'));
+    });
+  });
+
+  // ── C++/JNI bridge — real-device-discovered gaps ──────────────────────────
+  //
+  // The Kotlin/Swift-level fixes above were verified end-to-end in a real
+  // plugin (nitro_type_coverage) built and run on Android/iOS/macOS. That
+  // surfaced a THIRD layer with the same "native-async never learned this
+  // category" pattern: the C++/JNI bridge's signature builder and per-param
+  // JNI marshaling never threaded variant/customType names through for
+  // native-async at all, so a variant param crashed the generator outright
+  // (`Bad state: Unknown JNI signature type`) instead of producing wrong
+  // output — worse than the Kotlin/Swift gaps, which at least compiled to
+  // something (just semantically broken).
+
+  group('CppBridgeGenerator — @NitroNativeAsync JNI signature/marshaling gaps', () {
+    test('variant param: generation does not throw (regression — used to crash the whole build)', () {
+      expect(() => CppBridgeGenerator.generate(_nativeAsyncParamsSpec()), returnsNormally);
+    });
+
+    test('variant param: JNI signature uses [B (ByteArray), not left unresolved', () {
+      final out = CppBridgeGenerator.generate(_nativeAsyncParamsSpec());
+      expect(out, contains('handleGesture_call'));
+    });
+
+    test('variant param: wrapped into a jbyteArray before the JNI call, not passed as a raw pointer', () {
+      final out = CppBridgeGenerator.generate(_nativeAsyncParamsSpec());
+      final startIdx = out.indexOf('void param_recorder_handle_gesture(');
+      expect(startIdx, greaterThan(-1));
+      final body = out.substring(startIdx, out.indexOf('\n}', startIdx));
+      expect(body, contains('NewByteArray'));
+      expect(body, contains('SetByteArrayRegion'));
+    });
+
+    test('record param: wrapped into a jbyteArray before the JNI call (previously only Map params were)', () {
+      final out = CppBridgeGenerator.generate(_nativeAsyncParamsSpec());
+      final startIdx = out.indexOf('void param_recorder_save_recording(');
+      expect(startIdx, greaterThan(-1));
+      final body = out.substring(startIdx, out.indexOf('\n}', startIdx));
+      expect(body, contains('NewByteArray'));
+    });
+
+    test('callback param: generation does not throw and produces a valid C symbol', () {
+      final out = CppBridgeGenerator.generate(_nativeAsyncParamsSpec());
+      expect(out, contains('param_recorder_on_progress'));
+    });
+
+    test('enum param: C declaration is int64_t, not void* (void* cast of the -1 sentinel is implementation-defined)', () {
+      final out = CppBridgeGenerator.generate(_nativeAsyncParamsSpec());
+      expect(out, contains('void param_recorder_set_mode(int64_t instanceId, int64_t mode, int64_t dart_port)'));
+    });
+
+    test('returns spec (variant/map/struct/customtype returns): generation does not throw', () {
+      expect(() => CppBridgeGenerator.generate(_nativeAsyncReturnsSpec()), returnsNormally);
+    });
+  });
+
+  // ── Dart FFI generator — real-device-discovered gaps ──────────────────────
+  //
+  // Two more bugs from the same real-device verification pass: nullable enum
+  // *params* were forwarded as the raw enum object (not `.nativeValue`) since
+  // the native-async-only `plainCallArgs` helper checked `spec.isEnumName(t)`
+  // without stripping the `?` suffix first — so it silently never matched a
+  // nullable enum's name and fell through to the generic passthrough. And two
+  // *return* categories (bare @NitroVariant, uint64?) had no unpack branch at
+  // all, so `raw` (the posted pointer/value) was cast directly to the wrong
+  // Dart type instead of being decoded — a runtime crash for variant, and a
+  // silent wrong-value bug for uint64? (returned the raw pointer address).
+
+  group('DartFfiGenerator — @NitroNativeAsync param/return gaps', () {
+    test('nullable enum param: call site uses .nativeValue with -1 sentinel, not the raw enum object', () {
+      final out = DartFfiGenerator.generate(_nativeAsyncParamsSpec());
+      expect(out, contains('mode == null ? -1 : mode.nativeValue'));
+      expect(out, isNot(contains('_nativeAsyncParamsSpecSetModeMaybePtr(_instanceId, mode, port)')));
+    });
+
+    test('non-nullable enum param: call site still uses .nativeValue (unaffected by the fix)', () {
+      final out = DartFfiGenerator.generate(_nativeAsyncParamsSpec());
+      expect(out, contains('mode.nativeValue'));
+    });
+
+    test('bare @NitroVariant return: unpack decodes via VariantExt.fromNative, not a raw cast', () {
+      final out = DartFfiGenerator.generate(_nativeAsyncReturnsSpec());
+      expect(out, contains('GestureEventVariantExt.fromNative(rawPtr)'));
+      expect(out, isNot(contains('unpack: (raw) => raw as GestureEvent')));
+    });
+
+    test('uint64? return: unpack decodes via Pointer<NitroOptInt64>, not a raw cast of the pointer address', () {
+      final out = DartFfiGenerator.generate(_nativeAsyncReturnsSpec());
+      final anchor = out.indexOf('Future<uint64?> getBigNumberMaybe()');
+      expect(anchor, greaterThan(-1));
+      final unpackSection = out.substring(anchor, out.indexOf('methodName:', anchor) + 40);
+      expect(unpackSection, contains('Pointer<NitroOptInt64>.fromAddress(raw as int)'));
+      expect(unpackSection, isNot(contains('raw as uint64?')));
     });
   });
 
