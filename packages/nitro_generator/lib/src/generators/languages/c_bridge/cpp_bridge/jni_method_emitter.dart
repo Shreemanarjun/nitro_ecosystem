@@ -1887,6 +1887,34 @@ void _emitJniInitializeAndPostHelpers(
     writer.line('    Dart_PostCObject_DL((Dart_Port)dartPort, &obj);');
     writer.line('}');
     writer.blankLine();
+
+    // post${Struct}ToPort: bare @HybridStruct NativeAsync returns — one
+    // helper per struct type actually used in a native-async return
+    // position. Reuses the existing pack_${struct}_from_jni conversion
+    // (already generated for every struct, for the sync-return/stream/
+    // callback paths) to build a native copy, then posts its address —
+    // same null-as-address-0 convention as postBytesToPort above.
+    final structReturnNames = spec.functions
+        .where((f) => f.isNativeAsync)
+        .map((f) => f.returnType.name.replaceFirst('?', ''))
+        .where((n) => spec.structs.any((s) => s.name == n))
+        .toSet();
+    for (final sn in structReturnNames) {
+      final jniPostStruct = _jniMethodName(spec.lib, spec.dartClassName, 'post${sn}ToPort');
+      writer.line('JNIEXPORT void JNICALL $jniPostStruct(JNIEnv* env, jclass, jlong dartPort, jobject value) {');
+      writer.line('    Dart_CObject obj;');
+      writer.line('    obj.type = Dart_CObject_kInt64;');
+      writer.line('    if (value == nullptr) {');
+      writer.line('        obj.value.as_int64 = 0;');
+      writer.line('    } else {');
+      writer.line('        $sn* result = ($sn*)malloc(sizeof($sn));');
+      writer.line('        *result = pack_${sn}_from_jni(env, value);');
+      writer.line('        obj.value.as_int64 = (int64_t)(uintptr_t)result;');
+      writer.line('    }');
+      writer.line('    Dart_PostCObject_DL((Dart_Port)dartPort, &obj);');
+      writer.line('}');
+      writer.blankLine();
+    }
   }
 }
 

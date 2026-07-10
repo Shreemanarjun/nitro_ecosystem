@@ -451,4 +451,18 @@ void main() {
       expect(out, isNot(contains('NitroAnyMapCodec')));
     });
   });
+
+  // ── §10  Kotlin interface param/return type symmetry ─────────────────────
+
+  group('§10 Generator — Kotlin interface param type matches return type', () {
+    test('NitroAnyMap param uses Map<String, Any?> in the interface, not the generic Any? fallback', () {
+      // Regression: retType() special-cased isAnyMap -> 'Map<String, Any?>'
+      // but type() (which paramType() delegates to) didn't, so a NitroAnyMap
+      // *parameter* fell through to the generic 'Any?' default — asymmetric
+      // with the return type. Found via nitro_type_coverage's real plugin.
+      final out = KotlinGenerator.generate(_anyMapParamSpec());
+      expect(out, contains('fun configure(options: Map<String, Any?>)'));
+      expect(out, isNot(contains('fun configure(options: Any?)')));
+    });
+  });
 }

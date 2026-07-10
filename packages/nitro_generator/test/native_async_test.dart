@@ -466,6 +466,32 @@ BridgeSpec _nativeAsyncParamsSpec() => BridgeSpec(
         ),
       ],
     ),
+    // Map<String,int> param — previously deferred/unhandled for native-async.
+    BridgeFunction(
+      dartName: 'setCounts',
+      cSymbol: 'param_recorder_set_counts',
+      isAsync: false,
+      isNativeAsync: true,
+      returnType: BridgeType(name: 'void'),
+      params: [
+        BridgeParam(
+          name: 'counts',
+          type: BridgeType(name: 'Map<String, int>', isMap: true, isRecord: true),
+        ),
+      ],
+    ),
+    // NitroAnyMap param — Kotlin only (Swift has no NitroAnyMap codec at all
+    // yet, a separate, larger gap — see the NitroAnyMap-on-Swift work item).
+    BridgeFunction(
+      dartName: 'setAnyMap',
+      cSymbol: 'param_recorder_set_any_map',
+      isAsync: false,
+      isNativeAsync: true,
+      returnType: BridgeType(name: 'void'),
+      params: [
+        BridgeParam(name: 'data', type: BridgeType(name: 'NitroAnyMap', isAnyMap: true)),
+      ],
+    ),
   ],
 );
 
@@ -474,9 +500,9 @@ BridgeSpec _nativeAsyncParamsSpec() => BridgeSpec(
 /// to a generic primitive-shaped fallback" pattern affecting several more
 /// return categories on both platforms — plus a fresh regression the record
 /// fix itself introduced for List<@HybridEnum>/List<@NitroVariant> returns.
-/// NitroAnyMap is deliberately NOT included for Swift — it has no working
-/// return-encode path anywhere in the Swift emitter (sync or @nitroAsync
-/// either), a pre-existing, broader bug unrelated to native-async.
+/// NitroAnyMap now works on both platforms — Swift previously had no
+/// NitroAnyMap encode/decode path anywhere in the emitter at all (sync or
+/// @nitroAsync either); a new recursive AnyValue codec fixed that.
 BridgeSpec _nativeAsyncReturnsSpec() => BridgeSpec(
   dartClassName: 'ReturnsRecorder',
   lib: 'returns_recorder',
@@ -531,7 +557,8 @@ BridgeSpec _nativeAsyncReturnsSpec() => BridgeSpec(
       returnType: BridgeType(name: 'Map<String, int>', isMap: true, isRecord: true),
       params: [],
     ),
-    // NitroAnyMap return — Kotlin only (see spec doc comment).
+    // NitroAnyMap return — now implemented on both Kotlin and Swift (Swift
+    // previously had no NitroAnyMap encode/decode path anywhere at all).
     BridgeFunction(
       dartName: 'getAnyMap',
       cSymbol: 'returns_recorder_get_any_map',
@@ -549,8 +576,8 @@ BridgeSpec _nativeAsyncReturnsSpec() => BridgeSpec(
       returnType: BridgeType(name: 'Color'),
       params: [],
     ),
-    // Bare @HybridStruct return — Swift only (Kotlin has no wire-format
-    // primitive for struct returns yet; remains a deferred, known gap).
+    // Bare @HybridStruct return — both Kotlin (via a per-struct
+    // post${Struct}ToPort JNI helper + pack_${Struct}_from_jni) and Swift.
     BridgeFunction(
       dartName: 'getPoint',
       cSymbol: 'returns_recorder_get_point',
@@ -558,6 +585,17 @@ BridgeSpec _nativeAsyncReturnsSpec() => BridgeSpec(
       isNativeAsync: true,
       returnType: BridgeType(name: 'Point'),
       params: [],
+    ),
+    // Bare @HybridStruct param (Kotlin) — confirmed already correct without
+    // any fix (the JNI bridge already delivers a typed object at this layer,
+    // unlike records/variants/enums which arrive as raw ByteArray/Long).
+    BridgeFunction(
+      dartName: 'setPoint',
+      cSymbol: 'returns_recorder_set_point',
+      isAsync: false,
+      isNativeAsync: true,
+      returnType: BridgeType(name: 'void'),
+      params: [BridgeParam(name: 'value', type: BridgeType(name: 'Point'))],
     ),
     // uint64? return — Swift only (silent nil-collapses-to-0 bug).
     BridgeFunction(
@@ -1046,6 +1084,20 @@ void main() {
       expect(out, contains('_invoke_callback(callback,'));
       expect(out, isNot(contains('impl.onProgress(callback)')));
     });
+
+    test('Map<String,V> param: decoded into a typed Map before the call (previously deferred/unhandled)', () {
+      final out = KotlinGenerator.generate(_nativeAsyncParamsSpec());
+      expect(out, contains('val countsDecoded = mutableMapOf<String, Long>()'));
+      expect(out, contains('impl.setCounts(countsDecoded)'));
+      expect(out, isNot(contains('impl.setCounts(counts)')));
+    });
+
+    test('NitroAnyMap param: decoded via NitroAnyMapCodec.decode before the call (previously deferred/unhandled)', () {
+      final out = KotlinGenerator.generate(_nativeAsyncParamsSpec());
+      expect(out, contains('val dataDecoded: Map<String, Any?> = NitroAnyMapCodec.decode(data)'));
+      expect(out, contains('impl.setAnyMap(dataDecoded)'));
+      expect(out, isNot(contains('impl.setAnyMap(data)')));
+    });
   });
 
   // ── KotlinGenerator return-type dispatch gap ──────────────────────────────
@@ -1098,6 +1150,20 @@ void main() {
       expect(out, contains('val result = runBlocking { impl.getGestures() }'));
       expect(out, contains('item.writeFields(_iw)'));
       expect(out, isNot(contains('result.encode()')));
+    });
+
+    test('bare @HybridStruct param: forwarded as-is (already a typed value at the JNI boundary)', () {
+      final out = KotlinGenerator.generate(_nativeAsyncReturnsSpec());
+      expect(out, contains('fun setPoint_call('));
+      expect(out, contains('impl.setPoint(value)'));
+    });
+
+    test('bare @HybridStruct return: posted via a per-struct postPointToPort helper (previously no wire format existed)', () {
+      final out = KotlinGenerator.generate(_nativeAsyncReturnsSpec());
+      expect(out, contains('@JvmStatic external fun postPointToPort(dartPort: Long, value: Point?)'));
+      expect(out, contains('val result = runBlocking { impl.getPoint() }'));
+      expect(out, contains('postPointToPort(dartPort, result)'));
+      expect(out, isNot(contains('runBlocking { impl.getPoint() }\n            postNullToPort(dartPort)')));
     });
   });
 
@@ -1272,6 +1338,21 @@ void main() {
       expect(out, contains('impl.uploadFrame(frame: frameArr)'));
       expect(out, isNot(contains('impl.uploadFrame(frame: frame)')));
     });
+
+    test('Map<String,V> param: decoded via _nitroDecodeMapBinary before Task.detached (previously deferred/unhandled)', () {
+      final out = SwiftGenerator.generate(_nativeAsyncParamsSpec());
+      expect(out, contains('let counts_rawMap: [String: Any] = counts.map { _nitroDecodeMapBinary(\$0.assumingMemoryBound(to: UInt8.self)) } ?? [:]'));
+      expect(out, contains('impl.setCounts(counts: counts_dec)'));
+      expect(out, isNot(contains('impl.setCounts(counts: counts)')));
+    });
+
+    test('NitroAnyMap param: decoded via _nitroDecodeAnyMapBinary before Task.detached (Swift had no AnyMap codec at all before this)', () {
+      final out = SwiftGenerator.generate(_nativeAsyncParamsSpec());
+      expect(out, contains('_ data: UnsafeMutableRawPointer?')); // not `Any` — @_cdecl requires a C-compatible type
+      expect(out, contains('let data_dec: [String: Any] = data.map { _nitroDecodeAnyMapBinary(\$0.assumingMemoryBound(to: UInt8.self)) } ?? [:]'));
+      expect(out, contains('impl.setAnyMap(data: data_dec)'));
+      expect(out, isNot(contains('impl.setAnyMap(data: data)')));
+    });
   });
 
   // ── SwiftGenerator return-type dispatch gap ───────────────────────────────
@@ -1324,6 +1405,21 @@ void main() {
       expect(out, contains('let _result = (try? await impl.getObjectMaybe()) ?? nil'));
       expect(out, contains('_obj.value.as_int64 = _result ?? -1'));
     });
+
+    test('NitroAnyMap return: encoded via the new _nitroEncodeAnyMapBinary codec (Swift had no AnyMap codec at all before this)', () {
+      final out = SwiftGenerator.generate(_nativeAsyncReturnsSpec());
+      expect(out, contains('let _result = try? await impl.getAnyMap()'));
+      expect(out, contains('_nitroEncodeAnyMapBinary(_resultMap)'));
+      expect(out, isNot(contains('(try? await impl.getAnyMap()) ?? 0')));
+    });
+
+    test('NitroAnyMap codec: recursive AnyValue read/write helpers are emitted', () {
+      final out = SwiftGenerator.generate(_nativeAsyncReturnsSpec());
+      expect(out, contains('private func _nitroWriteAnyValue(_ payload: inout Data, _ v: Any)'));
+      expect(out, contains('private func _nitroReadAnyValue(_ data: Data, _ pos: inout Int) -> Any'));
+      expect(out, contains('private func _nitroEncodeAnyMapBinary(_ m: [String: Any]) -> UnsafeMutablePointer<UInt8>?'));
+      expect(out, contains('private func _nitroDecodeAnyMapBinary(_ ptr: UnsafeMutablePointer<UInt8>) -> [String: Any]'));
+    });
   });
 
   // ── C++/JNI bridge — real-device-discovered gaps ──────────────────────────
@@ -1341,6 +1437,35 @@ void main() {
   group('CppBridgeGenerator — @NitroNativeAsync JNI signature/marshaling gaps', () {
     test('variant param: generation does not throw (regression — used to crash the whole build)', () {
       expect(() => CppBridgeGenerator.generate(_nativeAsyncParamsSpec()), returnsNormally);
+    });
+
+    test('NitroAnyMap param: C declaration/definition both use uint8_t*, not a void*/uint8_t* mismatch', () {
+      // Regression: _typeToC's default fallback returned 'void*' for a
+      // NitroAnyMap-named param (only Map<String,T> was matched by prefix),
+      // but the separately-generated header declaration already correctly
+      // used uint8_t* — a C++ "conflicting types" compile error, found by
+      // actually building nitro_type_coverage for macOS.
+      final out = CppBridgeGenerator.generate(_nativeAsyncParamsSpec());
+      final declIdx = out.indexOf('param_recorder_set_any_map(int64_t instanceId, uint8_t* data');
+      expect(declIdx, greaterThan(-1));
+      final defIdx = out.indexOf('void param_recorder_set_any_map(');
+      expect(defIdx, greaterThan(-1));
+      final defLine = out.substring(defIdx, out.indexOf('\n', defIdx));
+      expect(defLine, contains('uint8_t* data'));
+      expect(defLine, isNot(contains('void* data')));
+    });
+
+    test('bare @HybridStruct param: already delivered as a typed jobject, no fix needed', () {
+      // Confirms a finding, not a fix: the JNI bridge already converts a
+      // struct param to a proper jobject (unpack_Point_to_jni) matching the
+      // Kotlin _call method's typed `Point` parameter — unlike records/
+      // variants/enums, which arrive as raw ByteArray/Long needing decode.
+      final out = CppBridgeGenerator.generate(_nativeAsyncReturnsSpec());
+      final startIdx = out.indexOf('void returns_recorder_set_point(');
+      expect(startIdx, greaterThan(-1));
+      final body = out.substring(startIdx, out.indexOf('\n}', startIdx));
+      expect(body, contains('unpack_Point_to_jni'));
+      expect(body, contains('jobj_value'));
     });
 
     test('variant param: JNI signature uses [B (ByteArray), not left unresolved', () {
@@ -1377,6 +1502,16 @@ void main() {
 
     test('returns spec (variant/map/struct/customtype returns): generation does not throw', () {
       expect(() => CppBridgeGenerator.generate(_nativeAsyncReturnsSpec()), returnsNormally);
+    });
+
+    test('bare @HybridStruct return: postPointToPort mallocs via pack_Point_from_jni, posts kInt64', () {
+      final out = CppBridgeGenerator.generate(_nativeAsyncReturnsSpec());
+      final idx = out.indexOf('postPointToPort(JNIEnv* env, jclass, jlong dartPort, jobject value)');
+      expect(idx, greaterThan(-1));
+      final body = out.substring(idx, out.indexOf('\n}', idx));
+      expect(body, contains('pack_Point_from_jni(env, value)'));
+      expect(body, contains('Dart_CObject_kInt64'));
+      expect(body, contains('obj.value.as_int64 = 0')); // null → address 0, not kNull
     });
   });
 
@@ -1417,6 +1552,15 @@ void main() {
       final unpackSection = out.substring(anchor, out.indexOf('methodName:', anchor) + 40);
       expect(unpackSection, contains('Pointer<NitroOptInt64>.fromAddress(raw as int)'));
       expect(unpackSection, isNot(contains('raw as uint64?')));
+    });
+
+    test('NitroAnyMap return: unpack decodes via NitroAnyMap.fromNative, not a raw cast (isAnyMap is a separate flag from isRecord)', () {
+      final out = DartFfiGenerator.generate(_nativeAsyncReturnsSpec());
+      final anchor = out.indexOf('getAnyMap()');
+      expect(anchor, greaterThan(-1));
+      final unpackSection = out.substring(anchor, out.indexOf('methodName:', anchor) + 40);
+      expect(unpackSection, contains('NitroAnyMap.fromNative(rawPtr)'));
+      expect(unpackSection, isNot(contains('raw as NitroAnyMap')));
     });
   });
 

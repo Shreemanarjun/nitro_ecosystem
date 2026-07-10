@@ -95,6 +95,19 @@ String _nativeAsyncUnpack(BridgeFunction func, BridgeSpec spec) {
     return isNullable ? '(raw) => raw as String?' : '(raw) => raw as String';
   }
 
+  // NitroAnyMap — native posts kInt64 (pointer to binary AnyMap buffer).
+  // isAnyMap is a separate flag from isRecord (spec_extractor sets only
+  // isAnyMap: true for NitroAnyMap), so the isRecord branch below never
+  // matched it — this fell through to the generic `raw as $rt` cast, which
+  // would throw (raw is the pointer address, not a NitroAnyMap instance).
+  // _decodeRecordExpr already special-cases isAnyMap correctly (reused here
+  // verbatim — it's the same helper classifyReturn/_emitReturnDecode use for
+  // the sync/@nitroAsync path, where AnyMap has always decoded correctly).
+  if (func.returnType.isAnyMap) {
+    final decodeExpr = _decodeRecordExpr(func.returnType, 'rawPtr');
+    return '(raw) { final rawPtr = Pointer<Uint8>.fromAddress(raw as int); try { return $decodeExpr; } finally { malloc.free(rawPtr); } }';
+  }
+
   // @HybridRecord  — native posts kInt64 (pointer to binary buffer)
   if (func.returnType.isRecord) {
     final decodeExpr = _decodeRecordExpr(func.returnType, 'rawPtr');

@@ -70,6 +70,35 @@ void main() {
       );
     });
 
+    test('NitroAnyMap return type does NOT emit E010 (isAnyMap is a separate flag from isRecord)', () {
+      // Regression: the E010 "unknown type" guard excluded isRecord/isPointer/
+      // isNativeHandle but not isAnyMap, so any function returning or taking
+      // a NitroAnyMap failed generation outright with "unknown return type
+      // NitroAnyMap" — found via nitro_type_coverage's real plugin build.
+      final spec = BridgeSpec(
+        dartClassName: 'Foo',
+        lib: 'foo',
+        namespace: 'foo',
+        iosImpl: NativeImpl.swift,
+        androidImpl: NativeImpl.kotlin,
+        sourceUri: 'foo.native.dart',
+        functions: [
+          BridgeFunction(
+            dartName: 'bar',
+            cSymbol: 'foo_bar',
+            isAsync: false,
+            isNativeAsync: true,
+            returnType: BridgeType(name: 'NitroAnyMap', isAnyMap: true),
+            params: [
+              BridgeParam(name: 'value', type: BridgeType(name: 'NitroAnyMap', isAnyMap: true)),
+            ],
+          ),
+        ],
+      );
+      final issues = SpecValidator.validate(spec);
+      expect(issues.where((i) => i.code == 'E010'), isEmpty);
+    });
+
     test('duplicate C symbols emit DUPLICATE_SYMBOL error', () {
       final spec = BridgeSpec(
         dartClassName: 'Foo',

@@ -1255,6 +1255,12 @@ class CppBridgeGenerator {
       default:
         // Map<String, T> now bridges as binary uint8_t* (same as @HybridRecord)
         if (dartType.startsWith('Map<')) return 'uint8_t*';
+        // NitroAnyMap: same binary uint8_t* wire as Map<String,T> — matched
+        // by name since this function only sees the raw type-name string.
+        // Without this, the definition fell to the 'void*' default while the
+        // separately-generated header declaration already correctly used
+        // uint8_t*, producing a C++ "conflicting types" compile error.
+        if (dartType == 'NitroAnyMap') return 'uint8_t*';
         return 'void*';
     }
   }

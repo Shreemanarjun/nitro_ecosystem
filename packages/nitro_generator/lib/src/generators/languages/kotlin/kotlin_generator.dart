@@ -211,6 +211,21 @@ class KotlinGenerator {
       writer.line('    // nullable record returns are decoded elsewhere (a pointer-typed kInt64,');
       writer.line('    // never a bare kNull CObject).');
       writer.line('    @JvmStatic external fun postBytesToPort(dartPort: Long, value: ByteArray?)');
+      // Bare @HybridStruct NativeAsync returns: one post helper per struct type
+      // actually used in a native-async return position (structs are plain
+      // Kotlin data classes at the JNI boundary, not ByteArray-encoded, so
+      // postBytesToPort doesn't apply — each needs its own typed external fun).
+      final structReturnNames = spec.functions
+          .where((f) => f.isNativeAsync)
+          .map((f) => f.returnType.name.replaceFirst('?', ''))
+          .where((n) => spec.structs.any((s) => s.name == n))
+          .toSet();
+      for (final sn in structReturnNames) {
+        writer.line('    // $sn NativeAsync return: malloc a native copy via pack_${sn}_from_jni, post');
+        writer.line('    // address as kInt64. null posts address 0 — NOT Dart_CObject_kNull — same');
+        writer.line('    // convention as postBytesToPort above.');
+        writer.line('    @JvmStatic external fun post${sn}ToPort(dartPort: Long, value: $sn?)');
+      }
       writer.blankLine();
     }
 

@@ -72,6 +72,7 @@ class SwiftGenerator {
     }
 
     _emitSwiftMapHelpers(writer, spec);
+    _emitSwiftAnyMapHelpers(writer, spec);
     _emitSwiftTypedDataHelpers(writer, spec);
     // Emit @NitroResult helper functions when any function uses @NitroResult.
     if (spec.functions.any((f) => f.isResult)) {

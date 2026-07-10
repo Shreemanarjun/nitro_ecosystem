@@ -44,6 +44,10 @@ class KotlinTypeMapper implements TypeMapper {
   String type(String t, {BridgeType? bridgeType}) {
     if (bridgeType?.isNativeHandle == true) return 'Long';
     if (bridgeType?.isAnyNativeObject == true) return 'Long';
+    // Matches retType()'s isAnyMap case — without this, a NitroAnyMap
+    // *parameter* fell through to the generic 'Any?' default (asymmetric
+    // with the return type, which was already 'Map<String, Any?>').
+    if (bridgeType?.isAnyMap == true) return 'Map<String, Any?>';
     final name = t.replaceFirst('?', '');
 
     if (bridgeType != null && bridgeType.isFunction) {

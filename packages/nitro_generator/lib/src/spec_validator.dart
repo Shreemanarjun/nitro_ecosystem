@@ -371,6 +371,7 @@ class SpecValidator {
         );
       } else if (retName != 'void' &&
           !func.returnType.isRecord && // @HybridRecord types bridge as String
+          !func.returnType.isAnyMap && // NitroAnyMap — isAnyMap is a separate flag from isRecord
           !func.returnType.isPointer && // raw FFI pointers
           !func.returnType.isNativeHandle && // NativeHandle<T> is always void*
           !_isKnownType(retName, knownTypes) &&
@@ -544,6 +545,7 @@ class SpecValidator {
 
         final pName = param.type.name.replaceFirst('?', '');
         if (!param.type.isRecord && // @HybridRecord params bridge as String
+            !param.type.isAnyMap && // NitroAnyMap — isAnyMap is a separate flag from isRecord
             !param.type.isPointer && // raw FFI pointers
             !param.type.isNativeHandle && // NativeHandle<T> → void*
             !_isKnownType(pName, knownTypes) &&

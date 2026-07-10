@@ -150,6 +150,7 @@ class KotlinFunctionEmitter {
           if (p.type.isFunction) return mapper.callbackLambda(p);
           if (p.type.isRecord && !p.type.isMap) return '${p.name}Decoded';
           if (mapper.variantNames.contains(baseName)) return '${p.name}Decoded';
+          if (p.type.isAnyMap || p.type.isMap) return '${p.name}Decoded';
           return p.name;
         })
         .join(', ');
@@ -175,6 +176,7 @@ class KotlinFunctionEmitter {
     final isAnyMapReturn = func.returnType.isAnyMap;
     final isMapReturn = func.returnType.isMap;
     final isCustomTypeReturn = mapper.customTypeNames.contains(retBaseName);
+    final isStructReturn = mapper.structNames.contains(retBaseName);
     final isRecord = func.returnType.isRecord && !func.returnType.isMap;
     final isListRecord = isRecord && func.returnType.recordListItemType != null && !func.returnType.recordListItemIsPrimitive && !func.returnType.isEnumList && !func.returnType.isVariantList;
     // instanceId is prepended; bridgeParamsDecl already includes it.
@@ -222,6 +224,17 @@ class KotlinFunctionEmitter {
     // Kotlin that forwarded the raw ByteArray where a decoded value was
     // expected (compile failure).
     _emitParamDecodes(writer, func, mapper);
+    // Decode Map<String,V> / NitroAnyMap params from ByteArray — previously
+    // never handled for native-async either (this was the one param category
+    // left deferred from the earlier param-decoding fix, since the sync
+    // path's map decode is entangled with its own return-side dispatch).
+    for (final p in func.params) {
+      if (p.type.isAnyMap) {
+        _emitNativeAsyncAnyMapParamDecode(writer, p);
+      } else if (p.type.isMap) {
+        _emitNativeAsyncMapParamDecode(writer, p, spec);
+      }
+    }
 
     writer.line('        _asyncExecutor.execute {');
     writer.line('            try {');
@@ -311,6 +324,17 @@ class KotlinFunctionEmitter {
       // encode/decode) — post it directly instead of discarding it.
       writer.line('            val result = runBlocking { impl.${func.dartName}($callParams) }');
       writer.line('            postBytesToPort(dartPort, result)');
+    } else if (isStructReturn) {
+      // Bare @HybridStruct NativeAsync: previously had no wire format at all
+      // (structs are plain Kotlin data classes at the JNI boundary, not
+      // ByteArray-encoded, so nothing in the generic dispatch chain applied —
+      // fell to discard + postNullToPort). The struct-specific post*ToPort
+      // helper (declared in kotlin_generator.dart) packs the object to a
+      // native struct via the JNI side's existing pack_${struct}_from_jni and
+      // posts its address, reusing the postBytesToPort null-as-address-0
+      // convention.
+      writer.line('            val result = runBlocking { impl.${func.dartName}($callParams) }');
+      writer.line('            post${retBaseName}ToPort(dartPort, result)');
     } else if (isRecord) {
       // @HybridRecord (single, list, or primitive-item-list) NativeAsync: encode to the
       // same [4B len][payload] wire format every other record-returning path uses
@@ -524,6 +548,75 @@ class KotlinFunctionEmitter {
     writer.line('            val _lenBuf = java.nio.ByteBuffer.allocate(4).order(java.nio.ByteOrder.LITTLE_ENDIAN)');
     writer.line('            _lenBuf.putInt(_payload.size)');
     writer.line('            val _bytes = _lenBuf.array() + _payload');
+  }
+
+  /// Decodes a `NitroAnyMap` param (param [p]) into `val ${p.name}Decoded`.
+  /// Previously unhandled for native-async — the only param category left
+  /// deferred from the earlier param-decoding fix.
+  static void _emitNativeAsyncAnyMapParamDecode(CodeWriter writer, BridgeParam p) {
+    writer.line('        val ${p.name}Decoded: Map<String, Any?> = NitroAnyMapCodec.decode(${p.name})');
+  }
+
+  /// Decodes a `Map<String,V>` param (param [p]) into `val ${p.name}Decoded`,
+  /// mirroring the input-decode half of `_emitMapBody`'s wire format. Local
+  /// variable names are namespaced by `${p.name}` so multiple map params on
+  /// the same function don't collide. Previously unhandled for native-async.
+  static void _emitNativeAsyncMapParamDecode(CodeWriter writer, BridgeParam p, BridgeSpec spec) {
+    final mapValueType = (() {
+      final m = RegExp(r'^Map<String,\s*(.+)>$').firstMatch(p.type.name);
+      return m?.group(1)?.trim() ?? 'Any?';
+    })();
+    final isValEnum = spec.isEnumName(mapValueType);
+    final isValRecord = spec.recordTypes.any((r) => r.name == mapValueType);
+    final isValVariant = spec.isVariantName(mapValueType);
+    final ktValueType = switch (mapValueType) {
+      'int' => 'Long',
+      'double' => 'Double',
+      'bool' => 'Boolean',
+      'String' => 'String',
+      _ when isValEnum => mapValueType,
+      _ when isValRecord => mapValueType,
+      _ when isValVariant => mapValueType,
+      _ => 'Any?',
+    };
+    final useTyped = ktValueType != 'Any?';
+    writer.line('        val ${p.name}Buf = java.nio.ByteBuffer.wrap(${p.name}).order(java.nio.ByteOrder.LITTLE_ENDIAN)');
+    writer.line('        ${p.name}Buf.position(4) // skip 4-byte payload length prefix');
+    writer.line('        val ${p.name}Count = ${p.name}Buf.int');
+    if (useTyped) {
+      writer.line('        val ${p.name}Decoded = mutableMapOf<String, $ktValueType>()');
+    } else {
+      writer.line('        val ${p.name}Decoded = mutableMapOf<String, Any?>()');
+    }
+    writer.line('        repeat(${p.name}Count) {');
+    writer.line('            val _${p.name}KLen = ${p.name}Buf.int; val _${p.name}KBytes = ByteArray(_${p.name}KLen); ${p.name}Buf.get(_${p.name}KBytes)');
+    writer.line('            val _${p.name}K = _${p.name}KBytes.toString(Charsets.UTF_8)');
+    writer.line('            ${p.name}Buf.get() // skip 1-byte type tag');
+    if (mapValueType == 'int' || mapValueType == 'Long') {
+      writer.line('            ${p.name}Decoded[_${p.name}K] = ${p.name}Buf.long');
+    } else if (mapValueType == 'double' || mapValueType == 'Double') {
+      writer.line('            ${p.name}Decoded[_${p.name}K] = ${p.name}Buf.double');
+    } else if (mapValueType == 'bool' || mapValueType == 'Boolean') {
+      writer.line('            ${p.name}Decoded[_${p.name}K] = ${p.name}Buf.get().toInt() != 0');
+    } else if (isValEnum) {
+      writer.line('            ${p.name}Decoded[_${p.name}K] = $mapValueType.fromNative(${p.name}Buf.long)');
+    } else if (isValRecord) {
+      writer.line('            val _${p.name}BLen = ${p.name}Buf.int; val _${p.name}BBytes = ByteArray(_${p.name}BLen); ${p.name}Buf.get(_${p.name}BBytes)');
+      writer.line(
+        '            val _${p.name}BBuf = java.nio.ByteBuffer.wrap(_${p.name}BBytes).order(java.nio.ByteOrder.LITTLE_ENDIAN); _${p.name}BBuf.getInt()',
+      );
+      writer.line('            ${p.name}Decoded[_${p.name}K] = $mapValueType.decodeFrom(_${p.name}BBuf)');
+    } else if (isValVariant) {
+      writer.line('            val _${p.name}BLen = ${p.name}Buf.int; val _${p.name}BBytes = ByteArray(_${p.name}BLen); ${p.name}Buf.get(_${p.name}BBytes)');
+      writer.line(
+        '            val _${p.name}BBuf = java.nio.ByteBuffer.wrap(_${p.name}BBytes).order(java.nio.ByteOrder.LITTLE_ENDIAN); _${p.name}BBuf.getInt()',
+      );
+      writer.line('            ${p.name}Decoded[_${p.name}K] = $mapValueType.fromReader(RecordReader(_${p.name}BBuf))');
+    } else {
+      writer.line('            val _${p.name}VLen = ${p.name}Buf.int; val _${p.name}VBytes = ByteArray(_${p.name}VLen); ${p.name}Buf.get(_${p.name}VBytes)');
+      writer.line('            ${p.name}Decoded[_${p.name}K] = _${p.name}VBytes.toString(Charsets.UTF_8)');
+    }
+    writer.line('        }');
   }
 
   // ── Parameter decoding helpers ──────────────────────────────────────────────

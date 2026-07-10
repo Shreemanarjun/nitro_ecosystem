@@ -172,7 +172,7 @@ class SwiftTypeMapper implements TypeMapper {
     if (name == 'DateTime') return 'Int64';
     if (name == 'bool') return 'Int8';
     if (name == 'String') return 'UnsafeMutablePointer<CChar>?';
-    if (name.startsWith('Map<') || func.returnType.isMap) return 'UnsafeMutablePointer<UInt8>?';
+    if (name.startsWith('Map<') || func.returnType.isMap || func.returnType.isAnyMap) return 'UnsafeMutablePointer<UInt8>?';
     if (BridgeType(name: name).isTypedData) return 'UnsafeMutablePointer<UInt8>?';
     if (_structNames.contains(name)) return 'UnsafeMutableRawPointer?';
     if (_recordNames.contains(name) || name.startsWith('List<')) return 'UnsafeMutableRawPointer?';
@@ -186,6 +186,7 @@ class SwiftTypeMapper implements TypeMapper {
   String cdeclParamType(String typeName, {BridgeType? bridgeType}) {
     if (bridgeType?.isNativeHandle == true) return 'UnsafeMutableRawPointer?';
     if (bridgeType?.isAnyNativeObject == true) return 'Int64';
+    if (bridgeType?.isAnyMap == true) return 'UnsafeMutableRawPointer?';
     final name = typeName.replaceFirst('?', '');
     if (spec.isCustomTypeName(name)) return 'UnsafeMutablePointer<UInt8>?';
     if (name == 'String') return 'UnsafePointer<CChar>?';

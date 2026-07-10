@@ -43,6 +43,7 @@ class SwiftFunctionEmitter {
     final isStruct = spec.isStructName(func.returnType.name.replaceFirst('?', ''));
     final isRecord = spec.isRecordName(func.returnType.name.replaceFirst('?', ''));
     final isMap = func.returnType.isMap;
+    final isAnyMap = func.returnType.isAnyMap;
     final isRecordList = func.returnType.name.startsWith('List<');
     final isBool = mapper.cdeclReturnType(func) == 'Int8';
     final isVoid = func.returnType.name == 'void';
@@ -66,6 +67,7 @@ class SwiftFunctionEmitter {
         isRecordList: isRecordList,
         isStruct: isStruct,
         isMap: isMap,
+        isAnyMap: isAnyMap,
         isTypedDataReturn: isTypedDataReturn,
         isVariantRet: isVariantRet,
         isCustomTypeReturn: isCustomTypeReturn,
@@ -94,6 +96,7 @@ class SwiftFunctionEmitter {
         isTypedDataReturn: isTypedDataReturn,
         isEnumRet: isEnumRet,
         isMap: isMap,
+        isAnyMap: isAnyMap,
       );
     } else {
       _emitSync(
@@ -111,6 +114,7 @@ class SwiftFunctionEmitter {
         isTypedDataReturn: isTypedDataReturn,
         isEnumRet: isEnumRet,
         isMap: isMap,
+        isAnyMap: isAnyMap,
         isVariantRet: isVariantRet,
       );
     }
@@ -261,6 +265,7 @@ class SwiftFunctionEmitter {
     required bool isRecordList,
     required bool isStruct,
     required bool isMap,
+    required bool isAnyMap,
     required bool isTypedDataReturn,
     required bool isVariantRet,
     required bool isCustomTypeReturn,
@@ -309,6 +314,7 @@ class SwiftFunctionEmitter {
           if (spec.isStructName(p.type.name.replaceFirst('?', ''))) return '${p.name}: ${p.name}_dec';
           if (spec.isRecordName(p.type.name.replaceFirst('?', ''))) return '${p.name}: ${p.name}_dec';
           if (spec.isVariantName(p.type.name.replaceFirst('?', ''))) return '${p.name}: ${p.name}_dec';
+          if (p.type.isMap || p.type.isAnyMap) return '${p.name}: ${p.name}_dec';
           if (p.type.isAnyNativeObject) {
             final opt = p.type.isNullable || p.type.name.endsWith('?');
             return opt ? '${p.name}: ${p.name} == -1 ? nil : ${p.name}' : '${p.name}: ${p.name}';
@@ -377,6 +383,18 @@ class SwiftFunctionEmitter {
         // owned Swift variant the moment this runs — safe to capture.
         final vn = p.type.name.replaceFirst('?', '');
         writer.line('    let ${p.name}_dec = $vn.fromReader(NitroRecordReader(ptr: ${p.name}!.assumingMemoryBound(to: UInt8.self)))');
+      } else if (p.type.isMap) {
+        // _nitroDecodeMapBinary(...) copies the map's entries out of the
+        // pointer into an owned Swift Dictionary the moment this runs — safe
+        // to capture. Previously unhandled for native-async — the only param
+        // category left deferred from the earlier param-decoding fix.
+        _emitNativeAsyncMapParamDecode(writer, p, spec);
+      } else if (p.type.isAnyMap) {
+        // _nitroDecodeAnyMapBinary(...) copies the map's entries out of the
+        // pointer into an owned Swift Dictionary the moment this runs — safe
+        // to capture. NitroAnyMap had no decode path anywhere in the Swift
+        // emitter until now (sync included).
+        writer.line('    let ${p.name}_dec: [String: Any] = ${p.name}.map { _nitroDecodeAnyMapBinary(\$0.assumingMemoryBound(to: UInt8.self)) } ?? [:]');
       }
     }
     // List<@HybridRecord/@HybridEnum/@NitroVariant/primitive> params: decode
@@ -537,17 +555,23 @@ class SwiftFunctionEmitter {
         writer.line('        var _obj = Dart_CObject()');
         writer.line('        _obj.type = Dart_CObject_kInt64');
         writer.line('        _obj.value.as_int64 = _recPtr != nil ? Int64(bitPattern: UInt64(UInt(bitPattern: _recPtr!))) : 0');
+      } else if (isAnyMap) {
+        // NitroAnyMap NativeAsync: previously fell to the generic else —
+        // compile failure. Now implemented via _nitroEncodeAnyMapBinary
+        // (a new codec — NitroAnyMap had no encode/decode path anywhere in
+        // the Swift emitter until now, sync included).
+        writer.line('        let _result = try? await impl.${func.dartName}($callArgs)');
+        writer.line('        let _resultMap = ((_result ?? nil) as? [String: Any]) ?? [:]');
+        writer.line('        let _recPtr = _nitroEncodeAnyMapBinary(_resultMap)');
+        writer.line('        var _obj = Dart_CObject()');
+        writer.line('        _obj.type = Dart_CObject_kInt64');
+        writer.line('        _obj.value.as_int64 = _recPtr != nil ? Int64(bitPattern: UInt64(UInt(bitPattern: _recPtr!))) : 0');
       } else if (isMap) {
         // Map<String,V> NativeAsync: previously fell to the generic else —
         // compile failure (protocol return type is `Any`, not Int64-
         // convertible). Mirrors the sync path's _nitroEncodeMapBinary
         // encoding — return-only, does not decode a map *parameter* (see the
         // Kotlin isMapReturn dispatch branch's identical scope note).
-        //
-        // NitroAnyMap return is deliberately NOT handled here: it has no
-        // working encode path anywhere in this file (sync or @nitroAsync
-        // either) — a pre-existing, broader bug, not something specific to
-        // native-async, so it's out of scope for this fix.
         writer.line('        let _result = try? await impl.${func.dartName}($callArgs)');
         _emitNativeAsyncMapEncode(writer, func, spec);
         writer.line('        var _obj = Dart_CObject()');
@@ -644,6 +668,7 @@ class SwiftFunctionEmitter {
     required bool isTypedDataReturn,
     required bool isEnumRet,
     required bool isMap,
+    required bool isAnyMap,
   }) {
     // @NitroOwned async: allocate on a background thread, return the raw ptr.
     if (func.returnType.isNativeHandle) {
@@ -869,6 +894,7 @@ class SwiftFunctionEmitter {
     required bool isTypedDataReturn,
     required bool isEnumRet,
     required bool isMap,
+    required bool isAnyMap,
     bool isVariantRet = false,
   }) {
     if (func.isResult) {
@@ -922,6 +948,18 @@ class SwiftFunctionEmitter {
       } else {
         writer.line('    return _nitroStringToCString(${spec.dartClassName}Registry.impl?.${func.dartName}($callArgs) ?? "")');
       }
+    } else if (isAnyMap) {
+      // NitroAnyMap sync: previously had no encode/decode path anywhere in
+      // this file at all. Mirrors the isMap branch's scope (single map-param
+      // assumption, guard returns nil) but uses the new AnyMap codec instead
+      // — no per-value-type casting needed, NitroAnyValue is always `Any`.
+      final anyMapParam = func.params.firstOrNull?.name ?? 'value';
+      writer.line('    guard let impl = ${spec.dartClassName}Registry.impl else { return nil }');
+      writer.line('    guard let _rawPtr = $anyMapParam else { return nil }');
+      writer.line('    let inputMap = _nitroDecodeAnyMapBinary(_rawPtr.assumingMemoryBound(to: UInt8.self))');
+      writer.line('    let result = impl.${func.dartName}(value: inputMap)');
+      writer.line('    guard let resultMap = result as? [String: Any] else { return nil }');
+      writer.line('    return _nitroEncodeAnyMapBinary(resultMap)');
     } else if (isMap) {
       final mapParam = func.params.firstOrNull?.name ?? 'value';
       // Determine map value type from the function's return type.
@@ -1186,6 +1224,40 @@ class SwiftFunctionEmitter {
       writer.line('        let _resultMap = (((_result ?? nil) as? [String: Any])) ?? [:]');
     }
     writer.line('        let _recPtr = _nitroEncodeMapBinary(_resultMap)');
+  }
+
+  /// Decodes a `Map<String,V>` param (param [p]) into `let ${p.name}_dec`,
+  /// mirroring the input-decode half of the sync `isMap` branch. Emitted
+  /// before `Task.detached` — `_nitroDecodeMapBinary` reads the pointer
+  /// synchronously and returns an owned `[String: Any]`, same arena-lifetime
+  /// reasoning as the other pre-decode locals in this file.
+  static void _emitNativeAsyncMapParamDecode(CodeWriter writer, BridgeParam p, BridgeSpec spec) {
+    final mapValueType = RegExp(r'^Map<String,\s*(.+)>$').firstMatch(p.type.name)?.group(1)?.trim() ?? '';
+    final isValEnum = spec.isEnumName(mapValueType);
+    final isValRecord = spec.recordTypes.any((r) => r.name == mapValueType);
+    final isValVariant = spec.isVariantName(mapValueType);
+    writer.line('    let ${p.name}_rawMap: [String: Any] = ${p.name}.map { _nitroDecodeMapBinary(\$0.assumingMemoryBound(to: UInt8.self)) } ?? [:]');
+    if (isValEnum) {
+      writer.line('    let ${p.name}_dec: [String: $mapValueType] = ${p.name}_rawMap.compactMapValues { $mapValueType(rawValue: \$0 as! Int64) }');
+    } else if (isValRecord) {
+      writer.line('    let ${p.name}_dec: [String: $mapValueType] = ${p.name}_rawMap.compactMapValues { raw in');
+      writer.line('        guard let blob = raw as? Data else { return nil }');
+      writer.line('        return blob.withUnsafeBytes { buf in');
+      writer.line('            guard let base = buf.baseAddress else { return nil }');
+      writer.line('            return $mapValueType.fromNative(UnsafeMutablePointer(mutating: base.assumingMemoryBound(to: UInt8.self)))');
+      writer.line('        }');
+      writer.line('    }');
+    } else if (isValVariant) {
+      writer.line('    let ${p.name}_dec: [String: $mapValueType] = ${p.name}_rawMap.compactMapValues { raw in');
+      writer.line('        guard let blob = raw as? Data else { return nil }');
+      writer.line('        return blob.withUnsafeBytes { buf in');
+      writer.line('            guard let base = buf.baseAddress else { return nil }');
+      writer.line('            return $mapValueType.fromReader(NitroRecordReader(ptr: UnsafeMutablePointer(mutating: base.assumingMemoryBound(to: UInt8.self))))');
+      writer.line('        }');
+      writer.line('    }');
+    } else {
+      writer.line('    let ${p.name}_dec = ${p.name}_rawMap');
+    }
   }
 
   static void _emitTypedDataReturn(CodeWriter writer, BridgeFunction func) {
