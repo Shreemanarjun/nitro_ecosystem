@@ -1,3 +1,7 @@
+## 0.5.8
+
+- **Ecosystem sync** — Aligned with `nitro_generator` 0.5.8's `@nitroNativeAsync` fixes (`Map<String,V>`/`NitroAnyMap` params on Kotlin and Swift, bare `@HybridStruct` returns on Kotlin, and `NitroAnyMap` support on Swift). No functional changes to this package — see `nitro_generator`'s changelog, and regenerate your plugin to pick it up.
+
 ## 0.5.7
 
 - **Doc fix** — Corrected stale "~930 µs / ~146 µs" async overhead figures in this README with real measured numbers (macOS: `@nitroAsync` ~28 µs, `@nitroNativeAsync` ~27 µs, both near method-channel parity). No functional changes to this package.

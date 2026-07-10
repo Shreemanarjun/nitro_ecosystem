@@ -1,3 +1,7 @@
+## 0.5.8
+
+- **Ecosystem sync** — Aligned with `nitro_generator` 0.5.8's `@nitroNativeAsync` fixes (`Map<String,V>`/`NitroAnyMap` params on Kotlin and Swift, bare `@HybridStruct` returns on Kotlin, and `NitroAnyMap` support on Swift). No functional changes to this package — see `nitro_generator`'s changelog, and regenerate your plugin to pick it up.
+
 ## 0.5.7
 
 - **Added: `NitroRuntime.deferredClose`** — closes a replaced callback `NativeCallable` on the next microtask turn, after native has synchronously switched over to its replacement. Used internally by `nitro_generator`'s regenerated callback-setter helpers to fix a leak where every re-registration of a callback-typed parameter (e.g. a listener setter called with a fresh closure) allocated a new `NativeCallable` that was never released. Not typically called directly by plugin authors.
