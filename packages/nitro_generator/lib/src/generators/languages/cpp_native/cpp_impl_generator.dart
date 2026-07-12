@@ -57,8 +57,10 @@ class CppImplGenerator {
     w.writeln('//   • TypedData RETURNS use NitroCppBuffer{ data, size } where size is in');
     w.writeln('//     BYTES, not elements (Float32List: count * sizeof(float)). A wrong');
     w.writeln('//     unit silently truncates the list Dart sees (bytes / elemSize).');
-    w.writeln('//   • @zeroCopy TypedData returns are NOT copied by the bridge: the pointed-to');
-    w.writeln('//     bytes must stay alive until Dart is done (e.g. store them in a member).');
+    w.writeln('//   • @zeroCopy TypedData returns are NOT copied by the bridge: return a');
+    w.writeln('//     malloc\'d buffer — ownership transfers, and the bridge frees it (via');
+    w.writeln('//     <lib>_release_typed_data_return) when Dart\'s view is GC\'d. Never');
+    w.writeln('//     return a pointer to a member or stack buffer: it would be free()d.');
     w.writeln('');
     w.writeln('#include "$ifaceHeader"');
     w.writeln('#include <stdexcept>');

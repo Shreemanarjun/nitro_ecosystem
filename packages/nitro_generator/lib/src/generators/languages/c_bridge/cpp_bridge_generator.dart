@@ -390,7 +390,19 @@ class CppBridgeGenerator {
     if (spec.functions.any((f) => f.zeroCopyReturn && f.returnType.isTypedData)) {
       writer.line('NITRO_EXPORT void ${libStem}_release_typed_data_return(void* ptr) {');
       writer.line('    if (!ptr) { return; }');
-
+      // Envelope layout: [0]=byte length, [1]=payload pointer, [2]=owner
+      // (always 0 on this path — the JNI variant stores a global ref there
+      // instead). The impl's malloc'd payload transfers to Dart at return;
+      // this call is Dart's NativeFinalizer saying it is done with the view,
+      // so BOTH the payload and the envelope are released here. Freeing only
+      // the envelope leaked the payload on every @zeroCopy return — found by
+      // the ASan/LSan harness (2000 iterations x 4096B = exactly the
+      // 8,192,000B it reported).
+      writer.line('    int64_t* words = (int64_t*)ptr;');
+      writer.line('    void* payload = (void*)(intptr_t)words[1];');
+      // Empty buffers use the envelope's own address as a non-null data
+      // sentinel — never double-free it.
+      writer.line('    if (payload && payload != ptr) { free(payload); }');
       writer.line('    free(ptr);');
       writer.line('}');
     }

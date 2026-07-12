@@ -73,7 +73,8 @@ class CppInterfaceGenerator {
     // NitroRecordReader — binary decoder for @HybridRecord parameter values.
     nodes.addAll(const [
       CodeLine('/// Lightweight read-only view over a binary payload.'),
-      CodeLine('/// For @zeroCopy returns, native code must keep data alive while Dart uses it.'),
+      CodeLine('/// For @zeroCopy returns: return a malloc\'d buffer — ownership transfers,'),
+      CodeLine('/// and the bridge frees it when Dart\'s view is GC\'d (never a member/stack ptr).'),
       CodeBlock(
         header: 'struct NitroCppBuffer {',
         body: [

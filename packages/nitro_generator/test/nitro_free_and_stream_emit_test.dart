@@ -59,6 +59,14 @@ BridgeSpec _spec() => BridgeSpec(
       returnType: BridgeType(name: 'Config', isRecord: true),
       params: [],
     ),
+    BridgeFunction(
+      dartName: 'grabBytes',
+      cSymbol: 'nitro_free_test_grab_bytes',
+      isAsync: false,
+      zeroCopyReturn: true,
+      returnType: BridgeType(name: 'Uint8List'),
+      params: [],
+    ),
   ],
   streams: [
     BridgeStream(
@@ -209,6 +217,19 @@ void main() {
       final out = DartFfiGenerator.generate(_spec());
       expect(out, contains("'nitro_free_test_nitro_alloc'"));
       expect(out, contains('NitroNativeAllocator(_nitroAllocPtr, _nitroFreePtr)'));
+    });
+  });
+
+  group('zero-copy release frees the payload (LSan-found leak regression)', () {
+    test('desktop release_typed_data_return frees payload AND envelope', () {
+      // The impl's malloc'd payload transfers to Dart at return; the release
+      // (Dart's NativeFinalizer) must free BOTH. Freeing only the envelope
+      // leaked the payload on every @zeroCopy return — LSan reported exactly
+      // 2000 iterations x 4096B on the first native_leak_check run.
+      final out = CppBridgeGenerator.generate(_spec());
+      expect(out, contains('void* payload = (void*)(intptr_t)words[1];'));
+      // Empty buffers alias the envelope address as a non-null sentinel.
+      expect(out, contains('if (payload && payload != ptr) { free(payload); }'));
     });
   });
 

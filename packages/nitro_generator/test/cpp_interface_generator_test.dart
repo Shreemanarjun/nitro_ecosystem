@@ -83,7 +83,7 @@ void main() {
       );
       final out = CppInterfaceGenerator.generate(spec);
       expect(out, contains('virtual NitroCppBuffer snapshot() = 0;'));
-      expect(out, contains('For @zeroCopy returns, native code must keep data alive while Dart uses it.'));
+      expect(out, contains("For @zeroCopy returns: return a malloc'd buffer — ownership transfers,"));
     });
 
     test('struct param uses const T& reference', () {
