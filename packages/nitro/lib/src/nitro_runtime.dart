@@ -269,8 +269,17 @@ class NitroRuntime {
   /// the slot for the next call, and throws a [HybridException].
   ///
   /// This is a no-op when there is no error — optimised to a single byte read.
-  static void throwIfOutParamError(Pointer<NitroErrorFfi> errPtr) {
+  static void throwIfOutParamError(
+    Pointer<NitroErrorFfi> errPtr, {
+    void Function(Pointer<NativeType>)? nativeFree,
+  }) {
     if (errPtr.ref.hasError == 0) return;
+    // The string fields were strdup'd by the C bridge, so they must be freed
+    // by a C-runtime free — the module's `<lib>_nitro_free` export, passed as
+    // [nativeFree] by generated code. package:ffi's malloc.free is
+    // CoTaskMemFree on Windows and corrupts the heap on these pointers; it
+    // remains only as a fallback for pre-nitro_free callers on POSIX.
+    final free = nativeFree ?? malloc.free;
     // Copy C-owned strings into Dart before freeing native memory.
     final name = errPtr.ref.name != nullptr ? errPtr.ref.name.toDartString() : 'NativeException';
     final message = errPtr.ref.message != nullptr ? errPtr.ref.message.toDartString() : 'An unknown native exception occurred.';
@@ -278,19 +287,19 @@ class NitroRuntime {
     final stack = errPtr.ref.stackTrace != nullptr ? errPtr.ref.stackTrace.toDartString() : null;
     // Free native-heap strings (strdup'd by the C bridge) and reset the slot.
     if (errPtr.ref.name != nullptr) {
-      malloc.free(errPtr.ref.name);
+      free(errPtr.ref.name);
       errPtr.ref.name = nullptr;
     }
     if (errPtr.ref.message != nullptr) {
-      malloc.free(errPtr.ref.message);
+      free(errPtr.ref.message);
       errPtr.ref.message = nullptr;
     }
     if (errPtr.ref.code != nullptr) {
-      malloc.free(errPtr.ref.code);
+      free(errPtr.ref.code);
       errPtr.ref.code = nullptr;
     }
     if (errPtr.ref.stackTrace != nullptr) {
-      malloc.free(errPtr.ref.stackTrace);
+      free(errPtr.ref.stackTrace);
       errPtr.ref.stackTrace = nullptr;
     }
     errPtr.ref.hasError = 0;
@@ -311,7 +320,15 @@ class NitroRuntime {
   /// If [errPtr.ref.hasError] is non-zero, reads the C-owned string fields,
   /// frees them, frees [errPtr] itself, and throws a [HybridException]. If
   /// there is no error, frees [errPtr] and returns normally.
-  static void throwIfOutParamErrorAndFree(Pointer<NitroErrorFfi> errPtr) {
+  static void throwIfOutParamErrorAndFree(
+    Pointer<NitroErrorFfi> errPtr, {
+    void Function(Pointer<NativeType>)? nativeFree,
+  }) {
+    // Same allocator rule as [throwIfOutParamError]: the string fields are
+    // native strdup'd, so they need the module's `<lib>_nitro_free` (passed
+    // by generated code); the struct itself is Dart calloc'd, so calloc.free
+    // stays correct for it on every platform.
+    final free = nativeFree ?? malloc.free;
     if (errPtr.ref.hasError == 0) {
       calloc.free(errPtr);
       return;
@@ -320,10 +337,10 @@ class NitroRuntime {
     final message = errPtr.ref.message != nullptr ? errPtr.ref.message.toDartString() : 'An unknown native exception occurred.';
     final code = errPtr.ref.code != nullptr ? errPtr.ref.code.toDartString() : null;
     final stack = errPtr.ref.stackTrace != nullptr ? errPtr.ref.stackTrace.toDartString() : null;
-    if (errPtr.ref.name != nullptr) malloc.free(errPtr.ref.name);
-    if (errPtr.ref.message != nullptr) malloc.free(errPtr.ref.message);
-    if (errPtr.ref.code != nullptr) malloc.free(errPtr.ref.code);
-    if (errPtr.ref.stackTrace != nullptr) malloc.free(errPtr.ref.stackTrace);
+    if (errPtr.ref.name != nullptr) free(errPtr.ref.name);
+    if (errPtr.ref.message != nullptr) free(errPtr.ref.message);
+    if (errPtr.ref.code != nullptr) free(errPtr.ref.code);
+    if (errPtr.ref.stackTrace != nullptr) free(errPtr.ref.stackTrace);
     calloc.free(errPtr);
     throw HybridException(
       name: name,

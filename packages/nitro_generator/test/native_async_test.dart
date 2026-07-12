@@ -2513,7 +2513,7 @@ void main() {
 
     test('unpack checks and frees the error slot before decoding the posted value', () {
       final out = DartFfiGenerator.generate(_nativeAsyncIntSpec());
-      expect(out, contains('unpack: (raw) { NitroRuntime.throwIfOutParamErrorAndFree(_nitroErr); return'));
+      expect(out, contains('unpack: (raw) { NitroRuntime.throwIfOutParamErrorAndFree(_nitroErr, nativeFree: _nitroFree); return'));
     });
   });
 

@@ -62,11 +62,11 @@ void main() {
     // ── freeFields() ─────────────────────────────────────────────────────────
     test('freeFields() emits null-check + freeFields + malloc.free for nested pointer', () {
       expect(out, contains('if (center != nullptr) {'));
-      expect(out, contains('center.ref.freeFields();'));
-      expect(out, contains('malloc.free(center);'));
+      expect(out, contains('center.ref.freeFields(nativeFree);'));
+      expect(out, contains('nativeFree(center);'));
       expect(out, contains('if (rotation != nullptr) {'));
-      expect(out, contains('rotation.ref.freeFields();'));
-      expect(out, contains('malloc.free(rotation);'));
+      expect(out, contains('rotation.ref.freeFields(nativeFree);'));
+      expect(out, contains('nativeFree(rotation);'));
     });
 
     test('freeFields() on leaf struct (no pointer fields) is empty', () {
@@ -74,10 +74,13 @@ void main() {
       final v3Start = out.indexOf('extension Vector3FfiExt on Vector3Ffi {');
       final v3End = out.indexOf('extension Vector3FfiExt', v3Start + 1);
       final v3Block = out.substring(v3Start, v3End == -1 ? null : v3End);
-      // The freeFields method should contain no malloc.free calls
-      final freeStart = v3Block.indexOf('void freeFields()');
+      // The freeFields method should contain no free calls
+      final freeStart = v3Block.indexOf(
+        'void freeFields(void Function(Pointer<NativeType>) nativeFree) {',
+      );
       final freeEnd = v3Block.indexOf('}', freeStart + 1);
       final freeBody = v3Block.substring(freeStart, freeEnd + 1);
+      expect(freeBody, isNot(contains('nativeFree(')));
       expect(freeBody, isNot(contains('malloc.free')));
     });
   });
@@ -328,10 +331,10 @@ void main() {
     test('freeFields(): string freed but nested struct pointer also freed', () {
       final out = StructGenerator.generateDartExtensions(mixedSpec());
       expect(out, contains('if (label != nullptr) {'));
-      expect(out, contains('malloc.free(label);'));
+      expect(out, contains('nativeFree(label);'));
       expect(out, contains('if (origin != nullptr) {'));
-      expect(out, contains('origin.ref.freeFields();'));
-      expect(out, contains('malloc.free(origin);'));
+      expect(out, contains('origin.ref.freeFields(nativeFree);'));
+      expect(out, contains('nativeFree(origin);'));
     });
 
     test('Kotlin: struct field maps to type name alongside other Kotlin types', () {

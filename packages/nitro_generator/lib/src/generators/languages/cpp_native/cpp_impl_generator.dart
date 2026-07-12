@@ -46,11 +46,16 @@ class CppImplGenerator {
     w.writeln('//   4. Call ${libStem}_register_impl(nullptr) in teardown.');
     w.writeln('//');
     w.writeln('// Ownership conventions:');
-    w.writeln('//   • Record/variant/tuple RETURNS: return writer.toNativeBuffer() (or');
-    w.writeln('//     nitro_<Variant>_to_native) — a malloc\'d [4B len][payload] block that');
-    w.writeln('//     Dart frees after decoding. Returning a view of a local buffer dangles.');
-    w.writeln('//   • Record/variant PARAMS and emit_* stream items are non-owning payload');
-    w.writeln('//     views (no length prefix) — copy if you need them after the call.');
+    w.writeln('//   • Record/variant/tuple RETURNS **and emit_* stream items**: pass');
+    w.writeln('//     writer.toNativeBuffer() (or nitro_<Variant>_to_native) — a malloc\'d');
+    w.writeln('//     [4B len][payload] block whose ownership transfers to the bridge/Dart.');
+    w.writeln('//     Returning or emitting a non-owning writer.toBuffer() view is wrong:');
+    w.writeln('//     Dart would decode-and-free a live local buffer.');
+    w.writeln('//   • Record/variant PARAMS are non-owning payload views (no length prefix)');
+    w.writeln('//     — copy if you need them after the call.');
+    w.writeln('//   • TypedData RETURNS use NitroCppBuffer{ data, size } where size is in');
+    w.writeln('//     BYTES, not elements (Float32List: count * sizeof(float)). A wrong');
+    w.writeln('//     unit silently truncates the list Dart sees (bytes / elemSize).');
     w.writeln('//   • @zeroCopy TypedData returns are NOT copied by the bridge: the pointed-to');
     w.writeln('//     bytes must stay alive until Dart is done (e.g. store them in a member).');
     w.writeln('');
@@ -146,6 +151,9 @@ class CppImplGenerator {
       w.writeln('    // ── Streams ──────────────────────────────────────────────────────────────');
       w.writeln('    // Call emit_<name>(item) from any thread to push items to Dart.');
       w.writeln('    // emit_* helpers are defined in the generated bridge.');
+      w.writeln('    // Record/variant items: pass record.toNativeBuffer() — ownership of the');
+      w.writeln('    // heap [4B len][payload] block transfers to the bridge (same convention');
+      w.writeln('    // as record returns). Never emit a non-owning writer.toBuffer() view.');
       w.writeln('    // Example — start emitting from a background thread:');
       w.writeln('    //');
       for (final stream in spec.streams) {

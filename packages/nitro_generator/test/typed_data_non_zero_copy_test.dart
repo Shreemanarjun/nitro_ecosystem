@@ -187,7 +187,7 @@ void main() {
 
     test('freeFields() frees the data pointer for non-ZC typed data', () {
       expect(dartExt, contains('if (data != nullptr) {'));
-      expect(dartExt, contains('malloc.free(data);'));
+      expect(dartExt, contains('nativeFree(data);'));
     });
   });
 

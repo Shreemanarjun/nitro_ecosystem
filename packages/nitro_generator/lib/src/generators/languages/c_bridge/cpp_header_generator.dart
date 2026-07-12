@@ -93,6 +93,11 @@ class CppHeaderGenerator {
       // destroy_instance is called from dispose() to release the native impl.
       CodeLine('NITRO_EXPORT int64_t ${libStem}_create_instance(const char* key);'),
       CodeLine('NITRO_EXPORT void ${libStem}_destroy_instance(int64_t instanceId);'),
+      // Universal free for NATIVE-owned memory whose ownership transferred to
+      // Dart (strings, record/variant blobs, struct copies, posted results).
+      // Dart must NOT use package:ffi's malloc.free on these — that binds to
+      // CoTaskMemFree on Windows, which corrupts the heap on malloc'd pointers.
+      CodeLine('NITRO_EXPORT void ${libStem}_nitro_free(void* ptr);'),
       if (spec.functions.any((f) => f.zeroCopyReturn && f.returnType.isTypedData)) CodeLine('NITRO_EXPORT void ${libStem}_release_typed_data_return(void* ptr);'),
       // @NitroOwned: emit a _release symbol for each owned NativeHandle function.
       // The user implements these to free the native heap allocation.

@@ -96,7 +96,21 @@ extension NitroStringExtension on String {
 }
 
 extension NitroPointerExtension on Pointer<Utf8> {
-  String toDartStringWithFree() {
+  /// Decodes a native NUL-terminated UTF-8 string and frees it with
+  /// package:ffi's [malloc].
+  ///
+  /// WARNING: only safe when the pointer was allocated with package:ffi's
+  /// allocators. On Windows those are CoTaskMemAlloc/CoTaskMemFree — freeing
+  /// a C-runtime `malloc`/`strdup` pointer with them corrupts the heap.
+  /// Generated bridges free native-owned strings via [toDartStringFreedBy]
+  /// with the module's exported `<lib>_nitro_free` instead.
+  String toDartStringWithFree() => toDartStringFreedBy(malloc.free);
+
+  /// Decodes a native NUL-terminated UTF-8 string, then releases it via
+  /// [nativeFree] — the free function matching whatever allocator produced
+  /// the pointer (for native-owned strings, the module's `<lib>_nitro_free`
+  /// export, which is a plain C-runtime `free`).
+  String toDartStringFreedBy(void Function(Pointer<Utf8>) nativeFree) {
     if (address == 0) return '';
     // dart:convert's utf8.decode strips a leading U+FEFF (BOM) per the Unicode
     // standard. Strings crossing the FFI bridge are raw data — not text streams
@@ -107,7 +121,7 @@ extension NitroPointerExtension on Pointer<Utf8> {
       len++;
     }
     final str = _decodeUtf8NoBomStrip(cast<Uint8>().asTypedList(len));
-    malloc.free(this);
+    nativeFree(this);
     return str;
   }
 }

@@ -138,7 +138,7 @@ void main() {
       expect(out, contains('final byteLength = rawPtr.cast<Int64>().value;'));
       expect(out, contains('final payloadPtr = Pointer<Uint8>.fromAddress(rawPtr.address + 8);'));
       expect(out, contains('return Uint8List.fromList(payloadPtr.asTypedList(byteLength));'));
-      expect(out, contains('malloc.free(rawPtr);'));
+      expect(out, contains('_nitroFree(rawPtr);'));
       expect(out, isNot(contains('return res;')));
     });
 
@@ -148,7 +148,7 @@ void main() {
       expect(out, contains('NitroRuntime.callAsync<Pointer<Uint8>>'));
       expect(out, contains('final payloadPtr = Pointer<Float>.fromAddress(rawPtr.address + 8);'));
       expect(out, contains('return Float32List.fromList(payloadPtr.asTypedList(byteLength ~/ 4));'));
-      expect(out, contains('malloc.free(rawPtr);'));
+      expect(out, contains('_nitroFree(rawPtr);'));
     });
 
     test('async Uint8List does not return void', () {

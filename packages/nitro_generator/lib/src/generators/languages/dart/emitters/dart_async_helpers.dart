@@ -14,7 +14,7 @@ void _emitNativeAsyncBody(
   // concurrently on the same instance), so each call gets its own struct.
   // Checked (and freed) inside the wrapped unpack closure, before the raw
   // posted value is ever decoded — see NitroRuntime.throwIfOutParamErrorAndFree.
-  final wrappedUnpack = '(raw) { NitroRuntime.throwIfOutParamErrorAndFree(_nitroErr); return ($unpack)(raw); }';
+  final wrappedUnpack = '(raw) { NitroRuntime.throwIfOutParamErrorAndFree(_nitroErr, nativeFree: _nitroFree); return ($unpack)(raw); }';
 
   if (needsArena) {
     writer.line('    final arena = Arena();');
@@ -93,7 +93,7 @@ String _nativeAsyncUnpack(BridgeFunction func, BridgeSpec spec) {
   // bool / bool?  — non-null: posts kBool; nullable: posts kInt64 (pointer address to NitroOptBool)
   if (rtBase == 'bool') {
     if (isNullable) {
-      return '(raw) { final ptr = Pointer<NitroOptBool>.fromAddress(raw as int); final v = ptr.decoded; malloc.free(ptr); return v; }';
+      return '(raw) { final ptr = Pointer<NitroOptBool>.fromAddress(raw as int); final v = ptr.decoded; _nitroFree(ptr); return v; }';
     }
     return '(raw) => raw as bool';
   }
@@ -113,7 +113,7 @@ String _nativeAsyncUnpack(BridgeFunction func, BridgeSpec spec) {
   // the sync/@nitroAsync path, where AnyMap has always decoded correctly).
   if (func.returnType.isAnyMap) {
     final decodeExpr = _decodeRecordExpr(func.returnType, 'rawPtr');
-    return '(raw) { final rawPtr = Pointer<Uint8>.fromAddress(raw as int); try { return $decodeExpr; } finally { malloc.free(rawPtr); } }';
+    return '(raw) { final rawPtr = Pointer<Uint8>.fromAddress(raw as int); try { return $decodeExpr; } finally { _nitroFree(rawPtr); } }';
   }
 
   // @HybridRecord  — native posts kInt64 (pointer to binary buffer)
@@ -124,12 +124,12 @@ String _nativeAsyncUnpack(BridgeFunction func, BridgeSpec spec) {
       if (isLazy) {
         return '(raw) { final rawPtr = Pointer<Uint8>.fromAddress(raw as int); if (rawPtr == nullptr) return null; return $decodeExpr; }';
       }
-      return '(raw) { final rawPtr = Pointer<Uint8>.fromAddress(raw as int); if (rawPtr == nullptr) return null; try { return $decodeExpr; } finally { malloc.free(rawPtr); } }';
+      return '(raw) { final rawPtr = Pointer<Uint8>.fromAddress(raw as int); if (rawPtr == nullptr) return null; try { return $decodeExpr; } finally { _nitroFree(rawPtr); } }';
     }
     if (isLazy) {
       return '(raw) { final rawPtr = Pointer<Uint8>.fromAddress(raw as int); return $decodeExpr; }';
     }
-    return '(raw) { final rawPtr = Pointer<Uint8>.fromAddress(raw as int); try { return $decodeExpr; } finally { malloc.free(rawPtr); } }';
+    return '(raw) { final rawPtr = Pointer<Uint8>.fromAddress(raw as int); try { return $decodeExpr; } finally { _nitroFree(rawPtr); } }';
   }
 
   // Bare @NitroVariant  — native posts kInt64 (pointer to [4B len][1B tag][fields]).
@@ -138,15 +138,15 @@ String _nativeAsyncUnpack(BridgeFunction func, BridgeSpec spec) {
   // generic `raw as $rt` cast below, which throws (raw is the pointer address,
   // not a TcEvent instance).
   if (spec.isVariantName(rtBase)) {
-    return '(raw) { final rawPtr = Pointer<Uint8>.fromAddress(raw as int); try { return ${rtBase}VariantExt.fromNative(rawPtr); } finally { malloc.free(rawPtr); } }';
+    return '(raw) { final rawPtr = Pointer<Uint8>.fromAddress(raw as int); try { return ${rtBase}VariantExt.fromNative(rawPtr); } finally { _nitroFree(rawPtr); } }';
   }
 
   // @HybridStruct  — native posts kInt64 (pointer to heap struct)
   if (spec.isStructName(rtBase)) {
     if (isNullable) {
-      return '(raw) { final ptr = Pointer<${rtBase}Ffi>.fromAddress(raw as int); if (ptr == nullptr) return null; try { return ptr.ref.toDart(); } finally { ptr.ref.freeFields(); malloc.free(ptr); } }';
+      return '(raw) { final ptr = Pointer<${rtBase}Ffi>.fromAddress(raw as int); if (ptr == nullptr) return null; try { return ptr.ref.toDart(); } finally { ptr.ref.freeFields(_nitroFree); _nitroFree(ptr); } }';
     }
-    return '(raw) { final ptr = Pointer<${rtBase}Ffi>.fromAddress(raw as int); try { return ptr.ref.toDart(); } finally { ptr.ref.freeFields(); malloc.free(ptr); } }';
+    return '(raw) { final ptr = Pointer<${rtBase}Ffi>.fromAddress(raw as int); try { return ptr.ref.toDart(); } finally { ptr.ref.freeFields(_nitroFree); _nitroFree(ptr); } }';
   }
 
   // @HybridEnum  — native posts kInt64 rawValue
@@ -157,7 +157,7 @@ String _nativeAsyncUnpack(BridgeFunction func, BridgeSpec spec) {
   // int / int?  — non-null: posts kInt64 scalar; nullable: posts kInt64 (pointer address to NitroOptInt64)
   if (rtBase == 'int') {
     if (isNullable) {
-      return '(raw) { final ptr = Pointer<NitroOptInt64>.fromAddress(raw as int); final v = ptr.decoded; malloc.free(ptr); return v; }';
+      return '(raw) { final ptr = Pointer<NitroOptInt64>.fromAddress(raw as int); final v = ptr.decoded; _nitroFree(ptr); return v; }';
     }
     return '(raw) => raw as int';
   }
@@ -169,7 +169,7 @@ String _nativeAsyncUnpack(BridgeFunction func, BridgeSpec spec) {
   // silently returned the raw pointer address instead of decoding it.
   if (rtBase == 'uint64') {
     if (isNullable) {
-      return '(raw) { final ptr = Pointer<NitroOptInt64>.fromAddress(raw as int); final v = ptr.decoded; malloc.free(ptr); return v; }';
+      return '(raw) { final ptr = Pointer<NitroOptInt64>.fromAddress(raw as int); final v = ptr.decoded; _nitroFree(ptr); return v; }';
     }
     return '(raw) => raw as int';
   }
@@ -177,7 +177,7 @@ String _nativeAsyncUnpack(BridgeFunction func, BridgeSpec spec) {
   // double / double?  — non-null: posts kDouble; nullable: posts kInt64 (pointer address to NitroOptFloat64)
   if (rtBase == 'double') {
     if (isNullable) {
-      return '(raw) { final ptr = Pointer<NitroOptFloat64>.fromAddress(raw as int); final v = ptr.decoded; malloc.free(ptr); return v; }';
+      return '(raw) { final ptr = Pointer<NitroOptFloat64>.fromAddress(raw as int); final v = ptr.decoded; _nitroFree(ptr); return v; }';
     }
     return '(raw) => raw as double';
   }
@@ -185,7 +185,7 @@ String _nativeAsyncUnpack(BridgeFunction func, BridgeSpec spec) {
   // DateTime / DateTime?  — non-null: posts kInt64 ms; nullable: posts kInt64 (pointer address to NitroOptInt64)
   if (rtBase == 'DateTime') {
     if (isNullable) {
-      return '(raw) { final ptr = Pointer<NitroOptInt64>.fromAddress(raw as int); final ms = ptr.decoded; malloc.free(ptr); return ms != null ? DateTime.fromMillisecondsSinceEpoch(ms) : null; }';
+      return '(raw) { final ptr = Pointer<NitroOptInt64>.fromAddress(raw as int); final ms = ptr.decoded; _nitroFree(ptr); return ms != null ? DateTime.fromMillisecondsSinceEpoch(ms) : null; }';
     }
     return '(raw) => DateTime.fromMillisecondsSinceEpoch(raw as int)';
   }
@@ -199,9 +199,9 @@ String _nativeAsyncUnpack(BridgeFunction func, BridgeSpec spec) {
   if (spec.isCustomTypeName(rtBase)) {
     final ct = spec.customTypeByName(rtBase)!;
     if (isNullable) {
-      return '(raw) { final rawPtr = Pointer<Uint8>.fromAddress(raw as int); if (rawPtr == nullptr) return null; try { return const ${ct.codecClass}().decode(rawPtr); } finally { malloc.free(rawPtr); } }';
+      return '(raw) { final rawPtr = Pointer<Uint8>.fromAddress(raw as int); if (rawPtr == nullptr) return null; try { return const ${ct.codecClass}().decode(rawPtr); } finally { _nitroFree(rawPtr); } }';
     }
-    return '(raw) { final rawPtr = Pointer<Uint8>.fromAddress(raw as int); try { return const ${ct.codecClass}().decode(rawPtr)!; } finally { malloc.free(rawPtr); } }';
+    return '(raw) { final rawPtr = Pointer<Uint8>.fromAddress(raw as int); try { return const ${ct.codecClass}().decode(rawPtr)!; } finally { _nitroFree(rawPtr); } }';
   }
 
   // Fallthrough: unknown type — cast directly (should not normally occur).
@@ -212,7 +212,7 @@ String _nativeAsyncUnpack(BridgeFunction func, BridgeSpec spec) {
 // This replaces the old assert-gated get_error()/clear_error() pattern.
 // Errors are now detected in BOTH debug AND release builds.
 String _inlineCheckError() {
-  return 'NitroRuntime.throwIfOutParamError(_nitroErr);';
+  return 'NitroRuntime.throwIfOutParamError(_nitroErr, nativeFree: _nitroFree);';
 }
 
 // ── Unified return decode helper ──────────────────────────────────────────
@@ -256,7 +256,7 @@ void _emitReturnDecode(
         writer.line('${indent}try {');
         writer.line('$indent  decoded = $decodeExpr;');
         writer.line('$indent} finally {');
-        writer.line('$indent  malloc.free($resVar);');
+        writer.line('$indent  _nitroFree($resVar);');
         writer.line('$indent}');
         writer.line('${indent}return decoded;');
       }
@@ -277,8 +277,8 @@ void _emitReturnDecode(
       writer.line('${indent}try {');
       writer.line('$indent  decoded = structPtr.ref.toDart();');
       writer.line('$indent} finally {');
-      writer.line('$indent  structPtr.ref.freeFields();');
-      writer.line('$indent  malloc.free(structPtr);');
+      writer.line('$indent  structPtr.ref.freeFields(_nitroFree);');
+      writer.line('$indent  _nitroFree(structPtr);');
       writer.line('$indent}');
       writer.line('${indent}return decoded;');
     case ReturnKind.nativeHandle:
@@ -308,17 +308,17 @@ void _emitReturnDecode(
       }
     case ReturnKind.boolNullable:
       // res is Pointer<NitroOptBool> (malloc'd) — decode then free.
-      writer.line('${indent}final _boolResult = $resVar.decoded; malloc.free($resVar); return _boolResult;');
+      writer.line('${indent}final _boolResult = $resVar.decoded; _nitroFree($resVar); return _boolResult;');
     case ReturnKind.stringNonNull:
-      writer.line('${indent}return $resVar.toDartStringWithFree();');
+      writer.line('${indent}return $resVar.toDartStringFreedBy(_nitroFree);');
     case ReturnKind.stringNullable:
-      writer.line('${indent}return $resVar == nullptr ? null : $resVar.toDartStringWithFree();');
+      writer.line('${indent}return $resVar == nullptr ? null : $resVar.toDartStringFreedBy(_nitroFree);');
     case ReturnKind.intNullable:
       // res is Pointer<NitroOptInt64> (malloc'd) — decode then free.
-      writer.line('${indent}final _intResult = $resVar.decoded; malloc.free($resVar); return _intResult;');
+      writer.line('${indent}final _intResult = $resVar.decoded; _nitroFree($resVar); return _intResult;');
     case ReturnKind.doubleNullable:
       // res is Pointer<NitroOptFloat64> (malloc'd) — decode then free.
-      writer.line('${indent}final _dblResult = $resVar.decoded; malloc.free($resVar); return _dblResult;');
+      writer.line('${indent}final _dblResult = $resVar.decoded; _nitroFree($resVar); return _dblResult;');
     case ReturnKind.variant:
       // @NitroVariant: C returns Pointer<Uint8> = [4B len][1B tag][fields].
       // Dart VariantExt.fromNative reads [4B len] then [tag][fields].
@@ -328,13 +328,13 @@ void _emitReturnDecode(
       writer.line('${indent}try {');
       writer.line('$indent  _variant = ${vBase}VariantExt.fromNative($resVar);');
       writer.line('$indent} finally {');
-      writer.line('$indent  malloc.free($resVar);');
+      writer.line('$indent  _nitroFree($resVar);');
       writer.line('$indent}');
       writer.line('${indent}return _variant;');
     case ReturnKind.dateTime:
       writer.line('${indent}return DateTime.fromMillisecondsSinceEpoch($resVar);');
     case ReturnKind.dateTimeNullable:
-      writer.line('${indent}final _msResult = $resVar.decoded; malloc.free($resVar); return _msResult != null ? DateTime.fromMillisecondsSinceEpoch(_msResult) : null;');
+      writer.line('${indent}final _msResult = $resVar.decoded; _nitroFree($resVar); return _msResult != null ? DateTime.fromMillisecondsSinceEpoch(_msResult) : null;');
     case ReturnKind.anyNativeObject:
       writer.line('${indent}return AnyNativeObject($resVar);');
     case ReturnKind.anyNativeObjectNullable:
@@ -347,7 +347,7 @@ void _emitReturnDecode(
       writer.line('${indent}try {');
       writer.line('$indent  _ctResult = const ${ct.codecClass}().decode($resVar)!;');
       writer.line('$indent} finally {');
-      writer.line('$indent  malloc.free($resVar);');
+      writer.line('$indent  _nitroFree($resVar);');
       writer.line('$indent}');
       writer.line('${indent}return _ctResult;');
     case ReturnKind.customTypeNullable:
@@ -358,7 +358,7 @@ void _emitReturnDecode(
       writer.line('${indent}try {');
       writer.line('$indent  _ctNResult = const ${ctN.codecClass}().decode($resVar);');
       writer.line('$indent} finally {');
-      writer.line('$indent  malloc.free($resVar);');
+      writer.line('$indent  _nitroFree($resVar);');
       writer.line('$indent}');
       writer.line('${indent}return _ctNResult;');
     case ReturnKind.uint64:
@@ -366,7 +366,7 @@ void _emitReturnDecode(
       writer.line('${indent}return $resVar;');
     case ReturnKind.uint64Nullable:
       // uint64? reuses NitroOptInt64 struct (same 9-byte layout); int? result = raw bits.
-      writer.line('${indent}final _u64Result = $resVar.decoded; malloc.free($resVar); return _u64Result;');
+      writer.line('${indent}final _u64Result = $resVar.decoded; _nitroFree($resVar); return _u64Result;');
     case ReturnKind.primitive:
       writer.line('${indent}return $resVar;');
   }

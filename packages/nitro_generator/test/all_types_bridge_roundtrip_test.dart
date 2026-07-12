@@ -217,7 +217,7 @@ void main() {
         'int? return — Dart: int?; Kotlin: ByteArray (NitroOpt*); Swift: raw UInt8 pointer',
         src,
         dart: BridgeChecks(
-          has: ['int? getCount()', 'Pointer<NitroOptInt64> Function(Int64, Pointer<NitroErrorFfi>)', 'malloc.free'],
+          has: ['int? getCount()', 'Pointer<NitroOptInt64> Function(Int64, Pointer<NitroErrorFfi>)', '_nitroFree('],
           hasNot: ['int getCount()', 'NitroOptInt64 Function(Int64'],
         ),
         kotlin: BridgeChecks(
@@ -236,7 +236,7 @@ void main() {
         'double? return — Dart: double?; Kotlin: ByteArray (NitroOpt*); Swift: byte-safe copyMemory encode',
         src,
         dart: BridgeChecks(
-          has: ['double? getRatio()', 'Pointer<NitroOptFloat64> Function(Int64, Pointer<NitroErrorFfi>)', 'malloc.free'],
+          has: ['double? getRatio()', 'Pointer<NitroOptFloat64> Function(Int64, Pointer<NitroErrorFfi>)', '_nitroFree('],
           hasNot: ['double getRatio()', 'NitroOptFloat64 Function(Int64'],
         ),
         kotlin: BridgeChecks(
@@ -255,7 +255,7 @@ void main() {
         'bool? return — Dart: bool?; Kotlin: ByteArray (NitroOpt*); Swift: byte-safe encode',
         src,
         dart: BridgeChecks(
-          has: ['bool? isReady()', 'Pointer<NitroOptBool> Function(Int64, Pointer<NitroErrorFfi>)', 'malloc.free'],
+          has: ['bool? isReady()', 'Pointer<NitroOptBool> Function(Int64, Pointer<NitroErrorFfi>)', '_nitroFree('],
           hasNot: ['bool isReady()', 'NitroOptBool Function(Int64'],
         ),
         kotlin: BridgeChecks(

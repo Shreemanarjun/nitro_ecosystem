@@ -21,7 +21,7 @@ void _emitStreamImpls(CodeWriter writer, BridgeSpec spec) {
     if (isRecord) {
       final decodeExpr = _decodeRecordExpr(stream.itemType, 'rawPtr');
       final nullAction = stream.itemType.isNullable ? 'return null' : "throw StateError('Received null event on non-nullable stream ${stream.dartName}')";
-      unpackExpr = '(message) { if (message == null) { $nullAction; } final rawPtr = Pointer<Uint8>.fromAddress(message as int); try { return $decodeExpr; } finally { malloc.free(rawPtr); } }';
+      unpackExpr = '(message) { if (message == null) { $nullAction; } final rawPtr = Pointer<Uint8>.fromAddress(message as int); try { return $decodeExpr; } finally { _nitroFree(rawPtr); } }';
       streamItemType = baseItemType; // nullable suffix added by isNullable check at stream signature
     } else if (isStruct || isStructBase) {
       // Zero-copy path: ${baseItemType}Proxy extends ${baseItemType} and overrides every
@@ -39,7 +39,7 @@ void _emitStreamImpls(CodeWriter writer, BridgeSpec spec) {
           '(message) { if (message == null) { $nullAction; } '
           'final rawPtr = Pointer<Uint8>.fromAddress(message as int); '
           'try { return ${baseItemType}VariantExt.fromNative(rawPtr); } '
-          'finally { malloc.free(rawPtr); } }';
+          'finally { _nitroFree(rawPtr); } }';
       streamItemType = baseItemType;
     } else if (stream.itemType.isAnyNativeObject) {
       // AnyNativeObject stream: native posts kInt64 instance ID.

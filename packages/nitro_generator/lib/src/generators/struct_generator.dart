@@ -81,23 +81,28 @@ class StructGenerator {
       s.writeln();
       s.writeln('  /// Frees internal fields (like strings) that were allocated on the C heap.');
       s.writeln('  /// Does NOT free the struct itself.');
-      s.writeln('  void freeFields() {');
+      s.writeln('  ///');
+      s.writeln('  /// [nativeFree] must be the free function matching the allocator that');
+      s.writeln('  /// produced the fields — for native-returned structs, the module\'s');
+      s.writeln('  /// `_nitroFree` (the exported C-runtime free). package:ffi\'s malloc.free');
+      s.writeln('  /// is CoTaskMemFree on Windows and corrupts the heap on these pointers.');
+      s.writeln('  void freeFields(void Function(Pointer<NativeType>) nativeFree) {');
       for (final f in st.fields) {
         final typeName = f.type.name.replaceFirst('?', '');
         if (f.type.name == 'String') {
           s.writeln('    if (${f.name} != nullptr) {');
-          s.writeln('      malloc.free(${f.name});');
+          s.writeln('      nativeFree(${f.name});');
           s.writeln('    }');
         } else if (structNames.contains(typeName)) {
           // Nested struct pointer: free its own fields, then the pointer.
           s.writeln('    if (${f.name} != nullptr) {');
-          s.writeln('      ${f.name}.ref.freeFields();');
-          s.writeln('      malloc.free(${f.name});');
+          s.writeln('      ${f.name}.ref.freeFields(nativeFree);');
+          s.writeln('      nativeFree(${f.name});');
           s.writeln('    }');
         } else if (f.type.isTypedData && !f.zeroCopy) {
           // Non-zero-copy typed data is malloc'd by the native side; free it.
           s.writeln('    if (${f.name} != nullptr) {');
-          s.writeln('      malloc.free(${f.name});');
+          s.writeln('      nativeFree(${f.name});');
           s.writeln('    }');
         }
       }
@@ -188,6 +193,7 @@ class StructGenerator {
       s.writeln('  final Pointer<${st.name}Ffi> _native;');
       s.writeln();
       s.writeln('  static NativeFinalizer? _finalizer;');
+      s.writeln('  static void Function(Pointer<Void>)? _releaseFn;');
       s.writeln();
       s.writeln('  /// Binds the generated release symbol from [dylib].');
       s.writeln('  /// Must be called once — typically in the impl class constructor.');
@@ -196,6 +202,7 @@ class StructGenerator {
       s.writeln('    _finalizer ??= NativeFinalizer(');
       s.writeln("      dylib.lookup<NativeFunction<Void Function(Pointer<Void>)>>('$releaseSym'),");
       s.writeln('    );');
+      s.writeln("    _releaseFn ??= dylib.lookupFunction<Void Function(Pointer<Void>), void Function(Pointer<Void>)>('$releaseSym');");
       s.writeln('  }');
       s.writeln();
       s.writeln('  /// Takes ownership of [native]. Super fields are zeroed and never read;');
@@ -240,7 +247,12 @@ class StructGenerator {
       s.writeln('  ${st.name} toDartAndRelease() {');
       s.writeln('    final v = _native.ref.toDart();');
       s.writeln('    _finalizer?.detach(this);');
-      s.writeln('    malloc.free(_native);');
+      // Release through the same generated C symbol the finalizer uses — it
+      // frees the shell AND its native-owned fields with the native
+      // allocator. malloc.free here was wrong twice: package:ffi's free is
+      // CoTaskMemFree on Windows (heap corruption on a native malloc'd
+      // pointer), and it leaked the fields the release symbol frees.
+      s.writeln('    _releaseFn!(_native.cast());');
       s.writeln('    return v;');
       s.writeln('  }');
       s.writeln('}');

@@ -603,7 +603,7 @@ void main() {
       );
       expect(out, contains('NativeCallable<Void Function(Pointer<Uint8>)>'));
       expect(out, contains('AnalyticsEvent.fromNative(arg0)'));
-      expect(out, contains('malloc.free(arg0)'));
+      expect(out, contains('_nitroFree(arg0)'));
     });
   });
 

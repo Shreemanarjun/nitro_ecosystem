@@ -384,6 +384,9 @@ class CppBridgeGenerator {
     writer.line('NITRO_EXPORT int64_t ${libStem}_create_instance(const char* key) { (void)key; return g_next_instance_id++; }');
     // destroy_instance: no-op on Apple/C++ path (NativeImpl.cpp manages its own lifetime).
     writer.line('NITRO_EXPORT void ${libStem}_destroy_instance(int64_t instanceId) { (void)instanceId; }');
+    // Universal free for native-owned memory handed to Dart. Dart must not use
+    // package:ffi's malloc.free on these pointers (CoTaskMemFree on Windows).
+    writer.line('NITRO_EXPORT void ${libStem}_nitro_free(void* ptr) { if (ptr) { free(ptr); } }');
     if (spec.functions.any((f) => f.zeroCopyReturn && f.returnType.isTypedData)) {
       writer.line('NITRO_EXPORT void ${libStem}_release_typed_data_return(void* ptr) {');
       writer.line('    if (!ptr) { return; }');
@@ -1208,7 +1211,13 @@ class CppBridgeGenerator {
 
       writer.line('void Hybrid$className::emit_${stream.dartName}($itemCpp item) {');
       writer.line('    int64_t port = g_port_${stream.dartName};');
-      writer.line('    if (port == 0) { return; }');
+      if (isRecord) {
+        // Record/variant items own a heap [4B len][payload] block — if the
+        // stream is closed, the caller's buffer must still be released.
+        writer.line('    if (port == 0) { if (item.data) { free((void*)item.data); } return; }');
+      } else {
+        writer.line('    if (port == 0) { return; }');
+      }
 
       // Nullable items: post kNull for std::nullopt, else unwrap and fall through.
       // (Nullable records/variants stay NitroCppBuffer — empty buffer means null.)
@@ -1267,15 +1276,22 @@ class CppBridgeGenerator {
         writer.line('    obj.type = Dart_CObject_kInt64;');
         writer.line('    obj.value.as_int64 = (intptr_t)st_ptr;');
       } else if (isRecord) {
-        // Record/variant: item is a non-owning payload view (no length prefix).
-        // Copy into a malloc'd [4B len][payload] block; Dart frees after decode.
-        writer.line('    uint8_t* _blob = (uint8_t*)malloc(4 + item.size);');
-        writer.line('    if (!_blob) { return; }');
-        writer.line('    int32_t _len = (int32_t)item.size;');
-        writer.line('    memcpy(_blob, &_len, 4);');
-        writer.line('    if (item.size > 0) { memcpy(_blob + 4, item.data, item.size); }');
+        // Record/variant: item is a SELF-DESCRIBING heap [4B len][payload]
+        // block — exactly what record.toNativeBuffer() / nitro_Xxx_to_native()
+        // return, matching the record RETURN convention. Ownership transfers
+        // to Dart here: post the address directly (Dart decodes via
+        // RecordReader.fromNative and frees via <lib>_nitro_free). Never pass
+        // a non-owning writer.toBuffer() view — Dart would free a live buffer.
+        // (Earlier versions expected a bare payload view and re-wrapped it in
+        // a second length prefix; paired with toNativeBuffer() that corrupted
+        // every decoded field AND leaked the caller's block.)
+        writer.line('    if (item.data == nullptr) {');
+        writer.line('        obj.type = Dart_CObject_kNull;');
+        writer.line('        if (!Dart_PostCObject_DL(port, &obj)) { g_port_${stream.dartName} = 0; }');
+        writer.line('        return;');
+        writer.line('    }');
         writer.line('    obj.type = Dart_CObject_kInt64;');
-        writer.line('    obj.value.as_int64 = (intptr_t)_blob;');
+        writer.line('    obj.value.as_int64 = (intptr_t)item.data;');
       } else {
         writer.line('    obj.type = Dart_CObject_kNull;');
       }
@@ -1284,7 +1300,9 @@ class CppBridgeGenerator {
       if (isStruct) {
         writer.line('        free(st_ptr);');
       } else if (isRecord) {
-        writer.line('        free(_blob);');
+        // The post failed, so ownership never transferred — release the
+        // caller's block here to keep the "emit always consumes item" contract.
+        writer.line('        free((void*)item.data);');
       }
       writer.line('        return;');
       writer.line('    }');

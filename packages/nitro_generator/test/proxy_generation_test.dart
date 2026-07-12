@@ -131,7 +131,7 @@ void main() {
     test('toDartAndRelease detaches finalizer before freeing', () {
       final out = StructGenerator.generateDartProxies(structStreamSpec());
       final detachPos = out.indexOf('_finalizer?.detach(this)');
-      final freePos = out.indexOf('malloc.free(_native)');
+      final freePos = out.indexOf('_releaseFn!(_native.cast())');
       expect(detachPos, greaterThan(0), reason: 'detach must appear');
       expect(freePos, greaterThan(0), reason: 'free must appear');
       expect(freePos, greaterThan(detachPos), reason: 'must detach before freeing to avoid finalizer double-free');
@@ -140,7 +140,7 @@ void main() {
     test('toDartAndRelease calls toDart() then frees', () {
       final out = StructGenerator.generateDartProxies(structStreamSpec());
       expect(out, contains('_native.ref.toDart()'));
-      expect(out, contains('malloc.free(_native)'));
+      expect(out, contains('_releaseFn!(_native.cast())'));
     });
 
     test('multiple structs each get a proxy class', () {

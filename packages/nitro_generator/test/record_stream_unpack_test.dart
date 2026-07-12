@@ -322,11 +322,11 @@ void main() {
       'flat record stream: malloc.free is called on rawPtr in finally block',
       () {
         final out = DartFfiGenerator.generate(_flatRecordStreamSpec());
-        expect(out, contains('malloc.free(rawPtr)'));
+        expect(out, contains('_nitroFree(rawPtr)'));
         // Verify try/finally structure — finally must come after try
         final tryIdx = out.indexOf('try {');
         final finallyIdx = out.indexOf('} finally {');
-        final freeIdx = out.indexOf('malloc.free(rawPtr)');
+        final freeIdx = out.indexOf('_nitroFree(rawPtr)');
         expect(tryIdx, lessThan(finallyIdx));
         expect(finallyIdx, lessThan(freeIdx));
       },
@@ -378,7 +378,7 @@ void main() {
       'List<double> record stream: unpack frees rawPtr in finally',
       () {
         final out = DartFfiGenerator.generate(_primitiveDoubleListStreamSpec());
-        expect(out, contains('malloc.free(rawPtr)'));
+        expect(out, contains('_nitroFree(rawPtr)'));
       },
     );
 
@@ -436,7 +436,7 @@ void main() {
       'List<int> record stream: malloc.free present for native memory cleanup',
       () {
         final out = DartFfiGenerator.generate(_primitiveIntListStreamSpec());
-        expect(out, contains('malloc.free(rawPtr)'));
+        expect(out, contains('_nitroFree(rawPtr)'));
       },
     );
 
@@ -462,7 +462,7 @@ void main() {
       'List<record> record stream: malloc.free present',
       () {
         final out = DartFfiGenerator.generate(_nestedRecordStreamSpec());
-        expect(out, contains('malloc.free(rawPtr)'));
+        expect(out, contains('_nitroFree(rawPtr)'));
       },
     );
 
@@ -591,16 +591,16 @@ void main() {
       'PackageBoxes stream: no Pointer<NativeType> coercion from raw int',
       () {
         final out = DartFfiGenerator.generate(_primitiveDoubleListStreamSpec());
-        // The old crash: `malloc.free(rawPtr)` where rawPtr was an int
+        // The old crash: `free(rawPtr)` where rawPtr was an int
         // Verify the pointer variable is obtained via fromAddress before free
         final fromAddrIdx = out.indexOf('fromAddress(message as int)');
-        final freeIdx = out.indexOf('malloc.free(rawPtr)');
+        final freeIdx = out.indexOf('_nitroFree(rawPtr)');
         expect(fromAddrIdx, isNot(-1), reason: 'fromAddress must be present');
-        expect(freeIdx, isNot(-1), reason: 'malloc.free must be present');
+        expect(freeIdx, isNot(-1), reason: '_nitroFree must be present');
         expect(
           fromAddrIdx,
           lessThan(freeIdx),
-          reason: 'fromAddress must precede malloc.free',
+          reason: 'fromAddress must precede _nitroFree',
         );
       },
     );

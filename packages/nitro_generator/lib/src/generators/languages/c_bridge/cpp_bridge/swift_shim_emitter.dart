@@ -343,6 +343,9 @@ void _emitSwiftBridgeSection(
   writer.line('static int64_t ${libStem}_g_next_instance_id = 0;');
   writer.line('NITRO_EXPORT int64_t ${libStem}_create_instance(const char* key) { (void)key; return ${libStem}_g_next_instance_id++; }');
   writer.line('NITRO_EXPORT void ${libStem}_destroy_instance(int64_t instanceId) { (void)instanceId; }');
+  // Universal free for native-owned memory handed to Dart. Dart must not use
+  // package:ffi's malloc.free on these pointers (CoTaskMemFree on Windows).
+  writer.line('NITRO_EXPORT void ${libStem}_nitro_free(void* ptr) { if (ptr) { free(ptr); } }');
   writer.blankLine();
 
   writer.line('} // extern "C"');

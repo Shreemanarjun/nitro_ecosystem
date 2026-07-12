@@ -36,6 +36,20 @@ void _emitImplClassSetup(CodeWriter writer, BridgeSpec spec) {
       "  late final Pointer<NativeFinalizerFunction> _typedDataReturnFinalizer = _dylib.lookup<NativeFinalizerFunction>('${libStem}_release_typed_data_return').cast();",
     );
   }
+  // Frees NATIVE-owned memory (strings, record/variant blobs, struct copies,
+  // posted async results, stream items) with the module's own C-runtime free.
+  // package:ffi's malloc.free is CoTaskMemFree on Windows — calling it on a
+  // pointer the native side produced with malloc/strdup corrupts the heap.
+  // Native memory must always be released by the allocator that produced it.
+  writer.line(
+    "  late final void Function(Pointer<Void>) _nitroFreePtr = _dylib.lookupFunction<Void Function(Pointer<Void>), void Function(Pointer<Void>)>('${libStem}_nitro_free');",
+  );
+  writer.line('  void _nitroFree(Pointer<NativeType> ptr) => _nitroFreePtr(ptr.cast());');
+  // Same symbol as a raw function pointer, for NativeFinalizer-based owners
+  // (LazyRecordList) that outlive the decoding call.
+  writer.line(
+    "  late final Pointer<NativeFinalizerFunction> _nitroFreeFinalizer = _dylib.lookup<NativeFinalizerFunction>('${libStem}_nitro_free').cast();",
+  );
   writer.blankLine();
   writer.line('  static DynamicLibrary _loadSupportedLibrary() {');
   // PX19: Guard against dart:ffi usage on web at runtime.

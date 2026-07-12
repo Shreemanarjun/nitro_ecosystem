@@ -376,7 +376,16 @@ final class LazyRecordList<T> extends ListBase<T> implements Finalizable {
   /// Decoded item cache; null = not yet decoded.
   final List<T?> _cache;
 
+  /// Fallback finalizer: package:ffi's free. Only correct when the buffer
+  /// was allocated with package:ffi's allocators — on Windows this is
+  /// CoTaskMemFree, which corrupts the heap on a C-runtime malloc'd buffer.
+  /// Generated bridges pass their module's `<lib>_nitro_free` via
+  /// [decode]'s `nativeFree` parameter instead.
   static final _finalizer = NativeFinalizer(malloc.nativeFree);
+
+  /// One [NativeFinalizer] per distinct native free function, cached by the
+  /// function pointer's address (in practice: one entry per Nitro module).
+  static final _nativeFinalizers = <int, NativeFinalizer>{};
 
   LazyRecordList._(
     this._ptr,
@@ -385,25 +394,38 @@ final class LazyRecordList<T> extends ListBase<T> implements Finalizable {
     this._readItem,
     this._cache,
     int byteLen,
+    NativeFinalizer finalizer,
   ) {
     // externalSize hints the GC about native bytes owned by this list so it
     // schedules collection before native memory balloons (dart:ffi @Since('3.4')).
-    _finalizer.attach(this, _ptr.cast(), detach: this, externalSize: byteLen);
+    finalizer.attach(this, _ptr.cast(), detach: this, externalSize: byteLen);
   }
 
   /// Decodes the offset table from [ptr] and returns a lazy list.
   ///
   /// [ptr] must have been produced by [RecordWriter.encodeIndexedList].
+  ///
+  /// [nativeFree] is the native free function matching the allocator that
+  /// produced [ptr] — for buffers returned by a Nitro bridge, the module's
+  /// exported `<lib>_nitro_free`. When omitted, falls back to package:ffi's
+  /// free (wrong for native-malloc'd buffers on Windows).
   static LazyRecordList<T> decode<T>(
     Pointer<Uint8> ptr,
-    T Function(RecordReader r) readItem,
-  ) {
+    T Function(RecordReader r) readItem, {
+    Pointer<NativeFinalizerFunction>? nativeFree,
+  }) {
     final r = RecordReader.fromNative(ptr);
     final count = r.readInt32();
     final offsets = List<int>.generate(count, (_) => r.readInt(), growable: false);
     // Buffer layout: [4B payload-length prefix][payload bytes].
     // Read the prefix to give the GC an accurate native-size hint.
     final totalBytes = 4 + ByteData.view(ptr.asTypedList(4).buffer).getInt32(0, Endian.little);
+    final finalizer = nativeFree == null
+        ? _finalizer
+        : _nativeFinalizers.putIfAbsent(
+            nativeFree.address,
+            () => NativeFinalizer(nativeFree),
+          );
     return LazyRecordList<T>._(
       ptr,
       count,
@@ -411,6 +433,7 @@ final class LazyRecordList<T> extends ListBase<T> implements Finalizable {
       readItem,
       List<T?>.filled(count, null),
       totalBytes,
+      finalizer,
     );
   }
 

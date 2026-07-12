@@ -314,17 +314,17 @@ String _callbackInvocationArgs(BridgeType callbackType, BridgeSpec spec) {
       }
     } else if (spec.isRecordName(name)) {
       if (isNullable) {
-        args.add('arg$i == nullptr ? null : (() { final _r = $name.fromNative(arg$i); malloc.free(arg$i); return _r; })()');
+        args.add('arg$i == nullptr ? null : (() { final _r = $name.fromNative(arg$i); _nitroFree(arg$i); return _r; })()');
       } else {
-        args.add('(() { final _r = $name.fromNative(arg$i); malloc.free(arg$i); return _r; })()');
+        args.add('(() { final _r = $name.fromNative(arg$i); _nitroFree(arg$i); return _r; })()');
       }
     } else if (spec.isVariantName(name)) {
       // @NitroVariant callback param: native passes Pointer<Uint8> = [4B len][tag][fields].
       // Dart decodes via VariantExt.fromNative and frees the allocation.
       if (isNullable) {
-        args.add('arg$i == nullptr ? null : (() { final _v = ${name}VariantExt.fromNative(arg$i); malloc.free(arg$i); return _v; })()');
+        args.add('arg$i == nullptr ? null : (() { final _v = ${name}VariantExt.fromNative(arg$i); _nitroFree(arg$i); return _v; })()');
       } else {
-        args.add('(() { final _v = ${name}VariantExt.fromNative(arg$i); malloc.free(arg$i); return _v; })()');
+        args.add('(() { final _v = ${name}VariantExt.fromNative(arg$i); _nitroFree(arg$i); return _v; })()');
       }
     } else if (type.isAnyNativeObject || name == 'AnyNativeObject') {
       // AnyNativeObject: single Int64 param; -1 is the null sentinel for nullable.

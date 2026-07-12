@@ -377,7 +377,7 @@ void main() {
     });
 
     test('struct ptr memory freed via malloc.free', () {
-      expect(code, contains('malloc.free'));
+      expect(code, contains('_nitroFree(structPtr)'));
     });
 
     test('uses SensorFfi type for decoding', () {

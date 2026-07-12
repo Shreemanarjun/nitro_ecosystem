@@ -226,7 +226,7 @@ void main() {
       final out = DartFfiGenerator.generate(_asyncNullableSpec());
       expect(out, contains('Pointer<NitroOptInt64>'));
       expect(out, contains('.decoded'));
-      expect(out, contains('malloc.free'));
+      expect(out, contains('_nitroFree('));
     });
 
     test('double? return: decodes via typed pointer .decoded + malloc.free', () {
@@ -244,7 +244,7 @@ void main() {
     test('String? return: checks nullptr before toDartStringWithFree', () {
       final out = DartFfiGenerator.generate(_asyncNullableSpec());
       expect(out, contains('nullptr ? null : '));
-      expect(out, contains('toDartStringWithFree()'));
+      expect(out, contains('toDartStringFreedBy(_nitroFree)'));
     });
 
     test('int (non-nullable) return: raw cast, no sentinel decode', () {
@@ -262,7 +262,7 @@ void main() {
 
     test('String (non-nullable) return: toDartStringWithFree without null check', () {
       final out = DartFfiGenerator.generate(_asyncNullableSpec());
-      expect(out, contains('toDartStringWithFree()'));
+      expect(out, contains('toDartStringFreedBy(_nitroFree)'));
     });
   });
 
@@ -360,7 +360,7 @@ void main() {
       final out = DartFfiGenerator.generate(_asyncNullableWithStructSpec());
       expect(out, contains('fromAddress'));
       expect(out, contains('toDart()'));
-      expect(out, contains('malloc.free'));
+      expect(out, contains('_nitroFree('));
     });
 
     test('int (non-nullable) unpack: raw as int', () {
@@ -419,24 +419,24 @@ void main() {
       final out = DartFfiGenerator.generate(syncNullable());
       expect(out, contains('Pointer<NitroOptInt64> Function('));
       expect(out, contains('.decoded'));
-      expect(out, contains('malloc.free('));
+      expect(out, contains('_nitroFree('));
     });
     test('sync double? return: Pointer<NitroOptFloat64>, .decoded extension, malloc.free', () {
       final out = DartFfiGenerator.generate(syncNullable());
       expect(out, contains('Pointer<NitroOptFloat64> Function('));
       expect(out, contains('.decoded'));
-      expect(out, contains('malloc.free('));
+      expect(out, contains('_nitroFree('));
     });
     test('sync bool? return: Pointer<NitroOptBool>, .decoded extension, malloc.free', () {
       final out = DartFfiGenerator.generate(syncNullable());
       expect(out, contains('Pointer<NitroOptBool> Function('));
       expect(out, contains('.decoded'));
-      expect(out, contains('malloc.free('));
+      expect(out, contains('_nitroFree('));
     });
     test('sync String? return: nullptr check present', () {
       final out = DartFfiGenerator.generate(syncNullable());
       expect(out, contains('nullptr ? null'));
-      expect(out, contains('toDartStringWithFree()'));
+      expect(out, contains('toDartStringFreedBy(_nitroFree)'));
     });
   });
 }

@@ -133,7 +133,7 @@ void main() {
 
     test('non-null return: frees native pointer after decode', () {
       final out = DartFfiGenerator.generate(_returnSpec());
-      expect(out, contains('malloc.free(res)'));
+      expect(out, contains('_nitroFree(res)'));
     });
   });
 

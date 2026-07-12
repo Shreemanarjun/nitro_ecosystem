@@ -1301,7 +1301,7 @@ void _emitJniStreamBridges(
         // @HybridRecord and @NitroVariant: Kotlin calls .encode() → jbyteArray.
         // Nullable items arrive as nullptr → post kNull.
         // C copies bytes to a malloc'd native buffer and sends the pointer as kInt64.
-        // Dart reads via RecordType.fromNative/VariantExt.fromNative and frees with malloc.free.
+        // Dart reads via RecordType.fromNative/VariantExt.fromNative and frees via <lib>_nitro_free.
         if (itemKind.isNullable) {
           writer.line('    if (item == nullptr) { obj.type = Dart_CObject_kNull; }');
           writer.line('    else {');
@@ -1975,6 +1975,11 @@ void _emitJniMethods(
     writer.line('}');
     writer.blankLine();
   }
+
+  // Universal free for native-owned memory handed to Dart. Dart must not use
+  // package:ffi's malloc.free on these pointers (CoTaskMemFree on Windows).
+  writer.line('NITRO_EXPORT void ${libStem}_nitro_free(void* ptr) { if (ptr) { free(ptr); } }');
+  writer.blankLine();
 
   // ── Instance lifecycle (factory pattern — like RN Nitro's HybridObjectRegistry) ──
   // create_instance: called by Dart on first getInstance(key). Kotlin invokes the

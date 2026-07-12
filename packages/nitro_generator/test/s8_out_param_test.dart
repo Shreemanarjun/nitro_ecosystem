@@ -256,7 +256,7 @@ void main() {
 
     test('error check uses throwIfOutParamError (not assert-gated checkError)', () {
       final out = DartFfiGenerator.generate(_syncSpec());
-      expect(out, contains('NitroRuntime.throwIfOutParamError(_nitroErr)'));
+      expect(out, contains('NitroRuntime.throwIfOutParamError(_nitroErr, nativeFree: _nitroFree)'));
       expect(out, isNot(contains('NitroRuntime.checkError(_getErrorPtr')));
     });
 
@@ -268,7 +268,7 @@ void main() {
       // inside the wrapped unpack closure, before decoding raw.
       expect(out, contains('final _nitroErr = calloc<NitroErrorFfi>();'));
       expect(out, contains('_capturePtr(_instanceId, _nitroErr, port)'));
-      expect(out, contains('NitroRuntime.throwIfOutParamErrorAndFree(_nitroErr);'));
+      expect(out, contains('NitroRuntime.throwIfOutParamErrorAndFree(_nitroErr, nativeFree: _nitroFree);'));
     });
 
     test('property getter FFI type includes Pointer<NitroErrorFfi>', () {

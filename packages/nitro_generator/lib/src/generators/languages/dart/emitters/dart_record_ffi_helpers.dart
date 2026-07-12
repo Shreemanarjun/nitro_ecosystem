@@ -47,7 +47,9 @@ String _decodeRecordExpr(BridgeType type, String ptrVar) {
     }
     // Object lists: decode lazily — items are only deserialized when accessed.
     // Requires the native buffer to have been written by encodeIndexedList.
-    return 'LazyRecordList.decode($ptrVar, (r) => ${item}RecordExt.fromReader(r))';
+    // The buffer outlives this call (freed by the list's NativeFinalizer), so
+    // the module's native free is passed instead of package:ffi's default.
+    return 'LazyRecordList.decode($ptrVar, (r) => ${item}RecordExt.fromReader(r), nativeFree: _nitroFreeFinalizer)';
   }
   // Strip nullable '?' suffix — the extension/class is always named after the base type.
   final rt = type.name.replaceFirst('?', '');
@@ -82,7 +84,7 @@ void _emitTypedDataDecodeReturn(
   writer.line('$indent  final payloadPtr = Pointer<$ffiElem>.fromAddress($ptrVar.address + 8);');
   writer.line('$indent  return $rt.fromList(payloadPtr.asTypedList($lengthExpr));');
   writer.line('$indent} finally {');
-  writer.line('$indent  malloc.free($ptrVar);');
+  writer.line('$indent  _nitroFree($ptrVar);');
   writer.line('$indent}');
 }
 
@@ -275,7 +277,7 @@ void _emitResultDecode(
   }
 
   writer.line('$indent} finally {');
-  writer.line('$indent  malloc.free($resVar);');
+  writer.line('$indent  _nitroFree($resVar);');
   writer.line('$indent}');
 }
 

@@ -1843,7 +1843,7 @@ void main() {
       final out = DartFfiGenerator.generate(nullablePrimReturnSpec('int?'));
       // Sync path uses 'res' variable; async would use 'optPtr'.
       expect(out, contains('.decoded'));
-      expect(out, contains('malloc.free('));
+      expect(out, contains('_nitroFree('));
     });
 
     test('Dart FFI (double?): FFI type uses Pointer<NitroOptFloat64>', () {
@@ -1854,7 +1854,7 @@ void main() {
     test('Dart FFI (double?): decode uses .decoded + malloc.free', () {
       final out = DartFfiGenerator.generate(nullablePrimReturnSpec('double?'));
       expect(out, contains('.decoded'));
-      expect(out, contains('malloc.free('));
+      expect(out, contains('_nitroFree('));
     });
 
     test('Dart FFI (bool?): FFI type uses Pointer<NitroOptBool>', () {
@@ -1865,7 +1865,7 @@ void main() {
     test('Dart FFI (bool?): decode uses .decoded + malloc.free', () {
       final out = DartFfiGenerator.generate(nullablePrimReturnSpec('bool?'));
       expect(out, contains('.decoded'));
-      expect(out, contains('malloc.free('));
+      expect(out, contains('_nitroFree('));
     });
 
     test('Spec validator: int?/double?/bool? sync return has no errors', () {
@@ -2063,7 +2063,7 @@ void main() {
 
       test('@NitroVariant getter: frees pointer via malloc.free(res)', () {
         final out = DartFfiGenerator.generate(_variantPropSpec());
-        expect(out, contains('malloc.free(res)'));
+        expect(out, contains('_nitroFree(res)'));
       });
 
       test('@NitroVariant setter: encodes via value.toNative(arena)', () {
@@ -2199,7 +2199,7 @@ void main() {
 
       test('unpack frees the native buffer after decode', () {
         final out = DartFfiGenerator.generate(_recordStreamSpec());
-        expect(out, contains('malloc.free(rawPtr)'));
+        expect(out, contains('_nitroFree(rawPtr)'));
       });
 
       test('unpack throws StateError for null message (non-nullable)', () {

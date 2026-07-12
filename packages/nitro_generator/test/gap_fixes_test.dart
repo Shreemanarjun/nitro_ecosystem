@@ -367,7 +367,7 @@ void main() {
       test('EventVariantExt.fromNative() decode for non-nullable variant param', () {
         final code = DartFfiGenerator.generate(_variantCallbackSpec());
         expect(code, contains('EventVariantExt.fromNative(arg0)'));
-        expect(code, contains('malloc.free(arg0)'));
+        expect(code, contains('_nitroFree(arg0)'));
       });
 
       test('nullable variant param checks nullptr before decoding', () {
@@ -402,7 +402,7 @@ void main() {
       test('emits UIEventVariantExt.fromNative decode', () {
         final code = DartFfiGenerator.generate(_variantStreamSpec());
         expect(code, contains('UIEventVariantExt.fromNative(rawPtr)'));
-        expect(code, contains('malloc.free(rawPtr)'));
+        expect(code, contains('_nitroFree(rawPtr)'));
       });
 
       test('emits try/finally to free allocation', () {

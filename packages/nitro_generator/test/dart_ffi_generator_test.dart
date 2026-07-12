@@ -178,8 +178,8 @@ void main() {
     test('struct return calls freeFields()', () {
       final out = DartFfiGenerator.generate(richSpec());
       // For any non-zero-copy struct return, we should see freeFields()
-      expect(out, contains('structPtr.ref.freeFields();'));
-      expect(out, contains('malloc.free(structPtr);'));
+      expect(out, contains('structPtr.ref.freeFields(_nitroFree);'));
+      expect(out, contains('_nitroFree(structPtr);'));
     });
 
     test('struct property getter calls freeFields()', () {
@@ -213,15 +213,15 @@ void main() {
         ],
       );
       final out = DartFfiGenerator.generate(spec);
-      expect(out, contains('structPtr.ref.freeFields();'));
-      expect(out, contains('malloc.free(structPtr);'));
+      expect(out, contains('structPtr.ref.freeFields(_nitroFree);'));
+      expect(out, contains('_nitroFree(structPtr);'));
     });
 
     test('bool return uses Bool FFI type — passed/returned directly', () {
       final out = DartFfiGenerator.generate(richSpec());
       // Bool FFI type: strict is passed as-is (no ternary), res returned as-is (no != 0)
       expect(out, contains('final res = _isReadyPtr(_instanceId, strict, _nitroErr);'));
-      expect(out, contains('NitroRuntime.throwIfOutParamError(_nitroErr);'));
+      expect(out, contains('NitroRuntime.throwIfOutParamError(_nitroErr, nativeFree: _nitroFree);'));
       expect(out, contains('return res;'));
       expect(out, isNot(contains('strict ? 1 : 0')));
       expect(out, isNot(contains('return res != 0;')));
@@ -237,13 +237,13 @@ void main() {
     test('int return is passed through directly', () {
       final out = DartFfiGenerator.generate(richSpec());
       expect(out, contains('final res = _countPtr(_instanceId, _nitroErr);'));
-      expect(out, contains('NitroRuntime.throwIfOutParamError(_nitroErr);'));
+      expect(out, contains('NitroRuntime.throwIfOutParamError(_nitroErr, nativeFree: _nitroFree);'));
       expect(out, contains('return res;'));
     });
 
     test('String return calls toDartStringWithFree', () {
       final out = DartFfiGenerator.generate(richSpec());
-      expect(out, contains('toDartStringWithFree()'));
+      expect(out, contains('toDartStringFreedBy(_nitroFree)'));
     });
 
     test('String param uses toNativeUtf8 inside withArena', () {
@@ -325,7 +325,7 @@ void main() {
       expect(out, contains('bool get enabled {'));
       expect(out, contains("NitroRuntime.callSync(() {"));
       expect(out, contains('final res = _getEnabledPtr(_instanceId, _nitroErr);'));
-      expect(out, contains('NitroRuntime.throwIfOutParamError(_nitroErr);'));
+      expect(out, contains('NitroRuntime.throwIfOutParamError(_nitroErr, nativeFree: _nitroFree);'));
       // Bool FFI type: res is already bool, return directly (no != 0 conversion)
       expect(out, contains('return res;'));
       expect(out, isNot(contains('return res != 0;')));
@@ -343,7 +343,7 @@ void main() {
       // Bool FFI type: value is passed as-is, no ternary ? 1 : 0
       expect(out, contains('_setEnabledPtr(_instanceId, value, _nitroErr)'));
       expect(out, isNot(contains('value ? 1 : 0')));
-      expect(out, contains('NitroRuntime.throwIfOutParamError(_nitroErr)'));
+      expect(out, contains('NitroRuntime.throwIfOutParamError(_nitroErr, nativeFree: _nitroFree)'));
       expect(out, contains("methodName: 'set enabled'"));
     });
 
@@ -1151,7 +1151,7 @@ void main() {
       expect(out, contains('try {'));
       expect(out, contains('decoded = ConfigRecordExt.fromNative(res);'));
       expect(out, contains('} finally {'));
-      expect(out, contains('malloc.free(res);'));
+      expect(out, contains('_nitroFree(res);'));
       expect(out, contains('return decoded;'));
     });
   });

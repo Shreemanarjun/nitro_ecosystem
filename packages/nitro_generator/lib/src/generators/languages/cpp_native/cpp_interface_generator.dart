@@ -107,10 +107,13 @@ class CppInterfaceGenerator {
           CodeLine('    return out;'),
           CodeLine('}'),
           CodeLine('/// Non-owning view of the payload (no length prefix). Valid while this writer lives.'),
+          CodeLine('/// For encoding NESTED payloads only — never return it or pass it to an'),
+          CodeLine('/// emit_* stream helper (both transfer ownership; use toNativeBuffer()).'),
           CodeLine('NitroCppBuffer toBuffer() const { return { _buf.data(), _buf.size() }; }'),
           CodeLine('/// Heap-allocated [4B length][payload] wrapped in a buffer whose size'),
-          CodeLine('/// includes the prefix. Use as the return value of record/variant methods:'),
-          CodeLine('/// ownership transfers to Dart (Dart frees it after decoding).'),
+          CodeLine('/// includes the prefix. Use as the return value of record/variant methods'),
+          CodeLine('/// AND as the item passed to emit_* stream helpers: ownership transfers'),
+          CodeLine('/// to Dart (freed after decoding via the <lib>_nitro_free export).'),
           CodeLine('NitroCppBuffer toNativeBuffer() const { return { toNative(), sizeof(int32_t) + _buf.size() }; }'),
         ],
         footer: '};',
@@ -233,12 +236,31 @@ class CppInterfaceGenerator {
       ]);
       for (final stream in spec.streams) {
         // Nullable-aware: Stream<int?> emits std::optional<int64_t> — the bridge
-        // posts kNull for std::nullopt. Record/variant items are NitroCppBuffer
-        // payload views (no length prefix); the bridge copies before posting.
+        // posts kNull for std::nullopt. Record/variant items are SELF-DESCRIBING
+        // heap [4B len][payload] blocks (record.toNativeBuffer()); the bridge
+        // posts the address directly and ownership transfers to Dart, exactly
+        // like record returns.
         final itemCpp = _cppReturnType(stream.itemType, enumNames, structNames, recordNames);
-        nodes.add(
-          CodeLine('    /// Emit a value on the ${stream.dartName} stream.'),
-        );
+        final base = stream.itemType.name.replaceFirst('?', '');
+        final isBufferItem = stream.itemType.isRecord || spec.variants.any((v) => v.name == base);
+        if (isBufferItem) {
+          nodes.add(
+            CodeLine('    /// Emit a value on the ${stream.dartName} stream.'),
+          );
+          nodes.add(
+            CodeLine('    /// Pass record.toNativeBuffer() (or nitro_Xxx_to_native(...)) — a heap'),
+          );
+          nodes.add(
+            CodeLine('    /// [4B len][payload] block. Ownership transfers: the bridge/Dart frees'),
+          );
+          nodes.add(
+            CodeLine('    /// it. Never pass a non-owning writer.toBuffer() view.'),
+          );
+        } else {
+          nodes.add(
+            CodeLine('    /// Emit a value on the ${stream.dartName} stream.'),
+          );
+        }
         nodes.add(CodeLine('    void emit_${stream.dartName}($itemCpp item);'));
       }
       nodes.add(const BlankLine());

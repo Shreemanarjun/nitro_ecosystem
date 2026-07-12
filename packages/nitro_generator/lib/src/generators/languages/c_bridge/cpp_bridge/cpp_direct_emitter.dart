@@ -173,6 +173,9 @@ String _generateCppDirect(BridgeSpec spec) {
   writer.line('    std::lock_guard<std::mutex> _lk(_g_instances_mtx());');
   writer.line('    _g_instances().erase(instanceId);');
   writer.line('}');
+  // Universal free for native-owned memory handed to Dart. Dart must not use
+  // package:ffi's malloc.free on these pointers (CoTaskMemFree on Windows).
+  writer.line('NITRO_EXPORT void ${libStem}_nitro_free(void* ptr) { if (ptr) { free(ptr); } }');
   writer.line('}');
   writer.blankLine();
 

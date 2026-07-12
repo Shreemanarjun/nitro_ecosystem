@@ -1068,9 +1068,9 @@ void main() {
 
     test('async+arena record return still frees rawPtr after decode', () {
       final out = DartFfiGenerator.generate(asyncArenaRecordSpec());
-      expect(out, contains('malloc.free(rawPtr)'));
-      // malloc.free must appear before arena.releaseAll()
-      final freeIdx = out.indexOf('malloc.free(rawPtr)');
+      expect(out, contains('_nitroFree(rawPtr)'));
+      // _nitroFree must appear before arena.releaseAll()
+      final freeIdx = out.indexOf('_nitroFree(rawPtr)');
       final releaseIdx = out.indexOf('arena.releaseAll()');
       expect(freeIdx, lessThan(releaseIdx), reason: 'result buffer freed inside try, before finally releases arena');
     });
@@ -1221,7 +1221,7 @@ void main() {
       );
       final out = DartFfiGenerator.generate(spec);
       expect(out, contains('callAsync<Pointer<Utf8>>'));
-      expect(out, contains('.toDartStringWithFree()'));
+      expect(out, contains('.toDartStringFreedBy(_nitroFree)'));
       expect(out, isNot(contains('return res;')), reason: 'returning Pointer<Utf8> as String would be a type error');
     });
   });
@@ -1749,7 +1749,7 @@ void main() {
 
       expect(
         body,
-        contains('NitroRuntime.throwIfOutParamError(_nitroErr);'),
+        contains('NitroRuntime.throwIfOutParamError(_nitroErr, nativeFree: _nitroFree);'),
       );
       expect(
         body,

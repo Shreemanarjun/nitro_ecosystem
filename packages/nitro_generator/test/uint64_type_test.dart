@@ -79,7 +79,7 @@ void main() {
     test('uint64? return: decoded via .decoded and malloc.free', () {
       final dart = DartFfiGenerator.generate(_spec('uint64?'));
       expect(dart, contains('.decoded'));
-      expect(dart, contains('malloc.free'));
+      expect(dart, contains('_nitroFree('));
     });
 
     test('uint64 param: native type is Uint64', () {

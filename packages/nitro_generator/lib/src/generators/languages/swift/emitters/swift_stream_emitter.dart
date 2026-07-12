@@ -285,7 +285,7 @@ class SwiftStreamEmitter {
     final cancel = '${spec.dartClassName}Registry._${stream.dartName}Cancellables.removeValue(forKey: dartPort)?.cancel()';
     if (isVariantItem) {
       // @NitroVariant stream: serialize variant to length-prefixed bytes via toNative(),
-      // post the pointer address as Int64 (Dart frees via malloc.free after decode).
+      // post the pointer address as Int64 (Dart frees via the module's <lib>_nitro_free export after decode).
       writer.line('${indent}let raw = item.toNative()');
       writer.line('${indent}if !emitCb(dartPort, raw) {');
       writer.line('$indent    if let raw { free(UnsafeMutableRawPointer(raw)) }');

@@ -58,7 +58,10 @@ class DartFfiGenerator {
 
     final writer = CodeWriter();
     writer.raw(generatedFileHeader('//', sourceUri: spec.sourceUri));
-    writer.line('// ignore_for_file: no_leading_underscores_for_local_identifiers, prefer_typing_uninitialized_variables, non_constant_identifier_names');
+    // unused_element/unused_field: _nitroFree/_nitroFreePtr are emitted
+    // unconditionally but only referenced when the spec has native-owned
+    // returns (strings, records, structs, ...) to free.
+    writer.line('// ignore_for_file: no_leading_underscores_for_local_identifiers, prefer_typing_uninitialized_variables, non_constant_identifier_names, unused_element, unused_field');
     writer.line("part of '${spec.sourceUri.split('/').last}';");
     writer.blankLine();
 
