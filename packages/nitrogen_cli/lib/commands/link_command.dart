@@ -3136,7 +3136,7 @@ int _findBlockEnd(String content, int openBrace) {
 /// When [requestsSeparateImpl] is true (the annotation used the platform's
 /// SPECIFIC marker type — see requestsSeparateWindowsImpl/requestsSeparateLinuxImpl)
 /// AND the shared `src/Hybrid$className.cpp` already has real code (not just
-/// the auto-generated TODO stub), that content is migrated in — one include
+/// the auto-generated  stub), that content is migrated in — one include
 /// path level deeper to account for the extra directory — so this platform
 /// starts from its EXISTING behavior rather than an empty stub. Activating
 /// separation this way is a location change, not a behavior change. Falls
