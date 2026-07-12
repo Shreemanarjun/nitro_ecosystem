@@ -25,6 +25,7 @@ import 'link_command.dart'
         linkKotlinLoadLibraries,
         purgeStaleCppKotlinRegistrations,
         linkAndroid,
+        linkAndroidConsumerRules,
         linkWindows,
         linkLinux,
         linkClangd,
@@ -338,6 +339,7 @@ class GenerateCommand extends Command {
       }
       purgeStaleCppKotlinRegistrations(moduleInfos.where((m) => androidCppLibs.contains(m.lib)).toList(), baseDir: projectDir.path);
       linkAndroid(pluginName, moduleInfos.map((m) => m.lib).toList(), baseDir: projectDir.path, moduleInfos: moduleInfos);
+      linkAndroidConsumerRules(kotlinModules, baseDir: projectDir.path);
     }
 
     // Patch Desktop

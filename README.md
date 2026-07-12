@@ -545,7 +545,7 @@ void processAudio(Float32List samples);
 |---|---|
 | `AnyNativeObject` | Opaque native object handle (pointer stored as `int64`) |
 | `NitroAnyValue` | Dynamic variant: null / bool / int / double / String / List / Map |
-| `NitroAnyMap` | `Map<String, NitroAnyValue>` — equivalent to a JSON object |
+| `NitroAnyMap` | String-keyed map class of `NitroAnyValue` entries with typed getters/setters — equivalent to a JSON object |
 | `NitroPromise<T>` | Dart-side future that a native side can resolve/reject; wraps a `ReceivePort` |
 
 ---
@@ -649,17 +649,15 @@ switch (r) {
 
 ```dart
 // Spec:
-AnyNativeObject? getMetadata(String key);
+NitroAnyMap getMetadata(String key);
 
 // Dart usage:
 final meta = module.getMetadata('config');
-if (meta is Map<String, NitroAnyValue>) {
-  final name = meta['name']?.asString;
-  final count = meta['count']?.asInt;
-}
+final name = meta.getString('name');   // String?
+final count = meta.getInt('count');    // int?
 ```
 
-Use `NitroAnyMap` (a typedef for `Map<String, NitroAnyValue>`) when the native side returns a dictionary with mixed value types. Prefer `@HybridRecord` when the schema is known — it is significantly faster.
+Use `NitroAnyMap` (a class wrapping a string-keyed map of `NitroAnyValue` entries, with typed getters/setters like `getString` / `setInt` and `NitroAnyMap.fromDynamic` / `toDynamic` conversions) when the native side returns a dictionary with mixed value types. Prefer `@HybridRecord` when the schema is known — it is significantly faster.
 
 ---
 

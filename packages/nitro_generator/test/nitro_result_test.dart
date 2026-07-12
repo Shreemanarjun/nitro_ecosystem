@@ -9,6 +9,7 @@
 //   - E015 validation: cannot wrap void return type
 
 import 'package:nitro_generator/src/generators/languages/c_bridge/cpp_bridge_generator.dart';
+import 'package:nitro_generator/src/generators/languages/cpp_native/cpp_interface_generator.dart';
 import 'package:nitro_generator/src/generators/languages/dart/dart_ffi_generator.dart';
 import 'package:test/test.dart';
 import 'test_utils.dart';
@@ -641,6 +642,73 @@ void main() {
 
     test('function pointer includes NitroError* out-param', () {
       expect(code, contains('Pointer<NitroErrorFfi>'));
+    });
+  });
+
+  // ── GitHub #9: desktop C-bridge @NitroResult<record> compile error ───────
+  //
+  // Reported against a real module (nitro_printing, Kotlin+Swift mobile /
+  // C++ desktop): the interface header declares a record-returning
+  // @NitroResult method as `virtual NitroCppBuffer fn(...) = 0;` (matching
+  // the general "records bridge as NitroCppBuffer" convention), but the
+  // desktop dispatch's `isResult` branch only special-cased double/int/bool
+  // and fell through to `std::string _val = g_impl->fn(...)` for anything
+  // else — a real C++ compile error ("no viable conversion from
+  // 'NitroCppBuffer' to 'std::string'") for record (and enum/variant)
+  // @NitroResult returns. String @NitroResult happened to work by
+  // coincidence (the fallback's std::string assumption is only correct for
+  // that one case), which is why this went unnoticed.
+  group('CppBridgeGenerator — @NitroResult<record> desktop dispatch (GitHub #9 bug 1)', () {
+    // androidImpl + windowsImpl/linuxImpl (no iOS/macOS) — routes through
+    // _emitAppleCppDispatch's "Windows/Linux: NativeImpl.cpp" #elif branch,
+    // the exact code path the reproduction used.
+    BridgeSpec spec() => BridgeSpec(
+      dartClassName: 'Printing',
+      lib: 'printing',
+      namespace: 'printing',
+      androidImpl: NativeImpl.kotlin,
+      windowsImpl: NativeImpl.cpp,
+      linuxImpl: NativeImpl.cpp,
+      sourceUri: 'printing.native.dart',
+      recordTypes: [
+        BridgeRecordType(
+          name: 'PrinterInfo',
+          fields: [
+            BridgeRecordField(name: 'name', dartType: 'String', kind: RecordFieldKind.primitive),
+          ],
+        ),
+      ],
+      functions: [
+        BridgeFunction(
+          dartName: 'getPrinterAt',
+          cSymbol: 'printing_get_printer_at',
+          isAsync: false,
+          returnType: BridgeType(name: 'PrinterInfo', isRecord: true),
+          params: [BridgeParam(name: 'index', type: BridgeType(name: 'int'))],
+          isResult: true,
+        ),
+      ],
+    );
+
+    test('interface declares the virtual as returning NitroCppBuffer', () {
+      final out = CppInterfaceGenerator.generate(spec());
+      expect(out, contains('virtual NitroCppBuffer getPrinterAt(int64_t index) = 0;'));
+    });
+
+    test('dispatch consumes a NitroCppBuffer from the impl, not std::string', () {
+      final out = CppBridgeGenerator.generate(spec());
+      final idx = out.indexOf('NitroCppBuffer _res = g_impl->getPrinterAt(');
+      expect(idx, greaterThan(-1));
+      expect(out, isNot(contains('std::string _val = g_impl->getPrinterAt(')));
+    });
+
+    test('prepends the [1B tag=0] byte directly to the already-encoded buffer', () {
+      final out = CppBridgeGenerator.generate(spec());
+      final idx = out.indexOf('NitroCppBuffer _res = g_impl->getPrinterAt(');
+      final body = out.substring(idx, out.indexOf('} catch', idx));
+      expect(body, contains('_out[0] = 0;'));
+      expect(body, contains('memcpy(_out + 1, _res.data, _res.size)'));
+      expect(body, contains('free((void*)_res.data);'));
     });
   });
 }

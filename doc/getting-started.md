@@ -154,7 +154,7 @@ abstract class MySensor extends HybridObject {
 | `@NitroModule(ios:, android:)` | class | Marks this as a Nitrogen module spec |
 | `@HybridStruct(zeroCopy: [...])` | class | Flat C-memory struct; listed `Uint8List` fields become zero-copy pointers |
 | `@HybridEnum(startValue:)` | enum | Integer-backed C enum with a `nativeValue` getter |
-| `@HybridRecord` | class | Rich JSON-bridged record: nested objects, `List<T>`, nullable fields |
+| `@HybridRecord` | class | Rich binary-bridged record: nested objects, `List<T>`, nullable fields |
 | `@nitroAsync` | method | Dispatches call to background isolate; method must return `Future<T>` |
 | `@NitroStream(backpressure:)` | getter | Native push stream; getter must return `Stream<T>` |
 | `@ZeroCopy` | `TypedData` param | Pass any typed list (Uint8List, Float32List, etc.) as raw pointer without copying |
@@ -164,7 +164,7 @@ abstract class MySensor extends HybridObject {
 | | `@HybridStruct` | `@HybridRecord` |
 |---|---|---|
 | Field types | Primitives, `String`, `Uint8List`, other structs | Any: nested objects, `List<T>`, nullable |
-| Bridge | `struct*` pointer (~0 µs) | UTF-8 JSON string (~1–5 µs) |
+| Bridge | `struct*` pointer (~0 µs) | compact binary blob (`uint8_t*`, ~1 µs) |
 | Zero-copy buffers | Yes (`zeroCopy: ['field']`) | No |
 | Enum support | Yes (`@HybridEnum`) | No |
 | Use for | Camera frames, sensor readings at high Hz | Device lists, config, one-off complex data |
@@ -186,8 +186,8 @@ abstract class MySensor extends HybridObject {
 | `Stream<T>` | SendPort registration | `Flow<T>` | `AnyPublisher<T, Never>` |
 | `@HybridEnum` | `int32_t` | `Long` (via `.nativeValue`) | `Int32` rawValue |
 | `@HybridStruct` | `YourStruct*` | `@Keep data class` | `public struct` |
-| `@HybridRecord` | `const char*` (JSON) | `String` (JSON) | `String` (JSON) |
-| `List<@HybridRecord T>` | `const char*` (JSON array) | `String` (JSON) | `String` (JSON) |
+| `@HybridRecord` | `uint8_t*` (binary record codec) | `@Keep data class` | `struct` |
+| `List<@HybridRecord T>` | `uint8_t*` (binary list codec) | `List<T>` | `[T]` |
 
 > **iOS / Swift — `@_cdecl` bridge types differ from protocol types.**
 > The Swift column above is what you use in `*Impl.swift`. The generated `@_cdecl`
@@ -195,7 +195,8 @@ abstract class MySensor extends HybridObject {
 >
 > | Spec type | `@_cdecl` param | `@_cdecl` return |
 > |---|---|---|
-> | `String` / `@HybridRecord` | `UnsafePointer<CChar>?` | `UnsafeMutablePointer<CChar>?` (malloc'd) |
+> | `String` | `UnsafePointer<CChar>?` | `UnsafeMutablePointer<CChar>?` (malloc'd) |
+> | `@HybridRecord` | `UnsafeMutablePointer<UInt8>?` | `UnsafeMutablePointer<UInt8>?` (malloc'd) |
 > | `Bool` | `Int8` | `Int8` |
 > | `@HybridEnum` | `Int32` | `Int32` |
 >
@@ -226,9 +227,10 @@ buffer.release();
 
 ## Using `@HybridRecord` for complex data
 
-`@HybridRecord` lets you return rich, nested types without any manual JSON handling.
-The generator creates `fromJson`/`toJson` in `.g.dart` and transparently wraps the
-bridge call in `jsonEncode`/`jsonDecode`.
+`@HybridRecord` lets you return rich, nested types without any manual serialization.
+Since 0.2.0 records cross the bridge as a compact little-endian binary blob (`uint8_t*`),
+not JSON — the generator creates `fromNative`/`toNative` codec extensions in `.g.dart`
+and transparently encodes/decodes at the bridge boundary.
 
 ### Dart spec
 
@@ -263,67 +265,67 @@ abstract class MyCamera extends HybridObject {
 ### What the generator produces
 
 The `.g.dart` part file gets:
-- `ResolutionRecordExt` — `static fromJson` + `toJson`
+- `ResolutionRecordExt` — `static fromNative` / `fromReader` + `writeFields` / `toNative`
 - `CameraDeviceRecordExt` — same, with nested `List<Resolution>` handled automatically
-- `getAvailableDevices()` bridges as `Pointer<Utf8>` (JSON string), decodes on return
+- `getAvailableDevices()` bridges as `Pointer<Uint8>` (binary record blob), decodes on return
 
 ### Kotlin implementation
 
 ```kotlin
-override suspend fun getAvailableDevices(): String {
-    // Return a JSON string — Dart side decodes automatically
-    val devices = listOf(
-        mapOf(
-            "id" to "front_0",
-            "name" to "Front Camera",
-            "resolutions" to listOf(
-                mapOf("width" to 1920, "height" to 1080),
-                mapOf("width" to 1280, "height" to 720)
+override suspend fun getAvailableDevices(): List<CameraDevice> {
+    // Return the generated @Keep data classes — the bridge encodes them
+    // to the binary wire format (encode() → ByteArray) automatically
+    return listOf(
+        CameraDevice(
+            id = "front_0",
+            name = "Front Camera",
+            resolutions = listOf(
+                Resolution(width = 1920L, height = 1080L),
+                Resolution(width = 1280L, height = 720L)
             ),
-            "isFrontFacing" to true,
-            "focalLength" to null
+            isFrontFacing = true,
+            focalLength = null
         )
     )
-    return JSONArray(devices).toString()
 }
 ```
 
 ### Swift implementation
 
 ```swift
-public func getAvailableDevices() async throws -> String {
-    let devices: [[String: Any]] = [
-        [
-            "id": "front_0",
-            "name": "Front Camera",
-            "resolutions": [
-                ["width": 1920, "height": 1080],
-                ["width": 1280, "height": 720],
+public func getAvailableDevices() async throws -> [CameraDevice] {
+    // Return the generated structs — the bridge encodes them via toNative()
+    return [
+        CameraDevice(
+            id: "front_0",
+            name: "Front Camera",
+            resolutions: [
+                Resolution(width: 1920, height: 1080),
+                Resolution(width: 1280, height: 720),
             ],
-            "isFrontFacing": true,
-            "focalLength": NSNull()
-        ]
+            isFrontFacing: true,
+            focalLength: nil
+        )
     ]
-    let data = try JSONSerialization.data(withJSONObject: devices)
-    return String(data: data, encoding: .utf8) ?? "[]"
 }
 ```
 
-> **Why return `String` in Kotlin/Swift?**
-> At the FFI boundary, `@HybridRecord` always bridges as a UTF-8 JSON string (`const char*`).
-> The generated bridge protocol/interface uses `String` (or `suspend fun` returning `String`)
-> to match. Dart's generated `fromJson` / `toJson` handle the encoding automatically.
+> **How does it cross the bridge?**
+> At the FFI boundary, `@HybridRecord` bridges as a compact binary blob (`uint8_t*`).
+> Your Kotlin impl returns the generated `@Keep data class` instances — the bridge object
+> calls `encode()` → `ByteArray`. Your Swift impl returns the generated `struct`s — the
+> bridge calls `toNative()`. Dart's generated `fromNative` / `toNative` handle the codec
+> automatically.
 
 ### Performance notes
 
 | Operation | Cost | Notes |
 |---|---|---|
-| JSON encode (native → bridge) | ~1–10 µs | Amortised by `@nitroAsync` background dispatch |
-| UTF-8 copy (bridge → Dart) | ~0.1 µs | Single `toDartStringWithFree` call |
-| `jsonDecode` (Dart) | ~1–5 µs | Dart's built-in C-implemented decoder |
-| `fromJson` (Dart) | ~1 µs | Generated, no reflection |
+| Binary encode (native → bridge) | ~1 µs | Compact little-endian codec; amortised by `@nitroAsync` background dispatch |
+| Blob copy (bridge → Dart) | ~0.1 µs | Single length-prefixed `uint8_t*` buffer |
+| `fromNative` decode (Dart) | ~1 µs | Generated, no reflection or string parsing |
 
-Total overhead for 10 devices: **< 20 µs**. For realtime/hot-path data, use `@HybridStruct` + `@NitroStream` instead.
+Total overhead for 10 devices: **< 10 µs**. For realtime/hot-path data, use `@HybridStruct` + `@NitroStream` instead.
 
 ---
 

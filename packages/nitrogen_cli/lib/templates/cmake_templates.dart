@@ -12,15 +12,17 @@ const String localNitroNativeCmakePath = r'${CMAKE_CURRENT_SOURCE_DIR}/native';
 /// `if(NOT ANDROID)` so Android Kotlin builds skip the C++ impl stub.
 String cmakeModuleTarget(String lib, {bool isCpp = false, bool isAndroidCpp = false}) {
   final className = _toPascalCase(lib);
-  // Android C++: embed impl in add_library; Linux-only C++: guard with if(NOT ANDROID).
-  final implInLib = (isCpp && isAndroidCpp) ? '\n  "Hybrid$className.cpp"' : '';
-  final androidGuard = (isCpp && !isAndroidCpp) ? 'if(NOT ANDROID)\n  target_sources($lib PRIVATE "Hybrid$className.cpp")\nendif()\n' : '';
+  // Impl file is always added via a separate target_sources call below (not
+  // inlined into add_library's file list) so it can be overridden per-caller
+  // via NITRO_IMPL_SRC — see _implSourcesBlock. Android C++: unguarded
+  // (compiled on every platform this target builds for). Linux-only C++:
+  // guarded with if(NOT ANDROID) so Android Kotlin builds skip it.
+  final implSources = isCpp ? _implSourcesBlock(lib, className, unguarded: isAndroidCpp) : '';
   return '\nadd_library($lib SHARED\n'
-      '  "\${CMAKE_CURRENT_SOURCE_DIR}/../lib/src/generated/cpp/$lib.bridge.g.cpp"'
-      '$implInLib\n'
+      '  "\${CMAKE_CURRENT_SOURCE_DIR}/../lib/src/generated/cpp/$lib.bridge.g.cpp"\n'
       '  "dart_api_dl.c"\n'
       ')\n'
-      '$androidGuard'
+      '$implSources'
       'target_include_directories($lib PRIVATE\n'
       '  "\${CMAKE_CURRENT_SOURCE_DIR}"\n'
       '  "\${CMAKE_CURRENT_SOURCE_DIR}/../lib/src/generated/cpp"\n'
@@ -56,11 +58,13 @@ String generateCMakeContent(
     orElse: () => (lib: pluginName, module: pluginName, isNativeCpp: false, isAndroidCpp: false),
   );
   final mainClassName = _toPascalCase(mainInfo?.module ?? pluginName);
-  // Android C++: embed in add_library; Linux-only C++: guard with if(NOT ANDROID).
-  final mainImplInLib = (mainInfo?.isNativeCpp == true && mainInfo?.isAndroidCpp == true) ? '  "Hybrid$mainClassName.cpp"\n' : '';
-  final mainAndroidGuard = (mainInfo?.isNativeCpp == true && mainInfo?.isAndroidCpp != true)
-      ? 'if(NOT ANDROID)\n  target_sources($pluginName PRIVATE "Hybrid$mainClassName.cpp")\nendif()\n'
-      : '';
+  // Impl file is always added via a separate target_sources call below (not
+  // inlined into add_library's file list) so a Windows/Linux caller can
+  // override which file to compile via NITRO_IMPL_SRC — see
+  // _implSourcesBlock and needsSeparateWindowsImpl/needsSeparateLinuxImpl
+  // on ModuleInfo. Android C++: unguarded. Linux-only C++: guard with
+  // if(NOT ANDROID) so Android Kotlin builds skip it.
+  final mainImplSources = mainInfo?.isNativeCpp == true ? _implSourcesBlock(pluginName, mainClassName, unguarded: mainInfo?.isAndroidCpp == true) : '';
 
   final buf = StringBuffer()
     ..writeln('cmake_minimum_required(VERSION ${BuildVersions.cmakeMinimum})')
@@ -73,12 +77,11 @@ String generateCMakeContent(
     ..writeln(_linkChecksumStamp(linkChecksum))
     ..writeln()
     ..writeln('add_library($pluginName SHARED')
-    ..write(mainImplInLib)
     ..writeln('  "$pluginName.cpp"')
     ..writeln('  "\${CMAKE_CURRENT_SOURCE_DIR}/../lib/src/generated/cpp/$pluginName.bridge.g.cpp"')
     ..writeln('  "dart_api_dl.c"')
     ..writeln(')')
-    ..write(mainAndroidGuard)
+    ..write(mainImplSources)
     ..writeln('target_include_directories($pluginName PRIVATE')
     ..writeln('  "\${CMAKE_CURRENT_SOURCE_DIR}"')
     ..writeln('  "\${CMAKE_CURRENT_SOURCE_DIR}/../lib/src/generated/cpp"')
@@ -109,6 +112,39 @@ String generateCMakeContent(
     );
   }
   return buf.toString();
+}
+
+/// The CMake CACHE variable name a Windows/Linux caller sets (before
+/// `add_subdirectory("../src")`) to override which impl file gets compiled
+/// for [target] — see [_implSourcesBlock] and `_linkDesktopCMake` /
+/// `needsSeparateWindowsImpl` / `needsSeparateLinuxImpl` in link_command.dart.
+/// Keyed per-target (not one global name) so multi-spec plugins with several
+/// C++ module libraries in one src/CMakeLists.txt can override each
+/// independently.
+String nitroImplSrcVar(String target) => 'NITRO_IMPL_SRC_$target';
+
+/// Emits the target_sources call that adds the hand-maintained C++ impl file
+/// to [target]. Always prefers the caller-supplied [nitroImplSrcVar] CACHE
+/// variable when defined — this is how windows/CMakeLists.txt and
+/// linux/CMakeLists.txt (see _linkDesktopCMake in link_command.dart) point
+/// this shared src/CMakeLists.txt at their OWN platform-specific impl file
+/// instead of being forced to share one — falling back to the historical
+/// `Hybrid$className.cpp` name so plugins that never set it (the vast
+/// majority — anyone not targeting Windows-C++ AND Linux-C++
+/// simultaneously) see byte-identical output to before this existed.
+///
+/// [unguarded] true for Android-C++ (compiled unconditionally); false wraps
+/// the call in `if(NOT ANDROID)` so Android/Kotlin builds skip it.
+String _implSourcesBlock(String target, String className, {required bool unguarded}) {
+  final varName = nitroImplSrcVar(target);
+  final block =
+      'if(DEFINED $varName)\n'
+      '  target_sources($target PRIVATE "\${$varName}")\n'
+      'else()\n'
+      '  target_sources($target PRIVATE "Hybrid$className.cpp")\n'
+      'endif()\n';
+  if (unguarded) return block;
+  return 'if(NOT ANDROID)\n${block.split('\n').where((l) => l.isNotEmpty).map((l) => '  $l').join('\n')}\nendif()\n';
 }
 
 String _toPascalCase(String lib) => lib.split(RegExp(r'[_\-]')).map((w) => w.isEmpty ? '' : w[0].toUpperCase() + w.substring(1)).join('');

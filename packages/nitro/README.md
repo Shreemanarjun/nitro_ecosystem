@@ -429,13 +429,17 @@ NitroAnyMap getConfig();
 |---|---|
 | `AnyNativeObject` | Opaque native pointer stored as `int64_t`. Use `@NitroOwned` when Dart takes ownership. |
 | `NitroAnyValue` | Dynamic variant: null / bool / int / double / String / List / Map. Equivalent to a JSON value. |
-| `NitroAnyMap` | Typedef for `Map<String, NitroAnyValue>`. Equivalent to a JSON object. |
+| `NitroAnyMap` | Class: heterogeneous string-keyed map of `NitroAnyValue` entries with typed getters/setters (`getString`, `getInt`, `setBool`, …). Equivalent to a JSON object. |
 
 ```dart
 // Dart usage:
-final config = module.getConfig();  // NitroAnyMap
-final name = config['appName']?.asString;
-final version = config['buildNumber']?.asInt;
+final config = module.getConfig();             // NitroAnyMap
+final name = config.getString('appName');      // String?
+final version = config.getInt('buildNumber');  // int?
+
+// Building one to send to native:
+final map = NitroAnyMap.fromDynamic({'debug': true, 'retries': 3});
+map.setString('appName', 'demo');
 ```
 
 > Prefer `@HybridRecord` when the schema is known — it is significantly faster than `NitroAnyMap`.

@@ -239,6 +239,13 @@ String _generateCppDirect(BridgeSpec spec) {
           paramParts.add(_callbackParamToC(p, enumNames, structNames: structNames, recordNames: recordNames));
           continue;
         }
+        if (spec.isCustomTypeName(p.type.name.replaceFirst('?', ''))) {
+          // Must match cpp_header_generator.dart's declaration exactly
+          // (const uint8_t*, not the void* the generic branch below would
+          // give a user-defined type name).
+          paramParts.add('const uint8_t* ${p.name}');
+          continue;
+        }
         final isStructParam = structNames.contains(p.type.name.replaceFirst('?', ''));
         final isRecordParam = recordNames.contains(p.type.name.replaceFirst('?', ''));
         final isEnumParam = enumNames.contains(p.type.name.replaceFirst('?', ''));
@@ -259,8 +266,19 @@ String _generateCppDirect(BridgeSpec spec) {
           callArgs.add('std::string(${p.name})');
         } else if (structNames.contains(base)) {
           callArgs.add('*static_cast<const $base*>(${p.name})');
-        } else if (recordNames.contains(base)) {
-          callArgs.add('NitroCppBuffer{ (const uint8_t*)${p.name} + 4, (size_t)*(int32_t*)${p.name} }');
+        } else if (p.type.isRecord || variantNames.contains(base)) {
+          // Covers bare records/variants AND List<T>/Map<K,V> (any item/value
+          // type), which all share the same generic [4B len][payload] wire
+          // format — matches the sync-path check at isRecordParam below.
+          // A nullable record/variant param arrives as nullptr when the Dart
+          // caller omits it — the length-prefix deref below would segfault
+          // unguarded. Mirrors the already-correct sync-path guard a few
+          // lines below in this same file (isNullable branch).
+          if (p.type.isNullable) {
+            callArgs.add('${p.name} == nullptr ? NitroCppBuffer{ nullptr, 0 } : NitroCppBuffer{ (const uint8_t*)${p.name} + 4, (size_t)*(int32_t*)${p.name} }');
+          } else {
+            callArgs.add('NitroCppBuffer{ (const uint8_t*)${p.name} + 4, (size_t)*(int32_t*)${p.name} }');
+          }
         } else if (p.type.isTypedData) {
           callArgs.add(p.name);
           callArgs.add('static_cast<size_t>(${p.name}_length)');
@@ -336,6 +354,13 @@ String _generateCppDirect(BridgeSpec spec) {
     for (final p in func.params) {
       if (p.type.isFunction) {
         paramParts.add(_callbackParamToC(p, enumNames, structNames: structNames, recordNames: recordNames));
+        continue;
+      }
+      if (spec.isCustomTypeName(p.type.name.replaceFirst('?', ''))) {
+        // Must match cpp_header_generator.dart's declaration exactly
+        // (const uint8_t*, not the void* the generic branch below would
+        // give a user-defined type name).
+        paramParts.add('const uint8_t* ${p.name}');
         continue;
       }
       final isStructParam = structNames.contains(p.type.name.replaceFirst('?', ''));

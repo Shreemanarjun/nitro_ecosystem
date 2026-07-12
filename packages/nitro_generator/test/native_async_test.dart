@@ -3,6 +3,7 @@
 // Covers all four generators (Dart FFI, C++ bridge, C++ interface, Kotlin,
 // Swift) to ensure the correct code patterns are emitted for each return type.
 import 'package:nitro_generator/src/generators/languages/c_bridge/cpp_bridge_generator.dart';
+import 'package:nitro_generator/src/generators/languages/c_bridge/cpp_header_generator.dart';
 import 'package:nitro_generator/src/generators/languages/cpp_native/cpp_interface_generator.dart';
 import 'package:nitro_generator/src/generators/languages/dart/dart_ffi_generator.dart';
 import 'package:nitro_generator/src/generators/languages/kotlin/kotlin_generator.dart';
@@ -2515,4 +2516,276 @@ void main() {
       expect(out, contains('unpack: (raw) { NitroRuntime.throwIfOutParamErrorAndFree(_nitroErr); return'));
     });
   });
+
+  // ── GitHub #9: desktop C-bridge nullable record param segfault ───────────
+  //
+  // Reported against a real module (nitro_printing): an optional record
+  // param (e.g. `PrintSettings?`) arrives as nullptr when the Dart caller
+  // omits it, but the native-async desktop dispatch's record/variant param
+  // branch unconditionally did `*(int32_t*)ptr` to read the length prefix —
+  // a null-pointer deref/segfault before the impl ever runs. The sibling
+  // SYNC-path param branch (same file) already null-checks correctly; only
+  // the native-async branch was missing the guard.
+
+  group('CppBridgeGenerator — nullable record param on native-async desktop dispatch (GitHub #9 bug 2)', () {
+    test('mixed (Android JNI + Windows/Linux desktop C++): null-guards the length-prefix deref', () {
+      final out = CppBridgeGenerator.generate(_nullableRecordParamMixedSpec());
+      expect(
+        out,
+        contains(
+          'settings == nullptr ? NitroCppBuffer{ nullptr, 0 } : NitroCppBuffer{ (const uint8_t*)settings + 4, (size_t)*(int32_t*)settings }',
+        ),
+      );
+      // The old unguarded form must not appear anywhere (it would still
+      // compile — just segfault at runtime — so absence, not a compile
+      // error, is what this regression test locks in).
+      expect(out, isNot(contains('g_impl->printText(std::string(text), NitroCppBuffer{ (const uint8_t*)settings + 4')));
+    });
+
+    test('pure C++ (all platforms NativeImpl.cpp): null-guards the length-prefix deref', () {
+      final out = CppBridgeGenerator.generate(_nullableRecordParamCppOnlySpec());
+      expect(
+        out,
+        contains(
+          'settings == nullptr ? NitroCppBuffer{ nullptr, 0 } : NitroCppBuffer{ (const uint8_t*)settings + 4, (size_t)*(int32_t*)settings }',
+        ),
+      );
+      expect(out, isNot(contains('_impl->printText(std::string(text), NitroCppBuffer{ (const uint8_t*)settings + 4')));
+    });
+  });
+
+  group('CppBridgeGenerator — List/Map/callback params on native-async desktop dispatch (real-world CI regression)', () {
+    // Found via a real Windows/Linux CI build of nitro_type_coverage, not a
+    // unit test — the existing param-conversion coverage above only exercises
+    // JNI (Android) and "pure C++ everywhere" (cpp_direct_emitter.dart)
+    // configs. nitro_type_coverage uses the MIXED config exercised here
+    // (android: kotlin, ios: swift, windows/linux: cpp), which routes through
+    // _emitAppleCppDispatch's separate windows/linux branch in
+    // cpp_bridge_generator.dart — a third code path this file had no
+    // coverage for at all.
+    test('List<@HybridRecord> param is wrapped in NitroCppBuffer, not passed as a raw void*', () {
+      final out = CppBridgeGenerator.generate(_desktopListMapCallbackSpec());
+      expect(
+        out,
+        contains('g_impl->setItems(NitroCppBuffer{ (const uint8_t*)items + 4, (size_t)*(int32_t*)items }, _nitro_err, dart_port);'),
+      );
+      expect(out, isNot(contains('g_impl->setItems(items, _nitro_err, dart_port);')));
+    });
+
+    test('List<int> (primitive item) param is also wrapped in NitroCppBuffer', () {
+      final out = CppBridgeGenerator.generate(_desktopListMapCallbackSpec());
+      expect(
+        out,
+        contains('g_impl->setValues(NitroCppBuffer{ (const uint8_t*)values + 4, (size_t)*(int32_t*)values }, _nitro_err, dart_port);'),
+      );
+      expect(out, isNot(contains('g_impl->setValues(values, _nitro_err, dart_port);')));
+    });
+
+    test('Map<String,int> param is wrapped in NitroCppBuffer', () {
+      final out = CppBridgeGenerator.generate(_desktopListMapCallbackSpec());
+      expect(
+        out,
+        contains('g_impl->setCounts(NitroCppBuffer{ (const uint8_t*)counts + 4, (size_t)*(int32_t*)counts }, _nitro_err, dart_port);'),
+      );
+      expect(out, isNot(contains('g_impl->setCounts(counts, _nitro_err, dart_port);')));
+    });
+
+    test('callback param: C declaration uses a typed function pointer, matching the .h forward declaration', () {
+      final out = CppBridgeGenerator.generate(_desktopListMapCallbackSpec());
+      // The .h file (cpp_header_generator.dart) declares this symbol once,
+      // unconditionally, using the SAME _callbackParamToC-derived typed
+      // pointer — a mismatched `void* callback` definition here previously
+      // triggered MSVC/Clang's "conflicting types" / illegal extern "C"
+      // redeclaration error (C2733).
+      expect(out, contains('void nitro_desktop_test_on_progress(int64_t instanceId, int64_t value, void (*callback)(int64_t), NitroError* _nitro_err, int64_t dart_port) {'));
+      // Cross-check against the actual .h forward declaration — these two
+      // generators must never disagree on this symbol's signature.
+      final headerOut = CppHeaderGenerator.generate(_desktopListMapCallbackSpec());
+      expect(
+        headerOut,
+        contains('NITRO_EXPORT void nitro_desktop_test_on_progress(int64_t instanceId, int64_t value, void (*callback)(int64_t), NitroError* _nitro_err, int64_t dart_port);'),
+      );
+    });
+
+    test('callback param: call site wraps the raw function pointer in std::function via the adapter lambda', () {
+      final out = CppBridgeGenerator.generate(_desktopListMapCallbackSpec());
+      expect(out, contains('auto _rawfn_callback = reinterpret_cast<void (*)(int64_t)>(callback);'));
+      expect(out, contains('std::function<void(int64_t)> _fn_callback ='));
+      expect(out, contains('g_impl->onProgress(value, _fn_callback, _nitro_err, dart_port);'));
+      // The old bug passed the raw C pointer straight through — un-wrapped.
+      expect(out, isNot(contains('g_impl->onProgress(value, callback, _nitro_err, dart_port);')));
+    });
+  });
+
+  group('CppDirectEmitter — List/Map param on native-async (pure-C++-everywhere config)', () {
+    test('List<@HybridRecord> param is wrapped in NitroCppBuffer', () {
+      final spec = _desktopListMapCallbackSpec();
+      final cppOnlySpec = BridgeSpec(
+        dartClassName: spec.dartClassName,
+        lib: spec.lib,
+        namespace: spec.namespace,
+        androidImpl: NativeImpl.cpp,
+        iosImpl: NativeImpl.cpp,
+        sourceUri: spec.sourceUri,
+        recordTypes: spec.recordTypes,
+        functions: spec.functions,
+      );
+      final out = CppBridgeGenerator.generate(cppOnlySpec);
+      expect(
+        out,
+        contains('_impl->setItems(NitroCppBuffer{ (const uint8_t*)items + 4, (size_t)*(int32_t*)items }, _nitro_err, dart_port);'),
+      );
+      expect(out, isNot(contains('_impl->setItems(items, _nitro_err, dart_port);')));
+    });
+  });
 }
+
+BridgeSpec _desktopListMapCallbackSpec() => BridgeSpec(
+  dartClassName: 'DesktopTest',
+  lib: 'nitro_desktop_test',
+  namespace: 'nitro_desktop_test',
+  androidImpl: NativeImpl.kotlin,
+  iosImpl: NativeImpl.swift,
+  windowsImpl: NativeImpl.cpp,
+  linuxImpl: NativeImpl.cpp,
+  sourceUri: 'nitro_desktop_test.native.dart',
+  recordTypes: [
+    BridgeRecordType(
+      name: 'Item',
+      fields: [
+        BridgeRecordField(name: 'id', dartType: 'int', kind: RecordFieldKind.primitive),
+      ],
+    ),
+  ],
+  functions: [
+    // List<@HybridRecord> param.
+    BridgeFunction(
+      dartName: 'setItems',
+      cSymbol: 'nitro_desktop_test_set_items',
+      isAsync: false,
+      isNativeAsync: true,
+      returnType: BridgeType(name: 'void'),
+      params: [
+        BridgeParam(
+          name: 'items',
+          type: BridgeType(name: 'List<Item>', isRecord: true, recordListItemType: 'Item'),
+        ),
+      ],
+    ),
+    // List<primitive> param.
+    BridgeFunction(
+      dartName: 'setValues',
+      cSymbol: 'nitro_desktop_test_set_values',
+      isAsync: false,
+      isNativeAsync: true,
+      returnType: BridgeType(name: 'void'),
+      params: [
+        BridgeParam(
+          name: 'values',
+          type: BridgeType(name: 'List<int>', isRecord: true, recordListItemType: 'int', recordListItemIsPrimitive: true),
+        ),
+      ],
+    ),
+    // Map<String,int> param.
+    BridgeFunction(
+      dartName: 'setCounts',
+      cSymbol: 'nitro_desktop_test_set_counts',
+      isAsync: false,
+      isNativeAsync: true,
+      returnType: BridgeType(name: 'void'),
+      params: [
+        BridgeParam(
+          name: 'counts',
+          type: BridgeType(name: 'Map<String, int>', isMap: true, isRecord: true),
+        ),
+      ],
+    ),
+    // Callback param.
+    BridgeFunction(
+      dartName: 'onProgress',
+      cSymbol: 'nitro_desktop_test_on_progress',
+      isAsync: false,
+      isNativeAsync: true,
+      returnType: BridgeType(name: 'void'),
+      params: [
+        BridgeParam(name: 'value', type: BridgeType(name: 'int')),
+        BridgeParam(
+          name: 'callback',
+          type: BridgeType(
+            name: 'void Function(int)',
+            isFunction: true,
+            functionReturnType: 'void',
+            functionParams: [BridgeType(name: 'int')],
+          ),
+        ),
+      ],
+    ),
+  ],
+);
+
+BridgeSpec _nullableRecordParamMixedSpec() => BridgeSpec(
+  dartClassName: 'Printer',
+  lib: 'printer',
+  namespace: 'printer',
+  androidImpl: NativeImpl.kotlin,
+  windowsImpl: NativeImpl.cpp,
+  linuxImpl: NativeImpl.cpp,
+  sourceUri: 'printer.native.dart',
+  recordTypes: [
+    BridgeRecordType(
+      name: 'PrintSettings',
+      fields: [
+        BridgeRecordField(name: 'copies', dartType: 'int', kind: RecordFieldKind.primitive),
+      ],
+    ),
+  ],
+  functions: [
+    BridgeFunction(
+      dartName: 'printText',
+      cSymbol: 'printer_print_text',
+      isAsync: false,
+      isNativeAsync: true,
+      returnType: BridgeType(name: 'void'),
+      params: [
+        BridgeParam(name: 'text', type: BridgeType(name: 'String')),
+        BridgeParam(
+          name: 'settings',
+          type: BridgeType(name: 'PrintSettings?', isRecord: true, isNullable: true),
+        ),
+      ],
+    ),
+  ],
+);
+
+BridgeSpec _nullableRecordParamCppOnlySpec() => BridgeSpec(
+  dartClassName: 'Printer',
+  lib: 'printer',
+  namespace: 'printer',
+  androidImpl: NativeImpl.cpp,
+  iosImpl: NativeImpl.cpp,
+  sourceUri: 'printer.native.dart',
+  recordTypes: [
+    BridgeRecordType(
+      name: 'PrintSettings',
+      fields: [
+        BridgeRecordField(name: 'copies', dartType: 'int', kind: RecordFieldKind.primitive),
+      ],
+    ),
+  ],
+  functions: [
+    BridgeFunction(
+      dartName: 'printText',
+      cSymbol: 'printer_print_text',
+      isAsync: false,
+      isNativeAsync: true,
+      returnType: BridgeType(name: 'void'),
+      params: [
+        BridgeParam(name: 'text', type: BridgeType(name: 'String')),
+        BridgeParam(
+          name: 'settings',
+          type: BridgeType(name: 'PrintSettings?', isRecord: true, isNullable: true),
+        ),
+      ],
+    ),
+  ],
+);

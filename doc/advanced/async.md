@@ -214,7 +214,7 @@ Adjust the threshold:
 
 ```dart
 NitroConfig.instance
-  ..slowCallThresholdMicros = 50000  // 50 ms
+  ..slowCallThresholdUs = 50000  // 50 ms
   ..enable();
 ```
 
@@ -233,5 +233,3 @@ NitroConfig.instance
 ```
 
 Every `callSync`, `callAsync`, and `openNativeAsync` call appears in the Flutter DevTools Timeline with the method name.
-</content>
-</invoke>

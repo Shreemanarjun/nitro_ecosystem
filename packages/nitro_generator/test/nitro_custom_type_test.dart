@@ -189,4 +189,120 @@ void main() {
       expect(out, contains('malloc((size_t)ct_len)'));
     });
   });
+
+  // ── @NitroCustomType — C++ desktop dispatch param declaration consistency ──
+  //
+  // Found via an audit (not a real CI failure) prompted by the earlier
+  // List/Map/callback native-async param bug: cpp_header_generator.dart
+  // declares a @NitroCustomType param as `const uint8_t*`, but neither
+  // cpp_bridge_generator.dart's sync/native-async desktop dispatch nor
+  // cpp_direct_emitter.dart's pure-C++ dispatch special-cased CustomType at
+  // all — both fell through to the generic branch, which defaults to
+  // `void*`. Declaring the SAME extern "C" symbol with two different
+  // parameter types is a hard MSVC/Clang "conflicting types" compile error
+  // (the exact same failure class as GitHub #9 bug 1 and the callback bug),
+  // for BOTH sync and native-async, on BOTH desktop dispatch paths — never
+  // caught because no existing test exercised @NitroCustomType together
+  // with windows/linux NativeImpl.cpp.
+  group('@NitroCustomType — desktop dispatch declares the SAME type as the .h file', () {
+    String firstDeclLine(String text, String needle) => text.split('\n').firstWhere((l) => l.contains(needle));
+
+    test('mixed platform (android:kotlin, windows/linux:cpp), sync: .h and .cpp both use const uint8_t*', () {
+      final h = CppHeaderGenerator.generate(_mixedPlatformSpec());
+      final cpp = CppBridgeGenerator.generate(_mixedPlatformSpec());
+      final hLine = firstDeclLine(h, 'graphics_set_color_sync(');
+      final winLinuxSection = cpp.substring(cpp.indexOf('Windows/Linux: NativeImpl.cpp'));
+      final cppLine = firstDeclLine(winLinuxSection, 'void graphics_set_color_sync(');
+      expect(hLine, contains('const uint8_t* color'));
+      expect(cppLine, contains('const uint8_t* color'));
+      expect(cppLine, isNot(contains('void* color')));
+    });
+
+    test('mixed platform, native-async: .h and .cpp both use const uint8_t*', () {
+      final h = CppHeaderGenerator.generate(_mixedPlatformSpec());
+      final cpp = CppBridgeGenerator.generate(_mixedPlatformSpec());
+      final hLine = firstDeclLine(h, 'graphics_set_color(');
+      final winLinuxSection = cpp.substring(cpp.indexOf('Windows/Linux: NativeImpl.cpp'));
+      final cppLine = firstDeclLine(winLinuxSection, 'void graphics_set_color(');
+      expect(hLine, contains('const uint8_t* color'));
+      expect(cppLine, contains('const uint8_t* color'));
+      expect(cppLine, isNot(contains('void* color')));
+    });
+
+    test('pure C++ everywhere (android+ios both cpp), sync: .h and .cpp both use const uint8_t*', () {
+      final h = CppHeaderGenerator.generate(_cppOnlySpec());
+      final cpp = CppBridgeGenerator.generate(_cppOnlySpec());
+      final hLine = firstDeclLine(h, 'graphics_set_color_sync(');
+      final cppLine = cpp.split('\n').firstWhere((l) => l.trim().startsWith('void graphics_set_color_sync('));
+      expect(hLine, contains('const uint8_t* color'));
+      expect(cppLine, contains('const uint8_t* color'));
+      expect(cppLine, isNot(contains('void* color')));
+    });
+
+    test('pure C++ everywhere, native-async: .h and .cpp both use const uint8_t*', () {
+      final h = CppHeaderGenerator.generate(_cppOnlySpec());
+      final cpp = CppBridgeGenerator.generate(_cppOnlySpec());
+      final hLine = firstDeclLine(h, 'graphics_set_color(');
+      final cppLine = cpp.split('\n').firstWhere((l) => l.trim().startsWith('void graphics_set_color('));
+      expect(hLine, contains('const uint8_t* color'));
+      expect(cppLine, contains('const uint8_t* color'));
+      expect(cppLine, isNot(contains('void* color')));
+    });
+  });
 }
+
+BridgeSpec _mixedPlatformSpec() => BridgeSpec(
+  dartClassName: 'Graphics',
+  lib: 'graphics',
+  namespace: 'graphics',
+  androidImpl: NativeImpl.kotlin,
+  iosImpl: NativeImpl.swift,
+  windowsImpl: NativeImpl.cpp,
+  linuxImpl: NativeImpl.cpp,
+  sourceUri: 'graphics.native.dart',
+  customTypes: [_colorCodec],
+  functions: [
+    BridgeFunction(
+      dartName: 'setColor',
+      cSymbol: 'graphics_set_color',
+      isAsync: false,
+      isNativeAsync: true,
+      returnType: BridgeType(name: 'void'),
+      params: [BridgeParam(name: 'color', type: BridgeType(name: 'Color'))],
+    ),
+    BridgeFunction(
+      dartName: 'setColorSync',
+      cSymbol: 'graphics_set_color_sync',
+      isAsync: false,
+      returnType: BridgeType(name: 'void'),
+      params: [BridgeParam(name: 'color', type: BridgeType(name: 'Color'))],
+    ),
+  ],
+);
+
+BridgeSpec _cppOnlySpec() => BridgeSpec(
+  dartClassName: 'Graphics',
+  lib: 'graphics',
+  namespace: 'graphics',
+  androidImpl: NativeImpl.cpp,
+  iosImpl: NativeImpl.cpp,
+  sourceUri: 'graphics.native.dart',
+  customTypes: [_colorCodec],
+  functions: [
+    BridgeFunction(
+      dartName: 'setColor',
+      cSymbol: 'graphics_set_color',
+      isAsync: false,
+      isNativeAsync: true,
+      returnType: BridgeType(name: 'void'),
+      params: [BridgeParam(name: 'color', type: BridgeType(name: 'Color'))],
+    ),
+    BridgeFunction(
+      dartName: 'setColorSync',
+      cSymbol: 'graphics_set_color_sync',
+      isAsync: false,
+      returnType: BridgeType(name: 'void'),
+      params: [BridgeParam(name: 'color', type: BridgeType(name: 'Color'))],
+    ),
+  ],
+);

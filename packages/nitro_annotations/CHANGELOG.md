@@ -1,3 +1,8 @@
+# 0.5.10
+
+- **Ecosystem sync** — Aligned with `nitro_generator` 0.5.10's desktop C-bridge fixes ([#9](https://github.com/Shreemanarjun/nitro_ecosystem/issues/9)). No functional changes to this package — see `nitro_generator`'s changelog, and regenerate your plugin to pick it up.
+- **Doc update, no code change**: documented `nitrogen link`'s new meaning for the `WindowsNativeImpl.cpp`/`LinuxNativeImpl.cpp` marker types vs. the generic `NativeImpl.cpp` shorthand (see `nitrogen_cli`'s changelog) — writing the platform-specific marker is now also an explicit signal for that platform to get its own implementation file. `NativeImpl.windows` and `WindowsNativeImpl.cpp` (same for Linux) remain `identical()` at the Dart type level, exactly as before; this is purely a `nitrogen`-tooling convention read from your annotation's source text, with no bearing on type-checking behavior.
+
 # 0.5.9
 
 - **Ecosystem sync** — Aligned with `nitro_generator` 0.5.9's `@nitroNativeAsync` error-propagation fix. No functional changes to this package — see `nitro_generator`'s changelog, and regenerate your plugin to pick it up.

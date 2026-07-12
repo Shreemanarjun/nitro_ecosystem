@@ -92,13 +92,43 @@ class PlatformTargetAnalyzer {
   }
 
   /// Parses the annotation from already-loaded [content] (zero file reads).
+  ///
+  /// Uses balanced-paren scanning (not a `[^)]+` regex) to find the matching
+  /// close paren — a plain `[^)]+` stops at the FIRST `)` regardless of
+  /// nesting, silently truncating the captured annotation (and every
+  /// getter's regex along with it) the moment any `)` appears before the
+  /// real end — including inside an ordinary parenthesized comment like
+  /// `// (see the docs)` sitting between two annotation params. Found via a
+  /// real, self-inflicted repro: adding exactly such a comment to
+  /// nitro_type_coverage's @NitroModule made every getter on this class
+  /// silently return false.
   factory PlatformTargetAnalyzer.fromContent(String content) {
-    final match = RegExp(
-      r'@NitroModule\s*\(([^)]+)\)',
-      dotAll: true,
-    ).firstMatch(content);
-    final annotation = match == null ? '' : match.group(1)!.replaceAll('\n', ' ');
-    return PlatformTargetAnalyzer._(annotation);
+    final startMatch = RegExp(r'@NitroModule\s*\(').firstMatch(content);
+    if (startMatch == null) return PlatformTargetAnalyzer._('');
+    final body = _scanBalancedParens(content, startMatch.end);
+    return PlatformTargetAnalyzer._(body.replaceAll('\n', ' '));
+  }
+
+  /// Returns the text between [openParenIndex] (the index right after the
+  /// opening `(` that started this scan — i.e. depth is already 1 there) and
+  /// its matching close paren, tracking nesting depth so an inner balanced
+  /// `(...)` — e.g. inside a comment — doesn't end the scan early. Returns
+  /// everything to the end of [content] if no matching close paren is found
+  /// (malformed source — callers get whatever text is available rather than
+  /// an empty string, matching the old regex's graceful-degradation shape).
+  static String _scanBalancedParens(String content, int openParenIndex) {
+    var depth = 1;
+    for (var i = openParenIndex; i < content.length; i++) {
+      final ch = content.codeUnitAt(i);
+      if (ch == 0x28) {
+        depth++; // (
+      } else if (ch == 0x29) {
+        // )
+        depth--;
+        if (depth == 0) return content.substring(openParenIndex, i);
+      }
+    }
+    return content.substring(openParenIndex);
   }
 
   /// True when at least one platform uses direct C++ (broad check).
@@ -131,6 +161,39 @@ class PlatformTargetAnalyzer {
   /// True when Windows uses direct C++ (windows/CMakeLists.txt path).
   bool get supportsWindows => RegExp(
     r'\bwindows\s*:\s*(?:NativeImpl|WindowsNativeImpl)\.cpp\b',
+  ).hasMatch(_annotation);
+
+  /// True when Linux uses direct C++ — distinct from isNativeCpp, which is
+  /// true for android OR linux and can't tell them apart.
+  bool get supportsLinux => RegExp(
+    r'\blinux\s*:\s*(?:NativeImpl|LinuxNativeImpl)\.cpp\b',
+  ).hasMatch(_annotation);
+
+  /// True when the annotation spells Windows's implementation using the
+  /// SPECIFIC `WindowsNativeImpl.cpp` marker rather than the generic
+  /// `NativeImpl.cpp` shorthand. Both resolve to the identical `CppImpl`
+  /// singleton at the type level (see nitro_annotations/lib/src/annotations.dart) —
+  /// this distinction only exists in the SOURCE TEXT, which is exactly what
+  /// this (link-time, regex-based) analyzer reads.
+  ///
+  /// Used as an explicit, opt-in request for Windows to get its own
+  /// `windows/src/Hybrid<Class>.cpp` instead of sharing `src/Hybrid<Class>.cpp`
+  /// with Linux/Android — see hasCustomPlatformImpl for the other (implicit,
+  /// file-content-driven) way to reach the same outcome. Writing the
+  /// per-platform type name is already nitro_annotations' "recommended"
+  /// style for clarity; this makes choosing it also mean "this platform may
+  /// diverge," which a plugin author reads for immediately rather than
+  /// having to have already written platform-specific code for it to apply.
+  bool get requestsSeparateWindowsImpl => RegExp(
+    r'\bwindows\s*:\s*WindowsNativeImpl\.cpp\b',
+  ).hasMatch(_annotation);
+
+  /// True when the annotation spells Linux's implementation using the
+  /// SPECIFIC `LinuxNativeImpl.cpp` marker rather than the generic
+  /// `NativeImpl.cpp` shorthand. See [requestsSeparateWindowsImpl] — same
+  /// mechanism, independent per platform.
+  bool get requestsSeparateLinuxImpl => RegExp(
+    r'\blinux\s*:\s*LinuxNativeImpl\.cpp\b',
   ).hasMatch(_annotation);
 
   /// True when Android or Linux use direct C++ (src/CMakeLists.txt NDK/GCC path).
@@ -171,6 +234,13 @@ bool isMacosCppModule(File specFile) => PlatformTargetAnalyzer.fromSpec(specFile
 /// Windows C++ modules use `windows/CMakeLists.txt` (not the shared `src/`)
 /// and need their own impl stub created in `windows/src/`.
 bool isWindowsCppModule(File specFile) => PlatformTargetAnalyzer.fromSpec(specFile).supportsWindows;
+
+/// Returns true when the spec file uses direct C++ for **Linux**. A Linux-C++
+/// module always gets a `linux/src/HybridXxx.cpp` starter stub created (see
+/// [linkLinuxCppImplStubs]) — whether it's actually USED instead of the
+/// shared `src/HybridXxx.cpp` is a separate, opt-in decision driven by file
+/// content (see [hasCustomPlatformImpl]), independent of Windows.
+bool isLinuxCppModule(File specFile) => PlatformTargetAnalyzer.fromSpec(specFile).supportsLinux;
 
 /// Returns true when the spec file uses direct C++ for **Android or Linux** —
 /// the platforms that share `src/CMakeLists.txt` (Android NDK / Linux GCC).
@@ -213,6 +283,19 @@ class ModuleInfo {
   /// Windows too (windows/CMakeLists.txt delegates to ../src), so the
   /// auto-register guard must include _WIN32.
   final bool windowsIsCpp;
+
+  /// True when `linux: NativeImpl.cpp` — distinct from isNativeCpp (android
+  /// OR linux).
+  final bool linuxIsCpp;
+
+  /// True when the annotation used `windows: WindowsNativeImpl.cpp` (the
+  /// specific marker) rather than `windows: NativeImpl.cpp` (the generic
+  /// shorthand) — see PlatformTargetAnalyzer.requestsSeparateWindowsImpl.
+  /// An explicit, immediate request for Windows to get its own impl file.
+  final bool windowsRequestsSeparateImpl;
+
+  /// Same as [windowsRequestsSeparateImpl], for `linux: LinuxNativeImpl.cpp`.
+  final bool linuxRequestsSeparateImpl;
   const ModuleInfo({
     required this.lib,
     required this.module,
@@ -222,8 +305,37 @@ class ModuleInfo {
     this.iosIsCpp = false,
     this.macosIsCpp = false,
     this.windowsIsCpp = false,
+    this.linuxIsCpp = false,
+    this.windowsRequestsSeparateImpl = false,
+    this.linuxRequestsSeparateImpl = false,
   });
+
   Map<String, String> toMap() => {'lib': lib, 'module': module};
+}
+
+/// Marker left in a fresh, never-touched `Hybrid$className.cpp` stub — see
+/// [cppImplStubContent] / [windowsCppStubContent] / [linuxCppStubContent] in
+/// templates/cpp_stubs.dart. Its presence means nobody has started writing
+/// real code in that file yet.
+const String _implStubTodoMarker = 'TODO: implement all pure-virtual methods declared in Hybrid';
+
+/// Whether Windows or Linux should get its OWN impl file instead of sharing
+/// `src/Hybrid$className.cpp` — driven entirely by what's actually on disk,
+/// not by annotation config, so both "keep everything in one shared file"
+/// and "diverge Windows and Linux" stay available as a plugin-author choice
+/// (some plugins want one file for easier maintenance when the logic really
+/// is identical; others want Windows and Linux to genuinely diverge — e.g.
+/// different threading primitives, platform intrinsics).
+///
+/// True only when `$baseDir/$platform/src/Hybrid$className.cpp` exists AND
+/// has moved past the auto-generated starter stub (no longer contains
+/// [_implStubTodoMarker]) — i.e. the plugin author actually started writing
+/// platform-specific code there. An untouched stub (or no file at all) means
+/// "keep sharing" — nitrogen never forces a plugin onto the separated shape.
+bool hasCustomPlatformImpl(String baseDir, String platform, String className) {
+  final f = File(p.join(baseDir, platform, 'src', 'Hybrid$className.cpp'));
+  if (!f.existsSync()) return false;
+  return !f.readAsStringSync().contains(_implStubTodoMarker);
 }
 
 List<ModuleInfo> discoverModuleInfos(
@@ -262,6 +374,9 @@ List<ModuleInfo> discoverModuleInfos(
           iosIsCpp: analyzer.supportsIosCpp,
           macosIsCpp: analyzer.supportsMacosCpp,
           windowsIsCpp: analyzer.supportsWindows,
+          linuxIsCpp: analyzer.supportsLinux,
+          windowsRequestsSeparateImpl: analyzer.requestsSeparateWindowsImpl,
+          linuxRequestsSeparateImpl: analyzer.requestsSeparateLinuxImpl,
         ),
       );
     }
@@ -1296,18 +1411,22 @@ void _removeSwiftGlobFromPodspec(File podspecFile) {
 /// For each NativeImpl.cpp module that targets Android, Linux, iOS, or macOS,
 /// creates a starter `src/Hybrid${Module}.cpp` stub if one doesn't already exist.
 ///
-/// Windows-only C++ modules get their own stub in `windows/src/` (see
-/// [linkWindowsCppImplStubs]) and are excluded here.
-///
-/// The generated stub includes a per-platform `#if` guard on the auto-register
-/// call so it fires only on the platforms where the C++ bridge is actually used.
+/// Always created for Android/Linux/iOS/macOS-C++ modules — this is the
+/// shared, single-file default every plugin starts from, kept regardless of
+/// whether Windows and/or Linux later diverge into their own
+/// `windows/src/` / `linux/src/` file (see [hasCustomPlatformImpl] —
+/// separation is opt-in per platform by actually writing code in that
+/// file, not automatic just because a module targets NativeImpl.cpp on
+/// both desktop platforms). A plugin that never diverges keeps this ONE
+/// file as its only impl, on purpose — sharing genuinely-identical logic
+/// across platforms is often the better choice, not a fallback.
 void linkCppImplStubs(List<ModuleInfo> moduleInfos, {String baseDir = '.'}) {
   // Ensure src/ exists before writing stubs (createSync is idempotent).
   Directory(p.join(baseDir, 'src')).createSync(recursive: true);
 
   // Only create stubs for modules whose src/ file is actually compiled:
   // android/linux (isNativeCpp), iOS (iosIsCpp), or macOS (macosIsCpp).
-  // Windows-only modules use windows/src/ instead.
+  // Windows-only modules use windows/src/ instead (see linkWindowsCppImplStubs).
   for (final m in moduleInfos.where(
     (m) => m.isNativeCpp || m.iosIsCpp || m.macosIsCpp,
   )) {
@@ -2533,6 +2652,53 @@ void _linkDesktopCMake(
   }
 
   if (usesSharedSrc) {
+    // Point src/CMakeLists.txt at THIS platform's own impl file instead of
+    // the file it'd otherwise share with the other desktop platform.
+    // Two independent, either-is-sufficient ways to opt in:
+    //   1. Implicit / gradual: the plugin author has actually started
+    //      writing code in $platform/src/Hybrid<Class>.cpp (see
+    //      hasCustomPlatformImpl) — an untouched stub doesn't count.
+    //   2. Explicit / immediate: the annotation spells this platform's impl
+    //      using its specific marker type (`WindowsNativeImpl.cpp` /
+    //      `LinuxNativeImpl.cpp`) rather than the generic `NativeImpl.cpp`
+    //      shorthand (see requestsSeparateWindowsImpl/requestsSeparateLinuxImpl)
+    //      — linkWindowsCppImplStubs/linkLinuxCppImplStubs migrate the
+    //      shared file's content into the new location the first time this
+    //      fires, so activating is a location change, not a behavior change.
+    // Neither path applies just because a module targets NativeImpl.cpp on
+    // both desktop platforms — some plugins want one shared file because the
+    // logic really is identical across them; others want Windows and Linux
+    // to diverge. Both are valid, ongoing choices. Must run before
+    // add_subdirectory("../src") so the variable is visible when
+    // src/CMakeLists.txt's target_sources(... $NITRO_IMPL_SRC_<lib> ...)
+    // call reads it.
+    final needsOwnImpl = moduleInfos
+            ?.where(
+              (m) =>
+                  (platform == 'windows' ? m.windowsIsCpp : m.linuxIsCpp) &&
+                  ((platform == 'windows' ? m.windowsRequestsSeparateImpl : m.linuxRequestsSeparateImpl) || hasCustomPlatformImpl(baseDir, platform, _toPascalCase(m.lib))),
+            )
+            .toList() ??
+        const <ModuleInfo>[];
+    if (needsOwnImpl.isNotEmpty) {
+      final addSubdirMatch = RegExp(r'add_subdirectory\([^)]+\)').firstMatch(content);
+      if (addSubdirMatch != null) {
+        final setLines = StringBuffer();
+        for (final m in needsOwnImpl) {
+          final varName = ct.nitroImplSrcVar(m.lib);
+          if (content.contains('set($varName ')) continue; // already wired, idempotent
+          // Matches linkWindowsCppImplStubs/linkLinuxCppImplStubs's filename
+          // convention exactly (Hybrid$className.cpp, className from m.lib).
+          final className = _toPascalCase(m.lib);
+          setLines.writeln('set($varName "\${CMAKE_CURRENT_SOURCE_DIR}/src/Hybrid$className.cpp")');
+        }
+        if (setLines.isNotEmpty) {
+          content = content.replaceFirst(addSubdirMatch.group(0)!, '$setLines${addSubdirMatch.group(0)!}');
+          modified = true;
+        }
+      }
+    }
+
     // Two distinct shapes share the "add_subdirectory(../src)" marker:
     //   1. Pure shared-src (single-spec FFI plugins, e.g. nitro_torch): the
     //      Nitro module library IS the only target; `${PLUGIN_NAME}` is
@@ -2813,7 +2979,142 @@ void linkAndroid(
     modified = true;
   }
 
+  // 4. Ensure consumerProguardFiles "consumer-rules.pro" is wired into
+  //    defaultConfig for any module using the Kotlin JNI bridge — otherwise
+  //    linkAndroidConsumerRules's generated keep rules are never actually
+  //    applied to a consuming app's release build (silently a no-op).
+  final hasKotlinModule = moduleInfos?.any((m) => !m.isAndroidCpp) ?? true;
+  if (hasKotlinModule && !content.contains('consumerProguardFiles')) {
+    final consumerRulesLine = isKts ? '            consumerProguardFiles("consumer-rules.pro")' : '            consumerProguardFiles "consumer-rules.pro"';
+    final defaultConfigMatch = RegExp(r'\bdefaultConfig\s*\{').firstMatch(content);
+    if (defaultConfigMatch != null) {
+      // Must end with its OWN trailing newline, not just start with one —
+      // `defaultConfig { minSdk = 24 }` (a real, valid single-line block) is
+      // common in hand-trimmed plugin scaffolds; inserting without a
+      // trailing newline here would splice onto whatever follows on that
+      // same line (`consumerProguardFiles "..." minSdk = 24 }`), corrupting
+      // the file rather than adding a clean, separate statement.
+      content = content.replaceRange(
+        defaultConfigMatch.end,
+        defaultConfigMatch.end,
+        '\n$consumerRulesLine\n',
+      );
+    } else {
+      final androidMatch = RegExp(r'\bandroid\s*\{').firstMatch(content);
+      final block = '\n    defaultConfig {\n$consumerRulesLine\n    }';
+      if (androidMatch != null) {
+        content = content.replaceRange(androidMatch.end, androidMatch.end, block);
+      } else {
+        content += '\nandroid {$block\n}\n';
+      }
+    }
+    modified = true;
+    // Safety net: consumerProguardFiles pointing at a missing file is a
+    // build error, not a harmless no-op — create an empty placeholder if
+    // linkAndroidConsumerRules hasn't run yet (or won't, e.g. call-order
+    // dependent). linkAndroidConsumerRules fills in the real content later.
+    final rulesFile = File(p.join(baseDir, 'android', 'consumer-rules.pro'));
+    if (!rulesFile.existsSync()) rulesFile.writeAsStringSync('');
+  }
+
   if (modified) buildGradle.writeAsStringSync(content);
+}
+
+/// Marker delimiting the block linkAndroidConsumerRules owns inside
+/// `android/consumer-rules.pro` — anything outside it is the plugin author's
+/// own rules and is left untouched.
+const String _nitroConsumerRulesBeginMarker = '# --- BEGIN nitrogen-generated JNI keep rules (do not edit by hand — regenerated by `nitrogen link`) ---';
+const String _nitroConsumerRulesEndMarker = '# --- END nitrogen-generated JNI keep rules ---';
+
+/// Writes/patches `android/consumer-rules.pro` with the R8/ProGuard keep
+/// rules every Kotlin-on-Android Nitro module needs.
+///
+/// The generated JNI bridge (`nitro.<lib>_module.<Module>JniBridge`) and the
+/// hand-written impl (under the plugin's Android `namespace`) are reached
+/// from C++ via `FindClass` + `GetStaticMethodID` by exact name AND
+/// signature — R8 has no static-analysis visibility into that, so without
+/// these rules it may rename, remove, or (in "full mode") mis-optimize them.
+///
+/// Uses `includedescriptorclasses` — not a stronger form of a plain `-keep`,
+/// a DIFFERENT protection: plain `-keep class X { *; }` only protects a
+/// member from removal/renaming, not the parameter/return TYPES referenced
+/// in its signature. For methods JNI calls by exact signature (every
+/// `_call` trampoline, several of which take many long/data-class params
+/// for suspend methods), an altered parameter type produces a VerifyError
+/// at the exact call site — a real, previously-hit crash
+/// ("VerifyError ... Long (Low Half)"), not a hypothetical one. This is
+/// ProGuard's own documented remedy for native/JNI-called methods.
+///
+/// Idempotent and additive: only touches the marked block (creating it if
+/// absent), never the rest of the file, so a plugin author's own rules for
+/// unrelated dependencies survive every `nitrogen link` run. Re-derives the
+/// block's content from the CURRENT module list each time, so e.g. adding a
+/// second Nitro module to the plugin updates the keep rules automatically.
+void linkAndroidConsumerRules(
+  List<Map<String, String>> kotlinModules, {
+  String baseDir = '.',
+}) {
+  if (kotlinModules.isEmpty) return;
+  final androidDir = Directory(p.join(baseDir, 'android'));
+  if (!androidDir.existsSync()) return;
+
+  String? namespace;
+  for (final candidate in [
+    File(p.join(baseDir, 'android', 'build.gradle')),
+    File(p.join(baseDir, 'android', 'build.gradle.kts')),
+  ]) {
+    if (!candidate.existsSync()) continue;
+    final m = RegExp(r'''namespace\s*=?\s*["']([^"']+)["']''').firstMatch(candidate.readAsStringSync());
+    if (m != null) namespace = m.group(1);
+    break;
+  }
+
+  final bridgePackages = kotlinModules.map((m) => 'nitro.${(m['lib'] ?? '').replaceAll('-', '_')}_module').toSet().toList()..sort();
+
+  final block = StringBuffer()
+    ..writeln(_nitroConsumerRulesBeginMarker)
+    ..writeln('# The generated Nitro JNI bridge and its hand-written impl are reached')
+    ..writeln('# from C++ via FindClass + GetStaticMethodID by exact name and signature.')
+    ..writeln('# includedescriptorclasses additionally keeps the parameter/return types')
+    ..writeln('# referenced in those signatures — without it R8 full mode can still')
+    ..writeln('# rename/merge them, producing a VerifyError at the JNI call site even')
+    ..writeln('# though the method itself is "kept". See linkAndroidConsumerRules in')
+    ..writeln('# nitrogen_cli for the full explanation.');
+  for (final pkg in bridgePackages) {
+    block.writeln('-keep,includedescriptorclasses class $pkg.** {');
+    block.writeln('    *;');
+    block.writeln('}');
+  }
+  if (namespace != null) {
+    block.writeln('-keep,includedescriptorclasses class $namespace.** {');
+    block.writeln('    *;');
+    block.writeln('}');
+  }
+  block
+    ..writeln()
+    ..writeln('# JNI resolves native methods (Kotlin `external fun`) by exact name AND')
+    ..writeln('# signature — includedescriptorclasses protects their parameter/return')
+    ..writeln('# types too, not just their names.')
+    ..writeln('-keepclasseswithmembernames,includedescriptorclasses class * {')
+    ..writeln('    native <methods>;')
+    ..writeln('}')
+    ..write(_nitroConsumerRulesEndMarker);
+
+  final rulesFile = File(p.join(androidDir.path, 'consumer-rules.pro'));
+  final existing = rulesFile.existsSync() ? rulesFile.readAsStringSync() : '';
+  final markerPattern = RegExp(
+    '${RegExp.escape(_nitroConsumerRulesBeginMarker)}.*?${RegExp.escape(_nitroConsumerRulesEndMarker)}',
+    dotAll: true,
+  );
+  final String updated;
+  if (markerPattern.hasMatch(existing)) {
+    updated = existing.replaceFirst(markerPattern, block.toString());
+  } else if (existing.trim().isEmpty) {
+    updated = '$block\n';
+  } else {
+    updated = '${existing.trimRight()}\n\n$block\n';
+  }
+  if (updated != existing) rulesFile.writeAsStringSync(updated);
 }
 
 /// Returns the index of the `}` that closes the block whose opening `{` is at [openBrace].
@@ -2828,6 +3129,37 @@ int _findBlockEnd(String content, int openBrace) {
     }
   }
   return -1;
+}
+
+/// Content for a brand-new `$platform/src/Hybrid$className.cpp` file.
+///
+/// When [requestsSeparateImpl] is true (the annotation used the platform's
+/// SPECIFIC marker type — see requestsSeparateWindowsImpl/requestsSeparateLinuxImpl)
+/// AND the shared `src/Hybrid$className.cpp` already has real code (not just
+/// the auto-generated TODO stub), that content is migrated in — one include
+/// path level deeper to account for the extra directory — so this platform
+/// starts from its EXISTING behavior rather than an empty stub. Activating
+/// separation this way is a location change, not a behavior change. Falls
+/// back to the generic starter template otherwise (implicit
+/// hasCustomPlatformImpl-driven separation always starts empty — there's no
+/// annotation signal yet at that point to justify migrating anything).
+String _newPlatformImplContent({
+  required String baseDir,
+  required String lib,
+  required String className,
+  required bool requestsSeparateImpl,
+  required String genericStubContent,
+}) {
+  if (requestsSeparateImpl) {
+    final sharedFile = File(p.join(baseDir, 'src', 'Hybrid$className.cpp'));
+    if (sharedFile.existsSync()) {
+      final sharedContent = sharedFile.readAsStringSync();
+      if (!sharedContent.contains(_implStubTodoMarker)) {
+        return sharedContent.replaceAll('#include "../lib/', '#include "../../lib/');
+      }
+    }
+  }
+  return genericStubContent;
 }
 
 /// Creates Windows-specific C++ impl stub files for modules that target
@@ -2852,7 +3184,41 @@ void linkWindowsCppImplStubs(
     final stubFile = File(p.join(winSrcDir.path, 'Hybrid$className.cpp'));
     if (stubFile.existsSync()) continue;
     stubFile.writeAsStringSync(
-      t.windowsCppStubContent(lib: m.lib, className: className),
+      _newPlatformImplContent(
+        baseDir: baseDir,
+        lib: m.lib,
+        className: className,
+        requestsSeparateImpl: m.windowsRequestsSeparateImpl,
+        genericStubContent: t.windowsCppStubContent(lib: m.lib, className: className),
+      ),
+    );
+  }
+}
+
+/// Creates a Linux-specific C++ impl starter stub for every Linux-C++
+/// module, mirroring [linkWindowsCppImplStubs]. Writing this stub does NOT
+/// by itself make Linux use it instead of the shared `src/HybridXxx.cpp` —
+/// that's a separate, opt-in decision (see [hasCustomPlatformImpl] and
+/// ModuleInfo.linuxRequestsSeparateImpl, read by `_linkDesktopCMake`). Until
+/// then it just sits alongside the shared file as an option, same as
+/// Windows's stub always has.
+void linkLinuxCppImplStubs(
+  List<ModuleInfo> moduleInfos, {
+  String baseDir = '.',
+}) {
+  for (final m in moduleInfos.where((m) => m.linuxIsCpp)) {
+    final className = _toPascalCase(m.lib);
+    final linuxSrcDir = Directory(p.join(baseDir, 'linux', 'src'))..createSync(recursive: true);
+    final stubFile = File(p.join(linuxSrcDir.path, 'Hybrid$className.cpp'));
+    if (stubFile.existsSync()) continue; // never overwrite user code
+    stubFile.writeAsStringSync(
+      _newPlatformImplContent(
+        baseDir: baseDir,
+        lib: m.lib,
+        className: className,
+        requestsSeparateImpl: m.linuxRequestsSeparateImpl,
+        genericStubContent: t.linuxCppStubContent(lib: m.lib, className: className),
+      ),
     );
   }
 }
@@ -2892,6 +3258,9 @@ void linkLinux(
     baseDir: baseDir,
     moduleInfos: moduleInfos,
   );
+  if (moduleInfos != null) {
+    linkLinuxCppImplStubs(moduleInfos, baseDir: baseDir);
+  }
 }
 
 void linkClangd(
@@ -3189,6 +3558,7 @@ class LinkCommand extends Command {
       if (hasCpp) linkKotlinLoadLibraries(moduleInfos.where((m) => m.isCpp).map((m) => m.lib).toList(), baseDir: baseDir);
       purgeStaleCppKotlinRegistrations(androidCppModuleInfos, baseDir: baseDir);
       linkAndroid(pluginName, moduleInfos.map((m) => m.lib).toList(), baseDir: baseDir, moduleInfos: moduleInfos);
+      linkAndroidConsumerRules(kotlinModules, baseDir: baseDir);
     } else {
       logSkip('android/ not present');
     }

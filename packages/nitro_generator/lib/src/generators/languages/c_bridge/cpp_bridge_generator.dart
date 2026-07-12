@@ -403,17 +403,57 @@ class CppBridgeGenerator {
           final isEnumParam = enumNames.contains(p.type.name.replaceFirst('?', ''));
           // Maps stay on _typeToC (uint8_t*) — matches the bridge.g.h declaration.
           final isMapParam = p.type.name.startsWith('Map<');
-          paramParts.add('${(isStructParam || (isRecordParam && !isMapParam)) ? 'void*' : (isEnumParam ? 'int64_t' : _typeToC(p.type.name))} ${p.name}');
+          if (p.type.isFunction) {
+            // Must match the sync path's declared C type exactly (_callbackParamToC) —
+            // the .h forward-declares this symbol once, unconditionally, so a
+            // mismatched definition here is an illegal extern "C" redeclaration.
+            paramParts.add(_callbackParamToC(p, enumNames, structNames: structNames, recordNames: recordNames, variantNames: variantNames));
+          } else if (spec.isCustomTypeName(p.type.name.replaceFirst('?', ''))) {
+            // Must match cpp_header_generator.dart's declaration exactly
+            // (const uint8_t*, not the void* _typeToC's default would give a
+            // user-defined type name) — same "conflicting types" risk as the
+            // callback case just above.
+            paramParts.add('const uint8_t* ${p.name}');
+          } else {
+            paramParts.add('${(isStructParam || (isRecordParam && !isMapParam)) ? 'void*' : (isEnumParam ? 'int64_t' : _typeToC(p.type.name))} ${p.name}');
+          }
           if (p.type.isTypedData) paramParts.add('size_t ${p.name}_length'); // matches Dart FFI Size type
         }
         paramParts.add('NitroError* _nitro_err');
         paramParts.add('int64_t dart_port');
         final paramsDecl = paramParts.join(', ');
+
+        writer.line('void ${func.cSymbol}($paramsDecl) {');
+        writer.line('    if (_nitro_err) { _nitro_err->hasError = 0; }');
+        writer.line('    if (!g_impl) {');
+        writer.line('        _nitro_desktop_err(_nitro_err, "NotInitialized", "No C++ implementation registered.");');
+        writer.line('        Dart_CObject _err = { Dart_CObject_kNull };');
+        writer.line('        Dart_PostCObject_DL(dart_port, &_err);');
+        writer.line('        return;');
+        writer.line('    }');
+        writer.line('    try {');
+
+        // Built inside the try block (not before it, unlike the simpler params
+        // above) because callback params need writer.line-emitted setup code
+        // (an adapter lambda) ahead of the call expression — mirrors the sync
+        // path's ordering just below.
         final callArgs = <String>[];
         for (final p in func.params) {
           final base = p.type.name.replaceFirst('?', '');
           final isNullableParam = p.type.isNullable || p.type.name.endsWith('?');
-          if (p.type.isAnyNativeObject) {
+          if (p.type.isFunction) {
+            callArgs.add(
+              _emitDesktopCallbackWrapper(
+                writer,
+                spec,
+                p,
+                enumNames,
+                structNames,
+                recordNames,
+                variantNames,
+              ),
+            );
+          } else if (p.type.isAnyNativeObject) {
             if (p.type.isNullable) {
               callArgs.add('${p.name} == -1 ? std::optional<int64_t>(std::nullopt) : std::make_optional<int64_t>(${p.name})');
             } else {
@@ -441,8 +481,19 @@ class CppBridgeGenerator {
             } else {
               callArgs.add('*static_cast<const $base*>(${p.name})');
             }
-          } else if (recordNames.contains(base) || variantNames.contains(base)) {
-            callArgs.add('NitroCppBuffer{ (const uint8_t*)${p.name} + 4, (size_t)*(int32_t*)${p.name} }');
+          } else if (p.type.isRecord || variantNames.contains(base)) {
+            // Covers bare records/variants AND List<T>/Map<K,V> (any item/value
+            // type — record, enum, variant, or primitive), which all share the
+            // same generic [4B len][payload] wire format. A nullable single
+            // record/variant param arrives as nullptr when the Dart caller
+            // omits it — the length-prefix deref below would segfault
+            // unguarded. Mirrors the already-correct sync-path guard elsewhere
+            // in this file (this is the SAME condition it uses).
+            if (isNullableParam) {
+              callArgs.add('${p.name} == nullptr ? NitroCppBuffer{ nullptr, 0 } : NitroCppBuffer{ (const uint8_t*)${p.name} + 4, (size_t)*(int32_t*)${p.name} }');
+            } else {
+              callArgs.add('NitroCppBuffer{ (const uint8_t*)${p.name} + 4, (size_t)*(int32_t*)${p.name} }');
+            }
           } else if (p.type.isTypedData) {
             callArgs.add(p.name);
             callArgs.add('static_cast<size_t>(${p.name}_length)');
@@ -458,15 +509,6 @@ class CppBridgeGenerator {
         }
         callArgs.add('_nitro_err');
         callArgs.add('dart_port');
-        writer.line('void ${func.cSymbol}($paramsDecl) {');
-        writer.line('    if (_nitro_err) { _nitro_err->hasError = 0; }');
-        writer.line('    if (!g_impl) {');
-        writer.line('        _nitro_desktop_err(_nitro_err, "NotInitialized", "No C++ implementation registered.");');
-        writer.line('        Dart_CObject _err = { Dart_CObject_kNull };');
-        writer.line('        Dart_PostCObject_DL(dart_port, &_err);');
-        writer.line('        return;');
-        writer.line('    }');
-        writer.line('    try {');
         writer.line('        g_impl->${func.dartName}(${callArgs.join(', ')});');
         writer.line('    } catch (const std::exception& e) {');
         writer.line('        _nitro_desktop_err(_nitro_err, "CppException", e.what());');
@@ -524,6 +566,11 @@ class CppBridgeGenerator {
         final isEnumParam = enumNames.contains(p.type.name.replaceFirst('?', ''));
         if (p.type.isFunction) {
           paramParts.add(_callbackParamToC(p, enumNames, structNames: structNames, recordNames: recordNames, variantNames: variantNames));
+        } else if (spec.isCustomTypeName(p.type.name.replaceFirst('?', ''))) {
+          // Must match cpp_header_generator.dart's declaration exactly
+          // (const uint8_t*, not the void* _typeToC's default would give a
+          // user-defined type name).
+          paramParts.add('const uint8_t* ${p.name}');
         } else {
           // Nullable prims use const uint8_t* (raw byte pointer via NitroOptXxx layout).
           // Maps stay on _typeToC (uint8_t*) — matches the bridge.g.h declaration.
@@ -636,24 +683,48 @@ class CppBridgeGenerator {
       if (func.isResult) {
         // @NitroResult: impl signals the error case by throwing; the ok value
         // is wrapped in the [1B tag][4B len][payload] blob Dart expects.
+        //
+        // Record/variant impls do NOT return through NitroRecordWriter at
+        // all — per the interface generator's _cppReturnType, they return a
+        // NitroCppBuffer whose .data is already a self-describing malloc'd
+        // [4B len][payload] block (see toNativeBuffer()). The generic
+        // `std::string _val = g_impl->fn(...)` fallback below only matches
+        // an impl that actually returns std::string (true for String, wrong
+        // — a compile error — for every other non-primitive return type).
         if (retBase == 'double') {
           writer.line('        double _val = g_impl->${func.dartName}($callArgStr);');
           writer.line('        NitroRecordWriter _w;');
           writer.line('        _w.writeDouble(_val);');
+          writer.line('        return _nitro_desktop_result_blob(0, _w);');
         } else if (retBase == 'int') {
           writer.line('        int64_t _val = g_impl->${func.dartName}($callArgStr);');
           writer.line('        NitroRecordWriter _w;');
           writer.line('        _w.writeInt(_val);');
+          writer.line('        return _nitro_desktop_result_blob(0, _w);');
         } else if (retBase == 'bool') {
           writer.line('        bool _val = g_impl->${func.dartName}($callArgStr);');
           writer.line('        NitroRecordWriter _w;');
           writer.line('        _w.writeBool(_val);');
+          writer.line('        return _nitro_desktop_result_blob(0, _w);');
+        } else if (isEnumRet) {
+          writer.line('        int64_t _val = static_cast<int64_t>(g_impl->${func.dartName}($callArgStr));');
+          writer.line('        NitroRecordWriter _w;');
+          writer.line('        _w.writeInt(_val);');
+          writer.line('        return _nitro_desktop_result_blob(0, _w);');
+        } else if (isRecordRet || isVariantRet) {
+          writer.line('        NitroCppBuffer _res = g_impl->${func.dartName}($callArgStr);');
+          writer.line('        uint8_t* _out = (uint8_t*)malloc(_res.size + 1);');
+          writer.line('        if (!_out) { return nullptr; }');
+          writer.line('        _out[0] = 0;');
+          writer.line('        if (_res.size > 0 && _res.data) { memcpy(_out + 1, _res.data, _res.size); }');
+          writer.line('        free((void*)_res.data);');
+          writer.line('        return _out;');
         } else {
           writer.line('        std::string _val = g_impl->${func.dartName}($callArgStr);');
           writer.line('        NitroRecordWriter _w;');
           writer.line('        _w.writeString(_val);');
+          writer.line('        return _nitro_desktop_result_blob(0, _w);');
         }
-        writer.line('        return _nitro_desktop_result_blob(0, _w);');
       } else if (func.returnType.name == 'void') {
         writer.line('        g_impl->${func.dartName}($callArgStr);');
       } else if (retBase == 'String' && isNullableRet) {

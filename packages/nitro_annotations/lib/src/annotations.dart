@@ -15,6 +15,24 @@
 //
 // Backward-compatible shorthand (both forms produce identical const objects):
 //   @NitroModule(ios: NativeImpl.swift, android: NativeImpl.kotlin)
+//
+// At the Dart type level, `windows: WindowsNativeImpl.cpp` and
+// `windows: NativeImpl.cpp` are identical() — same CppImpl singleton, no
+// runtime difference (same for Linux). `nitrogen link`'s desktop-CMake
+// wiring does read the difference in your SOURCE TEXT, though: writing the
+// platform-specific marker (`WindowsNativeImpl.cpp` / `LinuxNativeImpl.cpp`)
+// is an explicit, immediate request for that platform to get its own
+// `windows/src/Hybrid<Class>.cpp` / `linux/src/Hybrid<Class>.cpp` file
+// instead of sharing `src/Hybrid<Class>.cpp` with the other desktop
+// platform — existing shared-file content is migrated in automatically the
+// first time this fires, so opting in is a location change, not a behavior
+// change. The generic `NativeImpl.cpp` shorthand keeps the shared-file
+// default. (A plugin can also reach the same separated shape gradually,
+// without touching the annotation, by just writing real code directly into
+// the auto-created `windows/src/` or `linux/src/` starter stub — see
+// nitrogen's `hasCustomPlatformImpl`.) This distinction is purely a
+// nitrogen-tooling convention read from your annotation's source text; it
+// has no bearing on `identical()`/type-checking behavior described above.
 
 /// Accepted by [NitroModule.ios] and [NitroModule.macos].
 ///

@@ -3,6 +3,7 @@ import 'package:path/path.dart' as p;
 import 'package:nitrogen_cli/commands/link_command.dart';
 import 'package:nitrogen_cli/commands/spm_utils.dart' as spm;
 import 'package:nitrogen_cli/templates/cmake_templates.dart' as ct;
+import 'package:nitrogen_cli/templates/cpp_stubs.dart' as t;
 import 'package:nitrogen_cli/templates/swift_templates.dart' as st;
 import 'package:test/test.dart';
 
@@ -1891,6 +1892,487 @@ target_include_directories(\${PLUGIN_NAME} PRIVATE "\${CMAKE_CURRENT_SOURCE_DIR}
     }
   });
 
+  // ── per-platform impl separation (Windows-C++ AND Linux-C++ together) ──────
+  //
+  // Found via a real Windows/Linux CI run of nitro_type_coverage: both
+  // platforms delegate to shared src/CMakeLists.txt via add_subdirectory,
+  // which forced them to compile the SAME src/HybridXxx.cpp — and
+  // windows/src/HybridXxx.cpp (a separate stub the generator already wrote)
+  // was silently never wired into windows/CMakeLists.txt at all, so it sat
+  // as dead code.
+  //
+  // Separation is opt-in per platform, driven by file content (see
+  // hasCustomPlatformImpl) — NOT automatic just because a module targets
+  // NativeImpl.cpp on both desktop platforms. Some plugins genuinely want
+  // one shared file (the logic really is identical); others want Windows
+  // and Linux to diverge. Both stay available: an untouched stub (or no
+  // file at all) keeps sharing src/HybridXxx.cpp; writing real code into
+  // windows/src/ or linux/src/ activates that platform's own file.
+  group('linkWindows / linkLinux — NITRO_IMPL_SRC activates only once the platform stub has real code', () {
+    const sharedSrcCmake = '''cmake_minimum_required(VERSION 3.10)
+set(PROJECT_NAME "my_plugin")
+project(\${PROJECT_NAME} LANGUAGES CXX)
+
+add_subdirectory("\${CMAKE_CURRENT_SOURCE_DIR}/../src" "\${CMAKE_CURRENT_BINARY_DIR}/shared")
+''';
+
+    File writeCmake(Directory dir, String platform, String content) {
+      final platDir = Directory(p.join(dir.path, platform))..createSync(recursive: true);
+      final f = File(p.join(platDir.path, 'CMakeLists.txt'));
+      f.writeAsStringSync(content);
+      return f;
+    }
+
+    File writeCustomImpl(Directory dir, String platform, String className, String body) {
+      final srcDir = Directory(p.join(dir.path, platform, 'src'))..createSync(recursive: true);
+      final f = File(p.join(srcDir.path, 'Hybrid$className.cpp'));
+      f.writeAsStringSync(body);
+      return f;
+    }
+
+    final bothCppModule = ModuleInfo(
+      lib: 'my_plugin',
+      module: 'MyPlugin',
+      isCpp: true,
+      isNativeCpp: true,
+      windowsIsCpp: true,
+      linuxIsCpp: true,
+    );
+
+    test('windows: no windows/src/HybridMyPlugin.cpp on disk at all — keeps sharing, NITRO_IMPL_SRC not set', () {
+      // linkWindowsCppImplStubs re-scans lib/**/*.native.dart on disk — needs
+      // a real spec file present to find this module as Windows-C++.
+      _writeSpec(_libDir(tmp), 'my_plugin.native.dart', '''
+@NitroModule(lib: "my_plugin", windows: NativeImpl.cpp, linux: NativeImpl.cpp)
+abstract class MyPlugin extends HybridObject {}
+''');
+      final cmake = writeCmake(tmp, 'windows', sharedSrcCmake);
+      linkWindows('my_plugin', ['my_plugin'], '/nitro/native', baseDir: tmp.path, moduleInfos: [bothCppModule]);
+      expect(cmake.readAsStringSync(), isNot(contains('NITRO_IMPL_SRC')));
+      // linkWindowsCppImplStubs (called by linkWindows) DOES create the
+      // starter stub — that's just an option sitting on disk, not activation.
+      final stub = File(p.join(tmp.path, 'windows', 'src', 'HybridMyPlugin.cpp'));
+      expect(stub.existsSync(), isTrue);
+      expect(stub.readAsStringSync(), contains('TODO: implement all pure-virtual methods'));
+    });
+
+    test('windows: untouched auto-created stub (still has the TODO marker) — keeps sharing', () {
+      writeCmake(tmp, 'windows', sharedSrcCmake);
+      writeCustomImpl(tmp, 'windows', 'MyPlugin', '// TODO: implement all pure-virtual methods declared in HybridMyPlugin\n');
+      linkWindows('my_plugin', ['my_plugin'], '/nitro/native', baseDir: tmp.path, moduleInfos: [bothCppModule]);
+      final content = File(p.join(tmp.path, 'windows', 'CMakeLists.txt')).readAsStringSync();
+      expect(content, isNot(contains('NITRO_IMPL_SRC')));
+    });
+
+    test('windows: real code written into windows/src/HybridMyPlugin.cpp — activates NITRO_IMPL_SRC before add_subdirectory', () {
+      final cmake = writeCmake(tmp, 'windows', sharedSrcCmake);
+      writeCustomImpl(tmp, 'windows', 'MyPlugin', 'class HybridMyPluginImpl final : public HybridMyPlugin { /* real code */ };\n');
+      linkWindows('my_plugin', ['my_plugin'], '/nitro/native', baseDir: tmp.path, moduleInfos: [bothCppModule]);
+      final content = cmake.readAsStringSync();
+      expect(content, contains(r'set(NITRO_IMPL_SRC_my_plugin "${CMAKE_CURRENT_SOURCE_DIR}/src/HybridMyPlugin.cpp")'));
+      final setIdx = content.indexOf('NITRO_IMPL_SRC_my_plugin');
+      final subdirIdx = content.indexOf('add_subdirectory');
+      expect(setIdx, lessThan(subdirIdx), reason: 'must be set before add_subdirectory so src/CMakeLists.txt sees it');
+    });
+
+    test('linux: real code written into linux/src/HybridMyPlugin.cpp — activates NITRO_IMPL_SRC, independent of Windows', () {
+      final cmake = writeCmake(tmp, 'linux', sharedSrcCmake);
+      writeCustomImpl(tmp, 'linux', 'MyPlugin', 'class HybridMyPluginImpl final : public HybridMyPlugin { /* real code */ };\n');
+      linkLinux('my_plugin', ['my_plugin'], '/nitro/native', baseDir: tmp.path, moduleInfos: [bothCppModule]);
+      final content = cmake.readAsStringSync();
+      expect(content, contains(r'set(NITRO_IMPL_SRC_my_plugin "${CMAKE_CURRENT_SOURCE_DIR}/src/HybridMyPlugin.cpp")'));
+      final setIdx = content.indexOf('NITRO_IMPL_SRC_my_plugin');
+      final subdirIdx = content.indexOf('add_subdirectory');
+      expect(setIdx, lessThan(subdirIdx));
+    });
+
+    test('only Windows has diverged (linux/src/ untouched): Windows activates, Linux keeps sharing', () {
+      writeCmake(tmp, 'windows', sharedSrcCmake);
+      final linuxCmake = writeCmake(tmp, 'linux', sharedSrcCmake);
+      writeCustomImpl(tmp, 'windows', 'MyPlugin', 'class HybridMyPluginImpl final : public HybridMyPlugin { /* windows-specific */ };\n');
+      linkWindows('my_plugin', ['my_plugin'], '/nitro/native', baseDir: tmp.path, moduleInfos: [bothCppModule]);
+      linkLinux('my_plugin', ['my_plugin'], '/nitro/native', baseDir: tmp.path, moduleInfos: [bothCppModule]);
+      final winContent = File(p.join(tmp.path, 'windows', 'CMakeLists.txt')).readAsStringSync();
+      final linuxContent = linuxCmake.readAsStringSync();
+      expect(winContent, contains('NITRO_IMPL_SRC_my_plugin'), reason: 'Windows diverged — should activate its own file');
+      expect(linuxContent, isNot(contains('NITRO_IMPL_SRC')), reason: 'Linux never diverged — should keep sharing src/HybridMyPlugin.cpp');
+    });
+
+    test('idempotent: running linkWindows twice does not duplicate the set() line', () {
+      final cmake = writeCmake(tmp, 'windows', sharedSrcCmake);
+      writeCustomImpl(tmp, 'windows', 'MyPlugin', 'class HybridMyPluginImpl final : public HybridMyPlugin { /* real code */ };\n');
+      linkWindows('my_plugin', ['my_plugin'], '/nitro/native', baseDir: tmp.path, moduleInfos: [bothCppModule]);
+      linkWindows('my_plugin', ['my_plugin'], '/nitro/native', baseDir: tmp.path, moduleInfos: [bothCppModule]);
+      final content = cmake.readAsStringSync();
+      expect('NITRO_IMPL_SRC_my_plugin'.allMatches(content).length, equals(1));
+    });
+
+    test('linux-only C++ (windows not targeted), untouched stub: NITRO_IMPL_SRC NOT set — keeps sharing src/HybridXxx.cpp (unchanged behavior, the common case)', () {
+      final linuxOnlyModule = ModuleInfo(
+        lib: 'my_plugin',
+        module: 'MyPlugin',
+        isCpp: true,
+        isNativeCpp: true,
+        windowsIsCpp: false,
+        linuxIsCpp: true,
+      );
+      final cmake = writeCmake(tmp, 'linux', sharedSrcCmake);
+      linkLinux('my_plugin', ['my_plugin'], '/nitro/native', baseDir: tmp.path, moduleInfos: [linuxOnlyModule]);
+      final content = cmake.readAsStringSync();
+      expect(content, isNot(contains('NITRO_IMPL_SRC')));
+    });
+
+    test('linux-only C++ (windows not targeted), real code written: activates anyway — separation is per-platform, independent of Windows', () {
+      final linuxOnlyModule = ModuleInfo(
+        lib: 'my_plugin',
+        module: 'MyPlugin',
+        isCpp: true,
+        isNativeCpp: true,
+        windowsIsCpp: false,
+        linuxIsCpp: true,
+      );
+      final cmake = writeCmake(tmp, 'linux', sharedSrcCmake);
+      writeCustomImpl(tmp, 'linux', 'MyPlugin', 'class HybridMyPluginImpl final : public HybridMyPlugin { /* real code */ };\n');
+      linkLinux('my_plugin', ['my_plugin'], '/nitro/native', baseDir: tmp.path, moduleInfos: [linuxOnlyModule]);
+      final content = cmake.readAsStringSync();
+      expect(content, contains('NITRO_IMPL_SRC_my_plugin'), reason: 'writing real code activates it regardless of what Windows targets');
+    });
+  });
+
+  group('linkCppImplStubs — always creates the shared stub (the default every plugin starts from)', () {
+    test('windows+linux both C++, android is not: still creates src/HybridMyPlugin.cpp (the shared starting point)', () {
+      final m = ModuleInfo(
+        lib: 'my_plugin',
+        module: 'MyPlugin',
+        isCpp: true,
+        isNativeCpp: true,
+        isAndroidCpp: false,
+        windowsIsCpp: true,
+        linuxIsCpp: true,
+      );
+      linkCppImplStubs([m], baseDir: tmp.path);
+      expect(File(p.join(tmp.path, 'src', 'HybridMyPlugin.cpp')).existsSync(), isTrue);
+    });
+
+    test('android is also C++: still creates the shared src/HybridMyPlugin.cpp (android needs it)', () {
+      final m = ModuleInfo(
+        lib: 'my_plugin',
+        module: 'MyPlugin',
+        isCpp: true,
+        isNativeCpp: true,
+        isAndroidCpp: true,
+        windowsIsCpp: true,
+        linuxIsCpp: true,
+      );
+      linkCppImplStubs([m], baseDir: tmp.path);
+      expect(File(p.join(tmp.path, 'src', 'HybridMyPlugin.cpp')).existsSync(), isTrue);
+    });
+
+    test('linux-only C++ (windows not targeted): still creates the shared src/HybridMyPlugin.cpp (unchanged behavior)', () {
+      final m = ModuleInfo(
+        lib: 'my_plugin',
+        module: 'MyPlugin',
+        isCpp: true,
+        isNativeCpp: true,
+        isAndroidCpp: false,
+        windowsIsCpp: false,
+        linuxIsCpp: true,
+      );
+      linkCppImplStubs([m], baseDir: tmp.path);
+      expect(File(p.join(tmp.path, 'src', 'HybridMyPlugin.cpp')).existsSync(), isTrue);
+    });
+
+    test('does not overwrite an already-diverged shared file (never touches user code)', () {
+      final m = ModuleInfo(
+        lib: 'my_plugin',
+        module: 'MyPlugin',
+        isCpp: true,
+        isNativeCpp: true,
+        windowsIsCpp: true,
+        linuxIsCpp: true,
+      );
+      Directory(p.join(tmp.path, 'src')).createSync();
+      final shared = File(p.join(tmp.path, 'src', 'HybridMyPlugin.cpp'))..writeAsStringSync('// shared user code');
+      linkCppImplStubs([m], baseDir: tmp.path);
+      expect(shared.readAsStringSync(), equals('// shared user code'));
+    });
+  });
+
+  group('hasCustomPlatformImpl', () {
+    test('false when the file does not exist', () {
+      expect(hasCustomPlatformImpl(tmp.path, 'windows', 'MyPlugin'), isFalse);
+    });
+
+    test('false when the file exists but is still the auto-generated TODO stub', () {
+      final srcDir = Directory(p.join(tmp.path, 'windows', 'src'))..createSync(recursive: true);
+      File(p.join(srcDir.path, 'HybridMyPlugin.cpp')).writeAsStringSync(
+        t.windowsCppStubContent(lib: 'my_plugin', className: 'MyPlugin'),
+      );
+      expect(hasCustomPlatformImpl(tmp.path, 'windows', 'MyPlugin'), isFalse);
+    });
+
+    test('true once the TODO marker is gone (real code written)', () {
+      final srcDir = Directory(p.join(tmp.path, 'linux', 'src'))..createSync(recursive: true);
+      File(p.join(srcDir.path, 'HybridMyPlugin.cpp')).writeAsStringSync(
+        'class HybridMyPluginImpl final : public HybridMyPlugin { int64_t echoInt(int64_t v) override { return v; } };\n',
+      );
+      expect(hasCustomPlatformImpl(tmp.path, 'linux', 'MyPlugin'), isTrue);
+    });
+  });
+
+  // ── requestsSeparateWindowsImpl / requestsSeparateLinuxImpl ─────────────────
+  // ── PlatformTargetAnalyzer — balanced-paren annotation extraction ──────────
+  //
+  // Found via a real, self-inflicted repro while building the feature below:
+  // the old extractor used a `[^)]+` regex to capture the @NitroModule(...)
+  // body, which stops at the FIRST `)` regardless of nesting — including one
+  // sitting inside an ordinary parenthesized code comment between two
+  // annotation params (e.g. `// (see the docs)`). That silently truncates
+  // the captured text, and with it every getter on this class — including
+  // ones this test file already relied on (supportsWindows, isNativeCpp,
+  // etc.), not just the new requestsSeparate* getters. Affects ANY plugin's
+  // @NitroModule annotation, independent of the separation feature.
+  group('PlatformTargetAnalyzer — balanced-paren extraction (not a truncating [^)]+ regex)', () {
+    test('a parenthesized comment between params no longer truncates the annotation', () {
+      final spec = _writeSpec(_libDir(tmp), 'my_plugin.native.dart', '''
+@NitroModule(
+  lib: "my_plugin",
+  android: NativeImpl.kotlin,
+  // A comment with a parenthetical (like this one) used to break parsing.
+  windows: WindowsNativeImpl.cpp,
+  linux: LinuxNativeImpl.cpp,
+)
+abstract class MyPlugin extends HybridObject {}
+''');
+      final analyzer = PlatformTargetAnalyzer.fromSpec(spec);
+      expect(analyzer.supportsAndroid, isFalse, reason: 'android uses kotlin here, not cpp');
+      expect(analyzer.supportsWindows, isTrue);
+      expect(analyzer.supportsLinux, isTrue);
+      expect(analyzer.isNativeCpp, isTrue);
+      expect(analyzer.requestsSeparateWindowsImpl, isTrue);
+      expect(analyzer.requestsSeparateLinuxImpl, isTrue);
+    });
+
+    test('nested balanced parens anywhere in the body are handled, not just in comments', () {
+      final spec = _writeSpec(_libDir(tmp), 'my_plugin.native.dart', '''
+@NitroModule(
+  lib: "my_plugin",
+  android: NativeImpl.kotlin,
+  windows: WindowsNativeImpl.cpp, // trailing note (nested (double) parens)
+  linux: LinuxNativeImpl.cpp,
+)
+abstract class MyPlugin extends HybridObject {}
+''');
+      final analyzer = PlatformTargetAnalyzer.fromSpec(spec);
+      expect(analyzer.supportsLinux, isTrue);
+      expect(analyzer.requestsSeparateLinuxImpl, isTrue);
+    });
+
+    test('empty when @NitroModule is entirely absent (no false match, no crash)', () {
+      final spec = _writeSpec(_libDir(tmp), 'not_a_module.native.dart', '''
+abstract class NotAModule {}
+''');
+      final analyzer = PlatformTargetAnalyzer.fromSpec(spec);
+      expect(analyzer.supportsWindows, isFalse);
+      expect(analyzer.isNativeCpp, isFalse);
+    });
+
+    test('malformed source (missing close paren) degrades gracefully instead of throwing', () {
+      final spec = _writeSpec(_libDir(tmp), 'malformed.native.dart', '''
+@NitroModule(
+  lib: "my_plugin",
+  windows: WindowsNativeImpl.cpp,
+''');
+      expect(() => PlatformTargetAnalyzer.fromSpec(spec), returnsNormally);
+      final analyzer = PlatformTargetAnalyzer.fromSpec(spec);
+      expect(analyzer.requestsSeparateWindowsImpl, isTrue, reason: 'text through EOF is still usable even without a closing paren');
+    });
+  });
+
+  // Second, explicit way to opt into per-platform separation (alongside the
+  // implicit hasCustomPlatformImpl file-content check above): spelling a
+  // platform's impl with its SPECIFIC marker type (`WindowsNativeImpl.cpp` /
+  // `LinuxNativeImpl.cpp`) rather than the generic `NativeImpl.cpp`
+  // shorthand. Both forms resolve to the identical CppImpl singleton at the
+  // Dart type level — this reads the distinction from the annotation's
+  // SOURCE TEXT, which only the link-time analyzer sees.
+  group('PlatformTargetAnalyzer.requestsSeparateWindowsImpl / requestsSeparateLinuxImpl', () {
+    test('false for the generic NativeImpl.cpp shorthand on both platforms', () {
+      final spec = _writeSpec(_libDir(tmp), 'my_plugin.native.dart', '''
+@NitroModule(lib: "my_plugin", windows: NativeImpl.cpp, linux: NativeImpl.cpp)
+abstract class MyPlugin extends HybridObject {}
+''');
+      final analyzer = PlatformTargetAnalyzer.fromSpec(spec);
+      expect(analyzer.requestsSeparateWindowsImpl, isFalse);
+      expect(analyzer.requestsSeparateLinuxImpl, isFalse);
+    });
+
+    test('true for the specific WindowsNativeImpl.cpp / LinuxNativeImpl.cpp markers', () {
+      final spec = _writeSpec(_libDir(tmp), 'my_plugin.native.dart', '''
+@NitroModule(lib: "my_plugin", windows: WindowsNativeImpl.cpp, linux: LinuxNativeImpl.cpp)
+abstract class MyPlugin extends HybridObject {}
+''');
+      final analyzer = PlatformTargetAnalyzer.fromSpec(spec);
+      expect(analyzer.requestsSeparateWindowsImpl, isTrue);
+      expect(analyzer.requestsSeparateLinuxImpl, isTrue);
+    });
+
+    test('independent per platform: only Windows uses the specific marker', () {
+      final spec = _writeSpec(_libDir(tmp), 'my_plugin.native.dart', '''
+@NitroModule(lib: "my_plugin", windows: WindowsNativeImpl.cpp, linux: NativeImpl.cpp)
+abstract class MyPlugin extends HybridObject {}
+''');
+      final analyzer = PlatformTargetAnalyzer.fromSpec(spec);
+      expect(analyzer.requestsSeparateWindowsImpl, isTrue);
+      expect(analyzer.requestsSeparateLinuxImpl, isFalse);
+    });
+
+    // supportsWindows/supportsLinux (targets-cpp-at-all) must stay true
+    // regardless of which marker spelling was used — requestsSeparate* is an
+    // ADDITIONAL signal, not a replacement for the broader "is this cpp" check.
+    test('supportsWindows/supportsLinux remain true for the specific markers too', () {
+      final spec = _writeSpec(_libDir(tmp), 'my_plugin.native.dart', '''
+@NitroModule(lib: "my_plugin", windows: WindowsNativeImpl.cpp, linux: LinuxNativeImpl.cpp)
+abstract class MyPlugin extends HybridObject {}
+''');
+      final analyzer = PlatformTargetAnalyzer.fromSpec(spec);
+      expect(analyzer.supportsWindows, isTrue);
+      expect(analyzer.supportsLinux, isTrue);
+    });
+  });
+
+  group('linkWindows / linkLinux — explicit WindowsNativeImpl.cpp/LinuxNativeImpl.cpp activates immediately', () {
+    const sharedSrcCmake = '''cmake_minimum_required(VERSION 3.10)
+set(PROJECT_NAME "my_plugin")
+project(\${PROJECT_NAME} LANGUAGES CXX)
+
+add_subdirectory("\${CMAKE_CURRENT_SOURCE_DIR}/../src" "\${CMAKE_CURRENT_BINARY_DIR}/shared")
+''';
+
+    File writeCmake(Directory dir, String platform, String content) {
+      final platDir = Directory(p.join(dir.path, platform))..createSync(recursive: true);
+      final f = File(p.join(platDir.path, 'CMakeLists.txt'));
+      f.writeAsStringSync(content);
+      return f;
+    }
+
+    test('windows: explicit marker activates NITRO_IMPL_SRC even with an untouched shared file (no prior divergence needed)', () {
+      final explicitModule = ModuleInfo(
+        lib: 'my_plugin',
+        module: 'MyPlugin',
+        isCpp: true,
+        isNativeCpp: true,
+        windowsIsCpp: true,
+        linuxIsCpp: true,
+        windowsRequestsSeparateImpl: true,
+      );
+      final cmake = writeCmake(tmp, 'windows', sharedSrcCmake);
+      linkWindows('my_plugin', ['my_plugin'], '/nitro/native', baseDir: tmp.path, moduleInfos: [explicitModule]);
+      expect(cmake.readAsStringSync(), contains('NITRO_IMPL_SRC_my_plugin'));
+    });
+
+    test('linux: explicit marker activates independently of Windows', () {
+      final explicitModule = ModuleInfo(
+        lib: 'my_plugin',
+        module: 'MyPlugin',
+        isCpp: true,
+        isNativeCpp: true,
+        windowsIsCpp: false,
+        linuxIsCpp: true,
+        linuxRequestsSeparateImpl: true,
+      );
+      final cmake = writeCmake(tmp, 'linux', sharedSrcCmake);
+      linkLinux('my_plugin', ['my_plugin'], '/nitro/native', baseDir: tmp.path, moduleInfos: [explicitModule]);
+      expect(cmake.readAsStringSync(), contains('NITRO_IMPL_SRC_my_plugin'));
+    });
+
+    test('windows: without the explicit marker AND without prior divergence, stays shared (both opt-ins absent)', () {
+      final genericModule = ModuleInfo(
+        lib: 'my_plugin',
+        module: 'MyPlugin',
+        isCpp: true,
+        isNativeCpp: true,
+        windowsIsCpp: true,
+        linuxIsCpp: true,
+      );
+      final cmake = writeCmake(tmp, 'windows', sharedSrcCmake);
+      linkWindows('my_plugin', ['my_plugin'], '/nitro/native', baseDir: tmp.path, moduleInfos: [genericModule]);
+      expect(cmake.readAsStringSync(), isNot(contains('NITRO_IMPL_SRC')));
+    });
+
+    test('migrates real shared content into the new windows/src/ file instead of the empty stub', () {
+      // linkWindowsCppImplStubs re-scans lib/**/*.native.dart on disk — needs
+      // a real spec file present to find this module as Windows-C++.
+      _writeSpec(_libDir(tmp), 'my_plugin.native.dart', '''
+@NitroModule(lib: "my_plugin", windows: WindowsNativeImpl.cpp, linux: LinuxNativeImpl.cpp)
+abstract class MyPlugin extends HybridObject {}
+''');
+      Directory(p.join(tmp.path, 'src')).createSync(recursive: true);
+      File(p.join(tmp.path, 'src', 'HybridMyPlugin.cpp')).writeAsStringSync(
+        '// Hybrid impl\n#include "../lib/src/generated/cpp/my_plugin.native.g.h"\nclass HybridMyPluginImpl final : public HybridMyPlugin { int64_t echoInt(int64_t v) override { return v * 2; } };\n',
+      );
+      final explicitModule = ModuleInfo(
+        lib: 'my_plugin',
+        module: 'MyPlugin',
+        isCpp: true,
+        isNativeCpp: true,
+        windowsIsCpp: true,
+        linuxIsCpp: true,
+        windowsRequestsSeparateImpl: true,
+      );
+      writeCmake(tmp, 'windows', sharedSrcCmake);
+      linkWindows('my_plugin', ['my_plugin'], '/nitro/native', baseDir: tmp.path, moduleInfos: [explicitModule]);
+      final migrated = File(p.join(tmp.path, 'windows', 'src', 'HybridMyPlugin.cpp')).readAsStringSync();
+      expect(migrated, contains('return v * 2;'), reason: 'real shared logic must carry over, not an empty stub');
+      expect(migrated, contains('#include "../../lib/src/generated/cpp/my_plugin.native.g.h"'), reason: 'include path must gain one more ../ level');
+      expect(migrated, isNot(contains('TODO: implement all pure-virtual methods')));
+    });
+
+    test('does NOT migrate when the shared file is itself still just the auto-generated stub', () {
+      _writeSpec(_libDir(tmp), 'my_plugin.native.dart', '''
+@NitroModule(lib: "my_plugin", windows: WindowsNativeImpl.cpp, linux: LinuxNativeImpl.cpp)
+abstract class MyPlugin extends HybridObject {}
+''');
+      Directory(p.join(tmp.path, 'src')).createSync(recursive: true);
+      File(p.join(tmp.path, 'src', 'HybridMyPlugin.cpp')).writeAsStringSync(
+        t.cppImplStubContent(lib: 'my_plugin', className: 'MyPlugin', isNativeCpp: true, iosIsCpp: false, macosIsCpp: false),
+      );
+      final explicitModule = ModuleInfo(
+        lib: 'my_plugin',
+        module: 'MyPlugin',
+        isCpp: true,
+        isNativeCpp: true,
+        windowsIsCpp: true,
+        linuxIsCpp: true,
+        windowsRequestsSeparateImpl: true,
+      );
+      writeCmake(tmp, 'windows', sharedSrcCmake);
+      linkWindows('my_plugin', ['my_plugin'], '/nitro/native', baseDir: tmp.path, moduleInfos: [explicitModule]);
+      final content = File(p.join(tmp.path, 'windows', 'src', 'HybridMyPlugin.cpp')).readAsStringSync();
+      expect(content, contains('TODO: implement all pure-virtual methods'));
+    });
+
+    test('never overwrites an already-existing windows/src/ file, migrated or not', () {
+      Directory(p.join(tmp.path, 'src')).createSync(recursive: true);
+      File(p.join(tmp.path, 'src', 'HybridMyPlugin.cpp')).writeAsStringSync('class HybridMyPluginImpl final : public HybridMyPlugin {};\n');
+      final winSrcDir = Directory(p.join(tmp.path, 'windows', 'src'))..createSync(recursive: true);
+      File(p.join(winSrcDir.path, 'HybridMyPlugin.cpp')).writeAsStringSync('// pre-existing windows-specific user code, must survive\n');
+      final explicitModule = ModuleInfo(
+        lib: 'my_plugin',
+        module: 'MyPlugin',
+        isCpp: true,
+        isNativeCpp: true,
+        windowsIsCpp: true,
+        linuxIsCpp: true,
+        windowsRequestsSeparateImpl: true,
+      );
+      writeCmake(tmp, 'windows', sharedSrcCmake);
+      linkWindows('my_plugin', ['my_plugin'], '/nitro/native', baseDir: tmp.path, moduleInfos: [explicitModule]);
+      final content = File(p.join(winSrcDir.path, 'HybridMyPlugin.cpp')).readAsStringSync();
+      expect(content, equals('// pre-existing windows-specific user code, must survive\n'));
+    });
+  });
+
   // ── generateCMake cross-platform ────────────────────────────────────────────
 
   group('generateCMake — cross-platform link libraries', () {
@@ -2386,6 +2868,258 @@ class TestPlugin : FlutterPlugin {
         ], baseDir: tmp.path),
         returnsNormally,
       );
+    });
+  });
+
+  // ── linkAndroid — consumerProguardFiles wiring ──────────────────────────
+  //
+  // Generating a correct consumer-rules.pro is pointless if it's never
+  // actually applied — Flutter's plugin scaffold doesn't always wire
+  // `consumerProguardFiles "consumer-rules.pro"` into defaultConfig (found
+  // missing entirely on a real plugin this was built for).
+  group('linkAndroid — consumerProguardFiles wiring', () {
+    File writeBuildGradle(String content) {
+      Directory(p.join(tmp.path, 'android')).createSync(recursive: true);
+      final f = File(p.join(tmp.path, 'android', 'build.gradle'));
+      f.writeAsStringSync(content);
+      return f;
+    }
+
+    const minimalGroovy = '''
+android {
+    namespace "dev.example.math"
+    defaultConfig {
+        minSdk = 24
+    }
+}
+''';
+
+    test('adds consumerProguardFiles into an existing defaultConfig block', () {
+      final gradle = writeBuildGradle(minimalGroovy);
+      linkAndroid('math', ['math'], baseDir: tmp.path);
+      expect(gradle.readAsStringSync(), contains('consumerProguardFiles "consumer-rules.pro"'));
+    });
+
+    // Found on a real plugin: `defaultConfig { minSdk = 24 }` written on a
+    // SINGLE line is valid, common Gradle syntax — a plain leading-newline
+    // insertion right after `defaultConfig {` spliced onto the rest of that
+    // same line, producing invalid Groovy:
+    // `consumerProguardFiles "consumer-rules.pro" minSdk = 24 }`.
+    test('inserts a clean, separate statement into a single-line defaultConfig block', () {
+      final gradle = writeBuildGradle('''
+android {
+    namespace "dev.example.math"
+    defaultConfig { minSdk = 24 }
+}
+''');
+      linkAndroid('math', ['math'], baseDir: tmp.path);
+      final content = gradle.readAsStringSync();
+      expect(content, isNot(contains('consumerProguardFiles "consumer-rules.pro" minSdk')), reason: 'must not splice onto the rest of the original line');
+      expect(content, contains('consumerProguardFiles "consumer-rules.pro"'));
+      expect(content, contains('minSdk = 24'));
+    });
+
+    test('creates defaultConfig if absent, inside android {}', () {
+      final gradle = writeBuildGradle('''
+android {
+    namespace "dev.example.math"
+}
+''');
+      linkAndroid('math', ['math'], baseDir: tmp.path);
+      final content = gradle.readAsStringSync();
+      expect(content, contains('defaultConfig'));
+      expect(content, contains('consumerProguardFiles "consumer-rules.pro"'));
+    });
+
+    test('does not duplicate an already-wired consumerProguardFiles', () {
+      final gradle = writeBuildGradle('''
+android {
+    defaultConfig {
+        minSdk = 24
+        consumerProguardFiles "consumer-rules.pro"
+    }
+}
+''');
+      linkAndroid('math', ['math'], baseDir: tmp.path);
+      expect('consumerProguardFiles'.allMatches(gradle.readAsStringSync()).length, equals(1));
+    });
+
+    test('uses Kotlin DSL call syntax for build.gradle.kts', () {
+      Directory(p.join(tmp.path, 'android')).createSync(recursive: true);
+      final gradle = File(p.join(tmp.path, 'android', 'build.gradle.kts'));
+      gradle.writeAsStringSync('''
+android {
+    namespace = "dev.example.math"
+    defaultConfig {
+        minSdk = 24
+    }
+}
+''');
+      linkAndroid('math', ['math'], baseDir: tmp.path);
+      expect(gradle.readAsStringSync(), contains('consumerProguardFiles("consumer-rules.pro")'));
+    });
+
+    test('creates an empty consumer-rules.pro placeholder so the reference is never dangling', () {
+      writeBuildGradle(minimalGroovy);
+      linkAndroid('math', ['math'], baseDir: tmp.path);
+      expect(File(p.join(tmp.path, 'android', 'consumer-rules.pro')).existsSync(), isTrue);
+    });
+
+    test('does not overwrite an already-populated consumer-rules.pro with an empty placeholder', () {
+      writeBuildGradle(minimalGroovy);
+      Directory(p.join(tmp.path, 'android')).createSync(recursive: true);
+      File(p.join(tmp.path, 'android', 'consumer-rules.pro')).writeAsStringSync('-keep class existing.** { *; }');
+      linkAndroid('math', ['math'], baseDir: tmp.path);
+      expect(File(p.join(tmp.path, 'android', 'consumer-rules.pro')).readAsStringSync(), contains('existing'));
+    });
+
+    test('skipped entirely when every module is android:cpp (no Kotlin bridge to protect)', () {
+      final gradle = writeBuildGradle(minimalGroovy);
+      linkAndroid(
+        'math',
+        ['math'],
+        baseDir: tmp.path,
+        moduleInfos: [ModuleInfo(lib: 'math', module: 'Math', isCpp: true, isNativeCpp: true, isAndroidCpp: true)],
+      );
+      expect(gradle.readAsStringSync(), isNot(contains('consumerProguardFiles')));
+    });
+  });
+
+  // ── linkAndroidConsumerRules ─────────────────────────────────────────────
+  //
+  // Found via a real R8 full-mode crash in a Nitro Android plugin: a plain
+  // `-keep class X { *; }` protects a JNI-called method from removal/
+  // renaming but NOT the parameter/return types referenced in its
+  // signature — R8 full mode can still rename or merge those, producing a
+  // VerifyError ("... Long (Low Half)") at the exact JNI call site.
+  // includedescriptorclasses is ProGuard's own documented fix for native/
+  // JNI-called methods, not a nitro-specific workaround.
+  group('linkAndroidConsumerRules', () {
+    void scaffoldAndroid(String namespace) {
+      Directory(p.join(tmp.path, 'android')).createSync(recursive: true);
+      File(p.join(tmp.path, 'android', 'build.gradle')).writeAsStringSync('''
+android {
+    namespace "$namespace"
+}
+''');
+    }
+
+    test('no-op when android/ does not exist', () {
+      expect(
+        () => linkAndroidConsumerRules([
+          {'module': 'Math', 'lib': 'math'},
+        ], baseDir: tmp.path),
+        returnsNormally,
+      );
+      expect(File(p.join(tmp.path, 'android', 'consumer-rules.pro')).existsSync(), isFalse);
+    });
+
+    test('no-op when kotlinModules is empty (e.g. android is pure C++)', () {
+      scaffoldAndroid('dev.example.math');
+      linkAndroidConsumerRules([], baseDir: tmp.path);
+      expect(File(p.join(tmp.path, 'android', 'consumer-rules.pro')).existsSync(), isFalse);
+    });
+
+    test('creates consumer-rules.pro with the bridge package, namespace, and native-methods rules', () {
+      scaffoldAndroid('dev.example.math');
+      linkAndroidConsumerRules([
+        {'module': 'Math', 'lib': 'math'},
+      ], baseDir: tmp.path);
+      final content = File(p.join(tmp.path, 'android', 'consumer-rules.pro')).readAsStringSync();
+      expect(content, contains('-keep,includedescriptorclasses class nitro.math_module.** {'));
+      expect(content, contains('-keep,includedescriptorclasses class dev.example.math.** {'));
+      expect(content, contains('-keepclasseswithmembernames,includedescriptorclasses class * {'));
+      expect(content, contains('native <methods>;'));
+    });
+
+    test('lib names with hyphens become underscores in the bridge package (matches the Kotlin generator)', () {
+      scaffoldAndroid('dev.example.my_plugin');
+      linkAndroidConsumerRules([
+        {'module': 'MyPlugin', 'lib': 'my-plugin'},
+      ], baseDir: tmp.path);
+      final content = File(p.join(tmp.path, 'android', 'consumer-rules.pro')).readAsStringSync();
+      expect(content, contains('nitro.my_plugin_module.**'));
+    });
+
+    test('multiple Kotlin modules each get their own bridge-package keep rule', () {
+      scaffoldAndroid('dev.example.multi');
+      linkAndroidConsumerRules([
+        {'module': 'Math', 'lib': 'math'},
+        {'module': 'Crypto', 'lib': 'crypto'},
+      ], baseDir: tmp.path);
+      final content = File(p.join(tmp.path, 'android', 'consumer-rules.pro')).readAsStringSync();
+      expect(content, contains('nitro.math_module.**'));
+      expect(content, contains('nitro.crypto_module.**'));
+    });
+
+    test('preserves a plugin author\'s pre-existing unrelated rules', () {
+      scaffoldAndroid('dev.example.math');
+      Directory(p.join(tmp.path, 'android')).createSync(recursive: true);
+      File(p.join(tmp.path, 'android', 'consumer-rules.pro')).writeAsStringSync('''
+# Keep rules for some unrelated third-party dependency.
+-keep class com.example.thirdparty.** { *; }
+''');
+      linkAndroidConsumerRules([
+        {'module': 'Math', 'lib': 'math'},
+      ], baseDir: tmp.path);
+      final content = File(p.join(tmp.path, 'android', 'consumer-rules.pro')).readAsStringSync();
+      expect(content, contains('-keep class com.example.thirdparty.** { *; }'));
+      expect(content, contains('nitro.math_module.**'));
+    });
+
+    test('idempotent: running twice does not duplicate the block', () {
+      scaffoldAndroid('dev.example.math');
+      linkAndroidConsumerRules([
+        {'module': 'Math', 'lib': 'math'},
+      ], baseDir: tmp.path);
+      linkAndroidConsumerRules([
+        {'module': 'Math', 'lib': 'math'},
+      ], baseDir: tmp.path);
+      final content = File(p.join(tmp.path, 'android', 'consumer-rules.pro')).readAsStringSync();
+      expect('nitro.math_module.**'.allMatches(content).length, equals(1));
+    });
+
+    test('re-running with an additional module updates the block in place', () {
+      scaffoldAndroid('dev.example.math');
+      linkAndroidConsumerRules([
+        {'module': 'Math', 'lib': 'math'},
+      ], baseDir: tmp.path);
+      linkAndroidConsumerRules([
+        {'module': 'Math', 'lib': 'math'},
+        {'module': 'Crypto', 'lib': 'crypto'},
+      ], baseDir: tmp.path);
+      final content = File(p.join(tmp.path, 'android', 'consumer-rules.pro')).readAsStringSync();
+      expect(content, contains('nitro.math_module.**'));
+      expect(content, contains('nitro.crypto_module.**'));
+      // The marker itself must still appear exactly once (replaced, not duplicated).
+      expect('BEGIN nitrogen-generated'.allMatches(content).length, equals(1));
+    });
+
+    test('works with build.gradle.kts (Kotlin DSL) namespace syntax', () {
+      Directory(p.join(tmp.path, 'android')).createSync(recursive: true);
+      File(p.join(tmp.path, 'android', 'build.gradle.kts')).writeAsStringSync('''
+android {
+    namespace = "dev.example.math"
+}
+''');
+      linkAndroidConsumerRules([
+        {'module': 'Math', 'lib': 'math'},
+      ], baseDir: tmp.path);
+      final content = File(p.join(tmp.path, 'android', 'consumer-rules.pro')).readAsStringSync();
+      expect(content, contains('dev.example.math.**'));
+    });
+
+    test('does not emit a namespace rule when namespace cannot be determined (no crash)', () {
+      Directory(p.join(tmp.path, 'android')).createSync(recursive: true);
+      File(p.join(tmp.path, 'android', 'build.gradle')).writeAsStringSync('// no namespace here\n');
+      expect(
+        () => linkAndroidConsumerRules([
+          {'module': 'Math', 'lib': 'math'},
+        ], baseDir: tmp.path),
+        returnsNormally,
+      );
+      final content = File(p.join(tmp.path, 'android', 'consumer-rules.pro')).readAsStringSync();
+      expect(content, contains('nitro.math_module.**'));
     });
   });
 
