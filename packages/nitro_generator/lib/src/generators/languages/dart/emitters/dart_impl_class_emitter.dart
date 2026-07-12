@@ -50,6 +50,14 @@ void _emitImplClassSetup(CodeWriter writer, BridgeSpec spec) {
   writer.line(
     "  late final Pointer<NativeFinalizerFunction> _nitroFreeFinalizer = _dylib.lookup<NativeFinalizerFunction>('${libStem}_nitro_free').cast();",
   );
+  // The reverse direction: values Dart produces that NATIVE code frees with
+  // C-runtime free() — String/record/variant callback returns. They must be
+  // allocated by the module's C-runtime malloc, not package:ffi's allocators
+  // (CoTaskMemAlloc on Windows).
+  writer.line(
+    "  late final Pointer<Void> Function(int) _nitroAllocPtr = _dylib.lookupFunction<Pointer<Void> Function(IntPtr), Pointer<Void> Function(int)>('${libStem}_nitro_alloc');",
+  );
+  writer.line('  late final NitroNativeAllocator _nitroNativeAllocator = NitroNativeAllocator(_nitroAllocPtr, _nitroFreePtr);');
   writer.blankLine();
   writer.line('  static DynamicLibrary _loadSupportedLibrary() {');
   // PX19: Guard against dart:ffi usage on web at runtime.

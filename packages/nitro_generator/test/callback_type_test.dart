@@ -154,7 +154,7 @@ void main() {
       final out = DartFfiGenerator.generate(_zeroArgStringCallbackReturnSpec());
 
       expect(out, contains('NativeCallable<Pointer<Utf8> Function()>.isolateLocal(()'));
-      expect(out, contains('return callback().toNativeUtf8();'));
+      expect(out, contains('return callback().toNativeUtf8(allocator: _nitroNativeAllocator);'));
       expect(out, isNot(contains('exceptionalReturn: nullptr')));
     });
 
@@ -163,7 +163,7 @@ void main() {
 
       expect(out, contains('String? Function(int)'));
       expect(out, contains('final _value = callback(arg0);'));
-      expect(out, contains('return _value == null ? nullptr : _value.toNativeUtf8();'));
+      expect(out, contains('return _value == null ? nullptr : _value.toNativeUtf8(allocator: _nitroNativeAllocator);'));
       expect(out, isNot(contains('exceptionalReturn: nullptr')));
     });
 

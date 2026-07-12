@@ -1415,10 +1415,10 @@ void main() {
       expect(out, isNot(contains('exceptionalReturn: nullptr')), reason: 'NativeCallable.isolateLocal rejects exceptionalReturn for Pointer<Utf8>');
     });
 
-    test('Dart FFI: return expression uses toNativeUtf8()', () {
+    test('Dart FFI: return expression uses toNativeUtf8(allocator: _nitroNativeAllocator)', () {
       final out = DartFfiGenerator.generate(_stringCallbackReturnSpec());
       expect(out, contains('return callback('));
-      expect(out, contains('.toNativeUtf8()'));
+      expect(out, contains('.toNativeUtf8(allocator: _nitroNativeAllocator)'));
     });
 
     test('Dart FFI: void-return callback uses listener (no exceptionalReturn)', () {
@@ -1975,9 +1975,9 @@ void main() {
       expect(out, contains('Pointer<Uint8> Function('));
     });
 
-    test('Dart FFI (@HybridRecord return): wrapper calls .toNative(malloc)', () {
+    test('Dart FFI (@HybridRecord return): wrapper calls .toNative(_nitroNativeAllocator)', () {
       final out = DartFfiGenerator.generate(recordCallbackReturnSpec());
-      expect(out, contains('toNative(malloc)'));
+      expect(out, contains('toNative(_nitroNativeAllocator)'));
     });
 
     test('Dart FFI (@HybridRecord return): uses isolateLocal (not listener)', () {
@@ -1991,9 +1991,9 @@ void main() {
       expect(out, contains('Pointer<Uint8> Function('));
     });
 
-    test('Dart FFI (@NitroVariant return): wrapper calls .toNative(malloc)', () {
+    test('Dart FFI (@NitroVariant return): wrapper calls .toNative(_nitroNativeAllocator)', () {
       final out = DartFfiGenerator.generate(variantCallbackReturnSpec());
-      expect(out, contains('toNative(malloc)'));
+      expect(out, contains('toNative(_nitroNativeAllocator)'));
     });
 
     test('Kotlin (@HybridRecord return): _invoke_cb declared as: ByteArray', () {

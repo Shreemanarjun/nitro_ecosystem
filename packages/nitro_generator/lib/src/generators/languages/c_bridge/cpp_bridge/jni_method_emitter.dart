@@ -1979,6 +1979,7 @@ void _emitJniMethods(
   // Universal free for native-owned memory handed to Dart. Dart must not use
   // package:ffi's malloc.free on these pointers (CoTaskMemFree on Windows).
   writer.line('NITRO_EXPORT void ${libStem}_nitro_free(void* ptr) { if (ptr) { free(ptr); } }');
+  writer.line('NITRO_EXPORT void* ${libStem}_nitro_alloc(size_t size) { return malloc(size); }');
   writer.blankLine();
 
   // ── Instance lifecycle (factory pattern — like RN Nitro's HybridObjectRegistry) ──

@@ -176,6 +176,9 @@ String _generateCppDirect(BridgeSpec spec) {
   // Universal free for native-owned memory handed to Dart. Dart must not use
   // package:ffi's malloc.free on these pointers (CoTaskMemFree on Windows).
   writer.line('NITRO_EXPORT void ${libStem}_nitro_free(void* ptr) { if (ptr) { free(ptr); } }');
+  // Matching allocator for Dart-produced values that native code frees
+  // (String/record/variant callback returns) — same rule in reverse.
+  writer.line('NITRO_EXPORT void* ${libStem}_nitro_alloc(size_t size) { return malloc(size); }');
   writer.line('}');
   writer.blankLine();
 

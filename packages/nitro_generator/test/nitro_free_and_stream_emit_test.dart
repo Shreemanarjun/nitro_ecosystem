@@ -193,6 +193,25 @@ void main() {
     });
   });
 
+  group('<lib>_nitro_alloc — Windows callback-return allocator mismatch (§32.2 hang)', () {
+    test('bridge exports nitro_alloc in every platform section', () {
+      final out = CppBridgeGenerator.generate(_spec());
+      const exportLine = 'NITRO_EXPORT void* nitro_free_test_nitro_alloc(size_t size) { return malloc(size); }';
+      expect(exportLine.allMatches(out).length, 3);
+    });
+
+    test('C header declares nitro_alloc', () {
+      final out = CppHeaderGenerator.generate(_spec());
+      expect(out, contains('NITRO_EXPORT void* nitro_free_test_nitro_alloc(size_t size);'));
+    });
+
+    test('Dart impl class binds the native allocator', () {
+      final out = DartFfiGenerator.generate(_spec());
+      expect(out, contains("'nitro_free_test_nitro_alloc'"));
+      expect(out, contains('NitroNativeAllocator(_nitroAllocPtr, _nitroFreePtr)'));
+    });
+  });
+
   group('desktop callback record/variant args — ownership transfer (§61 regression)', () {
     test('callback wrapper passes the block address straight through — no copy-and-rewrap', () {
       final spec = BridgeSpec(

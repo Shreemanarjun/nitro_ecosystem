@@ -95,6 +95,34 @@ extension NitroStringExtension on String {
   }
 }
 
+/// An [Allocator] backed by a module's exported `<lib>_nitro_alloc` /
+/// `<lib>_nitro_free` symbols (plain C-runtime `malloc`/`free`).
+///
+/// Used by generated callback trampolines for values whose ownership
+/// transfers TO native code (String / record / variant callback returns):
+/// the native wrapper releases them with C-runtime `free`, so they must be
+/// produced by C-runtime `malloc`. package:ffi's allocators are
+/// CoTaskMemAlloc/CoTaskMemFree on Windows — handing one of those pointers
+/// to a native `free()` corrupts the heap.
+final class NitroNativeAllocator implements Allocator {
+  final Pointer<Void> Function(int byteCount) _alloc;
+  final void Function(Pointer<Void>) _free;
+
+  const NitroNativeAllocator(this._alloc, this._free);
+
+  @override
+  Pointer<T> allocate<T extends NativeType>(int byteCount, {int? alignment}) {
+    final p = _alloc(byteCount);
+    if (p.address == 0) {
+      throw ArgumentError('NitroNativeAllocator: could not allocate $byteCount bytes');
+    }
+    return p.cast();
+  }
+
+  @override
+  void free(Pointer pointer) => _free(pointer.cast());
+}
+
 extension NitroPointerExtension on Pointer<Utf8> {
   /// Decodes a native NUL-terminated UTF-8 string and frees it with
   /// package:ffi's [malloc].

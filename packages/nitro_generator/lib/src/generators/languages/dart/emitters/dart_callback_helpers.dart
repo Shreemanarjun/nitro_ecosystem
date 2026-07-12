@@ -377,12 +377,17 @@ String? _callbackReturnExpression(BridgeType callbackType, BridgeSpec spec, Stri
     }
     return '$invocation ? 1 : 0';
   }
-  // String → strdup'd pointer; native will call free() on it
+  // String return: the native wrapper copies it and releases it with the
+  // C-runtime free(), so it must be produced by the module's C-runtime
+  // malloc (_nitroNativeAllocator over <lib>_nitro_alloc). package:ffi's
+  // default allocator is CoTaskMemAlloc on Windows — freeing that pointer
+  // with free() corrupted the heap and froze the app on the first
+  // String-returning callback.
   if (returnName == 'String') {
     if (isNullableRet) {
-      return '(() { final _value = $invocation; return _value == null ? nullptr : _value.toNativeUtf8(); })()';
+      return '(() { final _value = $invocation; return _value == null ? nullptr : _value.toNativeUtf8(allocator: _nitroNativeAllocator); })()';
     }
-    return '$invocation.toNativeUtf8()';
+    return '$invocation.toNativeUtf8(allocator: _nitroNativeAllocator)';
   }
   // Nullable enum: null → -1 sentinel.
   if (spec.isEnumName(returnName)) {
@@ -414,19 +419,21 @@ String? _callbackReturnExpression(BridgeType callbackType, BridgeSpec spec, Stri
     }
     return '$invocation.millisecondsSinceEpoch';
   }
-  // @HybridRecord return: Dart encodes to malloc'd [4B len][payload] bytes; native frees.
+  // @HybridRecord return: encoded to a [4B len][payload] block the native
+  // wrapper frees with C-runtime free() — allocate with the module's own
+  // allocator, never package:ffi's (CoTaskMemAlloc on Windows).
   if (spec.isRecordName(returnName)) {
     if (isNullableRet) {
-      return '(() { final _v = $invocation; return _v == null ? nullptr : _v.toNative(malloc); })()';
+      return '(() { final _v = $invocation; return _v == null ? nullptr : _v.toNative(_nitroNativeAllocator); })()';
     }
-    return '$invocation.toNative(malloc)';
+    return '$invocation.toNative(_nitroNativeAllocator)';
   }
-  // @NitroVariant return: same wire format as record.
+  // @NitroVariant return: same wire format and allocator rule as record.
   if (spec.isVariantName(returnName)) {
     if (isNullableRet) {
-      return '(() { final _v = $invocation; return _v == null ? nullptr : _v.toNative(malloc); })()';
+      return '(() { final _v = $invocation; return _v == null ? nullptr : _v.toNative(_nitroNativeAllocator); })()';
     }
-    return '$invocation.toNative(malloc)';
+    return '$invocation.toNative(_nitroNativeAllocator)';
   }
   return invocation;
 }

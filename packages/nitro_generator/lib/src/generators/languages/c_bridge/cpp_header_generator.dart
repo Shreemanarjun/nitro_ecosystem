@@ -98,6 +98,7 @@ class CppHeaderGenerator {
       // Dart must NOT use package:ffi's malloc.free on these — that binds to
       // CoTaskMemFree on Windows, which corrupts the heap on malloc'd pointers.
       CodeLine('NITRO_EXPORT void ${libStem}_nitro_free(void* ptr);'),
+      CodeLine('NITRO_EXPORT void* ${libStem}_nitro_alloc(size_t size);'),
       if (spec.functions.any((f) => f.zeroCopyReturn && f.returnType.isTypedData)) CodeLine('NITRO_EXPORT void ${libStem}_release_typed_data_return(void* ptr);'),
       // @NitroOwned: emit a _release symbol for each owned NativeHandle function.
       // The user implements these to free the native heap allocation.
