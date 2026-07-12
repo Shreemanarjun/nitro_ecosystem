@@ -669,24 +669,29 @@ void main() {
       expect(out, contains('int64_t benchmark_cpp_send_large_buffer_unsafe(int64_t instanceId, void* ptr, int64_t length, NitroError* _nitro_err)'));
     });
 
-    test('stream ports use plain int64_t storage (written once at startup)', () {
-      // g_port_ is plain int64_t — written once during registration and read under
-      // the same thread model; no std::atomic overhead needed.
-      expect(out, contains('static int64_t g_port_dataStream = 0;'));
+    test('stream ports use the mutex-guarded multi-subscriber registry', () {
+      // A single int64 slot let a second concurrent subscriber overwrite the
+      // first (which then received nothing); each subscriber now registers
+      // its own port, matching Kotlin/Swift semantics.
+      expect(out, contains('static _NitroStreamPorts g_ports_dataStream;'));
+      expect(out, isNot(contains('static int64_t g_port_dataStream = 0;')));
     });
 
     test('dataStream register function signature', () {
       expect(out, contains('void benchmark_cpp_register_data_stream_stream(int64_t instanceId, int64_t dart_port)'));
     });
 
-    test('stream emit reads port via direct variable access', () {
-      expect(out, contains('int64_t port = g_port_dataStream;'));
+    test('stream emit snapshots the port list under the lock', () {
+      expect(out, contains('auto _ports = g_ports_dataStream.snapshot();'));
     });
 
-    test('stream emit clears stored port when Dart post fails', () {
-      expect(out, contains('if (!Dart_PostCObject_DL(port, &obj)) {'));
-      expect(out, contains('g_port_dataStream = 0;'));
-      expect(out, contains('return;'));
+    test('stream emit drops a port from the registry when its post fails', () {
+      // dataStream carries a struct item — its failed-post block also frees
+      // the per-port struct copy before dropping the port.
+      expect(out, contains('g_ports_dataStream.remove(_port);'));
+      final start = out.indexOf('emit_dataStream');
+      final body = out.substring(start, out.indexOf('\n}', start));
+      expect(body, contains('free(st_ptr);'));
     });
 
     test('addFast skips error check (isFast path)', () {

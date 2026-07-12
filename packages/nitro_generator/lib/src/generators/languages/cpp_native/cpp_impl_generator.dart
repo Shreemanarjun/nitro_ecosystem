@@ -46,7 +46,8 @@ class CppImplGenerator {
     w.writeln('//   4. Call ${libStem}_register_impl(nullptr) in teardown.');
     w.writeln('//');
     w.writeln('// Ownership conventions:');
-    w.writeln('//   • Record/variant/tuple RETURNS **and emit_* stream items**: pass');
+    w.writeln('//   • Record/variant/tuple RETURNS, **emit_* stream items**, and record/');
+    w.writeln('//     variant CALLBACK arguments you invoke a callback with: pass');
     w.writeln('//     writer.toNativeBuffer() (or nitro_<Variant>_to_native) — a malloc\'d');
     w.writeln('//     [4B len][payload] block whose ownership transfers to the bridge/Dart.');
     w.writeln('//     Returning or emitting a non-owning writer.toBuffer() view is wrong:');

@@ -179,11 +179,9 @@ String _generateCppDirect(BridgeSpec spec) {
   writer.line('}');
   writer.blankLine();
 
-  // Stream state: one Dart port per stream (simplest model)
-  for (final stream in spec.streams) {
-    writer.line('static int64_t g_port_${stream.dartName} = 0;');
-  }
-  if (spec.streams.isNotEmpty) writer.blankLine();
+  // Stream state: a multi-subscriber port registry per stream — shared shape
+  // with the mixed-platform desktop dispatch (CppBridgeGenerator).
+  CppBridgeGenerator._emitStreamPortRegistry(writer, spec);
 
   // Stream emit helpers (called by user's C++ implementation) — shared with
   // the mixed-platform desktop dispatch so definitions always match the
@@ -695,12 +693,15 @@ String _generateCppDirect(BridgeSpec spec) {
   }
 
   // ── Streams ──────────────────────────────────────────────────────────────
+  // Each concurrent Dart subscriber registers its own port (matching
+  // Kotlin/Swift); a single int64 slot previously let a second subscriber
+  // overwrite the first.
   for (final stream in spec.streams) {
     writer.line('void ${stream.registerSymbol}(int64_t instanceId, int64_t dart_port) {');
-    writer.line('    g_port_${stream.dartName} = dart_port;');
+    writer.line('    g_ports_${stream.dartName}.add(dart_port);');
     writer.line('}');
     writer.line('void ${stream.releaseSymbol}(int64_t dart_port) {');
-    writer.line('    if (g_port_${stream.dartName} == dart_port) { g_port_${stream.dartName} = 0; }');
+    writer.line('    g_ports_${stream.dartName}.remove(dart_port);');
     writer.line('}');
     writer.blankLine();
   }

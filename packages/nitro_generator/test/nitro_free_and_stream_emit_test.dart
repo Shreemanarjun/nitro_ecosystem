@@ -129,10 +129,14 @@ void main() {
   });
 
   group('desktop stream emit — ownership transfer (Linux §30.1 double-prefix regression)', () {
-    test('record emit posts item.data directly — no second [4B len] wrap', () {
+    test('record emit posts a per-port copy of the self-describing block — no second [4B len] wrap', () {
       final out = CppBridgeGenerator.generate(_spec());
       expect(out, contains('void HybridFreeTest::emit_configStream(NitroCppBuffer item) {'));
-      expect(out, contains('obj.value.as_int64 = (intptr_t)item.data;'));
+      // Each subscriber port gets its own heap copy of the full
+      // [4B len][payload] block, byte-for-byte (memcpy of item.size, no
+      // extra prefix), and the caller's block is always consumed.
+      expect(out, contains('memcpy(_copy, item.data, item.size);'));
+      expect(out, contains('obj.value.as_int64 = (intptr_t)_copy;'));
       // The old re-wrap: malloc(4 + item.size) + memcpy of a fresh length
       // prefix. Paired with the impl's natural toNativeBuffer() call this
       // double-prefixed the wire payload (FormatException at offset 33) and
@@ -140,12 +144,12 @@ void main() {
       expect(out, isNot(contains('malloc(4 + item.size)')));
     });
 
-    test('record emit frees the block when the port is closed', () {
+    test('record emit frees the caller\'s block when no subscriber is listening', () {
       final out = CppBridgeGenerator.generate(_spec());
-      expect(out, contains('if (port == 0) { if (item.data) { free((void*)item.data); } return; }'));
+      expect(out, contains('if (_ports.empty()) { if (item.data) { free((void*)item.data); } return; }'));
     });
 
-    test('record emit frees the block when the post fails (ownership never transferred)', () {
+    test('record emit always consumes the caller\'s block after fan-out', () {
       final out = CppBridgeGenerator.generate(_spec());
       expect(out, contains('free((void*)item.data);'));
     });
@@ -155,14 +159,87 @@ void main() {
       expect(out, contains('if (item.data == nullptr) {'));
     });
 
-    test('non-record (int) stream emit keeps the plain closed-port early return', () {
+    test('non-record (int) stream emit keeps the plain no-subscriber early return', () {
       final out = CppBridgeGenerator.generate(_spec());
       expect(out, contains('void HybridFreeTest::emit_tickStream(int64_t item) {'));
       // No buffer to release on a scalar stream — the bare return stays.
       final start = out.indexOf('emit_tickStream(int64_t item)');
-      final tickBody = out.substring(start, start + 200);
-      expect(tickBody, contains('if (port == 0) { return; }'));
+      final tickBody = out.substring(start, start + 220);
+      expect(tickBody, contains('if (_ports.empty()) { return; }'));
       expect(tickBody, isNot(contains('free(')));
+    });
+  });
+
+  group('desktop multi-subscriber stream ports (§60 regression)', () {
+    test('per-stream registry replaces the single overwritable port slot', () {
+      final out = CppBridgeGenerator.generate(_spec());
+      expect(out, contains('struct _NitroStreamPorts {'));
+      expect(out, contains('static _NitroStreamPorts g_ports_configStream;'));
+      expect(out, contains('static _NitroStreamPorts g_ports_tickStream;'));
+      // A single int64 slot let a second concurrent subscriber overwrite the
+      // first, which then received nothing.
+      expect(out, isNot(contains('static int64_t g_port_configStream = 0;')));
+    });
+
+    test('register appends and release removes the exact port', () {
+      final out = CppBridgeGenerator.generate(_spec());
+      expect(out, contains('g_ports_configStream.add(dart_port);'));
+      expect(out, contains('g_ports_configStream.remove(dart_port);'));
+    });
+
+    test('scalar emit fans out to every subscriber port', () {
+      final out = CppBridgeGenerator.generate(_spec());
+      expect(out, contains('if (!Dart_PostCObject_DL(_port, &obj)) { g_ports_tickStream.remove(_port); }'));
+    });
+  });
+
+  group('desktop callback record/variant args — ownership transfer (§61 regression)', () {
+    test('callback wrapper passes the block address straight through — no copy-and-rewrap', () {
+      final spec = BridgeSpec(
+        dartClassName: 'CbTest',
+        lib: 'nitro_cb_test',
+        namespace: 'nitro_cb_test',
+        androidImpl: NativeImpl.kotlin,
+        iosImpl: NativeImpl.swift,
+        windowsImpl: NativeImpl.cpp,
+        linuxImpl: NativeImpl.cpp,
+        sourceUri: 'nitro_cb_test.native.dart',
+        recordTypes: [
+          BridgeRecordType(
+            name: 'Ev',
+            fields: [
+              BridgeRecordField(name: 'x', dartType: 'int', kind: RecordFieldKind.primitive),
+            ],
+          ),
+        ],
+        functions: [
+          BridgeFunction(
+            dartName: 'onEvent',
+            cSymbol: 'nitro_cb_test_on_event',
+            isAsync: false,
+            returnType: BridgeType(name: 'void'),
+            params: [
+              BridgeParam(
+                name: 'handler',
+                type: BridgeType(
+                  name: 'void Function(Ev)',
+                  isFunction: true,
+                  functionReturnType: 'void',
+                  functionParams: [BridgeType(name: 'Ev', isRecord: true)],
+                ),
+              ),
+            ],
+          ),
+        ],
+      );
+      final out = CppBridgeGenerator.generate(spec);
+      // The impl invokes the callback with record.toNativeBuffer() — a
+      // self-describing heap block. The wrapper forwards item.data untouched;
+      // Dart decodes via fromNative and frees via <lib>_nitro_free. The old
+      // copy-and-rewrap added a second length prefix, which Dart read as the
+      // variant tag ("Unknown TcEvent tag: 17"), and leaked the impl's block.
+      expect(out, contains('_rawfn_handler(_a0.data);'));
+      expect(out, isNot(contains('malloc(4 + _a0.size)')));
     });
   });
 }

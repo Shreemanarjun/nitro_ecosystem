@@ -321,10 +321,7 @@ class CppBridgeGenerator {
     writer.line('#include "$ifaceHeader"');
     writer.blankLine();
 
-    for (final stream in spec.streams) {
-      writer.line('static int64_t g_port_${stream.dartName} = 0;');
-    }
-    if (spec.streams.isNotEmpty) writer.blankLine();
+    _emitStreamPortRegistry(writer, spec);
 
     _emitCppStreamEmitters(writer, spec, className, enumNames, structNames, variantNames);
 
@@ -994,12 +991,16 @@ class CppBridgeGenerator {
     }
 
     for (final stream in spec.streams) {
-      // instanceId is included for API consistency with the JNI path; g_port is keyed by dartName.
+      // instanceId is included for API consistency with the JNI path; the
+      // port registry is keyed by dartName. Multiple simultaneous subscribers
+      // each register their own port (matching Kotlin/Swift semantics) — a
+      // single int64 slot here previously let a second subscriber overwrite
+      // the first, which then received nothing.
       writer.line('void ${stream.registerSymbol}(int64_t instanceId, int64_t dart_port) {');
-      writer.line('    g_port_${stream.dartName} = dart_port;');
+      writer.line('    g_ports_${stream.dartName}.add(dart_port);');
       writer.line('}');
       writer.line('void ${stream.releaseSymbol}(int64_t dart_port) {');
-      writer.line('    if (g_port_${stream.dartName} == dart_port) { g_port_${stream.dartName} = 0; }');
+      writer.line('    g_ports_${stream.dartName}.remove(dart_port);');
       writer.line('}');
       writer.blankLine();
     }
@@ -1090,12 +1091,16 @@ class CppBridgeGenerator {
         }
       } else if (recordNames.contains(base) || variantNames.contains(base) || cp.isRecord) {
         trueParams.add('const uint8_t*');
-        // Malloc'd [4B len][payload]; ownership passes to Dart (frees after decode).
-        argConversions.add('uint8_t* _blob$i = (uint8_t*)malloc(4 + _a$i.size);');
-        argConversions.add('int32_t _bl$i = (int32_t)_a$i.size;');
-        argConversions.add('memcpy(_blob$i, &_bl$i, 4);');
-        argConversions.add('if (_a$i.size > 0) { memcpy(_blob$i + 4, _a$i.data, _a$i.size); }');
-        rawArgs.add('_blob$i');
+        // The impl passes a SELF-DESCRIBING heap [4B len][payload] block
+        // (record.toNativeBuffer() / nitro_Xxx_to_native) — the same
+        // ownership-transfer contract as record returns and stream emits.
+        // Pass the address straight through: Dart decodes via fromNative and
+        // frees it via <lib>_nitro_free; a {nullptr,0} item reaches Dart as
+        // nullptr (null on a nullable callback param). The old copy-and-rewrap
+        // added a second length prefix — Dart then read the inner prefix as
+        // the variant tag ("Unknown TcEvent tag: 17") — and leaked the
+        // impl's block on every invocation.
+        rawArgs.add('_a$i.data');
       } else if (base == 'double') {
         trueParams.add('int64_t');
         argConversions.add('int64_t _b$i; { double _d = _a$i; memcpy(&_b$i, &_d, 8); }');
@@ -1155,6 +1160,34 @@ class CppBridgeGenerator {
     return fnName;
   }
 
+  /// Emits the per-stream multi-subscriber port registry shared by the
+  /// mixed-platform desktop dispatch AND the all-platforms-C++ direct path.
+  ///
+  /// Kotlin/Swift keep a port per subscription; a single `int64_t` slot here
+  /// let a second concurrent subscriber overwrite the first, which then
+  /// received nothing ("multiple subscribers independent" returned []).
+  static void _emitStreamPortRegistry(CodeWriter writer, BridgeSpec spec) {
+    if (spec.streams.isEmpty) return;
+    writer.line('#include <algorithm>');
+    writer.line('#include <mutex>');
+    writer.line('#include <vector>');
+    writer.blankLine();
+    writer.line('// One registry per stream: every concurrent Dart subscriber registers');
+    writer.line('// its own ReceivePort. Guarded by a mutex — register/release run on the');
+    writer.line('// Dart isolate thread while emits may come from any impl thread.');
+    writer.line('struct _NitroStreamPorts {');
+    writer.line('    std::mutex mtx;');
+    writer.line('    std::vector<int64_t> ports;');
+    writer.line('    void add(int64_t p) { std::lock_guard<std::mutex> l(mtx); ports.push_back(p); }');
+    writer.line('    void remove(int64_t p) { std::lock_guard<std::mutex> l(mtx); ports.erase(std::remove(ports.begin(), ports.end(), p), ports.end()); }');
+    writer.line('    std::vector<int64_t> snapshot() { std::lock_guard<std::mutex> l(mtx); return ports; }');
+    writer.line('};');
+    for (final stream in spec.streams) {
+      writer.line('static _NitroStreamPorts g_ports_${stream.dartName};');
+    }
+    writer.blankLine();
+  }
+
   /// Emits the `Hybrid<Class>::emit_*` stream definitions shared by the
   /// mixed-platform desktop dispatch AND the all-platforms-C++ direct path
   /// (cpp_direct_emitter.dart). Signatures come from CppInterfaceGenerator
@@ -1209,23 +1242,26 @@ class CppBridgeGenerator {
       // batch-annotated String streams fall back to plain per-item posting.
       final isBatchNumeric = stream.isBatch && const {'int', 'double', 'bool'}.contains(base);
 
+      final ports = 'g_ports_${stream.dartName}';
       writer.line('void Hybrid$className::emit_${stream.dartName}($itemCpp item) {');
-      writer.line('    int64_t port = g_port_${stream.dartName};');
+      writer.line('    auto _ports = $ports.snapshot();');
       if (isRecord) {
-        // Record/variant items own a heap [4B len][payload] block — if the
-        // stream is closed, the caller's buffer must still be released.
-        writer.line('    if (port == 0) { if (item.data) { free((void*)item.data); } return; }');
+        // Record/variant items own a heap [4B len][payload] block — if no
+        // subscriber is listening, the caller's buffer must still be released.
+        writer.line('    if (_ports.empty()) { if (item.data) { free((void*)item.data); } return; }');
       } else {
-        writer.line('    if (port == 0) { return; }');
+        writer.line('    if (_ports.empty()) { return; }');
       }
 
       // Nullable items: post kNull for std::nullopt, else unwrap and fall through.
-      // (Nullable records/variants stay NitroCppBuffer — empty buffer means null.)
+      // (Nullable records/variants stay NitroCppBuffer — nullptr data means null.)
       if (isNullable && !isRecord) {
         writer.line('    if (!item.has_value()) {');
         writer.line('        Dart_CObject _null_obj;');
         writer.line('        _null_obj.type = Dart_CObject_kNull;');
-        writer.line('        if (!Dart_PostCObject_DL(port, &_null_obj)) { g_port_${stream.dartName} = 0; }');
+        writer.line('        for (int64_t _port : _ports) {');
+        writer.line('            if (!Dart_PostCObject_DL(_port, &_null_obj)) { $ports.remove(_port); }');
+        writer.line('        }');
         writer.line('        return;');
         writer.line('    }');
       }
@@ -1240,15 +1276,73 @@ class CppBridgeGenerator {
             ? 'int64_t _bits = $v ? 1 : 0;'
             : 'int64_t _bits = $v;';
         writer.line('    $bits');
-        writer.line('    if (!_nitro_desktop_post_batch(port, &_bits, 1)) { g_port_${stream.dartName} = 0; }');
+        writer.line('    for (int64_t _port : _ports) {');
+        writer.line('        if (!_nitro_desktop_post_batch(_port, &_bits, 1)) { $ports.remove(_port); }');
+        writer.line('    }');
+        writer.line('}');
+        writer.blankLine();
+        continue;
+      }
+
+      if (isRecord) {
+        // Record/variant: item is a SELF-DESCRIBING heap [4B len][payload]
+        // block — exactly what record.toNativeBuffer() / nitro_Xxx_to_native()
+        // return, matching the record RETURN convention. Ownership transfers
+        // to Dart: each subscriber's port gets its OWN heap copy (Dart frees
+        // each via <lib>_nitro_free), and the caller's block is released here
+        // — emit always consumes item. Never pass a non-owning
+        // writer.toBuffer() view. (Earlier versions expected a bare payload
+        // view and re-wrapped it in a second length prefix; paired with
+        // toNativeBuffer() that corrupted every decoded field AND leaked the
+        // caller's block.)
+        writer.line('    Dart_CObject obj;');
+        writer.line('    if (item.data == nullptr) {');
+        writer.line('        obj.type = Dart_CObject_kNull;');
+        writer.line('        for (int64_t _port : _ports) {');
+        writer.line('            if (!Dart_PostCObject_DL(_port, &obj)) { $ports.remove(_port); }');
+        writer.line('        }');
+        writer.line('        return;');
+        writer.line('    }');
+        writer.line('    for (int64_t _port : _ports) {');
+        writer.line('        uint8_t* _copy = (uint8_t*)malloc(item.size);');
+        writer.line('        if (!_copy) { break; }');
+        writer.line('        memcpy(_copy, item.data, item.size);');
+        writer.line('        obj.type = Dart_CObject_kInt64;');
+        writer.line('        obj.value.as_int64 = (intptr_t)_copy;');
+        writer.line('        if (!Dart_PostCObject_DL(_port, &obj)) {');
+        writer.line('            free(_copy);');
+        writer.line('            $ports.remove(_port);');
+        writer.line('        }');
+        writer.line('    }');
+        writer.line('    free((void*)item.data);');
         writer.line('}');
         writer.blankLine();
         continue;
       }
 
       if (isStruct) {
-        writer.line('    $base* st_ptr = nullptr;');
+        // Struct items post a malloc'd copy whose ownership transfers to
+        // Dart — one fresh copy per subscriber port.
+        writer.line('    Dart_CObject obj;');
+        writer.line('    for (int64_t _port : _ports) {');
+        writer.line('        $base* st_ptr = ($base*)malloc(sizeof($base));');
+        writer.line('        if (!st_ptr) { break; }');
+        writer.line('        *st_ptr = $v;');
+        writer.line('        obj.type = Dart_CObject_kInt64;');
+        writer.line('        obj.value.as_int64 = (intptr_t)st_ptr;');
+        writer.line('        if (!Dart_PostCObject_DL(_port, &obj)) {');
+        writer.line('            free(st_ptr);');
+        writer.line('            $ports.remove(_port);');
+        writer.line('        }');
+        writer.line('    }');
+        writer.line('}');
+        writer.blankLine();
+        continue;
       }
+
+      // Scalar-ish items (int/double/bool/String/enum/DateTime/uint64):
+      // Dart_PostCObject_DL copies the value during the call, so the same
+      // Dart_CObject can be posted to every subscriber port.
       writer.line('    Dart_CObject obj;');
       if (base == 'double') {
         writer.line('    obj.type = Dart_CObject_kDouble;');
@@ -1269,42 +1363,11 @@ class CppBridgeGenerator {
       } else if (isEnum) {
         writer.line('    obj.type = Dart_CObject_kInt64;');
         writer.line('    obj.value.as_int64 = static_cast<int64_t>($v);');
-      } else if (isStruct) {
-        writer.line('    st_ptr = ($base*)malloc(sizeof($base));');
-        writer.line('    if (!st_ptr) { return; }');
-        writer.line('    *st_ptr = $v;');
-        writer.line('    obj.type = Dart_CObject_kInt64;');
-        writer.line('    obj.value.as_int64 = (intptr_t)st_ptr;');
-      } else if (isRecord) {
-        // Record/variant: item is a SELF-DESCRIBING heap [4B len][payload]
-        // block — exactly what record.toNativeBuffer() / nitro_Xxx_to_native()
-        // return, matching the record RETURN convention. Ownership transfers
-        // to Dart here: post the address directly (Dart decodes via
-        // RecordReader.fromNative and frees via <lib>_nitro_free). Never pass
-        // a non-owning writer.toBuffer() view — Dart would free a live buffer.
-        // (Earlier versions expected a bare payload view and re-wrapped it in
-        // a second length prefix; paired with toNativeBuffer() that corrupted
-        // every decoded field AND leaked the caller's block.)
-        writer.line('    if (item.data == nullptr) {');
-        writer.line('        obj.type = Dart_CObject_kNull;');
-        writer.line('        if (!Dart_PostCObject_DL(port, &obj)) { g_port_${stream.dartName} = 0; }');
-        writer.line('        return;');
-        writer.line('    }');
-        writer.line('    obj.type = Dart_CObject_kInt64;');
-        writer.line('    obj.value.as_int64 = (intptr_t)item.data;');
       } else {
         writer.line('    obj.type = Dart_CObject_kNull;');
       }
-      writer.line('    if (!Dart_PostCObject_DL(port, &obj)) {');
-      writer.line('        g_port_${stream.dartName} = 0;');
-      if (isStruct) {
-        writer.line('        free(st_ptr);');
-      } else if (isRecord) {
-        // The post failed, so ownership never transferred — release the
-        // caller's block here to keep the "emit always consumes item" contract.
-        writer.line('        free((void*)item.data);');
-      }
-      writer.line('        return;');
+      writer.line('    for (int64_t _port : _ports) {');
+      writer.line('        if (!Dart_PostCObject_DL(_port, &obj)) { $ports.remove(_port); }');
       writer.line('    }');
       writer.line('}');
       writer.blankLine();
