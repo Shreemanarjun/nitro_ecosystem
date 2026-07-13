@@ -135,6 +135,13 @@ String nitroImplSrcVar(String target) => 'NITRO_IMPL_SRC_$target';
 ///
 /// [unguarded] true for Android-C++ (compiled unconditionally); false wraps
 /// the call in `if(NOT ANDROID)` so Android/Kotlin builds skip it.
+/// Public form of the guarded impl-sources block, for `nitrogen link` to
+/// retrofit onto an EXISTING `src/CMakeLists.txt` that still hardcodes
+/// `target_sources(&lt;lib&gt; PRIVATE "HybridXxx.cpp")` (pre-separation layout):
+/// without the guard, the `NITRO_IMPL_SRC_&lt;lib&gt;` variables set by the platform
+/// CMakeLists are silently ignored (issue #12).
+String implSourcesBlock(String target, String className, {required bool unguarded}) => _implSourcesBlock(target, className, unguarded: unguarded);
+
 String _implSourcesBlock(String target, String className, {required bool unguarded}) {
   final varName = nitroImplSrcVar(target);
   final block =

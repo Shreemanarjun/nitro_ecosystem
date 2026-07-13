@@ -634,6 +634,27 @@ class DoctorCommand extends Command {
       }
     }
 
+    // Windows/Linux Nitro backends are pure FFI: pluginClass alongside
+    // ffiPlugin makes Flutter link a nonexistent <plugin>_plugin CMake target
+    // ("CMake Error: No target") in every consuming desktop app — issue #10.
+    for (final desktop in ['windows', 'linux']) {
+      if (!pubspec.contains('  $desktop:')) continue;
+      final block = RegExp('$desktop:\\s*\\n(?:\\s+\\S[^\\n]*\\n)*');
+      final flow = RegExp('$desktop:\\s*\\{[^}]*\\}');
+      final entry = block.firstMatch(pubspec)?.group(0) ?? flow.firstMatch(pubspec)?.group(0) ?? '';
+      final hasClass = entry.contains('pluginClass:');
+      final hasFfi = RegExp(r'ffiPlugin:\s*true').hasMatch(entry);
+      if (hasClass && hasFfi) {
+        err(
+          pubSec,
+          '$desktop declares pluginClass on an FFI-only platform',
+          hint: 'Remove it (Run: nitrogen link) — Flutter otherwise links a nonexistent <plugin>_plugin CMake target',
+        );
+      } else if (hasFfi) {
+        ok(pubSec, '$desktop ffiPlugin: true (FFI-only, no pluginClass)');
+      }
+    }
+
     // ── Apple SPM ──────────────────────────────────────────────────────────────
     final spmStatus = detectSpmStatus(root.path);
     if (Platform.isMacOS) {

@@ -328,14 +328,26 @@ const String _implStubTodoMarker = 'TODO: implement all pure-virtual methods dec
 /// different threading primitives, platform intrinsics).
 ///
 /// True only when `$baseDir/$platform/src/Hybrid$className.cpp` exists AND
-/// has moved past the auto-generated starter stub (no longer contains
-/// [_implStubTodoMarker]) — i.e. the plugin author actually started writing
-/// platform-specific code there. An untouched stub (or no file at all) means
-/// "keep sharing" — nitrogen never forces a plugin onto the separated shape.
+/// contains actual code — i.e. the plugin author genuinely started writing
+/// platform-specific implementation there. An untouched stub, a file that
+/// still carries the starter's [_implStubTodoMarker], or a comments-only
+/// file (someone deleting the stub body and leaving notes) all mean "keep
+/// sharing" — nitrogen never forces a plugin onto the separated shape.
+/// (Keying off marker ABSENCE alone misread a hand-authored comment-only
+/// file as an opt-in — issue #12's detection note.)
 bool hasCustomPlatformImpl(String baseDir, String platform, String className) {
   final f = File(p.join(baseDir, platform, 'src', 'Hybrid$className.cpp'));
   if (!f.existsSync()) return false;
-  return !f.readAsStringSync().contains(_implStubTodoMarker);
+  final content = f.readAsStringSync();
+  if (content.contains(_implStubTodoMarker)) return false;
+  // Strip // and /* */ comments plus preprocessor-free blank lines; anything
+  // left is real code (class definitions, method bodies, registration).
+  final withoutBlock = content.replaceAll(RegExp(r'/\*.*?\*/', dotAll: true), '');
+  final codeLines = withoutBlock.split('\n').map((l) {
+    final idx = l.indexOf('//');
+    return (idx >= 0 ? l.substring(0, idx) : l).trim();
+  }).where((l) => l.isNotEmpty);
+  return codeLines.isNotEmpty;
 }
 
 List<ModuleInfo> discoverModuleInfos(
@@ -1276,6 +1288,62 @@ void linkCMake(
         isAndroidCpp: info?.isAndroidCpp ?? false,
       );
       modified = true;
+    }
+  }
+
+  // Retrofit the NITRO_IMPL_SRC guard onto a pre-separation src/CMakeLists
+  // once a module opts into per-platform desktop impls (issue #12): the
+  // platform CMakeLists set NITRO_IMPL_SRC_<lib>, but an existing file that
+  // hardcodes `target_sources(<lib> PRIVATE "HybridXxx.cpp")` (or compiles
+  // the impl inline in add_library) silently ignores them — the build keeps
+  // compiling the shared impl while the per-platform files sit unused.
+  // Only fires for modules where separation is actually requested/active,
+  // so never-opted-in projects keep byte-identical CMakeLists. The guard's
+  // else-branch preserves the old behavior exactly when the variable is
+  // unset (e.g. Android builds of the same file).
+  if (moduleInfos != null) {
+    for (final m in moduleInfos.where((m) => m.isCpp)) {
+      final varName = ct.nitroImplSrcVar(m.lib);
+      if (content.contains(varName)) continue; // already guarded
+      final cls = _toPascalCase(m.lib);
+      final separationActive =
+          (m.windowsIsCpp && (m.windowsRequestsSeparateImpl || hasCustomPlatformImpl(baseDir, 'windows', cls))) ||
+          (m.linuxIsCpp && (m.linuxRequestsSeparateImpl || hasCustomPlatformImpl(baseDir, 'linux', cls)));
+      if (!separationActive) continue;
+      // Both className conventions appear in the wild (older links derived it
+      // from `module`, stubs derive it from `lib`).
+      for (final className in {cls, _toPascalCase(m.module)}) {
+        final implName = 'Hybrid$className.cpp';
+        final wrapped = RegExp(
+          'if\\(NOT ANDROID\\)\\s*\\n\\s*target_sources\\(${RegExp.escape(m.lib)} PRIVATE "${RegExp.escape(implName)}"\\)\\s*\\nendif\\(\\)\\n?',
+        );
+        final bare = RegExp(
+          'target_sources\\(${RegExp.escape(m.lib)} PRIVATE "${RegExp.escape(implName)}"\\)\\n?',
+        );
+        final inline = '\n  "$implName"';
+        if (wrapped.hasMatch(content)) {
+          content = content.replaceFirst(wrapped, ct.implSourcesBlock(m.lib, className, unguarded: false));
+          modified = true;
+          break;
+        } else if (bare.hasMatch(content)) {
+          content = content.replaceFirst(bare, ct.implSourcesBlock(m.lib, className, unguarded: m.isAndroidCpp));
+          modified = true;
+          break;
+        } else if (content.contains('add_library(${m.lib} SHARED') && content.contains(inline)) {
+          // Impl listed inline inside add_library (android-cpp layout):
+          // move it out into the guarded block, same unconditional semantics.
+          content = content.replaceFirst(inline, '');
+          final addLib = RegExp('add_library\\(${RegExp.escape(m.lib)} SHARED[^)]*\\)\\n');
+          final match = addLib.firstMatch(content);
+          if (match != null) {
+            content = content.replaceFirst(match.group(0)!, '${match.group(0)!}${ct.implSourcesBlock(m.lib, className, unguarded: true)}');
+          } else {
+            content += ct.implSourcesBlock(m.lib, className, unguarded: true);
+          }
+          modified = true;
+          break;
+        }
+      }
     }
   }
   if (modified) cmakeFile.writeAsStringSync(content);
@@ -2604,6 +2672,31 @@ void _linkDesktopCMake(
   var content = cmakeFile.readAsStringSync();
   bool modified = false;
 
+  // Flutter APP-RUNNER CMakeLists (an example app's windows/ or linux/ dir,
+  // hit when the example is itself a Nitro module) — NOT a plugin platform
+  // file. Runners define BINARY_NAME and add_executable; `${PLUGIN_NAME}` is
+  // never defined in their scope, so a nitro include block on it is a hard
+  // configure error, and NITRO_NATIVE serves no purpose there (the example's
+  // module compiles through its own src/CMakeLists.txt). Strip anything an
+  // earlier nitrogen version injected and otherwise leave the file alone
+  // (issue #11).
+  final isAppRunner = content.contains('BINARY_NAME') || content.contains('add_executable(');
+  if (isAppRunner) {
+    var cleaned = content.replaceAll(
+      RegExp(r'\n?target_include_directories\(\s*\$\{PLUGIN_NAME\}[^)]+\)\n?'),
+      '\n',
+    );
+    cleaned = cleaned.replaceAll(
+      RegExp(r'^set\(NITRO_NATIVE "[^"]*"\)\n\n?', multiLine: true),
+      '',
+    );
+    if (cleaned != content) {
+      cmakeFile.writeAsStringSync(cleaned);
+      stdout.writeln('  $platform/CMakeLists.txt: removed nitro-injected block from app-runner CMakeLists (it broke configure with an undefined \${PLUGIN_NAME})');
+    }
+    return;
+  }
+
   const desiredNitroValue = _desktopLocalNitroNativeCmakePath;
   if (!content.contains('NITRO_NATIVE')) {
     content = 'set(NITRO_NATIVE "$desiredNitroValue")\n\n$content';
@@ -3050,6 +3143,100 @@ const String _nitroConsumerRulesEndMarker = '# --- END nitrogen-generated JNI ke
 /// unrelated dependencies survive every `nitrogen link` run. Re-derives the
 /// block's content from the CURRENT module list each time, so e.g. adding a
 /// second Nitro module to the plugin updates the keep rules automatically.
+/// Removes `pluginClass:` from the plugin pubspec's `windows:`/`linux:`
+/// platform entries when that platform is a Nitro C++ (pure-FFI) backend.
+///
+/// Declaring BOTH `pluginClass` and `ffiPlugin: true` for a desktop platform
+/// makes Flutter's tooling classify the plugin as method-channel: the app's
+/// generated_plugins.cmake then links a `<plugin>_plugin` CMake target that
+/// a pure-FFI plugin never defines —
+///   CMake Error: No target `<plugin>_plugin`
+/// — blocking every Windows/Linux build of the consuming app (issue #10).
+/// The ffiPlugin-only form routes through FLUTTER_FFI_PLUGIN_LIST and the
+/// plugin's `<plugin>_bundled_libraries` instead, which is what the
+/// generated desktop CMakeLists provide.
+///
+/// Handles both YAML styles (block children and inline `{ ... }` flow maps),
+/// is idempotent, and touches nothing outside the two desktop entries —
+/// android/ios/macos keep their pluginClass (those platforms genuinely
+/// register a plugin class).
+void linkDesktopPubspecFfiOnly(
+  List<ModuleInfo> moduleInfos, {
+  String baseDir = '.',
+}) {
+  final pubspecFile = File(p.join(baseDir, 'pubspec.yaml'));
+  if (!pubspecFile.existsSync()) return;
+  final fixWindows = moduleInfos.any((m) => m.windowsIsCpp);
+  final fixLinux = moduleInfos.any((m) => m.linuxIsCpp);
+  if (!fixWindows && !fixLinux) return;
+
+  final targets = <String>{if (fixWindows) 'windows', if (fixLinux) 'linux'};
+  final lines = pubspecFile.readAsStringSync().split('\n');
+  final out = <String>[];
+  var inPlatforms = false;
+  var platformsIndent = -1;
+  var changed = false;
+
+  int indentOf(String l) => l.length - l.trimLeft().length;
+
+  for (var i = 0; i < lines.length; i++) {
+    final line = lines[i];
+    final trimmed = line.trim();
+
+    if (trimmed == 'platforms:') {
+      inPlatforms = true;
+      platformsIndent = indentOf(line);
+      out.add(line);
+      continue;
+    }
+    if (inPlatforms && trimmed.isNotEmpty && indentOf(line) <= platformsIndent) {
+      inPlatforms = false; // left the platforms block
+    }
+
+    final flowMatch = inPlatforms ? RegExp(r'^(\s*)(\w+):\s*\{(.*)\}\s*$').firstMatch(line) : null;
+    if (flowMatch != null && targets.contains(flowMatch.group(2))) {
+      // Inline flow map: windows: { pluginClass: Xxx, ffiPlugin: true }
+      final entries = flowMatch.group(3)!.split(',').map((e) => e.trim()).where((e) => e.isNotEmpty).toList();
+      if (entries.any((e) => e.startsWith('ffiPlugin:')) && entries.any((e) => e.startsWith('pluginClass:'))) {
+        entries.removeWhere((e) => e.startsWith('pluginClass:'));
+        out.add('${flowMatch.group(1)}${flowMatch.group(2)}: { ${entries.join(', ')} }');
+        changed = true;
+        continue;
+      }
+    }
+
+    final blockKey = inPlatforms ? RegExp(r'^(\s*)(\w+):\s*$').firstMatch(line) : null;
+    if (blockKey != null && targets.contains(blockKey.group(2))) {
+      // Block form: collect the child lines (strictly deeper indent).
+      final keyIndent = indentOf(line);
+      var end = i + 1;
+      while (end < lines.length && (lines[end].trim().isEmpty || indentOf(lines[end]) > keyIndent)) {
+        end++;
+      }
+      final children = lines.sublist(i + 1, end);
+      final hasFfi = children.any((l) => l.trim().startsWith('ffiPlugin:') && l.contains('true'));
+      final hasClass = children.any((l) => l.trim().startsWith('pluginClass:'));
+      out.add(line);
+      for (final child in children) {
+        if (hasFfi && hasClass && child.trim().startsWith('pluginClass:')) {
+          changed = true;
+          continue;
+        }
+        out.add(child);
+      }
+      i = end - 1;
+      continue;
+    }
+
+    out.add(line);
+  }
+
+  if (changed) {
+    pubspecFile.writeAsStringSync(out.join('\n'));
+    stdout.writeln('  pubspec.yaml: removed pluginClass from FFI-only desktop platform entries (fixes "No target <plugin>_plugin")');
+  }
+}
+
 void linkAndroidConsumerRules(
   List<Map<String, String>> kotlinModules, {
   String baseDir = '.',
@@ -3162,6 +3349,50 @@ String _newPlatformImplContent({
   return genericStubContent;
 }
 
+/// Creates `$platform/src/Hybrid$className.cpp`, or — when the annotation
+/// explicitly requests per-platform separation and the file on disk is still
+/// the UNTOUCHED auto-created stub — completes the migration of the shared
+/// `src/Hybrid$className.cpp` content into it.
+///
+/// The second half is the issue #12 fix: the stub is auto-created on every
+/// link (as an inert option), so by the time an author switches the
+/// annotation to `WindowsNativeImpl.cpp`/`LinuxNativeImpl.cpp` the file
+/// already exists and a bare "never overwrite" rule would strand the real
+/// impl in the shared file while the platform CMakeLists points at the empty
+/// stub. An untouched stub (TODO marker still present) is not user code —
+/// replacing it with the shared impl's content is the location change the
+/// explicit marker asked for. A file WITHOUT the marker is user code and is
+/// never overwritten.
+void _writeOrMigratePlatformImplStub({
+  required String baseDir,
+  required String platform,
+  required String lib,
+  required bool requestsSeparateImpl,
+  required String genericStubContent,
+}) {
+  final className = _toPascalCase(lib);
+  final srcDir = Directory(p.join(baseDir, platform, 'src'))..createSync(recursive: true);
+  final stubFile = File(p.join(srcDir.path, 'Hybrid$className.cpp'));
+  final content = _newPlatformImplContent(
+    baseDir: baseDir,
+    lib: lib,
+    className: className,
+    requestsSeparateImpl: requestsSeparateImpl,
+    genericStubContent: genericStubContent,
+  );
+  if (!stubFile.existsSync()) {
+    stubFile.writeAsStringSync(content);
+    return;
+  }
+  final onDisk = stubFile.readAsStringSync();
+  final isUntouchedStub = onDisk.contains(_implStubTodoMarker);
+  final hasMigratedContent = content != genericStubContent;
+  if (requestsSeparateImpl && isUntouchedStub && hasMigratedContent && onDisk != content) {
+    stubFile.writeAsStringSync(content);
+    stdout.writeln('  $platform/src/Hybrid$className.cpp: migrated shared src/Hybrid$className.cpp content (explicit per-platform separation) — the shared file is left in place and no longer compiled for $platform');
+  }
+}
+
 /// Creates Windows-specific C++ impl stub files for modules that target
 /// `windows: WindowsNativeImpl.cpp`. These stubs live in `windows/src/` so
 /// `windows/CMakeLists.txt` can reference them via a relative path.
@@ -3179,18 +3410,12 @@ void linkWindowsCppImplStubs(
   for (final m in moduleInfos.where(
     (m) => m.isCpp && windowsCppLibs.contains(m.lib),
   )) {
-    final className = _toPascalCase(m.lib);
-    final winSrcDir = Directory(p.join(baseDir, 'windows', 'src'))..createSync(recursive: true);
-    final stubFile = File(p.join(winSrcDir.path, 'Hybrid$className.cpp'));
-    if (stubFile.existsSync()) continue;
-    stubFile.writeAsStringSync(
-      _newPlatformImplContent(
-        baseDir: baseDir,
-        lib: m.lib,
-        className: className,
-        requestsSeparateImpl: m.windowsRequestsSeparateImpl,
-        genericStubContent: t.windowsCppStubContent(lib: m.lib, className: className),
-      ),
+    _writeOrMigratePlatformImplStub(
+      baseDir: baseDir,
+      platform: 'windows',
+      lib: m.lib,
+      requestsSeparateImpl: m.windowsRequestsSeparateImpl,
+      genericStubContent: t.windowsCppStubContent(lib: m.lib, className: _toPascalCase(m.lib)),
     );
   }
 }
@@ -3207,18 +3432,12 @@ void linkLinuxCppImplStubs(
   String baseDir = '.',
 }) {
   for (final m in moduleInfos.where((m) => m.linuxIsCpp)) {
-    final className = _toPascalCase(m.lib);
-    final linuxSrcDir = Directory(p.join(baseDir, 'linux', 'src'))..createSync(recursive: true);
-    final stubFile = File(p.join(linuxSrcDir.path, 'Hybrid$className.cpp'));
-    if (stubFile.existsSync()) continue; // never overwrite user code
-    stubFile.writeAsStringSync(
-      _newPlatformImplContent(
-        baseDir: baseDir,
-        lib: m.lib,
-        className: className,
-        requestsSeparateImpl: m.linuxRequestsSeparateImpl,
-        genericStubContent: t.linuxCppStubContent(lib: m.lib, className: className),
-      ),
+    _writeOrMigratePlatformImplStub(
+      baseDir: baseDir,
+      platform: 'linux',
+      lib: m.lib,
+      requestsSeparateImpl: m.linuxRequestsSeparateImpl,
+      genericStubContent: t.linuxCppStubContent(lib: m.lib, className: _toPascalCase(m.lib)),
     );
   }
 }
@@ -3576,6 +3795,10 @@ class LinkCommand extends Command {
     } else {
       logSkip('linux/ not present');
     }
+
+    // FFI-only desktop platforms must not declare pluginClass (issue #10) —
+    // repairs pubspecs generated by older nitrogen versions.
+    linkDesktopPubspecFfiOnly(moduleInfos, baseDir: baseDir);
 
     log('updating .clangd...');
     linkClangd(pluginName, moduleInfos: moduleInfos, baseDir: baseDir);

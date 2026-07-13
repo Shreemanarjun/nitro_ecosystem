@@ -10,6 +10,7 @@ import '../utils.dart' show cleanEphemeralSymlinkCycles, dedupeSharedSwiftDecls,
 import 'link_command.dart'
     show
         cleanRedundantIncludes,
+        linkDesktopPubspecFfiOnly,
         createSharedHeaders,
         resolveNitroNativePath,
         isCppModule,
@@ -349,6 +350,8 @@ class GenerateCommand extends Command {
     if (Directory(p.join(projectDir.path, 'linux')).existsSync()) {
       linkLinux(pluginName, moduleInfos.map((m) => m.lib).toList(), nitroNativePath, baseDir: projectDir.path, moduleInfos: moduleInfos);
     }
+    // FFI-only desktop platforms must not declare pluginClass (issue #10).
+    linkDesktopPubspecFfiOnly(moduleInfos, baseDir: projectDir.path);
 
     linkClangd(pluginName, moduleInfos: moduleInfos, baseDir: projectDir.path);
 

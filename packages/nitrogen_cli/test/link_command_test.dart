@@ -3630,4 +3630,392 @@ end
       expect(pkgFile.readAsStringSync(), contains('FlutterFramework'));
     });
   });
+
+  group('linkDesktopPubspecFfiOnly — issue #10 (pluginClass on FFI-only desktop)', () {
+    late Directory tmp;
+    setUp(() => tmp = Directory.systemTemp.createTempSync('nitro_pubspec_ffi_'));
+    tearDown(() => tmp.deleteSync(recursive: true));
+
+    ModuleInfo cppDesktopModule() => ModuleInfo(
+      lib: 'printing',
+      module: 'Printing',
+      isCpp: true,
+      windowsIsCpp: true,
+      linuxIsCpp: true,
+    );
+
+    String writePubspec(String platformsBody) {
+      final content =
+          'name: nitro_printing\n'
+          'flutter:\n'
+          '  plugin:\n'
+          '    platforms:\n'
+          '$platformsBody';
+      File(p.join(tmp.path, 'pubspec.yaml')).writeAsStringSync(content);
+      return content;
+    }
+
+    String readPubspec() => File(p.join(tmp.path, 'pubspec.yaml')).readAsStringSync();
+
+    test('removes pluginClass from block-form windows/linux entries, keeps other platforms', () {
+      writePubspec(
+        '      android:\n'
+        '        pluginClass: NitroPrintingPlugin\n'
+        '        package: dev.shreeman.nitro_printing\n'
+        '        ffiPlugin: true\n'
+        '      windows:\n'
+        '        pluginClass: NitroPrintingPlugin\n'
+        '        ffiPlugin: true\n'
+        '      linux:\n'
+        '        pluginClass: NitroPrintingPlugin\n'
+        '        ffiPlugin: true\n',
+      );
+      linkDesktopPubspecFfiOnly([cppDesktopModule()], baseDir: tmp.path);
+      final out = readPubspec();
+      // Desktop entries are FFI-only now…
+      expect(out, contains('      windows:\n        ffiPlugin: true'));
+      expect(out, contains('      linux:\n        ffiPlugin: true'));
+      // …but Android (a real plugin class) is untouched.
+      expect(out, contains('      android:\n        pluginClass: NitroPrintingPlugin'));
+    });
+
+    test('cleans inline flow-map entries (the issue #10 repro shape)', () {
+      writePubspec(
+        '      windows: { pluginClass: NitroPrintingPlugin, ffiPlugin: true }\n'
+        '      linux: { pluginClass: NitroPrintingPlugin, ffiPlugin: true }\n',
+      );
+      linkDesktopPubspecFfiOnly([cppDesktopModule()], baseDir: tmp.path);
+      final out = readPubspec();
+      expect(out, contains('      windows: { ffiPlugin: true }'));
+      expect(out, contains('      linux: { ffiPlugin: true }'));
+      expect(out, isNot(contains('pluginClass')));
+    });
+
+    test('idempotent: an already-clean pubspec is byte-identical after a re-run', () {
+      final original = writePubspec(
+        '      windows:\n'
+        '        ffiPlugin: true\n'
+        '      linux:\n'
+        '        ffiPlugin: true\n',
+      );
+      linkDesktopPubspecFfiOnly([cppDesktopModule()], baseDir: tmp.path);
+      expect(readPubspec(), original);
+    });
+
+    test('only cleans platforms the module actually targets as cpp', () {
+      writePubspec(
+        '      windows:\n'
+        '        pluginClass: NitroPrintingPlugin\n'
+        '        ffiPlugin: true\n'
+        '      linux:\n'
+        '        pluginClass: NitroPrintingPlugin\n'
+        '        ffiPlugin: true\n',
+      );
+      final windowsOnly = ModuleInfo(lib: 'printing', module: 'Printing', isCpp: true, windowsIsCpp: true);
+      linkDesktopPubspecFfiOnly([windowsOnly], baseDir: tmp.path);
+      final out = readPubspec();
+      expect(out, contains('      windows:\n        ffiPlugin: true'));
+      // Linux isn't nitro-cpp-managed here — left exactly as the author wrote it.
+      expect(out, contains('      linux:\n        pluginClass: NitroPrintingPlugin'));
+    });
+
+    test('leaves a pluginClass-only entry (no ffiPlugin) alone — not a Nitro FFI shape', () {
+      final original = writePubspec(
+        '      windows:\n'
+        '        pluginClass: HandRolledMethodChannelPlugin\n',
+      );
+      linkDesktopPubspecFfiOnly([cppDesktopModule()], baseDir: tmp.path);
+      expect(readPubspec(), original);
+    });
+
+    test('no cpp desktop modules → pubspec untouched', () {
+      final original = writePubspec(
+        '      windows:\n'
+        '        pluginClass: NitroPrintingPlugin\n'
+        '        ffiPlugin: true\n',
+      );
+      linkDesktopPubspecFfiOnly(
+        [ModuleInfo(lib: 'printing', module: 'Printing', isCpp: false)],
+        baseDir: tmp.path,
+      );
+      expect(readPubspec(), original);
+    });
+
+    test('does not touch same-named keys outside the platforms block', () {
+      final content =
+          'name: nitro_printing\n'
+          'environments:\n'
+          '  windows: { pluginClass: NotAPlatformEntry, ffiPlugin: true }\n'
+          'flutter:\n'
+          '  plugin:\n'
+          '    platforms:\n'
+          '      windows:\n'
+          '        pluginClass: NitroPrintingPlugin\n'
+          '        ffiPlugin: true\n';
+      File(p.join(tmp.path, 'pubspec.yaml')).writeAsStringSync(content);
+      linkDesktopPubspecFfiOnly([cppDesktopModule()], baseDir: tmp.path);
+      final out = readPubspec();
+      // The stray top-level key keeps its pluginClass (not under platforms:).
+      expect(out, contains('  windows: { pluginClass: NotAPlatformEntry, ffiPlugin: true }'));
+      expect(out, contains('      windows:\n        ffiPlugin: true'));
+    });
+  });
+
+  group('linkWindows / linkLinux — issue #11 (app-runner CMakeLists must stay untouched)', () {
+    late Directory tmp;
+    setUp(() => tmp = Directory.systemTemp.createTempSync('nitro_runner_cmake_'));
+    tearDown(() => tmp.deleteSync(recursive: true));
+
+    final module = ModuleInfo(
+      lib: 'printing_example',
+      module: 'PrintingExample',
+      isCpp: true,
+      windowsIsCpp: true,
+      linuxIsCpp: true,
+    );
+
+    // A trimmed Flutter app-runner CMakeLists (example/windows|linux): defines
+    // BINARY_NAME + add_executable; PLUGIN_NAME is never defined in this scope.
+    const runnerBody =
+        'cmake_minimum_required(VERSION 3.14)\n'
+        'project(example LANGUAGES CXX)\n'
+        'set(BINARY_NAME "example")\n'
+        'add_subdirectory("flutter")\n'
+        'add_executable(\${BINARY_NAME} WIN32 "main.cpp")\n';
+
+    File writeRunner(String platform, String content) {
+      final dir = Directory(p.join(tmp.path, platform))..createSync(recursive: true);
+      return File(p.join(dir.path, 'CMakeLists.txt'))..writeAsStringSync(content);
+    }
+
+    test('strips a previously injected \${PLUGIN_NAME} block and NITRO_NATIVE from a runner', () {
+      // What an older nitrogen wrote into nitro_printing's example runner:
+      // an absolute local-checkout NITRO_NATIVE and an include block on an
+      // undefined target — both break configure on any other machine.
+      final f = writeRunner(
+        'windows',
+        'set(NITRO_NATIVE "/Users/someone/nitro_ecosystem/packages/nitro/src/native")\n'
+        '\n'
+        '$runnerBody'
+        '\n'
+        'target_include_directories(\${PLUGIN_NAME} PRIVATE\n'
+        '  "\${NITRO_NATIVE}"\n'
+        '  "\${CMAKE_CURRENT_SOURCE_DIR}/../lib/src/generated/cpp"\n'
+        '  "\${CMAKE_CURRENT_SOURCE_DIR}/../src"\n'
+        ')\n',
+      );
+      linkWindows('printing_example', ['printing_example'], '/nitro/native', baseDir: tmp.path, moduleInfos: [module]);
+      final out = f.readAsStringSync();
+      expect(out, isNot(contains('PLUGIN_NAME')));
+      expect(out, isNot(contains('NITRO_NATIVE')));
+      expect(out, contains('add_executable(\${BINARY_NAME}'));
+    });
+
+    test('a clean runner stays byte-identical (nothing is injected)', () {
+      final f = writeRunner('linux', runnerBody);
+      linkLinux('printing_example', ['printing_example'], '/nitro/native', baseDir: tmp.path, moduleInfos: [module]);
+      expect(f.readAsStringSync(), runnerBody);
+    });
+
+    test('a real plugin platform CMakeLists still gets the nitro include block', () {
+      // Non-shared-src plugin file: add_library on ${PLUGIN_NAME}, no
+      // BINARY_NAME/add_executable — the classic FFI plugin template shape.
+      final f = writeRunner(
+        'windows',
+        'cmake_minimum_required(VERSION 3.14)\n'
+        'project(printing_example LANGUAGES CXX)\n'
+        'set(PLUGIN_NAME "printing_example")\n'
+        'add_library(\${PLUGIN_NAME} SHARED\n'
+        '  "stub.cpp"\n'
+        ')\n',
+      );
+      linkWindows('printing_example', ['printing_example'], '/nitro/native', baseDir: tmp.path, moduleInfos: [module]);
+      final out = f.readAsStringSync();
+      expect(out, contains('set(NITRO_NATIVE "\${CMAKE_CURRENT_SOURCE_DIR}/../src/native")'));
+      expect(out, contains('target_include_directories(\${PLUGIN_NAME} PRIVATE'));
+    });
+
+    test('linkCMake repairs an absolute NITRO_NATIVE in an existing src/CMakeLists.txt', () {
+      Directory(p.join(tmp.path, 'src')).createSync(recursive: true);
+      final f = File(p.join(tmp.path, 'src', 'CMakeLists.txt'))
+        ..writeAsStringSync(
+          'set(NITRO_NATIVE "/Users/someone/nitro_ecosystem/packages/nitro/src/native")\n'
+          'project(printing_example_library VERSION 0.0.1 LANGUAGES C CXX)\n'
+          'add_library(printing_example SHARED\n'
+          '  "dart_api_dl.c"\n'
+          ')\n'
+          'target_include_directories(printing_example PRIVATE\n'
+          '  "\${NITRO_NATIVE}"\n'
+          ')\n',
+        );
+      linkCMake('printing_example', ['printing_example'], '/abs/nitro/native', baseDir: tmp.path, moduleInfos: [module]);
+      final out = f.readAsStringSync();
+      expect(out, isNot(contains('/Users/someone/')));
+      expect(out, contains(RegExp(r'set\(NITRO_NATIVE "\$\{CMAKE_CURRENT_SOURCE_DIR\}[^"]*"\)')));
+    });
+  });
+
+  group('issue #12 — per-platform separation transition completes', () {
+    late Directory tmp;
+    setUp(() => tmp = Directory.systemTemp.createTempSync('nitro_sep_transition_'));
+    tearDown(() => tmp.deleteSync(recursive: true));
+
+    const todoStub = '// TODO: implement all pure-virtual methods declared in HybridPrinting\n';
+    const realImpl =
+        '#include "../lib/src/generated/cpp/printing.native.g.h"\n'
+        'class HybridPrintingImpl final : public HybridPrinting {\n'
+        'public:\n'
+        '    int64_t addPrinter() override { return 42; }\n'
+        '};\n';
+
+    ModuleInfo separated({bool windows = true, bool linux = true}) => ModuleInfo(
+      lib: 'printing',
+      module: 'Printing',
+      isCpp: true,
+      isNativeCpp: true,
+      windowsIsCpp: true,
+      linuxIsCpp: true,
+      windowsRequestsSeparateImpl: windows,
+      linuxRequestsSeparateImpl: linux,
+    );
+
+    void writeSharedImpl() {
+      Directory(p.join(tmp.path, 'src')).createSync(recursive: true);
+      File(p.join(tmp.path, 'src', 'HybridPrinting.cpp')).writeAsStringSync(realImpl);
+    }
+
+    void writeSpec({required bool explicitMarkers}) {
+      final libSrc = Directory(p.join(tmp.path, 'lib', 'src'))..createSync(recursive: true);
+      final markers = explicitMarkers ? 'windows: WindowsNativeImpl.cpp, linux: LinuxNativeImpl.cpp' : 'windows: NativeImpl.cpp, linux: NativeImpl.cpp';
+      File(p.join(libSrc.path, 'printing.native.dart')).writeAsStringSync('''
+@NitroModule(lib: "printing", $markers)
+abstract class Printing extends HybridObject {}
+''');
+    }
+
+    test('existing untouched TODO stub is replaced by the migrated shared impl on marker switch', () {
+      // The exact issue #12 repro: stubs were auto-created on an earlier link
+      // (before the annotation switch), so plain never-overwrite left the
+      // real impl stranded in src/ while NITRO_IMPL_SRC pointed at the stub.
+      writeSharedImpl();
+      writeSpec(explicitMarkers: true);
+      final winStub = File(p.join(tmp.path, 'windows', 'src', 'HybridPrinting.cpp'))
+        ..createSync(recursive: true)
+        ..writeAsStringSync(todoStub);
+      linkWindowsCppImplStubs([separated()], baseDir: tmp.path);
+      final out = winStub.readAsStringSync();
+      expect(out, contains('addPrinter'));
+      // Include path adjusted one level deeper for the new location.
+      expect(out, contains('#include "../../lib/src/generated/cpp/printing.native.g.h"'));
+      expect(out, isNot(contains('TODO: implement all pure-virtual methods')));
+    });
+
+    test('a platform file with user code is NEVER overwritten, even on marker switch', () {
+      writeSharedImpl();
+      writeSpec(explicitMarkers: true);
+      const userCode = '// my own windows impl\nint x() { return 1; }\n';
+      final winStub = File(p.join(tmp.path, 'windows', 'src', 'HybridPrinting.cpp'))
+        ..createSync(recursive: true)
+        ..writeAsStringSync(userCode);
+      linkWindowsCppImplStubs([separated()], baseDir: tmp.path);
+      expect(winStub.readAsStringSync(), userCode);
+    });
+
+    test('without the explicit markers an untouched stub stays a stub', () {
+      writeSharedImpl();
+      writeSpec(explicitMarkers: false);
+      final linuxStub = File(p.join(tmp.path, 'linux', 'src', 'HybridPrinting.cpp'))
+        ..createSync(recursive: true)
+        ..writeAsStringSync(todoStub);
+      linkLinuxCppImplStubs([separated(windows: false, linux: false)], baseDir: tmp.path);
+      expect(linuxStub.readAsStringSync(), todoStub);
+    });
+
+    test('linkCMake retrofits the NITRO_IMPL_SRC guard onto an if(NOT ANDROID)-wrapped target_sources', () {
+      writeSharedImpl();
+      // Also mark separation active via an explicit request.
+      final cmake = File(p.join(tmp.path, 'src', 'CMakeLists.txt'))
+        ..writeAsStringSync(
+          'project(printing_library VERSION 0.0.1 LANGUAGES C CXX)\n'
+          'add_library(printing SHARED\n'
+          '  "dart_api_dl.c"\n'
+          ')\n'
+          'if(NOT ANDROID)\n'
+          '  target_sources(printing PRIVATE "HybridPrinting.cpp")\n'
+          'endif()\n'
+          'target_include_directories(printing PRIVATE\n'
+          '  "\${NITRO_NATIVE}"\n'
+          ')\n',
+        );
+      linkCMake('printing', ['printing'], '/nitro/native', baseDir: tmp.path, moduleInfos: [separated()]);
+      final out = cmake.readAsStringSync();
+      expect(out, contains('if(DEFINED NITRO_IMPL_SRC_printing)'));
+      expect(out, contains('target_sources(printing PRIVATE "\${NITRO_IMPL_SRC_printing}")'));
+      // The shared file remains the else-branch fallback (Android and
+      // never-opted-in desktop builds keep their exact old behavior).
+      expect(out, contains('target_sources(printing PRIVATE "HybridPrinting.cpp")'));
+    });
+
+    test('linkCMake retrofits a bare target_sources line too', () {
+      writeSharedImpl();
+      final cmake = File(p.join(tmp.path, 'src', 'CMakeLists.txt'))
+        ..writeAsStringSync(
+          'project(printing_library VERSION 0.0.1 LANGUAGES C CXX)\n'
+          'add_library(printing SHARED\n'
+          '  "dart_api_dl.c"\n'
+          ')\n'
+          'target_sources(printing PRIVATE "HybridPrinting.cpp")\n'
+          'target_include_directories(printing PRIVATE\n'
+          '  "\${NITRO_NATIVE}"\n'
+          ')\n',
+        );
+      linkCMake('printing', ['printing'], '/nitro/native', baseDir: tmp.path, moduleInfos: [separated()]);
+      expect(cmake.readAsStringSync(), contains('if(DEFINED NITRO_IMPL_SRC_printing)'));
+    });
+
+    test('no separation requested → src/CMakeLists.txt stays byte-identical', () {
+      writeSharedImpl();
+      const original =
+          'project(printing_library VERSION 0.0.1 LANGUAGES C CXX)\n'
+          'set(CMAKE_CXX_STANDARD 17)\n'
+          'set(NITRO_NATIVE "\${CMAKE_CURRENT_SOURCE_DIR}/native")\n'
+          'add_library(printing SHARED\n'
+          '  "dart_api_dl.c"\n'
+          '  "\${CMAKE_CURRENT_SOURCE_DIR}/../lib/src/generated/cpp/printing.bridge.g.cpp"\n'
+          ')\n'
+          'if(NOT ANDROID)\n'
+          '  target_sources(printing PRIVATE "HybridPrinting.cpp")\n'
+          'endif()\n'
+          'target_include_directories(printing PRIVATE\n'
+          '  "\${NITRO_NATIVE}"\n'
+          ')\n';
+      final cmake = File(p.join(tmp.path, 'src', 'CMakeLists.txt'))..writeAsStringSync(original);
+      final notSeparated = ModuleInfo(
+        lib: 'printing',
+        module: 'Printing',
+        isCpp: true,
+        isNativeCpp: true,
+        windowsIsCpp: true,
+        linuxIsCpp: true,
+      );
+      linkCMake('printing', ['printing'], '/nitro/native', baseDir: tmp.path, moduleInfos: [notSeparated]);
+      expect(cmake.readAsStringSync(), isNot(contains('NITRO_IMPL_SRC')));
+    });
+
+    test('hasCustomPlatformImpl: comment-only file (marker deleted) is NOT an opt-in', () {
+      final f = File(p.join(tmp.path, 'windows', 'src', 'HybridPrinting.cpp'))..createSync(recursive: true);
+      f.writeAsStringSync(
+        '// I removed the stub body but have not written anything yet.\n'
+        '/* just notes:\n   maybe use WinSpool here later */\n'
+        '\n',
+      );
+      expect(hasCustomPlatformImpl(tmp.path, 'windows', 'Printing'), isFalse);
+    });
+
+    test('hasCustomPlatformImpl: real code (marker gone) IS an opt-in', () {
+      final f = File(p.join(tmp.path, 'windows', 'src', 'HybridPrinting.cpp'))..createSync(recursive: true);
+      f.writeAsStringSync(realImpl);
+      expect(hasCustomPlatformImpl(tmp.path, 'windows', 'Printing'), isTrue);
+    });
+  });
 }

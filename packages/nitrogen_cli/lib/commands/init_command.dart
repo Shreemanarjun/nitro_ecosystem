@@ -832,18 +832,23 @@ class _InitViewState extends State<InitView> {
         ..writeln('        pluginClass: Swift${className}Plugin')
         ..write('        ffiPlugin: true');
     }
+    // Windows/Linux Nitro backends are pure FFI — no method-channel plugin
+    // class exists. Declaring pluginClass alongside ffiPlugin makes Flutter's
+    // desktop tooling classify the plugin as method-channel and link a
+    // nonexistent <plugin>_plugin CMake target:
+    //   CMake Error: No target "<plugin>_plugin"
+    // (the ffiPlugin-only form routes through FLUTTER_FFI_PLUGIN_LIST and
+    // <plugin>_bundled_libraries instead, which is what the plugin defines).
     if (platforms.contains('windows')) {
       platformsBlock
         ..writeln()
         ..writeln('      windows:')
-        ..writeln('        pluginClass: ${className}Plugin')
         ..write('        ffiPlugin: true');
     }
     if (platforms.contains('linux')) {
       platformsBlock
         ..writeln()
         ..writeln('      linux:')
-        ..writeln('        pluginClass: ${className}Plugin')
         ..write('        ffiPlugin: true');
     }
 
