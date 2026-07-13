@@ -1,3 +1,7 @@
+# 0.5.11
+
+- **Ecosystem sync** — Aligned with `nitrogen_cli` 0.5.11 and `nitro_generator` 0.5.11. No changes to this package — see their changelogs.
+
 # 0.5.10
 
 - **Ecosystem sync** — Aligned with `nitro_generator` 0.5.10's desktop C-bridge fixes ([#9](https://github.com/Shreemanarjun/nitro_ecosystem/issues/9)). No functional changes to this package — see `nitro_generator`'s changelog, and regenerate your plugin to pick it up.

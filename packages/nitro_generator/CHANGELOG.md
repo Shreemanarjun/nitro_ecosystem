@@ -1,3 +1,8 @@
+## 0.5.11
+
+- **Locked in: platform-mix independence and no-duplicate-definition guarantees** — no generator changes; a 21-test matrix over 10 platform combinations now pins two user-facing invariants against regression: (1) any subset of platforms can use the C++ backend without affecting the others — e.g. switching only `macos:` to `NativeImpl.cpp` leaves the Kotlin bridge byte-identical, keeps the iOS Swift bridge intact, and routes macOS through C++ dispatch behind `TARGET_OS_OSX` (Dart identical modulo the intentional lockstep checksum); and (2) every generated class/struct/enum is defined exactly once per artifact and referenced elsewhere — C structs behind `NITRO_STRUCT_<NAME>_DEFINED` guards, guard-wrapped `NitroError`/`NitroOpt*` for multi-TU inclusion, the bridge `#include`-ing the interface header rather than re-emitting types, and imported types (`importedTypeFiles`/`isImported`) skipped by every definition emitter so multi-spec plugins keep one canonical definition per user-facing class.
+- **Ecosystem sync** — Released alongside `nitrogen_cli` 0.5.11's desktop developer-experience fixes ([#10](https://github.com/Shreemanarjun/nitro_ecosystem/issues/10), [#11](https://github.com/Shreemanarjun/nitro_ecosystem/issues/11), [#12](https://github.com/Shreemanarjun/nitro_ecosystem/issues/12)) — see its changelog.
+
 ## 0.5.10
 
 Two memory-safety root causes found by the first CI run whose desktop
