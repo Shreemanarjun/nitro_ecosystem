@@ -179,6 +179,19 @@ String _generateCppDirect(BridgeSpec spec) {
   // Matching allocator for Dart-produced values that native code frees
   // (String/record/variant callback returns) — same rule in reverse.
   writer.line('NITRO_EXPORT void* ${libStem}_nitro_alloc(size_t size) { return malloc(size); }');
+  if (spec.functions.any((f) => f.zeroCopyReturn && f.returnType.isTypedData)) {
+    // Same envelope-freeing body as CppBridgeGenerator/_swift_shim/_jni —
+    // the direct path previously declared this in the header (via
+    // CppHeaderGenerator) but never emitted the definition, so Dart's
+    // NativeFinalizer lookup failed with symbol-not-found at runtime.
+    writer.line('NITRO_EXPORT void ${libStem}_release_typed_data_return(void* ptr) {');
+    writer.line('    if (!ptr) { return; }');
+    writer.line('    int64_t* words = (int64_t*)ptr;');
+    writer.line('    void* payload = (void*)(intptr_t)words[1];');
+    writer.line('    if (payload && payload != ptr) { free(payload); }');
+    writer.line('    free(ptr);');
+    writer.line('}');
+  }
   writer.line('}');
   writer.blankLine();
 

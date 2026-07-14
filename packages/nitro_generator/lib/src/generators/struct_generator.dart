@@ -615,8 +615,12 @@ class StructGenerator {
       final fromFields = <String>[];
       for (final f in st.fields) {
         fromFields.add('      ${f.name}: ${_swiftFromSwiftExpr(f, enumNames, structNames)}');
-        if (f.type.isTypedData && !f.zeroCopy && _needsSyntheticLen(st, f.name)) {
-          fromFields.add('      ${f.name}Length: _len_${f.name}');
+        if (f.type.isTypedData && _needsSyntheticLen(st, f.name)) {
+          // Zero-copy fields carry their synthesized length on the public
+          // struct; copied fields use the temp computed above.
+          fromFields.add(f.zeroCopy
+              ? '      ${f.name}Length: s.${f.name}Length'
+              : '      ${f.name}Length: _len_${f.name}');
         }
       }
       s.writeln(fromFields.join(',\n'));
@@ -649,6 +653,9 @@ class StructGenerator {
           toFields.add('      ${f.name}: _arr_${f.name}');
         } else {
           toFields.add('      ${f.name}: ${_swiftToSwiftExpr(f, enumNames, structNames)}');
+        }
+        if (f.zeroCopy && f.type.isTypedData && _needsSyntheticLen(st, f.name)) {
+          toFields.add('      ${f.name}Length: ${f.name}Length');
         }
       }
       s.writeln(toFields.join(',\n'));
