@@ -1,3 +1,7 @@
+# 0.5.12
+
+- **Ecosystem sync** — Aligned with `nitro_generator` 0.5.12's zero-copy TypedData fixes. No changes to this package — see `nitro_generator`'s changelog.
+
 # 0.5.11
 
 - **Ecosystem sync** — Aligned with `nitrogen_cli` 0.5.11 and `nitro_generator` 0.5.11. No changes to this package — see their changelogs.

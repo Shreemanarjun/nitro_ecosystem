@@ -1,3 +1,7 @@
+## 0.5.12
+
+- **Ecosystem sync** — Aligned with `nitro_generator` 0.5.12's zero-copy TypedData fixes (missing `release_typed_data_return` definition on the pure-C++ path; Swift struct conversions dropping the synthesized length for `@zeroCopy` fields). No functional changes to this package — see `nitro_generator`'s changelog, and regenerate your plugin to pick them up.
+
 ## 0.5.11
 
 - **Ecosystem sync** — Aligned with `nitrogen_cli` 0.5.11's desktop developer-experience fixes ([#10](https://github.com/Shreemanarjun/nitro_ecosystem/issues/10): pubspec `pluginClass` on FFI-only desktop platforms, [#11](https://github.com/Shreemanarjun/nitro_ecosystem/issues/11): example app-runner CMakeLists portability, [#12](https://github.com/Shreemanarjun/nitro_ecosystem/issues/12): per-platform separation transition) and `nitro_generator` 0.5.11's platform-matrix/no-duplicate-definition test lock. No functional changes to this package — run `nitrogen link` (with the updated CLI) to pick up the project-file repairs.

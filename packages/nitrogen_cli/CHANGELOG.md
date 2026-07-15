@@ -1,3 +1,7 @@
+## 0.5.12
+
+- **Ecosystem sync** — Aligned with `nitro_generator` 0.5.12's zero-copy TypedData fixes (missing `release_typed_data_return` definition on the pure-C++ path; Swift struct conversions dropping the synthesized length for `@zeroCopy` fields). No functional changes to this package — see `nitro_generator`'s changelog, and regenerate your plugin to pick them up.
+
 ## 0.5.11
 
 Three developer-experience fixes from real desktop plugin bring-up ([#10](https://github.com/Shreemanarjun/nitro_ecosystem/issues/10), [#11](https://github.com/Shreemanarjun/nitro_ecosystem/issues/11), [#12](https://github.com/Shreemanarjun/nitro_ecosystem/issues/12)) — all verified end-to-end against the reporting repo (`nitro_printing`) at its buggy ref, each repaired by a single `nitrogen link` with no manual edits:
