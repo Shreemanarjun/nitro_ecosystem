@@ -11,6 +11,7 @@ import 'link_command.dart'
     show
         cleanRedundantIncludes,
         linkDesktopPubspecFfiOnly,
+        linkBuildYamlSourcesExcludes,
         createSharedHeaders,
         resolveNitroNativePath,
         isCppModule,
@@ -352,6 +353,8 @@ class GenerateCommand extends Command {
     }
     // FFI-only desktop platforms must not declare pluginClass (issue #10).
     linkDesktopPubspecFfiOnly(moduleInfos, baseDir: projectDir.path);
+    // Guard direct build_runner runs against the example symlink-cycle hang (issue #20).
+    linkBuildYamlSourcesExcludes(baseDir: projectDir.path);
 
     linkClangd(pluginName, moduleInfos: moduleInfos, baseDir: projectDir.path);
 

@@ -77,6 +77,54 @@ void camera_acquire_frame_release(void* handle) {
 }
 ```
 
+## Library-owned handles: `@NitroOwned(release: ...)`
+
+Handles created by a native library (wgpu, sqlite, …) must be released through
+the library's own function — calling `free()` on them corrupts the allocator.
+Pass the release symbol in the annotation:
+
+```dart
+@NitroOwned(release: 'wgpuBufferRelease')
+NativeHandle<Void> createBuffer(int size);
+```
+
+The generated `<symbol>_release` thunk then calls `wgpuBufferRelease(handle)`
+instead of `free(handle)` — both the `NativeFinalizer` (GC) path and manual
+`handle.release()` go through it, so ownership stays with the library's API on
+every platform. Requirements:
+
+- The symbol must be an `extern "C"` function taking the handle pointer as its
+  single argument.
+- It must be linked into the plugin's native library on **every** platform the
+  module builds for (the bridge forward-declares it; the linker resolves it).
+- Several methods may share one release symbol — it is declared once.
+
+## Async owned factories: `Future<NativeHandle<T>>`
+
+`@nitroNativeAsync` composes with `@NitroOwned` — the whole acquire-async,
+own-on-arrival flow is one annotation pair (no hand-rolled address plumbing):
+
+```dart
+@nitroNativeAsync
+@NitroOwned(release: 'wgpuAdapterRelease')
+Future<NativeHandle<Void>> requestAdapter(NativeHandle<Void> instance);
+```
+
+Wire contract: the native side posts the raw pointer address as
+`Dart_CObject_kInt64`. Dart attaches the `NativeFinalizer` and release
+callback the moment the handle arrives, so ownership transfer is atomic —
+there is no window where the pointer exists un-owned on the Dart side.
+
+- **Kotlin** — the interface method is `suspend fun requestAdapter(...): Long`;
+  return the address (0 = null for a nullable handle).
+- **Swift** — `func requestAdapter(...) async throws -> UnsafeMutableRawPointer?`;
+  nil posts address 0.
+- **C++** — post `(int64_t)(uintptr_t)handle` via `Dart_PostCObject_DL`.
+
+A nullable `Future<NativeHandle<T>?>` decodes both `kNull` and address 0 to
+Dart `null`; a non-nullable one turns a posted null into a descriptive
+`StateError`.
+
 ## Manual early release
 
 ```dart
@@ -102,7 +150,8 @@ final native = ptr.ref;                            // CameraFrameNative (NativeS
 | Variant | Who owns | When valid | How freed |
 |---|---|---|---|
 | Borrow (no `@NitroOwned`) | Native | During the call only | Native frees |
-| Owned (`@NitroOwned`) | Dart | Until `release()` or GC | `NativeFinalizer` → `_release` |
+| Owned (`@NitroOwned`) | Dart | Until `release()` or GC | `NativeFinalizer` → `_release` → `free()` |
+| Owned (`@NitroOwned(release: 'sym')`) | Dart | Until `release()` or GC | `NativeFinalizer` → `_release` → `sym(handle)` |
 
 **Never store a borrowed handle** beyond the synchronous call that returned it.
 

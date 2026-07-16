@@ -349,11 +349,33 @@ class KotlinTypeMapper implements TypeMapper {
 
   /// Wraps [body] in a `runBlocking { kotlinx.coroutines.withTimeout(N) { ... } }` block when
   /// the function has an [BridgeFunction.asyncTimeout], otherwise just [body].
+  ///
+  /// `@mainThread` (issue #19) composes here for every coroutine-launched
+  /// path (@nitroAsync executor, @nitroNativeAsync): the body hops to
+  /// `Dispatchers.Main.immediate` — dispatched to the Android main looper
+  /// from a background thread, executed inline when already on it.
   static String runBlockingCall(BridgeFunction func, String body) {
-    if (func.asyncTimeout != null) {
-      return 'runBlocking { kotlinx.coroutines.withTimeout(${func.asyncTimeout}L) { $body } }';
+    var inner = body;
+    if (func.mainThread) {
+      inner = 'kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main.immediate) { $inner }';
     }
-    return 'runBlocking { $body }';
+    if (func.asyncTimeout != null) {
+      return 'runBlocking { kotlinx.coroutines.withTimeout(${func.asyncTimeout}L) { $inner } }';
+    }
+    return 'runBlocking { $inner }';
+  }
+
+  /// The expression for a direct (sync-path) impl call.
+  ///
+  /// `@mainThread` (issue #19): hops to the Android main thread and blocks
+  /// the calling (Dart/binder) thread until the body finishes. Re-entrancy
+  /// safe — `Dispatchers.Main.immediate` runs the block inline when the
+  /// caller is already the main thread, so there is no self-deadlock. On a
+  /// sync method the block-until-main-runs cost is inherent; the annotation
+  /// docs recommend pairing @mainThread with @nitroAsync/@nitroNativeAsync.
+  static String syncImplCall(BridgeFunction func, String call) {
+    if (!func.mainThread) return call;
+    return 'runBlocking(kotlinx.coroutines.Dispatchers.Main.immediate) { $call }';
   }
 
   // ── TypeMapper interface ─────────────────────────────────────────────────────

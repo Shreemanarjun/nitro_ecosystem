@@ -132,6 +132,22 @@ On **Kotlin** and **Swift**, this is fully automatic — if your `suspend fun`/`
 
 On the **C++ desktop-direct** path (`NativeImpl.cpp` on Windows/Linux, or macOS via `NativeImpl.cpp`), the framework doesn't own your async completion thread — the generated wrapper only catches a *synchronous* throw from your method (before it returns). If your implementation does real work on a background thread, you're responsible for populating the `NitroError*` parameter yourself before posting, exactly like `Dart_PostCObject_DL`/`dart_port` posting is already your responsibility (see the C++ example below).
 
+### Resolving a nullable result from C++ (`Future<T?>`)
+
+For a nullable return type, post **either** of these — both decode to Dart `null`:
+
+```cpp
+// Option A — a Dart null:
+Dart_CObject nullObj; nullObj.type = Dart_CObject_kNull;
+Dart_PostCObject_DL(dartPort, &nullObj);
+
+// Option B — int64 zero (a "null pointer address"):
+Dart_CObject zero; zero.type = Dart_CObject_kInt64; zero.value.as_int64 = 0;
+Dart_PostCObject_DL(dartPort, &zero);
+```
+
+Posting null (either form) for a **non-nullable** return type rejects the `Future` with a descriptive `StateError` naming the method, instead of an opaque type-cast error.
+
 ### Native implementation pattern
 
 **Swift** — write a normal `async throws` function; the generator handles dispatch, posting, and error reporting:
@@ -233,3 +249,36 @@ NitroConfig.instance
 ```
 
 Every `callSync`, `callAsync`, and `openNativeAsync` call appears in the Flutter DevTools Timeline with the method name.
+
+## `@mainThread` — run the impl on the platform main/UI thread
+
+Many platform APIs (Android `SurfaceView`, UIKit, `CAMetalLayer`) must be
+touched from the main thread, but Nitro calls implementations from whatever
+thread invoked them. `@mainThread` moves the Kotlin/Swift impl call onto the
+platform main thread:
+
+```dart
+@mainThread
+@nitroNativeAsync
+Future<void> attachToView(NativeHandle<Void> surface);
+```
+
+Per platform:
+
+| Platform | Mechanism |
+|---|---|
+| Kotlin (sync) | `runBlocking(Dispatchers.Main.immediate) { impl.f() }` — inline when already on main |
+| Kotlin (async) | body wrapped in `withContext(Dispatchers.Main.immediate)` (timeout composes around it) |
+| Swift (sync) | whole dispatch body runs in one `DispatchQueue.main.sync` hop (inline when on main) |
+| Swift (async) | the protocol requirement is `@MainActor` — the conforming impl infers main-actor isolation, so its body genuinely runs on the main thread |
+| C++ (any platform) | no effect — validator warning `MAIN_THREAD_NO_EFFECT`; marshal inside your impl |
+
+Notes:
+
+- **Re-entrancy safe** — if the caller is already the main thread the impl
+  runs inline; there is no self-deadlock.
+- On a **sync** method the calling Dart thread blocks until the main thread
+  runs the body. Prefer pairing with `@nitroAsync` (blocks a pool worker,
+  not your caller) or `@nitroNativeAsync` (blocks nothing).
+- Swift impls of `@mainThread` async methods are `@MainActor`-isolated —
+  UIKit calls inside them need no extra dispatch.

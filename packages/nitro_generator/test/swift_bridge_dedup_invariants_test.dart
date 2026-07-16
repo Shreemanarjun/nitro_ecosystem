@@ -80,6 +80,54 @@ void main() {
       expect(out, contains('public class NitroRecordReader'));
     });
 
+    test('CppImpl (apple-cpp) record spec is SELF-CONTAINED — emits the full codec (issue #14)', () {
+      // In an all-C++ plugin no Swift-impl bridge exists to host the shared
+      // codec — the cpp-module bridge previously emitted record structs that
+      // referenced NitroEncodable/NitroRecordWriter/NitroRecordReader without
+      // defining any of them, so the generated Swift could never compile.
+      final cppSpec = BridgeSpec(
+        dartClassName: 'Data',
+        lib: 'data',
+        namespace: 'data',
+        iosImpl: NativeImpl.cpp,
+        macosImpl: NativeImpl.cpp,
+        androidImpl: NativeImpl.cpp,
+        sourceUri: 'data.native.dart',
+        recordTypes: _recordSpec().recordTypes,
+        functions: _recordSpec().functions,
+      );
+      final out = SwiftGenerator.generate(cppSpec);
+      expect(out, contains('public struct Reading: NitroEncodable'));
+      expect(out, contains('public protocol NitroEncodable'));
+      expect(out, contains('public class NitroRecordWriter'));
+      expect(out, contains('public class NitroRecordReader'));
+      // The dedup pass (dedupeSharedSwiftDecls) removes these when a sibling
+      // Swift-impl bridge in the same module already declared them.
+    });
+
+    test('CppImpl bridge boilerplate dedupes cleanly against a Swift-impl sibling', () {
+      final cppSpec = BridgeSpec(
+        dartClassName: 'Data',
+        lib: 'data',
+        namespace: 'data',
+        iosImpl: NativeImpl.cpp,
+        macosImpl: NativeImpl.cpp,
+        androidImpl: NativeImpl.cpp,
+        sourceUri: 'data.native.dart',
+        recordTypes: _recordSpec().recordTypes,
+        functions: _recordSpec().functions,
+      );
+      final swiftOut = SwiftGenerator.generate(_recordSpec(name: 'Sensor', lib: 'sensor'));
+      final cppOut = SwiftGenerator.generate(cppSpec);
+      final defined = <String>{};
+      final first = dedupeSharedSwiftDecls(swiftOut, defined);
+      final second = dedupeSharedSwiftDecls(cppOut, defined);
+      final combined = '$first\n$second';
+      for (final decl in ['public protocol NitroEncodable', 'public class NitroRecordWriter {', 'public class NitroRecordReader {']) {
+        expect(decl.allMatches(combined).length, 1, reason: decl);
+      }
+    });
+
     test('record-using spec emits user-defined record struct before NitroRecordWriter', () {
       final out = SwiftGenerator.generate(_recordSpec());
 
@@ -232,6 +280,50 @@ void main() {
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
+
+/// Mirrors `dedupeSharedSwiftDecls` from nitrogen_cli/lib/utils.dart —
+/// local copy so the generator tests remain independent of the CLI package.
+final RegExp _sharedSwiftDeclRe = RegExp(
+  r'^public (?:protocol|class|struct) '
+  r'(NitroEncodable|NitroRecordWriter|NitroRecordReader'
+  r'|NitroNullable\w+|NitroOpt\w+)\b',
+);
+
+String dedupeSharedSwiftDecls(String content, Set<String> alreadyDefined) {
+  final lines = content.split('\n');
+  final result = <String>[];
+  var i = 0;
+  while (i < lines.length) {
+    final line = lines[i];
+    final match = _sharedSwiftDeclRe.firstMatch(line);
+    if (match == null) {
+      result.add(line);
+      i++;
+      continue;
+    }
+    if (alreadyDefined.add(match.group(1)!)) {
+      result.add(line);
+      i++;
+      continue;
+    }
+    var depth = 0;
+    var seenOpen = false;
+    while (i < lines.length) {
+      for (final ch in lines[i].codeUnits) {
+        if (ch == 0x7B) {
+          depth++;
+          seenOpen = true;
+        } else if (ch == 0x7D) {
+          depth--;
+        }
+      }
+      i++;
+      if (seenOpen && depth <= 0) break;
+    }
+    if (i < lines.length && lines[i].trim().isEmpty) i++;
+  }
+  return result.join('\n');
+}
 
 /// Mirrors `stripSharedSwiftPreamble` from nitrogen_cli — keeping this a
 /// local copy so the generator tests remain independent of the CLI package.

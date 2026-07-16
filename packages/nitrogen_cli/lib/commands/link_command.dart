@@ -10,6 +10,7 @@ import '../templates/cpp_stubs.dart' as t;
 import '../templates/forwarder_templates.dart';
 import '../templates/swift_templates.dart' as st;
 import '../templates/cmake_templates.dart' as ct;
+import '../templates/scaffold_templates.dart' as sft;
 import '../templates/build_versions.dart';
 import 'spm_utils.dart' as spm;
 
@@ -2253,36 +2254,92 @@ void _syncCppModuleSourcesToSpm(
       );
     }
 
-    // 2a. Additional Swift-backed module bridges.
-    //     Every spec generates a ${lib}.bridge.g.cpp that defines C symbols like
-    //     ${lib}_init_dart_api_dl. SPM only compiles files in Sources/<ClassName>Cpp/,
-    //     so each module needs a .mm wrapper that #includes the generated .cpp so that
-    //     SPM links those symbols into the binary.
-    //     Without this, a multi-spec Swift plugin crashes at runtime:
-    //       "Failed to lookup symbol 'nitro_ui_init_dart_api_dl': symbol not found"
-    //     Written unconditionally (same as the main bridge above) so the forwarder
-    //     exists even when `nitrogen link` runs before `nitrogen generate`.
+    // 2a. Per-module SPM C++ targets (issue #15).
+    //     Every non-main module gets its OWN `Sources/<ModuleClass>Cpp/`
+    //     target directory holding its .mm bridge forwarder (Swift-backed
+    //     modules included — the ${lib}_init_dart_api_dl symbol must be
+    //     linked for every module), an umbrella header so the module's Swift
+    //     bridge can `import <ModuleClass>Cpp` for @nitroNativeAsync, and —
+    //     for Apple-C++ modules — the HybridXxx.cpp impl forwarder plus the
+    //     C bridge header. Previously every module's sources were synced
+    //     into the single plugin-level target: a second module's Swift
+    //     bridge could never resolve its `import <Module>Cpp`, and moving
+    //     files by hand produced duplicate-symbol link errors.
+    //     Written unconditionally (same as the main bridge above) so the
+    //     forwarders exist even when `nitrogen link` runs before
+    //     `nitrogen generate`.
     if (moduleInfos != null) {
-      // Only skip modules that use a C++ native implementation on THIS Apple
-      // platform (ios/macos). Modules that are C++ on Windows/Linux but Swift
-      // on ios/macos still need the .bridge.g.mm forwarder so SPM links the
-      // $lib_init_dart_api_dl symbol into the binary.
-      final appleCppLibs = (platform == 'ios' ? moduleInfos.where((m) => m.iosIsCpp) : moduleInfos.where((m) => m.macosIsCpp)).map((m) => m.lib).toSet();
-      for (final m in moduleInfos) {
-        final lib = m.lib;
-        if (lib == pluginName) continue; // main bridge already written above
-        if (appleCppLibs.contains(lib)) continue; // Apple C++ modules handle their own bridge
-        final bridgeCppPath = p.join(
-          baseDir,
-          'lib',
-          'src',
-          'generated',
-          'cpp',
-          '$lib.bridge.g.cpp',
-        );
-        final relBridge = p.relative(bridgeCppPath, from: cppTargetDir.path).replaceAll(r'\', '/');
-        File(p.join(cppTargetDir.path, '$lib.bridge.g.mm')).writeAsStringSync(
+      final sourcesRoot = packageRoot != null ? p.join(packageRoot, 'Sources') : p.join(baseDir, platform, 'Sources');
+      final specLibDir = Directory(p.join(baseDir, 'lib'));
+      final moduleSpecFiles = specLibDir.existsSync() ? specLibDir.listSync(recursive: true).whereType<File>().where((f) => f.path.endsWith('.native.dart')).toList() : <File>[];
+      final modulePlatformFilter = platform == 'ios' ? isIosCppModule : isMacosCppModule;
+      String libOf(File f) {
+        final stem = p.basename(f.path).replaceAll(RegExp(r'\.native\.dart$'), '');
+        return extractLibNameFromSpec(f) ?? stem;
+      }
+
+      final modulePlatformCppLibs = moduleSpecFiles.where(modulePlatformFilter).map(libOf).toSet();
+      final moduleKnownLibs = moduleSpecFiles.map(libOf).toSet();
+
+      final nonMainModules = moduleInfos.where((m) => m.lib != pluginName).toList();
+      for (final m in nonMainModules) {
+        final moduleTargetDir = Directory(p.join(sourcesRoot, '${m.module}Cpp'))..createSync(recursive: true);
+        final moduleIncludeDir = Directory(p.join(moduleTargetDir.path, 'include'))..createSync(recursive: true);
+
+        // Bridge forwarder — .mm so SPM compiles the C bridge as Obj-C++.
+        final bridgeCppPath = p.join(baseDir, 'lib', 'src', 'generated', 'cpp', '${m.lib}.bridge.g.cpp');
+        final relBridge = p.relative(bridgeCppPath, from: moduleTargetDir.path).replaceAll(r'\', '/');
+        File(p.join(moduleTargetDir.path, '${m.lib}.bridge.g.mm')).writeAsStringSync(
           managedBridgeMmForwarder(relBridge),
+        );
+
+        // Umbrella header: makes `import <ModuleClass>Cpp` resolve in Swift
+        // and re-exports the Dart DL API from the plugin-level Cpp target
+        // (a target dependency — the dart headers are deliberately NEVER
+        // copied here: two copies of dart_api_dl.h inside one package cause
+        // a clang "ambiguous module" error).
+        File(p.join(moduleIncludeDir.path, '${m.module}Cpp.h')).writeAsStringSync(
+          '// Generated by nitrogen — umbrella header for the ${m.module}Cpp SPM target.\n'
+          '// Re-exports the Dart DL API from the ${className}Cpp dependency.\n'
+          '#include "dart_api_dl.h"\n',
+        );
+
+        // Apple-C++ modules also carry their impl forwarder + bridge header.
+        final hybridClass = _toPascalCase(m.lib);
+        final implForwarder = File(p.join(moduleTargetDir.path, 'Hybrid$hybridClass.cpp'));
+        final isAppleCppHere = m.isCpp && (!moduleKnownLibs.contains(m.lib) || modulePlatformCppLibs.contains(m.lib));
+        if (isAppleCppHere) {
+          final implSrc = File(p.join(baseDir, 'src', 'Hybrid$hybridClass.cpp'));
+          if (implSrc.existsSync()) {
+            final relPath = p.relative(implSrc.path, from: moduleTargetDir.path).replaceAll(r'\', '/');
+            implForwarder.writeAsStringSync(managedCppForwarder(relPath));
+          }
+          final hSrc = File(p.join(baseDir, 'lib', 'src', 'generated', 'cpp', '${m.lib}.bridge.g.h'));
+          if (hSrc.existsSync()) hSrc.copySync(p.join(moduleIncludeDir.path, '${m.lib}.bridge.g.h'));
+        } else {
+          if (implForwarder.existsSync()) implForwarder.deleteSync();
+        }
+
+        // REPAIR: this module's sources used to be synced into the
+        // plugin-level target — remove them there so both targets never
+        // compile the same bridge (duplicate ${m.lib}_* symbols at link).
+        for (final stale in [
+          File(p.join(cppTargetDir.path, '${m.lib}.bridge.g.mm')),
+          File(p.join(cppTargetDir.path, 'Hybrid$hybridClass.cpp')),
+          File(p.join(includeDir.path, '${m.lib}.bridge.g.h')),
+        ]) {
+          if (stale.existsSync()) stale.deleteSync();
+        }
+      }
+
+      // Declare the module targets in Package.swift (idempotent; skipped
+      // with a paste-block warning when the manifest is hand-authored).
+      if (packageSwiftPath != null && nonMainModules.isNotEmpty) {
+        spm.ensureModuleCppTargets(
+          packageSwiftPath,
+          pluginName: pluginName,
+          pluginClass: className,
+          moduleClasses: nonMainModules.map((m) => m.module).toList(),
         );
       }
     }
@@ -2305,7 +2362,10 @@ void _syncCppModuleSourcesToSpm(
       return extractLibNameFromSpec(f) ?? stem;
     }).toSet();
 
-    for (final m in allCppModules) {
+    // Only the MAIN module's C++ sources still live in the plugin-level
+    // target — every other module was routed to its own <ModuleClass>Cpp
+    // target in section 2a above (issue #15).
+    for (final m in allCppModules.where((m) => m.lib == pluginName)) {
       final lib = m.lib;
       final hybridClass = _toPascalCase(lib);
       // Safe default: if no spec file was found for this lib, assume Apple (keep forwarder).
@@ -3143,6 +3203,54 @@ const String _nitroConsumerRulesEndMarker = '# --- END nitrogen-generated JNI ke
 /// unrelated dependencies survive every `nitrogen link` run. Re-derives the
 /// block's content from the CURRENT module list each time, so e.g. adding a
 /// second Nitro module to the plugin updates the keep rules automatically.
+/// Ensures the plugin's `build.yaml` carries `sources` excludes that keep
+/// build_runner's file-discovery walk out of the example app's platform
+/// build output (issue #20).
+///
+/// Once example/ has been built, `example/{ios,macos}/.symlinks/plugins/<name>`
+/// symlinks straight back to the plugin root; build_runner follows symlinks
+/// with no cycle detection and hangs forever with no output. `nitrogen
+/// generate` deletes those dirs before every run — but a plain
+/// `dart run build_runner build`/`watch` has no such guard. With the
+/// excludes in place the walk never enters example/ at all, making direct
+/// build_runner invocations safe too.
+///
+/// Behavior: creates build.yaml from the template when absent; inserts the
+/// `sources:` block under `$default:` when the file exists without one;
+/// NEVER touches a file that already declares `sources:` (the user owns
+/// their customization — doctor reports if it looks insufficient).
+void linkBuildYamlSourcesExcludes({String baseDir = '.'}) {
+  final file = File(p.join(baseDir, 'build.yaml'));
+  if (!file.existsSync()) {
+    file.writeAsStringSync(sft.buildYamlTemplate());
+    stdout.writeln('  build.yaml: created with sources excludes (guards direct build_runner runs against the example symlink-cycle hang)');
+    return;
+  }
+  final content = file.readAsStringSync();
+  if (content.contains('sources:')) return; // user-owned customization
+  const sourcesBlock =
+      '    sources:\n'
+      '      include:\n'
+      '        - lib/**\n'
+      '        - \$package\$\n'
+      '        - pubspec.yaml\n'
+      '      exclude:\n'
+      '        - example/**\n'
+      '        - "**/.symlinks/**"\n'
+      '        - "**/ephemeral/**"\n';
+  // Insert directly under the `$default:` target — the shape both the
+  // nitrogen template and flutter-created plugins use.
+  final anchor = RegExp(r'^(\s*)\$default:\s*$', multiLine: true).firstMatch(content);
+  if (anchor == null) {
+    stdout.writeln('  build.yaml: unrecognized shape — add sources excludes for example/**, **/.symlinks/**, **/ephemeral/** yourself (see nitrogen doctor)');
+    return;
+  }
+  final insertAt = content.indexOf('\n', anchor.end) + 1;
+  final updated = content.substring(0, insertAt) + sourcesBlock + content.substring(insertAt);
+  file.writeAsStringSync(updated);
+  stdout.writeln('  build.yaml: added sources excludes (guards direct build_runner runs against the example symlink-cycle hang)');
+}
+
 /// Removes `pluginClass:` from the plugin pubspec's `windows:`/`linux:`
 /// platform entries when that platform is a Nitro C++ (pure-FFI) backend.
 ///
@@ -3799,6 +3907,9 @@ class LinkCommand extends Command {
     // FFI-only desktop platforms must not declare pluginClass (issue #10) —
     // repairs pubspecs generated by older nitrogen versions.
     linkDesktopPubspecFfiOnly(moduleInfos, baseDir: baseDir);
+
+    // Guard direct build_runner runs against the example symlink-cycle hang (issue #20).
+    linkBuildYamlSourcesExcludes(baseDir: baseDir);
 
     log('updating .clangd...');
     linkClangd(pluginName, moduleInfos: moduleInfos, baseDir: baseDir);

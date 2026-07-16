@@ -487,6 +487,17 @@ class BridgeFunction {
   /// the returned [NativeHandle] is garbage-collected.
   final bool isOwned;
 
+  /// Custom C release symbol from `@NitroOwned(release: 'wgpuBufferRelease')`.
+  /// The `${cSymbol}_release` thunk calls this instead of `free()` — for
+  /// handles owned by a native library rather than malloc'd by the impl.
+  /// null = release with `free()`. Only meaningful when [isOwned] is true.
+  final String? releaseSymbol;
+
+  /// True when annotated with `@mainThread` — the Kotlin/Swift impl call is
+  /// dispatched on the platform main/UI thread (re-entrancy safe). No effect
+  /// on desktop C++ impls (validator warns).
+  final bool mainThread;
+
   /// Optional timeout in milliseconds from @NitroAsync(timeout: N).
   /// When non-null, the Kotlin/Swift generator wraps the async call in a
   /// timeout block that throws after [asyncTimeout] ms.
@@ -512,6 +523,8 @@ class BridgeFunction {
     this.zeroCopyReturn = false,
     this.lineNumber,
     this.isOwned = false,
+    this.releaseSymbol,
+    this.mainThread = false,
     this.asyncTimeout,
     this.isResult = false,
   });

@@ -99,8 +99,9 @@ class SwiftFunctionEmitter {
         isAnyMap: isAnyMap,
       );
     } else {
+      final syncTarget = func.mainThread ? CodeWriter() : writer;
       _emitSync(
-        writer,
+        syncTarget,
         func,
         spec,
         callArgs,
@@ -117,6 +118,18 @@ class SwiftFunctionEmitter {
         isAnyMap: isAnyMap,
         isVariantRet: isVariantRet,
       );
+      if (func.mainThread) {
+        // @mainThread sync (issue #19): run the whole dispatch body on the
+        // main thread in ONE hop — every return path (guards, encodes) stays
+        // inside the closure. _nitroMainSync executes inline when the caller
+        // is already the main thread, so there is no self-deadlock; from any
+        // other thread the caller blocks until the main queue runs the body.
+        writer.line('    return _nitroMainSync { () -> $cRetType in');
+        for (final l in syncTarget.toString().trimRight().split('\n')) {
+          writer.line(l.isEmpty ? '' : '    $l');
+        }
+        writer.line('    }');
+      }
     }
 
     writer.line('}');
@@ -537,6 +550,17 @@ class SwiftFunctionEmitter {
         writer.line('        var _obj = Dart_CObject()');
         writer.line('        _obj.type = Dart_CObject_kInt64');
         writer.line('        _obj.value.as_int64 = Int64(_result)');
+      } else if (func.returnType.isNativeHandle) {
+        // NativeHandle NativeAsync (issue #18): the impl returns
+        // UnsafeMutableRawPointer? (same protocol type as the sync path) —
+        // post the pointer bits as kInt64. nil posts address 0, which the
+        // Dart unpack maps to null for a nullable handle (and to a
+        // descriptive StateError for a non-nullable one). Previously this
+        // fell to the generic else (`Int64(_result)`) — compile failure.
+        writer.line('        let _result: UnsafeMutableRawPointer? = try await impl.${func.dartName}($callArgs)');
+        writer.line('        var _obj = Dart_CObject()');
+        writer.line('        _obj.type = Dart_CObject_kInt64');
+        writer.line('        _obj.value.as_int64 = _result != nil ? Int64(bitPattern: UInt64(UInt(bitPattern: _result!))) : 0');
       } else if (isVariantRet) {
         // Bare @NitroVariant NativeAsync: previously fell to the generic else
         // (`(try? await ...) ?? 0`), which doesn't type-check against an enum —

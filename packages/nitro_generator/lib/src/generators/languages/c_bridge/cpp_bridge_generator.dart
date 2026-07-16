@@ -124,14 +124,33 @@ class CppBridgeGenerator {
     final ownedFuncs = spec.functions.where((f) => f.isOwned && f.returnType.isNativeHandle).toList();
     if (ownedFuncs.isNotEmpty) {
       writer.line('extern "C" {');
+      // Custom release symbols from @NitroOwned(release: '...') — declared
+      // here with the handle-pointer signature so this file compiles without
+      // including the owning library's header. extern "C" names don't mangle,
+      // so the declaration links against the real definition (e.g. webgpu.h's
+      // `void wgpuBufferRelease(WGPUBuffer)`). Deduped: several methods may
+      // share one release function.
+      final customReleases = ownedFuncs.map((f) => f.releaseSymbol).whereType<String>().toSet();
+      for (final sym in customReleases) {
+        writer.line('void $sym(void* handle);');
+      }
       for (final f in ownedFuncs) {
-        // On all platforms the handle is a real malloc'd pointer:
-        //   Android: allocated via sun.misc.Unsafe.allocateMemory (ART calls malloc internally).
-        //   Apple:   allocated via UnsafeMutableRawPointer.allocate.
-        // Both are freed with free().
-        writer.line('NITRO_EXPORT void ${f.cSymbol}_release(void* handle) {');
-        writer.line('    if (handle) { free(handle); }');
-        writer.line('}');
+        final custom = f.releaseSymbol;
+        if (custom != null) {
+          // Handle is owned by a native library — release through its own
+          // function (@NitroOwned(release: '$custom')), never free().
+          writer.line('NITRO_EXPORT void ${f.cSymbol}_release(void* handle) {');
+          writer.line('    if (handle) { $custom(handle); }');
+          writer.line('}');
+        } else {
+          // On all platforms the handle is a real malloc'd pointer:
+          //   Android: allocated via sun.misc.Unsafe.allocateMemory (ART calls malloc internally).
+          //   Apple:   allocated via UnsafeMutableRawPointer.allocate.
+          // Both are freed with free().
+          writer.line('NITRO_EXPORT void ${f.cSymbol}_release(void* handle) {');
+          writer.line('    if (handle) { free(handle); }');
+          writer.line('}');
+        }
       }
       writer.line('}');
       writer.blankLine();

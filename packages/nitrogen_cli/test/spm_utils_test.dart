@@ -796,4 +796,117 @@ let package = Package(targets: [
       expect(flutterFrameworkPathExists(path), isTrue);
     });
   });
+
+  // ── ensureModuleCppTargets (issue #15) ──────────────────────────────────
+
+  group('ensureModuleCppTargets — per-module SPM C++ targets', () {
+    late Directory tmp;
+    setUp(() => tmp = Directory.systemTemp.createTempSync('spm_module_targets_'));
+    tearDown(() => tmp.deleteSync(recursive: true));
+
+    String writeTemplateManifest() {
+      // The nitrogen-generated shape (swift_templates.dart, 2-space indent).
+      final path = p.join(tmp.path, 'Package.swift');
+      File(path).writeAsStringSync(
+        '// swift-tools-version: 6.0\n'
+        'import PackageDescription\n'
+        '\n'
+        'let package = Package(\n'
+        '  name: "my_plugin",\n'
+        '  products: [\n'
+        '    .library(name: "my-plugin", targets: ["my_plugin"])\n'
+        '  ],\n'
+        '  dependencies: [\n'
+        '    .package(name: "FlutterFramework", path: "../FlutterFramework"),\n'
+        '  ],\n'
+        '  targets: [\n'
+        '    .target(\n'
+        '      name: "MyPluginCpp",\n'
+        '      path: "Sources/MyPluginCpp",\n'
+        '      publicHeadersPath: "include"\n'
+        '    ),\n'
+        '    .target(\n'
+        '      name: "my_plugin",\n'
+        '      dependencies: [\n'
+        '        "MyPluginCpp",\n'
+        '        .product(name: "FlutterFramework", package: "FlutterFramework"),\n'
+        '      ],\n'
+        '      path: "Sources/MyPlugin"\n'
+        '    )\n'
+        '  ]\n'
+        ')\n',
+      );
+      return path;
+    }
+
+    test('inserts a module target that depends on the plugin Cpp target', () {
+      final path = writeTemplateManifest();
+      final changed = ensureModuleCppTargets(path, pluginName: 'my_plugin', pluginClass: 'MyPlugin', moduleClasses: ['Gpu']);
+      expect(changed, isTrue);
+      final content = File(path).readAsStringSync();
+      expect(content, contains('name: "GpuCpp"'));
+      expect(content, contains('path: "Sources/GpuCpp"'));
+      expect(content, contains('dependencies: ["MyPluginCpp"]'), reason: 'dart_api_dl.c compiles exactly once — in the plugin Cpp target');
+    });
+
+    test('adds the module target to the Swift target dependencies', () {
+      final path = writeTemplateManifest();
+      ensureModuleCppTargets(path, pluginName: 'my_plugin', pluginClass: 'MyPlugin', moduleClasses: ['Gpu']);
+      final content = File(path).readAsStringSync();
+      // Anchor inside the package-level targets array (the top-of-file
+      // `name: "my_plugin"` is the package name, not the Swift target).
+      final targetsIdx = content.indexOf(RegExp(r'^[ \t]*targets: \[', multiLine: true));
+      final swiftIdx = content.indexOf('name: "my_plugin"', targetsIdx);
+      final depsIdx = content.indexOf('dependencies: [', swiftIdx);
+      final depsRegion = content.substring(depsIdx, content.indexOf(']', depsIdx));
+      expect(depsRegion, contains('"GpuCpp"'));
+    });
+
+    test('idempotent — second run leaves the manifest byte-identical', () {
+      final path = writeTemplateManifest();
+      ensureModuleCppTargets(path, pluginName: 'my_plugin', pluginClass: 'MyPlugin', moduleClasses: ['Gpu', 'Audio']);
+      final after = File(path).readAsStringSync();
+      final changedAgain = ensureModuleCppTargets(path, pluginName: 'my_plugin', pluginClass: 'MyPlugin', moduleClasses: ['Gpu', 'Audio']);
+      expect(changedAgain, isFalse);
+      expect(File(path).readAsStringSync(), equals(after));
+    });
+
+    test('never inserts into the products targets array (regression)', () {
+      // products contains an INLINE `targets: ["my_plugin"]` — insertion
+      // anchored at the first raw indexOf('targets: [') corrupted it.
+      final path = writeTemplateManifest();
+      ensureModuleCppTargets(path, pluginName: 'my_plugin', pluginClass: 'MyPlugin', moduleClasses: ['Gpu']);
+      final content = File(path).readAsStringSync();
+      expect(content, contains('.library(name: "my-plugin", targets: ["my_plugin"])'), reason: 'products list must stay untouched');
+    });
+
+    test('inserted manifest is still bracket-balanced', () {
+      final path = writeTemplateManifest();
+      ensureModuleCppTargets(path, pluginName: 'my_plugin', pluginClass: 'MyPlugin', moduleClasses: ['Gpu', 'Audio']);
+      final content = File(path).readAsStringSync();
+      expect('['.allMatches(content).length, equals(']'.allMatches(content).length));
+      expect('('.allMatches(content).length, equals(')'.allMatches(content).length));
+    });
+
+    test('hand-authored manifest (no nitrogen shape) is left untouched', () {
+      final path = p.join(tmp.path, 'Package.swift');
+      File(path).writeAsStringSync('// my custom package\nlet package = Package(name: "custom")\n');
+      final changed = ensureModuleCppTargets(path, pluginName: 'my_plugin', pluginClass: 'MyPlugin', moduleClasses: ['Gpu']);
+      expect(changed, isFalse);
+      expect(File(path).readAsStringSync(), contains('// my custom package'));
+      expect(File(path).readAsStringSync(), isNot(contains('GpuCpp')));
+    });
+
+    test('a hand-edited existing module target is preserved verbatim', () {
+      final path = writeTemplateManifest();
+      ensureModuleCppTargets(path, pluginName: 'my_plugin', pluginClass: 'MyPlugin', moduleClasses: ['Gpu']);
+      // User hand-tunes the Gpu target (adds a linker flag).
+      var content = File(path).readAsStringSync();
+      content = content.replaceFirst('path: "Sources/GpuCpp",', 'path: "Sources/GpuCpp", // hand-tuned');
+      File(path).writeAsStringSync(content);
+      ensureModuleCppTargets(path, pluginName: 'my_plugin', pluginClass: 'MyPlugin', moduleClasses: ['Gpu']);
+      expect(File(path).readAsStringSync(), contains('// hand-tuned'));
+      expect('name: "GpuCpp"'.allMatches(File(path).readAsStringSync()).length, equals(1), reason: 'must not insert a duplicate target');
+    });
+  });
 }

@@ -512,3 +512,107 @@ void createSpmSourcesStructure(
     } catch (_) {}
   }
 }
+
+// ── Per-module Cpp targets (issue #15) ───────────────────────────────────────
+
+/// The `.target(...)` block for one module's SPM C++ target, named after the
+/// module's Dart class (`<ModuleClass>Cpp`). It depends on the plugin-level
+/// `<pluginClass>Cpp` target, which owns `dart_api_dl.c` and the shared nitro
+/// headers — compiled exactly once for the whole package (compiling
+/// `dart_api_dl.c` per target would duplicate its symbols at link time).
+String moduleCppTargetBlock(String moduleClass, String pluginClass, {String indent = '    '}) =>
+    '$indent.target(\n'
+    '$indent  name: "${moduleClass}Cpp",\n'
+    '$indent  dependencies: ["${pluginClass}Cpp"],\n'
+    '$indent  path: "Sources/${moduleClass}Cpp",\n'
+    '$indent  publicHeadersPath: "include",\n'
+    '$indent  cxxSettings: [\n'
+    '$indent    .headerSearchPath("include"),\n'
+    '$indent    .unsafeFlags(["${BuildVersions.spmCxxFlag}"])\n'
+    '$indent  ]\n'
+    '$indent),';
+
+/// Ensures [packageSwiftPath] declares one `<ModuleClass>Cpp` target per
+/// entry in [moduleClasses] and that the Swift target ([pluginName]) depends
+/// on each of them. Idempotent: a module whose `name: "<ModuleClass>Cpp"`
+/// already appears anywhere in the manifest is left untouched, so hand-tuned
+/// target blocks survive re-runs.
+///
+/// New targets are inserted immediately after the `targets: [` opening
+/// bracket (each inserted block carries its own trailing comma), which stays
+/// valid regardless of how the existing entries are formatted — no
+/// trailing-comma or last-bracket heuristics.
+///
+/// Only manifests in the nitrogen-generated shape are patched: the file must
+/// contain a `targets: [` array AND the plugin-level `"<pluginClass>Cpp"`
+/// target. Anything else (fully hand-authored) is skipped and the exact
+/// blocks to paste are printed so the user can apply them deliberately.
+///
+/// Returns `true` if the file was modified.
+bool ensureModuleCppTargets(
+  String packageSwiftPath, {
+  required String pluginName,
+  required String pluginClass,
+  required List<String> moduleClasses,
+}) {
+  final file = File(packageSwiftPath);
+  if (!file.existsSync()) return false;
+  var content = file.readAsStringSync();
+
+  final missing = moduleClasses.where((c) => !content.contains('name: "${c}Cpp"')).toList();
+  final missingSwiftDeps = moduleClasses.where((c) => !RegExp('"${c}Cpp"\\s*,').hasMatch(content)).toList();
+  if (missing.isEmpty && missingSwiftDeps.isEmpty) return false;
+
+  // Anchor at the PACKAGE-LEVEL targets array — it starts its own line.
+  // `products:` also contains a `targets: [...]` (inline, inside .library(...))
+  // which must never be the insertion point.
+  final targetsMatch = RegExp(r'^[ \t]*targets: \[', multiLine: true).firstMatch(content);
+  final targetsIdx = targetsMatch?.start ?? -1;
+  if (targetsIdx == -1 || !content.contains('"${pluginClass}Cpp"')) {
+    // Hand-authored manifest — refuse surgery, hand the user the blocks.
+    stdout.writeln('  ⚠ $packageSwiftPath is not in the nitrogen-generated shape — add these targets manually:');
+    for (final c in missing) {
+      stdout.writeln(moduleCppTargetBlock(c, pluginClass));
+    }
+    stdout.writeln('  …and add ${missing.map((c) => '"${c}Cpp"').join(', ')} to the "$pluginName" target\'s dependencies.');
+    return false;
+  }
+
+  // Match the manifest's target indentation (2-space templates from
+  // swift_templates.dart vs 4-space from scaffold_templates.dart).
+  final lineStart = content.lastIndexOf('\n', targetsIdx) + 1;
+  final baseIndent = RegExp(r'^ *').firstMatch(content.substring(lineStart))!.group(0)!;
+  final targetIndent = '$baseIndent  ';
+
+  // 1. Insert missing module targets right after the package-level
+  //    `targets: [` (each block carries its own trailing comma, so the
+  //    insertion is valid regardless of the existing entries' formatting).
+  final openBracketEnd = targetsMatch!.end;
+  if (missing.isNotEmpty) {
+    final blocks = missing.map((c) => moduleCppTargetBlock(c, pluginClass, indent: targetIndent)).join('\n');
+    content = '${content.substring(0, openBracketEnd)}\n$blocks${content.substring(openBracketEnd)}';
+  }
+
+  // 2. Add each module target to the Swift target's dependencies array.
+  //    The Swift target is the one named after the plugin (snake_case),
+  //    searched from the package-level targets array onward.
+  final swiftNameIdx = content.indexOf('name: "$pluginName"', targetsIdx);
+  if (swiftNameIdx != -1) {
+    final depsIdx = content.indexOf('dependencies: [', swiftNameIdx);
+    if (depsIdx != -1) {
+      final depLineStart = content.lastIndexOf('\n', depsIdx) + 1;
+      final depIndent = RegExp(r'^ *').firstMatch(content.substring(depLineStart))!.group(0)!;
+      final toAdd = moduleClasses.where((c) {
+        final depsRegion = content.substring(depsIdx, content.indexOf(']', depsIdx));
+        return !depsRegion.contains('"${c}Cpp"');
+      }).toList();
+      if (toAdd.isNotEmpty) {
+        final deps = toAdd.map((c) => '$depIndent  "${c}Cpp",').join('\n');
+        content = content.replaceFirst('dependencies: [', 'dependencies: [\n$deps', depsIdx);
+      }
+    }
+  }
+
+  file.writeAsStringSync(content);
+  return true;
+}

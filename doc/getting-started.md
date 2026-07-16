@@ -586,6 +586,35 @@ let package = Package(
 
 The `Sources/` directories contain symlinks back into `Classes/` — one file, two build systems.
 
+##### Multi-module plugins: one Cpp target per module
+
+When a plugin has more than one `@NitroModule` spec, `nitrogen link` gives
+every non-main module its **own** SPM C++ target named after the module's
+Dart class (`Sources/<ModuleClass>Cpp/`), holding that module's
+`.bridge.g.mm` forwarder, an umbrella header, and (for Apple-C++ modules)
+its `HybridXxx.cpp` forwarder:
+
+```swift
+targets: [
+    .target(
+        name: "GpuBufferCpp",                 // second module's own target
+        dependencies: ["MyPluginCpp"],        // dart_api_dl.c compiles ONCE, here
+        path: "Sources/GpuBufferCpp",
+        publicHeadersPath: "include", ...
+    ),
+    .target(name: "MyPluginCpp", ...),        // plugin-level: dart_api_dl.c + nitro headers
+    .target(name: "my_plugin",
+            dependencies: ["GpuBufferCpp", "MyPluginCpp", ...], ...)
+]
+```
+
+This makes each module's `import <ModuleClass>Cpp` (emitted for
+`@nitroNativeAsync` bridges) resolve, and prevents duplicate-symbol link
+errors from two targets compiling the same bridge. `nitrogen link` inserts
+missing module targets into an existing nitrogen-generated `Package.swift`
+idempotently; hand-authored manifests are left untouched (the exact blocks
+to paste are printed instead).
+
 ---
 
 ## Step 7 — Wire the Android CMake build

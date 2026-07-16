@@ -1816,13 +1816,28 @@ class DoctorCommand extends Command {
       if (present.isNotEmpty) {
         final buildSec = DoctorSection('build_runner');
         sections.add(buildSec);
-        info(
-          buildSec,
-          'example/ has built native-platform ephemeral dirs present (${present.join(', ')}) — '
-          '`nitrogen generate` cleans these automatically each run. If you instead run '
-          '`dart run build_runner build`/`watch` directly and it hangs with no output, '
-          'delete these dirs — they always regenerate.',
-        );
+        // A build.yaml sources.exclude keeps build_runner's walk out of
+        // example/ entirely — with it, a direct build_runner run is safe.
+        // Without it, the hazard is a silent forever-hang, so escalate to a
+        // warning with the one-line fix (issue #20).
+        final buildYaml = File(p.join(root.path, 'build.yaml'));
+        final hasSourcesExclude = buildYaml.existsSync() && buildYaml.readAsStringSync().contains('sources:');
+        if (hasSourcesExclude) {
+          info(
+            buildSec,
+            'example/ has built native-platform ephemeral dirs present (${present.join(', ')}) — '
+            'harmless: build.yaml sources excludes keep build_runner out of them, and '
+            '`nitrogen generate` cleans them each run.',
+          );
+        } else {
+          warn(
+            buildSec,
+            'example/ has built native-platform ephemeral dirs (${present.join(', ')}) and build.yaml '
+            'has no sources excludes — a direct `dart run build_runner build`/`watch` will hang '
+            'FOREVER with no output (its file walk follows the example .symlinks cycle).',
+            hint: 'Run: nitrogen link  (adds the build.yaml sources excludes), or delete the dirs — they always regenerate',
+          );
+        }
       }
     }
 

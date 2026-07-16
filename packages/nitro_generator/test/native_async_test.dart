@@ -2638,6 +2638,167 @@ void main() {
       expect(out, isNot(contains('_impl->setItems(items, _nitro_err, dart_port);')));
     });
   });
+
+  group('nativeAsync null convention — issue #17 (kNull accepted, descriptive non-null errors)', () {
+    BridgeSpec specWithReturn(BridgeType returnType, {String name = 'fetch'}) => BridgeSpec(
+      dartClassName: 'Scope',
+      lib: 'scope',
+      namespace: 'scope',
+      iosImpl: NativeImpl.swift,
+      androidImpl: NativeImpl.kotlin,
+      sourceUri: 'scope.native.dart',
+      recordTypes: [
+        BridgeRecordType(
+          name: 'GpuError',
+          fields: [
+            BridgeRecordField(name: 'message', dartType: 'String', kind: RecordFieldKind.primitive),
+          ],
+        ),
+      ],
+      functions: [
+        BridgeFunction(
+          dartName: name,
+          cSymbol: 'scope_$name',
+          isAsync: false,
+          isNativeAsync: true,
+          returnType: returnType,
+          params: [],
+        ),
+      ],
+    );
+
+    test('nullable record unpack accepts Dart_CObject_kNull (raw == null) AND int64 0', () {
+      // The exact nitro_webgpu repro: Future<GpuError?> resolved with kNull
+      // crashed with "type Null is not a subtype of int in type cast" —
+      // only the undocumented post-int64-0 convention worked.
+      final out = DartFfiGenerator.generate(specWithReturn(BridgeType(name: 'GpuError?', isRecord: true, isNullable: true)));
+      expect(out, contains('if (raw == null) return null;'));
+      expect(out, contains('if (rawPtr == nullptr) return null;'));
+    });
+
+    test('nullable int/double/bool unpacks accept kNull and 0', () {
+      for (final t in ['int?', 'double?', 'bool?']) {
+        final out = DartFfiGenerator.generate(specWithReturn(BridgeType(name: t, isNullable: true)));
+        expect(out, contains('if (raw == null || raw == 0) return null;'), reason: t);
+      }
+    });
+
+    test('nullable enum unpack accepts kNull alongside the -1 sentinel', () {
+      final spec = BridgeSpec(
+        dartClassName: 'Scope',
+        lib: 'scope',
+        namespace: 'scope',
+        iosImpl: NativeImpl.swift,
+        androidImpl: NativeImpl.kotlin,
+        sourceUri: 'scope.native.dart',
+        enums: [
+          BridgeEnum(name: 'GpuState', startValue: 0, values: ['ok', 'lost']),
+        ],
+        functions: [
+          BridgeFunction(
+            dartName: 'state',
+            cSymbol: 'scope_state',
+            isAsync: false,
+            isNativeAsync: true,
+            returnType: BridgeType(name: 'GpuState?', isNullable: true),
+            params: [],
+          ),
+        ],
+      );
+      final out = DartFfiGenerator.generate(spec);
+      expect(out, contains('if (raw == null) return null;'));
+    });
+
+    test('NON-nullable record unpack turns a posted null into a descriptive StateError', () {
+      final out = DartFfiGenerator.generate(specWithReturn(BridgeType(name: 'GpuError', isRecord: true)));
+      // Names the method and the fix — not the opaque "Null is not a
+      // subtype of int" cast error.
+      expect(out, contains('fetch (native-async): native posted null for a non-nullable GpuError result'));
+      expect(out, contains('make the return type nullable'));
+    });
+  });
+
+  // ── Future<NativeHandle> native-async (issue #18) ───────────────────────────
+  group('nativeAsync NativeHandle return — issue #18 (async owned factories)', () {
+    BridgeSpec handleSpec({bool owned = true, bool nullable = false, String? release}) => BridgeSpec(
+      dartClassName: 'Gpu',
+      lib: 'gpu',
+      namespace: 'gpu',
+      iosImpl: NativeImpl.swift,
+      androidImpl: NativeImpl.kotlin,
+      sourceUri: 'gpu.native.dart',
+      functions: [
+        BridgeFunction(
+          dartName: 'requestAdapter',
+          cSymbol: 'gpu_request_adapter',
+          isAsync: false,
+          isNativeAsync: true,
+          returnType: BridgeType(
+            name: nullable ? 'NativeHandle<Void>?' : 'NativeHandle<Void>',
+            isNativeHandle: true,
+            isNullable: nullable,
+            nativeHandleTypeParam: 'Void',
+          ),
+          params: [],
+          isOwned: owned,
+          releaseSymbol: release,
+        ),
+      ],
+    );
+
+    test('Dart unpack decodes kInt64 address and attaches the owned finalizer + release callback', () {
+      final out = DartFfiGenerator.generate(handleSpec());
+      expect(out, contains('NativeHandle<Void>.fromAddress(raw as int)'));
+      expect(out, contains('_requestAdapterFinalizer.attach(handle'));
+      expect(out, contains('handle.attachReleaseCallback((addr) { _requestAdapterReleaseFn(Pointer<Void>.fromAddress(addr)); _requestAdapterFinalizer.detach(handle); })'));
+      // The finalizer/releaseFn bindings themselves must be emitted too.
+      expect(out, contains("_dylib.lookupFunction<Void Function(Pointer<Void>), void Function(Pointer<Void>)>('gpu_request_adapter_release')"));
+    });
+
+    test('borrow (no @NitroOwned) unpack returns the handle without a finalizer', () {
+      final out = DartFfiGenerator.generate(handleSpec(owned: false));
+      expect(out, contains('NativeHandle<Void>.fromAddress(raw as int)'));
+      expect(out, isNot(contains('_requestAdapterFinalizer')));
+    });
+
+    test('nullable handle: kNull and address 0 both decode to Dart null', () {
+      final out = DartFfiGenerator.generate(handleSpec(nullable: true));
+      expect(out, contains('if (raw == null || raw == 0) return null;'));
+    });
+
+    test('non-nullable handle: posted null becomes a descriptive StateError, not a cast error', () {
+      final out = DartFfiGenerator.generate(handleSpec());
+      expect(out, contains('requestAdapter (native-async): native posted null for a non-nullable NativeHandle<Void> result'));
+    });
+
+    test('Kotlin posts the handle address via postInt64ToPort', () {
+      final out = KotlinGenerator.generate(handleSpec());
+      final callIdx = out.indexOf('fun requestAdapter_call(');
+      expect(callIdx, greaterThan(-1));
+      final nextDecl = out.indexOf('@JvmStatic', callIdx + 1);
+      final block = out.substring(callIdx, nextDecl == -1 ? out.length : nextDecl);
+      expect(block, contains('postInt64ToPort(dartPort, result)'));
+      expect(block, isNot(contains('postNullToPort(dartPort)\n            } catch')), reason: 'must not fall into the discard-and-post-null else branch');
+    });
+
+    test('Swift awaits UnsafeMutableRawPointer? and posts pointer bits as kInt64', () {
+      final out = SwiftGenerator.generate(handleSpec());
+      expect(out, contains('func requestAdapter() async throws -> UnsafeMutableRawPointer?'));
+      expect(out, contains('let _result: UnsafeMutableRawPointer? = try await impl.requestAdapter()'));
+      expect(out, contains('_obj.value.as_int64 = _result != nil ? Int64(bitPattern: UInt64(UInt(bitPattern: _result!))) : 0'));
+    });
+
+    test('release thunk is emitted for a native-async owned factory (composes with issue #13)', () {
+      final out = CppBridgeGenerator.generate(handleSpec(release: 'wgpuAdapterRelease'));
+      expect(out, contains('NITRO_EXPORT void gpu_request_adapter_release(void* handle)'));
+      expect(out, contains('if (handle) { wgpuAdapterRelease(handle); }'));
+    });
+
+    test('validator accepts @NitroOwned + @nitroNativeAsync + NativeHandle', () {
+      expect(SpecValidator.validate(handleSpec()).where((i) => i.isError), isEmpty);
+      expect(SpecValidator.validate(handleSpec(release: 'wgpuAdapterRelease')).where((i) => i.isError), isEmpty);
+    });
+  });
 }
 
 BridgeSpec _desktopListMapCallbackSpec() => BridgeSpec(

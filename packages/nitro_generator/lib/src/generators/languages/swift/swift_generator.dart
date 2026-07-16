@@ -44,12 +44,30 @@ class SwiftGenerator {
     writer.line('import Foundation');
     writer.line('import Combine');
     // @nitroNativeAsync stubs use Dart_CObject / Dart_PostCObject_DL, which are
-    // C types from dart_api.h — exposed by the sibling SPM C++ target.
+    // C types from dart_api.h — exposed by the module's own SPM C++ target
+    // (issue #15: `nitrogen link` creates one `<Module>Cpp` target per module).
+    // The canImport guard keeps this same file compiling under CocoaPods,
+    // where no such Swift module exists and the types arrive through the
+    // pod's umbrella header instead.
     final hasNativeAsync = spec.functions.any((f) => f.isNativeAsync);
     if (hasNativeAsync) {
+      writer.line('#if canImport(${spec.dartClassName}Cpp)');
       writer.line('import ${spec.dartClassName}Cpp');
+      writer.line('#endif');
     }
     writer.blankLine();
+    // @mainThread sync dispatch helper (issue #19). fileprivate: each bridge
+    // file that needs it carries its own copy — no cross-file collision, no
+    // dedup pass involvement.
+    if (spec.functions.any((f) => f.mainThread && !f.isAsync && !f.isNativeAsync)) {
+      writer.line('/// Runs body on the main thread. Re-entrancy safe: executes inline');
+      writer.line('/// when the caller is already the main thread (no self-deadlock).');
+      writer.line('fileprivate func _nitroMainSync<T>(_ body: () -> T) -> T {');
+      writer.line('    if Thread.isMainThread { return body() }');
+      writer.line('    return DispatchQueue.main.sync(execute: body)');
+      writer.line('}');
+      writer.blankLine();
+    }
     _emitSwiftStringHelpers(writer);
     _emitSwiftEncodableProtocol(writer);
 

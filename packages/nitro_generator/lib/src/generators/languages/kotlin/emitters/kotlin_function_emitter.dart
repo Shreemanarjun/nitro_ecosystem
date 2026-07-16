@@ -244,41 +244,48 @@ class KotlinFunctionEmitter {
     writer.line('        _asyncExecutor.execute {');
     writer.line('            try {');
     if (isUnit) {
-      writer.line('            runBlocking { impl.${func.dartName}($callParams) }');
+      writer.line('            ${KotlinTypeMapper.runBlockingCall(func, "impl.${func.dartName}($callParams)")}');
       writer.line('            postNullToPort(dartPort)');
     } else if (isEnum) {
-      writer.line('            val result = runBlocking { impl.${func.dartName}($callParams) }');
+      writer.line('            val result = ${KotlinTypeMapper.runBlockingCall(func, "impl.${func.dartName}($callParams)")}');
       if (isNullableReturn) {
         writer.line('            if (result == null) postInt64ToPort(dartPort, -1L) else postInt64ToPort(dartPort, result.nativeValue)');
       } else {
         writer.line('            postInt64ToPort(dartPort, result.nativeValue)');
       }
     } else if (retType == 'String') {
-      writer.line('            val result = runBlocking { impl.${func.dartName}($callParams) }');
+      writer.line('            val result = ${KotlinTypeMapper.runBlockingCall(func, "impl.${func.dartName}($callParams)")}');
       writer.line('            postStringToPort(dartPort, result)');
     } else if (retType == 'String?') {
-      writer.line('            val result = runBlocking { impl.${func.dartName}($callParams) }');
+      writer.line('            val result = ${KotlinTypeMapper.runBlockingCall(func, "impl.${func.dartName}($callParams)")}');
       writer.line('            if (result == null) postNullToPort(dartPort) else postStringToPort(dartPort, result)');
     } else if (retType == 'Boolean') {
-      writer.line('            val result = runBlocking { impl.${func.dartName}($callParams) }');
+      writer.line('            val result = ${KotlinTypeMapper.runBlockingCall(func, "impl.${func.dartName}($callParams)")}');
       writer.line('            postBoolToPort(dartPort, result)');
     } else if (retType == 'Boolean?') {
       // bool? NativeAsync: post pointer to NitroOptBool (2 bytes); Dart decodes via fromAddress.
-      writer.line('            val result = runBlocking { impl.${func.dartName}($callParams) }');
+      writer.line('            val result = ${KotlinTypeMapper.runBlockingCall(func, "impl.${func.dartName}($callParams)")}');
       writer.line('            postOptBoolToPort(dartPort, result ?: false, result != null)');
+    } else if (func.returnType.isNativeHandle) {
+      // NativeHandle NativeAsync (issue #18): the impl returns the raw
+      // pointer address as Long — post it as kInt64. Address 0 means null
+      // for a nullable handle (the Kotlin interface declares Long on every
+      // path, so null is expressed as 0, matching the Dart-side unpack).
+      writer.line('            val result = ${KotlinTypeMapper.runBlockingCall(func, "impl.${func.dartName}($callParams)")}');
+      writer.line('            postInt64ToPort(dartPort, result)');
     } else if (retType == 'Long' || retType == 'Int') {
-      writer.line('            val result = runBlocking { impl.${func.dartName}($callParams) }');
+      writer.line('            val result = ${KotlinTypeMapper.runBlockingCall(func, "impl.${func.dartName}($callParams)")}');
       writer.line('            postInt64ToPort(dartPort, result.toLong())');
     } else if (retType == 'Long?' || retType == 'Int?') {
       // Long?/Int? NativeAsync: post pointer to NitroOptInt64 (9 bytes); Dart decodes via fromAddress.
-      writer.line('            val result = runBlocking { impl.${func.dartName}($callParams) }');
+      writer.line('            val result = ${KotlinTypeMapper.runBlockingCall(func, "impl.${func.dartName}($callParams)")}');
       writer.line('            postOptInt64ToPort(dartPort, result?.toLong() ?: 0L, result != null)');
     } else if (retType == 'Double') {
-      writer.line('            val result = runBlocking { impl.${func.dartName}($callParams) }');
+      writer.line('            val result = ${KotlinTypeMapper.runBlockingCall(func, "impl.${func.dartName}($callParams)")}');
       writer.line('            postDoubleToPort(dartPort, result)');
     } else if (retType == 'Double?') {
       // Double? NativeAsync: post pointer to NitroOptFloat64 (9 bytes); Dart decodes via fromAddress.
-      writer.line('            val result = runBlocking { impl.${func.dartName}($callParams) }');
+      writer.line('            val result = ${KotlinTypeMapper.runBlockingCall(func, "impl.${func.dartName}($callParams)")}');
       writer.line('            postOptFloat64ToPort(dartPort, result ?: 0.0, result != null)');
     } else if (isEnumListReturn) {
       // List<@HybridEnum> NativeAsync: checked BEFORE isRecord — spec_extractor
@@ -286,21 +293,21 @@ class KotlinFunctionEmitter {
       // into the isRecord path's single-record fallback and called `.encode()`
       // on a Kotlin List (not a member — compile error). Mirrors the encoding
       // _emitEnumListBody uses for the sync/@nitroAsync path.
-      writer.line('            val result = runBlocking { impl.${func.dartName}($callParams) }');
+      writer.line('            val result = ${KotlinTypeMapper.runBlockingCall(func, "impl.${func.dartName}($callParams)")}');
       _emitNativeAsyncEnumListEncode(writer, func);
       writer.line('            postBytesToPort(dartPort, _bytes)');
     } else if (isVariantListReturn) {
       // List<@NitroVariant> NativeAsync: same reasoning as isEnumListReturn
       // above. Mirrors the encoding _emitVariantListBody uses for the
       // sync/@nitroAsync path.
-      writer.line('            val result = runBlocking { impl.${func.dartName}($callParams) }');
+      writer.line('            val result = ${KotlinTypeMapper.runBlockingCall(func, "impl.${func.dartName}($callParams)")}');
       _emitNativeAsyncVariantListEncode(writer, func);
       writer.line('            postBytesToPort(dartPort, _bytes)');
     } else if (isVariantReturn) {
       // Bare @NitroVariant NativeAsync: previously fell to the generic else
       // (discard + always-null), the same bug class as the fixed record
       // return. Mirrors _emitVariantReturnBody's wire format.
-      writer.line('            val _vResult = runBlocking { impl.${func.dartName}($callParams) }');
+      writer.line('            val _vResult = ${KotlinTypeMapper.runBlockingCall(func, "impl.${func.dartName}($callParams)")}');
       writer.line('            val _vw = RecordWriter()');
       writer.line('            _vResult.writeFields(_vw)');
       writer.line('            val _vPayload = _vw.toByteArray()');
@@ -313,21 +320,21 @@ class KotlinFunctionEmitter {
       // the return side is handled here — a NitroAnyMap *parameter* on a
       // @NitroNativeAsync method remains unfixed (deferred, see param-phase
       // notes) since it needs its own decode step this branch doesn't add.
-      writer.line('            val result = runBlocking { impl.${func.dartName}($callParams) }');
+      writer.line('            val result = ${KotlinTypeMapper.runBlockingCall(func, "impl.${func.dartName}($callParams)")}');
       writer.line('            @Suppress("UNCHECKED_CAST")');
       writer.line('            val _outMap = result as? Map<String, Any?> ?: emptyMap()');
       writer.line('            postBytesToPort(dartPort, NitroAnyMapCodec.encode(_outMap))');
     } else if (isMapReturn) {
       // Map<String,V> NativeAsync: previously fell to the generic else. Same
       // return-only scope note as isAnyMapReturn above.
-      writer.line('            val result = runBlocking { impl.${func.dartName}($callParams) }');
+      writer.line('            val result = ${KotlinTypeMapper.runBlockingCall(func, "impl.${func.dartName}($callParams)")}');
       _emitNativeAsyncMapEncode(writer, func, spec);
       writer.line('            postBytesToPort(dartPort, _bytes)');
     } else if (isCustomTypeReturn) {
       // @NitroCustomType NativeAsync: the impl already returns a raw,
       // user-encoded ByteArray (custom types have no generator-side
       // encode/decode) — post it directly instead of discarding it.
-      writer.line('            val result = runBlocking { impl.${func.dartName}($callParams) }');
+      writer.line('            val result = ${KotlinTypeMapper.runBlockingCall(func, "impl.${func.dartName}($callParams)")}');
       writer.line('            postBytesToPort(dartPort, result)');
     } else if (isStructReturn) {
       // Bare @HybridStruct NativeAsync: previously had no wire format at all
@@ -338,7 +345,7 @@ class KotlinFunctionEmitter {
       // native struct via the JNI side's existing pack_${struct}_from_jni and
       // posts its address, reusing the postBytesToPort null-as-address-0
       // convention.
-      writer.line('            val result = runBlocking { impl.${func.dartName}($callParams) }');
+      writer.line('            val result = ${KotlinTypeMapper.runBlockingCall(func, "impl.${func.dartName}($callParams)")}');
       writer.line('            post${retBaseName}ToPort(dartPort, result)');
     } else if (isRecord) {
       // @HybridRecord (single, list, or primitive-item-list) NativeAsync: encode to the
@@ -351,11 +358,11 @@ class KotlinFunctionEmitter {
       // treats address 0 (nullptr) as "no value", exactly like the NitroOptXxx and
       // struct pointer-return paths above. Posting kNull here would throw the same
       // TypeError this fix exists to eliminate.
-      writer.line('            val result = runBlocking { impl.${func.dartName}($callParams) }');
+      writer.line('            val result = ${KotlinTypeMapper.runBlockingCall(func, "impl.${func.dartName}($callParams)")}');
       _emitNativeAsyncRecordEncode(writer, func, spec, isListRecord);
       writer.line('            postBytesToPort(dartPort, _bytes)');
     } else {
-      writer.line('            runBlocking { impl.${func.dartName}($callParams) }');
+      writer.line('            ${KotlinTypeMapper.runBlockingCall(func, "impl.${func.dartName}($callParams)")}');
       writer.line('            postNullToPort(dartPort)');
     }
     writer.line('            } catch (e: Throwable) {');
@@ -758,7 +765,7 @@ class KotlinFunctionEmitter {
       final rb = KotlinTypeMapper.runBlockingCall(func, 'impl.${func.dartName}($callParams)');
       writer.line('        val result = _asyncExecutor.submit(java.util.concurrent.Callable { $rb }).get()');
     } else {
-      writer.line('        val result = impl.${func.dartName}($callParams)');
+      writer.line('        val result = ${KotlinTypeMapper.syncImplCall(func, "impl.${func.dartName}($callParams)")}');
     }
     writer.line('        val count = result.size');
     if (func.returnType.recordListItemIsNullable) {
@@ -789,7 +796,7 @@ class KotlinFunctionEmitter {
       final rb = KotlinTypeMapper.runBlockingCall(func, 'impl.${func.dartName}($callParams)');
       writer.line('        val result = _asyncExecutor.submit(java.util.concurrent.Callable { $rb }).get()');
     } else {
-      writer.line('        val result = impl.${func.dartName}($callParams)');
+      writer.line('        val result = ${KotlinTypeMapper.syncImplCall(func, "impl.${func.dartName}($callParams)")}');
     }
     if (func.returnType.recordListItemIsNullable) {
       // Nullable variant list: [4B count][1B hasValue][tag+fields (if hasValue)]×N
@@ -848,7 +855,7 @@ class KotlinFunctionEmitter {
       final rb = KotlinTypeMapper.runBlockingCall(func, 'impl.${func.dartName}($resolvedCallParams)');
       writer.line('        val _result = _asyncExecutor.submit(java.util.concurrent.Callable { $rb }).get()');
     } else {
-      writer.line('        val _result = impl.${func.dartName}($resolvedCallParams)');
+      writer.line('        val _result = ${KotlinTypeMapper.syncImplCall(func, "impl.${func.dartName}($resolvedCallParams)")}');
     }
 
     // Encode result as NitroAnyMap ByteArray.
@@ -945,7 +952,7 @@ class KotlinFunctionEmitter {
         final rb = KotlinTypeMapper.runBlockingCall(func, 'impl.${func.dartName}(_inputMap)');
         writer.line('        _asyncExecutor.submit(java.util.concurrent.Callable { $rb }).get()');
       } else {
-        writer.line('        impl.${func.dartName}(_inputMap)');
+        writer.line('        ${KotlinTypeMapper.syncImplCall(func, "impl.${func.dartName}(_inputMap)")}');
       }
       return;
     }
@@ -954,7 +961,7 @@ class KotlinFunctionEmitter {
       final rb = KotlinTypeMapper.runBlockingCall(func, 'impl.${func.dartName}(_inputMap)');
       writer.line('        val _result = _asyncExecutor.submit(java.util.concurrent.Callable { $rb }).get()');
     } else {
-      writer.line('        val _result = impl.${func.dartName}(_inputMap)');
+      writer.line('        val _result = ${KotlinTypeMapper.syncImplCall(func, "impl.${func.dartName}(_inputMap)")}');
     }
 
     final outKtValueType = switch (mapValueType) {
@@ -1033,7 +1040,7 @@ class KotlinFunctionEmitter {
     if (func.isAsync) {
       writer.line('        val result = _asyncExecutor.submit(java.util.concurrent.Callable { $rb }).get()');
     } else {
-      writer.line('        val result = impl.${func.dartName}($callParams)');
+      writer.line('        val result = ${KotlinTypeMapper.syncImplCall(func, "impl.${func.dartName}($callParams)")}');
     }
 
     if (isListRecord) {
@@ -1157,7 +1164,7 @@ class KotlinFunctionEmitter {
       final rb = KotlinTypeMapper.runBlockingCall(func, 'impl.${func.dartName}($callParams)');
       writer.line('            val _result = _asyncExecutor.submit(java.util.concurrent.Callable { $rb }).get()');
     } else {
-      writer.line('            val _result = impl.${func.dartName}($callParams)');
+      writer.line('            val _result = ${KotlinTypeMapper.syncImplCall(func, "impl.${func.dartName}($callParams)")}');
     }
     writer.line('            $encodeExpr');
     writer.line('        } catch (_e: Throwable) {');
@@ -1193,7 +1200,7 @@ class KotlinFunctionEmitter {
       final rb = KotlinTypeMapper.runBlockingCall(func, 'impl.${func.dartName}($callParams)');
       writer.line('        val _vResult = _asyncExecutor.submit(java.util.concurrent.Callable { $rb }).get()');
     } else {
-      writer.line('        val _vResult = impl.${func.dartName}($callParams)');
+      writer.line('        val _vResult = ${KotlinTypeMapper.syncImplCall(func, "impl.${func.dartName}($callParams)")}');
     }
     writer.line('        val _vw = RecordWriter()');
     writer.line('        _vResult.writeFields(_vw)');
@@ -1218,25 +1225,25 @@ class KotlinFunctionEmitter {
     String callParams,
   ) {
     if (isUnit) {
-      writer.line('        impl.${func.dartName}($callParams)');
+      writer.line('        ${KotlinTypeMapper.syncImplCall(func, "impl.${func.dartName}($callParams)")}');
     } else if (isEnum) {
       if (isNullableEnum) {
-        writer.line('        val _enumResult = impl.${func.dartName}($callParams)');
+        writer.line('        val _enumResult = ${KotlinTypeMapper.syncImplCall(func, "impl.${func.dartName}($callParams)")}');
         writer.line('        return if (_enumResult == null) -1L else _enumResult.nativeValue');
       } else {
-        writer.line('        return impl.${func.dartName}($callParams).nativeValue');
+        writer.line('        return ${KotlinTypeMapper.syncImplCall(func, "impl.${func.dartName}($callParams)")}.nativeValue');
       }
     } else if (isNullableBool) {
-      writer.line('        val _boolResult = impl.${func.dartName}($callParams)');
+      writer.line('        val _boolResult = ${KotlinTypeMapper.syncImplCall(func, "impl.${func.dartName}($callParams)")}');
       writer.line('        return NitroOptBool(_boolResult).encode()');
     } else if (isNullableInt) {
-      writer.line('        val _intResult = impl.${func.dartName}($callParams)');
+      writer.line('        val _intResult = ${KotlinTypeMapper.syncImplCall(func, "impl.${func.dartName}($callParams)")}');
       writer.line('        return NitroOptInt64(_intResult).encode()');
     } else if (isNullableDouble) {
-      writer.line('        val _doubleResult = impl.${func.dartName}($callParams)');
+      writer.line('        val _doubleResult = ${KotlinTypeMapper.syncImplCall(func, "impl.${func.dartName}($callParams)")}');
       writer.line('        return NitroOptFloat64(_doubleResult).encode()');
     } else {
-      writer.line('        return impl.${func.dartName}($callParams)');
+      writer.line('        return ${KotlinTypeMapper.syncImplCall(func, "impl.${func.dartName}($callParams)")}');
     }
   }
 }

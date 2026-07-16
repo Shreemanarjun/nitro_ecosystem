@@ -802,14 +802,14 @@ void main() {
       });
 
       // ── SPM files ─────────────────────────────────────────────────────────────
-      test('iOS SPM: HybridTestingCpp.cpp forwarder links user src/', () {
-        final f = File(p.join(_fixture.path, 'ios', 'testing_project', 'Sources', 'TestingProjectCpp', 'HybridTestingCpp.cpp'));
+      test('iOS SPM: HybridTestingCpp.cpp forwarder links user src/ (in its own TestingCppCpp target — issue #15)', () {
+        final f = File(p.join(_fixture.path, 'ios', 'testing_project', 'Sources', 'TestingCppCpp', 'HybridTestingCpp.cpp'));
         expect(f.existsSync(), isTrue);
         expect(f.readAsStringSync(), contains('HybridTestingCpp.cpp'), reason: 'forwarder must #include the user src/ file');
       });
 
-      test('macOS SPM: HybridTestingCpp.cpp forwarder exists', () {
-        final f = File(p.join(_fixture.path, 'macos', 'testing_project', 'Sources', 'TestingProjectCpp', 'HybridTestingCpp.cpp'));
+      test('macOS SPM: HybridTestingCpp.cpp forwarder exists (in its own TestingCppCpp target — issue #15)', () {
+        final f = File(p.join(_fixture.path, 'macos', 'testing_project', 'Sources', 'TestingCppCpp', 'HybridTestingCpp.cpp'));
         expect(f.existsSync(), isTrue);
       });
     },
@@ -938,13 +938,13 @@ void main() {
       });
 
       // ── SPM: macOS C++ target has testing_mixed.bridge.g.mm ───────────────────
-      test('macOS SPM Cpp target: testing_mixed.bridge.g.mm exists (macOS uses C++)', () {
-        final f = File(p.join(_fixture.path, 'macos', 'testing_project', 'Sources', 'TestingProjectCpp', 'testing_mixed.bridge.g.mm'));
+      test('macOS SPM Cpp target: testing_mixed.bridge.g.mm exists (macOS uses C++; own target — issue #15)', () {
+        final f = File(p.join(_fixture.path, 'macos', 'testing_project', 'Sources', 'TestingMixedCpp', 'testing_mixed.bridge.g.mm'));
         expect(f.existsSync(), isTrue);
       });
 
-      test('macOS SPM Cpp target: HybridTestingMixed.cpp forwarder exists', () {
-        final f = File(p.join(_fixture.path, 'macos', 'testing_project', 'Sources', 'TestingProjectCpp', 'HybridTestingMixed.cpp'));
+      test('macOS SPM Cpp target: HybridTestingMixed.cpp forwarder exists (own target — issue #15)', () {
+        final f = File(p.join(_fixture.path, 'macos', 'testing_project', 'Sources', 'TestingMixedCpp', 'HybridTestingMixed.cpp'));
         expect(f.existsSync(), isTrue);
       });
     },
@@ -1216,21 +1216,22 @@ class TestingProjectPlugin : FlutterPlugin {
         moduleInfos: [const ModuleInfo(lib: 'gpu', module: 'Gpu', isCpp: true)],
       );
 
-      // Fixture uses nested SPM layout — forwarder goes into the nested Cpp target.
+      // Fixture uses nested SPM layout — the module owns its own Cpp target
+      // (issue #15): ios/<plugin>/Sources/<ModuleClass>Cpp/.
       final forwarder = File(
         p.join(
           tmp.path,
           'ios',
           'testing_project',
           'Sources',
-          'TestingProjectCpp',
+          'GpuCpp',
           'HybridGpu.cpp',
         ),
       );
       expect(
         forwarder.existsSync(),
         isTrue,
-        reason: 'Apple C++ module must have a Hybrid*.cpp forwarder in ios/<plugin>/Sources/<PluginCpp>/',
+        reason: 'Apple C++ module must have a Hybrid*.cpp forwarder in its own ios/<plugin>/Sources/<ModuleClass>Cpp/ target',
       );
       // Nested layout: 4 levels up from Sources/<PluginCpp>/ to project root.
       expect(
@@ -1531,13 +1532,13 @@ class TestingProjectPlugin : FlutterPlugin {
       expect(content, contains('HybridTestingCppSpec'));
     });
 
-    test('iOS SPM TestingProjectCpp/ contains testing_cpp.bridge.g.mm', () {
-      final mm = File(p.join(_fixture.path, 'ios', 'testing_project', 'Sources', 'TestingProjectCpp', 'testing_cpp.bridge.g.mm'));
+    test('iOS SPM TestingCppCpp/ contains testing_cpp.bridge.g.mm (issue #15)', () {
+      final mm = File(p.join(_fixture.path, 'ios', 'testing_project', 'Sources', 'TestingCppCpp', 'testing_cpp.bridge.g.mm'));
       expect(mm.existsSync(), isTrue);
     });
 
-    test('iOS SPM TestingProjectCpp/ contains HybridTestingCpp.cpp forwarder', () {
-      final cpp = File(p.join(_fixture.path, 'ios', 'testing_project', 'Sources', 'TestingProjectCpp', 'HybridTestingCpp.cpp'));
+    test('iOS SPM TestingCppCpp/ contains HybridTestingCpp.cpp forwarder (issue #15)', () {
+      final cpp = File(p.join(_fixture.path, 'ios', 'testing_project', 'Sources', 'TestingCppCpp', 'HybridTestingCpp.cpp'));
       expect(cpp.existsSync(), isTrue);
     });
 
@@ -1578,8 +1579,8 @@ class TestingProjectPlugin : FlutterPlugin {
       expect(swift.existsSync(), isTrue);
     });
 
-    test('iOS SPM TestingProjectCpp/ contains testing_mixed.bridge.g.mm', () {
-      final mm = File(p.join(_fixture.path, 'ios', 'testing_project', 'Sources', 'TestingProjectCpp', 'testing_mixed.bridge.g.mm'));
+    test('iOS SPM TestingMixedCpp/ contains testing_mixed.bridge.g.mm (issue #15)', () {
+      final mm = File(p.join(_fixture.path, 'ios', 'testing_project', 'Sources', 'TestingMixedCpp', 'testing_mixed.bridge.g.mm'));
       expect(mm.existsSync(), isTrue);
     });
 
@@ -1635,10 +1636,32 @@ class TestingProjectPlugin : FlutterPlugin {
       expect(content, contains('"TestingProjectCpp"'), reason: 'C++ target for NativeImpl.cpp modules and C bridge .mm files');
     });
 
-    test('all 3 spec .bridge.g.mm files present in iOS SPM C++ target', () {
-      final cppDir = Directory(p.join(_fixture.path, 'ios', 'testing_project', 'Sources', 'TestingProjectCpp'));
-      final mmFiles = cppDir.listSync().whereType<File>().where((f) => f.path.endsWith('.bridge.g.mm')).map((f) => p.basename(f.path)).toSet();
-      expect(mmFiles, containsAll(['testing_project.bridge.g.mm', 'testing_cpp.bridge.g.mm', 'testing_mixed.bridge.g.mm']));
+    test('all 3 spec .bridge.g.mm files present, each in its own SPM C++ target (issue #15)', () {
+      final sources = p.join(_fixture.path, 'ios', 'testing_project', 'Sources');
+      // Main module stays in the plugin-level target; every other module owns
+      // its own <ModuleClass>Cpp target.
+      final expected = {
+        'TestingProjectCpp': 'testing_project.bridge.g.mm',
+        'TestingCppCpp': 'testing_cpp.bridge.g.mm',
+        'TestingMixedCpp': 'testing_mixed.bridge.g.mm',
+      };
+      expected.forEach((target, mm) {
+        expect(
+          File(p.join(sources, target, mm)).existsSync(),
+          isTrue,
+          reason: '$mm must be compiled by the $target target',
+        );
+      });
+      // And the plugin-level target must not also compile the module bridges.
+      final pluginMm = Directory(p.join(sources, 'TestingProjectCpp')).listSync().whereType<File>().where((f) => f.path.endsWith('.bridge.g.mm')).map((f) => p.basename(f.path)).toSet();
+      expect(pluginMm, equals({'testing_project.bridge.g.mm'}));
+    });
+
+    test('iOS Package.swift declares the per-module Cpp targets (issue #15)', () {
+      final pkg = File(p.join(_fixture.path, 'ios', 'testing_project', 'Package.swift')).readAsStringSync();
+      expect(pkg, contains('name: "TestingCppCpp"'));
+      expect(pkg, contains('name: "TestingMixedCpp"'));
+      expect(pkg, contains('dependencies: ["TestingProjectCpp"]'), reason: 'module targets depend on the plugin Cpp target for dart_api_dl.c + nitro headers');
     });
   });
 }

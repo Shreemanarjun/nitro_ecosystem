@@ -1,4 +1,4 @@
-import 'package:nitro_annotations/nitro_annotations.dart' show CppImpl, KotlinImpl, WasmImpl;
+import 'package:nitro_annotations/nitro_annotations.dart' show CppImpl, KotlinImpl, NativeImpl, WasmImpl;
 
 import 'bridge_spec.dart';
 
@@ -342,7 +342,43 @@ class SpecValidator {
             ),
           );
         }
+        // The release symbol is emitted verbatim into the generated C bridge —
+        // reject anything that is not a plain C identifier.
+        final release = func.releaseSymbol;
+        if (release != null && !RegExp(r'^[A-Za-z_][A-Za-z0-9_]*$').hasMatch(release)) {
+          issues.add(
+            ValidationIssue(
+              severity: ValidationSeverity.error,
+              code: 'INVALID_OWNED',
+              message: '${spec.dartClassName}.${func.dartName}() — @NitroOwned(release: \'$release\') is not a valid C function name.',
+              hint: "Pass the bare extern \"C\" symbol, e.g. @NitroOwned(release: 'wgpuBufferRelease').",
+            ),
+          );
+        }
       }
+      // @mainThread validation (issue #19): the dispatch hop is generated for
+      // Kotlin and Swift impls only — a C++ impl (desktop, or apple/android
+      // NativeImpl.cpp) receives the call on whatever thread invoked it.
+      if (func.mainThread) {
+        final cppPlatforms = <String>[
+          if (spec.iosImpl == NativeImpl.cpp) 'ios',
+          if (spec.macosImpl == NativeImpl.cpp) 'macos',
+          if (spec.androidImpl == NativeImpl.cpp) 'android',
+          if (spec.windowsImpl != null) 'windows',
+          if (spec.linuxImpl != null) 'linux',
+        ];
+        if (cppPlatforms.isNotEmpty) {
+          issues.add(
+            ValidationIssue(
+              severity: ValidationSeverity.warning,
+              code: 'MAIN_THREAD_NO_EFFECT',
+              message: '${spec.dartClassName}.${func.dartName}() — @mainThread has no effect on C++ implementations (${cppPlatforms.join(', ')}); the impl runs on the calling thread there.',
+              hint: 'Marshal onto the UI/main loop inside the C++ implementation on those platforms, or ignore this if only the Kotlin/Swift paths need the main thread.',
+            ),
+          );
+        }
+      }
+
       for (final p in func.params) {
         if (p.type.isNativeHandle && func.isOwned) {
           issues.add(

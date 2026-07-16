@@ -647,7 +647,7 @@ end
       File(p.join(tmp.path, 'ios', 'Package.swift')).writeAsStringSync('// existing');
     }
 
-    test('creates .bridge.g.mm forwarder in Sources/<PluginCpp>/', () {
+    test('creates .bridge.g.mm forwarder in the module\'s own Sources/<ModuleCpp>/ (issue #15)', () {
       scaffoldSpm('my_plugin');
       scaffoldCppModule('my_cpp_mod', appleCpp: true);
 
@@ -659,9 +659,54 @@ end
       );
 
       expect(
-        File(p.join(tmp.path, 'ios', 'Sources', 'MyPluginCpp', 'my_cpp_mod.bridge.g.mm')).existsSync(),
+        File(p.join(tmp.path, 'ios', 'Sources', 'MyCppModCpp', 'my_cpp_mod.bridge.g.mm')).existsSync(),
         isTrue,
+        reason: 'each non-main module owns its own SPM C++ target',
       );
+      expect(
+        File(p.join(tmp.path, 'ios', 'Sources', 'MyPluginCpp', 'my_cpp_mod.bridge.g.mm')).existsSync(),
+        isFalse,
+        reason: 'the plugin-level target must NOT also compile it (duplicate symbols)',
+      );
+    });
+
+    test('module target gets an umbrella header re-exporting the Dart DL API (issue #15)', () {
+      scaffoldSpm('my_plugin');
+      scaffoldCppModule('my_cpp_mod', appleCpp: true);
+
+      linkPodspec(
+        'my_plugin',
+        ['my_plugin', 'my_cpp_mod'],
+        baseDir: tmp.path,
+        moduleInfos: [const ModuleInfo(lib: 'my_cpp_mod', module: 'MyCppMod', isCpp: true)],
+      );
+
+      final umbrella = File(p.join(tmp.path, 'ios', 'Sources', 'MyCppModCpp', 'include', 'MyCppModCpp.h'));
+      expect(umbrella.existsSync(), isTrue, reason: 'umbrella header makes `import MyCppModCpp` resolve in Swift');
+      expect(umbrella.readAsStringSync(), contains('#include "dart_api_dl.h"'));
+    });
+
+    test('REPAIR: module sources previously synced into the plugin target are removed (issue #15)', () {
+      scaffoldSpm('my_plugin');
+      scaffoldCppModule('my_cpp_mod', appleCpp: true);
+      // Simulate the pre-fix state: the module's files live in the plugin target.
+      final pluginCpp = Directory(p.join(tmp.path, 'ios', 'Sources', 'MyPluginCpp'))..createSync(recursive: true);
+      Directory(p.join(pluginCpp.path, 'include')).createSync(recursive: true);
+      final staleMm = File(p.join(pluginCpp.path, 'my_cpp_mod.bridge.g.mm'))..writeAsStringSync('// stale');
+      final staleImpl = File(p.join(pluginCpp.path, 'HybridMyCppMod.cpp'))..writeAsStringSync('// stale');
+      final staleH = File(p.join(pluginCpp.path, 'include', 'my_cpp_mod.bridge.g.h'))..writeAsStringSync('// stale');
+
+      linkPodspec(
+        'my_plugin',
+        ['my_plugin', 'my_cpp_mod'],
+        baseDir: tmp.path,
+        moduleInfos: [const ModuleInfo(lib: 'my_cpp_mod', module: 'MyCppMod', isCpp: true)],
+      );
+
+      expect(staleMm.existsSync(), isFalse, reason: 'duplicate bridge compilation causes duplicate-symbol link errors');
+      expect(staleImpl.existsSync(), isFalse);
+      expect(staleH.existsSync(), isFalse);
+      expect(File(p.join(tmp.path, 'ios', 'Sources', 'MyCppModCpp', 'my_cpp_mod.bridge.g.mm')).existsSync(), isTrue);
     });
 
     test('.bridge.g.mm forwarder includes path to the generated .bridge.g.cpp', () {
@@ -680,14 +725,14 @@ end
           tmp.path,
           'ios',
           'Sources',
-          'MyPluginCpp',
+          'MyCppModCpp',
           'my_cpp_mod.bridge.g.mm',
         ),
       ).readAsStringSync();
       expect(content, contains('my_cpp_mod.bridge.g.cpp'));
     });
 
-    test('creates Hybrid<Lib>.cpp forwarder in Sources/<PluginCpp>/', () {
+    test('creates Hybrid<Lib>.cpp forwarder in the module target (issue #15)', () {
       scaffoldSpm('my_plugin');
       scaffoldCppModule('my_cpp_mod', appleCpp: true);
 
@@ -699,12 +744,12 @@ end
       );
 
       expect(
-        File(p.join(tmp.path, 'ios', 'Sources', 'MyPluginCpp', 'HybridMyCppMod.cpp')).existsSync(),
+        File(p.join(tmp.path, 'ios', 'Sources', 'MyCppModCpp', 'HybridMyCppMod.cpp')).existsSync(),
         isTrue,
       );
     });
 
-    test('copies .bridge.g.h into Sources/<PluginCpp>/include/', () {
+    test('copies .bridge.g.h into the module target include/', () {
       scaffoldSpm('my_plugin');
       scaffoldCppModule('my_cpp_mod', appleCpp: true);
 
@@ -721,7 +766,7 @@ end
             tmp.path,
             'ios',
             'Sources',
-            'MyPluginCpp',
+            'MyCppModCpp',
             'include',
             'my_cpp_mod.bridge.g.h',
           ),
@@ -748,7 +793,7 @@ end
             tmp.path,
             'ios',
             'Sources',
-            'MyPluginCpp',
+            'MyCppModCpp',
             'include',
             'my_cpp_mod.native.g.h',
           ),
@@ -859,7 +904,7 @@ end
       );
 
       final content = File(
-        p.join(tmp.path, 'ios', 'Sources', 'MyPluginCpp', 'my_cpp_mod.bridge.g.mm'),
+        p.join(tmp.path, 'ios', 'Sources', 'MyCppModCpp', 'my_cpp_mod.bridge.g.mm'),
       ).readAsStringSync();
       // Must use a relative path (starts with ../) not an absolute path.
       expect(
@@ -891,7 +936,7 @@ end
       );
 
       expect(
-        File(p.join(tmp.path, 'ios', 'Sources', 'MyPluginCpp', 'my_cpp_mod.bridge.g.mm')).existsSync(),
+        File(p.join(tmp.path, 'ios', 'Sources', 'MyCppModCpp', 'my_cpp_mod.bridge.g.mm')).existsSync(),
         isTrue,
         reason: 'bridge.g.mm must be written even when bridge.g.cpp does not exist yet',
       );
@@ -906,7 +951,7 @@ end
     // Without it, the app crashes at runtime:
     //   "Failed to lookup symbol 'nitro_ui_init_dart_api_dl': symbol not found"
 
-    test('multi-spec Swift: 2nd Swift module gets .bridge.g.mm in SPM Cpp target', () {
+    test('multi-spec Swift: 2nd Swift module gets .bridge.g.mm in its OWN Cpp target (issue #15)', () {
       scaffoldSpm('my_plugin');
       // src/my_plugin.cpp makes hasCContent=true so the Cpp target is populated.
       Directory(p.join(tmp.path, 'src')).createSync(recursive: true);
@@ -926,9 +971,9 @@ end
       );
 
       expect(
-        File(p.join(tmp.path, 'ios', 'Sources', 'MyPluginCpp', 'nitro_ui.bridge.g.mm')).existsSync(),
+        File(p.join(tmp.path, 'ios', 'Sources', 'NitroUiCpp', 'nitro_ui.bridge.g.mm')).existsSync(),
         isTrue,
-        reason: 'Swift module nitro_ui must have a .mm wrapper so SPM links nitro_ui_init_dart_api_dl',
+        reason: 'Swift module nitro_ui must have a .mm wrapper (in its own target, issue #15) so SPM links nitro_ui_init_dart_api_dl',
       );
     });
 
@@ -951,11 +996,11 @@ end
         ],
       );
 
-      final spmDir = p.join(tmp.path, 'ios', 'Sources', 'MyPluginCpp');
-      expect(File(p.join(spmDir, 'nitro_ui.bridge.g.mm')).existsSync(), isTrue);
-      expect(File(p.join(spmDir, 'nitro_system.bridge.g.mm')).existsSync(), isTrue);
-      // The main plugin bridge is also present (written unconditionally).
-      expect(File(p.join(spmDir, 'my_plugin.bridge.g.mm')).existsSync(), isTrue);
+      final sourcesDir = p.join(tmp.path, 'ios', 'Sources');
+      expect(File(p.join(sourcesDir, 'NitroUiCpp', 'nitro_ui.bridge.g.mm')).existsSync(), isTrue);
+      expect(File(p.join(sourcesDir, 'NitroSystemCpp', 'nitro_system.bridge.g.mm')).existsSync(), isTrue);
+      // The main plugin bridge stays in the plugin-level target.
+      expect(File(p.join(sourcesDir, 'MyPluginCpp', 'my_plugin.bridge.g.mm')).existsSync(), isTrue);
     });
 
     test('multi-spec Swift: .mm uses relative path to generated bridge .cpp', () {
@@ -976,7 +1021,7 @@ end
       );
 
       final content = File(
-        p.join(tmp.path, 'ios', 'Sources', 'MyPluginCpp', 'nitro_ui.bridge.g.mm'),
+        p.join(tmp.path, 'ios', 'Sources', 'NitroUiCpp', 'nitro_ui.bridge.g.mm'),
       ).readAsStringSync();
       expect(content, contains('nitro_ui.bridge.g.cpp'), reason: 'must reference the correct bridge file');
       expect(content, contains('../'), reason: 'path must be relative, not absolute');
@@ -1000,7 +1045,7 @@ end
       );
 
       expect(
-        File(p.join(tmp.path, 'ios', 'Sources', 'MyPluginCpp', 'nitro_ui.bridge.g.mm')).existsSync(),
+        File(p.join(tmp.path, 'ios', 'Sources', 'NitroUiCpp', 'nitro_ui.bridge.g.mm')).existsSync(),
         isTrue,
         reason: '.mm forwarder must exist even before nitrogen generate has run',
       );
@@ -1025,9 +1070,9 @@ end
       );
 
       expect(
-        File(p.join(tmp.path, 'macos', 'Sources', '${pascal}Cpp', 'nitro_ui.bridge.g.mm')).existsSync(),
+        File(p.join(tmp.path, 'macos', 'Sources', 'NitroUiCpp', 'nitro_ui.bridge.g.mm')).existsSync(),
         isTrue,
-        reason: 'macOS SPM Cpp target must also get .mm wrappers for additional Swift modules',
+        reason: 'macOS also gets the per-module Cpp target (issue #15)',
       );
     });
   });
@@ -2752,6 +2797,36 @@ class TestPlugin : FlutterPlugin {
       expect(content, contains('MathJniBridge.registerFactory({ MathImpl() }, binding.applicationContext)'));
     });
 
+    test('hand-added user imports and code survive repeated link runs (issue #16)', () {
+      // The nitro_webgpu case: the plugin calls into an all-cpp module's
+      // JniBridge (onActivityAttached), needing a hand-added import that no
+      // template produces. It must survive every regen.
+      final plugin = writePlugin(tmp, '''
+package dev.test
+import io.flutter.embedding.engine.plugins.FlutterPlugin
+import nitro.webgpu_module.NitroWebgpuJniBridge
+import android.view.Surface
+class TestPlugin : FlutterPlugin {
+  override fun onAttachedToEngine(binding: FlutterPlugin.FlutterPluginBinding) {
+    NitroWebgpuJniBridge.onActivityAttached(binding)
+  }
+}
+''');
+
+      for (var run = 0; run < 3; run++) {
+        linkKotlinPlugin('my_plugin', [
+          {'module': 'Math', 'lib': 'math'},
+        ], baseDir: tmp.path);
+      }
+
+      final content = plugin.readAsStringSync();
+      expect(content, contains('import nitro.webgpu_module.NitroWebgpuJniBridge'));
+      expect(content, contains('import android.view.Surface'));
+      expect(content, contains('NitroWebgpuJniBridge.onActivityAttached(binding)'));
+      // And the managed content was still added exactly once.
+      expect('import nitro.math_module.MathJniBridge'.allMatches(content).length, 1);
+    });
+
     test('injects register() with binding.applicationContext when impl takes Context', () {
       // Create a MathImpl.kt file whose constructor takes Context.
       final ktImplDir = ktDir(tmp);
@@ -3168,11 +3243,11 @@ end
       expect(stale.existsSync(), isFalse, reason: 'Windows-only forwarder must be removed from ios/Sources — it has no iOS implementation');
     });
 
-    test('keeps Hybrid*.cpp forwarder for Apple cpp module', () {
+    test('keeps Hybrid*.cpp forwarder for Apple cpp module — now in its own target (issue #15)', () {
       scaffoldSpmFull('my_plugin');
 
-      // Plant forwarder for an Apple cpp module.
-      final forwarder = File(p.join(tmp.path, 'ios', 'Sources', 'MyPluginCpp', 'HybridMyCppMod.cpp'))..writeAsStringSync('// forwarder');
+      // Plant forwarder in the OLD location (plugin-level target).
+      final oldForwarder = File(p.join(tmp.path, 'ios', 'Sources', 'MyPluginCpp', 'HybridMyCppMod.cpp'))..writeAsStringSync('// forwarder');
       // Plant bridge files.
       final genCpp = Directory(p.join(tmp.path, 'lib', 'src', 'generated', 'cpp'))..createSync(recursive: true);
       File(p.join(genCpp.path, 'my_cpp_mod.bridge.g.cpp')).writeAsStringSync('// bridge');
@@ -3187,7 +3262,12 @@ end
         moduleInfos: [const ModuleInfo(lib: 'my_cpp_mod', module: 'MyCppMod', isCpp: true)],
       );
 
-      expect(forwarder.existsSync(), isTrue, reason: 'Apple cpp forwarder must be kept');
+      expect(
+        File(p.join(tmp.path, 'ios', 'Sources', 'MyCppModCpp', 'HybridMyCppMod.cpp')).existsSync(),
+        isTrue,
+        reason: 'Apple cpp forwarder lives in the module target now',
+      );
+      expect(oldForwarder.existsSync(), isFalse, reason: 'plugin-level copy removed by the issue-#15 repair pass');
     });
 
     // ── Multi-spec mixed-platform: bridge mm forwarder for Swift-on-Apple ──
@@ -3220,15 +3300,14 @@ end
         moduleInfos: [const ModuleInfo(lib: 'nitro_system', module: 'NitroSystem', isCpp: true, iosIsCpp: false)],
       );
 
-      final cppDir = p.join(tmp.path, 'ios', 'Sources', 'NitroViewCpp');
       expect(
-        File(p.join(cppDir, 'nitro_system.bridge.g.mm')).existsSync(),
+        File(p.join(tmp.path, 'ios', 'Sources', 'NitroSystemCpp', 'nitro_system.bridge.g.mm')).existsSync(),
         isTrue,
-        reason: 'nitro_system is Swift on iOS — its bridge.g.mm must be compiled into the SPM binary to define nitro_system_init_dart_api_dl',
+        reason: 'nitro_system is Swift on iOS — its bridge.g.mm (in its own target, issue #15) must be compiled to define nitro_system_init_dart_api_dl',
       );
     });
 
-    test('bridge.g.mm is NOT deleted by stale cleanup for Swift-on-iOS module', () {
+    test('bridge.g.mm migrates from the plugin target to the module target (issue #15)', () {
       scaffoldSpmFull('nitro_view');
 
       // Pre-plant the bridge mm (as if a previous link run created it).
@@ -3252,10 +3331,13 @@ end
         moduleInfos: [const ModuleInfo(lib: 'nitro_ui', module: 'NitroUI', isCpp: true, iosIsCpp: false)],
       );
 
+      // The plugin-level copy is migrated to the module's own target: the
+      // symbol nitro_ui_init_dart_api_dl stays linked, just from NitroUICpp.
+      expect(bridgeMm.existsSync(), isFalse, reason: 'plugin-level copy removed by the issue-#15 repair pass');
       expect(
-        bridgeMm.existsSync(),
+        File(p.join(tmp.path, 'ios', 'Sources', 'NitroUICpp', 'nitro_ui.bridge.g.mm')).existsSync(),
         isTrue,
-        reason: 'bridge.g.mm must NOT be deleted: it provides nitro_ui_init_dart_api_dl for the SPM binary',
+        reason: 'the module target now provides nitro_ui_init_dart_api_dl for the SPM binary',
       );
     });
 
@@ -3320,15 +3402,21 @@ end
         ],
       );
 
-      final cppDir = p.join(tmp.path, 'ios', 'Sources', 'NitroViewCpp');
-      // nitro_view.bridge.g.mm is written unconditionally by the main plugin bridge.
-      for (final lib in ['nitro_view', 'nitro_system', 'nitro_ui']) {
+      final sourcesDir = p.join(tmp.path, 'ios', 'Sources');
+      // nitro_view.bridge.g.mm (main) stays in the plugin-level target;
+      // the other two live in their own module targets (issue #15).
+      final expected = {
+        'nitro_view': 'NitroViewCpp',
+        'nitro_system': 'NitroSystemCpp',
+        'nitro_ui': 'NitroUICpp',
+      };
+      expected.forEach((lib, target) {
         expect(
-          File(p.join(cppDir, '$lib.bridge.g.mm')).existsSync(),
+          File(p.join(sourcesDir, target, '$lib.bridge.g.mm')).existsSync(),
           isTrue,
-          reason: '$lib.bridge.g.mm must exist so ${lib}_init_dart_api_dl is defined in the SPM binary',
+          reason: '$lib.bridge.g.mm must exist in $target so ${lib}_init_dart_api_dl is defined in the SPM binary',
         );
-      }
+      });
     });
   });
 
@@ -4016,6 +4104,59 @@ abstract class Printing extends HybridObject {}
       final f = File(p.join(tmp.path, 'windows', 'src', 'HybridPrinting.cpp'))..createSync(recursive: true);
       f.writeAsStringSync(realImpl);
       expect(hasCustomPlatformImpl(tmp.path, 'windows', 'Printing'), isTrue);
+    });
+  });
+
+  group('linkBuildYamlSourcesExcludes — issue #20 (build_runner symlink-cycle hang guard)', () {
+    late Directory tmp;
+    setUp(() => tmp = Directory.systemTemp.createTempSync('nitro_buildyaml_'));
+    tearDown(() => tmp.deleteSync(recursive: true));
+
+    String read() => File(p.join(tmp.path, 'build.yaml')).readAsStringSync();
+
+    test('creates build.yaml with sources excludes when absent', () {
+      linkBuildYamlSourcesExcludes(baseDir: tmp.path);
+      final out = read();
+      expect(out, contains('- example/**'));
+      expect(out, contains('"**/.symlinks/**"'));
+      expect(out, contains('"**/ephemeral/**"'));
+      expect(out, contains('- lib/src/**.native.dart'));
+    });
+
+    test('inserts sources block into an existing nitrogen-shaped build.yaml', () {
+      File(p.join(tmp.path, 'build.yaml')).writeAsStringSync(
+        'targets:\n'
+        '  \$default:\n'
+        '    builders:\n'
+        '      nitro_generator:\n'
+        '        generate_for:\n'
+        '          - lib/src/**.native.dart\n',
+      );
+      linkBuildYamlSourcesExcludes(baseDir: tmp.path);
+      final out = read();
+      expect(out, contains('    sources:\n'));
+      expect(out, contains('- example/**'));
+      // The builder config survives untouched below the inserted block.
+      expect(out, contains('generate_for:\n          - lib/src/**.native.dart'));
+    });
+
+    test('idempotent: second run leaves the file byte-identical', () {
+      linkBuildYamlSourcesExcludes(baseDir: tmp.path);
+      final first = read();
+      linkBuildYamlSourcesExcludes(baseDir: tmp.path);
+      expect(read(), first);
+    });
+
+    test('never touches a build.yaml that already declares sources (user-owned)', () {
+      const custom =
+          'targets:\n'
+          '  \$default:\n'
+          '    sources:\n'
+          '      exclude:\n'
+          '        - my/custom/path/**\n';
+      File(p.join(tmp.path, 'build.yaml')).writeAsStringSync(custom);
+      linkBuildYamlSourcesExcludes(baseDir: tmp.path);
+      expect(read(), custom);
     });
   });
 }

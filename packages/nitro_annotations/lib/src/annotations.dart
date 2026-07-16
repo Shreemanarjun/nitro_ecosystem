@@ -306,6 +306,35 @@ class NitroNativeAsync {
   const NitroNativeAsync();
 }
 
+/// Runs the Kotlin/Swift implementation of this method on the platform's
+/// main/UI thread instead of the calling thread.
+///
+/// Many platform APIs (Android SurfaceView/UI toolkit, iOS UIKit/CAMetalLayer)
+/// must be touched from the main thread. Without this annotation, Nitro calls
+/// implementations from whatever thread invoked them (Dart's platform thread
+/// for sync, a background executor for async).
+///
+/// - **Kotlin** — the impl call is dispatched via `Dispatchers.Main`
+///   (re-entrancy safe: if already on the main looper, it calls directly).
+/// - **Swift** — the impl call runs on `DispatchQueue.main` /
+///   `MainActor.run` (re-entrancy safe via `Thread.isMainThread`).
+/// - **C++ (desktop)** — no effect; a validator warning is emitted.
+///
+/// On a **sync** method the calling Dart thread blocks until the main thread
+/// finishes the call — prefer pairing with [@nitroAsync] or
+/// [@nitroNativeAsync] so the hop happens off the Dart thread.
+///
+/// ```dart
+/// @mainThread
+/// @nitroNativeAsync
+/// Future<void> attachToView(NativeHandle<Void> surface);
+/// ```
+const mainThread = MainThread();
+
+class MainThread {
+  const MainThread();
+}
+
 // Makes a getter a native stream via SendPort dispatch.
 // Only valid on abstract getters returning Stream<T>.
 class NitroStream {
@@ -381,11 +410,27 @@ const hybridRecord = HybridRecord();
 /// rejected at validation time.
 ///
 /// ```dart
-/// @NitroOwned
+/// @nitroOwned
 /// NativeHandle<Void> acquireFrame();
 /// ```
+///
+/// By default the generated `<symbol>_release` thunk frees the handle with
+/// `free()`. For handles owned by a native library (wgpu, sqlite, …) pass the
+/// library's own release function instead:
+///
+/// ```dart
+/// @NitroOwned(release: 'wgpuBufferRelease')
+/// NativeHandle<Void> createBuffer(int size);
+/// ```
+///
+/// The symbol must be an `extern "C"` function taking the handle pointer as
+/// its single argument, and must be linked into the plugin's native library
+/// on every platform the module builds for.
 class NitroOwned {
-  const NitroOwned();
+  /// C symbol called to release the handle instead of `free()`.
+  /// null = the handle was malloc'd and is released with `free()`.
+  final String? release;
+  const NitroOwned({this.release});
 }
 
 /// Const shorthand for [@NitroOwned].

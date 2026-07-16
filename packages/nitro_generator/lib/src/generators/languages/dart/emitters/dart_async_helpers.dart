@@ -93,7 +93,7 @@ String _nativeAsyncUnpack(BridgeFunction func, BridgeSpec spec) {
   // bool / bool?  — non-null: posts kBool; nullable: posts kInt64 (pointer address to NitroOptBool)
   if (rtBase == 'bool') {
     if (isNullable) {
-      return '(raw) { final ptr = Pointer<NitroOptBool>.fromAddress(raw as int); final v = ptr.decoded; _nitroFree(ptr); return v; }';
+      return '(raw) { if (raw == null || raw == 0) return null; final ptr = Pointer<NitroOptBool>.fromAddress(raw as int); final v = ptr.decoded; _nitroFree(ptr); return v; }';
     }
     return '(raw) => raw as bool';
   }
@@ -113,7 +113,7 @@ String _nativeAsyncUnpack(BridgeFunction func, BridgeSpec spec) {
   // the sync/@nitroAsync path, where AnyMap has always decoded correctly).
   if (func.returnType.isAnyMap) {
     final decodeExpr = _decodeRecordExpr(func.returnType, 'rawPtr');
-    return '(raw) { final rawPtr = Pointer<Uint8>.fromAddress(raw as int); try { return $decodeExpr; } finally { _nitroFree(rawPtr); } }';
+    return '(raw) { if (raw == null) { throw StateError("${func.dartName} (native-async): native posted null for a non-nullable $rt result — post the encoded value, or make the return type nullable"); } final rawPtr = Pointer<Uint8>.fromAddress(raw as int); try { return $decodeExpr; } finally { _nitroFree(rawPtr); } }';
   }
 
   // @HybridRecord  — native posts kInt64 (pointer to binary buffer)
@@ -122,14 +122,14 @@ String _nativeAsyncUnpack(BridgeFunction func, BridgeSpec spec) {
     final isLazy = func.returnType.recordListItemType != null && !func.returnType.recordListItemIsPrimitive;
     if (isNullable) {
       if (isLazy) {
-        return '(raw) { final rawPtr = Pointer<Uint8>.fromAddress(raw as int); if (rawPtr == nullptr) return null; return $decodeExpr; }';
+        return '(raw) { if (raw == null) return null; final rawPtr = Pointer<Uint8>.fromAddress(raw as int); if (rawPtr == nullptr) return null; return $decodeExpr; }';
       }
-      return '(raw) { final rawPtr = Pointer<Uint8>.fromAddress(raw as int); if (rawPtr == nullptr) return null; try { return $decodeExpr; } finally { _nitroFree(rawPtr); } }';
+      return '(raw) { if (raw == null) return null; final rawPtr = Pointer<Uint8>.fromAddress(raw as int); if (rawPtr == nullptr) return null; try { return $decodeExpr; } finally { _nitroFree(rawPtr); } }';
     }
     if (isLazy) {
-      return '(raw) { final rawPtr = Pointer<Uint8>.fromAddress(raw as int); return $decodeExpr; }';
+      return '(raw) { if (raw == null) { throw StateError("${func.dartName} (native-async): native posted null for a non-nullable $rt result — post the encoded value, or make the return type nullable"); } final rawPtr = Pointer<Uint8>.fromAddress(raw as int); return $decodeExpr; }';
     }
-    return '(raw) { final rawPtr = Pointer<Uint8>.fromAddress(raw as int); try { return $decodeExpr; } finally { _nitroFree(rawPtr); } }';
+    return '(raw) { if (raw == null) { throw StateError("${func.dartName} (native-async): native posted null for a non-nullable $rt result — post the encoded value, or make the return type nullable"); } final rawPtr = Pointer<Uint8>.fromAddress(raw as int); try { return $decodeExpr; } finally { _nitroFree(rawPtr); } }';
   }
 
   // Bare @NitroVariant  — native posts kInt64 (pointer to [4B len][1B tag][fields]).
@@ -138,26 +138,26 @@ String _nativeAsyncUnpack(BridgeFunction func, BridgeSpec spec) {
   // generic `raw as $rt` cast below, which throws (raw is the pointer address,
   // not a TcEvent instance).
   if (spec.isVariantName(rtBase)) {
-    return '(raw) { final rawPtr = Pointer<Uint8>.fromAddress(raw as int); try { return ${rtBase}VariantExt.fromNative(rawPtr); } finally { _nitroFree(rawPtr); } }';
+    return '(raw) { if (raw == null) { throw StateError("${func.dartName} (native-async): native posted null for a non-nullable $rt result — post the encoded value, or make the return type nullable"); } final rawPtr = Pointer<Uint8>.fromAddress(raw as int); try { return ${rtBase}VariantExt.fromNative(rawPtr); } finally { _nitroFree(rawPtr); } }';
   }
 
   // @HybridStruct  — native posts kInt64 (pointer to heap struct)
   if (spec.isStructName(rtBase)) {
     if (isNullable) {
-      return '(raw) { final ptr = Pointer<${rtBase}Ffi>.fromAddress(raw as int); if (ptr == nullptr) return null; try { return ptr.ref.toDart(); } finally { ptr.ref.freeFields(_nitroFree); _nitroFree(ptr); } }';
+      return '(raw) { if (raw == null) return null; final ptr = Pointer<${rtBase}Ffi>.fromAddress(raw as int); if (ptr == nullptr) return null; try { return ptr.ref.toDart(); } finally { ptr.ref.freeFields(_nitroFree); _nitroFree(ptr); } }';
     }
-    return '(raw) { final ptr = Pointer<${rtBase}Ffi>.fromAddress(raw as int); try { return ptr.ref.toDart(); } finally { ptr.ref.freeFields(_nitroFree); _nitroFree(ptr); } }';
+    return '(raw) { if (raw == null) { throw StateError("${func.dartName} (native-async): native posted null for a non-nullable $rt result — post the encoded value, or make the return type nullable"); } final ptr = Pointer<${rtBase}Ffi>.fromAddress(raw as int); try { return ptr.ref.toDart(); } finally { ptr.ref.freeFields(_nitroFree); _nitroFree(ptr); } }';
   }
 
   // @HybridEnum  — native posts kInt64 rawValue
   if (spec.isEnumName(rtBase)) {
-    return isNullable ? '(raw) { final v = raw as int; return v == -1 ? null : v.to$rtBase(); }' : '(raw) => (raw as int).to$rtBase()';
+    return isNullable ? '(raw) { if (raw == null) return null; final v = raw as int; return v == -1 ? null : v.to$rtBase(); }' : '(raw) => (raw as int).to$rtBase()';
   }
 
   // int / int?  — non-null: posts kInt64 scalar; nullable: posts kInt64 (pointer address to NitroOptInt64)
   if (rtBase == 'int') {
     if (isNullable) {
-      return '(raw) { final ptr = Pointer<NitroOptInt64>.fromAddress(raw as int); final v = ptr.decoded; _nitroFree(ptr); return v; }';
+      return '(raw) { if (raw == null || raw == 0) return null; final ptr = Pointer<NitroOptInt64>.fromAddress(raw as int); final v = ptr.decoded; _nitroFree(ptr); return v; }';
     }
     return '(raw) => raw as int';
   }
@@ -169,7 +169,7 @@ String _nativeAsyncUnpack(BridgeFunction func, BridgeSpec spec) {
   // silently returned the raw pointer address instead of decoding it.
   if (rtBase == 'uint64') {
     if (isNullable) {
-      return '(raw) { final ptr = Pointer<NitroOptInt64>.fromAddress(raw as int); final v = ptr.decoded; _nitroFree(ptr); return v; }';
+      return '(raw) { if (raw == null || raw == 0) return null; final ptr = Pointer<NitroOptInt64>.fromAddress(raw as int); final v = ptr.decoded; _nitroFree(ptr); return v; }';
     }
     return '(raw) => raw as int';
   }
@@ -177,7 +177,7 @@ String _nativeAsyncUnpack(BridgeFunction func, BridgeSpec spec) {
   // double / double?  — non-null: posts kDouble; nullable: posts kInt64 (pointer address to NitroOptFloat64)
   if (rtBase == 'double') {
     if (isNullable) {
-      return '(raw) { final ptr = Pointer<NitroOptFloat64>.fromAddress(raw as int); final v = ptr.decoded; _nitroFree(ptr); return v; }';
+      return '(raw) { if (raw == null || raw == 0) return null; final ptr = Pointer<NitroOptFloat64>.fromAddress(raw as int); final v = ptr.decoded; _nitroFree(ptr); return v; }';
     }
     return '(raw) => raw as double';
   }
@@ -185,23 +185,37 @@ String _nativeAsyncUnpack(BridgeFunction func, BridgeSpec spec) {
   // DateTime / DateTime?  — non-null: posts kInt64 ms; nullable: posts kInt64 (pointer address to NitroOptInt64)
   if (rtBase == 'DateTime') {
     if (isNullable) {
-      return '(raw) { final ptr = Pointer<NitroOptInt64>.fromAddress(raw as int); final ms = ptr.decoded; _nitroFree(ptr); return ms != null ? DateTime.fromMillisecondsSinceEpoch(ms) : null; }';
+      return '(raw) { if (raw == null || raw == 0) return null; final ptr = Pointer<NitroOptInt64>.fromAddress(raw as int); final ms = ptr.decoded; _nitroFree(ptr); return ms != null ? DateTime.fromMillisecondsSinceEpoch(ms) : null; }';
     }
     return '(raw) => DateTime.fromMillisecondsSinceEpoch(raw as int)';
   }
 
   // AnyNativeObject — posts kInt64 instanceId; nullable uses -1 sentinel
   if (rtBase == 'AnyNativeObject' || func.returnType.isAnyNativeObject) {
-    return isNullable ? '(raw) { final id = raw as int; return id == -1 ? null : AnyNativeObject(id); }' : '(raw) => AnyNativeObject(raw as int)';
+    return isNullable ? '(raw) { if (raw == null) return null; final id = raw as int; return id == -1 ? null : AnyNativeObject(id); }' : '(raw) => AnyNativeObject(raw as int)';
+  }
+
+  // NativeHandle — native posts kInt64 (the raw pointer address). Owned
+  // handles attach the same NativeFinalizer/release-callback pair as the
+  // sync path, so async owned factories are ownership-atomic (issue #18).
+  if (func.returnType.isNativeHandle) {
+    final tp = func.returnType.nativeHandleTypeParam ?? 'Void';
+    final nullGuard = isNullable
+        ? 'if (raw == null || raw == 0) return null; '
+        : 'if (raw == null || raw == 0) { throw StateError("${func.dartName} (native-async): native posted null for a non-nullable $rt result — post the handle address as kInt64, or make the return type nullable"); } ';
+    if (func.isOwned) {
+      return '(raw) { ${nullGuard}final handle = NativeHandle<$tp>.fromAddress(raw as int); _${func.dartName}Finalizer.attach(handle, Pointer<Void>.fromAddress(raw), detach: handle, externalSize: 128); handle.attachReleaseCallback((addr) { _${func.dartName}ReleaseFn(Pointer<Void>.fromAddress(addr)); _${func.dartName}Finalizer.detach(handle); }); return handle; }';
+    }
+    return '(raw) { ${nullGuard}return NativeHandle<$tp>.fromAddress(raw as int); }';
   }
 
   // @NitroCustomType — posts kInt64 (pointer to Uint8 buffer)
   if (spec.isCustomTypeName(rtBase)) {
     final ct = spec.customTypeByName(rtBase)!;
     if (isNullable) {
-      return '(raw) { final rawPtr = Pointer<Uint8>.fromAddress(raw as int); if (rawPtr == nullptr) return null; try { return const ${ct.codecClass}().decode(rawPtr); } finally { _nitroFree(rawPtr); } }';
+      return '(raw) { if (raw == null) return null; final rawPtr = Pointer<Uint8>.fromAddress(raw as int); if (rawPtr == nullptr) return null; try { return const ${ct.codecClass}().decode(rawPtr); } finally { _nitroFree(rawPtr); } }';
     }
-    return '(raw) { final rawPtr = Pointer<Uint8>.fromAddress(raw as int); try { return const ${ct.codecClass}().decode(rawPtr)!; } finally { _nitroFree(rawPtr); } }';
+    return '(raw) { if (raw == null) { throw StateError("${func.dartName} (native-async): native posted null for a non-nullable $rt result — post the encoded value, or make the return type nullable"); } final rawPtr = Pointer<Uint8>.fromAddress(raw as int); try { return const ${ct.codecClass}().decode(rawPtr)!; } finally { _nitroFree(rawPtr); } }';
   }
 
   // Fallthrough: unknown type — cast directly (should not normally occur).

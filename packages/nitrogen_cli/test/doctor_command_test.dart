@@ -2410,7 +2410,8 @@ let package = Package(name: "my_plugin", targets: [
   // the plugin root. `nitrogen generate` cleans it automatically, but a user
   // running `dart run build_runner build`/`watch` directly gets no such
   // protection and build_runner's file-discovery walk recurses forever with
-  // no error output. `doctor` surfaces this as an info-level heads-up.
+  // no error output. `doctor` warns when build.yaml has no sources excludes
+  // (issue #20) and downgrades to info once the excludes are in place.
 
   group('build_runner section — symlink-cycle hazard', () {
     test('no section emitted when example/ does not exist', () {
@@ -2428,9 +2429,36 @@ let package = Package(name: "my_plugin", targets: [
       expect(result.sections.any((s) => s.title == 'build_runner'), isFalse);
     });
 
-    test('info reported when example/ios/.symlinks is present', () {
+    test('warn (with nitrogen link hint) when example/ios/.symlinks is present and build.yaml has no sources excludes', () {
       final root = _scaffold();
       Directory(p.join(root.path, 'example', 'ios', '.symlinks')).createSync(recursive: true);
+      addTearDown(() => root.deleteSync(recursive: true));
+      final result = _run(root);
+      final sec = result.sections.firstWhere((s) => s.title == 'build_runner');
+      final check = sec.checks.single;
+      expect(check.status, equals(DoctorStatus.warn));
+      expect(check.label, contains('ios/.symlinks'));
+      expect(check.hint, contains('nitrogen link'));
+    });
+
+    test('warn when example/windows/flutter/ephemeral is present and build.yaml has no sources excludes', () {
+      final root = _scaffold();
+      Directory(p.join(root.path, 'example', 'windows', 'flutter', 'ephemeral')).createSync(recursive: true);
+      addTearDown(() => root.deleteSync(recursive: true));
+      final result = _run(root);
+      final sec = result.sections.firstWhere((s) => s.title == 'build_runner');
+      expect(sec.checks.single.status, equals(DoctorStatus.warn));
+      expect(sec.checks.single.label, contains('windows/flutter/ephemeral'));
+    });
+
+    test('downgrades to info when build.yaml carries sources excludes (issue #20)', () {
+      final root = _scaffold();
+      Directory(p.join(root.path, 'example', 'ios', '.symlinks')).createSync(recursive: true);
+      File(p.join(root.path, 'build.yaml')).writeAsStringSync('targets:\n'
+          '  \$default:\n'
+          '    sources:\n'
+          '      include: [lib/**, \$package\$, pubspec.yaml]\n'
+          '      exclude: [example/**, "**/.symlinks/**", "**/ephemeral/**"]\n');
       addTearDown(() => root.deleteSync(recursive: true));
       final result = _run(root);
       final sec = result.sections.firstWhere((s) => s.title == 'build_runner');
@@ -2438,16 +2466,6 @@ let package = Package(name: "my_plugin", targets: [
       expect(check.status, equals(DoctorStatus.info));
       expect(check.label, contains('ios/.symlinks'));
       expect(check.label, contains('nitrogen generate'));
-    });
-
-    test('info reported when example/windows/flutter/ephemeral is present', () {
-      final root = _scaffold();
-      Directory(p.join(root.path, 'example', 'windows', 'flutter', 'ephemeral')).createSync(recursive: true);
-      addTearDown(() => root.deleteSync(recursive: true));
-      final result = _run(root);
-      final sec = result.sections.firstWhere((s) => s.title == 'build_runner');
-      expect(sec.checks.single.status, equals(DoctorStatus.info));
-      expect(sec.checks.single.label, contains('windows/flutter/ephemeral'));
     });
 
     test('lists every present hazard path in a single check', () {

@@ -89,6 +89,14 @@ class CppImplGenerator {
           w.writeln('    void ${func.dartName}(${params.join(', ')}) override {');
           w.writeln('        // TODO: on error, populate _nitro_err (hasError/name/message via strdup) before posting.');
           w.writeln('        // TODO: post result via Dart_PostCObject_DL(dartPort, ...)');
+          w.writeln('        // Nullable result? Post EITHER Dart_CObject_kNull OR kInt64 with');
+          w.writeln('        // value 0 — both decode to Dart null. Non-nullable results must');
+          w.writeln('        // always post a real encoded value.');
+          if (func.returnType.isNativeHandle) {
+            w.writeln('        // NativeHandle result: post the raw pointer address as kInt64');
+            w.writeln('        // (int64_t)(uintptr_t)handle. Dart takes ownership on arrival');
+            w.writeln('        // when the method is @NitroOwned.');
+          }
           w.writeln('        throw std::runtime_error("Not implemented: ${func.dartName}");');
           w.writeln('    }');
         } else {

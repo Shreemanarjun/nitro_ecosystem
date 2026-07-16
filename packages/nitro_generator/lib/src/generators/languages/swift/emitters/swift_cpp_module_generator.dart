@@ -24,12 +24,20 @@ String _generateCppModuleBridge(BridgeSpec spec) {
     const CodeLine('import Combine'),
     const BlankLine(),
     const CodeLine(
-      '// Shared types (structs, NitroRecordWriter, NitroRecordReader) are declared',
+      '// This file is SELF-CONTAINED: the shared codec types (NitroEncodable,',
     ),
     const CodeLine(
-      '// in the Swift module\'s .bridge.g.swift — compiled into the same module.',
+      '// NitroRecordWriter, NitroRecordReader) are emitted below so an all-C++',
     ),
-    const CodeLine('// Do NOT redeclare them here.'),
+    const CodeLine(
+      '// plugin (no Swift-impl module anywhere) still compiles. When a sibling',
+    ),
+    const CodeLine(
+      '// Swift-impl bridge is compiled into the same module, nitrogen\'s sync',
+    ),
+    const CodeLine(
+      '// dedup pass keeps exactly one copy of each shared declaration.',
+    ),
     const CodeLine('//'),
     const CodeLine(
       '// No @_cdecl stubs are generated: the C++ bridge (.bridge.g.mm) calls',
@@ -43,13 +51,26 @@ String _generateCppModuleBridge(BridgeSpec spec) {
     const BlankLine(),
   ];
 
+  // The record structs below conform to NitroEncodable and use the
+  // Reader/Writer codec — emit those shared types HERE so the file compiles
+  // standalone (issue #14: with zero Swift-impl modules in the plugin,
+  // nothing else ever declared them and every Apple build broke).
+  if (spec.recordTypes.isNotEmpty || spec.variants.isNotEmpty) {
+    final protocolWriter = CodeWriter();
+    SwiftGenerator._emitSwiftEncodableProtocol(protocolWriter);
+    nodes.add(CodeSnippet(protocolWriter.toString()));
+  }
+
   final swiftEnums = EnumGenerator.generateSwift(spec);
   if (swiftEnums.isNotEmpty) nodes.add(CodeSnippet(swiftEnums));
 
   final swiftStructs = StructGenerator.generateSwift(spec);
   if (swiftStructs.isNotEmpty) nodes.add(CodeSnippet(swiftStructs));
 
-  final swiftRecords = RecordGenerator.generateSwift(spec, emitBoilerplate: false);
+  // emitBoilerplate: true so NitroRecordWriter/NitroRecordReader (and the
+  // nitro library record structs) land in this file too — see the
+  // self-contained note above.
+  final swiftRecords = RecordGenerator.generateSwift(spec);
   if (swiftRecords.isNotEmpty) nodes.add(CodeSnippet(swiftRecords));
 
   // Protocol
@@ -73,9 +94,12 @@ String _generateCppModuleBridge(BridgeSpec spec) {
   for (final func in spec.functions) {
     final retType = mapper.swiftType(func.returnType.name);
     final params = func.params.map((p) => '${p.name}: ${mapper.swiftType(p.type.name)}').join(', ');
+    // @mainThread: same @MainActor rule as the Swift-impl protocol — async
+    // requirements only (see swift_protocol_registry_emitter.dart).
+    final isolation = func.mainThread && (func.isAsync || func.isNativeAsync) ? '@MainActor ' : '';
     if (func.isAsync || func.isNativeAsync) {
       nodes.add(
-        CodeLine('    func ${func.dartName}($params) async throws -> $retType'),
+        CodeLine('    ${isolation}func ${func.dartName}($params) async throws -> $retType'),
       );
     } else {
       nodes.add(CodeLine('    func ${func.dartName}($params) -> $retType'));

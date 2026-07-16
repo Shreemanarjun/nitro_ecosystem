@@ -25,9 +25,15 @@ void _emitSwiftProtocol(CodeWriter writer, BridgeSpec spec, SwiftTypeMapper mapp
           return '${p.name}: ${mapper.swiftType(p.type.name, bridgeType: p.type)}';
         })
         .join(', ');
+    // @mainThread (issue #19): async requirements are marked @MainActor so
+    // conforming impls infer MainActor isolation — their bodies genuinely run
+    // on the main thread and every `await` hops there automatically. Sync
+    // methods are dispatched via the _nitroMainSync helper instead (an actor
+    // annotation here would make the synchronous @_cdecl call site illegal).
+    final isolation = func.mainThread && (func.isAsync || func.isNativeAsync) ? '@MainActor ' : '';
     if (func.isAsync || func.isNativeAsync) {
       writer.line(
-        '    func ${func.dartName}($params) async throws -> $retType',
+        '    ${isolation}func ${func.dartName}($params) async throws -> $retType',
       );
     } else if (func.isResult) {
       writer.line('    func ${func.dartName}($params) throws -> $retType');

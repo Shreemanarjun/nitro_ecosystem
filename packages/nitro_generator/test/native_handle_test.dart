@@ -206,6 +206,94 @@ void main() {
     });
   });
 
+  // ── C++ bridge — @NitroOwned(release: '...') custom symbol (issue #13) ──────
+  group('CppBridgeGenerator — @NitroOwned(release:) custom release symbol (issue #13)', () {
+    BridgeSpec customSpec({String? secondRelease}) => BridgeSpec(
+      dartClassName: 'Gpu',
+      lib: 'gpu',
+      namespace: 'gpu',
+      iosImpl: NativeImpl.swift,
+      androidImpl: NativeImpl.kotlin,
+      sourceUri: 'gpu.native.dart',
+      functions: [
+        BridgeFunction(
+          dartName: 'createBuffer',
+          cSymbol: 'gpu_create_buffer',
+          isAsync: false,
+          returnType: BridgeType(name: 'NativeHandle<Void>', isNativeHandle: true, nativeHandleTypeParam: 'Void'),
+          params: [],
+          isOwned: true,
+          releaseSymbol: 'wgpuBufferRelease',
+        ),
+        if (secondRelease != null)
+          BridgeFunction(
+            dartName: 'createOtherBuffer',
+            cSymbol: 'gpu_create_other_buffer',
+            isAsync: false,
+            returnType: BridgeType(name: 'NativeHandle<Void>', isNativeHandle: true, nativeHandleTypeParam: 'Void'),
+            params: [],
+            isOwned: true,
+            releaseSymbol: secondRelease,
+          ),
+      ],
+    );
+
+    test('thunk calls the custom symbol instead of free()', () {
+      final out = CppBridgeGenerator.generate(customSpec());
+      final releaseStart = out.indexOf('gpu_create_buffer_release');
+      final releaseEnd = out.indexOf('\n}', releaseStart) + 2;
+      final releaseBlock = out.substring(releaseStart, releaseEnd);
+      expect(releaseBlock, contains('if (handle) { wgpuBufferRelease(handle); }'));
+      expect(releaseBlock, isNot(contains('free(handle)')));
+    });
+
+    test('custom symbol is forward-declared once even when shared by two methods', () {
+      final out = CppBridgeGenerator.generate(customSpec(secondRelease: 'wgpuBufferRelease'));
+      expect('void wgpuBufferRelease(void* handle);'.allMatches(out).length, 1);
+      expect('if (handle) { wgpuBufferRelease(handle); }'.allMatches(out).length, 2);
+    });
+
+    test('wrapper symbol name is unchanged — Dart bindings and header stay stable', () {
+      final out = CppBridgeGenerator.generate(customSpec());
+      expect(out, contains('NITRO_EXPORT void gpu_create_buffer_release(void* handle)'));
+      final header = CppHeaderGenerator.generate(customSpec());
+      expect(header, contains('NITRO_EXPORT void gpu_create_buffer_release(void* handle);'));
+    });
+
+    test('default (no release:) still frees with free()', () {
+      final out = CppBridgeGenerator.generate(_ownedSpec());
+      expect(out, contains('if (handle) { free(handle); }'));
+      expect(out, isNot(contains('void free(void* handle);')));
+    });
+
+    test('validator accepts a plain C identifier and rejects a non-identifier', () {
+      expect(SpecValidator.validate(customSpec()).where((i) => i.isError), isEmpty);
+      final bad = BridgeSpec(
+        dartClassName: 'Gpu',
+        lib: 'gpu',
+        namespace: 'gpu',
+        iosImpl: NativeImpl.swift,
+        androidImpl: NativeImpl.kotlin,
+        sourceUri: 'gpu.native.dart',
+        functions: [
+          BridgeFunction(
+            dartName: 'createBuffer',
+            cSymbol: 'gpu_create_buffer',
+            isAsync: false,
+            returnType: BridgeType(name: 'NativeHandle<Void>', isNativeHandle: true, nativeHandleTypeParam: 'Void'),
+            params: [],
+            isOwned: true,
+            releaseSymbol: 'wgpu Buffer Release();',
+          ),
+        ],
+      );
+      final errors = SpecValidator.validate(bad).where((i) => i.isError).toList();
+      expect(errors, hasLength(1));
+      expect(errors.single.code, 'INVALID_OWNED');
+      expect(errors.single.message, contains('not a valid C function name'));
+    });
+  });
+
   // ── C++ bridge (direct path) ─────────────────────────────────────────────────
   group('CppBridgeGenerator — NativeHandle', () {
     test('borrow: bridge returns void* directly, no finalizer', () {

@@ -209,6 +209,8 @@ class SpecFromSource {
     // ── Function ───────────────────────────────────────────────────────────
     final isAsync = m.metadata.any((a) => _annName(a) == 'NitroAsync') || (!m.metadata.any((a) => _annName(a) == 'NitroNativeAsync') && retSrc.startsWith('Future<'));
     final isNativeAsync = m.metadata.any((a) => _annName(a) == 'NitroNativeAsync');
+    // Accept both the const shorthand (@mainThread) and class form (@MainThread()).
+    final isMainThread = m.metadata.any((a) => _annName(a) == 'mainThread' || _annName(a) == 'MainThread');
 
     final isFuture = retSrc.startsWith('Future<') || isAsync || isNativeAsync;
     final effectiveReturn = isFuture ? (_genericArg(retSrc) ?? 'void') : retSrc;
@@ -222,6 +224,7 @@ class SpecFromSource {
         cSymbol: '${ns}_${_toSnakeCase(name)}',
         isAsync: isAsync,
         isNativeAsync: isNativeAsync,
+        mainThread: isMainThread,
         returnType: _makeType(effectiveReturn, effectiveBase, enumNames, structNames, recordNames, isFuture: isFuture),
         params: params,
       ),

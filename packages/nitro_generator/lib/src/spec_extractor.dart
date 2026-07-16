@@ -950,6 +950,7 @@ class SpecExtractor {
     const nativeAsyncChecker = TypeChecker.fromUrl('package:nitro_annotations/src/annotations.dart#NitroNativeAsync');
     const zeroCopyChecker = TypeChecker.fromUrl('package:nitro_annotations/src/annotations.dart#ZeroCopy');
     const ownedChecker = TypeChecker.fromUrl('package:nitro_annotations/src/annotations.dart#NitroOwned');
+    const mainThreadChecker = TypeChecker.fromUrl('package:nitro_annotations/src/annotations.dart#MainThread');
     const resultChecker = TypeChecker.fromUrl('package:nitro_annotations/src/annotations.dart#NitroResult');
 
     return methods.map((m) {
@@ -974,6 +975,17 @@ class SpecExtractor {
           'Use @NitroNativeAsync when the native implementation posts the result '
           'directly via Dart_PostCObject_DL.',
         );
+      }
+
+      // Read optional custom release symbol from @NitroOwned(release: '...')
+      final isOwned = ownedChecker.hasAnnotationOf(m);
+      String? releaseSymbol;
+      if (isOwned) {
+        final ownedAnnotation = ownedChecker.firstAnnotationOf(m);
+        final releaseVal = ownedAnnotation?.getField('release');
+        if (releaseVal != null && !releaseVal.isNull) {
+          releaseSymbol = releaseVal.toStringValue();
+        }
       }
 
       final isResult = resultChecker.hasAnnotationOf(m);
@@ -1005,7 +1017,9 @@ class SpecExtractor {
           tupleTypeNames: tupleTypeNames,
         ),
         zeroCopyReturn: zeroCopyChecker.hasAnnotationOf(m),
-        isOwned: ownedChecker.hasAnnotationOf(m),
+        isOwned: isOwned,
+        releaseSymbol: releaseSymbol,
+        mainThread: mainThreadChecker.hasAnnotationOf(m),
         asyncTimeout: asyncTimeout,
         isResult: isResult,
         params: m.formalParameters.map((p) {
