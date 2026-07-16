@@ -1,3 +1,10 @@
+# 0.5.13
+
+The nitro_webgpu feedback batch — two new annotations for handle-heavy FFI libraries:
+
+- **New: `@NitroOwned(release: 'wgpuBufferRelease')`** ([#13](https://github.com/Shreemanarjun/nitro_ecosystem/issues/13)) — pass the owning library's release function and the generated `<symbol>_release` thunk calls it instead of `free()`. Library-owned handles (wgpu, sqlite, …) can now be `@NitroOwned` without corrupting the library's allocator; the bare `@nitroOwned` shorthand keeps the `free()` default. Requirements: the symbol must be an `extern "C"` function taking the handle pointer as its single argument, linked on every platform the module builds for.
+- **New: `@mainThread`** ([#19](https://github.com/Shreemanarjun/nitro_ecosystem/issues/19)) — runs the Kotlin/Swift implementation of a method on the platform main/UI thread (Android `SurfaceView`, UIKit, `CAMetalLayer`, …). Re-entrancy safe on both platforms; on a sync method the calling Dart thread blocks until the main thread finishes, so prefer pairing with `@nitroAsync`/`@nitroNativeAsync`. No effect on C++ impls (validator warns). See `nitro_generator`'s changelog for the per-platform dispatch mechanics.
+
 # 0.5.12
 
 - **Ecosystem sync** — Aligned with `nitro_generator` 0.5.12's zero-copy TypedData fixes. No changes to this package — see `nitro_generator`'s changelog.

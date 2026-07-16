@@ -1,3 +1,7 @@
+## 0.5.13
+
+- **Ecosystem sync** — Released alongside the nitro_webgpu feedback batch (issues [#13](https://github.com/Shreemanarjun/nitro_ecosystem/issues/13)–[#20](https://github.com/Shreemanarjun/nitro_ecosystem/issues/20)): `@NitroOwned(release:)`, `Future<NativeHandle>` native-async, `@mainThread`, nullable native-async kNull support, self-contained all-C++ Swift bridges, per-module SPM targets, user-owned Plugin.kt, and build_runner symlink-cycle guards. No functional changes to this package — see the `nitro_generator` and `nitrogen_cli` changelogs, and regenerate your plugin to pick them up.
+
 ## 0.5.12
 
 - **Ecosystem sync** — Aligned with `nitro_generator` 0.5.12's zero-copy TypedData fixes (missing `release_typed_data_return` definition on the pure-C++ path; Swift struct conversions dropping the synthesized length for `@zeroCopy` fields). No functional changes to this package — see `nitro_generator`'s changelog, and regenerate your plugin to pick them up.
