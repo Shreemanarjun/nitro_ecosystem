@@ -1,3 +1,7 @@
+## 0.5.14
+
+- **Ecosystem sync** — Released alongside `nitrogen_cli` 0.5.14's fixes for the 0.5.13 SPM umbrella-header regression ([#21](https://github.com/Shreemanarjun/nitro_ecosystem/issues/21)) and the reopened Plugin.kt import drop ([#16](https://github.com/Shreemanarjun/nitro_ecosystem/issues/16)). No functional changes to this package — see `nitrogen_cli`'s changelog and re-run `nitrogen link`.
+
 ## 0.5.13
 
 The nitro_webgpu feedback batch ([#13](https://github.com/Shreemanarjun/nitro_ecosystem/issues/13), [#14](https://github.com/Shreemanarjun/nitro_ecosystem/issues/14), [#17](https://github.com/Shreemanarjun/nitro_ecosystem/issues/17), [#18](https://github.com/Shreemanarjun/nitro_ecosystem/issues/18), [#19](https://github.com/Shreemanarjun/nitro_ecosystem/issues/19)) — every item below came out of a real wgpu-native binding project.

@@ -591,7 +591,10 @@ The `Sources/` directories contain symlinks back into `Classes/` — one file, t
 When a plugin has more than one `@NitroModule` spec, `nitrogen link` gives
 every non-main module its **own** SPM C++ target named after the module's
 Dart class (`Sources/<ModuleClass>Cpp/`), holding that module's
-`.bridge.g.mm` forwarder, an umbrella header, and (for Apple-C++ modules)
+`.bridge.g.mm` forwarder, an exports header (`<ModuleClass>CppExports.h` —
+deliberately not the target's own name, which SwiftPM would promote to an
+umbrella header and then reject next to any `include/` subdirectory), and
+(for Apple-C++ modules)
 its `HybridXxx.cpp` forwarder:
 
 ```swift

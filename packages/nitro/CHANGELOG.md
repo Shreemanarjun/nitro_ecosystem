@@ -1,3 +1,7 @@
+## 0.5.14
+
+- **Ecosystem sync** — Released alongside `nitrogen_cli` 0.5.14's fixes for the 0.5.13 SPM umbrella-header regression ([#21](https://github.com/Shreemanarjun/nitro_ecosystem/issues/21)) and the reopened Plugin.kt import drop ([#16](https://github.com/Shreemanarjun/nitro_ecosystem/issues/16)). No functional changes to this package — see `nitrogen_cli`'s changelog and re-run `nitrogen link`.
+
 ## 0.5.13
 
 - **Ecosystem sync** — Released alongside the nitro_webgpu feedback batch (issues [#13](https://github.com/Shreemanarjun/nitro_ecosystem/issues/13)–[#20](https://github.com/Shreemanarjun/nitro_ecosystem/issues/20)): `@NitroOwned(release:)`, `Future<NativeHandle>` native-async, `@mainThread`, nullable native-async kNull support, self-contained all-C++ Swift bridges, per-module SPM targets, user-owned Plugin.kt, and build_runner symlink-cycle guards. No functional changes to this package — see the `nitro_generator` and `nitrogen_cli` changelogs, and regenerate your plugin to pick them up.

@@ -670,7 +670,7 @@ end
       );
     });
 
-    test('module target gets an umbrella header re-exporting the Dart DL API (issue #15)', () {
+    test('module target gets an exports header re-exporting the Dart DL API (issues #15/#21)', () {
       scaffoldSpm('my_plugin');
       scaffoldCppModule('my_cpp_mod', appleCpp: true);
 
@@ -681,9 +681,97 @@ end
         moduleInfos: [const ModuleInfo(lib: 'my_cpp_mod', module: 'MyCppMod', isCpp: true)],
       );
 
-      final umbrella = File(p.join(tmp.path, 'ios', 'Sources', 'MyCppModCpp', 'include', 'MyCppModCpp.h'));
-      expect(umbrella.existsSync(), isTrue, reason: 'umbrella header makes `import MyCppModCpp` resolve in Swift');
-      expect(umbrella.readAsStringSync(), contains('#include "dart_api_dl.h"'));
+      final exports = File(p.join(tmp.path, 'ios', 'Sources', 'MyCppModCpp', 'include', 'MyCppModCppExports.h'));
+      expect(exports.existsSync(), isTrue, reason: 'exports header makes `import MyCppModCpp` expose Dart_CObject in Swift');
+      expect(exports.readAsStringSync(), contains('#include "dart_api_dl.h"'));
+      // Never the target's own name — SwiftPM promotes <TargetName>.h to THE
+      // umbrella header, whose layout forbids sibling directories in include/
+      // ("invalid header layout", issue #21).
+      expect(
+        File(p.join(tmp.path, 'ios', 'Sources', 'MyCppModCpp', 'include', 'MyCppModCpp.h')).existsSync(),
+        isFalse,
+      );
+    });
+
+    test('REPAIR (issue #21): 0.5.13 umbrella + hand-copied dart headers are removed from module include/', () {
+      scaffoldSpm('my_plugin');
+      scaffoldCppModule('my_cpp_mod', appleCpp: true);
+      // Simulate the broken 0.5.13 state + a hand-rolled per-module target
+      // that copied the dart DL headers (the issue-#15 workaround layout).
+      final includeDir = Directory(p.join(tmp.path, 'ios', 'Sources', 'MyCppModCpp', 'include'))..createSync(recursive: true);
+      File(p.join(includeDir.path, 'MyCppModCpp.h')).writeAsStringSync('// 0.5.13 umbrella');
+      File(p.join(includeDir.path, 'dart_api_dl.h')).writeAsStringSync('// hand copy');
+      Directory(p.join(includeDir.path, 'internal')).createSync();
+      File(p.join(includeDir.path, 'internal', 'dart_api_dl_impl.h')).writeAsStringSync('// hand copy');
+
+      linkPodspec(
+        'my_plugin',
+        ['my_plugin', 'my_cpp_mod'],
+        baseDir: tmp.path,
+        moduleInfos: [const ModuleInfo(lib: 'my_cpp_mod', module: 'MyCppMod', isCpp: true)],
+      );
+
+      expect(File(p.join(includeDir.path, 'MyCppModCpp.h')).existsSync(), isFalse, reason: 'target-named umbrella causes "invalid header layout"');
+      expect(File(p.join(includeDir.path, 'dart_api_dl.h')).existsSync(), isFalse, reason: 'dart headers come from the plugin Cpp target dependency');
+      expect(Directory(p.join(includeDir.path, 'internal')).existsSync(), isFalse);
+      expect(File(p.join(includeDir.path, 'MyCppModCppExports.h')).existsSync(), isTrue);
+    });
+
+    test('EDGE (issue #21): repeated links are idempotent — exports header stable, umbrella and internal/ never resurface', () {
+      scaffoldSpm('my_plugin');
+      scaffoldCppModule('my_cpp_mod', appleCpp: true);
+      final includeDir = Directory(p.join(tmp.path, 'ios', 'Sources', 'MyCppModCpp', 'include'))..createSync(recursive: true);
+      File(p.join(includeDir.path, 'MyCppModCpp.h')).writeAsStringSync('// 0.5.13 umbrella');
+      Directory(p.join(includeDir.path, 'internal')).createSync();
+
+      String snapshot() => (includeDir.listSync(recursive: true).map((e) => e.path).toList()..sort()).join('\n');
+      for (var i = 0; i < 3; i++) {
+        linkPodspec(
+          'my_plugin',
+          ['my_plugin', 'my_cpp_mod'],
+          baseDir: tmp.path,
+          moduleInfos: [const ModuleInfo(lib: 'my_cpp_mod', module: 'MyCppMod', isCpp: true)],
+        );
+      }
+      final files = snapshot();
+      expect(files, isNot(contains('MyCppModCpp.h')));
+      expect(files, isNot(contains('internal')));
+      expect(files, contains('MyCppModCppExports.h'));
+      // One more run must not change anything.
+      final exportsContent = File(p.join(includeDir.path, 'MyCppModCppExports.h')).readAsStringSync();
+      linkPodspec(
+        'my_plugin',
+        ['my_plugin', 'my_cpp_mod'],
+        baseDir: tmp.path,
+        moduleInfos: [const ModuleInfo(lib: 'my_cpp_mod', module: 'MyCppMod', isCpp: true)],
+      );
+      expect(snapshot(), equals(files));
+      expect(File(p.join(includeDir.path, 'MyCppModCppExports.h')).readAsStringSync(), equals(exportsContent));
+    });
+
+    test('EDGE (issue #21): repair keeps the module\'s own bridge header — only dart/nitro copies are removed', () {
+      scaffoldSpm('my_plugin');
+      scaffoldCppModule('my_cpp_mod', appleCpp: true);
+      final includeDir = Directory(p.join(tmp.path, 'ios', 'Sources', 'MyCppModCpp', 'include'))..createSync(recursive: true);
+      // The hand-rolled issue-#15 workaround layout: everything copied in.
+      for (final f in ['dart_api_dl.h', 'dart_api.h', 'dart_native_api.h', 'dart_version.h', 'nitro.h']) {
+        File(p.join(includeDir.path, f)).writeAsStringSync('// hand copy');
+      }
+      // A user's own extra public header must never be touched.
+      File(p.join(includeDir.path, 'my_custom_api.h')).writeAsStringSync('// user header');
+
+      linkPodspec(
+        'my_plugin',
+        ['my_plugin', 'my_cpp_mod'],
+        baseDir: tmp.path,
+        moduleInfos: [const ModuleInfo(lib: 'my_cpp_mod', module: 'MyCppMod', isCpp: true)],
+      );
+
+      for (final f in ['dart_api_dl.h', 'dart_api.h', 'dart_native_api.h', 'dart_version.h', 'nitro.h']) {
+        expect(File(p.join(includeDir.path, f)).existsSync(), isFalse, reason: '$f is provided by the plugin Cpp target dependency');
+      }
+      expect(File(p.join(includeDir.path, 'my_cpp_mod.bridge.g.h')).existsSync(), isTrue, reason: 'the module\'s own C bridge header stays public');
+      expect(File(p.join(includeDir.path, 'my_custom_api.h')).existsSync(), isTrue, reason: 'user-added headers are user-owned');
     });
 
     test('REPAIR: module sources previously synced into the plugin target are removed (issue #15)', () {
@@ -2739,6 +2827,154 @@ override fun onAttachedToEngine(binding: FlutterPlugin.FlutterPluginBinding) {
       final plugin = writeKotlinPlugin2(tmp, original);
       purgeStaleCppKotlinRegistrations([], baseDir: tmp.path);
       expect(plugin.readAsStringSync(), equals(original));
+    });
+
+    test('keeps a still-used all-cpp JniBridge import — ActivityAware lifecycle calls (issue #16 reopened)', () {
+      // An all-cpp Android module still emits a JniBridge class with
+      // lifecycle hooks; the user's ActivityAware plugin calls it. Only the
+      // auto-injected .register*() line is stale — the import must survive.
+      final plugin = writeKotlinPlugin2(tmp, '''
+package dev.test
+import io.flutter.embedding.engine.plugins.activity.ActivityPluginBinding
+import nitro.nitro_webgpu_module.NitroWebgpuJniBridge
+import nitro.nitro_webgpu_present_module.NitroWebgpuPresentJniBridge
+class TestPlugin {
+    override fun onAttachedToEngine(binding: FlutterPlugin.FlutterPluginBinding) {
+        NitroWebgpuJniBridge.register(NitroWebgpuImpl())
+        NitroWebgpuPresentJniBridge.register(NitroWebgpuPresentImpl(binding.applicationContext))
+    }
+    override fun onAttachedToActivity(binding: ActivityPluginBinding) {
+        NitroWebgpuJniBridge.onActivityAttached(binding.activity)
+    }
+    override fun onDetachedFromActivity() {
+        NitroWebgpuJniBridge.onActivityDetached()
+    }
+}
+''');
+      purgeStaleCppKotlinRegistrations(
+        [const ModuleInfo(lib: 'nitro_webgpu', module: 'NitroWebgpu', isCpp: true)],
+        baseDir: tmp.path,
+      );
+      final content = plugin.readAsStringSync();
+      expect(content, isNot(contains('NitroWebgpuJniBridge.register(')), reason: 'stale auto-injected registration is removed');
+      expect(content, contains('import nitro.nitro_webgpu_module.NitroWebgpuJniBridge'), reason: 'import survives — the class is still used by lifecycle hooks');
+      expect(content, contains('NitroWebgpuJniBridge.onActivityAttached(binding.activity)'));
+      expect(content, contains('import nitro.nitro_webgpu_present_module.NitroWebgpuPresentJniBridge'), reason: 'Kotlin-impl module untouched');
+    });
+
+    test('EDGE: suffix-collision — purging cpp module `Present` must not touch `WebgpuPresent` (Kotlin)', () {
+      // 'PresentJniBridge.register' is a SUBSTRING of
+      // 'WebgpuPresentJniBridge.register' — without line-anchoring the purge
+      // pattern used to corrupt the longer module's registration line.
+      final plugin = writeKotlinPlugin2(tmp, '''
+package dev.test
+import nitro.present_module.PresentJniBridge
+import nitro.webgpu_present_module.WebgpuPresentJniBridge
+class TestPlugin {
+    override fun onAttachedToEngine(binding: FlutterPlugin.FlutterPluginBinding) {
+        PresentJniBridge.register(PresentImpl())
+        WebgpuPresentJniBridge.register(WebgpuPresentImpl(binding.applicationContext))
+    }
+}
+''');
+      purgeStaleCppKotlinRegistrations(
+        [const ModuleInfo(lib: 'present', module: 'Present', isCpp: true)],
+        baseDir: tmp.path,
+      );
+      final content = plugin.readAsStringSync();
+      expect(content, contains('WebgpuPresentJniBridge.register(WebgpuPresentImpl(binding.applicationContext))'), reason: 'sibling module line must survive INTACT (no mid-line corruption)');
+      expect(content, contains('import nitro.webgpu_present_module.WebgpuPresentJniBridge'), reason: 'sibling module import must survive');
+      expect(content, isNot(contains('PresentJniBridge.register(PresentImpl())')));
+      expect(content, isNot(contains('import nitro.present_module.PresentJniBridge\n')), reason: 'Present import is genuinely orphaned after its register line is removed');
+    });
+
+    test('EDGE: suffix-collision — a still-used longer sibling does not keep the shorter module import alive', () {
+      // Usage check must be identifier-bounded: 'WebgpuPresentJniBridge'
+      // appearing in the body is NOT a usage of 'PresentJniBridge'.
+      final plugin = writeKotlinPlugin2(tmp, '''
+package dev.test
+import nitro.present_module.PresentJniBridge
+import nitro.webgpu_present_module.WebgpuPresentJniBridge
+class TestPlugin {
+    override fun onAttachedToEngine(binding: FlutterPlugin.FlutterPluginBinding) {
+        PresentJniBridge.register(PresentImpl())
+    }
+    fun attach() { WebgpuPresentJniBridge.onActivityAttached(activity) }
+}
+''');
+      purgeStaleCppKotlinRegistrations(
+        [const ModuleInfo(lib: 'present', module: 'Present', isCpp: true)],
+        baseDir: tmp.path,
+      );
+      final content = plugin.readAsStringSync();
+      expect(content, isNot(contains('import nitro.present_module.PresentJniBridge')), reason: 'orphaned — the only remaining JniBridge mention belongs to the longer-named sibling');
+      expect(content, contains('WebgpuPresentJniBridge.onActivityAttached(activity)'));
+    });
+
+    test('EDGE: fully-qualified-only usage does not keep the import (qualified refs need no import)', () {
+      final plugin = writeKotlinPlugin2(tmp, '''
+package dev.test
+import nitro.nitro_webgpu_module.NitroWebgpuJniBridge
+class TestPlugin {
+    override fun onAttachedToEngine(binding: FlutterPlugin.FlutterPluginBinding) {
+        NitroWebgpuJniBridge.register(NitroWebgpuImpl())
+    }
+    fun attach() { nitro.nitro_webgpu_module.NitroWebgpuJniBridge.onActivityAttached(activity) }
+}
+''');
+      purgeStaleCppKotlinRegistrations(
+        [const ModuleInfo(lib: 'nitro_webgpu', module: 'NitroWebgpu', isCpp: true)],
+        baseDir: tmp.path,
+      );
+      final content = plugin.readAsStringSync();
+      expect(content, isNot(contains('import nitro.nitro_webgpu_module.NitroWebgpuJniBridge')), reason: 'package-qualified call sites compile without the import');
+      expect(content, contains('nitro.nitro_webgpu_module.NitroWebgpuJniBridge.onActivityAttached(activity)'), reason: 'the qualified call itself is untouched');
+    });
+
+    test('EDGE: multiple stale register lines all removed in one pass, still-used import kept', () {
+      // Paren-form register/registerFactory calls are what nitrogen injects —
+      // both go. A trailing-LAMBDA registerFactory is a hand-written shape
+      // nitrogen never emits, so the purge deliberately leaves it alone
+      // (user-owned code is never guessed at).
+      final plugin = writeKotlinPlugin2(tmp, '''
+package dev.test
+import nitro.nitro_webgpu_module.NitroWebgpuJniBridge
+class TestPlugin {
+    override fun onAttachedToEngine(binding: FlutterPlugin.FlutterPluginBinding) {
+        NitroWebgpuJniBridge.register(NitroWebgpuImpl())
+        NitroWebgpuJniBridge.registerFactory(NitroWebgpuFactory())
+        NitroWebgpuJniBridge.registerFactory { NitroWebgpuImpl() }
+    }
+    fun attach() { NitroWebgpuJniBridge.onActivityAttached(activity) }
+}
+''');
+      purgeStaleCppKotlinRegistrations(
+        [const ModuleInfo(lib: 'nitro_webgpu', module: 'NitroWebgpu', isCpp: true)],
+        baseDir: tmp.path,
+      );
+      final content = plugin.readAsStringSync();
+      expect(content, isNot(contains('.register(')));
+      expect(content, isNot(contains('.registerFactory(')));
+      expect(content, contains('NitroWebgpuJniBridge.registerFactory { NitroWebgpuImpl() }'), reason: 'trailing-lambda form is hand-written — user-owned, never purged');
+      expect(content, contains('import nitro.nitro_webgpu_module.NitroWebgpuJniBridge'));
+      expect(content, contains('NitroWebgpuJniBridge.onActivityAttached(activity)'));
+    });
+
+    test('purge is idempotent for the still-used import across repeated link runs', () {
+      final plugin = writeKotlinPlugin2(tmp, '''
+package dev.test
+import nitro.nitro_webgpu_module.NitroWebgpuJniBridge
+class TestPlugin {
+    fun attach() { NitroWebgpuJniBridge.onActivityAttached(activity) }
+}
+''');
+      for (var i = 0; i < 3; i++) {
+        purgeStaleCppKotlinRegistrations(
+          [const ModuleInfo(lib: 'nitro_webgpu', module: 'NitroWebgpu', isCpp: true)],
+          baseDir: tmp.path,
+        );
+      }
+      expect(plugin.readAsStringSync(), contains('import nitro.nitro_webgpu_module.NitroWebgpuJniBridge'));
     });
 
     test('removes stale call with nested parentheses perfectly', () {
