@@ -638,6 +638,42 @@ end
     // present, simulating an existing SPM-enabled project that has been fully
     // initialised before.  Both Package.swift and the Cpp target dir are required
     // so that _syncCppModuleSourcesToSpm can locate and populate them.
+    // Writes a nitrogen-template-shaped flat Package.swift so
+    // ensureModuleCppTargets treats it as generated and inserts module
+    // targets (which then carry the plugin-Cpp dependency the issue-#21
+    // header repair is gated on).
+    void writeNitrogenPackageSwift(String pluginName) {
+      final pascal = pluginName.split('_').map((w) => w.isEmpty ? '' : '${w[0].toUpperCase()}${w.substring(1)}').join('');
+      File(p.join(tmp.path, 'ios', 'Package.swift')).writeAsStringSync(
+        '// swift-tools-version: 5.9\n'
+        'import PackageDescription\n'
+        'let package = Package(\n'
+        '  name: "$pluginName",\n'
+        '  products: [\n'
+        '    .library(name: "${pluginName.replaceAll('_', '-')}", targets: ["$pluginName"])\n'
+        '  ],\n'
+        '  dependencies: [\n'
+        '    .package(name: "FlutterFramework", path: "../FlutterFramework"),\n'
+        '  ],\n'
+        '  targets: [\n'
+        '    .target(\n'
+        '      name: "${pascal}Cpp",\n'
+        '      path: "Sources/${pascal}Cpp",\n'
+        '      publicHeadersPath: "include"\n'
+        '    ),\n'
+        '    .target(\n'
+        '      name: "$pluginName",\n'
+        '      dependencies: [\n'
+        '        "${pascal}Cpp",\n'
+        '        .product(name: "FlutterFramework", package: "FlutterFramework"),\n'
+        '      ],\n'
+        '      path: "Sources/$pascal"\n'
+        '    )\n'
+        '  ]\n'
+        ')\n',
+      );
+    }
+
     void scaffoldSpm(String pluginName) {
       scaffoldPodspec(pluginName);
       final pascal = pluginName.split('_').map((w) => w.isEmpty ? '' : '${w[0].toUpperCase()}${w.substring(1)}').join('');
@@ -693,11 +729,11 @@ end
       );
     });
 
-    test('REPAIR (issue #21): 0.5.13 umbrella + hand-copied dart headers are removed from module include/', () {
+    test('REPAIR (issue #21): umbrella + dart-header copies removed when the module target depends on the plugin Cpp target', () {
       scaffoldSpm('my_plugin');
+      writeNitrogenPackageSwift('my_plugin'); // insertion adds MyCppModCpp WITH the dependency
       scaffoldCppModule('my_cpp_mod', appleCpp: true);
-      // Simulate the broken 0.5.13 state + a hand-rolled per-module target
-      // that copied the dart DL headers (the issue-#15 workaround layout).
+      // Simulate the broken 0.5.13 state + hand-copied dart DL headers.
       final includeDir = Directory(p.join(tmp.path, 'ios', 'Sources', 'MyCppModCpp', 'include'))..createSync(recursive: true);
       File(p.join(includeDir.path, 'MyCppModCpp.h')).writeAsStringSync('// 0.5.13 umbrella');
       File(p.join(includeDir.path, 'dart_api_dl.h')).writeAsStringSync('// hand copy');
@@ -711,14 +747,53 @@ end
         moduleInfos: [const ModuleInfo(lib: 'my_cpp_mod', module: 'MyCppMod', isCpp: true)],
       );
 
+      expect(File(p.join(tmp.path, 'ios', 'Package.swift')).readAsStringSync(), contains('dependencies: ["MyPluginCpp"]'));
       expect(File(p.join(includeDir.path, 'MyCppModCpp.h')).existsSync(), isFalse, reason: 'target-named umbrella causes "invalid header layout"');
-      expect(File(p.join(includeDir.path, 'dart_api_dl.h')).existsSync(), isFalse, reason: 'dart headers come from the plugin Cpp target dependency');
+      expect(File(p.join(includeDir.path, 'dart_api_dl.h')).existsSync(), isFalse, reason: 'dart headers resolve through the plugin Cpp target dependency');
       expect(Directory(p.join(includeDir.path, 'internal')).existsSync(), isFalse);
+      expect(File(p.join(includeDir.path, 'MyCppModCppExports.h')).existsSync(), isTrue);
+    });
+
+    test('REPAIR (issue #21): hand-authored target WITHOUT the plugin-Cpp dependency keeps its load-bearing dart headers', () {
+      // nitro_webgpu's real layout: the module target carries its own
+      // dart_api_dl.h + internal/ and declares NO dependency on the plugin
+      // Cpp target — stripping the copies would break its compile. Only the
+      // umbrella (which fails SPM resolution outright) may be removed.
+      scaffoldSpm('my_plugin');
+      File(p.join(tmp.path, 'ios', 'Package.swift')).writeAsStringSync(
+        '// swift-tools-version: 5.9\n'
+        'let package = Package(\n'
+        '  name: "my_plugin",\n'
+        '  targets: [\n'
+        '    .target(name: "MyPluginCpp", path: "Sources/MyPluginCpp", publicHeadersPath: "include"),\n'
+        '    .target(name: "MyCppModCpp", path: "Sources/MyCppModCpp", publicHeadersPath: "include"),\n'
+        '    .target(name: "my_plugin", dependencies: ["MyPluginCpp", "MyCppModCpp"], path: "Sources/MyPlugin"),\n'
+        '  ]\n'
+        ')\n',
+      );
+      scaffoldCppModule('my_cpp_mod', appleCpp: true);
+      final includeDir = Directory(p.join(tmp.path, 'ios', 'Sources', 'MyCppModCpp', 'include'))..createSync(recursive: true);
+      File(p.join(includeDir.path, 'MyCppModCpp.h')).writeAsStringSync('// 0.5.13 umbrella');
+      File(p.join(includeDir.path, 'dart_api_dl.h')).writeAsStringSync('// load-bearing hand copy');
+      Directory(p.join(includeDir.path, 'internal')).createSync();
+      File(p.join(includeDir.path, 'internal', 'dart_api_dl_impl.h')).writeAsStringSync('// load-bearing hand copy');
+
+      linkPodspec(
+        'my_plugin',
+        ['my_plugin', 'my_cpp_mod'],
+        baseDir: tmp.path,
+        moduleInfos: [const ModuleInfo(lib: 'my_cpp_mod', module: 'MyCppMod', isCpp: true)],
+      );
+
+      expect(File(p.join(includeDir.path, 'MyCppModCpp.h')).existsSync(), isFalse, reason: 'umbrella removal is unconditional — SPM rejects the layout with it present');
+      expect(File(p.join(includeDir.path, 'dart_api_dl.h')).existsSync(), isTrue, reason: 'no plugin-Cpp dependency — the copies are how the target compiles');
+      expect(Directory(p.join(includeDir.path, 'internal')).existsSync(), isTrue);
       expect(File(p.join(includeDir.path, 'MyCppModCppExports.h')).existsSync(), isTrue);
     });
 
     test('EDGE (issue #21): repeated links are idempotent — exports header stable, umbrella and internal/ never resurface', () {
       scaffoldSpm('my_plugin');
+      writeNitrogenPackageSwift('my_plugin');
       scaffoldCppModule('my_cpp_mod', appleCpp: true);
       final includeDir = Directory(p.join(tmp.path, 'ios', 'Sources', 'MyCppModCpp', 'include'))..createSync(recursive: true);
       File(p.join(includeDir.path, 'MyCppModCpp.h')).writeAsStringSync('// 0.5.13 umbrella');
@@ -751,6 +826,7 @@ end
 
     test('EDGE (issue #21): repair keeps the module\'s own bridge header — only dart/nitro copies are removed', () {
       scaffoldSpm('my_plugin');
+      writeNitrogenPackageSwift('my_plugin');
       scaffoldCppModule('my_cpp_mod', appleCpp: true);
       final includeDir = Directory(p.join(tmp.path, 'ios', 'Sources', 'MyCppModCpp', 'include'))..createSync(recursive: true);
       // The hand-rolled issue-#15 workaround layout: everything copied in.

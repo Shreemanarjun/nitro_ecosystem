@@ -2282,6 +2282,32 @@ void _syncCppModuleSourcesToSpm(
       final moduleKnownLibs = moduleSpecFiles.map(libOf).toSet();
 
       final nonMainModules = moduleInfos.where((m) => m.lib != pluginName).toList();
+
+      // Declare the module targets in Package.swift FIRST (idempotent;
+      // skipped with a paste-block warning when the manifest is
+      // hand-authored) — the per-module repair below reads the resulting
+      // manifest to decide what is safe to remove.
+      if (packageSwiftPath != null && nonMainModules.isNotEmpty) {
+        spm.ensureModuleCppTargets(
+          packageSwiftPath,
+          pluginName: pluginName,
+          pluginClass: className,
+          moduleClasses: nonMainModules.map((m) => m.module).toList(),
+        );
+      }
+      final packageSwiftContent = packageSwiftPath != null && File(packageSwiftPath).existsSync() ? File(packageSwiftPath).readAsStringSync() : '';
+      // True when the module target's block declares a dependency on the
+      // plugin-level Cpp target — i.e. dart_api_dl.h resolves through the
+      // dependency's public headers. Hand-authored targets that instead
+      // carry their OWN dart header copies (the pre-0.5.13 workaround
+      // layout, e.g. nitro_webgpu) return false here and keep those copies.
+      bool moduleDependsOnPluginCpp(String moduleClass) {
+        final idx = packageSwiftContent.indexOf('name: "${moduleClass}Cpp"');
+        if (idx == -1) return false;
+        var end = packageSwiftContent.indexOf('name: "', idx + 1);
+        if (end == -1) end = packageSwiftContent.length;
+        return packageSwiftContent.substring(idx, end).contains('"${className}Cpp"');
+      }
       for (final m in nonMainModules) {
         final moduleTargetDir = Directory(p.join(sourcesRoot, '${m.module}Cpp'))..createSync(recursive: true);
         final moduleIncludeDir = Directory(p.join(moduleTargetDir.path, 'include'))..createSync(recursive: true);
@@ -2314,25 +2340,32 @@ void _syncCppModuleSourcesToSpm(
           '#include "dart_api_dl.h"\n',
         );
 
-        // REPAIR (issue #21): remove artifacts that break SPM resolution or
-        // duplicate the plugin target's modular headers —
-        //  • the 0.5.13 target-named umbrella header,
-        //  • dart DL header copies (provided by the ${className}Cpp
-        //    dependency; duplicates cause clang module ambiguity) and their
-        //    internal/ directory, left over from hand-rolled per-module
-        //    targets built as an issue-#15 workaround.
-        for (final stale in [
-          File(p.join(moduleIncludeDir.path, '${m.module}Cpp.h')),
-          File(p.join(moduleIncludeDir.path, 'dart_api_dl.h')),
-          File(p.join(moduleIncludeDir.path, 'dart_api.h')),
-          File(p.join(moduleIncludeDir.path, 'dart_native_api.h')),
-          File(p.join(moduleIncludeDir.path, 'dart_version.h')),
-          File(p.join(moduleIncludeDir.path, 'nitro.h')),
-        ]) {
-          if (stale.existsSync()) stale.deleteSync();
+        // REPAIR (issue #21), part 1 — unconditional: the 0.5.13
+        // target-named umbrella header makes SPM reject the whole package
+        // ("invalid header layout") whenever include/ has a subdirectory.
+        final staleUmbrella = File(p.join(moduleIncludeDir.path, '${m.module}Cpp.h'));
+        if (staleUmbrella.existsSync()) staleUmbrella.deleteSync();
+
+        // REPAIR (issue #21), part 2 — gated: dart DL header copies (and
+        // their internal/ directory) duplicate the plugin target's modular
+        // headers and cause clang module ambiguity — but they are only safe
+        // to remove when this module target actually resolves the headers
+        // through its ${className}Cpp dependency. A hand-authored target
+        // without that dependency (nitro_webgpu's pre-0.5.13 layout) NEEDS
+        // its own copies — leave them alone.
+        if (moduleDependsOnPluginCpp(m.module)) {
+          for (final stale in [
+            File(p.join(moduleIncludeDir.path, 'dart_api_dl.h')),
+            File(p.join(moduleIncludeDir.path, 'dart_api.h')),
+            File(p.join(moduleIncludeDir.path, 'dart_native_api.h')),
+            File(p.join(moduleIncludeDir.path, 'dart_version.h')),
+            File(p.join(moduleIncludeDir.path, 'nitro.h')),
+          ]) {
+            if (stale.existsSync()) stale.deleteSync();
+          }
+          final staleInternal = Directory(p.join(moduleIncludeDir.path, 'internal'));
+          if (staleInternal.existsSync()) staleInternal.deleteSync(recursive: true);
         }
-        final staleInternal = Directory(p.join(moduleIncludeDir.path, 'internal'));
-        if (staleInternal.existsSync()) staleInternal.deleteSync(recursive: true);
 
         // Apple-C++ modules also carry their impl forwarder + bridge header.
         final hybridClass = _toPascalCase(m.lib);
@@ -2362,16 +2395,8 @@ void _syncCppModuleSourcesToSpm(
         }
       }
 
-      // Declare the module targets in Package.swift (idempotent; skipped
-      // with a paste-block warning when the manifest is hand-authored).
-      if (packageSwiftPath != null && nonMainModules.isNotEmpty) {
-        spm.ensureModuleCppTargets(
-          packageSwiftPath,
-          pluginName: pluginName,
-          pluginClass: className,
-          moduleClasses: nonMainModules.map((m) => m.module).toList(),
-        );
-      }
+      // (ensureModuleCppTargets already ran before the loop — the repair
+      // logic above depends on the resulting manifest.)
     }
 
     // Skip module-specific C++ bridge linking when no C++ modules exist.
