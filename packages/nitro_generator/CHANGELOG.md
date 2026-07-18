@@ -1,3 +1,7 @@
+## 0.5.15
+
+- **Fixed: generated Swift record `fromReader` initializers no longer emit a trailing comma in the argument list** ([#22](https://github.com/Shreemanarjun/nitro_ecosystem/issues/22)) — trailing commas in argument lists are Swift 6.1+ syntax (SE-0439), so every record constructor failed to parse on Xcode ≤ 16.2 toolchains (including GitHub's `macos-14` runners) with "Unexpected ',' separator", while newer local toolchains accepted it silently. The two emission sites (record `fromReader` and the struct-embedded-in-record RecordExt) now join arguments with commas instead of suffixing every line. A new cross-emitter syntax invariant test generates a maximal spec (records, variants, streams, async flavors, callbacks, maps, handles) and asserts NO comma-before-`)` anywhere in generated Swift **or C++** output — locking out the whole bug class for future emitters, not just these two sites.
+
 ## 0.5.14
 
 - **Ecosystem sync** — Released alongside `nitrogen_cli` 0.5.14's fixes for the 0.5.13 SPM umbrella-header regression ([#21](https://github.com/Shreemanarjun/nitro_ecosystem/issues/21)) and the reopened Plugin.kt import drop ([#16](https://github.com/Shreemanarjun/nitro_ecosystem/issues/16)). No functional changes to this package — see `nitrogen_cli`'s changelog and re-run `nitrogen link`.

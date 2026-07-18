@@ -3343,6 +3343,39 @@ void linkBuildYamlSourcesExcludes({String baseDir = '.'}) {
 /// is idempotent, and touches nothing outside the two desktop entries —
 /// android/ios/macos keep their pluginClass (those platforms genuinely
 /// register a plugin class).
+/// Snake-cases a CamelCase plugin class name the way Flutter's tool does when
+/// deriving the Linux registrant function (NitroWebgpuPlugin →
+/// nitro_webgpu_plugin; consecutive capitals split per letter: CApi → c_api).
+String _snakeCasePluginClass(String s) => s.replaceAllMapped(RegExp(r'[A-Z]'), (m) => '_${m.group(0)!.toLowerCase()}').replaceFirst(RegExp(r'^_'), '');
+
+/// True when [pluginClass] is backed by a real implementation under
+/// `<baseDir>/<platform>/` — i.e. the platform sources define the exact
+/// symbol Flutter's generated_plugin_registrant will call:
+///   windows → `<PluginClass>RegisterWithRegistrar`,
+///   linux → `<snake_case(PluginClass)>_register_with_registrar`.
+/// A dangling templated class (issue #10) has no such symbol and must be
+/// stripped, or CMake fails with "No target `<plugin>_plugin`". A hand-written
+/// hybrid plugin (`ffiPlugin: true` PLUS `pluginClass` — e.g. FFI bindings
+/// with a texture-registrar plugin class) defines it, and stripping the
+/// entry silently empties the registrant at runtime (issue #23).
+bool _desktopPluginClassIsReal(String baseDir, String platform, String pluginClass) {
+  final dir = Directory(p.join(baseDir, platform));
+  if (!dir.existsSync()) return false;
+  final symbol = platform == 'windows' ? '${pluginClass}RegisterWithRegistrar' : '${_snakeCasePluginClass(pluginClass)}_register_with_registrar';
+  final srcRe = RegExp(r'\.(c|cc|cpp|h|hpp)$');
+  for (final f in dir.listSync(recursive: true, followLinks: false).whereType<File>()) {
+    final path = f.path.replaceAll(r'\', '/');
+    if (path.contains('/ephemeral/') || path.contains('/build/') || path.contains('/.symlinks/')) continue;
+    if (!srcRe.hasMatch(path)) continue;
+    try {
+      if (f.readAsStringSync().contains(symbol)) return true;
+    } catch (_) {
+      // Unreadable/binary file — not the registrant source.
+    }
+  }
+  return false;
+}
+
 void linkDesktopPubspecFfiOnly(
   List<ModuleInfo> moduleInfos, {
   String baseDir = '.',
@@ -3381,10 +3414,16 @@ void linkDesktopPubspecFfiOnly(
       // Inline flow map: windows: { pluginClass: Xxx, ffiPlugin: true }
       final entries = flowMatch.group(3)!.split(',').map((e) => e.trim()).where((e) => e.isNotEmpty).toList();
       if (entries.any((e) => e.startsWith('ffiPlugin:')) && entries.any((e) => e.startsWith('pluginClass:'))) {
-        entries.removeWhere((e) => e.startsWith('pluginClass:'));
-        out.add('${flowMatch.group(1)}${flowMatch.group(2)}: { ${entries.join(', ')} }');
-        changed = true;
-        continue;
+        // Only strip a DANGLING class — one with no registrant implementation
+        // in the platform sources. ffiPlugin + a real pluginClass is a
+        // documented hybrid configuration and user-owned (issue #23).
+        final cls = entries.firstWhere((e) => e.startsWith('pluginClass:')).substring('pluginClass:'.length).trim();
+        if (!_desktopPluginClassIsReal(baseDir, flowMatch.group(2)!, cls)) {
+          entries.removeWhere((e) => e.startsWith('pluginClass:'));
+          out.add('${flowMatch.group(1)}${flowMatch.group(2)}: { ${entries.join(', ')} }');
+          changed = true;
+          continue;
+        }
       }
     }
 
@@ -3399,9 +3438,17 @@ void linkDesktopPubspecFfiOnly(
       final children = lines.sublist(i + 1, end);
       final hasFfi = children.any((l) => l.trim().startsWith('ffiPlugin:') && l.contains('true'));
       final hasClass = children.any((l) => l.trim().startsWith('pluginClass:'));
+      // Only strip a DANGLING class — one whose registrant symbol appears
+      // nowhere in the platform sources. ffiPlugin + a real pluginClass is a
+      // documented hybrid configuration and user-owned (issue #23).
+      var classIsDangling = false;
+      if (hasFfi && hasClass) {
+        final cls = children.firstWhere((l) => l.trim().startsWith('pluginClass:')).trim().substring('pluginClass:'.length).trim();
+        classIsDangling = !_desktopPluginClassIsReal(baseDir, blockKey.group(2)!, cls);
+      }
       out.add(line);
       for (final child in children) {
-        if (hasFfi && hasClass && child.trim().startsWith('pluginClass:')) {
+        if (hasFfi && hasClass && classIsDangling && child.trim().startsWith('pluginClass:')) {
           changed = true;
           continue;
         }

@@ -4091,6 +4091,109 @@ end
       expect(out, isNot(contains('pluginClass')));
     });
 
+    test('KEEPS pluginClass when the registrant symbol exists in platform sources (issue #23)', () {
+      // ffiPlugin + pluginClass is a documented hybrid config: FFI bindings
+      // plus a plugin class for registrar access (texture handoff). The
+      // platform sources define the exact symbol Flutter's registrant calls.
+      Directory(p.join(tmp.path, 'windows')).createSync(recursive: true);
+      File(p.join(tmp.path, 'windows', 'nitro_printing_plugin.cpp')).writeAsStringSync(
+        '#include "include/nitro_printing/nitro_printing_plugin_c_api.h"\n'
+        'void NitroPrintingPluginCApiRegisterWithRegistrar(\n'
+        '    FlutterDesktopPluginRegistrarRef registrar) {}\n',
+      );
+      Directory(p.join(tmp.path, 'linux')).createSync(recursive: true);
+      File(p.join(tmp.path, 'linux', 'nitro_printing_plugin.cc')).writeAsStringSync(
+        'void nitro_printing_plugin_register_with_registrar(FlPluginRegistrar* registrar) {}\n',
+      );
+      final original = writePubspec(
+        '      windows:\n'
+        '        pluginClass: NitroPrintingPluginCApi\n'
+        '        ffiPlugin: true\n'
+        '      linux:\n'
+        '        pluginClass: NitroPrintingPlugin\n'
+        '        ffiPlugin: true\n',
+      );
+      linkDesktopPubspecFfiOnly([cppDesktopModule()], baseDir: tmp.path);
+      expect(readPubspec(), equals(original), reason: 'a real hybrid config is user-owned — pubspec must stay byte-identical');
+    });
+
+    test('EDGE: mixed — real class on windows kept, dangling class on linux stripped (issue #23)', () {
+      Directory(p.join(tmp.path, 'windows')).createSync(recursive: true);
+      File(p.join(tmp.path, 'windows', 'nitro_printing_plugin.cpp')).writeAsStringSync(
+        'void NitroPrintingPluginCApiRegisterWithRegistrar(FlutterDesktopPluginRegistrarRef r) {}\n',
+      );
+      // linux/ exists but has NO registrant implementation.
+      Directory(p.join(tmp.path, 'linux')).createSync(recursive: true);
+      File(p.join(tmp.path, 'linux', 'CMakeLists.txt')).writeAsStringSync('# ffi only\n');
+      writePubspec(
+        '      windows:\n'
+        '        pluginClass: NitroPrintingPluginCApi\n'
+        '        ffiPlugin: true\n'
+        '      linux:\n'
+        '        pluginClass: NitroPrintingPlugin\n'
+        '        ffiPlugin: true\n',
+      );
+      linkDesktopPubspecFfiOnly([cppDesktopModule()], baseDir: tmp.path);
+      final out = readPubspec();
+      expect(out, contains('pluginClass: NitroPrintingPluginCApi'), reason: 'windows class is real');
+      expect(out, isNot(contains('pluginClass: NitroPrintingPlugin\n')), reason: 'linux class is dangling');
+      expect(out, contains('      linux:\n        ffiPlugin: true'));
+    });
+
+    test('EDGE: flow-map form keeps a real class too (issue #23)', () {
+      Directory(p.join(tmp.path, 'windows')).createSync(recursive: true);
+      File(p.join(tmp.path, 'windows', 'plugin.cpp')).writeAsStringSync(
+        'void NitroPrintingPluginRegisterWithRegistrar(FlutterDesktopPluginRegistrarRef r) {}\n',
+      );
+      final original = writePubspec(
+        '      windows: { pluginClass: NitroPrintingPlugin, ffiPlugin: true }\n',
+      );
+      linkDesktopPubspecFfiOnly([cppDesktopModule()], baseDir: tmp.path);
+      expect(readPubspec(), equals(original));
+    });
+
+    test('EDGE: symbol only under ephemeral/ or build/ does not count — class still dangling (issue #23)', () {
+      final eph = Directory(p.join(tmp.path, 'windows', 'flutter', 'ephemeral'))..createSync(recursive: true);
+      File(p.join(eph.path, 'generated_plugin_registrant.h')).writeAsStringSync(
+        'void NitroPrintingPluginRegisterWithRegistrar(FlutterDesktopPluginRegistrarRef r);\n',
+      );
+      final bld = Directory(p.join(tmp.path, 'linux', 'build'))..createSync(recursive: true);
+      File(p.join(bld.path, 'reg.cc')).writeAsStringSync('void nitro_printing_plugin_register_with_registrar(FlPluginRegistrar* r) {}\n');
+      writePubspec(
+        '      windows:\n'
+        '        pluginClass: NitroPrintingPlugin\n'
+        '        ffiPlugin: true\n'
+        '      linux:\n'
+        '        pluginClass: NitroPrintingPlugin\n'
+        '        ffiPlugin: true\n',
+      );
+      linkDesktopPubspecFfiOnly([cppDesktopModule()], baseDir: tmp.path);
+      expect(readPubspec(), isNot(contains('pluginClass')), reason: 'generated/build artifacts must not vouch for a class the plugin does not implement');
+    });
+
+    test('EDGE: hybrid config idempotent across repeated links (the #23 minimal repro)', () {
+      Directory(p.join(tmp.path, 'windows')).createSync(recursive: true);
+      File(p.join(tmp.path, 'windows', 'nitro_printing_plugin.cpp')).writeAsStringSync(
+        'void NitroPrintingPluginCApiRegisterWithRegistrar(FlutterDesktopPluginRegistrarRef r) {}\n',
+      );
+      Directory(p.join(tmp.path, 'linux')).createSync(recursive: true);
+      File(p.join(tmp.path, 'linux', 'nitro_printing_plugin.cc')).writeAsStringSync(
+        'void nitro_printing_plugin_register_with_registrar(FlPluginRegistrar* r) {}\n',
+      );
+      final original = writePubspec(
+        '      windows:\n'
+        '        pluginClass: NitroPrintingPluginCApi\n'
+        '        ffiPlugin: true\n'
+        '      linux:\n'
+        '        pluginClass: NitroPrintingPlugin\n'
+        '        ffiPlugin: true\n',
+      );
+      for (var i = 0; i < 3; i++) {
+        linkDesktopPubspecFfiOnly([cppDesktopModule()], baseDir: tmp.path);
+      }
+      expect(readPubspec(), equals(original));
+    });
+
     test('idempotent: an already-clean pubspec is byte-identical after a re-run', () {
       final original = writePubspec(
         '      windows:\n'

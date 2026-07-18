@@ -1,3 +1,7 @@
+## 0.5.15
+
+- **Ecosystem sync** — Released alongside `nitro_generator` 0.5.15 (Swift record initializers no longer use Swift 6.1+-only trailing commas — Xcode ≤ 16.2 compatible, [#22](https://github.com/Shreemanarjun/nitro_ecosystem/issues/22)) and `nitrogen_cli` 0.5.15 (hand-added desktop `pluginClass` entries preserved, [#23](https://github.com/Shreemanarjun/nitro_ecosystem/issues/23)). No functional changes to this package — regenerate and re-link to pick them up.
+
 ## 0.5.14
 
 - **Ecosystem sync** — Released alongside `nitrogen_cli` 0.5.14's fixes for the 0.5.13 SPM umbrella-header regression ([#21](https://github.com/Shreemanarjun/nitro_ecosystem/issues/21)) and the reopened Plugin.kt import drop ([#16](https://github.com/Shreemanarjun/nitro_ecosystem/issues/16)). No functional changes to this package — see `nitrogen_cli`'s changelog and re-run `nitrogen link`.

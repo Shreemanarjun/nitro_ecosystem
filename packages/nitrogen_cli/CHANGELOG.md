@@ -1,3 +1,7 @@
+## 0.5.15
+
+- **Fixed: `nitrogen link` no longer deletes hand-added desktop `pluginClass` entries** ([#23](https://github.com/Shreemanarjun/nitro_ecosystem/issues/23)) — the issue-#10 cleanup stripped `pluginClass` from any `windows:`/`linux:` platform entry that also had `ffiPlugin: true`, which silently broke legitimate hybrid plugins (FFI bindings PLUS a plugin class for registrar access, e.g. texture handoff): the desktop registrants regenerated empty and views rendered blank with no build error. The strip is now gated on the class being genuinely DANGLING: nitrogen searches the platform's sources for the exact symbol Flutter's `generated_plugin_registrant` will call — `<PluginClass>RegisterWithRegistrar` on Windows, `<snake_case(PluginClass)>_register_with_registrar` on Linux (the class name itself never appears in GTK plugin sources). Symbol present → the entry is user-owned and byte-identically preserved; absent → stripped as before, so the #10 fix ("No target `<plugin>_plugin`") keeps working. Generated/`ephemeral`/`build` artifacts don't count as implementations. Released alongside `nitro_generator` 0.5.15's Swift trailing-comma fix ([#22](https://github.com/Shreemanarjun/nitro_ecosystem/issues/22)).
+
 ## 0.5.14
 
 Two fixes for 0.5.13 regressions reported from nitro_webgpu:

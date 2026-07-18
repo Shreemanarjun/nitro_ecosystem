@@ -78,9 +78,10 @@ String _generateSwiftRecords(BridgeSpec spec, {bool emitBoilerplate = true}) {
 
     s.writeln('  public static func fromReader(_ r: NitroRecordReader) -> ${st.name} {');
     s.writeln('    return ${st.name}(');
-    for (final f in st.fields) {
-      s.writeln('      ${f.name}: ${_swiftStructReadExpr(f, enumNames, structNames)},');
-    }
+    // Comma as a JOINER, never a per-argument suffix: a trailing comma in an
+    // argument list is Swift 6.1+ syntax (SE-0439) and fails to parse on
+    // Xcode <= 16.2 toolchains (issue #22).
+    s.writeln(st.fields.map((f) => '      ${f.name}: ${_swiftStructReadExpr(f, enumNames, structNames)}').join(',\n'));
     s.writeln('    )');
     s.writeln('  }');
     s.writeln();
@@ -117,9 +118,10 @@ String _generateSwiftRecords(BridgeSpec spec, {bool emitBoilerplate = true}) {
 
     s.writeln('  public static func fromReader(_ r: NitroRecordReader) -> ${rt.name} {');
     s.writeln('    return ${rt.name}(');
-    for (final f in rt.fields) {
-      s.writeln('      ${f.name}: ${_swiftRead(f)},');
-    }
+    // Joiner, not suffix — trailing commas in argument lists are Swift 6.1+
+    // only (SE-0439); Xcode <= 16.2 fails with "Unexpected ',' separator"
+    // (issue #22).
+    s.writeln(rt.fields.map((f) => '      ${f.name}: ${_swiftRead(f)}').join(',\n'));
     s.writeln('    )');
     s.writeln('  }');
     s.writeln();
