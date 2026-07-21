@@ -19,6 +19,29 @@ public class BenchmarkImpl: NSObject, HybridBenchmarkProtocol {
         return "Hello, \(name)!"
     }
 
+    public func sievePrimes(limit: Int64) -> Int64 {
+        // Second reference workload: sieve of Eratosthenes — identical
+        // algorithm to src/nitro_workload.h; every tier must return the
+        // identical prime count.
+        if limit < 2 { return 0 }
+        let n = Int(limit)
+        var composite = [Bool](repeating: false, count: n)
+        var count: Int64 = 0
+        var i = 2
+        while i < n {
+            if !composite[i] {
+                count += 1
+                var j = i * i
+                while j < n {
+                    composite[j] = true
+                    j += i
+                }
+            }
+            i += 1
+        }
+        return count
+    }
+
     public func hashBuffer(data: Data, rounds: Int64) -> Int64 {
         // Reference workload: FNV-1a 64-bit — identical algorithm to the
         // MethodChannel handler (same language, different bridge) and to

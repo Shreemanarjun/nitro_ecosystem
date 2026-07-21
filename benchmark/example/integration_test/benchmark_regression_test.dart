@@ -152,6 +152,36 @@ void main() {
           );
         }
 
+        // Sieve workload (second algorithm): the bridge adds a fixed
+        // ~sub-µs cost to a multi-µs compute body, so every native tier must
+        // stay within a small factor of the raw-FFI sieve — a blowout means
+        // the bridge started copying/allocating per call. Budget absorbs
+        // shared-runner noise on the µs scale.
+        final ffiSieve = optionalMedian('raw_ffi_sieve');
+        final cppSieve = optionalMedian('nitro_cpp_sieve');
+        if (ffiSieve != null && cppSieve != null) {
+          expect(
+            cppSieve,
+            lessThanOrEqualTo(ffiSieve * 2 + 2.0),
+            reason:
+                'Nitro C++ sieve drifted from the raw-FFI sieve '
+                '(cpp=${cppSieve.toStringAsFixed(2)}µs, '
+                'ffi=${ffiSieve.toStringAsFixed(2)}µs) — bridge overhead on an '
+                'int-only signature should be fixed and small.',
+          );
+        }
+        final chanSieve = optionalMedian('channel_sieve');
+        if (chanSieve != null && cppSieve != null) {
+          expect(
+            chanSieve,
+            greaterThanOrEqualTo(cppSieve),
+            reason:
+                'MethodChannel sieve should never beat the Nitro C++ sieve '
+                '(channel=${chanSieve.toStringAsFixed(2)}µs, '
+                'cpp=${cppSieve.toStringAsFixed(2)}µs).',
+          );
+        }
+
         final nativeAsyncRecord = optionalMedian('nitro_native_async_record');
         if (nativeAsyncRecord != null) {
           expect(

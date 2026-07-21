@@ -11,6 +11,26 @@ let package = Package(
         .package(name: "FlutterFramework", path: "../FlutterFramework"),
     ],
     targets: [
+      .target(
+        name: "NitroArCpp",
+        dependencies: ["BenchmarkCpp"],
+        path: "Sources/NitroArCpp",
+        publicHeadersPath: "include",
+        cxxSettings: [
+          .headerSearchPath("include"),
+          .unsafeFlags(["-std=c++17"])
+        ]
+      ),
+      .target(
+        name: "BenchmarkCppCpp",
+        dependencies: ["BenchmarkCpp"],
+        path: "Sources/BenchmarkCppCpp",
+        publicHeadersPath: "include",
+        cxxSettings: [
+          .headerSearchPath("include"),
+          .unsafeFlags(["-std=c++17"])
+        ]
+      ),
         .target(
             name: "BenchmarkCpp",
             path: "Sources/BenchmarkCpp",
@@ -23,6 +43,8 @@ let package = Package(
         .target(
             name: "benchmark",
             dependencies: [
+              "NitroArCpp",
+              "BenchmarkCppCpp",
                 "BenchmarkCpp",
                 .product(name: "FlutterFramework", package: "FlutterFramework"),
             ],

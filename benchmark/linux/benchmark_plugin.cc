@@ -58,6 +58,19 @@ static void benchmark_plugin_handle_method_call(BenchmarkPlugin* self,
           fl_value_new_int(static_cast<int64_t>(length));
       response = FL_METHOD_RESPONSE(fl_method_success_response_new(result));
     }
+  } else if (strcmp(method, "sievePrimes") == 0) {
+    // Second reference workload: sieve of Eratosthenes — literally the same
+    // C routine the raw-FFI and Nitro tiers call (src/nitro_workload.h).
+    int64_t limit = 0;
+    if (args != nullptr && fl_value_get_type(args) == FL_VALUE_TYPE_MAP) {
+      FlValue* lv = fl_value_lookup_string(args, "limit");
+      if (lv != nullptr && fl_value_get_type(lv) == FL_VALUE_TYPE_INT) {
+        limit = fl_value_get_int(lv);
+      }
+    }
+    g_autoptr(FlValue) result =
+        fl_value_new_int(nitro_bench_sieve_primes(limit));
+    response = FL_METHOD_RESPONSE(fl_method_success_response_new(result));
   } else if (strcmp(method, "hashBuffer") == 0) {
     // Reference workload: FNV-1a 64-bit — literally the same C routine the
     // raw-FFI and Nitro tiers call (src/nitro_workload.h).

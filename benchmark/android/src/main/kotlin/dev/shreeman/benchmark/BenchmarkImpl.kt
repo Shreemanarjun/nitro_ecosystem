@@ -16,6 +16,29 @@ class BenchmarkImpl(private val context: Context) : HybridBenchmarkSpec {
 
     override fun getGreeting(name: String): String = "Hello, $name!"
 
+    override fun sievePrimes(limit: Long): Long {
+        // Second reference workload: sieve of Eratosthenes — identical
+        // algorithm to src/nitro_workload.h; every tier must return the
+        // identical prime count.
+        if (limit < 2) return 0
+        val n = limit.toInt()
+        val composite = BooleanArray(n)
+        var count = 0L
+        var i = 2
+        while (i < n) {
+            if (!composite[i]) {
+                count++
+                var j = i.toLong() * i
+                while (j < n) {
+                    composite[j.toInt()] = true
+                    j += i
+                }
+            }
+            i++
+        }
+        return count
+    }
+
     override fun hashBuffer(data: ByteArray, rounds: Long): Long {
         // Reference workload: FNV-1a 64-bit — identical algorithm to the
         // MethodChannel handler (same language, different bridge) and to

@@ -5,7 +5,7 @@ project(benchmark_library VERSION 0.0.1 LANGUAGES C CXX)
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(NITRO_NATIVE "${CMAKE_CURRENT_SOURCE_DIR}/native")
-# NITRO_LINK_SPEC_CHECKSUM ae61dfd46297f9eb
+# NITRO_LINK_SPEC_CHECKSUM ca6155f3cd2a36bc
 set(GENERATED_CPP "${CMAKE_CURRENT_SOURCE_DIR}/../lib/src/generated/cpp")
 
 # ── Swift/Kotlin bridge (NativeImpl.swift / NativeImpl.kotlin) ────────────────
@@ -17,7 +17,11 @@ add_library(benchmark SHARED
 )
 
 if(NOT ANDROID)
-  target_sources(benchmark PRIVATE "HybridBenchmark.cpp")
+  if(DEFINED NITRO_IMPL_SRC_benchmark)
+    target_sources(benchmark PRIVATE "${NITRO_IMPL_SRC_benchmark}")
+  else()
+    target_sources(benchmark PRIVATE "HybridBenchmark.cpp")
+  endif()
 endif()
 target_include_directories(benchmark PRIVATE
   "${CMAKE_CURRENT_SOURCE_DIR}"
@@ -39,11 +43,15 @@ endif()
 # ── Direct C++ dispatch (NativeImpl.cpp) ─────────────────────────────────────
 add_library(benchmark_cpp SHARED
   "${CMAKE_CURRENT_SOURCE_DIR}/../lib/src/generated/cpp/benchmark_cpp.bridge.g.cpp"
-  "HybridBenchmarkCpp.cpp"
   "benchmark.cpp"
   "benchmark.c"
   "dart_api_dl.c"
 )
+if(DEFINED NITRO_IMPL_SRC_benchmark_cpp)
+  target_sources(benchmark_cpp PRIVATE "${NITRO_IMPL_SRC_benchmark_cpp}")
+else()
+  target_sources(benchmark_cpp PRIVATE "HybridBenchmarkCpp.cpp")
+endif()
 
 target_include_directories(benchmark_cpp PRIVATE
   "${CMAKE_CURRENT_SOURCE_DIR}"

@@ -15,6 +15,8 @@ set(PLUGIN_NAME "benchmark_plugin")
 # Build ALL Nitro module libraries (benchmark, benchmark_cpp, nitro_ar) from
 # the shared source tree. Each becomes its own shared library, loaded by name
 # via DynamicLibrary.open on the Dart side.
+set(NITRO_IMPL_SRC_benchmark "${CMAKE_CURRENT_SOURCE_DIR}/src/HybridBenchmark.cpp")
+set(NITRO_IMPL_SRC_benchmark_cpp "${CMAKE_CURRENT_SOURCE_DIR}/src/HybridBenchmarkCpp.cpp")
 add_subdirectory("${CMAKE_CURRENT_SOURCE_DIR}/../src" nitro_modules)
 
 # Define the plugin library target — MethodChannel baseline only; the Nitro

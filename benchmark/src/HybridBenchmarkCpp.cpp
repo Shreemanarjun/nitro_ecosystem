@@ -160,6 +160,13 @@ public:
         return static_cast<int64_t>(buffer_length);
     }
 
+    int64_t sievePrimes(int64_t limit) override {
+        // Second reference workload: sieve of Eratosthenes — the same C
+        // routine every other tier runs (src/nitro_workload.h); every tier
+        // must return the identical prime count.
+        return nitro_bench_sieve_primes(limit);
+    }
+
     int64_t hashBuffer(const uint8_t* data, size_t data_length,
                        int64_t rounds) override {
         // Reference workload: FNV-1a 64-bit — the same C routine every other

@@ -10,13 +10,21 @@
 //   4. Call benchmark_cpp_register_impl(nullptr) in teardown.
 //
 // Ownership conventions:
-//   • Record/variant/tuple RETURNS: return writer.toNativeBuffer() (or
-//     nitro_<Variant>_to_native) — a malloc'd [4B len][payload] block that
-//     Dart frees after decoding. Returning a view of a local buffer dangles.
-//   • Record/variant PARAMS and emit_* stream items are non-owning payload
-//     views (no length prefix) — copy if you need them after the call.
-//   • @zeroCopy TypedData returns are NOT copied by the bridge: the pointed-to
-//     bytes must stay alive until Dart is done (e.g. store them in a member).
+//   • Record/variant/tuple RETURNS, **emit_* stream items**, and record/
+//     variant CALLBACK arguments you invoke a callback with: pass
+//     writer.toNativeBuffer() (or nitro_<Variant>_to_native) — a malloc'd
+//     [4B len][payload] block whose ownership transfers to the bridge/Dart.
+//     Returning or emitting a non-owning writer.toBuffer() view is wrong:
+//     Dart would decode-and-free a live local buffer.
+//   • Record/variant PARAMS are non-owning payload views (no length prefix)
+//     — copy if you need them after the call.
+//   • TypedData RETURNS use NitroCppBuffer{ data, size } where size is in
+//     BYTES, not elements (Float32List: count * sizeof(float)). A wrong
+//     unit silently truncates the list Dart sees (bytes / elemSize).
+//   • @zeroCopy TypedData returns are NOT copied by the bridge: return a
+//     malloc'd buffer — ownership transfers, and the bridge frees it (via
+//     <lib>_release_typed_data_return) when Dart's view is GC'd. Never
+//     return a pointer to a member or stack buffer: it would be free()d.
 
 #include "benchmark_cpp.native.g.h"
 #include <stdexcept>
@@ -54,6 +62,12 @@ public:
         // return 0;
     }
 
+    int64_t sievePrimes(int64_t limit) override {
+        // TODO: implement sievePrimes
+        throw std::runtime_error("Not implemented: sievePrimes");
+        // return 0;
+    }
+
     BenchmarkPoint scalePoint(const BenchmarkPoint& point, double factor) override {
         // TODO: implement scalePoint
         throw std::runtime_error("Not implemented: scalePoint");
@@ -68,6 +82,9 @@ public:
     void computeStatsNative(int64_t iterations, NitroError* _nitro_err, int64_t dartPort) override {
         // TODO: on error, populate _nitro_err (hasError/name/message via strdup) before posting.
         // TODO: post result via Dart_PostCObject_DL(dartPort, ...)
+        // Nullable result? Post EITHER Dart_CObject_kNull OR kInt64 with
+        // value 0 — both decode to Dart null. Non-nullable results must
+        // always post a real encoded value.
         throw std::runtime_error("Not implemented: computeStatsNative");
     }
 
@@ -98,6 +115,9 @@ public:
     // ── Streams ──────────────────────────────────────────────────────────────
     // Call emit_<name>(item) from any thread to push items to Dart.
     // emit_* helpers are defined in the generated bridge.
+    // Record/variant items: pass record.toNativeBuffer() — ownership of the
+    // heap [4B len][payload] block transfers to the bridge (same convention
+    // as record returns). Never emit a non-owning writer.toBuffer() view.
     // Example — start emitting from a background thread:
     //
     //   std::thread([this]{ emit_dataStream(/* BenchmarkPoint value */); }).detach();

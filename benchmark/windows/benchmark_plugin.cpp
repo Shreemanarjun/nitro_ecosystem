@@ -66,6 +66,20 @@ void BenchmarkPlugin::HandleMethodCall(
     (void)sum;
     result->Success(
         flutter::EncodableValue(static_cast<int64_t>(buffer->size())));
+  } else if (method_call.method_name() == "sievePrimes") {
+    // Second reference workload: sieve of Eratosthenes — literally the same
+    // C routine the raw-FFI and Nitro tiers call (src/nitro_workload.h).
+    const auto *args =
+        std::get_if<flutter::EncodableMap>(method_call.arguments());
+    int64_t limit = 0;
+    if (args) {
+      const auto itl = args->find(flutter::EncodableValue("limit"));
+      if (itl != args->end()) {
+        if (const auto *v64 = std::get_if<int64_t>(&itl->second)) limit = *v64;
+        else if (const auto *v32 = std::get_if<int32_t>(&itl->second)) limit = *v32;
+      }
+    }
+    result->Success(flutter::EncodableValue(nitro_bench_sieve_primes(limit)));
   } else if (method_call.method_name() == "hashBuffer") {
     // Reference workload: FNV-1a 64-bit — literally the same C routine the
     // raw-FFI and Nitro tiers call (src/nitro_workload.h).

@@ -15,6 +15,12 @@ extern "C" {
     return nitro_bench_fnv1a(data, length, rounds);
   }
 
+  /// Second reference workload (sieve of Eratosthenes, see nitro_workload.h)
+  /// for the raw-FFI tier — int64 in/out, near-zero marshalling.
+  NITRO_EXPORT int64_t sieve_primes(int64_t limit) {
+    return nitro_bench_sieve_primes(limit);
+  }
+
   NITRO_EXPORT int64_t send_large_buffer(const uint8_t* buffer, int64_t length) {
     if (!buffer || length <= 0) return 0;
     // Force memory access to prevent optimization

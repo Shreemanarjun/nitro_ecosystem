@@ -170,6 +170,12 @@ class BenchReport {
   final List<BenchResult> results;
   final DateTime timestamp;
 
+  /// The hardware the run executed on: model/manufacturer/os (from the
+  /// platform host via the `deviceInfo` channel method when available,
+  /// Platform.* fallback otherwise). A benchmark number without the machine
+  /// it ran on is not comparable to anything.
+  final Map<String, Object?> device;
+
   /// Cross-tier workload equivalence proof: the FNV-1a hash each bridge tier
   /// returned for the same payload, and whether they all agree.
   final Map<String, Object?>? verification;
@@ -180,6 +186,7 @@ class BenchReport {
     required this.config,
     required this.results,
     required this.timestamp,
+    this.device = const {},
     this.verification,
   });
 
@@ -219,12 +226,22 @@ class BenchReport {
       'nitro_native_async_record',
       'method_channel_add',
     ),
+    // Second algorithm (sieve): language-vs-language compute with near-zero
+    // marshalling. dart_over_ffi ≈ Dart AOT vs C on identical work.
+    'sieve_dart_over_raw_ffi': _ratio('dart_sieve', 'raw_ffi_sieve'),
+    'sieve_cpp_over_raw_ffi': _ratio('nitro_cpp_sieve', 'raw_ffi_sieve'),
+    'sieve_platform_over_raw_ffi': _ratio(
+      'nitro_platform_sieve',
+      'raw_ffi_sieve',
+    ),
+    'sieve_channel_over_cpp': _ratio('channel_sieve', 'nitro_cpp_sieve'),
   };
 
   Map<String, Object?> toJson() => {
     'schema': schemaVersion,
     'platform': platform,
     'buildMode': buildMode,
+    'device': device,
     'mode': config.mode,
     'timestampMs': timestamp.millisecondsSinceEpoch,
     if (verification != null) 'verification': verification,
@@ -557,6 +574,116 @@ class BenchHarness {
       },
     );
 
+    // ── Latency: identical sieve workload across every tier ────────────────
+    // Second algorithm, deliberately different profile from FNV-1a: one heap
+    // allocation + strided memory WRITES + data-dependent branches, and only
+    // a single int64 crosses the bridge — so it isolates pure implementation-
+    // language compute (C vs C++ vs Swift/Kotlin) with near-zero marshalling,
+    // while the FNV-1a rows above include the 1 KiB payload crossing. Every
+    // tier implements the exact same algorithm (src/nitro_workload.h); the
+    // verification below fails the whole run on any disagreement.
+    const sieveLimit = 4096;
+    int dartSievePrimes(int limit) {
+      if (limit < 2) return 0;
+      final composite = List<bool>.filled(limit, false);
+      var count = 0;
+      for (var i = 2; i < limit; i++) {
+        if (!composite[i]) {
+          count++;
+          for (var j = i * i; j < limit; j += i) {
+            composite[j] = true;
+          }
+        }
+      }
+      return count;
+    }
+
+    final rawSieve = NitroRuntime.loadLib('benchmark_cpp')
+        .lookupFunction<Int64 Function(Int64), int Function(int)>(
+          'sieve_primes',
+        );
+
+    {
+      final dartCount = dartSievePrimes(sieveLimit);
+      final ffiCount = rawSieve(sieveLimit);
+      final cppCount = cpp.sievePrimes(sieveLimit);
+      int? platCount;
+      try {
+        platCount = platformBridge.sievePrimes(sieveLimit);
+      } catch (_) {}
+      int? chanCount;
+      try {
+        chanCount = await _channel.invokeMethod<int>('sievePrimes', {
+          'limit': sieveLimit,
+        });
+      } catch (_) {}
+      verification['workload2'] = 'sieve-of-eratosthenes · limit $sieveLimit';
+      verification['dartSieve'] = dartCount;
+      verification['rawFfiSieve'] = ffiCount;
+      verification['nitroCppSieve'] = cppCount;
+      if (platCount != null) verification['nitroPlatformSieve'] = platCount;
+      if (chanCount != null) verification['methodChannelSieve'] = chanCount;
+      final counts = [dartCount, ffiCount, cppCount, ?platCount, ?chanCount];
+      final sieveAgree = counts.every((c) => c == dartCount);
+      verification['sieveTiersAgree'] = sieveAgree;
+      verification['sieveTiersVerified'] = counts.length;
+      if (!sieveAgree) {
+        throw StateError(
+          'Cross-tier sieve count mismatch — the comparison would not '
+          'be measuring identical work: $verification',
+        );
+      }
+    }
+
+    await latencyCase('dart_sieve', 'Pure Dart sieve (no bridge)', config.asyncIters, (
+      n,
+    ) {
+      for (var i = 0; i < n; i++) {
+        sink += dartSievePrimes(sieveLimit).toDouble();
+      }
+    });
+
+    await latencyCase('raw_ffi_sieve', 'Raw FFI + sieve work', config.asyncIters, (
+      n,
+    ) {
+      for (var i = 0; i < n; i++) {
+        sink += rawSieve(sieveLimit).toDouble();
+      }
+    });
+
+    await latencyCase('nitro_cpp_sieve', 'Nitro C++ + sieve work', config.asyncIters, (
+      n,
+    ) {
+      for (var i = 0; i < n; i++) {
+        sink += cpp.sievePrimes(sieveLimit).toDouble();
+      }
+    });
+
+    await latencyCase(
+      'nitro_platform_sieve',
+      '$platformBridgeLabel + sieve work',
+      config.asyncIters,
+      (n) {
+        for (var i = 0; i < n; i++) {
+          sink += platformBridge.sievePrimes(sieveLimit).toDouble();
+        }
+      },
+    );
+
+    await latencyCase(
+      'channel_sieve',
+      'MethodChannel + sieve work',
+      config.asyncIters,
+      (n) async {
+        for (var i = 0; i < n; i++) {
+          final v = await _channel.invokeMethod<int>('sievePrimes', {
+            'limit': sieveLimit,
+          });
+          sink += (v ?? 0).toDouble();
+        }
+      },
+    );
+
     // ── Throughput: 16–64 MiB buffer transport (informational) ─────────────
 
     final buffer = Uint8List(config.bufferBytes);
@@ -647,12 +774,28 @@ class BenchHarness {
     // Publish the sink so the whole run is observably side-effecting.
     debugPrint('[BenchHarness] checksum: ${sink.toStringAsFixed(1)}');
 
+    // Identify the hardware this run executed on. The platform host answers
+    // `deviceInfo` with model/manufacturer (Build.* on Android, UIDevice +
+    // utsname on iOS, sysctl hw.model on macOS); desktop hosts without a
+    // handler fall back to what Dart alone can see.
+    var device = <String, Object?>{
+      'os': '${Platform.operatingSystem} ${Platform.operatingSystemVersion}',
+      'hostname': Platform.localHostname,
+    };
+    try {
+      final info = await _channel.invokeMapMethod<String, Object?>(
+        'deviceInfo',
+      );
+      if (info != null) device = {...info, ...device};
+    } catch (_) {}
+
     return BenchReport(
       platform: Platform.operatingSystem,
       buildMode: _buildMode,
       config: config,
       results: results,
       timestamp: DateTime.now(),
+      device: device,
       verification: verification,
     );
   }

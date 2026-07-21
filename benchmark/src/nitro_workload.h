@@ -21,6 +21,7 @@
 #define NITRO_BENCH_WORKLOAD_H_
 
 #include <stdint.h>
+#include <stdlib.h>
 
 #ifdef __cplusplus
 extern "C" {
@@ -36,6 +37,33 @@ static inline uint64_t nitro_bench_fnv1a(const uint8_t* data, int64_t len,
     }
   }
   return hash;
+}
+
+// Second reference workload: Sieve of Eratosthenes — count primes < limit.
+//
+// Complements FNV-1a with a deliberately DIFFERENT performance profile:
+//   * FNV-1a:  sequential byte reads + XOR/multiply — ALU-chain bound, the
+//              1 KiB payload also crosses the bridge every call.
+//   * sieve:   one heap allocation + strided memory WRITES + data-dependent
+//              branches — allocator/cache/branch bound, and only a single
+//              int64 crosses the bridge, so it isolates pure language
+//              compute with near-zero marshalling.
+// Like FNV-1a it is a handful of lines that are trivially identical in
+// C/C++/Kotlin/Swift/Dart and self-verifying: every tier must return the
+// exact same prime count (limit 4096 → 564) before anything is timed.
+static inline int64_t nitro_bench_sieve_primes(int64_t limit) {
+  if (limit < 2) return 0;
+  uint8_t* composite = (uint8_t*)calloc((size_t)limit, 1);
+  if (!composite) return -1;
+  int64_t count = 0;
+  for (int64_t i = 2; i < limit; i++) {
+    if (!composite[i]) {
+      count++;
+      for (int64_t j = i * i; j < limit; j += i) composite[j] = 1;
+    }
+  }
+  free(composite);
+  return count;
 }
 
 #ifdef __cplusplus

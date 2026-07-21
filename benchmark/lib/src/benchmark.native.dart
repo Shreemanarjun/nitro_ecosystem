@@ -36,6 +36,12 @@ abstract class Benchmark extends HybridObject {
   /// implementation language held constant.
   int hashBuffer(Uint8List data, int rounds);
 
+  /// Second reference workload: Sieve of Eratosthenes — count primes below
+  /// [limit] (see `src/nitro_workload.h`). Complements [hashBuffer] with an
+  /// allocation/branch/memory-write profile and an int-only signature, so it
+  /// isolates pure platform-language compute with near-zero marshalling.
+  int sievePrimes(int limit);
+
   /// High-bandwidth test — pushes up to 4GB zero-copy buffers.
   int sendLargeBuffer(Uint8List buffer);
 }

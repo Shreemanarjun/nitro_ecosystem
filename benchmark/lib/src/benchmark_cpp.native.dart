@@ -149,6 +149,12 @@ abstract class BenchmarkCpp extends HybridObject {
   /// comparison provably measures identical work.
   int hashBuffer(Uint8List data, int rounds);
 
+  /// Second reference workload: Sieve of Eratosthenes — count primes below
+  /// [limit] (see `src/nitro_workload.h`). Allocation + strided writes +
+  /// branches, int-only signature: isolates pure C++ compute with near-zero
+  /// marshalling, complementing [hashBuffer]'s buffer-crossing profile.
+  int sievePrimes(int limit);
+
   /// Sync zero-copy struct param + return. Passes [point] as a raw C pointer
   /// and receives a new malloc'd struct back. Measures struct-passing overhead
   /// without any primitive-only fast path.

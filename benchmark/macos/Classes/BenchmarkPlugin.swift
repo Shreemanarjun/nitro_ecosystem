@@ -25,6 +25,38 @@ public class BenchmarkPlugin: NSObject, FlutterPlugin {
         return
       }
       result(Int64(bufferArray.data.count))
+    } else if call.method == "deviceInfo" {
+      // Hardware identity for the benchmark report.
+      var size = 0
+      sysctlbyname("hw.model", nil, &size, nil, 0)
+      var model = [CChar](repeating: 0, count: size)
+      sysctlbyname("hw.model", &model, &size, nil, 0)
+      let os = ProcessInfo.processInfo.operatingSystemVersionString
+      result([
+        "model": String(cString: model),
+        "socOs": "macOS \(os)",
+      ])
+    } else if call.method == "sievePrimes" {
+      // Second reference workload: sieve of Eratosthenes — identical to
+      // src/nitro_workload.h; every tier must return the same prime count.
+      let args = call.arguments as? [String: Any]
+      let limit = args?["limit"] as? Int ?? 0
+      if limit < 2 { result(Int64(0)); return }
+      var composite = [Bool](repeating: false, count: limit)
+      var count: Int64 = 0
+      var i = 2
+      while i < limit {
+        if !composite[i] {
+          count += 1
+          var j = i * i
+          while j < limit {
+            composite[j] = true
+            j += i
+          }
+        }
+        i += 1
+      }
+      result(count)
     } else if call.method == "hashBuffer" {
       // Reference workload: FNV-1a 64-bit — identical to
       // src/nitro_workload.h; &* wraps mod 2^64, matching C uint64_t.

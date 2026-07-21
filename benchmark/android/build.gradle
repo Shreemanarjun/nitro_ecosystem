@@ -22,7 +22,9 @@ android {
 
     kotlinOptions { jvmTarget = "17" }
 
-    defaultConfig { minSdk = 24 }
+    defaultConfig {
+            consumerProguardFiles "consumer-rules.pro"
+ minSdk = 24 }
 
     sourceSets {
         main {

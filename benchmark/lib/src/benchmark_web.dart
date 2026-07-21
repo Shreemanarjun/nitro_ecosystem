@@ -59,6 +59,7 @@ abstract class Benchmark {
   double addFast(double a, double b);
   String getGreeting(String name);
   int hashBuffer(Uint8List data, int rounds);
+  int sievePrimes(int limit);
   int sendLargeBuffer(Uint8List buffer);
 
   void dispose() {}
@@ -92,6 +93,8 @@ class _BenchmarkWebImpl extends Benchmark {
 
   @override
   int hashBuffer(Uint8List data, int rounds) => _fnv1aWeb(data, rounds);
+  @override
+  int sievePrimes(int limit) => _sievePrimesWeb(limit);
 
   @override
   int sendLargeBuffer(Uint8List buffer) {
@@ -117,6 +120,7 @@ abstract class BenchmarkCpp {
   double addFast(double a, double b);
   String getGreeting(String name);
   int hashBuffer(Uint8List data, int rounds);
+  int sievePrimes(int limit);
   BenchmarkPoint scalePoint(BenchmarkPoint point, double factor);
   Future<BenchmarkStats> computeStats(int iterations);
   Stream<BenchmarkPoint> get dataStream;
@@ -140,6 +144,8 @@ class _BenchmarkCppWebImpl extends BenchmarkCpp {
 
   @override
   int hashBuffer(Uint8List data, int rounds) => _fnv1aWeb(data, rounds);
+  @override
+  int sievePrimes(int limit) => _sievePrimesWeb(limit);
 
   @override
   BenchmarkPoint scalePoint(BenchmarkPoint point, double factor) =>
@@ -193,4 +199,20 @@ class _BenchmarkCppWebImpl extends BenchmarkCpp {
 
   @override
   int sendLargeBufferNoopFast(Uint8List buffer) => buffer.length;
+}
+
+int _sievePrimesWeb(int limit) {
+  // Second reference workload — identical to src/nitro_workload.h.
+  if (limit < 2) return 0;
+  final composite = List<bool>.filled(limit, false);
+  var count = 0;
+  for (var i = 2; i < limit; i++) {
+    if (!composite[i]) {
+      count++;
+      for (var j = i * i; j < limit; j += i) {
+        composite[j] = true;
+      }
+    }
+  }
+  return count;
 }

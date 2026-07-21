@@ -46,6 +46,42 @@ class BenchmarkPlugin : FlutterPlugin {
                         }
                         result.success(buffer?.size ?: 0)
                     }
+                    "deviceInfo" -> {
+                        // Hardware identity for the benchmark report — a
+                        // number without the machine it ran on is not
+                        // comparable to anything.
+                        result.success(mapOf(
+                            "model" to android.os.Build.MODEL,
+                            "manufacturer" to android.os.Build.MANUFACTURER,
+                            "device" to android.os.Build.DEVICE,
+                            "socOs" to "Android ${android.os.Build.VERSION.RELEASE} (SDK ${android.os.Build.VERSION.SDK_INT})",
+                        ))
+                    }
+                    "sievePrimes" -> {
+                        // Second reference workload: sieve of Eratosthenes —
+                        // identical to src/nitro_workload.h; every tier must
+                        // return the same prime count.
+                        val limit = call.argument<Int>("limit") ?: 0
+                        if (limit < 2) {
+                            result.success(0L)
+                        } else {
+                            val composite = BooleanArray(limit)
+                            var count = 0L
+                            var i = 2
+                            while (i < limit) {
+                                if (!composite[i]) {
+                                    count++
+                                    var j = i.toLong() * i
+                                    while (j < limit) {
+                                        composite[j.toInt()] = true
+                                        j += i
+                                    }
+                                }
+                                i++
+                            }
+                            result.success(count)
+                        }
+                    }
                     "hashBuffer" -> {
                         // Reference workload: FNV-1a 64-bit — identical to
                         // src/nitro_workload.h; Long multiplication wraps
