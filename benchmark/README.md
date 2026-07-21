@@ -64,6 +64,12 @@ Because `BenchmarkBoxProxy extends BenchmarkBox`, `Stream<BenchmarkBoxProxy>` sa
 
 ## Results (Release mode)
 
+> **Full, current results: [RESULTS.md](RESULTS.md)** — the platform × build-mode
+> matrix, both verified workloads (FNV-1a and sieve) across raw C / C++ / Swift /
+> Kotlin / MethodChannel, real-device and CI numbers, and the methodology notes.
+> The figures below are an older single-workload snapshot kept for context.
+
+
 ### iOS — iPhone 17 Pro Max (iOS 26.3, M4 Pro)
 Test: 50,000 iterations of `add(1.0, 2.0)`.
 
