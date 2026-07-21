@@ -1191,6 +1191,37 @@ void linkCMake(
   final stamp = _stampLinkSpecChecksum(content, computeLinkSpecChecksum(baseDir: baseDir));
   content = stamp.content;
   modified = modified || stamp.modified;
+
+  // ── Optimization guard for non-standard CMAKE_BUILD_TYPEs ───────────────
+  // AGP passes the Android VARIANT name ("profile") as CMAKE_BUILD_TYPE;
+  // CMake has no per-config flags for unknown configs, so the whole native
+  // library silently compiled at -O0 in Flutter's profile mode (release maps
+  // to RELEASE and was unaffected). Insert once into existing plugins; the
+  // scaffold template already carries it. `_NITRO_CFG` doubles as the
+  // idempotence marker.
+  if (!content.contains('_NITRO_CFG')) {
+    const guard = '# ── Optimization guard ───────────────────────────────────────────────────────\n'
+        '# The Android Gradle Plugin passes the VARIANT name (e.g. "profile") as\n'
+        '# CMAKE_BUILD_TYPE. CMake only defines per-config flags for\n'
+        '# Debug/Release/RelWithDebInfo/MinSizeRel — an unknown config has EMPTY flag\n'
+        '# sets, so every native source silently compiles at -O0. Flutter\'s release\n'
+        '# variant maps to RELEASE and is unaffected, but profile builds shipped\n'
+        '# unoptimized native code. Give any non-standard config Release-grade flags.\n'
+        // ignore: unnecessary_string_escapes
+        'string(TOUPPER "\${CMAKE_BUILD_TYPE}" _NITRO_CFG)\n'
+        'if(NOT "\${_NITRO_CFG}" MATCHES "^(DEBUG|RELEASE|RELWITHDEBINFO|MINSIZEREL|)\$")\n'
+        '  set(CMAKE_C_FLAGS_\${_NITRO_CFG} "-O2 -DNDEBUG")\n'
+        '  set(CMAKE_CXX_FLAGS_\${_NITRO_CFG} "-O2 -DNDEBUG")\n'
+        'endif()\n';
+    final projMatch = RegExp(r'^project\([^\n]*\)[ \t]*\r?\n', multiLine: true).firstMatch(content);
+    if (projMatch != null) {
+      content = '${content.substring(0, projMatch.end)}\n$guard${content.substring(projMatch.end)}';
+    } else {
+      content = '$guard\n$content';
+    }
+    modified = true;
+    stdout.writeln('  src/CMakeLists.txt: added optimization guard (profile-mode Android builds compiled at -O0)');
+  }
   const desiredNitroValue = _srcLocalNitroNativeCmakePath;
   final nitroNativeSetLine = 'set(NITRO_NATIVE "$desiredNitroValue")';
   if (!content.contains('NITRO_NATIVE')) {

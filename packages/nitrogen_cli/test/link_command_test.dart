@@ -1241,6 +1241,28 @@ end
     });
   });
 
+  group('linkCMake — optimization guard (profile-mode -O0 fix)', () {
+    test('inserts the guard once into an existing src/CMakeLists.txt and is idempotent', () {
+      scaffoldPodspec('my_plugin');
+      final srcDir = Directory(p.join(tmp.path, 'src'))..createSync(recursive: true);
+      final cmake = File(p.join(srcDir.path, 'CMakeLists.txt'))
+        ..writeAsStringSync('cmake_minimum_required(VERSION 3.10)\n'
+            'project(my_plugin_library VERSION 0.0.1 LANGUAGES C CXX)\n'
+            'add_library(my_plugin SHARED "my_plugin.cpp")\n');
+      linkCMake('my_plugin', ['my_plugin'], p.join(tmp.path, 'nitro_native'), baseDir: tmp.path);
+      final once = cmake.readAsStringSync();
+      expect(once, contains(r'string(TOUPPER "${CMAKE_BUILD_TYPE}" _NITRO_CFG)'));
+      expect(once, contains(r'CMAKE_CXX_FLAGS_${_NITRO_CFG} "-O2 -DNDEBUG"'));
+      // Guard lands after project(), before targets.
+      expect(once.indexOf('_NITRO_CFG'), greaterThan(once.indexOf('project(')));
+      expect(once.indexOf('string(TOUPPER'), lessThan(once.indexOf('add_library')));
+      linkCMake('my_plugin', ['my_plugin'], p.join(tmp.path, 'nitro_native'), baseDir: tmp.path);
+      expect('_NITRO_CFG'.allMatches(cmake.readAsStringSync()).length,
+          equals('_NITRO_CFG'.allMatches(once).length),
+          reason: 'second link must not duplicate the guard');
+    });
+  });
+
   group('LinkCommand Content Generation', () {
     test('linkPodspec updates Swift version and Header Search Paths', () {
       final iosDir = Directory(p.join(tmp.path, 'ios'))..createSync();
