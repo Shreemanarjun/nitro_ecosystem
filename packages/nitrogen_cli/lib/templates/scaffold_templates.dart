@@ -217,6 +217,16 @@ android {
 
     kotlinOptions { jvmTarget = "${BuildVersions.androidJvmTarget}" }
 
+    buildTypes {
+        // Flutter's profile variant: without an explicit profile buildType,
+        // AGP builds the plugin's CMake code with the DEBUG config — the
+        // whole native library ships at -O0 in profile mode. Inherit release
+        // so profile builds measure optimized native code.
+        profile {
+            initWith release
+        }
+    }
+
     defaultConfig { minSdk = ${BuildVersions.androidMinSdk} }
 
     sourceSets {
