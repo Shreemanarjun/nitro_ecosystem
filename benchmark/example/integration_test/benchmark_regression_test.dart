@@ -24,7 +24,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:integration_test/integration_test.dart';
 
 import 'package:benchmark_example/harness/bench_harness.dart';
-import 'package:benchmark_example/nitro_init_native.dart';
+import 'package:benchmark_example/core/nitro_init_native.dart';
 
 const _mode = String.fromEnvironment('NITRO_BENCH_MODE', defaultValue: 'quick');
 const _gate = String.fromEnvironment(

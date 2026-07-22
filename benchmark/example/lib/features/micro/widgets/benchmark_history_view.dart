@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
-import '../models/benchmark_bridge.dart';
+import '../../../core/bridge_type.dart';
 import '../models/benchmark_history.dart';
 
 class BenchmarkHistory extends StatelessWidget {

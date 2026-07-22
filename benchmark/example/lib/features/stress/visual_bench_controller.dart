@@ -3,10 +3,10 @@ import 'dart:math' as math;
 import 'package:benchmark/benchmark.dart';
 import 'package:flutter/services.dart';
 import 'package:signals_flutter/signals_flutter.dart';
-import '../models/benchmark_bridge.dart';
+import '../../core/bridge_type.dart';
 // Raw FFI helpers — web stub returns pure-Dart results; native loads the lib.
-import 'raw_ffi_service.dart'
-    if (dart.library.io) 'raw_ffi_service_native.dart';
+import '../../services/raw_ffi_service.dart'
+    if (dart.library.io) '../../services/raw_ffi_service_native.dart';
 
 class VisualBenchmarkController {
   final isRunning = signal<bool>(false);

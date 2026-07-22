@@ -1,4 +1,4 @@
-import 'benchmark_bridge.dart';
+import '../../../core/bridge_type.dart';
 
 class BenchmarkHistoryEntry {
   final DateTime timestamp;

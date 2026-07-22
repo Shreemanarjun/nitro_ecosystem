@@ -4,8 +4,8 @@ import 'package:benchmark/benchmark.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/scheduler.dart';
 import 'package:signals_flutter/signals_flutter.dart';
-import 'models/benchmark_bridge.dart';
-import 'controllers/visual_benchmark_controller.dart';
+import '../../core/bridge_type.dart';
+import 'visual_bench_controller.dart';
 
 // --- UI LAYER ---
 

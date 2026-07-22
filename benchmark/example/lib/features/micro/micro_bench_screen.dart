@@ -1,15 +1,15 @@
 import 'package:flutter/material.dart';
 import 'package:signals_flutter/signals_flutter.dart';
 
-import 'controllers/benchmark_controller.dart';
-import 'models/benchmark_bridge.dart';
+import 'micro_bench_controller.dart';
+import '../../core/bridge_type.dart';
 import 'widgets/benchmark_chart.dart';
 import 'widgets/benchmark_controls.dart';
-import 'widgets/benchmark_history.dart';
+import 'widgets/benchmark_history_view.dart';
 import 'widgets/iteration_selector.dart';
 import 'widgets/runs_selector.dart';
 import 'widgets/status_card.dart';
-import 'box_stress_page.dart';
+import '../stress/stress_screen.dart';
 
 class BenchmarkPage extends StatefulWidget {
   const BenchmarkPage({super.key});

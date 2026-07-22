@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:fl_chart/fl_chart.dart';
-import '../models/benchmark_bridge.dart';
+import '../../../core/bridge_type.dart';
 
 class BenchmarkChart extends StatelessWidget {
   final String title;

@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:signals_flutter/signals_flutter.dart';
-import 'models/benchmark_bridge.dart';
-import 'controllers/visual_benchmark_controller.dart';
+import '../../core/bridge_type.dart';
+import '../stress/visual_bench_controller.dart';
 
 class MultiBridgeDashboard extends StatefulWidget {
   const MultiBridgeDashboard({super.key});
