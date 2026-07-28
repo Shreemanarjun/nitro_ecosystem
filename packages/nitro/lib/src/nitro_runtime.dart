@@ -380,8 +380,32 @@ class NitroRuntime {
     final effective = cfg.effectiveLogLevel;
     final traceTimeline = cfg.timelineTracingEnabled;
 
-    // Fast path: logging is fully disabled.
-    if (effective == NitroLogLevel.none && !traceTimeline) return call();
+    // Hot path: no PER-CALL instrumentation is requested. Per-call work (the
+    // '$tag' string allocation, the Stopwatch, the _log('calling'), the
+    // timeline span) is only needed at `verbose`, with timeline tracing, or
+    // when a slow-call threshold is set. At the DEFAULT `error` level — and at
+    // `warning`/`none` — callSync's only job is to propagate a thrown error,
+    // so skip all of it and build the tag lazily only if the call actually
+    // throws. This keeps the sub-µs sync path allocation-free out of the box
+    // (previously the default `error` level allocated 'callSync(<method>)' on
+    // every single call for a _log that immediately no-ops).
+    if (effective != NitroLogLevel.verbose &&
+        !traceTimeline &&
+        cfg.slowCallThresholdUs == 0) {
+      if (effective == NitroLogLevel.none) return call();
+      try {
+        return call();
+      } catch (e, st) {
+        _log(
+          NitroLogLevel.error,
+          methodName.isEmpty ? 'callSync' : 'callSync($methodName)',
+          'threw: $e',
+          e,
+          st,
+        );
+        rethrow;
+      }
+    }
 
     final tag = methodName.isEmpty ? 'callSync' : 'callSync($methodName)';
     final sw = (effective == NitroLogLevel.verbose || cfg.slowCallThresholdUs > 0) ? (Stopwatch()..start()) : null;
