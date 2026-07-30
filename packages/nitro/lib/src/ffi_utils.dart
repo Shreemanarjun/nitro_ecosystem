@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:ffi';
 import 'dart:typed_data';
 import 'package:ffi/ffi.dart';
@@ -144,8 +145,9 @@ extension NitroPointerExtension on Pointer<Utf8> {
     // standard. Strings crossing the FFI bridge are raw data — not text streams
     // — so we must preserve all bytes including U+FEFF. We bypass utf8.decode
     // and decode the bytes directly into code points via String.fromCharCodes.
+    final p = cast<Uint8>();
     int len = 0;
-    while ((cast<Uint8>() + len).value != 0) {
+    while (p[len] != 0) {
       len++;
     }
     final str = _decodeUtf8NoBomStrip(cast<Uint8>().asTypedList(len));
@@ -159,6 +161,11 @@ extension NitroPointerExtension on Pointer<Utf8> {
 // as a stream signature and drops it. Bridge strings are raw data, not streams.
 String _decodeUtf8NoBomStrip(Uint8List bytes) {
   if (bytes.isEmpty) return '';
+  // Fast path: no BOM prefix → use dart:convert (much faster, VM-optimized).
+  if (bytes.length < 3 || bytes[0] != 0xEF || bytes[1] != 0xBB || bytes[2] != 0xBF) {
+    return utf8.decode(bytes);
+  }
+  // Slow path: BOM present — decode manually to preserve leading U+FEFF.
   final codePoints = <int>[];
   var i = 0;
   while (i < bytes.length) {
@@ -229,13 +236,14 @@ abstract class _ZeroCopyBufferBase {
 class ZeroCopyBuffer extends _ZeroCopyBufferBase {
   final Pointer<Uint8> ptr;
   final int length;
+  Uint8List? _cachedBytes;
 
   ZeroCopyBuffer(this.ptr, this.length, void Function() nativeRelease) : super(ptr != nullptr, nativeRelease);
 
   /// Zero-copy [Uint8List] view of native memory.
   Uint8List get bytes {
     _assertNotReleased();
-    return ptr.asTypedList(length);
+    return _cachedBytes ??= ptr.asTypedList(length);
   }
 }
 
@@ -243,12 +251,13 @@ class ZeroCopyBuffer extends _ZeroCopyBufferBase {
 class ZeroCopyInt8Buffer extends _ZeroCopyBufferBase {
   final Pointer<Int8> ptr;
   final int length;
+  Int8List? _cachedValues;
 
   ZeroCopyInt8Buffer(this.ptr, this.length, void Function() nativeRelease) : super(ptr != nullptr, nativeRelease);
 
   Int8List get values {
     _assertNotReleased();
-    return ptr.asTypedList(length);
+    return _cachedValues ??= ptr.asTypedList(length);
   }
 }
 
@@ -256,12 +265,13 @@ class ZeroCopyInt8Buffer extends _ZeroCopyBufferBase {
 class ZeroCopyInt16Buffer extends _ZeroCopyBufferBase {
   final Pointer<Int16> ptr;
   final int length;
+  Int16List? _cachedValues;
 
   ZeroCopyInt16Buffer(this.ptr, this.length, void Function() nativeRelease) : super(ptr != nullptr, nativeRelease);
 
   Int16List get values {
     _assertNotReleased();
-    return ptr.asTypedList(length);
+    return _cachedValues ??= ptr.asTypedList(length);
   }
 }
 
@@ -269,12 +279,13 @@ class ZeroCopyInt16Buffer extends _ZeroCopyBufferBase {
 class ZeroCopyUint16Buffer extends _ZeroCopyBufferBase {
   final Pointer<Uint16> ptr;
   final int length;
+  Uint16List? _cachedValues;
 
   ZeroCopyUint16Buffer(this.ptr, this.length, void Function() nativeRelease) : super(ptr != nullptr, nativeRelease);
 
   Uint16List get values {
     _assertNotReleased();
-    return ptr.asTypedList(length);
+    return _cachedValues ??= ptr.asTypedList(length);
   }
 }
 
@@ -282,12 +293,13 @@ class ZeroCopyUint16Buffer extends _ZeroCopyBufferBase {
 class ZeroCopyInt32Buffer extends _ZeroCopyBufferBase {
   final Pointer<Int32> ptr;
   final int length;
+  Int32List? _cachedValues;
 
   ZeroCopyInt32Buffer(this.ptr, this.length, void Function() nativeRelease) : super(ptr != nullptr, nativeRelease);
 
   Int32List get values {
     _assertNotReleased();
-    return ptr.asTypedList(length);
+    return _cachedValues ??= ptr.asTypedList(length);
   }
 }
 
@@ -295,12 +307,13 @@ class ZeroCopyInt32Buffer extends _ZeroCopyBufferBase {
 class ZeroCopyUint32Buffer extends _ZeroCopyBufferBase {
   final Pointer<Uint32> ptr;
   final int length;
+  Uint32List? _cachedValues;
 
   ZeroCopyUint32Buffer(this.ptr, this.length, void Function() nativeRelease) : super(ptr != nullptr, nativeRelease);
 
   Uint32List get values {
     _assertNotReleased();
-    return ptr.asTypedList(length);
+    return _cachedValues ??= ptr.asTypedList(length);
   }
 }
 
@@ -310,13 +323,14 @@ class ZeroCopyUint32Buffer extends _ZeroCopyBufferBase {
 class ZeroCopyFloat32Buffer extends _ZeroCopyBufferBase {
   final Pointer<Float> ptr;
   final int length;
+  Float32List? _cachedFloats;
 
   ZeroCopyFloat32Buffer(this.ptr, this.length, void Function() nativeRelease) : super(ptr != nullptr, nativeRelease);
 
   /// Zero-copy [Float32List] view of native memory.
   Float32List get floats {
     _assertNotReleased();
-    return ptr.asTypedList(length);
+    return _cachedFloats ??= ptr.asTypedList(length);
   }
 }
 
@@ -324,12 +338,13 @@ class ZeroCopyFloat32Buffer extends _ZeroCopyBufferBase {
 class ZeroCopyFloat64Buffer extends _ZeroCopyBufferBase {
   final Pointer<Double> ptr;
   final int length;
+  Float64List? _cachedDoubles;
 
   ZeroCopyFloat64Buffer(this.ptr, this.length, void Function() nativeRelease) : super(ptr != nullptr, nativeRelease);
 
   Float64List get doubles {
     _assertNotReleased();
-    return ptr.asTypedList(length);
+    return _cachedDoubles ??= ptr.asTypedList(length);
   }
 }
 
@@ -337,11 +352,12 @@ class ZeroCopyFloat64Buffer extends _ZeroCopyBufferBase {
 class ZeroCopyInt64Buffer extends _ZeroCopyBufferBase {
   final Pointer<Int64> ptr;
   final int length;
+  Int64List? _cachedValues;
 
   ZeroCopyInt64Buffer(this.ptr, this.length, void Function() nativeRelease) : super(ptr != nullptr, nativeRelease);
 
   Int64List get values {
     _assertNotReleased();
-    return ptr.asTypedList(length);
+    return _cachedValues ??= ptr.asTypedList(length);
   }
 }

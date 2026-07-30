@@ -250,7 +250,7 @@ class IsolatePool {
 
     return completer.future.then((response) {
       if (response.error != null) {
-        return Future<T>.error(response.error!, response.stack);
+        Error.throwWithStackTrace(response.error!, response.stack ?? StackTrace.current);
       }
       return response.result as T;
     });

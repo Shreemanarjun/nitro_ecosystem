@@ -111,12 +111,11 @@ class RecordWriter {
   ///
   /// The caller / arena is responsible for freeing the pointer.
   Pointer<Uint8> toNative(Allocator alloc) {
-    final payload = _takeBytes();
-    final total = 4 + payload.length;
+    final total = 4 + _length;
     final ptr = alloc<Uint8>(total);
-    final view = ByteData.view(ptr.asTypedList(total).buffer);
-    view.setInt32(0, payload.length, Endian.little);
-    ptr.asTypedList(total).setRange(4, total, payload);
+    final typed = ptr.asTypedList(total);
+    ByteData.sublistView(typed).setInt32(0, _length, Endian.little);
+    typed.setRange(4, total, _buffer);
     return ptr;
   }
 
