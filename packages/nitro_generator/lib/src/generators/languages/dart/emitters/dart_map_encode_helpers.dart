@@ -253,8 +253,15 @@ void _emitMapBinaryHelpers(CodeWriter writer, String vt, BridgeSpec spec) {
     writer.line('    bb.add(h.buffer.asUint8List(0, 4)); bb.add(vb);');
   }
   writer.line('  });');
-  writer.line('  final ptr = alloc<Uint8>(bytes.length);');
-  writer.line('  ptr.asTypedList(bytes.length).setAll(0, bytes);');
+  // Write [4B payload_len][payload] straight into native memory: the length
+  // prefix goes in via a ByteData view over the native buffer (no copy), and
+  // the payload is copied once with setRange. Replaces the old
+  // alloc+setAll-of-a-spread-concatenated-list (perf-audit "B").
+  writer.line('  final total = 4 + bytes.length;');
+  writer.line('  final ptr = alloc<Uint8>(total);');
+  writer.line('  final out = ptr.asTypedList(total);');
+  writer.line('  ByteData.sublistView(out, 0, 4).setInt32(0, bytes.length, Endian.little);');
+  writer.line('  out.setRange(4, total, bytes);');
   writer.line('  return ptr;');
   writer.line('}');
   writer.blankLine();

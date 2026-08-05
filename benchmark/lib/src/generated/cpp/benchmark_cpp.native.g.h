@@ -296,13 +296,21 @@ public:
     virtual NitroCppBuffer computeStats(int64_t iterations) = 0;
     // source: benchmark_cpp.native.dart:179
     virtual void computeStatsNative(int64_t iterations, NitroError* _nitro_err, int64_t dartPort) = 0;
-    // source: benchmark_cpp.native.dart:215
+    // source: benchmark_cpp.native.dart:186
+    virtual NitroCppBuffer echoIntMap(NitroCppBuffer map) = 0;
+    // source: benchmark_cpp.native.dart:194
+    virtual NitroCppBuffer echoStatsList(NitroCppBuffer stats) = 0;
+    // source: benchmark_cpp.native.dart:200
+    virtual int64_t asyncEcho(int64_t value) = 0;
+    // source: benchmark_cpp.native.dart:208
+    virtual void nativeAsyncEcho(int64_t value, NitroError* _nitro_err, int64_t dartPort) = 0;
+    // source: benchmark_cpp.native.dart:244
     virtual int64_t sendLargeBufferFast(const uint8_t* buffer, size_t buffer_length) = 0;
-    // source: benchmark_cpp.native.dart:221
+    // source: benchmark_cpp.native.dart:250
     virtual int64_t sendLargeBufferNoop(const uint8_t* buffer, size_t buffer_length) = 0;
-    // source: benchmark_cpp.native.dart:224
+    // source: benchmark_cpp.native.dart:253
     virtual int64_t sendLargeBufferNoopFast(const uint8_t* buffer, size_t buffer_length) = 0;
-    // source: benchmark_cpp.native.dart:231
+    // source: benchmark_cpp.native.dart:260
     virtual int64_t sendLargeBufferUnsafe(uint8_t* ptr, int64_t length) = 0;
 
     // ── Streams ──────────────────────────────────────────────────────────

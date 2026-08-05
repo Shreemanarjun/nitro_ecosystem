@@ -17,7 +17,7 @@ NITRO_EXPORT uint32_t benchmark_cpp_nitro_abi_version(void) {
     return 1;
 }
 NITRO_EXPORT const char* benchmark_cpp_nitro_bridge_checksum(void) {
-    return "e653c278d00b0b51";
+    return "8903a89a1e57a05b";
 }
 NITRO_EXPORT intptr_t benchmark_cpp_init_dart_api_dl(void* data) {
     return Dart_InitializeApiDL(data);
@@ -69,10 +69,24 @@ static HybridBenchmarkCppFactory& _g_factory() {
     return f;
 }
 
-static std::shared_ptr<HybridBenchmarkCpp> _nitro_get_instance(int64_t id) {
+static std::atomic<int64_t> _g_cache_id{-1};
+static std::atomic<HybridBenchmarkCpp*> _g_cache_ptr{nullptr};
+static HybridBenchmarkCpp* _nitro_get_instance(int64_t id) {
+    if (_g_cache_id.load(std::memory_order_acquire) == id) {
+        return _g_cache_ptr.load(std::memory_order_relaxed);
+    }
     std::lock_guard<std::mutex> _lk(_g_instances_mtx());
     auto it = _g_instances().find(id);
-    return it != _g_instances().end() ? it->second : nullptr;
+    HybridBenchmarkCpp* p = (it != _g_instances().end()) ? it->second.get() : nullptr;
+    if (p) {
+        _g_cache_ptr.store(p, std::memory_order_relaxed);
+        _g_cache_id.store(id, std::memory_order_release);
+    }
+    return p;
+}
+static void _nitro_invalidate_cache() {
+    _g_cache_id.store(-1, std::memory_order_release);
+    _g_cache_ptr.store(nullptr, std::memory_order_relaxed);
 }
 
 extern "C" {
@@ -83,10 +97,10 @@ void benchmark_cpp_register_impl(HybridBenchmarkCpp* impl) {
     std::lock_guard<std::mutex> _lk(_g_instances_mtx());
     if (impl) _g_instances()[0] = std::shared_ptr<HybridBenchmarkCpp>(impl, [](HybridBenchmarkCpp*){});
     else _g_instances().erase(0);
+    _nitro_invalidate_cache();
 }
 HybridBenchmarkCpp* benchmark_cpp_get_impl() {
-    auto ptr = _nitro_get_instance(0);
-    return ptr ? ptr.get() : nullptr;
+    return _nitro_get_instance(0);
 }
 NITRO_EXPORT int64_t benchmark_cpp_create_instance(const char* key) {
     if (_g_factory()) {
@@ -103,6 +117,7 @@ NITRO_EXPORT int64_t benchmark_cpp_create_instance(const char* key) {
 NITRO_EXPORT void benchmark_cpp_destroy_instance(int64_t instanceId) {
     std::lock_guard<std::mutex> _lk(_g_instances_mtx());
     _g_instances().erase(instanceId);
+    _nitro_invalidate_cache();
 }
 NITRO_EXPORT void benchmark_cpp_nitro_free(void* ptr) { if (ptr) { free(ptr); } }
 NITRO_EXPORT void* benchmark_cpp_nitro_alloc(size_t size) { return malloc(size); }
@@ -292,6 +307,77 @@ void benchmark_cpp_compute_stats_native(int64_t instanceId, int64_t iterations, 
     }
     try {
         _impl->computeStatsNative(iterations, _nitro_err, dart_port);
+    } catch (const std::exception& e) {
+        _nitro_out_err(_nitro_err, "CppException", e.what());
+        Dart_CObject _err = { Dart_CObject_kNull };
+        Dart_PostCObject_DL(dart_port, &_err);
+    } catch (...) {
+        _nitro_out_err(_nitro_err, "CppException", "Unknown C++ exception");
+        Dart_CObject _err = { Dart_CObject_kNull };
+        Dart_PostCObject_DL(dart_port, &_err);
+    }
+}
+
+uint8_t* benchmark_cpp_echo_int_map(int64_t instanceId, uint8_t* map, NitroError* _nitro_err) {
+    if (_nitro_err) { _nitro_err->hasError = 0; }  // S8: clear slot
+    auto _impl = _nitro_get_instance(instanceId);
+    if (!_impl) { _nitro_out_err(_nitro_err, "NotInitialized", "No C++ implementation registered. Call benchmark_cpp_register_factory() or benchmark_cpp_register_impl()."); return nullptr; }
+    try {
+        NitroCppBuffer _buf_map = { (const uint8_t*)map + 4, (size_t)*(int32_t*)map };
+        NitroCppBuffer _res = _impl->echoIntMap(_buf_map);
+        return (uint8_t*)_res.data;
+    } catch (const std::exception& e) {
+        _nitro_out_err(_nitro_err, "CppException", e.what());
+        return nullptr;
+    } catch (...) {
+        _nitro_out_err(_nitro_err, "CppException", "Unknown C++ exception");
+        return nullptr;
+    }
+}
+
+void* benchmark_cpp_echo_stats_list(int64_t instanceId, void* stats, NitroError* _nitro_err) {
+    if (_nitro_err) { _nitro_err->hasError = 0; }  // S8: clear slot
+    auto _impl = _nitro_get_instance(instanceId);
+    if (!_impl) { _nitro_out_err(_nitro_err, "NotInitialized", "No C++ implementation registered. Call benchmark_cpp_register_factory() or benchmark_cpp_register_impl()."); return nullptr; }
+    try {
+        NitroCppBuffer _buf_stats = { (const uint8_t*)stats + 4, (size_t)*(int32_t*)stats };
+        NitroCppBuffer _res = _impl->echoStatsList(_buf_stats);
+        return (uint8_t*)_res.data;
+    } catch (const std::exception& e) {
+        _nitro_out_err(_nitro_err, "CppException", e.what());
+        return nullptr;
+    } catch (...) {
+        _nitro_out_err(_nitro_err, "CppException", "Unknown C++ exception");
+        return nullptr;
+    }
+}
+
+int64_t benchmark_cpp_async_echo(int64_t instanceId, int64_t value) {
+    NitroError* _nitro_err = nullptr; // async: errors use TLS not out-param
+    auto _impl = _nitro_get_instance(instanceId);
+    if (!_impl) { _nitro_out_err(_nitro_err, "NotInitialized", "No C++ implementation registered. Call benchmark_cpp_register_factory() or benchmark_cpp_register_impl()."); return 0; }
+    try {
+        return _impl->asyncEcho(value);
+    } catch (const std::exception& e) {
+        _nitro_out_err(_nitro_err, "CppException", e.what());
+        return 0;
+    } catch (...) {
+        _nitro_out_err(_nitro_err, "CppException", "Unknown C++ exception");
+        return 0;
+    }
+}
+
+void benchmark_cpp_native_async_echo(int64_t instanceId, int64_t value, NitroError* _nitro_err, int64_t dart_port) {
+    if (_nitro_err) { _nitro_err->hasError = 0; }
+    auto _impl = _nitro_get_instance(instanceId);
+    if (!_impl) {
+        _nitro_out_err(_nitro_err, "NotInitialized", "No C++ implementation registered.");
+        Dart_CObject _err = { Dart_CObject_kNull };
+        Dart_PostCObject_DL(dart_port, &_err);
+        return;
+    }
+    try {
+        _impl->nativeAsyncEcho(value, _nitro_err, dart_port);
     } catch (const std::exception& e) {
         _nitro_out_err(_nitro_err, "CppException", e.what());
         Dart_CObject _err = { Dart_CObject_kNull };

@@ -178,6 +178,35 @@ abstract class BenchmarkCpp extends HybridObject {
   @nitroNativeAsync
   Future<BenchmarkStats> computeStatsNative(int iterations);
 
+  /// Echoes a `Map<String,int>` straight back — the native side does nothing
+  /// but return the map. Exists to isolate the **map binary codec** cost
+  /// (Dart-side encode of the payload + native decode + native re-encode +
+  /// Dart-side decode), so the harness can measure `Map<String,T>` marshalling
+  /// independent of any real work. Optimization target "B" in the perf audit.
+  Map<String, int> echoIntMap(Map<String, int> map);
+
+  /// Echoes a `List<BenchmarkStats>` (@HybridRecord) straight back. Exercises
+  /// the indexed record-list codec (`RecordCodec.encodeIndexedList`) — the
+  /// heaviest allocator in the codec, which built one `RecordWriter` per list
+  /// item plus intermediate blob copies. Optimization target "#1" in the perf
+  /// audit; the harness measures encode + native re-emit + decode of an N-item
+  /// record list.
+  List<BenchmarkStats> echoStatsList(List<BenchmarkStats> stats);
+
+  /// Minimal scalar `@nitroAsync` round-trip (returns its argument). Isolates
+  /// the Dart-isolate async **dispatch** overhead with a near-zero payload —
+  /// the `@nitroAsync` reference for the native-async comparison.
+  @nitroAsync
+  Future<int> asyncEcho(int value);
+
+  /// Minimal scalar `@nitroNativeAsync` round-trip (posts its argument back
+  /// immediately via `Dart_PostCObject_DL`). Isolates the Dart-side per-call
+  /// native-async dispatch cost (ReceivePort allocation, the fresh error slot,
+  /// the `Future` machinery) with a near-zero native payload. Optimization
+  /// target "D" in the perf audit.
+  @nitroNativeAsync
+  Future<int> nativeAsyncEcho(int value);
+
   /// Continuous stream of zero-copy [BenchmarkPoint] structs.
   ///
   /// Each item is delivered as a [BenchmarkPointProxy] at runtime — a proxy

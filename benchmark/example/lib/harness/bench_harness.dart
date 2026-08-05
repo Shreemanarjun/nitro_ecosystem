@@ -471,6 +471,76 @@ class BenchHarness {
       },
     );
 
+    // ── Async DISPATCH isolation (near-zero payload) ─────────────────────────
+    // The two cases above bundle record marshalling into the timing. These two
+    // echo a single int, so the median is almost purely dispatch overhead:
+    // the @nitroAsync isolate-pool hop vs the @nitroNativeAsync per-call
+    // ReceivePort + error slot + Future (perf-audit target "D").
+    await latencyCase(
+      'nitro_async_scalar',
+      'Nitro @nitroAsync (scalar)',
+      config.asyncIters,
+      (n) async {
+        for (var i = 0; i < n; i++) {
+          sink += (await cpp.asyncEcho(i)).toDouble();
+        }
+      },
+    );
+
+    await latencyCase(
+      'nitro_native_async_scalar',
+      'Nitro @nitroNativeAsync (scalar)',
+      config.asyncIters,
+      (n) async {
+        for (var i = 0; i < n; i++) {
+          sink += (await cpp.nativeAsyncEcho(i)).toDouble();
+        }
+      },
+    );
+
+    // ── Map<String,int> codec round-trip ─────────────────────────────────────
+    // Echoes a fixed map through the Nitro binary map codec (Dart encode →
+    // native re-emit → Dart decode). Isolates the map marshalling cost — the
+    // encode currently does 3 full buffer copies (perf-audit target "B").
+    final mapWorkload = <String, int>{
+      for (var i = 0; i < 16; i++) 'key_$i': i * 7,
+    };
+    await latencyCase(
+      'nitro_cpp_map',
+      'Nitro C++ + Map<String,int> echo',
+      config.asyncIters,
+      (n) {
+        for (var i = 0; i < n; i++) {
+          sink += cpp.echoIntMap(mapWorkload).length.toDouble();
+        }
+      },
+    );
+
+    // ── List<@HybridRecord> codec round-trip ─────────────────────────────────
+    // Echoes a fixed 16-record list through the indexed record-list codec
+    // (encode → native re-emit → decode). Exercises `encodeIndexedList`, which
+    // built one RecordWriter per item plus intermediate copies (perf-audit
+    // target "#1").
+    final statsWorkload = <bench.BenchmarkStats>[
+      for (var i = 0; i < 16; i++)
+        bench.BenchmarkStats(
+          count: i,
+          meanUs: i * 1.5,
+          minUs: i.toDouble(),
+          maxUs: i * 2.0,
+        ),
+    ];
+    await latencyCase(
+      'nitro_cpp_record_list',
+      'Nitro C++ + List<@HybridRecord> echo',
+      config.asyncIters,
+      (n) {
+        for (var i = 0; i < n; i++) {
+          sink += cpp.echoStatsList(statsWorkload).length.toDouble();
+        }
+      },
+    );
+
     // ── Latency: identical FNV-1a workload across every tier ────────────────
     // 1 KiB × 16 rounds ≈ 16k sequential byte-ops per call — real CPU work at
     // a scale where bridge overhead still matters. Every tier implements the

@@ -27,15 +27,6 @@ class RecordWriter {
     _data = ByteData.view(_buffer.buffer);
   }
 
-  /// Returns the accumulated bytes and resets the writer (internal use only).
-  Uint8List _takeBytes() {
-    final bytes = Uint8List.sublistView(_buffer, 0, _length);
-    _buffer = Uint8List(_initialCapacity);
-    _data = ByteData.view(_buffer.buffer);
-    _length = 0;
-    return bytes;
-  }
-
   void _ensureCapacity(int additionalBytes) {
     final required = _length + additionalBytes;
     if (required <= _buffer.length) return;
@@ -54,6 +45,13 @@ class RecordWriter {
     _ensureCapacity(bytes.length);
     _buffer.setRange(_length, _length + bytes.length, bytes);
     _length += bytes.length;
+  }
+
+  /// Overwrites the int64 at absolute payload offset [pos] with [v]. Used to
+  /// backpatch a reserved offset-table slot after the items it points at have
+  /// been written. [pos] must already be within the written region ([_length]).
+  void _patchInt64(int pos, int v) {
+    _data.setInt64(pos, v, Endian.little);
   }
 
   void writeInt(int v) {
@@ -111,12 +109,15 @@ class RecordWriter {
   ///
   /// The caller / arena is responsible for freeing the pointer.
   Pointer<Uint8> toNative(Allocator alloc) {
-    final payload = _takeBytes();
-    final total = 4 + payload.length;
+    // Write the length prefix + payload straight into native memory. Copies
+    // the accumulated buffer once (setRange) instead of first taking a
+    // sublist (`_takeBytes`) and then copying that — and takes one asTypedList
+    // view, not two (issue #34, PR #38).
+    final total = 4 + _length;
     final ptr = alloc<Uint8>(total);
-    final view = ByteData.view(ptr.asTypedList(total).buffer);
-    view.setInt32(0, payload.length, Endian.little);
-    ptr.asTypedList(total).setRange(4, total, payload);
+    final typed = ptr.asTypedList(total);
+    ByteData.sublistView(typed).setInt32(0, _length, Endian.little);
+    typed.setRange(4, total, _buffer);
     return ptr;
   }
 
@@ -182,29 +183,32 @@ class RecordWriter {
     void Function(RecordWriter w, T item) writeItem,
     Allocator alloc,
   ) {
-    // Serialize each item into its own byte blob.
-    final blobs = items.map((e) {
-      final w = RecordWriter();
-      writeItem(w, e);
-      return w._takeBytes();
-    }).toList();
-
-    // Payload layout: 4B count + 8B*n offsets + item bytes.
-    // Offsets are from the payload start (the byte immediately after the 4-byte outer length).
-    var pos = 4 + 8 * blobs.length;
-    final offsets = <int>[];
-    for (final b in blobs) {
-      offsets.add(pos);
-      pos += b.length;
-    }
-
+    // Payload layout: [4B count][8B×n offset table][item bytes]. Offsets are
+    // from the payload start (the byte immediately after the outer 4-byte
+    // length that toNative prepends).
+    //
+    // A single writer, with each item written directly into it and the offset
+    // table backpatched afterward — no per-item RecordWriter and no
+    // intermediate blob copies (perf-audit "#1"). The old path allocated one
+    // 256-byte RecordWriter per item, took each item's bytes with a copy, then
+    // copied every item a second time into a final writer; this does one
+    // writer and writes each item once.
+    final n = items.length;
     final w = RecordWriter();
-    w.writeInt32(blobs.length);
-    for (final off in offsets) {
-      w.writeInt(off); // writeInt emits int64
+    w.writeInt32(n);
+    const offsetTableStart = 4; // right after the 4-byte count, within payload
+    for (var i = 0; i < n; i++) {
+      w.writeInt(0); // reserve an int64 slot; backpatched below
     }
-    for (final b in blobs) {
-      w._writeBytes(b);
+    // w._length is now the payload offset where item 0 begins (== old
+    // `4 + 8*n`). Record each item's start offset as we write it.
+    final offsets = List<int>.filled(n, 0);
+    for (var i = 0; i < n; i++) {
+      offsets[i] = w._length;
+      writeItem(w, items[i]);
+    }
+    for (var i = 0; i < n; i++) {
+      w._patchInt64(offsetTableStart + i * 8, offsets[i]);
     }
     return w.toNative(alloc);
   }

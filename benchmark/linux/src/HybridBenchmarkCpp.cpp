@@ -129,6 +129,45 @@ public:
         _asyncQueueCv.notify_one();
     }
 
+    // ── Perf-audit benchmark methods (map codec + async dispatch) ──────────
+    // Echo a Map<String,int>: the Dart proxy encodes the map to [4B len]
+    // [payload], we re-emit an identical length-prefixed block, Dart decodes
+    // it back. Native work is minimal so the harness measures the Dart-side
+    // map binary codec (encode + decode), optimization target "B".
+    NitroCppBuffer echoIntMap(NitroCppBuffer map) override {
+        int32_t len = static_cast<int32_t>(map.size);
+        uint8_t* out = static_cast<uint8_t*>(::malloc(sizeof(int32_t) + map.size));
+        ::memcpy(out, &len, sizeof(int32_t));
+        if (map.size) ::memcpy(out + sizeof(int32_t), map.data, map.size);
+        return { out, sizeof(int32_t) + map.size };
+    }
+
+    // List<@HybridRecord> echo — re-emit the incoming length-prefixed record-
+    // list blob (perf-audit "#1"). The list codec is entirely on the Dart side;
+    // native just returns the same [4B len][payload] block.
+    NitroCppBuffer echoStatsList(NitroCppBuffer stats) override {
+        int32_t len = static_cast<int32_t>(stats.size);
+        uint8_t* out = static_cast<uint8_t*>(::malloc(sizeof(int32_t) + stats.size));
+        ::memcpy(out, &len, sizeof(int32_t));
+        if (stats.size) ::memcpy(out + sizeof(int32_t), stats.data, stats.size);
+        return { out, sizeof(int32_t) + stats.size };
+    }
+
+    // Minimal @nitroAsync scalar round-trip: returns its argument. The isolate
+    // dispatch happens on the Dart side; here it is a plain return.
+    int64_t asyncEcho(int64_t value) override { return value; }
+
+    // Minimal @nitroNativeAsync scalar round-trip: post the value straight back
+    // via Dart_PostCObject_DL (no thread hop) so the harness measures the
+    // Dart-side per-call native-async dispatch cost (ReceivePort + error slot +
+    // Future), optimization target "D".
+    void nativeAsyncEcho(int64_t value, NitroError* /*_nitro_err*/, int64_t dartPort) override {
+        Dart_CObject obj;
+        obj.type = Dart_CObject_kInt64;
+        obj.value.as_int64 = value;
+        Dart_PostCObject_DL(dartPort, &obj);
+    }
+
     int64_t sendLargeBufferFast(const uint8_t* buffer, size_t buffer_length) override {
         if (!buffer || buffer_length == 0) return 0;
 

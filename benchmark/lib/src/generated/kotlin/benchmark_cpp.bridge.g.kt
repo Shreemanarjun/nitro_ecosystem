@@ -456,13 +456,21 @@ interface HybridBenchmarkCppSpec {
     suspend fun computeStats(iterations: Long): BenchmarkStats
     // source: benchmark_cpp.native.dart:179
     suspend fun computeStatsNative(iterations: Long): BenchmarkStats
-    // source: benchmark_cpp.native.dart:215
+    // source: benchmark_cpp.native.dart:186
+    fun echoIntMap(map: Map<String, Long>): Map<String, Long>
+    // source: benchmark_cpp.native.dart:194
+    fun echoStatsList(stats: List<BenchmarkStats>): List<BenchmarkStats>
+    // source: benchmark_cpp.native.dart:200
+    suspend fun asyncEcho(value: Long): Long
+    // source: benchmark_cpp.native.dart:208
+    suspend fun nativeAsyncEcho(value: Long): Long
+    // source: benchmark_cpp.native.dart:244
     fun sendLargeBufferFast(buffer: ByteArray): Long
-    // source: benchmark_cpp.native.dart:221
+    // source: benchmark_cpp.native.dart:250
     fun sendLargeBufferNoop(buffer: ByteArray): Long
-    // source: benchmark_cpp.native.dart:224
+    // source: benchmark_cpp.native.dart:253
     fun sendLargeBufferNoopFast(buffer: ByteArray): Long
-    // source: benchmark_cpp.native.dart:231
+    // source: benchmark_cpp.native.dart:260
     fun sendLargeBufferUnsafe(ptr: Any?, length: Long): Long
     val dataStream: Flow<BenchmarkPoint>
     val boxStream: Flow<BenchmarkBox>
@@ -591,22 +599,111 @@ object BenchmarkCppJniBridge {
             }
         }
     }
-    // source: benchmark_cpp.native.dart:215
+    // source: benchmark_cpp.native.dart:186
+    @JvmStatic fun echoIntMap_call(instanceId: Long, map: ByteArray): ByteArray {
+        val impl = _implementations[instanceId] ?: throw IllegalStateException("BenchmarkCpp instance $instanceId not registered")
+        val _mapBuf = java.nio.ByteBuffer.wrap(map).order(java.nio.ByteOrder.LITTLE_ENDIAN)
+        _mapBuf.position(4) // skip 4-byte payload length prefix
+        val _mapCount = _mapBuf.int
+        val _inputMap = mutableMapOf<String, Long>()
+        repeat(_mapCount) {
+            val kLen = _mapBuf.int; val kBytes = ByteArray(kLen); _mapBuf.get(kBytes)
+            val k = kBytes.toString(Charsets.UTF_8)
+            _mapBuf.get() // skip 1-byte type tag
+            _inputMap[k] = _mapBuf.long
+        }
+        val _result = impl.echoIntMap(_inputMap)
+        @Suppress("UNCHECKED_CAST")
+        val _outMap = _result as? Map<String, Long> ?: emptyMap()
+        val _outBb = java.io.ByteArrayOutputStream()
+        val _outBuf = java.nio.ByteBuffer.allocate(8).order(java.nio.ByteOrder.LITTLE_ENDIAN)
+        fun _writeInt32(v: Int) { _outBuf.clear(); _outBuf.putInt(v); _outBb.write(_outBuf.array(), 0, 4) }
+        fun _writeInt64(v: Long) { _outBuf.clear(); _outBuf.putLong(v); _outBb.write(_outBuf.array()) }
+        fun _writeDouble(v: Double) { _outBuf.clear(); _outBuf.putDouble(v); _outBb.write(_outBuf.array()) }
+        _writeInt32(_outMap.size)
+        for ((k, v) in _outMap) {
+            val kb = k.toByteArray(Charsets.UTF_8); _writeInt32(kb.size); _outBb.write(kb)
+            _outBb.write(1) // tag: int64
+            _writeInt64(v)
+        }
+        val _payload = _outBb.toByteArray()
+        val _lenBuf = java.nio.ByteBuffer.allocate(4).order(java.nio.ByteOrder.LITTLE_ENDIAN)
+        _lenBuf.putInt(_payload.size)
+        return _lenBuf.array() + _payload
+    }
+    // source: benchmark_cpp.native.dart:194
+    @JvmStatic fun echoStatsList_call(instanceId: Long, stats: ByteArray): ByteArray {
+        val impl = _implementations[instanceId] ?: throw IllegalStateException("BenchmarkCpp instance $instanceId not registered")
+        val statsBuf = java.nio.ByteBuffer.wrap(stats).order(java.nio.ByteOrder.LITTLE_ENDIAN)
+        statsBuf.getInt() // skip outer length
+        val statsCount = statsBuf.getInt()
+        val statsOffsets = LongArray(statsCount) { statsBuf.getLong() }
+        val statsDecoded = mutableListOf<BenchmarkStats>()
+        for (statsOffset in statsOffsets) {
+            val itemBuf = java.nio.ByteBuffer.wrap(stats, 4 + statsOffset.toInt(), stats.size - 4 - statsOffset.toInt()).order(java.nio.ByteOrder.LITTLE_ENDIAN)
+            statsDecoded.add(BenchmarkStats.decodeFrom(itemBuf))
+        }
+        val result = impl.echoStatsList(statsDecoded)
+        val itemBufs = ArrayList<ByteArray>(result.size)
+        val tmpBuf = java.nio.ByteBuffer.allocate(8).order(java.nio.ByteOrder.LITTLE_ENDIAN)
+        for (item in result) {
+            val tmpOut = java.io.ByteArrayOutputStream(32)
+            item.writeFieldsTo(tmpOut, tmpBuf)
+            itemBufs.add(tmpOut.toByteArray())
+        }
+        // payload = [4B count][8B × n offsets][item bytes...]
+        var offsetPos = 4 + 8L * result.size  // start of item data in payload
+        val offsets = LongArray(result.size)
+        for (i in result.indices) { offsets[i] = offsetPos; offsetPos += itemBufs[i].size }
+        val payloadBuf = java.nio.ByteBuffer.allocate(offsetPos.toInt()).order(java.nio.ByteOrder.LITTLE_ENDIAN)
+        payloadBuf.putInt(result.size)
+        offsets.forEach { payloadBuf.putLong(it) }
+        itemBufs.forEach { payloadBuf.put(it) }
+        val payload = payloadBuf.array()
+        val lenBuf = java.nio.ByteBuffer.allocate(4).order(java.nio.ByteOrder.LITTLE_ENDIAN)
+        lenBuf.putInt(payload.size)
+        return lenBuf.array() + payload
+    }
+    // source: benchmark_cpp.native.dart:200
+    @JvmStatic fun asyncEcho_call(instanceId: Long, value: Long): Long {
+        val impl = _implementations[instanceId] ?: throw IllegalStateException("BenchmarkCpp instance $instanceId not registered")
+        return _asyncExecutor.submit(java.util.concurrent.Callable {
+            runBlocking { impl.asyncEcho(value) }
+        }).get()
+    }
+    // source: benchmark_cpp.native.dart:208
+    @JvmStatic fun nativeAsyncEcho_call(instanceId: Long, value: Long, errPtr: Long, dartPort: Long) {
+        val impl = _implementations[instanceId] ?: run {
+            reportNativeAsyncError(errPtr, "IllegalStateException", "No implementation registered for instance")
+            postNullToPort(dartPort)
+            return
+        }
+        _asyncExecutor.execute {
+            try {
+            val result = runBlocking { impl.nativeAsyncEcho(value) }
+            postInt64ToPort(dartPort, result.toLong())
+            } catch (e: Throwable) {
+                reportNativeAsyncError(errPtr, e.javaClass.simpleName, e.message ?: "An unknown native exception occurred.")
+                postNullToPort(dartPort)
+            }
+        }
+    }
+    // source: benchmark_cpp.native.dart:244
     @JvmStatic fun sendLargeBufferFast_call(instanceId: Long, buffer: ByteArray): Long {
         val impl = _implementations[instanceId] ?: throw IllegalStateException("BenchmarkCpp instance $instanceId not registered")
         return impl.sendLargeBufferFast(buffer)
     }
-    // source: benchmark_cpp.native.dart:221
+    // source: benchmark_cpp.native.dart:250
     @JvmStatic fun sendLargeBufferNoop_call(instanceId: Long, buffer: ByteArray): Long {
         val impl = _implementations[instanceId] ?: throw IllegalStateException("BenchmarkCpp instance $instanceId not registered")
         return impl.sendLargeBufferNoop(buffer)
     }
-    // source: benchmark_cpp.native.dart:224
+    // source: benchmark_cpp.native.dart:253
     @JvmStatic fun sendLargeBufferNoopFast_call(instanceId: Long, buffer: ByteArray): Long {
         val impl = _implementations[instanceId] ?: throw IllegalStateException("BenchmarkCpp instance $instanceId not registered")
         return impl.sendLargeBufferNoopFast(buffer)
     }
-    // source: benchmark_cpp.native.dart:231
+    // source: benchmark_cpp.native.dart:260
     @JvmStatic fun sendLargeBufferUnsafe_call(instanceId: Long, ptr: Any?, length: Long): Long {
         val impl = _implementations[instanceId] ?: throw IllegalStateException("BenchmarkCpp instance $instanceId not registered")
         return impl.sendLargeBufferUnsafe(ptr, length)

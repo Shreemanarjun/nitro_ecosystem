@@ -82,6 +82,10 @@ NITRO_EXPORT int64_t benchmark_cpp_sieve_primes(int64_t instanceId, int64_t limi
 NITRO_EXPORT void* benchmark_cpp_scale_point(int64_t instanceId, void* point, double factor, NitroError* _nitro_err);
 NITRO_EXPORT void* benchmark_cpp_compute_stats(int64_t instanceId, int64_t iterations);
 NITRO_EXPORT void benchmark_cpp_compute_stats_native(int64_t instanceId, int64_t iterations, NitroError* _nitro_err, int64_t dart_port);
+NITRO_EXPORT uint8_t* benchmark_cpp_echo_int_map(int64_t instanceId, uint8_t* map, NitroError* _nitro_err);
+NITRO_EXPORT void* benchmark_cpp_echo_stats_list(int64_t instanceId, void* stats, NitroError* _nitro_err);
+NITRO_EXPORT int64_t benchmark_cpp_async_echo(int64_t instanceId, int64_t value);
+NITRO_EXPORT void benchmark_cpp_native_async_echo(int64_t instanceId, int64_t value, NitroError* _nitro_err, int64_t dart_port);
 NITRO_EXPORT int64_t benchmark_cpp_send_large_buffer_fast(int64_t instanceId, uint8_t* buffer, size_t buffer_length, NitroError* _nitro_err);
 NITRO_EXPORT int64_t benchmark_cpp_send_large_buffer_noop(int64_t instanceId, uint8_t* buffer, size_t buffer_length, NitroError* _nitro_err);
 NITRO_EXPORT int64_t benchmark_cpp_send_large_buffer_noop_fast(int64_t instanceId, uint8_t* buffer, size_t buffer_length, NitroError* _nitro_err);

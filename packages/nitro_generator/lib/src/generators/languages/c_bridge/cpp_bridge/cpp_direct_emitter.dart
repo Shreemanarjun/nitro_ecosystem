@@ -138,10 +138,33 @@ String _generateCppDirect(BridgeSpec spec) {
   writer.line('    return f;');
   writer.line('}');
   writer.blankLine();
-  writer.line('static std::shared_ptr<Hybrid$className> _nitro_get_instance(int64_t id) {');
+  // Hot-path lock-free cache for the last-resolved (id -> raw impl). The map +
+  // mutex remain the source of truth for create/destroy (rare); reads on the
+  // common singleton path skip the mutex, the hashmap, and the shared_ptr copy
+  // entirely — matching React Native Nitro's direct-pointer dispatch. The
+  // returned pointer is borrowed (the map owns the shared_ptr); its lifetime
+  // for the call duration is guaranteed by the Dart-side NativeFinalizer, which
+  // never destroys an instance while a call on it is in flight. The cache is
+  // invalidated under the mutex on register/destroy so a freed id never
+  // resolves to a dangling pointer.
+  writer.line('static std::atomic<int64_t> _g_cache_id{-1};');
+  writer.line('static std::atomic<Hybrid$className*> _g_cache_ptr{nullptr};');
+  writer.line('static Hybrid$className* _nitro_get_instance(int64_t id) {');
+  writer.line('    if (_g_cache_id.load(std::memory_order_acquire) == id) {');
+  writer.line('        return _g_cache_ptr.load(std::memory_order_relaxed);');
+  writer.line('    }');
   writer.line('    std::lock_guard<std::mutex> _lk(_g_instances_mtx());');
   writer.line('    auto it = _g_instances().find(id);');
-  writer.line('    return it != _g_instances().end() ? it->second : nullptr;');
+  writer.line('    Hybrid$className* p = (it != _g_instances().end()) ? it->second.get() : nullptr;');
+  writer.line('    if (p) {');
+  writer.line('        _g_cache_ptr.store(p, std::memory_order_relaxed);');
+  writer.line('        _g_cache_id.store(id, std::memory_order_release);');
+  writer.line('    }');
+  writer.line('    return p;');
+  writer.line('}');
+  writer.line('static void _nitro_invalidate_cache() {');
+  writer.line('    _g_cache_id.store(-1, std::memory_order_release);');
+  writer.line('    _g_cache_ptr.store(nullptr, std::memory_order_relaxed);');
   writer.line('}');
   writer.blankLine();
   writer.line('extern "C" {');
@@ -152,10 +175,10 @@ String _generateCppDirect(BridgeSpec spec) {
   writer.line('    std::lock_guard<std::mutex> _lk(_g_instances_mtx());');
   writer.line('    if (impl) _g_instances()[0] = std::shared_ptr<Hybrid$className>(impl, [](Hybrid$className*){});');
   writer.line('    else _g_instances().erase(0);');
+  writer.line('    _nitro_invalidate_cache();');
   writer.line('}');
   writer.line('Hybrid$className* ${libStem}_get_impl() {');
-  writer.line('    auto ptr = _nitro_get_instance(0);');
-  writer.line('    return ptr ? ptr.get() : nullptr;');
+  writer.line('    return _nitro_get_instance(0);');
   writer.line('}');
   writer.line('NITRO_EXPORT int64_t ${libStem}_create_instance(const char* key) {');
   writer.line('    if (_g_factory()) {');
@@ -172,6 +195,7 @@ String _generateCppDirect(BridgeSpec spec) {
   writer.line('NITRO_EXPORT void ${libStem}_destroy_instance(int64_t instanceId) {');
   writer.line('    std::lock_guard<std::mutex> _lk(_g_instances_mtx());');
   writer.line('    _g_instances().erase(instanceId);');
+  writer.line('    _nitro_invalidate_cache();');
   writer.line('}');
   // Universal free for native-owned memory handed to Dart. Dart must not use
   // package:ffi's malloc.free on these pointers (CoTaskMemFree on Windows).
@@ -266,7 +290,11 @@ String _generateCppDirect(BridgeSpec spec) {
         final isStructParam = structNames.contains(p.type.name.replaceFirst('?', ''));
         final isRecordParam = recordNames.contains(p.type.name.replaceFirst('?', ''));
         final isEnumParam = enumNames.contains(p.type.name.replaceFirst('?', ''));
-        paramParts.add('${(isStructParam || isRecordParam || p.type.isNativeHandle) ? 'void*' : (isEnumParam ? 'int64_t' : _typeToC(p.type.name))} ${p.name}');
+        // Maps stay on _typeToC (uint8_t*) — must match cpp_bridge_generator's
+        // .bridge.g.h declaration (which excludes maps from the void* branch);
+        // otherwise the header/bridge param types conflict.
+        final isMapParam = p.type.name.startsWith('Map<');
+        paramParts.add('${(isStructParam || (isRecordParam && !isMapParam) || p.type.isNativeHandle) ? 'void*' : (isEnumParam ? 'int64_t' : _typeToC(p.type.name))} ${p.name}');
         if (p.type.isTypedData) paramParts.add('size_t ${p.name}_length');
       }
       paramParts.add('NitroError* _nitro_err');
@@ -387,11 +415,13 @@ String _generateCppDirect(BridgeSpec spec) {
       // Nullable primitives (int?/double?/bool?) use NitroNullable binary → void*.
       final paramPrimBase = p.type.name.replaceFirst('?', '');
       final isNullablePrimParam = (p.type.isNullable || p.type.name.endsWith('?')) && (paramPrimBase == 'int' || paramPrimBase == 'double' || paramPrimBase == 'bool');
+      // Maps stay on _typeToC (uint8_t*) to match the .bridge.g.h declaration.
+      final isMapParam = p.type.name.startsWith('Map<');
       final cType = isNullablePrimParam
           ? 'void*'
           : isEnumParam
           ? 'int64_t'
-          : ((isStructParam || isRecordParam || isVariantParam || p.type.isNativeHandle) ? 'void*' : _typeToC(p.type.name));
+          : ((isStructParam || (isRecordParam && !isMapParam) || isVariantParam || p.type.isNativeHandle) ? 'void*' : _typeToC(p.type.name));
       paramParts.add('$cType ${p.name}');
       if (p.type.isTypedData) paramParts.add('size_t ${p.name}_length');
     }

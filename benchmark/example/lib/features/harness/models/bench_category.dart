@@ -81,6 +81,18 @@ const List<BenchCategory> kBenchCategories = [
     caseIds: ['nitro_native_async_record', 'nitro_async_record'],
   ),
   BenchCategory(
+    title: 'Async dispatch (scalar)',
+    subtitle: 'Near-zero payload — isolates dispatch overhead',
+    baselineId: 'nitro_native_async_scalar',
+    caseIds: ['nitro_native_async_scalar', 'nitro_async_scalar'],
+  ),
+  BenchCategory(
+    title: 'Map<String,int> codec',
+    subtitle: 'Binary map encode + decode round-trip',
+    baselineId: 'nitro_cpp_map',
+    caseIds: ['nitro_cpp_map', 'nitro_cpp_record_list'],
+  ),
+  BenchCategory(
     title: 'Buffer throughput · 16 MiB',
     subtitle: 'Zero-copy vs channel copy — higher is better',
     baselineId: 'raw_ffi_buffer',

@@ -63,11 +63,22 @@ enum NitroPromiseState {
 /// final str     = promise.andThen((v) async => '$v');  // NitroPromise<String>
 /// ```
 class NitroPromise<T> {
+  // NOTE (issue #36 / PR #38): PR #38 proposed `Completer.sync()` here to save
+  // one microtask hop on `await .future`. It is NOT adopted — the sync
+  // completer delivers a rejection synchronously at `completeError`, before
+  // reject()'s unhandled-error suppressor can be attached, so an un-awaited
+  // rejection surfaces as an unhandled error (see the reject cases in
+  // nitro_promise_test.dart). It would also run `await` continuations
+  // synchronously inside the resolver's stack. The async completer is kept for
+  // predictable, surprise-free scheduling; the saved hop is negligible.
   final Completer<T> _completer = Completer<T>();
   NitroPromiseState _state = NitroPromiseState.pending;
 
-  final List<void Function(T)> _resolvedListeners = [];
-  final List<void Function(Object, StackTrace?)> _rejectedListeners = [];
+  // Listener lists are allocated lazily — most promises are awaited via
+  // `.future`, never via addOnXxxListener, so the common case allocates none.
+  // This part of #36 IS kept: it removes two list allocations per promise.
+  List<void Function(T)>? _resolvedListeners;
+  List<void Function(Object, StackTrace?)>? _rejectedListeners;
 
   NitroPromise();
 
@@ -93,11 +104,14 @@ class NitroPromise<T> {
     if (!isPending) return;
     _state = NitroPromiseState.resolved;
     _completer.complete(value);
-    for (final l in _resolvedListeners) {
-      l(value);
+    final resolved = _resolvedListeners;
+    if (resolved != null) {
+      for (final l in resolved) {
+        l(value);
+      }
     }
-    _resolvedListeners.clear();
-    _rejectedListeners.clear();
+    _resolvedListeners = null;
+    _rejectedListeners = null;
   }
 
   /// Complete this promise with an error. Mirrors `Promise<T>::reject(Error)`.
@@ -111,11 +125,14 @@ class NitroPromise<T> {
     // .future yet. Callers who do await .future still receive the error.
     // ignore: unawaited_futures
     _completer.future.then<void>((_) {}, onError: (Object e, StackTrace t) {});
-    for (final l in _rejectedListeners) {
-      l(error, stackTrace);
+    final rejected = _rejectedListeners;
+    if (rejected != null) {
+      for (final l in rejected) {
+        l(error, stackTrace);
+      }
     }
-    _rejectedListeners.clear();
-    _resolvedListeners.clear();
+    _rejectedListeners = null;
+    _resolvedListeners = null;
   }
 
   // ── Listeners (multi-subscriber, mirrors RN Nitro addOnXxxListener) ───────
@@ -127,7 +144,7 @@ class NitroPromise<T> {
       // Already resolved — invoke asynchronously to avoid synchronous surprises.
       _completer.future.then(listener);
     } else if (isPending) {
-      _resolvedListeners.add(listener);
+      (_resolvedListeners ??= []).add(listener);
     }
     // Rejected: resolved listeners are never called.
   }
@@ -147,7 +164,7 @@ class NitroPromise<T> {
         },
       );
     } else if (isPending) {
-      _rejectedListeners.add(listener);
+      (_rejectedListeners ??= []).add(listener);
     }
     // Resolved: rejection listeners are never called.
   }

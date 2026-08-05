@@ -35,6 +35,10 @@ void _emitMapAndFactory(CodeWriter writer, BridgeSpec spec) {
   }
   if (mapValueTypes.isNotEmpty) {
     // Shared low-level helper (emitted once). Type tags: 1=int64, 2=float64, 3=bool, 4=string, 9=bytes
+    // Returns just the payload (`[4B count][entries]`) — the caller writes the
+    // outer `[4B payload_len]` prefix directly into the native buffer, avoiding
+    // the element-wise `Uint8List.fromList([...prefix, ...payload])` spread copy
+    // that used to sit here (perf-audit "B").
     writer.line('Uint8List _nitroMapPayload(Map<String, dynamic> m, void Function(ByteData h, BytesBuilder bb, dynamic v) writeVal) {');
     // copy: true (default) is required: copy:false holds references to hdr.buffer,
     // so every hdr.setInt32 call would silently corrupt all previously-added count/kLen bytes.
@@ -45,9 +49,7 @@ void _emitMapAndFactory(CodeWriter writer, BridgeSpec spec) {
     writer.line('    final k = utf8.encode(e.key); hdr.setInt32(0, k.length, Endian.little);');
     writer.line('    bb.add(hdr.buffer.asUint8List(0, 4)); bb.add(k); writeVal(hdr, bb, e.value);');
     writer.line('  }');
-    writer.line('  final payload = bb.toBytes();');
-    writer.line('  final lenBuf = ByteData(4)..setInt32(0, payload.length, Endian.little);');
-    writer.line('  return Uint8List.fromList([...lenBuf.buffer.asUint8List(0, 4), ...payload]);');
+    writer.line('  return bb.toBytes();');
     writer.line('}');
     writer.blankLine();
     for (final vt in mapValueTypes) {

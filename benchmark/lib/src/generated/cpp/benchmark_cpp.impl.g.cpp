@@ -88,6 +88,33 @@ public:
         throw std::runtime_error("Not implemented: computeStatsNative");
     }
 
+    NitroCppBuffer echoIntMap(NitroCppBuffer map) override {
+        // TODO: implement echoIntMap
+        throw std::runtime_error("Not implemented: echoIntMap");
+        // return { nullptr, 0 };
+    }
+
+    NitroCppBuffer echoStatsList(NitroCppBuffer stats) override {
+        // TODO: implement echoStatsList
+        throw std::runtime_error("Not implemented: echoStatsList");
+        // return { nullptr, 0 };
+    }
+
+    int64_t asyncEcho(int64_t value) override {
+        // TODO: implement asyncEcho
+        throw std::runtime_error("Not implemented: asyncEcho");
+        // return 0;
+    }
+
+    void nativeAsyncEcho(int64_t value, NitroError* _nitro_err, int64_t dartPort) override {
+        // TODO: on error, populate _nitro_err (hasError/name/message via strdup) before posting.
+        // TODO: post result via Dart_PostCObject_DL(dartPort, ...)
+        // Nullable result? Post EITHER Dart_CObject_kNull OR kInt64 with
+        // value 0 — both decode to Dart null. Non-nullable results must
+        // always post a real encoded value.
+        throw std::runtime_error("Not implemented: nativeAsyncEcho");
+    }
+
     int64_t sendLargeBufferFast(const uint8_t* buffer, size_t buffer_length) override {
         // TODO: implement sendLargeBufferFast
         throw std::runtime_error("Not implemented: sendLargeBufferFast");

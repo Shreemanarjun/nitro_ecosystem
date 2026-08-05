@@ -42,6 +42,15 @@ external JSString _benchmark_cpp_scale_point_js(
 @JS('benchmark_cpp_compute_stats')
 external JSAny? _benchmark_cpp_compute_stats_js(JSNumber iterations);
 
+@JS('benchmark_cpp_echo_int_map')
+external JSString _benchmark_cpp_echo_int_map_js(JSString map);
+
+@JS('benchmark_cpp_echo_stats_list')
+external JSString _benchmark_cpp_echo_stats_list_js(JSString stats);
+
+@JS('benchmark_cpp_async_echo')
+external JSAny? _benchmark_cpp_async_echo_js(JSNumber value);
+
 @JS('benchmark_cpp_send_large_buffer_fast')
 external JSNumber _benchmark_cpp_send_large_buffer_fast_js(
   JSArrayBuffer buffer,
@@ -123,6 +132,31 @@ final class _BenchmarkCppWebImpl extends BenchmarkCpp {
   Future<BenchmarkStats> computeStatsNative(int iterations) {
     throw UnsupportedError(
       'computeStatsNative: @NitroNativeAsync is not supported on web. Use @nitroAsync instead.',
+    );
+  }
+
+  @override
+  Map<String, int> echoIntMap(Map<String, int> map) =>
+      jsonDecode(
+            (_benchmark_cpp_echo_int_map_js(jsonEncode(map).toJS) as JSString)
+                .toDart,
+          )
+          as Map<String, dynamic>;
+
+  @override
+  List<BenchmarkStats> echoStatsList(List<BenchmarkStats> stats) =>
+      (_benchmark_cpp_echo_stats_list_js(jsonEncode(stats).toJS) as JSAny?);
+
+  @override
+  Future<int> asyncEcho(int value) async {
+    final result = _benchmark_cpp_async_echo_js(value.toJS);
+    return (result as JSNumber).toDartInt;
+  }
+
+  @override
+  Future<int> nativeAsyncEcho(int value) {
+    throw UnsupportedError(
+      'nativeAsyncEcho: @NitroNativeAsync is not supported on web. Use @nitroAsync instead.',
     );
   }
 

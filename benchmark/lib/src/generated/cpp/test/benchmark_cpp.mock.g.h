@@ -19,6 +19,10 @@ class MockBenchmarkCpp : public HybridBenchmarkCpp {
     MOCK_METHOD(BenchmarkPoint, scalePoint, (const BenchmarkPoint& point, double factor), (override));
     MOCK_METHOD(NitroCppBuffer, computeStats, (int64_t iterations), (override));
     MOCK_METHOD(NitroCppBuffer, computeStatsNative, (int64_t iterations), (override));
+    MOCK_METHOD(NitroCppBuffer, echoIntMap, (NitroCppBuffer map), (override));
+    MOCK_METHOD(NitroCppBuffer, echoStatsList, (NitroCppBuffer stats), (override));
+    MOCK_METHOD(int64_t, asyncEcho, (int64_t value), (override));
+    MOCK_METHOD(int64_t, nativeAsyncEcho, (int64_t value), (override));
     MOCK_METHOD(int64_t, sendLargeBufferFast, (const uint8_t* buffer, size_t buffer_length), (override));
     MOCK_METHOD(int64_t, sendLargeBufferNoop, (const uint8_t* buffer, size_t buffer_length), (override));
     MOCK_METHOD(int64_t, sendLargeBufferNoopFast, (const uint8_t* buffer, size_t buffer_length), (override));

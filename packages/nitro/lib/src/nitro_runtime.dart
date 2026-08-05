@@ -25,9 +25,10 @@ void _log(
   final effective = cfg.effectiveLogLevel;
   if (effective == NitroLogLevel.none) return;
 
-  final levelRank = NitroLogLevel.values.indexOf(level);
-  final effectiveRank = NitroLogLevel.values.indexOf(effective);
-  if (levelRank > effectiveRank) return;
+  // NitroLogLevel is declared none < error < warning < ... in severity order,
+  // so the enum .index IS the rank — an O(1) compare instead of two O(n)
+  // indexOf scans on every log check (issue #33 area, PR #38).
+  if (level.index > effective.index) return;
 
   cfg.logHandler(level, tag, message, error, stack);
 }
@@ -273,7 +274,11 @@ class NitroRuntime {
     Pointer<NitroErrorFfi> errPtr, {
     void Function(Pointer<NativeType>)? nativeFree,
   }) {
-    if (errPtr.ref.hasError == 0) return;
+    // Cache the struct view once — each `errPtr.ref` builds a fresh Struct
+    // proxy; the error path touched it 12+ times (issue #37, PR #38). The
+    // proxy is a view, so writes through `err` still hit native memory.
+    final err = errPtr.ref;
+    if (err.hasError == 0) return;
     // The string fields were strdup'd by the C bridge, so they must be freed
     // by a C-runtime free — the module's `<lib>_nitro_free` export, passed as
     // [nativeFree] by generated code. package:ffi's malloc.free is
@@ -281,28 +286,28 @@ class NitroRuntime {
     // remains only as a fallback for pre-nitro_free callers on POSIX.
     final free = nativeFree ?? malloc.free;
     // Copy C-owned strings into Dart before freeing native memory.
-    final name = errPtr.ref.name != nullptr ? errPtr.ref.name.toDartString() : 'NativeException';
-    final message = errPtr.ref.message != nullptr ? errPtr.ref.message.toDartString() : 'An unknown native exception occurred.';
-    final code = errPtr.ref.code != nullptr ? errPtr.ref.code.toDartString() : null;
-    final stack = errPtr.ref.stackTrace != nullptr ? errPtr.ref.stackTrace.toDartString() : null;
+    final name = err.name != nullptr ? err.name.toDartString() : 'NativeException';
+    final message = err.message != nullptr ? err.message.toDartString() : 'An unknown native exception occurred.';
+    final code = err.code != nullptr ? err.code.toDartString() : null;
+    final stack = err.stackTrace != nullptr ? err.stackTrace.toDartString() : null;
     // Free native-heap strings (strdup'd by the C bridge) and reset the slot.
-    if (errPtr.ref.name != nullptr) {
-      free(errPtr.ref.name);
-      errPtr.ref.name = nullptr;
+    if (err.name != nullptr) {
+      free(err.name);
+      err.name = nullptr;
     }
-    if (errPtr.ref.message != nullptr) {
-      free(errPtr.ref.message);
-      errPtr.ref.message = nullptr;
+    if (err.message != nullptr) {
+      free(err.message);
+      err.message = nullptr;
     }
-    if (errPtr.ref.code != nullptr) {
-      free(errPtr.ref.code);
-      errPtr.ref.code = nullptr;
+    if (err.code != nullptr) {
+      free(err.code);
+      err.code = nullptr;
     }
-    if (errPtr.ref.stackTrace != nullptr) {
-      free(errPtr.ref.stackTrace);
-      errPtr.ref.stackTrace = nullptr;
+    if (err.stackTrace != nullptr) {
+      free(err.stackTrace);
+      err.stackTrace = nullptr;
     }
-    errPtr.ref.hasError = 0;
+    err.hasError = 0;
     throw HybridException(
       name: name,
       message: message,
@@ -329,18 +334,21 @@ class NitroRuntime {
     // by generated code); the struct itself is Dart calloc'd, so calloc.free
     // stays correct for it on every platform.
     final free = nativeFree ?? malloc.free;
-    if (errPtr.ref.hasError == 0) {
+    // Cache the struct view once (issue #37, PR #38); it is a view, so reads
+    // through `err` see the same native slot.
+    final err = errPtr.ref;
+    if (err.hasError == 0) {
       calloc.free(errPtr);
       return;
     }
-    final name = errPtr.ref.name != nullptr ? errPtr.ref.name.toDartString() : 'NativeException';
-    final message = errPtr.ref.message != nullptr ? errPtr.ref.message.toDartString() : 'An unknown native exception occurred.';
-    final code = errPtr.ref.code != nullptr ? errPtr.ref.code.toDartString() : null;
-    final stack = errPtr.ref.stackTrace != nullptr ? errPtr.ref.stackTrace.toDartString() : null;
-    if (errPtr.ref.name != nullptr) free(errPtr.ref.name);
-    if (errPtr.ref.message != nullptr) free(errPtr.ref.message);
-    if (errPtr.ref.code != nullptr) free(errPtr.ref.code);
-    if (errPtr.ref.stackTrace != nullptr) free(errPtr.ref.stackTrace);
+    final name = err.name != nullptr ? err.name.toDartString() : 'NativeException';
+    final message = err.message != nullptr ? err.message.toDartString() : 'An unknown native exception occurred.';
+    final code = err.code != nullptr ? err.code.toDartString() : null;
+    final stack = err.stackTrace != nullptr ? err.stackTrace.toDartString() : null;
+    if (err.name != nullptr) free(err.name);
+    if (err.message != nullptr) free(err.message);
+    if (err.code != nullptr) free(err.code);
+    if (err.stackTrace != nullptr) free(err.stackTrace);
     calloc.free(errPtr);
     throw HybridException(
       name: name,
@@ -476,6 +484,31 @@ class NitroRuntime {
     final poolSize = cfg.isolatePoolSize;
     final effective = cfg.effectiveLogLevel;
     final traceTimeline = cfg.timelineTracingEnabled;
+
+    // Hot path: skip the Stopwatch and the tag-string allocation when no
+    // per-call instrumentation is requested — mirrors callSync's fast path
+    // (issue #33, PR #38). Only the error-level log survives, and its tag is
+    // built lazily on the throw. Factored through one local `dispatch` so the
+    // pool/legacy branch isn't duplicated.
+    if (effective != NitroLogLevel.verbose && !traceTimeline && cfg.slowCallThresholdUs == 0) {
+      Future<T> dispatch() => (poolSize <= 0 || !_poolReady)
+          ? Isolate.run(() {
+              final res = Function.apply(fn, args) as T;
+              if (getError != null && clearError != null) {
+                checkError(getError.asFunction(), clearError.asFunction());
+              }
+              return res;
+            })
+          : _pool!.dispatch<T>(fn, args, getError: getError, clearError: clearError);
+      if (effective == NitroLogLevel.none) return await dispatch();
+      try {
+        return await dispatch();
+      } catch (e, st) {
+        _log(NitroLogLevel.error, methodName.isEmpty ? 'callAsync' : 'callAsync($methodName)', 'threw: $e', e, st);
+        rethrow;
+      }
+    }
+
     // Only pay for timing when there's somewhere to send the result.
     final sw = effective != NitroLogLevel.none && (effective == NitroLogLevel.verbose || cfg.slowCallThresholdUs > 0) ? (Stopwatch()..start()) : null;
 
@@ -542,8 +575,37 @@ class NitroRuntime {
   }) {
     final cfg = NitroConfig.instance;
     final effective = cfg.effectiveLogLevel;
-    final tag = methodName.isEmpty ? 'nativeAsync' : 'nativeAsync($methodName)';
     final traceTimeline = cfg.timelineTracingEnabled;
+
+    // Hot path: skip the Stopwatch and the tag-string allocation when no
+    // per-call instrumentation is requested — mirrors callSync's fast path
+    // (issue #33, PR #38). The port round-trip is unchanged; only the
+    // instrumentation is elided. An error-level log survives, built lazily.
+    if (effective != NitroLogLevel.verbose && !traceTimeline && cfg.slowCallThresholdUs == 0) {
+      final port = ReceivePort();
+      try {
+        call(port.sendPort.nativePort);
+      } catch (e, st) {
+        port.close();
+        if (effective != NitroLogLevel.none) {
+          _log(NitroLogLevel.error, methodName.isEmpty ? 'nativeAsync' : 'nativeAsync($methodName)', 'threw: $e', e, st);
+        }
+        rethrow;
+      }
+      return port.first.then((raw) {
+        port.close();
+        try {
+          return unpack(raw);
+        } catch (e, st) {
+          if (effective != NitroLogLevel.none) {
+            _log(NitroLogLevel.error, methodName.isEmpty ? 'nativeAsync' : 'nativeAsync($methodName)', 'threw during unpack: $e', e, st);
+          }
+          rethrow;
+        }
+      });
+    }
+
+    final tag = methodName.isEmpty ? 'nativeAsync' : 'nativeAsync($methodName)';
 
     final sw = effective != NitroLogLevel.none && (effective == NitroLogLevel.verbose || cfg.slowCallThresholdUs > 0) ? (Stopwatch()..start()) : null;
 

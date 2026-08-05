@@ -122,7 +122,152 @@ exhausted here.
 
 ---
 
-## 5. Ranked improvement opportunities (each needs its own focused, measured effort)
+## 5. Results — A–E worked one at a time, each with a benchmark case
+
+All measured on macOS M4, profile mode, `bench.sh --mode quick`, isolating one
+change at a time (baseline → +A → +A+C → +A+B+C). Two new harness cases were
+added first so B and D are measurable: `nitro_cpp_map` (Map<String,int> echo)
+and `nitro_native_async_scalar`/`nitro_async_scalar` (near-zero-payload async).
+Correctness for the kept changes is gated by **679/679 nitro_type_coverage
+integration tests on macOS** (maps §58/L4a/L4b, strings+BOM §57, dispose/multi-
+instance §50), 4336 generator tests, and 121 nitro-runtime tests.
+
+| Opt | Change | Case | Before → After | Verdict |
+|---|---|---|---|---|
+| **B** | Map encode: drop the element-wise `Uint8List.fromList([...spread])`; write `[4B len][payload]` straight to native | `nitro_cpp_map` | **9.30 → 3.45 µs (−62.9%)** | **KEPT — the win of the exercise** |
+| **C** | String decode: per-byte `List<int>` loop → native `Utf8Decoder` (BOM preserved by stripping/re-prepending leading BOM bytes) | `nitro_string_roundtrip` | **0.654 → 0.552 µs (−15.6%)** | **KEPT** (new `string_decode_test.dart` locks BOM behavior) |
+| **A** | C++ instance lookup: `mutex + shared_ptr` copy per call → lock-free single-id cache + borrowed raw `Hybrid*` | `nitro_cpp_add` | 0.272 → 0.258 µs (−5.1%) | **KEPT, but within noise** (control `raw_ffi_add` swung ±13–100% across runs). Removes real work (~20–30 ns) and matches RN Nitro's direct-pointer dispatch; sub-noise on this bench. |
+| **D** | Native-async: pool the per-call `ReceivePort` + `calloc` error slot | `nitro_native_async_scalar` = 13.3 µs | — | **DECLINED (evidence-based).** The new scalar case shows native-async is **event-loop-delivery-bound** (`Dart_PostCObject`→Future), not alloc-bound; it is already 2× faster than the isolate-pool async (13.3 vs 27.7 µs). Pooling needs message multiplexing (replacing clean one-port-per-call routing) for a bounded ~1–2 µs at real concurrency risk. |
+| **E** | Inline the sync fast path; reuse an instance-local `Arena` instead of a fresh one per call | (string/struct) | — | **DECLINED.** Safe arena reuse is blocked by **sync-callback reentrancy**: a call can re-enter another call on the same instance via a synchronous callback, and a shared/reset arena would corrupt in-flight pointers. The per-call arena's isolation is a correctness feature; the closure-elimination half also changes the error/logging contract on every generated method. Not justified.
+
+Incidental fix found while adding the map case: the direct C++ emitter typed a
+`Map<String,T>` param `void*` while the `.bridge.g.h` header typed it
+`uint8_t*` — a conflicting-types compile error for any all-cpp map param. Fixed
+to match (`cpp_direct_emitter.dart`); this was a latent generator bug, not
+benchmark-specific.
+
+### Follow-on: #1 — `List<@HybridRecord>` encode (the biggest single win)
+
+Same data-path family as B, and the flagged worst allocator in the codec.
+`RecordWriter.encodeIndexedList` built **one 256-byte `RecordWriter` per list
+item**, took each item's bytes with a copy, then copied every item a second
+time into a final writer (~2N copies + N allocations for an N-item list).
+Replaced with a **single writer**: reserve the `[count][offset table]`, write
+each item directly (recording its start offset), then backpatch the offset
+table via a new `RecordWriter._patchInt64`. One writer, each item written once,
+byte-identical `[count][8B×n offsets][items]` wire format.
+
+| Opt | Case | Before → After | Verdict |
+|---|---|---|---|
+| **#1** | `nitro_cpp_record_list` (16-item `List<@HybridRecord>` echo) | **3.842 → 1.770 µs (−53.9%)** | **KEPT** — clean, controls flat |
+
+Correctness: 6 new `indexed_list_codec_test.dart` round-trip tests (empty,
+single, growing-mid-list, 16-item, random-access-hits-right-offset, unicode) +
+**679/679 nitro_type_coverage integration on macOS** (§L1 `Stream<@HybridRecord>`,
+§63 `List<@HybridEnum>`, §64 `List<@NitroVariant>`, `List<TcConfig>` round-trips
+all pass on the real bridge).
+
+**Running scoreboard of measured data-path wins** (all on the macOS C++ bridge,
+each isolated with controls tracked):
+
+| Path | Win |
+|---|---|
+| `List<@HybridRecord>` encode (#1) | **−53.9%** |
+| `Map<String,int>` encode (B) | **−62.9%** |
+| native → Dart string decode (C) | **−15.6%** |
+
+The audit's core thesis is now measured three times over: the payoff is in the
+data-marshalling paths, and it is large (−15% to −63%) and low-risk, while
+scalar dispatch (A) stays below the noise floor on every platform.
+
+### Community PR #38 reconciliation (5-run averaged)
+
+A community perf PR (#38, issues #31–#37) landed against the same runtime
+files. Its good parts were integrated on top of the C/#1 work and re-measured
+with **5 independent benchmark runs averaged** (single runs proved too noisy —
+one showed `buffer_pinned −11%` that averaging revealed as −1.6% within-noise).
+Baseline = the committed runtime (`c589b80`); "after" = all session runtime perf
+(C + #1 + the #38-reconciled changes). 148 nitro unit tests (incl. a new
+21-case `nitro_promise_test.dart`) + **679/679 type_coverage integration on
+macOS** gate correctness.
+
+| Case | Base (5-run mean) | After (5-run mean) | Δ | Ranges overlap? |
+|---|---|---|---|---|
+| `nitro_string_roundtrip` (C, #31) | 0.643 µs | 0.525 µs | **−18.4%** | no — real |
+| `nitro_cpp_record_list` (#1 + #34 `toNative`) | 3.779 µs | 1.667 µs | **−55.9%** | no — real |
+| `nitro_native_async_scalar` (#33) | 13.367 µs | 13.295 µs | −0.5% | yes — noise |
+| `nitro_async_record` (#33) | 27.850 µs | 27.715 µs | −0.5% | yes — noise |
+| `nitro_buffer_pinned` (#32) | 515.9 µs | 507.7 µs | −1.6% | yes — noise |
+| `nitro_cpp_add` / `raw_ffi_add` (ctrl) | 0.265 / 0.013 | 0.256 / 0.013 | −3.3 / −3.2% | ctrl moved too |
+
+Adopted from #38 and kept: `_log` `.index` O(1) rank; `errPtr.ref` caching on
+the error path (#37); ZeroCopy view caching (#32); `callAsync` + `openNativeAsync`
+fast paths mirroring callSync (#33); `RecordWriter.toNative` copy-elimination
+(#34); lazy `NitroPromise` listener lists (#36). These last four don't move
+median latency in a tight loop (rows above) but cut per-call allocations — GC
+pressure relief that matters in real apps, not micro-benchmarks. **Two #38
+sub-changes were REJECTED, each caught by a test:**
+
+- **#31 `utf8.decode` fast path** — bare `utf8.decode` is *strict* and throws
+  `FormatException` on malformed bytes the old decoder mapped to `U+FFFD`. The
+  local C fix (`Utf8Decoder(allowMalformed: true)`) is kept instead — same VM
+  speed, no regression.
+- **`Completer.sync()` in NitroPromise (#36) and `Error.throwWithStackTrace` in
+  IsolatePool (#35)** — both interact with a sync completer to deliver a
+  rejection *synchronously* before its handler is attached, surfacing un-awaited
+  rejections as unhandled errors (and, in the pool, throwing into `dispose()`).
+  The reject-path and dispose tests prove it; the async-completer /
+  return-`Future.error` forms are kept.
+
+The scoreboard's #1 figure firms up to **−55.9%** and C to **−18.4%** under
+5-run averaging (both with non-overlapping ranges) — the single-run −53.9% /
+−15.6% were in the right place but noisier.
+
+**Takeaway:** the big, real wins were in the **data-marshalling paths** exactly
+as the §4 analysis predicted — map encode (−63%) and string decode (−16%) —
+both low-risk and validated. Scalar dispatch (A) and the async/arena paths
+(D/E) are either sub-noise or blocked by correctness constraints, so they were
+kept-with-caveat (A) or declined with rationale (D, E) rather than shipped for
+uncertain benefit.
+
+**These ARE C++-bridge numbers.** `benchmark_cpp` uses `AppleNativeImpl.cpp` on
+macOS, so the `nitro_cpp_*` tier — including `nitro_cpp_map` and `nitro_cpp_add`
+— is the C++ direct bridge (`cpp_direct_emitter.dart`), the exact path A and B
+modify. The compiled `benchmark_cpp.bridge.g.mm` includes the generated
+`.bridge.g.cpp` with A's lock-free instance cache and 15 `_nitro_get_instance`
+call sites. (The `nitro_platform_*` tier is Swift — that's the only Apple-Swift
+path.) So the map win is a genuine Dart↔C++ communication improvement on the
+same code that Windows/Linux/all-cpp-Android ship.
+
+### Second-platform validation — Android (OnePlus CPH2447, release)
+
+The all-cpp `benchmark_cpp` on Android compiles the *same* generated
+`benchmark_cpp.bridge.g.cpp` (A's cache) and runs the *same* Dart proxy (B's
+`setRange` map encode), so a real-device run exercises both.
+
+- **Correctness ✓** — an A-ON and an A-OFF release run both completed with all
+  FNV and sieve tiers agreeing and the map echoing correctly. A+B+C are correct
+  on a real, non-Apple C++ bridge.
+- **Magnitude: inconclusive on-device.** Between the two release runs the map
+  case swung 8.55 ↔ 4.05 µs and `nitro_cpp_add` 0.493 ↔ 0.464 µs — an 8→4 µs
+  swing that A (a ~30 ns instance-lookup change) cannot possibly cause. It is
+  Android core-scheduling / DVFS noise (which CPU the FFI thread lands on),
+  the same variance documented in the release-mode `-O0` investigation. A
+  single run per config can't resolve A's delta when the *map* alone varies 2×
+  from scheduling; a clean A number would need many averaged runs with pinned
+  affinity (a `simpleperf`/Perfetto session), which is out of scope here.
+
+**Net for A:** it is a correct, principled change that removes a real
+per-call `std::mutex` + `shared_ptr` copy and matches RN Nitro's direct-pointer
+dispatch, but its ~20–30 ns delta is **below the measurement floor on every
+platform available** (macOS thermal noise, Android core-scheduling noise). Kept
+on merit, not claimed as a measured win. **B's −63%, by contrast, was measured
+cleanly on the macOS C++ bridge** (large enough delta, controls tracked) and is
+a Dart-side change that carries to Android identically.
+
+---
+
+## 6. Original ranked opportunities (pre-implementation notes, retained for context)
 
 Ordered by value ÷ risk. None are "free"; each is a generator change requiring
 regeneration + the full test suite + re-measurement across platforms.
@@ -194,7 +339,7 @@ non-scalar param wrap each call in a closure passed to `callSync`, and
 
 ---
 
-## 6. Recommendation
+## 7. Recommendation
 
 The runtime is in good shape and ahead of RN Nitro on features. Do **not**
 chase the scalar path further — it is at the practical floor and the obvious

@@ -139,6 +139,10 @@ public protocol HybridBenchmarkCppProtocol: AnyObject {
     func scalePoint(point: BenchmarkPoint, factor: Double) -> BenchmarkPoint
     func computeStats(iterations: Int64) async throws -> BenchmarkStats
     func computeStatsNative(iterations: Int64) async throws -> BenchmarkStats
+    func echoIntMap(map: Any) -> Any
+    func echoStatsList(stats: [BenchmarkStats]) -> [BenchmarkStats]
+    func asyncEcho(value: Int64) async throws -> Int64
+    func nativeAsyncEcho(value: Int64) async throws -> Int64
     func sendLargeBufferFast(buffer: Data) -> Int64
     func sendLargeBufferNoop(buffer: Data) -> Int64
     func sendLargeBufferNoopFast(buffer: Data) -> Int64

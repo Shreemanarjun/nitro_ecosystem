@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:ffi';
 import 'dart:typed_data';
 import 'package:ffi/ffi.dart';
@@ -140,47 +141,47 @@ extension NitroPointerExtension on Pointer<Utf8> {
   /// export, which is a plain C-runtime `free`).
   String toDartStringFreedBy(void Function(Pointer<Utf8>) nativeFree) {
     if (address == 0) return '';
-    // dart:convert's utf8.decode strips a leading U+FEFF (BOM) per the Unicode
-    // standard. Strings crossing the FFI bridge are raw data — not text streams
-    // — so we must preserve all bytes including U+FEFF. We bypass utf8.decode
-    // and decode the bytes directly into code points via String.fromCharCodes.
+    // Strings crossing the FFI bridge are raw data, not text streams — so a
+    // leading U+FEFF (BOM) must be preserved. _decodeUtf8NoBomStrip handles
+    // that while still using the fast native decoder.
+    // Scan for the NUL over a cached base pointer — `p[len]` is an indexed
+    // load, whereas `(cast<Uint8>() + len).value` allocates a fresh Pointer
+    // object per byte (issue #31, PR #38).
+    final p = cast<Uint8>();
     int len = 0;
-    while ((cast<Uint8>() + len).value != 0) {
+    while (p[len] != 0) {
       len++;
     }
-    final str = _decodeUtf8NoBomStrip(cast<Uint8>().asTypedList(len));
+    final str = _decodeUtf8NoBomStrip(p.asTypedList(len));
     nativeFree(this);
     return str;
   }
 }
 
+const _utf8DecoderAllowMalformed = Utf8Decoder(allowMalformed: true);
+
 // Decodes UTF-8 bytes to a Dart String without stripping leading U+FEFF.
 // dart:convert's Utf8Decoder treats a leading BOM (U+FEFF / 0xEF 0xBB 0xBF)
 // as a stream signature and drops it. Bridge strings are raw data, not streams.
+//
+// Rather than hand-roll a per-byte code-point loop (a growable `List<int>`
+// with one `.add()` per code point on every returned string), use the fast
+// native `Utf8Decoder`: count and strip any leading BOM byte-triples so the
+// decoder never sees a BOM to drop, decode the remainder in one pass, then
+// re-prepend exactly the U+FEFFs that were removed. Correct for any number of
+// leading BOMs; the common (no-BOM) case is a single decoder call.
 String _decodeUtf8NoBomStrip(Uint8List bytes) {
   if (bytes.isEmpty) return '';
-  final codePoints = <int>[];
-  var i = 0;
-  while (i < bytes.length) {
-    final b = bytes[i];
-    if (b & 0x80 == 0) {
-      codePoints.add(b);
-      i++;
-    } else if ((b & 0xE0) == 0xC0 && i + 1 < bytes.length) {
-      codePoints.add(((b & 0x1F) << 6) | (bytes[i + 1] & 0x3F));
-      i += 2;
-    } else if ((b & 0xF0) == 0xE0 && i + 2 < bytes.length) {
-      codePoints.add(((b & 0x0F) << 12) | ((bytes[i + 1] & 0x3F) << 6) | (bytes[i + 2] & 0x3F));
-      i += 3;
-    } else if ((b & 0xF8) == 0xF0 && i + 3 < bytes.length) {
-      codePoints.add(((b & 0x07) << 18) | ((bytes[i + 1] & 0x3F) << 12) | ((bytes[i + 2] & 0x3F) << 6) | (bytes[i + 3] & 0x3F));
-      i += 4;
-    } else {
-      codePoints.add(0xFFFD); // Unicode replacement character for malformed bytes
-      i++;
-    }
+  var bomBytes = 0;
+  while (bomBytes + 3 <= bytes.length &&
+      bytes[bomBytes] == 0xEF &&
+      bytes[bomBytes + 1] == 0xBB &&
+      bytes[bomBytes + 2] == 0xBF) {
+    bomBytes += 3;
   }
-  return String.fromCharCodes(codePoints);
+  final decoded = _utf8DecoderAllowMalformed.convert(bytes, bomBytes);
+  if (bomBytes == 0) return decoded;
+  return String.fromCharCode(0xFEFF) * (bomBytes ~/ 3) + decoded;
 }
 
 /// A wrapper for native memory owned by C/Swift/Kotlin, mapped directly into
@@ -229,13 +230,14 @@ abstract class _ZeroCopyBufferBase {
 class ZeroCopyBuffer extends _ZeroCopyBufferBase {
   final Pointer<Uint8> ptr;
   final int length;
+  Uint8List? _cachedBytes;
 
   ZeroCopyBuffer(this.ptr, this.length, void Function() nativeRelease) : super(ptr != nullptr, nativeRelease);
 
   /// Zero-copy [Uint8List] view of native memory.
   Uint8List get bytes {
     _assertNotReleased();
-    return ptr.asTypedList(length);
+    return _cachedBytes ??= ptr.asTypedList(length);
   }
 }
 
@@ -243,12 +245,13 @@ class ZeroCopyBuffer extends _ZeroCopyBufferBase {
 class ZeroCopyInt8Buffer extends _ZeroCopyBufferBase {
   final Pointer<Int8> ptr;
   final int length;
+  Int8List? _cachedValues;
 
   ZeroCopyInt8Buffer(this.ptr, this.length, void Function() nativeRelease) : super(ptr != nullptr, nativeRelease);
 
   Int8List get values {
     _assertNotReleased();
-    return ptr.asTypedList(length);
+    return _cachedValues ??= ptr.asTypedList(length);
   }
 }
 
@@ -256,12 +259,13 @@ class ZeroCopyInt8Buffer extends _ZeroCopyBufferBase {
 class ZeroCopyInt16Buffer extends _ZeroCopyBufferBase {
   final Pointer<Int16> ptr;
   final int length;
+  Int16List? _cachedValues;
 
   ZeroCopyInt16Buffer(this.ptr, this.length, void Function() nativeRelease) : super(ptr != nullptr, nativeRelease);
 
   Int16List get values {
     _assertNotReleased();
-    return ptr.asTypedList(length);
+    return _cachedValues ??= ptr.asTypedList(length);
   }
 }
 
@@ -269,12 +273,13 @@ class ZeroCopyInt16Buffer extends _ZeroCopyBufferBase {
 class ZeroCopyUint16Buffer extends _ZeroCopyBufferBase {
   final Pointer<Uint16> ptr;
   final int length;
+  Uint16List? _cachedValues;
 
   ZeroCopyUint16Buffer(this.ptr, this.length, void Function() nativeRelease) : super(ptr != nullptr, nativeRelease);
 
   Uint16List get values {
     _assertNotReleased();
-    return ptr.asTypedList(length);
+    return _cachedValues ??= ptr.asTypedList(length);
   }
 }
 
@@ -282,12 +287,13 @@ class ZeroCopyUint16Buffer extends _ZeroCopyBufferBase {
 class ZeroCopyInt32Buffer extends _ZeroCopyBufferBase {
   final Pointer<Int32> ptr;
   final int length;
+  Int32List? _cachedValues;
 
   ZeroCopyInt32Buffer(this.ptr, this.length, void Function() nativeRelease) : super(ptr != nullptr, nativeRelease);
 
   Int32List get values {
     _assertNotReleased();
-    return ptr.asTypedList(length);
+    return _cachedValues ??= ptr.asTypedList(length);
   }
 }
 
@@ -295,12 +301,13 @@ class ZeroCopyInt32Buffer extends _ZeroCopyBufferBase {
 class ZeroCopyUint32Buffer extends _ZeroCopyBufferBase {
   final Pointer<Uint32> ptr;
   final int length;
+  Uint32List? _cachedValues;
 
   ZeroCopyUint32Buffer(this.ptr, this.length, void Function() nativeRelease) : super(ptr != nullptr, nativeRelease);
 
   Uint32List get values {
     _assertNotReleased();
-    return ptr.asTypedList(length);
+    return _cachedValues ??= ptr.asTypedList(length);
   }
 }
 
@@ -310,13 +317,14 @@ class ZeroCopyUint32Buffer extends _ZeroCopyBufferBase {
 class ZeroCopyFloat32Buffer extends _ZeroCopyBufferBase {
   final Pointer<Float> ptr;
   final int length;
+  Float32List? _cachedFloats;
 
   ZeroCopyFloat32Buffer(this.ptr, this.length, void Function() nativeRelease) : super(ptr != nullptr, nativeRelease);
 
   /// Zero-copy [Float32List] view of native memory.
   Float32List get floats {
     _assertNotReleased();
-    return ptr.asTypedList(length);
+    return _cachedFloats ??= ptr.asTypedList(length);
   }
 }
 
@@ -324,12 +332,13 @@ class ZeroCopyFloat32Buffer extends _ZeroCopyBufferBase {
 class ZeroCopyFloat64Buffer extends _ZeroCopyBufferBase {
   final Pointer<Double> ptr;
   final int length;
+  Float64List? _cachedDoubles;
 
   ZeroCopyFloat64Buffer(this.ptr, this.length, void Function() nativeRelease) : super(ptr != nullptr, nativeRelease);
 
   Float64List get doubles {
     _assertNotReleased();
-    return ptr.asTypedList(length);
+    return _cachedDoubles ??= ptr.asTypedList(length);
   }
 }
 
@@ -337,11 +346,12 @@ class ZeroCopyFloat64Buffer extends _ZeroCopyBufferBase {
 class ZeroCopyInt64Buffer extends _ZeroCopyBufferBase {
   final Pointer<Int64> ptr;
   final int length;
+  Int64List? _cachedValues;
 
   ZeroCopyInt64Buffer(this.ptr, this.length, void Function() nativeRelease) : super(ptr != nullptr, nativeRelease);
 
   Int64List get values {
     _assertNotReleased();
-    return ptr.asTypedList(length);
+    return _cachedValues ??= ptr.asTypedList(length);
   }
 }
