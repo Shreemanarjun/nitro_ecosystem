@@ -37,8 +37,7 @@ void _emitMapAndFactory(CodeWriter writer, BridgeSpec spec) {
     // Shared low-level helper (emitted once). Type tags: 1=int64, 2=float64, 3=bool, 4=string, 9=bytes
     // Returns just the payload (`[4B count][entries]`) — the caller writes the
     // outer `[4B payload_len]` prefix directly into the native buffer, avoiding
-    // the element-wise `Uint8List.fromList([...prefix, ...payload])` spread copy
-    // that used to sit here (perf-audit "B").
+    // an element-wise spread-concatenation copy.
     writer.line('Uint8List _nitroMapPayload(Map<String, dynamic> m, void Function(ByteData h, BytesBuilder bb, dynamic v) writeVal) {');
     // copy: true (default) is required: copy:false holds references to hdr.buffer,
     // so every hdr.setInt32 call would silently corrupt all previously-added count/kLen bytes.

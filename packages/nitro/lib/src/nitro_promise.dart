@@ -63,20 +63,16 @@ enum NitroPromiseState {
 /// final str     = promise.andThen((v) async => '$v');  // NitroPromise<String>
 /// ```
 class NitroPromise<T> {
-  // NOTE (issue #36 / PR #38): PR #38 proposed `Completer.sync()` here to save
-  // one microtask hop on `await .future`. It is NOT adopted — the sync
-  // completer delivers a rejection synchronously at `completeError`, before
-  // reject()'s unhandled-error suppressor can be attached, so an un-awaited
-  // rejection surfaces as an unhandled error (see the reject cases in
-  // nitro_promise_test.dart). It would also run `await` continuations
-  // synchronously inside the resolver's stack. The async completer is kept for
-  // predictable, surprise-free scheduling; the saved hop is negligible.
+  // Keep this an ASYNC completer. A sync completer would deliver a rejection
+  // synchronously at completeError — before reject()'s unhandled-error
+  // suppressor is attached — surfacing un-awaited rejections as unhandled
+  // errors, and would run `await` continuations inside the resolver's stack.
+  // (The reject cases in nitro_promise_test.dart guard this.)
   final Completer<T> _completer = Completer<T>();
   NitroPromiseState _state = NitroPromiseState.pending;
 
-  // Listener lists are allocated lazily — most promises are awaited via
-  // `.future`, never via addOnXxxListener, so the common case allocates none.
-  // This part of #36 IS kept: it removes two list allocations per promise.
+  // Allocated lazily — most promises are only awaited via `.future`, never via
+  // addOnXxxListener, so the common case allocates neither list.
   List<void Function(T)>? _resolvedListeners;
   List<void Function(Object, StackTrace?)>? _rejectedListeners;
 

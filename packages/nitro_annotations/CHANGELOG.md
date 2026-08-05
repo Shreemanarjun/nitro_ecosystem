@@ -1,3 +1,7 @@
+# 0.5.16
+
+- **Ecosystem sync** — Released alongside `nitro` 0.5.16 (FFI runtime hot-path performance: faster `List<@HybridRecord>`/string marshalling, fewer per-call allocations; [#31](https://github.com/Shreemanarjun/nitro_ecosystem/issues/31)–[#37](https://github.com/Shreemanarjun/nitro_ecosystem/issues/37)) and `nitro_generator` 0.5.16 (faster `Map<String,T>` encode, lock-free all-C++ instance dispatch, map-parameter type fix). No changes to this package.
+
 # 0.5.15
 
 - **Ecosystem sync** — Released alongside `nitro_generator` 0.5.15 (Swift record initializers no longer use Swift 6.1+-only trailing commas — Xcode ≤ 16.2 compatible, [#22](https://github.com/Shreemanarjun/nitro_ecosystem/issues/22)) and `nitrogen_cli` 0.5.15 (hand-added desktop `pluginClass` entries preserved, [#23](https://github.com/Shreemanarjun/nitro_ecosystem/issues/23)). No functional changes to this package — regenerate and re-link to pick them up.

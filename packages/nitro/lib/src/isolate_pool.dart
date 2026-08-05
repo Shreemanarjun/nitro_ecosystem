@@ -250,14 +250,9 @@ class IsolatePool {
 
     return completer.future.then((response) {
       if (response.error != null) {
-        // NOTE (issue #35 / PR #38): PR #38 proposed throwing here via
-        // Error.throwWithStackTrace instead of returning a Future.error. NOT
-        // adopted — `completer` is a sync completer (above), so this callback
-        // runs synchronously when dispose() completes a pending call, and a
-        // raw throw then escapes synchronously into dispose()'s caller (proven
-        // by the "in-flight calls receive StateError after dispose" test).
-        // Returning a Future.error stays a value, which the sync completer
-        // delivers as a normal asynchronous rejection.
+        // Return a Future.error, don't throw: `completer` is sync (above), so
+        // this callback runs synchronously when dispose() completes a pending
+        // call, and a raw throw would escape into dispose()'s caller.
         return Future<T>.error(response.error!, response.stack);
       }
       return response.result as T;

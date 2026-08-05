@@ -25,9 +25,8 @@ void _log(
   final effective = cfg.effectiveLogLevel;
   if (effective == NitroLogLevel.none) return;
 
-  // NitroLogLevel is declared none < error < warning < ... in severity order,
-  // so the enum .index IS the rank — an O(1) compare instead of two O(n)
-  // indexOf scans on every log check (issue #33 area, PR #38).
+  // NitroLogLevel is declared in severity order, so .index is the rank —
+  // an O(1) compare instead of two O(n) indexOf scans per log check.
   if (level.index > effective.index) return;
 
   cfg.logHandler(level, tag, message, error, stack);
@@ -275,8 +274,7 @@ class NitroRuntime {
     void Function(Pointer<NativeType>)? nativeFree,
   }) {
     // Cache the struct view once — each `errPtr.ref` builds a fresh Struct
-    // proxy; the error path touched it 12+ times (issue #37, PR #38). The
-    // proxy is a view, so writes through `err` still hit native memory.
+    // proxy. It is a view, so writes through `err` still hit native memory.
     final err = errPtr.ref;
     if (err.hasError == 0) return;
     // The string fields were strdup'd by the C bridge, so they must be freed
@@ -334,8 +332,8 @@ class NitroRuntime {
     // by generated code); the struct itself is Dart calloc'd, so calloc.free
     // stays correct for it on every platform.
     final free = nativeFree ?? malloc.free;
-    // Cache the struct view once (issue #37, PR #38); it is a view, so reads
-    // through `err` see the same native slot.
+    // Cache the struct view once; it is a view, so reads through `err` see the
+    // same native slot.
     final err = errPtr.ref;
     if (err.hasError == 0) {
       calloc.free(errPtr);
@@ -485,11 +483,10 @@ class NitroRuntime {
     final effective = cfg.effectiveLogLevel;
     final traceTimeline = cfg.timelineTracingEnabled;
 
-    // Hot path: skip the Stopwatch and the tag-string allocation when no
-    // per-call instrumentation is requested — mirrors callSync's fast path
-    // (issue #33, PR #38). Only the error-level log survives, and its tag is
-    // built lazily on the throw. Factored through one local `dispatch` so the
-    // pool/legacy branch isn't duplicated.
+    // Hot path: skip the Stopwatch and tag-string allocation when no per-call
+    // instrumentation is requested (mirrors callSync). Only the error-level log
+    // survives, its tag built lazily on throw; `dispatch` keeps the pool/legacy
+    // branch from being duplicated across the none/try paths.
     if (effective != NitroLogLevel.verbose && !traceTimeline && cfg.slowCallThresholdUs == 0) {
       Future<T> dispatch() => (poolSize <= 0 || !_poolReady)
           ? Isolate.run(() {
@@ -577,10 +574,10 @@ class NitroRuntime {
     final effective = cfg.effectiveLogLevel;
     final traceTimeline = cfg.timelineTracingEnabled;
 
-    // Hot path: skip the Stopwatch and the tag-string allocation when no
-    // per-call instrumentation is requested — mirrors callSync's fast path
-    // (issue #33, PR #38). The port round-trip is unchanged; only the
-    // instrumentation is elided. An error-level log survives, built lazily.
+    // Hot path: skip the Stopwatch and tag-string allocation when no per-call
+    // instrumentation is requested (mirrors callSync). The port round-trip is
+    // unchanged; only the instrumentation is elided, with an error-level log
+    // built lazily.
     if (effective != NitroLogLevel.verbose && !traceTimeline && cfg.slowCallThresholdUs == 0) {
       final port = ReceivePort();
       try {

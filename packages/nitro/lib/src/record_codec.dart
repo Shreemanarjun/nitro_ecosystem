@@ -109,10 +109,8 @@ class RecordWriter {
   ///
   /// The caller / arena is responsible for freeing the pointer.
   Pointer<Uint8> toNative(Allocator alloc) {
-    // Write the length prefix + payload straight into native memory. Copies
-    // the accumulated buffer once (setRange) instead of first taking a
-    // sublist (`_takeBytes`) and then copying that — and takes one asTypedList
-    // view, not two (issue #34, PR #38).
+    // Copy the accumulated buffer once, straight into native memory, over a
+    // single typed-list view.
     final total = 4 + _length;
     final ptr = alloc<Uint8>(total);
     final typed = ptr.asTypedList(total);
@@ -184,15 +182,9 @@ class RecordWriter {
     Allocator alloc,
   ) {
     // Payload layout: [4B count][8B×n offset table][item bytes]. Offsets are
-    // from the payload start (the byte immediately after the outer 4-byte
-    // length that toNative prepends).
-    //
-    // A single writer, with each item written directly into it and the offset
-    // table backpatched afterward — no per-item RecordWriter and no
-    // intermediate blob copies (perf-audit "#1"). The old path allocated one
-    // 256-byte RecordWriter per item, took each item's bytes with a copy, then
-    // copied every item a second time into a final writer; this does one
-    // writer and writes each item once.
+    // from the payload start (after the outer 4-byte length toNative prepends).
+    // One writer: reserve the offset table, write each item directly into it,
+    // then backpatch the offsets — no per-item writer, no intermediate copies.
     final n = items.length;
     final w = RecordWriter();
     w.writeInt32(n);
@@ -200,8 +192,7 @@ class RecordWriter {
     for (var i = 0; i < n; i++) {
       w.writeInt(0); // reserve an int64 slot; backpatched below
     }
-    // w._length is now the payload offset where item 0 begins (== old
-    // `4 + 8*n`). Record each item's start offset as we write it.
+    // w._length now points at where item 0 begins; record each item's offset.
     final offsets = List<int>.filled(n, 0);
     for (var i = 0; i < n; i++) {
       offsets[i] = w._length;

@@ -143,8 +143,8 @@ public:
     }
 
     // List<@HybridRecord> echo — re-emit the incoming length-prefixed record-
-    // list blob (perf-audit "#1"). The list codec is entirely on the Dart side;
-    // native just returns the same [4B len][payload] block.
+    // list blob. The list codec is entirely Dart-side; native just returns the
+    // same [4B len][payload] block.
     NitroCppBuffer echoStatsList(NitroCppBuffer stats) override {
         int32_t len = static_cast<int32_t>(stats.size);
         uint8_t* out = static_cast<uint8_t*>(::malloc(sizeof(int32_t) + stats.size));

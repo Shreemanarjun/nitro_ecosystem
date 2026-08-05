@@ -143,10 +143,9 @@ extension NitroPointerExtension on Pointer<Utf8> {
     if (address == 0) return '';
     // Strings crossing the FFI bridge are raw data, not text streams — so a
     // leading U+FEFF (BOM) must be preserved. _decodeUtf8NoBomStrip handles
-    // that while still using the fast native decoder.
-    // Scan for the NUL over a cached base pointer — `p[len]` is an indexed
-    // load, whereas `(cast<Uint8>() + len).value` allocates a fresh Pointer
-    // object per byte (issue #31, PR #38).
+    // that while still using the fast native decoder. Scan for the NUL over a
+    // cached base pointer; `p[len]` is an indexed load, while `(p + len).value`
+    // would allocate a fresh Pointer per byte.
     final p = cast<Uint8>();
     int len = 0;
     while (p[len] != 0) {
