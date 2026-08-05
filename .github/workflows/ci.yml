@@ -1,0 +1,99 @@
+# CI — Dart package analysis, tests, and publish readiness
+#
+# Runs dart analyze + dart test on every pure-Dart package in the workspace,
+# and verifies that publishable packages pass `dart pub publish --dry-run`.
+#
+# Triggered on every push to main and on pull requests targeting main.
+#
+# Note: The `nitro` package (Flutter FFI plugin) is excluded here because it
+# requires a Flutter SDK + device/emulator for dart:ffi tests.  It is covered
+# by ci_generator.yml and ci_desktop.yml instead.
+
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+# Cancel in-progress runs for the same branch/PR.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # ────────────────────────────────────────────────────────────────────────────
+  # Job 1: Analyze & Test (matrix over pure-Dart packages)
+  # ────────────────────────────────────────────────────────────────────────────
+  analyze-and-test:
+    name: "${{ matrix.package }} — analyze & test"
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - package: nitro_annotations
+            directory: packages/nitro_annotations
+            has_tests: true
+          - package: nitro_generator
+            directory: packages/nitro_generator
+            has_tests: true
+          - package: nitrogen_cli
+            directory: packages/nitrogen_cli
+            has_tests: true
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Dart SDK
+        uses: dart-lang/setup-dart@v1
+        with:
+          sdk: '3.11.3'
+
+      - name: Install workspace dependencies
+        run: dart pub get
+
+      - name: Analyze ${{ matrix.package }}
+        run: dart analyze --fatal-infos
+        working-directory: ${{ matrix.directory }}
+
+      - name: Run tests for ${{ matrix.package }}
+        if: matrix.has_tests
+        run: dart test --reporter expanded
+        working-directory: ${{ matrix.directory }}
+
+  # ────────────────────────────────────────────────────────────────────────────
+  # Job 2: Publish dry-run (verify publishable packages are ready)
+  # ────────────────────────────────────────────────────────────────────────────
+  publish-dry-run:
+    name: "${{ matrix.package }} — publish dry-run"
+    runs-on: ubuntu-latest
+    needs: analyze-and-test
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - package: nitro_annotations
+            directory: packages/nitro_annotations
+          - package: nitro_generator
+            directory: packages/nitro_generator
+          - package: nitrogen_cli
+            directory: packages/nitrogen_cli
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Dart SDK
+        uses: dart-lang/setup-dart@v1
+        with:
+          sdk: '3.11.3'
+
+      - name: Install workspace dependencies
+        run: dart pub get
+
+      - name: Verify publish readiness (${{ matrix.package }})
+        run: dart pub publish --dry-run
+        working-directory: ${{ matrix.directory }}
