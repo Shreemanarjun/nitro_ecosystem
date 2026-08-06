@@ -1,3 +1,7 @@
+# 0.5.17
+
+- **Ecosystem sync** — Released alongside `nitro` 0.5.17 and `nitro_generator` 0.5.17 (instance-lifecycle memory-leak fixes: multi-instance weak-cache + GC finalizer, `@nitroNativeAsync` opt-in timeout + guaranteed teardown, iOS/macOS `releaseLib` crash fix). No changes to this package.
+
 # 0.5.16
 
 - **Ecosystem sync** — Released alongside `nitro` 0.5.16 (FFI runtime hot-path performance: faster `List<@HybridRecord>`/string marshalling, fewer per-call allocations; [#31](https://github.com/Shreemanarjun/nitro_ecosystem/issues/31)–[#37](https://github.com/Shreemanarjun/nitro_ecosystem/issues/37)) and `nitro_generator` 0.5.16 (faster `Map<String,T>` encode, lock-free all-C++ instance dispatch, map-parameter type fix). No changes to this package.

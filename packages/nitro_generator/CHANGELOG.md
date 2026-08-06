@@ -1,3 +1,9 @@
+## 0.5.17
+
+- **Multi-instance memory leak fixed.** Generated `_XxxImpl` keyed/multi-instance registries now hold `WeakReference`s plus a non-capturing `Finalizer`, instead of a strong `_instances` map. Previously every `getInstance(key)` was pinned for the process lifetime — a real leak under create → drop churn — and the registry finalizer only removed the map entry, never the native instance or its error slot. Now a dropped-without-`dispose()` instance is GC-collected, and the finalizer destroys the native instance, releases the native lib, and frees the per-instance error slot; `dispose()` detaches the finalizer to avoid a double-free. **Regenerate to pick it up.**
+- **`@nitroNativeAsync` per-call error-slot cleanup.** The generated unpack now uses the check-only error path and passes a `cleanup` closure that frees the per-call error slot (`_nitroErr`) on every settle — success, native error, or timeout — pairing with `nitro` 0.5.17's `openNativeAsync` teardown guarantee. **Regenerate.**
+- Verified on real devices (Android emulator, iOS simulator, macOS): 499/500 dropped keyed instances GC-collected; RSS bounded across single-instance, multi-instance, stream, and batch-stream soaks. Generator tests updated (multi-instance dispatch, native-async, out-param).
+
 ## 0.5.16
 
 - **Faster `Map<String, T>` encode in generated bridges.** The emitted `_nitroEncodeMapBinary*` helper writes `[4B length][payload]` straight into native memory (length prefix via a `ByteData` view, payload copied once with `setRange`) instead of concatenating a spread-built `Uint8List` and copying it again. Same wire format; regenerate to pick it up.

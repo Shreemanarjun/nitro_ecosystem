@@ -1,3 +1,11 @@
+## 0.5.17
+
+- **Memory-leak & robustness fixes for instance lifecycle and native-async.** Verified on real devices (Android emulator, iOS simulator, macOS): under create → drop → GC churn, 499/500 keyed instances are collected and RSS stays bounded across single-instance, multi-instance, stream, and batch-stream soaks.
+  - **`NitroRuntime.releaseLib` no longer throws on iOS/macOS.** `DynamicLibrary.process()`/`.executable()` (static linking) cannot be closed — `close()` throws `Bad state: ... can't be closed`. The close is now skipped on iOS/macOS (only the ref-counted cache entry is dropped). This was a latent crash on the instance-teardown path — the GC finalizer and `dispose()`.
+  - **`@nitroNativeAsync` gained an opt-in timeout: `NitroConfig.nativeAsyncTimeoutMs`** (default `0` = wait forever, unchanged behavior). When `> 0`, a native impl that crashes or never posts a result now completes the `Future` with a `TimeoutException` and releases the `ReceivePort` + per-call error slot, instead of hanging and leaking both. `openNativeAsync` now guarantees teardown (port close + error-slot free via a `cleanup` callback) on **every** terminal path — success, native error, or timeout.
+  - New tests: `native_async_leak_test.dart` (via [`ffi_leak_tracker`](https://pub.dev/packages/ffi_leak_tracker)) and `native_async_timeout_test.dart`.
+- Released alongside `nitro_generator` 0.5.17 (generated multi-instance registries switched to a weak cache + GC finalizer that frees native memory on drop — **regenerate to pick it up**). See its changelog.
+
 ## 0.5.16
 
 - **Runtime hot-path performance — allocation and copy reductions across the FFI marshalling layer.** All changes are internal (no API, no wire-format changes); regenerate is not required for the runtime wins. Measured on the macOS C++ bridge, 5 independent benchmark runs averaged (non-overlapping ranges):
