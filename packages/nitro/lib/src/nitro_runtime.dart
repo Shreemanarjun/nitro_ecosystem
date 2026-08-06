@@ -241,9 +241,13 @@ class NitroRuntime {
           stackTrace: stack,
         );
       }
-    } catch (e) {
+    } catch (e, st) {
       if (e is HybridException) rethrow;
-      // If error handlers fail or are invalid stubs, ignore and continue.
+      // A failure in the error-check path itself (invalid get/clear stubs, a
+      // malformed error struct) must not mask the call's own result, so we
+      // swallow and continue — but log at verbose so it is diagnosable rather
+      // than silently lost (issue #27).
+      _log(NitroLogLevel.verbose, 'checkError', 'error-check path threw (ignored): $e', e, st);
       return;
     }
   }

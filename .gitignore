@@ -43,3 +43,6 @@ test_projects/
 # Baselines ARE committed — they live in benchmark/example/assets/baselines/.
 benchmark/results/
 .deslop/
+
+# Local debug scratch files (issue #26)
+scratch/

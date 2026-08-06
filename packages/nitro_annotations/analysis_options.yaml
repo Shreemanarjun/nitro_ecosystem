@@ -1,0 +1,8 @@
+# Static-analysis config for nitro_annotations. Matches the other publishable
+# packages: pure-Dart recommended lints + the shared formatter settings
+# (issue #25).
+include: package:lints/recommended.yaml
+
+formatter:
+  trailing_commas: preserve
+  page_width: 220

@@ -1,3 +1,3 @@
-library nitro_annotations;
+library;
 
 export 'src/annotations.dart';

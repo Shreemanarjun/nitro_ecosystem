@@ -1,5 +1,5 @@
 name: nitro_battery
-description: "A new Flutter FFI plugin project."
+description: "Nitro example plugin: native battery status over the Nitrogen FFI bridge."
 version: 0.3.3
 publish_to: none
 homepage: https://nitro.shreeman.dev

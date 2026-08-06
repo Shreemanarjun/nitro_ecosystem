@@ -7,3 +7,7 @@ version: 0.5.16
 environment:
   sdk: ^3.11.3
 resolution: workspace
+
+dev_dependencies:
+  lints: ^6.0.0
+  test: ^1.25.0

@@ -1,0 +1,32 @@
+# Local Deslop config for the Nitro ecosystem.
+#
+# Scopes `deslop` to hand-written product + test source. Nitrogen emits large,
+# deliberately-parallel bridges per platform (Swift/Kotlin/C++/web) and per
+# language — that generated code is structurally duplicated by design and is
+# not a maintenance signal, so it is excluded here. Keeps a local `deslop .`
+# run focused on real source instead of generated noise.
+[defaults]
+exclude = [
+  # Tooling / build / caches
+  "**/.dart_tool/**",
+  "**/.deslop/**",
+  "**/build/**",
+  "**/.symlinks/**",
+  "**/ephemeral/**",
+  "**/Pods/**",
+  "**/.puro/**",
+
+  # Nitrogen-generated bridges (parallel-by-design across platforms/languages)
+  "**/generated/**",
+  "**/*.g.dart",
+  "**/*.g.swift",
+  "**/*.g.kt",
+  "**/*.g.cpp",
+  "**/*.g.h",
+  "**/*.g.txt",
+  "**/*.bridge.g.*",
+  "**/*.native.g.*",
+  "**/*.impl.g.*",
+  "**/*.mock.g.*",
+  "**/*.web.bridge.g.dart",
+]
