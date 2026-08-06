@@ -12,9 +12,12 @@ void _emitNativeAsyncBody(
   // Fresh-per-call error slot — unlike sync's one instance-owned slot,
   // native-async calls aren't serialized (multiple can be in flight
   // concurrently on the same instance), so each call gets its own struct.
-  // Checked (and freed) inside the wrapped unpack closure, before the raw
-  // posted value is ever decoded — see NitroRuntime.throwIfOutParamErrorAndFree.
-  final wrappedUnpack = '(raw) { NitroRuntime.throwIfOutParamErrorAndFree(_nitroErr, nativeFree: _nitroFree); return ($unpack)(raw); }';
+  // The unpack closure CHECKS the slot (freeing any strdup'd error strings)
+  // before decoding the posted value; the slot STRUCT itself is freed by the
+  // `cleanup` callback, which openNativeAsync runs on every terminal path
+  // (success, native error, OR timeout — so a native side that never posts
+  // can't leak the slot).
+  final wrappedUnpack = '(raw) { NitroRuntime.throwIfOutParamError(_nitroErr, nativeFree: _nitroFree); return ($unpack)(raw); }';
 
   if (needsArena) {
     writer.line('    final arena = Arena();');
@@ -23,6 +26,7 @@ void _emitNativeAsyncBody(
     writer.line('      return NitroRuntime.openNativeAsync<$openType>(');
     writer.line('        call: (port) => _${func.dartName}Ptr($callArgs, _nitroErr, port),');
     writer.line('        unpack: $wrappedUnpack,');
+    writer.line('        cleanup: () => calloc.free(_nitroErr),');
     writer.line("        methodName: '${func.dartName}',");
     writer.line('      );');
     writer.line('    } finally {');
@@ -60,6 +64,7 @@ void _emitNativeAsyncBody(
     writer.line('    return NitroRuntime.openNativeAsync<$openType>(');
     writer.line('      call: (port) => _${func.dartName}Ptr($allCallArgs, _nitroErr, port),');
     writer.line('      unpack: $wrappedUnpack,');
+    writer.line('      cleanup: () => calloc.free(_nitroErr),');
     writer.line("      methodName: '${func.dartName}',");
     writer.line('    );');
   }

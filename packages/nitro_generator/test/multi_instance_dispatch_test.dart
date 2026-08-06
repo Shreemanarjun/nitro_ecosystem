@@ -73,9 +73,21 @@ BridgeSpec _spec({bool swiftPath = false}) => BridgeSpec(
 
 void main() {
   group('Point 13 — Dart FFI factory-pattern instance creation', () {
-    test('emits static _instances map keyed by String', () {
+    test('emits static _instances map keyed by String (weak refs)', () {
       final out = DartFfiGenerator.generate(_spec());
-      expect(out, contains("static final _instances = <String, _CounterImpl>{}"));
+      // Weak references so an instance dropped without dispose() can be GC'd
+      // instead of pinned for the process lifetime (leak-audit fix).
+      expect(out, contains("static final _instances = <String, WeakReference<_CounterImpl>>{}"));
+    });
+
+    test('emits a GC finalizer that destroys the native instance + frees the error slot', () {
+      final out = DartFfiGenerator.generate(_spec());
+      expect(out, contains('static final _instanceFinalizer = Finalizer<'));
+      expect(out, contains('t.destroy(t.id)'));
+      expect(out, contains('calloc.free(t.err)'));
+      expect(out, contains('_instanceFinalizer.attach(this,'));
+      // dispose() detaches it so the two cleanup paths can't both run.
+      expect(out, contains('_instanceFinalizer.detach(this)'));
     });
 
     test('does NOT emit static _nextInstanceId (id comes from native)', () {
@@ -96,7 +108,8 @@ void main() {
     test('emits factory constructor with default key', () {
       final out = DartFfiGenerator.generate(_spec());
       expect(out, contains("factory _CounterImpl([String key = 'default'])"));
-      expect(out, contains('_instances.putIfAbsent(key'));
+      // Weak cache: return the live cached instance if present, else create.
+      expect(out, contains('_instances[key]?.target'));
     });
 
     test('factory calls _init(key) with no id arg', () {
@@ -279,7 +292,10 @@ void main() {
   group('Point 13 — Key semantics', () {
     test('same key returns same cached Dart instance', () {
       final out = DartFfiGenerator.generate(_spec());
-      expect(out, contains('_instances.putIfAbsent(key,'));
+      // A live weak entry short-circuits the factory to the cached instance;
+      // _init records the weak ref.
+      expect(out, contains('_instances[key]?.target'));
+      expect(out, contains('_instances[_instanceKey] = WeakReference(this)'));
     });
     test('dispose removes key so next call creates fresh', () {
       final out = DartFfiGenerator.generate(_spec());

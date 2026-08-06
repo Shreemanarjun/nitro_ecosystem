@@ -6,7 +6,26 @@ part of 'benchmark.native.dart';
 
 class _BenchmarkImpl extends Benchmark {
   final DynamicLibrary _dylib;
-  static final _instances = <String, _BenchmarkImpl>{};
+  static final _instances = <String, WeakReference<_BenchmarkImpl>>{};
+
+  static final _instanceFinalizer =
+      Finalizer<
+        ({
+          int id,
+          String key,
+          Pointer<NitroErrorFfi> err,
+          void Function(int) destroy,
+        })
+      >((t) {
+        try {
+          t.destroy(t.id);
+          NitroRuntime.releaseLib('benchmark');
+          if (_instances[t.key]?.target == null) _instances.remove(t.key);
+        } catch (_) {
+        } finally {
+          calloc.free(t.err);
+        }
+      });
   final String _instanceKey;
   late final int _instanceId;
   final Pointer<NitroErrorFfi> _nitroErr = calloc<NitroErrorFfi>();
@@ -42,7 +61,9 @@ class _BenchmarkImpl extends Benchmark {
   }
 
   factory _BenchmarkImpl([String key = 'default']) {
-    return _instances.putIfAbsent(key, () => _BenchmarkImpl._init(key));
+    final cached = _instances[key]?.target;
+    if (cached != null) return cached;
+    return _BenchmarkImpl._init(key);
   }
 
   _BenchmarkImpl._init(this._instanceKey) : _dylib = _loadSupportedLibrary() {
@@ -99,6 +120,13 @@ class _BenchmarkImpl extends Benchmark {
       calloc.free(_keyPtr);
     }
     NitroInstanceRegistry.register(_instanceId, this);
+    _instances[_instanceKey] = WeakReference(this);
+    _instanceFinalizer.attach(this, (
+      id: _instanceId,
+      key: _instanceKey,
+      err: _nitroErr,
+      destroy: _destroyInstancePtr,
+    ), detach: this);
     initSw.stop();
     NitroRuntime.logLifecycle(
       'init(benchmark)',
@@ -182,6 +210,7 @@ class _BenchmarkImpl extends Benchmark {
   @override
   void dispose() {
     if (isDisposed) return;
+    _instanceFinalizer.detach(this);
     NitroRuntime.logLifecycle(
       'dispose(benchmark)',
       'disposing (instanceId=$_instanceId)',

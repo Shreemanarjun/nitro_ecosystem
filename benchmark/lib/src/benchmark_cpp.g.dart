@@ -234,7 +234,26 @@ extension BenchmarkStatsRecordExt on BenchmarkStats {
 
 class _BenchmarkCppImpl extends BenchmarkCpp {
   final DynamicLibrary _dylib;
-  static final _instances = <String, _BenchmarkCppImpl>{};
+  static final _instances = <String, WeakReference<_BenchmarkCppImpl>>{};
+
+  static final _instanceFinalizer =
+      Finalizer<
+        ({
+          int id,
+          String key,
+          Pointer<NitroErrorFfi> err,
+          void Function(int) destroy,
+        })
+      >((t) {
+        try {
+          t.destroy(t.id);
+          NitroRuntime.releaseLib('benchmark_cpp');
+          if (_instances[t.key]?.target == null) _instances.remove(t.key);
+        } catch (_) {
+        } finally {
+          calloc.free(t.err);
+        }
+      });
   final String _instanceKey;
   late final int _instanceId;
   final Pointer<NitroErrorFfi> _nitroErr = calloc<NitroErrorFfi>();
@@ -274,7 +293,9 @@ class _BenchmarkCppImpl extends BenchmarkCpp {
   }
 
   factory _BenchmarkCppImpl([String key = 'default']) {
-    return _instances.putIfAbsent(key, () => _BenchmarkCppImpl._init(key));
+    final cached = _instances[key]?.target;
+    if (cached != null) return cached;
+    return _BenchmarkCppImpl._init(key);
   }
 
   _BenchmarkCppImpl._init(this._instanceKey)
@@ -334,6 +355,13 @@ class _BenchmarkCppImpl extends BenchmarkCpp {
       calloc.free(_keyPtr);
     }
     NitroInstanceRegistry.register(_instanceId, this);
+    _instances[_instanceKey] = WeakReference(this);
+    _instanceFinalizer.attach(this, (
+      id: _instanceId,
+      key: _instanceKey,
+      err: _nitroErr,
+      destroy: _destroyInstancePtr,
+    ), detach: this);
     initSw.stop();
     NitroRuntime.logLifecycle(
       'init(benchmark_cpp)',
@@ -527,6 +555,7 @@ class _BenchmarkCppImpl extends BenchmarkCpp {
   @override
   void dispose() {
     if (isDisposed) return;
+    _instanceFinalizer.detach(this);
     NitroRuntime.logLifecycle(
       'dispose(benchmark_cpp)',
       'disposing (instanceId=$_instanceId)',
@@ -664,10 +693,7 @@ class _BenchmarkCppImpl extends BenchmarkCpp {
       call: (port) =>
           _computeStatsNativePtr(_instanceId, iterations, _nitroErr, port),
       unpack: (raw) {
-        NitroRuntime.throwIfOutParamErrorAndFree(
-          _nitroErr,
-          nativeFree: _nitroFree,
-        );
+        NitroRuntime.throwIfOutParamError(_nitroErr, nativeFree: _nitroFree);
         return ((raw) {
           if (raw == null) {
             throw StateError(
@@ -682,6 +708,7 @@ class _BenchmarkCppImpl extends BenchmarkCpp {
           }
         })(raw);
       },
+      cleanup: () => calloc.free(_nitroErr),
       methodName: 'computeStatsNative',
     );
   }
@@ -754,12 +781,10 @@ class _BenchmarkCppImpl extends BenchmarkCpp {
     return NitroRuntime.openNativeAsync<int>(
       call: (port) => _nativeAsyncEchoPtr(_instanceId, value, _nitroErr, port),
       unpack: (raw) {
-        NitroRuntime.throwIfOutParamErrorAndFree(
-          _nitroErr,
-          nativeFree: _nitroFree,
-        );
+        NitroRuntime.throwIfOutParamError(_nitroErr, nativeFree: _nitroFree);
         return ((raw) => raw as int)(raw);
       },
+      cleanup: () => calloc.free(_nitroErr),
       methodName: 'nativeAsyncEcho',
     );
   }

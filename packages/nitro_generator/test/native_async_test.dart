@@ -2511,9 +2511,13 @@ void main() {
       expect(out, contains('_computePtr(_instanceId, x, _nitroErr, port)'));
     });
 
-    test('unpack checks and frees the error slot before decoding the posted value', () {
+    test('unpack checks the error slot before decoding; cleanup frees it on every terminal path', () {
       final out = DartFfiGenerator.generate(_nativeAsyncIntSpec());
-      expect(out, contains('unpack: (raw) { NitroRuntime.throwIfOutParamErrorAndFree(_nitroErr, nativeFree: _nitroFree); return'));
+      // unpack now only CHECKS (throwIfOutParamError, not ...AndFree) — the
+      // slot struct is freed by the `cleanup` callback so it's released even on
+      // the timeout path where unpack never runs (leak-audit #2).
+      expect(out, contains('unpack: (raw) { NitroRuntime.throwIfOutParamError(_nitroErr, nativeFree: _nitroFree); return'));
+      expect(out, contains('cleanup: () => calloc.free(_nitroErr),'));
     });
   });
 

@@ -12,7 +12,33 @@ void _emitImplClassSetup(CodeWriter writer, BridgeSpec spec) {
   writer.line('  final DynamicLibrary _dylib;');
   // String-key registry: getInstance('key') returns the same cached instance.
   // instanceId is assigned by the native side on first access via create_instance.
-  writer.line('  static final _instances = <String, _${spec.dartClassName}Impl>{};');
+  // WEAK references: an instance that all callers drop can be GC'd (the entry's
+  // target goes null), so keyed/multi-instance modules don't leak — a strong
+  // map would pin every instance for the process lifetime. dispose() removes
+  // the entry eagerly; the finalizer below cleans up a dropped-without-dispose
+  // instance's native memory.
+  writer.line('  static final _instances = <String, WeakReference<_${spec.dartClassName}Impl>>{};');
+  writer.blankLine();
+  // GC safety net: if an instance becomes unreachable without dispose() being
+  // called, destroy the native instance + free the per-call error slot — the
+  // exact cleanup dispose() does. The token is a record capturing only the
+  // instanceId, key, error-slot pointer, and the (already-resolved) destroy
+  // closure — NOT `this` — so it never keeps the instance alive. dispose()
+  // detaches it so the two paths can't both run (no double-free).
+  writer.line(
+    '  static final _instanceFinalizer = Finalizer<({int id, String key, Pointer<NitroErrorFfi> err, void Function(int) destroy})>((t) {',
+  );
+  // A finalizer must never throw an uncaught async error — swallow any failure
+  // (best-effort GC cleanup) and always free the error slot.
+  writer.line('    try {');
+  writer.line('      t.destroy(t.id);');
+  writer.line("      NitroRuntime.releaseLib('${spec.lib}');");
+  writer.line('      if (_instances[t.key]?.target == null) _instances.remove(t.key);');
+  writer.line('    } catch (_) {');
+  writer.line('    } finally {');
+  writer.line('      calloc.free(t.err);');
+  writer.line('    }');
+  writer.line('  });');
   writer.line('  final String _instanceKey;');
   writer.line('  late final int _instanceId;');
   // S8: pre-allocated error slot — shared across all sync calls on this instance.
@@ -88,7 +114,9 @@ void _emitImplClassSetup(CodeWriter writer, BridgeSpec spec) {
   // Factory: returns cached instance for the given key, or creates a new one.
   // On first access: calls create_instance(key) → native assigns instanceId.
   writer.line('  factory _${spec.dartClassName}Impl([String key = \'default\']) {');
-  writer.line('    return _instances.putIfAbsent(key, () => _${spec.dartClassName}Impl._init(key));');
+  writer.line('    final cached = _instances[key]?.target;');
+  writer.line('    if (cached != null) return cached;');
+  writer.line('    return _${spec.dartClassName}Impl._init(key);');
   writer.line('  }');
   writer.blankLine();
   writer.line(
@@ -143,6 +171,8 @@ void _emitImplClassSetup(CodeWriter writer, BridgeSpec spec) {
   writer.line('      calloc.free(_keyPtr);');
   writer.line('    }');
   writer.line('    NitroInstanceRegistry.register(_instanceId, this);');
+  writer.line('    _instances[_instanceKey] = WeakReference(this);');
+  writer.line('    _instanceFinalizer.attach(this, (id: _instanceId, key: _instanceKey, err: _nitroErr, destroy: _destroyInstancePtr), detach: this);');
   writer.line('    initSw.stop();');
   writer.line("    NitroRuntime.logLifecycle('init(${spec.lib})', 'initialized in \${initSw.elapsedMicroseconds} µs (instanceId=\$_instanceId)');");
   writer.line('  }');
@@ -262,6 +292,10 @@ void _emitImplClassSetup(CodeWriter writer, BridgeSpec spec) {
   writer.line('  @override');
   writer.line('  void dispose() {');
   writer.line('    if (isDisposed) return;');
+  // Detach the GC finalizer: this explicit dispose does the same cleanup, so
+  // the finalizer must not also run (would double-free the native instance +
+  // error slot).
+  writer.line('    _instanceFinalizer.detach(this);');
   writer.line("    NitroRuntime.logLifecycle('dispose(${spec.lib})', 'disposing (instanceId=\$_instanceId)');");
   // Tell native to release this instance's impl before any local cleanup.
   writer.line('    _destroyInstancePtr(_instanceId);');

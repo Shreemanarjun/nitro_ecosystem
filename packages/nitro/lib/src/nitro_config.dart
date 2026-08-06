@@ -86,6 +86,15 @@ class NitroConfig {
   /// emits a [NitroLogLevel.warning] log.  Set to `0` to disable.
   int slowCallThresholdUs = 16000; // 16 ms ≈ one frame at 60 fps
 
+  /// Timeout in milliseconds for `@nitroNativeAsync` calls. When `> 0`, if the
+  /// native side fails to post a result within this window (a crashed or buggy
+  /// native impl), the returned `Future` completes with a [TimeoutException]
+  /// instead of hanging forever, and the underlying [ReceivePort] + per-call
+  /// error slot are released. Set to `0` (the default) to wait indefinitely —
+  /// the native contract is to post exactly one message, so this is opt-in
+  /// resilience against a misbehaving implementation.
+  int nativeAsyncTimeoutMs = 0;
+
   // ── Timeline tracing ─────────────────────────────────────────────────────
 
   /// When `true`, [NitroRuntime] wraps bridge calls in `dart:developer`
@@ -141,6 +150,7 @@ class NitroConfig {
     logHandler = _defaultLog;
     isolatePoolSize = 1;
     slowCallThresholdUs = 16000;
+    nativeAsyncTimeoutMs = 0;
     timelineTracingEnabled = false;
   }
 }

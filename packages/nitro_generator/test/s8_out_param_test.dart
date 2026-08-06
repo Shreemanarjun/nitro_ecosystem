@@ -264,11 +264,13 @@ void main() {
       final out = DartFfiGenerator.generate(_syncSpec());
       // Unlike sync's instance-owned _nitroErr field, native-async allocates
       // a fresh calloc'd slot right before the call (calls aren't serialized,
-      // so they can't share one instance-owned slot) and checks+frees it
-      // inside the wrapped unpack closure, before decoding raw.
+      // so they can't share one instance-owned slot). unpack CHECKS it; the
+      // slot is freed by the cleanup callback on every terminal path (incl.
+      // timeout — leak-audit #2).
       expect(out, contains('final _nitroErr = calloc<NitroErrorFfi>();'));
       expect(out, contains('_capturePtr(_instanceId, _nitroErr, port)'));
-      expect(out, contains('NitroRuntime.throwIfOutParamErrorAndFree(_nitroErr, nativeFree: _nitroFree);'));
+      expect(out, contains('NitroRuntime.throwIfOutParamError(_nitroErr, nativeFree: _nitroFree);'));
+      expect(out, contains('cleanup: () => calloc.free(_nitroErr),'));
     });
 
     test('property getter FFI type includes Pointer<NitroErrorFfi>', () {

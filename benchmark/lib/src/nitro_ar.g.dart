@@ -669,7 +669,26 @@ extension LiveTrackingUpdateRecordExt on LiveTrackingUpdate {
 
 class _NitroArImpl extends NitroAr {
   final DynamicLibrary _dylib;
-  static final _instances = <String, _NitroArImpl>{};
+  static final _instances = <String, WeakReference<_NitroArImpl>>{};
+
+  static final _instanceFinalizer =
+      Finalizer<
+        ({
+          int id,
+          String key,
+          Pointer<NitroErrorFfi> err,
+          void Function(int) destroy,
+        })
+      >((t) {
+        try {
+          t.destroy(t.id);
+          NitroRuntime.releaseLib('nitro_ar');
+          if (_instances[t.key]?.target == null) _instances.remove(t.key);
+        } catch (_) {
+        } finally {
+          calloc.free(t.err);
+        }
+      });
   final String _instanceKey;
   late final int _instanceId;
   final Pointer<NitroErrorFfi> _nitroErr = calloc<NitroErrorFfi>();
@@ -705,7 +724,9 @@ class _NitroArImpl extends NitroAr {
   }
 
   factory _NitroArImpl([String key = 'default']) {
-    return _instances.putIfAbsent(key, () => _NitroArImpl._init(key));
+    final cached = _instances[key]?.target;
+    if (cached != null) return cached;
+    return _NitroArImpl._init(key);
   }
 
   _NitroArImpl._init(this._instanceKey) : _dylib = _loadSupportedLibrary() {
@@ -767,6 +788,13 @@ class _NitroArImpl extends NitroAr {
       calloc.free(_keyPtr);
     }
     NitroInstanceRegistry.register(_instanceId, this);
+    _instances[_instanceKey] = WeakReference(this);
+    _instanceFinalizer.attach(this, (
+      id: _instanceId,
+      key: _instanceKey,
+      err: _nitroErr,
+      destroy: _destroyInstancePtr,
+    ), detach: this);
     initSw.stop();
     NitroRuntime.logLifecycle(
       'init(nitro_ar)',
@@ -904,6 +932,7 @@ class _NitroArImpl extends NitroAr {
   @override
   void dispose() {
     if (isDisposed) return;
+    _instanceFinalizer.detach(this);
     NitroRuntime.logLifecycle(
       'dispose(nitro_ar)',
       'disposing (instanceId=$_instanceId)',

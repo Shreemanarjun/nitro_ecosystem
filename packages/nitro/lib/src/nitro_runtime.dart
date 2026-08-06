@@ -82,9 +82,10 @@ class NitroRuntime {
   /// library is closed (unmapped from process memory on Android/Linux/Windows)
   /// and removed from the cache. Safe to call from [dispose()].
   ///
-  /// On iOS/macOS [DynamicLibrary.process()] is used — close() is a no-op but
-  /// harmless. The cache entry is still removed so the next [loadLib()] call
-  /// resets the ref count cleanly.
+  /// On iOS/macOS [DynamicLibrary.process()] is used — it CANNOT be closed
+  /// (`close()` throws `Bad state: ... can't be closed`), so we skip the close
+  /// there and only drop the cache entry. The cache entry is still removed so
+  /// the next [loadLib()] call resets the ref count cleanly.
   static void releaseLib(String libName) {
     final count = _libRefCount[libName];
     if (count == null || count <= 0) return;
@@ -92,7 +93,9 @@ class NitroRuntime {
     if (next == 0) {
       _libRefCount.remove(libName);
       final lib = _libCache.remove(libName);
-      lib?.close();
+      // DynamicLibrary.process()/.executable() (iOS/macOS static linking) throw
+      // on close(); only close a genuinely-openable library.
+      if (!Platform.isIOS && !Platform.isMacOS) lib?.close();
       _log(NitroLogLevel.verbose, 'releaseLib', 'Released native lib: $libName');
     } else {
       _libRefCount[libName] = next;
@@ -572,80 +575,86 @@ class NitroRuntime {
   static Future<T> openNativeAsync<T>({
     required void Function(int dartPort) call,
     required T Function(dynamic raw) unpack,
+    void Function()? cleanup,
     String methodName = '',
   }) {
     final cfg = NitroConfig.instance;
     final effective = cfg.effectiveLogLevel;
     final traceTimeline = cfg.timelineTracingEnabled;
+    final timeoutMs = cfg.nativeAsyncTimeoutMs;
+    final sw = effective == NitroLogLevel.verbose || cfg.slowCallThresholdUs > 0 ? (Stopwatch()..start()) : null;
 
-    // Hot path: skip the Stopwatch and tag-string allocation when no per-call
-    // instrumentation is requested (mirrors callSync). The port round-trip is
-    // unchanged; only the instrumentation is elided, with an error-level log
-    // built lazily.
-    if (effective != NitroLogLevel.verbose && !traceTimeline && cfg.slowCallThresholdUs == 0) {
-      final port = ReceivePort();
+    String tag() => methodName.isEmpty ? 'nativeAsync' : 'nativeAsync($methodName)';
+
+    if (effective == NitroLogLevel.verbose) _log(NitroLogLevel.verbose, tag(), 'calling');
+
+    final port = ReceivePort();
+    if (traceTimeline) developer.Timeline.startSync(_timelineLabel(tag()));
+
+    // Guaranteed teardown — runs exactly once when the call settles (success,
+    // native error, or timeout): closes the ReceivePort and frees the per-call
+    // error slot via [cleanup], so a native side that never posts a result
+    // can't leak the port or the slot.
+    void terminate() {
+      port.close();
+      cleanup?.call();
+      if (traceTimeline) developer.Timeline.finishSync();
+    }
+
+    try {
+      call(port.sendPort.nativePort);
+    } catch (e, st) {
+      terminate();
+      if (effective != NitroLogLevel.none) {
+        _log(NitroLogLevel.error, tag(), 'threw: $e', e, st);
+      }
+      rethrow;
+    }
+
+    T handle(dynamic raw) {
+      if (sw != null) {
+        sw.stop();
+        final us = sw.elapsedMicroseconds;
+        _log(NitroLogLevel.verbose, tag(), 'completed in $us \u00b5s');
+        if (cfg.slowCallThresholdUs > 0 && us > cfg.slowCallThresholdUs) {
+          _log(NitroLogLevel.warning, tag(), 'slow call: $us \u00b5s exceeded threshold of ${cfg.slowCallThresholdUs} \u00b5s');
+        }
+      }
       try {
-        call(port.sendPort.nativePort);
+        return unpack(raw);
       } catch (e, st) {
-        port.close();
         if (effective != NitroLogLevel.none) {
-          _log(NitroLogLevel.error, methodName.isEmpty ? 'nativeAsync' : 'nativeAsync($methodName)', 'threw: $e', e, st);
+          _log(NitroLogLevel.error, tag(), 'threw during unpack: $e', e, st);
         }
         rethrow;
       }
-      return port.first.then((raw) {
-        port.close();
-        try {
-          return unpack(raw);
-        } catch (e, st) {
-          if (effective != NitroLogLevel.none) {
-            _log(NitroLogLevel.error, methodName.isEmpty ? 'nativeAsync' : 'nativeAsync($methodName)', 'threw during unpack: $e', e, st);
-          }
-          rethrow;
-        }
-      });
     }
 
-    final tag = methodName.isEmpty ? 'nativeAsync' : 'nativeAsync($methodName)';
-
-    final sw = effective != NitroLogLevel.none && (effective == NitroLogLevel.verbose || cfg.slowCallThresholdUs > 0) ? (Stopwatch()..start()) : null;
-
-    _log(NitroLogLevel.verbose, tag, 'calling');
-
-    final port = ReceivePort();
-    if (traceTimeline) developer.Timeline.startSync(_timelineLabel(tag));
-    try {
-      call(port.sendPort.nativePort);
-    } catch (_) {
-      port.close();
-      if (traceTimeline) developer.Timeline.finishSync();
-      rethrow;
+    if (timeoutMs <= 0) {
+      // Default: wait indefinitely for the single posted message.
+      return port.first.then(handle).whenComplete(terminate);
     }
-    return port.first
-        .then((raw) {
-          port.close();
-          if (sw != null) {
-            sw.stop();
-            final us = sw.elapsedMicroseconds;
-            _log(NitroLogLevel.verbose, tag, 'completed in $us µs');
-            if (cfg.slowCallThresholdUs > 0 && us > cfg.slowCallThresholdUs) {
-              _log(
-                NitroLogLevel.warning,
-                tag,
-                'slow call: $us µs exceeded threshold of ${cfg.slowCallThresholdUs} µs',
-              );
-            }
-          }
-          try {
-            return unpack(raw);
-          } catch (e, st) {
-            _log(NitroLogLevel.error, tag, 'threw during unpack: $e', e, st);
-            rethrow;
-          }
-        })
-        .whenComplete(() {
-          if (traceTimeline) developer.Timeline.finishSync();
-        });
+
+    // Opt-in timeout (NitroConfig.nativeAsyncTimeoutMs): listen manually rather
+    // than via port.first so closing the port on timeout can't surface an
+    // unhandled "no element" error on an abandoned future. Complete exactly
+    // once — whichever of the posted message or the timer fires first.
+    final completer = Completer<dynamic>();
+    final timer = Timer(Duration(milliseconds: timeoutMs), () {
+      if (!completer.isCompleted) {
+        completer.completeError(
+          TimeoutException('${tag()} did not post a result within ${timeoutMs}ms', Duration(milliseconds: timeoutMs)),
+        );
+      }
+    });
+    final sub = port.listen((msg) {
+      if (!completer.isCompleted) completer.complete(msg);
+    });
+    return completer.future.then(handle).whenComplete(() {
+      timer.cancel();
+      sub.cancel();
+      terminate();
+    });
   }
 
   // ── Stream ───────────────────────────────────────────────────────────────
