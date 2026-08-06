@@ -86,279 +86,300 @@ class _NitroDashboardState extends State<NitroDashboard> {
 
     return Focusable(
       focused: true,
-      onKeyEvent: (event) {
-        if (event.logicalKey == LogicalKey.arrowDown) {
-          setState(() {
-            if (_focusMenu) {
-              _selectedIndex = (_selectedIndex + 1) % menuCommands.length;
-            } else if (_projects.length > 1) {
-              _selectedProjectIndex = (_selectedProjectIndex + 1) % _projects.length;
-              _syncProject();
-            }
-          });
-          return true;
-        }
-        if (event.logicalKey == LogicalKey.arrowUp) {
-          setState(() {
-            if (_focusMenu) {
-              _selectedIndex = (_selectedIndex - 1 + menuCommands.length) % menuCommands.length;
-            } else if (_projects.length > 1) {
-              _selectedProjectIndex = (_selectedProjectIndex - 1 + _projects.length) % _projects.length;
-              _syncProject();
-            }
-          });
-          return true;
-        }
-        if (event.logicalKey == LogicalKey.arrowRight && !_focusMenu) {
-          setState(() => _focusMenu = true);
-          return true;
-        }
-        if (event.logicalKey == LogicalKey.arrowLeft && _focusMenu && _projects.length > 1) {
-          setState(() => _focusMenu = false);
-          return true;
-        }
-        if (event.logicalKey == LogicalKey.tab && _projects.length > 1) {
-          setState(() => _focusMenu = !_focusMenu);
-          return true;
-        }
-        if (event.logicalKey == LogicalKey.enter) {
-          if (!_focusMenu) {
-            setState(() => _focusMenu = true);
-            return true;
-          }
-          final command = menuCommands[_selectedIndex];
-          if (command == NitroCommand.exit) {
-            shutdownApp(0);
-          } else {
-            context.unrouterAs<NitroRoute>().go(CommandRoute(command));
-          }
-          return true;
-        }
-        if (event.logicalKey == LogicalKey.escape) {
-          shutdownApp(0);
-          return true;
-        }
-        return false;
-      },
+      onKeyEvent: (event) => _handleKey(context, event, menuCommands),
       child: Column(
         children: [
           // ── Header/Top Bar ──────────────────────────────────────────────
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 2, vertical: 0),
-            decoration: const BoxDecoration(
-              border: BoxBorder(bottom: BorderSide(color: Colors.brightBlack)),
-            ),
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                Text(
-                  '${_pulse ? '⚡' : '🔥'} Nitrogen CLI v$activeVersion by Shreeman Arjun',
-                  style: TextStyle(fontWeight: FontWeight.bold, color: _pulse ? Colors.magenta : Colors.cyan),
-                ),
-                if (_project != null)
-                  Padding(
-                    padding: const EdgeInsets.only(right: 1),
-                    child: Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        if (_projects.length > 1)
-                          const Text(
-                            ' [Tab] ',
-                            style: TextStyle(color: Colors.gray, fontWeight: FontWeight.dim),
-                          ),
-                        Text(
-                          'Active: ${_project!.name} (v${_project!.version})',
-                          style: const TextStyle(
-                            color: Colors.white,
-                            fontWeight: FontWeight.bold,
-                          ),
-                        ),
-                        if (_projects.length > 1) Text(' (${_selectedProjectIndex + 1}/${_projects.length})', style: const TextStyle(color: Colors.gray)),
-                        const Text(' • ', style: TextStyle(color: Colors.brightBlack)),
-                        _EditorOption(
-                          label: 'Code',
-                          color: Colors.blue,
-                          onTap: () => _openEditor('code'),
-                        ),
-                        const Text(' • ', style: TextStyle(color: Colors.brightBlack)),
-                        _EditorOption(
-                          label: 'Antigravity',
-                          color: Colors.magenta,
-                          onTap: () => _openEditor('antigravity'),
-                        ),
-                      ],
-                    ),
-                  ),
-              ],
-            ),
-          ),
+          _buildHeader(),
 
           // ── Centered Navigation ──────────────────────────────────────────
           Expanded(
-            child: Row(
-              children: [
-                // ── Left Side: Project List Sidebar ──────────────────────────
-                if (_projects.length > 1)
-                  Container(
-                    width: 45,
-                    decoration: const BoxDecoration(
-                      border: BoxBorder(right: BorderSide(color: Colors.brightBlack)),
-                    ),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Padding(
-                          padding: const EdgeInsets.symmetric(horizontal: 1, vertical: 0),
-                          child: Text(
-                            ' PROJECTS ',
-                            style: TextStyle(
-                              color: Colors.white,
-                              fontWeight: FontWeight.bold,
-                              backgroundColor: !_focusMenu ? Colors.brightBlack : null,
-                            ),
-                          ),
-                        ),
-                        const Divider(color: Colors.brightBlack),
-                        Expanded(
-                          child: ListView(
-                            children: [
-                              for (var i = 0; i < _projects.length; i++)
-                                _ProjectItem(
-                                  project: _projects[i],
-                                  selected: i == _selectedProjectIndex,
-                                  focused: !_focusMenu && i == _selectedProjectIndex,
-                                  onSelected: () => setState(() {
-                                    _selectedProjectIndex = i;
-                                    _focusMenu = false;
-                                    _syncProject();
-                                  }),
-                                ),
-                            ],
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-
-                // ── Right Side: Main Dashboard Content ───────────────────────
-                Expanded(
-                  child: Center(
-                    child: Column(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        NitroLogo(color: _pulse ? Colors.magenta : Colors.cyan),
-
-                        const SizedBox(height: 1),
-                        const Text(
-                          'The high-performance FFI toolkit for Flutter',
-                          style: TextStyle(color: Colors.brightBlack, fontWeight: FontWeight.dim),
-                        ),
-                        const SizedBox(height: 1),
-                        const RocketAnimation(),
-                        const SizedBox(height: 1),
-                        // Centered block for aligned commands
-                        SizedBox(
-                          width: 60,
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              for (var i = 0; i < menuCommands.length; i++)
-                                _CommandItem(
-                                  command: menuCommands[i],
-                                  selected: i == _selectedIndex,
-                                  focused: _focusMenu && i == _selectedIndex,
-                                  onSelected: () => setState(() {
-                                    _selectedIndex = i;
-                                    _focusMenu = true;
-                                  }),
-                                  onTap: () {
-                                    final cmd = menuCommands[i];
-                                    if (cmd == NitroCommand.exit) {
-                                      shutdownApp(0);
-                                    } else {
-                                      context.unrouterAs<NitroRoute>().go(CommandRoute(cmd));
-                                    }
-                                  },
-                                ),
-                            ],
-                          ),
-                        ),
-                        const SizedBox(height: 1),
-                        Text(
-                          'Arrows to navigate • Tab to switch areas',
-                          style: TextStyle(color: _focusMenu ? Colors.cyan : Colors.gray, fontWeight: FontWeight.dim),
-                        ),
-                        const SizedBox(height: 1),
-                        Row(
-                          mainAxisAlignment: MainAxisAlignment.center,
-                          children: [
-                            HoverButton(
-                              label: 'Docs: nitro.shreeman.dev',
-                              onTap: () => launchUrl('https://nitro.shreeman.dev/'),
-                              color: Colors.blue,
-                            ),
-                            const Text(' • ', style: TextStyle(color: Colors.brightBlack)),
-                            HoverButton(
-                              label: 'Inspired by Nitro — @mrousavy',
-                              onTap: () => launchUrl('https://x.com/mrousavy'),
-                              color: Colors.yellow,
-                            ),
-                          ],
-                        ),
-                        const SizedBox(height: 1),
-                        Row(
-                          mainAxisAlignment: MainAxisAlignment.center,
-                          children: [
-                            const Text(
-                              'By ',
-                              style: TextStyle(color: Colors.gray, fontWeight: FontWeight.dim),
-                            ),
-                            HoverButton(
-                              label: 'Shreeman Arjun',
-                              onTap: () => launchUrl('https://twitter.com/shreemanarjun'),
-                              color: Colors.cyan,
-                            ),
-                            const Text(' • ', style: TextStyle(color: Colors.brightBlack)),
-                            HoverButton(
-                              label: '𝕏 @shreemanarjun',
-                              onTap: () => launchUrl('https://twitter.com/shreemanarjun'),
-                              color: Colors.white,
-                            ),
-                            const Text(' • ', style: TextStyle(color: Colors.brightBlack)),
-                            HoverButton(
-                              label: 'GitHub: Shreemanarjun',
-                              onTap: () => launchUrl('https://github.com/Shreemanarjun'),
-                              color: Colors.green,
-                            ),
-                          ],
-                        ),
-                      ],
-                    ),
-                  ),
-                ),
-              ],
-            ),
+            child: _buildBody(context, menuCommands),
           ),
 
           // ── Fixed Bottom Status Bar ──────────────────────────────────────────
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 2, vertical: 0),
-            decoration: const BoxDecoration(
-              border: BoxBorder(top: BorderSide(color: Colors.brightBlack)),
+          _buildFooter(),
+        ],
+      ),
+    );
+  }
+
+  bool _handleKey(BuildContext context, KeyboardEvent event, List<NitroCommand> menuCommands) {
+    if (event.logicalKey == LogicalKey.arrowDown) {
+      setState(() {
+        if (_focusMenu) {
+          _selectedIndex = (_selectedIndex + 1) % menuCommands.length;
+        } else if (_projects.length > 1) {
+          _selectedProjectIndex = (_selectedProjectIndex + 1) % _projects.length;
+          _syncProject();
+        }
+      });
+      return true;
+    }
+    if (event.logicalKey == LogicalKey.arrowUp) {
+      setState(() {
+        if (_focusMenu) {
+          _selectedIndex = (_selectedIndex - 1 + menuCommands.length) % menuCommands.length;
+        } else if (_projects.length > 1) {
+          _selectedProjectIndex = (_selectedProjectIndex - 1 + _projects.length) % _projects.length;
+          _syncProject();
+        }
+      });
+      return true;
+    }
+    if (event.logicalKey == LogicalKey.arrowRight && !_focusMenu) {
+      setState(() => _focusMenu = true);
+      return true;
+    }
+    if (event.logicalKey == LogicalKey.arrowLeft && _focusMenu && _projects.length > 1) {
+      setState(() => _focusMenu = false);
+      return true;
+    }
+    if (event.logicalKey == LogicalKey.tab && _projects.length > 1) {
+      setState(() => _focusMenu = !_focusMenu);
+      return true;
+    }
+    if (event.logicalKey == LogicalKey.enter) {
+      if (!_focusMenu) {
+        setState(() => _focusMenu = true);
+        return true;
+      }
+      final command = menuCommands[_selectedIndex];
+      if (command == NitroCommand.exit) {
+        shutdownApp(0);
+      } else {
+        context.unrouterAs<NitroRoute>().go(CommandRoute(command));
+      }
+      return true;
+    }
+    if (event.logicalKey == LogicalKey.escape) {
+      shutdownApp(0);
+      return true;
+    }
+    return false;
+  }
+
+  Component _buildHeader() {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 2, vertical: 0),
+      decoration: const BoxDecoration(
+        border: BoxBorder(bottom: BorderSide(color: Colors.brightBlack)),
+      ),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        children: [
+          Text(
+            '${_pulse ? '⚡' : '🔥'} Nitrogen CLI v$activeVersion by Shreeman Arjun',
+            style: TextStyle(fontWeight: FontWeight.bold, color: _pulse ? Colors.magenta : Colors.cyan),
+          ),
+          if (_project != null)
+            Padding(
+              padding: const EdgeInsets.only(right: 1),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  if (_projects.length > 1)
+                    const Text(
+                      ' [Tab] ',
+                      style: TextStyle(color: Colors.gray, fontWeight: FontWeight.dim),
+                    ),
+                  Text(
+                    'Active: ${_project!.name} (v${_project!.version})',
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                  if (_projects.length > 1) Text(' (${_selectedProjectIndex + 1}/${_projects.length})', style: const TextStyle(color: Colors.gray)),
+                  const Text(' • ', style: TextStyle(color: Colors.brightBlack)),
+                  _EditorOption(
+                    label: 'Code',
+                    color: Colors.blue,
+                    onTap: () => _openEditor('code'),
+                  ),
+                  const Text(' • ', style: TextStyle(color: Colors.brightBlack)),
+                  _EditorOption(
+                    label: 'Antigravity',
+                    color: Colors.magenta,
+                    onTap: () => _openEditor('antigravity'),
+                  ),
+                ],
+              ),
             ),
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        ],
+      ),
+    );
+  }
+
+  Component _buildBody(BuildContext context, List<NitroCommand> menuCommands) {
+    return Row(
+      children: [
+        // ── Left Side: Project List Sidebar ──────────────────────────
+        if (_projects.length > 1) _buildSidebar(),
+
+        // ── Right Side: Main Dashboard Content ───────────────────────
+        _buildMainContent(context, menuCommands),
+      ],
+    );
+  }
+
+  Component _buildSidebar() {
+    return Container(
+      width: 45,
+      decoration: const BoxDecoration(
+        border: BoxBorder(right: BorderSide(color: Colors.brightBlack)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 1, vertical: 0),
+            child: Text(
+              ' PROJECTS ',
+              style: TextStyle(
+                color: Colors.white,
+                fontWeight: FontWeight.bold,
+                backgroundColor: !_focusMenu ? Colors.brightBlack : null,
+              ),
+            ),
+          ),
+          const Divider(color: Colors.brightBlack),
+          Expanded(
+            child: ListView(
               children: [
-                Text('Dart: $_dartVersion', style: const TextStyle(color: Colors.gray)),
-                const Text(
-                  'ESC exit',
-                  style: TextStyle(color: Colors.gray, fontWeight: FontWeight.dim),
-                ),
-                Text('Branch: $_branch', style: const TextStyle(color: Colors.magenta)),
-                const Text('Nitro Modules • Ready', style: TextStyle(color: Colors.cyan)),
+                for (var i = 0; i < _projects.length; i++)
+                  _ProjectItem(
+                    project: _projects[i],
+                    selected: i == _selectedProjectIndex,
+                    focused: !_focusMenu && i == _selectedProjectIndex,
+                    onSelected: () => setState(() {
+                      _selectedProjectIndex = i;
+                      _focusMenu = false;
+                      _syncProject();
+                    }),
+                  ),
               ],
             ),
           ),
+        ],
+      ),
+    );
+  }
+
+  Component _buildMainContent(BuildContext context, List<NitroCommand> menuCommands) {
+    return Expanded(
+      child: Center(
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            NitroLogo(color: _pulse ? Colors.magenta : Colors.cyan),
+
+            const SizedBox(height: 1),
+            const Text(
+              'The high-performance FFI toolkit for Flutter',
+              style: TextStyle(color: Colors.brightBlack, fontWeight: FontWeight.dim),
+            ),
+            const SizedBox(height: 1),
+            const RocketAnimation(),
+            const SizedBox(height: 1),
+            // Centered block for aligned commands
+            SizedBox(
+              width: 60,
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  for (var i = 0; i < menuCommands.length; i++)
+                    _CommandItem(
+                      command: menuCommands[i],
+                      selected: i == _selectedIndex,
+                      focused: _focusMenu && i == _selectedIndex,
+                      onSelected: () => setState(() {
+                        _selectedIndex = i;
+                        _focusMenu = true;
+                      }),
+                      onTap: () {
+                        final cmd = menuCommands[i];
+                        if (cmd == NitroCommand.exit) {
+                          shutdownApp(0);
+                        } else {
+                          context.unrouterAs<NitroRoute>().go(CommandRoute(cmd));
+                        }
+                      },
+                    ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 1),
+            Text(
+              'Arrows to navigate • Tab to switch areas',
+              style: TextStyle(color: _focusMenu ? Colors.cyan : Colors.gray, fontWeight: FontWeight.dim),
+            ),
+            const SizedBox(height: 1),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                HoverButton(
+                  label: 'Docs: nitro.shreeman.dev',
+                  onTap: () => launchUrl('https://nitro.shreeman.dev/'),
+                  color: Colors.blue,
+                ),
+                const Text(' • ', style: TextStyle(color: Colors.brightBlack)),
+                HoverButton(
+                  label: 'Inspired by Nitro — @mrousavy',
+                  onTap: () => launchUrl('https://x.com/mrousavy'),
+                  color: Colors.yellow,
+                ),
+              ],
+            ),
+            const SizedBox(height: 1),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                const Text(
+                  'By ',
+                  style: TextStyle(color: Colors.gray, fontWeight: FontWeight.dim),
+                ),
+                HoverButton(
+                  label: 'Shreeman Arjun',
+                  onTap: () => launchUrl('https://twitter.com/shreemanarjun'),
+                  color: Colors.cyan,
+                ),
+                const Text(' • ', style: TextStyle(color: Colors.brightBlack)),
+                HoverButton(
+                  label: '𝕏 @shreemanarjun',
+                  onTap: () => launchUrl('https://twitter.com/shreemanarjun'),
+                  color: Colors.white,
+                ),
+                const Text(' • ', style: TextStyle(color: Colors.brightBlack)),
+                HoverButton(
+                  label: 'GitHub: Shreemanarjun',
+                  onTap: () => launchUrl('https://github.com/Shreemanarjun'),
+                  color: Colors.green,
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Component _buildFooter() {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 2, vertical: 0),
+      decoration: const BoxDecoration(
+        border: BoxBorder(top: BorderSide(color: Colors.brightBlack)),
+      ),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        children: [
+          Text('Dart: $_dartVersion', style: const TextStyle(color: Colors.gray)),
+          const Text(
+            'ESC exit',
+            style: TextStyle(color: Colors.gray, fontWeight: FontWeight.dim),
+          ),
+          Text('Branch: $_branch', style: const TextStyle(color: Colors.magenta)),
+          const Text('Nitro Modules • Ready', style: TextStyle(color: Colors.cyan)),
         ],
       ),
     );

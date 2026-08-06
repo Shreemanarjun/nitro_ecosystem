@@ -28,56 +28,9 @@ Future<int> killBuildRunner({String? workingDirectory}) async {
   int killed = 0;
 
   if (Platform.isWindows) {
-    // Windows: use WMIC to find dart.exe processes running build_runner.
-    try {
-      final list = await Process.run(
-        'wmic',
-        ['process', 'where', "CommandLine like '%build_runner%'", 'get', 'ProcessId'],
-        runInShell: true,
-      );
-      final pids = (list.stdout as String).split(RegExp(r'\s+')).where((s) => RegExp(r'^\d+$').hasMatch(s)).toList();
-      for (final pid in pids) {
-        final r = await Process.run('taskkill', ['/F', '/PID', pid], runInShell: true);
-        if (r.exitCode == 0) killed++;
-      }
-    } catch (_) {}
+    killed += await _killBuildRunnerWindows();
   } else {
-    // ── Strategy 1: lsof — find the process holding the lock file ───────────
-    // This is the most reliable method: we know exactly which process is
-    // blocking. It is immune to argv truncation issues in pkill -f.
-    if (workingDirectory != null) {
-      for (final lockName in ['lock', '.lock']) {
-        final lockPath = p.join(workingDirectory, '.dart_tool', 'build', lockName);
-        if (!File(lockPath).existsSync()) continue;
-        try {
-          final lsof = await Process.run('lsof', ['-t', lockPath]);
-          final pids = (lsof.stdout as String).trim().split(RegExp(r'\s+')).where((s) => RegExp(r'^\d+$').hasMatch(s)).toList();
-          for (final pid in pids) {
-            await Process.run('kill', ['-TERM', pid]);
-            killed++;
-          }
-          if (pids.isNotEmpty) {
-            // Grace period for clean shutdown.
-            await Future.delayed(const Duration(milliseconds: 700));
-            for (final pid in pids) {
-              await Process.run('kill', ['-KILL', pid]);
-            }
-          }
-        } catch (_) {}
-      }
-    }
-
-    // ── Strategy 2: pkill -f as a broad fallback ────────────────────────────
-    // Catches processes whose lock file doesn't exist yet (still starting up)
-    // or when lsof is unavailable. On macOS -f searches the full argv.
-    try {
-      final r = await Process.run('pkill', ['-f', 'build_runner']);
-      if (r.exitCode == 0) {
-        killed++;
-        await Future.delayed(const Duration(milliseconds: 800));
-        await Process.run('pkill', ['-9', '-f', 'build_runner']);
-      }
-    } catch (_) {}
+    killed += await _killBuildRunnerPosix(workingDirectory);
   }
 
   // ── Delete the entire .dart_tool/build directory ─────────────────────────
@@ -85,22 +38,109 @@ Future<int> killBuildRunner({String? workingDirectory}) async {
   // descriptor open briefly after SIGKILL. Removing the whole directory
   // guarantees a clean slate. Retry once after a short pause.
   if (workingDirectory != null) {
-    final buildCache = Directory(p.join(workingDirectory, '.dart_tool', 'build'));
-    if (buildCache.existsSync()) {
-      await Future.delayed(const Duration(milliseconds: 200));
-      try {
-        buildCache.deleteSync(recursive: true);
-      } catch (_) {
-        // If the first attempt races with the dying process, wait and retry.
-        await Future.delayed(const Duration(milliseconds: 400));
-        try {
-          buildCache.deleteSync(recursive: true);
-        } catch (_) {}
-      }
-    }
+    await _deleteBuildCache(workingDirectory);
   }
 
   return killed;
+}
+
+/// Windows: use WMIC to find dart.exe processes running build_runner and
+/// `taskkill` them. Returns the number of processes killed.
+Future<int> _killBuildRunnerWindows() async {
+  int killed = 0;
+  try {
+    final list = await Process.run(
+      'wmic',
+      ['process', 'where', "CommandLine like '%build_runner%'", 'get', 'ProcessId'],
+      runInShell: true,
+    );
+    final pids = (list.stdout as String).split(RegExp(r'\s+')).where((s) => RegExp(r'^\d+$').hasMatch(s)).toList();
+    for (final pid in pids) {
+      final r = await Process.run('taskkill', ['/F', '/PID', pid], runInShell: true);
+      if (r.exitCode == 0) killed++;
+    }
+  } catch (_) {}
+  return killed;
+}
+
+/// POSIX (macOS/Linux): kill build_runner via the lock-file owner (Strategy 1)
+/// then via a broad `pkill` (Strategy 2). Returns the number of processes killed.
+Future<int> _killBuildRunnerPosix(String? workingDirectory) async {
+  int killed = 0;
+
+  // ── Strategy 1: lsof — find the process holding the lock file ───────────
+  // This is the most reliable method: we know exactly which process is
+  // blocking. It is immune to argv truncation issues in pkill -f.
+  if (workingDirectory != null) {
+    killed += await _killBuildRunnerByLockFile(workingDirectory);
+  }
+
+  // ── Strategy 2: pkill -f as a broad fallback ────────────────────────────
+  // Catches processes whose lock file doesn't exist yet (still starting up)
+  // or when lsof is unavailable. On macOS -f searches the full argv.
+  killed += await _killBuildRunnerByPkill();
+
+  return killed;
+}
+
+/// Strategy 1: `lsof -t` the lock file to find the exact PID(s) holding it and
+/// TERM then KILL them. Returns the number of processes killed.
+Future<int> _killBuildRunnerByLockFile(String workingDirectory) async {
+  int killed = 0;
+  for (final lockName in ['lock', '.lock']) {
+    final lockPath = p.join(workingDirectory, '.dart_tool', 'build', lockName);
+    if (!File(lockPath).existsSync()) continue;
+    try {
+      final lsof = await Process.run('lsof', ['-t', lockPath]);
+      final pids = (lsof.stdout as String).trim().split(RegExp(r'\s+')).where((s) => RegExp(r'^\d+$').hasMatch(s)).toList();
+      for (final pid in pids) {
+        await Process.run('kill', ['-TERM', pid]);
+        killed++;
+      }
+      if (pids.isNotEmpty) {
+        // Grace period for clean shutdown.
+        await Future.delayed(const Duration(milliseconds: 700));
+        for (final pid in pids) {
+          await Process.run('kill', ['-KILL', pid]);
+        }
+      }
+    } catch (_) {}
+  }
+  return killed;
+}
+
+/// Strategy 2: `pkill -f build_runner` as a broad fallback, then a `-9` sweep.
+/// Returns the number of processes killed (0 or 1).
+Future<int> _killBuildRunnerByPkill() async {
+  int killed = 0;
+  try {
+    final r = await Process.run('pkill', ['-f', 'build_runner']);
+    if (r.exitCode == 0) {
+      killed++;
+      await Future.delayed(const Duration(milliseconds: 800));
+      await Process.run('pkill', ['-9', '-f', 'build_runner']);
+    }
+  } catch (_) {}
+  return killed;
+}
+
+/// Removes the entire `.dart_tool/build` directory so no stale lock can block
+/// the next process. Retries once after a short pause if the first attempt
+/// races with the dying process.
+Future<void> _deleteBuildCache(String workingDirectory) async {
+  final buildCache = Directory(p.join(workingDirectory, '.dart_tool', 'build'));
+  if (buildCache.existsSync()) {
+    await Future.delayed(const Duration(milliseconds: 200));
+    try {
+      buildCache.deleteSync(recursive: true);
+    } catch (_) {
+      // If the first attempt races with the dying process, wait and retry.
+      await Future.delayed(const Duration(milliseconds: 400));
+      try {
+        buildCache.deleteSync(recursive: true);
+      } catch (_) {}
+    }
+  }
 }
 
 /// Removes ephemeral CocoaPods/Flutter symlink trees under `example/` that can
@@ -255,9 +295,19 @@ void syncBridgeFiles(String workingDirectory, {String platform = 'ios'}) {
     if (sourcesDir.existsSync()) sourcesDir,
   ];
 
-  // Sync Swift bridges.
-  // Non-cpp modules: copy to all existing target dirs for reliability.
-  // Cpp modules: delete any stale copy — the direct C++ bridge makes them unnecessary.
+  _syncSwiftBridges(generatedDir, targetDirs, appleCppModules);
+
+  // The following syncs target only the CocoaPods Classes/ layout.
+  if (!classesDir.existsSync()) return;
+
+  _syncCppBridges(generatedDir, classesDir);
+  _syncCppImplStubs(workingDirectory, appleCppModules, classesDir);
+}
+
+/// Syncs Swift bridges into every existing target dir.
+/// Non-cpp modules: copy to all existing target dirs for reliability.
+/// Cpp modules: delete any stale copy — the direct C++ bridge makes them unnecessary.
+void _syncSwiftBridges(Directory generatedDir, List<Directory> targetDirs, Map<String, String> appleCppModules) {
   final swiftSource = Directory(p.join(generatedDir.path, 'swift'));
   if (swiftSource.existsSync()) {
     for (final file in swiftSource.listSync().whereType<File>()) {
@@ -277,11 +327,10 @@ void syncBridgeFiles(String workingDirectory, {String platform = 'ios'}) {
       }
     }
   }
+}
 
-  // The following syncs target only the CocoaPods Classes/ layout.
-  if (!classesDir.existsSync()) return;
-
-  // Sync C++/Obj-C++ bridges (.bridge.g.cpp → .bridge.g.mm for Obj-C++ support).
+/// Syncs C++/Obj-C++ bridges (.bridge.g.cpp → .bridge.g.mm for Obj-C++ support).
+void _syncCppBridges(Directory generatedDir, Directory classesDir) {
   final cppSource = Directory(p.join(generatedDir.path, 'cpp'));
   if (cppSource.existsSync()) {
     for (final file in cppSource.listSync().whereType<File>()) {
@@ -292,13 +341,15 @@ void syncBridgeFiles(String workingDirectory, {String platform = 'ios'}) {
       }
     }
   }
+}
 
-  // Sync HybridXxx.cpp impl stubs for Apple C++ modules.
-  //
-  // CocoaPods compiles everything in Classes/** — the impl stubs must be
-  // there so the C++ HybridObject methods are compiled into the pod target.
-  // Stale Hybrid*.cpp files for non-Apple-cpp modules are removed to prevent
-  // "abstract class" compile errors.
+/// Syncs HybridXxx.cpp impl stubs for Apple C++ modules.
+///
+/// CocoaPods compiles everything in Classes/** — the impl stubs must be
+/// there so the C++ HybridObject methods are compiled into the pod target.
+/// Stale Hybrid*.cpp files for non-Apple-cpp modules are removed to prevent
+/// "abstract class" compile errors.
+void _syncCppImplStubs(String workingDirectory, Map<String, String> appleCppModules, Directory classesDir) {
   final srcDir = Directory(p.join(workingDirectory, 'src'));
   if (srcDir.existsSync()) {
     final expectedImplFiles = <String>{};

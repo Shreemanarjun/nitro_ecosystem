@@ -17,6 +17,7 @@ import 'link_command.dart'
         isCppModule,
         findPodfileDirs,
         discoverModuleInfos,
+        ModuleInfo,
         linkCMake,
         linkPodspec,
         linkMacosPodspec,
@@ -127,23 +128,7 @@ class GenerateCommand extends Command {
       return 1;
     }
 
-    if (projectDir.path != Directory.current.path) {
-      if (_headless) {
-        stdout.writeln('[nitro] project: ${projectDir.path}');
-      } else {
-        stdout.writeln(gray('  📂 Found project in: ${projectDir.path}'));
-      }
-    }
-
-    if (_headless) {
-      stdout.writeln('[nitro] nitrogen generate');
-    } else {
-      stdout.writeln('');
-      stdout.writeln(boldCyan('  ╔══════════════════════════╗'));
-      stdout.writeln(boldCyan('  ║  nitrogen generate       ║'));
-      stdout.writeln(boldCyan('  ╚══════════════════════════╝'));
-      stdout.writeln('');
-    }
+    _printGenerateHeader(projectDir);
 
     if (dryRun) {
       _printDryRunPlan(projectDir.path, targets);
@@ -163,26 +148,88 @@ class GenerateCommand extends Command {
     );
 
     if (!incrementalPlan.hasChanges) {
-      if (_headless) {
-        stdout.writeln('[nitro] no spec changes detected — generation skipped');
-      } else {
-        stdout.writeln(gray('  › no spec changes detected — generation skipped'));
-      }
+      _printNoChanges();
       _logTiming('total', DateTime.now().difference(totalStart));
       return 0;
     }
 
     // ── pub get ─────────────────────────────────────────────────────────────
+    final pubGetExit = await _runPubGet(projectDir.path);
+    if (pubGetExit != null) return pubGetExit;
+
+    // ── build_runner ─────────────────────────────────────────────────────────
+    await _prepareBuildRunner(projectDir.path);
+    final buildExit = await _runBuildRunner(projectDir.path, targets, incrementalPlan, failOnWarn);
+    if (buildExit != null) return buildExit;
+
+    incrementalCache.write(
+      specs: specFiles,
+      outputPathsForSpec: (spec) => _generatedOutputsForSpec(projectDir.path, spec, targets),
+    );
+
+    // ── Post-generation bridge cleanup ───────────────────────────────────────
+    // Generated Swift bridges live in lib/src/generated/swift/ and are compiled
+    // via the podspec source_files pattern. Remove any stale copies from Classes/
+    // to prevent "Invalid redeclaration" Swift compiler errors.
+    if (targets.isDartOnly) {
+      _logTiming('total', DateTime.now().difference(totalStart));
+      _printGenerationComplete();
+      return 0;
+    }
+
+    _runLinkPhase(projectDir.path);
+
+    // ── pod install ──────────────────────────────────────────────────────────
+    await _runPodInstall(projectDir.path);
+
+    // Detect whether any spec uses NativeImpl.cpp to tailor the next-steps hint
+    final libDir = Directory(p.join(projectDir.path, 'lib'));
+    final hasCppModules = libDir.existsSync() && libDir.listSync(recursive: true).whereType<File>().where((f) => f.path.endsWith('.native.dart')).any(isCppModule);
+
+    _logTiming('total', DateTime.now().difference(totalStart));
+    _reportSuccess(projectDir.path, hasCppModules);
+    return 0;
+  }
+
+  void _printGenerateHeader(Directory projectDir) {
+    if (projectDir.path != Directory.current.path) {
+      if (_headless) {
+        stdout.writeln('[nitro] project: ${projectDir.path}');
+      } else {
+        stdout.writeln(gray('  📂 Found project in: ${projectDir.path}'));
+      }
+    }
+
+    if (_headless) {
+      stdout.writeln('[nitro] nitrogen generate');
+    } else {
+      stdout.writeln('');
+      stdout.writeln(boldCyan('  ╔══════════════════════════╗'));
+      stdout.writeln(boldCyan('  ║  nitrogen generate       ║'));
+      stdout.writeln(boldCyan('  ╚══════════════════════════╝'));
+      stdout.writeln('');
+    }
+  }
+
+  void _printNoChanges() {
+    if (_headless) {
+      stdout.writeln('[nitro] no spec changes detected — generation skipped');
+    } else {
+      stdout.writeln(gray('  › no spec changes detected — generation skipped'));
+    }
+  }
+
+  Future<int?> _runPubGet(String projectRoot) async {
     _log('flutter pub get …');
     final t0 = DateTime.now();
     final pubGetResult = await runStreamingInspected(
       'flutter',
       ['pub', 'get'],
-      workingDirectory: projectDir.path,
+      workingDirectory: projectRoot,
       headless: _headless,
     );
     _logTiming('pub get', DateTime.now().difference(t0));
-    var exitCode = pubGetResult.exitCode;
+    final exitCode = pubGetResult.exitCode;
     // Exit 255 is a known Dart SDK advisory-decode bug (pub.dev API mismatch).
     // Packages are still resolved successfully — do not abort.
     if (exitCode != 0 && exitCode != 255) {
@@ -190,8 +237,12 @@ class GenerateCommand extends Command {
       return exitCode;
     }
     if (!_headless) stdout.writeln('');
+    return null;
+  }
 
-    // ── build_runner ─────────────────────────────────────────────────────────
+  /// Stops any already-running build_runner, clears the stale lock file, and
+  /// removes ephemeral symlink cycles that can silently hang build_runner.
+  Future<void> _prepareBuildRunner(String projectRoot) async {
     // Use `flutter pub run` (not `dart run`) because Flutter projects require
     // Flutter's package resolution — `dart run build_runner` fails with
     // "Flutter users should use flutter pub instead of dart pub".
@@ -199,7 +250,7 @@ class GenerateCommand extends Command {
     // Stop any already-running build_runner first. A second invocation hangs
     // indefinitely waiting for the lock file; killing the old process and
     // removing the lock file lets the new one start immediately.
-    final existingCount = await killBuildRunner(workingDirectory: projectDir.path);
+    final existingCount = await killBuildRunner(workingDirectory: projectRoot);
     if (existingCount > 0) {
       if (_headless) {
         stdout.writeln('[nitro] stopped existing build_runner instance');
@@ -213,14 +264,14 @@ class GenerateCommand extends Command {
     // it forces an expensive recompile (~10-15 s) on every run. Keeping the
     // asset graph lets build_runner preserve its own incremental cache while
     // still clearing stale locks from crashed processes.
-    deleteBuildRunnerLock(projectDir.path);
+    deleteBuildRunnerLock(projectRoot);
 
     // See cleanEphemeralSymlinkCycles doc comment: once example/ has been
     // built for a native platform, a symlink there points back to the plugin
     // root, and build_runner's file-discovery walk recurses forever — no
     // error, no timeout, just silent 100% CPU. Removing it here protects
     // every `nitrogen generate` run, not just the first one on a clean checkout.
-    final removedCycles = cleanEphemeralSymlinkCycles(projectDir.path);
+    final removedCycles = cleanEphemeralSymlinkCycles(projectRoot);
     if (removedCycles.isNotEmpty) {
       final msg = 'Removed ephemeral build artifacts that can hang build_runner (${removedCycles.join(', ')})';
       if (_headless) {
@@ -229,7 +280,15 @@ class GenerateCommand extends Command {
         stdout.writeln(gray('  › $msg'));
       }
     }
+  }
 
+  /// Runs `build_runner build`. Returns an exit code to abort on, or null to continue.
+  Future<int?> _runBuildRunner(
+    String projectRoot,
+    _GenerateTargetSelection targets,
+    IncrementalGenerationPlan incrementalPlan,
+    bool failOnWarn,
+  ) async {
     _log('build_runner build …');
     if (!_headless) stdout.writeln('');
     final t1 = DateTime.now();
@@ -239,17 +298,17 @@ class GenerateCommand extends Command {
       'build_runner',
       'build',
       '--delete-conflicting-outputs',
-      ...targets.buildFilterArgs(projectDir.path, incrementalPlan.changedSpecs),
+      ...targets.buildFilterArgs(projectRoot, incrementalPlan.changedSpecs),
     ];
     final buildResult = await runStreamingInspected(
       'flutter',
       buildArgs,
-      workingDirectory: projectDir.path,
+      workingDirectory: projectRoot,
       headless: _headless,
       scanWarnings: failOnWarn,
     );
     _logTiming('build_runner', DateTime.now().difference(t1));
-    exitCode = buildResult.exitCode;
+    final exitCode = buildResult.exitCode;
 
     if (!_headless) stdout.writeln('');
     if (exitCode != 0) {
@@ -266,102 +325,107 @@ class GenerateCommand extends Command {
       }
       return 2;
     }
+    return null;
+  }
 
-    incrementalCache.write(
-      specs: specFiles,
-      outputPathsForSpec: (spec) => _generatedOutputsForSpec(projectDir.path, spec, targets),
-    );
-
-    // ── Post-generation bridge cleanup ───────────────────────────────────────
-    // Generated Swift bridges live in lib/src/generated/swift/ and are compiled
-    // via the podspec source_files pattern. Remove any stale copies from Classes/
-    // to prevent "Invalid redeclaration" Swift compiler errors.
-    if (targets.isDartOnly) {
-      _logTiming('total', DateTime.now().difference(totalStart));
-      if (_headless) {
-        stdout.writeln('[nitro] generation complete');
-      } else {
-        stdout.writeln('');
-        stdout.writeln(boldGreen('  ✨ Generation complete!'));
-        stdout.writeln('');
-      }
-      return 0;
+  void _printGenerationComplete() {
+    if (_headless) {
+      stdout.writeln('[nitro] generation complete');
+    } else {
+      stdout.writeln('');
+      stdout.writeln(boldGreen('  ✨ Generation complete!'));
+      stdout.writeln('');
     }
+  }
 
-    final nitroNativePath = resolveNitroNativePath(projectDir.path);
-    createSharedHeaders(nitroNativePath, baseDir: projectDir.path);
+  /// Runs the auto-patching (nitrogen link) logic across all platforms so users
+  /// don't have to remember to run `nitrogen link` manually.
+  void _runLinkPhase(String projectRoot) {
+    final nitroNativePath = resolveNitroNativePath(projectRoot);
+    createSharedHeaders(nitroNativePath, baseDir: projectRoot);
 
     // ── nitrogen link (auto) ─────────────────────────────────────────────────
     // Automatically run the patching logic (build.gradle, Plugin.kt, etc.)
     // so users don't have to remember to run `nitrogen link` manually.
     _log('nitrogen link (auto-patching) …');
-    final pluginName = _readPluginName(projectDir.path);
-    final moduleInfos = discoverModuleInfos(pluginName, baseDir: projectDir.path);
+    final pluginName = _readPluginName(projectRoot);
+    final moduleInfos = discoverModuleInfos(pluginName, baseDir: projectRoot);
     final hasCpp = moduleInfos.any((m) => m.isCpp);
     final hasNonCpp = moduleInfos.any((m) => !m.isCpp);
 
     // Patch CMake and C++ stubs
-    linkCMake(pluginName, moduleInfos.map((m) => m.lib).toList(), nitroNativePath, baseDir: projectDir.path, moduleInfos: moduleInfos);
+    linkCMake(pluginName, moduleInfos.map((m) => m.lib).toList(), nitroNativePath, baseDir: projectRoot, moduleInfos: moduleInfos);
 
+    _linkApplePlatforms(projectRoot, pluginName, moduleInfos, hasNonCpp);
+    _linkAndroidPlatform(projectRoot, pluginName, moduleInfos, hasCpp);
+    _linkDesktopPlatforms(projectRoot, pluginName, moduleInfos, nitroNativePath);
+
+    linkClangd(pluginName, moduleInfos: moduleInfos, baseDir: projectRoot);
+  }
+
+  void _linkApplePlatforms(String projectRoot, String pluginName, List<ModuleInfo> moduleInfos, bool hasNonCpp) {
     // Patch iOS/macOS
-    if (Directory(p.join(projectDir.path, 'ios')).existsSync()) {
-      linkPodspec(pluginName, moduleInfos.map((m) => m.lib).toList(), baseDir: projectDir.path, moduleInfos: moduleInfos);
+    if (Directory(p.join(projectRoot, 'ios')).existsSync()) {
+      linkPodspec(pluginName, moduleInfos.map((m) => m.lib).toList(), baseDir: projectRoot, moduleInfos: moduleInfos);
       if (hasNonCpp) {
-        final appleCppLibs = moduleInfos.where((m) => isAppleCppModule(File(p.join(projectDir.path, 'lib', 'src', '${m.lib}.native.dart')))).map((m) => m.lib).toSet();
+        final appleCppLibs = moduleInfos.where((m) => isAppleCppModule(File(p.join(projectRoot, 'lib', 'src', '${m.lib}.native.dart')))).map((m) => m.lib).toSet();
         final swiftModules = moduleInfos.where((m) => !appleCppLibs.contains(m.lib)).map((m) => m.toMap()).toList();
-        linkSwiftPlugin(pluginName, swiftModules, baseDir: projectDir.path);
-        purgeStaleCppSwiftRegistrations(moduleInfos.where((m) => appleCppLibs.contains(m.lib)).toList(), platform: 'ios', baseDir: projectDir.path);
+        linkSwiftPlugin(pluginName, swiftModules, baseDir: projectRoot);
+        purgeStaleCppSwiftRegistrations(moduleInfos.where((m) => appleCppLibs.contains(m.lib)).toList(), platform: 'ios', baseDir: projectRoot);
       }
     }
-    if (Directory(p.join(projectDir.path, 'macos')).existsSync()) {
-      linkMacosPodspec(pluginName, moduleInfos.map((m) => m.lib).toList(), baseDir: projectDir.path, moduleInfos: moduleInfos);
+    if (Directory(p.join(projectRoot, 'macos')).existsSync()) {
+      linkMacosPodspec(pluginName, moduleInfos.map((m) => m.lib).toList(), baseDir: projectRoot, moduleInfos: moduleInfos);
       if (hasNonCpp) {
-        final appleCppLibs = moduleInfos.where((m) => isAppleCppModule(File(p.join(projectDir.path, 'lib', 'src', '${m.lib}.native.dart')))).map((m) => m.lib).toSet();
+        final appleCppLibs = moduleInfos.where((m) => isAppleCppModule(File(p.join(projectRoot, 'lib', 'src', '${m.lib}.native.dart')))).map((m) => m.lib).toSet();
         final swiftModules = moduleInfos.where((m) => !appleCppLibs.contains(m.lib)).map((m) => m.toMap()).toList();
-        linkMacosSwiftPlugin(pluginName, swiftModules, baseDir: projectDir.path);
-        purgeStaleCppSwiftRegistrations(moduleInfos.where((m) => appleCppLibs.contains(m.lib)).toList(), platform: 'macos', baseDir: projectDir.path);
+        linkMacosSwiftPlugin(pluginName, swiftModules, baseDir: projectRoot);
+        purgeStaleCppSwiftRegistrations(moduleInfos.where((m) => appleCppLibs.contains(m.lib)).toList(), platform: 'macos', baseDir: projectRoot);
       }
     }
     // Strip shared preamble from 2nd+ bridge files AFTER linkSwift* copies them
     // to Classes/. linkSwiftPlugin copies without stripping; this pass corrects that.
-    _syncSwiftBridgesToClasses(projectDir.path);
+    _syncSwiftBridgesToClasses(projectRoot);
+  }
 
+  void _linkAndroidPlatform(String projectRoot, String pluginName, List<ModuleInfo> moduleInfos, bool hasCpp) {
     // Patch Android
-    if (Directory(p.join(projectDir.path, 'android')).existsSync()) {
+    if (Directory(p.join(projectRoot, 'android')).existsSync()) {
       // Use isAndroidCppModule (android-only) — NOT isNativeCppModule (android+linux).
       // A module with 'android: NativeImpl.kotlin, linux: NativeImpl.cpp' still needs
       // a Kotlin JniBridge on Android and must not be excluded from kotlinModules.
-      final androidCppLibs = moduleInfos.where((m) => isAndroidCppModule(File(p.join(projectDir.path, 'lib', 'src', '${m.lib}.native.dart')))).map((m) => m.lib).toSet();
+      final androidCppLibs = moduleInfos.where((m) => isAndroidCppModule(File(p.join(projectRoot, 'lib', 'src', '${m.lib}.native.dart')))).map((m) => m.lib).toSet();
       final kotlinModules = moduleInfos.where((m) => !androidCppLibs.contains(m.lib)).map((m) => m.toMap()).toList();
       if (kotlinModules.isNotEmpty) {
-        linkKotlinPlugin(pluginName, kotlinModules, baseDir: projectDir.path);
+        linkKotlinPlugin(pluginName, kotlinModules, baseDir: projectRoot);
       }
       if (hasCpp) {
-        linkKotlinLoadLibraries(moduleInfos.where((m) => m.isCpp).map((m) => m.lib).toList(), baseDir: projectDir.path);
+        linkKotlinLoadLibraries(moduleInfos.where((m) => m.isCpp).map((m) => m.lib).toList(), baseDir: projectRoot);
       }
-      purgeStaleCppKotlinRegistrations(moduleInfos.where((m) => androidCppLibs.contains(m.lib)).toList(), baseDir: projectDir.path);
-      linkAndroid(pluginName, moduleInfos.map((m) => m.lib).toList(), baseDir: projectDir.path, moduleInfos: moduleInfos);
-      linkAndroidConsumerRules(kotlinModules, baseDir: projectDir.path);
+      purgeStaleCppKotlinRegistrations(moduleInfos.where((m) => androidCppLibs.contains(m.lib)).toList(), baseDir: projectRoot);
+      linkAndroid(pluginName, moduleInfos.map((m) => m.lib).toList(), baseDir: projectRoot, moduleInfos: moduleInfos);
+      linkAndroidConsumerRules(kotlinModules, baseDir: projectRoot);
     }
+  }
 
+  void _linkDesktopPlatforms(String projectRoot, String pluginName, List<ModuleInfo> moduleInfos, String nitroNativePath) {
     // Patch Desktop
-    if (Directory(p.join(projectDir.path, 'windows')).existsSync()) {
-      linkWindows(pluginName, moduleInfos.map((m) => m.lib).toList(), nitroNativePath, baseDir: projectDir.path, moduleInfos: moduleInfos);
+    if (Directory(p.join(projectRoot, 'windows')).existsSync()) {
+      linkWindows(pluginName, moduleInfos.map((m) => m.lib).toList(), nitroNativePath, baseDir: projectRoot, moduleInfos: moduleInfos);
     }
-    if (Directory(p.join(projectDir.path, 'linux')).existsSync()) {
-      linkLinux(pluginName, moduleInfos.map((m) => m.lib).toList(), nitroNativePath, baseDir: projectDir.path, moduleInfos: moduleInfos);
+    if (Directory(p.join(projectRoot, 'linux')).existsSync()) {
+      linkLinux(pluginName, moduleInfos.map((m) => m.lib).toList(), nitroNativePath, baseDir: projectRoot, moduleInfos: moduleInfos);
     }
     // FFI-only desktop platforms must not declare pluginClass (issue #10).
-    linkDesktopPubspecFfiOnly(moduleInfos, baseDir: projectDir.path);
+    linkDesktopPubspecFfiOnly(moduleInfos, baseDir: projectRoot);
     // Guard direct build_runner runs against the example symlink-cycle hang (issue #20).
-    linkBuildYamlSourcesExcludes(baseDir: projectDir.path);
+    linkBuildYamlSourcesExcludes(baseDir: projectRoot);
+  }
 
-    linkClangd(pluginName, moduleInfos: moduleInfos, baseDir: projectDir.path);
-
-    // ── pod install ──────────────────────────────────────────────────────────
-    final podfileDirs = findPodfileDirs(projectDir.path);
+  Future<void> _runPodInstall(String projectRoot) async {
+    final podfileDirs = findPodfileDirs(projectRoot);
     for (final dir in podfileDirs) {
-      _log('pod install (${p.relative(dir, from: projectDir.path)}) …');
+      _log('pod install (${p.relative(dir, from: projectRoot)}) …');
       final podResult = await runStreamingInspected(
         'pod',
         ['install'],
@@ -376,24 +440,20 @@ class GenerateCommand extends Command {
         }
       }
     }
+  }
 
-    // Detect whether any spec uses NativeImpl.cpp to tailor the next-steps hint
-    final libDir = Directory(p.join(projectDir.path, 'lib'));
-    final hasCppModules = libDir.existsSync() && libDir.listSync(recursive: true).whereType<File>().where((f) => f.path.endsWith('.native.dart')).any(isCppModule);
-
-    _logTiming('total', DateTime.now().difference(totalStart));
-
+  void _reportSuccess(String projectRoot, bool hasCppModules) {
     if (_headless) {
       stdout.writeln('[nitro] generation complete');
       if (hasCppModules) {
-        final pubspecName = _readPluginName(projectDir.path);
+        final pubspecName = _readPluginName(projectRoot);
         stdout.writeln('[nitro] C++ modules: subclass Hybrid<Module>, call ${pubspecName}_register_impl(&impl)');
       }
     } else {
       stdout.writeln('');
       stdout.writeln(boldGreen('  ✨ Generation complete!'));
       if (hasCppModules) {
-        final pubspecName = _readPluginName(projectDir.path);
+        final pubspecName = _readPluginName(projectRoot);
         stdout.writeln(gray('     C++ modules: subclass Hybrid<Module>, call ${pubspecName}_register_impl(&impl).'));
         stdout.writeln(gray('     Run nitrogen link to wire bridges into the build system.'));
       } else {
@@ -401,7 +461,6 @@ class GenerateCommand extends Command {
       }
       stdout.writeln('');
     }
-    return 0;
   }
 
   @override

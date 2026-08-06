@@ -14,61 +14,13 @@ import '../templates/scaffold_templates.dart' as sft;
 import '../templates/build_versions.dart';
 import 'spm_utils.dart' as spm;
 
+part 'link/discovery.dart';
+part 'link/cmake.dart';
+part 'link/apple.dart';
+part 'link/android.dart';
+part 'link/desktop.dart';
+
 // ── Package-level helpers (also used in tests) ─────────────────────────────
-
-/// Resolves the absolute path to the installed `nitro` package's `src/native`
-/// directory by reading `.dart_tool/package_config.json` inside [pluginDir].
-String resolveNitroNativePath(String pluginDir) {
-  // Walk up from pluginDir looking for .dart_tool/package_config.json.
-  // In Dart workspaces the config lives at the workspace root, not in each
-  // member's own directory.
-  var searchDir = Directory(pluginDir);
-  while (true) {
-    final configFile = File(p.join(searchDir.path, '.dart_tool', 'package_config.json'));
-    if (configFile.existsSync()) {
-      try {
-        final config = jsonDecode(configFile.readAsStringSync()) as Map<String, dynamic>;
-        final packages = (config['packages'] as List<dynamic>?) ?? [];
-        for (final pkg in packages) {
-          final pkgMap = pkg as Map<String, dynamic>;
-          if (pkgMap['name'] == 'nitro') {
-            final rootUri = pkgMap['rootUri'] as String;
-            final uri = Uri.parse(rootUri);
-            if (uri.scheme == 'file') {
-              return p.join(uri.toFilePath(), 'src', 'native');
-            } else {
-              final dartToolDir = p.join(searchDir.path, '.dart_tool');
-              final resolved = p.normalize(p.join(dartToolDir, rootUri));
-              return p.join(resolved, 'src', 'native');
-            }
-          }
-        }
-      } on FormatException catch (e) {
-        throw StateError('Failed to parse ${configFile.path} while resolving the nitro native path: ${e.message}');
-      } on FileSystemException catch (e) {
-        throw StateError('Failed to read ${configFile.path} while resolving the nitro native path: ${e.message}');
-      }
-    }
-    final parent = searchDir.parent;
-    if (parent.path == searchDir.path) break;
-    searchDir = parent;
-  }
-  return p.normalize(
-    p.absolute(p.join(pluginDir, '..', 'packages', 'nitro', 'src', 'native')),
-  );
-}
-
-const String _srcLocalNitroNativeCmakePath = ct.localNitroNativeCmakePath;
-const String _desktopLocalNitroNativeCmakePath = r'${CMAKE_CURRENT_SOURCE_DIR}/../src/native';
-const String _linkSpecChecksumPrefix = '# NITRO_LINK_SPEC_CHECKSUM ';
-
-String? extractLibNameFromSpec(File specFile) {
-  final content = specFile.readAsStringSync();
-  final match = RegExp(
-    r'''@NitroModule\s*\([^)]*lib\s*:\s*['"]([^'"]+)['"]''',
-  ).firstMatch(content);
-  return match?.group(1);
-}
 
 /// Parses the `@NitroModule(...)` annotation from a spec file **once** and
 /// exposes typed query methods for each platform target.
@@ -204,62 +156,6 @@ class PlatformTargetAnalyzer {
   ).hasMatch(_annotation);
 }
 
-/// Returns true when the spec file declares at least one platform as a
-/// direct C++ implementation (no JNI/Swift bridge). Recognises both:
-///   - Legacy shorthand:   `NativeImpl.cpp`
-///   - Per-platform types: `AppleNativeImpl.cpp`, `AndroidNativeImpl.cpp`,
-///                         `WindowsNativeImpl.cpp`, `LinuxNativeImpl.cpp`
-///
-/// **Broad check** — true if ANY platform uses C++. Use for deciding whether
-/// to create a HybridXxx.cpp stub file or load the library on Android.
-bool isCppModule(File specFile) => PlatformTargetAnalyzer.fromSpec(specFile).requiresCpp;
-
-/// Returns true when the spec file uses direct C++ for **Apple platforms** (ios or macos).
-/// Only Apple C++ modules need a `HybridXxx.cpp` forwarder in `ios/Classes/` or
-/// `macos/Classes/` so CocoaPods compiles the implementation into the pod target.
-bool isAppleCppModule(File specFile) => PlatformTargetAnalyzer.fromSpec(specFile).supportsApple;
-
-/// Returns true when the spec file uses direct C++ specifically for **iOS**.
-/// Use this instead of [isAppleCppModule] when deciding whether the iOS Swift
-/// Plugin.swift needs a `Registry.register()` call — a mixed module with
-/// `ios: swift, macos: cpp` still needs the iOS Swift registration.
-bool isIosCppModule(File specFile) => PlatformTargetAnalyzer.fromSpec(specFile).supportsIosCpp;
-
-/// Returns true when the spec file uses direct C++ specifically for **macOS**.
-/// Use this instead of [isAppleCppModule] when deciding whether the macOS Swift
-/// Plugin.swift needs a `Registry.register()` call — a mixed module with
-/// `ios: cpp, macos: swift` still needs the macOS Swift registration.
-bool isMacosCppModule(File specFile) => PlatformTargetAnalyzer.fromSpec(specFile).supportsMacosCpp;
-
-/// Returns true when the spec file uses direct C++ for **Windows** only.
-/// Windows C++ modules use `windows/CMakeLists.txt` (not the shared `src/`)
-/// and need their own impl stub created in `windows/src/`.
-bool isWindowsCppModule(File specFile) => PlatformTargetAnalyzer.fromSpec(specFile).supportsWindows;
-
-/// Returns true when the spec file uses direct C++ for **Linux**. A Linux-C++
-/// module always gets a `linux/src/HybridXxx.cpp` starter stub created (see
-/// [linkLinuxCppImplStubs]) — whether it's actually USED instead of the
-/// shared `src/HybridXxx.cpp` is a separate, opt-in decision driven by file
-/// content (see [hasCustomPlatformImpl]), independent of Windows.
-bool isLinuxCppModule(File specFile) => PlatformTargetAnalyzer.fromSpec(specFile).supportsLinux;
-
-/// Returns true when the spec file uses direct C++ for **Android or Linux** —
-/// the platforms that share `src/CMakeLists.txt` (Android NDK / Linux GCC).
-///
-/// **Narrow check** — use for:
-/// - Deciding whether `HybridXxx.cpp` belongs in `src/CMakeLists.txt`
-/// - Doctor's "impl file linked" check for the shared cmake target
-/// - Skipping the "unlinked source" warning for Windows-only C++ modules
-bool isNativeCppModule(File specFile) => PlatformTargetAnalyzer.fromSpec(specFile).isNativeCpp;
-
-/// Returns true ONLY when the spec declares `android: NativeImpl.cpp` (or AndroidNativeImpl.cpp).
-/// Unlike [isNativeCppModule] this does NOT match linux-only C++ modules.
-///
-/// Use this when deciding whether a module needs a Kotlin JniBridge.register() call:
-/// a module with `android: NativeImpl.kotlin, linux: NativeImpl.cpp` uses the JNI
-/// bridge on Android and should NOT be excluded from Kotlin linking.
-bool isAndroidCppModule(File specFile) => PlatformTargetAnalyzer.fromSpec(specFile).supportsAndroid;
-
 /// Module descriptor.
 /// - `isCpp` — at least one platform uses direct C++ (broad; used for
 ///   System.loadLibrary, Swift-bridge skipping, stub file creation).
@@ -313,171 +209,6 @@ class ModuleInfo {
 
   Map<String, String> toMap() => {'lib': lib, 'module': module};
 }
-
-/// Marker left in a fresh, never-touched `Hybrid$className.cpp` stub — see
-/// [cppImplStubContent] / [windowsCppStubContent] / [linuxCppStubContent] in
-/// templates/cpp_stubs.dart. Its presence means nobody has started writing
-/// real code in that file yet.
-const String _implStubTodoMarker = 'TODO: implement all pure-virtual methods declared in Hybrid';
-
-/// Whether Windows or Linux should get its OWN impl file instead of sharing
-/// `src/Hybrid$className.cpp` — driven entirely by what's actually on disk,
-/// not by annotation config, so both "keep everything in one shared file"
-/// and "diverge Windows and Linux" stay available as a plugin-author choice
-/// (some plugins want one file for easier maintenance when the logic really
-/// is identical; others want Windows and Linux to genuinely diverge — e.g.
-/// different threading primitives, platform intrinsics).
-///
-/// True only when `$baseDir/$platform/src/Hybrid$className.cpp` exists AND
-/// contains actual code — i.e. the plugin author genuinely started writing
-/// platform-specific implementation there. An untouched stub, a file that
-/// still carries the starter's [_implStubTodoMarker], or a comments-only
-/// file (someone deleting the stub body and leaving notes) all mean "keep
-/// sharing" — nitrogen never forces a plugin onto the separated shape.
-/// (Keying off marker ABSENCE alone misread a hand-authored comment-only
-/// file as an opt-in — issue #12's detection note.)
-bool hasCustomPlatformImpl(String baseDir, String platform, String className) {
-  final f = File(p.join(baseDir, platform, 'src', 'Hybrid$className.cpp'));
-  if (!f.existsSync()) return false;
-  final content = f.readAsStringSync();
-  if (content.contains(_implStubTodoMarker)) return false;
-  // Strip // and /* */ comments plus preprocessor-free blank lines; anything
-  // left is real code (class definitions, method bodies, registration).
-  final withoutBlock = content.replaceAll(RegExp(r'/\*.*?\*/', dotAll: true), '');
-  final codeLines = withoutBlock.split('\n').map((l) {
-    final idx = l.indexOf('//');
-    return (idx >= 0 ? l.substring(0, idx) : l).trim();
-  }).where((l) => l.isNotEmpty);
-  return codeLines.isNotEmpty;
-}
-
-List<ModuleInfo> discoverModuleInfos(
-  String pluginName, {
-  String baseDir = '.',
-}) {
-  final libDir = Directory(p.join(baseDir, 'lib'));
-  if (!libDir.existsSync()) {
-    return [ModuleInfo(lib: pluginName, module: pluginName, isCpp: false)];
-  }
-  final specs = libDir.listSync(recursive: true).whereType<File>().where((f) => f.path.endsWith('.native.dart')).toList();
-  if (specs.isEmpty) {
-    return [ModuleInfo(lib: pluginName, module: pluginName, isCpp: false)];
-  }
-
-  final modules = <ModuleInfo>[];
-  for (final spec in specs) {
-    final content = spec.readAsStringSync();
-    final stem = p.basename(spec.path).replaceAll(RegExp(r'\.native\.dart$'), '');
-    final libName = extractLibNameFromSpec(spec) ?? stem.replaceAll('-', '_');
-    final moduleMatch = RegExp(
-      r'abstract class (\w+) extends HybridObject',
-    ).firstMatch(content);
-    final moduleName = moduleMatch?.group(1) ?? _toPascalCase(stem);
-    // Parse annotation once; avoids two extra file reads vs calling isCppModule + isNativeCppModule.
-    final analyzer = PlatformTargetAnalyzer.fromContent(content);
-
-    if (!modules.any((m) => m.module == moduleName)) {
-      modules.add(
-        ModuleInfo(
-          lib: libName,
-          module: moduleName,
-          isCpp: analyzer.requiresCpp,
-          isNativeCpp: analyzer.isNativeCpp,
-          isAndroidCpp: analyzer.supportsAndroid,
-          iosIsCpp: analyzer.supportsIosCpp,
-          macosIsCpp: analyzer.supportsMacosCpp,
-          windowsIsCpp: analyzer.supportsWindows,
-          linuxIsCpp: analyzer.supportsLinux,
-          windowsRequestsSeparateImpl: analyzer.requestsSeparateWindowsImpl,
-          linuxRequestsSeparateImpl: analyzer.requestsSeparateLinuxImpl,
-        ),
-      );
-    }
-  }
-  return modules;
-}
-
-String computeLinkSpecChecksum({String baseDir = '.'}) {
-  final libDir = Directory(p.join(baseDir, 'lib'));
-  if (!libDir.existsSync()) return _fnv64Hex('no-lib');
-
-  final specs = libDir.listSync(recursive: true).whereType<File>().where((f) => f.path.endsWith('.native.dart')).toList()
-    ..sort((a, b) => p.relative(a.path, from: baseDir).compareTo(p.relative(b.path, from: baseDir)));
-
-  if (specs.isEmpty) return _fnv64Hex('no-specs');
-
-  final parts = <String>[];
-  for (final spec in specs) {
-    parts
-      ..add(p.relative(spec.path, from: baseDir))
-      ..add(spec.readAsStringSync());
-  }
-  return _fnv64Hex(parts.join('\n--- nitro spec ---\n'));
-}
-
-String _fnv64Hex(String input) {
-  final mask = BigInt.parse('ffffffffffffffff', radix: 16);
-  final prime = BigInt.parse('100000001b3', radix: 16);
-  var hash = BigInt.parse('cbf29ce484222325', radix: 16);
-  for (final unit in input.codeUnits) {
-    hash = hash ^ BigInt.from(unit);
-    hash = (hash * prime) & mask;
-  }
-  return hash.toRadixString(16).padLeft(16, '0');
-}
-
-({String content, bool modified}) _stampLinkSpecChecksum(String content, String checksum) {
-  final line = '$_linkSpecChecksumPrefix$checksum';
-  final regex = RegExp(r'^# NITRO_LINK_SPEC_CHECKSUM .*$', multiLine: true);
-  final match = regex.firstMatch(content);
-  if (match != null) {
-    if (match.group(0) == line) return (content: content, modified: false);
-    return (content: content.replaceFirst(regex, line), modified: true);
-  }
-
-  final nitroNativeLine = RegExp(r'^set\(NITRO_NATIVE "[^"]+"\)$', multiLine: true);
-  if (nitroNativeLine.hasMatch(content)) {
-    return (
-      content: content.replaceFirstMapped(nitroNativeLine, (m) => '${m.group(0)}\n$line'),
-      modified: true,
-    );
-  }
-  return (content: '$line\n$content', modified: true);
-}
-
-// Keep legacy signature for external callers
-List<Map<String, String>> discoverModules(
-  String pluginName, {
-  String baseDir = '.',
-}) {
-  return discoverModuleInfos(
-    pluginName,
-    baseDir: baseDir,
-  ).map((m) => m.toMap()).toList();
-}
-
-/// Returns directories containing a Podfile, searching common locations:
-/// `<root>/ios/`, `<root>/macos/`, `<root>/example/ios/`, `<root>/example/macos/`,
-/// and any direct child `*/ios/` or `*/macos/`.
-List<String> findPodfileDirs(String projectRoot) {
-  final candidates = [
-    p.join(projectRoot, 'ios'),
-    p.join(projectRoot, 'macos'),
-    p.join(projectRoot, 'example', 'ios'),
-    p.join(projectRoot, 'example', 'macos'),
-  ];
-  try {
-    for (final entity in Directory(projectRoot).listSync()) {
-      if (entity is Directory) {
-        candidates.add(p.join(entity.path, 'ios'));
-        candidates.add(p.join(entity.path, 'macos'));
-      }
-    }
-  } catch (_) {}
-  return candidates.where((dir) => File(p.join(dir, 'Podfile')).existsSync()).toList();
-}
-
-// ── Progress model ──────────────────────────────
 
 enum LinkStepState { pending, running, done, failed, skipped }
 
@@ -661,290 +392,22 @@ class _LinkViewState extends State<LinkView> {
 
       await _setRunning(1);
       final nitroNativePath = resolveNitroNativePath(Directory.current.path);
-      // Create impl stubs first so linkCMake finds them and wires them in on the first run.
-      linkCppImplStubs(moduleInfos, baseDir: Directory.current.path);
-      linkCMake(
-        pluginName,
-        moduleInfos.map((m) => m.lib).toList(),
-        nitroNativePath,
-        baseDir: Directory.current.path,
-        moduleInfos: moduleInfos,
-      );
-      await _setDone(1);
+      await _runCmakeStep(pluginName, moduleInfos, nitroNativePath);
 
-      await _setRunning(2);
-      if (Directory(p.join(Directory.current.path, 'ios')).existsSync()) {
-        linkPodspec(
-          pluginName,
-          moduleInfos.map((m) => m.lib).toList(),
-          baseDir: Directory.current.path,
-          moduleInfos: moduleInfos,
-        );
-        // Ensure SPM Package.swift exists even when no podspec is present
-        // (e.g. SPM-first projects, or after podspec was removed).
-        ensureIosPackageSwift(pluginName, baseDir: Directory.current.path, moduleInfos: moduleInfos);
-        await _setDone(2);
-      } else {
-        await _setSkipped(2, detail: 'ios/ not present');
-      }
+      await _runIosStep(pluginName, moduleInfos);
+      await _runMacosStep(pluginName, moduleInfos);
 
-      await _setRunning(3);
-      if (Directory(p.join(Directory.current.path, 'macos')).existsSync()) {
-        linkMacosPodspec(
-          pluginName,
-          moduleInfos.map((m) => m.lib).toList(),
-          baseDir: Directory.current.path,
-          moduleInfos: moduleInfos,
-        );
-        ensureMacosPackageSwift(pluginName, baseDir: Directory.current.path, moduleInfos: moduleInfos);
-        await _setDone(3);
-      } else {
-        await _setSkipped(3, detail: 'macos/ not present');
-      }
+      await _runSwiftStep(pluginName, moduleInfos);
 
-      await _setRunning(4);
-      final libDir = Directory(p.join(Directory.current.path, 'lib'));
-      final specFiles = libDir.existsSync() ? libDir.listSync(recursive: true).whereType<File>().where((f) => f.path.endsWith('.native.dart')).toList() : <File>[];
-      String libFrom(File f) {
-        final stem = p.basename(f.path).replaceAll(RegExp(r'\.native\.dart$'), '');
-        return extractLibNameFromSpec(f) ?? stem;
-      }
+      await _runKotlinStep(pluginName, moduleInfos, hasCpp);
+      await _runAndroidStep(pluginName, moduleInfos);
 
-      // Per-platform cpp sets: a module may be cpp on one Apple platform but
-      // Swift on the other (e.g. ios:swift, macos:cpp). Track them separately
-      // so each platform gets the correct Swift or C++ treatment.
-      final iosCppLibs = specFiles.where(isIosCppModule).map(libFrom).toSet();
-      final macosCppLibs = specFiles.where(isMacosCppModule).map(libFrom).toSet();
+      await _runWindowsStep(pluginName, moduleInfos, nitroNativePath);
+      await _runLinuxStep(pluginName, moduleInfos, nitroNativePath);
+      await _runClangdStep(pluginName, moduleInfos);
 
-      // iOS Swift modules = NOT ios-cpp.
-      final iosSwiftModules = moduleInfos.where((m) => !iosCppLibs.contains(m.lib)).map((m) => m.toMap()).toList();
-      // macOS Swift modules = NOT macos-cpp.
-      final macosSwiftModules = moduleInfos.where((m) => !macosCppLibs.contains(m.lib)).map((m) => m.toMap()).toList();
-      // Modules whose iOS Swift registration should be REMOVED (now ios-cpp).
-      final iosCppModuleInfos = moduleInfos.where((m) => iosCppLibs.contains(m.lib)).toList();
-      // Modules whose macOS Swift registration should be REMOVED (now macos-cpp).
-      final macosCppModuleInfos = moduleInfos.where((m) => macosCppLibs.contains(m.lib)).toList();
-
-      final noIosSwift = iosSwiftModules.isEmpty;
-      final noMacosSwift = macosSwiftModules.isEmpty;
-
-      if (noIosSwift && noMacosSwift) {
-        await _setSkipped(
-          4,
-          detail: 'all modules use AppleNativeImpl.cpp on Apple platforms — no Swift bridge needed',
-        );
-      } else {
-        bool linkedSwift = false;
-        if (Directory(p.join(Directory.current.path, 'ios')).existsSync()) {
-          if (!noIosSwift) {
-            linkSwiftPlugin(
-              pluginName,
-              iosSwiftModules,
-              baseDir: Directory.current.path,
-            );
-          }
-          purgeStaleCppSwiftRegistrations(
-            iosCppModuleInfos,
-            platform: 'ios',
-            baseDir: Directory.current.path,
-          );
-          linkedSwift = true;
-        }
-        if (Directory(p.join(Directory.current.path, 'macos')).existsSync()) {
-          if (!noMacosSwift) {
-            linkMacosSwiftPlugin(
-              pluginName,
-              macosSwiftModules,
-              baseDir: Directory.current.path,
-            );
-          }
-          purgeStaleCppSwiftRegistrations(
-            macosCppModuleInfos,
-            platform: 'macos',
-            baseDir: Directory.current.path,
-          );
-          linkedSwift = true;
-        }
-        if (linkedSwift) {
-          await _setDone(4);
-        } else {
-          await _setSkipped(4, detail: 'neither ios/ nor macos/ present');
-        }
-      }
-
-      await _setRunning(5);
-      if (Directory(p.join(Directory.current.path, 'android')).existsSync()) {
-        // For Android/Kotlin steps: split by whether the module uses AndroidNativeImpl.cpp
-        // (android/linux cpp). A module with windows:cpp but android:kotlin still needs
-        // JniBridge registration — isNativeCppModule checks android/linux only.
-        final libDir = Directory(p.join(Directory.current.path, 'lib'));
-        final specFiles = libDir.existsSync() ? libDir.listSync(recursive: true).whereType<File>().where((f) => f.path.endsWith('.native.dart')).toList() : <File>[];
-        final androidCppLibs = specFiles.where(isAndroidCppModule).map((f) {
-          final stem = p.basename(f.path).replaceAll(RegExp(r'\.native\.dart$'), '');
-          return extractLibNameFromSpec(f) ?? stem;
-        }).toSet();
-
-        // Modules that need JniBridge.register = NOT android/linux C++ modules.
-        final kotlinModules = moduleInfos.where((m) => !androidCppLibs.contains(m.lib)).map((m) => m.toMap()).toList();
-        // Modules that should have JniBridge.register REMOVED = android/linux C++ modules.
-        final androidCppModuleInfos = moduleInfos.where((m) => androidCppLibs.contains(m.lib)).toList();
-
-        if (kotlinModules.isNotEmpty) {
-          linkKotlinPlugin(
-            pluginName,
-            kotlinModules,
-            baseDir: Directory.current.path,
-          );
-        }
-        // cpp modules still need System.loadLibrary to trigger __attribute__((constructor))
-        if (hasCpp) {
-          linkKotlinLoadLibraries(
-            moduleInfos.where((m) => m.isCpp).map((m) => m.lib).toList(),
-            baseDir: Directory.current.path,
-          );
-        }
-        // Purge stale JniBridge.register() only for modules that are actually
-        // Android/Linux C++ — not for mixed modules like android:kotlin + windows:cpp.
-        purgeStaleCppKotlinRegistrations(
-          androidCppModuleInfos,
-          baseDir: Directory.current.path,
-        );
-        await _setDone(
-          5,
-          detail: kotlinModules.isNotEmpty ? null : 'cpp: loadLibrary only (no JniBridge)',
-        );
-      } else {
-        await _setSkipped(5, detail: 'android/ not present');
-      }
-
-      await _setRunning(6);
-      if (Directory(p.join(Directory.current.path, 'android')).existsSync()) {
-        linkAndroid(
-          pluginName,
-          moduleInfos.map((m) => m.lib).toList(),
-          baseDir: Directory.current.path,
-          moduleInfos: moduleInfos,
-        );
-        await _setDone(6);
-      } else {
-        await _setSkipped(6, detail: 'android/ not present');
-      }
-
-      await _setRunning(7);
-      if (Directory(p.join(Directory.current.path, 'windows')).existsSync()) {
-        linkWindows(
-          pluginName,
-          moduleInfos.map((m) => m.lib).toList(),
-          nitroNativePath,
-          baseDir: Directory.current.path,
-          moduleInfos: moduleInfos,
-        );
-        await _setDone(7);
-      } else {
-        await _setSkipped(7, detail: 'windows/ not present');
-      }
-
-      await _setRunning(8);
-      if (Directory(p.join(Directory.current.path, 'linux')).existsSync()) {
-        linkLinux(
-          pluginName,
-          moduleInfos.map((m) => m.lib).toList(),
-          nitroNativePath,
-          baseDir: Directory.current.path,
-          moduleInfos: moduleInfos,
-        );
-        await _setDone(8);
-      } else {
-        await _setSkipped(8, detail: 'linux/ not present');
-      }
-
-      await _setRunning(9);
-      linkClangd(
-        pluginName,
-        moduleInfos: moduleInfos,
-        baseDir: Directory.current.path,
-      );
-      await _setDone(9);
-
-      await _setRunning(10);
-      // ── SPM-first strategy ─────────────────────────────────────────────────
-      // When the plugin has a Package.swift in ios/ or macos/ (either flat or
-      // Flutter 3.41+ nested layout), Flutter uses Swift Package Manager directly.
-      // Running `pod install` in that case conflicts and is unnecessary.
-      // CocoaPods is only used as a fallback when NO Package.swift is present.
-      final spmDetected = spm.detectSpmStatus(Directory.current.path);
-      final hasSpm = spmDetected.hasSpm;
-
-      if (hasSpm) {
-        // Sync generated Swift bridges into the SPM Sources/ target directories
-        // so they are compiled by SPM instead of CocoaPods.
-        _syncSwiftBridgesToSpmSources(Directory.current.path);
-
-        // Ensure the FlutterFramework symlink resolves for each Package.swift.
-        // Flutter places FlutterFramework in the example app's ephemeral dir;
-        // the symlink lets Xcode open the plugin project independently.
-        for (final pkgPath in [
-          spmDetected.iosPackageSwiftPath,
-          spmDetected.macosPackageSwiftPath,
-        ].whereType<String>()) {
-          spm.ensureFlutterFrameworkSymlink(pkgPath, Directory.current.path);
-        }
-
-        await _setDone(10, detail: 'SPM (Package.swift) — CocoaPods skipped');
-      } else {
-        final podfileDirs = findPodfileDirs(Directory.current.path);
-        if (podfileDirs.isEmpty) {
-          await _setSkipped(10, detail: 'no Podfile found');
-        } else {
-          final failures = <String>[];
-          for (final dir in podfileDirs) {
-            // 1. pod deintegrate
-            await Process.run('pod', ['deintegrate'], workingDirectory: dir);
-
-            // 2. pod install
-            final installResult = await Process.run('pod', ['install'], workingDirectory: dir);
-            if (installResult.exitCode != 0) {
-              failures.add(p.relative(dir, from: Directory.current.path));
-              continue;
-            }
-
-            // 3. pod update
-            final updateResult = await Process.run('pod', ['update'], workingDirectory: dir);
-            if (updateResult.exitCode != 0) {
-              failures.add(p.relative(dir, from: Directory.current.path));
-            }
-          }
-          if (failures.isEmpty) {
-            await _setDone(
-              10,
-              detail: podfileDirs.map((d) => p.relative(d, from: Directory.current.path)).join(', '),
-            );
-          } else {
-            await _setDone(10, detail: 'warning: pod routine failed in: ${failures.join(', ')}');
-          }
-        }
-      }
-
-      if (allCpp) {
-        _nextSteps.addAll([
-          'nitrogen generate',
-          'Subclass Hybrid<Module> in C++ (constructor auto-registers via __attribute__((constructor)))',
-          'Build and test with ctest (auto-generated test target)',
-        ]);
-      } else if (hasCpp) {
-        _nextSteps.addAll([
-          'nitrogen generate',
-          'C++ modules: subclass Hybrid<Module> (constructor auto-registers)',
-          'Kotlin/Swift modules: implement Hybrid<Module>Spec / HybridProtocol',
-        ]);
-      } else {
-        _nextSteps.addAll([
-          'flutter pub get',
-          'flutter pub run build_runner build --delete-conflicting-outputs',
-          'nitrogen generate',
-          'Implement Specs in Kotlin/Swift',
-        ]);
-      }
+      await _runFinalizeBuildStep();
+      _appendNextSteps(allCpp, hasCpp);
     } catch (e) {
       setState(() {
         _failed = true;
@@ -953,6 +416,344 @@ class _LinkViewState extends State<LinkView> {
     }
     component.result.success = !_failed;
     setState(() => _finished = true);
+  }
+
+  Future<void> _runCmakeStep(
+    String pluginName,
+    List<ModuleInfo> moduleInfos,
+    String nitroNativePath,
+  ) async {
+    // Create impl stubs first so linkCMake finds them and wires them in on the first run.
+    linkCppImplStubs(moduleInfos, baseDir: Directory.current.path);
+    linkCMake(
+      pluginName,
+      moduleInfos.map((m) => m.lib).toList(),
+      nitroNativePath,
+      baseDir: Directory.current.path,
+      moduleInfos: moduleInfos,
+    );
+    await _setDone(1);
+  }
+
+  Future<void> _runIosStep(
+    String pluginName,
+    List<ModuleInfo> moduleInfos,
+  ) async {
+    await _setRunning(2);
+    if (Directory(p.join(Directory.current.path, 'ios')).existsSync()) {
+      linkPodspec(
+        pluginName,
+        moduleInfos.map((m) => m.lib).toList(),
+        baseDir: Directory.current.path,
+        moduleInfos: moduleInfos,
+      );
+      // Ensure SPM Package.swift exists even when no podspec is present
+      // (e.g. SPM-first projects, or after podspec was removed).
+      ensureIosPackageSwift(pluginName, baseDir: Directory.current.path, moduleInfos: moduleInfos);
+      await _setDone(2);
+    } else {
+      await _setSkipped(2, detail: 'ios/ not present');
+    }
+  }
+
+  Future<void> _runMacosStep(
+    String pluginName,
+    List<ModuleInfo> moduleInfos,
+  ) async {
+    await _setRunning(3);
+    if (Directory(p.join(Directory.current.path, 'macos')).existsSync()) {
+      linkMacosPodspec(
+        pluginName,
+        moduleInfos.map((m) => m.lib).toList(),
+        baseDir: Directory.current.path,
+        moduleInfos: moduleInfos,
+      );
+      ensureMacosPackageSwift(pluginName, baseDir: Directory.current.path, moduleInfos: moduleInfos);
+      await _setDone(3);
+    } else {
+      await _setSkipped(3, detail: 'macos/ not present');
+    }
+  }
+
+  Future<void> _runSwiftStep(
+    String pluginName,
+    List<ModuleInfo> moduleInfos,
+  ) async {
+    await _setRunning(4);
+    final libDir = Directory(p.join(Directory.current.path, 'lib'));
+    final specFiles = libDir.existsSync() ? libDir.listSync(recursive: true).whereType<File>().where((f) => f.path.endsWith('.native.dart')).toList() : <File>[];
+    String libFrom(File f) {
+      final stem = p.basename(f.path).replaceAll(RegExp(r'\.native\.dart$'), '');
+      return extractLibNameFromSpec(f) ?? stem;
+    }
+
+    // Per-platform cpp sets: a module may be cpp on one Apple platform but
+    // Swift on the other (e.g. ios:swift, macos:cpp). Track them separately
+    // so each platform gets the correct Swift or C++ treatment.
+    final iosCppLibs = specFiles.where(isIosCppModule).map(libFrom).toSet();
+    final macosCppLibs = specFiles.where(isMacosCppModule).map(libFrom).toSet();
+
+    // iOS Swift modules = NOT ios-cpp.
+    final iosSwiftModules = moduleInfos.where((m) => !iosCppLibs.contains(m.lib)).map((m) => m.toMap()).toList();
+    // macOS Swift modules = NOT macos-cpp.
+    final macosSwiftModules = moduleInfos.where((m) => !macosCppLibs.contains(m.lib)).map((m) => m.toMap()).toList();
+    // Modules whose iOS Swift registration should be REMOVED (now ios-cpp).
+    final iosCppModuleInfos = moduleInfos.where((m) => iosCppLibs.contains(m.lib)).toList();
+    // Modules whose macOS Swift registration should be REMOVED (now macos-cpp).
+    final macosCppModuleInfos = moduleInfos.where((m) => macosCppLibs.contains(m.lib)).toList();
+
+    final noIosSwift = iosSwiftModules.isEmpty;
+    final noMacosSwift = macosSwiftModules.isEmpty;
+
+    if (noIosSwift && noMacosSwift) {
+      await _setSkipped(
+        4,
+        detail: 'all modules use AppleNativeImpl.cpp on Apple platforms — no Swift bridge needed',
+      );
+    } else {
+      bool linkedSwift = false;
+      if (Directory(p.join(Directory.current.path, 'ios')).existsSync()) {
+        if (!noIosSwift) {
+          linkSwiftPlugin(
+            pluginName,
+            iosSwiftModules,
+            baseDir: Directory.current.path,
+          );
+        }
+        purgeStaleCppSwiftRegistrations(
+          iosCppModuleInfos,
+          platform: 'ios',
+          baseDir: Directory.current.path,
+        );
+        linkedSwift = true;
+      }
+      if (Directory(p.join(Directory.current.path, 'macos')).existsSync()) {
+        if (!noMacosSwift) {
+          linkMacosSwiftPlugin(
+            pluginName,
+            macosSwiftModules,
+            baseDir: Directory.current.path,
+          );
+        }
+        purgeStaleCppSwiftRegistrations(
+          macosCppModuleInfos,
+          platform: 'macos',
+          baseDir: Directory.current.path,
+        );
+        linkedSwift = true;
+      }
+      if (linkedSwift) {
+        await _setDone(4);
+      } else {
+        await _setSkipped(4, detail: 'neither ios/ nor macos/ present');
+      }
+    }
+  }
+
+  Future<void> _runKotlinStep(
+    String pluginName,
+    List<ModuleInfo> moduleInfos,
+    bool hasCpp,
+  ) async {
+    await _setRunning(5);
+    if (Directory(p.join(Directory.current.path, 'android')).existsSync()) {
+      // For Android/Kotlin steps: split by whether the module uses AndroidNativeImpl.cpp
+      // (android/linux cpp). A module with windows:cpp but android:kotlin still needs
+      // JniBridge registration — isNativeCppModule checks android/linux only.
+      final libDir = Directory(p.join(Directory.current.path, 'lib'));
+      final specFiles = libDir.existsSync() ? libDir.listSync(recursive: true).whereType<File>().where((f) => f.path.endsWith('.native.dart')).toList() : <File>[];
+      final androidCppLibs = specFiles.where(isAndroidCppModule).map((f) {
+        final stem = p.basename(f.path).replaceAll(RegExp(r'\.native\.dart$'), '');
+        return extractLibNameFromSpec(f) ?? stem;
+      }).toSet();
+
+      // Modules that need JniBridge.register = NOT android/linux C++ modules.
+      final kotlinModules = moduleInfos.where((m) => !androidCppLibs.contains(m.lib)).map((m) => m.toMap()).toList();
+      // Modules that should have JniBridge.register REMOVED = android/linux C++ modules.
+      final androidCppModuleInfos = moduleInfos.where((m) => androidCppLibs.contains(m.lib)).toList();
+
+      if (kotlinModules.isNotEmpty) {
+        linkKotlinPlugin(
+          pluginName,
+          kotlinModules,
+          baseDir: Directory.current.path,
+        );
+      }
+      // cpp modules still need System.loadLibrary to trigger __attribute__((constructor))
+      if (hasCpp) {
+        linkKotlinLoadLibraries(
+          moduleInfos.where((m) => m.isCpp).map((m) => m.lib).toList(),
+          baseDir: Directory.current.path,
+        );
+      }
+      // Purge stale JniBridge.register() only for modules that are actually
+      // Android/Linux C++ — not for mixed modules like android:kotlin + windows:cpp.
+      purgeStaleCppKotlinRegistrations(
+        androidCppModuleInfos,
+        baseDir: Directory.current.path,
+      );
+      await _setDone(
+        5,
+        detail: kotlinModules.isNotEmpty ? null : 'cpp: loadLibrary only (no JniBridge)',
+      );
+    } else {
+      await _setSkipped(5, detail: 'android/ not present');
+    }
+  }
+
+  Future<void> _runAndroidStep(
+    String pluginName,
+    List<ModuleInfo> moduleInfos,
+  ) async {
+    await _setRunning(6);
+    if (Directory(p.join(Directory.current.path, 'android')).existsSync()) {
+      linkAndroid(
+        pluginName,
+        moduleInfos.map((m) => m.lib).toList(),
+        baseDir: Directory.current.path,
+        moduleInfos: moduleInfos,
+      );
+      await _setDone(6);
+    } else {
+      await _setSkipped(6, detail: 'android/ not present');
+    }
+  }
+
+  Future<void> _runWindowsStep(
+    String pluginName,
+    List<ModuleInfo> moduleInfos,
+    String nitroNativePath,
+  ) async {
+    await _setRunning(7);
+    if (Directory(p.join(Directory.current.path, 'windows')).existsSync()) {
+      linkWindows(
+        pluginName,
+        moduleInfos.map((m) => m.lib).toList(),
+        nitroNativePath,
+        baseDir: Directory.current.path,
+        moduleInfos: moduleInfos,
+      );
+      await _setDone(7);
+    } else {
+      await _setSkipped(7, detail: 'windows/ not present');
+    }
+  }
+
+  Future<void> _runLinuxStep(
+    String pluginName,
+    List<ModuleInfo> moduleInfos,
+    String nitroNativePath,
+  ) async {
+    await _setRunning(8);
+    if (Directory(p.join(Directory.current.path, 'linux')).existsSync()) {
+      linkLinux(
+        pluginName,
+        moduleInfos.map((m) => m.lib).toList(),
+        nitroNativePath,
+        baseDir: Directory.current.path,
+        moduleInfos: moduleInfos,
+      );
+      await _setDone(8);
+    } else {
+      await _setSkipped(8, detail: 'linux/ not present');
+    }
+  }
+
+  Future<void> _runClangdStep(
+    String pluginName,
+    List<ModuleInfo> moduleInfos,
+  ) async {
+    await _setRunning(9);
+    linkClangd(
+      pluginName,
+      moduleInfos: moduleInfos,
+      baseDir: Directory.current.path,
+    );
+    await _setDone(9);
+  }
+
+  Future<void> _runFinalizeBuildStep() async {
+    await _setRunning(10);
+    // ── SPM-first strategy ─────────────────────────────────────────────────
+    // When the plugin has a Package.swift in ios/ or macos/ (either flat or
+    // Flutter 3.41+ nested layout), Flutter uses Swift Package Manager directly.
+    // Running `pod install` in that case conflicts and is unnecessary.
+    // CocoaPods is only used as a fallback when NO Package.swift is present.
+    final spmDetected = spm.detectSpmStatus(Directory.current.path);
+    final hasSpm = spmDetected.hasSpm;
+
+    if (hasSpm) {
+      // Sync generated Swift bridges into the SPM Sources/ target directories
+      // so they are compiled by SPM instead of CocoaPods.
+      _syncSwiftBridgesToSpmSources(Directory.current.path);
+
+      // Ensure the FlutterFramework symlink resolves for each Package.swift.
+      // Flutter places FlutterFramework in the example app's ephemeral dir;
+      // the symlink lets Xcode open the plugin project independently.
+      for (final pkgPath in [
+        spmDetected.iosPackageSwiftPath,
+        spmDetected.macosPackageSwiftPath,
+      ].whereType<String>()) {
+        spm.ensureFlutterFrameworkSymlink(pkgPath, Directory.current.path);
+      }
+
+      await _setDone(10, detail: 'SPM (Package.swift) — CocoaPods skipped');
+    } else {
+      final podfileDirs = findPodfileDirs(Directory.current.path);
+      if (podfileDirs.isEmpty) {
+        await _setSkipped(10, detail: 'no Podfile found');
+      } else {
+        final failures = <String>[];
+        for (final dir in podfileDirs) {
+          // 1. pod deintegrate
+          await Process.run('pod', ['deintegrate'], workingDirectory: dir);
+
+          // 2. pod install
+          final installResult = await Process.run('pod', ['install'], workingDirectory: dir);
+          if (installResult.exitCode != 0) {
+            failures.add(p.relative(dir, from: Directory.current.path));
+            continue;
+          }
+
+          // 3. pod update
+          final updateResult = await Process.run('pod', ['update'], workingDirectory: dir);
+          if (updateResult.exitCode != 0) {
+            failures.add(p.relative(dir, from: Directory.current.path));
+          }
+        }
+        if (failures.isEmpty) {
+          await _setDone(
+            10,
+            detail: podfileDirs.map((d) => p.relative(d, from: Directory.current.path)).join(', '),
+          );
+        } else {
+          await _setDone(10, detail: 'warning: pod routine failed in: ${failures.join(', ')}');
+        }
+      }
+    }
+  }
+
+  void _appendNextSteps(bool allCpp, bool hasCpp) {
+    if (allCpp) {
+      _nextSteps.addAll([
+        'nitrogen generate',
+        'Subclass Hybrid<Module> in C++ (constructor auto-registers via __attribute__((constructor)))',
+        'Build and test with ctest (auto-generated test target)',
+      ]);
+    } else if (hasCpp) {
+      _nextSteps.addAll([
+        'nitrogen generate',
+        'C++ modules: subclass Hybrid<Module> (constructor auto-registers)',
+        'Kotlin/Swift modules: implement Hybrid<Module>Spec / HybridProtocol',
+      ]);
+    } else {
+      _nextSteps.addAll([
+        'flutter pub get',
+        'flutter pub run build_runner build --delete-conflicting-outputs',
+        'nitrogen generate',
+        'Implement Specs in Kotlin/Swift',
+      ]);
+    }
   }
 
   @override
@@ -1093,2675 +894,6 @@ class _LinkViewState extends State<LinkView> {
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 // nitroHContent is imported from '../templates/native_headers.dart'.
-
-void createSharedHeaders(String nitroNativePath, {String baseDir = '.'}) {
-  Directory(p.join(baseDir, 'src')).createSync(recursive: true);
-  final localNativeDir = Directory(p.join(baseDir, 'src', 'native'));
-  localNativeDir.createSync(recursive: true);
-  Directory(p.join(localNativeDir.path, 'internal')).createSync(recursive: true);
-  final srcFile = File(p.join(nitroNativePath, 'nitro.h'));
-
-  // If the source nitro.h is missing the required macros, update it first.
-  if (srcFile.existsSync()) {
-    final current = srcFile.readAsStringSync();
-    if (!current.contains('NITRO_EXPORT')) {
-      srcFile.writeAsStringSync(nitroHContent);
-    }
-  } else {
-    // If it doesn't exist in the nitro package at all, create it.
-    try {
-      srcFile.createSync(recursive: true);
-      srcFile.writeAsStringSync(nitroHContent);
-    } catch (_) {
-      // Might not have write access to the installed package; that's fine,
-      // we'll write to the local project.
-    }
-  }
-
-  // Always write the correct content to the local project directories.
-  File(p.join(baseDir, 'src', 'nitro.h')).writeAsStringSync(nitroHContent);
-  File(p.join(localNativeDir.path, 'nitro.h')).writeAsStringSync(nitroHContent);
-  for (final headerName in ['dart_api_dl.h', 'dart_api.h', 'dart_native_api.h', 'dart_version.h']) {
-    final src = File(p.join(nitroNativePath, headerName));
-    if (src.existsSync()) src.copySync(p.join(localNativeDir.path, headerName));
-  }
-  final implHeader = File(p.join(nitroNativePath, 'internal', 'dart_api_dl_impl.h'));
-  if (implHeader.existsSync()) {
-    implHeader.copySync(p.join(localNativeDir.path, 'internal', 'dart_api_dl_impl.h'));
-  }
-  if (Directory(p.join(baseDir, 'ios', 'Classes')).existsSync()) {
-    File(
-      p.join(baseDir, 'ios', 'Classes', 'nitro.h'),
-    ).writeAsStringSync(nitroHContent);
-  }
-  if (Directory(p.join(baseDir, 'macos', 'Classes')).existsSync()) {
-    File(
-      p.join(baseDir, 'macos', 'Classes', 'nitro.h'),
-    ).writeAsStringSync(nitroHContent);
-  }
-  File(
-    p.join(baseDir, 'src', 'dart_api_dl.c'),
-  ).writeAsStringSync(bundledDartApiDlContent);
-
-  // Also populate any existing SPM C++ target include/ dirs (nested layout:
-  // {platform}/<pluginName>/Sources/<ClassName>Cpp/include/).
-  for (final platform in ['ios', 'macos']) {
-    final platformDir = Directory(p.join(baseDir, platform));
-    if (!platformDir.existsSync()) continue;
-    for (final entry in platformDir.listSync().whereType<Directory>()) {
-      final sourcesDir = Directory(p.join(entry.path, 'Sources'));
-      if (!sourcesDir.existsSync()) continue;
-      for (final targetDir in sourcesDir.listSync().whereType<Directory>()) {
-        if (!p.basename(targetDir.path).endsWith('Cpp')) continue;
-        final includeDir = Directory(p.join(targetDir.path, 'include'));
-        if (!includeDir.existsSync()) continue;
-        // Write nitro.h with the correct guard-protected content.
-        File(p.join(includeDir.path, 'nitro.h')).writeAsStringSync(nitroHContent);
-        // Copy dart API headers from the nitro native source.
-        for (final headerName in ['dart_api_dl.h', 'dart_api.h', 'dart_native_api.h', 'dart_version.h']) {
-          final src = File(p.join(nitroNativePath, headerName));
-          if (src.existsSync()) src.copySync(p.join(includeDir.path, headerName));
-        }
-      }
-    }
-  }
-}
-
-void linkCMake(
-  String pluginName,
-  List<String> moduleLibs,
-  String nitroNativePath, {
-  String baseDir = '.',
-  List<ModuleInfo>? moduleInfos,
-}) {
-  createSharedHeaders(nitroNativePath, baseDir: baseDir);
-  final cmakeFile = File(p.join(baseDir, 'src', 'CMakeLists.txt'));
-  if (!cmakeFile.existsSync()) {
-    generateCMake(
-      pluginName,
-      moduleLibs,
-      nitroNativePath,
-      baseDir: baseDir,
-      moduleInfos: moduleInfos,
-    );
-    return;
-  }
-  var content = cmakeFile.readAsStringSync();
-  bool modified = false;
-  final stamp = _stampLinkSpecChecksum(content, computeLinkSpecChecksum(baseDir: baseDir));
-  content = stamp.content;
-  modified = modified || stamp.modified;
-
-  // ── Optimization guard for non-standard CMAKE_BUILD_TYPEs ───────────────
-  // AGP passes the Android VARIANT name ("profile") as CMAKE_BUILD_TYPE;
-  // CMake has no per-config flags for unknown configs, so the whole native
-  // library silently compiled at -O0 in Flutter's profile mode (release maps
-  // to RELEASE and was unaffected). Insert once into existing plugins; the
-  // scaffold template already carries it. `_NITRO_CFG` doubles as the
-  // idempotence marker.
-  if (!content.contains('_NITRO_CFG')) {
-    const guard = '# ── Optimization guard ───────────────────────────────────────────────────────\n'
-        '# The Android Gradle Plugin passes the VARIANT name (e.g. "profile") as\n'
-        '# CMAKE_BUILD_TYPE. CMake only defines per-config flags for\n'
-        '# Debug/Release/RelWithDebInfo/MinSizeRel — an unknown config has EMPTY flag\n'
-        '# sets, so every native source silently compiles at -O0. Flutter\'s release\n'
-        '# variant maps to RELEASE and is unaffected, but profile builds shipped\n'
-        '# unoptimized native code. Give any non-standard config Release-grade flags.\n'
-        // ignore: unnecessary_string_escapes
-        'string(TOUPPER "\${CMAKE_BUILD_TYPE}" _NITRO_CFG)\n'
-        'if(NOT "\${_NITRO_CFG}" MATCHES "^(DEBUG|RELEASE|RELWITHDEBINFO|MINSIZEREL|)\$")\n'
-        '  set(CMAKE_C_FLAGS_\${_NITRO_CFG} "-O2 -DNDEBUG")\n'
-        '  set(CMAKE_CXX_FLAGS_\${_NITRO_CFG} "-O2 -DNDEBUG")\n'
-        'endif()\n';
-    final projMatch = RegExp(r'^project\([^\n]*\)[ \t]*\r?\n', multiLine: true).firstMatch(content);
-    if (projMatch != null) {
-      content = '${content.substring(0, projMatch.end)}\n$guard${content.substring(projMatch.end)}';
-    } else {
-      content = '$guard\n$content';
-    }
-    modified = true;
-    stdout.writeln('  src/CMakeLists.txt: added optimization guard (profile-mode Android builds compiled at -O0)');
-  }
-  const desiredNitroValue = _srcLocalNitroNativeCmakePath;
-  final nitroNativeSetLine = 'set(NITRO_NATIVE "$desiredNitroValue")';
-  if (!content.contains('NITRO_NATIVE')) {
-    content = '$nitroNativeSetLine\n\n$content';
-    modified = true;
-  } else {
-    final staleMatch = RegExp(
-      r'set\(NITRO_NATIVE\s+"([^"]+)"\)',
-    ).firstMatch(content);
-    if (staleMatch != null && staleMatch.group(1) != desiredNitroValue) {
-      content = content.replaceFirst(staleMatch.group(0)!, nitroNativeSetLine);
-      modified = true;
-    }
-  }
-  if (!content.contains('CMAKE_CXX_STANDARD')) {
-    // Inject C++17 standard after the project() declaration.
-    content = content.replaceFirstMapped(
-      RegExp(r'project\([^)]+\)\s*\n'),
-      (m) => '${m.group(0)!}\nset(CMAKE_CXX_STANDARD ${BuildVersions.cmakeCxxStandard})\nset(CMAKE_CXX_STANDARD_REQUIRED ON)\n',
-    );
-    modified = true;
-  }
-  if (!content.contains(r'${NITRO_NATIVE}')) {
-    content = content.replaceFirst(
-      'target_include_directories($pluginName PRIVATE',
-      'target_include_directories($pluginName PRIVATE\n  "\${NITRO_NATIVE}"',
-    );
-    modified = true;
-  }
-  if (!content.contains('dart_api_dl.c')) {
-    content = content.replaceFirst(
-      'add_library($pluginName SHARED',
-      'add_library($pluginName SHARED\n  "dart_api_dl.c"',
-    );
-    modified = true;
-  }
-  final bridgeRel = '../lib/src/generated/cpp/$pluginName.bridge.g.cpp';
-  if (!content.contains(bridgeRel)) {
-    content = content.replaceFirst(
-      'add_library($pluginName SHARED',
-      'add_library($pluginName SHARED\n  "\${CMAKE_CURRENT_SOURCE_DIR}/$bridgeRel"',
-    );
-    modified = true;
-  }
-
-  // Add the main plugin's HybridXxx.cpp impl file when:
-  //   • the module uses NativeImpl.cpp on android/linux (isNativeCpp) — the
-  //     src/ CMakeLists is for Android/Linux only; macOS/iOS are handled by SPM/CocoaPods.
-  //   • the file exists in src/, and
-  //   • it is not already listed in the cmake (either inline or in a NOT ANDROID guard).
-  //
-  // When android uses Kotlin (isAndroidCpp=false) but linux uses C++, wrap in
-  // `if(NOT ANDROID)` so the NDK build skips the C++ impl stub.
-  if (moduleInfos != null) {
-    final mainInfo = moduleInfos.firstWhere(
-      (m) => m.lib == pluginName,
-      orElse: () => ModuleInfo(lib: pluginName, module: pluginName, isCpp: false),
-    );
-    if (mainInfo.isNativeCpp) {
-      final className = _toPascalCase(
-        mainInfo.module.isNotEmpty ? mainInfo.module : pluginName,
-      );
-      final implName = 'Hybrid$className.cpp';
-      final implFile = File(p.join(baseDir, 'src', implName));
-      if (implFile.existsSync() && !content.contains('"$implName"')) {
-        if (mainInfo.isAndroidCpp) {
-          // Android uses C++ directly — embed impl in add_library.
-          content = content.replaceFirst(
-            'add_library($pluginName SHARED',
-            'add_library($pluginName SHARED\n  "$implName"',
-          );
-        } else {
-          // Linux-only C++ — exclude from Android NDK builds.
-          content = content.replaceFirst(
-            'target_include_directories($pluginName PRIVATE',
-            'if(NOT ANDROID)\n  target_sources($pluginName PRIVATE "$implName")\nendif()\ntarget_include_directories($pluginName PRIVATE',
-          );
-        }
-        modified = true;
-      }
-    }
-  }
-
-  for (final lib in moduleLibs) {
-    if (lib != pluginName && !content.contains('add_library($lib ')) {
-      final info = moduleInfos?.firstWhere(
-        (m) => m.lib == lib,
-        orElse: () => ModuleInfo(lib: lib, module: lib, isCpp: false),
-      );
-      // Use isNativeCpp (android/linux) — only those platforms put
-      // HybridXxx.cpp into src/CMakeLists.txt. Windows-only cpp uses
-      // windows/CMakeLists.txt instead.
-      content += ct.cmakeModuleTarget(
-        lib,
-        isCpp: info?.isNativeCpp ?? false,
-        isAndroidCpp: info?.isAndroidCpp ?? false,
-      );
-      modified = true;
-    }
-  }
-
-  // Retrofit the NITRO_IMPL_SRC guard onto a pre-separation src/CMakeLists
-  // once a module opts into per-platform desktop impls (issue #12): the
-  // platform CMakeLists set NITRO_IMPL_SRC_<lib>, but an existing file that
-  // hardcodes `target_sources(<lib> PRIVATE "HybridXxx.cpp")` (or compiles
-  // the impl inline in add_library) silently ignores them — the build keeps
-  // compiling the shared impl while the per-platform files sit unused.
-  // Only fires for modules where separation is actually requested/active,
-  // so never-opted-in projects keep byte-identical CMakeLists. The guard's
-  // else-branch preserves the old behavior exactly when the variable is
-  // unset (e.g. Android builds of the same file).
-  if (moduleInfos != null) {
-    for (final m in moduleInfos.where((m) => m.isCpp)) {
-      final varName = ct.nitroImplSrcVar(m.lib);
-      if (content.contains(varName)) continue; // already guarded
-      final cls = _toPascalCase(m.lib);
-      final separationActive =
-          (m.windowsIsCpp && (m.windowsRequestsSeparateImpl || hasCustomPlatformImpl(baseDir, 'windows', cls))) ||
-          (m.linuxIsCpp && (m.linuxRequestsSeparateImpl || hasCustomPlatformImpl(baseDir, 'linux', cls)));
-      if (!separationActive) continue;
-      // Both className conventions appear in the wild (older links derived it
-      // from `module`, stubs derive it from `lib`).
-      for (final className in {cls, _toPascalCase(m.module)}) {
-        final implName = 'Hybrid$className.cpp';
-        final wrapped = RegExp(
-          'if\\(NOT ANDROID\\)\\s*\\n\\s*target_sources\\(${RegExp.escape(m.lib)} PRIVATE "${RegExp.escape(implName)}"\\)\\s*\\nendif\\(\\)\\n?',
-        );
-        final bare = RegExp(
-          'target_sources\\(${RegExp.escape(m.lib)} PRIVATE "${RegExp.escape(implName)}"\\)\\n?',
-        );
-        final inline = '\n  "$implName"';
-        if (wrapped.hasMatch(content)) {
-          content = content.replaceFirst(wrapped, ct.implSourcesBlock(m.lib, className, unguarded: false));
-          modified = true;
-          break;
-        } else if (bare.hasMatch(content)) {
-          content = content.replaceFirst(bare, ct.implSourcesBlock(m.lib, className, unguarded: m.isAndroidCpp));
-          modified = true;
-          break;
-        } else if (content.contains('add_library(${m.lib} SHARED') && content.contains(inline)) {
-          // Impl listed inline inside add_library (android-cpp layout):
-          // move it out into the guarded block, same unconditional semantics.
-          content = content.replaceFirst(inline, '');
-          final addLib = RegExp('add_library\\(${RegExp.escape(m.lib)} SHARED[^)]*\\)\\n');
-          final match = addLib.firstMatch(content);
-          if (match != null) {
-            content = content.replaceFirst(match.group(0)!, '${match.group(0)!}${ct.implSourcesBlock(m.lib, className, unguarded: true)}');
-          } else {
-            content += ct.implSourcesBlock(m.lib, className, unguarded: true);
-          }
-          modified = true;
-          break;
-        }
-      }
-    }
-  }
-  if (modified) cmakeFile.writeAsStringSync(content);
-}
-
-void generateCMake(
-  String pluginName,
-  List<String> moduleLibs,
-  String nitroNativePath, {
-  String baseDir = '.',
-  List<ModuleInfo>? moduleInfos,
-}) {
-  final infos = moduleInfos?.map((m) => (lib: m.lib, module: m.module, isNativeCpp: m.isNativeCpp, isAndroidCpp: m.isAndroidCpp)).toList();
-  final linkChecksum = computeLinkSpecChecksum(baseDir: baseDir);
-
-  File(p.join(baseDir, 'src', 'CMakeLists.txt')).writeAsStringSync(
-    ct.generateCMakeContent(
-      pluginName,
-      moduleLibs,
-      _srcLocalNitroNativeCmakePath,
-      moduleInfos: infos,
-      linkChecksum: linkChecksum,
-    ),
-  );
-}
-
-// _cmakeModuleTarget is provided by '../templates/cmake_templates.dart' as ct.cmakeModuleTarget.
-
-String _toPascalCase(String lib) => lib.split(RegExp(r'[_\-]')).map((w) => w.isEmpty ? '' : w[0].toUpperCase() + w.substring(1)).join('');
-
-/// Copies `*.bridge.g.swift` files from `lib/src/generated/swift/` into [classesDir].
-/// Putting the bridge in Classes/ ensures Xcode compiles it in the **same module
-/// scope** as the plugin's other Swift files, resolving "Cannot find X in scope" errors
-/// that occur when the bridge is only referenced via a podspec outer-glob path.
-void _copySwiftBridgesToClasses(
-  Directory classesDir,
-  String baseDir, {
-  String platform = 'ios',
-}) {
-  classesDir.createSync(recursive: true);
-  final swiftGenDir = Directory(
-    p.join(baseDir, 'lib', 'src', 'generated', 'swift'),
-  );
-  if (!swiftGenDir.existsSync()) return;
-  final bridgeFiles = swiftGenDir.listSync().whereType<File>().where((f) => p.basename(f.path).endsWith('.bridge.g.swift')).toList()
-    ..sort((a, b) => p.basename(a.path).compareTo(p.basename(b.path)));
-  // Cumulative dedup: the shared preamble is emitted piecewise per spec (a
-  // record-only spec has NitroRecordWriter/Reader but no NitroEncodable), so
-  // track which declarations the module has already seen instead of assuming
-  // the first file carries the full preamble.
-  final definedDecls = <String>{};
-  for (final file in bridgeFiles) {
-    final dest = p.join(classesDir.path, p.basename(file.path));
-    File(dest).writeAsStringSync(
-      dedupeSharedSwiftDecls(file.readAsStringSync(), definedDecls),
-    );
-  }
-}
-
-/// Syncs generated `.bridge.g.swift` files into the SPM Swift target directories.
-///
-/// Handles both flat (`ios/Package.swift`) and Flutter 3.41+ nested
-/// (`ios/<name>/Package.swift`) SPM layouts.  For each detected platform
-/// package, the function walks every `Sources/<Target>/` directory (excluding
-/// C++ targets ending in `Cpp`) and copies generated bridge files there so SPM
-/// compiles the latest bridges without needing CocoaPods.
-void _syncSwiftBridgesToSpmSources(String baseDir) {
-  final swiftGenDir = Directory(p.join(baseDir, 'lib', 'src', 'generated', 'swift'));
-  if (!swiftGenDir.existsSync()) return;
-  final allBridges = swiftGenDir.listSync().whereType<File>().where((f) => p.basename(f.path).endsWith('.bridge.g.swift')).toList()
-    ..sort((a, b) => p.basename(a.path).compareTo(p.basename(b.path)));
-  if (allBridges.isEmpty) return;
-
-  // NativeImpl.cpp bridge files omit the shared preamble (NitroEncodable,
-  // NitroRecordWriter, etc.) — they rely on another bridge in the module to
-  // provide it.  Sort bridges that DEFINE shared declarations first so the
-  // first file processed contains the preamble. The preamble is emitted
-  // piecewise per spec (a record-only spec has NitroRecordWriter/Reader but
-  // no NitroEncodable), so check for any shared marker, not just the protocol.
-  bool hasPreamble(File f) {
-    final content = f.readAsStringSync();
-    return content.contains('\npublic protocol NitroEncodable') || content.contains('\npublic class NitroRecordWriter') || content.contains('\npublic class NitroRecordReader');
-  }
-
-  final generatedBridges = [
-    ...allBridges.where(hasPreamble),
-    ...allBridges.where((f) => !hasPreamble(f)),
-  ];
-
-  final spmStatus = spm.detectSpmStatus(baseDir);
-
-  for (final platform in ['ios', 'macos']) {
-    final packageSwiftPath = platform == 'ios' ? spmStatus.iosPackageSwiftPath : spmStatus.macosPackageSwiftPath;
-    if (packageSwiftPath == null) continue;
-
-    // Sources/ is always a sibling of Package.swift (whether flat or nested).
-    final packageRoot = File(packageSwiftPath).parent.path;
-    final sourcesDir = Directory(p.join(packageRoot, 'Sources'));
-    if (!sourcesDir.existsSync()) continue;
-
-    // Walk all immediate subdirs of Sources/ — each is an SPM target
-    for (final entry in sourcesDir.listSync().whereType<Directory>()) {
-      // Only copy into Swift targets (skip C/C++ targets whose names end in Cpp)
-      if (entry.path.endsWith('Cpp')) continue;
-      // One dedup set per SPM target — each target is its own Swift module,
-      // so shared declarations must appear exactly once per target.
-      final definedDecls = <String>{};
-      for (final bridge in generatedBridges) {
-        final dest = p.join(entry.path, p.basename(bridge.path));
-        File(dest).writeAsStringSync(
-          dedupeSharedSwiftDecls(bridge.readAsStringSync(), definedDecls),
-        );
-      }
-    }
-  }
-}
-
-/// Removes the `'../lib/src/generated/swift/**/*.swift'` glob from [podspecFile]'s
-/// `s.source_files` line. This must be called after [_copySwiftBridgesToClasses] to
-/// prevent the same file from being compiled twice (duplicate-symbol errors).
-void _removeSwiftGlobFromPodspec(File podspecFile) {
-  if (!podspecFile.existsSync()) return;
-  var spec = podspecFile.readAsStringSync();
-  final fixed = spec
-      .replaceAll(", '../lib/src/generated/swift/**/*.swift'", '')
-      .replaceAll("'../lib/src/generated/swift/**/*.swift', ", '')
-      .replaceAll("'../lib/src/generated/swift/**/*.swift'", "'Classes/**/*'");
-  if (fixed != spec) podspecFile.writeAsStringSync(fixed);
-}
-
-/// Builds the `#if` guard condition that determines on which platforms the
-/// auto-register call should fire inside a `src/HybridXxx.cpp` stub.
-/// For each NativeImpl.cpp module that targets Android, Linux, iOS, or macOS,
-/// creates a starter `src/Hybrid${Module}.cpp` stub if one doesn't already exist.
-///
-/// Always created for Android/Linux/iOS/macOS-C++ modules — this is the
-/// shared, single-file default every plugin starts from, kept regardless of
-/// whether Windows and/or Linux later diverge into their own
-/// `windows/src/` / `linux/src/` file (see [hasCustomPlatformImpl] —
-/// separation is opt-in per platform by actually writing code in that
-/// file, not automatic just because a module targets NativeImpl.cpp on
-/// both desktop platforms). A plugin that never diverges keeps this ONE
-/// file as its only impl, on purpose — sharing genuinely-identical logic
-/// across platforms is often the better choice, not a fallback.
-void linkCppImplStubs(List<ModuleInfo> moduleInfos, {String baseDir = '.'}) {
-  // Ensure src/ exists before writing stubs (createSync is idempotent).
-  Directory(p.join(baseDir, 'src')).createSync(recursive: true);
-
-  // Only create stubs for modules whose src/ file is actually compiled:
-  // android/linux (isNativeCpp), iOS (iosIsCpp), or macOS (macosIsCpp).
-  // Windows-only modules use windows/src/ instead (see linkWindowsCppImplStubs).
-  for (final m in moduleInfos.where(
-    (m) => m.isNativeCpp || m.iosIsCpp || m.macosIsCpp,
-  )) {
-    final className = _toPascalCase(m.lib);
-    final stubFile = File(p.join(baseDir, 'src', 'Hybrid$className.cpp'));
-    if (stubFile.existsSync()) continue; // never overwrite user code
-    stubFile.writeAsStringSync(
-      t.cppImplStubContent(
-        lib: m.lib,
-        className: className,
-        isNativeCpp: m.isNativeCpp,
-        isAndroidCpp: m.isAndroidCpp,
-        iosIsCpp: m.iosIsCpp,
-        macosIsCpp: m.macosIsCpp,
-        windowsIsCpp: m.windowsIsCpp,
-      ),
-    );
-  }
-}
-
-void linkPodspec(
-  String pluginName,
-  List<String> moduleLibs, {
-  String baseDir = '.',
-  List<ModuleInfo>? moduleInfos,
-}) {
-  final nitroNativePath = resolveNitroNativePath(baseDir);
-  final podspecFile = File(p.join(baseDir, 'ios', '$pluginName.podspec'));
-  if (!podspecFile.existsSync()) return;
-  var content = podspecFile.readAsStringSync();
-  bool modified = false;
-  // Normalize source_files to 'Classes/**/*'.
-  // Flutter's SPM-first template generates paths like '<plugin>/Sources/<plugin>/**/*'
-  // which point to non-existent directories when CocoaPods is the build system,
-  // causing "No files found matching ..." warnings and empty pod targets.
-  final sourceFilesMatch = RegExp(r"s\.source_files\s*=\s*'([^']+)'").firstMatch(content);
-  if (sourceFilesMatch != null && sourceFilesMatch.group(1) != 'Classes/**/*') {
-    final badPath = sourceFilesMatch.group(1)!;
-    // Fix any non-Classes path. Flutter's SPM-first template generates paths like
-    // '<plugin>/Sources/<plugin>/**/*'; for SPM-layout plugins the first directory
-    // segment exists on disk even though the glob matches nothing, so we cannot
-    // rely on existsSync() to detect the bad path — always normalize.
-    final firstSegment = badPath.split('/').first;
-    if (firstSegment != 'Classes') {
-      content = content.replaceFirst(
-        sourceFilesMatch.group(0)!,
-        "s.source_files = 'Classes/**/*'",
-      );
-      modified = true;
-    }
-  }
-  if (!content.contains("s.swift_version = '${BuildVersions.podSwiftVersion}'")) {
-    content = content.replaceFirst(
-      RegExp(r"s\.swift_version\s*=\s*'.+?'"),
-      "s.swift_version = '${BuildVersions.podSwiftVersion}'",
-    );
-    modified = true;
-  }
-  if (!content.contains("s.platform = :ios, '${BuildVersions.iosDeployment}.0'")) {
-    content = content.replaceFirst(
-      RegExp(r"s\.platform\s*=\s*:ios,\s*'.+?'"),
-      "s.platform = :ios, '${BuildVersions.iosDeployment}.0'",
-    );
-    modified = true;
-  }
-  if (!content.contains('HEADER_SEARCH_PATHS')) {
-    content = content.replaceFirst(
-      's.pod_target_xcconfig = {',
-      "s.pod_target_xcconfig = {\n    'HEADER_SEARCH_PATHS' => '\$(inherited) \"\${PODS_ROOT}/../.symlinks/plugins/nitro/src/native\" \"\${PODS_TARGET_SRCROOT}/../src\" \"\${PODS_TARGET_SRCROOT}/../lib/src/generated/cpp\"',",
-    );
-    modified = true;
-  } else {
-    // If it exists, ensure it has the src/ and generated/cpp/ paths.
-    if (!content.contains('PODS_TARGET_SRCROOT}/../src') || !content.contains('lib/src/generated/cpp')) {
-      final match = RegExp(
-        r"'HEADER_SEARCH_PATHS'\s*=>\s*'([^']+)'",
-      ).firstMatch(content);
-      if (match != null) {
-        var paths = match.group(1)!;
-        if (!paths.contains('PODS_TARGET_SRCROOT}/../src')) {
-          paths += ' "\${PODS_TARGET_SRCROOT}/../src"';
-        }
-        if (!paths.contains('lib/src/generated/cpp')) {
-          paths += ' "\${PODS_TARGET_SRCROOT}/../lib/src/generated/cpp"';
-        }
-        content = content.replaceFirst(
-          match.group(0)!,
-          "'HEADER_SEARCH_PATHS' => '$paths'",
-        );
-        modified = true;
-      }
-    }
-  }
-  if (!content.contains("'DEFINES_MODULE' => 'YES'")) {
-    content = content.replaceFirst(
-      's.pod_target_xcconfig = {',
-      "s.pod_target_xcconfig = {\n    'DEFINES_MODULE' => 'YES',",
-    );
-    modified = true;
-  }
-  if (!content.contains("'CLANG_CXX_LANGUAGE_STANDARD'") && !content.contains(BuildVersions.podCxxStandard)) {
-    content = content.replaceFirst(
-      's.pod_target_xcconfig = {',
-      "s.pod_target_xcconfig = {\n    'CLANG_CXX_LANGUAGE_STANDARD' => '${BuildVersions.podCxxStandard}',",
-    );
-    modified = true;
-  }
-  if (!content.contains("s.dependency 'nitro'")) {
-    content = content.replaceFirst(
-      's.pod_target_xcconfig = {',
-      "s.dependency 'nitro'\n  s.pod_target_xcconfig = {",
-    );
-    modified = true;
-  }
-  // Sync generated Swift bridges into ios/Classes/ so Xcode can compile them
-  // in the same module scope as the plugin's other Swift files.
-  // Using a podspec source_files glob to ../lib/src/generated/swift/ does NOT
-  // reliably work — types defined there are not always in scope for Classes/ files.
-  if (modified) podspecFile.writeAsStringSync(content);
-  createSharedHeaders(nitroNativePath, baseDir: baseDir);
-  final classesDir = Directory(p.join(baseDir, 'ios', 'Classes'))..createSync(recursive: true);
-  File(
-    p.join(classesDir.path, 'dart_api_dl.c'),
-  ).writeAsStringSync(classesDartApiDlForwarder);
-  syncBridgeFiles(baseDir);
-  _copySwiftBridgesToClasses(classesDir, baseDir);
-  // Remove the outer lib/src/generated/swift glob from the podspec if present,
-  // since the bridge is now copied directly into Classes/ (avoids duplicate symbols).
-  _removeSwiftGlobFromPodspec(podspecFile);
-
-  // Link the main project source files.
-  final cppInSrc = File(p.join(baseDir, 'src', '$pluginName.cpp'));
-  if (cppInSrc.existsSync()) {
-    cleanRedundantIncludes(cppInSrc);
-    File(p.join(classesDir.path, '$pluginName.cpp')).writeAsStringSync(
-      managedCppForwarder('../../src/$pluginName.cpp'),
-    );
-  }
-  final cInSrc = File(p.join(baseDir, 'src', '$pluginName.c'));
-  if (cInSrc.existsSync()) {
-    cleanRedundantIncludes(cInSrc);
-    File(
-      p.join(classesDir.path, '$pluginName.c'),
-    ).writeAsStringSync(classesCForwarder(pluginName));
-  }
-
-  // Link C++ module implementation files for iOS.
-  // On Android each module is a separate .so via CMake. On iOS everything is
-  // compiled into one pod binary, so only ios:NativeImpl.cpp modules need
-  // a Hybrid*.cpp forwarder in ios/Classes/.
-  // Windows-only or macos-only C++ modules must NOT get a forwarder here.
-  if (moduleInfos != null) {
-    // Discover specs for iOS-cpp filtering (per-platform, not broad Apple check).
-    final libDir = Directory(p.join(baseDir, 'lib'));
-    final specFiles = libDir.existsSync() ? libDir.listSync(recursive: true).whereType<File>().where((f) => f.path.endsWith('.native.dart')).toList() : <File>[];
-    final appleCppLibs = specFiles.where(isIosCppModule).map((f) {
-      final stem = p.basename(f.path).replaceAll(RegExp(r'\.native\.dart$'), '');
-      return extractLibNameFromSpec(f) ?? stem;
-    }).toSet();
-
-    // Write forwarders only for Apple cpp modules.
-    for (final m in moduleInfos.where((m) => m.isCpp)) {
-      final className = _toPascalCase(m.lib);
-      final forwarderFile = File(
-        p.join(classesDir.path, 'Hybrid$className.cpp'),
-      );
-      if (appleCppLibs.contains(m.lib)) {
-        // Apple C++ module — ensure forwarder is present/up-to-date.
-        final implSrc = File(p.join(baseDir, 'src', 'Hybrid$className.cpp'));
-        if (implSrc.existsSync()) {
-          forwarderFile.writeAsStringSync(
-            managedCppForwarder('../../src/Hybrid$className.cpp'),
-          );
-        }
-      } else {
-        // Non-Apple C++ module (e.g. Windows-only) — remove any stale forwarder.
-        if (forwarderFile.existsSync()) forwarderFile.deleteSync();
-      }
-    }
-  }
-
-  ensureIosPackageSwift(pluginName, baseDir: baseDir, moduleInfos: moduleInfos);
-
-  // Re-affirm the correct ../../src/ relative paths AFTER ensureIosPackageSwift,
-  // which may write forwarders into Sources/NitroPubTestCpp/ with ../../../src/.
-  // These are two different files, but belt-and-suspenders: always end with the
-  // definitive Classes/ versions so a stale copy can never win.
-  File(
-    p.join(classesDir.path, 'dart_api_dl.c'),
-  ).writeAsStringSync(classesDartApiDlForwarder);
-  if (cppInSrc.existsSync()) {
-    File(p.join(classesDir.path, '$pluginName.cpp')).writeAsStringSync(
-      managedCppForwarder('../../src/$pluginName.cpp'),
-    );
-  }
-  if (cInSrc.existsSync()) {
-    File(
-      p.join(classesDir.path, '$pluginName.c'),
-    ).writeAsStringSync(classesCForwarder(pluginName));
-  }
-}
-
-void linkMacosPodspec(
-  String pluginName,
-  List<String> moduleLibs, {
-  String baseDir = '.',
-  List<ModuleInfo>? moduleInfos,
-}) {
-  final nitroNativePath = resolveNitroNativePath(baseDir);
-  final podspecFile = File(p.join(baseDir, 'macos', '$pluginName.podspec'));
-  if (!podspecFile.existsSync()) return;
-  var content = podspecFile.readAsStringSync();
-  bool modified = false;
-  // Normalize source_files to 'Classes/**/*' (same fix as linkIosPodspec).
-  final sourceFilesMatchMacos = RegExp(r"s\.source_files\s*=\s*'([^']+)'").firstMatch(content);
-  if (sourceFilesMatchMacos != null && sourceFilesMatchMacos.group(1) != 'Classes/**/*') {
-    final badPath = sourceFilesMatchMacos.group(1)!;
-    // Fix any non-Classes path regardless of whether the first directory exists —
-    // for SPM-layout plugins the directory exists but the glob still matches nothing.
-    final firstSegment = badPath.split('/').first;
-    if (firstSegment != 'Classes') {
-      content = content.replaceFirst(
-        sourceFilesMatchMacos.group(0)!,
-        "s.source_files = 'Classes/**/*'",
-      );
-      modified = true;
-    }
-  }
-  if (!content.contains("s.swift_version = '${BuildVersions.podSwiftVersion}'")) {
-    content = content.replaceFirst(
-      RegExp(r"s\.swift_version\s*=\s*'.+?'"),
-      "s.swift_version = '${BuildVersions.podSwiftVersion}'",
-    );
-    modified = true;
-  }
-  final macosDeployment = BuildVersions.macosDeployment.replaceAll('_', '.');
-  if (!content.contains("s.platform = :osx, '$macosDeployment'")) {
-    if (RegExp(r"s\.platform\s*=\s*:osx").hasMatch(content)) {
-      content = content.replaceFirst(
-        RegExp(r"s\.platform\s*=\s*:osx,\s*'.+?'"),
-        "s.platform = :osx, '$macosDeployment'",
-      );
-    } else {
-      // Insert platform line after the spec name line
-      content = content.replaceFirst(
-        RegExp(r"(s\.name\s*=.+\n)"),
-        "\$1  s.platform = :osx, '$macosDeployment'\n",
-      );
-    }
-    modified = true;
-  }
-  if (!content.contains('HEADER_SEARCH_PATHS')) {
-    content = content.replaceFirst(
-      's.pod_target_xcconfig = {',
-      "s.pod_target_xcconfig = {\n    'HEADER_SEARCH_PATHS' => '\$(inherited) \"\${PODS_ROOT}/../Flutter/ephemeral/.symlinks/plugins/nitro/src/native\" \"\${PODS_TARGET_SRCROOT}/../src\" \"\${PODS_TARGET_SRCROOT}/../lib/src/generated/cpp\"',",
-    );
-    modified = true;
-  } else {
-    if (!content.contains('PODS_TARGET_SRCROOT}/../src') || !content.contains('lib/src/generated/cpp')) {
-      final match = RegExp(
-        r"'HEADER_SEARCH_PATHS'\s*=>\s*'([^']+)'",
-      ).firstMatch(content);
-      if (match != null) {
-        var paths = match.group(1)!;
-        if (!paths.contains('PODS_TARGET_SRCROOT}/../src')) {
-          paths += ' "\${PODS_TARGET_SRCROOT}/../src"';
-        }
-        if (!paths.contains('lib/src/generated/cpp')) {
-          paths += ' "\${PODS_TARGET_SRCROOT}/../lib/src/generated/cpp"';
-        }
-        content = content.replaceFirst(
-          match.group(0)!,
-          "'HEADER_SEARCH_PATHS' => '$paths'",
-        );
-        modified = true;
-      }
-    }
-  }
-  if (!content.contains("'DEFINES_MODULE' => 'YES'")) {
-    content = content.replaceFirst(
-      's.pod_target_xcconfig = {',
-      "s.pod_target_xcconfig = {\n    'DEFINES_MODULE' => 'YES',",
-    );
-    modified = true;
-  }
-  if (!content.contains("'CLANG_CXX_LANGUAGE_STANDARD'") && !content.contains(BuildVersions.podCxxStandard)) {
-    content = content.replaceFirst(
-      's.pod_target_xcconfig = {',
-      "s.pod_target_xcconfig = {\n    'CLANG_CXX_LANGUAGE_STANDARD' => '${BuildVersions.podCxxStandard}',",
-    );
-    modified = true;
-  }
-  if (!content.contains("s.dependency 'nitro'")) {
-    content = content.replaceFirst(
-      's.pod_target_xcconfig = {',
-      "s.dependency 'nitro'\n  s.pod_target_xcconfig = {",
-    );
-    modified = true;
-  }
-  // Sync generated Swift bridges into macos/Classes/ so Xcode compiles them
-  // in the same module scope as the plugin's other Swift files.
-  if (modified) podspecFile.writeAsStringSync(content);
-  createSharedHeaders(nitroNativePath, baseDir: baseDir);
-  final classesDir = Directory(p.join(baseDir, 'macos', 'Classes'))..createSync(recursive: true);
-  File(
-    p.join(classesDir.path, 'dart_api_dl.c'),
-  ).writeAsStringSync(classesDartApiDlForwarder);
-  syncBridgeFiles(baseDir, platform: 'macos');
-  _copySwiftBridgesToClasses(classesDir, baseDir, platform: 'macos');
-  _removeSwiftGlobFromPodspec(podspecFile);
-
-  // Link the main project source files.
-  final cppInSrc = File(p.join(baseDir, 'src', '$pluginName.cpp'));
-  if (cppInSrc.existsSync()) {
-    cleanRedundantIncludes(cppInSrc);
-    File(p.join(classesDir.path, '$pluginName.cpp')).writeAsStringSync(
-      managedCppForwarder('../../src/$pluginName.cpp'),
-    );
-  }
-  final cInSrc = File(p.join(baseDir, 'src', '$pluginName.c'));
-  if (cInSrc.existsSync()) {
-    cleanRedundantIncludes(cInSrc);
-    File(
-      p.join(classesDir.path, '$pluginName.c'),
-    ).writeAsStringSync(classesCForwarder(pluginName));
-  }
-
-  // Link C++ module implementation files for macOS — same logic as iOS above.
-  // Only macos:NativeImpl.cpp modules get a Hybrid*.cpp forwarder in macos/Classes/.
-  if (moduleInfos != null) {
-    final libDir = Directory(p.join(baseDir, 'lib'));
-    final specFiles = libDir.existsSync() ? libDir.listSync(recursive: true).whereType<File>().where((f) => f.path.endsWith('.native.dart')).toList() : <File>[];
-    final appleCppLibs = specFiles.where(isMacosCppModule).map((f) {
-      final stem = p.basename(f.path).replaceAll(RegExp(r'\.native\.dart$'), '');
-      return extractLibNameFromSpec(f) ?? stem;
-    }).toSet();
-
-    for (final m in moduleInfos.where((m) => m.isCpp)) {
-      final className = _toPascalCase(m.lib);
-      final forwarderFile = File(
-        p.join(classesDir.path, 'Hybrid$className.cpp'),
-      );
-      if (appleCppLibs.contains(m.lib)) {
-        final implSrc = File(p.join(baseDir, 'src', 'Hybrid$className.cpp'));
-        if (implSrc.existsSync()) {
-          forwarderFile.writeAsStringSync(
-            managedCppForwarder('../../src/Hybrid$className.cpp'),
-          );
-        }
-      } else {
-        if (forwarderFile.existsSync()) forwarderFile.deleteSync();
-      }
-    }
-  }
-}
-
-/// Wires non-cpp module registrations into the macOS Swift plugin file.
-///
-/// Mirrors [linkSwiftPlugin] but targets `macos/` instead of `ios/`. Searches
-/// `macos/` recursively for `*Plugin.swift` and injects `Registry.register(...)`
-/// calls for each non-cpp module that doesn't already have one.
-void linkMacosSwiftPlugin(
-  String pluginName,
-  List<Map<String, String>> modules, {
-  String baseDir = '.',
-}) {
-  final macosDir = Directory(p.join(baseDir, 'macos'));
-  if (!macosDir.existsSync()) return;
-  final pluginFiles = macosDir
-      .listSync(recursive: true, followLinks: false)
-      .whereType<File>()
-      .where((f) => !f.path.contains('.symlinks'))
-      .where((f) => f.path.endsWith('Plugin.swift'))
-      .toList();
-
-  if (pluginFiles.isEmpty) {
-    // Create default macOS plugin if missing
-    final className = _toPascalCase(pluginName);
-    final fileName = '${className}Plugin.swift';
-    final targetPath = p.join(macosDir.path, 'Classes', fileName);
-    Directory(p.dirname(targetPath)).createSync(recursive: true);
-    final stub = st.macosPluginSwiftStub(className);
-    File(targetPath).writeAsStringSync(stub);
-    pluginFiles.add(File(targetPath));
-  }
-
-  final pluginFile = pluginFiles.first;
-  var content = pluginFile.readAsStringSync();
-  bool modified = false;
-  for (final m in modules) {
-    final name = m['module']!;
-    final lib = (m['lib'] ?? name.toLowerCase()).replaceAll('-', '_');
-    final reg = '${name}Registry';
-    // Standard implementation naming: BenchmarkImpl or BenchmarkModuleImpl
-    final impl = name.endsWith('Module') ? '${name}Impl' : '${name}ModuleImpl';
-
-    // ── 1. No module import needed — bridge .swift files are compiled into
-    //        the same CocoaPods pod target. Remove any stale module import.
-    final staleImportPattern = RegExp(
-      r'#if canImport\(nitro_' + RegExp.escape(lib) + r'_module\)\s*\nimport nitro_' + RegExp.escape(lib) + r'_module\s*\n#endif\s*\n?',
-    );
-    if (staleImportPattern.hasMatch(content)) {
-      content = content.replaceAll(staleImportPattern, '');
-      modified = true;
-    }
-    final bareImport = RegExp(
-      r'import nitro_' + RegExp.escape(lib) + r'_module[ \t]*\r?\n?',
-    );
-    if (bareImport.hasMatch(content)) {
-      content = content.replaceAll(bareImport, '');
-      modified = true;
-    }
-
-    // ── 2. Ensure register() call is present ────────────────────────────────
-    if (!content.contains('$reg.register')) {
-      content = content.replaceFirst(
-        'public static func register(with registrar: FlutterPluginRegistrar) {',
-        'public static func register(with registrar: FlutterPluginRegistrar) {\n    $reg.register($impl())',
-      );
-      modified = true;
-    }
-  }
-  if (modified) pluginFile.writeAsStringSync(content);
-}
-
-/// Removes stale `<Module>Registry.register(...)` calls from *Plugin.swift for
-/// modules that have been converted to NativeImpl.cpp (AppleNativeImpl.cpp).
-///
-/// C++ modules auto-register via `__attribute__((constructor))` when the .dylib
-/// loads. No Swift `Registry.register()` call is needed or valid — the Registry
-/// class is not generated for CppImpl modules, so the call causes:
-///   "Cannot find `<Module>Registry` in scope"
-///
-/// This mirrors [purgeStaleCppKotlinRegistrations] on the Swift side.
-void purgeStaleCppSwiftRegistrations(
-  List<ModuleInfo> cppModules, {
-  String platform = 'ios',
-  String baseDir = '.',
-}) {
-  if (cppModules.isEmpty) return;
-  final platformDir = Directory(p.join(baseDir, platform));
-  if (!platformDir.existsSync()) return;
-  final pluginFiles = platformDir
-      .listSync(recursive: true, followLinks: false)
-      .whereType<File>()
-      .where((f) => !f.path.contains('.symlinks'))
-      .where((f) => f.path.endsWith('Plugin.swift'))
-      .toList();
-  if (pluginFiles.isEmpty) return;
-  final pluginFile = pluginFiles.first;
-  var content = pluginFile.readAsStringSync();
-  bool modified = false;
-
-  for (final m in cppModules) {
-    // Match lines like:
-    //   BenchmarkCppRegistry.register(BenchmarkCppModuleImpl())
-    //   BenchmarkCppRegistry.register(BenchmarkCppImpl())
-    // with optional leading whitespace.
-    final stalePattern = RegExp(
-      r'[ \t]*' + RegExp.escape('${m.module}Registry') + r'\.register\(.*\)[ \t]*\r?\n?',
-    );
-    if (stalePattern.hasMatch(content)) {
-      content = content.replaceAll(stalePattern, '');
-      modified = true;
-    }
-  }
-
-  if (modified) pluginFile.writeAsStringSync(content);
-}
-
-void cleanRedundantIncludes(File file) {
-  if (!file.existsSync()) return;
-  var content = file.readAsStringSync();
-  final regex = RegExp(
-    '#include\\s+["\'].*?\\.bridge\\.g\\.(cpp|c|mm)["\']',
-    multiLine: true,
-  );
-  if (regex.hasMatch(content)) {
-    content = content.replaceAll(regex, '');
-    file.writeAsStringSync(content);
-  }
-}
-
-void linkSwiftPlugin(
-  String pluginName,
-  List<Map<String, String>> modules, {
-  String baseDir = '.',
-}) {
-  final iosDir = Directory(p.join(baseDir, 'ios'));
-  if (!iosDir.existsSync()) return;
-  final pluginFiles = iosDir
-      .listSync(recursive: true, followLinks: false)
-      .whereType<File>()
-      .where((f) => !f.path.contains('.symlinks'))
-      .where((f) => f.path.endsWith('Plugin.swift'))
-      .toList();
-
-  if (pluginFiles.isEmpty) {
-    // Create default iOS plugin stub if missing (mirrors macOS behaviour).
-    final className = _toPascalCase(pluginName);
-    final fileName = '${className}Plugin.swift';
-    final targetPath = p.join(iosDir.path, 'Classes', fileName);
-    Directory(p.dirname(targetPath)).createSync(recursive: true);
-    final stub = st.iosPluginSwiftStub(className);
-    File(targetPath).writeAsStringSync(stub);
-    pluginFiles.add(File(targetPath));
-  }
-  final pluginFile = pluginFiles.first;
-  var content = pluginFile.readAsStringSync();
-  bool modified = false;
-  for (final m in modules) {
-    final name = m['module']!;
-    final lib = (m['lib'] ?? name.toLowerCase()).replaceAll('-', '_');
-    final reg = '${name}Registry';
-    final impl = name.endsWith('Module') ? '${name}Impl' : '${name}ModuleImpl';
-
-    // ── 1. No module import needed — bridge .swift files are compiled into
-    //        the same CocoaPods pod target. Remove any stale module import.
-    final staleImportPattern = RegExp(
-      r'#if canImport\(nitro_' + RegExp.escape(lib) + r'_module\)\s*\nimport nitro_' + RegExp.escape(lib) + r'_module\s*\n#endif\s*\n?',
-    );
-    if (staleImportPattern.hasMatch(content)) {
-      content = content.replaceAll(staleImportPattern, '');
-      modified = true;
-    }
-    final bareImport = RegExp(
-      r'import nitro_' + RegExp.escape(lib) + r'_module[ \t]*\r?\n?',
-    );
-    if (bareImport.hasMatch(content)) {
-      content = content.replaceAll(bareImport, '');
-      modified = true;
-    }
-
-    // ── 2. Ensure register() call is present ────────────────────────────────
-    if (!content.contains('$reg.register')) {
-      final match = RegExp(
-        r'\w+Registry\.register\(.*?\)\)',
-      ).allMatches(content);
-      if (match.isNotEmpty) {
-        content = content.replaceFirst(
-          match.last.group(0)!,
-          '${match.last.group(0)!}\n        $reg.register($impl())',
-        );
-        modified = true;
-      } else {
-        content = content.replaceFirst(
-          'public static func register(with registrar: FlutterPluginRegistrar) {',
-          'public static func register(with registrar: FlutterPluginRegistrar) {\n        $reg.register($impl())',
-        );
-        modified = true;
-      }
-    }
-  }
-  if (modified) pluginFile.writeAsStringSync(content);
-}
-
-void ensureIosPackageSwift(
-  String pluginName, {
-  String baseDir = '.',
-  List<ModuleInfo>? moduleInfos,
-}) {
-  // Check nested layout first (Flutter 3.41+: ios/<pluginName>/Package.swift),
-  // then fall back to flat layout (ios/Package.swift).
-  final spmStatus = spm.detectSpmStatus(baseDir);
-  if (spmStatus.iosHasSpm) {
-    // Package.swift already exists — patch missing FlutterFramework dep (old plugins)
-    // then sync C/C++ module sources into Sources/<MainCpp>/.
-    if (spmStatus.iosPackageSwiftPath != null) {
-      spm.ensureFlutterFrameworkDependency(spmStatus.iosPackageSwiftPath!);
-    }
-    _syncCppModuleSourcesToSpm(
-      pluginName,
-      moduleInfos: moduleInfos,
-      baseDir: baseDir,
-    );
-    return;
-  }
-
-  final className = pluginName.split('_').map((w) => w.isEmpty ? '' : w[0].toUpperCase() + w.substring(1)).join('');
-
-  // Create nested Flutter 3.41+ layout: ios/<pluginName>/Sources/
-  final packageRoot = p.join(baseDir, 'ios', pluginName);
-  Directory(p.join(packageRoot, 'Sources', className)).createSync(recursive: true);
-  Directory(p.join(packageRoot, 'Sources', '${className}Cpp')).createSync(recursive: true);
-
-  final packageSwift = File(p.join(packageRoot, 'Package.swift'));
-  packageSwift.writeAsStringSync(
-    st.iosPackageSwiftContent(pluginName, className),
-  );
-  _syncCppModuleSourcesToSpm(
-    pluginName,
-    moduleInfos: moduleInfos,
-    baseDir: baseDir,
-  );
-}
-
-/// Mirrors [ensureIosPackageSwift] for `macos/`. Creates the Flutter 3.41+
-/// nested SPM layout (`macos/<pluginName>/Package.swift`) if not present,
-/// then syncs C/C++ module sources into SPM Sources directories.
-void ensureMacosPackageSwift(
-  String pluginName, {
-  String baseDir = '.',
-  List<ModuleInfo>? moduleInfos,
-}) {
-  final spmStatus = spm.detectSpmStatus(baseDir);
-  if (spmStatus.macosHasSpm) {
-    // Patch missing FlutterFramework dep (old plugins) then sync sources.
-    if (spmStatus.macosPackageSwiftPath != null) {
-      spm.ensureFlutterFrameworkDependency(spmStatus.macosPackageSwiftPath!);
-    }
-    _syncCppModuleSourcesToSpm(pluginName, moduleInfos: moduleInfos, baseDir: baseDir);
-    return;
-  }
-
-  final className = pluginName.split('_').map((w) => w.isEmpty ? '' : w[0].toUpperCase() + w.substring(1)).join('');
-
-  final packageRoot = p.join(baseDir, 'macos', pluginName);
-  Directory(p.join(packageRoot, 'Sources', className)).createSync(recursive: true);
-  Directory(p.join(packageRoot, 'Sources', '${className}Cpp')).createSync(recursive: true);
-
-  File(p.join(packageRoot, 'Package.swift')).writeAsStringSync(
-    st.macosPackageSwiftContent(pluginName, className),
-  );
-  _syncCppModuleSourcesToSpm(pluginName, moduleInfos: moduleInfos, baseDir: baseDir);
-}
-
-/// Writes forwarder files for C++ module bridges and impl into the SPM target
-/// that owns the shared C++ layer (Sources/`<MainCpp>`/). Bridge headers are also
-/// copied into its include/ directory so SPM can find them.
-///
-/// Handles both flat (`ios/Sources/`) and Flutter 3.41+ nested
-/// (`ios/<pluginName>/Sources/`) SPM layouts automatically.
-///
-/// Only modules using `AppleNativeImpl.cpp` (or legacy `NativeImpl.cpp`) on
-/// ios or macos are synced here. Windows-only C++ modules must NOT appear in
-/// `ios/Sources/` — Xcode would reference the forwarder file and then fail with
-/// "Build input file cannot be found" when the abstract class has no iOS impl.
-void _syncCppModuleSourcesToSpm(
-  String pluginName, {
-  List<ModuleInfo>? moduleInfos,
-  String baseDir = '.',
-}) {
-  final className = pluginName.split('_').map((w) => w.isEmpty ? '' : w[0].toUpperCase() + w.substring(1)).join('');
-
-  final spmStatus = spm.detectSpmStatus(baseDir);
-
-  for (final platform in ['ios', 'macos']) {
-    final packageSwiftPath = platform == 'ios' ? spmStatus.iosPackageSwiftPath : spmStatus.macosPackageSwiftPath;
-
-    // Determine package root (sibling of Package.swift).
-    final packageRoot = packageSwiftPath != null ? File(packageSwiftPath).parent.path : null;
-
-    // Nested layout: ios/<pluginName>/Sources/<className>Cpp
-    // Flat layout:   ios/Sources/<className>Cpp
-    final cppTargetDir = packageRoot != null ? Directory(p.join(packageRoot, 'Sources', '${className}Cpp')) : Directory(p.join(baseDir, platform, 'Sources', '${className}Cpp'));
-
-    // All modules that *have* isCpp true (broad), so we can clean up stale
-    // forwarders for any that are no longer Apple C++.
-    final allCppModules = moduleInfos?.where((m) => m.isCpp).toList() ?? [];
-
-    // Determine whether there is any C/C++ content that needs to be compiled
-    // in this SPM C++ target. If there is none (pure Swift plugin with no C++
-    // modules and no main plugin .cpp/.c file) we skip writing any source
-    // files so the target directory stays empty — matching the no-op contract.
-    final mainCppFile = File(p.join(baseDir, 'src', '$pluginName.cpp'));
-    final mainCFile = File(p.join(baseDir, 'src', '$pluginName.c'));
-    final hasCContent = mainCppFile.existsSync() || mainCFile.existsSync() || allCppModules.isNotEmpty;
-
-    if (!hasCContent) {
-      // No C/C++ content — still sync Swift plugin files so SPM can compile them.
-      _syncSwiftPluginToSpm(
-        pluginName,
-        baseDir: baseDir,
-        platform: platform,
-        packageRoot: packageRoot,
-        className: className,
-      );
-      continue;
-    }
-
-    // Create the SPM C++ target directory if it doesn't exist yet. This handles
-    // the case where Package.swift already exists (spmHasSpm=true) but the
-    // Sources/<PluginCpp>/ directory was never created — e.g. first run of
-    // `nitrogen link` on a plugin whose Package.swift was set up manually, or
-    // where a previous partial run left the directory missing. Without this,
-    // the symbol `<plugin>_init_dart_api_dl` would be missing at runtime under SPM.
-    if (!cppTargetDir.existsSync()) {
-      cppTargetDir.createSync(recursive: true);
-    }
-
-    final nitroNativePath = resolveNitroNativePath(baseDir);
-    final includeDir = Directory(p.join(cppTargetDir.path, 'include'))..createSync(recursive: true);
-
-    // Copy nitro API headers and dart_api_dl.c into the SPM C++ target.
-    // Always write the canonical nitroHContent (with NITRO_ERROR_DEFINED guard)
-    // directly rather than copying from the installed nitro package, which may
-    // lack the guard. Using different copies with inconsistent guards causes a
-    // "Typedef redefinition" error when both are included in the same TU.
-    File(p.join(includeDir.path, 'nitro.h')).writeAsStringSync(nitroHContent);
-    for (final headerName in ['dart_api_dl.h', 'dart_api.h', 'dart_native_api.h', 'dart_version.h']) {
-      final src = File(p.join(nitroNativePath, headerName));
-      if (src.existsSync()) src.copySync(p.join(includeDir.path, headerName));
-    }
-    final internalSrc = Directory(p.join(nitroNativePath, 'internal'));
-    if (internalSrc.existsSync()) {
-      final internalDst = Directory(p.join(includeDir.path, 'internal'))..createSync(recursive: true);
-      for (final f in internalSrc.listSync().whereType<File>()) {
-        f.copySync(p.join(internalDst.path, p.basename(f.path)));
-      }
-    }
-
-    // dart_api_dl.c — write a portable self-contained stub that includes only
-    // the local header copies in include/. The old forwarder embedded an
-    // absolute machine-specific path which broke on other machines / CI.
-    File(p.join(cppTargetDir.path, 'dart_api_dl.c')).writeAsStringSync(bundledDartApiDlContent);
-
-    // 1. Link the main plugin stub file.
-    if (mainCppFile.existsSync()) {
-      final relMainCpp = p.relative(mainCppFile.path, from: cppTargetDir.path).replaceAll(r'\', '/');
-      File(p.join(cppTargetDir.path, '$pluginName.cpp')).writeAsStringSync(
-        managedCppForwarder(relMainCpp),
-      );
-    } else if (mainCFile.existsSync()) {
-      final relMainC = p.relative(mainCFile.path, from: cppTargetDir.path).replaceAll(r'\', '/');
-      File(p.join(cppTargetDir.path, '$pluginName.c')).writeAsStringSync(
-        managedCppForwarder(relMainC),
-      );
-    }
-
-    // 2. Main plugin bridge — compiled as .mm so SPM treats it as Obj-C++ and
-    //    links the C bridge symbols (<plugin>_init_dart_api_dl, etc.)
-    //    that are defined in the generated .bridge.g.cpp.
-    //    Without this file the symbol is missing at runtime under SPM and the
-    //    app crashes with: Failed to lookup symbol '<plugin>_init_dart_api_dl'.
-    //    Foundation must be imported before the .cpp because the bridge uses
-    //    #ifdef __OBJC__ blocks with NSException / @try-@catch.
-    //
-    //    IMPORTANT: we write this unconditionally — NOT guarded by existsSync().
-    //    If nitrogen link is run before nitrogen generate (common first-run
-    //    workflow) the bridge.g.cpp does not exist yet, but the .mm forwarder
-    //    must still be created so it is present when the app is compiled after
-    //    generate has been run. The relative #include is resolved at compile
-    //    time, not at nitrogen link time.
-    {
-      final mainBridgeCppPath = p.join(
-        baseDir,
-        'lib',
-        'src',
-        'generated',
-        'cpp',
-        '$pluginName.bridge.g.cpp',
-      );
-      final relBridge = p.relative(mainBridgeCppPath, from: cppTargetDir.path).replaceAll(r'\', '/');
-      File(p.join(cppTargetDir.path, '$pluginName.bridge.g.mm')).writeAsStringSync(
-        managedBridgeMmForwarder(relBridge),
-      );
-    }
-
-    // 2a. Per-module SPM C++ targets (issue #15).
-    //     Every non-main module gets its OWN `Sources/<ModuleClass>Cpp/`
-    //     target directory holding its .mm bridge forwarder (Swift-backed
-    //     modules included — the ${lib}_init_dart_api_dl symbol must be
-    //     linked for every module), an umbrella header so the module's Swift
-    //     bridge can `import <ModuleClass>Cpp` for @nitroNativeAsync, and —
-    //     for Apple-C++ modules — the HybridXxx.cpp impl forwarder plus the
-    //     C bridge header. Previously every module's sources were synced
-    //     into the single plugin-level target: a second module's Swift
-    //     bridge could never resolve its `import <Module>Cpp`, and moving
-    //     files by hand produced duplicate-symbol link errors.
-    //     Written unconditionally (same as the main bridge above) so the
-    //     forwarders exist even when `nitrogen link` runs before
-    //     `nitrogen generate`.
-    if (moduleInfos != null) {
-      final sourcesRoot = packageRoot != null ? p.join(packageRoot, 'Sources') : p.join(baseDir, platform, 'Sources');
-      final specLibDir = Directory(p.join(baseDir, 'lib'));
-      final moduleSpecFiles = specLibDir.existsSync() ? specLibDir.listSync(recursive: true).whereType<File>().where((f) => f.path.endsWith('.native.dart')).toList() : <File>[];
-      final modulePlatformFilter = platform == 'ios' ? isIosCppModule : isMacosCppModule;
-      String libOf(File f) {
-        final stem = p.basename(f.path).replaceAll(RegExp(r'\.native\.dart$'), '');
-        return extractLibNameFromSpec(f) ?? stem;
-      }
-
-      final modulePlatformCppLibs = moduleSpecFiles.where(modulePlatformFilter).map(libOf).toSet();
-      final moduleKnownLibs = moduleSpecFiles.map(libOf).toSet();
-
-      final nonMainModules = moduleInfos.where((m) => m.lib != pluginName).toList();
-
-      // Declare the module targets in Package.swift FIRST (idempotent;
-      // skipped with a paste-block warning when the manifest is
-      // hand-authored) — the per-module repair below reads the resulting
-      // manifest to decide what is safe to remove.
-      if (packageSwiftPath != null && nonMainModules.isNotEmpty) {
-        spm.ensureModuleCppTargets(
-          packageSwiftPath,
-          pluginName: pluginName,
-          pluginClass: className,
-          moduleClasses: nonMainModules.map((m) => m.module).toList(),
-        );
-      }
-      final packageSwiftContent = packageSwiftPath != null && File(packageSwiftPath).existsSync() ? File(packageSwiftPath).readAsStringSync() : '';
-      // True when the module target's block declares a dependency on the
-      // plugin-level Cpp target — i.e. dart_api_dl.h resolves through the
-      // dependency's public headers. Hand-authored targets that instead
-      // carry their OWN dart header copies (the pre-0.5.13 workaround
-      // layout, e.g. nitro_webgpu) return false here and keep those copies.
-      bool moduleDependsOnPluginCpp(String moduleClass) {
-        final idx = packageSwiftContent.indexOf('name: "${moduleClass}Cpp"');
-        if (idx == -1) return false;
-        var end = packageSwiftContent.indexOf('name: "', idx + 1);
-        if (end == -1) end = packageSwiftContent.length;
-        return packageSwiftContent.substring(idx, end).contains('"${className}Cpp"');
-      }
-      for (final m in nonMainModules) {
-        final moduleTargetDir = Directory(p.join(sourcesRoot, '${m.module}Cpp'))..createSync(recursive: true);
-        final moduleIncludeDir = Directory(p.join(moduleTargetDir.path, 'include'))..createSync(recursive: true);
-
-        // Bridge forwarder — .mm so SPM compiles the C bridge as Obj-C++.
-        final bridgeCppPath = p.join(baseDir, 'lib', 'src', 'generated', 'cpp', '${m.lib}.bridge.g.cpp');
-        final relBridge = p.relative(bridgeCppPath, from: moduleTargetDir.path).replaceAll(r'\', '/');
-        File(p.join(moduleTargetDir.path, '${m.lib}.bridge.g.mm')).writeAsStringSync(
-          managedBridgeMmForwarder(relBridge),
-        );
-
-        // Exports header: makes `import <ModuleClass>Cpp` expose the Dart DL
-        // API (Dart_CObject etc.) in Swift, re-exported from the plugin-level
-        // Cpp target (a target dependency — the dart headers are deliberately
-        // NEVER copied here: two copies of dart_api_dl.h inside one package
-        // cause a clang "ambiguous module" error).
-        //
-        // The file must NOT be named `<TargetName>.h` — SwiftPM promotes a
-        // public header with exactly the target's name to THE umbrella
-        // header, and that layout forbids sibling directories inside the
-        // public headers dir (e.g. a hand-added include/internal/), failing
-        // package resolution with "invalid header layout" (issue #21). Any
-        // other name falls back to SPM's permissive umbrella-DIRECTORY module
-        // map, where subdirectories are fine.
-        File(p.join(moduleIncludeDir.path, '${m.module}CppExports.h')).writeAsStringSync(
-          '// Generated by nitrogen — public exports for the ${m.module}Cpp SPM target.\n'
-          '// Re-exports the Dart DL API from the ${className}Cpp dependency.\n'
-          '// Deliberately NOT named ${m.module}Cpp.h: SwiftPM would treat that as the\n'
-          '// umbrella header and reject any subdirectory next to it (issue #21).\n'
-          '#include "dart_api_dl.h"\n',
-        );
-
-        // REPAIR (issue #21), part 1 — unconditional: the 0.5.13
-        // target-named umbrella header makes SPM reject the whole package
-        // ("invalid header layout") whenever include/ has a subdirectory.
-        final staleUmbrella = File(p.join(moduleIncludeDir.path, '${m.module}Cpp.h'));
-        if (staleUmbrella.existsSync()) staleUmbrella.deleteSync();
-
-        // REPAIR (issue #21), part 2 — gated: dart DL header copies (and
-        // their internal/ directory) duplicate the plugin target's modular
-        // headers and cause clang module ambiguity — but they are only safe
-        // to remove when this module target actually resolves the headers
-        // through its ${className}Cpp dependency. A hand-authored target
-        // without that dependency (nitro_webgpu's pre-0.5.13 layout) NEEDS
-        // its own copies — leave them alone.
-        if (moduleDependsOnPluginCpp(m.module)) {
-          for (final stale in [
-            File(p.join(moduleIncludeDir.path, 'dart_api_dl.h')),
-            File(p.join(moduleIncludeDir.path, 'dart_api.h')),
-            File(p.join(moduleIncludeDir.path, 'dart_native_api.h')),
-            File(p.join(moduleIncludeDir.path, 'dart_version.h')),
-            File(p.join(moduleIncludeDir.path, 'nitro.h')),
-          ]) {
-            if (stale.existsSync()) stale.deleteSync();
-          }
-          final staleInternal = Directory(p.join(moduleIncludeDir.path, 'internal'));
-          if (staleInternal.existsSync()) staleInternal.deleteSync(recursive: true);
-        }
-
-        // Apple-C++ modules also carry their impl forwarder + bridge header.
-        final hybridClass = _toPascalCase(m.lib);
-        final implForwarder = File(p.join(moduleTargetDir.path, 'Hybrid$hybridClass.cpp'));
-        final isAppleCppHere = m.isCpp && (!moduleKnownLibs.contains(m.lib) || modulePlatformCppLibs.contains(m.lib));
-        if (isAppleCppHere) {
-          final implSrc = File(p.join(baseDir, 'src', 'Hybrid$hybridClass.cpp'));
-          if (implSrc.existsSync()) {
-            final relPath = p.relative(implSrc.path, from: moduleTargetDir.path).replaceAll(r'\', '/');
-            implForwarder.writeAsStringSync(managedCppForwarder(relPath));
-          }
-          final hSrc = File(p.join(baseDir, 'lib', 'src', 'generated', 'cpp', '${m.lib}.bridge.g.h'));
-          if (hSrc.existsSync()) hSrc.copySync(p.join(moduleIncludeDir.path, '${m.lib}.bridge.g.h'));
-        } else {
-          if (implForwarder.existsSync()) implForwarder.deleteSync();
-        }
-
-        // REPAIR: this module's sources used to be synced into the
-        // plugin-level target — remove them there so both targets never
-        // compile the same bridge (duplicate ${m.lib}_* symbols at link).
-        for (final stale in [
-          File(p.join(cppTargetDir.path, '${m.lib}.bridge.g.mm')),
-          File(p.join(cppTargetDir.path, 'Hybrid$hybridClass.cpp')),
-          File(p.join(includeDir.path, '${m.lib}.bridge.g.h')),
-        ]) {
-          if (stale.existsSync()) stale.deleteSync();
-        }
-      }
-
-      // (ensureModuleCppTargets already ran before the loop — the repair
-      // logic above depends on the resulting manifest.)
-    }
-
-    // Skip module-specific C++ bridge linking when no C++ modules exist.
-    if (allCppModules.isEmpty) continue;
-
-    // Discover which modules use NativeImpl.cpp specifically on THIS platform.
-    // A mixed module (ios:swift, macos:cpp) must only get HybridXxx.cpp on macOS.
-    final libDir = Directory(p.join(baseDir, 'lib'));
-    final specFiles = libDir.existsSync() ? libDir.listSync(recursive: true).whereType<File>().where((f) => f.path.endsWith('.native.dart')).toList() : <File>[];
-    final platformCppFilter = platform == 'ios' ? isIosCppModule : isMacosCppModule;
-    final platformCppLibs = specFiles.where(platformCppFilter).map((f) {
-      final stem = p.basename(f.path).replaceAll(RegExp(r'\.native\.dart$'), '');
-      return extractLibNameFromSpec(f) ?? stem;
-    }).toSet();
-    // All lib names that have any spec file (used to detect "spec exists but not Apple").
-    final knownLibs = specFiles.map((f) {
-      final stem = p.basename(f.path).replaceAll(RegExp(r'\.native\.dart$'), '');
-      return extractLibNameFromSpec(f) ?? stem;
-    }).toSet();
-
-    // Only the MAIN module's C++ sources still live in the plugin-level
-    // target — every other module was routed to its own <ModuleClass>Cpp
-    // target in section 2a above (issue #15).
-    for (final m in allCppModules.where((m) => m.lib == pluginName)) {
-      final lib = m.lib;
-      final hybridClass = _toPascalCase(lib);
-      // Safe default: if no spec file was found for this lib, assume Apple (keep forwarder).
-      // Only remove the forwarder when a spec explicitly confirms it is NOT Apple C++.
-      final isApple = !knownLibs.contains(lib) || platformCppLibs.contains(lib);
-
-      final bridgeMm = File(p.join(cppTargetDir.path, '$lib.bridge.g.mm'));
-      final implForwarder = File(
-        p.join(cppTargetDir.path, 'Hybrid$hybridClass.cpp'),
-      );
-
-      if (isApple) {
-        // ── Write / update forwarders for Apple C++ modules ──────────────────
-
-        // Forwarder: bridge .cpp → .mm so SPM compiles it as Obj-C++.
-        // Written unconditionally (NOT guarded by existsSync) using a relative
-        // path so it is portable across machines and works even when
-        // `nitrogen link` is run before `nitrogen generate`.
-        // Skip when lib == pluginName — the main plugin bridge at line 2052
-        // already covers that file unconditionally; writing it again here would
-        // duplicate work but is harmless. We skip to keep intent clear.
-        if (lib != pluginName) {
-          final bridgeCppPath = p.join(
-            baseDir,
-            'lib',
-            'src',
-            'generated',
-            'cpp',
-            '$lib.bridge.g.cpp',
-          );
-          final relBridge = p.relative(bridgeCppPath, from: cppTargetDir.path).replaceAll(r'\', '/');
-          bridgeMm.writeAsStringSync(managedBridgeMmForwarder(relBridge));
-        }
-
-        // Forwarder: C++ impl — use a relative #include so the path is
-        // portable across machines (absolute pub-cache paths break on CI).
-        final implSrc = File(p.join(baseDir, 'src', 'Hybrid$hybridClass.cpp'));
-        if (implSrc.existsSync()) {
-          final relPath = p.relative(implSrc.path, from: cppTargetDir.path).replaceAll(r'\', '/');
-          implForwarder.writeAsStringSync(managedCppForwarder(relPath));
-        }
-
-        // Copy only the C-compatible bridge header into include/. The .native.g.h
-        // uses C++ types (std::string, classes) and must NOT be a public module
-        // header — CocoaPods would include it in the umbrella and break Swift/ObjC
-        // module compilation. It is reachable via HEADER_SEARCH_PATHS instead.
-        final bridgeHeader = '$lib.bridge.g.h';
-        final hSrc = File(
-          p.join(baseDir, 'lib', 'src', 'generated', 'cpp', bridgeHeader),
-        );
-        if (hSrc.existsSync()) {
-          hSrc.copySync(p.join(includeDir.path, bridgeHeader));
-        }
-      } else {
-        // ── Remove stale impl forwarder for non-Apple-C++ modules ─────────────
-        // e.g. a module with `windows: WindowsNativeImpl.cpp, ios: NativeImpl.swift`
-        // should NOT get a HybridXxx.cpp forwarder on Apple — only the bridge mm.
-        // NEVER delete the bridge.g.mm: every module's bridge.g.cpp defines
-        // ${lib}_init_dart_api_dl, which must be compiled into the SPM binary
-        // even for Swift-backed modules. Deleting it causes a symbol-not-found
-        // crash at runtime on any second/third spec in a multi-spec plugin.
-        if (implForwarder.existsSync()) implForwarder.deleteSync();
-      }
-    }
-
-    // ── Sync Swift plugin registration and impl to SPM target ────────────────
-    // SPM can't see files in ios/Classes/ — copy them to Sources/<className>/
-    // so the Swift target can compile them.
-    _syncSwiftPluginToSpm(
-      pluginName,
-      baseDir: baseDir,
-      platform: platform,
-      packageRoot: packageRoot,
-      className: className,
-    );
-  }
-}
-
-/// Copies Swift plugin registration and impl files from the target platform's
-/// Classes/ directory to the SPM Sources/ directory. This is required because
-/// SPM packages are isolated — they cannot access files outside their source path.
-/// Without these copies, the Flutter plugin registrant cannot find the Swift
-/// plugin class.
-void _syncSwiftPluginToSpm(
-  String pluginName, {
-  required String baseDir,
-  required String platform,
-  String? packageRoot,
-  required String className,
-}) {
-  // Determine the SPM Swift source directory.
-  final swiftTargetDir = packageRoot != null ? Directory(p.join(packageRoot, 'Sources', className)) : Directory(p.join(baseDir, platform, 'Sources', className));
-
-  // Determine the source Classes directory.
-  final classesDir = Directory(p.join(baseDir, platform, 'Classes'));
-  if (!classesDir.existsSync()) return;
-
-  // Skip if the SPM Swift target directory doesn't exist — no SPM layout for this platform.
-  if (!swiftTargetDir.existsSync()) return;
-
-  // Find Swift files in Classes: *Plugin.swift and *Impl.swift
-  final swiftFiles = classesDir.listSync(followLinks: false).whereType<File>().where((f) => f.path.endsWith('.swift')).toList();
-
-  for (final srcFile in swiftFiles) {
-    final dstFile = File(p.join(swiftTargetDir.path, p.basename(srcFile.path)));
-    if (!dstFile.existsSync()) {
-      srcFile.copySync(dstFile.path);
-    }
-  }
-}
-
-/// Ensures `System.loadLibrary("lib")` is present in the Kotlin plugin's
-/// companion object init block for each cpp module lib.
-/// cpp modules use `__attribute__((constructor))` for auto-registration, so
-/// no JniBridge.register call is needed — just loading the .so is enough.
-void linkKotlinLoadLibraries(List<String> libs, {String baseDir = '.'}) {
-  final kotlinDir = Directory(
-    p.join(baseDir, 'android', 'src', 'main', 'kotlin'),
-  );
-  if (!kotlinDir.existsSync()) return;
-  final pluginFiles = kotlinDir
-      .listSync(recursive: true, followLinks: false)
-      .whereType<File>()
-      .where((f) => !f.path.contains('.symlinks'))
-      .where((f) => f.path.endsWith('Plugin.kt'))
-      .toList();
-  if (pluginFiles.isEmpty) return;
-  final pluginFile = pluginFiles.first;
-  var content = pluginFile.readAsStringSync();
-  bool modified = false;
-  for (final lib in libs) {
-    if (!content.contains('loadLibrary("$lib")')) {
-      // Insert after the last existing System.loadLibrary call in the init block
-      final match = RegExp(
-        r'System\.loadLibrary\("[^"]+"\)',
-      ).allMatches(content);
-      if (match.isNotEmpty) {
-        content = content.replaceFirst(
-          match.last.group(0)!,
-          '${match.last.group(0)!}\n            System.loadLibrary("$lib")',
-        );
-      } else {
-        // Fallback: inject into existing companion object, or insert a new one.
-        final className = p.basenameWithoutExtension(pluginFile.path);
-        final classPattern = RegExp('class\\s+$className[^{]*\\{');
-        final classMatch = classPattern.firstMatch(content);
-        if (classMatch == null) {
-          throw Exception(
-            'nitrogen link failed: Cannot find opening "{" for class $className in ${p.basename(pluginFile.path)} '
-            'to inject System.loadLibrary("$lib"). Please add it manually.',
-          );
-        }
-        // Check if there's already a companion object in the class body
-        final classBody = classMatch.group(0)!;
-        final companionPattern = RegExp(r'companion\s+object');
-        if (companionPattern.hasMatch(content)) {
-          // Inject into existing companion object before its closing brace
-          final companionMatch = RegExp(
-            r'companion\s+object[^{]*\{([^}]*)\}',
-          ).firstMatch(content);
-          if (companionMatch != null) {
-            content = content.replaceFirst(
-              companionMatch.group(0)!,
-              companionMatch
-                  .group(0)!
-                  .replaceFirst(
-                    '}',
-                    '    System.loadLibrary("$lib")\n        }',
-                  ),
-            );
-          } else {
-            throw Exception(
-              'nitrogen link failed: Found companion object in $className (${p.basename(pluginFile.path)}) '
-              'but could not locate its closing brace to inject System.loadLibrary("$lib"). Please add it manually.',
-            );
-          }
-        } else {
-          content = content.replaceFirst(
-            classBody,
-            '$classBody\n    companion object {\n        init { System.loadLibrary("$lib") }\n    }\n',
-          );
-        }
-      }
-      modified = true;
-    }
-  }
-  if (modified) pluginFile.writeAsStringSync(content);
-}
-
-void linkKotlinPlugin(
-  String pluginName,
-  List<Map<String, String>> modules, {
-  String baseDir = '.',
-}) {
-  final kotlinDir = Directory(
-    p.join(baseDir, 'android', 'src', 'main', 'kotlin'),
-  );
-  if (!kotlinDir.existsSync()) return;
-  final pluginFiles = kotlinDir
-      .listSync(recursive: true, followLinks: false)
-      .whereType<File>()
-      .where((f) => !f.path.contains('.symlinks'))
-      .where((f) => f.path.endsWith('Plugin.kt'))
-      .toList();
-  if (pluginFiles.isEmpty) return;
-  final pluginFile = pluginFiles.first;
-  var content = pluginFile.readAsStringSync();
-  bool modified = false;
-  for (final m in modules) {
-    final name = m['module']!;
-    final lib = (m['lib'] ?? name.toLowerCase()).replaceAll('-', '_');
-    final reg = '${name}JniBridge';
-    final impl = '${name}Impl';
-    // The Kotlin generator emits: package nitro.${lib}_module
-    // so the fully-qualified import is: import nitro.${lib}_module.${Module}JniBridge
-    final importLine = 'import nitro.${lib}_module.$reg';
-
-    // ── 1. Ensure import is present ─────────────────────────────────────────
-    if (!content.contains(importLine)) {
-      // Insert after the last 'import …' line in the file for clean ordering.
-      final importMatches = RegExp(
-        r'^import .+$',
-        multiLine: true,
-      ).allMatches(content);
-      if (importMatches.isNotEmpty) {
-        final lastImport = importMatches.last;
-        content = content.replaceRange(
-          lastImport.end,
-          lastImport.end,
-          '\n$importLine',
-        );
-      } else {
-        // No imports yet — add one blank line after the package declaration.
-        content = content.replaceFirstMapped(
-          RegExp(r'^package .+$', multiLine: true),
-          (m) => '${m.group(0)!}\n\n$importLine',
-        );
-      }
-      modified = true;
-    }
-
-    // ── 2. Ensure register() call is present ────────────────────────────────
-    // Detect whether XxxImpl needs a Context argument by scanning the impl file.
-    // Nitro Kotlin impls commonly take Context in their primary constructor.
-    // If we inject XxxImpl() when XxxImpl(context: Context) is required, the
-    // call compiles but crashes at runtime — pass binding.applicationContext.
-    final implArg = _detectKotlinImplArg(impl, baseDir: baseDir);
-    // registerFactory (lambda + Context) — the generated JniBridge's only
-    // registration API since the multi-instance registry landed; the old
-    // register(impl) overload no longer exists and would not compile.
-    final registerCall = '$reg.registerFactory({ $impl($implArg) }, binding.applicationContext)';
-    if (!content.contains('$reg.register')) {
-      // Anchor after the last existing registration (either legacy
-      // register(...) or registerFactory({...}, ctx) — both end-of-line forms).
-      final match = RegExp(
-        r'\w+JniBridge\.register\w*\(.*\)$',
-        multiLine: true,
-      ).allMatches(content);
-      if (match.isNotEmpty) {
-        // Append after the last existing JniBridge.register() call.
-        content = content.replaceFirst(
-          match.last.group(0)!,
-          '${match.last.group(0)!}\n        $registerCall',
-        );
-      } else {
-        content = content.replaceFirst(
-          'override fun onAttachedToEngine(binding: FlutterPlugin.FlutterPluginBinding) {',
-          'override fun onAttachedToEngine(binding: FlutterPlugin.FlutterPluginBinding) {\n        $registerCall',
-        );
-      }
-      modified = true;
-    }
-  }
-  if (modified) pluginFile.writeAsStringSync(content);
-}
-
-/// Inspects the impl Kotlin file for [implClass] to decide what argument to
-/// pass when calling [implClass](...) inside `onAttachedToEngine`.
-///
-/// Returns `'binding.applicationContext'` if the primary constructor has a
-/// `Context` parameter, or `''` (empty — no-arg call) otherwise.
-String _detectKotlinImplArg(String implClass, {String baseDir = '.'}) {
-  final ktDir = Directory(p.join(baseDir, 'android', 'src', 'main', 'kotlin'));
-  if (!ktDir.existsSync()) return '';
-  final candidates = ktDir.listSync(recursive: true).whereType<File>().where((f) => f.path.endsWith('$implClass.kt')).toList();
-  if (candidates.isEmpty) return '';
-  final src = candidates.first.readAsStringSync();
-  // Match e.g. `class FooImpl(private val context: Context)` or
-  //             `class FooImpl(val ctx: Context, ...)`
-  if (RegExp(
-    r'class\s+' + RegExp.escape(implClass) + r'\s*\([^)]*:\s*Context',
-  ).hasMatch(src)) {
-    return 'binding.applicationContext';
-  }
-  return '';
-}
-
-/// Removes stale `<Module>JniBridge.register(...)` calls from Plugin.kt for
-/// modules that have been converted to NativeImpl.cpp.
-///
-/// When a user switches `android: NativeImpl.kotlin` → `AndroidNativeImpl.cpp`
-/// (or any C++ variant), the old registration call is left as dead code that
-/// causes a Kotlin "Unresolved reference" compile error. This function finds
-/// and removes those stale calls automatically on every `nitrogen link` run.
-void purgeStaleCppKotlinRegistrations(
-  List<ModuleInfo> cppModules, {
-  String baseDir = '.',
-}) {
-  if (cppModules.isEmpty) return;
-  final kotlinDir = Directory(
-    p.join(baseDir, 'android', 'src', 'main', 'kotlin'),
-  );
-  if (!kotlinDir.existsSync()) return;
-  final pluginFiles = kotlinDir
-      .listSync(recursive: true, followLinks: false)
-      .whereType<File>()
-      .where((f) => !f.path.contains('.symlinks'))
-      .where((f) => f.path.endsWith('Plugin.kt'))
-      .toList();
-  if (pluginFiles.isEmpty) return;
-  final pluginFile = pluginFiles.first;
-  var content = pluginFile.readAsStringSync();
-  bool modified = false;
-
-  for (final m in cppModules) {
-    // Match: <Module>JniBridge.register(<anything>) OR .registerFactory(...)
-    // Anchored to line start (^ with multiLine): without it, a module whose
-    // class name is a SUFFIX of another's (e.g. cpp module `Present` vs
-    // Kotlin module `WebgpuPresent`) would match inside
-    // `WebgpuPresentJniBridge.register(...)` and corrupt that line.
-    final stalePattern = RegExp(
-      r'^[ \t]*' + RegExp.escape('${m.module}JniBridge') + r'\.register\w*\(.*\)[ \t]*\r?\n?',
-      multiLine: true,
-    );
-    if (stalePattern.hasMatch(content)) {
-      content = content.replaceAll(stalePattern, '');
-      modified = true;
-    }
-  }
-
-  // Clean up orphaned imports for the removed JniBridge class — ONLY when
-  // nothing else in the file still references it. An all-cpp Android module
-  // still emits a JniBridge class (lifecycle hooks such as
-  // onActivityAttached), and a user's ActivityAware plugin legitimately
-  // calls it; removing a still-used import breaks compileDebugKotlin with
-  // "Unresolved reference" (issue #16, reopened).
-  for (final m in cppModules) {
-    // `\.` before the class and a non-identifier boundary after it, so the
-    // import of a longer-named sibling (WebgpuPresentJniBridge when purging
-    // Present) is never mistaken for this module's import.
-    final importPattern = RegExp(
-      r'^import [^\n]+?\.' + RegExp.escape('${m.module}JniBridge') + r'(?![A-Za-z0-9_])[^\n]*\n?',
-      multiLine: true,
-    );
-    if (!importPattern.hasMatch(content)) continue;
-    final withoutImports = content.replaceAll(importPattern, '');
-    // Identifier-boundary usage check: `PresentJniBridge` inside
-    // `WebgpuPresentJniBridge` must not count as a remaining usage.
-    final usagePattern = RegExp(
-      r'(?<![A-Za-z0-9_.])' + RegExp.escape('${m.module}JniBridge') + r'(?![A-Za-z0-9_])',
-    );
-    if (!usagePattern.hasMatch(withoutImports)) {
-      content = withoutImports;
-      modified = true;
-    }
-  }
-
-  if (modified) pluginFile.writeAsStringSync(content);
-}
-
-/// Patches a desktop platform CMakeLists.txt (windows/ or linux/) to include
-/// the Nitro bridge sources and headers required for dart:ffi C++ plugins.
-/// Desktop templates use `${PLUGIN_NAME}` as the CMake target name.
-void _linkDesktopCMake(
-  String pluginName,
-  List<String> moduleLibs,
-  String nitroNativePath, {
-  required String platform,
-  String baseDir = '.',
-  List<ModuleInfo>? moduleInfos,
-}) {
-  final cmakeFile = File(p.join(baseDir, platform, 'CMakeLists.txt'));
-  if (!cmakeFile.existsSync()) return;
-  var content = cmakeFile.readAsStringSync();
-  bool modified = false;
-
-  // Flutter APP-RUNNER CMakeLists (an example app's windows/ or linux/ dir,
-  // hit when the example is itself a Nitro module) — NOT a plugin platform
-  // file. Runners define BINARY_NAME and add_executable; `${PLUGIN_NAME}` is
-  // never defined in their scope, so a nitro include block on it is a hard
-  // configure error, and NITRO_NATIVE serves no purpose there (the example's
-  // module compiles through its own src/CMakeLists.txt). Strip anything an
-  // earlier nitrogen version injected and otherwise leave the file alone
-  // (issue #11).
-  final isAppRunner = content.contains('BINARY_NAME') || content.contains('add_executable(');
-  if (isAppRunner) {
-    var cleaned = content.replaceAll(
-      RegExp(r'\n?target_include_directories\(\s*\$\{PLUGIN_NAME\}[^)]+\)\n?'),
-      '\n',
-    );
-    cleaned = cleaned.replaceAll(
-      RegExp(r'^set\(NITRO_NATIVE "[^"]*"\)\n\n?', multiLine: true),
-      '',
-    );
-    if (cleaned != content) {
-      cmakeFile.writeAsStringSync(cleaned);
-      stdout.writeln('  $platform/CMakeLists.txt: removed nitro-injected block from app-runner CMakeLists (it broke configure with an undefined \${PLUGIN_NAME})');
-    }
-    return;
-  }
-
-  const desiredNitroValue = _desktopLocalNitroNativeCmakePath;
-  if (!content.contains('NITRO_NATIVE')) {
-    content = 'set(NITRO_NATIVE "$desiredNitroValue")\n\n$content';
-    modified = true;
-  } else {
-    final staleMatch = RegExp(
-      r'set\(NITRO_NATIVE\s+"([^"]+)"\)',
-    ).firstMatch(content);
-    if (staleMatch != null && staleMatch.group(1) != desiredNitroValue) {
-      content = content.replaceFirst(
-        staleMatch.group(0)!,
-        'set(NITRO_NATIVE "$desiredNitroValue")',
-      );
-      modified = true;
-    }
-  }
-
-  // Desktop CMake templates use `${PLUGIN_NAME}` (a CMake variable) as the
-  // target name. Use literal string matching to avoid regex backreference issues.
-  // The pattern covers the common "add_library(${PLUGIN_NAME} SHARED\n" line.
-  const addLibLine = 'add_library(\${PLUGIN_NAME} SHARED\n';
-
-  // If the platform CMakeLists delegates compilation to the shared src/ directory
-  // via add_subdirectory("../src"), then dart_api_dl.c and bridge.g.cpp are
-  // already compiled through src/CMakeLists.txt. Skip adding them here to avoid
-  // duplicate-symbol linker errors and confusing doctor warnings.
-  final usesSharedSrc = content.contains('add_subdirectory') && (content.contains('"../src"') || content.contains(r'"${CMAKE_CURRENT_SOURCE_DIR}/../src"'));
-
-  if (!usesSharedSrc) {
-    if (!content.contains('dart_api_dl.c')) {
-      content = content.replaceFirst(
-        addLibLine,
-        '$addLibLine  "\${CMAKE_CURRENT_SOURCE_DIR}/../src/dart_api_dl.c"\n',
-      );
-      modified = true;
-    }
-
-    final bridgeRel = '../lib/src/generated/cpp/$pluginName.bridge.g.cpp';
-    if (!content.contains(bridgeRel)) {
-      content = content.replaceFirst(
-        addLibLine,
-        '$addLibLine  "\${CMAKE_CURRENT_SOURCE_DIR}/$bridgeRel"\n',
-      );
-      modified = true;
-    }
-  }
-
-  if (usesSharedSrc) {
-    // Point src/CMakeLists.txt at THIS platform's own impl file instead of
-    // the file it'd otherwise share with the other desktop platform.
-    // Two independent, either-is-sufficient ways to opt in:
-    //   1. Implicit / gradual: the plugin author has actually started
-    //      writing code in $platform/src/Hybrid<Class>.cpp (see
-    //      hasCustomPlatformImpl) — an untouched stub doesn't count.
-    //   2. Explicit / immediate: the annotation spells this platform's impl
-    //      using its specific marker type (`WindowsNativeImpl.cpp` /
-    //      `LinuxNativeImpl.cpp`) rather than the generic `NativeImpl.cpp`
-    //      shorthand (see requestsSeparateWindowsImpl/requestsSeparateLinuxImpl)
-    //      — linkWindowsCppImplStubs/linkLinuxCppImplStubs migrate the
-    //      shared file's content into the new location the first time this
-    //      fires, so activating is a location change, not a behavior change.
-    // Neither path applies just because a module targets NativeImpl.cpp on
-    // both desktop platforms — some plugins want one shared file because the
-    // logic really is identical across them; others want Windows and Linux
-    // to diverge. Both are valid, ongoing choices. Must run before
-    // add_subdirectory("../src") so the variable is visible when
-    // src/CMakeLists.txt's target_sources(... $NITRO_IMPL_SRC_<lib> ...)
-    // call reads it.
-    final needsOwnImpl = moduleInfos
-            ?.where(
-              (m) =>
-                  (platform == 'windows' ? m.windowsIsCpp : m.linuxIsCpp) &&
-                  ((platform == 'windows' ? m.windowsRequestsSeparateImpl : m.linuxRequestsSeparateImpl) || hasCustomPlatformImpl(baseDir, platform, _toPascalCase(m.lib))),
-            )
-            .toList() ??
-        const <ModuleInfo>[];
-    if (needsOwnImpl.isNotEmpty) {
-      final addSubdirMatch = RegExp(r'add_subdirectory\([^)]+\)').firstMatch(content);
-      if (addSubdirMatch != null) {
-        final setLines = StringBuffer();
-        for (final m in needsOwnImpl) {
-          final varName = ct.nitroImplSrcVar(m.lib);
-          if (content.contains('set($varName ')) continue; // already wired, idempotent
-          // Matches linkWindowsCppImplStubs/linkLinuxCppImplStubs's filename
-          // convention exactly (Hybrid$className.cpp, className from m.lib).
-          final className = _toPascalCase(m.lib);
-          setLines.writeln('set($varName "\${CMAKE_CURRENT_SOURCE_DIR}/src/Hybrid$className.cpp")');
-        }
-        if (setLines.isNotEmpty) {
-          content = content.replaceFirst(addSubdirMatch.group(0)!, '$setLines${addSubdirMatch.group(0)!}');
-          modified = true;
-        }
-      }
-    }
-
-    // Two distinct shapes share the "add_subdirectory(../src)" marker:
-    //   1. Pure shared-src (single-spec FFI plugins, e.g. nitro_torch): the
-    //      Nitro module library IS the only target; `${PLUGIN_NAME}` is
-    //      undefined. Appending target_include_directories on it is a hard
-    //      CMake configure error — strip any such block and stop.
-    //   2. Multi-spec plugins (e.g. benchmark: benchmark/benchmark_cpp/nitro_ar
-    //      sharing src/, PLUS their own `benchmark_plugin.cc` registrant
-    //      target): `${PLUGIN_NAME}` IS a real target here, separate from the
-    //      shared Nitro module libraries. Its public `include/` dir must stay
-    //      exposed via INTERFACE so the example app's
-    //      generated_plugin_registrant.cc can find `<pkg>/<pkg>_plugin.h`.
-    final hasOwnPluginTarget = RegExp(r'add_library\(\s*\$\{PLUGIN_NAME\}').hasMatch(content);
-
-    if (!hasOwnPluginTarget) {
-      final staleIncl = RegExp(
-        r'\n?target_include_directories\(\s*\$\{PLUGIN_NAME\}[^)]+\)\n?',
-      ).firstMatch(content);
-      if (staleIncl != null) {
-        content = content.replaceFirst(staleIncl.group(0)!, '\n');
-        modified = true;
-      }
-      if (modified) cmakeFile.writeAsStringSync(content);
-      return;
-    }
-
-    // hasOwnPluginTarget: ensure the registrant's public include/ dir is
-    // exposed, without disturbing any other target_include_directories call
-    // (e.g. a PRIVATE block for internal Nitro headers) that may already exist.
-    final includeDirLiteral = r'${CMAKE_CURRENT_SOURCE_DIR}/include';
-    final hasIncludeDirExposed = RegExp(
-      r'target_include_directories\(\s*\$\{PLUGIN_NAME\}\s+INTERFACE[^)]*\/include',
-    ).hasMatch(content);
-    if (!hasIncludeDirExposed && Directory(p.join(baseDir, platform, 'include')).existsSync()) {
-      final addLibMatch = RegExp(r'add_library\(\s*\$\{PLUGIN_NAME\}[^)]*\)').firstMatch(content);
-      final block = '\ntarget_include_directories(\${PLUGIN_NAME} INTERFACE\n  "$includeDirLiteral")\n';
-      if (addLibMatch != null) {
-        content = content.replaceFirst(addLibMatch.group(0)!, '${addLibMatch.group(0)!}\n$block');
-      } else {
-        content += block;
-      }
-      modified = true;
-    }
-    if (modified) cmakeFile.writeAsStringSync(content);
-    return;
-  }
-
-  if (!content.contains(r'${NITRO_NATIVE}')) {
-    final addBlock =
-        '\ntarget_include_directories(\${PLUGIN_NAME} PRIVATE\n'
-        '  "\${NITRO_NATIVE}"\n'
-        '  "\${CMAKE_CURRENT_SOURCE_DIR}/../lib/src/generated/cpp"\n'
-        '  "\${CMAKE_CURRENT_SOURCE_DIR}/../src"\n'
-        ')\n';
-    final inclMatch = RegExp(
-      r'target_include_directories\(\s*\$\{PLUGIN_NAME\}[^)]+\)',
-    ).firstMatch(content);
-    if (inclMatch != null) {
-      content = content.replaceFirst(
-        inclMatch.group(0)!,
-        '${inclMatch.group(0)!}$addBlock',
-      );
-    } else {
-      content += addBlock;
-    }
-    modified = true;
-  } else if (!content.contains(r'/../src"')) {
-    // NITRO_NATIVE already present but ../src missing — append to existing Nitro include block.
-    content = content.replaceFirstMapped(
-      RegExp(
-        r'("\$\{CMAKE_CURRENT_SOURCE_DIR\}/../lib/src/generated/cpp"\s*\n)',
-      ),
-      (m) => '${m.group(0)!}  "\${CMAKE_CURRENT_SOURCE_DIR}/../src"\n',
-    );
-    modified = true;
-  }
-
-  if (modified) cmakeFile.writeAsStringSync(content);
-}
-
-/// Removes the first block matching [opener] (a pattern ending at the block's
-/// opening `{`) together with its ENTIRE brace-balanced body and a trailing
-/// newline. Returns [content] unchanged when no match is found or the braces
-/// never balance (malformed input is left alone rather than half-deleted).
-String _removeBraceBalancedBlock(String content, RegExp opener) {
-  final match = opener.firstMatch(content);
-  if (match == null) return content;
-  var depth = 0;
-  for (var i = match.end - 1; i < content.length; i++) {
-    final ch = content.codeUnitAt(i);
-    if (ch == 0x7B) depth++; // {
-    if (ch == 0x7D) depth--; // }
-    if (depth == 0) {
-      var end = i + 1;
-      // Swallow trailing whitespace up to and including one newline.
-      while (end < content.length && (content.codeUnitAt(end) == 0x20 || content.codeUnitAt(end) == 0x09)) {
-        end++;
-      }
-      if (end < content.length && content.codeUnitAt(end) == 0x0A) end++;
-      return content.replaceRange(match.start, end, '');
-    }
-  }
-  return content; // unbalanced — do not touch
-}
-
-/// Configures `android/build.gradle` (or `.kts`) so the generated Kotlin bridge
-/// files in `lib/src/generated/kotlin/` are compiled as part of the Android build.
-///
-/// Without the `kotlin.srcDirs` entry, all `.bridge.g.kt` files are generated but
-/// never compiled — causing "Unresolved reference: XxxJniBridge" errors at build time.
-void linkAndroid(
-  String pluginName,
-  List<String> moduleLibs, {
-  String baseDir = '.',
-  List<ModuleInfo>? moduleInfos,
-}) {
-  File? buildGradle;
-  for (final candidate in [
-    File(p.join(baseDir, 'android', 'build.gradle')),
-    File(p.join(baseDir, 'android', 'build.gradle.kts')),
-  ]) {
-    if (candidate.existsSync()) {
-      buildGradle = candidate;
-      break;
-    }
-  }
-  if (buildGradle == null) return;
-
-  var content = buildGradle.readAsStringSync();
-  bool modified = false;
-  final isKts = buildGradle.path.endsWith('.kts');
-
-  // 0. Upgrade old-style `apply plugin: "kotlin-android"` to modern plugins{} DSL.
-  //    The legacy `buildscript {}` + `apply plugin` approach fails in modern AGP
-  //    because `kotlin-android` alias is not resolvable without the classpath in
-  //    the consuming app's settings.gradle. Modern Flutter apps use `plugins {}`.
-  if (content.contains('apply plugin: "kotlin-android"') || content.contains("apply plugin: 'kotlin-android'")) {
-    // Remove the entire buildscript block if present. Must be brace-BALANCED:
-    // the old one-nested-block regex left orphan `}` lines behind whenever
-    // buildscript contained more than one inner block (repositories +
-    // dependencies), corrupting the gradle file ("Unexpected input: '}'").
-    content = _removeBraceBalancedBlock(content, RegExp(r'\bbuildscript\s*\{'));
-    // Remove rootProject.allprojects block (same brace-balanced treatment —
-    // it commonly holds a nested repositories{} block).
-    content = _removeBraceBalancedBlock(
-      content,
-      RegExp(r'\brootProject\.allprojects\s*\{'),
-    );
-    // Replace apply plugin lines with plugins{} block.
-    content = content.replaceAll(
-      RegExp(r"apply plugin:\s*'com\.android\.library'\s*\n?"),
-      '',
-    );
-    content = content.replaceAll(
-      RegExp(r'apply plugin:\s*"com\.android\.library"\s*\n?'),
-      '',
-    );
-    content = content.replaceAll(
-      RegExp(r"apply plugin:\s*'kotlin-android'\s*\n?"),
-      '',
-    );
-    content = content.replaceAll(
-      RegExp(r'apply plugin:\s*"kotlin-android"\s*\n?'),
-      '',
-    );
-    // Insert plugins{} block at the very TOP of the file (Gradle requires it
-    // before any other statements including group/version assignments).
-    if (!content.contains('plugins {') && !content.contains('plugins{')) {
-      // Remove group/version from their current position (they'll move after plugins{}).
-      final groupVersionMatch = RegExp(
-        r'^group\s*=.+\nversion\s*=.+\n',
-        multiLine: true,
-      ).firstMatch(content);
-      String groupVersionBlock = '';
-      if (groupVersionMatch != null) {
-        groupVersionBlock = groupVersionMatch.group(0)!;
-        content = content.replaceFirst(groupVersionBlock, '');
-      }
-      content =
-          'plugins {\n    id "com.android.library"\n    id "org.jetbrains.kotlin.android"\n}\n\n${groupVersionBlock.trim().isEmpty ? "" : "${groupVersionBlock.trim()}\n\n"}${content.trimLeft()}';
-    }
-    // Fix ndkVersion = android.ndkVersion → hardcoded version for standalone builds.
-    content = content.replaceAll(
-      'ndkVersion = android.ndkVersion',
-      'ndkVersion = "${BuildVersions.androidNdk}"',
-    );
-    // Collapse sequences of 3+ blank lines to a single blank line (cosmetic cleanup).
-    content = content.replaceAll(RegExp(r'\n{3,}'), '\n\n');
-    modified = true;
-  }
-
-  final srcDirsLine = isKts
-      ? r'            kotlin.srcDirs += setOf("${project.projectDir}/../lib/src/generated/kotlin")'
-      : r'            kotlin.srcDirs += "${project.projectDir}/../lib/src/generated/kotlin"';
-
-  // 1. Ensure kotlin.srcDirs for generated Kotlin bridges.
-  //    .bridge.g.kt files live in lib/src/generated/kotlin/ — Gradle must see
-  //    that directory as a Kotlin source root or the JNI bridge classes won't compile.
-  //    Note: add to kotlin.srcDirs ONLY, NOT java.srcDirs — in AGP 8.x, routing
-  //    .kt through the Java compiler path causes "Unresolved reference: XxxJniBridge".
-  if (!content.contains('generated/kotlin')) {
-    final sourceSetsMatch = RegExp(r'\bsourceSets\s*\{').firstMatch(content);
-    if (sourceSetsMatch != null) {
-      // sourceSets block exists — look for main {} inside it.
-      final afterSourceSets = content.substring(sourceSetsMatch.end);
-      final mainInBlock = RegExp(r'\bmain\s*\{').firstMatch(afterSourceSets);
-      if (mainInBlock != null) {
-        final mainAbsStart = sourceSetsMatch.end + mainInBlock.start;
-        // Find the { of main {} and then its matching }
-        final openBrace = content.indexOf(
-          '{',
-          mainAbsStart + mainInBlock.group(0)!.length - 1,
-        );
-        if (openBrace >= 0) {
-          final mainClose = _findBlockEnd(content, openBrace);
-          if (mainClose > 0) {
-            content = content.replaceRange(
-              mainClose,
-              mainClose,
-              '\n$srcDirsLine\n        ',
-            );
-            modified = true;
-          }
-        }
-      } else {
-        // sourceSets exists but no main {} — add main {} before sourceSets closing brace
-        final sourceSetsClose = _findBlockEnd(content, sourceSetsMatch.end - 1);
-        if (sourceSetsClose > 0) {
-          content = content.replaceRange(
-            sourceSetsClose,
-            sourceSetsClose,
-            '    main {\n$srcDirsLine\n        }\n    ',
-          );
-          modified = true;
-        }
-      }
-    } else {
-      // No sourceSets block — inject one inside android {}
-      final androidMatch = RegExp(r'\bandroid\s*\{').firstMatch(content);
-      if (androidMatch != null) {
-        content = content.replaceRange(
-          androidMatch.end,
-          androidMatch.end,
-          '\n    sourceSets {\n        main {\n$srcDirsLine\n        }\n    }',
-        );
-      } else {
-        content += '\nandroid {\n    sourceSets {\n        main {\n$srcDirsLine\n        }\n    }\n}\n';
-      }
-      modified = true;
-    }
-  }
-
-  // 2. Ensure kotlinOptions has the expected JVM target for correct bytecode.
-  if (!content.contains('kotlinOptions')) {
-    final androidMatch = RegExp(r'\bandroid\s*\{').firstMatch(content);
-    if (androidMatch != null) {
-      content = content.replaceRange(
-        androidMatch.end,
-        androidMatch.end,
-        '\n    kotlinOptions { jvmTarget = "${BuildVersions.androidJvmTarget}" }',
-      );
-      modified = true;
-    }
-  }
-
-  // 3. Ensure kotlinx-coroutines (required for generated Kotlin suspend bridge functions).
-  if (!content.contains('kotlinx-coroutines')) {
-    final depsMatch = RegExp(r'\bdependencies\s*\{').firstMatch(content);
-    if (depsMatch != null) {
-      content = content.replaceRange(
-        depsMatch.end,
-        depsMatch.end,
-        '\n    implementation "org.jetbrains.kotlinx:kotlinx-coroutines-android:1.7.3"\n    implementation "org.jetbrains.kotlinx:kotlinx-coroutines-core:1.7.3"',
-      );
-    } else {
-      content +=
-          '\ndependencies {\n    implementation "org.jetbrains.kotlinx:kotlinx-coroutines-android:1.7.3"\n    implementation "org.jetbrains.kotlinx:kotlinx-coroutines-core:1.7.3"\n}\n';
-    }
-    modified = true;
-  }
-
-  // 4. Ensure consumerProguardFiles "consumer-rules.pro" is wired into
-  //    defaultConfig for any module using the Kotlin JNI bridge — otherwise
-  //    linkAndroidConsumerRules's generated keep rules are never actually
-  //    applied to a consuming app's release build (silently a no-op).
-  final hasKotlinModule = moduleInfos?.any((m) => !m.isAndroidCpp) ?? true;
-  if (hasKotlinModule && !content.contains('consumerProguardFiles')) {
-    final consumerRulesLine = isKts ? '            consumerProguardFiles("consumer-rules.pro")' : '            consumerProguardFiles "consumer-rules.pro"';
-    final defaultConfigMatch = RegExp(r'\bdefaultConfig\s*\{').firstMatch(content);
-    if (defaultConfigMatch != null) {
-      // Must end with its OWN trailing newline, not just start with one —
-      // `defaultConfig { minSdk = 24 }` (a real, valid single-line block) is
-      // common in hand-trimmed plugin scaffolds; inserting without a
-      // trailing newline here would splice onto whatever follows on that
-      // same line (`consumerProguardFiles "..." minSdk = 24 }`), corrupting
-      // the file rather than adding a clean, separate statement.
-      content = content.replaceRange(
-        defaultConfigMatch.end,
-        defaultConfigMatch.end,
-        '\n$consumerRulesLine\n',
-      );
-    } else {
-      final androidMatch = RegExp(r'\bandroid\s*\{').firstMatch(content);
-      final block = '\n    defaultConfig {\n$consumerRulesLine\n    }';
-      if (androidMatch != null) {
-        content = content.replaceRange(androidMatch.end, androidMatch.end, block);
-      } else {
-        content += '\nandroid {$block\n}\n';
-      }
-    }
-    modified = true;
-    // Safety net: consumerProguardFiles pointing at a missing file is a
-    // build error, not a harmless no-op — create an empty placeholder if
-    // linkAndroidConsumerRules hasn't run yet (or won't, e.g. call-order
-    // dependent). linkAndroidConsumerRules fills in the real content later.
-    final rulesFile = File(p.join(baseDir, 'android', 'consumer-rules.pro'));
-    if (!rulesFile.existsSync()) rulesFile.writeAsStringSync('');
-  }
-
-  if (modified) buildGradle.writeAsStringSync(content);
-}
-
-/// Marker delimiting the block linkAndroidConsumerRules owns inside
-/// `android/consumer-rules.pro` — anything outside it is the plugin author's
-/// own rules and is left untouched.
-const String _nitroConsumerRulesBeginMarker = '# --- BEGIN nitrogen-generated JNI keep rules (do not edit by hand — regenerated by `nitrogen link`) ---';
-const String _nitroConsumerRulesEndMarker = '# --- END nitrogen-generated JNI keep rules ---';
-
-/// Writes/patches `android/consumer-rules.pro` with the R8/ProGuard keep
-/// rules every Kotlin-on-Android Nitro module needs.
-///
-/// The generated JNI bridge (`nitro.<lib>_module.<Module>JniBridge`) and the
-/// hand-written impl (under the plugin's Android `namespace`) are reached
-/// from C++ via `FindClass` + `GetStaticMethodID` by exact name AND
-/// signature — R8 has no static-analysis visibility into that, so without
-/// these rules it may rename, remove, or (in "full mode") mis-optimize them.
-///
-/// Uses `includedescriptorclasses` — not a stronger form of a plain `-keep`,
-/// a DIFFERENT protection: plain `-keep class X { *; }` only protects a
-/// member from removal/renaming, not the parameter/return TYPES referenced
-/// in its signature. For methods JNI calls by exact signature (every
-/// `_call` trampoline, several of which take many long/data-class params
-/// for suspend methods), an altered parameter type produces a VerifyError
-/// at the exact call site — a real, previously-hit crash
-/// ("VerifyError ... Long (Low Half)"), not a hypothetical one. This is
-/// ProGuard's own documented remedy for native/JNI-called methods.
-///
-/// Idempotent and additive: only touches the marked block (creating it if
-/// absent), never the rest of the file, so a plugin author's own rules for
-/// unrelated dependencies survive every `nitrogen link` run. Re-derives the
-/// block's content from the CURRENT module list each time, so e.g. adding a
-/// second Nitro module to the plugin updates the keep rules automatically.
-/// Ensures the plugin's `build.yaml` carries `sources` excludes that keep
-/// build_runner's file-discovery walk out of the example app's platform
-/// build output (issue #20).
-///
-/// Once example/ has been built, `example/{ios,macos}/.symlinks/plugins/<name>`
-/// symlinks straight back to the plugin root; build_runner follows symlinks
-/// with no cycle detection and hangs forever with no output. `nitrogen
-/// generate` deletes those dirs before every run — but a plain
-/// `dart run build_runner build`/`watch` has no such guard. With the
-/// excludes in place the walk never enters example/ at all, making direct
-/// build_runner invocations safe too.
-///
-/// Behavior: creates build.yaml from the template when absent; inserts the
-/// `sources:` block under `$default:` when the file exists without one;
-/// NEVER touches a file that already declares `sources:` (the user owns
-/// their customization — doctor reports if it looks insufficient).
-void linkBuildYamlSourcesExcludes({String baseDir = '.'}) {
-  final file = File(p.join(baseDir, 'build.yaml'));
-  if (!file.existsSync()) {
-    file.writeAsStringSync(sft.buildYamlTemplate());
-    stdout.writeln('  build.yaml: created with sources excludes (guards direct build_runner runs against the example symlink-cycle hang)');
-    return;
-  }
-  final content = file.readAsStringSync();
-  if (content.contains('sources:')) return; // user-owned customization
-  const sourcesBlock =
-      '    sources:\n'
-      '      include:\n'
-      '        - lib/**\n'
-      '        - \$package\$\n'
-      '        - pubspec.yaml\n'
-      '      exclude:\n'
-      '        - example/**\n'
-      '        - "**/.symlinks/**"\n'
-      '        - "**/ephemeral/**"\n';
-  // Insert directly under the `$default:` target — the shape both the
-  // nitrogen template and flutter-created plugins use.
-  final anchor = RegExp(r'^(\s*)\$default:\s*$', multiLine: true).firstMatch(content);
-  if (anchor == null) {
-    stdout.writeln('  build.yaml: unrecognized shape — add sources excludes for example/**, **/.symlinks/**, **/ephemeral/** yourself (see nitrogen doctor)');
-    return;
-  }
-  final insertAt = content.indexOf('\n', anchor.end) + 1;
-  final updated = content.substring(0, insertAt) + sourcesBlock + content.substring(insertAt);
-  file.writeAsStringSync(updated);
-  stdout.writeln('  build.yaml: added sources excludes (guards direct build_runner runs against the example symlink-cycle hang)');
-}
-
-/// Removes `pluginClass:` from the plugin pubspec's `windows:`/`linux:`
-/// platform entries when that platform is a Nitro C++ (pure-FFI) backend.
-///
-/// Declaring BOTH `pluginClass` and `ffiPlugin: true` for a desktop platform
-/// makes Flutter's tooling classify the plugin as method-channel: the app's
-/// generated_plugins.cmake then links a `<plugin>_plugin` CMake target that
-/// a pure-FFI plugin never defines —
-///   CMake Error: No target `<plugin>_plugin`
-/// — blocking every Windows/Linux build of the consuming app (issue #10).
-/// The ffiPlugin-only form routes through FLUTTER_FFI_PLUGIN_LIST and the
-/// plugin's `<plugin>_bundled_libraries` instead, which is what the
-/// generated desktop CMakeLists provide.
-///
-/// Handles both YAML styles (block children and inline `{ ... }` flow maps),
-/// is idempotent, and touches nothing outside the two desktop entries —
-/// android/ios/macos keep their pluginClass (those platforms genuinely
-/// register a plugin class).
-/// Snake-cases a CamelCase plugin class name the way Flutter's tool does when
-/// deriving the Linux registrant function (NitroWebgpuPlugin →
-/// nitro_webgpu_plugin; consecutive capitals split per letter: CApi → c_api).
-String _snakeCasePluginClass(String s) => s.replaceAllMapped(RegExp(r'[A-Z]'), (m) => '_${m.group(0)!.toLowerCase()}').replaceFirst(RegExp(r'^_'), '');
-
-/// True when [pluginClass] is backed by a real implementation under
-/// `<baseDir>/<platform>/` — i.e. the platform sources define the exact
-/// symbol Flutter's generated_plugin_registrant will call:
-///   windows → `<PluginClass>RegisterWithRegistrar`,
-///   linux → `<snake_case(PluginClass)>_register_with_registrar`.
-/// A dangling templated class (issue #10) has no such symbol and must be
-/// stripped, or CMake fails with "No target `<plugin>_plugin`". A hand-written
-/// hybrid plugin (`ffiPlugin: true` PLUS `pluginClass` — e.g. FFI bindings
-/// with a texture-registrar plugin class) defines it, and stripping the
-/// entry silently empties the registrant at runtime (issue #23).
-bool _desktopPluginClassIsReal(String baseDir, String platform, String pluginClass) {
-  final dir = Directory(p.join(baseDir, platform));
-  if (!dir.existsSync()) return false;
-  final symbol = platform == 'windows' ? '${pluginClass}RegisterWithRegistrar' : '${_snakeCasePluginClass(pluginClass)}_register_with_registrar';
-  final srcRe = RegExp(r'\.(c|cc|cpp|h|hpp)$');
-  for (final f in dir.listSync(recursive: true, followLinks: false).whereType<File>()) {
-    final path = f.path.replaceAll(r'\', '/');
-    if (path.contains('/ephemeral/') || path.contains('/build/') || path.contains('/.symlinks/')) continue;
-    if (!srcRe.hasMatch(path)) continue;
-    try {
-      if (f.readAsStringSync().contains(symbol)) return true;
-    } catch (_) {
-      // Unreadable/binary file — not the registrant source.
-    }
-  }
-  return false;
-}
-
-void linkDesktopPubspecFfiOnly(
-  List<ModuleInfo> moduleInfos, {
-  String baseDir = '.',
-}) {
-  final pubspecFile = File(p.join(baseDir, 'pubspec.yaml'));
-  if (!pubspecFile.existsSync()) return;
-  final fixWindows = moduleInfos.any((m) => m.windowsIsCpp);
-  final fixLinux = moduleInfos.any((m) => m.linuxIsCpp);
-  if (!fixWindows && !fixLinux) return;
-
-  final targets = <String>{if (fixWindows) 'windows', if (fixLinux) 'linux'};
-  final lines = pubspecFile.readAsStringSync().split('\n');
-  final out = <String>[];
-  var inPlatforms = false;
-  var platformsIndent = -1;
-  var changed = false;
-
-  int indentOf(String l) => l.length - l.trimLeft().length;
-
-  for (var i = 0; i < lines.length; i++) {
-    final line = lines[i];
-    final trimmed = line.trim();
-
-    if (trimmed == 'platforms:') {
-      inPlatforms = true;
-      platformsIndent = indentOf(line);
-      out.add(line);
-      continue;
-    }
-    if (inPlatforms && trimmed.isNotEmpty && indentOf(line) <= platformsIndent) {
-      inPlatforms = false; // left the platforms block
-    }
-
-    final flowMatch = inPlatforms ? RegExp(r'^(\s*)(\w+):\s*\{(.*)\}\s*$').firstMatch(line) : null;
-    if (flowMatch != null && targets.contains(flowMatch.group(2))) {
-      // Inline flow map: windows: { pluginClass: Xxx, ffiPlugin: true }
-      final entries = flowMatch.group(3)!.split(',').map((e) => e.trim()).where((e) => e.isNotEmpty).toList();
-      if (entries.any((e) => e.startsWith('ffiPlugin:')) && entries.any((e) => e.startsWith('pluginClass:'))) {
-        // Only strip a DANGLING class — one with no registrant implementation
-        // in the platform sources. ffiPlugin + a real pluginClass is a
-        // documented hybrid configuration and user-owned (issue #23).
-        final cls = entries.firstWhere((e) => e.startsWith('pluginClass:')).substring('pluginClass:'.length).trim();
-        if (!_desktopPluginClassIsReal(baseDir, flowMatch.group(2)!, cls)) {
-          entries.removeWhere((e) => e.startsWith('pluginClass:'));
-          out.add('${flowMatch.group(1)}${flowMatch.group(2)}: { ${entries.join(', ')} }');
-          changed = true;
-          continue;
-        }
-      }
-    }
-
-    final blockKey = inPlatforms ? RegExp(r'^(\s*)(\w+):\s*$').firstMatch(line) : null;
-    if (blockKey != null && targets.contains(blockKey.group(2))) {
-      // Block form: collect the child lines (strictly deeper indent).
-      final keyIndent = indentOf(line);
-      var end = i + 1;
-      while (end < lines.length && (lines[end].trim().isEmpty || indentOf(lines[end]) > keyIndent)) {
-        end++;
-      }
-      final children = lines.sublist(i + 1, end);
-      final hasFfi = children.any((l) => l.trim().startsWith('ffiPlugin:') && l.contains('true'));
-      final hasClass = children.any((l) => l.trim().startsWith('pluginClass:'));
-      // Only strip a DANGLING class — one whose registrant symbol appears
-      // nowhere in the platform sources. ffiPlugin + a real pluginClass is a
-      // documented hybrid configuration and user-owned (issue #23).
-      var classIsDangling = false;
-      if (hasFfi && hasClass) {
-        final cls = children.firstWhere((l) => l.trim().startsWith('pluginClass:')).trim().substring('pluginClass:'.length).trim();
-        classIsDangling = !_desktopPluginClassIsReal(baseDir, blockKey.group(2)!, cls);
-      }
-      out.add(line);
-      for (final child in children) {
-        if (hasFfi && hasClass && classIsDangling && child.trim().startsWith('pluginClass:')) {
-          changed = true;
-          continue;
-        }
-        out.add(child);
-      }
-      i = end - 1;
-      continue;
-    }
-
-    out.add(line);
-  }
-
-  if (changed) {
-    pubspecFile.writeAsStringSync(out.join('\n'));
-    stdout.writeln('  pubspec.yaml: removed pluginClass from FFI-only desktop platform entries (fixes "No target <plugin>_plugin")');
-  }
-}
-
-void linkAndroidConsumerRules(
-  List<Map<String, String>> kotlinModules, {
-  String baseDir = '.',
-}) {
-  if (kotlinModules.isEmpty) return;
-  final androidDir = Directory(p.join(baseDir, 'android'));
-  if (!androidDir.existsSync()) return;
-
-  String? namespace;
-  for (final candidate in [
-    File(p.join(baseDir, 'android', 'build.gradle')),
-    File(p.join(baseDir, 'android', 'build.gradle.kts')),
-  ]) {
-    if (!candidate.existsSync()) continue;
-    final m = RegExp(r'''namespace\s*=?\s*["']([^"']+)["']''').firstMatch(candidate.readAsStringSync());
-    if (m != null) namespace = m.group(1);
-    break;
-  }
-
-  final bridgePackages = kotlinModules.map((m) => 'nitro.${(m['lib'] ?? '').replaceAll('-', '_')}_module').toSet().toList()..sort();
-
-  final block = StringBuffer()
-    ..writeln(_nitroConsumerRulesBeginMarker)
-    ..writeln('# The generated Nitro JNI bridge and its hand-written impl are reached')
-    ..writeln('# from C++ via FindClass + GetStaticMethodID by exact name and signature.')
-    ..writeln('# includedescriptorclasses additionally keeps the parameter/return types')
-    ..writeln('# referenced in those signatures — without it R8 full mode can still')
-    ..writeln('# rename/merge them, producing a VerifyError at the JNI call site even')
-    ..writeln('# though the method itself is "kept". See linkAndroidConsumerRules in')
-    ..writeln('# nitrogen_cli for the full explanation.');
-  for (final pkg in bridgePackages) {
-    block.writeln('-keep,includedescriptorclasses class $pkg.** {');
-    block.writeln('    *;');
-    block.writeln('}');
-  }
-  if (namespace != null) {
-    block.writeln('-keep,includedescriptorclasses class $namespace.** {');
-    block.writeln('    *;');
-    block.writeln('}');
-  }
-  block
-    ..writeln()
-    ..writeln('# JNI resolves native methods (Kotlin `external fun`) by exact name AND')
-    ..writeln('# signature — includedescriptorclasses protects their parameter/return')
-    ..writeln('# types too, not just their names.')
-    ..writeln('-keepclasseswithmembernames,includedescriptorclasses class * {')
-    ..writeln('    native <methods>;')
-    ..writeln('}')
-    ..write(_nitroConsumerRulesEndMarker);
-
-  final rulesFile = File(p.join(androidDir.path, 'consumer-rules.pro'));
-  final existing = rulesFile.existsSync() ? rulesFile.readAsStringSync() : '';
-  final markerPattern = RegExp(
-    '${RegExp.escape(_nitroConsumerRulesBeginMarker)}.*?${RegExp.escape(_nitroConsumerRulesEndMarker)}',
-    dotAll: true,
-  );
-  final String updated;
-  if (markerPattern.hasMatch(existing)) {
-    updated = existing.replaceFirst(markerPattern, block.toString());
-  } else if (existing.trim().isEmpty) {
-    updated = '$block\n';
-  } else {
-    updated = '${existing.trimRight()}\n\n$block\n';
-  }
-  if (updated != existing) rulesFile.writeAsStringSync(updated);
-}
-
-/// Returns the index of the `}` that closes the block whose opening `{` is at [openBrace].
-int _findBlockEnd(String content, int openBrace) {
-  int depth = 0;
-  for (int i = openBrace; i < content.length; i++) {
-    if (content[i] == '{') {
-      depth++;
-    } else if (content[i] == '}') {
-      depth--;
-      if (depth == 0) return i;
-    }
-  }
-  return -1;
-}
-
-/// Content for a brand-new `$platform/src/Hybrid$className.cpp` file.
-///
-/// When [requestsSeparateImpl] is true (the annotation used the platform's
-/// SPECIFIC marker type — see requestsSeparateWindowsImpl/requestsSeparateLinuxImpl)
-/// AND the shared `src/Hybrid$className.cpp` already has real code (not just
-/// the auto-generated  stub), that content is migrated in — one include
-/// path level deeper to account for the extra directory — so this platform
-/// starts from its EXISTING behavior rather than an empty stub. Activating
-/// separation this way is a location change, not a behavior change. Falls
-/// back to the generic starter template otherwise (implicit
-/// hasCustomPlatformImpl-driven separation always starts empty — there's no
-/// annotation signal yet at that point to justify migrating anything).
-String _newPlatformImplContent({
-  required String baseDir,
-  required String lib,
-  required String className,
-  required bool requestsSeparateImpl,
-  required String genericStubContent,
-}) {
-  if (requestsSeparateImpl) {
-    final sharedFile = File(p.join(baseDir, 'src', 'Hybrid$className.cpp'));
-    if (sharedFile.existsSync()) {
-      final sharedContent = sharedFile.readAsStringSync();
-      if (!sharedContent.contains(_implStubTodoMarker)) {
-        return sharedContent.replaceAll('#include "../lib/', '#include "../../lib/');
-      }
-    }
-  }
-  return genericStubContent;
-}
-
-/// Creates `$platform/src/Hybrid$className.cpp`, or — when the annotation
-/// explicitly requests per-platform separation and the file on disk is still
-/// the UNTOUCHED auto-created stub — completes the migration of the shared
-/// `src/Hybrid$className.cpp` content into it.
-///
-/// The second half is the issue #12 fix: the stub is auto-created on every
-/// link (as an inert option), so by the time an author switches the
-/// annotation to `WindowsNativeImpl.cpp`/`LinuxNativeImpl.cpp` the file
-/// already exists and a bare "never overwrite" rule would strand the real
-/// impl in the shared file while the platform CMakeLists points at the empty
-/// stub. An untouched stub (TODO marker still present) is not user code —
-/// replacing it with the shared impl's content is the location change the
-/// explicit marker asked for. A file WITHOUT the marker is user code and is
-/// never overwritten.
-void _writeOrMigratePlatformImplStub({
-  required String baseDir,
-  required String platform,
-  required String lib,
-  required bool requestsSeparateImpl,
-  required String genericStubContent,
-}) {
-  final className = _toPascalCase(lib);
-  final srcDir = Directory(p.join(baseDir, platform, 'src'))..createSync(recursive: true);
-  final stubFile = File(p.join(srcDir.path, 'Hybrid$className.cpp'));
-  final content = _newPlatformImplContent(
-    baseDir: baseDir,
-    lib: lib,
-    className: className,
-    requestsSeparateImpl: requestsSeparateImpl,
-    genericStubContent: genericStubContent,
-  );
-  if (!stubFile.existsSync()) {
-    stubFile.writeAsStringSync(content);
-    return;
-  }
-  final onDisk = stubFile.readAsStringSync();
-  final isUntouchedStub = onDisk.contains(_implStubTodoMarker);
-  final hasMigratedContent = content != genericStubContent;
-  if (requestsSeparateImpl && isUntouchedStub && hasMigratedContent && onDisk != content) {
-    stubFile.writeAsStringSync(content);
-    stdout.writeln('  $platform/src/Hybrid$className.cpp: migrated shared src/Hybrid$className.cpp content (explicit per-platform separation) — the shared file is left in place and no longer compiled for $platform');
-  }
-}
-
-/// Creates Windows-specific C++ impl stub files for modules that target
-/// `windows: WindowsNativeImpl.cpp`. These stubs live in `windows/src/` so
-/// `windows/CMakeLists.txt` can reference them via a relative path.
-void linkWindowsCppImplStubs(
-  List<ModuleInfo> moduleInfos, {
-  String baseDir = '.',
-}) {
-  final libDir = Directory(p.join(baseDir, 'lib'));
-  final specFiles = libDir.existsSync() ? libDir.listSync(recursive: true).whereType<File>().where((f) => f.path.endsWith('.native.dart')).toList() : <File>[];
-  final windowsCppLibs = specFiles.where(isWindowsCppModule).map((f) {
-    final stem = p.basename(f.path).replaceAll(RegExp(r'\.native\.dart$'), '');
-    return extractLibNameFromSpec(f) ?? stem;
-  }).toSet();
-
-  for (final m in moduleInfos.where(
-    (m) => m.isCpp && windowsCppLibs.contains(m.lib),
-  )) {
-    _writeOrMigratePlatformImplStub(
-      baseDir: baseDir,
-      platform: 'windows',
-      lib: m.lib,
-      requestsSeparateImpl: m.windowsRequestsSeparateImpl,
-      genericStubContent: t.windowsCppStubContent(lib: m.lib, className: _toPascalCase(m.lib)),
-    );
-  }
-}
-
-/// Creates a Linux-specific C++ impl starter stub for every Linux-C++
-/// module, mirroring [linkWindowsCppImplStubs]. Writing this stub does NOT
-/// by itself make Linux use it instead of the shared `src/HybridXxx.cpp` —
-/// that's a separate, opt-in decision (see [hasCustomPlatformImpl] and
-/// ModuleInfo.linuxRequestsSeparateImpl, read by `_linkDesktopCMake`). Until
-/// then it just sits alongside the shared file as an option, same as
-/// Windows's stub always has.
-void linkLinuxCppImplStubs(
-  List<ModuleInfo> moduleInfos, {
-  String baseDir = '.',
-}) {
-  for (final m in moduleInfos.where((m) => m.linuxIsCpp)) {
-    _writeOrMigratePlatformImplStub(
-      baseDir: baseDir,
-      platform: 'linux',
-      lib: m.lib,
-      requestsSeparateImpl: m.linuxRequestsSeparateImpl,
-      genericStubContent: t.linuxCppStubContent(lib: m.lib, className: _toPascalCase(m.lib)),
-    );
-  }
-}
-
-void linkWindows(
-  String pluginName,
-  List<String> moduleLibs,
-  String nitroNativePath, {
-  String baseDir = '.',
-  List<ModuleInfo>? moduleInfos,
-}) {
-  _linkDesktopCMake(
-    pluginName,
-    moduleLibs,
-    nitroNativePath,
-    platform: 'windows',
-    baseDir: baseDir,
-    moduleInfos: moduleInfos,
-  );
-  if (moduleInfos != null) {
-    linkWindowsCppImplStubs(moduleInfos, baseDir: baseDir);
-  }
-}
-
-void linkLinux(
-  String pluginName,
-  List<String> moduleLibs,
-  String nitroNativePath, {
-  String baseDir = '.',
-  List<ModuleInfo>? moduleInfos,
-}) {
-  _linkDesktopCMake(
-    pluginName,
-    moduleLibs,
-    nitroNativePath,
-    platform: 'linux',
-    baseDir: baseDir,
-    moduleInfos: moduleInfos,
-  );
-  if (moduleInfos != null) {
-    linkLinuxCppImplStubs(moduleInfos, baseDir: baseDir);
-  }
-}
-
-void linkClangd(
-  String pluginName, {
-  List<ModuleInfo>? moduleInfos,
-  String baseDir = '.',
-}) {
-  final sb = StringBuffer()
-    ..writeln('CompileFlags:')
-    ..writeln('  Add:')
-    ..writeln('    - -I\${PWD}/src')
-    ..writeln('    - -I\${PWD}/src/native')
-    ..writeln('    - -I\${PWD}/lib/src/generated/cpp')
-    ..writeln('    - -I\${PWD}/src/native/internal');
-
-  // For C++ modules also expose the test/ directory so IDEs resolve mock headers
-  if (moduleInfos != null && moduleInfos.any((m) => m.isCpp)) {
-    sb.writeln('    - -I\${PWD}/lib/src/generated/cpp/test');
-  }
-  File(p.join(baseDir, '.clangd')).writeAsStringSync(sb.toString());
-}
 
 /// A single piece of managed content that is missing from a native plugin file.
 class ManagedContentIssue {
@@ -3980,21 +1112,8 @@ class LinkCommand extends Command {
     linkCppImplStubs(moduleInfos, baseDir: baseDir);
     linkCMake(pluginName, moduleInfos.map((m) => m.lib).toList(), nitroNativePath, baseDir: baseDir, moduleInfos: moduleInfos);
 
-    if (Directory(p.join(baseDir, 'ios')).existsSync()) {
-      log('patching iOS podspec...');
-      linkPodspec(pluginName, moduleInfos.map((m) => m.lib).toList(), baseDir: baseDir, moduleInfos: moduleInfos);
-      ensureIosPackageSwift(pluginName, baseDir: baseDir, moduleInfos: moduleInfos);
-    } else {
-      logSkip('ios/ not present');
-    }
-
-    if (Directory(p.join(baseDir, 'macos')).existsSync()) {
-      log('patching macOS podspec...');
-      linkMacosPodspec(pluginName, moduleInfos.map((m) => m.lib).toList(), baseDir: baseDir, moduleInfos: moduleInfos);
-      ensureMacosPackageSwift(pluginName, baseDir: baseDir, moduleInfos: moduleInfos);
-    } else {
-      logSkip('macos/ not present');
-    }
+    _headlessIosStep(pluginName, moduleInfos, baseDir, log, logSkip);
+    _headlessMacosStep(pluginName, moduleInfos, baseDir, log, logSkip);
 
     final libDir = Directory(p.join(baseDir, 'lib'));
     final specFiles = libDir.existsSync() ? libDir.listSync(recursive: true).whereType<File>().where((f) => f.path.endsWith('.native.dart')).toList() : <File>[];
@@ -4003,6 +1122,67 @@ class LinkCommand extends Command {
       return extractLibNameFromSpec(f) ?? stem;
     }
 
+    _headlessSwiftStep(pluginName, moduleInfos, baseDir, specFiles, libFrom, log, logSkip);
+    _headlessAndroidStep(pluginName, moduleInfos, baseDir, hasCpp, specFiles, libFrom, log, logSkip);
+    _headlessWindowsStep(pluginName, moduleInfos, nitroNativePath, baseDir, log, logSkip);
+    _headlessLinuxStep(pluginName, moduleInfos, nitroNativePath, baseDir, log, logSkip);
+
+    // FFI-only desktop platforms must not declare pluginClass (issue #10) —
+    // repairs pubspecs generated by older nitrogen versions.
+    linkDesktopPubspecFfiOnly(moduleInfos, baseDir: baseDir);
+
+    // Guard direct build_runner runs against the example symlink-cycle hang (issue #20).
+    linkBuildYamlSourcesExcludes(baseDir: baseDir);
+
+    log('updating .clangd...');
+    linkClangd(pluginName, moduleInfos: moduleInfos, baseDir: baseDir);
+
+    await _headlessFinalizeBuildStep(baseDir, log, logSkip);
+
+    log('$pluginName linked');
+  }
+
+  void _headlessIosStep(
+    String pluginName,
+    List<ModuleInfo> moduleInfos,
+    String baseDir,
+    void Function(String) log,
+    void Function(String) logSkip,
+  ) {
+    if (Directory(p.join(baseDir, 'ios')).existsSync()) {
+      log('patching iOS podspec...');
+      linkPodspec(pluginName, moduleInfos.map((m) => m.lib).toList(), baseDir: baseDir, moduleInfos: moduleInfos);
+      ensureIosPackageSwift(pluginName, baseDir: baseDir, moduleInfos: moduleInfos);
+    } else {
+      logSkip('ios/ not present');
+    }
+  }
+
+  void _headlessMacosStep(
+    String pluginName,
+    List<ModuleInfo> moduleInfos,
+    String baseDir,
+    void Function(String) log,
+    void Function(String) logSkip,
+  ) {
+    if (Directory(p.join(baseDir, 'macos')).existsSync()) {
+      log('patching macOS podspec...');
+      linkMacosPodspec(pluginName, moduleInfos.map((m) => m.lib).toList(), baseDir: baseDir, moduleInfos: moduleInfos);
+      ensureMacosPackageSwift(pluginName, baseDir: baseDir, moduleInfos: moduleInfos);
+    } else {
+      logSkip('macos/ not present');
+    }
+  }
+
+  void _headlessSwiftStep(
+    String pluginName,
+    List<ModuleInfo> moduleInfos,
+    String baseDir,
+    List<File> specFiles,
+    String Function(File) libFrom,
+    void Function(String) log,
+    void Function(String) logSkip,
+  ) {
     final iosCppLibs = specFiles.where(isIosCppModule).map(libFrom).toSet();
     final macosCppLibs = specFiles.where(isMacosCppModule).map(libFrom).toSet();
     final iosSwiftModules = moduleInfos.where((m) => !iosCppLibs.contains(m.lib)).map((m) => m.toMap()).toList();
@@ -4028,7 +1208,18 @@ class LinkCommand extends Command {
         purgeStaleCppSwiftRegistrations(macosCppModuleInfos, platform: 'macos', baseDir: baseDir);
       }
     }
+  }
 
+  void _headlessAndroidStep(
+    String pluginName,
+    List<ModuleInfo> moduleInfos,
+    String baseDir,
+    bool hasCpp,
+    List<File> specFiles,
+    String Function(File) libFrom,
+    void Function(String) log,
+    void Function(String) logSkip,
+  ) {
     if (Directory(p.join(baseDir, 'android')).existsSync()) {
       log('wiring Android Kotlin plugin...');
       final androidCppLibs = specFiles.where(isAndroidCppModule).map(libFrom).toSet();
@@ -4042,31 +1233,45 @@ class LinkCommand extends Command {
     } else {
       logSkip('android/ not present');
     }
+  }
 
+  void _headlessWindowsStep(
+    String pluginName,
+    List<ModuleInfo> moduleInfos,
+    String nitroNativePath,
+    String baseDir,
+    void Function(String) log,
+    void Function(String) logSkip,
+  ) {
     if (Directory(p.join(baseDir, 'windows')).existsSync()) {
       log('wiring Windows CMake...');
       linkWindows(pluginName, moduleInfos.map((m) => m.lib).toList(), nitroNativePath, baseDir: baseDir, moduleInfos: moduleInfos);
     } else {
       logSkip('windows/ not present');
     }
+  }
 
+  void _headlessLinuxStep(
+    String pluginName,
+    List<ModuleInfo> moduleInfos,
+    String nitroNativePath,
+    String baseDir,
+    void Function(String) log,
+    void Function(String) logSkip,
+  ) {
     if (Directory(p.join(baseDir, 'linux')).existsSync()) {
       log('wiring Linux CMake...');
       linkLinux(pluginName, moduleInfos.map((m) => m.lib).toList(), nitroNativePath, baseDir: baseDir, moduleInfos: moduleInfos);
     } else {
       logSkip('linux/ not present');
     }
+  }
 
-    // FFI-only desktop platforms must not declare pluginClass (issue #10) —
-    // repairs pubspecs generated by older nitrogen versions.
-    linkDesktopPubspecFfiOnly(moduleInfos, baseDir: baseDir);
-
-    // Guard direct build_runner runs against the example symlink-cycle hang (issue #20).
-    linkBuildYamlSourcesExcludes(baseDir: baseDir);
-
-    log('updating .clangd...');
-    linkClangd(pluginName, moduleInfos: moduleInfos, baseDir: baseDir);
-
+  Future<void> _headlessFinalizeBuildStep(
+    String baseDir,
+    void Function(String) log,
+    void Function(String) logSkip,
+  ) async {
     final spmDetected = spm.detectSpmStatus(baseDir);
     if (spmDetected.hasSpm) {
       log('SPM detected — syncing Swift bridges to SPM Sources/...');
@@ -4091,7 +1296,5 @@ class LinkCommand extends Command {
         }
       }
     }
-
-    log('$pluginName linked');
   }
 }
