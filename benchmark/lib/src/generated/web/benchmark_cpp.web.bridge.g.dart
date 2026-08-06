@@ -137,15 +137,31 @@ final class _BenchmarkCppWebImpl extends BenchmarkCpp {
 
   @override
   Map<String, int> echoIntMap(Map<String, int> map) =>
-      jsonDecode(
-            (_benchmark_cpp_echo_int_map_js(jsonEncode(map).toJS) as JSString)
-                .toDart,
-          )
-          as Map<String, dynamic>;
+      (jsonDecode(
+                (_benchmark_cpp_echo_int_map_js(jsonEncode(map).toJS)
+                        as JSString)
+                    .toDart,
+              )
+              as Map<String, dynamic>)
+          .cast<String, int>();
 
   @override
   List<BenchmarkStats> echoStatsList(List<BenchmarkStats> stats) =>
-      (_benchmark_cpp_echo_stats_list_js(jsonEncode(stats).toJS) as JSAny?);
+      ((jsonDecode(
+                (_benchmark_cpp_echo_stats_list_js(jsonEncode(stats).toJS)
+                        as JSString)
+                    .toDart,
+              )
+              as List)
+          .map<BenchmarkStats>(
+            (m) => BenchmarkStats(
+              count: (m['count'] as num).toInt(),
+              meanUs: (m['meanUs'] as num).toDouble(),
+              minUs: (m['minUs'] as num).toDouble(),
+              maxUs: (m['maxUs'] as num).toDouble(),
+            ),
+          )
+          .toList());
 
   @override
   Future<int> asyncEcho(int value) async {

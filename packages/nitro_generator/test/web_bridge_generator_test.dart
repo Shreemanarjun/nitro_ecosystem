@@ -304,4 +304,59 @@ void main() {
       expect(out, contains('web: false'));
     });
   });
+
+  group('web return decode — Map<String,V> and List<record>', () {
+    // A jsonDecode result is Map<String,dynamic> / List<dynamic>; the emitted
+    // return must cast/decode to the declared type or the generated web bridge
+    // does not compile.
+    BridgeSpec spec() => BridgeSpec(
+      dartClassName: 'Coll',
+      lib: 'coll',
+      namespace: 'coll',
+      iosImpl: NativeImpl.swift,
+      androidImpl: NativeImpl.kotlin,
+      webImpl: NativeImpl.wasm,
+      sourceUri: 'coll.native.dart',
+      recordTypes: [
+        BridgeRecordType(
+          name: 'Stat',
+          fields: [
+            BridgeRecordField(name: 'count', dartType: 'int', kind: RecordFieldKind.primitive),
+            BridgeRecordField(name: 'mean', dartType: 'double', kind: RecordFieldKind.primitive),
+          ],
+        ),
+      ],
+      functions: [
+        BridgeFunction(
+          dartName: 'echoMap',
+          cSymbol: 'coll_echo_map',
+          isAsync: false,
+          returnType: BridgeType(name: 'Map<String, int>', isMap: true),
+          params: [BridgeParam(name: 'm', type: BridgeType(name: 'Map<String, int>', isMap: true))],
+        ),
+        BridgeFunction(
+          dartName: 'echoStats',
+          cSymbol: 'coll_echo_stats',
+          isAsync: false,
+          returnType: BridgeType(name: 'List<Stat>', isRecord: true, recordListItemType: 'Stat'),
+          params: [BridgeParam(name: 's', type: BridgeType(name: 'List<Stat>', isRecord: true, recordListItemType: 'Stat'))],
+        ),
+      ],
+    );
+
+    test('Map<String,int> return casts to the declared value type', () {
+      final out = WebBridgeGenerator.generate(spec());
+      // Must cast — a bare `as Map<String, dynamic>` return would not compile.
+      expect(out, contains('.cast<String, int>()'));
+      expect(out, isNot(contains('as Map<String, dynamic>;')));
+    });
+
+    test('List<record> return decodes into the item type, not a raw JSAny cast', () {
+      final out = WebBridgeGenerator.generate(spec());
+      expect(out, contains('.map<Stat>('));
+      expect(out, contains("count: (m['count'] as num).toInt()"));
+      // The old fallthrough returned the raw JS value as the whole list.
+      expect(out, isNot(contains('List<Stat> echoStats(List<Stat> s) =>\n      (_coll_echo_stats_js')));
+    });
+  });
 }

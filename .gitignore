@@ -42,3 +42,4 @@ test_projects/
 # Per-run benchmark reports (archived by benchmark/tool/bench.sh).
 # Baselines ARE committed — they live in benchmark/example/assets/baselines/.
 benchmark/results/
+.deslop/

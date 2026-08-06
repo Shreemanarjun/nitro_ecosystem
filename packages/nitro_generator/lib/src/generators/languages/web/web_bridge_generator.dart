@@ -385,8 +385,35 @@ class WebBridgeGenerator {
       return 'Pointer.fromAddress(($expr as JSNumber).toDartInt)';
     }
     if (bt.isMap) {
-      // Map<String,V>: JSON-decoded from JSString
-      return 'jsonDecode(($expr as JSString).toDart) as Map<String, dynamic>';
+      // Map<String,V>: JSON-decoded from JSString. jsonDecode yields
+      // Map<String, dynamic>, so cast to the declared value type.
+      return '(jsonDecode(($expr as JSString).toDart) as Map<String, dynamic>)'
+          '.cast<String, ${_mapValueType(name)}>()';
+    }
+    if (bt.recordListItemType != null) {
+      // List<T>: JSON-decoded to a List, each element mapped to the item type.
+      final item = bt.recordListItemType!;
+      if (bt.isEnumList) {
+        return '((jsonDecode(($expr as JSString).toDart) as List)'
+            '.map<$item>((e) => ((e as num).toInt()).to$item()).toList())';
+      }
+      if (bt.recordListItemIsPrimitive) {
+        final elem = switch (item) {
+          'int' => '(e as num).toInt()',
+          'double' => '(e as num).toDouble()',
+          'bool' => 'e as bool',
+          'String' => 'e as String',
+          _ => 'e as $item',
+        };
+        return '((jsonDecode(($expr as JSString).toDart) as List)'
+            '.map<$item>((e) => $elem).toList())';
+      }
+      final fields = _jsonFields(spec, item);
+      if (fields != null) {
+        final args = fields.map((f) => _jsonCtorArg(f.$1, f.$2, enumNames)).join(', ');
+        return '((jsonDecode(($expr as JSString).toDart) as List)'
+            '.map<$item>((m) => $item($args)).toList())';
+      }
     }
     if (enumNames.contains(name)) {
       return '(($expr as JSNumber).toDartInt).to$name()';
@@ -401,5 +428,16 @@ class WebBridgeGenerator {
       }
     }
     return '($expr as JSAny?)';
+  }
+
+  /// Extracts the value type V from a `Map<String, V>` type name (e.g.
+  /// `Map<String, int>` → `int`), for casting the jsonDecode result.
+  static String _mapValueType(String mapTypeName) {
+    final lt = mapTypeName.indexOf('<');
+    final gt = mapTypeName.lastIndexOf('>');
+    if (lt < 0 || gt < 0) return 'dynamic';
+    final inner = mapTypeName.substring(lt + 1, gt);
+    final comma = inner.indexOf(',');
+    return comma < 0 ? 'dynamic' : inner.substring(comma + 1).trim();
   }
 }

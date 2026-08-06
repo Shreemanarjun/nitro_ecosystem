@@ -331,6 +331,72 @@ class _DoctorViewState extends State<DoctorView> {
   }
 }
 
+// ── Doctor check context ──────────────────────────────────────────────────────
+
+/// Shared, mutable state threaded through every `_check*` method of
+/// [DoctorCommand.performChecks].
+class _DoctorCtx {
+  _DoctorCtx(this.root, this.pluginName, this.specs);
+  final Directory root;
+  final String pluginName;
+  final List<File> specs;
+  final List<DoctorSection> sections = [];
+  int errors = 0;
+  int warnings = 0;
+
+  void err(DoctorSection s, String label, {String? hint}) {
+    s.checks.add(DoctorCheck(DoctorStatus.error, label, hint: hint));
+    errors++;
+  }
+
+  void warn(DoctorSection s, String label, {String? hint}) {
+    s.checks.add(DoctorCheck(DoctorStatus.warn, label, hint: hint));
+    warnings++;
+  }
+
+  void ok(DoctorSection s, String label) {
+    s.checks.add(DoctorCheck(DoctorStatus.ok, label));
+  }
+
+  void info(DoctorSection s, String label) {
+    s.checks.add(DoctorCheck(DoctorStatus.info, label));
+  }
+
+  void checkFilePermissions(
+    DoctorSection section,
+    FileSystemEntity entity,
+    String label, {
+    bool requireRead = true,
+    bool requireWrite = true,
+  }) {
+    try {
+      final stat = entity.statSync();
+      const readBits = 0x124; // owner/group/other read: 0400 | 0040 | 0004
+      const writeBits = 0x92; // owner/group/other write: 0200 | 0020 | 0002
+      if (requireRead && (stat.mode & readBits) == 0) {
+        warn(
+          section,
+          '$label is not readable',
+          hint: 'Fix permissions before running nitrogen link/doctor: chmod u+r ${p.relative(entity.path, from: root.path)}',
+        );
+      }
+      if (requireWrite && (stat.mode & writeBits) == 0) {
+        warn(
+          section,
+          '$label is not writable',
+          hint: 'Fix permissions before running nitrogen link: chmod u+w ${p.relative(entity.path, from: root.path)}',
+        );
+      }
+    } on FileSystemException catch (e) {
+      warn(
+        section,
+        'Could not inspect permissions for $label',
+        hint: e.message,
+      );
+    }
+  }
+}
+
 // ── DoctorCommand ─────────────────────────────────────────────────────────────
 
 class DoctorCommand extends Command {
@@ -393,78 +459,62 @@ class DoctorCommand extends Command {
       );
     }
 
-    final pluginName = _pluginName(pubspecFile);
-    final specs = _findSpecs(root: root);
-    final sections = <DoctorSection>[];
-    int errors = 0;
-    int warnings = 0;
+    final ctx = _DoctorCtx(root, _pluginName(pubspecFile), _findSpecs(root: root));
 
-    void err(DoctorSection s, String label, {String? hint}) {
-      s.checks.add(DoctorCheck(DoctorStatus.error, label, hint: hint));
-      errors++;
-    }
+    _checkSystemToolchain(ctx);
+    _checkPubspec(ctx);
 
-    void warn(DoctorSection s, String label, {String? hint}) {
-      s.checks.add(DoctorCheck(DoctorStatus.warn, label, hint: hint));
-      warnings++;
-    }
+    // ── Apple SPM ──────────────────────────────────────────────────────────────
+    final spmStatus = detectSpmStatus(root.path);
+    _checkAppleSpm(ctx, spmStatus);
 
-    void ok(DoctorSection s, String label) {
-      s.checks.add(DoctorCheck(DoctorStatus.ok, label));
-    }
+    _checkGeneratedFiles(ctx);
+    _checkCmake(ctx);
 
-    void info(DoctorSection s, String label) {
-      s.checks.add(DoctorCheck(DoctorStatus.info, label));
-    }
+    // Whether any / all specs use NativeImpl.cpp — used below to skip irrelevant checks.
+    final allSpecsCpp = ctx.specs.isNotEmpty && ctx.specs.every(isCppModule);
+    final hasAnyCppSpec = ctx.specs.any(isCppModule);
+    final hasAnyNonCppSpec = ctx.specs.any((s) => !isCppModule(s));
 
-    void checkFilePermissions(
-      DoctorSection section,
-      FileSystemEntity entity,
-      String label, {
-      bool requireRead = true,
-      bool requireWrite = true,
-    }) {
-      try {
-        final stat = entity.statSync();
-        const readBits = 0x124; // owner/group/other read: 0400 | 0040 | 0004
-        const writeBits = 0x92; // owner/group/other write: 0200 | 0020 | 0002
-        if (requireRead && (stat.mode & readBits) == 0) {
-          warn(
-            section,
-            '$label is not readable',
-            hint: 'Fix permissions before running nitrogen link/doctor: chmod u+r ${p.relative(entity.path, from: root!.path)}',
-          );
-        }
-        if (requireWrite && (stat.mode & writeBits) == 0) {
-          warn(
-            section,
-            '$label is not writable',
-            hint: 'Fix permissions before running nitrogen link: chmod u+w ${p.relative(entity.path, from: root!.path)}',
-          );
-        }
-      } on FileSystemException catch (e) {
-        warn(
-          section,
-          'Could not inspect permissions for $label',
-          hint: e.message,
-        );
-      }
-    }
+    _checkAndroid(ctx, allSpecsCpp, hasAnyNonCppSpec);
+    _checkIos(ctx, spmStatus, allSpecsCpp, hasAnyNonCppSpec);
+    _checkMacos(ctx, spmStatus, allSpecsCpp, hasAnyNonCppSpec);
 
+    // When the platform CMakeLists delegates to src/, check src/CMakeLists.txt
+    // as the authoritative source of truth for dart_api_dl.c / bridge.g.cpp.
+    final srcCmake = File(p.join(root.path, 'src', 'CMakeLists.txt'));
+    final srcCmakeContent = srcCmake.existsSync() ? srcCmake.readAsStringSync() : '';
+    _checkWindows(ctx, srcCmakeContent);
+    _checkLinux(ctx, srcCmakeContent);
+
+    if (hasAnyCppSpec) _checkCppDirect(ctx);
+    _checkCocoaPodsPermissions(ctx);
+    _checkExampleApp(ctx);
+    _checkBuildRunnerHazard(ctx);
+
+    return DoctorViewResult(
+      pluginName: ctx.pluginName,
+      sections: ctx.sections,
+      errors: ctx.errors,
+      warnings: ctx.warnings,
+    );
+  }
+
+  void _checkSystemToolchain(_DoctorCtx ctx) {
     // ── System Toolchain ────────────────────────────────────────────────────────
     final sysSec = DoctorSection('System Toolchain');
-    sections.add(sysSec);
+    ctx.sections.add(sysSec);
 
     // 1. C++ Compiler
     try {
       final clangResult = Process.runSync('clang++', ['--version']);
       if (clangResult.exitCode == 0) {
-        ok(sysSec, 'clang++ found: ${clangResult.stdout.toString().split('\n').first}');
+        ctx.ok(sysSec, 'clang++ found: ${clangResult.stdout.toString().split('\n').first}');
       } else {
-        warn(sysSec, 'clang++ not found', hint: 'Install build-essential or Xcode Command Line Tools');
+        ctx.warn(sysSec, 'clang++ not found', hint: 'Install build-essential or Xcode Command Line Tools');
       }
     } catch (_) {
-      warn(sysSec, 'clang++ not found', hint: 'Install build-essential or Xcode Command Line Tools');
+      ctx.warn(sysSec, 'clang++ not found', hint: 'Install build-essential or Xcode Command Line Tools');
     }
 
     // 2. Xcode (on Mac)
@@ -472,23 +522,23 @@ class DoctorCommand extends Command {
       try {
         final xcodeResult = Process.runSync('xcode-select', ['-p']);
         if (xcodeResult.exitCode == 0) {
-          ok(sysSec, 'Xcode at ${xcodeResult.stdout.toString().trim()}');
+          ctx.ok(sysSec, 'Xcode at ${xcodeResult.stdout.toString().trim()}');
         } else {
-          err(sysSec, 'Xcode not found', hint: 'Run: xcode-select --install');
+          ctx.err(sysSec, 'Xcode not found', hint: 'Run: xcode-select --install');
         }
       } catch (_) {
-        err(sysSec, 'Xcode select failed', hint: 'Run: xcode-select --install');
+        ctx.err(sysSec, 'Xcode select failed', hint: 'Run: xcode-select --install');
       }
     }
 
     // 3. Android NDK
     final ndkPath = Platform.environment['ANDROID_NDK_HOME'] ?? Platform.environment['NDK_HOME'];
     if (ndkPath != null && Directory(ndkPath).existsSync()) {
-      ok(sysSec, 'Android NDK: ${p.basename(ndkPath)}');
+      ctx.ok(sysSec, 'Android NDK: ${p.basename(ndkPath)}');
     } else {
       // Check local.properties if in an android project, though we are in a plugin...
       // Usually users set ANDROID_NDK_HOME globally.
-      warn(sysSec, 'ANDROID_NDK_HOME not set', hint: 'Set ANDROID_NDK_HOME in your environment');
+      ctx.warn(sysSec, 'ANDROID_NDK_HOME not set', hint: 'Set ANDROID_NDK_HOME in your environment');
     }
 
     // 4. Java
@@ -497,14 +547,17 @@ class DoctorCommand extends Command {
       // java -version writes to stderr
       final javaOut = javaResult.stderr.toString();
       if (javaOut.contains('version')) {
-        ok(sysSec, 'Java: ${javaOut.split('\n').first}');
+        ctx.ok(sysSec, 'Java: ${javaOut.split('\n').first}');
       } else {
-        warn(sysSec, 'Java not found', hint: 'Install JDK 17+');
+        ctx.warn(sysSec, 'Java not found', hint: 'Install JDK 17+');
       }
     } catch (_) {
-      warn(sysSec, 'Java not found', hint: 'Install JDK 17+');
+      ctx.warn(sysSec, 'Java not found', hint: 'Install JDK 17+');
     }
+    _checkDesktopToolchain(ctx, sysSec);
+  }
 
+  void _checkDesktopToolchain(_DoctorCtx ctx, DoctorSection sysSec) {
     // ── PX15: Windows / Linux toolchain checks ─────────────────────────────
     // Only run on the platform where Windows/Linux builds are performed.
 
@@ -513,9 +566,9 @@ class DoctorCommand extends Command {
       final cmakeResult = Process.runSync('cmake', ['--version']);
       if (cmakeResult.exitCode == 0) {
         final ver = cmakeResult.stdout.toString().split('\n').first;
-        ok(sysSec, 'cmake: $ver');
+        ctx.ok(sysSec, 'cmake: $ver');
       } else {
-        warn(
+        ctx.warn(
           sysSec,
           'cmake not found',
           hint: Platform.isWindows
@@ -526,16 +579,16 @@ class DoctorCommand extends Command {
         );
       }
     } catch (_) {
-      warn(sysSec, 'cmake not found', hint: Platform.isWindows ? 'Install CMake: winget install Kitware.CMake' : 'Install cmake from cmake.org or your package manager');
+      ctx.warn(sysSec, 'cmake not found', hint: Platform.isWindows ? 'Install CMake: winget install Kitware.CMake' : 'Install cmake from cmake.org or your package manager');
     }
 
     if (Platform.isWindows) {
       // MSVC (Visual C++) — check for cl.exe
       final clPath = _findOnPath('cl.exe');
       if (clPath != null) {
-        ok(sysSec, 'MSVC (cl.exe) found at $clPath');
+        ctx.ok(sysSec, 'MSVC (cl.exe) found at $clPath');
       } else {
-        err(
+        ctx.err(
           sysSec,
           'MSVC (cl.exe) not found',
           hint:
@@ -547,9 +600,9 @@ class DoctorCommand extends Command {
       // Windows SDK
       final sdkDir = Platform.environment['WINDOWSSDKDIR'];
       if (sdkDir != null && Directory(sdkDir).existsSync()) {
-        ok(sysSec, 'Windows SDK at $sdkDir');
+        ctx.ok(sysSec, 'Windows SDK at $sdkDir');
       } else {
-        warn(sysSec, 'WINDOWSSDKDIR not set', hint: 'Install the Windows SDK from Visual Studio Installer');
+        ctx.warn(sysSec, 'WINDOWSSDKDIR not set', hint: 'Install the Windows SDK from Visual Studio Installer');
       }
     }
 
@@ -558,11 +611,11 @@ class DoctorCommand extends Command {
       final hasGcc = _runVersionCheck('g++');
       final hasClang = _runVersionCheck('clang++');
       if (hasGcc != null) {
-        ok(sysSec, 'g++ found: $hasGcc');
+        ctx.ok(sysSec, 'g++ found: $hasGcc');
       } else if (hasClang != null) {
-        ok(sysSec, 'clang++ found: $hasClang');
+        ctx.ok(sysSec, 'clang++ found: $hasClang');
       } else {
-        err(
+        ctx.err(
           sysSec,
           'No C++ compiler found (g++ / clang++)',
           hint:
@@ -576,61 +629,64 @@ class DoctorCommand extends Command {
           File('/usr/lib/x86_64-linux-gnu/libpthread.so').existsSync() ||
           File('/usr/lib/aarch64-linux-gnu/libpthread.so').existsSync();
       if (pthreadOk) {
-        ok(sysSec, 'libpthread available');
+        ctx.ok(sysSec, 'libpthread available');
       } else {
-        warn(sysSec, 'libpthread not detected in standard paths', hint: 'Ensure libpthread-dev is installed: apt install libpthread-stubs0-dev');
+        ctx.warn(sysSec, 'libpthread not detected in standard paths', hint: 'Ensure libpthread-dev is installed: apt install libpthread-stubs0-dev');
       }
     }
+  }
 
+  void _checkPubspec(_DoctorCtx ctx) {
+    final pubspecFile = File(p.join(ctx.root.path, 'pubspec.yaml'));
     final pubSec = DoctorSection('pubspec.yaml');
-    sections.add(pubSec);
+    ctx.sections.add(pubSec);
     final pubspec = pubspecFile.readAsStringSync();
 
     if (pubspec.contains('nitro:')) {
-      ok(pubSec, 'nitro dependency present');
+      ctx.ok(pubSec, 'nitro dependency present');
     } else {
-      err(pubSec, 'nitro dependency missing', hint: 'Add: nitro: { path: ../packages/nitro }');
+      ctx.err(pubSec, 'nitro dependency missing', hint: 'Add: nitro: { path: ../packages/nitro }');
     }
 
     if (pubspec.contains('build_runner:')) {
-      ok(pubSec, 'build_runner dev dependency present');
+      ctx.ok(pubSec, 'build_runner dev dependency present');
     } else {
-      err(pubSec, 'build_runner dev dependency missing', hint: 'Add to dev_dependencies: build_runner: ^2.4.0');
+      ctx.err(pubSec, 'build_runner dev dependency missing', hint: 'Add to dev_dependencies: build_runner: ^2.4.0');
     }
 
     if (pubspec.contains('nitro_generator:')) {
-      ok(pubSec, 'nitro_generator dev dependency present');
+      ctx.ok(pubSec, 'nitro_generator dev dependency present');
     } else {
-      err(pubSec, 'nitro_generator dev dependency missing', hint: 'Add to dev_dependencies: nitro_generator: { path: ../packages/nitro_generator }');
+      ctx.err(pubSec, 'nitro_generator dev dependency missing', hint: 'Add to dev_dependencies: nitro_generator: { path: ../packages/nitro_generator }');
     }
 
     if (RegExp(r'android:\s*\n(?:\s+\S[^\n]*\n)*\s+pluginClass:').hasMatch(pubspec)) {
-      ok(pubSec, 'android pluginClass defined');
+      ctx.ok(pubSec, 'android pluginClass defined');
     } else {
-      err(pubSec, 'android pluginClass missing', hint: 'Add pluginClass under flutter.plugin.platforms.android');
+      ctx.err(pubSec, 'android pluginClass missing', hint: 'Add pluginClass under flutter.plugin.platforms.android');
     }
 
     if (RegExp(r'android:\s*\n(?:\s+\S[^\n]*\n)*\s+package:').hasMatch(pubspec)) {
-      ok(pubSec, 'android package defined');
+      ctx.ok(pubSec, 'android package defined');
     } else {
-      err(pubSec, 'android package missing', hint: 'Add package under flutter.plugin.platforms.android');
+      ctx.err(pubSec, 'android package missing', hint: 'Add package under flutter.plugin.platforms.android');
     }
 
     if (RegExp(r'ios:\s*\n(?:\s+\S[^\n]*\n)*\s+pluginClass:').hasMatch(pubspec)) {
-      ok(pubSec, 'ios pluginClass defined');
+      ctx.ok(pubSec, 'ios pluginClass defined');
     } else if (RegExp(r'ios:\s*\n(?:\s+\S[^\n]*\n)*\s+ffiPlugin:\s*true').hasMatch(pubspec)) {
-      ok(pubSec, 'ios ffiPlugin: true (pluginClass optional for FFI plugins)');
+      ctx.ok(pubSec, 'ios ffiPlugin: true (pluginClass optional for FFI plugins)');
     } else {
-      err(pubSec, 'ios pluginClass missing', hint: 'Add pluginClass under flutter.plugin.platforms.ios');
+      ctx.err(pubSec, 'ios pluginClass missing', hint: 'Add pluginClass under flutter.plugin.platforms.ios');
     }
 
     if (pubspec.contains('  macos:')) {
       if (RegExp(r'macos:\s*\n(?:\s+\S[^\n]*\n)*\s+pluginClass:').hasMatch(pubspec)) {
-        ok(pubSec, 'macos pluginClass defined');
+        ctx.ok(pubSec, 'macos pluginClass defined');
       } else if (RegExp(r'macos:\s*\n(?:\s+\S[^\n]*\n)*\s+ffiPlugin:\s*true').hasMatch(pubspec)) {
-        ok(pubSec, 'macos ffiPlugin: true (pluginClass optional for FFI plugins)');
+        ctx.ok(pubSec, 'macos ffiPlugin: true (pluginClass optional for FFI plugins)');
       } else {
-        warn(pubSec, 'macos pluginClass missing', hint: 'Add pluginClass or ffiPlugin: true under flutter.plugin.platforms.macos');
+        ctx.warn(pubSec, 'macos pluginClass missing', hint: 'Add pluginClass or ffiPlugin: true under flutter.plugin.platforms.macos');
       }
     }
 
@@ -645,106 +701,108 @@ class DoctorCommand extends Command {
       final hasClass = entry.contains('pluginClass:');
       final hasFfi = RegExp(r'ffiPlugin:\s*true').hasMatch(entry);
       if (hasClass && hasFfi) {
-        err(
+        ctx.err(
           pubSec,
           '$desktop declares pluginClass on an FFI-only platform',
           hint: 'Remove it (Run: nitrogen link) — Flutter otherwise links a nonexistent <plugin>_plugin CMake target',
         );
       } else if (hasFfi) {
-        ok(pubSec, '$desktop ffiPlugin: true (FFI-only, no pluginClass)');
+        ctx.ok(pubSec, '$desktop ffiPlugin: true (FFI-only, no pluginClass)');
       }
     }
+  }
 
-    // ── Apple SPM ──────────────────────────────────────────────────────────────
-    final spmStatus = detectSpmStatus(root.path);
+  void _checkAppleSpm(_DoctorCtx ctx, SpmStatus spmStatus) {
     if (Platform.isMacOS) {
       final spmSec = DoctorSection('Apple SPM (Swift Package Manager)');
-      sections.add(spmSec);
+      ctx.sections.add(spmSec);
 
       if (spmStatus.hasSpm) {
         if (spmStatus.isModern) {
-          ok(spmSec, 'SPM-only setup (modern)');
+          ctx.ok(spmSec, 'SPM-only setup (modern)');
         } else if (spmStatus.isMixed) {
-          warn(spmSec, 'Mixed SPM + CocoaPods setup', hint: 'Run: nitrogen migrate  to complete SPM migration');
+          ctx.warn(spmSec, 'Mixed SPM + CocoaPods setup', hint: 'Run: nitrogen migrate  to complete SPM migration');
         }
 
         if (spmStatus.iosHasSpm) {
           final path = spmStatus.iosPackageSwiftPath!;
-          final rel = p.relative(path, from: root.path);
-          ok(spmSec, 'iOS: $rel');
+          final rel = p.relative(path, from: ctx.root.path);
+          ctx.ok(spmSec, 'iOS: $rel');
 
           // Detect flat vs nested layout
-          final segments = p.split(p.relative(p.dirname(path), from: root.path));
+          final segments = p.split(p.relative(p.dirname(path), from: ctx.root.path));
           if (segments.length >= 2 && segments[0] == 'ios') {
-            ok(spmSec, 'iOS using Flutter 3.41+ nested SPM layout');
+            ctx.ok(spmSec, 'iOS using Flutter 3.41+ nested SPM layout');
           } else {
-            warn(spmSec, 'iOS using flat SPM layout (ios/Package.swift)', hint: 'Run: nitrogen migrate  to upgrade to nested Flutter 3.41+ layout');
+            ctx.warn(spmSec, 'iOS using flat SPM layout (ios/Package.swift)', hint: 'Run: nitrogen migrate  to upgrade to nested Flutter 3.41+ layout');
           }
 
           // Check the FlutterFramework path resolves from this Package.swift.
           // The path is only valid after `flutter pub get` runs in the example app.
           if (!flutterFrameworkPathExists(path)) {
-            warn(
+            ctx.warn(
               spmSec,
               'iOS Package.swift: FlutterFramework path does not resolve — Xcode will report "Unable to resolve module dependency: Flutter"',
               hint: 'Run: nitrogen link  (creates a symlink), or run flutter pub get in example/ first',
             );
           } else {
-            ok(spmSec, 'iOS Package.swift: FlutterFramework path resolves');
+            ctx.ok(spmSec, 'iOS Package.swift: FlutterFramework path resolves');
           }
 
           for (final issue in spmStatus.issues.where((i) => i.startsWith('ios'))) {
-            err(spmSec, issue, hint: 'Run: nitrogen migrate');
+            ctx.err(spmSec, issue, hint: 'Run: nitrogen migrate');
           }
           for (final w in spmStatus.warnings.where((w) => w.startsWith('ios'))) {
-            warn(spmSec, w);
+            ctx.warn(spmSec, w);
           }
         } else {
-          info(spmSec, 'iOS SPM not configured');
+          ctx.info(spmSec, 'iOS SPM not configured');
         }
 
         if (spmStatus.macosHasSpm) {
           final path = spmStatus.macosPackageSwiftPath!;
-          final rel = p.relative(path, from: root.path);
-          ok(spmSec, 'macOS: $rel');
+          final rel = p.relative(path, from: ctx.root.path);
+          ctx.ok(spmSec, 'macOS: $rel');
 
-          final segments = p.split(p.relative(p.dirname(path), from: root.path));
+          final segments = p.split(p.relative(p.dirname(path), from: ctx.root.path));
           if (segments.length >= 2 && segments[0] == 'macos') {
-            ok(spmSec, 'macOS using Flutter 3.41+ nested SPM layout');
+            ctx.ok(spmSec, 'macOS using Flutter 3.41+ nested SPM layout');
           } else {
-            warn(spmSec, 'macOS using flat SPM layout (macos/Package.swift)', hint: 'Run: nitrogen migrate  to upgrade to nested Flutter 3.41+ layout');
+            ctx.warn(spmSec, 'macOS using flat SPM layout (macos/Package.swift)', hint: 'Run: nitrogen migrate  to upgrade to nested Flutter 3.41+ layout');
           }
 
           if (!flutterFrameworkPathExists(path)) {
-            warn(
+            ctx.warn(
               spmSec,
               'macOS Package.swift: FlutterFramework path does not resolve — Xcode will report "Unable to resolve module dependency: Flutter"',
               hint: 'Run: nitrogen link  (creates a symlink), or run flutter pub get in example/ first',
             );
           } else {
-            ok(spmSec, 'macOS Package.swift: FlutterFramework path resolves');
+            ctx.ok(spmSec, 'macOS Package.swift: FlutterFramework path resolves');
           }
 
           for (final issue in spmStatus.issues.where((i) => i.startsWith('macos'))) {
-            err(spmSec, issue, hint: 'Run: nitrogen migrate');
+            ctx.err(spmSec, issue, hint: 'Run: nitrogen migrate');
           }
           for (final w in spmStatus.warnings.where((w) => w.startsWith('macos'))) {
-            warn(spmSec, w);
+            ctx.warn(spmSec, w);
           }
         } else {
-          info(spmSec, 'macOS SPM not configured');
+          ctx.info(spmSec, 'macOS SPM not configured');
         }
       } else if (spmStatus.hasCocoaPods) {
-        err(spmSec, 'CocoaPods detected — no SPM configuration found', hint: 'Run: nitrogen migrate  to migrate to Swift Package Manager');
+        ctx.err(spmSec, 'CocoaPods detected — no SPM configuration found', hint: 'Run: nitrogen migrate  to migrate to Swift Package Manager');
       } else {
-        info(spmSec, 'No Apple platform directories found');
+        ctx.info(spmSec, 'No Apple platform directories found');
       }
     }
+  }
 
-    if (specs.isNotEmpty) {
+  void _checkGeneratedFiles(_DoctorCtx ctx) {
+    if (ctx.specs.isNotEmpty) {
       final genSec = DoctorSection('Generated Files');
-      sections.add(genSec);
-      for (final spec in specs) {
+      ctx.sections.add(genSec);
+      for (final spec in ctx.specs) {
         final stem = p.basename(spec.path).replaceAll(RegExp(r'\.native\.dart$'), '');
         final specMtime = spec.lastModifiedSync();
         final specIsCpp = isCppModule(spec);
@@ -755,22 +813,22 @@ class DoctorCommand extends Command {
           // Use platform-specific checks instead of the broad isCppModule guard
           // so mixed modules (e.g. windows:cpp + android:kotlin) are correctly handled.
           if (suffix == '.bridge.g.kt' && !_isAndroidKotlinModule(spec)) {
-            info(genSec, '${p.basename(spec.path)} → $suffix skipped (android: AndroidNativeImpl.cpp)');
+            ctx.info(genSec, '${p.basename(spec.path)} → $suffix skipped (android: AndroidNativeImpl.cpp)');
             continue;
           }
           if (suffix == '.bridge.g.swift' && !_isAppleSwiftModule(spec)) {
-            info(genSec, '${p.basename(spec.path)} → $suffix skipped (ios/macos: AppleNativeImpl.cpp)');
+            ctx.info(genSec, '${p.basename(spec.path)} → $suffix skipped (ios/macos: AppleNativeImpl.cpp)');
             continue;
           }
           final genPath = _generatedPath(spec.path, stem, suffix);
           final genFile = File(genPath);
           final relPath = p.relative(genPath);
           if (!genFile.existsSync()) {
-            err(genSec, 'MISSING  $relPath', hint: 'Run: nitrogen generate');
+            ctx.err(genSec, 'MISSING  $relPath', hint: 'Run: nitrogen generate');
           } else if (specMtime.isAfter(genFile.lastModifiedSync())) {
-            warn(genSec, 'STALE    $relPath', hint: 'Run: nitrogen generate');
+            ctx.warn(genSec, 'STALE    $relPath', hint: 'Run: nitrogen generate');
           } else {
-            ok(genSec, relPath);
+            ctx.ok(genSec, relPath);
           }
         }
 
@@ -781,55 +839,57 @@ class DoctorCommand extends Command {
             final genFile = File(genPath);
             final relPath = p.relative(genPath);
             if (!genFile.existsSync()) {
-              err(genSec, 'MISSING  $relPath', hint: 'Run: nitrogen generate');
+              ctx.err(genSec, 'MISSING  $relPath', hint: 'Run: nitrogen generate');
             } else if (specMtime.isAfter(genFile.lastModifiedSync())) {
-              warn(genSec, 'STALE    $relPath', hint: 'Run: nitrogen generate');
+              ctx.warn(genSec, 'STALE    $relPath', hint: 'Run: nitrogen generate');
             } else {
-              ok(genSec, relPath);
+              ctx.ok(genSec, relPath);
             }
           }
         }
       }
     } else {
       final genSec = DoctorSection('Generated Files');
-      sections.add(genSec);
-      warn(genSec, 'No *.native.dart specs found under lib/', hint: 'Create lib/src/<name>.native.dart');
+      ctx.sections.add(genSec);
+      ctx.warn(genSec, 'No *.native.dart specs found under lib/', hint: 'Create lib/src/<name>.native.dart');
     }
+  }
 
+  void _checkCmake(_DoctorCtx ctx) {
     final cmakeSec = DoctorSection('CMakeLists.txt');
-    sections.add(cmakeSec);
-    final cmakeFile = File(p.join(root.path, 'src', 'CMakeLists.txt'));
+    ctx.sections.add(cmakeSec);
+    final cmakeFile = File(p.join(ctx.root.path, 'src', 'CMakeLists.txt'));
     if (!cmakeFile.existsSync()) {
-      err(cmakeSec, 'src/CMakeLists.txt not found', hint: 'Run: nitrogen link');
+      ctx.err(cmakeSec, 'src/CMakeLists.txt not found', hint: 'Run: nitrogen link');
     } else {
-      checkFilePermissions(cmakeSec, cmakeFile, 'src/CMakeLists.txt');
+      ctx.checkFilePermissions(cmakeSec, cmakeFile, 'src/CMakeLists.txt');
       final cmake = cmakeFile.readAsStringSync();
       // Check for redundant includes in nearby C++ files
-      final srcDir = Directory(p.join(root.path, 'src'));
+      final srcDir = Directory(p.join(ctx.root.path, 'src'));
       final cppFiles = srcDir.listSync().whereType<File>().where((f) => f.path.endsWith('.cpp') || f.path.endsWith('.c')).toList();
       for (final f in cppFiles) {
         final c = f.readAsStringSync();
         if (c.contains('.bridge.g.cpp') || c.contains('.bridge.g.c')) {
-          err(cmakeSec, 'Redundant bridge include in ${p.basename(f.path)}', hint: 'Remove #include "...bridge.g.cpp" from your source file');
+          ctx.err(cmakeSec, 'Redundant bridge include in ${p.basename(f.path)}', hint: 'Remove #include "...bridge.g.cpp" from your source file');
         }
       }
 
       if (cmake.contains('NITRO_NATIVE')) {
-        ok(cmakeSec, 'NITRO_NATIVE variable defined');
+        ctx.ok(cmakeSec, 'NITRO_NATIVE variable defined');
       } else {
-        warn(cmakeSec, 'NITRO_NATIVE variable missing (incorrect dart_api_dl.c path)', hint: 'Run: nitrogen link');
+        ctx.warn(cmakeSec, 'NITRO_NATIVE variable missing (incorrect dart_api_dl.c path)', hint: 'Run: nitrogen link');
       }
       if (cmake.contains('dart_api_dl.c')) {
-        ok(cmakeSec, 'dart_api_dl.c included');
+        ctx.ok(cmakeSec, 'dart_api_dl.c included');
       } else {
-        err(cmakeSec, 'dart_api_dl.c not included', hint: 'Run: nitrogen link');
+        ctx.err(cmakeSec, 'dart_api_dl.c not included', hint: 'Run: nitrogen link');
       }
 
       // Build a lookup: impl file name → whether it's a native-cpp (android/linux)
       // module so we can skip “unlinked source” warnings for files that are
       // intentionally absent from the Android CMakeLists.txt (windows-only cpp).
       final nativeCppImplFiles = <String>{};
-      for (final spec in specs) {
+      for (final spec in ctx.specs) {
         if (!isNativeCppModule(spec)) continue;
         final stem = p.basename(spec.path).replaceAll(RegExp(r'\.native\.dart$'), '');
         final moduleMatch = RegExp(r'abstract class (\w+) extends HybridObject').firstMatch(spec.readAsStringSync());
@@ -844,21 +904,21 @@ class DoctorCommand extends Command {
       for (final f in allSrcFiles) {
         final name = p.basename(f.path);
         if (name == 'dart_api_dl.c') continue;
-        if (name == '$pluginName.cpp' || name == '$pluginName.c') continue;
+        if (name == '${ctx.pluginName}.cpp' || name == '${ctx.pluginName}.c') continue;
         // Hybrid impl files for windows-only cpp modules don’t belong in the
         // Android/Linux CMakeLists — skip them to avoid a false-positive warning.
         if (name.startsWith('Hybrid') && name.endsWith('.cpp') && !nativeCppImplFiles.contains(name)) continue;
 
         if (!cmake.contains('"$name"') && !cmake.contains(' $name ') && !cmake.contains('\n  $name')) {
-          warn(cmakeSec, 'Unlinked source: $name', hint: 'File found in src/ but not mentioned in CMakeLists.txt');
+          ctx.warn(cmakeSec, 'Unlinked source: $name', hint: 'File found in src/ but not mentioned in CMakeLists.txt');
         }
       }
 
-      for (final spec in specs) {
+      for (final spec in ctx.specs) {
         final stem = p.basename(spec.path).replaceAll(RegExp(r'\.native\.dart$'), '');
         final lib = _extractLibName(spec) ?? stem.replaceAll('-', '_');
         if (cmake.contains('add_library($lib ')) {
-          ok(cmakeSec, 'add_library($lib) target present');
+          ctx.ok(cmakeSec, 'add_library($lib) target present');
 
           // Verify HybridXxx.cpp is linked for native-cpp (android/linux) modules.
           // Windows-only cpp modules do NOT need this in src/CMakeLists.txt.
@@ -867,745 +927,780 @@ class DoctorCommand extends Command {
             final moduleName = moduleMatch?.group(1) ?? _toPascalCase(stem);
             final implName = 'Hybrid$moduleName.cpp';
             if (!cmake.contains('"$implName"') && !cmake.contains(' $implName ') && !cmake.contains('\n  $implName')) {
-              err(cmakeSec, '$lib: $implName not linked in target', hint: 'Add "$implName" to add_library($lib ...)');
+              ctx.err(cmakeSec, '$lib: $implName not linked in target', hint: 'Add "$implName" to add_library($lib ...)');
             }
           }
         } else {
-          err(cmakeSec, 'add_library($lib) missing', hint: 'Run: nitrogen link');
+          ctx.err(cmakeSec, 'add_library($lib) missing', hint: 'Run: nitrogen link');
         }
       }
     }
+  }
 
-    // Whether any / all specs use NativeImpl.cpp — used below to skip irrelevant checks.
-    final allSpecsCpp = specs.isNotEmpty && specs.every(isCppModule);
-    final hasAnyCppSpec = specs.any(isCppModule);
-    final hasAnyNonCppSpec = specs.any((s) => !isCppModule(s));
-
+  void _checkAndroid(_DoctorCtx ctx, bool allSpecsCpp, bool hasAnyNonCppSpec) {
     final androidSec = DoctorSection('Android');
-    sections.add(androidSec);
-    final androidDir = Directory(p.join(root.path, 'android'));
+    ctx.sections.add(androidSec);
+    final androidDir = Directory(p.join(ctx.root.path, 'android'));
     if (!androidDir.existsSync()) {
-      info(androidSec, 'android/ directory not present — skipped');
-    } else if (allSpecsCpp) {
+      ctx.info(androidSec, 'android/ directory not present — skipped');
+      return;
+    }
+    if (allSpecsCpp) {
       // Pure C++ plugin — no Kotlin bridge needed.
-      info(androidSec, 'All modules use NativeImpl.cpp — Kotlin JNI bridge not required');
+      ctx.info(androidSec, 'All modules use NativeImpl.cpp — Kotlin JNI bridge not required');
       // Still check that the NDK can build the shared library.
       final gradle = File(p.join(androidDir.path, 'build.gradle'));
       if (gradle.existsSync() && gradle.readAsStringSync().contains('externalNativeBuild')) {
-        ok(androidSec, 'externalNativeBuild configured (NDK build)');
+        ctx.ok(androidSec, 'externalNativeBuild configured (NDK build)');
       } else {
-        info(androidSec, 'Add externalNativeBuild to android/build.gradle if using CMake directly');
+        ctx.info(androidSec, 'Add externalNativeBuild to android/build.gradle if using CMake directly');
       }
+      return;
+    }
+    _checkAndroidGradle(ctx, androidSec, androidDir);
+    _checkAndroidPluginKt(ctx, androidSec, androidDir, hasAnyNonCppSpec);
+  }
+
+  void _checkAndroidGradle(_DoctorCtx ctx, DoctorSection androidSec, Directory androidDir) {
+    final gradle = File(p.join(androidDir.path, 'build.gradle'));
+    if (!gradle.existsSync()) {
+      ctx.err(androidSec, 'android/build.gradle not found');
     } else {
-      final gradle = File(p.join(androidDir.path, 'build.gradle'));
-      if (!gradle.existsSync()) {
-        err(androidSec, 'android/build.gradle not found');
+      final g = gradle.readAsStringSync();
+      // Accept either the classic apply-plugin syntax or the modern approach
+      // where Flutter's build infrastructure provides KGP automatically.
+      // The modern approach is preferred since Flutter 3.x deprecated explicit
+      // KGP in plugin build files (produces a Flutter deprecation warning).
+      if (g.contains('"kotlin-android"') || g.contains("'kotlin-android'")) {
+        ctx.ok(androidSec, 'kotlin-android plugin applied');
+      } else if (g.contains('kotlinOptions') || g.contains('kotlin.srcDirs')) {
+        // Flutter's built-in KGP is active — Kotlin is configured without the
+        // explicit apply plugin line (intentional per Flutter migration guide).
+        ctx.ok(androidSec, 'Kotlin configured via Flutter built-in KGP (modern approach)');
       } else {
-        final g = gradle.readAsStringSync();
-        // Accept either the classic apply-plugin syntax or the modern approach
-        // where Flutter's build infrastructure provides KGP automatically.
-        // The modern approach is preferred since Flutter 3.x deprecated explicit
-        // KGP in plugin build files (produces a Flutter deprecation warning).
-        if (g.contains('"kotlin-android"') || g.contains("'kotlin-android'")) {
-          ok(androidSec, 'kotlin-android plugin applied');
-        } else if (g.contains('kotlinOptions') || g.contains('kotlin.srcDirs')) {
-          // Flutter's built-in KGP is active — Kotlin is configured without the
-          // explicit apply plugin line (intentional per Flutter migration guide).
-          ok(androidSec, 'Kotlin configured via Flutter built-in KGP (modern approach)');
-        } else {
-          err(androidSec, 'kotlin-android plugin missing', hint: 'Add: apply plugin: "kotlin-android"  or use Flutter built-in KGP (kotlinOptions block)');
+        ctx.err(androidSec, 'kotlin-android plugin missing', hint: 'Add: apply plugin: "kotlin-android"  or use Flutter built-in KGP (kotlinOptions block)');
+      }
+      if (g.contains('kotlinOptions')) {
+        ctx.ok(androidSec, 'kotlinOptions block present');
+      } else {
+        ctx.err(androidSec, 'kotlinOptions block missing', hint: 'Add: kotlinOptions { jvmTarget = "${BuildVersions.androidJvmTarget}" }');
+      }
+      if (g.contains('generated/kotlin')) {
+        ctx.ok(androidSec, 'generated/kotlin sourceSets entry present');
+        // Warn if java.srcDirs also points at the generated kotlin directory.
+        // In AGP 8.x this routes .kt files through the Java compiler path and
+        // causes "Unresolved reference: XxxJniBridge" compile errors.
+        if (RegExp(r'java\.srcDirs\s*\+=.*generated/kotlin').hasMatch(g)) {
+          ctx.err(
+            androidSec,
+            'java.srcDirs includes generated/kotlin — causes "Unresolved reference: XxxJniBridge" in AGP 8.x',
+            hint: 'Remove the java.srcDirs line; kotlin.srcDirs alone is sufficient',
+          );
         }
-        if (g.contains('kotlinOptions')) {
-          ok(androidSec, 'kotlinOptions block present');
+      } else {
+        ctx.err(androidSec, 'sourceSets entry for generated/kotlin missing', hint: 'Add: kotlin.srcDirs += "\${project.projectDir}/../lib/src/generated/kotlin"');
+      }
+      if (g.contains('kotlinx-coroutines')) {
+        ctx.ok(androidSec, 'kotlinx-coroutines dependency present');
+      } else {
+        ctx.err(androidSec, 'kotlinx-coroutines missing in dependencies');
+      }
+    }
+  }
+
+  void _checkAndroidPluginKt(_DoctorCtx ctx, DoctorSection androidSec, Directory androidDir, bool hasAnyNonCppSpec) {
+    final ktDir = Directory(p.join(androidDir.path, 'src', 'main', 'kotlin'));
+    final pluginFiles = ktDir.existsSync() ? ktDir.listSync(recursive: true).whereType<File>().where((f) => f.path.endsWith('Plugin.kt')).toList() : <File>[];
+    if (pluginFiles.isEmpty) {
+      ctx.err(androidSec, 'No Plugin.kt found', hint: 'Run: nitrogen init');
+    } else {
+      ctx.checkFilePermissions(
+        androidSec,
+        pluginFiles.first,
+        p.relative(pluginFiles.first.path, from: ctx.root.path),
+      );
+      final kt = pluginFiles.first.readAsStringSync();
+      // Only check System.loadLibrary for non-cpp specs (cpp libs are also loaded but that's fine)
+      for (final spec in ctx.specs) {
+        final stem = p.basename(spec.path).replaceAll(RegExp(r'\.native\.dart$'), '');
+        final lib = _extractLibName(spec) ?? stem.replaceAll('-', '_');
+        if (kt.contains('System.loadLibrary("$lib")')) {
+          ctx.ok(androidSec, 'System.loadLibrary("$lib") in Plugin.kt');
         } else {
-          err(androidSec, 'kotlinOptions block missing', hint: 'Add: kotlinOptions { jvmTarget = "${BuildVersions.androidJvmTarget}" }');
+          ctx.err(androidSec, 'System.loadLibrary("$lib") missing', hint: 'Run: nitrogen link');
         }
-        if (g.contains('generated/kotlin')) {
-          ok(androidSec, 'generated/kotlin sourceSets entry present');
-          // Warn if java.srcDirs also points at the generated kotlin directory.
-          // In AGP 8.x this routes .kt files through the Java compiler path and
-          // causes "Unresolved reference: XxxJniBridge" compile errors.
-          if (RegExp(r'java\.srcDirs\s*\+=.*generated/kotlin').hasMatch(g)) {
-            err(
-              androidSec,
-              'java.srcDirs includes generated/kotlin — causes "Unresolved reference: XxxJniBridge" in AGP 8.x',
-              hint: 'Remove the java.srcDirs line; kotlin.srcDirs alone is sufficient',
-            );
-          }
+      }
+      // JniBridge.register / registerFactory only needed for non-cpp ctx.specs.
+      // Accept both forms:
+      //   register(impl)           — simple single-instance pattern
+      //   registerFactory({...})   — factory pattern for multi-instance support
+      if (hasAnyNonCppSpec) {
+        if (kt.contains('JniBridge.register(') || kt.contains('JniBridge.registerFactory(')) {
+          ctx.ok(androidSec, 'JniBridge.register(...) call present');
         } else {
-          err(androidSec, 'sourceSets entry for generated/kotlin missing', hint: 'Add: kotlin.srcDirs += "\${project.projectDir}/../lib/src/generated/kotlin"');
+          ctx.warn(androidSec, 'JniBridge.register(...) not found in Plugin.kt', hint: 'Add register call in onAttachedToEngine');
         }
-        if (g.contains('kotlinx-coroutines')) {
-          ok(androidSec, 'kotlinx-coroutines dependency present');
-        } else {
-          err(androidSec, 'kotlinx-coroutines missing in dependencies');
+      } else {
+        ctx.info(androidSec, 'JniBridge.register not needed — all modules use NativeImpl.cpp');
+      }
+
+      // Check for stale JniBridge.register() calls for C++ modules.
+      // When a module transitions from Kotlin/JNI to NativeImpl.cpp its
+      // JniBridge class no longer exists, causing "Unresolved reference" at
+      // compile time. nitrogen link auto-removes these, but doctor flags them
+      // so users know to re-run link.
+      for (final spec in ctx.specs.where(isCppModule)) {
+        final stem = p.basename(spec.path).replaceAll(RegExp(r'\.native\.dart$'), '');
+        final moduleMatch = RegExp(r'abstract class (\w+) extends HybridObject').firstMatch(spec.readAsStringSync());
+        final moduleName = moduleMatch?.group(1) ?? _toPascalCase(stem);
+        if (kt.contains('${moduleName}JniBridge.register(')) {
+          ctx.err(
+            androidSec,
+            'Stale ${moduleName}JniBridge.register() in Plugin.kt — $moduleName is now NativeImpl.cpp',
+            hint: 'Run: nitrogen link  (auto-removes stale registrations for C++ modules)',
+          );
         }
       }
 
-      final ktDir = Directory(p.join(androidDir.path, 'src', 'main', 'kotlin'));
-      final pluginFiles = ktDir.existsSync() ? ktDir.listSync(recursive: true).whereType<File>().where((f) => f.path.endsWith('Plugin.kt')).toList() : <File>[];
-      if (pluginFiles.isEmpty) {
-        err(androidSec, 'No Plugin.kt found', hint: 'Run: nitrogen init');
-      } else {
-        checkFilePermissions(
-          androidSec,
-          pluginFiles.first,
-          p.relative(pluginFiles.first.path, from: root.path),
-        );
-        final kt = pluginFiles.first.readAsStringSync();
-        // Only check System.loadLibrary for non-cpp specs (cpp libs are also loaded but that's fine)
-        for (final spec in specs) {
-          final stem = p.basename(spec.path).replaceAll(RegExp(r'\.native\.dart$'), '');
-          final lib = _extractLibName(spec) ?? stem.replaceAll('-', '_');
-          if (kt.contains('System.loadLibrary("$lib")')) {
-            ok(androidSec, 'System.loadLibrary("$lib") in Plugin.kt');
-          } else {
-            err(androidSec, 'System.loadLibrary("$lib") missing', hint: 'Run: nitrogen link');
-          }
-        }
-        // JniBridge.register / registerFactory only needed for non-cpp specs.
-        // Accept both forms:
-        //   register(impl)           — simple single-instance pattern
-        //   registerFactory({...})   — factory pattern for multi-instance support
-        if (hasAnyNonCppSpec) {
-          if (kt.contains('JniBridge.register(') || kt.contains('JniBridge.registerFactory(')) {
-            ok(androidSec, 'JniBridge.register(...) call present');
-          } else {
-            warn(androidSec, 'JniBridge.register(...) not found in Plugin.kt', hint: 'Add register call in onAttachedToEngine');
-          }
+      // For each non-cpp Kotlin module, verify the JniBridge import is present.
+      // Missing imports cause "Unresolved reference: FooJniBridge" Kotlin errors.
+      // nitrogen link auto-injects these imports alongside the register() call.
+      for (final spec in ctx.specs.where((s) => !isCppModule(s))) {
+        final stem = p.basename(spec.path).replaceAll(RegExp(r'\.native\.dart$'), '');
+        final lib = (_extractLibName(spec) ?? stem).replaceAll('-', '_');
+        final moduleMatch = RegExp(r'abstract class (\w+) extends HybridObject').firstMatch(spec.readAsStringSync());
+        final moduleName = moduleMatch?.group(1) ?? _toPascalCase(stem);
+        final importLine = 'import nitro.${lib}_module.${moduleName}JniBridge';
+        if (!kt.contains(importLine)) {
+          ctx.err(
+            androidSec,
+            'Missing import in Plugin.kt: $importLine',
+            hint: 'Run: nitrogen link  (auto-adds missing JniBridge imports)',
+          );
         } else {
-          info(androidSec, 'JniBridge.register not needed — all modules use NativeImpl.cpp');
-        }
-
-        // Check for stale JniBridge.register() calls for C++ modules.
-        // When a module transitions from Kotlin/JNI to NativeImpl.cpp its
-        // JniBridge class no longer exists, causing "Unresolved reference" at
-        // compile time. nitrogen link auto-removes these, but doctor flags them
-        // so users know to re-run link.
-        for (final spec in specs.where(isCppModule)) {
-          final stem = p.basename(spec.path).replaceAll(RegExp(r'\.native\.dart$'), '');
-          final moduleMatch = RegExp(r'abstract class (\w+) extends HybridObject').firstMatch(spec.readAsStringSync());
-          final moduleName = moduleMatch?.group(1) ?? _toPascalCase(stem);
-          if (kt.contains('${moduleName}JniBridge.register(')) {
-            err(
-              androidSec,
-              'Stale ${moduleName}JniBridge.register() in Plugin.kt — $moduleName is now NativeImpl.cpp',
-              hint: 'Run: nitrogen link  (auto-removes stale registrations for C++ modules)',
-            );
-          }
-        }
-
-        // For each non-cpp Kotlin module, verify the JniBridge import is present.
-        // Missing imports cause "Unresolved reference: FooJniBridge" Kotlin errors.
-        // nitrogen link auto-injects these imports alongside the register() call.
-        for (final spec in specs.where((s) => !isCppModule(s))) {
-          final stem = p.basename(spec.path).replaceAll(RegExp(r'\.native\.dart$'), '');
-          final lib = (_extractLibName(spec) ?? stem).replaceAll('-', '_');
-          final moduleMatch = RegExp(r'abstract class (\w+) extends HybridObject').firstMatch(spec.readAsStringSync());
-          final moduleName = moduleMatch?.group(1) ?? _toPascalCase(stem);
-          final importLine = 'import nitro.${lib}_module.${moduleName}JniBridge';
-          if (!kt.contains(importLine)) {
-            err(
-              androidSec,
-              'Missing import in Plugin.kt: $importLine',
-              hint: 'Run: nitrogen link  (auto-adds missing JniBridge imports)',
-            );
-          } else {
-            ok(androidSec, 'import ${moduleName}JniBridge present');
-          }
+          ctx.ok(androidSec, 'import ${moduleName}JniBridge present');
         }
       }
     }
+  }
 
+  void _checkIos(_DoctorCtx ctx, SpmStatus spmStatus, bool allSpecsCpp, bool hasAnyNonCppSpec) {
     final iosSec = DoctorSection('iOS');
-    sections.add(iosSec);
-    final iosDir = Directory(p.join(root.path, 'ios'));
+    ctx.sections.add(iosSec);
+    final iosDir = Directory(p.join(ctx.root.path, 'ios'));
     if (!iosDir.existsSync()) {
-      info(iosSec, 'ios/ directory not present — skipped');
+      ctx.info(iosSec, 'ios/ directory not present — skipped');
+      return;
+    }
+    _checkIosPodspec(ctx, iosSec, iosDir, allSpecsCpp);
+    final classesDir = Directory(p.join(iosDir.path, 'Classes'));
+    _checkIosSwiftBridge(ctx, iosSec, iosDir, classesDir, allSpecsCpp, hasAnyNonCppSpec);
+    _checkIosDartApi(ctx, iosSec, iosDir, spmStatus);
+    _checkIosMmBridges(ctx, iosSec, classesDir, allSpecsCpp, spmStatus);
+    _checkIosSpm(ctx, iosSec, spmStatus);
+  }
+
+  void _checkIosPodspec(_DoctorCtx ctx, DoctorSection iosSec, Directory iosDir, bool allSpecsCpp) {
+    final podFiles = iosDir.listSync().whereType<File>().where((f) => f.path.endsWith('.podspec')).toList();
+    if (podFiles.isEmpty) {
+      ctx.err(iosSec, 'No .podspec found in ios/', hint: 'Run: nitrogen init');
     } else {
-      final podFiles = iosDir.listSync().whereType<File>().where((f) => f.path.endsWith('.podspec')).toList();
-      if (podFiles.isEmpty) {
-        err(iosSec, 'No .podspec found in ios/', hint: 'Run: nitrogen init');
+      ctx.checkFilePermissions(
+        iosSec,
+        podFiles.first,
+        p.relative(podFiles.first.path, from: ctx.root.path),
+      );
+      final pod = podFiles.first.readAsStringSync();
+      final podName = p.basename(podFiles.first.path);
+      if (pod.contains("s.dependency 'nitro'")) {
+        ctx.ok(iosSec, "s.dependency 'nitro' in $podName");
       } else {
-        checkFilePermissions(
+        ctx.err(iosSec, "s.dependency 'nitro' missing in $podName", hint: 'Run: nitrogen link');
+      }
+      if (pod.contains('HEADER_SEARCH_PATHS')) {
+        ctx.ok(iosSec, 'HEADER_SEARCH_PATHS in $podName');
+      } else {
+        ctx.err(iosSec, 'HEADER_SEARCH_PATHS missing in $podName', hint: 'Run: nitrogen link');
+      }
+      if (pod.contains(BuildVersions.podCxxStandard)) {
+        ctx.ok(iosSec, 'CLANG_CXX_LANGUAGE_STANDARD = ${BuildVersions.podCxxStandard}');
+      } else {
+        ctx.warn(
           iosSec,
-          podFiles.first,
-          p.relative(podFiles.first.path, from: root.path),
+          'CLANG_CXX_LANGUAGE_STANDARD not set to ${BuildVersions.podCxxStandard}',
+          hint: "Set: 'CLANG_CXX_LANGUAGE_STANDARD' => '${BuildVersions.podCxxStandard}' in pod_target_xcconfig",
         );
-        final pod = podFiles.first.readAsStringSync();
-        final podName = p.basename(podFiles.first.path);
-        if (pod.contains("s.dependency 'nitro'")) {
-          ok(iosSec, "s.dependency 'nitro' in $podName");
+      }
+      if (!allSpecsCpp) {
+        // swift_version only relevant when Swift bridges are used
+        if (pod.contains("swift_version = '${BuildVersions.podSwiftVersion}'") || pod.contains("swift_version = '6")) {
+          ctx.ok(iosSec, 'swift_version >= ${BuildVersions.podSwiftVersion}');
         } else {
-          err(iosSec, "s.dependency 'nitro' missing in $podName", hint: 'Run: nitrogen link');
-        }
-        if (pod.contains('HEADER_SEARCH_PATHS')) {
-          ok(iosSec, 'HEADER_SEARCH_PATHS in $podName');
-        } else {
-          err(iosSec, 'HEADER_SEARCH_PATHS missing in $podName', hint: 'Run: nitrogen link');
-        }
-        if (pod.contains(BuildVersions.podCxxStandard)) {
-          ok(iosSec, 'CLANG_CXX_LANGUAGE_STANDARD = ${BuildVersions.podCxxStandard}');
-        } else {
-          warn(
-            iosSec,
-            'CLANG_CXX_LANGUAGE_STANDARD not set to ${BuildVersions.podCxxStandard}',
-            hint: "Set: 'CLANG_CXX_LANGUAGE_STANDARD' => '${BuildVersions.podCxxStandard}' in pod_target_xcconfig",
-          );
-        }
-        if (!allSpecsCpp) {
-          // swift_version only relevant when Swift bridges are used
-          if (pod.contains("swift_version = '${BuildVersions.podSwiftVersion}'") || pod.contains("swift_version = '6")) {
-            ok(iosSec, 'swift_version >= ${BuildVersions.podSwiftVersion}');
-          } else {
-            warn(iosSec, 'swift_version may be too old', hint: "Set: s.swift_version = '${BuildVersions.podSwiftVersion}'");
-          }
-        }
-
-        // Check for complete HEADER_SEARCH_PATHS
-        if (pod.contains('lib/src/generated/cpp') && pod.contains('src/native')) {
-          ok(iosSec, 'Comprehensive HEADER_SEARCH_PATHS in podspec');
-        } else {
-          warn(iosSec, 'Incomplete HEADER_SEARCH_PATHS in podspec', hint: 'Run: nitrogen link');
-        }
-
-        // Check source_files points to an existing path.
-        // The SPM-first Flutter template generates paths like '<plugin>/Sources/<plugin>/**/*'
-        // which are non-existent when CocoaPods is used, causing "No files found" warnings.
-        final sourceFilesMatch = RegExp(r"s\.source_files\s*=\s*'([^']+)'").firstMatch(pod);
-        if (sourceFilesMatch != null) {
-          final sfPath = sourceFilesMatch.group(1)!;
-          final firstSegment = sfPath.split('/').first;
-          final firstDir = Directory(p.join(iosDir.path, firstSegment));
-          if (firstSegment == 'Classes' || firstDir.existsSync()) {
-            ok(iosSec, 'source_files path valid: $sfPath');
-          } else {
-            err(iosSec, 'source_files points to non-existent path: $sfPath', hint: "Run: nitrogen link  (fixes to 'Classes/**/*')");
-          }
+          ctx.warn(iosSec, 'swift_version may be too old', hint: "Set: s.swift_version = '${BuildVersions.podSwiftVersion}'");
         }
       }
 
-      final classesDir = Directory(p.join(iosDir.path, 'Classes'));
-      if (allSpecsCpp) {
-        // All C++ modules — no Swift Registry.register() needed.
-        info(iosSec, 'All modules use NativeImpl.cpp — Swift bridge (Registry.register) not required');
-        // .native.g.h uses C++ types (std::string, classes) and must NOT be placed in
-        // ios/Classes/ — CocoaPods includes every header there into the umbrella header
-        // which breaks Swift/ObjC compilation. It is reachable via HEADER_SEARCH_PATHS.
-        // Verify that HEADER_SEARCH_PATHS includes lib/src/generated/cpp/ instead.
-        final podFiles = iosDir.listSync().whereType<File>().where((f) => f.path.endsWith('.podspec')).toList();
-        if (podFiles.isNotEmpty) {
-          final pod = podFiles.first.readAsStringSync();
-          if (pod.contains('lib/src/generated/cpp')) {
-            ok(iosSec, '*.native.g.h reachable via HEADER_SEARCH_PATHS → lib/src/generated/cpp');
-          } else {
-            warn(iosSec, 'HEADER_SEARCH_PATHS may not include lib/src/generated/cpp (needed for *.native.g.h)', hint: 'Run: nitrogen link');
-          }
-        }
+      // Check for complete HEADER_SEARCH_PATHS
+      if (pod.contains('lib/src/generated/cpp') && pod.contains('src/native')) {
+        ctx.ok(iosSec, 'Comprehensive HEADER_SEARCH_PATHS in podspec');
       } else {
-        final swiftFiles = classesDir.existsSync() ? classesDir.listSync().whereType<File>().where((f) => f.path.endsWith('Plugin.swift')).toList() : <File>[];
-        if (swiftFiles.isEmpty) {
-          err(iosSec, 'No *Plugin.swift in ios/Classes/', hint: 'Run: nitrogen init');
-        } else {
-          final swift = swiftFiles.first.readAsStringSync();
-          if (hasAnyNonCppSpec) {
-            if (swift.contains('Registry.register(') || swift.contains('.register(')) {
-              ok(iosSec, 'Plugin.swift has Registry.register(...)');
-            } else {
-              warn(iosSec, 'Registry.register(...) not found in Plugin.swift', hint: 'Add: NitroModules.Registry.register(...) in register(with:)');
-            }
-          } else {
-            info(iosSec, 'Registry.register not needed — all modules use NativeImpl.cpp');
-          }
-
-          // Check for stale XxxRegistry.register() calls for C++ modules.
-          // AppleNativeImpl.cpp modules have no Swift Registry — the call causes
-          // "Cannot find 'XxxRegistry' in scope". nitrogen link auto-removes these.
-          for (final spec in specs.where(isCppModule)) {
-            final stem = p.basename(spec.path).replaceAll(RegExp(r'\.native\.dart$'), '');
-            final moduleMatch = RegExp(r'abstract class (\w+) extends HybridObject').firstMatch(spec.readAsStringSync());
-            final moduleName = moduleMatch?.group(1) ?? _toPascalCase(stem);
-            if (swift.contains('${moduleName}Registry.register(')) {
-              err(
-                iosSec,
-                'Stale ${moduleName}Registry.register() in Plugin.swift — $moduleName is now NativeImpl.cpp',
-                hint: 'Run: nitrogen link  (auto-removes stale Swift registry calls for C++ modules)',
-              );
-            }
-          }
-        }
+        ctx.warn(iosSec, 'Incomplete HEADER_SEARCH_PATHS in podspec', hint: 'Run: nitrogen link');
       }
 
-      // ── dart_api_dl.c / nitro.h ─────────────────────────────────────────────
-      // For SPM builds (Flutter 3.22+) these files live in Sources/<PluginCpp>/,
-      // not ios/Classes/. Only check ios/Classes/ when there is no Package.swift.
-      if (!spmStatus.iosHasSpm) {
-        final dartApiDl = File(p.join(iosDir.path, 'Classes', 'dart_api_dl.c'));
-        if (dartApiDl.existsSync()) {
-          ok(iosSec, 'ios/Classes/dart_api_dl.c present');
+      // Check source_files points to an existing path.
+      // The SPM-first Flutter template generates paths like '<plugin>/Sources/<plugin>/**/*'
+      // which are non-existent when CocoaPods is used, causing "No files found" warnings.
+      final sourceFilesMatch = RegExp(r"s\.source_files\s*=\s*'([^']+)'").firstMatch(pod);
+      if (sourceFilesMatch != null) {
+        final sfPath = sourceFilesMatch.group(1)!;
+        final firstSegment = sfPath.split('/').first;
+        final firstDir = Directory(p.join(iosDir.path, firstSegment));
+        if (firstSegment == 'Classes' || firstDir.existsSync()) {
+          ctx.ok(iosSec, 'source_files path valid: $sfPath');
         } else {
-          err(iosSec, 'ios/Classes/dart_api_dl.c missing', hint: 'Run: nitrogen link');
-        }
-
-        final nitroH = File(p.join(iosDir.path, 'Classes', 'nitro.h'));
-        if (nitroH.existsSync()) {
-          ok(iosSec, 'ios/Classes/nitro.h present');
-        } else {
-          err(iosSec, 'ios/Classes/nitro.h missing', hint: 'Run: nitrogen link');
-        }
-        if (nitroH.existsSync()) {
-          final content = nitroH.readAsStringSync();
-          if (content.contains('NITRO_EXPORT')) {
-            ok(iosSec, 'nitro.h contains NITRO_EXPORT visibility macro');
-          } else {
-            err(iosSec, 'nitro.h missing NITRO_EXPORT visibility macro', hint: 'Run: nitrogen link');
-          }
-        }
-      }
-
-      // Bridge files must use .mm (Objective-C++) not .cpp (pure C++).
-      // .cpp files cause __OBJC__ to be undefined, making @try/@catch dead
-      // code — NSException from Swift propagates uncaught and crashes the app.
-      final staleCppBridges = classesDir.existsSync() ? classesDir.listSync().whereType<File>().where((f) => f.path.endsWith('.bridge.g.cpp')).toList() : <File>[];
-      if (staleCppBridges.isNotEmpty) {
-        for (final f in staleCppBridges) {
-          err(iosSec, 'Stale .cpp bridge: ${p.basename(f.path)} (must be .mm)', hint: 'Run: nitrogen link (auto-renames .bridge.g.cpp → .bridge.g.mm)');
-        }
-      }
-
-      final mmBridges = classesDir.existsSync() ? classesDir.listSync().whereType<File>().where((f) => f.path.endsWith('.bridge.g.mm')).toList() : <File>[];
-      if (mmBridges.isNotEmpty) {
-        ok(iosSec, '${mmBridges.length} .bridge.g.mm file(s) in ios/Classes/');
-      } else if (specs.isNotEmpty && !allSpecsCpp && !spmStatus.iosHasSpm) {
-        // For CocoaPods-only builds, warn about missing .mm bridges.
-        // For SPM builds, the bridge.g.mm belongs in Sources/<PluginCpp>/, not Classes/.
-        warn(iosSec, 'No .bridge.g.mm files in ios/Classes/', hint: 'Run: nitrogen link');
-      }
-
-      // ── SPM target completeness ──────────────────────────────────────────────
-      // Flutter 3.22+ compiles the plugin via Package.swift. Every file that
-      // nitrogen link creates in Sources/<PluginCpp>/ is critical for the build.
-      if (spmStatus.iosHasSpm && spmStatus.iosPackageSwiftPath != null) {
-        final packageSwiftFile = File(spmStatus.iosPackageSwiftPath!);
-        final packageRoot = packageSwiftFile.parent.path;
-        final cppTargetName = '${_toPascalCase(pluginName)}Cpp';
-        final spmCppDir = Directory(p.join(packageRoot, 'Sources', cppTargetName));
-
-        // Validate Package.swift declares the C++ target with correct settings.
-        final pkgSwift = packageSwiftFile.readAsStringSync();
-        if (pkgSwift.contains(cppTargetName)) {
-          ok(iosSec, 'Package.swift: $cppTargetName target defined');
-        } else {
-          err(iosSec, 'Package.swift: $cppTargetName target missing', hint: 'Run: nitrogen init  (re-creates Package.swift with the correct C++ target)');
-        }
-        if (pkgSwift.contains(BuildVersions.podCxxStandard) || pkgSwift.contains(BuildVersions.spmCxxFlag)) {
-          ok(iosSec, 'Package.swift: cxxSettings ${BuildVersions.spmCxxFlag} present');
-        } else {
-          warn(
-            iosSec,
-            'Package.swift: ${BuildVersions.spmCxxFlag} missing in cxxSettings',
-            hint: 'Add .unsafeFlags(["${BuildVersions.spmCxxFlag}"]) to the $cppTargetName cxxSettings',
-          );
-        }
-        if (pkgSwift.contains('publicHeadersPath')) {
-          ok(iosSec, 'Package.swift: publicHeadersPath configured for $cppTargetName');
-        } else {
-          warn(iosSec, 'Package.swift: publicHeadersPath missing for $cppTargetName', hint: 'Run: nitrogen init  (sets publicHeadersPath: "include")');
-        }
-
-        if (spmCppDir.existsSync()) {
-          // dart_api_dl.c — compiled as plain C; provides the Dart FFI bootstrap ABI
-          final dartApiDlSpm = File(p.join(spmCppDir.path, 'dart_api_dl.c'));
-          if (dartApiDlSpm.existsSync()) {
-            ok(iosSec, 'SPM Sources/$cppTargetName/dart_api_dl.c present');
-            final dartApiDlContent = dartApiDlSpm.readAsStringSync();
-            if (dartApiDlContent.contains('.symlinks') || RegExp(r'#include\s*"\/').hasMatch(dartApiDlContent)) {
-              warn(iosSec, 'SPM Sources/$cppTargetName/dart_api_dl.c uses a machine-specific or .symlinks path', hint: 'Run: nitrogen link  (rewrites to portable bundled stub)');
-            } else if (!dartApiDlContent.contains('Dart_InitializeApiDL')) {
-              err(
-                iosSec,
-                'SPM Sources/$cppTargetName/dart_api_dl.c is a header-only stub — missing Dart_InitializeApiDL implementation',
-                hint: 'Run: nitrogen link  (rewrites to full self-contained implementation)',
-              );
-            }
-          } else {
-            err(iosSec, 'SPM Sources/$cppTargetName/dart_api_dl.c missing', hint: 'Run: nitrogen link');
-          }
-
-          // <plugin>.cpp — forwarder that pulls in src/<plugin>.cpp via #include
-          final pluginCppSpm = File(p.join(spmCppDir.path, '$pluginName.cpp'));
-          final pluginCSpm = File(p.join(spmCppDir.path, '$pluginName.c'));
-          if (pluginCppSpm.existsSync() || pluginCSpm.existsSync()) {
-            ok(iosSec, 'SPM Sources/$cppTargetName/$pluginName.cpp forwarder present');
-          } else {
-            warn(iosSec, 'SPM Sources/$cppTargetName/$pluginName.cpp forwarder missing', hint: 'Run: nitrogen link');
-          }
-
-          // include/nitro.h — exposes NITRO_EXPORT and Nitro types to the C++ target
-          final nitroHSpm = File(p.join(spmCppDir.path, 'include', 'nitro.h'));
-          if (nitroHSpm.existsSync()) {
-            ok(iosSec, 'SPM Sources/$cppTargetName/include/nitro.h present');
-          } else {
-            err(iosSec, 'SPM Sources/$cppTargetName/include/nitro.h missing', hint: 'Run: nitrogen link');
-          }
-
-          // bridge.g.mm — CRITICAL: compiled as Obj-C++ so that the SPM target
-          // links the C symbols defined in bridge.g.cpp (init_dart_api_dl etc.).
-          // Without this the plugin crashes at startup with:
-          //   "Failed to lookup symbol '${pluginName}_init_dart_api_dl'"
-          final spmMmBridges = spmCppDir.listSync().whereType<File>().where((f) => f.path.endsWith('.bridge.g.mm')).toList();
-          if (spmMmBridges.isNotEmpty) {
-            ok(iosSec, '${spmMmBridges.length} .bridge.g.mm in SPM Sources/$cppTargetName/');
-          } else if (specs.isNotEmpty) {
-            err(iosSec, 'Missing .bridge.g.mm in SPM Sources/$cppTargetName/', hint: 'Run: nitrogen link  (symbol ${pluginName}_init_dart_api_dl will be missing at runtime)');
-          }
-        } else if (specs.isNotEmpty) {
-          warn(iosSec, 'SPM Sources/$cppTargetName/ directory not found', hint: 'Run: nitrogen link  (creates the SPM C++ target with bridge forwarders)');
-        }
-
-        // ── Swift target completeness (nested-SPM gap fix) ───────────────────
-        // The Package.swift must also declare a Swift target (named <pluginName>)
-        // that depends on the C++ target and the FlutterFramework. Its sources
-        // live in Sources/<PascalCaseName>/ and must include the generated
-        // <pluginName>.bridge.g.swift file so Swift can call the C ABI.
-        final isSwift = specs.isEmpty || _isAppleSwiftModule(specs.first);
-        if (isSwift) {
-          final swiftDirName = _toPascalCase(pluginName);
-          final spmSwiftDir = Directory(p.join(packageRoot, 'Sources', swiftDirName));
-
-          // Look for the Swift target declaration specifically (not just the Package name).
-          // The target name must appear as name: "<plugin>" inside a .target(...) call.
-          // Swift Package.swift uses double-quoted names; check for target name: "<plugin>".
-          final hasSwiftTarget = RegExp(r'\.target\s*\(\s*name\s*:\s*"' + RegExp.escape(pluginName) + r'"').hasMatch(pkgSwift);
-          if (hasSwiftTarget) {
-            ok(iosSec, 'Package.swift: $pluginName Swift target defined');
-          } else {
-            warn(iosSec, 'Package.swift: $pluginName Swift target missing', hint: 'Run: nitrogen init  (re-creates Package.swift with the correct Swift target)');
-          }
-
-          if (spmSwiftDir.existsSync()) {
-            ok(iosSec, 'SPM Sources/$swiftDirName/ directory present');
-            final swiftBridge = File(p.join(spmSwiftDir.path, '$pluginName.bridge.g.swift'));
-            if (swiftBridge.existsSync()) {
-              ok(iosSec, 'SPM Sources/$swiftDirName/$pluginName.bridge.g.swift present');
-            } else if (specs.isNotEmpty) {
-              err(iosSec, 'Missing $pluginName.bridge.g.swift in SPM Sources/$swiftDirName/', hint: 'Run: nitrogen link  (copies generated bridge to the SPM Swift target)');
-            }
-          } else if (specs.isNotEmpty) {
-            warn(iosSec, 'SPM Sources/$swiftDirName/ directory not found', hint: 'Run: nitrogen link  (creates SPM Swift target directory with bridge)');
-          }
+          ctx.err(iosSec, 'source_files points to non-existent path: $sfPath', hint: "Run: nitrogen link  (fixes to 'Classes/**/*')");
         }
       }
     }
+  }
 
-    final macosSec = DoctorSection('macOS');
-    sections.add(macosSec);
-    final macosDir = Directory(p.join(root.path, 'macos'));
-    if (!macosDir.existsSync()) {
-      info(macosSec, 'macos/ directory not present — skipped');
+  void _checkIosSwiftBridge(_DoctorCtx ctx, DoctorSection iosSec, Directory iosDir, Directory classesDir, bool allSpecsCpp, bool hasAnyNonCppSpec) {
+    if (allSpecsCpp) {
+      // All C++ modules — no Swift Registry.register() needed.
+      ctx.info(iosSec, 'All modules use NativeImpl.cpp — Swift bridge (Registry.register) not required');
+      // .native.g.h uses C++ types (std::string, classes) and must NOT be placed in
+      // ios/Classes/ — CocoaPods includes every header there into the umbrella header
+      // which breaks Swift/ObjC compilation. It is reachable via HEADER_SEARCH_PATHS.
+      // Verify that HEADER_SEARCH_PATHS includes lib/src/generated/cpp/ instead.
+      final podFiles = iosDir.listSync().whereType<File>().where((f) => f.path.endsWith('.podspec')).toList();
+      if (podFiles.isNotEmpty) {
+        final pod = podFiles.first.readAsStringSync();
+        if (pod.contains('lib/src/generated/cpp')) {
+          ctx.ok(iosSec, '*.native.g.h reachable via HEADER_SEARCH_PATHS → lib/src/generated/cpp');
+        } else {
+          ctx.warn(iosSec, 'HEADER_SEARCH_PATHS may not include lib/src/generated/cpp (needed for *.native.g.h)', hint: 'Run: nitrogen link');
+        }
+      }
     } else {
-      final podFiles = macosDir.listSync().whereType<File>().where((f) => f.path.endsWith('.podspec')).toList();
-      if (podFiles.isEmpty) {
-        err(macosSec, 'No .podspec found in macos/', hint: 'Run: nitrogen init');
+      final swiftFiles = classesDir.existsSync() ? classesDir.listSync().whereType<File>().where((f) => f.path.endsWith('Plugin.swift')).toList() : <File>[];
+      if (swiftFiles.isEmpty) {
+        ctx.err(iosSec, 'No *Plugin.swift in ios/Classes/', hint: 'Run: nitrogen init');
       } else {
-        checkFilePermissions(
-          macosSec,
-          podFiles.first,
-          p.relative(podFiles.first.path, from: root.path),
-        );
-        final pod = podFiles.first.readAsStringSync();
-        final podName = p.basename(podFiles.first.path);
-        if (pod.contains("s.dependency 'nitro'")) {
-          ok(macosSec, "s.dependency 'nitro' in $podName");
-        } else {
-          err(macosSec, "s.dependency 'nitro' missing in $podName", hint: 'Run: nitrogen link');
-        }
-        if (pod.contains('HEADER_SEARCH_PATHS')) {
-          ok(macosSec, 'HEADER_SEARCH_PATHS in $podName');
-        } else {
-          err(macosSec, 'HEADER_SEARCH_PATHS missing in $podName', hint: 'Run: nitrogen link');
-        }
-        if (pod.contains(BuildVersions.podCxxStandard)) {
-          ok(macosSec, 'CLANG_CXX_LANGUAGE_STANDARD = ${BuildVersions.podCxxStandard}');
-        } else {
-          warn(
-            macosSec,
-            'CLANG_CXX_LANGUAGE_STANDARD not set to ${BuildVersions.podCxxStandard}',
-            hint: "Set: 'CLANG_CXX_LANGUAGE_STANDARD' => '${BuildVersions.podCxxStandard}' in pod_target_xcconfig",
-          );
-        }
-        if (pod.contains('lib/src/generated/cpp') && pod.contains('src/native')) {
-          ok(macosSec, 'Comprehensive HEADER_SEARCH_PATHS in podspec');
-        } else {
-          warn(macosSec, 'Incomplete HEADER_SEARCH_PATHS in podspec', hint: 'Run: nitrogen link');
-        }
-
-        // Check source_files points to an existing path.
-        final sourceFilesMatchMacos = RegExp(r"s\.source_files\s*=\s*'([^']+)'").firstMatch(pod);
-        if (sourceFilesMatchMacos != null) {
-          final sfPath = sourceFilesMatchMacos.group(1)!;
-          final firstSegment = sfPath.split('/').first;
-          final firstDir = Directory(p.join(macosDir.path, firstSegment));
-          if (firstSegment == 'Classes' || firstDir.existsSync()) {
-            ok(macosSec, 'source_files path valid: $sfPath');
+        final swift = swiftFiles.first.readAsStringSync();
+        if (hasAnyNonCppSpec) {
+          if (swift.contains('Registry.register(') || swift.contains('.register(')) {
+            ctx.ok(iosSec, 'Plugin.swift has Registry.register(...)');
           } else {
-            err(macosSec, 'source_files points to non-existent path: $sfPath', hint: "Run: nitrogen link  (fixes to 'Classes/**/*')");
+            ctx.warn(iosSec, 'Registry.register(...) not found in Plugin.swift', hint: 'Add: NitroModules.Registry.register(...) in register(with:)');
           }
-        }
-      }
-
-      final macosClassesDir = Directory(p.join(macosDir.path, 'Classes'));
-      if (allSpecsCpp) {
-        info(macosSec, 'All modules use NativeImpl.cpp — Swift bridge (Registry.register) not required');
-        // .native.g.h uses C++ types and must NOT be placed in macos/Classes/ —
-        // CocoaPods includes every header there into the umbrella header, which
-        // breaks Swift/ObjC compilation. Check HEADER_SEARCH_PATHS instead (same
-        // logic as iOS). If SPM is active the file is also reachable via
-        // Sources/NitroVaniCpp/ so the podspec check is advisory only.
-        final macosPodFiles = macosDir.listSync().whereType<File>().where((f) => f.path.endsWith('.podspec')).toList();
-        if (macosPodFiles.isNotEmpty) {
-          final pod = macosPodFiles.first.readAsStringSync();
-          if (pod.contains('lib/src/generated/cpp')) {
-            ok(macosSec, '*.native.g.h reachable via HEADER_SEARCH_PATHS → lib/src/generated/cpp');
-          } else {
-            warn(macosSec, 'HEADER_SEARCH_PATHS may not include lib/src/generated/cpp (needed for *.native.g.h)', hint: 'Run: nitrogen link');
-          }
-        }
-      } else {
-        final swiftFiles = macosClassesDir.existsSync() ? macosClassesDir.listSync().whereType<File>().where((f) => f.path.endsWith('Plugin.swift')).toList() : <File>[];
-        if (swiftFiles.isEmpty) {
-          err(macosSec, 'No *Plugin.swift in macos/Classes/', hint: 'Run: nitrogen init');
         } else {
-          final swift = swiftFiles.first.readAsStringSync();
-          if (hasAnyNonCppSpec) {
-            if (swift.contains('Registry.register(') || swift.contains('.register(')) {
-              ok(macosSec, 'Plugin.swift has Registry.register(...)');
-            } else {
-              warn(macosSec, 'Registry.register(...) not found in Plugin.swift', hint: 'Add: NitroModules.Registry.register(...) in register(with:)');
-            }
-          } else {
-            info(macosSec, 'Registry.register not needed — all modules use NativeImpl.cpp');
-          }
-        }
-      }
-
-      // ── dart_api_dl.c / nitro.h ─────────────────────────────────────────────
-      // For SPM builds (Flutter 3.22+) these files live in Sources/<PluginCpp>/,
-      // not macos/Classes/. Only check macos/Classes/ when there is no Package.swift.
-      if (!spmStatus.macosHasSpm) {
-        final dartApiDl = File(p.join(macosDir.path, 'Classes', 'dart_api_dl.c'));
-        if (dartApiDl.existsSync()) {
-          ok(macosSec, 'macos/Classes/dart_api_dl.c present');
-        } else {
-          err(macosSec, 'macos/Classes/dart_api_dl.c missing', hint: 'Run: nitrogen link');
+          ctx.info(iosSec, 'Registry.register not needed — all modules use NativeImpl.cpp');
         }
 
-        final nitroH = File(p.join(macosDir.path, 'Classes', 'nitro.h'));
-        if (nitroH.existsSync()) {
-          ok(macosSec, 'macos/Classes/nitro.h present');
-        } else {
-          err(macosSec, 'macos/Classes/nitro.h missing', hint: 'Run: nitrogen link');
-        }
-        if (nitroH.existsSync()) {
-          final content = nitroH.readAsStringSync();
-          if (content.contains('NITRO_EXPORT')) {
-            ok(macosSec, 'nitro.h contains NITRO_EXPORT visibility macro');
-          } else {
-            err(macosSec, 'nitro.h missing NITRO_EXPORT visibility macro', hint: 'Run: nitrogen link');
-          }
-        }
-      }
-
-      final staleCppBridges = macosClassesDir.existsSync() ? macosClassesDir.listSync().whereType<File>().where((f) => f.path.endsWith('.bridge.g.cpp')).toList() : <File>[];
-      if (staleCppBridges.isNotEmpty) {
-        for (final f in staleCppBridges) {
-          err(macosSec, 'Stale .cpp bridge: ${p.basename(f.path)} (must be .mm)', hint: 'Run: nitrogen link (auto-renames .bridge.g.cpp → .bridge.g.mm)');
-        }
-      }
-
-      final mmBridges = macosClassesDir.existsSync() ? macosClassesDir.listSync().whereType<File>().where((f) => f.path.endsWith('.bridge.g.mm')).toList() : <File>[];
-      if (mmBridges.isNotEmpty) {
-        ok(macosSec, '${mmBridges.length} .bridge.g.mm file(s) in macos/Classes/');
-      } else if (specs.isNotEmpty && !allSpecsCpp && !spmStatus.macosHasSpm) {
-        // For CocoaPods-only builds, warn about missing .mm bridges.
-        // For SPM builds, the bridge.g.mm belongs in Sources/<PluginCpp>/, not Classes/.
-        warn(macosSec, 'No .bridge.g.mm files in macos/Classes/', hint: 'Run: nitrogen link');
-      }
-
-      // ── SPM target completeness ──────────────────────────────────────────────
-      // Flutter 3.22+ compiles the plugin via Package.swift. Every file that
-      // nitrogen link creates in Sources/<PluginCpp>/ is critical for the build.
-      if (spmStatus.macosHasSpm && spmStatus.macosPackageSwiftPath != null) {
-        final packageSwiftFile = File(spmStatus.macosPackageSwiftPath!);
-        final packageRoot = packageSwiftFile.parent.path;
-        final cppTargetName = '${_toPascalCase(pluginName)}Cpp';
-        final spmCppDir = Directory(p.join(packageRoot, 'Sources', cppTargetName));
-
-        // Validate Package.swift declares the C++ target with correct settings.
-        final pkgSwift = packageSwiftFile.readAsStringSync();
-        if (pkgSwift.contains(cppTargetName)) {
-          ok(macosSec, 'Package.swift: $cppTargetName target defined');
-        } else {
-          err(macosSec, 'Package.swift: $cppTargetName target missing', hint: 'Run: nitrogen init  (re-creates Package.swift with the correct C++ target)');
-        }
-        if (pkgSwift.contains(BuildVersions.podCxxStandard) || pkgSwift.contains(BuildVersions.spmCxxFlag)) {
-          ok(macosSec, 'Package.swift: cxxSettings ${BuildVersions.spmCxxFlag} present');
-        } else {
-          warn(
-            macosSec,
-            'Package.swift: ${BuildVersions.spmCxxFlag} missing in cxxSettings',
-            hint: 'Add .unsafeFlags(["${BuildVersions.spmCxxFlag}"]) to the $cppTargetName cxxSettings',
-          );
-        }
-        if (pkgSwift.contains('publicHeadersPath')) {
-          ok(macosSec, 'Package.swift: publicHeadersPath configured for $cppTargetName');
-        } else {
-          warn(macosSec, 'Package.swift: publicHeadersPath missing for $cppTargetName', hint: 'Run: nitrogen init  (sets publicHeadersPath: "include")');
-        }
-
-        if (spmCppDir.existsSync()) {
-          // dart_api_dl.c — compiled as plain C; provides the Dart FFI bootstrap ABI
-          final dartApiDlSpm = File(p.join(spmCppDir.path, 'dart_api_dl.c'));
-          if (dartApiDlSpm.existsSync()) {
-            ok(macosSec, 'SPM Sources/$cppTargetName/dart_api_dl.c present');
-            final dartApiDlContent = dartApiDlSpm.readAsStringSync();
-            if (dartApiDlContent.contains('.symlinks') || RegExp(r'#include\s*"\/').hasMatch(dartApiDlContent)) {
-              warn(macosSec, 'SPM Sources/$cppTargetName/dart_api_dl.c uses a machine-specific or .symlinks path', hint: 'Run: nitrogen link  (rewrites to portable bundled stub)');
-            } else if (!dartApiDlContent.contains('Dart_InitializeApiDL')) {
-              err(
-                macosSec,
-                'SPM Sources/$cppTargetName/dart_api_dl.c is a header-only stub — missing Dart_InitializeApiDL implementation',
-                hint: 'Run: nitrogen link  (rewrites to full self-contained implementation)',
-              );
-            }
-          } else {
-            err(macosSec, 'SPM Sources/$cppTargetName/dart_api_dl.c missing', hint: 'Run: nitrogen link');
-          }
-
-          // <plugin>.cpp — forwarder that pulls in src/<plugin>.cpp via #include
-          final pluginCppSpm = File(p.join(spmCppDir.path, '$pluginName.cpp'));
-          final pluginCSpm = File(p.join(spmCppDir.path, '$pluginName.c'));
-          if (pluginCppSpm.existsSync() || pluginCSpm.existsSync()) {
-            ok(macosSec, 'SPM Sources/$cppTargetName/$pluginName.cpp forwarder present');
-          } else {
-            warn(macosSec, 'SPM Sources/$cppTargetName/$pluginName.cpp forwarder missing', hint: 'Run: nitrogen link');
-          }
-
-          // include/nitro.h — exposes NITRO_EXPORT and Nitro types to the C++ target
-          final nitroHSpm = File(p.join(spmCppDir.path, 'include', 'nitro.h'));
-          if (nitroHSpm.existsSync()) {
-            ok(macosSec, 'SPM Sources/$cppTargetName/include/nitro.h present');
-          } else {
-            err(macosSec, 'SPM Sources/$cppTargetName/include/nitro.h missing', hint: 'Run: nitrogen link');
-          }
-
-          // bridge.g.mm — CRITICAL: compiled as Obj-C++ so that the SPM target
-          // links the C symbols defined in bridge.g.cpp (init_dart_api_dl etc.).
-          // Without this the plugin crashes at startup with:
-          //   "Failed to lookup symbol '${pluginName}_init_dart_api_dl'"
-          final spmMmBridges = spmCppDir.listSync().whereType<File>().where((f) => f.path.endsWith('.bridge.g.mm')).toList();
-          if (spmMmBridges.isNotEmpty) {
-            ok(macosSec, '${spmMmBridges.length} .bridge.g.mm in SPM Sources/$cppTargetName/');
-          } else if (specs.isNotEmpty) {
-            err(macosSec, 'Missing .bridge.g.mm in SPM Sources/$cppTargetName/', hint: 'Run: nitrogen link  (symbol ${pluginName}_init_dart_api_dl will be missing at runtime)');
-          }
-        } else if (specs.isNotEmpty) {
-          warn(macosSec, 'SPM Sources/$cppTargetName/ directory not found', hint: 'Run: nitrogen link  (creates the SPM C++ target with bridge forwarders)');
-        }
-
-        // ── Swift target completeness (nested-SPM gap fix) ───────────────────
-        final isMacosSwift = specs.isEmpty || _isAppleSwiftModule(specs.first);
-        if (isMacosSwift) {
-          final swiftDirName = _toPascalCase(pluginName);
-          final spmSwiftDir = Directory(p.join(packageRoot, 'Sources', swiftDirName));
-
-          final hasMacosSwiftTarget = RegExp(r'\.target\s*\(\s*name\s*:\s*"' + RegExp.escape(pluginName) + r'"').hasMatch(pkgSwift);
-          if (hasMacosSwiftTarget) {
-            ok(macosSec, 'Package.swift: $pluginName Swift target defined');
-          } else {
-            warn(macosSec, 'Package.swift: $pluginName Swift target missing', hint: 'Run: nitrogen init  (re-creates Package.swift with the correct Swift target)');
-          }
-
-          if (spmSwiftDir.existsSync()) {
-            ok(macosSec, 'SPM Sources/$swiftDirName/ directory present');
-            final swiftBridge = File(p.join(spmSwiftDir.path, '$pluginName.bridge.g.swift'));
-            if (swiftBridge.existsSync()) {
-              ok(macosSec, 'SPM Sources/$swiftDirName/$pluginName.bridge.g.swift present');
-            } else if (specs.isNotEmpty) {
-              err(macosSec, 'Missing $pluginName.bridge.g.swift in SPM Sources/$swiftDirName/', hint: 'Run: nitrogen link  (copies generated bridge to the SPM Swift target)');
-            }
-          } else if (specs.isNotEmpty) {
-            warn(macosSec, 'SPM Sources/$swiftDirName/ directory not found', hint: 'Run: nitrogen link  (creates SPM Swift target directory with bridge)');
+        // Check for stale XxxRegistry.register() calls for C++ modules.
+        // AppleNativeImpl.cpp modules have no Swift Registry — the call causes
+        // "Cannot find 'XxxRegistry' in scope". nitrogen link auto-removes these.
+        for (final spec in ctx.specs.where(isCppModule)) {
+          final stem = p.basename(spec.path).replaceAll(RegExp(r'\.native\.dart$'), '');
+          final moduleMatch = RegExp(r'abstract class (\w+) extends HybridObject').firstMatch(spec.readAsStringSync());
+          final moduleName = moduleMatch?.group(1) ?? _toPascalCase(stem);
+          if (swift.contains('${moduleName}Registry.register(')) {
+            ctx.err(
+              iosSec,
+              'Stale ${moduleName}Registry.register() in Plugin.swift — $moduleName is now NativeImpl.cpp',
+              hint: 'Run: nitrogen link  (auto-removes stale Swift registry calls for C++ modules)',
+            );
           }
         }
       }
     }
+  }
 
-    // ── Windows ──────────────────────────────────────────────────────────────
-    // Helper: returns true when [cmake] uses add_subdirectory to the shared
-    // src/ directory (Nitro layout). In that case dart_api_dl.c and bridge
-    // files are compiled via src/CMakeLists.txt — checking the platform file
-    // directly would produce false errors.
-    bool usesSharedSrc(String cmake) => cmake.contains('add_subdirectory') && (cmake.contains('"../src"') || cmake.contains(r'"${CMAKE_CURRENT_SOURCE_DIR}/../src"'));
+  void _checkIosDartApi(_DoctorCtx ctx, DoctorSection iosSec, Directory iosDir, SpmStatus spmStatus) {
+    // ── dart_api_dl.c / nitro.h ─────────────────────────────────────────────
+    // For SPM builds (Flutter 3.22+) these files live in Sources/<PluginCpp>/,
+    // not ios/Classes/. Only check ios/Classes/ when there is no Package.swift.
+    if (!spmStatus.iosHasSpm) {
+      final dartApiDl = File(p.join(iosDir.path, 'Classes', 'dart_api_dl.c'));
+      if (dartApiDl.existsSync()) {
+        ctx.ok(iosSec, 'ios/Classes/dart_api_dl.c present');
+      } else {
+        ctx.err(iosSec, 'ios/Classes/dart_api_dl.c missing', hint: 'Run: nitrogen link');
+      }
 
-    // Multi-spec plugins (e.g. several @NitroModule specs sharing one package)
-    // build their Nitro module libraries via the shared src/ subdirectory AND
-    // their own separate `<pkg>_plugin` registrant target. Detect that shape
-    // so we can verify its public include/ dir is exposed — see below.
-    bool hasOwnPluginTarget(String cmake) => RegExp(r'add_library\(\s*\$\{PLUGIN_NAME\}').hasMatch(cmake);
+      final nitroH = File(p.join(iosDir.path, 'Classes', 'nitro.h'));
+      if (nitroH.existsSync()) {
+        ctx.ok(iosSec, 'ios/Classes/nitro.h present');
+      } else {
+        ctx.err(iosSec, 'ios/Classes/nitro.h missing', hint: 'Run: nitrogen link');
+      }
+      if (nitroH.existsSync()) {
+        final content = nitroH.readAsStringSync();
+        if (content.contains('NITRO_EXPORT')) {
+          ctx.ok(iosSec, 'nitro.h contains NITRO_EXPORT visibility macro');
+        } else {
+          ctx.err(iosSec, 'nitro.h missing NITRO_EXPORT visibility macro', hint: 'Run: nitrogen link');
+        }
+      }
+    }
+  }
 
-    // When the platform CMakeLists delegates to src/, check src/CMakeLists.txt
-    // as the authoritative source of truth for dart_api_dl.c / bridge.g.cpp.
-    final srcCmake = File(p.join(root.path, 'src', 'CMakeLists.txt'));
-    final srcCmakeContent = srcCmake.existsSync() ? srcCmake.readAsStringSync() : '';
+  void _checkIosMmBridges(_DoctorCtx ctx, DoctorSection iosSec, Directory classesDir, bool allSpecsCpp, SpmStatus spmStatus) {
+    // Bridge files must use .mm (Objective-C++) not .cpp (pure C++).
+    // .cpp files cause __OBJC__ to be undefined, making @try/@catch dead
+    // code — NSException from Swift propagates uncaught and crashes the app.
+    final staleCppBridges = classesDir.existsSync() ? classesDir.listSync().whereType<File>().where((f) => f.path.endsWith('.bridge.g.cpp')).toList() : <File>[];
+    if (staleCppBridges.isNotEmpty) {
+      for (final f in staleCppBridges) {
+        ctx.err(iosSec, 'Stale .cpp bridge: ${p.basename(f.path)} (must be .mm)', hint: 'Run: nitrogen link (auto-renames .bridge.g.cpp → .bridge.g.mm)');
+      }
+    }
 
-    // ── Windows ───────────────────────────────────────────────────────────────
+    final mmBridges = classesDir.existsSync() ? classesDir.listSync().whereType<File>().where((f) => f.path.endsWith('.bridge.g.mm')).toList() : <File>[];
+    if (mmBridges.isNotEmpty) {
+      ctx.ok(iosSec, '${mmBridges.length} .bridge.g.mm file(s) in ios/Classes/');
+    } else if (ctx.specs.isNotEmpty && !allSpecsCpp && !spmStatus.iosHasSpm) {
+      // For CocoaPods-only builds, warn about missing .mm bridges.
+      // For SPM builds, the bridge.g.mm belongs in Sources/<PluginCpp>/, not Classes/.
+      ctx.warn(iosSec, 'No .bridge.g.mm files in ios/Classes/', hint: 'Run: nitrogen link');
+    }
+  }
+
+  void _checkIosSpm(_DoctorCtx ctx, DoctorSection iosSec, SpmStatus spmStatus) {
+    if (!(spmStatus.iosHasSpm && spmStatus.iosPackageSwiftPath != null)) return;
+    final packageSwiftFile = File(spmStatus.iosPackageSwiftPath!);
+    final packageRoot = packageSwiftFile.parent.path;
+    final cppTargetName = '${_toPascalCase(ctx.pluginName)}Cpp';
+    final spmCppDir = Directory(p.join(packageRoot, 'Sources', cppTargetName));
+    final pkgSwift = packageSwiftFile.readAsStringSync();
+    _checkIosSpmCppTarget(ctx, iosSec, pkgSwift, cppTargetName, spmCppDir);
+    _checkIosSpmSwiftTarget(ctx, iosSec, pkgSwift, packageRoot);
+  }
+
+  void _checkIosSpmCppTarget(_DoctorCtx ctx, DoctorSection iosSec, String pkgSwift, String cppTargetName, Directory spmCppDir) {
+    if (pkgSwift.contains(cppTargetName)) {
+      ctx.ok(iosSec, 'Package.swift: $cppTargetName target defined');
+    } else {
+      ctx.err(iosSec, 'Package.swift: $cppTargetName target missing', hint: 'Run: nitrogen init  (re-creates Package.swift with the correct C++ target)');
+    }
+    if (pkgSwift.contains(BuildVersions.podCxxStandard) || pkgSwift.contains(BuildVersions.spmCxxFlag)) {
+      ctx.ok(iosSec, 'Package.swift: cxxSettings ${BuildVersions.spmCxxFlag} present');
+    } else {
+      ctx.warn(
+        iosSec,
+        'Package.swift: ${BuildVersions.spmCxxFlag} missing in cxxSettings',
+        hint: 'Add .unsafeFlags(["${BuildVersions.spmCxxFlag}"]) to the $cppTargetName cxxSettings',
+      );
+    }
+    if (pkgSwift.contains('publicHeadersPath')) {
+      ctx.ok(iosSec, 'Package.swift: publicHeadersPath configured for $cppTargetName');
+    } else {
+      ctx.warn(iosSec, 'Package.swift: publicHeadersPath missing for $cppTargetName', hint: 'Run: nitrogen init  (sets publicHeadersPath: "include")');
+    }
+
+    if (spmCppDir.existsSync()) {
+      // dart_api_dl.c — compiled as plain C; provides the Dart FFI bootstrap ABI
+      final dartApiDlSpm = File(p.join(spmCppDir.path, 'dart_api_dl.c'));
+      if (dartApiDlSpm.existsSync()) {
+        ctx.ok(iosSec, 'SPM Sources/$cppTargetName/dart_api_dl.c present');
+        final dartApiDlContent = dartApiDlSpm.readAsStringSync();
+        if (dartApiDlContent.contains('.symlinks') || RegExp(r'#include\s*"\/').hasMatch(dartApiDlContent)) {
+          ctx.warn(iosSec, 'SPM Sources/$cppTargetName/dart_api_dl.c uses a machine-specific or .symlinks path', hint: 'Run: nitrogen link  (rewrites to portable bundled stub)');
+        } else if (!dartApiDlContent.contains('Dart_InitializeApiDL')) {
+          ctx.err(
+            iosSec,
+            'SPM Sources/$cppTargetName/dart_api_dl.c is a header-only stub — missing Dart_InitializeApiDL implementation',
+            hint: 'Run: nitrogen link  (rewrites to full self-contained implementation)',
+          );
+        }
+      } else {
+        ctx.err(iosSec, 'SPM Sources/$cppTargetName/dart_api_dl.c missing', hint: 'Run: nitrogen link');
+      }
+
+      // <plugin>.cpp — forwarder that pulls in src/<plugin>.cpp via #include
+      final pluginCppSpm = File(p.join(spmCppDir.path, '${ctx.pluginName}.cpp'));
+      final pluginCSpm = File(p.join(spmCppDir.path, '${ctx.pluginName}.c'));
+      if (pluginCppSpm.existsSync() || pluginCSpm.existsSync()) {
+        ctx.ok(iosSec, 'SPM Sources/$cppTargetName/${ctx.pluginName}.cpp forwarder present');
+      } else {
+        ctx.warn(iosSec, 'SPM Sources/$cppTargetName/${ctx.pluginName}.cpp forwarder missing', hint: 'Run: nitrogen link');
+      }
+
+      // include/nitro.h — exposes NITRO_EXPORT and Nitro types to the C++ target
+      final nitroHSpm = File(p.join(spmCppDir.path, 'include', 'nitro.h'));
+      if (nitroHSpm.existsSync()) {
+        ctx.ok(iosSec, 'SPM Sources/$cppTargetName/include/nitro.h present');
+      } else {
+        ctx.err(iosSec, 'SPM Sources/$cppTargetName/include/nitro.h missing', hint: 'Run: nitrogen link');
+      }
+
+      // bridge.g.mm — CRITICAL: compiled as Obj-C++ so that the SPM target
+      // links the C symbols defined in bridge.g.cpp (init_dart_api_dl etc.).
+      // Without this the plugin crashes at startup with:
+      //   "Failed to lookup symbol '${ctx.pluginName}_init_dart_api_dl'"
+      final spmMmBridges = spmCppDir.listSync().whereType<File>().where((f) => f.path.endsWith('.bridge.g.mm')).toList();
+      if (spmMmBridges.isNotEmpty) {
+        ctx.ok(iosSec, '${spmMmBridges.length} .bridge.g.mm in SPM Sources/$cppTargetName/');
+      } else if (ctx.specs.isNotEmpty) {
+        ctx.err(iosSec, 'Missing .bridge.g.mm in SPM Sources/$cppTargetName/', hint: 'Run: nitrogen link  (symbol ${ctx.pluginName}_init_dart_api_dl will be missing at runtime)');
+      }
+    } else if (ctx.specs.isNotEmpty) {
+      ctx.warn(iosSec, 'SPM Sources/$cppTargetName/ directory not found', hint: 'Run: nitrogen link  (creates the SPM C++ target with bridge forwarders)');
+    }
+  }
+
+  void _checkIosSpmSwiftTarget(_DoctorCtx ctx, DoctorSection iosSec, String pkgSwift, String packageRoot) {
+    // ── Swift target completeness (nested-SPM gap fix) ───────────────────
+    // The Package.swift must also declare a Swift target (named <ctx.pluginName>)
+    // that depends on the C++ target and the FlutterFramework. Its sources
+    // live in Sources/<PascalCaseName>/ and must include the generated
+    // <ctx.pluginName>.bridge.g.swift file so Swift can call the C ABI.
+    final isSwift = ctx.specs.isEmpty || _isAppleSwiftModule(ctx.specs.first);
+    if (isSwift) {
+      final swiftDirName = _toPascalCase(ctx.pluginName);
+      final spmSwiftDir = Directory(p.join(packageRoot, 'Sources', swiftDirName));
+
+      // Look for the Swift target declaration specifically (not just the Package name).
+      // The target name must appear as name: "<plugin>" inside a .target(...) call.
+      // Swift Package.swift uses double-quoted names; check for target name: "<plugin>".
+      final hasSwiftTarget = RegExp(r'\.target\s*\(\s*name\s*:\s*"' + RegExp.escape(ctx.pluginName) + r'"').hasMatch(pkgSwift);
+      if (hasSwiftTarget) {
+        ctx.ok(iosSec, 'Package.swift: ${ctx.pluginName} Swift target defined');
+      } else {
+        ctx.warn(iosSec, 'Package.swift: ${ctx.pluginName} Swift target missing', hint: 'Run: nitrogen init  (re-creates Package.swift with the correct Swift target)');
+      }
+
+      if (spmSwiftDir.existsSync()) {
+        ctx.ok(iosSec, 'SPM Sources/$swiftDirName/ directory present');
+        final swiftBridge = File(p.join(spmSwiftDir.path, '${ctx.pluginName}.bridge.g.swift'));
+        if (swiftBridge.existsSync()) {
+          ctx.ok(iosSec, 'SPM Sources/$swiftDirName/${ctx.pluginName}.bridge.g.swift present');
+        } else if (ctx.specs.isNotEmpty) {
+          ctx.err(iosSec, 'Missing ${ctx.pluginName}.bridge.g.swift in SPM Sources/$swiftDirName/', hint: 'Run: nitrogen link  (copies generated bridge to the SPM Swift target)');
+        }
+      } else if (ctx.specs.isNotEmpty) {
+        ctx.warn(iosSec, 'SPM Sources/$swiftDirName/ directory not found', hint: 'Run: nitrogen link  (creates SPM Swift target directory with bridge)');
+      }
+    }
+  }
+
+  void _checkMacos(_DoctorCtx ctx, SpmStatus spmStatus, bool allSpecsCpp, bool hasAnyNonCppSpec) {
+    final macosSec = DoctorSection('macOS');
+    ctx.sections.add(macosSec);
+    final macosDir = Directory(p.join(ctx.root.path, 'macos'));
+    if (!macosDir.existsSync()) {
+      ctx.info(macosSec, 'macos/ directory not present — skipped');
+      return;
+    }
+    _checkMacosPodspec(ctx, macosSec, macosDir, allSpecsCpp);
+    final macosClassesDir = Directory(p.join(macosDir.path, 'Classes'));
+    _checkMacosSwiftBridge(ctx, macosSec, macosDir, macosClassesDir, allSpecsCpp, hasAnyNonCppSpec);
+    _checkMacosDartApi(ctx, macosSec, macosDir, spmStatus);
+    _checkMacosMmBridges(ctx, macosSec, macosClassesDir, allSpecsCpp, spmStatus);
+    _checkMacosSpm(ctx, macosSec, spmStatus);
+  }
+
+  void _checkMacosPodspec(_DoctorCtx ctx, DoctorSection macosSec, Directory macosDir, bool allSpecsCpp) {
+    final podFiles = macosDir.listSync().whereType<File>().where((f) => f.path.endsWith('.podspec')).toList();
+    if (podFiles.isEmpty) {
+      ctx.err(macosSec, 'No .podspec found in macos/', hint: 'Run: nitrogen init');
+    } else {
+      ctx.checkFilePermissions(
+        macosSec,
+        podFiles.first,
+        p.relative(podFiles.first.path, from: ctx.root.path),
+      );
+      final pod = podFiles.first.readAsStringSync();
+      final podName = p.basename(podFiles.first.path);
+      if (pod.contains("s.dependency 'nitro'")) {
+        ctx.ok(macosSec, "s.dependency 'nitro' in $podName");
+      } else {
+        ctx.err(macosSec, "s.dependency 'nitro' missing in $podName", hint: 'Run: nitrogen link');
+      }
+      if (pod.contains('HEADER_SEARCH_PATHS')) {
+        ctx.ok(macosSec, 'HEADER_SEARCH_PATHS in $podName');
+      } else {
+        ctx.err(macosSec, 'HEADER_SEARCH_PATHS missing in $podName', hint: 'Run: nitrogen link');
+      }
+      if (pod.contains(BuildVersions.podCxxStandard)) {
+        ctx.ok(macosSec, 'CLANG_CXX_LANGUAGE_STANDARD = ${BuildVersions.podCxxStandard}');
+      } else {
+        ctx.warn(
+          macosSec,
+          'CLANG_CXX_LANGUAGE_STANDARD not set to ${BuildVersions.podCxxStandard}',
+          hint: "Set: 'CLANG_CXX_LANGUAGE_STANDARD' => '${BuildVersions.podCxxStandard}' in pod_target_xcconfig",
+        );
+      }
+      if (pod.contains('lib/src/generated/cpp') && pod.contains('src/native')) {
+        ctx.ok(macosSec, 'Comprehensive HEADER_SEARCH_PATHS in podspec');
+      } else {
+        ctx.warn(macosSec, 'Incomplete HEADER_SEARCH_PATHS in podspec', hint: 'Run: nitrogen link');
+      }
+
+      // Check source_files points to an existing path.
+      final sourceFilesMatchMacos = RegExp(r"s\.source_files\s*=\s*'([^']+)'").firstMatch(pod);
+      if (sourceFilesMatchMacos != null) {
+        final sfPath = sourceFilesMatchMacos.group(1)!;
+        final firstSegment = sfPath.split('/').first;
+        final firstDir = Directory(p.join(macosDir.path, firstSegment));
+        if (firstSegment == 'Classes' || firstDir.existsSync()) {
+          ctx.ok(macosSec, 'source_files path valid: $sfPath');
+        } else {
+          ctx.err(macosSec, 'source_files points to non-existent path: $sfPath', hint: "Run: nitrogen link  (fixes to 'Classes/**/*')");
+        }
+      }
+    }
+  }
+
+  void _checkMacosSwiftBridge(_DoctorCtx ctx, DoctorSection macosSec, Directory macosDir, Directory macosClassesDir, bool allSpecsCpp, bool hasAnyNonCppSpec) {
+    if (allSpecsCpp) {
+      ctx.info(macosSec, 'All modules use NativeImpl.cpp — Swift bridge (Registry.register) not required');
+      // .native.g.h uses C++ types and must NOT be placed in macos/Classes/ —
+      // CocoaPods includes every header there into the umbrella header, which
+      // breaks Swift/ObjC compilation. Check HEADER_SEARCH_PATHS instead (same
+      // logic as iOS). If SPM is active the file is also reachable via
+      // Sources/NitroVaniCpp/ so the podspec check is advisory only.
+      final macosPodFiles = macosDir.listSync().whereType<File>().where((f) => f.path.endsWith('.podspec')).toList();
+      if (macosPodFiles.isNotEmpty) {
+        final pod = macosPodFiles.first.readAsStringSync();
+        if (pod.contains('lib/src/generated/cpp')) {
+          ctx.ok(macosSec, '*.native.g.h reachable via HEADER_SEARCH_PATHS → lib/src/generated/cpp');
+        } else {
+          ctx.warn(macosSec, 'HEADER_SEARCH_PATHS may not include lib/src/generated/cpp (needed for *.native.g.h)', hint: 'Run: nitrogen link');
+        }
+      }
+    } else {
+      final swiftFiles = macosClassesDir.existsSync() ? macosClassesDir.listSync().whereType<File>().where((f) => f.path.endsWith('Plugin.swift')).toList() : <File>[];
+      if (swiftFiles.isEmpty) {
+        ctx.err(macosSec, 'No *Plugin.swift in macos/Classes/', hint: 'Run: nitrogen init');
+      } else {
+        final swift = swiftFiles.first.readAsStringSync();
+        if (hasAnyNonCppSpec) {
+          if (swift.contains('Registry.register(') || swift.contains('.register(')) {
+            ctx.ok(macosSec, 'Plugin.swift has Registry.register(...)');
+          } else {
+            ctx.warn(macosSec, 'Registry.register(...) not found in Plugin.swift', hint: 'Add: NitroModules.Registry.register(...) in register(with:)');
+          }
+        } else {
+          ctx.info(macosSec, 'Registry.register not needed — all modules use NativeImpl.cpp');
+        }
+      }
+    }
+  }
+
+  void _checkMacosDartApi(_DoctorCtx ctx, DoctorSection macosSec, Directory macosDir, SpmStatus spmStatus) {
+    // ── dart_api_dl.c / nitro.h ─────────────────────────────────────────────
+    // For SPM builds (Flutter 3.22+) these files live in Sources/<PluginCpp>/,
+    // not macos/Classes/. Only check macos/Classes/ when there is no Package.swift.
+    if (!spmStatus.macosHasSpm) {
+      final dartApiDl = File(p.join(macosDir.path, 'Classes', 'dart_api_dl.c'));
+      if (dartApiDl.existsSync()) {
+        ctx.ok(macosSec, 'macos/Classes/dart_api_dl.c present');
+      } else {
+        ctx.err(macosSec, 'macos/Classes/dart_api_dl.c missing', hint: 'Run: nitrogen link');
+      }
+
+      final nitroH = File(p.join(macosDir.path, 'Classes', 'nitro.h'));
+      if (nitroH.existsSync()) {
+        ctx.ok(macosSec, 'macos/Classes/nitro.h present');
+      } else {
+        ctx.err(macosSec, 'macos/Classes/nitro.h missing', hint: 'Run: nitrogen link');
+      }
+      if (nitroH.existsSync()) {
+        final content = nitroH.readAsStringSync();
+        if (content.contains('NITRO_EXPORT')) {
+          ctx.ok(macosSec, 'nitro.h contains NITRO_EXPORT visibility macro');
+        } else {
+          ctx.err(macosSec, 'nitro.h missing NITRO_EXPORT visibility macro', hint: 'Run: nitrogen link');
+        }
+      }
+    }
+  }
+
+  void _checkMacosMmBridges(_DoctorCtx ctx, DoctorSection macosSec, Directory macosClassesDir, bool allSpecsCpp, SpmStatus spmStatus) {
+    final staleCppBridges = macosClassesDir.existsSync() ? macosClassesDir.listSync().whereType<File>().where((f) => f.path.endsWith('.bridge.g.cpp')).toList() : <File>[];
+    if (staleCppBridges.isNotEmpty) {
+      for (final f in staleCppBridges) {
+        ctx.err(macosSec, 'Stale .cpp bridge: ${p.basename(f.path)} (must be .mm)', hint: 'Run: nitrogen link (auto-renames .bridge.g.cpp → .bridge.g.mm)');
+      }
+    }
+
+    final mmBridges = macosClassesDir.existsSync() ? macosClassesDir.listSync().whereType<File>().where((f) => f.path.endsWith('.bridge.g.mm')).toList() : <File>[];
+    if (mmBridges.isNotEmpty) {
+      ctx.ok(macosSec, '${mmBridges.length} .bridge.g.mm file(s) in macos/Classes/');
+    } else if (ctx.specs.isNotEmpty && !allSpecsCpp && !spmStatus.macosHasSpm) {
+      // For CocoaPods-only builds, warn about missing .mm bridges.
+      // For SPM builds, the bridge.g.mm belongs in Sources/<PluginCpp>/, not Classes/.
+      ctx.warn(macosSec, 'No .bridge.g.mm files in macos/Classes/', hint: 'Run: nitrogen link');
+    }
+  }
+
+  void _checkMacosSpm(_DoctorCtx ctx, DoctorSection macosSec, SpmStatus spmStatus) {
+    if (!(spmStatus.macosHasSpm && spmStatus.macosPackageSwiftPath != null)) return;
+    final packageSwiftFile = File(spmStatus.macosPackageSwiftPath!);
+    final packageRoot = packageSwiftFile.parent.path;
+    final cppTargetName = '${_toPascalCase(ctx.pluginName)}Cpp';
+    final spmCppDir = Directory(p.join(packageRoot, 'Sources', cppTargetName));
+    final pkgSwift = packageSwiftFile.readAsStringSync();
+    _checkMacosSpmCppTarget(ctx, macosSec, pkgSwift, cppTargetName, spmCppDir);
+    _checkMacosSpmSwiftTarget(ctx, macosSec, pkgSwift, packageRoot);
+  }
+
+  void _checkMacosSpmCppTarget(_DoctorCtx ctx, DoctorSection macosSec, String pkgSwift, String cppTargetName, Directory spmCppDir) {
+    if (pkgSwift.contains(cppTargetName)) {
+      ctx.ok(macosSec, 'Package.swift: $cppTargetName target defined');
+    } else {
+      ctx.err(macosSec, 'Package.swift: $cppTargetName target missing', hint: 'Run: nitrogen init  (re-creates Package.swift with the correct C++ target)');
+    }
+    if (pkgSwift.contains(BuildVersions.podCxxStandard) || pkgSwift.contains(BuildVersions.spmCxxFlag)) {
+      ctx.ok(macosSec, 'Package.swift: cxxSettings ${BuildVersions.spmCxxFlag} present');
+    } else {
+      ctx.warn(
+        macosSec,
+        'Package.swift: ${BuildVersions.spmCxxFlag} missing in cxxSettings',
+        hint: 'Add .unsafeFlags(["${BuildVersions.spmCxxFlag}"]) to the $cppTargetName cxxSettings',
+      );
+    }
+    if (pkgSwift.contains('publicHeadersPath')) {
+      ctx.ok(macosSec, 'Package.swift: publicHeadersPath configured for $cppTargetName');
+    } else {
+      ctx.warn(macosSec, 'Package.swift: publicHeadersPath missing for $cppTargetName', hint: 'Run: nitrogen init  (sets publicHeadersPath: "include")');
+    }
+
+    if (spmCppDir.existsSync()) {
+      // dart_api_dl.c — compiled as plain C; provides the Dart FFI bootstrap ABI
+      final dartApiDlSpm = File(p.join(spmCppDir.path, 'dart_api_dl.c'));
+      if (dartApiDlSpm.existsSync()) {
+        ctx.ok(macosSec, 'SPM Sources/$cppTargetName/dart_api_dl.c present');
+        final dartApiDlContent = dartApiDlSpm.readAsStringSync();
+        if (dartApiDlContent.contains('.symlinks') || RegExp(r'#include\s*"\/').hasMatch(dartApiDlContent)) {
+          ctx.warn(macosSec, 'SPM Sources/$cppTargetName/dart_api_dl.c uses a machine-specific or .symlinks path', hint: 'Run: nitrogen link  (rewrites to portable bundled stub)');
+        } else if (!dartApiDlContent.contains('Dart_InitializeApiDL')) {
+          ctx.err(
+            macosSec,
+            'SPM Sources/$cppTargetName/dart_api_dl.c is a header-only stub — missing Dart_InitializeApiDL implementation',
+            hint: 'Run: nitrogen link  (rewrites to full self-contained implementation)',
+          );
+        }
+      } else {
+        ctx.err(macosSec, 'SPM Sources/$cppTargetName/dart_api_dl.c missing', hint: 'Run: nitrogen link');
+      }
+
+      // <plugin>.cpp — forwarder that pulls in src/<plugin>.cpp via #include
+      final pluginCppSpm = File(p.join(spmCppDir.path, '${ctx.pluginName}.cpp'));
+      final pluginCSpm = File(p.join(spmCppDir.path, '${ctx.pluginName}.c'));
+      if (pluginCppSpm.existsSync() || pluginCSpm.existsSync()) {
+        ctx.ok(macosSec, 'SPM Sources/$cppTargetName/${ctx.pluginName}.cpp forwarder present');
+      } else {
+        ctx.warn(macosSec, 'SPM Sources/$cppTargetName/${ctx.pluginName}.cpp forwarder missing', hint: 'Run: nitrogen link');
+      }
+
+      // include/nitro.h — exposes NITRO_EXPORT and Nitro types to the C++ target
+      final nitroHSpm = File(p.join(spmCppDir.path, 'include', 'nitro.h'));
+      if (nitroHSpm.existsSync()) {
+        ctx.ok(macosSec, 'SPM Sources/$cppTargetName/include/nitro.h present');
+      } else {
+        ctx.err(macosSec, 'SPM Sources/$cppTargetName/include/nitro.h missing', hint: 'Run: nitrogen link');
+      }
+
+      // bridge.g.mm — CRITICAL: compiled as Obj-C++ so that the SPM target
+      // links the C symbols defined in bridge.g.cpp (init_dart_api_dl etc.).
+      // Without this the plugin crashes at startup with:
+      //   "Failed to lookup symbol '${ctx.pluginName}_init_dart_api_dl'"
+      final spmMmBridges = spmCppDir.listSync().whereType<File>().where((f) => f.path.endsWith('.bridge.g.mm')).toList();
+      if (spmMmBridges.isNotEmpty) {
+        ctx.ok(macosSec, '${spmMmBridges.length} .bridge.g.mm in SPM Sources/$cppTargetName/');
+      } else if (ctx.specs.isNotEmpty) {
+        ctx.err(
+          macosSec,
+          'Missing .bridge.g.mm in SPM Sources/$cppTargetName/',
+          hint: 'Run: nitrogen link  (symbol ${ctx.pluginName}_init_dart_api_dl will be missing at runtime)',
+        );
+      }
+    } else if (ctx.specs.isNotEmpty) {
+      ctx.warn(macosSec, 'SPM Sources/$cppTargetName/ directory not found', hint: 'Run: nitrogen link  (creates the SPM C++ target with bridge forwarders)');
+    }
+  }
+
+  void _checkMacosSpmSwiftTarget(_DoctorCtx ctx, DoctorSection macosSec, String pkgSwift, String packageRoot) {
+    // ── Swift target completeness (nested-SPM gap fix) ───────────────────
+    final isMacosSwift = ctx.specs.isEmpty || _isAppleSwiftModule(ctx.specs.first);
+    if (isMacosSwift) {
+      final swiftDirName = _toPascalCase(ctx.pluginName);
+      final spmSwiftDir = Directory(p.join(packageRoot, 'Sources', swiftDirName));
+
+      final hasMacosSwiftTarget = RegExp(r'\.target\s*\(\s*name\s*:\s*"' + RegExp.escape(ctx.pluginName) + r'"').hasMatch(pkgSwift);
+      if (hasMacosSwiftTarget) {
+        ctx.ok(macosSec, 'Package.swift: ${ctx.pluginName} Swift target defined');
+      } else {
+        ctx.warn(macosSec, 'Package.swift: ${ctx.pluginName} Swift target missing', hint: 'Run: nitrogen init  (re-creates Package.swift with the correct Swift target)');
+      }
+
+      if (spmSwiftDir.existsSync()) {
+        ctx.ok(macosSec, 'SPM Sources/$swiftDirName/ directory present');
+        final swiftBridge = File(p.join(spmSwiftDir.path, '${ctx.pluginName}.bridge.g.swift'));
+        if (swiftBridge.existsSync()) {
+          ctx.ok(macosSec, 'SPM Sources/$swiftDirName/${ctx.pluginName}.bridge.g.swift present');
+        } else if (ctx.specs.isNotEmpty) {
+          ctx.err(
+            macosSec,
+            'Missing ${ctx.pluginName}.bridge.g.swift in SPM Sources/$swiftDirName/',
+            hint: 'Run: nitrogen link  (copies generated bridge to the SPM Swift target)',
+          );
+        }
+      } else if (ctx.specs.isNotEmpty) {
+        ctx.warn(macosSec, 'SPM Sources/$swiftDirName/ directory not found', hint: 'Run: nitrogen link  (creates SPM Swift target directory with bridge)');
+      }
+    }
+  }
+
+  void _checkWindows(_DoctorCtx ctx, String srcCmakeContent) {
     final winSec = DoctorSection('Windows');
-    sections.add(winSec);
-    final winDir = Directory(p.join(root.path, 'windows'));
+    ctx.sections.add(winSec);
+    final winDir = Directory(p.join(ctx.root.path, 'windows'));
     if (!winDir.existsSync()) {
-      info(winSec, 'windows/ directory not present — skipped');
+      ctx.info(winSec, 'windows/ directory not present — skipped');
     } else {
       final cmakeFile = File(p.join(winDir.path, 'CMakeLists.txt'));
       if (!cmakeFile.existsSync()) {
-        err(winSec, 'windows/CMakeLists.txt not found', hint: 'Run: nitrogen link');
+        ctx.err(winSec, 'windows/CMakeLists.txt not found', hint: 'Run: nitrogen link');
       } else {
-        checkFilePermissions(winSec, cmakeFile, 'windows/CMakeLists.txt');
+        ctx.checkFilePermissions(winSec, cmakeFile, 'windows/CMakeLists.txt');
         final cmake = cmakeFile.readAsStringSync();
-        final sharedSrc = usesSharedSrc(cmake);
+        final sharedSrc = _usesSharedSrc(cmake);
         // For NITRO_NATIVE, check both the platform file and src/CMakeLists.
         if (cmake.contains('NITRO_NATIVE') || (sharedSrc && srcCmakeContent.contains('NITRO_NATIVE'))) {
-          ok(winSec, 'NITRO_NATIVE variable defined in windows/CMakeLists.txt');
+          ctx.ok(winSec, 'NITRO_NATIVE variable defined in windows/CMakeLists.txt');
         } else {
-          err(winSec, 'NITRO_NATIVE missing in windows/CMakeLists.txt', hint: 'Run: nitrogen link');
+          ctx.err(winSec, 'NITRO_NATIVE missing in windows/CMakeLists.txt', hint: 'Run: nitrogen link');
         }
         // dart_api_dl.c: accept if present in platform file OR in src/ (via add_subdirectory).
         if (cmake.contains('dart_api_dl.c') || (sharedSrc && srcCmakeContent.contains('dart_api_dl.c'))) {
-          ok(winSec, sharedSrc ? 'dart_api_dl.c compiled via src/CMakeLists.txt (add_subdirectory)' : 'dart_api_dl.c included in windows/CMakeLists.txt');
+          ctx.ok(winSec, sharedSrc ? 'dart_api_dl.c compiled via src/CMakeLists.txt (add_subdirectory)' : 'dart_api_dl.c included in windows/CMakeLists.txt');
         } else {
-          err(winSec, 'dart_api_dl.c not included in windows/CMakeLists.txt', hint: 'Run: nitrogen link');
+          ctx.err(winSec, 'dart_api_dl.c not included in windows/CMakeLists.txt', hint: 'Run: nitrogen link');
         }
-        for (final spec in specs) {
+        for (final spec in ctx.specs) {
           final stem = p.basename(spec.path).replaceAll(RegExp(r'\.native\.dart$'), '');
           final lib = _extractLibName(spec) ?? stem.replaceAll('-', '_');
           final bridgeRel = '../lib/src/generated/cpp/$lib.bridge.g.cpp';
           // Accept if the bridge is in the platform file, or in src/CMakeLists (shared build).
           final inSrc = sharedSrc && (srcCmakeContent.contains('$lib.bridge.g.cpp') || srcCmakeContent.contains(bridgeRel));
           if (cmake.contains(bridgeRel) || inSrc) {
-            ok(winSec, sharedSrc ? '$lib.bridge.g.cpp compiled via src/CMakeLists.txt' : '$lib.bridge.g.cpp linked in windows/CMakeLists.txt');
+            ctx.ok(winSec, sharedSrc ? '$lib.bridge.g.cpp compiled via src/CMakeLists.txt' : '$lib.bridge.g.cpp linked in windows/CMakeLists.txt');
           } else {
-            warn(winSec, '$lib.bridge.g.cpp not linked in windows/CMakeLists.txt', hint: 'Run: nitrogen link');
+            ctx.warn(winSec, '$lib.bridge.g.cpp not linked in windows/CMakeLists.txt', hint: 'Run: nitrogen link');
           }
         }
         // Multi-spec plugins with their own registrant target must expose
         // include/ via INTERFACE, or generated_plugin_registrant.cc in the
         // example app fails with "Cannot open include file: '<pkg>/<pkg>_plugin...h'".
-        if (sharedSrc && hasOwnPluginTarget(cmake) && Directory(p.join(winDir.path, 'include')).existsSync()) {
+        if (sharedSrc && _hasOwnPluginTarget(cmake) && Directory(p.join(winDir.path, 'include')).existsSync()) {
           final exposed = RegExp(r'target_include_directories\(\s*\$\{PLUGIN_NAME\}\s+INTERFACE[^)]*\/include').hasMatch(cmake);
           if (exposed) {
-            ok(winSec, 'Registrant include/ dir exposed via target_include_directories(\${PLUGIN_NAME} INTERFACE ...)');
+            ctx.ok(winSec, 'Registrant include/ dir exposed via target_include_directories(\${PLUGIN_NAME} INTERFACE ...)');
           } else {
-            err(
+            ctx.err(
               winSec,
               'Registrant include/ dir not exposed on \${PLUGIN_NAME} — generated_plugin_registrant.cc will fail to find the plugin header',
               hint: 'Run: nitrogen link',
@@ -1614,51 +1709,52 @@ class DoctorCommand extends Command {
         }
       }
     }
+  }
 
-    // ── Linux ─────────────────────────────────────────────────────────────────
+  void _checkLinux(_DoctorCtx ctx, String srcCmakeContent) {
     final linuxSec = DoctorSection('Linux');
-    sections.add(linuxSec);
-    final linuxDir = Directory(p.join(root.path, 'linux'));
+    ctx.sections.add(linuxSec);
+    final linuxDir = Directory(p.join(ctx.root.path, 'linux'));
     if (!linuxDir.existsSync()) {
-      info(linuxSec, 'linux/ directory not present — skipped');
+      ctx.info(linuxSec, 'linux/ directory not present — skipped');
     } else {
       final cmakeFile = File(p.join(linuxDir.path, 'CMakeLists.txt'));
       if (!cmakeFile.existsSync()) {
-        err(linuxSec, 'linux/CMakeLists.txt not found', hint: 'Run: nitrogen link');
+        ctx.err(linuxSec, 'linux/CMakeLists.txt not found', hint: 'Run: nitrogen link');
       } else {
-        checkFilePermissions(linuxSec, cmakeFile, 'linux/CMakeLists.txt');
+        ctx.checkFilePermissions(linuxSec, cmakeFile, 'linux/CMakeLists.txt');
         final cmake = cmakeFile.readAsStringSync();
-        final sharedSrc = usesSharedSrc(cmake);
+        final sharedSrc = _usesSharedSrc(cmake);
         if (cmake.contains('NITRO_NATIVE') || (sharedSrc && srcCmakeContent.contains('NITRO_NATIVE'))) {
-          ok(linuxSec, 'NITRO_NATIVE variable defined in linux/CMakeLists.txt');
+          ctx.ok(linuxSec, 'NITRO_NATIVE variable defined in linux/CMakeLists.txt');
         } else {
-          err(linuxSec, 'NITRO_NATIVE missing in linux/CMakeLists.txt', hint: 'Run: nitrogen link');
+          ctx.err(linuxSec, 'NITRO_NATIVE missing in linux/CMakeLists.txt', hint: 'Run: nitrogen link');
         }
         if (cmake.contains('dart_api_dl.c') || (sharedSrc && srcCmakeContent.contains('dart_api_dl.c'))) {
-          ok(linuxSec, sharedSrc ? 'dart_api_dl.c compiled via src/CMakeLists.txt (add_subdirectory)' : 'dart_api_dl.c included in linux/CMakeLists.txt');
+          ctx.ok(linuxSec, sharedSrc ? 'dart_api_dl.c compiled via src/CMakeLists.txt (add_subdirectory)' : 'dart_api_dl.c included in linux/CMakeLists.txt');
         } else {
-          err(linuxSec, 'dart_api_dl.c not included in linux/CMakeLists.txt', hint: 'Run: nitrogen link');
+          ctx.err(linuxSec, 'dart_api_dl.c not included in linux/CMakeLists.txt', hint: 'Run: nitrogen link');
         }
-        for (final spec in specs) {
+        for (final spec in ctx.specs) {
           final stem = p.basename(spec.path).replaceAll(RegExp(r'\.native\.dart$'), '');
           final lib = _extractLibName(spec) ?? stem.replaceAll('-', '_');
           final bridgeRel = '../lib/src/generated/cpp/$lib.bridge.g.cpp';
           final inSrc = sharedSrc && (srcCmakeContent.contains('$lib.bridge.g.cpp') || srcCmakeContent.contains(bridgeRel));
           if (cmake.contains(bridgeRel) || inSrc) {
-            ok(linuxSec, sharedSrc ? '$lib.bridge.g.cpp compiled via src/CMakeLists.txt' : '$lib.bridge.g.cpp linked in linux/CMakeLists.txt');
+            ctx.ok(linuxSec, sharedSrc ? '$lib.bridge.g.cpp compiled via src/CMakeLists.txt' : '$lib.bridge.g.cpp linked in linux/CMakeLists.txt');
           } else {
-            warn(linuxSec, '$lib.bridge.g.cpp not linked in linux/CMakeLists.txt', hint: 'Run: nitrogen link');
+            ctx.warn(linuxSec, '$lib.bridge.g.cpp not linked in linux/CMakeLists.txt', hint: 'Run: nitrogen link');
           }
         }
         // Multi-spec plugins with their own registrant target must expose
         // include/ via INTERFACE, or generated_plugin_registrant.cc in the
         // example app fails with "fatal error: '<pkg>/<pkg>_plugin.h' file not found".
-        if (sharedSrc && hasOwnPluginTarget(cmake) && Directory(p.join(linuxDir.path, 'include')).existsSync()) {
+        if (sharedSrc && _hasOwnPluginTarget(cmake) && Directory(p.join(linuxDir.path, 'include')).existsSync()) {
           final exposed = RegExp(r'target_include_directories\(\s*\$\{PLUGIN_NAME\}\s+INTERFACE[^)]*\/include').hasMatch(cmake);
           if (exposed) {
-            ok(linuxSec, 'Registrant include/ dir exposed via target_include_directories(\${PLUGIN_NAME} INTERFACE ...)');
+            ctx.ok(linuxSec, 'Registrant include/ dir exposed via target_include_directories(\${PLUGIN_NAME} INTERFACE ...)');
           } else {
-            err(
+            ctx.err(
               linuxSec,
               'Registrant include/ dir not exposed on \${PLUGIN_NAME} — generated_plugin_registrant.cc will fail to find the plugin header',
               hint: 'Run: nitrogen link',
@@ -1667,92 +1763,95 @@ class DoctorCommand extends Command {
         }
       }
     }
+  }
 
-    // ── NativeImpl.cpp Direct Implementation ────────────────────────────────
-    if (hasAnyCppSpec) {
-      final cppSec = DoctorSection('NativeImpl.cpp Direct Implementation');
-      sections.add(cppSec);
+  void _checkCppDirect(_DoctorCtx ctx) {
+    final cppSec = DoctorSection('NativeImpl.cpp Direct Implementation');
+    ctx.sections.add(cppSec);
 
-      for (final spec in specs.where(isCppModule)) {
-        final stem = p.basename(spec.path).replaceAll(RegExp(r'\.native\.dart$'), '');
-        final lib = _extractLibName(spec) ?? stem.replaceAll('-', '_');
-        final moduleMatch = RegExp(r'abstract class (\w+) extends HybridObject').firstMatch(spec.readAsStringSync());
-        final parsedSegments = stem.split('_').where((w) => w.isNotEmpty).toList();
-        final fallbackName = parsedSegments.isNotEmpty ? parsedSegments.map((w) => w[0].toUpperCase() + w.substring(1)).join('') : lib;
-        final moduleName = moduleMatch?.group(1) ?? fallbackName;
+    for (final spec in ctx.specs.where(isCppModule)) {
+      final stem = p.basename(spec.path).replaceAll(RegExp(r'\.native\.dart$'), '');
+      final lib = _extractLibName(spec) ?? stem.replaceAll('-', '_');
+      final moduleMatch = RegExp(r'abstract class (\w+) extends HybridObject').firstMatch(spec.readAsStringSync());
+      final parsedSegments = stem.split('_').where((w) => w.isNotEmpty).toList();
+      final fallbackName = parsedSegments.isNotEmpty ? parsedSegments.map((w) => w[0].toUpperCase() + w.substring(1)).join('') : lib;
+      final moduleName = moduleMatch?.group(1) ?? fallbackName;
 
-        // Check if user has a C++ impl file in src/ (anything that isn't generated or dart_api_dl)
-        final srcDir = Directory(p.join(root.path, 'src'));
-        final cppImplFiles = srcDir.existsSync()
-            ? srcDir
-                  .listSync()
-                  .whereType<File>()
-                  .where((f) => f.path.endsWith('.cpp') && !f.path.contains('.bridge.g.') && !f.path.contains('.test.g.') && !f.path.contains('dart_api_dl'))
-                  .toList()
-            : <File>[];
+      // Check if user has a C++ impl file in src/ (anything that isn't generated or dart_api_dl)
+      final srcDir = Directory(p.join(ctx.root.path, 'src'));
+      final cppImplFiles = srcDir.existsSync()
+          ? srcDir
+                .listSync()
+                .whereType<File>()
+                .where((f) => f.path.endsWith('.cpp') && !f.path.contains('.bridge.g.') && !f.path.contains('.test.g.') && !f.path.contains('dart_api_dl'))
+                .toList()
+          : <File>[];
 
-        if (cppImplFiles.isNotEmpty) {
-          // Check if any impl file registers the implementation
-          final anyRegisters = cppImplFiles.any((f) => f.readAsStringSync().contains('${lib}_register_impl'));
-          if (anyRegisters) {
-            ok(cppSec, '$lib: ${lib}_register_impl() wired up in user impl');
-          } else {
-            warn(cppSec, '$lib: ${lib}_register_impl(&impl) not found in src/', hint: 'Call ${lib}_register_impl(&impl) at startup before first Dart use');
-          }
+      if (cppImplFiles.isNotEmpty) {
+        // Check if any impl file registers the implementation
+        final anyRegisters = cppImplFiles.any((f) => f.readAsStringSync().contains('${lib}_register_impl'));
+        if (anyRegisters) {
+          ctx.ok(cppSec, '$lib: ${lib}_register_impl() wired up in user impl');
         } else {
-          info(cppSec, '$lib: Create src/Hybrid$moduleName.cpp, subclass Hybrid$moduleName, then call ${lib}_register_impl(&impl)');
+          ctx.warn(cppSec, '$lib: ${lib}_register_impl(&impl) not found in src/', hint: 'Call ${lib}_register_impl(&impl) at startup before first Dart use');
         }
+      } else {
+        ctx.info(cppSec, '$lib: Create src/Hybrid$moduleName.cpp, subclass Hybrid$moduleName, then call ${lib}_register_impl(&impl)');
+      }
 
-        // Check .clangd includes the test/ directory (for GoogleMock IDE support)
-        final clangdFile = File(p.join(root.path, '.clangd'));
-        if (clangdFile.existsSync() && clangdFile.readAsStringSync().contains('generated/cpp/test')) {
-          ok(cppSec, '.clangd includes generated/cpp/test/ (GoogleMock IDE support)');
-        } else {
-          info(cppSec, 'Run: nitrogen link (adds generated/cpp/test/ to .clangd for IDE mock support)');
-        }
+      // Check .clangd includes the test/ directory (for GoogleMock IDE support)
+      final clangdFile = File(p.join(ctx.root.path, '.clangd'));
+      if (clangdFile.existsSync() && clangdFile.readAsStringSync().contains('generated/cpp/test')) {
+        ctx.ok(cppSec, '.clangd includes generated/cpp/test/ (GoogleMock IDE support)');
+      } else {
+        ctx.info(cppSec, 'Run: nitrogen link (adds generated/cpp/test/ to .clangd for IDE mock support)');
       }
     }
+  }
 
+  void _checkCocoaPodsPermissions(_DoctorCtx ctx) {
     final podfiles = [
-      File(p.join(root.path, 'ios', 'Podfile')),
-      File(p.join(root.path, 'macos', 'Podfile')),
+      File(p.join(ctx.root.path, 'ios', 'Podfile')),
+      File(p.join(ctx.root.path, 'macos', 'Podfile')),
     ].where((f) => f.existsSync()).toList();
     if (podfiles.isNotEmpty) {
       final podsSec = DoctorSection('CocoaPods Permissions');
-      sections.add(podsSec);
+      ctx.sections.add(podsSec);
       for (final podfile in podfiles) {
-        final rel = p.relative(podfile.path, from: root.path);
-        checkFilePermissions(podsSec, podfile, rel);
-        ok(podsSec, '$rel present');
+        final rel = p.relative(podfile.path, from: ctx.root.path);
+        ctx.checkFilePermissions(podsSec, podfile, rel);
+        ctx.ok(podsSec, '$rel present');
       }
     }
+  }
 
+  void _checkExampleApp(_DoctorCtx ctx) {
     // ── Example App CocoaPods/SPM conflict ─────────────────────────────────────
     // Detects the broken state where example/ios (or example/macos) has
     // project.pbxproj references to Pods_Runner.framework but no Podfile —
     // causing "Framework 'Pods_Runner' not found" at build time.
     if (Platform.isMacOS) {
-      final exampleDir = Directory(p.join(root.path, 'example'));
+      final exampleDir = Directory(p.join(ctx.root.path, 'example'));
       if (exampleDir.existsSync()) {
         final exSec = DoctorSection('Example App (CocoaPods/SPM)');
-        sections.add(exSec);
+        ctx.sections.add(exSec);
 
         for (final platform in ['ios', 'macos']) {
           final platformDir = Directory(p.join(exampleDir.path, platform));
           if (!platformDir.existsSync()) {
-            info(exSec, 'example/$platform/ not present — skipped');
+            ctx.info(exSec, 'example/$platform/ not present — skipped');
             continue;
           }
 
           // Find project.pbxproj
           final xcodeprojDirs = platformDir.listSync().whereType<Directory>().where((d) => d.path.endsWith('.xcodeproj')).toList();
           if (xcodeprojDirs.isEmpty) {
-            info(exSec, 'example/$platform/: no .xcodeproj found — skipped');
+            ctx.info(exSec, 'example/$platform/: no .xcodeproj found — skipped');
             continue;
           }
           final pbxproj = File(p.join(xcodeprojDirs.first.path, 'project.pbxproj'));
           if (!pbxproj.existsSync()) {
-            info(exSec, 'example/$platform/: project.pbxproj not found — skipped');
+            ctx.info(exSec, 'example/$platform/: project.pbxproj not found — skipped');
             continue;
           }
 
@@ -1764,9 +1863,9 @@ class DoctorCommand extends Command {
           final hasPodfileLock = podfileLock.existsSync();
 
           if (!hasPodsRunner) {
-            ok(exSec, 'example/$platform/: no Pods_Runner.framework reference (clean SPM-only setup)');
+            ctx.ok(exSec, 'example/$platform/: no Pods_Runner.framework reference (clean SPM-only setup)');
           } else if (!hasPodfile) {
-            err(
+            ctx.err(
               exSec,
               'example/$platform/: project.pbxproj references Pods_Runner.framework but Podfile is missing',
               hint: hasPodfileLock
@@ -1778,9 +1877,9 @@ class DoctorCommand extends Command {
             final podsDir = Directory(p.join(platformDir.path, 'Pods'));
             final podsBuilt = podsDir.existsSync() && podsDir.listSync().whereType<Directory>().any((d) => d.path.contains('Pods.xcodeproj'));
             if (podsBuilt) {
-              ok(exSec, 'example/$platform/: Podfile present and pods installed');
+              ctx.ok(exSec, 'example/$platform/: Podfile present and pods installed');
             } else {
-              warn(
+              ctx.warn(
                 exSec,
                 'example/$platform/: Podfile present but pods not installed',
                 hint: 'Run: cd example/$platform && pod install',
@@ -1790,7 +1889,9 @@ class DoctorCommand extends Command {
         }
       }
     }
+  }
 
+  void _checkBuildRunnerHazard(_DoctorCtx ctx) {
     // ── build_runner symlink-cycle hazard ───────────────────────────────────
     // Once example/'s native platforms have been built, CocoaPods/Flutter
     // leaves example/{ios,macos}/.symlinks/plugins/<name> pointing straight
@@ -1803,7 +1904,7 @@ class DoctorCommand extends Command {
     // it's only a problem for direct build_runner invocations — so this is
     // reported as info, not a warning/error.
     {
-      final exampleDir = Directory(p.join(root.path, 'example'));
+      final exampleDir = Directory(p.join(ctx.root.path, 'example'));
       const hazardPaths = [
         'ios/.symlinks',
         'ios/Flutter/ephemeral',
@@ -1815,22 +1916,22 @@ class DoctorCommand extends Command {
       final present = exampleDir.existsSync() ? hazardPaths.where((rel) => Directory(p.join(exampleDir.path, rel)).existsSync()).toList() : <String>[];
       if (present.isNotEmpty) {
         final buildSec = DoctorSection('build_runner');
-        sections.add(buildSec);
+        ctx.sections.add(buildSec);
         // A build.yaml sources.exclude keeps build_runner's walk out of
         // example/ entirely — with it, a direct build_runner run is safe.
         // Without it, the hazard is a silent forever-hang, so escalate to a
         // warning with the one-line fix (issue #20).
-        final buildYaml = File(p.join(root.path, 'build.yaml'));
+        final buildYaml = File(p.join(ctx.root.path, 'build.yaml'));
         final hasSourcesExclude = buildYaml.existsSync() && buildYaml.readAsStringSync().contains('sources:');
         if (hasSourcesExclude) {
-          info(
+          ctx.info(
             buildSec,
             'example/ has built native-platform ephemeral dirs present (${present.join(', ')}) — '
             'harmless: build.yaml sources excludes keep build_runner out of them, and '
             '`nitrogen generate` cleans them each run.',
           );
         } else {
-          warn(
+          ctx.warn(
             buildSec,
             'example/ has built native-platform ephemeral dirs (${present.join(', ')}) and build.yaml '
             'has no sources excludes — a direct `dart run build_runner build`/`watch` will hang '
@@ -1840,13 +1941,6 @@ class DoctorCommand extends Command {
         }
       }
     }
-
-    return DoctorViewResult(
-      pluginName: pluginName,
-      sections: sections,
-      errors: errors,
-      warnings: warnings,
-    );
   }
 
   bool get _headless => !stdout.hasTerminal || (argResults!['no-ui'] as bool);
@@ -1971,6 +2065,17 @@ class DoctorCommand extends Command {
 }
 
 String _toPascalCase(String lib) => lib.split(RegExp(r'[_\-]')).map((w) => w.isEmpty ? '' : w[0].toUpperCase() + w.substring(1)).join('');
+
+// ── Windows/Linux CMake helpers ──────────────────────────────────────────────
+
+/// Returns true when [cmake] uses add_subdirectory to the shared src/ directory
+/// (Nitro layout). dart_api_dl.c and bridge files are then compiled via
+/// src/CMakeLists.txt, so checking the platform file directly would be a false error.
+bool _usesSharedSrc(String cmake) => cmake.contains('add_subdirectory') && (cmake.contains('"../src"') || cmake.contains(r'"${CMAKE_CURRENT_SOURCE_DIR}/../src"'));
+
+/// Returns true when the platform CMakeLists declares its own `<pkg>_plugin`
+/// registrant target (multi-spec plugin shape).
+bool _hasOwnPluginTarget(String cmake) => RegExp(r'add_library\(\s*\$\{PLUGIN_NAME\}').hasMatch(cmake);
 
 // ── PX15 helpers ───────────────────────────────────────────────────────────
 
