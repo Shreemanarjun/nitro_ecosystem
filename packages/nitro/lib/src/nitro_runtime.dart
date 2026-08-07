@@ -363,6 +363,41 @@ class NitroRuntime {
     );
   }
 
+  /// Emits the verbose "completed in N µs" line plus a slow-call warning when
+  /// elapsed time exceeds [NitroConfig.slowCallThresholdUs]. Extracted from the
+  /// three call paths (sync / async / native-async) that shared it verbatim.
+  /// Only invoked on the instrumented path ([sw] non-null), so the
+  /// allocation-free hot path never pays for it.
+  static void _logCallTiming(Stopwatch? sw, String tag) {
+    if (sw == null) return;
+    sw.stop();
+    final us = sw.elapsedMicroseconds;
+    _log(NitroLogLevel.verbose, tag, 'completed in $us µs');
+    final threshold = NitroConfig.instance.slowCallThresholdUs;
+    if (threshold > 0 && us > threshold) {
+      _log(NitroLogLevel.warning, tag, 'slow call: $us µs exceeded threshold of $threshold µs');
+    }
+  }
+
+  /// Legacy async dispatch: spawn a fresh isolate per call (used when the
+  /// pre-warmed pool is disabled or not yet ready). Extracted so [callAsync]'s
+  /// fast and slow paths share one copy — `Isolate.run`'s spawn cost dominates,
+  /// so the indirection is free.
+  static Future<T> _runLegacyIsolate<T>(
+    Function fn,
+    List<Object?> args,
+    Pointer<NativeFunction<Pointer<NitroErrorFfi> Function()>>? getError,
+    Pointer<NativeFunction<Void Function()>>? clearError,
+  ) {
+    return Isolate.run(() {
+      final res = Function.apply(fn, args) as T;
+      if (getError != null && clearError != null) {
+        checkError(getError.asFunction(), clearError.asFunction());
+      }
+      return res;
+    });
+  }
+
   // ── Synchronous call ─────────────────────────────────────────────────────
 
   /// Calls a native function synchronously, with logging and slow-call
@@ -428,18 +463,7 @@ class NitroRuntime {
     if (traceTimeline) developer.Timeline.startSync(_timelineLabel(tag));
     try {
       final result = call();
-      if (sw != null) {
-        sw.stop();
-        final us = sw.elapsedMicroseconds;
-        _log(NitroLogLevel.verbose, tag, 'completed in $us µs');
-        if (cfg.slowCallThresholdUs > 0 && us > cfg.slowCallThresholdUs) {
-          _log(
-            NitroLogLevel.warning,
-            tag,
-            'slow call: $us µs exceeded threshold of ${cfg.slowCallThresholdUs} µs',
-          );
-        }
-      }
+      _logCallTiming(sw, tag);
       return result;
     } catch (e, st) {
       _log(NitroLogLevel.error, tag, 'threw: $e', e, st);
@@ -496,13 +520,7 @@ class NitroRuntime {
     // branch from being duplicated across the none/try paths.
     if (effective != NitroLogLevel.verbose && !traceTimeline && cfg.slowCallThresholdUs == 0) {
       Future<T> dispatch() => (poolSize <= 0 || !_poolReady)
-          ? Isolate.run(() {
-              final res = Function.apply(fn, args) as T;
-              if (getError != null && clearError != null) {
-                checkError(getError.asFunction(), clearError.asFunction());
-              }
-              return res;
-            })
+          ? _runLegacyIsolate<T>(fn, args, getError, clearError)
           : _pool!.dispatch<T>(fn, args, getError: getError, clearError: clearError);
       if (effective == NitroLogLevel.none) return await dispatch();
       try {
@@ -524,13 +542,7 @@ class NitroRuntime {
       if (poolSize <= 0 || !_poolReady) {
         // Legacy: spawn a fresh isolate per call.
         _log(NitroLogLevel.verbose, tag, 'dispatching via Isolate.run');
-        result = await Isolate.run(() {
-          final res = Function.apply(fn, args) as T;
-          if (getError != null && clearError != null) {
-            checkError(getError.asFunction(), clearError.asFunction());
-          }
-          return res;
-        });
+        result = await _runLegacyIsolate<T>(fn, args, getError, clearError);
       } else {
         _log(NitroLogLevel.verbose, tag, 'dispatching via pool (size=$poolSize)');
         result = await _pool!.dispatch<T>(
@@ -541,18 +553,7 @@ class NitroRuntime {
         );
       }
 
-      if (sw != null) {
-        sw.stop();
-        final us = sw.elapsedMicroseconds;
-        _log(NitroLogLevel.verbose, tag, 'completed in $us µs');
-        if (cfg.slowCallThresholdUs > 0 && us > cfg.slowCallThresholdUs) {
-          _log(
-            NitroLogLevel.warning,
-            tag,
-            'slow call: $us µs exceeded threshold of ${cfg.slowCallThresholdUs} µs',
-          );
-        }
-      }
+      _logCallTiming(sw, tag);
 
       return result;
     } finally {
@@ -612,14 +613,8 @@ class NitroRuntime {
     }
 
     T handle(dynamic raw) {
-      if (sw != null) {
-        sw.stop();
-        final us = sw.elapsedMicroseconds;
-        _log(NitroLogLevel.verbose, tag(), 'completed in $us \u00b5s');
-        if (cfg.slowCallThresholdUs > 0 && us > cfg.slowCallThresholdUs) {
-          _log(NitroLogLevel.warning, tag(), 'slow call: $us \u00b5s exceeded threshold of ${cfg.slowCallThresholdUs} \u00b5s');
-        }
-      }
+      // Guard so `tag()` isn't allocated on the uninstrumented hot path.
+      if (sw != null) _logCallTiming(sw, tag());
       try {
         return unpack(raw);
       } catch (e, st) {
