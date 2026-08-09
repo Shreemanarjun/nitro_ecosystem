@@ -113,7 +113,22 @@ void _emitSwiftBridgeSection(
     }
     writer.line('#ifdef __OBJC__');
     writer.line('    @try {');
-    if (func.returnType.name != 'void') {
+    // NOTE: @NitroResult<String> and @NitroVariant return a BINARY envelope, not a
+    // NUL-terminated C string — treating those as strings truncates the blob at the
+    // first zero byte. Only plain String/String? returns borrow the scratch.
+    if ((func.returnType.name == 'String' || func.returnType.name == 'String?') &&
+        !func.isAsync && !func.isResult && !isVariantRet) {
+      // Improvement F: sync string returns are BORROWED by Dart (it no longer
+      // frees them). The Swift shim hands back memory it allocated, so copy it
+      // into the per-thread scratch and release the original here — otherwise
+      // every call leaks the whole string (caught by the iOS echoString RSS
+      // soak). @nitroAsync keeps handing the owned pointer straight to Dart.
+      writer.line('        const char* _sw = (const char*)_${spec.namespace}_call_${func.dartName}($callParams);');
+      writer.line('        if (_sw == nullptr) { return nullptr; }');
+      writer.line('        _g_str_ret = _sw;');
+      writer.line('        free((void*)_sw);');
+      writer.line('        return ($cReturnType)const_cast<char*>(_g_str_ret.c_str());');
+    } else if (func.returnType.name != 'void') {
       writer.line('        return _${spec.namespace}_call_${func.dartName}($callParams);');
     } else {
       writer.line('        _${spec.namespace}_call_${func.dartName}($callParams);');
@@ -135,7 +150,18 @@ void _emitSwiftBridgeSection(
     }
     writer.line('    }');
     writer.line('#else');
-    if (func.returnType.name != 'void') {
+    // NOTE: @NitroResult<String> and @NitroVariant return a BINARY envelope, not a
+    // NUL-terminated C string — treating those as strings truncates the blob at the
+    // first zero byte. Only plain String/String? returns borrow the scratch.
+    if ((func.returnType.name == 'String' || func.returnType.name == 'String?') &&
+        !func.isAsync && !func.isResult && !isVariantRet) {
+      // Same borrowed-string contract as the @try branch above.
+      writer.line('    const char* _sw = (const char*)_${spec.namespace}_call_${func.dartName}($callParams);');
+      writer.line('    if (_sw == nullptr) { return nullptr; }');
+      writer.line('    _g_str_ret = _sw;');
+      writer.line('    free((void*)_sw);');
+      writer.line('    return ($cReturnType)const_cast<char*>(_g_str_ret.c_str());');
+    } else if (func.returnType.name != 'void') {
       writer.line('    return _${spec.namespace}_call_${func.dartName}($callParams);');
     } else {
       writer.line('    _${spec.namespace}_call_${func.dartName}($callParams);');
@@ -186,7 +212,16 @@ void _emitSwiftBridgeSection(
       // S8: getter receives NitroError* out-param; instanceId for API consistency (Point 13).
       writer.line('$cType ${prop.getSymbol}(int64_t instanceId, NitroError* _nitro_err) {');
       writer.line('    if (_nitro_err) { _nitro_err->hasError = 0; }');
-      writer.line('    return _${spec.namespace}_call_get_${prop.dartName}();');
+      if (prop.type.name == 'String' || prop.type.name == 'String?') {
+        // Dart borrows sync string getters (improvement F) — copy + release.
+        writer.line('    const char* _sw = (const char*)_${spec.namespace}_call_get_${prop.dartName}();');
+        writer.line('    if (_sw == nullptr) { return nullptr; }');
+        writer.line('    _g_str_ret = _sw;');
+        writer.line('    free((void*)_sw);');
+        writer.line('    return ($cType)const_cast<char*>(_g_str_ret.c_str());');
+      } else {
+        writer.line('    return _${spec.namespace}_call_get_${prop.dartName}();');
+      }
       writer.line('}');
       writer.blankLine();
     }

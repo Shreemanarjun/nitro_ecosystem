@@ -436,7 +436,23 @@ void main() {
     test('sync String? return: nullptr check present', () {
       final out = DartFfiGenerator.generate(syncNullable());
       expect(out, contains('nullptr ? null'));
-      expect(out, contains('toDartStringFreedBy(_nitroFree)'));
+      // Improvement F: sync String? borrows the native per-thread buffer.
+      expect(out, contains('toDartStringBorrowed()'));
+    });
+
+    // Regression guard: uint64? is its own ReturnKind and was initially missed
+    // when the nullable-primitive frees were made conditional — the generated
+    // Dart freed a borrowed per-thread scratch, which Android's Scudo allocator
+    // aborted on ("misaligned pointer when deallocating"). macOS silently
+    // tolerated it, so only a cross-platform run caught it.
+    test('sync uint64? return borrows the scratch (never frees it)', () {
+      final out = DartFfiGenerator.generate(syncNullable());
+      final i = out.indexOf('_u64Result');
+      if (i >= 0) {
+        final line = out.substring(i, out.indexOf('\n', i));
+        expect(line, isNot(contains('_nitroFree')),
+            reason: 'sync uint64? must not free the borrowed scratch');
+      }
     });
   });
 }

@@ -456,7 +456,7 @@ nativeLayer.doWork(promise.port.nativePort);
 final result = await promise.future;
 ```
 
-### `NitroCoalescer` — batching concurrent `@nitroNativeAsync` completions (0.5.18+)
+### `NitroCoalescer` — batching concurrent `@nitroNativeAsync` completions (0.6.0+)
 
 Every `@nitroNativeAsync` call posts its result back over its own `ReceivePort`,
 which wakes the Dart isolate. For a **single** call that's the right design — the

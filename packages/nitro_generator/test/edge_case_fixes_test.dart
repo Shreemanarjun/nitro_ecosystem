@@ -198,10 +198,11 @@ void main() {
   group('Edge case: PX19 factory function name safety', () {
     test('single-char class A → aCreateNativeInstance() (not empty name)', () {
       final out = DartFfiGenerator.generate(_singleCharClassSpec(targetsWeb: true));
-      // Should produce 'a_createNativeInstance()' or 'A_createNativeInstance' - some valid name
+      // Should produce 'a_createNativeInstance(' or 'A_createNativeInstance' - some valid name
       expect(out, contains('_createNativeInstance'));
-      // Must not produce an invalid identifier starting with digit or nothing
-      final factoryMatch = RegExp(r'\w+_createNativeInstance\(\)').firstMatch(out);
+      // Must not produce an invalid identifier starting with digit or nothing.
+      // Signature now carries an optional [key] param, so match up to '('.
+      final factoryMatch = RegExp(r'\w+_createNativeInstance\(').firstMatch(out);
       expect(factoryMatch, isNotNull);
       final name = factoryMatch!.group(0)!;
       expect(name[0], isNot(equals('0'))); // must not start with digit

@@ -1,6 +1,9 @@
-## 0.5.18
+## 0.6.0
 
-- **Ecosystem sync** — Released alongside `nitro` 0.5.18's new `NitroCoalescer` (opt-in batching of concurrent `@nitroNativeAsync` completions — a 64-in-flight burst drops ~5.6× on an M1 Pro; [#39](https://github.com/Shreemanarjun/nitro_ecosystem/issues/39)). No generator changes: the coalescer is a runtime primitive — a plugin routes its native completions through a native batcher and demuxes on the Dart side with `NitroCoalescer`.
+- **Sync bridge returns no longer heap-allocate.** The generated C/JNI/Swift bridges return a pointer into a reusable per-thread slot for nullable primitives, `@HybridStruct` returns and `String` returns, and the generated Dart no longer frees them. `@nitroAsync` / `@nitroNativeAsync` keep malloc + free — they decode on a different isolate thread, where a per-thread slot is different storage. **Regenerate and re-link**; generated code now requires `nitro` ≥ 0.6.0.
+- **8-way instance cache in the direct-C++ bridge.** `_nitro_get_instance` keeps 8 `alignas(64)` slots striped by instance id instead of one entry, so dispatch across several live instances stays lock-free: **7–8×** faster rotating over 2/4/8 instances, **48×** under 4-thread contention. Single-instance dispatch is unchanged.
+- **`<Class>_createNativeInstance([String key])`** now takes an optional key, so a plugin can create independent native instances (each with its own `instanceId`). The default key returns the shared singleton — existing calls are unaffected.
+- Guard against `@NitroResult<T>` / `@NitroVariant` returns being treated as C strings (they carry a binary envelope, which `strlen` would truncate at the first zero byte).
 
 ## 0.5.17
 

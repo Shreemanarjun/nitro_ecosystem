@@ -1,6 +1,6 @@
-# 0.5.18
+# 0.6.0
 
-- **Ecosystem sync** — Released alongside `nitro` 0.5.18's new `NitroCoalescer` (opt-in batching of concurrent `@nitroNativeAsync` completions; [#39](https://github.com/Shreemanarjun/nitro_ecosystem/issues/39)). No changes to this package.
+- **Ecosystem sync** — Released alongside the `nitro` 0.6.0 bridge memory-model change. No changes to this package; regenerate to pick up the new bridges.
 
 # 0.5.17
 

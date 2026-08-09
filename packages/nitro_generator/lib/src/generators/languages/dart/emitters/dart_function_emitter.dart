@@ -237,7 +237,7 @@ void _emitFunctionImpls(CodeWriter writer, BridgeSpec spec) {
           writer.line('    return NitroRuntime.callSync(() => withArena((arena) {');
           writer.line('      final res = _${func.dartName}Ptr($syncArgs);');
           if (!isFast) writer.line(_assertCheckError('      '));
-          _emitReturnDecode(writer, func.returnType, 'res', '      ', spec, zeroCopy: func.zeroCopyReturn, dartName: func.dartName, isOwned: func.isOwned, nativeHandleTypeParam: nativeHandleTypeParam);
+          _emitReturnDecode(writer, func.returnType, 'res', '      ', spec, zeroCopy: func.zeroCopyReturn, dartName: func.dartName, isOwned: func.isOwned, nativeHandleTypeParam: nativeHandleTypeParam, optIsBorrowed: true);
           writer.line('    })$mnArg);');
         }
       } else {
@@ -250,7 +250,7 @@ void _emitFunctionImpls(CodeWriter writer, BridgeSpec spec) {
           writer.line('    return NitroRuntime.callSync(() {');
           writer.line('      final res = _${func.dartName}Ptr($syncArgs);');
           if (!isFast) writer.line(_assertCheckError('      '));
-          _emitReturnDecode(writer, func.returnType, 'res', '      ', spec, zeroCopy: func.zeroCopyReturn, dartName: func.dartName, isOwned: func.isOwned, nativeHandleTypeParam: nativeHandleTypeParam);
+          _emitReturnDecode(writer, func.returnType, 'res', '      ', spec, zeroCopy: func.zeroCopyReturn, dartName: func.dartName, isOwned: func.isOwned, nativeHandleTypeParam: nativeHandleTypeParam, optIsBorrowed: true);
           writer.line('    }$mnArg);');
         }
       }

@@ -86,6 +86,14 @@ String _generateCppDirect(BridgeSpec spec) {
 
   // Error state
   writer.line('static thread_local NitroError g_nitro_error = { 0, nullptr, nullptr, nullptr, nullptr };');
+  // Reusable per-thread scratch for SYNC nullable-primitive returns. Dart decodes
+  // the value immediately after the call returns (a 2-field read — no callbacks,
+  // no reentry), so one slot per thread removes a malloc/free pair per call.
+  // NOT used by @nitroAsync: callAsync runs the native call on a helper isolate
+  // thread while Dart decodes on the main isolate, where this slot is different
+  // storage — those keep malloc (doc/perf_b_nullable_prim_plan.md).
+  writer.line('alignas(8) static thread_local uint8_t _g_opt_ret[16];');
+  writer.line('static thread_local std::string _g_str_ret;');
   writer.blankLine();
   writer.line('extern "C" {');
   writer.line('NitroError* ${libStem}_get_error() { return &g_nitro_error; }');
@@ -138,33 +146,44 @@ String _generateCppDirect(BridgeSpec spec) {
   writer.line('    return f;');
   writer.line('}');
   writer.blankLine();
-  // Hot-path lock-free cache for the last-resolved (id -> raw impl). The map +
+  // Hot-path lock-free N-way cache for resolved (id -> raw impl). The map +
   // mutex remain the source of truth for create/destroy (rare); reads on the
-  // common singleton path skip the mutex, the hashmap, and the shared_ptr copy
-  // entirely — matching React Native Nitro's direct-pointer dispatch. The
-  // returned pointer is borrowed (the map owns the shared_ptr); its lifetime
+  // common path skip the mutex, the hashmap, and the shared_ptr copy entirely —
+  // matching React Native Nitro's direct-pointer dispatch. A single-entry cache
+  // thrashed to the mutex+hashmap on every call once a hot loop rotated across
+  // more than one instance; 8 direct-mapped slots (striped by id low bits) keep
+  // up to 8 distinct ids resident, each alignas(64) so slots never false-share.
+  // The returned pointer is borrowed (the map owns the shared_ptr); its lifetime
   // for the call duration is guaranteed by the Dart-side NativeFinalizer, which
-  // never destroys an instance while a call on it is in flight. The cache is
-  // invalidated under the mutex on register/destroy so a freed id never
-  // resolves to a dangling pointer.
-  writer.line('static std::atomic<int64_t> _g_cache_id{-1};');
-  writer.line('static std::atomic<Hybrid$className*> _g_cache_ptr{nullptr};');
+  // never destroys an instance while a call on it is in flight. Slots are
+  // invalidated under the mutex on register/destroy so a freed id never resolves
+  // to a dangling pointer. Per-slot ordering matches the old single entry:
+  // publish ptr (relaxed) then id (release); read id (acquire) then ptr (relaxed).
+  writer.line('static constexpr int _kNitroCacheWays = 8;');
+  writer.line('struct alignas(64) _NitroInstSlot {');
+  writer.line('    std::atomic<int64_t> id{-1};');
+  writer.line('    std::atomic<Hybrid$className*> ptr{nullptr};');
+  writer.line('};');
+  writer.line('static _NitroInstSlot _g_inst_cache[_kNitroCacheWays];');
   writer.line('static Hybrid$className* _nitro_get_instance(int64_t id) {');
-  writer.line('    if (_g_cache_id.load(std::memory_order_acquire) == id) {');
-  writer.line('        return _g_cache_ptr.load(std::memory_order_relaxed);');
+  writer.line('    _NitroInstSlot& _slot = _g_inst_cache[(uint64_t)id & (_kNitroCacheWays - 1)];');
+  writer.line('    if (_slot.id.load(std::memory_order_acquire) == id) {');
+  writer.line('        return _slot.ptr.load(std::memory_order_relaxed);');
   writer.line('    }');
   writer.line('    std::lock_guard<std::mutex> _lk(_g_instances_mtx());');
   writer.line('    auto it = _g_instances().find(id);');
   writer.line('    Hybrid$className* p = (it != _g_instances().end()) ? it->second.get() : nullptr;');
   writer.line('    if (p) {');
-  writer.line('        _g_cache_ptr.store(p, std::memory_order_relaxed);');
-  writer.line('        _g_cache_id.store(id, std::memory_order_release);');
+  writer.line('        _slot.ptr.store(p, std::memory_order_relaxed);');
+  writer.line('        _slot.id.store(id, std::memory_order_release);');
   writer.line('    }');
   writer.line('    return p;');
   writer.line('}');
   writer.line('static void _nitro_invalidate_cache() {');
-  writer.line('    _g_cache_id.store(-1, std::memory_order_release);');
-  writer.line('    _g_cache_ptr.store(nullptr, std::memory_order_relaxed);');
+  writer.line('    for (int _i = 0; _i < _kNitroCacheWays; ++_i) {');
+  writer.line('        _g_inst_cache[_i].id.store(-1, std::memory_order_release);');
+  writer.line('        _g_inst_cache[_i].ptr.store(nullptr, std::memory_order_relaxed);');
+  writer.line('    }');
   writer.line('}');
   writer.blankLine();
   writer.line('extern "C" {');
@@ -554,8 +573,10 @@ String _generateCppDirect(BridgeSpec spec) {
           ? 'NitroOptFloat64'
           : 'NitroOptBool';
       writer.line('        auto _opt = _impl->${func.dartName}($callArgStr);');
-      writer.line('        auto* _out = ($nitroType*)malloc(sizeof($nitroType));');
-      writer.line('        if (!_out) return nullptr;');
+      // Sync borrows the per-thread scratch (Dart does not free); @nitroAsync
+      // decodes on a different isolate thread, so it must stay heap-allocated.
+      writer.line('        auto* _out = ($nitroType*)${func.isAsync ? "malloc(sizeof($nitroType))" : "(void*)_g_opt_ret"};');
+      if (func.isAsync) writer.line('        if (!_out) return nullptr;');
       if (retBase == 'bool') {
         writer.line('        _out->hasValue = _opt.has_value() ? 1 : 0;');
         writer.line('        _out->value    = _opt.has_value() ? (_opt.value() ? 1 : 0) : 0;');
@@ -566,13 +587,20 @@ String _generateCppDirect(BridgeSpec spec) {
       writer.line('        return (uint8_t*)_out;');
     } else if (func.returnType.name == 'String') {
       writer.line('        std::string _res = _impl->${func.dartName}($callArgStr);');
-      writer.line('        return strdup(_res.c_str());');
+      writer.line(func.isAsync
+          ? '        return strdup(_res.c_str());'
+          : '        _g_str_ret = _res; return const_cast<char*>(_g_str_ret.c_str());');
     } else if (isEnumRet) {
       writer.line('        return static_cast<int64_t>(_impl->${func.dartName}($callArgStr));');
     } else if (isStructRet) {
       final stName = func.returnType.name.replaceFirst('?', '');
       writer.line('        $stName _res = _impl->${func.dartName}($callArgStr);');
-      writer.line('        $stName* _ptr = ($stName*)malloc(sizeof($stName));');
+      if (func.isAsync) {
+        writer.line('        $stName* _ptr = ($stName*)malloc(sizeof($stName));');
+      } else {
+        writer.line('        static thread_local $stName _g_ret_st;');
+        writer.line('        $stName* _ptr = &_g_ret_st;');
+      }
       writer.line('        *_ptr = _res;');
       writer.line('        return _ptr;');
     } else if (isRecordRet || isVariantRet) {
@@ -628,7 +656,7 @@ String _generateCppDirect(BridgeSpec spec) {
       writer.line('    try {');
       if (prop.type.name == 'String') {
         writer.line('        std::string _res = _impl->get_${prop.dartName}();');
-        writer.line('        return strdup(_res.c_str());');
+        writer.line('        _g_str_ret = _res; return const_cast<char*>(_g_str_ret.c_str());');
       } else if (isEnum) {
         writer.line('        return static_cast<int64_t>(_impl->get_${prop.dartName}());');
       } else if (isNullablePrimProp) {
@@ -638,9 +666,9 @@ String _generateCppDirect(BridgeSpec spec) {
             : propPrimBase == 'double'
             ? 'NitroOptFloat64'
             : 'NitroOptBool';
+        // Property getters are always synchronous — borrow the per-thread scratch.
         writer.line('        auto _opt = _impl->get_${prop.dartName}();');
-        writer.line('        auto* _out = ($nitroType*)malloc(sizeof($nitroType));');
-        writer.line('        if (!_out) return nullptr;');
+        writer.line('        auto* _out = ($nitroType*)(void*)_g_opt_ret;');
         if (propPrimBase == 'bool') {
           writer.line('        _out->hasValue = _opt.has_value() ? 1 : 0;');
           writer.line('        _out->value    = _opt.has_value() ? (_opt.value() ? 1 : 0) : 0;');
@@ -655,7 +683,8 @@ String _generateCppDirect(BridgeSpec spec) {
       } else if (structNames.contains(prop.type.name.replaceFirst('?', ''))) {
         final stName = prop.type.name.replaceFirst('?', '');
         writer.line('        $stName _res = _impl->get_${prop.dartName}();');
-        writer.line('        $stName* _ptr = ($stName*)malloc(sizeof($stName));');
+        writer.line('        static thread_local $stName _g_ret_st;');
+        writer.line('        $stName* _ptr = &_g_ret_st;');
         writer.line('        *_ptr = _res;');
         writer.line('        return _ptr;');
       } else {

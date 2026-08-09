@@ -109,12 +109,15 @@ void main() {
       expect(out, contains("_dylib.lookup<NativeFinalizerFunction>('nitro_free_test_nitro_free').cast()"));
     });
 
-    test('string return decodes via toDartStringFreedBy(_nitroFree), never toDartStringWithFree', () {
+    test('string return never uses toDartStringWithFree (Windows heap safety)', () {
       // toDartStringWithFree() uses package:ffi's malloc.free — CoTaskMemFree
       // on Windows — on the native strdup'd string. This was the exact call
-      // that killed the Windows CI job at its 15th test.
+      // that killed the Windows CI job at its 15th test. That invariant still
+      // holds: improvement F makes SYNC returns borrow a per-thread native
+      // buffer (no free at all — strictly safer), while any owned string is
+      // still released through the module's own `<lib>_nitro_free` export.
       final out = DartFfiGenerator.generate(_spec());
-      expect(out, contains('.toDartStringFreedBy(_nitroFree)'));
+      expect(out, contains('.toDartStringBorrowed()'));
       expect(out, isNot(contains('.toDartStringWithFree()')));
     });
 

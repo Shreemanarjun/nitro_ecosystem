@@ -541,7 +541,7 @@ void _emitJniRegularFuncBody(
     writer.line('        return nullptr;');
     writer.line('    }');
     writer.line('    if (jarr_nd == nullptr) { env->PopLocalFrame(nullptr); return nullptr; }');
-    writer.line('    uint8_t* nd_result = (uint8_t*)malloc((size_t)sizeof(NitroOptFloat64));');
+    writer.line('    uint8_t* nd_result = ${func.isAsync ? "(uint8_t*)malloc((size_t)sizeof(NitroOptFloat64))" : "_g_opt_ret"};');
     writer.line('    env->GetByteArrayRegion(jarr_nd, 0, (jsize)sizeof(NitroOptFloat64), (jbyte*)nd_result);');
     writer.line('    env->PopLocalFrame(nullptr);');
     writer.line('    return nd_result;');
@@ -566,7 +566,7 @@ void _emitJniRegularFuncBody(
     writer.line('        return nullptr;');
     writer.line('    }');
     writer.line('    if (jarr_nu == nullptr) { env->PopLocalFrame(nullptr); return nullptr; }');
-    writer.line('    uint8_t* nu_result = (uint8_t*)malloc((size_t)sizeof(NitroOptInt64));');
+    writer.line('    uint8_t* nu_result = ${func.isAsync ? "(uint8_t*)malloc((size_t)sizeof(NitroOptInt64))" : "_g_opt_ret"};');
     writer.line('    env->GetByteArrayRegion(jarr_nu, 0, (jsize)sizeof(NitroOptInt64), (jbyte*)nu_result);');
     writer.line('    env->PopLocalFrame(nullptr);');
     writer.line('    return nu_result;');
@@ -590,7 +590,7 @@ void _emitJniRegularFuncBody(
     writer.line('        return nullptr;');
     writer.line('    }');
     writer.line('    if (jarr_ni == nullptr) { env->PopLocalFrame(nullptr); return nullptr; }');
-    writer.line('    uint8_t* ni_result = (uint8_t*)malloc((size_t)sizeof(NitroOptInt64));');
+    writer.line('    uint8_t* ni_result = ${func.isAsync ? "(uint8_t*)malloc((size_t)sizeof(NitroOptInt64))" : "_g_opt_ret"};');
     writer.line('    env->GetByteArrayRegion(jarr_ni, 0, (jsize)sizeof(NitroOptInt64), (jbyte*)ni_result);');
     writer.line('    env->PopLocalFrame(nullptr);');
     writer.line('    return ni_result;');
@@ -615,7 +615,7 @@ void _emitJniRegularFuncBody(
     writer.line('        return nullptr;');
     writer.line('    }');
     writer.line('    if (jarr_nd_ == nullptr) { env->PopLocalFrame(nullptr); return nullptr; }');
-    writer.line('    uint8_t* nd_result = (uint8_t*)malloc((size_t)sizeof(NitroOptInt64));');
+    writer.line('    uint8_t* nd_result = ${func.isAsync ? "(uint8_t*)malloc((size_t)sizeof(NitroOptInt64))" : "_g_opt_ret"};');
     writer.line('    env->GetByteArrayRegion(jarr_nd_, 0, (jsize)sizeof(NitroOptInt64), (jbyte*)nd_result);');
     writer.line('    env->PopLocalFrame(nullptr);');
     writer.line('    return nd_result;');
@@ -628,7 +628,7 @@ void _emitJniRegularFuncBody(
     writer.line('        return nullptr;');
     writer.line('    }');
     writer.line('    if (jarr_nn == nullptr) { env->PopLocalFrame(nullptr); return nullptr; }');
-    writer.line('    uint8_t* nn_result = (uint8_t*)malloc((size_t)sizeof(NitroOptInt64));');
+    writer.line('    uint8_t* nn_result = ${func.isAsync ? "(uint8_t*)malloc((size_t)sizeof(NitroOptInt64))" : "_g_opt_ret"};');
     writer.line('    env->GetByteArrayRegion(jarr_nn, 0, (jsize)sizeof(NitroOptInt64), (jbyte*)nn_result);');
     writer.line('    env->PopLocalFrame(nullptr);');
     writer.line('    return nn_result;');
@@ -641,7 +641,7 @@ void _emitJniRegularFuncBody(
     writer.line('        return nullptr;');
     writer.line('    }');
     writer.line('    if (jarr_nf == nullptr) { env->PopLocalFrame(nullptr); return nullptr; }');
-    writer.line('    uint8_t* nf_result = (uint8_t*)malloc((size_t)sizeof(NitroOptFloat64));');
+    writer.line('    uint8_t* nf_result = ${func.isAsync ? "(uint8_t*)malloc((size_t)sizeof(NitroOptFloat64))" : "_g_opt_ret"};');
     writer.line('    env->GetByteArrayRegion(jarr_nf, 0, (jsize)sizeof(NitroOptFloat64), (jbyte*)nf_result);');
     writer.line('    env->PopLocalFrame(nullptr);');
     writer.line('    return nf_result;');
@@ -730,7 +730,7 @@ void _emitJniRegularFuncBody(
     writer.line('        return nullptr;');
     writer.line('    }');
     writer.line('    if (jarr_nb == nullptr) { env->PopLocalFrame(nullptr); return nullptr; }');
-    writer.line('    uint8_t* nb_result = (uint8_t*)malloc((size_t)sizeof(NitroOptBool));');
+    writer.line('    uint8_t* nb_result = ${func.isAsync ? "(uint8_t*)malloc((size_t)sizeof(NitroOptBool))" : "_g_opt_ret"};');
     writer.line('    env->GetByteArrayRegion(jarr_nb, 0, (jsize)sizeof(NitroOptBool), (jbyte*)nb_result);');
     writer.line('    env->PopLocalFrame(nullptr);');
     writer.line('    return nb_result;');
@@ -750,7 +750,9 @@ void _emitJniRegularFuncBody(
     writer.line(
       '    const char* nativeStr = env->GetStringUTFChars(jstr, 0);',
     );
-    writer.line('    char* result = strdup(nativeStr);');
+    writer.line(func.isAsync
+        ? '    char* result = strdup(nativeStr);'
+        : '    _g_str_ret = nativeStr; char* result = const_cast<char*>(_g_str_ret.c_str());');
     writer.line('    env->ReleaseStringUTFChars(jstr, nativeStr);');
     writer.line('    env->PopLocalFrame(nullptr);');
     writer.line('    return result;');
@@ -782,7 +784,12 @@ void _emitJniRegularFuncBody(
     writer.line('        env->PopLocalFrame(nullptr);');
     writer.line('        return nullptr;');
     writer.line('    }');
-    writer.line('    $stName* result = ($stName*)malloc(sizeof($stName));');
+    if (func.isAsync) {
+      writer.line('    $stName* result = ($stName*)malloc(sizeof($stName));');
+    } else {
+      writer.line('    static thread_local $stName _g_ret_st;');
+      writer.line('    $stName* result = &_g_ret_st;');
+    }
     writer.line('    *result = pack_${stName}_from_jni(env, jobj);');
     writer.line('    env->PopLocalFrame(nullptr);');
     writer.line('    return result;');
@@ -977,7 +984,7 @@ void _emitJniPropertyBridges(
           // DateTime? shares the NitroOptInt64 wire (ms-since-epoch int64).
           writer.line('    jbyteArray jarr_ni = (jbyteArray)env->CallStaticObjectMethod(g_bridgeClass, methodId, (jlong)instanceId);');
           writer.line('    if (jarr_ni == nullptr) { env->PopLocalFrame(nullptr); return nullptr; }');
-          writer.line('    uint8_t* ni_result = (uint8_t*)malloc((size_t)sizeof(NitroOptInt64));');
+          writer.line('    uint8_t* ni_result = _g_opt_ret;');
           writer.line('    env->GetByteArrayRegion(jarr_ni, 0, (jsize)sizeof(NitroOptInt64), (jbyte*)ni_result);');
           writer.line('    env->PopLocalFrame(nullptr);');
           writer.line('    return ni_result;');
@@ -985,7 +992,7 @@ void _emitJniPropertyBridges(
         case BridgeItemKind.doubleNullable:
           writer.line('    jbyteArray jarr_nd = (jbyteArray)env->CallStaticObjectMethod(g_bridgeClass, methodId, (jlong)instanceId);');
           writer.line('    if (jarr_nd == nullptr) { env->PopLocalFrame(nullptr); return nullptr; }');
-          writer.line('    uint8_t* nd_result = (uint8_t*)malloc((size_t)sizeof(NitroOptFloat64));');
+          writer.line('    uint8_t* nd_result = _g_opt_ret;');
           writer.line('    env->GetByteArrayRegion(jarr_nd, 0, (jsize)sizeof(NitroOptFloat64), (jbyte*)nd_result);');
           writer.line('    env->PopLocalFrame(nullptr);');
           writer.line('    return nd_result;');
@@ -993,7 +1000,7 @@ void _emitJniPropertyBridges(
         case BridgeItemKind.boolNullable:
           writer.line('    jbyteArray jarr_nb = (jbyteArray)env->CallStaticObjectMethod(g_bridgeClass, methodId, (jlong)instanceId);');
           writer.line('    if (jarr_nb == nullptr) { env->PopLocalFrame(nullptr); return nullptr; }');
-          writer.line('    uint8_t* nb_result = (uint8_t*)malloc((size_t)sizeof(NitroOptBool));');
+          writer.line('    uint8_t* nb_result = _g_opt_ret;');
           writer.line('    env->GetByteArrayRegion(jarr_nb, 0, (jsize)sizeof(NitroOptBool), (jbyte*)nb_result);');
           writer.line('    env->PopLocalFrame(nullptr);');
           writer.line('    return nb_result;');
@@ -1003,7 +1010,7 @@ void _emitJniPropertyBridges(
           writer.line('    jstring jstr = (jstring)env->CallStaticObjectMethod(g_bridgeClass, methodId, (jlong)instanceId);');
           writer.line('    if (jstr == nullptr) { env->PopLocalFrame(nullptr); return nullptr; }');
           writer.line('    const char* nativeStr = env->GetStringUTFChars(jstr, 0);');
-          writer.line('    char* result = strdup(nativeStr);');
+          writer.line('    _g_str_ret = nativeStr; char* result = const_cast<char*>(_g_str_ret.c_str());');
           writer.line('    env->ReleaseStringUTFChars(jstr, nativeStr);');
           writer.line('    env->PopLocalFrame(nullptr);');
           writer.line('    return result;');

@@ -641,9 +641,11 @@ void main() {
       expect(out, contains('getPrinter_call'));
     });
 
-    test('CppBridge (pure-C++ path): malloc + struct copy pattern', () {
+    test('CppBridge (pure-C++ path): borrowed slot + struct copy pattern', () {
       final out = CppBridgeGenerator.generate(cppSpec);
-      expect(out, contains('malloc(sizeof(Printer))'));
+      // Improvement C: sync struct returns copy into a per-thread slot.
+      expect(out, contains('static thread_local Printer _g_ret_st;'));
+      expect(out, contains('*_ptr = _res;'));
       expect(out, isNot(contains('NitroCppBuffer')));
     });
 
@@ -1248,9 +1250,9 @@ void main() {
       expect(out, contains('NitroCppBuffer _res = _impl->getJobs()'));
     });
 
-    test('CppBridge (pure-C++): Printer single return uses malloc not NitroCppBuffer', () {
+    test('CppBridge (pure-C++): Printer single return uses a struct slot not NitroCppBuffer', () {
       final out = CppBridgeGenerator.generate(mixedCppSpec);
-      expect(out, contains('malloc(sizeof(Printer))'));
+      expect(out, contains('static thread_local Printer _g_ret_st;'));
     });
 
     test('CppInterface: all 6 methods declared', () {

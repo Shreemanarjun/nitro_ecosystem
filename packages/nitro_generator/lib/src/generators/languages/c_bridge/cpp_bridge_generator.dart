@@ -52,6 +52,7 @@ class CppBridgeGenerator {
     writer.line('#include <stdbool.h>');
     writer.line('#include <string.h>');
     writer.line('#include <stdlib.h>');
+    writer.line('#include <string>');  // _g_str_ret scratch (improvement F)
     if (hasApple) {
       writer.line('#if defined(__APPLE__)');
       writer.line('#import <Foundation/Foundation.h>');
@@ -95,6 +96,12 @@ class CppBridgeGenerator {
     writer.line('}');
 
     writer.line('static thread_local NitroError g_nitro_error = { 0, nullptr, nullptr, nullptr, nullptr };');
+    // Reusable per-thread scratch for SYNC nullable-primitive returns (shared by
+    // the JNI and Swift-shim dispatch). Dart decodes immediately after the call
+    // returns, so one slot per thread removes a malloc/free pair per call. NOT
+    // used by @nitroAsync, which decodes on a different isolate thread.
+    writer.line('alignas(8) static thread_local uint8_t _g_opt_ret[16];');
+    writer.line('static thread_local std::string _g_str_ret;');
     writer.blankLine();
     writer.line('extern "C" {');
     writer.line('NitroError* ${libStem}_get_error() { return &g_nitro_error; }');
@@ -766,7 +773,9 @@ class CppBridgeGenerator {
         writer.line('        return _res.has_value() ? strdup(_res->c_str()) : nullptr;');
       } else if (func.returnType.name == 'String') {
         writer.line('        std::string _res = g_impl->${func.dartName}($callArgStr);');
-        writer.line('        return strdup(_res.c_str());');
+        writer.line(func.isAsync
+            ? '        return strdup(_res.c_str());'
+            : '        _g_str_ret = _res; return const_cast<char*>(_g_str_ret.c_str());');
       } else if (isEnumRet && isNullableRet) {
         writer.line('        std::optional<$retBase> _res = g_impl->${func.dartName}($callArgStr);');
         writer.line('        return _res.has_value() ? static_cast<int64_t>(*_res) : -1LL;');
@@ -781,7 +790,12 @@ class CppBridgeGenerator {
       } else if (isStructRet) {
         final stName = func.returnType.name.replaceFirst('?', '');
         writer.line('        $stName _res = g_impl->${func.dartName}($callArgStr);');
-        writer.line('        $stName* _ptr = ($stName*)malloc(sizeof($stName));');
+        if (func.isAsync) {
+          writer.line('        $stName* _ptr = ($stName*)malloc(sizeof($stName));');
+        } else {
+          writer.line('        static thread_local $stName _g_ret_st;');
+          writer.line('        $stName* _ptr = &_g_ret_st;');
+        }
         writer.line('        *_ptr = _res;');
         writer.line('        return _ptr;');
       } else if (isVariantRet) {
@@ -790,25 +804,25 @@ class CppBridgeGenerator {
         writer.line('        return (uint8_t*)_res.data;');
       } else if (func.returnType.name == 'int?' || func.returnType.name == 'DateTime?') {
         writer.line('        std::optional<int64_t> _opt = g_impl->${func.dartName}($callArgStr);');
-        writer.line('        uint8_t* _res = (uint8_t*)malloc(9);');
+        writer.line('        uint8_t* _res = ${func.isAsync ? "(uint8_t*)malloc(9)" : "_g_opt_ret"};');
         writer.line('        _res[0] = _opt.has_value() ? 1 : 0;');
         writer.line('        if (_opt.has_value()) { *reinterpret_cast<int64_t*>(_res + 1) = _opt.value(); }');
         writer.line('        return _res;');
       } else if (func.returnType.name == 'uint64?') {
         writer.line('        std::optional<uint64_t> _opt = g_impl->${func.dartName}($callArgStr);');
-        writer.line('        uint8_t* _res = (uint8_t*)malloc(9);');
+        writer.line('        uint8_t* _res = ${func.isAsync ? "(uint8_t*)malloc(9)" : "_g_opt_ret"};');
         writer.line('        _res[0] = _opt.has_value() ? 1 : 0;');
         writer.line('        if (_opt.has_value()) { *reinterpret_cast<uint64_t*>(_res + 1) = _opt.value(); }');
         writer.line('        return _res;');
       } else if (func.returnType.name == 'double?') {
         writer.line('        std::optional<double> _opt = g_impl->${func.dartName}($callArgStr);');
-        writer.line('        uint8_t* _res = (uint8_t*)malloc(9);');
+        writer.line('        uint8_t* _res = ${func.isAsync ? "(uint8_t*)malloc(9)" : "_g_opt_ret"};');
         writer.line('        _res[0] = _opt.has_value() ? 1 : 0;');
         writer.line('        if (_opt.has_value()) { *reinterpret_cast<double*>(_res + 1) = _opt.value(); }');
         writer.line('        return _res;');
       } else if (func.returnType.name == 'bool?') {
         writer.line('        std::optional<bool> _opt = g_impl->${func.dartName}($callArgStr);');
-        writer.line('        uint8_t* _res = (uint8_t*)malloc(2);');
+        writer.line('        uint8_t* _res = ${func.isAsync ? "(uint8_t*)malloc(2)" : "_g_opt_ret"};');
         writer.line('        _res[0] = _opt.has_value() ? 1 : 0;');
         writer.line('        _res[1] = (_opt.has_value() && _opt.value()) ? 1 : 0;');
         writer.line('        return _res;');
@@ -900,7 +914,7 @@ class CppBridgeGenerator {
         writer.line('    try {');
         if (prop.type.name == 'String') {
           writer.line('        std::string _res = g_impl->get_${prop.dartName}();');
-          writer.line('        return strdup(_res.c_str());');
+          writer.line('        _g_str_ret = _res; return const_cast<char*>(_g_str_ret.c_str());');
         } else if (prop.type.name == 'String?') {
           writer.line('        std::optional<std::string> _res = g_impl->get_${prop.dartName}();');
           writer.line('        return _res.has_value() ? strdup(_res->c_str()) : nullptr;');
@@ -912,25 +926,25 @@ class CppBridgeGenerator {
           writer.line('        return static_cast<int64_t>(g_impl->get_${prop.dartName}());');
         } else if (prop.type.name == 'int?') {
           writer.line('        std::optional<int64_t> _opt = g_impl->get_${prop.dartName}();');
-          writer.line('        uint8_t* _res = (uint8_t*)malloc(9);');
+          writer.line('        uint8_t* _res = _g_opt_ret;');
           writer.line('        _res[0] = _opt.has_value() ? 1 : 0;');
           writer.line('        if (_opt.has_value()) { *reinterpret_cast<int64_t*>(_res + 1) = _opt.value(); }');
           writer.line('        return _res;');
         } else if (prop.type.name == 'double?') {
           writer.line('        std::optional<double> _opt = g_impl->get_${prop.dartName}();');
-          writer.line('        uint8_t* _res = (uint8_t*)malloc(9);');
+          writer.line('        uint8_t* _res = _g_opt_ret;');
           writer.line('        _res[0] = _opt.has_value() ? 1 : 0;');
           writer.line('        if (_opt.has_value()) { *reinterpret_cast<double*>(_res + 1) = _opt.value(); }');
           writer.line('        return _res;');
         } else if (prop.type.name == 'bool?') {
           writer.line('        std::optional<bool> _opt = g_impl->get_${prop.dartName}();');
-          writer.line('        uint8_t* _res = (uint8_t*)malloc(2);');
+          writer.line('        uint8_t* _res = _g_opt_ret;');
           writer.line('        _res[0] = _opt.has_value() ? 1 : 0;');
           writer.line('        _res[1] = (_opt.has_value() && _opt.value()) ? 1 : 0;');
           writer.line('        return _res;');
         } else if (prop.type.name == 'DateTime?') {
           writer.line('        std::optional<int64_t> _opt = g_impl->get_${prop.dartName}();');
-          writer.line('        uint8_t* _res = (uint8_t*)malloc(9);');
+          writer.line('        uint8_t* _res = _g_opt_ret;');
           writer.line('        _res[0] = _opt.has_value() ? 1 : 0;');
           writer.line('        if (_opt.has_value()) { *reinterpret_cast<int64_t*>(_res + 1) = _opt.value(); }');
           writer.line('        return _res;');
@@ -944,7 +958,8 @@ class CppBridgeGenerator {
         } else if (structNames.contains(prop.type.name.replaceFirst('?', ''))) {
           final stName = prop.type.name.replaceFirst('?', '');
           writer.line('        $stName _res = g_impl->get_${prop.dartName}();');
-          writer.line('        $stName* _ptr = ($stName*)malloc(sizeof($stName));');
+          writer.line('        static thread_local $stName _g_ret_st;');
+          writer.line('        $stName* _ptr = &_g_ret_st;');
           writer.line('        *_ptr = _res;');
           writer.line('        return _ptr;');
         } else {

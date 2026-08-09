@@ -17,7 +17,7 @@ void _emitPropertyImpls(CodeWriter writer, BridgeSpec spec) {
       writer.line("    return NitroRuntime.callSync(() {");
       writer.line('      final res = _get${cap}Ptr(_instanceId, _nitroErr);');
       writer.line(_assertCheckError('      '));
-      _emitReturnDecode(writer, prop.type, 'res', '      ', spec);
+      _emitReturnDecode(writer, prop.type, 'res', '      ', spec, optIsBorrowed: true);
       writer.line("    }, methodName: 'get ${prop.dartName}');");
       writer.line('  }');
     }

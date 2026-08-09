@@ -736,9 +736,12 @@ void main() {
       expect(out, contains('_nitroFree(structPtr)'));
     });
 
-    test('sync struct return calls malloc.free(structPtr)', () {
+    test('sync struct return borrows the shell (improvement C)', () {
       final out = DartFfiGenerator.generate(_syncStructSpec());
-      expect(out, contains('_nitroFree(structPtr)'));
+      // Improvement C: the sync struct SHELL is a reusable per-thread slot, so
+      // Dart must NOT free it. Inner heap fields are still owned and freed.
+      expect(out, contains('freeFields(_nitroFree)'));
+      expect(out, isNot(contains('_nitroFree(structPtr)')));
     });
 
     test('async no-arena struct return calls toDart() then frees', () {

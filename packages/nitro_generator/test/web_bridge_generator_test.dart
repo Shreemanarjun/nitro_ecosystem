@@ -282,8 +282,10 @@ void main() {
 
     test('web-targeting spec emits _createNativeInstance() factory', () {
       final out = DartFfiGenerator.generate(_webSpec());
-      expect(out, contains('_createNativeInstance()'));
-      expect(out, contains('_MathImpl()'));
+      // Optional [key] added for independent native instances (backward
+      // compatible — default key preserves the singleton).
+      expect(out, contains("_createNativeInstance([String key = 'default'])"));
+      expect(out, contains('_MathImpl(key)'));
     });
 
     test('factory function comment explains conditional import pattern', () {

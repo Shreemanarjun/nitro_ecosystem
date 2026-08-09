@@ -377,7 +377,8 @@ void main() {
     });
 
     test('struct ptr memory freed via malloc.free', () {
-      expect(code, contains('_nitroFree(structPtr)'));
+      // Improvement C: sync struct shell is borrowed; inner fields still freed.
+      expect(code, contains('freeFields(_nitroFree)'));
     });
 
     test('uses SensorFfi type for decoding', () {

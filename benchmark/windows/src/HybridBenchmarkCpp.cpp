@@ -14,6 +14,8 @@
 #include <condition_variable>
 #include <queue>
 #include <functional>
+#include <vector>
+#include <utility>
 
 class HybridBenchmarkCppImpl final : public HybridBenchmarkCpp {
 public:
@@ -33,6 +35,15 @@ public:
                     _asyncQueue.pop();
                 }
                 task();
+                // Coalescing (issue #39): once the queue drains, post everything
+                // buffered by submitCoalesced as ONE kArray so a burst of
+                // completions shares a single isolate wake instead of N.
+                {
+                    std::unique_lock<std::mutex> lk(_asyncQueueMtx);
+                    const bool drained = _asyncQueue.empty();
+                    lk.unlock();
+                    if (drained) _flushCoalesce();
+                }
             }
         });
 
@@ -168,6 +179,43 @@ public:
         Dart_PostCObject_DL(dartPort, &obj);
     }
 
+    // Cross-thread variant of nativeAsyncEcho: the worker thread does the post,
+    // so it pays the OS isolate wake the inline version skips (issue #39).
+    void nativeAsyncEchoFromThread(int64_t value, NitroError* /*_nitro_err*/, int64_t dartPort) override {
+        {
+            std::lock_guard<std::mutex> lk(_asyncQueueMtx);
+            _asyncQueue.push([value, dartPort]() {
+                Dart_CObject obj;
+                obj.type = Dart_CObject_kInt64;
+                obj.value.as_int64 = value;
+                Dart_PostCObject_DL(dartPort, &obj);
+            });
+        }
+        _asyncQueueCv.notify_one();
+    }
+
+    // Coalesced completion (issue #39): buffer (callId, value); the worker posts
+    // the whole drained batch as one kArray, so a burst shares one wake.
+    void submitCoalesced(int64_t callId, int64_t value, int64_t dartPort) override {
+        _coalescePort.store(dartPort, std::memory_order_relaxed);
+        {
+            std::lock_guard<std::mutex> lk(_asyncQueueMtx);
+            _asyncQueue.push([this, callId, value]() {
+                _coalesceBuf.emplace_back(callId, value);
+            });
+        }
+        _asyncQueueCv.notify_one();
+    }
+
+    // Coalesce instrumentation (issue #39): flush/item counters so the harness
+    // can report the average batch size (items ÷ flushes) achieved per burst.
+    void resetCoalesceStats() override {
+        _coalesceFlushes.store(0, std::memory_order_relaxed);
+        _coalesceItems.store(0, std::memory_order_relaxed);
+    }
+    int64_t coalesceFlushes() override { return _coalesceFlushes.load(std::memory_order_relaxed); }
+    int64_t coalesceItems() override { return _coalesceItems.load(std::memory_order_relaxed); }
+
     int64_t sendLargeBufferFast(const uint8_t* buffer, size_t buffer_length) override {
         if (!buffer || buffer_length == 0) return 0;
 
@@ -271,6 +319,44 @@ private:
     std::condition_variable _asyncQueueCv;
     std::queue<std::function<void()>> _asyncQueue;
     bool _asyncWorkerRunning;
+
+    // Coalescing (issue #39): worker-thread-only buffer of (callId, value)
+    // completions, flushed as one kArray post to the shared port when the queue
+    // drains. Only the worker touches the buffer, so it needs no lock.
+    std::vector<std::pair<int64_t, int64_t>> _coalesceBuf;
+    std::atomic<int64_t> _coalescePort{0};
+    // Instrumentation: how many flushes (posts) and how many total items, so the
+    // harness can report the AVERAGE batch size a burst achieved (items/flushes).
+    std::atomic<int64_t> _coalesceFlushes{0};
+    std::atomic<int64_t> _coalesceItems{0};
+    // Worker-only scratch reused across flushes (resize, not reallocate) so the
+    // completion path doesn't heap-churn two vectors per burst.
+    std::vector<Dart_CObject> _flushElems;
+    std::vector<Dart_CObject*> _flushPtrs;
+
+    void _flushCoalesce() {
+        if (_coalesceBuf.empty()) return;
+        const int64_t port = _coalescePort.load(std::memory_order_relaxed);
+        if (port == 0) { _coalesceBuf.clear(); return; }
+        _coalesceFlushes.fetch_add(1, std::memory_order_relaxed);
+        _coalesceItems.fetch_add(static_cast<int64_t>(_coalesceBuf.size()), std::memory_order_relaxed);
+        const size_t n = _coalesceBuf.size() * 2;
+        _flushElems.resize(n);
+        _flushPtrs.resize(n);
+        for (size_t i = 0; i < _coalesceBuf.size(); ++i) {
+            _flushElems[2 * i].type = Dart_CObject_kInt64;
+            _flushElems[2 * i].value.as_int64 = _coalesceBuf[i].first;      // callId
+            _flushElems[2 * i + 1].type = Dart_CObject_kInt64;
+            _flushElems[2 * i + 1].value.as_int64 = _coalesceBuf[i].second; // value
+        }
+        for (size_t i = 0; i < n; ++i) _flushPtrs[i] = &_flushElems[i];
+        Dart_CObject arr;
+        arr.type = Dart_CObject_kArray;
+        arr.value.as_array.length = static_cast<intptr_t>(n);
+        arr.value.as_array.values = _flushPtrs.data();
+        Dart_PostCObject_DL(port, &arr);
+        _coalesceBuf.clear();
+    }
 };
 
 static HybridBenchmarkCppImpl g_benchmark_cpp_impl;

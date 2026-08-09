@@ -316,7 +316,8 @@ void main() {
 
     test('String return uses strdup and local-frame cleanup', () {
       final out = CppBridgeGenerator.generate(richSpec());
-      expect(out, contains('strdup(nativeStr)'));
+      // Improvement F: sync string returns borrow a per-thread std::string.
+      expect(out, contains('_g_str_ret = nativeStr;'));
       // jstr lives inside the PushLocalFrame/PopLocalFrame region — freed
       // automatically when the frame pops rather than via a manual DeleteLocalRef.
       expect(out, contains('env->ReleaseStringUTFChars(jstr, nativeStr)'));
@@ -363,6 +364,69 @@ void main() {
       final out = CppBridgeGenerator.generate(cppSpec());
       expect(out, isNot(contains('#ifdef __APPLE__')));
       expect(out, isNot(contains('#ifdef __ANDROID__')));
+    });
+
+    // Improvement B: sync nullable-primitive returns borrow a reusable
+    // per-thread scratch slot (no malloc, and Dart does not free), while
+    // @nitroAsync keeps malloc — it decodes on a different isolate thread than
+    // the one that ran the call, where a TLS slot is different storage.
+    test('nullable-prim returns: sync borrows scratch, async keeps malloc', () {
+      final spec = BridgeSpec(
+        dartClassName: 'Opt',
+        lib: 'opt',
+        namespace: 'opt',
+        iosImpl: NativeImpl.cpp,
+        macosImpl: NativeImpl.cpp,
+        sourceUri: 'opt.native.dart',
+        functions: [
+          BridgeFunction(
+            dartName: 'syncOptInt',
+            cSymbol: 'opt_sync_opt_int',
+            isAsync: false,
+            returnType: BridgeType(name: 'int?', isNullable: true),
+            params: [],
+          ),
+          BridgeFunction(
+            dartName: 'asyncOptInt',
+            cSymbol: 'opt_async_opt_int',
+            isAsync: true,
+            returnType: BridgeType(name: 'int?', isNullable: true),
+            params: [],
+          ),
+        ],
+      );
+      final out = CppBridgeGenerator.generate(spec);
+      // The scratch slot is declared once per bridge file.
+      expect(out, contains('alignas(8) static thread_local uint8_t _g_opt_ret[16];'));
+      // Sync borrows it; async still allocates. Take the DEFINITION (the last
+      // occurrence — declarations come first) and read to the closing brace.
+      String bodyOf(String sym) {
+        final open = out.indexOf('{', out.lastIndexOf(sym));
+        return out.substring(open, out.indexOf('\n}', open));
+      }
+      final syncBody = bodyOf('opt_sync_opt_int');
+      expect(syncBody, contains('_g_opt_ret'));
+      expect(syncBody, isNot(contains('malloc')));
+      expect(bodyOf('opt_async_opt_int'), contains('malloc'));
+    });
+
+    // Improvement A: the instance lookup uses an N-way alignas(64) cache
+    // (striped by id low bits) instead of a single (id,ptr) entry, so a hot
+    // loop rotating across several instances stays lock-free instead of
+    // thrashing to the mutex+hashmap on every call.
+    test('instance lookup uses an 8-way alignas(64) cache', () {
+      final out = CppBridgeGenerator.generate(cppSpec());
+      expect(out, contains('static constexpr int _kNitroCacheWays = 8;'));
+      expect(out, contains('struct alignas(64) _NitroInstSlot {'));
+      expect(out, contains('_g_inst_cache[(uint64_t)id & (_kNitroCacheWays - 1)]'));
+      // Per-slot ordering preserved: read id (acquire), ptr (relaxed).
+      expect(out, contains('_slot.id.load(std::memory_order_acquire)'));
+      expect(out, contains('_slot.ptr.load(std::memory_order_relaxed)'));
+      // Invalidation clears every slot.
+      expect(out, contains('for (int _i = 0; _i < _kNitroCacheWays; ++_i)'));
+      // Old single-entry symbols are gone.
+      expect(out, isNot(contains('_g_cache_id')));
+      expect(out, isNot(contains('_g_cache_ptr')));
     });
   });
 
@@ -671,7 +735,8 @@ void main() {
     test('String return uses strdup on std::string result', () {
       final out = CppBridgeGenerator.generate(cppSpec());
       expect(out, contains('std::string _res = _impl->greet('));
-      expect(out, contains('return strdup(_res.c_str())'));
+      // Improvement F: sync string returns borrow a per-thread std::string.
+      expect(out, contains('_g_str_ret = _res;'));
     });
 
     test('String param is wrapped in std::string()', () {

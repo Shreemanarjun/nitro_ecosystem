@@ -1,6 +1,6 @@
-## 0.5.18
+## 0.6.0
 
-- **Ecosystem sync** — Released alongside `nitro` 0.5.18's new `NitroCoalescer` (opt-in batching of concurrent `@nitroNativeAsync` completions; [#39](https://github.com/Shreemanarjun/nitro_ecosystem/issues/39)). No changes to this package.
+- **Ecosystem sync** — Released alongside the `nitro` 0.6.0 bridge memory-model change (sync returns borrow a per-thread slot instead of allocating). No CLI changes, but **`nitrogen generate` + `nitrogen link` must be re-run**: the Dart↔native ownership contract changed in lockstep, so generated code and the `nitro` runtime must both be 0.6.0.
 
 ## 0.5.17
 

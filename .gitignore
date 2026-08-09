@@ -47,7 +47,11 @@ benchmark/results/
 # Local debug scratch files (issue #26)
 scratch/
 
-# Installed agent skills (npx skills add …) — tooling, never committed.
+# Installed agent skills (npx skills add …, dart skills) — machine-local tooling,
+# never committed. .dart_skills also carried orphan submodule gitlinks with no
+# .gitmodules, which made every actions/checkout emit "git failed with exit code
+# 128" on macOS, Linux and Windows.
 .agents/
+.dart_skills/
 agent/skills/*
 skills-lock.json

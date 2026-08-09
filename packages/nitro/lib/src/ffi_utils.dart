@@ -139,6 +139,22 @@ extension NitroPointerExtension on Pointer<Utf8> {
   /// [nativeFree] — the free function matching whatever allocator produced
   /// the pointer (for native-owned strings, the module's `<lib>_nitro_free`
   /// export, which is a plain C-runtime `free`).
+  /// Decodes a native NUL-terminated UTF-8 string WITHOUT releasing it.
+  ///
+  /// Used for sync bridge returns that borrow a reusable per-thread buffer on
+  /// the native side (improvement F): there is nothing to free, and the pointer
+  /// is only valid until the next such call on the same thread — so the value
+  /// must be decoded immediately, which the generated code does.
+  String toDartStringBorrowed() {
+    if (address == 0) return '';
+    final p = cast<Uint8>();
+    int len = 0;
+    while (p[len] != 0) {
+      len++;
+    }
+    return _decodeUtf8NoBomStrip(p.asTypedList(len));
+  }
+
   String toDartStringFreedBy(void Function(Pointer<Utf8>) nativeFree) {
     if (address == 0) return '';
     // Strings crossing the FFI bridge are raw data, not text streams — so a

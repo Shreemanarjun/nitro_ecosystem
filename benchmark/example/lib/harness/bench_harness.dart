@@ -401,6 +401,30 @@ class BenchHarness {
       },
     );
 
+    // Multi-instance dispatch (improvement A): rotate calls across 4 distinct
+    // native instances so the C-bridge instance cache is exercised. A single-
+    // entry cache thrashed to the mutex+hashmap on every rotated call; the
+    // 8-way cache keeps all four resident and lock-free. Compare against
+    // nitro_cpp_add (same body, one instance) to isolate the lookup cost.
+    const nInst = 4;
+    final insts = [
+      for (var i = 0; i < nInst; i++)
+        bench.benchmarkCpp_createNativeInstance('bench_inst_$i'),
+    ];
+    for (final inst in insts) {
+      inst.add(1.0, 1.0); // warm each instance into the cache
+    }
+    await latencyCase(
+      'nitro_cpp_multi_instance',
+      'Nitro C++ (4 instances, round-robin)',
+      config.syncIters,
+      (n) {
+        for (var i = 0; i < n; i++) {
+          sink += insts[i & (nInst - 1)].add(1.0, i.toDouble());
+        }
+      },
+    );
+
     final platformBridgeLabel = switch (Platform.operatingSystem) {
       'android' => 'Nitro Kotlin (JNI)',
       'ios' || 'macos' => 'Nitro Swift',
