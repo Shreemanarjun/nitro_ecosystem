@@ -1046,8 +1046,8 @@ Map<String, int> _nitroDecodeMapBinaryInt(Pointer<Uint8> ptr) {
 /// PX19: Creates the native (dart:ffi) implementation of [BenchmarkCpp].
 /// On web, import `*.web.bridge.g.dart` conditionally and call
 /// `createBenchmarkCppWebInstance()` instead.
-/// Pass a distinct [key] to create independent native instances (each gets
-/// its own instanceId); the default key returns the shared singleton.
+/// A distinct [key] creates an independent native instance; the default
+/// key returns the shared singleton.
 BenchmarkCpp benchmarkCpp_createNativeInstance([String key = 'default']) =>
     _BenchmarkCppImpl(key);
 
