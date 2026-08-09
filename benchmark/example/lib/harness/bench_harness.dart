@@ -226,6 +226,19 @@ class BenchReport {
       'nitro_native_async_record',
       'method_channel_add',
     ),
+    // Cross-thread vs inline @nitroNativeAsync scalar: the multiplier the OS
+    // isolate-wake adds over an inline post. >1 quantifies the real completion
+    // cost the inline benchmark hides (issue #39).
+    'nitro_native_async_xthread_over_inline': _ratio(
+      'nitro_native_async_scalar_xthread',
+      'nitro_native_async_scalar',
+    ),
+    // Coalescing effect on a 64-in-flight burst: coalesced ÷ per-call post.
+    // <1 means batching the drained burst into one wake helped (issue #39).
+    'nitro_native_async_coalesced_over_burst': _ratio(
+      'nitro_native_async_burst64_coalesced',
+      'nitro_native_async_burst64_percall',
+    ),
     // Second algorithm (sieve): language-vs-language compute with near-zero
     // marshalling. dart_over_ffi ≈ Dart AOT vs C on identical work.
     'sieve_dart_over_raw_ffi': _ratio('dart_sieve', 'raw_ffi_sieve'),
@@ -489,7 +502,7 @@ class BenchHarness {
 
     await latencyCase(
       'nitro_native_async_scalar',
-      'Nitro @nitroNativeAsync (scalar)',
+      'Nitro @nitroNativeAsync (scalar, inline post)',
       config.asyncIters,
       (n) async {
         for (var i = 0; i < n; i++) {
@@ -497,6 +510,77 @@ class BenchHarness {
         }
       },
     );
+
+    // Cross-thread completion: the native side posts from a long-lived worker
+    // thread, so this pays the OS wake of a sleeping isolate that the inline
+    // case above skips. The delta is the real cost of the @nitroNativeAsync
+    // path any I/O plugin walks (issue #39).
+    await latencyCase(
+      'nitro_native_async_scalar_xthread',
+      'Nitro @nitroNativeAsync (scalar, cross-thread post)',
+      config.asyncIters,
+      (n) async {
+        for (var i = 0; i < n; i++) {
+          sink += (await cpp.nativeAsyncEchoFromThread(i)).toDouble();
+        }
+      },
+    );
+
+    // ── Coalesced completion experiment (issue #39) ──────────────────────────
+    // Sweep burst sizes: per-call posts vs coalesced (worker batches the drained
+    // burst into one kArray). Logs the average batch size achieved.
+    // Framework demuxer (package:nitro NitroCoalescer): one shared port + a
+    // callId → Completer map. The native submit forwards (callId, nativePort)
+    // to its coalescer; the batch arrives here and resolves each pending call.
+    final coalescer = NitroCoalescer();
+    Future<int> submitCoalesced(int value) => coalescer.submit(
+        (callId, nativePort) => cpp.submitCoalesced(callId, value, nativePort));
+
+    // Correctness pre-check on a 64-burst: every callId resolves to its value.
+    {
+      final r = await Future.wait([for (var i = 0; i < 64; i++) submitCoalesced(i)]);
+      for (var i = 0; i < 64; i++) {
+        if (r[i] != i) throw StateError('coalesce mismatch at $i: ${r[i]}');
+      }
+    }
+
+    for (final burstSize in const [1, 4, 16, 64, 256]) {
+      final burstIters = (config.asyncIters ~/ burstSize).clamp(20, 2000);
+
+      await latencyCase(
+        'nitro_native_async_burst${burstSize}_percall',
+        'Nitro @nitroNativeAsync (burst×$burstSize, per-call post)',
+        burstIters,
+        (n) async {
+          for (var b = 0; b < n; b++) {
+            await Future.wait([
+              for (var i = 0; i < burstSize; i++) cpp.nativeAsyncEchoFromThread(i),
+            ]);
+          }
+        },
+      );
+
+      cpp.resetCoalesceStats();
+      await latencyCase(
+        'nitro_native_async_burst${burstSize}_coalesced',
+        'Nitro @nitroNativeAsync (burst×$burstSize, coalesced post)',
+        burstIters,
+        (n) async {
+          for (var b = 0; b < n; b++) {
+            await Future.wait([
+              for (var i = 0; i < burstSize; i++) submitCoalesced(i),
+            ]);
+          }
+        },
+      );
+      final flushes = cpp.coalesceFlushes();
+      final items = cpp.coalesceItems();
+      final avgBatch = flushes == 0 ? 0.0 : items / flushes;
+      // ignore: avoid_print
+      print('BENCHX|coalesce burst=$burstSize avgBatch=${avgBatch.toStringAsFixed(1)} '
+          'flushes=$flushes items=$items');
+    }
+    await coalescer.dispose();
 
     // ── Map<String,int> codec round-trip ─────────────────────────────────────
     // Echoes a fixed map through the Nitro binary map codec (Dart encode →

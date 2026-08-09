@@ -1,3 +1,8 @@
+## 0.5.18
+
+- **New: `NitroCoalescer` — opt-in batching for concurrent `@nitroNativeAsync` completions ([#39](https://github.com/Shreemanarjun/nitro_ecosystem/issues/39)).** When many native-async calls are in-flight and finish close together, N separate `Dart_PostCObject` posts mean N isolate wakes + N `Future` completions. A native side that batches those completions into one `kArray` post over a single shared port lets the whole burst share one wake; `NitroCoalescer` owns that port and demuxes each result by `callId`. Measured on an M1 Pro (profile): a 64-in-flight burst drops from **559 µs → ~99 µs (~5.6× wall, ~7× per-op)**, per-call amortized latency from ~8 µs → **~1 µs**, and the speedup scales with burst size (1.2× at 4, 4.5× at 16, ~7× at 64). The per-call `ReceivePort` path is unchanged — it is the right default for a single call (the ~0.1 µs port cost is dwarfed by the isolate wake). Validated cross-platform via `nitro_type_coverage` (macOS/iOS/Android). New tests: `nitro_coalescer_test.dart`.
+- **Rejected (documented for the record): a busy-spin "keep the receiver warm" completion path.** Measured **+35 % latency** — the spinning Dart isolate starves the native thread producing the result, so it arrives later, not sooner. The reducible lever for the completion path is coalescing (above), not spinning. See [#39](https://github.com/Shreemanarjun/nitro_ecosystem/issues/39).
+
 ## 0.5.17
 
 - **Memory-leak & robustness fixes for instance lifecycle and native-async.** Verified on real devices (Android emulator, iOS simulator, macOS): under create → drop → GC churn, 499/500 keyed instances are collected and RSS stays bounded across single-instance, multi-instance, stream, and batch-stream soaks.

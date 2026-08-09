@@ -1,3 +1,7 @@
+## 0.5.18
+
+- **Ecosystem sync** — Released alongside `nitro` 0.5.18's new `NitroCoalescer` (opt-in batching of concurrent `@nitroNativeAsync` completions — a 64-in-flight burst drops ~5.6× on an M1 Pro; [#39](https://github.com/Shreemanarjun/nitro_ecosystem/issues/39)). No generator changes: the coalescer is a runtime primitive — a plugin routes its native completions through a native batcher and demuxes on the Dart side with `NitroCoalescer`.
+
 ## 0.5.17
 
 - **Multi-instance memory leak fixed.** Generated `_XxxImpl` keyed/multi-instance registries now hold `WeakReference`s plus a non-capturing `Finalizer`, instead of a strong `_instances` map. Previously every `getInstance(key)` was pinned for the process lifetime — a real leak under create → drop churn — and the registry finalizer only removed the map entry, never the native instance or its error slot. Now a dropped-without-`dispose()` instance is GC-collected, and the finalizer destroys the native instance, releases the native lib, and frees the per-instance error slot; `dispose()` detaches the finalizer to avoid a double-free. **Regenerate to pick it up.**

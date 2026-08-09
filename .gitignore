@@ -46,3 +46,8 @@ benchmark/results/
 
 # Local debug scratch files (issue #26)
 scratch/
+
+# Installed agent skills (npx skills add …) — tooling, never committed.
+.agents/
+agent/skills/*
+skills-lock.json

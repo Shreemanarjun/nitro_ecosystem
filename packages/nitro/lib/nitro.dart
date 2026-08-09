@@ -24,6 +24,8 @@ export 'src/hybrid_object_base.dart' if (dart.library.js_interop) 'src/hybrid_ob
 
 export 'src/isolate_pool.dart' if (dart.library.js_interop) 'src/isolate_pool.dart';
 
+export 'src/nitro_coalescer.dart' if (dart.library.js_interop) 'src/nitro_coalescer.dart';
+
 export 'src/native_handle.dart' if (dart.library.js_interop) 'src/native_handle.dart';
 
 export 'src/ffi_utils.dart' if (dart.library.js_interop) 'src/ffi_utils.dart';

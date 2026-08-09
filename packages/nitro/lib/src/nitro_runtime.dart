@@ -589,6 +589,9 @@ class NitroRuntime {
 
     if (effective == NitroLogLevel.verbose) _log(NitroLogLevel.verbose, tag(), 'calling');
 
+    // A fresh ReceivePort per call is ~0.1 µs of a ~27 µs round trip — not worth
+    // a shared-port + callId demux for a single call (the isolate wake dominates).
+    // For concurrent bursts, NitroCoalescer batches instead. See issue #39.
     final port = ReceivePort();
     if (traceTimeline) developer.Timeline.startSync(_timelineLabel(tag()));
 

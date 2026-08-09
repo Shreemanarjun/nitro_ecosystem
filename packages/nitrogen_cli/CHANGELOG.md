@@ -1,3 +1,7 @@
+## 0.5.18
+
+- **Ecosystem sync** — Released alongside `nitro` 0.5.18's new `NitroCoalescer` (opt-in batching of concurrent `@nitroNativeAsync` completions; [#39](https://github.com/Shreemanarjun/nitro_ecosystem/issues/39)). No changes to this package.
+
 ## 0.5.17
 
 - **Ecosystem sync** — Released alongside `nitro` 0.5.17 (`@nitroNativeAsync` opt-in timeout + guaranteed teardown; iOS/macOS `releaseLib` crash fix) and `nitro_generator` 0.5.17 (multi-instance weak-cache + GC finalizer that frees native memory on drop). No functional changes to this package — regenerate and re-link to pick up the generator fixes.

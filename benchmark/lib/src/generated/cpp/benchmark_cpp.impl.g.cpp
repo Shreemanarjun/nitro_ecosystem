@@ -115,6 +115,37 @@ public:
         throw std::runtime_error("Not implemented: nativeAsyncEcho");
     }
 
+    void nativeAsyncEchoFromThread(int64_t value, NitroError* _nitro_err, int64_t dartPort) override {
+        // TODO: on error, populate _nitro_err (hasError/name/message via strdup) before posting.
+        // TODO: post result via Dart_PostCObject_DL(dartPort, ...)
+        // Nullable result? Post EITHER Dart_CObject_kNull OR kInt64 with
+        // value 0 — both decode to Dart null. Non-nullable results must
+        // always post a real encoded value.
+        throw std::runtime_error("Not implemented: nativeAsyncEchoFromThread");
+    }
+
+    void submitCoalesced(int64_t callId, int64_t value, int64_t dartPort) override {
+        // TODO: implement submitCoalesced
+        throw std::runtime_error("Not implemented: submitCoalesced");
+    }
+
+    void resetCoalesceStats() override {
+        // TODO: implement resetCoalesceStats
+        throw std::runtime_error("Not implemented: resetCoalesceStats");
+    }
+
+    int64_t coalesceFlushes() override {
+        // TODO: implement coalesceFlushes
+        throw std::runtime_error("Not implemented: coalesceFlushes");
+        // return 0;
+    }
+
+    int64_t coalesceItems() override {
+        // TODO: implement coalesceItems
+        throw std::runtime_error("Not implemented: coalesceItems");
+        // return 0;
+    }
+
     int64_t sendLargeBufferFast(const uint8_t* buffer, size_t buffer_length) override {
         // TODO: implement sendLargeBufferFast
         throw std::runtime_error("Not implemented: sendLargeBufferFast");

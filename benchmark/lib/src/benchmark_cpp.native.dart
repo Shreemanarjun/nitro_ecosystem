@@ -204,6 +204,26 @@ abstract class BenchmarkCpp extends HybridObject {
   @nitroNativeAsync
   Future<int> nativeAsyncEcho(int value);
 
+  /// Cross-thread `@nitroNativeAsync` scalar round-trip: a worker thread does the
+  /// post, so it pays the isolate wake that [nativeAsyncEcho]'s inline post
+  /// skips. The delta is the real cost of the path (issue #39).
+  @nitroNativeAsync
+  Future<int> nativeAsyncEchoFromThread(int value);
+
+  /// Coalesced completion (issue #39): the worker buffers `(callId, value)` and
+  /// posts each drained burst as one `kArray`, so a burst shares one wake.
+  void submitCoalesced(int callId, int value, int dartPort);
+
+  /// Reset the coalescer's flush/item counters (issue #39 instrumentation).
+  void resetCoalesceStats();
+
+  /// Number of coalesced flushes (posts) since the last reset.
+  int coalesceFlushes();
+
+  /// Total items posted across all flushes since the last reset — divide by
+  /// [coalesceFlushes] for the average batch size a burst achieved.
+  int coalesceItems();
+
   /// Continuous stream of zero-copy [BenchmarkPoint] structs.
   ///
   /// Each item is delivered as a [BenchmarkPointProxy] at runtime — a proxy
