@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:args/command_runner.dart';
@@ -118,7 +119,7 @@ void main() {
       output.parent.createSync(recursive: true);
       output.writeAsStringSync('// generated');
 
-      final cache = IncrementalGenerationCache(tempDir.path);
+      final cache = IncrementalGenerationCache(tempDir.path, generatorIdentity: 'nitro_generator:0.6.0');
       final plan = cache.plan(
         specs: [spec],
         outputPathsForSpec: (_) => [output.path],
@@ -144,7 +145,7 @@ void main() {
       output.parent.createSync(recursive: true);
       output.writeAsStringSync('// generated');
 
-      final cache = IncrementalGenerationCache(tempDir.path);
+      final cache = IncrementalGenerationCache(tempDir.path, generatorIdentity: 'nitro_generator:0.6.0');
       cache.write(
         specs: [spec],
         outputPathsForSpec: (_) => [output.path],
@@ -168,7 +169,7 @@ void main() {
         output.writeAsStringSync('// generated');
       }
 
-      final cache = IncrementalGenerationCache(tempDir.path);
+      final cache = IncrementalGenerationCache(tempDir.path, generatorIdentity: 'nitro_generator:0.6.0');
       cache.write(
         specs: [camera, audio],
         outputPathsForSpec: (spec) => [
@@ -186,6 +187,87 @@ void main() {
       );
 
       expect(plan.changedSpecs, equals([audio]));
+    });
+
+    test('regenerates unchanged specs after a generator upgrade', () {
+      final spec = _writePluginFixture(tempDir);
+      final output = File(p.join(tempDir.path, 'lib', 'src', 'camera.g.dart'));
+      output.parent.createSync(recursive: true);
+      output.writeAsStringSync('// generated');
+
+      final oldCache = IncrementalGenerationCache(tempDir.path, generatorIdentity: 'nitro_generator:0.5.17');
+      oldCache.write(specs: [spec], outputPathsForSpec: (_) => [output.path]);
+
+      final upgradedCache = IncrementalGenerationCache(tempDir.path, generatorIdentity: 'nitro_generator:0.6.0');
+      final plan = upgradedCache.plan(specs: [spec], outputPathsForSpec: (_) => [output.path]);
+
+      expect(plan.changedSpecs, equals([spec]));
+    });
+
+    test('regenerates legacy manifests without output hashes', () {
+      final spec = _writePluginFixture(tempDir);
+      final output = File(p.join(tempDir.path, 'lib', 'src', 'camera.g.dart'));
+      output.parent.createSync(recursive: true);
+      output.writeAsStringSync('// generated');
+      final relSpec = p.relative(spec.path, from: tempDir.path);
+      final relOutput = p.relative(output.path, from: tempDir.path);
+      final cache = IncrementalGenerationCache(tempDir.path, generatorIdentity: 'nitro_generator:0.6.0');
+      cache.manifestFile.parent.createSync(recursive: true);
+      cache.manifestFile.writeAsStringSync(jsonEncode({
+        relSpec: {
+          'hash': IncrementalGenerationCache.contentHash(spec),
+          'outputFiles': [relOutput],
+        },
+      }));
+
+      final plan = cache.plan(specs: [spec], outputPathsForSpec: (_) => [output.path]);
+
+      expect(plan.changedSpecs, equals([spec]));
+    });
+
+    test('regenerates specs when a generated output differs from its recorded hash', () {
+      final spec = _writePluginFixture(tempDir);
+      final output = File(p.join(tempDir.path, 'lib', 'src', 'camera.g.dart'));
+      output.parent.createSync(recursive: true);
+      output.writeAsStringSync('// generated');
+      final cache = IncrementalGenerationCache(tempDir.path, generatorIdentity: 'nitro_generator:0.6.0');
+      cache.write(specs: [spec], outputPathsForSpec: (_) => [output.path]);
+      output.writeAsStringSync('// modified');
+
+      final plan = cache.plan(specs: [spec], outputPathsForSpec: (_) => [output.path]);
+
+      expect(plan.changedSpecs, equals([spec]));
+    });
+
+    test('regenerates specs when a recorded generated output is missing', () {
+      final spec = _writePluginFixture(tempDir);
+      final output = File(p.join(tempDir.path, 'lib', 'src', 'camera.g.dart'));
+      output.parent.createSync(recursive: true);
+      output.writeAsStringSync('// generated');
+      final cache = IncrementalGenerationCache(tempDir.path, generatorIdentity: 'nitro_generator:0.6.0');
+      cache.write(specs: [spec], outputPathsForSpec: (_) => [output.path]);
+      output.deleteSync();
+
+      final plan = cache.plan(specs: [spec], outputPathsForSpec: (_) => [output.path]);
+
+      expect(plan.changedSpecs, equals([spec]));
+    });
+
+    test('writes generator identity and content hashes for generated outputs', () {
+      final spec = _writePluginFixture(tempDir);
+      final output = File(p.join(tempDir.path, 'lib', 'src', 'camera.g.dart'));
+      output.parent.createSync(recursive: true);
+      output.writeAsStringSync('// generated');
+      final cache = IncrementalGenerationCache(tempDir.path, generatorIdentity: 'nitro_generator:0.6.0');
+
+      cache.write(specs: [spec], outputPathsForSpec: (_) => [output.path]);
+
+      final manifest = jsonDecode(cache.manifestFile.readAsStringSync()) as Map<String, dynamic>;
+      final entry = manifest[p.relative(spec.path, from: tempDir.path)] as Map<String, dynamic>;
+      expect(entry['generator'], 'nitro_generator:0.6.0');
+      expect(entry['outputFiles'], {
+        p.relative(output.path, from: tempDir.path): IncrementalGenerationCache.contentHash(output),
+      });
     });
   });
 
