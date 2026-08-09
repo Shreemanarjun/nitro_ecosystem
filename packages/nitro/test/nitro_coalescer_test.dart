@@ -28,8 +28,8 @@ void main() {
 
     test('resolves across multiple partial batches', () async {
       final c = NitroCoalescer();
-      final f0 = c.submit((_, __) {});
-      final f1 = c.submit((_, __) {});
+      final f0 = c.submit((_, _) {});
+      final f1 = c.submit((_, _) {});
       c.sendPort.send([0, 10]); // first batch: only call 0
       expect(await f0, 10);
       expect(c.pendingCount, 1);
@@ -47,7 +47,7 @@ void main() {
 
     test('ignores unknown callIds without throwing', () async {
       final c = NitroCoalescer();
-      final f0 = c.submit((_, __) {});
+      final f0 = c.submit((_, _) {});
       c.sendPort.send([999, 42, 0, 7]); // 999 unknown, 0 pending
       expect(await f0, 7);
       await c.dispose();
@@ -56,7 +56,7 @@ void main() {
     test('disposed coalescers are GC-collectable (no port/subscription leak)', () async {
       Future<WeakReference<Object>> makeAndDispose() async {
         final c = NitroCoalescer();
-        c.submit((_, __) {}); // register a pending completer, then drop it
+        c.submit((_, _) {}); // register a pending completer, then drop it
         final w = WeakReference<Object>(c);
         await c.dispose();
         return w; // `c` goes out of scope here → collectable if not retained
