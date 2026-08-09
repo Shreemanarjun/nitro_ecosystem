@@ -36,6 +36,12 @@ jobs:
         run: flutter test --reporter expanded
         working-directory: packages/nitro_generator
 
+      # Text assertions cannot catch "this does not build" — issue #40 shipped
+      # JNI code in a JNI-free bridge that looked correct but never compiled.
+      - name: Verify generated C++ bridges compile
+        run: dart run tool/verify_cpp_bridge_compiles.dart
+        working-directory: packages/nitro_generator
+
   runtime:
     name: nitro runtime tests
     runs-on: ubuntu-latest
