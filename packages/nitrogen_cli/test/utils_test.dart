@@ -386,5 +386,30 @@ dependencies:
         expect(secondRun, isEmpty);
       });
     });
+
+    group('example platform recovery planning', () {
+      test('restores Flutter state before pod install after ephemeral cleanup', () {
+        expect(
+          planExamplePlatformRecovery(
+            removedEphemeralArtifacts: true,
+            hasPodfiles: true,
+          ),
+          equals([
+            ExamplePlatformRecoveryStep.flutterPubGet,
+            ExamplePlatformRecoveryStep.podInstall,
+          ]),
+        );
+      });
+
+      test('does not add a Flutter restoration when no artifacts were removed', () {
+        expect(
+          planExamplePlatformRecovery(
+            removedEphemeralArtifacts: false,
+            hasPodfiles: true,
+          ),
+          equals([ExamplePlatformRecoveryStep.podInstall]),
+        );
+      });
+    });
   });
 }

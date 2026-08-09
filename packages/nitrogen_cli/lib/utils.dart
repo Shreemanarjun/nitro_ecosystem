@@ -158,11 +158,12 @@ Future<void> _deleteBuildCache(String workingDirectory) async {
 /// process: 100% of time spent inside `dart:io`'s `AsyncDirectoryLister`.
 ///
 /// These directories are always safe to delete — they are gitignored by every
-/// standard Flutter project template and get recreated automatically by the
-/// next `flutter pub get` / `pod install` / platform build. This only removes
-/// KNOWN, FIXED paths (never a recursive scan) — a general "walk the tree
-/// looking for cyclic symlinks" checker would risk hitting the very same
-/// infinite loop it's trying to detect.
+/// standard Flutter project template. During `nitrogen generate`, the example
+/// project's `flutter pub get` restores its Flutter configuration before pod
+/// install is attempted. This only removes KNOWN, FIXED paths (never a
+/// recursive scan) — a general "walk the tree looking for cyclic symlinks"
+/// checker would risk hitting the very same infinite loop it's trying to
+/// detect.
 ///
 /// Returns the list of directories that were actually removed (empty if none
 /// existed — the common case on a fresh checkout or before any platform build).
@@ -191,6 +192,31 @@ List<String> cleanEphemeralSymlinkCycles(String projectRoot) {
     }
   }
   return removed;
+}
+
+/// The generation phases needed after cleaning example platform artifacts.
+///
+/// A Flutter pub get recreates the generated Flutter configuration removed by
+/// [cleanEphemeralSymlinkCycles]. It must complete before CocoaPods reads that
+/// configuration during pod install.
+enum ExamplePlatformRecoveryStep { flutterPubGet, podInstall }
+
+/// Plans the example-platform recovery sequence after ephemeral cleanup.
+///
+/// Keep this ordering explicit so that a stale CocoaPods directory never sees
+/// the Flutter/ephemeral tree in the half-cleaned state.
+List<ExamplePlatformRecoveryStep> planExamplePlatformRecovery({
+  required bool removedEphemeralArtifacts,
+  required bool hasPodfiles,
+}) {
+  final steps = <ExamplePlatformRecoveryStep>[];
+  if (removedEphemeralArtifacts) {
+    steps.add(ExamplePlatformRecoveryStep.flutterPubGet);
+  }
+  if (hasPodfiles) {
+    steps.add(ExamplePlatformRecoveryStep.podInstall);
+  }
+  return steps;
 }
 
 List<ProjectInfo> getAllProjects({Directory? baseDir}) {
