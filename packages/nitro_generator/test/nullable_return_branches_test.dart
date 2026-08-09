@@ -436,15 +436,12 @@ void main() {
     test('sync String? return: nullptr check present', () {
       final out = DartFfiGenerator.generate(syncNullable());
       expect(out, contains('nullptr ? null'));
-      // Improvement F: sync String? borrows the native per-thread buffer.
+      // Sync String? borrows the native per-thread buffer.
       expect(out, contains('toDartStringBorrowed()'));
     });
 
-    // Regression guard: uint64? is its own ReturnKind and was initially missed
-    // when the nullable-primitive frees were made conditional — the generated
-    // Dart freed a borrowed per-thread scratch, which Android's Scudo allocator
-    // aborted on ("misaligned pointer when deallocating"). macOS silently
-    // tolerated it, so only a cross-platform run caught it.
+    // uint64? is its own ReturnKind and is easy to miss: freeing the borrowed
+    // slot aborts under Android's Scudo allocator, while macOS tolerates it.
     test('sync uint64? return borrows the scratch (never frees it)', () {
       final out = DartFfiGenerator.generate(syncNullable());
       final i = out.indexOf('_u64Result');

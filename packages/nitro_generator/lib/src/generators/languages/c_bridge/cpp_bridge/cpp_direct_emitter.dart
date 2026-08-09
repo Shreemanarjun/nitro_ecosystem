@@ -86,12 +86,10 @@ String _generateCppDirect(BridgeSpec spec) {
 
   // Error state
   writer.line('static thread_local NitroError g_nitro_error = { 0, nullptr, nullptr, nullptr, nullptr };');
-  // Reusable per-thread scratch for SYNC nullable-primitive returns. Dart decodes
-  // the value immediately after the call returns (a 2-field read — no callbacks,
-  // no reentry), so one slot per thread removes a malloc/free pair per call.
-  // NOT used by @nitroAsync: callAsync runs the native call on a helper isolate
-  // thread while Dart decodes on the main isolate, where this slot is different
-  // storage — those keep malloc (doc/perf_b_nullable_prim_plan.md).
+  // Scratch for SYNC nullable-primitive returns: Dart decodes immediately, so one
+  // slot per thread replaces a malloc/free pair per call.
+  // Sync only — @nitroAsync decodes on a different isolate thread (Isolate.run),
+  // where thread-local storage is a different slot, so those keep malloc.
   writer.line('alignas(8) static thread_local uint8_t _g_opt_ret[16];');
   writer.line('static thread_local std::string _g_str_ret;');
   writer.blankLine();
@@ -146,19 +144,13 @@ String _generateCppDirect(BridgeSpec spec) {
   writer.line('    return f;');
   writer.line('}');
   writer.blankLine();
-  // Hot-path lock-free N-way cache for resolved (id -> raw impl). The map +
-  // mutex remain the source of truth for create/destroy (rare); reads on the
-  // common path skip the mutex, the hashmap, and the shared_ptr copy entirely —
-  // matching React Native Nitro's direct-pointer dispatch. A single-entry cache
-  // thrashed to the mutex+hashmap on every call once a hot loop rotated across
-  // more than one instance; 8 direct-mapped slots (striped by id low bits) keep
-  // up to 8 distinct ids resident, each alignas(64) so slots never false-share.
-  // The returned pointer is borrowed (the map owns the shared_ptr); its lifetime
-  // for the call duration is guaranteed by the Dart-side NativeFinalizer, which
-  // never destroys an instance while a call on it is in flight. Slots are
-  // invalidated under the mutex on register/destroy so a freed id never resolves
-  // to a dangling pointer. Per-slot ordering matches the old single entry:
-  // publish ptr (relaxed) then id (release); read id (acquire) then ptr (relaxed).
+  // Lock-free N-way cache for resolved (id -> raw impl); the map + mutex stay the
+  // source of truth for create/destroy. 8 direct-mapped slots keep several live
+  // instances resident — a single entry fell back to the mutex on every call once
+  // a loop rotated between instances. alignas(64) prevents false sharing.
+  // The pointer is borrowed (the map owns the shared_ptr); the Dart-side
+  // NativeFinalizer never destroys an instance while a call is in flight, and
+  // slots are invalidated under the mutex so a freed id can't resolve stale.
   writer.line('static constexpr int _kNitroCacheWays = 8;');
   writer.line('struct alignas(64) _NitroInstSlot {');
   writer.line('    std::atomic<int64_t> id{-1};');
@@ -573,8 +565,7 @@ String _generateCppDirect(BridgeSpec spec) {
           ? 'NitroOptFloat64'
           : 'NitroOptBool';
       writer.line('        auto _opt = _impl->${func.dartName}($callArgStr);');
-      // Sync borrows the per-thread scratch (Dart does not free); @nitroAsync
-      // decodes on a different isolate thread, so it must stay heap-allocated.
+      // Sync borrows the scratch; @nitroAsync must stay heap-allocated.
       writer.line('        auto* _out = ($nitroType*)${func.isAsync ? "malloc(sizeof($nitroType))" : "(void*)_g_opt_ret"};');
       if (func.isAsync) writer.line('        if (!_out) return nullptr;');
       if (retBase == 'bool') {
@@ -666,7 +657,7 @@ String _generateCppDirect(BridgeSpec spec) {
             : propPrimBase == 'double'
             ? 'NitroOptFloat64'
             : 'NitroOptBool';
-        // Property getters are always synchronous — borrow the per-thread scratch.
+        // Getters are always synchronous — borrow the scratch.
         writer.line('        auto _opt = _impl->get_${prop.dartName}();');
         writer.line('        auto* _out = ($nitroType*)(void*)_g_opt_ret;');
         if (propPrimBase == 'bool') {

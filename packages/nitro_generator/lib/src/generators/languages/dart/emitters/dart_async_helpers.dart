@@ -252,9 +252,9 @@ void _emitReturnDecode(
   // Set true for @nitroAsync paths: bool is transported as int via callAsync<int>,
   // so emit `!= 0` decode. False for sync: Bool FFI type means resVar is already bool.
   bool asyncBoolAsInt = false,
-  // True on SYNC paths: the native side returned a pointer to a reusable
-  // per-thread slot, so Dart must NOT free it. @nitroAsync stays false — it
-  // decodes on a different isolate thread and receives heap memory it owns.
+  // True on sync paths, where native lends a per-thread slot Dart must not free.
+  // @nitroAsync stays false: it decodes on another isolate thread and owns its
+  // heap memory.
   bool optIsBorrowed = false,
 }) {
   final rt = returnType.name;
@@ -300,9 +300,8 @@ void _emitReturnDecode(
       writer.line('${indent}try {');
       writer.line('$indent  decoded = structPtr.ref.toDart();');
       writer.line('$indent} finally {');
-      // Inner heap fields (strings, nested structs) are always heap-owned and
-      // must still be freed. The struct SHELL, however, is a borrowed per-thread
-      // slot on sync paths (improvement C) — only @nitroAsync mallocs it.
+      // Inner fields (strings, nested structs) are always heap-owned and freed.
+      // Only the shell is borrowed on sync paths; @nitroAsync mallocs it.
       writer.line('$indent  structPtr.ref.freeFields(_nitroFree);');
       if (!optIsBorrowed) writer.line('$indent  _nitroFree(structPtr);');
       writer.line('$indent}');
@@ -336,8 +335,7 @@ void _emitReturnDecode(
       // res is Pointer<NitroOptBool> (malloc'd) — decode then free.
       writer.line('${indent}final _boolResult = $resVar.decoded;${optIsBorrowed ? '' : ' _nitroFree($resVar);'} return _boolResult;');
     case ReturnKind.stringNonNull:
-      // Improvement F: sync returns borrow a per-thread native buffer (nothing
-      // to free); @nitroAsync still receives a strdup'd string it owns.
+      // Sync borrows a per-thread native buffer; @nitroAsync owns its string.
       writer.line('${indent}return $resVar.${optIsBorrowed ? 'toDartStringBorrowed()' : 'toDartStringFreedBy(_nitroFree)'};');
     case ReturnKind.stringNullable:
       writer.line('${indent}return $resVar == nullptr ? null : $resVar.${optIsBorrowed ? 'toDartStringBorrowed()' : 'toDartStringFreedBy(_nitroFree)'};');
@@ -393,9 +391,8 @@ void _emitReturnDecode(
       // uint64 is represented as Dart int (bits preserved); raw Uint64 FFI value passes through.
       writer.line('${indent}return $resVar;');
     case ReturnKind.uint64Nullable:
-      // uint64? reuses NitroOptInt64 struct (same 9-byte layout); int? result = raw bits.
-      // Same borrowed-scratch rule as the other nullable primitives (improvement B) —
-      // missing it here freed a static and tripped Scudo on Android.
+      // uint64? reuses the NitroOptInt64 layout; result is the raw bits.
+      // Same borrow rule as the other nullable primitives.
       writer.line('${indent}final _u64Result = $resVar.decoded;${optIsBorrowed ? '' : ' _nitroFree($resVar);'} return _u64Result;');
     case ReturnKind.primitive:
       writer.line('${indent}return $resVar;');

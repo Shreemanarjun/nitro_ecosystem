@@ -1,11 +1,12 @@
-// Micro-benchmark for improvement B — nullable-primitive return marshalling.
-// Isolates the allocation strategy from FFI/Dart noise by replicating exactly
-// what the generated C bridge does per call for an `int?` return:
-//   MODE=0 (before) malloc a NitroOptInt64, fill it, hand it to "Dart", free it.
-//   MODE=1 (after)  fill a reusable per-thread scratch slot; nothing to free.
-// Build & run both:
-//   clang++ -std=c++17 -O2 -DMODE=0 bench_opt_return.cpp -o /tmp/or0 && /tmp/or0
-//   clang++ -std=c++17 -O2 -DMODE=1 bench_opt_return.cpp -o /tmp/or1 && /tmp/or1
+// Nullable-primitive return marshalling: malloc+free vs a per-thread slot.
+//   MODE=0  malloc a NitroOptInt64, fill it, hand it to "Dart", free it.
+//   MODE=1  fill a reusable per-thread slot; nothing to free.
+// Build BOTH with -fno-builtin-malloc -fno-builtin-free, or LLVM elides the
+// non-escaping allocation and both modes measure the same.
+//   clang++ -std=c++17 -O2 -fno-builtin-malloc -fno-builtin-free -DMODE=0 \
+//       bench_opt_return.cpp -o /tmp/or0 && /tmp/or0
+//   clang++ -std=c++17 -O2 -fno-builtin-malloc -fno-builtin-free -DMODE=1 \
+//       bench_opt_return.cpp -o /tmp/or1 && /tmp/or1
 #include <atomic>
 #include <chrono>
 #include <cstdint>
@@ -26,8 +27,7 @@ struct NitroOptInt64 {
 
 alignas(8) static thread_local uint8_t _g_opt_ret[16];
 
-// Stands in for the Dart side: decode the two fields immediately, then (in the
-// malloc mode) free — exactly the generated `res.decoded; _nitroFree(res);`.
+// Stands in for Dart: decode both fields, then free only in malloc mode.
 static inline int64_t consume(uint8_t* p, bool owns) {
   auto* o = reinterpret_cast<NitroOptInt64*>(p);
   int64_t v = o->hasValue ? o->value : 0;

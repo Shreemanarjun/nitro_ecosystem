@@ -90,10 +90,10 @@ void _emitMapAndFactory(CodeWriter writer, BridgeSpec spec) {
     final firstAlpha = spec.dartClassName.split('').indexWhere((c) => RegExp(r'[A-Za-z]').hasMatch(c));
     final camelName = firstAlpha >= 0 ? spec.dartClassName.substring(0, firstAlpha) + spec.dartClassName[firstAlpha].toLowerCase() + spec.dartClassName.substring(firstAlpha + 1) : spec.dartClassName;
     writer.line(
-      '/// Pass a distinct [key] to create independent native instances (each gets',
+      '/// A distinct [key] creates an independent native instance; the default',
     );
     writer.line(
-      '/// its own instanceId); the default key returns the shared singleton.',
+      '/// key returns the shared singleton.',
     );
     writer.line(
       '${spec.dartClassName} ${camelName}_createNativeInstance([String key = \'default\']) => _${spec.dartClassName}Impl(key);',

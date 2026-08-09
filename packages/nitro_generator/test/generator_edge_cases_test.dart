@@ -377,7 +377,7 @@ void main() {
     });
 
     test('struct ptr memory freed via malloc.free', () {
-      // Improvement C: sync struct shell is borrowed; inner fields still freed.
+      // The sync struct shell is borrowed; inner fields are still freed.
       expect(code, contains('freeFields(_nitroFree)'));
     });
 

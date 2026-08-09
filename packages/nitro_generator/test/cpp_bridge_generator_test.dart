@@ -316,7 +316,7 @@ void main() {
 
     test('String return uses strdup and local-frame cleanup', () {
       final out = CppBridgeGenerator.generate(richSpec());
-      // Improvement F: sync string returns borrow a per-thread std::string.
+      // Sync string returns borrow a per-thread std::string.
       expect(out, contains('_g_str_ret = nativeStr;'));
       // jstr lives inside the PushLocalFrame/PopLocalFrame region — freed
       // automatically when the frame pops rather than via a manual DeleteLocalRef.
@@ -366,10 +366,8 @@ void main() {
       expect(out, isNot(contains('#ifdef __ANDROID__')));
     });
 
-    // Improvement B: sync nullable-primitive returns borrow a reusable
-    // per-thread scratch slot (no malloc, and Dart does not free), while
-    // @nitroAsync keeps malloc — it decodes on a different isolate thread than
-    // the one that ran the call, where a TLS slot is different storage.
+    // Sync nullable-primitive returns borrow a per-thread slot; @nitroAsync
+    // keeps malloc because it decodes on a different isolate thread.
     test('nullable-prim returns: sync borrows scratch, async keeps malloc', () {
       final spec = BridgeSpec(
         dartClassName: 'Opt',
@@ -410,10 +408,8 @@ void main() {
       expect(bodyOf('opt_async_opt_int'), contains('malloc'));
     });
 
-    // Improvement A: the instance lookup uses an N-way alignas(64) cache
-    // (striped by id low bits) instead of a single (id,ptr) entry, so a hot
-    // loop rotating across several instances stays lock-free instead of
-    // thrashing to the mutex+hashmap on every call.
+    // The instance lookup uses an N-way alignas(64) cache instead of a single
+    // entry, so a loop across several instances stays lock-free.
     test('instance lookup uses an 8-way alignas(64) cache', () {
       final out = CppBridgeGenerator.generate(cppSpec());
       expect(out, contains('static constexpr int _kNitroCacheWays = 8;'));
@@ -735,7 +731,7 @@ void main() {
     test('String return uses strdup on std::string result', () {
       final out = CppBridgeGenerator.generate(cppSpec());
       expect(out, contains('std::string _res = _impl->greet('));
-      // Improvement F: sync string returns borrow a per-thread std::string.
+      // Sync string returns borrow a per-thread std::string.
       expect(out, contains('_g_str_ret = _res;'));
     });
 

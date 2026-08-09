@@ -52,7 +52,7 @@ class CppBridgeGenerator {
     writer.line('#include <stdbool.h>');
     writer.line('#include <string.h>');
     writer.line('#include <stdlib.h>');
-    writer.line('#include <string>');  // _g_str_ret scratch (improvement F)
+    writer.line('#include <string>');  // _g_str_ret
     if (hasApple) {
       writer.line('#if defined(__APPLE__)');
       writer.line('#import <Foundation/Foundation.h>');
@@ -96,10 +96,8 @@ class CppBridgeGenerator {
     writer.line('}');
 
     writer.line('static thread_local NitroError g_nitro_error = { 0, nullptr, nullptr, nullptr, nullptr };');
-    // Reusable per-thread scratch for SYNC nullable-primitive returns (shared by
-    // the JNI and Swift-shim dispatch). Dart decodes immediately after the call
-    // returns, so one slot per thread removes a malloc/free pair per call. NOT
-    // used by @nitroAsync, which decodes on a different isolate thread.
+    // Scratch for SYNC nullable-primitive returns, shared by the JNI and
+    // Swift-shim dispatch. Sync only — see cpp_direct_emitter for the rule.
     writer.line('alignas(8) static thread_local uint8_t _g_opt_ret[16];');
     writer.line('static thread_local std::string _g_str_ret;');
     writer.blankLine();

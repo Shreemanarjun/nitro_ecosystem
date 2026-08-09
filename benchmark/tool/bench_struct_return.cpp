@@ -1,9 +1,7 @@
-// Micro-benchmark for improvement C — @HybridStruct return marshalling.
-// Replicates what the generated C bridge does per call for a struct return:
-//   MODE=0 (before) malloc a shell, copy the struct into it, "Dart" frees it.
-//   MODE=1 (after)  copy into a reusable per-thread slot; nothing to free.
-// Inner heap fields are unaffected either way (Dart still freeFields() them),
-// so this measures exactly the shell allocation that improvement C removes.
+// @HybridStruct return marshalling: malloc'd shell vs a per-thread slot.
+//   MODE=0  malloc a shell, copy the struct in, "Dart" frees it.
+//   MODE=1  copy into a reusable per-thread slot; nothing to free.
+// Inner heap fields are unaffected either way (Dart still freeFields() them).
 // Build BOTH with -fno-builtin-malloc -fno-builtin-free, otherwise LLVM elides
 // the non-escaping malloc/free pair and the comparison is meaningless:
 //   clang++ -std=c++17 -O2 -fno-builtin-malloc -fno-builtin-free -DMODE=0 \
@@ -39,8 +37,7 @@ static inline TcPoint* bridge_echo_point(const TcPoint& res) {
   return p;
 }
 
-// Stands in for the Dart side: read the fields, then (malloc mode only) free the
-// shell — exactly `structPtr.ref.toDart(); … _nitroFree(structPtr);`.
+// Stands in for Dart: read the fields, then free the shell only in malloc mode.
 static inline double consume(TcPoint* p, bool owns) {
   double v = p->x + p->y + p->z;
   if (owns) ::free(p);

@@ -35,9 +35,8 @@ public:
                     _asyncQueue.pop();
                 }
                 task();
-                // Coalescing (issue #39): once the queue drains, post everything
-                // buffered by submitCoalesced as ONE kArray so a burst of
-                // completions shares a single isolate wake instead of N.
+                // Once the queue drains, post everything buffered by
+                // submitCoalesced as one kArray, so a burst shares one wake.
                 {
                     std::unique_lock<std::mutex> lk(_asyncQueueMtx);
                     const bool drained = _asyncQueue.empty();
@@ -179,8 +178,8 @@ public:
         Dart_PostCObject_DL(dartPort, &obj);
     }
 
-    // Cross-thread variant of nativeAsyncEcho: the worker thread does the post,
-    // so it pays the OS isolate wake the inline version skips (issue #39).
+    // Cross-thread variant of nativeAsyncEcho: the worker posts, so it pays the
+    // isolate wake the inline version skips.
     void nativeAsyncEchoFromThread(int64_t value, NitroError* /*_nitro_err*/, int64_t dartPort) override {
         {
             std::lock_guard<std::mutex> lk(_asyncQueueMtx);
@@ -194,8 +193,7 @@ public:
         _asyncQueueCv.notify_one();
     }
 
-    // Coalesced completion (issue #39): buffer (callId, value); the worker posts
-    // the whole drained batch as one kArray, so a burst shares one wake.
+    // Buffer (callId, value); the worker posts the drained batch as one kArray.
     void submitCoalesced(int64_t callId, int64_t value, int64_t dartPort) override {
         _coalescePort.store(dartPort, std::memory_order_relaxed);
         {
@@ -207,8 +205,7 @@ public:
         _asyncQueueCv.notify_one();
     }
 
-    // Coalesce instrumentation (issue #39): flush/item counters so the harness
-    // can report the average batch size (items ÷ flushes) achieved per burst.
+    // Flush/item counters — the harness reports items ÷ flushes as batch size.
     void resetCoalesceStats() override {
         _coalesceFlushes.store(0, std::memory_order_relaxed);
         _coalesceItems.store(0, std::memory_order_relaxed);
@@ -320,17 +317,14 @@ private:
     std::queue<std::function<void()>> _asyncQueue;
     bool _asyncWorkerRunning;
 
-    // Coalescing (issue #39): worker-thread-only buffer of (callId, value)
-    // completions, flushed as one kArray post to the shared port when the queue
-    // drains. Only the worker touches the buffer, so it needs no lock.
+    // Worker-only buffer of (callId, value) completions, flushed as one kArray
+    // when the queue drains. Only the worker touches it, so it needs no lock.
     std::vector<std::pair<int64_t, int64_t>> _coalesceBuf;
     std::atomic<int64_t> _coalescePort{0};
-    // Instrumentation: how many flushes (posts) and how many total items, so the
-    // harness can report the AVERAGE batch size a burst achieved (items/flushes).
+    // Flush/item counters, so the harness can report the average batch size.
     std::atomic<int64_t> _coalesceFlushes{0};
     std::atomic<int64_t> _coalesceItems{0};
-    // Worker-only scratch reused across flushes (resize, not reallocate) so the
-    // completion path doesn't heap-churn two vectors per burst.
+    // Reused across flushes (resize, not reallocate) — no per-burst heap churn.
     std::vector<Dart_CObject> _flushElems;
     std::vector<Dart_CObject*> _flushPtrs;
 

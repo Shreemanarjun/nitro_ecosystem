@@ -1,9 +1,9 @@
 ## 0.6.0
 
-- **Sync bridge returns no longer heap-allocate.** The generated C/JNI/Swift bridges return a pointer into a reusable per-thread slot for nullable primitives, `@HybridStruct` returns and `String` returns, and the generated Dart no longer frees them. `@nitroAsync` / `@nitroNativeAsync` keep malloc + free — they decode on a different isolate thread, where a per-thread slot is different storage. **Regenerate and re-link**; generated code now requires `nitro` ≥ 0.6.0.
-- **8-way instance cache in the direct-C++ bridge.** `_nitro_get_instance` keeps 8 `alignas(64)` slots striped by instance id instead of one entry, so dispatch across several live instances stays lock-free: **7–8×** faster rotating over 2/4/8 instances, **48×** under 4-thread contention. Single-instance dispatch is unchanged.
-- **`<Class>_createNativeInstance([String key])`** now takes an optional key, so a plugin can create independent native instances (each with its own `instanceId`). The default key returns the shared singleton — existing calls are unaffected.
-- Guard against `@NitroResult<T>` / `@NitroVariant` returns being treated as C strings (they carry a binary envelope, which `strlen` would truncate at the first zero byte).
+- Sync bridge returns (nullable primitives, `@HybridStruct`, `String`) now return a pointer into a reusable per-thread buffer, and the generated Dart no longer frees it. `@nitroAsync` / `@nitroNativeAsync` keep their own allocation. **Regenerate and re-link**; generated code requires `nitro` ≥ 0.6.0. See [migration/0.6.0.md](../../migration/0.6.0.md).
+- The direct-C++ instance cache holds 8 entries instead of 1, so dispatch across several live instances stays lock-free (7–8× faster; 48× under contention).
+- `<Class>_createNativeInstance([String key])` takes an optional key for independent native instances. The default key returns the shared singleton.
+- `@NitroResult<T>` and `@NitroVariant` returns are no longer treated as C strings — they carry a binary envelope that `strlen` would truncate.
 
 ## 0.5.17
 

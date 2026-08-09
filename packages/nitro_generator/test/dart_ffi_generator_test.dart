@@ -180,9 +180,8 @@ void main() {
       // For any non-zero-copy struct return, we should see freeFields()
       expect(out, contains('structPtr.ref.freeFields(_nitroFree);'));
       expect(out, contains('freeFields(_nitroFree)'));
-      // NOTE: these specs also contain async struct returns, which still own
-      // (and free) their shell. The sync borrowed-shell contract (improvement C)
-      // is asserted in edge_cases_test.dart 'sync struct return borrows the shell'.
+      // These specs also contain async struct returns, which still own (and
+      // free) their shell; the sync contract is asserted in edge_cases_test.
     });
 
     test('struct property getter calls freeFields()', () {
@@ -218,9 +217,8 @@ void main() {
       final out = DartFfiGenerator.generate(spec);
       expect(out, contains('structPtr.ref.freeFields(_nitroFree);'));
       expect(out, contains('freeFields(_nitroFree)'));
-      // NOTE: these specs also contain async struct returns, which still own
-      // (and free) their shell. The sync borrowed-shell contract (improvement C)
-      // is asserted in edge_cases_test.dart 'sync struct return borrows the shell'.
+      // These specs also contain async struct returns, which still own (and
+      // free) their shell; the sync contract is asserted in edge_cases_test.
     });
 
     test('bool return uses Bool FFI type — passed/returned directly', () {
@@ -247,9 +245,9 @@ void main() {
       expect(out, contains('return res;'));
     });
 
-    test('String return decodes the borrowed buffer (improvement F)', () {
+    test('String return decodes the borrowed buffer', () {
       final out = DartFfiGenerator.generate(richSpec());
-      // Sync string returns borrow (improvement F); async still frees.
+      // Sync string returns borrow; async still frees.
       expect(out, contains('toDartStringBorrowed()'));
     });
 

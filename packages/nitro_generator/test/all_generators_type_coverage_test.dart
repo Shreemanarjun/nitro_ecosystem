@@ -643,7 +643,7 @@ void main() {
 
     test('CppBridge (pure-C++ path): borrowed slot + struct copy pattern', () {
       final out = CppBridgeGenerator.generate(cppSpec);
-      // Improvement C: sync struct returns copy into a per-thread slot.
+      // Sync struct returns copy into a per-thread slot.
       expect(out, contains('static thread_local Printer _g_ret_st;'));
       expect(out, contains('*_ptr = _res;'));
       expect(out, isNot(contains('NitroCppBuffer')));

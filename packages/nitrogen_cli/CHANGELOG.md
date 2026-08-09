@@ -1,6 +1,6 @@
 ## 0.6.0
 
-- **Ecosystem sync** — Released alongside the `nitro` 0.6.0 bridge memory-model change (sync returns borrow a per-thread slot instead of allocating). No CLI changes, but **`nitrogen generate` + `nitrogen link` must be re-run**: the Dart↔native ownership contract changed in lockstep, so generated code and the `nitro` runtime must both be 0.6.0.
+- Ecosystem sync for `nitro` 0.6.0. No CLI changes, but **`nitrogen generate` and `nitrogen link` must be re-run**: the Dart↔native ownership contract changed, so generated code and the runtime must both be 0.6.0. See [migration/0.6.0.md](../../migration/0.6.0.md).
 
 ## 0.5.17
 

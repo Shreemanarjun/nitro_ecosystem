@@ -1,6 +1,6 @@
 # 0.6.0
 
-- **Ecosystem sync** — Released alongside the `nitro` 0.6.0 bridge memory-model change. No changes to this package; regenerate to pick up the new bridges.
+- Ecosystem sync for `nitro` 0.6.0. No changes to this package; regenerate to pick up the new bridges.
 
 # 0.5.17
 

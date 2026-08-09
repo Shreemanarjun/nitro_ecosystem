@@ -456,48 +456,34 @@ nativeLayer.doWork(promise.port.nativePort);
 final result = await promise.future;
 ```
 
-### `NitroCoalescer` — batching concurrent `@nitroNativeAsync` completions (0.6.0+)
+### `NitroCoalescer` — batching concurrent `@nitroNativeAsync` completions
 
-Every `@nitroNativeAsync` call posts its result back over its own `ReceivePort`,
-which wakes the Dart isolate. For a **single** call that's the right design — the
-per-call port costs ~0.1 µs and the isolate wake dominates. But when **many**
-calls are in-flight and finish together (an I/O plugin's burst), N results mean N
-posts and N wakes.
+Every `@nitroNativeAsync` call posts its result over its own `ReceivePort`, waking
+the Dart isolate. That's right for a single call, but when many finish together,
+N results mean N wakes.
 
-`NitroCoalescer` lets the native side **batch** those completions into one post
-over a single shared port, so the whole burst shares one wake. On an M1 Pro a
-64-in-flight burst drops from ~559 µs → ~99 µs (**~5.6×**), and per-call amortized
-latency from ~8 µs → **~1 µs** (the speedup scales with burst size). It is
-**opt-in** — use it only for methods that fan out concurrently.
-
-**Dart side** — one coalescer owns the shared port and resolves each call by id:
+`NitroCoalescer` lets native batch those completions into one post over a shared
+port. On an M1 Pro a 64-in-flight burst drops ~559 µs → ~99 µs. It is opt-in — use
+it for methods that fan out concurrently.
 
 ```dart
 final coalescer = NitroCoalescer();
 
 Future<int> submit(int value) => coalescer.submit(
-  // callId + nativePort are assigned by the coalescer; forward them to native.
   (callId, nativePort) => api.submitCoalesced(callId, value, nativePort),
 );
 
-// A burst of 64 concurrent calls now shares one isolate wake:
 final results = await Future.wait([for (var i = 0; i < 64; i++) submit(i)]);
-
-await coalescer.dispose(); // when done
+await coalescer.dispose();
 ```
 
-**Native side** — the impl buffers `(callId, value)` and posts the drained batch
-as one `kArray` of `int64` (`[callId0, value0, callId1, value1, …]`) via
-`Dart_PostCObject_DL`. The batch flush is driven either by the work queue draining
-(C++) or a short time window (Swift/Kotlin). Full per-language reference
-implementations live in `nitro_type_coverage` (`HybridNitroTypeCoverage.cpp`,
-`NitroTypeCoverageImpl.swift`, `NitroTypeCoverageImpl.kt` + the `nativeCoalescePost`
-JNI helper). Because a native `kArray` post is the same C call in every language,
-`NitroCoalescer`'s demux is platform-independent.
+On the native side, buffer `(callId, value)` and post the drained batch as one
+`kArray` of `int64` — `[callId0, value0, callId1, value1, …]` — via
+`Dart_PostCObject_DL`. Flush when the work queue drains (C++) or on a short timer
+(Swift/Kotlin). Reference implementations for all three languages are in
+`nitro_type_coverage`.
 
-> Scalar (`int`) results only, matching the `int64` wire. A busy-spin
-> "keep-the-receiver-warm" alternative was measured and rejected — it starves the
-> completing thread (+35 % latency). See issue #39.
+> Scalar (`int`) results only, matching the `int64` wire.
 
 ---
 

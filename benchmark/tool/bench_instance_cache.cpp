@@ -1,10 +1,7 @@
-// Micro-benchmark for the C-bridge instance lookup (improvement A).
-// Isolates the cache change from FFI/Dart noise: replicates _nitro_get_instance
-// with a compile-time WAYS parameter and times a rotating-id workload that
-// mimics a Dart loop dispatching across several live instances.
-//   WAYS=1  → behaves exactly like the old single-entry cache (every id maps to
-//             slot 0, so any rotation misses and falls to the mutex+hashmap).
-//   WAYS=8  → the new N-way cache; up to 8 distinct ids stay lock-free.
+// C-bridge instance lookup: replicates _nitro_get_instance with a compile-time
+// WAYS parameter, over a rotating-id workload (a Dart loop across live instances).
+//   WAYS=1  single-entry cache — any rotation misses to the mutex + hashmap.
+//   WAYS=8  N-way cache; several distinct ids stay lock-free.
 // Build & run both:
 //   clang++ -std=c++17 -O2 -DWAYS=1 bench_instance_cache.cpp -o /tmp/ic1 && /tmp/ic1
 //   clang++ -std=c++17 -O2 -DWAYS=8 bench_instance_cache.cpp -o /tmp/ic8 && /tmp/ic8

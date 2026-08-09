@@ -1,7 +1,6 @@
-// Micro-benchmark for improvement F — String return marshalling.
-//   MODE=0 (before) strdup the std::string, "Dart" decodes then frees it.
-//   MODE=1 (after)  assign into a per-thread std::string (reuses its capacity
-//                   once warm, so no allocation at all) and return c_str().
+// String return marshalling: strdup vs a per-thread std::string.
+//   MODE=0  strdup the string, "Dart" decodes then frees it.
+//   MODE=1  assign into a per-thread std::string (reuses capacity once warm).
 // Build BOTH with -fno-builtin-malloc -fno-builtin-free so LLVM cannot elide the
 // non-escaping allocation (see bench_opt_return.cpp for why that matters):
 //   clang++ -std=c++17 -O2 -fno-builtin-malloc -fno-builtin-free -DMODE=0 \
@@ -31,8 +30,7 @@ static inline char* bridge_echo_string(const std::string& res) {
 #endif
 }
 
-// Stands in for the Dart side: walk to NUL (both modes do this), then free only
-// when Dart owns the buffer.
+// Stands in for Dart: walk to NUL, then free only when Dart owns the buffer.
 static inline size_t consume(char* p, bool owns) {
   size_t n = 0;
   while (p[n] != '\0') ++n;
