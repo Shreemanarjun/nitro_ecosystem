@@ -782,7 +782,6 @@ String _generateCppDirect(BridgeSpec spec) {
     final hasStrings = st.fields.any((f) => f.type.name == 'String');
     final hasNestedStructs = st.fields.any((f) => structNames.contains(f.type.name.replaceFirst('?', '')));
     final hasNonZcData = st.fields.any((f) => f.type.isTypedData && !f.zeroCopy);
-    final hasZeroCopy = st.fields.any((f) => f.zeroCopy);
     if (hasStrings || hasNestedStructs || hasNonZcData) {
       writer.line('    ${st.name}* st_ptr = (${st.name}*)ptr;');
       for (final f in st.fields) {
@@ -795,20 +794,10 @@ String _generateCppDirect(BridgeSpec spec) {
         }
       }
     }
-    if (hasZeroCopy) {
-      writer.line('#ifdef __ANDROID__');
-      writer.line('    {');
-      writer.line('        std::lock_guard<std::mutex> _lk(g_zero_copy_refs_mtx);');
-      writer.line('        auto it = g_zero_copy_refs.find(ptr);');
-      writer.line('        if (it != g_zero_copy_refs.end()) {');
-      writer.line('            JNIEnv* _env = GetEnv();');
-      writer.line('            if (_env != nullptr) { _env->DeleteGlobalRef(it->second); }');
-
-      writer.line('            g_zero_copy_refs.erase(it);');
-      writer.line('        }');
-      writer.line('    }');
-      writer.line('#endif // __ANDROID__');
-    }
+    // No JNI cleanup here: g_zero_copy_refs holds global refs to JVM
+    // DirectByteBuffers and exists only on the JNI bridge. A cpp NativeImpl has
+    // no JVM object backing a @zeroCopy field, so there is nothing to release —
+    // and this file has no <jni.h>, so emitting it would not compile (#40).
     writer.line('    free(ptr);');
     writer.line('}');
     writer.blankLine();

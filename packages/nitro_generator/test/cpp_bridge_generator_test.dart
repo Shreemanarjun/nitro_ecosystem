@@ -408,6 +408,37 @@ void main() {
       expect(bodyOf('opt_async_opt_int'), contains('malloc'));
     });
 
+    // #40: an Android cpp NativeImpl with a @zeroCopy struct field emitted JNI
+    // cleanup into the JNI-free C++ bridge, which has no <jni.h> and never
+    // populates g_zero_copy_refs — it did not compile for Android.
+    test('cpp direct bridge emits no JNI cleanup for @zeroCopy struct fields', () {
+      final spec = BridgeSpec(
+        dartClassName: 'Repro',
+        lib: 'repro',
+        namespace: 'repro',
+        iosImpl: NativeImpl.cpp,
+        macosImpl: NativeImpl.cpp,
+        androidImpl: NativeImpl.cpp,
+        sourceUri: 'repro.native.dart',
+        structs: [
+          BridgeStruct(
+            name: 'Chunk',
+            packed: false,
+            fields: [
+              BridgeField(name: 'bytes', type: BridgeType(name: 'Uint8List'), zeroCopy: true),
+              BridgeField(name: 'requestId', type: BridgeType(name: 'int')),
+            ],
+          ),
+        ],
+        functions: [],
+      );
+      final out = CppBridgeGenerator.generate(spec);
+      expect(out, contains('void repro_release_Chunk(void* ptr)'));
+      for (final jni in ['g_zero_copy_refs', 'GetEnv()', 'JNIEnv', 'DeleteGlobalRef']) {
+        expect(out, isNot(contains(jni)), reason: '$jni must not reach the JNI-free C++ bridge');
+      }
+    });
+
     // The instance lookup uses an N-way alignas(64) cache instead of a single
     // entry, so a loop across several instances stays lock-free.
     test('instance lookup uses an 8-way alignas(64) cache', () {
