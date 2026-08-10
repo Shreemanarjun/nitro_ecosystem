@@ -47,6 +47,14 @@ const _tolerancePct = int.fromEnvironment(
 // budget: `nitro ≤ rawFfi × ratio + budgetUs`. A regression of the classes we
 // care about (accidental malloc/arena in the hot path, lost isLeaf, an async
 // hop) adds ≥1µs and still trips it on any machine.
+//
+// The gate reads `minUs`, not `medianUs`. A shared CI runner deschedules the
+// benchmark isolate mid-sample, which inflates the median but cannot make a
+// call *faster* than it really is — so the minimum is the estimator that
+// tracks true per-call cost. With the median, a GitHub macOS runner measured
+// the leaf call at 1.055µs against a 1.054µs budget and failed by 0.65ns,
+// while the identical commit had passed hours earlier: noise, not a
+// regression, and 1500× below the ≥1µs this gate exists to catch.
 const _maxLeafOverRawFfi = 2.5; //   ratio term
 const _leafOverheadBudgetUs = 1.0; // absolute per-call overhead budget
 const _maxCppOverRawFfi = 4.0;
@@ -92,7 +100,7 @@ void main() {
       // case means the bridge itself is broken there. Optional tiers
       // (MethodChannel handler, platform bridge) may be absent per platform;
       // their gates auto-skip.
-      double requiredMedian(String id) {
+      double requiredMin(String id) {
         final r = report.caseById(id);
         expect(r, isNotNull, reason: 'benchmark case $id did not run');
         expect(
@@ -100,15 +108,17 @@ void main() {
           isNull,
           reason: 'core case $id was skipped: ${r.skipReason}',
         );
-        return r.stats!.medianUs;
+        // See the header: min, not median — deschedule noise inflates the
+        // median but can never make a call faster than it truly is.
+        return r.stats!.minUs;
       }
 
-      double? optionalMedian(String id) => report.caseById(id)?.stats?.medianUs;
+      double? optionalMin(String id) => report.caseById(id)?.stats?.minUs;
 
-      final rawFfi = requiredMedian('raw_ffi_add');
-      final leaf = requiredMedian('nitro_leaf_add');
-      final cpp = requiredMedian('nitro_cpp_add');
-      final channel = optionalMedian('method_channel_add');
+      final rawFfi = requiredMin('raw_ffi_add');
+      final leaf = requiredMin('nitro_leaf_add');
+      final cpp = requiredMin('nitro_cpp_add');
+      final channel = optionalMin('method_channel_add');
 
       expect(rawFfi, greaterThan(0), reason: 'raw FFI floor measured as 0 µs');
       expect(
@@ -140,7 +150,7 @@ void main() {
               'channel=${channel.toStringAsFixed(3)}µs).',
         );
 
-        final asyncRecord = optionalMedian('nitro_async_record');
+        final asyncRecord = optionalMin('nitro_async_record');
         if (asyncRecord != null) {
           expect(
             asyncRecord,
@@ -157,8 +167,8 @@ void main() {
         // stay within a small factor of the raw-FFI sieve — a blowout means
         // the bridge started copying/allocating per call. Budget absorbs
         // shared-runner noise on the µs scale.
-        final ffiSieve = optionalMedian('raw_ffi_sieve');
-        final cppSieve = optionalMedian('nitro_cpp_sieve');
+        final ffiSieve = optionalMin('raw_ffi_sieve');
+        final cppSieve = optionalMin('nitro_cpp_sieve');
         if (ffiSieve != null && cppSieve != null) {
           expect(
             cppSieve,
@@ -170,7 +180,7 @@ void main() {
                 'int-only signature should be fixed and small.',
           );
         }
-        final chanSieve = optionalMedian('channel_sieve');
+        final chanSieve = optionalMin('channel_sieve');
         if (chanSieve != null && cppSieve != null) {
           expect(
             chanSieve,
@@ -182,7 +192,7 @@ void main() {
           );
         }
 
-        final nativeAsyncRecord = optionalMedian('nitro_native_async_record');
+        final nativeAsyncRecord = optionalMin('nitro_native_async_record');
         if (nativeAsyncRecord != null) {
           expect(
             nativeAsyncRecord,

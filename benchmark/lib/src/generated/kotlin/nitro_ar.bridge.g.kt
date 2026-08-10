@@ -643,6 +643,27 @@ object NitroArJniBridge {
     var activity: Activity? = null
         private set
 
+    private val _zeroCopyPool = java.util.concurrent.ConcurrentHashMap<Int, java.util.concurrent.ArrayBlockingQueue<java.nio.ByteBuffer>>()
+    private const val _kZeroCopyPoolPerSize = 8
+
+    /// Borrows a direct buffer of exactly [size] bytes, reusing a released one
+    /// when available. Use this instead of allocateDirect() for @zeroCopy
+    /// returns. Bounded and non-blocking — it never makes a caller wait.
+    @JvmStatic fun acquireZeroCopyBuffer(size: Int): java.nio.ByteBuffer {
+        val reused = _zeroCopyPool[size]?.poll()
+        if (reused != null) { reused.clear(); return reused }
+        return java.nio.ByteBuffer.allocateDirect(size).order(java.nio.ByteOrder.nativeOrder())
+    }
+
+    /// Called from the native release path once Dart has released the view.
+    /// offer() drops the buffer when the pool is full, so memory stays bounded.
+    @JvmStatic fun releaseZeroCopyBuffer(buf: java.nio.ByteBuffer) {
+        if (!buf.isDirect) return
+        _zeroCopyPool.computeIfAbsent(buf.capacity()) {
+            java.util.concurrent.ArrayBlockingQueue(_kZeroCopyPoolPerSize)
+        }.offer(buf)
+    }
+
     @JvmStatic external fun initialize(bridgeClass: Class<*>)
 
     fun registerFactory(factory: () -> HybridNitroArSpec, context: Context) {
