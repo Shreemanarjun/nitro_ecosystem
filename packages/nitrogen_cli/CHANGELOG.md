@@ -1,3 +1,7 @@
+## 0.6.1
+
+- **Ecosystem sync** — released alongside `nitro` 0.6.1's `NitroCoalescer.dispose()` fix ([#47](https://github.com/Shreemanarjun/nitro_ecosystem/issues/47)). No changes to this package.
+
 ## 0.6.0
 
 - Ecosystem sync for `nitro` 0.6.0. No CLI changes, but **`nitrogen generate` and `nitrogen link` must be re-run**: the Dart↔native ownership contract changed, so generated code and the runtime must both be 0.6.0. See [migration/0.6.0.md](../../migration/0.6.0.md).

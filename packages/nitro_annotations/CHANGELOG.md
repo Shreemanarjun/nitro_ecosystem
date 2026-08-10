@@ -1,3 +1,7 @@
+# 0.6.1
+
+- **Ecosystem sync** — released alongside `nitro` 0.6.1's `NitroCoalescer.dispose()` fix ([#47](https://github.com/Shreemanarjun/nitro_ecosystem/issues/47)). No changes to this package.
+
 # 0.6.0
 
 - Ecosystem sync for `nitro` 0.6.0. No changes to this package; regenerate to pick up the new bridges.

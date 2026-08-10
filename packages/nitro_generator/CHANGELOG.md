@@ -1,3 +1,7 @@
+## 0.6.1
+
+- **Ecosystem sync** — released alongside `nitro` 0.6.1's `NitroCoalescer.dispose()` fix ([#47](https://github.com/Shreemanarjun/nitro_ecosystem/issues/47)). No changes to this package.
+
 ## 0.6.0
 
 - Sync bridge returns (nullable primitives, `@HybridStruct`, `String`) now return a pointer into a reusable per-thread buffer, and the generated Dart no longer frees it. `@nitroAsync` / `@nitroNativeAsync` keep their own allocation. **Regenerate and re-link**; generated code requires `nitro` ≥ 0.6.0. See [migration/0.6.0.md](../../migration/0.6.0.md).

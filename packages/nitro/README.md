@@ -474,7 +474,7 @@ Future<int> submit(int value) => coalescer.submit(
 );
 
 final results = await Future.wait([for (var i = 0; i < 64; i++) submit(i)]);
-await coalescer.dispose();
+await coalescer.dispose(); // drains in-flight results, then fails any that were lost
 ```
 
 On the native side, buffer `(callId, value)` and post the drained batch as one
