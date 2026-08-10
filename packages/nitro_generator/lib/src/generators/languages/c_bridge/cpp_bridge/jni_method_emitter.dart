@@ -1975,8 +1975,19 @@ void _emitJniMethods(
     writer.line('    void* owner = (void*)(intptr_t)words[2];');
     writer.line('    if (owner != nullptr) {');
     writer.line('        JNIEnv* env = GetEnv();');
-    writer.line('        if (env != nullptr) { env->DeleteGlobalRef((jobject)owner); }');
-
+    writer.line('        if (env != nullptr) {');
+    // Dart is done with the view at this point, so the buffer can be pooled for
+    // reuse — without this, per-call allocateDirect churn fragments ART's
+    // malloc_space until a small allocation fails with free memory left (#48).
+    // Pool first, THEN drop the global ref: the pool's own strong reference is
+    // what keeps the buffer alive afterwards.
+    writer.line('            jmethodID _relMid = env->GetStaticMethodID(g_bridgeClass, "releaseZeroCopyBuffer", "(Ljava/nio/ByteBuffer;)V");');
+    writer.line('            if (_relMid != nullptr) {');
+    writer.line('                env->CallStaticVoidMethod(g_bridgeClass, _relMid, (jobject)owner);');
+    writer.line('                if (env->ExceptionCheck()) { env->ExceptionClear(); }');
+    writer.line('            } else if (env->ExceptionCheck()) { env->ExceptionClear(); }');
+    writer.line('            env->DeleteGlobalRef((jobject)owner);');
+    writer.line('        }');
     writer.line('    }');
     writer.line('    free(ptr);');
     writer.line('}');

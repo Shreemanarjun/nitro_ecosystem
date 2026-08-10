@@ -1,6 +1,10 @@
 ## 0.6.1
 
-- **Ecosystem sync** — released alongside `nitro` 0.6.1's `NitroCoalescer.dispose()` fix ([#47](https://github.com/Shreemanarjun/nitro_ecosystem/issues/47)). No changes to this package.
+- **Fixed (Android): sustained `@zeroCopy` TypedData returns fragmented ART's `malloc_space` until a small allocation failed with plenty of free memory ([#48](https://github.com/Shreemanarjun/nitro_ecosystem/issues/48)).** Every such return allocated a fresh direct buffer whose native memory was only reclaimed after Dart's finalizer dropped the JNI global ref *and* the JVM then collected the `ByteBuffer`; at a high call rate that churn fragmented the heap. On a real device a 4 KB return loop died at 40k iterations with ~100 MB free and a 3 KB largest-contiguous block — it now runs 80k with memory being returned.
+  - The generated `<Class>JniBridge` gains `acquireZeroCopyBuffer(size)` / `releaseZeroCopyBuffer(buf)`: a bounded pool (8 buffers per exact size class, `ArrayBlockingQueue`) that never blocks a caller and drops overflow instead of growing.
+  - `<lib>_release_typed_data_return` returns each buffer to the pool **before** dropping the global ref, so a buffer only becomes reusable after Dart is finished with it and is never aliased by a live view.
+  - **Opt-in for impls:** call `acquireZeroCopyBuffer(size)` instead of `ByteBuffer.allocateDirect(size)` in `@zeroCopy` returns. Existing impls keep working unchanged; they just don't get the reuse. **Regenerate** to pick up the pool.
+- **Ecosystem sync** — released alongside `nitro` 0.6.1's `NitroCoalescer.dispose()` fix ([#47](https://github.com/Shreemanarjun/nitro_ecosystem/issues/47)).
 
 ## 0.6.0
 

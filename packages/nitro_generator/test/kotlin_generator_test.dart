@@ -60,6 +60,24 @@ void main() {
       expect(out, contains('interface HybridMyCameraSpec'));
     });
 
+    // #48: per-call allocateDirect for @zeroCopy returns fragmented ART's
+    // malloc_space until a small allocation failed with free memory left.
+    // The bridge offers a bounded pool; the native release path returns each
+    // buffer once Dart is done with it, so a pooled buffer is never aliased.
+    test('emits a bounded zero-copy buffer pool', () {
+      final out = KotlinGenerator.generate(simpleSpec());
+      expect(out, contains('@JvmStatic fun acquireZeroCopyBuffer(size: Int)'));
+      expect(out, contains('@JvmStatic fun releaseZeroCopyBuffer(buf: java.nio.ByteBuffer)'));
+      // Bounded, and non-blocking so a release never stalls the caller.
+      expect(out, contains('ArrayBlockingQueue(_kZeroCopyPoolPerSize)'));
+      expect(out, contains('.offer(buf)'));
+      expect(out, contains('?.poll()'));
+      // Exact-capacity keying: the bridge reads the payload length from
+      // GetDirectBufferCapacity, so a larger buffer would report a wrong length.
+      expect(out, contains('_zeroCopyPool[size]'));
+      expect(out, contains('_zeroCopyPool.computeIfAbsent(buf.capacity())'));
+    });
+
     test('documents native implementation thread-safety contract', () {
       final out = KotlinGenerator.generate(simpleSpec());
       expect(out, contains('Nitro may call this implementation from any JNI thread.'));

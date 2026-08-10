@@ -2,6 +2,7 @@
 
 - **Fixed: `NitroCoalescer.dispose()` discarded results that were already posted, so the `Future` hung forever ([#47](https://github.com/Shreemanarjun/nitro_ecosystem/issues/47)).** A native post only enqueues on the port — delivery needs an event-loop turn — and `dispose()` is normally called in that same turn, so results that already existed were thrown away. `dispose()` now drains already-posted batches (bounded, exits as soon as nothing is pending) and completes anything genuinely lost with a `StateError` instead of dropping it. Stopping the native side first no longer has to be enough on its own.
 - `dispose()` is idempotent, and `submit()` after disposal throws instead of returning a future that could never complete.
+- Android `@zeroCopy` TypedData returns no longer fragment the JVM heap under sustained load — the fix is generator-side, so **regenerate** to pick it up, and see `nitro_generator` 0.6.1 ([#48](https://github.com/Shreemanarjun/nitro_ecosystem/issues/48)).
 - **Behavior note:** because pending calls now fail rather than vanish, a `submit()` result that is never awaited surfaces as an unhandled error. Await the futures (or `.ignore()` deliberately dropped ones).
 
 ## 0.6.0

@@ -408,6 +408,35 @@ void main() {
       expect(bodyOf('opt_async_opt_int'), contains('malloc'));
     });
 
+    // #48: the JNI release path must hand the buffer back to the pool before
+    // dropping the global ref — the pool's own reference keeps it alive.
+    test('JNI zero-copy release returns the buffer to the pool', () {
+      final spec = BridgeSpec(
+        dartClassName: 'Dsp',
+        lib: 'dsp',
+        namespace: 'dsp',
+        androidImpl: NativeImpl.kotlin,
+        sourceUri: 'dsp.native.dart',
+        functions: [
+          BridgeFunction(
+            dartName: 'snapshot',
+            cSymbol: 'dsp_snapshot',
+            isAsync: false,
+            returnType: BridgeType(name: 'Uint8List'),
+            zeroCopyReturn: true,
+            params: [],
+          ),
+        ],
+      );
+      final out = CppBridgeGenerator.generate(spec);
+      final rel = out.substring(out.indexOf('void dsp_release_typed_data_return'));
+      final body = rel.substring(0, rel.indexOf('\n}'));
+      expect(body, contains('"releaseZeroCopyBuffer"'));
+      // Pool first, then drop the ref — reversing this frees it before pooling.
+      expect(body.indexOf('releaseZeroCopyBuffer'),
+          lessThan(body.indexOf('DeleteGlobalRef')));
+    });
+
     // #40: an Android cpp NativeImpl with a @zeroCopy struct field emitted JNI
     // cleanup into the JNI-free C++ bridge, which has no <jni.h> and never
     // populates g_zero_copy_refs — it did not compile for Android.

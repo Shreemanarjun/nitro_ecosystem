@@ -153,6 +153,37 @@ class KotlinGenerator {
     writer.line('    var activity: Activity? = null');
     writer.line('        private set');
     writer.blankLine();
+    // Zero-copy direct-buffer pool. Every @zeroCopy TypedData return used to
+    // allocateDirect() a fresh block whose native memory is only reclaimed once
+    // Dart's finalizer drops the JNI global ref AND the JVM then collects the
+    // ByteBuffer. At a high call rate that churn fragments ART's malloc_space
+    // until a small allocation fails with plenty of free memory (#48).
+    //
+    // A buffer re-enters the pool from the release path — after Dart is done
+    // with it — so a pooled buffer is never aliased by a live Dart view.
+    // Keyed by exact capacity because the bridge reads the payload length from
+    // GetDirectBufferCapacity; a larger buffer would report the wrong length.
+    writer.line('    private val _zeroCopyPool = java.util.concurrent.ConcurrentHashMap<Int, java.util.concurrent.ArrayBlockingQueue<java.nio.ByteBuffer>>()');
+    writer.line('    private const val _kZeroCopyPoolPerSize = 8');
+    writer.blankLine();
+    writer.line('    /// Borrows a direct buffer of exactly [size] bytes, reusing a released one');
+    writer.line('    /// when available. Use this instead of allocateDirect() for @zeroCopy');
+    writer.line('    /// returns. Bounded and non-blocking — it never makes a caller wait.');
+    writer.line('    @JvmStatic fun acquireZeroCopyBuffer(size: Int): java.nio.ByteBuffer {');
+    writer.line('        val reused = _zeroCopyPool[size]?.poll()');
+    writer.line('        if (reused != null) { reused.clear(); return reused }');
+    writer.line('        return java.nio.ByteBuffer.allocateDirect(size).order(java.nio.ByteOrder.nativeOrder())');
+    writer.line('    }');
+    writer.blankLine();
+    writer.line('    /// Called from the native release path once Dart has released the view.');
+    writer.line('    /// offer() drops the buffer when the pool is full, so memory stays bounded.');
+    writer.line('    @JvmStatic fun releaseZeroCopyBuffer(buf: java.nio.ByteBuffer) {');
+    writer.line('        if (!buf.isDirect) return');
+    writer.line('        _zeroCopyPool.computeIfAbsent(buf.capacity()) {');
+    writer.line('            java.util.concurrent.ArrayBlockingQueue(_kZeroCopyPoolPerSize)');
+    writer.line('        }.offer(buf)');
+    writer.line('    }');
+    writer.blankLine();
     writer.line('    @JvmStatic external fun initialize(bridgeClass: Class<*>)');
     writer.blankLine();
     // registerFactory: called once at plugin startup. Equivalent to
