@@ -231,13 +231,34 @@ jobs:
                       print(d['udid']); raise SystemExit
           ")
           echo "udid=$UDID" >> "$GITHUB_OUTPUT"
+          # Start from a known-clean simulator: a leftover booted device is one
+          # of the states where the app builds but never launches.
+          xcrun simctl shutdown all || true
           xcrun simctl boot "$UDID" || true
           xcrun simctl bootstatus "$UDID" -b
 
+      # The app intermittently builds fine and then never starts — no output at
+      # all until the job timeout. Bound the attempt so a hang costs minutes
+      # instead of the job's full 45, then retry once from a fresh simulator;
+      # observed runs either start promptly (~13 min end-to-end) or never.
       - name: Run benchmark on simulator (debug, functional + hash verification)
+        id: bench
+        continue-on-error: true
+        timeout-minutes: 20
         run: >
           bash benchmark/tool/bench.sh -d ${{ steps.sim.outputs.udid }}
           --debug --gate none --mode quick
+
+      - name: Retry once on a fresh simulator
+        if: steps.bench.outcome == 'failure'
+        timeout-minutes: 20
+        run: |
+          xcrun simctl shutdown all || true
+          xcrun simctl erase "${{ steps.sim.outputs.udid }}" || true
+          xcrun simctl boot "${{ steps.sim.outputs.udid }}" || true
+          xcrun simctl bootstatus "${{ steps.sim.outputs.udid }}" -b
+          bash benchmark/tool/bench.sh -d ${{ steps.sim.outputs.udid }} \
+            --debug --gate none --mode quick
 
       - name: Publish analysis to job summary
         if: always()
