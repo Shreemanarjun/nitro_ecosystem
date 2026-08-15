@@ -1285,10 +1285,14 @@ void _emitJniStreamBridges(
         writer.line(
           '    *st_ptr = pack_${stream.itemType.name}_from_jni(env, item);',
         );
-        writer.line('    // Check if pack_ threw an exception (e.g., heap ByteBuffer for @ZeroCopy)');
+        // pack_ can throw (e.g. a heap ByteBuffer where @zeroCopy needs a direct
+        // one). The item is dropped and JNI_FALSE returned; name the stream in
+        // the log so a missing emission is attributable, matching the LOGE style
+        // used for the method-ID lookups.
         writer.line('    if (env->ExceptionCheck()) {');
         writer.line('        env->ExceptionDescribe();');
         writer.line('        env->ExceptionClear();');
+        writer.line('        LOGE("emit_${stream.dartName}: packing $stName threw; item dropped");');
         writer.line('        free(st_ptr);');
         writer.line('        return JNI_FALSE;');
         writer.line('    }');

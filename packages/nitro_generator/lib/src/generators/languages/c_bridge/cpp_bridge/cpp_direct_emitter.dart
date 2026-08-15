@@ -506,17 +506,8 @@ String _generateCppDirect(BridgeSpec spec) {
       } else if (structNames.contains(base)) {
         callArgs.add('*static_cast<const $base*>(${p.name})');
       } else if (p.type.isRecord || variantNames.contains(base)) {
-        if (p.type.isNullable) {
-          writer.line('        NitroCppBuffer _buf_${p.name} = { nullptr, 0 };');
-          writer.line('        if (${p.name} != nullptr) {');
-          writer.line('            _buf_${p.name}.data = (const uint8_t*)${p.name} + 4;');
-          writer.line('            _buf_${p.name}.size = (size_t)*(int32_t*)${p.name};');
-          writer.line('        }');
-          callArgs.add('_buf_${p.name}');
-        } else {
-          writer.line('        NitroCppBuffer _buf_${p.name} = { (const uint8_t*)${p.name} + 4, (size_t)*(int32_t*)${p.name} };');
-          callArgs.add('_buf_${p.name}');
-        }
+        callArgs.add(CppBridgeGenerator._emitRecordParamUnpack(
+          writer, p, isNullable: p.type.isNullable));
       } else if (p.type.isTypedData) {
         callArgs.add(p.name);
         callArgs.add('static_cast<size_t>(${p.name}_length)');
@@ -632,6 +623,60 @@ String _generateCppDirect(BridgeSpec spec) {
   }
 
   // ── Properties ───────────────────────────────────────────────────────────
+  _emitCppDirectProperties(writer, spec, enumNames, structNames, recordNames, notInit);
+
+  // ── Streams ──────────────────────────────────────────────────────────────
+  // Each concurrent Dart subscriber registers its own port (matching
+  // Kotlin/Swift); a single int64 slot previously let a second subscriber
+  // overwrite the first.
+  for (final stream in spec.streams) {
+    writer.line('void ${stream.registerSymbol}(int64_t instanceId, int64_t dart_port) {');
+    writer.line('    g_ports_${stream.dartName}.add(dart_port);');
+    writer.line('}');
+    writer.line('void ${stream.releaseSymbol}(int64_t dart_port) {');
+    writer.line('    g_ports_${stream.dartName}.remove(dart_port);');
+    writer.line('}');
+    writer.blankLine();
+  }
+
+  // ── Struct release functions (used by NativeFinalizer in Dart proxy classes) ─
+  for (final st in spec.structs) {
+    writer.line('// Frees a malloc\'d [${st.name}] wrapper allocated by the stream emitter.');
+    writer.line('// Called automatically by NativeFinalizer when the Dart proxy is GC\'d.');
+    writer.line('void ${libStem}_release_${st.name}(void* ptr) {');
+    writer.line('    if (!ptr) { return; }');
+
+    CppBridgeGenerator._emitStructFieldReleases(writer, st, structNames);
+    // No JNI cleanup here: g_zero_copy_refs holds global refs to JVM
+    // DirectByteBuffers and exists only on the JNI bridge. A cpp NativeImpl has
+    // no JVM object backing a @zeroCopy field, so there is nothing to release —
+    // and this file has no <jni.h>, so emitting it would not compile (#40).
+    writer.line('    free(ptr);');
+    writer.line('}');
+    writer.blankLine();
+  }
+
+  writer.line('} // extern "C"');
+  if (cppAppleOnly) writer.line('#endif // __APPLE__  // iOS + macOS');
+  if (cppAndroidOnly) writer.line('#endif // __ANDROID__');
+  return writer.toString();
+}
+
+
+/// Emits the property getter/setter exports for the direct C++ bridge.
+///
+/// Split out of [_generateCppDirect] (which ran to ~750 lines): the property
+/// branches sit in their own scope, so `func` is not reachable here — a
+/// getter is always synchronous, and treating it like a method has been a
+/// live source of mistakes.
+void _emitCppDirectProperties(
+  CodeWriter writer,
+  BridgeSpec spec,
+  Set<String> enumNames,
+  Set<String> structNames,
+  Set<String> recordNames,
+  String notInit,
+) {
   for (final prop in spec.properties) {
     final isEnum = enumNames.contains(prop.type.name.replaceFirst('?', ''));
     final propPrimBase = prop.type.name.replaceFirst('?', '');
@@ -758,53 +803,4 @@ String _generateCppDirect(BridgeSpec spec) {
     }
   }
 
-  // ── Streams ──────────────────────────────────────────────────────────────
-  // Each concurrent Dart subscriber registers its own port (matching
-  // Kotlin/Swift); a single int64 slot previously let a second subscriber
-  // overwrite the first.
-  for (final stream in spec.streams) {
-    writer.line('void ${stream.registerSymbol}(int64_t instanceId, int64_t dart_port) {');
-    writer.line('    g_ports_${stream.dartName}.add(dart_port);');
-    writer.line('}');
-    writer.line('void ${stream.releaseSymbol}(int64_t dart_port) {');
-    writer.line('    g_ports_${stream.dartName}.remove(dart_port);');
-    writer.line('}');
-    writer.blankLine();
-  }
-
-  // ── Struct release functions (used by NativeFinalizer in Dart proxy classes) ─
-  for (final st in spec.structs) {
-    writer.line('// Frees a malloc\'d [${st.name}] wrapper allocated by the stream emitter.');
-    writer.line('// Called automatically by NativeFinalizer when the Dart proxy is GC\'d.');
-    writer.line('void ${libStem}_release_${st.name}(void* ptr) {');
-    writer.line('    if (!ptr) { return; }');
-
-    final hasStrings = st.fields.any((f) => f.type.name == 'String');
-    final hasNestedStructs = st.fields.any((f) => structNames.contains(f.type.name.replaceFirst('?', '')));
-    final hasNonZcData = st.fields.any((f) => f.type.isTypedData && !f.zeroCopy);
-    if (hasStrings || hasNestedStructs || hasNonZcData) {
-      writer.line('    ${st.name}* st_ptr = (${st.name}*)ptr;');
-      for (final f in st.fields) {
-        if (f.type.name == 'String') {
-          writer.line('    if (st_ptr->${f.name}) { free((void*)st_ptr->${f.name}); }');
-        } else if (structNames.contains(f.type.name.replaceFirst('?', ''))) {
-          writer.line('    if (st_ptr->${f.name}) { free(st_ptr->${f.name}); st_ptr->${f.name} = nullptr; }');
-        } else if (f.type.isTypedData && !f.zeroCopy) {
-          writer.line('    if (st_ptr->${f.name}) { free(st_ptr->${f.name}); st_ptr->${f.name} = nullptr; }');
-        }
-      }
-    }
-    // No JNI cleanup here: g_zero_copy_refs holds global refs to JVM
-    // DirectByteBuffers and exists only on the JNI bridge. A cpp NativeImpl has
-    // no JVM object backing a @zeroCopy field, so there is nothing to release —
-    // and this file has no <jni.h>, so emitting it would not compile (#40).
-    writer.line('    free(ptr);');
-    writer.line('}');
-    writer.blankLine();
-  }
-
-  writer.line('} // extern "C"');
-  if (cppAppleOnly) writer.line('#endif // __APPLE__  // iOS + macOS');
-  if (cppAndroidOnly) writer.line('#endif // __ANDROID__');
-  return writer.toString();
 }

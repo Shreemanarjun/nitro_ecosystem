@@ -190,21 +190,7 @@ class CppBridgeGenerator {
           writer.line('#endif');
         }
 
-        final hasStrings = st.fields.any((f) => f.type.name == 'String');
-        final hasNestedStructs = st.fields.any((f) => structNames.contains(f.type.name.replaceFirst('?', '')));
-        final hasNonZcDataJni = st.fields.any((f) => f.type.isTypedData && !f.zeroCopy);
-        if (hasStrings || hasNestedStructs || hasNonZcDataJni) {
-          writer.line('    ${st.name}* st_ptr = (${st.name}*)ptr;');
-          for (final f in st.fields) {
-            if (f.type.name == 'String') {
-              writer.line('    if (st_ptr->${f.name}) { free((void*)st_ptr->${f.name}); }');
-            } else if (structNames.contains(f.type.name.replaceFirst('?', ''))) {
-              writer.line('    if (st_ptr->${f.name}) { free(st_ptr->${f.name}); st_ptr->${f.name} = nullptr; }');
-            } else if (f.type.isTypedData && !f.zeroCopy) {
-              writer.line('    if (st_ptr->${f.name}) { free(st_ptr->${f.name}); st_ptr->${f.name} = nullptr; }');
-            }
-          }
-        }
+        _emitStructFieldReleases(writer, st, structNames);
         writer.line('    free(ptr);');
         writer.line('}');
       }
@@ -681,17 +667,7 @@ class CppBridgeGenerator {
             callArgs.add('*static_cast<const $base*>(${p.name})');
           }
         } else if (p.type.isRecord || variantNames.contains(base)) {
-          if (isNullableParam) {
-            writer.line('        NitroCppBuffer _buf_${p.name} = { nullptr, 0 };');
-            writer.line('        if (${p.name} != nullptr) {');
-            writer.line('            _buf_${p.name}.data = (const uint8_t*)${p.name} + 4;');
-            writer.line('            _buf_${p.name}.size = (size_t)*(int32_t*)${p.name};');
-            writer.line('        }');
-            callArgs.add('_buf_${p.name}');
-          } else {
-            writer.line('        NitroCppBuffer _buf_${p.name} = { (const uint8_t*)${p.name} + 4, (size_t)*(int32_t*)${p.name} };');
-            callArgs.add('_buf_${p.name}');
-          }
+          callArgs.add(_emitRecordParamUnpack(writer, p, isNullable: isNullableParam));
         } else if (p.type.isTypedData) {
           callArgs.add(p.name);
           callArgs.add('static_cast<size_t>(${p.name}_length)');
@@ -1555,6 +1531,63 @@ class CppBridgeGenerator {
     Set<String> structNames,
   ) {
     return (type.isNullable || type.name.endsWith('?')) && structNames.contains(type.name.replaceFirst('?', ''));
+  }
+
+  /// Emits the heap-field frees inside `<lib>_release_<Struct>` — strings,
+  /// nested structs, and non-zero-copy typed data.
+  ///
+  /// Shared by the mixed (JNI/Swift) bridge and the direct C++ bridge. These
+  /// two emitters were byte-identical copies here, and #40 was a divergence in
+  /// exactly this function, so they call one implementation (#41).
+  /// Emits the `NitroCppBuffer` unpack for a `@HybridRecord` / `@NitroVariant`
+  /// parameter and returns the call-site argument name.
+  ///
+  /// Both wire shapes are `[4B len][payload]`; a nullable param arrives as
+  /// nullptr when omitted, so the length prefix must not be dereferenced.
+  /// Shared by the mixed and direct C++ bridges (#41) — this unpack was an
+  /// exact copy in both, and a change to the wire format has to land in one
+  /// place, not two.
+  static String _emitRecordParamUnpack(
+    CodeWriter writer,
+    BridgeParam p, {
+    required bool isNullable,
+  }) {
+    final buf = '_buf_${p.name}';
+    if (isNullable) {
+      writer.line('        NitroCppBuffer $buf = { nullptr, 0 };');
+      writer.line('        if (${p.name} != nullptr) {');
+      writer.line('            $buf.data = (const uint8_t*)${p.name} + 4;');
+      writer.line('            $buf.size = (size_t)*(int32_t*)${p.name};');
+      writer.line('        }');
+    } else {
+      writer.line('        NitroCppBuffer $buf = { (const uint8_t*)${p.name} + 4, (size_t)*(int32_t*)${p.name} };');
+    }
+    return buf;
+  }
+
+  static void _emitStructFieldReleases(
+    CodeWriter writer,
+    BridgeStruct st,
+    Set<String> structNames,
+  ) {
+    bool isNestedStruct(BridgeField f) =>
+        structNames.contains(f.type.name.replaceFirst('?', ''));
+    bool isOwnedTypedData(BridgeField f) => f.type.isTypedData && !f.zeroCopy;
+
+    final needsFieldFrees = st.fields.any(
+      (f) => f.type.name == 'String' || isNestedStruct(f) || isOwnedTypedData(f),
+    );
+    if (!needsFieldFrees) return;
+
+    writer.line('    ${st.name}* st_ptr = (${st.name}*)ptr;');
+    for (final f in st.fields) {
+      if (f.type.name == 'String') {
+        // const char* — cast away const for free().
+        writer.line('    if (st_ptr->${f.name}) { free((void*)st_ptr->${f.name}); }');
+      } else if (isNestedStruct(f) || isOwnedTypedData(f)) {
+        writer.line('    if (st_ptr->${f.name}) { free(st_ptr->${f.name}); st_ptr->${f.name} = nullptr; }');
+      }
+    }
   }
 
   static void _emitNullableStructParamGuards(

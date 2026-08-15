@@ -408,6 +408,59 @@ void main() {
       expect(bodyOf('opt_async_opt_int'), contains('malloc'));
     });
 
+    // #41: the mixed (JNI/Swift) and direct C++ bridges emit the same struct
+    // release and record-param unpack. They used to be copy-pasted, which is
+    // how #40 shipped — a change landed in one and not the other. They now
+    // share one implementation; this asserts the emitted shapes stay equal.
+    group('shared emitters do not drift between the two C++ paths', () {
+      BridgeSpec specFor({required bool allCpp}) => BridgeSpec(
+            dartClassName: 'Drift',
+            lib: 'drift',
+            namespace: 'drift',
+            iosImpl: allCpp ? NativeImpl.cpp : NativeImpl.swift,
+            macosImpl: allCpp ? NativeImpl.cpp : NativeImpl.swift,
+            androidImpl: allCpp ? NativeImpl.cpp : NativeImpl.kotlin,
+            sourceUri: 'drift.native.dart',
+            structs: [
+              BridgeStruct(
+                name: 'Payload',
+                packed: false,
+                fields: [
+                  BridgeField(name: 'label', type: BridgeType(name: 'String')),
+                  BridgeField(name: 'blob', type: BridgeType(name: 'Uint8List')),
+                  BridgeField(name: 'count', type: BridgeType(name: 'int')),
+                ],
+              ),
+            ],
+            functions: [],
+          );
+
+      /// The heap-field frees inside `drift_release_Payload`.
+      List<String> releaseBody(String out) {
+        final i = out.indexOf('void drift_release_Payload(void* ptr)');
+        expect(i, greaterThanOrEqualTo(0), reason: 'release fn not emitted');
+        return out
+            .substring(i, out.indexOf('\n}', i))
+            .split('\n')
+            .where((l) => l.contains('st_ptr'))
+            .map((l) => l.trim())
+            .toList();
+      }
+
+      test('struct release frees the same fields on both paths', () {
+        final mixed = releaseBody(CppBridgeGenerator.generate(specFor(allCpp: false)));
+        final direct = releaseBody(CppBridgeGenerator.generate(specFor(allCpp: true)));
+        expect(direct, mixed,
+            reason: 'the two C++ paths must free identical struct fields');
+        // Sanity: the assertion is comparing something real.
+        expect(mixed, isNotEmpty);
+        expect(mixed.any((l) => l.contains('label')), isTrue);
+        expect(mixed.any((l) => l.contains('blob')), isTrue);
+        expect(mixed.any((l) => l.contains('count')), isFalse,
+            reason: 'a plain int field owns no heap memory');
+      });
+    });
+
     // #48: the JNI release path must hand the buffer back to the pool before
     // dropping the global ref — the pool's own reference keeps it alive.
     test('JNI zero-copy release returns the buffer to the pool', () {
