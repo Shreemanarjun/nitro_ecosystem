@@ -828,28 +828,42 @@ bool deleteBuildRunnerLock(String projectRoot) {
 }
 
 class IncrementalGenerationCache {
-  IncrementalGenerationCache(this.projectRoot);
+  IncrementalGenerationCache(this.projectRoot, {String? generatorIdentity}) : _generatorIdentity = generatorIdentity;
 
   static const manifestRelativePath = '.dart_tool/nitro/cache.json';
 
   final String projectRoot;
+  final String? _generatorIdentity;
 
   File get manifestFile => File(p.join(projectRoot, manifestRelativePath));
+
+  /// The resolved generator version is the part of the toolchain that emits
+  /// generated source. A missing lockfile is deliberately not cacheable: pub
+  /// get may resolve a different generator before build_runner runs.
+  String? get _currentGeneratorIdentity => _generatorIdentity ?? _resolvedGeneratorIdentity();
 
   IncrementalGenerationPlan plan({
     required List<File> specs,
     required List<String> Function(File spec) outputPathsForSpec,
   }) {
     final manifest = _readManifest();
+    final generatorIdentity = _currentGeneratorIdentity;
     final changed = <File>[];
     for (final spec in specs) {
       final rel = p.relative(spec.path, from: projectRoot);
       final hash = contentHash(spec);
       final entry = manifest[rel];
       final cachedHash = entry is Map<String, dynamic> ? entry['hash'] as String? : null;
+      final cachedGenerator = entry is Map<String, dynamic> ? entry['generator'] as String? : null;
+      final cachedOutputHashes = entry is Map<String, dynamic> ? entry['outputFiles'] : null;
       final outputPaths = outputPathsForSpec(spec);
-      final missingOutput = outputPaths.any((path) => !File(path).existsSync());
-      if (cachedHash != hash || missingOutput) {
+      final outputsChanged = cachedOutputHashes is! Map<String, dynamic> ||
+          outputPaths.any((path) {
+            final output = File(path);
+            final relOutput = p.relative(path, from: projectRoot);
+            return !output.existsSync() || cachedOutputHashes[relOutput] != contentHash(output);
+          });
+      if (cachedHash != hash || generatorIdentity == null || cachedGenerator != generatorIdentity || outputsChanged) {
         changed.add(spec);
       }
     }
@@ -861,11 +875,20 @@ class IncrementalGenerationCache {
     required List<String> Function(File spec) outputPathsForSpec,
   }) {
     final manifest = <String, Object>{};
+    final generatorIdentity = _currentGeneratorIdentity;
     for (final spec in specs) {
       final rel = p.relative(spec.path, from: projectRoot);
+      final outputFiles = <String, String>{};
+      for (final path in outputPathsForSpec(spec)) {
+        final output = File(path);
+        if (output.existsSync()) {
+          outputFiles[p.relative(path, from: projectRoot)] = contentHash(output);
+        }
+      }
       manifest[rel] = {
         'hash': contentHash(spec),
-        'outputFiles': outputPathsForSpec(spec).map((path) => p.relative(path, from: projectRoot)).toList(),
+        'generator': generatorIdentity,
+        'outputFiles': outputFiles,
       };
     }
     manifestFile.parent.createSync(recursive: true);
@@ -880,6 +903,25 @@ class IncrementalGenerationCache {
       if (decoded is Map<String, dynamic>) return decoded;
     } catch (_) {}
     return const {};
+  }
+
+  String? _resolvedGeneratorIdentity() {
+    final lockfile = File(p.join(projectRoot, 'pubspec.lock'));
+    if (!lockfile.existsSync()) return null;
+
+    var inGeneratorEntry = false;
+    for (final line in lockfile.readAsLinesSync()) {
+      if (line == '  nitro_generator:') {
+        inGeneratorEntry = true;
+        continue;
+      }
+      if (inGeneratorEntry && line.startsWith('  ') && !line.startsWith('    ')) break;
+      if (inGeneratorEntry) {
+        final match = RegExp(r'^    version: "([^"]+)"$').firstMatch(line);
+        if (match != null) return 'nitro_generator:${match.group(1)}';
+      }
+    }
+    return null;
   }
 
   static String contentHash(File file) {
