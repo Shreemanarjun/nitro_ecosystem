@@ -6,7 +6,13 @@ import 'package:crypto/crypto.dart';
 import 'package:path/path.dart' as p;
 
 import '../ui.dart';
-import '../utils.dart' show cleanEphemeralSymlinkCycles, dedupeSharedSwiftDecls, killBuildRunner;
+import '../utils.dart'
+    show
+        ExamplePlatformRecoveryStep,
+        cleanEphemeralSymlinkCycles,
+        dedupeSharedSwiftDecls,
+        killBuildRunner,
+        planExamplePlatformRecovery;
 import 'link_command.dart'
     show
         cleanRedundantIncludes,
@@ -158,7 +164,7 @@ class GenerateCommand extends Command {
     if (pubGetExit != null) return pubGetExit;
 
     // ── build_runner ─────────────────────────────────────────────────────────
-    await _prepareBuildRunner(projectDir.path);
+    final removedEphemeralArtifacts = await _prepareBuildRunner(projectDir.path);
     final buildExit = await _runBuildRunner(projectDir.path, targets, incrementalPlan, failOnWarn);
     if (buildExit != null) return buildExit;
 
@@ -179,8 +185,21 @@ class GenerateCommand extends Command {
 
     _runLinkPhase(projectDir.path);
 
-    // ── pod install ──────────────────────────────────────────────────────────
-    await _runPodInstall(projectDir.path);
+    // ── example platform recovery / pod install ──────────────────────────────
+    // Flutter configuration was removed before build_runner to break symlink
+    // cycles. Restore it before CocoaPods can consume stale Pods references.
+    final podfileDirs = findPodfileDirs(projectDir.path);
+    final recoverySteps = planExamplePlatformRecovery(
+      removedEphemeralArtifacts: removedEphemeralArtifacts,
+      hasPodfiles: podfileDirs.isNotEmpty,
+    );
+    if (recoverySteps.contains(ExamplePlatformRecoveryStep.flutterPubGet)) {
+      final examplePubGetExit = await _runExamplePubGet(projectDir.path);
+      if (examplePubGetExit != null) return examplePubGetExit;
+    }
+    if (recoverySteps.contains(ExamplePlatformRecoveryStep.podInstall)) {
+      await _runPodInstall(projectDir.path, podfileDirs);
+    }
 
     // Detect whether any spec uses NativeImpl.cpp to tailor the next-steps hint
     final libDir = Directory(p.join(projectDir.path, 'lib'));
@@ -242,7 +261,7 @@ class GenerateCommand extends Command {
 
   /// Stops any already-running build_runner, clears the stale lock file, and
   /// removes ephemeral symlink cycles that can silently hang build_runner.
-  Future<void> _prepareBuildRunner(String projectRoot) async {
+  Future<bool> _prepareBuildRunner(String projectRoot) async {
     // Use `flutter pub run` (not `dart run`) because Flutter projects require
     // Flutter's package resolution — `dart run build_runner` fails with
     // "Flutter users should use flutter pub instead of dart pub".
@@ -280,6 +299,27 @@ class GenerateCommand extends Command {
         stdout.writeln(gray('  › $msg'));
       }
     }
+    return removedCycles.isNotEmpty;
+  }
+
+  /// Restores Flutter-generated example files removed to break build_runner
+  /// symlink cycles before any subsequent CocoaPods installation.
+  Future<int?> _runExamplePubGet(String projectRoot) async {
+    final exampleRoot = p.join(projectRoot, 'example');
+    _log('flutter pub get (example) …');
+    final result = await runStreamingInspected(
+      'flutter',
+      ['pub', 'get'],
+      workingDirectory: exampleRoot,
+      headless: _headless,
+    );
+    final exitCode = result.exitCode;
+    if (exitCode != 0 && exitCode != 255) {
+      _logError('flutter pub get failed in example (exit $exitCode)');
+      return exitCode;
+    }
+    if (!_headless) stdout.writeln('');
+    return null;
   }
 
   /// Runs `build_runner build`. Returns an exit code to abort on, or null to continue.
@@ -422,8 +462,7 @@ class GenerateCommand extends Command {
     linkBuildYamlSourcesExcludes(baseDir: projectRoot);
   }
 
-  Future<void> _runPodInstall(String projectRoot) async {
-    final podfileDirs = findPodfileDirs(projectRoot);
+  Future<void> _runPodInstall(String projectRoot, List<String> podfileDirs) async {
     for (final dir in podfileDirs) {
       _log('pod install (${p.relative(dir, from: projectRoot)}) …');
       final podResult = await runStreamingInspected(
