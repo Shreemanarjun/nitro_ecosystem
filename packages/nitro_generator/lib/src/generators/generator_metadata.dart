@@ -1,6 +1,6 @@
 import '../bridge_spec.dart';
 
-const nitroGeneratorVersion = '0.6.1';
+const nitroGeneratorVersion = '0.7.0';
 
 String generatedFileHeader(String commentPrefix, {required String sourceUri}) {
   final sourceName = sourceUri.split('/').last;

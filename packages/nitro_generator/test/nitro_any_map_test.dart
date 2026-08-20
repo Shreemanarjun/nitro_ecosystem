@@ -6,7 +6,7 @@
 //   §3  Dart runtime: binary round-trip (toNative → fromNative)
 //   §4  Generator: NitroAnyMap recognized as anyMap BridgeTypeKind
 //   §5  Generator: Dart FFI param uses Pointer<Uint8> (same as @HybridRecord)
-//   §6  Generator: Dart FFI return decodes via NitroAnyMap.fromNative()
+//   §6  Generator: Dart FFI return decodes via nitroAnyMapFromNative()
 //   §7  Generator: Dart param encode uses .toNative(arena)
 //   §8  Generator: Kotlin bridge uses NitroAnyMapCodec
 //   §9  Generator: Kotlin bridge emits NitroAnyMapCodec helper object
@@ -14,6 +14,7 @@
 import 'dart:ffi';
 import 'package:ffi/ffi.dart';
 import 'package:nitro/src/nitro_any_value.dart';
+import 'package:nitro/src/nitro_any_value_ffi.dart';
 import 'package:nitro_generator/src/generators/languages/dart/dart_ffi_generator.dart';
 import 'package:nitro_generator/src/generators/languages/kotlin/kotlin_generator.dart';
 import 'package:test/test.dart';
@@ -244,7 +245,7 @@ void main() {
         for (var i = 0; i < len; i++) {
           copy[i] = ptr[i];
         }
-        return NitroAnyMap.fromNative(copy);
+        return nitroAnyMapFromNative(copy);
       });
       // For simplicity, just encode and decode in one arena
       late NitroAnyMap result;
@@ -256,7 +257,7 @@ void main() {
         for (var i = 0; i < len; i++) {
           copy[i] = ptr[i];
         }
-        result = NitroAnyMap.fromNative(copy);
+        result = nitroAnyMapFromNative(copy);
         malloc.free(copy);
       });
       return result;
@@ -368,15 +369,15 @@ void main() {
 
   // ── §6  Dart FFI return decode ───────────────────────────────────────────
 
-  group('§6 Generator — Dart FFI return decodes via NitroAnyMap.fromNative()', () {
+  group('§6 Generator — Dart FFI return decodes via nitroAnyMapFromNative()', () {
     test('getMetadata returns NitroAnyMap in generated code', () {
       final out = DartFfiGenerator.generate(_anyMapReturnSpec());
       expect(out, contains('NitroAnyMap'));
     });
 
-    test('getMetadata decode uses NitroAnyMap.fromNative', () {
+    test('getMetadata decode uses nitroAnyMapFromNative', () {
       final out = DartFfiGenerator.generate(_anyMapReturnSpec());
-      expect(out, contains('NitroAnyMap.fromNative('));
+      expect(out, contains('nitroAnyMapFromNative('));
     });
   });
 

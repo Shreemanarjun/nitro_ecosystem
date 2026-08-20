@@ -1,0 +1,4 @@
+# Build artifacts — produced by tool/build_wasm.sh (CI rebuilds them).
+web_assets/
+.dart_tool/
+build/

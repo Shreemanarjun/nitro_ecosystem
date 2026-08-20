@@ -117,13 +117,13 @@ String _nativeAsyncUnpack(BridgeFunction func, BridgeSpec spec) {
   // verbatim — it's the same helper classifyReturn/_emitReturnDecode use for
   // the sync/@nitroAsync path, where AnyMap has always decoded correctly).
   if (func.returnType.isAnyMap) {
-    final decodeExpr = _decodeRecordExpr(func.returnType, 'rawPtr');
+    final decodeExpr = _decodeRecordExpr(func.returnType, 'rawPtr', spec);
     return '(raw) { if (raw == null) { throw StateError("${func.dartName} (native-async): native posted null for a non-nullable $rt result — post the encoded value, or make the return type nullable"); } final rawPtr = Pointer<Uint8>.fromAddress(raw as int); try { return $decodeExpr; } finally { _nitroFree(rawPtr); } }';
   }
 
   // @HybridRecord  — native posts kInt64 (pointer to binary buffer)
   if (func.returnType.isRecord) {
-    final decodeExpr = _decodeRecordExpr(func.returnType, 'rawPtr');
+    final decodeExpr = _decodeRecordExpr(func.returnType, 'rawPtr', spec);
     final isLazy = func.returnType.recordListItemType != null && !func.returnType.recordListItemIsPrimitive;
     if (isNullable) {
       if (isLazy) {
@@ -143,7 +143,7 @@ String _nativeAsyncUnpack(BridgeFunction func, BridgeSpec spec) {
   // generic `raw as $rt` cast below, which throws (raw is the pointer address,
   // not a TcEvent instance).
   if (spec.isVariantName(rtBase)) {
-    return '(raw) { if (raw == null) { throw StateError("${func.dartName} (native-async): native posted null for a non-nullable $rt result — post the encoded value, or make the return type nullable"); } final rawPtr = Pointer<Uint8>.fromAddress(raw as int); try { return ${rtBase}VariantExt.fromNative(rawPtr); } finally { _nitroFree(rawPtr); } }';
+    return '(raw) { if (raw == null) { throw StateError("${func.dartName} (native-async): native posted null for a non-nullable $rt result — post the encoded value, or make the return type nullable"); } final rawPtr = Pointer<Uint8>.fromAddress(raw as int); try { return ${_variantDecodeExtName(spec, rtBase)}.fromNative(rawPtr); } finally { _nitroFree(rawPtr); } }';
   }
 
   // @HybridStruct  — native posts kInt64 (pointer to heap struct)
@@ -265,7 +265,7 @@ void _emitReturnDecode(
     case ReturnKind.voidType:
       return;
     case ReturnKind.record:
-      final decodeExpr = _decodeRecordExpr(returnType, resVar);
+      final decodeExpr = _decodeRecordExpr(returnType, resVar, spec);
       final isLazy = returnType.recordListItemType != null && !returnType.recordListItemIsPrimitive;
       // Nullable @HybridRecord: C returns nullptr when Kotlin returns null ByteArray?.
       final isNullableRecord = returnType.isNullable || returnType.name.endsWith('?');
@@ -352,7 +352,7 @@ void _emitReturnDecode(
       writer.line('${indent}if ($resVar == nullptr) throw StateError(\'$vBase returned null\');');
       writer.line('${indent}final _variant;');
       writer.line('${indent}try {');
-      writer.line('$indent  _variant = ${vBase}VariantExt.fromNative($resVar);');
+      writer.line('$indent  _variant = ${_variantDecodeExtName(spec, vBase)}.fromNative($resVar);');
       writer.line('$indent} finally {');
       writer.line('$indent  _nitroFree($resVar);');
       writer.line('$indent}');

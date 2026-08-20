@@ -1,3 +1,8 @@
+## 0.7.0
+
+- Version-aligned with the 0.7.0 web release. `WebNativeImpl.wasm` — present
+  since 0.5 — is now fully implemented end to end.
+
 # 0.6.1
 
 - **Ecosystem sync** — released alongside `nitro` 0.6.1's `NitroCoalescer.dispose()` fix ([#47](https://github.com/Shreemanarjun/nitro_ecosystem/issues/47)). No changes to this package.

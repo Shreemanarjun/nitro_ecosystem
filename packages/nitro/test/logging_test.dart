@@ -1,10 +1,11 @@
 // Logging + error-handling behavior (issue #27): the default log handler
-// routes through Flutter's debugPrint (not raw print), and checkError swallows
-// a failure in the error-check path itself but logs it at verbose so it is
-// diagnosable rather than silently lost.
+// routes through zone-aware print (keeping package:nitro's import graph
+// flutter-free so it compiles under plain dart2js/dart2wasm — the 0.7.0 web
+// split), and checkError swallows a failure in the error-check path itself
+// but logs it at verbose so it is diagnosable rather than silently lost.
+import 'dart:async';
 import 'dart:ffi';
 
-import 'package:flutter/foundation.dart';
 import 'package:nitro/src/nitro_runtime.dart';
 import 'package:test/test.dart';
 
@@ -12,15 +13,17 @@ void main() {
   tearDown(() => NitroConfig.instance.reset());
 
   group('default log handler (#27)', () {
-    test('routes through debugPrint, not raw print', () {
+    test('routes through zone-aware print (flutter-free import graph)', () {
       final captured = <String>[];
-      final original = debugPrint;
-      debugPrint = (String? message, {int? wrapWidth}) => captured.add(message ?? '');
-      addTearDown(() => debugPrint = original);
 
       // After reset(), logHandler is the package default (_defaultLog).
       NitroConfig.instance.reset();
-      NitroConfig.instance.logHandler(NitroLogLevel.error, 'unit', 'boom');
+      runZoned(
+        () => NitroConfig.instance.logHandler(NitroLogLevel.error, 'unit', 'boom'),
+        zoneSpecification: ZoneSpecification(
+          print: (self, parent, zone, line) => captured.add(line),
+        ),
+      );
 
       expect(captured, hasLength(1));
       expect(captured.single, contains('[Nitro/unit]'));
@@ -29,17 +32,19 @@ void main() {
 
     test('formats error + stack when provided', () {
       final captured = <String>[];
-      final original = debugPrint;
-      debugPrint = (String? message, {int? wrapWidth}) => captured.add(message ?? '');
-      addTearDown(() => debugPrint = original);
 
       NitroConfig.instance.reset();
-      NitroConfig.instance.logHandler(
-        NitroLogLevel.error,
-        'unit',
-        'failed',
-        StateError('bad'),
-        StackTrace.current,
+      runZoned(
+        () => NitroConfig.instance.logHandler(
+          NitroLogLevel.error,
+          'unit',
+          'failed',
+          StateError('bad'),
+          StackTrace.current,
+        ),
+        zoneSpecification: ZoneSpecification(
+          print: (self, parent, zone, line) => captured.add(line),
+        ),
       );
 
       expect(captured.single, contains('error: Bad state: bad'));

@@ -1,3 +1,22 @@
+## 0.7.0
+
+**Web support.** `package:nitro` now compiles for the web — under both
+`flutter build web` (dart2js) and `--wasm` (dart2wasm) — with a full web
+runtime: WASM module loading, the port registry replacing native ports, the
+`NitroError` slot read from linear memory, streams, and `@nitroNativeAsync`.
+
+**Regenerate after upgrading** — `nitrogen generate && nitrogen link`. See
+[migration/0.7.0.md](../../migration/0.7.0.md) for adding web to a plugin and
+the small API moves (`NitroAnyMap.fromNative` → `nitroAnyMapFromNative`,
+`NitroNullable*.fromNative` → top-level functions, default log sink is now
+zone-aware `print`).
+
+- The record/variant wire codecs now have a platform-neutral core shared by
+  the FFI and web edges; new `NitroWireCodec<T>` for custom types on web.
+- `@nitroAsync` runs inline on web (no isolates); `@zeroCopy` is one bulk copy.
+- Verified end-to-end in Chrome under both compilers, plus the usual native
+  matrix (macOS/iOS/Android integration suites).
+
 ## 0.6.1
 
 - **Fixed: `NitroCoalescer.dispose()` discarded results that were already posted, so the `Future` hung forever ([#47](https://github.com/Shreemanarjun/nitro_ecosystem/issues/47)).** A native post only enqueues on the port — delivery needs an event-loop turn — and `dispose()` is normally called in that same turn, so results that already existed were thrown away. `dispose()` now drains already-posted batches (bounded, exits as soon as nothing is pending) and completes anything genuinely lost with a `StateError` instead of dropping it. Stopping the native side first no longer has to be enough on its own.

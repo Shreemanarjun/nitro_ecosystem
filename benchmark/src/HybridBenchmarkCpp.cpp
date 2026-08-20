@@ -1,6 +1,10 @@
 #include "../lib/src/generated/cpp/benchmark_cpp.native.g.h"
 #include "nitro_workload.h"
+#ifdef __EMSCRIPTEN__
+#include "nitro_wasm_compat.h"
+#else
 #include "dart_api_dl.h"
+#endif
 
 #include <string>
 #include <chrono>
@@ -17,9 +21,21 @@
 #include <vector>
 #include <utility>
 
+#ifdef __EMSCRIPTEN__
+// Single-threaded web build: no worker/stream threads. Async tasks run
+// inline (Dart-side delivery is still microtask-deferred), and the 60fps
+// stream tick runs on an emscripten main-loop interval instead of a thread.
+#include <emscripten/html5.h>
+#endif
+
 class HybridBenchmarkCppImpl final : public HybridBenchmarkCpp {
 public:
     HybridBenchmarkCppImpl() : _running(true), _asyncWorkerRunning(true) {
+#ifdef __EMSCRIPTEN__
+        _tickInterval = emscripten_set_interval(
+            [](void* self) { static_cast<HybridBenchmarkCppImpl*>(self)->_streamTick(); },
+            16.666, this);
+#else
         // Persistent worker thread for computeStatsNative — reused across
         // calls (not spawned per call) so the @nitroAsync vs @nitroNativeAsync
         // benchmark comparison measures dispatch overhead, not OS thread
@@ -48,7 +64,6 @@ public:
         });
 
         _streamThread = std::thread([this]() {
-            double angle = 0;
             auto nextTick = std::chrono::steady_clock::now();
             while (_running) {
                 // Precise 60fps timing
@@ -56,29 +71,17 @@ public:
                 std::this_thread::sleep_until(nextTick);
 
                 if (!_running) break;
-
-                // 1. Stress Test Data (BenchmarkPoint)
-                emit_dataStream(BenchmarkPoint{std::sin(angle), std::cos(angle)});
-
-                // 2. Visual Stress Test (BenchmarkBox)
-                // Cycle through colors and oscillate size
-                uint32_t r = static_cast<uint32_t>((std::sin(angle) + 1.0) * 127);
-                uint32_t g = static_cast<uint32_t>((std::sin(angle + 2.0) + 1.0) * 127);
-                uint32_t b = static_cast<uint32_t>((std::sin(angle + 4.0) + 1.0) * 127);
-                int64_t color = 0xFF000000 | (r << 16) | (g << 8) | b;
-
-                double width = 100.0 + std::sin(angle * 0.5) * 50.0;
-                double height = 100.0 + std::cos(angle * 0.5) * 50.0;
-
-                emit_boxStream(BenchmarkBox{color, width, height});
-
-                angle += 0.05;
+                _streamTick();
             }
         });
+#endif
     }
 
     ~HybridBenchmarkCppImpl() {
         _running = false;
+#ifdef __EMSCRIPTEN__
+        emscripten_clear_interval(_tickInterval);
+#else
         if (_streamThread.joinable()) {
             _streamThread.join();
         }
@@ -90,6 +93,44 @@ public:
         if (_asyncWorkerThread.joinable()) {
             _asyncWorkerThread.join();
         }
+#endif
+    }
+
+    // One 60fps stream frame — shared by the native stream thread and the
+    // emscripten interval.
+    void _streamTick() {
+        // 1. Stress Test Data (BenchmarkPoint)
+        emit_dataStream(BenchmarkPoint{std::sin(_angle), std::cos(_angle)});
+
+        // 2. Visual Stress Test (BenchmarkBox)
+        // Cycle through colors and oscillate size
+        uint32_t r = static_cast<uint32_t>((std::sin(_angle) + 1.0) * 127);
+        uint32_t g = static_cast<uint32_t>((std::sin(_angle + 2.0) + 1.0) * 127);
+        uint32_t b = static_cast<uint32_t>((std::sin(_angle + 4.0) + 1.0) * 127);
+        int64_t color = 0xFF000000 | (r << 16) | (g << 8) | b;
+
+        double width = 100.0 + std::sin(_angle * 0.5) * 50.0;
+        double height = 100.0 + std::cos(_angle * 0.5) * 50.0;
+
+        emit_boxStream(BenchmarkBox{color, width, height});
+
+        _angle += 0.05;
+    }
+
+    // Dispatches an async task: worker-thread queue on native, inline on the
+    // single-threaded web build (Dart delivery stays async — the post callback
+    // defers to a microtask).
+    void _enqueue(std::function<void()> task) {
+#ifdef __EMSCRIPTEN__
+        task();
+        _flushCoalesce();
+#else
+        {
+            std::lock_guard<std::mutex> lk(_asyncQueueMtx);
+            _asyncQueue.push(std::move(task));
+        }
+        _asyncQueueCv.notify_one();
+#endif
     }
 
     // ── Sync primitive — baseline C++ dispatch overhead ───────────────────────
@@ -123,21 +164,17 @@ public:
     // must stay in the signature to match the (generated) pure-virtual
     // declaration in benchmark_cpp.native.g.h.
     void computeStatsNative(int64_t iterations, NitroError* /*_nitro_err*/, int64_t dartPort) override {
-        {
-            std::lock_guard<std::mutex> lk(_asyncQueueMtx);
-            _asyncQueue.push([this, iterations, dartPort]() {
-                NitroCppBuffer buf = computeStatsBuffer(iterations);
-                Dart_CObject obj;
-                if (buf.data == nullptr) {
-                    obj.type = Dart_CObject_kNull;
-                } else {
-                    obj.type = Dart_CObject_kInt64;
-                    obj.value.as_int64 = reinterpret_cast<intptr_t>(buf.data);
-                }
-                Dart_PostCObject_DL(dartPort, &obj);
-            });
-        }
-        _asyncQueueCv.notify_one();
+        _enqueue([this, iterations, dartPort]() {
+            NitroCppBuffer buf = computeStatsBuffer(iterations);
+            Dart_CObject obj;
+            if (buf.data == nullptr) {
+                obj.type = Dart_CObject_kNull;
+            } else {
+                obj.type = Dart_CObject_kInt64;
+                obj.value.as_int64 = reinterpret_cast<intptr_t>(buf.data);
+            }
+            Dart_PostCObject_DL(dartPort, &obj);
+        });
     }
 
     // ── Perf-audit benchmark methods (map codec + async dispatch) ──────────
@@ -182,29 +219,21 @@ public:
     // Cross-thread variant of nativeAsyncEcho: the worker thread does the post,
     // so it pays the OS isolate wake the inline version skips (issue #39).
     void nativeAsyncEchoFromThread(int64_t value, NitroError* /*_nitro_err*/, int64_t dartPort) override {
-        {
-            std::lock_guard<std::mutex> lk(_asyncQueueMtx);
-            _asyncQueue.push([value, dartPort]() {
-                Dart_CObject obj;
-                obj.type = Dart_CObject_kInt64;
-                obj.value.as_int64 = value;
-                Dart_PostCObject_DL(dartPort, &obj);
-            });
-        }
-        _asyncQueueCv.notify_one();
+        _enqueue([value, dartPort]() {
+            Dart_CObject obj;
+            obj.type = Dart_CObject_kInt64;
+            obj.value.as_int64 = value;
+            Dart_PostCObject_DL(dartPort, &obj);
+        });
     }
 
     // Coalesced completion (issue #39): buffer (callId, value); the worker posts
     // the whole drained batch as one kArray, so a burst shares one wake.
     void submitCoalesced(int64_t callId, int64_t value, int64_t dartPort) override {
         _coalescePort.store(dartPort, std::memory_order_relaxed);
-        {
-            std::lock_guard<std::mutex> lk(_asyncQueueMtx);
-            _asyncQueue.push([this, callId, value]() {
-                _coalesceBuf.emplace_back(callId, value);
-            });
-        }
-        _asyncQueueCv.notify_one();
+        _enqueue([this, callId, value]() {
+            _coalesceBuf.emplace_back(callId, value);
+        });
     }
 
     // Coalesce instrumentation (issue #39): flush/item counters so the harness
@@ -310,6 +339,10 @@ private:
         return {buf, static_cast<size_t>(kTotalSize)};
     }
 
+#ifdef __EMSCRIPTEN__
+    long _tickInterval = 0;
+#endif
+    double _angle = 0;
     std::thread _streamThread;
     std::atomic<bool> _running;
 

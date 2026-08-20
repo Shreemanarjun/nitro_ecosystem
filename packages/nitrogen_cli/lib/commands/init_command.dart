@@ -4,7 +4,7 @@ import 'package:args/command_runner.dart';
 import 'package:nocterm/nocterm.dart';
 import 'package:path/path.dart' as p;
 import '../ui.dart';
-import 'link_command.dart' show resolveNitroNativePath, createSharedHeaders;
+import 'link_command.dart' show ModuleInfo, linkWeb, resolveNitroNativePath, createSharedHeaders;
 import '../templates/native_headers.dart' show bundledDartApiDlContent;
 import '../templates/scaffold_templates.dart';
 import '../templates/podspec_templates.dart';
@@ -235,7 +235,15 @@ class _InitViewState extends State<InitView> {
 
     // Step 1 — flutter create
     _setRunning(_kStepCreate);
-    final platformsArg = platforms.join(',');
+    // The plugin_ffi template rejects `web`; the web target is wired by the
+    // nitrogen steps below (build script + assets + pubspec web block).
+    final nativePlatforms = platforms.where((pf) => pf != 'web').toList();
+    if (nativePlatforms.isEmpty) {
+      _setFailed(_kStepCreate, 'web requires at least one native platform in init — pass e.g. --platforms=android,web (the web target itself is wired by nitrogen).');
+      setState(() => _finished = true);
+      return;
+    }
+    final platformsArg = nativePlatforms.join(',');
     final createResult = await Process.run('flutter', [
       'create',
       '--template=plugin_ffi',
@@ -298,6 +306,11 @@ class _InitViewState extends State<InitView> {
       _setDone(_kStepLinux, detail: 'linux/CMakeLists.txt patched');
     } else {
       _setSkipped(_kStepLinux, detail: 'linux not in selected platforms');
+    }
+
+    // Step 7.5 — Web (WASM build script + asset dir + Dart web plugin shell)
+    if (platforms.contains('web')) {
+      _configureWeb(pluginName, className);
     }
 
     // Step 8 — pubspec (fetch latest versions from pub.dev)
@@ -859,6 +872,15 @@ class _InitViewState extends State<InitView> {
         ..writeln('      linux:')
         ..write('        ffiPlugin: true');
     }
+    // Web is a Dart plugin entry (flutter_tools requires pluginClass AND
+    // fileName; ffiPlugin does not apply to web).
+    if (platforms.contains('web')) {
+      platformsBlock
+        ..writeln()
+        ..writeln('      web:')
+        ..writeln('        pluginClass: ${className}WebPlugin')
+        ..write('        fileName: ${pluginName}_web.dart');
+    }
 
     // Replace whatever platforms block flutter create generated with ours.
     pubspec = pubspec.replaceFirst(
@@ -866,7 +888,47 @@ class _InitViewState extends State<InitView> {
       platformsBlock.toString(),
     );
 
+    if (platforms.contains('web')) {
+      // The WASM artifacts ship as bundled assets, and the web plugin shell
+      // needs flutter_web_plugins.
+      if (!pubspec.contains('flutter_web_plugins')) {
+        pubspec = pubspec.replaceFirst(
+          RegExp(r'dependencies:\n  flutter:\n    sdk: flutter\n'),
+          'dependencies:\n  flutter:\n    sdk: flutter\n  flutter_web_plugins:\n    sdk: flutter\n',
+        );
+      }
+      if (!pubspec.contains('assets/web/')) {
+        // Append an assets section under the top-level `flutter:` key (after
+        // the plugin block, indentation level 2).
+        pubspec = '$pubspec\n  assets:\n    - assets/web/\n';
+      }
+    }
+
     pubspecFile.writeAsStringSync(pubspec);
+  }
+
+  /// Scaffolds the web (WASM) target: the Emscripten build script, the
+  /// bundled-asset directory, and the Dart web plugin shell flutter_tools
+  /// requires for a `web:` platforms entry.
+  static void _configureWeb(String pluginName, String className) {
+    // Build script + assets/web/ — same writer `nitrogen link` refreshes.
+    linkWeb(
+      pluginName,
+      [ModuleInfo(lib: pluginName, module: className, isCpp: true, webIsWasm: true)],
+    );
+
+    // Dart web plugin shell (flutter_tools requires pluginClass + fileName
+    // for a `web:` entry; registerWith is the earliest load hook).
+    File(p.join(pluginName, 'lib', '${pluginName}_web.dart')).writeAsStringSync('''
+// Web plugin shell required by the `web:` platforms entry in pubspec.yaml.
+// The WASM module itself is loaded on demand by ensure${className}Ready()
+// (generated platform shim) — nothing to do at registration time.
+import 'package:flutter_web_plugins/flutter_web_plugins.dart';
+
+class ${className}WebPlugin {
+  static void registerWith(Registrar registrar) {}
+}
+''');
   }
 
   static void _writeBridgeSpec(String pluginName, String className, {List<String> platforms = const ['android', 'ios', 'macos']}) {
@@ -880,11 +942,19 @@ class _InitViewState extends State<InitView> {
     if (platforms.contains('macos')) args.add('macos: NativeImpl.swift');
     if (platforms.contains('windows')) args.add('windows: NativeImpl.cpp');
     if (platforms.contains('linux')) args.add('linux: NativeImpl.cpp');
+    final web = platforms.contains('web');
+    if (web) args.add('web: NativeImpl.wasm');
     final annotation = '@NitroModule(${args.join(', ')})';
 
-    File(p.join(libSrcDir.path, '$pluginName.native.dart')).writeAsStringSync(nativeDartTemplate(pluginName, className, annotation));
+    File(p.join(libSrcDir.path, '$pluginName.native.dart')).writeAsStringSync(nativeDartTemplate(pluginName, className, annotation, web: web));
 
-    File(p.join(pluginName, 'lib', '$pluginName.dart')).writeAsStringSync("export 'src/$pluginName.native.dart';\n");
+    final barrel = StringBuffer("export 'src/$pluginName.native.dart';\n");
+    if (web) {
+      // The platform shim (createXInstance / ensureXReady) — generated by
+      // build_runner; exported so apps can await ensureXReady() on web.
+      barrel.writeln("export 'src/$pluginName.platform.g.dart';");
+    }
+    File(p.join(pluginName, 'lib', '$pluginName.dart')).writeAsStringSync(barrel.toString());
   }
 
   /// Overwrites the flutter-create template's example/lib/main.dart with a
@@ -1161,7 +1231,7 @@ class InitCommand extends Command {
   @override
   final String description = 'Scaffolds a new Nitrogen FFI plugin.';
 
-  static const _validPlatforms = {'android', 'ios', 'macos', 'windows', 'linux'};
+  static const _validPlatforms = {'android', 'ios', 'macos', 'windows', 'linux', 'web'};
   static const _defaultPlatforms = 'android,ios,macos,windows,linux';
 
   InitCommand() {

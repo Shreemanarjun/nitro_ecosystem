@@ -14,7 +14,7 @@ import '../../record_generator.dart';
 ///   - `NitroRecordWriter` / `NitroRecordReader` for binary codec
 class CppInterfaceGenerator {
   static String generate(BridgeSpec spec) {
-    if (!spec.hasCppImpl) {
+    if (!spec.hasCppImpl && !spec.webIsWasm) {
       return '// Not applicable: NativeImpl is not cpp for this module.\n';
     }
 
@@ -116,6 +116,26 @@ class CppInterfaceGenerator {
           CodeLine('/// AND as the item passed to emit_* stream helpers: ownership transfers'),
           CodeLine('/// to Dart (freed after decoding via the <lib>_nitro_free export).'),
           CodeLine('NitroCppBuffer toNativeBuffer() const { return { toNative(), sizeof(int32_t) + _buf.size() }; }'),
+          CodeLine('/// Encodes a List<@HybridRecord> the way Dart decodes one:'),
+          CodeLine('///   [4B count][8B x count offsets][item bytes...]'),
+          CodeLine('/// Offsets are payload-relative. Dart uses the table for O(1) access, so'),
+          CodeLine('/// a plain [4B count][items] encoding is NOT interchangeable — the reader'),
+          CodeLine('/// would consume item bytes as offsets. Primitive-list ARGUMENTS use this'),
+          CodeLine('/// same shape; primitive-list RETURNS are plain (writeInt32(count) + items).'),
+          CodeLine('template <typename T, typename WriteItem>'),
+          CodeLine('void writeIndexedList(const std::vector<T>& items, WriteItem writeItem) {'),
+          CodeLine('    int32_t n = (int32_t)items.size();'),
+          CodeLine('    writeInt32(n);'),
+          CodeLine('    size_t tableStart = _buf.size();'),
+          CodeLine('    for (int32_t i = 0; i < n; i++) writeInt(0); // reserved, backpatched below'),
+          CodeLine('    std::vector<int64_t> offsets((size_t)n);'),
+          CodeLine('    for (int32_t i = 0; i < n; i++) {'),
+          CodeLine('        offsets[(size_t)i] = (int64_t)_buf.size();'),
+          CodeLine('        writeItem(*this, items[(size_t)i]);'),
+          CodeLine('    }'),
+          CodeLine('    for (int32_t i = 0; i < n; i++)'),
+          CodeLine('        ::memcpy(_buf.data() + tableStart + (size_t)i * 8, &offsets[(size_t)i], 8);'),
+          CodeLine('}'),
         ],
         footer: '};',
       ),

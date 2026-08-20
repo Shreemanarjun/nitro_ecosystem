@@ -114,11 +114,12 @@ void main() {
       expect(out, isNot(contains("@JS('nitro_")));
     });
 
-    test('emits @JS() library annotation when web is targeted', () {
+    test('emits a standalone library importing the web-bridge barrel', () {
       final out = WebBridgeGenerator.generate(_webSpec());
-      expect(out, contains('@JS()'));
-      // Unnamed library directive — a name would trip unnecessary_library_name.
+      // 0.7.0 pointer ABI: symbols are called through NitroWasmModule (no
+      // top-level @JS externals), resolved via the always-web barrel.
       expect(out, contains('library;'));
+      expect(out, contains("import 'package:nitro/web_bridge.dart';"));
     });
 
     test('imports the spec library two levels up (not the .g.dart part file)', () {
@@ -131,14 +132,12 @@ void main() {
       expect(out, isNot(contains("import 'math.g.dart';")));
     });
 
-    test('does not emit FFI struct/record codegen into the web file', () {
+    test('does not emit dart:ffi codegen into the web file', () {
       final out = WebBridgeGenerator.generate(_webSpec());
-      // @Packed/Struct/Pointer/Arena/RecordWriter don't exist on web — the
-      // nitro web stub deliberately provides no dart:ffi surface.
       expect(out, isNot(contains('@Packed')));
       expect(out, isNot(contains('extends Struct')));
-      expect(out, isNot(contains('Arena')));
-      expect(out, isNot(contains('RecordWriter')));
+      expect(out, isNot(contains('dart:ffi')));
+      expect(out, isNot(contains('lookupFunction')));
     });
 
     test('imports dart:js_interop', () {
@@ -146,30 +145,28 @@ void main() {
       expect(out, contains("import 'dart:js_interop';"));
     });
 
-    test('emits @JS() external using C symbol name (snake_case) for each sync function', () {
+    test('calls each sync function through the module by C symbol', () {
       final out = WebBridgeGenerator.generate(_webSpec());
-      // cSymbol = 'math_add', 'math_greet', 'math_reset' — NOT 'nitro_math_add'
-      expect(out, contains("@JS('math_add')"));
-      expect(out, contains('external JSNumber _math_add_js'));
-      expect(out, contains("@JS('math_greet')"));
-      expect(out, contains('external JSString _math_greet_js'));
-      expect(out, contains("@JS('math_reset')"));
-      expect(out, contains('external void _math_reset_js'));
+      expect(out, contains("_m.call('math_add'"));
+      expect(out, contains("_m.call('math_greet'"));
+      expect(out, contains("_m.call('math_reset'"));
+      // instanceId leads every call; the sync error slot follows the params.
+      expect(out, contains('jsI64(_instanceId)'));
+      expect(out, contains('_err.ptr.toJS'));
     });
 
-    test('emits @JS() externals for async functions using C symbol name', () {
+    test('@nitroAsync runs inline with the legacy error check', () {
       final out = WebBridgeGenerator.generate(_webSpec());
-      // cSymbol for 'compute' is 'math_compute'
-      expect(out, contains("@JS('math_compute')"));
-      expect(out, contains('_math_compute_js'));
+      expect(out, contains("_m.call('math_compute'"));
+      expect(out, contains('NitroRuntime.callAsync<double>'));
+      expect(out, contains('_checkLegacyError();'));
     });
 
-    test('emits @JS() externals for property getter and setter', () {
+    test('properties call the get/set symbols with the error slot', () {
       final out = WebBridgeGenerator.generate(_webSpec());
-      expect(out, contains("@JS('nitro_math_get_precision')"));
-      expect(out, contains('_math_get_precision_js'));
-      expect(out, contains("@JS('nitro_math_set_precision')"));
-      expect(out, contains('_math_set_precision_js'));
+      expect(out, contains("_m.call('math_get_precision', [jsI64(_instanceId), _err.ptr.toJS])"));
+      expect(out, contains("_m.call('math_set_precision'"));
+      expect(out, contains('NitroRuntime.throwIfOutParamError(_err);'));
     });
 
     test('emits web implementation class extending the spec class', () {
@@ -177,17 +174,16 @@ void main() {
       expect(out, contains('final class _MathWebImpl extends Math'));
     });
 
-    test('web impl overrides sync double method via JS interop', () {
+    test('web impl overrides sync double method via the module call', () {
       final out = WebBridgeGenerator.generate(_webSpec());
       expect(out, contains('double add(double a, double b)'));
-      expect(out, contains('_math_add_js'));
       expect(out, contains('.toDartDouble'));
+      expect(out, contains('NitroRuntime.callSync'));
     });
 
     test('web impl overrides void method', () {
       final out = WebBridgeGenerator.generate(_webSpec());
       expect(out, contains('void reset()'));
-      expect(out, contains('_math_reset_js()'));
     });
 
     test('web impl wraps String return via JS interop', () {
@@ -195,7 +191,7 @@ void main() {
       expect(out, contains('.toDart'));
     });
 
-    test('web impl throws UnsupportedError for streams', () {
+    test('web impl opens streams through the port registry', () {
       final webSpecWithStream = BridgeSpec(
         dartClassName: 'Camera',
         lib: 'camera',
@@ -214,19 +210,26 @@ void main() {
         ],
       );
       final out = WebBridgeGenerator.generate(webSpecWithStream);
-      expect(out, contains('UnsupportedError'));
-      expect(out, contains('onFrame'));
+      // Full parity in 0.7.0: streams register a web port with the module.
+      expect(out, contains('NitroRuntime.openStream'));
+      expect(out, contains("_m.call('camera_register_on_frame_stream'"));
+      expect(out, contains("_m.call('camera_release_on_frame_stream'"));
+      expect(out, contains('Backpressure.dropLatest'));
+      expect(out, isNot(contains('UnsupportedError')));
     });
 
-    test('emits factory function for conditional import pattern', () {
+    test('emits the canonical shim-exported factories', () {
       final out = WebBridgeGenerator.generate(_webSpec());
-      expect(out, contains('createMathWebInstance()'));
-      expect(out, contains('_MathWebImpl()'));
+      expect(out, contains("Math createMathInstance([String key = 'default'])"));
+      expect(out, contains('Future<void> ensureMathReady({String? jsUrl})'));
+      expect(out, contains('_MathWebImpl(key)'));
     });
 
-    test('factory function docs describe conditional import usage', () {
+    test('module bootstrap loads by lib name with the baked asset package', () {
       final out = WebBridgeGenerator.generate(_webSpec());
-      expect(out, contains('web.bridge.g.dart'));
+      expect(out, contains("const String _libName = 'math';"));
+      expect(out, contains('NitroRuntime.loadWebModule(_libName'));
+      expect(out, contains('NitroRuntime.webModule(_libName)'));
     });
 
     test('double params use .toJS conversion in extern calls', () {
@@ -235,9 +238,10 @@ void main() {
       expect(out, contains('b.toJS'));
     });
 
-    test('String params use .toJS conversion', () {
+    test('String params copy through the arena as C strings', () {
       final out = WebBridgeGenerator.generate(_webSpec());
-      expect(out, contains('name.toJS'));
+      expect(out, contains('arena.cString(name).toJS'));
+      expect(out, contains('withWasmArena(_m, (arena)'));
     });
 
     test('type-only spec emits only type declarations (no impl class)', () {
@@ -269,34 +273,55 @@ void main() {
     });
 
     test('web-targeting spec: kIsWeb assert guard in _loadSupportedLibrary', () {
-      final out = DartFfiGenerator.generate(_webSpec());
+      // Web-split (0.7.0): the impl lives in the standalone ffi library.
+      final out = DartFfiGenerator.generateFfiLibrary(_webSpec());
       expect(out, contains("dart.library.js_interop"));
       expect(out, contains('assert('));
     });
 
     test('assert message names the web bridge alternative', () {
-      final out = DartFfiGenerator.generate(_webSpec());
+      final out = DartFfiGenerator.generateFfiLibrary(_webSpec());
       expect(out, contains('web.bridge.g.dart'));
-      expect(out, contains('createMathWebInstance'));
     });
 
-    test('web-targeting spec emits _createNativeInstance() factory', () {
-      final out = DartFfiGenerator.generate(_webSpec());
-      // Optional [key] added for independent native instances (backward
-      // compatible — default key preserves the singleton).
+    test('web-targeting spec emits the factories in the ffi library', () {
+      final out = DartFfiGenerator.generateFfiLibrary(_webSpec());
+      // Legacy multi-instance factory is kept for compatibility...
       expect(out, contains("_createNativeInstance([String key = 'default'])"));
       expect(out, contains('_MathImpl(key)'));
+      // ...and the canonical shim-exported pair is new in 0.7.0.
+      expect(out, contains("Math createMathInstance([String key = 'default'])"));
+      expect(out, contains('Future<void> ensureMathReady({String? jsUrl}) async {}'));
+    });
+
+    test('web-targeting spec: part keeps only platform-neutral codecs', () {
+      final out = DartFfiGenerator.generate(_webSpec());
+      expect(out, isNot(contains('Pointer')));
+      expect(out, isNot(contains('_MathImpl')));
+      expect(out, contains('Web-split layout'));
+    });
+
+    test('platform shim conditionally exports the two factories', () {
+      final out = DartFfiGenerator.generatePlatformShim(_webSpec());
+      expect(out, contains("export 'generated/native/"));
+      expect(out, contains("if (dart.library.js_interop) 'generated/web/"));
+      expect(out, contains('show createMathInstance, ensureMathReady;'));
+    });
+
+    test('non-web spec gets placeholder ffi library and shim', () {
+      expect(DartFfiGenerator.generateFfiLibrary(_noWebSpec()), contains('Web not targeted'));
+      expect(DartFfiGenerator.generatePlatformShim(_noWebSpec()), contains('Web not targeted'));
     });
 
     test('factory function comment explains conditional import pattern', () {
-      final out = DartFfiGenerator.generate(_webSpec());
+      final out = DartFfiGenerator.generateFfiLibrary(_webSpec());
       // Comment or doc for the factory mentions web or conditional import
       final mentionsWeb = out.contains('web bridge') || out.contains('web.bridge') || out.contains('conditional');
       expect(mentionsWeb, isTrue);
     });
 
     test('_loadSupportedLibrary still passes web: true to loadLibForTargets', () {
-      final out = DartFfiGenerator.generate(_webSpec());
+      final out = DartFfiGenerator.generateFfiLibrary(_webSpec());
       // web: true when webImpl is set
       expect(out, contains('web: true'));
     });
@@ -308,9 +333,8 @@ void main() {
   });
 
   group('web return decode — Map<String,V> and List<record>', () {
-    // A jsonDecode result is Map<String,dynamic> / List<dynamic>; the emitted
-    // return must cast/decode to the declared type or the generated web bridge
-    // does not compile.
+    // 0.7.0 pointer ABI: maps and record lists cross as framed binary blobs
+    // decoded with the shared RecordReader — same wire as native.
     BridgeSpec spec() => BridgeSpec(
       dartClassName: 'Coll',
       lib: 'coll',
@@ -346,19 +370,113 @@ void main() {
       ],
     );
 
-    test('Map<String,int> return casts to the declared value type', () {
+    test('Map<String,int> crosses as tagged binary, not JSON', () {
       final out = WebBridgeGenerator.generate(spec());
-      // Must cast — a bare `as Map<String, dynamic>` return would not compile.
-      expect(out, contains('.cast<String, int>()'));
-      expect(out, isNot(contains('as Map<String, dynamic>;')));
+      // Encode helper writes the string-key tagged wire the native side reads.
+      expect(out, contains('Uint8List _nitroEncodeMapBytesStringInt(Map<String, int> m)'));
+      expect(out, contains('w.writeInt8(1);'));
+      expect(out, contains('Map<String, int> _nitroDecodeMapBytesStringInt(Uint8List framed)'));
+      // Sync map returns are borrowed framed blobs.
+      expect(out, contains('_m.readFramed(_ptr)'));
+      expect(out, isNot(contains('jsonEncode(m)')));
     });
 
-    test('List<record> return decodes into the item type, not a raw JSAny cast', () {
+    test('List<record> encodes AND decodes indexed — both directions match', () {
       final out = WebBridgeGenerator.generate(spec());
-      expect(out, contains('.map<Stat>('));
-      expect(out, contains("count: (m['count'] as num).toInt()"));
-      // The old fallthrough returned the raw JS value as the whole list.
-      expect(out, isNot(contains('List<Stat> echoStats(List<Stat> s) =>\n      (_coll_echo_stats_js')));
+      expect(out, contains('RecordReader.decodeIndexedListBytes(_framed, (r) => StatRecordExt.fromReader(r))'));
+      // The offset table is not optional: encoding plain here makes the
+      // receiver read item bytes as offsets — it throws on dart2js and
+      // silently decodes garbage on dart2wasm.
+      expect(out, contains('RecordWriter.encodeIndexedListBytes(s, (w, e) => e.writeFields(w))'));
+      expect(out, isNot(contains('RecordWriter.encodeListBytes(s, (w, e) => e.writeFields(w))')));
+    });
+  });
+
+  group('web list wire shapes match the native/Kotlin/Swift contract', () {
+    // One spec per item category. The contract these pin down:
+    //
+    //   category    param        return
+    //   record      INDEXED      INDEXED
+    //   primitive   INDEXED      PLAIN     <- deliberately asymmetric
+    //   enum        PLAIN        PLAIN
+    //   variant     PLAIN        PLAIN
+    //   enum?/var?  PRESENCE     PRESENCE
+    //
+    // Getting either half wrong is silent data corruption, not a crash, so
+    // assert both halves explicitly rather than trusting a round-trip.
+    BridgeSpec listSpec(BridgeType t, String fn) => BridgeSpec(
+      dartClassName: 'Coll',
+      lib: 'coll',
+      namespace: 'coll',
+      iosImpl: NativeImpl.swift,
+      androidImpl: NativeImpl.kotlin,
+      webImpl: NativeImpl.wasm,
+      sourceUri: 'coll.native.dart',
+      enums: [
+        BridgeEnum(name: 'Level', startValue: 0, values: ['low', 'high']),
+      ],
+      functions: [
+        BridgeFunction(
+          dartName: fn,
+          cSymbol: 'coll_$fn',
+          isAsync: false,
+          returnType: t,
+          params: [BridgeParam(name: 'v', type: t)],
+        ),
+      ],
+    );
+
+    test('List<int> param is INDEXED while its return stays PLAIN', () {
+      final out = WebBridgeGenerator.generate(
+        listSpec(
+          BridgeType(
+            name: 'List<int>',
+            isRecord: true,
+            recordListItemType: 'int',
+            recordListItemIsPrimitive: true,
+          ),
+          'echoInts',
+        ),
+      );
+      // Kotlin/Swift skip an 8-byte-per-item offset table on primitive params.
+      expect(out, contains('RecordWriter.encodeIndexedListBytes(v, (w, e) => w.writeInt(e))'));
+      // ...but primitive returns really are plain on every backend.
+      expect(out, contains('RecordReader.decodeListBytes(_framed, (r) => r.readInt())'));
+    });
+
+    test('List<Level> stays PLAIN in both directions', () {
+      final out = WebBridgeGenerator.generate(
+        listSpec(
+          BridgeType(
+            name: 'List<Level>',
+            isRecord: true,
+            recordListItemType: 'Level',
+            isEnumList: true,
+          ),
+          'echoLevels',
+        ),
+      );
+      expect(out, contains('RecordWriter.encodeListBytes(v, (w, e) => w.writeInt(e.nativeValue))'));
+      expect(out, contains('RecordReader.decodeListBytes(_framed, (r) => r.readInt().toLevel())'));
+      expect(out, isNot(contains('encodeIndexedListBytes(v')));
+    });
+
+    test('List<Level?> carries a per-item presence flag in both directions', () {
+      final out = WebBridgeGenerator.generate(
+        listSpec(
+          BridgeType(
+            name: 'List<Level?>',
+            isRecord: true,
+            recordListItemType: 'Level',
+            isEnumList: true,
+            recordListItemIsNullable: true,
+          ),
+          'echoMaybeLevels',
+        ),
+      );
+      // Plain encoding drops the 1B flag and shifts every later item.
+      expect(out, contains('RecordWriter.encodeNullableListBytes(v, (w, e) => w.writeInt(e.nativeValue))'));
+      expect(out, contains('RecordReader.decodeNullableListBytes(_framed, (r) => r.readInt().toLevel())'));
     });
   });
 }

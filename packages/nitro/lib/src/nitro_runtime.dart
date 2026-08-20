@@ -8,6 +8,7 @@ import 'package:meta/meta.dart';
 import 'annotations.dart';
 import 'hybrid_exception.dart';
 import 'isolate_pool.dart';
+import 'nitro_error_ffi.dart';
 import 'nitro_config.dart';
 
 export 'nitro_config.dart';

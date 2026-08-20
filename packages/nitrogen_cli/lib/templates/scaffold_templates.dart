@@ -316,15 +316,15 @@ class ${className}Impl : Hybrid${className}Spec {
 
 // ── Dart / Flutter templates ──────────────────────────────────────────────────
 
-String nativeDartTemplate(String pluginName, String className, String annotation) =>
+String nativeDartTemplate(String pluginName, String className, String annotation, {bool web = false}) =>
     '''
 import 'package:nitro/nitro.dart';
-
+${web ? "\nimport '$pluginName.platform.g.dart';\n" : ''}
 part '$pluginName.g.dart';
 
 $annotation
 abstract class $className extends HybridObject {
-  static final $className instance = _${className}Impl();
+  ${web ? '/// On web, await `ensure${className}Ready()` before first use — the\n  /// WASM module loads asynchronously.\n  ' : ''}static final $className instance = ${web ? 'create${className}Instance()' : '_${className}Impl()'};
 
   double add(double a, double b);
 

@@ -2,442 +2,1555 @@ import '../../../bridge_spec.dart';
 import '../../code_writer.dart';
 import '../../generator_metadata.dart';
 
-/// PX18 — Web bridge generator.
+/// Web bridge generator (0.7.0 pointer-ABI rewrite).
 ///
-/// Emits a `*.web.bridge.g.dart` file for specs that include
-/// `web: NativeImpl.wasm`. The output uses `dart:js_interop` `@JS()`
-/// external declarations to call into a compiled Nitro WASM module,
-/// and provides a web implementation class that satisfies the same
-/// abstract interface as the native FFI implementation.
+/// Emits a `*.web.bridge.g.dart` standalone library for specs that include
+/// `web: NativeImpl.wasm`. The generated class drives the SAME C bridge the
+/// dart:ffi implementation uses — compiled to WASM by Emscripten — over
+/// `dart:js_interop`:
 ///
-/// ### WASM symbol convention
-/// Each C bridge symbol `${lib}_${method}` is exported from the WASM
-/// module under the same name. The `@JS('nitro_${lib}_${method}')`
-/// annotation maps the Dart external to that global WASM export.
+///   * every C symbol is called through `NitroWasmModule.call` (the glue maps
+///     real names onto the Module object as `_<symbol>`),
+///   * the binary wire format is unchanged: framed `[4B len][payload]` blobs
+///     are built with the shared `RecordWriter` and copied into the module
+///     heap in one bulk write (and read back the same way),
+///   * `int64_t` crosses as JS BigInt via `jsI64`/`dartI64` (53-bit fidelity
+///     under dart2js),
+///   * async/stream completions arrive through the module post callback and
+///     the web port registry — mirroring `Dart_PostCObject` exactly,
+///   * errors use the same `NitroError` out-param struct, read from linear
+///     memory by `WebNitroErrorSlot`.
 ///
-/// ### Usage in a web-targeting spec
-/// ```dart
-/// @NitroModule(
-///   ios: NativeImpl.swift,
-///   android: NativeImpl.kotlin,
-///   web: NativeImpl.wasm,
-/// )
-/// abstract class Camera extends HybridObject {
-///   static Camera _instance = _createPlatformInstance(); // from .g.dart
-///   static Camera get instance => _instance;
-///   double add(double a, double b);
-/// }
-/// ```
-///
-/// The companion `.g.dart` (DartFfiGenerator) emits a
-/// `_createPlatformInstance()` function that routes to the web impl when
-/// `dart.library.js_interop` is present.
+/// Sync borrowed returns (strings, framed blobs) are decoded immediately and
+/// NOT freed, mirroring the 0.6.0 borrow contract; posted/async returns are
+/// owned and freed via the module's `<lib>_nitro_free`.
 class WebBridgeGenerator {
   static String generate(BridgeSpec spec) {
-    // Only emit a web bridge when the spec actually targets web.
     if (!spec.targetsWeb) {
       return '${generatedFileHeader('//', sourceUri: spec.sourceUri)}\n'
           '// Web not targeted — no dart:js_interop bridge generated.\n';
     }
 
-    final writer = CodeWriter();
-    writer.raw(generatedFileHeader('//', sourceUri: spec.sourceUri));
+    final w = CodeWriter();
+    w.raw(generatedFileHeader('//', sourceUri: spec.sourceUri));
 
     final specFile = spec.sourceUri.split('/').last;
 
     if (spec.isTypeOnly) {
-      writer.line('// Type-only spec — types come from the spec library;');
-      writer.line('// nothing to bind on web.');
-      return writer.toString();
+      w.line('// Type-only spec — types come from the spec library;');
+      w.line('// nothing to bind on web.');
+      return w.toString();
     }
 
-    // This is a standalone library (not a part file) because dart:js_interop
-    // @JS() declarations must be at library scope, not inside part files.
-    writer.line('@JS()');
-    writer.line('library;');
-    writer.blankLine();
-    // Externals keep the C symbol's snake_case (matching WASM exports); casts
-    // are kept for safety even where the external's type already matches.
-    writer.line('// ignore_for_file: non_constant_identifier_names, unnecessary_cast');
-    writer.blankLine();
-    writer.line("import 'dart:js_interop';");
-
-    bool typeUsesJson(BridgeType t) => t.isMap || t.isRecord || spec.structs.any((s) => s.name == t.name.replaceFirst('?', '')) || spec.recordTypes.any((r) => r.name == t.name.replaceFirst('?', ''));
-    bool anySignature(bool Function(BridgeType t) test) => spec.functions.any((f) => test(f.returnType) || f.params.any((p) => test(p.type))) || spec.properties.any((p) => test(p.type));
-    final usesJson = anySignature(typeUsesJson);
-    final usesTypedData = anySignature((t) => t.isTypedData);
-    final usesPointer = anySignature((t) => t.isPointer || t.isNativeHandle);
-
-    // package:nitro re-exports dart:convert (jsonEncode/jsonDecode) and
-    // dart:typed_data, and on native provides the Pointer types that appear
-    // in raw-pointer signatures — importing BOTH nitro and dart:convert would
-    // make jsonDecode ambiguous, so import exactly one source of each.
-    if (usesPointer) {
-      writer.line("import 'package:nitro/nitro.dart';");
-    } else {
-      if (usesJson) writer.line("import 'dart:convert';");
-      if (usesTypedData) writer.line("import 'dart:typed_data';");
-    }
-    writer.blankLine();
-
-    // The spec library declares the abstract class, enums, structs, records,
-    // and (via its .g.dart part) their extensions. The web bridge is emitted
-    // to lib/<dir>/generated/web/, so the spec is always two levels up.
-    writer.line('// The spec library: abstract class + data types.');
-    writer.line("import '../../$specFile';");
-    writer.blankLine();
-
+    final className = spec.dartClassName;
     final libStem = spec.lib.replaceAll('-', '_');
-    final enumNames = spec.enums.map((e) => e.name).toSet();
-    final structNames = spec.structs.map((s) => s.name).toSet();
-    final recordNames = spec.recordTypes.map((r) => r.name).toSet();
 
-    // Functions whose signatures use raw pointers cannot be bridged on web —
-    // there is no Pointer runtime representation. They get throw-stubs and
-    // no @JS() external.
-    bool funcUsesPointer(BridgeFunction f) => f.returnType.isPointer || f.returnType.isNativeHandle || f.params.any((p) => p.type.isPointer || p.type.isNativeHandle);
+    w.line('// ignore_for_file: non_constant_identifier_names, unnecessary_cast, unused_element, unused_field, unused_import, no_leading_underscores_for_local_identifiers, unused_local_variable');
+    w.line('/// Web (WASM/js_interop) implementation of [$className]. Reached through');
+    w.line('/// the platform shim; never compiled into a native build.');
+    w.line('library;');
+    w.blankLine();
+    w.line("import 'dart:async';");
+    w.line("import 'dart:js_interop';");
+    w.blankLine();
+    w.line('// The web-bridge barrel: always resolves to the WEB runtime (the main');
+    w.line('// nitro.dart barrel is conditional and resolves native under the analyzer).');
+    w.line("import 'package:nitro/web_bridge.dart';");
+    w.blankLine();
+    w.line('// The spec library: abstract class + data types + pure codecs (.g.dart part).');
+    w.line("import '../../$specFile';");
+    w.blankLine();
 
-    // ── @JS() external declarations ──────────────────────────────────────────
-    writer.line('// ── @JS() external declarations — map to WASM module exports ─');
-    writer.blankLine();
+    // ── Module bootstrap ──────────────────────────────────────────────────
+    w.line("const String _libName = '$libStem';");
+    final pkg = spec.assetPackage;
+    w.line('// The default asset URL is assets/packages/<package>/assets/web/<lib>.js');
+    w.line('// (see NitroRuntime.loadWebModule).');
+    w.line(pkg != null ? "const String _assetPackage = '$pkg';" : 'const String? _assetPackage = null;');
+    w.blankLine();
+    w.line('NitroWasmModule get _module => NitroRuntime.webModule(_libName);');
+    w.blankLine();
+    w.line('/// Loads and instantiates the $libStem WASM module. MUST be awaited before');
+    w.line('/// [create${className}Instance] on web. Idempotent. [jsUrl] overrides the');
+    w.line('/// default asset URL.');
+    w.line('Future<void> ensure${className}Ready({String? jsUrl}) => NitroRuntime.loadWebModule(_libName, jsUrl: jsUrl, assetPackage: _assetPackage).then((_) {});');
+    w.blankLine();
+    w.line('/// Creates the web (WASM) implementation of [$className]. A distinct [key]');
+    w.line('/// creates an independent native instance; the default key returns the');
+    w.line('/// shared singleton. Await [ensure${className}Ready] first.');
+    w.line("$className create${className}Instance([String key = 'default']) => _${className}WebImpl(key);");
+    w.blankLine();
+
+    _emitWebHelpers(w, spec);
+    _emitImplClass(w, spec, libStem, className);
+
+    return w.toString();
+  }
+
+  // ══ Impl class ══════════════════════════════════════════════════════════
+
+  static void _emitImplClass(CodeWriter w, BridgeSpec spec, String libStem, String className) {
+    final checksum = bridgeSpecChecksum(spec);
+    w.line('final class _${className}WebImpl extends $className {');
+    w.line('  static final Map<String, _${className}WebImpl> _instances = {};');
+    w.blankLine();
+    w.line("  factory _${className}WebImpl([String key = 'default']) => _instances.putIfAbsent(key, () => _${className}WebImpl._(key));");
+    w.blankLine();
+    w.line('  _${className}WebImpl._(this._key) {');
+    w.line('    _m = _module;');
+    w.line("    NitroRuntime.checkAbiVersion(_libName, () => (_m.call('${libStem}_nitro_abi_version', const []) as JSNumber).toDartInt);");
+    w.line("    NitroRuntime.checkLinkChecksum(_libName, '$checksum', () => _m.readCString(dartI64(_m.call('${libStem}_nitro_bridge_checksum', const []))));");
+    w.line('    _err = WebNitroErrorSlot.alloc(_m);');
+    w.line('    final keyArena = WasmArena(_m);');
+    w.line('    try {');
+    w.line("      _instanceId = dartI64(_m.call('${libStem}_create_instance', [keyArena.cString(_key).toJS]));");
+    w.line('    } finally {');
+    w.line('      keyArena.releaseAll();');
+    w.line('    }');
+    w.line("    NitroRuntime.logLifecycle('$className', 'web instance created (key=\$_key, id=\$_instanceId)');");
+    w.line('  }');
+    w.blankLine();
+    w.line('  final String _key;');
+    w.line('  late final NitroWasmModule _m;');
+    w.line('  late final WebNitroErrorSlot _err;');
+    w.line('  late final int _instanceId;');
+    w.line('  bool _disposed = false;');
+    w.blankLine();
+    w.line('  @override');
+    w.line('  void checkDisposed() {');
+    w.line('    if (_disposed) {');
+    w.line("      throw StateError('$className (web) was disposed — create a new instance');");
+    w.line('    }');
+    w.line('  }');
+    w.blankLine();
+    w.line('  @override');
+    w.line('  void dispose() {');
+    w.line('    if (_disposed) return;');
+    w.line('    _disposed = true;');
+    w.line("    _m.call('${libStem}_destroy_instance', [jsI64(_instanceId)]);");
+    w.line('    _err.free();');
+    w.line('    _instances.remove(_key);');
+    w.line('    NitroRuntime.releaseLib(_libName);');
+    w.line("    NitroRuntime.logLifecycle('$className', 'web instance disposed (key=\$_key)');");
+    w.line('  }');
+    w.blankLine();
+    w.line('  // Legacy two-call error protocol — used by @nitroAsync methods, whose C');
+    w.line('  // signature carries no NitroError* out-param.');
+    w.line('  void _checkLegacyError() {');
+    w.line("    final errPtr = dartI64(_m.call('${libStem}_get_error', const []));");
+    w.line('    if (errPtr == 0 || _m.readU8(errPtr) == 0) return;');
+    w.line('    final name = _m.readCString(_m.readU32(errPtr + 4));');
+    w.line('    final message = _m.readCString(_m.readU32(errPtr + 8));');
+    w.line('    final codePtr = _m.readU32(errPtr + 12);');
+    w.line('    final stackPtr = _m.readU32(errPtr + 16);');
+    w.line('    final code = codePtr != 0 ? _m.readCString(codePtr) : null;');
+    w.line('    final stack = stackPtr != 0 ? _m.readCString(stackPtr) : null;');
+    w.line("    _m.call('${libStem}_clear_error', const []);");
+    w.line('    throw HybridException(name: name, message: message, code: code, stackTrace: stack);');
+    w.line('  }');
+    w.blankLine();
 
     for (final func in spec.functions) {
-      if (func.isNativeAsync) {
-        // @NitroNativeAsync on web would require Dart_PostCObject which isn't
-        // available in WASM. Emit a throw-stub instead.
-        continue;
-      }
-      if (funcUsesPointer(func)) {
-        // Raw pointers don't exist on web — the impl throws; no external.
-        continue;
-      }
-      // Use func.cSymbol (C snake_case) for the WASM export name.
-      // The WASM module exports symbols by their C name, not Dart camelCase.
-      // Dart identifier uses the same snake_case name with a _js suffix.
-      final jsSym = func.cSymbol; // e.g. 'config_get_settings'
-      final jsDartId = '_${jsSym}_js'; // e.g. '_config_get_settings_js'
-      final jsParams = _jsFuncParams(func.params, enumNames, structNames, recordNames);
-      final jsRet = _jsReturnType(func.returnType, enumNames, structNames, recordNames);
-      writer.line('@JS(\'$jsSym\')');
-      writer.line('external $jsRet $jsDartId($jsParams);');
-      writer.blankLine();
+      _emitMethod(w, spec, func);
     }
-
     for (final prop in spec.properties) {
-      final jsRet = _jsPropType(prop.type, enumNames, structNames, recordNames);
-      if (prop.hasGetter) {
-        writer.line('@JS(\'nitro_${libStem}_get_${prop.dartName}\')');
-        writer.line('external $jsRet _${libStem}_get_${prop.dartName}_js();');
-        writer.blankLine();
-      }
-      if (prop.hasSetter) {
-        final jsParam = _jsPropType(prop.type, enumNames, structNames, recordNames);
-        writer.line('@JS(\'nitro_${libStem}_set_${prop.dartName}\')');
-        writer.line('external void _${libStem}_set_${prop.dartName}_js($jsParam value);');
-        writer.blankLine();
-      }
+      _emitProperty(w, spec, prop);
     }
-
-    // ── Web implementation class ─────────────────────────────────────────────
-    writer.line('// ── Web implementation (dart:js_interop → WASM) ──────────────');
-    writer.blankLine();
-    writer.line(
-      '/// Web implementation of [${spec.dartClassName}] via `dart:js_interop`.',
-    );
-    writer.line(
-      '/// Do not instantiate directly; use [create${spec.dartClassName}WebInstance].',
-    );
-    writer.line(
-      'final class _${spec.dartClassName}WebImpl extends ${spec.dartClassName} {',
-    );
-    writer.blankLine();
-
-    // Methods
-    for (final func in spec.functions) {
-      writer.line('  @override');
-      if (func.isNativeAsync) {
-        // Emit a throw for NativeAsync on web
-        final retType = 'Future<${func.returnType.name}>';
-        final params = func.params.map((p) => '${p.type.name} ${p.name}').join(', ');
-        writer.line('  $retType ${func.dartName}($params) {');
-        writer.line("    throw UnsupportedError('${func.dartName}: @NitroNativeAsync is not supported on web. Use @nitroAsync instead.');");
-        writer.line('  }');
-      } else if (funcUsesPointer(func)) {
-        final retType = func.isAsync ? 'Future<${func.returnType.name}>' : func.returnType.name;
-        final params = func.params.map((p) => '${p.type.name} ${p.name}').join(', ');
-        writer.line('  $retType ${func.dartName}($params) {');
-        writer.line("    throw UnsupportedError('${func.dartName}: raw Pointer parameters/returns do not exist on web.');");
-        writer.line('  }');
-      } else if (func.isAsync) {
-        final retType = 'Future<${func.returnType.name}>';
-        final params = func.params.map((p) => '${p.type.name} ${p.name}').join(', ');
-        final callArgs = func.params.map((p) => _dartToJs(spec, p.type, p.name, enumNames)).join(', ');
-        // Use cSymbol-derived identifier to match the @JS() external above
-        final jsId = '_${func.cSymbol}_js';
-        final jsCall = '$jsId($callArgs)';
-        writer.line('  $retType ${func.dartName}($params) async {');
-        writer.line('    final result = $jsCall;');
-        writer.line('    return ${_jsTodart(spec, func.returnType, 'result', enumNames, structNames, recordNames)};');
-        writer.line('  }');
-      } else {
-        final retType = func.returnType.name;
-        final params = func.params.map((p) => '${p.type.name} ${p.name}').join(', ');
-        final callArgs = func.params.map((p) => _dartToJs(spec, p.type, p.name, enumNames)).join(', ');
-        final jsId = '_${func.cSymbol}_js';
-        final jsCall = '$jsId($callArgs)';
-        if (retType == 'void') {
-          writer.line('  void ${func.dartName}($params) { $jsCall; }');
-        } else {
-          final conv = _jsTodart(spec, func.returnType, jsCall, enumNames, structNames, recordNames);
-          writer.line('  $retType ${func.dartName}($params) => $conv;');
-        }
-      }
-      writer.blankLine();
-    }
-
-    // Properties
-    for (final prop in spec.properties) {
-      final rt = prop.type.name;
-      if (prop.hasGetter) {
-        writer.line('  @override');
-        final jsCall = '_${libStem}_get_${prop.dartName}_js()';
-        final conv = _jsTodart(spec, prop.type, jsCall, enumNames, structNames, recordNames);
-        writer.line('  $rt get ${prop.dartName} => $conv;');
-      }
-      if (prop.hasSetter) {
-        writer.line('  @override');
-        final jsArg = _dartToJs(spec, prop.type, 'value', enumNames);
-        writer.line('  set ${prop.dartName}($rt value) { _${libStem}_set_${prop.dartName}_js($jsArg); }');
-      }
-      writer.blankLine();
-    }
-
-    // Streams — not supported on web (no Dart_PostCObject_DL in WASM)
     for (final stream in spec.streams) {
-      final itemType = stream.itemType.name;
-      writer.line('  @override');
-      if (stream.isMethodStyle) {
-        writer.line('  Stream<$itemType> ${stream.dartName}() {');
+      _emitStream(w, spec, stream);
+    }
+
+    w.line('}');
+  }
+
+  /// The Dart type used in @override signatures. Raw Pointer / NativeHandle
+  /// resolve to DIFFERENT classes on native vs web, so overrides type them
+  /// `dynamic` (a legal override in both directions); everything else keeps
+  /// the spec's type.
+  static String _dartTypeFor(BridgeType t) {
+    if (t.isPointer || t.isNativeHandle) return 'dynamic';
+    return t.name;
+  }
+
+  static String _dartParams(List<BridgeParam> params) => params.map((p) => '${_dartTypeFor(p.type)} ${p.name}').join(', ');
+
+  // ══ Methods ═════════════════════════════════════════════════════════════
+
+  static void _emitMethod(CodeWriter w, BridgeSpec spec, BridgeFunction func) {
+    final params = _dartParams(func.params);
+    final rt = _dartTypeFor(func.returnType);
+
+    if (func.isNativeAsync) {
+      _emitNativeAsyncMethod(w, spec, func, params, rt);
+      return;
+    }
+
+    final needsArena = func.params.any((p) => _paramNeedsArena(spec, p.type));
+    final callArgs = _buildCallArgs(spec, func.params, includeErr: !func.isAsync);
+    final call = "_m.call('${func.cSymbol}', [${callArgs.join(', ')}])";
+
+    if (func.isAsync) {
+      // @nitroAsync on web runs inline (no isolates); the legacy get/clear
+      // error protocol matches the C signature (no NitroError* out-param).
+      // Async returns are OWNED (malloc'd by native) — decode then free.
+      w.line('  @override');
+      w.line('  Future<$rt> ${func.dartName}($params) {');
+      w.line('    checkDisposed();');
+      w.line('    return NitroRuntime.callAsync<$rt>(() {');
+      _openArena(w, needsArena, '      ');
+      final inner = needsArena ? '        ' : '      ';
+      w.line('${inner}final _res = $call;');
+      w.line('${inner}_checkLegacyError();');
+      _emitReturnDecode(w, spec, func.returnType, '_res', inner, borrowed: false, zeroCopy: func.zeroCopyReturn, func: func);
+      _closeArena(w, needsArena, '      ');
+      w.line("    }, const [], methodName: '${func.dartName}');");
+      w.line('  }');
+      w.blankLine();
+      return;
+    }
+
+    // Sync: NitroError* out-param; borrowed framed/string returns.
+    w.line('  @override');
+    w.line('  $rt ${func.dartName}($params) {');
+    w.line('    checkDisposed();');
+    w.line('    return NitroRuntime.callSync(() {');
+    _openArena(w, needsArena, '      ');
+    final inner = needsArena ? '        ' : '      ';
+    w.line('${inner}final _res = $call;');
+    w.line('${inner}NitroRuntime.throwIfOutParamError(_err);');
+    _emitReturnDecode(w, spec, func.returnType, '_res', inner, borrowed: true, zeroCopy: func.zeroCopyReturn, func: func);
+    _closeArena(w, needsArena, '      ');
+    w.line("    }, methodName: '${func.dartName}');");
+    w.line('  }');
+    w.blankLine();
+  }
+
+  static void _emitNativeAsyncMethod(CodeWriter w, BridgeSpec spec, BridgeFunction func, String params, String rt) {
+    final needsArena = func.params.any((p) => _paramNeedsArena(spec, p.type));
+    // Native-async: per-call error slot + dart_port, posted result.
+    final callArgs = _buildCallArgs(spec, func.params, includeErr: false);
+    w.line('  @override');
+    w.line('  Future<$rt> ${func.dartName}($params) {');
+    w.line('    checkDisposed();');
+    w.line('    final _slot = WebNitroErrorSlot.alloc(_m);');
+    if (needsArena) w.line('    final _arena = WasmArena(_m);');
+    w.line('    return NitroRuntime.openNativeAsync<$rt>(');
+    w.line("      call: (dartPort) => _m.call('${func.cSymbol}', [${callArgs.join(', ')}, _slot.ptr.toJS, jsI64(dartPort)]),");
+    w.line('      unpack: (raw) {');
+    w.line('        _slot.throwIfError();');
+    _emitNativeAsyncUnpack(w, spec, func, '        ');
+    w.line('      },');
+    if (needsArena) {
+      w.line('      cleanup: () { _slot.free(); _arena.releaseAll(); },');
+    } else {
+      w.line('      cleanup: _slot.free,');
+    }
+    w.line("      methodName: '${func.dartName}',");
+    w.line('    );');
+    w.line('  }');
+    w.blankLine();
+  }
+
+  /// Mirrors the FFI `_nativeAsyncUnpack` matrix over heap offsets: posted
+  /// kInt64 addresses are OWNED (freed via nitro_free after decoding).
+  static void _emitNativeAsyncUnpack(CodeWriter w, BridgeSpec spec, BridgeFunction func, String indent) {
+    final rt = func.returnType.name;
+    final rtBase = rt.replaceFirst('?', '');
+    final isNullable = rt.endsWith('?');
+    final type = func.returnType;
+
+    void nullGuard() {
+      if (isNullable) {
+        w.line('${indent}if (raw == null || raw == 0) return null;');
       } else {
-        writer.line('  Stream<$itemType> get ${stream.dartName} {');
+        w.line("${indent}if (raw == null) { throw StateError('${func.dartName} (native-async): native posted null for a non-nullable $rt result'); }");
       }
-      writer.line("    throw UnsupportedError('${stream.dartName}: Nitro streams are not supported on web. Use a polling approach or WebSockets instead.');");
-      writer.line('  }');
-      writer.blankLine();
     }
 
-    writer.line('}');
-    writer.blankLine();
-
-    // ── Factory function ─────────────────────────────────────────────────────
-    writer.line(
-      '/// Creates the web (WASM) implementation of [${spec.dartClassName}].',
-    );
-    writer.line(
-      '/// Import this file conditionally and call this factory when on web:',
-    );
-    writer.line('///');
-    writer.line(
-      "/// ```dart",
-    );
-    writer.line(
-      "/// import '${specFile.replaceAll('.native.dart', '.web.bridge.g.dart')}'",
-    );
-    writer.line(
-      "///     if (dart.library.ffi) '${specFile.replaceAll('.native.dart', '.g.dart')}';",
-    );
-    writer.line("/// ```");
-    // Factory: `createNitroXxxWebInstance()` — camelCase factory matching the
-    // platform-conditional import pattern used with `_createNativeInstance()`.
-    writer.line(
-      '${spec.dartClassName} create${spec.dartClassName}WebInstance() =>',
-    );
-    writer.line('    _${spec.dartClassName}WebImpl();');
-    writer.blankLine();
-    // Also emit a no-arg constructor note for clarity
-    writer.line(
-      '// Usage: import this file with `if (dart.library.ffi) xxx.g.dart`',
-    );
-    writer.line(
-      '// and call create${spec.dartClassName}WebInstance() on web targets.',
-    );
-
-    return writer.toString();
+    if (rt == 'void') {
+      w.line('${indent}return;');
+      return;
+    }
+    if (rtBase == 'bool' && !isNullable) {
+      w.line('${indent}return raw is bool ? raw : (raw as num).toInt() != 0;');
+      return;
+    }
+    if (rtBase == 'String') {
+      w.line(isNullable ? '${indent}return raw as String?;' : '${indent}return raw as String;');
+      return;
+    }
+    if ((rtBase == 'int' || rtBase == 'uint64' || rtBase == 'double' || rtBase == 'bool' || rtBase == 'DateTime') && isNullable) {
+      // Posted as a pointer to the packed NitroOpt* layout — same bytes the
+      // NitroWireCodec reads.
+      w.line('${indent}if (raw == null || raw == 0) return null;');
+      w.line('${indent}final _ptr = (raw as num).toInt();');
+      final codec = rtBase == 'double' ? 'NitroDoubleWireCodec' : (rtBase == 'bool' ? 'NitroBoolWireCodec' : 'NitroIntWireCodec');
+      final size = rtBase == 'bool' ? 2 : 9;
+      w.line('${indent}final _bytes = _m.readBytes(_ptr, $size);');
+      w.line('${indent}_m.nitroFree(_ptr);');
+      if (rtBase == 'DateTime') {
+        w.line('${indent}final _ms = const NitroIntWireCodec().decodeBytes(_bytes);');
+        w.line('${indent}return _ms != null ? DateTime.fromMillisecondsSinceEpoch(_ms) : null;');
+      } else {
+        w.line('${indent}return const $codec().decodeBytes(_bytes);');
+      }
+      return;
+    }
+    if (rtBase == 'int' || rtBase == 'uint64') {
+      w.line('${indent}return (raw as num).toInt();');
+      return;
+    }
+    if (rtBase == 'double') {
+      w.line('${indent}return (raw as num).toDouble();');
+      return;
+    }
+    if (rtBase == 'DateTime') {
+      w.line('${indent}return DateTime.fromMillisecondsSinceEpoch((raw as num).toInt());');
+      return;
+    }
+    if (spec.isEnumName(rtBase)) {
+      if (isNullable) {
+        w.line('${indent}if (raw == null) return null;');
+        w.line('${indent}final _v = (raw as num).toInt();');
+        w.line('${indent}return _v == -1 ? null : _v.to$rtBase();');
+      } else {
+        w.line('${indent}return ((raw as num).toInt()).to$rtBase();');
+      }
+      return;
+    }
+    if (type.isAnyNativeObject || rtBase == 'AnyNativeObject') {
+      if (isNullable) {
+        w.line('${indent}if (raw == null) return null;');
+        w.line('${indent}final _id = (raw as num).toInt();');
+        w.line('${indent}return _id == -1 ? null : AnyNativeObject(_id);');
+      } else {
+        w.line('${indent}return AnyNativeObject((raw as num).toInt());');
+      }
+      return;
+    }
+    if (type.isNativeHandle) {
+      final tp = type.nativeHandleTypeParam ?? 'Void';
+      nullGuard();
+      w.line('${indent}final _handle = NativeHandle<$tp>.fromAddress((raw as num).toInt());');
+      if (func.isOwned) {
+        w.line("${indent}_handle.attachReleaseCallback((addr) => _m.call('${func.cSymbol}_release', [addr.toJS]));");
+      }
+      w.line('${indent}return _handle;');
+      return;
+    }
+    if (spec.isStructName(rtBase)) {
+      nullGuard();
+      w.line('${indent}final _ptr = (raw as num).toInt();');
+      w.line('${indent}final _v = ${_structReadCall(spec, rtBase, '_ptr')};');
+      w.line('${indent}_m.nitroFree(_ptr);');
+      w.line('${indent}return _v;');
+      return;
+    }
+    if (spec.isCustomTypeName(rtBase)) {
+      final ct = spec.customTypeByName(rtBase)!;
+      nullGuard();
+      w.line('${indent}final _ptr = (raw as num).toInt();');
+      w.line('${indent}final _bytes = _m.readBytes(_ptr, const ${ct.codecClass}().encodedSize);');
+      w.line('${indent}_m.nitroFree(_ptr);');
+      final bang = isNullable ? '' : '!';
+      w.line('${indent}return const ${ct.codecClass}().decodeBytes(_bytes)$bang;');
+      return;
+    }
+    // Framed blobs: records, variants, maps, AnyMap, tuples, record lists.
+    nullGuard();
+    w.line('${indent}final _ptr = (raw as num).toInt();');
+    w.line('${indent}final _framed = _m.readFramed(_ptr);');
+    w.line('${indent}_m.nitroFree(_ptr);');
+    w.line('${indent}return ${_framedDecodeExpr(spec, type, '_framed')};');
   }
 
-  // ── Type conversion helpers ─────────────────────────────────────────────
+  // ══ Properties ══════════════════════════════════════════════════════════
 
-  /// Dart FFI type → JS interop type for @JS() external param/return.
-  static String _jsReturnType(BridgeType bt, Set<String> enumNames, Set<String> structNames, Set<String> recordNames) {
-    if (bt.name == 'void') return 'void';
-    if (bt.isFuture) return 'JSAny?'; // async: result posted as JSAny
-    return _toJsType(bt, enumNames, structNames, recordNames);
+  static void _emitProperty(CodeWriter w, BridgeSpec spec, BridgeProperty prop) {
+    final rt = _dartTypeFor(prop.type);
+    if (prop.hasGetter) {
+      w.line('  @override');
+      w.line('  $rt get ${prop.dartName} {');
+      w.line('    checkDisposed();');
+      w.line('    return NitroRuntime.callSync(() {');
+      w.line("      final _res = _m.call('${prop.getSymbol}', [jsI64(_instanceId), _err.ptr.toJS]);");
+      w.line('      NitroRuntime.throwIfOutParamError(_err);');
+      _emitReturnDecode(w, spec, prop.type, '_res', '      ', borrowed: true, zeroCopy: false, func: null);
+      w.line("    }, methodName: '${prop.dartName}');");
+      w.line('  }');
+      w.blankLine();
+    }
+    if (prop.hasSetter) {
+      final needsArena = _paramNeedsArena(spec, prop.type);
+      final arg = _jsArgExpr(spec, prop.type, 'value');
+      w.line('  @override');
+      w.line('  set ${prop.dartName}($rt value) {');
+      w.line('    checkDisposed();');
+      w.line('    NitroRuntime.callSync(() {');
+      _openArena(w, needsArena, '      ');
+      final inner = needsArena ? '        ' : '      ';
+      w.line("${inner}_m.call('${prop.setSymbol}', [jsI64(_instanceId), $arg, _err.ptr.toJS]);");
+      w.line('${inner}NitroRuntime.throwIfOutParamError(_err);');
+      _closeArena(w, needsArena, '      ');
+      w.line("    }, methodName: '${prop.dartName}=');");
+      w.line('  }');
+      w.blankLine();
+    }
   }
 
-  static String _jsPropType(BridgeType bt, Set<String> enumNames, Set<String> structNames, Set<String> recordNames) => _toJsType(bt, enumNames, structNames, recordNames);
+  // ══ Streams ═════════════════════════════════════════════════════════════
 
-  static String _toJsType(BridgeType bt, Set<String> enumNames, Set<String> structNames, Set<String> recordNames) {
-    final name = bt.name.replaceFirst('?', '');
-    switch (name) {
+  static void _emitStream(CodeWriter w, BridgeSpec spec, BridgeStream stream) {
+    final itemType = stream.itemType.name;
+    final baseItemType = itemType.replaceFirst('?', '');
+    final nullable = stream.itemType.isNullable;
+    final q = nullable ? '?' : '';
+    final isRecord = stream.itemType.isRecord;
+    final isStruct = spec.isStructName(baseItemType);
+    final isVariant = spec.isVariantName(baseItemType);
+
+    String streamItemType = baseItemType;
+    if (baseItemType == 'uint64') streamItemType = 'int';
+    if (stream.itemType.isAnyNativeObject) streamItemType = 'AnyNativeObject';
+
+    final sig = stream.isMethodStyle ? 'Stream<$streamItemType$q> ${stream.dartName}()' : 'Stream<$streamItemType$q> get ${stream.dartName}';
+
+    w.line('  @override');
+    w.line('  $sig {');
+    w.line('    checkDisposed();');
+
+    final register = "(port) => _m.call('${stream.registerSymbol}', [jsI64(_instanceId), jsI64(port)])";
+    final release = "(port) => _m.call('${stream.releaseSymbol}', [jsI64(port)])";
+
+    if (stream.isBatch && baseItemType == 'String') {
+      // kArray of kString → post tag 5 → List<String>.
+      w.line('    return NitroRuntime.openStream<List<String>>(');
+      w.line('      register: $register,');
+      w.line('      unpack: (message) => (message as List).cast<String>(),');
+      w.line('      release: $release,');
+      w.line('      backpressure: Backpressure.batch,');
+      w.line("      debugLabel: '${stream.dartName}',");
+      w.line('    ).asyncExpand(Stream.fromIterable);');
+    } else if (stream.isBatch && (isRecord || isVariant)) {
+      // kTypedData framed batch → post tag 6 → Uint8List [4B len][4B count][items].
+      final decode = isRecord ? 'RecordReader.decodeListBytes(batch, (r) => ${baseItemType}RecordExt.fromReader(r))' : 'RecordReader.decodeListBytes(batch, (r) => ${baseItemType}VariantExt.fromReader(r))';
+      w.line('    return NitroRuntime.openStream<Uint8List>(');
+      w.line('      register: $register,');
+      w.line('      unpack: (message) => message as Uint8List,');
+      w.line('      release: $release,');
+      w.line('      backpressure: Backpressure.batch,');
+      w.line("      debugLabel: '${stream.dartName}',");
+      w.line('    ).asyncExpand((batch) => Stream.fromIterable($decode));');
+    } else if (stream.isBatch) {
+      // kArray of kInt64 → post tag 4 → List<int> [count, items...].
+      final String itemExpr;
+      if (baseItemType == 'double') {
+        itemExpr = 'Int64List.fromList([batch[i]]).buffer.asFloat64List()[0]';
+      } else if (baseItemType == 'bool') {
+        itemExpr = 'batch[i] != 0';
+      } else if (spec.isEnumName(baseItemType)) {
+        itemExpr = 'batch[i].to$baseItemType()';
+      } else {
+        itemExpr = 'batch[i]';
+      }
+      w.line('    return NitroRuntime.openStream<List<int>>(');
+      w.line('      register: $register,');
+      w.line('      unpack: (message) => (message as List).map((e) => (e as num).toInt()).toList(),');
+      w.line('      release: $release,');
+      w.line('      backpressure: Backpressure.batch,');
+      w.line("      debugLabel: '${stream.dartName}',");
+      w.line('    ).asyncExpand((batch) {');
+      w.line('      final count = batch[0];');
+      w.line('      return Stream.fromIterable([for (var i = 1; i <= count; i++) $itemExpr]);');
+      w.line('    });');
+    } else {
+      final String unpack;
+      final nullAction = nullable ? 'return null;' : "throw StateError('Received null event on non-nullable stream ${stream.dartName}');";
+      if (isRecord || isVariant) {
+        final decode = _framedDecodeExpr(spec, BridgeType(name: baseItemType, isRecord: isRecord), '_framed');
+        unpack = '(message) { if (message == null) { $nullAction } final _ptr = (message as num).toInt(); final _framed = _m.readFramed(_ptr); _m.nitroFree(_ptr); return $decode; }';
+      } else if (isStruct) {
+        unpack = '(message) { if (message == null) { $nullAction } final _ptr = (message as num).toInt(); final _v = ${_structReadCall(spec, baseItemType, '_ptr')}; _m.nitroFree(_ptr); return _v; }';
+      } else if (stream.itemType.isAnyNativeObject) {
+        unpack = nullable ? '(message) => message == null ? null : AnyNativeObject((message as num).toInt())' : '(message) => AnyNativeObject((message as num).toInt())';
+      } else if (spec.isEnumName(baseItemType)) {
+        unpack = nullable ? '(message) => message == null ? null : ((message as num).toInt()).to$baseItemType()' : '(message) => ((message as num).toInt()).to$baseItemType()';
+      } else if (baseItemType == 'bool') {
+        unpack = nullable ? '(message) => message == null ? null : (message as num).toInt() != 0' : '(message) => (message as num).toInt() != 0';
+      } else if (baseItemType == 'DateTime') {
+        unpack = nullable ? '(message) => message == null ? null : DateTime.fromMillisecondsSinceEpoch((message as num).toInt())' : '(message) => DateTime.fromMillisecondsSinceEpoch((message as num).toInt())';
+      } else if (baseItemType == 'int' || baseItemType == 'uint64') {
+        unpack = nullable ? '(message) => message == null ? null : (message as num).toInt()' : '(message) => (message as num).toInt()';
+      } else if (baseItemType == 'double') {
+        unpack = nullable ? '(message) => message == null ? null : (message as num).toDouble()' : '(message) => (message as num).toDouble()';
+      } else {
+        unpack = '(message) => message as $baseItemType$q';
+      }
+      w.line('    return NitroRuntime.openStream<$streamItemType$q>(');
+      w.line('      register: $register,');
+      w.line('      unpack: $unpack,');
+      w.line('      release: $release,');
+      w.line('      backpressure: Backpressure.${stream.backpressure.name},');
+      w.line("      debugLabel: '${stream.dartName}',");
+      w.line('    );');
+    }
+    w.line('  }');
+    w.blankLine();
+  }
+
+  // ══ Argument encoding ═══════════════════════════════════════════════════
+
+  static void _openArena(CodeWriter w, bool needsArena, String indent) {
+    if (needsArena) w.line('${indent}return withWasmArena(_m, (arena) {');
+  }
+
+  static void _closeArena(CodeWriter w, bool needsArena, String indent) {
+    if (needsArena) w.line('$indent});');
+  }
+
+  static List<String> _buildCallArgs(BridgeSpec spec, List<BridgeParam> params, {required bool includeErr}) {
+    final args = <String>['jsI64(_instanceId)'];
+    for (final p in params) {
+      args.add(_jsArgExpr(spec, p.type, p.name));
+      if (p.type.isTypedData) {
+        args.add(p.type.name.endsWith('?') ? '(${p.name}?.lengthInBytes ?? 0).toJS' : '${p.name}.lengthInBytes.toJS');
+      }
+    }
+    if (includeErr) args.add('_err.ptr.toJS');
+    return args;
+  }
+
+  static bool _paramNeedsArena(BridgeSpec spec, BridgeType t) {
+    final base = t.name.replaceFirst('?', '');
+    if (base == 'int' || base == 'uint64' || base == 'double' || base == 'bool' || base == 'DateTime') {
+      return t.name.endsWith('?'); // nullable prims pack a NitroOpt buffer
+    }
+    if (spec.isEnumName(base) || t.isAnyNativeObject || t.isNativeHandle || t.isPointer || t.isFunction) return false;
+    if (base == 'void') return false;
+    if (base == 'int8' || base == 'int16' || base == 'int32' || base == 'uint8' || base == 'uint16' || base == 'uint32' || base == 'float' || base == 'intptr' || base == 'size') return false;
+    // Strings, typed data, records, variants, maps, tuples, custom types.
+    return true;
+  }
+
+  /// The JS argument expression for one parameter, mirroring the C signature.
+  static String _jsArgExpr(BridgeSpec spec, BridgeType t, String name) {
+    final base = t.name.replaceFirst('?', '');
+    final nullable = t.name.endsWith('?');
+
+    if (t.isFunction) return _callbackArgExpr(spec, t, name);
+    // Pointer/NativeHandle params are typed `dynamic` in the override — cast
+    // the duck-typed .address back to int so the .toJS extension applies.
+    if (t.isNativeHandle || t.isPointer) {
+      return t.name.endsWith('?') ? '(($name as dynamic)?.address as int? ?? 0).toJS' : '(($name as dynamic).address as int).toJS';
+    }
+    if (t.isAnyNativeObject) {
+      return nullable ? 'jsI64($name?.instanceId ?? -1)' : 'jsI64($name.instanceId)';
+    }
+    if (spec.isCustomTypeName(base)) {
+      final ct = spec.customTypeByName(base)!;
+      return 'arena.copyIn(const ${ct.codecClass}().encodeBytes($name)).toJS';
+    }
+    if (nullable && (base == 'int' || base == 'uint64' || base == 'DateTime')) {
+      final expr = base == 'DateTime' ? '$name?.millisecondsSinceEpoch' : name;
+      return 'arena.copyIn(const NitroIntWireCodec().encodeBytes($expr)).toJS';
+    }
+    if (nullable && base == 'double') {
+      return 'arena.copyIn(const NitroDoubleWireCodec().encodeBytes($name)).toJS';
+    }
+    if (nullable && base == 'bool') {
+      return 'arena.copyIn(const NitroBoolWireCodec().encodeBytes($name)).toJS';
+    }
+    switch (base) {
       case 'int':
-        return 'JSNumber';
+      case 'uint64':
+        return 'jsI64($name)';
+      case 'DateTime':
+        return 'jsI64($name.millisecondsSinceEpoch)';
       case 'double':
-        return 'JSNumber';
+        return '$name.toJS';
       case 'bool':
-        return 'JSBoolean';
+        return '($name ? 1 : 0).toJS';
       case 'String':
-        return 'JSString';
-      case 'void':
-        return 'void';
+        return nullable ? '($name == null ? 0 : arena.cString($name)).toJS' : 'arena.cString($name).toJS';
+      case 'int8':
+      case 'int16':
+      case 'int32':
+      case 'uint8':
+      case 'uint16':
+      case 'uint32':
+      case 'intptr':
+      case 'size':
+        return '$name.toJS';
+      case 'float':
+        return '$name.toJS';
     }
-    if (bt.isTypedData) return 'JSArrayBuffer';
-    if (bt.isPointer || bt.isNativeHandle) return 'JSNumber'; // pointer as numeric address
-    if (bt.isFunction) return 'JSFunction'; // callback as JS function
-    if (enumNames.contains(name)) return 'JSNumber'; // enum as rawValue
-    // Struct / @HybridRecord / Map<String,V>: JSON string on web. There is no
-    // FFI binary codec in JS; both sides speak jsonEncode/jsonDecode.
-    if (structNames.contains(name)) return 'JSString';
-    if (bt.isMap) return 'JSString';
-    if (bt.isRecord || recordNames.contains(name)) return 'JSString';
-    return 'JSAny?';
+    if (spec.isEnumName(base)) {
+      return nullable ? 'jsI64($name == null ? -1 : $name.nativeValue)' : 'jsI64($name.nativeValue)';
+    }
+    if (t.isTypedData) {
+      if (nullable) {
+        final bytes = base == 'Uint8List' ? '$name!' : '$name!.buffer.asUint8List($name.offsetInBytes, $name.lengthInBytes)';
+        return '($name == null ? 0 : arena.copyIn($bytes)).toJS';
+      }
+      final bytes = base == 'Uint8List' ? name : '$name.buffer.asUint8List($name.offsetInBytes, $name.lengthInBytes)';
+      return 'arena.copyIn($bytes).toJS';
+    }
+    if (spec.isStructName(base)) {
+      return nullable ? '($name == null ? 0 : arena.copyIn(_nitroPackStruct$base($name))).toJS' : 'arena.copyIn(_nitroPackStruct$base($name)).toJS';
+    }
+    if (spec.isVariantName(base)) {
+      final variant = spec.variantByName(base)!;
+      final nullTag = variant.cases.indexWhere((c) => c.name.toLowerCase() == 'null');
+      if (nullable || nullTag >= 0) {
+        return 'arena.copyIn(_nitroEncodeVariantNullable$base($name)).toJS';
+      }
+      return 'arena.copyIn(_nitroEncodeFramed((w) => $name.writeFields(w))).toJS';
+    }
+    if (t.isAnyMap || base == 'NitroAnyMap') {
+      return nullable ? '($name == null ? 0 : arena.copyIn(_nitroEncodeFramed($name.writeTo))).toJS' : 'arena.copyIn(_nitroEncodeFramed($name.writeTo)).toJS';
+    }
+    if (t.isTuple) {
+      return 'arena.copyIn(_nitroEncodeTuple_$base($name)).toJS';
+    }
+    if (t.isMap) {
+      final suffix = _mapHelperSuffix(spec, base);
+      return nullable ? '($name == null ? 0 : arena.copyIn(_nitroEncodeMapBytes$suffix($name))).toJS' : 'arena.copyIn(_nitroEncodeMapBytes$suffix($name)).toJS';
+    }
+    if (t.isRecord || spec.isRecordName(base)) {
+      const libraryRecords = {'NitroNullableInt', 'NitroNullableDouble', 'NitroNullableBool'};
+      final writeCall = libraryRecords.contains(base) || spec.isRecordName(base) || spec.isStructName(base) ? '$name.writeFields' : '$name.writeFields';
+      if (t.recordListItemType != null) {
+        // A nullable LIST passes 0 (nullptr) for "absent" — the C++ bridge
+        // unpacks that into an empty buffer and the decode side maps it back
+        // to null. Without the guard the encoders receive a `List<T>?` where
+        // they declare `List<T>`.
+        final encode = 'arena.copyIn(${_encodeRecordListExpr(spec, t, name)}).toJS';
+        return nullable ? '($name == null ? 0 : arena.copyIn(${_encodeRecordListExpr(spec, t, '$name!')})).toJS' : encode;
+      }
+      return nullable ? '($name == null ? 0 : arena.copyIn(_nitroEncodeFramed((w) => $name.writeFields(w)))).toJS' : 'arena.copyIn(_nitroEncodeFramed((w) => $writeCall(w))).toJS';
+    }
+    // Fallback: framed record-style value.
+    return 'arena.copyIn(_nitroEncodeFramed((w) => $name.writeFields(w))).toJS';
   }
 
-  static String _jsFuncParams(List<BridgeParam> params, Set<String> enumNames, Set<String> structNames, Set<String> recordNames) {
-    return params
-        .map((p) {
-          final t = _toJsType(p.type, enumNames, structNames, recordNames);
-          if (p.type.isTypedData) {
-            return '$t ${p.name}, JSNumber ${p.name}Length';
+  static String _encodeRecordListExpr(BridgeSpec spec, BridgeType t, String name) {
+    final item = t.recordListItemType!;
+    // Nullable ITEMS carry a presence flag per entry: [4B count][1B has][item?].
+    // Only enum and variant lists can have nullable items today (see
+    // spec_extractor) — a plain encode here drops the flag and desynchronises
+    // the reader by one byte per item.
+    final nullableItems = t.recordListItemIsNullable;
+    if (t.isEnumList) {
+      final write = 'w.writeInt(e.nativeValue)';
+      return nullableItems
+          ? 'RecordWriter.encodeNullableListBytes($name, (w, e) => $write)'
+          : 'RecordWriter.encodeListBytes($name, (w, e) => $write)';
+    }
+    if (t.recordListItemIsPrimitive) {
+      final writeCall = switch (item) {
+        'int' => 'w.writeInt(e)',
+        'double' => 'w.writeDouble(e)',
+        'bool' => 'w.writeBool(e)',
+        'String' => 'w.writeString(e)',
+        _ => 'w.writeInt(e)',
+      };
+      // Primitive list ARGUMENTS are indexed, same as record lists — Kotlin and
+      // Swift both skip an 8-byte-per-item offset table when reading a
+      // primitive list param, and the native Dart twin encodes with
+      // encodeIndexedPrimitiveList. Note the asymmetry is deliberate: primitive
+      // list RETURNS are plain on every backend, so the decode side stays
+      // decodeListBytes.
+      return 'RecordWriter.encodeIndexedListBytes($name, (w, e) => $writeCall)';
+    }
+    if (spec.isVariantName(item)) {
+      const write = 'e.writeFields(w)';
+      return nullableItems
+          ? 'RecordWriter.encodeNullableListBytes($name, (w, e) => $write)'
+          : 'RecordWriter.encodeListBytes($name, (w, e) => $write)';
+    }
+    // True @HybridRecord lists are indexed in BOTH directions —
+    // [4B count][8B×n offsets][item bytes] — matching the native Dart encoder
+    // (dart_record_ffi_helpers.dart) and the Kotlin/Swift emitters. The decode
+    // side already expects the offset table; encoding plain here made the
+    // receiver read item bytes as offsets.
+    //
+    // C++ is not in that list on purpose: its bridge forwards lists as an
+    // opaque [4B len][payload] blob and never parses them, so a hand-written
+    // C++ impl must read/write the offset table itself.
+    return 'RecordWriter.encodeIndexedListBytes($name, (w, e) => e.writeFields(w))';
+  }
+
+  // ══ Return decoding ═════════════════════════════════════════════════════
+
+  static void _emitReturnDecode(
+    CodeWriter w,
+    BridgeSpec spec,
+    BridgeType type,
+    String resVar,
+    String indent, {
+    required bool borrowed,
+    required bool zeroCopy,
+    BridgeFunction? func,
+  }) {
+    final rt = type.name;
+    final rtBase = rt.replaceFirst('?', '');
+    final nullable = rt.endsWith('?');
+
+    if (rt == 'void') {
+      w.line('${indent}return;');
+      return;
+    }
+    switch (rtBase) {
+      case 'int':
+      case 'uint64':
+      case 'DateTime':
+        if (nullable) {
+          _decodeNullablePrim(w, spec, rtBase, resVar, indent, borrowed);
+          return;
+        }
+        if (rtBase == 'DateTime') {
+          w.line('${indent}return DateTime.fromMillisecondsSinceEpoch(dartI64($resVar));');
+        } else {
+          w.line('${indent}return dartI64($resVar);');
+        }
+        return;
+      case 'double':
+        if (nullable) {
+          _decodeNullablePrim(w, spec, 'double', resVar, indent, borrowed);
+          return;
+        }
+        w.line('${indent}return ($resVar as JSNumber).toDartDouble;');
+        return;
+      case 'bool':
+        if (nullable) {
+          _decodeNullablePrim(w, spec, 'bool', resVar, indent, borrowed);
+          return;
+        }
+        w.line('${indent}return ($resVar as JSNumber).toDartInt != 0;');
+        return;
+      case 'String':
+        // Sync string returns are borrowed (per-thread scratch); async owned.
+        if (nullable) {
+          w.line('${indent}final _p = dartI64($resVar);');
+          w.line('${indent}if (_p == 0) return null;');
+          w.line('${indent}final _s = _m.readCString(_p);');
+          if (!borrowed) w.line('${indent}_m.nitroFree(_p);');
+          w.line('${indent}return _s;');
+        } else {
+          if (borrowed) {
+            w.line('${indent}return _m.readCString(dartI64($resVar));');
+          } else {
+            w.line('${indent}final _p = dartI64($resVar);');
+            w.line('${indent}final _s = _m.readCString(_p);');
+            w.line('${indent}_m.nitroFree(_p);');
+            w.line('${indent}return _s;');
           }
-          return '$t ${p.name}';
-        })
-        .join(', ');
-  }
-
-  /// (fieldName, dartType) pairs for a struct or record type, or null when
-  /// [typeName] is neither.
-  static List<(String, String)>? _jsonFields(BridgeSpec spec, String typeName) {
-    for (final st in spec.structs) {
-      if (st.name == typeName) {
-        return [for (final f in st.fields) (f.name, f.type.name)];
+        }
+        return;
+      case 'int8':
+      case 'int16':
+      case 'int32':
+      case 'uint8':
+      case 'uint16':
+      case 'uint32':
+      case 'intptr':
+      case 'size':
+        w.line('${indent}return ($resVar as JSNumber).toDartInt;');
+        return;
+      case 'float':
+        w.line('${indent}return ($resVar as JSNumber).toDartDouble;');
+        return;
+    }
+    if (spec.isEnumName(rtBase)) {
+      if (nullable) {
+        w.line('${indent}final _v = dartI64($resVar);');
+        w.line('${indent}return _v == -1 ? null : _v.to$rtBase();');
+      } else {
+        w.line('${indent}return dartI64($resVar).to$rtBase();');
       }
+      return;
     }
-    for (final r in spec.recordTypes) {
-      if (r.name == typeName) {
-        return [for (final f in r.fields) (f.name, f.dartType)];
+    if (type.isAnyNativeObject || rtBase == 'AnyNativeObject') {
+      if (nullable) {
+        w.line('${indent}final _id = dartI64($resVar);');
+        w.line('${indent}return _id == -1 ? null : AnyNativeObject(_id);');
+      } else {
+        w.line('${indent}return AnyNativeObject(dartI64($resVar));');
       }
+      return;
     }
-    return null;
+    if (type.isNativeHandle) {
+      final tp = type.nativeHandleTypeParam ?? 'Void';
+      w.line('${indent}final _addr = dartI64($resVar);');
+      if (nullable) w.line('${indent}if (_addr == 0) return null;');
+      w.line('${indent}final _handle = NativeHandle<$tp>.fromAddress(_addr);');
+      if (func != null && func.isOwned) {
+        w.line("${indent}_handle.attachReleaseCallback((addr) => _m.call('${func.cSymbol}_release', [addr.toJS]));");
+      }
+      w.line('${indent}return _handle;');
+      return;
+    }
+    if (type.isTypedData) {
+      // Wire: [8B byteLength][data] — owned (freed after copy). zeroCopy:
+      // [8B byteLength][8B dataAddress] — snapshot then release.
+      w.line('${indent}final _ptr = dartI64($resVar);');
+      if (nullable) w.line('${indent}if (_ptr == 0) return null;');
+      w.line('${indent}final _byteLen = _m.readI64(_ptr);');
+      if (zeroCopy) {
+        w.line('${indent}final _dataAddr = _m.readI64(_ptr + 8);');
+        w.line('${indent}final _bytes = _m.readBytes(_dataAddr, _byteLen);');
+        w.line("${indent}_m.call('${spec.lib.replaceAll('-', '_')}_release_typed_data_return', [_ptr.toJS]);");
+      } else {
+        w.line('${indent}final _bytes = _m.readBytes(_ptr + 8, _byteLen);');
+        w.line('${indent}_m.nitroFree(_ptr);');
+      }
+      w.line('${indent}return ${_typedDataFromBytes(rtBase, '_bytes')};');
+      return;
+    }
+    if (spec.isStructName(rtBase)) {
+      // Sync struct returns are owned heap structs with a release fn.
+      w.line('${indent}final _ptr = dartI64($resVar);');
+      if (nullable) w.line('${indent}if (_ptr == 0) return null;');
+      w.line('${indent}final _v = ${_structReadCall(spec, rtBase, '_ptr')};');
+      w.line("${indent}_m.call('${spec.lib.replaceAll('-', '_')}_release_$rtBase', [_ptr.toJS]);");
+      w.line('${indent}return _v;');
+      return;
+    }
+    if (spec.isCustomTypeName(rtBase)) {
+      // Custom-type returns are owned on both sync and async paths (the FFI
+      // decode frees them with _nitroFree).
+      final ct = spec.customTypeByName(rtBase)!;
+      w.line('${indent}final _ptr = dartI64($resVar);');
+      if (nullable) w.line('${indent}if (_ptr == 0) return null;');
+      w.line('${indent}final _bytes = _m.readBytes(_ptr, const ${ct.codecClass}().encodedSize);');
+      w.line('${indent}_m.nitroFree(_ptr);');
+      final bang = nullable ? '' : '!';
+      w.line('${indent}return const ${ct.codecClass}().decodeBytes(_bytes)$bang;');
+      return;
+    }
+    // Framed blobs (records, variants, maps, AnyMap, tuples, lists) are OWNED
+    // on both sync and async paths — the impl mallocs them and the FFI decode
+    // frees them; only C strings and nullable-prim scratch are borrowed.
+    w.line('${indent}final _ptr = dartI64($resVar);');
+    if (nullable) w.line('${indent}if (_ptr == 0) return null;');
+    w.line('${indent}final _framed = _m.readFramed(_ptr);');
+    w.line('${indent}_m.nitroFree(_ptr);');
+    w.line('${indent}return ${_framedDecodeExpr(spec, type, '_framed')};');
   }
 
-  /// Dart value → JS value for passing to @JS() functions.
-  static String _dartToJs(BridgeSpec spec, BridgeType bt, String varName, Set<String> enumNames) {
-    final name = bt.name.replaceFirst('?', '');
-    if (name == 'int' || name == 'double') return '$varName.toJS';
-    if (name == 'bool') return '$varName.toJS';
-    if (name == 'String') return '$varName.toJS';
-    if (bt.isTypedData) return '$varName.buffer.toJS, $varName.lengthInBytes.toJS';
-    if (bt.isPointer || bt.isNativeHandle) return '$varName.address.toJS';
-    if (bt.isFunction) return '$varName.toJS'; // treated as JS function ref
-    if (enumNames.contains(name)) return '$varName.nativeValue.toJS';
-    // Map<String,V>: JSON-encode to string, match JSString on JS side
-    if (bt.isMap) return 'jsonEncode($varName).toJS';
-    // Struct / Record: spec classes have no toJson — build the map inline
-    // from the field list the generator already knows.
-    final fields = _jsonFields(spec, name);
-    if (fields != null) {
-      final entries = fields
-          .map((f) {
-            final (fname, ftype) = f;
-            final base = ftype.replaceFirst('?', '');
-            final value = enumNames.contains(base) ? '$varName.$fname.nativeValue' : '$varName.$fname';
-            return "'$fname': $value";
-          })
-          .join(', ');
-      return 'jsonEncode({$entries}).toJS';
+  static void _decodeNullablePrim(CodeWriter w, BridgeSpec spec, String base, String resVar, String indent, bool borrowed) {
+    // C returns uint8_t* to the packed NitroOpt* layout (borrowed on sync).
+    final codec = base == 'double' ? 'NitroDoubleWireCodec' : (base == 'bool' ? 'NitroBoolWireCodec' : 'NitroIntWireCodec');
+    final size = base == 'bool' ? 2 : 9;
+    w.line('${indent}final _p = dartI64($resVar);');
+    w.line('${indent}if (_p == 0) return null;');
+    w.line('${indent}final _bytes = _m.readBytes(_p, $size);');
+    if (!borrowed) w.line('${indent}_m.nitroFree(_p);');
+    if (base == 'DateTime') {
+      w.line('${indent}final _ms = const NitroIntWireCodec().decodeBytes(_bytes);');
+      w.line('${indent}return _ms != null ? DateTime.fromMillisecondsSinceEpoch(_ms) : null;');
+    } else {
+      w.line('${indent}return const $codec().decodeBytes(_bytes);');
     }
-    return 'jsonEncode($varName).toJS';
   }
 
-  /// Constructor argument that pulls field [fname] of Dart type [ftype] out
-  /// of a decoded JSON map named `m`.
-  static String _jsonCtorArg(String fname, String ftype, Set<String> enumNames) {
-    final base = ftype.replaceFirst('?', '');
+  /// Decode expression for a framed byte buffer (after the bulk copy).
+  static String _framedDecodeExpr(BridgeSpec spec, BridgeType type, String framedVar) {
+    final base = type.name.replaceFirst('?', '');
+    if (type.isAnyMap || base == 'NitroAnyMap') {
+      return 'NitroAnyMap.readFrom(RecordReader.fromFramedBytes($framedVar))';
+    }
+    if (type.isTuple) {
+      return '_nitroDecodeTuple_$base($framedVar)';
+    }
+    if (type.isMap) {
+      return '_nitroDecodeMapBytes${_mapHelperSuffix(spec, base)}($framedVar)';
+    }
+    if (type.recordListItemType != null) {
+      final item = type.recordListItemType!;
+      // Mirrors the encode side: nullable items carry a per-entry presence
+      // flag, so they need the nullable reader or every item after the first
+      // shifts by a byte.
+      final nullableItems = type.recordListItemIsNullable;
+      if (type.isEnumList) {
+        final read = 'r.readInt().to$item()';
+        return nullableItems
+            ? 'RecordReader.decodeNullableListBytes($framedVar, (r) => $read)'
+            : 'RecordReader.decodeListBytes($framedVar, (r) => $read)';
+      }
+      if (type.recordListItemIsPrimitive) {
+        final readCall = switch (item) {
+          'int' => 'r.readInt()',
+          'double' => 'r.readDouble()',
+          'bool' => 'r.readBool()',
+          'String' => 'r.readString()',
+          _ => 'r.readInt()',
+        };
+        return 'RecordReader.decodeListBytes($framedVar, (r) => $readCall)';
+      }
+      if (spec.isVariantName(item)) {
+        final read = '${item}VariantExt.fromReader(r)';
+        return nullableItems
+            ? 'RecordReader.decodeNullableListBytes($framedVar, (r) => $read)'
+            : 'RecordReader.decodeListBytes($framedVar, (r) => $read)';
+      }
+      // Indexed record lists ([4B count][offset table][items]) are produced by
+      // encodeIndexedList on native returns; web decodes them eagerly.
+      return 'RecordReader.decodeIndexedListBytes($framedVar, (r) => ${item}RecordExt.fromReader(r))';
+    }
+    if (spec.isVariantName(base)) {
+      return '${base}VariantExt.fromReader(RecordReader.fromFramedBytes($framedVar))';
+    }
+    const libraryRecords = {'NitroNullableInt', 'NitroNullableDouble', 'NitroNullableBool'};
+    if (libraryRecords.contains(base)) {
+      return '$base.fromReader(RecordReader.fromFramedBytes($framedVar))';
+    }
+    // Records (and struct-shaped records).
+    return '${base}RecordExt.fromReader(RecordReader.fromFramedBytes($framedVar))';
+  }
+
+  static String _typedDataFromBytes(String dartType, String bytesVar) {
+    if (dartType == 'Uint8List') return bytesVar;
+    final viewCtor = switch (dartType) {
+      'Int8List' => 'Int8List.view',
+      'Int16List' => 'Int16List.view',
+      'Uint16List' => 'Uint16List.view',
+      'Int32List' => 'Int32List.view',
+      'Uint32List' => 'Uint32List.view',
+      'Int64List' => 'Int64List.view',
+      'Uint64List' => 'Uint64List.view',
+      'Float32List' => 'Float32List.view',
+      'Float64List' => 'Float64List.view',
+      _ => 'Uint8List.view',
+    };
+    return '$viewCtor($bytesVar.buffer, $bytesVar.offsetInBytes, $bytesVar.lengthInBytes ~/ ${_typedDataElementSizeWeb(dartType)})';
+  }
+
+  static int _typedDataElementSizeWeb(String dartType) => switch (dartType) {
+    'Uint8List' || 'Int8List' => 1,
+    'Int16List' || 'Uint16List' => 2,
+    'Int32List' || 'Uint32List' || 'Float32List' => 4,
+    _ => 8,
+  };
+
+  // ══ Callbacks ═══════════════════════════════════════════════════════════
+
+  /// Emscripten signature letter for one callback C type (wasm32: pointers
+  /// and small ints are i32 → 'i'; int64 → 'j'; double → 'd'; float → 'f').
+  static String _sigLetter(BridgeSpec spec, BridgeType t) {
+    final base = t.name.replaceFirst('?', '');
+    if (t.isPointer || t.isNativeHandle || base == 'String') return 'i';
+    if (spec.isEnumName(base)) return 'j';
+    if (spec.isStructName(base) || spec.isRecordName(base) || spec.isVariantName(base) || t.isMap || t.isAnyMap) return 'i';
     return switch (base) {
-      'int' => "$fname: (m['$fname'] as num).toInt()",
-      'double' => "$fname: (m['$fname'] as num).toDouble()",
-      'bool' => "$fname: m['$fname'] as bool",
-      'String' => "$fname: m['$fname'] as String",
-      _ when enumNames.contains(base) => "$fname: ((m['$fname'] as num).toInt()).to$base()",
-      _ => "$fname: m['$fname'] as $ftype",
+      'int' || 'uint64' || 'DateTime' => 'j',
+      'double' => 'd',
+      'float' => 'f',
+      'bool' || 'int8' || 'int16' || 'int32' || 'uint8' || 'uint16' || 'uint32' || 'intptr' || 'size' => 'i',
+      'void' => 'v',
+      _ => 'i',
     };
   }
 
-  /// JS value → Dart value after calling @JS() function.
-  static String _jsTodart(BridgeSpec spec, BridgeType bt, String expr, Set<String> enumNames, Set<String> structNames, Set<String> recordNames) {
-    final name = bt.name.replaceFirst('?', '');
-    if (name == 'int') return '($expr as JSNumber).toDartInt';
-    if (name == 'double') return '($expr as JSNumber).toDartDouble';
-    if (name == 'bool') return '($expr as JSBoolean).toDart';
-    if (name == 'String') return '($expr as JSString).toDart';
-    if (bt.isTypedData) return '($expr as JSArrayBuffer).toDart.asUint8List()';
-    if (bt.isPointer || bt.isNativeHandle) {
-      return 'Pointer.fromAddress(($expr as JSNumber).toDartInt)';
-    }
-    if (bt.isMap) {
-      // Map<String,V>: JSON-decoded from JSString. jsonDecode yields
-      // Map<String, dynamic>, so cast to the declared value type.
-      return '(jsonDecode(($expr as JSString).toDart) as Map<String, dynamic>)'
-          '.cast<String, ${_mapValueType(name)}>()';
-    }
-    if (bt.recordListItemType != null) {
-      // List<T>: JSON-decoded to a List, each element mapped to the item type.
-      final item = bt.recordListItemType!;
-      if (bt.isEnumList) {
-        return '((jsonDecode(($expr as JSString).toDart) as List)'
-            '.map<$item>((e) => ((e as num).toInt()).to$item()).toList())';
-      }
-      if (bt.recordListItemIsPrimitive) {
-        final elem = switch (item) {
-          'int' => '(e as num).toInt()',
-          'double' => '(e as num).toDouble()',
-          'bool' => 'e as bool',
-          'String' => 'e as String',
-          _ => 'e as $item',
-        };
-        return '((jsonDecode(($expr as JSString).toDart) as List)'
-            '.map<$item>((e) => $elem).toList())';
-      }
-      final fields = _jsonFields(spec, item);
-      if (fields != null) {
-        final args = fields.map((f) => _jsonCtorArg(f.$1, f.$2, enumNames)).join(', ');
-        return '((jsonDecode(($expr as JSString).toDart) as List)'
-            '.map<$item>((m) => $item($args)).toList())';
-      }
-    }
-    if (enumNames.contains(name)) {
-      return '(($expr as JSNumber).toDartInt).to$name()';
-    }
-    if (structNames.contains(name) || recordNames.contains(name)) {
-      // Spec classes have no fromJson — construct inline from the decoded map.
-      final fields = _jsonFields(spec, name);
-      if (fields != null) {
-        final args = fields.map((f) => _jsonCtorArg(f.$1, f.$2, enumNames)).join(', ');
-        return '((Map<String, dynamic> m) => $name($args))'
-            '(jsonDecode(($expr as JSString).toDart) as Map<String, dynamic>)';
-      }
-    }
-    return '($expr as JSAny?)';
+  /// A callback parameter: register a Dart closure in the module function
+  /// table (cached per parameter slot; replaced closures release their table
+  /// entry on the next microtask, mirroring the native deferredClose).
+  static String _callbackArgExpr(BridgeSpec spec, BridgeType t, String name) {
+    return '_nitroWebCallback_$name($name)';
   }
 
-  /// Extracts the value type V from a `Map<String, V>` type name (e.g.
-  /// `Map<String, int>` → `int`), for casting the jsonDecode result.
-  static String _mapValueType(String mapTypeName) {
+  // ══ Helper section (module-level, emitted once per file) ═════════════════
+
+  static void _emitWebHelpers(CodeWriter w, BridgeSpec spec) {
+    w.line('// ── Wire helpers (web) ──────────────────────────────────────────────────');
+    w.blankLine();
+    w.line('Uint8List _nitroEncodeFramed(void Function(RecordWriter w) write) {');
+    w.line('  final w = RecordWriter();');
+    w.line('  write(w);');
+    w.line('  return w.takeFramedBytes();');
+    w.line('}');
+    w.blankLine();
+
+    _emitStructCodecs(w, spec);
+    _emitVariantNullableEncoders(w, spec);
+    _emitTupleCodecs(w, spec);
+    _emitMapCodecs(w, spec);
+    _emitCallbackHelpers(w, spec);
+  }
+
+  // ── Struct packed codecs ──────────────────────────────────────────────────
+
+  /// wasm32 packed layout for a @HybridStruct: matches the C `#pragma pack(1)`
+  /// typedef compiled by emcc (pointers are 4-byte u32 slots).
+  static void _emitStructCodecs(CodeWriter w, BridgeSpec spec) {
+    final used = _usedStructs(spec);
+    for (final stName in used) {
+      final st = spec.structByName(stName);
+      if (st == null) continue;
+
+      // Pack (Dart → heap bytes). String fields are not supported in struct
+      // params on web yet (they need arena-scoped char* slots).
+      w.line('Uint8List _nitroPackStruct$stName($stName v) {');
+      final size = _structByteSize(spec, st);
+      if (size == null) {
+        w.line("  throw UnsupportedError('$stName: struct fields beyond prim/enum are not yet supported on web');");
+        w.line('}');
+        w.blankLine();
+        continue;
+      }
+      w.line('  final out = Uint8List($size);');
+      w.line('  final bd = ByteData.sublistView(out);');
+      var off = 0;
+      for (final f in st.fields) {
+        final base = f.type.name.replaceFirst('?', '');
+        if (spec.isEnumName(base)) {
+          w.line('  setInt64LE(bd, $off, v.${f.name}.nativeValue);');
+          off += 8;
+        } else if (base == 'int' || base == 'uint64' || base == 'DateTime') {
+          w.line('  setInt64LE(bd, $off, ${base == 'DateTime' ? 'v.${f.name}.millisecondsSinceEpoch' : 'v.${f.name}'});');
+          off += 8;
+        } else if (base == 'double') {
+          w.line('  bd.setFloat64($off, v.${f.name}, Endian.little);');
+          off += 8;
+        } else if (base == 'bool') {
+          w.line('  bd.setUint8($off, v.${f.name} ? 1 : 0);');
+          off += 1;
+        }
+      }
+      w.line('  return out;');
+      w.line('}');
+      w.blankLine();
+
+      // Read (heap offset → Dart value).
+      w.line('$stName _nitroReadStruct$stName(NitroWasmModule m, int ptr) {');
+      w.line('  final bd = ByteData.sublistView(m.readBytes(ptr, $size));');
+      final args = <String>[];
+      off = 0;
+      for (final f in st.fields) {
+        final base = f.type.name.replaceFirst('?', '');
+        String expr;
+        if (spec.isEnumName(base)) {
+          expr = 'getInt64LE(bd, $off).to$base()';
+          off += 8;
+        } else if (base == 'int' || base == 'uint64') {
+          expr = 'getInt64LE(bd, $off)';
+          off += 8;
+        } else if (base == 'DateTime') {
+          expr = 'DateTime.fromMillisecondsSinceEpoch(getInt64LE(bd, $off))';
+          off += 8;
+        } else if (base == 'double') {
+          expr = 'bd.getFloat64($off, Endian.little)';
+          off += 8;
+        } else {
+          expr = 'bd.getUint8($off) != 0';
+          off += 1;
+        }
+        args.add('${f.name}: $expr');
+      }
+      w.line('  return $stName(${args.join(', ')});');
+      w.line('}');
+      w.blankLine();
+    }
+  }
+
+  /// Byte size of the packed wasm32 struct, or null when a field kind is not
+  /// yet supported on web (strings, typed data, nested structs).
+  static int? _structByteSize(BridgeSpec spec, BridgeStruct st) {
+    var size = 0;
+    for (final f in st.fields) {
+      final base = f.type.name.replaceFirst('?', '');
+      if (spec.isEnumName(base) || base == 'int' || base == 'uint64' || base == 'double' || base == 'DateTime') {
+        size += 8;
+      } else if (base == 'bool') {
+        size += 1;
+      } else {
+        return null;
+      }
+    }
+    return size;
+  }
+
+  static Set<String> _usedStructs(BridgeSpec spec) {
+    final used = <String>{};
+    void addType(BridgeType t) {
+      final base = t.name.replaceFirst('?', '');
+      if (spec.isStructName(base)) used.add(base);
+    }
+
+    for (final f in spec.functions) {
+      addType(f.returnType);
+      for (final p in f.params) {
+        addType(p.type);
+      }
+    }
+    for (final p in spec.properties) {
+      addType(p.type);
+    }
+    for (final s in spec.streams) {
+      addType(s.itemType);
+    }
+    return used;
+  }
+
+  static String _structReadCall(BridgeSpec spec, String stName, String ptrVar) => '_nitroReadStruct$stName(_m, $ptrVar)';
+
+  // ── Nullable variant encoders ─────────────────────────────────────────────
+
+  static void _emitVariantNullableEncoders(CodeWriter w, BridgeSpec spec) {
+    final used = <String>{};
+    void addType(BridgeType t) {
+      final base = t.name.replaceFirst('?', '');
+      if (spec.isVariantName(base) && (t.name.endsWith('?') || (spec.variantByName(base)!.cases.any((c) => c.name.toLowerCase() == 'null')))) {
+        used.add(base);
+      }
+    }
+
+    for (final f in spec.functions) {
+      addType(f.returnType);
+      for (final p in f.params) {
+        addType(p.type);
+      }
+    }
+    for (final p in spec.properties) {
+      addType(p.type);
+    }
+
+    for (final name in used) {
+      final variant = spec.variantByName(name)!;
+      final nullTag = variant.cases.indexWhere((c) => c.name.toLowerCase() == 'null');
+      w.line('Uint8List _nitroEncodeVariantNullable$name($name? value) {');
+      w.line('  final w = RecordWriter();');
+      if (nullTag >= 0) {
+        w.line('  if (value == null) {');
+        w.line('    w.writeInt8($nullTag);');
+        w.line('  } else {');
+        w.line('    value.writeFields(w);');
+        w.line('  }');
+      } else {
+        w.line("  if (value == null) { throw ArgumentError('$name has no null case'); }");
+        w.line('  value.writeFields(w);');
+      }
+      w.line('  return w.takeFramedBytes();');
+      w.line('}');
+      w.blankLine();
+    }
+  }
+
+  // ── Tuple codecs ──────────────────────────────────────────────────────────
+
+  static void _emitTupleCodecs(CodeWriter w, BridgeSpec spec) {
+    final tuples = spec.localRecordTypes.where((r) => r.isTuple).toList();
+    for (final rt in tuples) {
+      final fieldTypes = rt.fields
+          .map((f) {
+            if (f.isNullable) return '${f.dartType.replaceFirst("?", "")}?';
+            return f.dartType;
+          })
+          .join(', ');
+      final tupleType = '($fieldTypes)';
+
+      w.line('$tupleType _nitroDecodeTuple_${rt.name}(Uint8List framed) {');
+      w.line('  final r = RecordReader.fromFramedBytes(framed);');
+      final reads = rt.fields.map((f) => _tupleFieldReadExpr(spec, f)).join(', ');
+      w.line('  return ($reads);');
+      w.line('}');
+      w.blankLine();
+
+      w.line('Uint8List _nitroEncodeTuple_${rt.name}($tupleType v) {');
+      w.line('  final w = RecordWriter();');
+      for (var i = 0; i < rt.fields.length; i++) {
+        _emitTupleFieldWrite(w, spec, rt.fields[i], i + 1);
+      }
+      w.line('  return w.takeFramedBytes();');
+      w.line('}');
+      w.blankLine();
+    }
+  }
+
+  static String _tupleFieldReadExpr(BridgeSpec spec, BridgeRecordField f) {
+    final base = f.dartType.replaceFirst('?', '');
+    String inner;
+    switch (f.kind) {
+      case RecordFieldKind.primitive:
+        inner = switch (base) {
+          'int' => 'r.readInt()',
+          'double' => 'r.readDouble()',
+          'bool' => 'r.readBool()',
+          'String' => 'r.readString()',
+          'Uint8List' => 'r.readBlob()',
+          _ => 'r.readInt()',
+        };
+      case RecordFieldKind.enumValue:
+        inner = 'r.readInt().to$base()';
+      case RecordFieldKind.recordObject || RecordFieldKind.struct:
+        inner = '${base}RecordExt.fromReader(r)';
+      case RecordFieldKind.listPrimitive:
+        final item = f.itemTypeName ?? 'int';
+        final read = switch (item) {
+          'int' => 'r.readInt()',
+          'double' => 'r.readDouble()',
+          'bool' => 'r.readBool()',
+          'String' => 'r.readString()',
+          _ => 'r.readInt()',
+        };
+        inner = 'List.generate(r.readInt32(), (_) => $read)';
+      case RecordFieldKind.listEnumValue:
+        inner = 'List.generate(r.readInt32(), (_) => r.readInt().to${f.itemTypeName}())';
+      case RecordFieldKind.listRecordObject:
+        inner = 'List.generate(r.readInt32(), (_) => ${f.itemTypeName}RecordExt.fromReader(r))';
+      case RecordFieldKind.typedData:
+        inner = base == 'Uint8List' ? 'r.readBlob()' : '$base.view(r.readBlob().buffer)';
+    }
+    if (f.isNullable) return 'r.readNullTag() ? null : $inner';
+    return inner;
+  }
+
+  static void _emitTupleFieldWrite(CodeWriter w, BridgeSpec spec, BridgeRecordField f, int index) {
+    final accessor = 'v.\$$index';
+    final base = f.dartType.replaceFirst('?', '');
+    if (f.isNullable) {
+      w.line('  w.writeNullTag($accessor == null);');
+      w.line('  if ($accessor != null) {');
+      w.line('    ${_tupleFieldWriteStmt(spec, f, '$accessor!', base)}');
+      w.line('  }');
+      return;
+    }
+    w.line('  ${_tupleFieldWriteStmt(spec, f, accessor, base)}');
+  }
+
+  static String _tupleFieldWriteStmt(BridgeSpec spec, BridgeRecordField f, String expr, String base) {
+    switch (f.kind) {
+      case RecordFieldKind.primitive:
+        return switch (base) {
+          'int' => 'w.writeInt($expr);',
+          'double' => 'w.writeDouble($expr);',
+          'bool' => 'w.writeBool($expr);',
+          'String' => 'w.writeString($expr);',
+          'Uint8List' => 'w.writeBlob($expr);',
+          _ => 'w.writeInt($expr);',
+        };
+      case RecordFieldKind.enumValue:
+        return 'w.writeInt($expr.nativeValue);';
+      case RecordFieldKind.recordObject || RecordFieldKind.struct:
+        return '$expr.writeFields(w);';
+      case RecordFieldKind.listPrimitive:
+        final item = f.itemTypeName ?? 'int';
+        final writeCall = switch (item) {
+          'int' => 'w.writeInt(e)',
+          'double' => 'w.writeDouble(e)',
+          'bool' => 'w.writeBool(e)',
+          'String' => 'w.writeString(e)',
+          _ => 'w.writeInt(e)',
+        };
+        return 'w.writeInt32($expr.length); for (final e in $expr) { $writeCall; }';
+      case RecordFieldKind.listEnumValue:
+        return 'w.writeInt32($expr.length); for (final e in $expr) { w.writeInt(e.nativeValue); }';
+      case RecordFieldKind.listRecordObject:
+        return 'w.writeInt32($expr.length); for (final e in $expr) { e.writeFields(w); }';
+      case RecordFieldKind.typedData:
+        final toBytes = base == 'Uint8List' ? expr : '$expr.buffer.asUint8List()';
+        return 'w.writeBlob($toBytes);';
+    }
+  }
+
+  // ── Map codecs ────────────────────────────────────────────────────────────
+
+  static void _emitMapCodecs(CodeWriter w, BridgeSpec spec) {
+    final mapTypes = <String>{};
+    void addType(BridgeType t) {
+      final base = t.name.replaceFirst('?', '');
+      if (t.isMap && !t.isAnyMap) mapTypes.add(base);
+    }
+
+    for (final f in spec.functions) {
+      addType(f.returnType);
+      for (final p in f.params) {
+        addType(p.type);
+      }
+    }
+    for (final p in spec.properties) {
+      addType(p.type);
+    }
+
+    for (final mapType in mapTypes) {
+      final (keyType, valueType) = _mapKeyValue(mapType);
+      final suffix = _mapHelperSuffix(spec, mapType);
+      final isIntKey = keyType != 'String';
+      final keyIsEnum = spec.isEnumName(keyType);
+
+      // ── Encode ──
+      w.line('Uint8List _nitroEncodeMapBytes$suffix($mapType m) {');
+      w.line('  final w = RecordWriter();');
+      w.line('  w.writeInt32(m.length);');
+      w.line('  for (final e in m.entries) {');
+      if (!isIntKey) {
+        w.line('    w.writeString(e.key);');
+      } else if (keyIsEnum) {
+        w.line('    ${_intKeyWrite(spec, keyType, 'e.key.nativeValue')}');
+      } else {
+        w.line('    ${_intKeyWrite(spec, keyType, 'e.key')}');
+      }
+      // String-key maps tag every value; int-key maps are tag-less.
+      _emitMapValueWrite(w, spec, valueType, tagged: !isIntKey);
+      w.line('  }');
+      w.line('  return w.takeFramedBytes();');
+      w.line('}');
+      w.blankLine();
+
+      // ── Decode ──
+      w.line('$mapType _nitroDecodeMapBytes$suffix(Uint8List framed) {');
+      w.line('  final r = RecordReader.fromFramedBytes(framed);');
+      w.line('  final count = r.readInt32();');
+      w.line('  final result = <$keyType, $valueType>{};');
+      w.line('  for (var i = 0; i < count; i++) {');
+      if (!isIntKey) {
+        w.line('    final key = r.readString();');
+      } else if (keyIsEnum) {
+        w.line('    final key = ${_intKeyRead(spec, keyType)}.to$keyType();');
+      } else {
+        w.line('    final key = ${_intKeyRead(spec, keyType)};');
+      }
+      _emitMapValueRead(w, spec, valueType, tagged: !isIntKey);
+      w.line('    result[key] = v;');
+      w.line('  }');
+      w.line('  return result;');
+      w.line('}');
+      w.blankLine();
+    }
+  }
+
+  /// Map value wire, mirroring the native helpers exactly.
+  ///
+  /// String-key maps TAG every value (1=int64, 2=f64, 3=bool, 4=string,
+  /// 5=record/variant blob); int-key maps are tag-less. Record/variant blobs
+  /// are `[4B blob_len][framed bytes]` — the framed bytes keep their own
+  /// inner 4B length prefix.
+  static void _emitMapValueWrite(CodeWriter w, BridgeSpec spec, String valueType, {required bool tagged}) {
+    void tag(int t) {
+      if (tagged) w.line('    w.writeInt8($t);');
+    }
+
+    if (valueType == 'int') {
+      tag(1);
+      w.line('    w.writeInt(e.value);');
+    } else if (valueType == 'double') {
+      tag(2);
+      w.line('    w.writeDouble(e.value);');
+    } else if (valueType == 'bool') {
+      tag(3);
+      w.line('    w.writeBool(e.value);');
+    } else if (valueType == 'String') {
+      tag(4);
+      w.line('    w.writeString(e.value);');
+    } else if (spec.isEnumName(valueType)) {
+      tag(1);
+      w.line('    w.writeInt(e.value.nativeValue);');
+    } else if (spec.isRecordName(valueType) || spec.isVariantName(valueType)) {
+      tag(5);
+      w.line('    w.writeBlob(_nitroEncodeFramed((rw) => e.value.writeFields(rw)));');
+    } else {
+      tag(4);
+      w.line('    w.writeString(jsonEncode(e.value));');
+    }
+  }
+
+  static void _emitMapValueRead(CodeWriter w, BridgeSpec spec, String valueType, {required bool tagged}) {
+    if (tagged) w.line('    r.readInt8(); // skip the value type tag');
+    if (valueType == 'int') {
+      w.line('    final v = r.readInt();');
+    } else if (valueType == 'double') {
+      w.line('    final v = r.readDouble();');
+    } else if (valueType == 'bool') {
+      w.line('    final v = r.readBool();');
+    } else if (valueType == 'String') {
+      w.line('    final v = r.readString();');
+    } else if (spec.isEnumName(valueType)) {
+      w.line('    final v = r.readInt().to$valueType();');
+    } else if (spec.isRecordName(valueType)) {
+      w.line('    final v = ${valueType}RecordExt.fromReader(RecordReader.fromFramedBytes(r.readBlob()));');
+    } else if (spec.isVariantName(valueType)) {
+      w.line('    final v = ${valueType}VariantExt.fromReader(RecordReader.fromFramedBytes(r.readBlob()));');
+    } else {
+      w.line('    final v = jsonDecode(r.readString()) as $valueType;');
+    }
+  }
+
+  static String _intKeyWrite(BridgeSpec spec, String keyType, String expr) {
+    final size = _intKeyByteSizeWeb(spec, keyType);
+    return switch (size) {
+      1 => 'w.writeInt8($expr);',
+      4 => 'w.writeInt32($expr);',
+      _ => 'w.writeInt($expr);',
+    };
+  }
+
+  static String _intKeyRead(BridgeSpec spec, String keyType) {
+    final size = _intKeyByteSizeWeb(spec, keyType);
+    return switch (size) {
+      1 => 'r.readInt8()',
+      4 => 'r.readInt32()',
+      _ => 'r.readInt()',
+    };
+  }
+
+  static int _intKeyByteSizeWeb(BridgeSpec spec, String keyType) {
+    if (spec.isEnumName(keyType)) return 8;
+    return switch (keyType) {
+      'int8' || 'uint8' => 1,
+      'int16' || 'uint16' => 2,
+      'int32' || 'uint32' => 4,
+      _ => 8,
+    };
+  }
+
+  static (String, String) _mapKeyValue(String mapTypeName) {
     final lt = mapTypeName.indexOf('<');
     final gt = mapTypeName.lastIndexOf('>');
-    if (lt < 0 || gt < 0) return 'dynamic';
+    if (lt < 0 || gt < 0) return ('String', 'dynamic');
     final inner = mapTypeName.substring(lt + 1, gt);
     final comma = inner.indexOf(',');
-    return comma < 0 ? 'dynamic' : inner.substring(comma + 1).trim();
+    if (comma < 0) return ('String', 'dynamic');
+    return (inner.substring(0, comma).trim(), inner.substring(comma + 1).trim());
+  }
+
+  static String _mapHelperSuffix(BridgeSpec spec, String mapTypeName) {
+    final (k, v) = _mapKeyValue(mapTypeName);
+    String capName(String s) {
+      final cleaned = s.replaceAll(RegExp(r'[^A-Za-z0-9]'), '');
+      return cleaned.isEmpty ? 'Dynamic' : cleaned[0].toUpperCase() + cleaned.substring(1);
+    }
+
+    return '${capName(k)}${capName(v)}';
+  }
+
+  // ── Callback helpers ──────────────────────────────────────────────────────
+
+  static void _emitCallbackHelpers(CodeWriter w, BridgeSpec spec) {
+    // One helper per distinct callback parameter (keyed by method+param name),
+    // caching the function-table slot and releasing the previous one when the
+    // callback is replaced.
+    final seen = <String>{};
+    for (final func in spec.functions) {
+      for (final p in func.params) {
+        if (!p.type.isFunction) continue;
+        if (!seen.add(p.name)) continue;
+        _emitOneCallbackHelper(w, spec, p);
+      }
+    }
+  }
+
+  static void _emitOneCallbackHelper(CodeWriter w, BridgeSpec spec, BridgeParam p) {
+    final cb = p.type;
+    final cbParams = cb.functionParams;
+    final retName = cb.functionReturnType ?? 'void';
+    final retType = BridgeType(name: retName);
+    final sig = _sigLetter(spec, retType) + cbParams.map((t) => _sigLetter(spec, t)).join();
+
+    // JS-side closure parameter list and Dart-value conversions.
+    final jsParams = <String>[];
+    final convs = <String>[];
+    for (var i = 0; i < cbParams.length; i++) {
+      jsParams.add('JSAny? a$i');
+      final t = cbParams[i];
+      final base = t.name.replaceFirst('?', '');
+      final nullable = t.name.endsWith('?');
+      String conv;
+      if (base == 'int' || base == 'uint64') {
+        conv = 'dartI64(a$i)';
+      } else if (base == 'DateTime') {
+        conv = 'DateTime.fromMillisecondsSinceEpoch(dartI64(a$i))';
+      } else if (base == 'double' || base == 'float') {
+        conv = '(a$i! as JSNumber).toDartDouble';
+      } else if (base == 'bool') {
+        conv = '(a$i! as JSNumber).toDartInt != 0';
+      } else if (base == 'String') {
+        // char* — borrowed for the duration of the call; malloc'd by the
+        // bridge and freed by Dart on native, so mirror: read then free.
+        conv = nullable ? _freeingStringConv('a$i', nullable: true) : _freeingStringConv('a$i', nullable: false);
+      } else if (spec.isEnumName(base)) {
+        conv = 'dartI64(a$i).to$base()';
+      } else if (spec.isStructName(base)) {
+        conv = '(() { final _p = dartI64(a$i); final _v = _nitroReadStruct$base(_module, _p); _module.nitroFree(_p); return _v; })()';
+      } else if (spec.isRecordName(base) || spec.isVariantName(base) || t.isMap || t.isAnyMap) {
+        final decode = _framedDecodeExpr(spec, t, '_framed');
+        final nullPart = nullable ? 'if (_p == 0) return null; ' : '';
+        conv = '(() { final _p = dartI64(a$i); ${nullPart}final _framed = _module.readFramed(_p); _module.nitroFree(_p); return $decode; })()';
+      } else {
+        // Anything left over (List<T>, @NitroTuple, Pointer<T>, …) has no web
+        // decode. Falling through to a raw address would hand the callback a
+        // meaningless int AND leak the buffer, so fail the build the same way
+        // the native generator does rather than emit silently-wrong code.
+        throw UnsupportedError(
+          '${spec.dartClassName}: callback parameter "${p.name}" takes an '
+          'argument of type "${t.name}", which the web bridge cannot decode. '
+          'Callback arguments on web support int, uint64, double, bool, '
+          'String, DateTime, @HybridEnum, @HybridStruct, @HybridRecord, '
+          '@NitroVariant, and Map (and their nullable variants).',
+        );
+      }
+      convs.add(conv);
+    }
+
+    final String retConv;
+    if (retName == 'void') {
+      retConv = '';
+    } else if (retName == 'int' || retName == 'uint64') {
+      retConv = 'return jsI64(_r);';
+    } else if (retName == 'double') {
+      retConv = 'return _r.toJS;';
+    } else if (retName == 'bool') {
+      retConv = 'return (_r ? 1 : 0).toJS;';
+    } else if (retName == 'String') {
+      // The bridge frees callback string returns with the module free — copy
+      // into a nitro_alloc'd buffer.
+      retConv = 'return _module.nitroAllocCString(_r).toJS;';
+    } else if (retName == 'DateTime') {
+      retConv = 'return jsI64(_r.millisecondsSinceEpoch);';
+    } else if (spec.isEnumName(retName)) {
+      retConv = 'return jsI64(_r.nativeValue);';
+    } else if (spec.isRecordName(retName) || spec.isVariantName(retName)) {
+      // Framed blob, same shape as a record return: encode into a module
+      // allocation and hand back the pointer. The bridge frees it with the
+      // module free after reading, mirroring the native contract.
+      retConv = 'return _module.nitroAllocBytes(_nitroEncodeFramed((w) => _r.writeFields(w))).toJS;';
+    } else {
+      // Anything else (AnyNativeObject, Pointer<T>, lists, tuples) has no web
+      // encoding. `return jsI64(0)` would hand native a silent zero, so fail
+      // the build rather than emit code that misbehaves only on web.
+      throw UnsupportedError(
+        '${spec.dartClassName}: callback parameter "${p.name}" returns '
+        '"$retName", which the web bridge cannot encode. Callback returns on '
+        'web support void, int, uint64, double, bool, String, DateTime, '
+        '@HybridEnum, @HybridRecord, and @NitroVariant.',
+      );
+    }
+
+    w.line('int? _nitroWebCallbackSlot_${p.name};');
+    w.line('int _nitroWebCallback_${p.name}(${cb.name} cb) {');
+    w.line('  final _old = _nitroWebCallbackSlot_${p.name};');
+    final closureParams = jsParams.join(', ');
+    if (retName == 'void') {
+      w.line('  void _js($closureParams) {');
+      w.line('    cb(${convs.join(', ')});');
+      w.line('  }');
+    } else {
+      w.line('  JSAny? _js($closureParams) {');
+      w.line('    final _r = cb(${convs.join(', ')});');
+      w.line('    $retConv');
+      w.line('  }');
+    }
+    w.line("  final _slot = _module.addFunction(_js.toJS, '$sig');");
+    w.line('  _nitroWebCallbackSlot_${p.name} = _slot;');
+    w.line('  NitroRuntime.deferredCloseWebFunction(_module, _old);');
+    w.line('  return _slot;');
+    w.line('}');
+    w.blankLine();
+  }
+
+  static String _freeingStringConv(String jsVar, {required bool nullable}) {
+    if (nullable) {
+      return '(() { final _p = dartI64($jsVar); if (_p == 0) return null; final _s = _module.readCString(_p); _module.nitroFree(_p); return _s; })()';
+    }
+    return '(() { final _p = dartI64($jsVar); final _s = _module.readCString(_p); _module.nitroFree(_p); return _s; })()';
   }
 }

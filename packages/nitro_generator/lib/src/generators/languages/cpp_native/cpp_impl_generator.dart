@@ -16,7 +16,7 @@ import 'cpp_interface_generator.dart';
 /// the starter can never drift from the abstract class in `*.native.g.h`.
 class CppImplGenerator {
   static String generate(BridgeSpec spec) {
-    if (!spec.hasCppImpl) {
+    if (!spec.hasCppImpl && !spec.webIsWasm) {
       return '// Not applicable: NativeImpl is not cpp for this module.\n';
     }
 

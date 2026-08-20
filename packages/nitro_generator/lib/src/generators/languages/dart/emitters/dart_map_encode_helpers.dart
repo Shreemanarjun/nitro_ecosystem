@@ -191,14 +191,14 @@ void _emitIntKeyMapBinaryHelpers(
     writer.line('    final _bSlice = bd.buffer.asUint8List(pos, _bLen); pos += _bLen;');
     writer.line('    final _bPtr = malloc<Uint8>(_bLen);');
     writer.line('    _bPtr.asTypedList(_bLen).setAll(0, _bSlice);');
-    writer.line('    final v = ${valueType}RecordExt.fromNative(_bPtr);');
+    writer.line('    final v = ${_recordDecodeExtName(spec, valueType)}.fromNative(_bPtr);');
     writer.line('    malloc.free(_bPtr);');
   } else if (isValueVariant) {
     writer.line('    final _bLen = bd.getInt32(pos, Endian.little); pos += 4;');
     writer.line('    final _bSlice = bd.buffer.asUint8List(pos, _bLen); pos += _bLen;');
     writer.line('    final _bPtr = malloc<Uint8>(_bLen);');
     writer.line('    _bPtr.asTypedList(_bLen).setAll(0, _bSlice);');
-    writer.line('    final v = ${valueType}VariantExt.fromNative(_bPtr);');
+    writer.line('    final v = ${_variantDecodeExtName(spec, valueType)}.fromNative(_bPtr);');
     writer.line('    malloc.free(_bPtr);');
   } else {
     writer.line('    final vLen = bd.getInt32(pos, Endian.little); pos += 4;');
@@ -301,7 +301,7 @@ void _emitMapBinaryHelpers(CodeWriter writer, String vt, BridgeSpec spec) {
     writer.line('    final _bSlice = bd.buffer.asUint8List(pos, _bLen); pos += _bLen;');
     writer.line('    final _bPtr = malloc<Uint8>(_bLen);');
     writer.line('    _bPtr.asTypedList(_bLen).setAll(0, _bSlice);');
-    writer.line('    final v = ${vt}RecordExt.fromNative(_bPtr);');
+    writer.line('    final v = ${_recordDecodeExtName(spec, vt)}.fromNative(_bPtr);');
     writer.line('    malloc.free(_bPtr);');
   } else if (isVariant) {
     // @NitroVariant: tag 5 + 4B blob_len + variant encode() bytes [4B payload_len][1B tag][field bytes].
@@ -310,7 +310,7 @@ void _emitMapBinaryHelpers(CodeWriter writer, String vt, BridgeSpec spec) {
     writer.line('    final _bSlice = bd.buffer.asUint8List(pos, _bLen); pos += _bLen;');
     writer.line('    final _bPtr = malloc<Uint8>(_bLen);');
     writer.line('    _bPtr.asTypedList(_bLen).setAll(0, _bSlice);');
-    writer.line('    final v = ${vt}VariantExt.fromNative(_bPtr);');
+    writer.line('    final v = ${_variantDecodeExtName(spec, vt)}.fromNative(_bPtr);');
     writer.line('    malloc.free(_bPtr);');
   } else {
     // dynamic: dispatch on tag to decode the right type

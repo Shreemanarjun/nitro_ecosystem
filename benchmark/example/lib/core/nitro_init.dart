@@ -1,12 +1,19 @@
-// Web stub — NitroRuntime requires dart:ffi which is not available on web.
-// The runtime is simply skipped; the web-stub Benchmark/BenchmarkCpp
-// implementations work entirely in Dart without a runtime.
+// Web implementation of the NitroRuntime startup sequence: instantiate the
+// benchmark_cpp WASM module (asynchronous in the browser) before any bridge
+// instance is constructed.
 //
 // Conditionally imported by main.dart via:
 //   import 'nitro_init.dart' if (dart.library.io) 'nitro_init_native.dart';
+import 'package:benchmark/benchmark.dart';
+import 'package:flutter/foundation.dart';
 
 String? startupError;
 
 Future<void> initNitroRuntime() async {
-  // No-op on web.
+  try {
+    await ensureBenchmarkCppReady();
+  } catch (e) {
+    debugPrint('[NitroBenchmark] WASM module load failed: $e');
+    startupError = e.toString();
+  }
 }

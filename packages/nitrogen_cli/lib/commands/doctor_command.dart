@@ -3,7 +3,7 @@ import 'package:args/command_runner.dart';
 import 'package:nocterm/nocterm.dart';
 import 'package:path/path.dart' as p;
 import 'package:nitrogen_cli/version.dart';
-import 'link_command.dart' show isCppModule, isNativeCppModule;
+import 'link_command.dart' show PlatformTargetAnalyzer, isCppModule, isNativeCppModule;
 import 'spm_utils.dart';
 import '../ui.dart';
 import '../templates/build_versions.dart';
@@ -14,6 +14,7 @@ part 'doctor/android.dart';
 part 'doctor/apple.dart';
 part 'doctor/desktop.dart';
 part 'doctor/generated.dart';
+part 'doctor/web.dart';
 
 // ── Data model ────────────────────────────────────────────────────────────────
 
@@ -493,6 +494,7 @@ class DoctorCommand extends Command {
     final srcCmakeContent = srcCmake.existsSync() ? srcCmake.readAsStringSync() : '';
     _checkWindows(ctx, srcCmakeContent);
     _checkLinux(ctx, srcCmakeContent);
+    _checkWeb(ctx);
 
     if (hasAnyCppSpec) _checkCppDirect(ctx);
     _checkCocoaPodsPermissions(ctx);

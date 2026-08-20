@@ -7,6 +7,8 @@ NativeGeneratorBundle dartGeneratorBundle() {
     directory: 'dart',
     generators: [
       FunctionNativeCodeGenerator(NativeGeneratorTarget.dartFfi, '.g.dart', DartFfiGenerator.generate),
+      FunctionNativeCodeGenerator(NativeGeneratorTarget.dartFfiLibrary, '.ffi.g.dart', DartFfiGenerator.generateFfiLibrary),
+      FunctionNativeCodeGenerator(NativeGeneratorTarget.dartPlatformShim, '.platform.g.dart', DartFfiGenerator.generatePlatformShim),
     ],
     commands: const [
       NativeGeneratorCommand(

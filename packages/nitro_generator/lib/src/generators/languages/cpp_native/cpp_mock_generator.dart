@@ -12,7 +12,7 @@ class CppMockGenerator {
   // ── Mock header ─────────────────────────────────────────────────────────────
 
   static String generateMockHeader(BridgeSpec spec) {
-    if (!spec.hasCppImpl) {
+    if (!spec.hasCppImpl && !spec.webIsWasm) {
       return '// Not applicable: NativeImpl is not cpp for this module.\n';
     }
 
@@ -71,7 +71,7 @@ class CppMockGenerator {
   // ── Test starter ────────────────────────────────────────────────────────────
 
   static String generateTestStarter(BridgeSpec spec) {
-    if (!spec.hasCppImpl) {
+    if (!spec.hasCppImpl && !spec.webIsWasm) {
       return '// Not applicable: NativeImpl is not cpp for this module.\n';
     }
 

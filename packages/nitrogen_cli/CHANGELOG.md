@@ -1,3 +1,14 @@
+## 0.7.0
+
+**Web support.** `nitrogen init --platforms=...,web` scaffolds the web target
+(Emscripten build script, `assets/web/`, the pubspec `web:` plugin entry +
+asset declaration, and the Dart web plugin shell). `nitrogen link` keeps
+`web/build_web.sh` in sync with the module list and copies
+`nitro_wasm_compat.h` next to the other native headers. `nitrogen doctor`
+gains a Web (WASM) section: emsdk presence, build wiring, artifact staleness.
+
+See [migration/0.7.0.md](../../migration/0.7.0.md).
+
 ## 0.6.1
 
 - **Ecosystem sync** — released alongside `nitro` 0.6.1's `NitroCoalescer.dispose()` fix ([#47](https://github.com/Shreemanarjun/nitro_ecosystem/issues/47)). No changes to this package.

@@ -1,6 +1,3 @@
-import 'dart:ffi';
-import 'package:ffi/ffi.dart';
-
 /// Represents a native exception propagated from Kotlin, Swift, or C++.
 class HybridException implements Exception {
   /// The type or name of the exception (e.g. 'java.lang.RuntimeException').
@@ -32,15 +29,4 @@ class HybridException implements Exception {
     }
     return sb.toString();
   }
-}
-
-/// A C-compatible struct for passing exception data over the FFI boundary.
-final class NitroErrorFfi extends Struct {
-  @Int8()
-  external int hasError;
-
-  external Pointer<Utf8> name;
-  external Pointer<Utf8> message;
-  external Pointer<Utf8> code;
-  external Pointer<Utf8> stackTrace;
 }

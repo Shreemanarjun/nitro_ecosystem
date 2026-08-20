@@ -1,0 +1,13 @@
+targets:
+  $default:
+    sources:
+      include:
+        - lib/**
+        - $package$
+      exclude:
+        - '**/.symlinks/**'
+        - '**/ephemeral/**'
+    builders:
+      nitro_generator:
+        generate_for:
+          - lib/src/*.native.dart

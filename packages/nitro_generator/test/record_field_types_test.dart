@@ -173,7 +173,10 @@ void main() {
       expect(out, contains('Quality quality;'));
       expect(out, contains('std::vector<Quality> history;'));
       expect(out, contains('_obj.quality = static_cast<Quality>(_r.readInt());'));
-      expect(out, contains('_obj.history.push_back(static_cast<Quality>(_r.readInt()));'));
+      // List fields fill through a `_target` reference so the nullable case can
+      // emplace into a std::optional<std::vector<T>> with the same body.
+      expect(out, contains('auto& _target = _obj.history;'));
+      expect(out, contains('_target.push_back(static_cast<Quality>(_r.readInt()));'));
     });
   });
 
@@ -500,6 +503,92 @@ void main() {
       expect(out, contains('public var label: String'));
       expect(out, contains('public var active: Bool'));
       expect(out, contains('public var score: Double'));
+    });
+  });
+
+  // ── Nullable list fields: all four codecs must agree ───────────────────────
+
+  group('RecordGenerator — nullable list field carries a null tag everywhere', () {
+    // An absent list and an empty list are different values, so the 4-byte
+    // count cannot encode both. Every codec brackets the field with the shared
+    // 1-byte tag (0 = null). If one backend skips it, every field after this
+    // one shifts by a byte — silent corruption, not a crash.
+    final spec = BridgeSpec(
+      dartClassName: 'M',
+      lib: 'm',
+      namespace: 'm',
+      iosImpl: NativeImpl.swift,
+      androidImpl: NativeImpl.kotlin,
+      sourceUri: 'm.native.dart',
+      recordTypes: [
+        BridgeRecordType(
+          name: 'Bag',
+          fields: [
+            BridgeRecordField(
+              name: 'tags',
+              dartType: 'List<int>?',
+              kind: RecordFieldKind.listPrimitive,
+              itemTypeName: 'int',
+              isNullable: true,
+            ),
+            BridgeRecordField(name: 'trailing', dartType: 'int', kind: RecordFieldKind.primitive),
+          ],
+        ),
+      ],
+    );
+
+    test('Dart writes and reads the tag', () {
+      final out = RecordGenerator.generateDartExtensions(spec);
+      expect(out, contains('writer.writeNullTag(tags == null)'));
+      expect(out, contains('r.readNullTag() ? null :'));
+    });
+
+    test('Kotlin writes and reads the tag', () {
+      final out = RecordGenerator.generateKotlin(spec);
+      expect(out, contains('out.write(if (tags == null) 0 else 1)'));
+      expect(out, contains('if (buf.get().toInt() == 0) null else'));
+    });
+
+    test('Swift writes and reads the tag', () {
+      final out = RecordGenerator.generateSwift(spec, emitBoilerplate: false);
+      expect(out, contains('writer.writeNullTag(tags == nil)'));
+      expect(out, contains('r.readNullTag() ? nil :'));
+    });
+
+    test('C++ uses optional<vector<T>> and emplaces behind the tag', () {
+      final out = RecordGenerator.generateCpp(spec);
+      expect(out, contains('std::optional<std::vector<int64_t>> tags;'));
+      expect(out, contains('w.writeBool(tags.has_value());'));
+      expect(out, contains('bool _null = _r.readNullTag();'));
+      expect(out, contains('auto& _target = _obj.tags.emplace();'));
+    });
+
+    test('non-nullable list field still has no tag on any backend', () {
+      final plain = BridgeSpec(
+        dartClassName: 'M',
+        lib: 'm',
+        namespace: 'm',
+        iosImpl: NativeImpl.swift,
+        androidImpl: NativeImpl.kotlin,
+        sourceUri: 'm.native.dart',
+        recordTypes: [
+          BridgeRecordType(
+            name: 'Bag',
+            fields: [
+              BridgeRecordField(
+                name: 'tags',
+                dartType: 'List<int>',
+                kind: RecordFieldKind.listPrimitive,
+                itemTypeName: 'int',
+              ),
+            ],
+          ),
+        ],
+      );
+      expect(RecordGenerator.generateDartExtensions(plain), isNot(contains('writeNullTag(tags')));
+      expect(RecordGenerator.generateKotlin(plain), isNot(contains('if (tags == null)')));
+      expect(RecordGenerator.generateSwift(plain, emitBoilerplate: false), isNot(contains('writeNullTag(tags')));
+      expect(RecordGenerator.generateCpp(plain), isNot(contains('tags.has_value()')));
     });
   });
 }

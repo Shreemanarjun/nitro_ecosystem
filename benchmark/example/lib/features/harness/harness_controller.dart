@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import 'package:signals_flutter/signals_flutter.dart';
 
 import '../../harness/bench_harness.dart';
@@ -13,6 +15,12 @@ class HarnessController {
 
   /// Independent samples per case; the median across them is the headline.
   static const sampleChoices = [3, 5, 10, 20];
+
+  /// Build with `--dart-define=BENCH_EMIT_JSON=true` to have each UI run print
+  /// its full [BenchReport] as one `BENCH|JSON|…` line. This is the only way to
+  /// recover unrounded numbers from a web build — the bars round to 3 digits
+  /// and several measured cases are never rendered.
+  static const _emitJson = bool.fromEnvironment('BENCH_EMIT_JSON');
 
   final iterationsIndex = signal(2); // 20,000
   final samplesIndex = signal(1); // 5
@@ -52,6 +60,10 @@ class HarnessController {
       );
       report.value = r;
       elapsedLabel.value = '${(sw.elapsedMilliseconds / 1000).toStringAsFixed(1)}s';
+      if (_emitJson) {
+        // ignore: avoid_print
+        print('BENCH|JSON|${jsonEncode(r.toJson())}');
+      }
     } finally {
       isRunning.value = false;
       currentCaseId.value = null;

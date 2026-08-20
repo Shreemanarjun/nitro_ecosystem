@@ -47,7 +47,7 @@ Last updated: 2026-06-29. Generator unit tests: 3982. macOS integration tests: 6
 | `HybridView` (native React component) | — (different paradigm) | N/A |
 | Error handling via exceptions | `@NitroResult<T>` / `NitroError*` | ✅ (+ extra) |
 | iOS + Android + macOS platforms | iOS + Android + macOS + Windows + Linux | ✅ (+ more) |
-| Web | W007 warning, stub only | ⚠️ L8 |
+| Web | Full support (WASM via Emscripten, dart2js + dart2wasm) | ✅ 0.7.0 |
 
 ---
 
@@ -195,11 +195,10 @@ Last updated: 2026-06-29. Generator unit tests: 3982. macOS integration tests: 6
 **Reason:** TypedData uses two FFI params (pointer + length). Nullable would require a third "hasValue" param, complicating all callsites.  
 **Workaround:** Non-nullable `Uint8List` + empty list for the "no data" case, or wrap in `@HybridRecord`.
 
-### L8 — Web / WASM ⚠️
-**Status:** Partial. W007 warning emitted when `webImpl` is set and streams or `@NitroNativeAsync` functions are declared.  
-**Reason:** `Dart_PostCObject_DL` and FFI structs are unavailable on web. Streams and native-async functions throw `UnsupportedError` at runtime.  
-**Note:** RN Nitro also has no web support — web throws an error there too.  
-**Workaround:** Guard with `kIsWeb`, or provide a web-specific stub implementation.
+### L8 — Web / WASM ✅ (resolved in 0.7.0)
+**Status:** Full support. `web: NativeImpl.wasm` compiles the same C++ impl with Emscripten; a generated `dart:js_interop` bridge drives the identical binary wire format over the module heap. Streams and `@nitroNativeAsync` work — completions arrive through a module post callback that replaces `Dart_PostCObject_DL` (`nitro_wasm_compat.h`). Verified in Chrome under BOTH `flutter build web` (dart2js) and `--wasm` (dart2wasm).  
+**Note:** RN Nitro has no web support — this is a Flutter-nitro advantage.  
+**Remaining web caveats:** `@nitroAsync` runs inline on the main thread (no isolates — W008); `@zeroCopy` is one bulk copy (W009); `int` has 53-bit fidelity under dart2js; `@HybridStruct` fields beyond prim/enum/bool/DateTime are E017 (use `@HybridRecord`); the C++ impl must not spawn threads. See migration/0.7.0.md.
 
 ### L10 — `Map<String, @HybridStruct>` ❌
 **Status:** E008 — intentionally blocked.  
@@ -292,7 +291,10 @@ abstract class Counter {
 | E013 | Unknown `@HybridRecord` field type | Unresolved field reference |
 | E014 | `@NitroVariant` case count 1–255 | 0 cases or > 255 cases |
 | E015 | `@NitroResult` + `@NitroNativeAsync` conflict | Incompatible annotations |
-| W007 | Web impl + streams/NativeAsync | Runtime unsupported on web |
+| W007 | (retired in 0.7.0 — streams/native-async work on web) | — |
+| W008 | Web impl + `@nitroAsync` | Runs inline on the main thread on web |
+| W009 | Web impl + `@zeroCopy` | One bulk copy (snapshot) on web |
+| E017 | Web impl + struct fields beyond prim/enum | Packed wasm32 layout not yet supported — use `@HybridRecord` |
 
 ---
 
@@ -302,7 +304,7 @@ abstract class Counter {
 |---|-----------|------------------|---------|
 | L6 | `@HybridStruct` as callback return — unsafe (no Arena) | N/A (RN uses JSI, no Arena) | Low |
 | L7 | `TypedData?` — two-param FFI makes nullable ambiguous | N/A | Low |
-| L8 | Web / WASM — streams + `@NitroNativeAsync` unsupported | Same in RN | Medium |
+| L8 | ~~Web / WASM~~ — resolved in 0.7.0 (full support incl. streams + `@NitroNativeAsync`) | RN has none | — |
 | L10 | `Map<String, @HybridStruct>` — no pointer ownership in map encoder | N/A | Low |
 | ~~L12~~ | ~~Tuple types `(A, B, C)`~~ | ~~**Gap vs RN**~~ | ✅ Done |
 | ~~L13~~ | ~~`uint64_t` scalar~~ | ~~**Gap vs RN**~~ | ✅ Done |

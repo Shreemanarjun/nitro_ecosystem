@@ -1,107 +1,19 @@
 import 'dart:collection';
-import 'dart:convert';
 import 'dart:ffi';
 import 'dart:typed_data';
 import 'package:ffi/ffi.dart';
 
-/// Streaming binary writer for @HybridRecord types.
+import 'shared/record_codec_base.dart';
+
+export 'shared/record_codec_base.dart' show RecordReaderBase, RecordWriterBase;
+
+/// Streaming binary writer for @HybridRecord types (native dart:ffi edge).
 ///
-/// Wire format (all integers little-endian):
-///   int     → 8 bytes (int64)
-///   double  → 8 bytes (float64)
-///   bool    → 1 byte  (0 = false, 1 = true)
-///   String  → 4-byte UTF-8 byte count, then UTF-8 bytes
-///   null tag → 1 byte (0 = null, 1 = present); written before any nullable
-///   list    → 4-byte element count, then elements back-to-back
-///
-/// [toNative] prefixes the payload with a 4-byte int32 total length so the
-/// C / Kotlin / Swift receiver knows how many bytes to consume.
-class RecordWriter {
-  static const _initialCapacity = 256;
-
-  Uint8List _buffer;
-  late ByteData _data;
-  int _length = 0;
-
-  RecordWriter([int initialCapacity = _initialCapacity]) : _buffer = Uint8List(initialCapacity) {
-    _data = ByteData.view(_buffer.buffer);
-  }
-
-  void _ensureCapacity(int additionalBytes) {
-    final required = _length + additionalBytes;
-    if (required <= _buffer.length) return;
-
-    var next = _buffer.length;
-    while (next < required) {
-      next *= 2;
-    }
-
-    final grown = Uint8List(next)..setRange(0, _length, _buffer);
-    _buffer = grown;
-    _data = ByteData.view(_buffer.buffer);
-  }
-
-  void _writeBytes(List<int> bytes) {
-    _ensureCapacity(bytes.length);
-    _buffer.setRange(_length, _length + bytes.length, bytes);
-    _length += bytes.length;
-  }
-
-  /// Overwrites the int64 at absolute payload offset [pos] with [v]. Used to
-  /// backpatch a reserved offset-table slot after the items it points at have
-  /// been written. [pos] must already be within the written region ([_length]).
-  void _patchInt64(int pos, int v) {
-    _data.setInt64(pos, v, Endian.little);
-  }
-
-  void writeInt(int v) {
-    _ensureCapacity(8);
-    _data.setInt64(_length, v, Endian.little);
-    _length += 8;
-  }
-
-  void writeInt64(int v) => writeInt(v);
-
-  void writeInt8(int v) {
-    _ensureCapacity(1);
-    _buffer[_length++] = v & 0xff;
-  }
-
-  void writeInt32(int v) {
-    _ensureCapacity(4);
-    _data.setInt32(_length, v, Endian.little);
-    _length += 4;
-  }
-
-  void writeDouble(double v) {
-    _ensureCapacity(8);
-    _data.setFloat64(_length, v, Endian.little);
-    _length += 8;
-  }
-
-  void writeFloat64(double v) => writeDouble(v);
-
-  void writeBool(bool v) {
-    _ensureCapacity(1);
-    _buffer[_length++] = v ? 1 : 0;
-  }
-
-  void writeString(String s) {
-    final encoded = utf8.encode(s);
-    writeInt32(encoded.length);
-    _writeBytes(encoded);
-  }
-
-  void writeBlob(Uint8List blob) {
-    writeInt32(blob.length);
-    _writeBytes(blob);
-  }
-
-  /// Writes a 1-byte null tag.  0 = null, 1 = value follows.
-  void writeNullTag(bool isNull) {
-    _ensureCapacity(1);
-    _buffer[_length++] = isNull ? 0 : 1;
-  }
+/// The wire format and all field writers live in [RecordWriterBase];
+/// this class adds the pointer edge: [toNative] and the `encode*` helpers
+/// that copy the payload into allocator-owned native memory.
+class RecordWriter extends RecordWriterBase {
+  RecordWriter([super.initialCapacity]);
 
   /// Copies the accumulated payload to an allocator-owned native buffer.
   ///
@@ -111,11 +23,12 @@ class RecordWriter {
   Pointer<Uint8> toNative(Allocator alloc) {
     // Copy the accumulated buffer once, straight into native memory, over a
     // single typed-list view.
-    final total = 4 + _length;
+    final payload = payloadView();
+    final total = 4 + payload.length;
     final ptr = alloc<Uint8>(total);
     final typed = ptr.asTypedList(total);
-    ByteData.sublistView(typed).setInt32(0, _length, Endian.little);
-    typed.setRange(4, total, _buffer);
+    ByteData.sublistView(typed).setInt32(0, payload.length, Endian.little);
+    typed.setRange(4, total, payload);
     return ptr;
   }
 
@@ -128,10 +41,7 @@ class RecordWriter {
     Allocator alloc,
   ) {
     final w = RecordWriter();
-    w.writeInt32(items.length);
-    for (final e in items) {
-      writeItem(w, e);
-    }
+    RecordWriterBase.writeListPayload(w, items, writeItem);
     return w.toNative(alloc);
   }
 
@@ -156,24 +66,14 @@ class RecordWriter {
     Allocator alloc,
   ) {
     final w = RecordWriter();
-    w.writeInt32(items.length);
-    for (final e in items) {
-      w.writeBool(e != null);
-      if (e != null) writeItem(w, e);
-    }
+    RecordWriterBase.writeNullableListPayload(w, items, writeItem);
     return w.toNative(alloc);
   }
 
-  // ── Indexed list encoding ────────────────────────────────────────────────
-  //
-  // Wire format (payload — after the outer 4-byte length prefix):
-  //   int32          count
-  //   int64[count]   item_byte_offsets  — from payload start (after 4-byte length)
-  //   item_bytes...
-  //
-  // This layout allows O(1) random item access via [LazyRecordList].
-
   /// Encodes a list of @HybridRecord objects with an O(1) offset index table.
+  ///
+  /// Payload: `[4B count][8B×n offset table][item bytes]` — offsets from the
+  /// payload start (after the outer 4-byte length prefix [toNative] prepends).
   ///
   /// Counterpart: [LazyRecordList.decode].
   static Pointer<Uint8> encodeIndexedList<T>(
@@ -181,26 +81,8 @@ class RecordWriter {
     void Function(RecordWriter w, T item) writeItem,
     Allocator alloc,
   ) {
-    // Payload layout: [4B count][8B×n offset table][item bytes]. Offsets are
-    // from the payload start (after the outer 4-byte length toNative prepends).
-    // One writer: reserve the offset table, write each item directly into it,
-    // then backpatch the offsets — no per-item writer, no intermediate copies.
-    final n = items.length;
     final w = RecordWriter();
-    w.writeInt32(n);
-    const offsetTableStart = 4; // right after the 4-byte count, within payload
-    for (var i = 0; i < n; i++) {
-      w.writeInt(0); // reserve an int64 slot; backpatched below
-    }
-    // w._length now points at where item 0 begins; record each item's offset.
-    final offsets = List<int>.filled(n, 0);
-    for (var i = 0; i < n; i++) {
-      offsets[i] = w._length;
-      writeItem(w, items[i]);
-    }
-    for (var i = 0; i < n; i++) {
-      w._patchInt64(offsetTableStart + i * 8, offsets[i]);
-    }
+    RecordWriterBase.writeIndexedListPayload(w, items, writeItem);
     return w.toNative(alloc);
   }
 
@@ -212,98 +94,33 @@ class RecordWriter {
   ) => encodeIndexedList(items, writeItem, alloc);
 }
 
-/// Streaming binary reader for @HybridRecord types.
+/// Streaming binary reader for @HybridRecord types (native dart:ffi edge).
 ///
 /// Counterpart to [RecordWriter].  Fields must be read in the same order
-/// they were written.
-class RecordReader {
-  static const _utf8Decoder = Utf8Decoder();
-
-  final Uint8List _bytes;
-  late final ByteData _data;
-  int _pos;
-
-  RecordReader._(this._bytes, [this._pos = 0]) {
-    _data = ByteData.sublistView(_bytes);
-  }
-
+/// they were written. All field readers live in [RecordReaderBase]; this
+/// class adds the pointer-wrapping factories and `decode*` helpers.
+class RecordReader extends RecordReaderBase {
   /// Wraps the native pointer emitted by [RecordWriter.toNative].
   ///
   /// Reads the 4-byte length prefix and creates a view over the payload
   /// without copying any bytes.
-  factory RecordReader.fromNative(Pointer<Uint8> ptr) {
-    if (ptr.address == 0) throw StateError('RecordReader.fromNative: null pointer');
-    final len = ByteData.view(ptr.asTypedList(4).buffer).getInt32(
-      0,
-      Endian.little,
-    );
-    final payload = (ptr + 4).asTypedList(len);
-    return RecordReader._(payload);
-  }
+  RecordReader.fromNative(Pointer<Uint8> ptr) : super.fromPayload(_payloadOf(ptr, 'RecordReader.fromNative'));
 
   /// Creates a reader positioned at [byteOffset] within the payload
   /// (the region after the 4-byte outer length prefix).
   ///
   /// Used by [LazyRecordList] to jump directly to an item without scanning
   /// from the start.
-  factory RecordReader.fromPayloadOffset(Pointer<Uint8> ptr, int byteOffset) {
-    if (ptr.address == 0) {
-      throw StateError('RecordReader.fromPayloadOffset: null pointer');
-    }
+  RecordReader.fromPayloadOffset(Pointer<Uint8> ptr, int byteOffset) : super.fromPayload(_payloadOf(ptr, 'RecordReader.fromPayloadOffset'), byteOffset);
+
+  static Uint8List _payloadOf(Pointer<Uint8> ptr, String caller) {
+    if (ptr.address == 0) throw StateError('$caller: null pointer');
     final len = ByteData.view(ptr.asTypedList(4).buffer).getInt32(
       0,
       Endian.little,
     );
-    final payload = (ptr + 4).asTypedList(len);
-    return RecordReader._(payload, byteOffset);
+    return (ptr + 4).asTypedList(len);
   }
-
-  int readInt() {
-    final v = _data.getInt64(_pos, Endian.little);
-    _pos += 8;
-    return v;
-  }
-
-  int readInt64() => readInt();
-
-  int readInt8() {
-    final v = _bytes[_pos];
-    _pos += 1;
-    return v;
-  }
-
-  int readInt32() {
-    final v = _data.getInt32(_pos, Endian.little);
-    _pos += 4;
-    return v;
-  }
-
-  double readDouble() {
-    final v = _data.getFloat64(_pos, Endian.little);
-    _pos += 8;
-    return v;
-  }
-
-  double readFloat64() => readDouble();
-
-  bool readBool() => _bytes[_pos++] != 0;
-
-  String readString() {
-    final len = readInt32();
-    final s = _utf8Decoder.convert(_bytes, _pos, _pos + len);
-    _pos += len;
-    return s;
-  }
-
-  Uint8List readBlob() {
-    final len = readInt32();
-    final blob = _bytes.sublist(_pos, _pos + len);
-    _pos += len;
-    return blob;
-  }
-
-  /// Returns `true` if the next value is null (tag byte == 0).
-  bool readNullTag() => _bytes[_pos++] == 0;
 
   /// Decodes a list of @HybridRecord objects from a native pointer.
   ///

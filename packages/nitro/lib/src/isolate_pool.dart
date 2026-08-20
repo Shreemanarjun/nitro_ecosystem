@@ -1,7 +1,7 @@
 import 'dart:async';
 import 'dart:ffi';
 import 'dart:isolate';
-import 'hybrid_exception.dart';
+import 'nitro_error_ffi.dart';
 import 'nitro_runtime.dart';
 
 // ── Wire messages ─────────────────────────────────────────────────────────────

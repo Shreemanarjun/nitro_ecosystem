@@ -16,6 +16,9 @@ class CppBridgeGenerator {
   static String generate(BridgeSpec spec) {
     // All targeted platforms use C++ — emit the lean direct-call bridge.
     if (spec.isCppImpl) return _generateCppDirect(spec);
+    // Web-only spec (web: NativeImpl.wasm with no native platforms): the
+    // bridge is the direct C++ dispatch compiled by emcc alone.
+    if (spec.webIsWasm && !spec.targetsAnyNative) return _generateCppDirect(spec);
 
     final iosIsCpp = spec.iosIsCpp;
     final macosIsCpp = spec.macosIsCpp;
@@ -67,7 +70,15 @@ class CppBridgeGenerator {
       writer.line('#include <string>');
       writer.line('#include <stdexcept>');
     }
-    writer.line('#include "dart_api_dl.h"');
+    if (spec.webIsWasm) {
+      writer.line('#ifdef __EMSCRIPTEN__');
+      writer.line('#include "nitro_wasm_compat.h"');
+      writer.line('#else');
+      writer.line('#include "dart_api_dl.h"');
+      writer.line('#endif');
+    } else {
+      writer.line('#include "dart_api_dl.h"');
+    }
     writer.line('#include "$headerName"');
     writer.blankLine();
     // MSVC deprecates the POSIX name (warning C4996); _strdup is identical.
@@ -93,6 +104,15 @@ class CppBridgeGenerator {
     writer.line('NITRO_EXPORT intptr_t ${libStem}_init_dart_api_dl(void* data) {');
     writer.line('    return Dart_InitializeApiDL(data);');
     writer.line('}');
+    if (spec.webIsWasm) {
+      writer.line('#ifdef __EMSCRIPTEN__');
+      writer.line('// Web replacement for Dart_PostCObject: Dart registers a function-table');
+      writer.line('// callback here at module load (see nitro_wasm_compat.h for the envelope).');
+      writer.line('NITRO_EXPORT __attribute__((weak)) void ${libStem}_nitro_set_post_fn(NitroPostFn fn) {');
+      writer.line('    g_nitro_post_fn = fn;');
+      writer.line('}');
+      writer.line('#endif');
+    }
     writer.line('}');
 
     writer.line('static thread_local NitroError g_nitro_error = { 0, nullptr, nullptr, nullptr, nullptr };');
@@ -286,29 +306,33 @@ class CppBridgeGenerator {
     // guarded by the appropriate preprocessor macro.
     final targetsWindowsCpp = spec.targetsWindows && (spec.windowsImpl is CppImpl);
     final targetsLinuxCpp = spec.targetsLinux && (spec.linuxImpl is CppImpl);
-    final hasDesktopCpp = targetsWindowsCpp || targetsLinuxCpp;
+    // Web (WasmImpl) reuses the same direct C++ dispatch, compiled with emcc.
+    final hasStandaloneCpp = targetsWindowsCpp || targetsLinuxCpp || spec.webIsWasm;
 
-    if (hasDesktopCpp) {
-      // Build the preprocessor guard for the desktop platforms that use C++.
+    if (hasStandaloneCpp) {
+      // Build the preprocessor guard for the platforms that use direct C++.
       final guards = <String>[
         if (targetsWindowsCpp) 'defined(_WIN32)',
         if (targetsLinuxCpp) 'defined(__linux__)',
+        if (spec.webIsWasm) 'defined(__EMSCRIPTEN__)',
       ].join(' || ');
 
       // Only emit the #elif chain if we're already inside an #ifdef block.
-      // If neither Android nor Apple was targeted, the desktop section is the
-      // only section — no #ifdef wrapper is needed (isCppImpl would have been
+      // If neither Android nor Apple was targeted, this section is the only
+      // section — no #ifdef wrapper is needed (isCppImpl would have been
       // true and we'd have gone through _generateCppDirect instead).
       final insideIfdef = includeAndroid || includeApple;
       if (insideIfdef) {
-        writer.line('#elif $guards  // Windows/Linux: NativeImpl.cpp — direct C++ dispatch');
+        // Keep the historical comment for non-web specs (byte-identical output).
+        final label = spec.webIsWasm ? 'Windows/Linux/Web: NativeImpl.cpp/wasm' : 'Windows/Linux: NativeImpl.cpp';
+        writer.line('#elif $guards  // $label — direct C++ dispatch');
       }
       _emitAppleCppDispatch(writer, spec, libStem, enumNames, structNames);
     }
 
     // Close the preprocessor ifdef chain when more than one platform section
-    // was opened (android+apple or android+desktop).
-    if (includeAndroid && (includeApple || hasDesktopCpp)) writer.line('#endif');
+    // was opened (android+apple or android+standalone-cpp).
+    if (includeAndroid && (includeApple || hasStandaloneCpp)) writer.line('#endif');
     return writer.toString();
   }
 

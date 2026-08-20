@@ -190,6 +190,7 @@ List<ModuleInfo> discoverModuleInfos(
           linuxIsCpp: analyzer.supportsLinux,
           windowsRequestsSeparateImpl: analyzer.requestsSeparateWindowsImpl,
           linuxRequestsSeparateImpl: analyzer.requestsSeparateLinuxImpl,
+          webIsWasm: analyzer.supportsWeb,
         ),
       );
     }
