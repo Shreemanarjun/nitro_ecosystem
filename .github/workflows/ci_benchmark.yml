@@ -116,15 +116,16 @@ jobs:
           version: 3.1.74
           actions-cache-folder: emsdk-cache
 
-      # Chrome and chromedriver MUST come from the same install, and both must
-      # be addressed by the action's output paths. A bare `chromedriver` on
-      # PATH resolves to the runner image's copy, which is a different major
-      # version than the Chrome this action fetches — webdriver then refuses
-      # the session with "only supports Chrome version N".
+      # Chrome and chromedriver must be the SAME milestone or webdriver refuses
+      # the session ("only supports Chrome version N"). `stable` is not enough:
+      # it resolved to Chrome 151 and chromedriver 152 in the same run. Pinning
+      # an explicit milestone makes both resolve from one Chrome-for-Testing
+      # release. Bump this number; never split it across the two artifacts.
+      # Both versions are echoed below so a future drift is one glance away.
       - uses: browser-actions/setup-chrome@v1
         id: chrome
         with:
-          chrome-version: stable
+          chrome-version: '152'
           install-chromedriver: true
 
       - name: Get workspace dependencies
