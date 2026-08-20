@@ -31,3 +31,7 @@ migrate_working_dir/
 .flutter-plugins-dependencies
 /build/
 /coverage/
+
+# WASM build outputs (web/build_web.sh rebuilds them; CI builds before flutter build web)
+assets/web/*.js
+assets/web/*.wasm

@@ -57,15 +57,30 @@ String _generateCppDirect(BridgeSpec spec) {
 
   writer.raw(generatedFileHeader('//', sourceUri: spec.sourceUri));
   writer.line('// NativeImpl: cpp — shared C++ virtual-dispatch bridge (no JNI / Swift).');
-  if (cppAppleOnly) writer.line('#ifdef __APPLE__    // iOS + macOS');
-  if (cppAndroidOnly) writer.line('#ifdef __ANDROID__');
+  // Web (WasmImpl) compiles this same bridge with emcc, so a platform guard
+  // must let __EMSCRIPTEN__ through when the spec targets web. Non-web specs
+  // keep the historical `#ifdef` spelling (byte-identical output).
+  if (cppAppleOnly) {
+    writer.line(spec.webIsWasm ? '#if defined(__APPLE__) || defined(__EMSCRIPTEN__)    // iOS + macOS + web' : '#ifdef __APPLE__    // iOS + macOS');
+  }
+  if (cppAndroidOnly) {
+    writer.line(spec.webIsWasm ? '#if defined(__ANDROID__) || defined(__EMSCRIPTEN__)    // Android + web' : '#ifdef __ANDROID__');
+  }
   writer.line('#include <stdint.h>');
   writer.line('#include <stdbool.h>');
   writer.line('#include <string.h>');
   writer.line('#include <stdlib.h>');
   writer.line('#include <string>');
   writer.line('#include <stdexcept>');
-  writer.line('#include "dart_api_dl.h"');
+  if (spec.webIsWasm) {
+    writer.line('#ifdef __EMSCRIPTEN__');
+    writer.line('#include "nitro_wasm_compat.h"');
+    writer.line('#else');
+    writer.line('#include "dart_api_dl.h"');
+    writer.line('#endif');
+  } else {
+    writer.line('#include "dart_api_dl.h"');
+  }
   writer.line('#include "$headerName"');
   writer.line('#include "$ifaceHeader"');
   writer.blankLine();
@@ -81,6 +96,15 @@ String _generateCppDirect(BridgeSpec spec) {
   writer.line('NITRO_EXPORT intptr_t ${libStem}_init_dart_api_dl(void* data) {');
   writer.line('    return Dart_InitializeApiDL(data);');
   writer.line('}');
+  if (spec.webIsWasm) {
+    writer.line('#ifdef __EMSCRIPTEN__');
+    writer.line('// Web replacement for Dart_PostCObject: Dart registers a function-table');
+    writer.line('// callback here at module load (see nitro_wasm_compat.h for the envelope).');
+    writer.line('NITRO_EXPORT __attribute__((weak)) void ${libStem}_nitro_set_post_fn(NitroPostFn fn) {');
+    writer.line('    g_nitro_post_fn = fn;');
+    writer.line('}');
+    writer.line('#endif');
+  }
   writer.line('}');
   writer.blankLine();
 
@@ -428,8 +452,10 @@ String _generateCppDirect(BridgeSpec spec) {
       final isNullablePrimParam = (p.type.isNullable || p.type.name.endsWith('?')) && (paramPrimBase == 'int' || paramPrimBase == 'double' || paramPrimBase == 'bool');
       // Maps stay on _typeToC (uint8_t*) to match the .bridge.g.h declaration.
       final isMapParam = p.type.name.startsWith('Map<');
+      // Must match cpp_header_generator.dart's declaration (const uint8_t*)
+      // or the definition/declaration types conflict in the same TU.
       final cType = isNullablePrimParam
-          ? 'void*'
+          ? 'const uint8_t*'
           : isEnumParam
           ? 'int64_t'
           : ((isStructParam || (isRecordParam && !isMapParam) || isVariantParam || p.type.isNativeHandle) ? 'void*' : _typeToC(p.type.name));
@@ -490,7 +516,7 @@ String _generateCppDirect(BridgeSpec spec) {
             : 'bool';
         writer.line('        std::optional<$cppType> _opt_${p.name};');
         writer.line('        if (${p.name} != nullptr) {');
-        writer.line('            auto* _s = static_cast<const $nitroType*>(${p.name});');
+        writer.line('            auto* _s = reinterpret_cast<const $nitroType*>(${p.name});');
         if (base == 'bool') {
           writer.line('            if (_s->hasValue) _opt_${p.name} = _s->value != 0;');
         } else {
@@ -657,8 +683,12 @@ String _generateCppDirect(BridgeSpec spec) {
   }
 
   writer.line('} // extern "C"');
-  if (cppAppleOnly) writer.line('#endif // __APPLE__  // iOS + macOS');
-  if (cppAndroidOnly) writer.line('#endif // __ANDROID__');
+  if (cppAppleOnly) {
+    writer.line(spec.webIsWasm ? '#endif // __APPLE__ || __EMSCRIPTEN__  // iOS + macOS + web' : '#endif // __APPLE__  // iOS + macOS');
+  }
+  if (cppAndroidOnly) {
+    writer.line(spec.webIsWasm ? '#endif // __ANDROID__ || __EMSCRIPTEN__' : '#endif // __ANDROID__');
+  }
   return writer.toString();
 }
 

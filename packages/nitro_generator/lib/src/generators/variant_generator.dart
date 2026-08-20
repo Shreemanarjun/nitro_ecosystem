@@ -1,5 +1,6 @@
 import '../bridge_spec.dart';
 import 'code_writer.dart';
+import 'record_generator.dart' show DartCodecSlice;
 
 /// Generates binary encode/decode extension methods for every `@NitroVariant`
 /// sealed class declared in the spec.
@@ -13,7 +14,7 @@ import 'code_writer.dart';
 ///   • `void writeFields(RecordWriter writer)`   — encoder
 ///   • `Pointer<Uint8> toNative(Allocator alloc)` — top-level encoder
 class VariantGenerator {
-  static String generateDartExtensions(BridgeSpec spec) {
+  static String generateDartExtensions(BridgeSpec spec, {DartCodecSlice slice = DartCodecSlice.all}) {
     final localVariants = spec.localVariants;
     if (localVariants.isEmpty) return '';
 
@@ -25,7 +26,7 @@ class VariantGenerator {
     s.blank();
 
     for (final variant in localVariants) {
-      _emitVariantExt(s, variant, enumNames, structNames);
+      _emitVariantExt(s, variant, enumNames, structNames, slice);
     }
 
     return s.toString();
@@ -58,6 +59,7 @@ class VariantGenerator {
     BridgeVariant variant,
     Set<String> enumNames,
     Set<String> structNames,
+    DartCodecSlice slice,
   ) {
     final name = variant.name;
     final hasNull = _hasNullCase(variant);
@@ -67,9 +69,14 @@ class VariantGenerator {
     // The return type is nullable when there is a null-marker case.
     final returnType = hasNull ? '$name?' : name;
 
+    if (slice == DartCodecSlice.ffi) {
+      _emitVariantFfiExt(s, variant, returnType);
+      return;
+    }
+
     // Finding 8: For prim-only variants (no null case), emit a dart:ffi Union before
     // the extension to allow zero-copy payload reads via pointer cast.
-    if (isPrimOnly) {
+    if (isPrimOnly && slice == DartCodecSlice.all) {
       s.line('final class _${name}Payload extends Union {');
       s.line('  @Int64() external int asInt;');
       s.line('  @Double() external double asDouble;');
@@ -81,7 +88,9 @@ class VariantGenerator {
     s.line('extension ${name}VariantExt on $name {');
 
     // ── fromNative ────────────────────────────────────────────────────────────
-    if (isPrimOnly) {
+    if (slice == DartCodecSlice.pure) {
+      // Pointer decode lives in the ffi library's ${name}VariantFfiExt.
+    } else if (isPrimOnly) {
       // Zero-copy decode: direct pointer cast instead of RecordReader allocation.
       // Wire format: [1B tag][payload bytes] — Union covers int(8B), double(8B), bool(1B).
       s.line('  static $returnType fromNative(Pointer<Uint8> ptr) {');
@@ -110,10 +119,12 @@ class VariantGenerator {
       s.line('  static $returnType fromNative(Pointer<Uint8> ptr) =>');
       s.line('      fromReader(RecordReader.fromNative(ptr));');
     }
-    s.blank();
+    if (slice != DartCodecSlice.pure) s.blank();
 
     // ── fromReader ────────────────────────────────────────────────────────────
-    s.line('  static $returnType fromReader(RecordReader r) {');
+    final readerT = slice == DartCodecSlice.pure ? 'RecordReaderBase' : 'RecordReader';
+    final writerT = slice == DartCodecSlice.pure ? 'RecordWriterBase' : 'RecordWriter';
+    s.line('  static $returnType fromReader($readerT r) {');
     s.line('    final tag = r.readInt8();');
     s.line('    return switch (tag) {');
     for (var i = 0; i < variant.cases.length; i++) {
@@ -138,7 +149,7 @@ class VariantGenerator {
     // ── writeFields ───────────────────────────────────────────────────────────
     // The null case is not a real Dart class — it is encoded via encodeNullable.
     // writeFields is only called on non-null instances, so the null tag is excluded.
-    s.line('  void writeFields(RecordWriter writer) {');
+    s.line('  void writeFields($writerT writer) {');
     s.line('    switch (this) {');
     for (var i = 0; i < variant.cases.length; i++) {
       final c = variant.cases[i];
@@ -160,16 +171,18 @@ class VariantGenerator {
     s.blank();
 
     // ── toNative ──────────────────────────────────────────────────────────────
-    s.line('  Pointer<Uint8> toNative(Allocator alloc) {');
-    s.line('    final writer = RecordWriter();');
-    s.line('    writeFields(writer);');
-    s.line('    return writer.toNative(alloc);');
-    s.line('  }');
+    if (slice == DartCodecSlice.all) {
+      s.line('  Pointer<Uint8> toNative(Allocator alloc) {');
+      s.line('    final writer = RecordWriter();');
+      s.line('    writeFields(writer);');
+      s.line('    return writer.toNative(alloc);');
+      s.line('  }');
+    }
 
     // ── encodeNullable (only when a null case exists) ─────────────────────────
     // Writes tag=$nullTag with zero payload bytes when [value] is null;
     // delegates to [writeFields] otherwise.
-    if (hasNull) {
+    if (hasNull && slice == DartCodecSlice.all) {
       s.blank();
       s.line('  static Pointer<Uint8> encodeNullable($name? value, Allocator alloc) {');
       s.line('    final writer = RecordWriter();');
@@ -182,6 +195,39 @@ class VariantGenerator {
       s.line('  }');
     }
 
+    s.line('}');
+    s.blank();
+  }
+
+  /// The ffi-library slice: pointer members only, in a `VariantFfiExt` so the
+  /// names never collide with the part's pure `VariantExt`. The prim-only
+  /// Union zero-copy optimization is intentionally not replicated here — the
+  /// split shape decodes through the part's fromReader (one framed read).
+  static void _emitVariantFfiExt(CodeWriter s, BridgeVariant variant, String returnType) {
+    final name = variant.name;
+    final hasNull = _hasNullCase(variant);
+    final nullTag = _nullCaseTag(variant);
+    s.line('extension ${name}VariantFfiExt on $name {');
+    s.line('  static $returnType fromNative(Pointer<Uint8> ptr) =>');
+    s.line('      ${name}VariantExt.fromReader(RecordReader.fromNative(ptr));');
+    s.blank();
+    s.line('  Pointer<Uint8> toNative(Allocator alloc) {');
+    s.line('    final writer = RecordWriter();');
+    s.line('    writeFields(writer);');
+    s.line('    return writer.toNative(alloc);');
+    s.line('  }');
+    if (hasNull) {
+      s.blank();
+      s.line('  static Pointer<Uint8> encodeNullable($name? value, Allocator alloc) {');
+      s.line('    final writer = RecordWriter();');
+      s.line('    if (value == null) {');
+      s.line('      writer.writeInt8($nullTag);');
+      s.line('    } else {');
+      s.line('      value.writeFields(writer);');
+      s.line('    }');
+      s.line('    return writer.toNative(alloc);');
+      s.line('  }');
+    }
     s.line('}');
     s.blank();
   }

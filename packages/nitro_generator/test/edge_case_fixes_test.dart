@@ -145,45 +145,25 @@ void main() {
   });
 
   // ── Fix #2: Web bridge Map<String,V> uses JSString not JSArrayBuffer ───────
-  group('Edge case: Web bridge Map type uses JSString', () {
-    test('Map return type emits JSString (JSON), not JSArrayBuffer (binary)', () {
+  group('Edge case: Web bridge maps use the tagged binary wire (0.7.0)', () {
+    test('Map crosses as framed binary, matching the native wire', () {
       final out = WebBridgeGenerator.generate(_webMapSpec());
-      // JSString for JSON map return
-      expect(out, contains('JSString _config_get_settings_js'));
-      expect(out, isNot(contains('JSArrayBuffer _config_get_settings_js')));
-    });
-
-    test('Map param type emits JSString (JSON), not JSArrayBuffer', () {
-      final out = WebBridgeGenerator.generate(_webMapSpec());
-      expect(out, contains('JSString settings'));
-      expect(out, isNot(contains('JSArrayBuffer settings')));
-    });
-
-    test('Map return conversion uses jsonDecode not binary decode', () {
-      final out = WebBridgeGenerator.generate(_webMapSpec());
-      expect(out, contains('jsonDecode'));
-    });
-
-    test('Map param conversion uses jsonEncode not binary encode', () {
-      final out = WebBridgeGenerator.generate(_webMapSpec());
-      expect(out, contains('jsonEncode'));
+      expect(out, contains('_nitroEncodeMapBytes'));
+      expect(out, contains('_nitroDecodeMapBytes'));
+      expect(out, isNot(contains('JSArrayBuffer')));
     });
   });
 
   // ── Fix #3: Web bridge isPointer/isNativeHandle ───────────────────────────
   group('Edge case: Web bridge NativeHandle type', () {
-    test('NativeHandle return emits a throw-stub, not a JS external', () {
+    test('NativeHandle crosses as its int address (0.7.0 pointer ABI)', () {
       final out = WebBridgeGenerator.generate(_webPointerSpec());
-      // Raw pointers (and NativeHandle, which wraps one) have no runtime
-      // representation on web — Pointer.fromAddress does not exist there, so
-      // the old JSNumber-address external could never compile. The impl
-      // throws UnsupportedError instead and no @JS() external is emitted.
-      expect(out, isNot(contains('_raw_get_handle_js')));
-      expect(out, isNot(contains("@JS('raw_get_handle')")));
-      expect(
-        out,
-        contains('raw Pointer parameters/returns do not exist on web'),
-      );
+      // On web the handle IS a linear-memory offset; the override is typed
+      // dynamic because NativeHandle resolves to different classes per
+      // platform, and the web class is constructed from the posted address.
+      expect(out, contains('NativeHandle<'));
+      expect(out, contains('.fromAddress(_addr)'));
+      expect(out, isNot(contains('UnsupportedError')));
     });
 
     test('NativeHandle impl method is generated in web class', () {
@@ -197,7 +177,8 @@ void main() {
   // ── Fix #4: PX19 factory name for edge-case class names ───────────────────
   group('Edge case: PX19 factory function name safety', () {
     test('single-char class A → aCreateNativeInstance() (not empty name)', () {
-      final out = DartFfiGenerator.generate(_singleCharClassSpec(targetsWeb: true));
+      // Web-split (0.7.0): the factory lives in the standalone ffi library.
+      final out = DartFfiGenerator.generateFfiLibrary(_singleCharClassSpec(targetsWeb: true));
       // Should produce 'a_createNativeInstance(' or 'A_createNativeInstance' - some valid name
       expect(out, contains('_createNativeInstance'));
       // Must not produce an invalid identifier starting with digit or nothing.

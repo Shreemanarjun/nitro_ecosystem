@@ -15,10 +15,11 @@
 // NOT imported from main.dart so the example app still builds for web.
 
 import 'dart:async';
-import 'dart:io' show Platform;
 import 'dart:math' as math;
 
 import 'package:benchmark/benchmark.dart' as bench;
+
+import 'native_probes.dart' if (dart.library.io) 'native_probes_native.dart';
 import 'package:flutter/foundation.dart'
     show debugPrint, kProfileMode, kReleaseMode;
 import 'package:flutter/services.dart';
@@ -323,13 +324,10 @@ class BenchHarness {
     final cpp = bench.BenchmarkCpp.instance;
     final platformBridge = bench.Benchmark.instance;
 
-    // Raw FFI floor — resolved explicitly so a failed lookup is a hard error,
-    // never a silent fall-back to pure Dart (which would corrupt every ratio).
-    final rawAdd = NitroRuntime.loadLib('benchmark_cpp')
-        .lookupFunction<
-          Double Function(Double, Double),
-          double Function(double, double)
-        >('add_double', isLeaf: true);
+    // Raw FFI floor — native-only (null on web, where the rows are skipped).
+    // On native the probe resolves explicitly so a failed lookup is a hard
+    // error, never a silent fall-back to pure Dart.
+    final rawAdd = rawAddProbe();
 
     // Keep results observable so the optimizer cannot elide any call.
     var sink = 0.0;
@@ -376,11 +374,13 @@ class BenchHarness {
 
     // ── Latency: add(double, double) across every bridge tier ──────────────
 
-    await latencyCase('raw_ffi_add', 'Raw FFI (leaf)', config.syncIters, (n) {
-      for (var i = 0; i < n; i++) {
-        sink += rawAdd(1.0, i.toDouble());
-      }
-    });
+    if (rawAdd != null) {
+      await latencyCase('raw_ffi_add', 'Raw FFI (leaf)', config.syncIters, (n) {
+        for (var i = 0; i < n; i++) {
+          sink += rawAdd(1.0, i.toDouble());
+        }
+      });
+    }
 
     await latencyCase('nitro_leaf_add', 'Nitro C++ (leaf)', config.syncIters, (
       n,
@@ -409,7 +409,7 @@ class BenchHarness {
     const nInst = 4;
     final insts = [
       for (var i = 0; i < nInst; i++)
-        bench.benchmarkCpp_createNativeInstance('bench_inst_$i'),
+        bench.createBenchmarkCppInstance('bench_inst_$i'),
     ];
     for (final inst in insts) {
       inst.add(1.0, 1.0); // warm each instance into the cache
@@ -425,7 +425,7 @@ class BenchHarness {
       },
     );
 
-    final platformBridgeLabel = switch (Platform.operatingSystem) {
+    final platformBridgeLabel = switch (harnessOperatingSystem) {
       'android' => 'Nitro Kotlin (JNI)',
       'ios' || 'macos' => 'Nitro Swift',
       _ => 'Nitro platform C++',
@@ -638,6 +638,30 @@ class BenchHarness {
           maxUs: i * 2.0,
         ),
     ];
+    // Verify the round-trip before timing it. Summing `.length` alone cannot
+    // tell a correct decode from a corrupt one: a codec that misreads item
+    // bytes as an offset table still returns `count` items, so a silent
+    // wire-format mismatch would be timed as if it were a real result.
+    final statsEcho = cpp.echoStatsList(statsWorkload);
+    if (statsEcho.length != statsWorkload.length) {
+      throw StateError(
+        'record-list echo returned ${statsEcho.length} items, '
+        'expected ${statsWorkload.length}',
+      );
+    }
+    for (var i = 0; i < statsWorkload.length; i++) {
+      final a = statsWorkload[i], b = statsEcho[i];
+      if (b.count != a.count ||
+          b.meanUs != a.meanUs ||
+          b.minUs != a.minUs ||
+          b.maxUs != a.maxUs) {
+        throw StateError(
+          'record-list echo corrupted item $i: '
+          'sent (${a.count}, ${a.meanUs}, ${a.minUs}, ${a.maxUs}) '
+          'got (${b.count}, ${b.meanUs}, ${b.minUs}, ${b.maxUs})',
+        );
+      }
+    }
     await latencyCase(
       'nitro_cpp_record_list',
       'Nitro C++ + List<@HybridRecord> echo',
@@ -659,21 +683,14 @@ class BenchHarness {
       List<int>.generate(1024, (i) => (i * 31) & 0xFF),
     );
     const workloadRounds = 16;
-    final rawFnv = NitroRuntime.loadLib('benchmark_cpp')
-        .lookupFunction<
-          Uint64 Function(Pointer<Uint8>, Int64, Int64),
-          int Function(Pointer<Uint8>, int, int)
-        >('fnv1a_hash');
-    int rawFfiHash() => withArena(
-      (arena) =>
-          rawFnv(workload.toPointer(arena), workload.length, workloadRounds),
-    );
+    // Raw dart:ffi tier — native-only (null on web, where the row is skipped).
+    final rawFfiHash = rawFfiHashProbe(workload, workloadRounds);
 
     final verification = <String, Object?>{
       'workload': 'fnv1a-64 · 1 KiB × $workloadRounds rounds',
     };
     {
-      final ffiH = rawFfiHash();
+      final ffiH = rawFfiHash?.call();
       final cppH = cpp.hashBuffer(workload, workloadRounds);
       int? platH;
       try {
@@ -686,12 +703,12 @@ class BenchHarness {
           'rounds': workloadRounds,
         });
       } catch (_) {}
-      verification['rawFfiHash'] = ffiH;
+      if (ffiH != null) verification['rawFfiHash'] = ffiH;
       verification['nitroCppHash'] = cppH;
       if (platH != null) verification['nitroPlatformHash'] = platH;
       if (chanH != null) verification['methodChannelHash'] = chanH;
-      final hashes = [ffiH, cppH, ?platH, ?chanH];
-      final agree = hashes.every((h) => h == ffiH);
+      final hashes = [?ffiH, cppH, ?platH, ?chanH];
+      final agree = hashes.every((h) => h == cppH);
       verification['allTiersAgree'] = agree;
       verification['tiersVerified'] = hashes.length;
       if (!agree) {
@@ -702,16 +719,18 @@ class BenchHarness {
       }
     }
 
-    await latencyCase(
-      'raw_ffi_hash',
-      'Raw FFI + FNV-1a work',
-      config.asyncIters,
-      (n) {
-        for (var i = 0; i < n; i++) {
-          sink += rawFfiHash().toDouble();
-        }
-      },
-    );
+    if (rawFfiHash != null) {
+      await latencyCase(
+        'raw_ffi_hash',
+        'Raw FFI + FNV-1a work',
+        config.asyncIters,
+        (n) {
+          for (var i = 0; i < n; i++) {
+            sink += rawFfiHash().toDouble();
+          }
+        },
+      );
+    }
 
     await latencyCase(
       'nitro_cpp_hash',
@@ -776,14 +795,11 @@ class BenchHarness {
       return count;
     }
 
-    final rawSieve = NitroRuntime.loadLib('benchmark_cpp')
-        .lookupFunction<Int64 Function(Int64), int Function(int)>(
-          'sieve_primes',
-        );
+    final rawSieve = rawSieveProbe();
 
     {
       final dartCount = dartSievePrimes(sieveLimit);
-      final ffiCount = rawSieve(sieveLimit);
+      final ffiCount = rawSieve?.call(sieveLimit);
       final cppCount = cpp.sievePrimes(sieveLimit);
       int? platCount;
       try {
@@ -797,11 +813,11 @@ class BenchHarness {
       } catch (_) {}
       verification['workload2'] = 'sieve-of-eratosthenes · limit $sieveLimit';
       verification['dartSieve'] = dartCount;
-      verification['rawFfiSieve'] = ffiCount;
+      if (ffiCount != null) verification['rawFfiSieve'] = ffiCount;
       verification['nitroCppSieve'] = cppCount;
       if (platCount != null) verification['nitroPlatformSieve'] = platCount;
       if (chanCount != null) verification['methodChannelSieve'] = chanCount;
-      final counts = [dartCount, ffiCount, cppCount, ?platCount, ?chanCount];
+      final counts = [dartCount, ?ffiCount, cppCount, ?platCount, ?chanCount];
       final sieveAgree = counts.every((c) => c == dartCount);
       verification['sieveTiersAgree'] = sieveAgree;
       verification['sieveTiersVerified'] = counts.length;
@@ -821,13 +837,15 @@ class BenchHarness {
       }
     });
 
-    await latencyCase('raw_ffi_sieve', 'Raw FFI + sieve work', config.asyncIters, (
-      n,
-    ) {
-      for (var i = 0; i < n; i++) {
-        sink += rawSieve(sieveLimit).toDouble();
-      }
-    });
+    if (rawSieve != null) {
+      await latencyCase('raw_ffi_sieve', 'Raw FFI + sieve work', config.asyncIters, (
+        n,
+      ) {
+        for (var i = 0; i < n; i++) {
+          sink += rawSieve(sieveLimit).toDouble();
+        }
+      });
+    }
 
     await latencyCase('nitro_cpp_sieve', 'Nitro C++ + sieve work', config.asyncIters, (
       n,
@@ -912,21 +930,14 @@ class BenchHarness {
     // The "vanilla dart:ffi" way to send a Dart buffer: manually copy it into
     // arena-allocated native memory, call, free. The copy is the real cost of
     // hand-written FFI here — Nitro's pinned path below skips it entirely.
-    final rawSendNoop = NitroRuntime.loadLib('benchmark_cpp')
-        .lookupFunction<
-          Int64 Function(Pointer<Uint8>, Int64),
-          int Function(Pointer<Uint8>, int)
-        >('send_large_buffer_noop');
-    await throughputCase('raw_ffi_buffer', 'Raw FFI (manual copy)', (n) {
-      for (var i = 0; i < n; i++) {
-        withArena((arena) {
-          sink += rawSendNoop(
-            buffer.toPointer(arena),
-            buffer.length,
-          ).toDouble();
-        });
-      }
-    });
+    final rawBufferSend = rawBufferSendProbe(buffer);
+    if (rawBufferSend != null) {
+      await throughputCase('raw_ffi_buffer', 'Raw FFI (manual copy)', (n) {
+        for (var i = 0; i < n; i++) {
+          sink += rawBufferSend().toDouble();
+        }
+      });
+    }
 
     await throughputCase('nitro_buffer_pinned', 'Nitro pinned buffer (leaf)', (
       n,
@@ -936,17 +947,21 @@ class BenchHarness {
       }
     });
 
-    final rawPtr = malloc<Uint8>(config.bufferBytes);
-    try {
-      await throughputCase('nitro_buffer_unsafe', 'Nitro unsafe pointer', (n) {
-        for (var i = 0; i < n; i++) {
-          sink += cpp
-              .sendLargeBufferUnsafe(rawPtr, config.bufferBytes)
-              .toDouble();
-        }
-      });
-    } finally {
-      malloc.free(rawPtr);
+    final unsafeBuf = allocUnsafeBuffer(config.bufferBytes);
+    if (unsafeBuf != null) {
+      try {
+        await throughputCase('nitro_buffer_unsafe', 'Nitro unsafe pointer', (
+          n,
+        ) {
+          for (var i = 0; i < n; i++) {
+            sink += cpp
+                .sendLargeBufferUnsafe(unsafeBuf.ptr as dynamic, config.bufferBytes)
+                .toDouble();
+          }
+        });
+      } finally {
+        unsafeBuf.free();
+      }
     }
 
     // Publish the sink so the whole run is observably side-effecting.
@@ -956,10 +971,7 @@ class BenchHarness {
     // `deviceInfo` with model/manufacturer (Build.* on Android, UIDevice +
     // utsname on iOS, sysctl hw.model on macOS); desktop hosts without a
     // handler fall back to what Dart alone can see.
-    var device = <String, Object?>{
-      'os': '${Platform.operatingSystem} ${Platform.operatingSystemVersion}',
-      'hostname': Platform.localHostname,
-    };
+    var device = hostDeviceInfo();
     try {
       final info = await _channel.invokeMapMethod<String, Object?>(
         'deviceInfo',
@@ -968,7 +980,7 @@ class BenchHarness {
     } catch (_) {}
 
     return BenchReport(
-      platform: Platform.operatingSystem,
+      platform: harnessOperatingSystem,
       buildMode: _buildMode,
       config: config,
       results: results,

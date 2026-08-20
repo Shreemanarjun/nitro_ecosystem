@@ -1,5 +1,4 @@
-import 'dart:ffi';
-import 'record_codec.dart';
+import 'shared/record_codec_base.dart';
 
 // ── AnyValue type tags (wire format) ─────────────────────────────────────────
 //
@@ -57,7 +56,7 @@ sealed class NitroAnyValue {
 
   // ── Binary codec helpers (called by NitroAnyMap / recursively) ──
 
-  void _write(RecordWriter w) {
+  void _write(RecordWriterBase w) {
     switch (this) {
       case NitroAnyNull():
         w.writeInt8(_tagNull);
@@ -89,7 +88,7 @@ sealed class NitroAnyValue {
     }
   }
 
-  static NitroAnyValue _read(RecordReader r) {
+  static NitroAnyValue _read(RecordReaderBase r) {
     final tag = r.readInt8();
     return switch (tag) {
       _tagNull => const NitroAnyNull(),
@@ -303,28 +302,20 @@ class NitroAnyMap {
 
   // ── Binary codec ──────────────────────────────────────────────────────────
 
-  /// Decode from a native pointer produced by [toNative] or the C bridge.
+  /// Decode from a reader positioned at the start of the map payload.
   ///
-  /// Wire: RecordWriter outer 4B length prefix + map entries.
-  /// Does NOT free [ptr] — caller is responsible.
-  static NitroAnyMap fromNative(Pointer<Uint8> ptr) {
-    final r = RecordReader.fromNative(ptr);
-    return _readMap(r);
-  }
+  /// Platform edges wrap this: the native `nitroAnyMapFromNative` views the
+  /// framed native buffer, the web bridge reads framed bytes from the module
+  /// heap. Does NOT take ownership of the underlying buffer.
+  static NitroAnyMap readFrom(RecordReaderBase r) => _readMap(r);
 
-  /// Encode this map to a native buffer wrapped in the RecordWriter 4B envelope.
-  ///
-  /// The returned pointer is owned by [alloc] and must not be freed separately
-  /// when using an Arena (the Arena frees it on scope exit).
-  Pointer<Uint8> toNative(Allocator alloc) {
-    final w = RecordWriter();
-    _writeMap(w);
-    return w.toNative(alloc);
-  }
+  /// Encode this map's entries into [w] (no outer length prefix — the caller
+  /// frames the payload for its transport).
+  void writeTo(RecordWriterBase w) => _writeMap(w);
 
   // ── Private binary helpers ─────────────────────────────────────────────────
 
-  void _writeMap(RecordWriter w) {
+  void _writeMap(RecordWriterBase w) {
     w.writeInt32(_map.length);
     for (final entry in _map.entries) {
       w.writeString(entry.key);
@@ -332,7 +323,7 @@ class NitroAnyMap {
     }
   }
 
-  static NitroAnyMap _readMap(RecordReader r) {
+  static NitroAnyMap _readMap(RecordReaderBase r) {
     final count = r.readInt32();
     final map = <String, NitroAnyValue>{};
     for (var i = 0; i < count; i++) {

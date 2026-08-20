@@ -780,7 +780,7 @@ typedef struct __attribute__((packed)) { uint8_t hasValue; uint8_t  value; } Nit
 |---|---|---|
 | L6 | `@HybridStruct` and `@HybridRecord` cannot be **returned** from a callback (function parameter). Callbacks that need to return complex data should return `void` and call back via a method. | Use a method channel or reverse callback pattern |
 | L7 | `TypedData?` (nullable `Uint8List`, etc.) is not supported in sync/async params or returns. The two-param C ABI (pointer + length) makes optional transport ambiguous. | Use a `@HybridRecord` wrapper: `@HybridRecord() class MaybeBuffer { final Uint8List? data; }` |
-| L8 | Web (`WebNativeImpl.wasm`) does not support `dart:ffi`. `ReceivePort` and `SendPort` are replaced by stubs that throw `UnsupportedError`. Streams and callbacks are unavailable on web. | Use `package:nitro/nitro.dart`'s conditional re-exports; guard platform-specific code |
+| ~~L8~~ | Resolved in 0.7.0: web is fully supported — the C++ impl compiles to WASM (Emscripten) and the generated `dart:js_interop` bridge speaks the same binary wire format, including streams and `@nitroNativeAsync`. | See [migration/0.7.0.md](migration/0.7.0.md) to add web to a plugin |
 | L10 | `Map<String, @HybridStruct>` is not supported. | Use `Map<String, @HybridRecord>` instead |
 | L12 | `@NitroVariant` callbacks (function parameters returning a variant) are not supported. | Return `void` from callback; use a reverse method call |
 

@@ -19,6 +19,7 @@ part 'link/cmake.dart';
 part 'link/apple.dart';
 part 'link/android.dart';
 part 'link/desktop.dart';
+part 'link/web.dart';
 
 // ── Package-level helpers (also used in tests) ─────────────────────────────
 
@@ -83,6 +84,11 @@ class PlatformTargetAnalyzer {
     }
     return content.substring(openParenIndex);
   }
+
+  /// True when the web platform targets the WASM (Emscripten C++) backend.
+  bool get supportsWeb => RegExp(
+    r'\bweb\s*:\s*(?:NativeImpl|WebNativeImpl)\.wasm\b',
+  ).hasMatch(_annotation);
 
   /// True when at least one platform uses direct C++ (broad check).
   /// Matches ios, android, macos, windows, and linux C++ declarations.
@@ -193,6 +199,10 @@ class ModuleInfo {
 
   /// Same as [windowsRequestsSeparateImpl], for `linux: LinuxNativeImpl.cpp`.
   final bool linuxRequestsSeparateImpl;
+
+  /// True when `web: NativeImpl.wasm` — the module ships an Emscripten build
+  /// (web/build_web.sh → assets/web/ artifacts).
+  final bool webIsWasm;
   const ModuleInfo({
     required this.lib,
     required this.module,
@@ -205,6 +215,7 @@ class ModuleInfo {
     this.linuxIsCpp = false,
     this.windowsRequestsSeparateImpl = false,
     this.linuxRequestsSeparateImpl = false,
+    this.webIsWasm = false,
   });
 
   Map<String, String> toMap() => {'lib': lib, 'module': module};
@@ -314,6 +325,7 @@ class _LinkViewState extends State<LinkView> {
     LinkStep('Updating windows/CMakeLists.txt'),
     LinkStep('Updating linux/CMakeLists.txt'),
     LinkStep('Updating .clangd'),
+    LinkStep('Updating web/ WASM build'),
     LinkStep('Finalizing build system (SPM / CocoaPods)'),
   ];
 
@@ -405,6 +417,7 @@ class _LinkViewState extends State<LinkView> {
       await _runWindowsStep(pluginName, moduleInfos, nitroNativePath);
       await _runLinuxStep(pluginName, moduleInfos, nitroNativePath);
       await _runClangdStep(pluginName, moduleInfos);
+      await _runWebStep(pluginName, moduleInfos);
 
       await _runFinalizeBuildStep();
       _appendNextSteps(allCpp, hasCpp);
@@ -670,6 +683,17 @@ class _LinkViewState extends State<LinkView> {
       baseDir: Directory.current.path,
     );
     await _setDone(9);
+  }
+
+  Future<void> _runWebStep(String pluginName, List<ModuleInfo> moduleInfos) async {
+    const idx = 10; // 'Updating web/ WASM build'
+    await _setRunning(idx);
+    final n = linkWeb(pluginName, moduleInfos, baseDir: Directory.current.path);
+    if (n == 0) {
+      _setSkipped(idx, detail: 'no module targets web');
+    } else {
+      await _setDone(idx, detail: 'web/build_web.sh ($n module(s)) + assets/web/');
+    }
   }
 
   Future<void> _runFinalizeBuildStep() async {
@@ -1136,6 +1160,13 @@ class LinkCommand extends Command {
 
     log('updating .clangd...');
     linkClangd(pluginName, moduleInfos: moduleInfos, baseDir: baseDir);
+
+    final webCount = linkWeb(pluginName, moduleInfos, baseDir: baseDir);
+    if (webCount > 0) {
+      log('web: build script refreshed ($webCount module(s)) — run web/build_web.sh (needs emsdk)');
+    } else {
+      logSkip('no module targets web');
+    }
 
     await _headlessFinalizeBuildStep(baseDir, log, logSkip);
 

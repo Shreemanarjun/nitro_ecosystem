@@ -429,52 +429,137 @@ void main() {
     });
   });
 
-  // ── Gap 18: W007 web target + streams/NativeAsync ─────────────────────────
+  // ── Gap 18 (retired in 0.7.0) → web capability checks ─────────────────────
+  //
+  // Streams and @NitroNativeAsync are fully supported on web since the 0.7.0
+  // WASM bridge; W007 no longer exists. The remaining web-specific checks:
+  // W008 (@nitroAsync runs inline on the main thread) and W009 (@zeroCopy is
+  // one bulk copy on web).
 
-  group('Gap 18 — W007 web target with streams or NativeAsync', () {
-    test('web target with streams emits W007 warning', () {
+  group('web capability checks (0.7.0)', () {
+    test('streams on web no longer warn (W007 retired)', () {
       final issues = SpecValidator.validate(_webStreamSpec());
-      expect(issues.any((i) => i.code == 'W007'), isTrue, reason: 'streams on web throw UnsupportedError at runtime — warn the user');
+      expect(issues.any((i) => i.code == 'W007'), isFalse, reason: 'streams are fully supported on web since 0.7.0');
     });
 
-    test('W007 is a warning (not an error)', () {
-      final issues = SpecValidator.validate(_webStreamSpec());
-      final w007 = issues.where((i) => i.code == 'W007');
-      expect(w007.isNotEmpty, isTrue);
-      expect(w007.every((i) => !i.isError), isTrue);
-    });
-
-    test('W007 message mentions stream count and UnsupportedError', () {
-      final issues = SpecValidator.validate(_webStreamSpec());
-      final w007 = issues.firstWhere((i) => i.code == 'W007');
-      expect(w007.message, contains('stream(s)'));
-      expect(w007.message, contains('UnsupportedError'));
-    });
-
-    test('web target with @NitroNativeAsync emits W007 warning', () {
+    test('@NitroNativeAsync on web no longer warns (W007 retired)', () {
       final issues = SpecValidator.validate(_webNativeAsyncSpec());
-      expect(issues.any((i) => i.code == 'W007'), isTrue);
+      expect(issues.any((i) => i.code == 'W007'), isFalse);
     });
 
-    test('no W007 when web target is absent (native-only spec)', () {
+    test('@nitroAsync on web emits W008 (runs on the main thread)', () {
       final spec = BridgeSpec(
-        dartClassName: 'NativeOnly',
-        lib: 'native_only',
-        namespace: 'native_only',
-        iosImpl: NativeImpl.swift,
-        androidImpl: NativeImpl.kotlin,
-        sourceUri: 'native_only.native.dart',
-        streams: [
-          BridgeStream(
-            dartName: 'ticks',
-            registerSymbol: 'native_only_register_ticks_stream',
-            releaseSymbol: 'native_only_release_ticks_stream',
-            itemType: BridgeType(name: 'int'),
-            backpressure: Backpressure.dropLatest,
+        dartClassName: 'WebAsync',
+        lib: 'web_async',
+        namespace: 'web_async',
+        webImpl: NativeImpl.wasm,
+        sourceUri: 'web_async.native.dart',
+        functions: [
+          BridgeFunction(
+            dartName: 'crunch',
+            cSymbol: 'web_async_crunch',
+            isAsync: true,
+            returnType: BridgeType(name: 'int'),
+            params: [],
           ),
         ],
       );
-      expect(SpecValidator.validate(spec).any((i) => i.code == 'W007'), isFalse);
+      final issues = SpecValidator.validate(spec);
+      final w008 = issues.where((i) => i.code == 'W008').toList();
+      expect(w008, hasLength(1));
+      expect(w008.single.isError, isFalse);
+      expect(w008.single.message, contains('main thread'));
+      expect(w008.single.hint, contains('@nitroNativeAsync'));
+    });
+
+    test('no W008 for @nitroAsync without a web target', () {
+      final spec = BridgeSpec(
+        dartClassName: 'NativeAsync2',
+        lib: 'native_async2',
+        namespace: 'native_async2',
+        androidImpl: NativeImpl.kotlin,
+        sourceUri: 'native_async2.native.dart',
+        functions: [
+          BridgeFunction(
+            dartName: 'crunch',
+            cSymbol: 'native_async2_crunch',
+            isAsync: true,
+            returnType: BridgeType(name: 'int'),
+            params: [],
+          ),
+        ],
+      );
+      expect(SpecValidator.validate(spec).any((i) => i.code == 'W008'), isFalse);
+    });
+
+    test('@zeroCopy on web emits W009 (snapshot semantics)', () {
+      final spec = BridgeSpec(
+        dartClassName: 'WebZero',
+        lib: 'web_zero',
+        namespace: 'web_zero',
+        webImpl: NativeImpl.wasm,
+        sourceUri: 'web_zero.native.dart',
+        functions: [
+          BridgeFunction(
+            dartName: 'grab',
+            cSymbol: 'web_zero_grab',
+            isAsync: false,
+            zeroCopyReturn: true,
+            returnType: BridgeType(name: 'Uint8List'),
+            params: [],
+          ),
+        ],
+      );
+      final issues = SpecValidator.validate(spec);
+      expect(issues.where((i) => i.code == 'W009'), hasLength(1));
+    });
+
+    test('struct with a String field on web is E017 (unsupported packed layout)', () {
+      final spec = BridgeSpec(
+        dartClassName: 'WebStruct',
+        lib: 'web_struct',
+        namespace: 'web_struct',
+        webImpl: NativeImpl.wasm,
+        sourceUri: 'web_struct.native.dart',
+        structs: [
+          BridgeStruct(
+            name: 'Tagged',
+            packed: true,
+            fields: [
+              BridgeField(name: 'id', type: BridgeType(name: 'int')),
+              BridgeField(name: 'label', type: BridgeType(name: 'String')),
+            ],
+          ),
+        ],
+      );
+      final issues = SpecValidator.validate(spec);
+      final e017 = issues.where((i) => i.code == 'E017').toList();
+      expect(e017, hasLength(1));
+      expect(e017.single.isError, isTrue);
+      expect(e017.single.message, contains('label'));
+      expect(e017.single.hint, contains('@HybridRecord'));
+    });
+
+    test('prim-only struct on web passes (no E017)', () {
+      final spec = BridgeSpec(
+        dartClassName: 'WebPoint',
+        lib: 'web_point',
+        namespace: 'web_point',
+        webImpl: NativeImpl.wasm,
+        sourceUri: 'web_point.native.dart',
+        structs: [
+          BridgeStruct(
+            name: 'Pt',
+            packed: true,
+            fields: [
+              BridgeField(name: 'x', type: BridgeType(name: 'double')),
+              BridgeField(name: 'y', type: BridgeType(name: 'double')),
+            ],
+          ),
+        ],
+      );
+      expect(SpecValidator.validate(spec).any((i) => i.code == 'E017'), isFalse);
     });
   });
+
 }

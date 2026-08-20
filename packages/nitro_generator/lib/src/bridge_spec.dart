@@ -40,6 +40,11 @@ class BridgeSpec {
   final NativeImpl? webImpl;
   final String sourceUri;
 
+  /// The pub package the spec lives in (set by the builder, null in tests).
+  /// The web bridge bakes it into the default WASM asset URL
+  /// (`assets/packages/<assetPackage>/assets/web/<lib>.js`).
+  String? assetPackage;
+
   /// True when iOS is a targeted platform.
   bool get targetsIos => iosImpl != null;
 
@@ -88,6 +93,14 @@ class BridgeSpec {
       (linuxImpl == null || linuxImpl is CppImpl) &&
       // webImpl intentionally excluded — web is never a dart:ffi C++ target
       (iosImpl != null || androidImpl != null || macosImpl != null || windowsImpl != null || linuxImpl != null);
+
+  /// True when the Web platform is targeted with a WASM (C++/Emscripten)
+  /// implementation. Web reuses the direct C++ dispatch bridge compiled with
+  /// emcc — it is a C++ target, just not a dart:ffi one.
+  bool get webIsWasm => webImpl is WasmImpl;
+
+  /// True when at least one NATIVE (dart:ffi) platform is targeted.
+  bool get targetsAnyNative => iosImpl != null || androidImpl != null || macosImpl != null || windowsImpl != null || linuxImpl != null;
 
   final List<BridgeStruct> structs;
   final List<BridgeEnum> enums;

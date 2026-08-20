@@ -31,7 +31,7 @@ void createSharedHeaders(String nitroNativePath, {String baseDir = '.'}) {
   // Always write the correct content to the local project directories.
   File(p.join(baseDir, 'src', 'nitro.h')).writeAsStringSync(nitroHContent);
   File(p.join(localNativeDir.path, 'nitro.h')).writeAsStringSync(nitroHContent);
-  for (final headerName in ['dart_api_dl.h', 'dart_api.h', 'dart_native_api.h', 'dart_version.h']) {
+  for (final headerName in ['dart_api_dl.h', 'dart_api.h', 'dart_native_api.h', 'dart_version.h', 'nitro_wasm_compat.h']) {
     final src = File(p.join(nitroNativePath, headerName));
     if (src.existsSync()) src.copySync(p.join(localNativeDir.path, headerName));
   }
@@ -68,7 +68,7 @@ void createSharedHeaders(String nitroNativePath, {String baseDir = '.'}) {
         // Write nitro.h with the correct guard-protected content.
         File(p.join(includeDir.path, 'nitro.h')).writeAsStringSync(nitroHContent);
         // Copy dart API headers from the nitro native source.
-        for (final headerName in ['dart_api_dl.h', 'dart_api.h', 'dart_native_api.h', 'dart_version.h']) {
+        for (final headerName in ['dart_api_dl.h', 'dart_api.h', 'dart_native_api.h', 'dart_version.h', 'nitro_wasm_compat.h']) {
           final src = File(p.join(nitroNativePath, headerName));
           if (src.existsSync()) src.copySync(p.join(includeDir.path, headerName));
         }

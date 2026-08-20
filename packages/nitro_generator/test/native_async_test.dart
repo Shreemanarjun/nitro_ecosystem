@@ -1586,12 +1586,12 @@ void main() {
       expect(unpackSection, isNot(contains('raw as uint64?')));
     });
 
-    test('NitroAnyMap return: unpack decodes via NitroAnyMap.fromNative, not a raw cast (isAnyMap is a separate flag from isRecord)', () {
+    test('NitroAnyMap return: unpack decodes via nitroAnyMapFromNative, not a raw cast (isAnyMap is a separate flag from isRecord)', () {
       final out = DartFfiGenerator.generate(_nativeAsyncReturnsSpec());
       final anchor = out.indexOf('getAnyMap()');
       expect(anchor, greaterThan(-1));
       final unpackSection = out.substring(anchor, out.indexOf('methodName:', anchor) + 40);
-      expect(unpackSection, contains('NitroAnyMap.fromNative(rawPtr)'));
+      expect(unpackSection, contains('nitroAnyMapFromNative(rawPtr)'));
       expect(unpackSection, isNot(contains('raw as NitroAnyMap')));
     });
   });

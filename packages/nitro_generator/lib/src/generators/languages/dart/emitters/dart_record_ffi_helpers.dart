@@ -1,6 +1,25 @@
 part of '../dart_ffi_generator.dart';
 
-String _decodeRecordExpr(BridgeType type, String ptrVar) {
+String _decodeRecordExpr(BridgeType type, String ptrVar, BridgeSpec spec) {
+  // A nullable LIST return arrives as nullptr when absent. Decode it through a
+  // guard so the list decoders below always see a real buffer; without this a
+  // null return would be read as a zero-address buffer.
+  if (type.recordListItemType != null && (type.isNullable || type.name.endsWith('?'))) {
+    final inner = _decodeRecordExpr(
+      BridgeType(
+        name: type.name.replaceFirst(RegExp(r'\?$'), ''),
+        isRecord: type.isRecord,
+        recordListItemType: type.recordListItemType,
+        recordListItemIsPrimitive: type.recordListItemIsPrimitive,
+        recordListItemIsNullable: type.recordListItemIsNullable,
+        isEnumList: type.isEnumList,
+        isVariantList: type.isVariantList,
+      ),
+      ptrVar,
+      spec,
+    );
+    return '$ptrVar == nullptr ? null : $inner';
+  }
   // @NitroTuple: standalone free function (can't extend a typedef).
   if (type.isTuple) {
     final rt = type.name.endsWith('?') ? type.name.substring(0, type.name.length - 1) : type.name;
@@ -11,7 +30,7 @@ String _decodeRecordExpr(BridgeType type, String ptrVar) {
   }
   if (type.isAnyMap) {
     // NitroAnyMap — type-tagged binary codec (mirrors RN Nitro AnyMap).
-    return 'NitroAnyMap.fromNative($ptrVar)';
+    return 'nitroAnyMapFromNative($ptrVar)';
   }
   if (type.isMap) {
     // Binary map decoding — resolves NaN/Infinity, int64 precision, perf issues.
@@ -53,10 +72,17 @@ String _decodeRecordExpr(BridgeType type, String ptrVar) {
   }
   // Strip nullable '?' suffix — the extension/class is always named after the base type.
   final rt = type.name.replaceFirst('?', '');
-  // Built-in library types define fromNative on the class itself (package:nitro).
-  // Call directly instead of via the generated *RecordExt extension.
+  // Built-in library types decode via package:nitro's free functions (the
+  // class statics were removed in the 0.7.0 web split).
+  const libraryDecoders = {
+    'NitroNullableInt': 'nitroNullableIntFromNative',
+    'NitroNullableDouble': 'nitroNullableDoubleFromNative',
+    'NitroNullableBool': 'nitroNullableBoolFromNative',
+  };
+  final libDecoder = libraryDecoders[rt];
+  if (libDecoder != null) return '$libDecoder($ptrVar)';
   if (_nitroLibraryRecordTypes.contains(rt)) return '$rt.fromNative($ptrVar)';
-  return '${rt}RecordExt.fromNative($ptrVar)';
+  return '${_recordDecodeExtName(spec, rt)}.fromNative($ptrVar)';
 }
 
 void _emitTypedDataDecodeReturn(
@@ -182,28 +208,33 @@ String _encodeRecordParam(BridgeType type, String varName, String allocator) {
     final valueType = mapMatch?.group(1)?.trim() ?? 'dynamic';
     return '_nitroEncodeMapBinary${_mapTypeSuffix(valueType)}($varName, $allocator)';
   }
+  // A nullable LIST (as opposed to a list of nullable items) passes nullptr
+  // for "absent"; the guard has to wrap the encoder call because every encoder
+  // below declares a non-null `List<T>`.
+  final listIsNullable = type.recordListItemType != null && (type.isNullable || type.name.endsWith('?'));
+  String listGuard(String encode) => listIsNullable ? '$varName != null ? $encode : nullptr' : encode;
   // List<@HybridEnum> / List<@HybridEnum?> — sequential, [4B count][8B×N] or [4B count][1B+8B×N]
   if (type.isEnumList) {
     if (type.recordListItemIsNullable) {
-      return 'RecordWriter.encodeNullableList($varName, (w, e) => w.writeInt(e.nativeValue), $allocator)';
+      return listGuard('RecordWriter.encodeNullableList($varName, (w, e) => w.writeInt(e.nativeValue), $allocator)');
     }
-    return 'RecordWriter.encodeList($varName, (w, e) => w.writeInt(e.nativeValue), $allocator)';
+    return listGuard('RecordWriter.encodeList($varName, (w, e) => w.writeInt(e.nativeValue), $allocator)');
   }
   // List<@NitroVariant> / List<@NitroVariant?> — sequential, [4B count][tag+fields×N] or [4B count][1B+tag+fields×N]
   if (type.isVariantList) {
     if (type.recordListItemIsNullable) {
-      return 'RecordWriter.encodeNullableList($varName, (w, v) => v.writeFields(w), $allocator)';
+      return listGuard('RecordWriter.encodeNullableList($varName, (w, v) => v.writeFields(w), $allocator)');
     }
-    return 'RecordWriter.encodeList($varName, (w, v) => v.writeFields(w), $allocator)';
+    return listGuard('RecordWriter.encodeList($varName, (w, v) => v.writeFields(w), $allocator)');
   }
   final item = type.recordListItemType;
   if (item != null) {
     if (type.recordListItemIsPrimitive) {
       final writeCall = _primitiveWriterCall(item);
-      return 'RecordWriter.encodeIndexedPrimitiveList($varName, (w, e) => w.$writeCall(e), $allocator)';
+      return listGuard('RecordWriter.encodeIndexedPrimitiveList($varName, (w, e) => w.$writeCall(e), $allocator)');
     }
     // Use indexed encoding so the receiving side can use LazyRecordList.
-    return 'RecordWriter.encodeIndexedList($varName, (w, e) => e.writeFields(w), $allocator)';
+    return listGuard('RecordWriter.encodeIndexedList($varName, (w, e) => e.writeFields(w), $allocator)');
   }
   // Nullable @HybridRecord: pass nullptr when null, otherwise encode normally.
   if (type.isNullable || type.name.endsWith('?')) {
@@ -246,7 +277,7 @@ void _emitResultDecode(
 
   if (returnType.isRecord) {
     // @HybridRecord / Map / List<Record>
-    final decodeExpr = _decodeRecordExpr(returnType, '$resVar + 1');
+    final decodeExpr = _decodeRecordExpr(returnType, '$resVar + 1', spec);
     writer.line('${i2}return NitroOk($decodeExpr);');
   } else {
     // Primitives: wrapped in record codec on native side

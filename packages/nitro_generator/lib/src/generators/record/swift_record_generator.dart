@@ -225,6 +225,22 @@ String _swiftBase(String dartType) {
   }
 }
 
+/// Wraps a list field's read in the null tag when the field is nullable.
+String _swiftListRead(BridgeRecordField f, String read) =>
+    f.isNullable ? 'r.readNullTag() ? nil : $read' : read;
+
+/// Writer counterpart to [_swiftListRead].
+void _swiftWriteListField(CodeWriter s, BridgeRecordField f, void Function(String accessor) body) {
+  if (!f.isNullable) {
+    body(f.name);
+    return;
+  }
+  s.writeln('    writer.writeNullTag(${f.name} == nil)');
+  s.writeln('    if let _list = ${f.name} {');
+  body('_list');
+  s.writeln('    }');
+}
+
 String _swiftReadCall(String base) {
   switch (base) {
     case 'int':
@@ -257,15 +273,17 @@ String _swiftRead(BridgeRecordField f) {
       final base = f.dartType.replaceFirst('?', '');
       if (f.isNullable) return 'r.readNullTag() ? nil : $base.fromReader(r)';
       return '$base.fromReader(r)';
+    // Nullable list fields carry a null tag like every other nullable field —
+    // an absent list and an empty list are distinct values.
     case RecordFieldKind.listPrimitive:
       final item = f.itemTypeName ?? 'int';
-      return '(0..<Int(r.readInt32())).map { _ in ${_swiftReadCall(item)} }';
+      return _swiftListRead(f, '(0..<Int(r.readInt32())).map { _ in ${_swiftReadCall(item)} }');
     case RecordFieldKind.listEnumValue:
       final item = f.itemTypeName!;
-      return '(0..<Int(r.readInt32())).map { _ in $item(rawValue: r.readInt())! }';
+      return _swiftListRead(f, '(0..<Int(r.readInt32())).map { _ in $item(rawValue: r.readInt())! }');
     case RecordFieldKind.listRecordObject:
       final item = f.itemTypeName!;
-      return '(0..<Int(r.readInt32())).map { _ in $item.fromReader(r) }';
+      return _swiftListRead(f, '(0..<Int(r.readInt32())).map { _ in $item.fromReader(r) }');
     case RecordFieldKind.typedData:
       final base = f.dartType.replaceFirst('?', '');
       final read = _swiftTypedDataRead(base);
@@ -332,16 +350,22 @@ void _swiftWriteStmt(CodeWriter s, BridgeRecordField f) {
       break;
     case RecordFieldKind.listPrimitive:
       final item = f.itemTypeName ?? 'int';
-      s.writeln('    writer.writeInt32(Int32(${f.name}.count))');
-      s.writeln('    for e in ${f.name} { writer.${_swiftWriterCall(item, 'e')} }');
+      _swiftWriteListField(s, f, (a) {
+        s.writeln('    writer.writeInt32(Int32($a.count))');
+        s.writeln('    for e in $a { writer.${_swiftWriterCall(item, 'e')} }');
+      });
       break;
     case RecordFieldKind.listEnumValue:
-      s.writeln('    writer.writeInt32(Int32(${f.name}.count))');
-      s.writeln('    for e in ${f.name} { writer.writeInt(e.rawValue) }');
+      _swiftWriteListField(s, f, (a) {
+        s.writeln('    writer.writeInt32(Int32($a.count))');
+        s.writeln('    for e in $a { writer.writeInt(e.rawValue) }');
+      });
       break;
     case RecordFieldKind.listRecordObject:
-      s.writeln('    writer.writeInt32(Int32(${f.name}.count))');
-      s.writeln('    for e in ${f.name} { e.writeFields(writer) }');
+      _swiftWriteListField(s, f, (a) {
+        s.writeln('    writer.writeInt32(Int32($a.count))');
+        s.writeln('    for e in $a { e.writeFields(writer) }');
+      });
       break;
     case RecordFieldKind.typedData:
       final base = f.dartType.replaceFirst('?', '');

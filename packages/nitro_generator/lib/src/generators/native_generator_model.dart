@@ -12,6 +12,9 @@ enum NativeGeneratorTarget {
   cppTestStarter,
   cppImplStarter,
   webBridge, // PX18: dart:js_interop @JS() bridge for NativeImpl.wasm
+  // 0.7.0 web split (only emitted for web-targeting specs):
+  dartFfiLibrary, // standalone dart:ffi impl library (generated/native/*.ffi.g.dart)
+  dartPlatformShim, // conditional-export factory shim (*.platform.g.dart)
 }
 
 enum NativeGeneratorLanguage {

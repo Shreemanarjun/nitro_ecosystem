@@ -65,21 +65,10 @@ abstract class Benchmark {
   void dispose() {}
 }
 
-/// Reference workload (FNV-1a 64-bit) in pure Dart.
-///
-/// NOTE: on web, Dart ints are JS doubles — the 64-bit multiply does NOT wrap
-/// exactly, so the web hash diverges from native. Web is a dispatch-cost
-/// baseline only; cross-tier hash verification is native-only.
-int _fnv1aWeb(Uint8List data, int rounds) {
-  var hash = 0xcbf29ce484222325;
-  for (var r = 0; r < rounds; r++) {
-    for (var i = 0; i < data.length; i++) {
-      hash ^= data[i];
-      hash *= 0x100000001b3;
-    }
-  }
-  return hash;
-}
+// The Benchmark (Kotlin/Swift) module has no web implementation — since
+// 0.7.0 the real comparison tier on web is BenchmarkCpp's WASM bridge, so
+// the compute methods here throw instead of faking numbers (a pure-Dart
+// FNV cannot match 64-bit native wrapping under dart2js anyway).
 
 class _BenchmarkWebImpl extends Benchmark {
   @override
@@ -92,7 +81,7 @@ class _BenchmarkWebImpl extends Benchmark {
   String getGreeting(String name) => 'Hello, $name!';
 
   @override
-  int hashBuffer(Uint8List data, int rounds) => _fnv1aWeb(data, rounds);
+  int hashBuffer(Uint8List data, int rounds) => throw UnsupportedError('Benchmark (Kotlin/Swift) has no web implementation — use BenchmarkCpp (WASM)');
   @override
   int sievePrimes(int limit) => _sievePrimesWeb(limit);
 
@@ -143,7 +132,7 @@ class _BenchmarkCppWebImpl extends BenchmarkCpp {
   String getGreeting(String name) => 'Hello, $name!';
 
   @override
-  int hashBuffer(Uint8List data, int rounds) => _fnv1aWeb(data, rounds);
+  int hashBuffer(Uint8List data, int rounds) => throw UnsupportedError('Benchmark (Kotlin/Swift) has no web implementation — use BenchmarkCpp (WASM)');
   @override
   int sievePrimes(int limit) => _sievePrimesWeb(limit);
 

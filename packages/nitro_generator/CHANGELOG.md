@@ -1,3 +1,28 @@
+## 0.7.0
+
+**Web support.** Web-targeting specs get a real `dart:js_interop` bridge that
+drives the SAME generated C bridge — compiled to WASM by Emscripten — over the
+existing binary wire format. Streams and `@nitroNativeAsync` are fully
+supported (W007 is retired).
+
+**Regenerate after upgrading.** For web-targeting specs the generated layout
+splits: the dart:ffi implementation moves from the `.g.dart` part into
+`generated/native/<file>.ffi.g.dart`, reached through the new conditional
+`<file>.platform.g.dart` shim (`create<Class>Instance()` /
+`ensure<Class>Ready()`). Non-web specs regenerate byte-identical (plus the
+new placeholder outputs). See [migration/0.7.0.md](../../migration/0.7.0.md).
+
+- C bridge: `#ifdef __EMSCRIPTEN__` seam — `nitro_wasm_compat.h` maps every
+  `Dart_PostCObject_DL` call onto the module post callback; new
+  `<lib>_nitro_set_post_fn` export.
+- New web checks: W008 (`@nitroAsync` runs on the main thread on web), W009
+  (`@zeroCopy` is a snapshot on web), E017 (struct fields beyond
+  prim/enum/bool/DateTime not yet packed on web).
+- Fixed: nullable-primitive params in the all-C++ bridge declared `void*` in
+  the definition but `const uint8_t*` in the header (conflicting types).
+- Anti-drift: the FFI library and web bridge are asserted to bind the same C
+  symbol set.
+
 ## 0.6.1
 
 - **Fixed (Android): sustained `@zeroCopy` TypedData returns fragmented ART's `malloc_space` until a small allocation failed with plenty of free memory ([#48](https://github.com/Shreemanarjun/nitro_ecosystem/issues/48)).** Every such return allocated a fresh direct buffer whose native memory was only reclaimed after Dart's finalizer dropped the JNI global ref *and* the JVM then collected the `ByteBuffer`; at a high call rate that churn fragmented the heap. On a real device a 4 KB return loop died at 40k iterations with ~100 MB free and a 3 KB largest-contiguous block — it now runs 80k with memory being returned.

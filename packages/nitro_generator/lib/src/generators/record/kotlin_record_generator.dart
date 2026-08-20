@@ -260,16 +260,18 @@ String _kotlinReadExpr(BridgeRecordField f, Set<String> enumNames) {
         return '(if (buf.get().toInt() == 0) null else $base.decodeFrom(buf))';
       }
       return '$base.decodeFrom(buf)';
+    // Nullable list fields are bracketed by a null tag, same as every other
+    // nullable field — an absent list and an empty list are distinct.
     case RecordFieldKind.listPrimitive:
       final item = f.itemTypeName ?? 'int';
-      return '(0 until buf.int).map { ${_kotlinPrimRead(item)} }';
+      return _kotlinListRead(f, '(0 until buf.int).map { ${_kotlinPrimRead(item)} }');
     case RecordFieldKind.listEnumValue:
       final item = f.itemTypeName ?? 'Long';
       final read = enumNames.contains(item) ? '$item.fromNative(buf.long)' : 'buf.long';
-      return '(0 until buf.int).map { $read }';
+      return _kotlinListRead(f, '(0 until buf.int).map { $read }');
     case RecordFieldKind.listRecordObject:
       final item = f.itemTypeName!;
-      return '(0 until buf.int).map { $item.decodeFrom(buf) }';
+      return _kotlinListRead(f, '(0 until buf.int).map { $item.decodeFrom(buf) }');
     case RecordFieldKind.typedData:
       final base = f.dartType.replaceFirst('?', '');
       final read = _kotlinTypedDataRead(base);
@@ -310,6 +312,22 @@ String _kotlinTypedDataRead(String dartType) {
     default:
       return '{ val _len = buf.int; val _b = ByteArray(_len); buf.get(_b); _b }()';
   }
+}
+
+/// Wraps a list field's read in the null tag when the field is nullable.
+String _kotlinListRead(BridgeRecordField f, String read) =>
+    f.isNullable ? '(if (buf.get().toInt() == 0) null else $read)' : read;
+
+/// Writer counterpart to [_kotlinListRead].
+void _kotlinWriteListField(CodeWriter s, BridgeRecordField f, void Function(String accessor) body) {
+  if (!f.isNullable) {
+    body(f.name);
+    return;
+  }
+  s.writeln('        out.write(if (${f.name} == null) 0 else 1)');
+  s.writeln('        if (${f.name} != null) {');
+  body('${f.name}!!');
+  s.writeln('        }');
 }
 
 String _kotlinPrimRead(String base) {
@@ -359,16 +377,22 @@ void _kotlinWriteStmt(CodeWriter s, BridgeRecordField f) {
       break;
     case RecordFieldKind.listPrimitive:
       final base = f.itemTypeName ?? 'int';
-      s.writeln('        writeInt32(${f.name}.size)');
-      s.writeln('        ${f.name}.forEach { e -> ${_kotlinWriteCall(base, 'e')} }');
+      _kotlinWriteListField(s, f, (a) {
+        s.writeln('        writeInt32($a.size)');
+        s.writeln('        $a.forEach { e -> ${_kotlinWriteCall(base, 'e')} }');
+      });
       break;
     case RecordFieldKind.listEnumValue:
-      s.writeln('        writeInt32(${f.name}.size)');
-      s.writeln('        ${f.name}.forEach { e -> writeInt(e.nativeValue) }');
+      _kotlinWriteListField(s, f, (a) {
+        s.writeln('        writeInt32($a.size)');
+        s.writeln('        $a.forEach { e -> writeInt(e.nativeValue) }');
+      });
       break;
     case RecordFieldKind.listRecordObject:
-      s.writeln('        writeInt32(${f.name}.size)');
-      s.writeln('        ${f.name}.forEach { e -> e.writeFieldsTo(out, buf) }');
+      _kotlinWriteListField(s, f, (a) {
+        s.writeln('        writeInt32($a.size)');
+        s.writeln('        $a.forEach { e -> e.writeFieldsTo(out, buf) }');
+      });
       break;
     case RecordFieldKind.typedData:
       final base = f.dartType.replaceFirst('?', '');

@@ -17,10 +17,19 @@ const _nitroLibraryRecordTypes = {
   'NitroOptBool',
 };
 
+/// Which members of the generated Dart codecs to emit — the 0.7.0 web split.
+///
+/// [all] is the historical single-part layout (non-web specs, byte-identical).
+/// For web-targeting specs the part keeps [pure] (reader/writer members shared
+/// by the FFI impl and the web bridge) and the standalone ffi library gets
+/// [ffi] (Pointer-based members, emitted into `*RecordFfiExt` extensions so
+/// the names never collide with the part's).
+enum DartCodecSlice { all, pure, ffi }
+
 /// Generates binary encode/decode extension methods for @HybridRecord types.
 /// Orchestrates language-specific generators in `record/`.
 class RecordGenerator {
-  static String generateDartExtensions(BridgeSpec spec) => _generateDartRecordExtensions(spec);
+  static String generateDartExtensions(BridgeSpec spec, {DartCodecSlice slice = DartCodecSlice.all}) => _generateDartRecordExtensions(spec, slice);
 
   static String generateCpp(BridgeSpec spec) => _generateCppRecords(spec);
 

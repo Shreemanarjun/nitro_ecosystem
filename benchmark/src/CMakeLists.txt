@@ -19,7 +19,7 @@ if(NOT "${_NITRO_CFG}" MATCHES "^(DEBUG|RELEASE|RELWITHDEBINFO|MINSIZEREL|)$")
   set(CMAKE_CXX_FLAGS_${_NITRO_CFG} "-O2 -DNDEBUG")
 endif()
 set(NITRO_NATIVE "${CMAKE_CURRENT_SOURCE_DIR}/native")
-# NITRO_LINK_SPEC_CHECKSUM f1e86b7d5c8ea634
+# NITRO_LINK_SPEC_CHECKSUM 883d06566765d646
 set(GENERATED_CPP "${CMAKE_CURRENT_SOURCE_DIR}/../lib/src/generated/cpp")
 
 # ── Swift/Kotlin bridge (NativeImpl.swift / NativeImpl.kotlin) ────────────────

@@ -1,4 +1,3 @@
-import 'package:flutter/foundation.dart' show debugPrint;
 
 /// Log verbosity levels for [NitroConfig.logLevel].
 enum NitroLogLevel {
@@ -168,9 +167,10 @@ void _defaultLog(
     NitroLogLevel.warning => '⚠️  [Nitro/$tag]',
     NitroLogLevel.verbose => '🔬 [Nitro/$tag]',
   };
-  // debugPrint (not raw print): the Flutter-idiomatic logging sink — it
-  // throttles to avoid flooding logcat and can be overridden globally. Apps
-  // that want structured logging replace this whole handler via
-  // NitroConfig.logHandler.
-  debugPrint('$prefix $message${error != null ? '\n  error: $error' : ''}${stack != null ? '\n  $stack' : ''}');
+  // Zone-aware print keeps package:nitro's import graph flutter-free, which
+  // is what lets the runtime compile under plain `dart compile js/wasm` and
+  // run in pure-Dart browser tests. Apps that want debugPrint throttling or
+  // structured logging replace this whole handler via NitroConfig.logHandler.
+  // ignore: avoid_print
+  print('$prefix $message${error != null ? '\n  error: $error' : ''}${stack != null ? '\n  $stack' : ''}');
 }

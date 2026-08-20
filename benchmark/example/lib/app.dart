@@ -92,7 +92,7 @@ class _MainNavigationPageState extends State<MainNavigationPage> {
                     const Icon(Icons.language, color: Colors.cyan, size: 16),
                     const SizedBox(width: 8),
                     Text(
-                      'Web Platform — Pure Dart baseline (no native bridge)',
+                      'Web Platform — Nitro C++ via WASM (Emscripten)',
                       style: TextStyle(fontSize: 12, color: Colors.cyan.shade200),
                     ),
                   ],

@@ -27,6 +27,7 @@ class NitroGeneratorBuilder implements Builder {
       // Returns null when the file has no Nitrogen-relevant content.
       final spec = SpecExtractor.extractAny(library);
       if (spec == null) return;
+      spec.assetPackage = buildStep.inputId.package;
 
       // ── Validate before generating (module files only) ─────────────────
       if (!spec.isTypeOnly) {
@@ -63,8 +64,8 @@ class NitroGeneratorBuilder implements Builder {
         final target = _nativeGenerators.targetForOutputPath(outId.path);
         if (target == null) continue;
 
-        if (target == NativeGeneratorTarget.dartFfi || target == NativeGeneratorTarget.webBridge) {
-          // Both Dart generators produce Dart code — format for readability.
+        if (target == NativeGeneratorTarget.dartFfi || target == NativeGeneratorTarget.webBridge || target == NativeGeneratorTarget.dartFfiLibrary || target == NativeGeneratorTarget.dartPlatformShim) {
+          // All Dart-producing generators format for readability.
           final rawCode = _nativeGenerators.generate(target, spec);
           String formattedCode;
           try {

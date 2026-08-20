@@ -19,7 +19,7 @@ void _emitStreamImpls(CodeWriter writer, BridgeSpec spec) {
     final isStructBase = spec.isStructName(baseItemType);
 
     if (isRecord) {
-      final decodeExpr = _decodeRecordExpr(stream.itemType, 'rawPtr');
+      final decodeExpr = _decodeRecordExpr(stream.itemType, 'rawPtr', spec);
       final nullAction = stream.itemType.isNullable ? 'return null' : "throw StateError('Received null event on non-nullable stream ${stream.dartName}')";
       unpackExpr = '(message) { if (message == null) { $nullAction; } final rawPtr = Pointer<Uint8>.fromAddress(message as int); try { return $decodeExpr; } finally { _nitroFree(rawPtr); } }';
       streamItemType = baseItemType; // nullable suffix added by isNullable check at stream signature
@@ -38,7 +38,7 @@ void _emitStreamImpls(CodeWriter writer, BridgeSpec spec) {
       unpackExpr =
           '(message) { if (message == null) { $nullAction; } '
           'final rawPtr = Pointer<Uint8>.fromAddress(message as int); '
-          'try { return ${baseItemType}VariantExt.fromNative(rawPtr); } '
+          'try { return ${_variantDecodeExtName(spec, baseItemType)}.fromNative(rawPtr); } '
           'finally { _nitroFree(rawPtr); } }';
       streamItemType = baseItemType;
     } else if (stream.itemType.isAnyNativeObject) {

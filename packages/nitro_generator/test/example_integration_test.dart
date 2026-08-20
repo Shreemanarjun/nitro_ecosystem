@@ -342,9 +342,9 @@ void main() {
     );
 
     specTest(
-      'NitroAnyMap return decoded with NitroAnyMap.fromNative in Dart',
+      'NitroAnyMap return decoded with nitroAnyMapFromNative in Dart',
       settingsSrc,
-      dart: BridgeChecks(has: ['NitroAnyMap.fromNative(']),
+      dart: BridgeChecks(has: ['nitroAnyMapFromNative(']),
       skip: {Lang.cpp},
     );
 
@@ -712,7 +712,7 @@ void main() {
         }
       '''),
       dart: BridgeChecks(
-        has: ['arena.packInt(userId)', 'arena.packDouble(score)', 'arena.packBool(active)', 'NitroAnyMap.fromNative(', 'toNative(arena)'],
+        has: ['arena.packInt(userId)', 'arena.packDouble(score)', 'arena.packBool(active)', 'nitroAnyMapFromNative(', 'toNative(arena)'],
       ),
       kotlin: BridgeChecks(
         has: ['NitroAnyMapCodec', 'NitroOptInt64', 'NitroOptFloat64', 'NitroOptBool', 'data class UserProfile('],
@@ -771,7 +771,7 @@ void main() {
         hasNot: ['data class'],
       ),
       dart: BridgeChecks(
-        has: ['NitroAnyMap', 'NitroAnyMap.fromNative('],
+        has: ['NitroAnyMap', 'nitroAnyMapFromNative('],
         hasNot: ['RecordReader'],
       ),
       skip: {Lang.cpp},
@@ -977,7 +977,7 @@ void main() {
         }
       '''),
       dart: BridgeChecks(
-        has: ['NitroAnyMap.fromNative(', 'NitroAnyMap'],
+        has: ['nitroAnyMapFromNative(', 'NitroAnyMap'],
       ),
       skip: {Lang.cpp},
     );
@@ -1027,7 +1027,7 @@ void main() {
         has: ['NitroAnyMapCodec', 'data class Metrics(', 'fun decode(bytes: ByteArray): Metrics'],
       ),
       dart: BridgeChecks(
-        has: ['NitroAnyMap.fromNative(', 'toNative(arena)'],
+        has: ['nitroAnyMapFromNative(', 'toNative(arena)'],
       ),
       skip: {Lang.cpp},
     );

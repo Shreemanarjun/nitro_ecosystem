@@ -1,0 +1,125 @@
+name: Web (WASM)
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'packages/nitro/**'
+      - 'packages/nitro_generator/**'
+      - 'packages/nitro_annotations/**'
+      - 'e2e/nitro_web_e2e/**'
+      - 'benchmark/**'
+      - '.github/workflows/ci_web.yml'
+  pull_request:
+    paths:
+      - 'packages/nitro/**'
+      - 'packages/nitro_generator/**'
+      - 'packages/nitro_annotations/**'
+      - 'e2e/nitro_web_e2e/**'
+      - 'benchmark/**'
+      - '.github/workflows/ci_web.yml'
+  workflow_dispatch:
+
+concurrency:
+  group: web-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # The runtime must compile for the web under BOTH compilers, and every
+  # generated bridge must compile under em++ (NITRO_REQUIRE_EMCC gates the
+  # emcc leg of the compile-verify tool).
+  compile-gates:
+    name: Compile gates (dart2js · dart2wasm · em++)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+      - uses: mymindstorm/setup-emsdk@v14
+        with:
+          version: 3.1.74
+          actions-cache-folder: emsdk-cache
+
+      - name: Pub get (workspace)
+        run: flutter pub get
+        working-directory: packages/nitro
+
+      - name: dart2js gate
+        run: dart compile js -o /tmp/nitro_gate.js tool/web_compile_gate.dart
+        working-directory: packages/nitro
+
+      - name: dart2wasm gate
+        run: dart compile wasm -o /tmp/nitro_gate.wasm tool/web_compile_gate.dart
+        working-directory: packages/nitro
+
+      - name: C++ bridge compile gate (clang++ + em++)
+        run: NITRO_REQUIRE_EMCC=1 dart run tool/verify_cpp_bridge_compiles.dart
+        working-directory: packages/nitro_generator
+
+  # The full stack in a real browser: generated web bridge → Emscripten-built
+  # module, under dart2js AND dart2wasm.
+  browser-e2e:
+    name: Browser e2e (chrome, both compilers)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+      - uses: mymindstorm/setup-emsdk@v14
+        with:
+          version: 3.1.74
+          actions-cache-folder: emsdk-cache
+      - uses: browser-actions/setup-chrome@v1
+
+      - name: Pub get
+        run: flutter pub get
+        working-directory: e2e/nitro_web_e2e
+
+      - name: Build the WASM module
+        run: bash tool/build_wasm.sh
+        working-directory: e2e/nitro_web_e2e
+
+      - name: e2e (dart2js)
+        run: flutter pub run test -p chrome
+        working-directory: e2e/nitro_web_e2e
+
+      - name: e2e (dart2wasm)
+        run: flutter pub run test -p chrome -c dart2wasm
+        working-directory: e2e/nitro_web_e2e
+
+  # The flagship app builds for the web with the real WASM assets bundled.
+  flutter-build:
+    name: flutter build web (js + wasm)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+      - uses: mymindstorm/setup-emsdk@v14
+        with:
+          version: 3.1.74
+          actions-cache-folder: emsdk-cache
+
+      - name: Build benchmark_cpp.wasm
+        run: bash web/build_web.sh
+        working-directory: benchmark
+
+      - name: flutter build web (dart2js)
+        run: flutter build web
+        working-directory: benchmark/example
+
+      - name: flutter build web --wasm (dart2wasm)
+        run: flutter build web --wasm
+        working-directory: benchmark/example
+
+      - name: Assert the WASM assets are bundled
+        run: test -f benchmark/example/build/web/assets/packages/benchmark/assets/web/benchmark_cpp.wasm

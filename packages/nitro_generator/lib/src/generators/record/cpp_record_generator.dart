@@ -160,6 +160,19 @@ String generateCppStructCodecs(BridgeSpec spec) {
   return s.toString();
 }
 
+/// Emits the read for a list-shaped record field. `_target` inside [pushStmt]
+/// is the vector being filled — either the field itself, or the freshly
+/// emplaced value of a `std::optional<std::vector<T>>` when the field is
+/// nullable.
+String _cppListFieldRead(BridgeRecordField f, String pushStmt) {
+  final fill = 'int32_t _n = _r.readInt32(); _target.reserve((size_t)_n); '
+      'for (int32_t _i = 0; _i < _n; _i++) { $pushStmt }';
+  if (!f.isNullable) {
+    return '        { auto& _target = _obj.${f.name}; $fill }';
+  }
+  return '        { bool _null = _r.readNullTag(); if (!_null) { auto& _target = _obj.${f.name}.emplace(); $fill } }';
+}
+
 String _cppFieldType(BridgeRecordField f, Set<String> enumNames) {
   switch (f.kind) {
     case RecordFieldKind.primitive:
@@ -173,12 +186,15 @@ String _cppFieldType(BridgeRecordField f, Set<String> enumNames) {
       final base = f.dartType.replaceFirst('?', '');
       return f.isNullable ? 'std::optional<$base>' : base;
     case RecordFieldKind.listPrimitive:
-      return 'std::vector<${_cppPrimType(f.itemTypeName ?? 'int')}>';
+      final primVec = 'std::vector<${_cppPrimType(f.itemTypeName ?? 'int')}>';
+      return f.isNullable ? 'std::optional<$primVec>' : primVec;
     case RecordFieldKind.listEnumValue:
       final item = f.itemTypeName ?? 'int64_t';
-      return 'std::vector<${enumNames.contains(item) ? item : 'int64_t'}>';
+      final enumVec = 'std::vector<${enumNames.contains(item) ? item : 'int64_t'}>';
+      return f.isNullable ? 'std::optional<$enumVec>' : enumVec;
     case RecordFieldKind.listRecordObject:
-      return 'std::vector<${f.itemTypeName}>';
+      final recVec = 'std::vector<${f.itemTypeName}>';
+      return f.isNullable ? 'std::optional<$recVec>' : recVec;
     case RecordFieldKind.typedData:
       return f.isNullable ? 'std::optional<std::vector<uint8_t>>' : 'std::vector<uint8_t>';
     case RecordFieldKind.struct:
@@ -247,19 +263,21 @@ void _cppEmitFieldRead(CodeWriter s, BridgeRecordField f, Set<String> enumNames,
         s.writeln('        _obj.${f.name} = $base::fromReader(_r);');
       }
       break;
+    // Nullable list fields read a null tag first and materialise the optional
+    // only when present — mirroring _cppEmitFieldWrite and the Dart codec.
     case RecordFieldKind.listPrimitive:
       final item = f.itemTypeName ?? 'int';
       final read = _cppPrimRead(item);
-      s.writeln('        { int32_t _n = _r.readInt32(); _obj.${f.name}.reserve((size_t)_n); for (int32_t _i = 0; _i < _n; _i++) _obj.${f.name}.push_back(_r.$read()); }');
+      s.writeln(_cppListFieldRead(f, '_target.push_back(_r.$read());'));
       break;
     case RecordFieldKind.listEnumValue:
       final item = f.itemTypeName ?? 'int64_t';
       final readExpr = enumNames.contains(item) ? 'static_cast<$item>(_r.readInt())' : '_r.readInt()';
-      s.writeln('        { int32_t _n = _r.readInt32(); _obj.${f.name}.reserve((size_t)_n); for (int32_t _i = 0; _i < _n; _i++) _obj.${f.name}.push_back($readExpr); }');
+      s.writeln(_cppListFieldRead(f, '_target.push_back($readExpr);'));
       break;
     case RecordFieldKind.listRecordObject:
       final item = f.itemTypeName!;
-      s.writeln('        { int32_t _n = _r.readInt32(); _obj.${f.name}.reserve((size_t)_n); for (int32_t _i = 0; _i < _n; _i++) _obj.${f.name}.push_back($item::fromReader(_r)); }');
+      s.writeln(_cppListFieldRead(f, '_target.push_back($item::fromReader(_r));'));
       break;
     case RecordFieldKind.typedData:
       if (f.isNullable) {
@@ -315,15 +333,15 @@ void _cppEmitFieldWrite(CodeWriter s, BridgeRecordField f, Set<String> enumNames
           : item == 'bool'
           ? 'w.writeBool(_e);'
           : 'w.writeInt(_e);';
-      core = '{ w.writeInt32((int32_t)${f.name}.size()); for (const auto& _e : ${f.name}) { $itemWrite } }';
+      core = '{ w.writeInt32((int32_t)$v.size()); for (const auto& _e : $v) { $itemWrite } }';
       break;
     case RecordFieldKind.listEnumValue:
       final item = f.itemTypeName ?? 'int64_t';
       final itemWrite = enumNames.contains(item) ? 'w.writeInt(static_cast<int64_t>(_e));' : 'w.writeInt(_e);';
-      core = '{ w.writeInt32((int32_t)${f.name}.size()); for (const auto& _e : ${f.name}) { $itemWrite } }';
+      core = '{ w.writeInt32((int32_t)$v.size()); for (const auto& _e : $v) { $itemWrite } }';
       break;
     case RecordFieldKind.listRecordObject:
-      core = '{ w.writeInt32((int32_t)${f.name}.size()); for (const auto& _e : ${f.name}) { _e.encodeInto(w); } }';
+      core = '{ w.writeInt32((int32_t)$v.size()); for (const auto& _e : $v) { _e.encodeInto(w); } }';
       break;
     case RecordFieldKind.typedData:
       core = '{ w.writeInt32((int32_t)$v.size()); w.writeBytes($v.data(), $v.size()); }';
@@ -333,8 +351,10 @@ void _cppEmitFieldWrite(CodeWriter s, BridgeRecordField f, Set<String> enumNames
       core = 'nitro_${base}_encodeInto($v, w);';
       break;
   }
-  final isListKind = f.kind == RecordFieldKind.listPrimitive || f.kind == RecordFieldKind.listEnumValue || f.kind == RecordFieldKind.listRecordObject;
-  if (f.isNullable && !isListKind) {
+  // Nullable list fields carry the same null tag as any other nullable field.
+  // (They used to be excluded, which disagreed with the Dart codec by a byte —
+  // an absent list and an empty list are different values.)
+  if (f.isNullable) {
     s.writeln('        w.writeBool(${f.name}.has_value());');
     s.writeln('        if (${f.name}.has_value()) { $core }');
   } else {
@@ -392,5 +412,32 @@ public:
   // TypedData blob: [4B count][count bytes] → reads into caller-owned vector.
   void readBytes(uint8_t* dst, size_t n) {
       _require(n); std::memcpy(dst, _data + _offset, n); _offset += n;
+  }
+  // Repositions the cursor. Needed to follow an indexed list's offset table,
+  // which is random-access rather than sequential.
+  void seek(size_t offset) {
+      if (offset > _size)
+          throw std::runtime_error("NitroRecordReader: seek past end of buffer");
+      _offset = offset;
+  }
+  size_t position() const { return _offset; }
+  // Decodes [4B count][8B x count offsets][item bytes...] — the shape Dart
+  // encodes a List<@HybridRecord> in, both as an argument and as a return.
+  // readItem is called with this reader already positioned at each item, so a
+  // per-item Record::fromReader(r) works directly. Do NOT hand a plain
+  // [4B count][items] payload to this: the offsets would be item bytes.
+  template <typename T, typename ReadItem>
+  std::vector<T> readIndexedList(ReadItem readItem) {
+      int32_t n = readInt32();
+      if (n < 0) throw std::runtime_error("NitroRecordReader: negative list count");
+      std::vector<int64_t> offsets((size_t)n);
+      for (int32_t i = 0; i < n; i++) offsets[(size_t)i] = readInt();
+      std::vector<T> out;
+      out.reserve((size_t)n);
+      for (int32_t i = 0; i < n; i++) {
+          seek((size_t)offsets[(size_t)i]);
+          out.push_back(readItem(*this));
+      }
+      return out;
   }
 };''';

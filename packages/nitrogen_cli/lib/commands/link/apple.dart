@@ -741,7 +741,7 @@ Directory _spmScaffoldSharedCppTarget(
   // lack the guard. Using different copies with inconsistent guards causes a
   // "Typedef redefinition" error when both are included in the same TU.
   File(p.join(includeDir.path, 'nitro.h')).writeAsStringSync(nitroHContent);
-  for (final headerName in ['dart_api_dl.h', 'dart_api.h', 'dart_native_api.h', 'dart_version.h']) {
+  for (final headerName in ['dart_api_dl.h', 'dart_api.h', 'dart_native_api.h', 'dart_version.h', 'nitro_wasm_compat.h']) {
     final src = File(p.join(nitroNativePath, headerName));
     if (src.existsSync()) src.copySync(p.join(includeDir.path, headerName));
   }

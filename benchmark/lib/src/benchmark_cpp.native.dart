@@ -1,5 +1,7 @@
 import 'package:nitro/nitro.dart';
 
+import 'benchmark_cpp.platform.g.dart';
+
 part 'benchmark_cpp.g.dart';
 
 /// Packed zero-copy struct passed as a raw C pointer across the FFI boundary.
@@ -123,7 +125,12 @@ class BenchmarkStats {
 abstract class BenchmarkCpp extends HybridObject {
   /// Shared singleton. Loads the `benchmark_cpp` native library once and
   /// initialises proxy finalizers. Thread-safe after first access.
-  static final BenchmarkCpp instance = _BenchmarkCppImpl();
+  ///
+  /// Web-split layout: the implementation class lives in
+  /// `generated/native/benchmark_cpp.ffi.g.dart` (native) or
+  /// `generated/web/benchmark_cpp.web.bridge.g.dart` (web); the platform shim
+  /// picks the right factory. On web, await `ensureBenchmarkCppReady()` first.
+  static final BenchmarkCpp instance = createBenchmarkCppInstance();
 
   /// Baseline sync primitive. Measures direct C++ virtual-dispatch overhead.
   ///

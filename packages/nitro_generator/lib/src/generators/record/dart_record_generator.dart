@@ -1,6 +1,10 @@
 part of '../record_generator.dart';
 
-String _generateDartRecordExtensions(BridgeSpec spec) {
+String _generateDartRecordExtensions(BridgeSpec spec, DartCodecSlice slice) {
+  // Web-split parts type the codec params platform-neutrally so both the
+  // native and web readers (subtypes of the base) flow through one signature.
+  final readerT = slice == DartCodecSlice.pure ? 'RecordReaderBase' : 'RecordReader';
+  final writerT = slice == DartCodecSlice.pure ? 'RecordWriterBase' : 'RecordWriter';
   // Exclude built-in library types: their Dart codec is already on the class
   // in package:nitro/src/nitro_nullable.dart; generating an extension would
   // duplicate methods and cause "already defined" compile errors.
@@ -72,15 +76,26 @@ String _generateDartRecordExtensions(BridgeSpec spec) {
 
   for (final stName in referencedStructs) {
     final st = structMap[stName]!;
+    if (slice == DartCodecSlice.ffi) {
+      // Pointer edge only; fromReader lives in the part's ${st.name}RecordExt.
+      s.writeln('extension ${st.name}RecordFfiExt on ${st.name} {');
+      s.writeln('  static ${st.name} fromNative(Pointer<Uint8> ptr) =>');
+      s.writeln('      ${st.name}RecordExt.fromReader(RecordReader.fromNative(ptr));');
+      s.writeln('}');
+      s.writeln();
+      continue;
+    }
     s.writeln('extension ${st.name}RecordExt on ${st.name} {');
 
-    // fromNative
-    s.writeln('  static ${st.name} fromNative(Pointer<Uint8> ptr) =>');
-    s.writeln('      fromReader(RecordReader.fromNative(ptr));');
-    s.writeln();
+    if (slice == DartCodecSlice.all) {
+      // fromNative
+      s.writeln('  static ${st.name} fromNative(Pointer<Uint8> ptr) =>');
+      s.writeln('      fromReader(RecordReader.fromNative(ptr));');
+      s.writeln();
+    }
 
     // fromReader
-    s.writeln('  static ${st.name} fromReader(RecordReader r) =>');
+    s.writeln('  static ${st.name} fromReader($readerT r) =>');
     s.writeln('      ${st.name}(');
     for (final f in st.fields.where((f) => !f.isNamed)) {
       s.writeln('        ${_structFieldReadExpr(f, enumNames, structNames)},');
@@ -92,7 +107,7 @@ String _generateDartRecordExtensions(BridgeSpec spec) {
     s.writeln();
 
     // writeFields
-    s.writeln('  void writeFields(RecordWriter writer) {');
+    s.writeln('  void writeFields($writerT writer) {');
     for (final f in st.fields) {
       _writeStructFieldStmt(s, f, enumNames, structNames);
     }
@@ -107,18 +122,35 @@ String _generateDartRecordExtensions(BridgeSpec spec) {
   }
 
   for (final rt in localRecords) {
+    if (slice == DartCodecSlice.ffi) {
+      // Pointer edges only; fromReader/writeFields live in the part.
+      s.writeln('extension ${rt.name}RecordFfiExt on ${rt.name} {');
+      s.writeln('  static ${rt.name} fromNative(Pointer<Uint8> ptr) =>');
+      s.writeln('      ${rt.name}RecordExt.fromReader(RecordReader.fromNative(ptr));');
+      s.writeln();
+      s.writeln('  Pointer<Uint8> toNative(Allocator alloc) {');
+      s.writeln('    final writer = RecordWriter();');
+      s.writeln('    writeFields(writer);');
+      s.writeln('    return writer.toNative(alloc);');
+      s.writeln('  }');
+      s.writeln('}');
+      s.writeln();
+      continue;
+    }
     s.writeln('extension ${rt.name}RecordExt on ${rt.name} {');
 
-    // ── static fromNative (top-level, with 4-byte length prefix) ──────
-    s.writeln(
-      '  static ${rt.name} fromNative(Pointer<Uint8> ptr) =>',
-    );
-    s.writeln('      fromReader(RecordReader.fromNative(ptr));');
-    s.writeln();
+    if (slice == DartCodecSlice.all) {
+      // ── static fromNative (top-level, with 4-byte length prefix) ──────
+      s.writeln(
+        '  static ${rt.name} fromNative(Pointer<Uint8> ptr) =>',
+      );
+      s.writeln('      fromReader(RecordReader.fromNative(ptr));');
+      s.writeln();
+    }
 
     // ── static fromReader (inner, for use inside lists) ───────────────
     s.writeln(
-      '  static ${rt.name} fromReader(RecordReader r) =>',
+      '  static ${rt.name} fromReader($readerT r) =>',
     );
     s.writeln('      ${rt.name}(');
     for (final f in rt.fields) {
@@ -128,19 +160,21 @@ String _generateDartRecordExtensions(BridgeSpec spec) {
     s.writeln();
 
     // ── writeFields (inner, for use inside lists) ─────────────────────
-    s.writeln('  void writeFields(RecordWriter writer) {');
+    s.writeln('  void writeFields($writerT writer) {');
     for (final f in rt.fields) {
       _writeFieldStmt(s, f);
     }
     s.writeln('  }');
     s.writeln();
 
-    // ── toNative (top-level, allocates native buffer) ─────────────────
-    s.writeln('  Pointer<Uint8> toNative(Allocator alloc) {');
-    s.writeln('    final writer = RecordWriter();');
-    s.writeln('    writeFields(writer);');
-    s.writeln('    return writer.toNative(alloc);');
-    s.writeln('  }');
+    if (slice == DartCodecSlice.all) {
+      // ── toNative (top-level, allocates native buffer) ─────────────────
+      s.writeln('  Pointer<Uint8> toNative(Allocator alloc) {');
+      s.writeln('    final writer = RecordWriter();');
+      s.writeln('    writeFields(writer);');
+      s.writeln('    return writer.toNative(alloc);');
+      s.writeln('  }');
+    }
 
     s.writeln('}');
     s.writeln();
@@ -151,6 +185,7 @@ String _generateDartRecordExtensions(BridgeSpec spec) {
   // free functions: _nitroDecode_<Name>, _nitroDecodeNullable_<Name>,
   // _nitroEncode_<Name>. Called from _decodeRecordExpr / _encodeRecordParam.
   for (final rt in localTuples) {
+    if (slice == DartCodecSlice.pure) continue; // pointer-only helpers
     s.writeln('// --- @NitroTuple encode/decode for ${rt.name} ---');
 
     // Build the inline Dart 3 tuple type string from fields, e.g. "(int, String)".
@@ -191,6 +226,31 @@ String _generateDartRecordExtensions(BridgeSpec spec) {
   return s.toString();
 }
 
+/// Reader counterpart to [_writeListField] — consumes the null tag first.
+String _readListField(BridgeRecordField f, String read) =>
+    f.isNullable ? 'r.readNullTag() ? null : $read' : read;
+
+/// Emits a list field's body, wrapped in a null tag when the field is
+/// nullable. An empty list and an absent list are distinct values, so the
+/// 4-byte count cannot carry both — the tag is what separates them, and every
+/// other backend's record codec writes it in the same position.
+void _writeListField(
+  CodeWriter s,
+  BridgeRecordField f,
+  String accessor,
+  void Function(String accessor) body, {
+  String indent = '  ',
+}) {
+  if (!f.isNullable) {
+    body(accessor);
+    return;
+  }
+  s.writeln('${indent}writer.writeNullTag($accessor == null);');
+  s.writeln('${indent}if ($accessor != null) {');
+  body('$accessor!');
+  s.writeln('$indent}');
+}
+
 // ── @NitroTuple write statement helpers ────────────────────────────────────
 // Like _writeFieldStmt but accesses tuple fields via v.$N positional accessors.
 
@@ -216,19 +276,29 @@ void _writeTupleFieldStmt(CodeWriter s, BridgeRecordField f, int index) {
         s.writeln('  $accessor.writeFields(writer);');
       }
       break;
+    // Nullable list fields carry a null tag like every other nullable field —
+    // an empty list and an absent list are different values, so the count
+    // alone cannot encode both. The C++/Kotlin/Swift record codecs write the
+    // same tag; keep all four in step.
     case RecordFieldKind.listPrimitive:
       final item = f.itemTypeName ?? 'dynamic';
       final writeCall = _primitiveWriteCall(item, 'e');
-      s.writeln('  writer.writeInt32($accessor.length);');
-      s.writeln('  for (final e in $accessor) { writer.$writeCall; }');
+      _writeListField(s, f, accessor, (a) {
+        s.writeln('  writer.writeInt32($a.length);');
+        s.writeln('  for (final e in $a) { writer.$writeCall; }');
+      });
       break;
     case RecordFieldKind.listEnumValue:
-      s.writeln('  writer.writeInt32($accessor.length);');
-      s.writeln('  for (final e in $accessor) { writer.writeInt(e.nativeValue); }');
+      _writeListField(s, f, accessor, (a) {
+        s.writeln('  writer.writeInt32($a.length);');
+        s.writeln('  for (final e in $a) { writer.writeInt(e.nativeValue); }');
+      });
       break;
     case RecordFieldKind.listRecordObject:
-      s.writeln('  writer.writeInt32($accessor.length);');
-      s.writeln('  for (final e in $accessor) { e.writeFields(writer); }');
+      _writeListField(s, f, accessor, (a) {
+        s.writeln('  writer.writeInt32($a.length);');
+        s.writeln('  for (final e in $a) { e.writeFields(writer); }');
+      });
       break;
     case RecordFieldKind.typedData:
       final base = f.dartType.replaceFirst('?', '');
@@ -277,16 +347,16 @@ String _readExpr(BridgeRecordField f) {
 
     case RecordFieldKind.listPrimitive:
       final item = f.itemTypeName ?? 'dynamic';
-      return 'List.generate(r.readInt32(), (_) => ${_primitiveReadCall(item)})';
+      return _readListField(f, 'List.generate(r.readInt32(), (_) => ${_primitiveReadCall(item)})');
 
     case RecordFieldKind.listEnumValue:
       final item = f.itemTypeName!;
-      return 'List.generate(r.readInt32(), (_) => r.readInt().to$item())';
+      return _readListField(f, 'List.generate(r.readInt32(), (_) => r.readInt().to$item())');
 
     case RecordFieldKind.listRecordObject:
       final item = f.itemTypeName!;
       final itemReaderCall = _nitroLibraryRecordTypes.contains(item) ? '$item.fromReader(r)' : '${item}RecordExt.fromReader(r)';
-      return 'List.generate(r.readInt32(), (_) => $itemReaderCall)';
+      return _readListField(f, 'List.generate(r.readInt32(), (_) => $itemReaderCall)');
 
     case RecordFieldKind.typedData:
       final base = f.dartType.replaceFirst('?', '');
@@ -391,21 +461,29 @@ void _writeFieldStmt(CodeWriter s, BridgeRecordField f) {
       }
       break;
 
+    // Nullable list fields are bracketed by the shared null tag — see
+    // _writeListField. Kotlin, Swift and C++ write it in the same position.
     case RecordFieldKind.listPrimitive:
       final item = f.itemTypeName ?? 'dynamic';
       final writeCall = _primitiveWriteCall(item, 'e');
-      s.writeln('    writer.writeInt32(${f.name}.length);');
-      s.writeln('    for (final e in ${f.name}) { writer.$writeCall; }');
+      _writeListField(s, f, f.name, indent: '    ', (a) {
+        s.writeln('    writer.writeInt32($a.length);');
+        s.writeln('    for (final e in $a) { writer.$writeCall; }');
+      });
       break;
 
     case RecordFieldKind.listEnumValue:
-      s.writeln('    writer.writeInt32(${f.name}.length);');
-      s.writeln('    for (final e in ${f.name}) { writer.writeInt(e.nativeValue); }');
+      _writeListField(s, f, f.name, indent: '    ', (a) {
+        s.writeln('    writer.writeInt32($a.length);');
+        s.writeln('    for (final e in $a) { writer.writeInt(e.nativeValue); }');
+      });
       break;
 
     case RecordFieldKind.listRecordObject:
-      s.writeln('    writer.writeInt32(${f.name}.length);');
-      s.writeln('    for (final e in ${f.name}) { e.writeFields(writer); }');
+      _writeListField(s, f, f.name, indent: '    ', (a) {
+        s.writeln('    writer.writeInt32($a.length);');
+        s.writeln('    for (final e in $a) { e.writeFields(writer); }');
+      });
       break;
 
     case RecordFieldKind.typedData:

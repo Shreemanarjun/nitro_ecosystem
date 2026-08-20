@@ -217,37 +217,57 @@ class SpecValidator {
       );
     }
 
-    // W007: Web target with streams or @NitroNativeAsync — these throw UnsupportedError
-    // at runtime because the web bridge generator does not implement them.
+    // W007 (retired in 0.7.0): streams and @NitroNativeAsync are fully
+    // supported on web — completions arrive through the module post callback.
+    //
+    // Web-specific capability checks that remain:
     if (spec.webImpl != null) {
-      if (spec.streams.isNotEmpty) {
+      // W008: @nitroAsync runs on the main thread on web (no isolates) — a
+      // long-running native call will jank the UI.
+      if (spec.functions.any((f) => f.isAsync)) {
         issues.add(
           ValidationIssue(
             severity: ValidationSeverity.warning,
-            code: 'W007',
+            code: 'W008',
             message:
-                '${spec.dartClassName}: ${spec.streams.length} stream(s) declared but the web '
-                'bridge does not support Stream<T>. Calling stream getters on web will throw '
-                'UnsupportedError at runtime.',
-            hint:
-                'Guard stream usage with `if (!kIsWeb)` or provide a web-specific stub. '
-                'Consider using a polling function instead for web.',
+                '${spec.dartClassName}: @nitroAsync method(s) run INLINE on the main thread '
+                'on web (browsers have no isolates). Long-running native work will jank the UI.',
+            hint: 'Prefer @nitroNativeAsync for genuinely asynchronous native work — its completion is posted through the module callback.',
           ),
         );
       }
-      final hasNativeAsync = spec.functions.any((f) => f.isNativeAsync);
-      if (hasNativeAsync) {
+      // W009: @zeroCopy on web is a single bulk copy (snapshot semantics) —
+      // heap views detach on memory growth, so a live view cannot be lent.
+      if (spec.functions.any((f) => f.zeroCopyReturn)) {
         issues.add(
           ValidationIssue(
             severity: ValidationSeverity.warning,
-            code: 'W007',
-            message:
-                '${spec.dartClassName}: @NitroNativeAsync method(s) declared but the web '
-                'bridge does not support NativeAsync. Calling these methods on web will throw '
-                'UnsupportedError at runtime.',
-            hint: 'Guard @NitroNativeAsync methods with `if (!kIsWeb)` or use @nitroAsync instead.',
+            code: 'W009',
+            message: '${spec.dartClassName}: @zeroCopy return(s) are ONE bulk copy on web (snapshot) — WASM heap views detach when the module memory grows.',
+            hint: 'Semantics are identical; only the zero-copy performance property differs on web.',
           ),
         );
+      }
+      // E017: struct fields beyond prim/enum/bool are not yet packed by the
+      // web bridge (pointer-carrying packed layouts differ on wasm32).
+      for (final st in spec.structs) {
+        final unsupported = st.fields.where((f) {
+          final base = f.type.name.replaceFirst('?', '');
+          final isEnum = spec.isEnumName(base);
+          return !isEnum && base != 'int' && base != 'uint64' && base != 'double' && base != 'bool' && base != 'DateTime';
+        }).toList();
+        if (unsupported.isNotEmpty) {
+          issues.add(
+            ValidationIssue(
+              severity: ValidationSeverity.error,
+              code: 'E017',
+              message:
+                  '${spec.dartClassName}: @HybridStruct ${st.name} has field(s) '
+                  '${unsupported.map((f) => f.name).join(', ')} whose packed wasm32 layout is not yet supported on web.',
+              hint: 'Use an @HybridRecord instead (framed binary — full type support on web), or keep the struct off web-targeting specs.',
+            ),
+          );
+        }
       }
     }
 

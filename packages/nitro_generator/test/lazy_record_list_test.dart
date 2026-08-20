@@ -200,7 +200,9 @@ void main() {
 
     test('source avoids per-scalar ByteData allocations and string sublist decode', () {
       final repoRoot = _findRepoRoot();
-      final source = File('$repoRoot/packages/nitro/lib/src/record_codec.dart').readAsStringSync();
+      // The pure reader/writer implementation lives in the shared core
+      // (record_codec_base.dart) since the 0.7.0 web split; scan both files.
+      final source = File('$repoRoot/packages/nitro/lib/src/record_codec.dart').readAsStringSync() + File('$repoRoot/packages/nitro/lib/src/shared/record_codec_base.dart').readAsStringSync();
       expect(source, isNot(contains('ByteData(8)')));
       expect(source, isNot(contains('ByteData(4)')));
       expect(source, contains('_utf8Decoder.convert'));
