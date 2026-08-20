@@ -168,11 +168,17 @@ jobs:
         working-directory: benchmark/example
         env:
           CHROME_EXECUTABLE: ${{ steps.chrome.outputs.chrome-path }}
+        # --no-sandbox is mandatory on the runners: without it Chrome exits
+        # during startup and chromedriver reports the misleading "only supports
+        # Chrome version N" rather than a launch failure. --disable-dev-shm-usage
+        # avoids the small /dev/shm in containers.
         run: >
           flutter drive --profile ${{ matrix.wasm_flag }}
           --driver=test_driver/integration_test.dart
           --target=integration_test/benchmark_regression_test.dart
           -d web-server --browser-name=chrome --headless
+          --web-browser-flag=--no-sandbox
+          --web-browser-flag=--disable-dev-shm-usage
           --dart-define=NITRO_BENCH_MODE=${{ github.event.inputs.mode || 'quick' }}
           --dart-define=NITRO_BENCH_GATE=relative
 
