@@ -624,8 +624,10 @@ class WebBridgeGenerator {
         // unpacks that into an empty buffer and the decode side maps it back
         // to null. Without the guard the encoders receive a `List<T>?` where
         // they declare `List<T>`.
-        final encode = 'arena.copyIn(${_encodeRecordListExpr(spec, t, name)}).toJS';
-        return nullable ? '($name == null ? 0 : arena.copyIn(${_encodeRecordListExpr(spec, t, '$name!')})).toJS' : encode;
+        // No `!` on the encode side: the ternary already promotes $name to
+        // non-null, so an assertion here is dead code the analyzer flags.
+        final encode = 'arena.copyIn(${_encodeRecordListExpr(spec, t, name)})';
+        return nullable ? '($name == null ? 0 : $encode).toJS' : '$encode.toJS';
       }
       return nullable ? '($name == null ? 0 : arena.copyIn(_nitroEncodeFramed((w) => $name.writeFields(w)))).toJS' : 'arena.copyIn(_nitroEncodeFramed((w) => $writeCall(w))).toJS';
     }

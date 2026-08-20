@@ -69,6 +69,10 @@ NITRO_EXPORT int64_t web_echo_echo_enum(int64_t instanceId, int64_t v, NitroErro
 NITRO_EXPORT uint8_t* web_echo_echo_bytes(int64_t instanceId, uint8_t* data, size_t data_length, NitroError* _nitro_err);
 NITRO_EXPORT void* web_echo_echo_stat(int64_t instanceId, void* v, NitroError* _nitro_err);
 NITRO_EXPORT uint8_t* web_echo_increment_values(int64_t instanceId, uint8_t* m, NitroError* _nitro_err);
+NITRO_EXPORT void* web_echo_echo_stats(int64_t instanceId, void* v, NitroError* _nitro_err);
+NITRO_EXPORT void* web_echo_echo_ints(int64_t instanceId, void* v, NitroError* _nitro_err);
+NITRO_EXPORT void* web_echo_echo_maybe_stats(int64_t instanceId, void* v, NitroError* _nitro_err);
+NITRO_EXPORT void* web_echo_echo_bag(int64_t instanceId, void* v, NitroError* _nitro_err);
 NITRO_EXPORT void web_echo_always_throws(int64_t instanceId, NitroError* _nitro_err);
 NITRO_EXPORT int64_t web_echo_sum_to(int64_t instanceId, int64_t n);
 NITRO_EXPORT void web_echo_native_async_echo(int64_t instanceId, int64_t value, NitroError* _nitro_err, int64_t dart_port);

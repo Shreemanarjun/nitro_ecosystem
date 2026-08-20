@@ -36,3 +36,23 @@ extension EchoStatRecordExt on EchoStat {
     writer.writeBool(ok);
   }
 }
+
+extension EchoBagRecordExt on EchoBag {
+  static EchoBag fromReader(RecordReaderBase r) => EchoBag(
+    tags: r.readNullTag()
+        ? null
+        : List.generate(r.readInt32(), (_) => r.readInt()),
+    after: r.readInt(),
+  );
+
+  void writeFields(RecordWriterBase writer) {
+    writer.writeNullTag(tags == null);
+    if (tags != null) {
+      writer.writeInt32(tags!.length);
+      for (final e in tags!) {
+        writer.writeInt(e);
+      }
+    }
+    writer.writeInt(after);
+  }
+}

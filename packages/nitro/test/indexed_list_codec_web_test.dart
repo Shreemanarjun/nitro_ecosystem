@@ -21,7 +21,7 @@ import 'package:test/test.dart';
 
 typedef _Row = (int id, String name, double score);
 
-Uint8List encodeRows(List<_Row> rows) => RecordWriter.encodeIndexedListBytes<_Row>(
+Uint8List _encodeRows(List<_Row> rows) => RecordWriter.encodeIndexedListBytes<_Row>(
   rows,
   (w, r) {
     w.writeInt(r.$1);
@@ -30,13 +30,13 @@ Uint8List encodeRows(List<_Row> rows) => RecordWriter.encodeIndexedListBytes<_Ro
   },
 );
 
-List<_Row> decodeRows(Uint8List framed) => RecordReader.decodeIndexedListBytes<_Row>(
+List<_Row> _decodeRows(Uint8List framed) => RecordReader.decodeIndexedListBytes<_Row>(
   framed,
   (r) => (r.readInt(), r.readString(), r.readDouble()),
 );
 
-void roundTrip(List<_Row> rows) {
-  final decoded = decodeRows(encodeRows(rows));
+void _roundTrip(List<_Row> rows) {
+  final decoded = _decodeRows(_encodeRows(rows));
   expect(decoded.length, rows.length);
   for (var i = 0; i < rows.length; i++) {
     expect(decoded[i].$1, rows[i].$1, reason: 'row $i id');
@@ -48,15 +48,15 @@ void roundTrip(List<_Row> rows) {
 void main() {
   group('web encodeIndexedListBytes ↔ decodeIndexedListBytes', () {
     test('empty list', () {
-      roundTrip(const []);
+      _roundTrip(const []);
     });
 
     test('single item', () {
-      roundTrip(const [(42, 'hello', 3.5)]);
+      _roundTrip(const [(42, 'hello', 3.5)]);
     });
 
     test('multiple items, varying string lengths', () {
-      roundTrip([
+      _roundTrip([
         (1, '', 1.0),
         (2, 'a', 2.0),
         (3, 'longer string here', 3.0),
@@ -65,17 +65,17 @@ void main() {
     });
 
     test('16-item list decodes every item at the right offset', () {
-      roundTrip([for (var i = 0; i < 16; i++) (i, 'row_$i', i * 1.5)]);
+      _roundTrip([for (var i = 0; i < 16; i++) (i, 'row_$i', i * 1.5)]);
     });
 
     test('each item lands at its own offset, not a uniform stride', () {
       // Strings grow per item, so a decoder that walks a fixed stride — or
       // ignores the offset table and reads sequentially — desynchronises.
-      roundTrip([for (var i = 0; i < 10; i++) (i * 7, 'item-$i-${'z' * i}', i.toDouble())]);
+      _roundTrip([for (var i = 0; i < 10; i++) (i * 7, 'item-$i-${'z' * i}', i.toDouble())]);
     });
 
     test('unicode + multi-byte strings survive', () {
-      roundTrip(const [
+      _roundTrip(const [
         (1, 'héllo wörld', 1.0),
         (2, '日本語テキスト', 2.0),
         (3, '👋🏽 emoji', 3.0),
@@ -83,14 +83,14 @@ void main() {
     });
 
     test('large list stays consistent', () {
-      roundTrip([for (var i = 0; i < 500; i++) (i, 'n$i', i / 3)]);
+      _roundTrip([for (var i = 0; i < 500; i++) (i, 'n$i', i / 3)]);
     });
   });
 
   group('web indexed wire shape', () {
     test('payload is [4B count][8B x n offsets][items] and offsets ascend', () {
       final rows = [for (var i = 0; i < 4; i++) (i, 'name-${'q' * i}', i.toDouble())];
-      final framed = encodeRows(rows);
+      final framed = _encodeRows(rows);
 
       final bd = ByteData.sublistView(framed);
       expect(bd.getInt32(0, Endian.little), framed.length - 4, reason: 'frame header');
@@ -128,7 +128,7 @@ void main() {
 
       List<_Row>? decoded;
       try {
-        decoded = decodeRows(plain);
+        decoded = _decodeRows(plain);
       } catch (_) {
         return; // threw — the mismatch was caught loudly, which is fine
       }

@@ -20,6 +20,10 @@ class MockWebEcho : public HybridWebEcho {
     MOCK_METHOD(NitroCppBuffer, echoBytes, (const uint8_t* data, size_t data_length), (override));
     MOCK_METHOD(NitroCppBuffer, echoStat, (NitroCppBuffer v), (override));
     MOCK_METHOD(NitroCppBuffer, incrementValues, (NitroCppBuffer m), (override));
+    MOCK_METHOD(NitroCppBuffer, echoStats, (NitroCppBuffer v), (override));
+    MOCK_METHOD(NitroCppBuffer, echoInts, (NitroCppBuffer v), (override));
+    MOCK_METHOD(NitroCppBuffer, echoMaybeStats, (NitroCppBuffer v), (override));
+    MOCK_METHOD(NitroCppBuffer, echoBag, (NitroCppBuffer v), (override));
     MOCK_METHOD(void, alwaysThrows, (), (override));
     MOCK_METHOD(int64_t, sumTo, (int64_t n), (override));
     MOCK_METHOD(int64_t, nativeAsyncEcho, (int64_t value), (override));

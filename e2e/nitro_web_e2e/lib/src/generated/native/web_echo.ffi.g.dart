@@ -23,6 +23,17 @@ extension EchoStatRecordFfiExt on EchoStat {
   }
 }
 
+extension EchoBagRecordFfiExt on EchoBag {
+  static EchoBag fromNative(Pointer<Uint8> ptr) =>
+      EchoBagRecordExt.fromReader(RecordReader.fromNative(ptr));
+
+  Pointer<Uint8> toNative(Allocator alloc) {
+    final writer = RecordWriter();
+    writeFields(writer);
+    return writer.toNative(alloc);
+  }
+}
+
 class _WebEchoImpl extends WebEcho {
   final DynamicLibrary _dylib;
   static final _instances = <String, WeakReference<_WebEchoImpl>>{};
@@ -127,7 +138,7 @@ class _WebEchoImpl extends WebEcho {
     }
     NitroRuntime.checkLinkChecksum(
       'web_echo',
-      'f0049c8ce0a3e9e5',
+      'b395a68dbf9f0561',
       () => _dylib
           .lookupFunction<Pointer<Utf8> Function(), Pointer<Utf8> Function()>(
             'web_echo_nitro_bridge_checksum',
@@ -289,6 +300,46 @@ class _WebEchoImpl extends WebEcho {
         Pointer<Uint8> Function(Int64, Pointer<Uint8>, Pointer<NitroErrorFfi>),
         Pointer<Uint8> Function(int, Pointer<Uint8>, Pointer<NitroErrorFfi>)
       >('web_echo_increment_values');
+  late final Pointer<Uint8> Function(
+    int,
+    Pointer<Uint8>,
+    Pointer<NitroErrorFfi>,
+  )
+  _echoStatsPtr = _dylib
+      .lookupFunction<
+        Pointer<Uint8> Function(Int64, Pointer<Uint8>, Pointer<NitroErrorFfi>),
+        Pointer<Uint8> Function(int, Pointer<Uint8>, Pointer<NitroErrorFfi>)
+      >('web_echo_echo_stats');
+  late final Pointer<Uint8> Function(
+    int,
+    Pointer<Uint8>,
+    Pointer<NitroErrorFfi>,
+  )
+  _echoIntsPtr = _dylib
+      .lookupFunction<
+        Pointer<Uint8> Function(Int64, Pointer<Uint8>, Pointer<NitroErrorFfi>),
+        Pointer<Uint8> Function(int, Pointer<Uint8>, Pointer<NitroErrorFfi>)
+      >('web_echo_echo_ints');
+  late final Pointer<Uint8> Function(
+    int,
+    Pointer<Uint8>,
+    Pointer<NitroErrorFfi>,
+  )
+  _echoMaybeStatsPtr = _dylib
+      .lookupFunction<
+        Pointer<Uint8> Function(Int64, Pointer<Uint8>, Pointer<NitroErrorFfi>),
+        Pointer<Uint8> Function(int, Pointer<Uint8>, Pointer<NitroErrorFfi>)
+      >('web_echo_echo_maybe_stats');
+  late final Pointer<Uint8> Function(
+    int,
+    Pointer<Uint8>,
+    Pointer<NitroErrorFfi>,
+  )
+  _echoBagPtr = _dylib
+      .lookupFunction<
+        Pointer<Uint8> Function(Int64, Pointer<Uint8>, Pointer<NitroErrorFfi>),
+        Pointer<Uint8> Function(int, Pointer<Uint8>, Pointer<NitroErrorFfi>)
+      >('web_echo_echo_bag');
   late final void Function(int, Pointer<NitroErrorFfi>) _alwaysThrowsPtr =
       _dylib
           .lookup<NativeFunction<Void Function(Int64, Pointer<NitroErrorFfi>)>>(
@@ -513,6 +564,103 @@ class _WebEchoImpl extends WebEcho {
         return decoded;
       }),
       methodName: 'incrementValues',
+    );
+  }
+
+  @override
+  List<EchoStat> echoStats(List<EchoStat> v) {
+    checkDisposed();
+    return NitroRuntime.callSync(
+      () => withArena((arena) {
+        final res = _echoStatsPtr(
+          _instanceId,
+          RecordWriter.encodeIndexedList(v, (w, e) => e.writeFields(w), arena),
+          _nitroErr,
+        );
+        NitroRuntime.throwIfOutParamError(_nitroErr, nativeFree: _nitroFree);
+        return LazyRecordList.decode(
+          res,
+          (r) => EchoStatRecordExt.fromReader(r),
+          nativeFree: _nitroFreeFinalizer,
+        );
+      }),
+      methodName: 'echoStats',
+    );
+  }
+
+  @override
+  List<int> echoInts(List<int> v) {
+    checkDisposed();
+    return NitroRuntime.callSync(
+      () => withArena((arena) {
+        final res = _echoIntsPtr(
+          _instanceId,
+          RecordWriter.encodeIndexedPrimitiveList(
+            v,
+            (w, e) => w.writeInt(e),
+            arena,
+          ),
+          _nitroErr,
+        );
+        NitroRuntime.throwIfOutParamError(_nitroErr, nativeFree: _nitroFree);
+        final List<int> decoded;
+        try {
+          decoded = RecordReader.decodePrimitiveList(res, (r) => r.readInt());
+        } finally {
+          _nitroFree(res);
+        }
+        return decoded;
+      }),
+      methodName: 'echoInts',
+    );
+  }
+
+  @override
+  List<EchoStat>? echoMaybeStats(List<EchoStat>? v) {
+    checkDisposed();
+    return NitroRuntime.callSync(
+      () => withArena((arena) {
+        final res = _echoMaybeStatsPtr(
+          _instanceId,
+          v != null
+              ? RecordWriter.encodeIndexedList(
+                  v,
+                  (w, e) => e.writeFields(w),
+                  arena,
+                )
+              : nullptr,
+          _nitroErr,
+        );
+        NitroRuntime.throwIfOutParamError(_nitroErr, nativeFree: _nitroFree);
+        if (res == nullptr) return null;
+        return res == nullptr
+            ? null
+            : LazyRecordList.decode(
+                res,
+                (r) => EchoStatRecordExt.fromReader(r),
+                nativeFree: _nitroFreeFinalizer,
+              );
+      }),
+      methodName: 'echoMaybeStats',
+    );
+  }
+
+  @override
+  EchoBag echoBag(EchoBag v) {
+    checkDisposed();
+    return NitroRuntime.callSync(
+      () => withArena((arena) {
+        final res = _echoBagPtr(_instanceId, v.toNative(arena), _nitroErr);
+        NitroRuntime.throwIfOutParamError(_nitroErr, nativeFree: _nitroFree);
+        final EchoBag decoded;
+        try {
+          decoded = EchoBagRecordFfiExt.fromNative(res);
+        } finally {
+          _nitroFree(res);
+        }
+        return decoded;
+      }),
+      methodName: 'echoBag',
     );
   }
 

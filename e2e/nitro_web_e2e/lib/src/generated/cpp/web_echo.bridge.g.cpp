@@ -21,7 +21,7 @@ NITRO_EXPORT uint32_t web_echo_nitro_abi_version(void) {
     return 1;
 }
 NITRO_EXPORT const char* web_echo_nitro_bridge_checksum(void) {
-    return "f0049c8ce0a3e9e5";
+    return "b395a68dbf9f0561";
 }
 NITRO_EXPORT intptr_t web_echo_init_dart_api_dl(void* data) {
     return Dart_InitializeApiDL(data);
@@ -341,6 +341,78 @@ uint8_t* web_echo_increment_values(int64_t instanceId, uint8_t* m, NitroError* _
     try {
         NitroCppBuffer _buf_m = { (const uint8_t*)m + 4, (size_t)*(int32_t*)m };
         NitroCppBuffer _res = _impl->incrementValues(_buf_m);
+        return (uint8_t*)_res.data;
+    } catch (const std::exception& e) {
+        _nitro_out_err(_nitro_err, "CppException", e.what());
+        return nullptr;
+    } catch (...) {
+        _nitro_out_err(_nitro_err, "CppException", "Unknown C++ exception");
+        return nullptr;
+    }
+}
+
+void* web_echo_echo_stats(int64_t instanceId, void* v, NitroError* _nitro_err) {
+    if (_nitro_err) { _nitro_err->hasError = 0; }  // S8: clear slot
+    auto _impl = _nitro_get_instance(instanceId);
+    if (!_impl) { _nitro_out_err(_nitro_err, "NotInitialized", "No C++ implementation registered. Call web_echo_register_factory() or web_echo_register_impl()."); return nullptr; }
+    try {
+        NitroCppBuffer _buf_v = { (const uint8_t*)v + 4, (size_t)*(int32_t*)v };
+        NitroCppBuffer _res = _impl->echoStats(_buf_v);
+        return (uint8_t*)_res.data;
+    } catch (const std::exception& e) {
+        _nitro_out_err(_nitro_err, "CppException", e.what());
+        return nullptr;
+    } catch (...) {
+        _nitro_out_err(_nitro_err, "CppException", "Unknown C++ exception");
+        return nullptr;
+    }
+}
+
+void* web_echo_echo_ints(int64_t instanceId, void* v, NitroError* _nitro_err) {
+    if (_nitro_err) { _nitro_err->hasError = 0; }  // S8: clear slot
+    auto _impl = _nitro_get_instance(instanceId);
+    if (!_impl) { _nitro_out_err(_nitro_err, "NotInitialized", "No C++ implementation registered. Call web_echo_register_factory() or web_echo_register_impl()."); return nullptr; }
+    try {
+        NitroCppBuffer _buf_v = { (const uint8_t*)v + 4, (size_t)*(int32_t*)v };
+        NitroCppBuffer _res = _impl->echoInts(_buf_v);
+        return (uint8_t*)_res.data;
+    } catch (const std::exception& e) {
+        _nitro_out_err(_nitro_err, "CppException", e.what());
+        return nullptr;
+    } catch (...) {
+        _nitro_out_err(_nitro_err, "CppException", "Unknown C++ exception");
+        return nullptr;
+    }
+}
+
+void* web_echo_echo_maybe_stats(int64_t instanceId, void* v, NitroError* _nitro_err) {
+    if (_nitro_err) { _nitro_err->hasError = 0; }  // S8: clear slot
+    auto _impl = _nitro_get_instance(instanceId);
+    if (!_impl) { _nitro_out_err(_nitro_err, "NotInitialized", "No C++ implementation registered. Call web_echo_register_factory() or web_echo_register_impl()."); return nullptr; }
+    try {
+        NitroCppBuffer _buf_v = { nullptr, 0 };
+        if (v != nullptr) {
+            _buf_v.data = (const uint8_t*)v + 4;
+            _buf_v.size = (size_t)*(int32_t*)v;
+        }
+        NitroCppBuffer _res = _impl->echoMaybeStats(_buf_v);
+        return (uint8_t*)_res.data;
+    } catch (const std::exception& e) {
+        _nitro_out_err(_nitro_err, "CppException", e.what());
+        return nullptr;
+    } catch (...) {
+        _nitro_out_err(_nitro_err, "CppException", "Unknown C++ exception");
+        return nullptr;
+    }
+}
+
+void* web_echo_echo_bag(int64_t instanceId, void* v, NitroError* _nitro_err) {
+    if (_nitro_err) { _nitro_err->hasError = 0; }  // S8: clear slot
+    auto _impl = _nitro_get_instance(instanceId);
+    if (!_impl) { _nitro_out_err(_nitro_err, "NotInitialized", "No C++ implementation registered. Call web_echo_register_factory() or web_echo_register_impl()."); return nullptr; }
+    try {
+        NitroCppBuffer _buf_v = { (const uint8_t*)v + 4, (size_t)*(int32_t*)v };
+        NitroCppBuffer _res = _impl->echoBag(_buf_v);
         return (uint8_t*)_res.data;
     } catch (const std::exception& e) {
         _nitro_out_err(_nitro_err, "CppException", e.what());

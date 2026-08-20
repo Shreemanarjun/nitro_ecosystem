@@ -91,6 +91,30 @@ public:
         // return { nullptr, 0 };
     }
 
+    NitroCppBuffer echoStats(NitroCppBuffer v) override {
+        // TODO: implement echoStats
+        throw std::runtime_error("Not implemented: echoStats");
+        // return { nullptr, 0 };
+    }
+
+    NitroCppBuffer echoInts(NitroCppBuffer v) override {
+        // TODO: implement echoInts
+        throw std::runtime_error("Not implemented: echoInts");
+        // return { nullptr, 0 };
+    }
+
+    NitroCppBuffer echoMaybeStats(NitroCppBuffer v) override {
+        // TODO: implement echoMaybeStats
+        throw std::runtime_error("Not implemented: echoMaybeStats");
+        // return { nullptr, 0 };
+    }
+
+    NitroCppBuffer echoBag(NitroCppBuffer v) override {
+        // TODO: implement echoBag
+        throw std::runtime_error("Not implemented: echoBag");
+        // return { nullptr, 0 };
+    }
+
     void alwaysThrows() override {
         // TODO: implement alwaysThrows
         throw std::runtime_error("Not implemented: alwaysThrows");

@@ -84,7 +84,7 @@ final class _WebEchoWebImpl extends WebEcho {
     );
     NitroRuntime.checkLinkChecksum(
       _libName,
-      'f0049c8ce0a3e9e5',
+      'b395a68dbf9f0561',
       () => _m.readCString(
         dartI64(_m.call('web_echo_nitro_bridge_checksum', const [])),
       ),
@@ -302,6 +302,110 @@ final class _WebEchoWebImpl extends WebEcho {
         return _nitroDecodeMapBytesStringInt(_framed);
       });
     }, methodName: 'incrementValues');
+  }
+
+  @override
+  List<EchoStat> echoStats(List<EchoStat> v) {
+    checkDisposed();
+    return NitroRuntime.callSync(() {
+      return withWasmArena(_m, (arena) {
+        final _res = _m.call('web_echo_echo_stats', [
+          jsI64(_instanceId),
+          arena
+              .copyIn(
+                RecordWriter.encodeIndexedListBytes(
+                  v,
+                  (w, e) => e.writeFields(w),
+                ),
+              )
+              .toJS,
+          _err.ptr.toJS,
+        ]);
+        NitroRuntime.throwIfOutParamError(_err);
+        final _ptr = dartI64(_res);
+        final _framed = _m.readFramed(_ptr);
+        _m.nitroFree(_ptr);
+        return RecordReader.decodeIndexedListBytes(
+          _framed,
+          (r) => EchoStatRecordExt.fromReader(r),
+        );
+      });
+    }, methodName: 'echoStats');
+  }
+
+  @override
+  List<int> echoInts(List<int> v) {
+    checkDisposed();
+    return NitroRuntime.callSync(() {
+      return withWasmArena(_m, (arena) {
+        final _res = _m.call('web_echo_echo_ints', [
+          jsI64(_instanceId),
+          arena
+              .copyIn(
+                RecordWriter.encodeIndexedListBytes(v, (w, e) => w.writeInt(e)),
+              )
+              .toJS,
+          _err.ptr.toJS,
+        ]);
+        NitroRuntime.throwIfOutParamError(_err);
+        final _ptr = dartI64(_res);
+        final _framed = _m.readFramed(_ptr);
+        _m.nitroFree(_ptr);
+        return RecordReader.decodeListBytes(_framed, (r) => r.readInt());
+      });
+    }, methodName: 'echoInts');
+  }
+
+  @override
+  List<EchoStat>? echoMaybeStats(List<EchoStat>? v) {
+    checkDisposed();
+    return NitroRuntime.callSync(() {
+      return withWasmArena(_m, (arena) {
+        final _res = _m.call('web_echo_echo_maybe_stats', [
+          jsI64(_instanceId),
+          (v == null
+                  ? 0
+                  : arena.copyIn(
+                      RecordWriter.encodeIndexedListBytes(
+                        v,
+                        (w, e) => e.writeFields(w),
+                      ),
+                    ))
+              .toJS,
+          _err.ptr.toJS,
+        ]);
+        NitroRuntime.throwIfOutParamError(_err);
+        final _ptr = dartI64(_res);
+        if (_ptr == 0) return null;
+        final _framed = _m.readFramed(_ptr);
+        _m.nitroFree(_ptr);
+        return RecordReader.decodeIndexedListBytes(
+          _framed,
+          (r) => EchoStatRecordExt.fromReader(r),
+        );
+      });
+    }, methodName: 'echoMaybeStats');
+  }
+
+  @override
+  EchoBag echoBag(EchoBag v) {
+    checkDisposed();
+    return NitroRuntime.callSync(() {
+      return withWasmArena(_m, (arena) {
+        final _res = _m.call('web_echo_echo_bag', [
+          jsI64(_instanceId),
+          arena.copyIn(_nitroEncodeFramed((w) => v.writeFields(w))).toJS,
+          _err.ptr.toJS,
+        ]);
+        NitroRuntime.throwIfOutParamError(_err);
+        final _ptr = dartI64(_res);
+        final _framed = _m.readFramed(_ptr);
+        _m.nitroFree(_ptr);
+        return EchoBagRecordExt.fromReader(
+          RecordReader.fromFramedBytes(_framed),
+        );
+      });
+    }, methodName: 'echoBag');
   }
 
   @override

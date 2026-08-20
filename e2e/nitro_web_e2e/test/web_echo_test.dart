@@ -85,6 +85,67 @@ void main() {
     });
   });
 
+  // Lists are where the two edges most easily disagree: the shape is carried
+  // by an offset table or a count, and getting it wrong corrupts data silently
+  // rather than throwing. Each case below crosses a real Emscripten module.
+  group('lists', () {
+    // Deliberately variable-length labels: uniform records can hide an
+    // offset-table bug whose stride happens to stay constant.
+    const stats = [
+      EchoStat(count: 0, mean: 0.0, label: '', ok: true),
+      EchoStat(count: 1, mean: 1.5, label: 'a', ok: false),
+      EchoStat(count: 2, mean: 3.0, label: 'a much longer label', ok: true),
+      EchoStat(count: 3, mean: 4.5, label: 'ünïcødé ✓', ok: false),
+    ];
+
+    test('List<@HybridRecord> round-trips through the indexed codec', () {
+      final out = echo.echoStats(stats);
+      expect(out, hasLength(stats.length));
+      for (var i = 0; i < stats.length; i++) {
+        expect(out[i].count, stats[i].count + 1, reason: 'item $i count');
+        expect(out[i].mean, stats[i].mean * 2.0, reason: 'item $i mean');
+        expect(out[i].label, '${stats[i].label}!', reason: 'item $i label');
+        expect(out[i].ok, !stats[i].ok, reason: 'item $i ok');
+      }
+    });
+
+    test('empty List<@HybridRecord> survives the offset table', () {
+      expect(echo.echoStats(const []), isEmpty);
+    });
+
+    test('List<int> crosses indexed out and plain back', () {
+      expect(echo.echoInts(const [1, 2, 3]), [11, 12, 13]);
+      expect(echo.echoInts(const []), isEmpty);
+      // Values above 2^32 would be mangled by an offset-table misread.
+      expect(echo.echoInts(const [1 << 40]), [(1 << 40) + 10]);
+    });
+
+    test('nullable list carries null as nullptr in both directions', () {
+      expect(echo.echoMaybeStats(null), isNull);
+      final out = echo.echoMaybeStats(stats);
+      expect(out, hasLength(stats.length));
+      expect(out![0].count, 100);
+      expect(out[3].count, 103);
+    });
+
+    test('nullable list FIELD keeps null distinct from empty', () {
+      // A dropped null tag shifts `after` by a byte, so it doubles as the
+      // canary for tag placement.
+      final withNull = echo.echoBag(const EchoBag(tags: null, after: 7));
+      expect(withNull.tags, isNull);
+      expect(withNull.after, 8);
+
+      final withEmpty = echo.echoBag(const EchoBag(tags: [], after: 7));
+      expect(withEmpty.tags, isNotNull);
+      expect(withEmpty.tags, isEmpty);
+      expect(withEmpty.after, 8);
+
+      final withValues = echo.echoBag(const EchoBag(tags: [1, 2, 3], after: 7));
+      expect(withValues.tags, [2, 3, 4]);
+      expect(withValues.after, 8);
+    });
+  });
+
   group('errors', () {
     test('C++ exception surfaces as HybridException with message', () {
       expect(

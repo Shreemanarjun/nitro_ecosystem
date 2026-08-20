@@ -74,6 +74,67 @@ class HybridWebEchoImpl final : public HybridWebEcho {
     return w.toNativeBuffer();
   }
 
+  // List<@HybridRecord>: indexed in BOTH directions. Written the way a plugin
+  // author would — with the generated readIndexedList/writeIndexedList helpers
+  // rather than hand-rolled offset arithmetic.
+  NitroCppBuffer echoStats(NitroCppBuffer v) override {
+    NitroRecordReader r(v);
+    std::vector<EchoStat> stats =
+        r.readIndexedList<EchoStat>([](NitroRecordReader& rr) { return EchoStat::fromReader(rr); });
+
+    NitroRecordWriter w;
+    w.writeIndexedList<EchoStat>(stats, [](NitroRecordWriter& ww, const EchoStat& s) {
+      EchoStat out = s;
+      out.count = s.count + 1;
+      out.mean = s.mean * 2.0;
+      out.label = s.label + "!";
+      out.ok = !s.ok;
+      out.encodeInto(ww);
+    });
+    return w.toNativeBuffer();
+  }
+
+  // Primitive list: the ARGUMENT carries an offset table, the RETURN does not.
+  // Reading it as a plain list (or writing the return as indexed) is exactly
+  // the asymmetry this case exists to pin down.
+  NitroCppBuffer echoInts(NitroCppBuffer v) override {
+    NitroRecordReader r(v);
+    std::vector<int64_t> values =
+        r.readIndexedList<int64_t>([](NitroRecordReader& rr) { return rr.readInt(); });
+
+    NitroRecordWriter w;
+    w.writeInt32(static_cast<int32_t>(values.size()));
+    for (int64_t e : values) w.writeInt(e + 10);
+    return w.toNativeBuffer();
+  }
+
+  // Nullable list: an absent list arrives as an empty buffer and goes back as
+  // a null pointer, which Dart decodes to null.
+  NitroCppBuffer echoMaybeStats(NitroCppBuffer v) override {
+    if (v.data == nullptr || v.size == 0) return { nullptr, 0 };
+    NitroRecordReader r(v);
+    std::vector<EchoStat> stats =
+        r.readIndexedList<EchoStat>([](NitroRecordReader& rr) { return EchoStat::fromReader(rr); });
+    NitroRecordWriter w;
+    w.writeIndexedList<EchoStat>(stats, [](NitroRecordWriter& ww, const EchoStat& s) {
+      EchoStat out = s;
+      out.count = s.count + 100;
+      out.encodeInto(ww);
+    });
+    return w.toNativeBuffer();
+  }
+
+  // Record with a NULLABLE list field — the generated codec reads/writes the
+  // 1-byte null tag; `after` proves the tag was consumed at the right offset.
+  NitroCppBuffer echoBag(NitroCppBuffer v) override {
+    EchoBag bag = EchoBag::fromNative(v);
+    if (bag.tags.has_value()) {
+      for (auto& t : *bag.tags) t += 1;
+    }
+    bag.after += 1;
+    return bag.toNativeBuffer();
+  }
+
   void alwaysThrows() override {
     throw std::runtime_error("boom from wasm");
   }
