@@ -116,17 +116,14 @@ jobs:
           version: 3.1.74
           actions-cache-folder: emsdk-cache
 
-      # Chrome and chromedriver must be the SAME milestone or webdriver refuses
-      # the session ("only supports Chrome version N"). `stable` is not enough:
-      # it resolved to Chrome 151 and chromedriver 152 in the same run. Pinning
-      # an explicit milestone makes both resolve from one Chrome-for-Testing
-      # release. Bump this number; never split it across the two artifacts.
-      # Both versions are echoed below so a future drift is one glance away.
-      - uses: browser-actions/setup-chrome@v1
-        id: chrome
-        with:
-          chrome-version: '152'
-          install-chromedriver: true
+      # Do NOT install a second Chrome. chromedriver launches the browser from
+      # a fixed system path (/opt/google/chrome/chrome) — it ignores PATH and
+      # CHROME_EXECUTABLE — so an extra Chrome elsewhere is never the one that
+      # runs, and pinning it only produced "only supports Chrome version N"
+      # against the image's browser. Match the driver to the Chrome already on
+      # the runner instead; this action reads its version and self-heals when
+      # the image bumps.
+      - uses: nanasess/setup-chromedriver@v2
 
       - name: Get workspace dependencies
         run: flutter pub get
@@ -137,24 +134,11 @@ jobs:
         working-directory: benchmark
         run: bash web/build_web.sh
 
-      # chromedriver launches the browser itself and finds it by looking up
-      # `google-chrome` on PATH — it ignores CHROME_EXECUTABLE, which only
-      # steers flutter_tools. The runner image ships its own Chrome, so without
-      # this the pinned driver still drives the image's mismatched browser.
-      - name: Put the pinned Chrome first on PATH
-        run: |
-          mkdir -p "$HOME/chrome-bin"
-          for n in google-chrome google-chrome-stable chrome chromium; do
-            ln -sf "${{ steps.chrome.outputs.chrome-path }}" "$HOME/chrome-bin/$n"
-          done
-          echo "$HOME/chrome-bin" >> "$GITHUB_PATH"
-
       - name: Start chromedriver
         run: |
-          command -v google-chrome
           google-chrome --version
-          "${{ steps.chrome.outputs.chromedriver-path }}" --version
-          "${{ steps.chrome.outputs.chromedriver-path }}" --port=4444 &
+          chromedriver --version
+          chromedriver --port=4444 &
           for i in $(seq 1 20); do
             if curl -sf http://localhost:4444/status >/dev/null; then exit 0; fi
             sleep 1
@@ -166,8 +150,6 @@ jobs:
       # the bridge. The driver writes build/integration_response_data.json.
       - name: Run benchmark + regression gate (${{ matrix.compiler }})
         working-directory: benchmark/example
-        env:
-          CHROME_EXECUTABLE: ${{ steps.chrome.outputs.chrome-path }}
         # --no-sandbox is mandatory on the runners: without it Chrome exits
         # during startup and chromedriver reports the misleading "only supports
         # Chrome version N" rather than a launch failure. --disable-dev-shm-usage
